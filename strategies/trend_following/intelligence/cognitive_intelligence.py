@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, List
 from enum import Enum
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar, is_limit_up
 
 class CognitiveIntelligence:
     """
@@ -486,7 +486,7 @@ class CognitiveIntelligence:
         """
         print("    -- [剧本推演] 能量压缩爆发 (动态证据)...")
         df_index = self.strategy.df_indicators.index
-        is_limit_up_day = self.strategy.df_indicators.apply(lambda row: utils.is_limit_up(row), axis=1)
+        is_limit_up_day = self.strategy.df_indicators.apply(lambda row: is_limit_up(row), axis=1)
         # 证据1: 波动率压缩 (BBW收缩)
         bbw = self._get_atomic_score('BBW_21_2.0_D', 0.1)
         volatility_compression_raw_score = normalize_score(1 - bbw, df_index, 144, ascending=True) # 1-BBW，越高越压缩

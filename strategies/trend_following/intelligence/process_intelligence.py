@@ -4,7 +4,7 @@ import numpy as np
 import pandas_ta as ta
 from typing import Dict, List, Optional
 
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar, is_limit_up
 
 class ProcessIntelligence:
     """
@@ -181,7 +181,7 @@ class ProcessIntelligence:
         norm_window = self.norm_window
         std_window = self.std_window
         # 判断是否为涨停日
-        is_limit_up_day = df.apply(lambda row: utils.is_limit_up(row), axis=1)
+        is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         # 1. 获取核心信号
         price_change = df.get('pct_change_D', pd.Series(0.0, index=df_index))
         main_force_cost_change_raw = df.get(f'SLOPE_5_active_winner_avg_cost_D', pd.Series(0.0, index=df_index))
