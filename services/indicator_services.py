@@ -341,8 +341,9 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.2 · 依赖编排修复版】为策略准备数据的统一入口。
+        【V8.3 · 军械库清单生成版】为策略准备数据的统一入口。
         - 核心修复: 调整了特征计算的顺序，确保 `breakout_quality_score` 在其所有依赖项（如VPA_EFFICIENCY）计算完毕后才执行，从根本上解决了流程错乱问题。
+        - 【新增】在所有数据准备和计算流程结束后，调用 `_log_final_data_columns` 输出最终的数据清单。
         """
         # --- 步骤 1: 【第一道工序】准备基础数据和常规指标 ---
         all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time, latest_only=latest_only)
@@ -357,22 +358,22 @@ class IndicatorService:
         bqs_params = indicators_config.get('breakout_quality_score', {})
         if bqs_params.get('enabled', False):
             all_dfs = await self.feature_service.calculate_breakout_quality(all_dfs, bqs_params, self.calculator)
-        # --- 步骤 5: 【元特征计算】 ---
+        # --- 5. 【元特征计算】 ---
         all_dfs = await self.feature_service.calculate_meta_features(all_dfs, config)
-        # --- 步骤 6: 【均线势能计算】 ---
+        # --- 6. 【均线势能计算】 ---
         ma_potential_params = indicators_config.get('ma_potential_metrics', {})
         if ma_potential_params.get('enabled', False):
             all_dfs = await self.feature_service.calculate_ma_potential_metrics(all_dfs, ma_potential_params)
-        # --- 步骤 7: 【盘整期计算】 ---
+        # --- 7. 【盘整期计算】 ---
         consolidation_params = indicators_config.get('consolidation_period', {})
         if consolidation_params.get('enabled', False):
             all_dfs = await self.feature_service.calculate_consolidation_period(all_dfs, consolidation_params)
-        # --- 步骤 8: 【斜率与加速度计算】 ---
+        # --- 8. 【斜率与加速度计算】 ---
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
-        # --- 步骤 9: 【高级模式识别】 ---
+        # --- 9. 【高级模式识别】 ---
         all_dfs = await self.feature_service.calculate_pattern_recognition_signals(all_dfs, config)
-        # --- 步骤 10: 【上下文信息注入】 ---
+        # --- 10. 【上下文信息注入】 ---
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             return all_dfs
         df_daily = all_dfs['D']
@@ -424,6 +425,7 @@ class IndicatorService:
                 for col in smart_money_signals_df.columns:
                     df_daily[col] = df_daily[col].fillna(False).astype(bool)
         all_dfs['D'] = df_daily
+        self._log_final_data_columns(all_dfs)
         return all_dfs
 
     async def _prepare_base_data_and_indicators(
