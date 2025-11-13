@@ -77,12 +77,13 @@ class ChipIntelligence:
 
     def _diagnose_axiom_concentration(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.7 · 数学重构与峰融合增强及列名引用修复版】筹码公理一：诊断筹码“聚散”动态
+        【V2.8 · 数学重构与峰融合增强及列名引用修复版】筹码公理一：诊断筹码“聚散”动态
         - 核心修复: 遵循“先归一，后融合”原则。不再对原始值进行武断缩放，而是先将“集中度水平”和“集中趋势”
                       分别归一化为[-1, 1]的双极性分数，然后再进行加权融合，确保模型在不同市场环境下的健壮性。
         - 引入 `peak_fusion_indicator` (筹码峰融合指标) 作为判断筹码集中度的重要证据。
         - 【新增】引入 ZIGZAG 趋势作为辅助证据，增强对集中度有效性的判断。
         - 【修复】修正了引用 ZIGZAG 列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
+        - 【修正】调整 `zigzag_score` 的计算逻辑，直接使用 `ZIG_5_5.0_D` 本身，并调整 `normalize_to_bipolar` 的敏感度，避免极端值。
         """
         required_signals = [
             'short_term_concentration_90pct_D', 'long_term_concentration_90pct_D', 'winner_concentration_90pct_D',
@@ -105,16 +106,21 @@ class ChipIntelligence:
                 concentration_trend_raw += df.get(slope_col, 0.0)
         concentration_trend_raw /= len(periods)
         peak_fusion_raw = df.get('peak_fusion_indicator_D', pd.Series(0.0, index=df.index))
+        # [代码修改开始]
         # 新增 ZIGZAG 趋势作为辅助证据
-        # 修正列名引用，确保与 merge_results 后的列名一致
-        zigzag_trend_raw = df.get('ZIG_5_5.0_D', pd.Series(0.0, index=df.index)).diff(1).fillna(0)
+        # 修正：直接使用 ZIG_5_5.0_D 本身，它代表了价格的ZIGZAG趋势，向上为正，向下为负
+        zigzag_trend_raw = df.get('ZIG_5_5.0_D', pd.Series(0.0, index=df.index))
+        # [代码修改结束]
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         level_score = utils.get_adaptive_mtf_normalized_bipolar_score(concentration_level_raw, df.index, tf_weights, sensitivity=10.0)
         trend_score = utils.get_adaptive_mtf_normalized_bipolar_score(concentration_trend_raw, df.index, tf_weights, sensitivity=1.0)
         fusion_score = utils.get_adaptive_mtf_normalized_bipolar_score(peak_fusion_raw, df.index, tf_weights, sensitivity=50.0)
+        # [代码修改开始]
         # 归一化 ZIGZAG 趋势，向上为正，向下为负
-        zigzag_score = utils.get_adaptive_mtf_normalized_bipolar_score(zigzag_trend_raw, df.index, tf_weights, sensitivity=0.1)
+        # 调整敏感度，避免微小波动被过度放大到极端值
+        zigzag_score = utils.get_adaptive_mtf_normalized_bipolar_score(zigzag_trend_raw, df.index, tf_weights, sensitivity=0.05) # 调整敏感度
+        # [代码修改结束]
         # 融合 fusion_score 和 zigzag_score
         final_score = (level_score * 0.25 + trend_score * 0.35 + fusion_score * 0.25 + zigzag_score * 0.15).clip(-1, 1) # 调整权重
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -133,10 +139,11 @@ class ChipIntelligence:
 
     def _diagnose_axiom_cost_structure(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.5 · 数学重构与偏度增强版】筹码公理二：诊断“成本结构”动态
+        【V2.6 · 数学重构与偏度增强版】筹码公理二：诊断“成本结构”动态
         - 核心修复: 遵循“先归一，后融合”原则。将尺度差异巨大的 'winner_loser_momentum_D' 和 'cost_divergence_normalized_D'
                       分别进行自适应双极性归一化，然后再进行相减，避免了信号被单一指标主导的问题。
         - 引入 `cost_structure_skewness` (成本结构偏度) 作为判断成本结构健康度的重要证据。
+        - 【修正】调整 `skewness_score` 的 `normalize_to_bipolar` 敏感度，避免极端值。
         """
         required_signals = ['winner_loser_momentum_D', 'cost_divergence_normalized_D', 'cost_structure_skewness_D'] # 增加 cost_structure_skewness_D
         missing_signals = [s for s in required_signals if s not in df.columns]
@@ -150,7 +157,10 @@ class ChipIntelligence:
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         momentum_score = utils.get_adaptive_mtf_normalized_bipolar_score(momentum_raw, df.index, tf_weights, sensitivity=1.0)
         divergence_score = utils.get_adaptive_mtf_normalized_bipolar_score(divergence_raw, df.index, tf_weights, sensitivity=1.0)
-        skewness_score = utils.get_adaptive_mtf_normalized_bipolar_score(skewness_raw, df.index, tf_weights, sensitivity=0.5) # 归一化偏度，正偏度为正分
+        # [代码修改开始]
+        # 归一化偏度，正偏度为正分。调整敏感度，避免极端值。
+        skewness_score = utils.get_adaptive_mtf_normalized_bipolar_score(skewness_raw, df.index, tf_weights, sensitivity=0.1) # 调整敏感度
+        # [代码修改结束]
         # 融合 skewness_score
         # 融合逻辑：动量（正向）- 发散（负向）+ 偏度（正向）
         final_score = (momentum_score * 0.4 + skewness_score * 0.3 - divergence_score * 0.3).clip(-1, 1) # 调整权重
@@ -169,11 +179,12 @@ class ChipIntelligence:
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.6 · 数学重构与敏感度优化版】筹码公理三：诊断“持股心态”动态
+        【V2.7 · 数学重构与敏感度优化版】筹码公理三：诊断“持股心态”动态
         - 核心修复: 遵循“先归一，后融合”原则。将三个尺度不同的心态指标分别归一化，再进行融合。
                       'winner_conviction' 为正向贡献，'loser_pain' 和 'chip_fatigue' 为负向贡献。
         - 核心优化: 调整 `pain_score` 和 `fatigue_score` 的 `sensitivity`，避免在积极行情下过度惩罚。
         - 引入 `locked_profit_rate` 和 `locked_loss_rate` 作为判断持股心态的重要证据。
+        - 【修正】调整 `conviction_score` 的 `normalize_to_bipolar` 敏感度，确保在涨停日能正确反映积极心态。
         """
         df_index = df.index
         required_signals = [
@@ -191,8 +202,10 @@ class ChipIntelligence:
         locked_loss_raw = df.get('locked_loss_rate_D', pd.Series(0.0, index=df.index)) # 新增行
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 赢家信念：越高越好，正向贡献
-        conviction_score = utils.get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df_index, tf_weights, sensitivity=1.0)
+        # [代码修改开始]
+        # 赢家信念：越高越好，正向贡献。调整敏感度，确保在涨停日能正确反映积极心态。
+        conviction_score = utils.get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df_index, tf_weights, sensitivity=0.5) # 调整敏感度
+        # [代码修改结束]
         # 输家痛苦：越高越差，负向贡献。降低敏感度，避免微小痛苦被放大。
         pain_score = utils.get_adaptive_mtf_normalized_bipolar_score(pain_raw, df_index, tf_weights, sensitivity=5.0)
         # 筹码疲劳：越高越差，负向贡献。降低敏感度。

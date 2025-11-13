@@ -234,8 +234,9 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V7.4 · 生产就绪版】移除所有诊断探针。
+        【V7.5 · 生产就绪版】移除所有诊断探针。
         - 【修复】重新定义 `active_winner_profit_margin` 的计算逻辑，使其在价格突破近期高点时仍能有效捕捉活跃获利盘的利润垫。
+        - 【修正】优化 `winner_conviction_index` 的计算，确保在涨停日等积极行情下能正确反映赢家信念。
         """
         import datetime
         results = {}
@@ -244,7 +245,7 @@ class ChipFeatureCalculator:
         close_price = context.get('close_price')
         atr_14d = context.get('atr_14d') # 获取 atr_14d
         # 1. 战术序列流 (Intraday Tactical Flow)
-        required_cols_1 = ['minute_vwap', 'main_force_net_vol', 'vol']
+        required_cols_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol']
         if minute_df is not None and not minute_df.empty and pd.notna(total_daily_vol) and total_daily_vol > 0 and all(c in minute_df.columns for c in required_cols_1):
             peaks, _ = find_peaks(minute_df['minute_vwap'], prominence=0.001)
             troughs, _ = find_peaks(-minute_df['minute_vwap'], prominence=0.001)
@@ -266,15 +267,24 @@ class ChipFeatureCalculator:
             results['panic_selling_intensity'] = (panic_vol / total_daily_vol) * 100
         # 2. 高级结构 (Advanced Structures)
         if pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0: # 增加 atr_14d 的判断
-            # 重新定义 active_winners_df
+            # [代码修改开始]
+            # 修正 active_winner_profit_margin 的计算逻辑
+            # 活跃获利盘：成本在 (close_price - 2*ATR, close_price) 之间
             active_winners_df = self.df[(self.df['price'] < close_price) & (self.df['price'] >= close_price - 2 * atr_14d)]
             if not active_winners_df.empty and active_winners_df['percent'].sum() > 0:
                 active_winner_avg_cost = np.average(active_winners_df['price'], weights=active_winners_df['percent'])
                 results['active_winner_avg_cost'] = active_winner_avg_cost
                 if active_winner_avg_cost > 0: results['active_winner_profit_margin'] = ((close_price - active_winner_avg_cost) / active_winner_avg_cost) * 100
-            else: # 如果没有活跃获利盘，则设置默认值
-                results['active_winner_avg_cost'] = np.nan
-                results['active_winner_profit_margin'] = 0.0 # 默认利润率为0
+            else:
+                # 如果活跃获利盘区间为空，则考虑更广阔的获利盘范围，例如使用 dominant_peak_cost
+                dominant_peak_cost = context.get('dominant_peak_cost')
+                if pd.notna(dominant_peak_cost) and dominant_peak_cost > 0 and dominant_peak_cost < close_price:
+                    results['active_winner_avg_cost'] = dominant_peak_cost
+                    results['active_winner_profit_margin'] = ((close_price - dominant_peak_cost) / dominant_peak_cost) * 100
+                else:
+                    results['active_winner_avg_cost'] = np.nan
+                    results['active_winner_profit_margin'] = 0.0 # 默认利润率为0
+            # [代码修改结束]
         else: # 如果 close_price 或 atr_14d 无效，也设置默认值
             results['active_winner_avg_cost'] = np.nan
             results['active_winner_profit_margin'] = 0.0
@@ -286,14 +296,25 @@ class ChipFeatureCalculator:
         bullish_reinforcement = context.get('upward_impulse_purity')
         profit_taking_flow_ratio = context.get('profit_taking_flow_ratio')
         active_winner_rate = context.get('active_winner_rate')
+        # [代码修改开始]
+        # 优化 winner_conviction_index 的计算
         if all(pd.notna(v) for v in [active_profit_margin, bullish_reinforcement, profit_taking_flow_ratio, active_winner_rate]):
-            realized_pressure = (profit_taking_flow_ratio / 100.0) / (active_winner_rate / 100.0) if active_winner_rate > 0 else 1.0
-            hesitation_factor = 1.0 - np.clip(realized_pressure, 0, 1)
-            margin_factor = np.log1p(np.clip(active_profit_margin / 100.0, 0, None))
-            reinforcement_factor = 1.0 + (bullish_reinforcement / 100.0)
+            # realized_pressure 衡量获利盘兑现压力，越低越好
+            realized_pressure = (profit_taking_flow_ratio / 100.0) / (active_winner_rate / 100.0) if active_winner_rate > 0 else 0.0
+            # hesitation_factor 应该在压力低时高，压力高时低
+            hesitation_factor = 1.0 - np.clip(realized_pressure, 0, 1) # 压力越大，犹豫因子越小
+            # margin_factor 获利盘利润垫，越高越好
+            margin_factor = np.log1p(np.clip(active_profit_margin / 100.0, 0, None)) if active_profit_margin > 0 else 0.0
+            # reinforcement_factor 上涨脉冲纯度，越高越好
+            reinforcement_factor = 1.0 + (bullish_reinforcement / 100.0) if bullish_reinforcement > 0 else 1.0
+            # 融合：利润垫 * (1 - 兑现压力) * 上涨纯度
+            # 确保在涨停日等积极行情下，即使 active_winner_rate 为0，也能得到积极的信念分数
+            if active_winner_rate == 0 and active_profit_margin > 0: # 意味着所有获利盘都已锁定或情绪极度乐观
+                hesitation_factor = 1.0 # 此时没有兑现压力，犹豫因子为1
             results['winner_conviction_index'] = hesitation_factor * margin_factor * reinforcement_factor * 100
         else: # 如果有任何一个前置条件缺失，则设置默认值
             results['winner_conviction_index'] = 0.0
+        # [代码修改结束]
         # 4. 统一意图信号
         required_cols_4_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
         if minute_df is not None and not minute_df.empty and all(c in minute_df.columns for c in required_cols_4_1):
@@ -302,9 +323,9 @@ class ChipFeatureCalculator:
             if mf_total_vol > 0 and retail_total_vol > 0:
                 mf_total_amount = (minute_df['main_force_buy_vol'] * minute_df['minute_vwap']).sum() + (minute_df['main_force_sell_vol'] * minute_df['minute_vwap']).sum()
                 retail_total_amount = (minute_df['retail_buy_vol'] * minute_df['minute_vwap']).sum() + (minute_df['retail_sell_vol'] * minute_df['minute_vwap']).sum()
-                vwap_mf = mf_total_amount / retail_total_amount
+                vwap_mf = mf_total_amount / mf_total_vol # 修正：这里应该是mf_total_vol
                 vwap_retail = retail_total_amount / retail_total_vol
-                if vwap_mf > 0: results['main_force_cost_advantage'] = (vwap_retail / vwap_mf - 1) * 100
+                if vwap_mf > 0: results['main_force_cost_advantage'] = (vwap_retail / vwap_mf - 1) * 100 # 修正：这里应该是vwap_mf
         required_cols_4_2 = ['main_force_buy_vol', 'main_force_sell_vol']
         if minute_df is not None and not minute_df.empty and all(c in minute_df.columns for c in required_cols_4_2):
             mf_buy_vol = minute_df['main_force_buy_vol'].sum()
