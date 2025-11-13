@@ -52,7 +52,7 @@ class PatternIntelligence:
         """
         【V3.0 · 清洁版】形态公理二：诊断“反转”
         """
-        raw_reversal_score = df.get('counterparty_exhaustion_index_D', pd.Series(0, index=df.index))
+        raw_reversal_score = df.get('counterparty_exhaustion_index', pd.Series(0, index=df.index))
         reversal_score = normalize_to_bipolar(raw_reversal_score, df.index, window=norm_window)
         return reversal_score.astype(np.float32)
 
