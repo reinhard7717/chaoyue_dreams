@@ -1,7 +1,7 @@
 # 文件: strategies/trend_following/intelligence/cognitive_intelligence.py
 import pandas as pd
 import numpy as np
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Any
 from enum import Enum
 from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar, is_limit_up
 

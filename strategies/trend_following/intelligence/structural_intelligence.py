@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Any
 from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar, bipolar_to_exclusive_unipolar, is_limit_up
 
 class StructuralIntelligence:

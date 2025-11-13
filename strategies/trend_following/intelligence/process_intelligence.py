@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar, is_limit_up
 

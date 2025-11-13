@@ -3,7 +3,7 @@ import asyncio
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 # 导入 get_params_block 工具
 from strategies.trend_following.utils import get_params_block, normalize_to_bipolar, normalize_score, bipolar_to_exclusive_unipolar
 
