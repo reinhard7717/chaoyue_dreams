@@ -439,8 +439,10 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V3.7 · 弹药型号修复版】
+        【V3.8 · 弹药型号修复与Nansum类型兼容版】
         - 核心修复: 在合并数据时，同时补充成交量(_vol)和成交额(_amount)列，根除T+0效率分母为零的错误。
+        - 【修复】修正 `np.nansum` 在处理 `mf_buy_amount` 和 `mf_sell_amount` 时可能遇到的 `ValueError`，
+                  通过确保输入始终为 `pd.Series` 类型来保证同构性。
         """
         temp_df = pvwap_df.copy()
         # 修复：同时定义需要补充的成交量和成交额列
@@ -503,14 +505,17 @@ class AdvancedFundFlowMetricsService:
         else:
             result_agg_df['main_force_t0_spread_ratio'] = np.nan
         result_agg_df['main_force_execution_alpha'] = 0.0
+        # [代码修改开始]
+        # 确保传递给 np.nansum 的是 Series
         mf_buy_vol = np.nansum([
-            pd.to_numeric(temp_df.get('buy_lg_vol'), errors='coerce'),
-            pd.to_numeric(temp_df.get('buy_elg_vol'), errors='coerce')
+            self._get_numeric_series_with_nan(temp_df, 'buy_lg_vol'),
+            self._get_numeric_series_with_nan(temp_df, 'buy_elg_vol')
         ], axis=0) * 100
         mf_sell_vol = np.nansum([
-            pd.to_numeric(temp_df.get('sell_lg_vol'), errors='coerce'),
-            pd.to_numeric(temp_df.get('sell_elg_vol'), errors='coerce')
+            self._get_numeric_series_with_nan(temp_df, 'sell_lg_vol'),
+            self._get_numeric_series_with_nan(temp_df, 'sell_elg_vol')
         ], axis=0) * 100
+        # [代码修改结束]
         total_mf_vol = mf_buy_vol + mf_sell_vol
         if daily_vwap is not None and not daily_vwap.empty:
             safe_vwap = daily_vwap.replace(0, np.nan)
@@ -519,14 +524,17 @@ class AdvancedFundFlowMetricsService:
             weighted_alpha = (alpha_buy * mf_buy_vol + alpha_sell * mf_sell_vol)
             result_agg_df['main_force_execution_alpha'] = (weighted_alpha / np.where(total_mf_vol == 0, np.nan, total_mf_vol)) * 100
         result_agg_df['main_force_t0_efficiency'] = 0.0
+        # [代码修改开始]
+        # 确保传递给 np.nansum 的是 Series
         mf_buy_amount = np.nansum([
-            pd.to_numeric(temp_df.get('buy_lg_amount'), errors='coerce'),
-            pd.to_numeric(temp_df.get('buy_elg_amount'), errors='coerce')
+            self._get_numeric_series_with_nan(temp_df, 'buy_lg_amount'),
+            self._get_numeric_series_with_nan(temp_df, 'buy_elg_amount')
         ], axis=0)
         mf_sell_amount = np.nansum([
-            pd.to_numeric(temp_df.get('sell_lg_amount'), errors='coerce'),
-            pd.to_numeric(temp_df.get('sell_elg_amount'), errors='coerce')
+            self._get_numeric_series_with_nan(temp_df, 'sell_lg_amount'),
+            self._get_numeric_series_with_nan(temp_df, 'sell_elg_amount')
         ], axis=0)
+        # [代码修改结束]
         t0_vol = pd.min(mf_buy_vol, mf_sell_vol) if isinstance(mf_buy_vol, pd.Series) else min(mf_buy_vol, mf_sell_vol)
         if 'avg_cost_main_sell' in result_agg_df.columns and 'avg_cost_main_buy' in result_agg_df.columns:
             t0_profit = (result_agg_df['avg_cost_main_sell'] - result_agg_df['avg_cost_main_buy']) * t0_vol
