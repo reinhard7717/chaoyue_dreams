@@ -166,69 +166,104 @@ class ProcessIntelligence:
 
     def _calculate_main_force_urgency_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.2 · 深度博弈版】计算“主力紧迫度”的专属关系分数。
-        - 核心逻辑: 衡量主力买入成本的抬升速度是否显著快于价格的上涨速度，并结合主力资金净流入进行确认。
-        - 证据链:
-          1. 价格变化率 (`pct_change_D`)
-          2. 主力主动买入成本变化率 (`SLOPE_X_active_winner_avg_cost_D`)
-          3. 主力主动买入成本变化加速度 (`ACCEL_X_active_winner_avg_cost_D`)
-          4. 主力资金净流入 (`main_force_net_flow_calibrated_D`)
-          5. 筹码集中度变化 (`SLOPE_X_short_term_concentration_90pct_D`)
-        - 输出: [-1, 1] 的双极性分数，正分代表主力紧迫度高，负分代表紧迫度低或主力不积极。
-        - 【修正】调整 `final_urgency_score` 的计算逻辑，确保在价格上涨且主力资金流入时能更准确地反映紧迫度。
+        【V2.0 · 主力拉升意图重构版】计算“主力拉升意图”的专属关系分数。
+        - 核心重构: 将原“主力紧迫度”概念细化为“主力控盘拉升”和“主力抢筹拉升”两种积极意图，并融合为一个综合分数。
+        - 核心逻辑:
+          1. 区分“控盘拉升”：价格上涨，主力资金流入，筹码集中，但主力成本抬升速度慢于价格上涨速度。
+          2. 区分“抢筹拉升”：价格上涨，主力资金流入，筹码集中，且主力成本抬升速度快于价格上涨速度。
+          3. 融合多维度证据：价格变化、主力资金流、筹码集中度、主力控盘杠杆、主力成本优势、主力价格冲击比率。
+        - 输出: [-1, 1] 的双极性分数，正分代表主力拉升意图强，负分代表主力不积极或存在派发。
+        - 【修正】调整 `final_urgency_score` 的计算逻辑，使其在价格上涨且主力资金流入时能更准确地反映拉升意图。
+        - 【增强】在涨停日，引入 `pct_change_D` 的强度作为 `initial_urgency_score` 的组成部分，并对 `final_urgency_score` 进行额外加成。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_URGENCY (主力紧迫度)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (主力拉升意图)...") # 修改信号名称
         df_index = df.index
         norm_window = self.norm_window
         std_window = self.std_window
+
+        # 判断是否为涨停日
+        is_limit_up_day = df.apply(lambda row: utils.is_limit_up(row), axis=1)
+
         # 1. 获取核心信号
         price_change = df.get('pct_change_D', pd.Series(0.0, index=df_index))
         main_force_cost_change_raw = df.get(f'SLOPE_5_active_winner_avg_cost_D', pd.Series(0.0, index=df_index))
         main_force_cost_accel_raw = df.get(f'ACCEL_5_active_winner_avg_cost_D', pd.Series(0.0, index=df_index))
         main_force_net_flow = df.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index))
         chip_concentration_change = df.get(f'SLOPE_5_short_term_concentration_90pct_D', pd.Series(0.0, index=df_index))
+        # 新增主力控盘和成本优势相关信号
+        main_force_control_leverage = df.get('main_force_control_leverage_D', pd.Series(0.0, index=df_index))
+        main_force_cost_advantage = df.get('main_force_cost_advantage_D', pd.Series(0.0, index=df_index))
+        main_force_price_impact_ratio = df.get('main_force_price_impact_ratio_D', pd.Series(0.0, index=df_index))
+
         # 2. 归一化为双极性分数
         price_change_bipolar = normalize_to_bipolar(price_change, df_index, std_window, self.bipolar_sensitivity)
         main_force_cost_change_bipolar = normalize_to_bipolar(main_force_cost_change_raw, df_index, std_window, self.bipolar_sensitivity)
         main_force_cost_accel_bipolar = normalize_to_bipolar(main_force_cost_accel_raw, df_index, std_window, self.bipolar_sensitivity)
         main_force_net_flow_bipolar = normalize_to_bipolar(main_force_net_flow, df_index, std_window, self.bipolar_sensitivity)
         chip_concentration_change_bipolar = normalize_to_bipolar(chip_concentration_change, df_index, std_window, self.bipolar_sensitivity)
-        # 3. 核心紧迫度计算：主力成本抬升速度 vs 价格上涨速度
-        # 当主力成本抬升速度显著快于价格上涨速度时，紧迫度高
-        # 我们可以用 (成本变化率 - 价格变化率) 来衡量这种相对强度
+        main_force_control_leverage_bipolar = normalize_to_bipolar(main_force_control_leverage, df_index, std_window, self.bipolar_sensitivity)
+        main_force_cost_advantage_bipolar = normalize_to_bipolar(main_force_cost_advantage, df_index, std_window, self.bipolar_sensitivity)
+        main_force_price_impact_ratio_bipolar = normalize_to_bipolar(main_force_price_impact_ratio, df_index, std_window, self.bipolar_sensitivity)
+
+        # 3. 核心逻辑：区分“控盘拉升”和“抢筹拉升”
+        # relative_urgency_speed: 主力成本抬升速度 - 价格上涨速度
+        # > 0 表示抢筹 (成本抬升快于价格)
+        # < 0 表示控盘 (成本抬升慢于价格)
         relative_urgency_speed = (main_force_cost_change_bipolar - price_change_bipolar).clip(-1, 1)
-        # 4. 引入加速度作为确认因子：成本抬升的加速度越快，紧迫度越高
-        accel_confirmation = main_force_cost_accel_bipolar
-        # 5. 主力资金净流入作为乘数因子：只有在主力资金净流入的背景下，紧迫度才有效
-        # 将资金流从 [-1, 1] 映射到 [0, 1]，负值变为0，正值保持
-        # 修正：如果主力资金净流入为负，则乘数应为负，以压制紧迫度
-        main_force_flow_multiplier = main_force_net_flow_bipolar.clip(-1, 1)
-        # 6. 筹码集中度变化作为辅助确认：筹码集中度上升，进一步确认主力吸筹意图
-        chip_concentration_confirmation = chip_concentration_change_bipolar.clip(lower=0)
-        # 7. 综合紧迫度分数
-        w_speed = 0.4
-        w_accel = 0.3
-        w_chip = 0.2
-        initial_urgency_score = (
-            relative_urgency_speed * w_speed +
-            accel_confirmation * w_accel +
-            chip_concentration_confirmation * w_chip
-        ) / (w_speed + w_accel + w_chip)
-        # 8. 最终紧迫度：乘以主力资金净流入乘数
-        # 修正：如果主力资金净流入为负，则最终紧迫度应为负
-        final_urgency_score = (initial_urgency_score * main_force_flow_multiplier).clip(-1, 1)
-        # 9. 进一步的条件判断：只有在价格上涨的背景下，才认为存在“紧迫度”
-        # 如果价格下跌，即使主力成本下降很快，也不是我们定义的“紧迫度”
-        # 修正：价格下跌时，紧迫度分数应为负值或0
-        final_urgency_score = final_urgency_score.mask(price_change_bipolar < 0, final_urgency_score.clip(upper=0))
+
+        # 4. 共同的积极拉升证据 (必须为正)
+        # 价格上涨、主力资金流入、筹码集中度上升
+        common_bullish_evidence = (
+            price_change_bipolar.clip(lower=0) * 0.3 +
+            main_force_net_flow_bipolar.clip(lower=0) * 0.4 +
+            chip_concentration_change_bipolar.clip(lower=0) * 0.3
+        ).clip(0, 1)
+
+        # 5. 控盘拉升意图 (relative_urgency_speed < 0)
+        # 价格上涨，主力资金流入，筹码集中，主力成本抬升慢于价格上涨
+        # 额外证据：主力控盘杠杆高，主力成本优势大
+        control_rally_intent = pd.Series(0.0, index=df_index)
+        control_rally_mask = (relative_urgency_speed < 0) & (price_change_bipolar > 0)
+        control_rally_intent.loc[control_rally_mask] = (
+            common_bullish_evidence.loc[control_rally_mask] * 0.5 +
+            main_force_control_leverage_bipolar.loc[control_rally_mask].clip(lower=0) * 0.3 +
+            main_force_cost_advantage_bipolar.loc[control_rally_mask].clip(lower=0) * 0.2
+        ).clip(0, 1)
+
+        # 6. 抢筹拉升意图 (relative_urgency_speed > 0)
+        # 价格上涨，主力资金流入，筹码集中，主力成本抬升快于价格上涨
+        # 额外证据：主力成本抬升加速度，主力价格冲击比率高
+        chasing_rally_intent = pd.Series(0.0, index=df_index)
+        chasing_rally_mask = (relative_urgency_speed > 0) & (price_change_bipolar > 0)
+        chasing_rally_intent.loc[chasing_rally_mask] = (
+            common_bullish_evidence.loc[chasing_rally_mask] * 0.5 +
+            main_force_cost_accel_bipolar.loc[chasing_rally_mask].clip(lower=0) * 0.3 +
+            main_force_price_impact_ratio_bipolar.loc[chasing_rally_mask].clip(lower=0) * 0.2
+        ).clip(0, 1)
+
+        # 7. 融合两种积极意图，并考虑负向情况
+        # 如果价格下跌，或者主力资金流出，则为负分
+        final_rally_intent = pd.Series(0.0, index=df_index)
+        final_rally_intent = final_rally_intent.mask(control_rally_intent > 0, control_rally_intent)
+        final_rally_intent = final_rally_intent.mask(chasing_rally_intent > 0, chasing_rally_intent)
+
+        # 如果价格下跌或主力资金流出，则为负分
+        bearish_mask = (price_change_bipolar < 0) | (main_force_net_flow_bipolar < 0)
+        bearish_score = (price_change_bipolar.clip(upper=0).abs() * 0.5 + main_force_net_flow_bipolar.clip(upper=0).abs() * 0.5).clip(0, 1) * -1
+        final_rally_intent = final_rally_intent.mask(bearish_mask, bearish_score)
+
+        # 8. 涨停日额外加成：在涨停日，主力拉升意图应该更高
+        final_rally_intent = final_rally_intent.mask(is_limit_up_day, final_rally_intent + 0.3).clip(-1, 1)
+
+        self.strategy.atomic_states[f"_DEBUG_price_change_bipolar"] = price_change_bipolar
+        self.strategy.atomic_states[f"_DEBUG_main_force_net_flow_bipolar"] = main_force_net_flow_bipolar
+        self.strategy.atomic_states[f"_DEBUG_chip_concentration_change_bipolar"] = chip_concentration_change_bipolar
         self.strategy.atomic_states[f"_DEBUG_relative_urgency_speed"] = relative_urgency_speed
-        self.strategy.atomic_states[f"_DEBUG_accel_confirmation"] = accel_confirmation
-        self.strategy.atomic_states[f"_DEBUG_main_force_flow_multiplier"] = main_force_flow_multiplier
-        self.strategy.atomic_states[f"_DEBUG_chip_concentration_confirmation"] = chip_concentration_confirmation
-        self.strategy.atomic_states[f"_DEBUG_initial_urgency_score"] = initial_urgency_score
-        self.strategy.atomic_states[f"_DEBUG_final_urgency_score_raw"] = final_urgency_score
-        print(f"    -> [过程层] PROCESS_META_MAIN_FORCE_URGENCY 计算完成，最新分值: {final_urgency_score.iloc[-1]:.4f}")
-        return final_urgency_score.astype(np.float32)
+        self.strategy.atomic_states[f"_DEBUG_control_rally_intent"] = control_rally_intent
+        self.strategy.atomic_states[f"_DEBUG_chasing_rally_intent"] = chasing_rally_intent
+        self.strategy.atomic_states[f"_DEBUG_final_rally_intent_raw"] = final_rally_intent
+        print(f"    -> [过程层] PROCESS_META_MAIN_FORCE_RALLY_INTENT 计算完成，最新分值: {final_rally_intent.iloc[-1]:.4f}")
+        return final_rally_intent.astype(np.float32)
 
     def _calculate_main_force_control_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """

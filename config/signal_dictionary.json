@@ -408,13 +408,13 @@
         "score": 200,
         "description": "衡量力学与筹码两大战略维度【看跌风险】的同步消散趋势。分值越高，机会越大。"
         },
-        "PROCESS_META_MAIN_FORCE_URGENCY": {
-            "cn_name": "【过程】主力紧迫度",
+        "PROCESS_META_MAIN_FORCE_RALLY_INTENT": {
+            "cn_name": "【过程】主力拉升意图",
             "category": "过程层-基础",
             "type": "process",
             "score": 300,
             "scoring_mode": "bipolar",
-            "description": "诊断主力买入成本的变化动态是否领先于价格本身的变化动态。正分代表主力正在不计成本地、加速追高买入，是极强的看涨信号。"
+            "description": "【V2.0 · 主力拉升意图重构版】诊断主力控盘拉升或抢筹拉升的综合意图。正分代表主力积极拉升，负分代表主力不积极或存在派发。"
         },
         "PROCESS_META_COST_ADVANTAGE_TREND": {
             "cn_name": "【过程】成本优势趋势",
