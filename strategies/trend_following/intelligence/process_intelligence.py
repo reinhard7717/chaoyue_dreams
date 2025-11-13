@@ -166,7 +166,7 @@ class ProcessIntelligence:
 
     def _calculate_main_force_urgency_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.1 · 深度博弈版】计算“主力紧迫度”的专属关系分数。
+        【V1.2 · 深度博弈版】计算“主力紧迫度”的专属关系分数。
         - 核心逻辑: 衡量主力买入成本的抬升速度是否显著快于价格的上涨速度，并结合主力资金净流入进行确认。
         - 证据链:
           1. 价格变化率 (`pct_change_D`)

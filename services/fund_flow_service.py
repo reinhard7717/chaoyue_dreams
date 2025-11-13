@@ -131,9 +131,11 @@ class AdvancedFundFlowMetricsService:
         
     async def _load_and_merge_sources(self, stock_info, data_dfs: dict, base_daily_df: pd.DataFrame):
         """
-        【V2.1 · 冲突解决版】
+        【V2.3 · 资金流统一校准增强版】
         - 核心重构: 剥离日线和基础面数据的合并逻辑，改为接收由上游任务统一准备好的 `base_daily_df`。
         - 核心修复: 在合并前，主动检查并移除与 `base_daily_df` 的重叠列，根除 'columns overlap' 错误。
+        - 【增强】统一 `main_force_net_flow` 和 `retail_net_flow` 的计算逻辑，使其在所有数据源中都尽可能地代表
+                  **大单+特大单的净流入** 和 **中单+小单的净流入**，并修正 DC 的总净流入计算。
         """
         def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
             if df.empty: return df
@@ -142,22 +144,33 @@ class AdvancedFundFlowMetricsService:
             df[cols_to_numeric] = df[cols_to_numeric].apply(pd.to_numeric, errors='coerce')
             if source == 'tushare':
                 df['net_flow_tushare'] = df['net_mf_amount']
-                df['main_force_net_flow_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount'] - df['sell_lg_amount'] - df['sell_elg_amount']
-                df['retail_net_flow_tushare'] = df['buy_sm_amount'] + df['buy_md_amount'] - df['sell_sm_amount'] - df['sell_md_amount']
+                # Tushare 的主力净流入 = 大单净流入 + 特大单净流入
+                df['main_force_net_flow_tushare'] = (df['buy_lg_amount'] - df['sell_lg_amount']) + (df['buy_elg_amount'] - df['sell_elg_amount'])
+                df['retail_net_flow_tushare'] = (df['buy_sm_amount'] - df['sell_sm_amount']) + (df['buy_md_amount'] - df['sell_md_amount'])
                 df['net_xl_amount_tushare'] = df['buy_elg_amount'] - df['sell_elg_amount']
                 df['net_lg_amount_tushare'] = df['buy_lg_amount'] - df['sell_lg_amount']
                 df['net_md_amount_tushare'] = df['buy_md_amount'] - df['sell_md_amount']
                 df['net_sh_amount_tushare'] = df['buy_sm_amount'] - df['sell_sm_amount']
                 return df
             elif source == 'ths':
-                df = df.rename(columns={'net_amount': 'net_flow_ths', 'buy_lg_amount': 'net_lg_amount_ths', 'buy_md_amount': 'net_md_amount_ths', 'buy_sm_amount': 'net_sh_amount_ths'})
-                df['main_force_net_flow_ths'] = df.get('net_lg_amount_ths', 0)
-                df['retail_net_flow_ths'] = df.get('net_md_amount_ths', 0).fillna(0) + df.get('net_sh_amount_ths', 0).fillna(0)
+                # THS 的 buy_lg_amount, buy_md_amount, buy_sm_amount 已经是净流入额
+                df['net_flow_ths'] = df['net_amount']
+                df['main_force_net_flow_ths'] = df.get('buy_lg_amount', 0) # THS 没有特大单，只用大单作为主力
+                df['retail_net_flow_ths'] = df.get('buy_md_amount', 0) + df.get('buy_sm_amount', 0)
+                df['net_lg_amount_ths'] = df.get('buy_lg_amount', 0)
+                df['net_md_amount_ths'] = df.get('buy_md_amount', 0)
+                df['net_sh_amount_ths'] = df.get('buy_sm_amount', 0)
                 return df
             elif source == 'dc':
-                df = df.rename(columns={'net_amount': 'main_force_net_flow_dc', 'buy_elg_amount': 'net_xl_amount_dc', 'buy_lg_amount': 'net_lg_amount_dc', 'buy_md_amount': 'net_md_amount_dc', 'buy_sm_amount': 'net_sh_amount_dc'})
-                df['net_flow_dc'] = df.get('main_force_net_flow_dc', 0).fillna(0) + df.get('net_md_amount_dc', 0).fillna(0) + df.get('net_sh_amount_dc', 0).fillna(0)
-                df['retail_net_flow_dc'] = df.get('net_md_amount_dc', 0).fillna(0) + df.get('net_sh_amount_dc', 0).fillna(0)
+                # DC 的 net_amount 是主力净流入，buy_elg_amount, buy_lg_amount, buy_md_amount, buy_sm_amount 都是净流入额
+                df['main_force_net_flow_dc'] = df['net_amount'] # DC 的 net_amount 就是主力净流入
+                df['retail_net_flow_dc'] = df.get('buy_md_amount', 0) + df.get('buy_sm_amount', 0) # 散户净流入 = 中单 + 小单
+                # 修正：DC 的总净流入应该由主力净流入和散户净流入组成
+                df['net_flow_dc'] = df['main_force_net_flow_dc'] + df['retail_net_flow_dc']
+                df['net_xl_amount_dc'] = df.get('buy_elg_amount', 0)
+                df['net_lg_amount_dc'] = df.get('buy_lg_amount', 0)
+                df['net_md_amount_dc'] = df.get('buy_md_amount', 0)
+                df['net_sh_amount_dc'] = df.get('buy_sm_amount', 0)
                 return df
             return df
         df_tushare = standardize_and_prepare(data_dfs['tushare'], 'tushare')
@@ -172,10 +185,8 @@ class AdvancedFundFlowMetricsService:
                 merged_df = pd.merge(merged_df, right_df, on='trade_time', how='left')
         merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
         if not base_daily_df.empty:
-            # 修复：在合并前，主动检查并移除与 base_daily_df 的重叠列，根除 'columns overlap' 错误。
             overlap_cols = merged_df.columns.intersection(base_daily_df.columns)
             if not overlap_cols.empty:
-                # 从资金流合并的DataFrame中丢弃重叠列，以 base_daily_df 的数据为准
                 merged_df = merged_df.drop(columns=overlap_cols)
             merged_df = merged_df.join(base_daily_df, how='left')
         return merged_df
@@ -248,9 +259,10 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series) -> dict:
         """
-        【V23.2 · 幽灵笔误修复版】
+        【V23.4 · 幽灵笔误修复与资金流校准增强及调试版】
         - 核心修复: 将错误的 'pct_chg' 修正为正确的 'pct_change'，确保能从数据流中正确获取涨跌幅。
-        - 新增探针: 在 flow_efficiency_index 计算前植入探针，监控所有输入参数的状态。
+        - 【增强】优化资金流校准逻辑，当主数据源缺失时，尝试从辅助数据源中获取值进行校准。
+        - 【新增】调试打印校准后的主力资金流和散户资金流，以验证计算结果。
         """
         results = {}
         consensus_map = {
@@ -264,6 +276,13 @@ class AdvancedFundFlowMetricsService:
         }
         for target_col, (base_col, confirm_cols) in consensus_map.items():
             base_value = pd.to_numeric(daily_data_series.get(base_col), errors='coerce')
+            # 增强校准逻辑：如果 base_value 为 NaN，尝试从 confirm_cols 中寻找第一个非 NaN 值作为 base_value
+            if pd.isna(base_value):
+                for conf_col in confirm_cols:
+                    alt_value = pd.to_numeric(daily_data_series.get(conf_col), errors='coerce')
+                    if pd.notna(alt_value):
+                        base_value = alt_value
+                        break
             if pd.notna(base_value):
                 confirmation_score = sum(1 for conf_col in confirm_cols if pd.notna(daily_data_series.get(conf_col)) and np.sign(base_value) == np.sign(pd.to_numeric(daily_data_series.get(conf_col), errors='coerce')))
                 available_sources = sum(1 for conf_col in confirm_cols if pd.notna(daily_data_series.get(conf_col)))
@@ -271,6 +290,12 @@ class AdvancedFundFlowMetricsService:
                 results[target_col] = base_value * calibration_factor
             else:
                 results[target_col] = np.nan
+        # [代码新增开始]
+        # 调试打印校准后的主力资金流和散户资金流
+        print(f"DEBUG PROBE: [{daily_data_series.name.date()}] _calculate_daily_derived_metrics output:")
+        print(f"  main_force_net_flow_calibrated: {results.get('main_force_net_flow_calibrated', np.nan):.4f}")
+        print(f"  retail_net_flow_calibrated: {results.get('retail_net_flow_calibrated', np.nan):.4f}")
+        # [代码新增结束]
         turnover_amount_yuan = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
         if pd.notna(turnover_amount_yuan) and turnover_amount_yuan > 0:
             base_flow = pd.to_numeric(daily_data_series.get('main_force_net_flow_tushare'), errors='coerce')
@@ -281,8 +306,14 @@ class AdvancedFundFlowMetricsService:
             mf_flow = results.get('main_force_net_flow_calibrated')
             retail_flow = results.get('retail_net_flow_calibrated')
             if pd.notna(mf_flow) and pd.notna(retail_flow):
-                battle_volume = min(abs(mf_flow), abs(retail_flow))
-                results['mf_retail_battle_intensity'] = np.sign(mf_flow) * (battle_volume / (turnover_amount_yuan / 10000)) * 100
+                total_flow_abs = abs(mf_flow) + abs(retail_flow)
+                if total_flow_abs > 0:
+                    battle_volume = min(abs(mf_flow), abs(retail_flow))
+                    results['mf_retail_battle_intensity'] = np.sign(mf_flow) * (battle_volume / (turnover_amount_yuan / 10000)) * 100
+                else:
+                    results['mf_retail_battle_intensity'] = 0.0
+            else:
+                results['mf_retail_battle_intensity'] = 0.0
         mf_buy = np.nansum([
             pd.to_numeric(daily_data_series.get('buy_lg_amount'), errors='coerce'),
             pd.to_numeric(daily_data_series.get('buy_elg_amount'), errors='coerce')
@@ -314,7 +345,6 @@ class AdvancedFundFlowMetricsService:
                 dominance_ratio = abs(retail_flow) / total_opinionated_flow
                 divergence_penalty = 1 if np.sign(mf_flow) != np.sign(retail_flow) and mf_flow != 0 and retail_flow != 0 else 0
                 results['retail_flow_dominance_index'] = np.sign(retail_flow) * dominance_ratio * (1 + divergence_penalty) * 100
-        # 修复：将错误的 'pct_chg' 修正为正确的 'pct_change'
         pct_change = pd.to_numeric(daily_data_series.get('pct_change'), errors='coerce')
         if pd.notna(pct_change) and pd.notna(mf_flow) and total_turnover_wan > 0:
             standardized_mf_flow = mf_flow / total_turnover_wan
