@@ -16,6 +16,7 @@ from utils.model_helpers import (
     get_minute_data_model_by_code_and_timelevel,
 )
 from services.chip_feature_calculator import ChipFeatureCalculator
+from strategies.trend_following.utils import get_param_value, get_params_block
 import logging
 logger = logging.getLogger(__name__)
 
@@ -28,10 +29,11 @@ class AdvancedChipMetricsService:
     def __init__(self):
         self.max_lookback_days = 200
 
-    async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None, fund_flow_attributed_minute_map: dict = None):
+    async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None, fund_flow_attributed_minute_map: dict = None, debug_params: dict = None):
         """
-        【V1.0 · 融合接口版】服务层主执行器。
+        【V1.1 · 融合接口版】服务层主执行器。
         - 新增: 接收由资金流服务预先计算好的 `fund_flow_attributed_minute_map`。
+        - 【修正】新增 `debug_params` 参数，用于控制内部探针的输出。
         """
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental, start_date_str
@@ -53,9 +55,11 @@ class AdvancedChipMetricsService:
         merged_df = self._preprocess_and_merge_data(stock_code, data_dfs)
         minute_data_map = await self._load_minute_data_for_range(stock_info, dates_to_process.min(), dates_to_process.max())
         # 核心指标锻造
-        base_metrics_df = self._synthesize_and_forge_metrics(
-            stock_info, merged_df, minute_data_map, fund_flow_attributed_minute_map
+        # [代码修改开始]
+        base_metrics_df, _, _ = self._synthesize_and_forge_metrics(
+            stock_info, merged_df, minute_data_map, fund_flow_attributed_minute_map, debug_params=debug_params
         )
+        # [代码修改结束]
         if base_metrics_df.empty:
             logger.info(f"[{stock_code}] [筹码服务] 未能计算出任何新的基础指标。")
             return 0
@@ -146,8 +150,10 @@ class AdvancedChipMetricsService:
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
         return merged_df
 
-    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None) -> tuple[pd.DataFrame, dict, list]:
-        """【V4.2 · 生产就绪版】移除所有诊断探针。"""
+    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None) -> tuple[pd.DataFrame, dict, list]:
+        """【V4.3 · 生产就绪版】移除所有诊断探针。
+        - 【修正】新增 `debug_params` 参数，用于控制内部探针的输出。
+        """
         stock_code = stock_info.stock_code
         all_metrics_list = []
         failures_list = []
@@ -166,21 +172,8 @@ class AdvancedChipMetricsService:
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq']
         is_first_day_in_batch = True
         # [代码修改开始]
-        # 获取 debug_params 并传递给 ChipFeatureCalculator
-        from utils.utils import get_params_block
-        # 假设 self.strategy 可以在这里访问到，或者通过其他方式获取到策略配置
-        # 这里需要一个策略配置的引用，如果 AdvancedChipMetricsService 没有直接持有，
-        # 则需要从调用方传递进来，或者从全局配置中获取。
-        # 暂时假设可以通过某种方式获取到策略配置，例如从某个全局变量或服务中。
-        # 如果没有直接的 self.strategy，需要调整获取 debug_params 的方式。
-        # 为了演示，我将假设有一个 self.strategy_config 属性。
-        # 如果实际环境中没有，需要根据实际情况调整。
-        # 假设 self.strategy_config 是一个字典，包含了策略的完整配置
-        # 如果没有，这里需要一个更健壮的获取方式，例如从全局配置服务中获取
-        # 或者在 run_precomputation 时将 strategy_config 传递进来
-        # 为了避免引入新的复杂性，这里暂时模拟一个空的 debug_params
-        # 实际部署时，需要确保 debug_params 能够正确传递
-        debug_params = {} # 默认空字典，如果需要探针，需要从外部传入
+        # 确保 debug_params 默认为空字典，以防未传递
+        debug_params = debug_params if debug_params is not None else {}
         # [代码修改结束]
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             context_data = daily_full_df.iloc[0].to_dict()
