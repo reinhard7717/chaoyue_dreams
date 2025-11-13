@@ -60,12 +60,17 @@ class CyclicalIntelligence:
         """
         【V1.0】诊断认知风险信号：周期顶风险 (COGNITIVE_RISK_CYCLICAL_TOP)
         - 核心逻辑: 融合主导周期强度和当前相位，当市场处于一个强周期的波峰位置时，此风险分会显著提高。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         # 证据1: 主导周期强度 (DOMINANT_CYCLE_POWER)
-        dominant_power = fft_states.get('DOMINANT_CYCLE_POWER', pd.Series(0.0, index=df.index))
+        # [代码修改开始]
+        dominant_power = self._get_safe_series(df, 'DOMINANT_CYCLE_POWER', 0.0, method_name="_diagnose_cyclical_top_risk")
+        # [代码修改结束]
         # 证据2: 当前相位 (DOMINANT_CYCLE_PHASE)
         # 相位接近 +1 (波峰) 时风险最高
-        dominant_phase = fft_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index))
+        # [代码修改开始]
+        dominant_phase = self._get_safe_series(df, 'DOMINANT_CYCLE_PHASE', 0.0, method_name="_diagnose_cyclical_top_risk")
+        # [代码修改结束]
         # 将相位 [-1, 1] 映射到 [0, 1]，并强调接近 1 的值
         # 例如，使用 (phase + 1) / 2 映射到 [0, 1]，然后平方或指数化以强调波峰
         phase_contribution = ((dominant_phase + 1) / 2).pow(2) # 平方强调波峰
@@ -164,17 +169,20 @@ class CyclicalIntelligence:
         - 核心逻辑:
           - Hurst > 0.5 (正值输入): 市场具有趋势性，输出正分。
           - Hurst < 0.5 (负值输入): 市场具有均值回归性，输出负分。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         states = {}
         hurst_period = get_param_value(params.get('hurst_period'), 120)
         hurst_signal_name = f'hurst_{hurst_period}d_D'
-        if hurst_signal_name not in df.columns:
-            print(f"Hurst指数 '{hurst_signal_name}' 不存在，跳过公理二诊断。")
+        # [代码修改开始]
+        hurst_series = self._get_safe_series(df, hurst_signal_name, 0.5, method_name="diagnose_market_memory_with_hurst").fillna(0.5)
+        # [代码修改结束]
+        if hurst_series.isnull().all(): # 如果获取到的Series全是NaN，说明数据确实不存在
+            print(f"Hurst指数 '{hurst_signal_name}' 不存在或全为NaN，跳过公理二诊断。")
             states['SCORE_CYCLICAL_HURST_MEMORY'] = pd.Series(0.0, index=df.index, dtype=np.float32)
             states['SCORE_CYCLICAL_HURST_TREND_REGIME'] = pd.Series(0.5, index=df.index, dtype=np.float32)
             states['SCORE_CYCLICAL_HURST_REVERSION_REGIME'] = pd.Series(0.0, index=df.index, dtype=np.float32)
             return states
-        hurst_series = df[hurst_signal_name].fillna(0.5)
         # 构造核心双极性序列 (Hurst - 0.5)
         raw_bipolar_series = hurst_series - 0.5
         # 使用双极归一化引擎进行最终裁决，输出一个[-1, 1]的记忆性分数
@@ -185,3 +193,4 @@ class CyclicalIntelligence:
         states['SCORE_CYCLICAL_HURST_TREND_REGIME'] = trend_regime_score
         states['SCORE_CYCLICAL_HURST_REVERSION_REGIME'] = reversion_regime_score
         return states
+

@@ -157,7 +157,9 @@
         "ATAN_ANGLE_EMA_55_D": [5, 13],
         "MA_VELOCITY_EMA_55_D": [5, 13],
         "MA_ACCELERATION_EMA_55_D": [5, 13],
-        "ZIG_5_5.0_D": [5, 13]
+        "ZIG_5_5.0_D": [5, 13],
+        "PDI_14_D": [5],
+        "turnover_rate_f_D": [5]
       }
     },
     "accel_params": {
@@ -195,7 +197,9 @@
         "ATAN_ANGLE_EMA_55_D": [5, 13],
         "MA_VELOCITY_EMA_55_D": [5, 13],
         "MA_ACCELERATION_EMA_55_D": [5, 13],
-        "ZIG_5_5.0_D": [5, 13]
+        "ZIG_5_5.0_D": [5, 13],
+        "PDI_14_D": [5],
+        "turnover_rate_f_D": [5]
       }
     }
   },

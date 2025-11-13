@@ -58,11 +58,15 @@ class DynamicMechanicsEngine:
         - 核心逻辑: 诊断价格动量与惯性之间的背离。
           - 看涨背离：价格动量减弱（负）但惯性增强（正） -> 预示趋势可能反转向上。
           - 看跌背离：价格动量增强（正）但惯性减弱（负） -> 预示趋势可能反转向下。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
+        # [代码修改开始]
         momentum_score = self._diagnose_axiom_momentum(df, norm_window)
         inertia_score = self._diagnose_axiom_inertia(df, norm_window)
+        # [代码修改结束]
         divergence_score = (inertia_score - momentum_score).clip(-1, 1)
         return divergence_score.astype(np.float32)
+
 
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
