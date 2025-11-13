@@ -488,9 +488,8 @@ class FeatureEngineeringService:
 
     async def calculate_pattern_enhancement_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict, calculator) -> Dict[str, pd.DataFrame]:
         """
-        【V1.3 · 后门封堵版】形态增强信号编排器
-        - 核心修复: 封堵了命名协议的后门。在合并由外部计算器生成的、不带后缀的分钟级信号后，
-                      强制为这些新列添加 '_D' 后缀，确保数据流的绝对标准化。
+        【V1.4 · 后门封堵与命名修复版】形态增强信号编排器
+        - 核心修复: 调整了命名协议的强制执行逻辑，确保只对**不以 '_D' 结尾**的列添加 '_D' 后缀，避免重复。
         """
         params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
         if not params.get('enabled', False):
@@ -517,8 +516,10 @@ class FeatureEngineeringService:
                 res_df.index = pd.to_datetime(res_df.index, utc=True).normalize()
                 df_daily = df_daily.join(res_df, how='left')
         # --- 命名协议强制执行 ---
-        # 为所有新合并的、没有后缀的列，强制添加 '_D' 后缀
-        rename_map = {col: f"{col}_D" for col in new_cols_no_suffix if col in df_daily.columns}
+        # [代码修改开始]
+        # 为所有新合并的、不以 '_D' 结尾的列，强制添加 '_D' 后缀
+        rename_map = {col: f"{col}_D" for col in new_cols_no_suffix if col in df_daily.columns and not col.endswith('_D')}
+        # [代码修改结束]
         if rename_map:
             df_daily.rename(columns=rename_map, inplace=True)
         # 对新合并的列（现在已带后缀）进行前向填充

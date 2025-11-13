@@ -1133,8 +1133,8 @@ class IndicatorCalculator:
 
     async def calculate_intraday_vwap_divergence_index(self, df_minute: pd.DataFrame) -> Optional[pd.DataFrame]:
         """
-        【V1.3 · 命名规范修复版】计算日内VWAP偏离度积分指数。
-        - 核心修复: 为输出列名增加 '_D' 后缀，以符合系统命名规范，确保下游模块能正确消费。
+        【V1.4 · 命名规范修复版】计算日内VWAP偏离度积分指数。
+        - 核心修复: 返回不带 '_D' 后缀的列名，以符合系统命名规范，确保下游模块能正确消费。
         """
         if df_minute is None or df_minute.empty:
             logger.warning("计算日内VWAP偏离指数失败：输入的分钟数据DataFrame为空。")
@@ -1159,21 +1159,21 @@ class IndicatorCalculator:
                     vwap_col = 'vwap_temp'
                 vwap_deviation = (df[close_col] - df[vwap_col]) / df[vwap_col].replace(0, np.nan)
                 daily_integral = vwap_deviation.resample('D').sum()
-                result_df = pd.DataFrame({'intraday_vwap_div_index_D': daily_integral})
+                # [代码修改开始]
+                # 返回不带 '_D' 后缀的列名
+                result_df = pd.DataFrame({'intraday_vwap_div_index': daily_integral})
+                # [代码修改结束]
                 return result_df.dropna()
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
             logger.error(f"计算日内VWAP偏离指数时发生错误: {e}", exc_info=True)
             return None
 
+
     async def calculate_counterparty_exhaustion_index(self, df_minute: pd.DataFrame, efficiency_window: int = 21) -> Optional[pd.DataFrame]:
         """
-        【V2.2 · 解耦聚合修复版】计算对手盘衰竭指数。
-        - 核心修复: 彻底解决Pandas聚合逻辑陷阱。将复杂的agg指令分解为多个原子操作：
-                    1. 单独聚合求和项。
-                    2. 单独聚合计算日内涨跌幅。
-                    3. 合并结果。
-                    这确保了聚合逻辑的清晰性和健壮性，根除了KeyError。
+        【V2.3 · 解耦聚合与命名修复版】计算对手盘衰竭指数。
+        - 核心修复: 返回不带 '_D' 后缀的列名，以符合系统命名规范，确保下游模块能正确消费。
         """
         if df_minute is None or df_minute.empty or len(df_minute) < 10:
             return None
@@ -1210,11 +1210,14 @@ class IndicatorCalculator:
                 efficiency_zscore = (daily_agg['conversion_efficiency'] - daily_agg['conversion_efficiency'].rolling(efficiency_window).mean()) / (daily_agg['conversion_efficiency'].rolling(efficiency_window).std() + 1e-9)
                 is_buying_exhaustion = (daily_agg['pct_change'] > 0) & (efficiency_zscore < -0.5)
                 is_selling_exhaustion = (daily_agg['pct_change'] < 0) & (efficiency_zscore > 0.5)
+                # [代码修改开始]
+                # 返回不带 '_D' 后缀的列名
                 exhaustion_index = (is_selling_exhaustion.astype(int) - is_buying_exhaustion.astype(int)).astype(float)
-                return pd.DataFrame({'counterparty_exhaustion_index_D': exhaustion_index})
+                return pd.DataFrame({'counterparty_exhaustion_index': exhaustion_index})
+                # [代码修改结束]
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
-            logger.error(f"计算对手盘衰竭指数(V2.2)时发生错误: {e}", exc_info=True)
+            logger.error(f"计算对手盘衰竭指数(V2.3)时发生错误: {e}", exc_info=True)
             return None
 
     async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:

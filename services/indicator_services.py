@@ -686,12 +686,8 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.19 · 通达信指标集成与列名修复版】根据配置为指定时间周期计算所有技术指标。
-        - 核心修复: 隔离了 'suffix' 参数的传递。不再将其普遍添加到 kwargs_iter 中，
-                      而是仅在调用真正需要它的函数（如boll_bands_and_width, vwap）时才显式添加。
-                      这彻底解决了因参数泄漏导致的 TypeError。
-        - 【新增】集成 calculate_dma, calculate_atan_ma_angle, calculate_ma_velocity_acceleration, calculate_zigzag 方法。
-        - 【修复】修正了 `atan_ma_angle` 和 `ma_velocity_acceleration` 的参数传递，以避免列名重复后缀问题。
+        【V110.20 · 通达信指标集成与列名修复版】根据配置为指定时间周期计算所有技术指标。
+        - 核心修复: 调整了 `merge_results` 函数的逻辑，确保只对**不以时间框架后缀结尾**的列添加后缀，避免重复。
         """
         if not config:
             return df
@@ -722,7 +718,10 @@ class IndicatorService:
                 result_data = result_data.to_frame()
             if isinstance(result_data, pd.DataFrame):
                 suffix = f"_{timeframe_key}"
+                # [代码修改开始]
+                # 只有当列名不以当前时间框架后缀结尾时，才添加后缀
                 rename_dict = {col: f"{col}{suffix}" for col in result_data.columns if not col.endswith(suffix)}
+                # [代码修改结束]
                 result_data.rename(columns=rename_dict, inplace=True)
                 for col in result_data.columns:
                     target_df[col] = result_data[col]
@@ -799,7 +798,10 @@ class IndicatorService:
                     if indicator_name == 'atan_ma_angle':
                         ma_col_base = sub_config.get('ma_col')
                         if ma_col_base and f"{ma_col_base}_{timeframe_key}" in df_for_calc.columns:
+                            # [代码修改开始]
+                            # 传递 ma_col_base 和 timeframe_key，但不在 kwargs 中添加 suffix
                             kwargs.update({'ma_col_base': ma_col_base, 'timeframe_key': timeframe_key})
+                            # [代码修改结束]
                             result_df = await method_to_call(**kwargs)
                             merge_results(result_df, df_for_calc)
                         else:
@@ -808,7 +810,10 @@ class IndicatorService:
                     if indicator_name == 'ma_velocity_acceleration':
                         ma_col_base = sub_config.get('ma_col')
                         if ma_col_base and f"{ma_col_base}_{timeframe_key}" in df_for_calc.columns:
+                            # [代码修改开始]
+                            # 传递 ma_col_base 和 timeframe_key，但不在 kwargs 中添加 suffix
                             kwargs.update({'ma_col_base': ma_col_base, 'timeframe_key': timeframe_key, 'ema_period': sub_config.get('ema_period', 3), 'sma_period': sub_config.get('sma_period', 3)})
+                            # [代码修改结束]
                             result_df = await method_to_call(**kwargs)
                             merge_results(result_df, df_for_calc)
                         else:
