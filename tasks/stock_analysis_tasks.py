@@ -666,7 +666,8 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.2 · 审计熔断深化版】
+    【V34.3 · 审计熔断非交易日过滤版】
+    - 核心修正: 在处理日期列表前，使用 `TradeCalendar` 过滤掉所有非交易日，避免因非交易日数据缺失而触发审计熔断。
     - 核心修正: 优化审计熔断日志，当区块因数据缺失被跳过时，详细列出缺失的具体数据源。
     - 【修复】解决 `historical_components_df` 在 `pd.concat` 后可能出现重复索引的问题，确保其唯一性。
     """
@@ -686,10 +687,21 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         if process_start_date:
             process_date_filter['trade_time__gte'] = process_start_date
         all_dates_qs = DateSourceModel.objects.filter(**process_date_filter).values_list('trade_time', flat=True).order_by('trade_time')
-        dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
-        if dates_to_process.empty:
+        raw_dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
+        if raw_dates_to_process.empty:
             logger.info(f"[{stock_code}] 无需计算的日期，合并任务终止。")
             return {"status": "skipped", "reason": "No new dates to process.", "failures": []}
+        # [代码修改开始]
+        # 过滤掉非交易日
+        trade_dates_only = await sync_to_async(TradeCalendar.get_trade_dates_between)(
+            start_date=raw_dates_to_process.min().date(),
+            end_date=raw_dates_to_process.max().date()
+        )
+        dates_to_process = pd.to_datetime([d for d in trade_dates_only if pd.to_datetime(d) in raw_dates_to_process])
+        if dates_to_process.empty:
+            logger.info(f"[{stock_code}] 过滤非交易日后，没有需要计算的交易日，合并任务终止。")
+            return {"status": "skipped", "reason": "No trade dates to process after filtering.", "failures": []}
+        # [代码修改结束]
         context_end_date = dates_to_process.min().date()
         ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, context_end_date)
         chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, context_end_date)
@@ -790,6 +802,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             for date in chunk_dates:
                 for source_name in critical_sources:
                     source_df = data_dfs.get(source_name)
+                    # 检查数据帧是否为空，或者特定日期的数据是否缺失
                     if source_df is None or source_df.empty or date.date() not in pd.to_datetime(source_df['trade_time']).dt.date.values:
                         is_chunk_valid = False
                         reason_str = f"上游核心数据源 '{source_name}' 缺失"
@@ -835,7 +848,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             if not chunk_core_metrics_df.empty:
                 new_hist_data = chunk_core_metrics_df[chunk_core_metrics_df.columns.intersection(health_score_components)]
                 if not new_hist_data.empty:
-                    # 确保 historical_components_df 的索引唯一
                     historical_components_df = pd.concat([historical_components_df, new_hist_data])
                     historical_components_df = historical_components_df[~historical_components_df.index.duplicated(keep='last')].sort_index()
                     if all(c in historical_components_df.columns for c in ['cost_15pct', 'cost_85pct', 'weight_avg_cost']):
