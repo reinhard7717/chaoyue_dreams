@@ -204,8 +204,8 @@ class BehavioralIntelligence:
         states['INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         # 【优化】使用多时间维度自适应归一化
         # [代码修改开始]
-        price_trend = utils.get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_behavioral_axioms"), df.index, default_weights)
-        volume_trend = utils.get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'volume_D', method_name="_diagnose_behavioral_axioms").diff(1), df.index, default_weights)
+        price_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_behavioral_axioms"), df.index, default_weights)
+        volume_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'volume_D', method_name="_diagnose_behavioral_axioms").diff(1), df.index, default_weights)
         # [代码修改结束]
         divergence_score = (volume_trend - price_trend).clip(-1, 1)
         states['SCORE_BEHAVIOR_PRICE_VS_VOLUME_DIVERGENCE'] = divergence_score.astype(np.float32)
