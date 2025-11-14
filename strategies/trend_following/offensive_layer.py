@@ -11,10 +11,11 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict, bottom_context_score: pd.Series, top_context_score: pd.Series) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V520.0 · 时区同步探针版】
+        【V520.1 · 时区同步探针版】
         - 核心重构: 保持“统一情报总线”的设计。
         - 探针升级: 为“真理探针”植入“时区同步协议”。在进行日期查找前，探针会先检查数据索引的时区，
                       并将其自身的探针日期本地化到同一时区，从根本上解决因时区不匹配导致的“无法找到信号值”问题。
+        - 【新增】增加调试探针，打印每个信号在 `score_type_map` 中的配置和计算出的得分权重。
         """
         df = self.strategy.df_indicators
         score_details_df = pd.DataFrame(index=df.index)
@@ -107,12 +108,14 @@ class OffensiveLayer:
                         damper = 1.0 - suppression_factor
                         unipolar_series *= damper
                     bonus_amount += unipolar_series * positive_score
-            # --- 真理探针 2: 续 ---
-            if is_playbook_signal and probe_date_for_loop is not None:
-                if probe_date_for_loop in bonus_amount.index:
+            # [代码修改开始]
+            # 增加调试探针，打印每个信号的配置和计算出的得分权重
+            if probe_date_for_loop is not None and probe_date_for_loop in bonus_amount.index:
+                if signal_name.startswith('PROCESS_META_') or signal_name.startswith('COGNITIVE_RISK_') or signal_name.startswith('COGNITIVE_PLAYBOOK_'):
+                    current_value = processed_signal_series.loc[probe_date_for_loop]
                     final_contribution = bonus_amount.loc[probe_date_for_loop]
-                    if final_contribution != 0:
-                         print(f"    -> [计分中] 信号: {signal_name:<45} | 得分贡献: {final_contribution:.2f}")
+                    print(f"    -> [计分探针] 信号: {signal_name:<45} | 原始值: {current_value:.4f} | Mode: {scoring_mode:<8} | Type: {meta.get('type', 'N/A'):<8} | Score: {positive_score:<6.2f} | Penalty: {penalty_weight:<6.2f} | 贡献: {final_contribution:.2f}")
+            # [代码修改结束]
             total_score += bonus_amount
             score_details_df[signal_name] = bonus_amount
         return total_score.fillna(0), score_details_df.fillna(0)

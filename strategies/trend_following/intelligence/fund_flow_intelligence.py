@@ -82,14 +82,20 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.2 · 博弈烈度增强与多时间维度归一化版】资金流公理一：诊断“共识与分歧”
+        【V1.3 · 博弈烈度与拆单吸筹增强版】资金流公理一：诊断“共识与分歧”
         - 引入 `mf_retail_battle_intensity` (主力散户博弈烈度) 作为判断资金流共识的重要证据。
+        - 【新增】引入“拆单吸筹因子”，识别主力通过小单/中单进行隐蔽吸筹的行为。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `battle_intensity_factor` 和 `consensus_score_base` 的归一化方式改为多时间维度自适应归一化。
         """
         df_index = df.index
-        main_force_flow = self._get_safe_series(df, 'net_xl_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus") + self._get_safe_series(df, 'net_lg_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
-        retail_flow = self._get_safe_series(df, 'net_md_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus") + self._get_safe_series(df, 'net_sh_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
+        # 主力资金流 = 超大单净流入 + 大单净流入
+        main_force_flow = self._get_safe_series(df, 'net_xl_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus") + \
+                          self._get_safe_series(df, 'net_lg_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
+        # 散户资金流 = 中单净流入 + 小单净流入
+        retail_flow = self._get_safe_series(df, 'net_md_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus") + \
+                      self._get_safe_series(df, 'net_sh_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
+        # 原始共识分数：主力资金流 - 散户资金流
         raw_bipolar_series = main_force_flow - retail_flow
         # 获取主力散户博弈烈度
         battle_intensity_raw = self._get_safe_series(df, 'mf_retail_battle_intensity_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_consensus")
@@ -97,11 +103,35 @@ class FundFlowIntelligence:
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}) # 资金流模块的MTF权重
         # 归一化博弈烈度，越高越好，但作为乘数因子，需要映射到 [0, 1]
         battle_intensity_factor = get_adaptive_mtf_normalized_score(battle_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
+        # --- 新增：拆单吸筹因子 ---
+        # 小单净流入 + 中单净流入
+        sm_md_net_flow = self._get_safe_series(df, 'net_sm_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus") + \
+                         self._get_safe_series(df, 'net_md_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
+        # 大单净流入 + 特大单净流入
+        lg_xl_net_flow = self._get_safe_series(df, 'net_lg_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus") + \
+                         self._get_safe_series(df, 'net_xl_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
+        # 价格变化
+        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_axiom_consensus")
+        # 拆单吸筹的迹象：
+        # 1. 价格下跌或横盘 (pct_change <= 0)
+        # 2. 小单/中单净流入为正 (sm_md_net_flow > 0)
+        # 3. 大单/特大单净流入不明显或为负 (lg_xl_net_flow <= 0)
+        # 4. 且 sm_md_net_flow > abs(lg_xl_net_flow) (小单中单的净流入能抵消大单特大单的流出)
+        # 拆单吸筹因子：在价格下跌或横盘时，小单中单净流入与大单特大单净流入的差值，归一化后作为因子
+        split_order_accumulation_raw = pd.Series(0.0, index=df_index)
+        condition_mask = (pct_change <= 0) & (sm_md_net_flow > 0) & (lg_xl_net_flow <= 0) & (sm_md_net_flow > lg_xl_net_flow.abs())
+        split_order_accumulation_raw.loc[condition_mask] = (sm_md_net_flow - lg_xl_net_flow).loc[condition_mask]
+        # 对拆单吸筹因子进行归一化，使其成为一个 [0, 1] 的正向证据
+        split_order_accumulation_factor = get_adaptive_mtf_normalized_score(split_order_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
         # 原始共识分数
         consensus_score_base = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df_index, tf_weights_ff, sensitivity=1.0)
         # 融合博弈烈度。高烈度时，放大共识信号；低烈度时，削弱共识信号。
         # 乘数因子 (1 + battle_intensity_factor * 0.5) 可以放大共识，但不会改变方向
-        consensus_score = (consensus_score_base * (1 + battle_intensity_factor * 0.5)).clip(-1, 1) # 调整放大系数
+        # 融合拆单吸筹因子：如果存在拆单吸筹，则对共识分数进行额外加成，尤其是在共识分数偏负时（主力在隐藏吸筹）
+        # 调整融合逻辑：当拆单吸筹因子为正时，对共识分数进行正向修正
+        # 修正后的共识分数 = 原始共识分数 + 拆单吸筹因子 * 修正系数
+        # 修正系数可以根据实际情况调整，例如 0.3
+        consensus_score = (consensus_score_base * (1 + battle_intensity_factor * 0.5) + split_order_accumulation_factor * 0.3).clip(-1, 1) # 调整放大系数和拆单吸筹系数
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -113,6 +143,11 @@ class FundFlowIntelligence:
                 print(f"       - retail_flow: {retail_flow.loc[probe_date_for_loop]:.4f}")
                 print(f"       - battle_intensity_raw: {battle_intensity_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - battle_intensity_factor: {battle_intensity_factor.loc[probe_date_for_loop]:.4f}")
+                print(f"       - sm_md_net_flow: {sm_md_net_flow.loc[probe_date_for_loop]:.4f}")
+                print(f"       - lg_xl_net_flow: {lg_xl_net_flow.loc[probe_date_for_loop]:.4f}")
+                print(f"       - pct_change: {pct_change.loc[probe_date_for_loop]:.4f}")
+                print(f"       - split_order_accumulation_raw: {split_order_accumulation_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - split_order_accumulation_factor: {split_order_accumulation_factor.loc[probe_date_for_loop]:.4f}")
                 print(f"       - consensus_score_base: {consensus_score_base.loc[probe_date_for_loop]:.4f}")
                 print(f"       - consensus_score: {consensus_score.loc[probe_date_for_loop]:.4f}")
         return consensus_score.astype(np.float32)
