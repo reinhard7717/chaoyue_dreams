@@ -375,46 +375,57 @@ class CognitiveIntelligence:
 
     def _establish_prior_beliefs(self) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 趋势结构强化版】建立先验信念
-        - 核心升级: 将融合层的“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE) 融入到
+        【V1.6 · 趋势结构、资金与筹码强化版】建立先验信念
+        - 核心升级: 将融合层的“趋势结构分”、“资金趋势”和“筹码趋势”融入到
                       “趋势先验概率” (COGNITIVE_PRIOR_TREND_PROB) 的计算中，以提供更稳定、更具结构性的背景判断。
         """
         states = {}
+        df_index = self.strategy.df_indicators.index
         market_regime = self._get_fused_score('FUSION_BIPOLAR_MARKET_REGIME', 0.0)
         trend_quality = self._get_fused_score('FUSION_BIPOLAR_TREND_QUALITY', 0.0)
-        # 获取融合层的趋势结构分
         trend_structure_score = self._get_fused_score('FUSION_BIPOLAR_TREND_STRUCTURE_SCORE', 0.0)
-        # 调整趋势先验概率的权重，引入趋势结构分
-        # 示例权重，需要根据回测优化
-        regime_weight = 0.3
-        quality_weight = 0.3
-        # 趋势结构分的权重
-        structure_weight = 0.4
+        # 新增：获取资金趋势和筹码趋势的融合分数
+        fund_flow_trend = self._get_fused_score('FUSION_BIPOLAR_FUND_FLOW_TREND', 0.0)
+        chip_trend = self._get_fused_score('FUSION_BIPOLAR_CHIP_TREND', 0.0)
+        # 转换为概率 (0-1范围)
         market_regime_prob = (market_regime + 1) / 2
         trend_quality_prob = (trend_quality + 1) / 2
-        # 趋势结构分转换为概率
         trend_structure_prob = (trend_structure_score + 1) / 2
-        # 融合趋势结构分到趋势先验概率中
+        fund_flow_trend_prob = (fund_flow_trend + 1) / 2
+        chip_trend_prob = (chip_trend + 1) / 2
+        # 调整趋势先验概率的权重，引入趋势结构分、资金趋势和筹码趋势
+        # 示例权重，需要根据回测优化，确保总和为1
+        regime_weight = 0.20
+        quality_weight = 0.20
+        structure_weight = 0.20
+        fund_flow_weight = 0.20
+        chip_trend_weight = 0.20
         prior_trend = (
             market_regime_prob * regime_weight +
             trend_quality_prob * quality_weight +
-            trend_structure_prob * structure_weight # 融合趋势结构分
+            trend_structure_prob * structure_weight +
+            fund_flow_trend_prob * fund_flow_weight +
+            chip_trend_prob * chip_trend_weight
         ).clip(0, 1)
+        states['COGNITIVE_PRIOR_TREND_PROB'] = prior_trend.astype(np.float32)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(self.strategy.df_indicators.index.tz) if self.strategy.df_indicators.index.tz else probe_date_naive
-            if probe_date in market_regime.index:
+            probe_date = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date in df_index:
                 print(f"    -> [先验信念探针] @ {probe_date.date()}:")
                 print(f"       - 市场政权分 (market_regime): {market_regime.loc[probe_date]:.4f}")
                 print(f"       - 趋势质量分 (trend_quality): {trend_quality.loc[probe_date]:.4f}")
                 print(f"       - 趋势结构分 (trend_structure_score): {trend_structure_score.loc[probe_date]:.4f}")
+                print(f"       - 资金趋势分 (fund_flow_trend): {fund_flow_trend.loc[probe_date]:.4f}")
+                print(f"       - 筹码趋势分 (chip_trend): {chip_trend.loc[probe_date]:.4f}")
                 print(f"       - 市场政权概率 (market_regime_prob): {market_regime_prob.loc[probe_date]:.4f}")
                 print(f"       - 趋势质量概率 (trend_quality_prob): {trend_quality_prob.loc[probe_date]:.4f}")
                 print(f"       - 趋势结构概率 (trend_structure_prob): {trend_structure_prob.loc[probe_date]:.4f}")
+                print(f"       - 资金趋势概率 (fund_flow_trend_prob): {fund_flow_trend_prob.loc[probe_date]:.4f}")
+                print(f"       - 筹码趋势概率 (chip_trend_prob): {chip_trend_prob.loc[probe_date]:.4f}")
                 print(f"       - 最终趋势先验概率 (prior_trend): {prior_trend.loc[probe_date]:.4f}")
-        states['COGNITIVE_PRIOR_TREND_PROB'] = prior_trend.astype(np.float32)
         market_pressure = self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
         reversal_pressure_weight = 0.6
         reversal_regime_strength_weight = 0.4
@@ -425,8 +436,8 @@ class CognitiveIntelligence:
         states['COGNITIVE_PRIOR_REVERSAL_PROB'] = prior_reversal.astype(np.float32)
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(self.strategy.df_indicators.index.tz) if self.strategy.df_indicators.index.tz else probe_date_naive
-            if probe_date in market_pressure.index:
+            probe_date = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date in df_index:
                 print(f"       - 市场压力分 (market_pressure): {market_pressure.loc[probe_date]:.4f}")
                 print(f"       - 市场政权绝对值 (market_regime.abs()): {market_regime.abs().loc[probe_date]:.4f}")
                 print(f"       - 趋势确认分 (trend_confirmed): {trend_confirmed.loc[probe_date]:.4f}")
@@ -667,14 +678,10 @@ class CognitiveIntelligence:
             orderliness_score = pd.Series(0.5, index=df_index)
         # 证据4: 价格变化率 (直接爆发证据)
         pct_change_raw = self._get_atomic_score('pct_change_D', 0.0)
-        # [代码修改开始]
         price_burst_evidence = self._forge_dynamic_evidence(pct_change_raw.clip(lower=0), is_probability=False) # 只关注上涨爆发
-        # [代码修改结束]
         # 证据5: 成交量爆发 (直接爆发证据)
         volume_burst_raw = self._get_atomic_score('SCORE_BEHAVIOR_VOLUME_BURST', 0.0)
-        # [代码修改开始]
         volume_burst_evidence = self._forge_dynamic_evidence(volume_burst_raw, is_probability=False)
-        # [代码修改结束]
         # 涨停日特殊处理：如果当天是涨停，则压缩证据直接取其“状态”分，并给予高权重
         volatility_compression_final = volatility_compression.mask(is_limit_up_day, volatility_compression_raw_score)
         volume_atrophy_final = volume_atrophy.mask(is_limit_up_day, volume_atrophy_raw_score) # 对新的萎缩信号也进行涨停日特殊处理
