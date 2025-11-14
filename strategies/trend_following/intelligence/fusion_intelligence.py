@@ -30,16 +30,17 @@ class FusionIntelligence:
 
     def _get_atomic_score(self, name: str, default: float = 0.0) -> pd.Series:
         """
-        【V1.1 · 默认值修复版】安全地从原子状态库中获取分数，处理缺失情况。
-        - 核心修复: 将默认值从 0.5 改为 0.0。0.5代表中性，而0.0代表无信号/无贡献，
-                      这在几何平均中是更安全的选择，避免了中性信号对结果的污染。
+        【V1.2 · 严格原子信号获取版】安全地从原子状态库中获取分数，处理缺失情况。
+        - 核心修复: 移除对 `self.strategy.df_indicators.columns` 的回退逻辑。
+                      原子信号应严格从 `self.strategy.atomic_states` 获取。
+                      如果原子状态中不存在，则返回指定的默认值，避免从主数据帧中意外获取同名但可能不相关的列。
         """
         if name in self.strategy.atomic_states:
             return self.strategy.atomic_states[name]
-        elif name in self.strategy.df_indicators.columns:
-            return self.strategy.df_indicators[name]
         else:
-            # 默认值从 0.5 改为 0.0
+            # 如果原子状态中不存在，则返回指定的默认值
+            # 打印警告，因为这表示一个预期的原子信号缺失
+            print(f"    -> [融合层-原子信号警告] 预期原子信号 '{name}' 在 atomic_states 中不存在，使用默认值 {default}。")
             return pd.Series(default, index=self.strategy.df_indicators.index)
 
     def run_fusion_diagnostics(self) -> Dict[str, pd.Series]:
@@ -704,7 +705,7 @@ class FusionIntelligence:
 
     def _synthesize_chip_trend(self) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 筹码趋势动量强化与缺失信号惩罚及探针版】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
+        【V1.6 · 筹码趋势动量强化与缺失信号严格处理及探针版】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
         - 核心思想: 综合判断市场筹码的集中度、成本结构、持股心态和峰形态，形成筹码的整体趋势判断。
         - 证据链:
           1. 筹码集中度 (SCORE_CHIP_AXIOM_CONCENTRATION): 筹码是集中还是分散。
@@ -719,6 +720,7 @@ class FusionIntelligence:
         - 【修正】调整权重，显著提高 `SCORE_CHIP_AXIOM_TREND_MOMENTUM` 的权重，并对负面信号更敏感。
         - 【新增】在计算前验证所有所需信号是否存在，如果缺失则打印警告，并对缺失信号进行更保守的处理。
         - 【新增】加入探针，打印每个组成信号的原始值、权重和贡献。
+        - 【核心修复】由于 `_get_atomic_score` 的严格化，缺失信号将严格使用 `required_chip_signals_meta` 中定义的默认值。
         """
         print("  -- [融合层] 正在冶炼“筹码趋势”...")
         states = {}
@@ -732,7 +734,6 @@ class FusionIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop not in df_index:
                 probe_date_for_loop = None # Reset if not in index
-
         # 明确定义所有所需信号及其在融合中的预期极性（正向贡献、负向贡献或双极性）
         # 预期极性用于在信号缺失时，决定使用何种默认值，以避免乐观偏置
         # 0: 双极性, 1: 正向贡献, -1: 负向贡献
@@ -751,6 +752,7 @@ class FusionIntelligence:
         if missing_signals_in_atomic_states:
             print(f"    -> [融合层-筹码趋势警告] 缺少以下关键筹码信号，将使用其定义默认值进行计算: {', '.join(missing_signals_in_atomic_states)}")
         # 获取所有信号，并根据缺失情况调整其值
+        # 注意：这里调用的是 FusionIntelligence 自己的 _get_atomic_score，它现在已经严格化
         chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', required_chip_signals_meta['SCORE_CHIP_AXIOM_CONCENTRATION']['default_on_missing'])
         chip_cost_structure = self._get_atomic_score('SCORE_CHIP_AXIOM_COST_STRUCTURE', required_chip_signals_meta['SCORE_CHIP_AXIOM_COST_STRUCTURE']['default_on_missing'])
         chip_holder_sentiment = self._get_atomic_score('SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', required_chip_signals_meta['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT']['default_on_missing'])
@@ -771,19 +773,19 @@ class FusionIntelligence:
         # 确保总和为1
         # 进一步调整权重，增加对负面信号的敏感度
         weights = np.array([0.12, 0.12, 0.12, 0.08, 0.08, 0.05, 0.05, 0.38]) # 调整权重，趋势动量权重进一步提高
-        aligned_components = [comp.reindex(df_index, fill_value=meta['default_on_missing']) for comp, meta in zip(components, required_chip_signals_meta.values())]
-        
+        # aligned_components 填充值现在应该使用每个信号元数据中定义的 default_on_missing
+        aligned_components = []
+        for comp, meta_key in zip(components, required_chip_signals_meta.keys()):
+            aligned_components.append(comp.reindex(df_index, fill_value=required_chip_signals_meta[meta_key]['default_on_missing']))
         chip_trend_score = pd.Series(0.0, index=df_index)
         if probe_date_for_loop is not None and probe_date_for_loop in df_index:
             print(f"    -> [筹码趋势探针] @ {probe_date_for_loop.date()}: 组成公理贡献明细")
-        
         for i, (comp_series, weight) in enumerate(zip(aligned_components, weights)):
             signal_name = list(required_chip_signals_meta.keys())[i]
             contribution = comp_series * weight
             chip_trend_score += contribution
             if probe_date_for_loop is not None and probe_date_for_loop in df_index:
                 print(f"       - {signal_name:<35}: 原始值={comp_series.loc[probe_date_for_loop]:.4f}, 权重={weight:.2f}, 贡献={contribution.loc[probe_date_for_loop]:.4f}")
-
         chip_trend_score = chip_trend_score.clip(-1, 1)
         states['FUSION_BIPOLAR_CHIP_TREND'] = chip_trend_score.astype(np.float32)
         print(f"  -- [融合层] “筹码趋势”冶炼完成，最新分值: {chip_trend_score.iloc[-1]:.4f}")

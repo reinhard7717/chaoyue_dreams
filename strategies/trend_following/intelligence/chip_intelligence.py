@@ -41,12 +41,13 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V9.6 · OCH数据层计算版】筹码情报总指挥
+        【V9.7 · OCH数据层计算与调试增强版】筹码情报总指挥
         - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
-        - 核心职责: 只输出筹码领域的原子公理信号、筹码背离信号和超级原子信号。
+        - 核心职责: 只输出筹码领域的原子公理信号和筹码背离信号。
         - 移除信号: SCORE_CHIP_BULLISH_RESONANCE, SCORE_CHIP_BEARISH_RESONANCE, BIPOLAR_CHIP_DOMAIN_HEALTH, SCORE_CHIP_BOTTOM_REVERSAL, SCORE_CHIP_TOP_REVERSAL。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【修正】移除 `OCH_D` 的计算，因为它现在已在数据层提前计算并添加到 `df` 中。
+        - 【新增】添加调试打印，显示返回的 `all_chip_states` 内容。
         """
         all_chip_states = {}
         periods = [5, 13, 21, 55]
@@ -84,6 +85,20 @@ class ChipIntelligence:
         locked_loss = self._get_safe_series(df, 'locked_loss_rate_D', 0.0, method_name="run_chip_intelligence_command")
         lockdown_degree = (locked_profit + locked_loss).clip(0, 1).fillna(0.0)
         all_chip_states['SCORE_CHIP_LOCKDOWN_DEGREE'] = lockdown_degree.astype(np.float32)
+        # --- Debugging output ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
+                print(f"    -> [ChipIntelligence Debug] @ {probe_date_for_loop.date()}: Signals returned by ChipIntelligence:")
+                for k, v in all_chip_states.items():
+                    if isinstance(v, pd.Series) and probe_date_for_loop in v.index:
+                        print(f"       - {k}: {v.loc[probe_date_for_loop]:.4f}")
+                    else:
+                        print(f"       - {k}: {v}")
+        # --- End Debugging output ---
         return all_chip_states
 
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list) -> pd.Series:

@@ -59,13 +59,14 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V423.0 · 指挥链重建版】情报层总指挥官
+        【V423.1 · 指挥链重建与调试增强版】情报层总指挥官
         - 核心重构: 彻底重组了引擎的调用顺序，以修复因执行时序错乱导致的情报真空问题。
         - 新作战时序:
           1. 阶段一 (基础原子层): 运行所有独立的情报引擎，生产各自领域的原子及共振信号。
           2. 阶段二 (过程关系层): 在基础信号完备后，运行过程引擎，诊断信号间的动态关系。
           3. 阶段三 (融合态势层): 在共振信号完备后，运行融合引擎，提炼宏观战场态势。
           4. 阶段四 (认知推演层): 在所有前置情报就绪后，运行认知引擎，生成最终战术剧本。
+        - 【新增】添加调试打印，追踪 `atomic_states` 中筹码信号的更新情况。
         """
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
@@ -81,8 +82,25 @@ class IntelligenceLayer:
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
         update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
         update_states(self.foundation_intel.run_foundation_analysis_command())
-        update_states(self.chip_intel.run_chip_intelligence_command(df))
-        update_states(self.structural_intel.diagnose_structural_states(df))
+        
+        # 调用 ChipIntelligence 并更新 atomic_states
+        chip_states_from_intel = self.chip_intel.run_chip_intelligence_command(df)
+        update_states(chip_states_from_intel)
+        # --- Debugging output ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
+                print(f"    -> [IntelligenceLayer Debug] @ {probe_date_for_loop.date()}: atomic_states after ChipIntelligence:")
+                for k, v in self.strategy.atomic_states.items():
+                    if k.startswith('SCORE_CHIP_') or k.startswith('FUSION_BIPOLAR_CHIP_'): # 仅打印筹码相关状态
+                        if isinstance(v, pd.Series) and probe_date_for_loop in v.index:
+                            print(f"       - {k}: {v.loc[probe_date_for_loop]:.4f}")
+                        else:
+                            print(f"       - {k}: {v}")
+        # --- End Debugging output ---
         update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
         update_states(self.mechanics_engine.run_dynamic_analysis_command())
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
