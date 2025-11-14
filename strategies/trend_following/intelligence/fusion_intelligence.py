@@ -704,7 +704,7 @@ class FusionIntelligence:
 
     def _synthesize_chip_trend(self) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 筹码趋势动量版】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
+        【V1.3 · 筹码趋势动量强化与信号验证版】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
         - 核心思想: 综合判断市场筹码的集中度、成本结构、持股心态和峰形态，形成筹码的整体趋势判断。
         - 证据链:
           1. 筹码集中度 (SCORE_CHIP_AXIOM_CONCENTRATION): 筹码是集中还是分散。
@@ -716,10 +716,28 @@ class FusionIntelligence:
           7. 筹码锁定度 (SCORE_CHIP_LOCKDOWN_DEGREE): 筹码被锁定的程度。
           8. 筹码趋势动量 (SCORE_CHIP_AXIOM_TREND_MOMENTUM): 整体筹码健康度的变化速度和方向。
         - 输出: [-1, 1] 的双极性分数，正分代表筹码趋势向好，负分代表筹码趋势恶化。
+        - 【修正】调整权重，显著提高 `SCORE_CHIP_AXIOM_TREND_MOMENTUM` 的权重，并对负面信号更敏感。
+        - 【新增】在计算前验证所有所需信号是否存在，如果缺失则打印警告。
         """
         print("  -- [融合层] 正在冶炼“筹码趋势”...")
         states = {}
         df_index = self.strategy.df_indicators.index
+        # 新增：验证所需信号是否存在
+        required_chip_signals = [
+            'SCORE_CHIP_AXIOM_CONCENTRATION',
+            'SCORE_CHIP_AXIOM_COST_STRUCTURE',
+            'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT',
+            'SCORE_CHIP_AXIOM_PEAK_INTEGRITY',
+            'SCORE_CHIP_AXIOM_DIVERGENCE',
+            'SCORE_CHIP_CLEANLINESS',
+            'SCORE_CHIP_LOCKDOWN_DEGREE',
+            'SCORE_CHIP_AXIOM_TREND_MOMENTUM'
+        ]
+        # 检查哪些信号是缺失的
+        missing_signals_in_atomic_states = [sig for sig in required_chip_signals if sig not in self.strategy.atomic_states]
+        if missing_signals_in_atomic_states:
+            print(f"    -> [融合层-筹码趋势警告] 缺少以下关键筹码信号，将使用默认值0.0进行计算: {', '.join(missing_signals_in_atomic_states)}")
+        # 即使信号缺失，_get_atomic_score 也会返回一个填充了默认值的 Series，并打印警告
         chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
         chip_cost_structure = self._get_atomic_score('SCORE_CHIP_AXIOM_COST_STRUCTURE', 0.0)
         chip_holder_sentiment = self._get_atomic_score('SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
@@ -729,13 +747,16 @@ class FusionIntelligence:
         chip_lockdown_degree = self._get_atomic_score('SCORE_CHIP_LOCKDOWN_DEGREE', 0.0)
         chip_trend_momentum = self._get_atomic_score('SCORE_CHIP_AXIOM_TREND_MOMENTUM', 0.0) # 获取新的筹码趋势动量公理
         # 融合所有筹码证据，采用加权平均
-        # 权重分配：集中度、成本结构、持股心态和趋势动量是核心，其他是辅助确认
+        # 权重分配：筹码趋势动量作为OCH_D的直接反映，应具有最高权重。
+        # 集中度、成本结构、持股心态次之。其他为辅助。
         components = [
             chip_concentration, chip_cost_structure, chip_holder_sentiment,
             chip_peak_integrity, chip_divergence, chip_cleanliness, chip_lockdown_degree,
             chip_trend_momentum # 新增筹码趋势动量
         ]
-        weights = np.array([0.20, 0.15, 0.15, 0.10, 0.10, 0.05, 0.05, 0.20]) # 调整权重
+        # 调整权重，显著提高 `SCORE_CHIP_AXIOM_TREND_MOMENTUM` 的权重
+        # 确保总和为1
+        weights = np.array([0.15, 0.15, 0.15, 0.10, 0.05, 0.05, 0.05, 0.30]) # 调整权重，趋势动量权重最高
         aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
         chip_trend_score = (
             aligned_components[0] * weights[0] +
