@@ -642,10 +642,11 @@ class CognitiveIntelligence:
 
     def _deduce_energy_compression_breakout(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.6 · 能量压缩爆发增强版 - 量能萎缩信号升级】贝叶斯推演：“能量压缩爆发”剧本
+        【V1.7 · 能量压缩爆发增强版 - 量能萎缩信号升级】贝叶斯推演：“能量压缩爆发”剧本
         - 核心升级: 将 `volume_atrophy` 证据替换为更精确的 `SCORE_BEHAVIOR_VOLUME_ATROPHY` 信号。
         - 【增强】引入价格变化率和成交量爆发作为“爆发”的直接证据，并调整证据权重，使其在爆发当天能更积极地反映剧本。
         - 【修正】在涨停日，对“压缩”证据（波动率压缩、成交量萎缩）更侧重其“状态”而非“动态”，并对最终似然度进行额外加成。
+        - 【修复】修正 `_forge_dynamic_evidence` 方法调用时，将 `is_bipolar` 参数改为 `is_probability`。
         """
         print("    -- [剧本推演] 能量压缩爆发 (动态证据)...")
         df_index = self.strategy.df_indicators.index
@@ -666,10 +667,14 @@ class CognitiveIntelligence:
             orderliness_score = pd.Series(0.5, index=df_index)
         # 证据4: 价格变化率 (直接爆发证据)
         pct_change_raw = self._get_atomic_score('pct_change_D', 0.0)
-        price_burst_evidence = self._forge_dynamic_evidence(pct_change_raw.clip(lower=0), is_bipolar=False) # 只关注上涨爆发
+        # [代码修改开始]
+        price_burst_evidence = self._forge_dynamic_evidence(pct_change_raw.clip(lower=0), is_probability=False) # 只关注上涨爆发
+        # [代码修改结束]
         # 证据5: 成交量爆发 (直接爆发证据)
         volume_burst_raw = self._get_atomic_score('SCORE_BEHAVIOR_VOLUME_BURST', 0.0)
-        volume_burst_evidence = self._forge_dynamic_evidence(volume_burst_raw, is_bipolar=False)
+        # [代码修改开始]
+        volume_burst_evidence = self._forge_dynamic_evidence(volume_burst_raw, is_probability=False)
+        # [代码修改结束]
         # 涨停日特殊处理：如果当天是涨停，则压缩证据直接取其“状态”分，并给予高权重
         volatility_compression_final = volatility_compression.mask(is_limit_up_day, volatility_compression_raw_score)
         volume_atrophy_final = volume_atrophy.mask(is_limit_up_day, volume_atrophy_raw_score) # 对新的萎缩信号也进行涨停日特殊处理
