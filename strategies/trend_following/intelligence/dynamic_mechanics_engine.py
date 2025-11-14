@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Any
-from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, normalize_to_bipolar, bipolar_to_exclusive_unipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, get_adaptive_mtf_normalized_score, bipolar_to_exclusive_unipolar
 
 class DynamicMechanicsEngine:
     def __init__(self, strategy_instance):
@@ -79,7 +79,6 @@ class DynamicMechanicsEngine:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 【优化】使用多时间维度自适应归一化
         roc_score = get_adaptive_mtf_normalized_bipolar_score(roc, df.index, default_weights)
         macd_h_score = get_adaptive_mtf_normalized_bipolar_score(macd_h, df.index, default_weights)
         momentum_score = (roc_score * 0.6 + macd_h_score * 0.4).clip(-1, 1)
@@ -101,26 +100,22 @@ class DynamicMechanicsEngine:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 【优化】使用多时间维度自适应归一化
-        adx_strength = utils.get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'ADX_14_D', 0.0, method_name="_diagnose_axiom_inertia"), df.index, ascending=True, tf_weights=default_weights)
+        adx_strength = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'ADX_14_D', 0.0, method_name="_diagnose_axiom_inertia"), df.index, ascending=True, tf_weights=default_weights)
         hurst_col = next((col for col in df.columns if col.startswith('hurst_')), 'hurst_144d_D')
         hurst = self._get_safe_series(df, hurst_col, 0.5, method_name="_diagnose_axiom_inertia").fillna(0.5)
-        # 【优化】使用多时间维度自适应归一化
-        hurst_quality = utils.get_adaptive_mtf_normalized_score(hurst, df.index, ascending=True, tf_weights=default_weights)
+        hurst_quality = get_adaptive_mtf_normalized_score(hurst, df.index, ascending=True, tf_weights=default_weights)
         fractal_col = next((col for col in df.columns if col.startswith('FRACTAL_DIMENSION_')), None)
         if fractal_col:
             fractal_dim = self._get_safe_series(df, fractal_col, 1.5, method_name="_diagnose_axiom_inertia").fillna(1.5)
             # 【优化】使用多时间维度自适应归一化
-            fractal_smoothness = utils.get_adaptive_mtf_normalized_score(fractal_dim, df.index, ascending=False, tf_weights=default_weights)
+            fractal_smoothness = get_adaptive_mtf_normalized_score(fractal_dim, df.index, ascending=False, tf_weights=default_weights)
         else:
             fractal_smoothness = pd.Series(0.5, index=df.index)
         ma_col_base = 'EMA_55' # 原始均线列名，不带时间框架后缀
         timeframe_key = 'D' # 明确时间框架
         # 修正列名引用，确保与 merge_results 后的列名一致
-        # 【优化】使用多时间维度自适应归一化
-        ma_velocity = utils.get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_VELOCITY_{ma_col_base}_{timeframe_key}', 0.0, method_name="_diagnose_axiom_inertia"), df.index, ascending=True, tf_weights=default_weights)
-        # 【优化】使用多时间维度自适应归一化
-        ma_acceleration = utils.get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}', 0.0, method_name="_diagnose_axiom_inertia"), df.index, ascending=True, tf_weights=default_weights)
+        ma_velocity = get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_VELOCITY_{ma_col_base}_{timeframe_key}', 0.0, method_name="_diagnose_axiom_inertia"), df.index, ascending=True, tf_weights=default_weights)
+        ma_acceleration = get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}', 0.0, method_name="_diagnose_axiom_inertia"), df.index, ascending=True, tf_weights=default_weights)
         inertia_quality = (
             adx_strength * 0.3 +
             hurst_quality * 0.3 +
@@ -147,13 +142,12 @@ class DynamicMechanicsEngine:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 【优化】使用多时间维度自适应归一化
-        volatility_level_score = utils.get_adaptive_mtf_normalized_score(raw_volatility, df.index, ascending=False, tf_weights=default_weights)
+        volatility_level_score = get_adaptive_mtf_normalized_score(raw_volatility, df.index, ascending=False, tf_weights=default_weights)
         vol_instability_col = next((col for col in df.columns if col.startswith('VOLATILITY_INSTABILITY_INDEX_')), None)
         if vol_instability_col:
             vol_of_vol = self._get_safe_series(df, vol_instability_col, 0.0, method_name="_diagnose_axiom_stability")
             # 【优化】使用多时间维度自适应归一化
-            volatility_stability_score = utils.get_adaptive_mtf_normalized_score(vol_of_vol, df.index, ascending=False, tf_weights=default_weights)
+            volatility_stability_score = get_adaptive_mtf_normalized_score(vol_of_vol, df.index, ascending=False, tf_weights=default_weights)
         else:
             volatility_stability_score = pd.Series(0.5, index=df.index)
         raw_stability_score = (
@@ -178,7 +172,6 @@ class DynamicMechanicsEngine:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 【优化】使用多时间维度自适应归一化
         cmf_bipolar = get_adaptive_mtf_normalized_bipolar_score(cmf, df.index, default_weights)
         energy_score = (
             vpa_bipolar * 0.5 +
@@ -210,9 +203,7 @@ class DynamicMechanicsEngine:
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         # 归一化速度和加速度
-        # 【优化】使用多时间维度自适应归一化
         velocity_score = get_adaptive_mtf_normalized_bipolar_score(velocity_raw, df_index, default_weights)
-        # 【优化】使用多时间维度自适应归一化
         acceleration_score = get_adaptive_mtf_normalized_bipolar_score(acceleration_raw, df_index, default_weights)
         # 融合：速度和加速度都为正时，分数最高
         ma_dynamics_score = (velocity_score * 0.6 + acceleration_score * 0.4).clip(-1, 1)

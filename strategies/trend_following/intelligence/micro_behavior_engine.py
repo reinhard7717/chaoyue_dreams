@@ -81,12 +81,10 @@ class MicroBehaviorEngine:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 【优化】使用多时间维度自适应归一化
         price_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_axiom_divergence"), df.index, default_weights)
         active_buy_support = self._get_safe_series(df, 'active_buying_support_D', method_name="_diagnose_axiom_divergence")
         active_sell_pressure = self._get_safe_series(df, 'active_selling_pressure_D', method_name="_diagnose_axiom_divergence")
         active_buy_sell_diff = active_buy_support - active_sell_pressure
-        # 【优化】使用多时间维度自适应归一化
         order_flow_trend = get_adaptive_mtf_normalized_bipolar_score(active_buy_sell_diff.diff(1), df.index, default_weights)
         divergence_score = (order_flow_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
@@ -113,7 +111,6 @@ class MicroBehaviorEngine:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 【优化】使用多时间维度自适应归一化
         deception_score = get_adaptive_mtf_normalized_bipolar_score(raw_deception_score, df.index, default_weights)
         return deception_score.astype(np.float32)
 
@@ -139,7 +136,6 @@ class MicroBehaviorEngine:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 【优化】使用多时间维度自适应归一化
         probe_score = get_adaptive_mtf_normalized_bipolar_score(raw_probe_score, df.index, default_weights)
         return probe_score.astype(np.float32)
 
@@ -160,7 +156,6 @@ class MicroBehaviorEngine:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 【优化】使用多时间维度自适应归一化
         efficiency_score = get_adaptive_mtf_normalized_bipolar_score(raw_efficiency_score, df.index, default_weights)
         return efficiency_score.astype(np.float32)
 

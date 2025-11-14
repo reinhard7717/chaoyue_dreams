@@ -183,7 +183,6 @@ class CyclicalIntelligence:
         # 构造核心双极性序列 (Hurst - 0.5)
         raw_bipolar_series = hurst_series - 0.5
         # 使用双极归一化引擎进行最终裁决，输出一个[-1, 1]的记忆性分数
-        # 【优化】使用多时间维度自适应归一化
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})

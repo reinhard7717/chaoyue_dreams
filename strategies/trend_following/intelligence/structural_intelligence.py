@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Any
-from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar, is_limit_up
+from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar, is_limit_up, get_adaptive_mtf_normalized_score
 
 class StructuralIntelligence:
     """
@@ -71,10 +71,8 @@ class StructuralIntelligence:
             return pd.Series(0.0, index=df.index)
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         tf_weights_struct = get_param_value(p_conf_struct.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}) # 借用筹码的MTF权重配置
-        # 【优化】使用多时间维度自适应归一化
         price_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_axiom_divergence"), df.index, tf_weights_struct)
         ema_short_long_diff = self._get_safe_series(df, 'EMA_5_D', 0.0, method_name="_diagnose_axiom_divergence") - self._get_safe_series(df, 'EMA_55_D', 0.0, method_name="_diagnose_axiom_divergence")
-        # 【优化】使用多时间维度自适应归一化
         ma_structure_trend = get_adaptive_mtf_normalized_bipolar_score(ema_short_long_diff.diff(1), df.index, tf_weights_struct)
         divergence_score = (ma_structure_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
@@ -119,8 +117,7 @@ class StructuralIntelligence:
         price_ma_distance = pd.Series(0.0, index=df_index)
         for p in ma_periods:
             price_ma_distance += (self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_trend_form") - self._get_safe_series(df, f'EMA_{p}_D', method_name="_diagnose_axiom_trend_form")).clip(lower=0) # 只考虑价格在均线之上
-        # 【优化】使用多时间维度自适应归一化
-        price_ma_distance_score = utils.get_adaptive_mtf_normalized_score(price_ma_distance, df_index, ascending=True, tf_weights=tf_weights_struct)
+        price_ma_distance_score = get_adaptive_mtf_normalized_score(price_ma_distance, df_index, ascending=True, tf_weights=tf_weights_struct)
         bull_alignment_raw += price_ma_distance_score * 0.5 # 额外权重
         bull_alignment = bull_alignment_raw / (sum(weights) + 1.0) # 归一化到 [0, 1]
         bear_alignment = bear_alignment_raw / sum(weights) # 归一化到 [0, 1]
@@ -134,29 +131,22 @@ class StructuralIntelligence:
             bull_velocity_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_trend_form").clip(lower=0) # 只累加正向斜率
             bear_velocity_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_trend_form").clip(upper=0).abs() # 只累加负向斜率的绝对值
         # 增强 bull_velocity: 引入 pct_change_D 的贡献
-        # 【优化】使用多时间维度自适应归一化
-        pct_change_score = utils.get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_axiom_trend_form").clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct)
+        pct_change_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_axiom_trend_form").clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct)
         bull_velocity_raw += pct_change_score * 0.5 # 额外权重
         # 调整 normalize_score 的敏感度，使其在涨停日能得到更高的分数
-        # 【优化】使用多时间维度自适应归一化
-        bull_velocity = utils.get_adaptive_mtf_normalized_score(bull_velocity_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        # 【优化】使用多时间维度自适应归一化
-        bear_velocity = utils.get_adaptive_mtf_normalized_score(bear_velocity_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
+        bull_velocity = get_adaptive_mtf_normalized_score(bull_velocity_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
+        bear_velocity = get_adaptive_mtf_normalized_score(bear_velocity_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
         # --- 引入成交量爆裂度、上涨推力效能 ---
         volume_burstiness_raw = self._get_safe_series(df, 'volume_ratio_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form") # 替换为 volume_ratio_D
         upward_thrust_efficacy_raw = self._get_safe_series(df, 'upward_impulse_purity_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form") # 替换为 upward_impulse_purity_D
         downward_absorption_efficacy_raw = self._get_safe_series(df, 'dip_absorption_power_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form") # 替换为 dip_absorption_power_D
-        # 【优化】使用多时间维度自适应归一化
-        burstiness_score = utils.get_adaptive_mtf_normalized_score(volume_burstiness_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        # 【优化】使用多时间维度自适应归一化
-        upward_efficacy_score = utils.get_adaptive_mtf_normalized_score(upward_thrust_efficacy_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        # 【优化】使用多时间维度自适应归一化
-        downward_efficacy_score = utils.get_adaptive_mtf_normalized_score(downward_absorption_efficacy_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
+        burstiness_score = get_adaptive_mtf_normalized_score(volume_burstiness_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
+        upward_efficacy_score = get_adaptive_mtf_normalized_score(upward_thrust_efficacy_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
+        downward_efficacy_score = get_adaptive_mtf_normalized_score(downward_absorption_efficacy_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
         # --- 引入均线角度 ---
         ma_col_base = 'EMA_55'
         timeframe_key = 'D'
         ma_angle_raw = self._get_safe_series(df, f'ATAN_ANGLE_{ma_col_base}_{timeframe_key}', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
-        # 【优化】使用多时间维度自适应归一化
         ma_angle_score = get_adaptive_mtf_normalized_bipolar_score(ma_angle_raw, df_index, tf_weights_struct, sensitivity=10.0)
         # --- 融合牛熊分数 ---
         bull_score = (bull_alignment * bull_velocity * (1 + burstiness_score * 0.2) + upward_efficacy_score * 0.1 + ma_angle_score.clip(lower=0) * 0.1).clip(0, 1)
@@ -225,20 +215,16 @@ class StructuralIntelligence:
             bull_velocity_w_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_mtf_cohesion").clip(lower=0)
             bear_velocity_w_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_mtf_cohesion").clip(upper=0).abs()
         # 增强 bull_velocity_w: 引入 pct_change_W 的贡献
-        # 【优化】使用多时间维度自适应归一化
-        pct_change_w_score = utils.get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_W', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_mtf_cohesion").clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct)
+        pct_change_w_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_W', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_mtf_cohesion").clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct)
         bull_velocity_w_raw += pct_change_w_score * 0.5 # 额外权重
-        # 【优化】使用多时间维度自适应归一化
-        bull_velocity_w = utils.get_adaptive_mtf_normalized_score(bull_velocity_w_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        # 【优化】使用多时间维度自适应归一化
-        bear_velocity_w = utils.get_adaptive_mtf_normalized_score(bear_velocity_w_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
+        bull_velocity_w = get_adaptive_mtf_normalized_score(bull_velocity_w_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
+        bear_velocity_w = get_adaptive_mtf_normalized_score(bear_velocity_w_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
         weekly_trend_form_score = (pd.Series(bull_alignment_w * bull_velocity_w, index=df_index) - pd.Series(bear_alignment_w * bear_velocity_w, index=df_index)).clip(-1, 1)
         # 涨停日特殊处理：如果日线趋势形态为正，则周线趋势形态也应该至少有一个积极的基础分
         weekly_trend_form_score = weekly_trend_form_score.mask(is_limit_up_day & (daily_trend_form_score > 0), weekly_trend_form_score + 0.3).clip(-1, 1)
         # 获取并归一化 trend_efficiency_ratio_D
         trend_efficiency_raw = self._get_safe_series(df, 'VPA_EFFICIENCY_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_mtf_cohesion") # 替换为 VPA_EFFICIENCY_D
-        # 【优化】使用多时间维度自适应归一化
-        efficiency_score = utils.get_adaptive_mtf_normalized_score(trend_efficiency_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
+        efficiency_score = get_adaptive_mtf_normalized_score(trend_efficiency_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
         # 融合效率分数。效率分数作为乘数因子，增强协同的质量。
         # 确保在积极信号时贡献正分。
         # 优化 cohesion_score 融合逻辑，在涨停日，如果日线趋势形态为正，则协同分数更倾向于正向
@@ -287,16 +273,14 @@ class StructuralIntelligence:
             return pd.Series(0.0, index=df_index)
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         tf_weights_struct = get_param_value(p_conf_struct.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 【优化】使用多时间维度自适应归一化
-        energy_accumulation_score = 1 - utils.get_adaptive_mtf_normalized_score(self._get_safe_series(df, bbw_col, method_name="_diagnose_axiom_stability"), df_index, ascending=True, tf_weights=tf_weights_struct)
+        energy_accumulation_score = 1 - get_adaptive_mtf_normalized_score(self._get_safe_series(df, bbw_col, method_name="_diagnose_axiom_stability"), df_index, ascending=True, tf_weights=tf_weights_struct)
         energy_accumulation_score = energy_accumulation_score.fillna(0.5)
         long_term_ma_periods = [55, 144]
         required_ma_cols = [f'MA_{p}_D' for p in long_term_ma_periods]
         required_slope_cols = [f'SLOPE_5_MA_{p}_D' for p in long_term_ma_periods] # 默认使用5日斜率
         # 获取并归一化 vpoc_consensus_strength_D
         vpoc_consensus_raw = self._get_safe_series(df, 'mf_vpoc_premium_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability") # 替换为 mf_vpoc_premium_D
-        # 【优化】使用多时间维度自适应归一化
-        vpoc_consensus_score = utils.get_adaptive_mtf_normalized_score(vpoc_consensus_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
+        vpoc_consensus_score = get_adaptive_mtf_normalized_score(vpoc_consensus_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
         if not all(col in df.columns for col in required_ma_cols + required_slope_cols):
             print("    -> [结构情报警告] 方法 '_diagnose_axiom_stability' 缺少必要的长期MA或其斜率列，长期结构评估将跳过。")
             foundation_health_score = pd.Series(0.5, index=df_index)
@@ -309,7 +293,7 @@ class StructuralIntelligence:
                 # 优化 support_score 的计算，使其更直接地反映价格在MA之上的强度
                 # 调整 normalize_score 的敏感度，使其在涨停日能得到更高的分数
                 # 【优化】使用多时间维度自适应归一化
-                support_score = utils.get_adaptive_mtf_normalized_score((self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_stability") - self._get_safe_series(df, f'MA_{p}_D', method_name="_diagnose_axiom_stability")).clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct).clip(0, 1)
+                support_score = get_adaptive_mtf_normalized_score((self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_stability") - self._get_safe_series(df, f'MA_{p}_D', method_name="_diagnose_axiom_stability")).clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct).clip(0, 1)
                 support_scores.append(support_score)
             foundation_support_score = pd.Series(np.mean(support_scores, axis=0), index=df_index)
             health_scores = []
@@ -321,7 +305,7 @@ class StructuralIntelligence:
                 if slope_col_name not in df.columns:
                     slope_col_name = f'SLOPE_5_MA_{p}_D' # 回退到5日斜率
                 # 【优化】使用多时间维度自适应归一化
-                health_score = utils.get_adaptive_mtf_normalized_score(self._get_safe_series(df, slope_col_name, pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability").clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct).clip(0, 1)
+                health_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, slope_col_name, pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability").clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct).clip(0, 1)
                 health_scores.append(health_score)
             long_term_trend_health_score = pd.Series(np.mean(health_scores, axis=0), index=df_index)
             # 融合 vpoc_consensus_strength_D 到 foundation_health_score
@@ -330,7 +314,6 @@ class StructuralIntelligence:
         raw_stability_score = (energy_accumulation_score * 0.3 + foundation_health_score * 0.7).fillna(0.5) # 赋予基石支撑更高权重
         # 获取并归一化 volatility_skew_index_D
         volatility_skew_raw = self._get_safe_series(df, 'volatility_asymmetry_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability") # 替换为 volatility_asymmetry_index_D
-        # 【优化】使用多时间维度自适应归一化
         volatility_skew_score = get_adaptive_mtf_normalized_bipolar_score(volatility_skew_raw, df_index, tf_weights_struct, sensitivity=0.5).fillna(0.0) # 归一化到 [-1, 1]
         # 融合 volatility_skew_score 到最终的 stability_score
         stability_score = (raw_stability_score * 0.8 + volatility_skew_score.clip(lower=0) * 0.2 - volatility_skew_score.clip(upper=0).abs() * 0.2).clip(-1, 1)

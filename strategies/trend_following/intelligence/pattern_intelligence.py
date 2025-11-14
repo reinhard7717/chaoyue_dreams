@@ -58,7 +58,6 @@ class PatternIntelligence:
         raw_divergence_score = bullish_divergence_strength - bearish_divergence_strength
         p_conf_pattern = get_params_block(self.strategy, 'pattern_params', {})
         tf_weights_pattern = get_param_value(p_conf_pattern.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}) # 借用筹码的MTF权重配置
-        # 【优化】使用多时间维度自适应归一化
         divergence_score = get_adaptive_mtf_normalized_bipolar_score(raw_divergence_score, df.index, tf_weights_pattern)
         return divergence_score.astype(np.float32)
 
@@ -71,7 +70,6 @@ class PatternIntelligence:
         raw_reversal_score = self._get_safe_series(df, 'counterparty_exhaustion_index_D', 0, method_name="_diagnose_axiom_reversal")
         p_conf_pattern = get_params_block(self.strategy, 'pattern_params', {})
         tf_weights_pattern = get_param_value(p_conf_pattern.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 【优化】使用多时间维度自适应归一化
         reversal_score = get_adaptive_mtf_normalized_bipolar_score(raw_reversal_score, df.index, tf_weights_pattern)
         return reversal_score.astype(np.float32)
 
@@ -88,7 +86,6 @@ class PatternIntelligence:
         raw_breakout_score = breakout_direction * breakout_quality
         p_conf_pattern = get_params_block(self.strategy, 'pattern_params', {})
         tf_weights_pattern = get_param_value(p_conf_pattern.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 【优化】使用多时间维度自适应归一化
         breakout_score = get_adaptive_mtf_normalized_bipolar_score(raw_breakout_score, df.index, tf_weights_pattern)
         return breakout_score.astype(np.float32)
 

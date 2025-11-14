@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Any, Union
-from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar, normalize_score
+from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar, get_adaptive_mtf_normalized_score
 
 class FundFlowIntelligence:
     def __init__(self, strategy_instance):
@@ -75,9 +75,7 @@ class FundFlowIntelligence:
         """
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}) # 借用筹码的MTF权重配置
-        # 【优化】使用多时间维度自适应归一化
         price_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_axiom_divergence"), df.index, tf_weights)
-        # 【优化】使用多时间维度自适应归一化
         main_force_flow_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_axiom_divergence"), df.index, tf_weights)
         divergence_score = (main_force_flow_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
@@ -98,10 +96,8 @@ class FundFlowIntelligence:
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}) # 资金流模块的MTF权重
         # 归一化博弈烈度，越高越好，但作为乘数因子，需要映射到 [0, 1]
-        # 【优化】使用多时间维度自适应归一化
-        battle_intensity_factor = utils.get_adaptive_mtf_normalized_score(battle_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
+        battle_intensity_factor = get_adaptive_mtf_normalized_score(battle_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
         # 原始共识分数
-        # 【优化】使用多时间维度自适应归一化
         consensus_score_base = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df_index, tf_weights_ff, sensitivity=1.0)
         # 融合博弈烈度。高烈度时，放大共识信号；低烈度时，削弱共识信号。
         # 乘数因子 (1 + battle_intensity_factor * 0.5) 可以放大共识，但不会改变方向
@@ -139,15 +135,11 @@ class FundFlowIntelligence:
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # 对 conviction_index_raw 和 cost_advantage_raw 进行归一化
         # 赢家信念和成本优势越高越好，所以归一化后应为正
-        # 【优化】使用多时间维度自适应归一化
         conviction_index_bipolar = get_adaptive_mtf_normalized_bipolar_score(conviction_index_raw, df_index, tf_weights_ff, sensitivity=10.0) # 调整敏感度
-        # 【优化】使用多时间维度自适应归一化
         cost_advantage_bipolar = get_adaptive_mtf_normalized_bipolar_score(cost_advantage_raw, df_index, tf_weights_ff, sensitivity=100.0) # 调整敏感度
         # t0_efficiency 越高，对信念的负面影响越大，所以归一化后应为负
-        # 【优化】使用多时间维度自适应归一化
         t0_efficiency_bipolar = get_adaptive_mtf_normalized_bipolar_score(t0_efficiency_raw, df_index, tf_weights_ff, sensitivity=0.5)
         # 价格冲击比率：越高越好，正向贡献
-        # 【优化】使用多时间维度自适应归一化
         price_impact_bipolar = get_adaptive_mtf_normalized_bipolar_score(price_impact_raw, df_index, tf_weights_ff, sensitivity=10.0) # 归一化价格冲击比率
         # 重新加权融合
         raw_bipolar_series = (
@@ -156,7 +148,6 @@ class FundFlowIntelligence:
             price_impact_bipolar * 0.2 - # 价格冲击比率权重
             t0_efficiency_bipolar * 0.1 # 降低 t0_efficiency 的权重
         ).clip(-1, 1)
-        # 【优化】使用多时间维度自适应归一化
         conviction_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df_index, tf_weights_ff, sensitivity=1.0)
         # --- Debugging output for probe date ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -197,15 +188,12 @@ class FundFlowIntelligence:
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # 归一化NMFNF本身，反映当前资金流的相对强度
-        # 【优化】使用多时间维度自适应归一化
         nmfnf_score = get_adaptive_mtf_normalized_bipolar_score(nmfnf, df_index, tf_weights_ff, sensitivity=0.001) # 敏感度根据实际数据调整
         # 获取NMFNF的5日和21日斜率，反映资金流的动量和趋势
         slope_5_nmfnf = self._get_safe_series(df, 'SLOPE_5_NMFNF_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_flow_momentum")
         slope_21_nmfnf = self._get_safe_series(df, 'SLOPE_21_NMFNF_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_flow_momentum")
         # 归一化斜率
-        # 【优化】使用多时间维度自适应归一化
         slope_5_nmfnf_score = get_adaptive_mtf_normalized_bipolar_score(slope_5_nmfnf, df_index, tf_weights_ff, sensitivity=0.0001)
-        # 【优化】使用多时间维度自适应归一化
         slope_21_nmfnf_score = get_adaptive_mtf_normalized_bipolar_score(slope_21_nmfnf, df_index, tf_weights_ff, sensitivity=0.00005)
         # 融合当前资金流强度和其动量
         # 权重分配：当前强度和短期动量更重要，中期趋势提供确认

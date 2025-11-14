@@ -4,7 +4,7 @@ import numpy as np
 import pandas_ta as ta
 from typing import Dict, List, Optional, Any
 
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar, is_limit_up
+from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_score, is_limit_up
 
 class ProcessIntelligence:
     """
@@ -110,8 +110,12 @@ class ProcessIntelligence:
             return ta.percent_return(series, length=1).fillna(0)
         change_a = get_change_series(signal_a, config.get('change_type_A', 'pct'))
         change_b = get_change_series(signal_b, config.get('change_type_B', 'pct'))
-        momentum_a = normalize_to_bipolar(change_a, df_index, self.std_window, self.bipolar_sensitivity)
-        thrust_b = normalize_to_bipolar(change_b, df_index, self.std_window, self.bipolar_sensitivity)
+        # 获取MTF权重配置
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        momentum_a = get_adaptive_mtf_normalized_bipolar_score(change_a, df_index, default_weights, self.bipolar_sensitivity)
+        thrust_b = get_adaptive_mtf_normalized_bipolar_score(change_b, df_index, default_weights, self.bipolar_sensitivity)
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
         if relationship_type == 'divergence':
             relationship_score = (signal_b_factor_k * thrust_b - momentum_a) / (signal_b_factor_k + 1)
@@ -129,9 +133,13 @@ class ProcessIntelligence:
         bipolar_sensitivity = self.bipolar_sensitivity
         price_change = self._get_safe_series(df, 'pct_change_D', pd.Series(0.0, index=df_index), method_name="_calculate_cost_advantage_trend_relationship")
         main_force_cost_advantage = self._get_safe_series(df, 'main_force_cost_advantage_D', pd.Series(0.0, index=df_index), method_name="_calculate_cost_advantage_trend_relationship")
-        P_change = normalize_to_bipolar(price_change, df_index, std_window, bipolar_sensitivity)
-        CA_change = normalize_to_bipolar(main_force_cost_advantage.diff(1).fillna(0), df_index, std_window, bipolar_sensitivity)
-        MF_flow = normalize_to_bipolar(self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_calculate_cost_advantage_trend_relationship"), df_index, std_window, bipolar_sensitivity)
+        # 获取MTF权重配置
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        P_change = get_adaptive_mtf_normalized_bipolar_score(price_change, df_index, default_weights, bipolar_sensitivity)
+        CA_change = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage.diff(1).fillna(0), df_index, default_weights, bipolar_sensitivity)
+        MF_flow = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_calculate_cost_advantage_trend_relationship"), df_index, default_weights, bipolar_sensitivity)
         Chip_conc = self.strategy.atomic_states.get('SCORE_CHIP_AXIOM_CONCENTRATION', pd.Series(0.0, index=df_index))
         Micro_decep = self.strategy.atomic_states.get('SCORE_MICRO_AXIOM_DECEPTION', pd.Series(0.0, index=df_index))
         Up_eff_unipolar = self.strategy.atomic_states.get('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', pd.Series(0.5, index=df_index))
@@ -170,12 +178,13 @@ class ProcessIntelligence:
         self.strategy.atomic_states[f"_DEBUG_Q2_final"] = Q2_final
         self.strategy.atomic_states[f"_DEBUG_Q3_final"] = Q3_final
         self.strategy.atomic_states[f"_DEBUG_Q4_final"] = Q4_final
+
         print(f"    -> [过程层] PROCESS_META_COST_ADVANTAGE_TREND 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
     def _calculate_main_force_urgency_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0 · 主力拉升意图重构版】计算“主力拉升意图”的专属关系分数。
+        【V2.1 · 主力拉升意图重构与多时间维度归一化版】计算“主力拉升意图”的专属关系分数。
         - 核心重构: 将原“主力紧迫度”概念细化为“主力控盘拉升”和“主力抢筹拉升”两种积极意图，并融合为一个综合分数。
         - 核心逻辑:
           1. 区分“控盘拉升”：价格上涨，主力资金流入，筹码集中，但主力成本抬升速度慢于价格上涨速度。
@@ -185,10 +194,10 @@ class ProcessIntelligence:
         - 【修正】调整 `final_urgency_score` 的计算逻辑，使其在价格上涨且主力资金流入时能更准确地反映拉升意图。
         - 【增强】在涨停日，引入 `pct_change_D` 的强度作为 `initial_urgency_score` 的组成部分，并对 `final_urgency_score` 进行额外加成。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
         """
         print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (主力拉升意图)...") # 修改信号名称
         df_index = df.index
-        norm_window = self.norm_window
         std_window = self.std_window
         # 判断是否为涨停日
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
@@ -202,15 +211,19 @@ class ProcessIntelligence:
         main_force_control_leverage = self._get_safe_series(df, 'main_force_control_leverage_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
         main_force_cost_advantage = self._get_safe_series(df, 'main_force_cost_advantage_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
         main_force_price_impact_ratio = self._get_safe_series(df, 'main_force_price_impact_ratio_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
+        # 获取MTF权重配置
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         # 2. 归一化为双极性分数
-        price_change_bipolar = normalize_to_bipolar(price_change, df_index, std_window, self.bipolar_sensitivity)
-        main_force_cost_change_bipolar = normalize_to_bipolar(main_force_cost_change_raw, df_index, std_window, self.bipolar_sensitivity)
-        main_force_cost_accel_bipolar = normalize_to_bipolar(main_force_cost_accel_raw, df_index, std_window, self.bipolar_sensitivity)
-        main_force_net_flow_bipolar = normalize_to_bipolar(main_force_net_flow, df_index, std_window, self.bipolar_sensitivity)
-        chip_concentration_change_bipolar = normalize_to_bipolar(chip_concentration_change, df_index, std_window, self.bipolar_sensitivity)
-        main_force_control_leverage_bipolar = normalize_to_bipolar(main_force_control_leverage, df_index, std_window, self.bipolar_sensitivity)
-        main_force_cost_advantage_bipolar = normalize_to_bipolar(main_force_cost_advantage, df_index, std_window, self.bipolar_sensitivity)
-        main_force_price_impact_ratio_bipolar = normalize_to_bipolar(main_force_price_impact_ratio, df_index, std_window, self.bipolar_sensitivity)
+        price_change_bipolar = get_adaptive_mtf_normalized_bipolar_score(price_change, df_index, default_weights, self.bipolar_sensitivity)
+        main_force_cost_change_bipolar = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_change_raw, df_index, default_weights, self.bipolar_sensitivity)
+        main_force_cost_accel_bipolar = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_accel_raw, df_index, default_weights, self.bipolar_sensitivity)
+        main_force_net_flow_bipolar = get_adaptive_mtf_normalized_bipolar_score(main_force_net_flow, df_index, default_weights, self.bipolar_sensitivity)
+        chip_concentration_change_bipolar = get_adaptive_mtf_normalized_bipolar_score(chip_concentration_change, df_index, default_weights, self.bipolar_sensitivity)
+        main_force_control_leverage_bipolar = get_adaptive_mtf_normalized_bipolar_score(main_force_control_leverage, df_index, default_weights, self.bipolar_sensitivity)
+        main_force_cost_advantage_bipolar = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage, df_index, default_weights, self.bipolar_sensitivity)
+        main_force_price_impact_ratio_bipolar = get_adaptive_mtf_normalized_bipolar_score(main_force_price_impact_ratio, df_index, default_weights, self.bipolar_sensitivity)
         # 3. 核心逻辑：区分“控盘拉升”和“抢筹拉升”
         # relative_urgency_speed: 主力成本抬升速度 - 价格上涨速度
         # > 0 表示抢筹 (成本抬升快于价格)
@@ -266,7 +279,7 @@ class ProcessIntelligence:
 
     def _calculate_main_force_control_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.0】计算“主力控盘”的专属关系分数。
+        【V1.1 · 多时间维度归一化版】计算“主力控盘”的专属关系分数。
         - 核心逻辑: 诊断主力控盘的强度和趋势，基于通达信公式中的“控盘”和“有庄控盘”逻辑。
         - 证据链:
           1. 控盘指标 (VARN1-REF(VARN1,1))/REF(VARN1,1)*1000
@@ -274,6 +287,7 @@ class ProcessIntelligence:
           3. 主力资金净流入 (main_force_net_flow_calibrated_D)
         - 输出: [-1, 1] 的双极性分数，正分代表主力控盘强且趋势向上，负分代表控盘弱或趋势向下。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `kongpan_score` 和 `main_force_flow_score` 的归一化方式改为多时间维度自适应归一化。
         """
         print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_CONTROL (主力控盘)...")
         df_index = df.index
@@ -290,9 +304,13 @@ class ProcessIntelligence:
         youzhuang_kongpan = (kongpan_raw > kongpan_raw.shift(1)) & (kongpan_raw > 0)
         # 4. 主力资金净流入作为确认
         main_force_net_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_control_relationship")
+        # 获取MTF权重配置
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         # 5. 归一化为双极性分数
-        kongpan_score = normalize_to_bipolar(kongpan_raw, df_index, std_window, bipolar_sensitivity)
-        main_force_flow_score = normalize_to_bipolar(main_force_net_flow, df_index, std_window, bipolar_sensitivity)
+        kongpan_score = get_adaptive_mtf_normalized_bipolar_score(kongpan_raw, df_index, default_weights, bipolar_sensitivity)
+        main_force_flow_score = get_adaptive_mtf_normalized_bipolar_score(main_force_net_flow, df_index, default_weights, bipolar_sensitivity)
         # 6. 融合：控盘强度 * 控盘趋势 * 主力资金流
         # 只有在有庄控盘为True时，才考虑控盘强度和资金流
         final_control_score = pd.Series(0.0, index=df_index)
@@ -314,8 +332,9 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V4.0.2 · 希格斯场分析法 - 信号存储修复版】对“关系分”进行元分析，输出分数。
+        【V4.0.3 · 希格斯场分析法 - 信号存储与多时间维度归一化修复版】对“关系分”进行元分析，输出分数。
         - 核心修复: 确保 `PROCESS_META_MAIN_FORCE_RALLY_INTENT` 及其他定制化计算的信号能够正确地被存储到 `atomic_states` 中。
+        - 【优化】将 `bipolar_displacement_strength` 和 `bipolar_momentum_strength` 的归一化方式改为多时间维度自适应归一化。
         """
         signal_name = config.get('name')
         df_index = df.index
@@ -343,16 +362,22 @@ class ProcessIntelligence:
         else:
             relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
             relationship_momentum = relationship_displacement.diff(1).fillna(0)
-            bipolar_displacement_strength = normalize_to_bipolar(
+            # 获取MTF权重配置
+            p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+            p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+            default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+            # 【优化】使用多时间维度自适应归一化
+            bipolar_displacement_strength = get_adaptive_mtf_normalized_bipolar_score(
                 series=relationship_displacement,
                 target_index=df_index,
-                window=self.norm_window,
+                tf_weights=default_weights,
                 sensitivity=self.bipolar_sensitivity
             )
-            bipolar_momentum_strength = normalize_to_bipolar(
+            # 【优化】使用多时间维度自适应归一化
+            bipolar_momentum_strength = get_adaptive_mtf_normalized_bipolar_score(
                 series=relationship_momentum,
                 target_index=df_index,
-                window=self.norm_window,
+                tf_weights=default_weights,
                 sensitivity=self.bipolar_sensitivity
             )
             displacement_weight = self.meta_score_weights[0]
@@ -377,8 +402,9 @@ class ProcessIntelligence:
 
     def _diagnose_split_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 希格斯场分析法】分裂型元关系诊断器
+        【V2.1 · 希格斯场分析法与多时间维度归一化版】分裂型元关系诊断器
         - 核心升级: 同步采用全新的“关系位移/关系动量”模型进行核心计算。
+        - 【优化】将 `bipolar_displacement_strength` 和 `bipolar_momentum_strength` 的归一化方式改为多时间维度自适应归一化。
         """
         states = {}
         output_names = config.get('output_names', {})
@@ -392,16 +418,20 @@ class ProcessIntelligence:
             return {}
         relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
         relationship_momentum = relationship_displacement.diff(1).fillna(0)
-        bipolar_displacement_strength = normalize_to_bipolar(
+        # 获取MTF权重配置
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        bipolar_displacement_strength = get_adaptive_mtf_normalized_bipolar_score(
             series=relationship_displacement,
             target_index=df.index,
-            window=self.norm_window,
+            tf_weights=default_weights,
             sensitivity=self.bipolar_sensitivity
         )
-        bipolar_momentum_strength = normalize_to_bipolar(
+        bipolar_momentum_strength = get_adaptive_mtf_normalized_bipolar_score(
             series=relationship_momentum,
             target_index=df.index,
-            window=self.norm_window,
+            tf_weights=default_weights,
             sensitivity=self.bipolar_sensitivity
         )
         displacement_weight = self.meta_score_weights[0]
@@ -416,9 +446,10 @@ class ProcessIntelligence:
 
     def _calculate_winner_conviction_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.1 · 真理探针植入版】“赢家信念”专属关系计算引擎
+        【V1.2 · 真理探针植入与多时间维度归一化版】“赢家信念”专属关系计算引擎
         - 新增功能: 植入“真理探针”，打印计算过程中的所有中间变量。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
         """
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
@@ -437,9 +468,13 @@ class ProcessIntelligence:
         if signal_a is None or signal_b is None or signal_antidote is None:
             print(f"        -> [赢家信念] 警告: 缺少原始信号 '{signal_a_name}', '{signal_b_name}' 或 '{antidote_signal_name}'。")
             return pd.Series(dtype=np.float32)
-        momentum_a = normalize_to_bipolar(get_change_series(signal_a, config.get('change_type_A')), df_index, self.std_window, self.bipolar_sensitivity)
-        momentum_b_raw = normalize_to_bipolar(get_change_series(signal_b, config.get('change_type_B')), df_index, self.std_window, self.bipolar_sensitivity)
-        momentum_antidote = normalize_to_bipolar(get_change_series(signal_antidote, config.get('antidote_change_type')), df_index, self.std_window, self.bipolar_sensitivity)
+        # 获取MTF权重配置
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        momentum_a = get_adaptive_mtf_normalized_bipolar_score(get_change_series(signal_a, config.get('change_type_A')), df_index, default_weights, self.bipolar_sensitivity)
+        momentum_b_raw = get_adaptive_mtf_normalized_bipolar_score(get_change_series(signal_b, config.get('change_type_B')), df_index, default_weights, self.bipolar_sensitivity)
+        momentum_antidote = get_adaptive_mtf_normalized_bipolar_score(get_change_series(signal_antidote, config.get('antidote_change_type')), df_index, default_weights, self.bipolar_sensitivity)
         antidote_k = config.get('antidote_k', 1.0)
         momentum_b_corrected = momentum_b_raw + antidote_k * momentum_antidote
         k = config.get('signal_b_factor_k', 1.0)
@@ -448,11 +483,12 @@ class ProcessIntelligence:
 
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.0】信号衰减诊断器
+        【V1.1 · 多时间维度归一化版】信号衰减诊断器
         - 核心职责: 专门用于计算单个信号的负向变化（衰减）强度。
         - 数学逻辑: 1. 计算信号的一阶差分。 2. 只保留负值（代表衰减）。 3. 取绝对值。 4. 归一化。
         - 收益: 提供了计算“衰减”的正确且健壮的数学模型，取代了错误的关系诊断模型。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `decay_score` 的归一化方式改为多时间维度自适应归一化。
         """
         signal_name = config.get('name')
         source_signal_name = config.get('source_signal')
@@ -471,16 +507,21 @@ class ProcessIntelligence:
             return {}
         signal_change = source_series.diff(1).fillna(0)
         decay_magnitude = signal_change.clip(upper=0).abs()
-        decay_score = normalize_score(decay_magnitude, df_index, window=self.norm_window, ascending=True)
+        # 获取MTF权重配置
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        decay_score = get_adaptive_mtf_normalized_score(decay_magnitude, df_index, ascending=True, tf_weights=default_weights)
         return {signal_name: decay_score.astype(np.float32)}
 
     def _diagnose_domain_reversal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.0】通用领域反转诊断器
+        【V1.1 · 多时间维度归一化版】通用领域反转诊断器
         - 核心职责: 接收一个原子情报领域的公理信号列表和权重，计算该领域的双极性健康度，
                       然后从健康度的变化中派生底部反转和顶部反转信号。
         - 命名规范: 输出信号为 PROCESS_META_DOMAIN_BOTTOM_REVERSAL 和 PROCESS_META_DOMAIN_TOP_REVERSAL。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `bottom_reversal_score` 和 `top_reversal_score` 的归一化方式改为多时间维度自适应归一化。
         """
         domain_name = config.get('domain_name')
         axiom_configs = config.get('axioms', [])
@@ -506,10 +547,14 @@ class ProcessIntelligence:
         # 从健康度派生反转信号
         # 底部反转信号：当健康度从负值区域开始向上改善时
         bottom_reversal_raw = (bipolar_domain_health.diff(1).clip(lower=0) * (1 - bipolar_domain_health.clip(lower=0))).fillna(0)
-        bottom_reversal_score = normalize_score(bottom_reversal_raw, df_index, 21, ascending=True)
+        # 获取MTF权重配置
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        bottom_reversal_score = get_adaptive_mtf_normalized_score(bottom_reversal_raw, df_index, ascending=True, tf_weights=default_weights)
         # 顶部反转信号：当健康度从正值区域开始向下恶化时
         top_reversal_raw = (bipolar_domain_health.diff(1).clip(upper=0).abs() * (1 + bipolar_domain_health.clip(upper=0))).fillna(0)
-        top_reversal_score = normalize_score(top_reversal_raw, df_index, 21, ascending=True)
+        top_reversal_score = get_adaptive_mtf_normalized_score(top_reversal_raw, df_index, ascending=True, tf_weights=default_weights)
         return {
             output_bottom_name: bottom_reversal_score.astype(np.float32),
             output_top_name: top_reversal_score.astype(np.float32)

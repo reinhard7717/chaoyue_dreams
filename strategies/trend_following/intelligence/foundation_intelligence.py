@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Any
-from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, normalize_to_bipolar, bipolar_to_exclusive_unipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, get_adaptive_mtf_normalized_score, bipolar_to_exclusive_unipolar
 
 class FoundationIntelligence:
     def __init__(self, strategy_instance):
@@ -65,14 +65,11 @@ class FoundationIntelligence:
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         long_term_weights = get_param_value(p_mtf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
-        # 【优化】使用多时间维度自适应归一化
-        adx_score = utils.get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'ADX_14_D', 0.0, method_name="_diagnose_context_trend_confirmed"), df.index, ascending=True, tf_weights=default_weights)
+        adx_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'ADX_14_D', 0.0, method_name="_diagnose_context_trend_confirmed"), df.index, ascending=True, tf_weights=default_weights)
         pdi_gt_ndi = (self._get_safe_series(df, 'PDI_14_D', 0, method_name="_diagnose_context_trend_confirmed") > self._get_safe_series(df, 'NDI_14_D', 0, method_name="_diagnose_context_trend_confirmed")).astype(float)
-        # 【优化】使用多时间维度自适应归一化
-        pdi_slope = utils.get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'SLOPE_5_PDI_14_D', 0.0, method_name="_diagnose_context_trend_confirmed"), df.index, ascending=True, tf_weights=default_weights)
+        pdi_slope = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'SLOPE_5_PDI_14_D', 0.0, method_name="_diagnose_context_trend_confirmed"), df.index, ascending=True, tf_weights=default_weights)
         direction_score = (pdi_gt_ndi * pdi_slope).pow(0.5)
-        # 【优化】使用多时间维度自适应归一化
-        bias_health_score = 1 - utils.get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BIAS_55_D', pd.Series(0.0, index=df.index), method_name="_diagnose_context_trend_confirmed").clip(lower=0), df.index, ascending=True, tf_weights=long_term_weights)
+        bias_health_score = 1 - get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BIAS_55_D', pd.Series(0.0, index=df.index), method_name="_diagnose_context_trend_confirmed").clip(lower=0), df.index, ascending=True, tf_weights=long_term_weights)
         trend_confirmed = (adx_score * direction_score * bias_health_score).pow(1/3).fillna(0.0)
         return {'CONTEXT_TREND_CONFIRMED': trend_confirmed.astype(np.float32)}
 
@@ -88,9 +85,7 @@ class FoundationIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 【优化】使用多时间维度自适应归一化
         price_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'SLOPE_13_close_D', 0.0, method_name="_diagnose_axiom_divergence"), df.index, default_weights)
-        # 【优化】使用多时间维度自适应归一化
         oscillator_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'SLOPE_13_RSI_13_D', 0.0, method_name="_diagnose_axiom_divergence"), df.index, default_weights)
         divergence_score = (oscillator_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
@@ -107,7 +102,6 @@ class FoundationIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 【优化】使用多时间维度自适应归一化
         macd_score = get_adaptive_mtf_normalized_bipolar_score(macd_h, df.index, default_weights)
         fusion_weights = params.get('ma_health_fusion_weights', {'alignment': 0.5, 'slope': 0.5})
         ma_periods = [5, 13, 21, 55]
@@ -119,7 +113,6 @@ class FoundationIntelligence:
         # 新增 DMA 斜率作为趋势证据
         # 修正列名引用，确保与 merge_results 后的列名一致
         dma_slope = self._get_safe_series(df, 'SLOPE_5_DMA_D', 0.0, method_name="_diagnose_axiom_trend")
-        # 【优化】使用多时间维度自适应归一化
         dma_slope_score = get_adaptive_mtf_normalized_bipolar_score(dma_slope, df.index, default_weights)
         structure_score = (
             alignment_bipolar * fusion_weights.get('alignment', 0.5) +
@@ -140,7 +133,6 @@ class FoundationIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 【优化】使用多时间维度自适应归一化
         oscillator_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df.index, default_weights, sensitivity=10.0)
         return oscillator_score.astype(np.float32)
 
@@ -157,7 +149,6 @@ class FoundationIntelligence:
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         # 调整 sensitivity，使其对 CMF 的波动不那么敏感，避免极端负值
-        # 【优化】使用多时间维度自适应归一化
         flow_score = get_adaptive_mtf_normalized_bipolar_score(cmf, df_index, default_weights, sensitivity=0.5) # 提高敏感度
         # --- Debugging output for probe date ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -184,7 +175,6 @@ class FoundationIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 【优化】使用多时间维度自适应归一化
         volatility_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df.index, default_weights, sensitivity=1.0)
         return volatility_score.astype(np.float32)
 
