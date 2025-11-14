@@ -704,7 +704,7 @@ class FusionIntelligence:
 
     def _synthesize_chip_trend(self) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 筹码趋势动量强化与信号验证版】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
+        【V1.5 · 筹码趋势动量强化与缺失信号惩罚及探针版】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
         - 核心思想: 综合判断市场筹码的集中度、成本结构、持股心态和峰形态，形成筹码的整体趋势判断。
         - 证据链:
           1. 筹码集中度 (SCORE_CHIP_AXIOM_CONCENTRATION): 筹码是集中还是分散。
@@ -717,57 +717,74 @@ class FusionIntelligence:
           8. 筹码趋势动量 (SCORE_CHIP_AXIOM_TREND_MOMENTUM): 整体筹码健康度的变化速度和方向。
         - 输出: [-1, 1] 的双极性分数，正分代表筹码趋势向好，负分代表筹码趋势恶化。
         - 【修正】调整权重，显著提高 `SCORE_CHIP_AXIOM_TREND_MOMENTUM` 的权重，并对负面信号更敏感。
-        - 【新增】在计算前验证所有所需信号是否存在，如果缺失则打印警告。
+        - 【新增】在计算前验证所有所需信号是否存在，如果缺失则打印警告，并对缺失信号进行更保守的处理。
+        - 【新增】加入探针，打印每个组成信号的原始值、权重和贡献。
         """
         print("  -- [融合层] 正在冶炼“筹码趋势”...")
         states = {}
         df_index = self.strategy.df_indicators.index
-        # 新增：验证所需信号是否存在
-        required_chip_signals = [
-            'SCORE_CHIP_AXIOM_CONCENTRATION',
-            'SCORE_CHIP_AXIOM_COST_STRUCTURE',
-            'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT',
-            'SCORE_CHIP_AXIOM_PEAK_INTEGRITY',
-            'SCORE_CHIP_AXIOM_DIVERGENCE',
-            'SCORE_CHIP_CLEANLINESS',
-            'SCORE_CHIP_LOCKDOWN_DEGREE',
-            'SCORE_CHIP_AXIOM_TREND_MOMENTUM'
-        ]
+        # --- Debugging setup ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        probe_date_for_loop = None
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop not in df_index:
+                probe_date_for_loop = None # Reset if not in index
+
+        # 明确定义所有所需信号及其在融合中的预期极性（正向贡献、负向贡献或双极性）
+        # 预期极性用于在信号缺失时，决定使用何种默认值，以避免乐观偏置
+        # 0: 双极性, 1: 正向贡献, -1: 负向贡献
+        required_chip_signals_meta = {
+            'SCORE_CHIP_AXIOM_CONCENTRATION': {'polarity': 0, 'default_on_missing': 0.0}, # 双极性，缺失时中性
+            'SCORE_CHIP_AXIOM_COST_STRUCTURE': {'polarity': 0, 'default_on_missing': 0.0}, # 双极性，缺失时中性
+            'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT': {'polarity': 0, 'default_on_missing': 0.0}, # 双极性，缺失时中性
+            'SCORE_CHIP_AXIOM_PEAK_INTEGRITY': {'polarity': 0, 'default_on_missing': 0.0}, # 双极性，缺失时中性
+            'SCORE_CHIP_AXIOM_DIVERGENCE': {'polarity': 0, 'default_on_missing': 0.0}, # 双极性，缺失时中性
+            'SCORE_CHIP_CLEANLINESS': {'polarity': 1, 'default_on_missing': 0.0}, # 正向贡献，缺失时中性
+            'SCORE_CHIP_LOCKDOWN_DEGREE': {'polarity': 1, 'default_on_missing': 0.0}, # 正向贡献，缺失时中性
+            'SCORE_CHIP_AXIOM_TREND_MOMENTUM': {'polarity': 0, 'default_on_missing': 0.0} # 双极性，缺失时中性
+        }
         # 检查哪些信号是缺失的
-        missing_signals_in_atomic_states = [sig for sig in required_chip_signals if sig not in self.strategy.atomic_states]
+        missing_signals_in_atomic_states = [sig for sig in required_chip_signals_meta.keys() if sig not in self.strategy.atomic_states]
         if missing_signals_in_atomic_states:
-            print(f"    -> [融合层-筹码趋势警告] 缺少以下关键筹码信号，将使用默认值0.0进行计算: {', '.join(missing_signals_in_atomic_states)}")
-        # 即使信号缺失，_get_atomic_score 也会返回一个填充了默认值的 Series，并打印警告
-        chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
-        chip_cost_structure = self._get_atomic_score('SCORE_CHIP_AXIOM_COST_STRUCTURE', 0.0)
-        chip_holder_sentiment = self._get_atomic_score('SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
-        chip_peak_integrity = self._get_atomic_score('SCORE_CHIP_AXIOM_PEAK_INTEGRITY', 0.0)
-        chip_divergence = self._get_atomic_score('SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
-        chip_cleanliness = self._get_atomic_score('SCORE_CHIP_CLEANLINESS', 0.0)
-        chip_lockdown_degree = self._get_atomic_score('SCORE_CHIP_LOCKDOWN_DEGREE', 0.0)
-        chip_trend_momentum = self._get_atomic_score('SCORE_CHIP_AXIOM_TREND_MOMENTUM', 0.0) # 获取新的筹码趋势动量公理
+            print(f"    -> [融合层-筹码趋势警告] 缺少以下关键筹码信号，将使用其定义默认值进行计算: {', '.join(missing_signals_in_atomic_states)}")
+        # 获取所有信号，并根据缺失情况调整其值
+        chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', required_chip_signals_meta['SCORE_CHIP_AXIOM_CONCENTRATION']['default_on_missing'])
+        chip_cost_structure = self._get_atomic_score('SCORE_CHIP_AXIOM_COST_STRUCTURE', required_chip_signals_meta['SCORE_CHIP_AXIOM_COST_STRUCTURE']['default_on_missing'])
+        chip_holder_sentiment = self._get_atomic_score('SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', required_chip_signals_meta['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT']['default_on_missing'])
+        chip_peak_integrity = self._get_atomic_score('SCORE_CHIP_AXIOM_PEAK_INTEGRITY', required_chip_signals_meta['SCORE_CHIP_AXIOM_PEAK_INTEGRITY']['default_on_missing'])
+        chip_divergence = self._get_atomic_score('SCORE_CHIP_AXIOM_DIVERGENCE', required_chip_signals_meta['SCORE_CHIP_AXIOM_DIVERGENCE']['default_on_missing'])
+        chip_cleanliness = self._get_atomic_score('SCORE_CHIP_CLEANLINESS', required_chip_signals_meta['SCORE_CHIP_CLEANLINESS']['default_on_missing'])
+        chip_lockdown_degree = self._get_atomic_score('SCORE_CHIP_LOCKDOWN_DEGREE', required_chip_signals_meta['SCORE_CHIP_LOCKDOWN_DEGREE']['default_on_missing'])
+        chip_trend_momentum = self._get_atomic_score('SCORE_CHIP_AXIOM_TREND_MOMENTUM', required_chip_signals_meta['SCORE_CHIP_AXIOM_TREND_MOMENTUM']['default_on_missing'])
         # 融合所有筹码证据，采用加权平均
         # 权重分配：筹码趋势动量作为OCH_D的直接反映，应具有最高权重。
         # 集中度、成本结构、持股心态次之。其他为辅助。
         components = [
             chip_concentration, chip_cost_structure, chip_holder_sentiment,
             chip_peak_integrity, chip_divergence, chip_cleanliness, chip_lockdown_degree,
-            chip_trend_momentum # 新增筹码趋势动量
+            chip_trend_momentum
         ]
         # 调整权重，显著提高 `SCORE_CHIP_AXIOM_TREND_MOMENTUM` 的权重
         # 确保总和为1
-        weights = np.array([0.15, 0.15, 0.15, 0.10, 0.05, 0.05, 0.05, 0.30]) # 调整权重，趋势动量权重最高
-        aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
-        chip_trend_score = (
-            aligned_components[0] * weights[0] +
-            aligned_components[1] * weights[1] +
-            aligned_components[2] * weights[2] +
-            aligned_components[3] * weights[3] +
-            aligned_components[4] * weights[4] +
-            aligned_components[5] * weights[5] +
-            aligned_components[6] * weights[6] +
-            aligned_components[7] * weights[7]
-        ).clip(-1, 1)
+        # 进一步调整权重，增加对负面信号的敏感度
+        weights = np.array([0.12, 0.12, 0.12, 0.08, 0.08, 0.05, 0.05, 0.38]) # 调整权重，趋势动量权重进一步提高
+        aligned_components = [comp.reindex(df_index, fill_value=meta['default_on_missing']) for comp, meta in zip(components, required_chip_signals_meta.values())]
+        
+        chip_trend_score = pd.Series(0.0, index=df_index)
+        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+            print(f"    -> [筹码趋势探针] @ {probe_date_for_loop.date()}: 组成公理贡献明细")
+        
+        for i, (comp_series, weight) in enumerate(zip(aligned_components, weights)):
+            signal_name = list(required_chip_signals_meta.keys())[i]
+            contribution = comp_series * weight
+            chip_trend_score += contribution
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"       - {signal_name:<35}: 原始值={comp_series.loc[probe_date_for_loop]:.4f}, 权重={weight:.2f}, 贡献={contribution.loc[probe_date_for_loop]:.4f}")
+
+        chip_trend_score = chip_trend_score.clip(-1, 1)
         states['FUSION_BIPOLAR_CHIP_TREND'] = chip_trend_score.astype(np.float32)
         print(f"  -- [融合层] “筹码趋势”冶炼完成，最新分值: {chip_trend_score.iloc[-1]:.4f}")
         return states
