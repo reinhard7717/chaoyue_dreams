@@ -41,13 +41,14 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V9.7 · OCH数据层计算与调试增强版】筹码情报总指挥
+        【V9.8 · OCH数据层计算与调试增强版】筹码情报总指挥
         - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
         - 核心职责: 只输出筹码领域的原子公理信号和筹码背离信号。
         - 移除信号: SCORE_CHIP_BULLISH_RESONANCE, SCORE_CHIP_BEARISH_RESONANCE, BIPOLAR_CHIP_DOMAIN_HEALTH, SCORE_CHIP_BOTTOM_REVERSAL, SCORE_CHIP_TOP_REVERSAL。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【修正】移除 `OCH_D` 的计算，因为它现在已在数据层提前计算并添加到 `df` 中。
         - 【新增】添加调试打印，显示返回的 `all_chip_states` 内容。
+        - 【修复】对 `SCORE_CHIP_CLEANLINESS` 进行多时间维度自适应归一化。
         """
         all_chip_states = {}
         periods = [5, 13, 21, 55]
@@ -64,9 +65,7 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_AXIOM_COST_STRUCTURE'] = cost_structure_scores
         all_chip_states['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
         all_chip_states['SCORE_CHIP_AXIOM_PEAK_INTEGRITY'] = peak_integrity_scores
-        # [代码修改开始]
         # 移除 OCH_D 的计算，因为它现在已在数据层提前计算并添加到 df 中
-        # [代码修改结束]
         # 诊断筹码趋势动量公理 (需要依赖 OCH_D，所以放在后面)
         chip_trend_momentum_scores = self._diagnose_axiom_trend_momentum(df, periods)
         all_chip_states['SCORE_CHIP_AXIOM_TREND_MOMENTUM'] = chip_trend_momentum_scores
@@ -78,8 +77,14 @@ class ChipIntelligence:
         # 信号1: 筹码干净度 (SCORE_CHIP_CLEANLINESS)
         chip_fault = self._get_safe_series(df, 'chip_fault_blockage_ratio_D', 0.5, method_name="run_chip_intelligence_command")
         profit_pressure = self._get_safe_series(df, 'imminent_profit_taking_supply_D', 0.5, method_name="run_chip_intelligence_command")
-        cleanliness_score = ((1 - chip_fault) * (1 - profit_pressure)).pow(0.5).fillna(0.5)
+        cleanliness_raw_score = ((1 - chip_fault) * (1 - profit_pressure)).pow(0.5).fillna(0.5)
+        # [代码修改开始]
+        # 对 cleanliness_raw_score 进行多时间维度自适应归一化
+        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
+        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        cleanliness_score = get_adaptive_mtf_normalized_score(cleanliness_raw_score, df.index, ascending=True, tf_weights=tf_weights)
         all_chip_states['SCORE_CHIP_CLEANLINESS'] = cleanliness_score.astype(np.float32)
+        # [代码修改结束]
         # 信号2: 筹码锁定度 (SCORE_CHIP_LOCKDOWN_DEGREE)
         locked_profit = self._get_safe_series(df, 'locked_profit_rate_D', 0.0, method_name="run_chip_intelligence_command")
         locked_loss = self._get_safe_series(df, 'locked_loss_rate_D', 0.0, method_name="run_chip_intelligence_command")
