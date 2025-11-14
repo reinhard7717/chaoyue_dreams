@@ -57,67 +57,70 @@ class IntelligenceLayer:
         # ForensicProbes 现在会内部加载和管理所有专业探针模块
         self.probes = ForensicProbes(self)
 
-    def run_all_diagnostics(self) -> Dict:
+    def run_all_diagnostics(self, df: pd.DataFrame) -> None:
         """
-        【V423.2 · 指挥链重建与调试增强版】情报层总指挥官
-        - 核心重构: 彻底重组了引擎的调用顺序，以修复因执行时序错乱导致的情报真空问题。
-        - 新作战时序:
-          1. 阶段一 (基础原子层): 运行所有独立的情报引擎，生产各自领域的原子及共振信号。
-          2. 阶段二 (过程关系层): 在基础信号完备后，运行过程引擎，诊断信号间的动态关系。
-          3. 阶段三 (融合态势层): 在共振信号完备后，运行融合引擎，提炼宏观战场态势。
-          4. 阶段四 (认知推演层): 在所有前置情报就绪后，运行认知引擎，生成最终战术剧本。
-        - 【新增】添加调试打印，追踪 `atomic_states` 中筹码信号的更新情况。
-        - 【修复】添加对 `structural_intel.diagnose_structural_states` 的调用，解决结构性信号缺失问题。
+        【V25.9 · 剧本调用顺序优化版】
+        - 核心优化: 调整了情报模块的调用顺序，确保各层级情报的依赖关系得到满足。
+        - 核心职责: 协调所有情报模块的运行，并将生成的原子状态统一存储到 `self.strategy.atomic_states`。
+        - 【新增】增加探针，检查 `PROCESS_META_MAIN_FORCE_RALLY_INTENT` 在 `atomic_states` 中的值。
         """
-        df = self.strategy.df_indicators
-        self.strategy.atomic_states = {}
-        self.strategy.trigger_events = {}
-        self.strategy.playbook_states = {}
-        self.strategy.exit_triggers = pd.DataFrame(index=df.index)
-        def update_states(new_states: Dict):
-            if isinstance(new_states, dict):
-                self.strategy.atomic_states.update(new_states)
-        # --- 阶段一：基础原子情报层 (Foundation & Atomic Layer) ---
-        # 这些引擎相对独立，主要生产各自领域的原子和共振信号
-        update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
-        update_states(self.behavioral_intel.run_behavioral_analysis_command())
-        update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
-        update_states(self.foundation_intel.run_foundation_analysis_command())
-        chip_states_from_intel = self.chip_intel.run_chip_intelligence_command(df)
-        update_states(chip_states_from_intel)
-        # --- Debugging output ---
+        print("启动【V25.9 · 剧本调用顺序优化版】认知情报分析...")
+        # 1. 运行基础情报模块
+        foundation_states = self.foundation_intel.run_all_diagnostics(df)
+        self.strategy.atomic_states.update(foundation_states)
+        # 2. 运行力学情报模块
+        dynamic_states = self.dynamic_intel.run_all_diagnostics(df)
+        self.strategy.atomic_states.update(dynamic_states)
+        # 3. 运行结构情报模块
+        structural_states = self.structural_intel.run_all_diagnostics(df)
+        self.strategy.atomic_states.update(structural_states)
+        # 4. 运行行为情报模块
+        behavioral_states = self.behavioral_intel.run_all_diagnostics(df)
+        self.strategy.atomic_states.update(behavioral_states)
+        # 5. 运行微观情报模块
+        micro_states = self.micro_intel.run_all_diagnostics(df)
+        self.strategy.atomic_states.update(micro_states)
+        # 6. 运行形态情报模块
+        pattern_states = self.pattern_intel.run_all_diagnostics(df)
+        self.strategy.atomic_states.update(pattern_states)
+        # 7. 运行资金流情报模块
+        fund_flow_states = self.fund_flow_intel.run_all_diagnostics(df)
+        self.strategy.atomic_states.update(fund_flow_states)
+        # 8. 运行筹码情报模块
+        chip_states = self.chip_intel.run_all_diagnostics(df)
+        self.strategy.atomic_states.update(chip_states)
+        # 9. 运行过程层情报模块 (依赖所有原子层信号)
+        process_states = self.process_intel.run_all_diagnostics(df)
+        self.strategy.atomic_states.update(process_states)
+
+        # [代码修改开始]
+        # 增加探针，检查 PROCESS_META_MAIN_FORCE_RALLY_INTENT 在 atomic_states 中的值
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"    -> [IntelligenceLayer Debug] @ {probe_date_for_loop.date()}: atomic_states after ChipIntelligence:")
-                for k, v in self.strategy.atomic_states.items():
-                    if k.startswith('SCORE_CHIP_') or k.startswith('FUSION_BIPOLAR_CHIP_'):
-                        if isinstance(v, pd.Series) and probe_date_for_loop in v.index:
-                            print(f"       - {k}: {v.loc[probe_date_for_loop]:.4f}")
-                        else:
-                            print(f"       - {k}: {v}")
-        # --- End Debugging output ---
-        update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
-        # [代码修改开始]
-        # 添加对 StructuralIntelligence 的调用
-        update_states(self.structural_intel.diagnose_structural_states(df))
+                if 'PROCESS_META_MAIN_FORCE_RALLY_INTENT' in self.strategy.atomic_states:
+                    signal_series = self.strategy.atomic_states['PROCESS_META_MAIN_FORCE_RALLY_INTENT']
+                    if isinstance(signal_series, pd.Series) and probe_date_for_loop in signal_series.index:
+                        value_in_atomic_states = signal_series.loc[probe_date_for_loop]
+                        print(f"    -> [IntelligenceLayer Debug] @ {probe_date_for_loop.date()}: PROCESS_META_MAIN_FORCE_RALLY_INTENT in atomic_states: {value_in_atomic_states:.4f}")
+                    else:
+                        print(f"    -> [IntelligenceLayer Debug] @ {probe_date_for_loop.date()}: PROCESS_META_MAIN_FORCE_RALLY_INTENT series not found or date not in index.")
+                else:
+                    print(f"    -> [IntelligenceLayer Debug] @ {probe_date_for_loop.date()}: PROCESS_META_MAIN_FORCE_RALLY_INTENT not in atomic_states.")
         # [代码修改结束]
-        update_states(self.mechanics_engine.run_dynamic_analysis_command())
-        update_states(self.pattern_intel.run_pattern_analysis_command(df))
-        # --- 阶段二：过程关系情报层 (Process & Relational Layer) ---
-        # 此层消费阶段一的信号，诊断它们之间的动态关系。将两次调用合并为一次。
-        update_states(self.process_intel.run_process_diagnostics(task_type_filter=None))
-        # --- 阶段三：融合态势情报层 (Fusion & Situational Layer) ---
-        # 此层消费阶段一的共振信号，提炼为战场态势
-        update_states(self.fusion_intel.run_fusion_diagnostics())
-        # --- 阶段四：认知推演层 (Cognitive & Playbook Layer) ---
-        # 此层消费阶段三的态势和阶段一/二的原子/过程信号，生成最终战术剧本
-        self._ignite_relational_dynamics_engine()
-        self.cognitive_intel.synthesize_cognitive_scores(df)
-        return self.strategy.atomic_states
+
+        # 10. 运行融合层情报模块 (依赖所有原子层和过程层信号)
+        fusion_states = self.fusion_intel.run_fusion_diagnostics()
+        self.strategy.atomic_states.update(fusion_states)
+        # 11. 运行周期情报模块
+        cyclical_states = self.cyclical_intel.run_all_diagnostics(df)
+        self.strategy.atomic_states.update(cyclical_states)
+        # 12. 运行认知层情报模块 (依赖所有原子层、过程层和融合层信号)
+        self.cognitive_intel.run_all_diagnostics(df)
+        print(f"【V25.9 · 剧本调用顺序优化版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。")
 
     def deploy_forensic_probes(self):
         """
