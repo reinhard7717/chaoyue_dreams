@@ -436,10 +436,10 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.18 · AAA指标前置与重采样命名协议修复版】
-        - 核心修复: 解决了从日线重采样（resample）到周/月线时，列名未被正确更新（如 close_D 未变为 close_W）的致命缺陷。
-        - 新流程: 在 resample 之后，立即对新生成的 DataFrame 进行列名重命名，将 '_D' 后缀替换为目标时间周期后缀（如 '_W'）。
-        - 【新增】在日线数据准备完成后，立即计算 AAA 指标，确保其在 DMA 计算前可用。
+        【V8.20 · NMFNF与OCH数据层计算版】
+        - 核心修复: 调整了特征计算的顺序，确保 `breakout_quality_score` 在其所有依赖项（如VPA_EFFICIENCY）计算完毕后才执行，从根本上解决了流程错乱问题。
+        - 【新增】在所有数据准备和计算流程结束后，调用 `_log_final_data_columns` 输出最终的数据清单。
+        - 【新增】在日线数据准备完成后，计算 `NMFNF_D` 和 `OCH_D`。
         """
         required_tfs = self._discover_required_timeframes_from_config(config)
         pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -548,11 +548,21 @@ class IndicatorService:
             df_supp_std.index = df_supp_std.index.normalize()
             if tag in ['advanced_chips', 'advanced_fund_flow']:
                 df_supp_std = self._rename_precomputed_derivatives(df_supp_std)
+            if tag == 'daily_basic':
+                # 确保 total_mv 被正确重命名为 total_market_value_D
+                if 'total_mv' in df_supp_std.columns:
+                    df_supp_std.rename(columns={'total_mv': 'total_market_value'}, inplace=True)
+                # 确保所有 daily_basic 的列都带上 _D 后缀
+                df_supp_std = df_supp_std.add_suffix('_D')
             if tag in ['fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare']:
                 suffix = f"_{tag}"
                 df_supp_std = df_supp_std.add_suffix(suffix)
             else:
+                # 避免与 df_daily_master 现有列冲突，但要保留 total_market_value_D
                 conflicting_cols = df_daily_master.columns.intersection(df_supp_std.columns)
+                # 排除 total_market_value_D，因为它可能在 df_supp_std 中被正确命名
+                if 'total_market_value_D' in conflicting_cols:
+                    conflicting_cols = conflicting_cols.drop('total_market_value_D')
                 if not conflicting_cols.empty:
                     df_supp_std = df_supp_std.drop(columns=conflicting_cols)
             if not df_supp_std.columns.empty:
@@ -580,6 +590,16 @@ class IndicatorService:
             temp_dfs = {'D': raw_dfs['D']}
             temp_dfs = await self.feature_service.calculate_aaa_indicator(temp_dfs)
             raw_dfs['D'] = temp_dfs['D']
+            # [代码修改开始]
+            # NEW STEP: Calculate NMFNF_D for the daily dataframe
+            temp_dfs = {'D': raw_dfs['D']} # 重新封装，确保传入的是字典
+            temp_dfs = await self.feature_service.calculate_nmfnf(temp_dfs)
+            raw_dfs['D'] = temp_dfs['D']
+            # NEW STEP: Calculate OCH_D for the daily dataframe
+            temp_dfs = {'D': raw_dfs['D']} # 重新封装，确保传入的是字典
+            temp_dfs = await self.feature_service.calculate_och(temp_dfs)
+            raw_dfs['D'] = temp_dfs['D']
+            # [代码修改结束]
         if resample_map:
             df_daily = raw_dfs['D']
             for target_tf, source_tf in resample_map.items():
@@ -589,8 +609,8 @@ class IndicatorService:
                     }
                     for col in df_daily.columns:
                         if col not in aggregation_rules:
-                            if 'amount' in col.lower() or 'vol' in col.lower() or 'net' in col.lower():
-                                aggregation_rules[col] = 'sum'
+                            if 'amount' in col.lower() or 'vol' in col.lower() or 'net' in col.lower() or 'flow' in col.lower() or 'value' in col.lower() or 'och' in col.lower() or 'nmfnf' in col.lower(): # 增加对资金流、市值、OCH、NMFNF列的聚合规则
+                                aggregation_rules[col] = 'sum' if 'flow' in col.lower() or 'amount' in col.lower() else 'last' # 资金流和金额求和，其他取last
                             else:
                                 aggregation_rules[col] = 'last'
                     if 'turnover_rate_D' in aggregation_rules:

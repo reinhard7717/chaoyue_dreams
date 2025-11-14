@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Union
 from strategies.trend_following.utils import get_params_block, get_param_value, normalize_to_bipolar, bipolar_to_exclusive_unipolar, normalize_score
 
 class FundFlowIntelligence:
@@ -11,14 +11,30 @@ class FundFlowIntelligence:
         """
         self.strategy = strategy_instance
 
-    def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+    def _get_safe_series(self, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
-        安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        安全地从DataFrame或字典中获取Series，如果不存在则打印警告并返回默认Series。
+        - 核心修复: 兼容处理 pd.DataFrame 和 Dict[str, pd.Series] 两种数据源。
         """
-        if column_name not in df.columns:
-            print(f"    -> [资金流情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
-            return pd.Series(default_value, index=df.index)
-        return df[column_name]
+        df_index = self.strategy.df_indicators.index # 获取全局的DataFrame索引
+        if isinstance(data_source, pd.DataFrame):
+            if column_name not in data_source.columns:
+                print(f"    -> [资金流情报警告] 方法 '{method_name}' 缺少DataFrame数据 '{column_name}'，使用默认值 {default_value}。")
+                return pd.Series(default_value, index=df_index)
+            return data_source[column_name]
+        elif isinstance(data_source, dict):
+            if column_name not in data_source:
+                print(f"    -> [资金流情报警告] 方法 '{method_name}' 缺少字典数据 '{column_name}'，使用默认值 {default_value}。")
+                return pd.Series(default_value, index=df_index)
+            # 确保从字典中取出的也是Series，并且索引对齐
+            series = data_source[column_name]
+            if isinstance(series, pd.Series):
+                return series.reindex(df_index, fill_value=default_value)
+            else: # 如果字典中存储的不是Series，则转换为Series
+                return pd.Series(series, index=df_index)
+        else:
+            print(f"    -> [资金流情报警告] 方法 '{method_name}' 接收到未知数据源类型 {type(data_source)}，无法获取 '{column_name}'，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df_index)
 
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
