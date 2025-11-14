@@ -16,6 +16,8 @@ class CognitiveIntelligence:
     """
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
+        self.min_evidence_threshold = 1e-9 # 最小证据阈值，避免对数运算错误
+        self.norm_window = 55 # 统一归一化窗口，可根据需要调整
 
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
@@ -473,7 +475,6 @@ class CognitiveIntelligence:
         cognitive_bearish_score = np.maximum.reduce([s.values for s in bearish_scores])
         states['COGNITIVE_BEARISH_SCORE'] = pd.Series(cognitive_bearish_score, index=df_index, dtype=np.float32)
         return states
-
 
     def _deduce_chasing_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
