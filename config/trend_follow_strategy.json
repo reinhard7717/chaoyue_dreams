@@ -1091,10 +1091,10 @@
           "description": "趋势韧性神盾参数",
           "enabled": { "value": true },
           "fusion_weights": {
-            "trend_quality": 0.4,
-            "structural_health": 0.2,
-            "fund_flow_health": 0.2,
-            "chip_health": 0.2
+            "trend_quality": 0.25,
+            "structural_health": 0.25,
+            "fund_flow_health": 0.25,
+            "chip_health": 0.25
           }
         },
         "neutral_zone_threshold": {
@@ -1259,17 +1259,17 @@
             "FUSION_BIPOLAR_UPPER_SHADOW_INTENT": { "weight": 1.0, "comment": "融合层上影线意图的负向部分代表风险" },
             "SCORE_RISK_LIQUIDITY_DRAIN": { "weight": 1.0 }
           },
-          "chip_risk": {
-            "PROCESS_META_CHIP_TOP_REVERSAL": { "weight": 1.2 },
-            "SCORE_CHIP_BEARISH_DIVERGENCE": { "weight": 1.0 },
-            "SCORE_CHIP_AXIOM_CONCENTRATION": { "weight": -1.0, "comment": "筹码集中度低（负值）代表风险" },
-            "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT": { "weight": -1.0, "comment": "持股心态差（负值）代表风险" }
-          },
           "fund_flow_risk": {
             "PROCESS_META_FUND_FLOW_TOP_REVERSAL": { "weight": 1.2 },
             "SCORE_FUND_FLOW_BEARISH_DIVERGENCE": { "weight": 1.0 },
             "SCORE_FF_AXIOM_CONSENSUS": { "weight": -1.0, "comment": "资金流共识差（负值）代表风险" },
             "SCORE_FF_AXIOM_CONVICTION": { "weight": -1.0, "comment": "资金流信念差（负值）代表风险" }
+          },
+          "chip_risk": {
+            "PROCESS_META_CHIP_TOP_REVERSAL": { "weight": 1.2 },
+            "SCORE_CHIP_BEARISH_DIVERGENCE": { "weight": 1.0 },
+            "SCORE_CHIP_AXIOM_CONCENTRATION": { "weight": -1.0, "comment": "筹码集中度低（负值）代表风险" },
+            "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT": { "weight": -1.0, "comment": "持股心态差（负值）代表风险" }
           },
           "dynamic_mechanics_risk": {
             "PROCESS_META_DYNAMIC_MECHANICS_TOP_REVERSAL": { "weight": 1.2 },

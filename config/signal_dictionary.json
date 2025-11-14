@@ -123,6 +123,18 @@
             "type": "context",
             "description": "【V1.0 · 趋势结构分】融合5日和21日均线的排列、斜率和发散/收敛状态，评估趋势的结构性健康度。正分代表多头趋势结构，负分代表空头趋势结构。"
         },
+        "FUSION_BIPOLAR_FUND_FLOW_TREND": {
+            "cn_name": "【融合】资金趋势",
+            "category": "融合层-环境",
+            "type": "context",
+            "description": "【V1.0】融合资金流原子情报层的核心公理信号（共识、信念、增量、背离），形成资金流的整体趋势判断。正分代表资金趋势向好，负分代表资金趋势恶化。"
+        },
+        "FUSION_BIPOLAR_CHIP_TREND": {
+            "cn_name": "【融合】筹码趋势",
+            "category": "融合层-环境",
+            "type": "context",
+            "description": "【V1.0】融合筹码原子情报层的核心公理信号（集中度、成本结构、持股心态、筹码峰形态、背离、干净度、锁定度），形成筹码的整体趋势判断。正分代表筹码趋势向好，负分代表筹码趋势恶化。"
+        },
         "FUSION_BIPOLAR_LIQUIDITY_DYNAMICS": {
             "cn_name": "【融合】流动性博弈动态",
             "category": "融合层-环境",

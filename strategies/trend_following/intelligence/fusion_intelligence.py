@@ -65,6 +65,11 @@ class FusionIntelligence:
         # 冶炼“趋势结构分”
         trend_structure_states = self._synthesize_trend_structure_score()
         all_fusion_states.update(trend_structure_states)
+        # 新增：冶炼“资金趋势”和“筹码趋势”
+        fund_flow_trend_states = self._synthesize_fund_flow_trend()
+        all_fusion_states.update(fund_flow_trend_states)
+        chip_trend_states = self._synthesize_chip_trend()
+        all_fusion_states.update(chip_trend_states)
         self.strategy.atomic_states.update(all_fusion_states)
         print(f"【V3.0 · 战场态势引擎】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
@@ -125,13 +130,14 @@ class FusionIntelligence:
 
     def _synthesize_trend_quality(self) -> Dict[str, pd.Series]:
         """
-        【V1.7 · 均线动态增强与主力峰区流量权重修正版】冶炼“趋势质量” (Trend Quality)
+        【V1.8 · 均线动态增强与主力峰区流量权重修正版】冶炼“趋势质量” (Trend Quality)
         - 核心修复: 不再消费原子层的“共振”信号，而是直接消费各原子情报模块的**公理信号**。
         - 核心逻辑: 融合各领域公理的双极性分数，形成一个整体的趋势质量判断。
         - 增加调试探针，打印组成公理在探针日期的值及其贡献。
         - 引入 `main_force_on_peak_flow` (主力在主峰区的净流入) 作为趋势质量的重要证据。
         - 【新增】引入均线动态（速度和加速度）作为趋势质量的组成部分。
         - 【修正】调整 `main_force_on_peak_flow` 的权重，避免其在融合时贡献过大。
+        - 【新增】引入 `AAA_D` (平均绝对偏差) 和 `PDI_14_D` (正向动能指数) 作为趋势质量的组成部分。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
@@ -172,8 +178,14 @@ class FusionIntelligence:
         behavior_intraday_bull_control = self._get_atomic_score('SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 0.0)
         pattern_reversal = self._get_atomic_score('SCORE_PATTERN_AXIOM_REVERSAL', 0.0)
         pattern_breakout = self._get_atomic_score('SCORE_PATTERN_AXIOM_BREAKOUT', 0.0)
-        # 主力在主峰区的净流入 (现在应该已经被归一化到 [-1, 1] 范围)
         main_force_on_peak_flow = self._get_atomic_score('main_force_on_peak_flow_D', 0.0)
+        # 新增 AAA_D 和 PDI_14_D
+        # AAA_D 越低，波动性越小，趋势可能越稳定，所以取反向并归一化
+        aaa_raw = self._get_safe_series(self.strategy.df_indicators, 'AAA_D', 0.0, method_name="_synthesize_trend_quality")
+        aaa_score = normalize_to_bipolar(aaa_raw * -1, df_index, window=55) # 负相关，越低越好
+        # PDI_14_D 越高，上涨动能越强，趋势越健康
+        pdi_raw = self._get_safe_series(self.strategy.df_indicators, 'PDI_14_D', 0.0, method_name="_synthesize_trend_quality")
+        pdi_score = normalize_to_bipolar(pdi_raw, df_index, window=55)
         components_and_weights = {
             'foundation_trend': (foundation_trend, 0.1),
             'foundation_oscillator': (foundation_oscillator, -0.05),
@@ -202,7 +214,9 @@ class FusionIntelligence:
             'behavior_intraday_bull_control': (behavior_intraday_bull_control, 0.02),
             'pattern_reversal': (pattern_reversal, 0.02),
             'pattern_breakout': (pattern_breakout, 0.03),
-            'main_force_on_peak_flow': (main_force_on_peak_flow, 0.02) # 修正权重，从0.05降低到0.02
+            'main_force_on_peak_flow': (main_force_on_peak_flow, 0.02),
+            'aaa_score': (aaa_score, 0.03), # AAA线权重
+            'pdi_score': (pdi_score, 0.05) # PDI权重
         }
         bipolar_quality = pd.Series(0.0, index=df_index)
         if probe_date_for_loop is not None and probe_date_for_loop in df_index:
@@ -531,12 +545,13 @@ class FusionIntelligence:
 
     def _synthesize_trend_structure_score(self) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 趋势结构分优化版】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
+        【V1.4 · 趋势结构分优化版】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
         - 核心优化:
           1. 修正 `divergence_score` 逻辑，改为加权算术平均，避免乘法带来的反直觉结果。
           2. 修正最终融合方式，从加权几何平均改为加权算术平均，减少单个极端负值对整体分数的“一票否决”效应。
           3. 增加调试探针，输出关键中间计算结果。
           4. 调整 `alignment_score` 的 `normalize_to_bipolar` 敏感度，避免微小均线交叉被过度放大。
+        - 【新增】引入 `DMA_D` (均线差) 和 `ZIG_5_5.0_D` (ZIGZAG趋势) 作为趋势结构分的组成部分。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         print("  -- [融合层] 正在冶炼“趋势结构分”...")
@@ -599,6 +614,13 @@ class FusionIntelligence:
             # 当乖离率为正但乖离率斜率为负（正乖离缩小，结构恶化）时，应为负分。
             # 简单的加权平均可以更好地捕捉这种关系。
             divergence_score = (norm_ma_bias * 0.7 + norm_ma_bias_slope * 0.3).clip(-1, 1)
+        # 4. DMA线 (Difference of Moving Averages)
+        dma_raw = self._get_safe_series(df, 'DMA_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
+        dma_score = normalize_to_bipolar(dma_raw, df_index, window=norm_window)
+        # 5. ZIGZAG趋势 (ZIG_5_5.0_D)
+        # ZIGZAG趋势向上为正，向下为负，直接归一化
+        zigzag_raw = self._get_safe_series(df, 'ZIG_5_5.0_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
+        zigzag_score = normalize_to_bipolar(zigzag_raw, df_index, window=norm_window, sensitivity=0.05)
         # --- Debugging output for probe date ---
         if probe_date_for_loop is not None and probe_date_for_loop in df.index:
             print(f"    -> [趋势结构分探针] @ {probe_date_for_loop.date()}:")
@@ -616,20 +638,115 @@ class FusionIntelligence:
             print(f"       - norm_ma_bias: {norm_ma_bias.loc[probe_date_for_loop]:.4f}")
             print(f"       - norm_ma_bias_slope: {norm_ma_bias_slope.loc[probe_date_for_loop]:.4f}")
             print(f"       - divergence_score: {divergence_score.loc[probe_date_for_loop]:.4f}")
-        # 4. 融合所有子分数
+            print(f"       - dma_score: {dma_score.loc[probe_date_for_loop]:.4f}")
+            print(f"       - zigzag_score: {zigzag_score.loc[probe_date_for_loop]:.4f}")
+        # 6. 融合所有子分数
         # 权重分配 (示例，需优化)
-        weights = np.array([0.4, 0.4, 0.2]) # 排列和斜率更重要
-        components = [alignment_score, slope_score, divergence_score]
+        weights = np.array([0.3, 0.3, 0.15, 0.15, 0.1]) # 排列和斜率依然重要，DMA和ZIGZAG提供额外确认
+        components = [alignment_score, slope_score, divergence_score, dma_score, zigzag_score]
         # 确保所有分量都是 Series，并且索引对齐
         aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
         # 从加权几何平均改为加权算术平均，避免“一票否决”效应
         final_trend_structure_score = (
             aligned_components[0] * weights[0] +
             aligned_components[1] * weights[1] +
-            aligned_components[2] * weights[2]
+            aligned_components[2] * weights[2] +
+            aligned_components[3] * weights[3] +
+            aligned_components[4] * weights[4]
         ).clip(-1, 1) # 确保最终分数在 [-1, 1] 范围内
         states['FUSION_BIPOLAR_TREND_STRUCTURE_SCORE'] = final_trend_structure_score.astype(np.float32)
         print(f"  -- [融合层] “趋势结构分”冶炼完成，最新分值: {final_trend_structure_score.iloc[-1]:.4f}")
+        return states
+
+    def _synthesize_fund_flow_trend(self) -> Dict[str, pd.Series]:
+        """
+        【V1.0】冶炼“资金趋势” (FUSION_BIPOLAR_FUND_FLOW_TREND)
+        - 核心思想: 综合判断主力资金的真实意图、信念和市场活跃度，形成资金流的整体趋势判断。
+        - 证据链:
+          1. 资金流共识 (SCORE_FF_AXIOM_CONSENSUS): 主力与散户的资金流博弈结果。
+          2. 资金流信念 (SCORE_FF_AXIOM_CONVICTION): 主力资金的持仓决心和成本优势。
+          3. 资金流增量 (SCORE_FF_AXIOM_INCREMENT): 市场是否有新增资金入场。
+          4. 资金流背离 (SCORE_FF_AXIOM_DIVERGENCE): 资金流与价格的背离情况。
+        - 输出: [-1, 1] 的双极性分数，正分代表资金趋势向好，负分代表资金趋势恶化。
+        """
+        print("  -- [融合层] 正在冶炼“资金趋势”...")
+        states = {}
+        df_index = self.strategy.df_indicators.index
+        # 1. 资金流共识：直接反映主力资金的净流入/流出意图
+        ff_consensus = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
+        # 2. 资金流信念：反映主力资金的持仓决心和成本优势，是资金流质量的体现
+        ff_conviction = self._get_atomic_score('SCORE_FF_AXIOM_CONVICTION', 0.0)
+        # 3. 资金流增量：反映市场活跃度和新增资金的参与度
+        ff_increment = self._get_atomic_score('SCORE_FF_AXIOM_INCREMENT', 0.0)
+        # 4. 资金流背离：作为资金流趋势的先行或确认信号
+        ff_divergence = self._get_atomic_score('SCORE_FF_AXIOM_DIVERGENCE', 0.0)
+        # 融合所有资金流证据，采用加权平均
+        # 权重分配：共识和信念是核心，增量和背离是辅助确认
+        components = [ff_consensus, ff_conviction, ff_increment, ff_divergence]
+        weights = np.array([0.4, 0.3, 0.2, 0.1])
+        # 确保所有分量都是 Series，并且索引对齐
+        aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
+        fund_flow_trend_score = (
+            aligned_components[0] * weights[0] +
+            aligned_components[1] * weights[1] +
+            aligned_components[2] * weights[2] +
+            aligned_components[3] * weights[3]
+        ).clip(-1, 1)
+        states['FUSION_BIPOLAR_FUND_FLOW_TREND'] = fund_flow_trend_score.astype(np.float32)
+        print(f"  -- [融合层] “资金趋势”冶炼完成，最新分值: {fund_flow_trend_score.iloc[-1]:.4f}")
+        return states
+
+    def _synthesize_chip_trend(self) -> Dict[str, pd.Series]:
+        """
+        【V1.0】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
+        - 核心思想: 综合判断市场筹码的集中度、成本结构、持股心态和峰形态，形成筹码的整体趋势判断。
+        - 证据链:
+          1. 筹码集中度 (SCORE_CHIP_AXIOM_CONCENTRATION): 筹码是集中还是分散。
+          2. 筹码成本结构 (SCORE_CHIP_AXIOM_COST_STRUCTURE): 成本结构是否健康，获利盘和套牢盘分布。
+          3. 持股心态 (SCORE_CHIP_AXIOM_HOLDER_SENTIMENT): 市场参与者的持股信心。
+          4. 筹码峰完整性 (SCORE_CHIP_AXIOM_PEAK_INTEGRITY): 筹码峰的支撑或压力作用。
+          5. 筹码背离 (SCORE_CHIP_AXIOM_DIVERGENCE): 筹码与价格的背离情况。
+          6. 筹码干净度 (SCORE_CHIP_CLEANLINESS): 市场浮筹的多少。
+          7. 筹码锁定度 (SCORE_CHIP_LOCKDOWN_DEGREE): 筹码被锁定的程度。
+        - 输出: [-1, 1] 的双极性分数，正分代表筹码趋势向好，负分代表筹码趋势恶化。
+        """
+        print("  -- [融合层] 正在冶炼“筹码趋势”...")
+        states = {}
+        df_index = self.strategy.df_indicators.index
+        # 1. 筹码集中度：核心指标，反映主力控盘程度
+        chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
+        # 2. 筹码成本结构：反映成本分布的健康度
+        chip_cost_structure = self._get_atomic_score('SCORE_CHIP_AXIOM_COST_STRUCTURE', 0.0)
+        # 3. 持股心态：反映市场参与者的信心和痛苦程度
+        chip_holder_sentiment = self._get_atomic_score('SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
+        # 4. 筹码峰完整性：反映筹码峰的支撑/压力强度
+        chip_peak_integrity = self._get_atomic_score('SCORE_CHIP_AXIOM_PEAK_INTEGRITY', 0.0)
+        # 5. 筹码背离：作为筹码趋势的先行或确认信号
+        chip_divergence = self._get_atomic_score('SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
+        # 6. 筹码干净度：反映浮筹的多少，越干净越好
+        chip_cleanliness = self._get_atomic_score('SCORE_CHIP_CLEANLINESS', 0.0)
+        # 7. 筹码锁定度：反映筹码被锁定的程度，越高越好
+        chip_lockdown_degree = self._get_atomic_score('SCORE_CHIP_LOCKDOWN_DEGREE', 0.0)
+        # 融合所有筹码证据，采用加权平均
+        # 权重分配：集中度、成本结构、持股心态是核心，其他是辅助确认
+        components = [
+            chip_concentration, chip_cost_structure, chip_holder_sentiment,
+            chip_peak_integrity, chip_divergence, chip_cleanliness, chip_lockdown_degree
+        ]
+        weights = np.array([0.25, 0.20, 0.20, 0.10, 0.10, 0.08, 0.07])
+        # 确保所有分量都是 Series，并且索引对齐
+        aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
+        chip_trend_score = (
+            aligned_components[0] * weights[0] +
+            aligned_components[1] * weights[1] +
+            aligned_components[2] * weights[2] +
+            aligned_components[3] * weights[3] +
+            aligned_components[4] * weights[4] +
+            aligned_components[5] * weights[5] +
+            aligned_components[6] * weights[6]
+        ).clip(-1, 1)
+        states['FUSION_BIPOLAR_CHIP_TREND'] = chip_trend_score.astype(np.float32)
+        print(f"  -- [融合层] “筹码趋势”冶炼完成，最新分值: {chip_trend_score.iloc[-1]:.4f}")
         return states
 
 
