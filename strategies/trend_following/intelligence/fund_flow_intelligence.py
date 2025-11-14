@@ -82,12 +82,13 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.4 · 资金流净额计算修复与博弈烈度增强版】资金流公理一：诊断“共识与分歧”
+        【V1.5 · 拆单吸筹逻辑强化与因子贡献修正版】资金流公理一：诊断“共识与分歧”
         - 核心修复: 修正了 `net_sm_amount_calibrated_D` 等净流入金额的计算逻辑，
                       现在它们将基于原始的买入和卖出金额进行计算，而不是直接从 `df` 中获取。
                       这解决了 `_diagnose_axiom_consensus` 方法中缺少DataFrame数据 'net_sm_amount_calibrated_D' 的警告。
+        - 核心强化: 调整了“拆单吸筹因子”的识别条件，使其能更准确地捕捉主力通过小单/中单进行隐蔽吸筹的行为。
+        - 核心修正: 确保“拆单吸筹因子”仅在原始信号为正时才对最终共识分数产生贡献，避免了归一化函数可能导致的误判。
         - 引入 `mf_retail_battle_intensity` (主力散户博弈烈度) 作为判断资金流共识的重要证据。
-        - 【新增】引入“拆单吸筹因子”，识别主力通过小单/中单进行隐蔽吸筹的行为。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `battle_intensity_factor` 和 `consensus_score_base` 的归一化方式改为多时间维度自适应归一化。
         """
@@ -129,13 +130,18 @@ class FundFlowIntelligence:
         # 1. 价格下跌或横盘 (pct_change <= 0)
         # 2. 小单/中单净流入为正 (sm_md_net_flow > 0)
         # 3. 大单/特大单净流入不明显或为负 (lg_xl_net_flow <= 0)
-        # 4. 且 sm_md_net_flow > abs(lg_xl_net_flow) (小单中单的净流入能抵消大单特大单的流出)
+        # 4. 且 sm_md_net_flow >= abs(lg_xl_net_flow) (小单中单的净流入能够抵消或对冲大单特大单的流出)
         # 拆单吸筹因子：在价格下跌或横盘时，小单中单净流入与大单特大单净流入的差值，归一化后作为因子
         split_order_accumulation_raw = pd.Series(0.0, index=df_index)
-        condition_mask = (pct_change <= 0) & (sm_md_net_flow > 0) & (lg_xl_net_flow <= 0) & (sm_md_net_flow > lg_xl_net_flow.abs())
+        # [代码修改开始]
+        # 修正条件：将 > 改为 >=
+        condition_mask = (pct_change <= 0) & (sm_md_net_flow > 0) & (lg_xl_net_flow <= 0) & (sm_md_net_flow >= lg_xl_net_flow.abs())
         split_order_accumulation_raw.loc[condition_mask] = (sm_md_net_flow - lg_xl_net_flow).loc[condition_mask]
         # 对拆单吸筹因子进行归一化，使其成为一个 [0, 1] 的正向证据
-        split_order_accumulation_factor = get_adaptive_mtf_normalized_score(split_order_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
+        normalized_split_factor_series = get_adaptive_mtf_normalized_score(split_order_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
+        # 只有当 split_order_accumulation_raw > 0 时，才使用这个归一化因子，否则为0
+        split_order_accumulation_factor = normalized_split_factor_series.where(split_order_accumulation_raw > 0, 0)
+        # [代码修改结束]
         # 原始共识分数
         consensus_score_base = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df_index, tf_weights_ff, sensitivity=1.0)
         # 融合博弈烈度。高烈度时，放大共识信号；低烈度时，削弱共识信号。
