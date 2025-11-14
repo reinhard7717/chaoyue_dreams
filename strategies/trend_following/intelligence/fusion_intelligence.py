@@ -331,16 +331,27 @@ class FusionIntelligence:
 
     def _synthesize_capital_confrontation(self) -> Dict[str, pd.Series]:
         """
-        【V1.0】冶炼“资本对抗” (Capital Confrontation)
+        【V1.1 · 探针增强版】冶炼“资本对抗” (Capital Confrontation)
         - 核心思想: 深度洞察A股的博弈核心——主力与散户的对抗。
         - 证据链:
           1. 资金流对抗 (FundFlow): 主力与散户的资金流方向是否相反。
           2. 筹码转移 (Chip): 筹码是在集中还是在发散。
           3. 微观欺骗 (MicroBehavior): 是否存在“伪装成散户吸筹”等欺骗行为。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【新增】增加详细探针输出，追踪计算过程。
         """
         print("  -- [融合层] 正在冶炼“资本对抗”...")
         states = {}
+        df_index = self.strategy.df_indicators.index
+        # --- Debugging setup ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        probe_date_for_loop = None
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop not in df_index:
+                probe_date_for_loop = None # Reset if not in index
         # 证据1: 资金流对抗 (来自资金流层)
         flow_confrontation = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
         # 证据2: 筹码转移 (来自筹码层)
@@ -352,6 +363,14 @@ class FusionIntelligence:
         # 负分代表散户占优（接盘、筹码发散）
         bipolar_confrontation = (flow_confrontation * 0.5 + chip_transfer * 0.3 + deception * 0.2).clip(-1, 1)
         states['FUSION_BIPOLAR_CAPITAL_CONFRONTATION'] = bipolar_confrontation.astype(np.float32)
+        # [代码修改开始]
+        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+            print(f"    -> [资本对抗探针] @ {probe_date_for_loop.date()}:")
+            print(f"       - SCORE_FF_AXIOM_CONSENSUS: {flow_confrontation.loc[probe_date_for_loop]:.4f}")
+            print(f"       - SCORE_CHIP_AXIOM_CONCENTRATION: {chip_transfer.loc[probe_date_for_loop]:.4f}")
+            print(f"       - SCORE_MICRO_AXIOM_DECEPTION: {deception.loc[probe_date_for_loop]:.4f}")
+            print(f"       - Calculated bipolar_confrontation: {bipolar_confrontation.loc[probe_date_for_loop]:.4f}")
+        # [代码修改结束]
         print(f"  -- [融合层] “资本对抗”冶炼完成，最新分值: {bipolar_confrontation.iloc[-1]:.4f}")
         return states
 

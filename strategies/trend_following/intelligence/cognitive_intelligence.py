@@ -30,11 +30,25 @@ class CognitiveIntelligence:
 
     def _get_fused_score(self, name: str, default: float = 0.0) -> pd.Series:
         """
-        【V1.1 · 真理探针版】安全地从原子状态库中获取由融合层提供的态势分数。
+        【V1.2 · 真理探针版】安全地从原子状态库中获取由融合层提供的态势分数。
         - 核心升级: 植入真理探针。如果获取不到信号，将打印明确的警告信息。
+        - 【新增】增加探针输出，打印获取到的融合信号原始值，特别是针对 FUSION_BIPOLAR_CAPITAL_CONFRONTATION。
         """
         if name in self.strategy.atomic_states:
-            return self.strategy.atomic_states[name]
+            score = self.strategy.atomic_states[name]
+            # [代码修改开始]
+            debug_params = get_params_block(self.strategy, 'debug_params', {})
+            probe_dates_str = debug_params.get('probe_dates', [])
+            if probe_dates_str and name == 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION':
+                probe_date_naive = pd.to_datetime(probe_dates_str[0])
+                probe_date_for_loop = probe_date_naive.tz_localize(self.strategy.df_indicators.index.tz) if self.strategy.df_indicators.index.tz else probe_date_naive
+                if probe_date_for_loop is not None and probe_date_for_loop in self.strategy.df_indicators.index:
+                    if isinstance(score, pd.Series):
+                        print(f"    -> [DEBUG _get_fused_score] 获取融合信号 '{name}' 原始值: {score.loc[probe_date_for_loop]:.4f}")
+                    else:
+                        print(f"    -> [DEBUG _get_fused_score] 获取融合信号 '{name}' 原始值: {score:.4f}")
+            # [代码修改结束]
+            return score
         else:
             print(f"    -> [认知层警告] 融合态势信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
             return pd.Series(default, index=self.strategy.df_indicators.index)
