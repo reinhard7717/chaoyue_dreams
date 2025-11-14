@@ -656,9 +656,9 @@ class FeatureEngineeringService:
 
     async def calculate_och(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
-        【V2.0 · 筹码全息健康度版】计算整体筹码健康度 (Overall Chip Health, OCH)。
-        - 核心逻辑: 综合筹码集中度、成本结构、持股心态和筹码流动性四大维度，
-                    利用多项原始筹码数据，通过标准化和加权融合，形成一个全面、精确的筹码健康度指标。
+        【V3.0 · 筹码全息健康度版】计算整体筹码健康度 (Overall Chip Health, OCH)。
+        - 核心逻辑: 综合筹码集中度与结构优化、成本与盈亏结构动态、持股心态与交易行为、主力控盘与意图四大维度，
+                    利用多项原始筹码数据，通过标准化和加权融合，形成一个全面、精确、直指本质的筹码健康度指标。
         - 目的: 在数据层提前计算一个综合的筹码健康度指标，供后续斜率计算和情报层使用。
         - 数据源: 直接从 df 中获取原始筹码相关列。
         """
@@ -671,103 +671,119 @@ class FeatureEngineeringService:
         # 定义所有需要的原始筹码相关列
         required_cols = [
             'short_term_concentration_90pct_D', 'long_term_concentration_90pct_D',
-            'dominant_peak_solidity_D', 'chip_fault_blockage_ratio_D',
-            'total_winner_rate_D', 'winner_profit_margin_avg_D',
-            'loser_pain_index_D', 'cost_divergence_normalized_D',
-            'main_force_cost_advantage_D',
+            'winner_concentration_90pct_D', 'loser_concentration_90pct_D',
+            'dominant_peak_solidity_D', 'dominant_peak_volume_ratio_D',
+            'chip_fault_blockage_ratio_D',
+            'total_winner_rate_D', 'total_loser_rate_D',
+            'winner_profit_margin_avg_D', 'loser_loss_margin_avg_D',
+            'cost_divergence_normalized_D', 'main_force_cost_advantage_D',
+            'imminent_profit_taking_supply_D', 'loser_capitulation_pressure_index_D',
             'winner_conviction_index_D', 'chip_fatigue_index_D',
             'locked_profit_rate_D', 'locked_loss_rate_D', 'capitulation_absorption_index_D',
-            'turnover_rate_f_D', 'main_force_on_peak_flow_D',
-            'active_zone_combat_intensity_D', 'active_zone_mf_stance_D'
+            'active_buying_support_D', 'active_selling_pressure_D', 'active_zone_combat_intensity_D',
+            'main_force_control_leverage_D', 'main_force_on_peak_flow_D',
+            'main_force_flow_directionality_D', 'main_force_execution_alpha_D',
+            'main_force_conviction_index_D', 'mf_vpoc_premium_D', 'vwap_control_strength_D',
+            'turnover_rate_f_D'
         ]
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            logger.warning(f"计算 OCH 缺少关键数据: {missing_cols}，模块已跳过！")
-            # 返回一个全为0的Series，避免后续计算出错
-            df['OCH_D'] = pd.Series(0.0, index=df_index, dtype=np.float32)
-            all_dfs[timeframe] = df
-            return all_dfs
-        # --- 1. 筹码集中度 (Concentration Score) ---
-        # 短期集中度 (0-100)，越高越好
-        st_concentration = df['short_term_concentration_90pct_D']
-        # 长期集中度 (0-100)，越高越好
-        lt_concentration = df['long_term_concentration_90pct_D']
-        # 主筹码峰稳固度 (0-1)，越高越好
-        peak_solidity = df['dominant_peak_solidity_D']
-        # 筹码断层堵塞比率 (0-1)，越低越好 (反向指标)
-        chip_fault = df['chip_fault_blockage_ratio_D']
-        # 集中度融合：短期和长期集中度加权，稳固度作为质量乘数，堵塞比率作为惩罚
-        # 归一化到 [0, 1]
+        # 使用 _get_safe_series 确保所有数据都存在，并用默认值填充缺失值
+        def _get_safe_series_local(col_name, default_val=0.0):
+            if col_name not in df.columns:
+                logger.warning(f"OCH计算缺少列: {col_name}，使用默认值 {default_val}。")
+                return pd.Series(default_val, index=df_index)
+            return df[col_name].fillna(default_val)
+        # --- 1. 筹码集中度与结构优化 (Concentration & Structure Optimization Score) ---
+        st_concentration = _get_safe_series_local('short_term_concentration_90pct_D', 50.0) / 100 # 归一化到 0-1
+        lt_concentration = _get_safe_series_local('long_term_concentration_90pct_D', 50.0) / 100 # 归一化到 0-1
+        winner_concentration = _get_safe_series_local('winner_concentration_90pct_D', 50.0) / 100
+        loser_concentration = _get_safe_series_local('loser_concentration_90pct_D', 50.0) / 100
+        peak_solidity = _get_safe_series_local('dominant_peak_solidity_D', 0.5) # 0-1
+        peak_volume_ratio = _get_safe_series_local('dominant_peak_volume_ratio_D', 0.5) # 0-1
+        chip_fault = _get_safe_series_local('chip_fault_blockage_ratio_D', 0.0) # 0-1，越低越好
+        # 集中度健康度：短期和长期集中度加权，反映整体集中水平
+        concentration_health = (st_concentration * 0.6 + lt_concentration * 0.4)
+        # 筹码峰质量：稳固度与量能的乘积，强调共振
+        peak_quality = peak_solidity * peak_volume_ratio
+        # 获利/亏损盘结构：亏损盘集中度高且获利盘集中度低，视为健康（底部特征）
+        pl_structure_bias = (loser_concentration - winner_concentration).clip(-1, 1) # 映射到 -1到1
+        # 堵塞惩罚：堵塞比率越高，惩罚越大
+        blockage_penalty = (1 - chip_fault)
+        # 集中度与结构优化融合 (映射到 0-1)
         concentration_score = (
-            (st_concentration * 0.6 + lt_concentration * 0.4) / 100 * peak_solidity * (1 - chip_fault)
+            concentration_health * 0.4 +
+            peak_quality * 0.3 +
+            (pl_structure_bias + 1) / 2 * 0.2 + # 将 -1到1 映射到 0到1
+            blockage_penalty * 0.1
         ).clip(0, 1)
-        # --- 2. 成本结构健康度 (Cost Structure Health) ---
-        # 总获利盘比例 (0-1)，越高越好
-        winner_rate = df['total_winner_rate_D']
-        # 获利盘平均利润率 (百分比)，越高越好
-        profit_margin = df['winner_profit_margin_avg_D']
-        # 套牢盘痛苦指数 (0-1)，越低越好 (反向指标)
-        loser_pain = df['loser_pain_index_D']
-        # 成本发散度 (0-1)，越低越好 (反向指标)
-        cost_divergence = df['cost_divergence_normalized_D']
-        # 主力成本优势 (0-1)，越高越好
-        mf_cost_advantage = df['main_force_cost_advantage_D']
-        # 成本结构融合：获利盘比例和利润率正向，痛苦和发散反向，主力成本优势加权
-        # 归一化到 [0, 1]
+        # --- 2. 成本与盈亏结构动态 (Cost & P/L Structure Dynamics Score) ---
+        total_winner_rate = _get_safe_series_local('total_winner_rate_D', 0.5) # 0-1
+        total_loser_rate = _get_safe_series_local('total_loser_rate_D', 0.5) # 0-1
+        winner_profit_margin = _get_safe_series_local('winner_profit_margin_avg_D', 0.0) / 100 # 归一化到 0-1
+        loser_loss_margin = _get_safe_series_local('loser_loss_margin_avg_D', 0.0) / 100 # 归一化到 0-1
+        cost_divergence = _get_safe_series_local('cost_divergence_normalized_D', 0.0) # -1到1
+        mf_cost_advantage = _get_safe_series_local('main_force_cost_advantage_D', 0.0) # -1到1
+        imminent_profit_taking = _get_safe_series_local('imminent_profit_taking_supply_D', 0.0) # 0-1
+        loser_capitulation_pressure = _get_safe_series_local('loser_capitulation_pressure_index_D', 0.0) # 0-1
+        # 获利盘压力：获利盘比例、利润率、抛压意愿的乘积 (负向贡献)
+        profit_pressure = total_winner_rate * winner_profit_margin * imminent_profit_taking
+        # 亏损盘支撑：亏损盘比例、亏损率、投降压力低的乘积 (正向贡献)
+        loser_support = total_loser_rate * loser_loss_margin * (1 - loser_capitulation_pressure)
+        # 成本优势：主力成本优势与成本发散度的结合
+        cost_advantage_score = (mf_cost_advantage - cost_divergence).clip(-1, 1)
+        # 成本与盈亏结构融合 (映射到 0-1)
         cost_structure_score = (
-            winner_rate * 0.3 +
-            (profit_margin.clip(lower=0) / 100).clip(0, 1) * 0.2 + # 利润率可能很高，需要clip
-            (1 - loser_pain) * 0.2 +
-            (1 - cost_divergence) * 0.1 +
-            mf_cost_advantage * 0.2
+            (loser_support * 0.4) +
+            ((cost_advantage_score + 1) / 2 * 0.4) - # 映射到 0到1
+            (profit_pressure * 0.2)
         ).clip(0, 1)
-        # --- 3. 持股心态稳定性 (Holder Sentiment Stability) ---
-        # 赢家信念指数 (0-1)，越高越好
-        winner_conviction = df['winner_conviction_index_D']
-        # 筹码疲劳指数 (0-1)，越低越好 (反向指标)
-        chip_fatigue = df['chip_fatigue_index_D']
-        # 锁定利润盘比例 (0-1)，越高越好
-        locked_profit = df['locked_profit_rate_D']
-        # 锁定亏损盘比例 (0-1)，越低越好 (反向指标)
-        locked_loss = df['locked_loss_rate_D']
-        # 投降吸收指数 (0-1)，越高越好
-        capitulation_absorption = df['capitulation_absorption_index_D']
-        # 持股心态融合
-        # 归一化到 [0, 1]
+        # --- 3. 持股心态与交易行为 (Holder Sentiment & Behavior Score) ---
+        winner_conviction = _get_safe_series_local('winner_conviction_index_D', 0.0) # 0-1
+        chip_fatigue = _get_safe_series_local('chip_fatigue_index_D', 0.0) # 0-1
+        locked_profit = _get_safe_series_local('locked_profit_rate_D', 0.0) # 0-1
+        locked_loss = _get_safe_series_local('locked_loss_rate_D', 0.0) # 0-1
+        capitulation_absorption = _get_safe_series_local('capitulation_absorption_index_D', 0.0) # 0-1
+        active_buying = _get_safe_series_local('active_buying_support_D', 0.0) # 0-1
+        active_selling = _get_safe_series_local('active_selling_pressure_D', 0.0) # 0-1
+        combat_intensity = _get_safe_series_local('active_zone_combat_intensity_D', 0.0) # 0-1
+        # 信念与锁定：信念、锁定利润盘正向，疲劳、锁定亏损盘负向
+        conviction_lock_score = (winner_conviction + locked_profit - chip_fatigue - locked_loss).clip(-1, 1)
+        # 吸收与支撑：吸收能力、主动买盘正向，主动卖盘负向
+        absorption_support_score = (capitulation_absorption + active_buying - active_selling).clip(-1, 1)
+        # 持股心态与交易行为融合 (映射到 0-1)
         sentiment_score = (
-            winner_conviction * 0.3 +
-            (1 - chip_fatigue) * 0.2 +
-            locked_profit * 0.2 +
-            (1 - locked_loss) * 0.1 +
-            capitulation_absorption * 0.2
+            ((conviction_lock_score + 1) / 2 * 0.4) +
+            ((absorption_support_score + 1) / 2 * 0.4) +
+            (combat_intensity * 0.2)
         ).clip(0, 1)
-        # --- 4. 筹码流动性与活跃度 (Chip Liquidity & Activity) ---
-        # 自由流通换手率 (百分比)，适中为好，过高过低都不好
-        turnover_rate = df['turnover_rate_f_D']
-        # 主力在筹码峰上的资金流 (金额)，正向为好
-        mf_on_peak_flow = df['main_force_on_peak_flow_D']
-        # 活跃区博弈强度 (0-1)，适中为好
-        combat_intensity = df['active_zone_combat_intensity_D']
-        # 活跃区主力态度 (-1到1)，正向为好
-        mf_stance = df['active_zone_mf_stance_D']
-        # 换手率健康度：使用高斯函数或分段函数，假设健康区间为 2% - 15%
-        # 简化处理：低于2%或高于15%惩罚
-        turnover_health = pd.Series(1.0, index=df_index)
-        turnover_health[turnover_rate < 2] = turnover_rate[turnover_rate < 2] / 2
-        turnover_health[turnover_rate > 15] = 1 - (turnover_rate[turnover_rate > 15] - 15) / 10 # 超过15%后每增加10%扣1分
-        turnover_health = turnover_health.clip(0, 1)
-        # 主力在筹码峰上的资金流，归一化到 [0, 1]
+        # --- 4. 主力控盘与意图 (Main Force Control & Intent Score) ---
+        mf_control_leverage = _get_safe_series_local('main_force_control_leverage_D', 0.0) # 0-1
+        mf_on_peak_flow = _get_safe_series_local('main_force_on_peak_flow_D', 0.0) # 金额，需要归一化
+        mf_flow_directionality = _get_safe_series_local('main_force_flow_directionality_D', 0.0) # -1到1
+        mf_execution_alpha = _get_safe_series_local('main_force_execution_alpha_D', 0.0) # -1到1
+        mf_conviction_index = _get_safe_series_local('main_force_conviction_index_D', 0.0) # 0-1
+        mf_vpoc_premium = _get_safe_series_local('mf_vpoc_premium_D', 0.0) # -1到1
+        vwap_control_strength = _get_safe_series_local('vwap_control_strength_D', 0.0) # 0-1
+        turnover_rate_f = _get_safe_series_local('turnover_rate_f_D', 0.0) # 百分比
+        # 控盘强度：控盘杠杆与VWAP控制强度乘积
+        control_strength = mf_control_leverage * vwap_control_strength
+        # 峰值操作：主力在筹码峰上的资金流，归一化到 0-1
         mf_on_peak_flow_normalized = (mf_on_peak_flow.rank(pct=True) * 2 - 1).clip(0, 1) # 只取正向贡献
-        # 活跃区博弈强度，归一化到 [0, 1]
-        combat_intensity_normalized = combat_intensity.clip(0, 1)
-        # 活跃区主力态度，归一化到 [0, 1]
-        mf_stance_normalized = (mf_stance + 1) / 2
-        # 流动性融合
-        liquidity_score = (
-            turnover_health * 0.3 +
-            mf_on_peak_flow_normalized * 0.3 +
-            combat_intensity_normalized * 0.2 +
-            mf_stance_normalized * 0.2
+        # 资金意图：方向性、执行效率、信念的乘积
+        mf_intent = mf_flow_directionality * mf_execution_alpha * mf_conviction_index
+        # 成本优势：主力VPOC溢价
+        mf_cost_advantage_final = (mf_vpoc_premium + 1) / 2 # 映射到 0-1
+        # 换手率健康度：适中为好，过高过低惩罚
+        turnover_health = pd.Series(1.0, index=df_index)
+        turnover_health[turnover_rate_f < 2] = turnover_rate_f[turnover_rate_f < 2] / 2
+        turnover_health[turnover_rate_f > 15] = 1 - (turnover_rate_f[turnover_rate_f > 15] - 15) / 10
+        turnover_health = turnover_health.clip(0, 1)
+        # 主力控盘与意图融合 (映射到 0-1)
+        main_force_score = (
+            control_strength * 0.3 +
+            mf_on_peak_flow_normalized * 0.2 +
+            ((mf_intent + 1) / 2 * 0.3) + # 映射到 0-1
+            mf_cost_advantage_final * 0.1 +
+            turnover_health * 0.1
         ).clip(0, 1)
         # --- 最终 OCH_D 融合 ---
         # 将四个维度分数进行加权平均，并映射到 [-1, 1]
@@ -776,7 +792,7 @@ class FeatureEngineeringService:
             concentration_score * 0.25 +
             cost_structure_score * 0.25 +
             sentiment_score * 0.25 +
-            liquidity_score * 0.25
+            main_force_score * 0.25
         ) * 2 - 1 # 映射到 [-1, 1]
         df['OCH_D'] = och_score.astype(np.float32)
         all_dfs[timeframe] = df
