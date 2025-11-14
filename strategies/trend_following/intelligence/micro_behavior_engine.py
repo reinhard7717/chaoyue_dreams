@@ -61,7 +61,7 @@ class MicroBehaviorEngine:
         all_states['SCORE_MICRO_AXIOM_DECEPTION'] = axiom_deception
         all_states['SCORE_MICRO_AXIOM_PROBE'] = axiom_probe
         all_states['SCORE_MICRO_AXIOM_EFFICIENCY'] = axiom_efficiency
-        # 引入微观行为层面的看涨/看跌背离信号 (保持不变)
+        # 引入微观行为层面的看涨/看跌背离信号
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_MICRO_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_MICRO_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)

@@ -220,7 +220,7 @@ class IndustryDao(BaseDAO):
             swan_industry = sw_industry_map.get(row.l3_code)
             stock = stock_map.get(row.ts_code)
             if swan_industry and stock:
-                # 保存到 SwIndustryMember 表的逻辑 (保持不变)
+                # 保存到 SwIndustryMember 表的逻辑
                 industry_member_dict = self.data_format_process.set_sw_industry_member_data(
                     sw_industry=swan_industry,
                     stock=stock,

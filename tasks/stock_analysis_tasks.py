@@ -1693,7 +1693,7 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
     """
     logger.info("====== [原子信号分析 V1.2 - Reduce] 聚合任务启动 ======")
     try:
-        # 1. 聚合计算逻辑 (保持不变)
+        # 1. 聚合计算逻辑
         all_stats = [item for sublist in results if sublist for item in sublist]
         if not all_stats:
             logger.warning("[原子信号 Reduce] 未能从任何股票中收集到有效的原子信号统计数据。")

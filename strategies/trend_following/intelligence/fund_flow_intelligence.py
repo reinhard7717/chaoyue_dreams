@@ -22,10 +22,11 @@ class FundFlowIntelligence:
 
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V21.5 · 纯粹原子版】资金流情报分析总指挥
+        【V21.6 · 资金流动量版】资金流情报分析总指挥
         - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
         - 核心职责: 只输出资金流领域的原子公理信号和资金流背离信号。
         - 移除信号: SCORE_FUND_FLOW_BULLISH_RESONANCE, SCORE_FUND_FLOW_BEARISH_RESONANCE, BIPOLAR_FUND_FLOW_DOMAIN_HEALTH, SCORE_FUND_FLOW_BOTTOM_REVERSAL, SCORE_FUND_FLOW_TOP_REVERSAL。
+        - 【更新】将 `_diagnose_axiom_increment` 替换为 `_diagnose_axiom_flow_momentum`。
         """
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -35,13 +36,13 @@ class FundFlowIntelligence:
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         axiom_consensus = self._diagnose_axiom_consensus(df, norm_window)
         axiom_conviction = self._diagnose_axiom_conviction(df, norm_window)
-        axiom_increment = self._diagnose_axiom_increment(df, norm_window)
+        axiom_flow_momentum = self._diagnose_axiom_flow_momentum(df, norm_window) # 调用新的方法
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
         all_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_FF_AXIOM_CONSENSUS'] = axiom_consensus
         all_states['SCORE_FF_AXIOM_CONVICTION'] = axiom_conviction
-        all_states['SCORE_FF_AXIOM_INCREMENT'] = axiom_increment
-        # 引入资金流层面的看涨/看跌背离信号 (保持不变)
+        all_states['SCORE_FF_AXIOM_FLOW_MOMENTUM'] = axiom_flow_momentum # 更新键名
+        # 引入资金流层面的看涨/看跌背离信号
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
@@ -143,14 +144,52 @@ class FundFlowIntelligence:
                 print(f"       - conviction_score: {conviction_score.loc[probe_date_for_loop]:.4f}")
         return conviction_score.astype(np.float32)
 
-    def _diagnose_axiom_increment(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+    def _diagnose_axiom_flow_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.0】资金流公理三：诊断“存量博弈”
+        【V2.0 · 资金流动量版】资金流公理三：诊断“资金流动量”
+        - 核心逻辑: 衡量主力资金净流量的相对强度和趋势动量。
+          - 标准化主力净流量 (NMFNF): 主力净流入额 / 总市值，使其可比。
+          - NMFNF的短期 (5日) 和中期 (21日) 斜率，反映资金流的走向和加速。
+          - 结合NMFNF的当前值和其动量，形成资金流的整体动量分数。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        net_flow = self._get_safe_series(df, 'net_flow_calibrated_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_increment")
-        turnover_slope = self._get_safe_series(df, f'SLOPE_5_turnover_rate_f_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_increment")
-        raw_bipolar_series = net_flow - (turnover_slope.clip(lower=0) * self._get_safe_series(df, 'circ_mv_D', 1e9, method_name="_diagnose_axiom_increment") * 0.01)
-        increment_score = normalize_to_bipolar(raw_bipolar_series, df.index, window=norm_window, sensitivity=1.0)
-        return increment_score.astype(np.float32)
+        df_index = df.index
+        # 获取主力净流量和总市值
+        main_force_net_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_flow_momentum")
+        total_market_value = self._get_safe_series(df, 'total_market_value_D', pd.Series(1e9, index=df_index), method_name="_diagnose_axiom_flow_momentum")
+        # 计算标准化主力净流量 (NMFNF)，避免除以零
+        nmfnf = (main_force_net_flow / total_market_value.replace(0, 1e9)).fillna(0)
+        # 归一化NMFNF本身，反映当前资金流的相对强度
+        nmfnf_score = normalize_to_bipolar(nmfnf, df_index, window=norm_window, sensitivity=0.001) # 敏感度根据实际数据调整
+        # 获取NMFNF的5日和21日斜率，反映资金流的动量和趋势
+        slope_5_nmfnf = self._get_safe_series(df, 'SLOPE_5_NMFNF_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_flow_momentum")
+        slope_21_nmfnf = self._get_safe_series(df, 'SLOPE_21_NMFNF_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_flow_momentum")
+        # 归一化斜率
+        slope_5_nmfnf_score = normalize_to_bipolar(slope_5_nmfnf, df_index, window=norm_window, sensitivity=0.0001)
+        slope_21_nmfnf_score = normalize_to_bipolar(slope_21_nmfnf, df_index, window=norm_window, sensitivity=0.00005)
+        # 融合当前资金流强度和其动量
+        # 权重分配：当前强度和短期动量更重要，中期趋势提供确认
+        flow_momentum_score = (
+            nmfnf_score * 0.4 +
+            slope_5_nmfnf_score * 0.35 +
+            slope_21_nmfnf_score * 0.25
+        ).clip(-1, 1)
+        # --- Debugging output for probe date ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [资金流动量探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - main_force_net_flow: {main_force_net_flow.loc[probe_date_for_loop]:.4f}")
+                print(f"       - total_market_value: {total_market_value.loc[probe_date_for_loop]:.4f}")
+                print(f"       - nmfnf: {nmfnf.loc[probe_date_for_loop]:.6f}")
+                print(f"       - nmfnf_score: {nmfnf_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - slope_5_nmfnf: {slope_5_nmfnf.loc[probe_date_for_loop]:.6f}")
+                print(f"       - slope_21_nmfnf: {slope_21_nmfnf.loc[probe_date_for_loop]:.6f}")
+                print(f"       - slope_5_nmfnf_score: {slope_5_nmfnf_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - slope_21_nmfnf_score: {slope_21_nmfnf_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - flow_momentum_score: {flow_momentum_score.loc[probe_date_for_loop]:.4f}")
+        return flow_momentum_score.astype(np.float32)
 

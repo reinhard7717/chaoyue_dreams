@@ -42,7 +42,7 @@ def _load_dynamic_scoring_map() -> dict:
         # 在发生错误时返回一个空字典，确保程序不会崩溃
         return {}
 
-# 核心策略名称映射 (保持不变)
+# 核心策略名称映射
 STRATEGY_NAME_MAP = {
     'multi_timeframe_trend_strategy': '三级引擎协同策略',
     'trend_follow_strategy': '日线趋势跟踪策略',

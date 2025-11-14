@@ -808,6 +808,12 @@
             "type": "context",
             "description": "【筹码公理五】诊断价格行为与筹码集中度之间的背离。正分代表看涨背离（如价跌筹码集中），负分代表看跌背离（如价涨筹码分散）。"
         },
+        "SCORE_CHIP_AXIOM_TREND_MOMENTUM": {
+            "cn_name": "【筹码公理】筹码趋势动量",
+            "category": "筹码层-原子",
+            "type": "context",
+            "description": "【V1.0】衡量整体筹码健康度（集中度、成本结构、持股心态融合）的变化速度和方向。正分代表筹码健康度加速改善，负分代表加速恶化。"
+        },
         "说明_ultimate_signals": "--- 终极信号层 (Ultimate Signals) ---",
         "说明_chip_ultimate": "--- 筹码层-终极信号 (现为内部状态) ---",
         "SCORE_CHIP_BULLISH_DIVERGENCE": {
@@ -891,6 +897,12 @@
             "category": "资金流层-原子",
             "type": "context",
             "description": "【资金流公理三】诊断市场资金的增量变化。正分代表增量资金入场，负分代表存量资金消耗或流出。"
+        },
+        "SCORE_FF_AXIOM_FLOW_MOMENTUM": {
+            "cn_name": "【资金流公理】资金流动量",
+            "category": "资金流层-原子",
+            "type": "context",
+            "description": "【V1.0】衡量主力资金净流量的相对强度和趋势动量。正分代表资金流加速流入，负分代表资金流加速流出。"
         },
         "SCORE_FF_AXIOM_DIVERGENCE": {
             "cn_name": "【资金流公理】资金背离",

@@ -159,7 +159,10 @@
         "MA_ACCELERATION_EMA_55_D": [5, 13],
         "ZIG_5_5.0_D": [5, 13],
         "PDI_14_D": [5],
-        "turnover_rate_f_D": [5]
+        "turnover_rate_f_D": [5],
+        "说明_资金流和筹码动量": "--- 为资金流和筹码动量公理提供支持 ---",
+        "NMFNF_D": [5, 21],
+        "OCH_D": [5, 21]
       }
     },
     "accel_params": {
@@ -199,7 +202,10 @@
         "MA_ACCELERATION_EMA_55_D": [5, 13],
         "ZIG_5_5.0_D": [5, 13],
         "PDI_14_D": [5],
-        "turnover_rate_f_D": [5]
+        "turnover_rate_f_D": [5],
+        "说明_资金流和筹码动量": "--- 为资金流和筹码动量公理提供支持 ---",
+        "NMFNF_D": [5, 21],
+        "OCH_D": [5, 21]
       }
     }
   },
@@ -979,7 +985,7 @@
       },
       "chip_ultimate_params": {
         "enabled": true,
-        "description": "【V8.1 · 结构修正版】定义了基于“聚散、成本、心态、形态”四大核心公理的新筹码引擎参数。",
+        "description": "【V8.2 · 筹码趋势动量版】定义了基于“聚散、成本、心态、形态、趋势动量”五大核心公理的新筹码引擎参数。",
         "description_tf_fusion_weights": "【全息共振】在融合多时间级别(MTF)的公理分数时，赋予不同周期的权重。",
         "tf_fusion_weights": {
           "5": 0.4,
@@ -987,12 +993,13 @@
           "21": 0.2,
           "55": 0.1
         },
-        "description_axiom_weights": "融合四大筹码公理时的权重。",
+        "description_axiom_weights": "融合五大筹码公理时的权重。",
         "axiom_weights": {
-          "concentration": 0.3,
-          "cost_structure": 0.3,
+          "concentration": 0.25,
+          "cost_structure": 0.2,
           "holder_sentiment": 0.2,
-          "peak_integrity": 0.2
+          "peak_integrity": 0.15,
+          "trend_momentum": 0.2
         }
       },
       "dynamic_mechanics_params": {
@@ -1027,13 +1034,13 @@
       },
       "fund_flow_ultimate_params": {
         "enabled": true,
-        "description": "【V5.0 · 三大公理版】定义了基于“共识、信念、存量”三大资金流公理的引擎参数。",
+        "description": "【V5.1 · 资金流动量版】定义了基于“共识、信念、资金流动量”三大资金流公理的引擎参数。",
         "norm_window": 55,
         "description_axiom_weights": "融合三大资金流公理时的权重。",
         "axiom_weights": {
-          "consensus": 0.5,
+          "consensus": 0.4,
           "conviction": 0.3,
-          "increment": 0.2
+          "flow_momentum": 0.3
         }
       },
       "micro_behavior_params": {

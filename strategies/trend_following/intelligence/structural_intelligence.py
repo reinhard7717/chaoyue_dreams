@@ -49,7 +49,7 @@ class StructuralIntelligence:
         all_states['SCORE_STRUCT_AXIOM_TREND_FORM'] = axiom_trend_form
         all_states['SCORE_STRUCT_AXIOM_MTF_COHESION'] = axiom_mtf_cohesion
         all_states['SCORE_STRUCT_AXIOM_STABILITY'] = axiom_stability
-        # 引入结构层面的看涨/看跌背离信号 (保持不变)
+        # 引入结构层面的看涨/看跌背离信号
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_STRUCTURE_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_STRUCTURE_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)

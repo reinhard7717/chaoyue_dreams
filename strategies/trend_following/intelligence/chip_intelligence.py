@@ -25,11 +25,12 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V9.3 · 纯粹原子版】筹码情报总指挥
+        【V9.4 · 筹码趋势动量版】筹码情报总指挥
         - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
         - 核心职责: 只输出筹码领域的原子公理信号、筹码背离信号和超级原子信号。
         - 移除信号: SCORE_CHIP_BULLISH_RESONANCE, SCORE_CHIP_BEARISH_RESONANCE, BIPOLAR_CHIP_DOMAIN_HEALTH, SCORE_CHIP_BOTTOM_REVERSAL, SCORE_CHIP_TOP_REVERSAL。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【新增】调用 `_diagnose_axiom_trend_momentum` 方法，生成新的筹码趋势动量公理。
         """
         all_chip_states = {}
         periods = [5, 13, 21, 55]
@@ -46,7 +47,10 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_AXIOM_COST_STRUCTURE'] = cost_structure_scores
         all_chip_states['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
         all_chip_states['SCORE_CHIP_AXIOM_PEAK_INTEGRITY'] = peak_integrity_scores
-        # 引入筹码层面的看涨/看跌背离信号 (保持不变)
+        # 诊断筹码趋势动量公理 (需要依赖其他筹码公理，所以放在后面)
+        chip_trend_momentum_scores = self._diagnose_axiom_trend_momentum(df, periods)
+        all_chip_states['SCORE_CHIP_AXIOM_TREND_MOMENTUM'] = chip_trend_momentum_scores
+        # 引入筹码层面的看涨/看跌背离信号
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(divergence_scores)
         all_chip_states['SCORE_CHIP_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_chip_states['SCORE_CHIP_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
@@ -283,4 +287,53 @@ class ChipIntelligence:
         divergence_score = (concentration_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
 
+    def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list) -> pd.Series:
+        """
+        【V1.0 · 筹码趋势动量版】筹码公理六：诊断“筹码趋势动量”
+        - 核心逻辑: 衡量整体筹码健康度的变化速度和方向。
+          - 整体筹码健康度 (OCH): 融合筹码集中度、成本结构和持股心态公理。
+          - OCH的短期 (5日) 和中期 (21日) 斜率，反映筹码健康度的动量和趋势。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
+        """
+        df_index = df.index
+        # 获取已计算的筹码核心公理分数
+        concentration_score = self._get_safe_series(self.strategy.atomic_states, 'SCORE_CHIP_AXIOM_CONCENTRATION', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_momentum")
+        cost_structure_score = self._get_safe_series(self.strategy.atomic_states, 'SCORE_CHIP_AXIOM_COST_STRUCTURE', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_momentum")
+        holder_sentiment_score = self._get_safe_series(self.strategy.atomic_states, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_momentum")
+        # 计算整体筹码健康度 (OCH)
+        # 权重分配：集中度最重要，成本结构和持股心态次之
+        overall_chip_health = (
+            concentration_score * 0.4 +
+            cost_structure_score * 0.3 +
+            holder_sentiment_score * 0.3
+        ).clip(-1, 1)
+        # 获取OCH的5日和21日斜率
+        slope_5_och = self._get_safe_series(df, 'SLOPE_5_OCH_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_momentum")
+        slope_21_och = self._get_safe_series(df, 'SLOPE_21_OCH_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_momentum")
+        # 归一化斜率
+        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
+        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        slope_5_och_score = utils.get_adaptive_mtf_normalized_bipolar_score(slope_5_och, df_index, tf_weights, sensitivity=0.005)
+        slope_21_och_score = utils.get_adaptive_mtf_normalized_bipolar_score(slope_21_och, df_index, tf_weights, sensitivity=0.002)
+        # 融合OCH的当前值和其动量
+        chip_trend_momentum_score = (
+            overall_chip_health * 0.4 + # OCH本身作为当前健康度
+            slope_5_och_score * 0.35 +
+            slope_21_och_score * 0.25
+        ).clip(-1, 1)
+        # --- Debugging output for probe date ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [筹码趋势动量探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - overall_chip_health: {overall_chip_health.loc[probe_date_for_loop]:.4f}")
+                print(f"       - slope_5_och: {slope_5_och.loc[probe_date_for_loop]:.6f}")
+                print(f"       - slope_21_och: {slope_21_och.loc[probe_date_for_loop]:.6f}")
+                print(f"       - slope_5_och_score: {slope_5_och_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - slope_21_och_score: {slope_21_och_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - chip_trend_momentum_score: {chip_trend_momentum_score.loc[probe_date_for_loop]:.4f}")
+        return chip_trend_momentum_score.astype(np.float32)
 

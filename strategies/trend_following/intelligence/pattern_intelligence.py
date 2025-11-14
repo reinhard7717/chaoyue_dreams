@@ -39,7 +39,7 @@ class PatternIntelligence:
         all_states['SCORE_PATTERN_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_PATTERN_AXIOM_REVERSAL'] = axiom_reversal
         all_states['SCORE_PATTERN_AXIOM_BREAKOUT'] = axiom_breakout
-        # 将形态公理一（背离）的双极性分数分裂为看涨/看跌背离信号 (保持不变)
+        # 将形态公理一（背离）的双极性分数分裂为看涨/看跌背离信号
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_PATTERN_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_PATTERN_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)

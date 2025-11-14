@@ -48,7 +48,7 @@ class FoundationIntelligence:
         # --- 步骤二: 计算并发布 CONTEXT_TREND_CONFIRMED 信号 ---
         context_trend_confirmed = self._diagnose_context_trend_confirmed(df, norm_window)
         all_states.update(context_trend_confirmed)
-        # 引入基础层面的看涨/看跌背离信号 (保持不变)
+        # 引入基础层面的看涨/看跌背离信号
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_FOUNDATION_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FOUNDATION_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)

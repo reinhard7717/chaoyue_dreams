@@ -36,7 +36,7 @@ def is_trading_time():
         return True
     return False
 
-# --- 辅助函数：获取需要处理的股票代码 (保持不变) ---
+# --- 辅助函数：获取需要处理的股票代码 ---
 async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBasicInfoDao):
     """
     【V2.0 依赖注入版】

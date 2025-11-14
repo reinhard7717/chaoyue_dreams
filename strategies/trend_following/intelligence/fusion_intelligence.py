@@ -331,7 +331,7 @@ class FusionIntelligence:
 
     def _synthesize_capital_confrontation(self) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 探针增强版】冶炼“资本对抗” (Capital Confrontation)
+        【V1.2 · 探针增强与打印修复版】冶炼“资本对抗” (Capital Confrontation)
         - 核心思想: 深度洞察A股的博弈核心——主力与散户的对抗。
         - 证据链:
           1. 资金流对抗 (FundFlow): 主力与散户的资金流方向是否相反。
@@ -339,11 +339,11 @@ class FusionIntelligence:
           3. 微观欺骗 (MicroBehavior): 是否存在“伪装成散户吸筹”等欺骗行为。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【新增】增加详细探针输出，追踪计算过程。
+        - 【修复】修正最终分值打印，使其与探针日期一致。
         """
         print("  -- [融合层] 正在冶炼“资本对抗”...")
         states = {}
         df_index = self.strategy.df_indicators.index
-        # --- Debugging setup ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         probe_date_for_loop = None
@@ -351,27 +351,21 @@ class FusionIntelligence:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop not in df_index:
-                probe_date_for_loop = None # Reset if not in index
-        # 证据1: 资金流对抗 (来自资金流层)
+                probe_date_for_loop = None
         flow_confrontation = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
-        # 证据2: 筹码转移 (来自筹码层)
         chip_transfer = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
-        # 证据3: 微观欺骗 (来自微观行为层)
         deception = self._get_atomic_score('SCORE_MICRO_AXIOM_DECEPTION', 0.0)
-        # 融合三大博弈证据
-        # 正分代表主力占优（吸筹、集中、欺骗性买入）
-        # 负分代表散户占优（接盘、筹码发散）
         bipolar_confrontation = (flow_confrontation * 0.5 + chip_transfer * 0.3 + deception * 0.2).clip(-1, 1)
         states['FUSION_BIPOLAR_CAPITAL_CONFRONTATION'] = bipolar_confrontation.astype(np.float32)
-        # [代码修改开始]
         if probe_date_for_loop is not None and probe_date_for_loop in df_index:
             print(f"    -> [资本对抗探针] @ {probe_date_for_loop.date()}:")
             print(f"       - SCORE_FF_AXIOM_CONSENSUS: {flow_confrontation.loc[probe_date_for_loop]:.4f}")
             print(f"       - SCORE_CHIP_AXIOM_CONCENTRATION: {chip_transfer.loc[probe_date_for_loop]:.4f}")
             print(f"       - SCORE_MICRO_AXIOM_DECEPTION: {deception.loc[probe_date_for_loop]:.4f}")
             print(f"       - Calculated bipolar_confrontation: {bipolar_confrontation.loc[probe_date_for_loop]:.4f}")
-        # [代码修改结束]
-        print(f"  -- [融合层] “资本对抗”冶炼完成，最新分值: {bipolar_confrontation.iloc[-1]:.4f}")
+            print(f"  -- [融合层] “资本对抗”冶炼完成，最新分值: {bipolar_confrontation.loc[probe_date_for_loop]:.4f}")
+        else:
+            print(f"  -- [融合层] “资本对抗”冶炼完成，最新分值: {bipolar_confrontation.iloc[-1]:.4f}")
         return states
 
     def _synthesize_price_overextension_intent(self) -> Dict[str, pd.Series]:
@@ -622,11 +616,9 @@ class FusionIntelligence:
             ma_bias_raw = (ema5 - ema21) / (ema21.abs().replace(0, 1e-9))
             # 乖离率的斜率，反映发散/收敛的速度
             ma_bias_slope_raw = ma_bias_raw.diff(1).fillna(0)
-            
             # 归一化乖离率和乖离率斜率
             norm_ma_bias = normalize_to_bipolar(ma_bias_raw, df_index, window=norm_window, sensitivity=0.02)
             norm_ma_bias_slope = normalize_to_bipolar(ma_bias_slope_raw, df_index, window=norm_window, sensitivity=0.001)
-            
             # 修正 divergence_score 逻辑为加权算术平均
             # 目标：当乖离率为正且乖离率斜率为正时，为强正分；当乖离率为负且乖离率斜率为负时，为强负分。
             # 当乖离率为负但乖离率斜率为正（负乖离缩小，结构改善）时，应为正分。
@@ -679,31 +671,26 @@ class FusionIntelligence:
 
     def _synthesize_fund_flow_trend(self) -> Dict[str, pd.Series]:
         """
-        【V1.0】冶炼“资金趋势” (FUSION_BIPOLAR_FUND_FLOW_TREND)
+        【V1.1 · 资金流动量版】冶炼“资金趋势” (FUSION_BIPOLAR_FUND_FLOW_TREND)
         - 核心思想: 综合判断主力资金的真实意图、信念和市场活跃度，形成资金流的整体趋势判断。
         - 证据链:
           1. 资金流共识 (SCORE_FF_AXIOM_CONSENSUS): 主力与散户的资金流博弈结果。
           2. 资金流信念 (SCORE_FF_AXIOM_CONVICTION): 主力资金的持仓决心和成本优势。
-          3. 资金流增量 (SCORE_FF_AXIOM_INCREMENT): 市场是否有新增资金入场。
+          3. 资金流动量 (SCORE_FF_AXIOM_FLOW_MOMENTUM): 主力资金净流量的相对强度和趋势动量。
           4. 资金流背离 (SCORE_FF_AXIOM_DIVERGENCE): 资金流与价格的背离情况。
         - 输出: [-1, 1] 的双极性分数，正分代表资金趋势向好，负分代表资金趋势恶化。
         """
         print("  -- [融合层] 正在冶炼“资金趋势”...")
         states = {}
         df_index = self.strategy.df_indicators.index
-        # 1. 资金流共识：直接反映主力资金的净流入/流出意图
         ff_consensus = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
-        # 2. 资金流信念：反映主力资金的持仓决心和成本优势，是资金流质量的体现
         ff_conviction = self._get_atomic_score('SCORE_FF_AXIOM_CONVICTION', 0.0)
-        # 3. 资金流增量：反映市场活跃度和新增资金的参与度
-        ff_increment = self._get_atomic_score('SCORE_FF_AXIOM_INCREMENT', 0.0)
-        # 4. 资金流背离：作为资金流趋势的先行或确认信号
+        ff_flow_momentum = self._get_atomic_score('SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0) # 获取新的资金流动量公理
         ff_divergence = self._get_atomic_score('SCORE_FF_AXIOM_DIVERGENCE', 0.0)
         # 融合所有资金流证据，采用加权平均
-        # 权重分配：共识和信念是核心，增量和背离是辅助确认
-        components = [ff_consensus, ff_conviction, ff_increment, ff_divergence]
-        weights = np.array([0.4, 0.3, 0.2, 0.1])
-        # 确保所有分量都是 Series，并且索引对齐
+        # 权重分配：共识和信念是核心，动量和背离是辅助确认
+        components = [ff_consensus, ff_conviction, ff_flow_momentum, ff_divergence]
+        weights = np.array([0.35, 0.30, 0.25, 0.10]) # 调整权重
         aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
         fund_flow_trend_score = (
             aligned_components[0] * weights[0] +
@@ -717,7 +704,7 @@ class FusionIntelligence:
 
     def _synthesize_chip_trend(self) -> Dict[str, pd.Series]:
         """
-        【V1.0】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
+        【V1.1 · 筹码趋势动量版】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
         - 核心思想: 综合判断市场筹码的集中度、成本结构、持股心态和峰形态，形成筹码的整体趋势判断。
         - 证据链:
           1. 筹码集中度 (SCORE_CHIP_AXIOM_CONCENTRATION): 筹码是集中还是分散。
@@ -727,33 +714,28 @@ class FusionIntelligence:
           5. 筹码背离 (SCORE_CHIP_AXIOM_DIVERGENCE): 筹码与价格的背离情况。
           6. 筹码干净度 (SCORE_CHIP_CLEANLINESS): 市场浮筹的多少。
           7. 筹码锁定度 (SCORE_CHIP_LOCKDOWN_DEGREE): 筹码被锁定的程度。
+          8. 筹码趋势动量 (SCORE_CHIP_AXIOM_TREND_MOMENTUM): 整体筹码健康度的变化速度和方向。
         - 输出: [-1, 1] 的双极性分数，正分代表筹码趋势向好，负分代表筹码趋势恶化。
         """
         print("  -- [融合层] 正在冶炼“筹码趋势”...")
         states = {}
         df_index = self.strategy.df_indicators.index
-        # 1. 筹码集中度：核心指标，反映主力控盘程度
         chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
-        # 2. 筹码成本结构：反映成本分布的健康度
         chip_cost_structure = self._get_atomic_score('SCORE_CHIP_AXIOM_COST_STRUCTURE', 0.0)
-        # 3. 持股心态：反映市场参与者的信心和痛苦程度
         chip_holder_sentiment = self._get_atomic_score('SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
-        # 4. 筹码峰完整性：反映筹码峰的支撑/压力强度
         chip_peak_integrity = self._get_atomic_score('SCORE_CHIP_AXIOM_PEAK_INTEGRITY', 0.0)
-        # 5. 筹码背离：作为筹码趋势的先行或确认信号
         chip_divergence = self._get_atomic_score('SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
-        # 6. 筹码干净度：反映浮筹的多少，越干净越好
         chip_cleanliness = self._get_atomic_score('SCORE_CHIP_CLEANLINESS', 0.0)
-        # 7. 筹码锁定度：反映筹码被锁定的程度，越高越好
         chip_lockdown_degree = self._get_atomic_score('SCORE_CHIP_LOCKDOWN_DEGREE', 0.0)
+        chip_trend_momentum = self._get_atomic_score('SCORE_CHIP_AXIOM_TREND_MOMENTUM', 0.0) # 获取新的筹码趋势动量公理
         # 融合所有筹码证据，采用加权平均
-        # 权重分配：集中度、成本结构、持股心态是核心，其他是辅助确认
+        # 权重分配：集中度、成本结构、持股心态和趋势动量是核心，其他是辅助确认
         components = [
             chip_concentration, chip_cost_structure, chip_holder_sentiment,
-            chip_peak_integrity, chip_divergence, chip_cleanliness, chip_lockdown_degree
+            chip_peak_integrity, chip_divergence, chip_cleanliness, chip_lockdown_degree,
+            chip_trend_momentum # 新增筹码趋势动量
         ]
-        weights = np.array([0.25, 0.20, 0.20, 0.10, 0.10, 0.08, 0.07])
-        # 确保所有分量都是 Series，并且索引对齐
+        weights = np.array([0.20, 0.15, 0.15, 0.10, 0.10, 0.05, 0.05, 0.20]) # 调整权重
         aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
         chip_trend_score = (
             aligned_components[0] * weights[0] +
@@ -762,7 +744,8 @@ class FusionIntelligence:
             aligned_components[3] * weights[3] +
             aligned_components[4] * weights[4] +
             aligned_components[5] * weights[5] +
-            aligned_components[6] * weights[6]
+            aligned_components[6] * weights[6] +
+            aligned_components[7] * weights[7]
         ).clip(-1, 1)
         states['FUSION_BIPOLAR_CHIP_TREND'] = chip_trend_score.astype(np.float32)
         print(f"  -- [融合层] “筹码趋势”冶炼完成，最新分值: {chip_trend_score.iloc[-1]:.4f}")

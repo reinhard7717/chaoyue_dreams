@@ -36,7 +36,6 @@ class CognitiveIntelligence:
         """
         if name in self.strategy.atomic_states:
             score = self.strategy.atomic_states[name]
-            # [代码修改开始]
             debug_params = get_params_block(self.strategy, 'debug_params', {})
             probe_dates_str = debug_params.get('probe_dates', [])
             if probe_dates_str and name == 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION':
@@ -47,7 +46,6 @@ class CognitiveIntelligence:
                         print(f"    -> [DEBUG _get_fused_score] 获取融合信号 '{name}' 原始值: {score.loc[probe_date_for_loop]:.4f}")
                     else:
                         print(f"    -> [DEBUG _get_fused_score] 获取融合信号 '{name}' 原始值: {score:.4f}")
-            # [代码修改结束]
             return score
         else:
             print(f"    -> [认知层警告] 融合态势信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
@@ -160,7 +158,7 @@ class CognitiveIntelligence:
 
     def _deduce_distribution_at_high(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.9 · 风险信号重构与趋势背景调制版】贝叶斯推演：“高位派发”风险剧本
+        【V3.10 · 风险信号重构与趋势背景调制版】贝叶斯推演：“高位派发”风险剧本
         - 核心升级: 引入“趋势背景调制因子”，当趋势质量和结构形态良好时，降低风险证据的权重。
         - 【增强】引入下跌吸收能力作为反向证据，抑制误报。
         - 【优化】对涨停日后的回调，降低风险权重。
@@ -168,20 +166,19 @@ class CognitiveIntelligence:
         - 【修复】修正 `_forge_dynamic_evidence` 对已是概率值的信号进行二次归一化的问题。
         - 【优化】将 `trend_modulator` 应用到 `likelihood` 计算中。
         - 【新增】增加探针输出，检查各组成部分的贡献。
+        - 【增强】提高 `trend_modulator` 的风险削弱能力。
         """
         print("    -- [剧本推演] 高位派发风险 (动态证据)...")
         df_index = self.strategy.df_indicators.index
-        # 趋势背景调制因子
         trend_quality = self._get_fused_score('FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
-        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
-        # 涨停日后的回调特殊处理
+        # 提高调制因子从 0.5 到 1.0，使风险削弱更显著
+        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 1.0).clip(0.5, 1.0)
         is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_distribution_at_high").shift(1).fillna(False)
-        # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
-        main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
+        main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength)
         capital_confrontation_bearish = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs())
         price_overextension_risk = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs())
         low_upward_efficiency = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5)).clip(0, 1))
@@ -191,7 +188,6 @@ class CognitiveIntelligence:
         upper_shadow_pressure = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0).clip(upper=0).abs())
         fund_flow_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 0.0))
         chip_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_BEARISH_DIVERGENCE', 0.0))
-        # 证据10: 下跌吸收能力 (反向证据，吸收能力强则风险低)
         dip_absorption_power = self._forge_dynamic_evidence(self._get_atomic_score('dip_absorption_power_D', 0.0))
         dip_absorption_inverse = (1 - dip_absorption_power).clip(0, 1)
         evidence_scores = np.stack([
@@ -212,11 +208,9 @@ class CognitiveIntelligence:
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
-        # 将 trend_modulator 应用到 likelihood
         likelihood = likelihood * trend_modulator
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        # 涨停日后的回调，进一步降低风险
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -261,7 +255,7 @@ class CognitiveIntelligence:
         structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
-        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0) # 降低50%的风险权重
+        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 1.0).clip(0.5, 1.0) # 降低50%的风险权重
         # 涨停日后的回调特殊处理
         is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_trend_exhaustion_risk").shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
@@ -756,7 +750,7 @@ class CognitiveIntelligence:
         structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
-        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
+        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 1.0).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
         is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_long_term_profit_distribution_risk").shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
@@ -825,7 +819,7 @@ class CognitiveIntelligence:
         structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
-        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
+        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 1.0).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
         is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_market_uncertainty_risk").shift(1).fillna(False)
         # 证据1: 市场政权处于震荡 (FUSION_BIPOLAR_MARKET_REGIME 接近0)
@@ -878,7 +872,7 @@ class CognitiveIntelligence:
 
     def _deduce_retail_fomo_retreat_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.7 · 风险剧本证据链优化与趋势背景调制版】贝叶斯推演：“散户狂热主力撤退”风险剧本
+        【V1.8 · 风险剧本证据链优化与趋势背景调制版】贝叶斯推演：“散户狂热主力撤退”风险剧本
         - 核心升级: 引入“趋势背景调制因子”，当趋势质量和结构形态良好时，降低风险证据的权重。
         - 【增强】引入下跌吸收能力作为反向证据，抑制误报。
         - 【优化】对涨停日后的回调，降低风险权重。
@@ -886,35 +880,26 @@ class CognitiveIntelligence:
         - 【修复】修正 `_forge_dynamic_evidence` 对已是概率值的信号进行二次归一化的问题。
         - 【优化】将 `trend_modulator` 应用到 `likelihood` 计算中。
         - 【新增】增加探针输出，检查各组成部分的贡献。
+        - 【增强】提高 `trend_modulator` 的风险削弱能力。
         """
         print("    -- [剧本推演] 散户狂热主力撤退风险 (动态证据)...")
         df_index = self.strategy.df_indicators.index
-        # 趋势背景调制因子
         trend_quality = self._get_fused_score('FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
-        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
-        # 涨停日后的回调特殊处理
+        # 提高调制因子从 0.5 到 1.0，使风险削弱更显著
+        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 1.0).clip(0.5, 1.0)
         is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_retail_fomo_retreat_risk").shift(1).fillna(False)
-        # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
-        main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
-        # 证据1: 散户资金净流入 (SCORE_FF_AXIOM_CONSENSUS 正向)
-        # 风险剧本需要散户狂热（即散户净流入为正）。如果散户净流入为负或零，则该证据强度应为0。
+        main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength)
         raw_retail_inflow_score = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
         retail_inflow = self._forge_dynamic_evidence(raw_retail_inflow_score.clip(lower=0))
-        # 证据2: 主力资金净流出 (FUSION_BIPOLAR_CAPITAL_CONFRONTATION 负向)
-        # 风险剧本需要主力撤退（即资本对抗为负）。如果资本对抗为正或零，则该证据强度应为0。
         raw_mf_confrontation_score = self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0)
         main_force_outflow = self._forge_dynamic_evidence(raw_mf_confrontation_score.clip(upper=0).abs())
-        # 证据3: 价格上涨 (pct_change_D 正向) - 作为背景条件，权重可以适当降低
         raw_price_rising_score = normalize_to_bipolar(self._get_atomic_score('pct_change_D'), self.strategy.df_indicators.index, 21)
         price_rising = self._forge_dynamic_evidence(raw_price_rising_score.clip(lower=0))
-        # 证据4: 筹码分散 (SCORE_CHIP_AXIOM_CONCENTRATION 负向) - 核心风险证据
-        # 筹码分散是风险，所以 (1 - 集中度) 越高，证据越强
         chip_dispersion = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
-        # 证据5: 下跌吸收能力 (反向证据，吸收能力强则风险低)
         dip_absorption_power = self._forge_dynamic_evidence(self._get_atomic_score('dip_absorption_power_D', 0.0))
         dip_absorption_inverse = (1 - dip_absorption_power).clip(0, 1)
         evidence_scores = np.stack([
@@ -925,17 +910,14 @@ class CognitiveIntelligence:
             dip_absorption_inverse.values,
             main_force_holding_inverse.values
         ], axis=0)
-        # 权重分配：降低散户流入的权重，提高主力流出和筹码分散的权重
         evidence_weights = np.array([0.10, 0.25, 0.07, 0.25, 0.18, 0.15])
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
-        # 将 trend_modulator 应用到 likelihood
         likelihood = likelihood * trend_modulator
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        # 涨停日后的回调，进一步降低风险
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -975,7 +957,7 @@ class CognitiveIntelligence:
         structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
-        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
+        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 1.0).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
         is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_harvest_confirmation_risk").shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
@@ -1045,7 +1027,7 @@ class CognitiveIntelligence:
         structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
-        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
+        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 1.0).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
         is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_bull_trap_distribution_risk").shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
@@ -1161,7 +1143,7 @@ class CognitiveIntelligence:
         structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
-        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
+        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 1.0).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
         is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_liquidity_trap_risk").shift(1).fillna(False)
         # 证据1: 资金流出 (FUSION_BIPOLAR_CAPITAL_CONFRONTATION 负向)
@@ -1225,7 +1207,7 @@ class CognitiveIntelligence:
         structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
-        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
+        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 1.0).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
         is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_t0_arbitrage_pressure_risk").shift(1).fillna(False)
         # 证据1: 主力T+0效率高 (PROCESS_META_PROFIT_VS_FLOW 负向)
@@ -1290,7 +1272,7 @@ class CognitiveIntelligence:
         structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
-        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
+        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 1.0).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
         is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_key_support_break_risk").shift(1).fillna(False)
         # 证据1: 市场压力大 (FUSION_BIPOLAR_MARKET_PRESSURE 负向)
@@ -1372,7 +1354,7 @@ class CognitiveIntelligence:
         structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
-        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
+        trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 1.0).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
         is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_high_level_structural_collapse_risk").shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
