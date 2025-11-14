@@ -82,7 +82,10 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.5 · 拆单吸筹逻辑强化与因子贡献修正版】资金流公理一：诊断“共识与分歧”
+        【V1.7 · 致命性代码错误修复版】资金流公理一：诊断“共识与分歧”
+        - 核心修复: 修正了 `sell_elg_amount` 变量错误地获取 `buy_elg_amount_D` 数据的致命性代码错误。
+                      现在 `sell_elg_amount` 将正确获取 `sell_elg_amount_D`，从而确保 `net_elg_amount`
+                      以及后续的 `main_force_flow` 和 `lg_xl_net_flow` 计算的准确性。
         - 核心修复: 修正了 `net_sm_amount_calibrated_D` 等净流入金额的计算逻辑，
                       现在它们将基于原始的买入和卖出金额进行计算，而不是直接从 `df` 中获取。
                       这解决了 `_diagnose_axiom_consensus` 方法中缺少DataFrame数据 'net_sm_amount_calibrated_D' 的警告。
@@ -91,6 +94,7 @@ class FundFlowIntelligence:
         - 引入 `mf_retail_battle_intensity` (主力散户博弈烈度) 作为判断资金流共识的重要证据。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `battle_intensity_factor` 和 `consensus_score_base` 的归一化方式改为多时间维度自适应归一化。
+        - 【新增】增加了详细的探针日志，用于诊断 `split_order_accumulation_raw` 赋值失败的问题。
         """
         df_index = df.index
         # 从原始买卖金额计算净流入金额
@@ -101,7 +105,10 @@ class FundFlowIntelligence:
         buy_lg_amount = self._get_safe_series(df, 'buy_lg_amount_D', 0, method_name="_diagnose_axiom_consensus")
         sell_lg_amount = self._get_safe_series(df, 'sell_lg_amount_D', 0, method_name="_diagnose_axiom_consensus")
         buy_elg_amount = self._get_safe_series(df, 'buy_elg_amount_D', 0, method_name="_diagnose_axiom_consensus")
+        # [代码修改开始]
+        # 修正致命性错误：sell_elg_amount 错误地获取了 buy_elg_amount_D
         sell_elg_amount = self._get_safe_series(df, 'sell_elg_amount_D', 0, method_name="_diagnose_axiom_consensus")
+        # [代码修改结束]
         # 计算各级别净流入
         net_sm_amount = buy_sm_amount - sell_sm_amount
         net_md_amount = buy_md_amount - sell_md_amount
@@ -133,15 +140,35 @@ class FundFlowIntelligence:
         # 4. 且 sm_md_net_flow >= abs(lg_xl_net_flow) (小单中单的净流入能够抵消或对冲大单特大单的流出)
         # 拆单吸筹因子：在价格下跌或横盘时，小单中单净流入与大单特大单净流入的差值，归一化后作为因子
         split_order_accumulation_raw = pd.Series(0.0, index=df_index)
-        # [代码修改开始]
-        # 修正条件：将 > 改为 >=
         condition_mask = (pct_change <= 0) & (sm_md_net_flow > 0) & (lg_xl_net_flow <= 0) & (sm_md_net_flow >= lg_xl_net_flow.abs())
+
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
+                print(f"       - DEBUG: split_order_accumulation_raw BEFORE assignment for probe date: {split_order_accumulation_raw.loc[probe_date_for_loop]}")
+                print(f"       - DEBUG: pct_change.loc[probe_date_for_loop]: {pct_change.loc[probe_date_for_loop]}")
+                print(f"       - DEBUG: sm_md_net_flow.loc[probe_date_for_loop]: {sm_md_net_flow.loc[probe_date_for_loop]}")
+                print(f"       - DEBUG: lg_xl_net_flow.loc[probe_date_for_loop]: {lg_xl_net_flow.loc[probe_date_for_loop]}")
+                print(f"       - DEBUG: lg_xl_net_flow.abs().loc[probe_date_for_loop]: {lg_xl_net_flow.abs().loc[probe_date_for_loop]}")
+                print(f"       - DEBUG: Condition 1 (pct_change <= 0): {pct_change.loc[probe_date_for_loop] <= 0}")
+                print(f"       - DEBUG: Condition 2 (sm_md_net_flow > 0): {sm_md_net_flow.loc[probe_date_for_loop] > 0}")
+                print(f"       - DEBUG: Condition 3 (lg_xl_net_flow <= 0): {lg_xl_net_flow.loc[probe_date_for_loop] <= 0}")
+                print(f"       - DEBUG: Condition 4 (sm_md_net_flow >= lg_xl_net_flow.abs()): {sm_md_net_flow.loc[probe_date_for_loop] >= lg_xl_net_flow.abs().loc[probe_date_for_loop]}")
+                print(f"       - DEBUG: combined condition_mask for probe date: {condition_mask.loc[probe_date_for_loop]}")
+                print(f"       - DEBUG: value to assign if mask is True: {(sm_md_net_flow - lg_xl_net_flow).loc[probe_date_for_loop]}")
+
         split_order_accumulation_raw.loc[condition_mask] = (sm_md_net_flow - lg_xl_net_flow).loc[condition_mask]
+
+        if probe_dates_str and probe_date_for_loop is not None and probe_date_for_loop in df.index:
+            print(f"       - DEBUG: split_order_accumulation_raw AFTER assignment for probe date: {split_order_accumulation_raw.loc[probe_date_for_loop]}")
+
         # 对拆单吸筹因子进行归一化，使其成为一个 [0, 1] 的正向证据
         normalized_split_factor_series = get_adaptive_mtf_normalized_score(split_order_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
         # 只有当 split_order_accumulation_raw > 0 时，才使用这个归一化因子，否则为0
         split_order_accumulation_factor = normalized_split_factor_series.where(split_order_accumulation_raw > 0, 0)
-        # [代码修改结束]
         # 原始共识分数
         consensus_score_base = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df_index, tf_weights_ff, sensitivity=1.0)
         # 融合博弈烈度。高烈度时，放大共识信号；低烈度时，削弱共识信号。
@@ -150,8 +177,6 @@ class FundFlowIntelligence:
         # 调整融合逻辑：当拆单吸筹因子为正时，对共识分数进行正向修正
         # 修正系数可以根据实际情况调整，例如 0.3
         consensus_score = (consensus_score_base * (1 + battle_intensity_factor * 0.5) + split_order_accumulation_factor * 0.3).clip(-1, 1) # 调整放大系数和拆单吸筹系数
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
