@@ -108,14 +108,6 @@ class OffensiveLayer:
                         damper = 1.0 - suppression_factor
                         unipolar_series *= damper
                     bonus_amount += unipolar_series * positive_score
-            # [代码修改开始]
-            # 增加调试探针，打印每个信号的配置和计算出的得分权重
-            if probe_date_for_loop is not None and probe_date_for_loop in bonus_amount.index:
-                if signal_name.startswith('PROCESS_META_') or signal_name.startswith('COGNITIVE_RISK_') or signal_name.startswith('COGNITIVE_PLAYBOOK_'):
-                    current_value = processed_signal_series.loc[probe_date_for_loop]
-                    final_contribution = bonus_amount.loc[probe_date_for_loop]
-                    print(f"    -> [计分探针] 信号: {signal_name:<45} | 原始值: {current_value:.4f} | Mode: {scoring_mode:<8} | Type: {meta.get('type', 'N/A'):<8} | Score: {positive_score:<6.2f} | Penalty: {penalty_weight:<6.2f} | 贡献: {final_contribution:.2f}")
-            # [代码修改结束]
             total_score += bonus_amount
             score_details_df[signal_name] = bonus_amount
         return total_score.fillna(0), score_details_df.fillna(0)

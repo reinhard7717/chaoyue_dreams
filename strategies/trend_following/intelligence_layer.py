@@ -85,6 +85,21 @@ class IntelligenceLayer:
         update_states(self.foundation_intel.run_foundation_analysis_command())
         chip_states_from_intel = self.chip_intel.run_chip_intelligence_command(df)
         update_states(chip_states_from_intel)
+        # --- Debugging output ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
+                print(f"    -> [IntelligenceLayer Debug] @ {probe_date_for_loop.date()}: atomic_states after ChipIntelligence:")
+                for k, v in self.strategy.atomic_states.items():
+                    if k.startswith('SCORE_CHIP_') or k.startswith('FUSION_BIPOLAR_CHIP_'):
+                        if isinstance(v, pd.Series) and probe_date_for_loop in v.index:
+                            print(f"       - {k}: {v.loc[probe_date_for_loop]:.4f}")
+                        else:
+                            print(f"       - {k}: {v}")
+        # --- End Debugging output ---
         update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
         # 添加对 StructuralIntelligence 的调用
         update_states(self.structural_intel.diagnose_structural_states(df))
