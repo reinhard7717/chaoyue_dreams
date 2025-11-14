@@ -44,10 +44,10 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V411.0 · 指挥链修复版】
-        - 核心重构: 移除了对认知层 `synthesize_cognitive_scores` 的越级、冗余调用。
-                      现在完全依赖 `intelligence_layer.run_all_diagnostics()` 来统一完成所有情报生成，
-                      恢复了清晰的指挥链，并从根源上解决了调用冲突问题。
+        【V412.0 · 指挥链修复与参数传递版】
+        - 核心修复: 修正了 `intelligence_layer.run_all_diagnostics()` 方法的参数传递，
+                      确保将包含所有指标的 `self.df_indicators` 正确传递给情报层，
+                      解决了 `missing 1 required positional argument: 'df'` 的错误。
         """
         self.params = self.unified_config
         df_daily = all_dfs.get('D')
@@ -55,7 +55,7 @@ class TrendFollowStrategy:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         self.df_indicators = self._merge_all_timeframes(all_dfs)
         # 步骤1: 情报层完成所有诊断与合成，包括专业层、融合层和认知层。这是唯一的情报生成入口。
-        self.intelligence_layer.run_all_diagnostics()
+        self.intelligence_layer.run_all_diagnostics(self.df_indicators)
         # 步骤2: 基于完整的诊断结果，进行顶层上下文分析
         from .trend_following.utils import calculate_context_scores
         bottom_context_score, top_context_score = calculate_context_scores(self.df_indicators, self.atomic_states)
@@ -75,6 +75,7 @@ class TrendFollowStrategy:
         if risk_details_df is None:
             risk_details_df = pd.DataFrame(index=self.df_indicators.index)
         return self.df_indicators, score_details_df, risk_details_df
+
 
     def _merge_all_timeframes(self, all_dfs: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         """

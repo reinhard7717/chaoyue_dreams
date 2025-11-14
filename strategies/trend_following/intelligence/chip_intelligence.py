@@ -78,13 +78,11 @@ class ChipIntelligence:
         chip_fault = self._get_safe_series(df, 'chip_fault_blockage_ratio_D', 0.5, method_name="run_chip_intelligence_command")
         profit_pressure = self._get_safe_series(df, 'imminent_profit_taking_supply_D', 0.5, method_name="run_chip_intelligence_command")
         cleanliness_raw_score = ((1 - chip_fault) * (1 - profit_pressure)).pow(0.5).fillna(0.5)
-        # [代码修改开始]
         # 对 cleanliness_raw_score 进行多时间维度自适应归一化
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         cleanliness_score = get_adaptive_mtf_normalized_score(cleanliness_raw_score, df.index, ascending=True, tf_weights=tf_weights)
         all_chip_states['SCORE_CHIP_CLEANLINESS'] = cleanliness_score.astype(np.float32)
-        # [代码修改结束]
         # 信号2: 筹码锁定度 (SCORE_CHIP_LOCKDOWN_DEGREE)
         locked_profit = self._get_safe_series(df, 'locked_profit_rate_D', 0.0, method_name="run_chip_intelligence_command")
         locked_loss = self._get_safe_series(df, 'locked_loss_rate_D', 0.0, method_name="run_chip_intelligence_command")

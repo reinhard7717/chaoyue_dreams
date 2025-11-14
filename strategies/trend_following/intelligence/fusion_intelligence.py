@@ -46,7 +46,6 @@ class FusionIntelligence:
     def run_fusion_diagnostics(self) -> Dict[str, pd.Series]:
         print("启动【V3.1 · 战场态势引擎】融合情报分析...")
         all_fusion_states = {}
-        # [代码修改开始]
         # 每次合成后立即更新到 self.strategy.atomic_states，确保后续方法能获取到
         regime_states = self._synthesize_market_regime()
         all_fusion_states.update(regime_states)
@@ -94,7 +93,6 @@ class FusionIntelligence:
         chip_trend_states = self._synthesize_chip_trend()
         all_fusion_states.update(chip_trend_states)
         self.strategy.atomic_states.update(chip_trend_states) # 立即更新
-        # [代码修改结束]
 
         # self.strategy.atomic_states.update(all_fusion_states) # 这行现在可以移除或保留，但不再是唯一更新点
         print(f"【V3.1 · 战场态势引擎】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
@@ -192,10 +190,8 @@ class FusionIntelligence:
         dynamic_ma_acceleration = self._get_atomic_score('SCORE_DYN_AXIOM_MA_ACCELERATION', 0.0)
         fund_flow_consensus = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
         fund_flow_conviction = self._get_atomic_score('SCORE_FF_AXIOM_CONVICTION', 0.0)
-        # [代码修改开始]
         # 将 SCORE_FF_AXIOM_INCREMENT 替换为 SCORE_FF_AXIOM_FLOW_MOMENTUM
         fund_flow_increment = self._get_atomic_score('SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0)
-        # [代码修改结束]
         chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
         chip_cost_structure = self._get_atomic_score('SCORE_CHIP_AXIOM_COST_STRUCTURE', 0.0)
         chip_holder_sentiment = self._get_atomic_score('SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
