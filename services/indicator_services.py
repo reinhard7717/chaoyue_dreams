@@ -436,7 +436,9 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.20 · NMFNF与OCH数据层计算版】
+        【V8.21 · 资金流列名标准化与NMFNF/OCH计算版】
+        - 核心修复: 修正了 `fund_flow_tushare` 数据源的列名标准化逻辑，确保其原始买卖金额列在合并到 `df_daily_master` 之前，
+                      被正确地命名为带有 `_D` 后缀的形式，解决了 `_diagnose_axiom_consensus` 方法中缺少 `net_sm_amount_calibrated_D` 等列的问题。
         - 核心修复: 调整了特征计算的顺序，确保 `breakout_quality_score` 在其所有依赖项（如VPA_EFFICIENCY）计算完毕后才执行，从根本上解决了流程错乱问题。
         - 【新增】在所有数据准备和计算流程结束后，调用 `_log_final_data_columns` 输出最终的数据清单。
         - 【新增】在日线数据准备完成后，计算 `NMFNF_D` 和 `OCH_D`。
@@ -501,6 +503,12 @@ class IndicatorService:
         tasks.append(_fetch_fund_flow_dc_tagged(stock_code, trade_time_dt_date, base_needed_bars))
         async def _fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, limit):
             df = await self.fund_flow_dao.get_fund_flow_daily_data(stock_code, trade_time_dt_date, limit)
+            # [代码修改开始]
+            # 对 fund_flow_tushare 的列名进行标准化，添加 _D 后缀
+            if not df.empty:
+                rename_map = {col: f"{col}_D" for col in df.columns if col not in ['trade_time', 'ts_code']}
+                df.rename(columns=rename_map, inplace=True)
+            # [代码修改结束]
             return ('fund_flow_tushare', df)
         tasks.append(_fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, base_needed_bars))
         async def _fetch_advanced_fund_flow_tagged(stock_code, trade_time_dt_date, limit):
@@ -554,9 +562,12 @@ class IndicatorService:
                     df_supp_std.rename(columns={'total_mv': 'total_market_value'}, inplace=True)
                 # 确保所有 daily_basic 的列都带上 _D 后缀
                 df_supp_std = df_supp_std.add_suffix('_D')
-            if tag in ['fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare']:
+            # [代码修改开始]
+            # 针对 fund_flow_tushare，不再添加额外的后缀，因为其列名已在 _fetch_fund_flow_tushare_tagged 中标准化为 _D
+            if tag in ['fund_flow_ths', 'fund_flow_dc']: # fund_flow_tushare 已在获取时处理
                 suffix = f"_{tag}"
                 df_supp_std = df_supp_std.add_suffix(suffix)
+            # [代码修改结束]
             else:
                 # 避免与 df_daily_master 现有列冲突，但要保留 total_market_value_D
                 conflicting_cols = df_daily_master.columns.intersection(df_supp_std.columns)
@@ -590,7 +601,6 @@ class IndicatorService:
             temp_dfs = {'D': raw_dfs['D']}
             temp_dfs = await self.feature_service.calculate_aaa_indicator(temp_dfs)
             raw_dfs['D'] = temp_dfs['D']
-            # [代码修改开始]
             # NEW STEP: Calculate NMFNF_D for the daily dataframe
             temp_dfs = {'D': raw_dfs['D']} # 重新封装，确保传入的是字典
             temp_dfs = await self.feature_service.calculate_nmfnf(temp_dfs)
@@ -599,7 +609,6 @@ class IndicatorService:
             temp_dfs = {'D': raw_dfs['D']} # 重新封装，确保传入的是字典
             temp_dfs = await self.feature_service.calculate_och(temp_dfs)
             raw_dfs['D'] = temp_dfs['D']
-            # [代码修改结束]
         if resample_map:
             df_daily = raw_dfs['D']
             for target_tf, source_tf in resample_map.items():

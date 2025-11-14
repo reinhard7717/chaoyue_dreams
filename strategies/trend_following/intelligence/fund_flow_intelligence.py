@@ -82,19 +82,34 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.3 · 博弈烈度与拆单吸筹增强版】资金流公理一：诊断“共识与分歧”
+        【V1.4 · 资金流净额计算修复与博弈烈度增强版】资金流公理一：诊断“共识与分歧”
+        - 核心修复: 修正了 `net_sm_amount_calibrated_D` 等净流入金额的计算逻辑，
+                      现在它们将基于原始的买入和卖出金额进行计算，而不是直接从 `df` 中获取。
+                      这解决了 `_diagnose_axiom_consensus` 方法中缺少DataFrame数据 'net_sm_amount_calibrated_D' 的警告。
         - 引入 `mf_retail_battle_intensity` (主力散户博弈烈度) 作为判断资金流共识的重要证据。
         - 【新增】引入“拆单吸筹因子”，识别主力通过小单/中单进行隐蔽吸筹的行为。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `battle_intensity_factor` 和 `consensus_score_base` 的归一化方式改为多时间维度自适应归一化。
         """
         df_index = df.index
+        # 从原始买卖金额计算净流入金额
+        buy_sm_amount = self._get_safe_series(df, 'buy_sm_amount_D', 0, method_name="_diagnose_axiom_consensus")
+        sell_sm_amount = self._get_safe_series(df, 'sell_sm_amount_D', 0, method_name="_diagnose_axiom_consensus")
+        buy_md_amount = self._get_safe_series(df, 'buy_md_amount_D', 0, method_name="_diagnose_axiom_consensus")
+        sell_md_amount = self._get_safe_series(df, 'sell_md_amount_D', 0, method_name="_diagnose_axiom_consensus")
+        buy_lg_amount = self._get_safe_series(df, 'buy_lg_amount_D', 0, method_name="_diagnose_axiom_consensus")
+        sell_lg_amount = self._get_safe_series(df, 'sell_lg_amount_D', 0, method_name="_diagnose_axiom_consensus")
+        buy_elg_amount = self._get_safe_series(df, 'buy_elg_amount_D', 0, method_name="_diagnose_axiom_consensus")
+        sell_elg_amount = self._get_safe_series(df, 'sell_elg_amount_D', 0, method_name="_diagnose_axiom_consensus")
+        # 计算各级别净流入
+        net_sm_amount = buy_sm_amount - sell_sm_amount
+        net_md_amount = buy_md_amount - sell_md_amount
+        net_lg_amount = buy_lg_amount - sell_lg_amount
+        net_elg_amount = buy_elg_amount - sell_elg_amount
         # 主力资金流 = 超大单净流入 + 大单净流入
-        main_force_flow = self._get_safe_series(df, 'net_xl_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus") + \
-                          self._get_safe_series(df, 'net_lg_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
+        main_force_flow = net_elg_amount + net_lg_amount
         # 散户资金流 = 中单净流入 + 小单净流入
-        retail_flow = self._get_safe_series(df, 'net_md_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus") + \
-                      self._get_safe_series(df, 'net_sh_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
+        retail_flow = net_md_amount + net_sm_amount
         # 原始共识分数：主力资金流 - 散户资金流
         raw_bipolar_series = main_force_flow - retail_flow
         # 获取主力散户博弈烈度
@@ -105,11 +120,9 @@ class FundFlowIntelligence:
         battle_intensity_factor = get_adaptive_mtf_normalized_score(battle_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
         # --- 新增：拆单吸筹因子 ---
         # 小单净流入 + 中单净流入
-        sm_md_net_flow = self._get_safe_series(df, 'net_sm_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus") + \
-                         self._get_safe_series(df, 'net_md_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
+        sm_md_net_flow = net_sm_amount + net_md_amount
         # 大单净流入 + 特大单净流入
-        lg_xl_net_flow = self._get_safe_series(df, 'net_lg_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus") + \
-                         self._get_safe_series(df, 'net_xl_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
+        lg_xl_net_flow = net_lg_amount + net_elg_amount
         # 价格变化
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_axiom_consensus")
         # 拆单吸筹的迹象：
@@ -129,7 +142,6 @@ class FundFlowIntelligence:
         # 乘数因子 (1 + battle_intensity_factor * 0.5) 可以放大共识，但不会改变方向
         # 融合拆单吸筹因子：如果存在拆单吸筹，则对共识分数进行额外加成，尤其是在共识分数偏负时（主力在隐藏吸筹）
         # 调整融合逻辑：当拆单吸筹因子为正时，对共识分数进行正向修正
-        # 修正后的共识分数 = 原始共识分数 + 拆单吸筹因子 * 修正系数
         # 修正系数可以根据实际情况调整，例如 0.3
         consensus_score = (consensus_score_base * (1 + battle_intensity_factor * 0.5) + split_order_accumulation_factor * 0.3).clip(-1, 1) # 调整放大系数和拆单吸筹系数
         debug_params = get_params_block(self.strategy, 'debug_params', {})
