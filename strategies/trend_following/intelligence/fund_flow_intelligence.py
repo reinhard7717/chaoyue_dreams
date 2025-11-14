@@ -82,10 +82,12 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.7 · 致命性代码错误修复版】资金流公理一：诊断“共识与分歧”
+        【V1.8 · 浮点数精度比较修复版】资金流公理一：诊断“共识与分歧”
         - 核心修复: 修正了 `sell_elg_amount` 变量错误地获取 `buy_elg_amount_D` 数据的致命性代码错误。
                       现在 `sell_elg_amount` 将正确获取 `sell_elg_amount_D`，从而确保 `net_elg_amount`
                       以及后续的 `main_force_flow` 和 `lg_xl_net_flow` 计算的准确性。
+        - 核心修复: 优化了“拆单吸筹因子”中 `sm_md_net_flow >= lg_xl_net_flow.abs()` 的浮点数比较逻辑，
+                      引入 `numpy.isclose` 以处理精度问题，确保当两者数值上足够接近时，条件能正确评估为 True。
         - 核心修复: 修正了 `net_sm_amount_calibrated_D` 等净流入金额的计算逻辑，
                       现在它们将基于原始的买入和卖出金额进行计算，而不是直接从 `df` 中获取。
                       这解决了 `_diagnose_axiom_consensus` 方法中缺少DataFrame数据 'net_sm_amount_calibrated_D' 的警告。
@@ -105,10 +107,7 @@ class FundFlowIntelligence:
         buy_lg_amount = self._get_safe_series(df, 'buy_lg_amount_D', 0, method_name="_diagnose_axiom_consensus")
         sell_lg_amount = self._get_safe_series(df, 'sell_lg_amount_D', 0, method_name="_diagnose_axiom_consensus")
         buy_elg_amount = self._get_safe_series(df, 'buy_elg_amount_D', 0, method_name="_diagnose_axiom_consensus")
-        # [代码修改开始]
-        # 修正致命性错误：sell_elg_amount 错误地获取了 buy_elg_amount_D
         sell_elg_amount = self._get_safe_series(df, 'sell_elg_amount_D', 0, method_name="_diagnose_axiom_consensus")
-        # [代码修改结束]
         # 计算各级别净流入
         net_sm_amount = buy_sm_amount - sell_sm_amount
         net_md_amount = buy_md_amount - sell_md_amount
@@ -140,7 +139,11 @@ class FundFlowIntelligence:
         # 4. 且 sm_md_net_flow >= abs(lg_xl_net_flow) (小单中单的净流入能够抵消或对冲大单特大单的流出)
         # 拆单吸筹因子：在价格下跌或横盘时，小单中单净流入与大单特大单净流入的差值，归一化后作为因子
         split_order_accumulation_raw = pd.Series(0.0, index=df_index)
-        condition_mask = (pct_change <= 0) & (sm_md_net_flow > 0) & (lg_xl_net_flow <= 0) & (sm_md_net_flow >= lg_xl_net_flow.abs())
+        # [代码修改开始]
+        # 优化 Condition 4 的浮点数比较
+        condition_4_optimized = (sm_md_net_flow > lg_xl_net_flow.abs()) | np.isclose(sm_md_net_flow, lg_xl_net_flow.abs(), atol=1e-5)
+        condition_mask = (pct_change <= 0) & (sm_md_net_flow > 0) & (lg_xl_net_flow <= 0) & condition_4_optimized
+        # [代码修改结束]
 
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -156,8 +159,11 @@ class FundFlowIntelligence:
                 print(f"       - DEBUG: Condition 1 (pct_change <= 0): {pct_change.loc[probe_date_for_loop] <= 0}")
                 print(f"       - DEBUG: Condition 2 (sm_md_net_flow > 0): {sm_md_net_flow.loc[probe_date_for_loop] > 0}")
                 print(f"       - DEBUG: Condition 3 (lg_xl_net_flow <= 0): {lg_xl_net_flow.loc[probe_date_for_loop] <= 0}")
-                print(f"       - DEBUG: Condition 4 (sm_md_net_flow >= lg_xl_net_flow.abs()): {sm_md_net_flow.loc[probe_date_for_loop] >= lg_xl_net_flow.abs().loc[probe_date_for_loop]}")
+                # [代码修改开始]
+                print(f"       - DEBUG: Condition 4 (sm_md_net_flow > lg_xl_net_flow.abs()): {sm_md_net_flow.loc[probe_date_for_loop] > lg_xl_net_flow.abs().loc[probe_date_for_loop]}")
+                print(f"       - DEBUG: Condition 4 (np.isclose(sm_md_net_flow, lg_xl_net_flow.abs(), atol=1e-5)): {np.isclose(sm_md_net_flow.loc[probe_date_for_loop], lg_xl_net_flow.abs().loc[probe_date_for_loop], atol=1e-5)}")
                 print(f"       - DEBUG: combined condition_mask for probe date: {condition_mask.loc[probe_date_for_loop]}")
+                # [代码修改结束]
                 print(f"       - DEBUG: value to assign if mask is True: {(sm_md_net_flow - lg_xl_net_flow).loc[probe_date_for_loop]}")
 
         split_order_accumulation_raw.loc[condition_mask] = (sm_md_net_flow - lg_xl_net_flow).loc[condition_mask]
