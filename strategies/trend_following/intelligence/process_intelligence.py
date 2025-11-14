@@ -4,7 +4,7 @@ import numpy as np
 import pandas_ta as ta
 from typing import Dict, List, Optional, Any
 
-from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_score, is_limit_up
+from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_score, is_limit_up, get_adaptive_mtf_normalized_bipolar_score
 
 class ProcessIntelligence:
     """
