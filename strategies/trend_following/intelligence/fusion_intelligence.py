@@ -30,49 +30,74 @@ class FusionIntelligence:
 
     def _get_atomic_score(self, name: str, default: float = 0.0) -> pd.Series:
         """
-        【V1.2 · 严格原子信号获取版】安全地从原子状态库中获取分数，处理缺失情况。
-        - 核心修复: 移除对 `self.strategy.df_indicators.columns` 的回退逻辑。
-                      原子信号应严格从 `self.strategy.atomic_states` 获取。
-                      如果原子状态中不存在，则返回指定的默认值，避免从主数据帧中意外获取同名但可能不相关的列。
+        【V1.3 · 严格原子信号获取与数据层回退版】安全地从原子状态库或主数据帧中获取分数，处理缺失情况。
+        - 核心修复: 增加了对 `self.strategy.df_indicators` 的回退逻辑。
+                      原子信号优先从 `self.strategy.atomic_states` 获取，
+                      若无则从 `self.strategy.df_indicators` 获取，最后提供默认值。
         """
         if name in self.strategy.atomic_states:
             return self.strategy.atomic_states[name]
+        elif name in self.strategy.df_indicators.columns: # 增加从 df_indicators 获取的逻辑
+            return self.strategy.df_indicators[name]
         else:
-            # 如果原子状态中不存在，则返回指定的默认值
-            # 打印警告，因为这表示一个预期的原子信号缺失
-            print(f"    -> [融合层-原子信号警告] 预期原子信号 '{name}' 在 atomic_states 中不存在，使用默认值 {default}。")
+            print(f"    -> [融合层-原子信号警告] 预期原子信号 '{name}' 在 atomic_states 和 df_indicators 中均不存在，使用默认值 {default}。")
             return pd.Series(default, index=self.strategy.df_indicators.index)
 
     def run_fusion_diagnostics(self) -> Dict[str, pd.Series]:
-        print("启动【V3.0 · 战场态势引擎】融合情报分析...")
+        print("启动【V3.1 · 战场态势引擎】融合情报分析...")
         all_fusion_states = {}
+        # [代码修改开始]
+        # 每次合成后立即更新到 self.strategy.atomic_states，确保后续方法能获取到
         regime_states = self._synthesize_market_regime()
         all_fusion_states.update(regime_states)
+        self.strategy.atomic_states.update(regime_states) # 立即更新
+
         quality_states = self._synthesize_trend_quality()
         all_fusion_states.update(quality_states)
+        self.strategy.atomic_states.update(quality_states) # 立即更新
+
         pressure_states = self._synthesize_market_pressure()
         all_fusion_states.update(pressure_states)
+        self.strategy.atomic_states.update(pressure_states) # 立即更新
+
         confrontation_states = self._synthesize_capital_confrontation()
         all_fusion_states.update(confrontation_states)
+        self.strategy.atomic_states.update(confrontation_states) # 立即更新
+
         contradiction_states = self._synthesize_market_contradiction()
         all_fusion_states.update(contradiction_states)
+        self.strategy.atomic_states.update(contradiction_states) # 立即更新
+
         overextension_intent_states = self._synthesize_price_overextension_intent()
         all_fusion_states.update(overextension_intent_states)
+        self.strategy.atomic_states.update(overextension_intent_states) # 立即更新
+
         upper_shadow_intent_states = self._synthesize_upper_shadow_intent()
         all_fusion_states.update(upper_shadow_intent_states)
+        self.strategy.atomic_states.update(upper_shadow_intent_states) # 立即更新
+
         # 冶炼“滞涨风险”
         stagnation_risk_states = self._synthesize_stagnation_risk()
         all_fusion_states.update(stagnation_risk_states)
+        self.strategy.atomic_states.update(stagnation_risk_states) # 立即更新
+
         # 冶炼“趋势结构分”
         trend_structure_states = self._synthesize_trend_structure_score()
         all_fusion_states.update(trend_structure_states)
+        self.strategy.atomic_states.update(trend_structure_states) # 立即更新
+
         # 新增：冶炼“资金趋势”和“筹码趋势”
         fund_flow_trend_states = self._synthesize_fund_flow_trend()
         all_fusion_states.update(fund_flow_trend_states)
+        self.strategy.atomic_states.update(fund_flow_trend_states) # 立即更新
+
         chip_trend_states = self._synthesize_chip_trend()
         all_fusion_states.update(chip_trend_states)
-        self.strategy.atomic_states.update(all_fusion_states)
-        print(f"【V3.0 · 战场态势引擎】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
+        self.strategy.atomic_states.update(chip_trend_states) # 立即更新
+        # [代码修改结束]
+
+        # self.strategy.atomic_states.update(all_fusion_states) # 这行现在可以移除或保留，但不再是唯一更新点
+        print(f"【V3.1 · 战场态势引擎】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
 
     def _synthesize_market_contradiction(self) -> Dict[str, pd.Series]:
