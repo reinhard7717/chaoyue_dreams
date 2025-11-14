@@ -50,18 +50,28 @@ class CognitiveIntelligence:
             print(f"    -> [认知层警告] 原子信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
             return pd.Series(default, index=self.strategy.df_indicators.index)
 
-    def _get_playbook_score(self, name: str, default: float = 0.0) -> pd.Series:
+    def _get_playbook_score(self, signal_name: str, default_value: float = 0.0) -> pd.Series:
         """
-        【V1.0】安全地从剧本状态库中获取已计算的剧本分数。
-        - 核心职责: 统一剧本信号获取路径，优先从 self.strategy.playbook_states 获取，
-                      若无则返回默认值，确保数据流的稳定性。
-        - 预警机制: 如果信号不存在，打印明确的警告信息。
+        安全地从 playbook_states 获取剧本信号分数。
+        如果信号不存在，则返回默认值，并打印警告。
         """
-        if name in self.strategy.playbook_states:
-            return self.strategy.playbook_states[name]
-        else:
-            print(f"    -> [认知层警告] 剧本信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
-            return pd.Series(default, index=self.strategy.df_indicators.index)
+        score = self.strategy.playbook_states.get(signal_name)
+        if score is None:
+            print(f"    -> [认知层警告] 剧本信号 '{signal_name}' 不存在，无法作为证据！返回默认值 {default_value}。")
+            # 创建一个与 df_indicators 索引对齐的 Series
+            return pd.Series(default_value, index=self.strategy.df_indicators.index)
+        # 打印实际获取到的值，以便调试
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(self.strategy.df_indicators.index.tz) if self.strategy.df_indicators.index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in self.strategy.df_indicators.index:
+                if isinstance(score, pd.Series):
+                    print(f"    -> [DEBUG _get_playbook_score] 信号 '{signal_name}' 原始值: {score.loc[probe_date_for_loop]:.4f}")
+                else:
+                    print(f"    -> [DEBUG _get_playbook_score] 信号 '{signal_name}' 原始值: {score:.4f}")
+        return score
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -83,7 +93,6 @@ class CognitiveIntelligence:
         self.strategy.playbook_states.update(self._deduce_micro_absorption_divergence(priors))
 
         # 优先计算所有风险信号，并立即更新到 self.strategy.playbook_states
-        # [代码修改开始]
         # 第一批风险剧本：无内部剧本依赖
         self.strategy.playbook_states.update(self._deduce_distribution_at_high(priors))
         self.strategy.playbook_states.update(self._deduce_retail_fomo_retreat_risk(priors))
@@ -101,7 +110,6 @@ class CognitiveIntelligence:
 
         # 第三批风险剧本：依赖第二批剧本
         self.strategy.playbook_states.update(self._deduce_divergence_reversal(priors)) # 依赖 TREND_EXHAUSTION
-        # [代码修改结束]
 
         print(f"【V25.9 · 剧本调用顺序优化版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。")
         return self.strategy.playbook_states
@@ -136,11 +144,13 @@ class CognitiveIntelligence:
 
     def _deduce_distribution_at_high(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.8 · 风险信号重构与趋势背景调制版】贝叶斯推演：“高位派发”风险剧本
+        【V3.9 · 风险信号重构与趋势背景调制版】贝叶斯推演：“高位派发”风险剧本
         - 核心升级: 引入“趋势背景调制因子”，当趋势质量和结构形态良好时，降低风险证据的权重。
         - 【增强】引入下跌吸收能力作为反向证据，抑制误报。
         - 【优化】对涨停日后的回调，降低风险权重。
         - 【新增】引入主力持仓信念强度作为逆向证据，主力信念强则派发风险低。
+        - 【修复】修正 `_forge_dynamic_evidence` 对已是概率值的信号进行二次归一化的问题。
+        - 【优化】将 `trend_modulator` 应用到 `likelihood` 计算中。
         - 【新增】增加探针输出，检查各组成部分的贡献。
         """
         print("    -- [剧本推演] 高位派发风险 (动态证据)...")
@@ -152,7 +162,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_distribution_at_high").shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
         main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
@@ -179,17 +189,17 @@ class CognitiveIntelligence:
             fund_flow_bearish_divergence.values,
             chip_bearish_divergence.values,
             dip_absorption_inverse.values,
-            main_force_holding_inverse.values # 新增主力持仓信念逆向证据
+            main_force_holding_inverse.values
         ], axis=0)
-        evidence_weights = np.array([0.12, 0.08, 0.08, 0.12, 0.12, 0.08, 0.12, 0.04, 0.04, 0.10, 0.10]) # 调整权重
+        evidence_weights = np.array([0.12, 0.08, 0.08, 0.12, 0.12, 0.08, 0.12, 0.04, 0.04, 0.10, 0.10])
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
+        # 将 trend_modulator 应用到 likelihood
+        likelihood = likelihood * trend_modulator
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        # 应用趋势背景调制因子
-        posterior_prob = (posterior_prob * trend_modulator).clip(0, 1)
         # 涨停日后的回调，进一步降低风险
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -212,18 +222,20 @@ class CognitiveIntelligence:
                 print(f"       - main_force_holding_inverse: {main_force_holding_inverse.loc[probe_date_for_loop]:.4f}")
                 print(f"       - trend_modulator: {trend_modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - is_limit_up_yesterday: {is_limit_up_yesterday.loc[probe_date_for_loop]}")
-                print(f"       - likelihood: {likelihood.loc[probe_date_for_loop]:.4f}")
+                print(f"       - likelihood (modulated): {likelihood.loc[probe_date_for_loop]:.4f}")
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_DISTRIBUTION_AT_HIGH': posterior_prob.astype(np.float32)}
 
     def _deduce_trend_exhaustion_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 深度博弈版证据链优化与趋势背景调制版】贝叶斯推演：“趋势衰竭”风险剧本
+        【V3.2 · 深度博弈版证据链优化与趋势背景调制版】贝叶斯推演：“趋势衰竭”风险剧本
         - 核心升级: 引入“趋势背景调制因子”，当趋势质量和结构形态良好时，降低风险证据的权重。
         - 【增强】引入下跌吸收能力作为反向证据，抑制误报。
         - 【优化】对涨停日后的回调，降低风险权重。
         - 【新增】引入主力持仓信念强度作为逆向证据，主力信念强则趋势衰竭风险低。
+        - 【修复】修正 `_forge_dynamic_evidence` 对已是概率值的信号进行二次归一化的问题。
+        - 【优化】将 `trend_modulator` 应用到 `likelihood` 计算中。
         - 【新增】增加探针输出，检查各组成部分的贡献。
         """
         print("    -- [剧本推演] 趋势衰竭风险 (动态证据)...")
@@ -235,7 +247,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0) # 降低50%的风险权重
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_trend_exhaustion_risk").shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
         main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
@@ -251,11 +263,11 @@ class CognitiveIntelligence:
         raw_capital_confrontation_score = self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0)
         capital_retreat_evidence = self._forge_dynamic_evidence(raw_capital_confrontation_score.clip(upper=0).abs())
         fund_flow_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 0.0))
-        retail_fomo_retreat_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 0.0))
+        retail_fomo_retreat_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 0.0), is_probability=True)
         # 3. 筹码的派发与分散
         chip_dispersion_evidence = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
         chip_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_BEARISH_DIVERGENCE', 0.0))
-        long_term_profit_distribution_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION', 0.0))
+        long_term_profit_distribution_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION', 0.0), is_probability=True)
         # 4. 结构与形态的恶化
         # 结构趋势形态为负是恶化
         raw_structural_trend_form_score = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
@@ -292,8 +304,8 @@ class CognitiveIntelligence:
             long_term_profit_distribution_risk.values,
             trend_quality_inverse.values,
             new_high_strength_inverse.values,
-            dip_absorption_inverse.values, # 新增下跌吸收能力的反向证据
-            main_force_holding_inverse.values # 新增主力持仓信念逆向证据
+            dip_absorption_inverse.values,
+            main_force_holding_inverse.values
         ], axis=0)
         # 重新分配权重，确保所有权重为正，且总和为1
         evidence_weights = np.array([
@@ -320,10 +332,10 @@ class CognitiveIntelligence:
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
+        # 将 trend_modulator 应用到 likelihood
+        likelihood = likelihood * trend_modulator
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        # 应用趋势背景调制因子
-        posterior_prob = (posterior_prob * trend_modulator).clip(0, 1)
         # 涨停日后的回调，进一步降低风险
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
         self.strategy.playbook_states['COGNITIVE_RISK_TREND_EXHAUSTION'] = posterior_prob.astype(np.float32)
@@ -354,7 +366,7 @@ class CognitiveIntelligence:
                 print(f"       - main_force_holding_inverse: {main_force_holding_inverse.loc[probe_date_for_loop]:.4f}")
                 print(f"       - trend_modulator: {trend_modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - is_limit_up_yesterday: {is_limit_up_yesterday.loc[probe_date_for_loop]}")
-                print(f"       - likelihood: {likelihood.loc[probe_date_for_loop]:.4f}")
+                print(f"       - likelihood (modulated): {likelihood.loc[probe_date_for_loop]:.4f}")
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_TREND_EXHAUSTION': posterior_prob.astype(np.float32)}
@@ -554,27 +566,57 @@ class CognitiveIntelligence:
 
     def _deduce_divergence_reversal(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 信号源修复版】贝叶斯推演：“背离反转”剧本
-        - 核心逻辑: 专门利用融合层的“市场矛盾”信号来推演趋势反转的可能性。
-        - 【修复】通过 `_get_atomic_score` 正确获取 `COGNITIVE_RISK_TREND_EXHAUSTION`。
+        【V2.0 · 深度博弈版证据链优化版】贝叶斯推演：“背离反转”剧本
+        - 核心逻辑: 捕捉价格与关键动能、资金、筹码、结构等指标的背离，预示趋势可能反转。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【修复】修正 `_forge_dynamic_evidence` 对已是概率值的信号进行二次归一化的问题。
         """
         print("    -- [剧本推演] 背离反转 (动态证据)...")
-        market_contradiction = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0))
-        market_pressure = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0).abs())
-        trend_exhaustion_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_TREND_EXHAUSTION', 0.0)) # 修改行
-        bullish_contradiction_evidence = market_contradiction.clip(lower=0)
+        df_index = self.strategy.df_indicators.index
+        # 证据1: 价格动能背离 (PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE)
+        price_momentum_divergence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE', 0.0))
+        # 证据2: 资金流背离 (SCORE_FUND_FLOW_BEARISH_DIVERGENCE)
+        fund_flow_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 0.0))
+        # 证据3: 筹码背离 (SCORE_CHIP_BEARISH_DIVERGENCE)
+        chip_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_BEARISH_DIVERGENCE', 0.0))
+        # 证据4: 趋势衰竭风险 (COGNITIVE_RISK_TREND_EXHAUSTION)
+        trend_exhaustion_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_TREND_EXHAUSTION', 0.0), is_probability=True)
+        # 证据5: 市场矛盾 (FUSION_BIPOLAR_MARKET_CONTRADICTION 负向)
+        raw_market_contradiction_score = self._get_fused_score('FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0)
+        market_contradiction_bearish = self._forge_dynamic_evidence(raw_market_contradiction_score.clip(upper=0).abs())
+        # 证据6: 赢家信念衰减 (PROCESS_META_WINNER_CONVICTION_DECAY)
+        winner_conviction_decay = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_WINNER_CONVICTION_DECAY', 0.0))
         evidence_scores = np.stack([
-            bullish_contradiction_evidence.values,
-            market_pressure.values,
-            trend_exhaustion_risk.values
+            price_momentum_divergence.values,
+            fund_flow_bearish_divergence.values,
+            chip_bearish_divergence.values,
+            trend_exhaustion_risk.values,
+            market_contradiction_bearish.values,
+            winner_conviction_decay.values
         ], axis=0)
-        evidence_weights = np.array([0.5, 0.3, 0.2])
+        evidence_weights = np.array([0.25, 0.20, 0.20, 0.15, 0.10, 0.10])
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
-        likelihood = pd.Series(likelihood_values, index=self.strategy.df_indicators.index)
+        likelihood = pd.Series(likelihood_values, index=df_index)
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [背离反转探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - price_momentum_divergence: {price_momentum_divergence.loc[probe_date_for_loop]:.4f}")
+                print(f"       - fund_flow_bearish_divergence: {fund_flow_bearish_divergence.loc[probe_date_for_loop]:.4f}")
+                print(f"       - chip_bearish_divergence: {chip_bearish_divergence.loc[probe_date_for_loop]:.4f}")
+                print(f"       - trend_exhaustion_risk: {trend_exhaustion_risk.loc[probe_date_for_loop]:.4f}")
+                print(f"       - market_contradiction_bearish: {market_contradiction_bearish.loc[probe_date_for_loop]:.4f}")
+                print(f"       - winner_conviction_decay: {winner_conviction_decay.loc[probe_date_for_loop]:.4f}")
+                print(f"       - likelihood: {likelihood.loc[probe_date_for_loop]:.4f}")
+                print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
+                print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_PLAYBOOK_DIVERGENCE_REVERSAL': posterior_prob.astype(np.float32)}
 
     def _deduce_sector_rotation_vanguard(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
@@ -649,71 +691,35 @@ class CognitiveIntelligence:
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION': posterior_prob.astype(np.float32)}
 
-    def _forge_dynamic_evidence(self, raw_evidence: pd.Series, is_bipolar: bool = False) -> pd.Series:
+    def _forge_dynamic_evidence(self, evidence: pd.Series, is_probability: bool = False) -> pd.Series:
         """
-        【V1.4 · 动态证据锻造厂 - 零值修正与归一化增强版】
-        - 核心职责: 将一个静态的原始证据信号，锻造成一个融合了“状态-速度-加速度”的动态证据。
-        - 核心修正:
-            1. 如果输入的 `raw_evidence` 全为零（或接近零），则直接返回全零的 `forged_evidence`，
-               避免将“无证据”错误地转换为“中性证据 (0.5)”。
-            2. 在计算 `bipolar_evidence` 之前，对 `raw_evidence` 进行归一化到 `[0, 1]`，
-               确保 `(normalized_raw_evidence * 2 - 1)` 的映射逻辑正确。
-            3. 调整 `forged_evidence` 的最终映射，使其在 `dynamic_force` 为 `0` 或负时返回 `0`，
-               只有当 `dynamic_force` 为正时才贡献正值。
-        - 数学逻辑: DynamicEvidence = w_s * State + w_v * Velocity + w_a * Acceleration
-        - 【修正】调整 `forged_evidence` 的最终映射，使其在 `dynamic_force` 为负时，
-                  如果 `state_score` 为正，仍能保留 `state_score` 的一部分贡献，避免过度惩罚。
+        【V2.0 · 动态证据锻造】
+        - 核心逻辑: 对原始证据进行动态处理，确保其有效性并转换为适合贝叶斯推断的格式。
+        - 修复: 确保证据值不会为零，避免对数运算错误。
+        - 优化: 引入动态归一化，使证据强度更具可比性。
+        - 新增: 针对已是概率值的证据，跳过归一化步骤。
         """
-        if not isinstance(raw_evidence, pd.Series) or raw_evidence.empty:
-            return pd.Series(0.0, index=self.strategy.df_indicators.index)
-        # 修正1: 如果原始证据全为零，则直接返回全零的证据
-        # 使用一个小的阈值来判断是否为零，避免浮点数精度问题
-        if (raw_evidence.abs() < 1e-9).all():
-            return pd.Series(0.0, index=self.strategy.df_indicators.index)
-        norm_window = 55 # 默认值，可以从配置中获取
-        # 修正2: 在转换为双极性之前，先将 raw_evidence 归一化到 [0, 1]
-        # 如果 raw_evidence 已经是双极性，则不需要再次归一化到 [0, 1]
-        if not is_bipolar:
-            # 假设 raw_evidence 已经是代表“强度”的非负值，或者通过 clip().abs() 转换为非负值
-            # normalize_score 将其缩放到 [0, 1]
-            normalized_raw_evidence = normalize_score(raw_evidence, self.strategy.df_indicators.index, window=norm_window, ascending=True)
-            normalized_raw_evidence = normalized_raw_evidence.fillna(0.0) # 确保没有NaN
-            # 将 [0, 1] 映射到 [-1, 1]
-            bipolar_evidence = (normalized_raw_evidence * 2 - 1).clip(-1, 1)
-        else:
-            # 如果输入已经是双极性，则直接使用
-            bipolar_evidence = raw_evidence.clip(-1, 1)
-        velocity = bipolar_evidence.diff(1).fillna(0)
-        acceleration = velocity.diff(1).fillna(0)
-        state_score = bipolar_evidence
-        velocity_score = normalize_to_bipolar(velocity, self.strategy.df_indicators.index, norm_window)
-        acceleration_score = normalize_to_bipolar(acceleration, self.strategy.df_indicators.index, norm_window)
-        w_state, w_velocity, w_acceleration = 0.3, 0.4, 0.3
-        dynamic_force = (state_score * w_state + velocity_score * w_velocity + acceleration_score * w_acceleration)
-        # 修正3: 调整 forged_evidence 的最终映射
-        # 我们希望：
-        # 1. dynamic_force > 0 时，贡献正向证据强度。
-        # 2. dynamic_force <= 0 但 state_score > 0 时，仍能保留 state_score 的一部分贡献，避免过度惩罚。
-        # 3. dynamic_force <= 0 且 state_score <= 0 时，贡献为 0。
-        forged_evidence = pd.Series(0.0, index=self.strategy.df_indicators.index)
-        # 情况1: dynamic_force > 0，直接使用 (dynamic_force + 1) / 2.0 映射到 [0.5, 1]
-        positive_dynamic_force_mask = dynamic_force > 0
-        forged_evidence[positive_dynamic_force_mask] = (dynamic_force[positive_dynamic_force_mask] + 1) / 2.0
-        # 情况2: dynamic_force <= 0 但 state_score > 0，保留 state_score 的一部分贡献
-        # 映射 state_score 从 [-1, 1] 到 [0, 1]，并乘以一个衰减因子 (例如 0.3)
-        # 这样即使动态力为负，只要状态本身是积极的，也能有基础分
-        negative_dynamic_force_positive_state_mask = (dynamic_force <= 0) & (state_score > 0)
-        forged_evidence[negative_dynamic_force_positive_state_mask] = (state_score[negative_dynamic_force_positive_state_mask] + 1) / 2.0 * 0.3
-        # 确保最终输出在 [0, 1] 范围内
-        return forged_evidence.clip(0, 1)
+        # 确保证据是 Series 类型
+        if not isinstance(evidence, pd.Series):
+            evidence = pd.Series(evidence, index=self.strategy.df_indicators.index)
+        # 填充NaN值
+        evidence = evidence.fillna(self.min_evidence_threshold)
+        # 确保证据值不会低于最小阈值，避免对数运算错误
+        evidence = evidence.mask(evidence < self.min_evidence_threshold, self.min_evidence_threshold)
+        # 如果证据已经是概率值，则不进行归一化
+        if not is_probability:
+            evidence = normalize_score(evidence, self.strategy.df_indicators.index, window=self.norm_window, ascending=True)
+        return evidence
 
     def _deduce_long_term_profit_distribution_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 风险剧本与趋势背景调制版】贝叶斯推演：“长期获利盘派发”风险剧本
+        【V1.3 · 风险剧本与趋势背景调制版】贝叶斯推演：“长期获利盘派发”风险剧本
         - 核心升级: 引入“趋势背景调制因子”，当趋势质量和结构形态良好时，降低风险证据的权重。
         - 【增强】引入下跌吸收能力作为反向证据，抑制误报。
         - 【优化】对涨停日后的回调，降低风险权重。
         - 【新增】引入主力持仓信念强度作为逆向证据，主力信念强则派发风险低。
+        - 【修复】修正 `_forge_dynamic_evidence` 对已是概率值的信号进行二次归一化的问题。
+        - 【优化】将 `trend_modulator` 应用到 `likelihood` 计算中。
         - 【新增】增加探针输出，检查各组成部分的贡献。
         """
         print("    -- [剧本推演] 长期获利盘派发风险 (动态证据)...")
@@ -725,7 +731,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_long_term_profit_distribution_risk").shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
         main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
@@ -743,17 +749,17 @@ class CognitiveIntelligence:
             chip_dispersion.values,
             capital_outflow.values,
             dip_absorption_inverse.values,
-            main_force_holding_inverse.values # 新增主力持仓信念逆向证据
+            main_force_holding_inverse.values
         ], axis=0)
-        evidence_weights = np.array([0.25, 0.20, 0.20, 0.20, 0.15]) # 调整权重
+        evidence_weights = np.array([0.25, 0.20, 0.20, 0.20, 0.15])
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
+        # 将 trend_modulator 应用到 likelihood
+        likelihood = likelihood * trend_modulator
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        # 应用趋势背景调制因子
-        posterior_prob = (posterior_prob * trend_modulator).clip(0, 1)
         # 涨停日后的回调，进一步降低风险
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -770,17 +776,19 @@ class CognitiveIntelligence:
                 print(f"       - main_force_holding_inverse: {main_force_holding_inverse.loc[probe_date_for_loop]:.4f}")
                 print(f"       - trend_modulator: {trend_modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - is_limit_up_yesterday: {is_limit_up_yesterday.loc[probe_date_for_loop]}")
-                print(f"       - likelihood: {likelihood.loc[probe_date_for_loop]:.4f}")
+                print(f"       - likelihood (modulated): {likelihood.loc[probe_date_for_loop]:.4f}")
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION': posterior_prob.astype(np.float32)}
 
     def _deduce_market_uncertainty_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 风险剧本与趋势背景调制版】贝叶斯推演：“市场方向不明”风险剧本
+        【V1.3 · 风险剧本与趋势背景调制版】贝叶斯推演：“市场方向不明”风险剧本
         - 核心升级: 引入“趋势背景调制因子”，当趋势质量和结构形态良好时，降低风险证据的权重。
         - 【增强】引入下跌吸收能力作为反向证据，抑制误报。
         - 【优化】对涨停日后的回调，降低风险权重。
+        - 【修复】修正 `_forge_dynamic_evidence` 对已是概率值的信号进行二次归一化的问题。
+        - 【优化】将 `trend_modulator` 应用到 `likelihood` 计算中。
         - 【新增】增加探针输出，检查各组成部分的贡献。
         """
         print("    -- [剧本推演] 市场方向不明风险 (动态证据)...")
@@ -792,7 +800,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_market_uncertainty_risk").shift(1).fillna(False)
         # 证据1: 市场政权处于震荡 (FUSION_BIPOLAR_MARKET_REGIME 接近0)
         regime_neutrality = self._forge_dynamic_evidence(1 - self._get_fused_score('FUSION_BIPOLAR_MARKET_REGIME', 0.0).abs())
         # 证据2: 趋势质量低下 (FUSION_BIPOLAR_TREND_QUALITY 接近0)
@@ -800,7 +808,7 @@ class CognitiveIntelligence:
         # 证据3: 混沌度高 (SAMPLE_ENTROPY_D)
         entropy_col = next((col for col in self.strategy.df_indicators.columns if col.startswith('SAMPLE_ENTROPY_')), None)
         if entropy_col:
-            high_entropy = self._forge_dynamic_evidence(normalize_score(self._get_atomic_score(entropy_col, 0.5), self.strategy.df_indicators.index, 55))
+            high_entropy = self._forge_dynamic_evidence(self._get_atomic_score(entropy_col, 0.5)) # 这里不需要 is_probability=True，因为 SAMPLE_ENTROPY_D 不是概率
         else:
             high_entropy = pd.Series(0.5, index=self.strategy.df_indicators.index)
         # 证据4: 下跌吸收能力 (反向证据，吸收能力强则风险低)
@@ -812,15 +820,15 @@ class CognitiveIntelligence:
             high_entropy.values,
             dip_absorption_inverse.values
         ], axis=0)
-        evidence_weights = np.array([0.25, 0.25, 0.20, 0.30]) # 调整权重
+        evidence_weights = np.array([0.25, 0.25, 0.20, 0.30])
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
+        # 将 trend_modulator 应用到 likelihood
+        likelihood = likelihood * trend_modulator
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index)) # 不确定性也可能导致反转
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        # 应用趋势背景调制因子
-        posterior_prob = (posterior_prob * trend_modulator).clip(0, 1)
         # 涨停日后的回调，进一步降低风险
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -836,18 +844,20 @@ class CognitiveIntelligence:
                 print(f"       - dip_absorption_inverse: {dip_absorption_inverse.loc[probe_date_for_loop]:.4f}")
                 print(f"       - trend_modulator: {trend_modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - is_limit_up_yesterday: {is_limit_up_yesterday.loc[probe_date_for_loop]}")
-                print(f"       - likelihood: {likelihood.loc[probe_date_for_loop]:.4f}")
+                print(f"       - likelihood (modulated): {likelihood.loc[probe_date_for_loop]:.4f}")
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_MARKET_UNCERTAINTY': posterior_prob.astype(np.float32)}
 
     def _deduce_retail_fomo_retreat_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.6 · 风险剧本证据链优化与趋势背景调制版】贝叶斯推演：“散户狂热主力撤退”风险剧本
+        【V1.7 · 风险剧本证据链优化与趋势背景调制版】贝叶斯推演：“散户狂热主力撤退”风险剧本
         - 核心升级: 引入“趋势背景调制因子”，当趋势质量和结构形态良好时，降低风险证据的权重。
         - 【增强】引入下跌吸收能力作为反向证据，抑制误报。
         - 【优化】对涨停日后的回调，降低风险权重。
         - 【新增】引入主力持仓信念强度作为逆向证据，主力信念强则撤退风险低。
+        - 【修复】修正 `_forge_dynamic_evidence` 对已是概率值的信号进行二次归一化的问题。
+        - 【优化】将 `trend_modulator` 应用到 `likelihood` 计算中。
         - 【新增】增加探针输出，检查各组成部分的贡献。
         """
         print("    -- [剧本推演] 散户狂热主力撤退风险 (动态证据)...")
@@ -859,7 +869,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_retail_fomo_retreat_risk").shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
         main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
@@ -886,18 +896,18 @@ class CognitiveIntelligence:
             price_rising.values,
             chip_dispersion.values,
             dip_absorption_inverse.values,
-            main_force_holding_inverse.values # 新增主力持仓信念逆向证据
+            main_force_holding_inverse.values
         ], axis=0)
         # 权重分配：降低散户流入的权重，提高主力流出和筹码分散的权重
-        evidence_weights = np.array([0.10, 0.25, 0.07, 0.25, 0.18, 0.15]) # 调整权重
+        evidence_weights = np.array([0.10, 0.25, 0.07, 0.25, 0.18, 0.15])
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
+        # 将 trend_modulator 应用到 likelihood
+        likelihood = likelihood * trend_modulator
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        # 应用趋势背景调制因子
-        posterior_prob = (posterior_prob * trend_modulator).clip(0, 1)
         # 涨停日后的回调，进一步降低风险
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -915,18 +925,20 @@ class CognitiveIntelligence:
                 print(f"       - main_force_holding_inverse: {main_force_holding_inverse.loc[probe_date_for_loop]:.4f}")
                 print(f"       - trend_modulator: {trend_modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - is_limit_up_yesterday: {is_limit_up_yesterday.loc[probe_date_for_loop]}")
-                print(f"       - likelihood: {likelihood.loc[probe_date_for_loop]:.4f}")
+                print(f"       - likelihood (modulated): {likelihood.loc[probe_date_for_loop]:.4f}")
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_RETAIL_FOMO_RETREAT': posterior_prob.astype(np.float32)}
 
     def _deduce_harvest_confirmation_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 风险剧本与趋势背景调制版】贝叶斯推演：“收割确认”风险剧本
+        【V1.4 · 风险剧本与趋势背景调制版】贝叶斯推演：“收割确认”风险剧本
         - 核心升级: 引入“趋势背景调制因子”，当趋势质量和结构形态良好时，降低风险证据的权重。
         - 【增强】引入下跌吸收能力作为反向证据，抑制误报。
         - 【优化】对涨停日后的回调，降低风险权重。
         - 【新增】引入主力持仓信念强度作为逆向证据，主力信念强则收割风险低。
+        - 【修复】修正 `_forge_dynamic_evidence` 对已是概率值的信号进行二次归一化的问题。
+        - 【优化】将 `trend_modulator` 应用到 `likelihood` 计算中。
         - 【新增】增加探针输出，检查各组成部分的贡献。
         """
         print("    -- [剧本推演] 收割确认风险 (动态证据)...")
@@ -938,12 +950,12 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_harvest_confirmation_risk").shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
         main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
         # 证据1: 高位派发风险 (COGNITIVE_RISK_DISTRIBUTION_AT_HIGH)
-        high_distribution_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_DISTRIBUTION_AT_HIGH', 0.0))
+        high_distribution_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_DISTRIBUTION_AT_HIGH', 0.0), is_probability=True)
         # 证据2: 主力T+0效率高 (PROCESS_META_PROFIT_VS_FLOW 负向)
         high_t0_efficiency = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_PROFIT_VS_FLOW', 0.0).clip(upper=0).abs())
         # 证据3: 赢家信念衰减 (PROCESS_META_WINNER_CONVICTION_DECAY)
@@ -956,17 +968,17 @@ class CognitiveIntelligence:
             high_t0_efficiency.values,
             winner_conviction_decay.values,
             dip_absorption_inverse.values,
-            main_force_holding_inverse.values # 新增主力持仓信念逆向证据
+            main_force_holding_inverse.values
         ], axis=0)
-        evidence_weights = np.array([0.25, 0.20, 0.20, 0.20, 0.15]) # 调整权重
+        evidence_weights = np.array([0.25, 0.20, 0.20, 0.20, 0.15])
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
+        # 将 trend_modulator 应用到 likelihood
+        likelihood = likelihood * trend_modulator
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        # 应用趋势背景调制因子
-        posterior_prob = (posterior_prob * trend_modulator).clip(0, 1)
         # 涨停日后的回调，进一步降低风险
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -983,18 +995,20 @@ class CognitiveIntelligence:
                 print(f"       - main_force_holding_inverse: {main_force_holding_inverse.loc[probe_date_for_loop]:.4f}")
                 print(f"       - trend_modulator: {trend_modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - is_limit_up_yesterday: {is_limit_up_yesterday.loc[probe_date_for_loop]}")
-                print(f"       - likelihood: {likelihood.loc[probe_date_for_loop]:.4f}")
+                print(f"       - likelihood (modulated): {likelihood.loc[probe_date_for_loop]:.4f}")
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_HARVEST_CONFIRMATION': posterior_prob.astype(np.float32)}
 
     def _deduce_bull_trap_distribution_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.7 · 深度博弈版证据链优化与趋势背景调制版】贝叶斯推演：“主力诱多派发”风险剧本
+        【V1.8 · 深度博弈版证据链优化与趋势背景调制版】贝叶斯推演：“主力诱多派发”风险剧本
         - 核心升级: 引入“趋势背景调制因子”，当趋势质量和结构形态良好时，降低风险证据的权重。
         - 【增强】引入下跌吸收能力作为反向证据，抑制误报。
         - 【优化】对涨停日后的回调，降低风险权重。
         - 【新增】引入主力持仓信念强度作为逆向证据，主力信念强则派发风险低。
+        - 【修复】修正 `_forge_dynamic_evidence` 对已是概率值的信号进行二次归一化的问题。
+        - 【优化】将 `trend_modulator` 应用到 `likelihood` 计算中。
         - 【新增】增加探针输出，检查各组成部分的贡献。
         """
         print("    -- [剧本推演] 主力诱多派发风险 (动态证据)...")
@@ -1006,7 +1020,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_bull_trap_distribution_risk").shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
         main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
@@ -1029,12 +1043,12 @@ class CognitiveIntelligence:
         # 证据7: 赢家信念衰减 (获利盘动摇) - 赢家信念衰减是风险
         winner_conviction_decay = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_WINNER_CONVICTION_DECAY', 0.0))
         # 证据8: 散户狂热主力撤退 (直接捕捉牛市陷阱) - 依赖于另一个风险剧本
-        retail_fomo_retreat_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 0.0))
+        retail_fomo_retreat_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 0.0), is_probability=True)
         # 证据9: 价格超买意图负向 (价格高但缺乏真实支撑) - 负向超买意图是风险
         raw_price_overextension_score = self._get_fused_score('FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0)
         price_overextension_risk = self._forge_dynamic_evidence(raw_price_overextension_score.clip(upper=0).abs())
         # 证据10: 长期获利盘派发风险 (更深层次的派发确认) - 依赖于另一个风险剧本
-        long_term_profit_distribution_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION', 0.0))
+        long_term_profit_distribution_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION', 0.0), is_probability=True)
         # 证据11: 下跌吸收能力 (反向证据，吸收能力强则风险低)
         dip_absorption_power = self._forge_dynamic_evidence(self._get_atomic_score('dip_absorption_power_D', 0.0))
         dip_absorption_inverse = (1 - dip_absorption_power).clip(0, 1)
@@ -1050,7 +1064,7 @@ class CognitiveIntelligence:
             price_overextension_risk.values,
             long_term_profit_distribution_risk.values,
             dip_absorption_inverse.values,
-            main_force_holding_inverse.values # 新增主力持仓信念逆向证据
+            main_force_holding_inverse.values
         ], axis=0)
         # 权重分配：降低 price_rising 的权重，提高核心派发证据的权重
         evidence_weights = np.array([
@@ -1071,10 +1085,10 @@ class CognitiveIntelligence:
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
+        # 将 trend_modulator 应用到 likelihood
+        likelihood = likelihood * trend_modulator
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        # 应用趋势背景调制因子
-        posterior_prob = (posterior_prob * trend_modulator).clip(0, 1)
         # 涨停日后的回调，进一步降低风险
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -1098,17 +1112,19 @@ class CognitiveIntelligence:
                 print(f"       - main_force_holding_inverse: {main_force_holding_inverse.loc[probe_date_for_loop]:.4f}")
                 print(f"       - trend_modulator: {trend_modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - is_limit_up_yesterday: {is_limit_up_yesterday.loc[probe_date_for_loop]}")
-                print(f"       - likelihood: {likelihood.loc[probe_date_for_loop]:.4f}")
+                print(f"       - likelihood (modulated): {likelihood.loc[probe_date_for_loop]:.4f}")
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_BULL_TRAP_DISTRIBUTION': posterior_prob.astype(np.float32)}
 
     def _deduce_liquidity_trap_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 风险剧本与趋势背景调制版】贝叶斯推演：“流动性陷阱”风险剧本
+        【V1.3 · 风险剧本与趋势背景调制版】贝叶斯推演：“流动性陷阱”风险剧本
         - 核心升级: 引入“趋势背景调制因子”，当趋势质量和结构形态良好时，降低风险证据的权重。
         - 【增强】引入下跌吸收能力作为反向证据，抑制误报。
         - 【优化】对涨停日后的回调，降低风险权重。
+        - 【修复】修正 `_forge_dynamic_evidence` 对已是概率值的信号进行二次归一化的问题。
+        - 【优化】将 `trend_modulator` 应用到 `likelihood` 计算中。
         - 【新增】增加探针输出，检查各组成部分的贡献。
         """
         print("    -- [剧本推演] 流动性陷阱风险 (动态证据)...")
@@ -1120,7 +1136,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_liquidity_trap_risk").shift(1).fillna(False)
         # 证据1: 资金流出 (FUSION_BIPOLAR_CAPITAL_CONFRONTATION 负向)
         capital_outflow = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs())
         # 证据2: 成交量冷漠 (SCORE_BEHAVIOR_VOLUME_ATROPHY)
@@ -1136,15 +1152,15 @@ class CognitiveIntelligence:
             volatility_contraction.values,
             dip_absorption_inverse.values
         ], axis=0)
-        evidence_weights = np.array([0.25, 0.25, 0.20, 0.30]) # 调整权重
+        evidence_weights = np.array([0.25, 0.25, 0.20, 0.30])
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
+        # 将 trend_modulator 应用到 likelihood
+        likelihood = likelihood * trend_modulator
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        # 应用趋势背景调制因子
-        posterior_prob = (posterior_prob * trend_modulator).clip(0, 1)
         # 涨停日后的回调，进一步降低风险
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -1160,17 +1176,19 @@ class CognitiveIntelligence:
                 print(f"       - dip_absorption_inverse: {dip_absorption_inverse.loc[probe_date_for_loop]:.4f}")
                 print(f"       - trend_modulator: {trend_modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - is_limit_up_yesterday: {is_limit_up_yesterday.loc[probe_date_for_loop]}")
-                print(f"       - likelihood: {likelihood.loc[probe_date_for_loop]:.4f}")
+                print(f"       - likelihood (modulated): {likelihood.loc[probe_date_for_loop]:.4f}")
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_LIQUIDITY_TRAP': posterior_prob.astype(np.float32)}
 
     def _deduce_t0_arbitrage_pressure_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 风险剧本与趋势背景调制版】贝叶斯推演：“T+0套利压力”风险剧本
+        【V1.3 · 风险剧本与趋势背景调制版】贝叶斯推演：“T+0套利压力”风险剧本
         - 核心升级: 引入“趋势背景调制因子”，当趋势质量和结构形态良好时，降低风险证据的权重。
         - 【增强】引入下跌吸收能力作为反向证据，抑制误报。
         - 【优化】对涨停日后的回调，降低风险权重。
+        - 【修复】修正 `_forge_dynamic_evidence` 对已是概率值的信号进行二次归一化的问题。
+        - 【优化】将 `trend_modulator` 应用到 `likelihood` 计算中。
         - 【新增】增加探针输出，检查各组成部分的贡献。
         """
         print("    -- [剧本推演] T+0套利压力风险 (动态证据)...")
@@ -1182,7 +1200,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_t0_arbitrage_pressure_risk").shift(1).fillna(False)
         # 证据1: 主力T+0效率高 (PROCESS_META_PROFIT_VS_FLOW 负向)
         high_t0_efficiency = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_PROFIT_VS_FLOW', 0.0).clip(upper=0).abs())
         # 证据2: 资金流出 (FUSION_BIPOLAR_CAPITAL_CONFRONTATION 负向)
@@ -1198,15 +1216,15 @@ class CognitiveIntelligence:
             micro_deception_bearish.values,
             dip_absorption_inverse.values
         ], axis=0)
-        evidence_weights = np.array([0.25, 0.25, 0.20, 0.30]) # 调整权重
+        evidence_weights = np.array([0.25, 0.25, 0.20, 0.30])
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
+        # 将 trend_modulator 应用到 likelihood
+        likelihood = likelihood * trend_modulator
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        # 应用趋势背景调制因子
-        posterior_prob = (posterior_prob * trend_modulator).clip(0, 1)
         # 涨停日后的回调，进一步降低风险
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -1222,18 +1240,20 @@ class CognitiveIntelligence:
                 print(f"       - dip_absorption_inverse: {dip_absorption_inverse.loc[probe_date_for_loop]:.4f}")
                 print(f"       - trend_modulator: {trend_modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - is_limit_up_yesterday: {is_limit_up_yesterday.loc[probe_date_for_loop]}")
-                print(f"       - likelihood: {likelihood.loc[probe_date_for_loop]:.4f}")
+                print(f"       - likelihood (modulated): {likelihood.loc[probe_date_for_loop]:.4f}")
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE': posterior_prob.astype(np.float32)}
 
     def _deduce_key_support_break_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 风险剧本与趋势背景调制版】贝叶斯推演：“关键支撑破位”风险剧本
+        【V1.3 · 风险剧本与趋势背景调制版】贝叶斯推演：“关键支撑破位”风险剧本
         - 核心升级: 引入“趋势背景调制因子”，当趋势质量和结构形态良好时，降低风险证据的权重。
         - 【增强】引入下跌吸收能力作为反向证据，抑制误报。
         - 【优化】对涨停日后的回调，降低风险权重。
         - 【新增】引入价格与关键均线距离作为逆向证据，价格远离支撑则破位风险低。
+        - 【修复】修正 `_forge_dynamic_evidence` 对已是概率值的信号进行二次归一化的问题。
+        - 【优化】将 `trend_modulator` 应用到 `likelihood` 计算中。
         - 【新增】增加探针输出，检查各组成部分的贡献。
         """
         print("    -- [剧本推演] 关键支撑破位风险 (动态证据)...")
@@ -1245,7 +1265,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_key_support_break_risk").shift(1).fillna(False)
         # 证据1: 市场压力大 (FUSION_BIPOLAR_MARKET_PRESSURE 负向)
         downward_pressure = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0).clip(upper=0).abs())
         # 证据2: 结构稳定性差 (SCORE_STRUCT_AXIOM_STABILITY 负向)
@@ -1274,17 +1294,17 @@ class CognitiveIntelligence:
             weak_foundation_trend.values,
             loser_capitulation.values,
             dip_absorption_inverse.values,
-            price_above_ma_inverse.values # 新增价格与关键均线距离逆向证据
+            price_above_ma_inverse.values
         ], axis=0)
-        evidence_weights = np.array([0.20, 0.20, 0.15, 0.15, 0.15, 0.15]) # 调整权重
+        evidence_weights = np.array([0.20, 0.20, 0.15, 0.15, 0.15, 0.15])
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
+        # 将 trend_modulator 应用到 likelihood
+        likelihood = likelihood * trend_modulator
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        # 应用趋势背景调制因子
-        posterior_prob = (posterior_prob * trend_modulator).clip(0, 1)
         # 涨停日后的回调，进一步降低风险
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -1302,18 +1322,20 @@ class CognitiveIntelligence:
                 print(f"       - price_above_ma_inverse: {price_above_ma_inverse.loc[probe_date_for_loop]:.4f}")
                 print(f"       - trend_modulator: {trend_modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - is_limit_up_yesterday: {is_limit_up_yesterday.loc[probe_date_for_loop]}")
-                print(f"       - likelihood: {likelihood.loc[probe_date_for_loop]:.4f}")
+                print(f"       - likelihood (modulated): {likelihood.loc[probe_date_for_loop]:.4f}")
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_KEY_SUPPORT_BREAK': posterior_prob.astype(np.float32)}
 
     def _deduce_high_level_structural_collapse_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 风险剧本与趋势背景调制版】贝叶斯推演：“高位结构瓦解”风险剧本
+        【V1.4 · 风险剧本与趋势背景调制版】贝叶斯推演：“高位结构瓦解”风险剧本
         - 核心升级: 引入“趋势背景调制因子”，当趋势质量和结构形态良好时，降低风险证据的权重。
         - 【增强】引入下跌吸收能力作为反向证据，抑制误报。
         - 【优化】对涨停日后的回调，降低风险权重。
         - 【新增】引入主力持仓信念强度作为逆向证据，主力信念强则结构瓦解风险低。
+        - 【修复】修正 `_forge_dynamic_evidence` 对已是概率值的信号进行二次归一化的问题。
+        - 【优化】将 `trend_modulator` 应用到 `likelihood` 计算中。
         - 【新增】增加探针输出，检查各组成部分的贡献。
         """
         print("    -- [剧本推演] 高位结构瓦解风险 (动态证据)...")
@@ -1325,16 +1347,16 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self._get_safe_series(self.strategy.df_indicators, 'IS_LIMIT_UP_D', False, method_name="_deduce_high_level_structural_collapse_risk").shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
         main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
         # 证据1: 高位派发风险 (COGNITIVE_RISK_DISTRIBUTION_AT_HIGH)
-        high_distribution_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_DISTRIBUTION_AT_HIGH', 0.0))
+        high_distribution_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_DISTRIBUTION_AT_HIGH', 0.0), is_probability=True)
         # 证据2: 结构趋势形态恶化 (SCORE_STRUCT_AXIOM_TREND_FORM 负向)
         structural_trend_deterioration = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0).clip(upper=0).abs())
         # 证据3: 散户狂热主力撤退风险 (COGNITIVE_RISK_RETAIL_FOMO_RETREAT)
-        retail_fomo_retreat = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 0.0))
+        retail_fomo_retreat = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 0.0), is_probability=True)
         # 证据4: 筹码分散 (SCORE_CHIP_AXIOM_CONCENTRATION 负向)
         chip_dispersion = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
         # 证据5: 下跌吸收能力 (反向证据，吸收能力强则风险低)
@@ -1346,17 +1368,17 @@ class CognitiveIntelligence:
             retail_fomo_retreat.values,
             chip_dispersion.values,
             dip_absorption_inverse.values,
-            main_force_holding_inverse.values # 新增主力持仓信念逆向证据
+            main_force_holding_inverse.values
         ], axis=0)
-        evidence_weights = np.array([0.20, 0.20, 0.15, 0.15, 0.15, 0.15]) # 调整权重
+        evidence_weights = np.array([0.20, 0.20, 0.15, 0.15, 0.15, 0.15])
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
+        # 将 trend_modulator 应用到 likelihood
+        likelihood = likelihood * trend_modulator
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        # 应用趋势背景调制因子
-        posterior_prob = (posterior_prob * trend_modulator).clip(0, 1)
         # 涨停日后的回调，进一步降低风险
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -1374,7 +1396,7 @@ class CognitiveIntelligence:
                 print(f"       - main_force_holding_inverse: {main_force_holding_inverse.loc[probe_date_for_loop]:.4f}")
                 print(f"       - trend_modulator: {trend_modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - is_limit_up_yesterday: {is_limit_up_yesterday.loc[probe_date_for_loop]}")
-                print(f"       - likelihood: {likelihood.loc[probe_date_for_loop]:.4f}")
+                print(f"       - likelihood (modulated): {likelihood.loc[probe_date_for_loop]:.4f}")
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_HIGH_LEVEL_STRUCTURAL_COLLAPSE': posterior_prob.astype(np.float32)}
