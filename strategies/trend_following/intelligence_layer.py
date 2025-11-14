@@ -59,7 +59,7 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V424.0 · 指挥链重建与结构情报补全版】情报层总指挥官
+        【V423.2 · 指挥链重建与调试增强版】情报层总指挥官
         - 核心重构: 彻底重组了引擎的调用顺序，以修复因执行时序错乱导致的情报真空问题。
         - 新作战时序:
           1. 阶段一 (基础原子层): 运行所有独立的情报引擎，生产各自领域的原子及共振信号。
@@ -67,7 +67,7 @@ class IntelligenceLayer:
           3. 阶段三 (融合态势层): 在共振信号完备后，运行融合引擎，提炼宏观战场态势。
           4. 阶段四 (认知推演层): 在所有前置情报就绪后，运行认知引擎，生成最终战术剧本。
         - 【新增】添加调试打印，追踪 `atomic_states` 中筹码信号的更新情况。
-        - 【修复】补全了 `StructuralIntelligence` 的调用，确保结构性信号被正确生成。
+        - 【修复】添加对 `structural_intel.diagnose_structural_states` 的调用，解决结构性信号缺失问题。
         """
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
@@ -83,8 +83,6 @@ class IntelligenceLayer:
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
         update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
         update_states(self.foundation_intel.run_foundation_analysis_command())
-        
-        # 调用 ChipIntelligence 并更新 atomic_states
         chip_states_from_intel = self.chip_intel.run_chip_intelligence_command(df)
         update_states(chip_states_from_intel)
         # --- Debugging output ---
@@ -96,17 +94,18 @@ class IntelligenceLayer:
             if probe_date_for_loop is not None and probe_date_for_loop in df.index:
                 print(f"    -> [IntelligenceLayer Debug] @ {probe_date_for_loop.date()}: atomic_states after ChipIntelligence:")
                 for k, v in self.strategy.atomic_states.items():
-                    if k.startswith('SCORE_CHIP_') or k.startswith('FUSION_BIPOLAR_CHIP_'): # 仅打印筹码相关状态
+                    if k.startswith('SCORE_CHIP_') or k.startswith('FUSION_BIPOLAR_CHIP_'):
                         if isinstance(v, pd.Series) and probe_date_for_loop in v.index:
                             print(f"       - {k}: {v.loc[probe_date_for_loop]:.4f}")
                         else:
                             print(f"       - {k}: {v}")
         # --- End Debugging output ---
-        update_states(self.fund_flow_intel.diagnose_fund_flow_states(df)) # 这里生成 SCORE_FF_AXIOM_INCREMENT
-        update_states(self.mechanics_engine.run_dynamic_analysis_command())
+        update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
         # [代码修改开始]
-        update_states(self.structural_intel.run_structural_analysis_command()) # 补全 StructuralIntelligence 的调用
+        # 添加对 StructuralIntelligence 的调用
+        update_states(self.structural_intel.diagnose_structural_states(df))
         # [代码修改结束]
+        update_states(self.mechanics_engine.run_dynamic_analysis_command())
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
         # --- 阶段二：过程关系情报层 (Process & Relational Layer) ---
         # 此层消费阶段一的信号，诊断它们之间的动态关系。将两次调用合并为一次。
@@ -115,7 +114,7 @@ class IntelligenceLayer:
         # 此层消费阶段一的共振信号，提炼为战场态势
         update_states(self.fusion_intel.run_fusion_diagnostics())
         # --- 阶段四：认知推演层 (Cognitive & Playbook Layer) ---
-        # 此层消费阶段三的态势和阶段一/二的原子/过程信号，生成最终剧本
+        # 此层消费阶段三的态势和阶段一/二的原子/过程信号，生成最终战术剧本
         self._ignite_relational_dynamics_engine()
         self.cognitive_intel.synthesize_cognitive_scores(df)
         return self.strategy.atomic_states

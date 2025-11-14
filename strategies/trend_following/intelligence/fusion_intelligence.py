@@ -140,6 +140,7 @@ class FusionIntelligence:
         - 【修正】调整 `main_force_on_peak_flow` 的权重，避免其在融合时贡献过大。
         - 【新增】引入 `AAA_D` (平均绝对偏差) 和 `PDI_14_D` (正向动能指数) 作为趋势质量的组成部分。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【修复】将 `SCORE_FF_AXIOM_INCREMENT` 信号引用更正为 `SCORE_FF_AXIOM_FLOW_MOMENTUM`。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
@@ -166,7 +167,10 @@ class FusionIntelligence:
         dynamic_ma_acceleration = self._get_atomic_score('SCORE_DYN_AXIOM_MA_ACCELERATION', 0.0)
         fund_flow_consensus = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
         fund_flow_conviction = self._get_atomic_score('SCORE_FF_AXIOM_CONVICTION', 0.0)
-        fund_flow_increment = self._get_atomic_score('SCORE_FF_AXIOM_INCREMENT', 0.0)
+        # [代码修改开始]
+        # 将 SCORE_FF_AXIOM_INCREMENT 替换为 SCORE_FF_AXIOM_FLOW_MOMENTUM
+        fund_flow_increment = self._get_atomic_score('SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0)
+        # [代码修改结束]
         chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
         chip_cost_structure = self._get_atomic_score('SCORE_CHIP_AXIOM_COST_STRUCTURE', 0.0)
         chip_holder_sentiment = self._get_atomic_score('SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
@@ -180,11 +184,8 @@ class FusionIntelligence:
         pattern_reversal = self._get_atomic_score('SCORE_PATTERN_AXIOM_REVERSAL', 0.0)
         pattern_breakout = self._get_atomic_score('SCORE_PATTERN_AXIOM_BREAKOUT', 0.0)
         main_force_on_peak_flow = self._get_atomic_score('main_force_on_peak_flow_D', 0.0)
-        # 新增 AAA_D 和 PDI_14_D
-        # AAA_D 越低，波动性越小，趋势可能越稳定，所以取反向并归一化
         aaa_raw = self._get_safe_series(self.strategy.df_indicators, 'AAA_D', 0.0, method_name="_synthesize_trend_quality")
-        aaa_score = normalize_to_bipolar(aaa_raw * -1, df_index, window=55) # 负相关，越低越好
-        # PDI_14_D 越高，上涨动能越强，趋势越健康
+        aaa_score = normalize_to_bipolar(aaa_raw * -1, df_index, window=55)
         pdi_raw = self._get_safe_series(self.strategy.df_indicators, 'PDI_14_D', 0.0, method_name="_synthesize_trend_quality")
         pdi_score = normalize_to_bipolar(pdi_raw, df_index, window=55)
         components_and_weights = {
@@ -216,8 +217,8 @@ class FusionIntelligence:
             'pattern_reversal': (pattern_reversal, 0.02),
             'pattern_breakout': (pattern_breakout, 0.03),
             'main_force_on_peak_flow': (main_force_on_peak_flow, 0.02),
-            'aaa_score': (aaa_score, 0.03), # AAA线权重
-            'pdi_score': (pdi_score, 0.05) # PDI权重
+            'aaa_score': (aaa_score, 0.03),
+            'pdi_score': (pdi_score, 0.05)
         }
         bipolar_quality = pd.Series(0.0, index=df_index)
         if probe_date_for_loop is not None and probe_date_for_loop in df_index:
