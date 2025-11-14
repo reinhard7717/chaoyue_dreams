@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Any
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, get_unified_score, normalize_to_bipolar, bipolar_to_exclusive_unipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar
 
 class MicroBehaviorEngine:
     """
@@ -69,28 +69,35 @@ class MicroBehaviorEngine:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.1 · 信号修复版】微观行为公理四：诊断“微观背离”
+        【V1.2 · 信号修复与多时间维度归一化版】微观行为公理四：诊断“微观背离”
         - 核心修复: 将依赖信号 'active_buy_amount_D' 和 'active_sell_amount_D' 修正为实际存在的
                       'active_buying_support_D' 和 'active_selling_pressure_D'。
         - 核心逻辑: 诊断价格行为与微观订单流（如主动买卖盘）之间的背离。
           - 看涨背离：价格下跌但主动买盘增强。
           - 看跌背离：价格上涨但主动卖盘增强。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `price_trend` 和 `order_flow_trend` 的归一化方式改为多时间维度自适应归一化。
         """
-        price_trend = normalize_to_bipolar(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_axiom_divergence"), df.index, norm_window)
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 【优化】使用多时间维度自适应归一化
+        price_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_axiom_divergence"), df.index, default_weights)
         active_buy_support = self._get_safe_series(df, 'active_buying_support_D', method_name="_diagnose_axiom_divergence")
         active_sell_pressure = self._get_safe_series(df, 'active_selling_pressure_D', method_name="_diagnose_axiom_divergence")
         active_buy_sell_diff = active_buy_support - active_sell_pressure
-        order_flow_trend = normalize_to_bipolar(active_buy_sell_diff.diff(1), df.index, norm_window)
+        # 【优化】使用多时间维度自适应归一化
+        order_flow_trend = get_adaptive_mtf_normalized_bipolar_score(active_buy_sell_diff.diff(1), df.index, default_weights)
         divergence_score = (order_flow_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
 
     def _diagnose_axiom_deception(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.2 · 健壮性修复版】微观行为公理一：诊断“伪装与欺骗”
+        【V1.3 · 健壮性修复与多时间维度归一化版】微观行为公理一：诊断“伪装与欺骗”
         - 核心修复: 使用 _get_safe_series 方法安全获取所有依赖信号，防止因信号缺失而崩溃。
         - 逻辑修正: 明确使用 'SLOPE_5_short_term_concentration_90pct_D' 作为筹码集中度变化的证据。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `deception_score` 的归一化方式改为多时间维度自适应归一化。
         """
         main_force_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', method_name="_diagnose_axiom_deception")
         main_force_outflow = -main_force_flow_raw.clip(upper=0)
@@ -103,14 +110,19 @@ class MicroBehaviorEngine:
         control_increase = control_leverage_slope.clip(lower=0)
         granularity_vs_control_deception = granularity_decrease * control_increase
         raw_deception_score = flow_vs_chip_deception + granularity_vs_control_deception
-        deception_score = normalize_to_bipolar(raw_deception_score, df.index, window=norm_window)
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 【优化】使用多时间维度自适应归一化
+        deception_score = get_adaptive_mtf_normalized_bipolar_score(raw_deception_score, df.index, default_weights)
         return deception_score.astype(np.float32)
 
     def _diagnose_axiom_probe(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.1 · 健壮性修复版】微观行为公理二：诊断“试探与确认”
+        【V1.2 · 健壮性修复与多时间维度归一化版】微观行为公理二：诊断“试探与确认”
         - 核心修复: 使用 _get_safe_series 方法安全获取所有依赖信号。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `probe_score` 的归一化方式改为多时间维度自适应归一化。
         """
         total_range = (self._get_safe_series(df, 'high_D', method_name="_diagnose_axiom_probe") - self._get_safe_series(df, 'low_D', method_name="_diagnose_axiom_probe")).replace(0, np.nan)
         upper_shadow_ratio = ((self._get_safe_series(df, 'high_D', method_name="_diagnose_axiom_probe") - np.maximum(self._get_safe_series(df, 'open_D', method_name="_diagnose_axiom_probe"), self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_probe"))) / total_range).fillna(0)
@@ -124,14 +136,19 @@ class MicroBehaviorEngine:
         main_force_not_inflow = -main_force_flow_raw.clip(upper=0)
         fake_breakout_score = breakout_high * main_force_not_inflow
         raw_probe_score = probe_up_score + probe_down_score - fake_breakout_score
-        probe_score = normalize_to_bipolar(raw_probe_score, df.index, window=norm_window)
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 【优化】使用多时间维度自适应归一化
+        probe_score = get_adaptive_mtf_normalized_bipolar_score(raw_probe_score, df.index, default_weights)
         return probe_score.astype(np.float32)
 
     def _diagnose_axiom_efficiency(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.1 · 健壮性修复版】微观行为公理三：诊断“成本与效率”
+        【V1.2 · 健壮性修复与多时间维度归一化版】微观行为公理三：诊断“成本与效率”
         - 核心修复: 使用 _get_safe_series 方法安全获取所有依赖信号。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `efficiency_score` 的归一化方式改为多时间维度自适应归一化。
         """
         amount_series = self._get_safe_series(df, 'amount_D', method_name="_diagnose_axiom_efficiency")
         amount_ma = amount_series.rolling(norm_window).mean().replace(0, np.nan)
@@ -140,6 +157,10 @@ class MicroBehaviorEngine:
         price_output = pct_change_series.abs() * 100
         k = 0.1
         raw_efficiency_score = np.sign(pct_change_series) * (price_output - k * amount_input)
-        efficiency_score = normalize_to_bipolar(raw_efficiency_score, df.index, window=norm_window)
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 【优化】使用多时间维度自适应归一化
+        efficiency_score = get_adaptive_mtf_normalized_bipolar_score(raw_efficiency_score, df.index, default_weights)
         return efficiency_score.astype(np.float32)
 

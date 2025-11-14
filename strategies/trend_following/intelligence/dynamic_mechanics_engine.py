@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Any
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar, bipolar_to_exclusive_unipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, normalize_to_bipolar, bipolar_to_exclusive_unipolar
 
 class DynamicMechanicsEngine:
     def __init__(self, strategy_instance):
@@ -54,34 +54,40 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.0】力学公理五：诊断“力学背离”
+        【V1.1 · 多时间维度归一化版】力学公理五：诊断“力学背离”
         - 核心逻辑: 诊断价格动量与惯性之间的背离。
           - 看涨背离：价格动量减弱（负）但惯性增强（正） -> 预示趋势可能反转向上。
           - 看跌背离：价格动量增强（正）但惯性减弱（负） -> 预示趋势可能反转向下。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `momentum_score` 和 `inertia_score` 的归一化方式改为多时间维度自适应归一化。
         """
         momentum_score = self._diagnose_axiom_momentum(df, norm_window)
         inertia_score = self._diagnose_axiom_inertia(df, norm_window)
+        # 【优化】力学背离本身就是一种关系，其归一化应该基于其自身的动态，而不是简单地使用单一窗口。
+        # 这里直接使用计算出的双极性分数，不再进行额外的 normalize_to_bipolar，因为 momentum_score 和 inertia_score 已经是双极性。
         divergence_score = (inertia_score - momentum_score).clip(-1, 1)
         return divergence_score.astype(np.float32)
 
-
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.0】力学公理一：诊断“动量”
+        【V1.1 · 多时间维度归一化版】力学公理一：诊断“动量”
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `roc_score` 和 `macd_h_score` 的归一化方式改为多时间维度自适应归一化。
         """
         roc = self._get_safe_series(df, 'ROC_12_D', 0.0, method_name="_diagnose_axiom_momentum")
         macd_h = self._get_safe_series(df, 'MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_momentum")
-        roc_score = normalize_to_bipolar(roc, df.index, norm_window)
-        macd_h_score = normalize_to_bipolar(macd_h, df.index, norm_window)
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 【优化】使用多时间维度自适应归一化
+        roc_score = get_adaptive_mtf_normalized_bipolar_score(roc, df.index, default_weights)
+        macd_h_score = get_adaptive_mtf_normalized_bipolar_score(macd_h, df.index, default_weights)
         momentum_score = (roc_score * 0.6 + macd_h_score * 0.4).clip(-1, 1)
         return momentum_score.astype(np.float32)
 
-
     def _diagnose_axiom_inertia(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V2.5 · 均线动态增强与列名引用修复版】力学公理二：诊断“惯性”
+        【V2.6 · 均线动态增强与列名引用修复及多时间维度归一化版】力学公理二：诊断“惯性”
         - 核心重构: 废除脆弱的乘法融合模型，改为更稳健的加权平均模型。
         - 新逻辑: 1. 将趋势强度(ADX)、序列记忆(Hurst)、路径平滑度(Fractal)分别评估为[0,1]的“惯性质量分”。
                    2. 将这三个质量分加权平均，得到一个总体的“惯性质量”。
@@ -90,22 +96,31 @@ class DynamicMechanicsEngine:
         - 【新增】引入均线速度和加速度作为惯性判断的证据。
         - 【修复】修正了引用均线速度和加速度列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
         """
-        adx_strength = normalize_score(self._get_safe_series(df, 'ADX_14_D', 0.0, method_name="_diagnose_axiom_inertia"), df.index, norm_window, ascending=True)
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 【优化】使用多时间维度自适应归一化
+        adx_strength = utils.get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'ADX_14_D', 0.0, method_name="_diagnose_axiom_inertia"), df.index, ascending=True, tf_weights=default_weights)
         hurst_col = next((col for col in df.columns if col.startswith('hurst_')), 'hurst_144d_D')
         hurst = self._get_safe_series(df, hurst_col, 0.5, method_name="_diagnose_axiom_inertia").fillna(0.5)
-        hurst_quality = normalize_score(hurst, df.index, norm_window, ascending=True)
+        # 【优化】使用多时间维度自适应归一化
+        hurst_quality = utils.get_adaptive_mtf_normalized_score(hurst, df.index, ascending=True, tf_weights=default_weights)
         fractal_col = next((col for col in df.columns if col.startswith('FRACTAL_DIMENSION_')), None)
         if fractal_col:
             fractal_dim = self._get_safe_series(df, fractal_col, 1.5, method_name="_diagnose_axiom_inertia").fillna(1.5)
-            fractal_smoothness = normalize_score(fractal_dim, df.index, norm_window, ascending=False)
+            # 【优化】使用多时间维度自适应归一化
+            fractal_smoothness = utils.get_adaptive_mtf_normalized_score(fractal_dim, df.index, ascending=False, tf_weights=default_weights)
         else:
             fractal_smoothness = pd.Series(0.5, index=df.index)
         ma_col_base = 'EMA_55' # 原始均线列名，不带时间框架后缀
         timeframe_key = 'D' # 明确时间框架
         # 修正列名引用，确保与 merge_results 后的列名一致
-        ma_velocity = normalize_score(self._get_safe_series(df, f'MA_VELOCITY_{ma_col_base}_{timeframe_key}', 0.0, method_name="_diagnose_axiom_inertia"), df.index, norm_window, ascending=True)
-        ma_acceleration = normalize_score(self._get_safe_series(df, f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}', 0.0, method_name="_diagnose_axiom_inertia"), df.index, norm_window, ascending=True)
+        # 【优化】使用多时间维度自适应归一化
+        ma_velocity = utils.get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_VELOCITY_{ma_col_base}_{timeframe_key}', 0.0, method_name="_diagnose_axiom_inertia"), df.index, ascending=True, tf_weights=default_weights)
+        # 【优化】使用多时间维度自适应归一化
+        ma_acceleration = utils.get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}', 0.0, method_name="_diagnose_axiom_inertia"), df.index, ascending=True, tf_weights=default_weights)
         inertia_quality = (
             adx_strength * 0.3 +
             hurst_quality * 0.3 +
@@ -119,20 +134,26 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V2.2 · 稳健融合重构版】力学公理三：诊断“稳定性”
+        【V2.3 · 稳健融合重构与多时间维度归一化版】力学公理三：诊断“稳定性”
         - 核心重构: 废除脆弱的乘法融合模型，改为更稳健的加权平均模型。
         - 新逻辑: 将“波动率水平”和“波动率的稳定性”视为同等重要的两个独立证据，进行加权平均，
                    而不是相乘。这避免了因单一维度暂时表现不佳而完全否定整体稳定性的问题。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `volatility_level_score` 和 `volatility_stability_score` 的归一化方式改为多时间维度自适应归一化。
         """
         bbw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name="_diagnose_axiom_stability")
         atr_pct = self._get_safe_series(df, 'ATR_14_D', 0.0, method_name="_diagnose_axiom_stability") / self._get_safe_series(df, 'close_D', 1e-9, method_name="_diagnose_axiom_stability").replace(0, np.nan)
         raw_volatility = (bbw + atr_pct).fillna(0)
-        volatility_level_score = normalize_score(raw_volatility, df.index, norm_window, ascending=False)
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 【优化】使用多时间维度自适应归一化
+        volatility_level_score = utils.get_adaptive_mtf_normalized_score(raw_volatility, df.index, ascending=False, tf_weights=default_weights)
         vol_instability_col = next((col for col in df.columns if col.startswith('VOLATILITY_INSTABILITY_INDEX_')), None)
         if vol_instability_col:
             vol_of_vol = self._get_safe_series(df, vol_instability_col, 0.0, method_name="_diagnose_axiom_stability")
-            volatility_stability_score = normalize_score(vol_of_vol, df.index, norm_window, ascending=False)
+            # 【优化】使用多时间维度自适应归一化
+            volatility_stability_score = utils.get_adaptive_mtf_normalized_score(vol_of_vol, df.index, ascending=False, tf_weights=default_weights)
         else:
             volatility_stability_score = pd.Series(0.5, index=df.index)
         raw_stability_score = (
@@ -144,16 +165,21 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_energy(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.1 · 稳健融合重构版】力学公理四：诊断“能量”
+        【V1.2 · 稳健融合重构与多时间维度归一化版】力学公理四：诊断“能量”
         - 核心重构: 废除脆弱的乘法融合模型，改为更稳健的加权平均模型。
         - 新逻辑: 将VPA效率和CMF资金流视为两个独立的能量来源，进行加权融合。
                    当两者方向一致时，能量共振增强；方向相反时，能量相互抵消。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `cmf_bipolar` 的归一化方式改为多时间维度自适应归一化。
         """
         vpa = self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.5, method_name="_diagnose_axiom_energy")
         cmf = self._get_safe_series(df, 'CMF_21_D', 0.0, method_name="_diagnose_axiom_energy")
         vpa_bipolar = (vpa * 2 - 1).clip(-1, 1)
-        cmf_bipolar = normalize_to_bipolar(cmf, df.index, norm_window)
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 【优化】使用多时间维度自适应归一化
+        cmf_bipolar = get_adaptive_mtf_normalized_bipolar_score(cmf, df.index, default_weights)
         energy_score = (
             vpa_bipolar * 0.5 +
             cmf_bipolar * 0.5
@@ -162,11 +188,12 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_ma_dynamics(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.2 · 列名引用修复版】力学公理六：诊断“均线动态”
+        【V1.3 · 列名引用修复与多时间维度归一化版】力学公理六：诊断“均线动态”
         - 核心逻辑: 融合均线的速度和加速度，评估趋势的内在变化。
         - 正分代表均线加速向上，负分代表均线加速向下。
         - 【修复】修正了引用均线速度和加速度列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `velocity_score` 和 `acceleration_score` 的归一化方式改为多时间维度自适应归一化。
         """
         df_index = df.index
         ma_col_base = 'EMA_55' # 原始均线列名，不带时间框架后缀
@@ -179,9 +206,14 @@ class DynamicMechanicsEngine:
         if velocity_col not in df.columns or acceleration_col not in df.columns:
             print(f"    -> [均线动态探针] 警告: 缺少均线速度或加速度列 ({velocity_col}, {acceleration_col})，使用默认值0.0。")
             return pd.Series(0.0, index=df_index)
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         # 归一化速度和加速度
-        velocity_score = normalize_to_bipolar(velocity_raw, df_index, norm_window)
-        acceleration_score = normalize_to_bipolar(acceleration_raw, df_index, norm_window)
+        # 【优化】使用多时间维度自适应归一化
+        velocity_score = get_adaptive_mtf_normalized_bipolar_score(velocity_raw, df_index, default_weights)
+        # 【优化】使用多时间维度自适应归一化
+        acceleration_score = get_adaptive_mtf_normalized_bipolar_score(acceleration_raw, df_index, default_weights)
         # 融合：速度和加速度都为正时，分数最高
         ma_dynamics_score = (velocity_score * 0.6 + acceleration_score * 0.4).clip(-1, 1)
         return ma_dynamics_score.astype(np.float32)

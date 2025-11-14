@@ -5,7 +5,7 @@ import numpy as np
 import pandas_ta as ta
 from typing import Dict, Optional, Any
 # 导入 get_params_block 工具
-from strategies.trend_following.utils import get_params_block, normalize_to_bipolar, normalize_score, bipolar_to_exclusive_unipolar
+from strategies.trend_following.utils import get_params_block, normalize_to_bipolar, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar
 
 class IntradayBehaviorEngine:
     """
@@ -82,8 +82,9 @@ class IntradayBehaviorEngine:
 
     async def _diagnose_axiom_attack(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.0】日内行为公理一：诊断“攻击强度”
+        【V1.1 · 归一化窗口参数化版】日内行为公理一：诊断“攻击强度”
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `normalize_to_bipolar` 的 `window` 参数改为从配置中获取的 `norm_window`。
         """
         # 攻击强度 = K线实体方向与大小 * 成交额变化
         # 1. K线实体强度 (归一化到 [-1, 1])
@@ -96,13 +97,16 @@ class IntradayBehaviorEngine:
         # 3. 融合：实体强度 * 成交额强度
         raw_attack_score = body_strength * amount_strength
         # 4. 使用双极归一化，得到最终的攻击强度分
-        final_score = normalize_to_bipolar(raw_attack_score, df_minute.index, window=len(df_minute)).iloc[-1]
+        # 【优化】使用配置中的 norm_window
+        norm_window = self.params.get('meta_analysis_params', {}).get('norm_window', 55)
+        final_score = normalize_to_bipolar(raw_attack_score, df_minute.index, window=norm_window).iloc[-1]
         return {"SCORE_INTRADAY_AXIOM_ATTACK": final_score}
 
     async def _diagnose_axiom_control(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.0】日内行为公理二：诊断“控制能力”
+        【V1.1 · 归一化窗口参数化版】日内行为公理二：诊断“控制能力”
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `normalize_to_bipolar` 的 `window` 参数改为从配置中获取的 `norm_window`。
         """
         if 'vwap' not in df_minute.columns:
             print(f"    -> [日内行为情报警告] 方法 '_diagnose_axiom_control' 缺少数据 'vwap'，使用默认值 0.0。")
@@ -111,7 +115,9 @@ class IntradayBehaviorEngine:
         # 正值代表多头控盘，负值代表空头控盘
         raw_control_score = (self._get_safe_series(df_minute, 'close', method_name="_diagnose_axiom_control") - self._get_safe_series(df_minute, 'vwap', method_name="_diagnose_axiom_control")) / self._get_safe_series(df_minute, 'vwap', method_name="_diagnose_axiom_control")
         # 使用双极归一化，得到最终的控制能力分
-        final_score = normalize_to_bipolar(raw_control_score, df_minute.index, window=len(df_minute), sensitivity=2.0).iloc[-1]
+        # 【优化】使用配置中的 norm_window
+        norm_window = self.params.get('meta_analysis_params', {}).get('norm_window', 55)
+        final_score = normalize_to_bipolar(raw_control_score, df_minute.index, window=norm_window, sensitivity=2.0).iloc[-1]
         return {"SCORE_INTRADAY_AXIOM_CONTROL": final_score}
 
     async def _diagnose_axiom_turning(self, df_minute: pd.DataFrame) -> Dict[str, float]:

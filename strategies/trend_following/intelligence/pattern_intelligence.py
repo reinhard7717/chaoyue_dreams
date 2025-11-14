@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Any
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar, bipolar_to_exclusive_unipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar
 
 class PatternIntelligence:
     """
@@ -47,36 +47,48 @@ class PatternIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V3.0 · 清洁版】形态公理一：诊断“背离”
+        【V3.1 · 清洁与多时间维度归一化版】形态公理一：诊断“背离”
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `divergence_score` 的归一化方式改为多时间维度自适应归一化。
         """
         price_slope = self._get_safe_series(df, 'SLOPE_13_close_D', 0, method_name="_diagnose_axiom_divergence")
         momentum_slope = self._get_safe_series(df, 'SLOPE_13_intraday_vwap_div_index_D', 0, method_name="_diagnose_axiom_divergence")
         bullish_divergence_strength = ((price_slope < 0) & (momentum_slope > 0)).astype(float)
         bearish_divergence_strength = ((price_slope > 0) & (momentum_slope < 0)).astype(float)
         raw_divergence_score = bullish_divergence_strength - bearish_divergence_strength
-        divergence_score = normalize_to_bipolar(raw_divergence_score, df.index, window=norm_window)
+        p_conf_pattern = get_params_block(self.strategy, 'pattern_params', {})
+        tf_weights_pattern = get_param_value(p_conf_pattern.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}) # 借用筹码的MTF权重配置
+        # 【优化】使用多时间维度自适应归一化
+        divergence_score = get_adaptive_mtf_normalized_bipolar_score(raw_divergence_score, df.index, tf_weights_pattern)
         return divergence_score.astype(np.float32)
 
     def _diagnose_axiom_reversal(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V3.0 · 清洁版】形态公理二：诊断“反转”
+        【V3.1 · 清洁与多时间维度归一化版】形态公理二：诊断“反转”
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `reversal_score` 的归一化方式改为多时间维度自适应归一化。
         """
         raw_reversal_score = self._get_safe_series(df, 'counterparty_exhaustion_index_D', 0, method_name="_diagnose_axiom_reversal")
-        reversal_score = normalize_to_bipolar(raw_reversal_score, df.index, window=norm_window)
+        p_conf_pattern = get_params_block(self.strategy, 'pattern_params', {})
+        tf_weights_pattern = get_param_value(p_conf_pattern.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # 【优化】使用多时间维度自适应归一化
+        reversal_score = get_adaptive_mtf_normalized_bipolar_score(raw_reversal_score, df.index, tf_weights_pattern)
         return reversal_score.astype(np.float32)
 
     def _diagnose_axiom_breakout(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V3.0 · 清洁版】形态公理三：诊断“突破”
+        【V3.1 · 清洁与多时间维度归一化版】形态公理三：诊断“突破”
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将 `breakout_score` 的归一化方式改为多时间维度自适应归一化。
         """
         is_breakout_up = (self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_breakout") > self._get_safe_series(df, 'dynamic_consolidation_high_D', np.inf, method_name="_diagnose_axiom_breakout")).astype(float)
         is_breakout_down = (self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_breakout") < self._get_safe_series(df, 'dynamic_consolidation_low_D', -np.inf, method_name="_diagnose_axiom_breakout")).astype(float)
         breakout_direction = is_breakout_up - is_breakout_down
         breakout_quality = self._get_safe_series(df, 'breakout_quality_score_D', pd.Series(0, index=df.index), method_name="_diagnose_axiom_breakout")
         raw_breakout_score = breakout_direction * breakout_quality
-        breakout_score = normalize_to_bipolar(raw_breakout_score, df.index, window=norm_window)
+        p_conf_pattern = get_params_block(self.strategy, 'pattern_params', {})
+        tf_weights_pattern = get_param_value(p_conf_pattern.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # 【优化】使用多时间维度自适应归一化
+        breakout_score = get_adaptive_mtf_normalized_bipolar_score(raw_breakout_score, df.index, tf_weights_pattern)
         return breakout_score.astype(np.float32)
 
