@@ -17,6 +17,7 @@ from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from users.models import FavoriteStock
 from utils.cache_manager import CacheManager
+from stock_models.stock_basic import StockInfo
 
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_RealTime'
@@ -172,13 +173,7 @@ def save_stocks_tick_data_task(quote_batch_size: int = 50, cache_manager=None):
     # if not is_trading_time():
     #     return
     # 1. 获取需要处理的股票列表
-    stock_basic_dao = StockBasicInfoDao(cache_manager)
-    favorite_codes, non_favorite_codes = async_to_sync(
-        _get_all_relevant_stock_codes_for_processing
-    )(stock_basic_dao)
-    if not favorite_codes and not non_favorite_codes:
-        logger.warning("未能获取到股票列表，统一调度任务结束。")
-        return
+    stock_codes = list(StockInfo.objects.filter(list_status='L').exclude(stock_code__endswith='.BJ').values_list('stock_code', flat=True))
     # 2. 分派“行情快照(Quote)”批量任务 
     # logger.info("--- 开始分派行情快照(Quote)任务 ---")
     # total_quote_batches = 0
@@ -195,15 +190,14 @@ def save_stocks_tick_data_task(quote_batch_size: int = 50, cache_manager=None):
     # logger.info(f"--- 行情快照任务分派完成，共 {total_quote_batches} 个批次。 ---")
     # 3. 分派“真实逐笔(Tick)”单票任务
     logger.info("--- 开始分派真实逐笔(Tick)任务 ---")
-    all_codes = favorite_codes + non_favorite_codes
-    for stock_code in all_codes:
+    for stock_code in stock_codes:
         # 为每一只股票分派一个独立的任务
         save_real_tick_data_single.s(stock_code).set(queue="SaveData_RealTime").apply_async()
-    logger.info(f"--- 真实逐笔任务分派完成，共 {len(all_codes)} 个任务。 ---")
+    logger.info(f"--- 真实逐笔任务分派完成，共 {len(stock_codes)} 个任务。 ---")
     return {
         "status": "success",
-        "dispatched_quote_batches": total_quote_batches,
-        "dispatched_real_tick_tasks": len(all_codes)
+        "dispatched_quote_batches": 0,
+        "dispatched_real_tick_tasks": len(stock_codes)
     }
 
 #  ================ 实时(分钟)数据任务 ================
