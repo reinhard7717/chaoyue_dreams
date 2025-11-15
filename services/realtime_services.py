@@ -179,7 +179,7 @@ def cpu_bound_calculation_task(
 class RealtimeServices:
     """
     【盘中引擎 - 服务层 V4.3 - 使用数据库交易日历】
-    - 改造: 使用数据库中的 TradeCalendar 模型替代外部工具类。
+    - 使用数据库中的 TradeCalendar 模型替代外部工具类。
     """
     def __init__(self, cache_manager_instance: CacheManager):
         self.cache_manager = cache_manager_instance

@@ -120,7 +120,7 @@ class StockRealtimeDAO(BaseDAO):
         async def fetch_one_stock(code: str):
             try:
                 # 使用 sync_to_async 包装同步的 tushare 调用，这是最佳实践
-                df = await sync_to_async(self.ts.realtime_tick)(ts_code=code, src='sina')
+                df = await sync_to_async(self.ts.realtime_tick)(ts_code=code, src='tx')
                 # 探针 2: 检查 Tushare 原始返回
                 if df is None or df.empty:
                     print(f"    -> [探针] Tushare接口为 {code} 返回了空数据。")
@@ -225,7 +225,6 @@ class StockRealtimeDAO(BaseDAO):
     # =================================================================
     # =================== 市场整体快照 (Market Snapshot) 接口 ==========
     # =================================================================
-
     async def get_realtime_market_snapshot(self, src: str = 'dc') -> Optional[pd.DataFrame]:
         """
         获取实时涨跌幅排名，作为市场雷达。
@@ -243,13 +242,10 @@ class StockRealtimeDAO(BaseDAO):
             logger.error(f"获取实时市场快照 (realtime_list) 失败: {e}", exc_info=True)
             return None
 
-
     # =================================================================
     # =================== 行情快照 (Quote) 历史接口 ===================
     # =================================================================
-    
-
-    # ▼▼▼ 改造: 此方法现在专用于获取行情快照 ▼▼▼
+    # ▼▼▼ 此方法现在专用于获取行情快照 ▼▼▼
     async def save_quote_data_by_stock_codes(self, stock_codes: List[str]) -> List:
         """
         【改造】获取实时行情快照(realtime_quote)并持久化。
@@ -298,7 +294,7 @@ class StockRealtimeDAO(BaseDAO):
             logger.error(f"save_quote_data_by_stock_codes 发生严重异常: {e}", exc_info=True)
             return []
 
-    # ▼▼▼ 改造: 此方法现在用于获取快照数据，并明确其数据源 ▼▼▼
+    # ▼▼▼ 此方法现在用于获取快照数据，并明确其数据源 ▼▼▼
     async def get_daily_quotes_and_level5_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]]:
         """
         【改造】从缓存批量获取行情快照(Quote)和Level5数据。
