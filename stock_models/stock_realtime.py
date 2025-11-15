@@ -64,18 +64,62 @@ class StockLevel5Data(models.Model):
         return f"{self.stock.stock_code}-{self.trade_time}"
 
 
-class StockTickData(models.Model):
-    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="tick_data")
+class BaseStockTickData(models.Model): # 修改代码行: 将 StockTickData 改为抽象基类 BaseStockTickData
     trade_time = models.DateTimeField(verbose_name='交易时间')
     price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='成交价')
-    volume = models.IntegerField(verbose_name='成交量(股)') # 注意单位是股
+    volume = models.IntegerField(verbose_name='成交量(手)')
     amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name='成交额(元)')
     type = models.CharField(max_length=10, verbose_name='类型', help_text="买盘/卖盘/中性")
-
     class Meta:
-        db_table = 'stock_tick_data'
-        unique_together = ('stock', 'trade_time', 'price', 'volume') # 增加唯一性约束
+        abstract = True # 修改代码行: 设置为抽象模型
         ordering = ['-trade_time']
+
+class StockTickData_SH(BaseStockTickData): #上海市场逐笔交易数据模型
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="tick_data_sh", verbose_name=_("股票"))
+    class Meta(BaseStockTickData.Meta):
+        abstract = False
+        verbose_name = '逐笔交易数据-上海'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_tick_data_sh'
+        unique_together = ('stock', 'trade_time', 'price', 'volume')
+        indexes = [models.Index(fields=['stock', 'trade_time'])]
+class StockTickData_SZ(BaseStockTickData): #深圳市场逐笔交易数据模型
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="tick_data_sz", verbose_name=_("股票"))
+    class Meta(BaseStockTickData.Meta):
+        abstract = False
+        verbose_name = '逐笔交易数据-深圳'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_tick_data_sz'
+        unique_together = ('stock', 'trade_time', 'price', 'volume')
+        indexes = [models.Index(fields=['stock', 'trade_time'])]
+class StockTickData_CY(BaseStockTickData): #创业板逐笔交易数据模型
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="tick_data_cy", verbose_name=_("股票"))
+    class Meta(BaseStockTickData.Meta):
+        abstract = False
+        verbose_name = '逐笔交易数据-创业板'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_tick_data_cy'
+        unique_together = ('stock', 'trade_time', 'price', 'volume')
+        indexes = [models.Index(fields=['stock', 'trade_time'])]
+class StockTickData_KC(BaseStockTickData): #科创板逐笔交易数据模型
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="tick_data_kc", verbose_name=_("股票"))
+    class Meta(BaseStockTickData.Meta):
+        abstract = False
+        verbose_name = '逐笔交易数据-科创板'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_tick_data_kc'
+        unique_together = ('stock', 'trade_time', 'price', 'volume')
+        indexes = [models.Index(fields=['stock', 'trade_time'])]
+class StockTickData_BJ(BaseStockTickData): #北京市场逐笔交易数据模型
+    stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name="tick_data_bj", verbose_name=_("股票"))
+    class Meta(BaseStockTickData.Meta):
+        abstract = False
+        verbose_name = '逐笔交易数据-北京'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_tick_data_bj'
+        unique_together = ('stock', 'trade_time', 'price', 'volume')
+        indexes = [models.Index(fields=['stock', 'trade_time'])]
+
 
 
 

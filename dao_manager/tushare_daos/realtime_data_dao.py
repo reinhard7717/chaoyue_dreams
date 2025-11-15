@@ -20,6 +20,7 @@ from utils.cache_manager import CacheManager
 from utils.cache_set import StockRealtimeCacheSet
 from utils.cash_key import StockCashKey
 from utils.data_format_process import StockRealtimeDataFormatProcess
+from utils.model_helpers import get_stock_tick_data_model_by_code
 
 logger = logging.getLogger("dao")
 
@@ -51,61 +52,59 @@ class StockRealtimeDAO(BaseDAO):
     # --- 写操作 (Write Operation) ---
     async def save_realtime_tick_in_bulk(self, stock_codes: List[str], trade_date: str) -> bool:
         """
-        【V2.0 向量化重构版】并发获取、清洗、并持久化（DB+Cache）多支股票的当日实时逐笔数据。
+        【V2.1 逐笔数据分表版】并发获取、清洗、并持久化（DB+Cache）多支股票的当日实时逐笔数据。
         - 核心优化: 彻底移除了原有的双重 for 循环，采用 Pandas 向量化操作 (explode, map, merge)
                       来准备数据库载荷 (db_payload)。这极大地提升了处理海量逐笔数据时的性能。
+        - 核心修改: 支持 StockTickData 分表存储，根据股票代码将数据保存到对应的分表。
         Returns:
             bool: 操作是否整体成功。
         """
         if not stock_codes:
             return True
-        # 1. 并发获取原始数据
         tick_data_map = await self._fetch_raw_ticks_in_bulk(stock_codes, trade_date)
         if not tick_data_map:
             logger.warning("未能获取到任何股票的实时逐笔数据。")
             return False
-        # --- 开始向量化处理以准备数据库载荷 ---
-        # 2.1. 将所有股票的DataFrame合并成一个大的DataFrame，并保留股票代码作为一列
-        # 将字典转换为 (stock_code, DataFrame) 的元组列表
         df_list_with_codes = [(code, df.reset_index()) for code, df in tick_data_map.items()]
-        # 创建一个包含所有数据的长格式DataFrame
         if not df_list_with_codes:
             return False
         all_ticks_df = pd.concat(
             [df.assign(stock_code=code) for code, df in df_list_with_codes],
             ignore_index=True
         )
-        # 2.2. 批量获取所有需要的股票对象
         all_stock_codes_in_df = all_ticks_df['stock_code'].unique().tolist()
         stocks_map = await self.stock_basic_dao.get_stocks_by_codes(all_stock_codes_in_df)
-        # 2.3. 向量化映射：将股票对象映射到DataFrame的新列'stock'中
         all_ticks_df['stock'] = all_ticks_df['stock_code'].map(stocks_map)
-        # 2.4. 过滤掉无法关联到股票对象的行，并选择最终需要的列
         all_ticks_df.dropna(subset=['stock'], inplace=True)
         if all_ticks_df.empty:
             logger.warning("所有逐笔数据都无法关联到股票对象，无数据可保存。")
             return False
+        all_ticks_df['model_class'] = all_ticks_df['stock_code'].apply(get_stock_tick_data_model_by_code) # 新增代码行: 映射到对应的分表模型
+        all_ticks_df.dropna(subset=['model_class'], inplace=True) # 新增代码行: 过滤掉无法映射到模型的行
+        if all_ticks_df.empty: # 新增代码行
+            logger.warning("所有逐笔数据都无法映射到有效的分表模型，无数据可保存。") # 新增代码行
+            return False # 新增代码行
         final_cols = ['stock', 'trade_time', 'price', 'volume', 'amount', 'type']
-        db_payload_df = all_ticks_df[final_cols]
-        # 2.5. 将处理好的DataFrame转换为字典列表，作为数据库载荷
-        db_payload = db_payload_df.to_dict('records')
-        # --- 向量化处理结束，原有的双重for循环已被完全移除 ---
-        # 3. 并发执行数据库和缓存的持久化任务
+        db_payload_df = all_ticks_df[final_cols + ['model_class']] # 修改代码行: 包含 model_class 列
         try:
-            tasks = [
-                # 任务一: 批量写入数据库
-                self._save_all_to_db_native_upsert(StockTickData, db_payload, ['stock', 'trade_time', 'price', 'volume']),
-                # 任务二: 批量写入Redis缓存
+            db_tasks = [] # 修改代码行: 初始化数据库保存任务列表
+            for model_class, group_df in db_payload_df.groupby('model_class'): # 新增代码行: 按分表模型分组数据
+                payload_for_model = group_df[final_cols].to_dict('records') # 新增代码行: 获取当前分表的数据载荷
+                if payload_for_model: # 新增代码行
+                    db_tasks.append(self._save_all_to_db_native_upsert(model_class, payload_for_model, ['stock', 'trade_time', 'price', 'volume'])) # 新增代码行: 为每个分表创建保存任务
+            tasks = [ # 修改代码行: 整合所有任务
+                *db_tasks, # 修改代码行: 展开数据库保存任务
                 self.cache_set.batch_append_real_ticks(tick_data_map)
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            # 检查任务执行结果
             success = True
-            if isinstance(results[0], Exception):
-                logger.error(f"批量保存逐笔数据到数据库失败: {results[0]}", exc_info=results[0])
-                success = False
-            if not results[1] or isinstance(results[1], Exception):
-                logger.error(f"批量保存逐笔数据到缓存失败: {results[1]}", exc_info=isinstance(results[1], Exception) and results[1] or None)
+            for i, db_result in enumerate(results[:len(db_tasks)]): # 新增代码行: 检查数据库保存任务结果
+                if isinstance(db_result, Exception): # 新增代码行
+                    logger.error(f"批量保存逐笔数据到数据库分表失败 (任务 {i+1}/{len(db_tasks)}): {db_result}", exc_info=db_result) # 新增代码行
+                    success = False # 新增代码行
+            cache_result_index = len(db_tasks) # 新增代码行: 缓存任务结果的索引
+            if not results[cache_result_index] or isinstance(results[cache_result_index], Exception): # 修改代码行: 检查缓存保存任务结果
+                logger.error(f"批量保存逐笔数据到缓存失败: {results[cache_result_index]}", exc_info=isinstance(results[cache_result_index], Exception) and results[cache_result_index] or None) # 修改代码行
                 success = False
             return success
         except Exception as e:
@@ -187,11 +186,15 @@ class StockRealtimeDAO(BaseDAO):
     async def _get_daily_real_ticks_from_db(self, stock_code: str, trade_date_str: str) -> Optional[pd.DataFrame]:
         """
         【辅助】从数据库获取指定股票和日期的真实逐笔数据。
+        - 核心修改: 根据股票代码动态选择对应的 StockTickData 分表。
         """
         try:
             trade_date_obj = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
-            # 使用 sync_to_async 执行同步的Django ORM查询
-            query = StockTickData.objects.filter(
+            tick_data_model = get_stock_tick_data_model_by_code(stock_code) # 新增代码行: 根据股票代码获取对应的 StockTickData 模型
+            if tick_data_model is None: # 新增代码行
+                logger.warning(f"无法为股票 {stock_code} 找到对应的 StockTickData 模型，无法从数据库获取数据。") # 新增代码行
+                return None # 新增代码行
+            query = tick_data_model.objects.filter( # 修改代码行: 使用动态获取的分表模型进行查询
                 stock__stock_code=stock_code,
                 trade_time__date=trade_date_obj
             ).order_by('trade_time').values(
@@ -202,23 +205,11 @@ class StockRealtimeDAO(BaseDAO):
                 return None
             df = pd.DataFrame(ticks_list)
             df.set_index('trade_time', inplace=True)
-            # 确保时区正确
             if df.index.tz is None:
                 df.index = df.index.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
             return df
         except Exception as e:
             logger.error(f"从数据库获取 {stock_code} 逐笔数据失败: {e}", exc_info=True)
-            return None
-            # 使用分数（时间戳）创建索引，这比依赖数据内部的时间字段更可靠
-            df_ticks.index = pd.to_datetime([score for data, score in ticks_with_scores], unit='s')
-            df_ticks.index.name = 'trade_time'
-            # 确保时区正确
-            if df_ticks.index.tz is None:
-                df_ticks.index = df_ticks.index.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
-            logger.debug(f"缓存命中: 成功从Redis获取了 {len(df_ticks)} 条真实逐笔数据 for {stock_code}")
-            return df_ticks
-        except Exception as e:
-            logger.error(f"在 get_daily_real_ticks (cache) 中发生异常 for {stock_code}: {e}", exc_info=True)
             return None
 
 

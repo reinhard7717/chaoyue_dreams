@@ -18,6 +18,10 @@ from stock_models.advanced_metrics import (
     AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_BJ,
     AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_BJ
 )
+from stock_models.stock_realtime import ( # 修改代码行: 导入新的分表模型
+    StockRealtimeData, StockLevel5Data, # 修改代码行
+    StockTickData_SH, StockTickData_SZ, StockTickData_CY, StockTickData_KC, StockTickData_BJ # 修改代码行
+)
 from stock_models.fund_flow import FundFlowDailyDC_CY, FundFlowDailyDC_SZ, FundFlowDailyDC_KC, FundFlowDailyDC_SH, FundFlowDailyDC_BJ, FundFlowDailyTHS_CY, FundFlowDailyTHS_SZ, FundFlowDailyTHS_KC, FundFlowDailyTHS_SH, FundFlowDailyTHS_BJ, FundFlowDailyCY, FundFlowDailySZ, FundFlowDailyKC, FundFlowDailySH, FundFlowDailyBJ
 from typing import Type, Optional, List, Dict
 from datetime import datetime, timezone
@@ -265,7 +269,27 @@ def get_stk_limit_model_by_code(stock_code: str) -> Optional[Type[models.Model]]
         return StockPriceLimit_BJ
     return None # 对于无法识别的股票代码返回None
 
-
+def get_stock_tick_data_model_by_code(stock_code: str) -> Optional[Type[models.Model]]:
+    """
+    根据股票代码返回对应的逐笔交易数据分表Model。
+    Args:
+        stock_code (str): 股票代码，例如 '000001.SZ'。
+    Returns:
+        Optional[Type[models.Model]]: 对应的Django模型类，如果未找到则为 None。
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return StockTickData_CY
+    elif stock_code.endswith('.SZ'):
+        return StockTickData_SZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return StockTickData_KC
+    elif stock_code.endswith('.SH'):
+        return StockTickData_SH
+    elif stock_code.endswith('.BJ'):
+        return StockTickData_BJ
+    else:
+        print(f"调试信息: 未能为 {stock_code} 找到对应的逐笔交易数据模型。")
+        return None
 
 
 
