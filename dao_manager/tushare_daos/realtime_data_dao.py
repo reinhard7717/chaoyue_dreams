@@ -115,43 +115,53 @@ class StockRealtimeDAO(BaseDAO):
     async def _fetch_raw_ticks_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, pd.DataFrame]:
         """
         【辅助】使用 asyncio.gather 并发调用 tushare 接口获取原始逐笔数据。
+        - 核心修改: 为单个股票的 Tushare API 调用添加重试机制。
         """
-        print(f"  -> [探针] 进入 _fetch_raw_ticks_in_bulk，准备获取 {len(stock_codes)} 支股票的逐笔数据...") # 探针 1
+        print(f"  -> [探针] 进入 _fetch_raw_ticks_in_bulk，准备获取 {len(stock_codes)} 支股票的逐笔数据...")
         async def fetch_one_stock(code: str):
-            try:
-                # 使用 sync_to_async 包装同步的 tushare 调用，这是最佳实践
-                df = await sync_to_async(self.ts.realtime_tick)(ts_code=code, src='tx')
-                # 探针 2: 检查 Tushare 原始返回
-                if df is None or df.empty:
-                    print(f"    -> [探针] Tushare接口为 {code} 返回了空数据。")
-                    return code, None
-                print(f"    -> [探针] 成功获取 {code} 的原始逐笔数据 {len(df)} 条。开始处理...")
-                # 数据清洗与格式化
-                df['trade_time'] = pd.to_datetime(f"{trade_date} " + df['TIME'], errors='coerce')
-                df['PRICE'] = pd.to_numeric(df['PRICE'], errors='coerce')
-                df['VOLUME'] = pd.to_numeric(df['VOLUME'], errors='coerce')
-                df['AMOUNT'] = pd.to_numeric(df['AMOUNT'], errors='coerce')
-                # 探针 3: 检查关键列是否存在NaN，并删除
-                initial_rows = len(df)
-                df.dropna(subset=['trade_time', 'PRICE', 'VOLUME', 'AMOUNT'], inplace=True)
-                if len(df) < initial_rows:
-                    print(f"      -> [探针] {code}: 清理了 {initial_rows - len(df)} 条包含NaN的记录。")
-                if df.empty:
-                    print(f"      -> [探针] {code}: 清理NaN后数据为空。")
-                    return code, None
-                # 单位转换：手 -> 股
-                df['VOLUME'] = (df['VOLUME'] * 100).astype(int)
-                # 重命名并设置索引
-                df.rename(columns={'PRICE': 'price', 'VOLUME': 'volume', 'AMOUNT': 'amount', 'TYPE': 'type'}, inplace=True)
-                df.set_index('trade_time', inplace=True)
-                # 探针 4: 确认最终处理完成
-                print(f"      -> [探针] {code}: 数据处理完成，最终有效数据 {len(df)} 条。")
-                return code, df[['price', 'volume', 'amount', 'type']]
-            except Exception as e:
-                # 探针 5: 捕获单次请求的异常
-                print(f"    -> [探针-错误] 获取 {code} 的realtime_tick数据时发生异常: {e}")
-                logger.warning(f"获取 {code} 的realtime_tick数据失败: {e}")
-                return code, None
+            max_retries = 3 # 修改代码行: 定义最大重试次数
+            initial_delay = 5 # 修改代码行: 定义初始重试延迟（秒）
+            for attempt in range(max_retries + 1): # 修改代码行: 循环进行重试
+                try:
+                    # 使用 sync_to_async 包装同步的 tushare 调用，这是最佳实践
+                    df = await sync_to_async(self.ts.realtime_tick)(ts_code=code, src='tx')
+                    # 探针 2: 检查 Tushare 原始返回
+                    if df is None or df.empty:
+                        print(f"    -> [探针] Tushare接口为 {code} 返回了空数据。")
+                        return code, None
+                    print(f"    -> [探针] 成功获取 {code} 的原始逐笔数据 {len(df)} 条。开始处理...")
+                    # 数据清洗与格式化
+                    df['trade_time'] = pd.to_datetime(f"{trade_date} " + df['TIME'], errors='coerce')
+                    df['PRICE'] = pd.to_numeric(df['PRICE'], errors='coerce')
+                    df['VOLUME'] = pd.to_numeric(df['VOLUME'], errors='coerce')
+                    df['AMOUNT'] = pd.to_numeric(df['AMOUNT'], errors='coerce')
+                    # 探针 3: 检查关键列是否存在NaN，并删除
+                    initial_rows = len(df)
+                    df.dropna(subset=['trade_time', 'PRICE', 'VOLUME', 'AMOUNT'], inplace=True)
+                    if len(df) < initial_rows:
+                        print(f"      -> [探针] {code}: 清理了 {initial_rows - len(df)} 条包含NaN的记录。")
+                    if df.empty:
+                        print(f"      -> [探针] {code}: 清理NaN后数据为空。")
+                        return code, None
+                    # 单位转换：手 -> 股
+                    df['VOLUME'] = (df['VOLUME'] * 100).astype(int)
+                    # 重命名并设置索引
+                    df.rename(columns={'PRICE': 'price', 'VOLUME': 'volume', 'AMOUNT': 'amount', 'TYPE': 'type'}, inplace=True)
+                    df.set_index('trade_time', inplace=True)
+                    # 探针 4: 确认最终处理完成
+                    print(f"      -> [探针] {code}: 数据处理完成，最终有效数据 {len(df)} 条。")
+                    return code, df[['price', 'volume', 'amount', 'type']]
+                except Exception as e:
+                    if attempt < max_retries: # 修改代码行: 如果未达到最大重试次数，则进行重试
+                        delay = initial_delay * (2 ** attempt) # 修改代码行: 指数退避策略
+                        print(f"    -> [探针-重试] 获取 {code} 的realtime_tick数据时发生异常: {e}。第 {attempt + 1}/{max_retries} 次重试，等待 {delay} 秒...") # 修改代码行
+                        logger.warning(f"获取 {code} 的realtime_tick数据失败: {e}。第 {attempt + 1}/{max_retries} 次重试，等待 {delay} 秒...") # 修改代码行
+                        await asyncio.sleep(delay) # 修改代码行: 等待
+                    else: # 修改代码行: 达到最大重试次数，放弃
+                        # 探针 5: 捕获单次请求的异常
+                        print(f"    -> [探针-错误] 获取 {code} 的realtime_tick数据时发生异常: {e}。已达最大重试次数，放弃。") # 修改代码行
+                        logger.error(f"获取 {code} 的realtime_tick数据失败: {e}。已达最大重试次数，放弃。", exc_info=True) # 修改代码行
+                        return code, None
         tasks = [fetch_one_stock(code) for code in stock_codes]
         results = await asyncio.gather(*tasks)
         final_map = {code: df for code, df in results if df is not None and not df.empty}
