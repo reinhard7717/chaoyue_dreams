@@ -176,19 +176,19 @@ def save_stocks_tick_data_task(quote_batch_size: int = 50, cache_manager=None):
         logger.warning("未能获取到股票列表，统一调度任务结束。")
         return
     # 2. 分派“行情快照(Quote)”批量任务 
-    logger.info("--- 开始分派行情快照(Quote)任务 ---")
-    total_quote_batches = 0
-    for i in range(0, len(favorite_codes), quote_batch_size):
-        batch = favorite_codes[i:i + quote_batch_size]
-        if batch:
-            save_quote_data_batch.s(batch).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
-            total_quote_batches += 1
-    for i in range(0, len(non_favorite_codes), quote_batch_size):
-        batch = non_favorite_codes[i:i + quote_batch_size]
-        if batch:
-            save_quote_data_batch.s(batch).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
-            total_quote_batches += 1
-    logger.info(f"--- 行情快照任务分派完成，共 {total_quote_batches} 个批次。 ---")
+    # logger.info("--- 开始分派行情快照(Quote)任务 ---")
+    # total_quote_batches = 0
+    # for i in range(0, len(favorite_codes), quote_batch_size):
+    #     batch = favorite_codes[i:i + quote_batch_size]
+    #     if batch:
+    #         save_quote_data_batch.s(batch).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
+    #         total_quote_batches += 1
+    # for i in range(0, len(non_favorite_codes), quote_batch_size):
+    #     batch = non_favorite_codes[i:i + quote_batch_size]
+    #     if batch:
+    #         save_quote_data_batch.s(batch).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+    #         total_quote_batches += 1
+    # logger.info(f"--- 行情快照任务分派完成，共 {total_quote_batches} 个批次。 ---")
     # 3. 分派“真实逐笔(Tick)”单票任务
     logger.info("--- 开始分派真实逐笔(Tick)任务 ---")
     all_codes = favorite_codes + non_favorite_codes
