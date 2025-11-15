@@ -137,7 +137,11 @@ def save_quote_data_batch(stock_codes: List[str], cache_manager=None):
 # =================================================================
 
 # ▼▼▼ 处理单只股票真实逐笔数据的工作任务 ▼▼▼
-@celery_app.task(queue="SaveData_RealTime")
+@celery_app.task(
+    queue="SaveData_RealTime",
+    autoretry_for=(Exception,), # 修改代码行: 捕获所有异常进行重试
+    retry_kwargs={'max_retries': 5, 'countdown': 15} # 修改代码行: 最多重试5次，每次间隔15秒
+)
 @with_cache_manager
 def save_real_tick_data_single(stock_code: str, cache_manager=None):
     """
