@@ -38,12 +38,13 @@ class FundFlowIntelligence:
 
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V21.7 · 资金流吸筹拐点意图版】资金流情报分析总指挥
+        【V21.8 · 资金流吸筹拐点意图参数传递版】资金流情报分析总指挥
         - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
         - 核心职责: 只输出资金流领域的原子公理信号和资金流背离信号。
         - 移除信号: SCORE_FUND_FLOW_BULLISH_RESONANCE, SCORE_FUND_FLOW_BEARISH_RESONANCE, BIPOLAR_FUND_FLOW_DOMAIN_HEALTH, SCORE_FUND_FLOW_BOTTOM_REVERSAL, SCORE_FUND_FLOW_TOP_REVERSAL。
         - 【更新】将 `_diagnose_axiom_increment` 替换为 `_diagnose_axiom_flow_momentum`。
         - 【新增】调用 `_diagnose_fund_flow_accumulation_inflection_intent` 方法，生成资金流吸筹拐点意图信号。
+        - 【修复】将 `axiom_flow_momentum` 和 `axiom_consensus` 作为参数传递给 `_diagnose_fund_flow_accumulation_inflection_intent`，解决其获取不到当前日数据的问题。
         """
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -55,7 +56,10 @@ class FundFlowIntelligence:
         axiom_conviction = self._diagnose_axiom_conviction(df, norm_window)
         axiom_flow_momentum = self._diagnose_axiom_flow_momentum(df, norm_window)
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
-        fund_flow_inflection_intent = self._diagnose_fund_flow_accumulation_inflection_intent(df, norm_window)
+        # 将当前计算出的 axiom_flow_momentum 和 axiom_consensus 传递给 _diagnose_fund_flow_accumulation_inflection_intent
+        fund_flow_inflection_intent = self._diagnose_fund_flow_accumulation_inflection_intent(
+            df, norm_window, axiom_flow_momentum, axiom_consensus
+        )
         all_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_FF_AXIOM_CONSENSUS'] = axiom_consensus
         all_states['SCORE_FF_AXIOM_CONVICTION'] = axiom_conviction
@@ -285,10 +289,11 @@ class FundFlowIntelligence:
                 print(f"       - flow_momentum_score: {flow_momentum_score.loc[probe_date_for_loop]:.4f}")
         return flow_momentum_score.astype(np.float32)
 
-    def _diagnose_fund_flow_accumulation_inflection_intent(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+    def _diagnose_fund_flow_accumulation_inflection_intent(self, df: pd.DataFrame, norm_window: int, flow_momentum_current: pd.Series, consensus_score_current: pd.Series) -> pd.Series:
         """
-        【V1.1 · df_indicators引用修复版】资金流吸筹拐点意图：识别主力从隐蔽吸筹转向公开抢筹的资金流迹象。
+        【V1.2 · 资金流吸筹拐点意图参数接收版】识别主力从隐蔽吸筹转向公开抢筹的资金流迹象。
         该信号纯粹基于资金流数据，旨在捕捉主力行为模式的转变。
+        - 核心修复: 接收 `flow_momentum_current` 和 `consensus_score_current` 作为参数，解决获取不到当前日数据的问题。
         - 核心修复: 修正了 `self.df_indicators` 的错误引用，改为 `self.strategy.df_indicators`。
         """
         df_index = df.index
@@ -300,10 +305,10 @@ class FundFlowIntelligence:
         main_force_flow = self._get_safe_series(self.strategy.df_indicators, 'FUND_FLOW_MAIN_FORCE_FLOW', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
         # 大单特大单净流入 (FUND_FLOW_LG_XL_NET_FLOW)
         lg_xl_net_flow = self._get_safe_series(self.strategy.df_indicators, 'FUND_FLOW_LG_XL_NET_FLOW', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
-        # 资金流动量 (SCORE_FF_AXIOM_FLOW_MOMENTUM)
-        flow_momentum = self._get_safe_series(self.strategy.atomic_states, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
-        # 资金流共识 (SCORE_FF_AXIOM_CONSENSUS)
-        consensus_score = self._get_safe_series(self.strategy.atomic_states, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
+        # 资金流动量 (SCORE_FF_AXIOM_FLOW_MOMENTUM) - [代码修改开始] 直接使用传递的参数
+        flow_momentum = flow_momentum_current
+        # 资金流共识 (SCORE_FF_AXIOM_CONSENSUS) - [代码修改开始] 直接使用传递的参数
+        consensus_score = consensus_score_current
         # 2. 定义参数 (可配置，用于调整信号敏感度)
         p_conf_inflection = get_params_block(self.strategy, 'fund_flow_inflection_params', {})
         psai_high_threshold = get_param_value(p_conf_inflection.get('psai_high_threshold'), 0.5) # 隐蔽吸筹强度高阈值
@@ -354,5 +359,6 @@ class FundFlowIntelligence:
                 print(f"       - inflection_intent_score (raw): {inflection_intent_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - inflection_intent_score (normalized): {inflection_intent_score_normalized.loc[probe_date_for_loop]:.4f}")
         return inflection_intent_score_normalized.astype(np.float32)
+
 
 
