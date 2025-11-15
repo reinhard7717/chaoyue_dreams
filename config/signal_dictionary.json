@@ -458,6 +458,14 @@
             "scoring_mode": "bipolar",
             "description": "诊断主力日内盈亏与资金净流量的背离。正分代表'亏钱买入'的看涨行为，负分代表'赚钱卖出'的看跌行为。"
         },
+        "PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY": {
+            "cn_name": "【过程】拆单吸筹强度",
+            "category": "过程层-资金流",
+            "type": "process",
+            "score": 200,
+            "scoring_mode": "unipolar",
+            "description": "【V1.0】衡量主力通过小单和中单在股价下跌或横盘时进行隐蔽吸筹的强度。该信号为多时间维度归一化后的强度值，值越高表示吸筹强度越大。"
+        },
         "PROCESS_STRATEGY_CHIP_VS_BEHAVIOR_SYNC": {
             "cn_name": "【过程】筹码行为同步",
             "category": "过程层-战略",
@@ -465,6 +473,22 @@
             "score": 100,
             "scoring_mode": "bipolar",
             "description": "【V3.0 引擎统一版】诊断'筹码看涨共振'与'行为看涨共振'的同步过程。正分代表两者同步改善，负分代表两者同步恶化或方向相反。"
+        },
+        "PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT": {
+            "cn_name": "【过程】资金流吸筹拐点意图",
+            "category": "过程层-资金流",
+            "type": "process",
+            "score": 250,
+            "scoring_mode": "unipolar",
+            "description": "【V1.0】识别主力从隐蔽吸筹转向公开抢筹的资金流迹象。纯粹基于资金流数据，旨在捕捉主力行为模式的转变。"
+        },
+        "FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT": {
+            "cn_name": "【融合】吸筹拐点信号",
+            "category": "融合层-资金筹码",
+            "type": "fusion",
+            "score": 400,
+            "scoring_mode": "unipolar",
+            "description": "【V1.0】融合资金流吸筹拐点意图与筹码结构支持，识别主力完成隐蔽吸筹，开始加大吸筹力度，甚至转向抢筹的时间点。旨在先于价格上涨发现趋势起点。"
         },
         "PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD": {
             "cn_name": "【过程】资金领先结构",

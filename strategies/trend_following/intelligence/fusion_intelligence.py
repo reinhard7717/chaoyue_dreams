@@ -44,58 +44,50 @@ class FusionIntelligence:
             return pd.Series(default, index=self.strategy.df_indicators.index)
 
     def run_fusion_diagnostics(self) -> Dict[str, pd.Series]:
-        print("启动【V3.1 · 战场态势引擎】融合情报分析...")
+        print("启动【V3.2 · 战场态势引擎】融合情报分析...")
         all_fusion_states = {}
         # 每次合成后立即更新到 self.strategy.atomic_states，确保后续方法能获取到
         regime_states = self._synthesize_market_regime()
         all_fusion_states.update(regime_states)
-        self.strategy.atomic_states.update(regime_states) # 立即更新
-
+        self.strategy.atomic_states.update(regime_states)
         quality_states = self._synthesize_trend_quality()
         all_fusion_states.update(quality_states)
-        self.strategy.atomic_states.update(quality_states) # 立即更新
-
+        self.strategy.atomic_states.update(quality_states)
         pressure_states = self._synthesize_market_pressure()
         all_fusion_states.update(pressure_states)
-        self.strategy.atomic_states.update(pressure_states) # 立即更新
-
+        self.strategy.atomic_states.update(pressure_states)
         confrontation_states = self._synthesize_capital_confrontation()
         all_fusion_states.update(confrontation_states)
-        self.strategy.atomic_states.update(confrontation_states) # 立即更新
-
+        self.strategy.atomic_states.update(confrontation_states)
         contradiction_states = self._synthesize_market_contradiction()
         all_fusion_states.update(contradiction_states)
-        self.strategy.atomic_states.update(contradiction_states) # 立即更新
-
+        self.strategy.atomic_states.update(contradiction_states)
         overextension_intent_states = self._synthesize_price_overextension_intent()
         all_fusion_states.update(overextension_intent_states)
-        self.strategy.atomic_states.update(overextension_intent_states) # 立即更新
-
+        self.strategy.atomic_states.update(overextension_intent_states)
         upper_shadow_intent_states = self._synthesize_upper_shadow_intent()
         all_fusion_states.update(upper_shadow_intent_states)
-        self.strategy.atomic_states.update(upper_shadow_intent_states) # 立即更新
-
+        self.strategy.atomic_states.update(upper_shadow_intent_states)
         # 冶炼“滞涨风险”
         stagnation_risk_states = self._synthesize_stagnation_risk()
         all_fusion_states.update(stagnation_risk_states)
-        self.strategy.atomic_states.update(stagnation_risk_states) # 立即更新
-
+        self.strategy.atomic_states.update(stagnation_risk_states)
         # 冶炼“趋势结构分”
         trend_structure_states = self._synthesize_trend_structure_score()
         all_fusion_states.update(trend_structure_states)
-        self.strategy.atomic_states.update(trend_structure_states) # 立即更新
-
+        self.strategy.atomic_states.update(trend_structure_states)
         # 新增：冶炼“资金趋势”和“筹码趋势”
         fund_flow_trend_states = self._synthesize_fund_flow_trend()
         all_fusion_states.update(fund_flow_trend_states)
-        self.strategy.atomic_states.update(fund_flow_trend_states) # 立即更新
-
+        self.strategy.atomic_states.update(fund_flow_trend_states)
         chip_trend_states = self._synthesize_chip_trend()
         all_fusion_states.update(chip_trend_states)
-        self.strategy.atomic_states.update(chip_trend_states) # 立即更新
-
-        # self.strategy.atomic_states.update(all_fusion_states) # 这行现在可以移除或保留，但不再是唯一更新点
-        print(f"【V3.1 · 战场态势引擎】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
+        self.strategy.atomic_states.update(chip_trend_states)
+        # 新增：冶炼“吸筹拐点信号”
+        accumulation_inflection_states = self._synthesize_accumulation_inflection()
+        all_fusion_states.update(accumulation_inflection_states)
+        self.strategy.atomic_states.update(accumulation_inflection_states)
+        print(f"【V3.2 · 战场态势引擎】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
 
     def _synthesize_market_contradiction(self) -> Dict[str, pd.Series]:
@@ -811,6 +803,83 @@ class FusionIntelligence:
         chip_trend_score = chip_trend_score.clip(-1, 1)
         states['FUSION_BIPOLAR_CHIP_TREND'] = chip_trend_score.astype(np.float32)
         print(f"  -- [融合层] “筹码趋势”冶炼完成，最新分值: {chip_trend_score.iloc[-1]:.4f}")
+        return states
+
+    def _synthesize_accumulation_inflection(self) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 资金筹码融合版】冶炼“吸筹拐点信号” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
+        - 核心思想: 融合资金流吸筹拐点意图与筹码结构支持，识别主力完成隐蔽吸筹，开始加大吸筹力度，甚至转向抢筹的时间点。
+        - 证据链:
+          1. 资金流吸筹拐点意图 (PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT)
+          2. 筹码集中度 (SCORE_CHIP_AXIOM_CONCENTRATION)
+          3. 筹码成本结构 (SCORE_CHIP_AXIOM_COST_STRUCTURE)
+          4. 持股心态 (SCORE_CHIP_AXIOM_HOLDER_SENTIMENT)
+          5. 筹码趋势动量 (SCORE_CHIP_AXIOM_TREND_MOMENTUM)
+        - 输出: [0, 1] 的单极性分数，0表示无拐点迹象，1表示强烈的拐点信号。
+        """
+        print("  -- [融合层] 正在冶炼“吸筹拐点信号”...")
+        states = {}
+        df_index = self.strategy.df_indicators.index
+        inflection_score = pd.Series(0.0, index=df_index)
+        # --- Debugging setup ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        probe_date_for_loop = None
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop not in df_index:
+                probe_date_for_loop = None
+        # 1. 获取资金流吸筹拐点意图 (来自 FundFlowIntelligence)
+        ff_inflection_intent = self._get_atomic_score('PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0)
+        # 2. 获取核心筹码信号 (来自 ChipIntelligence)
+        chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
+        chip_cost_structure = self._get_atomic_score('SCORE_CHIP_AXIOM_COST_STRUCTURE', 0.0)
+        chip_holder_sentiment = self._get_atomic_score('SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
+        chip_trend_momentum = self._get_atomic_score('SCORE_CHIP_AXIOM_TREND_MOMENTUM', 0.0)
+        # 3. 定义参数 (可配置，用于调整信号敏感度)
+        p_conf_fusion_inflection = get_params_block(self.strategy, 'fusion_accumulation_inflection_params', {})
+        ff_inflection_threshold = get_param_value(p_conf_fusion_inflection.get('ff_inflection_threshold'), 0.6) # 资金流拐点意图阈值
+        chip_concentration_threshold = get_param_value(p_conf_fusion_inflection.get('chip_concentration_threshold'), 0.5) # 筹码集中度高阈值
+        chip_cost_structure_favorable_threshold = get_param_value(p_conf_fusion_inflection.get('chip_cost_structure_favorable_threshold'), 0.0) # 筹码成本结构有利阈值
+        chip_holder_sentiment_strong_threshold = get_param_value(p_conf_fusion_inflection.get('chip_holder_sentiment_strong_threshold'), 0.5) # 持股心态强阈值
+        chip_trend_momentum_positive_threshold = get_param_value(p_conf_fusion_inflection.get('chip_trend_momentum_positive_threshold'), 0.0) # 筹码趋势动量转正阈值
+        # 4. 核心条件判断
+        # 条件A: 资金流吸筹拐点意图强烈
+        cond_ff_inflection_strong = (ff_inflection_intent > ff_inflection_threshold)
+        # 条件B: 筹码结构支持 (筹码集中、成本有利、持股稳定、趋势动量向上，为拉升提供基础)
+        cond_chip_supportive = (chip_concentration > chip_concentration_threshold) & \
+                               (chip_cost_structure > chip_cost_structure_favorable_threshold) & \
+                               (chip_holder_sentiment > chip_holder_sentiment_strong_threshold) & \
+                               (chip_trend_momentum > chip_trend_momentum_positive_threshold)
+        # 5. 融合条件，计算最终拐点分数
+        # 基础分数：当资金流拐点意图强烈时
+        inflection_score.loc[cond_ff_inflection_strong] = ff_inflection_intent.loc[cond_ff_inflection_strong] * 0.6 # 资金流意图是核心
+        # 如果筹码结构也支持，则进一步增强信号
+        inflection_score.loc[cond_ff_inflection_strong & cond_chip_supportive] += \
+            (chip_concentration.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.1 +
+             chip_cost_structure.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.1 +
+             chip_holder_sentiment.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.1 +
+             chip_trend_momentum.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.1) # 筹码各方面加权
+        # 确保分数在 [0, 1] 之间
+        inflection_score = inflection_score.clip(0, 1)
+        # 6. 多时间维度归一化 (平滑信号，使其更具趋势性)
+        tf_weights_fusion_inflection = get_param_value(p_conf_fusion_inflection.get('tf_fusion_weights'), {5: 0.6, 13: 0.3, 21: 0.1})
+        inflection_score_normalized = get_adaptive_mtf_normalized_score(inflection_score, df_index, ascending=True, tf_weights=tf_weights_fusion_inflection).clip(0, 1)
+        states['FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT'] = inflection_score_normalized
+        # --- Debugging output for probe date ---
+        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+            print(f"    -> [吸筹拐点信号探针] @ {probe_date_for_loop.date()}:")
+            print(f"       - ff_inflection_intent: {ff_inflection_intent.loc[probe_date_for_loop]:.4f}")
+            print(f"       - chip_concentration: {chip_concentration.loc[probe_date_for_loop]:.4f}")
+            print(f"       - chip_cost_structure: {chip_cost_structure.loc[probe_date_for_loop]:.4f}")
+            print(f"       - chip_holder_sentiment: {chip_holder_sentiment.loc[probe_date_for_loop]:.4f}")
+            print(f"       - chip_trend_momentum: {chip_trend_momentum.loc[probe_date_for_loop]:.4f}")
+            print(f"       - cond_ff_inflection_strong: {cond_ff_inflection_strong.loc[probe_date_for_loop]}")
+            print(f"       - cond_chip_supportive: {cond_chip_supportive.loc[probe_date_for_loop]}")
+            print(f"       - inflection_score (raw): {inflection_score.loc[probe_date_for_loop]:.4f}")
+            print(f"       - inflection_score (normalized): {inflection_score_normalized.loc[probe_date_for_loop]:.4f}")
+        print(f"  -- [融合层] “吸筹拐点信号”冶炼完成，最新分值: {inflection_score_normalized.iloc[-1]:.4f}")
         return states
 
 

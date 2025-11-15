@@ -38,11 +38,12 @@ class FundFlowIntelligence:
 
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V21.6 · 资金流动量版】资金流情报分析总指挥
+        【V21.7 · 资金流吸筹拐点意图版】资金流情报分析总指挥
         - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
         - 核心职责: 只输出资金流领域的原子公理信号和资金流背离信号。
         - 移除信号: SCORE_FUND_FLOW_BULLISH_RESONANCE, SCORE_FUND_FLOW_BEARISH_RESONANCE, BIPOLAR_FUND_FLOW_DOMAIN_HEALTH, SCORE_FUND_FLOW_BOTTOM_REVERSAL, SCORE_FUND_FLOW_TOP_REVERSAL。
         - 【更新】将 `_diagnose_axiom_increment` 替换为 `_diagnose_axiom_flow_momentum`。
+        - 【新增】调用 `_diagnose_fund_flow_accumulation_inflection_intent` 方法，生成资金流吸筹拐点意图信号。
         """
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -52,12 +53,14 @@ class FundFlowIntelligence:
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         axiom_consensus = self._diagnose_axiom_consensus(df, norm_window)
         axiom_conviction = self._diagnose_axiom_conviction(df, norm_window)
-        axiom_flow_momentum = self._diagnose_axiom_flow_momentum(df, norm_window) # 调用新的方法
+        axiom_flow_momentum = self._diagnose_axiom_flow_momentum(df, norm_window)
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
+        fund_flow_inflection_intent = self._diagnose_fund_flow_accumulation_inflection_intent(df, norm_window)
         all_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_FF_AXIOM_CONSENSUS'] = axiom_consensus
         all_states['SCORE_FF_AXIOM_CONVICTION'] = axiom_conviction
-        all_states['SCORE_FF_AXIOM_FLOW_MOMENTUM'] = axiom_flow_momentum # 更新键名
+        all_states['SCORE_FF_AXIOM_FLOW_MOMENTUM'] = axiom_flow_momentum
+        all_states['PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT'] = fund_flow_inflection_intent
         # 引入资金流层面的看涨/看跌背离信号
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
@@ -82,7 +85,11 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.8 · 浮点数精度比较修复版】资金流公理一：诊断“共识与分歧”
+        【V1.10 · 资金流中间数据暴露版】资金流公理一：诊断“共识与分歧”
+        - 核心强化: 将 `main_force_flow` 和 `lg_xl_net_flow` 等关键资金流中间计算结果存储到 `self.df_indicators`，
+                      供后续的吸筹拐点探测等方法使用。
+        - 核心强化: 将多时间维度归一化后的“拆单吸筹因子”作为一个独立的过程信号 `PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY` 暴露，
+                      使其可被其他层级直接引用和计分，以识别非抢筹情况下的主力长期吸筹行为。
         - 核心修复: 修正了 `sell_elg_amount` 变量错误地获取 `buy_elg_amount_D` 数据的致命性代码错误。
                       现在 `sell_elg_amount` 将正确获取 `sell_elg_amount_D`，从而确保 `net_elg_amount`
                       以及后续的 `main_force_flow` 和 `lg_xl_net_flow` 计算的准确性。
@@ -99,7 +106,6 @@ class FundFlowIntelligence:
         - 【新增】增加了详细的探针日志，用于诊断 `split_order_accumulation_raw` 赋值失败的问题。
         """
         df_index = df.index
-        # 从原始买卖金额计算净流入金额
         buy_sm_amount = self._get_safe_series(df, 'buy_sm_amount_D', 0, method_name="_diagnose_axiom_consensus")
         sell_sm_amount = self._get_safe_series(df, 'sell_sm_amount_D', 0, method_name="_diagnose_axiom_consensus")
         buy_md_amount = self._get_safe_series(df, 'buy_md_amount_D', 0, method_name="_diagnose_axiom_consensus")
@@ -108,43 +114,23 @@ class FundFlowIntelligence:
         sell_lg_amount = self._get_safe_series(df, 'sell_lg_amount_D', 0, method_name="_diagnose_axiom_consensus")
         buy_elg_amount = self._get_safe_series(df, 'buy_elg_amount_D', 0, method_name="_diagnose_axiom_consensus")
         sell_elg_amount = self._get_safe_series(df, 'sell_elg_amount_D', 0, method_name="_diagnose_axiom_consensus")
-        # 计算各级别净流入
         net_sm_amount = buy_sm_amount - sell_sm_amount
         net_md_amount = buy_md_amount - sell_md_amount
         net_lg_amount = buy_lg_amount - sell_lg_amount
         net_elg_amount = buy_elg_amount - sell_elg_amount
-        # 主力资金流 = 超大单净流入 + 大单净流入
         main_force_flow = net_elg_amount + net_lg_amount
-        # 散户资金流 = 中单净流入 + 小单净流入
         retail_flow = net_md_amount + net_sm_amount
-        # 原始共识分数：主力资金流 - 散户资金流
         raw_bipolar_series = main_force_flow - retail_flow
-        # 获取主力散户博弈烈度
         battle_intensity_raw = self._get_safe_series(df, 'mf_retail_battle_intensity_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_consensus")
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
-        tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}) # 资金流模块的MTF权重
-        # 归一化博弈烈度，越高越好，但作为乘数因子，需要映射到 [0, 1]
+        tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         battle_intensity_factor = get_adaptive_mtf_normalized_score(battle_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
-        # --- 新增：拆单吸筹因子 ---
-        # 小单净流入 + 中单净流入
         sm_md_net_flow = net_sm_amount + net_md_amount
-        # 大单净流入 + 特大单净流入
         lg_xl_net_flow = net_lg_amount + net_elg_amount
-        # 价格变化
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_axiom_consensus")
-        # 拆单吸筹的迹象：
-        # 1. 价格下跌或横盘 (pct_change <= 0)
-        # 2. 小单/中单净流入为正 (sm_md_net_flow > 0)
-        # 3. 大单/特大单净流入不明显或为负 (lg_xl_net_flow <= 0)
-        # 4. 且 sm_md_net_flow >= abs(lg_xl_net_flow) (小单中单的净流入能够抵消或对冲大单特大单的流出)
-        # 拆单吸筹因子：在价格下跌或横盘时，小单中单净流入与大单特大单净流入的差值，归一化后作为因子
         split_order_accumulation_raw = pd.Series(0.0, index=df_index)
-        # [代码修改开始]
-        # 优化 Condition 4 的浮点数比较
         condition_4_optimized = (sm_md_net_flow > lg_xl_net_flow.abs()) | np.isclose(sm_md_net_flow, lg_xl_net_flow.abs(), atol=1e-5)
         condition_mask = (pct_change <= 0) & (sm_md_net_flow > 0) & (lg_xl_net_flow <= 0) & condition_4_optimized
-        # [代码修改结束]
-
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -159,30 +145,23 @@ class FundFlowIntelligence:
                 print(f"       - DEBUG: Condition 1 (pct_change <= 0): {pct_change.loc[probe_date_for_loop] <= 0}")
                 print(f"       - DEBUG: Condition 2 (sm_md_net_flow > 0): {sm_md_net_flow.loc[probe_date_for_loop] > 0}")
                 print(f"       - DEBUG: Condition 3 (lg_xl_net_flow <= 0): {lg_xl_net_flow.loc[probe_date_for_loop] <= 0}")
-                # [代码修改开始]
                 print(f"       - DEBUG: Condition 4 (sm_md_net_flow > lg_xl_net_flow.abs()): {sm_md_net_flow.loc[probe_date_for_loop] > lg_xl_net_flow.abs().loc[probe_date_for_loop]}")
                 print(f"       - DEBUG: Condition 4 (np.isclose(sm_md_net_flow, lg_xl_net_flow.abs(), atol=1e-5)): {np.isclose(sm_md_net_flow.loc[probe_date_for_loop], lg_xl_net_flow.abs().loc[probe_date_for_loop], atol=1e-5)}")
                 print(f"       - DEBUG: combined condition_mask for probe date: {condition_mask.loc[probe_date_for_loop]}")
-                # [代码修改结束]
                 print(f"       - DEBUG: value to assign if mask is True: {(sm_md_net_flow - lg_xl_net_flow).loc[probe_date_for_loop]}")
-
         split_order_accumulation_raw.loc[condition_mask] = (sm_md_net_flow - lg_xl_net_flow).loc[condition_mask]
-
         if probe_dates_str and probe_date_for_loop is not None and probe_date_for_loop in df.index:
             print(f"       - DEBUG: split_order_accumulation_raw AFTER assignment for probe date: {split_order_accumulation_raw.loc[probe_date_for_loop]}")
-
-        # 对拆单吸筹因子进行归一化，使其成为一个 [0, 1] 的正向证据
         normalized_split_factor_series = get_adaptive_mtf_normalized_score(split_order_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
-        # 只有当 split_order_accumulation_raw > 0 时，才使用这个归一化因子，否则为0
         split_order_accumulation_factor = normalized_split_factor_series.where(split_order_accumulation_raw > 0, 0)
-        # 原始共识分数
+        # 将重要的中间计算结果存储到 df_indicators，供其他方法使用
+        self.df_indicators['FUND_FLOW_MAIN_FORCE_FLOW'] = main_force_flow
+        self.df_indicators['FUND_FLOW_RETAIL_FLOW'] = retail_flow
+        self.df_indicators['FUND_FLOW_SM_MD_NET_FLOW'] = sm_md_net_flow
+        self.df_indicators['FUND_FLOW_LG_XL_NET_FLOW'] = lg_xl_net_flow
+        self.df_indicators['PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'] = split_order_accumulation_factor
         consensus_score_base = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df_index, tf_weights_ff, sensitivity=1.0)
-        # 融合博弈烈度。高烈度时，放大共识信号；低烈度时，削弱共识信号。
-        # 乘数因子 (1 + battle_intensity_factor * 0.5) 可以放大共识，但不会改变方向
-        # 融合拆单吸筹因子：如果存在拆单吸筹，则对共识分数进行额外加成，尤其是在共识分数偏负时（主力在隐藏吸筹）
-        # 调整融合逻辑：当拆单吸筹因子为正时，对共识分数进行正向修正
-        # 修正系数可以根据实际情况调整，例如 0.3
-        consensus_score = (consensus_score_base * (1 + battle_intensity_factor * 0.5) + split_order_accumulation_factor * 0.3).clip(-1, 1) # 调整放大系数和拆单吸筹系数
+        consensus_score = (consensus_score_base * (1 + battle_intensity_factor * 0.5) + split_order_accumulation_factor * 0.3).clip(-1, 1)
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
@@ -304,4 +283,73 @@ class FundFlowIntelligence:
                 print(f"       - slope_21_nmfnf_score: {slope_21_nmfnf_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - flow_momentum_score: {flow_momentum_score.loc[probe_date_for_loop]:.4f}")
         return flow_momentum_score.astype(np.float32)
+
+    def _diagnose_fund_flow_accumulation_inflection_intent(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+        """
+        【V1.0 · 资金流吸筹拐点意图】识别主力从隐蔽吸筹转向公开抢筹的资金流迹象。
+        该信号纯粹基于资金流数据，旨在捕捉主力行为模式的转变。
+        """
+        df_index = df.index
+        inflection_intent_score = pd.Series(0.0, index=df_index)
+        # 1. 获取核心资金流信号
+        # 隐蔽吸筹强度 (PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY)
+        psai = self._get_safe_series(self.df_indicators, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
+        # 主力资金流 (FUND_FLOW_MAIN_FORCE_FLOW)
+        main_force_flow = self._get_safe_series(self.df_indicators, 'FUND_FLOW_MAIN_FORCE_FLOW', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
+        # 大单特大单净流入 (FUND_FLOW_LG_XL_NET_FLOW)
+        lg_xl_net_flow = self._get_safe_series(self.df_indicators, 'FUND_FLOW_LG_XL_NET_FLOW', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
+        # 资金流动量 (SCORE_FF_AXIOM_FLOW_MOMENTUM)
+        flow_momentum = self._get_safe_series(self.strategy.atomic_states, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
+        # 资金流共识 (SCORE_FF_AXIOM_CONSENSUS)
+        consensus_score = self._get_safe_series(self.strategy.atomic_states, 'SCORE_FF_AXIOM_CONSENSUS', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
+        # 2. 定义参数 (可配置，用于调整信号敏感度)
+        p_conf_inflection = get_params_block(self.strategy, 'fund_flow_inflection_params', {})
+        psai_high_threshold = get_param_value(p_conf_inflection.get('psai_high_threshold'), 0.5) # 隐蔽吸筹强度高阈值
+        mf_flow_positive_threshold = get_param_value(p_conf_inflection.get('mf_flow_positive_threshold'), 0.0) # 主力资金流转正阈值
+        lg_xl_flow_positive_threshold = get_param_value(p_conf_inflection.get('lg_xl_flow_positive_threshold'), 0.0) # 大单特大单净流入转正阈值
+        flow_momentum_positive_threshold = get_param_value(p_conf_inflection.get('flow_momentum_positive_threshold'), 0.0) # 资金流动量转正阈值
+        consensus_score_positive_threshold = get_param_value(p_conf_inflection.get('consensus_score_positive_threshold'), 0.0) # 共识分数转正阈值
+        # 3. 核心条件判断
+        # 条件A: 隐蔽吸筹强度达到高位 (表明前期有充分吸筹基础)
+        cond_psai_high = (psai > psai_high_threshold)
+        # 条件B: 主力资金开始转为净流入，且大单特大单净流入也转正 (从隐蔽到公开的转变迹象)
+        cond_mf_overt_buying = (main_force_flow > mf_flow_positive_threshold) & (lg_xl_net_flow > lg_xl_flow_positive_threshold)
+        # 条件C: 资金流动量转正 (资金流加速迹象)
+        cond_flow_momentum_positive = (flow_momentum > flow_momentum_positive_threshold)
+        # 条件D: 资金流共识开始转好 (市场情绪或资金合力转向积极)
+        cond_consensus_improving = (consensus_score > consensus_score_positive_threshold) | (consensus_score.diff(1) > 0)
+        # 4. 融合条件，计算资金流拐点意图分数
+        # 基础意图：当前期隐蔽吸筹充分，且主力资金开始公开买入时，赋予基础分数
+        base_intent_mask = cond_psai_high & cond_mf_overt_buying
+        inflection_intent_score.loc[base_intent_mask] = 0.5
+        # 如果资金流动量也转正，增加分数
+        inflection_intent_score.loc[base_intent_mask & cond_flow_momentum_positive] += 0.2
+        # 如果资金流共识也改善，增加更多分数
+        inflection_intent_score.loc[base_intent_mask & cond_consensus_improving] += 0.3
+        # 确保分数在 [0, 1] 之间
+        inflection_intent_score = inflection_intent_score.clip(0, 1)
+        # 5. 多时间维度归一化 (平滑信号，使其更具趋势性)
+        tf_weights_inflection = get_param_value(p_conf_inflection.get('tf_fusion_weights'), {5: 0.5, 13: 0.3, 21: 0.2})
+        inflection_intent_score_normalized = get_adaptive_mtf_normalized_score(inflection_intent_score, df_index, ascending=True, tf_weights=tf_weights_inflection).clip(0, 1)
+        self.df_indicators['PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT'] = inflection_intent_score_normalized
+        # --- Debugging output for probe date ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
+                print(f"    -> [资金流吸筹拐点意图探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - psai: {psai.loc[probe_date_for_loop]:.4f}")
+                print(f"       - main_force_flow: {main_force_flow.loc[probe_date_for_loop]:.4f}")
+                print(f"       - lg_xl_net_flow: {lg_xl_net_flow.loc[probe_date_for_loop]:.4f}")
+                print(f"       - flow_momentum: {flow_momentum.loc[probe_date_for_loop]:.4f}")
+                print(f"       - consensus_score: {consensus_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - cond_psai_high: {cond_psai_high.loc[probe_date_for_loop]}")
+                print(f"       - cond_mf_overt_buying: {cond_mf_overt_buying.loc[probe_date_for_loop]}")
+                print(f"       - cond_flow_momentum_positive: {cond_flow_momentum_positive.loc[probe_date_for_loop]}")
+                print(f"       - cond_consensus_improving: {cond_consensus_improving.loc[probe_date_for_loop]}")
+                print(f"       - inflection_intent_score (raw): {inflection_intent_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - inflection_intent_score (normalized): {inflection_intent_score_normalized.loc[probe_date_for_loop]:.4f}")
+        return inflection_intent_score_normalized.astype(np.float32)
 
