@@ -85,8 +85,9 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.10 · 资金流中间数据暴露版】资金流公理一：诊断“共识与分歧”
-        - 核心强化: 将 `main_force_flow` 和 `lg_xl_net_flow` 等关键资金流中间计算结果存储到 `self.df_indicators`，
+        【V1.11 · df_indicators引用修复版】资金流公理一：诊断“共识与分歧”
+        - 核心修复: 修正了 `self.df_indicators` 的错误引用，改为 `self.strategy.df_indicators`。
+        - 核心强化: 将 `main_force_flow` 和 `lg_xl_net_flow` 等关键资金流中间计算结果存储到 `self.strategy.df_indicators`，
                       供后续的吸筹拐点探测等方法使用。
         - 核心强化: 将多时间维度归一化后的“拆单吸筹因子”作为一个独立的过程信号 `PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY` 暴露，
                       使其可被其他层级直接引用和计分，以识别非抢筹情况下的主力长期吸筹行为。
@@ -154,12 +155,12 @@ class FundFlowIntelligence:
             print(f"       - DEBUG: split_order_accumulation_raw AFTER assignment for probe date: {split_order_accumulation_raw.loc[probe_date_for_loop]}")
         normalized_split_factor_series = get_adaptive_mtf_normalized_score(split_order_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
         split_order_accumulation_factor = normalized_split_factor_series.where(split_order_accumulation_raw > 0, 0)
-        # 将重要的中间计算结果存储到 df_indicators，供其他方法使用
-        self.df_indicators['FUND_FLOW_MAIN_FORCE_FLOW'] = main_force_flow
-        self.df_indicators['FUND_FLOW_RETAIL_FLOW'] = retail_flow
-        self.df_indicators['FUND_FLOW_SM_MD_NET_FLOW'] = sm_md_net_flow
-        self.df_indicators['FUND_FLOW_LG_XL_NET_FLOW'] = lg_xl_net_flow
-        self.df_indicators['PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'] = split_order_accumulation_factor
+        # 将重要的中间计算结果存储到 self.strategy.df_indicators，供其他方法使用
+        self.strategy.df_indicators['FUND_FLOW_MAIN_FORCE_FLOW'] = main_force_flow
+        self.strategy.df_indicators['FUND_FLOW_RETAIL_FLOW'] = retail_flow
+        self.strategy.df_indicators['FUND_FLOW_SM_MD_NET_FLOW'] = sm_md_net_flow
+        self.strategy.df_indicators['FUND_FLOW_LG_XL_NET_FLOW'] = lg_xl_net_flow
+        self.strategy.df_indicators['PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'] = split_order_accumulation_factor
         consensus_score_base = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df_index, tf_weights_ff, sensitivity=1.0)
         consensus_score = (consensus_score_base * (1 + battle_intensity_factor * 0.5) + split_order_accumulation_factor * 0.3).clip(-1, 1)
         if probe_dates_str:
@@ -286,18 +287,19 @@ class FundFlowIntelligence:
 
     def _diagnose_fund_flow_accumulation_inflection_intent(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.0 · 资金流吸筹拐点意图】识别主力从隐蔽吸筹转向公开抢筹的资金流迹象。
+        【V1.1 · df_indicators引用修复版】资金流吸筹拐点意图：识别主力从隐蔽吸筹转向公开抢筹的资金流迹象。
         该信号纯粹基于资金流数据，旨在捕捉主力行为模式的转变。
+        - 核心修复: 修正了 `self.df_indicators` 的错误引用，改为 `self.strategy.df_indicators`。
         """
         df_index = df.index
         inflection_intent_score = pd.Series(0.0, index=df_index)
         # 1. 获取核心资金流信号
         # 隐蔽吸筹强度 (PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY)
-        psai = self._get_safe_series(self.df_indicators, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
+        psai = self._get_safe_series(self.strategy.df_indicators, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
         # 主力资金流 (FUND_FLOW_MAIN_FORCE_FLOW)
-        main_force_flow = self._get_safe_series(self.df_indicators, 'FUND_FLOW_MAIN_FORCE_FLOW', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
+        main_force_flow = self._get_safe_series(self.strategy.df_indicators, 'FUND_FLOW_MAIN_FORCE_FLOW', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
         # 大单特大单净流入 (FUND_FLOW_LG_XL_NET_FLOW)
-        lg_xl_net_flow = self._get_safe_series(self.df_indicators, 'FUND_FLOW_LG_XL_NET_FLOW', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
+        lg_xl_net_flow = self._get_safe_series(self.strategy.df_indicators, 'FUND_FLOW_LG_XL_NET_FLOW', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
         # 资金流动量 (SCORE_FF_AXIOM_FLOW_MOMENTUM)
         flow_momentum = self._get_safe_series(self.strategy.atomic_states, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
         # 资金流共识 (SCORE_FF_AXIOM_CONSENSUS)
@@ -331,7 +333,7 @@ class FundFlowIntelligence:
         # 5. 多时间维度归一化 (平滑信号，使其更具趋势性)
         tf_weights_inflection = get_param_value(p_conf_inflection.get('tf_fusion_weights'), {5: 0.5, 13: 0.3, 21: 0.2})
         inflection_intent_score_normalized = get_adaptive_mtf_normalized_score(inflection_intent_score, df_index, ascending=True, tf_weights=tf_weights_inflection).clip(0, 1)
-        self.df_indicators['PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT'] = inflection_intent_score_normalized
+        self.strategy.df_indicators['PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT'] = inflection_intent_score_normalized
         # --- Debugging output for probe date ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -352,4 +354,5 @@ class FundFlowIntelligence:
                 print(f"       - inflection_intent_score (raw): {inflection_intent_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - inflection_intent_score (normalized): {inflection_intent_score_normalized.loc[probe_date_for_loop]:.4f}")
         return inflection_intent_score_normalized.astype(np.float32)
+
 
