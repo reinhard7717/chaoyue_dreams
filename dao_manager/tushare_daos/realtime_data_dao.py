@@ -4,7 +4,7 @@ import asyncio
 from asgiref.sync import sync_to_async
 import logging
 import pandas as pd
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Type
 import tushare as ts
 import pytz
 from datetime import datetime
@@ -12,15 +12,16 @@ from decimal import Decimal, InvalidOperation
 
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
-# ▼▼▼ 导入新的 StockTickData 模型 ▼▼▼
-from stock_models.stock_realtime import StockLevel5Data, StockRealtimeData, StockTickData
-# ▲▲▲ 修改结束 ▲▲▲
+
+from stock_models.stock_realtime import StockLevel5Data, StockRealtimeData
+from utils.model_helpers import get_stock_tick_data_model_by_code
+
 from utils.cache_get import StockInfoCacheGet, StockRealtimeCacheGet
 from utils.cache_manager import CacheManager
 from utils.cache_set import StockRealtimeCacheSet
 from utils.cash_key import StockCashKey
 from utils.data_format_process import StockRealtimeDataFormatProcess
-from utils.model_helpers import get_stock_tick_data_model_by_code
+
 
 logger = logging.getLogger("dao")
 
