@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Any
-from strategies.trend_following.utils import get_params_block, get_adaptive_mtf_normalized_bipolar_score, normalize_score, normalize_to_bipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, normalize_score, normalize_to_bipolar
 
 class FusionIntelligence:
     """
