@@ -155,6 +155,7 @@ def save_real_tick_data_single(stock_code: str, cache_manager=None):
     stock_realtime_dao = StockRealtimeDAO(cache_manager)
     trade_date = datetime.datetime.now().strftime('%Y-%m-%d')
     async def main():
+        print(f"开始处理 {stock_code} 的真实逐笔(Tick)数据任务...")
         # 调用我们之前在DAO中创建的、包含完整持久化逻辑的方法
         await stock_realtime_dao.save_realtime_tick_in_bulk([stock_code], trade_date)
     async_to_sync(main)()
