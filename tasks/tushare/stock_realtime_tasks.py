@@ -152,9 +152,7 @@ def save_real_tick_data_single(stock_code: str, cache_manager=None):
     async def main():
         # 调用我们之前在DAO中创建的、包含完整持久化逻辑的方法
         await stock_realtime_dao.save_realtime_tick_in_bulk([stock_code], trade_date)
-        
     async_to_sync(main)()
-# ▲▲▲ 新增结束 ▲▲▲
 
 # =================================================================
 # =================== 3. 统一调度器任务 ============================
@@ -167,8 +165,8 @@ def save_stocks_tick_data_task(quote_batch_size: int = 50, cache_manager=None):
     【V3.0 - 统一调度版】
     此任务由 Celery Beat 调度，统一分发“行情快照”和“真实逐笔”两种数据获取任务。
     """
-    if not is_trading_time():
-        return
+    # if not is_trading_time():
+    #     return
     # 1. 获取需要处理的股票列表
     stock_basic_dao = StockBasicInfoDao(cache_manager)
     favorite_codes, non_favorite_codes = async_to_sync(
@@ -177,7 +175,6 @@ def save_stocks_tick_data_task(quote_batch_size: int = 50, cache_manager=None):
     if not favorite_codes and not non_favorite_codes:
         logger.warning("未能获取到股票列表，统一调度任务结束。")
         return
-        
     # 2. 分派“行情快照(Quote)”批量任务 
     logger.info("--- 开始分派行情快照(Quote)任务 ---")
     total_quote_batches = 0
@@ -186,14 +183,12 @@ def save_stocks_tick_data_task(quote_batch_size: int = 50, cache_manager=None):
         if batch:
             save_quote_data_batch.s(batch).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
             total_quote_batches += 1
-            
     for i in range(0, len(non_favorite_codes), quote_batch_size):
         batch = non_favorite_codes[i:i + quote_batch_size]
         if batch:
             save_quote_data_batch.s(batch).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
             total_quote_batches += 1
     logger.info(f"--- 行情快照任务分派完成，共 {total_quote_batches} 个批次。 ---")
-
     # 3. 分派“真实逐笔(Tick)”单票任务
     logger.info("--- 开始分派真实逐笔(Tick)任务 ---")
     all_codes = favorite_codes + non_favorite_codes
@@ -201,7 +196,6 @@ def save_stocks_tick_data_task(quote_batch_size: int = 50, cache_manager=None):
         # 为每一只股票分派一个独立的任务
         save_real_tick_data_single.s(stock_code).set(queue="SaveData_RealTime").apply_async()
     logger.info(f"--- 真实逐笔任务分派完成，共 {len(all_codes)} 个任务。 ---")
-
     return {
         "status": "success",
         "dispatched_quote_batches": total_quote_batches,
