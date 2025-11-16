@@ -194,16 +194,22 @@ def save_stocks_tick_data_task(quote_batch_size: int = 50, cache_manager=None):
     # logger.info(f"--- 行情快照任务分派完成，共 {total_quote_batches} 个批次。 ---")
     # 3. 分派“真实逐笔(Tick)”单票任务
     logger.info("--- 开始分派真实逐笔(Tick)任务 ---")
+    dispatched_count = 0 # 修改代码行: 初始化已分派任务计数器
+    failed_dispatch_count = 0 # 修改代码行: 初始化分派失败计数器
     for stock_code in stock_codes:
-        # 为每一只股票分派一个独立的任务
-        save_real_tick_data_single.s(stock_code).set(queue="SaveData_RealTime").apply_async()
-    logger.info(f"--- 真实逐笔任务分派完成，共 {len(stock_codes)} 个任务。 ---")
+        try: # 修改代码行: 添加 try-except 块捕获 apply_async 异常
+            # 为每一只股票分派一个独立的任务
+            save_real_tick_data_single.s(stock_code).set(queue="SaveData_RealTime").apply_async()
+            dispatched_count += 1 # 修改代码行: 成功分派则计数
+        except Exception as e: # 修改代码行: 捕获分派异常
+            failed_dispatch_count += 1 # 修改代码行: 失败分派则计数
+            logger.error(f"分派 {stock_code} 的真实逐笔(Tick)数据任务失败: {e}", exc_info=True) # 修改代码行: 记录分派失败日志
+    logger.info(f"--- 真实逐笔任务分派完成，共 {dispatched_count} 个任务成功分派，{failed_dispatch_count} 个任务分派失败。 ---") # 修改代码行: 打印详细分派结果
     return {
         "status": "success",
         "dispatched_quote_batches": 0,
-        "dispatched_real_tick_tasks": len(stock_codes)
+        "dispatched_real_tick_tasks": dispatched_count # 修改代码行: 返回成功分派的任务数量
     }
-
 #  ================ 实时(分钟)数据任务 ================
 @celery_app.task(queue='SaveData_TimeTrade', rate_limit='180/m')
 @with_cache_manager
