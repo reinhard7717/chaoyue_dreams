@@ -95,9 +95,8 @@ class AdvancedStructuralMetricsService:
 
     async def _load_intraday_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp) -> dict:
         """
-        【V2.2 · 终极健壮回退版】一次性加载指定日期范围内的所有日内数据，并按日期分组。
-        - 核心进化: 实现逐日判断、按需回退的终极健壮数据加载策略。
-        - 核心逻辑: 1. 优先加载并聚合高频数据。 2. 识别出高频数据缺失的日期。 3. 仅为这些日期回退加载分钟数据。 4. 合并两部分数据源。
+        【V2.3 · DB查询探针版】
+        - 核心新增: 在分钟数据回退查询后增加DB探针，打印查询的模型、日期数和返回的记录数，以诊断数据加载失败的根源。
         """
         from django.utils import timezone
         from utils.model_helpers import get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code, get_daily_data_model_by_code
@@ -148,8 +147,17 @@ class AdvancedStructuralMetricsService:
             if MinuteModel:
                 @sync_to_async(thread_sensitive=True)
                 def get_minute_data_for_dates(model, stock_pk, dates_list):
-                    qs = model.objects.filter(stock_id=stock_pk, trade_time__date__in=dates_list).values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount').order_by('trade_time')
-                    return pd.DataFrame.from_records(qs)
+                    qs = model.objects.filter(stock_id=stock_pk, trade_time__date__in=dates_list)
+                    # [DB查询探针]
+                    qs_count = qs.count()
+                    print(f"--- [DB查询探针] 结构服务分钟数据回退 ---")
+                    print(f"  -> 模型: {model.__name__}")
+                    print(f"  -> 查询日期数量: {len(dates_list)}")
+                    print(f"  -> 数据库返回记录数: {qs_count}")
+                    print(f"--- [探针结束] ---")
+                    if qs_count == 0:
+                        return pd.DataFrame()
+                    return pd.DataFrame.from_records(qs.values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount').order_by('trade_time'))
                 minute_df_fallback = await get_minute_data_for_dates(MinuteModel, stock_info.pk, dates_for_fallback)
                 if not minute_df_fallback.empty:
                     minute_df_fallback['trade_time'] = pd.to_datetime(minute_df_fallback['trade_time']).dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
