@@ -545,25 +545,30 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex):
     """
-    【V2.1 · 诊断探针增强版】
-    - 核心新增: 在数据加载后立即加入诊断探针，打印每个数据源的模型名称和获取到的记录数，以便快速定位数据缺失问题。
+    【V2.2 · 范围查询修正版】
+    - 核心修正: 彻底重构日内数据加载逻辑，使用高效的日期范围查询 (`__gte`, `__lte`) 替代了之前失效的 `__date__in` 查询，根治日内数据加载失败的问题。
     """
     from utils.model_helpers import (
         get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code,
         get_cyq_chips_model_by_code, get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code,
         get_minute_data_model_by_code_and_timelevel
     )
-    from stock_models.time_trade import StockDailyBasic, StockCyqPerf # 确保导入
+    from stock_models.time_trade import StockDailyBasic, StockCyqPerf
     from stock_models.stock_realtime import StockTickData_SH, StockTickData_SZ, StockTickData_CY, StockTickData_KC, StockTickData_BJ
+    from django.utils import timezone
+    from datetime import time, datetime
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', dates_list: list = None):
         if not model or not dates_list: return pd.DataFrame()
         qs = model.objects.filter(stock=stock_info_obj, **{f'{date_field}__in': dates_list})
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
+    # 核心修正：修改 get_intraday_data_async 函数以使用范围查询
     @sync_to_async(thread_sensitive=True)
-    def get_intraday_data_async(model, stock_info_obj, dates_list: list = None, value_fields: tuple = None):
-        if not model or not dates_list: return pd.DataFrame()
-        qs = model.objects.filter(stock=stock_info_obj, trade_time__date__in=dates_list)
+    def get_intraday_data_async(model, stock_info_obj, start_date: datetime.date, end_date: datetime.date, value_fields: tuple = None):
+        if not model or not start_date or not end_date: return pd.DataFrame()
+        start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
+        end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
+        qs = model.objects.filter(stock=stock_info_obj, trade_time__gte=start_datetime, trade_time__lte=end_datetime)
         if value_fields:
             qs = qs.values(*value_fields)
         return pd.DataFrame.from_records(qs)
@@ -585,7 +590,8 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         'net_mf_vol', 'net_mf_amount', 'trade_count'
     )
     chunk_dates_list = [d.date() for d in dates_in_chunk]
-    # 创建模型字典以便探针输出模型名称
+    chunk_start_date = dates_in_chunk.min().date()
+    chunk_end_date = dates_in_chunk.max().date()
     model_name_map = {
         "cyq_chips": chip_model, "daily_data": daily_data_model, "daily_basic": StockDailyBasic,
         "cyq_perf": StockCyqPerf, "fund_flow_tushare": get_fund_flow_model_by_code(stock_info.stock_code),
@@ -602,13 +608,13 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         "fund_flow_tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, fields=fund_flow_tushare_fields, dates_list=chunk_dates_list),
         "fund_flow_ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
         "fund_flow_dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
-        "stock_tick_data": get_intraday_data_async(tick_data_model, stock_info, dates_list=chunk_dates_list, value_fields=('trade_time', 'price', 'volume', 'amount', 'type')),
-        "stock_level5_data": get_intraday_data_async(level5_data_model, stock_info, dates_list=chunk_dates_list),
-        "stock_minute_data": get_intraday_data_async(minute_data_model, stock_info, dates_list=chunk_dates_list),
+        # 核心修正：调用新的范围查询函数
+        "stock_tick_data": get_intraday_data_async(tick_data_model, stock_info, start_date=chunk_start_date, end_date=chunk_end_date, value_fields=('trade_time', 'price', 'volume', 'amount', 'type')),
+        "stock_level5_data": get_intraday_data_async(level5_data_model, stock_info, start_date=chunk_start_date, end_date=chunk_end_date),
+        "stock_minute_data": get_intraday_data_async(minute_data_model, stock_info, start_date=chunk_start_date, end_date=chunk_end_date),
     }
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
-    # [探针开始] 遍历加载结果并打印详细信息
     print(f"--- [数据加载探针] Stock: {stock_info.stock_code}, Chunk: {chunk_dates_list[0]} to {chunk_dates_list[-1]} ---")
     for name, df in data_dfs.items():
         model_obj = model_name_map.get(name)
@@ -616,7 +622,6 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         record_count = len(df) if df is not None else 0
         print(f"  -> 源: {name:<20} | 模型: {model_name:<30} | 获取到 {record_count} 条记录")
     print("--- [探针结束] ---")
-    # [探针结束]
     def _process_intraday_df_to_map(df: pd.DataFrame) -> dict:
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])
