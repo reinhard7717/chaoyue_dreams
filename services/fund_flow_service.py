@@ -240,8 +240,8 @@ class AdvancedFundFlowMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V10.6 · 参数签名修正版】
-        - 核心修正: 修正了对 `_calculate_intraday_attribution_weights` 的调用签名，补全了缺失的 `intraday_data` 参数。
+        【V10.7 · 调用对齐版】
+        - 核心修正: 调整了对 `_calculate_probabilistic_costs` 的调用，以匹配其新的单日处理签名，并重命名了返回值变量以提高代码清晰度。
         """
         all_metrics_list = []
         attributed_minute_data_map = {}
@@ -253,11 +253,11 @@ class AdvancedFundFlowMetricsService:
                 print(f"日内数据特征准备跳过，原因：日内数据(intraday_data)为空")
                 failures.append({'stock_code': stock_code, 'trade_date': str(date_obj), 'reason': '当日分钟线/逐笔聚合数据缺失'})
                 continue
-            # 修改代码行: 补全缺失的 intraday_data 参数
             attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data, daily_data_series)
-            probabilistic_costs_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series)
+            # 修改代码行: 调整调用签名并重命名返回值变量
+            probabilistic_costs_dict = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series)
             day_metrics, attributed_minute_df = self._calculate_all_metrics_for_day(
-                stock_code, daily_data_series, intraday_data, attribution_weights_df, probabilistic_costs_df,
+                stock_code, daily_data_series, intraday_data, attribution_weights_df, probabilistic_costs_dict,
                 tick_data_map.get(date_obj) if tick_data_map else None,
                 level5_data_map.get(date_obj) if level5_data_map else None
             )
@@ -381,80 +381,37 @@ class AdvancedFundFlowMetricsService:
             results['inferred_active_order_size'] = turnover_amount_yuan * 1000 / trade_count
         return results
 
-    def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame, stock_code: str, tick_data_for_day: pd.DataFrame = None) -> tuple[pd.DataFrame, dict, list]:
+    def _calculate_probabilistic_costs(self, stock_code: str, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> dict:
         """
-        【V6.10 · 逐笔数据优先版】
-        - 核心新增: 优先使用逐笔数据进行日内归因，否则回退到分钟数据。
-        - 核心修复: 在本方法内部计算daily_vwap，并将其作为返回DataFrame的一部分，确保VWAP值能被上游调用者接收和使用。
+        【V6.11 · 单日处理重构版】
+        - 核心重构: 将方法从处理多日DataFrame改为处理单日Series，以匹配上游调用逻辑。
+        - 核心修复: 修正了方法签名，使其能正确接收 stock_code, minute_data_for_day, 和 daily_data，根除参数错位导致的 'str' object has no attribute 'iterrows' 错误。
         """
-        results = {}
-        failures_list = []
+        if minute_data_for_day is None or minute_data_for_day.empty:
+            return {}
+        day_results = {}
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
-        required_daily_fund_flow_cols = [
-            'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
-            'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol'
-        ]
-        from scipy.spatial.distance import jensenshannon
-        for date, daily_data in daily_df.iterrows():
-            date_key = date.date()
-            intraday_data_for_day = None
-            if tick_data_for_day is not None and not tick_data_for_day.empty:
-                print(f"调试信息: [{stock_code}] [{date_key}] _calculate_probabilistic_costs 使用逐笔数据进行归因。")
-                intraday_data_for_day = tick_data_for_day.copy()
-                intraday_data_for_day['trade_time'] = pd.to_datetime(intraday_data_for_day['trade_time'])
-                intraday_data_for_day.set_index('trade_time', inplace=True)
-                intraday_data_for_day.rename(columns={'volume': 'vol_shares', 'amount': 'amount_yuan', 'price': 'minute_vwap'}, inplace=True)
-                intraday_data_for_day['open'] = intraday_data_for_day['minute_vwap']
-                intraday_data_for_day['close'] = intraday_data_for_day['minute_vwap']
-                intraday_data_for_day['high'] = intraday_data_for_day['minute_vwap']
-                intraday_data_for_day['low'] = intraday_data_for_day['minute_vwap']
-                intraday_data_for_day['vol'] = intraday_data_for_day['vol_shares']
-                intraday_data_for_day['amount'] = intraday_data_for_day['amount_yuan']
-            elif minute_df_grouped is not None and not minute_df_grouped.empty and date_key in minute_df_grouped.index:
-                print(f"调试信息: [{stock_code}] [{date_key}] _calculate_probabilistic_costs 使用分钟数据进行归因。")
-                intraday_data_for_day = minute_df_grouped.loc[[date_key]].copy()
-            if intraday_data_for_day is None or intraday_data_for_day.empty:
+        for cost_type in cost_types:
+            size, direction = cost_type.split('_')
+            db_vol_key = f'{direction}_{size}_vol'
+            daily_vol_shares = pd.to_numeric(daily_data.get(db_vol_key), errors='coerce') * 100
+            if pd.isna(daily_vol_shares) or daily_vol_shares == 0:
+                day_results[f'avg_cost_{cost_type}'] = np.nan
+                minute_data_for_day[f'{cost_type}_vol_attr'] = 0
                 continue
-            daily_total_volume_from_intraday = intraday_data_for_day['vol_shares'].sum()
-            daily_total_amount_from_intraday = intraday_data_for_day['amount_yuan'].sum()
-            daily_vwap_from_intraday = (daily_total_amount_from_intraday / daily_total_volume_from_intraday) if daily_total_volume_from_intraday > 0 else np.nan
-            daily_data['daily_vwap'] = daily_vwap_from_intraday
-            minute_data_for_day = self._calculate_intraday_attribution_weights(intraday_data_for_day, daily_data)
-            day_results = {'trade_time': date}
-            day_results['daily_vwap'] = daily_vwap_from_intraday
-            for cost_type in cost_types:
-                size, direction = cost_type.split('_')
-                db_vol_key = f'{direction}_{size}_vol'
-                daily_vol_shares = pd.to_numeric(daily_data.get(db_vol_key), errors='coerce') * 100
-                if pd.isna(daily_vol_shares) or daily_vol_shares == 0:
-                    day_results[f'avg_cost_{cost_type}'] = np.nan
-                    minute_data_for_day[f'{cost_type}_vol_attr'] = 0
-                    continue
-                weight_col = f'{size}_{direction}_weight'
-                weight_series = minute_data_for_day[weight_col]
-                if weight_series.sum() < 1e-9:
-                    day_results[f'avg_cost_{cost_type}'] = np.nan
-                    minute_data_for_day[f'{cost_type}_vol_attr'] = 0
-                    continue
-                attributed_vol = weight_series * daily_vol_shares
-                minute_data_for_day[f'{cost_type}_vol_attr'] = attributed_vol
-                attributed_value = attributed_vol * minute_data_for_day['minute_vwap']
-                total_attributed_value = attributed_value.sum()
-                total_attributed_vol = attributed_vol.sum()
-                day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
-            minute_data_for_day = self._attribute_minute_volume_to_players(minute_data_for_day)
-            p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
-            q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
-            day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
-            day_results['minute_data_attributed'] = minute_data_for_day
-            results[date] = day_results
-        if not results:
-            return pd.DataFrame(), {}, failures_list
-        attributed_minute_map = {date: res.pop('minute_data_attributed') for date, res in results.items() if 'minute_data_attributed' in res}
-        pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
-        aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df)
-        final_df = pvwap_df.join(aggregate_costs_df)
-        return final_df, attributed_minute_map, failures_list
+            weight_col = f'{size}_{direction}_weight'
+            weight_series = minute_data_for_day[weight_col]
+            if weight_series.sum() < 1e-9:
+                day_results[f'avg_cost_{cost_type}'] = np.nan
+                minute_data_for_day[f'{cost_type}_vol_attr'] = 0
+                continue
+            attributed_vol = weight_series * daily_vol_shares
+            minute_data_for_day[f'{cost_type}_vol_attr'] = attributed_vol
+            attributed_value = attributed_vol * minute_data_for_day['minute_vwap']
+            total_attributed_value = attributed_value.sum()
+            total_attributed_vol = attributed_vol.sum()
+            day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
+        return day_results
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
