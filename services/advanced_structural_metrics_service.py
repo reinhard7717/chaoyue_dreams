@@ -240,9 +240,8 @@ class AdvancedStructuralMetricsService:
 
     def _compute_all_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict) -> dict:
         """
-        【V3.3 · 双源兼容版】
-        - 核心进化: 能够处理高频聚合数据和纯分钟线数据两种来源。
-        - 核心逻辑: 通过检查 `buy_vol_raw` 列是否存在，来判断数据源。如果为高频源，则计算全部指标；如果为分钟源，则仅计算传统指标，并将新的高频力学指标置为NaN。
+        【V3.4 · 全局类型净化版】
+        - 核心修正: 将 'amount' 和 'vol' 的类型转换操作提前至方法入口，应用于完整的 `group` DataFrame，从而根除所有下游计算中的 `Decimal/float` 类型冲突。
         """
         results = {}
         # 初始化所有指标，包括新的高频指标
@@ -255,6 +254,9 @@ class AdvancedStructuralMetricsService:
         results['active_volume_price_efficiency'] = np.nan
         results['absorption_strength_index'] = np.nan
         results['distribution_pressure_index'] = np.nan
+        # 新增代码块: 在方法入口处对源数据进行类型净化
+        group['amount'] = pd.to_numeric(group['amount'], errors='coerce')
+        group['vol'] = pd.to_numeric(group['vol'], errors='coerce')
         total_volume = group['vol'].sum()
         total_volume_safe = total_volume if total_volume > 0 else np.nan
         day_open_qfq, day_high_qfq, day_low_qfq, day_close_qfq, pre_close_qfq = (

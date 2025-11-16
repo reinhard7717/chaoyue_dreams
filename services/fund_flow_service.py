@@ -240,8 +240,8 @@ class AdvancedFundFlowMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V10.5 · 方法名修正版】
-        - 核心修正: 修正了因方法重命名导致的 AttributeError，将 `_calculate_attribution_weights` 调用更正为 `_calculate_intraday_attribution_weights`。
+        【V10.6 · 参数签名修正版】
+        - 核心修正: 修正了对 `_calculate_intraday_attribution_weights` 的调用签名，补全了缺失的 `intraday_data` 参数。
         """
         all_metrics_list = []
         attributed_minute_data_map = {}
@@ -253,8 +253,8 @@ class AdvancedFundFlowMetricsService:
                 print(f"日内数据特征准备跳过，原因：日内数据(intraday_data)为空")
                 failures.append({'stock_code': stock_code, 'trade_date': str(date_obj), 'reason': '当日分钟线/逐笔聚合数据缺失'})
                 continue
-            # 修改代码行: 修正方法名
-            attribution_weights_df = self._calculate_intraday_attribution_weights(daily_data_series)
+            # 修改代码行: 补全缺失的 intraday_data 参数
+            attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data, daily_data_series)
             probabilistic_costs_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series)
             day_metrics, attributed_minute_df = self._calculate_all_metrics_for_day(
                 stock_code, daily_data_series, intraday_data, attribution_weights_df, probabilistic_costs_df,
