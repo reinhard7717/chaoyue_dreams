@@ -148,8 +148,9 @@ class AdvancedChipMetricsService:
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
         return merged_df
 
-    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None) -> tuple[pd.DataFrame, dict, list]:
-        """【V4.3 · 生产就绪版】移除所有诊断探针。
+    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
+        """【V4.4 · 逐笔数据集成版】
+        - 核心新增: 接收 `tick_data_map` 并将其传递给 `ChipFeatureCalculator`。
         - 【修正】新增 `debug_params` 参数，用于控制内部探针的输出。
         """
         stock_code = stock_info.stock_code
@@ -169,7 +170,6 @@ class AdvancedChipMetricsService:
         grouped_data = merged_df.groupby('trade_time')
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq']
         is_first_day_in_batch = True
-        # 确保 debug_params 默认为空字典，以防未传递
         debug_params = debug_params if debug_params is not None else {}
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             context_data = daily_full_df.iloc[0].to_dict()
@@ -223,20 +223,24 @@ class AdvancedChipMetricsService:
                 'prev_chip_fatigue_index': prev_metrics.get('chip_fatigue_index', 0.0),
                 'recent_10d_closes': recent_closes_list,
                 'prev_atr_14d': prev_metrics.get('atr_14d'),
-                'debug_params': debug_params, # 传递 debug_params
+                'debug_params': debug_params,
             })
             historical_data_for_day = {k: v for k, v in hist_comp_dict.items() if k < trade_date}
             if historical_data_for_day:
                 context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
             else:
                 context_for_calc['historical_components'] = pd.DataFrame(columns=hist_comp_cols)
-            # 移除所有探针，恢复生产逻辑
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
-                enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
+                enhanced_intraday_data = fund_flow_attributed_minute_map[trade_date]
+                print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用资金流归因后的分钟数据。")
+            elif tick_data_map and trade_date.date() in tick_data_map:
+                enhanced_intraday_data = tick_data_map[trade_date.date()]
+                print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用原始逐笔数据。")
             else:
                 raw_minute_data_for_day = minute_data_map.get(trade_date.date(), pd.DataFrame())
-                enhanced_minute_data = self._enhance_minute_data_fallback(raw_minute_data_for_day)
-            context_for_calc['minute_data'] = enhanced_minute_data
+                enhanced_intraday_data = self._enhance_minute_data_fallback(raw_minute_data_for_day)
+                print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用原始分钟数据。")
+            context_for_calc['intraday_data'] = enhanced_intraday_data
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
             if daily_metrics:
@@ -275,17 +279,20 @@ class AdvancedChipMetricsService:
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         return df
 
-    async def _load_minute_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp):
+    async def _load_minute_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp, tick_data_map: dict = None):
         """
-        【V1.1 · 时区修正版】一次性加载指定日期范围内的所有分钟线数据，并按日期分组。
+        【V1.2 · 逐笔数据兼容版】一次性加载指定日期范围内的所有分钟线数据，并按日期分组。
         - 核心修复: 强制将时间戳转换为北京时间，并确保升序排列。
+        - 核心新增: 如果存在逐笔数据，则优先使用逐笔数据进行处理，否则回退到分钟数据。
         """
         from django.utils import timezone
+        if tick_data_map and any(tick_data_map.values()):
+            print(f"调试信息: [{stock_info.stock_code}] _load_minute_data_for_range 发现逐笔数据，将跳过分钟数据加载。")
+            return {}
         MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
         if not MinuteModel: return {}
         @sync_to_async(thread_sensitive=True)
         def get_data(model, stock_pk, start_dt, end_dt):
-            # 强制按交易时间升序排序
             qs = model.objects.filter(stock_id=stock_pk, trade_time__gte=start_dt, trade_time__lt=end_dt).values('trade_time', 'amount', 'vol', 'open', 'close', 'high', 'low').order_by('trade_time')
             return pd.DataFrame.from_records(qs)
         start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
@@ -293,7 +300,6 @@ class AdvancedChipMetricsService:
         minute_df = await get_data(MinuteModel, stock_info.pk, start_datetime, end_datetime)
         if minute_df.empty: return {}
         minute_df['trade_time'] = pd.to_datetime(minute_df['trade_time'])
-        # 强制将时间戳转换为北京时间
         if minute_df['trade_time'].dt.tz is not None:
             minute_df['trade_time'] = minute_df['trade_time'].dt.tz_convert('Asia/Shanghai')
         else:

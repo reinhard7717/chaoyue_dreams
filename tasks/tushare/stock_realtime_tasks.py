@@ -136,12 +136,10 @@ def save_quote_data_batch(stock_codes: List[str], cache_manager=None):
 # =================================================================
 # =================== 2. 真实逐笔 (Tick) 数据任务 ===================
 # =================================================================
-
-# ▼▼▼ 处理单只股票真实逐笔数据的工作任务 ▼▼▼
 @celery_app.task(
     queue="SaveData_RealTime",
-    autoretry_for=(Exception,), # 修改代码行: 捕获所有异常进行重试
-    retry_kwargs={'max_retries': 5, 'countdown': 15} # 修改代码行: 最多重试5次，每次间隔15秒
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 5, 'countdown': 15}
 )
 @with_cache_manager
 def save_real_tick_data_single(stock_code: str, cache_manager=None):
@@ -157,7 +155,12 @@ def save_real_tick_data_single(stock_code: str, cache_manager=None):
     async def main():
         print(f"开始处理 {stock_code} 的真实逐笔(Tick)数据任务...")
         # 调用我们之前在DAO中创建的、包含完整持久化逻辑的方法
-        await stock_realtime_dao.save_realtime_tick_in_bulk([stock_code], trade_date)
+        # 修改代码行: 捕获 save_realtime_tick_in_bulk 的返回值
+        success = await stock_realtime_dao.save_realtime_tick_in_bulk([stock_code], trade_date)
+        # 修改代码行: 如果保存失败，则抛出异常以触发 Celery 重试
+        if not success:
+            print(f"股票 {stock_code} 的真实逐笔数据保存失败，触发 Celery 重试。") # 调试信息
+            raise Exception(f"股票 {stock_code} 的真实逐笔数据保存失败，触发 Celery 重试。")
     async_to_sync(main)()
 
 # =================================================================

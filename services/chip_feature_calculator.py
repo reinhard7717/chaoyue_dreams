@@ -15,8 +15,9 @@ class ChipFeatureCalculator:
     """
     def __init__(self, daily_chips_df: pd.DataFrame, context_data: dict):
         """
-        【V12.0 · 类型净化版】
+        【V12.1 · 逐笔数据兼容版】
         - 核心重构: 建立“数据净化协议”，在入口处将所有可能为Decimal的上下文数据强制转换为float，根除类型不匹配错误。
+        - 核心新增: 引入 `intraday_data` 作为统一的日内数据源，优先使用逐笔数据，否则回退到分钟数据。
         """
         self.df = daily_chips_df.reset_index(drop=True)
         self.ctx = context_data
@@ -24,18 +25,17 @@ class ChipFeatureCalculator:
             percent_sum = self.df['percent'].sum()
             if not np.isclose(percent_sum, 100.0) and percent_sum > 0:
                 self.df['percent'] = (self.df['percent'] / percent_sum) * 100.0
-        # 建立一个全面的列表，用于将所有从外部注入的、可能为Decimal类型的字段统一转换为float
         decimal_to_float_fields = [
             'total_chip_volume', 'daily_turnover_volume', 'close_price', 'high_price', 'low_price', 'open_price',
             'pre_close', 'prev_20d_close', 'circ_mv', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct',
             'cost_95pct', 'weight_avg', 'winner_rate', 'prev_concentration_90pct', 'prev_winner_avg_cost',
-            'prev_total_chip_volume', # 导致错误的根源字段
+            'prev_total_chip_volume',
             'prev_high_20d', 'prev_low_20d', 'prev_day_20d_ago_close'
         ]
         for key in decimal_to_float_fields:
             if key in self.ctx and isinstance(self.ctx[key], Decimal):
                 self.ctx[key] = float(self.ctx[key])
-        self._prepare_minute_data_features()
+        self._prepare_intraday_data_features()
 
     def calculate_all_metrics(self) -> dict:
         """
@@ -84,43 +84,81 @@ class ChipFeatureCalculator:
         all_metrics.pop('peak_range_high', None)
         return all_metrics
 
-    def _prepare_minute_data_features(self):
-        """【V2.3 · 生产就绪版】将调试用的 print 语句替换为 logger.warning。"""
-        minute_df = self.ctx.get('minute_data')
-        if minute_df is None or minute_df.empty:
-            stock_code = self.ctx.get('stock_code', 'UNKNOWN')
-            trade_date = self.ctx.get('trade_date', 'UNKNOWN')
-            # 核心修正：将 print 替换为 logger.warning
-            logger.warning(f"[{stock_code}] [{trade_date}] 分钟数据特征准备跳过，原因：分钟数据(minute_data)为空。")
-            self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None})
+    def _prepare_intraday_data_features(self):
+        """
+        【V2.4 · 逐笔数据优先版】准备日内数据特征，优先使用逐笔数据，否则回退到分钟数据。
+        - 核心新增: 如果上下文中有 `intraday_data` (可能是逐笔或分钟数据)，则进行处理。
+        - 核心逻辑: 如果是逐笔数据，则聚合为分钟数据；如果是分钟数据，则直接使用。
+        """
+        intraday_df = self.ctx.get('intraday_data')
+        stock_code = self.ctx.get('stock_code', 'UNKNOWN')
+        trade_date = self.ctx.get('trade_date', 'UNKNOWN')
+        if intraday_df is None or intraday_df.empty:
+            logger.warning(f"[{stock_code}] [{trade_date}] 日内数据特征准备跳过，原因：日内数据(intraday_data)为空。")
+            self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
             return
-        dtype_map = {
-            'amount': 'float32',
-            'vol': 'int32',
-            'open': 'float32',
-            'close': 'float32',
-            'high': 'float32',
-            'low': 'float32',
-        }
-        for col, dtype in dtype_map.items():
-            if col in minute_df.columns:
-                minute_df[col] = pd.to_numeric(minute_df[col], errors='coerce').astype(dtype, errors='ignore')
-        total_amount_yuan = minute_df['amount'].sum()
-        total_vol_shares = minute_df['vol'].sum()
+        if 'type' in intraday_df.columns and 'price' in intraday_df.columns and 'volume' in intraday_df.columns and 'amount' in intraday_df.columns:
+            print(f"调试信息: [{stock_code}] [{trade_date}] ChipFeatureCalculator 正在处理逐笔数据。")
+            intraday_df['trade_time'] = pd.to_datetime(intraday_df['trade_time'])
+            intraday_df.set_index('trade_time', inplace=True)
+            minute_df = intraday_df.resample('1min').agg(
+                open=('price', 'first'),
+                high=('price', 'max'),
+                low=('price', 'min'),
+                close=('price', 'last'),
+                vol=('volume', 'sum'),
+                amount=('amount', 'sum')
+            ).dropna(subset=['open', 'high', 'low', 'close', 'vol', 'amount'])
+            minute_df.reset_index(inplace=True)
+            minute_df.rename(columns={'trade_time': 'trade_time'}, inplace=True)
+            minute_df['main_force_net_vol'] = 0.0
+            minute_df['main_force_buy_vol'] = 0.0
+            minute_df['main_force_sell_vol'] = 0.0
+            minute_df['retail_buy_vol'] = 0.0
+            minute_df['retail_sell_vol'] = 0.0
+            minute_df['vol_shares'] = minute_df['vol']
+            minute_df['amount_yuan'] = minute_df['amount']
+            minute_df['minute_vwap'] = minute_df['amount_yuan'] / minute_df['vol_shares'].replace(0, np.nan)
+            processed_intraday_df = minute_df
+        else:
+            print(f"调试信息: [{stock_code}] [{trade_date}] ChipFeatureCalculator 正在处理分钟数据。")
+            processed_intraday_df = intraday_df.copy()
+            dtype_map = {
+                'amount': 'float32',
+                'vol': 'int32',
+                'open': 'float32',
+                'close': 'float32',
+                'high': 'float32',
+                'low': 'float32',
+            }
+            for col, dtype in dtype_map.items():
+                if col in processed_intraday_df.columns:
+                    processed_intraday_df[col] = pd.to_numeric(processed_intraday_df[col], errors='coerce').astype(dtype, errors='ignore')
+            if 'minute_vwap' not in processed_intraday_df.columns:
+                processed_intraday_df['minute_vwap'] = processed_intraday_df['amount'] / processed_intraday_df['vol'].replace(0, np.nan)
+            if 'vol_shares' not in processed_intraday_df.columns:
+                processed_intraday_df['vol_shares'] = processed_intraday_df['vol']
+            if 'amount_yuan' not in processed_intraday_df.columns:
+                processed_intraday_df['amount_yuan'] = processed_intraday_df['amount']
+        if processed_intraday_df.empty:
+            self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
+            return
+        total_amount_yuan = processed_intraday_df['amount_yuan'].sum()
+        total_vol_shares = processed_intraday_df['vol_shares'].sum()
         daily_vwap = total_amount_yuan / total_vol_shares if total_vol_shares > 0 else None
         self.ctx['daily_vwap'] = daily_vwap
         if daily_vwap is None:
-            self.ctx.update({'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None})
+            self.ctx.update({'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': processed_intraday_df})
             return
-        minute_df['minute_vwap'] = (minute_df['amount'] / minute_df['vol'].replace(0, np.nan)).astype('float32', errors='ignore')
-        vol_above_vwap = minute_df[minute_df['minute_vwap'] > daily_vwap]['vol'].sum()
-        vol_below_vwap = minute_df[minute_df['minute_vwap'] < daily_vwap]['vol'].sum()
-        total_vol = minute_df['vol'].sum()
+        vol_above_vwap = processed_intraday_df[processed_intraday_df['minute_vwap'] > daily_vwap]['vol_shares'].sum()
+        vol_below_vwap = processed_intraday_df[processed_intraday_df['minute_vwap'] < daily_vwap]['vol_shares'].sum()
+        total_vol = processed_intraday_df['vol_shares'].sum()
         if total_vol > 0:
             self.ctx['volume_above_vwap_ratio'] = vol_above_vwap / total_vol
             self.ctx['volume_below_vwap_ratio'] = vol_below_vwap / total_vol
         else:
             self.ctx.update({'volume_above_vwap_ratio': 0.0, 'volume_below_vwap_ratio': 0.0})
+        self.ctx['processed_intraday_df'] = processed_intraday_df
 
     def _get_summary_metrics_from_context(self) -> dict:
         """
@@ -143,34 +181,33 @@ class ChipFeatureCalculator:
 
     def _compute_cross_day_flow_metrics(self, context: dict) -> dict:
         """
-        【V2.2 · 局部变量初始化修复版】
+        【V2.3 · 逐笔数据兼容版】
         - 核心修复: 初始化 `total_sell_vol_today` 局部变量，避免 `UnboundLocalError`。
+        - 核心新增: 使用 `processed_intraday_df` 作为日内数据源。
         """
         results = {}
-        minute_df = context.get('minute_data')
+        intraday_df = context.get('processed_intraday_df')
         total_daily_vol = context.get('daily_turnover_volume')
-        # --- 1. 控制权净转移 (Concentration Dynamics) ---
         daily_vwap = context.get('daily_vwap')
         required_cols_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol']
-        if minute_df is not None and not minute_df.empty and all(pd.notna(v) for v in [daily_vwap, total_daily_vol]) and total_daily_vol > 0 and all(c in minute_df.columns for c in required_cols_1):
-            minute_df['mf_net_vol'] = minute_df['main_force_buy_vol'] - minute_df['main_force_sell_vol']
-            gathering_vol_per_minute = minute_df['mf_net_vol'].clip(lower=0)
-            dispersal_vol_per_minute = (-minute_df['mf_net_vol']).clip(lower=0)
-            below_vwap_mask = minute_df['minute_vwap'] < daily_vwap
-            above_vwap_mask = minute_df['minute_vwap'] > daily_vwap
+        if intraday_df is not None and not intraday_df.empty and all(pd.notna(v) for v in [daily_vwap, total_daily_vol]) and total_daily_vol > 0 and all(c in intraday_df.columns for c in required_cols_1):
+            intraday_df['mf_net_vol'] = intraday_df['main_force_buy_vol'] - intraday_df['main_force_sell_vol']
+            gathering_vol_per_minute = intraday_df['mf_net_vol'].clip(lower=0)
+            dispersal_vol_per_minute = (-intraday_df['mf_net_vol']).clip(lower=0)
+            below_vwap_mask = intraday_df['minute_vwap'] < daily_vwap
+            above_vwap_mask = intraday_df['minute_vwap'] > daily_vwap
             results['gathering_by_support'] = (gathering_vol_per_minute[below_vwap_mask].sum() / total_daily_vol) * 100
             results['gathering_by_chasing'] = (gathering_vol_per_minute[above_vwap_mask].sum() / total_daily_vol) * 100
             results['dispersal_by_distribution'] = (dispersal_vol_per_minute[above_vwap_mask].sum() / total_daily_vol) * 100
             results['dispersal_by_capitulation'] = (dispersal_vol_per_minute[below_vwap_mask].sum() / total_daily_vol) * 100
-        # --- 2. 流量质量与供给压力 (Flow Quality & Pressure) ---
         pre_close = context.get('pre_close')
         required_cols_2 = ['minute_vwap', 'main_force_sell_vol', 'retail_sell_vol']
-        total_sell_vol_today = 0.0 # 初始化 total_sell_vol_today
-        if minute_df is not None and not minute_df.empty and pd.notna(pre_close) and all(c in minute_df.columns for c in required_cols_2):
-            total_sell_vol_today = (minute_df['main_force_sell_vol'] + minute_df['retail_sell_vol']).sum()
+        total_sell_vol_today = 0.0
+        if intraday_df is not None and not intraday_df.empty and pd.notna(pre_close) and all(c in intraday_df.columns for c in required_cols_2):
+            total_sell_vol_today = (intraday_df['main_force_sell_vol'] + intraday_df['retail_sell_vol']).sum()
             if total_sell_vol_today > 0:
-                profit_taking_vol = (minute_df[minute_df['minute_vwap'] > pre_close]['main_force_sell_vol'] + minute_df[minute_df['minute_vwap'] > pre_close]['retail_sell_vol']).sum()
-                capitulation_vol = (minute_df[minute_df['minute_vwap'] < pre_close]['main_force_sell_vol'] + minute_df[minute_df['minute_vwap'] < pre_close]['retail_sell_vol']).sum()
+                profit_taking_vol = (intraday_df[intraday_df['minute_vwap'] > pre_close]['main_force_sell_vol'] + intraday_df[intraday_df['minute_vwap'] > pre_close]['retail_sell_vol']).sum()
+                capitulation_vol = (intraday_df[intraday_df['minute_vwap'] < pre_close]['main_force_sell_vol'] + intraday_df[intraday_df['minute_vwap'] < pre_close]['retail_sell_vol']).sum()
                 results['profit_taking_flow_ratio'] = (profit_taking_vol / total_sell_vol_today) * 100
                 results['capitulation_flow_ratio'] = (capitulation_vol / total_sell_vol_today) * 100
         prev_df = context.get('prev_chip_distribution')
@@ -185,7 +222,6 @@ class ChipFeatureCalculator:
             if vol_locked_winners > 0: results['locked_profit_pressure_ratio'] = (total_sell_vol_today / vol_locked_winners) * 100
             if vol_active_losers > 0: results['active_loser_pressure_ratio'] = (total_sell_vol_today / vol_active_losers) * 100
             if vol_locked_losers > 0: results['locked_loss_pressure_ratio'] = (total_sell_vol_today / vol_locked_losers) * 100
-        # --- 3. 成本分离度 (Cost Divergence) ---
         high_20d, low_20d = context.get('high_20d'), context.get('low_20d')
         if not self.df.empty and all(pd.notna(v) for v in [high_20d, low_20d]):
             active_chips_df = self.df[(self.df['price'] >= low_20d) & (self.df['price'] <= high_20d)]
@@ -199,14 +235,12 @@ class ChipFeatureCalculator:
                 if pd.notna(atr_14d) and atr_14d > 0 and pd.notna(close_price) and close_price > 0:
                     volatility_pct = (atr_14d / close_price) * 100
                     if volatility_pct > 0: results['cost_divergence_normalized'] = divergence / volatility_pct
-        # --- 4. 情绪惯性 (Emotional Inertia) ---
         close_price, total_chip_volume = context.get('close_price'), context.get('total_chip_volume')
         if not self.df.empty and all(pd.notna(v) for v in [close_price, pre_close, total_chip_volume, total_daily_vol]) and total_chip_volume > 0 and total_daily_vol > 0:
             critical_chips_df = self.df[(self.df['price'] > min(close_price, pre_close)) & (self.df['price'] < max(close_price, pre_close))]
             status_change_net_flow_pct = critical_chips_df['percent'].sum() * np.sign(close_price - pre_close)
             turnover_rate = total_daily_vol / total_chip_volume
             if turnover_rate > 0: results['winner_loser_momentum'] = status_change_net_flow_pct / turnover_rate
-        # --- 5. 博弈疲劳度 (Game Fatigue) ---
         prev_fatigue_index, recent_closes = context.get('prev_chip_fatigue_index', 0.0), context.get('recent_10d_closes')
         if all(pd.notna(v) for v in [prev_fatigue_index, close_price, total_chip_volume, total_daily_vol]) and recent_closes is not None and len(recent_closes) >= 9:
             is_effective_day = (close_price >= max(recent_closes)) or (close_price <= min(recent_closes))
@@ -214,7 +248,6 @@ class ChipFeatureCalculator:
             if is_effective_day: fatigue_index *= 0.5
             else: fatigue_index += (total_daily_vol / total_chip_volume) * 100 if total_chip_volume > 0 else 0
             results['chip_fatigue_index'] = fatigue_index
-        # --- 6. 筹码峰肩增长率 ---
         prev_chip_dist = context.get('prev_chip_distribution')
         prev_dominant_peak_cost = context.get('prev_dominant_peak_cost')
         today_dominant_peak_cost = context.get('dominant_peak_cost')
@@ -234,63 +267,59 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V7.8 · 生产就绪版】移除所有诊断探针。
+        【V7.9 · 逐笔数据兼容版】移除所有诊断探针。
+        - 核心新增: 使用 `processed_intraday_df` 作为日内数据源。
         - 【修复】重新定义 `active_winner_profit_margin` 的计算逻辑，使其在价格突破近期高点时仍能有效捕捉活跃获利盘的利润垫。
         - 【修正】优化 `winner_conviction_index` 的计算，确保在涨停日等积极行情下能正确反映赢家信念。
         - 【修正】将 `active_profit_margin` 作为参数直接传递给 `_calculate_winner_conviction_index`，解决 `NoneType` 错误。
         """
         import datetime
         results = {}
-        minute_df = context.get('minute_data')
+        intraday_df = context.get('processed_intraday_df')
         total_daily_vol = context.get('daily_turnover_volume')
         close_price = context.get('close_price')
-        atr_14d = context.get('atr_14d') # 获取 atr_14d
-        # 1. 战术序列流 (Intraday Tactical Flow)
+        atr_14d = context.get('atr_14d')
         required_cols_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol']
-        if minute_df is not None and not minute_df.empty and pd.notna(total_daily_vol) and total_daily_vol > 0 and all(c in minute_df.columns for c in required_cols_1):
-            peaks, _ = find_peaks(minute_df['minute_vwap'], prominence=0.001)
-            troughs, _ = find_peaks(-minute_df['minute_vwap'], prominence=0.001)
-            turning_points = sorted(list(set(np.concatenate(([0], troughs, peaks, [len(minute_df)-1])))))
+        if intraday_df is not None and not intraday_df.empty and pd.notna(total_daily_vol) and total_daily_vol > 0 and all(c in intraday_df.columns for c in required_cols_1):
+            peaks, _ = find_peaks(intraday_df['minute_vwap'], prominence=0.001)
+            troughs, _ = find_peaks(-intraday_df['minute_vwap'], prominence=0.001)
+            turning_points = sorted(list(set(np.concatenate(([0], troughs, peaks, [len(intraday_df)-1])))))
             suppressive_vol, rally_dist_vol, rally_acc_vol, panic_vol = 0, 0, 0, 0
             for i in range(len(turning_points) - 1):
-                window_df = minute_df.iloc[turning_points[i]:turning_points[i+1]+1]
+                window_df = intraday_df.iloc[turning_points[i]:turning_points[i+1]+1]
                 if window_df.empty: continue
                 mf_net = window_df['main_force_net_vol'].sum()
-                if window_df['minute_vwap'].iloc[-1] < window_df['minute_vwap'].iloc[0]: # 下跌波段
+                if window_df['minute_vwap'].iloc[-1] < window_df['minute_vwap'].iloc[0]:
                     if mf_net > 0: suppressive_vol += mf_net
                     else: panic_vol += abs(mf_net)
-                else: # 上涨波段
+                else:
                     if mf_net < 0: rally_dist_vol += abs(mf_net)
                     else: rally_acc_vol += mf_net
             results['suppressive_accumulation_intensity'] = (suppressive_vol / total_daily_vol) * 100
             results['rally_distribution_intensity'] = (rally_dist_vol / total_daily_vol) * 100
             results['rally_accumulation_intensity'] = (rally_acc_vol / total_daily_vol) * 100
             results['panic_selling_intensity'] = (panic_vol / total_daily_vol) * 100
-        # 2. 高级结构 (Advanced Structures)
         active_winner_avg_cost, active_profit_margin = self._calculate_active_winner_profit_margin(close_price, atr_14d, context)
         results['active_winner_avg_cost'] = active_winner_avg_cost
         results['active_winner_profit_margin'] = active_profit_margin
         losers_df = self.df[self.df['price'] > close_price]
         if not losers_df.empty and losers_df['percent'].sum() > 0:
             results['loser_avg_cost'] = np.average(losers_df['price'], weights=losers_df['percent'])
-        # 3. 获利盘信念 (Winner Conviction)
-        # 将 active_profit_margin 直接传递给 _calculate_winner_conviction_index
         results['winner_conviction_index'] = self._calculate_winner_conviction_index(context, active_profit_margin)
-        # 4. 统一意图信号
         required_cols_4_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
-        if minute_df is not None and not minute_df.empty and all(c in minute_df.columns for c in required_cols_4_1):
-            mf_total_vol = minute_df['main_force_buy_vol'].sum() + minute_df['main_force_sell_vol'].sum()
-            retail_total_vol = minute_df['retail_buy_vol'].sum() + minute_df['retail_sell_vol'].sum()
+        if intraday_df is not None and not intraday_df.empty and all(c in intraday_df.columns for c in required_cols_4_1):
+            mf_total_vol = intraday_df['main_force_buy_vol'].sum() + intraday_df['main_force_sell_vol'].sum()
+            retail_total_vol = intraday_df['retail_buy_vol'].sum() + intraday_df['retail_sell_vol'].sum()
             if mf_total_vol > 0 and retail_total_vol > 0:
-                mf_total_amount = (minute_df['main_force_buy_vol'] * minute_df['minute_vwap']).sum() + (minute_df['main_force_sell_vol'] * minute_df['minute_vwap']).sum()
-                retail_total_amount = (minute_df['retail_buy_vol'] * minute_df['minute_vwap']).sum() + (minute_df['retail_sell_vol'] * minute_df['minute_vwap']).sum()
-                vwap_mf = mf_total_amount / mf_total_vol # 修正：这里应该是mf_total_vol
+                mf_total_amount = (intraday_df['main_force_buy_vol'] * intraday_df['minute_vwap']).sum() + (intraday_df['main_force_sell_vol'] * intraday_df['minute_vwap']).sum()
+                retail_total_amount = (intraday_df['retail_buy_vol'] * intraday_df['minute_vwap']).sum() + (intraday_df['retail_sell_vol'] * intraday_df['minute_vwap']).sum()
+                vwap_mf = mf_total_amount / mf_total_vol
                 vwap_retail = retail_total_amount / retail_total_vol
-                if vwap_mf > 0: results['main_force_cost_advantage'] = (vwap_retail / vwap_mf - 1) * 100 # 修正：这里应该是vwap_mf
+                if vwap_mf > 0: results['main_force_cost_advantage'] = (vwap_retail / vwap_mf - 1) * 100
         required_cols_4_2 = ['main_force_buy_vol', 'main_force_sell_vol']
-        if minute_df is not None and not minute_df.empty and all(c in minute_df.columns for c in required_cols_4_2):
-            mf_buy_vol = minute_df['main_force_buy_vol'].sum()
-            mf_sell_vol = minute_df['main_force_sell_vol'].sum()
+        if intraday_df is not None and not intraday_df.empty and all(c in intraday_df.columns for c in required_cols_4_2):
+            mf_buy_vol = intraday_df['main_force_buy_vol'].sum()
+            mf_sell_vol = intraday_df['main_force_sell_vol'].sum()
             if (mf_buy_vol + mf_sell_vol) > 0:
                 results['main_force_control_leverage'] = ((mf_buy_vol - mf_sell_vol) / (mf_buy_vol + mf_sell_vol)) * 100
         loser_loss_margin = context.get('loser_loss_margin_avg')
@@ -298,8 +327,8 @@ class ChipFeatureCalculator:
         if all(pd.notna(v) for v in [loser_loss_margin, loser_concentration]):
             results['loser_capitulation_pressure_index'] = abs(loser_loss_margin) * loser_concentration
         daily_volume = context.get('daily_turnover_volume')
-        if minute_df is not None and not minute_df.empty and pd.notna(close_price) and daily_volume and daily_volume > 0:
-            new_losers_df = minute_df[minute_df['minute_vwap'] > close_price].copy()
+        if intraday_df is not None and not intraday_df.empty and pd.notna(close_price) and daily_volume and daily_volume > 0:
+            new_losers_df = intraday_df[intraday_df['minute_vwap'] > close_price].copy()
             if not new_losers_df.empty:
                 new_loser_vol = new_losers_df['vol_shares'].sum()
                 if new_loser_vol > 0:
@@ -308,14 +337,12 @@ class ChipFeatureCalculator:
                     results['intraday_new_loser_pressure'] = (new_loser_vol / daily_volume) * avg_loss_rate * 100
             else:
                 results['intraday_new_loser_pressure'] = 0.0
-        # 5. 集合竞价解构
         results['auction_intent_signal'] = 0.0
         results['auction_closing_position'] = 0.0
-        # 移除所有探针，恢复生产逻辑
-        if minute_df is not None and not minute_df.empty and 'trade_time' in minute_df.columns and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
+        if intraday_df is not None and not intraday_df.empty and 'trade_time' in intraday_df.columns and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             auction_start_time = datetime.time(14, 57)
-            pre_auction_df = minute_df[minute_df['trade_time'].dt.time < auction_start_time]
-            auction_df = minute_df[minute_df['trade_time'].dt.time >= auction_start_time]
+            pre_auction_df = intraday_df[intraday_df['trade_time'].dt.time < auction_start_time]
+            auction_df = intraday_df[intraday_df['trade_time'].dt.time >= auction_start_time]
             if not pre_auction_df.empty:
                 pre_auction_price = pre_auction_df['close'].iloc[-1]
                 if not auction_df.empty and 'vol' in auction_df.columns and auction_df['vol'].sum() > 0:
@@ -335,17 +362,16 @@ class ChipFeatureCalculator:
                         results['auction_closing_position'] = 100.0
                     else:
                         results['auction_closing_position'] = -100.0
-        # 升级为 `rebound_impulse_strength` 逻辑，赋值给 `intraday_probe_rebound_quality`
         low_price = context.get('low_price')
         high_price = context.get('high_price')
-        if minute_df is not None and not minute_df.empty and all(pd.notna(v) for v in [low_price, high_price, close_price]):
+        if intraday_df is not None and not intraday_df.empty and all(pd.notna(v) for v in [low_price, high_price, close_price]):
             day_range = high_price - low_price
             if day_range > 1e-6:
-                if 'low' in minute_df.columns and not minute_df['low'].empty:
-                    low_price_idx = minute_df['low'].idxmin()
+                if 'low' in intraday_df.columns and not intraday_df['low'].empty:
+                    low_price_idx = intraday_df['low'].idxmin()
                 else:
-                    low_price_idx = minute_df['minute_vwap'].idxmin()
-                rebound_df = minute_df.loc[low_price_idx:]
+                    low_price_idx = intraday_df['minute_vwap'].idxmin()
+                rebound_df = intraday_df.loc[low_price_idx:]
                 if not rebound_df.empty and len(rebound_df) > 1:
                     price_recovery_ratio = (close_price - low_price) / day_range
                     rebound_volume = rebound_df['vol_shares'].sum()
@@ -617,19 +643,19 @@ class ChipFeatureCalculator:
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
         """
-        【V5.0 · 兑现质量增强版】
+        【V5.1 · 逐笔数据兼容版】兑现质量增强版。
+        - 核心新增: 使用 `processed_intraday_df` 作为日内数据源。
         - 核心增强: 为 `profit_realization_quality` 增加备用基准，修复级联失效问题。
         """
         results = {}
-        minute_df = context.get('minute_data')
+        intraday_df = context.get('processed_intraday_df')
         total_daily_vol = context.get('daily_turnover_volume')
-        # --- 1. 主峰动态 (Peak Dynamics) ---
         peak_range_low = context.get('peak_range_low')
         peak_range_high = context.get('peak_range_high')
         required_cols_1 = ['minute_vwap', 'vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
-        if minute_df is not None and not minute_df.empty and all(pd.notna(v) for v in [peak_range_low, peak_range_high, total_daily_vol]) and total_daily_vol > 0 and all(c in minute_df.columns for c in required_cols_1):
-            peak_zone_mask = (minute_df['minute_vwap'] >= peak_range_low) & (minute_df['minute_vwap'] <= peak_range_high)
-            peak_zone_df = minute_df[peak_zone_mask]
+        if intraday_df is not None and not intraday_df.empty and all(pd.notna(v) for v in [peak_range_low, peak_range_high, total_daily_vol]) and total_daily_vol > 0 and all(c in intraday_df.columns for c in required_cols_1):
+            peak_zone_mask = (intraday_df['minute_vwap'] >= peak_range_low) & (intraday_df['minute_vwap'] <= peak_range_high)
+            peak_zone_df = intraday_df[peak_zone_mask]
             if not peak_zone_df.empty:
                 turnover_at_peak = peak_zone_df['vol'].sum()
                 results['peak_battle_intensity'] = (turnover_at_peak / total_daily_vol) * 100
@@ -653,11 +679,10 @@ class ChipFeatureCalculator:
                     sell_vwap_peak = sell_amount_peak / total_sell_vol_peak
                     if sell_vwap_peak > 0:
                         results['peak_dynamic_strength_ratio'] = (buy_vwap_peak / sell_vwap_peak - 1) * 100
-        # --- 2. 主动压力与支撑 (Active Pressure & Support) ---
         required_cols_2 = ['open', 'close', 'vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
-        if minute_df is not None and not minute_df.empty and all(c in minute_df.columns for c in required_cols_2):
-            offensive_df = minute_df[minute_df['close'] > minute_df['open']]
-            defensive_df = minute_df[minute_df['close'] < minute_df['open']]
+        if intraday_df is not None and not intraday_df.empty and all(c in intraday_df.columns for c in required_cols_2):
+            offensive_df = intraday_df[intraday_df['close'] > intraday_df['open']]
+            defensive_df = intraday_df[intraday_df['close'] < intraday_df['open']]
             total_vol_on_rally = offensive_df['vol'].sum()
             if total_vol_on_rally > 0:
                 total_sell_vol_on_rally = (offensive_df['main_force_sell_vol'] + offensive_df['retail_sell_vol']).sum()
@@ -666,10 +691,9 @@ class ChipFeatureCalculator:
             if total_vol_on_dip > 0:
                 total_buy_vol_on_dip = (defensive_df['main_force_buy_vol'] + defensive_df['retail_buy_vol']).sum()
                 results['active_buying_support'] = (total_buy_vol_on_dip / total_vol_on_dip) * 100
-        # --- 3. 高级日内动态 (Advanced Intraday Dynamics) ---
         required_cols_3 = ['open', 'close', 'vol', 'main_force_net_vol', 'high', 'low']
-        if minute_df is not None and not minute_df.empty and all(c in minute_df.columns for c in required_cols_3):
-            offensive_df = minute_df[minute_df['close'] > minute_df['open']]
+        if intraday_df is not None and not intraday_df.empty and all(c in intraday_df.columns for c in required_cols_3):
+            offensive_df = intraday_df[intraday_df['close'] > intraday_df['open']]
             if not offensive_df.empty:
                 total_vol_on_rally = offensive_df['vol'].sum()
                 if total_vol_on_rally > 0:
@@ -680,7 +704,7 @@ class ChipFeatureCalculator:
             if pd.notna(pre_close) and pre_close > 0 and pd.notna(open_price):
                 gap = open_price - pre_close
                 if abs(gap) > 1e-6:
-                    opening_30min_df = minute_df[minute_df['trade_time'].dt.time < pd.to_datetime('10:00').time()]
+                    opening_30min_df = intraday_df[intraday_df['trade_time'].dt.time < pd.to_datetime('10:00').time()]
                     if not opening_30min_df.empty:
                         gap_factor = gap / pre_close
                         fill_factor = ((open_price - opening_30min_df['low'].min()) / gap) if gap > 0 else ((opening_30min_df['high'].max() - open_price) / abs(gap))
@@ -689,32 +713,29 @@ class ChipFeatureCalculator:
                         results['opening_gap_defense_strength'] = gap_factor * (1 - min(1, max(0, fill_factor))) * force_factor * 10000
                     else: results['opening_gap_defense_strength'] = 0.0
                 else: results['opening_gap_defense_strength'] = 0.0
-        # --- 4. 战区交火剖析 (Combat Zone Dynamics) ---
-        if minute_df is not None and not minute_df.empty and total_daily_vol and total_daily_vol > 0 and all(c in minute_df.columns for c in required_cols_1):
+        if intraday_df is not None and not intraday_df.empty and total_daily_vol and total_daily_vol > 0 and all(c in intraday_df.columns for c in required_cols_1):
             high_20d = context.get('high_20d')
             low_20d = context.get('low_20d')
             if pd.notna(high_20d) and pd.notna(low_20d):
-                active_zone_mask = (minute_df['minute_vwap'] >= low_20d) & (minute_df['minute_vwap'] <= high_20d)
-                active_zone_minutes = minute_df[active_zone_mask]
+                active_zone_mask = (intraday_df['minute_vwap'] >= low_20d) & (intraday_df['minute_vwap'] <= high_20d)
+                active_zone_minutes = intraday_df[active_zone_mask]
                 if not active_zone_minutes.empty:
                     vol_in_active_zone = active_zone_minutes['vol'].sum()
                     results['active_zone_combat_intensity'] = (vol_in_active_zone / total_daily_vol) * 100
                     if vol_in_active_zone > 0:
                         mf_net_vol_in_active_zone = (active_zone_minutes['main_force_buy_vol'] - active_zone_minutes['main_force_sell_vol']).sum()
                         results['active_zone_mf_stance'] = (mf_net_vol_in_active_zone / vol_in_active_zone) * 100
-            # 增强 `profit_realization_quality` 的鲁棒性
             prev_winner_avg_cost = context.get('prev_winner_avg_cost')
             pre_close = context.get('pre_close')
-            # 优先使用昨日获利盘均价，如果无效，则降级使用昨日收盘价作为基准
             cost_benchmark = prev_winner_avg_cost if pd.notna(prev_winner_avg_cost) and prev_winner_avg_cost > 0 else pre_close
             if pd.notna(cost_benchmark) and cost_benchmark > 0:
-                total_sell_vol = (minute_df['main_force_sell_vol'] + minute_df['retail_sell_vol']).sum()
+                total_sell_vol = (intraday_df['main_force_sell_vol'] + intraday_df['retail_sell_vol']).sum()
                 if total_sell_vol > 0:
-                    total_sell_amount = ((minute_df['main_force_sell_vol'] + minute_df['retail_sell_vol']) * minute_df['minute_vwap']).sum()
+                    total_sell_amount = ((intraday_df['main_force_sell_vol'] + intraday_df['retail_sell_vol']) * intraday_df['minute_vwap']).sum()
                     sell_vwap = total_sell_amount / total_sell_vol
                     results['profit_realization_quality'] = (sell_vwap / cost_benchmark - 1) * 100
-            panic_mask = (minute_df['close'] < minute_df['open']) & (minute_df['main_force_net_vol'] < 0)
-            panic_df = minute_df[panic_mask]
+            panic_mask = (intraday_df['close'] < intraday_df['open']) & (intraday_df['main_force_net_vol'] < 0)
+            panic_df = intraday_df[panic_mask]
             if not panic_df.empty:
                 panic_sell_volume = (panic_df['main_force_sell_vol'] + panic_df['retail_sell_vol']).sum()
                 if panic_sell_volume > 0:

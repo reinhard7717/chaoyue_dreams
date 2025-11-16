@@ -545,19 +545,25 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex):
     """
-    【V1.7 · 弹药补给与筹码数据审计增强版】
+    【V1.8 · 逐笔数据加载增强版】
+    - 核心新增: 增加 StockTickData 的加载，并按日期分组，为后续的精细化计算提供数据源。
     - 核心修复: 在 all_daily_fields 中增加 'pct_change' 字段，为下游的 flow_efficiency_index 计算提供必要的“弹药”。
     - 【新增】增强 `cyq_chips` 数据加载的审计日志，当数据缺失时打印出查询的股票代码和日期列表，以便精确诊断。
     """
-    from utils.model_helpers import get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code, get_cyq_chips_model_by_code
-    # 核心修正: 内部函数 get_data_async 的查询方式从范围查询(gte/lte)升级为列表查询(in)。
+    from utils.model_helpers import get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code, get_cyq_chips_model_by_code, get_stock_tick_data_model_by_code
+    from stock_models.stock_realtime import StockTickData_SH, StockTickData_SZ, StockTickData_CY, StockTickData_KC, StockTickData_BJ
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', dates_list: list = None):
         if not model or not dates_list: return pd.DataFrame()
         qs = model.objects.filter(stock=stock_info_obj, **{f'{date_field}__in': dates_list})
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
+    @sync_to_async(thread_sensitive=True)
+    def get_tick_data_async(model, stock_info_obj, dates_list: list = None):
+        if not model or not dates_list: return pd.DataFrame()
+        qs = model.objects.filter(stock=stock_info_obj, trade_time__date__in=dates_list).values('trade_time', 'price', 'volume', 'amount', 'type')
+        return pd.DataFrame.from_records(qs)
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
-    # 修复：增加 pct_change 字段，为下游计算提供数据
+    tick_data_model = get_stock_tick_data_model_by_code(stock_info.stock_code)
     all_daily_fields = (
         'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq', 'pre_close_qfq', 'pct_change'
     )
@@ -571,7 +577,6 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount',
         'net_mf_vol', 'net_mf_amount', 'trade_count'
     )
-    # 核心修正: 将 DatetimeIndex 转换为纯日期对象列表，以匹配数据库字段类型。
     chunk_dates_list = [d.date() for d in dates_in_chunk]
     data_tasks = {
         "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), dates_list=chunk_dates_list),
@@ -581,16 +586,31 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         "fund_flow_tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, fields=fund_flow_tushare_fields, dates_list=chunk_dates_list),
         "fund_flow_ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
         "fund_flow_dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
+        "stock_tick_data": get_tick_data_async(tick_data_model, stock_info, dates_list=chunk_dates_list),
     }
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
+    tick_data_map = {}
+    if not data_dfs["stock_tick_data"].empty:
+        tick_df = data_dfs["stock_tick_data"]
+        tick_df['trade_time'] = pd.to_datetime(tick_df['trade_time'])
+        if tick_df['trade_time'].dt.tz is None:
+            tick_df['trade_time'] = tick_df['trade_time'].dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
+        else:
+            tick_df['trade_time'] = tick_df['trade_time'].dt.tz_convert('Asia/Shanghai')
+        tick_df['date'] = tick_df['trade_time'].dt.date
+        tick_data_map = {date: group_df for date, group_df in tick_df.groupby('date')}
+    data_dfs["stock_tick_data_map"] = tick_data_map
     for name, df in data_dfs.items():
+        if name == "stock_tick_data_map":
+            continue
         if df is None or df.empty:
             if 'fund_flow_ths' in name or 'fund_flow_dc' in name:
-                # logger.warning(f"[{stock_info.stock_code}] [统一加载] 可选数据源 '{name}' 为空。")
                 data_dfs[name] = pd.DataFrame()
                 continue
-            # 增强审计日志
+            if name == "stock_tick_data": # 新增代码行: 逐笔数据为空时，打印提示
+                print(f"调试信息: [{stock_info.stock_code}] [统一加载] 逐笔数据源 '{name}' 为空。")
+                continue
             if name == "cyq_chips":
                 logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！查询日期列表: {chunk_dates_list}")
             else:
@@ -665,7 +685,8 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.3 · 审计熔断非交易日过滤版】
+    【V34.4 · 逐笔数据集成版】
+    - 核心新增: 加载 StockTickData 并将其传递给筹码和资金流服务，以实现更精细的计算。
     - 核心修正: 在处理日期列表前，使用 `TradeCalendar` 过滤掉所有非交易日，避免因非交易日数据缺失而触发审计熔断。
     - 核心修正: 优化审计熔断日志，当区块因数据缺失被跳过时，详细列出缺失的具体数据源。
     - 【修复】解决 `historical_components_df` 在 `pd.concat` 后可能出现重复索引的问题，确保其唯一性。
@@ -677,8 +698,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         from stock_models.index import TradeCalendar
         import json
         import os
-        from django.conf import settings # 假设 Django settings 可用
-        # 加载策略配置以获取 debug_params
+        from django.conf import settings
         config_path = os.path.join(settings.BASE_DIR, 'config', 'trend_follow_strategy.json')
         strategy_config = {}
         try:
@@ -688,7 +708,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             logger.error(f"策略配置文件未找到: {config_path}")
         except json.JSONDecodeError:
             logger.error(f"解码策略配置文件 JSON 失败: {config_path}")
-        # 从加载的配置中提取 debug_params
         debug_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
         fund_flow_service = AdvancedFundFlowMetricsService()
         chip_service = AdvancedChipMetricsService()
@@ -705,7 +724,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         if raw_dates_to_process.empty:
             logger.info(f"[{stock_code}] 无需计算的日期，合并任务终止。")
             return {"status": "skipped", "reason": "No new dates to process.", "failures": []}
-        # 过滤掉非交易日
         trade_dates_only = await sync_to_async(TradeCalendar.get_trade_dates_between)(
             start_date=raw_dates_to_process.min().date(),
             end_date=raw_dates_to_process.max().date()
@@ -752,8 +770,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         }
         health_score_hist_lookback_date = dates_to_process.min().date() - timedelta(days=365)
         health_score_components = [
-            'cost_15pct', 'cost_85pct', 'weight_avg_cost',
-            'cost_divergence_normalized', 'dominant_peak_profit_margin',
+            'concentration_70pct', 'cost_divergence_normalized', 'dominant_peak_profit_margin',
             'main_force_cost_advantage', 'suppressive_accumulation_intensity', 'upward_impulse_purity',
             'active_winner_profit_margin', 'winner_conviction_index'
         ]
@@ -792,28 +809,28 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 seed_base_daily_df['atr_14d'] = seed_base_daily_df.index.map(atr_map_global)
                 seed_ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"]}
                 seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=seed_ff_data_dfs, base_daily_df=seed_base_daily_df)
-                fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index)
-                _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df)
+                fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index, tick_data_map=seed_data_dfs["stock_tick_data_map"])
+                _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df, tick_data_map=seed_data_dfs["stock_tick_data_map"])
                 seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "cyq_perf": seed_data_dfs["cyq_perf"]}
                 seed_chip_raw_df = chip_service._preprocess_and_merge_data(
                     stock_code, seed_chip_data_dfs, seed_base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
                     high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
                 )
-                seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max())
-                _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map, memory={}, historical_components=historical_components_df, debug_params=debug_params)
+                seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max(), tick_data_map=seed_data_dfs["stock_tick_data_map"])
+                _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map, memory={}, historical_components=historical_components_df, debug_params=debug_params, tick_data_map=seed_data_dfs["stock_tick_data_map"])
             else:
                 logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
             data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_dates)
+            tick_data_map = data_dfs.pop("stock_tick_data_map") # 新增代码行: 提取逐笔数据map
             critical_sources = ["cyq_chips", "daily_data", "daily_basic", "cyq_perf", "fund_flow_tushare"]
             is_chunk_valid = True
             chunk_missing_records = []
             for date in chunk_dates:
                 for source_name in critical_sources:
                     source_df = data_dfs.get(source_name)
-                    # 检查数据帧是否为空，或者特定日期的数据是否缺失
                     if source_df is None or source_df.empty or date.date() not in pd.to_datetime(source_df['trade_time']).dt.date.values:
                         is_chunk_valid = False
                         reason_str = f"上游核心数据源 '{source_name}' 缺失"
@@ -842,17 +859,17 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             if fund_flow_raw_df.empty:
                 logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 资金流原始数据为空，跳过。")
                 continue
-            fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index)
-            fund_flow_metrics_df, fund_flow_attributed_minute_map, ff_failures = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df)
+            fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index, tick_data_map=tick_data_map)
+            fund_flow_metrics_df, fund_flow_attributed_minute_map, ff_failures = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df, tick_data_map=tick_data_map)
             all_failures.extend(ff_failures)
             chip_data_dfs = {"cyq_chips": data_dfs["cyq_chips"], "cyq_perf": data_dfs["cyq_perf"]}
             chip_raw_df = chip_service._preprocess_and_merge_data(
                 stock_code, chip_data_dfs, base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
                 high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
             )
-            minute_data_map = await chip_service._load_minute_data_for_range(stock_info, chunk_dates.min(), chunk_dates.max())
+            minute_data_map = await chip_service._load_minute_data_for_range(stock_info, chunk_dates.min(), chunk_dates.max(), tick_data_map=tick_data_map)
             chip_metrics_df, cross_chunk_memory, chunk_failures = chip_service._synthesize_and_forge_metrics(
-                stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory, historical_components=historical_components_df, debug_params=debug_params
+                stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory, historical_components=historical_components_df, debug_params=debug_params, tick_data_map=tick_data_map
             )
             all_failures.extend(chunk_failures)
             chunk_core_metrics_df = fund_flow_metrics_df.join(chip_metrics_df, how='outer')
