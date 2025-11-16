@@ -238,6 +238,32 @@ class AdvancedFundFlowMetricsService:
             print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 未找到任何预加载的日内数据。")
         return {k: v.reset_index(drop=True) for k, v in intraday_data_map.items()}
 
+    def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
+        """
+        【V1.0 · 单日指标合成器】
+        - 核心职责: 作为单日所有高级资金流指标计算的总调度中心。
+        - 核心逻辑: 依次调用日线、行为、微观结构等专项计算模块，并将结果聚合。
+        """
+        # 1. 初始化当日指标字典
+        day_metrics = {}
+        # 2. 计算基于日线数据的衍生指标
+        daily_derived_metrics = self._calculate_daily_derived_metrics(daily_data_series)
+        day_metrics.update(daily_derived_metrics)
+        # 3. 合并预先计算好的概率成本
+        day_metrics.update(probabilistic_costs_dict)
+        # 4. 计算基于分钟数据的行为指标
+        # 注意：_compute_all_behavioral_metrics 需要归因后的分钟数据
+        behavioral_metrics = self._compute_all_behavioral_metrics(attributed_minute_df, daily_data_series)
+        day_metrics.update(behavioral_metrics)
+        # 5. 计算基于高频数据的微观结构信号
+        daily_total_volume = daily_data_series.get('vol', 0) * 100
+        microstructure_signals = self._calculate_microstructure_signals(stock_code, tick_data_for_day, level5_data_for_day, daily_total_volume)
+        day_metrics.update(microstructure_signals)
+        # 6. 填充 trade_time 字段
+        day_metrics['trade_time'] = daily_data_series.name
+        # 7. 返回最终的指标字典和归因后的分钟数据
+        return day_metrics, attributed_minute_df
+
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
         【V10.7 · 调用对齐版】
