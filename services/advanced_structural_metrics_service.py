@@ -29,32 +29,13 @@ class AdvancedStructuralMetricsService:
         """初始化服务，设定回溯期等基础参数"""
         self.max_lookback_days = 300 # 为计算衍生指标所需的最大历史回溯天数
 
-    async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
+    async def run_precomputation(self, stock_info: StockInfo, dates_to_process: pd.DatetimeIndex, daily_df_with_atr: pd.DataFrame):
         """
-        【V1.5 · 高频数据驱动版】高级结构与行为指标预计算总指挥
-        - 核心升级: 调用新的 `_load_intraday_data_for_range` 方法，实现对高频数据的优先加载。
-        - 核心修复: 严格区分“处理起始日”与“回溯起始日”，修复了当指定start_date_str时，处理范围错误地从更早的回溯日期开始的重大BUG。
+        【V2.0 · 纯计算引擎版】高级结构与行为指标预计算总指挥
+        - 核心重构: 剥离所有数据加载逻辑，接收由上游Celery任务预加载的数据。
+        - 核心职责: 1. 按区块处理日期。 2. 调用日内数据加载器。 3. 调用指标锻造器。 4. 计算衍生指标并保存。
         """
-        stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
-            stock_code, is_incremental, start_date_str
-        )
-        if not is_incremental_final:
-            await sync_to_async(MetricsModel.objects.filter(stock=stock_info).delete)()
-            DailyModel = get_daily_data_model_by_code(stock_code)
-            all_dates_qs = DailyModel.objects.filter(stock=stock_info).values_list('trade_time', flat=True).order_by('trade_time')
-            dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
-        else:
-            processing_start_date = start_date_str if start_date_str else fetch_start_date
-            if start_date_str:
-                await sync_to_async(MetricsModel.objects.filter(stock=stock_info, trade_time__gte=start_date_str).delete)()
-            elif last_metric_date:
-                await sync_to_async(MetricsModel.objects.filter(stock=stock_info, trade_time__gte=last_metric_date).delete)()
-            DailyModel = get_daily_data_model_by_code(stock_code)
-            all_dates_qs = DailyModel.objects.filter(stock=stock_info, trade_time__gte=processing_start_date).values_list('trade_time', flat=True).order_by('trade_time')
-            dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
-        if dates_to_process.empty:
-            logger.info(f"[{stock_code}] [结构指标] 没有需要处理的日期，任务结束。")
-            return 0
+        MetricsModel = get_advanced_structural_metrics_model_by_code(stock_info.stock_code)
         initial_history_end_date = dates_to_process.min()
         historical_metrics_df = await self._load_historical_metrics(MetricsModel, stock_info, initial_history_end_date)
         CHUNK_SIZE = 50
@@ -63,27 +44,22 @@ class AdvancedStructuralMetricsService:
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty:
                 continue
+            # 核心变更：调用加载器，该加载器现在负责健壮地获取数据
             intraday_data_map = await self._load_intraday_data_for_range(stock_info, chunk_dates.min(), chunk_dates.max())
-            processed_dates_in_chunk = set(intraday_data_map.keys())
-            required_dates_in_chunk = set(chunk_dates.date)
-            missing_dates = required_dates_in_chunk - processed_dates_in_chunk
-            if missing_dates:
-                for missing_date in sorted(list(missing_dates)):
-                    logger.warning(f"[{stock_code}] [{missing_date}] 跳过结构指标计算，缺失当日全部的日内数据。")
             if not intraday_data_map:
-                logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 无任何日内数据，跳过整个区块。")
+                logger.warning(f"[{stock_info.stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 无任何日内数据，跳过整个区块。")
                 continue
-            chunk_new_metrics_df = await self._forge_advanced_structural_metrics(intraday_data_map, stock_code)
+            # 核心变更：将预加载的日线数据传递给锻造器
+            chunk_new_metrics_df = await self._forge_advanced_structural_metrics(intraday_data_map, stock_info.stock_code, daily_df_with_atr)
             all_new_core_metrics_df = pd.concat([all_new_core_metrics_df, chunk_new_metrics_df])
         if all_new_core_metrics_df.empty:
-            logger.info(f"[{stock_code}] [结构指标] 未能计算出任何新的核心指标，任务结束。")
+            logger.info(f"[{stock_info.stock_code}] [结构指标] 未能计算出任何新的核心指标，任务结束。")
             return 0
         full_sequence_for_derivatives = pd.concat([historical_metrics_df, all_new_core_metrics_df])
         full_sequence_for_derivatives.sort_index(inplace=True)
-        final_metrics_df = self._calculate_derivatives(stock_code, full_sequence_for_derivatives)
+        final_metrics_df = self._calculate_derivatives(stock_info.stock_code, full_sequence_for_derivatives)
         chunk_to_save = final_metrics_df[final_metrics_df.index.isin(all_new_core_metrics_df.index)]
         total_processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
-        logger.info(f"[{stock_code}] [结构指标] 成功处理并保存了 {total_processed_count} 条高级结构与行为指标。")
         return total_processed_count
 
     async def _initialize_context(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
@@ -186,33 +162,22 @@ class AdvancedStructuralMetricsService:
                     intraday_data_map.update({date: group_df for date, group_df in minute_df_fallback.groupby('date')})
         return intraday_data_map
 
-    async def _forge_advanced_structural_metrics(self, intraday_data_map: dict, stock_code: str) -> pd.DataFrame:
+    async def _forge_advanced_structural_metrics(self, intraday_data_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
-        【V17.3 · 高频数据驱动版】
-        - 核心升级: 能够处理来自 `_load_intraday_data_for_range` 的、可能由高频数据聚合而成的丰富分钟数据。
-        - 核心升级: 增加短、中、长三种周期的ATR计算，为下游的波动率扩张比指标提供必要的“武器原料”。
+        【V18.0 · 纯计算版】
+        - 核心重构: 移除所有内部的数据库查询逻辑，改为接收一个预先加载并计算好ATR的日线DataFrame。
         """
         if not intraday_data_map:
             return pd.DataFrame()
         daily_metrics = []
         all_dates = sorted(intraday_data_map.keys())
+        # 核心变更：不再查询数据库，直接使用传入的 daily_df_with_atr
+        daily_df = daily_df_with_atr
+        # 补充换手率数据（这部分仍然需要查询，但范围更小）
         from stock_models.time_trade import StockDailyBasic
-        DailyModel = get_daily_data_model_by_code(stock_code)
-        history_start_date = min(all_dates) - timedelta(days=100)
-        daily_data_qs = DailyModel.objects.filter(
-            stock__stock_code=stock_code,
-            trade_time__gte=history_start_date,
-            trade_time__lte=max(all_dates)
-        ).values('trade_time', 'high', 'low', 'open', 'close', 'pre_close', 'high_qfq', 'low_qfq', 'open_qfq', 'close_qfq', 'pre_close_qfq').order_by('trade_time')
-        daily_df = pd.DataFrame.from_records(await sync_to_async(list)(daily_data_qs))
-        if daily_df.empty:
-            logger.warning(f"[{stock_code}] 无法加载日线行情数据，部分指标无法计算。")
-            return pd.DataFrame()
-        daily_df['trade_time'] = pd.to_datetime(daily_df['trade_time']).dt.date
-        daily_df = daily_df.set_index('trade_time')
         daily_basic_qs = StockDailyBasic.objects.filter(
             stock__stock_code=stock_code,
-            trade_time__gte=history_start_date,
+            trade_time__gte=min(all_dates),
             trade_time__lte=max(all_dates)
         ).values('trade_time', 'turnover_rate_f').order_by('trade_time')
         daily_basic_df = pd.DataFrame.from_records(await sync_to_async(list)(daily_basic_qs))
@@ -220,9 +185,6 @@ class AdvancedStructuralMetricsService:
             daily_basic_df['trade_time'] = pd.to_datetime(daily_basic_df['trade_time']).dt.date
             daily_basic_df = daily_basic_df.set_index('trade_time')
             daily_df = daily_df.join(daily_basic_df, how='left')
-        daily_df.ta.atr(high=daily_df['high_qfq'], low=daily_df['low_qfq'], close=daily_df['close_qfq'], length=5, append=True, col_names=('ATR_5',))
-        daily_df.ta.atr(high=daily_df['high_qfq'], low=daily_df['low_qfq'], close=daily_df['close_qfq'], length=14, append=True, col_names=('ATR_14',))
-        daily_df.ta.atr(high=daily_df['high_qfq'], low=daily_df['low_qfq'], close=daily_df['close_qfq'], length=50, append=True, col_names=('ATR_50',))
         atr_5 = daily_df['ATR_5']
         atr_14 = daily_df['ATR_14']
         atr_50 = daily_df['ATR_50']

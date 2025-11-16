@@ -663,31 +663,62 @@ def summarize_computation_failures(results):
 @with_cache_manager
 def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V1.0】为单只股票预计算高级结构与行为指标的Celery任务。
-    - 核心职责: 调用 AdvancedStructuralMetricsService，执行分钟级数据的锻造任务。
+    【V2.0 · 指挥官模式重构版】为单只股票预计算高级结构与行为指标的Celery任务。
+    - 核心重构: 本任务从简单的服务调用者，升级为负责数据加载和流程调度的“指挥官”。
+    - 核心逻辑: 1. 确定处理日期范围。 2. 统一加载日线、分钟、Tick、Level5数据。 3. 将预加载的数据传递给服务层进行纯粹计算。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.advanced_structural_metrics_service import AdvancedStructuralMetricsService
+        from stock_models.index import TradeCalendar
+        from utils.model_helpers import get_daily_data_model_by_code, get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code, get_minute_data_model_by_code_and_timelevel
+        from datetime import timedelta
+        import pandas_ta as ta
         structural_service = AdvancedStructuralMetricsService()
-        try:
-            processed_count = await structural_service.run_precomputation(
-                stock_code=stock_code,
-                is_incremental=incremental_flag,
-                start_date_str=start_date_override
-            )
-            logger.info(f"[{stock_code}] [结构指标任务] 成功完成，处理了 {processed_count} 条记录。")
-            return {"status": "success", "stock_code": stock_code, "processed_days": processed_count}
-        except Exception as e:
-            logger.error(f"[{stock_code}] [结构指标任务] 执行失败: {e}", exc_info=True)
-            # 可以在这里决定是否重试
-            raise
+        # 步骤 1: 初始化上下文，获取股票信息和模型
+        stock_info, MetricsModel, _, last_metric_date, fetch_start_date = await structural_service._initialize_context(
+            stock_code, incremental_flag, start_date_override
+        )
+        # 步骤 2: 确定需要处理的日期范围
+        DailyModel = get_daily_data_model_by_code(stock_code)
+        date_filter = {'stock': stock_info}
+        if start_date_override:
+            date_filter['trade_time__gte'] = start_date_override
+        elif last_metric_date:
+            date_filter['trade_time__gt'] = last_metric_date
+        all_dates_qs = DailyModel.objects.filter(**date_filter).values_list('trade_time', flat=True).order_by('trade_time')
+        dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
+        if dates_to_process.empty:
+            logger.info(f"[{stock_code}] [结构指标任务] 无需计算的日期，任务终止。")
+            return 0
+        # 步骤 3: 一次性加载所有需要的历史日线数据用于计算ATR
+        history_start_date = dates_to_process.min().date() - timedelta(days=100)
+        daily_data_qs = DailyModel.objects.filter(
+            stock=stock_info,
+            trade_time__gte=history_start_date,
+            trade_time__lte=dates_to_process.max().date()
+        ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'pre_close_qfq').order_by('trade_time')
+        daily_df_with_atr = pd.DataFrame.from_records(await sync_to_async(list)(daily_data_qs))
+        if daily_df_with_atr.empty:
+            logger.error(f"[{stock_code}] [结构指标任务] 无法加载必要的日线数据，任务终止。")
+            return 0
+        daily_df_with_atr['trade_time'] = pd.to_datetime(daily_df_with_atr['trade_time']).dt.date
+        daily_df_with_atr = daily_df_with_atr.set_index('trade_time')
+        daily_df_with_atr.ta.atr(length=5, append=True, col_names=('ATR_5',))
+        daily_df_with_atr.ta.atr(length=14, append=True, col_names=('ATR_14',))
+        daily_df_with_atr.ta.atr(length=50, append=True, col_names=('ATR_50',))
+        # 步骤 4: 调用重构后的服务执行器
+        processed_count = await structural_service.run_precomputation(
+            stock_info=stock_info,
+            dates_to_process=dates_to_process,
+            daily_df_with_atr=daily_df_with_atr
+        )
+        logger.info(f"[{stock_code}] [结构指标任务] 成功完成，处理了 {processed_count} 条记录。")
+        return {"status": "success", "stock_code": stock_code, "processed_days": processed_count}
     try:
-        # 使用 async_to_sync 将异步的 main 函数同步执行
         result = async_to_sync(main)(is_incremental, start_date_str)
         return result
     except Exception as e:
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_structural_metrics_for_stock for {stock_code}: {e}", exc_info=True)
-        # 根据Celery的最佳实践，重新抛出异常以便Celery可以跟踪任务失败和重试
         raise
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')

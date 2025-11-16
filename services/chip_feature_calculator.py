@@ -992,7 +992,7 @@ class ChipFeatureCalculator:
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
         if intraday_df.empty or total_daily_volume <= 0 or pd.isna(daily_high) or pd.isna(daily_low) or daily_high <= daily_low:
-            print(f"调试信息: [{stock_code}] [{trade_date}] 价格成交量熵计算跳过，原因：日内数据为空或总成交量为零或价格范围无效。")
+            # print(f"调试信息: [{stock_code}] [{trade_date}] 价格成交量熵计算跳过，原因：日内数据为空或总成交量为零或价格范围无效。")
             return np.nan
         # 确定价格箱的数量
         # 动态确定价格箱数量，基于最小价格变动单位0.01元，并设置上下限
