@@ -121,12 +121,16 @@ class AdvancedStructuralMetricsService:
 
     async def _load_intraday_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp) -> dict:
         """
-        【V2.0 · 高频数据优先版】一次性加载指定日期范围内的所有日内数据，并按日期分组。
-        - 核心进化: 优先加载并融合 TickData 和 Level5Data。如果失败或数据不完整，则回退到加载 MinuteData。
+        【V2.1 · 健壮回退版】一次性加载指定日期范围内的所有日内数据，并按日期分组。
+        - 核心进化: 实现逐日判断、按需回退的健壮数据加载策略。
+        - 核心逻辑: 1. 优先加载并聚合高频数据。 2. 识别出高频数据缺失的日期。 3. 仅为这些日期回退加载分钟数据。 4. 合并两部分数据源。
         """
         from django.utils import timezone
-        from utils.model_helpers import get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code
-        # 尝试加载高频数据
+        from utils.model_helpers import get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code, get_daily_data_model_by_code
+        intraday_data_map = {}
+        start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
+        end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
+        # 阶段一：尝试加载并处理高频数据
         TickModel = get_stock_tick_data_model_by_code(stock_info.stock_code)
         Level5Model = get_stock_level5_data_model_by_code(stock_info.stock_code)
         @sync_to_async(thread_sensitive=True)
@@ -134,65 +138,53 @@ class AdvancedStructuralMetricsService:
             if not model: return pd.DataFrame()
             qs = model.objects.filter(stock_id=stock_pk, trade_time__gte=start_dt, trade_time__lt=end_dt).order_by('trade_time')
             return pd.DataFrame.from_records(qs.values())
-        start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
-        end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
         tick_df = await get_hf_data(TickModel, stock_info.pk, start_datetime, end_datetime)
         if not tick_df.empty:
-            print(f"调试信息: [{stock_info.stock_code}] 成功加载逐笔数据，将进行聚合。")
-            tick_df['trade_time'] = pd.to_datetime(tick_df['trade_time'])
-            if tick_df['trade_time'].dt.tz is not None:
-                tick_df['trade_time'] = tick_df['trade_time'].dt.tz_convert('Asia/Shanghai')
-            else:
-                tick_df['trade_time'] = tick_df['trade_time'].dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
-            # 尝试融合Level5数据进行归因优化
+            print(f"调试信息: [{stock_info.stock_code}] 在 {start_date.date()} 到 {end_date.date()} 范围内发现逐笔数据，开始处理。")
+            tick_df['trade_time'] = pd.to_datetime(tick_df['trade_time']).dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
             level5_df = await get_hf_data(Level5Model, stock_info.pk, start_datetime, end_datetime)
             if not level5_df.empty:
-                print(f"调试信息: [{stock_info.stock_code}] 成功加载Level5数据，将进行融合归因。")
-                level5_df['trade_time'] = pd.to_datetime(level5_df['trade_time'])
-                if level5_df['trade_time'].dt.tz is not None:
-                    level5_df['trade_time'] = level5_df['trade_time'].dt.tz_convert('Asia/Shanghai')
-                else:
-                    level5_df['trade_time'] = level5_df['trade_time'].dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
-                merged_df = pd.merge_asof(tick_df.sort_values('trade_time'), level5_df.sort_values('trade_time'), on='trade_time', direction='backward')
-                conditions = [merged_df['price'] >= merged_df['sell_price1'], merged_df['price'] <= merged_df['buy_price1']]
+                level5_df['trade_time'] = pd.to_datetime(level5_df['trade_time']).dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
+                tick_df = pd.merge_asof(tick_df.sort_values('trade_time'), level5_df.sort_values('trade_time'), on='trade_time', direction='backward')
+                conditions = [tick_df['price'] >= tick_df['sell_price1'], tick_df['price'] <= tick_df['buy_price1']]
                 choices = ['B', 'S']
-                merged_df['type'] = np.select(conditions, choices, default='M')
-                tick_df = merged_df
-            # 聚合到分钟级别
+                tick_df['type'] = np.select(conditions, choices, default='M')
             tick_df.set_index('trade_time', inplace=True)
             buy_vol_per_minute = tick_df[tick_df['type'] == 'B'].resample('1min')['volume'].sum()
             sell_vol_per_minute = tick_df[tick_df['type'] == 'S'].resample('1min')['volume'].sum()
-            minute_df = tick_df.resample('1min').agg(
+            minute_df_from_hf = tick_df.resample('1min').agg(
                 open=('price', 'first'), high=('price', 'max'), low=('price', 'min'),
                 close=('price', 'last'), vol=('volume', 'sum'), amount=('amount', 'sum')
             ).dropna(subset=['open', 'high', 'low', 'close', 'vol', 'amount'])
-            minute_df['buy_vol_raw'] = buy_vol_per_minute
-            minute_df['sell_vol_raw'] = sell_vol_per_minute
-            minute_df.fillna({'buy_vol_raw': 0, 'sell_vol_raw': 0}, inplace=True)
-            minute_df.reset_index(inplace=True)
-            minute_df['date'] = minute_df['trade_time'].dt.date
-            return {date: group_df for date, group_df in minute_df.groupby('date')}
-        # 回退到加载分钟数据
-        print(f"调试信息: [{stock_info.stock_code}] 未找到逐笔数据，回退到加载分钟数据。")
-        MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
-        if not MinuteModel: return {}
-        @sync_to_async(thread_sensitive=True)
-        def get_data(model, stock_pk, start_dt, end_dt):
-            qs = model.objects.filter(stock_id=stock_pk, trade_time__gte=start_dt, trade_time__lt=end_dt).values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount').order_by('trade_time')
-            return pd.DataFrame.from_records(qs)
-        minute_df = await get_data(MinuteModel, stock_info.pk, start_datetime, end_datetime)
-        if minute_df.empty: return {}
-        minute_df['trade_time'] = pd.to_datetime(minute_df['trade_time'])
-        if minute_df['trade_time'].dt.tz is not None:
-            minute_df['trade_time'] = minute_df['trade_time'].dt.tz_convert('Asia/Shanghai')
-        else:
-            minute_df['trade_time'] = minute_df['trade_time'].dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
-        cols_to_float = ['open', 'high', 'low', 'close', 'amount', 'vol']
-        for col in cols_to_float:
-            if col in minute_df.columns:
-                minute_df[col] = pd.to_numeric(minute_df[col], errors='coerce')
-        minute_df['date'] = minute_df['trade_time'].dt.date
-        return {date: group_df for date, group_df in minute_df.groupby('date')}
+            minute_df_from_hf['buy_vol_raw'] = buy_vol_per_minute
+            minute_df_from_hf['sell_vol_raw'] = sell_vol_per_minute
+            minute_df_from_hf.fillna({'buy_vol_raw': 0, 'sell_vol_raw': 0}, inplace=True)
+            minute_df_from_hf.reset_index(inplace=True)
+            minute_df_from_hf['date'] = minute_df_from_hf['trade_time'].dt.date
+            intraday_data_map.update({date: group_df for date, group_df in minute_df_from_hf.groupby('date')})
+        # 阶段二 & 三：识别缺失日期并回退加载分钟数据
+        DailyModel = get_daily_data_model_by_code(stock_info.stock_code)
+        all_dates_in_range_qs = DailyModel.objects.filter(stock=stock_info, trade_time__gte=start_date, trade_time__lte=end_date).values_list('trade_time', flat=True)
+        all_required_dates = {d.date() for d in pd.to_datetime(await sync_to_async(list)(all_dates_in_range_qs))}
+        dates_with_hf_data = set(intraday_data_map.keys())
+        dates_for_fallback = sorted(list(all_required_dates - dates_with_hf_data))
+        if dates_for_fallback:
+            print(f"调试信息: [{stock_info.stock_code}] 为 {len(dates_for_fallback)} 个日期回退加载分钟数据: {dates_for_fallback}")
+            MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
+            if MinuteModel:
+                @sync_to_async(thread_sensitive=True)
+                def get_minute_data_for_dates(model, stock_pk, dates_list):
+                    qs = model.objects.filter(stock_id=stock_pk, trade_time__date__in=dates_list).values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount').order_by('trade_time')
+                    return pd.DataFrame.from_records(qs)
+                minute_df_fallback = await get_minute_data_for_dates(MinuteModel, stock_info.pk, dates_for_fallback)
+                if not minute_df_fallback.empty:
+                    minute_df_fallback['trade_time'] = pd.to_datetime(minute_df_fallback['trade_time']).dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
+                    cols_to_float = ['open', 'high', 'low', 'close', 'amount', 'vol']
+                    for col in cols_to_float:
+                        minute_df_fallback[col] = pd.to_numeric(minute_df_fallback[col], errors='coerce')
+                    minute_df_fallback['date'] = minute_df_fallback['trade_time'].dt.date
+                    intraday_data_map.update({date: group_df for date, group_df in minute_df_fallback.groupby('date')})
+        return intraday_data_map
 
     async def _forge_advanced_structural_metrics(self, intraday_data_map: dict, stock_code: str) -> pd.DataFrame:
         """
@@ -270,17 +262,21 @@ class AdvancedStructuralMetricsService:
 
     def _compute_all_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict) -> dict:
         """
-        【V3.2 · 力学精确版】
-        - 核心进化: 升级 `intraday_thrust_purity` 指标的计算逻辑。当存在高频聚合数据时，使用精确的净主动成交量 (`buy_vol_raw` - `sell_vol_raw`) 代替原有的基于分钟K线开合的模糊估算，从而更真实地反映日内推力的纯度。
-        - 核心修复: 在所有 pd.cut 调用中增加 duplicates='drop' 参数，以处理因涨跌停等极端行情导致的价格无波动情况，根除 'Bin edges must be unique' 错误。
+        【V3.3 · 双源兼容版】
+        - 核心进化: 能够处理高频聚合数据和纯分钟线数据两种来源。
+        - 核心逻辑: 通过检查 `buy_vol_raw` 列是否存在，来判断数据源。如果为高频源，则计算全部指标；如果为分钟源，则仅计算传统指标，并将新的高频力学指标置为NaN。
         """
         results = {}
+        # 初始化所有指标，包括新的高频指标
         results['auction_impact_score'] = np.nan
         results['price_shock_factor'] = np.nan
         results['volatility_expansion_ratio'] = np.nan
         results['trend_quality_score'] = np.nan
         results['closing_momentum_index'] = np.nan
         results['volume_structure_skew'] = np.nan
+        results['active_volume_price_efficiency'] = np.nan
+        results['absorption_strength_index'] = np.nan
+        results['distribution_pressure_index'] = np.nan
         total_volume = group['vol'].sum()
         total_volume_safe = total_volume if total_volume > 0 else np.nan
         day_open_qfq, day_high_qfq, day_low_qfq, day_close_qfq, pre_close_qfq = (
@@ -293,15 +289,12 @@ class AdvancedStructuralMetricsService:
             turnover_rate = pd.to_numeric(daily_series_for_day.get('turnover_rate_f'), errors='coerce')
             if pd.notna(turnover_rate):
                 results['intraday_energy_density'] = np.log1p(turnover_rate) / atr_14
-        # 核心进化: intraday_thrust_purity 计算升级
-        if 'buy_vol_raw' in group.columns and 'sell_vol_raw' in group.columns:
-            # 高精度模式：使用净主动成交量
+        is_hf_data = 'buy_vol_raw' in group.columns and 'sell_vol_raw' in group.columns
+        if is_hf_data:
             net_active_volume = group['buy_vol_raw'].sum() - group['sell_vol_raw'].sum()
             if total_volume > 0:
                 results['intraday_thrust_purity'] = net_active_volume / total_volume
-                print(f"调试信息: [{daily_series_for_day.name}] 使用高精度模式计算推力纯度: {results['intraday_thrust_purity']:.4f}")
         else:
-            # 回退模式：使用分钟K线形态估算
             thrust_vector = (group['close'] - group['open']) * group['vol']
             absolute_energy = abs(group['close'] - group['open']) * group['vol']
             total_energy = absolute_energy.sum()
@@ -400,6 +393,25 @@ class AdvancedStructuralMetricsService:
             elif day_close_qfq < today_val: results['closing_acceptance_type'] = -2
             elif day_close_qfq < today_vpoc: results['closing_acceptance_type'] = -1
             else: results['closing_acceptance_type'] = 0
+        # --- 3.5 高频力学指标 (仅当有高频数据时计算) ---
+        if is_hf_data:
+            net_active_volume = group['buy_vol_raw'].sum() - group['sell_vol_raw'].sum()
+            price_change_in_atr = (day_close_qfq - day_open_qfq) / atr_14 if pd.notna(atr_14) and atr_14 > 0 else 0
+            if net_active_volume != 0:
+                results['active_volume_price_efficiency'] = price_change_in_atr / (net_active_volume / total_volume_safe) if total_volume_safe > 0 else np.nan
+            down_minutes_df = group[group['close'] < group['open']]
+            if not down_minutes_df.empty:
+                active_buy_on_dip = down_minutes_df['buy_vol_raw'].sum()
+                active_sell_on_dip = down_minutes_df['sell_vol_raw'].sum()
+                if active_sell_on_dip > 0:
+                    results['absorption_strength_index'] = active_buy_on_dip / active_sell_on_dip
+            up_minutes_df = group[group['close'] > group['open']]
+            if not up_minutes_df.empty:
+                active_sell_on_rally = up_minutes_df['sell_vol_raw'].sum()
+                active_buy_on_rally = up_minutes_df['buy_vol_raw'].sum()
+                if active_buy_on_rally > 0:
+                    results['distribution_pressure_index'] = active_sell_on_rally / active_buy_on_rally
+        # --- 4. 传统博弈效率 (兼容所有数据源) ---
         continuous_group['price_diff'] = continuous_group['close'] - continuous_group['open']
         up_minutes = continuous_group[continuous_group['price_diff'] > 0]
         if not up_minutes.empty and up_minutes['vol'].sum() > 0 and pd.notna(total_volume_safe) and day_open_qfq > 0:
@@ -452,7 +464,7 @@ class AdvancedStructuralMetricsService:
                 if weighted_var > 0:
                     weighted_std = np.sqrt(weighted_var)
                     results['volatility_skew_index'] = np.average(((returns - weighted_mean) / weighted_std)**3, weights=weights)
-        # --- 4. 前瞻性与收盘博弈分析 ---
+        # --- 5. 前瞻性与收盘博弈分析 ---
         auction_period_df = group[group['trade_time'].dt.time >= time(14, 57)]
         if not auction_period_df.empty and not continuous_group.empty:
             close_before_auction = continuous_group['close'].iloc[-1]
@@ -469,7 +481,7 @@ class AdvancedStructuralMetricsService:
             results['price_shock_factor'] = shock * direction
         if all(pd.notna(v) for v in [atr_5, atr_50]) and atr_50 > 0:
             results['volatility_expansion_ratio'] = atr_5 / atr_50
-        # --- 5. V18.0 战场分析仪指标 ---
+        # --- 6. V18.0 战场分析仪指标 ---
         if not continuous_group.empty and len(continuous_group) > 1:
             from scipy.stats import linregress
             vwap_series = continuous_group['minute_vwap'].dropna()
