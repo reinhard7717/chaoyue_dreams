@@ -39,9 +39,10 @@ class ChipFeatureCalculator:
 
     def calculate_all_metrics(self) -> dict:
         """
-        【V15.0 · 计算核心整合版】
-        - 核心重构: 废除中间调度方法，由本方法直接指挥五大计算单元，实现扁平化、高效的指挥链。
-        - 核心思想: 将所有计算逻辑整合为五个高度内聚的“合成营”方法，并按依赖顺序依次执行。
+        【V15.1 · 微观博弈整合版】
+        - 核心新增: 增加第六个计算单元 `_compute_microstructure_game_metrics`，专门负责计算基于高频数据的筹码微观博弈指标。
+        - 核心重构: 废除中间调度方法，由本方法直接指挥六大计算单元，实现扁平化、高效的指挥链。
+        - 核心思想: 将所有计算逻辑整合为六个高度内聚的“合成营”方法，并按依赖顺序依次执行。
         """
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
@@ -56,7 +57,7 @@ class ChipFeatureCalculator:
         # 步骤1: 提取基础指标并更新上下文
         summary_info = self._get_summary_metrics_from_context()
         self.ctx.update(summary_info)
-        # 步骤2: 按依赖顺序调用五大计算单元，并持续更新上下文
+        # 步骤2: 按依赖顺序调用六大计算单元，并持续更新上下文
         static_structure_metrics = self._compute_static_structure_metrics()
         self.ctx.update(static_structure_metrics)
         intraday_dynamics_metrics = self._compute_intraday_dynamics_metrics(self.ctx)
@@ -67,6 +68,8 @@ class ChipFeatureCalculator:
         self.ctx.update(game_theoretic_metrics)
         vital_signs_metrics = self._compute_vital_sign_metrics(self.ctx)
         self.ctx.update(vital_signs_metrics)
+        microstructure_game_metrics = self._compute_microstructure_game_metrics(self.ctx)
+        self.ctx.update(microstructure_game_metrics)
         # 步骤3: 整合所有计算结果
         all_metrics = {
             **summary_info,
@@ -75,6 +78,7 @@ class ChipFeatureCalculator:
             **cross_day_flow_metrics,
             **game_theoretic_metrics,
             **vital_signs_metrics,
+            **microstructure_game_metrics,
         }
         # 步骤4: 计算最终的健康分 (它依赖于之前计算出的所有指标)
         health_score_info = self._calculate_chip_structure_health_score(self.ctx)
@@ -86,7 +90,8 @@ class ChipFeatureCalculator:
 
     def _prepare_intraday_data_features(self):
         """
-        【V2.4 · 逐笔数据优先版】准备日内数据特征，优先使用逐笔数据，否则回退到分钟数据。
+        【V2.6 · 精确归因数据兼容版】准备日内数据特征，优先使用逐笔数据，否则回退到分钟数据。
+        - 核心进化: 能够直接处理由资金流服务传入的、已经聚合和归因完毕的分钟数据。
         - 核心新增: 如果上下文中有 `intraday_data` (可能是逐笔或分钟数据)，则进行处理。
         - 核心逻辑: 如果是逐笔数据，则聚合为分钟数据；如果是分钟数据，则直接使用。
         """
@@ -97,48 +102,51 @@ class ChipFeatureCalculator:
             logger.warning(f"[{stock_code}] [{trade_date}] 日内数据特征准备跳过，原因：日内数据(intraday_data)为空。")
             self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
             return
-        if 'type' in intraday_df.columns and 'price' in intraday_df.columns and 'volume' in intraday_df.columns and 'amount' in intraday_df.columns:
-            print(f"调试信息: [{stock_code}] [{trade_date}] ChipFeatureCalculator 正在处理逐笔数据。")
+        # 检查是否是逐笔数据 (有 'type' 字段，但没有 'minute_vwap' 字段)
+        is_tick_data = 'type' in intraday_df.columns and 'minute_vwap' not in intraday_df.columns
+        if is_tick_data:
+            print(f"调试信息: [{stock_code}] [{trade_date}] ChipFeatureCalculator 正在处理原始逐笔数据。")
             intraday_df['trade_time'] = pd.to_datetime(intraday_df['trade_time'])
             intraday_df.set_index('trade_time', inplace=True)
+            buy_vol_per_minute = intraday_df[intraday_df['type'] == 'B'].resample('1min')['volume'].sum()
+            sell_vol_per_minute = intraday_df[intraday_df['type'] == 'S'].resample('1min')['volume'].sum()
             minute_df = intraday_df.resample('1min').agg(
-                open=('price', 'first'),
-                high=('price', 'max'),
-                low=('price', 'min'),
-                close=('price', 'last'),
-                vol=('volume', 'sum'),
-                amount=('amount', 'sum')
+                open=('price', 'first'), high=('price', 'max'), low=('price', 'min'),
+                close=('price', 'last'), vol=('volume', 'sum'), amount=('amount', 'sum')
             ).dropna(subset=['open', 'high', 'low', 'close', 'vol', 'amount'])
             minute_df.reset_index(inplace=True)
             minute_df.rename(columns={'trade_time': 'trade_time'}, inplace=True)
-            minute_df['main_force_net_vol'] = 0.0
-            minute_df['main_force_buy_vol'] = 0.0
-            minute_df['main_force_sell_vol'] = 0.0
-            minute_df['retail_buy_vol'] = 0.0
-            minute_df['retail_sell_vol'] = 0.0
-            minute_df['vol_shares'] = minute_df['vol']
+            minute_df = minute_df.set_index('trade_time')
+            minute_df['buy_vol_raw'] = buy_vol_per_minute
+            minute_df['sell_vol_raw'] = sell_vol_per_minute
+            minute_df.fillna(0, inplace=True)
+            minute_df.reset_index(inplace=True)
+            minute_df['main_force_net_vol'] = 0.0; minute_df['main_force_buy_vol'] = 0.0
+            minute_df['main_force_sell_vol'] = 0.0; minute_df['retail_buy_vol'] = 0.0
+            minute_df['retail_sell_vol'] = 0.0; minute_df['vol_shares'] = minute_df['vol']
             minute_df['amount_yuan'] = minute_df['amount']
             minute_df['minute_vwap'] = minute_df['amount_yuan'] / minute_df['vol_shares'].replace(0, np.nan)
             processed_intraday_df = minute_df
         else:
+            # 处理的是分钟数据（可能是原始的，也可能是资金流服务处理过的）
+            print(f"调试信息: [{stock_code}] [{trade_date}] ChipFeatureCalculator 正在处理分钟级别数据。")
             processed_intraday_df = intraday_df.copy()
-            dtype_map = {
-                'amount': 'float32',
-                'vol': 'int32',
-                'open': 'float32',
-                'close': 'float32',
-                'high': 'float32',
-                'low': 'float32',
-            }
+            dtype_map = {'amount': 'float32', 'vol': 'int32', 'open': 'float32', 'close': 'float32', 'high': 'float32', 'low': 'float32'}
             for col, dtype in dtype_map.items():
                 if col in processed_intraday_df.columns:
                     processed_intraday_df[col] = pd.to_numeric(processed_intraday_df[col], errors='coerce').astype(dtype, errors='ignore')
+            # 确保关键列存在，如果不存在则创建
             if 'minute_vwap' not in processed_intraday_df.columns:
                 processed_intraday_df['minute_vwap'] = processed_intraday_df['amount'] / processed_intraday_df['vol'].replace(0, np.nan)
             if 'vol_shares' not in processed_intraday_df.columns:
                 processed_intraday_df['vol_shares'] = processed_intraday_df['vol']
             if 'amount_yuan' not in processed_intraday_df.columns:
                 processed_intraday_df['amount_yuan'] = processed_intraday_df['amount']
+            # 确保资金流相关列存在，如果资金流服务没有提供，则填充为0
+            fund_flow_cols = ['main_force_net_vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol', 'buy_vol_raw', 'sell_vol_raw']
+            for col in fund_flow_cols:
+                if col not in processed_intraday_df.columns:
+                    processed_intraday_df[col] = 0.0
         if processed_intraday_df.empty:
             self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
             return
@@ -1022,6 +1030,62 @@ class ChipFeatureCalculator:
         print(f"调试信息: [{stock_code}] [{trade_date}] 价格成交量熵计算结果：{normalized_entropy:.4f} (原始熵: {shannon_entropy:.4f}, 箱数: {len(volume_per_bin)})。")
         return normalized_entropy
 
+    def _compute_microstructure_game_metrics(self, context: dict) -> dict:
+        """
+        【V1.0 · 微观博弈版】计算基于高频数据的筹码微观博弈指标。
+        - 核心职责: 融合分钟K线、主动买卖量、盘口挂单数据，量化筹码交换纯度、压力支撑有效性及隐蔽交易行为。
+        """
+        results = {
+            'peak_exchange_purity': 0.0,
+            'pressure_validation_score': 0.0,
+            'support_validation_score': 0.0,
+            'covert_accumulation_signal': 0.0,
+        }
+        intraday_df = context.get('processed_intraday_df')
+        peak_low = context.get('peak_range_low')
+        peak_high = context.get('peak_range_high')
+        if intraday_df.empty or not all(pd.notna(v) for v in [peak_low, peak_high]):
+            return results
+        # 1. 筹码交换纯度 (Peak Exchange Purity)
+        peak_zone_df = intraday_df[(intraday_df['minute_vwap'] >= peak_low) & (intraday_df['minute_vwap'] <= peak_high)]
+        if not peak_zone_df.empty:
+            total_vol_peak = peak_zone_df['vol_shares'].sum()
+            if total_vol_peak > 0:
+                # 'buy_vol_raw' 和 'sell_vol_raw' 来自于对逐笔数据的聚合
+                active_buy_vol = peak_zone_df['buy_vol_raw'].sum()
+                active_sell_vol = peak_zone_df['sell_vol_raw'].sum()
+                # 纯度 = 1 - |净主动成交| / 总成交。越接近1，说明买卖越均衡，换手越真实。
+                purity = 1 - abs(active_buy_vol - active_sell_vol) / total_vol_peak
+                results['peak_exchange_purity'] = purity * 100
+        # 2. 压力/支撑有效性验证 (Pressure/Support Validation)
+        # 此处简化模型：我们用日内的主动买卖行为来验证前一日筹码峰的有效性
+        # 假设 pre_close 附近是前一日的重要筹码区
+        pre_close = context.get('pre_close')
+        if pd.notna(pre_close):
+            pressure_zone_df = intraday_df[intraday_df['minute_vwap'] > pre_close]
+            support_zone_df = intraday_df[intraday_df['minute_vwap'] < pre_close]
+            if not pressure_zone_df.empty:
+                total_vol_pressure = pressure_zone_df['vol_shares'].sum()
+                if total_vol_pressure > 0:
+                    # 压力区的主动卖出占比越高，说明压力越真实
+                    active_sell_pressure = pressure_zone_df['sell_vol_raw'].sum()
+                    results['pressure_validation_score'] = (active_sell_pressure / total_vol_pressure) * 100
+            if not support_zone_df.empty:
+                total_vol_support = support_zone_df['vol_shares'].sum()
+                if total_vol_support > 0:
+                    # 支撑区的主动买入占比越高，说明支撑越真实
+                    active_buy_support = support_zone_df['buy_vol_raw'].sum()
+                    results['support_validation_score'] = (active_buy_support / total_vol_support) * 100
+        # 3. 隐蔽吸筹信号 (Covert Accumulation Signal)
+        # 模型：在价格下跌或盘整的分钟里，主力净流入为正的成交量占比
+        dip_or_flat_df = intraday_df[intraday_df['close'] <= intraday_df['open']]
+        if not dip_or_flat_df.empty:
+            total_vol_dip = dip_or_flat_df['vol_shares'].sum()
+            if total_vol_dip > 0:
+                # 'main_force_net_vol' 来自资金流服务的归因
+                mf_net_buy_on_dip = dip_or_flat_df['main_force_net_vol'].clip(lower=0).sum()
+                results['covert_accumulation_signal'] = (mf_net_buy_on_dip / total_vol_dip) * 100
+        return results
 
 
 

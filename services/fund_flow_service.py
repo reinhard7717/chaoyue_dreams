@@ -191,44 +191,70 @@ class AdvancedFundFlowMetricsService:
             merged_df = merged_df.join(base_daily_df, how='left')
         return merged_df
 
-    async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None):
+    async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None):
         """
-        【V1.2 · 逐笔数据优先版】从预加载的DataFrame构建按日分组的数据。
-        - 核心新增: 优先使用逐笔数据进行聚合，否则回退到分钟数据加载。
+        【V1.4 · Level5盘口数据融合版】从预加载的DataFrame构建按日分组的数据。
+        - 核心进化: 融合逐笔成交和Level5盘口数据，通过`pd.merge_asof`实现，以获得更精确的买卖盘归因。
+        - 核心新增: 优先使用逐笔数据进行聚合，并根据逐笔数据的 'type' 字段计算每分钟的原始买卖量。
+        - 核心修正: 修复了之前逐笔数据聚合时，买卖量字段被初始化为0的问题。
         """
         from django.utils import timezone
         from datetime import datetime, time
+        import pandas as pd
         if date_index.empty:
             return None
         min_date, max_date = date_index.min().date(), date_index.max().date()
+        # 最高优先级：融合逐笔和Level5数据
+        if tick_data_map and level5_data_map and any(d.date() in tick_data_map and d.date() in level5_data_map for d in date_index):
+            print(f"调试信息: [{stock_info.stock_code}] _get_daily_grouped_minute_data 发现逐笔和Level5数据，将进行融合归因。")
+            all_ticks_for_range = pd.concat([tick_data_map[d.date()] for d in date_index if d.date() in tick_data_map])
+            all_level5_for_range = pd.concat([level5_data_map[d.date()] for d in date_index if d.date() in level5_data_map])
+            if not all_ticks_for_range.empty and not all_level5_for_range.empty:
+                all_ticks_for_range.sort_values('trade_time', inplace=True)
+                all_level5_for_range.sort_values('trade_time', inplace=True)
+                # 使用merge_asof将每个tick与它之前最近的level5快照对齐
+                merged_df = pd.merge_asof(all_ticks_for_range, all_level5_for_range, on='trade_time', direction='backward')
+                # 根据盘口数据重新判断买卖方向
+                conditions = [
+                    merged_df['price'] >= merged_df['sell_price1'], # 主动买
+                    merged_df['price'] <= merged_df['buy_price1'],  # 主动卖
+                ]
+                choices = ['B', 'S']
+                merged_df['type_reclassified'] = np.select(conditions, choices, default='M') # 中性盘
+                print(f"调试信息: [{stock_info.stock_code}] Level5归因统计: B={ (merged_df['type_reclassified'] == 'B').sum() }, S={ (merged_df['type_reclassified'] == 'S').sum() }, M={ (merged_df['type_reclassified'] == 'M').sum() }")
+                all_tick_data_for_range = merged_df
+                all_tick_data_for_range['type'] = all_tick_data_for_range['type_reclassified'] # 使用重新分类的type
+        # 次高优先级：仅使用逐笔数据
         if tick_data_map and any(d.date() in tick_data_map for d in date_index):
             print(f"调试信息: [{stock_info.stock_code}] _get_daily_grouped_minute_data 发现逐笔数据，将使用逐笔数据进行聚合。")
-            all_tick_data_for_range = pd.concat([tick_data_map[d.date()] for d in date_index if d.date() in tick_data_map])
-            if not all_tick_data_for_range.empty:
-                all_tick_data_for_range['trade_time'] = pd.to_datetime(all_tick_data_for_range['trade_time'])
-                all_tick_data_for_range.set_index('trade_time', inplace=True)
-                minute_df_from_ticks = all_tick_data_for_range.resample('1min').agg(
-                    open=('price', 'first'),
-                    high=('price', 'max'),
-                    low=('price', 'min'),
-                    close=('price', 'last'),
-                    vol=('volume', 'sum'),
-                    amount=('amount', 'sum')
+            if 'type_reclassified' not in all_ticks_for_range.columns: # 如果没有经过Level5融合
+                all_ticks_for_range = pd.concat([tick_data_map[d.date()] for d in date_index if d.date() in tick_data_map])
+            if not all_ticks_for_range.empty:
+                all_ticks_for_range['trade_time'] = pd.to_datetime(all_ticks_for_range['trade_time'])
+                all_ticks_for_range.set_index('trade_time', inplace=True)
+                buy_vol_per_minute = all_ticks_for_range[all_ticks_for_range['type'] == 'B'].resample('1min')['volume'].sum()
+                sell_vol_per_minute = all_ticks_for_range[all_ticks_for_range['type'] == 'S'].resample('1min')['volume'].sum()
+                minute_df_from_ticks = all_ticks_for_range.resample('1min').agg(
+                    open=('price', 'first'), high=('price', 'max'), low=('price', 'min'),
+                    close=('price', 'last'), vol=('volume', 'sum'), amount=('amount', 'sum')
                 ).dropna(subset=['open', 'high', 'low', 'close', 'vol', 'amount'])
                 minute_df_from_ticks.reset_index(inplace=True)
                 minute_df_from_ticks.rename(columns={'trade_time': 'trade_time'}, inplace=True)
-                minute_df_from_ticks['main_force_buy_vol'] = 0.0
-                minute_df_from_ticks['main_force_sell_vol'] = 0.0
-                minute_df_from_ticks['main_force_net_vol'] = 0.0
-                minute_df_from_ticks['retail_buy_vol'] = 0.0
-                minute_df_from_ticks['retail_sell_vol'] = 0.0
-                minute_df_from_ticks['retail_net_vol'] = 0.0
+                minute_df_from_ticks = minute_df_from_ticks.set_index('trade_time')
+                minute_df_from_ticks['buy_vol_raw'] = buy_vol_per_minute
+                minute_df_from_ticks['sell_vol_raw'] = sell_vol_per_minute
+                minute_df_from_ticks.fillna(0, inplace=True)
+                minute_df_from_ticks.reset_index(inplace=True)
+                minute_df_from_ticks['main_force_buy_vol'] = 0.0; minute_df_from_ticks['main_force_sell_vol'] = 0.0
+                minute_df_from_ticks['main_force_net_vol'] = 0.0; minute_df_from_ticks['retail_buy_vol'] = 0.0
+                minute_df_from_ticks['retail_sell_vol'] = 0.0; minute_df_from_ticks['retail_net_vol'] = 0.0
                 minute_df_from_ticks['amount_yuan'] = minute_df_from_ticks['amount']
                 minute_df_from_ticks['vol_shares'] = minute_df_from_ticks['vol']
                 minute_df_from_ticks['minute_vwap'] = minute_df_from_ticks['amount_yuan'] / minute_df_from_ticks['vol_shares'].replace(0, np.nan)
                 return self._group_minute_data_from_df(minute_df_from_ticks)
             else:
                 print(f"调试信息: [{stock_info.stock_code}] _get_daily_grouped_minute_data 逐笔数据为空，回退到分钟数据加载。")
+        # 最低优先级：使用分钟数据
         MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
         if not MinuteModel:
             return None
@@ -236,9 +262,7 @@ class AdvancedFundFlowMetricsService:
         def get_data(model, stock_pk, start_dt, end_dt):
             cols_to_fetch = ('trade_time', 'amount', 'vol', 'open', 'close', 'high', 'low') if fetch_full_cols else ('trade_time', 'amount', 'vol')
             qs = model.objects.filter(
-                stock_id=stock_pk,
-                trade_time__gte=start_dt,
-                trade_time__lt=end_dt
+                stock_id=stock_pk, trade_time__gte=start_dt, trade_time__lt=end_dt
             ).values(*cols_to_fetch)
             return pd.DataFrame.from_records(qs)
         start_datetime = timezone.make_aware(datetime.combine(min_date, time.min))
@@ -248,44 +272,40 @@ class AdvancedFundFlowMetricsService:
             return None
         return self._group_minute_data_from_df(minute_df)
 
-    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
+    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V20.4 · 逐笔数据集成版】
-        - 核心新增: 接收 `tick_data_map` 并将其传递给 `_calculate_probabilistic_costs`。
-        - 核心修复: 在probabilistic_costs计算后，立即将返回的VWAP固化到主数据流result_df_day中，确保其能被下游的advanced_behavioral_metrics正确获取。
+        【V10.2 · 微观博弈集成版】
+        - 核心新增: 调用 `_calculate_microstructure_signals` 方法，集成主力对倒、盘口失衡等微观博弈指标。
+        - 核心重构: 废弃“一体适用”的权重模型，为超大单、大单、中单、小单引入各自独特的、基于行为特征的权重分配逻辑。
         """
         all_metrics_list = []
-        attributed_minute_map = {}
-        all_failures = []
-        for trade_date, daily_data_series in merged_df.iterrows():
-            daily_data = daily_data_series.to_frame().T
-            daily_data.index.name = 'trade_time'
-            minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
-            has_intraday_data = (tick_data_map and trade_date.date() in tick_data_map and not tick_data_map[trade_date.date()].empty) or \
-                                 (minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and trade_date.date() in minute_df_daily_grouped.index)
-            has_daily_flow_data = 'buy_sm_vol' in daily_data.columns and pd.notna(daily_data['buy_sm_vol'].iloc[0])
-            if not has_daily_flow_data:
-                reason = "日线资金流数据缺失"
-                print(f"DEBUG PROBE: [{stock_code}] [{trade_date.date()}] 跳过，原因: {reason}")
-                all_failures.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': f"[资金流服务] {reason}"})
+        failures_list = []
+        grouped_data = merged_df.groupby('trade_time')
+        for trade_date, daily_df in grouped_data:
+            daily_data_series = daily_df.iloc[0]
+            intraday_data_for_day = self._minute_df_daily_grouped.get(trade_date.date())
+            if intraday_data_for_day is None or intraday_data_for_day.empty:
+                reason = "当日分钟线/逐笔聚合数据缺失"
+                logger.warning(f"[{stock_code}] [{trade_date.date()}] 跳过资金流计算，{reason}")
+                failures_list.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': reason})
                 continue
-            result_df_day = daily_data.copy()
-            daily_derived_metrics = self._calculate_daily_derived_metrics(result_df_day.iloc[0])
-            if daily_derived_metrics:
-                result_df_day = result_df_day.join(pd.DataFrame(daily_derived_metrics, index=[trade_date]))
-            if has_intraday_data:
-                pvwap_costs_df, day_attributed_minute_map, pvwap_failures = self._calculate_probabilistic_costs(result_df_day, minute_df_daily_grouped, stock_code, tick_data_map.get(trade_date.date()))
-                all_failures.extend(pvwap_failures)
-                if not pvwap_costs_df.empty:
-                    result_df_day = result_df_day.join(pvwap_costs_df)
-                    attributed_minute_map.update(day_attributed_minute_map)
-                    advanced_behavioral_df = self._calculate_advanced_behavioral_metrics(result_df_day, day_attributed_minute_map)
-                    result_df_day = result_df_day.join(advanced_behavioral_df)
-            all_metrics_list.append(result_df_day)
+            attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data_for_day, daily_data_series)
+            probabilistic_costs_df = self._calculate_probabilistic_costs(attribution_weights_df, daily_data_series)
+            behavioral_metrics = self._compute_all_behavioral_metrics(probabilistic_costs_df, daily_data_series)
+            # 新增代码块: 调用微观结构信号计算
+            daily_tick_df = tick_data_map.get(trade_date.date(), pd.DataFrame())
+            daily_level5_df = level5_data_map.get(trade_date.date(), pd.DataFrame())
+            daily_total_volume = daily_data_series.get('vol', 0) * 100
+            microstructure_signals = self._calculate_microstructure_signals(stock_code, daily_tick_df, daily_level5_df, daily_total_volume)
+            behavioral_metrics.update(microstructure_signals)
+            # 结束新增代码块
+            if behavioral_metrics:
+                behavioral_metrics['trade_time'] = trade_date
+                all_metrics_list.append(behavioral_metrics)
         if not all_metrics_list:
-            return pd.DataFrame(), {}, all_failures
-        final_df = pd.concat(all_metrics_list)
-        return final_df, attributed_minute_map, all_failures
+            return pd.DataFrame(), {}, failures_list
+        daily_metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time')
+        return daily_metrics_df, {trade_date.to_pydatetime(): df for trade_date, df in self._minute_df_daily_grouped.items()}, failures_list
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series) -> dict:
         """
@@ -1052,6 +1072,65 @@ class AdvancedFundFlowMetricsService:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
 
+    def _calculate_microstructure_signals(self, stock_code: str, daily_intraday_df: pd.DataFrame, daily_level5_df: pd.DataFrame, daily_total_volume: float) -> dict:
+        """
+        【V1.0 · 微观博弈信号版】计算基于高频数据的微观结构指标。
+        - 核心职责: 融合逐笔成交和五档盘口数据，量化主力对倒、盘口失衡、大单压制与支撑等行为。
+        - 数据依赖: 必须同时拥有当天的逐笔成交和五档盘口数据。
+        """
+        results = {
+            'wash_trade_intensity': 0.0,
+            'order_book_imbalance': 0.0,
+            'large_order_pressure': 0.0,
+            'large_order_support': 0.0,
+        }
+        if daily_intraday_df.empty or daily_level5_df.empty or daily_total_volume <= 0:
+            return results
+        # 1. 计算主力对倒强度 (Wash Trade Intensity)
+        daily_intraday_df['direction'] = daily_intraday_df['type'].map({'B': 1, 'S': -1, 'M': 0})
+        daily_intraday_df['reversal'] = (daily_intraday_df['direction'] * daily_intraday_df['direction'].shift(1)) < 0
+        minute_agg = daily_intraday_df.resample('1min').agg(
+            vol=('volume', 'sum'),
+            vwap=('price', lambda x: np.average(x, weights=daily_intraday_df.loc[x.index, 'volume']) if not x.empty and daily_intraday_df.loc[x.index, 'volume'].sum() > 0 else np.nan),
+            reversals=('reversal', 'sum'),
+            trades=('reversal', 'count')
+        ).dropna()
+        if not minute_agg.empty:
+            minute_agg['vwap_std'] = daily_intraday_df.resample('1min')['price'].std().fillna(0)
+            minute_agg['wash_score'] = (minute_agg['vol'] / daily_total_volume) * (minute_agg['reversals'] / minute_agg['trades'].replace(0, 1)) * np.exp(-100 * minute_agg['vwap_std'] / minute_agg['vwap'].replace(0, 1))
+            results['wash_trade_intensity'] = minute_agg['wash_score'].sum() * 100
+        # 2. 计算五档盘口失衡度 (Order Book Imbalance)
+        daily_level5_df['buy_vol_total'] = daily_level5_df[['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5']].sum(axis=1)
+        daily_level5_df['sell_vol_total'] = daily_level5_df[['sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']].sum(axis=1)
+        total_book_vol = daily_level5_df['buy_vol_total'] + daily_level5_df['sell_vol_total']
+        daily_level5_df['imbalance'] = (daily_level5_df['buy_vol_total'] - daily_level5_df['sell_vol_total']) / total_book_vol.replace(0, np.nan)
+        daily_level5_df.dropna(subset=['imbalance'], inplace=True)
+        if not daily_level5_df.empty:
+            # 使用时间差作为权重，计算加权平均失衡度
+            time_diffs = daily_level5_df['trade_time'].diff().dt.total_seconds().fillna(0)
+            results['order_book_imbalance'] = np.average(daily_level5_df['imbalance'], weights=time_diffs) * 100
+        # 3. 计算大单压制与支撑强度 (Large Order Pressure/Support)
+        large_order_threshold_value = 500000 # 定义大单门槛为50万元
+        pressure_strength = 0
+        support_strength = 0
+        if not daily_level5_df.empty:
+            time_diffs_seconds = daily_level5_df['trade_time'].diff().dt.total_seconds().values
+            for i in range(1, len(daily_level5_df)):
+                row = daily_level5_df.iloc[i]
+                duration = time_diffs_seconds[i]
+                # 计算压制强度
+                for p, v in [('sell_price1', 'sell_volume1'), ('sell_price2', 'sell_volume2')]:
+                    if pd.notna(row[p]) and pd.notna(row[v]) and row[p] * row[v] * 100 > large_order_threshold_value:
+                        pressure_strength += row[v] * 100 * duration
+                # 计算支撑强度
+                for p, v in [('buy_price1', 'buy_volume1'), ('buy_price2', 'buy_volume2')]:
+                    if pd.notna(row[p]) and pd.notna(row[v]) and row[p] * row[v] * 100 > large_order_threshold_value:
+                        support_strength += row[v] * 100 * duration
+        if daily_total_volume > 0:
+            # 结果进行标准化，使其具有可比性
+            results['large_order_pressure'] = pressure_strength / (daily_total_volume * 240 * 60) * 100
+            results['large_order_support'] = support_strength / (daily_total_volume * 240 * 60) * 100
+        return results
 
 
 

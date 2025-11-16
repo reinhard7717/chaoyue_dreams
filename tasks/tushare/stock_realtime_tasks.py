@@ -207,6 +207,62 @@ def save_stocks_tick_data_task(quote_batch_size: int = 50, cache_manager=None):
         "dispatched_quote_batches": 0,
         "dispatched_real_tick_tasks": dispatched_count # 修改代码行: 返回成功分派的任务数量
     }
+
+# 单独：“行情快照(Quote)”数据获取任务。
+@celery_app.task(name='tasks.tushare.stock_realtime_tasks.dispatch_stocks_quote_data_task', queue='celery') # 新增代码行: 新的行情快照调度器
+@with_cache_manager
+def dispatch_stocks_quote_data_task(quote_batch_size: int = 50, cache_manager=None):
+    """
+    【新增-调度器】
+    此任务由 Celery Beat 调度，统一分发“行情快照(Quote)”数据获取任务。
+    """
+    # if not is_trading_time():
+    #     return
+    # 1. 获取需要处理的股票列表
+    stock_codes = list(StockInfo.objects.filter(list_status='L').exclude(stock_code__endswith='.BJ').values_list('stock_code', flat=True))
+    # 2. 分派“行情快照(Quote)”批量任务
+    logger.info("--- 开始分派行情快照(Quote)任务 ---")
+    total_quote_batches = 0
+    for i in range(0, len(stock_codes), quote_batch_size):
+        batch = stock_codes[i:i + quote_batch_size]
+        if batch:
+            save_quote_data_batch.s(batch).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+            total_quote_batches += 1
+    logger.info(f"--- 行情快照任务分派完成，共 {total_quote_batches} 个批次。 ---")
+    return {
+        "status": "success",
+        "dispatched_quote_batches": total_quote_batches,
+    }
+
+# 单独：真实逐笔(Tick)”数据获取任务。
+@celery_app.task(name='tasks.tushare.stock_realtime_tasks.dispatch_stocks_real_tick_task', queue='celery') # 修改代码行: 重命名原任务
+@with_cache_manager
+def dispatch_stocks_real_tick_task(cache_manager=None): # 修改代码行: 移除不再需要的 quote_batch_size 参数
+    """
+    【修改-调度器】
+    此任务由 Celery Beat 调度，统一分发“真实逐笔(Tick)”数据获取任务。
+    """
+    # if not is_trading_time():
+    #     return
+    # 1. 获取需要处理的股票列表
+    stock_codes = list(StockInfo.objects.filter(list_status='L').exclude(stock_code__endswith='.BJ').values_list('stock_code', flat=True))
+    # 2. 分派“真实逐笔(Tick)”单票任务
+    logger.info("--- 开始分派真实逐笔(Tick)任务 ---")
+    dispatched_count = 0
+    failed_dispatch_count = 0
+    for stock_code in stock_codes:
+        try:
+            save_real_tick_data_single.s(stock_code).set(queue="SaveData_RealTime").apply_async()
+            dispatched_count += 1
+        except Exception as e:
+            failed_dispatch_count += 1
+            logger.error(f"分派 {stock_code} 的真实逐笔(Tick)数据任务失败: {e}", exc_info=True)
+    logger.info(f"--- 真实逐笔任务分派完成，共 {dispatched_count} 个任务成功分派，{failed_dispatch_count} 个任务分派失败。 ---")
+    return {
+        "status": "success",
+        "dispatched_real_tick_tasks": dispatched_count
+    }
+
 #  ================ 实时(分钟)数据任务 ================
 @celery_app.task(queue='SaveData_TimeTrade', rate_limit='180/m')
 @with_cache_manager
@@ -267,4 +323,5 @@ def save_stocks_minute_data_realtime_task(batch_size: int = 300, time_level: str
             logger.debug(f"已分派非自选股批次任务 (索引 {i} 到 {i+len(batch)-1})")
     logger.info(f"任务结束: save_stocks_realtime_min_data_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
     return {"status": "success", "dispatched_batches": total_dispatched_batches}
+
 

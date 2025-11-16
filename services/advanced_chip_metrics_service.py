@@ -149,7 +149,8 @@ class AdvancedChipMetricsService:
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
-        """【V4.4 · 逐笔数据集成版】
+        """【V4.5 · 精确日内数据注入版】
+        - 核心进化: 明确了日内数据的优先级：资金流服务处理后的分钟数据 > 原始逐笔数据 > 原始分钟数据。
         - 核心新增: 接收 `tick_data_map` 并将其传递给 `ChipFeatureCalculator`。
         - 【修正】新增 `debug_params` 参数，用于控制内部探针的输出。
         """
@@ -205,7 +206,7 @@ class AdvancedChipMetricsService:
             total_chip_volume_today = context_data.get('float_share', 0) * 10000
             context_for_calc.update({
                 'close_price': close_price_today, 'high_price': context_data.get('high_qfq'),
-                'low_price': context_data.get('low_qfq'), 'open_price': context_data.get('open_qfq'),
+                'low_price': context_data.get('low_price'), 'open_price': context_data.get('open_qfq'),
                 'pre_close': context_data.get('pre_close_qfq'), 'daily_turnover_volume': context_data.get('vol', 0) * 100,
                 'total_chip_volume': total_chip_volume_today, 'stock_code': stock_code, 'trade_date': trade_date.date(),
                 'circ_mv': context_data.get('circ_mv'), 'is_first_day_in_batch': is_first_day_in_batch,
@@ -230,14 +231,20 @@ class AdvancedChipMetricsService:
                 context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
             else:
                 context_for_calc['historical_components'] = pd.DataFrame(columns=hist_comp_cols)
+            # 核心进化：明确日内数据的优先级
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
+                # 最高优先级：使用资金流服务处理后的、带有精确归因的分钟数据
                 enhanced_intraday_data = fund_flow_attributed_minute_map[trade_date]
+                print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用资金流服务提供的精确分钟数据。")
             elif tick_data_map and trade_date.date() in tick_data_map:
+                # 次高优先级：使用原始逐笔数据（将在Calculator内部聚合）
                 enhanced_intraday_data = tick_data_map[trade_date.date()]
                 print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用原始逐笔数据。")
             else:
+                # 最低优先级：使用原始分钟数据
                 raw_minute_data_for_day = minute_data_map.get(trade_date.date(), pd.DataFrame())
                 enhanced_intraday_data = self._enhance_minute_data_fallback(raw_minute_data_for_day)
+                print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用原始分钟数据作为回退。")
             context_for_calc['intraday_data'] = enhanced_intraday_data
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()

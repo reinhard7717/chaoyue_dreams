@@ -545,12 +545,13 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex):
     """
-    【V1.8 · 逐笔数据加载增强版】
+    【V1.9 · Level5盘口数据加载增强版】
+    - 核心新增: 增加 StockLevel5Data 的加载，为后续的精细化买卖盘归因提供数据源。
     - 核心新增: 增加 StockTickData 的加载，并按日期分组，为后续的精细化计算提供数据源。
     - 核心修复: 在 all_daily_fields 中增加 'pct_change' 字段，为下游的 flow_efficiency_index 计算提供必要的“弹药”。
     - 【新增】增强 `cyq_chips` 数据加载的审计日志，当数据缺失时打印出查询的股票代码和日期列表，以便精确诊断。
     """
-    from utils.model_helpers import get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code, get_cyq_chips_model_by_code, get_stock_tick_data_model_by_code
+    from utils.model_helpers import get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code, get_cyq_chips_model_by_code, get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code
     from stock_models.stock_realtime import StockTickData_SH, StockTickData_SZ, StockTickData_CY, StockTickData_KC, StockTickData_BJ
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', dates_list: list = None):
@@ -558,12 +559,15 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         qs = model.objects.filter(stock=stock_info_obj, **{f'{date_field}__in': dates_list})
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
     @sync_to_async(thread_sensitive=True)
-    def get_tick_data_async(model, stock_info_obj, dates_list: list = None):
+    def get_intraday_data_async(model, stock_info_obj, dates_list: list = None, value_fields: tuple = None):
         if not model or not dates_list: return pd.DataFrame()
-        qs = model.objects.filter(stock=stock_info_obj, trade_time__date__in=dates_list).values('trade_time', 'price', 'volume', 'amount', 'type')
+        qs = model.objects.filter(stock=stock_info_obj, trade_time__date__in=dates_list)
+        if value_fields:
+            qs = qs.values(*value_fields)
         return pd.DataFrame.from_records(qs)
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
     tick_data_model = get_stock_tick_data_model_by_code(stock_info.stock_code)
+    level5_data_model = get_stock_level5_data_model_by_code(stock_info.stock_code)
     all_daily_fields = (
         'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq', 'pre_close_qfq', 'pct_change'
     )
@@ -586,30 +590,31 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         "fund_flow_tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, fields=fund_flow_tushare_fields, dates_list=chunk_dates_list),
         "fund_flow_ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
         "fund_flow_dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
-        "stock_tick_data": get_tick_data_async(tick_data_model, stock_info, dates_list=chunk_dates_list),
+        "stock_tick_data": get_intraday_data_async(tick_data_model, stock_info, dates_list=chunk_dates_list, value_fields=('trade_time', 'price', 'volume', 'amount', 'type')),
+        "stock_level5_data": get_intraday_data_async(level5_data_model, stock_info, dates_list=chunk_dates_list),
     }
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
-    tick_data_map = {}
-    if not data_dfs["stock_tick_data"].empty:
-        tick_df = data_dfs["stock_tick_data"]
-        tick_df['trade_time'] = pd.to_datetime(tick_df['trade_time'])
-        if tick_df['trade_time'].dt.tz is None:
-            tick_df['trade_time'] = tick_df['trade_time'].dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
+    def _process_intraday_df_to_map(df: pd.DataFrame) -> dict:
+        if df.empty: return {}
+        df['trade_time'] = pd.to_datetime(df['trade_time'])
+        if df['trade_time'].dt.tz is None:
+            df['trade_time'] = df['trade_time'].dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
         else:
-            tick_df['trade_time'] = tick_df['trade_time'].dt.tz_convert('Asia/Shanghai')
-        tick_df['date'] = tick_df['trade_time'].dt.date
-        tick_data_map = {date: group_df for date, group_df in tick_df.groupby('date')}
-    data_dfs["stock_tick_data_map"] = tick_data_map
+            df['trade_time'] = df['trade_time'].dt.tz_convert('Asia/Shanghai')
+        df['date'] = df['trade_time'].dt.date
+        return {date: group_df for date, group_df in df.groupby('date')}
+    data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"])
+    data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"])
     for name, df in data_dfs.items():
-        if name == "stock_tick_data_map":
+        if name in ["stock_tick_data_map", "stock_level5_data_map"]:
             continue
         if df is None or df.empty:
             if 'fund_flow_ths' in name or 'fund_flow_dc' in name:
                 data_dfs[name] = pd.DataFrame()
                 continue
-            if name == "stock_tick_data": # 新增代码行: 逐笔数据为空时，打印提示
-                print(f"调试信息: [{stock_info.stock_code}] [统一加载] 逐笔数据源 '{name}' 为空。")
+            if name in ["stock_tick_data", "stock_level5_data"]:
+                print(f"调试信息: [{stock_info.stock_code}] [统一加载] 可选日内数据源 '{name}' 为空。")
                 continue
             if name == "cyq_chips":
                 logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！查询日期列表: {chunk_dates_list}")
@@ -685,7 +690,8 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.4 · 逐笔数据集成版】
+    【V34.5 · Level5盘口数据集成版】
+    - 核心新增: 加载 StockLevel5Data 并将其传递给资金流服务，以实现更精细的买卖盘归因。
     - 核心新增: 加载 StockTickData 并将其传递给筹码和资金流服务，以实现更精细的计算。
     - 核心修正: 在处理日期列表前，使用 `TradeCalendar` 过滤掉所有非交易日，避免因非交易日数据缺失而触发审计熔断。
     - 核心修正: 优化审计熔断日志，当区块因数据缺失被跳过时，详细列出缺失的具体数据源。
@@ -809,7 +815,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 seed_base_daily_df['atr_14d'] = seed_base_daily_df.index.map(atr_map_global)
                 seed_ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"]}
                 seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=seed_ff_data_dfs, base_daily_df=seed_base_daily_df)
-                fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index, tick_data_map=seed_data_dfs["stock_tick_data_map"])
+                fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index, tick_data_map=seed_data_dfs["stock_tick_data_map"], level5_data_map=seed_data_dfs["stock_level5_data_map"])
                 _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df, tick_data_map=seed_data_dfs["stock_tick_data_map"])
                 seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "cyq_perf": seed_data_dfs["cyq_perf"]}
                 seed_chip_raw_df = chip_service._preprocess_and_merge_data(
@@ -824,7 +830,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
             data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_dates)
-            tick_data_map = data_dfs.pop("stock_tick_data_map") # 新增代码行: 提取逐笔数据map
+            tick_data_map = data_dfs.pop("stock_tick_data_map")
+            level5_data_map = data_dfs.pop("stock_level5_data_map") # 新增代码行: 提取Level5盘口数据map
             critical_sources = ["cyq_chips", "daily_data", "daily_basic", "cyq_perf", "fund_flow_tushare"]
             is_chunk_valid = True
             chunk_missing_records = []
@@ -859,7 +866,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             if fund_flow_raw_df.empty:
                 logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 资金流原始数据为空，跳过。")
                 continue
-            fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index, tick_data_map=tick_data_map)
+            fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index, tick_data_map=tick_data_map, level5_data_map=level5_data_map)
             fund_flow_metrics_df, fund_flow_attributed_minute_map, ff_failures = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df, tick_data_map=tick_data_map)
             all_failures.extend(ff_failures)
             chip_data_dfs = {"cyq_chips": data_dfs["cyq_chips"], "cyq_perf": data_dfs["cyq_perf"]}

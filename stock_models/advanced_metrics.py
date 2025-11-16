@@ -7,7 +7,8 @@ import pandas as pd
 # 筹码高级指标模型
 class BaseAdvancedChipMetrics(models.Model):
     """
-    【V32.2 · 逐笔数据衍生指标版】
+    【V32.3 · 筹码微观博弈版】
+    - 核心新增: 引入 `peak_exchange_purity`, `pressure_validation_score`, `support_validation_score`, `covert_accumulation_signal` 四个基于高频数据的筹码微观博弈指标。
     - 核心新增: 引入 `price_volume_entropy` 字段，用于存储由逐笔数据衍生的价格成交量熵。
     - 核心重构: 基于15:00分钟线，重构 `auction_intent_signal`，并用 `auction_closing_position` 替代原 `auction_pressure_ratio`。
     - 核心优化: 更新模型定义与衍生计算排除列表，以匹配新的竞价信号体系。
@@ -48,7 +49,7 @@ class BaseAdvancedChipMetrics(models.Model):
         'cost_structure_skewness': '成本结构偏度',
         'recent_trapped_pressure': '近期套牢盘压力(%)',
         'imminent_profit_taking_supply': '潜在获利盘供给(%)',
-        'price_volume_entropy': '价格成交量熵', # 新增代码行: 价格成交量熵
+        'price_volume_entropy': '价格成交量熵',
     }
     # --- 第二象限: 内部动态 (Intraday Dynamics) ---
     INTRADAY_DYNAMICS_METRICS = {
@@ -102,6 +103,10 @@ class BaseAdvancedChipMetrics(models.Model):
         'auction_intent_signal': '竞价意图信号',
         'auction_closing_position': '竞价收盘位置(-100~100)',
         'intraday_probe_rebound_quality': '日内试探回升质量',
+        'peak_exchange_purity': '主峰交换纯度',
+        'pressure_validation_score': '压力验证分',
+        'support_validation_score': '支撑验证分',
+        'covert_accumulation_signal': '隐蔽吸筹信号',
     }
     # --- 第五象限: 生命体征 (Vital Signs) ---
     VITAL_SIGNS_METRICS = {
@@ -155,7 +160,11 @@ class BaseAdvancedChipMetrics(models.Model):
         'peak_dynamic_strength_ratio',
         'peak_separation_intensity',
         'peak_fusion_indicator',
-        'price_volume_entropy', # 新增代码行: 价格成交量熵
+        'price_volume_entropy',
+        'peak_exchange_purity',
+        'pressure_validation_score',
+        'support_validation_score',
+        'covert_accumulation_signal',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in INTEGER_FIELDS:
@@ -288,7 +297,8 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
 # 资金高级指标模型
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V33.1 · 逐笔数据衍生指标版】
+    【V33.2 · 微观博弈指标版】
+    - 核心新增: 引入 `wash_trade_intensity`, `order_book_imbalance`, `large_order_pressure`, `large_order_support` 字段，用于量化主力对倒、盘口失衡及真实托压单行为。
     - 核心新增: 引入 `main_force_ofi`, `retail_ofi`, `microstructure_efficiency_index`, `hidden_accumulation_intensity` 字段。
     - 核心新增: 实现了 flow_temperature_premium, main_force_on_peak_flow 的计算逻辑。
     - 核心优化: 调整模型字段定义，以承载新的指标。
@@ -340,10 +350,14 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'main_force_on_peak_flow': '主力在主峰区的净流入(万元)',
         'flow_temperature_premium': '资金温度溢价(%)',
         'mf_retail_liquidity_swap_corr': '主力散户流动性交换相关性',
-        'main_force_ofi': '主力订单流失衡', # 新增代码行: 主力订单流失衡
-        'retail_ofi': '散户订单流失衡', # 新增代码行: 散户订单流失衡
-        'microstructure_efficiency_index': '微观结构效率指数', # 新增代码行: 微观结构效率指数
-        'hidden_accumulation_intensity': '隐蔽吸筹强度', # 新增代码行: 隐蔽吸筹强度
+        'main_force_ofi': '主力订单流失衡',
+        'retail_ofi': '散户订单流失衡',
+        'microstructure_efficiency_index': '微观结构效率指数',
+        'hidden_accumulation_intensity': '隐蔽吸筹强度',
+        'wash_trade_intensity': '主力对倒强度',
+        'order_book_imbalance': '五档盘口失衡度',
+        'large_order_pressure': '大单压制强度',
+        'large_order_support': '大单支撑强度',
     }
     OUTCOME_ASSESSMENT_METRICS = {
         'volatility_asymmetry_index': '波动不对称指数',
@@ -369,10 +383,14 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
         'main_force_vpoc', 'mf_vpoc_premium',
         'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
-        'main_force_ofi', # 新增代码行: 主力订单流失衡
-        'retail_ofi', # 新增代码行: 散户订单流失衡
-        'microstructure_efficiency_index', # 新增代码行: 微观结构效率指数
-        'hidden_accumulation_intensity', # 新增代码行: 隐蔽吸筹强度
+        'main_force_ofi',
+        'retail_ofi',
+        'microstructure_efficiency_index',
+        'hidden_accumulation_intensity',
+        'wash_trade_intensity',
+        'order_book_imbalance',
+        'large_order_pressure',
+        'large_order_support',
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -390,10 +408,14 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
         'mf_vpoc_premium',
         'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
-        'main_force_ofi', # 新增代码行: 主力订单流失衡
-        'retail_ofi', # 新增代码行: 散户订单流失衡
-        'microstructure_efficiency_index', # 新增代码行: 微观结构效率指数
-        'hidden_accumulation_intensity', # 新增代码行: 隐蔽吸筹强度
+        'main_force_ofi',
+        'retail_ofi',
+        'microstructure_efficiency_index',
+        'hidden_accumulation_intensity',
+        'wash_trade_intensity',
+        'order_book_imbalance',
+        'large_order_pressure',
+        'large_order_support',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:
@@ -430,7 +452,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
             verbose_name = f'{original_verbose}{period_str}日累计'
         for p in UNIFIED_PERIODS:
             vars()[f'{name}_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose_name}{p}日斜率', null=True, blank=True)
-            vars()[f'{name}_accel_{p}d'] = models.FloatField(verbose_name=f'{verbose_name}{p}日加速度', null=True, blank=True)
+            vars()[f'{name}_accel_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日加速度', null=True, blank=True)
     class Meta:
         abstract = True
         ordering = ['-trade_time']
@@ -538,7 +560,8 @@ class AdvancedFundFlowMetrics_BJ(BaseAdvancedFundFlowMetrics):
 # 结构与行为高级指标模型
 class BaseAdvancedStructuralMetrics(models.Model):
     """
-    【V18.0 · 战场分析仪实装版】
+    【V18.1 · 高频力学模型版】
+    - 核心新增: 引入 `active_volume_price_efficiency`, `absorption_strength_index`, `distribution_pressure_index` 三大基于高频数据的力学模型指标，用于精确度量趋势效率与多空吸收/派发强度。
     - 核心新增: 引入 trend_quality_score, closing_momentum_index, volume_structure_skew 三大高级结构指标，深度剖析日内走势质量。
     - 核心优化: 更新指标分组与衍生计算排除列表，以集成新指标。
     """
@@ -572,6 +595,9 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'net_vpa_score': '净量价效能得分',
         'divergence_conviction_score': '背离信念得分',
         'volatility_skew_index': '波动率偏度指数',
+        'active_volume_price_efficiency': '主动成交量价格效率',
+        'absorption_strength_index': '下跌吸筹强度指数',
+        'distribution_pressure_index': '上涨派发压力指数',
     }
     FORWARD_LOOKING_METRICS = {
         'volatility_expansion_ratio': '波动率扩张比',
@@ -629,6 +655,9 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'trend_quality_score',
         'closing_momentum_index',
         'volume_structure_skew',
+        'active_volume_price_efficiency',
+        'absorption_strength_index',
+        'distribution_pressure_index',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in BOOLEAN_FIELDS:
