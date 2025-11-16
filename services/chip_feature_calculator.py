@@ -98,7 +98,6 @@ class ChipFeatureCalculator:
             self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
             return
         if 'type' in intraday_df.columns and 'price' in intraday_df.columns and 'volume' in intraday_df.columns and 'amount' in intraday_df.columns:
-            print(f"调试信息: [{stock_code}] [{trade_date}] ChipFeatureCalculator 正在处理逐笔数据。")
             intraday_df['trade_time'] = pd.to_datetime(intraday_df['trade_time'])
             intraday_df.set_index('trade_time', inplace=True)
             minute_df = intraday_df.resample('1min').agg(
@@ -121,7 +120,6 @@ class ChipFeatureCalculator:
             minute_df['minute_vwap'] = minute_df['amount_yuan'] / minute_df['vol_shares'].replace(0, np.nan)
             processed_intraday_df = minute_df
         else:
-            print(f"调试信息: [{stock_code}] [{trade_date}] ChipFeatureCalculator 正在处理分钟数据。")
             processed_intraday_df = intraday_df.copy()
             dtype_map = {
                 'amount': 'float32',
