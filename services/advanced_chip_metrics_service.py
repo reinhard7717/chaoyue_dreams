@@ -232,14 +232,12 @@ class AdvancedChipMetricsService:
                 context_for_calc['historical_components'] = pd.DataFrame(columns=hist_comp_cols)
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
                 enhanced_intraday_data = fund_flow_attributed_minute_map[trade_date]
-                print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用资金流归因后的分钟数据。")
             elif tick_data_map and trade_date.date() in tick_data_map:
                 enhanced_intraday_data = tick_data_map[trade_date.date()]
                 print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用原始逐笔数据。")
             else:
                 raw_minute_data_for_day = minute_data_map.get(trade_date.date(), pd.DataFrame())
                 enhanced_intraday_data = self._enhance_minute_data_fallback(raw_minute_data_for_day)
-                print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用原始分钟数据。")
             context_for_calc['intraday_data'] = enhanced_intraday_data
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
