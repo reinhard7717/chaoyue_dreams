@@ -240,37 +240,34 @@ class AdvancedFundFlowMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V10.3 · 全层次数据注入版】
-        - 核心修正: 更新函数签名以接收 minute_data_map，确保与上游任务的数据流一致。
+        【V10.4 · 参数传递修正版】
+        - 核心修正: 修正了对 `_calculate_probabilistic_costs` 的调用，补全了缺失的 `stock_code` 参数。
         """
         all_metrics_list = []
-        failures_list = []
-        grouped_data = merged_df.groupby('trade_time')
-        for trade_date, daily_df in grouped_data:
-            daily_data_series = daily_df.iloc[0]
-            intraday_data_for_day = self._minute_df_daily_grouped.get(trade_date.date())
-            if intraday_data_for_day is None or intraday_data_for_day.empty:
-                reason = "当日分钟线/逐笔聚合数据缺失"
-                logger.warning(f"[{stock_code}] [{trade_date.date()}] 跳过资金流计算，{reason}")
-                failures_list.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': reason})
+        attributed_minute_data_map = {}
+        failures = []
+        for trade_date, daily_data_series in merged_df.iterrows():
+            date_obj = trade_date.date()
+            intraday_data = self._minute_df_daily_grouped.get(date_obj)
+            if intraday_data is None or intraday_data.empty:
+                print(f"日内数据特征准备跳过，原因：日内数据(intraday_data)为空")
+                failures.append({'stock_code': stock_code, 'trade_date': str(date_obj), 'reason': '当日分钟线/逐笔聚合数据缺失'})
                 continue
-            attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data_for_day, daily_data_series)
-            probabilistic_costs_df = self._calculate_probabilistic_costs(attribution_weights_df, daily_data_series)
-            behavioral_metrics = self._compute_all_behavioral_metrics(probabilistic_costs_df, daily_data_series)
-            # 新增代码块: 调用微观结构信号计算
-            daily_tick_df = tick_data_map.get(trade_date.date(), pd.DataFrame())
-            daily_level5_df = level5_data_map.get(trade_date.date(), pd.DataFrame())
-            daily_total_volume = daily_data_series.get('vol', 0) * 100
-            microstructure_signals = self._calculate_microstructure_signals(stock_code, daily_tick_df, daily_level5_df, daily_total_volume)
-            behavioral_metrics.update(microstructure_signals)
-            # 结束新增代码块
-            if behavioral_metrics:
-                behavioral_metrics['trade_time'] = trade_date
-                all_metrics_list.append(behavioral_metrics)
+            attribution_weights_df = self._calculate_attribution_weights(daily_data_series)
+            # 修改代码行: 增加 stock_code 参数
+            probabilistic_costs_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series)
+            day_metrics, attributed_minute_df = self._calculate_all_metrics_for_day(
+                stock_code, daily_data_series, intraday_data, attribution_weights_df, probabilistic_costs_df,
+                tick_data_map.get(date_obj) if tick_data_map else None,
+                level5_data_map.get(date_obj) if level5_data_map else None
+            )
+            all_metrics_list.append(day_metrics)
+            attributed_minute_data_map[date_obj] = attributed_minute_df
         if not all_metrics_list:
-            return pd.DataFrame(), {}, failures_list
-        daily_metrics_df = pd.DataFrame(all_metrics_list).set_index('trade_time')
-        return daily_metrics_df, {trade_date.to_pydatetime(): df for trade_date, df in self._minute_df_daily_grouped.items()}, failures_list
+            return pd.DataFrame(), {}, failures
+        final_metrics_df = pd.DataFrame(all_metrics_list)
+        final_metrics_df.set_index('trade_time', inplace=True)
+        return final_metrics_df, attributed_minute_data_map, failures
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series) -> dict:
         """

@@ -95,15 +95,15 @@ class AdvancedStructuralMetricsService:
 
     async def _load_intraday_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp) -> dict:
         """
-        【V2.3 · DB查询探针版】
-        - 核心新增: 在分钟数据回退查询后增加DB探针，打印查询的模型、日期数和返回的记录数，以诊断数据加载失败的根源。
+        【V2.4 · 范围查询修正版】
+        - 核心修正: 将分钟数据回退逻辑中的 `__date__in` 查询替换为高效的 `__gte` 和 `__lte` 范围查询，根治回退加载失败的问题。
         """
         from django.utils import timezone
         from utils.model_helpers import get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code, get_daily_data_model_by_code
+        from datetime import time, datetime
         intraday_data_map = {}
         start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
         end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
-        # 阶段一：尝试加载并处理高频数据
         TickModel = get_stock_tick_data_model_by_code(stock_info.stock_code)
         Level5Model = get_stock_level5_data_model_by_code(stock_info.stock_code)
         @sync_to_async(thread_sensitive=True)
@@ -135,7 +135,6 @@ class AdvancedStructuralMetricsService:
             minute_df_from_hf.reset_index(inplace=True)
             minute_df_from_hf['date'] = minute_df_from_hf['trade_time'].dt.date
             intraday_data_map.update({date: group_df for date, group_df in minute_df_from_hf.groupby('date')})
-        # 阶段二 & 三：识别缺失日期并回退加载分钟数据
         DailyModel = get_daily_data_model_by_code(stock_info.stock_code)
         all_dates_in_range_qs = DailyModel.objects.filter(stock=stock_info, trade_time__gte=start_date, trade_time__lte=end_date).values_list('trade_time', flat=True)
         all_required_dates = {d.date() for d in pd.to_datetime(await sync_to_async(list)(all_dates_in_range_qs))}
@@ -147,8 +146,10 @@ class AdvancedStructuralMetricsService:
             if MinuteModel:
                 @sync_to_async(thread_sensitive=True)
                 def get_minute_data_for_dates(model, stock_pk, dates_list):
-                    qs = model.objects.filter(stock_id=stock_pk, trade_time__date__in=dates_list)
-                    # [DB查询探针]
+                    # 核心修正：使用范围查询
+                    start_dt_fallback = timezone.make_aware(datetime.combine(dates_list[0], time.min))
+                    end_dt_fallback = timezone.make_aware(datetime.combine(dates_list[-1], time.max))
+                    qs = model.objects.filter(stock_id=stock_pk, trade_time__gte=start_dt_fallback, trade_time__lte=end_dt_fallback)
                     qs_count = qs.count()
                     print(f"--- [DB查询探针] 结构服务分钟数据回退 ---")
                     print(f"  -> 模型: {model.__name__}")
@@ -157,10 +158,13 @@ class AdvancedStructuralMetricsService:
                     print(f"--- [探针结束] ---")
                     if qs_count == 0:
                         return pd.DataFrame()
-                    return pd.DataFrame.from_records(qs.values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount').order_by('trade_time'))
+                    # 额外过滤确保只包含请求的日期
+                    df = pd.DataFrame.from_records(qs.values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount').order_by('trade_time'))
+                    df['trade_time'] = pd.to_datetime(df['trade_time']).dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
+                    df = df[df['trade_time'].dt.date.isin(dates_list)]
+                    return df
                 minute_df_fallback = await get_minute_data_for_dates(MinuteModel, stock_info.pk, dates_for_fallback)
                 if not minute_df_fallback.empty:
-                    minute_df_fallback['trade_time'] = pd.to_datetime(minute_df_fallback['trade_time']).dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
                     cols_to_float = ['open', 'high', 'low', 'close', 'amount', 'vol']
                     for col in cols_to_float:
                         minute_df_fallback[col] = pd.to_numeric(minute_df_fallback[col], errors='coerce')
