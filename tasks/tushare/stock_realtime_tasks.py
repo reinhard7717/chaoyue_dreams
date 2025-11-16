@@ -94,43 +94,43 @@ def save_quote_data_batch(stock_codes: List[str], cache_manager=None):
         # 1. 批量保存行情快照数据
         await stock_realtime_dao.save_quote_data_by_stock_codes(stock_codes)
         # 2. 执行用户推送逻辑 (这部分逻辑保持不变)
-        @sync_to_async(thread_sensitive=True)
-        def get_user_ids_for_codes(codes: List[str]) -> Dict[str, List[int]]:
-            favorites = FavoriteStock.objects.filter(stock__stock_code__in=codes).values('stock__stock_code', 'user_id')
-            user_map = defaultdict(list)
-            for fav in favorites:
-                user_map[fav['stock__stock_code']].append(fav['user_id'])
-            return user_map
-        user_ids_map = await get_user_ids_for_codes(stock_codes)
-        push_tasks = []
-        for code in stock_codes:
-            user_ids = user_ids_map.get(code)
-            if not user_ids: continue
-            latest_tick, latest_strategy_result = await asyncio.gather(
-                stock_realtime_dao.get_latest_tick_data(code),
-                strategy_dao.get_latest_strategy_result(code)
-            )
-            if not latest_tick: continue
-            signal_score = getattr(latest_strategy_result, 'score', None)
-            signal = signal_score if isinstance(signal_score, dict) else {'type': 'hold', 'text': signal_score or 'N/A'}
-            payload = {
-                'code': code,
-                'current_price': latest_tick.get('current_price'),
-                'high_price': latest_tick.get('high_price'),
-                'low_price': latest_tick.get('low_price'),
-                'open_price': latest_tick.get('open_price'),
-                'prev_close_price': latest_tick.get('prev_close_price'),
-                'trade_time': latest_tick.get('trade_time'),
-                'turnover_value': latest_tick.get('turnover_value'),
-                'volume': latest_tick.get('volume'),
-                'change_percent': latest_tick.get("change_percent"),
-                'signal': signal,
-            }
-            for uid in user_ids:
-                send_update_to_user_task_celery.apply_async(
-                    args=[uid, 'realtime_tick_update', payload],
-                    queue='dashboard'
-                )
+        # @sync_to_async(thread_sensitive=True)
+        # def get_user_ids_for_codes(codes: List[str]) -> Dict[str, List[int]]:
+        #     favorites = FavoriteStock.objects.filter(stock__stock_code__in=codes).values('stock__stock_code', 'user_id')
+        #     user_map = defaultdict(list)
+        #     for fav in favorites:
+        #         user_map[fav['stock__stock_code']].append(fav['user_id'])
+        #     return user_map
+        # user_ids_map = await get_user_ids_for_codes(stock_codes)
+        # push_tasks = []
+        # for code in stock_codes:
+        #     user_ids = user_ids_map.get(code)
+        #     if not user_ids: continue
+        #     latest_tick, latest_strategy_result = await asyncio.gather(
+        #         stock_realtime_dao.get_latest_tick_data(code),
+        #         strategy_dao.get_latest_strategy_result(code)
+        #     )
+        #     if not latest_tick: continue
+        #     signal_score = getattr(latest_strategy_result, 'score', None)
+        #     signal = signal_score if isinstance(signal_score, dict) else {'type': 'hold', 'text': signal_score or 'N/A'}
+        #     payload = {
+        #         'code': code,
+        #         'current_price': latest_tick.get('current_price'),
+        #         'high_price': latest_tick.get('high_price'),
+        #         'low_price': latest_tick.get('low_price'),
+        #         'open_price': latest_tick.get('open_price'),
+        #         'prev_close_price': latest_tick.get('prev_close_price'),
+        #         'trade_time': latest_tick.get('trade_time'),
+        #         'turnover_value': latest_tick.get('turnover_value'),
+        #         'volume': latest_tick.get('volume'),
+        #         'change_percent': latest_tick.get("change_percent"),
+        #         'signal': signal,
+        #     }
+        #     for uid in user_ids:
+        #         send_update_to_user_task_celery.apply_async(
+        #             args=[uid, 'realtime_tick_update', payload],
+        #             queue='dashboard'
+        #         )
     async_to_sync(main)()
 
 # =================================================================
