@@ -242,19 +242,6 @@ class HSConstSerializer(serializers.ModelSerializer):
         model = HSConst
         fields = '__all__'
 
-# stock_models\stock_realtime.py
-class StockRealtimeDataSerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.stock_realtime import StockRealtimeData
-        model = StockRealtimeData
-        fields = '__all__'
-
-class StockLevel5DataSerializer(serializers.ModelSerializer):
-    class Meta:
-        from stock_models.stock_realtime import StockLevel5Data
-        model = StockLevel5Data
-        fields = '__all__'
-
 # stock_models\time_trade.py
 class StockDailyBasicSerializer(serializers.ModelSerializer):
     class Meta:

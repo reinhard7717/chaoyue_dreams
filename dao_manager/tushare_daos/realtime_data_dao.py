@@ -13,8 +13,7 @@ from decimal import Decimal, InvalidOperation
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 
-from stock_models.stock_realtime import StockLevel5Data, StockRealtimeData
-from utils.model_helpers import get_stock_tick_data_model_by_code
+from utils.model_helpers import get_stock_tick_data_model_by_code, get_stock_realtime_data_model_by_code, get_stock_level5_data_model_by_code
 
 from utils.cache_get import StockInfoCacheGet, StockRealtimeCacheGet
 from utils.cache_manager import CacheManager
