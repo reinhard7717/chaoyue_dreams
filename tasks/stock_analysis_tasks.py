@@ -688,22 +688,21 @@ def summarize_computation_failures(results):
 @with_cache_manager
 def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V2.0 · 指挥官模式重构版】为单只股票预计算高级结构与行为指标的Celery任务。
-    - 核心重构: 本任务从简单的服务调用者，升级为负责数据加载和流程调度的“指挥官”。
+    【V3.0 · 终极指挥官模式】为单只股票预计算高级结构与行为指标的Celery任务。
+    - 核心重构: 本任务从简单的服务调用者，升级为负责数据加载和流程调度的“指挥官”，与耦合任务架构完全对齐。
     - 核心逻辑: 1. 确定处理日期范围。 2. 统一加载日线、分钟、Tick、Level5数据。 3. 将预加载的数据传递给服务层进行纯粹计算。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.advanced_structural_metrics_service import AdvancedStructuralMetricsService
         from stock_models.index import TradeCalendar
         from utils.model_helpers import get_daily_data_model_by_code, get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code, get_minute_data_model_by_code_and_timelevel
-        from datetime import timedelta
+        from datetime import timedelta, time, datetime
         import pandas_ta as ta
+        from django.utils import timezone
         structural_service = AdvancedStructuralMetricsService()
-        # 步骤 1: 初始化上下文，获取股票信息和模型
         stock_info, MetricsModel, _, last_metric_date, fetch_start_date = await structural_service._initialize_context(
             stock_code, incremental_flag, start_date_override
         )
-        # 步骤 2: 确定需要处理的日期范围
         DailyModel = get_daily_data_model_by_code(stock_code)
         date_filter = {'stock': stock_info}
         if start_date_override:
@@ -715,7 +714,6 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
         if dates_to_process.empty:
             logger.info(f"[{stock_code}] [结构指标任务] 无需计算的日期，任务终止。")
             return 0
-        # 步骤 3: 一次性加载所有需要的历史日线数据用于计算ATR
         history_start_date = dates_to_process.min().date() - timedelta(days=100)
         daily_data_qs = DailyModel.objects.filter(
             stock=stock_info,
@@ -731,11 +729,41 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
         daily_df_with_atr.ta.atr(length=5, append=True, col_names=('ATR_5',))
         daily_df_with_atr.ta.atr(length=14, append=True, col_names=('ATR_14',))
         daily_df_with_atr.ta.atr(length=50, append=True, col_names=('ATR_50',))
-        # 步骤 4: 调用重构后的服务执行器
+        # 新增代码块：在此处统一加载所有日内数据
+        @sync_to_async(thread_sensitive=True)
+        def get_intraday_data_async(model, stock_info_obj, start_date, end_date):
+            if not model: return pd.DataFrame()
+            start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
+            end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
+            qs = model.objects.filter(stock=stock_info_obj, trade_time__gte=start_datetime, trade_time__lte=end_datetime).values()
+            return pd.DataFrame.from_records(qs)
+        chunk_start_date = dates_to_process.min().date()
+        chunk_end_date = dates_to_process.max().date()
+        tick_model = get_stock_tick_data_model_by_code(stock_code)
+        level5_model = get_stock_level5_data_model_by_code(stock_code)
+        minute_model = get_minute_data_model_by_code_and_timelevel(stock_code, '1')
+        tick_df, level5_df, minute_df = await asyncio.gather(
+            get_intraday_data_async(tick_model, stock_info, chunk_start_date, chunk_end_date),
+            get_intraday_data_async(level5_model, stock_info, chunk_start_date, chunk_end_date),
+            get_intraday_data_async(minute_model, stock_info, chunk_start_date, chunk_end_date)
+        )
+        intraday_data_map = {}
+        if not tick_df.empty:
+            tick_df['trade_time'] = pd.to_datetime(tick_df['trade_time']).dt.tz_convert('Asia/Shanghai')
+            tick_df['date'] = tick_df['trade_time'].dt.date
+            intraday_data_map.update({date: group_df for date, group_df in tick_df.groupby('date')})
+        if not minute_df.empty:
+            minute_df['trade_time'] = pd.to_datetime(minute_df['trade_time']).dt.tz_convert('Asia/Shanghai')
+            minute_df['date'] = minute_df['trade_time'].dt.date
+            for date, group_df in minute_df.groupby('date'):
+                if date not in intraday_data_map: # 优先使用tick数据，如果不存在则用分钟数据回退
+                    intraday_data_map[date] = group_df
+        # 调用重构后的服务执行器，传入预加载的数据
         processed_count = await structural_service.run_precomputation(
             stock_info=stock_info,
             dates_to_process=dates_to_process,
-            daily_df_with_atr=daily_df_with_atr
+            daily_df_with_atr=daily_df_with_atr,
+            intraday_data_map=intraday_data_map
         )
         logger.info(f"[{stock_code}] [结构指标任务] 成功完成，处理了 {processed_count} 条记录。")
         return {"status": "success", "stock_code": stock_code, "processed_days": processed_count}

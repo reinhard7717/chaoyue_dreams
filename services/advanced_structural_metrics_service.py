@@ -29,10 +29,11 @@ class AdvancedStructuralMetricsService:
         """初始化服务，设定回溯期等基础参数"""
         self.max_lookback_days = 300 # 为计算衍生指标所需的最大历史回溯天数
 
-    async def run_precomputation(self, stock_info: StockInfo, dates_to_process: pd.DatetimeIndex, daily_df_with_atr: pd.DataFrame):
+    async def run_precomputation(self, stock_info: StockInfo, dates_to_process: pd.DatetimeIndex, daily_df_with_atr: pd.DataFrame, intraday_data_map: dict):
         """
-        【V2.1 · 日志净化版】
-        - 核心修正: 移除冗余的 `missing_dates` 检查和日志记录，因为健壮的 `_load_intraday_data_for_range` 方法已经处理了数据回退。
+        【V3.0 · 纯计算引擎版】高级结构与行为指标预计算总指挥
+        - 核心重构: 剥离所有数据加载逻辑，直接接收由上游Celery任务预加载的 intraday_data_map。
+        - 核心职责: 1. 按区块处理日期。 2. 调用指标锻造器。 3. 计算衍生指标并保存。
         """
         MetricsModel = get_advanced_structural_metrics_model_by_code(stock_info.stock_code)
         initial_history_end_date = dates_to_process.min()
@@ -43,12 +44,16 @@ class AdvancedStructuralMetricsService:
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty:
                 continue
-            intraday_data_map = await self._load_intraday_data_for_range(stock_info, chunk_dates.min(), chunk_dates.max())
-            # 核心修正：移除此处的 missing_dates 检查，因为加载器已处理
-            if not intraday_data_map:
+            # 核心变更：不再自己加载数据，直接使用传入的 intraday_data_map
+            # 我们需要根据当前区块的日期来过滤这个大的 map
+            chunk_intraday_map = {
+                pd.to_datetime(d).date(): intraday_data_map[pd.to_datetime(d).date()]
+                for d in chunk_dates if pd.to_datetime(d).date() in intraday_data_map
+            }
+            if not chunk_intraday_map:
                 logger.warning(f"[{stock_info.stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 无任何日内数据，跳过整个区块。")
                 continue
-            chunk_new_metrics_df = await self._forge_advanced_structural_metrics(intraday_data_map, stock_info.stock_code, daily_df_with_atr)
+            chunk_new_metrics_df = await self._forge_advanced_structural_metrics(chunk_intraday_map, stock_info.stock_code, daily_df_with_atr)
             all_new_core_metrics_df = pd.concat([all_new_core_metrics_df, chunk_new_metrics_df])
         if all_new_core_metrics_df.empty:
             logger.info(f"[{stock_info.stock_code}] [结构指标] 未能计算出任何新的核心指标，任务结束。")
