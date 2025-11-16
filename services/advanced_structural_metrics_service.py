@@ -179,16 +179,14 @@ class AdvancedStructuralMetricsService:
 
     async def _forge_advanced_structural_metrics(self, intraday_data_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
-        【V18.0 · 纯计算版】
-        - 核心重构: 移除所有内部的数据库查询逻辑，改为接收一个预先加载并计算好ATR的日线DataFrame。
+        【V18.1 · 类型转换修正版】
+        - 核心修正: 在计算分钟VWAP前，将'amount'和'vol'列强制转换为数值类型，以解决Decimal与float运算时的TypeError。
         """
         if not intraday_data_map:
             return pd.DataFrame()
         daily_metrics = []
         all_dates = sorted(intraday_data_map.keys())
-        # 核心变更：不再查询数据库，直接使用传入的 daily_df_with_atr
         daily_df = daily_df_with_atr
-        # 补充换手率数据（这部分仍然需要查询，但范围更小）
         from stock_models.time_trade import StockDailyBasic
         daily_basic_qs = StockDailyBasic.objects.filter(
             stock__stock_code=stock_code,
@@ -220,6 +218,9 @@ class AdvancedStructuralMetricsService:
             continuous_mask = group['trade_time'].dt.time < time(14, 57, 0)
             continuous_group = group[continuous_mask].copy()
             if continuous_group.empty: continue
+            # 修改代码行: 增加类型转换
+            continuous_group['amount'] = pd.to_numeric(continuous_group['amount'], errors='coerce')
+            continuous_group['vol'] = pd.to_numeric(continuous_group['vol'], errors='coerce')
             continuous_group['minute_vwap'] = continuous_group['amount'] / continuous_group['vol'].replace(0, np.nan)
             continuous_group['minute_vwap'].fillna(method='ffill', inplace=True)
             continuous_group['minute_vwap'].fillna(group['open'].iloc[0], inplace=True)
