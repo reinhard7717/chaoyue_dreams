@@ -9,7 +9,7 @@ import tushare as ts
 import pytz
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-
+from collections import defaultdict
 from dao_manager.base_dao import BaseDAO
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 
