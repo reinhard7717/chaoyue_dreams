@@ -197,44 +197,30 @@ class AdvancedFundFlowMetricsService:
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None):
         """
-        【V1.4 · Level5盘口数据融合版】从预加载的DataFrame构建按日分组的数据。
-        - 核心进化: 融合逐笔成交和Level5盘口数据，通过`pd.merge_asof`实现，以获得更精确的买卖盘归因。
-        - 核心新增: 优先使用逐笔数据进行聚合，并根据逐笔数据的 'type' 字段计算每分钟的原始买卖量。
-        - 核心修正: 修复了之前逐笔数据聚合时，买卖量字段被初始化为0的问题。
+        【V1.5 · 健壮回退版】从预加载的DataFrame构建按日分组的数据，实现逐日按需回退。
+        - 核心进化: 1. 优先加载并聚合高频数据。 2. 识别高频数据缺失的日期。 3. 仅为这些日期回退加载分钟数据。 4. 合并两部分数据源。
         """
         from django.utils import timezone
         from datetime import datetime, time
         import pandas as pd
         if date_index.empty:
-            return None
-        min_date, max_date = date_index.min().date(), date_index.max().date()
-        # 最高优先级：融合逐笔和Level5数据
-        if tick_data_map and level5_data_map and any(d.date() in tick_data_map and d.date() in level5_data_map for d in date_index):
-            print(f"调试信息: [{stock_info.stock_code}] _get_daily_grouped_minute_data 发现逐笔和Level5数据，将进行融合归因。")
-            all_ticks_for_range = pd.concat([tick_data_map[d.date()] for d in date_index if d.date() in tick_data_map])
-            all_level5_for_range = pd.concat([level5_data_map[d.date()] for d in date_index if d.date() in level5_data_map])
-            if not all_ticks_for_range.empty and not all_level5_for_range.empty:
-                all_ticks_for_range.sort_values('trade_time', inplace=True)
-                all_level5_for_range.sort_values('trade_time', inplace=True)
-                # 使用merge_asof将每个tick与它之前最近的level5快照对齐
-                merged_df = pd.merge_asof(all_ticks_for_range, all_level5_for_range, on='trade_time', direction='backward')
-                # 根据盘口数据重新判断买卖方向
-                conditions = [
-                    merged_df['price'] >= merged_df['sell_price1'], # 主动买
-                    merged_df['price'] <= merged_df['buy_price1'],  # 主动卖
-                ]
-                choices = ['B', 'S']
-                merged_df['type_reclassified'] = np.select(conditions, choices, default='M') # 中性盘
-                print(f"调试信息: [{stock_info.stock_code}] Level5归因统计: B={ (merged_df['type_reclassified'] == 'B').sum() }, S={ (merged_df['type_reclassified'] == 'S').sum() }, M={ (merged_df['type_reclassified'] == 'M').sum() }")
-                all_tick_data_for_range = merged_df
-                all_tick_data_for_range['type'] = all_tick_data_for_range['type_reclassified'] # 使用重新分类的type
-        # 次高优先级：仅使用逐笔数据
-        if tick_data_map and any(d.date() in tick_data_map for d in date_index):
-            print(f"调试信息: [{stock_info.stock_code}] _get_daily_grouped_minute_data 发现逐笔数据，将使用逐笔数据进行聚合。")
-            if 'type_reclassified' not in all_ticks_for_range.columns: # 如果没有经过Level5融合
-                all_ticks_for_range = pd.concat([tick_data_map[d.date()] for d in date_index if d.date() in tick_data_map])
+            return {}
+        intraday_data_map = {}
+        # 阶段一：尝试加载并处理高频数据
+        if tick_data_map:
+            print(f"调试信息: [{stock_info.stock_code}] _get_daily_grouped_minute_data 发现逐笔数据，开始高频处理流程。")
+            all_ticks_for_range = pd.concat([df for date, df in tick_data_map.items() if pd.to_datetime(date) in date_index])
             if not all_ticks_for_range.empty:
-                all_ticks_for_range['trade_time'] = pd.to_datetime(all_ticks_for_range['trade_time'])
+                if level5_data_map:
+                    all_level5_for_range = pd.concat([df for date, df in level5_data_map.items() if pd.to_datetime(date) in date_index])
+                    if not all_level5_for_range.empty:
+                        all_ticks_for_range.sort_values('trade_time', inplace=True)
+                        all_level5_for_range.sort_values('trade_time', inplace=True)
+                        merged_df = pd.merge_asof(all_ticks_for_range, all_level5_for_range, on='trade_time', direction='backward')
+                        conditions = [merged_df['price'] >= merged_df['sell_price1'], merged_df['price'] <= merged_df['buy_price1']]
+                        choices = ['B', 'S']
+                        merged_df['type'] = np.select(conditions, choices, default='M')
+                        all_ticks_for_range = merged_df
                 all_ticks_for_range.set_index('trade_time', inplace=True)
                 buy_vol_per_minute = all_ticks_for_range[all_ticks_for_range['type'] == 'B'].resample('1min')['volume'].sum()
                 sell_vol_per_minute = all_ticks_for_range[all_ticks_for_range['type'] == 'S'].resample('1min')['volume'].sum()
@@ -242,39 +228,30 @@ class AdvancedFundFlowMetricsService:
                     open=('price', 'first'), high=('price', 'max'), low=('price', 'min'),
                     close=('price', 'last'), vol=('volume', 'sum'), amount=('amount', 'sum')
                 ).dropna(subset=['open', 'high', 'low', 'close', 'vol', 'amount'])
-                minute_df_from_ticks.reset_index(inplace=True)
-                minute_df_from_ticks.rename(columns={'trade_time': 'trade_time'}, inplace=True)
-                minute_df_from_ticks = minute_df_from_ticks.set_index('trade_time')
                 minute_df_from_ticks['buy_vol_raw'] = buy_vol_per_minute
                 minute_df_from_ticks['sell_vol_raw'] = sell_vol_per_minute
                 minute_df_from_ticks.fillna(0, inplace=True)
                 minute_df_from_ticks.reset_index(inplace=True)
-                minute_df_from_ticks['main_force_buy_vol'] = 0.0; minute_df_from_ticks['main_force_sell_vol'] = 0.0
-                minute_df_from_ticks['main_force_net_vol'] = 0.0; minute_df_from_ticks['retail_buy_vol'] = 0.0
-                minute_df_from_ticks['retail_sell_vol'] = 0.0; minute_df_from_ticks['retail_net_vol'] = 0.0
-                minute_df_from_ticks['amount_yuan'] = minute_df_from_ticks['amount']
-                minute_df_from_ticks['vol_shares'] = minute_df_from_ticks['vol']
-                minute_df_from_ticks['minute_vwap'] = minute_df_from_ticks['amount_yuan'] / minute_df_from_ticks['vol_shares'].replace(0, np.nan)
-                return self._group_minute_data_from_df(minute_df_from_ticks)
-            else:
-                print(f"调试信息: [{stock_info.stock_code}] _get_daily_grouped_minute_data 逐笔数据为空，回退到分钟数据加载。")
-        # 最低优先级：使用分钟数据
-        MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
-        if not MinuteModel:
-            return None
-        @sync_to_async(thread_sensitive=True)
-        def get_data(model, stock_pk, start_dt, end_dt):
-            cols_to_fetch = ('trade_time', 'amount', 'vol', 'open', 'close', 'high', 'low') if fetch_full_cols else ('trade_time', 'amount', 'vol')
-            qs = model.objects.filter(
-                stock_id=stock_pk, trade_time__gte=start_dt, trade_time__lt=end_dt
-            ).values(*cols_to_fetch)
-            return pd.DataFrame.from_records(qs)
-        start_datetime = timezone.make_aware(datetime.combine(min_date, time.min))
-        end_datetime = timezone.make_aware(datetime.combine(max_date, time.max))
-        minute_df = await get_data(MinuteModel, stock_info.pk, start_datetime, end_datetime)
-        if minute_df.empty:
-            return None
-        return self._group_minute_data_from_df(minute_df)
+                minute_df_from_ticks['date'] = minute_df_from_ticks['trade_time'].dt.date
+                intraday_data_map.update({date: self._group_minute_data_from_df(group_df) for date, group_df in minute_df_from_ticks.groupby('date')})
+        # 阶段二 & 三：识别缺失日期并回退加载分钟数据
+        all_required_dates = set(date_index.date)
+        dates_with_hf_data = set(intraday_data_map.keys())
+        dates_for_fallback = sorted(list(all_required_dates - dates_with_hf_data))
+        if dates_for_fallback:
+            print(f"调试信息: [{stock_info.stock_code}] 为 {len(dates_for_fallback)} 个日期回退加载分钟数据: {dates_for_fallback}")
+            MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
+            if MinuteModel:
+                @sync_to_async(thread_sensitive=True)
+                def get_minute_data_for_dates(model, stock_pk, dates_list):
+                    cols_to_fetch = ('trade_time', 'amount', 'vol', 'open', 'close', 'high', 'low') if fetch_full_cols else ('trade_time', 'amount', 'vol')
+                    qs = model.objects.filter(stock_id=stock_pk, trade_time__date__in=dates_list).values(*cols_to_fetch)
+                    return pd.DataFrame.from_records(qs)
+                minute_df_fallback = await get_minute_data_for_dates(MinuteModel, stock_info.pk, dates_for_fallback)
+                if not minute_df_fallback.empty:
+                    minute_df_fallback['date'] = pd.to_datetime(minute_df_fallback['trade_time']).dt.date
+                    intraday_data_map.update({date: self._group_minute_data_from_df(group_df) for date, group_df in minute_df_fallback.groupby('date')})
+        return intraday_data_map
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """

@@ -1032,34 +1032,33 @@ class ChipFeatureCalculator:
 
     def _compute_microstructure_game_metrics(self, context: dict) -> dict:
         """
-        【V1.0 · 微观博弈版】计算基于高频数据的筹码微观博弈指标。
-        - 核心职责: 融合分钟K线、主动买卖量、盘口挂单数据，量化筹码交换纯度、压力支撑有效性及隐蔽交易行为。
+        【V1.1 · 健壮回退版】计算基于高频数据的筹码微观博弈指标。
+        - 核心增强: 增加数据源检查。如果日内数据不包含高频特征（如 'buy_vol_raw'），则优雅地跳过计算，返回默认值。
         """
         results = {
-            'peak_exchange_purity': 0.0,
-            'pressure_validation_score': 0.0,
-            'support_validation_score': 0.0,
-            'covert_accumulation_signal': 0.0,
+            'peak_exchange_purity': np.nan,
+            'pressure_validation_score': np.nan,
+            'support_validation_score': np.nan,
+            'covert_accumulation_signal': np.nan,
         }
         intraday_df = context.get('processed_intraday_df')
+        # 核心增强：检查是否存在高频数据列，如果不存在则直接返回NaN
+        if intraday_df.empty or 'buy_vol_raw' not in intraday_df.columns:
+            return results
         peak_low = context.get('peak_range_low')
         peak_high = context.get('peak_range_high')
-        if intraday_df.empty or not all(pd.notna(v) for v in [peak_low, peak_high]):
+        if not all(pd.notna(v) for v in [peak_low, peak_high]):
             return results
         # 1. 筹码交换纯度 (Peak Exchange Purity)
         peak_zone_df = intraday_df[(intraday_df['minute_vwap'] >= peak_low) & (intraday_df['minute_vwap'] <= peak_high)]
         if not peak_zone_df.empty:
             total_vol_peak = peak_zone_df['vol_shares'].sum()
             if total_vol_peak > 0:
-                # 'buy_vol_raw' 和 'sell_vol_raw' 来自于对逐笔数据的聚合
                 active_buy_vol = peak_zone_df['buy_vol_raw'].sum()
                 active_sell_vol = peak_zone_df['sell_vol_raw'].sum()
-                # 纯度 = 1 - |净主动成交| / 总成交。越接近1，说明买卖越均衡，换手越真实。
                 purity = 1 - abs(active_buy_vol - active_sell_vol) / total_vol_peak
                 results['peak_exchange_purity'] = purity * 100
         # 2. 压力/支撑有效性验证 (Pressure/Support Validation)
-        # 此处简化模型：我们用日内的主动买卖行为来验证前一日筹码峰的有效性
-        # 假设 pre_close 附近是前一日的重要筹码区
         pre_close = context.get('pre_close')
         if pd.notna(pre_close):
             pressure_zone_df = intraday_df[intraday_df['minute_vwap'] > pre_close]
@@ -1067,22 +1066,18 @@ class ChipFeatureCalculator:
             if not pressure_zone_df.empty:
                 total_vol_pressure = pressure_zone_df['vol_shares'].sum()
                 if total_vol_pressure > 0:
-                    # 压力区的主动卖出占比越高，说明压力越真实
                     active_sell_pressure = pressure_zone_df['sell_vol_raw'].sum()
                     results['pressure_validation_score'] = (active_sell_pressure / total_vol_pressure) * 100
             if not support_zone_df.empty:
                 total_vol_support = support_zone_df['vol_shares'].sum()
                 if total_vol_support > 0:
-                    # 支撑区的主动买入占比越高，说明支撑越真实
                     active_buy_support = support_zone_df['buy_vol_raw'].sum()
                     results['support_validation_score'] = (active_buy_support / total_vol_support) * 100
         # 3. 隐蔽吸筹信号 (Covert Accumulation Signal)
-        # 模型：在价格下跌或盘整的分钟里，主力净流入为正的成交量占比
         dip_or_flat_df = intraday_df[intraday_df['close'] <= intraday_df['open']]
         if not dip_or_flat_df.empty:
             total_vol_dip = dip_or_flat_df['vol_shares'].sum()
             if total_vol_dip > 0:
-                # 'main_force_net_vol' 来自资金流服务的归因
                 mf_net_buy_on_dip = dip_or_flat_df['main_force_net_vol'].clip(lower=0).sum()
                 results['covert_accumulation_signal'] = (mf_net_buy_on_dip / total_vol_dip) * 100
         return results
