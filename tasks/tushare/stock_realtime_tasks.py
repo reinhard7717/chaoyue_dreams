@@ -152,16 +152,19 @@ def save_real_tick_data_single(stock_code: str, cache_manager=None):
     logger.info(f"开始处理 {stock_code} 的真实逐笔(Tick)数据任务...")
     stock_realtime_dao = StockRealtimeDAO(cache_manager)
     trade_date = datetime.datetime.now().strftime('%Y-%m-%d')
-    async def main():
-        print(f"开始处理 {stock_code} 的真实逐笔(Tick)数据任务...")
-        # 调用我们之前在DAO中创建的、包含完整持久化逻辑的方法
-        # 修改代码行: 捕获 save_realtime_tick_in_bulk 的返回值
-        success = await stock_realtime_dao.save_realtime_tick_in_bulk([stock_code], trade_date)
-        # 修改代码行: 如果保存失败，则抛出异常以触发 Celery 重试
-        if not success:
-            print(f"股票 {stock_code} 的真实逐笔数据保存失败，触发 Celery 重试。") # 调试信息
-            raise Exception(f"股票 {stock_code} 的真实逐笔数据保存失败，触发 Celery 重试。")
-    async_to_sync(main)()
+    try: # 修改代码行: 添加 try-except 块捕获 async_to_sync 内部异常
+        async def main():
+            print(f"开始处理 {stock_code} 的真实逐笔(Tick)数据任务...")
+            # 调用我们之前在DAO中创建的、包含完整持久化逻辑的方法
+            success = await stock_realtime_dao.save_realtime_tick_in_bulk([stock_code], trade_date)
+            # 如果保存失败，则抛出异常以触发 Celery 重试
+            if not success:
+                print(f"股票 {stock_code} 的真实逐笔数据保存失败，触发 Celery 重试。") # 调试信息
+                raise Exception(f"股票 {stock_code} 的真实逐笔数据保存失败，触发 Celery 重试。")
+        async_to_sync(main)()
+    except Exception as e: # 修改代码行: 捕获异常
+        logger.error(f"处理 {stock_code} 的真实逐笔(Tick)数据任务时发生未预期异常: {e}", exc_info=True) # 修改代码行: 记录异常日志
+        raise e # 修改代码行: 重新抛出异常，确保 Celery 捕获并重试
 
 # =================================================================
 # =================== 3. 统一调度器任务 ============================
