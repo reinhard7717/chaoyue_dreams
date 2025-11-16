@@ -117,7 +117,6 @@ class StockRealtimeDAO(BaseDAO):
         【辅助】使用 asyncio.gather 并发调用 tushare 接口获取原始逐笔数据。
         - 核心修改: 为单个股票的 Tushare API 调用添加重试机制。
         """
-        print(f"  -> [探针] 进入 _fetch_raw_ticks_in_bulk，准备获取 {len(stock_codes)} 支股票的逐笔数据...")
         async def fetch_one_stock(code: str):
             max_retries = 3 # 修改代码行: 定义最大重试次数
             initial_delay = 5 # 修改代码行: 定义初始重试延迟（秒）
@@ -165,8 +164,6 @@ class StockRealtimeDAO(BaseDAO):
         tasks = [fetch_one_stock(code) for code in stock_codes]
         results = await asyncio.gather(*tasks)
         final_map = {code: df for code, df in results if df is not None and not df.empty}
-        # 探针 6: 打印最终结果
-        print(f"  -> [探针] _fetch_raw_ticks_in_bulk 完成。成功获取了 {len(final_map)}/{len(stock_codes)} 支股票的有效逐笔数据。")
         return final_map
 
     # --- 读操作 (Read Operation) ---
