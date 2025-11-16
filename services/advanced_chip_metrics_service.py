@@ -284,45 +284,35 @@ class AdvancedChipMetricsService:
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         return df
 
-    async def _load_minute_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp, tick_data_map: dict = None):
+    async def _load_minute_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp, tick_data_map: dict = None, minute_data_map: dict = None):
         """
-        【V1.3 · 健壮回退版】一次性加载指定日期范围内的所有分钟线数据，并按日期分组。
-        - 核心进化: 实现逐日判断、按需回退的健壮数据加载策略，与资金流服务保持一致。
+        【V1.5 · 纯处理器版】不再查询数据库，仅处理由上游任务传入的日内数据maps。
+        - 核心重构: 移除所有数据库查询逻辑，职责单一化为数据处理与聚合。
+        - 核心逻辑: 遍历所需日期，优先使用tick_data_map，若无则回退使用minute_data_map。
         """
-        from django.utils import timezone
         from stock_models.time_trade import StockDailyBasic
         intraday_data_map = {}
-        # 阶段一：尝试加载并处理高频数据
-        if tick_data_map:
-            print(f"调试信息: [{stock_info.stock_code}] _load_minute_data_for_range 发现逐笔数据，开始高频处理流程。")
-            all_ticks_for_range = pd.concat(tick_data_map.values())
-            if not all_ticks_for_range.empty:
-                all_ticks_for_range.set_index('trade_time', inplace=True)
-                minute_df_from_ticks = all_ticks_for_range.resample('1min').agg(
+        all_dates_in_range_qs = StockDailyBasic.objects.filter(stock=stock_info, trade_time__gte=start_date, trade_time__lte=end_date).values_list('trade_time', flat=True)
+        all_required_dates = {d.date() for d in pd.to_datetime(await sync_to_async(list)(all_dates_in_range_qs))}
+        for date_obj in sorted(list(all_required_dates)):
+            # 优先处理高频数据
+            if tick_data_map and date_obj in tick_data_map:
+                print(f"调试信息: [{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 使用预加载的逐笔数据。")
+                tick_df = tick_data_map[date_obj]
+                tick_df.set_index('trade_time', inplace=True)
+                minute_df_from_ticks = tick_df.resample('1min').agg(
                     open=('price', 'first'), high=('price', 'max'), low=('price', 'min'),
                     close=('price', 'last'), vol=('volume', 'sum'), amount=('amount', 'sum')
                 ).dropna(subset=['open', 'high', 'low', 'close', 'vol', 'amount'])
                 minute_df_from_ticks.reset_index(inplace=True)
-                minute_df_from_ticks['date'] = minute_df_from_ticks['trade_time'].dt.date
-                intraday_data_map.update({date: group_df for date, group_df in minute_df_from_ticks.groupby('date')})
-        # 阶段二 & 三：识别缺失日期并回退加载分钟数据
-        all_dates_in_range_qs = StockDailyBasic.objects.filter(stock=stock_info, trade_time__gte=start_date, trade_time__lte=end_date).values_list('trade_time', flat=True)
-        all_required_dates = {d.date() for d in pd.to_datetime(await sync_to_async(list)(all_dates_in_range_qs))}
-        dates_with_hf_data = set(intraday_data_map.keys())
-        dates_for_fallback = sorted(list(all_required_dates - dates_with_hf_data))
-        if dates_for_fallback:
-            print(f"调试信息: [{stock_info.stock_code}] 为 {len(dates_for_fallback)} 个日期回退加载分钟数据: {dates_for_fallback}")
-            MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
-            if MinuteModel:
-                @sync_to_async(thread_sensitive=True)
-                def get_minute_data_for_dates(model, stock_pk, dates_list):
-                    qs = model.objects.filter(stock_id=stock_pk, trade_time__date__in=dates_list).values('trade_time', 'amount', 'vol', 'open', 'close', 'high', 'low').order_by('trade_time')
-                    return pd.DataFrame.from_records(qs)
-                minute_df_fallback = await get_minute_data_for_dates(MinuteModel, stock_info.pk, dates_for_fallback)
-                if not minute_df_fallback.empty:
-                    minute_df_fallback['trade_time'] = pd.to_datetime(minute_df_fallback['trade_time']).dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
-                    minute_df_fallback['date'] = minute_df_fallback['trade_time'].dt.date
-                    intraday_data_map.update({date: group_df for date, group_df in minute_df_fallback.groupby('date')})
+                intraday_data_map[date_obj] = minute_df_from_ticks
+                continue
+            # 回退到分钟数据
+            if minute_data_map and date_obj in minute_data_map:
+                print(f"调试信息: [{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 回退使用预加载的分钟数据。")
+                intraday_data_map[date_obj] = minute_data_map[date_obj]
+                continue
+            print(f"调试信息: [{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 未找到任何预加载的日内数据。")
         return intraday_data_map
 
     async def _load_historical_metrics(self, model, stock_info, end_date):

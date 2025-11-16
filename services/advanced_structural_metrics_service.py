@@ -121,8 +121,8 @@ class AdvancedStructuralMetricsService:
 
     async def _load_intraday_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp) -> dict:
         """
-        【V2.1 · 健壮回退版】一次性加载指定日期范围内的所有日内数据，并按日期分组。
-        - 核心进化: 实现逐日判断、按需回退的健壮数据加载策略。
+        【V2.2 · 终极健壮回退版】一次性加载指定日期范围内的所有日内数据，并按日期分组。
+        - 核心进化: 实现逐日判断、按需回退的终极健壮数据加载策略。
         - 核心逻辑: 1. 优先加载并聚合高频数据。 2. 识别出高频数据缺失的日期。 3. 仅为这些日期回退加载分钟数据。 4. 合并两部分数据源。
         """
         from django.utils import timezone
@@ -140,7 +140,7 @@ class AdvancedStructuralMetricsService:
             return pd.DataFrame.from_records(qs.values())
         tick_df = await get_hf_data(TickModel, stock_info.pk, start_datetime, end_datetime)
         if not tick_df.empty:
-            print(f"调试信息: [{stock_info.stock_code}] 在 {start_date.date()} 到 {end_date.date()} 范围内发现逐笔数据，开始处理。")
+            print(f"调试信息: [{stock_info.stock_code}] [结构服务] 在 {start_date.date()} 到 {end_date.date()} 范围内发现逐笔数据，开始处理。")
             tick_df['trade_time'] = pd.to_datetime(tick_df['trade_time']).dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
             level5_df = await get_hf_data(Level5Model, stock_info.pk, start_datetime, end_datetime)
             if not level5_df.empty:
@@ -169,7 +169,7 @@ class AdvancedStructuralMetricsService:
         dates_with_hf_data = set(intraday_data_map.keys())
         dates_for_fallback = sorted(list(all_required_dates - dates_with_hf_data))
         if dates_for_fallback:
-            print(f"调试信息: [{stock_info.stock_code}] 为 {len(dates_for_fallback)} 个日期回退加载分钟数据: {dates_for_fallback}")
+            print(f"调试信息: [{stock_info.stock_code}] [结构服务] 为 {len(dates_for_fallback)} 个日期回退加载分钟数据: {dates_for_fallback}")
             MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
             if MinuteModel:
                 @sync_to_async(thread_sensitive=True)

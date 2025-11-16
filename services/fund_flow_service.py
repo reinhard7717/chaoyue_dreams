@@ -195,36 +195,32 @@ class AdvancedFundFlowMetricsService:
             merged_df = merged_df.join(base_daily_df, how='left')
         return merged_df
 
-    async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None):
+    async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None):
         """
-        【V1.5 · 健壮回退版】从预加载的DataFrame构建按日分组的数据，实现逐日按需回退。
-        - 核心进化: 1. 优先加载并聚合高频数据。 2. 识别高频数据缺失的日期。 3. 仅为这些日期回退加载分钟数据。 4. 合并两部分数据源。
+        【V1.7 · 纯处理器版】不再查询数据库，仅处理由上游任务传入的日内数据maps。
+        - 核心重构: 移除所有数据库查询逻辑，职责单一化为数据处理与聚合。
+        - 核心逻辑: 遍历所需日期，优先使用tick_data_map，若无则回退使用minute_data_map。
         """
-        from django.utils import timezone
-        from datetime import datetime, time
         import pandas as pd
         if date_index.empty:
             return {}
         intraday_data_map = {}
-        # 阶段一：尝试加载并处理高频数据
-        if tick_data_map:
-            print(f"调试信息: [{stock_info.stock_code}] _get_daily_grouped_minute_data 发现逐笔数据，开始高频处理流程。")
-            all_ticks_for_range = pd.concat([df for date, df in tick_data_map.items() if pd.to_datetime(date) in date_index])
-            if not all_ticks_for_range.empty:
-                if level5_data_map:
-                    all_level5_for_range = pd.concat([df for date, df in level5_data_map.items() if pd.to_datetime(date) in date_index])
-                    if not all_level5_for_range.empty:
-                        all_ticks_for_range.sort_values('trade_time', inplace=True)
-                        all_level5_for_range.sort_values('trade_time', inplace=True)
-                        merged_df = pd.merge_asof(all_ticks_for_range, all_level5_for_range, on='trade_time', direction='backward')
-                        conditions = [merged_df['price'] >= merged_df['sell_price1'], merged_df['price'] <= merged_df['buy_price1']]
-                        choices = ['B', 'S']
-                        merged_df['type'] = np.select(conditions, choices, default='M')
-                        all_ticks_for_range = merged_df
-                all_ticks_for_range.set_index('trade_time', inplace=True)
-                buy_vol_per_minute = all_ticks_for_range[all_ticks_for_range['type'] == 'B'].resample('1min')['volume'].sum()
-                sell_vol_per_minute = all_ticks_for_range[all_ticks_for_range['type'] == 'S'].resample('1min')['volume'].sum()
-                minute_df_from_ticks = all_ticks_for_range.resample('1min').agg(
+        for date_obj in date_index.date:
+            # 优先处理高频数据
+            if tick_data_map and date_obj in tick_data_map:
+                print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 使用预加载的逐笔数据。")
+                tick_df = tick_data_map[date_obj]
+                if level5_data_map and date_obj in level5_data_map:
+                    level5_df = level5_data_map[date_obj]
+                    tick_df = pd.merge_asof(tick_df.sort_values('trade_time'), level5_df.sort_values('trade_time'), on='trade_time', direction='backward')
+                    conditions = [tick_df['price'] >= tick_df['sell_price1'], tick_df['price'] <= tick_df['buy_price1']]
+                    choices = ['B', 'S']
+                    tick_df['type'] = np.select(conditions, choices, default='M')
+                
+                tick_df.set_index('trade_time', inplace=True)
+                buy_vol_per_minute = tick_df[tick_df['type'] == 'B'].resample('1min')['volume'].sum()
+                sell_vol_per_minute = tick_df[tick_df['type'] == 'S'].resample('1min')['volume'].sum()
+                minute_df_from_ticks = tick_df.resample('1min').agg(
                     open=('price', 'first'), high=('price', 'max'), low=('price', 'min'),
                     close=('price', 'last'), vol=('volume', 'sum'), amount=('amount', 'sum')
                 ).dropna(subset=['open', 'high', 'low', 'close', 'vol', 'amount'])
@@ -232,32 +228,20 @@ class AdvancedFundFlowMetricsService:
                 minute_df_from_ticks['sell_vol_raw'] = sell_vol_per_minute
                 minute_df_from_ticks.fillna(0, inplace=True)
                 minute_df_from_ticks.reset_index(inplace=True)
-                minute_df_from_ticks['date'] = minute_df_from_ticks['trade_time'].dt.date
-                intraday_data_map.update({date: self._group_minute_data_from_df(group_df) for date, group_df in minute_df_from_ticks.groupby('date')})
-        # 阶段二 & 三：识别缺失日期并回退加载分钟数据
-        all_required_dates = set(date_index.date)
-        dates_with_hf_data = set(intraday_data_map.keys())
-        dates_for_fallback = sorted(list(all_required_dates - dates_with_hf_data))
-        if dates_for_fallback:
-            print(f"调试信息: [{stock_info.stock_code}] 为 {len(dates_for_fallback)} 个日期回退加载分钟数据: {dates_for_fallback}")
-            MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
-            if MinuteModel:
-                @sync_to_async(thread_sensitive=True)
-                def get_minute_data_for_dates(model, stock_pk, dates_list):
-                    cols_to_fetch = ('trade_time', 'amount', 'vol', 'open', 'close', 'high', 'low') if fetch_full_cols else ('trade_time', 'amount', 'vol')
-                    qs = model.objects.filter(stock_id=stock_pk, trade_time__date__in=dates_list).values(*cols_to_fetch)
-                    return pd.DataFrame.from_records(qs)
-                minute_df_fallback = await get_minute_data_for_dates(MinuteModel, stock_info.pk, dates_for_fallback)
-                if not minute_df_fallback.empty:
-                    minute_df_fallback['date'] = pd.to_datetime(minute_df_fallback['trade_time']).dt.date
-                    intraday_data_map.update({date: self._group_minute_data_from_df(group_df) for date, group_df in minute_df_fallback.groupby('date')})
-        return intraday_data_map
+                intraday_data_map[date_obj] = self._group_minute_data_from_df(minute_df_from_ticks)
+                continue
+            # 回退到分钟数据
+            if minute_data_map and date_obj in minute_data_map:
+                print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 回退使用预加载的分钟数据。")
+                intraday_data_map[date_obj] = self._group_minute_data_from_df(minute_data_map[date_obj])
+                continue
+            print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 未找到任何预加载的日内数据。")
+        return {k: v.reset_index(drop=True) for k, v in intraday_data_map.items()}
 
-    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
+    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V10.2 · 微观博弈集成版】
-        - 核心新增: 调用 `_calculate_microstructure_signals` 方法，集成主力对倒、盘口失衡等微观博弈指标。
-        - 核心重构: 废弃“一体适用”的权重模型，为超大单、大单、中单、小单引入各自独特的、基于行为特征的权重分配逻辑。
+        【V10.3 · 全层次数据注入版】
+        - 核心修正: 更新函数签名以接收 minute_data_map，确保与上游任务的数据流一致。
         """
         all_metrics_list = []
         failures_list = []

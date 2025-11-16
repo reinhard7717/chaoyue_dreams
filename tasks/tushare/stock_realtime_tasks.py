@@ -216,8 +216,8 @@ def dispatch_stocks_quote_data_task(quote_batch_size: int = 50, cache_manager=No
     【新增-调度器】
     此任务由 Celery Beat 调度，统一分发“行情快照(Quote)”数据获取任务。
     """
-    # if not is_trading_time():
-    #     return
+    if not is_trading_time():
+        return
     # 1. 获取需要处理的股票列表
     stock_codes = list(StockInfo.objects.filter(list_status='L').exclude(stock_code__endswith='.BJ').values_list('stock_code', flat=True))
     # 2. 分派“行情快照(Quote)”批量任务
