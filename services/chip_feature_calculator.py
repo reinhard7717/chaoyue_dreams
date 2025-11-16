@@ -433,7 +433,8 @@ class ChipFeatureCalculator:
 
     def _compute_static_structure_metrics(self) -> dict:
         """
-        【V11.4 · 断层指标鲁棒性增强版】
+        【V11.5 · 价格成交量熵集成版】
+        - 核心新增: 计算并存储 `price_volume_entropy`。
         - 核心优化: 为 `chip_fault_blockage_ratio` 增加默认值0.0，确保在无断层时该指标有明确输出，而非NULL。
         - 【修复】重新定义 `active_winner_rate` 和 `active_loser_rate` 的计算逻辑，使其在价格突破近期高点时仍能有效捕捉活跃筹码。
         - 【修正】优化 `cost_structure_skewness` 的计算，确保在极端情况下能得到合理值。
@@ -547,34 +548,28 @@ class ChipFeatureCalculator:
             if not losers_df.empty and losers_df['percent'].sum() > 0:
                 loser_avg_cost = np.average(losers_df['price'], weights=losers_df['percent'])
                 if loser_avg_cost > 0: results['loser_loss_margin_avg'] = (close_price / loser_avg_cost - 1) * 100
-            # 重新定义 active_winner_rate 和 active_loser_rate
             if pd.notna(atr_14d) and atr_14d > 0:
-                # 活跃获利盘：成本在 (close_price - 2*ATR, close_price) 之间
                 active_winner_mask = (self.df['price'] < close_price) & (self.df['price'] >= close_price - 2 * atr_14d)
                 results['active_winner_rate'] = self.df[active_winner_mask]['percent'].sum()
-                # 活跃套牢盘：成本在 (close_price, close_price + 2*ATR) 之间
                 active_loser_mask = (self.df['price'] > close_price) & (self.df['price'] <= close_price + 2 * atr_14d)
                 results['active_loser_rate'] = self.df[active_loser_mask]['percent'].sum()
-            else: # 如果ATR无效，则回退到默认值
+            else:
                 results['active_winner_rate'] = 0.0
                 results['active_loser_rate'] = 0.0
-            # 锁定利润盘和锁定亏损盘的计算保持不变
-            # 锁定利润盘：获利盘中，不在活跃获利盘范围内的部分
             locked_profit_mask = (self.df['price'] < close_price) & (~active_winner_mask if pd.notna(atr_14d) else (self.df['price'] < close_price))
             results['locked_profit_rate'] = self.df[locked_profit_mask]['percent'].sum()
-            # 锁定亏损盘：套牢盘中，不在活跃套牢盘范围内的部分
             locked_loss_mask = (self.df['price'] > close_price) & (~active_loser_mask if pd.notna(atr_14d) else (self.df['price'] > close_price))
             results['locked_loss_rate'] = self.df[locked_loss_mask]['percent'].sum()
         # 5. 断层动态 (鲁棒性优化)
         peak_cost = results.get('dominant_peak_cost')
-        results['chip_fault_blockage_ratio'] = 0.0 # 为指标设置默认值0.0
+        results['chip_fault_blockage_ratio'] = 0.0
         if pd.notna(peak_cost) and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             magnitude = (close_price - peak_cost) / atr_14d
             results['chip_fault_magnitude'] = magnitude
             fault_zone_low, fault_zone_high = sorted([peak_cost, close_price])
             fault_zone_df = self.df[(self.df['price'] > fault_zone_low) & (self.df['price'] < fault_zone_high)]
             if not fault_zone_df.empty:
-                results['chip_fault_blockage_ratio'] = fault_zone_df['percent'].sum() # 仅在有断层时覆盖默认值
+                results['chip_fault_blockage_ratio'] = fault_zone_df['percent'].sum()
         # 6. 分层成本
         high_20d, low_20d = self.ctx.get('high_20d'), self.ctx.get('low_20d')
         if pd.notna(high_20d) and pd.notna(low_20d):
@@ -623,7 +618,7 @@ class ChipFeatureCalculator:
                 stability_raw = np.prod(scores)
                 final_score = stability_raw ** (1.0 / len(scores))
                 results['structural_stability_score'] = final_score * 100
-        # --- 10. 近期套牢盘压力 ---
+        # 10. 近期套牢盘压力
         recent_5d_high = self.ctx.get('high_5d')
         recent_5d_low = self.ctx.get('low_5d')
         turnover_vol_5d = self.ctx.get('turnover_vol_5d')
@@ -634,10 +629,16 @@ class ChipFeatureCalculator:
             if total_chip_volume > 0:
                 recent_trapped_vol = (recent_trapped_percent / 100) * total_chip_volume
                 results['recent_trapped_pressure'] = (recent_trapped_vol / turnover_vol_5d) * 100
-        # --- 11. 潜在获利盘供给 ---
+        # 11. 潜在获利盘供给
         if pd.notna(close_price):
             imminent_supply_mask = (self.df['price'] >= close_price / 1.05) & (self.df['price'] < close_price)
             results['imminent_profit_taking_supply'] = self.df[imminent_supply_mask]['percent'].sum()
+        # 12. 价格成交量熵 (新增)
+        intraday_df = self.ctx.get('processed_intraday_df')
+        daily_high = self.ctx.get('high_price')
+        daily_low = self.ctx.get('low_price')
+        total_daily_volume = self.ctx.get('daily_turnover_volume')
+        results['price_volume_entropy'] = self._calculate_price_volume_entropy(intraday_df, daily_high, daily_low, total_daily_volume)
         return results
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
@@ -973,6 +974,53 @@ class ChipFeatureCalculator:
                 print(f"       - 筹码分布为空或百分比和过低，skewness: {skewness:.4f}")
         return skewness
 
+    def _calculate_price_volume_entropy(self, intraday_df: pd.DataFrame, daily_high: float, daily_low: float, total_daily_volume: float) -> float:
+        """
+        【V1.0】计算价格成交量熵。
+        - 核心思想: 将日内价格区间划分为若干价格箱，计算每个价格箱内的成交量比例，然后计算其香农熵。
+        - 意义: 量化日内交易活动在不同价格区间的集中度。低熵值表示交易集中，高熵值表示交易分散。
+        """
+        from scipy.stats import entropy
+        stock_code = self.ctx.get('stock_code', 'UNKNOWN')
+        trade_date = self.ctx.get('trade_date', 'UNKNOWN')
+        if intraday_df.empty or total_daily_volume <= 0 or pd.isna(daily_high) or pd.isna(daily_low) or daily_high <= daily_low:
+            print(f"调试信息: [{stock_code}] [{trade_date}] 价格成交量熵计算跳过，原因：日内数据为空或总成交量为零或价格范围无效。")
+            return np.nan
+        # 确定价格箱的数量
+        # 动态确定价格箱数量，基于最小价格变动单位0.01元，并设置上下限
+        price_range = daily_high - daily_low
+        if price_range <= 0.01: # 如果价格几乎没有波动，至少给2个箱子
+            num_bins = 2
+        else:
+            num_bins = int(price_range / 0.01) + 1 # 每个0.01元一个箱子
+            num_bins = np.clip(num_bins, 20, 200) # 设置最小20个，最大200个箱子
+        # 使用 minute_vwap 作为价格，vol_shares 作为成交量进行分箱
+        # 确保价格数据是数值类型
+        prices = pd.to_numeric(intraday_df['minute_vwap'], errors='coerce')
+        volumes = pd.to_numeric(intraday_df['vol_shares'], errors='coerce')
+        # 过滤掉无效数据
+        valid_data = pd.DataFrame({'price': prices, 'volume': volumes}).dropna()
+        if valid_data.empty or valid_data['volume'].sum() <= 0:
+            print(f"调试信息: [{stock_code}] [{trade_date}] 价格成交量熵计算跳过，原因：有效日内数据为空或总成交量为零。")
+            return np.nan
+        # 使用 pd.cut 进行分箱，duplicates='drop' 处理价格无波动的情况
+        bins = pd.cut(valid_data['price'], bins=num_bins, include_lowest=True, duplicates='drop')
+        # 统计每个价格箱内的成交量
+        volume_per_bin = valid_data.groupby(bins)['volume'].sum()
+        # 过滤掉没有成交量的箱子
+        volume_per_bin = volume_per_bin[volume_per_bin > 0]
+        if volume_per_bin.empty:
+            print(f"调试信息: [{stock_code}] [{trade_date}] 价格成交量熵计算结果：0 (所有成交量集中在单个价格点或无成交)。")
+            return 0.0 # 所有成交量集中在单个价格点，熵为0
+        # 计算每个价格箱的成交量比例 (p_i)
+        probabilities = volume_per_bin / volume_per_bin.sum()
+        # 计算香农熵 (以2为底)
+        shannon_entropy = entropy(probabilities, base=2)
+        # 归一化熵值 (可选，但推荐，使其在0到1之间)
+        max_entropy = np.log2(len(volume_per_bin)) if len(volume_per_bin) > 1 else 0
+        normalized_entropy = shannon_entropy / max_entropy if max_entropy > 0 else 0.0
+        print(f"调试信息: [{stock_code}] [{trade_date}] 价格成交量熵计算结果：{normalized_entropy:.4f} (原始熵: {shannon_entropy:.4f}, 箱数: {len(volume_per_bin)})。")
+        return normalized_entropy
 
 
 

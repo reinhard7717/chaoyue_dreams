@@ -148,11 +148,9 @@ class StockRealtimeDAO(BaseDAO):
                 except Exception as e:
                     if attempt < max_retries:
                         delay = initial_delay * (2 ** attempt)
-                        print(f"    -> [探针-重试] 获取 {code} 的realtime_tick数据时发生异常: {e}。第 {attempt + 1}/{max_retries} 次重试，等待 {delay} 秒...")
                         logger.warning(f"获取 {code} 的realtime_tick数据失败: {e}。第 {attempt + 1}/{max_retries} 次重试，等待 {delay} 秒...")
                         await asyncio.sleep(delay)
                     else:
-                        print(f"    -> [探针-错误] 获取 {code} 的realtime_tick数据时发生异常: {e}。已达最大重试次数，放弃。")
                         logger.error(f"获取 {code} 的realtime_tick数据失败: {e}。已达最大重试次数，放弃。", exc_info=True)
                         return code, None
         tasks = [fetch_one_stock(code) for code in stock_codes]
