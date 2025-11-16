@@ -545,14 +545,15 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex):
     """
-    【V2.0 · 全层次数据加载版】
-    - 核心新增: 增加 StockMinuteData 的加载，确保日线、分钟、实时(Tick+Level5)三个层次的数据全部被获取，为下游服务的健壮回退逻辑提供完整的“弹药”。
+    【V2.1 · 诊断探针增强版】
+    - 核心新增: 在数据加载后立即加入诊断探针，打印每个数据源的模型名称和获取到的记录数，以便快速定位数据缺失问题。
     """
     from utils.model_helpers import (
         get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code,
         get_cyq_chips_model_by_code, get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code,
-        get_minute_data_model_by_code_and_timelevel  # 新增导入
+        get_minute_data_model_by_code_and_timelevel
     )
+    from stock_models.time_trade import StockDailyBasic, StockCyqPerf # 确保导入
     from stock_models.stock_realtime import StockTickData_SH, StockTickData_SZ, StockTickData_CY, StockTickData_KC, StockTickData_BJ
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', dates_list: list = None):
@@ -569,7 +570,7 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
     tick_data_model = get_stock_tick_data_model_by_code(stock_info.stock_code)
     level5_data_model = get_stock_level5_data_model_by_code(stock_info.stock_code)
-    minute_data_model = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1') # 新增代码行: 获取分钟数据模型
+    minute_data_model = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
     all_daily_fields = (
         'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq', 'pre_close_qfq', 'pct_change'
     )
@@ -584,6 +585,15 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         'net_mf_vol', 'net_mf_amount', 'trade_count'
     )
     chunk_dates_list = [d.date() for d in dates_in_chunk]
+    # 创建模型字典以便探针输出模型名称
+    model_name_map = {
+        "cyq_chips": chip_model, "daily_data": daily_data_model, "daily_basic": StockDailyBasic,
+        "cyq_perf": StockCyqPerf, "fund_flow_tushare": get_fund_flow_model_by_code(stock_info.stock_code),
+        "fund_flow_ths": get_fund_flow_ths_model_by_code(stock_info.stock_code),
+        "fund_flow_dc": get_fund_flow_dc_model_by_code(stock_info.stock_code),
+        "stock_tick_data": tick_data_model, "stock_level5_data": level5_data_model,
+        "stock_minute_data": minute_data_model
+    }
     data_tasks = {
         "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), dates_list=chunk_dates_list),
         "daily_data": get_data_async(daily_data_model, stock_info, fields=all_daily_fields, dates_list=chunk_dates_list),
@@ -594,10 +604,19 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         "fund_flow_dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
         "stock_tick_data": get_intraday_data_async(tick_data_model, stock_info, dates_list=chunk_dates_list, value_fields=('trade_time', 'price', 'volume', 'amount', 'type')),
         "stock_level5_data": get_intraday_data_async(level5_data_model, stock_info, dates_list=chunk_dates_list),
-        "stock_minute_data": get_intraday_data_async(minute_data_model, stock_info, dates_list=chunk_dates_list), # 新增代码行: 加载分钟数据
+        "stock_minute_data": get_intraday_data_async(minute_data_model, stock_info, dates_list=chunk_dates_list),
     }
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
+    # [探针开始] 遍历加载结果并打印详细信息
+    print(f"--- [数据加载探针] Stock: {stock_info.stock_code}, Chunk: {chunk_dates_list[0]} to {chunk_dates_list[-1]} ---")
+    for name, df in data_dfs.items():
+        model_obj = model_name_map.get(name)
+        model_name = model_obj.__name__ if model_obj else "N/A"
+        record_count = len(df) if df is not None else 0
+        print(f"  -> 源: {name:<20} | 模型: {model_name:<30} | 获取到 {record_count} 条记录")
+    print("--- [探针结束] ---")
+    # [探针结束]
     def _process_intraday_df_to_map(df: pd.DataFrame) -> dict:
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])
@@ -609,15 +628,15 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         return {date: group_df for date, group_df in df.groupby('date')}
     data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"])
     data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"])
-    data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"]) # 新增代码行: 处理分钟数据为map
+    data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"])
     for name, df in data_dfs.items():
-        if name in ["stock_tick_data_map", "stock_level5_data_map", "stock_minute_data_map"]: # 修改代码行
+        if name in ["stock_tick_data_map", "stock_level5_data_map", "stock_minute_data_map"]:
             continue
         if df is None or df.empty:
             if 'fund_flow_ths' in name or 'fund_flow_dc' in name:
                 data_dfs[name] = pd.DataFrame()
                 continue
-            if name in ["stock_tick_data", "stock_level5_data", "stock_minute_data"]: # 修改代码行
+            if name in ["stock_tick_data", "stock_level5_data", "stock_minute_data"]:
                 print(f"调试信息: [{stock_info.stock_code}] [统一加载] 可选日内数据源 '{name}' 为空。")
                 continue
             if name == "cyq_chips":

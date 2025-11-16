@@ -31,9 +31,8 @@ class AdvancedStructuralMetricsService:
 
     async def run_precomputation(self, stock_info: StockInfo, dates_to_process: pd.DatetimeIndex, daily_df_with_atr: pd.DataFrame):
         """
-        【V2.0 · 纯计算引擎版】高级结构与行为指标预计算总指挥
-        - 核心重构: 剥离所有数据加载逻辑，接收由上游Celery任务预加载的数据。
-        - 核心职责: 1. 按区块处理日期。 2. 调用日内数据加载器。 3. 调用指标锻造器。 4. 计算衍生指标并保存。
+        【V2.1 · 日志净化版】
+        - 核心修正: 移除冗余的 `missing_dates` 检查和日志记录，因为健壮的 `_load_intraday_data_for_range` 方法已经处理了数据回退。
         """
         MetricsModel = get_advanced_structural_metrics_model_by_code(stock_info.stock_code)
         initial_history_end_date = dates_to_process.min()
@@ -44,12 +43,11 @@ class AdvancedStructuralMetricsService:
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty:
                 continue
-            # 核心变更：调用加载器，该加载器现在负责健壮地获取数据
             intraday_data_map = await self._load_intraday_data_for_range(stock_info, chunk_dates.min(), chunk_dates.max())
+            # 核心修正：移除此处的 missing_dates 检查，因为加载器已处理
             if not intraday_data_map:
                 logger.warning(f"[{stock_info.stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 无任何日内数据，跳过整个区块。")
                 continue
-            # 核心变更：将预加载的日线数据传递给锻造器
             chunk_new_metrics_df = await self._forge_advanced_structural_metrics(intraday_data_map, stock_info.stock_code, daily_df_with_atr)
             all_new_core_metrics_df = pd.concat([all_new_core_metrics_df, chunk_new_metrics_df])
         if all_new_core_metrics_df.empty:
