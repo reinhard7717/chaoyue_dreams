@@ -545,8 +545,8 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex):
     """
-    【V2.2 · 范围查询修正版】
-    - 核心修正: 彻底重构日内数据加载逻辑，使用高效的日期范围查询 (`__gte`, `__lte`) 替代了之前失效的 `__date__in` 查询，根治日内数据加载失败的问题。
+    【V2.3 · ORM健壮性修正版】
+    - 核心修正: 修复了 `get_intraday_data_async` 在未指定字段时返回不可迭代QuerySet的BUG。通过确保始终调用 `.values()`，保证了数据加载的健壮性。
     """
     from utils.model_helpers import (
         get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code,
@@ -562,15 +562,17 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         if not model or not dates_list: return pd.DataFrame()
         qs = model.objects.filter(stock=stock_info_obj, **{f'{date_field}__in': dates_list})
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
-    # 核心修正：修改 get_intraday_data_async 函数以使用范围查询
     @sync_to_async(thread_sensitive=True)
     def get_intraday_data_async(model, stock_info_obj, start_date: datetime.date, end_date: datetime.date, value_fields: tuple = None):
         if not model or not start_date or not end_date: return pd.DataFrame()
         start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
         end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
         qs = model.objects.filter(stock=stock_info_obj, trade_time__gte=start_datetime, trade_time__lte=end_datetime)
+        # 核心修正：无论 value_fields 是否存在，都调用 .values()
         if value_fields:
             qs = qs.values(*value_fields)
+        else:
+            qs = qs.values()
         return pd.DataFrame.from_records(qs)
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
     tick_data_model = get_stock_tick_data_model_by_code(stock_info.stock_code)
@@ -608,7 +610,6 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         "fund_flow_tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, fields=fund_flow_tushare_fields, dates_list=chunk_dates_list),
         "fund_flow_ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
         "fund_flow_dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
-        # 核心修正：调用新的范围查询函数
         "stock_tick_data": get_intraday_data_async(tick_data_model, stock_info, start_date=chunk_start_date, end_date=chunk_end_date, value_fields=('trade_time', 'price', 'volume', 'amount', 'type')),
         "stock_level5_data": get_intraday_data_async(level5_data_model, stock_info, start_date=chunk_start_date, end_date=chunk_end_date),
         "stock_minute_data": get_intraday_data_async(minute_data_model, stock_info, start_date=chunk_start_date, end_date=chunk_end_date),
