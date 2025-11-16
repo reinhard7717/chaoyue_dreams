@@ -39,11 +39,17 @@ class StockRealtimeDAO(BaseDAO):
         self.cache_get = StockRealtimeCacheGet(self.cache_manager)
         self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
         self.cache_key_stock = StockCashKey()
-        self.ts = ts
         try:
-            self.ts.set_token('0793156bc63040ee46008f217c6e76c8b7c415e2748ac0a7bb509d2c')
+            self.ts = ts
+            token = '0793156bc63040ee46008f217c6e76c8b7c415e2748ac0a7bb509d2c'
+            self.ts.set_token(token)
+            self.pro = self.ts.pro_api(token) # 初始化 pro 接口
+            if self.pro is None: # 检查 pro_api 初始化是否成功
+                raise ConnectionError("Tushare Pro API 初始化失败，返回 None。")
         except Exception as e:
-            logger.error(f"Tushare Token设置失败: {e}", exc_info=True)
+            logger.critical(f"Tushare 库初始化失败，可能是 token 文件问题或网络问题: {e}", exc_info=True)
+            self.ts = None # 修改代码行: 初始化失败时，将 ts 设置为 None
+            self.pro = None # 修改代码行: 初始化失败时，将 pro 设置为 None
 
     # =================================================================
     # =================== 真实逐笔数据 (Tick Data) 核心接口 =============
@@ -239,18 +245,29 @@ class StockRealtimeDAO(BaseDAO):
     # ▼▼▼ 此方法现在专用于获取行情快照 ▼▼▼
     async def save_quote_data_by_stock_codes(self, stock_codes: List[str]) -> List:
         """
-        【改造-分表版】获取实时行情快照(realtime_quote)并持久化到对应的分表。
+        【改造-分表版-健壮性增强】获取实时行情快照(realtime_quote)并持久化到对应的分表。
         """
+        # 修改代码行: 检查 Tushare 实例是否成功初始化
+        if not self.ts:
+            logger.error("Tushare 实例未成功初始化，跳过 save_quote_data_by_stock_codes 任务。")
+            return []
         if not stock_codes:
             return []
         try:
             stock_codes_str = ','.join(stock_codes)
-            df = self.ts.realtime_quote(ts_code=stock_codes_str, src='sina')
+            # 修改代码行: 将API调用单独包裹在 try-except 中，以精确捕获错误
+            try:
+                df = self.ts.realtime_quote(ts_code=stock_codes_str, src='sina')
+            except pd.errors.EmptyDataError as e:
+                logger.error(f"Tushare 读取 token 文件失败 (EmptyDataError)，请检查 token 文件是否为空或损坏: {e}", exc_info=True)
+                return [] # 文件错误，直接返回
+            except Exception as e:
+                logger.error(f"调用 Tushare realtime_quote 接口失败: {e}", exc_info=True)
+                return [] # 其他API错误，直接返回
             if df.empty:
                 logger.warning(f"Tushare未返回股票 {stock_codes_str} 的实时行情快照。")
                 return []
             stocks_dict = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
-            # 修改代码行: 使用 defaultdict 按模型对数据进行分组
             db_realtime_payloads = defaultdict(list)
             db_level5_payloads = defaultdict(list)
             cache_latest_realtime, cache_latest_level5 = {}, {}
@@ -258,7 +275,6 @@ class StockRealtimeDAO(BaseDAO):
             for row in df.itertuples():
                 stock = stocks_dict.get(row.TS_CODE)
                 if stock:
-                    # 修改代码行: 动态获取分表模型
                     realtime_model = get_stock_realtime_data_model_by_code(row.TS_CODE)
                     level5_model = get_stock_level5_data_model_by_code(row.TS_CODE)
                     if not realtime_model or not level5_model:
@@ -266,10 +282,8 @@ class StockRealtimeDAO(BaseDAO):
                         continue
                     real_dict_db = self.data_format_process.set_realtime_tick_data(stock, row)
                     level5_dict_db = self.data_format_process.set_level5_data(stock, row)
-                    # 修改代码行: 将数据添加到对应模型的列表中
                     db_realtime_payloads[realtime_model].append(real_dict_db)
                     db_level5_payloads[level5_model].append(level5_dict_db)
-                    # 准备缓存数据 (缓存逻辑不变)
                     real_dict_cache = self.data_format_process.set_realtime_tick_data(None, row)
                     level5_dict_cache = self.data_format_process.set_level5_data(None, row)
                     cache_latest_realtime[row.TS_CODE] = real_dict_cache
@@ -277,24 +291,21 @@ class StockRealtimeDAO(BaseDAO):
                     cache_append_realtime[row.TS_CODE] = real_dict_cache
                     cache_append_level5[row.TS_CODE] = level5_dict_cache
             if not db_realtime_payloads: return []
-            # 修改代码行: 为每个分表创建保存任务
             db_tasks = []
             for model, payload in db_realtime_payloads.items():
                 db_tasks.append(self._save_all_to_db_native_upsert(model, payload, ['stock', 'trade_time']))
             for model, payload in db_level5_payloads.items():
                 db_tasks.append(self._save_all_to_db_native_upsert(model, payload, ['stock', 'trade_time']))
             tasks = [
-                *db_tasks, # 修改代码行: 展开所有数据库任务
+                *db_tasks,
                 self.cache_set.batch_set_latest_realtime_data(cache_latest_realtime),
                 self.cache_set.batch_set_latest_level5_data(cache_latest_level5),
                 self.cache_set.batch_append_intraday_ticks(cache_append_realtime, cache_append_level5)
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            # 异常处理逻辑
             for i, result in enumerate(results[:len(db_tasks)]):
                 if isinstance(result, Exception):
                     logger.error(f"批量保存行情快照到数据库分表失败 (任务 {i+1}): {result}", exc_info=result)
-            # 返回第一个DB任务的结果作为代表，或在出错时返回空列表
             return results[0] if not isinstance(results[0], Exception) else []
         except Exception as e:
             logger.error(f"save_quote_data_by_stock_codes 发生严重异常: {e}", exc_info=True)

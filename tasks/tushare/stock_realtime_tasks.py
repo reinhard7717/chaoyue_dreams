@@ -88,8 +88,7 @@ def save_quote_data_batch(stock_codes: List[str], cache_manager=None):
         return
     logger.info(f"开始处理 {len(stock_codes)} 个股票的行情快照(Quote)数据任务...")
     stock_realtime_dao = StockRealtimeDAO(cache_manager)
-    strategy_dao = StrategiesDAO(cache_manager)
-
+    # strategy_dao = StrategiesDAO(cache_manager)
     async def main():
         # 1. 批量保存行情快照数据
         await stock_realtime_dao.save_quote_data_by_stock_codes(stock_codes)
