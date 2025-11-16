@@ -152,19 +152,19 @@ def save_real_tick_data_single(stock_code: str, cache_manager=None):
     logger.info(f"开始处理 {stock_code} 的真实逐笔(Tick)数据任务...")
     stock_realtime_dao = StockRealtimeDAO(cache_manager)
     trade_date = datetime.datetime.now().strftime('%Y-%m-%d')
-    try: # 修改代码行: 添加 try-except 块捕获 async_to_sync 内部异常
+    try:
         async def main():
             print(f"开始处理 {stock_code} 的真实逐笔(Tick)数据任务...")
-            # 调用我们之前在DAO中创建的、包含完整持久化逻辑的方法
-            success = await stock_realtime_dao.save_realtime_tick_in_bulk([stock_code], trade_date)
-            # 如果保存失败，则抛出异常以触发 Celery 重试
+            # 修改代码行: 接收DAO返回的 success 和 message
+            success, message = await stock_realtime_dao.save_realtime_tick_in_bulk([stock_code], trade_date)
             if not success:
-                print(f"股票 {stock_code} 的真实逐笔数据保存失败，触发 Celery 重试。") # 调试信息
-                raise Exception(f"股票 {stock_code} 的真实逐笔数据保存失败，触发 Celery 重试。")
+                # 修改代码行: 在调试信息和异常中包含从DAO返回的详细 message
+                print(f"股票 {stock_code} 的真实逐笔数据保存失败: {message}。触发 Celery 重试。")
+                raise Exception(f"股票 {stock_code} 的真实逐笔数据保存失败: {message}")
         async_to_sync(main)()
-    except Exception as e: # 修改代码行: 捕获异常
-        logger.error(f"处理 {stock_code} 的真实逐笔(Tick)数据任务时发生未预期异常: {e}", exc_info=True) # 修改代码行: 记录异常日志
-        raise e # 修改代码行: 重新抛出异常，确保 Celery 捕获并重试
+    except Exception as e:
+        logger.error(f"处理 {stock_code} 的真实逐笔(Tick)数据任务时发生未预期异常: {e}", exc_info=True)
+        raise e
 
 # =================================================================
 # =================== 3. 统一调度器任务 ============================
@@ -182,19 +182,14 @@ def save_stocks_tick_data_task(quote_batch_size: int = 50, cache_manager=None):
     # 1. 获取需要处理的股票列表
     stock_codes = list(StockInfo.objects.filter(list_status='L').exclude(stock_code__endswith='.BJ').values_list('stock_code', flat=True))
     # 2. 分派“行情快照(Quote)”批量任务 
-    # logger.info("--- 开始分派行情快照(Quote)任务 ---")
-    # total_quote_batches = 0
-    # for i in range(0, len(favorite_codes), quote_batch_size):
-    #     batch = favorite_codes[i:i + quote_batch_size]
-    #     if batch:
-    #         save_quote_data_batch.s(batch).set(queue=FAVORITE_SAVE_API_DATA_QUEUE).apply_async()
-    #         total_quote_batches += 1
-    # for i in range(0, len(non_favorite_codes), quote_batch_size):
-    #     batch = non_favorite_codes[i:i + quote_batch_size]
-    #     if batch:
-    #         save_quote_data_batch.s(batch).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
-    #         total_quote_batches += 1
-    # logger.info(f"--- 行情快照任务分派完成，共 {total_quote_batches} 个批次。 ---")
+    logger.info("--- 开始分派行情快照(Quote)任务 ---")
+    total_quote_batches = 0
+    for i in range(0, len(stock_codes), quote_batch_size):
+        batch = stock_codes[i:i + quote_batch_size]
+        if batch:
+            save_quote_data_batch.s(batch).set(queue=STOCKS_SAVE_API_DATA_QUEUE).apply_async()
+            total_quote_batches += 1
+    logger.info(f"--- 行情快照任务分派完成，共 {total_quote_batches} 个批次。 ---")
     # 3. 分派“真实逐笔(Tick)”单票任务
     logger.info("--- 开始分派真实逐笔(Tick)任务 ---")
     dispatched_count = 0 # 修改代码行: 初始化已分派任务计数器

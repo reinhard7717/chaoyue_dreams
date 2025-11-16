@@ -291,7 +291,41 @@ def get_stock_tick_data_model_by_code(stock_code: str) -> Optional[Type[models.M
         print(f"调试信息: 未能为 {stock_code} 找到对应的逐笔交易数据模型。")
         return None
 
+def get_stock_realtime_data_model_by_code(stock_code: str) -> Optional[Type[models.Model]]:
+    """
+    根据股票代码返回对应的实时行情快照数据分表Model。
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return StockRealtimeData_CY
+    elif stock_code.endswith('.SZ'):
+        return StockRealtimeData_SZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return StockRealtimeData_KC
+    elif stock_code.endswith('.SH'):
+        return StockRealtimeData_SH
+    elif stock_code.endswith('.BJ'):
+        return StockRealtimeData_BJ
+    else:
+        print(f"调试信息: 未能为 {stock_code} 找到对应的实时行情快照数据模型。")
+        return None
 
+def get_stock_level5_data_model_by_code(stock_code: str) -> Optional[Type[models.Model]]:
+    """
+    根据股票代码返回对应的Level5盘口数据分表Model。
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return StockLevel5Data_CY
+    elif stock_code.endswith('.SZ'):
+        return StockLevel5Data_SZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return StockLevel5Data_KC
+    elif stock_code.endswith('.SH'):
+        return StockLevel5Data_SH
+    elif stock_code.endswith('.BJ'):
+        return StockLevel5Data_BJ
+    else:
+        print(f"调试信息: 未能为 {stock_code} 找到对应的Level5盘口数据模型。")
+        return None
 
 
 
