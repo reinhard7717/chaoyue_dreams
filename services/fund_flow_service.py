@@ -18,6 +18,9 @@ from utils.model_helpers import (
     get_daily_data_model_by_code,
     get_minute_data_model_by_code_and_timelevel,
 )
+
+logger = logging.getLogger('services')
+
 class AdvancedFundFlowMetricsService:
     """
     【V1.0 · 兵工厂模式】高级资金流指标服务
