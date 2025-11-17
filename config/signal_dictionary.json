@@ -86,6 +86,12 @@
             "type": "context",
             "description": "【形态公理四】识别股价在量能萎缩后放量突破，随后缩量回调，再放量突破的二次启动形态。在形态的“二次启动日”（B日）输出1.0；否则输出0.0。"
         },
+        "SCORE_PATTERN_DUOFANGPAO": {
+            "cn_name": "【形态公理】多方炮",
+            "category": "形态层-原子",
+            "type": "context",
+            "description": "【形态公理五】识别经典的“多方炮”K线组合。在形态的第三根K线日输出1.0；否则输出0.0。"
+        },
         "SCORE_MICRO_AXIOM_DECEPTION": {
             "cn_name": "【微观公理】伪装与欺骗",
             "category": "微观行为-原子",
