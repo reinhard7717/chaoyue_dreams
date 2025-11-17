@@ -1026,9 +1026,8 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_microstructure_signals(self, stock_code: str, daily_intraday_df: pd.DataFrame, daily_level5_df: pd.DataFrame, daily_total_volume: float) -> dict:
         """
-        【V1.0 · 微观博弈信号版】计算基于高频数据的微观结构指标。
-        - 核心职责: 融合逐笔成交和五档盘口数据，量化主力对倒、盘口失衡、大单压制与支撑等行为。
-        - 数据依赖: 必须同时拥有当天的逐笔成交和五档盘口数据。
+        【V1.1 · 健壮性检查增强版】计算基于高频数据的微观结构指标。
+        - 核心修复: 在入口检查中增加了对输入DataFrame是否为None的判断，以优雅处理高频数据缺失的情况，根治 'NoneType' object has no attribute 'empty' 错误。
         """
         results = {
             'wash_trade_intensity': 0.0,
@@ -1036,7 +1035,8 @@ class AdvancedFundFlowMetricsService:
             'large_order_pressure': 0.0,
             'large_order_support': 0.0,
         }
-        if daily_intraday_df.empty or daily_level5_df.empty or daily_total_volume <= 0:
+        # 修改代码行: 增加对 None 的检查
+        if daily_intraday_df is None or daily_intraday_df.empty or daily_level5_df is None or daily_level5_df.empty or daily_total_volume <= 0:
             return results
         # 1. 计算主力对倒强度 (Wash Trade Intensity)
         daily_intraday_df['direction'] = daily_intraday_df['type'].map({'B': 1, 'S': -1, 'M': 0})
