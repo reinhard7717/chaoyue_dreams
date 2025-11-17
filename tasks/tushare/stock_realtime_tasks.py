@@ -86,7 +86,7 @@ def save_quote_data_batch(stock_codes: List[str], cache_manager=None):
     if not stock_codes:
         logger.info("行情快照任务收到空列表，任务结束。")
         return
-    logger.info(f"开始处理 {len(stock_codes)} 个股票的行情快照(Quote)数据任务...")
+    # logger.info(f"开始处理 {len(stock_codes)} 个股票的行情快照(Quote)数据任务...")
     stock_realtime_dao = StockRealtimeDAO(cache_manager)
     # strategy_dao = StrategiesDAO(cache_manager)
     async def main():
