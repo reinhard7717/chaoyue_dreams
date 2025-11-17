@@ -144,9 +144,61 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_MARKET_REGIME'] = bipolar_regime.astype(np.float32)
         return states
 
+    def _synthesize_market_pressure(self) -> Dict[str, pd.Series]:
+        """
+        【V1.2 · 底分型集成版】冶炼“市场压力” (Market Pressure)
+        - 核心思想: 衡量市场中“向上反转”与“向下回调”两股力量的净压力。
+        - 证据链: 融合所有原子情报层和过程情报层的“底部反转”和“顶部反转”信号。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【新增】将 `SCORE_STRUCT_BOTTOM_FRACTAL` 信号作为底部反转的证据之一。
+        """
+        print("  -- [融合层] 正在冶炼“市场压力”...")
+        states = {}
+        df_index = self.strategy.df_indicators.index
+        # 定义所有领域的反转信号源 (现在从 ProcessIntelligence 获取)
+        reversal_sources = [
+            'PROCESS_META_FOUNDATION_BOTTOM_REVERSAL', 'PROCESS_META_FOUNDATION_TOP_REVERSAL',
+            'PROCESS_META_STRUCTURE_BOTTOM_REVERSAL', 'PROCESS_META_STRUCTURE_TOP_REVERSAL',
+            'PROCESS_META_PATTERN_BOTTOM_REVERSAL', 'PROCESS_META_PATTERN_TOP_REVERSAL',
+            'PROCESS_META_DYNAMIC_MECHANICS_BOTTOM_REVERSAL', 'PROCESS_META_DYNAMIC_MECHANICS_TOP_REVERSAL',
+            'PROCESS_META_CHIP_BOTTOM_REVERSAL', 'PROCESS_META_CHIP_TOP_REVERSAL',
+            'PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL', 'PROCESS_META_FUND_FLOW_TOP_REVERSAL',
+            'PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL', 'PROCESS_META_MICRO_BEHAVIOR_TOP_REVERSAL',
+            'PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL', 'PROCESS_META_BEHAVIOR_TOP_REVERSAL'
+        ]
+        upward_pressure_scores = []
+        downward_pressure_scores = []
+        for signal_name in reversal_sources:
+            if 'BOTTOM_REVERSAL' in signal_name:
+                upward_pressure_scores.append(self._get_atomic_score(signal_name, 0.0).values)
+            elif 'TOP_REVERSAL' in signal_name:
+                downward_pressure_scores.append(self._get_atomic_score(signal_name, 0.0).values)
+        # 【新增代码行】将结构底分型信号添加到向上压力证据中
+        structural_bottom_fractal = self._get_atomic_score('SCORE_STRUCT_BOTTOM_FRACTAL', 0.0)
+        upward_pressure_scores.append(structural_bottom_fractal.values)
+        net_upward_pressure = np.maximum.reduce(upward_pressure_scores)
+        net_downward_pressure = np.maximum.reduce(downward_pressure_scores)
+        bipolar_pressure = (pd.Series(net_upward_pressure, index=self.strategy.df_indicators.index) -
+                            pd.Series(net_downward_pressure, index=self.strategy.df_indicators.index)).clip(-1, 1)
+        states['FUSION_BIPOLAR_MARKET_PRESSURE'] = bipolar_pressure.astype(np.float32)
+        # 调试信息
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [市场压力探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - SCORE_STRUCT_BOTTOM_FRACTAL: {structural_bottom_fractal.loc[probe_date_for_loop]:.4f}")
+                print(f"       - net_upward_pressure: {net_upward_pressure[df_index.get_loc(probe_date_for_loop)]:.4f}")
+                print(f"       - net_downward_pressure: {net_downward_pressure[df_index.get_loc(probe_date_for_loop)]:.4f}")
+                print(f"       - FUSION_BIPOLAR_MARKET_PRESSURE: {bipolar_pressure.loc[probe_date_for_loop]:.4f}")
+        print(f"  -- [融合层] “市场压力”冶炼完成，最新分值: {bipolar_pressure.iloc[-1]:.4f}")
+        return states
+
     def _synthesize_trend_quality(self) -> Dict[str, pd.Series]:
         """
-        【V1.8 · 均线动态增强与主力峰区流量权重修正版】冶炼“趋势质量” (Trend Quality)
+        【V1.9 · 底分型集成版】冶炼“趋势质量” (Trend Quality)
         - 核心修复: 不再消费原子层的“共振”信号，而是直接消费各原子情报模块的**公理信号**。
         - 核心逻辑: 融合各领域公理的双极性分数，形成一个整体的趋势质量判断。
         - 增加调试探针，打印组成公理在探针日期的值及其贡献。
@@ -156,6 +208,7 @@ class FusionIntelligence:
         - 【新增】引入 `AAA_D` (平均绝对偏差) 和 `PDI_14_D` (正向动能指数) 作为趋势质量的组成部分。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【修复】将 `SCORE_FF_AXIOM_INCREMENT` 信号引用更正为 `SCORE_FF_AXIOM_FLOW_MOMENTUM`。
+        - 【新增】将 `SCORE_STRUCT_BOTTOM_FRACTAL` 信号作为趋势质量改善的证据之一。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
@@ -182,7 +235,6 @@ class FusionIntelligence:
         dynamic_ma_acceleration = self._get_atomic_score('SCORE_DYN_AXIOM_MA_ACCELERATION', 0.0)
         fund_flow_consensus = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
         fund_flow_conviction = self._get_atomic_score('SCORE_FF_AXIOM_CONVICTION', 0.0)
-        # 将 SCORE_FF_AXIOM_INCREMENT 替换为 SCORE_FF_AXIOM_FLOW_MOMENTUM
         fund_flow_increment = self._get_atomic_score('SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0)
         chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
         chip_cost_structure = self._get_atomic_score('SCORE_CHIP_AXIOM_COST_STRUCTURE', 0.0)
@@ -201,6 +253,8 @@ class FusionIntelligence:
         aaa_score = normalize_to_bipolar(aaa_raw * -1, df_index, window=55)
         pdi_raw = self._get_safe_series(self.strategy.df_indicators, 'PDI_14_D', 0.0, method_name="_synthesize_trend_quality")
         pdi_score = normalize_to_bipolar(pdi_raw, df_index, window=55)
+        # 【新增代码行】获取结构底分型信号
+        structural_bottom_fractal = self._get_atomic_score('SCORE_STRUCT_BOTTOM_FRACTAL', 0.0)
         components_and_weights = {
             'foundation_trend': (foundation_trend, 0.1),
             'foundation_oscillator': (foundation_oscillator, -0.05),
@@ -231,7 +285,8 @@ class FusionIntelligence:
             'pattern_breakout': (pattern_breakout, 0.03),
             'main_force_on_peak_flow': (main_force_on_peak_flow, 0.02),
             'aaa_score': (aaa_score, 0.03),
-            'pdi_score': (pdi_score, 0.05)
+            'pdi_score': (pdi_score, 0.05),
+            'structural_bottom_fractal': (structural_bottom_fractal, 0.05) # 【新增代码行】底分型信号及其权重
         }
         bipolar_quality = pd.Series(0.0, index=df_index)
         if probe_date_for_loop is not None and probe_date_for_loop in df_index:
@@ -245,41 +300,6 @@ class FusionIntelligence:
         bipolar_quality = bipolar_quality.clip(-1, 1)
         states['FUSION_BIPOLAR_TREND_QUALITY'] = bipolar_quality.astype(np.float32)
         print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {bipolar_quality.iloc[-1]:.4f}")
-        return states
-
-    def _synthesize_market_pressure(self) -> Dict[str, pd.Series]:
-        """
-        【V1.1 · 纯粹原子版】冶炼“市场压力” (Market Pressure)
-        - 核心思想: 衡量市场中“向上反转”与“向下回调”两股力量的净压力。
-        - 证据链: 融合所有原子情报层和过程情报层的“底部反转”和“顶部反转”信号。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        """
-        print("  -- [融合层] 正在冶炼“市场压力”...")
-        states = {}
-        # 定义所有领域的反转信号源 (现在从 ProcessIntelligence 获取)
-        reversal_sources = [
-            'PROCESS_META_FOUNDATION_BOTTOM_REVERSAL', 'PROCESS_META_FOUNDATION_TOP_REVERSAL',
-            'PROCESS_META_STRUCTURE_BOTTOM_REVERSAL', 'PROCESS_META_STRUCTURE_TOP_REVERSAL',
-            'PROCESS_META_PATTERN_BOTTOM_REVERSAL', 'PROCESS_META_PATTERN_TOP_REVERSAL',
-            'PROCESS_META_DYNAMIC_MECHANICS_BOTTOM_REVERSAL', 'PROCESS_META_DYNAMIC_MECHANICS_TOP_REVERSAL',
-            'PROCESS_META_CHIP_BOTTOM_REVERSAL', 'PROCESS_META_CHIP_TOP_REVERSAL',
-            'PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL', 'PROCESS_META_FUND_FLOW_TOP_REVERSAL',
-            'PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL', 'PROCESS_META_MICRO_BEHAVIOR_TOP_REVERSAL',
-            'PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL', 'PROCESS_META_BEHAVIOR_TOP_REVERSAL'
-        ]
-        upward_pressure_scores = []
-        downward_pressure_scores = []
-        for signal_name in reversal_sources:
-            if 'BOTTOM_REVERSAL' in signal_name:
-                upward_pressure_scores.append(self._get_atomic_score(signal_name, 0.0).values)
-            elif 'TOP_REVERSAL' in signal_name:
-                downward_pressure_scores.append(self._get_atomic_score(signal_name, 0.0).values)
-        net_upward_pressure = np.maximum.reduce(upward_pressure_scores)
-        net_downward_pressure = np.maximum.reduce(downward_pressure_scores)
-        bipolar_pressure = (pd.Series(net_upward_pressure, index=self.strategy.df_indicators.index) -
-                            pd.Series(net_downward_pressure, index=self.strategy.df_indicators.index)).clip(-1, 1)
-        states['FUSION_BIPOLAR_MARKET_PRESSURE'] = bipolar_pressure.astype(np.float32)
-        print(f"  -- [融合层] “市场压力”冶炼完成，最新分值: {bipolar_pressure.iloc[-1]:.4f}")
         return states
 
     def _synthesize_stagnation_risk(self) -> Dict[str, pd.Series]:

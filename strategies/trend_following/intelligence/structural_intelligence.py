@@ -29,10 +29,11 @@ class StructuralIntelligence:
 
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.3 · 纯粹原子版】结构情报分析总指挥
+        【V4.4 · 底分型集成版】结构情报分析总指挥
         - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
         - 核心职责: 只输出结构领域的原子公理信号和结构背离信号。
         - 移除信号: SCORE_STRUCTURE_BULLISH_RESONANCE, SCORE_STRUCTURE_BEARISH_RESONANCE, BIPOLAR_STRUCTURAL_DOMAIN_HEALTH, SCORE_STRUCTURE_BOTTOM_REVERSAL, SCORE_STRUCTURE_TOP_REVERSAL。
+        - 【新增】调用 `_diagnose_bottom_fractal` 方法，将底分型信号添加到 `all_states` 中。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -53,6 +54,9 @@ class StructuralIntelligence:
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_STRUCTURE_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_STRUCTURE_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
+        # 【新增代码行】诊断底分型结构
+        bottom_fractal_score = self._diagnose_bottom_fractal(df, n=5, min_depth_ratio=0.001)
+        all_states['SCORE_STRUCT_BOTTOM_FRACTAL'] = bottom_fractal_score
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -79,7 +83,7 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.9 · 涨停日趋势形态增强与多时间维度归一化版】结构公理一：诊断“趋势形态”
+        【V2.0 · 微观结构博弈增强与涨停日趋势形态增强及多时间维度归一化版】结构公理一：诊断“趋势形态”
         - 引入 `volume_burstiness_index_D` (成交量爆裂度指数) 和 `upward_thrust_efficacy_D` (上涨推力效能)
                    来增强对趋势形态强度和质量的判断。
         - 【新增】引入均线角度（ATAN）作为趋势形态判断的证据。
@@ -89,6 +93,7 @@ class StructuralIntelligence:
         - 【增强】在涨停日，大幅增强 `bull_alignment` 和 `bull_velocity` 的贡献，并抑制 `bear_score`。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
+        - 【新增】引入 `trend_quality_score_D` (趋势质量分) 和 `closing_momentum_index_D` (收盘动能指数) 作为判断趋势形态的微观证据。
         """
         df_index = df.index
         ma_periods = [5, 13, 21, 55]
@@ -148,12 +153,29 @@ class StructuralIntelligence:
         timeframe_key = 'D'
         ma_angle_raw = self._get_safe_series(df, f'ATAN_ANGLE_{ma_col_base}_{timeframe_key}', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
         ma_angle_score = get_adaptive_mtf_normalized_bipolar_score(ma_angle_raw, df_index, tf_weights_struct, sensitivity=10.0)
-        # --- 融合牛熊分数 ---
-        bull_score = (bull_alignment * bull_velocity * (1 + burstiness_score * 0.2) + upward_efficacy_score * 0.1 + ma_angle_score.clip(lower=0) * 0.1).clip(0, 1)
-        bear_score = (bear_alignment * bear_velocity * (1 + burstiness_score * 0.2) + downward_efficacy_score * 0.1 + ma_angle_score.clip(upper=0).abs() * 0.1).clip(0, 1)
-        # 涨停日特殊处理：大幅增强牛分，抑制熊分
-        bull_score = bull_score.mask(is_limit_up_day, bull_score + 0.5).clip(0, 1) # 涨停日额外加分
-        bear_score = bear_score.mask(is_limit_up_day, bear_score * 0.1).clip(0, 1) # 涨停日熊分大幅削弱
+        # 新增代码行: 获取趋势质量分和收盘动能指数
+        trend_quality_raw = self._get_safe_series(df, 'trend_quality_score_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
+        closing_momentum_raw = self._get_safe_series(df, 'closing_momentum_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
+        # 新增代码行: 归一化趋势质量分和收盘动能指数
+        trend_quality_score = get_adaptive_mtf_normalized_bipolar_score(trend_quality_raw, df_index, tf_weights_struct, sensitivity=0.5)
+        closing_momentum_score = get_adaptive_mtf_normalized_bipolar_score(closing_momentum_raw, df_index, tf_weights_struct, sensitivity=0.5)
+        # 融合牛熊分数
+        bull_score = (
+            bull_alignment * bull_velocity * (1 + burstiness_score * 0.2) +
+            upward_efficacy_score * 0.1 +
+            ma_angle_score.clip(lower=0) * 0.1 +
+            trend_quality_score.clip(lower=0) * 0.1 + # 新增趋势质量分
+            closing_momentum_score.clip(lower=0) * 0.1 # 新增收盘动能指数
+        ).clip(0, 1)
+        bear_score = (
+            bear_alignment * bear_velocity * (1 + burstiness_score * 0.2) +
+            downward_efficacy_score * 0.1 +
+            ma_angle_score.clip(upper=0).abs() * 0.1 +
+            trend_quality_score.clip(upper=0).abs() * 0.1 + # 新增趋势质量分
+            closing_momentum_score.clip(upper=0).abs() * 0.1 # 新增收盘动能指数
+        ).clip(0, 1)
+        bull_score = bull_score.mask(is_limit_up_day, bull_score + 0.5).clip(0, 1)
+        bear_score = bear_score.mask(is_limit_up_day, bear_score * 0.1).clip(0, 1)
         trend_form_score = (bull_score - bear_score).clip(-1, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -172,11 +194,103 @@ class StructuralIntelligence:
                 print(f"       - burstiness_score: {burstiness_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - upward_efficacy_score: {upward_efficacy_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - ma_angle_score: {ma_angle_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - trend_quality_raw: {trend_quality_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - closing_momentum_raw: {closing_momentum_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - trend_quality_score: {trend_quality_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - closing_momentum_score: {closing_momentum_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - bull_score: {bull_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - bear_score: {bear_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - is_limit_up_day: {is_limit_up_day.loc[probe_date_for_loop]}")
                 print(f"       - trend_form_score: {trend_form_score.loc[probe_date_for_loop]:.4f}")
         return trend_form_score
+
+    def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+        """
+        【V3.0 · 微观结构博弈增强与物理直观重构及共识增强版】结构公理三：诊断“结构稳定性”
+        - 核心重构: 废除对间接且脆弱的 'MA_CONV_CV_SHORT_D' 的依赖。将“能量积蓄度”的评估核心完全聚焦于更直观、更稳健的布林带宽度(BBW)指标。
+        - 诊断维度:
+          1. 能量积蓄度 (Energy Accumulation): 直接使用BBW的收缩程度。
+          2. 基石支撑度 (Foundation Support): 价格是否站稳在关键长期MA(55, 144)之上。
+          3. 长期趋势健康度 (Long-term Trend Health): 关键长期MA自身的斜率方向。
+        - 核心修复: 将 `raw_stability_score` 的计算从乘法改为加权平均，避免“一票否决”效应。
+        - 增加探针，打印 `foundation_support_score` 和 `long_term_trend_health_score`。
+        - 引入 `vpoc_consensus_strength_D` (VPOC共识强度) 和 `volatility_skew_index_D` (波动率偏度指数)
+                   来增强对结构稳定性的判断。
+        - 【修正】优化 `foundation_support_score` 和 `long_term_trend_health_score` 的计算，使其在涨停日能正确反映积极稳定性。
+        - 【修复】移除 `normalize_score` 函数调用中的 `sensitivity` 参数，因为该函数不接受此参数。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
+        - 【新增】引入 `volume_structure_skew_D` (成交结构偏度) 作为判断结构稳定性的微观证据。
+        """
+        df_index = df.index
+        bbw_col = 'BBW_21_2.0_D'
+        if bbw_col not in df.columns:
+            print(f"    -> [结构情报警告] 方法 '_diagnose_axiom_stability' 缺少核心列 '{bbw_col}'。")
+            return pd.Series(0.0, index=df_index)
+        p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        tf_weights_struct = get_param_value(p_conf_struct.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        energy_accumulation_score = 1 - get_adaptive_mtf_normalized_score(self._get_safe_series(df, bbw_col, method_name="_diagnose_axiom_stability"), df_index, ascending=True, tf_weights=tf_weights_struct)
+        energy_accumulation_score = energy_accumulation_score.fillna(0.5)
+        long_term_ma_periods = [55, 144]
+        required_ma_cols = [f'MA_{p}_D' for p in long_term_ma_periods]
+        required_slope_cols = [f'SLOPE_5_MA_{p}_D' for p in long_term_ma_periods] # 默认使用5日斜率
+        # 获取并归一化 vpoc_consensus_strength_D
+        vpoc_consensus_raw = self._get_safe_series(df, 'mf_vpoc_premium_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability") # 替换为 mf_vpoc_premium_D
+        vpoc_consensus_score = get_adaptive_mtf_normalized_score(vpoc_consensus_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
+        # 新增代码行: 获取成交结构偏度
+        volume_structure_skew_raw = self._get_safe_series(df, 'volume_structure_skew_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
+        if not all(col in df.columns for col in required_ma_cols + required_slope_cols):
+            print("    -> [结构情报警告] 方法 '_diagnose_axiom_stability' 缺少必要的长期MA或其斜率列，长期结构评估将跳过。")
+            foundation_health_score = pd.Series(0.5, index=df_index)
+            foundation_support_score = pd.Series(0.5, index=df_index)
+            long_term_trend_health_score = pd.Series(0.5, index=df_index)
+        else:
+            support_scores = []
+            for p in long_term_ma_periods:
+                support_score = get_adaptive_mtf_normalized_score((self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_stability") - self._get_safe_series(df, f'MA_{p}_D', method_name="_diagnose_axiom_stability")).clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct).clip(0, 1)
+                support_scores.append(support_score)
+            foundation_support_score = pd.Series(np.mean(support_scores, axis=0), index=df_index)
+            health_scores = []
+            for p in long_term_ma_periods:
+                slope_col_name = f'SLOPE_21_MA_{p}_D'
+                if slope_col_name not in df.columns:
+                    slope_col_name = f'SLOPE_5_MA_{p}_D'
+                health_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, slope_col_name, pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability").clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct).clip(0, 1)
+                health_scores.append(health_score)
+            long_term_trend_health_score = pd.Series(np.mean(health_scores, axis=0), index=df_index)
+            foundation_health_score = (foundation_support_score * 0.5 + long_term_trend_health_score * 0.3 + vpoc_consensus_score * 0.2).clip(0, 1)
+        raw_stability_score = (energy_accumulation_score * 0.3 + foundation_health_score * 0.7).fillna(0.5)
+        volatility_skew_raw = self._get_safe_series(df, 'volatility_asymmetry_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
+        volatility_skew_score = get_adaptive_mtf_normalized_bipolar_score(volatility_skew_raw, df_index, tf_weights_struct, sensitivity=0.5).fillna(0.0)
+        # 新增代码行: 归一化成交结构偏度，偏度越低（结构越均衡）越好
+        volume_structure_skew_score = get_adaptive_mtf_normalized_bipolar_score(volume_structure_skew_raw * -1, df_index, tf_weights_struct, sensitivity=0.5)
+        # 融合所有分数，调整权重
+        stability_score = (
+            raw_stability_score * 0.7 +
+            volatility_skew_score.clip(lower=0) * 0.15 -
+            volatility_skew_score.clip(upper=0).abs() * 0.15 +
+            volume_structure_skew_score * 0.15 # 新增成交结构偏度
+        ).clip(-1, 1) # 修改行: 调整权重并加入新信号
+        # --- Debugging output for probe date ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
+                print(f"    -> [结构稳定性探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - energy_accumulation_score: {energy_accumulation_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - foundation_support_score: {foundation_support_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - long_term_trend_health_score: {long_term_trend_health_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - vpoc_consensus_score: {vpoc_consensus_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - foundation_health_score: {foundation_health_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - raw_stability_score: {raw_stability_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - volatility_skew_raw: {volatility_skew_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - volatility_skew_score: {volatility_skew_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - volume_structure_skew_raw: {volume_structure_skew_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - volume_structure_skew_score: {volume_structure_skew_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - stability_score: {stability_score.loc[probe_date_for_loop]:.4f}")
+        return stability_score
 
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, norm_window: int, daily_trend_form_score: pd.Series) -> pd.Series:
         """
@@ -249,91 +363,58 @@ class StructuralIntelligence:
                 print(f"       - cohesion_score: {cohesion_score.loc[probe_date_for_loop]:.4f}")
         return cohesion_score
 
-    def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+    def _diagnose_bottom_fractal(self, df: pd.DataFrame, n: int = 5, min_depth_ratio: float = 0.001) -> pd.Series:
         """
-        【V2.9 · 物理直观重构与共识增强及多时间维度归一化版】结构公理三：诊断“结构稳定性”
-        - 核心重构: 废除对间接且脆弱的 'MA_CONV_CV_SHORT_D' 的依赖。将“能量积蓄度”的评估核心完全聚焦于更直观、更稳健的布林带宽度(BBW)指标。
-        - 诊断维度:
-          1. 能量积蓄度 (Energy Accumulation): 直接使用BBW的收缩程度。
-          2. 基石支撑度 (Foundation Support): 价格是否站稳在关键长期MA(55, 144)之上。
-          3. 长期趋势健康度 (Long-term Trend Health): 关键长期MA自身的斜率方向。
-        - 核心修复: 将 `raw_stability_score` 的计算从乘法改为加权平均，避免“一票否决”效应。
-        - 增加探针，打印 `foundation_support_score` 和 `long_term_trend_health_score`。
-        - 引入 `vpoc_consensus_strength_D` (VPOC共识强度) 和 `volatility_skew_index_D` (波动率偏度指数)
-                   来增强对结构稳定性的判断。
-        - 【修正】优化 `foundation_support_score` 和 `long_term_trend_health_score` 的计算，使其在涨停日能正确反映积极稳定性。
-        - 【修复】移除 `normalize_score` 函数调用中的 `sensitivity` 参数，因为该函数不接受此参数。
+        【V1.0】结构公理五：诊断“底分型”结构
+        - 核心逻辑: 识别底分型结构形态，并输出一个双极性分数 `SCORE_STRUCT_BOTTOM_FRACTAL`。
+        - 底分型定义: 中间K线的最低价是其左右各 (n-1)/2 根K线中的最低价。
+        - 信号输出: 识别到底分型时，输出1.0；否则输出0.0。
+        - 引入 `min_depth_ratio` 过滤微小波动形成的底分型。
         - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
         """
         df_index = df.index
-        bbw_col = 'BBW_21_2.0_D'
-        if bbw_col not in df.columns:
-            print(f"    -> [结构情报警告] 方法 '_diagnose_axiom_stability' 缺少核心列 '{bbw_col}'。")
-            return pd.Series(0.0, index=df_index)
-        p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        tf_weights_struct = get_param_value(p_conf_struct.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        energy_accumulation_score = 1 - get_adaptive_mtf_normalized_score(self._get_safe_series(df, bbw_col, method_name="_diagnose_axiom_stability"), df_index, ascending=True, tf_weights=tf_weights_struct)
-        energy_accumulation_score = energy_accumulation_score.fillna(0.5)
-        long_term_ma_periods = [55, 144]
-        required_ma_cols = [f'MA_{p}_D' for p in long_term_ma_periods]
-        required_slope_cols = [f'SLOPE_5_MA_{p}_D' for p in long_term_ma_periods] # 默认使用5日斜率
-        # 获取并归一化 vpoc_consensus_strength_D
-        vpoc_consensus_raw = self._get_safe_series(df, 'mf_vpoc_premium_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability") # 替换为 mf_vpoc_premium_D
-        vpoc_consensus_score = get_adaptive_mtf_normalized_score(vpoc_consensus_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        if not all(col in df.columns for col in required_ma_cols + required_slope_cols):
-            print("    -> [结构情报警告] 方法 '_diagnose_axiom_stability' 缺少必要的长期MA或其斜率列，长期结构评估将跳过。")
-            foundation_health_score = pd.Series(0.5, index=df_index)
-            foundation_support_score = pd.Series(0.5, index=df_index)
-            long_term_trend_health_score = pd.Series(0.5, index=df_index)
-        else:
-            support_scores = []
-            for p in long_term_ma_periods:
-                # 价格高于MA越多，支撑越强，分数越高
-                # 优化 support_score 的计算，使其更直接地反映价格在MA之上的强度
-                # 调整 normalize_score 的敏感度，使其在涨停日能得到更高的分数
-                # 【优化】使用多时间维度自适应归一化
-                support_score = get_adaptive_mtf_normalized_score((self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_stability") - self._get_safe_series(df, f'MA_{p}_D', method_name="_diagnose_axiom_stability")).clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct).clip(0, 1)
-                support_scores.append(support_score)
-            foundation_support_score = pd.Series(np.mean(support_scores, axis=0), index=df_index)
-            health_scores = []
-            for p in long_term_ma_periods:
-                # MA斜率越大，趋势越健康，分数越高
-                # 优化 health_score 的计算，使其更直接地反映MA斜率的正向强度
-                # 考虑使用更长周期的斜率来评估长期均线的健康度，例如 SLOPE_21_MA_D
-                slope_col_name = f'SLOPE_21_MA_{p}_D' # 使用21日斜率
-                if slope_col_name not in df.columns:
-                    slope_col_name = f'SLOPE_5_MA_{p}_D' # 回退到5日斜率
-                # 【优化】使用多时间维度自适应归一化
-                health_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, slope_col_name, pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability").clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct).clip(0, 1)
-                health_scores.append(health_score)
-            long_term_trend_health_score = pd.Series(np.mean(health_scores, axis=0), index=df_index)
-            # 融合 vpoc_consensus_strength_D 到 foundation_health_score
-            foundation_health_score = (foundation_support_score * 0.5 + long_term_trend_health_score * 0.3 + vpoc_consensus_score * 0.2).clip(0, 1)
-        # 将 raw_stability_score 的计算从乘法改为加权平均
-        raw_stability_score = (energy_accumulation_score * 0.3 + foundation_health_score * 0.7).fillna(0.5) # 赋予基石支撑更高权重
-        # 获取并归一化 volatility_skew_index_D
-        volatility_skew_raw = self._get_safe_series(df, 'volatility_asymmetry_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability") # 替换为 volatility_asymmetry_index_D
-        volatility_skew_score = get_adaptive_mtf_normalized_bipolar_score(volatility_skew_raw, df_index, tf_weights_struct, sensitivity=0.5).fillna(0.0) # 归一化到 [-1, 1]
-        # 融合 volatility_skew_score 到最终的 stability_score
-        stability_score = (raw_stability_score * 0.8 + volatility_skew_score.clip(lower=0) * 0.2 - volatility_skew_score.clip(upper=0).abs() * 0.2).clip(-1, 1)
-        # --- Debugging output for probe date ---
+        bottom_fractal_score = pd.Series(0.0, index=df_index, dtype=np.float32)
+        # 确保 n 是大于等于3的奇数
+        if n % 2 == 0 or n < 3:
+            print(f"    -> [结构情报警告] 底分型识别错误: 参数 n 必须是大于等于3的奇数，当前为 {n}。将使用默认值5。")
+            n = 5
+        half_n = n // 2
+        # 确保 'low' 列存在
+        if 'low_D' not in df.columns:
+            print(f"    -> [结构情报警告] 诊断底分型失败: 缺少 'low_D' 列，返回默认分数。")
+            return bottom_fractal_score
+        low_series = self._get_safe_series(df, 'low_D', method_name="_diagnose_bottom_fractal")
+        for i in range(half_n, len(df) - half_n):
+            middle_low = low_series.iloc[i]
+            is_bottom = True
+            surrounding_lows = []
+            for j in range(i - half_n, i + half_n + 1):
+                if j == i:
+                    continue
+                current_low = low_series.iloc[j]
+                surrounding_lows.append(current_low)
+                if middle_low >= current_low:
+                    is_bottom = False
+                    break
+            if is_bottom:
+                # 进一步检查深度比例
+                if min_depth_ratio > 0:
+                    avg_surrounding_low = np.mean(surrounding_lows)
+                    if avg_surrounding_low <= 0: # 避免除以零或负数
+                        is_bottom = False
+                    elif (avg_surrounding_low - middle_low) / avg_surrounding_low < min_depth_ratio:
+                        is_bottom = False
+            if is_bottom:
+                bottom_fractal_score.iloc[i] = 1.0 # 识别到底分型，记为1.0
+        # 调试信息
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"    -> [结构稳定性探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - energy_accumulation_score: {energy_accumulation_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - foundation_support_score: {foundation_support_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - long_term_trend_health_score: {long_term_trend_health_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - vpoc_consensus_score: {vpoc_consensus_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - foundation_health_score: {foundation_health_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - raw_stability_score: {raw_stability_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - volatility_skew_score: {volatility_skew_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - stability_score: {stability_score.loc[probe_date_for_loop]:.4f}")
-        return stability_score
-
+                print(f"    -> [底分型探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - 底分型分数 (SCORE_STRUCT_BOTTOM_FRACTAL): {bottom_fractal_score.loc[probe_date_for_loop]:.4f}")
+        return bottom_fractal_score
 
 

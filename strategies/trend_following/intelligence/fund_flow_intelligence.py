@@ -89,7 +89,7 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.11 · df_indicators引用修复版】资金流公理一：诊断“共识与分歧”
+        【V1.12 · 微观资金流博弈增强与df_indicators引用修复版】资金流公理一：诊断“共识与分歧”
         - 核心修复: 修正了 `self.df_indicators` 的错误引用，改为 `self.strategy.df_indicators`。
         - 核心强化: 将 `main_force_flow` 和 `lg_xl_net_flow` 等关键资金流中间计算结果存储到 `self.strategy.df_indicators`，
                       供后续的吸筹拐点探测等方法使用。
@@ -109,6 +109,7 @@ class FundFlowIntelligence:
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `battle_intensity_factor` 和 `consensus_score_base` 的归一化方式改为多时间维度自适应归一化。
         - 【新增】增加了详细的探针日志，用于诊断 `split_order_accumulation_raw` 赋值失败的问题。
+        - 【新增】引入 `main_force_ofi_D` (主力订单流失衡) 和 `retail_ofi_D` (散户订单流失衡) 作为判断资金流共识的微观证据。
         """
         df_index = df.index
         buy_sm_amount = self._get_safe_series(df, 'buy_sm_amount_D', 0, method_name="_diagnose_axiom_consensus")
@@ -127,6 +128,9 @@ class FundFlowIntelligence:
         retail_flow = net_md_amount + net_sm_amount
         raw_bipolar_series = main_force_flow - retail_flow
         battle_intensity_raw = self._get_safe_series(df, 'mf_retail_battle_intensity_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_consensus")
+        # 新增代码行: 获取主力订单流失衡和散户订单流失衡
+        main_force_ofi_raw = self._get_safe_series(df, 'main_force_ofi_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_consensus")
+        retail_ofi_raw = self._get_safe_series(df, 'retail_ofi_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_consensus")
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         battle_intensity_factor = get_adaptive_mtf_normalized_score(battle_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
@@ -159,14 +163,22 @@ class FundFlowIntelligence:
             print(f"       - DEBUG: split_order_accumulation_raw AFTER assignment for probe date: {split_order_accumulation_raw.loc[probe_date_for_loop]}")
         normalized_split_factor_series = get_adaptive_mtf_normalized_score(split_order_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
         split_order_accumulation_factor = normalized_split_factor_series.where(split_order_accumulation_raw > 0, 0)
-        # 将重要的中间计算结果存储到 self.strategy.df_indicators，供其他方法使用
         self.strategy.df_indicators['FUND_FLOW_MAIN_FORCE_FLOW'] = main_force_flow
         self.strategy.df_indicators['FUND_FLOW_RETAIL_FLOW'] = retail_flow
         self.strategy.df_indicators['FUND_FLOW_SM_MD_NET_FLOW'] = sm_md_net_flow
         self.strategy.df_indicators['FUND_FLOW_LG_XL_NET_FLOW'] = lg_xl_net_flow
         self.strategy.df_indicators['PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'] = split_order_accumulation_factor
         consensus_score_base = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df_index, tf_weights_ff, sensitivity=1.0)
-        consensus_score = (consensus_score_base * (1 + battle_intensity_factor * 0.5) + split_order_accumulation_factor * 0.3).clip(-1, 1)
+        # 新增代码行: 归一化主力订单流失衡和散户订单流失衡
+        main_force_ofi_score = get_adaptive_mtf_normalized_bipolar_score(main_force_ofi_raw, df_index, tf_weights_ff, sensitivity=0.5)
+        retail_ofi_score = get_adaptive_mtf_normalized_bipolar_score(retail_ofi_raw, df_index, tf_weights_ff, sensitivity=0.5)
+        # 融合所有分数，调整权重
+        consensus_score = (
+            consensus_score_base * 0.6 +
+            split_order_accumulation_factor * 0.2 +
+            main_force_ofi_score * 0.15 - # 新增主力订单流失衡
+            retail_ofi_score * 0.05 # 新增散户订单流失衡 (负向贡献)
+        ).clip(-1, 1) # 修改行: 调整权重并加入新信号
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
@@ -182,40 +194,48 @@ class FundFlowIntelligence:
                 print(f"       - split_order_accumulation_raw: {split_order_accumulation_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - split_order_accumulation_factor: {split_order_accumulation_factor.loc[probe_date_for_loop]:.4f}")
                 print(f"       - consensus_score_base: {consensus_score_base.loc[probe_date_for_loop]:.4f}")
+                # 新增代码行: 打印主力订单流失衡和散户订单流失衡分数
+                print(f"       - main_force_ofi_score: {main_force_ofi_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - retail_ofi_score: {retail_ofi_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - consensus_score: {consensus_score.loc[probe_date_for_loop]:.4f}")
         return consensus_score.astype(np.float32)
 
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.4 · 探针增强与多时间维度归一化版】资金流公理二：诊断“信念与决心”
+        【V1.5 · 微观资金流博弈增强与探针增强版】资金流公理二：诊断“信念与决心”
         - 核心升级: 增加调试探针，打印关键中间值。
         - 核心修复: 对 `conviction_index` 和 `cost_advantage` 进行归一化，避免原始值过大导致截断。
         - 引入 `main_force_price_impact_ratio` (主力价格冲击比率) 作为判断主力信念和效率的重要证据。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
+        - 【新增】引入 `microstructure_efficiency_index_D` (微观结构效率指数) 和 `hidden_accumulation_intensity_D` (隐蔽吸筹强度) 作为判断资金流信念的微观证据。
         """
         df_index = df.index
         conviction_index_raw = self._get_safe_series(df, 'main_force_conviction_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_conviction")
         cost_advantage_raw = self._get_safe_series(df, 'main_force_cost_advantage_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_conviction")
         t0_efficiency_raw = self._get_safe_series(df, 'main_force_t0_efficiency_D', pd.Series(0.5, index=df_index), method_name="_diagnose_axiom_conviction")
         price_impact_raw = self._get_safe_series(df, 'main_force_price_impact_ratio_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_conviction")
+        # 新增代码行: 获取微观结构效率指数和隐蔽吸筹强度
+        microstructure_efficiency_raw = self._get_safe_series(df, 'microstructure_efficiency_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_conviction")
+        hidden_accumulation_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_conviction")
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 对 conviction_index_raw 和 cost_advantage_raw 进行归一化
-        # 赢家信念和成本优势越高越好，所以归一化后应为正
-        conviction_index_bipolar = get_adaptive_mtf_normalized_bipolar_score(conviction_index_raw, df_index, tf_weights_ff, sensitivity=10.0) # 调整敏感度
-        cost_advantage_bipolar = get_adaptive_mtf_normalized_bipolar_score(cost_advantage_raw, df_index, tf_weights_ff, sensitivity=100.0) # 调整敏感度
-        # t0_efficiency 越高，对信念的负面影响越大，所以归一化后应为负
+        conviction_index_bipolar = get_adaptive_mtf_normalized_bipolar_score(conviction_index_raw, df_index, tf_weights_ff, sensitivity=10.0)
+        cost_advantage_bipolar = get_adaptive_mtf_normalized_bipolar_score(cost_advantage_raw, df_index, tf_weights_ff, sensitivity=100.0)
         t0_efficiency_bipolar = get_adaptive_mtf_normalized_bipolar_score(t0_efficiency_raw, df_index, tf_weights_ff, sensitivity=0.5)
-        # 价格冲击比率：越高越好，正向贡献
-        price_impact_bipolar = get_adaptive_mtf_normalized_bipolar_score(price_impact_raw, df_index, tf_weights_ff, sensitivity=10.0) # 归一化价格冲击比率
+        price_impact_bipolar = get_adaptive_mtf_normalized_bipolar_score(price_impact_raw, df_index, tf_weights_ff, sensitivity=10.0)
+        # 新增代码行: 归一化微观结构效率指数和隐蔽吸筹强度
+        microstructure_efficiency_score = get_adaptive_mtf_normalized_bipolar_score(microstructure_efficiency_raw, df_index, tf_weights_ff, sensitivity=0.5)
+        hidden_accumulation_score = get_adaptive_mtf_normalized_bipolar_score(hidden_accumulation_raw, df_index, tf_weights_ff, sensitivity=0.5)
         # 重新加权融合
         raw_bipolar_series = (
-            conviction_index_bipolar * 0.35 +
-            cost_advantage_bipolar * 0.35 +
-            price_impact_bipolar * 0.2 - # 价格冲击比率权重
-            t0_efficiency_bipolar * 0.1 # 降低 t0_efficiency 的权重
-        ).clip(-1, 1)
+            conviction_index_bipolar * 0.3 +
+            cost_advantage_bipolar * 0.3 +
+            price_impact_bipolar * 0.15 +
+            hidden_accumulation_score * 0.1 - # 新增隐蔽吸筹强度
+            t0_efficiency_bipolar * 0.1 -
+            microstructure_efficiency_score * 0.05 # 新增微观结构效率指数 (负向贡献)
+        ).clip(-1, 1) # 修改行: 调整权重并加入新信号
         conviction_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df_index, tf_weights_ff, sensitivity=1.0)
         # --- Debugging output for probe date ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -229,54 +249,70 @@ class FundFlowIntelligence:
                 print(f"       - cost_advantage_raw: {cost_advantage_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - t0_efficiency_raw: {t0_efficiency_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - price_impact_raw: {price_impact_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - microstructure_efficiency_raw: {microstructure_efficiency_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - hidden_accumulation_raw: {hidden_accumulation_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - conviction_index_bipolar: {conviction_index_bipolar.loc[probe_date_for_loop]:.4f}")
                 print(f"       - cost_advantage_bipolar: {cost_advantage_bipolar.loc[probe_date_for_loop]:.4f}")
                 print(f"       - t0_efficiency_bipolar: {t0_efficiency_bipolar.loc[probe_date_for_loop]:.4f}")
                 print(f"       - price_impact_bipolar: {price_impact_bipolar.loc[probe_date_for_loop]:.4f}")
+                print(f"       - microstructure_efficiency_score: {microstructure_efficiency_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - hidden_accumulation_score: {hidden_accumulation_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - raw_bipolar_series: {raw_bipolar_series.loc[probe_date_for_loop]:.4f}")
                 print(f"       - conviction_score: {conviction_score.loc[probe_date_for_loop]:.4f}")
         return conviction_score.astype(np.float32)
 
     def _diagnose_axiom_flow_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V2.1 · 资金流动量与多时间维度归一化版】资金流公理三：诊断“资金流动量”
+        【V2.2 · 微观资金流博弈增强与资金流动量与多时间维度归一化版】资金流公理三：诊断“资金流动量”
         - 核心逻辑: 衡量主力资金净流量的相对强度和趋势动量。
           - 标准化主力净流量 (NMFNF): 主力净流入额 / 总市值，使其可比。
           - NMFNF的短期 (5日) 和中期 (21日) 斜率，反映资金流的走向和加速。
           - 结合NMFNF的当前值和其动量，形成资金流的整体动量分数。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
+        - 【新增】引入 `wash_trade_intensity_D` (主力对倒强度) 和 `order_book_imbalance_D` (五档盘口失衡度) 作为判断资金流动量的微观证据。
         """
         df_index = df.index
-        # 获取主力净流量和总市值
+        required_signals = [
+            'main_force_net_flow_calibrated_D', 'total_market_value_D',
+            'SLOPE_5_NMFNF_D', 'SLOPE_21_NMFNF_D',
+            'wash_trade_intensity_D', 'order_book_imbalance_D' # 修改行: 新增微观资金流博弈指标
+        ]
+        missing_signals = [s for s in required_signals if s not in df.columns]
+        if missing_signals:
+            print(f"    -> [资金流动量探针] 警告: 缺少核心信号 {missing_signals}，使用默认值0.0。")
+            return pd.Series(0.0, index=df_index)
         main_force_net_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_flow_momentum")
         total_market_value = self._get_safe_series(df, 'total_market_value_D', pd.Series(1e9, index=df_index), method_name="_diagnose_axiom_flow_momentum")
-        # 计算标准化主力净流量 (NMFNF)，避免除以零
         nmfnf = (main_force_net_flow / total_market_value.replace(0, 1e9)).fillna(0)
-        p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
-        tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 归一化NMFNF本身，反映当前资金流的相对强度
-        nmfnf_score = get_adaptive_mtf_normalized_bipolar_score(nmfnf, df_index, tf_weights_ff, sensitivity=0.001) # 敏感度根据实际数据调整
-        # 获取NMFNF的5日和21日斜率，反映资金流的动量和趋势
         slope_5_nmfnf = self._get_safe_series(df, 'SLOPE_5_NMFNF_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_flow_momentum")
         slope_21_nmfnf = self._get_safe_series(df, 'SLOPE_21_NMFNF_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_flow_momentum")
-        # 归一化斜率
+        # 新增代码行: 获取主力对倒强度和五档盘口失衡度
+        wash_trade_intensity_raw = self._get_safe_series(df, 'wash_trade_intensity_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_flow_momentum")
+        order_book_imbalance_raw = self._get_safe_series(df, 'order_book_imbalance_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_flow_momentum")
+        p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        nmfnf_score = get_adaptive_mtf_normalized_bipolar_score(nmfnf, df_index, tf_weights_ff, sensitivity=0.001)
         slope_5_nmfnf_score = get_adaptive_mtf_normalized_bipolar_score(slope_5_nmfnf, df_index, tf_weights_ff, sensitivity=0.0001)
         slope_21_nmfnf_score = get_adaptive_mtf_normalized_bipolar_score(slope_21_nmfnf, df_index, tf_weights_ff, sensitivity=0.00005)
-        # 融合当前资金流强度和其动量
-        # 权重分配：当前强度和短期动量更重要，中期趋势提供确认
+        # 新增代码行: 归一化主力对倒强度和五档盘口失衡度
+        wash_trade_intensity_score = get_adaptive_mtf_normalized_bipolar_score(wash_trade_intensity_raw * -1, df_index, tf_weights_ff, sensitivity=0.5) # 对倒强度越高，流动量越差，负向贡献
+        order_book_imbalance_score = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, tf_weights_ff, sensitivity=0.5)
+        # 融合当前资金流强度和其动量，并加入微观资金流博弈指标
         flow_momentum_score = (
-            nmfnf_score * 0.4 +
-            slope_5_nmfnf_score * 0.35 +
-            slope_21_nmfnf_score * 0.25
-        ).clip(-1, 1)
+            nmfnf_score * 0.3 +
+            slope_5_nmfnf_score * 0.25 +
+            slope_21_nmfnf_score * 0.2 +
+            order_book_imbalance_score * 0.15 + # 新增五档盘口失衡度
+            wash_trade_intensity_score * 0.1 # 新增主力对倒强度
+        ).clip(-1, 1) # 修改行: 调整权重并加入新信号
         # --- Debugging output for probe date ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
                 print(f"    -> [资金流动量探针] @ {probe_date_for_loop.date()}:")
                 print(f"       - main_force_net_flow: {main_force_net_flow.loc[probe_date_for_loop]:.4f}")
                 print(f"       - total_market_value: {total_market_value.loc[probe_date_for_loop]:.4f}")
@@ -284,56 +320,67 @@ class FundFlowIntelligence:
                 print(f"       - nmfnf_score: {nmfnf_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - slope_5_nmfnf: {slope_5_nmfnf.loc[probe_date_for_loop]:.6f}")
                 print(f"       - slope_21_nmfnf: {slope_21_nmfnf.loc[probe_date_for_loop]:.6f}")
+                print(f"       - wash_trade_intensity_raw: {wash_trade_intensity_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - order_book_imbalance_raw: {order_book_imbalance_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - slope_5_nmfnf_score: {slope_5_nmfnf_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - slope_21_nmfnf_score: {slope_21_nmfnf_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - wash_trade_intensity_score: {wash_trade_intensity_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - order_book_imbalance_score: {order_book_imbalance_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - flow_momentum_score: {flow_momentum_score.loc[probe_date_for_loop]:.4f}")
         return flow_momentum_score.astype(np.float32)
 
     def _diagnose_fund_flow_accumulation_inflection_intent(self, df: pd.DataFrame, norm_window: int, flow_momentum_current: pd.Series, consensus_score_current: pd.Series) -> pd.Series:
         """
-        【V1.2 · 资金流吸筹拐点意图参数接收版】识别主力从隐蔽吸筹转向公开抢筹的资金流迹象。
+        【V1.3 · 微观资金流博弈增强与资金流吸筹拐点意图参数接收版】识别主力从隐蔽吸筹转向公开抢筹的资金流迹象。
         该信号纯粹基于资金流数据，旨在捕捉主力行为模式的转变。
         - 核心修复: 接收 `flow_momentum_current` 和 `consensus_score_current` 作为参数，解决获取不到当前日数据的问题。
         - 核心修复: 修正了 `self.df_indicators` 的错误引用，改为 `self.strategy.df_indicators`。
+        - 【新增】引入 `large_order_pressure_D` (大单压制强度) 和 `large_order_support_D` (大单支撑强度) 作为判断资金流吸筹拐点意图的微观证据。
         """
         df_index = df.index
         inflection_intent_score = pd.Series(0.0, index=df_index)
+        # --- Debugging setup ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        probe_date_for_loop = None
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop not in df_index:
+                probe_date_for_loop = None
         # 1. 获取核心资金流信号
-        # 隐蔽吸筹强度 (PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY)
         psai = self._get_safe_series(self.strategy.df_indicators, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
-        # 主力资金流 (FUND_FLOW_MAIN_FORCE_FLOW)
         main_force_flow = self._get_safe_series(self.strategy.df_indicators, 'FUND_FLOW_MAIN_FORCE_FLOW', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
-        # 大单特大单净流入 (FUND_FLOW_LG_XL_NET_FLOW)
         lg_xl_net_flow = self._get_safe_series(self.strategy.df_indicators, 'FUND_FLOW_LG_XL_NET_FLOW', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
-        # 资金流动量 (SCORE_FF_AXIOM_FLOW_MOMENTUM) - [代码修改开始] 直接使用传递的参数
         flow_momentum = flow_momentum_current
-        # 资金流共识 (SCORE_FF_AXIOM_CONSENSUS) - [代码修改开始] 直接使用传递的参数
         consensus_score = consensus_score_current
+        # 新增代码行: 获取大单压制强度和大单支撑强度
+        large_order_pressure_raw = self._get_safe_series(df, 'large_order_pressure_D', pd.Series(0.0, index=df_index), method_name="_diagnose_fund_flow_accumulation_inflection_intent")
+        large_order_support_raw = self._get_safe_series(df, 'large_order_support_D', pd.Series(0.0, index=df_index), method_name="_diagnose_fund_flow_accumulation_inflection_intent")
         # 2. 定义参数 (可配置，用于调整信号敏感度)
         p_conf_inflection = get_params_block(self.strategy, 'fund_flow_inflection_params', {})
-        psai_high_threshold = get_param_value(p_conf_inflection.get('psai_high_threshold'), 0.5) # 隐蔽吸筹强度高阈值
-        mf_flow_positive_threshold = get_param_value(p_conf_inflection.get('mf_flow_positive_threshold'), 0.0) # 主力资金流转正阈值
-        lg_xl_flow_positive_threshold = get_param_value(p_conf_inflection.get('lg_xl_flow_positive_threshold'), 0.0) # 大单特大单净流入转正阈值
-        flow_momentum_positive_threshold = get_param_value(p_conf_inflection.get('flow_momentum_positive_threshold'), 0.0) # 资金流动量转正阈值
-        consensus_score_positive_threshold = get_param_value(p_conf_inflection.get('consensus_score_positive_threshold'), 0.0) # 共识分数转正阈值
+        psai_high_threshold = get_param_value(p_conf_inflection.get('psai_high_threshold'), 0.5)
+        mf_flow_positive_threshold = get_param_value(p_conf_inflection.get('mf_flow_positive_threshold'), 0.0)
+        lg_xl_flow_positive_threshold = get_param_value(p_conf_inflection.get('lg_xl_flow_positive_threshold'), 0.0)
+        flow_momentum_positive_threshold = get_param_value(p_conf_inflection.get('flow_momentum_positive_threshold'), 0.0)
+        consensus_score_positive_threshold = get_param_value(p_conf_inflection.get('consensus_score_positive_threshold'), 0.0)
+        # 新增代码行: 大单压制和支撑的阈值
+        large_order_pressure_threshold = get_param_value(p_conf_inflection.get('large_order_pressure_threshold'), 0.5)
+        large_order_support_threshold = get_param_value(p_conf_inflection.get('large_order_support_threshold'), 0.5)
         # 3. 核心条件判断
-        # 条件A: 隐蔽吸筹强度达到高位 (表明前期有充分吸筹基础)
         cond_psai_high = (psai > psai_high_threshold)
-        # 条件B: 主力资金开始转为净流入，且大单特大单净流入也转正 (从隐蔽到公开的转变迹象)
         cond_mf_overt_buying = (main_force_flow > mf_flow_positive_threshold) & (lg_xl_net_flow > lg_xl_flow_positive_threshold)
-        # 条件C: 资金流动量转正 (资金流加速迹象)
         cond_flow_momentum_positive = (flow_momentum > flow_momentum_positive_threshold)
-        # 条件D: 资金流共识开始转好 (市场情绪或资金合力转向积极)
         cond_consensus_improving = (consensus_score > consensus_score_positive_threshold) | (consensus_score.diff(1) > 0)
+        # 新增代码行: 大单压制减弱且大单支撑增强
+        cond_large_order_favorable = (large_order_pressure_raw < large_order_pressure_threshold) & (large_order_support_raw > large_order_support_threshold)
         # 4. 融合条件，计算资金流拐点意图分数
-        # 基础意图：当前期隐蔽吸筹充分，且主力资金开始公开买入时，赋予基础分数
         base_intent_mask = cond_psai_high & cond_mf_overt_buying
         inflection_intent_score.loc[base_intent_mask] = 0.5
-        # 如果资金流动量也转正，增加分数
         inflection_intent_score.loc[base_intent_mask & cond_flow_momentum_positive] += 0.2
-        # 如果资金流共识也改善，增加更多分数
         inflection_intent_score.loc[base_intent_mask & cond_consensus_improving] += 0.3
-        # 确保分数在 [0, 1] 之间
+        # 新增代码行: 如果大单情况有利，进一步增强信号
+        inflection_intent_score.loc[base_intent_mask & cond_large_order_favorable] += 0.2
         inflection_intent_score = inflection_intent_score.clip(0, 1)
         # 5. 多时间维度归一化 (平滑信号，使其更具趋势性)
         tf_weights_inflection = get_param_value(p_conf_inflection.get('tf_fusion_weights'), {5: 0.5, 13: 0.3, 21: 0.2})
@@ -352,10 +399,13 @@ class FundFlowIntelligence:
                 print(f"       - lg_xl_net_flow: {lg_xl_net_flow.loc[probe_date_for_loop]:.4f}")
                 print(f"       - flow_momentum: {flow_momentum.loc[probe_date_for_loop]:.4f}")
                 print(f"       - consensus_score: {consensus_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - large_order_pressure_raw: {large_order_pressure_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - large_order_support_raw: {large_order_support_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - cond_psai_high: {cond_psai_high.loc[probe_date_for_loop]}")
                 print(f"       - cond_mf_overt_buying: {cond_mf_overt_buying.loc[probe_date_for_loop]}")
                 print(f"       - cond_flow_momentum_positive: {cond_flow_momentum_positive.loc[probe_date_for_loop]}")
                 print(f"       - cond_consensus_improving: {cond_consensus_improving.loc[probe_date_for_loop]}")
+                print(f"       - cond_large_order_favorable: {cond_large_order_favorable.loc[probe_date_for_loop]}")
                 print(f"       - inflection_intent_score (raw): {inflection_intent_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - inflection_intent_score (normalized): {inflection_intent_score_normalized.loc[probe_date_for_loop]:.4f}")
         return inflection_intent_score_normalized.astype(np.float32)
