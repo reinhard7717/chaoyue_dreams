@@ -80,6 +80,12 @@
             "type": "context",
             "description": "【形态公理三】基于超级原子信号，诊断结构性突破的质量。正分代表高质量的向上突破，负分代表向下突破。"
         },
+        "SCORE_PATTERN_PULLBACK_CONFIRMATION": {
+            "cn_name": "【形态公理】回踩确认二次启动",
+            "category": "形态层-原子",
+            "type": "context",
+            "description": "【形态公理四】识别股价在量能萎缩后放量突破，随后缩量回调，再放量突破的二次启动形态。在形态的“二次启动日”（B日）输出1.0；否则输出0.0。"
+        },
         "SCORE_MICRO_AXIOM_DECEPTION": {
             "cn_name": "【微观公理】伪装与欺骗",
             "category": "微观行为-原子",

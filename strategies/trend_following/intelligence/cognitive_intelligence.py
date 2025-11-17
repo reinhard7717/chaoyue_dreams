@@ -507,10 +507,11 @@ class CognitiveIntelligence:
 
     def _deduce_chasing_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.4 · 结构共识增强版】贝叶斯推演：“主力拉升抢筹”剧本
+        【V3.5 · 回踩确认二次启动增强版】贝叶斯推演：“主力拉升抢筹”剧本
         - 核心升级: 引入 `SCORE_CHIP_STRUCTURAL_CONSENSUS` 作为主力拉升抢筹的强有力证据。
         - 探针植入: 打印本剧本所依赖的先验概率和计算出的似然度，以诊断后验概率为零的原因。
         - 【修正】更新 `urgency_evidence` 的信号名称，从 `PROCESS_META_MAIN_FORCE_URGENCY` 更改为 `PROCESS_META_MAIN_FORCE_RALLY_INTENT`。
+        - 【新增】引入“回踩确认二次启动”形态作为主力拉升抢筹的证据。
         """
         print("    -- [剧本推演] 主力拉升抢筹 (动态证据)...")
         capital_confrontation = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0))
@@ -521,16 +522,19 @@ class CognitiveIntelligence:
         conviction_evidence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_WINNER_CONVICTION', 0.0).clip(lower=0))
         process_evidence = (rally_intent_evidence * conviction_evidence).pow(0.5)
         chip_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(lower=0))
-        # 新增代码行: 获取结构共识分并锻造成动态证据
         structural_consensus_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_STRUCTURAL_CONSENSUS', 0.0))
+        # 修改行: 新增回踩确认二次启动形态证据
+        pullback_confirmation_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_PATTERN_PULLBACK_CONFIRMATION', 0.0))
         evidence_scores = np.stack([
             capital_confrontation.values, price_rising_evidence.values, efficiency_evidence.values,
             process_evidence.values, chip_evidence.values,
-            # 新增代码行: 将结构共识分作为证据
-            structural_consensus_evidence.values
+            structural_consensus_evidence.values,
+            # 修改行: 将回踩确认二次启动形态证据加入堆栈
+            pullback_confirmation_evidence.values
         ], axis=0)
-        # 调整权重，为结构共识分分配适当权重
-        evidence_weights = np.array([0.15, 0.10, 0.10, 0.25, 0.20, 0.20])
+        # 调整权重，为结构共识分和回踩确认二次启动形态分配适当权重
+        # 确保总和为1
+        evidence_weights = np.array([0.15, 0.10, 0.10, 0.20, 0.15, 0.15, 0.15]) # 修改行: 调整权重
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
@@ -549,8 +553,9 @@ class CognitiveIntelligence:
                 print(f"         - efficiency_evidence: {efficiency_evidence.loc[probe_date]:.4f}")
                 print(f"         - process_evidence: {process_evidence.loc[probe_date]:.4f}")
                 print(f"         - chip_evidence: {chip_evidence.loc[probe_date]:.4f}")
-                # 新增代码行: 打印结构共识证据
                 print(f"         - structural_consensus_evidence: {structural_consensus_evidence.loc[probe_date]:.4f}")
+                # 修改行: 打印回踩确认二次启动形态证据
+                print(f"         - pullback_confirmation_evidence: {pullback_confirmation_evidence.loc[probe_date]:.4f}")
                 print(f"         - 先验概率 (P(Trend)): {prior_prob.loc[probe_date]:.4f}")
                 print(f"         - 似然度 (P(证据|剧本)): {likelihood.loc[probe_date]:.4f}")
         posterior_prob = (likelihood * prior_prob).clip(0, 1)

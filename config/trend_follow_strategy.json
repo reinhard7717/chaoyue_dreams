@@ -923,15 +923,17 @@
         "description": "【V1.0】经典指标原子信号诊断引擎参数。"
       },
       "pattern_params": {
-        "enabled": true,
-        "description": "【V7.0 · 三大公理版】形态智能引擎参数。基于“背离、反转、突破”三大公理融合。",
-        "norm_window": 55,
-        "axiom_weights": {
-          "description": "融合三大形态公理时的权重。",
-          "divergence": 0.4,
-          "reversal": 0.4,
-          "breakout": 0.2
-        }
+          "enabled": true,
+          "description": "【V7.0 · 三大公理版】形态智能引擎参数。基于“背离、反转、突破”三大公理融合。",
+          "norm_window": 55,
+          "axiom_weights": {
+            "description": "融合三大形态公理时的权重。",
+            "divergence": 0.4,
+            "reversal": 0.4,
+            "breakout": 0.2
+          },
+          "pullback_confirmation_n_pre_A": 10,
+          "pullback_confirmation_n_pullback_max": 13
       },
       "consolidation_breakout_params": {
         "enabled": true,
