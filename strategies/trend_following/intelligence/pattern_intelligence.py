@@ -96,7 +96,7 @@ class PatternIntelligence:
 
     def _diagnose_axiom_pullback_confirmation(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V5.4 · 纯粹量能洗盘识别版 - 探针增强 & 修复数据缺失处理】形态公理四：诊断“回踩确认二次启动”形态
+        【V5.5 · 纯粹量能洗盘识别版 - 探针增强 & 修复数据缺失处理】形态公理四：诊断“回踩确认二次启动”形态
         - 核心逻辑: 识别股价在量能萎缩后放量突破，随后缩量回调或放量换手洗盘，再放量突破的二次启动形态。
                     回调阶段融入微观资金流、筹码结构、行为效率等高级指标，量化“健康洗盘”特征。
                     新增B点收盘价高于A点收盘价，以及B点结构趋势相对于A点向上的判断。
@@ -143,15 +143,33 @@ class PatternIntelligence:
         probe_dates_str = debug_params.get('probe_dates', [])
         probe_target_date = None # 目标B日，当此日期为B日时，打印详细探针
         if probe_dates_str:
-            probe_target_date = pd.to_datetime(probe_dates_str[0])
-            probe_target_date = probe_target_date.tz_localize(df_index.tz) if df_index.tz else probe_target_date
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_target_date = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            # 新增行: 打印当前DataFrame的所有列名，仅在探针日期存在时
+            if probe_target_date is not None and probe_target_date in df.index:
+                print(f"    -> [回踩确认二次启动探针] @ {probe_target_date.date()}: 当前DataFrame包含的列: {df.columns.tolist()}")
         for i in range(n_pre_A, len(df_index)):
             day_A_idx = i
+            current_A_date = df_index[day_A_idx]
             pre_A_slice_start = day_A_idx - n_pre_A
             if pre_A_slice_start < 0:
                 continue
+            # 确定当前A日是否与目标B日相关，以便打印探针信息
+            is_relevant_a_day_for_probe = False
+            if probe_target_date is not None and current_A_date < probe_target_date:
+                # A日必须在目标B日之前，且在B日的回溯窗口内 (day_A_idx + 1 to day_B_idx)
+                # max_pullback_days = n_pullback_max + 1 (inclusive of B-day)
+                if (probe_target_date - current_A_date).days <= n_pullback_max + 1:
+                    is_relevant_a_day_for_probe = True
             # 1. A日之前N天量能萎缩 (使用原始量能)
             pre_A_volume_atrophy = (volume_D.iloc[pre_A_slice_start:day_A_idx] < max_vol_ma.iloc[pre_A_slice_start:day_A_idx]).all()
+            if is_relevant_a_day_for_probe:
+                print(f"    -> [回踩确认二次启动探针] 目标B日为 {probe_target_date.date()}，正在检查候选A日 @ {current_A_date.date()}:")
+                print(f"       - A日之前 {n_pre_A} 天量能萎缩 ({pre_A_volume_atrophy})")
+            if not pre_A_volume_atrophy:
+                if is_relevant_a_day_for_probe:
+                    print(f"       - A日条件: 量能萎缩不满足，跳过此A日。")
+                continue
             # 2. A日放量上涨突破 (强化A日条件，使用原始量能)
             day_A_pct_change = pct_change_D.iloc[day_A_idx]
             day_A_volume = volume_D.iloc[day_A_idx]
@@ -164,7 +182,11 @@ class PatternIntelligence:
             cond_A_volume = day_A_volume > day_A_max_vol_ma * 1.2
             cond_A_mf_flow = day_A_main_force_flow > 0
             cond_A_chip_conc = day_A_chip_conc_slope > 0
-            if not (pre_A_volume_atrophy and cond_A_pct_change and cond_A_volume and cond_A_mf_flow and cond_A_chip_conc):
+            if is_relevant_a_day_for_probe:
+                print(f"       - A日条件: pct_change > 1% ({cond_A_pct_change}), volume > 1.2*MA_VOL ({cond_A_volume}), MF_Flow > 0 ({cond_A_mf_flow}), Chip_Conc_Slope > 0 ({cond_A_chip_conc})")
+            if not (cond_A_pct_change and cond_A_volume and cond_A_mf_flow and cond_A_chip_conc):
+                if is_relevant_a_day_for_probe:
+                    print(f"       - A日条件: 放量上涨突破不满足，跳过此A日。")
                 continue
             # 3. 寻找B日
             for j in range(day_A_idx + 1, min(day_A_idx + n_pullback_max + 2, len(df_index))):
@@ -173,11 +195,11 @@ class PatternIntelligence:
                     continue
                 current_B_date = df_index[day_B_idx]
                 is_probing_this_b_day = (probe_target_date is not None and current_B_date == probe_target_date)
-                if is_probing_this_b_day:
-                    print(f"    -> [回踩确认二次启动探针] 正在尝试匹配模式，目标B日 @ {current_B_date.date()}:")
-                    print(f"       - 候选A日 @ {df_index[day_A_idx].date()}:")
-                    print(f"         - A日之前 {n_pre_A} 天量能萎缩 ({pre_A_volume_atrophy})")
-                    print(f"         - A日条件: pct_change > 1% ({cond_A_pct_change}), volume > 1.2*MA_VOL ({cond_A_volume}), MF_Flow > 0 ({cond_A_mf_flow}), Chip_Conc_Slope > 0 ({cond_A_chip_conc})")
+                if not is_probing_this_b_day:
+                    continue # 只有当当前B日是目标探针日期时，才进行详细打印
+                # 如果执行到这里，说明 current_B_date 是 probe_target_date，并且 A日条件已通过。
+                print(f"    -> [回踩确认二次启动探针] 正在尝试匹配模式，目标B日 @ {current_B_date.date()}:")
+                print(f"       - 候选A日 @ {df_index[day_A_idx].date()} (已通过A日条件检查):")
                 # 4. B日再次放量上涨突破 (强化B日条件，使用原始量能)
                 day_B_pct_change = pct_change_D.iloc[day_B_idx]
                 day_B_volume = volume_D.iloc[day_B_idx]
@@ -192,23 +214,22 @@ class PatternIntelligence:
                 cond_B_mf_flow = day_B_main_force_flow > 0
                 cond_B_chip_conc = day_B_chip_conc_slope > 0
                 cond_B_mf_leverage = day_B_mf_control_leverage > 0
+                print(f"       - B日条件: pct_change > 1% ({cond_B_pct_change}), volume > 1.2*MA_VOL ({cond_B_volume}), MF_Flow > 0 ({cond_B_mf_flow}), Chip_Conc_Slope > 0 ({cond_B_chip_conc}), MF_Leverage > 0 ({cond_B_mf_leverage})")
                 if not (cond_B_pct_change and cond_B_volume and cond_B_mf_flow and cond_B_chip_conc and cond_B_mf_leverage):
-                    if is_probing_this_b_day:
-                        print(f"       - B日条件不满足，跳过。")
+                    print(f"       - B日条件不满足，跳过。")
                     continue
                 # 5. 细化B点与A点的关系：B点收盘高于A点收盘，且B点结构趋势相对于A点向上
                 cond_B_close_higher_A = day_B_close > day_A_close
                 cond_B_trend_better_A = day_B_trend_form_score > day_A_trend_form_score
+                print(f"       - B日与A日关系: B_close > A_close ({cond_B_close_higher_A}), B_trend_score > A_trend_score ({cond_B_trend_better_A})")
                 if not (cond_B_close_higher_A and cond_B_trend_better_A):
-                    if is_probing_this_b_day:
-                        print(f"       - B日与A日关系不满足，跳过。")
+                    print(f"       - B日与A日关系不满足，跳过。")
                     continue
                 # 6. A到B日之间缩量回调或放量换手洗盘，且健康洗盘
                 pullback_slice_start = day_A_idx + 1
                 pullback_slice_end = day_B_idx
                 if pullback_slice_start >= pullback_slice_end:
-                    if is_probing_this_b_day:
-                        print(f"       - 回调期长度不足，跳过。")
+                    print(f"       - 回调期长度不足，跳过。")
                     continue
                 # 获取回调期数据
                 pullback_effective_volume = effective_volume_D.iloc[pullback_slice_start:pullback_slice_end] # 使用有效成交量
@@ -223,29 +244,26 @@ class PatternIntelligence:
                 pullback_lower_shadow_absorption = lower_shadow_absorption_strength_D.iloc[pullback_slice_start:pullback_slice_end]
                 pullback_upper_shadow_selling_pressure = upper_shadow_selling_pressure_D.iloc[pullback_slice_start:pullback_slice_end]
                 pullback_closing_conviction_score = closing_conviction_score_D.iloc[pullback_slice_start:pullback_slice_end]
-                if is_probing_this_b_day:
-                    print(f"       - 回调期 ({df_index[pullback_slice_start].date()} to {df_index[pullback_slice_end-1].date()}):")
-                    for k in range(pullback_slice_start, pullback_slice_end):
-                        pb_date = df_index[k].date()
-                        pb_volume = volume_D.iloc[k]
-                        pb_wash_intensity = wash_trade_intensity_D.iloc[k]
-                        pb_effective_volume = effective_volume_D.iloc[k]
-                        pb_max_vol_ma = max_vol_ma.iloc[k]
-                        pb_pct_change = pct_change_D.iloc[k]
-                        pb_is_shrunk_day = pb_effective_volume < pb_max_vol_ma
-                        pb_is_churn_day = (pb_effective_volume >= pb_max_vol_ma * 0.8) and (pb_effective_volume < pb_max_vol_ma * 1.5)
-                        pb_no_bearish_vol_breakout_day = not ((pb_pct_change < 0) and (pb_effective_volume > pb_max_vol_ma))
-                        print(f"         - 日期 {pb_date}: 原始量: {pb_volume:.0f}, 对倒强度: {pb_wash_intensity:.4f}, 有效量: {pb_effective_volume:.0f}, 最大均量: {pb_max_vol_ma:.0f}")
-                        print(f"           -> 有效量缩量 ({pb_is_shrunk_day}), 有效量放量换手 ({pb_is_churn_day}), 无放量下跌 ({pb_no_bearish_vol_breakout_day})")
+                print(f"       - 回调期 ({df_index[pullback_slice_start].date()} to {df_index[pullback_slice_end-1].date()}):")
+                for k in range(pullback_slice_start, pullback_slice_end):
+                    pb_date = df_index[k].date()
+                    pb_volume = volume_D.iloc[k]
+                    pb_wash_intensity = wash_trade_intensity_D.iloc[k]
+                    pb_effective_volume = effective_volume_D.iloc[k]
+                    pb_max_vol_ma = max_vol_ma.iloc[k]
+                    pb_pct_change = pct_change_D.iloc[k]
+                    pb_is_shrunk_day = pb_effective_volume < pb_max_vol_ma
+                    pb_is_churn_day = (pb_effective_volume >= pb_max_vol_ma * 0.8) and (pb_effective_volume < pb_max_vol_ma * 1.5)
+                    pb_no_bearish_vol_breakout_day = not ((pb_pct_change < 0) and (pb_effective_volume > pb_max_vol_ma))
+                    print(f"         - 日期 {pb_date}: 原始量: {pb_volume:.0f}, 对倒强度: {pb_wash_intensity:.4f}, 有效量: {pb_effective_volume:.0f}, 最大均量: {pb_max_vol_ma:.0f}")
+                    print(f"           -> 有效量缩量 ({pb_is_shrunk_day}), 有效量放量换手 ({pb_is_churn_day}), 无放量下跌 ({pb_no_bearish_vol_breakout_day})")
                 # 基础回调条件：缩量或放量换手，且无放量下跌
                 is_volume_shrunk = (pullback_effective_volume < pullback_max_vol_ma).all()
                 is_volume_churn = (pullback_effective_volume >= pullback_max_vol_ma * 0.8).all() and (pullback_effective_volume < pullback_max_vol_ma * 1.5).all()
                 no_bearish_volume_breakout = ~((pullback_pct_change < 0) & (pullback_effective_volume > pullback_max_vol_ma)).any()
-                if is_probing_this_b_day:
-                    print(f"         - 回调期整体判断: 有效量能缩量 ({is_volume_shrunk}), 有效量能放量换手 ({is_volume_churn}), 无放量下跌 ({no_bearish_volume_breakout})")
+                print(f"         - 回调期整体判断: 有效量能缩量 ({is_volume_shrunk}), 有效量能放量换手 ({is_volume_churn}), 无放量下跌 ({no_bearish_volume_breakout})")
                 if not no_bearish_volume_breakout:
-                    if is_probing_this_b_day:
-                        print(f"       - 回调期存在放量下跌，跳过。")
+                    print(f"       - 回调期存在放量下跌，跳过。")
                     continue
                 # 深度博弈：健康洗盘特征
                 health_pullback_score = 0.0
@@ -273,27 +291,23 @@ class PatternIntelligence:
                 cond_closing_conviction_strong = not pullback_closing_conviction_score.empty and (pullback_closing_conviction_score > 0.5).all()
                 if cond_closing_conviction_strong:
                     health_pullback_score += 0.1
-                if is_probing_this_b_day:
-                    print(f"         - 健康洗盘分数: {health_pullback_score:.2f}")
-                    print(f"           - MF_OFI > 0 ({cond_mf_ofi_positive}), Retail_OFI < 0 ({cond_retail_ofi_negative}), Hidden_Acc > 0.5 ({cond_hidden_acc_strong})")
-                    print(f"           - Large_Order_Support > 0.7 ({cond_large_order_support_strong}), Large_Order_Pressure < 0.3 ({cond_large_order_pressure_weak})")
-                    print(f"           - Lower_Shadow_Abs > 0.5 ({cond_lower_shadow_strong}), Upper_Shadow_Sell < 0.3 ({cond_upper_shadow_weak}), Closing_Conviction > 0.5 ({cond_closing_conviction_strong})")
+                print(f"         - 健康洗盘分数: {health_pullback_score:.2f}")
+                print(f"           - MF_OFI > 0 ({cond_mf_ofi_positive}), Retail_OFI < 0 ({cond_retail_ofi_negative}), Hidden_Acc > 0.5 ({cond_hidden_acc_strong})")
+                print(f"           - Large_Order_Support > 0.7 ({cond_large_order_support_strong}), Large_Order_Pressure < 0.3 ({cond_large_order_pressure_weak})")
+                print(f"           - Lower_Shadow_Abs > 0.5 ({cond_lower_shadow_strong}), Upper_Shadow_Sell < 0.3 ({cond_upper_shadow_weak}), Closing_Conviction > 0.5 ({cond_closing_conviction_strong})")
                 # 判断是缩量洗盘还是放量换手洗盘
                 is_healthy_pullback = False
                 if is_volume_shrunk and health_pullback_score > 0.3: # 缩量洗盘，健康分数要求低一些
                     is_healthy_pullback = True
                 elif is_volume_churn and health_pullback_score > 0.5: # 放量换手洗盘，健康分数要求高一些
                     is_healthy_pullback = True
-                if is_probing_this_b_day:
-                    print(f"         - 是否健康洗盘 ({is_healthy_pullback})")
+                print(f"         - 是否健康洗盘 ({is_healthy_pullback})")
                 if is_healthy_pullback:
                     pullback_confirmation_score.iloc[day_B_idx] = 1.0
-                    if is_probing_this_b_day:
-                        print(f"       - 成功匹配回踩确认二次启动形态！")
+                    print(f"       - 成功匹配回踩确认二次启动形态！")
                     break
                 else:
-                    if is_probing_this_b_day:
-                        print(f"       - 健康洗盘条件不满足，跳过。")
+                    print(f"       - 健康洗盘条件不满足，跳过。")
         if probe_target_date is not None and probe_target_date in df.index:
             print(f"    -> [回踩确认二次启动探针] 最终结果 @ {probe_target_date.date()}:")
             print(f"       - SCORE_PATTERN_PULLBACK_CONFIRMATION: {pullback_confirmation_score.loc[probe_target_date]:.4f}")
