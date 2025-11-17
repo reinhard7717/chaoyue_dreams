@@ -56,6 +56,12 @@
             "type": "context",
             "description": "【结构公理四】诊断价格与均线结构之间的背离。正分代表看涨背离（如价格下跌但均线结构开始收敛），负分代表看跌背离（如价格上涨但均线结构开始发散）。"
         },
+        "SCORE_STRUCT_BOTTOM_FRACTAL": {
+            "cn_name": "【结构公理】底分型",
+            "category": "结构层-原子",
+            "type": "context",
+            "description": "【结构公理五】识别K线底分型结构形态。正分代表底分型成立，预示潜在的底部反转。"
+        },
         "SCORE_PATTERN_AXIOM_DIVERGENCE": {
             "cn_name": "【形态公理】背离",
             "category": "形态层-原子",

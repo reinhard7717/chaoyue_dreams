@@ -83,7 +83,7 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V2.0 · 微观结构博弈增强与涨停日趋势形态增强及多时间维度归一化版】结构公理一：诊断“趋势形态”
+        【V2.1 · 微观结构博弈信号缺失处理与涨停日趋势形态增强及多时间维度归一化版】结构公理一：诊断“趋势形态”
         - 引入 `volume_burstiness_index_D` (成交量爆裂度指数) 和 `upward_thrust_efficacy_D` (上涨推力效能)
                    来增强对趋势形态强度和质量的判断。
         - 【新增】引入均线角度（ATAN）作为趋势形态判断的证据。
@@ -94,6 +94,7 @@ class StructuralIntelligence:
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
         - 【新增】引入 `trend_quality_score_D` (趋势质量分) 和 `closing_momentum_index_D` (收盘动能指数) 作为判断趋势形态的微观证据。
+        - 【修正】当 `trend_quality_score_D` 和 `closing_momentum_index_D` 信号缺失时，不将其纳入融合计算。
         """
         df_index = df.index
         ma_periods = [5, 13, 21, 55]
@@ -153,26 +154,29 @@ class StructuralIntelligence:
         timeframe_key = 'D'
         ma_angle_raw = self._get_safe_series(df, f'ATAN_ANGLE_{ma_col_base}_{timeframe_key}', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
         ma_angle_score = get_adaptive_mtf_normalized_bipolar_score(ma_angle_raw, df_index, tf_weights_struct, sensitivity=10.0)
-        # 新增代码行: 获取趋势质量分和收盘动能指数
+        # 修改行: 获取趋势质量分和收盘动能指数，并检查是否缺失
         trend_quality_raw = self._get_safe_series(df, 'trend_quality_score_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
         closing_momentum_raw = self._get_safe_series(df, 'closing_momentum_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
-        # 新增代码行: 归一化趋势质量分和收盘动能指数
-        trend_quality_score = get_adaptive_mtf_normalized_bipolar_score(trend_quality_raw, df_index, tf_weights_struct, sensitivity=0.5)
-        closing_momentum_score = get_adaptive_mtf_normalized_bipolar_score(closing_momentum_raw, df_index, tf_weights_struct, sensitivity=0.5)
+        trend_quality_score = pd.Series(0.0, index=df_index)
+        closing_momentum_score = pd.Series(0.0, index=df_index)
+        if not trend_quality_raw.isnull().all() and not (trend_quality_raw == 0.0).all():
+            trend_quality_score = get_adaptive_mtf_normalized_bipolar_score(trend_quality_raw, df.index, tf_weights_struct, sensitivity=0.5)
+        if not closing_momentum_raw.isnull().all() and not (closing_momentum_raw == 0.0).all():
+            closing_momentum_score = get_adaptive_mtf_normalized_bipolar_score(closing_momentum_raw, df.index, tf_weights_struct, sensitivity=0.5)
         # 融合牛熊分数
         bull_score = (
             bull_alignment * bull_velocity * (1 + burstiness_score * 0.2) +
             upward_efficacy_score * 0.1 +
             ma_angle_score.clip(lower=0) * 0.1 +
-            trend_quality_score.clip(lower=0) * 0.1 + # 新增趋势质量分
-            closing_momentum_score.clip(lower=0) * 0.1 # 新增收盘动能指数
+            trend_quality_score.clip(lower=0) * 0.1 +
+            closing_momentum_score.clip(lower=0) * 0.1
         ).clip(0, 1)
         bear_score = (
             bear_alignment * bear_velocity * (1 + burstiness_score * 0.2) +
             downward_efficacy_score * 0.1 +
             ma_angle_score.clip(upper=0).abs() * 0.1 +
-            trend_quality_score.clip(upper=0).abs() * 0.1 + # 新增趋势质量分
-            closing_momentum_score.clip(upper=0).abs() * 0.1 # 新增收盘动能指数
+            trend_quality_score.clip(upper=0).abs() * 0.1 +
+            closing_momentum_score.clip(upper=0).abs() * 0.1
         ).clip(0, 1)
         bull_score = bull_score.mask(is_limit_up_day, bull_score + 0.5).clip(0, 1)
         bear_score = bear_score.mask(is_limit_up_day, bear_score * 0.1).clip(0, 1)
@@ -206,7 +210,7 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V3.0 · 微观结构博弈增强与物理直观重构及共识增强版】结构公理三：诊断“结构稳定性”
+        【V3.1 · 微观结构博弈信号缺失处理与物理直观重构及共识增强版】结构公理三：诊断“结构稳定性”
         - 核心重构: 废除对间接且脆弱的 'MA_CONV_CV_SHORT_D' 的依赖。将“能量积蓄度”的评估核心完全聚焦于更直观、更稳健的布林带宽度(BBW)指标。
         - 诊断维度:
           1. 能量积蓄度 (Energy Accumulation): 直接使用BBW的收缩程度。
@@ -221,6 +225,7 @@ class StructuralIntelligence:
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
         - 【新增】引入 `volume_structure_skew_D` (成交结构偏度) 作为判断结构稳定性的微观证据。
+        - 【修正】当 `volume_structure_skew_D` 信号缺失时，不将其纳入融合计算。
         """
         df_index = df.index
         bbw_col = 'BBW_21_2.0_D'
@@ -237,8 +242,11 @@ class StructuralIntelligence:
         # 获取并归一化 vpoc_consensus_strength_D
         vpoc_consensus_raw = self._get_safe_series(df, 'mf_vpoc_premium_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability") # 替换为 mf_vpoc_premium_D
         vpoc_consensus_score = get_adaptive_mtf_normalized_score(vpoc_consensus_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        # 新增代码行: 获取成交结构偏度
+        # 修改行: 获取成交结构偏度，并检查是否缺失
         volume_structure_skew_raw = self._get_safe_series(df, 'volume_structure_skew_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
+        volume_structure_skew_score = pd.Series(0.0, index=df_index)
+        if not volume_structure_skew_raw.isnull().all() and not (volume_structure_skew_raw == 0.0).all():
+            volume_structure_skew_score = get_adaptive_mtf_normalized_bipolar_score(volume_structure_skew_raw * -1, df.index, tf_weights_struct, sensitivity=0.5)
         if not all(col in df.columns for col in required_ma_cols + required_slope_cols):
             print("    -> [结构情报警告] 方法 '_diagnose_axiom_stability' 缺少必要的长期MA或其斜率列，长期结构评估将跳过。")
             foundation_health_score = pd.Series(0.5, index=df_index)
@@ -262,15 +270,16 @@ class StructuralIntelligence:
         raw_stability_score = (energy_accumulation_score * 0.3 + foundation_health_score * 0.7).fillna(0.5)
         volatility_skew_raw = self._get_safe_series(df, 'volatility_asymmetry_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
         volatility_skew_score = get_adaptive_mtf_normalized_bipolar_score(volatility_skew_raw, df_index, tf_weights_struct, sensitivity=0.5).fillna(0.0)
-        # 新增代码行: 归一化成交结构偏度，偏度越低（结构越均衡）越好
-        volume_structure_skew_score = get_adaptive_mtf_normalized_bipolar_score(volume_structure_skew_raw * -1, df_index, tf_weights_struct, sensitivity=0.5)
         # 融合所有分数，调整权重
         stability_score = (
             raw_stability_score * 0.7 +
             volatility_skew_score.clip(lower=0) * 0.15 -
-            volatility_skew_score.clip(upper=0).abs() * 0.15 +
-            volume_structure_skew_score * 0.15 # 新增成交结构偏度
-        ).clip(-1, 1) # 修改行: 调整权重并加入新信号
+            volatility_skew_score.clip(upper=0).abs() * 0.15
+        )
+        # 修改行: 只有当 volume_structure_skew_score 有效时才加入融合
+        if not volume_structure_skew_score.isnull().all() and not (volume_structure_skew_score == 0.0).all():
+            stability_score += volume_structure_skew_score * 0.15
+        stability_score = stability_score.clip(-1, 1)
         # --- Debugging output for probe date ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
