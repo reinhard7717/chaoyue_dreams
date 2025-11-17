@@ -232,7 +232,7 @@ class AdvancedFundFlowMetricsService:
                 continue
             # 回退到分钟数据
             if minute_data_map and date_obj in minute_data_map:
-                print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 回退使用预加载的分钟数据。")
+                # print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 回退使用预加载的分钟数据。")
                 intraday_data_map[date_obj] = self._group_minute_data_from_df(minute_data_map[date_obj])
                 continue
             print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 未找到任何预加载的日内数据。")

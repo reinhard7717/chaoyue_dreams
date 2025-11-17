@@ -239,12 +239,12 @@ class AdvancedChipMetricsService:
             elif tick_data_map and trade_date.date() in tick_data_map:
                 # 次高优先级：使用原始逐笔数据（将在Calculator内部聚合）
                 enhanced_intraday_data = tick_data_map[trade_date.date()]
-                print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用原始逐笔数据。")
+                # print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用原始逐笔数据。")
             else:
                 # 最低优先级：使用原始分钟数据
                 raw_minute_data_for_day = minute_data_map.get(trade_date.date(), pd.DataFrame())
                 enhanced_intraday_data = self._enhance_minute_data_fallback(raw_minute_data_for_day)
-                print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用原始分钟数据作为回退。")
+                # print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用原始分钟数据作为回退。")
             context_for_calc['intraday_data'] = enhanced_intraday_data
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
@@ -309,7 +309,7 @@ class AdvancedChipMetricsService:
                 continue
             # 回退到分钟数据
             if minute_data_map and date_obj in minute_data_map:
-                print(f"调试信息: [{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 回退使用预加载的分钟数据。")
+                # print(f"调试信息: [{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 回退使用预加载的分钟数据。")
                 intraday_data_map[date_obj] = minute_data_map[date_obj]
                 continue
             print(f"调试信息: [{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 未找到任何预加载的日内数据。")

@@ -129,7 +129,7 @@ class ChipFeatureCalculator:
             processed_intraday_df = minute_df
         else:
             # 处理的是分钟数据（可能是原始的，也可能是资金流服务处理过的）
-            print(f"调试信息: [{stock_code}] [{trade_date}] ChipFeatureCalculator 正在处理分钟级别数据。")
+            # print(f"调试信息: [{stock_code}] [{trade_date}] ChipFeatureCalculator 正在处理分钟级别数据。")
             processed_intraday_df = intraday_df.copy()
             dtype_map = {'amount': 'float32', 'vol': 'int32', 'open': 'float32', 'close': 'float32', 'high': 'float32', 'low': 'float32'}
             for col, dtype in dtype_map.items():
