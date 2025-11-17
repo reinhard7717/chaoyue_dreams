@@ -238,11 +238,12 @@ class AdvancedFundFlowMetricsService:
             print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 未找到任何预加载的日内数据。")
         return {k: v.reset_index(drop=True) for k, v in intraday_data_map.items()}
 
-    def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
+    def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame) -> tuple[dict, None]:
         """
-        【V1.0 · 单日指标合成器】
+        【V1.1 · 返回值简化版】
         - 核心职责: 作为单日所有高级资金流指标计算的总调度中心。
         - 核心逻辑: 依次调用日线、行为、微观结构等专项计算模块，并将结果聚合。
+        - 核心修正: 由于上游已处理好 `attributed_minute_df`，本方法不再需要将其传回，故第二个返回值修改为 None。
         """
         # 1. 初始化当日指标字典
         day_metrics = {}
@@ -261,13 +262,13 @@ class AdvancedFundFlowMetricsService:
         day_metrics.update(microstructure_signals)
         # 6. 填充 trade_time 字段
         day_metrics['trade_time'] = daily_data_series.name
-        # 7. 返回最终的指标字典和归因后的分钟数据
-        return day_metrics, attributed_minute_df
+        # 7. 返回最终的指标字典
+        return day_metrics, None
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V10.7 · 调用对齐版】
-        - 核心修正: 调整了对 `_calculate_probabilistic_costs` 的调用，以匹配其新的单日处理签名，并重命名了返回值变量以提高代码清晰度。
+        【V10.8 · 数据流修复版】
+        - 核心修正: 调整对 `_calculate_probabilistic_costs` 的调用，以接收其返回的成本字典和完整归因后的分钟DataFrame，确保下游计算能获得必要的 `main_force_net_vol` 等列。
         """
         all_metrics_list = []
         attributed_minute_data_map = {}
@@ -280,10 +281,11 @@ class AdvancedFundFlowMetricsService:
                 failures.append({'stock_code': stock_code, 'trade_date': str(date_obj), 'reason': '当日分钟线/逐笔聚合数据缺失'})
                 continue
             attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data, daily_data_series)
-            # 修改代码行: 调整调用签名并重命名返回值变量
-            probabilistic_costs_dict = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series)
-            day_metrics, attributed_minute_df = self._calculate_all_metrics_for_day(
-                stock_code, daily_data_series, intraday_data, attribution_weights_df, probabilistic_costs_dict,
+            # 修改代码行: 同时接收成本字典和完整归因后的DataFrame
+            probabilistic_costs_dict, attributed_minute_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series)
+            # 修改代码行: 将完整归因后的DataFrame传递给下游
+            day_metrics, _ = self._calculate_all_metrics_for_day(
+                stock_code, daily_data_series, intraday_data, attributed_minute_df, probabilistic_costs_dict,
                 tick_data_map.get(date_obj) if tick_data_map else None,
                 level5_data_map.get(date_obj) if level5_data_map else None
             )
@@ -407,37 +409,42 @@ class AdvancedFundFlowMetricsService:
             results['inferred_active_order_size'] = turnover_amount_yuan * 1000 / trade_count
         return results
 
-    def _calculate_probabilistic_costs(self, stock_code: str, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> dict:
+    def _calculate_probabilistic_costs(self, stock_code: str, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> tuple[dict, pd.DataFrame]:
         """
-        【V6.11 · 单日处理重构版】
-        - 核心重构: 将方法从处理多日DataFrame改为处理单日Series，以匹配上游调用逻辑。
-        - 核心修复: 修正了方法签名，使其能正确接收 stock_code, minute_data_for_day, 和 daily_data，根除参数错位导致的 'str' object has no attribute 'iterrows' 错误。
+        【V6.12 · 完整归因返回版】
+        - 核心重构: 修改方法职责，使其在计算完概率成本后，继续调用 `_attribute_minute_volume_to_players` 进行主力/散户级别的成交量聚合。
+        - 核心修复: 更改返回签名，同时返回成本指标字典和被完整归因（包含 `main_force_net_vol` 等列）的分钟DataFrame，修复数据流中断问题。
         """
         if minute_data_for_day is None or minute_data_for_day.empty:
-            return {}
+            return {}, pd.DataFrame()
         day_results = {}
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
+        # 注意：这里直接在传入的DataFrame上操作，因为它是一个副本的副本
+        df_to_attribute = minute_data_for_day
         for cost_type in cost_types:
             size, direction = cost_type.split('_')
             db_vol_key = f'{direction}_{size}_vol'
             daily_vol_shares = pd.to_numeric(daily_data.get(db_vol_key), errors='coerce') * 100
             if pd.isna(daily_vol_shares) or daily_vol_shares == 0:
                 day_results[f'avg_cost_{cost_type}'] = np.nan
-                minute_data_for_day[f'{cost_type}_vol_attr'] = 0
+                df_to_attribute[f'{cost_type}_vol_attr'] = 0
                 continue
             weight_col = f'{size}_{direction}_weight'
-            weight_series = minute_data_for_day[weight_col]
+            weight_series = df_to_attribute[weight_col]
             if weight_series.sum() < 1e-9:
                 day_results[f'avg_cost_{cost_type}'] = np.nan
-                minute_data_for_day[f'{cost_type}_vol_attr'] = 0
+                df_to_attribute[f'{cost_type}_vol_attr'] = 0
                 continue
             attributed_vol = weight_series * daily_vol_shares
-            minute_data_for_day[f'{cost_type}_vol_attr'] = attributed_vol
-            attributed_value = attributed_vol * minute_data_for_day['minute_vwap']
+            df_to_attribute[f'{cost_type}_vol_attr'] = attributed_vol
+            attributed_value = attributed_vol * df_to_attribute['minute_vwap']
             total_attributed_value = attributed_value.sum()
             total_attributed_vol = attributed_vol.sum()
             day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
-        return day_results
+        # 新增代码行: 调用辅助函数，添加 main_force_net_vol 等关键列
+        fully_attributed_df = self._attribute_minute_volume_to_players(df_to_attribute)
+        # 修改代码行: 返回成本字典和完整归因后的DataFrame
+        return day_results, fully_attributed_df
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
