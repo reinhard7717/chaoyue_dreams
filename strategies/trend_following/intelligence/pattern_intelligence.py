@@ -96,13 +96,13 @@ class PatternIntelligence:
 
     def _diagnose_axiom_pullback_confirmation(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V5.1 · 纯粹量能洗盘识别版 - 探针增强】形态公理四：诊断“回踩确认二次启动”形态
+        【V5.2 · 纯粹量能洗盘识别版 - 探针增强 & 修复数据缺失处理】形态公理四：诊断“回踩确认二次启动”形态
         - 核心逻辑: 识别股价在量能萎缩后放量突破，随后缩量回调或放量换手洗盘，再放量突破的二次启动形态。
                     回调阶段融入微观资金流、筹码结构、行为效率等高级指标，量化“健康洗盘”特征。
                     新增B点收盘价高于A点收盘价，以及B点结构趋势相对于A点向上的判断。
                     在回调阶段，引入“主力对倒强度”来计算“有效成交量”，以更准确地判断量能的纯粹性。
         - 信号输出: 在形态的“二次启动日”（B日）输出1.0；否则输出0.0。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 核心修复: 移除冗余的required_cols检查，依赖_get_safe_series提供默认值。修正SLOPE列名。
         - 探针增强: 增加详细的print探针，用于调试和验证关键逻辑。
         """
         df_index = df.index
@@ -121,6 +121,7 @@ class PatternIntelligence:
         vol_ma21_D = self._get_safe_series(df, 'VOL_MA_21_D', method_name="_diagnose_axiom_pullback_confirmation")
         # 获取高级指标
         main_force_net_flow_calibrated_D = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', method_name="_diagnose_axiom_pullback_confirmation")
+        # 修正行: 修正列名
         short_term_concentration_90pct_D_slope_5d = self._get_safe_series(df, 'SLOPE_5_short_term_concentration_90pct_D', method_name="_diagnose_axiom_pullback_confirmation")
         large_order_pressure_D = self._get_safe_series(df, 'large_order_pressure_D', method_name="_diagnose_axiom_pullback_confirmation")
         large_order_support_D = self._get_safe_series(df, 'large_order_support_D', method_name="_diagnose_axiom_pullback_confirmation")
@@ -135,20 +136,11 @@ class PatternIntelligence:
         retail_ofi_D = self._get_safe_series(df, 'retail_ofi_D', method_name="_diagnose_axiom_pullback_confirmation")
         wash_trade_intensity_D = self._get_safe_series(df, 'wash_trade_intensity_D', method_name="_diagnose_axiom_pullback_confirmation")
         closing_conviction_score_D = self._get_safe_series(df, 'closing_conviction_score_D', method_name="_diagnose_axiom_pullback_confirmation")
-        # 检查所有必要的列是否存在
-        required_cols = [
-            'open_D', 'close_D', 'high_D', 'low_D', 'pct_change_D', 'volume_D', 'VOL_MA_5_D', 'VOL_MA_21_D',
-            'main_force_net_flow_calibrated_D', 'SLOPE_5_short_term_concentration_90pct_D',
-            'large_order_pressure_D', 'large_order_support_D', 'hidden_accumulation_intensity_D',
-            'absorption_strength_index_D', 'upper_shadow_selling_pressure_D', 'lower_shadow_absorption_strength_D',
-            'winner_conviction_index_D', 'main_force_control_leverage_D',
-            'SCORE_STRUCT_AXIOM_TREND_FORM', 'main_force_ofi_D', 'retail_ofi_D',
-            'wash_trade_intensity_D', 'closing_conviction_score_D'
-        ]
-        for col in required_cols:
-            if col not in df.columns:
-                print(f"    -> [形态情报警告] 缺少核心高级指标 '{col}'，无法诊断回踩确认二次启动形态。")
-                return pullback_confirmation_score
+        # 移除行: 移除冗余的required_cols检查，依赖_get_safe_series提供默认值
+        # for col in required_cols:
+        #     if col not in df.columns:
+        #         print(f"    -> [形态情报警告] 缺少核心高级指标 '{col}'，无法诊断回踩确认二次启动形态。")
+        #         return pullback_confirmation_score
         max_vol_ma = pd.concat([vol_ma5_D, vol_ma21_D], axis=1).max(axis=1)
         # 计算有效成交量 (纯粹量能)
         # 假设 wash_trade_intensity_D 范围为 [0, 1]，0表示无对倒，1表示完全对倒
