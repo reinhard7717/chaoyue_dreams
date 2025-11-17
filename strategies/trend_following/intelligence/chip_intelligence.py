@@ -41,7 +41,8 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V9.8 · OCH数据层计算与调试增强版】筹码情报总指挥
+        【V9.9 · 结构共识信号版】筹码情报总指挥
+        - 核心新增: 引入超级原子信号 `SCORE_CHIP_STRUCTURAL_CONSENSUS`。该信号通过融合“成本结构”和“持股心态”两大公理的正面得分，量化“健康结构”与“坚定信念”之间的共振强度。
         - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
         - 核心职责: 只输出筹码领域的原子公理信号和筹码背离信号。
         - 移除信号: SCORE_CHIP_BULLISH_RESONANCE, SCORE_CHIP_BEARISH_RESONANCE, BIPOLAR_CHIP_DOMAIN_HEALTH, SCORE_CHIP_BOTTOM_REVERSAL, SCORE_CHIP_TOP_REVERSAL。
@@ -88,6 +89,13 @@ class ChipIntelligence:
         locked_loss = self._get_safe_series(df, 'locked_loss_rate_D', 0.0, method_name="run_chip_intelligence_command")
         lockdown_degree = (locked_profit + locked_loss).clip(0, 1).fillna(0.0)
         all_chip_states['SCORE_CHIP_LOCKDOWN_DEGREE'] = lockdown_degree.astype(np.float32)
+        # 新增代码块: 信号3: 结构共识分 (SCORE_CHIP_STRUCTURAL_CONSENSUS)
+        # 逻辑: 只有当成本结构健康(分数为正)且持股心态积极(分数为正)时，共振才会发生。
+        # 我们将两个分数的正值部分相乘，再开方以平滑结果。
+        bullish_structure_score = cost_structure_scores.clip(lower=0)
+        positive_sentiment_score = holder_sentiment_scores.clip(lower=0)
+        structural_consensus_score = (bullish_structure_score * positive_sentiment_score).pow(0.5)
+        all_chip_states['SCORE_CHIP_STRUCTURAL_CONSENSUS'] = structural_consensus_score.astype(np.float32)
         # --- Debugging output ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])

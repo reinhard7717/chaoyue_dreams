@@ -1043,6 +1043,19 @@
           "flow_momentum": 0.3
         }
       },
+      "fusion_accumulation_inflection_params": {
+        "description": "【V1.0】吸筹拐点信号融合参数。",
+        "ff_inflection_threshold": 0.6,
+        "chip_concentration_threshold": 0.5,
+        "chip_cost_structure_favorable_threshold": 0.0,
+        "chip_holder_sentiment_strong_threshold": 0.5,
+        "chip_trend_momentum_positive_threshold": 0.0,
+        "tf_fusion_weights": {
+          "5": 0.6,
+          "13": 0.3,
+          "21": 0.1
+        }
+      },
       "micro_behavior_params": {
         "enabled": true,
         "description": "【V1.3 · 拉升派发识别版】微观行为引擎的专属参数块。",

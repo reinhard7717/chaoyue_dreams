@@ -808,6 +808,12 @@
             "type": "context",
             "description": "【超级原子信号】量化市场中总的不愿交易的筹码比例（盈利锁定+亏损锁定）。分值越高，代表筹码锁定越好，浮筹越少。"
         },
+        "SCORE_CHIP_STRUCTURAL_CONSENSUS": {
+            "cn_name": "【筹码】结构共识分",
+            "category": "筹码层-原子",
+            "type": "context",
+            "description": "【超级原子信号】融合“成本结构”和“持股心态”两大公理的正面得分，量化“健康结构”与“坚定信念”之间的共振强度。分值越高，代表健康的筹码结构得到了市场参与者的高度认同，上涨的内在驱动力越强。"
+        },
         "SCORE_CHIP_AXIOM_CONCENTRATION": {
             "cn_name": "【筹码公理】聚散动态",
             "category": "筹码层-原子",

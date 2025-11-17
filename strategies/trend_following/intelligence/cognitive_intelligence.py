@@ -383,37 +383,43 @@ class CognitiveIntelligence:
 
     def _establish_prior_beliefs(self) -> Dict[str, pd.Series]:
         """
-        【V1.6 · 趋势结构、资金与筹码强化版】建立先验信念
-        - 核心升级: 将融合层的“趋势结构分”、“资金趋势”和“筹码趋势”融入到
-                      “趋势先验概率” (COGNITIVE_PRIOR_TREND_PROB) 的计算中，以提供更稳定、更具结构性的背景判断。
+        【V1.7 · 结构共识强化版】建立先验信念
+        - 核心升级: 将 `SCORE_CHIP_STRUCTURAL_CONSENSUS` 信号融入到“趋势先验概率” (COGNITIVE_PRIOR_TREND_PROB) 的计算中，以提供更稳定、更具结构性的背景判断。
         """
         states = {}
         df_index = self.strategy.df_indicators.index
         market_regime = self._get_fused_score('FUSION_BIPOLAR_MARKET_REGIME', 0.0)
         trend_quality = self._get_fused_score('FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         trend_structure_score = self._get_fused_score('FUSION_BIPOLAR_TREND_STRUCTURE_SCORE', 0.0)
-        # 新增：获取资金趋势和筹码趋势的融合分数
         fund_flow_trend = self._get_fused_score('FUSION_BIPOLAR_FUND_FLOW_TREND', 0.0)
         chip_trend = self._get_fused_score('FUSION_BIPOLAR_CHIP_TREND', 0.0)
+        # 新增代码行: 获取结构共识分
+        structural_consensus = self._get_atomic_score('SCORE_CHIP_STRUCTURAL_CONSENSUS', 0.0)
         # 转换为概率 (0-1范围)
         market_regime_prob = (market_regime + 1) / 2
         trend_quality_prob = (trend_quality + 1) / 2
         trend_structure_prob = (trend_structure_score + 1) / 2
         fund_flow_trend_prob = (fund_flow_trend + 1) / 2
         chip_trend_prob = (chip_trend + 1) / 2
-        # 调整趋势先验概率的权重，引入趋势结构分、资金趋势和筹码趋势
+        # 新增代码行: 结构共识分本身就是 [0,1] 范围，直接使用
+        structural_consensus_prob = structural_consensus
+        # 调整趋势先验概率的权重，引入趋势结构分、资金趋势、筹码趋势和结构共识分
         # 示例权重，需要根据回测优化，确保总和为1
-        regime_weight = 0.20
-        quality_weight = 0.20
-        structure_weight = 0.20
-        fund_flow_weight = 0.20
-        chip_trend_weight = 0.20
+        regime_weight = 0.15
+        quality_weight = 0.15
+        structure_weight = 0.15
+        fund_flow_weight = 0.15
+        chip_trend_weight = 0.15
+        # 新增代码行: 结构共识分的权重
+        structural_consensus_weight = 0.25
         prior_trend = (
             market_regime_prob * regime_weight +
             trend_quality_prob * quality_weight +
             trend_structure_prob * structure_weight +
             fund_flow_trend_prob * fund_flow_weight +
-            chip_trend_prob * chip_trend_weight
+            chip_trend_prob * chip_trend_weight +
+            # 新增代码行: 将结构共识分纳入先验信念
+            structural_consensus_prob * structural_consensus_weight
         ).clip(0, 1)
         states['COGNITIVE_PRIOR_TREND_PROB'] = prior_trend.astype(np.float32)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -428,11 +434,15 @@ class CognitiveIntelligence:
                 print(f"       - 趋势结构分 (trend_structure_score): {trend_structure_score.loc[probe_date]:.4f}")
                 print(f"       - 资金趋势分 (fund_flow_trend): {fund_flow_trend.loc[probe_date]:.4f}")
                 print(f"       - 筹码趋势分 (chip_trend): {chip_trend.loc[probe_date]:.4f}")
+                # 新增代码行: 打印结构共识分
+                print(f"       - 结构共识分 (structural_consensus): {structural_consensus.loc[probe_date]:.4f}")
                 print(f"       - 市场政权概率 (market_regime_prob): {market_regime_prob.loc[probe_date]:.4f}")
                 print(f"       - 趋势质量概率 (trend_quality_prob): {trend_quality_prob.loc[probe_date]:.4f}")
                 print(f"       - 趋势结构概率 (trend_structure_prob): {trend_structure_prob.loc[probe_date]:.4f}")
                 print(f"       - 资金趋势概率 (fund_flow_trend_prob): {fund_flow_trend_prob.loc[probe_date]:.4f}")
                 print(f"       - 筹码趋势概率 (chip_trend_prob): {chip_trend_prob.loc[probe_date]:.4f}")
+                # 新增代码行: 打印结构共识概率
+                print(f"       - 结构共识概率 (structural_consensus_prob): {structural_consensus_prob.loc[probe_date]:.4f}")
                 print(f"       - 最终趋势先验概率 (prior_trend): {prior_trend.loc[probe_date]:.4f}")
         market_pressure = self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
         reversal_pressure_weight = 0.6
@@ -455,7 +465,7 @@ class CognitiveIntelligence:
 
     def _fuse_and_adjudicate_playbooks(self, playbook_scores: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.4 · 指挥链修复与新剧本集成版】融合与裁决模块
+        【V3.5 · 微观承接背离剧本集成版】融合与裁决模块
         - 核心升级: 将新的认知剧本 `COGNITIVE_PLAYBOOK_MICRO_ABSORPTION_DIVERGENCE` 集成到看涨剧本列表中。
         """
         states = {}
@@ -469,7 +479,7 @@ class CognitiveIntelligence:
             'COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD',
             'COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION',
             'COGNITIVE_PLAYBOOK_STEALTH_BOTTOMING_DIVERGENCE',
-            'COGNITIVE_PLAYBOOK_MICRO_ABSORPTION_DIVERGENCE', # 新增行
+            'COGNITIVE_PLAYBOOK_MICRO_ABSORPTION_DIVERGENCE',
         ]
         bullish_scores = [playbook_scores.get(name, pd.Series(0.0, index=df_index)) for name in bullish_playbooks]
         # 取所有看涨剧本中的最高分作为当天的看涨总分
@@ -497,7 +507,8 @@ class CognitiveIntelligence:
 
     def _deduce_chasing_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.3 · 级联探针版】贝叶斯推演：“主力拉升抢筹”剧本
+        【V3.4 · 结构共识增强版】贝叶斯推演：“主力拉升抢筹”剧本
+        - 核心升级: 引入 `SCORE_CHIP_STRUCTURAL_CONSENSUS` 作为主力拉升抢筹的强有力证据。
         - 探针植入: 打印本剧本所依赖的先验概率和计算出的似然度，以诊断后验概率为零的原因。
         - 【修正】更新 `urgency_evidence` 的信号名称，从 `PROCESS_META_MAIN_FORCE_URGENCY` 更改为 `PROCESS_META_MAIN_FORCE_RALLY_INTENT`。
         """
@@ -506,16 +517,20 @@ class CognitiveIntelligence:
         price_change_bipolar = normalize_to_bipolar(self._get_atomic_score('pct_change_D'), self.strategy.df_indicators.index, 21)
         price_rising_evidence = self._forge_dynamic_evidence(price_change_bipolar.clip(lower=0))
         efficiency_evidence = self._forge_dynamic_evidence(normalize_score(self._get_atomic_score('VPA_EFFICIENCY_D'), self.strategy.df_indicators.index, 55))
-        # 更新信号名称
         rally_intent_evidence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_MAIN_FORCE_RALLY_INTENT', 0.0).clip(lower=0))
         conviction_evidence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_WINNER_CONVICTION', 0.0).clip(lower=0))
-        process_evidence = (rally_intent_evidence * conviction_evidence).pow(0.5) # 使用新的拉升意图信号
+        process_evidence = (rally_intent_evidence * conviction_evidence).pow(0.5)
         chip_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(lower=0))
+        # 新增代码行: 获取结构共识分并锻造成动态证据
+        structural_consensus_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_STRUCTURAL_CONSENSUS', 0.0))
         evidence_scores = np.stack([
             capital_confrontation.values, price_rising_evidence.values, efficiency_evidence.values,
-            process_evidence.values, chip_evidence.values
+            process_evidence.values, chip_evidence.values,
+            # 新增代码行: 将结构共识分作为证据
+            structural_consensus_evidence.values
         ], axis=0)
-        evidence_weights = np.array([0.2, 0.1, 0.1, 0.3, 0.3])
+        # 调整权重，为结构共识分分配适当权重
+        evidence_weights = np.array([0.15, 0.10, 0.10, 0.25, 0.20, 0.20])
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
@@ -529,6 +544,13 @@ class CognitiveIntelligence:
                 probe_date = probe_date.tz_localize(self.strategy.df_indicators.index.tz)
             if probe_date in likelihood.index:
                 print(f"      -> [认知层探针] @ {probe_date.date()} for '主力拉升抢筹':")
+                print(f"         - capital_confrontation: {capital_confrontation.loc[probe_date]:.4f}")
+                print(f"         - price_rising_evidence: {price_rising_evidence.loc[probe_date]:.4f}")
+                print(f"         - efficiency_evidence: {efficiency_evidence.loc[probe_date]:.4f}")
+                print(f"         - process_evidence: {process_evidence.loc[probe_date]:.4f}")
+                print(f"         - chip_evidence: {chip_evidence.loc[probe_date]:.4f}")
+                # 新增代码行: 打印结构共识证据
+                print(f"         - structural_consensus_evidence: {structural_consensus_evidence.loc[probe_date]:.4f}")
                 print(f"         - 先验概率 (P(Trend)): {prior_prob.loc[probe_date]:.4f}")
                 print(f"         - 似然度 (P(证据|剧本)): {likelihood.loc[probe_date]:.4f}")
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
@@ -565,9 +587,10 @@ class CognitiveIntelligence:
 
     def _deduce_leading_dragon_awakening(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 军备换装与霸占模式版】贝叶斯推演：“龙头苏醒”剧本
+        【V1.4 · 结构共识增强版】贝叶斯推演：“龙头苏醒”剧本
         - 核心修复: 将证据 'relative_strength_vs_index_D' 替换为更精准的 'industry_strength_rank_D'。
         - 【新增】引入“霸占”模式作为龙头苏醒的证据。
+        - 核心升级: 引入 `SCORE_CHIP_STRUCTURAL_CONSENSUS` 作为龙头苏醒的强有力证据。
         """
         print("    -- [剧本推演] 龙头苏醒 (动态证据)...")
         capital_confrontation = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0))
@@ -575,8 +598,16 @@ class CognitiveIntelligence:
         sector_sync = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_STOCK_SECTOR_SYNC', 0.0).clip(lower=0))
         relative_strength = self._forge_dynamic_evidence(normalize_score(self._get_atomic_score('industry_strength_rank_D', 0.5), self.strategy.df_indicators.index, 55))
         bazhan_mode = self._forge_dynamic_evidence(self._get_atomic_score('IS_BAZHAN_D', 0.0).astype(float))
-        evidence_scores = np.stack([capital_confrontation.values, breakout_quality.values, sector_sync.values, relative_strength.values, bazhan_mode.values], axis=0) # 修改行
-        evidence_weights = np.array([0.25, 0.25, 0.15, 0.15, 0.2]) # 调整权重
+        # 新增代码行: 获取结构共识分并锻造成动态证据
+        structural_consensus_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_STRUCTURAL_CONSENSUS', 0.0))
+        evidence_scores = np.stack([
+            capital_confrontation.values, breakout_quality.values, sector_sync.values,
+            relative_strength.values, bazhan_mode.values,
+            # 新增代码行: 将结构共识分作为证据
+            structural_consensus_evidence.values
+        ], axis=0)
+        # 调整权重，为结构共识分分配适当权重
+        evidence_weights = np.array([0.20, 0.20, 0.15, 0.15, 0.15, 0.15])
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood = pd.Series(np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0)), index=self.strategy.df_indicators.index)
@@ -1412,40 +1443,34 @@ class CognitiveIntelligence:
 
     def _deduce_stealth_bottoming_divergence(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 隐秘筑底背离版】贝叶斯推演：“隐秘筑底背离”剧本
+        【V1.1 · 结构共识增强版】贝叶斯推演：“隐秘筑底背离”剧本
         - 核心逻辑: 识别在股价下跌趋势趋缓、成交量萎缩的情况下，资金或筹码出现向好迹象的底部背离。
+        - 核心升级: 引入 `SCORE_CHIP_STRUCTURAL_CONSENSUS` 作为隐秘筑底背离的强有力证据。
         - 证据链:
           1. 价格下跌趋势趋缓/底部反转迹象 (行为层价格下跌动能衰减、价格加速度转正、行为底部反转过程信号)
           2. 成交量萎缩 (行为层成交量萎缩信号)
           3. 资金向好迹象 (资金流共识、权力转移过程信号)
           4. 筹码向好迹象 (筹码集中度、隐秘吸筹过程信号、主力成本优势趋势、输家投降过程信号)
+          5. 结构共识 (SCORE_CHIP_STRUCTURAL_CONSENSUS)
         """
         print("    -- [剧本推演] 隐秘筑底背离 (动态证据)...")
         df_index = self.strategy.df_indicators.index
         # 1. 价格下跌趋势趋缓/底部反转迹象
-        # 价格下跌动能衰减 (1 - SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM)
         downward_momentum_decay = self._forge_dynamic_evidence(1 - self._get_atomic_score('SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0))
-        # 价格加速度转正 (ACCEL_5_close_D 的正向部分)
         price_accel_positive = self._forge_dynamic_evidence(self._get_atomic_score('ACCEL_5_close_D', 0.0).clip(lower=0))
-        # 行为底部反转过程信号
         behavior_bottom_reversal = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL', 0.0))
         # 2. 成交量萎缩
-        # 行为层成交量萎缩信号 (SCORE_BEHAVIOR_VOLUME_ATROPHY)
         volume_atrophy_strong = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0))
         # 3. 资金向好迹象
-        # 资金流共识 (SCORE_FF_AXIOM_CONSENSUS 的正向部分)
         fund_flow_consensus_positive = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(lower=0))
-        # 权力转移过程信号 (PROCESS_META_POWER_TRANSFER 的正向部分)
         power_transfer_positive = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0))
         # 4. 筹码向好迹象
-        # 筹码集中度 (SCORE_CHIP_AXIOM_CONCENTRATION 的正向部分)
         chip_concentration_positive = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(lower=0))
-        # 隐秘吸筹过程信号 (PROCESS_META_STEALTH_ACCUMULATION)
         stealth_accumulation_process = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_STEALTH_ACCUMULATION', 0.0))
-        # 主力成本优势趋势 (PROCESS_META_COST_ADVANTAGE_TREND 的正向部分)
         cost_advantage_trend_positive = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_COST_ADVANTAGE_TREND', 0.0).clip(lower=0))
-        # 输家投降过程信号 (PROCESS_META_LOSER_CAPITULATION)
         loser_capitulation_process = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_LOSER_CAPITULATION', 0.0))
+        # 新增代码行: 获取结构共识分并锻造成动态证据
+        structural_consensus_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_STRUCTURAL_CONSENSUS', 0.0))
         evidence_scores = np.stack([
             downward_momentum_decay.values,
             price_accel_positive.values,
@@ -1456,81 +1481,86 @@ class CognitiveIntelligence:
             chip_concentration_positive.values,
             stealth_accumulation_process.values,
             cost_advantage_trend_positive.values,
-            loser_capitulation_process.values
+            loser_capitulation_process.values,
+            # 新增代码行: 将结构共识分作为证据
+            structural_consensus_evidence.values
         ], axis=0)
         # 证据权重分配 (需要根据回测优化，这里给出初始示例)
         evidence_weights = np.array([
-            0.10, # downward_momentum_decay
-            0.10, # price_accel_positive
-            0.05, # behavior_bottom_reversal
-            0.20, # volume_atrophy_strong (核心证据)
-            0.15, # fund_flow_consensus_positive
-            0.05, # power_transfer_positive
-            0.15, # chip_concentration_positive
-            0.10, # stealth_accumulation_process
-            0.05, # cost_advantage_trend_positive
-            0.05  # loser_capitulation_process
+            0.08, # downward_momentum_decay
+            0.08, # price_accel_positive
+            0.04, # behavior_bottom_reversal
+            0.15, # volume_atrophy_strong (核心证据)
+            0.12, # fund_flow_consensus_positive
+            0.04, # power_transfer_positive
+            0.12, # chip_concentration_positive
+            0.08, # stealth_accumulation_process
+            0.04, # cost_advantage_trend_positive
+            0.05, # loser_capitulation_process
+            # 新增代码行: 结构共识分的权重
+            0.20
         ])
-        evidence_weights /= evidence_weights.sum() # 归一化权重
-        safe_scores = np.maximum(evidence_scores, 1e-9) # 避免log(0)
+        evidence_weights /= evidence_weights.sum()
+        safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
-        # 先验概率：底部背离通常是趋势反转的一种形式
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_STEALTH_BOTTOMING_DIVERGENCE': posterior_prob.astype(np.float32)}
 
     def _deduce_micro_absorption_divergence(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 微观承接背离版】贝叶斯推演：“微观承接背离”剧本
+        【V1.1 · 结构共识增强版】贝叶斯推演：“微观承接背离”剧本
         - 核心逻辑: 识别在价格弱势或横盘、量能萎缩的背景下，微观层面的主动卖压衰竭，同时主动买盘或承接力量增强的底部背离。
+        - 核心升级: 引入 `SCORE_CHIP_STRUCTURAL_CONSENSUS` 作为微观承接背离的强有力证据。
         - 证据链:
           1. 价格弱势/稳定：价格下跌动能高或价格变化小。
           2. 量能萎缩：行为层成交量萎缩信号。
           3. 卖压衰竭：对手盘耗尽指数高，主动卖压斜率为负（下降）。
           4. 买盘承接：抄底承接力量高，主动买盘斜率为正（上升）。
+          5. 结构共识 (SCORE_CHIP_STRUCTURAL_CONSENSUS)
         """
         print("    -- [剧本推演] 微观承接背离 (动态证据)...")
         df_index = self.strategy.df_indicators.index
         # 1. 价格弱势/稳定上下文
-        # 价格下跌动能高，表示价格仍在弱势
         price_down_momentum_high = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0))
-        # 价格变化小，表示价格趋于稳定
         price_stabilization = self._forge_dynamic_evidence(1 - self._get_atomic_score('pct_change_D', 0.0).abs())
-        # 价格弱势或稳定，作为背景条件
         price_weak_or_stable_context = np.maximum(price_down_momentum_high, price_stabilization)
         # 2. 量能萎缩上下文
         volume_atrophy_context = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0))
         # 3. 卖压衰竭证据
         counterparty_exhaustion = self._forge_dynamic_evidence(self._get_atomic_score('counterparty_exhaustion_index_D', 0.0))
-        # 主动卖压的5日斜率，负值表示卖压减弱，取绝对值作为证据强度
         selling_pressure_decreasing = self._forge_dynamic_evidence(self._get_atomic_score('SLOPE_5_active_selling_pressure_D', 0.0).clip(upper=0).abs())
         # 4. 买盘承接证据
         dip_absorption_power = self._forge_dynamic_evidence(self._get_atomic_score('dip_absorption_power_D', 0.0))
-        # 主动买盘的5日斜率，正值表示买盘增强
         buying_support_increasing = self._forge_dynamic_evidence(self._get_atomic_score('SLOPE_5_active_buying_support_D', 0.0).clip(lower=0))
+        # 新增代码行: 获取结构共识分并锻造成动态证据
+        structural_consensus_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_STRUCTURAL_CONSENSUS', 0.0))
         evidence_scores = np.stack([
             price_weak_or_stable_context.values,
             volume_atrophy_context.values,
             counterparty_exhaustion.values,
             selling_pressure_decreasing.values,
             dip_absorption_power.values,
-            buying_support_increasing.values
+            buying_support_increasing.values,
+            # 新增代码行: 将结构共识分作为证据
+            structural_consensus_evidence.values
         ], axis=0)
         # 证据权重分配
         evidence_weights = np.array([
-            0.10, # price_weak_or_stable_context (背景)
-            0.10, # volume_atrophy_context (背景)
-            0.25, # counterparty_exhaustion (核心证据)
-            0.15, # selling_pressure_decreasing (确认证据)
-            0.25, # dip_absorption_power (核心证据)
-            0.15  # buying_support_increasing (确认证据)
+            0.08, # price_weak_or_stable_context (背景)
+            0.08, # volume_atrophy_context (背景)
+            0.20, # counterparty_exhaustion (核心证据)
+            0.12, # selling_pressure_decreasing (确认证据)
+            0.20, # dip_absorption_power (核心证据)
+            0.12, # buying_support_increasing (确认证据)
+            # 新增代码行: 结构共识分的权重
+            0.20
         ])
-        evidence_weights /= evidence_weights.sum() # 归一化权重
-        safe_scores = np.maximum(evidence_scores, 1e-9) # 避免log(0)
+        evidence_weights /= evidence_weights.sum()
+        safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
-        # 先验概率：微观承接背离通常是趋势反转的一种形式
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_MICRO_ABSORPTION_DIVERGENCE': posterior_prob.astype(np.float32)}
