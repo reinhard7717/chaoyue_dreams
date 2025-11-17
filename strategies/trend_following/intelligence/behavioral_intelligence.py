@@ -178,7 +178,7 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.5 · 微观量价效率信号缺失处理版】原子信号中心
+        【V3.5 · 微观量价效率信号缺失处理与变量名修复版】原子信号中心
         - 核心升级: 遵循“三层金字塔”架构，本方法不再计算跨领域的“趋势健康度”和“绝望度”。
                       这些高级融合逻辑已迁移至 FusionIntelligence。
                       新增对纯净版“行为K线质量分”的计算和发布。
@@ -187,13 +187,15 @@ class BehavioralIntelligence:
         - 【优化】将所有行为原子信号的归一化方式改为多时间维度自适应归一化。
         - 【新增】引入 `active_volume_price_efficiency_D`, `absorption_strength_index_D`, `distribution_pressure_index_D` 作为行为公理的证据。
         - 【修正】当 `active_volume_price_efficiency_D`, `absorption_strength_index_D`, `distribution_pressure_index_D` 信号缺失时，不将其添加到 `states` 中。
+        - 【修复】将 `p_behavior` 变量名统一为 `p_conf`，解决 `NameError`。
         """
         states = {}
-        p_behavior = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        # 修改行: 将 p_behavior 变量名统一为 p_conf
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         long_term_weights = get_param_value(p_mtf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
-        states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_behavioral_axioms").clip(lower=0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_behavioral_axioms").clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BIAS_55_D', 0.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=long_term_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
@@ -223,7 +225,6 @@ class BehavioralIntelligence:
         stagnation_evidence_raw_score = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_evidence_components, weights_stagnation_evidence)], axis=0), index=df.index)
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = (stagnation_evidence_raw_score * is_rising).clip(0, 1).astype(np.float32)
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
-        # 修改行: 引入微观量价效率信号，并检查是否缺失
         active_volume_price_efficiency_raw = self._get_safe_series(df, 'active_volume_price_efficiency_D', 0.5, method_name="_diagnose_behavioral_axioms")
         if not active_volume_price_efficiency_raw.isnull().all() and not (active_volume_price_efficiency_raw == 0.5).all():
             states['SCORE_BEHAVIOR_ACTIVE_VOLUME_PRICE_EFFICIENCY'] = get_adaptive_mtf_normalized_score(active_volume_price_efficiency_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
