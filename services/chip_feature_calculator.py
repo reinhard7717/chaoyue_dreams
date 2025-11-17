@@ -879,10 +879,8 @@ class ChipFeatureCalculator:
 
     def _calculate_winner_conviction_index(self, context: dict, active_profit_margin: float) -> float:
         """
-        【V1.2】计算赢家信念指数，并加入探针。
-        - 【修正】将 `active_profit_margin` 作为直接参数传入，解决其在上下文未更新前为 `None` 的问题。
-        - 【修正】为其他从 `context` 获取的变量提供默认值，增强打印的健壮性。
-        - 【修正】优化 `realized_pressure` 的计算逻辑，并引入涨停日特殊处理，确保在涨停日能正确反映赢家信念。
+        【V1.3 · 指数增强版】计算赢家信念指数。
+        - 核心修正: 将 `reinforcement_factor` 的计算从线性模型 (1+x) 升级为指数模型 (exp(x))，以更合理地反映主力行为的非线性影响，并增强指标的鲁棒性。
         """
         stock_code = context.get('stock_code', 'UNKNOWN')
         trade_date = context.get('trade_date', 'UNKNOWN')
@@ -906,29 +904,19 @@ class ChipFeatureCalculator:
             print(f"       - profit_taking_flow_ratio: {profit_taking_flow_ratio:.4f}")
             print(f"       - active_winner_rate: {active_winner_rate:.4f}")
         if all(pd.notna(v) for v in [active_profit_margin, bullish_reinforcement, profit_taking_flow_ratio, active_winner_rate]):
-            # 优化 realized_pressure 的计算逻辑
-            # 获利兑现流量占比 (profit_taking_flow_ratio) 和 活跃获利盘比例 (active_winner_rate)
-            # 如果活跃获利盘比例很低，但获利兑现流量很高，则压力大
-            # 如果活跃获利盘比例很高，获利兑现流量也高，则压力相对小
-            # 将 realized_pressure 归一化到 [0, 1] 范围，0表示无压力，1表示最大压力
             if active_winner_rate > 0:
-                # 压力因子 = 获利兑现流量 / 活跃获利盘比例
-                # 例如：90%的兑现流量 / 60%的活跃获利盘 = 1.5，表示兑现流量是活跃获利盘的1.5倍
-                # 此时，压力应该被放大
                 pressure_ratio = (profit_taking_flow_ratio / 100.0) / (active_winner_rate / 100.0)
-                realized_pressure = np.tanh(np.clip(pressure_ratio - 1.0, 0, None) * 2.0) # 压力超过1的部分才计算，并用tanh平滑
+                realized_pressure = np.tanh(np.clip(pressure_ratio - 1.0, 0, None) * 2.0)
             else:
-                realized_pressure = 0.0 # 没有活跃获利盘，就没有兑现压力
-            # hesitation_factor 应该在压力低时高，压力高时低
-            hesitation_factor = 1.0 - realized_pressure # 压力越大，犹豫因子越小
-            # margin_factor 获利盘利润垫，越高越好
+                pressure_ratio = 0.0 # 新增代码行: 为探针打印提供默认值
+                realized_pressure = 0.0
+            hesitation_factor = 1.0 - realized_pressure
             margin_factor = np.log1p(np.clip(active_profit_margin / 100.0, 0, None)) if active_profit_margin > 0 else 0.0
-            # reinforcement_factor 上涨脉冲纯度，越高越好
-            reinforcement_factor = 1.0 + (bullish_reinforcement / 100.0) if bullish_reinforcement > 0 else 1.0
+            # 修改代码行: 使用指数函数增强 reinforcement_factor 的表达能力
+            reinforcement_factor = np.exp(bullish_reinforcement / 100.0)
             winner_conviction_index = hesitation_factor * margin_factor * reinforcement_factor * 100
-            # 涨停日特殊处理：如果当天是涨停，且 active_profit_margin 为正，则至少赋予一个基础信念分
             if (close_price / pre_close - 1) > 0.098 and active_profit_margin > 0:
-                winner_conviction_index = np.maximum(winner_conviction_index, 10.0) # 涨停日至少10分
+                winner_conviction_index = np.maximum(winner_conviction_index, 10.0)
             if is_probe_date:
                 print(f"       - pressure_ratio: {pressure_ratio:.4f}")
                 print(f"       - realized_pressure: {realized_pressure:.4f}")
