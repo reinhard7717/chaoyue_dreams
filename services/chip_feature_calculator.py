@@ -879,8 +879,9 @@ class ChipFeatureCalculator:
 
     def _calculate_winner_conviction_index(self, context: dict, active_profit_margin: float) -> float:
         """
-        【V1.3 · 指数增强版】计算赢家信念指数。
-        - 核心修正: 将 `reinforcement_factor` 的计算从线性模型 (1+x) 升级为指数模型 (exp(x))，以更合理地反映主力行为的非线性影响，并增强指标的鲁棒性。
+        【V1.5 · 压力缓和器版】计算赢家信念指数。
+        - 核心升级: 将 `realized_pressure` 的计算函数从 `tanh` 替换为 `arctan`。
+        - 核心思想: 使用 `arctan` 作为“压力缓和器”，解决因分母过小（小基数陷阱）导致的 `pressure_ratio` 异常放大问题，增强指标对极端值的鲁棒性。
         """
         stock_code = context.get('stock_code', 'UNKNOWN')
         trade_date = context.get('trade_date', 'UNKNOWN')
@@ -904,22 +905,21 @@ class ChipFeatureCalculator:
             print(f"       - profit_taking_flow_ratio: {profit_taking_flow_ratio:.4f}")
             print(f"       - active_winner_rate: {active_winner_rate:.4f}")
         if all(pd.notna(v) for v in [active_profit_margin, bullish_reinforcement, profit_taking_flow_ratio, active_winner_rate]):
-            if active_winner_rate > 0:
+            pressure_ratio = 0.0
+            realized_pressure = 0.0
+            if active_winner_rate > 1e-6: # 增加一个极小值判断，避免除零
                 pressure_ratio = (profit_taking_flow_ratio / 100.0) / (active_winner_rate / 100.0)
-                realized_pressure = np.tanh(np.clip(pressure_ratio - 1.0, 0, None) * 2.0)
-            else:
-                pressure_ratio = 0.0 # 新增代码行: 为探针打印提供默认值
-                realized_pressure = 0.0
-            hesitation_factor = 1.0 - realized_pressure
+                # 修改代码行: 使用 arctan 替换 tanh，增强鲁棒性
+                realized_pressure = (2 / np.pi) * np.arctan(np.clip(pressure_ratio - 1.0, 0, None))
+            hesitation_factor = 1.0 + (1.0 - realized_pressure)
             margin_factor = np.log1p(np.clip(active_profit_margin / 100.0, 0, None)) if active_profit_margin > 0 else 0.0
-            # 修改代码行: 使用指数函数增强 reinforcement_factor 的表达能力
             reinforcement_factor = np.exp(bullish_reinforcement / 100.0)
             winner_conviction_index = hesitation_factor * margin_factor * reinforcement_factor * 100
             if (close_price / pre_close - 1) > 0.098 and active_profit_margin > 0:
                 winner_conviction_index = np.maximum(winner_conviction_index, 10.0)
             if is_probe_date:
                 print(f"       - pressure_ratio: {pressure_ratio:.4f}")
-                print(f"       - realized_pressure: {realized_pressure:.4f}")
+                print(f"       - realized_pressure (arctan): {realized_pressure:.4f}")
                 print(f"       - hesitation_factor: {hesitation_factor:.4f}")
                 print(f"       - margin_factor: {margin_factor:.4f}")
                 print(f"       - reinforcement_factor: {reinforcement_factor:.4f}")
