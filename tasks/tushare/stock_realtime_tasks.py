@@ -28,7 +28,7 @@ def is_trading_time():
     now = datetime.datetime.now()
     # 交易日判断略，假设已是交易日
     if now.hour in [9, 10, 11, 13, 14, 15]:
-        if now.hour == 11 and now.minute >= 30:
+        if now.hour == 11 and now.minute >= 31:
             return False
         if now.hour == 9 and now.minute < 25:
             return False
