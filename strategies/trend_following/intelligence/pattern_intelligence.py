@@ -96,14 +96,14 @@ class PatternIntelligence:
 
     def _diagnose_axiom_pullback_confirmation(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V5.3 · 纯粹量能洗盘识别版 - 探针增强 & 修复数据缺失处理】形态公理四：诊断“回踩确认二次启动”形态
+        【V5.4 · 纯粹量能洗盘识别版 - 探针增强 & 修复数据缺失处理】形态公理四：诊断“回踩确认二次启动”形态
         - 核心逻辑: 识别股价在量能萎缩后放量突破，随后缩量回调或放量换手洗盘，再放量突破的二次启动形态。
                     回调阶段融入微观资金流、筹码结构、行为效率等高级指标，量化“健康洗盘”特征。
                     新增B点收盘价高于A点收盘价，以及B点结构趋势相对于A点向上的判断。
                     在回调阶段，引入“主力对倒强度”来计算“有效成交量”，以更准确地判断量能的纯粹性。
         - 信号输出: 在形态的“二次启动日”（B日）输出1.0；否则输出0.0。
         - 核心修复: 移除冗余的required_cols检查，依赖_get_safe_series提供默认值。修正SLOPE列名。
-        - 探针增强: 增加详细的print探针，用于调试和验证关键逻辑，探针输出集中在目标B日。
+        - 探针增强: 增加详细的print探针，用于调试和验证关键逻辑，探针输出集中在目标B日，并细化回调期量能探针。
         """
         df_index = df.index
         pullback_confirmation_score = pd.Series(0.0, index=df_index, dtype=np.float32)
@@ -121,7 +121,6 @@ class PatternIntelligence:
         vol_ma21_D = self._get_safe_series(df, 'VOL_MA_21_D', method_name="_diagnose_axiom_pullback_confirmation")
         # 获取高级指标
         main_force_net_flow_calibrated_D = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', method_name="_diagnose_axiom_pullback_confirmation")
-        # 修正行: 修正列名
         short_term_concentration_90pct_D_slope_5d = self._get_safe_series(df, 'SLOPE_5_short_term_concentration_90pct_D', method_name="_diagnose_axiom_pullback_confirmation")
         large_order_pressure_D = self._get_safe_series(df, 'large_order_pressure_D', method_name="_diagnose_axiom_pullback_confirmation")
         large_order_support_D = self._get_safe_series(df, 'large_order_support_D', method_name="_diagnose_axiom_pullback_confirmation")
@@ -224,14 +223,26 @@ class PatternIntelligence:
                 pullback_lower_shadow_absorption = lower_shadow_absorption_strength_D.iloc[pullback_slice_start:pullback_slice_end]
                 pullback_upper_shadow_selling_pressure = upper_shadow_selling_pressure_D.iloc[pullback_slice_start:pullback_slice_end]
                 pullback_closing_conviction_score = closing_conviction_score_D.iloc[pullback_slice_start:pullback_slice_end]
+                if is_probing_this_b_day:
+                    print(f"       - 回调期 ({df_index[pullback_slice_start].date()} to {df_index[pullback_slice_end-1].date()}):")
+                    for k in range(pullback_slice_start, pullback_slice_end):
+                        pb_date = df_index[k].date()
+                        pb_volume = volume_D.iloc[k]
+                        pb_wash_intensity = wash_trade_intensity_D.iloc[k]
+                        pb_effective_volume = effective_volume_D.iloc[k]
+                        pb_max_vol_ma = max_vol_ma.iloc[k]
+                        pb_pct_change = pct_change_D.iloc[k]
+                        pb_is_shrunk_day = pb_effective_volume < pb_max_vol_ma
+                        pb_is_churn_day = (pb_effective_volume >= pb_max_vol_ma * 0.8) and (pb_effective_volume < pb_max_vol_ma * 1.5)
+                        pb_no_bearish_vol_breakout_day = not ((pb_pct_change < 0) and (pb_effective_volume > pb_max_vol_ma))
+                        print(f"         - 日期 {pb_date}: 原始量: {pb_volume:.0f}, 对倒强度: {pb_wash_intensity:.4f}, 有效量: {pb_effective_volume:.0f}, 最大均量: {pb_max_vol_ma:.0f}")
+                        print(f"           -> 有效量缩量 ({pb_is_shrunk_day}), 有效量放量换手 ({pb_is_churn_day}), 无放量下跌 ({pb_no_bearish_vol_breakout_day})")
                 # 基础回调条件：缩量或放量换手，且无放量下跌
                 is_volume_shrunk = (pullback_effective_volume < pullback_max_vol_ma).all()
                 is_volume_churn = (pullback_effective_volume >= pullback_max_vol_ma * 0.8).all() and (pullback_effective_volume < pullback_max_vol_ma * 1.5).all()
                 no_bearish_volume_breakout = ~((pullback_pct_change < 0) & (pullback_effective_volume > pullback_max_vol_ma)).any()
                 if is_probing_this_b_day:
-                    print(f"       - 回调期 ({df_index[pullback_slice_start].date()} to {df_index[pullback_slice_end-1].date()}):")
-                    print(f"         - 有效量能缩量 ({is_volume_shrunk}), 有效量能放量换手 ({is_volume_churn}), 无放量下跌 ({no_bearish_volume_breakout})")
-                    print(f"         - 回调期有效量能: {pullback_effective_volume.mean():.2f}, 原始量能: {pullback_raw_volume.mean():.2f}, 最大均量: {pullback_max_vol_ma.mean():.2f}")
+                    print(f"         - 回调期整体判断: 有效量能缩量 ({is_volume_shrunk}), 有效量能放量换手 ({is_volume_churn}), 无放量下跌 ({no_bearish_volume_breakout})")
                 if not no_bearish_volume_breakout:
                     if is_probing_this_b_day:
                         print(f"       - 回调期存在放量下跌，跳过。")
