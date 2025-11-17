@@ -259,7 +259,7 @@ class StockRealtimeDAO(BaseDAO):
             try:
                 df = self.ts.realtime_quote(ts_code=stock_codes_str, src='sina')
             except pd.errors.EmptyDataError as e:
-                logger.error(f"Tushare 读取 token 文件失败 (EmptyDataError)，请检查 token 文件是否为空或损坏: {e}", exc_info=True)
+                # logger.error(f"Tushare 读取 token 文件失败 (EmptyDataError)，请检查 token 文件是否为空或损坏: {e}", exc_info=False)
                 return [] # 文件错误，直接返回
             except Exception as e:
                 logger.error(f"调用 Tushare realtime_quote 接口失败: {e}", exc_info=True)

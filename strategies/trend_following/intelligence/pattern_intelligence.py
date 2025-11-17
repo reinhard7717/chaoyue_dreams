@@ -95,81 +95,120 @@ class PatternIntelligence:
 
     def _diagnose_axiom_pullback_confirmation(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.0】形态公理四：诊断“回踩确认二次启动”形态
+        【V2.0 · 深度博弈版】形态公理四：诊断“回踩确认二次启动”形态
         - 核心逻辑: 识别股价在量能萎缩后放量突破，随后缩量回调，再放量突破的二次启动形态。
+                    回调阶段融入微观资金流、筹码结构、行为效率等高级指标，量化“健康洗盘”特征。
         - 信号输出: 在形态的“二次启动日”（B日）输出1.0；否则输出0.0。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         df_index = df.index
         pullback_confirmation_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-        # 获取形态参数
         p_conf_pattern = get_params_block(self.strategy, 'pattern_params', {})
-        n_pre_A = get_param_value(p_conf_pattern.get('pullback_confirmation_n_pre_A'), 10) # A日之前量能萎缩的天数
-        n_pullback_max = get_param_value(p_conf_pattern.get('pullback_confirmation_n_pullback_max'), 13) # A日到B日之间回调的最大天数
-        # 获取所需数据
+        n_pre_A = get_param_value(p_conf_pattern.get('pullback_confirmation_n_pre_A'), 10)
+        n_pullback_max = get_param_value(p_conf_pattern.get('pullback_confirmation_n_pullback_max'), 13)
+        # 获取核心K线数据
         close_D = self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_pullback_confirmation")
         pct_change_D = self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_axiom_pullback_confirmation")
         volume_D = self._get_safe_series(df, 'volume_D', method_name="_diagnose_axiom_pullback_confirmation")
         vol_ma5_D = self._get_safe_series(df, 'VOL_MA_5_D', method_name="_diagnose_axiom_pullback_confirmation")
         vol_ma21_D = self._get_safe_series(df, 'VOL_MA_21_D', method_name="_diagnose_axiom_pullback_confirmation")
-        # 检查所有必要列是否存在且非空
-        if (close_D.isnull().all() or pct_change_D.isnull().all() or volume_D.isnull().all() or
-                vol_ma5_D.isnull().all() or vol_ma21_D.isnull().all()):
-            print("    -> [形态情报警告] 缺少核心量价数据，无法诊断回踩确认二次启动形态。")
-            return pullback_confirmation_score
-        # 计算每日的成交量均线最大值
+        # 获取高级指标
+        main_force_net_flow_calibrated_D = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', method_name="_diagnose_axiom_pullback_confirmation")
+        short_term_concentration_90pct_D_slope_5d = self._get_safe_series(df, 'short_term_concentration_90pct_D_slope_5d', method_name="_diagnose_axiom_pullback_confirmation")
+        large_order_pressure_D = self._get_safe_series(df, 'large_order_pressure_D', method_name="_diagnose_axiom_pullback_confirmation")
+        large_order_support_D = self._get_safe_series(df, 'large_order_support_D', method_name="_diagnose_axiom_pullback_confirmation")
+        hidden_accumulation_intensity_D = self._get_safe_series(df, 'hidden_accumulation_intensity_D', method_name="_diagnose_axiom_pullback_confirmation")
+        absorption_strength_index_D = self._get_safe_series(df, 'absorption_strength_index_D', method_name="_diagnose_axiom_pullback_confirmation")
+        upper_shadow_selling_pressure_D = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', method_name="_diagnose_axiom_pullback_confirmation")
+        lower_shadow_absorption_strength_D = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', method_name="_diagnose_axiom_pullback_confirmation")
+        winner_conviction_index_D = self._get_safe_series(df, 'winner_conviction_index_D', method_name="_diagnose_axiom_pullback_confirmation")
+        main_force_control_leverage_D = self._get_safe_series(df, 'main_force_control_leverage_D', method_name="_diagnose_axiom_pullback_confirmation")
+        # 检查所有必要的列是否存在
+        required_cols = [
+            'close_D', 'pct_change_D', 'volume_D', 'VOL_MA_5_D', 'VOL_MA_21_D',
+            'main_force_net_flow_calibrated_D', 'short_term_concentration_90pct_D_slope_5d',
+            'large_order_pressure_D', 'large_order_support_D', 'hidden_accumulation_intensity_D',
+            'absorption_strength_index_D', 'upper_shadow_selling_pressure_D', 'lower_shadow_absorption_strength_D',
+            'winner_conviction_index_D', 'main_force_control_leverage_D'
+        ]
+        for col in required_cols:
+            if col not in df.columns:
+                print(f"    -> [形态情报警告] 缺少核心高级指标 '{col}'，无法诊断回踩确认二次启动形态。")
+                return pullback_confirmation_score
         max_vol_ma = pd.concat([vol_ma5_D, vol_ma21_D], axis=1).max(axis=1)
-        # 遍历DataFrame寻找形态
-        # 从足够历史数据的位置开始，确保能检查到 pre_A_days
         for i in range(n_pre_A, len(df_index)):
             day_A_idx = i
-            # Condition 1: Pre-A Day Volume Atrophy (A日之前的N天内量能萎缩)
-            # 检查 day_A_idx 之前的 n_pre_A 天 (不包括 day_A_idx)
             pre_A_slice_start = day_A_idx - n_pre_A
             if pre_A_slice_start < 0:
-                continue # 历史数据不足
-            # 确保这N天内的成交量都低于各自的max_vol_ma
+                continue
+            # 1. A日之前N天量能萎缩
             pre_A_volume_atrophy = (volume_D.iloc[pre_A_slice_start:day_A_idx] < max_vol_ma.iloc[pre_A_slice_start:day_A_idx]).all()
             if not pre_A_volume_atrophy:
                 continue
-            # Condition 2: Day A Initial Breakout (A日股价上涨伴随量能突破)
+            # 2. A日放量上涨突破 (强化A日条件)
             day_A_pct_change = pct_change_D.iloc[day_A_idx]
             day_A_volume = volume_D.iloc[day_A_idx]
             day_A_max_vol_ma = max_vol_ma.iloc[day_A_idx]
-            if not (day_A_pct_change > 0 and day_A_volume > day_A_max_vol_ma):
+            day_A_main_force_flow = main_force_net_flow_calibrated_D.iloc[day_A_idx]
+            day_A_chip_conc_slope = short_term_concentration_90pct_D_slope_5d.iloc[day_A_idx]
+            if not (day_A_pct_change > 0.01 and day_A_volume > day_A_max_vol_ma * 1.2 and day_A_main_force_flow > 0 and day_A_chip_conc_slope > 0): # A日涨幅>1%，放量1.2倍，主力净流入，筹码集中度上升
                 continue
-            # Condition 3 & 4: A to B Pullback/Consolidation and Day B Second Launch
-            # 遍历 Day A 之后最多 n_pullback_max + 1 天 (Day B 最多在 Day A 之后 n_pullback_max 天)
+            # 3. 寻找B日
             for j in range(day_A_idx + 1, min(day_A_idx + n_pullback_max + 2, len(df_index))):
                 day_B_idx = j
-                # Condition 4: Day B Second Launch (B日股价再次上涨伴随量能突破)
+                # 确保B日不是A日
+                if day_B_idx <= day_A_idx:
+                    continue
+                # 4. B日再次放量上涨突破 (强化B日条件)
                 day_B_pct_change = pct_change_D.iloc[day_B_idx]
                 day_B_volume = volume_D.iloc[day_B_idx]
                 day_B_max_vol_ma = max_vol_ma.iloc[day_B_idx]
-                if day_B_pct_change > 0 and day_B_volume > day_B_max_vol_ma:
-                    # Potential Day B found, now validate the pullback period (between Day A and Day B)
-                    pullback_slice_start = day_A_idx + 1
-                    pullback_slice_end = day_B_idx # Exclusive of Day B
-                    # If pullback_slice_start >= pullback_slice_end, it means 0 days pullback, which is valid.
-                    if pullback_slice_start < pullback_slice_end:
-                        pullback_pct_change = pct_change_D.iloc[pullback_slice_start:pullback_slice_end]
-                        pullback_volume = volume_D.iloc[pullback_slice_start:pullback_slice_end]
-                        pullback_max_vol_ma = max_vol_ma.iloc[pullback_slice_start:pullback_slice_end]
-                        # Check for volume shrinkage during pullback
-                        # 确保回调期间的成交量都低于各自的max_vol_ma
-                        volume_shrunk_during_pullback = (pullback_volume < pullback_max_vol_ma).all()
-                        if not volume_shrunk_during_pullback:
-                            continue
-                        # Check for NO bearish volume breakouts during pullback
-                        # 排除股价下跌但量能突破MA_VOL_5或MA_VOL_21（以最大值为准）的情况
-                        no_bearish_volume_breakout = ~((pullback_pct_change < 0) & (pullback_volume > pullback_max_vol_ma)).any()
-                        if not no_bearish_volume_breakout:
-                            continue
-                    # All conditions met, mark Day B with a score of 1.0
+                day_B_main_force_flow = main_force_net_flow_calibrated_D.iloc[day_B_idx]
+                day_B_chip_conc_slope = short_term_concentration_90pct_D_slope_5d.iloc[day_B_idx]
+                day_B_mf_control_leverage = main_force_control_leverage_D.iloc[day_B_idx]
+                if not (day_B_pct_change > 0.01 and day_B_volume > day_B_max_vol_ma * 1.2 and day_B_main_force_flow > 0 and day_B_chip_conc_slope > 0 and day_B_mf_control_leverage > 0): # B日涨幅>1%，放量1.2倍，主力净流入，筹码集中度上升，主力控盘杠杆为正
+                    continue
+                # 5. A到B日之间缩量回调或窄幅震荡，且健康洗盘
+                pullback_slice_start = day_A_idx + 1
+                pullback_slice_end = day_B_idx
+                if pullback_slice_start >= pullback_slice_end: # 回调期至少一天
+                    continue
+                pullback_volume = volume_D.iloc[pullback_slice_start:pullback_slice_end]
+                pullback_max_vol_ma = max_vol_ma.iloc[pullback_slice_start:pullback_slice_end]
+                pullback_pct_change = pct_change_D.iloc[pullback_slice_start:pullback_slice_end]
+                # 基础回调条件：缩量且无放量下跌
+                volume_shrunk_during_pullback = (pullback_volume < pullback_max_vol_ma).all()
+                no_bearish_volume_breakout = ~((pullback_pct_change < 0) & (pullback_volume > pullback_max_vol_ma)).any()
+                if not (volume_shrunk_during_pullback and no_bearish_volume_breakout):
+                    continue
+                # 深度博弈：健康洗盘特征
+                # 量化健康洗盘分数，范围 [0, 1]
+                health_pullback_score = 0.0
+                num_health_factors = 0
+                # 微观资金流：大单压制低，支撑强，隐蔽吸筹强
+                if (large_order_pressure_D.iloc[pullback_slice_start:pullback_slice_end] < 0.3).all(): # 大单压制低
+                    health_pullback_score += 0.2
+                    num_health_factors += 1
+                if (large_order_support_D.iloc[pullback_slice_start:pullback_slice_end] > 0.7).all(): # 大单支撑强
+                    health_pullback_score += 0.2
+                    num_health_factors += 1
+                if (hidden_accumulation_intensity_D.iloc[pullback_slice_start:pullback_slice_end] > 0.5).any(): # 期间有隐蔽吸筹
+                    health_pullback_score += 0.1
+                    num_health_factors += 1
+                # 筹码结构：获利盘信念稳定，上影线抛压低，下影线承接强
+                if (winner_conviction_index_D.iloc[pullback_slice_start:pullback_slice_end] > 0).all(): # 获利盘信念为正
+                    health_pullback_score += 0.1
+                    num_health_factors += 1
+                if (upper_shadow_selling_pressure_D.iloc[pullback_slice_start:pullback_slice_end] < 0.3).all(): # 上影线抛压低
+                    health_pullback_score += 0.1
+                    num_health_factors += 1
+                if (lower_shadow_absorption_strength_D.iloc[pullback_slice_start:pullback_slice_end] > 0.5).any(): # 期间有下影线承接
+                    health_pullback_score += 0.1
+                    num_health_factors += 1
+                # 确保至少有部分健康洗盘证据
+                if health_pullback_score > 0.3: # 设定一个阈值，表示健康洗盘的最低要求
                     pullback_confirmation_score.iloc[day_B_idx] = 1.0
-                    # Found a pattern for this Day A, move to next potential Day A
-                    break # Break from inner loop (j) to continue with the next Day A (i)
-        # Debugging output for probe date
+                    break # 找到一个B日就跳出内层循环，寻找下一个A日
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
