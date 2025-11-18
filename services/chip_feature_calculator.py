@@ -109,13 +109,13 @@ class ChipFeatureCalculator:
             if col in processed_intraday_df.columns:
                 processed_intraday_df[col] = pd.to_numeric(processed_intraday_df[col], errors='coerce').astype(dtype, errors='ignore')
         # 2. 确保 'amount_yuan' 和 'vol_shares' 存在
-        # 修改行: 确保 vol_shares 在 minute_vwap 之前创建
+        # 确保 vol_shares 在 minute_vwap 之前创建
         if 'vol_shares' not in processed_intraday_df.columns:
             if 'vol' in processed_intraday_df.columns:
                 processed_intraday_df['vol_shares'] = processed_intraday_df['vol']
             else:
                 processed_intraday_df['vol_shares'] = 0.0 # 如果原始 'vol' 也缺失，则默认为0
-        # 修改行: 确保 amount_yuan 在 minute_vwap 之前创建
+        # 确保 amount_yuan 在 minute_vwap 之前创建
         if 'amount_yuan' not in processed_intraday_df.columns:
             if 'amount' in processed_intraday_df.columns:
                 processed_intraday_df['amount_yuan'] = processed_intraday_df['amount']
@@ -640,7 +640,7 @@ class ChipFeatureCalculator:
         """
         # 调试信息: 打印 ctx 字典的键，以帮助诊断问题
         # 修正 stock_code 的访问方式
-        # 修改行: 将 'minute_data_for_day' 替换为 'processed_intraday_df'
+        # 将 'minute_data_for_day' 替换为 'processed_intraday_df'
         intraday_df = ctx.get('processed_intraday_df', pd.DataFrame())
         if intraday_df.empty:
             print(f"调试信息: [{ctx.get('stock_code', 'UNKNOWN')}] _compute_intraday_dynamics_metrics - processed_intraday_df 为空，跳过计算。")
@@ -988,7 +988,7 @@ class ChipFeatureCalculator:
                     active_buy_support = support_zone_df['buy_vol_raw'].sum()
                     results['support_validation_score'] = (active_buy_support / total_vol_support) * 100
         # 3. 隐蔽吸筹信号 (Covert Accumulation Signal)
-        # 修改行: 优先使用 'close' 和 'open'，如果不存在则回退到 'minute_vwap'
+        # 优先使用 'close' 和 'open'，如果不存在则回退到 'minute_vwap'
         if 'close' in intraday_df.columns and 'open' in intraday_df.columns:
             dip_or_flat_df = intraday_df[intraday_df['close'] <= intraday_df['open']]
         else:
