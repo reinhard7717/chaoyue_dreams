@@ -197,11 +197,13 @@ class AdvancedFundFlowMetricsService:
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None):
         """
-        【V1.7 · 纯处理器版】不再查询数据库，仅处理由上游任务传入的日内数据maps。
+        【V1.10 · 纯处理器版 - 确保DatetimeIndex与合并列名修正】不再查询数据库，仅处理由上游任务传入的日内数据maps。
         - 核心重构: 移除所有数据库查询逻辑，职责单一化为数据处理与聚合。
         - 核心逻辑: 遍历所需日期，优先使用tick_data_map，若无则回退使用minute_data_map。
+        - 核心修复: 确保返回的DataFrame具有 `trade_time` 作为 `DatetimeIndex`，并修正合并 `tick_df` 和 `level5_df` 后 `resample` 时列名的问题。
         """
         import pandas as pd
+        from django.utils import timezone
         if date_index.empty:
             return {}
         intraday_data_map = {}
@@ -210,33 +212,51 @@ class AdvancedFundFlowMetricsService:
             if tick_data_map and date_obj in tick_data_map:
                 print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 使用预加载的逐笔数据。")
                 tick_df = tick_data_map[date_obj]
+                # 存储原始列名，以防合并后被重命名
+                price_col_name = 'price'
+                volume_col_name = 'volume'
+                amount_col_name = 'amount'
                 if level5_data_map and date_obj in level5_data_map:
                     level5_df = level5_data_map[date_obj]
-                    tick_df = pd.merge_asof(tick_df.sort_values('trade_time'), level5_df.sort_values('trade_time'), on='trade_time', direction='backward')
-                    conditions = [tick_df['price'] >= tick_df['sell_price1'], tick_df['price'] <= tick_df['buy_price1']]
+                    # 确保两者都按索引（trade_time）排序，然后进行 merge_asof
+                    tick_df_sorted = tick_df.sort_index()
+                    level5_df_sorted = level5_df.sort_index()
+                    # merge_asof 需要一个列来合并，而不是索引。合并前重置索引，合并后再设置回去。
+                    merged_df_temp = pd.merge_asof(
+                        tick_df_sorted.reset_index(),
+                        level5_df_sorted.reset_index(),
+                        on='trade_time',
+                        direction='backward',
+                        suffixes=('_tick', '_level5')
+                    )
+                    tick_df = merged_df_temp.set_index('trade_time')
+                    # 合并后更新列名
+                    price_col_name = 'price_tick'
+                    volume_col_name = 'volume_tick'
+                    amount_col_name = 'amount_tick'
+                    # 根据合并后的数据重新评估 'type'
+                    conditions = [tick_df[price_col_name] >= tick_df['sell_price1'], tick_df[price_col_name] <= tick_df['buy_price1']]
                     choices = ['B', 'S']
                     tick_df['type'] = np.select(conditions, choices, default='M')
-                
-                tick_df.set_index('trade_time', inplace=True)
-                buy_vol_per_minute = tick_df[tick_df['type'] == 'B'].resample('1min')['volume'].sum()
-                sell_vol_per_minute = tick_df[tick_df['type'] == 'S'].resample('1min')['volume'].sum()
+                # 直接在 tick_df 上进行重采样，使用可能已重命名的列
+                buy_vol_per_minute = tick_df[tick_df['type'] == 'B'].resample('1min')[volume_col_name].sum()
+                sell_vol_per_minute = tick_df[tick_df['type'] == 'S'].resample('1min')[volume_col_name].sum()
                 minute_df_from_ticks = tick_df.resample('1min').agg(
-                    open=('price', 'first'), high=('price', 'max'), low=('price', 'min'),
-                    close=('price', 'last'), vol=('volume', 'sum'), amount=('amount', 'sum')
+                    open=(price_col_name, 'first'), high=(price_col_name, 'max'), low=(price_col_name, 'min'),
+                    close=(price_col_name, 'last'), vol=(volume_col_name, 'sum'), amount=(amount_col_name, 'sum')
                 ).dropna(subset=['open', 'high', 'low', 'close', 'vol', 'amount'])
                 minute_df_from_ticks['buy_vol_raw'] = buy_vol_per_minute
                 minute_df_from_ticks['sell_vol_raw'] = sell_vol_per_minute
                 minute_df_from_ticks.fillna(0, inplace=True)
-                minute_df_from_ticks.reset_index(inplace=True)
                 intraday_data_map[date_obj] = self._group_minute_data_from_df(minute_df_from_ticks)
                 continue
             # 回退到分钟数据
             if minute_data_map and date_obj in minute_data_map:
-                # print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 回退使用预加载的分钟数据。")
                 intraday_data_map[date_obj] = self._group_minute_data_from_df(minute_data_map[date_obj])
                 continue
             print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 未找到任何预加载的日内数据。")
-        return {k: v.reset_index(drop=True) for k, v in intraday_data_map.items()}
+        # 修正行: 移除 reset_index(drop=True)，确保返回的DataFrame保持 DatetimeIndex
+        return intraday_data_map
 
     def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame) -> tuple[dict, None]:
         """
@@ -684,7 +704,7 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series) -> dict:
         """
-        【V3.19 · 逐笔数据兼容版 - 索引访问修正】分箱鲁棒性增强与主力峰区流量归一化及类型兼容版。
+        【V3.20 · 逐笔数据兼容版 - 索引访问修正】分箱鲁棒性增强与主力峰区流量归一化及类型兼容版。
         - 核心新增: 使用 `intraday_data` 作为日内数据源。
         - 核心修复: 在所有 pd.cut 调用中增加 duplicates='drop' 参数，以处理因涨跌停等极端行情导致的价格无波动情况，根除 'Bin edges must be unique' 错误。
         - 【新增】对 `main_force_on_peak_flow` 进行归一化处理，使其值在合理范围内，避免在融合时权重异常。
@@ -742,7 +762,7 @@ class AdvancedFundFlowMetricsService:
             twap = intraday_data['minute_vwap'].mean()
             if pd.notna(twap) and twap > 0:
                 results['vwap_structure_skew'] = (daily_vwap - twap) / twap * 100
-        # 使用 intraday_data.index 访问时间
+        # 修改行: 使用 intraday_data.index 访问时间
         opening_battle_df = intraday_data[(intraday_data.index.time >= time(9, 30)) & (intraday_data.index.time <= time(9, 45))]
         if not opening_battle_df.empty and len(opening_battle_df) > 1 and pd.notna(atr) and atr > 0:
             price_gain = (opening_battle_df['close'].iloc[-1] - opening_battle_df['open'].iloc[0]) / atr
@@ -826,7 +846,7 @@ class AdvancedFundFlowMetricsService:
             if not mf_net_series.var() == 0 and not retail_net_series.var() == 0 and len(mf_net_series) > 1:
                 rolling_corr = mf_net_series.rolling(window=30).corr(retail_net_series)
                 results['mf_retail_liquidity_swap_corr'] = rolling_corr.mean()
-        # 使用 intraday_data.index 访问时间
+        # 修改行: 使用 intraday_data.index 访问时间
         continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
         if not continuous_trading_df.empty and gatekeeper_condition:
             up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
@@ -852,7 +872,7 @@ class AdvancedFundFlowMetricsService:
                 value_dev_factor = np.tanh((day_close - daily_vwap) / atr)
                 force_balance_factor = intraday_data['main_force_net_vol'].sum() / daily_total_volume if daily_total_volume > 0 else 0
                 results['closing_price_deviation_score'] = (0.5 * range_pos_factor + 0.3 * value_dev_factor + 0.2 * force_balance_factor) * 100
-            # 使用 intraday_data.index 访问时间
+            # 修改行: 使用 intraday_data.index 访问时间
             auction_df = intraday_data[intraday_data.index.time >= time(14, 57)]
             if not auction_df.empty and not continuous_trading_df.empty:
                 pre_auction_close = continuous_trading_df['close'].iloc[-1]
@@ -896,7 +916,7 @@ class AdvancedFundFlowMetricsService:
                 results['rally_distribution_pressure'] = (rally_dist_vol / total_rally_vol) * 100
             if total_panic_vol > 0:
                 results['panic_selling_cascade'] = (panic_vol / total_panic_vol) * 100
-            # 使用 intraday_data.index 访问时间
+            # 修改行: 使用 intraday_data.index 访问时间
             posturing_df = continuous_trading_df[continuous_trading_df.index.time >= time(14, 30)]
             if not posturing_df.empty and pd.notna(daily_vwap) and atr > 0:
                 posturing_vwap = (posturing_df['minute_vwap'] * posturing_df['vol_shares']).sum() / posturing_df['vol_shares'].sum()
@@ -1008,28 +1028,36 @@ class AdvancedFundFlowMetricsService:
         return df
 
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
-        """【V1.7 · 数据完整性修复版 - 索引访问修正】从预加载的DataFrame构建按日分组的数据。
-        - 核心修复: 修正了在 `trade_time` 列被设置为索引后，仍然尝试通过 `df['trade_time']` 访问导致的 `KeyError`。
-        - 核心修复: 调整了 `df['date']` 的赋值位置，确保在 `set_index('date')` 之前完成。
+        """【V1.9 · 数据完整性修复版 - 辅助列添加】从预加载的DataFrame构建按日分组的数据。
+        - 核心职责: 确保传入的DataFrame保持 `trade_time` 作为 `DatetimeIndex`，并正确处理时区，添加 `amount_yuan`, `vol_shares`, `minute_vwap`, `vol_weight` 等辅助列。
+        - 核心修复: 不再修改DataFrame的索引，仅添加辅助列。
         """
         if minute_df is None or minute_df.empty:
-            return None
+            return pd.DataFrame()
         df = minute_df.copy()
-        # 修正行: 检查索引的时区信息
+        # 确保索引是 DatetimeIndex 且已本地化为 Asia/Shanghai
+        if not isinstance(df.index, pd.DatetimeIndex):
+            # 理论上，上游函数应该已经确保了这一点。如果不是，这里尝试修复。
+            if 'trade_time' in df.columns:
+                df['trade_time'] = pd.to_datetime(df['trade_time'])
+                df = df.set_index('trade_time')
+            else:
+                logger.warning("DataFrame passed to _group_minute_data_from_df has no 'trade_time' column and no DatetimeIndex.")
+                return pd.DataFrame()
+        # 修正行: 确保时区处理使用 Django 的当前时区
         if df.index.tz is None:
-            df.index = df.index.tz_localize('UTC').tz_convert('Asia/Shanghai')
-        else:
-            df.index = df.index.tz_convert('Asia/Shanghai')
-        # 修正行: 从索引中提取日期，在设置新的索引之前完成
-        df['date'] = df.index.date
+            df.index = df.index.tz_localize('UTC').tz_convert(timezone.get_current_timezone())
+        elif df.index.tz != timezone.get_current_timezone():
+            df.index = df.index.tz_convert(timezone.get_current_timezone())
+        # 添加辅助列
         df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
         df['amount_yuan'] = df['amount']
         df['vol_shares'] = df['vol']
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
-        daily_total_vol = df.groupby('date')['vol_shares'].transform('sum')
-        df['vol_weight'] = df['vol_shares'] / daily_total_vol.replace(0, np.nan)
-        # 修正行: 最终返回的DataFrame以日期为索引
-        return df.set_index('date')
+        current_day_total_vol = df['vol_shares'].sum()
+        df['vol_weight'] = df['vol_shares'] / current_day_total_vol if current_day_total_vol > 0 else 0
+        # 此函数仅添加辅助列，不应改变索引
+        return df
 
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """

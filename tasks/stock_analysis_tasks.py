@@ -628,18 +628,16 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     def _process_intraday_df_to_map(df: pd.DataFrame) -> dict:
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])
-        # 修正时区处理逻辑
+        # 修正行: 确保时区处理使用 Django 的当前时区
         if df['trade_time'].dt.tz is None:
-            # 如果没有时区信息，假定为上海时间并本地化
-            df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai')
+            df['trade_time'] = df['trade_time'].dt.tz_localize(timezone.get_current_timezone())
         else:
-            # 如果已有其他时区信息，则转换为上海时间
-            df['trade_time'] = df['trade_time'].dt.tz_convert('Asia/Shanghai')
-        # 新增行: 将 trade_time 设置为索引
+            df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_current_timezone())
+        # 将 trade_time 设置为索引
         df = df.set_index('trade_time')
-        df['date'] = df.index.date # 从 DatetimeIndex 中提取日期
         grouped_data = {}
-        for date, group_df in df.groupby('date'):
+        # 按 DatetimeIndex 的日期部分进行分组
+        for date, group_df in df.groupby(df.index.date):
             grouped_data[date] = group_df
         return grouped_data
     data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"])
