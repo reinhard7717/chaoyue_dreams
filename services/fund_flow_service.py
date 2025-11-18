@@ -1097,8 +1097,9 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_microstructure_signals(self, stock_code: str, daily_intraday_df: pd.DataFrame, daily_level5_df: pd.DataFrame, daily_total_volume: float) -> dict:
         """
-        【V1.4 · 微观信号VWAP计算修复版】计算基于高频数据的微观结构指标。
-        - 核心修复: 修正 `vwap` 计算的 lambda 函数，确保 `np.average` 的 `a` 和 `weights` 参数形状一致，根除 `TypeError`。
+        【V1.5 · 微观信号resample修复版】计算基于高频数据的微观结构指标。
+        - 核心修复: 将 `resample().agg()` 替换为 `resample().apply()`，并使用辅助函数处理每个分钟组，
+                  彻底解决 `cannot reindex on an axis with duplicate labels` 错误。
         - 核心修复: 在方法入口处，显式将所有可能为 Decimal 类型的数值列转换为 float，根除 `TypeError`。
         - 核心修复: 在入口检查中增加了对输入DataFrame是否为None的判断，以优雅处理高频数据缺失的情况，根治 'NoneType' object has no attribute 'empty' 错误。
         """
@@ -1125,24 +1126,46 @@ class AdvancedFundFlowMetricsService:
                 if col_name in daily_level5_df.columns:
                     daily_level5_df[col_name] = pd.to_numeric(daily_level5_df[col_name], errors='coerce')
 
+        # 辅助函数：聚合每个分钟组的数据
+        def _aggregate_minute_group(group_df: pd.DataFrame) -> pd.Series:
+            if group_df.empty:
+                return pd.Series({
+                    'vol': 0.0,
+                    'vwap': np.nan,
+                    'reversals': 0.0,
+                    'trades': 0.0,
+                    'vwap_std': 0.0
+                })
+
+            # 确保 price 和 volume 是数值类型，并处理 NaN
+            temp_df = group_df[['price', 'volume', 'reversal']].copy()
+            temp_df['price'] = pd.to_numeric(temp_df['price'], errors='coerce')
+            temp_df['volume'] = pd.to_numeric(temp_df['volume'], errors='coerce')
+            temp_df.dropna(subset=['price', 'volume'], inplace=True)
+
+            current_vol = temp_df['volume'].sum()
+            current_vwap = np.nan
+            if current_vol > 0:
+                current_vwap = np.average(temp_df['price'], weights=temp_df['volume'])
+
+            return pd.Series({
+                'vol': current_vol,
+                'vwap': current_vwap,
+                'reversals': temp_df['reversal'].sum(),
+                'trades': len(temp_df), # 统计有效交易数量
+                'vwap_std': temp_df['price'].std() if len(temp_df) > 1 else 0.0
+            })
+
         # 1. 计算主力对倒强度 (Wash Trade Intensity)
         daily_intraday_df['direction'] = daily_intraday_df['type'].map({'B': 1, 'S': -1, 'M': 0})
         daily_intraday_df['reversal'] = (daily_intraday_df['direction'] * daily_intraday_df['direction'].shift(1)) < 0
-        # 修正 vwap 的计算逻辑，确保 price 和 volume 严格对齐
-        minute_agg = daily_intraday_df.resample('1min').agg(
-            vol=('volume', 'sum'),
-            vwap=('price', lambda x: (
-                # 为当前分钟组的 price 和 volume 创建临时 DataFrame
-                temp_group_df := pd.DataFrame({'price': x, 'volume': daily_intraday_df.loc[x.index, 'volume']})
-            ).dropna(subset=['price', 'volume']).pipe(
-                # 确保在计算前 DataFrame 不为空且总成交量大于0
-                lambda df: np.average(df['price'], weights=df['volume']) if not df.empty and df['volume'].sum() > 0 else np.nan
-            )),
-            reversals=('reversal', 'sum'),
-            trades=('reversal', 'count')
-        ).dropna(subset=['vol', 'vwap', 'reversals', 'trades']) # 确保聚合后的关键列不为NaN
+
+        # 修改行: 使用 apply 替换 agg
+        minute_agg = daily_intraday_df.resample('1min').apply(_aggregate_minute_group)
+        minute_agg.dropna(subset=['vol', 'vwap', 'reversals', 'trades'], inplace=True) # 移除没有有效数据的分钟
+
         if not minute_agg.empty:
-            minute_agg['vwap_std'] = daily_intraday_df.resample('1min')['price'].std().fillna(0)
+            # vwap_std 已经包含在 _aggregate_minute_group 的结果中
             minute_agg['wash_score'] = (minute_agg['vol'] / daily_total_volume) * (minute_agg['reversals'] / minute_agg['trades'].replace(0, 1)) * np.exp(-100 * minute_agg['vwap_std'] / minute_agg['vwap'].replace(0, 1))
             results['wash_trade_intensity'] = minute_agg['wash_score'].sum() * 100
         # 2. 计算五档盘口失衡度 (Order Book Imbalance)
@@ -1152,7 +1175,7 @@ class AdvancedFundFlowMetricsService:
         daily_level5_df['imbalance'] = (daily_level5_df['buy_vol_total'] - daily_level5_df['sell_vol_total']) / total_book_vol.replace(0, np.nan)
         daily_level5_df.dropna(subset=['imbalance'], inplace=True)
         if not daily_level5_df.empty:
-            # 使用 .index.to_series() 来获取时间序列并计算时间差
+            # 修改行: 使用 .index.to_series() 来获取时间序列并计算时间差
             time_diffs = daily_level5_df.index.to_series().diff().dt.total_seconds().fillna(0)
             results['order_book_imbalance'] = np.average(daily_level5_df['imbalance'], weights=time_diffs) * 100
         # 3. 计算大单压制与支撑强度 (Large Order Pressure/Support)
@@ -1160,7 +1183,7 @@ class AdvancedFundFlowMetricsService:
         pressure_strength = 0
         support_strength = 0
         if not daily_level5_df.empty:
-            # 使用 .index.to_series() 来获取时间序列并计算时间差
+            # 修改行: 使用 .index.to_series() 来获取时间序列并计算时间差
             time_diffs_seconds = daily_level5_df.index.to_series().diff().dt.total_seconds().values
             for i in range(1, len(daily_level5_df)):
                 row = daily_level5_df.iloc[i]
