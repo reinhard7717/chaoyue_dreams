@@ -90,10 +90,10 @@ class ChipFeatureCalculator:
 
     def _prepare_intraday_data_features(self):
         """
-        【V2.9 · 日内数据统一处理版】准备日内数据特征，统一处理为分钟级别数据。
+        【V2.10 · 日内数据列顺序修复版】准备日内数据特征，统一处理为分钟级别数据。
         - 核心进化: 能够直接处理由上游服务传入的、已经聚合和归因完毕的分钟数据。
         - 核心逻辑: 假设传入的 `intraday_data` 已经是分钟级别数据，并进行标准化处理。
-        - 核心修复: 移除 `is_tick_data` 相关的分支逻辑，简化数据处理流程。
+        - 核心修复: 调整 `amount_yuan` 和 `vol_shares` 的创建顺序，确保在计算 `minute_vwap` 前它们已存在。
         """
         intraday_df = self.ctx.get('intraday_data')
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
@@ -103,16 +103,28 @@ class ChipFeatureCalculator:
             self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
             return
         processed_intraday_df = intraday_df.copy()
+        # 1. 转换核心列为数值类型
         dtype_map = {'amount': 'float32', 'vol': 'int32', 'open': 'float32', 'close': 'float32', 'high': 'float32', 'low': 'float32'}
         for col, dtype in dtype_map.items():
             if col in processed_intraday_df.columns:
                 processed_intraday_df[col] = pd.to_numeric(processed_intraday_df[col], errors='coerce').astype(dtype, errors='ignore')
+        # 2. 确保 'amount_yuan' 和 'vol_shares' 存在
+        # 修改行: 确保 vol_shares 在 minute_vwap 之前创建
+        if 'vol_shares' not in processed_intraday_df.columns:
+            if 'vol' in processed_intraday_df.columns:
+                processed_intraday_df['vol_shares'] = processed_intraday_df['vol']
+            else:
+                processed_intraday_df['vol_shares'] = 0.0 # 如果原始 'vol' 也缺失，则默认为0
+        # 修改行: 确保 amount_yuan 在 minute_vwap 之前创建
+        if 'amount_yuan' not in processed_intraday_df.columns:
+            if 'amount' in processed_intraday_df.columns:
+                processed_intraday_df['amount_yuan'] = processed_intraday_df['amount']
+            else:
+                processed_intraday_df['amount_yuan'] = 0.0 # 如果原始 'amount' 也缺失，则默认为0
+        # 3. 计算 'minute_vwap' (现在 'amount_yuan' 和 'vol_shares' 保证存在)
         if 'minute_vwap' not in processed_intraday_df.columns:
             processed_intraday_df['minute_vwap'] = processed_intraday_df['amount_yuan'] / processed_intraday_df['vol_shares'].replace(0, np.nan)
-        if 'vol_shares' not in processed_intraday_df.columns:
-            processed_intraday_df['vol_shares'] = processed_intraday_df['vol']
-        if 'amount_yuan' not in processed_intraday_df.columns:
-            processed_intraday_df['amount_yuan'] = processed_intraday_df['amount']
+        # 4. 确保资金流相关列存在
         fund_flow_cols = ['main_force_net_vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol', 'buy_vol_raw', 'sell_vol_raw']
         for col in fund_flow_cols:
             if col not in processed_intraday_df.columns:
