@@ -545,9 +545,10 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex):
     """
-    【V2.4 · ORM健壮性修正版 - 日内数据时区修复】
+    【V2.5 · ORM健壮性修正版 - 日内数据时区与索引修复】
     - 核心修正: 修复了 `get_intraday_data_async` 在未指定字段时返回不可迭代QuerySet的BUG。通过确保始终调用 `.values()`，保证了数据加载的健壮性。
     - 核心修复: 修正 `_process_intraday_df_to_map` 中日内数据 `trade_time` 的时区处理逻辑，确保数据被正确归属到交易日。
+    - 核心修复: 确保 `_process_intraday_df_to_map` 返回的DataFrame具有 `DatetimeIndex`，以支持 `resample` 操作。
     """
     from utils.model_helpers import (
         get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code,
@@ -634,8 +635,13 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         else:
             # 如果已有其他时区信息，则转换为上海时间
             df['trade_time'] = df['trade_time'].dt.tz_convert('Asia/Shanghai')
-        df['date'] = df['trade_time'].dt.date
-        return {date: group_df for date, group_df in df.groupby('date')}
+        # 新增行: 将 trade_time 设置为索引
+        df = df.set_index('trade_time')
+        df['date'] = df.index.date # 从 DatetimeIndex 中提取日期
+        grouped_data = {}
+        for date, group_df in df.groupby('date'):
+            grouped_data[date] = group_df
+        return grouped_data
     data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"])
     data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"])
     data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"])
