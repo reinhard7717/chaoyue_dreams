@@ -105,7 +105,6 @@ class CognitiveIntelligence:
         self.strategy.playbook_states.update(self._deduce_energy_compression_breakout(priors))
         self.strategy.playbook_states.update(self._deduce_stealth_bottoming_divergence(priors))
         self.strategy.playbook_states.update(self._deduce_micro_absorption_divergence(priors))
-
         # 优先计算所有风险信号，并立即更新到 self.strategy.playbook_states
         # 第一批风险剧本：无内部剧本依赖
         self.strategy.playbook_states.update(self._deduce_distribution_at_high(priors))
@@ -115,16 +114,13 @@ class CognitiveIntelligence:
         self.strategy.playbook_states.update(self._deduce_liquidity_trap_risk(priors))
         self.strategy.playbook_states.update(self._deduce_t0_arbitrage_pressure_risk(priors))
         self.strategy.playbook_states.update(self._deduce_key_support_break_risk(priors))
-
         # 第二批风险剧本：依赖第一批剧本
         self.strategy.playbook_states.update(self._deduce_trend_exhaustion_risk(priors)) # 依赖 RETAIL_FOMO_RETREAT, LONG_TERM_PROFIT_DISTRIBUTION
         self.strategy.playbook_states.update(self._deduce_harvest_confirmation_risk(priors)) # 依赖 DISTRIBUTION_AT_HIGH
         self.strategy.playbook_states.update(self._deduce_bull_trap_distribution_risk(priors)) # 依赖 RETAIL_FOMO_RETREAT, LONG_TERM_PROFIT_DISTRIBUTION
         self.strategy.playbook_states.update(self._deduce_high_level_structural_collapse_risk(priors)) # 依赖 DISTRIBUTION_AT_HIGH, RETAIL_FOMO_RETREAT
-
         # 第三批风险剧本：依赖第二批剧本
         self.strategy.playbook_states.update(self._deduce_divergence_reversal(priors)) # 依赖 TREND_EXHAUSTION
-
         print(f"【V25.9 · 剧本调用顺序优化版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。")
         return self.strategy.playbook_states
 

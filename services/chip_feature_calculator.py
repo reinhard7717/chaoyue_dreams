@@ -189,12 +189,12 @@ class ChipFeatureCalculator:
         results['gathering_by_chasing'] = np.nan
         results['dispersal_by_distribution'] = np.nan
         results['dispersal_by_capitulation'] = np.nan
-        results['profit_taking_flow_ratio'] = np.nan # 新增
-        results['capitulation_flow_ratio'] = np.nan # 新增
-        results['active_winner_pressure_ratio'] = np.nan # 新增
-        results['locked_profit_pressure_ratio'] = np.nan # 新增
-        results['active_loser_pressure_ratio'] = np.nan # 新增
-        results['locked_loss_pressure_ratio'] = np.nan # 新增
+        results['profit_taking_flow_ratio'] = np.nan
+        results['capitulation_flow_ratio'] = np.nan
+        results['active_winner_pressure_ratio'] = np.nan
+        results['locked_profit_pressure_ratio'] = np.nan
+        results['active_loser_pressure_ratio'] = np.nan
+        results['locked_loss_pressure_ratio'] = np.nan
         results['cost_divergence'] = np.nan
         results['cost_divergence_normalized'] = np.nan
         results['winner_loser_momentum'] = np.nan
@@ -228,6 +228,11 @@ class ChipFeatureCalculator:
             results['gathering_by_chasing'] = (gathering_vol_per_minute[above_vwap_mask].sum() / total_daily_vol) * 100
             results['dispersal_by_distribution'] = (dispersal_vol_per_minute[above_vwap_mask].sum() / total_daily_vol) * 100
             results['dispersal_by_capitulation'] = (dispersal_vol_per_minute[below_vwap_mask].sum() / total_daily_vol) * 100
+        else:
+            results['gathering_by_support'] = np.nan
+            results['gathering_by_chasing'] = np.nan
+            results['dispersal_by_distribution'] = np.nan
+            results['dispersal_by_capitulation'] = np.nan
 
         if is_probe_date and pd.isna(pre_close):
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'pre_close' 缺失。")
@@ -401,7 +406,7 @@ class ChipFeatureCalculator:
         if pd.notna(prev_fatigue_index) and pd.notna(close_price) and pd.notna(total_chip_volume) and total_chip_volume > 0 and pd.notna(total_daily_vol) and recent_closes is not None and len(recent_closes) >= 9:
             is_effective_day = (close_price >= max(recent_closes)) or (close_price <= min(recent_closes))
             fatigue_index = prev_fatigue_index * 0.98
-            if is_effective_date: fatigue_index *= 0.5
+            if is_effective_day: fatigue_index *= 0.5
             else: fatigue_index += (total_daily_vol / total_chip_volume) * 100
             results['chip_fatigue_index'] = fatigue_index
         else:
@@ -765,7 +770,7 @@ class ChipFeatureCalculator:
                     print(f"    -> [博弈论探针] @ {trade_date}: 'total_vol_in_peak_zone' 为 {total_vol_in_peak_zone}。")
                 if total_vol_in_peak_zone > 0:
                     # peak_battle_intensity: 衡量在筹码峰值区域的交易活跃度
-                    results['peak_battle_intensity'] = (total_vol_in_peak_zone / daily_total_vol) * 100
+                    results['peak_battle_intensity'] = (total_vol_in_peak_zone / total_daily_vol) * 100 if total_daily_vol > 0 else np.nan
                     # peak_dynamic_strength_ratio: 衡量在筹码峰值区域的主力净流入强度
                     results['peak_dynamic_strength_ratio'] = (mf_net_flow_in_peak_zone / total_vol_in_peak_zone) * 100
                     # peak_main_force_premium: 衡量主力在筹码峰值区域的成本相对于当前价格的溢价
@@ -777,7 +782,13 @@ class ChipFeatureCalculator:
                     else:
                         results['peak_main_force_premium'] = np.nan
                     # peak_mf_conviction_flow: 衡量主力在筹码峰值区域的净流入方向与强度
-                    results['peak_mf_conviction_flow'] = (mf_net_flow_in_peak_zone / (abs(mf_net_flow_in_peak_zone) + abs(retail_net_flow_in_peak_zone))) * 100 if (abs(mf_net_flow_in_peak_zone) + abs(retail_net_flow_in_peak_zone)) > 0 else 0.0
+                    total_net_flow_in_peak_zone = abs(mf_net_flow_in_peak_zone) + abs(retail_net_flow_in_peak_zone)
+                    if is_probe_date and total_net_flow_in_peak_zone <= 0:
+                        print(f"    -> [博弈论探针] @ {trade_date}: 'total_net_flow_in_peak_zone' 为 {total_net_flow_in_peak_zone}。")
+                    if total_net_flow_in_peak_zone > 0:
+                        results['peak_mf_conviction_flow'] = (mf_net_flow_in_peak_zone / total_net_flow_in_peak_zone) * 100
+                    else:
+                        results['peak_mf_conviction_flow'] = np.nan
                 else:
                     results['peak_battle_intensity'] = np.nan
                     results['peak_dynamic_strength_ratio'] = np.nan
@@ -857,10 +868,9 @@ class ChipFeatureCalculator:
             probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
             if probe_date_naive == trade_date:
                 is_probe_date = True
-
         close_price = self.ctx.get('close_price')
         atr_14d = self.ctx.get('atr_14d')
-        
+        intraday_df = self.ctx.get('processed_intraday_df') # 获取日内数据
         results.update({
             'dominant_peak_cost': np.nan, 'dominant_peak_volume_ratio': np.nan,
             'secondary_peak_cost': np.nan, 'peak_separation_ratio': np.nan,
@@ -881,8 +891,9 @@ class ChipFeatureCalculator:
             'structural_stability_score': np.nan, 'recent_trapped_pressure': np.nan,
             'imminent_profit_taking_supply': np.nan, 'price_volume_entropy': np.nan,
             'profit_realization_quality': np.nan, # 新增
+            'active_buying_support': np.nan, # 新增
+            'active_selling_pressure': np.nan, # 新增
         })
-
         # 1. 主导峰与潜在次峰引力点(PSGP)剖面
         if is_probe_date and self.df.empty:
             print(f"    -> [静态结构探针] @ {trade_date}: 'self.df' (筹码分布) 为空。")
@@ -939,7 +950,6 @@ class ChipFeatureCalculator:
                     results['peak_separation_ratio'] = np.nan
                     results['peak_separation_intensity'] = np.nan
                     results['peak_fusion_indicator'] = np.nan
-
                 if is_probe_date and pd.isna(results['dominant_peak_volume_ratio']):
                     print(f"    -> [静态结构探针] @ {trade_date}: 'dominant_peak_volume_ratio' 缺失。")
                 if is_probe_date and results['dominant_peak_volume_ratio'] <= 0:
@@ -948,7 +958,6 @@ class ChipFeatureCalculator:
                     results['peak_volume_ratio'] = (psgp_volume / results['dominant_peak_volume_ratio']) * 100
                 else:
                     results['peak_volume_ratio'] = np.nan
-
                 if is_probe_date and pd.isna(atr_14d):
                     print(f"    -> [静态结构探针] @ {trade_date}: 'atr_14d' 缺失。")
                 if is_probe_date and atr_14d <= 0:
@@ -965,7 +974,6 @@ class ChipFeatureCalculator:
                 results['peak_distance_volatility_ratio'] = np.nan
                 results['peak_separation_intensity'] = np.nan
                 results['peak_fusion_indicator'] = np.nan
-
         if is_probe_date and pd.isna(close_price):
             print(f"    -> [静态结构探针] @ {trade_date}: 'close_price' 缺失。")
         if is_probe_date and results.get('dominant_peak_cost', np.nan) <= 0:
@@ -974,7 +982,6 @@ class ChipFeatureCalculator:
             results['dominant_peak_profit_margin'] = (close_price / results['dominant_peak_cost'] - 1) * 100
         else:
             results['dominant_peak_profit_margin'] = np.nan
-
         dominant_peak_cost = results.get('dominant_peak_cost')
         cost_95pct = self.ctx.get('cost_95pct')
         cost_5pct = self.ctx.get('cost_5pct')
@@ -988,7 +995,6 @@ class ChipFeatureCalculator:
             print(f"    -> [静态结构探针] @ {trade_date}: 'close_price' 缺失。")
         if is_probe_date and pd.notna(close_price) and close_price <= 0:
             print(f"    -> [静态结构探针] @ {trade_date}: 'close_price' 为 {close_price}。")
-
         if pd.notna(dominant_peak_cost) and pd.notna(cost_95pct) and pd.notna(cost_5pct) and pd.notna(close_price) and close_price > 0:
             peak_zone_low = dominant_peak_cost * 0.995
             peak_zone_high = dominant_peak_cost * 1.005
@@ -1009,7 +1015,6 @@ class ChipFeatureCalculator:
                 results['dominant_peak_solidity'] = np.nan
         else:
             results['dominant_peak_solidity'] = np.nan
-
         # 2. 集中度剖面
         def _get_concentration(chip_df: pd.DataFrame):
             if chip_df.empty or chip_df['percent'].sum() < 1e-6: return np.nan
@@ -1023,7 +1028,6 @@ class ChipFeatureCalculator:
             price_low = np.interp(5, chip_df['cum_percent'], chip_df['price'])
             price_high = np.interp(95, chip_df['cum_percent'], chip_df['price'])
             return (price_high - price_low) / avg_cost
-
         if is_probe_date and pd.isna(close_price):
             print(f"    -> [静态结构探针] @ {trade_date}: 'close_price' 缺失。")
         if pd.notna(close_price):
@@ -1032,7 +1036,6 @@ class ChipFeatureCalculator:
         else:
             results['winner_concentration_90pct'] = np.nan
             results['loser_concentration_90pct'] = np.nan
-
         # 3. 动态压力支撑 (升级为力矩模型)
         if is_probe_date and pd.isna(close_price):
             print(f"    -> [静态结构探针] @ {trade_date}: 'close_price' 缺失。")
@@ -1040,7 +1043,6 @@ class ChipFeatureCalculator:
             print(f"    -> [静态结构探针] @ {trade_date}: 'atr_14d' 缺失。")
         if is_probe_date and atr_14d <= 0:
             print(f"    -> [静态结构探针] @ {trade_date}: 'atr_14d' 为 {atr_14d}。")
-
         if pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             zone_width = 0.5 * atr_14d
             pressure_df = self.df[(self.df['price'] > close_price) & (self.df['price'] <= close_price + zone_width)]
@@ -1062,7 +1064,6 @@ class ChipFeatureCalculator:
         else:
             results['dynamic_pressure_index'] = np.nan
             results['dynamic_support_index'] = np.nan
-
         # 4. 盈亏结构
         if is_probe_date and pd.isna(close_price):
             print(f"    -> [静态结构探针] @ {trade_date}: 'close_price' 缺失。")
@@ -1071,7 +1072,6 @@ class ChipFeatureCalculator:
             losers_df = self.df[self.df['price'] > close_price]
             results['total_winner_rate'] = winners_df['percent'].sum()
             results['total_loser_rate'] = losers_df['percent'].sum()
-
             if is_probe_date and winners_df.empty:
                 print(f"    -> [静态结构探针] @ {trade_date}: 'winners_df' 为空。")
             if is_probe_date and winners_df['percent'].sum() <= 0:
@@ -1096,7 +1096,6 @@ class ChipFeatureCalculator:
             else:
                 results['winner_profit_margin_avg'] = np.nan
                 results['effective_winner_rate'] = np.nan
-
             if is_probe_date and losers_df.empty:
                 print(f"    -> [静态结构探针] @ {trade_date}: 'losers_df' 为空。")
             if is_probe_date and losers_df['percent'].sum() <= 0:
@@ -1109,12 +1108,10 @@ class ChipFeatureCalculator:
                 else: results['loser_loss_margin_avg'] = np.nan
             else:
                 results['loser_loss_margin_avg'] = np.nan
-
             if is_probe_date and pd.isna(atr_14d):
                 print(f"    -> [静态结构探针] @ {trade_date}: 'atr_14d' 缺失。")
             if is_probe_date and atr_14d <= 0:
                 print(f"    -> [静态结构探针] @ {trade_date}: 'atr_14d' 为 {atr_14d}。")
-
             if pd.notna(atr_14d) and atr_14d > 0:
                 active_winner_mask = (self.df['price'] < close_price) & (self.df['price'] >= close_price - 2 * atr_14d)
                 results['active_winner_rate'] = self.df[active_winner_mask]['percent'].sum()
@@ -1123,7 +1120,6 @@ class ChipFeatureCalculator:
             else:
                 results['active_winner_rate'] = np.nan
                 results['active_loser_rate'] = np.nan
-
             locked_profit_mask = (self.df['price'] < close_price) & (~active_winner_mask if pd.notna(atr_14d) else (self.df['price'] < close_price))
             results['locked_profit_rate'] = self.df[locked_profit_mask]['percent'].sum()
             locked_loss_mask = (self.df['price'] > close_price) & (~active_loser_mask if pd.notna(atr_14d) else (self.df['price'] > close_price))
@@ -1138,7 +1134,6 @@ class ChipFeatureCalculator:
             results['active_loser_rate'] = np.nan
             results['locked_profit_rate'] = np.nan
             results['locked_loss_rate'] = np.nan
-
         # 5. 断层动态 (鲁棒性优化)
         peak_cost = results.get('dominant_peak_cost')
         results['chip_fault_blockage_ratio'] = np.nan
@@ -1150,7 +1145,6 @@ class ChipFeatureCalculator:
             print(f"    -> [静态结构探针] @ {trade_date}: 'atr_14d' 缺失。")
         if is_probe_date and atr_14d <= 0:
             print(f"    -> [静态结构探针] @ {trade_date}: 'atr_14d' 为 {atr_14d}。")
-
         if pd.notna(peak_cost) and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             magnitude = (close_price - peak_cost) / atr_14d
             results['chip_fault_magnitude'] = magnitude
@@ -1165,7 +1159,6 @@ class ChipFeatureCalculator:
         else:
             results['chip_fault_magnitude'] = np.nan
             results['chip_fault_blockage_ratio'] = np.nan
-
         # 6. 分层成本
         high_20d = self.ctx.get('high_20d')
         low_20d = self.ctx.get('low_20d')
@@ -1173,12 +1166,10 @@ class ChipFeatureCalculator:
             print(f"    -> [静态结构探针] @ {trade_date}: 'high_20d' 缺失。")
         if is_probe_date and pd.isna(low_20d):
             print(f"    -> [静态结构探针] @ {trade_date}: 'low_20d' 缺失。")
-
         if pd.notna(high_20d) and pd.notna(low_20d):
             active_zone_mask = (self.df['price'] >= low_20d) & (self.df['price'] <= high_20d)
             short_term_chips_df = self.df[active_zone_mask]
             long_term_chips_df = self.df[~active_zone_mask]
-
             if is_probe_date and short_term_chips_df.empty:
                 print(f"    -> [静态结构探针] @ {trade_date}: 'short_term_chips_df' 为空。")
             if is_probe_date and short_term_chips_df['percent'].sum() <= 0:
@@ -1189,7 +1180,6 @@ class ChipFeatureCalculator:
             else:
                 results['short_term_holder_cost'] = np.nan
                 results['short_term_concentration_90pct'] = np.nan
-
             if is_probe_date and long_term_chips_df.empty:
                 print(f"    -> [静态结构探针] @ {trade_date}: 'long_term_chips_df' 为空。")
             if is_probe_date and long_term_chips_df['percent'].sum() <= 0:
@@ -1205,13 +1195,11 @@ class ChipFeatureCalculator:
             results['short_term_concentration_90pct'] = np.nan
             results['long_term_holder_cost'] = np.nan
             results['long_term_concentration_90pct'] = np.nan
-
         # 7. 盈利亏损质量分析
         if is_probe_date and self.df.empty:
             print(f"    -> [静态结构探针] @ {trade_date}: 'self.df' (筹码分布) 为空。")
         if is_probe_date and pd.isna(close_price):
             print(f"    -> [静态结构探针] @ {trade_date}: 'close_price' 缺失。")
-
         if not self.df.empty and pd.notna(close_price):
             winners_df_quality = self.df[self.df['price'] < close_price].copy()
             if is_probe_date and winners_df_quality.empty:
@@ -1232,7 +1220,6 @@ class ChipFeatureCalculator:
                     results['winner_profit_cushion'] = np.nan
             else:
                 results['winner_profit_cushion'] = np.nan
-
             losers_df_quality = self.df[self.df['price'] > close_price].copy()
             if is_probe_date and losers_df_quality.empty:
                 print(f"    -> [静态结构探针] @ {trade_date}: 'losers_df_quality' 为空。")
@@ -1254,38 +1241,29 @@ class ChipFeatureCalculator:
         else:
             results['winner_profit_cushion'] = np.nan
             results['loser_pain_index'] = np.nan
-
         # 新增：profit_realization_quality
-        if is_probe_date and pd.isna(results['winner_profit_margin_avg']):
-            print(f"    -> [静态结构探针] @ {trade_date}: 'winner_profit_margin_avg' 缺失。")
-        if is_probe_date and pd.isna(results['total_winner_rate']):
-            print(f"    -> [静态结构探针] @ {trade_date}: 'total_winner_rate' 缺失。")
-        if is_probe_date and pd.isna(self.ctx.get('profit_taking_flow_ratio')):
-            print(f"    -> [静态结构探针] @ {trade_date}: 'profit_taking_flow_ratio' 缺失。")
-
         winner_profit_margin_avg = results.get('winner_profit_margin_avg')
         total_winner_rate = results.get('total_winner_rate')
         profit_taking_flow_ratio = self.ctx.get('profit_taking_flow_ratio') # 从 context 获取
-
-        if pd.notna(winner_profit_margin_avg) and pd.notna(total_winner_rate) and pd.notna(profit_taking_flow_ratio):
-            # 获利盘兑现质量 = (平均利润率 * 获利盘比例) / 获利盘兑现流量比例
-            # 越高表示获利盘兑现越有序，对价格冲击越小
-            if profit_taking_flow_ratio > 0:
-                results['profit_realization_quality'] = (winner_profit_margin_avg * (total_winner_rate / 100)) / (profit_taking_flow_ratio / 100)
-            else:
-                results['profit_realization_quality'] = np.nan # 无获利盘兑现，无法衡量质量
+        if is_probe_date and pd.isna(winner_profit_margin_avg):
+            print(f"    -> [静态结构探针] @ {trade_date}: 'winner_profit_margin_avg' 缺失。")
+        if is_probe_date and pd.isna(total_winner_rate):
+            print(f"    -> [静态结构探针] @ {trade_date}: 'total_winner_rate' 缺失。")
+        if is_probe_date and pd.isna(profit_taking_flow_ratio):
+            print(f"    -> [静态结构探针] @ {trade_date}: 'profit_taking_flow_ratio' 缺失。")
+        if is_probe_date and profit_taking_flow_ratio <= 0:
+            print(f"    -> [静态结构探针] @ {trade_date}: 'profit_taking_flow_ratio' 为 {profit_taking_flow_ratio}。")
+        if pd.notna(winner_profit_margin_avg) and pd.notna(total_winner_rate) and pd.notna(profit_taking_flow_ratio) and profit_taking_flow_ratio > 0:
+            results['profit_realization_quality'] = (winner_profit_margin_avg * (total_winner_rate / 100)) / (profit_taking_flow_ratio / 100)
         else:
             results['profit_realization_quality'] = np.nan
-
         # 8. 成本分布形态分析
         results['cost_structure_skewness'] = self._calculate_cost_structure_skewness(self.ctx)
-
         # 9. 结构稳定性评估
         concentration_70pct = self.ctx.get('concentration_70pct')
         total_winner_rate_stability = results.get('total_winner_rate')
         winner_profit_cushion_stability = results.get('winner_profit_cushion')
         dominant_peak_profit_margin_stability = results.get('dominant_peak_profit_margin')
-
         if is_probe_date and pd.isna(concentration_70pct):
             print(f"    -> [静态结构探针] @ {trade_date}: 'concentration_70pct' 缺失。")
         if is_probe_date and pd.isna(total_winner_rate_stability):
@@ -1294,7 +1272,6 @@ class ChipFeatureCalculator:
             print(f"    -> [静态结构探针] @ {trade_date}: 'winner_profit_cushion' 缺失。")
         if is_probe_date and pd.isna(dominant_peak_profit_margin_stability):
             print(f"    -> [静态结构探针] @ {trade_date}: 'dominant_peak_profit_margin' 缺失。")
-
         if pd.notna(concentration_70pct) and pd.notna(total_winner_rate_stability) and pd.notna(winner_profit_cushion_stability) and pd.notna(dominant_peak_profit_margin_stability):
             concentration_score = np.exp(-5 * np.clip(concentration_70pct, 0, None))
             winner_rate_score = total_winner_rate_stability / 100.0
@@ -1311,13 +1288,11 @@ class ChipFeatureCalculator:
                 results['structural_stability_score'] = np.nan
         else:
             results['structural_stability_score'] = np.nan
-
         # 10. 近期套牢盘压力
         recent_5d_high = self.ctx.get('high_5d')
         recent_5d_low = self.ctx.get('low_5d')
         turnover_vol_5d = self.ctx.get('turnover_vol_5d')
         total_chip_volume = self.ctx.get('total_chip_volume', np.nan)
-
         if is_probe_date and pd.isna(recent_5d_high):
             print(f"    -> [静态结构探针] @ {trade_date}: 'high_5d' 缺失。")
         if is_probe_date and pd.isna(recent_5d_low):
@@ -1332,7 +1307,6 @@ class ChipFeatureCalculator:
             print(f"    -> [静态结构探针] @ {trade_date}: 'total_chip_volume' 缺失。")
         if is_probe_date and total_chip_volume <= 0:
             print(f"    -> [静态结构探针] @ {trade_date}: 'total_chip_volume' 为 {total_chip_volume}。")
-
         if pd.notna(recent_5d_high) and pd.notna(recent_5d_low) and pd.notna(turnover_vol_5d) and turnover_vol_5d > 0 and pd.notna(close_price) and pd.notna(total_chip_volume) and total_chip_volume > 0:
             trapped_mask = (self.df['price'] > close_price) & (self.df['price'] >= recent_5d_low) & (self.df['price'] <= recent_5d_high)
             recent_trapped_percent = self.df[trapped_mask]['percent'].sum()
@@ -1340,7 +1314,6 @@ class ChipFeatureCalculator:
             results['recent_trapped_pressure'] = (recent_trapped_vol / turnover_vol_5d) * 100
         else:
             results['recent_trapped_pressure'] = np.nan
-
         # 11. 潜在获利盘供给
         if is_probe_date and pd.isna(close_price):
             print(f"    -> [静态结构探针] @ {trade_date}: 'close_price' 缺失。")
@@ -1349,60 +1322,231 @@ class ChipFeatureCalculator:
             results['imminent_profit_taking_supply'] = self.df[imminent_supply_mask]['percent'].sum()
         else:
             results['imminent_profit_taking_supply'] = np.nan
-
         # 12. 价格成交量熵 (新增)
         intraday_df = self.ctx.get('processed_intraday_df')
         daily_high = self.ctx.get('high_price')
         daily_low = self.ctx.get('low_price')
         total_daily_volume = self.ctx.get('daily_turnover_volume')
         results['price_volume_entropy'] = self._calculate_price_volume_entropy(intraday_df, daily_high, daily_low, total_daily_volume)
+        # 新增：active_buying_support 和 active_selling_pressure
+        if is_probe_date and intraday_df is None:
+            print(f"    -> [静态结构探针] @ {trade_date}: 'intraday_df' 为 None，无法计算主动买卖支撑/压力。")
+        if is_probe_date and intraday_df.empty:
+            print(f"    -> [静态结构探针] @ {trade_date}: 'intraday_df' 为空，无法计算主动买卖支撑/压力。")
+        if is_probe_date and 'buy_vol_raw' not in intraday_df.columns:
+            print(f"    -> [静态结构探针] @ {trade_date}: 'intraday_df' 缺少 'buy_vol_raw' 列。")
+        if is_probe_date and 'sell_vol_raw' not in intraday_df.columns:
+            print(f"    -> [静态结构探针] @ {trade_date}: 'intraday_df' 缺少 'sell_vol_raw' 列。")
+        if is_probe_date and total_daily_volume <= 0:
+            print(f"    -> [静态结构探针] @ {trade_date}: 'total_daily_volume' 为 {total_daily_volume}。")
+        if not intraday_df.empty and 'buy_vol_raw' in intraday_df.columns and 'sell_vol_raw' in intraday_df.columns and total_daily_volume > 0:
+            total_buy_vol_intraday = intraday_df['buy_vol_raw'].sum()
+            total_sell_vol_intraday = intraday_df['sell_vol_raw'].sum()
+            results['active_buying_support'] = (total_buy_vol_intraday / total_daily_volume) * 100
+            results['active_selling_pressure'] = (total_sell_vol_intraday / total_daily_volume) * 100
+        else:
+            results['active_buying_support'] = np.nan
+            results['active_selling_pressure'] = np.nan
         return results
 
     def _compute_intraday_dynamics_metrics(self, ctx: dict) -> dict:
-        """
-        【V1.13 · 日内数据键名修复版】计算日内动态指标。
-        - 核心修复: 修正调试信息中对 `stock_code` 属性的访问方式，从 `self.stock_code` 改为 `ctx.get('stock_code')`。
-        - 核心修复: 使用 `ctx.get()` 安全访问 `processed_intraday_df`，避免 `KeyError`。
-        - 核心修复: 确保 `intraday_df` 始终为 DataFrame 类型，即使数据缺失也能正常处理。
-        """
-        # 调试信息: 打印 ctx 字典的键，以帮助诊断问题
-        # 修正 stock_code 的访问方式
-        # 将 'minute_data_for_day' 替换为 'processed_intraday_df'
+        results = {}
+        trade_date = ctx.get('trade_date', 'UNKNOWN')
+        debug_params = ctx.get('debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        is_probe_date = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
+            if probe_date_naive == trade_date:
+                is_probe_date = True
         intraday_df = ctx.get('processed_intraday_df', pd.DataFrame())
-        if intraday_df.empty:
-            print(f"调试信息: [{ctx.get('stock_code', 'UNKNOWN')}] _compute_intraday_dynamics_metrics - processed_intraday_df 为空，跳过计算。")
-            return {}
-        metrics = {}
-        # 确保索引是 DatetimeIndex
-        if not isinstance(intraday_df.index, pd.DatetimeIndex):
-            logger.error(f"[{ctx.get('stock_code', 'UNKNOWN')}] 日内数据索引不是 DatetimeIndex，无法计算日内动态指标。")
-            return {}
-        # 使用 intraday_df.index 访问时间
+        daily_high = ctx.get('high_price')
+        daily_low = ctx.get('low_price')
+        daily_open = ctx.get('open_price')
+        daily_close = ctx.get('close_price')
+        pre_close = ctx.get('pre_close')
+        atr_14d = ctx.get('atr_14d')
+        total_daily_volume = ctx.get('daily_turnover_volume')
+        results['opening_30min_vol_ratio'] = np.nan
+        results['opening_30min_range_ratio'] = np.nan
+        results['opening_30min_vwap_change'] = np.nan
+        results['closing_30min_vol_ratio'] = np.nan
+        results['closing_30min_range_ratio'] = np.nan
+        results['closing_30min_vwap_change'] = np.nan
+        results['intraday_volatility'] = np.nan
+        results['intraday_volume_skew'] = np.nan
+        results['intraday_trend_persistence'] = np.nan
+        results['intraday_reversal_strength'] = np.nan
+        results['vwap_close_deviation'] = np.nan
+        results['close_to_range_ratio'] = np.nan
+        results['opening_gap_defense_strength'] = np.nan # 新增
+        results['upward_impulse_purity'] = np.nan # 新增
+        if is_probe_date and intraday_df.empty:
+            print(f"    -> [日内动态探针] @ {trade_date}: 'intraday_df' 为空，跳过计算。")
+            return results
+        # Opening 30min metrics
         opening_30min_df = intraday_df[intraday_df.index.time < pd.to_datetime('10:00').time()]
+        if is_probe_date and opening_30min_df.empty:
+            print(f"    -> [日内动态探针] @ {trade_date}: 'opening_30min_df' 为空。")
         if not opening_30min_df.empty:
-            metrics['opening_30min_vol_ratio'] = opening_30min_df['vol_shares'].sum() / intraday_df['vol_shares'].sum()
-            metrics['opening_30min_range_ratio'] = (opening_30min_df['high'].max() - opening_30min_df['low'].min()) / (intraday_df['high'].max() - intraday_df['low'].min())
-            metrics['opening_30min_vwap_change'] = (opening_30min_df['minute_vwap'].iloc[-1] - opening_30min_df['minute_vwap'].iloc[0]) / opening_30min_df['minute_vwap'].iloc[0]
-        # 使用 intraday_df.index 访问时间
+            if is_probe_date and total_daily_volume <= 0:
+                print(f"    -> [日内动态探针] @ {trade_date}: 'total_daily_volume' 为 {total_daily_volume}。")
+            if total_daily_volume > 0:
+                results['opening_30min_vol_ratio'] = opening_30min_df['vol_shares'].sum() / total_daily_volume
+            else:
+                results['opening_30min_vol_ratio'] = np.nan
+            if is_probe_date and pd.isna(daily_high):
+                print(f"    -> [日内动态探针] @ {trade_date}: 'daily_high' 缺失。")
+            if is_probe_date and pd.isna(daily_low):
+                print(f"    -> [日内动态探针] @ {trade_date}: 'daily_low' 缺失。")
+            if pd.notna(daily_high) and pd.notna(daily_low) and (daily_high - daily_low) > 0:
+                results['opening_30min_range_ratio'] = (opening_30min_df['high'].max() - opening_30min_df['low'].min()) / (daily_high - daily_low)
+            else:
+                results['opening_30min_range_ratio'] = np.nan
+            if is_probe_date and opening_30min_df['minute_vwap'].iloc[0] <= 0:
+                print(f"    -> [日内动态探针] @ {trade_date}: 'opening_30min_df' 的 'minute_vwap' 初始值非正。")
+            if opening_30min_df['minute_vwap'].iloc[0] > 0:
+                results['opening_30min_vwap_change'] = (opening_30min_df['minute_vwap'].iloc[-1] - opening_30min_df['minute_vwap'].iloc[0]) / opening_30min_df['minute_vwap'].iloc[0]
+            else:
+                results['opening_30min_vwap_change'] = np.nan
+        # Closing 30min metrics
         closing_30min_df = intraday_df[intraday_df.index.time >= pd.to_datetime('14:30').time()]
+        if is_probe_date and closing_30min_df.empty:
+            print(f"    -> [日内动态探针] @ {trade_date}: 'closing_30min_df' 为空。")
         if not closing_30min_df.empty:
-            metrics['closing_30min_vol_ratio'] = closing_30min_df['vol_shares'].sum() / intraday_df['vol_shares'].sum()
-            metrics['closing_30min_range_ratio'] = (closing_30min_df['high'].max() - closing_30min_df['low'].min()) / (intraday_df['high'].max() - intraday_df['low'].min())
-            metrics['closing_30min_vwap_change'] = (closing_30min_df['minute_vwap'].iloc[-1] - closing_30min_df['minute_vwap'].iloc[0]) / closing_30min_df['minute_vwap'].iloc[0]
-        # 计算日内波动率
-        metrics['intraday_volatility'] = intraday_df['minute_vwap'].std() / intraday_df['minute_vwap'].mean()
-        # 计算日内成交量分布的偏度
-        metrics['intraday_volume_skew'] = intraday_df['vol_shares'].skew()
-        # 计算日内价格趋势的持续性
+            if is_probe_date and total_daily_volume <= 0:
+                print(f"    -> [日内动态探针] @ {trade_date}: 'total_daily_volume' 为 {total_daily_volume}。")
+            if total_daily_volume > 0:
+                results['closing_30min_vol_ratio'] = closing_30min_df['vol_shares'].sum() / total_daily_volume
+            else:
+                results['closing_30min_vol_ratio'] = np.nan
+            if is_probe_date and pd.isna(daily_high):
+                print(f"    -> [日内动态探针] @ {trade_date}: 'daily_high' 缺失。")
+            if is_probe_date and pd.isna(daily_low):
+                print(f"    -> [日内动态探针] @ {trade_date}: 'daily_low' 缺失。")
+            if pd.notna(daily_high) and pd.notna(daily_low) and (daily_high - daily_low) > 0:
+                results['closing_30min_range_ratio'] = (closing_30min_df['high'].max() - closing_30min_df['low'].min()) / (daily_high - daily_low)
+            else:
+                results['closing_30min_range_ratio'] = np.nan
+            if is_probe_date and closing_30min_df['minute_vwap'].iloc[0] <= 0:
+                print(f"    -> [日内动态探针] @ {trade_date}: 'closing_30min_df' 的 'minute_vwap' 初始值非正。")
+            if closing_30min_df['minute_vwap'].iloc[0] > 0:
+                results['closing_30min_vwap_change'] = (closing_30min_df['minute_vwap'].iloc[-1] - closing_30min_df['minute_vwap'].iloc[0]) / closing_30min_df['minute_vwap'].iloc[0]
+            else:
+                results['closing_30min_vwap_change'] = np.nan
+        # Intraday volatility
+        if is_probe_date and intraday_df['minute_vwap'].mean() <= 0:
+            print(f"    -> [日内动态探针] @ {trade_date}: 'intraday_df' 的 'minute_vwap' 均值非正。")
+        if intraday_df['minute_vwap'].mean() > 0:
+            results['intraday_volatility'] = intraday_df['minute_vwap'].std() / intraday_df['minute_vwap'].mean()
+        else:
+            results['intraday_volatility'] = np.nan
+        # Intraday volume skew
+        results['intraday_volume_skew'] = intraday_df['vol_shares'].skew()
+        # Intraday trend persistence
         price_diff = intraday_df['minute_vwap'].diff().dropna()
-        metrics['intraday_trend_persistence'] = (price_diff > 0).sum() / len(price_diff) if len(price_diff) > 0 else 0.5
-        # 计算日内价格反转强度
-        metrics['intraday_reversal_strength'] = (intraday_df['close'].iloc[-1] - intraday_df['open'].iloc[0]) / (intraday_df['high'].max() - intraday_df['low'].min())
-        # 计算日内成交量加权平均价（VWAP）与收盘价的偏离
-        metrics['vwap_close_deviation'] = (intraday_df['close'].iloc[-1] - intraday_df['minute_vwap'].mean()) / intraday_df['minute_vwap'].mean()
-        # 计算日内高低点与收盘价的相对位置
-        metrics['close_to_range_ratio'] = (intraday_df['close'].iloc[-1] - intraday_df['low'].min()) / (intraday_df['high'].max() - intraday_df['low'].min())
-        return metrics
+        if is_probe_date and len(price_diff) == 0:
+            print(f"    -> [日内动态探针] @ {trade_date}: 'price_diff' 为空。")
+        if len(price_diff) > 0:
+            results['intraday_trend_persistence'] = (price_diff > 0).sum() / len(price_diff)
+        else:
+            results['intraday_trend_persistence'] = np.nan
+        # Intraday reversal strength
+        if is_probe_date and pd.isna(daily_close):
+            print(f"    -> [日内动态探针] @ {trade_date}: 'daily_close' 缺失。")
+        if is_probe_date and pd.isna(daily_open):
+            print(f"    -> [日内动态探针] @ {trade_date}: 'daily_open' 缺失。")
+        if is_probe_date and pd.isna(daily_high):
+            print(f"    -> [日内动态探针] @ {trade_date}: 'daily_high' 缺失。")
+        if is_probe_date and pd.isna(daily_low):
+            print(f"    -> [日内动态探针] @ {trade_date}: 'daily_low' 缺失。")
+        if pd.notna(daily_close) and pd.notna(daily_open) and pd.notna(daily_high) and pd.notna(daily_low) and (daily_high - daily_low) > 0:
+            results['intraday_reversal_strength'] = (daily_close - daily_open) / (daily_high - daily_low)
+        else:
+            results['intraday_reversal_strength'] = np.nan
+        # VWAP close deviation
+        if is_probe_date and pd.isna(daily_close):
+            print(f"    -> [日内动态探针] @ {trade_date}: 'daily_close' 缺失。")
+        if is_probe_date and intraday_df['minute_vwap'].mean() <= 0:
+            print(f"    -> [日内动态探针] @ {trade_date}: 'intraday_df' 的 'minute_vwap' 均值非正。")
+        if pd.notna(daily_close) and intraday_df['minute_vwap'].mean() > 0:
+            results['vwap_close_deviation'] = (daily_close - intraday_df['minute_vwap'].mean()) / intraday_df['minute_vwap'].mean()
+        else:
+            results['vwap_close_deviation'] = np.nan
+        # Close to range ratio
+        if is_probe_date and pd.isna(daily_close):
+            print(f"    -> [日内动态探针] @ {trade_date}: 'daily_close' 缺失。")
+        if is_probe_date and pd.isna(daily_low):
+            print(f"    -> [日内动态探针] @ {trade_date}: 'daily_low' 缺失。")
+        if is_probe_date and pd.isna(daily_high):
+            print(f"    -> [日内动态探针] @ {trade_date}: 'daily_high' 缺失。")
+        if pd.notna(daily_close) and pd.notna(daily_low) and pd.notna(daily_high) and (daily_high - daily_low) > 0:
+            results['close_to_range_ratio'] = (daily_close - daily_low) / (daily_high - daily_low)
+        else:
+            results['close_to_range_ratio'] = np.nan
+        # 新增：opening_gap_defense_strength
+        if is_probe_date and pd.isna(daily_open):
+            print(f"    -> [日内动态探针] @ {trade_date}: 'daily_open' 缺失。")
+        if is_probe_date and pd.isna(pre_close):
+            print(f"    -> [日内动态探针] @ {trade_date}: 'pre_close' 缺失。")
+        if is_probe_date and pd.isna(atr_14d):
+            print(f"    -> [日内动态探针] @ {trade_date}: 'atr_14d' 缺失。")
+        if is_probe_date and atr_14d <= 0:
+            print(f"    -> [日内动态探针] @ {trade_date}: 'atr_14d' 为 {atr_14d}。")
+        if is_probe_date and 'main_force_net_vol' not in intraday_df.columns:
+            print(f"    -> [日内动态探针] @ {trade_date}: 'intraday_df' 缺少 'main_force_net_vol' 列。")
+        if is_probe_date and 'vol_shares' not in intraday_df.columns:
+            print(f"    -> [日内动态探针] @ {trade_date}: 'intraday_df' 缺少 'vol_shares' 列。")
+        if pd.notna(daily_open) and pd.notna(pre_close) and pd.notna(atr_14d) and atr_14d > 0 and 'main_force_net_vol' in intraday_df.columns and 'vol_shares' in intraday_df.columns:
+            gap_size = (daily_open - pre_close) / atr_14d
+            if gap_size > 0: # 向上跳空
+                opening_30min_df = intraday_df[(intraday_df.index.time >= pd.to_datetime('09:30').time()) & (intraday_df.index.time < pd.to_datetime('10:00').time())]
+                if is_probe_date and opening_30min_df.empty:
+                    print(f"    -> [日内动态探针] @ {trade_date}: 'opening_30min_df' 为空。")
+                if not opening_30min_df.empty:
+                    mf_net_flow_opening = opening_30min_df['main_force_net_vol'].sum()
+                    total_vol_opening = opening_30min_df['vol_shares'].sum()
+                    if is_probe_date and total_vol_opening <= 0:
+                        print(f"    -> [日内动态探针] @ {trade_date}: 'total_vol_opening' 为 {total_vol_opening}。")
+                    if total_vol_opening > 0:
+                        defense_ratio = mf_net_flow_opening / total_vol_opening
+                        results['opening_gap_defense_strength'] = defense_ratio * np.log1p(gap_size) * 100
+                    else:
+                        results['opening_gap_defense_strength'] = np.nan
+                else:
+                    results['opening_gap_defense_strength'] = np.nan
+            else: # 向下跳空或无跳空，防守强度为0
+                results['opening_gap_defense_strength'] = 0.0
+        else:
+            results['opening_gap_defense_strength'] = np.nan
+        # 新增：upward_impulse_purity
+        if is_probe_date and pd.isna(daily_close):
+            print(f"    -> [日内动态探针] @ {trade_date}: 'daily_close' 缺失。")
+        if is_probe_date and pd.isna(daily_open):
+            print(f"    -> [日内动态探针] @ {trade_date}: 'daily_open' 缺失。")
+        if is_probe_date and pd.isna(daily_high):
+            print(f"    -> [日内动态探针] @ {trade_date}: 'daily_high' 缺失。")
+        if is_probe_date and pd.isna(daily_low):
+            print(f"    -> [日内动态探针] @ {trade_date}: 'daily_low' 缺失。")
+        if pd.notna(daily_close) and pd.notna(daily_open) and pd.notna(daily_high) and pd.notna(daily_low):
+            if daily_close > daily_open: # 只有上涨日才计算上涨纯粹度
+                up_range = daily_high - max(daily_open, daily_close)
+                down_range = min(daily_open, daily_close) - daily_low
+                total_range = daily_high - daily_low
+                if is_probe_date and total_range <= 0:
+                    print(f"    -> [日内动态探针] @ {trade_date}: 'total_range' 为 {total_range}。")
+                if total_range > 0:
+                    # 纯粹度 = (上涨幅度 - 回撤幅度) / 总振幅
+                    # 简化计算，更精确的需要考虑成交量分布
+                    purity = ((daily_close - daily_open) - (up_range + down_range)) / total_range
+                    results['upward_impulse_purity'] = purity * 100
+                else:
+                    results['upward_impulse_purity'] = np.nan
+            else:
+                results['upward_impulse_purity'] = 0.0 # 非上涨日纯粹度为0
+        else:
+            results['upward_impulse_purity'] = np.nan
+        return results
 
     def _calculate_chip_structure_health_score(self, context: dict) -> dict:
         """
@@ -1634,7 +1778,6 @@ class ChipFeatureCalculator:
             probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
             if probe_date_naive == trade_date:
                 is_probe_date = True
-
         if is_probe_date and intraday_df is None:
             print(f"    -> [价格成交量熵探针] @ {trade_date}: 'intraday_df' 为 None。")
         if is_probe_date and intraday_df.empty:
@@ -1647,43 +1790,34 @@ class ChipFeatureCalculator:
             print(f"    -> [价格成交量熵探针] @ {trade_date}: 'daily_low' 缺失。")
         if is_probe_date and daily_high <= daily_low:
             print(f"    -> [价格成交量熵探针] @ {trade_date}: 'daily_high' ({daily_high}) <= 'daily_low' ({daily_low})，价格范围无效。")
-
         if intraday_df.empty or total_daily_volume <= 0 or pd.isna(daily_high) or pd.isna(daily_low) or daily_high <= daily_low:
             return np.nan
-
         price_range = daily_high - daily_low
         if price_range <= 0.01:
             num_bins = 2
         else:
             num_bins = int(price_range / 0.01) + 1
             num_bins = np.clip(num_bins, 20, 200)
-
         prices = pd.to_numeric(intraday_df['minute_vwap'], errors='coerce')
         volumes = pd.to_numeric(intraday_df['vol_shares'], errors='coerce')
         valid_data = pd.DataFrame({'price': prices, 'volume': volumes}).dropna()
-
         if is_probe_date and valid_data.empty:
             print(f"    -> [价格成交量熵探针] @ {trade_date}: 'valid_data' 为空。")
         if is_probe_date and valid_data['volume'].sum() <= 0:
             print(f"    -> [价格成交量熵探针] @ {trade_date}: 'valid_data' 的 'volume' 总和为 {valid_data['volume'].sum()}。")
-
         if valid_data.empty or valid_data['volume'].sum() <= 0:
             return np.nan
-
         bins = pd.cut(valid_data['price'], bins=num_bins, include_lowest=True, duplicates='drop')
         volume_per_bin = valid_data.groupby(bins)['volume'].sum()
         volume_per_bin = volume_per_bin[volume_per_bin > 0]
-
         if is_probe_date and volume_per_bin.empty:
             print(f"    -> [价格成交量熵探针] @ {trade_date}: 'volume_per_bin' 为空，所有成交量集中在单个价格点或无成交。")
         if volume_per_bin.empty:
             return 0.0
-
         probabilities = volume_per_bin / volume_per_bin.sum()
         shannon_entropy = entropy(probabilities, base=2)
         max_entropy = np.log2(len(volume_per_bin)) if len(volume_per_bin) > 1 else 0
         normalized_entropy = shannon_entropy / max_entropy if max_entropy > 0 else 0.0
-
         if is_probe_date:
             print(f"    -> [价格成交量熵探针] @ {trade_date}: 价格成交量熵计算结果：{normalized_entropy:.4f} (原始熵: {shannon_entropy:.4f}, 箱数: {len(volume_per_bin)})。")
         return normalized_entropy

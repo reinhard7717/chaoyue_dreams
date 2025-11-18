@@ -178,7 +178,6 @@ class ProcessIntelligence:
         self.strategy.atomic_states[f"_DEBUG_Q2_final"] = Q2_final
         self.strategy.atomic_states[f"_DEBUG_Q3_final"] = Q3_final
         self.strategy.atomic_states[f"_DEBUG_Q4_final"] = Q4_final
-
         print(f"    -> [过程层] PROCESS_META_COST_ADVANTAGE_TREND 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
