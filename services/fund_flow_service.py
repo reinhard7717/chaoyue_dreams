@@ -763,7 +763,7 @@ class AdvancedFundFlowMetricsService:
             twap = intraday_data['minute_vwap'].mean()
             if pd.notna(twap) and twap > 0:
                 results['vwap_structure_skew'] = (daily_vwap - twap) / twap * 100
-        # 修改行: 使用 intraday_data.index 访问时间
+        # 使用 intraday_data.index 访问时间
         opening_battle_df = intraday_data[(intraday_data.index.time >= time(9, 30)) & (intraday_data.index.time <= time(9, 45))]
         if not opening_battle_df.empty and len(opening_battle_df) > 1 and pd.notna(atr) and atr > 0:
             price_gain = (opening_battle_df['close'].iloc[-1] - opening_battle_df['open'].iloc[0]) / atr
@@ -847,7 +847,7 @@ class AdvancedFundFlowMetricsService:
             if not mf_net_series.var() == 0 and not retail_net_series.var() == 0 and len(mf_net_series) > 1:
                 rolling_corr = mf_net_series.rolling(window=30).corr(retail_net_series)
                 results['mf_retail_liquidity_swap_corr'] = rolling_corr.mean()
-        # 修改行: 使用 intraday_data.index 访问时间
+        # 使用 intraday_data.index 访问时间
         continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
         if not continuous_trading_df.empty and gatekeeper_condition:
             up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
@@ -873,7 +873,7 @@ class AdvancedFundFlowMetricsService:
                 value_dev_factor = np.tanh((day_close - daily_vwap) / atr)
                 force_balance_factor = intraday_data['main_force_net_vol'].sum() / daily_total_volume if daily_total_volume > 0 else 0
                 results['closing_price_deviation_score'] = (0.5 * range_pos_factor + 0.3 * value_dev_factor + 0.2 * force_balance_factor) * 100
-            # 修改行: 使用 intraday_data.index 访问时间
+            # 使用 intraday_data.index 访问时间
             auction_df = intraday_data[intraday_data.index.time >= time(14, 57)]
             if not auction_df.empty and not continuous_trading_df.empty:
                 pre_auction_close = continuous_trading_df['close'].iloc[-1]
@@ -917,7 +917,7 @@ class AdvancedFundFlowMetricsService:
                 results['rally_distribution_pressure'] = (rally_dist_vol / total_rally_vol) * 100
             if total_panic_vol > 0:
                 results['panic_selling_cascade'] = (panic_vol / total_panic_vol) * 100
-            # 修改行: 使用 intraday_data.index 访问时间
+            # 使用 intraday_data.index 访问时间
             posturing_df = continuous_trading_df[continuous_trading_df.index.time >= time(14, 30)]
             if not posturing_df.empty and pd.notna(daily_vwap) and atr > 0:
                 posturing_vwap = (posturing_df['minute_vwap'] * posturing_df['vol_shares']).sum() / posturing_df['vol_shares'].sum()

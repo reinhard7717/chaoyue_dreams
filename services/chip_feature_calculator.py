@@ -649,107 +649,45 @@ class ChipFeatureCalculator:
         results['price_volume_entropy'] = self._calculate_price_volume_entropy(intraday_df, daily_high, daily_low, total_daily_volume)
         return results
 
-    def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
+    def _compute_intraday_dynamics_metrics(self, ctx: dict) -> dict:
         """
-        【V5.1 · 逐笔数据兼容版】兑现质量增强版。
-        - 核心新增: 使用 `processed_intraday_df` 作为日内数据源。
-        - 核心增强: 为 `profit_realization_quality` 增加备用基准，修复级联失效问题。
+        【V1.10 · 索引访问修正】计算日内动态指标。
+        - 核心修复: 将所有对 `intraday_df['trade_time']` 的引用替换为 `intraday_df.index`。
         """
-        results = {}
-        intraday_df = context.get('processed_intraday_df')
-        total_daily_vol = context.get('daily_turnover_volume')
-        peak_range_low = context.get('peak_range_low')
-        peak_range_high = context.get('peak_range_high')
-        required_cols_1 = ['minute_vwap', 'vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
-        if intraday_df is not None and not intraday_df.empty and all(pd.notna(v) for v in [peak_range_low, peak_range_high, total_daily_vol]) and total_daily_vol > 0 and all(c in intraday_df.columns for c in required_cols_1):
-            peak_zone_mask = (intraday_df['minute_vwap'] >= peak_range_low) & (intraday_df['minute_vwap'] <= peak_range_high)
-            peak_zone_df = intraday_df[peak_zone_mask]
-            if not peak_zone_df.empty:
-                turnover_at_peak = peak_zone_df['vol'].sum()
-                results['peak_battle_intensity'] = (turnover_at_peak / total_daily_vol) * 100
-                if turnover_at_peak > 0:
-                    mf_net_vol_peak = (peak_zone_df['main_force_buy_vol'] - peak_zone_df['main_force_sell_vol']).sum()
-                    results['peak_mf_conviction_flow'] = (mf_net_vol_peak / turnover_at_peak) * 100
-                mf_total_vol_peak = peak_zone_df['main_force_buy_vol'].sum() + peak_zone_df['main_force_sell_vol'].sum()
-                retail_total_vol_peak = peak_zone_df['retail_buy_vol'].sum() + peak_zone_df['retail_sell_vol'].sum()
-                if mf_total_vol_peak > 0 and retail_total_vol_peak > 0:
-                    mf_total_amount_peak = (peak_zone_df['main_force_buy_vol'] * peak_zone_df['minute_vwap']).sum() + (peak_zone_df['main_force_sell_vol'] * peak_zone_df['minute_vwap']).sum()
-                    retail_total_amount_peak = (peak_zone_df['retail_buy_vol'] * peak_zone_df['minute_vwap']).sum() + (peak_zone_df['retail_sell_vol'] * peak_zone_df['minute_vwap']).sum()
-                    vwap_mf_peak = mf_total_amount_peak / mf_total_vol_peak
-                    vwap_retail_peak = retail_total_amount_peak / retail_total_vol_peak
-                    if vwap_retail_peak > 0: results['peak_main_force_premium'] = (vwap_mf_peak / vwap_retail_peak - 1) * 100
-                total_buy_vol_peak = (peak_zone_df['main_force_buy_vol'] + peak_zone_df['retail_buy_vol']).sum()
-                total_sell_vol_peak = (peak_zone_df['main_force_sell_vol'] + peak_zone_df['retail_sell_vol']).sum()
-                if total_buy_vol_peak > 0 and total_sell_vol_peak > 0:
-                    buy_amount_peak = ((peak_zone_df['main_force_buy_vol'] + peak_zone_df['retail_buy_vol']) * peak_zone_df['minute_vwap']).sum()
-                    sell_amount_peak = ((peak_zone_df['main_force_sell_vol'] + peak_zone_df['retail_sell_vol']) * peak_zone_df['minute_vwap']).sum()
-                    buy_vwap_peak = buy_amount_peak / total_buy_vol_peak
-                    sell_vwap_peak = sell_amount_peak / total_sell_vol_peak
-                    if sell_vwap_peak > 0:
-                        results['peak_dynamic_strength_ratio'] = (buy_vwap_peak / sell_vwap_peak - 1) * 100
-        required_cols_2 = ['open', 'close', 'vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
-        if intraday_df is not None and not intraday_df.empty and all(c in intraday_df.columns for c in required_cols_2):
-            offensive_df = intraday_df[intraday_df['close'] > intraday_df['open']]
-            defensive_df = intraday_df[intraday_df['close'] < intraday_df['open']]
-            total_vol_on_rally = offensive_df['vol'].sum()
-            if total_vol_on_rally > 0:
-                total_sell_vol_on_rally = (offensive_df['main_force_sell_vol'] + offensive_df['retail_sell_vol']).sum()
-                results['active_selling_pressure'] = (total_sell_vol_on_rally / total_vol_on_rally) * 100
-            total_vol_on_dip = defensive_df['vol'].sum()
-            if total_vol_on_dip > 0:
-                total_buy_vol_on_dip = (defensive_df['main_force_buy_vol'] + defensive_df['retail_buy_vol']).sum()
-                results['active_buying_support'] = (total_buy_vol_on_dip / total_vol_on_dip) * 100
-        required_cols_3 = ['open', 'close', 'vol', 'main_force_net_vol', 'high', 'low']
-        if intraday_df is not None and not intraday_df.empty and all(c in intraday_df.columns for c in required_cols_3):
-            offensive_df = intraday_df[intraday_df['close'] > intraday_df['open']]
-            if not offensive_df.empty:
-                total_vol_on_rally = offensive_df['vol'].sum()
-                if total_vol_on_rally > 0:
-                    mf_net_vol_on_rally = offensive_df['main_force_net_vol'].sum()
-                    results['upward_impulse_purity'] = (mf_net_vol_on_rally / total_vol_on_rally) * 100
-            pre_close = context.get('pre_close')
-            open_price = context.get('open_price')
-            if pd.notna(pre_close) and pre_close > 0 and pd.notna(open_price):
-                gap = open_price - pre_close
-                if abs(gap) > 1e-6:
-                    opening_30min_df = intraday_df[intraday_df['trade_time'].dt.time < pd.to_datetime('10:00').time()]
-                    if not opening_30min_df.empty:
-                        gap_factor = gap / pre_close
-                        fill_factor = ((open_price - opening_30min_df['low'].min()) / gap) if gap > 0 else ((opening_30min_df['high'].max() - open_price) / abs(gap))
-                        total_vol_30min = opening_30min_df['vol'].sum()
-                        force_factor = opening_30min_df['main_force_net_vol'].sum() / total_vol_30min if total_vol_30min > 0 else 0.0
-                        results['opening_gap_defense_strength'] = gap_factor * (1 - min(1, max(0, fill_factor))) * force_factor * 10000
-                    else: results['opening_gap_defense_strength'] = 0.0
-                else: results['opening_gap_defense_strength'] = 0.0
-        if intraday_df is not None and not intraday_df.empty and total_daily_vol and total_daily_vol > 0 and all(c in intraday_df.columns for c in required_cols_1):
-            high_20d = context.get('high_20d')
-            low_20d = context.get('low_20d')
-            if pd.notna(high_20d) and pd.notna(low_20d):
-                active_zone_mask = (intraday_df['minute_vwap'] >= low_20d) & (intraday_df['minute_vwap'] <= high_20d)
-                active_zone_minutes = intraday_df[active_zone_mask]
-                if not active_zone_minutes.empty:
-                    vol_in_active_zone = active_zone_minutes['vol'].sum()
-                    results['active_zone_combat_intensity'] = (vol_in_active_zone / total_daily_vol) * 100
-                    if vol_in_active_zone > 0:
-                        mf_net_vol_in_active_zone = (active_zone_minutes['main_force_buy_vol'] - active_zone_minutes['main_force_sell_vol']).sum()
-                        results['active_zone_mf_stance'] = (mf_net_vol_in_active_zone / vol_in_active_zone) * 100
-            prev_winner_avg_cost = context.get('prev_winner_avg_cost')
-            pre_close = context.get('pre_close')
-            cost_benchmark = prev_winner_avg_cost if pd.notna(prev_winner_avg_cost) and prev_winner_avg_cost > 0 else pre_close
-            if pd.notna(cost_benchmark) and cost_benchmark > 0:
-                total_sell_vol = (intraday_df['main_force_sell_vol'] + intraday_df['retail_sell_vol']).sum()
-                if total_sell_vol > 0:
-                    total_sell_amount = ((intraday_df['main_force_sell_vol'] + intraday_df['retail_sell_vol']) * intraday_df['minute_vwap']).sum()
-                    sell_vwap = total_sell_amount / total_sell_vol
-                    results['profit_realization_quality'] = (sell_vwap / cost_benchmark - 1) * 100
-            panic_mask = (intraday_df['close'] < intraday_df['open']) & (intraday_df['main_force_net_vol'] < 0)
-            panic_df = intraday_df[panic_mask]
-            if not panic_df.empty:
-                panic_sell_volume = (panic_df['main_force_sell_vol'] + panic_df['retail_sell_vol']).sum()
-                if panic_sell_volume > 0:
-                    mf_absorption_volume = panic_df['main_force_buy_vol'].sum()
-                    results['capitulation_absorption_index'] = (mf_absorption_volume / panic_sell_volume) * 100
-        return results
+        intraday_df = ctx['minute_data_for_day']
+        if intraday_df.empty:
+            return {}
+        metrics = {}
+        # 确保索引是 DatetimeIndex
+        if not isinstance(intraday_df.index, pd.DatetimeIndex):
+            logger.error(f"[{self.stock_code}] 日内数据索引不是 DatetimeIndex，无法计算日内动态指标。")
+            return {}
+        # 使用 intraday_df.index 访问时间
+        opening_30min_df = intraday_df[intraday_df.index.time < pd.to_datetime('10:00').time()]
+        if not opening_30min_df.empty:
+            metrics['opening_30min_vol_ratio'] = opening_30min_df['vol_shares'].sum() / intraday_df['vol_shares'].sum()
+            metrics['opening_30min_range_ratio'] = (opening_30min_df['high'].max() - opening_30min_df['low'].min()) / (intraday_df['high'].max() - intraday_df['low'].min())
+            metrics['opening_30min_vwap_change'] = (opening_30min_df['minute_vwap'].iloc[-1] - opening_30min_df['minute_vwap'].iloc[0]) / opening_30min_df['minute_vwap'].iloc[0]
+        # 使用 intraday_df.index 访问时间
+        closing_30min_df = intraday_df[intraday_df.index.time >= pd.to_datetime('14:30').time()]
+        if not closing_30min_df.empty:
+            metrics['closing_30min_vol_ratio'] = closing_30min_df['vol_shares'].sum() / intraday_df['vol_shares'].sum()
+            metrics['closing_30min_range_ratio'] = (closing_30min_df['high'].max() - closing_30min_df['low'].min()) / (intraday_df['high'].max() - intraday_df['low'].min())
+            metrics['closing_30min_vwap_change'] = (closing_30min_df['minute_vwap'].iloc[-1] - closing_30min_df['minute_vwap'].iloc[0]) / closing_30min_df['minute_vwap'].iloc[0]
+        # 计算日内波动率
+        metrics['intraday_volatility'] = intraday_df['minute_vwap'].std() / intraday_df['minute_vwap'].mean()
+        # 计算日内成交量分布的偏度
+        metrics['intraday_volume_skew'] = intraday_df['vol_shares'].skew()
+        # 计算日内价格趋势的持续性
+        price_diff = intraday_df['minute_vwap'].diff().dropna()
+        metrics['intraday_trend_persistence'] = (price_diff > 0).sum() / len(price_diff) if len(price_diff) > 0 else 0.5
+        # 计算日内价格反转强度
+        metrics['intraday_reversal_strength'] = (intraday_df['close'].iloc[-1] - intraday_df['open'].iloc[0]) / (intraday_df['high'].max() - intraday_df['low'].min())
+        # 计算日内成交量加权平均价（VWAP）与收盘价的偏离
+        metrics['vwap_close_deviation'] = (intraday_df['close'].iloc[-1] - intraday_df['minute_vwap'].mean()) / intraday_df['minute_vwap'].mean()
+        # 计算日内高低点与收盘价的相对位置
+        metrics['close_to_range_ratio'] = (intraday_df['close'].iloc[-1] - intraday_df['low'].min()) / (intraday_df['high'].max() - intraday_df['low'].min())
+        return metrics
 
     def _calculate_chip_structure_health_score(self, context: dict) -> dict:
         """
