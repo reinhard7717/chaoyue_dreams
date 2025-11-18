@@ -315,7 +315,6 @@ class AdvancedChipMetricsService:
                     minute_df_from_ticks.fillna(0, inplace=True)
                     processed_intraday_for_day = self._group_minute_data_from_df(minute_df_from_ticks)
             if processed_intraday_for_day is None and minute_data_map and date_obj in minute_data_map:
-                print(f"调试信息: [{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 使用预加载的分钟数据。")
                 processed_intraday_for_day = self._group_minute_data_from_df(minute_data_map[date_obj])
             if processed_intraday_for_day is not None:
                 intraday_data_map[date_obj] = processed_intraday_for_day

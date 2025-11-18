@@ -267,7 +267,6 @@ class AdvancedFundFlowMetricsService:
                     logger.warning(f"[{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 逐笔数据处理失败: {e}，将尝试回退到分钟数据。")
                     processed_with_tick_data = False
             if not processed_with_tick_data and minute_data_map and date_obj in minute_data_map:
-                print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 使用预加载的分钟数据。")
                 intraday_data_map[date_obj] = self._group_minute_data_from_df(minute_data_map[date_obj])
             elif not processed_with_tick_data:
                 print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 未找到任何预加载的日内数据。")

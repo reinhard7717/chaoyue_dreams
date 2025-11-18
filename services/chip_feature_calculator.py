@@ -633,17 +633,17 @@ class ChipFeatureCalculator:
 
     def _compute_intraday_dynamics_metrics(self, ctx: dict) -> dict:
         """
-        【V1.12 · 属性访问修正】计算日内动态指标。
+        【V1.13 · 日内数据键名修复版】计算日内动态指标。
         - 核心修复: 修正调试信息中对 `stock_code` 属性的访问方式，从 `self.stock_code` 改为 `ctx.get('stock_code')`。
-        - 核心修复: 使用 `ctx.get()` 安全访问 `minute_data_for_day`，避免 `KeyError`。
+        - 核心修复: 使用 `ctx.get()` 安全访问 `processed_intraday_df`，避免 `KeyError`。
         - 核心修复: 确保 `intraday_df` 始终为 DataFrame 类型，即使数据缺失也能正常处理。
         """
         # 调试信息: 打印 ctx 字典的键，以帮助诊断问题
         # 修正 stock_code 的访问方式
-        # 使用 .get() 方法安全访问键，提供默认值 pd.DataFrame()
-        intraday_df = ctx.get('minute_data_for_day', pd.DataFrame())
+        # 修改行: 将 'minute_data_for_day' 替换为 'processed_intraday_df'
+        intraday_df = ctx.get('processed_intraday_df', pd.DataFrame())
         if intraday_df.empty:
-            print(f"调试信息: [{ctx.get('stock_code', 'UNKNOWN')}] _compute_intraday_dynamics_metrics - minute_data_for_day 为空，跳过计算。")
+            print(f"调试信息: [{ctx.get('stock_code', 'UNKNOWN')}] _compute_intraday_dynamics_metrics - processed_intraday_df 为空，跳过计算。")
             return {}
         metrics = {}
         # 确保索引是 DatetimeIndex
