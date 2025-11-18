@@ -393,7 +393,7 @@ class CognitiveIntelligence:
         trend_structure_score = self._get_fused_score('FUSION_BIPOLAR_TREND_STRUCTURE_SCORE', 0.0)
         fund_flow_trend = self._get_fused_score('FUSION_BIPOLAR_FUND_FLOW_TREND', 0.0)
         chip_trend = self._get_fused_score('FUSION_BIPOLAR_CHIP_TREND', 0.0)
-        # 新增代码行: 获取结构共识分
+        # 获取结构共识分
         structural_consensus = self._get_atomic_score('SCORE_CHIP_STRUCTURAL_CONSENSUS', 0.0)
         # 转换为概率 (0-1范围)
         market_regime_prob = (market_regime + 1) / 2
@@ -401,7 +401,7 @@ class CognitiveIntelligence:
         trend_structure_prob = (trend_structure_score + 1) / 2
         fund_flow_trend_prob = (fund_flow_trend + 1) / 2
         chip_trend_prob = (chip_trend + 1) / 2
-        # 新增代码行: 结构共识分本身就是 [0,1] 范围，直接使用
+        # 结构共识分本身就是 [0,1] 范围，直接使用
         structural_consensus_prob = structural_consensus
         # 调整趋势先验概率的权重，引入趋势结构分、资金趋势、筹码趋势和结构共识分
         # 示例权重，需要根据回测优化，确保总和为1
@@ -410,7 +410,7 @@ class CognitiveIntelligence:
         structure_weight = 0.15
         fund_flow_weight = 0.15
         chip_trend_weight = 0.15
-        # 新增代码行: 结构共识分的权重
+        # 结构共识分的权重
         structural_consensus_weight = 0.25
         prior_trend = (
             market_regime_prob * regime_weight +
@@ -418,7 +418,7 @@ class CognitiveIntelligence:
             trend_structure_prob * structure_weight +
             fund_flow_trend_prob * fund_flow_weight +
             chip_trend_prob * chip_trend_weight +
-            # 新增代码行: 将结构共识分纳入先验信念
+            # 将结构共识分纳入先验信念
             structural_consensus_prob * structural_consensus_weight
         ).clip(0, 1)
         states['COGNITIVE_PRIOR_TREND_PROB'] = prior_trend.astype(np.float32)
@@ -434,14 +434,14 @@ class CognitiveIntelligence:
                 print(f"       - 趋势结构分 (trend_structure_score): {trend_structure_score.loc[probe_date]:.4f}")
                 print(f"       - 资金趋势分 (fund_flow_trend): {fund_flow_trend.loc[probe_date]:.4f}")
                 print(f"       - 筹码趋势分 (chip_trend): {chip_trend.loc[probe_date]:.4f}")
-                # 新增代码行: 打印结构共识分
+                # 打印结构共识分
                 print(f"       - 结构共识分 (structural_consensus): {structural_consensus.loc[probe_date]:.4f}")
                 print(f"       - 市场政权概率 (market_regime_prob): {market_regime_prob.loc[probe_date]:.4f}")
                 print(f"       - 趋势质量概率 (trend_quality_prob): {trend_quality_prob.loc[probe_date]:.4f}")
                 print(f"       - 趋势结构概率 (trend_structure_prob): {trend_structure_prob.loc[probe_date]:.4f}")
                 print(f"       - 资金趋势概率 (fund_flow_trend_prob): {fund_flow_trend_prob.loc[probe_date]:.4f}")
                 print(f"       - 筹码趋势概率 (chip_trend_prob): {chip_trend_prob.loc[probe_date]:.4f}")
-                # 新增代码行: 打印结构共识概率
+                # 打印结构共识概率
                 print(f"       - 结构共识概率 (structural_consensus_prob): {structural_consensus_prob.loc[probe_date]:.4f}")
                 print(f"       - 最终趋势先验概率 (prior_trend): {prior_trend.loc[probe_date]:.4f}")
         market_pressure = self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
@@ -606,12 +606,12 @@ class CognitiveIntelligence:
         sector_sync = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_STOCK_SECTOR_SYNC', 0.0).clip(lower=0))
         relative_strength = self._forge_dynamic_evidence(normalize_score(self._get_atomic_score('industry_strength_rank_D', 0.5), self.strategy.df_indicators.index, 55))
         bazhan_mode = self._forge_dynamic_evidence(self._get_atomic_score('IS_BAZHAN_D', 0.0).astype(float))
-        # 新增代码行: 获取结构共识分并锻造成动态证据
+        # 获取结构共识分并锻造成动态证据
         structural_consensus_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_STRUCTURAL_CONSENSUS', 0.0))
         evidence_scores = np.stack([
             capital_confrontation.values, breakout_quality.values, sector_sync.values,
             relative_strength.values, bazhan_mode.values,
-            # 新增代码行: 将结构共识分作为证据
+            # 将结构共识分作为证据
             structural_consensus_evidence.values
         ], axis=0)
         # 调整权重，为结构共识分分配适当权重
@@ -1477,7 +1477,7 @@ class CognitiveIntelligence:
         stealth_accumulation_process = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_STEALTH_ACCUMULATION', 0.0))
         cost_advantage_trend_positive = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_COST_ADVANTAGE_TREND', 0.0).clip(lower=0))
         loser_capitulation_process = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_LOSER_CAPITULATION', 0.0))
-        # 新增代码行: 获取结构共识分并锻造成动态证据
+        # 获取结构共识分并锻造成动态证据
         structural_consensus_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_STRUCTURAL_CONSENSUS', 0.0))
         evidence_scores = np.stack([
             downward_momentum_decay.values,
@@ -1490,7 +1490,7 @@ class CognitiveIntelligence:
             stealth_accumulation_process.values,
             cost_advantage_trend_positive.values,
             loser_capitulation_process.values,
-            # 新增代码行: 将结构共识分作为证据
+            # 将结构共识分作为证据
             structural_consensus_evidence.values
         ], axis=0)
         # 证据权重分配 (需要根据回测优化，这里给出初始示例)
@@ -1505,7 +1505,7 @@ class CognitiveIntelligence:
             0.08, # stealth_accumulation_process
             0.04, # cost_advantage_trend_positive
             0.05, # loser_capitulation_process
-            # 新增代码行: 结构共识分的权重
+            # 结构共识分的权重
             0.20
         ])
         evidence_weights /= evidence_weights.sum()
@@ -1542,7 +1542,7 @@ class CognitiveIntelligence:
         # 4. 买盘承接证据
         dip_absorption_power = self._forge_dynamic_evidence(self._get_atomic_score('dip_absorption_power_D', 0.0))
         buying_support_increasing = self._forge_dynamic_evidence(self._get_atomic_score('SLOPE_5_active_buying_support_D', 0.0).clip(lower=0))
-        # 新增代码行: 获取结构共识分并锻造成动态证据
+        # 获取结构共识分并锻造成动态证据
         structural_consensus_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_STRUCTURAL_CONSENSUS', 0.0))
         evidence_scores = np.stack([
             price_weak_or_stable_context.values,
@@ -1551,7 +1551,7 @@ class CognitiveIntelligence:
             selling_pressure_decreasing.values,
             dip_absorption_power.values,
             buying_support_increasing.values,
-            # 新增代码行: 将结构共识分作为证据
+            # 将结构共识分作为证据
             structural_consensus_evidence.values
         ], axis=0)
         # 证据权重分配
@@ -1562,7 +1562,7 @@ class CognitiveIntelligence:
             0.12, # selling_pressure_decreasing (确认证据)
             0.20, # dip_absorption_power (核心证据)
             0.12, # buying_support_increasing (确认证据)
-            # 新增代码行: 结构共识分的权重
+            # 结构共识分的权重
             0.20
         ])
         evidence_weights /= evidence_weights.sum()

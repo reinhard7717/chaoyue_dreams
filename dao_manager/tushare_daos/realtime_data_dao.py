@@ -48,8 +48,8 @@ class StockRealtimeDAO(BaseDAO):
                 raise ConnectionError("Tushare Pro API 初始化失败，返回 None。")
         except Exception as e:
             logger.critical(f"Tushare 库初始化失败，可能是 token 文件问题或网络问题: {e}", exc_info=True)
-            self.ts = None # 修改代码行: 初始化失败时，将 ts 设置为 None
-            self.pro = None # 修改代码行: 初始化失败时，将 pro 设置为 None
+            self.ts = None # 初始化失败时，将 ts 设置为 None
+            self.pro = None # 初始化失败时，将 pro 设置为 None
 
     # =================================================================
     # =================== 真实逐笔数据 (Tick Data) 核心接口 =============
@@ -94,16 +94,16 @@ class StockRealtimeDAO(BaseDAO):
                 payload_for_model = group_df[final_cols].to_dict('records')
                 if payload_for_model:
                     db_tasks.append(self._save_all_to_db_native_upsert(model_class, payload_for_model, ['stock', 'trade_time', 'price', 'volume']))
-            # 修改代码行: 移除缓存保存任务
+            # 移除缓存保存任务
             tasks = db_tasks
             results = await asyncio.gather(*tasks, return_exceptions=True)
             error_messages = []
-            for i, db_result in enumerate(results): # 修改代码行: 遍历所有结果，因为现在只有DB任务
+            for i, db_result in enumerate(results): # 遍历所有结果，因为现在只有DB任务
                 if isinstance(db_result, Exception):
                     msg = f"数据库分表保存失败 (任务 {i+1}): {db_result}"
                     logger.error(msg, exc_info=db_result)
                     error_messages.append(msg)
-            # 修改代码行: 移除缓存结果检查
+            # 移除缓存结果检查
             if error_messages:
                 return False, f"为 {stock_codes} 保存数据时发生错误: " + "; ".join(error_messages)
             return True, f"成功为 {stock_codes} 处理了逐笔数据。"
@@ -138,7 +138,7 @@ class StockRealtimeDAO(BaseDAO):
                         print(f"      -> [探针] {code}: 清理NaN后数据为空。")
                         return code, None
                     df['VOLUME'] = (df['VOLUME'] * 100).astype(int)
-                    # 修改代码行: 应用类型映射
+                    # 应用类型映射
                     df['TYPE'] = df['TYPE'].map(type_mapping).fillna('M') # 默认中性盘
                     df.rename(columns={'PRICE': 'price', 'VOLUME': 'volume', 'AMOUNT': 'amount', 'TYPE': 'type'}, inplace=True)
                     df.set_index('trade_time', inplace=True)
@@ -164,7 +164,7 @@ class StockRealtimeDAO(BaseDAO):
         - 核心修改: 移除缓存优先策略，直接从数据库获取。
         """
         try:
-            # 修改代码行: 移除缓存读取和回填逻辑，直接从数据库获取
+            # 移除缓存读取和回填逻辑，直接从数据库获取
             df_ticks_from_db = await self._get_daily_real_ticks_from_db(stock_code, trade_date)
             if df_ticks_from_db is not None and not df_ticks_from_db.empty:
                 return df_ticks_from_db
@@ -181,11 +181,11 @@ class StockRealtimeDAO(BaseDAO):
         """
         try:
             trade_date_obj = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
-            tick_data_model = get_stock_tick_data_model_by_code(stock_code) # 新增代码行: 根据股票代码获取对应的 StockTickData 模型
+            tick_data_model = get_stock_tick_data_model_by_code(stock_code) # 根据股票代码获取对应的 StockTickData 模型
             if tick_data_model is None: # 新增代码行
                 logger.warning(f"无法为股票 {stock_code} 找到对应的 StockTickData 模型，无法从数据库获取数据。") # 新增代码行
                 return None # 新增代码行
-            query = tick_data_model.objects.filter( # 修改代码行: 使用动态获取的分表模型进行查询
+            query = tick_data_model.objects.filter( # 使用动态获取的分表模型进行查询
                 stock__stock_code=stock_code,
                 trade_time__date=trade_date_obj
             ).order_by('trade_time').values(
@@ -254,7 +254,7 @@ class StockRealtimeDAO(BaseDAO):
             stocks_dict = await self.stock_basic_dao.get_stocks_by_codes(stock_codes)
             db_realtime_payloads = defaultdict(list)
             db_level5_payloads = defaultdict(list)
-            # 修改代码行: 移除缓存相关变量的定义
+            # 移除缓存相关变量的定义
             # cache_latest_realtime, cache_latest_level5 = {}, {}
             # cache_append_realtime, cache_append_level5 = {}, {}
             for row in df.itertuples():
@@ -269,7 +269,7 @@ class StockRealtimeDAO(BaseDAO):
                     level5_dict_db = self.data_format_process.set_level5_data(stock, row)
                     db_realtime_payloads[realtime_model].append(real_dict_db)
                     db_level5_payloads[level5_model].append(level5_dict_db)
-                    # 修改代码行: 移除缓存数据填充逻辑
+                    # 移除缓存数据填充逻辑
                     # real_dict_cache = self.data_format_process.set_realtime_tick_data(None, row)
                     # level5_dict_cache = self.data_format_process.set_level5_data(None, row)
                     # cache_latest_realtime[row.TS_CODE] = real_dict_cache
@@ -282,10 +282,10 @@ class StockRealtimeDAO(BaseDAO):
                 db_tasks.append(self._save_all_to_db_native_upsert(model, payload, ['stock', 'trade_time']))
             for model, payload in db_level5_payloads.items():
                 db_tasks.append(self._save_all_to_db_native_upsert(model, payload, ['stock', 'trade_time']))
-            # 修改代码行: 移除缓存保存任务
+            # 移除缓存保存任务
             tasks = db_tasks
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            for i, result in enumerate(results): # 修改代码行: 遍历所有结果，因为现在只有DB任务
+            for i, result in enumerate(results): # 遍历所有结果，因为现在只有DB任务
                 if isinstance(result, Exception):
                     logger.error(f"批量保存行情快照到数据库分表失败 (任务 {i+1}): {result}", exc_info=result)
             return results[0] if not isinstance(results[0], Exception) else []

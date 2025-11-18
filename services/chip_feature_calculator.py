@@ -824,18 +824,18 @@ class ChipFeatureCalculator:
         close_price = context.get('close_price')
         pre_close = context.get('pre_close', close_price)
         winner_conviction_index = 0.0
-        if is_probe_date:
-            print(f"    -> [赢家信念指数探针] @ {trade_date}:")
-            print(f"       - active_profit_margin: {active_profit_margin:.4f}")
-            print(f"       - bullish_reinforcement: {bullish_reinforcement:.4f}")
-            print(f"       - profit_taking_flow_ratio: {profit_taking_flow_ratio:.4f}")
-            print(f"       - active_winner_rate: {active_winner_rate:.4f}")
+        # if is_probe_date:
+        #     print(f"    -> [赢家信念指数探针] @ {trade_date}:")
+        #     print(f"       - active_profit_margin: {active_profit_margin:.4f}")
+        #     print(f"       - bullish_reinforcement: {bullish_reinforcement:.4f}")
+        #     print(f"       - profit_taking_flow_ratio: {profit_taking_flow_ratio:.4f}")
+        #     print(f"       - active_winner_rate: {active_winner_rate:.4f}")
         if all(pd.notna(v) for v in [active_profit_margin, bullish_reinforcement, profit_taking_flow_ratio, active_winner_rate]):
             pressure_ratio = 0.0
             realized_pressure = 0.0
             if active_winner_rate > 1e-6: # 增加一个极小值判断，避免除零
                 pressure_ratio = (profit_taking_flow_ratio / 100.0) / (active_winner_rate / 100.0)
-                # 修改代码行: 使用 arctan 替换 tanh，增强鲁棒性
+                # 使用 arctan 替换 tanh，增强鲁棒性
                 realized_pressure = (2 / np.pi) * np.arctan(np.clip(pressure_ratio - 1.0, 0, None))
             hesitation_factor = 1.0 + (1.0 - realized_pressure)
             margin_factor = np.log1p(np.clip(active_profit_margin / 100.0, 0, None)) if active_profit_margin > 0 else 0.0

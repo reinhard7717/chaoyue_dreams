@@ -169,7 +169,7 @@ class ChipIntelligence:
         concentration_trend_raw /= len(periods)
         peak_fusion_raw = self._get_safe_series(df, 'peak_fusion_indicator_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_concentration")
         zigzag_trend_raw = self._get_safe_series(df, 'ZIG_5_5.0_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_concentration")
-        # 新增代码行: 获取主峰交换纯度
+        # 获取主峰交换纯度
         peak_exchange_purity_raw = self._get_safe_series(df, 'peak_exchange_purity_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_concentration")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -177,7 +177,7 @@ class ChipIntelligence:
         trend_score = get_adaptive_mtf_normalized_bipolar_score(concentration_trend_raw, df.index, tf_weights, sensitivity=1.0)
         fusion_score = get_adaptive_mtf_normalized_bipolar_score(peak_fusion_raw, df.index, tf_weights, sensitivity=50.0)
         zigzag_score = get_adaptive_mtf_normalized_bipolar_score(zigzag_trend_raw, df.index, tf_weights, sensitivity=0.05)
-        # 新增代码行: 归一化主峰交换纯度，越高越好
+        # 归一化主峰交换纯度，越高越好
         peak_exchange_purity_score = get_adaptive_mtf_normalized_bipolar_score(peak_exchange_purity_raw, df.index, tf_weights, sensitivity=0.5)
         # 融合所有分数，调整权重
         final_score = (level_score * 0.20 + trend_score * 0.30 + fusion_score * 0.20 + zigzag_score * 0.10 + peak_exchange_purity_score * 0.20).clip(-1, 1) # 调整权重并加入新信号
@@ -192,7 +192,7 @@ class ChipIntelligence:
                 print(f"       - trend_score: {trend_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - fusion_score: {fusion_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - zigzag_score: {zigzag_score.loc[probe_date_for_loop]:.4f}")
-                # 新增代码行: 打印主峰交换纯度分数
+                # 打印主峰交换纯度分数
                 print(f"       - peak_exchange_purity_score: {peak_exchange_purity_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_score: {final_score.loc[probe_date_for_loop]:.4f}")
         return final_score
@@ -219,7 +219,7 @@ class ChipIntelligence:
         momentum_raw = self._get_safe_series(df, 'winner_loser_momentum_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
         divergence_raw = self._get_safe_series(df, 'cost_divergence_normalized_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
         skewness_raw = self._get_safe_series(df, 'cost_structure_skewness_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        # 新增代码行: 获取压力验证分和支撑验证分
+        # 获取压力验证分和支撑验证分
         pressure_validation_raw = self._get_safe_series(df, 'pressure_validation_score_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
         support_validation_raw = self._get_safe_series(df, 'support_validation_score_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
@@ -227,7 +227,7 @@ class ChipIntelligence:
         momentum_score = get_adaptive_mtf_normalized_bipolar_score(momentum_raw, df.index, tf_weights, sensitivity=1.0)
         divergence_score = get_adaptive_mtf_normalized_bipolar_score(divergence_raw, df.index, tf_weights, sensitivity=1.0)
         skewness_score = get_adaptive_mtf_normalized_bipolar_score(skewness_raw, df.index, tf_weights, sensitivity=0.5)
-        # 新增代码行: 归一化压力验证分和支撑验证分
+        # 归一化压力验证分和支撑验证分
         pressure_validation_score = get_adaptive_mtf_normalized_bipolar_score(pressure_validation_raw, df.index, tf_weights, sensitivity=0.5)
         support_validation_score = get_adaptive_mtf_normalized_bipolar_score(support_validation_raw, df.index, tf_weights, sensitivity=0.5)
         # 融合所有分数，调整权重
@@ -249,7 +249,7 @@ class ChipIntelligence:
                 print(f"       - momentum_score: {momentum_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - divergence_score: {divergence_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - skewness_score: {skewness_score.loc[probe_date_for_loop]:.4f}")
-                # 新增代码行: 打印压力验证分和支撑验证分
+                # 打印压力验证分和支撑验证分
                 print(f"       - pressure_validation_score: {pressure_validation_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - support_validation_score: {support_validation_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_score: {final_score.loc[probe_date_for_loop]:.4f}")
@@ -282,7 +282,7 @@ class ChipIntelligence:
         fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_holder_sentiment")
         locked_profit_raw = self._get_safe_series(df, 'locked_profit_rate_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
         locked_loss_raw = self._get_safe_series(df, 'locked_loss_rate_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
-        # 新增代码行: 获取隐蔽吸筹信号
+        # 获取隐蔽吸筹信号
         covert_accumulation_raw = self._get_safe_series(df, 'covert_accumulation_signal_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -291,7 +291,7 @@ class ChipIntelligence:
         fatigue_score = get_adaptive_mtf_normalized_bipolar_score(fatigue_raw, df_index, tf_weights, sensitivity=5.0)
         locked_profit_score = get_adaptive_mtf_normalized_bipolar_score(locked_profit_raw, df_index, tf_weights, sensitivity=20.0)
         locked_loss_score = get_adaptive_mtf_normalized_bipolar_score(locked_loss_raw, df_index, tf_weights, sensitivity=20.0)
-        # 新增代码行: 归一化隐蔽吸筹信号，越高越好
+        # 归一化隐蔽吸筹信号，越高越好
         covert_accumulation_score = get_adaptive_mtf_normalized_bipolar_score(covert_accumulation_raw, df_index, tf_weights, sensitivity=0.5)
         # 调整权重并融合 covert_accumulation_score
         final_score = (
@@ -339,13 +339,13 @@ class ChipIntelligence:
             return pd.Series(0.0, index=df.index)
         price_vs_peak_raw = self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_peak_integrity") - self._get_safe_series(df, 'dominant_peak_cost_D', self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_peak_integrity"), method_name="_diagnose_axiom_peak_integrity")
         peak_solidity_raw = self._get_safe_series(df, 'dominant_peak_solidity_D', pd.Series(0.5, index=df.index), method_name="_diagnose_axiom_peak_integrity")
-        # 新增代码行: 获取价格成交量熵
+        # 获取价格成交量熵
         price_volume_entropy_raw = self._get_safe_series(df, 'price_volume_entropy_D', pd.Series(0.5, index=df.index), method_name="_diagnose_axiom_peak_integrity")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         price_vs_peak_score = get_adaptive_mtf_normalized_bipolar_score(price_vs_peak_raw, df.index, tf_weights, sensitivity=1.2)
         peak_solidity_score = get_adaptive_mtf_normalized_score(peak_solidity_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 新增代码行: 归一化价格成交量熵，熵值越低（结构越有序）越好
+        # 归一化价格成交量熵，熵值越低（结构越有序）越好
         price_volume_entropy_score = get_adaptive_mtf_normalized_bipolar_score(price_volume_entropy_raw * -1, df.index, tf_weights, sensitivity=0.5)
         # 融合所有分数，调整权重
         final_score = (price_vs_peak_score * peak_solidity_score * 0.8 + price_volume_entropy_score * 0.2).clip(-1, 1) # 调整权重并加入新信号
@@ -370,14 +370,14 @@ class ChipIntelligence:
         overall_chip_health_raw = self._get_safe_series(df, 'OCH_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_momentum")
         slope_5_och = self._get_safe_series(df, 'SLOPE_5_OCH_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_momentum")
         slope_21_och = self._get_safe_series(df, 'SLOPE_21_OCH_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_momentum")
-        # 新增代码行: 获取结构韧性指数
+        # 获取结构韧性指数
         structural_resilience_raw = self._get_safe_series(df, 'structural_resilience_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_momentum")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         overall_chip_health_score = get_adaptive_mtf_normalized_bipolar_score(overall_chip_health_raw, df_index, tf_weights, sensitivity=0.05)
         slope_5_och_score = get_adaptive_mtf_normalized_bipolar_score(slope_5_och, df_index, tf_weights, sensitivity=0.005)
         slope_21_och_score = get_adaptive_mtf_normalized_bipolar_score(slope_21_och, df_index, tf_weights, sensitivity=0.002)
-        # 新增代码行: 归一化结构韧性指数，越高越好
+        # 归一化结构韧性指数，越高越好
         structural_resilience_score = get_adaptive_mtf_normalized_bipolar_score(structural_resilience_raw, df_index, tf_weights, sensitivity=0.5)
         # 融合OCH的当前值和其动量，并加入结构韧性指数
         chip_trend_momentum_score = (

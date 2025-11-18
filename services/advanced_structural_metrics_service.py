@@ -218,7 +218,7 @@ class AdvancedStructuralMetricsService:
             continuous_mask = group['trade_time'].dt.time < time(14, 57, 0)
             continuous_group = group[continuous_mask].copy()
             if continuous_group.empty: continue
-            # 修改代码行: 增加类型转换
+            # 增加类型转换
             continuous_group['amount'] = pd.to_numeric(continuous_group['amount'], errors='coerce')
             continuous_group['vol'] = pd.to_numeric(continuous_group['vol'], errors='coerce')
             continuous_group['minute_vwap'] = continuous_group['amount'] / continuous_group['vol'].replace(0, np.nan)

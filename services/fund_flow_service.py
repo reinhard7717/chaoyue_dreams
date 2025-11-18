@@ -314,9 +314,9 @@ class AdvancedFundFlowMetricsService:
                 failures.append({'stock_code': stock_code, 'trade_date': str(date_obj), 'reason': '当日分钟线/逐笔聚合数据缺失'})
                 continue
             attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data, daily_data_series)
-            # 修改代码行: 同时接收成本字典和完整归因后的DataFrame
+            # 同时接收成本字典和完整归因后的DataFrame
             probabilistic_costs_dict, attributed_minute_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series)
-            # 修改代码行: 将完整归因后的DataFrame传递给下游
+            # 将完整归因后的DataFrame传递给下游
             day_metrics, _ = self._calculate_all_metrics_for_day(
                 stock_code, daily_data_series, intraday_data, attributed_minute_df, probabilistic_costs_dict,
                 tick_data_map.get(date_obj) if tick_data_map else None,
@@ -474,9 +474,9 @@ class AdvancedFundFlowMetricsService:
             total_attributed_value = attributed_value.sum()
             total_attributed_vol = attributed_vol.sum()
             day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
-        # 新增代码行: 调用辅助函数，添加 main_force_net_vol 等关键列
+        # 调用辅助函数，添加 main_force_net_vol 等关键列
         fully_attributed_df = self._attribute_minute_volume_to_players(df_to_attribute)
-        # 修改代码行: 返回成本字典和完整归因后的DataFrame
+        # 返回成本字典和完整归因后的DataFrame
         return day_results, fully_attributed_df
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:

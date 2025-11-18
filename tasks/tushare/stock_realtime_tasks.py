@@ -154,10 +154,10 @@ def save_real_tick_data_single(stock_code: str, cache_manager=None):
     try:
         async def main():
             print(f"开始处理 {stock_code} 的真实逐笔(Tick)数据任务...")
-            # 修改代码行: 接收DAO返回的 success 和 message
+            # 接收DAO返回的 success 和 message
             success, message = await stock_realtime_dao.save_realtime_tick_in_bulk([stock_code], trade_date)
             if not success:
-                # 修改代码行: 在调试信息和异常中包含从DAO返回的详细 message
+                # 在调试信息和异常中包含从DAO返回的详细 message
                 print(f"股票 {stock_code} 的真实逐笔数据保存失败: {message}。触发 Celery 重试。")
                 raise Exception(f"股票 {stock_code} 的真实逐笔数据保存失败: {message}")
         async_to_sync(main)()
@@ -191,25 +191,25 @@ def save_stocks_tick_data_task(quote_batch_size: int = 50, cache_manager=None):
     logger.info(f"--- 行情快照任务分派完成，共 {total_quote_batches} 个批次。 ---")
     # 3. 分派“真实逐笔(Tick)”单票任务
     logger.info("--- 开始分派真实逐笔(Tick)任务 ---")
-    dispatched_count = 0 # 修改代码行: 初始化已分派任务计数器
-    failed_dispatch_count = 0 # 修改代码行: 初始化分派失败计数器
+    dispatched_count = 0 # 初始化已分派任务计数器
+    failed_dispatch_count = 0 # 初始化分派失败计数器
     for stock_code in stock_codes:
-        try: # 修改代码行: 添加 try-except 块捕获 apply_async 异常
+        try: # 添加 try-except 块捕获 apply_async 异常
             # 为每一只股票分派一个独立的任务
             save_real_tick_data_single.s(stock_code).set(queue="SaveData_RealTime_Tick").apply_async()
-            dispatched_count += 1 # 修改代码行: 成功分派则计数
-        except Exception as e: # 修改代码行: 捕获分派异常
-            failed_dispatch_count += 1 # 修改代码行: 失败分派则计数
-            logger.error(f"分派 {stock_code} 的真实逐笔(Tick)数据任务失败: {e}", exc_info=True) # 修改代码行: 记录分派失败日志
-    logger.info(f"--- 真实逐笔任务分派完成，共 {dispatched_count} 个任务成功分派，{failed_dispatch_count} 个任务分派失败。 ---") # 修改代码行: 打印详细分派结果
+            dispatched_count += 1 # 成功分派则计数
+        except Exception as e: # 捕获分派异常
+            failed_dispatch_count += 1 # 失败分派则计数
+            logger.error(f"分派 {stock_code} 的真实逐笔(Tick)数据任务失败: {e}", exc_info=True) # 记录分派失败日志
+    logger.info(f"--- 真实逐笔任务分派完成，共 {dispatched_count} 个任务成功分派，{failed_dispatch_count} 个任务分派失败。 ---") # 打印详细分派结果
     return {
         "status": "success",
         "dispatched_quote_batches": 0,
-        "dispatched_real_tick_tasks": dispatched_count # 修改代码行: 返回成功分派的任务数量
+        "dispatched_real_tick_tasks": dispatched_count # 返回成功分派的任务数量
     }
 
 # 单独：“行情快照(Quote)”数据获取任务。
-@celery_app.task(name='tasks.tushare.stock_realtime_tasks.dispatch_stocks_quote_data_task', queue='celery') # 新增代码行: 新的行情快照调度器
+@celery_app.task(name='tasks.tushare.stock_realtime_tasks.dispatch_stocks_quote_data_task', queue='celery') # 新的行情快照调度器
 @with_cache_manager
 def dispatch_stocks_quote_data_task(quote_batch_size: int = 50, cache_manager=None):
     """
@@ -235,9 +235,9 @@ def dispatch_stocks_quote_data_task(quote_batch_size: int = 50, cache_manager=No
     }
 
 # 单独：真实逐笔(Tick)”数据获取任务。
-@celery_app.task(name='tasks.tushare.stock_realtime_tasks.dispatch_stocks_real_tick_task', queue='celery') # 修改代码行: 重命名原任务
+@celery_app.task(name='tasks.tushare.stock_realtime_tasks.dispatch_stocks_real_tick_task', queue='celery') # 重命名原任务
 @with_cache_manager
-def dispatch_stocks_real_tick_task(cache_manager=None): # 修改代码行: 移除不再需要的 quote_batch_size 参数
+def dispatch_stocks_real_tick_task(cache_manager=None): # 移除不再需要的 quote_batch_size 参数
     """
     【修改-调度器】
     此任务由 Celery Beat 调度，统一分发“真实逐笔(Tick)”数据获取任务。
