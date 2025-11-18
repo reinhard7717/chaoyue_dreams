@@ -1591,9 +1591,14 @@ class AdvancedFundFlowMetricsService:
             'order_book_imbalance': np.nan,
             'large_order_pressure': np.nan,
             'large_order_support': np.nan,
-            # 'active_buying_support': np.nan, # 撤回
-            # 'active_selling_pressure': np.nan, # 撤回
         }
+
+        # 修复：在方法入口处，将 None 转换为空的 DataFrame
+        if daily_intraday_df is None:
+            daily_intraday_df = pd.DataFrame()
+        if daily_level5_df is None:
+            daily_level5_df = pd.DataFrame()
+
         trade_date = daily_intraday_df.index[0].date() if not daily_intraday_df.empty else (daily_level5_df.index[0].date() if not daily_level5_df.empty else 'UNKNOWN')
         debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -1603,12 +1608,8 @@ class AdvancedFundFlowMetricsService:
             if probe_date_naive == trade_date:
                 is_probe_date = True
 
-        if is_probe_date and daily_intraday_df is None:
-            print(f"    -> [微观结构探针] @ {trade_date}: 'daily_intraday_df' 为 None。")
         if is_probe_date and daily_intraday_df.empty:
             print(f"    -> [微观结构探针] @ {trade_date}: 'daily_intraday_df' 为空。")
-        if is_probe_date and daily_level5_df is None:
-            print(f"    -> [微观结构探针] @ {trade_date}: 'daily_level5_df' 为 None。")
         if is_probe_date and daily_level5_df.empty:
             print(f"    -> [微观结构探针] @ {trade_date}: 'daily_level5_df' 为空。")
         if is_probe_date and daily_total_volume <= 0:
@@ -1680,13 +1681,12 @@ class AdvancedFundFlowMetricsService:
         # 2. 计算五档盘口失衡度 (Order Book Imbalance)
         level5_cols_check = ['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5',
                              'sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']
-        for col in level5_cols_check:
-            if col not in daily_level5_df.columns:
-                if is_probe_date:
-                    print(f"    -> [微观结构探针] @ {trade_date}: 'daily_level5_df' 缺少 '{col}' 列，无法计算 'order_book_imbalance'。")
-                results['order_book_imbalance'] = np.nan
-                break
-        if 'order_book_imbalance' not in results: # 只有当所有列都存在时才计算
+        missing_level5_cols = [col for col in level5_cols_check if col not in daily_level5_df.columns]
+        if missing_level5_cols:
+            if is_probe_date:
+                print(f"    -> [微观结构探针] @ {trade_date}: 'daily_level5_df' 缺少 '{missing_level5_cols}' 列，无法计算 'order_book_imbalance'。")
+            results['order_book_imbalance'] = np.nan
+        else: # 只有当所有列都存在时才计算
             daily_level5_df['buy_vol_total'] = daily_level5_df[['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5']].sum(axis=1)
             daily_level5_df['sell_vol_total'] = daily_level5_df[['sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']].sum(axis=1)
             total_book_vol = daily_level5_df['buy_vol_total'] + daily_level5_df['sell_vol_total']
@@ -1704,12 +1704,12 @@ class AdvancedFundFlowMetricsService:
         large_order_threshold_value = 500000 # 定义大单门槛为50万元
         pressure_strength = 0
         support_strength = 0
-        level5_price_vol_check = ['sell_price1', 'sell_volume1', 'sell_price2', 'sell_volume2',
-                                  'buy_price1', 'buy_volume1', 'buy_price2', 'buy_volume2']
-        missing_level5_cols = [col for col in level5_price_vol_check if col not in daily_level5_df.columns]
-        if missing_level5_cols:
+        level5_price_vol_check_large_order = ['sell_price1', 'sell_volume1', 'sell_price2', 'sell_volume2',
+                                              'buy_price1', 'buy_volume1', 'buy_price2', 'buy_volume2']
+        missing_level5_cols_large_order = [col for col in level5_price_vol_check_large_order if col not in daily_level5_df.columns]
+        if missing_level5_cols_large_order:
             if is_probe_date:
-                print(f"    -> [微观结构探针] @ {trade_date}: 'daily_level5_df' 缺少列 {missing_level5_cols}，无法计算大单压制/支撑。")
+                print(f"    -> [微观结构探针] @ {trade_date}: 'daily_level5_df' 缺少列 {missing_level5_cols_large_order}，无法计算大单压制/支撑。")
             results['large_order_pressure'] = np.nan
             results['large_order_support'] = np.nan
         elif not daily_level5_df.empty:
