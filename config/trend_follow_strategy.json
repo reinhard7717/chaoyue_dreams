@@ -1098,7 +1098,21 @@
           "trend_form": 0.5,
           "mtf_cohesion": 0.3,
           "stability": 0.2
-        }
+        },
+        "trend_form_ema_periods": [5, 13, 21, 55],
+        "comment_trend_form_ema_periods": "【趋势形态公理】用于趋势形态判断的EMA周期列表。",
+        "trend_form_ma_periods": [5, 13, 21, 55],
+        "comment_trend_form_ma_periods": "【趋势形态公理】用于趋势形态判断的MA周期列表。",
+        "trend_form_alignment_fusion_weights": {
+          "ema": 0.6,
+          "ma": 0.4
+        },
+        "comment_trend_form_alignment_fusion_weights": "【趋势形态公理】EMA和MA排列分数的融合权重。",
+        "trend_form_velocity_fusion_weights": {
+          "ema": 0.6,
+          "ma": 0.4
+        },
+        "comment_trend_form_velocity_fusion_weights": "【趋势形态公理】EMA和MA速度分数的融合权重。"
       },
       "cognitive_intelligence_params": {
         "enabled": true,

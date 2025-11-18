@@ -523,9 +523,9 @@ CELERY_TASK_QUEUES = (
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'  # 使用数据库作为调度器
 CELERY_BEAT_SCHEDULE = {
     ############# 任务：每 60 秒为 所有自选股 运行一次策略执行引擎 #############
-    '每 2 秒运行一次所有股票的实时Tick数据获取': {
+    '每 3 秒运行一次所有股票的实时Tick数据获取': {
         'task': 'tasks.tushare.stock_realtime_tasks.dispatch_stocks_quote_data_task',
-        'schedule': timedelta(seconds=2),  # 每2秒执行一次
+        'schedule': timedelta(seconds=3),  # 每3秒执行一次
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
     # 'init_realtime_engine_task': {

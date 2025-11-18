@@ -82,77 +82,90 @@ class StructuralIntelligence:
         return divergence_score.astype(np.float32)
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """
-        【V2.1 · 微观结构博弈信号缺失处理与涨停日趋势形态增强及多时间维度归一化版】结构公理一：诊断“趋势形态”
-        - 引入 `volume_burstiness_index_D` (成交量爆裂度指数) 和 `upward_thrust_efficacy_D` (上涨推力效能)
-                   来增强对趋势形态强度和质量的判断。
-        - 【新增】引入均线角度（ATAN）作为趋势形态判断的证据。
-        - 【修复】修正了引用均线角度列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
-        - 【修正】优化 `bull_alignment` 和 `bull_velocity` 的计算，使其在涨停日能更准确地反映积极趋势形态。
-        - 【修复】移除 `normalize_score` 函数调用中的 `sensitivity` 参数，因为该函数不接受此参数。
-        - 【增强】在涨停日，大幅增强 `bull_alignment` 和 `bull_velocity` 的贡献，并抑制 `bear_score`。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
-        - 【新增】引入 `trend_quality_score_D` (趋势质量分) 和 `closing_momentum_index_D` (收盘动能指数) 作为判断趋势形态的微观证据。
-        - 【修正】当 `trend_quality_score_D` 和 `closing_momentum_index_D` 信号缺失时，不将其纳入融合计算。
-        """
+        print("    -> [结构情报] 正在诊断结构公理一：趋势形态...")
         df_index = df.index
-        ma_periods = [5, 13, 21, 55]
-        required_cols = [f'EMA_{p}_D' for p in ma_periods]
-        if not all(col in df.columns for col in required_cols):
-            print("诊断趋势形态失败：缺少必要的EMA列。")
-            return pd.Series(0.0, index=df_index)
-        # 判断是否为涨停日
-        is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         tf_weights_struct = get_param_value(p_conf_struct.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # --- 均线排列 (Alignment) ---
-        bull_alignment_raw = pd.Series(0.0, index=df_index)
-        bear_alignment_raw = pd.Series(0.0, index=df_index)
-        weights = [0.4, 0.3, 0.3] # 5-13, 13-21, 21-55 的权重
-        # 基础均线交叉排列
+        is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
+        ema_periods = get_param_value(p_conf_struct.get('trend_form_ema_periods'), [5, 13, 21, 55])
+        ma_periods = get_param_value(p_conf_struct.get('trend_form_ma_periods'), [5, 13, 21, 55])
+        # --- EMA均线排列 (Alignment) ---
+        bull_alignment_ema_raw = pd.Series(0.0, index=df_index)
+        bear_alignment_ema_raw = pd.Series(0.0, index=df_index)
+        ema_alignment_weights = [0.4, 0.3, 0.3]
+        for i in range(len(ema_periods) - 1):
+            ema_i = self._get_safe_series(df, f'EMA_{ema_periods[i]}_D', method_name="_diagnose_axiom_trend_form")
+            ema_i_plus_1 = self._get_safe_series(df, f'EMA_{ema_periods[i+1]}_D', method_name="_diagnose_axiom_trend_form")
+            bull_alignment_ema_raw += (ema_i > ema_i_plus_1).astype(float) * ema_alignment_weights[i]
+            bear_alignment_ema_raw += (ema_i < ema_i_plus_1).astype(float) * ema_alignment_weights[i]
+        price_above_all_ema = pd.Series(True, index=df_index)
+        close_D = self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_trend_form")
+        for p in ema_periods:
+            price_above_all_ema &= (close_D > self._get_safe_series(df, f'EMA_{p}_D', method_name="_diagnose_axiom_trend_form"))
+        bull_alignment_ema_raw += price_above_all_ema.astype(float) * 0.5
+        price_ema_distance = pd.Series(0.0, index=df_index)
+        for p in ema_periods:
+            price_ema_distance += (close_D - self._get_safe_series(df, f'EMA_{p}_D', method_name="_diagnose_axiom_trend_form")).clip(lower=0)
+        price_ema_distance_score = get_adaptive_mtf_normalized_score(price_ema_distance, df_index, ascending=True, tf_weights=tf_weights_struct)
+        bull_alignment_ema_raw += price_ema_distance_score * 0.5
+        bull_alignment_ema = bull_alignment_ema_raw / (sum(ema_alignment_weights) + 1.0)
+        bear_alignment_ema = bear_alignment_ema_raw / sum(ema_alignment_weights)
+        # --- MA均线排列 (Alignment) ---
+        bull_alignment_ma_raw = pd.Series(0.0, index=df_index)
+        bear_alignment_ma_raw = pd.Series(0.0, index=df_index)
+        ma_alignment_weights = [0.4, 0.3, 0.3]
         for i in range(len(ma_periods) - 1):
-            bull_alignment_raw += (self._get_safe_series(df, f'EMA_{ma_periods[i]}_D', method_name="_diagnose_axiom_trend_form") > self._get_safe_series(df, f'EMA_{ma_periods[i+1]}_D', method_name="_diagnose_axiom_trend_form")).astype(float) * weights[i]
-            bear_alignment_raw += (self._get_safe_series(df, f'EMA_{ma_periods[i]}_D', method_name="_diagnose_axiom_trend_form") < self._get_safe_series(df, f'EMA_{ma_periods[i+1]}_D', method_name="_diagnose_axiom_trend_form")).astype(float) * weights[i]
-        # 增强 bull_alignment: 价格在所有均线之上
+            ma_i = self._get_safe_series(df, f'MA_{ma_periods[i]}_D', method_name="_diagnose_axiom_trend_form")
+            ma_i_plus_1 = self._get_safe_series(df, f'MA_{ma_periods[i+1]}_D', method_name="_diagnose_axiom_trend_form")
+            bull_alignment_ma_raw += (ma_i > ma_i_plus_1).astype(float) * ma_alignment_weights[i]
+            bear_alignment_ma_raw += (ma_i < ma_i_plus_1).astype(float) * ma_alignment_weights[i]
         price_above_all_ma = pd.Series(True, index=df_index)
         for p in ma_periods:
-            price_above_all_ma &= (self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_trend_form") > self._get_safe_series(df, f'EMA_{p}_D', method_name="_diagnose_axiom_trend_form"))
-        bull_alignment_raw += price_above_all_ma.astype(float) * 0.5 # 额外权重
-        # 价格与均线距离的积极贡献
+            price_above_all_ma &= (close_D > self._get_safe_series(df, f'MA_{p}_D', method_name="_diagnose_axiom_trend_form"))
+        bull_alignment_ma_raw += price_above_all_ma.astype(float) * 0.5
         price_ma_distance = pd.Series(0.0, index=df_index)
         for p in ma_periods:
-            price_ma_distance += (self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_trend_form") - self._get_safe_series(df, f'EMA_{p}_D', method_name="_diagnose_axiom_trend_form")).clip(lower=0) # 只考虑价格在均线之上
+            price_ma_distance += (close_D - self._get_safe_series(df, f'MA_{p}_D', method_name="_diagnose_axiom_trend_form")).clip(lower=0)
         price_ma_distance_score = get_adaptive_mtf_normalized_score(price_ma_distance, df_index, ascending=True, tf_weights=tf_weights_struct)
-        bull_alignment_raw += price_ma_distance_score * 0.5 # 额外权重
-        bull_alignment = bull_alignment_raw / (sum(weights) + 1.0) # 归一化到 [0, 1]
-        bear_alignment = bear_alignment_raw / sum(weights) # 归一化到 [0, 1]
-        # --- 均线速度 (Velocity) ---
-        slope_cols = [f'SLOPE_5_EMA_{p}_D' for p in ma_periods if f'SLOPE_5_EMA_{p}_D' in df.columns]
-        if not slope_cols:
-            return pd.Series(0.0, index=df_index)
-        bull_velocity_raw = pd.Series(0.0, index=df_index)
-        bear_velocity_raw = pd.Series(0.0, index=df_index)
-        for col in slope_cols:
-            bull_velocity_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_trend_form").clip(lower=0) # 只累加正向斜率
-            bear_velocity_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_trend_form").clip(upper=0).abs() # 只累加负向斜率的绝对值
-        # 增强 bull_velocity: 引入 pct_change_D 的贡献
+        bull_alignment_ma_raw += price_ma_distance_score * 0.5
+        bull_alignment_ma = bull_alignment_ma_raw / (sum(ma_alignment_weights) + 1.0)
+        bear_alignment_ma = bear_alignment_ma_raw / sum(ma_alignment_weights)
+        # 融合EMA和MA的排列分数
+        alignment_fusion_weights = get_param_value(p_conf_struct.get('trend_form_alignment_fusion_weights'), {'ema': 0.6, 'ma': 0.4})
+        bull_alignment = (bull_alignment_ema * alignment_fusion_weights['ema'] + bull_alignment_ma * alignment_fusion_weights['ma']).clip(0, 1)
+        bear_alignment = (bear_alignment_ema * alignment_fusion_weights['ema'] + bear_alignment_ma * alignment_fusion_weights['ma']).clip(0, 1)
+        # --- EMA均线速度 (Velocity) ---
+        slope_ema_cols = [f'SLOPE_5_EMA_{p}_D' for p in ema_periods if f'SLOPE_5_EMA_{p}_D' in df.columns]
+        bull_velocity_ema_raw = pd.Series(0.0, index=df_index)
+        bear_velocity_ema_raw = pd.Series(0.0, index=df_index)
+        if slope_ema_cols:
+            for col in slope_ema_cols:
+                bull_velocity_ema_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_trend_form").clip(lower=0)
+                bear_velocity_ema_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_trend_form").clip(upper=0).abs()
+        # --- MA均线速度 (Velocity) ---
+        slope_ma_cols = [f'SLOPE_5_MA_{p}_D' for p in ma_periods if f'SLOPE_5_MA_{p}_D' in df.columns]
+        bull_velocity_ma_raw = pd.Series(0.0, index=df_index)
+        bear_velocity_ma_raw = pd.Series(0.0, index=df_index)
+        if slope_ma_cols:
+            for col in slope_ma_cols:
+                bull_velocity_ma_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_trend_form").clip(lower=0)
+                bear_velocity_ma_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_trend_form").clip(upper=0).abs()
         pct_change_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_axiom_trend_form").clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct)
-        bull_velocity_raw += pct_change_score * 0.5 # 额外权重
-        # 调整 normalize_score 的敏感度，使其在涨停日能得到更高的分数
-        bull_velocity = get_adaptive_mtf_normalized_score(bull_velocity_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        bear_velocity = get_adaptive_mtf_normalized_score(bear_velocity_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
+        bull_velocity_ema_raw += pct_change_score * 0.5
+        bull_velocity_ma_raw += pct_change_score * 0.5
+        # 融合EMA和MA的速度分数
+        velocity_fusion_weights = get_param_value(p_conf_struct.get('trend_form_velocity_fusion_weights'), {'ema': 0.6, 'ma': 0.4})
+        bull_velocity = get_adaptive_mtf_normalized_score(bull_velocity_ema_raw * velocity_fusion_weights['ema'] + bull_velocity_ma_raw * velocity_fusion_weights['ma'], df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
+        bear_velocity = get_adaptive_mtf_normalized_score(bear_velocity_ema_raw * velocity_fusion_weights['ema'] + bear_velocity_ma_raw * velocity_fusion_weights['ma'], df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
         # --- 引入成交量爆裂度、上涨推力效能 ---
-        volume_burstiness_raw = self._get_safe_series(df, 'volume_ratio_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form") # 替换为 volume_ratio_D
-        upward_thrust_efficacy_raw = self._get_safe_series(df, 'upward_impulse_purity_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form") # 替换为 upward_impulse_purity_D
-        downward_absorption_efficacy_raw = self._get_safe_series(df, 'dip_absorption_power_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form") # 替换为 dip_absorption_power_D
+        volume_burstiness_raw = self._get_safe_series(df, 'volume_ratio_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
+        upward_thrust_efficacy_raw = self._get_safe_series(df, 'upward_impulse_purity_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
+        downward_absorption_efficacy_raw = self._get_safe_series(df, 'dip_absorption_power_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
         burstiness_score = get_adaptive_mtf_normalized_score(volume_burstiness_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
         upward_efficacy_score = get_adaptive_mtf_normalized_score(upward_thrust_efficacy_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
         downward_efficacy_score = get_adaptive_mtf_normalized_score(downward_absorption_efficacy_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
         # --- 引入均线角度 ---
-        ma_col_base = 'EMA_55'
-        timeframe_key = 'D'
-        ma_angle_raw = self._get_safe_series(df, f'ATAN_ANGLE_{ma_col_base}_{timeframe_key}', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
+        ma_angle_raw = self._get_safe_series(df, f'ATAN_ANGLE_EMA_55_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
         ma_angle_score = get_adaptive_mtf_normalized_bipolar_score(ma_angle_raw, df_index, tf_weights_struct, sensitivity=10.0)
         # 获取趋势质量分和收盘动能指数，并检查是否缺失
         trend_quality_raw = self._get_safe_series(df, 'trend_quality_score_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
@@ -188,11 +201,17 @@ class StructuralIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df.index:
                 print(f"    -> [趋势形态探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - bull_alignment_raw: {bull_alignment_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - bull_alignment_ema_raw: {bull_alignment_ema_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - price_above_all_ema: {price_above_all_ema.loc[probe_date_for_loop]:.4f}")
+                print(f"       - price_ema_distance_score: {price_ema_distance_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - bull_alignment_ema: {bull_alignment_ema.loc[probe_date_for_loop]:.4f}")
+                print(f"       - bull_alignment_ma_raw: {bull_alignment_ma_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - price_above_all_ma: {price_above_all_ma.loc[probe_date_for_loop]:.4f}")
                 print(f"       - price_ma_distance_score: {price_ma_distance_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - bull_alignment_ma: {bull_alignment_ma.loc[probe_date_for_loop]:.4f}")
                 print(f"       - bull_alignment: {bull_alignment.loc[probe_date_for_loop]:.4f}")
-                print(f"       - bull_velocity_raw: {bull_velocity_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - bull_velocity_ema_raw: {bull_velocity_ema_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - bull_velocity_ma_raw: {bull_velocity_ma_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - pct_change_score: {pct_change_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - bull_velocity: {bull_velocity.loc[probe_date_for_loop]:.4f}")
                 print(f"       - burstiness_score: {burstiness_score.loc[probe_date_for_loop]:.4f}")
