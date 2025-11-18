@@ -931,26 +931,47 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_intraday_attribution_weights(self, intraday_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
         """
-        【V9.1 · 逐笔数据兼容版】
+        【V9.2 · 逐笔数据兼容版 - 价格范围零值修复】
         - 核心革命: 废弃“一体适用”的权重模型，为超大单、大单、中单、小单引入各自独特的、基于行为特征的权重分配逻辑。
         - 核心思想:
           - 超大单(ELG) -> 脉冲修正: 权重集中在成交量和振幅剧增的“暴力分钟”。
           - 大单(LG) -> VWAP修正: 权重与价格偏离VWAP的程度相关，体现战术意图。
           - 中单(MD) -> 动量修正: 权重与短期价格动量相关，体现追涨杀跌特性。
           - 小单(SM) -> 基准压力: 沿用原有的K线形态压力模型作为基准。
+        - 核心修复: 修复了 `price_range` 为零时导致的 `decimal.InvalidOperation` 错误。
         """
         df = intraday_data_for_day.copy()
         if 'vol_shares' not in df.columns or df['vol_shares'].sum() < 1e-6 or len(df) < 5:
             for size in ['sm', 'md', 'lg', 'elg']:
                 df[f'{size}_buy_weight'] = 0; df[f'{size}_sell_weight'] = 0
             return df
+        # 新增行: 确保价格列为浮点数类型，避免Decimal运算错误
+        for col in ['open', 'high', 'low', 'close']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
         price_range = df['high'] - df['low']
-        conditions = [price_range > 0, (price_range == 0) & (df['close'] > df['open']), (price_range == 0) & (df['close'] < df['open'])]
-        choices = [(df['close'] - df['low']) / price_range, 1.0, 0.0]
+        # 修改行: 安全计算 buy_pressure_proxy_ratio，避免除以零
+        buy_pressure_proxy_ratio = np.where(
+            price_range != 0,
+            (df['close'] - df['low']) / price_range,
+            0.5 # 当 price_range 为 0 时，暂时设为中性值，后续 np.select 会覆盖
+        )
+        conditions = [
+            price_range > 0,
+            (price_range == 0) & (df['close'] > df['open']),
+            (price_range == 0) & (df['close'] < df['open'])
+        ]
+        choices = [
+            buy_pressure_proxy_ratio, # 当 price_range > 0 时使用此值
+            1.0,                      # 当 price_range == 0 且收盘价高于开盘价时
+            0.0                       # 当 price_range == 0 且收盘价低于开盘价时
+        ]
+        # np.select 的 default 参数处理 price_range == 0 且 close == open 的情况
         buy_pressure_proxy = np.select(conditions, choices, default=0.5)
         vol_ma = df['vol_shares'].rolling(window=20, min_periods=1).mean()
         range_ma = price_range.rolling(window=20, min_periods=1).mean()
-        impulse_modifier = (df['vol_shares'] / vol_ma) * (price_range / range_ma.replace(0, 1))
+        # 修正行: 确保 range_ma 不为0，避免除以零
+        impulse_modifier = (df['vol_shares'] / vol_ma) * (price_range / range_ma.replace(0, 1e-9))
         impulse_modifier = impulse_modifier.fillna(1).clip(0, 10)
         daily_vwap = daily_data.get('daily_vwap')
         if pd.notna(daily_vwap):
