@@ -213,14 +213,14 @@ class AdvancedFundFlowMetricsService:
             # 优先处理高频数据
             if tick_data_map and date_obj in tick_data_map:
                 print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 使用预加载的逐笔数据。")
-                tick_df = tick_data_map[date_obj].copy() # 修改行: Make a copy to avoid modifying original map data
+                tick_df = tick_data_map[date_obj].copy() # Make a copy to avoid modifying original map data
 
-                # 修改行: Ensure original tick_df has essential columns before proceeding
+                # Ensure original tick_df has essential columns before proceeding
                 if not all(col in tick_df.columns for col in ['price', 'volume', 'amount']):
                     logger.warning(f"[{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 逐笔数据缺少'price', 'volume'或'amount'列，跳过逐笔数据处理。")
                     continue # Skip to next date or fallback to minute_data_map
 
-                # 修改行: Initialize column names based on original tick_df
+                # Initialize column names based on original tick_df
                 current_price_col = 'price'
                 current_volume_col = 'volume'
                 current_amount_col = 'amount'
@@ -243,7 +243,7 @@ class AdvancedFundFlowMetricsService:
                     )
                     tick_df = merged_df_temp.set_index('trade_time') # Update tick_df to the merged one
 
-                    # 修改行: 动态判断合并后的价格列名
+                    # 动态判断合并后的价格列名
                     if 'price_tick' in tick_df.columns:
                         current_price_col = 'price_tick'
                         current_volume_col = 'volume_tick'

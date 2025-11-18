@@ -286,9 +286,10 @@ class AdvancedChipMetricsService:
 
     async def _load_minute_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp, tick_data_map: dict = None, minute_data_map: dict = None):
         """
-        【V1.5 · 纯处理器版】不再查询数据库，仅处理由上游任务传入的日内数据maps。
+        【V1.6 · 索引冗余移除版】不再查询数据库，仅处理由上游任务传入的日内数据maps。
         - 核心重构: 移除所有数据库查询逻辑，职责单一化为数据处理与聚合。
         - 核心逻辑: 遍历所需日期，优先使用tick_data_map，若无则回退使用minute_data_map。
+        - 核心修复: 移除对 `tick_df` 冗余的 `set_index('trade_time')` 调用，因为传入的DataFrame已是 `DatetimeIndex`。
         """
         from stock_models.time_trade import StockDailyBasic
         intraday_data_map = {}
@@ -299,7 +300,8 @@ class AdvancedChipMetricsService:
             if tick_data_map and date_obj in tick_data_map:
                 print(f"调试信息: [{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 使用预加载的逐笔数据。")
                 tick_df = tick_data_map[date_obj]
-                tick_df.set_index('trade_time', inplace=True)
+                # 移除冗余的 set_index 调用，tick_df 已经以 trade_time 为索引
+                # tick_df.set_index('trade_time', inplace=True)
                 minute_df_from_ticks = tick_df.resample('1min').agg(
                     open=('price', 'first'), high=('price', 'max'), low=('price', 'min'),
                     close=('price', 'last'), vol=('volume', 'sum'), amount=('amount', 'sum')

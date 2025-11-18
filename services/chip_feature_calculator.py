@@ -90,10 +90,11 @@ class ChipFeatureCalculator:
 
     def _prepare_intraday_data_features(self):
         """
-        【V2.6 · 精确归因数据兼容版】准备日内数据特征，优先使用逐笔数据，否则回退到分钟数据。
+        【V2.7 · 逐笔数据索引简化版】准备日内数据特征，优先使用逐笔数据，否则回退到分钟数据。
         - 核心进化: 能够直接处理由资金流服务传入的、已经聚合和归因完毕的分钟数据。
         - 核心新增: 如果上下文中有 `intraday_data` (可能是逐笔或分钟数据)，则进行处理。
         - 核心逻辑: 如果是逐笔数据，则聚合为分钟数据；如果是分钟数据，则直接使用。
+        - 核心修复: 简化逐笔数据处理逻辑，假设传入的 `intraday_data` 已是 `DatetimeIndex`，避免重复索引操作。
         """
         intraday_df = self.ctx.get('intraday_data')
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
@@ -106,24 +107,27 @@ class ChipFeatureCalculator:
         is_tick_data = 'type' in intraday_df.columns and 'minute_vwap' not in intraday_df.columns
         if is_tick_data:
             print(f"调试信息: [{stock_code}] [{trade_date}] ChipFeatureCalculator 正在处理原始逐笔数据。")
-            intraday_df['trade_time'] = pd.to_datetime(intraday_df['trade_time'])
-            intraday_df.set_index('trade_time', inplace=True)
+            # 假设 intraday_df 已经以 trade_time 作为 DatetimeIndex
+            if not isinstance(intraday_df.index, pd.DatetimeIndex):
+                logger.error(f"[{stock_code}] [{trade_date}] 逐笔数据索引不是 DatetimeIndex，无法进行重采样。")
+                self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
+                return
             buy_vol_per_minute = intraday_df[intraday_df['type'] == 'B'].resample('1min')['volume'].sum()
             sell_vol_per_minute = intraday_df[intraday_df['type'] == 'S'].resample('1min')['volume'].sum()
             minute_df = intraday_df.resample('1min').agg(
                 open=('price', 'first'), high=('price', 'max'), low=('price', 'min'),
                 close=('price', 'last'), vol=('volume', 'sum'), amount=('amount', 'sum')
             ).dropna(subset=['open', 'high', 'low', 'close', 'vol', 'amount'])
-            minute_df.reset_index(inplace=True)
-            minute_df.rename(columns={'trade_time': 'trade_time'}, inplace=True)
-            minute_df = minute_df.set_index('trade_time')
+            # 重采样后的 minute_df 已经以 DatetimeIndex 为索引，无需 reset_index 和 set_index
             minute_df['buy_vol_raw'] = buy_vol_per_minute
             minute_df['sell_vol_raw'] = sell_vol_per_minute
             minute_df.fillna(0, inplace=True)
-            minute_df.reset_index(inplace=True)
-            minute_df['main_force_net_vol'] = 0.0; minute_df['main_force_buy_vol'] = 0.0
-            minute_df['main_force_sell_vol'] = 0.0; minute_df['retail_buy_vol'] = 0.0
-            minute_df['retail_sell_vol'] = 0.0; minute_df['vol_shares'] = minute_df['vol']
+            # 确保资金流相关列存在，如果资金流服务没有提供，则填充为0
+            fund_flow_cols = ['main_force_net_vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
+            for col in fund_flow_cols:
+                if col not in minute_df.columns:
+                    minute_df[col] = 0.0
+            minute_df['vol_shares'] = minute_df['vol']
             minute_df['amount_yuan'] = minute_df['amount']
             minute_df['minute_vwap'] = minute_df['amount_yuan'] / minute_df['vol_shares'].replace(0, np.nan)
             processed_intraday_df = minute_df
@@ -657,9 +661,9 @@ class ChipFeatureCalculator:
         - 核心修复: 确保 `intraday_df` 始终为 DataFrame 类型，即使数据缺失也能正常处理。
         """
         # 调试信息: 打印 ctx 字典的键，以帮助诊断问题
-        # 修改行: 修正 stock_code 的访问方式
+        # 修正 stock_code 的访问方式
         print(f"调试信息: [{ctx.get('stock_code', 'UNKNOWN')}] _compute_intraday_dynamics_metrics - ctx keys: {ctx.keys()}")
-        # 修改行: 使用 .get() 方法安全访问键，提供默认值 pd.DataFrame()
+        # 使用 .get() 方法安全访问键，提供默认值 pd.DataFrame()
         intraday_df = ctx.get('minute_data_for_day', pd.DataFrame())
         if intraday_df.empty:
             print(f"调试信息: [{ctx.get('stock_code', 'UNKNOWN')}] _compute_intraday_dynamics_metrics - minute_data_for_day 为空，跳过计算。")
@@ -669,13 +673,13 @@ class ChipFeatureCalculator:
         if not isinstance(intraday_df.index, pd.DatetimeIndex):
             logger.error(f"[{ctx.get('stock_code', 'UNKNOWN')}] 日内数据索引不是 DatetimeIndex，无法计算日内动态指标。")
             return {}
-        # 修改行: 使用 intraday_df.index 访问时间
+        # 使用 intraday_df.index 访问时间
         opening_30min_df = intraday_df[intraday_df.index.time < pd.to_datetime('10:00').time()]
         if not opening_30min_df.empty:
             metrics['opening_30min_vol_ratio'] = opening_30min_df['vol_shares'].sum() / intraday_df['vol_shares'].sum()
             metrics['opening_30min_range_ratio'] = (opening_30min_df['high'].max() - opening_30min_df['low'].min()) / (intraday_df['high'].max() - intraday_df['low'].min())
             metrics['opening_30min_vwap_change'] = (opening_30min_df['minute_vwap'].iloc[-1] - opening_30min_df['minute_vwap'].iloc[0]) / opening_30min_df['minute_vwap'].iloc[0]
-        # 修改行: 使用 intraday_df.index 访问时间
+        # 使用 intraday_df.index 访问时间
         closing_30min_df = intraday_df[intraday_df.index.time >= pd.to_datetime('14:30').time()]
         if not closing_30min_df.empty:
             metrics['closing_30min_vol_ratio'] = closing_30min_df['vol_shares'].sum() / intraday_df['vol_shares'].sum()
