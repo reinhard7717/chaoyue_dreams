@@ -684,11 +684,12 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series) -> dict:
         """
-        【V3.18 · 逐笔数据兼容版】分箱鲁棒性增强与主力峰区流量归一化及类型兼容版。
+        【V3.19 · 逐笔数据兼容版 - 索引访问修正】分箱鲁棒性增强与主力峰区流量归一化及类型兼容版。
         - 核心新增: 使用 `intraday_data` 作为日内数据源。
         - 核心修复: 在所有 pd.cut 调用中增加 duplicates='drop' 参数，以处理因涨跌停等极端行情导致的价格无波动情况，根除 'Bin edges must be unique' 错误。
         - 【新增】对 `main_force_on_peak_flow` 进行归一化处理，使其值在合理范围内，避免在融合时权重异常。
         - 【修复】将 `daily_total_amount` 明确转换为 `float` 类型，解决 `float` 和 `decimal.Decimal` 之间除法运算的 `TypeError`。
+        - 核心修复: 将所有对 `intraday_data['trade_time']` 的引用替换为 `intraday_data.index`。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -741,7 +742,8 @@ class AdvancedFundFlowMetricsService:
             twap = intraday_data['minute_vwap'].mean()
             if pd.notna(twap) and twap > 0:
                 results['vwap_structure_skew'] = (daily_vwap - twap) / twap * 100
-        opening_battle_df = intraday_data[(intraday_data['trade_time'].dt.time >= time(9, 30)) & (intraday_data['trade_time'].dt.time <= time(9, 45))]
+        # 使用 intraday_data.index 访问时间
+        opening_battle_df = intraday_data[(intraday_data.index.time >= time(9, 30)) & (intraday_data.index.time <= time(9, 45))]
         if not opening_battle_df.empty and len(opening_battle_df) > 1 and pd.notna(atr) and atr > 0:
             price_gain = (opening_battle_df['close'].iloc[-1] - opening_battle_df['open'].iloc[0]) / atr
             battle_amount = (opening_battle_df['vol_shares'] * opening_battle_df['minute_vwap']).sum()
@@ -824,7 +826,8 @@ class AdvancedFundFlowMetricsService:
             if not mf_net_series.var() == 0 and not retail_net_series.var() == 0 and len(mf_net_series) > 1:
                 rolling_corr = mf_net_series.rolling(window=30).corr(retail_net_series)
                 results['mf_retail_liquidity_swap_corr'] = rolling_corr.mean()
-        continuous_trading_df = intraday_data[intraday_data['trade_time'].dt.time < time(14, 57)].copy()
+        # 使用 intraday_data.index 访问时间
+        continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
         if not continuous_trading_df.empty and gatekeeper_condition:
             up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
             down_minutes = continuous_trading_df[continuous_trading_df['close'] < continuous_trading_df['open']]
@@ -849,7 +852,8 @@ class AdvancedFundFlowMetricsService:
                 value_dev_factor = np.tanh((day_close - daily_vwap) / atr)
                 force_balance_factor = intraday_data['main_force_net_vol'].sum() / daily_total_volume if daily_total_volume > 0 else 0
                 results['closing_price_deviation_score'] = (0.5 * range_pos_factor + 0.3 * value_dev_factor + 0.2 * force_balance_factor) * 100
-            auction_df = intraday_data[intraday_data['trade_time'].dt.time >= time(14, 57)]
+            # 使用 intraday_data.index 访问时间
+            auction_df = intraday_data[intraday_data.index.time >= time(14, 57)]
             if not auction_df.empty and not continuous_trading_df.empty:
                 pre_auction_close = continuous_trading_df['close'].iloc[-1]
                 auction_vol = auction_df['vol_shares'].sum()
@@ -892,7 +896,8 @@ class AdvancedFundFlowMetricsService:
                 results['rally_distribution_pressure'] = (rally_dist_vol / total_rally_vol) * 100
             if total_panic_vol > 0:
                 results['panic_selling_cascade'] = (panic_vol / total_panic_vol) * 100
-            posturing_df = continuous_trading_df[continuous_trading_df['trade_time'].dt.time >= time(14, 30)]
+            # 使用 intraday_data.index 访问时间
+            posturing_df = continuous_trading_df[continuous_trading_df.index.time >= time(14, 30)]
             if not posturing_df.empty and pd.notna(daily_vwap) and atr > 0:
                 posturing_vwap = (posturing_df['minute_vwap'] * posturing_df['vol_shares']).sum() / posturing_df['vol_shares'].sum()
                 price_posture = (posturing_vwap - daily_vwap) / atr
@@ -950,7 +955,7 @@ class AdvancedFundFlowMetricsService:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         price_range = df['high'] - df['low']
-        # 修改行: 安全计算 buy_pressure_proxy_ratio，避免除以零
+        # 安全计算 buy_pressure_proxy_ratio，避免除以零
         buy_pressure_proxy_ratio = np.where(
             price_range != 0,
             (df['close'] - df['low']) / price_range,
@@ -1003,22 +1008,19 @@ class AdvancedFundFlowMetricsService:
         return df
 
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
-        """【V1.6 · 数据完整性修复版 - 索引访问修正】从预加载的DataFrame构建按日分组的数据。
+        """【V1.7 · 数据完整性修复版 - 索引访问修正】从预加载的DataFrame构建按日分组的数据。
         - 核心修复: 修正了在 `trade_time` 列被设置为索引后，仍然尝试通过 `df['trade_time']` 访问导致的 `KeyError`。
+        - 核心修复: 调整了 `df['date']` 的赋值位置，确保在 `set_index('date')` 之前完成。
         """
         if minute_df is None or minute_df.empty:
             return None
         df = minute_df.copy()
-        # 修正行: trade_time 已经是索引，直接使用 df.index
-        # df.sort_values('trade_time', inplace=True) # 索引已经是排序的，无需再次排序
-        # 修正行: trade_time 已经是索引，直接使用 df.index
-        # df['trade_time'] = pd.to_datetime(df['trade_time']) # trade_time 已经是 DatetimeIndex
         # 修正行: 检查索引的时区信息
         if df.index.tz is None:
             df.index = df.index.tz_localize('UTC').tz_convert('Asia/Shanghai')
         else:
             df.index = df.index.tz_convert('Asia/Shanghai')
-        # 修正行: 从索引中提取日期
+        # 修正行: 从索引中提取日期，在设置新的索引之前完成
         df['date'] = df.index.date
         df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
         df['amount_yuan'] = df['amount']
@@ -1026,7 +1028,8 @@ class AdvancedFundFlowMetricsService:
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         daily_total_vol = df.groupby('date')['vol_shares'].transform('sum')
         df['vol_weight'] = df['vol_shares'] / daily_total_vol.replace(0, np.nan)
-        return df.set_index('date') # 最终返回的DataFrame以日期为索引
+        # 修正行: 最终返回的DataFrame以日期为索引
+        return df.set_index('date')
 
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """

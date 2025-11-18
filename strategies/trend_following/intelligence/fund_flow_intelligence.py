@@ -178,7 +178,7 @@ class FundFlowIntelligence:
             split_order_accumulation_factor * 0.2 +
             main_force_ofi_score * 0.15 - # 新增主力订单流失衡
             retail_ofi_score * 0.05 # 新增散户订单流失衡 (负向贡献)
-        ).clip(-1, 1) # 修改行: 调整权重并加入新信号
+        ).clip(-1, 1) # 调整权重并加入新信号
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
@@ -235,7 +235,7 @@ class FundFlowIntelligence:
             hidden_accumulation_score * 0.1 - # 新增隐蔽吸筹强度
             t0_efficiency_bipolar * 0.1 -
             microstructure_efficiency_score * 0.05 # 新增微观结构效率指数 (负向贡献)
-        ).clip(-1, 1) # 修改行: 调整权重并加入新信号
+        ).clip(-1, 1) # 调整权重并加入新信号
         conviction_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df_index, tf_weights_ff, sensitivity=1.0)
         # --- Debugging output for probe date ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -276,7 +276,7 @@ class FundFlowIntelligence:
         required_signals = [
             'main_force_net_flow_calibrated_D', 'total_market_value_D',
             'SLOPE_5_NMFNF_D', 'SLOPE_21_NMFNF_D',
-            'wash_trade_intensity_D', 'order_book_imbalance_D' # 修改行: 新增微观资金流博弈指标
+            'wash_trade_intensity_D', 'order_book_imbalance_D' # 新增微观资金流博弈指标
         ]
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
@@ -305,7 +305,7 @@ class FundFlowIntelligence:
             slope_21_nmfnf_score * 0.2 +
             order_book_imbalance_score * 0.15 + # 新增五档盘口失衡度
             wash_trade_intensity_score * 0.1 # 新增主力对倒强度
-        ).clip(-1, 1) # 修改行: 调整权重并加入新信号
+        ).clip(-1, 1) # 调整权重并加入新信号
         # --- Debugging output for probe date ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])

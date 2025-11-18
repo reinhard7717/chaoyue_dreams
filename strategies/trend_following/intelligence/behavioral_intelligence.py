@@ -190,7 +190,7 @@ class BehavioralIntelligence:
         - 【修复】将 `p_behavior` 变量名统一为 `p_conf`，解决 `NameError`。
         """
         states = {}
-        # 修改行: 将 p_behavior 变量名统一为 p_conf
+        # 将 p_behavior 变量名统一为 p_conf
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})

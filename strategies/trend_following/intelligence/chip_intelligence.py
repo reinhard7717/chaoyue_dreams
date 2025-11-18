@@ -151,7 +151,7 @@ class ChipIntelligence:
             'short_term_concentration_90pct_D', 'long_term_concentration_90pct_D', 'winner_concentration_90pct_D',
             'peak_fusion_indicator_D',
             'ZIG_5_5.0_D', # 修正为 merge_results 后的列名
-            'peak_exchange_purity_D' # 修改行: 新增微观筹码博弈指标
+            'peak_exchange_purity_D' # 新增微观筹码博弈指标
         ] + [f'SLOPE_{p}_winner_concentration_90pct_D' for p in periods if f'SLOPE_{p}_winner_concentration_90pct_D' in df.columns]
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
@@ -180,7 +180,7 @@ class ChipIntelligence:
         # 新增代码行: 归一化主峰交换纯度，越高越好
         peak_exchange_purity_score = get_adaptive_mtf_normalized_bipolar_score(peak_exchange_purity_raw, df.index, tf_weights, sensitivity=0.5)
         # 融合所有分数，调整权重
-        final_score = (level_score * 0.20 + trend_score * 0.30 + fusion_score * 0.20 + zigzag_score * 0.10 + peak_exchange_purity_score * 0.20).clip(-1, 1) # 修改行: 调整权重并加入新信号
+        final_score = (level_score * 0.20 + trend_score * 0.30 + fusion_score * 0.20 + zigzag_score * 0.10 + peak_exchange_purity_score * 0.20).clip(-1, 1) # 调整权重并加入新信号
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -210,7 +210,7 @@ class ChipIntelligence:
         """
         required_signals = [
             'winner_loser_momentum_D', 'cost_divergence_normalized_D', 'cost_structure_skewness_D',
-            'pressure_validation_score_D', 'support_validation_score_D' # 修改行: 新增微观筹码博弈指标
+            'pressure_validation_score_D', 'support_validation_score_D' # 新增微观筹码博弈指标
         ]
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
@@ -238,7 +238,7 @@ class ChipIntelligence:
             support_validation_score * 0.2 - # 新增支撑验证分
             divergence_score * 0.2 -
             pressure_validation_score * 0.1 # 新增压力验证分
-        ).clip(-1, 1) # 修改行: 调整权重并加入新信号
+        ).clip(-1, 1) # 调整权重并加入新信号
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -271,7 +271,7 @@ class ChipIntelligence:
         required_signals = [
             'winner_conviction_index_D', 'loser_pain_index_D', 'chip_fatigue_index_D',
             'locked_profit_rate_D', 'locked_loss_rate_D',
-            'covert_accumulation_signal_D' # 修改行: 新增微观筹码博弈指标
+            'covert_accumulation_signal_D' # 新增微观筹码博弈指标
         ]
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
@@ -301,7 +301,7 @@ class ChipIntelligence:
             pain_score * 0.15 -
             fatigue_score * 0.1 -
             locked_loss_score * 0.1
-        ).clip(-1, 1) # 修改行: 调整权重并加入新信号
+        ).clip(-1, 1) # 调整权重并加入新信号
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -333,7 +333,7 @@ class ChipIntelligence:
         - 【优化】将 `price_vs_peak_score` 和 `peak_solidity_score` 的归一化方式改为多时间维度自适应归一化。
         - 【新增】引入 `price_volume_entropy_D` (价格成交量熵) 作为判断筹码峰形态的微观证据。
         """
-        required_signals = ['dominant_peak_cost_D', 'dominant_peak_solidity_D', 'price_volume_entropy_D'] # 修改行: 新增微观筹码博弈指标
+        required_signals = ['dominant_peak_cost_D', 'dominant_peak_solidity_D', 'price_volume_entropy_D'] # 新增微观筹码博弈指标
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             return pd.Series(0.0, index=df.index)
@@ -348,7 +348,7 @@ class ChipIntelligence:
         # 新增代码行: 归一化价格成交量熵，熵值越低（结构越有序）越好
         price_volume_entropy_score = get_adaptive_mtf_normalized_bipolar_score(price_volume_entropy_raw * -1, df.index, tf_weights, sensitivity=0.5)
         # 融合所有分数，调整权重
-        final_score = (price_vs_peak_score * peak_solidity_score * 0.8 + price_volume_entropy_score * 0.2).clip(-1, 1) # 修改行: 调整权重并加入新信号
+        final_score = (price_vs_peak_score * peak_solidity_score * 0.8 + price_volume_entropy_score * 0.2).clip(-1, 1) # 调整权重并加入新信号
         return final_score
 
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list) -> pd.Series:
@@ -362,7 +362,7 @@ class ChipIntelligence:
         - 【新增】引入 `structural_resilience_index_D` (结构韧性指数) 作为判断筹码趋势动量的微观证据。
         """
         df_index = df.index
-        required_signals = ['OCH_D', 'SLOPE_5_OCH_D', 'SLOPE_21_OCH_D', 'structural_resilience_index_D'] # 修改行: 新增微观筹码博弈指标
+        required_signals = ['OCH_D', 'SLOPE_5_OCH_D', 'SLOPE_21_OCH_D', 'structural_resilience_index_D'] # 新增微观筹码博弈指标
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             print(f"    -> [筹码趋势动量探针] 警告: 缺少核心信号 {missing_signals}，使用默认值0.0。")
@@ -385,7 +385,7 @@ class ChipIntelligence:
             slope_5_och_score * 0.3 +
             slope_21_och_score * 0.2 +
             structural_resilience_score * 0.2 # 新增结构韧性指数
-        ).clip(-1, 1) # 修改行: 调整权重并加入新信号
+        ).clip(-1, 1) # 调整权重并加入新信号
         # --- Debugging output for probe date ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])

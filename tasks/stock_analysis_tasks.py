@@ -628,7 +628,7 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     def _process_intraday_df_to_map(df: pd.DataFrame) -> dict:
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])
-        # 修改行: 修正时区处理逻辑
+        # 修正时区处理逻辑
         if df['trade_time'].dt.tz is None:
             # 如果没有时区信息，假定为上海时间并本地化
             df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai')

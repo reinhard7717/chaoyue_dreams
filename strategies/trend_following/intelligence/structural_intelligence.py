@@ -154,7 +154,7 @@ class StructuralIntelligence:
         timeframe_key = 'D'
         ma_angle_raw = self._get_safe_series(df, f'ATAN_ANGLE_{ma_col_base}_{timeframe_key}', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
         ma_angle_score = get_adaptive_mtf_normalized_bipolar_score(ma_angle_raw, df_index, tf_weights_struct, sensitivity=10.0)
-        # 修改行: 获取趋势质量分和收盘动能指数，并检查是否缺失
+        # 获取趋势质量分和收盘动能指数，并检查是否缺失
         trend_quality_raw = self._get_safe_series(df, 'trend_quality_score_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
         closing_momentum_raw = self._get_safe_series(df, 'closing_momentum_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
         trend_quality_score = pd.Series(0.0, index=df_index)
@@ -242,7 +242,7 @@ class StructuralIntelligence:
         # 获取并归一化 vpoc_consensus_strength_D
         vpoc_consensus_raw = self._get_safe_series(df, 'mf_vpoc_premium_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability") # 替换为 mf_vpoc_premium_D
         vpoc_consensus_score = get_adaptive_mtf_normalized_score(vpoc_consensus_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        # 修改行: 获取成交结构偏度，并检查是否缺失
+        # 获取成交结构偏度，并检查是否缺失
         volume_structure_skew_raw = self._get_safe_series(df, 'volume_structure_skew_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
         volume_structure_skew_score = pd.Series(0.0, index=df_index)
         if not volume_structure_skew_raw.isnull().all() and not (volume_structure_skew_raw == 0.0).all():
@@ -276,7 +276,7 @@ class StructuralIntelligence:
             volatility_skew_score.clip(lower=0) * 0.15 -
             volatility_skew_score.clip(upper=0).abs() * 0.15
         )
-        # 修改行: 只有当 volume_structure_skew_score 有效时才加入融合
+        # 只有当 volume_structure_skew_score 有效时才加入融合
         if not volume_structure_skew_score.isnull().all() and not (volume_structure_skew_score == 0.0).all():
             stability_score += volume_structure_skew_score * 0.15
         stability_score = stability_score.clip(-1, 1)

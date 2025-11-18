@@ -536,7 +536,7 @@ class CognitiveIntelligence:
         ], axis=0)
         # 调整权重，为结构共识分、回踩确认二次启动形态和多方炮分配适当权重
         # 确保总和为1
-        evidence_weights = np.array([0.12, 0.08, 0.08, 0.18, 0.12, 0.12, 0.15, 0.15]) # 修改行: 调整权重
+        evidence_weights = np.array([0.12, 0.08, 0.08, 0.18, 0.12, 0.12, 0.15, 0.15]) # 调整权重
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))

@@ -42,7 +42,7 @@ class PatternIntelligence:
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_PATTERN_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_PATTERN_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
-        # 修改行: 诊断“回踩确认二次启动”形态
+        # 诊断“回踩确认二次启动”形态
         axiom_pullback_confirmation = self._diagnose_axiom_pullback_confirmation(df)
         all_states['SCORE_PATTERN_PULLBACK_CONFIRMATION'] = axiom_pullback_confirmation
         # 新增行: 诊断“多方炮”形态
