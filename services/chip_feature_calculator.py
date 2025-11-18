@@ -90,12 +90,10 @@ class ChipFeatureCalculator:
 
     def _prepare_intraday_data_features(self):
         """
-        【V2.8 · 逐笔数据聚合类型修正版】准备日内数据特征，优先使用逐笔数据，否则回退到分钟数据。
-        - 核心进化: 能够直接处理由资金流服务传入的、已经聚合和归因完毕的分钟数据。
-        - 核心新增: 如果上下文中有 `intraday_data` (可能是逐笔或分钟数据)，则进行处理。
-        - 核心逻辑: 如果是逐笔数据，则聚合为分钟数据；如果是分钟数据，则直接使用。
-        - 核心修复: 简化逐笔数据处理逻辑，假设传入的 `intraday_data` 已是 `DatetimeIndex`，避免重复索引操作。
-        - 核心修复: 在逐笔数据聚合为分钟数据后，显式将 `amount` 和 `vol` 列转换为 `float`，以避免 `Decimal` 类型在后续计算中引发 `TypeError`。
+        【V2.9 · 日内数据统一处理版】准备日内数据特征，统一处理为分钟级别数据。
+        - 核心进化: 能够直接处理由上游服务传入的、已经聚合和归因完毕的分钟数据。
+        - 核心逻辑: 假设传入的 `intraday_data` 已经是分钟级别数据，并进行标准化处理。
+        - 核心修复: 移除 `is_tick_data` 相关的分支逻辑，简化数据处理流程。
         """
         intraday_df = self.ctx.get('intraday_data')
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
@@ -104,54 +102,21 @@ class ChipFeatureCalculator:
             logger.warning(f"[{stock_code}] [{trade_date}] 日内数据特征准备跳过，原因：日内数据(intraday_data)为空。")
             self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
             return
-        # 检查是否是逐笔数据 (有 'type' 字段，但没有 'minute_vwap' 字段)
-        is_tick_data = 'type' in intraday_df.columns and 'minute_vwap' not in intraday_df.columns
-        if is_tick_data:
-            print(f"调试信息: [{stock_code}] [{trade_date}] ChipFeatureCalculator 正在处理原始逐笔数据。")
-            if not isinstance(intraday_df.index, pd.DatetimeIndex):
-                logger.error(f"[{stock_code}] [{trade_date}] 逐笔数据索引不是 DatetimeIndex，无法进行重采样。")
-                self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
-                return
-            buy_vol_per_minute = intraday_df[intraday_df['type'] == 'B'].resample('1min')['volume'].sum()
-            sell_vol_per_minute = intraday_df[intraday_df['type'] == 'S'].resample('1min')['volume'].sum()
-            minute_df = intraday_df.resample('1min').agg(
-                open=('price', 'first'), high=('price', 'max'), low=('price', 'min'),
-                close=('price', 'last'), vol=('volume', 'sum'), amount=('amount', 'sum')
-            ).dropna(subset=['open', 'high', 'low', 'close', 'vol', 'amount'])
-            # 修改行: 显式将聚合后的 amount 和 vol 转换为 float
-            minute_df['amount'] = pd.to_numeric(minute_df['amount'], errors='coerce')
-            minute_df['vol'] = pd.to_numeric(minute_df['vol'], errors='coerce')
-            minute_df['buy_vol_raw'] = buy_vol_per_minute
-            minute_df['sell_vol_raw'] = sell_vol_per_minute
-            minute_df.fillna(0, inplace=True)
-            # 确保资金流相关列存在，如果资金流服务没有提供，则填充为0
-            fund_flow_cols = ['main_force_net_vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
-            for col in fund_flow_cols:
-                if col not in minute_df.columns:
-                    minute_df[col] = 0.0
-            minute_df['vol_shares'] = minute_df['vol']
-            minute_df['amount_yuan'] = minute_df['amount']
-            minute_df['minute_vwap'] = minute_df['amount_yuan'] / minute_df['vol_shares'].replace(0, np.nan)
-            processed_intraday_df = minute_df
-        else:
-            # 处理的是分钟数据（可能是原始的，也可能是资金流服务处理过的）
-            processed_intraday_df = intraday_df.copy()
-            dtype_map = {'amount': 'float32', 'vol': 'int32', 'open': 'float32', 'close': 'float32', 'high': 'float32', 'low': 'float32'}
-            for col, dtype in dtype_map.items():
-                if col in processed_intraday_df.columns:
-                    processed_intraday_df[col] = pd.to_numeric(processed_intraday_df[col], errors='coerce').astype(dtype, errors='ignore')
-            # 确保关键列存在，如果不存在则创建
-            if 'minute_vwap' not in processed_intraday_df.columns:
-                processed_intraday_df['minute_vwap'] = processed_intraday_df['amount'] / processed_intraday_df['vol'].replace(0, np.nan)
-            if 'vol_shares' not in processed_intraday_df.columns:
-                processed_intraday_df['vol_shares'] = processed_intraday_df['vol']
-            if 'amount_yuan' not in processed_intraday_df.columns:
-                processed_intraday_df['amount_yuan'] = processed_intraday_df['amount']
-            # 确保资金流相关列存在，如果资金流服务没有提供，则填充为0
-            fund_flow_cols = ['main_force_net_vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol', 'buy_vol_raw', 'sell_vol_raw']
-            for col in fund_flow_cols:
-                if col not in processed_intraday_df.columns:
-                    processed_intraday_df[col] = 0.0
+        processed_intraday_df = intraday_df.copy()
+        dtype_map = {'amount': 'float32', 'vol': 'int32', 'open': 'float32', 'close': 'float32', 'high': 'float32', 'low': 'float32'}
+        for col, dtype in dtype_map.items():
+            if col in processed_intraday_df.columns:
+                processed_intraday_df[col] = pd.to_numeric(processed_intraday_df[col], errors='coerce').astype(dtype, errors='ignore')
+        if 'minute_vwap' not in processed_intraday_df.columns:
+            processed_intraday_df['minute_vwap'] = processed_intraday_df['amount_yuan'] / processed_intraday_df['vol_shares'].replace(0, np.nan)
+        if 'vol_shares' not in processed_intraday_df.columns:
+            processed_intraday_df['vol_shares'] = processed_intraday_df['vol']
+        if 'amount_yuan' not in processed_intraday_df.columns:
+            processed_intraday_df['amount_yuan'] = processed_intraday_df['amount']
+        fund_flow_cols = ['main_force_net_vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol', 'buy_vol_raw', 'sell_vol_raw']
+        for col in fund_flow_cols:
+            if col not in processed_intraday_df.columns:
+                processed_intraday_df[col] = 0.0
         if processed_intraday_df.empty:
             self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
             return
