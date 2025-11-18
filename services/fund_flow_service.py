@@ -1116,7 +1116,8 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_microstructure_signals(self, stock_code: str, daily_intraday_df: pd.DataFrame, daily_level5_df: pd.DataFrame, daily_total_volume: float) -> dict:
         """
-        【V1.2 · 微观信号类型修正版】计算基于高频数据的微观结构指标。
+        【V1.3 · 微观信号索引访问修正版】计算基于高频数据的微观结构指标。
+        - 核心修复: 修正对 `daily_level5_df` 中 `trade_time` 的访问方式，从列访问改为索引访问，根除 `KeyError`。
         - 核心修复: 在方法入口处，显式将所有可能为 Decimal 类型的数值列转换为 float，根除 `TypeError`。
         - 核心修复: 在入口检查中增加了对输入DataFrame是否为None的判断，以优雅处理高频数据缺失的情况，根治 'NoneType' object has no attribute 'empty' 错误。
         """
@@ -1129,7 +1130,7 @@ class AdvancedFundFlowMetricsService:
         if daily_intraday_df is None or daily_intraday_df.empty or daily_level5_df is None or daily_level5_df.empty or daily_total_volume <= 0:
             return results
 
-        # 修改行: 对传入的 DataFrame 进行深拷贝，并确保所有数值列为 float 类型
+        # 对传入的 DataFrame 进行深拷贝，并确保所有数值列为 float 类型
         daily_intraday_df = daily_intraday_df.copy()
         for col in ['price', 'volume', 'amount']:
             if col in daily_intraday_df.columns:
@@ -1148,14 +1149,12 @@ class AdvancedFundFlowMetricsService:
         daily_intraday_df['reversal'] = (daily_intraday_df['direction'] * daily_intraday_df['direction'].shift(1)) < 0
         minute_agg = daily_intraday_df.resample('1min').agg(
             vol=('volume', 'sum'),
-            # 这里的 lambda 函数内部的 price 和 volume 已经是 float 类型
             vwap=('price', lambda x: np.average(x, weights=daily_intraday_df.loc[x.index, 'volume']) if not x.empty and daily_intraday_df.loc[x.index, 'volume'].sum() > 0 else np.nan),
             reversals=('reversal', 'sum'),
             trades=('reversal', 'count')
         ).dropna()
         if not minute_agg.empty:
             minute_agg['vwap_std'] = daily_intraday_df.resample('1min')['price'].std().fillna(0)
-            # 此时 minute_agg['vwap_std'] 和 minute_agg['vwap'] 均为 float 类型，不会再有 TypeError
             minute_agg['wash_score'] = (minute_agg['vol'] / daily_total_volume) * (minute_agg['reversals'] / minute_agg['trades'].replace(0, 1)) * np.exp(-100 * minute_agg['vwap_std'] / minute_agg['vwap'].replace(0, 1))
             results['wash_trade_intensity'] = minute_agg['wash_score'].sum() * 100
         # 2. 计算五档盘口失衡度 (Order Book Imbalance)
@@ -1165,26 +1164,25 @@ class AdvancedFundFlowMetricsService:
         daily_level5_df['imbalance'] = (daily_level5_df['buy_vol_total'] - daily_level5_df['sell_vol_total']) / total_book_vol.replace(0, np.nan)
         daily_level5_df.dropna(subset=['imbalance'], inplace=True)
         if not daily_level5_df.empty:
-            # 使用时间差作为权重，计算加权平均失衡度
-            time_diffs = daily_level5_df['trade_time'].diff().dt.total_seconds().fillna(0)
+            # 修改行: 使用 .index.to_series() 来获取时间序列并计算时间差
+            time_diffs = daily_level5_df.index.to_series().diff().dt.total_seconds().fillna(0)
             results['order_book_imbalance'] = np.average(daily_level5_df['imbalance'], weights=time_diffs) * 100
         # 3. 计算大单压制与支撑强度 (Large Order Pressure/Support)
         large_order_threshold_value = 500000 # 定义大单门槛为50万元
         pressure_strength = 0
         support_strength = 0
         if not daily_level5_df.empty:
-            time_diffs_seconds = daily_level5_df['trade_time'].diff().dt.total_seconds().values
+            # 修改行: 使用 .index.to_series() 来获取时间序列并计算时间差
+            time_diffs_seconds = daily_level5_df.index.to_series().diff().dt.total_seconds().values
             for i in range(1, len(daily_level5_df)):
                 row = daily_level5_df.iloc[i]
                 duration = time_diffs_seconds[i]
                 # 计算压制强度
                 for p, v in [('sell_price1', 'sell_volume1'), ('sell_price2', 'sell_volume2')]:
-                    # 此时 row[p] 和 row[v] 已经是 float 类型
                     if pd.notna(row[p]) and pd.notna(row[v]) and row[p] * row[v] * 100 > large_order_threshold_value:
                         pressure_strength += row[v] * 100 * duration
                 # 计算支撑强度
                 for p, v in [('buy_price1', 'buy_volume1'), ('buy_price2', 'buy_volume2')]:
-                    # 此时 row[p] 和 row[v] 已经是 float 类型
                     if pd.notna(row[p]) and pd.notna(row[v]) and row[p] * row[v] * 100 > large_order_threshold_value:
                         support_strength += row[v] * 100 * duration
         if daily_total_volume > 0:
