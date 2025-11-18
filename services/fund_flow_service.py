@@ -214,7 +214,6 @@ class AdvancedFundFlowMetricsService:
             processed_with_tick_data = False
             if tick_data_map and date_obj in tick_data_map:
                 try:
-                    print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 尝试使用预加载的逐笔数据。")
                     tick_df = tick_data_map[date_obj].copy()
                     if not all(col in tick_df.columns for col in ['price', 'volume', 'amount']):
                         logger.warning(f"[{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 逐笔数据缺少'price', 'volume'或'amount'列，将尝试回退到分钟数据。")
