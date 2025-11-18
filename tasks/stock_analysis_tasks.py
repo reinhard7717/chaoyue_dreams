@@ -618,13 +618,13 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     }
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
-    print(f"--- [数据加载探针] Stock: {stock_info.stock_code}, Chunk: {chunk_dates_list[0]} to {chunk_dates_list[-1]} ---")
-    for name, df in data_dfs.items():
-        model_obj = model_name_map.get(name)
-        model_name = model_obj.__name__ if model_obj else "N/A"
-        record_count = len(df) if df is not None else 0
-        print(f"  -> 源: {name:<20} | 模型: {model_name:<30} | 获取到 {record_count} 条记录")
-    print("--- [探针结束] ---")
+    # print(f"--- [数据加载探针] Stock: {stock_info.stock_code}, Chunk: {chunk_dates_list[0]} to {chunk_dates_list[-1]} ---")
+    # for name, df in data_dfs.items():
+    #     model_obj = model_name_map.get(name)
+    #     model_name = model_obj.__name__ if model_obj else "N/A"
+    #     record_count = len(df) if df is not None else 0
+    #     print(f"  -> 源: {name:<20} | 模型: {model_name:<30} | 获取到 {record_count} 条记录")
+    # print("--- [探针结束] ---")
     def _process_intraday_df_to_map(df: pd.DataFrame) -> dict:
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])
