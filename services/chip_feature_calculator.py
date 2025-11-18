@@ -651,24 +651,29 @@ class ChipFeatureCalculator:
 
     def _compute_intraday_dynamics_metrics(self, ctx: dict) -> dict:
         """
-        【V1.10 · 索引访问修正】计算日内动态指标。
-        - 核心修复: 将所有对 `intraday_df['trade_time']` 的引用替换为 `intraday_df.index`。
+        【V1.11 · 键访问健壮性增强】计算日内动态指标。
+        - 核心修复: 使用 `ctx.get()` 安全访问 `minute_data_for_day`，避免 `KeyError`。
+        - 核心修复: 确保 `intraday_df` 始终为 DataFrame 类型，即使数据缺失也能正常处理。
         """
-        intraday_df = ctx['minute_data_for_day']
+        # 调试信息: 打印 ctx 字典的键，以帮助诊断问题
+        print(f"调试信息: [{self.stock_code}] _compute_intraday_dynamics_metrics - ctx keys: {ctx.keys()}")
+        # 修改行: 使用 .get() 方法安全访问键，提供默认值 pd.DataFrame()
+        intraday_df = ctx.get('minute_data_for_day', pd.DataFrame())
         if intraday_df.empty:
+            print(f"调试信息: [{self.stock_code}] _compute_intraday_dynamics_metrics - minute_data_for_day 为空，跳过计算。")
             return {}
         metrics = {}
         # 确保索引是 DatetimeIndex
         if not isinstance(intraday_df.index, pd.DatetimeIndex):
             logger.error(f"[{self.stock_code}] 日内数据索引不是 DatetimeIndex，无法计算日内动态指标。")
             return {}
-        # 使用 intraday_df.index 访问时间
+        # 修改行: 使用 intraday_df.index 访问时间
         opening_30min_df = intraday_df[intraday_df.index.time < pd.to_datetime('10:00').time()]
         if not opening_30min_df.empty:
             metrics['opening_30min_vol_ratio'] = opening_30min_df['vol_shares'].sum() / intraday_df['vol_shares'].sum()
             metrics['opening_30min_range_ratio'] = (opening_30min_df['high'].max() - opening_30min_df['low'].min()) / (intraday_df['high'].max() - intraday_df['low'].min())
             metrics['opening_30min_vwap_change'] = (opening_30min_df['minute_vwap'].iloc[-1] - opening_30min_df['minute_vwap'].iloc[0]) / opening_30min_df['minute_vwap'].iloc[0]
-        # 使用 intraday_df.index 访问时间
+        # 修改行: 使用 intraday_df.index 访问时间
         closing_30min_df = intraday_df[intraday_df.index.time >= pd.to_datetime('14:30').time()]
         if not closing_30min_df.empty:
             metrics['closing_30min_vol_ratio'] = closing_30min_df['vol_shares'].sum() / intraday_df['vol_shares'].sum()
