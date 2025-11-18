@@ -402,3 +402,35 @@ class AdvancedChipMetricsService:
             records_for_atomic_save.append(record_data)
         processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
         return processed_count
+
+    def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
+        """【V1.0 · 数据完整性修复版 - 辅助列添加】从预加载的DataFrame构建按日分组的数据。
+        - 核心职责: 确保传入的DataFrame保持 `trade_time` 作为 `DatetimeIndex`，并正确处理时区，添加 `amount_yuan`, `vol_shares`, `minute_vwap`, `vol_weight` 等辅助列。
+        - 核心修复: 不再修改DataFrame的索引，仅添加辅助列。
+        """
+        from django.utils import timezone
+        if minute_df is None or minute_df.empty:
+            return pd.DataFrame()
+        df = minute_df.copy()
+        if not isinstance(df.index, pd.DatetimeIndex):
+            if 'trade_time' in df.columns:
+                df['trade_time'] = pd.to_datetime(df['trade_time'])
+                df = df.set_index('trade_time')
+            else:
+                logger.warning("DataFrame passed to _group_minute_data_from_df has no 'trade_time' column and no DatetimeIndex.")
+                return pd.DataFrame()
+        if df.index.tz is None:
+            df.index = df.index.tz_localize('UTC').tz_convert(timezone.get_current_timezone())
+        elif df.index.tz != timezone.get_current_timezone():
+            df.index = df.index.tz_convert(timezone.get_current_timezone())
+        df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
+        df['amount_yuan'] = df['amount']
+        df['vol_shares'] = df['vol']
+        df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
+        current_day_total_vol = df['vol_shares'].sum()
+        df['vol_weight'] = df['vol_shares'] / current_day_total_vol if current_day_total_vol > 0 else 0
+        return df
+
+
+
+
