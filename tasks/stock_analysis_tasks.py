@@ -628,7 +628,7 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     def _process_intraday_df_to_map(df: pd.DataFrame) -> dict:
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])
-        # 修正行: 确保时区处理使用 Django 的当前时区
+        # 确保时区处理使用 Django 的当前时区
         if df['trade_time'].dt.tz is None:
             df['trade_time'] = df['trade_time'].dt.tz_localize(timezone.get_current_timezone())
         else:

@@ -198,11 +198,11 @@ class AdvancedFundFlowMetricsService:
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None):
         """
-        【V1.11 · 逐笔数据列名健壮性修复】不再查询数据库，仅处理由上游任务传入的日内数据maps。
+        【V1.12 · 逐笔数据列名处理修正】不再查询数据库，仅处理由上游任务传入的日内数据maps。
         - 核心重构: 移除所有数据库查询逻辑，职责单一化为数据处理与聚合。
         - 核心逻辑: 遍历所需日期，优先使用tick_data_map，若无则回退使用minute_data_map。
-        - 核心修复: 确保返回的DataFrame具有 `trade_time` 作为 `DatetimeIndex`，并修正合并 `tick_df` 和 `level5_df` 后 `resample` 时列名的问题。
-        - 核心修复: 增强逐笔数据处理的健壮性，动态判断合并后的价格列名，避免 `KeyError`。
+        - 核心修复: 修正逐笔数据与Level5数据合并后，价格、成交量、成交额列名未被 `suffixes` 参数重命名的问题。
+                    这些列名应保持原始名称，避免 `KeyError`。
         """
         import pandas as pd
         from django.utils import timezone
@@ -220,7 +220,8 @@ class AdvancedFundFlowMetricsService:
                     logger.warning(f"[{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 逐笔数据缺少'price', 'volume'或'amount'列，跳过逐笔数据处理。")
                     continue # Skip to next date or fallback to minute_data_map
 
-                # Initialize column names based on original tick_df
+                # 修改行: Initialize column names. These will NOT be suffixed by merge_asof
+                # because level5_df does not have 'price', 'volume', 'amount' columns.
                 current_price_col = 'price'
                 current_volume_col = 'volume'
                 current_amount_col = 'amount'
@@ -239,23 +240,12 @@ class AdvancedFundFlowMetricsService:
                         level5_df_sorted.reset_index(),
                         on='trade_time',
                         direction='backward',
-                        suffixes=('_tick', '_level5')
+                        suffixes=('_tick', '_level5') # 保持此参数，但它不会影响 price/volume/amount
                     )
                     tick_df = merged_df_temp.set_index('trade_time') # Update tick_df to the merged one
 
-                    # 动态判断合并后的价格列名
-                    if 'price_tick' in tick_df.columns:
-                        current_price_col = 'price_tick'
-                        current_volume_col = 'volume_tick'
-                        current_amount_col = 'amount_tick'
-                    else:
-                        # 如果 price_tick 不存在，说明原始 tick_df 中没有 'price' 列被正确地后缀。
-                        # 这种情况应该被前面的 `if not all(col in tick_df.columns ...)` 捕获。
-                        # 但作为最终的健壮性回退，如果走到这里，且 price_tick 缺失，则记录错误并跳过。
-                        logger.error(f"[{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 严重错误：合并Level5数据后'price_tick'列缺失，且无法回退到原始'price'列。请检查原始逐笔数据结构。")
-                        continue # 跳过当前日期，避免后续KeyError
-
-                    # 根据合并后的数据重新评估 'type'
+                    # 修改行: 移除动态判断 price_tick 的逻辑，因为 price 列不会被重命名
+                    # Re-evaluate 'type' based on merged data
                     # 确保 'sell_price1' 和 'buy_price1' 存在于合并后的 tick_df
                     if 'sell_price1' in tick_df.columns and 'buy_price1' in tick_df.columns:
                         conditions = [tick_df[current_price_col] >= tick_df['sell_price1'], tick_df[current_price_col] <= tick_df['buy_price1']]
@@ -297,7 +287,7 @@ class AdvancedFundFlowMetricsService:
                 intraday_data_map[date_obj] = self._group_minute_data_from_df(minute_data_map[date_obj])
                 continue
             print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 未找到任何预加载的日内数据。")
-        # 修正行: 移除 reset_index(drop=True)，确保返回的DataFrame保持 DatetimeIndex
+        # 移除 reset_index(drop=True)，确保返回的DataFrame保持 DatetimeIndex
         return intraday_data_map
 
     def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame) -> tuple[dict, None]:
@@ -1037,7 +1027,7 @@ class AdvancedFundFlowMetricsService:
         buy_pressure_proxy = np.select(conditions, choices, default=0.5)
         vol_ma = df['vol_shares'].rolling(window=20, min_periods=1).mean()
         range_ma = price_range.rolling(window=20, min_periods=1).mean()
-        # 修正行: 确保 range_ma 不为0，避免除以零
+        # 确保 range_ma 不为0，避免除以零
         impulse_modifier = (df['vol_shares'] / vol_ma) * (price_range / range_ma.replace(0, 1e-9))
         impulse_modifier = impulse_modifier.fillna(1).clip(0, 10)
         daily_vwap = daily_data.get('daily_vwap')
@@ -1086,7 +1076,7 @@ class AdvancedFundFlowMetricsService:
             else:
                 logger.warning("DataFrame passed to _group_minute_data_from_df has no 'trade_time' column and no DatetimeIndex.")
                 return pd.DataFrame()
-        # 修正行: 确保时区处理使用 Django 的当前时区
+        # 确保时区处理使用 Django 的当前时区
         if df.index.tz is None:
             df.index = df.index.tz_localize('UTC').tz_convert(timezone.get_current_timezone())
         elif df.index.tz != timezone.get_current_timezone():
