@@ -90,11 +90,12 @@ class ChipFeatureCalculator:
 
     def _prepare_intraday_data_features(self):
         """
-        【V2.7 · 逐笔数据索引简化版】准备日内数据特征，优先使用逐笔数据，否则回退到分钟数据。
+        【V2.8 · 逐笔数据聚合类型修正版】准备日内数据特征，优先使用逐笔数据，否则回退到分钟数据。
         - 核心进化: 能够直接处理由资金流服务传入的、已经聚合和归因完毕的分钟数据。
         - 核心新增: 如果上下文中有 `intraday_data` (可能是逐笔或分钟数据)，则进行处理。
         - 核心逻辑: 如果是逐笔数据，则聚合为分钟数据；如果是分钟数据，则直接使用。
         - 核心修复: 简化逐笔数据处理逻辑，假设传入的 `intraday_data` 已是 `DatetimeIndex`，避免重复索引操作。
+        - 核心修复: 在逐笔数据聚合为分钟数据后，显式将 `amount` 和 `vol` 列转换为 `float`，以避免 `Decimal` 类型在后续计算中引发 `TypeError`。
         """
         intraday_df = self.ctx.get('intraday_data')
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
@@ -107,7 +108,6 @@ class ChipFeatureCalculator:
         is_tick_data = 'type' in intraday_df.columns and 'minute_vwap' not in intraday_df.columns
         if is_tick_data:
             print(f"调试信息: [{stock_code}] [{trade_date}] ChipFeatureCalculator 正在处理原始逐笔数据。")
-            # 假设 intraday_df 已经以 trade_time 作为 DatetimeIndex
             if not isinstance(intraday_df.index, pd.DatetimeIndex):
                 logger.error(f"[{stock_code}] [{trade_date}] 逐笔数据索引不是 DatetimeIndex，无法进行重采样。")
                 self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
@@ -118,7 +118,9 @@ class ChipFeatureCalculator:
                 open=('price', 'first'), high=('price', 'max'), low=('price', 'min'),
                 close=('price', 'last'), vol=('volume', 'sum'), amount=('amount', 'sum')
             ).dropna(subset=['open', 'high', 'low', 'close', 'vol', 'amount'])
-            # 重采样后的 minute_df 已经以 DatetimeIndex 为索引，无需 reset_index 和 set_index
+            # 修改行: 显式将聚合后的 amount 和 vol 转换为 float
+            minute_df['amount'] = pd.to_numeric(minute_df['amount'], errors='coerce')
+            minute_df['vol'] = pd.to_numeric(minute_df['vol'], errors='coerce')
             minute_df['buy_vol_raw'] = buy_vol_per_minute
             minute_df['sell_vol_raw'] = sell_vol_per_minute
             minute_df.fillna(0, inplace=True)
@@ -133,7 +135,6 @@ class ChipFeatureCalculator:
             processed_intraday_df = minute_df
         else:
             # 处理的是分钟数据（可能是原始的，也可能是资金流服务处理过的）
-            # print(f"调试信息: [{stock_code}] [{trade_date}] ChipFeatureCalculator 正在处理分钟级别数据。")
             processed_intraday_df = intraday_df.copy()
             dtype_map = {'amount': 'float32', 'vol': 'int32', 'open': 'float32', 'close': 'float32', 'high': 'float32', 'low': 'float32'}
             for col, dtype in dtype_map.items():
@@ -662,7 +663,6 @@ class ChipFeatureCalculator:
         """
         # 调试信息: 打印 ctx 字典的键，以帮助诊断问题
         # 修正 stock_code 的访问方式
-        print(f"调试信息: [{ctx.get('stock_code', 'UNKNOWN')}] _compute_intraday_dynamics_metrics - ctx keys: {ctx.keys()}")
         # 使用 .get() 方法安全访问键，提供默认值 pd.DataFrame()
         intraday_df = ctx.get('minute_data_for_day', pd.DataFrame())
         if intraday_df.empty:
