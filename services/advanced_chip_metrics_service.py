@@ -286,35 +286,45 @@ class AdvancedChipMetricsService:
 
     async def _load_minute_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp, tick_data_map: dict = None, minute_data_map: dict = None):
         """
-        【V1.6 · 索引冗余移除版】不再查询数据库，仅处理由上游任务传入的日内数据maps。
+        【V1.7 · 日内数据结构统一版】不再查询数据库，仅处理由上游任务传入的日内数据maps。
         - 核心重构: 移除所有数据库查询逻辑，职责单一化为数据处理与聚合。
-        - 核心逻辑: 遍历所需日期，优先使用tick_data_map，若无则回退使用minute_data_map。
-        - 核心修复: 移除对 `tick_df` 冗余的 `set_index('trade_time')` 调用，因为传入的DataFrame已是 `DatetimeIndex`。
+        - 核心逻辑: 遍历所需日期，优先使用tick_data_map，若无则回退到minute_data_map。
+        - 核心修复: 确保返回的DataFrame都经过 `_group_minute_data_from_df` 处理，并以 `trade_time` 为 `DatetimeIndex`，保持数据结构一致性。
         """
         from stock_models.time_trade import StockDailyBasic
         intraday_data_map = {}
         all_dates_in_range_qs = StockDailyBasic.objects.filter(stock=stock_info, trade_time__gte=start_date, trade_time__lte=end_date).values_list('trade_time', flat=True)
         all_required_dates = {d.date() for d in pd.to_datetime(await sync_to_async(list)(all_dates_in_range_qs))}
         for date_obj in sorted(list(all_required_dates)):
-            # 优先处理高频数据
+            processed_intraday_for_day = None
             if tick_data_map and date_obj in tick_data_map:
-                print(f"调试信息: [{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 使用预加载的逐笔数据。")
-                tick_df = tick_data_map[date_obj]
-                # 移除冗余的 set_index 调用，tick_df 已经以 trade_time 为索引
-                # tick_df.set_index('trade_time', inplace=True)
-                minute_df_from_ticks = tick_df.resample('1min').agg(
-                    open=('price', 'first'), high=('price', 'max'), low=('price', 'min'),
-                    close=('price', 'last'), vol=('volume', 'sum'), amount=('amount', 'sum')
-                ).dropna(subset=['open', 'high', 'low', 'close', 'vol', 'amount'])
-                minute_df_from_ticks.reset_index(inplace=True)
-                intraday_data_map[date_obj] = minute_df_from_ticks
-                continue
-            # 回退到分钟数据
-            if minute_data_map and date_obj in minute_data_map:
-                # print(f"调试信息: [{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 回退使用预加载的分钟数据。")
-                intraday_data_map[date_obj] = minute_data_map[date_obj]
-                continue
-            print(f"调试信息: [{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 未找到任何预加载的日内数据。")
+                print(f"调试信息: [{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 尝试使用预加载的逐笔数据。")
+                tick_df = tick_data_map[date_obj].copy()
+                if not all(col in tick_df.columns for col in ['price', 'volume', 'amount']):
+                    logger.warning(f"[{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 逐笔数据缺少'price', 'volume'或'amount'列，将尝试回退到分钟数据。")
+                else:
+                    current_price_col = 'price'
+                    current_volume_col = 'volume'
+                    current_amount_col = 'amount'
+                    if 'type' not in tick_df.columns:
+                        tick_df['type'] = 'M'
+                    buy_vol_per_minute = tick_df[tick_df['type'] == 'B'].resample('1min')[current_volume_col].sum()
+                    sell_vol_per_minute = tick_df[tick_df['type'] == 'S'].resample('1min')[current_volume_col].sum()
+                    minute_df_from_ticks = tick_df.resample('1min').agg(
+                        open=(current_price_col, 'first'), high=(current_price_col, 'max'), low=(current_price_col, 'min'),
+                        close=(current_price_col, 'last'), vol=(current_volume_col, 'sum'), amount=(current_amount_col, 'sum')
+                    ).dropna(subset=['open', 'high', 'low', 'close', 'vol', 'amount'])
+                    minute_df_from_ticks['buy_vol_raw'] = buy_vol_per_minute
+                    minute_df_from_ticks['sell_vol_raw'] = sell_vol_per_minute
+                    minute_df_from_ticks.fillna(0, inplace=True)
+                    processed_intraday_for_day = self._group_minute_data_from_df(minute_df_from_ticks)
+            if processed_intraday_for_day is None and minute_data_map and date_obj in minute_data_map:
+                print(f"调试信息: [{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 使用预加载的分钟数据。")
+                processed_intraday_for_day = self._group_minute_data_from_df(minute_data_map[date_obj])
+            if processed_intraday_for_day is not None:
+                intraday_data_map[date_obj] = processed_intraday_for_day
+            else:
+                print(f"调试信息: [{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 未找到任何预加载的日内数据。")
         return intraday_data_map
 
     async def _load_historical_metrics(self, model, stock_info, end_date):
