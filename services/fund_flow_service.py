@@ -1003,24 +1003,30 @@ class AdvancedFundFlowMetricsService:
         return df
 
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
-        """【V1.5 · 数据完整性修复版】从预加载的DataFrame构建按日分组的数据。"""
+        """【V1.6 · 数据完整性修复版 - 索引访问修正】从预加载的DataFrame构建按日分组的数据。
+        - 核心修复: 修正了在 `trade_time` 列被设置为索引后，仍然尝试通过 `df['trade_time']` 访问导致的 `KeyError`。
+        """
         if minute_df is None or minute_df.empty:
             return None
         df = minute_df.copy()
-        df.sort_values('trade_time', inplace=True)
-        df['trade_time'] = pd.to_datetime(df['trade_time'])
-        if df['trade_time'].dt.tz is None:
-            df['trade_time'] = df['trade_time'].dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
+        # 修正行: trade_time 已经是索引，直接使用 df.index
+        # df.sort_values('trade_time', inplace=True) # 索引已经是排序的，无需再次排序
+        # 修正行: trade_time 已经是索引，直接使用 df.index
+        # df['trade_time'] = pd.to_datetime(df['trade_time']) # trade_time 已经是 DatetimeIndex
+        # 修正行: 检查索引的时区信息
+        if df.index.tz is None:
+            df.index = df.index.tz_localize('UTC').tz_convert('Asia/Shanghai')
         else:
-            df['trade_time'] = df['trade_time'].dt.tz_convert('Asia/Shanghai')
-        df['date'] = df['trade_time'].dt.date
+            df.index = df.index.tz_convert('Asia/Shanghai')
+        # 修正行: 从索引中提取日期
+        df['date'] = df.index.date
         df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
         df['amount_yuan'] = df['amount']
         df['vol_shares'] = df['vol']
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         daily_total_vol = df.groupby('date')['vol_shares'].transform('sum')
         df['vol_weight'] = df['vol_shares'] / daily_total_vol.replace(0, np.nan)
-        return df.set_index('date')
+        return df.set_index('date') # 最终返回的DataFrame以日期为索引
 
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """
