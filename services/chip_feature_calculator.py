@@ -946,8 +946,9 @@ class ChipFeatureCalculator:
 
     def _compute_microstructure_game_metrics(self, context: dict) -> dict:
         """
-        【V1.1 · 健壮回退版】计算基于高频数据的筹码微观博弈指标。
+        【V1.2 · 日内数据列鲁棒性增强版】计算基于高频数据的筹码微观博弈指标。
         - 核心增强: 增加数据源检查。如果日内数据不包含高频特征（如 'buy_vol_raw'），则优雅地跳过计算，返回默认值。
+        - 核心修复: 修正 `dip_or_flat_df` 的计算，优先使用 'close' 和 'open' 列，若不存在则回退到 'minute_vwap'。
         """
         results = {
             'peak_exchange_purity': np.nan,
@@ -956,7 +957,6 @@ class ChipFeatureCalculator:
             'covert_accumulation_signal': np.nan,
         }
         intraday_df = context.get('processed_intraday_df')
-        # 核心增强：检查是否存在高频数据列，如果不存在则直接返回NaN
         if intraday_df.empty or 'buy_vol_raw' not in intraday_df.columns:
             return results
         peak_low = context.get('peak_range_low')
@@ -988,7 +988,14 @@ class ChipFeatureCalculator:
                     active_buy_support = support_zone_df['buy_vol_raw'].sum()
                     results['support_validation_score'] = (active_buy_support / total_vol_support) * 100
         # 3. 隐蔽吸筹信号 (Covert Accumulation Signal)
-        dip_or_flat_df = intraday_df[intraday_df['close'] <= intraday_df['open']]
+        # 修改行: 优先使用 'close' 和 'open'，如果不存在则回退到 'minute_vwap'
+        if 'close' in intraday_df.columns and 'open' in intraday_df.columns:
+            dip_or_flat_df = intraday_df[intraday_df['close'] <= intraday_df['open']]
+        else:
+            # 如果没有 'close' 和 'open'，则使用 minute_vwap 作为替代
+            # 假设 minute_vwap 下降或持平代表“下跌或平盘”
+            dip_or_flat_df = intraday_df[intraday_df['minute_vwap'].diff().fillna(0) <= 0]
+            logger.warning(f"[{context.get('stock_code', 'UNKNOWN')}] [{context.get('trade_date', 'UNKNOWN')}] 日内数据缺少'close'或'open'列，'隐蔽吸筹信号'计算回退到使用'minute_vwap'。")
         if not dip_or_flat_df.empty:
             total_vol_dip = dip_or_flat_df['vol_shares'].sum()
             if total_vol_dip > 0:
