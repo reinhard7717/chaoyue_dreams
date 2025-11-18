@@ -198,10 +198,11 @@ class AdvancedFundFlowMetricsService:
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None):
         """
-        【V1.10 · 纯处理器版 - 确保DatetimeIndex与合并列名修正】不再查询数据库，仅处理由上游任务传入的日内数据maps。
+        【V1.11 · 逐笔数据列名健壮性修复】不再查询数据库，仅处理由上游任务传入的日内数据maps。
         - 核心重构: 移除所有数据库查询逻辑，职责单一化为数据处理与聚合。
         - 核心逻辑: 遍历所需日期，优先使用tick_data_map，若无则回退使用minute_data_map。
         - 核心修复: 确保返回的DataFrame具有 `trade_time` 作为 `DatetimeIndex`，并修正合并 `tick_df` 和 `level5_df` 后 `resample` 时列名的问题。
+        - 核心修复: 增强逐笔数据处理的健壮性，动态判断合并后的价格列名，避免 `KeyError`。
         """
         import pandas as pd
         from django.utils import timezone
@@ -212,16 +213,26 @@ class AdvancedFundFlowMetricsService:
             # 优先处理高频数据
             if tick_data_map and date_obj in tick_data_map:
                 print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 使用预加载的逐笔数据。")
-                tick_df = tick_data_map[date_obj]
-                # 存储原始列名，以防合并后被重命名
-                price_col_name = 'price'
-                volume_col_name = 'volume'
-                amount_col_name = 'amount'
+                tick_df = tick_data_map[date_obj].copy() # 修改行: Make a copy to avoid modifying original map data
+
+                # 修改行: Ensure original tick_df has essential columns before proceeding
+                if not all(col in tick_df.columns for col in ['price', 'volume', 'amount']):
+                    logger.warning(f"[{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 逐笔数据缺少'price', 'volume'或'amount'列，跳过逐笔数据处理。")
+                    continue # Skip to next date or fallback to minute_data_map
+
+                # 修改行: Initialize column names based on original tick_df
+                current_price_col = 'price'
+                current_volume_col = 'volume'
+                current_amount_col = 'amount'
+                has_original_type = 'type' in tick_df.columns
+
                 if level5_data_map and date_obj in level5_data_map:
                     level5_df = level5_data_map[date_obj]
+                    
                     # 确保两者都按索引（trade_time）排序，然后进行 merge_asof
                     tick_df_sorted = tick_df.sort_index()
                     level5_df_sorted = level5_df.sort_index()
+
                     # merge_asof 需要一个列来合并，而不是索引。合并前重置索引，合并后再设置回去。
                     merged_df_temp = pd.merge_asof(
                         tick_df_sorted.reset_index(),
@@ -230,21 +241,51 @@ class AdvancedFundFlowMetricsService:
                         direction='backward',
                         suffixes=('_tick', '_level5')
                     )
-                    tick_df = merged_df_temp.set_index('trade_time')
-                    # 合并后更新列名
-                    price_col_name = 'price_tick'
-                    volume_col_name = 'volume_tick'
-                    amount_col_name = 'amount_tick'
+                    tick_df = merged_df_temp.set_index('trade_time') # Update tick_df to the merged one
+
+                    # 修改行: 动态判断合并后的价格列名
+                    if 'price_tick' in tick_df.columns:
+                        current_price_col = 'price_tick'
+                        current_volume_col = 'volume_tick'
+                        current_amount_col = 'amount_tick'
+                    else:
+                        # 如果 price_tick 不存在，说明原始 tick_df 中没有 'price' 列被正确地后缀。
+                        # 这种情况应该被前面的 `if not all(col in tick_df.columns ...)` 捕获。
+                        # 但作为最终的健壮性回退，如果走到这里，且 price_tick 缺失，则记录错误并跳过。
+                        logger.error(f"[{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 严重错误：合并Level5数据后'price_tick'列缺失，且无法回退到原始'price'列。请检查原始逐笔数据结构。")
+                        continue # 跳过当前日期，避免后续KeyError
+
                     # 根据合并后的数据重新评估 'type'
-                    conditions = [tick_df[price_col_name] >= tick_df['sell_price1'], tick_df[price_col_name] <= tick_df['buy_price1']]
-                    choices = ['B', 'S']
-                    tick_df['type'] = np.select(conditions, choices, default='M')
-                # 直接在 tick_df 上进行重采样，使用可能已重命名的列
-                buy_vol_per_minute = tick_df[tick_df['type'] == 'B'].resample('1min')[volume_col_name].sum()
-                sell_vol_per_minute = tick_df[tick_df['type'] == 'S'].resample('1min')[volume_col_name].sum()
+                    # 确保 'sell_price1' 和 'buy_price1' 存在于合并后的 tick_df
+                    if 'sell_price1' in tick_df.columns and 'buy_price1' in tick_df.columns:
+                        conditions = [tick_df[current_price_col] >= tick_df['sell_price1'], tick_df[current_price_col] <= tick_df['buy_price1']]
+                        choices = ['B', 'S']
+                        tick_df['type'] = np.select(conditions, choices, default='M')
+                    else:
+                        # Fallback if level5 prices are missing after merge (shouldn't happen if level5_df was not empty)
+                        logger.warning(f"[{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 合并Level5数据后缺少买卖价格，无法重新评估'type'。")
+                        # If original 'type' was not present, default to 'M'
+                        if not has_original_type:
+                            tick_df['type'] = 'M'
+                else:
+                    # If no level5 data, ensure 'type' column exists for resampling
+                    if not has_original_type:
+                        logger.warning(f"[{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 缺少Level5数据且原始逐笔数据无'type'列，'type'将默认为'M'。")
+                        tick_df['type'] = 'M' # Default to 'M' if no original type and no level5 to derive it.
+
+                # Now, proceed with resampling using the determined column names
+                # Ensure 'type' column exists before using it for filtering
+                if 'type' not in tick_df.columns:
+                    logger.warning(f"[{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 逐笔数据无'type'列，无法计算买卖量。")
+                    buy_vol_per_minute = pd.Series(0, index=tick_df.index).resample('1min').sum()
+                    sell_vol_per_minute = pd.Series(0, index=tick_df.index).resample('1min').sum()
+                else:
+                    buy_vol_per_minute = tick_df[tick_df['type'] == 'B'].resample('1min')[current_volume_col].sum()
+                    sell_vol_per_minute = tick_df[tick_df['type'] == 'S'].resample('1min')[current_volume_col].sum()
+
                 minute_df_from_ticks = tick_df.resample('1min').agg(
-                    open=(price_col_name, 'first'), high=(price_col_name, 'max'), low=(price_col_name, 'min'),
-                    close=(price_col_name, 'last'), vol=(volume_col_name, 'sum'), amount=(amount_col_name, 'sum')
+                    open=(current_price_col, 'first'), high=(current_price_col, 'max'), low=(current_price_col, 'min'),
+                    close=(current_price_col, 'last'), vol=(current_volume_col, 'sum'), amount=(current_amount_col, 'sum')
                 ).dropna(subset=['open', 'high', 'low', 'close', 'vol', 'amount'])
                 minute_df_from_ticks['buy_vol_raw'] = buy_vol_per_minute
                 minute_df_from_ticks['sell_vol_raw'] = sell_vol_per_minute
