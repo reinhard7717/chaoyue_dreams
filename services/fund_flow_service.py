@@ -198,18 +198,27 @@ class AdvancedFundFlowMetricsService:
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None):
         """
-        【V1.13 · 日内数据回退增强版】不再查询数据库，仅处理由上游任务传入的日内数据maps。
+        【V1.14 · 日内数据回退增强版 - 探针增强】不再查询数据库，仅处理由上游任务传入的日内数据maps。
         - 核心重构: 移除所有数据库查询逻辑，职责单一化为数据处理与聚合。
         - 核心逻辑: 遍历所需日期，优先尝试逐笔数据，若处理失败则回退到分钟数据。
         - 核心修复: 修正逐笔数据与Level5数据合并后，价格、成交量、成交额列名未被 `suffixes` 参数重命名的问题。
                     这些列名应保持原始名称，避免 `KeyError`。
         - 核心增强: 引入逐笔数据处理失败回退机制，确保分钟数据在逐笔数据不可用时能被利用。
+        - 【新增探针】增加探针，确认 `intraday_data_map` 是否成功填充了指定日期的数据，并检查其 `vol_shares` 总和及行数。
         """
         import pandas as pd
         from django.utils import timezone
         if date_index.empty:
             return {}
         intraday_data_map = {}
+        # 新增行：获取调试参数
+        debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
+        probe_dates_str = debug_params.get('probe_dates', [])
+        is_probe_date = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
+            if probe_date_naive == date_index.date[0]: # 假设date_index通常是单日
+                is_probe_date = True
         for date_obj in date_index.date:
             processed_with_tick_data = False
             if tick_data_map and date_obj in tick_data_map:
@@ -269,6 +278,13 @@ class AdvancedFundFlowMetricsService:
                 intraday_data_map[date_obj] = self._group_minute_data_from_df(minute_data_map[date_obj])
             elif not processed_with_tick_data:
                 print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 未找到任何预加载的日内数据。")
+            # 新增探针：检查最终的日内数据
+            if is_probe_date and date_obj == probe_date_naive:
+                final_intraday_df = intraday_data_map.get(date_obj)
+                if final_intraday_df is not None and not final_intraday_df.empty:
+                    print(f"    -> [资金流服务探针] @ {date_obj}: 成功加载日内数据。行数: {len(final_intraday_df)}, vol_shares总和: {final_intraday_df['vol_shares'].sum():.2f}。")
+                else:
+                    print(f"    -> [资金流服务探针] @ {date_obj}: 未能加载日内数据或数据为空。")
         return intraday_data_map
 
     def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame) -> tuple[dict, None]:
@@ -517,39 +533,65 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_probabilistic_costs(self, stock_code: str, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> tuple[dict, pd.DataFrame]:
         """
-        【V6.12 · 完整归因返回版】
+        【V6.13 · 完整归因返回版 - 探针增强】
         - 核心重构: 修改方法职责，使其在计算完概率成本后，继续调用 `_attribute_minute_volume_to_players` 进行主力/散户级别的成交量聚合。
         - 核心修复: 更改返回签名，同时返回成本指标字典和被完整归因（包含 `main_force_net_vol` 等列）的分钟DataFrame，修复数据流中断问题。
+        - 【新增探针】增加探针，检查 `daily_vol_shares` 和 `weight_series.sum()` 的值。
         """
+        # 新增行：获取调试参数
+        trade_date = daily_data.name.date()
+        debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
+        probe_dates_str = debug_params.get('probe_dates', [])
+        is_probe_date = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
+            if probe_date_naive == trade_date:
+                is_probe_date = True
+
         if minute_data_for_day is None or minute_data_for_day.empty:
+            if is_probe_date:
+                print(f"    -> [概率成本探针] @ {trade_date}: 'minute_data_for_day' 为空，跳过计算。")
             return {}, pd.DataFrame()
         day_results = {}
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
-        # 注意：这里直接在传入的DataFrame上操作，因为它是一个副本的副本
         df_to_attribute = minute_data_for_day
         for cost_type in cost_types:
             size, direction = cost_type.split('_')
             db_vol_key = f'{direction}_{size}_vol'
-            daily_vol_shares = pd.to_numeric(daily_data.get(db_vol_key), errors='coerce') * 100
+            daily_vol_shares = pd.to_numeric(daily_data.get(db_vol_key), errors='coerce') * 100 # 转换为股数
+            if is_probe_date:
+                print(f"    -> [概率成本探针] @ {trade_date}: '{cost_type}' - 每日总成交量 ('{db_vol_key}'): {daily_vol_shares:.2f}。")
             if pd.isna(daily_vol_shares) or daily_vol_shares == 0:
                 day_results[f'avg_cost_{cost_type}'] = np.nan
                 df_to_attribute[f'{cost_type}_vol_attr'] = 0
+                if is_probe_date:
+                    print(f"    -> [概率成本探针] @ {trade_date}: '{cost_type}' - 每日总成交量为0或缺失，'{cost_type}_vol_attr' 设为0。")
                 continue
             weight_col = f'{size}_{direction}_weight'
-            weight_series = df_to_attribute[weight_col]
-            if weight_series.sum() < 1e-9:
+            if weight_col not in df_to_attribute.columns:
+                if is_probe_date:
+                    print(f"    -> [概率成本探针] @ {trade_date}: '{cost_type}' - 缺少权重列 '{weight_col}'。")
                 day_results[f'avg_cost_{cost_type}'] = np.nan
                 df_to_attribute[f'{cost_type}_vol_attr'] = 0
                 continue
+            weight_series = df_to_attribute[weight_col]
+            if is_probe_date:
+                print(f"    -> [概率成本探针] @ {trade_date}: '{cost_type}' - 权重序列 ('{weight_col}') 总和: {weight_series.sum():.6f}。")
+            if weight_series.sum() < 1e-9: # 检查权重总和是否过小
+                day_results[f'avg_cost_{cost_type}'] = np.nan
+                df_to_attribute[f'{cost_type}_vol_attr'] = 0
+                if is_probe_date:
+                    print(f"    -> [概率成本探针] @ {trade_date}: '{cost_type}' - 权重序列总和过小，'{cost_type}_vol_attr' 设为0。")
+                continue
             attributed_vol = weight_series * daily_vol_shares
             df_to_attribute[f'{cost_type}_vol_attr'] = attributed_vol
+            if is_probe_date:
+                print(f"    -> [概率成本探针] @ {trade_date}: '{cost_type}' - 归因成交量 ('{cost_type}_vol_attr') 总和: {attributed_vol.sum():.2f}。")
             attributed_value = attributed_vol * df_to_attribute['minute_vwap']
             total_attributed_value = attributed_value.sum()
             total_attributed_vol = attributed_vol.sum()
             day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
-        # 调用辅助函数，添加 main_force_net_vol 等关键列
         fully_attributed_df = self._attribute_minute_volume_to_players(df_to_attribute)
-        # 返回成本字典和完整归因后的DataFrame
         return day_results, fully_attributed_df
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
@@ -1459,7 +1501,7 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_intraday_attribution_weights(self, intraday_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
         """
-        【V9.2 · 逐笔数据兼容版 - 价格范围零值修复】
+        【V9.3 · 逐笔数据兼容版 - 价格范围零值修复 - 探针增强】
         - 核心革命: 废弃“一体适用”的权重模型，为超大单、大单、中单、小单引入各自独特的、基于行为特征的权重分配逻辑。
         - 核心思想:
           - 超大单(ELG) -> 脉冲修正: 权重集中在成交量和振幅剧增的“暴力分钟”。
@@ -1467,9 +1509,22 @@ class AdvancedFundFlowMetricsService:
           - 中单(MD) -> 动量修正: 权重与短期价格动量相关，体现追涨杀跌特性。
           - 小单(SM) -> 基准压力: 沿用原有的K线形态压力模型作为基准。
         - 核心修复: 修复了 `price_range` 为零时导致的 `decimal.InvalidOperation` 错误。
+        - 【新增探针】增加探针，检查提前返回的条件是否被触发。
         """
         df = intraday_data_for_day.copy()
+        # 新增行：获取调试参数
+        trade_date = daily_data.name.date()
+        debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
+        probe_dates_str = debug_params.get('probe_dates', [])
+        is_probe_date = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
+            if probe_date_naive == trade_date:
+                is_probe_date = True
+
         if 'vol_shares' not in df.columns or df['vol_shares'].sum() < 1e-6 or len(df) < 5:
+            if is_probe_date:
+                print(f"    -> [归因权重探针] @ {trade_date}: 提前返回！原因：'vol_shares'总和 ({df['vol_shares'].sum():.6f}) < 1e-6 或 行数 ({len(df)}) < 5。")
             for size in ['sm', 'md', 'lg', 'elg']:
                 df[f'{size}_buy_weight'] = 0; df[f'{size}_sell_weight'] = 0
             return df
@@ -1499,7 +1554,7 @@ class AdvancedFundFlowMetricsService:
         vol_ma = df['vol_shares'].rolling(window=20, min_periods=1).mean()
         range_ma = price_range.rolling(window=20, min_periods=1).mean()
         # 确保 range_ma 不为0，避免除以零
-        impulse_modifier = (df['vol_shares'] / vol_ma) * (price_range / range_ma.replace(0, 1e-9))
+        impulse_modifier = (df['vol_shares'] / vol_ma) * (range_ma / range_ma.replace(0, 1e-9)) # 修改行：修正分母为 range_ma.replace(0, 1e-9)
         impulse_modifier = impulse_modifier.fillna(1).clip(0, 10)
         daily_vwap = daily_data.get('daily_vwap')
         if pd.notna(daily_vwap):

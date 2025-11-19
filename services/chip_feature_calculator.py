@@ -90,15 +90,25 @@ class ChipFeatureCalculator:
 
     def _prepare_intraday_data_features(self):
         """
-        【V2.11 · 日内数据列完整性修复版】准备日内数据特征，统一处理为分钟级别数据。
+        【V2.12 · 日内数据列完整性修复版 - 探针增强】准备日内数据特征，统一处理为分钟级别数据。
         - 核心进化: 能够直接处理由上游服务传入的、已经聚合和归因完毕的分钟数据。
         - 核心逻辑: 假设传入的 `intraday_data` 已经是分钟级别数据，并进行标准化处理。
         - 核心修复: 调整 `amount_yuan` 和 `vol_shares` 的创建顺序，确保在计算 `minute_vwap` 前它们已存在。
         - 【新增】确保 `retail_net_vol` 列在 `processed_intraday_df` 中被正确初始化。
+        - 【新增探针】增加探针，检查 `processed_intraday_df` 的最终状态，包括是否为空、总成交量和行数，以及 `main_force_sell_vol` 和 `retail_sell_vol` 的总和。
         """
         intraday_df = self.ctx.get('intraday_data')
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
+        # 新增行：获取调试参数
+        debug_params = self.ctx.get('debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        is_probe_date = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
+            if probe_date_naive == trade_date:
+                is_probe_date = True
+
         if intraday_df is None or intraday_df.empty:
             logger.warning(f"[{stock_code}] [{trade_date}] 日内数据特征准备跳过，原因：日内数据(intraday_data)为空。")
             self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
@@ -126,7 +136,7 @@ class ChipFeatureCalculator:
         if 'minute_vwap' not in processed_intraday_df.columns:
             processed_intraday_df['minute_vwap'] = processed_intraday_df['amount_yuan'] / processed_intraday_df['vol_shares'].replace(0, np.nan)
         # 4. 确保资金流相关列存在
-        fund_flow_cols = ['main_force_net_vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol', 'buy_vol_raw', 'sell_vol_raw', 'retail_net_vol'] # 修改行：新增 'retail_net_vol'
+        fund_flow_cols = ['main_force_net_vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol', 'buy_vol_raw', 'sell_vol_raw', 'retail_net_vol']
         for col in fund_flow_cols:
             if col not in processed_intraday_df.columns:
                 processed_intraday_df[col] = 0.0
@@ -149,6 +159,14 @@ class ChipFeatureCalculator:
         else:
             self.ctx.update({'volume_above_vwap_ratio': 0.0, 'volume_below_vwap_ratio': 0.0})
         self.ctx['processed_intraday_df'] = processed_intraday_df
+        # 新增探针：检查 processed_intraday_df 的最终状态
+        if is_probe_date:
+            print(f"    -> [日内数据特征探针] @ {trade_date}: 'processed_intraday_df' 最终状态：")
+            print(f"       - 是否为空: {processed_intraday_df.empty}")
+            print(f"       - 行数: {len(processed_intraday_df)}")
+            print(f"       - 'vol_shares' 总和: {processed_intraday_df['vol_shares'].sum():.2f}")
+            print(f"       - 'main_force_sell_vol' 总和: {processed_intraday_df['main_force_sell_vol'].sum():.2f}")
+            print(f"       - 'retail_sell_vol' 总和: {processed_intraday_df['retail_sell_vol'].sum():.2f}")
 
     def _get_summary_metrics_from_context(self) -> dict:
         """
@@ -1401,6 +1419,14 @@ class ChipFeatureCalculator:
             if probe_date_naive == trade_date:
                 is_probe_date = True
         intraday_df = ctx.get('processed_intraday_df', pd.DataFrame())
+        # 新增探针：检查 intraday_df 的状态
+        if is_probe_date:
+            print(f"    -> [日内动态探针] @ {trade_date}: 'intraday_df' 状态：")
+            print(f"       - 是否为空: {intraday_df.empty}")
+            print(f"       - 行数: {len(intraday_df)}")
+            if not intraday_df.empty and 'vol_shares' in intraday_df.columns:
+                print(f"       - 'vol_shares' 总和: {intraday_df['vol_shares'].sum():.2f}")
+
         daily_high = ctx.get('high_price')
         daily_low = ctx.get('low_price')
         daily_open = ctx.get('open_price')
@@ -1420,10 +1446,11 @@ class ChipFeatureCalculator:
         results['intraday_reversal_strength'] = np.nan
         results['vwap_close_deviation'] = np.nan
         results['close_to_range_ratio'] = np.nan
-        results['opening_gap_defense_strength'] = np.nan # 新增
-        results['upward_impulse_purity'] = np.nan # 新增
-        if is_probe_date and intraday_df.empty:
-            print(f"    -> [日内动态探针] @ {trade_date}: 'intraday_df' 为空，跳过计算。")
+        results['opening_gap_defense_strength'] = np.nan
+        results['upward_impulse_purity'] = np.nan
+        if intraday_df.empty:
+            if is_probe_date:
+                print(f"    -> [日内动态探针] @ {trade_date}: 'intraday_df' 为空，跳过计算。")
             return results
         # Opening 30min metrics
         opening_30min_df = intraday_df[intraday_df.index.time < pd.to_datetime('10:00').time()]
