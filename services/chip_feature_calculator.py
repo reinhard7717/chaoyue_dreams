@@ -156,7 +156,7 @@ class ChipFeatureCalculator:
         if debug_params.get('probe_dates') and trade_date == pd.to_datetime(debug_params['probe_dates'][0]).date():
             is_probe_date = True
         if is_probe_date:
-            print(f"    -> [日内数据特征探针] @ {trade_date}: _prepare_intraday_data_features 接收到的 intraday_df 索引状态：")
+            print(f"    -> [计算器日内数据特征探针] @ {trade_date}: _prepare_intraday_data_features 接收到的 intraday_df 索引状态：") # 修改行：明确探针归属
             if not intraday_df.empty:
                 print(f"       - 索引类型: {type(intraday_df.index)}")
                 print(f"       - 索引时区: {intraday_df.index.tz}")
@@ -165,16 +165,16 @@ class ChipFeatureCalculator:
                 print(f"       - intraday_df 为空。")
         if intraday_df.empty:
             if is_probe_date:
-                print(f"    -> [日内数据特征探针] @ {trade_date}: _prepare_intraday_data_features 接收到空 intraday_df。")
+                print(f"    -> [计算器日内数据特征探针] @ {trade_date}: _prepare_intraday_data_features 接收到空 intraday_df。") # 修改行：明确探针归属
             return pd.DataFrame()
         required_cols = ['open', 'high', 'low', 'close', 'vol', 'amount', 'buy_vol_raw', 'sell_vol_raw', 'amount_yuan', 'vol_shares', 'minute_vwap', 'vol_weight', 'sm_buy_weight', 'sm_sell_weight', 'md_buy_weight', 'md_sell_weight', 'lg_buy_weight', 'lg_sell_weight', 'elg_buy_weight', 'elg_sell_weight', 'sm_buy_vol_attr', 'sm_sell_vol_attr', 'md_buy_vol_attr', 'md_sell_vol_attr', 'lg_buy_vol_attr', 'lg_sell_vol_attr', 'elg_buy_vol_attr', 'elg_sell_vol_attr', 'main_force_buy_vol', 'main_force_sell_vol', 'main_force_net_vol', 'retail_buy_vol', 'retail_sell_vol', 'retail_net_vol']
         missing_cols = [col for col in required_cols if col not in intraday_df.columns]
         if missing_cols:
             if is_probe_date:
-                print(f"    -> [日内数据特征探针] @ {trade_date}: intraday_df 缺少列: {missing_cols}。")
+                print(f"    -> [计算器日内数据特征探针] @ {trade_date}: intraday_df 缺少列: {missing_cols}。") # 修改行：明确探针归属
             return pd.DataFrame()
         if is_probe_date:
-            print(f"    -> [日内数据特征探针] @ {trade_date}: _prepare_intraday_data_features 接收到的 intraday_df 列：{list(intraday_df.columns)}")
+            print(f"    -> [计算器日内数据特征探针] @ {trade_date}: _prepare_intraday_data_features 接收到的 intraday_df 列：{list(intraday_df.columns)}") # 修改行：明确探针归属
             print(f"       - 初始 intraday_df['main_force_sell_vol'] sum: {intraday_df['main_force_sell_vol'].sum():.2f}")
             print(f"       - 初始 intraday_df['retail_sell_vol'] sum: {intraday_df['retail_sell_vol'].sum():.2f}")
         target_tz = pytz.timezone('Asia/Shanghai')
@@ -182,21 +182,25 @@ class ChipFeatureCalculator:
             intraday_df.index = pd.to_datetime(intraday_df.index)
             if is_probe_date:
                 print(f"       - 索引从非DatetimeIndex转换为DatetimeIndex。")
+        # 此时 intraday_df.index 应该已经是 Asia/Shanghai aware，或者至少是 aware。
+        # 确保它是 Asia/Shanghai aware
         if intraday_df.index.tz is None:
-            intraday_df.index = intraday_df.index.tz_localize('UTC', ambiguous='infer').tz_convert(target_tz)
+            # 如果意外是 naive，假定它是 UTC（因为DAO层应该输出UTC aware，但可能在某些操作后丢失时区信息）
+            df.index = df.index.tz_localize('UTC', ambiguous='infer').tz_convert(target_tz)
             if is_probe_date:
                 print(f"       - 索引从 naive (假定UTC) tz_localize('UTC') 后 tz_convert('Asia/Shanghai')。")
         else:
-            intraday_df.index = intraday_df.index.tz_convert(target_tz) # 修改行：简化逻辑，直接转换
+            # 如果已经是 aware，直接转换为目标时区
+            intraday_df.index = intraday_df.index.tz_convert(target_tz)
             if is_probe_date:
-                print(f"       - 索引被 tz_convert('Asia/Shanghai')。") # 修改行：更新探针信息
+                print(f"       - 索引被 tz_convert('Asia/Shanghai')。")
         if is_probe_date and not intraday_df.empty:
             print(f"       - 索引前5个时间 (处理后): {[t.strftime('%Y-%m-%d %H:%M:%S%z') for t in intraday_df.index[:5].tolist()]}")
         start_time = datetime.time(9, 25)
         end_time = datetime.time(15, 0)
         processed_intraday_df = intraday_df[(intraday_df.index.time >= start_time) & (intraday_df.index.time <= end_time)].copy()
         if is_probe_date:
-            print(f"    -> [日内数据特征探针] @ {trade_date}: 'processed_intraday_df' 最终状态：")
+            print(f"    -> [计算器日内数据特征探针] @ {trade_date}: 'processed_intraday_df' 最终状态：") # 修改行：明确探针归属
             print(f"       - 是否为空: {processed_intraday_df.empty}")
             print(f"       - 行数: {len(processed_intraday_df)}")
             if not processed_intraday_df.empty:

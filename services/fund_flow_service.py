@@ -1818,6 +1818,7 @@ class AdvancedFundFlowMetricsService:
         - 【修正】智能识别成交量列名（'volume' 或 'vol'），并统一为 'vol_shares'。
         - 【修正】根据最新澄清，统一处理时区，确保最终输出为北京时间。
         """
+        from django.utils import timezone
         if minute_df is None or minute_df.empty:
             return pd.DataFrame()
         df = minute_df.copy()
@@ -1830,10 +1831,10 @@ class AdvancedFundFlowMetricsService:
                 return pd.DataFrame()
         # 修改行：统一处理时区，确保最终输出为北京时间
         if df.index.tz is None:
-            # 如果索引是 naive，假定它是 UTC（因为DAO层应该输出UTC aware，但可能在某些操作后丢失时区信息）
+            # 如果意外是 naive，假定它是 UTC（因为DAO层应该输出UTC aware，但可能在某些操作后丢失时区信息）
             df.index = df.index.tz_localize('UTC', ambiguous='infer').tz_convert(timezone.get_current_timezone())
         else:
-            # 如果索引是 aware，直接转换为目标时区
+            # 如果已经是 aware，直接转换为目标时区
             df.index = df.index.tz_convert(timezone.get_current_timezone())
         volume_col_name = None
         if 'volume' in df.columns:
@@ -1849,6 +1850,7 @@ class AdvancedFundFlowMetricsService:
         current_day_total_vol = df['vol_shares'].sum()
         df['vol_weight'] = df['vol_shares'] / current_day_total_vol if current_day_total_vol > 0 else 0
         return df
+
 
 
 

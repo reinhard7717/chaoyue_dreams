@@ -545,6 +545,7 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, lookback_start_date, process_start_date, save_start_date
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex, cache_manager: CacheManager):
+    import pytz
     from utils.model_helpers import (
         get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code,
     )
@@ -614,25 +615,32 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Tick Data原始时间范围: {data_dfs['stock_tick_data']['trade_time'].min()} to {data_dfs['stock_tick_data']['trade_time'].max()}")
     if not data_dfs["stock_minute_data"].empty:
         print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Minute Data原始时间范围: {data_dfs['stock_minute_data']['trade_time'].min()} to {data_dfs['stock_minute_data']['trade_time'].max()}")
-    def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str) -> dict:
+    def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str, data_source_name: str) -> dict: # 修改行：增加 data_source_name 参数
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         target_tz = pytz.timezone('Asia/Shanghai')
         if stock_code_for_log == '600475.SH':
-            print(f"    -> [时间修正探针] {stock_code_for_log} _process_intraday_df_to_map 初始状态 (来自 DAO)：")
+            print(f"    -> [时间修正探针] {stock_code_for_log} {data_source_name} _process_intraday_df_to_map 初始状态 (来自 DAO)：") # 修改行：增加数据源名称
             print(f"       - 原始 df['trade_time'].iloc[0]: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z') if df['trade_time'].iloc[0].tz is not None else df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')} (tz: {df['trade_time'].iloc[0].tz})")
-        # 修改行：df['trade_time'] 已经是 UTC aware datetime，直接转换为目标时区
-        df['trade_time'] = df['trade_time'].dt.tz_convert(target_tz)
-        if stock_code_for_log == '600475.SH':
-            print(f"    -> [时间修正探针] {stock_code_for_log} 已将 UTC aware 数据转换为 Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
+        # 统一转换为目标时区 (Asia/Shanghai)
+        if df['trade_time'].dt.tz is None:
+            # 如果是 naive datetime，假定它是北京时间（因为DAO层应该输出aware，但可能在某些操作后丢失时区信息）
+            df['trade_time'] = df['trade_time'].dt.tz_localize(target_tz, ambiguous='infer')
+            if stock_code_for_log == '600475.SH':
+                print(f"    -> [时间修正探针] {stock_code_for_log} {data_source_name} 修正：Naive时间本地化为Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}") # 修改行：增加数据源名称
+        else:
+            # 如果已经是 aware datetime，直接转换为目标时区
+            df['trade_time'] = df['trade_time'].dt.tz_convert(target_tz)
+            if stock_code_for_log == '600475.SH':
+                print(f"    -> [时间修正探针] {stock_code_for_log} {data_source_name} 转换：已是Aware时间，转换为Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}") # 修改行：增加数据源名称
         df = df.set_index('trade_time')
         grouped_data = {}
         for date, group_df in df.groupby(df.index.date):
             grouped_data[date] = group_df
         return grouped_data
-    data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"], stock_info.stock_code)
-    data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"], stock_info.stock_code)
-    data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"], stock_info.stock_code)
+    data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"], stock_info.stock_code, "Tick Data") # 修改行：传入数据源名称
+    data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"], stock_info.stock_code, "Level5 Data") # 修改行：传入数据源名称
+    data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"], stock_info.stock_code, "Minute K-line Data") # 修改行：传入数据源名称
     for name, df in data_dfs.items():
         if name in ["stock_tick_data_map", "stock_level5_data_map", "stock_minute_data_map"]:
             continue
