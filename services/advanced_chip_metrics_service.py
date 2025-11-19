@@ -149,10 +149,8 @@ class AdvancedChipMetricsService:
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
-        """【V4.6 · 日内数据源简化版】
-        - 核心进化: 明确了日内数据的优先级：资金流服务处理后的分钟数据 > 筹码服务处理后的分钟数据。
-        - 核心修复: 移除直接使用原始 `tick_data_map` 的逻辑，确保 `ChipFeatureCalculator` 总是接收到分钟聚合数据。
-        - 【修正】新增 `debug_params` 参数，用于控制内部探针的输出。
+        """【V4.7 · 日线价格字段修复版】
+        - 核心修复: 修正 `context_for_calc` 中 `low_price` 和 `high_price` 字段的获取，确保它们从 `context_data` 中正确获取 `_qfq` 后缀的列名。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -169,7 +167,7 @@ class AdvancedChipMetricsService:
             ])
         hist_comp_dict = historical_components.to_dict('index') if historical_components is not None and not historical_components.empty else {}
         grouped_data = merged_df.groupby('trade_time')
-        required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq']
+        required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq', 'open_qfq', 'high_qfq', 'low_qfq'] # 修改行：新增 'open_qfq', 'high_qfq', 'low_qfq'
         is_first_day_in_batch = True
         debug_params = debug_params if debug_params is not None else {}
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
@@ -178,7 +176,6 @@ class AdvancedChipMetricsService:
             if chip_data_for_calc.empty:
                 reason = "当日源筹码分布(cyq_chips)数据缺失"
                 logger.warning(f"[{stock_code}] [{trade_date.date()}] 预警：{reason}。")
-                failures_list.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': reason})
                 prev_metrics = {
                     'concentration_90pct': None, 'winner_avg_cost': None, 'chip_distribution': chip_data_for_calc,
                     'close_price': context_data.get('close_qfq'), 'prev_20d_close': context_data.get('prev_20d_close'),
@@ -186,6 +183,7 @@ class AdvancedChipMetricsService:
                     'total_chip_volume': context_data.get('float_share', 0) * 10000, 'chip_fatigue_index': 0.0,
                     'recent_closes_queue': [], 'dominant_peak_cost': None, 'atr_14d': None,
                 }
+                failures_list.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': reason})
                 if is_first_day_in_batch: is_first_day_in_batch = False
                 continue
             missing_keys = [key for key in required_daily_chip_cols if key not in context_data or pd.isna(context_data[key])]
@@ -205,9 +203,12 @@ class AdvancedChipMetricsService:
             recent_closes_list.append(close_price_today)
             total_chip_volume_today = context_data.get('float_share', 0) * 10000
             context_for_calc.update({
-                'close_price': close_price_today, 'high_price': context_data.get('high_qfq'),
-                'low_price': context_data.get('low_price'), 'open_price': context_data.get('open_qfq'),
-                'pre_close': context_data.get('pre_close_qfq'), 'daily_turnover_volume': context_data.get('vol', 0) * 100,
+                'close_price': close_price_today,
+                'high_price': context_data.get('high_qfq'), # 修改行：从 high_qfq 获取
+                'low_price': context_data.get('low_qfq'),   # 修改行：从 low_qfq 获取
+                'open_price': context_data.get('open_qfq'),
+                'pre_close': context_data.get('pre_close_qfq'),
+                'daily_turnover_volume': context_data.get('vol', 0) * 100,
                 'total_chip_volume': total_chip_volume_today, 'stock_code': stock_code, 'trade_date': trade_date.date(),
                 'circ_mv': context_data.get('circ_mv'), 'is_first_day_in_batch': is_first_day_in_batch,
                 'high_20d': context_data.get('high_20d'), 'low_20d': context_data.get('low_20d'),

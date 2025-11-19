@@ -786,8 +786,8 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.7 · 深度诊断探针版】
-    - 核心新增: 在任务入口和日期范围确定后增加关键探针，以诊断任务是否提前静默退出。
+    【V34.8 · 日线数据完整性修复版】
+    - 核心修复: 确保在加载日线数据时，包含所有必要的字段，特别是 'open_qfq'，以避免下游计算中出现数据缺失。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -846,14 +846,14 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         context_end_date = dates_to_process.min().date()
         ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, context_end_date)
         chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, context_end_date)
-        context_df = ff_hist_df.join(chip_hist_df, how='outer')
         max_lookback_days = max(chip_service.max_lookback_days, fund_flow_service.max_lookback_days, 260)
         global_lookback_start_date = dates_to_process.min() - timedelta(days=max_lookback_days)
+        # 修改行：确保加载所有需要的日线数据字段
         all_daily_data_for_lookback_qs = DailyModel.objects.filter(
             stock=stock_info,
             trade_time__gte=global_lookback_start_date,
             trade_time__lte=dates_to_process.max()
-        ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq', 'vol').order_by('trade_time')
+        ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'pre_close_qfq', 'vol').order_by('trade_time') # 修改行：新增 'open_qfq', 'pre_close_qfq'
         all_daily_data_for_lookback_df = pd.DataFrame(await sync_to_async(list)(all_daily_data_for_lookback_qs))
         all_daily_data_for_lookback_df['trade_time'] = pd.to_datetime(all_daily_data_for_lookback_df['trade_time'])
         all_daily_data_for_lookback_df.set_index('trade_time', inplace=True)
@@ -873,6 +873,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         low_20d_map_global = all_daily_data_for_lookback_df['low_20d'].to_dict()
         atr_map_global = all_daily_data_for_lookback_df[atr_col_name].to_dict()
         close_map_global = all_daily_data_for_lookback_df['close_qfq'].to_dict()
+        open_map_global = all_daily_data_for_lookback_df['open_qfq'].to_dict() # 新增行：获取 open_qfq
+        pre_close_map_global = all_daily_data_for_lookback_df['pre_close_qfq'].to_dict() # 新增行：获取 pre_close_qfq
         trade_dates_series_global = all_daily_data_for_lookback_df.index.sort_values().to_series().reset_index(drop=True)
         date_index_map = {date: i for i, date in enumerate(trade_dates_series_global)}
         date_20d_ago_map_global = {
