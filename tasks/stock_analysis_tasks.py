@@ -545,10 +545,11 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex):
     """
-    【V2.5 · ORM健壮性修正版 - 日内数据时区与索引修复】
+    【V2.6 · ORM健壮性修正版 - 日内数据时区与索引修复】
     - 核心修正: 修复了 `get_intraday_data_async` 在未指定字段时返回不可迭代QuerySet的BUG。通过确保始终调用 `.values()`，保证了数据加载的健壮性。
     - 核心修复: 修正 `_process_intraday_df_to_map` 中日内数据 `trade_time` 的时区处理逻辑，确保数据被正确归属到交易日。
     - 核心修复: 确保 `_process_intraday_df_to_map` 返回的DataFrame具有 `DatetimeIndex`，以支持 `resample` 操作。
+    - 【新增】在 `_process_intraday_df_to_map` 中增加时间戳 8 小时偏移的修正逻辑。
     """
     from utils.model_helpers import (
         get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code,
@@ -558,7 +559,7 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     from stock_models.time_trade import StockDailyBasic, StockCyqPerf
     from stock_models.stock_realtime import StockTickData_SH, StockTickData_SZ, StockTickData_CY, StockTickData_KC, StockTickData_BJ
     from django.utils import timezone
-    from datetime import time, datetime
+    from datetime import time, datetime, timedelta # 修改行：导入 timedelta
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', dates_list: list = None):
         if not model or not dates_list: return pd.DataFrame()
@@ -618,21 +619,40 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     }
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
-    # print(f"--- [数据加载探针] Stock: {stock_info.stock_code}, Chunk: {chunk_dates_list[0]} to {chunk_dates_list[-1]} ---")
-    # for name, df in data_dfs.items():
-    #     model_obj = model_name_map.get(name)
-    #     model_name = model_obj.__name__ if model_obj else "N/A"
-    #     record_count = len(df) if df is not None else 0
-    #     print(f"  -> 源: {name:<20} | 模型: {model_name:<30} | 获取到 {record_count} 条记录")
-    # print("--- [探针结束] ---")
-    def _process_intraday_df_to_map(df: pd.DataFrame) -> dict:
+    # 新增探针：在 _process_intraday_df_to_map 调用前打印原始日内数据的时间范围
+    if not data_dfs["stock_tick_data"].empty:
+        print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Tick Data原始时间范围: {data_dfs['stock_tick_data']['trade_time'].min()} to {data_dfs['stock_tick_data']['trade_time'].max()}")
+    if not data_dfs["stock_minute_data"].empty:
+        print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Minute Data原始时间范围: {data_dfs['stock_minute_data']['trade_time'].min()} to {data_dfs['stock_minute_data']['trade_time'].max()}")
+
+    def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str) -> dict: # 修改行：增加 stock_code_for_log 参数
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         # 确保时区处理使用 Django 的当前时区
         if df['trade_time'].dt.tz is None:
-            df['trade_time'] = df['trade_time'].dt.tz_localize(timezone.get_current_timezone())
+            # 如果是naive时间，假设它是北京时间，然后本地化并转换为目标时区
+            # ambiguous='infer' 尝试处理夏令时/冬令时边界，但对于A股固定时区通常不是问题
+            df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai', ambiguous='infer')
         else:
+            # 如果已经是timezone-aware，直接转换为目标时区
             df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_current_timezone())
+
+        # 新增逻辑：检测并修正 8 小时偏移
+        # 假设正常的交易时间是 09:30-15:00
+        # 如果当前时间戳在 17:00-23:00 之间，且日期是当天，则很可能是 8 小时偏移
+        first_time = df['trade_time'].iloc[0]
+        # 检查是否在非交易时段（例如，下午5点到晚上11点），这通常是错误偏移的迹象
+        if first_time.hour >= 17 and first_time.hour <= 23:
+            # 进一步确认是否是当天的数据，避免跨日问题
+            # 并且检查是否与预期的交易日期的日期部分一致
+            expected_date = df['trade_time'].dt.date.iloc[0] # 获取当前DataFrame的日期
+            if first_time.date() == expected_date:
+                # 假设是 8 小时偏移，减去 8 小时
+                df['trade_time'] = df['trade_time'] - timedelta(hours=8)
+                print(f"    -> [时间修正探针] {stock_code_for_log} 检测到日内数据时间偏移，已将 {first_time.strftime('%Y-%m-%d %H:%M:%S%z')} 修正为 {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}。")
+            else:
+                print(f"    -> [时间修正探针] {stock_code_for_log} 检测到日内数据时间在非交易时段，但日期不匹配，未进行修正。原始时间: {first_time.strftime('%Y-%m-%d %H:%M:%S%z')}")
+
         # 将 trade_time 设置为索引
         df = df.set_index('trade_time')
         grouped_data = {}
@@ -640,9 +660,11 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         for date, group_df in df.groupby(df.index.date):
             grouped_data[date] = group_df
         return grouped_data
-    data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"])
-    data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"])
-    data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"])
+    
+    # 修改行：调用 _process_intraday_df_to_map 时传入 stock_info.stock_code
+    data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"], stock_info.stock_code)
+    data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"], stock_info.stock_code)
+    data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"], stock_info.stock_code)
     for name, df in data_dfs.items():
         if name in ["stock_tick_data_map", "stock_level5_data_map", "stock_minute_data_map"]:
             continue
