@@ -251,12 +251,10 @@ class ChipFeatureCalculator:
             probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
             if probe_date_naive == trade_date:
                 is_probe_date = True
-
         intraday_df = context.get('processed_intraday_df')
         total_daily_vol = context.get('daily_turnover_volume')
         daily_vwap = context.get('daily_vwap')
         pre_close = context.get('pre_close')
-
         results['gathering_by_support'] = np.nan
         results['gathering_by_chasing'] = np.nan
         results['dispersal_by_distribution'] = np.nan
@@ -272,7 +270,6 @@ class ChipFeatureCalculator:
         results['winner_loser_momentum'] = np.nan
         results['chip_fatigue_index'] = np.nan
         results['peak_shoulder_growth_rate'] = np.nan
-
         if is_probe_date and intraday_df is None:
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'intraday_df' 为 None。")
         if is_probe_date and intraday_df.empty:
@@ -283,14 +280,13 @@ class ChipFeatureCalculator:
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'total_daily_vol' 为 {total_daily_vol}。")
         if is_probe_date and pd.isna(daily_vwap):
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'daily_vwap' 缺失。")
-
         required_cols_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol']
         if not intraday_df.empty and pd.notna(total_daily_vol) and total_daily_vol > 0 and pd.notna(daily_vwap):
             for col in required_cols_1:
                 if col not in intraday_df.columns:
                     if is_probe_date:
                         print(f"    -> [跨日资金流探针] @ {trade_date}: 'intraday_df' 缺少列 '{col}'。")
-                    return results # 缺少核心列，直接返回
+                    return results
             intraday_df['mf_net_vol'] = intraday_df['main_force_buy_vol'] - intraday_df['main_force_sell_vol']
             gathering_vol_per_minute = intraday_df['mf_net_vol'].clip(lower=0)
             dispersal_vol_per_minute = (-intraday_df['mf_net_vol']).clip(lower=0)
@@ -305,10 +301,8 @@ class ChipFeatureCalculator:
             results['gathering_by_chasing'] = np.nan
             results['dispersal_by_distribution'] = np.nan
             results['dispersal_by_capitulation'] = np.nan
-
         if is_probe_date and pd.isna(pre_close):
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'pre_close' 缺失。")
-
         required_cols_2 = ['minute_vwap', 'main_force_sell_vol', 'retail_sell_vol']
         total_sell_vol_today = 0.0
         if not intraday_df.empty and pd.notna(pre_close):
@@ -316,32 +310,23 @@ class ChipFeatureCalculator:
                 if col not in intraday_df.columns:
                     if is_probe_date:
                         print(f"    -> [跨日资金流探针] @ {trade_date}: 'intraday_df' 缺少列 '{col}'。")
-                    return results # 缺少核心列，直接返回
-            
-            # 探针：检查 main_force_sell_vol 和 retail_sell_vol 的原始数据
+                    return results
             if is_probe_date:
                 print(f"    -> [跨日资金流探针] @ {trade_date}: 检查卖出量数据。")
                 print(f"       - main_force_sell_vol sum: {intraday_df['main_force_sell_vol'].sum()}")
                 print(f"       - retail_sell_vol sum: {intraday_df['retail_sell_vol'].sum()}")
-
             total_sell_vol_today = (intraday_df['main_force_sell_vol'] + intraday_df['retail_sell_vol']).sum()
             if is_probe_date and total_sell_vol_today <= 0:
                 print(f"    -> [跨日资金流探针] @ {trade_date}: 'total_sell_vol_today' 为 {total_sell_vol_today} (<=0)。")
-            
             if total_sell_vol_today > 0:
-                # 探针：检查 minute_vwap 和 pre_close 的关系
                 if is_probe_date:
                     print(f"    -> [跨日资金流探针] @ {trade_date}: 检查获利盘兑现条件。")
                     print(f"       - pre_close: {pre_close}")
                     print(f"       - intraday_df['minute_vwap'] > pre_close 筛选结果数量: {len(intraday_df[intraday_df['minute_vwap'] > pre_close])}")
-
                 profit_taking_vol = (intraday_df[intraday_df['minute_vwap'] > pre_close]['main_force_sell_vol'] + intraday_df[intraday_df['minute_vwap'] > pre_close]['retail_sell_vol']).sum()
                 capitulation_vol = (intraday_df[intraday_df['minute_vwap'] < pre_close]['main_force_sell_vol'] + intraday_df[intraday_df['minute_vwap'] < pre_close]['retail_sell_vol']).sum()
-                
-                # 探针：检查 profit_taking_vol 的值
                 if is_probe_date:
                     print(f"    -> [跨日资金流探针] @ {trade_date}: 'profit_taking_vol' 计算结果: {profit_taking_vol}。")
-
                 results['profit_taking_flow_ratio'] = (profit_taking_vol / total_sell_vol_today) * 100
                 results['capitulation_flow_ratio'] = (capitulation_vol / total_sell_vol_today) * 100
             else:
@@ -354,12 +339,10 @@ class ChipFeatureCalculator:
                 print(f"    -> [跨日资金流探针] @ {trade_date}: 'intraday_df' 为空或 'pre_close' 缺失，无法计算卖出比例。")
             results['profit_taking_flow_ratio'] = np.nan
             results['capitulation_flow_ratio'] = np.nan
-
         prev_df = context.get('prev_chip_distribution')
         prev_high_20d = context.get('prev_high_20d')
         prev_low_20d = context.get('prev_low_20d')
         prev_total_chips = context.get('prev_total_chip_volume')
-
         if is_probe_date and prev_df is None:
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'prev_chip_distribution' 为 None。")
         if is_probe_date and prev_df.empty:
@@ -374,29 +357,24 @@ class ChipFeatureCalculator:
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'prev_total_chip_volume' 为 {prev_total_chips}。")
         if is_probe_date and total_sell_vol_today <= 0:
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'total_sell_vol_today' 为 {total_sell_vol_today}。")
-
         if prev_df is not None and not prev_df.empty and pd.notna(prev_high_20d) and pd.notna(prev_low_20d) and pd.notna(prev_total_chips) and prev_total_chips > 0 and total_sell_vol_today > 0:
             prev_active_mask = (prev_df['price'] >= prev_low_20d) & (prev_df['price'] <= prev_high_20d)
             vol_active_winners = (prev_df[prev_active_mask & (prev_df['price'] < pre_close)]['percent'].sum() / 100) * prev_total_chips
             vol_locked_winners = (prev_df[~prev_active_mask & (prev_df['price'] < pre_close)]['percent'].sum() / 100) * prev_total_chips
             vol_active_losers = (prev_df[prev_active_mask & (prev_df['price'] > pre_close)]['percent'].sum() / 100) * prev_total_chips
             vol_locked_losers = (prev_df[~prev_active_mask & (prev_df['price'] > pre_close)]['percent'].sum() / 100) * prev_total_chips
-
             if is_probe_date and vol_active_winners <= 0:
                 print(f"    -> [跨日资金流探针] @ {trade_date}: 'vol_active_winners' 为 {vol_active_winners}。")
             if vol_active_winners > 0: results['active_winner_pressure_ratio'] = (total_sell_vol_today / vol_active_winners) * 100
             else: results['active_winner_pressure_ratio'] = np.nan
-
             if is_probe_date and vol_locked_winners <= 0:
                 print(f"    -> [跨日资金流探针] @ {trade_date}: 'vol_locked_winners' 为 {vol_locked_winners}。")
             if vol_locked_winners > 0: results['locked_profit_pressure_ratio'] = (total_sell_vol_today / vol_locked_winners) * 100
             else: results['locked_profit_pressure_ratio'] = np.nan
-
             if is_probe_date and vol_active_losers <= 0:
                 print(f"    -> [跨日资金流探针] @ {trade_date}: 'vol_active_losers' 为 {vol_active_losers}。")
             if vol_active_losers > 0: results['active_loser_pressure_ratio'] = (total_sell_vol_today / vol_active_losers) * 100
             else: results['active_loser_pressure_ratio'] = np.nan
-
             if is_probe_date and vol_locked_losers <= 0:
                 print(f"    -> [跨日资金流探针] @ {trade_date}: 'vol_locked_losers' 为 {vol_locked_losers}。")
             if vol_locked_losers > 0: results['locked_loss_pressure_ratio'] = (total_sell_vol_today / vol_locked_losers) * 100
@@ -406,12 +384,10 @@ class ChipFeatureCalculator:
             results['locked_profit_pressure_ratio'] = np.nan
             results['active_loser_pressure_ratio'] = np.nan
             results['locked_loss_pressure_ratio'] = np.nan
-
         high_20d = context.get('high_20d')
         low_20d = context.get('low_20d')
         close_price = context.get('close_price')
         atr_14d = context.get('atr_14d')
-
         if is_probe_date and self.df.empty:
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'self.df' (筹码分布) 为空。")
         if is_probe_date and pd.isna(high_20d):
@@ -424,20 +400,17 @@ class ChipFeatureCalculator:
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'atr_14d' 缺失。")
         if is_probe_date and atr_14d <= 0:
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'atr_14d' 为 {atr_14d}。")
-
         if not self.df.empty and pd.notna(high_20d) and pd.notna(low_20d) and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             active_chips_df = self.df[(self.df['price'] >= low_20d) & (self.df['price'] <= high_20d)]
             foundational_chips_df = self.df[self.df['price'] < low_20d]
             avg_cost_active = np.average(active_chips_df['price'], weights=active_chips_df['percent']) if not active_chips_df.empty and active_chips_df['percent'].sum() > 0 else np.nan
             avg_cost_foundational = np.average(foundational_chips_df['price'], weights=foundational_chips_df['percent']) if not foundational_chips_df.empty and foundational_chips_df['percent'].sum() > 0 else np.nan
-
             if is_probe_date and pd.isna(avg_cost_active):
                 print(f"    -> [跨日资金流探针] @ {trade_date}: 'avg_cost_active' 缺失。")
             if is_probe_date and pd.isna(avg_cost_foundational):
                 print(f"    -> [跨日资金流探针] @ {trade_date}: 'avg_cost_foundational' 缺失。")
             if is_probe_date and pd.notna(avg_cost_foundational) and avg_cost_foundational <= 0:
                 print(f"    -> [跨日资金流探针] @ {trade_date}: 'avg_cost_foundational' 为 {avg_cost_foundational}。")
-
             if pd.notna(avg_cost_active) and pd.notna(avg_cost_foundational) and avg_cost_foundational > 0:
                 divergence = (avg_cost_active / avg_cost_foundational - 1) * 100
                 results['cost_divergence'] = divergence
@@ -452,7 +425,6 @@ class ChipFeatureCalculator:
         else:
             results['cost_divergence'] = np.nan
             results['cost_divergence_normalized'] = np.nan
-
         total_chip_volume = context.get('total_chip_volume')
         if is_probe_date and self.df.empty:
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'self.df' (筹码分布) 为空。")
@@ -468,7 +440,6 @@ class ChipFeatureCalculator:
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'total_daily_vol' 缺失。")
         if is_probe_date and total_daily_vol <= 0:
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'total_daily_vol' 为 {total_daily_vol}。")
-
         if not self.df.empty and pd.notna(close_price) and pd.notna(pre_close) and pd.notna(total_chip_volume) and total_chip_volume > 0 and pd.notna(total_daily_vol) and total_daily_vol > 0:
             critical_chips_df = self.df[(self.df['price'] > min(close_price, pre_close)) & (self.df['price'] < max(close_price, pre_close))]
             status_change_net_flow_pct = critical_chips_df['percent'].sum() * np.sign(close_price - pre_close)
@@ -479,10 +450,8 @@ class ChipFeatureCalculator:
             else: results['winner_loser_momentum'] = np.nan
         else:
             results['winner_loser_momentum'] = np.nan
-
         prev_fatigue_index = context.get('prev_chip_fatigue_index', np.nan)
         recent_closes = context.get('recent_10d_closes')
-
         if is_probe_date and pd.isna(prev_fatigue_index):
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'prev_chip_fatigue_index' 缺失。")
         if is_probe_date and pd.isna(close_price):
@@ -495,22 +464,35 @@ class ChipFeatureCalculator:
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'total_daily_vol' 缺失。")
         if is_probe_date and recent_closes is None:
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'recent_10d_closes' 为 None。")
-        if is_probe_date and len(recent_closes) < 9:
-            print(f"    -> [跨日资金流探针] @ {trade_date}: 'recent_10d_closes' 长度不足9。")
-
-        if pd.notna(prev_fatigue_index) and pd.notna(close_price) and pd.notna(total_chip_volume) and total_chip_volume > 0 and pd.notna(total_daily_vol) and recent_closes is not None and len(recent_closes) >= 9:
-            is_effective_day = (close_price >= max(recent_closes)) or (close_price <= min(recent_closes))
-            fatigue_index = prev_fatigue_index * 0.98
-            if is_effective_day: fatigue_index *= 0.5
-            else: fatigue_index += (total_daily_vol / total_chip_volume) * 100
-            results['chip_fatigue_index'] = fatigue_index
+        # 修改行：增加探针，打印 recent_closes 的长度
+        if is_probe_date and recent_closes is not None:
+            print(f"    -> [跨日资金流探针] @ {trade_date}: 'recent_10d_closes' 长度: {len(recent_closes)}。")
+        # 修改行：调整 chip_fatigue_index 的计算逻辑
+        if pd.notna(close_price) and pd.notna(total_chip_volume) and total_chip_volume > 0 and pd.notna(total_daily_vol):
+            # 如果 prev_fatigue_index 为 NaN，或者 recent_closes 长度不足以进行有效日判断，则进行初始化
+            # prev_fatigue_index 在首次计算时会是 0.0 (来自 .get(..., 0.0))，但 recent_closes 长度会不足
+            if pd.isna(prev_fatigue_index) or recent_closes is None or len(recent_closes) < 9:
+                # 初始化 fatigue_index 基于当日换手率
+                fatigue_index = (total_daily_vol / total_chip_volume) * 100
+                results['chip_fatigue_index'] = fatigue_index
+                if is_probe_date:
+                    print(f"    -> [跨日资金流探针] @ {trade_date}: 'chip_fatigue_index' 初始化为 {fatigue_index:.4f} (因 prev_fatigue_index 缺失或 recent_closes 不足)。")
+            else:
+                # 正常计算
+                is_effective_day = (close_price >= max(recent_closes)) or (close_price <= min(recent_closes))
+                fatigue_index = prev_fatigue_index * 0.98
+                if is_effective_day: fatigue_index *= 0.5
+                else: fatigue_index += (total_daily_vol / total_chip_volume) * 100
+                results['chip_fatigue_index'] = fatigue_index
+                if is_probe_date:
+                    print(f"    -> [跨日资金流探针] @ {trade_date}: 'chip_fatigue_index' 正常计算为 {fatigue_index:.4f}。")
         else:
             results['chip_fatigue_index'] = np.nan
-
+            if is_probe_date:
+                print(f"    -> [跨日资金流探针] @ {trade_date}: 'chip_fatigue_index' 设为 NaN (因核心依赖缺失)。")
         prev_chip_dist = context.get('prev_chip_distribution')
         prev_dominant_peak_cost = context.get('prev_dominant_peak_cost')
         today_dominant_peak_cost = context.get('dominant_peak_cost')
-
         if is_probe_date and prev_chip_dist is None:
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'prev_chip_distribution' 为 None。")
         if is_probe_date and prev_chip_dist.empty:
@@ -519,7 +501,6 @@ class ChipFeatureCalculator:
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'prev_dominant_peak_cost' 缺失。")
         if is_probe_date and pd.isna(today_dominant_peak_cost):
             print(f"    -> [跨日资金流探针] @ {trade_date}: 'today_dominant_peak_cost' 缺失。")
-
         if prev_chip_dist is not None and not prev_chip_dist.empty and pd.notna(prev_dominant_peak_cost) and pd.notna(today_dominant_peak_cost):
             prev_upper_shoulder_df = prev_chip_dist[(prev_chip_dist['price'] >= prev_dominant_peak_cost * 1.02) & (prev_chip_dist['price'] <= prev_dominant_peak_cost * 1.07)]
             prev_lower_shoulder_df = prev_chip_dist[(prev_chip_dist['price'] >= prev_dominant_peak_cost * 0.93) & (prev_chip_dist['price'] <= prev_dominant_peak_cost * 0.98)]
@@ -529,13 +510,11 @@ class ChipFeatureCalculator:
             chip_vol_lower_yesterday = prev_lower_shoulder_df['percent'].sum()
             chip_vol_upper_today = today_upper_shoulder_df['percent'].sum()
             chip_vol_lower_today = today_lower_shoulder_df['percent'].sum()
-
             upper_growth = (chip_vol_upper_today / chip_vol_upper_yesterday - 1) * 100 if chip_vol_upper_yesterday > 0 else (100 if chip_vol_upper_today > 0 else 0)
             lower_growth = (chip_vol_lower_today / chip_vol_lower_yesterday - 1) * 100 if chip_vol_lower_yesterday > 0 else (100 if chip_vol_lower_today > 0 else 0)
             results['peak_shoulder_growth_rate'] = upper_growth - lower_growth
         else:
             results['peak_shoulder_growth_rate'] = np.nan
-
         return results
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
