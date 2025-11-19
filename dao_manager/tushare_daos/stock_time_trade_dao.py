@@ -390,24 +390,26 @@ class StockTimeTradeDAO(BaseDAO):
         【V2.2 · 统一输出UTC aware datetime版】获取指定股票在指定交易日的所有分钟K线数据。
         - 核心升级: 统一时区处理逻辑，确保返回的DataFrame索引是标准的UTC aware datetime。
         - 【修正】使用明确的 UTC aware datetime 范围进行过滤，并添加调试探针。
+        - 【修复】修正 NameError: 'kline_values' 未定义的问题。
         """
-        from django.utils import timezone # 新增行：导入 timezone
-        from datetime import datetime, time, timedelta # 新增行：导入 datetime, time, timedelta
+        from django.utils import timezone
+        from datetime import datetime, time, timedelta
         try:
             model_class = get_minute_data_model_by_code_and_timelevel(stock_code, time_level)
             if not model_class:
                 logger.error(f"未能找到股票 {stock_code} 对应的 {time_level}分钟 K线模型。")
                 return None
-            # 修改行：构建 UTC aware datetime 范围
-            # 数据库存储的是 UTC 时间，所以查询条件也应是 UTC 时间
-            start_dt_aware = timezone.make_aware(datetime.combine(trade_date, time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc) # 修改行
-            end_dt_aware = timezone.make_aware(datetime.combine(trade_date + timedelta(days=1), time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc) # 修改行
+            start_dt_aware = timezone.make_aware(datetime.combine(trade_date, time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
+            end_dt_aware = timezone.make_aware(datetime.combine(trade_date + timedelta(days=1), time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
 
             kline_queryset = model_class.objects.filter(
                 stock__stock_code=stock_code,
-                trade_time__gte=start_dt_aware, # 修改行：使用明确的 UTC aware 范围
-                trade_time__lt=end_dt_aware # 修改行：使用明确的 UTC aware 范围
-            ).order_by('trade_time')
+                trade_time__gte=start_dt_aware,
+                trade_time__lt=end_dt_aware
+            ).order_by('trade_time').values( # 修改行：添加 .values() 来指定获取的字段
+                'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
+            )
+            kline_values = await sync_to_async(list)(kline_queryset) # 修改行：执行 QuerySet 并赋值给 kline_values
             if not kline_values:
                 logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {trade_date} 的 {time_level}分钟 K线数据。")
                 return None
@@ -426,24 +428,26 @@ class StockTimeTradeDAO(BaseDAO):
         【V1.2 · 统一输出UTC aware datetime版】获取指定股票在指定日期的所有1分钟K线数据。
         - 核心升级: 统一时区处理逻辑，确保返回的DataFrame索引是标准的UTC aware datetime。
         - 【修正】添加调试探针。
+        - 【修复】修正 NameError: 'kline_values' 未定义的问题。
         """
-        from django.utils import timezone # 新增行：导入 timezone
-        from datetime import datetime, time, timedelta # 新增行：导入 datetime, time, timedelta
+        from django.utils import timezone
+        from datetime import datetime, time, timedelta
         try:
             model_class = get_minute_data_model_by_code_and_timelevel(stock_code, '1')
             if not model_class:
                 logger.error(f"未能找到股票 {stock_code} 对应的1分钟K线模型。")
                 return None
-            # 构建查询时间范围：从当日0点到次日0点（不含）
-            # 数据库存储的是UTC时间，所以查询条件也应是UTC时间
-            start_datetime = timezone.make_aware(datetime.combine(trade_date, time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc) # 修改行
-            end_datetime = timezone.make_aware(datetime.combine(trade_date + timedelta(days=1), time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc) # 修改行
+            start_datetime = timezone.make_aware(datetime.combine(trade_date, time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
+            end_datetime = timezone.make_aware(datetime.combine(trade_date + timedelta(days=1), time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
 
             kline_queryset = model_class.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__gte=start_datetime,
                 trade_time__lt=end_datetime
-            ).order_by('trade_time')
+            ).order_by('trade_time').values( # 修改行：添加 .values() 来指定获取的字段
+                'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
+            )
+            kline_values = await sync_to_async(list)(kline_queryset) # 修改行：执行 QuerySet 并赋值给 kline_values
             if not kline_values:
                 logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {trade_date} 的1分钟K线数据。")
                 return None
