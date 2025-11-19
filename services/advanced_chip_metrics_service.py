@@ -469,7 +469,7 @@ class AdvancedChipMetricsService:
             df.index = df.index.tz_convert(timezone.get_current_timezone())
         df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
         df['amount_yuan'] = df['amount']
-        df['vol_shares'] = df['vol']
+        df['vol_shares'] = df['volume']
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         current_day_total_vol = df['vol_shares'].sum()
         df['vol_weight'] = df['vol_shares'] / current_day_total_vol if current_day_total_vol > 0 else 0
