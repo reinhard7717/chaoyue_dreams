@@ -90,10 +90,11 @@ class ChipFeatureCalculator:
 
     def _prepare_intraday_data_features(self):
         """
-        【V2.10 · 日内数据列顺序修复版】准备日内数据特征，统一处理为分钟级别数据。
+        【V2.11 · 日内数据列完整性修复版】准备日内数据特征，统一处理为分钟级别数据。
         - 核心进化: 能够直接处理由上游服务传入的、已经聚合和归因完毕的分钟数据。
         - 核心逻辑: 假设传入的 `intraday_data` 已经是分钟级别数据，并进行标准化处理。
         - 核心修复: 调整 `amount_yuan` 和 `vol_shares` 的创建顺序，确保在计算 `minute_vwap` 前它们已存在。
+        - 【新增】确保 `retail_net_vol` 列在 `processed_intraday_df` 中被正确初始化。
         """
         intraday_df = self.ctx.get('intraday_data')
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
@@ -125,7 +126,7 @@ class ChipFeatureCalculator:
         if 'minute_vwap' not in processed_intraday_df.columns:
             processed_intraday_df['minute_vwap'] = processed_intraday_df['amount_yuan'] / processed_intraday_df['vol_shares'].replace(0, np.nan)
         # 4. 确保资金流相关列存在
-        fund_flow_cols = ['main_force_net_vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol', 'buy_vol_raw', 'sell_vol_raw']
+        fund_flow_cols = ['main_force_net_vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol', 'buy_vol_raw', 'sell_vol_raw', 'retail_net_vol'] # 修改行：新增 'retail_net_vol'
         for col in fund_flow_cols:
             if col not in processed_intraday_df.columns:
                 processed_intraday_df[col] = 0.0
@@ -477,12 +478,12 @@ class ChipFeatureCalculator:
         results['intraday_new_loser_pressure'] = np.nan
         results['auction_intent_signal'] = np.nan
         results['auction_closing_position'] = np.nan
-        results['intraday_probe_rebound_quality'] = np.nan # 新增
-        results['capitulation_absorption_index'] = np.nan # 新增
-        results['peak_battle_intensity'] = np.nan # 新增
-        results['peak_dynamic_strength_ratio'] = np.nan # 新增
-        results['peak_main_force_premium'] = np.nan # 新增
-        results['peak_mf_conviction_flow'] = np.nan # 新增
+        results['intraday_probe_rebound_quality'] = np.nan
+        results['capitulation_absorption_index'] = np.nan
+        results['peak_battle_intensity'] = np.nan
+        results['peak_dynamic_strength_ratio'] = np.nan
+        results['peak_main_force_premium'] = np.nan
+        results['peak_mf_conviction_flow'] = np.nan
 
         if is_probe_date and intraday_df is None:
             print(f"    -> [博弈论探针] @ {trade_date}: 'intraday_df' 为 None。")
@@ -721,7 +722,7 @@ class ChipFeatureCalculator:
             panic_zone_df = intraday_df[(intraday_df['minute_vwap'] >= panic_selling_zone_low) & (intraday_df['minute_vwap'] <= panic_selling_zone_high)]
             if is_probe_date and panic_zone_df.empty:
                 print(f"    -> [博弈论探针] @ {trade_date}: 'panic_zone_df' 为空。")
-            if not panic_zone_df.empty:
+            if not panic_zone_df.empty and 'main_force_net_vol' in panic_zone_df.columns and 'retail_net_vol' in panic_zone_df.columns and 'vol_shares' in panic_zone_df.columns: # 修改行：增加列存在性检查
                 mf_net_flow_panic_zone = panic_zone_df['main_force_net_vol'].sum()
                 retail_net_flow_panic_zone = panic_zone_df['retail_net_vol'].sum()
                 total_vol_panic_zone = panic_zone_df['vol_shares'].sum()
@@ -761,10 +762,10 @@ class ChipFeatureCalculator:
             intraday_peak_zone_df = intraday_df[(intraday_df['minute_vwap'] >= peak_zone_low) & (intraday_df['minute_vwap'] <= peak_zone_high)]
             if is_probe_date and intraday_peak_zone_df.empty:
                 print(f"    -> [博弈论探针] @ {trade_date}: 'intraday_peak_zone_df' 为空。")
-            if not intraday_peak_zone_df.empty:
-                total_vol_in_peak_zone = intraday_peak_zone_df['vol_shares'].sum()
+            if not intraday_peak_zone_df.empty and 'main_force_net_vol' in intraday_peak_zone_df.columns and 'retail_net_vol' in intraday_peak_zone_df.columns and 'vol_shares' in intraday_peak_zone_df.columns: # 修改行：增加列存在性检查
                 mf_net_flow_in_peak_zone = intraday_peak_zone_df['main_force_net_vol'].sum()
                 retail_net_flow_in_peak_zone = intraday_peak_zone_df['retail_net_vol'].sum()
+                total_vol_in_peak_zone = intraday_peak_zone_df['vol_shares'].sum()
 
                 if is_probe_date and total_vol_in_peak_zone <= 0:
                     print(f"    -> [博弈论探针] @ {trade_date}: 'total_vol_in_peak_zone' 为 {total_vol_in_peak_zone}。")
