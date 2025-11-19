@@ -448,10 +448,10 @@ class AdvancedChipMetricsService:
         return processed_count
 
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
-        """【V1.1 · 数据完整性修复版 - 辅助列添加 - 列名修正】从预加载的DataFrame构建按日分组的数据。
+        """【V1.2 · 数据完整性修复版 - 辅助列添加 - 列名修正】从预加载的DataFrame构建按日分组的数据。
         - 核心职责: 确保传入的DataFrame保持 `trade_time` 作为 `DatetimeIndex`，并正确处理时区，添加 `amount_yuan`, `vol_shares`, `minute_vwap`, `vol_weight` 等辅助列。
         - 核心修复: 不再修改DataFrame的索引，仅添加辅助列。
-        - 【修正】将对 'vol' 列的引用改为 'volume'，以匹配上游 DAO 返回的列名。
+        - 【修正】将对 'volume' 列的引用改回 'vol'，以匹配上游 `minute_df_from_ticks` 返回的列名。
         """
         from django.utils import timezone
         if minute_df is None or minute_df.empty:
@@ -468,10 +468,10 @@ class AdvancedChipMetricsService:
             df.index = df.index.tz_localize('UTC').tz_convert(timezone.get_current_timezone())
         elif df.index.tz != timezone.get_current_timezone():
             df.index = df.index.tz_convert(timezone.get_current_timezone())
-        # 修改行：将 'vol' 替换为 'volume'
-        df[['amount', 'volume']] = df[['amount', 'volume']].apply(pd.to_numeric, errors='coerce') # 修改行
+        # 修改行：将 'volume' 替换回 'vol'
+        df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce') # 修改行
         df['amount_yuan'] = df['amount']
-        df['vol_shares'] = df['volume'] # 修改行：使用 'volume' 列
+        df['vol_shares'] = df['vol'] # 修改行：使用 'vol' 列
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         current_day_total_vol = df['vol_shares'].sum()
         df['vol_weight'] = df['vol_shares'] / current_day_total_vol if current_day_total_vol > 0 else 0
