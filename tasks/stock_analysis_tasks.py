@@ -819,12 +819,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         import json
         import os
         from django.conf import settings
-        # [任务启动探针-开始]
         print(f"--- [任务启动探针] 耦合计算任务 precompute_advanced_chips_for_stock ---")
         print(f"  -> 股票代码: {stock_code}")
         print(f"  -> 运行模式: {'增量' if incremental_flag else '全量'}")
         print(f"  -> 指定起始日期: {start_date_override}")
-        # [任务启动探针-结束]
         config_path = os.path.join(settings.BASE_DIR, 'config', 'trend_follow_strategy.json')
         strategy_config = {}
         try:
@@ -835,15 +833,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         except json.JSONDecodeError:
             logger.error(f"解码策略配置文件 JSON 失败: {config_path}")
         debug_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
-        
-        # 修改行：将 debug_params 传递给 AdvancedFundFlowMetricsService
-        fund_flow_service = AdvancedFundFlowMetricsService(debug_params=debug_params) 
-        chip_service = AdvancedChipMetricsService() # chip_service 已经通过 context_for_calc 接收 debug_params
-        
+        fund_flow_service = AdvancedFundFlowMetricsService(debug_params=debug_params)
+        chip_service = AdvancedChipMetricsService()
         stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, lookback_start_date, process_start_date, save_start_date = await _initialize_task_context_unified(
             stock_code, incremental_flag, start_date_override
         )
-        # [任务启动探针-日期上下文]
         print(f"  -> [初始化后] 最终模式: {'增量' if is_incremental_final else '全量'}")
         print(f"  -> [初始化后] 数据回溯起点 (lookback_start_date): {lookback_start_date}")
         print(f"  -> [初始化后] 计算循环起点 (process_start_date): {process_start_date}")
@@ -863,7 +857,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             end_date=raw_dates_to_process.max().date()
         )
         dates_to_process = pd.to_datetime([d for d in trade_dates_only if pd.to_datetime(d) in raw_dates_to_process])
-        # [日期范围探针]
         print(f"  -> [日期范围探针] 找到 {len(dates_to_process)} 个待处理交易日。范围: {dates_to_process.min().date() if not dates_to_process.empty else 'N/A'} to {dates_to_process.max().date() if not dates_to_process.empty else 'N/A'}")
         if dates_to_process.empty:
             logger.info(f"[{stock_code}] 过滤非交易日后，没有需要计算的交易日，合并任务终止。")
@@ -871,12 +864,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         context_end_date = dates_to_process.min()
         ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, context_end_date)
         chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, context_end_date)
-        # 修改行：确保 context_df 始终被初始化
         context_df = ff_hist_df.join(chip_hist_df, how='outer') if not ff_hist_df.empty or not chip_hist_df.empty else pd.DataFrame()
-
         max_lookback_days = max(chip_service.max_lookback_days, fund_flow_service.max_lookback_days, 260)
         global_lookback_start_date = dates_to_process.min() - timedelta(days=max_lookback_days)
-        # 修改行：确保加载所有需要的日线数据字段
         all_daily_data_for_lookback_qs = DailyModel.objects.filter(
             stock=stock_info,
             trade_time__gte=global_lookback_start_date,
@@ -949,7 +939,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 seed_base_daily_df = seed_daily_df.join(seed_daily_basic_df.drop(columns=overlap_cols), how='left')
                 seed_base_daily_df['atr_14d'] = seed_base_daily_df.index.map(atr_map_global)
                 ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"]}
-                fund_flow_service.debug_params = debug_params # 新增行：确保 debug_params 传递给 fund_flow_service
+                fund_flow_service.debug_params = debug_params
                 seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=seed_base_daily_df)
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index, tick_data_map=seed_data_dfs["stock_tick_data_map"], level5_data_map=seed_data_dfs["stock_level5_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
                 _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df, tick_data_map=seed_data_dfs["stock_tick_data_map"], level5_data_map=seed_data_dfs["stock_level5_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
@@ -999,7 +989,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             base_daily_df = daily_df.join(daily_basic_df.drop(columns=overlap_cols), how='left')
             base_daily_df['atr_14d'] = base_daily_df.index.map(atr_map_global)
             ff_data_dfs = {"tushare": data_dfs["fund_flow_tushare"], "ths": data_dfs["fund_flow_ths"], "dc": data_dfs["fund_flow_dc"]}
-            fund_flow_service.debug_params = debug_params # 新增行：确保 debug_params 传递给 fund_flow_service
+            fund_flow_service.debug_params = debug_params
             fund_flow_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=base_daily_df)
             if fund_flow_raw_df.empty:
                 logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 资金流原始数据为空，跳过。")
@@ -1011,6 +1001,17 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 stock_code, fund_flow_raw_df, tick_data_map=tick_data_map, level5_data_map=level5_data_map, minute_data_map=minute_data_map
             )
             all_failures.extend(ff_failures)
+            probe_date_naive = pd.to_datetime(debug_params.get('probe_dates', [None])[0]).date() if debug_params.get('probe_dates') and debug_params.get('probe_dates')[0] else None
+            if probe_date_naive and probe_date_naive in fund_flow_attributed_minute_map:
+                probe_df = fund_flow_attributed_minute_map[probe_date_naive]
+                if 'main_force_sell_vol' in probe_df.columns:
+                    print(f"    -> [任务调度器探针] @ {probe_date_naive}: fund_flow_attributed_minute_map['main_force_sell_vol'] sum: {probe_df['main_force_sell_vol'].sum():.2f}")
+                else:
+                    print(f"    -> [任务调度器探针] @ {probe_date_naive}: fund_flow_attributed_minute_map 缺少 'main_force_sell_vol' 列。")
+                if 'retail_sell_vol' in probe_df.columns:
+                    print(f"    -> [任务调度器探针] @ {probe_date_naive}: fund_flow_attributed_minute_map['retail_sell_vol'] sum: {probe_df['retail_sell_vol'].sum():.2f}")
+                else:
+                    print(f"    -> [任务调度器探针] @ {probe_date_naive}: fund_flow_attributed_minute_map 缺少 'retail_sell_vol' 列。")
             chip_data_dfs = {"cyq_chips": data_dfs["cyq_chips"], "cyq_perf": data_dfs["cyq_perf"]}
             chip_raw_df = chip_service._preprocess_and_merge_data(
                 stock_code, chip_data_dfs, base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
@@ -1033,13 +1034,12 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                         valid_mask = historical_components_df['weight_avg_cost'] > 0
                         historical_components_df.loc[valid_mask, 'concentration_70pct'] = \
                             (historical_components_df.loc[valid_mask, 'cost_85pct'] - historical_components_df.loc[valid_mask, 'cost_15pct']) / historical_components_df.loc[valid_mask, 'weight_avg_cost']
-            # 修改行：确保 context_df 在每次迭代结束时被更新
             full_sequence_for_derivatives = pd.concat([context_df, chunk_core_metrics_df]).sort_index()
             ff_derivatives = fund_flow_service._calculate_derivatives(stock_code, full_sequence_for_derivatives)
             chip_derivatives = chip_service._calculate_derivatives(full_sequence_for_derivatives)
             chunk_final_df = full_sequence_for_derivatives.join([ff_derivatives, chip_derivatives])
             all_final_metrics_to_save = pd.concat([all_final_metrics_to_save, chunk_final_df[chunk_final_df.index.isin(chunk_dates)]])
-            context_df = full_sequence_for_derivatives # 修改行：更新 context_df 以便下一次迭代使用
+            context_df = full_sequence_for_derivatives
         if not all_final_metrics_to_save.empty:
             if save_start_date:
                 chunk_to_save = all_final_metrics_to_save[all_final_metrics_to_save.index.date >= save_start_date]

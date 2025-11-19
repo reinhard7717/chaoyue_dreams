@@ -317,9 +317,10 @@ class AdvancedFundFlowMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V10.9 · 数据流修复版 - 探针增强】
+        【V10.10 · 数据流修复版 - 探针增强 - 跨服务数据完整性修复】
         - 核心修正: 调整对 `_calculate_probabilistic_costs` 的调用，以接收其返回的成本字典和完整归因后的分钟DataFrame，确保下游计算能获得必要的 `main_force_net_vol` 等列。
         - 【新增探针】检查 `attributed_minute_df` 中的主力/散户买卖量。
+        - 【关键修复】在将 `attributed_minute_df` 存储到 `attributed_minute_data_map` 之前，进行深拷贝，确保跨服务传递时数据完整性。
         """
         all_metrics_list = []
         attributed_minute_data_map = {}
@@ -355,7 +356,8 @@ class AdvancedFundFlowMetricsService:
                 level5_data_map.get(date_obj) if level5_data_map else None
             )
             all_metrics_list.append(day_metrics)
-            attributed_minute_data_map[date_obj] = attributed_minute_df
+            # 修改行：在存储到 map 之前进行深拷贝
+            attributed_minute_data_map[date_obj] = attributed_minute_df.copy(deep=True)
         if not all_metrics_list:
             return pd.DataFrame(), {}, failures
         final_metrics_df = pd.DataFrame(all_metrics_list)

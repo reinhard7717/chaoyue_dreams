@@ -149,7 +149,7 @@ class AdvancedChipMetricsService:
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
-        """【V4.8 · 日线价格字段修复版 - 探针增强】
+        """【V4.9 · 日线价格字段修复版 - 探针增强】
         - 核心修复: 修正 `context_for_calc` 中 `low_price` 和 `high_price` 字段的获取，确保它们从 `context_data` 中正确获取 `_qfq` 后缀的列名。
         - 【新增探针】检查 `enhanced_intraday_data` 中的主力/散户买卖量。
         """
@@ -253,8 +253,14 @@ class AdvancedChipMetricsService:
             context_for_calc['intraday_data'] = enhanced_intraday_data
             if is_current_probe_date:
                 print(f"    -> [筹码合成探针] @ {date_obj}: enhanced_intraday_data 检查。")
-                print(f"       - enhanced_intraday_data['main_force_sell_vol'] sum: {enhanced_intraday_data['main_force_sell_vol'].sum():.2f}")
-                print(f"       - enhanced_intraday_data['retail_sell_vol'] sum: {enhanced_intraday_data['retail_sell_vol'].sum():.2f}")
+                if 'main_force_sell_vol' in enhanced_intraday_data.columns:
+                    print(f"       - enhanced_intraday_data['main_force_sell_vol'] sum: {enhanced_intraday_data['main_force_sell_vol'].sum():.2f}")
+                else:
+                    print(f"       - enhanced_intraday_data 缺少 'main_force_sell_vol' 列。")
+                if 'retail_sell_vol' in enhanced_intraday_data.columns:
+                    print(f"       - enhanced_intraday_data['retail_sell_vol'] sum: {enhanced_intraday_data['retail_sell_vol'].sum():.2f}")
+                else:
+                    print(f"       - enhanced_intraday_data 缺少 'retail_sell_vol' 列。")
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
             if daily_metrics:

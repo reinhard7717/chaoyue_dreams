@@ -48,8 +48,14 @@ class ChipFeatureCalculator:
             intraday_data_received = self.ctx.get('intraday_data')
             if intraday_data_received is not None and not intraday_data_received.empty:
                 print(f"    -> [计算器初始化探针] @ {trade_date}: ChipFeatureCalculator 接收到的 intraday_data 检查。")
-                print(f"       - 'main_force_sell_vol' sum: {intraday_data_received['main_force_sell_vol'].sum():.2f}")
-                print(f"       - 'retail_sell_vol' sum: {intraday_data_received['retail_sell_vol'].sum():.2f}")
+                if 'main_force_sell_vol' in intraday_data_received.columns:
+                    print(f"       - 'main_force_sell_vol' sum: {intraday_data_received['main_force_sell_vol'].sum():.2f}")
+                else:
+                    print(f"       - 'main_force_sell_vol' 列缺失。")
+                if 'retail_sell_vol' in intraday_data_received.columns:
+                    print(f"       - 'retail_sell_vol' sum: {intraday_data_received['retail_sell_vol'].sum():.2f}")
+                else:
+                    print(f"       - 'retail_sell_vol' 列缺失。")
             else:
                 print(f"    -> [计算器初始化探针] @ {trade_date}: ChipFeatureCalculator 接收到的 intraday_data 为空或 None。")
         self._prepare_intraday_data_features()
@@ -132,8 +138,12 @@ class ChipFeatureCalculator:
             print(f"    -> [日内数据特征探针] @ {trade_date}: _prepare_intraday_data_features 接收到的 intraday_df 列：{list(intraday_df.columns)}")
             if 'main_force_sell_vol' in intraday_df.columns:
                 print(f"       - 初始 intraday_df['main_force_sell_vol'] sum: {intraday_df['main_force_sell_vol'].sum():.2f}")
+            else:
+                print(f"       - 初始 intraday_df 缺少 'main_force_sell_vol' 列。")
             if 'retail_sell_vol' in intraday_df.columns:
                 print(f"       - 初始 intraday_df['retail_sell_vol'] sum: {intraday_df['retail_sell_vol'].sum():.2f}")
+            else:
+                print(f"       - 初始 intraday_df 缺少 'retail_sell_vol' 列。")
         processed_intraday_df = intraday_df.copy()
         dtype_map = {'amount': 'float32', 'vol': 'int32', 'open': 'float32', 'close': 'float32', 'high': 'float32', 'low': 'float32'}
         for col, dtype in dtype_map.items():
