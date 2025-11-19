@@ -569,7 +569,23 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
             qs = qs.values(*value_fields)
         else:
             qs = qs.values()
-        return pd.DataFrame.from_records(qs)
+        df = pd.DataFrame.from_records(qs)
+        if df.empty: return df
+        df['trade_time'] = pd.to_datetime(df['trade_time'])
+        # 修改行：增加探针，查看从数据库加载后的原始时区状态
+        if stock_info_obj.stock_code == '600475.SH':
+            print(f"    -> [原始数据加载探针] Stock: {stock_info_obj.stock_code}, get_intraday_data_async 原始加载状态：")
+            print(f"       - df['trade_time'].iloc[0]: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z') if df['trade_time'].iloc[0].tz is not None else df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')} (tz: {df['trade_time'].iloc[0].tz})")
+        # 修改行：标准化为 UTC aware datetime
+        if df['trade_time'].dt.tz is None:
+            df['trade_time'] = df['trade_time'].dt.tz_localize('UTC', ambiguous='infer')
+            if stock_info_obj.stock_code == '600475.SH':
+                print(f"    -> [原始数据加载探针] Stock: {stock_info_obj.stock_code}, get_intraday_data_async 修正为 naive UTC。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
+        else:
+            df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
+            if stock_info_obj.stock_code == '600475.SH':
+                print(f"    -> [原始数据加载探针] Stock: {stock_info_obj.stock_code}, get_intraday_data_async 转换为 UTC aware。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
+        return df
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
     tick_data_model = get_stock_tick_data_model_by_code(stock_info.stock_code)
     level5_data_model = get_stock_level5_data_model_by_code(stock_info.stock_code)
@@ -621,18 +637,12 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         target_tz = pytz.timezone('Asia/Shanghai')
         if stock_code_for_log == '600475.SH':
-            print(f"    -> [时间修正探针] {stock_code_for_log} _process_intraday_df_to_map 初始状态：")
+            print(f"    -> [时间修正探针] {stock_code_for_log} _process_intraday_df_to_map 初始状态 (来自 get_intraday_data_async)：")
             print(f"       - 原始 df['trade_time'].iloc[0]: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z') if df['trade_time'].iloc[0].tz is not None else df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')} (tz: {df['trade_time'].iloc[0].tz})")
-        if df['trade_time'].dt.tz is None:
-            # 修改行：如果从数据库读取的 naive datetime 实际上是北京时间，则直接本地化为 Asia/Shanghai
-            df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai', ambiguous='infer')
-            if stock_code_for_log == '600475.SH':
-                print(f"    -> [时间修正探针] {stock_code_for_log} 检测到日内数据为 naive，已假定为 Asia/Shanghai 并修正。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
-        else:
-            # 如果已经是 timezone-aware，直接转换为目标时区
-            df['trade_time'] = df['trade_time'].dt.tz_convert(target_tz)
-            if stock_code_for_log == '600475.SH':
-                print(f"    -> [时间修正探针] {stock_code_for_log} 检测到日内数据已是 timezone-aware，已转换为 Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
+        # 修改行：由于 get_intraday_data_async 已标准化为 UTC aware，这里直接进行转换
+        df['trade_time'] = df['trade_time'].dt.tz_convert(target_tz)
+        if stock_code_for_log == '600475.SH':
+            print(f"    -> [时间修正探针] {stock_code_for_log} 已将 UTC aware 数据转换为 Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
         df = df.set_index('trade_time')
         grouped_data = {}
         for date, group_df in df.groupby(df.index.date):
@@ -654,7 +664,7 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
             if name == "cyq_chips":
                 logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！查询日期列表: {chunk_dates_list}")
             else:
-                logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！")
+                logger.error(f"[{stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！")
             data_dfs[name] = pd.DataFrame()
     return data_dfs
 
@@ -737,12 +747,33 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
         daily_df_with_atr.ta.atr(length=50, append=True, col_names=('ATR_50',))
         # 新增代码块：在此处统一加载所有日内数据
         @sync_to_async(thread_sensitive=True)
-        def get_intraday_data_async(model, stock_info_obj, start_date, end_date):
-            if not model: return pd.DataFrame()
+        def get_intraday_data_async(model, stock_info_obj, start_date: datetime.date, end_date: datetime.date, value_fields: tuple = None):
+            if not model or not start_date or not end_date: return pd.DataFrame()
             start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
             end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
-            qs = model.objects.filter(stock=stock_info_obj, trade_time__gte=start_datetime, trade_time__lte=end_datetime).values()
-            return pd.DataFrame.from_records(qs)
+            qs = model.objects.filter(stock=stock_info_obj, trade_time__gte=start_datetime, trade_time__lte=end_datetime)
+            if value_fields:
+                qs = qs.values(*value_fields)
+            else:
+                qs = qs.values()
+            df = pd.DataFrame.from_records(qs)
+            if df.empty: return df
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            # 修改行：增加探针，查看从数据库加载后的原始时区状态
+            if stock_info_obj.stock_code == '600475.SH':
+                print(f"    -> [原始数据加载探针] Stock: {stock_info_obj.stock_code}, get_intraday_data_async 原始加载状态：")
+                print(f"       - df['trade_time'].iloc[0]: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z') if df['trade_time'].iloc[0].tz is not None else df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')} (tz: {df['trade_time'].iloc[0].tz})")
+            # 修改行：标准化为 UTC aware datetime
+            if df['trade_time'].dt.tz is None:
+                df['trade_time'] = df['trade_time'].dt.tz_localize('UTC', ambiguous='infer')
+                if stock_info_obj.stock_code == '600475.SH':
+                    print(f"    -> [原始数据加载探针] Stock: {stock_info_obj.stock_code}, get_intraday_data_async 修正为 naive UTC。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
+            else:
+                df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
+                if stock_info_obj.stock_code == '600475.SH':
+                    print(f"    -> [原始数据加载探针] Stock: {stock_info_obj.stock_code}, get_intraday_data_async 转换为 UTC aware。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
+            return df
+
         chunk_start_date = dates_to_process.min().date()
         chunk_end_date = dates_to_process.max().date()
         tick_model = get_stock_tick_data_model_by_code(stock_code)
