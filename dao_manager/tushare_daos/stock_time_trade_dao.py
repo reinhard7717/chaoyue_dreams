@@ -408,15 +408,6 @@ class StockTimeTradeDAO(BaseDAO):
                 trade_time__gte=start_dt_aware, # 修改行：使用明确的 UTC aware 范围
                 trade_time__lt=end_dt_aware # 修改行：使用明确的 UTC aware 范围
             ).order_by('trade_time')
-            # 新增行：调试探针，打印 SQL 查询
-            if stock_code == '600475.SH':
-                print(f"    -> [DAO探针] get_intraday_kline_by_date SQL for {stock_code} on {trade_date.strftime('%Y-%m-%d')}: {kline_queryset.query}")
-            kline_values = await sync_to_async(list)(kline_queryset.values(
-                'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
-            ))
-            # 新增行：调试探针，打印查询结果数量
-            if stock_code == '600475.SH':
-                print(f"    -> [DAO探针] get_intraday_kline_by_date for {stock_code} on {trade_date.strftime('%Y-%m-%d')} 结果数量: {len(kline_values)}")
             if not kline_values:
                 logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {trade_date} 的 {time_level}分钟 K线数据。")
                 return None
@@ -453,15 +444,6 @@ class StockTimeTradeDAO(BaseDAO):
                 trade_time__gte=start_datetime,
                 trade_time__lt=end_datetime
             ).order_by('trade_time')
-            # 新增行：调试探针，打印 SQL 查询
-            if stock_code == '600475.SH':
-                print(f"    -> [DAO探针] get_1_min_kline_time_by_day SQL for {stock_code} on {trade_date.strftime('%Y-%m-%d')}: {kline_queryset.query}")
-            kline_values = await sync_to_async(list)(kline_queryset.values(
-                'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
-            ))
-            # 新增行：调试探针，打印查询结果数量
-            if stock_code == '600475.SH':
-                print(f"    -> [DAO探针] get_1_min_kline_time_by_day for {stock_code} on {trade_date.strftime('%Y-%m-%d')} 结果数量: {len(kline_values)}")
             if not kline_values:
                 logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {trade_date} 的1分钟K线数据。")
                 return None

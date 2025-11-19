@@ -150,7 +150,7 @@ class ChipFeatureCalculator:
         return all_metrics
 
     def _prepare_intraday_data_features(self, intraday_df: pd.DataFrame, trade_date: datetime.date, debug_params: dict) -> pd.DataFrame:
-        import pytz # 修改行：导入 pytz 模块
+        import pytz # 导入 pytz 模块
         results = {}
         is_probe_date = False
         if debug_params.get('probe_dates') and trade_date == pd.to_datetime(debug_params['probe_dates'][0]).date():
@@ -177,21 +177,35 @@ class ChipFeatureCalculator:
             print(f"    -> [日内数据特征探针] @ {trade_date}: _prepare_intraday_data_features 接收到的 intraday_df 列：{list(intraday_df.columns)}")
             print(f"       - 初始 intraday_df['main_force_sell_vol'] sum: {intraday_df['main_force_sell_vol'].sum():.2f}")
             print(f"       - 初始 intraday_df['retail_sell_vol'] sum: {intraday_df['retail_sell_vol'].sum():.2f}")
+        
+        # 修改行：简化时区处理逻辑
+        target_tz = pytz.timezone('Asia/Shanghai')
         if not isinstance(intraday_df.index, pd.DatetimeIndex):
             intraday_df.index = pd.to_datetime(intraday_df.index)
-        target_tz = pytz.timezone('Asia/Shanghai') # 修改行：明确目标时区
+            if is_probe_date:
+                print(f"       - 索引从非DatetimeIndex转换为DatetimeIndex。")
+        
         if intraday_df.index.tz is None:
-            intraday_df.index = intraday_df.index.tz_localize('UTC', ambiguous='infer').tz_convert(target_tz) # 修改行：使用 target_tz
+            # 如果索引是 naive，假设它是 UTC，然后转换为目标时区
+            intraday_df.index = intraday_df.index.tz_localize('UTC', ambiguous='infer').tz_convert(target_tz)
             if is_probe_date:
-                print(f"       - 索引被 tz_localize('UTC') 后 tz_convert('Asia/Shanghai')。")
+                print(f"       - 索引从 naive (假定UTC) tz_localize('UTC') 后 tz_convert('Asia/Shanghai')。")
+        elif intraday_df.index.tz != target_tz:
+            # 如果索引是 aware 但不是目标时区，则进行转换
+            intraday_df.index = intraday_df.index.tz_convert(target_tz)
+            if is_probe_date:
+                print(f"       - 索引从 {intraday_df.index.tz} tz_convert('Asia/Shanghai')。")
         else:
-            intraday_df.index = intraday_df.index.tz_convert(target_tz) # 修改行：使用 target_tz
             if is_probe_date:
-                print(f"       - 索引被 tz_convert('Asia/Shanghai')。")
+                print(f"       - 索引已经是正确的 'Asia/Shanghai' aware datetime，无需转换。")
+
         if is_probe_date and not intraday_df.empty:
             print(f"       - 索引前5个时间 (处理后): {[t.strftime('%Y-%m-%d %H:%M:%S%z') for t in intraday_df.index[:5].tolist()]}")
-        start_time = pd.to_datetime('09:25').time()
-        end_time = pd.to_datetime('15:00').time()
+        
+        # 修改行：使用 datetime.time 定义时间，避免 pd.to_datetime 默认日期问题
+        start_time = datetime.time(9, 25) # 修改行
+        end_time = datetime.time(15, 0)   # 修改行
+        
         processed_intraday_df = intraday_df[(intraday_df.index.time >= start_time) & (intraday_df.index.time <= end_time)].copy()
         if is_probe_date:
             print(f"    -> [日内数据特征探针] @ {trade_date}: 'processed_intraday_df' 最终状态：")
@@ -201,6 +215,7 @@ class ChipFeatureCalculator:
                 print(f"       - 'vol_shares' 总和: {processed_intraday_df['vol_shares'].sum():.2f}")
                 print(f"       - 'main_force_sell_vol' 总和: {processed_intraday_df['main_force_sell_vol'].sum():.2f}")
                 print(f"       - 'retail_sell_vol' 总和: {processed_intraday_df['retail_sell_vol'].sum():.2f}")
+                print(f"       - 筛选后的索引时间范围: {processed_intraday_df.index.min()} to {processed_intraday_df.index.max()}")
         return processed_intraday_df
 
     def _get_summary_metrics_from_context(self) -> dict:
@@ -672,17 +687,18 @@ class ChipFeatureCalculator:
         results['auction_intent_signal'] = np.nan
         results['auction_closing_position'] = np.nan
         # 修改行：调整竞价信号的计算逻辑
-        if not intraday_df.empty and 'trade_time' in intraday_df.columns and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
-            closing_auction_time = datetime.time(15, 0) # 修改行：明确指定收盘竞价时间为 15:00
-            pre_auction_df = intraday_df[intraday_df['trade_time'].dt.time < closing_auction_time] # 修改行：竞价前数据
-            auction_bar_df = intraday_df[intraday_df['trade_time'].dt.time == closing_auction_time] # 修改行：15:00 竞价数据
+        if not intraday_df.empty and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
+            closing_auction_time = datetime.time(15, 0)
+            # 修改行：直接使用 intraday_df.index.time
+            pre_auction_df = intraday_df[intraday_df.index.time < closing_auction_time]
+            auction_bar_df = intraday_df[intraday_df.index.time == closing_auction_time]
             if is_probe_date and pre_auction_df.empty:
                 print(f"    -> [博弈论探针] @ {trade_date}: 'pre_auction_df' 为空。")
             if is_probe_date and auction_bar_df.empty:
                 print(f"    -> [博弈论探针] @ {trade_date}: 'auction_bar_df' 为空 (15:00 bar)。")
             if not pre_auction_df.empty and not auction_bar_df.empty and 'vol' in auction_bar_df.columns and auction_bar_df['vol'].sum() > 0:
-                pre_auction_close = pre_auction_df['close'].iloc[-1] # 15:00 前最后一分钟的收盘价
-                auction_bar = auction_bar_df.iloc[0] # 15:00 的分钟数据
+                pre_auction_close = pre_auction_df['close'].iloc[-1]
+                auction_bar = auction_bar_df.iloc[0]
                 auction_volume = auction_bar['vol']
                 if is_probe_date and total_daily_vol <= 0:
                     print(f"    -> [博弈论探针] @ {trade_date}: 'total_daily_vol' 为 {total_daily_vol}。")
@@ -700,9 +716,9 @@ class ChipFeatureCalculator:
                     results['auction_closing_position'] = (position * 2 - 1) * 100
                 elif close_price >= auction_high:
                     results['auction_closing_position'] = 100.0
-                elif close_price <= auction_low: # 修改行：增加当收盘价等于最低价时的处理
+                elif close_price <= auction_low:
                     results['auction_closing_position'] = -100.0
-                else: # 修改行：处理其他零范围情况
+                else:
                     results['auction_closing_position'] = np.nan
             else:
                 results['auction_intent_signal'] = np.nan
@@ -1417,14 +1433,17 @@ class ChipFeatureCalculator:
         results['close_to_range_ratio'] = np.nan
         results['opening_gap_defense_strength'] = np.nan
         results['upward_impulse_purity'] = np.nan
-        results['active_zone_combat_intensity'] = np.nan # 修改行：初始化
-        results['active_zone_mf_stance'] = np.nan # 修改行：初始化
+        results['active_zone_combat_intensity'] = np.nan
+        results['active_zone_mf_stance'] = np.nan
         if intraday_df.empty:
             if is_probe_date:
                 print(f"    -> [日内动态探针] @ {trade_date}: 'intraday_df' 为空，跳过计算。")
             return results
-        opening_30min_start_time = pd.to_datetime('09:30').time()
-        opening_30min_end_time = pd.to_datetime('10:00').time()
+        
+        # 修改行：使用 datetime.time 定义时间
+        opening_30min_start_time = datetime.time(9, 30) # 修改行
+        opening_30min_end_time = datetime.time(10, 0)   # 修改行
+        
         opening_30min_df = intraday_df[(intraday_df.index.time >= opening_30min_start_time) & (intraday_df.index.time < opening_30min_end_time)]
         if is_probe_date and opening_30min_df.empty:
             print(f"    -> [日内动态探针] @ {trade_date}: 'opening_30min_df' 为空。")
@@ -1452,7 +1471,10 @@ class ChipFeatureCalculator:
                 results['opening_30min_vwap_change'] = (opening_30min_df['minute_vwap'].iloc[-1] - opening_30min_df['minute_vwap'].iloc[0]) / opening_30min_df['minute_vwap'].iloc[0]
             else:
                 results['opening_30min_vwap_change'] = np.nan
-        closing_30min_df = intraday_df[intraday_df.index.time >= pd.to_datetime('14:30').time()]
+        
+        # 修改行：使用 datetime.time 定义时间
+        closing_30min_df = intraday_df[intraday_df.index.time >= datetime.time(14, 30)] # 修改行
+        
         if is_probe_date and closing_30min_df.empty:
             print(f"    -> [日内动态探针] @ {trade_date}: 'closing_30min_df' 为空。")
         if not closing_30min_df.empty:
@@ -1533,7 +1555,8 @@ class ChipFeatureCalculator:
         if pd.notna(daily_open) and pd.notna(pre_close) and pd.notna(atr_14d) and atr_14d > 0 and 'main_force_net_vol' in intraday_df.columns and 'vol_shares' in intraday_df.columns:
             gap_size = (daily_open - pre_close) / atr_14d
             if gap_size > 0:
-                opening_30min_df = intraday_df[(intraday_df.index.time >= pd.to_datetime('09:30').time()) & (intraday_df.index.time < pd.to_datetime('10:00').time())]
+                # 修改行：使用 datetime.time 定义时间
+                opening_30min_df = intraday_df[(intraday_df.index.time >= datetime.time(9, 30)) & (intraday_df.index.time < datetime.time(10, 0))] # 修改行
                 if is_probe_date and opening_30min_df.empty:
                     print(f"    -> [日内动态探针] @ {trade_date}: 'opening_30min_df' 为空。")
                 if not opening_30min_df.empty:

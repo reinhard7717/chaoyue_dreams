@@ -204,13 +204,6 @@ class StockRealtimeDAO(BaseDAO):
             ).order_by('trade_time').values(
                 'trade_time', 'price', 'volume', 'amount', 'type'
             )
-            # 新增行：调试探针，打印 SQL 查询
-            if stock_code == '600475.SH':
-                print(f"    -> [DAO探针] _get_daily_real_ticks_from_db SQL for {stock_code} on {trade_date_str}: {query.query}")
-            ticks_list = await sync_to_async(list)(query)
-            # 新增行：调试探针，打印查询结果数量
-            if stock_code == '600475.SH':
-                print(f"    -> [DAO探针] _get_daily_real_ticks_from_db for {stock_code} on {trade_date_str} 结果数量: {len(ticks_list)}")
             if not ticks_list:
                 return None
             df = pd.DataFrame(ticks_list)
@@ -363,13 +356,6 @@ class StockRealtimeDAO(BaseDAO):
                 'trade_time', 'open_price', 'prev_close_price', 'current_price',
                 'high_price', 'low_price', 'volume', 'turnover_value'
             )
-            # 新增行：调试探针，打印 SQL 查询
-            if stock_code == '600475.SH':
-                print(f"    -> [DAO探针] _get_single_stock_quotes_and_level5_from_db (quotes) SQL for {stock_code} on {trade_date_obj.strftime('%Y-%m-%d')}: {query_quotes.query}")
-            quotes_list = await sync_to_async(list)(query_quotes)
-            # 新增行：调试探针，打印查询结果数量
-            if stock_code == '600475.SH':
-                print(f"    -> [DAO探针] _get_single_stock_quotes_and_level5_from_db (quotes) for {stock_code} on {trade_date_obj.strftime('%Y-%m-%d')} 结果数量: {len(quotes_list)}")
             if quotes_list:
                 df_quotes = pd.DataFrame(quotes_list)
                 df_quotes.set_index('trade_time', inplace=True)
@@ -388,13 +374,6 @@ class StockRealtimeDAO(BaseDAO):
                 'sell_price1', 'sell_volume1', 'sell_price2', 'sell_volume2',
                 'sell_price3', 'sell_volume3', 'sell_price4', 'sell_volume4', 'sell_price5', 'sell_volume5'
             )
-            # 新增行：调试探针，打印 SQL 查询
-            if stock_code == '600475.SH':
-                print(f"    -> [DAO探针] _get_single_stock_quotes_and_level5_from_db (level5) SQL for {stock_code} on {trade_date_obj.strftime('%Y-%m-%d')}: {query_level5.query}")
-            level5_list = await sync_to_async(list)(query_level5)
-            # 新增行：调试探针，打印查询结果数量
-            if stock_code == '600475.SH':
-                print(f"    -> [DAO探针] _get_single_stock_quotes_and_level5_from_db (level5) for {stock_code} on {trade_date_obj.strftime('%Y-%m-%d')} 结果数量: {len(level5_list)}")
             if level5_list:
                 df_level5 = pd.DataFrame(level5_list)
                 df_level5.set_index('trade_time', inplace=True)
