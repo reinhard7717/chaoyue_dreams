@@ -193,7 +193,6 @@ class AdvancedChipMetricsService:
                     print(f"       - 'retail_sell_vol' sum: {probe_df_at_entry['retail_sell_vol'].sum():.2f}")
                 else:
                     print(f"       - 'retail_sell_vol' 列缺失。")
-                print(f"       - 所有列: {list(probe_df_at_entry.columns)}")
             else:
                 print(f"    -> [筹码合成探针-方法入口] @ {probe_date_naive}: fund_flow_attributed_minute_map 为空或不包含指定日期。")
 
@@ -276,7 +275,6 @@ class AdvancedChipMetricsService:
                     print(f"       - 'retail_sell_vol' sum: {enhanced_intraday_data['retail_sell_vol'].sum():.2f}")
                 else:
                     print(f"       - 'retail_sell_vol' 列缺失。")
-                print(f"       - 所有列: {list(enhanced_intraday_data.columns)}")
                 print(f"调试信息: [{stock_code}] [{date_obj}] ChipFeatureCalculator 使用资金流服务提供的精确分钟数据。")
             else:
                 # 修改行：将 trade_date.date() 替换为 date_obj
@@ -292,7 +290,6 @@ class AdvancedChipMetricsService:
                 print(f"       - 'retail_sell_vol' sum: {enhanced_intraday_data['retail_sell_vol'].sum():.2f}")
             else:
                 print(f"       - 'retail_sell_vol' 列缺失。")
-            print(f"       - 所有列: {list(enhanced_intraday_data.columns)}")
 
             context_for_calc['intraday_data'] = enhanced_intraday_data
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
