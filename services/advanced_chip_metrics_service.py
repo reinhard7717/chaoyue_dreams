@@ -149,8 +149,9 @@ class AdvancedChipMetricsService:
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
-        """【V4.13 · 日线价格字段修复版 - 探针增强】
+        """【V4.14 · 日线价格字段修复版 - 跨服务数据流修复】
         - 核心修复: 修正 `context_for_calc` 中 `low_price` 和 `high_price` 字段的获取，确保它们从 `context_data` 中正确获取 `_qfq` 后缀的列名。
+        - 【关键修复】修正 `fund_flow_attributed_minute_map` 字典查找时，键类型不匹配的问题，确保正确获取包含资金流归因列的日内数据。
         - 【新增探针】在方法入口处检查 `fund_flow_attributed_minute_map` 的列完整性，并在 `enhanced_intraday_data` 赋值后和传递给计算器前进行更细致的检查。
         """
         stock_code = stock_info.stock_code
@@ -262,8 +263,9 @@ class AdvancedChipMetricsService:
                 context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
             else:
                 context_for_calc['historical_components'] = pd.DataFrame(columns=hist_comp_cols)
-            if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
-                enhanced_intraday_data = fund_flow_attributed_minute_map[trade_date]
+            # 修改行：将 trade_date 替换为 date_obj 进行字典查找
+            if fund_flow_attributed_minute_map and date_obj in fund_flow_attributed_minute_map:
+                enhanced_intraday_data = fund_flow_attributed_minute_map[date_obj]
                 # 修改行：无条件打印此探针
                 print(f"    -> [筹码合成探针-赋值即刻] @ {date_obj}: enhanced_intraday_data (直接赋值后) 检查。")
                 if 'main_force_sell_vol' in enhanced_intraday_data.columns:
@@ -275,9 +277,10 @@ class AdvancedChipMetricsService:
                 else:
                     print(f"       - 'retail_sell_vol' 列缺失。")
                 print(f"       - 所有列: {list(enhanced_intraday_data.columns)}")
-                print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用资金流服务提供的精确分钟数据。")
+                print(f"调试信息: [{stock_code}] [{date_obj}] ChipFeatureCalculator 使用资金流服务提供的精确分钟数据。")
             else:
-                enhanced_intraday_data = minute_data_map.get(trade_date.date(), pd.DataFrame())
+                # 修改行：将 trade_date.date() 替换为 date_obj
+                enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
             
             # 修改行：无条件打印此探针
             print(f"    -> [筹码合成探针-传递给计算器前] @ {date_obj}: enhanced_intraday_data (传递给计算器前) 检查。")
