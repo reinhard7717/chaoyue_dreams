@@ -533,12 +533,11 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_probabilistic_costs(self, stock_code: str, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> tuple[dict, pd.DataFrame]:
         """
-        【V6.13 · 完整归因返回版 - 探针增强】
+        【V6.14 · 完整归因返回版 - 探针增强】
         - 核心重构: 修改方法职责，使其在计算完概率成本后，继续调用 `_attribute_minute_volume_to_players` 进行主力/散户级别的成交量聚合。
         - 核心修复: 更改返回签名，同时返回成本指标字典和被完整归因（包含 `main_force_net_vol` 等列）的分钟DataFrame，修复数据流中断问题。
-        - 【新增探针】增加探针，检查 `daily_vol_shares` 和 `weight_series.sum()` 的值。
+        - 【新增探针】增加探针，检查 `daily_vol_shares` 和 `weight_series.sum()` 的值，并打印 `daily_data` 中所有 `*_vol` 列。
         """
-        # 新增行：获取调试参数
         trade_date = daily_data.name.date()
         debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -547,6 +546,10 @@ class AdvancedFundFlowMetricsService:
             probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
             if probe_date_naive == trade_date:
                 is_probe_date = True
+        if is_probe_date:
+            print(f"    -> [概率成本探针] @ {trade_date}: 检查 daily_data 中的成交量。")
+            for col in ['buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol', 'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol']:
+                print(f"       - daily_data['{col}']: {daily_data.get(col, 'N/A')}")
 
         if minute_data_for_day is None or minute_data_for_day.empty:
             if is_probe_date:
@@ -1501,7 +1504,7 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_intraday_attribution_weights(self, intraday_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
         """
-        【V9.4 · 逐笔数据兼容版 - 价格范围零值修复 - 探针增强】
+        【V9.5 · 逐笔数据兼容版 - 价格范围零值修复 - 探针增强】
         - 核心革命: 废弃“一体适用”的权重模型，为超大单、大单、中单、小单引入各自独特的、基于行为特征的权重分配逻辑。
         - 核心思想:
           - 超大单(ELG) -> 脉冲修正: 权重集中在成交量和振幅剧增的“暴力分钟”。
@@ -1558,7 +1561,6 @@ class AdvancedFundFlowMetricsService:
             print(f"       - (1 - buy_pressure_proxy) min: {(1 - buy_pressure_proxy).min():.4f}, max: {(1 - buy_pressure_proxy).max():.4f}, mean: {(1 - buy_pressure_proxy).mean():.4f}")
         vol_ma = df['vol_shares'].rolling(window=20, min_periods=1).mean()
         range_ma = price_range.rolling(window=20, min_periods=1).mean()
-        # 修改行：修正 impulse_modifier 的计算，将分母从 range_ma 改回 price_range
         impulse_modifier = (df['vol_shares'] / vol_ma) * (price_range / range_ma.replace(0, 1e-9))
         impulse_modifier = impulse_modifier.fillna(1).clip(0, 10)
         daily_vwap = daily_data.get('daily_vwap')
