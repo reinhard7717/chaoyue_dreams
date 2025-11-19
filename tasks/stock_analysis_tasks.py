@@ -786,8 +786,8 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.8 · 日线数据完整性修复版】
-    - 核心修复: 确保在加载日线数据时，包含所有必要的字段，特别是 'open_qfq'，以避免下游计算中出现数据缺失。
+    【V34.9 · 历史上下文初始化修复版】
+    - 核心修复: 确保 `context_df` 在循环开始前始终被正确初始化，避免 `UnboundLocalError`。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -846,6 +846,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         context_end_date = dates_to_process.min().date()
         ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, context_end_date)
         chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, context_end_date)
+        # 修改行：确保 context_df 始终被初始化
+        context_df = ff_hist_df.join(chip_hist_df, how='outer') if not ff_hist_df.empty or not chip_hist_df.empty else pd.DataFrame()
+
         max_lookback_days = max(chip_service.max_lookback_days, fund_flow_service.max_lookback_days, 260)
         global_lookback_start_date = dates_to_process.min() - timedelta(days=max_lookback_days)
         # 修改行：确保加载所有需要的日线数据字段
@@ -853,7 +856,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             stock=stock_info,
             trade_time__gte=global_lookback_start_date,
             trade_time__lte=dates_to_process.max()
-        ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'pre_close_qfq', 'vol').order_by('trade_time') # 修改行：新增 'open_qfq', 'pre_close_qfq'
+        ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'pre_close_qfq', 'vol').order_by('trade_time')
         all_daily_data_for_lookback_df = pd.DataFrame(await sync_to_async(list)(all_daily_data_for_lookback_qs))
         all_daily_data_for_lookback_df['trade_time'] = pd.to_datetime(all_daily_data_for_lookback_df['trade_time'])
         all_daily_data_for_lookback_df.set_index('trade_time', inplace=True)
@@ -873,8 +876,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         low_20d_map_global = all_daily_data_for_lookback_df['low_20d'].to_dict()
         atr_map_global = all_daily_data_for_lookback_df[atr_col_name].to_dict()
         close_map_global = all_daily_data_for_lookback_df['close_qfq'].to_dict()
-        open_map_global = all_daily_data_for_lookback_df['open_qfq'].to_dict() # 新增行：获取 open_qfq
-        pre_close_map_global = all_daily_data_for_lookback_df['pre_close_qfq'].to_dict() # 新增行：获取 pre_close_qfq
+        open_map_global = all_daily_data_for_lookback_df['open_qfq'].to_dict()
+        pre_close_map_global = all_daily_data_for_lookback_df['pre_close_qfq'].to_dict()
         trade_dates_series_global = all_daily_data_for_lookback_df.index.sort_values().to_series().reset_index(drop=True)
         date_index_map = {date: i for i, date in enumerate(trade_dates_series_global)}
         date_20d_ago_map_global = {
@@ -920,8 +923,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 overlap_cols = seed_daily_df.columns.intersection(seed_daily_basic_df.columns)
                 seed_base_daily_df = seed_daily_df.join(seed_daily_basic_df.drop(columns=overlap_cols), how='left')
                 seed_base_daily_df['atr_14d'] = seed_base_daily_df.index.map(atr_map_global)
-                seed_ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"]}
-                seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=seed_ff_data_dfs, base_daily_df=seed_base_daily_df)
+                ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"]}
+                seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=seed_base_daily_df)
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index, tick_data_map=seed_data_dfs["stock_tick_data_map"], level5_data_map=seed_data_dfs["stock_level5_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
                 _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df, tick_data_map=seed_data_dfs["stock_tick_data_map"], level5_data_map=seed_data_dfs["stock_level5_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
                 seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "cyq_perf": seed_data_dfs["cyq_perf"]}
@@ -1003,12 +1006,13 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                         valid_mask = historical_components_df['weight_avg_cost'] > 0
                         historical_components_df.loc[valid_mask, 'concentration_70pct'] = \
                             (historical_components_df.loc[valid_mask, 'cost_85pct'] - historical_components_df.loc[valid_mask, 'cost_15pct']) / historical_components_df.loc[valid_mask, 'weight_avg_cost']
+            # 修改行：确保 context_df 在每次迭代结束时被更新
             full_sequence_for_derivatives = pd.concat([context_df, chunk_core_metrics_df]).sort_index()
             ff_derivatives = fund_flow_service._calculate_derivatives(stock_code, full_sequence_for_derivatives)
             chip_derivatives = chip_service._calculate_derivatives(full_sequence_for_derivatives)
             chunk_final_df = full_sequence_for_derivatives.join([ff_derivatives, chip_derivatives])
             all_final_metrics_to_save = pd.concat([all_final_metrics_to_save, chunk_final_df[chunk_final_df.index.isin(chunk_dates)]])
-            context_df = full_sequence_for_derivatives
+            context_df = full_sequence_for_derivatives # 修改行：更新 context_df 以便下一次迭代使用
         if not all_final_metrics_to_save.empty:
             if save_start_date:
                 chunk_to_save = all_final_metrics_to_save[all_final_metrics_to_save.index.date >= save_start_date]
