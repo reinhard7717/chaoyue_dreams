@@ -149,9 +149,9 @@ class AdvancedChipMetricsService:
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
-        """【V4.9 · 日线价格字段修复版 - 探针增强】
+        """【V4.11 · 日线价格字段修复版 - 探针增强】
         - 核心修复: 修正 `context_for_calc` 中 `low_price` 和 `high_price` 字段的获取，确保它们从 `context_data` 中正确获取 `_qfq` 后缀的列名。
-        - 【新增探针】检查 `enhanced_intraday_data` 中的主力/散户买卖量。
+        - 【新增探针】在方法入口处检查 `fund_flow_attributed_minute_map` 的列完整性。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -179,6 +179,23 @@ class AdvancedChipMetricsService:
             is_probe_date_global = True
         if is_probe_date_global:
             print(f"    -> [筹码合成探针-初始化] debug_params: {debug_params}, probe_date_naive: {probe_date_naive}")
+
+            # 新增探针：在方法入口处检查 fund_flow_attributed_minute_map
+            if probe_date_naive and probe_date_naive in fund_flow_attributed_minute_map:
+                probe_df_at_entry = fund_flow_attributed_minute_map[probe_date_naive]
+                print(f"    -> [筹码合成探针-方法入口] @ {probe_date_naive}: fund_flow_attributed_minute_map (方法入口) 检查。")
+                if 'main_force_sell_vol' in probe_df_at_entry.columns:
+                    print(f"       - 'main_force_sell_vol' sum: {probe_df_at_entry['main_force_sell_vol'].sum():.2f}")
+                else:
+                    print(f"       - 'main_force_sell_vol' 列缺失。")
+                if 'retail_sell_vol' in probe_df_at_entry.columns:
+                    print(f"       - 'retail_sell_vol' sum: {probe_df_at_entry['retail_sell_vol'].sum():.2f}")
+                else:
+                    print(f"       - 'retail_sell_vol' 列缺失。")
+                print(f"       - 所有列: {list(probe_df_at_entry.columns)}")
+            else:
+                print(f"    -> [筹码合成探针-方法入口] @ {probe_date_naive}: fund_flow_attributed_minute_map 为空或不包含指定日期。")
+
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             date_obj = trade_date.date()
             is_current_probe_date = is_probe_date_global and (probe_date_naive == date_obj)
@@ -248,19 +265,31 @@ class AdvancedChipMetricsService:
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
                 enhanced_intraday_data = fund_flow_attributed_minute_map[trade_date]
                 print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用资金流服务提供的精确分钟数据。")
+                if is_current_probe_date:
+                    print(f"    -> [筹码合成探针-赋值后] @ {date_obj}: enhanced_intraday_data (直接赋值后) 检查。")
+                    if 'main_force_sell_vol' in enhanced_intraday_data.columns:
+                        print(f"       - 'main_force_sell_vol' sum: {enhanced_intraday_data['main_force_sell_vol'].sum():.2f}")
+                    else:
+                        print(f"       - 'main_intraday_data 缺少 'main_force_sell_vol' 列。")
+                    if 'retail_sell_vol' in enhanced_intraday_data.columns:
+                        print(f"       - 'retail_sell_vol' sum: {enhanced_intraday_data['retail_sell_vol'].sum():.2f}")
+                    else:
+                        print(f"       - 'retail_sell_vol' 列缺失。")
+                    print(f"       - 所有列: {list(enhanced_intraday_data.columns)}")
             else:
                 enhanced_intraday_data = minute_data_map.get(trade_date.date(), pd.DataFrame())
             context_for_calc['intraday_data'] = enhanced_intraday_data
             if is_current_probe_date:
-                print(f"    -> [筹码合成探针] @ {date_obj}: enhanced_intraday_data 检查。")
+                print(f"    -> [筹码合成探针] @ {date_obj}: enhanced_intraday_data (传递给计算器前) 检查。")
                 if 'main_force_sell_vol' in enhanced_intraday_data.columns:
-                    print(f"       - enhanced_intraday_data['main_force_sell_vol'] sum: {enhanced_intraday_data['main_force_sell_vol'].sum():.2f}")
+                    print(f"       - 'main_force_sell_vol' sum: {enhanced_intraday_data['main_force_sell_vol'].sum():.2f}")
                 else:
                     print(f"       - enhanced_intraday_data 缺少 'main_force_sell_vol' 列。")
                 if 'retail_sell_vol' in enhanced_intraday_data.columns:
-                    print(f"       - enhanced_intraday_data['retail_sell_vol'] sum: {enhanced_intraday_data['retail_sell_vol'].sum():.2f}")
+                    print(f"       - 'retail_sell_vol' sum: {enhanced_intraday_data['retail_sell_vol'].sum():.2f}")
                 else:
-                    print(f"       - enhanced_intraday_data 缺少 'retail_sell_vol' 列。")
+                    print(f"       - 'retail_sell_vol' 列缺失。")
+                print(f"       - 所有列: {list(enhanced_intraday_data.columns)}")
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
             if daily_metrics:
