@@ -808,8 +808,9 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.9 · 历史上下文初始化修复版】
+    【V34.10 · 历史上下文初始化修复版 - 跨服务数据完整性修复】
     - 核心修复: 确保 `context_df` 在循环开始前始终被正确初始化，避免 `UnboundLocalError`。
+    - 【关键修复】在将 `fund_flow_attributed_minute_map` 传递给 `chip_service` 之前，对其内部的每个 `DataFrame` 进行深拷贝，以确保跨服务传递时数据完整性。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -943,13 +944,15 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=seed_base_daily_df)
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index, tick_data_map=seed_data_dfs["stock_tick_data_map"], level5_data_map=seed_data_dfs["stock_level5_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
                 _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df, tick_data_map=seed_data_dfs["stock_tick_data_map"], level5_data_map=seed_data_dfs["stock_level5_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
+                # 修改行：对 seed_ff_minute_map 进行深拷贝
+                seed_ff_minute_map_copied = {k: v.copy(deep=True) for k, v in seed_ff_minute_map.items()}
                 seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "cyq_perf": seed_data_dfs["cyq_perf"]}
                 seed_chip_raw_df = chip_service._preprocess_and_merge_data(
                     stock_code, seed_chip_data_dfs, seed_base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
                     high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
                 )
                 seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max(), tick_data_map=seed_data_dfs["stock_tick_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
-                _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map, memory={}, historical_components=historical_components_df, debug_params=debug_params, tick_data_map=seed_data_dfs["stock_tick_data_map"])
+                _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map_copied, memory={}, historical_components=historical_components_df, debug_params=debug_params, tick_data_map=seed_data_dfs["stock_tick_data_map"])
             else:
                 logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
@@ -1012,6 +1015,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     print(f"    -> [任务调度器探针] @ {probe_date_naive}: fund_flow_attributed_minute_map['retail_sell_vol'] sum: {probe_df['retail_sell_vol'].sum():.2f}")
                 else:
                     print(f"    -> [任务调度器探针] @ {probe_date_naive}: fund_flow_attributed_minute_map 缺少 'retail_sell_vol' 列。")
+            # 修改行：对 fund_flow_attributed_minute_map 进行深拷贝，确保传递给 chip_service 的数据完整性
+            fund_flow_attributed_minute_map_copied = {k: v.copy(deep=True) for k, v in fund_flow_attributed_minute_map.items()}
             chip_data_dfs = {"cyq_chips": data_dfs["cyq_chips"], "cyq_perf": data_dfs["cyq_perf"]}
             chip_raw_df = chip_service._preprocess_and_merge_data(
                 stock_code, chip_data_dfs, base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
@@ -1021,7 +1026,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 stock_info, chunk_dates.min(), chunk_dates.max(), tick_data_map=tick_data_map, minute_data_map=minute_data_map
             )
             chip_metrics_df, cross_chunk_memory, chunk_failures = chip_service._synthesize_and_forge_metrics(
-                stock_info, chip_raw_df, minute_data_map_for_chip, fund_flow_attributed_minute_map, memory=cross_chunk_memory, historical_components=historical_components_df, debug_params=debug_params, tick_data_map=tick_data_map
+                stock_info, chip_raw_df, minute_data_map_for_chip, fund_flow_attributed_minute_map_copied, memory=cross_chunk_memory, historical_components=historical_components_df, debug_params=debug_params, tick_data_map=tick_data_map
             )
             all_failures.extend(chunk_failures)
             chunk_core_metrics_df = fund_flow_metrics_df.join(chip_metrics_df, how='outer')
