@@ -181,7 +181,7 @@ class StockRealtimeDAO(BaseDAO):
         - 【修正】统一将索引转换为 UTC aware datetime。
         - 【修正】使用明确的 UTC aware datetime 范围进行过滤，并添加调试探针。
         - 【修复】修正 NameError: 'ticks_list' 未定义的问题。
-        - 【修正】根据用户说明，数据库存储UTC时间，修正 naive datetime 的时区本地化为UTC。
+        - 【修正】根据最新澄清，数据库存储的逐笔数据是北京时间的 naive datetime，修正时区本地化逻辑。
         """
         from django.utils import timezone
         from datetime import datetime, time, timedelta
@@ -208,7 +208,7 @@ class StockRealtimeDAO(BaseDAO):
             df = pd.DataFrame(ticks_list)
             df.set_index('trade_time', inplace=True)
             if df.index.tz is None:
-                df.index = df.index.tz_localize('UTC', ambiguous='infer') # 修改行：从 'Asia/Shanghai' 改为 'UTC'
+                df.index = df.index.tz_localize('Asia/Shanghai', ambiguous='infer').tz_convert('UTC') # 修改行：先localize为Asia/Shanghai，再转换为UTC
             else:
                 df.index = df.index.tz_convert('UTC')
             return df
@@ -333,7 +333,7 @@ class StockRealtimeDAO(BaseDAO):
         - 【修正】统一将索引转换为 UTC aware datetime。
         - 【修正】使用明确的 UTC aware datetime 范围进行过滤，并添加调试探针。
         - 【修复】修正 NameError: 'quotes_list' 和 'level5_list' 未定义的问题。
-        - 【修正】根据用户说明，数据库存储UTC时间，修正 naive datetime 的时区本地化为UTC。
+        - 【修正】根据最新澄清，数据库存储的Level5数据是北京时间的 naive datetime，修正时区本地化逻辑。
         """
         from django.utils import timezone
         from datetime import datetime, time, timedelta
@@ -359,7 +359,7 @@ class StockRealtimeDAO(BaseDAO):
                 df_quotes = pd.DataFrame(quotes_list)
                 df_quotes.set_index('trade_time', inplace=True)
                 if df_quotes.index.tz is None:
-                    df_quotes.index = df_quotes.index.tz_localize('UTC', ambiguous='infer') # 修改行：从 'Asia/Shanghai' 改为 'UTC'
+                    df_quotes.index = df_quotes.index.tz_localize('Asia/Shanghai', ambiguous='infer').tz_convert('UTC') # 修改行：先localize为Asia/Shanghai，再转换为UTC
                 else:
                     df_quotes.index = df_quotes.index.tz_convert('UTC')
         if level5_model:
@@ -378,7 +378,7 @@ class StockRealtimeDAO(BaseDAO):
                 df_level5 = pd.DataFrame(level5_list)
                 df_level5.set_index('trade_time', inplace=True)
                 if df_level5.index.tz is None:
-                    df_level5.index = df_level5.index.tz_localize('UTC', ambiguous='infer') # 修改行：从 'Asia/Shanghai' 改为 'UTC'
+                    df_level5.index = df_level5.index.tz_localize('Asia/Shanghai', ambiguous='infer').tz_convert('UTC') # 修改行：先localize为Asia/Shanghai，再转换为UTC
                 else:
                     df_level5.index = df_level5.index.tz_convert('UTC')
         return df_quotes, df_level5

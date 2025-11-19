@@ -3,6 +3,7 @@
 
 import asyncio
 import time
+import pytz
 from datetime import date, datetime, timedelta
 from django.utils import timezone
 import logging
@@ -544,7 +545,6 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, lookback_start_date, process_start_date, save_start_date
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex, cache_manager: CacheManager):
-    import pytz
     from utils.model_helpers import (
         get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code,
     )
@@ -553,16 +553,13 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     from datetime import time, datetime, timedelta
     from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
     from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
-
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', dates_list: list = None):
         if not model or not dates_list: return pd.DataFrame()
         qs = model.objects.filter(stock=stock_info_obj, **{f'{date_field}__in': dates_list})
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
-
     realtime_dao = StockRealtimeDAO(cache_manager_instance=cache_manager)
     time_trade_dao = StockTimeTradeDAO(cache_manager_instance=cache_manager)
-
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
     all_daily_fields = (
         'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq', 'pre_close_qfq', 'pct_change'
@@ -597,45 +594,36 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     }
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
-
     tick_data_df_list = []
     level5_data_df_list = []
     minute_data_df_list = []
-    # 修改行：使用 dates_in_chunk.normalize().unique().date 来获取唯一的日期对象
-    for single_date in dates_in_chunk.normalize().unique().date: # 修改行
-        # 获取 Tick Data
+    for single_date in dates_in_chunk.normalize().unique().date:
         df_tick = await realtime_dao.get_daily_real_ticks(stock_info.stock_code, single_date.strftime('%Y-%m-%d'))
         if df_tick is not None and not df_tick.empty:
             tick_data_df_list.append(df_tick.reset_index())
-        # 获取 Level5 Data
         _, df_level5 = await realtime_dao._get_single_stock_quotes_and_level5_from_db(stock_info.stock_code, single_date)
         if df_level5 is not None and not df_level5.empty:
             level5_data_df_list.append(df_level5.reset_index())
-        # 获取 Minute Data (1分钟级别)
         df_minute = await time_trade_dao.get_intraday_kline_by_date(stock_info.stock_code, single_date, '1')
         if df_minute is not None and not df_minute.empty:
             minute_data_df_list.append(df_minute.reset_index())
-
     data_dfs["stock_tick_data"] = pd.concat(tick_data_df_list) if tick_data_df_list else pd.DataFrame()
     data_dfs["stock_level5_data"] = pd.concat(level5_data_df_list) if level5_data_df_list else pd.DataFrame()
     data_dfs["stock_minute_data"] = pd.concat(minute_data_df_list) if minute_data_df_list else pd.DataFrame()
-
     if not data_dfs["stock_tick_data"].empty:
         print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Tick Data原始时间范围: {data_dfs['stock_tick_data']['trade_time'].min()} to {data_dfs['stock_tick_data']['trade_time'].max()}")
     if not data_dfs["stock_minute_data"].empty:
         print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Minute Data原始时间范围: {data_dfs['stock_minute_data']['trade_time'].min()} to {data_dfs['stock_minute_data']['trade_time'].max()}")
-
     def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str) -> dict:
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         target_tz = pytz.timezone('Asia/Shanghai')
         if stock_code_for_log == '600475.SH':
             print(f"    -> [时间修正探针] {stock_code_for_log} _process_intraday_df_to_map 初始状态 (来自 DAO)：")
-            # 修改行：更准确地打印原始时区信息
             print(f"       - 原始 df['trade_time'].iloc[0]: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z') if df['trade_time'].iloc[0].tz is not None else df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')} (tz: {df['trade_time'].iloc[0].tz})")
+        # 修改行：df['trade_time'] 已经是 UTC aware datetime，直接转换为目标时区
         df['trade_time'] = df['trade_time'].dt.tz_convert(target_tz)
         if stock_code_for_log == '600475.SH':
-            # 修改行：更准确地打印转换后的时区信息
             print(f"    -> [时间修正探针] {stock_code_for_log} 已将 UTC aware 数据转换为 Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
         df = df.set_index('trade_time')
         grouped_data = {}

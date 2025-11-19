@@ -452,6 +452,7 @@ class AdvancedChipMetricsService:
         - 核心职责: 确保传入的DataFrame保持 `trade_time` 作为 `DatetimeIndex`，并正确处理时区，添加 `amount_yuan`, `vol_shares`, `minute_vwap`, `vol_weight` 等辅助列。
         - 核心修复: 不再修改DataFrame的索引，仅添加辅助列。
         - 【修正】智能识别成交量列名（'volume' 或 'vol'），并统一为 'vol_shares'。
+        - 【修正】根据最新澄清，统一处理时区，确保最终输出为北京时间。
         """
         from django.utils import timezone
         if minute_df is None or minute_df.empty:
@@ -464,12 +465,13 @@ class AdvancedChipMetricsService:
             else:
                 logger.warning("DataFrame passed to _group_minute_data_from_df has no 'trade_time' column and no DatetimeIndex.")
                 return pd.DataFrame()
+        # 修改行：统一处理时区，确保最终输出为北京时间
         if df.index.tz is None:
-            df.index = df.index.tz_localize('UTC').tz_convert(timezone.get_current_timezone())
-        elif df.index.tz != timezone.get_current_timezone():
+            # 如果索引是 naive，假定它是 UTC（因为DAO层应该输出UTC aware，但可能在某些操作后丢失时区信息）
+            df.index = df.index.tz_localize('UTC', ambiguous='infer').tz_convert(timezone.get_current_timezone())
+        else:
+            # 如果索引是 aware，直接转换为目标时区
             df.index = df.index.tz_convert(timezone.get_current_timezone())
-
-        # 修改行：智能识别成交量列名
         volume_col_name = None
         if 'volume' in df.columns:
             volume_col_name = 'volume'
@@ -478,14 +480,13 @@ class AdvancedChipMetricsService:
         else:
             logger.error(f"DataFrame缺少成交量列 ('volume' 或 'vol')，无法处理。列名: {df.columns.tolist()}")
             return pd.DataFrame()
-
         df['amount_yuan'] = pd.to_numeric(df['amount'], errors='coerce')
-        df['vol_shares'] = pd.to_numeric(df[volume_col_name], errors='coerce') # 修改行：使用识别到的列名
-
+        df['vol_shares'] = pd.to_numeric(df[volume_col_name], errors='coerce')
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         current_day_total_vol = df['vol_shares'].sum()
         df['vol_weight'] = df['vol_shares'] / current_day_total_vol if current_day_total_vol > 0 else 0
         return df
+
 
 
 

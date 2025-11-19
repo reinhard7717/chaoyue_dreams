@@ -1628,49 +1628,6 @@ class AdvancedFundFlowMetricsService:
                 print(f"       - {size}_buy_score sum: {buy_score.sum():.6f}")
         return df
 
-    def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
-        """【V1.15 · 数据完整性修复版 - 辅助列添加 - 智能列名识别】从预加载的DataFrame构建按日分组的数据。
-        - 核心职责: 确保传入的DataFrame保持 `trade_time` 作为 `DatetimeIndex`，并正确处理时区，添加 `amount_yuan`, `vol_shares`, `minute_vwap`, `vol_weight` 等辅助列。
-        - 核心修复: 不再修改DataFrame的索引，仅添加辅助列。
-        - 【修正】智能识别成交量列名（'volume' 或 'vol'），并统一为 'vol_shares'。
-        """
-        if minute_df is None or minute_df.empty:
-            return pd.DataFrame()
-        df = minute_df.copy()
-        # 确保索引是 DatetimeIndex 且已本地化为 Asia/Shanghai
-        if not isinstance(df.index, pd.DatetimeIndex):
-            # 理论上，上游函数应该已经确保了这一点。如果不是，这里尝试修复。
-            if 'trade_time' in df.columns:
-                df['trade_time'] = pd.to_datetime(df['trade_time'])
-                df = df.set_index('trade_time')
-            else:
-                logger.warning("DataFrame passed to _group_minute_data_from_df has no 'trade_time' column and no DatetimeIndex.")
-                return pd.DataFrame()
-        # 确保时区处理使用 Django 的当前时区
-        if df.index.tz is None:
-            df.index = df.index.tz_localize('UTC').tz_convert(timezone.get_current_timezone())
-        elif df.index.tz != timezone.get_current_timezone():
-            df.index = df.index.tz_convert(timezone.get_current_timezone())
-
-        # 修改行：智能识别成交量列名
-        volume_col_name = None
-        if 'volume' in df.columns:
-            volume_col_name = 'volume'
-        elif 'vol' in df.columns:
-            volume_col_name = 'vol'
-        else:
-            logger.error(f"DataFrame缺少成交量列 ('volume' 或 'vol')，无法处理。列名: {df.columns.tolist()}")
-            return pd.DataFrame()
-
-        df['amount_yuan'] = pd.to_numeric(df['amount'], errors='coerce')
-        df['vol_shares'] = pd.to_numeric(df[volume_col_name], errors='coerce') # 修改行：使用识别到的列名
-
-        df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
-        current_day_total_vol = df['vol_shares'].sum()
-        df['vol_weight'] = df['vol_shares'] / current_day_total_vol if current_day_total_vol > 0 else 0
-        # 此函数仅添加辅助列，不应改变索引
-        return df
-
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """
         【V2.2 · 索引修复版】从数据库加载并净化历史高级资金流指标。
@@ -1853,6 +1810,45 @@ class AdvancedFundFlowMetricsService:
             results['large_order_support'] = np.nan
 
         return results
+
+    def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
+        """【V1.15 · 数据完整性修复版 - 辅助列添加 - 智能列名识别】从预加载的DataFrame构建按日分组的数据。
+        - 核心职责: 确保传入的DataFrame保持 `trade_time` 作为 `DatetimeIndex`，并正确处理时区，添加 `amount_yuan`, `vol_shares`, `minute_vwap`, `vol_weight` 等辅助列。
+        - 核心修复: 不再修改DataFrame的索引，仅添加辅助列。
+        - 【修正】智能识别成交量列名（'volume' 或 'vol'），并统一为 'vol_shares'。
+        - 【修正】根据最新澄清，统一处理时区，确保最终输出为北京时间。
+        """
+        if minute_df is None or minute_df.empty:
+            return pd.DataFrame()
+        df = minute_df.copy()
+        if not isinstance(df.index, pd.DatetimeIndex):
+            if 'trade_time' in df.columns:
+                df['trade_time'] = pd.to_datetime(df['trade_time'])
+                df = df.set_index('trade_time')
+            else:
+                logger.warning("DataFrame passed to _group_minute_data_from_df has no 'trade_time' column and no DatetimeIndex.")
+                return pd.DataFrame()
+        # 修改行：统一处理时区，确保最终输出为北京时间
+        if df.index.tz is None:
+            # 如果索引是 naive，假定它是 UTC（因为DAO层应该输出UTC aware，但可能在某些操作后丢失时区信息）
+            df.index = df.index.tz_localize('UTC', ambiguous='infer').tz_convert(timezone.get_current_timezone())
+        else:
+            # 如果索引是 aware，直接转换为目标时区
+            df.index = df.index.tz_convert(timezone.get_current_timezone())
+        volume_col_name = None
+        if 'volume' in df.columns:
+            volume_col_name = 'volume'
+        elif 'vol' in df.columns:
+            volume_col_name = 'vol'
+        else:
+            logger.error(f"DataFrame缺少成交量列 ('volume' 或 'vol')，无法处理。列名: {df.columns.tolist()}")
+            return pd.DataFrame()
+        df['amount_yuan'] = pd.to_numeric(df['amount'], errors='coerce')
+        df['vol_shares'] = pd.to_numeric(df[volume_col_name], errors='coerce')
+        df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
+        current_day_total_vol = df['vol_shares'].sum()
+        df['vol_weight'] = df['vol_shares'] / current_day_total_vol if current_day_total_vol > 0 else 0
+        return df
 
 
 
