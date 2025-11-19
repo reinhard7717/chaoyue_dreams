@@ -1629,32 +1629,46 @@ class AdvancedFundFlowMetricsService:
         return df
 
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
-        """【V1.10 · 数据完整性修复版 - 辅助列添加 - 列名修正】从预加载的DataFrame构建按日分组的数据。
+        """【V1.15 · 数据完整性修复版 - 辅助列添加 - 智能列名识别】从预加载的DataFrame构建按日分组的数据。
         - 核心职责: 确保传入的DataFrame保持 `trade_time` 作为 `DatetimeIndex`，并正确处理时区，添加 `amount_yuan`, `vol_shares`, `minute_vwap`, `vol_weight` 等辅助列。
         - 核心修复: 不再修改DataFrame的索引，仅添加辅助列。
-        - 【修正】将对 'vol' 列的引用改为 'volume'，以匹配上游 DAO 返回的列名。
+        - 【修正】智能识别成交量列名（'volume' 或 'vol'），并统一为 'vol_shares'。
         """
         if minute_df is None or minute_df.empty:
             return pd.DataFrame()
         df = minute_df.copy()
+        # 确保索引是 DatetimeIndex 且已本地化为 Asia/Shanghai
         if not isinstance(df.index, pd.DatetimeIndex):
+            # 理论上，上游函数应该已经确保了这一点。如果不是，这里尝试修复。
             if 'trade_time' in df.columns:
                 df['trade_time'] = pd.to_datetime(df['trade_time'])
                 df = df.set_index('trade_time')
             else:
                 logger.warning("DataFrame passed to _group_minute_data_from_df has no 'trade_time' column and no DatetimeIndex.")
                 return pd.DataFrame()
+        # 确保时区处理使用 Django 的当前时区
         if df.index.tz is None:
             df.index = df.index.tz_localize('UTC').tz_convert(timezone.get_current_timezone())
         elif df.index.tz != timezone.get_current_timezone():
             df.index = df.index.tz_convert(timezone.get_current_timezone())
-        # 修改行：将 'vol' 替换为 'volume'
-        df[['amount', 'volume']] = df[['amount', 'volume']].apply(pd.to_numeric, errors='coerce') # 修改行
-        df['amount_yuan'] = df['amount']
-        df['vol_shares'] = df['volume'] # 修改行：使用 'volume' 列
+
+        # 修改行：智能识别成交量列名
+        volume_col_name = None
+        if 'volume' in df.columns:
+            volume_col_name = 'volume'
+        elif 'vol' in df.columns:
+            volume_col_name = 'vol'
+        else:
+            logger.error(f"DataFrame缺少成交量列 ('volume' 或 'vol')，无法处理。列名: {df.columns.tolist()}")
+            return pd.DataFrame()
+
+        df['amount_yuan'] = pd.to_numeric(df['amount'], errors='coerce')
+        df['vol_shares'] = pd.to_numeric(df[volume_col_name], errors='coerce') # 修改行：使用识别到的列名
+
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         current_day_total_vol = df['vol_shares'].sum()
         df['vol_weight'] = df['vol_shares'] / current_day_total_vol if current_day_total_vol > 0 else 0
+        # 此函数仅添加辅助列，不应改变索引
         return df
 
     async def _load_historical_metrics(self, model, stock_info, end_date):
