@@ -181,6 +181,7 @@ class StockRealtimeDAO(BaseDAO):
         - 【修正】统一将索引转换为 UTC aware datetime。
         - 【修正】使用明确的 UTC aware datetime 范围进行过滤，并添加调试探针。
         - 【修复】修正 NameError: 'ticks_list' 未定义的问题。
+        - 【修正】根据用户说明，数据库存储UTC时间，修正 naive datetime 的时区本地化为UTC。
         """
         from django.utils import timezone
         from datetime import datetime, time, timedelta
@@ -194,7 +195,6 @@ class StockRealtimeDAO(BaseDAO):
             end_of_day_beijing = datetime.combine(trade_date_obj + timedelta(days=1), time.min)
             start_dt_aware = timezone.make_aware(start_of_day_beijing, timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
             end_dt_aware = timezone.make_aware(end_of_day_beijing, timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
-
             query = tick_data_model.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__gte=start_dt_aware,
@@ -202,13 +202,13 @@ class StockRealtimeDAO(BaseDAO):
             ).order_by('trade_time').values(
                 'trade_time', 'price', 'volume', 'amount', 'type'
             )
-            ticks_list = await sync_to_async(list)(query) # 修改行：执行 QuerySet 并赋值给 ticks_list
+            ticks_list = await sync_to_async(list)(query)
             if not ticks_list:
                 return None
             df = pd.DataFrame(ticks_list)
             df.set_index('trade_time', inplace=True)
             if df.index.tz is None:
-                df.index = df.index.tz_localize('Asia/Shanghai', ambiguous='infer').tz_convert('UTC')
+                df.index = df.index.tz_localize('UTC', ambiguous='infer') # 修改行：从 'Asia/Shanghai' 改为 'UTC'
             else:
                 df.index = df.index.tz_convert('UTC')
             return df
@@ -333,6 +333,7 @@ class StockRealtimeDAO(BaseDAO):
         - 【修正】统一将索引转换为 UTC aware datetime。
         - 【修正】使用明确的 UTC aware datetime 范围进行过滤，并添加调试探针。
         - 【修复】修正 NameError: 'quotes_list' 和 'level5_list' 未定义的问题。
+        - 【修正】根据用户说明，数据库存储UTC时间，修正 naive datetime 的时区本地化为UTC。
         """
         from django.utils import timezone
         from datetime import datetime, time, timedelta
@@ -340,12 +341,10 @@ class StockRealtimeDAO(BaseDAO):
         level5_model = get_stock_level5_data_model_by_code(stock_code)
         df_quotes = None
         df_level5 = None
-
         start_of_day_beijing = datetime.combine(trade_date_obj, time.min)
         end_of_day_beijing = datetime.combine(trade_date_obj + timedelta(days=1), time.min)
         start_dt_aware = timezone.make_aware(start_of_day_beijing, timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
         end_dt_aware = timezone.make_aware(end_of_day_beijing, timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
-
         if realtime_model:
             query_quotes = realtime_model.objects.filter(
                 stock__stock_code=stock_code,
@@ -355,12 +354,12 @@ class StockRealtimeDAO(BaseDAO):
                 'trade_time', 'open_price', 'prev_close_price', 'current_price',
                 'high_price', 'low_price', 'volume', 'turnover_value'
             )
-            quotes_list = await sync_to_async(list)(query_quotes) # 修改行：执行 QuerySet 并赋值给 quotes_list
+            quotes_list = await sync_to_async(list)(query_quotes)
             if quotes_list:
                 df_quotes = pd.DataFrame(quotes_list)
                 df_quotes.set_index('trade_time', inplace=True)
                 if df_quotes.index.tz is None:
-                    df_quotes.index = df_quotes.index.tz_localize('Asia/Shanghai', ambiguous='infer').tz_convert('UTC')
+                    df_quotes.index = df_quotes.index.tz_localize('UTC', ambiguous='infer') # 修改行：从 'Asia/Shanghai' 改为 'UTC'
                 else:
                     df_quotes.index = df_quotes.index.tz_convert('UTC')
         if level5_model:
@@ -374,12 +373,12 @@ class StockRealtimeDAO(BaseDAO):
                 'sell_price1', 'sell_volume1', 'sell_price2', 'sell_volume2',
                 'sell_price3', 'sell_volume3', 'sell_price4', 'sell_volume4', 'sell_price5', 'sell_volume5'
             )
-            level5_list = await sync_to_async(list)(query_level5) # 修改行：执行 QuerySet 并赋值给 level5_list
+            level5_list = await sync_to_async(list)(query_level5)
             if level5_list:
                 df_level5 = pd.DataFrame(level5_list)
                 df_level5.set_index('trade_time', inplace=True)
                 if df_level5.index.tz is None:
-                    df_level5.index = df_level5.index.tz_localize('Asia/Shanghai', ambiguous='infer').tz_convert('UTC')
+                    df_level5.index = df_level5.index.tz_localize('UTC', ambiguous='infer') # 修改行：从 'Asia/Shanghai' 改为 'UTC'
                 else:
                     df_level5.index = df_level5.index.tz_convert('UTC')
         return df_quotes, df_level5

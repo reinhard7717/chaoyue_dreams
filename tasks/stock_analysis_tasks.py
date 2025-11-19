@@ -631,9 +631,11 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         target_tz = pytz.timezone('Asia/Shanghai')
         if stock_code_for_log == '600475.SH':
             print(f"    -> [时间修正探针] {stock_code_for_log} _process_intraday_df_to_map 初始状态 (来自 DAO)：")
+            # 修改行：更准确地打印原始时区信息
             print(f"       - 原始 df['trade_time'].iloc[0]: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z') if df['trade_time'].iloc[0].tz is not None else df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')} (tz: {df['trade_time'].iloc[0].tz})")
         df['trade_time'] = df['trade_time'].dt.tz_convert(target_tz)
         if stock_code_for_log == '600475.SH':
+            # 修改行：更准确地打印转换后的时区信息
             print(f"    -> [时间修正探针] {stock_code_for_log} 已将 UTC aware 数据转换为 Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
         df = df.set_index('trade_time')
         grouped_data = {}

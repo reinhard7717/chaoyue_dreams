@@ -150,7 +150,7 @@ class ChipFeatureCalculator:
         return all_metrics
 
     def _prepare_intraday_data_features(self, intraday_df: pd.DataFrame, trade_date: datetime.date, debug_params: dict) -> pd.DataFrame:
-        import pytz # 导入 pytz 模块
+        import pytz
         results = {}
         is_probe_date = False
         if debug_params.get('probe_dates') and trade_date == pd.to_datetime(debug_params['probe_dates'][0]).date():
@@ -177,35 +177,23 @@ class ChipFeatureCalculator:
             print(f"    -> [日内数据特征探针] @ {trade_date}: _prepare_intraday_data_features 接收到的 intraday_df 列：{list(intraday_df.columns)}")
             print(f"       - 初始 intraday_df['main_force_sell_vol'] sum: {intraday_df['main_force_sell_vol'].sum():.2f}")
             print(f"       - 初始 intraday_df['retail_sell_vol'] sum: {intraday_df['retail_sell_vol'].sum():.2f}")
-        
-        # 修改行：简化时区处理逻辑
         target_tz = pytz.timezone('Asia/Shanghai')
         if not isinstance(intraday_df.index, pd.DatetimeIndex):
             intraday_df.index = pd.to_datetime(intraday_df.index)
             if is_probe_date:
                 print(f"       - 索引从非DatetimeIndex转换为DatetimeIndex。")
-        
         if intraday_df.index.tz is None:
-            # 如果索引是 naive，假设它是 UTC，然后转换为目标时区
             intraday_df.index = intraday_df.index.tz_localize('UTC', ambiguous='infer').tz_convert(target_tz)
             if is_probe_date:
                 print(f"       - 索引从 naive (假定UTC) tz_localize('UTC') 后 tz_convert('Asia/Shanghai')。")
-        elif intraday_df.index.tz != target_tz:
-            # 如果索引是 aware 但不是目标时区，则进行转换
-            intraday_df.index = intraday_df.index.tz_convert(target_tz)
-            if is_probe_date:
-                print(f"       - 索引从 {intraday_df.index.tz} tz_convert('Asia/Shanghai')。")
         else:
+            intraday_df.index = intraday_df.index.tz_convert(target_tz) # 修改行：简化逻辑，直接转换
             if is_probe_date:
-                print(f"       - 索引已经是正确的 'Asia/Shanghai' aware datetime，无需转换。")
-
+                print(f"       - 索引被 tz_convert('Asia/Shanghai')。") # 修改行：更新探针信息
         if is_probe_date and not intraday_df.empty:
             print(f"       - 索引前5个时间 (处理后): {[t.strftime('%Y-%m-%d %H:%M:%S%z') for t in intraday_df.index[:5].tolist()]}")
-        
-        # 修改行：使用 datetime.time 定义时间，避免 pd.to_datetime 默认日期问题
-        start_time = datetime.time(9, 25) # 修改行
-        end_time = datetime.time(15, 0)   # 修改行
-        
+        start_time = datetime.time(9, 25)
+        end_time = datetime.time(15, 0)
         processed_intraday_df = intraday_df[(intraday_df.index.time >= start_time) & (intraday_df.index.time <= end_time)].copy()
         if is_probe_date:
             print(f"    -> [日内数据特征探针] @ {trade_date}: 'processed_intraday_df' 最终状态：")
