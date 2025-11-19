@@ -178,14 +178,15 @@ class StockRealtimeDAO(BaseDAO):
         """
         【辅助】从数据库获取指定股票和日期的真实逐笔数据。
         - 核心修改: 根据股票代码动态选择对应的 StockTickData 分表。
+        - 【修正】如果数据库存储的是北京时间（无时区信息），则直接本地化为 'Asia/Shanghai'。
         """
         try:
             trade_date_obj = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
-            tick_data_model = get_stock_tick_data_model_by_code(stock_code) # 根据股票代码获取对应的 StockTickData 模型
-            if tick_data_model is None: # 新增代码行
-                logger.warning(f"无法为股票 {stock_code} 找到对应的 StockTickData 模型，无法从数据库获取数据。") # 新增代码行
-                return None # 新增代码行
-            query = tick_data_model.objects.filter( # 使用动态获取的分表模型进行查询
+            tick_data_model = get_stock_tick_data_model_by_code(stock_code)
+            if tick_data_model is None:
+                logger.warning(f"无法为股票 {stock_code} 找到对应的 StockTickData 模型，无法从数据库获取数据。")
+                return None
+            query = tick_data_model.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__date=trade_date_obj
             ).order_by('trade_time').values(
@@ -196,13 +197,13 @@ class StockRealtimeDAO(BaseDAO):
                 return None
             df = pd.DataFrame(ticks_list)
             df.set_index('trade_time', inplace=True)
+            # 修改行：如果数据库存储的是北京时间（无时区信息），则直接本地化为 'Asia/Shanghai'
             if df.index.tz is None:
-                df.index = df.index.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
+                df.index = df.index.tz_localize('Asia/Shanghai')
             return df
         except Exception as e:
             logger.error(f"从数据库获取 {stock_code} 逐笔数据失败: {e}", exc_info=True)
             return None
-
 
     # =================================================================
     # =================== 市场整体快照 (Market Snapshot) 接口 ==========
@@ -318,6 +319,7 @@ class StockRealtimeDAO(BaseDAO):
     async def _get_single_stock_quotes_and_level5_from_db(self, stock_code: str, trade_date_obj: datetime.date) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
         【辅助】从数据库获取单只股票指定日期的行情快照和Level5数据。
+        - 【修正】如果数据库存储的是北京时间（无时区信息），则直接本地化为 'Asia/Shanghai'。
         """
         realtime_model = get_stock_realtime_data_model_by_code(stock_code)
         level5_model = get_stock_level5_data_model_by_code(stock_code)
@@ -335,8 +337,9 @@ class StockRealtimeDAO(BaseDAO):
             if quotes_list:
                 df_quotes = pd.DataFrame(quotes_list)
                 df_quotes.set_index('trade_time', inplace=True)
+                # 修改行：如果数据库存储的是北京时间（无时区信息），则直接本地化为 'Asia/Shanghai'
                 if df_quotes.index.tz is None:
-                    df_quotes.index = df_quotes.index.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
+                    df_quotes.index = df_quotes.index.tz_localize('Asia/Shanghai')
         if level5_model:
             query_level5 = level5_model.objects.filter(
                 stock__stock_code=stock_code,
@@ -351,8 +354,9 @@ class StockRealtimeDAO(BaseDAO):
             if level5_list:
                 df_level5 = pd.DataFrame(level5_list)
                 df_level5.set_index('trade_time', inplace=True)
+                # 修改行：如果数据库存储的是北京时间（无时区信息），则直接本地化为 'Asia/Shanghai'
                 if df_level5.index.tz is None:
-                    df_level5.index = df_level5.index.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
+                    df_level5.index = df_level5.index.tz_localize('Asia/Shanghai')
         return df_quotes, df_level5
 
     async def get_latest_tick_data(self, stock_code: str) -> dict:
