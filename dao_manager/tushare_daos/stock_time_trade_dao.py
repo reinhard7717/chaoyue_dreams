@@ -386,27 +386,41 @@ class StockTimeTradeDAO(BaseDAO):
     # =============== A股分钟行情 ===============
     async def get_intraday_kline_by_date(self, stock_code: str, trade_date: datetime.date, time_level: str = '1') -> Optional[pd.DataFrame]:
         """
-        【V2.1 · 统一输出UTC aware datetime版】获取指定股票在指定交易日的所有分钟K线数据。
+        【V2.2 · 统一输出UTC aware datetime版】获取指定股票在指定交易日的所有分钟K线数据。
         - 核心升级: 统一时区处理逻辑，确保返回的DataFrame索引是标准的UTC aware datetime。
+        - 【修正】使用明确的 UTC aware datetime 范围进行过滤，并添加调试探针。
         """
+        from django.utils import timezone # 新增行：导入 timezone
+        from datetime import datetime, time, timedelta # 新增行：导入 datetime, time, timedelta
         try:
             model_class = get_minute_data_model_by_code_and_timelevel(stock_code, time_level)
             if not model_class:
                 logger.error(f"未能找到股票 {stock_code} 对应的 {time_level}分钟 K线模型。")
                 return None
+            # 修改行：构建 UTC aware datetime 范围
+            # 数据库存储的是 UTC 时间，所以查询条件也应是 UTC 时间
+            start_dt_aware = timezone.make_aware(datetime.combine(trade_date, time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc) # 修改行
+            end_dt_aware = timezone.make_aware(datetime.combine(trade_date + timedelta(days=1), time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc) # 修改行
+
             kline_queryset = model_class.objects.filter(
                 stock__stock_code=stock_code,
-                trade_time__date=trade_date
+                trade_time__gte=start_dt_aware, # 修改行：使用明确的 UTC aware 范围
+                trade_time__lt=end_dt_aware # 修改行：使用明确的 UTC aware 范围
             ).order_by('trade_time')
+            # 新增行：调试探针，打印 SQL 查询
+            if stock_code == '600475.SH':
+                print(f"    -> [DAO探针] get_intraday_kline_by_date SQL for {stock_code} on {trade_date.strftime('%Y-%m-%d')}: {kline_queryset.query}")
             kline_values = await sync_to_async(list)(kline_queryset.values(
                 'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
             ))
+            # 新增行：调试探针，打印查询结果数量
+            if stock_code == '600475.SH':
+                print(f"    -> [DAO探针] get_intraday_kline_by_date for {stock_code} on {trade_date.strftime('%Y-%m-%d')} 结果数量: {len(kline_values)}")
             if not kline_values:
                 logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {trade_date} 的 {time_level}分钟 K线数据。")
                 return None
             df = pd.DataFrame.from_records(kline_values)
-            # 修改行：从数据库取出的时间已经是UTC，直接设置为索引，并确保是 aware UTC
-            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True) # 修改行
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
             df.rename(columns={'vol': 'volume'}, inplace=True)
             logger.debug(f"成功从数据库获取 {len(df)} 条 {trade_date} 的 {time_level}分钟 K线 for {stock_code}")
@@ -417,30 +431,41 @@ class StockTimeTradeDAO(BaseDAO):
 
     async def get_1_min_kline_time_by_day(self, stock_code: str, trade_date: datetime.date) -> Optional[pd.DataFrame]:
         """
-        【V1.1 · 统一输出UTC aware datetime版】获取指定股票在指定日期的所有1分钟K线数据。
+        【V1.2 · 统一输出UTC aware datetime版】获取指定股票在指定日期的所有1分钟K线数据。
         - 核心升级: 统一时区处理逻辑，确保返回的DataFrame索引是标准的UTC aware datetime。
+        - 【修正】添加调试探针。
         """
+        from django.utils import timezone # 新增行：导入 timezone
+        from datetime import datetime, time, timedelta # 新增行：导入 datetime, time, timedelta
         try:
             model_class = get_minute_data_model_by_code_and_timelevel(stock_code, '1')
             if not model_class:
                 logger.error(f"未能找到股票 {stock_code} 对应的1分钟K线模型。")
                 return None
-            start_datetime = datetime.combine(trade_date, datetime.min.time()).replace(tzinfo=timezone.utc)
-            end_datetime = (datetime.combine(trade_date, datetime.max.time()) + timedelta(seconds=1)).replace(tzinfo=timezone.utc)
+            # 构建查询时间范围：从当日0点到次日0点（不含）
+            # 数据库存储的是UTC时间，所以查询条件也应是UTC时间
+            start_datetime = timezone.make_aware(datetime.combine(trade_date, time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc) # 修改行
+            end_datetime = timezone.make_aware(datetime.combine(trade_date + timedelta(days=1), time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc) # 修改行
+
             kline_queryset = model_class.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__gte=start_datetime,
                 trade_time__lt=end_datetime
             ).order_by('trade_time')
+            # 新增行：调试探针，打印 SQL 查询
+            if stock_code == '600475.SH':
+                print(f"    -> [DAO探针] get_1_min_kline_time_by_day SQL for {stock_code} on {trade_date.strftime('%Y-%m-%d')}: {kline_queryset.query}")
             kline_values = await sync_to_async(list)(kline_queryset.values(
                 'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
             ))
+            # 新增行：调试探针，打印查询结果数量
+            if stock_code == '600475.SH':
+                print(f"    -> [DAO探针] get_1_min_kline_time_by_day for {stock_code} on {trade_date.strftime('%Y-%m-%d')} 结果数量: {len(kline_values)}")
             if not kline_values:
                 logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {trade_date} 的1分钟K线数据。")
                 return None
             df = pd.DataFrame.from_records(kline_values)
-            # 修改行：从数据库取出的时间已经是UTC，直接设置为索引，并确保是 aware UTC
-            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True) # 修改行
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
             df.rename(columns={'vol': 'volume'}, inplace=True)
             logger.debug(f"成功从数据库获取 {len(df)} 条 {trade_date} 的1分钟K线 for {stock_code}")

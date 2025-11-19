@@ -179,31 +179,46 @@ class StockRealtimeDAO(BaseDAO):
         【辅助】从数据库获取指定股票和日期的真实逐笔数据。
         - 核心修改: 根据股票代码动态选择对应的 StockTickData 分表。
         - 【修正】统一将索引转换为 UTC aware datetime。
+        - 【修正】使用明确的 UTC aware datetime 范围进行过滤，并添加调试探针。
         """
+        from django.utils import timezone # 新增行：导入 timezone
+        from datetime import datetime, time, timedelta # 新增行：导入 datetime, time, timedelta
         try:
             trade_date_obj = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
             tick_data_model = get_stock_tick_data_model_by_code(stock_code)
             if tick_data_model is None:
                 logger.warning(f"无法为股票 {stock_code} 找到对应的 StockTickData 模型，无法从数据库获取数据。")
                 return None
+            # 修改行：构建 UTC aware datetime 范围
+            # 假设 trade_date_obj 代表的是北京时间的一天，我们需要将其转换为 UTC 的对应范围
+            start_of_day_beijing = datetime.combine(trade_date_obj, time.min)
+            end_of_day_beijing = datetime.combine(trade_date_obj + timedelta(days=1), time.min)
+            # 将北京时间转换为 UTC aware datetime
+            start_dt_aware = timezone.make_aware(start_of_day_beijing, timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc) # 修改行
+            end_dt_aware = timezone.make_aware(end_of_day_beijing, timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc) # 修改行
+
             query = tick_data_model.objects.filter(
                 stock__stock_code=stock_code,
-                trade_time__date=trade_date_obj
+                trade_time__gte=start_dt_aware, # 修改行：使用明确的 UTC aware 范围
+                trade_time__lt=end_dt_aware # 修改行：使用明确的 UTC aware 范围
             ).order_by('trade_time').values(
                 'trade_time', 'price', 'volume', 'amount', 'type'
             )
+            # 新增行：调试探针，打印 SQL 查询
+            if stock_code == '600475.SH':
+                print(f"    -> [DAO探针] _get_daily_real_ticks_from_db SQL for {stock_code} on {trade_date_str}: {query.query}")
             ticks_list = await sync_to_async(list)(query)
+            # 新增行：调试探针，打印查询结果数量
+            if stock_code == '600475.SH':
+                print(f"    -> [DAO探针] _get_daily_real_ticks_from_db for {stock_code} on {trade_date_str} 结果数量: {len(ticks_list)}")
             if not ticks_list:
                 return None
             df = pd.DataFrame(ticks_list)
             df.set_index('trade_time', inplace=True)
-            # 修改行：统一将索引转换为 UTC aware datetime
             if df.index.tz is None:
-                # 假定从数据库取出的 naive datetime 是北京时间，先本地化为 Asia/Shanghai，再转换为 UTC
-                df.index = df.index.tz_localize('Asia/Shanghai', ambiguous='infer').tz_convert('UTC') # 修改行
+                df.index = df.index.tz_localize('Asia/Shanghai', ambiguous='infer').tz_convert('UTC')
             else:
-                # 如果已经是 aware datetime，则确保它是 UTC
-                df.index = df.index.tz_convert('UTC') # 修改行
+                df.index = df.index.tz_convert('UTC')
             return df
         except Exception as e:
             logger.error(f"从数据库获取 {stock_code} 逐笔数据失败: {e}", exc_info=True)
@@ -324,51 +339,69 @@ class StockRealtimeDAO(BaseDAO):
         """
         【辅助】从数据库获取单只股票指定日期的行情快照和Level5数据。
         - 【修正】统一将索引转换为 UTC aware datetime。
+        - 【修正】使用明确的 UTC aware datetime 范围进行过滤，并添加调试探针。
         """
+        from django.utils import timezone # 新增行：导入 timezone
+        from datetime import datetime, time, timedelta # 新增行：导入 datetime, time, timedelta
         realtime_model = get_stock_realtime_data_model_by_code(stock_code)
         level5_model = get_stock_level5_data_model_by_code(stock_code)
         df_quotes = None
         df_level5 = None
+
+        # 修改行：构建 UTC aware datetime 范围
+        start_of_day_beijing = datetime.combine(trade_date_obj, time.min)
+        end_of_day_beijing = datetime.combine(trade_date_obj + timedelta(days=1), time.min)
+        start_dt_aware = timezone.make_aware(start_of_day_beijing, timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc) # 修改行
+        end_dt_aware = timezone.make_aware(end_of_day_beijing, timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc) # 修改行
+
         if realtime_model:
             query_quotes = realtime_model.objects.filter(
                 stock__stock_code=stock_code,
-                trade_time__date=trade_date_obj
+                trade_time__gte=start_dt_aware, # 修改行：使用明确的 UTC aware 范围
+                trade_time__lt=end_dt_aware # 修改行：使用明确的 UTC aware 范围
             ).order_by('trade_time').values(
                 'trade_time', 'open_price', 'prev_close_price', 'current_price',
                 'high_price', 'low_price', 'volume', 'turnover_value'
             )
+            # 新增行：调试探针，打印 SQL 查询
+            if stock_code == '600475.SH':
+                print(f"    -> [DAO探针] _get_single_stock_quotes_and_level5_from_db (quotes) SQL for {stock_code} on {trade_date_obj.strftime('%Y-%m-%d')}: {query_quotes.query}")
             quotes_list = await sync_to_async(list)(query_quotes)
+            # 新增行：调试探针，打印查询结果数量
+            if stock_code == '600475.SH':
+                print(f"    -> [DAO探针] _get_single_stock_quotes_and_level5_from_db (quotes) for {stock_code} on {trade_date_obj.strftime('%Y-%m-%d')} 结果数量: {len(quotes_list)}")
             if quotes_list:
                 df_quotes = pd.DataFrame(quotes_list)
                 df_quotes.set_index('trade_time', inplace=True)
-                # 修改行：统一将索引转换为 UTC aware datetime
                 if df_quotes.index.tz is None:
-                    # 假定从数据库取出的 naive datetime 是北京时间，先本地化为 Asia/Shanghai，再转换为 UTC
-                    df_quotes.index = df_quotes.index.tz_localize('Asia/Shanghai', ambiguous='infer').tz_convert('UTC') # 修改行
+                    df_quotes.index = df_quotes.index.tz_localize('Asia/Shanghai', ambiguous='infer').tz_convert('UTC')
                 else:
-                    # 如果已经是 aware datetime，则确保它是 UTC
-                    df_quotes.index = df_quotes.index.tz_convert('UTC') # 修改行
+                    df_quotes.index = df_quotes.index.tz_convert('UTC')
         if level5_model:
             query_level5 = level5_model.objects.filter(
                 stock__stock_code=stock_code,
-                trade_time__date=trade_date_obj
+                trade_time__gte=start_dt_aware, # 修改行：使用明确的 UTC aware 范围
+                trade_time__lt=end_dt_aware # 修改行：使用明确的 UTC aware 范围
             ).order_by('trade_time').values(
                 'trade_time', 'buy_price1', 'buy_volume1', 'buy_price2', 'buy_volume2',
                 'buy_price3', 'buy_volume3', 'buy_price4', 'buy_volume4', 'buy_price5', 'buy_volume5',
                 'sell_price1', 'sell_volume1', 'sell_price2', 'sell_volume2',
                 'sell_price3', 'sell_volume3', 'sell_price4', 'sell_volume4', 'sell_price5', 'sell_volume5'
             )
+            # 新增行：调试探针，打印 SQL 查询
+            if stock_code == '600475.SH':
+                print(f"    -> [DAO探针] _get_single_stock_quotes_and_level5_from_db (level5) SQL for {stock_code} on {trade_date_obj.strftime('%Y-%m-%d')}: {query_level5.query}")
             level5_list = await sync_to_async(list)(query_level5)
+            # 新增行：调试探针，打印查询结果数量
+            if stock_code == '600475.SH':
+                print(f"    -> [DAO探针] _get_single_stock_quotes_and_level5_from_db (level5) for {stock_code} on {trade_date_obj.strftime('%Y-%m-%d')} 结果数量: {len(level5_list)}")
             if level5_list:
                 df_level5 = pd.DataFrame(level5_list)
                 df_level5.set_index('trade_time', inplace=True)
-                # 修改行：统一将索引转换为 UTC aware datetime
                 if df_level5.index.tz is None:
-                    # 假定从数据库取出的 naive datetime 是北京时间，先本地化为 Asia/Shanghai，再转换为 UTC
-                    df_level5.index = df_level5.index.tz_localize('Asia/Shanghai', ambiguous='infer').tz_convert('UTC') # 修改行
+                    df_level5.index = df_level5.index.tz_localize('Asia/Shanghai', ambiguous='infer').tz_convert('UTC')
                 else:
-                    # 如果已经是 aware datetime，则确保它是 UTC
-                    df_level5.index = df_level5.index.tz_convert('UTC') # 修改行
+                    df_level5.index = df_level5.index.tz_convert('UTC')
         return df_quotes, df_level5
 
     async def get_latest_tick_data(self, stock_code: str) -> dict:
