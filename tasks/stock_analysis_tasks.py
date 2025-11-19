@@ -835,8 +835,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         except json.JSONDecodeError:
             logger.error(f"解码策略配置文件 JSON 失败: {config_path}")
         debug_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
-        fund_flow_service = AdvancedFundFlowMetricsService()
-        chip_service = AdvancedChipMetricsService()
+        
+        # 修改行：将 debug_params 传递给 AdvancedFundFlowMetricsService
+        fund_flow_service = AdvancedFundFlowMetricsService(debug_params=debug_params) 
+        chip_service = AdvancedChipMetricsService() # chip_service 已经通过 context_for_calc 接收 debug_params
+        
         stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, lookback_start_date, process_start_date, save_start_date = await _initialize_task_context_unified(
             stock_code, incremental_flag, start_date_override
         )
@@ -865,7 +868,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         if dates_to_process.empty:
             logger.info(f"[{stock_code}] 过滤非交易日后，没有需要计算的交易日，合并任务终止。")
             return {"status": "skipped", "reason": "No trade dates to process after filtering.", "failures": []}
-        context_end_date = dates_to_process.min().date()
+        context_end_date = dates_to_process.min()
         ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, context_end_date)
         chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, context_end_date)
         # 修改行：确保 context_df 始终被初始化
@@ -946,6 +949,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 seed_base_daily_df = seed_daily_df.join(seed_daily_basic_df.drop(columns=overlap_cols), how='left')
                 seed_base_daily_df['atr_14d'] = seed_base_daily_df.index.map(atr_map_global)
                 ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"]}
+                fund_flow_service.debug_params = debug_params # 新增行：确保 debug_params 传递给 fund_flow_service
                 seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=seed_base_daily_df)
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index, tick_data_map=seed_data_dfs["stock_tick_data_map"], level5_data_map=seed_data_dfs["stock_level5_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
                 _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df, tick_data_map=seed_data_dfs["stock_tick_data_map"], level5_data_map=seed_data_dfs["stock_level5_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
@@ -995,6 +999,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             base_daily_df = daily_df.join(daily_basic_df.drop(columns=overlap_cols), how='left')
             base_daily_df['atr_14d'] = base_daily_df.index.map(atr_map_global)
             ff_data_dfs = {"tushare": data_dfs["fund_flow_tushare"], "ths": data_dfs["fund_flow_ths"], "dc": data_dfs["fund_flow_dc"]}
+            fund_flow_service.debug_params = debug_params # 新增行：确保 debug_params 传递给 fund_flow_service
             fund_flow_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=base_daily_df)
             if fund_flow_raw_df.empty:
                 logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 资金流原始数据为空，跳过。")

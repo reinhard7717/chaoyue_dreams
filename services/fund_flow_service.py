@@ -29,8 +29,9 @@ class AdvancedFundFlowMetricsService:
     - 核心职责: 封装所有高级资金流指标的加载、计算、融合与存储逻辑。
     - 架构优势: 实现业务逻辑与任务调度的完全解耦。
     """
-    def __init__(self):
+    def __init__(self, debug_params: dict = None): # 修改行：新增 debug_params 参数
         self.max_lookback_days = 300
+        self.debug_params = debug_params if debug_params is not None else {}
 
     def _get_safe_numeric_series(self, df: pd.DataFrame, col_name: str, default_value=0) -> pd.Series:
         """
