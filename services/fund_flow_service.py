@@ -326,15 +326,18 @@ class AdvancedFundFlowMetricsService:
         failures = []
         debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
         probe_dates_str = debug_params.get('probe_dates', [])
-        is_probe_date = False
+        is_probe_date_global = False
+        probe_date_naive = None
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
+            is_probe_date_global = True
+        if is_probe_date_global:
+            print(f"    -> [资金流合成探针-初始化] debug_params: {debug_params}, probe_date_naive: {probe_date_naive}")
         for trade_date, daily_data_series in merged_df.iterrows():
             date_obj = trade_date.date()
-            if is_probe_date and probe_date_naive == date_obj:
-                is_current_probe_date = True
-            else:
-                is_current_probe_date = False
+            is_current_probe_date = is_probe_date_global and (probe_date_naive == date_obj)
+            if is_current_probe_date:
+                print(f"    -> [资金流合成探针] @ {date_obj}: is_current_probe_date is TRUE.")
             intraday_data = self._minute_df_daily_grouped.get(date_obj)
             if intraday_data is None or intraday_data.empty:
                 print(f"日内数据特征准备跳过，原因：日内数据(intraday_data)为空")
@@ -772,10 +775,10 @@ class AdvancedFundFlowMetricsService:
         df['retail_net_vol'] = df['retail_buy_vol'] - df['retail_sell_vol']
         if is_probe_date:
             print(f"    -> [归因聚合探针] @ {trade_date}: _attribute_minute_volume_to_players 内部检查。")
-            print(f"       - lg_sell_vol_attr sum: {df.get('lg_sell_vol_attr', pd.Series(0, index=df.index)).sum():.2f}") # 修改行：确保get返回Series
-            print(f"       - elg_sell_vol_attr sum: {df.get('elg_sell_vol_attr', pd.Series(0, index=df.index)).sum():.2f}") # 修改行：确保get返回Series
-            print(f"       - sm_sell_vol_attr sum: {df.get('sm_sell_vol_attr', pd.Series(0, index=df.index)).sum():.2f}") # 修改行：确保get返回Series
-            print(f"       - md_sell_vol_attr sum: {df.get('md_sell_vol_attr', pd.Series(0, index=df.index)).sum():.2f}") # 修改行：确保get返回Series
+            print(f"       - lg_sell_vol_attr sum: {df.get('lg_sell_vol_attr', pd.Series(0.0, index=df.index)).sum():.2f}")
+            print(f"       - elg_sell_vol_attr sum: {df.get('elg_sell_vol_attr', pd.Series(0.0, index=df.index)).sum():.2f}")
+            print(f"       - sm_sell_vol_attr sum: {df.get('sm_sell_vol_attr', pd.Series(0.0, index=df.index)).sum():.2f}")
+            print(f"       - md_sell_vol_attr sum: {df.get('md_sell_vol_attr', pd.Series(0.0, index=df.index)).sum():.2f}")
             print(f"       - main_force_sell_vol sum (after agg): {df['main_force_sell_vol'].sum():.2f}")
             print(f"       - retail_sell_vol sum (after agg): {df['retail_sell_vol'].sum():.2f}")
         return df

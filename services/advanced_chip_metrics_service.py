@@ -172,15 +172,18 @@ class AdvancedChipMetricsService:
         is_first_day_in_batch = True
         debug_params = debug_params if debug_params is not None else {}
         probe_dates_str = debug_params.get('probe_dates', [])
-        is_probe_date = False
+        is_probe_date_global = False
+        probe_date_naive = None
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
+            is_probe_date_global = True
+        if is_probe_date_global:
+            print(f"    -> [筹码合成探针-初始化] debug_params: {debug_params}, probe_date_naive: {probe_date_naive}")
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             date_obj = trade_date.date()
-            if is_probe_date and probe_date_naive == date_obj:
-                is_current_probe_date = True
-            else:
-                is_current_probe_date = False
+            is_current_probe_date = is_probe_date_global and (probe_date_naive == date_obj)
+            if is_current_probe_date:
+                print(f"    -> [筹码合成探针] @ {date_obj}: is_current_probe_date is TRUE.")
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()
             if chip_data_for_calc.empty:

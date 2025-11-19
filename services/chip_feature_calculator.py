@@ -15,9 +15,10 @@ class ChipFeatureCalculator:
     """
     def __init__(self, daily_chips_df: pd.DataFrame, context_data: dict):
         """
-        【V12.1 · 逐笔数据兼容版】
+        【V12.2 · 逐笔数据兼容版 - 探针增强】
         - 核心重构: 建立“数据净化协议”，在入口处将所有可能为Decimal的上下文数据强制转换为float，根除类型不匹配错误。
         - 核心新增: 引入 `intraday_data` 作为统一的日内数据源，优先使用逐笔数据，否则回退到分钟数据。
+        - 【新增探针】在初始化时检查传入的 `intraday_data` 是否包含主力/散户买卖量。
         """
         self.df = daily_chips_df.reset_index(drop=True)
         self.ctx = context_data
@@ -35,6 +36,22 @@ class ChipFeatureCalculator:
         for key in decimal_to_float_fields:
             if key in self.ctx and isinstance(self.ctx[key], Decimal):
                 self.ctx[key] = float(self.ctx[key])
+        trade_date = self.ctx.get('trade_date', 'UNKNOWN')
+        debug_params = self.ctx.get('debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        is_probe_date = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
+            if probe_date_naive == trade_date:
+                is_probe_date = True
+        if is_probe_date:
+            intraday_data_received = self.ctx.get('intraday_data')
+            if intraday_data_received is not None and not intraday_data_received.empty:
+                print(f"    -> [计算器初始化探针] @ {trade_date}: ChipFeatureCalculator 接收到的 intraday_data 检查。")
+                print(f"       - 'main_force_sell_vol' sum: {intraday_data_received['main_force_sell_vol'].sum():.2f}")
+                print(f"       - 'retail_sell_vol' sum: {intraday_data_received['retail_sell_vol'].sum():.2f}")
+            else:
+                print(f"    -> [计算器初始化探针] @ {trade_date}: ChipFeatureCalculator 接收到的 intraday_data 为空或 None。")
         self._prepare_intraday_data_features()
 
     def calculate_all_metrics(self) -> dict:
@@ -90,7 +107,7 @@ class ChipFeatureCalculator:
 
     def _prepare_intraday_data_features(self):
         """
-        【V2.12 · 日内数据列完整性修复版 - 探针增强】准备日内数据特征，统一处理为分钟级别数据。
+        【V2.13 · 日内数据列完整性修复版 - 探针增强】准备日内数据特征，统一处理为分钟级别数据。
         - 核心进化: 能够直接处理由上游服务传入的、已经聚合和归因完毕的分钟数据。
         - 核心逻辑: 假设传入的 `intraday_data` 已经是分钟级别数据，并进行标准化处理。
         - 核心修复: 调整 `amount_yuan` 和 `vol_shares` 的创建顺序，确保在计算 `minute_vwap` 前它们已存在。
@@ -100,7 +117,6 @@ class ChipFeatureCalculator:
         intraday_df = self.ctx.get('intraday_data')
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
-        # 新增行：获取调试参数
         debug_params = self.ctx.get('debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         is_probe_date = False
@@ -108,38 +124,39 @@ class ChipFeatureCalculator:
             probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
             if probe_date_naive == trade_date:
                 is_probe_date = True
-
         if intraday_df is None or intraday_df.empty:
             logger.warning(f"[{stock_code}] [{trade_date}] 日内数据特征准备跳过，原因：日内数据(intraday_data)为空。")
             self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
             return
+        if is_probe_date:
+            print(f"    -> [日内数据特征探针] @ {trade_date}: _prepare_intraday_data_features 接收到的 intraday_df 列：{list(intraday_df.columns)}")
+            if 'main_force_sell_vol' in intraday_df.columns:
+                print(f"       - 初始 intraday_df['main_force_sell_vol'] sum: {intraday_df['main_force_sell_vol'].sum():.2f}")
+            if 'retail_sell_vol' in intraday_df.columns:
+                print(f"       - 初始 intraday_df['retail_sell_vol'] sum: {intraday_df['retail_sell_vol'].sum():.2f}")
         processed_intraday_df = intraday_df.copy()
-        # 1. 转换核心列为数值类型
         dtype_map = {'amount': 'float32', 'vol': 'int32', 'open': 'float32', 'close': 'float32', 'high': 'float32', 'low': 'float32'}
         for col, dtype in dtype_map.items():
             if col in processed_intraday_df.columns:
                 processed_intraday_df[col] = pd.to_numeric(processed_intraday_df[col], errors='coerce').astype(dtype, errors='ignore')
-        # 2. 确保 'amount_yuan' 和 'vol_shares' 存在
-        # 确保 vol_shares 在 minute_vwap 之前创建
         if 'vol_shares' not in processed_intraday_df.columns:
             if 'vol' in processed_intraday_df.columns:
                 processed_intraday_df['vol_shares'] = processed_intraday_df['vol']
             else:
-                processed_intraday_df['vol_shares'] = 0.0 # 如果原始 'vol' 也缺失，则默认为0
-        # 确保 amount_yuan 在 minute_vwap 之前创建
+                processed_intraday_df['vol_shares'] = 0.0
         if 'amount_yuan' not in processed_intraday_df.columns:
             if 'amount' in processed_intraday_df.columns:
                 processed_intraday_df['amount_yuan'] = processed_intraday_df['amount']
             else:
-                processed_intraday_df['amount_yuan'] = 0.0 # 如果原始 'amount' 也缺失，则默认为0
-        # 3. 计算 'minute_vwap' (现在 'amount_yuan' 和 'vol_shares' 保证存在)
+                processed_intraday_df['amount_yuan'] = 0.0
         if 'minute_vwap' not in processed_intraday_df.columns:
             processed_intraday_df['minute_vwap'] = processed_intraday_df['amount_yuan'] / processed_intraday_df['vol_shares'].replace(0, np.nan)
-        # 4. 确保资金流相关列存在
         fund_flow_cols = ['main_force_net_vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol', 'buy_vol_raw', 'sell_vol_raw', 'retail_net_vol']
         for col in fund_flow_cols:
             if col not in processed_intraday_df.columns:
                 processed_intraday_df[col] = 0.0
+                if is_probe_date:
+                    print(f"    -> [日内数据特征探针] @ {trade_date}: 列 '{col}' 不存在，已初始化为 0.0。")
         if processed_intraday_df.empty:
             self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
             return
@@ -159,7 +176,6 @@ class ChipFeatureCalculator:
         else:
             self.ctx.update({'volume_above_vwap_ratio': 0.0, 'volume_below_vwap_ratio': 0.0})
         self.ctx['processed_intraday_df'] = processed_intraday_df
-        # 新增探针：检查 processed_intraday_df 的最终状态
         if is_probe_date:
             print(f"    -> [日内数据特征探针] @ {trade_date}: 'processed_intraday_df' 最终状态：")
             print(f"       - 是否为空: {processed_intraday_df.empty}")
