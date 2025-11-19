@@ -14,52 +14,21 @@ class ChipFeatureCalculator:
     - 核心重构: 本类现在是所有筹码指标计算的唯一核心，接收原始数据并完成所有计算。
     - 逻辑注入: 新增了成交量微观结构和筹码集中度动态归因的计算逻辑。
     """
-    def __init__(self, daily_chips_df: pd.DataFrame, context_data: dict):
-        """
-        【V12.2 · 逐笔数据兼容版 - 探针增强】
-        - 核心重构: 建立“数据净化协议”，在入口处将所有可能为Decimal的上下文数据强制转换为float，根除类型不匹配错误。
-        - 核心新增: 引入 `intraday_data` 作为统一的日内数据源，优先使用逐笔数据，否则回退到分钟数据。
-        - 【新增探针】在初始化时检查传入的 `intraday_data` 是否包含主力/散户买卖量。
-        """
-        self.df = daily_chips_df.reset_index(drop=True)
-        self.ctx = context_data
-        if not self.df.empty:
-            percent_sum = self.df['percent'].sum()
-            if not np.isclose(percent_sum, 100.0) and percent_sum > 0:
-                self.df['percent'] = (self.df['percent'] / percent_sum) * 100.0
-        decimal_to_float_fields = [
-            'total_chip_volume', 'daily_turnover_volume', 'close_price', 'high_price', 'low_price', 'open_price',
-            'pre_close', 'prev_20d_close', 'circ_mv', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct',
-            'cost_95pct', 'weight_avg', 'winner_rate', 'prev_concentration_90pct', 'prev_winner_avg_cost',
-            'prev_total_chip_volume',
-            'prev_high_20d', 'prev_low_20d', 'prev_day_20d_ago_close'
-        ]
-        for key in decimal_to_float_fields:
-            if key in self.ctx and isinstance(self.ctx[key], Decimal):
-                self.ctx[key] = float(self.ctx[key])
-        trade_date = self.ctx.get('trade_date', 'UNKNOWN')
-        debug_params = self.ctx.get('debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        is_probe_date = False
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
-            if probe_date_naive == trade_date:
-                is_probe_date = True
-        if is_probe_date:
-            intraday_data_received = self.ctx.get('intraday_data')
-            if intraday_data_received is not None and not intraday_data_received.empty:
-                print(f"    -> [计算器初始化探针] @ {trade_date}: ChipFeatureCalculator 接收到的 intraday_data 检查。")
-                if 'main_force_sell_vol' in intraday_data_received.columns:
-                    print(f"       - 'main_force_sell_vol' sum: {intraday_data_received['main_force_sell_vol'].sum():.2f}")
-                else:
-                    print(f"       - 'main_force_sell_vol' 列缺失。")
-                if 'retail_sell_vol' in intraday_data_received.columns:
-                    print(f"       - 'retail_sell_vol' sum: {intraday_data_received['retail_sell_vol'].sum():.2f}")
-                else:
-                    print(f"       - 'retail_sell_vol' 列缺失。")
-            else:
-                print(f"    -> [计算器初始化探针] @ {trade_date}: ChipFeatureCalculator 接收到的 intraday_data 为空或 None。")
-        self._prepare_intraday_data_features()
+    def __init__(self, df: pd.DataFrame, context: dict):
+        self.df = df # 筹码分布数据
+        self.context = context
+        # 从 context 中获取日内数据、交易日期和调试参数
+        intraday_data_raw = self.context.get('intraday_data', pd.DataFrame())
+        trade_date = self.context.get('trade_date')
+        debug_params = self.context.get('debug_params', {})
+        # 调用 _prepare_intraday_data_features 进行预处理
+        self.processed_intraday_df = self._prepare_intraday_data_features(intraday_data_raw, trade_date, debug_params)
+        # 将处理后的日内数据存入 context，供后续方法使用
+        self.context['processed_intraday_df'] = self.processed_intraday_df
+        # 初始化其他属性
+        self.stock_code = context.get('stock_code')
+        self.trade_date = context.get('trade_date')
+        self.debug_params = debug_params
 
     def calculate_all_metrics(self) -> dict:
         """
