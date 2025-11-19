@@ -820,6 +820,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         import json
         import os
         from django.conf import settings
+        import copy # 修改行：导入 copy 模块
         print(f"--- [任务启动探针] 耦合计算任务 precompute_advanced_chips_for_stock ---")
         print(f"  -> 股票代码: {stock_code}")
         print(f"  -> 运行模式: {'增量' if incremental_flag else '全量'}")
@@ -945,14 +946,14 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index, tick_data_map=seed_data_dfs["stock_tick_data_map"], level5_data_map=seed_data_dfs["stock_level5_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
                 _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df, tick_data_map=seed_data_dfs["stock_tick_data_map"], level5_data_map=seed_data_dfs["stock_level5_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
                 # 修改行：对 seed_ff_minute_map 进行深拷贝
-                seed_ff_minute_map_copied = {k: v.copy(deep=True) for k, v in seed_ff_minute_map.items()}
+                seed_ff_minute_map_for_chip_service = copy.deepcopy(seed_ff_minute_map) # 修改行：对字典本身进行深拷贝
                 seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "cyq_perf": seed_data_dfs["cyq_perf"]}
                 seed_chip_raw_df = chip_service._preprocess_and_merge_data(
                     stock_code, seed_chip_data_dfs, seed_base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
                     high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
                 )
                 seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max(), tick_data_map=seed_data_dfs["stock_tick_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
-                _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map_copied, memory={}, historical_components=historical_components_df, debug_params=debug_params, tick_data_map=seed_data_dfs["stock_tick_data_map"])
+                _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map_for_chip_service, memory={}, historical_components=historical_components_df, debug_params=debug_params, tick_data_map=seed_data_dfs["stock_tick_data_map"])
             else:
                 logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
@@ -1004,19 +1005,32 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 stock_code, fund_flow_raw_df, tick_data_map=tick_data_map, level5_data_map=level5_data_map, minute_data_map=minute_data_map
             )
             all_failures.extend(ff_failures)
-            probe_date_naive = pd.to_datetime(debug_params.get('probe_dates', [None])[0]).date() if debug_params.get('probe_dates') and debug_params.get('probe_dates')[0] else None
-            if probe_date_naive and probe_date_naive in fund_flow_attributed_minute_map:
-                probe_df = fund_flow_attributed_minute_map[probe_date_naive]
-                if 'main_force_sell_vol' in probe_df.columns:
-                    print(f"    -> [任务调度器探针] @ {probe_date_naive}: fund_flow_attributed_minute_map['main_force_sell_vol'] sum: {probe_df['main_force_sell_vol'].sum():.2f}")
-                else:
-                    print(f"    -> [任务调度器探针] @ {probe_date_naive}: fund_flow_attributed_minute_map 缺少 'main_force_sell_vol' 列。")
-                if 'retail_sell_vol' in probe_df.columns:
-                    print(f"    -> [任务调度器探针] @ {probe_date_naive}: fund_flow_attributed_minute_map['retail_sell_vol'] sum: {probe_df['retail_sell_vol'].sum():.2f}")
-                else:
-                    print(f"    -> [任务调度器探针] @ {probe_date_naive}: fund_flow_attributed_minute_map 缺少 'retail_sell_vol' 列。")
+            
             # 修改行：对 fund_flow_attributed_minute_map 进行深拷贝，确保传递给 chip_service 的数据完整性
-            fund_flow_attributed_minute_map_copied = {k: v.copy(deep=True) for k, v in fund_flow_attributed_minute_map.items()}
+            fund_flow_attributed_minute_map_for_chip_service = copy.deepcopy(fund_flow_attributed_minute_map)
+
+            probe_date_naive = pd.to_datetime(debug_params.get('probe_dates', [None])[0]).date() if debug_params.get('probe_dates') and debug_params.get('probe_dates')[0] else None
+            if probe_date_naive:
+                print(f"    -> [任务调度器探针-传递前] @ {probe_date_naive}: fund_flow_attributed_minute_map_for_chip_service (传递前) 检查。")
+                print(f"       - 对象类型: {type(fund_flow_attributed_minute_map_for_chip_service)}")
+                print(f"       - 对象ID: {id(fund_flow_attributed_minute_map_for_chip_service)}")
+                print(f"       - 包含的日期键: {list(fund_flow_attributed_minute_map_for_chip_service.keys())}")
+                if probe_date_naive in fund_flow_attributed_minute_map_for_chip_service:
+                    probe_df = fund_flow_attributed_minute_map_for_chip_service[probe_date_naive]
+                    if 'main_force_sell_vol' in probe_df.columns:
+                        print(f"       - 'main_force_sell_vol' sum: {probe_df['main_force_sell_vol'].sum():.2f}")
+                    else:
+                        print(f"       - 'main_force_sell_vol' 列缺失。")
+                    if 'retail_sell_vol' in probe_df.columns:
+                        print(f"       - 'retail_sell_vol' sum: {probe_df['retail_sell_vol'].sum():.2f}")
+                    else:
+                        print(f"       - 'retail_sell_vol' 列缺失。")
+                    print(f"       - 包含的列: {list(probe_df.columns)}")
+                else:
+                    print(f"       - fund_flow_attributed_minute_map_for_chip_service 不包含日期 {probe_date_naive}。")
+            else:
+                print(f"    -> [任务调度器探针-传递前] probe_date_naive 未设置。")
+
             chip_data_dfs = {"cyq_chips": data_dfs["cyq_chips"], "cyq_perf": data_dfs["cyq_perf"]}
             chip_raw_df = chip_service._preprocess_and_merge_data(
                 stock_code, chip_data_dfs, base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
@@ -1026,7 +1040,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 stock_info, chunk_dates.min(), chunk_dates.max(), tick_data_map=tick_data_map, minute_data_map=minute_data_map
             )
             chip_metrics_df, cross_chunk_memory, chunk_failures = chip_service._synthesize_and_forge_metrics(
-                stock_info, chip_raw_df, minute_data_map_for_chip, fund_flow_attributed_minute_map_copied, memory=cross_chunk_memory, historical_components=historical_components_df, debug_params=debug_params, tick_data_map=tick_data_map
+                stock_info, chip_raw_df, minute_data_map_for_chip, fund_flow_attributed_minute_map_for_chip_service, memory=cross_chunk_memory, historical_components=historical_components_df, debug_params=debug_params, tick_data_map=tick_data_map
             )
             all_failures.extend(chunk_failures)
             chunk_core_metrics_df = fund_flow_metrics_df.join(chip_metrics_df, how='outer')
