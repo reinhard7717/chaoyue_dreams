@@ -138,88 +138,59 @@ class ChipFeatureCalculator:
         all_metrics.pop('peak_range_high', None)
         return all_metrics
 
-    def _prepare_intraday_data_features(self):
-        """
-        【V2.13 · 日内数据列完整性修复版 - 探针增强】准备日内数据特征，统一处理为分钟级别数据。
-        - 核心进化: 能够直接处理由上游服务传入的、已经聚合和归因完毕的分钟数据。
-        - 核心逻辑: 假设传入的 `intraday_data` 已经是分钟级别数据，并进行标准化处理。
-        - 核心修复: 调整 `amount_yuan` 和 `vol_shares` 的创建顺序，确保在计算 `minute_vwap` 前它们已存在。
-        - 【新增】确保 `retail_net_vol` 列在 `processed_intraday_df` 中被正确初始化。
-        - 【新增探针】增加探针，检查 `processed_intraday_df` 的最终状态，包括是否为空、总成交量和行数，以及 `main_force_sell_vol` 和 `retail_sell_vol` 的总和。
-        """
-        intraday_df = self.ctx.get('intraday_data')
-        stock_code = self.ctx.get('stock_code', 'UNKNOWN')
-        trade_date = self.ctx.get('trade_date', 'UNKNOWN')
-        debug_params = self.ctx.get('debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
+    def _prepare_intraday_data_features(self, intraday_df: pd.DataFrame, trade_date: datetime.date, debug_params: dict) -> pd.DataFrame:
+        import pytz # 修改行：导入 pytz 模块
+        results = {}
         is_probe_date = False
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
-            if probe_date_naive == trade_date:
-                is_probe_date = True
-        if intraday_df is None or intraday_df.empty:
-            logger.warning(f"[{stock_code}] [{trade_date}] 日内数据特征准备跳过，原因：日内数据(intraday_data)为空。")
-            self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
-            return
+        if debug_params.get('probe_dates') and trade_date == pd.to_datetime(debug_params['probe_dates'][0]).date():
+            is_probe_date = True
+        if is_probe_date:
+            print(f"    -> [日内数据特征探针] @ {trade_date}: _prepare_intraday_data_features 接收到的 intraday_df 索引状态：")
+            if not intraday_df.empty:
+                print(f"       - 索引类型: {type(intraday_df.index)}")
+                print(f"       - 索引时区: {intraday_df.index.tz}")
+                print(f"       - 索引前5个时间 (原始): {[t.strftime('%Y-%m-%d %H:%M:%S%z') for t in intraday_df.index[:5].tolist()]}")
+            else:
+                print(f"       - intraday_df 为空。")
+        if intraday_df.empty:
+            if is_probe_date:
+                print(f"    -> [日内数据特征探针] @ {trade_date}: _prepare_intraday_data_features 接收到空 intraday_df。")
+            return pd.DataFrame()
+        required_cols = ['open', 'high', 'low', 'close', 'vol', 'amount', 'buy_vol_raw', 'sell_vol_raw', 'amount_yuan', 'vol_shares', 'minute_vwap', 'vol_weight', 'sm_buy_weight', 'sm_sell_weight', 'md_buy_weight', 'md_sell_weight', 'lg_buy_weight', 'lg_sell_weight', 'elg_buy_weight', 'elg_sell_weight', 'sm_buy_vol_attr', 'sm_sell_vol_attr', 'md_buy_vol_attr', 'md_sell_vol_attr', 'lg_buy_vol_attr', 'lg_sell_vol_attr', 'elg_buy_vol_attr', 'elg_sell_vol_attr', 'main_force_buy_vol', 'main_force_sell_vol', 'main_force_net_vol', 'retail_buy_vol', 'retail_sell_vol', 'retail_net_vol']
+        missing_cols = [col for col in required_cols if col not in intraday_df.columns]
+        if missing_cols:
+            if is_probe_date:
+                print(f"    -> [日内数据特征探针] @ {trade_date}: intraday_df 缺少列: {missing_cols}。")
+            return pd.DataFrame()
         if is_probe_date:
             print(f"    -> [日内数据特征探针] @ {trade_date}: _prepare_intraday_data_features 接收到的 intraday_df 列：{list(intraday_df.columns)}")
-            if 'main_force_sell_vol' in intraday_df.columns:
-                print(f"       - 初始 intraday_df['main_force_sell_vol'] sum: {intraday_df['main_force_sell_vol'].sum():.2f}")
-            else:
-                print(f"       - 初始 intraday_df 缺少 'main_force_sell_vol' 列。")
-            if 'retail_sell_vol' in intraday_df.columns:
-                print(f"       - 初始 intraday_df['retail_sell_vol'] sum: {intraday_df['retail_sell_vol'].sum():.2f}")
-            else:
-                print(f"       - 初始 intraday_df 缺少 'retail_sell_vol' 列。")
-        processed_intraday_df = intraday_df.copy()
-        dtype_map = {'amount': 'float32', 'vol': 'int32', 'open': 'float32', 'close': 'float32', 'high': 'float32', 'low': 'float32'}
-        for col, dtype in dtype_map.items():
-            if col in processed_intraday_df.columns:
-                processed_intraday_df[col] = pd.to_numeric(processed_intraday_df[col], errors='coerce').astype(dtype, errors='ignore')
-        if 'vol_shares' not in processed_intraday_df.columns:
-            if 'vol' in processed_intraday_df.columns:
-                processed_intraday_df['vol_shares'] = processed_intraday_df['vol']
-            else:
-                processed_intraday_df['vol_shares'] = 0.0
-        if 'amount_yuan' not in processed_intraday_df.columns:
-            if 'amount' in processed_intraday_df.columns:
-                processed_intraday_df['amount_yuan'] = processed_intraday_df['amount']
-            else:
-                processed_intraday_df['amount_yuan'] = 0.0
-        if 'minute_vwap' not in processed_intraday_df.columns:
-            processed_intraday_df['minute_vwap'] = processed_intraday_df['amount_yuan'] / processed_intraday_df['vol_shares'].replace(0, np.nan)
-        fund_flow_cols = ['main_force_net_vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol', 'buy_vol_raw', 'sell_vol_raw', 'retail_net_vol']
-        for col in fund_flow_cols:
-            if col not in processed_intraday_df.columns:
-                processed_intraday_df[col] = 0.0
-                if is_probe_date:
-                    print(f"    -> [日内数据特征探针] @ {trade_date}: 列 '{col}' 不存在，已初始化为 0.0。")
-        if processed_intraday_df.empty:
-            self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': pd.DataFrame()})
-            return
-        total_amount_yuan = processed_intraday_df['amount_yuan'].sum()
-        total_vol_shares = processed_intraday_df['vol_shares'].sum()
-        daily_vwap = total_amount_yuan / total_vol_shares if total_vol_shares > 0 else None
-        self.ctx['daily_vwap'] = daily_vwap
-        if daily_vwap is None:
-            self.ctx.update({'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None, 'processed_intraday_df': processed_intraday_df})
-            return
-        vol_above_vwap = processed_intraday_df[processed_intraday_df['minute_vwap'] > daily_vwap]['vol_shares'].sum()
-        vol_below_vwap = processed_intraday_df[processed_intraday_df['minute_vwap'] < daily_vwap]['vol_shares'].sum()
-        total_vol = processed_intraday_df['vol_shares'].sum()
-        if total_vol > 0:
-            self.ctx['volume_above_vwap_ratio'] = vol_above_vwap / total_vol
-            self.ctx['volume_below_vwap_ratio'] = vol_below_vwap / total_vol
+            print(f"       - 初始 intraday_df['main_force_sell_vol'] sum: {intraday_df['main_force_sell_vol'].sum():.2f}")
+            print(f"       - 初始 intraday_df['retail_sell_vol'] sum: {intraday_df['retail_sell_vol'].sum():.2f}")
+        if not isinstance(intraday_df.index, pd.DatetimeIndex):
+            intraday_df.index = pd.to_datetime(intraday_df.index)
+        target_tz = pytz.timezone('Asia/Shanghai') # 修改行：明确目标时区
+        if intraday_df.index.tz is None:
+            intraday_df.index = intraday_df.index.tz_localize('UTC', ambiguous='infer').tz_convert(target_tz) # 修改行：使用 target_tz
+            if is_probe_date:
+                print(f"       - 索引被 tz_localize('UTC') 后 tz_convert('Asia/Shanghai')。")
         else:
-            self.ctx.update({'volume_above_vwap_ratio': 0.0, 'volume_below_vwap_ratio': 0.0})
-        self.ctx['processed_intraday_df'] = processed_intraday_df
+            intraday_df.index = intraday_df.index.tz_convert(target_tz) # 修改行：使用 target_tz
+            if is_probe_date:
+                print(f"       - 索引被 tz_convert('Asia/Shanghai')。")
+        if is_probe_date and not intraday_df.empty:
+            print(f"       - 索引前5个时间 (处理后): {[t.strftime('%Y-%m-%d %H:%M:%S%z') for t in intraday_df.index[:5].tolist()]}")
+        start_time = pd.to_datetime('09:25').time()
+        end_time = pd.to_datetime('15:00').time()
+        processed_intraday_df = intraday_df[(intraday_df.index.time >= start_time) & (intraday_df.index.time <= end_time)].copy()
         if is_probe_date:
             print(f"    -> [日内数据特征探针] @ {trade_date}: 'processed_intraday_df' 最终状态：")
             print(f"       - 是否为空: {processed_intraday_df.empty}")
             print(f"       - 行数: {len(processed_intraday_df)}")
-            print(f"       - 'vol_shares' 总和: {processed_intraday_df['vol_shares'].sum():.2f}")
-            print(f"       - 'main_force_sell_vol' 总和: {processed_intraday_df['main_force_sell_vol'].sum():.2f}")
-            print(f"       - 'retail_sell_vol' 总和: {processed_intraday_df['retail_sell_vol'].sum():.2f}")
+            if not processed_intraday_df.empty:
+                print(f"       - 'vol_shares' 总和: {processed_intraday_df['vol_shares'].sum():.2f}")
+                print(f"       - 'main_force_sell_vol' 总和: {processed_intraday_df['main_force_sell_vol'].sum():.2f}")
+                print(f"       - 'retail_sell_vol' 总和: {processed_intraday_df['retail_sell_vol'].sum():.2f}")
+        return processed_intraday_df
 
     def _get_summary_metrics_from_context(self) -> dict:
         """

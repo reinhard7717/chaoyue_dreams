@@ -544,13 +544,7 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, lookback_start_date, process_start_date, save_start_date
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex):
-    """
-    【V2.8 · 日内数据时区根源修复版】
-    - 核心修复: 修正 `_process_intraday_df_to_map` 中日内数据时区处理的根本性错误。如果数据库中的 `trade_time` 是 UTC naive datetime，应先 `tz_localize('UTC')` 再 `tz_convert('Asia/Shanghai')`。
-    - 核心优化: 移除 `_process_intraday_df_to_map` 中手动减去 8 小时的逻辑，避免与下游服务中的时区处理冲突，确保 `15:00` 竞价数据不被错误修改。
-    - 核心修正: 修复了 `get_intraday_data_async` 在未指定字段时返回不可迭代QuerySet的BUG。通过确保始终调用 `.values()`，保证了数据加载的健壮性。
-    - 核心修复: 确保 `_process_intraday_df_to_map` 返回的DataFrame具有 `DatetimeIndex`，以支持 `resample` 操作。
-    """
+    import pytz # 修改行：导入 pytz 模块
     from utils.model_helpers import (
         get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code,
         get_cyq_chips_model_by_code, get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code,
@@ -625,14 +619,18 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str) -> dict:
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])
-        # 修改行：如果 trade_time 是 naive，先将其本地化为 UTC，再转换为 Asia/Shanghai
+        target_tz = pytz.timezone('Asia/Shanghai') # 修改行：明确目标时区
+        if stock_code_for_log == '600475.SH': # 修改行：增加探针
+            print(f"    -> [时间修正探针] {stock_code_for_log} _process_intraday_df_to_map 初始状态：")
+            print(f"       - 原始 df['trade_time'].iloc[0]: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z') if df['trade_time'].iloc[0].tz is not None else df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')} (tz: {df['trade_time'].iloc[0].tz})")
         if df['trade_time'].dt.tz is None:
-            df['trade_time'] = df['trade_time'].dt.tz_localize('UTC', ambiguous='infer').dt.tz_convert('Asia/Shanghai')
-            if stock_code_for_log == '600475.SH': # 仅为调试目的，打印一次修正信息
-                print(f"    -> [时间修正探针] {stock_code_for_log} 检测到日内数据为 naive UTC，已修正为 Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
+            df['trade_time'] = df['trade_time'].dt.tz_localize('UTC', ambiguous='infer').dt.tz_convert(target_tz) # 修改行：使用 target_tz
+            if stock_code_for_log == '600475.SH':
+                print(f"    -> [时间修正探针] {stock_code_for_log} 检测到日内数据为 naive，已假定为 UTC 并修正为 Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
         else:
-            # 如果已经是 timezone-aware，直接转换为目标时区
-            df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_current_timezone())
+            df['trade_time'] = df['trade_time'].dt.tz_convert(target_tz) # 修改行：使用 target_tz
+            if stock_code_for_log == '600475.SH':
+                print(f"    -> [时间修正探针] {stock_code_for_log} 检测到日内数据已是 timezone-aware，已转换为 Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
         df = df.set_index('trade_time')
         grouped_data = {}
         for date, group_df in df.groupby(df.index.date):
