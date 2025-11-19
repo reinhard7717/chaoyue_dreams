@@ -1501,7 +1501,7 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_intraday_attribution_weights(self, intraday_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
         """
-        【V9.3 · 逐笔数据兼容版 - 价格范围零值修复 - 探针增强】
+        【V9.4 · 逐笔数据兼容版 - 价格范围零值修复 - 探针增强】
         - 核心革命: 废弃“一体适用”的权重模型，为超大单、大单、中单、小单引入各自独特的、基于行为特征的权重分配逻辑。
         - 核心思想:
           - 超大单(ELG) -> 脉冲修正: 权重集中在成交量和振幅剧增的“暴力分钟”。
@@ -1509,10 +1509,10 @@ class AdvancedFundFlowMetricsService:
           - 中单(MD) -> 动量修正: 权重与短期价格动量相关，体现追涨杀跌特性。
           - 小单(SM) -> 基准压力: 沿用原有的K线形态压力模型作为基准。
         - 核心修复: 修复了 `price_range` 为零时导致的 `decimal.InvalidOperation` 错误。
-        - 【新增探针】增加探针，检查提前返回的条件是否被触发。
+        - 【新增探针】增加探针，检查提前返回的条件是否被触发，以及 `buy_pressure_proxy` 和 `sell_score` 的中间计算结果。
+        - 【修正】修复 `impulse_modifier` 计算中 `price_range` 的错误使用。
         """
         df = intraday_data_for_day.copy()
-        # 新增行：获取调试参数
         trade_date = daily_data.name.date()
         debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -1521,23 +1521,26 @@ class AdvancedFundFlowMetricsService:
             probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
             if probe_date_naive == trade_date:
                 is_probe_date = True
-
+        if is_probe_date:
+            print(f"    -> [归因权重探针] @ {trade_date}: 开始计算归因权重。")
+            print(f"       - 传入df 'vol_shares' 总和: {df['vol_shares'].sum():.6f}")
+            print(f"       - 传入df 行数: {len(df)}")
         if 'vol_shares' not in df.columns or df['vol_shares'].sum() < 1e-6 or len(df) < 5:
             if is_probe_date:
                 print(f"    -> [归因权重探针] @ {trade_date}: 提前返回！原因：'vol_shares'总和 ({df['vol_shares'].sum():.6f}) < 1e-6 或 行数 ({len(df)}) < 5。")
             for size in ['sm', 'md', 'lg', 'elg']:
                 df[f'{size}_buy_weight'] = 0; df[f'{size}_sell_weight'] = 0
             return df
-        # 新增行: 确保价格列为浮点数类型，避免Decimal运算错误
         for col in ['open', 'high', 'low', 'close']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         price_range = df['high'] - df['low']
-        # 安全计算 buy_pressure_proxy_ratio，避免除以零
+        if is_probe_date:
+            print(f"       - price_range min: {price_range.min():.4f}, max: {price_range.max():.4f}, mean: {price_range.mean():.4f}")
         buy_pressure_proxy_ratio = np.where(
             price_range != 0,
             (df['close'] - df['low']) / price_range,
-            0.5 # 当 price_range 为 0 时，暂时设为中性值，后续 np.select 会覆盖
+            0.5
         )
         conditions = [
             price_range > 0,
@@ -1545,16 +1548,18 @@ class AdvancedFundFlowMetricsService:
             (price_range == 0) & (df['close'] < df['open'])
         ]
         choices = [
-            buy_pressure_proxy_ratio, # 当 price_range > 0 时使用此值
-            1.0,                      # 当 price_range == 0 且收盘价高于开盘价时
-            0.0                       # 当 price_range == 0 且收盘价低于开盘价时
+            buy_pressure_proxy_ratio,
+            1.0,
+            0.0
         ]
-        # np.select 的 default 参数处理 price_range == 0 且 close == open 的情况
         buy_pressure_proxy = np.select(conditions, choices, default=0.5)
+        if is_probe_date:
+            print(f"       - buy_pressure_proxy min: {buy_pressure_proxy.min():.4f}, max: {buy_pressure_proxy.max():.4f}, mean: {buy_pressure_proxy.mean():.4f}")
+            print(f"       - (1 - buy_pressure_proxy) min: {(1 - buy_pressure_proxy).min():.4f}, max: {(1 - buy_pressure_proxy).max():.4f}, mean: {(1 - buy_pressure_proxy).mean():.4f}")
         vol_ma = df['vol_shares'].rolling(window=20, min_periods=1).mean()
         range_ma = price_range.rolling(window=20, min_periods=1).mean()
-        # 确保 range_ma 不为0，避免除以零
-        impulse_modifier = (df['vol_shares'] / vol_ma) * (range_ma / range_ma.replace(0, 1e-9)) # 修改行：修正分母为 range_ma.replace(0, 1e-9)
+        # 修改行：修正 impulse_modifier 的计算，将分母从 range_ma 改回 price_range
+        impulse_modifier = (df['vol_shares'] / vol_ma) * (price_range / range_ma.replace(0, 1e-9))
         impulse_modifier = impulse_modifier.fillna(1).clip(0, 10)
         daily_vwap = daily_data.get('daily_vwap')
         if pd.notna(daily_vwap):
@@ -1583,6 +1588,9 @@ class AdvancedFundFlowMetricsService:
             df[f'{size}_buy_weight'] = buy_score / total_buy_score if total_buy_score > 1e-9 else 0
             total_sell_score = sell_score.sum()
             df[f'{size}_sell_weight'] = sell_score / total_sell_score if total_sell_score > 1e-9 else 0
+            if is_probe_date:
+                print(f"       - {size}_sell_score sum: {sell_score.sum():.6f}")
+                print(f"       - {size}_buy_score sum: {buy_score.sum():.6f}")
         return df
 
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):

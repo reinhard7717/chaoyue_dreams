@@ -1419,13 +1419,17 @@ class ChipFeatureCalculator:
             if probe_date_naive == trade_date:
                 is_probe_date = True
         intraday_df = ctx.get('processed_intraday_df', pd.DataFrame())
-        # 新增探针：检查 intraday_df 的状态
+        # 新增探针：检查 intraday_df 的状态和时间范围
         if is_probe_date:
             print(f"    -> [日内动态探针] @ {trade_date}: 'intraday_df' 状态：")
             print(f"       - 是否为空: {intraday_df.empty}")
             print(f"       - 行数: {len(intraday_df)}")
             if not intraday_df.empty and 'vol_shares' in intraday_df.columns:
                 print(f"       - 'vol_shares' 总和: {intraday_df['vol_shares'].sum():.2f}")
+                # 新增行：打印索引时间范围和样本时间
+                print(f"       - 'intraday_df' 索引时间范围: {intraday_df.index.min()} to {intraday_df.index.max()}")
+                print(f"       - 'intraday_df' 索引前5个时间: {[t.strftime('%H:%M:%S') for t in intraday_df.index[:5].tolist()]}")
+                print(f"       - 'intraday_df' 索引后5个时间: {[t.strftime('%H:%M:%S') for t in intraday_df.index[-5:].tolist()]}")
 
         daily_high = ctx.get('high_price')
         daily_low = ctx.get('low_price')
@@ -1453,9 +1457,15 @@ class ChipFeatureCalculator:
                 print(f"    -> [日内动态探针] @ {trade_date}: 'intraday_df' 为空，跳过计算。")
             return results
         # Opening 30min metrics
-        opening_30min_df = intraday_df[intraday_df.index.time < pd.to_datetime('10:00').time()]
+        # 修正：确保时间比较是针对本地化后的时间
+        opening_30min_start_time = pd.to_datetime('09:30').time()
+        opening_30min_end_time = pd.to_datetime('10:00').time()
+        opening_30min_df = intraday_df[(intraday_df.index.time >= opening_30min_start_time) & (intraday_df.index.time < opening_30min_end_time)]
         if is_probe_date and opening_30min_df.empty:
             print(f"    -> [日内动态探针] @ {trade_date}: 'opening_30min_df' 为空。")
+            print(f"       - 筛选条件: {opening_30min_start_time} <= time < {opening_30min_end_time}")
+            if not intraday_df.empty:
+                print(f"       - intraday_df 实际时间范围: {intraday_df.index.time.min()} to {intraday_df.index.time.max()}")
         if not opening_30min_df.empty:
             if is_probe_date and total_daily_volume <= 0:
                 print(f"    -> [日内动态探针] @ {trade_date}: 'total_daily_volume' 为 {total_daily_volume}。")
