@@ -62,7 +62,8 @@ class ChipFeatureCalculator:
 
     def calculate_all_metrics(self) -> dict:
         """
-        【V15.1 · 微观博弈整合版】
+        【V15.2 · 利润实现质量计算顺序修复版】
+        - 核心修复: 调整 `profit_realization_quality` 的计算顺序，确保其依赖的 `profit_taking_flow_ratio` 已在上下文中。
         - 核心新增: 增加第六个计算单元 `_compute_microstructure_game_metrics`，专门负责计算基于高频数据的筹码微观博弈指标。
         - 核心重构: 废除中间调度方法，由本方法直接指挥六大计算单元，实现扁平化、高效的指挥链。
         - 核心思想: 将所有计算逻辑整合为六个高度内聚的“合成营”方法，并按依赖顺序依次执行。
@@ -87,6 +88,31 @@ class ChipFeatureCalculator:
         self.ctx.update(intraday_dynamics_metrics)
         cross_day_flow_metrics = self._compute_cross_day_flow_metrics(self.ctx)
         self.ctx.update(cross_day_flow_metrics)
+        # 修改行：将 profit_realization_quality 的计算移到此处，确保依赖项已在上下文中
+        debug_params = self.ctx.get('debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        is_probe_date = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
+            if probe_date_naive == trade_date:
+                is_probe_date = True
+        winner_profit_margin_avg = self.ctx.get('winner_profit_margin_avg')
+        total_winner_rate = self.ctx.get('total_winner_rate')
+        profit_taking_flow_ratio = self.ctx.get('profit_taking_flow_ratio')
+        if profit_taking_flow_ratio is None:
+            profit_taking_flow_ratio = np.nan
+        profit_realization_quality = np.nan
+        if is_probe_date and pd.isna(winner_profit_margin_avg):
+            print(f"    -> [利润实现质量探针] @ {trade_date}: 'winner_profit_margin_avg' 缺失。")
+        if is_probe_date and pd.isna(total_winner_rate):
+            print(f"    -> [利润实现质量探针] @ {trade_date}: 'total_winner_rate' 缺失。")
+        if is_probe_date and pd.isna(profit_taking_flow_ratio):
+            print(f"    -> [利润实现质量探针] @ {trade_date}: 'profit_taking_flow_ratio' 缺失。")
+        if is_probe_date and pd.notna(profit_taking_flow_ratio) and profit_taking_flow_ratio <= 0:
+            print(f"    -> [利润实现质量探针] @ {trade_date}: 'profit_taking_flow_ratio' 为 {profit_taking_flow_ratio}。")
+        if pd.notna(winner_profit_margin_avg) and pd.notna(total_winner_rate) and pd.notna(profit_taking_flow_ratio) and profit_taking_flow_ratio > 0:
+            profit_realization_quality = (winner_profit_margin_avg * (total_winner_rate / 100)) / (profit_taking_flow_ratio / 100)
+        self.ctx['profit_realization_quality'] = profit_realization_quality
         game_theoretic_metrics = self._compute_game_theoretic_metrics(self.ctx)
         self.ctx.update(game_theoretic_metrics)
         vital_signs_metrics = self._compute_vital_sign_metrics(self.ctx)
@@ -102,6 +128,7 @@ class ChipFeatureCalculator:
             **game_theoretic_metrics,
             **vital_signs_metrics,
             **microstructure_game_metrics,
+            'profit_realization_quality': profit_realization_quality, # 修改行：将 profit_realization_quality 添加到最终结果
         }
         # 步骤4: 计算最终的健康分 (它依赖于之前计算出的所有指标)
         health_score_info = self._calculate_chip_structure_health_score(self.ctx)
@@ -938,7 +965,7 @@ class ChipFeatureCalculator:
                 is_probe_date = True
         close_price = self.ctx.get('close_price')
         atr_14d = self.ctx.get('atr_14d')
-        intraday_df = self.ctx.get('processed_intraday_df') # 获取日内数据
+        intraday_df = self.ctx.get('processed_intraday_df')
         results.update({
             'dominant_peak_cost': np.nan, 'dominant_peak_volume_ratio': np.nan,
             'secondary_peak_cost': np.nan, 'peak_separation_ratio': np.nan,
@@ -958,7 +985,7 @@ class ChipFeatureCalculator:
             'loser_pain_index': np.nan, 'cost_structure_skewness': np.nan,
             'structural_stability_score': np.nan, 'recent_trapped_pressure': np.nan,
             'imminent_profit_taking_supply': np.nan, 'price_volume_entropy': np.nan,
-            'profit_realization_quality': np.nan,
+            'profit_realization_quality': np.nan, # 修改行：初始化为 np.nan，但实际计算已移走
             'active_buying_support': np.nan,
             'active_selling_pressure': np.nan,
         })
@@ -1309,37 +1336,31 @@ class ChipFeatureCalculator:
         else:
             results['winner_profit_cushion'] = np.nan
             results['loser_pain_index'] = np.nan
-        # 新增：profit_realization_quality
-        winner_profit_margin_avg = results.get('winner_profit_margin_avg')
-        total_winner_rate = results.get('total_winner_rate')
-        # 修改行：确保 profit_taking_flow_ratio 是数值类型，即使它是 None 也转换为 np.nan
-        profit_taking_flow_ratio = self.ctx.get('profit_taking_flow_ratio')
-        if profit_taking_flow_ratio is None:
-            profit_taking_flow_ratio = np.nan
-
-        if is_probe_date and pd.isna(winner_profit_margin_avg):
-            print(f"    -> [静态结构探针] @ {trade_date}: 'winner_profit_margin_avg' 缺失。")
-        if is_probe_date and pd.isna(total_winner_rate):
-            print(f"    -> [静态结构探针] @ {trade_date}: 'total_winner_rate' 缺失。")
-        if is_probe_date and pd.isna(profit_taking_flow_ratio):
-            print(f"    -> [静态结构探针] @ {trade_date}: 'profit_taking_flow_ratio' 缺失。")
-        if is_probe_date and pd.notna(profit_taking_flow_ratio) and profit_taking_flow_ratio <= 0: # 修改行：增加 pd.notna 检查
-            print(f"    -> [静态结构探针] @ {trade_date}: 'profit_taking_flow_ratio' 为 {profit_taking_flow_ratio}。")
-
-        if pd.notna(winner_profit_margin_avg) and pd.notna(total_winner_rate) and pd.notna(profit_taking_flow_ratio) and profit_taking_flow_ratio > 0:
-            results['profit_realization_quality'] = (winner_profit_margin_avg * (total_winner_rate / 100)) / (profit_taking_flow_ratio / 100)
-        else:
-            results['profit_realization_quality'] = np.nan
-
+        # 修改行：移除 profit_realization_quality 的计算
+        # winner_profit_margin_avg = results.get('winner_profit_margin_avg')
+        # total_winner_rate = results.get('total_winner_rate')
+        # profit_taking_flow_ratio = self.ctx.get('profit_taking_flow_ratio')
+        # if profit_taking_flow_ratio is None:
+        #     profit_taking_flow_ratio = np.nan
+        # if is_probe_date and pd.isna(winner_profit_margin_avg):
+        #     print(f"    -> [静态结构探针] @ {trade_date}: 'winner_profit_margin_avg' 缺失。")
+        # if is_probe_date and pd.isna(total_winner_rate):
+        #     print(f"    -> [静态结构探针] @ {trade_date}: 'total_winner_rate' 缺失。")
+        # if is_probe_date and pd.isna(profit_taking_flow_ratio):
+        #     print(f"    -> [静态结构探针] @ {trade_date}: 'profit_taking_flow_ratio' 缺失。")
+        # if is_probe_date and pd.notna(profit_taking_flow_ratio) and profit_taking_flow_ratio <= 0:
+        #     print(f"    -> [静态结构探针] @ {trade_date}: 'profit_taking_flow_ratio' 为 {profit_taking_flow_ratio}。")
+        # if pd.notna(winner_profit_margin_avg) and pd.notna(total_winner_rate) and pd.notna(profit_taking_flow_ratio) and profit_taking_flow_ratio > 0:
+        #     results['profit_realization_quality'] = (winner_profit_margin_avg * (total_winner_rate / 100)) / (profit_taking_flow_ratio / 100)
+        # else:
+        #     results['profit_realization_quality'] = np.nan
         # 8. 成本分布形态分析
         results['cost_structure_skewness'] = self._calculate_cost_structure_skewness(self.ctx)
-
         # 9. 结构稳定性评估
         concentration_70pct = self.ctx.get('concentration_70pct')
         total_winner_rate_stability = results.get('total_winner_rate')
         winner_profit_cushion_stability = results.get('winner_profit_cushion')
         dominant_peak_profit_margin_stability = results.get('dominant_peak_profit_margin')
-
         if is_probe_date and pd.isna(concentration_70pct):
             print(f"    -> [静态结构探针] @ {trade_date}: 'concentration_70pct' 缺失。")
         if is_probe_date and pd.isna(total_winner_rate_stability):
@@ -1348,7 +1369,6 @@ class ChipFeatureCalculator:
             print(f"    -> [静态结构探针] @ {trade_date}: 'winner_profit_cushion' 缺失。")
         if is_probe_date and pd.isna(dominant_peak_profit_margin_stability):
             print(f"    -> [静态结构探针] @ {trade_date}: 'dominant_peak_profit_margin' 缺失。")
-
         if pd.notna(concentration_70pct) and pd.notna(total_winner_rate_stability) and pd.notna(winner_profit_cushion_stability) and pd.notna(dominant_peak_profit_margin_stability):
             concentration_score = np.exp(-5 * np.clip(concentration_70pct, 0, None))
             winner_rate_score = total_winner_rate_stability / 100.0
@@ -1365,13 +1385,11 @@ class ChipFeatureCalculator:
                 results['structural_stability_score'] = np.nan
         else:
             results['structural_stability_score'] = np.nan
-
         # 10. 近期套牢盘压力
         recent_5d_high = self.ctx.get('high_5d')
         recent_5d_low = self.ctx.get('low_5d')
         turnover_vol_5d = self.ctx.get('turnover_vol_5d')
         total_chip_volume = self.ctx.get('total_chip_volume', np.nan)
-
         if is_probe_date and pd.isna(recent_5d_high):
             print(f"    -> [静态结构探针] @ {trade_date}: 'high_5d' 缺失。")
         if is_probe_date and pd.isna(recent_5d_low):
@@ -1386,7 +1404,6 @@ class ChipFeatureCalculator:
             print(f"    -> [静态结构探针] @ {trade_date}: 'total_chip_volume' 缺失。")
         if is_probe_date and total_chip_volume <= 0:
             print(f"    -> [静态结构探针] @ {trade_date}: 'total_chip_volume' 为 {total_chip_volume}。")
-
         if pd.notna(recent_5d_high) and pd.notna(recent_5d_low) and pd.notna(turnover_vol_5d) and turnover_vol_5d > 0 and pd.notna(close_price) and pd.notna(total_chip_volume) and total_chip_volume > 0:
             trapped_mask = (self.df['price'] > close_price) & (self.df['price'] >= recent_5d_low) & (self.df['price'] <= recent_5d_high)
             recent_trapped_percent = self.df[trapped_mask]['percent'].sum()
@@ -1394,7 +1411,6 @@ class ChipFeatureCalculator:
             results['recent_trapped_pressure'] = (recent_trapped_vol / turnover_vol_5d) * 100
         else:
             results['recent_trapped_pressure'] = np.nan
-
         # 11. 潜在获利盘供给
         if is_probe_date and pd.isna(close_price):
             print(f"    -> [静态结构探针] @ {trade_date}: 'close_price' 缺失。")
@@ -1403,14 +1419,12 @@ class ChipFeatureCalculator:
             results['imminent_profit_taking_supply'] = self.df[imminent_supply_mask]['percent'].sum()
         else:
             results['imminent_profit_taking_supply'] = np.nan
-
         # 12. 价格成交量熵 (新增)
         intraday_df = self.ctx.get('processed_intraday_df')
         daily_high = self.ctx.get('high_price')
         daily_low = self.ctx.get('low_price')
         total_daily_volume = self.ctx.get('daily_turnover_volume')
         results['price_volume_entropy'] = self._calculate_price_volume_entropy(intraday_df, daily_high, daily_low, total_daily_volume)
-
         # 新增：active_buying_support 和 active_selling_pressure
         if is_probe_date and intraday_df is None:
             print(f"    -> [静态结构探针] @ {trade_date}: 'intraday_df' 为 None，无法计算主动买卖支撑/压力。")
@@ -1422,7 +1436,6 @@ class ChipFeatureCalculator:
             print(f"    -> [静态结构探针] @ {trade_date}: 'intraday_df' 缺少 'sell_vol_raw' 列。")
         if is_probe_date and total_daily_volume <= 0:
             print(f"    -> [静态结构探针] @ {trade_date}: 'total_daily_volume' 为 {total_daily_volume}。")
-
         if not intraday_df.empty and 'buy_vol_raw' in intraday_df.columns and 'sell_vol_raw' in intraday_df.columns and total_daily_volume > 0:
             total_buy_vol_intraday = intraday_df['buy_vol_raw'].sum()
             total_sell_vol_intraday = intraday_df['sell_vol_raw'].sum()
@@ -1431,7 +1444,6 @@ class ChipFeatureCalculator:
         else:
             results['active_buying_support'] = np.nan
             results['active_selling_pressure'] = np.nan
-
         return results
 
     def _compute_intraday_dynamics_metrics(self, ctx: dict) -> dict:
