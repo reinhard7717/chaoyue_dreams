@@ -317,23 +317,35 @@ class AdvancedFundFlowMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V10.8 · 数据流修复版】
+        【V10.9 · 数据流修复版 - 探针增强】
         - 核心修正: 调整对 `_calculate_probabilistic_costs` 的调用，以接收其返回的成本字典和完整归因后的分钟DataFrame，确保下游计算能获得必要的 `main_force_net_vol` 等列。
+        - 【新增探针】检查 `attributed_minute_df` 中的主力/散户买卖量。
         """
         all_metrics_list = []
         attributed_minute_data_map = {}
         failures = []
+        debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
+        probe_dates_str = debug_params.get('probe_dates', [])
+        is_probe_date = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
         for trade_date, daily_data_series in merged_df.iterrows():
             date_obj = trade_date.date()
+            if is_probe_date and probe_date_naive == date_obj:
+                is_current_probe_date = True
+            else:
+                is_current_probe_date = False
             intraday_data = self._minute_df_daily_grouped.get(date_obj)
             if intraday_data is None or intraday_data.empty:
                 print(f"日内数据特征准备跳过，原因：日内数据(intraday_data)为空")
                 failures.append({'stock_code': stock_code, 'trade_date': str(date_obj), 'reason': '当日分钟线/逐笔聚合数据缺失'})
                 continue
             attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data, daily_data_series)
-            # 同时接收成本字典和完整归因后的DataFrame
             probabilistic_costs_dict, attributed_minute_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series)
-            # 将完整归因后的DataFrame传递给下游
+            if is_current_probe_date:
+                print(f"    -> [资金流合成探针] @ {date_obj}: attributed_minute_df 检查。")
+                print(f"       - attributed_minute_df['main_force_sell_vol'] sum: {attributed_minute_df['main_force_sell_vol'].sum():.2f}")
+                print(f"       - attributed_minute_df['retail_sell_vol'] sum: {attributed_minute_df['retail_sell_vol'].sum():.2f}")
             day_metrics, _ = self._calculate_all_metrics_for_day(
                 stock_code, daily_data_series, intraday_data, attributed_minute_df, probabilistic_costs_dict,
                 tick_data_map.get(date_obj) if tick_data_map else None,
@@ -739,18 +751,33 @@ class AdvancedFundFlowMetricsService:
 
     def _attribute_minute_volume_to_players(self, minute_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.0】将基础成交量归因为主力/散户的核心辅助函数。
+        【V1.1 · 探针增强版】将基础成交量归因为主力/散户的核心辅助函数。
         - 核心职责: 聚合基础的 *_vol_attr 列，生成 main_force_* 和 retail_* 级别的成交量列。
+        - 【新增探针】检查归因后的主力/散户买卖量。
         """
         df = minute_df.copy()
-        # 聚合计算主力成交量
+        trade_date = df.index[0].date() if not df.empty else 'UNKNOWN'
+        debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
+        probe_dates_str = debug_params.get('probe_dates', [])
+        is_probe_date = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
+            if probe_date_naive == trade_date:
+                is_probe_date = True
         df['main_force_buy_vol'] = df.get('lg_buy_vol_attr', 0) + df.get('elg_buy_vol_attr', 0)
         df['main_force_sell_vol'] = df.get('lg_sell_vol_attr', 0) + df.get('elg_sell_vol_attr', 0)
         df['main_force_net_vol'] = df['main_force_buy_vol'] - df['main_force_sell_vol']
-        # 聚合计算散户成交量
         df['retail_buy_vol'] = df.get('sm_buy_vol_attr', 0) + df.get('md_buy_vol_attr', 0)
         df['retail_sell_vol'] = df.get('sm_sell_vol_attr', 0) + df.get('md_sell_vol_attr', 0)
         df['retail_net_vol'] = df['retail_buy_vol'] - df['retail_sell_vol']
+        if is_probe_date:
+            print(f"    -> [归因聚合探针] @ {trade_date}: _attribute_minute_volume_to_players 内部检查。")
+            print(f"       - lg_sell_vol_attr sum: {df.get('lg_sell_vol_attr', pd.Series(0, index=df.index)).sum():.2f}") # 修改行：确保get返回Series
+            print(f"       - elg_sell_vol_attr sum: {df.get('elg_sell_vol_attr', pd.Series(0, index=df.index)).sum():.2f}") # 修改行：确保get返回Series
+            print(f"       - sm_sell_vol_attr sum: {df.get('sm_sell_vol_attr', pd.Series(0, index=df.index)).sum():.2f}") # 修改行：确保get返回Series
+            print(f"       - md_sell_vol_attr sum: {df.get('md_sell_vol_attr', pd.Series(0, index=df.index)).sum():.2f}") # 修改行：确保get返回Series
+            print(f"       - main_force_sell_vol sum (after agg): {df['main_force_sell_vol'].sum():.2f}")
+            print(f"       - retail_sell_vol sum (after agg): {df['retail_sell_vol'].sum():.2f}")
         return df
 
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:

@@ -149,8 +149,9 @@ class AdvancedChipMetricsService:
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
-        """【V4.7 · 日线价格字段修复版】
+        """【V4.8 · 日线价格字段修复版 - 探针增强】
         - 核心修复: 修正 `context_for_calc` 中 `low_price` 和 `high_price` 字段的获取，确保它们从 `context_data` 中正确获取 `_qfq` 后缀的列名。
+        - 【新增探针】检查 `enhanced_intraday_data` 中的主力/散户买卖量。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -167,10 +168,19 @@ class AdvancedChipMetricsService:
             ])
         hist_comp_dict = historical_components.to_dict('index') if historical_components is not None and not historical_components.empty else {}
         grouped_data = merged_df.groupby('trade_time')
-        required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq', 'open_qfq', 'high_qfq', 'low_qfq'] # 修改行：新增 'open_qfq', 'high_qfq', 'low_qfq'
+        required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq', 'open_qfq', 'high_qfq', 'low_qfq']
         is_first_day_in_batch = True
         debug_params = debug_params if debug_params is not None else {}
+        probe_dates_str = debug_params.get('probe_dates', [])
+        is_probe_date = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
+            date_obj = trade_date.date()
+            if is_probe_date and probe_date_naive == date_obj:
+                is_current_probe_date = True
+            else:
+                is_current_probe_date = False
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()
             if chip_data_for_calc.empty:
@@ -204,8 +214,8 @@ class AdvancedChipMetricsService:
             total_chip_volume_today = context_data.get('float_share', 0) * 10000
             context_for_calc.update({
                 'close_price': close_price_today,
-                'high_price': context_data.get('high_qfq'), # 修改行：从 high_qfq 获取
-                'low_price': context_data.get('low_qfq'),   # 修改行：从 low_qfq 获取
+                'high_price': context_data.get('high_qfq'),
+                'low_price': context_data.get('low_qfq'),
                 'open_price': context_data.get('open_qfq'),
                 'pre_close': context_data.get('pre_close_qfq'),
                 'daily_turnover_volume': context_data.get('vol', 0) * 100,
@@ -232,17 +242,16 @@ class AdvancedChipMetricsService:
                 context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
             else:
                 context_for_calc['historical_components'] = pd.DataFrame(columns=hist_comp_cols)
-            # 核心进化：明确日内数据的优先级
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
-                # 最高优先级：使用资金流服务处理后的、带有精确归因的分钟数据
                 enhanced_intraday_data = fund_flow_attributed_minute_map[trade_date]
                 print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用资金流服务提供的精确分钟数据。")
             else:
-                # 次高优先级：使用筹码服务处理后的分钟数据 (已包含从逐笔数据聚合的OHLC)
-                # minute_data_map 已经是 _load_minute_data_for_range 的结果，它已经处理了 tick_data_map
                 enhanced_intraday_data = minute_data_map.get(trade_date.date(), pd.DataFrame())
-                # print(f"调试信息: [{stock_code}] [{trade_date.date()}] ChipFeatureCalculator 使用筹码服务提供的分钟数据。")
             context_for_calc['intraday_data'] = enhanced_intraday_data
+            if is_current_probe_date:
+                print(f"    -> [筹码合成探针] @ {date_obj}: enhanced_intraday_data 检查。")
+                print(f"       - enhanced_intraday_data['main_force_sell_vol'] sum: {enhanced_intraday_data['main_force_sell_vol'].sum():.2f}")
+                print(f"       - enhanced_intraday_data['retail_sell_vol'] sum: {enhanced_intraday_data['retail_sell_vol'].sum():.2f}")
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
             if daily_metrics:
