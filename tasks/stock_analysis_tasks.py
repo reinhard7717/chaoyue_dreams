@@ -544,143 +544,124 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, lookback_start_date, process_start_date, save_start_date
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex):
-    """
-    【V2.6 · ORM健壮性修正版 - 日内数据时区与索引修复】
-    - 核心修正: 修复了 `get_intraday_data_async` 在未指定字段时返回不可迭代QuerySet的BUG。通过确保始终调用 `.values()`，保证了数据加载的健壮性。
-    - 核心修复: 修正 `_process_intraday_df_to_map` 中日内数据 `trade_time` 的时区处理逻辑，确保数据被正确归属到交易日。
-    - 核心修复: 确保 `_process_intraday_df_to_map` 返回的DataFrame具有 `DatetimeIndex`，以支持 `resample` 操作。
-    - 【新增】在 `_process_intraday_df_to_map` 中增加时间戳 8 小时偏移的修正逻辑。
-    """
-    from utils.model_helpers import (
-        get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code,
-        get_cyq_chips_model_by_code, get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code,
-        get_minute_data_model_by_code_and_timelevel
-    )
-    from stock_models.time_trade import StockDailyBasic, StockCyqPerf
-    from stock_models.stock_realtime import StockTickData_SH, StockTickData_SZ, StockTickData_CY, StockTickData_KC, StockTickData_BJ
-    from django.utils import timezone
-    from datetime import time, datetime, timedelta # 修改行：导入 timedelta
-    @sync_to_async(thread_sensitive=True)
-    def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', dates_list: list = None):
-        if not model or not dates_list: return pd.DataFrame()
-        qs = model.objects.filter(stock=stock_info_obj, **{f'{date_field}__in': dates_list})
-        return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
-    @sync_to_async(thread_sensitive=True)
-    def get_intraday_data_async(model, stock_info_obj, start_date: datetime.date, end_date: datetime.date, value_fields: tuple = None):
-        if not model or not start_date or not end_date: return pd.DataFrame()
-        start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
-        end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
-        qs = model.objects.filter(stock=stock_info_obj, trade_time__gte=start_datetime, trade_time__lte=end_datetime)
-        # 核心修正：无论 value_fields 是否存在，都调用 .values()
-        if value_fields:
-            qs = qs.values(*value_fields)
-        else:
-            qs = qs.values()
-        return pd.DataFrame.from_records(qs)
-    chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
-    tick_data_model = get_stock_tick_data_model_by_code(stock_info.stock_code)
-    level5_data_model = get_stock_level5_data_model_by_code(stock_info.stock_code)
-    minute_data_model = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
-    all_daily_fields = (
-        'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq', 'pre_close_qfq', 'pct_change'
-    )
-    all_daily_basic_fields = (
-        'trade_time', 'circ_mv', 'turnover_rate', 'float_share'
-    )
-    fund_flow_tushare_fields = (
-        'trade_time', 'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount',
-        'buy_md_vol', 'buy_md_amount', 'sell_md_vol', 'sell_md_amount',
-        'buy_lg_vol', 'buy_lg_amount', 'sell_lg_vol', 'sell_lg_amount',
-        'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount',
-        'net_mf_vol', 'net_mf_amount', 'trade_count'
-    )
-    chunk_dates_list = [d.date() for d in dates_in_chunk]
-    chunk_start_date = dates_in_chunk.min().date()
-    chunk_end_date = dates_in_chunk.max().date()
-    model_name_map = {
-        "cyq_chips": chip_model, "daily_data": daily_data_model, "daily_basic": StockDailyBasic,
-        "cyq_perf": StockCyqPerf, "fund_flow_tushare": get_fund_flow_model_by_code(stock_info.stock_code),
-        "fund_flow_ths": get_fund_flow_ths_model_by_code(stock_info.stock_code),
-        "fund_flow_dc": get_fund_flow_dc_model_by_code(stock_info.stock_code),
-        "stock_tick_data": tick_data_model, "stock_level5_data": level5_data_model,
-        "stock_minute_data": minute_data_model
-    }
-    data_tasks = {
-        "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), dates_list=chunk_dates_list),
-        "daily_data": get_data_async(daily_data_model, stock_info, fields=all_daily_fields, dates_list=chunk_dates_list),
-        "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=all_daily_basic_fields, dates_list=chunk_dates_list),
-        "cyq_perf": get_data_async(StockCyqPerf, stock_info, dates_list=chunk_dates_list),
-        "fund_flow_tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, fields=fund_flow_tushare_fields, dates_list=chunk_dates_list),
-        "fund_flow_ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
-        "fund_flow_dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
-        "stock_tick_data": get_intraday_data_async(tick_data_model, stock_info, start_date=chunk_start_date, end_date=chunk_end_date, value_fields=('trade_time', 'price', 'volume', 'amount', 'type')),
-        "stock_level5_data": get_intraday_data_async(level5_data_model, stock_info, start_date=chunk_start_date, end_date=chunk_end_date),
-        "stock_minute_data": get_intraday_data_async(minute_data_model, stock_info, start_date=chunk_start_date, end_date=chunk_end_date),
-    }
-    results = await asyncio.gather(*data_tasks.values())
-    data_dfs = dict(zip(data_tasks.keys(), results))
-    # 新增探针：在 _process_intraday_df_to_map 调用前打印原始日内数据的时间范围
-    if not data_dfs["stock_tick_data"].empty:
-        print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Tick Data原始时间范围: {data_dfs['stock_tick_data']['trade_time'].min()} to {data_dfs['stock_tick_data']['trade_time'].max()}")
-    if not data_dfs["stock_minute_data"].empty:
-        print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Minute Data原始时间范围: {data_dfs['stock_minute_data']['trade_time'].min()} to {data_dfs['stock_minute_data']['trade_time'].max()}")
-
-    def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str) -> dict: # 修改行：增加 stock_code_for_log 参数
-        if df.empty: return {}
-        df['trade_time'] = pd.to_datetime(df['trade_time'])
-        # 确保时区处理使用 Django 的当前时区
-        if df['trade_time'].dt.tz is None:
-            # 如果是naive时间，假设它是北京时间，然后本地化并转换为目标时区
-            # ambiguous='infer' 尝试处理夏令时/冬令时边界，但对于A股固定时区通常不是问题
-            df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai', ambiguous='infer')
-        else:
-            # 如果已经是timezone-aware，直接转换为目标时区
-            df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_current_timezone())
-
-        # 新增逻辑：检测并修正 8 小时偏移
-        # 假设正常的交易时间是 09:30-15:00
-        # 如果当前时间戳在 17:00-23:00 之间，且日期是当天，则很可能是 8 小时偏移
-        first_time = df['trade_time'].iloc[0]
-        # 检查是否在非交易时段（例如，下午5点到晚上11点），这通常是错误偏移的迹象
-        if first_time.hour >= 17 and first_time.hour <= 23:
-            # 进一步确认是否是当天的数据，避免跨日问题
-            # 并且检查是否与预期的交易日期的日期部分一致
-            expected_date = df['trade_time'].dt.date.iloc[0] # 获取当前DataFrame的日期
-            if first_time.date() == expected_date:
-                # 假设是 8 小时偏移，减去 8 小时
-                df['trade_time'] = df['trade_time'] - timedelta(hours=8)
-                print(f"    -> [时间修正探针] {stock_code_for_log} 检测到日内数据时间偏移，已将 {first_time.strftime('%Y-%m-%d %H:%M:%S%z')} 修正为 {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}。")
-            else:
-                print(f"    -> [时间修正探针] {stock_code_for_log} 检测到日内数据时间在非交易时段，但日期不匹配，未进行修正。原始时间: {first_time.strftime('%Y-%m-%d %H:%M:%S%z')}")
-
-        # 将 trade_time 设置为索引
-        df = df.set_index('trade_time')
-        grouped_data = {}
-        # 按 DatetimeIndex 的日期部分进行分组
-        for date, group_df in df.groupby(df.index.date):
-            grouped_data[date] = group_df
-        return grouped_data
-    
-    # 修改行：调用 _process_intraday_df_to_map 时传入 stock_info.stock_code
-    data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"], stock_info.stock_code)
-    data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"], stock_info.stock_code)
-    data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"], stock_info.stock_code)
-    for name, df in data_dfs.items():
-        if name in ["stock_tick_data_map", "stock_level5_data_map", "stock_minute_data_map"]:
-            continue
-        if df is None or df.empty:
-            if 'fund_flow_ths' in name or 'fund_flow_dc' in name:
-                data_dfs[name] = pd.DataFrame()
-                continue
-            if name in ["stock_tick_data", "stock_level5_data", "stock_minute_data"]:
-                print(f"调试信息: [{stock_info.stock_code}] [统一加载] 可选日内数据源 '{name}' 为空。")
-                continue
-            if name == "cyq_chips":
-                logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！查询日期列表: {chunk_dates_list}")
-            else:
-                logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！")
-            data_dfs[name] = pd.DataFrame()
-    return data_dfs
+  """
+  【V2.7 · 日内数据时间修正优化版】
+  - 核心优化: 移除 `_process_intraday_df_to_map` 中手动减去 8 小时的逻辑，避免与下游服务中的时区处理冲突，确保 `15:00` 竞价数据不被错误修改。
+  - 核心修正: 修复了 `get_intraday_data_async` 在未指定字段时返回不可迭代QuerySet的BUG。通过确保始终调用 `.values()`，保证了数据加载的健壮性。
+  - 核心修复: 修正 `_process_intraday_df_to_map` 中日内数据 `trade_time` 的时区处理逻辑，确保数据被正确归属到交易日。
+  - 核心修复: 确保 `_process_intraday_df_to_map` 返回的DataFrame具有 `DatetimeIndex`，以支持 `resample` 操作。
+  """
+  from utils.model_helpers import (
+      get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code,
+      get_cyq_chips_model_by_code, get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code,
+      get_minute_data_model_by_code_and_timelevel
+  )
+  from stock_models.time_trade import StockDailyBasic, StockCyqPerf
+  from stock_models.stock_realtime import StockTickData_SH, StockTickData_SZ, StockTickData_CY, StockTickData_KC, StockTickData_BJ
+  from django.utils import timezone
+  from datetime import time, datetime, timedelta
+  @sync_to_async(thread_sensitive=True)
+  def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', dates_list: list = None):
+      if not model or not dates_list: return pd.DataFrame()
+      qs = model.objects.filter(stock=stock_info_obj, **{f'{date_field}__in': dates_list})
+      return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
+  @sync_to_async(thread_sensitive=True)
+  def get_intraday_data_async(model, stock_info_obj, start_date: datetime.date, end_date: datetime.date, value_fields: tuple = None):
+      if not model or not start_date or not end_date: return pd.DataFrame()
+      start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
+      end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
+      qs = model.objects.filter(stock=stock_info_obj, trade_time__gte=start_datetime, trade_time__lte=end_datetime)
+      if value_fields:
+          qs = qs.values(*value_fields)
+      else:
+          qs = qs.values()
+      return pd.DataFrame.from_records(qs)
+  chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
+  tick_data_model = get_stock_tick_data_model_by_code(stock_info.stock_code)
+  level5_data_model = get_stock_level5_data_model_by_code(stock_info.stock_code)
+  minute_data_model = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
+  all_daily_fields = (
+      'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq', 'pre_close_qfq', 'pct_change'
+  )
+  all_daily_basic_fields = (
+      'trade_time', 'circ_mv', 'turnover_rate', 'float_share'
+  )
+  fund_flow_tushare_fields = (
+      'trade_time', 'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount',
+      'buy_md_vol', 'buy_md_amount', 'sell_md_vol', 'sell_md_amount',
+      'buy_lg_vol', 'buy_lg_amount', 'sell_lg_vol', 'sell_lg_amount',
+      'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount',
+      'net_mf_vol', 'net_mf_amount', 'trade_count'
+  )
+  chunk_dates_list = [d.date() for d in dates_in_chunk]
+  chunk_start_date = dates_in_chunk.min().date()
+  chunk_end_date = dates_in_chunk.max().date()
+  model_name_map = {
+      "cyq_chips": chip_model, "daily_data": daily_data_model, "daily_basic": StockDailyBasic,
+      "cyq_perf": StockCyqPerf, "fund_flow_tushare": get_fund_flow_model_by_code(stock_info.stock_code),
+      "fund_flow_ths": get_fund_flow_ths_model_by_code(stock_info.stock_code),
+      "fund_flow_dc": get_fund_flow_dc_model_by_code(stock_info.stock_code),
+      "stock_tick_data": tick_data_model, "stock_level5_data": level5_data_model,
+      "stock_minute_data": minute_data_model
+  }
+  data_tasks = {
+      "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), dates_list=chunk_dates_list),
+      "daily_data": get_data_async(daily_data_model, stock_info, fields=all_daily_fields, dates_list=chunk_dates_list),
+      "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=all_daily_basic_fields, dates_list=chunk_dates_list),
+      "cyq_perf": get_data_async(StockCyqPerf, stock_info, dates_list=chunk_dates_list),
+      "fund_flow_tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, fields=fund_flow_tushare_fields, dates_list=chunk_dates_list),
+      "fund_flow_ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
+      "fund_flow_dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
+      "stock_tick_data": get_intraday_data_async(tick_data_model, stock_info, start_date=chunk_start_date, end_date=chunk_end_date, value_fields=('trade_time', 'price', 'volume', 'amount', 'type')),
+      "stock_level5_data": get_intraday_data_async(level5_data_model, stock_info, start_date=chunk_start_date, end_date=chunk_end_date),
+      "stock_minute_data": get_intraday_data_async(minute_data_model, stock_info, start_date=chunk_start_date, end_date=chunk_end_date),
+  }
+  results = await asyncio.gather(*data_tasks.values())
+  data_dfs = dict(zip(data_tasks.keys(), results))
+  if not data_dfs["stock_tick_data"].empty:
+      print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Tick Data原始时间范围: {data_dfs['stock_tick_data']['trade_time'].min()} to {data_dfs['stock_tick_data']['trade_time'].max()}")
+  if not data_dfs["stock_minute_data"].empty:
+      print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Minute Data原始时间范围: {data_dfs['stock_minute_data']['trade_time'].min()} to {data_dfs['stock_minute_data']['trade_time'].max()}")
+  def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str) -> dict:
+      if df.empty: return {}
+      df['trade_time'] = pd.to_datetime(df['trade_time'])
+      if df['trade_time'].dt.tz is None:
+          df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai', ambiguous='infer')
+      else:
+          df['trade_time'] = df['trade_time'].dt.tz_convert(timezone.get_current_timezone())
+      # 修改行：移除 8 小时偏移修正逻辑
+      # first_time = df['trade_time'].iloc[0]
+      # if first_time.hour >= 17 and first_time.hour <= 23:
+      #     expected_date = df['trade_time'].dt.date.iloc[0]
+      #     if first_time.date() == expected_date:
+      #         df['trade_time'] = df['trade_time'] - timedelta(hours=8)
+      #         print(f"    -> [时间修正探针] {stock_code_for_log} 检测到日内数据时间偏移，已将 {first_time.strftime('%Y-%m-%d %H:%M:%S%z')} 修正为 {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}。")
+      #     else:
+      #         print(f"    -> [时间修正探针] {stock_code_for_log} 检测到日内数据时间在非交易时段，但日期不匹配，未进行修正。原始时间: {first_time.strftime('%Y-%m-%d %H:%M:%S%z')}")
+      df = df.set_index('trade_time')
+      grouped_data = {}
+      for date, group_df in df.groupby(df.index.date):
+          grouped_data[date] = group_df
+      return grouped_data
+  data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"], stock_info.stock_code)
+  data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"], stock_info.stock_code)
+  data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"], stock_info.stock_code)
+  for name, df in data_dfs.items():
+      if name in ["stock_tick_data_map", "stock_level5_data_map", "stock_minute_data_map"]:
+          continue
+      if df is None or df.empty:
+          if 'fund_flow_ths' in name or 'fund_flow_dc' in name:
+              data_dfs[name] = pd.DataFrame()
+              continue
+          if name in ["stock_tick_data", "stock_level5_data", "stock_minute_data"]:
+              print(f"调试信息: [{stock_info.stock_code}] [统一加载] 可选日内数据源 '{name}' 为空。")
+              continue
+          if name == "cyq_chips":
+              logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！查询日期列表: {chunk_dates_list}")
+          else:
+              logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！")
+          data_dfs[name] = pd.DataFrame()
+  return data_dfs
 
 # 核心定义“司令部”汇总任务
 @celery_app.task(name='tasks.stock_analysis_tasks.summarize_computation_failures', queue='celery')
