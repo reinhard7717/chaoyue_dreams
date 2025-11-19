@@ -543,53 +543,32 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
     # 核心修正：返回新的三级窗口日期
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, lookback_start_date, process_start_date, save_start_date
 
-async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex):
+async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex, cache_manager: CacheManager): # 修改行：增加 cache_manager 参数
     import pytz
     from utils.model_helpers import (
         get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code,
-        get_cyq_chips_model_by_code, get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code,
-        get_minute_data_model_by_code_and_timelevel
+        get_cyq_chips_model_by_code, # get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code, get_minute_data_model_by_code_and_timelevel # 修改行：移除不再需要的导入
     )
     from stock_models.time_trade import StockDailyBasic, StockCyqPerf
-    from stock_models.stock_realtime import StockTickData_SH, StockTickData_SZ, StockTickData_CY, StockTickData_KC, StockTickData_BJ
+    # from stock_models.stock_realtime import StockTickData_SH, StockTickData_SZ, StockTickData_CY, StockTickData_KC, StockTickData_BJ # 修改行：移除不再需要的导入
     from django.utils import timezone
     from datetime import time, datetime, timedelta
+    from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO # 修改行：导入 StockRealtimeDAO
+    from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO # 修改行：导入 StockTimeTradeDAO
+
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', dates_list: list = None):
         if not model or not dates_list: return pd.DataFrame()
         qs = model.objects.filter(stock=stock_info_obj, **{f'{date_field}__in': dates_list})
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
-    @sync_to_async(thread_sensitive=True)
-    def get_intraday_data_async(model, stock_info_obj, start_date: datetime.date, end_date: datetime.date, value_fields: tuple = None):
-        if not model or not start_date or not end_date: return pd.DataFrame()
-        start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
-        end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
-        qs = model.objects.filter(stock=stock_info_obj, trade_time__gte=start_datetime, trade_time__lte=end_datetime)
-        if value_fields:
-            qs = qs.values(*value_fields)
-        else:
-            qs = qs.values()
-        df = pd.DataFrame.from_records(qs)
-        if df.empty: return df
-        df['trade_time'] = pd.to_datetime(df['trade_time'])
-        # 修改行：增加探针，查看从数据库加载后的原始时区状态
-        if stock_info_obj.stock_code == '600475.SH':
-            print(f"    -> [原始数据加载探针] Stock: {stock_info_obj.stock_code}, get_intraday_data_async 原始加载状态：")
-            print(f"       - df['trade_time'].iloc[0]: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z') if df['trade_time'].iloc[0].tz is not None else df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')} (tz: {df['trade_time'].iloc[0].tz})")
-        # 修改行：标准化为 UTC aware datetime
-        if df['trade_time'].dt.tz is None:
-            df['trade_time'] = df['trade_time'].dt.tz_localize('UTC', ambiguous='infer')
-            if stock_info_obj.stock_code == '600475.SH':
-                print(f"    -> [原始数据加载探针] Stock: {stock_info_obj.stock_code}, get_intraday_data_async 修正为 naive UTC。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
-        else:
-            df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
-            if stock_info_obj.stock_code == '600475.SH':
-                print(f"    -> [原始数据加载探针] Stock: {stock_info_obj.stock_code}, get_intraday_data_async 转换为 UTC aware。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
-        return df
+    # 修改行：移除 get_intraday_data_async 辅助函数
+
+    # 修改行：实例化 DAO 对象
+    realtime_dao = StockRealtimeDAO(cache_manager_instance=cache_manager)
+    time_trade_dao = StockTimeTradeDAO(cache_manager_instance=cache_manager)
+
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
-    tick_data_model = get_stock_tick_data_model_by_code(stock_info.stock_code)
-    level5_data_model = get_stock_level5_data_model_by_code(stock_info.stock_code)
-    minute_data_model = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
+    # 修改行：移除 tick_data_model, level5_data_model, minute_data_model 的获取
     all_daily_fields = (
         'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq', 'pre_close_qfq', 'pct_change'
     )
@@ -606,14 +585,14 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     chunk_dates_list = [d.date() for d in dates_in_chunk]
     chunk_start_date = dates_in_chunk.min().date()
     chunk_end_date = dates_in_chunk.max().date()
+    # 修改行：移除 model_name_map 中日内数据模型的映射
     model_name_map = {
         "cyq_chips": chip_model, "daily_data": daily_data_model, "daily_basic": StockDailyBasic,
         "cyq_perf": StockCyqPerf, "fund_flow_tushare": get_fund_flow_model_by_code(stock_info.stock_code),
         "fund_flow_ths": get_fund_flow_ths_model_by_code(stock_info.stock_code),
         "fund_flow_dc": get_fund_flow_dc_model_by_code(stock_info.stock_code),
-        "stock_tick_data": tick_data_model, "stock_level5_data": level5_data_model,
-        "stock_minute_data": minute_data_model
     }
+    # 修改行：移除 data_tasks 中日内数据的获取
     data_tasks = {
         "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), dates_list=chunk_dates_list),
         "daily_data": get_data_async(daily_data_model, stock_info, fields=all_daily_fields, dates_list=chunk_dates_list),
@@ -622,25 +601,47 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         "fund_flow_tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, fields=fund_flow_tushare_fields, dates_list=chunk_dates_list),
         "fund_flow_ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
         "fund_flow_dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
-        "stock_tick_data": get_intraday_data_async(tick_data_model, stock_info, start_date=chunk_start_date, end_date=chunk_end_date, value_fields=('trade_time', 'price', 'volume', 'amount', 'type')),
-        "stock_level5_data": get_intraday_data_async(level5_data_model, stock_info, start_date=chunk_start_date, end_date=chunk_end_date),
-        "stock_minute_data": get_intraday_data_async(minute_data_model, stock_info, start_date=chunk_start_date, end_date=chunk_end_date),
     }
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
+
+    # 修改行：使用 DAO 获取日内数据
+    tick_data_df_list = []
+    level5_data_df_list = []
+    minute_data_df_list = []
+    for single_date in dates_in_chunk.date.unique():
+        # 获取 Tick Data
+        df_tick = await realtime_dao.get_daily_real_ticks(stock_info.stock_code, single_date.strftime('%Y-%m-%d'))
+        if df_tick is not None and not df_tick.empty:
+            tick_data_df_list.append(df_tick.reset_index())
+        # 获取 Level5 Data
+        _, df_level5 = await realtime_dao._get_single_stock_quotes_and_level5_from_db(stock_info.stock_code, single_date)
+        if df_level5 is not None and not df_level5.empty:
+            level5_data_df_list.append(df_level5.reset_index())
+        # 获取 Minute Data (1分钟级别)
+        df_minute = await time_trade_dao.get_intraday_kline_by_date(stock_info.stock_code, single_date, '1')
+        if df_minute is not None and not df_minute.empty:
+            minute_data_df_list.append(df_minute.reset_index())
+
+    data_dfs["stock_tick_data"] = pd.concat(tick_data_df_list) if tick_data_df_list else pd.DataFrame()
+    data_dfs["stock_level5_data"] = pd.concat(level5_data_df_list) if level5_data_df_list else pd.DataFrame()
+    data_dfs["stock_minute_data"] = pd.concat(minute_data_df_list) if minute_data_df_list else pd.DataFrame()
+
     if not data_dfs["stock_tick_data"].empty:
         print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Tick Data原始时间范围: {data_dfs['stock_tick_data']['trade_time'].min()} to {data_dfs['stock_tick_data']['trade_time'].max()}")
     if not data_dfs["stock_minute_data"].empty:
         print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Minute Data原始时间范围: {data_dfs['stock_minute_data']['trade_time'].min()} to {data_dfs['stock_minute_data']['trade_time'].max()}")
+
     def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str) -> dict:
         if df.empty: return {}
-        df['trade_time'] = pd.to_datetime(df['trade_time'])
+        # 修改行：由于 DAO 已经统一返回 UTC aware datetime，这里直接进行转换
+        df['trade_time'] = pd.to_datetime(df['trade_time']) # 确保是 datetime 类型
         target_tz = pytz.timezone('Asia/Shanghai')
         if stock_code_for_log == '600475.SH':
-            print(f"    -> [时间修正探针] {stock_code_for_log} _process_intraday_df_to_map 初始状态 (来自 get_intraday_data_async)：")
+            print(f"    -> [时间修正探针] {stock_code_for_log} _process_intraday_df_to_map 初始状态 (来自 DAO)：")
             print(f"       - 原始 df['trade_time'].iloc[0]: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z') if df['trade_time'].iloc[0].tz is not None else df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')} (tz: {df['trade_time'].iloc[0].tz})")
-        # 修改行：由于 get_intraday_data_async 已标准化为 UTC aware，这里直接进行转换
-        df['trade_time'] = df['trade_time'].dt.tz_convert(target_tz)
+        # 修改行：直接将 UTC aware 数据转换为 Asia/Shanghai
+        df['trade_time'] = df['trade_time'].dt.tz_convert(target_tz) # 修改行
         if stock_code_for_log == '600475.SH':
             print(f"    -> [时间修正探针] {stock_code_for_log} 已将 UTC aware 数据转换为 Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
         df = df.set_index('trade_time')
@@ -664,7 +665,7 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
             if name == "cyq_chips":
                 logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！查询日期列表: {chunk_dates_list}")
             else:
-                logger.error(f"[{stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！")
+                logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！")
             data_dfs[name] = pd.DataFrame()
     return data_dfs
 
@@ -815,9 +816,9 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.10 · 历史上下文初始化修复版 - 跨服务数据完整性修复】
-    - 核心修复: 确保 `context_df` 在循环开始前始终被正确初始化，避免 `UnboundLocalError`。
-    - 【关键修复】在将 `fund_flow_attributed_minute_map` 传递给 `chip_service` 之前，对其内部的每个 `DataFrame` 进行深拷贝，以确保跨服务传递时数据完整性。
+    【V34.11 · DAO集成与时区统一版】
+    - 核心修复: 废除任务直接操作数据库读取日内数据，改为通过 DAO 层统一获取和标准化时区。
+    - 核心修复: 修正 `_load_all_sources_unified` 的调用，传入 `cache_manager`。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -827,7 +828,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         import json
         import os
         from django.conf import settings
-        import copy # 修改行：导入 copy 模块
+        import copy
         print(f"--- [任务启动探针] 耦合计算任务 precompute_advanced_chips_for_stock ---")
         print(f"  -> 股票代码: {stock_code}")
         print(f"  -> 运行模式: {'增量' if incremental_flag else '全量'}")
@@ -940,7 +941,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         seed_date = await sync_to_async(TradeCalendar.get_trade_date_offset)(reference_date=first_processing_day, offset=-1)
         if seed_date:
             seed_chunk_dates = pd.DatetimeIndex([pd.to_datetime(seed_date)])
-            seed_data_dfs = await _load_all_sources_unified(stock_info, DailyModel, seed_chunk_dates)
+            seed_data_dfs = await _load_all_sources_unified(stock_info, DailyModel, seed_chunk_dates, cache_manager) # 修改行：传入 cache_manager
             if not seed_data_dfs["daily_data"].empty and not seed_data_dfs["daily_basic"].empty:
                 seed_daily_df = seed_data_dfs["daily_data"].set_index(pd.to_datetime(seed_data_dfs["daily_data"]['trade_time'])).drop(columns='trade_time')
                 seed_daily_basic_df = seed_data_dfs["daily_basic"].set_index(pd.to_datetime(seed_data_dfs["daily_basic"]['trade_time'])).drop(columns='trade_time')
@@ -952,8 +953,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=seed_base_daily_df)
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index, tick_data_map=seed_data_dfs["stock_tick_data_map"], level5_data_map=seed_data_dfs["stock_level5_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
                 _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df, tick_data_map=seed_data_dfs["stock_tick_data_map"], level5_data_map=seed_data_dfs["stock_level5_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
-                # 修改行：对 seed_ff_minute_map 进行深拷贝
-                seed_ff_minute_map_for_chip_service = copy.deepcopy(seed_ff_minute_map) # 修改行：对字典本身进行深拷贝
+                seed_ff_minute_map_for_chip_service = copy.deepcopy(seed_ff_minute_map)
                 seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "cyq_perf": seed_data_dfs["cyq_perf"]}
                 seed_chip_raw_df = chip_service._preprocess_and_merge_data(
                     stock_code, seed_chip_data_dfs, seed_base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
@@ -966,7 +966,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
-            data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_dates)
+            data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_dates, cache_manager) # 修改行：传入 cache_manager
             tick_data_map = data_dfs.pop("stock_tick_data_map")
             level5_data_map = data_dfs.pop("stock_level5_data_map")
             minute_data_map = data_dfs.pop("stock_minute_data_map")
@@ -1013,7 +1013,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             )
             all_failures.extend(ff_failures)
             
-            # 修改行：对 fund_flow_attributed_minute_map 进行深拷贝，确保传递给 chip_service 的数据完整性
             fund_flow_attributed_minute_map_for_chip_service = copy.deepcopy(fund_flow_attributed_minute_map)
 
             probe_date_naive = pd.to_datetime(debug_params.get('probe_dates', [None])[0]).date() if debug_params.get('probe_dates') and debug_params.get('probe_dates')[0] else None
@@ -1064,7 +1063,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             ff_derivatives = fund_flow_service._calculate_derivatives(stock_code, full_sequence_for_derivatives)
             chip_derivatives = chip_service._calculate_derivatives(full_sequence_for_derivatives)
             chunk_final_df = full_sequence_for_derivatives.join([ff_derivatives, chip_derivatives])
-            all_final_metrics_to_save = pd.concat([all_final_metrics_to_save, chunk_final_df[chunk_final_df.index.isin(chunk_dates)]])
+            all_final_metrics_to_save = pd.concat([all_final_metrics_to_save, chunk_final_df[chunk_final_df.index.date >= save_start_date]]) # 修改行：确保只保存 save_start_date 及之后的数据
             context_df = full_sequence_for_derivatives
         if not all_final_metrics_to_save.empty:
             if save_start_date:
