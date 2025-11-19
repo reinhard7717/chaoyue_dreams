@@ -543,32 +543,27 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
     # 核心修正：返回新的三级窗口日期
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, lookback_start_date, process_start_date, save_start_date
 
-async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex, cache_manager: CacheManager): # 修改行：增加 cache_manager 参数
+async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex, cache_manager: CacheManager):
     import pytz
     from utils.model_helpers import (
         get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code,
-        get_cyq_chips_model_by_code, # get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code, get_minute_data_model_by_code_and_timelevel # 修改行：移除不再需要的导入
     )
     from stock_models.time_trade import StockDailyBasic, StockCyqPerf
-    # from stock_models.stock_realtime import StockTickData_SH, StockTickData_SZ, StockTickData_CY, StockTickData_KC, StockTickData_BJ # 修改行：移除不再需要的导入
     from django.utils import timezone
     from datetime import time, datetime, timedelta
-    from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO # 修改行：导入 StockRealtimeDAO
-    from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO # 修改行：导入 StockTimeTradeDAO
+    from dao_manager.tushare_daos.realtime_data_dao import StockRealtimeDAO
+    from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', dates_list: list = None):
         if not model or not dates_list: return pd.DataFrame()
         qs = model.objects.filter(stock=stock_info_obj, **{f'{date_field}__in': dates_list})
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
-    # 修改行：移除 get_intraday_data_async 辅助函数
 
-    # 修改行：实例化 DAO 对象
     realtime_dao = StockRealtimeDAO(cache_manager_instance=cache_manager)
     time_trade_dao = StockTimeTradeDAO(cache_manager_instance=cache_manager)
 
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
-    # 修改行：移除 tick_data_model, level5_data_model, minute_data_model 的获取
     all_daily_fields = (
         'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq', 'pre_close_qfq', 'pct_change'
     )
@@ -585,14 +580,12 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     chunk_dates_list = [d.date() for d in dates_in_chunk]
     chunk_start_date = dates_in_chunk.min().date()
     chunk_end_date = dates_in_chunk.max().date()
-    # 修改行：移除 model_name_map 中日内数据模型的映射
     model_name_map = {
         "cyq_chips": chip_model, "daily_data": daily_data_model, "daily_basic": StockDailyBasic,
         "cyq_perf": StockCyqPerf, "fund_flow_tushare": get_fund_flow_model_by_code(stock_info.stock_code),
         "fund_flow_ths": get_fund_flow_ths_model_by_code(stock_info.stock_code),
         "fund_flow_dc": get_fund_flow_dc_model_by_code(stock_info.stock_code),
     }
-    # 修改行：移除 data_tasks 中日内数据的获取
     data_tasks = {
         "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), dates_list=chunk_dates_list),
         "daily_data": get_data_async(daily_data_model, stock_info, fields=all_daily_fields, dates_list=chunk_dates_list),
@@ -605,11 +598,11 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
 
-    # 修改行：使用 DAO 获取日内数据
     tick_data_df_list = []
     level5_data_df_list = []
     minute_data_df_list = []
-    for single_date in dates_in_chunk.date.unique():
+    # 修改行：使用 dates_in_chunk.normalize().unique().date 来获取唯一的日期对象
+    for single_date in dates_in_chunk.normalize().unique().date: # 修改行
         # 获取 Tick Data
         df_tick = await realtime_dao.get_daily_real_ticks(stock_info.stock_code, single_date.strftime('%Y-%m-%d'))
         if df_tick is not None and not df_tick.empty:
@@ -634,14 +627,12 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
 
     def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str) -> dict:
         if df.empty: return {}
-        # 修改行：由于 DAO 已经统一返回 UTC aware datetime，这里直接进行转换
-        df['trade_time'] = pd.to_datetime(df['trade_time']) # 确保是 datetime 类型
+        df['trade_time'] = pd.to_datetime(df['trade_time'])
         target_tz = pytz.timezone('Asia/Shanghai')
         if stock_code_for_log == '600475.SH':
             print(f"    -> [时间修正探针] {stock_code_for_log} _process_intraday_df_to_map 初始状态 (来自 DAO)：")
             print(f"       - 原始 df['trade_time'].iloc[0]: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z') if df['trade_time'].iloc[0].tz is not None else df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')} (tz: {df['trade_time'].iloc[0].tz})")
-        # 修改行：直接将 UTC aware 数据转换为 Asia/Shanghai
-        df['trade_time'] = df['trade_time'].dt.tz_convert(target_tz) # 修改行
+        df['trade_time'] = df['trade_time'].dt.tz_convert(target_tz)
         if stock_code_for_log == '600475.SH':
             print(f"    -> [时间修正探针] {stock_code_for_log} 已将 UTC aware 数据转换为 Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
         df = df.set_index('trade_time')
