@@ -1124,12 +1124,13 @@ class AdvancedFundFlowMetricsService:
                     results['pre_closing_posturing'] = np.nan
             else:
                 results['pre_closing_posturing'] = np.nan
-            # 修改行：使用 continuous_trading_df 的高低点来定义阈值，而不是全天的高低点
-            continuous_high = continuous_trading_df['high'].max()
-            continuous_low = continuous_trading_df['low'].min()
-            continuous_range = continuous_high - continuous_low
-            if continuous_range > 0:
-                fomo_zone_threshold = continuous_low + 0.75 * continuous_range # 修改行
+            # =================================================================
+            # 修改代码：修正FOMO和恐慌区域的定义基准
+            # 原始逻辑使用14:57前的日内高低点，这在逻辑上不准确。
+            # 新逻辑使用全天的最高价(day_high)和最低价(day_low)来定义价格区间，确保阈值的准确性。
+            day_range = day_high - day_low
+            if day_range > 0:
+                fomo_zone_threshold = day_low + 0.75 * day_range
                 fomo_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] > fomo_zone_threshold]
                 if not fomo_zone_df.empty and \
                    'retail_net_vol' in fomo_zone_df.columns and 'retail_buy_vol' in continuous_trading_df.columns and \
@@ -1152,7 +1153,7 @@ class AdvancedFundFlowMetricsService:
                         results['retail_fomo_premium_index'] = np.nan
                 else:
                     results['retail_fomo_premium_index'] = np.nan
-                panic_zone_threshold = continuous_low + 0.25 * continuous_range # 修改行
+                panic_zone_threshold = day_low + 0.25 * day_range
                 panic_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < panic_zone_threshold]
                 if not panic_zone_df.empty and \
                    'retail_net_vol' in panic_zone_df.columns and 'retail_sell_vol' in continuous_trading_df.columns and \
