@@ -527,14 +527,18 @@ class ChipFeatureCalculator:
         if pd.notna(close_price) and pd.notna(vwap) and vwap > 0:
             posture = (close_price / vwap - 1) * 100
             if pd.notna(peak_low) and pd.notna(peak_high) and peak_high > peak_low:
-                peak_vwap_df = intraday_df[(intraday_df['price'] >= peak_low) & (intraday_df['price'] <= peak_high)]
+                # 修改代码：将 intraday_df['price'] 修正为 intraday_df['minute_vwap']
+                peak_vwap_df = intraday_df[(intraday_df['minute_vwap'] >= peak_low) & (intraday_df['minute_vwap'] <= peak_high)]
                 if not peak_vwap_df.empty and peak_vwap_df['vol_shares'].sum() > 0:
-                    peak_vwap = (peak_vwap_df['price'] * peak_vwap_df['vol_shares']).sum() / peak_vwap_df['vol_shares'].sum()
+                    # 修改代码：将 peak_vwap_df['price'] 修正为 peak_vwap_df['minute_vwap']
+                    peak_vwap = (peak_vwap_df['minute_vwap'] * peak_vwap_df['vol_shares']).sum() / peak_vwap_df['vol_shares'].sum()
                     peak_transfer = (peak_vwap / vwap - 1) * 100
                     results['peak_control_transfer'] = np.clip(peak_transfer * 10, -100, 100)
             results['intraday_posture_score'] = np.clip(posture * 10, -100, 100)
-        up_moves = intraday_df[intraday_df['price'] > intraday_df['price'].shift(1)]
-        down_moves = intraday_df[intraday_df['price'] < intraday_df['price'].shift(1)]
+        # 修改代码：将 intraday_df['price'] 修正为 intraday_df['minute_vwap']
+        up_moves = intraday_df[intraday_df['minute_vwap'] > intraday_df['minute_vwap'].shift(1)]
+        # 修改代码：将 intraday_df['price'] 修正为 intraday_df['minute_vwap']
+        down_moves = intraday_df[intraday_df['minute_vwap'] < intraday_df['minute_vwap'].shift(1)]
         if not up_moves.empty and not down_moves.empty:
             avg_up_vol = up_moves['vol_shares'].mean()
             avg_down_vol = down_moves['vol_shares'].mean()
@@ -548,16 +552,11 @@ class ChipFeatureCalculator:
             if abs(gap_pct) > 0.1:
                 first_5_min_df = intraday_df[(intraday_df['time_marker'] > '09:30:00') & (intraday_df['time_marker'] <= '09:35:00')]
                 if not first_5_min_df.empty and first_5_min_df['vol_shares'].sum() > 0:
-                    vwap_5min = (first_5_min_df['price'] * first_5_min_df['vol_shares']).sum() / first_5_min_df['vol_shares'].sum()
+                    # 修改代码：将 first_5_min_df['price'] 修正为 first_5_min_df['minute_vwap']
+                    vwap_5min = (first_5_min_df['minute_vwap'] * first_5_min_df['vol_shares']).sum() / first_5_min_df['vol_shares'].sum()
                     price_change_vs_open = (vwap_5min / open_price - 1) * 100 if open_price > 0 else 0
-                    # =================================================================
-                    # 修改代码块：修正开盘缺口防守强度的错误计算逻辑
-                    # 移除错误的 np.sign(gap_pct) 乘数，因为无论高开低开，开盘后上涨都代表强势
-                    # defense_strength = np.sign(gap_pct) * price_change_vs_open # 原始错误逻辑
-                    defense_strength = price_change_vs_open # 修正后的正确逻辑
-                    # 调整缩放系数，使指标更敏感
+                    defense_strength = price_change_vs_open
                     results['opening_gap_defense_strength'] = np.clip(defense_strength * 50, -100, 100)
-                    # =================================================================
         if 'net_flow_rate' in intraday_df.columns:
             active_buy_df = intraday_df[intraday_df['net_flow_rate'] > 0]
             active_sell_df = intraday_df[intraday_df['net_flow_rate'] < 0]
