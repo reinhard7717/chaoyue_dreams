@@ -206,9 +206,9 @@ class ProcessIntelligence:
         main_force_cost_change_raw = self._get_safe_series(df, f'SLOPE_5_dominant_peak_cost_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
         main_force_cost_accel_raw = self._get_safe_series(df, f'ACCEL_5_dominant_peak_cost_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
         main_force_net_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
-        chip_concentration_change = self._get_safe_series(df, f'SLOPE_5_winner_concentration_90pct_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship") # [代码修改] 修正信号名称
+        chip_concentration_change = self._get_safe_series(df, f'SLOPE_5_winner_concentration_90pct_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
         # 新增主力控盘和成本优势相关信号
-        main_force_control_leverage = self._get_safe_series(df, 'control_solidity_index_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship") # [代码修改] 修正信号名称
+        main_force_control_leverage = self._get_safe_series(df, 'control_solidity_index_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
         main_force_cost_advantage = self._get_safe_series(df, 'main_force_cost_advantage_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
         main_force_price_impact_ratio = self._get_safe_series(df, 'main_force_price_impact_ratio_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
         # 获取MTF权重配置

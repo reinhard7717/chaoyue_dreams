@@ -26,7 +26,7 @@ class CognitiveIntelligence:
         """
         if column_name not in df.columns:
             print(f"    -> [CognitiveIntelligence情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
-            return pd.Series(default_value, index=df.index) # [代码修改] 使用 df.index
+            return pd.Series(default_value, index=df.index).index
         return df[column_name]
 
     def _get_fused_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
@@ -51,7 +51,7 @@ class CognitiveIntelligence:
             return score
         else:
             print(f"    -> [认知层警告] 融合态势信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
-            return pd.Series(default, index=df.index) # [代码修改] 使用 df.index
+            return pd.Series(default, index=df.index).index
 
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
         """
@@ -61,11 +61,11 @@ class CognitiveIntelligence:
         """
         if name in self.strategy.atomic_states:
             return self.strategy.atomic_states[name]
-        elif name in df.columns: # [代码修改] 使用 df
-            return df[name] # [代码修改] 使用 df
+        elif name in df.columns:
+            return df[name]
         else:
             print(f"    -> [认知层警告] 原子信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
-            return pd.Series(default, index=df.index) # [代码修改] 使用 df.index
+            return pd.Series(default, index=df.index).index
 
     def _get_playbook_score(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:
         """
@@ -77,7 +77,7 @@ class CognitiveIntelligence:
         if score is None:
             print(f"    -> [认知层警告] 剧本信号 '{signal_name}' 不存在，无法作为证据！返回默认值 {default_value}。")
             # 创建一个与 df_indicators 索引对齐的 Series
-            return pd.Series(default_value, index=df.index) # [代码修改] 使用 df.index
+            return pd.Series(default_value, index=df.index).index
         # 打印实际获取到的值，以便调试
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -101,40 +101,40 @@ class CognitiveIntelligence:
         """
         print("启动【V27.0 · 数据帧上下文修复版】认知情报分析...")
         playbook_states = {}
-        priors = self._establish_prior_beliefs(df) # [代码修改] 传递 df
+        priors = self._establish_prior_beliefs(df)
         self.strategy.atomic_states.update(priors)
         # --- 剧本计算与状态更新 ---
         # 按照依赖关系，逐一计算剧本并更新到局部状态库
         # 第1批：机会剧本 (通常无内部依赖)
-        playbook_states.update(self._deduce_suppressive_accumulation(df, priors)) # [代码修改] 传递 df
-        playbook_states.update(self._deduce_chasing_accumulation(df, priors)) # [代码修改] 传递 df
-        playbook_states.update(self._deduce_capitulation_reversal(df, priors)) # [代码修改] 传递 df
-        playbook_states.update(self._deduce_leading_dragon_awakening(df, priors)) # [代码修改] 传递 df
-        playbook_states.update(self._deduce_sector_rotation_vanguard(df, priors)) # [代码修改] 传递 df
-        playbook_states.update(self._deduce_energy_compression_breakout(df, priors)) # [代码修改] 传递 df
-        playbook_states.update(self._deduce_stealth_bottoming_divergence(df, priors)) # [代码修改] 传递 df
-        playbook_states.update(self._deduce_micro_absorption_divergence(df, priors)) # [代码修改] 传递 df
+        playbook_states.update(self._deduce_suppressive_accumulation(df, priors))
+        playbook_states.update(self._deduce_chasing_accumulation(df, priors))
+        playbook_states.update(self._deduce_capitulation_reversal(df, priors))
+        playbook_states.update(self._deduce_leading_dragon_awakening(df, priors))
+        playbook_states.update(self._deduce_sector_rotation_vanguard(df, priors))
+        playbook_states.update(self._deduce_energy_compression_breakout(df, priors))
+        playbook_states.update(self._deduce_stealth_bottoming_divergence(df, priors))
+        playbook_states.update(self._deduce_micro_absorption_divergence(df, priors))
         # 第2批：无内部依赖的风险剧本
-        playbook_states.update(self._deduce_distribution_at_high(df, priors)) # [代码修改] 传递 df
-        playbook_states.update(self._deduce_retail_fomo_retreat_risk(df, priors)) # [代码修改] 传递 df
-        playbook_states.update(self._deduce_long_term_profit_distribution_risk(df, priors)) # [代码修改] 传递 df
-        playbook_states.update(self._deduce_market_uncertainty_risk(df, priors)) # [代码修改] 传递 df
-        playbook_states.update(self._deduce_liquidity_trap_risk(df, priors)) # [代码修改] 传递 df
-        playbook_states.update(self._deduce_t0_arbitrage_pressure_risk(df, priors)) # [代码修改] 传递 df
-        playbook_states.update(self._deduce_key_support_break_risk(df, priors)) # [代码修改] 传递 df
+        playbook_states.update(self._deduce_distribution_at_high(df, priors))
+        playbook_states.update(self._deduce_retail_fomo_retreat_risk(df, priors))
+        playbook_states.update(self._deduce_long_term_profit_distribution_risk(df, priors))
+        playbook_states.update(self._deduce_market_uncertainty_risk(df, priors))
+        playbook_states.update(self._deduce_liquidity_trap_risk(df, priors))
+        playbook_states.update(self._deduce_t0_arbitrage_pressure_risk(df, priors))
+        playbook_states.update(self._deduce_key_support_break_risk(df, priors))
         # 在调用依赖剧本之前，将当前已生成的剧本更新到 self.strategy.playbook_states 以供 _get_playbook_score 使用
         self.strategy.playbook_states.update(playbook_states)
         # 第3批：依赖第2批剧本的风险剧本
-        playbook_states.update(self._deduce_trend_exhaustion_risk(df, priors)) # [代码修改] 传递 df
+        playbook_states.update(self._deduce_trend_exhaustion_risk(df, priors))
         self.strategy.playbook_states.update(playbook_states)
-        playbook_states.update(self._deduce_harvest_confirmation_risk(df, priors)) # [代码修改] 传递 df
+        playbook_states.update(self._deduce_harvest_confirmation_risk(df, priors))
         self.strategy.playbook_states.update(playbook_states)
-        playbook_states.update(self._deduce_bull_trap_distribution_risk(df, priors)) # [代码修改] 传递 df
+        playbook_states.update(self._deduce_bull_trap_distribution_risk(df, priors))
         self.strategy.playbook_states.update(playbook_states)
-        playbook_states.update(self._deduce_high_level_structural_collapse_risk(df, priors)) # [代码修改] 传递 df
+        playbook_states.update(self._deduce_high_level_structural_collapse_risk(df, priors))
         self.strategy.playbook_states.update(playbook_states)
         # 第4批：依赖第3批剧本的机会剧本
-        playbook_states.update(self._deduce_divergence_reversal(df, priors)) # [代码修改] 传递 df
+        playbook_states.update(self._deduce_divergence_reversal(df, priors))
         print(f"【V27.0 · 数据帧上下文修复版】分析完成，生成 {len(playbook_states)} 个剧本信号。")
         return playbook_states
 
@@ -174,7 +174,7 @@ class CognitiveIntelligence:
         - 【V3.11 修复】接收并使用 df 参数，确保索引上下文统一。
         """
         print("    -- [剧本推演] 高位派发风险 (动态证据)...")
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
@@ -248,7 +248,7 @@ class CognitiveIntelligence:
         - 【V3.4 修复】接收并使用 df 参数，确保索引上下文统一。
         """
         print("    -- [剧本推演] 趋势衰竭风险 (动态证据)...")
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
@@ -316,7 +316,7 @@ class CognitiveIntelligence:
         - 【V1.8 修复】接收并使用 df 参数，确保索引上下文统一。
         """
         states = {}
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index.index
         market_regime = self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_REGIME', 0.0)
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         trend_structure_score = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_STRUCTURE_SCORE', 0.0)
@@ -374,7 +374,7 @@ class CognitiveIntelligence:
         - 【V3.6 修复】接收并使用 df 参数，确保索引上下文统一。
         """
         states = {}
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index.index
         bullish_playbooks = [
             'COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION', 'COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION',
             'COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL', 'COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING',
@@ -399,9 +399,9 @@ class CognitiveIntelligence:
 
     def _deduce_chasing_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.7 · 数据帧上下文修复版】贝叶斯推演：“主力拉升抢筹”剧本
-        - 核心升级: 引入 `SCORE_CHIP_STRUCTURAL_CONSENSUS` 作为主力拉升抢筹的强有力证据。
-        - 【V3.7 修复】接收并使用 df 参数，确保索引上下文统一。
+        【V3.8 · 调用修复版】贝叶斯推演：“主力拉升抢筹”剧本
+        - 核心升级: 引入 `SCORE_CHIP_STRUCTURAL_CONSENSUS` 作为强有力证据。
+        - 【V3.8 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 主力拉升抢筹 (动态证据)...")
         capital_confrontation = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0))
@@ -426,24 +426,14 @@ class CognitiveIntelligence:
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=df.index)
         prior_prob = priors.get('COGNITIVE_PRIOR_TREND_PROB', pd.Series(0.0, index=likelihood.index))
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date = pd.to_datetime(probe_dates_str[0])
-            if df.index.tz:
-                probe_date = probe_date.tz_localize(df.index.tz)
-            if probe_date in likelihood.index:
-                print(f"      -> [认知层探针] @ {probe_date.date()} for '主力拉升抢筹':")
-                print(f"         - 先验概率 (P(Trend)): {prior_prob.loc[probe_date]:.4f}")
-                print(f"         - 似然度 (P(证据|剧本)): {likelihood.loc[probe_date]:.4f}")
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION': posterior_prob.astype(np.float32)}
 
     def _deduce_capitulation_reversal(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.6 · 数据帧上下文修复版】贝叶斯推演：“恐慌投降反转”剧本
-        - 核心修复: 将证据 'SCORE_MICRO_BULLISH_RESONANCE' 修正为 'PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL'。
-        - 【V3.6 修复】接收并使用 df 参数，确保索引上下文统一。
+        【V3.7 · 调用修复版】贝叶斯推演：“恐慌投降反转”剧本
+        - 核心修复: 修正信号名称。
+        - 【V3.7 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 恐慌投降反转 (动态证据)...")
         upward_pressure = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0).clip(lower=0))
@@ -469,9 +459,9 @@ class CognitiveIntelligence:
 
     def _deduce_leading_dragon_awakening(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 数据帧上下文修复版】贝叶斯推演：“龙头苏醒”剧本
-        - 核心修复: 将证据 'relative_strength_vs_index_D' 替换为 'industry_strength_rank_D'。
-        - 【V1.5 修复】接收并使用 df 参数，确保索引上下文统一。
+        【V1.6 · 调用修复版】贝叶斯推演：“龙头苏醒”剧本
+        - 核心修复: 修正信号名称。
+        - 【V1.6 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 龙头苏醒 (动态证据)...")
         capital_confrontation = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0))
@@ -495,12 +485,12 @@ class CognitiveIntelligence:
 
     def _deduce_divergence_reversal(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 数据帧上下文修复版】贝叶斯推演：“背离反转”剧本
-        - 核心逻辑: 捕捉价格与关键动能、资金、筹码、结构等指标的背离。
-        - 【V2.1 修复】接收并使用 df 参数，确保索引上下文统一。
+        【V2.2 · 调用修复版】贝叶斯推演：“背离反转”剧本
+        - 核心逻辑: 捕捉价格与关键指标的背离。
+        - 【V2.2 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 背离反转 (动态证据)...")
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index
         price_momentum_divergence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE', 0.0))
         fund_flow_bearish_divergence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 0.0))
         chip_bearish_divergence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_BEARISH_DIVERGENCE', 0.0))
@@ -520,21 +510,13 @@ class CognitiveIntelligence:
         likelihood = pd.Series(likelihood_values, index=df_index)
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [背离反转探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_PLAYBOOK_DIVERGENCE_REVERSAL': posterior_prob.astype(np.float32)}
 
     def _deduce_sector_rotation_vanguard(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.6 · 数据帧上下文修复版】贝叶斯推演：“板块轮动先锋”剧本
-        - 核心修复: 将证据 'SCORE_FF_BULLISH_RESONANCE' 修正为 'PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL'。
-        - 【V1.6 修复】接收并使用 df 参数，确保索引上下文统一。
+        【V1.7 · 调用修复版】贝叶斯推演：“板块轮动先锋”剧本
+        - 核心修复: 修正信号名称。
+        - 【V1.7 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 板块轮动先锋 (动态证据)...")
         sector_flow = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL', 0.0).clip(lower=0))
@@ -552,12 +534,12 @@ class CognitiveIntelligence:
 
     def _deduce_energy_compression_breakout(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.8 · 数据帧上下文修复版】贝叶斯推演：“能量压缩爆发”剧本
-        - 核心升级: 将 `volume_atrophy` 证据替换为 `SCORE_BEHAVIOR_VOLUME_ATROPHY`。
-        - 【V1.8 修复】接收并使用 df 参数，确保索引上下文统一。
+        【V1.9 · 调用修复版】贝叶斯推演：“能量压缩爆发”剧本
+        - 核心升级: 替换为更精确的信号。
+        - 【V1.9 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 能量压缩爆发 (动态证据)...")
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         bbw = self._get_atomic_score(df, 'BBW_21_2.0_D', 0.1)
         volatility_compression_raw_score = normalize_score(1 - bbw, df_index, 144, ascending=True)
@@ -597,21 +579,21 @@ class CognitiveIntelligence:
         - 【V2.1 修复】接收并使用 df 参数，确保索引上下文统一。
         """
         if not isinstance(evidence, pd.Series):
-            evidence = pd.Series(evidence, index=df.index) # [代码修改] 使用 df.index
+            evidence = pd.Series(evidence, index=df.index).index
         evidence = evidence.fillna(self.min_evidence_threshold)
         evidence = evidence.mask(evidence < self.min_evidence_threshold, self.min_evidence_threshold)
         if not is_probability:
-            evidence = normalize_score(evidence, df.index, window=self.norm_window, ascending=True) # [代码修改] 使用 df.index
+            evidence = normalize_score(evidence, df.index, window=self.norm_window, ascending=True).index
         return evidence
 
     def _deduce_long_term_profit_distribution_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.4 · 数据帧上下文修复版】贝叶斯推演：“长期获利盘派发”风险剧本
+        【V1.5 · 调用修复版】贝叶斯推演：“长期获利盘派发”风险剧本
         - 核心升级: 引入“趋势背景调制因子”。
-        - 【V1.4 修复】接收并使用 df 参数，确保索引上下文统一。
+        - 【V1.5 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 长期获利盘派发风险 (动态证据)...")
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
@@ -638,24 +620,16 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [长期获利盘派发风险探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION': posterior_prob.astype(np.float32)}
 
     def _deduce_market_uncertainty_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.4 · 数据帧上下文修复版】贝叶斯推演：“市场方向不明”风险剧本
+        【V1.5 · 调用修复版】贝叶斯推演：“市场方向不明”风险剧本
         - 核心升级: 引入“趋势背景调制因子”。
-        - 【V1.4 修复】接收并使用 df 参数，确保索引上下文统一。
+        - 【V1.5 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 市场方向不明风险 (动态证据)...")
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
@@ -684,24 +658,16 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [市场方向不明风险探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_MARKET_UNCERTAINTY': posterior_prob.astype(np.float32)}
 
     def _deduce_retail_fomo_retreat_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.9 · 数据帧上下文修复版】贝叶斯推演：“散户狂热主力撤退”风险剧本
+        【V1.10 · 调用修复版】贝叶斯推演：“散户狂热主力撤退”风险剧本
         - 核心升级: 引入“趋势背景调制因子”。
-        - 【V1.9 修复】接收并使用 df 参数，确保索引上下文统一。
+        - 【V1.10 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 散户狂热主力撤退风险 (动态证据)...")
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
@@ -732,24 +698,16 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [散户狂热主力撤退风险探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_RETAIL_FOMO_RETREAT': posterior_prob.astype(np.float32)}
 
     def _deduce_harvest_confirmation_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 数据帧上下文修复版】贝叶斯推演：“收割确认”风险剧本
+        【V1.6 · 调用修复版】贝叶斯推演：“收割确认”风险剧本
         - 核心升级: 引入“趋势背景调制因子”。
-        - 【V1.5 修复】接收并使用 df 参数，确保索引上下文统一。
+        - 【V1.6 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 收割确认风险 (动态证据)...")
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
@@ -776,24 +734,16 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [收割确认风险探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_HARVEST_CONFIRMATION': posterior_prob.astype(np.float32)}
 
     def _deduce_bull_trap_distribution_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.9 · 数据帧上下文修复版】贝叶斯推演：“主力诱多派发”风险剧本
+        【V1.10 · 调用修复版】贝叶斯推演：“主力诱多派发”风险剧本
         - 核心升级: 引入“趋势背景调制因子”。
-        - 【V1.9 修复】接收并使用 df 参数，确保索引上下文统一。
+        - 【V1.10 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 主力诱多派发风险 (动态证据)...")
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
@@ -834,24 +784,16 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [主力诱多派发风险探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_BULL_TRAP_DISTRIBUTION': posterior_prob.astype(np.float32)}
 
     def _deduce_liquidity_trap_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.4 · 数据帧上下文修复版】贝叶斯推演：“流动性陷阱”风险剧本
+        【V1.5 · 调用修复版】贝叶斯推演：“流动性陷阱”风险剧本
         - 核心升级: 引入“趋势背景调制因子”。
-        - 【V1.4 修复】接收并使用 df 参数，确保索引上下文统一。
+        - 【V1.5 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 流动性陷阱风险 (动态证据)...")
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
@@ -876,24 +818,16 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [流动性陷阱风险探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_LIQUIDITY_TRAP': posterior_prob.astype(np.float32)}
 
     def _deduce_t0_arbitrage_pressure_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.4 · 数据帧上下文修复版】贝叶斯推演：“T+0套利压力”风险剧本
+        【V1.5 · 调用修复版】贝叶斯推演：“T+0套利压力”风险剧本
         - 核心升级: 引入“趋势背景调制因子”。
-        - 【V1.4 修复】接收并使用 df 参数，确保索引上下文统一。
+        - 【V1.5 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] T+0套利压力风险 (动态证据)...")
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
@@ -918,24 +852,16 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [T+0套利压力风险探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE': posterior_prob.astype(np.float32)}
 
     def _deduce_key_support_break_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.4 · 数据帧上下文修复版】贝叶斯推演：“关键支撑破位”风险剧本
+        【V1.5 · 调用修复版】贝叶斯推演：“关键支撑破位”风险剧本
         - 核心升级: 引入“趋势背景调制因子”。
-        - 【V1.4 修复】接收并使用 df 参数，确保索引上下文统一。
+        - 【V1.5 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 关键支撑破位风险 (动态证据)...")
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
@@ -969,24 +895,16 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [关键支撑破位风险探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_KEY_SUPPORT_BREAK': posterior_prob.astype(np.float32)}
 
     def _deduce_high_level_structural_collapse_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 数据帧上下文修复版】贝叶斯推演：“高位结构瓦解”风险剧本
+        【V1.6 · 调用修复版】贝叶斯推演：“高位结构瓦解”风险剧本
         - 核心升级: 引入“趋势背景调制因子”。
-        - 【V1.5 修复】接收并使用 df 参数，确保索引上下文统一。
+        - 【V1.6 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 高位结构瓦解风险 (动态证据)...")
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
@@ -1014,24 +932,16 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [高位结构瓦解风险探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_HIGH_LEVEL_STRUCTURAL_COLLAPSE': posterior_prob.astype(np.float32)}
 
     def _deduce_stealth_bottoming_divergence(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 数据帧上下文修复版】贝叶斯推演：“隐秘筑底背离”剧本
-        - 核心逻辑: 识别在股价下跌趋势趋缓、成交量萎缩的情况下，资金或筹码出现向好迹象的底部背离。
-        - 【V1.2 修复】接收并使用 df 参数，确保索引上下文统一。
+        【V1.3 · 调用修复版】贝叶斯推演：“隐秘筑底背离”剧本
+        - 核心逻辑: 识别底部背离信号。
+        - 【V1.3 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 隐秘筑底背离 (动态证据)...")
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index
         downward_momentum_decay = self._forge_dynamic_evidence(df, 1 - self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0))
         price_accel_positive = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'ACCEL_5_close_D', 0.0).clip(lower=0))
         behavior_bottom_reversal = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL', 0.0))
@@ -1060,12 +970,12 @@ class CognitiveIntelligence:
 
     def _deduce_micro_absorption_divergence(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 数据帧上下文修复版】贝叶斯推演：“微观承接背离”剧本
-        - 核心逻辑: 识别在价格弱势、量能萎缩的背景下，微观卖压衰竭、买盘承接增强的底部背离。
-        - 【V1.2 修复】接收并使用 df 参数，确保索引上下文统一。
+        【V1.3 · 调用修复版】贝叶斯推演：“微观承接背离”剧本
+        - 核心逻辑: 识别微观层面的底部背离。
+        - 【V1.3 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 微观承接背离 (动态证据)...")
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index
         price_down_momentum_high = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0))
         price_stabilization = self._forge_dynamic_evidence(df, 1 - self._get_atomic_score(df, 'pct_change_D', 0.0).abs())
         price_weak_or_stable_context = np.maximum(price_down_momentum_high, price_stabilization)
@@ -1095,7 +1005,7 @@ class CognitiveIntelligence:
         - 核心逻辑: 融合筹码集中度、资金流信念、主力控盘和成本优势趋势，评估主力当前对股票的持有信念。
         - 【V1.1 修复】接收并使用 df 参数，确保索引上下文统一。
         """
-        df_index = df.index # [代码修改] 使用 df.index
+        df_index = df.index.index
         chip_concentration = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(lower=0)
         fund_flow_conviction = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONVICTION', 0.0).clip(lower=0)
         main_force_control = self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_CONTROL', 0.0).clip(lower=0)

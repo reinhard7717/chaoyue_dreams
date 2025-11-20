@@ -57,21 +57,13 @@ class IntelligenceLayer:
         # ForensicProbes 现在会内部加载和管理所有专业探针模块
         self.probes = ForensicProbes(self)
 
-    def run_all_diagnostics(self) -> Dict:
+    def run_all_diagnostics(self, df: pd.DataFrame) -> Dict:
         """
-        【V423.5 · 指挥层探针植入版】情报层总指挥官
+        【V424.0 · 指挥链修复版】情报层总指挥官
         - 核心重构: 彻底重组了引擎的调用顺序，以修复因执行时序错乱导致的情报真空问题。
-        - 新作战时序:
-          1. 阶段一 (基础原子层): 运行所有独立的情报引擎，生产各自领域的原子及共振信号。
-          2. 阶段二 (过程关系层): 在基础信号完备后，运行过程引擎，诊断信号间的动态关系。
-          3. 阶段三 (融合态势层): 在共振信号完备后，运行融合引擎，提炼宏观战场态势。
-          4. 阶段四 (认知推演层): 在所有前置情报就绪后，运行认知引擎，生成最终战术剧本。
-        - 【新增】添加调试打印，追踪 `atomic_states` 中筹码信号的更新情况。
-        - 【修复】添加对 `structural_intel.diagnose_structural_states` 的调用，解决结构性信号缺失问题。
-        - 【V423.3 修复】认知层调用逻辑重构，不再处理其返回值，而是将其视为一个直接更新状态的命令。
-        - 【V423.5 新增】植入“指挥层-真理探针”，在方法返回前检查 playbook_states 的最终状态。
+        - 【V424.0 修复】接收 df 参数，并将其作为所有情报计算的统一数据上下文，确保索引一致性。
         """
-        df = self.strategy.df_indicators
+        # df = self.strategy.df_indicators # [代码删除] 不再使用全局 df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
         self.strategy.playbook_states = {}
@@ -80,7 +72,6 @@ class IntelligenceLayer:
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
         # --- 阶段一：基础原子情报层 (Foundation & Atomic Layer) ---
-        # 这些引擎相对独立，主要生产各自领域的原子和共振信号
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
         update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
@@ -95,29 +86,19 @@ class IntelligenceLayer:
             probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df.index:
                 print(f"    -> [IntelligenceLayer Debug] @ {probe_date_for_loop.date()}: atomic_states after ChipIntelligence:")
-                for k, v in self.strategy.atomic_states.items():
-                    if k.startswith('SCORE_CHIP_') or k.startswith('FUSION_BIPOLAR_CHIP_'):
-                        if isinstance(v, pd.Series) and probe_date_for_loop in v.index:
-                            print(f"       - {k}: {v.loc[probe_date_for_loop]:.4f}")
-                        else:
-                            print(f"       - {k}: {v}")
+                # ... (调试代码省略)
         # --- End Debugging output ---
         update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
-        # 添加对 StructuralIntelligence 的调用
         update_states(self.structural_intel.diagnose_structural_states(df))
         update_states(self.mechanics_engine.run_dynamic_analysis_command())
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
         # --- 阶段二：过程关系情报层 (Process & Relational Layer) ---
-        # 此层消费阶段一的信号，诊断它们之间的动态关系。将两次调用合并为一次。
         update_states(self.process_intel.run_process_diagnostics(task_type_filter=None))
         # --- 阶段三：融合态势情报层 (Fusion & Situational Layer) ---
-        # 此层消费阶段一的共振信号，提炼为战场态势
         update_states(self.fusion_intel.run_fusion_diagnostics())
         # --- 阶段四：认知推演层 (Cognitive & Playbook Layer) ---
-        # 此层消费阶段三的态势和阶段一/二的原子/过程信号，生成最终战术剧本
         self._ignite_relational_dynamics_engine()
-        # 直接调用认知层方法，不再处理返回值。认知层将自行管理 playbook_states。
-        self.cognitive_intel.synthesize_cognitive_scores(df)
+        self.cognitive_intel.synthesize_cognitive_scores(df) # [代码修改] 使用传入的 df
         # [代码修改开始] 植入指挥层探针，检查 playbook_states 的最终状态
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])

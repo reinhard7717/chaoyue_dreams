@@ -41,12 +41,12 @@ class TrendFollowStrategy:
         self.judgment_layer = JudgmentLayer(self)
         self.simulation_layer = SimulationLayer(self)
         self.reporting_layer = ReportingLayer(self)
+
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V413.0 · 指挥链参数回滚版】
-        - 核心修复: 撤销了上次对 `intelligence_layer.run_all_diagnostics()` 方法的参数传递，
-                      使其恢复到只接受 `self` 一个参数的状态，解决了 `takes 1 positional argument but 2 were given` 的错误。
-                      情报层将通过 `self.strategy.df_indicators` 访问所需数据。
+        【V414.0 · 指挥链修复版】
+        - 核心修复: 恢复了向 intelligence_layer.run_all_diagnostics() 方法传递 df_indicators 参数的指挥链，
+                      以确保情报层在正确的、可能被切片的数据上下文上运行，从根本上解决索引不匹配问题。
         """
         self.params = self.unified_config
         df_daily = all_dfs.get('D')
@@ -54,7 +54,7 @@ class TrendFollowStrategy:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         self.df_indicators = self._merge_all_timeframes(all_dfs)
         # 步骤1: 情报层完成所有诊断与合成，包括专业层、融合层和认知层。这是唯一的情报生成入口。
-        self.intelligence_layer.run_all_diagnostics()
+        self.intelligence_layer.run_all_diagnostics(self.df_indicators) # [代码修改] 重新传递 df_indicators
         # 步骤2: 基于完整的诊断结果，进行顶层上下文分析
         from .trend_following.utils import calculate_context_scores
         bottom_context_score, top_context_score = calculate_context_scores(self.df_indicators, self.atomic_states)
@@ -74,6 +74,7 @@ class TrendFollowStrategy:
         if risk_details_df is None:
             risk_details_df = pd.DataFrame(index=self.df_indicators.index)
         return self.df_indicators, score_details_df, risk_details_df
+
     def _merge_all_timeframes(self, all_dfs: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         """
         将所有时间框架的数据合并到一个DataFrame中。
@@ -94,6 +95,7 @@ class TrendFollowStrategy:
                 how='left'
             )
         return ensure_numeric_types(merged_df)
+
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
         对外暴露的报告生成接口。
