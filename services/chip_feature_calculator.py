@@ -510,83 +510,61 @@ class ChipFeatureCalculator:
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
         results = {
-            'impulse_quality_ratio': np.nan,
-            'peak_control_transfer': np.nan,
-            'support_validation_strength': np.nan,
-            'pressure_rejection_strength': np.nan,
-            'vacuum_traversal_efficiency': np.nan,
             'intraday_posture_score': np.nan,
+            'peak_control_transfer': np.nan,
+            'impulse_quality_ratio': np.nan,
+            'opening_gap_defense_strength': np.nan,
+            'active_buying_support': np.nan,
+            'active_selling_pressure': np.nan,
         }
         intraday_df = context.get('processed_intraday_df')
-        if intraday_df.empty or 'main_force_net_vol' not in intraday_df.columns:
+        if intraday_df is None or intraday_df.empty:
             return results
-        atr_14d = context.get('atr_14d')
-        dominant_peak_cost = context.get('dominant_peak_cost')
-        if pd.isna(atr_14d) or atr_14d <= 0: return results
-        # 1. 脉冲品质分析 (Impulse Quality)
-        peaks, _ = find_peaks(intraday_df['minute_vwap'])
-        troughs, _ = find_peaks(-intraday_df['minute_vwap'])
-        turning_points = sorted(list(set(np.concatenate(([0], troughs, peaks, [len(intraday_df)-1])))))
-        total_up_swing_vol = 0
-        mf_net_up_swing_vol = 0
-        for i in range(len(turning_points) - 1):
-            start_idx, end_idx = turning_points[i], turning_points[i+1]
-            window_df = intraday_df.iloc[start_idx:end_idx+1]
-            if window_df.empty: continue
-            if window_df['minute_vwap'].iloc[-1] > window_df['minute_vwap'].iloc[0]: # 上涨波段
-                total_up_swing_vol += window_df['vol_shares'].sum()
-                mf_net_up_swing_vol += window_df['main_force_net_vol'].sum()
-        if total_up_swing_vol > 0:
-            results['impulse_quality_ratio'] = (mf_net_up_swing_vol / total_up_swing_vol) * 100
-        # 2. 主峰控制权转移 (Peak Control Transfer)
-        if pd.notna(dominant_peak_cost):
-            peak_zone_low = dominant_peak_cost - atr_14d * 0.2
-            peak_zone_high = dominant_peak_cost + atr_14d * 0.2
-            peak_zone_df = intraday_df[(intraday_df['minute_vwap'] >= peak_zone_low) & (intraday_df['minute_vwap'] <= peak_zone_high)]
-            if not peak_zone_df.empty:
-                peak_zone_vol = peak_zone_df['vol_shares'].sum()
-                if peak_zone_vol > 0:
-                    mf_net_in_peak = peak_zone_df['main_force_net_vol'].sum()
-                    results['peak_control_transfer'] = (mf_net_in_peak / peak_zone_vol) * 100
-        # 3. 支撑与压力验证 (Support/Pressure Validation)
-        daily_low_idx = intraday_df['low'].idxmin()
-        rebound_window = intraday_df.loc[daily_low_idx:].head(6) # 低点后的5分钟窗口
-        if not rebound_window.empty and len(rebound_window) > 1:
-            rebound_vol = rebound_window['vol_shares'].sum()
-            if rebound_vol > 0:
-                mf_net_rebound = rebound_window['main_force_net_vol'].sum()
-                price_recovery = (rebound_window['close'].iloc[-1] - rebound_window['low'].iloc[0]) / atr_14d
-                results['support_validation_strength'] = (mf_net_rebound / rebound_vol) * (1 + np.log1p(max(0, price_recovery))) * 100
-        daily_high_idx = intraday_df['high'].idxmax()
-        rejection_window = intraday_df.loc[daily_high_idx:].head(6) # 高点后的5分钟窗口
-        if not rejection_window.empty and len(rejection_window) > 1:
-            rejection_vol = rejection_window['vol_shares'].sum()
-            if rejection_vol > 0:
-                mf_net_rejection = rejection_window['main_force_net_vol'].sum()
-                price_rejection = (rejection_window['high'].iloc[0] - rejection_window['close'].iloc[-1]) / atr_14d
-                results['pressure_rejection_strength'] = (-mf_net_rejection / rejection_vol) * (1 + np.log1p(max(0, price_rejection))) * 100
-        # 4. 真空区通行效率 (Vacuum Traversal Efficiency)
-        secondary_peak_cost = context.get('secondary_peak_cost')
-        if pd.notna(dominant_peak_cost) and pd.notna(secondary_peak_cost):
-            vac_low, vac_high = sorted([dominant_peak_cost, secondary_peak_cost])
-            vacuum_zone_df = intraday_df[(intraday_df['minute_vwap'] > vac_low) & (intraday_df['minute_vwap'] < vac_high)]
-            if not vacuum_zone_df.empty:
-                price_change_in_vac = abs(vacuum_zone_df['minute_vwap'].iloc[-1] - vacuum_zone_df['minute_vwap'].iloc[0])
-                vol_in_vac = vacuum_zone_df['vol_shares'].sum()
-                if vol_in_vac > 0:
-                    efficiency = (price_change_in_vac / atr_14d) / np.log1p(vol_in_vac)
-                    results['vacuum_traversal_efficiency'] = efficiency * 1000 # 放大系数
-        # 5. 日内姿态综合评分 (Intraday Posture Score)
-        def normalize(val): return 0 if pd.isna(val) else val
-        s1 = np.tanh(normalize(results['impulse_quality_ratio']) / 50)
-        s2 = np.tanh(normalize(results['peak_control_transfer']) / 50)
-        s3 = np.tanh(normalize(results['support_validation_strength']) / 50)
-        s4 = -np.tanh(normalize(results['pressure_rejection_strength']) / 50)
-        s5 = np.tanh(normalize(results['vacuum_traversal_efficiency']) / 100)
-        posture_score = (0.3*s1 + 0.3*s2 + 0.2*s3 + 0.1*s4 + 0.1*s5) * 100
-        results['intraday_posture_score'] = posture_score
-        # 兼容旧指标
-        results.update(self._compute_legacy_intraday_metrics(context))
+        close_price = context.get('close_price')
+        vwap = context.get('daily_vwap')
+        peak_low = context.get('peak_range_low')
+        peak_high = context.get('peak_range_high')
+        if pd.notna(close_price) and pd.notna(vwap) and vwap > 0:
+            posture = (close_price / vwap - 1) * 100
+            if pd.notna(peak_low) and pd.notna(peak_high) and peak_high > peak_low:
+                peak_vwap_df = intraday_df[(intraday_df['price'] >= peak_low) & (intraday_df['price'] <= peak_high)]
+                if not peak_vwap_df.empty and peak_vwap_df['vol_shares'].sum() > 0:
+                    peak_vwap = (peak_vwap_df['price'] * peak_vwap_df['vol_shares']).sum() / peak_vwap_df['vol_shares'].sum()
+                    peak_transfer = (peak_vwap / vwap - 1) * 100
+                    results['peak_control_transfer'] = np.clip(peak_transfer * 10, -100, 100)
+            results['intraday_posture_score'] = np.clip(posture * 10, -100, 100)
+        up_moves = intraday_df[intraday_df['price'] > intraday_df['price'].shift(1)]
+        down_moves = intraday_df[intraday_df['price'] < intraday_df['price'].shift(1)]
+        if not up_moves.empty and not down_moves.empty:
+            avg_up_vol = up_moves['vol_shares'].mean()
+            avg_down_vol = down_moves['vol_shares'].mean()
+            if avg_down_vol > 0:
+                results['impulse_quality_ratio'] = (avg_up_vol / avg_down_vol - 1) * 100
+        auction_data = intraday_df.iloc[0]
+        open_price = context.get('open_price')
+        pre_close = context.get('pre_close')
+        if pd.notna(open_price) and pd.notna(pre_close) and pre_close > 0:
+            gap_pct = (open_price / pre_close - 1) * 100
+            if abs(gap_pct) > 0.1:
+                first_5_min_df = intraday_df[(intraday_df['time_marker'] > '09:30:00') & (intraday_df['time_marker'] <= '09:35:00')]
+                if not first_5_min_df.empty and first_5_min_df['vol_shares'].sum() > 0:
+                    vwap_5min = (first_5_min_df['price'] * first_5_min_df['vol_shares']).sum() / first_5_min_df['vol_shares'].sum()
+                    price_change_vs_open = (vwap_5min / open_price - 1) * 100 if open_price > 0 else 0
+                    # =================================================================
+                    # 修改代码块：修正开盘缺口防守强度的错误计算逻辑
+                    # 移除错误的 np.sign(gap_pct) 乘数，因为无论高开低开，开盘后上涨都代表强势
+                    # defense_strength = np.sign(gap_pct) * price_change_vs_open # 原始错误逻辑
+                    defense_strength = price_change_vs_open # 修正后的正确逻辑
+                    # 调整缩放系数，使指标更敏感
+                    results['opening_gap_defense_strength'] = np.clip(defense_strength * 50, -100, 100)
+                    # =================================================================
+        if 'net_flow_rate' in intraday_df.columns:
+            active_buy_df = intraday_df[intraday_df['net_flow_rate'] > 0]
+            active_sell_df = intraday_df[intraday_df['net_flow_rate'] < 0]
+            if not active_buy_df.empty:
+                results['active_buying_support'] = np.average(active_buy_df['net_flow_rate'], weights=active_buy_df['vol_shares'])
+            if not active_sell_df.empty:
+                results['active_selling_pressure'] = abs(np.average(active_sell_df['net_flow_rate'], weights=active_sell_df['vol_shares']))
         return results
 
     def _calculate_chip_structure_health_score(self, context: dict) -> dict:
