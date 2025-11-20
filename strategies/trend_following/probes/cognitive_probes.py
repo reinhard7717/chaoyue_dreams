@@ -10,7 +10,6 @@ class CognitiveProbes:
         self.intelligence_layer = intel_layer
         self.strategy = intel_layer.strategy
         self.cognitive_intel = intel_layer.cognitive_intel
-
     def _deploy_thanatos_scythe_probe(self, probe_date: pd.Timestamp):
         """
         【V1.1 · 时空同步版】“塔纳托斯之镰”探针 - 真实撤退风险全要素解剖
@@ -48,7 +47,6 @@ class CognitiveProbes:
         retreat_evidence_chain = (trend_decay_context * no_absorption_score * winner_capitulation_score * bull_trap_evidence)
         print(f"    - 【证据链总强度】: {retreat_evidence_chain:.4f}")
         print("\n--- “真实撤退风险探针”解剖完毕 ---")
-
     def _deploy_comprehensive_top_risk_probe(self, probe_date: pd.Timestamp):
         """
         【探针 V2.4 · 双支柱神盾同步版】综合顶部风险探针
@@ -141,7 +139,6 @@ class CognitiveProbes:
         print("\n  [链路层 6] 终极对质 (Final Verdict)")
         print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_final_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_final_score) else '❌ 不一致'}")
         print("\n--- “综合顶部风险探针”解剖完毕 ---")
-
     def _deploy_main_force_intent_duel_probe(self, probe_date: pd.Timestamp):
         """
         【探针 V4.0 · 全息意图对决版】主力意图对决风险探针
@@ -192,7 +189,6 @@ class CognitiveProbes:
         print("\n  [链路层 5] 终极对质 (Final Verdict)")
         print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_final_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_final_score) else '❌ 不一致'}")
         print("\n--- “主力意图对决风险探针”解剖完毕 ---")
-
     def _deploy_trend_quality_probe(self, probe_date: pd.Timestamp):
         """
         【探针 V1.1 · 算术平均同步版】趋势质量探针
@@ -249,7 +245,6 @@ class CognitiveProbes:
                 score = get_val(series, probe_date)
                 print(f"      - [领域: {name:<12}] 得分: {score:.4f}, 权重: {weight}")
         print("\n--- “趋势质量探针”解剖完毕 ---")
-
     def _deploy_liquidity_trap_probe(self, probe_date: pd.Timestamp):
         """
         【探针 V3.0 · 逻辑重铸同步版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号

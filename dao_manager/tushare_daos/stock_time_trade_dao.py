@@ -43,7 +43,6 @@ class StockTimeTradeDAO(BaseDAO):
         self.cache_get = StockTimeTradeCacheGet(self.cache_manager)
         self.stock_cache_set = StockInfoCacheSet(self.cache_manager)
         self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
-
     # =============== A股日线行情 ===============
     @sync_to_async
     def get_stocks_daily_data(self, stock_codes: List[str], trade_date: datetime.date) -> List:
@@ -87,7 +86,6 @@ class StockTimeTradeDAO(BaseDAO):
                 continue
         # print(f"    [DAO] 查询完成，共获取到 {len(all_daily_data)} 条日线行情数据。")
         return all_daily_data
-
     async def get_daily_data_for_stocks(self, stock_codes: List[str], start_date: str, end_date: str) -> pd.DataFrame:
         """
         【V2.1 - 字段补全版】
@@ -131,7 +129,6 @@ class StockTimeTradeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"[DAO] 批量获取日线数据时发生错误: {e}", exc_info=True)
             return pd.DataFrame()
-
     async def get_daily_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
         【V1.1 - 字段补全版】
@@ -160,7 +157,6 @@ class StockTimeTradeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"[DAO] 获取 {stock_code} 日线数据范围查询时发生错误: {e}", exc_info=True)
             return pd.DataFrame()
-
     async def get_latest_daily_quote(self, stock_code: str) -> Optional[Dict]:
         """
         【V1.0 - 新增】
@@ -194,7 +190,6 @@ class StockTimeTradeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"[DAO] 获取 {stock_code} 最新日线行情时发生错误: {e}", exc_info=True)
             return None
-
     async def get_kl_data_for_chart(self, stock_code: str, start_date: date, end_date: date) -> List[Dict]:
         """
         【V1.0】为前端图表获取K线数据。
@@ -221,7 +216,6 @@ class StockTimeTradeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"[DAO] get_kl_data_for_chart: 查询 {stock_code} 的K线数据时发生错误: {e}", exc_info=True)
             return []
-
     @with_rate_limit(name='api_daily')
     async def save_daily_time_trade_history_by_trade_dates(self, trade_date: date = None, start_date: date = None,
                                                            end_date: date = None, *, limiter) -> dict:
@@ -284,7 +278,6 @@ class StockTimeTradeDAO(BaseDAO):
             unique_fields=['stock', 'trade_date']
         )
         return {"status": "success", "message": f"Saved {len(data_list)} daily trade records."}
-
     async def save_daily_time_trade_history_by_stock_codes(
         self, 
         stock_codes: List[str], 
@@ -383,7 +376,6 @@ class StockTimeTradeDAO(BaseDAO):
             )
             result[model_class.__name__] = res
         return result
-
     # =============== A股分钟行情 ===============
     async def get_intraday_kline_by_date(self, stock_code: str, trade_date: datetime.date, time_level: str = '1') -> Optional[pd.DataFrame]:
         """
@@ -421,7 +413,6 @@ class StockTimeTradeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"获取当日 {time_level}分钟 K线时发生异常 for {stock_code} on {trade_date}: {e}", exc_info=True)
             return None
-
     async def get_1_min_kline_time_by_day(self, stock_code: str, trade_date: datetime.date) -> Optional[pd.DataFrame]:
         """
         【V1.2 · 统一输出UTC aware datetime版】获取指定股票在指定日期的所有1分钟K线数据。
@@ -458,7 +449,6 @@ class StockTimeTradeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"获取当日1分钟K线时发生异常 for {stock_code} on {trade_date}: {e}", exc_info=True)
             return None
-
     @with_rate_limit(name='api_stk_mins') # 添加速率限制装饰器
     async def save_minute_time_trade_history_by_stock_codes(self, stock_codes: List[str], start_date_str: str="2020-01-01 00:00:00", end_date_str: str="", *, limiter) -> None: # 修改：增加limiter参数
         """
@@ -544,7 +534,6 @@ class StockTimeTradeDAO(BaseDAO):
                 offset += limit
                 page_num += 1
         logger.info(f"保存 {len(stock_codes)}个股票 的分钟级交易数据全部完成.")
-
     @with_rate_limit(name='api_stk_mins') # 速率限制装饰器
     async def save_1min_time_trade_history_by_stock_code(self, stock_code: str, *, limiter) -> int:
         """
@@ -631,7 +620,6 @@ class StockTimeTradeDAO(BaseDAO):
             # 7. 礼貌性等待
             await asyncio.sleep(0.2)
         return total_saved_count
-
     async def save_minute_time_trade_history_by_stock_code_and_time_level(self, stock_code: str, time_level: str, trade_date: date=None, start_date: date=None, end_date: date=None) -> int:
         """
         保存股票的历史分钟级交易数据 (优化版)
@@ -724,7 +712,6 @@ class StockTimeTradeDAO(BaseDAO):
             logger.info("所有数据均已分批保存，无剩余数据。")
         print(f"分钟线数据处理完成。{stock} 总共保存了 {total_saved_count} 条新/更新的记录。")
         return total_saved_count
-
     # =============== A股分钟行情(实时) ===============
     async def save_minute_time_trade_realtime_by_stock_codes_and_time_level(self, stock_codes: List[str], time_level: str):
         """
@@ -810,7 +797,6 @@ class StockTimeTradeDAO(BaseDAO):
         if isinstance(cache_result, Exception):
             logger.error(f"批量写入分钟线缓存时发生异常: {cache_result}", exc_info=cache_result)
         return final_result
-
     async def get_minute_kline_by_daterange(self, stock_code: str, time_level: str, start_dt: datetime, end_dt: datetime) -> Optional[pd.DataFrame]:
         """
         【V2.2 - 统一输出UTC aware datetime版】
@@ -845,7 +831,6 @@ class StockTimeTradeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"从数据库获取分钟K线时发生异常 for {stock_code}: {e}", exc_info=True)
             return None
-
     async def get_minute_time_trade_history(self, stock_code: str, time_level: str, limit: int = 500) -> Optional[pd.DataFrame]:
         """
         【V2.0 - 重构版】获取最新的N条历史分钟级交易数据。
@@ -873,7 +858,6 @@ class StockTimeTradeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"获取最新 {limit} 条分钟K线时发生异常 for {stock_code}: {e}", exc_info=True)
             return None
-
     async def get_intraday_minute_kline_from_cache(self, stock_code: str, time_level: str, trade_date: str) -> Optional[pd.DataFrame]:
         """
         【V3.0】从Redis缓存中获取指定股票、指定日期的所有分钟K线数据。
@@ -903,7 +887,6 @@ class StockTimeTradeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"获取盘中分钟K线时发生异常 for {stock_code}: {e}", exc_info=True)
             return None
-
     #  =============== A股周线行情 ===============
     async def save_weekly_time_trade(self, trade_date: date = None, start_date: date=None) -> None:
         """
@@ -978,7 +961,6 @@ class StockTimeTradeDAO(BaseDAO):
             )
             logger.info(f"完成最后一批周线数据保存，数量：{len(all_data_dicts)}")
         print(f"周线数据处理完成。")
-
     async def get_weekly_time_trade_history(self, stock_code: str) -> None:
         """
         获取股票的历史周线交易数据
@@ -993,7 +975,6 @@ class StockTimeTradeDAO(BaseDAO):
         # 从数据库中获取数据
         stock_weekly_data_list = StockWeeklyData.objects.filter(stock_code=stock_code, time_level="Week").order_by('-trade_date')[:self.cache_limit]
         return stock_weekly_data_list
-
     #  =============== A股月线行情 ===============
     async def save_monthly_time_trade(self, start_date: str = "1990-01-01") -> List:
         """
@@ -1076,7 +1057,6 @@ class StockTimeTradeDAO(BaseDAO):
             )
         logger.info(f"股票的月线数据保存任务全部完成。")
         return all_data_to_save # 返回最后一次保存或空列表
-
     async def get_monthly_time_trade_history(self, stock_code: str) -> None:
         """
         获取股票的历史月线交易数据
@@ -1167,7 +1147,6 @@ class StockTimeTradeDAO(BaseDAO):
             logger.error(f"保存股票日线基本数据时发生严重错误: {e}", exc_info=True)
             print(f"调试: 发生异常: {e}")
             raise # 重新抛出异常，让上层调用者（如Celery）知道任务失败
-
     async def save_stock_daily_basic_history_by_stock_codes(self, stock_codes: List[str], trade_date: date = None, start_date: date = None, end_date: date=None) -> None:
         """
         保存指定股票列表的日线基本信息 (优化版)
@@ -1257,7 +1236,6 @@ class StockTimeTradeDAO(BaseDAO):
             )
             # logger.info(f"完成 {len(all_data_dicts_for_db)} 条日线基本信息的批量保存。")
         return result
-
     async def get_stock_daily_basic(self, stock_code: str) -> None:
         """
         获取股票的日线基本信息
@@ -1272,7 +1250,6 @@ class StockTimeTradeDAO(BaseDAO):
         # 从数据库中获取数据
         stock_daily_basic_list = StockDailyBasic.objects.filter(stock_code=stock_code).order_by('-trade_date')[:self.cache_limit]
         return stock_daily_basic_list
-
     #  =============== A股筹码及胜率 ===============
     # 每日筹码及胜率
     async def save_all_cyq_perf_history(self, trade_date: date=None, start_date: date=None, end_date: date=None) -> None:
@@ -1358,7 +1335,6 @@ class StockTimeTradeDAO(BaseDAO):
             result = None
         logger.info(f"所有股票的每日筹码及胜率数据处理完成。")
         return result
-
     @with_rate_limit(name='api_cyq_perf') #: 添加速率限制装饰器
     async def save_cyq_perf_for_stock(self, stock, start_date: date = None, end_date: date = None, *, limiter) -> None: # MODIFIED: 修改方法签名，接收limiter
         """
@@ -1416,7 +1392,6 @@ class StockTimeTradeDAO(BaseDAO):
             data_list=data_list,
             unique_fields=['stock', 'trade_time']
         )
-
     async def get_cyq_chips_history(self, stock_code: str) -> QuerySet:
         """
         获取股票的每日筹码分布历史数据 (已修改为直接查询分表数据库)
@@ -1436,7 +1411,6 @@ class StockTimeTradeDAO(BaseDAO):
             stock__stock_code=stock_code
         ).order_by('-trade_time')[:self.cache_limit] # 保留了原有的查询数量限制
         return stock_cyq_chips_queryset
-
     # 每日筹码分布
     async def save_all_cyq_chips_history(self, trade_date: date=None, start_date: date=None, end_date: date=None) -> None:
         """
@@ -1553,7 +1527,6 @@ class StockTimeTradeDAO(BaseDAO):
         logger.info(f"所有股票的每日筹码分布数据处理和保存完成。")
         # 因为存在多次保存，返回单一结果已无意义，故返回None
         return None
-
     @with_rate_limit(name='api_cyq_chips')
     async def save_cyq_chips_for_stock(self, stock: StockInfo, start_date: date = None, end_date: date = None, *, limiter) -> None:
         """
@@ -1641,7 +1614,6 @@ class StockTimeTradeDAO(BaseDAO):
             data_list=data_list,
             unique_fields=['stock', 'trade_time', 'price']
         )
-
     # 新增保存每日涨跌停价格的方法
     @with_rate_limit(name='api_stk_limit')
     async def save_stk_limit_history(self, trade_date: date = None, start_date: date = None, end_date: date = None, *, limiter) -> dict:
@@ -1706,7 +1678,6 @@ class StockTimeTradeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"保存每日涨跌停价格时发生错误: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}
-
     # 新增根据股票代码和交易日期获取涨跌停价的方法
     async def get_price_limit_by_date(self, stock_code: str, trade_date: date) -> Optional[Dict]:
         """
@@ -1744,7 +1715,6 @@ class StockTimeTradeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"[DAO] get_price_limit_by_date: 查询 {stock_code} 在 {trade_date} 的涨跌停价时发生错误: {e}", exc_info=True)
             return None
-
     async def get_price_limit_data(self, stock_code: str, end_date: Optional[datetime.date], limit: int) -> pd.DataFrame:
         """
         【V1.0 · 服务层专用接口】

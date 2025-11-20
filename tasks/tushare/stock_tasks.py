@@ -41,7 +41,6 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
     """
     stock_basic_dao = StockBasicInfoDao(cache_manager)
     logger.info(f"开始为用户 {user_id} 的新自选股 {stock_code} (Favorite ID: {favorite_id}) 获取数据...")
-
     async def main():
         realtime_dao = StockRealtimeDAO(cache_manager)
         strategies_dao = StrategiesDAO(cache_manager)
@@ -103,5 +102,4 @@ def fetch_data_for_new_favorite(self, user_id: int, stock_code: int, favorite_id
             payload=payload_data
         )
         logger.info(f"成功推送新自选股 {stock_info.stock_code} 数据给用户 {user_id}")
-
     async_to_sync(main)()

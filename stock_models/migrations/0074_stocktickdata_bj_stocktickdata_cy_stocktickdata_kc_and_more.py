@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0073_advancedstructuralmetrics_bj_closing_momentum_index_and_more'),
     ]
-
     operations = [
         migrations.CreateModel(
             name='StockTickData_BJ',

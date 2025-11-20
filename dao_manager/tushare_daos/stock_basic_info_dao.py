@@ -30,7 +30,6 @@ class StockBasicInfoDao(BaseDAO):
         self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
         self.user_cache_set = UserCacheSet(self.cache_manager)
         self.user_cache_get = UserCacheGet(self.cache_manager)
-
     async def get_stock_list(self) -> List['StockInfo']:
         """
         获取所有股票的基本信息
@@ -69,7 +68,6 @@ class StockBasicInfoDao(BaseDAO):
         except Exception as e:
             logger.error(f"从数据库读取股票列表失败: {e}", exc_info=True)
         return return_data
-
     async def get_stock_by_code(self, stock_code: str) -> Optional['StockInfo']:
         retry = 3
         for i in range(retry):
@@ -84,7 +82,6 @@ class StockBasicInfoDao(BaseDAO):
                 print(f"数据库连接丢失，重试第{i+1}次: {e}")
                 time.sleep(0.2)
         return None
-
     async def get_stocks_by_codes(self, stock_codes: List[str]) -> Dict[str, 'StockInfo']:
         """
         【V2 - 最佳实践版】批量获取股票信息，返回以stock_code为key的字典。
@@ -122,7 +119,6 @@ class StockBasicInfoDao(BaseDAO):
         # 理论上，由于上面的逻辑总会返回或抛出异常，代码不会执行到这里。
         # 但为了代码完整性，保留一个返回。
         return {}
-
     async def get_all_favorite_stocks(self) -> Optional[List[Dict]]:
         """
         获取所有用户的自选股，并按股票代码排序 (已优化)
@@ -159,7 +155,6 @@ class StockBasicInfoDao(BaseDAO):
         except Exception as e:
             logger.error(f"从数据库获取所有自选股失败: {e}", exc_info=True)
             return None
-
     # --- 增加一个更常用的“获取指定用户自选股”的方法 ---
     async def get_user_favorite_stocks(self, user: AbstractUser) -> Optional[List[Dict]]:
         """
@@ -197,7 +192,6 @@ class StockBasicInfoDao(BaseDAO):
         except Exception as e:
             logger.error(f"为用户 {user.username} 获取自选股失败: {e}", exc_info=True)
             return None
-
     async def save_stocks(self) -> Dict:
         """
         【V2.0 向量化优化版】通过tushare获取股票数据并保存到数据库
@@ -242,7 +236,6 @@ class StockBasicInfoDao(BaseDAO):
             )
             return result
         return {}
-
     async def save_company_info(self) -> Dict:
         """
         【V2 - 优化版】通过tushare获取所有公司信息并保存到数据库
@@ -312,7 +305,6 @@ class StockBasicInfoDao(BaseDAO):
             logger.error(f"保存公司信息时发生严重错误: {e}", exc_info=True)
             print(f"调试: 发生异常: {e}")
             raise
-
     async def save_hs_const(self) -> Dict:
         """
         【V2.0 向量化与N+1优化版】通过tushare获取沪深港通成分股信息并保存到数据库

@@ -162,7 +162,6 @@ depends on core.js for utility functions like removeChildren or quickElement
             calDiv.appendChild(calTable);
         }
     };
-
     // Calendar -- A calendar instance
     function Calendar(div_id, callback, selected) {
         // div_id (string) is the ID of the element in which the calendar will

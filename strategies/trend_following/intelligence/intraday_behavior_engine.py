@@ -18,7 +18,6 @@ class IntradayBehaviorEngine:
         self.strategy = strategy_instance
         self.calculator = strategy_instance.orchestrator.indicator_service.calculator
         self.params = get_params_block(self.strategy, 'intraday_behavior_engine_params', {})
-
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -27,7 +26,6 @@ class IntradayBehaviorEngine:
             print(f"    -> [日内行为情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
-
     async def _prepare_intraday_indicators(self, df_minute: pd.DataFrame) -> Optional[pd.DataFrame]:
         """
         【V2.0 · 公理化精简版】
@@ -49,7 +47,6 @@ class IntradayBehaviorEngine:
             if res_df is not None and not res_df.empty:
                 df_enriched = df_enriched.join(res_df, how='left')
         return df_enriched
-
     async def run_intraday_diagnostics(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
         【V2.0 · 三大公理重构版】日内诊断总指挥
@@ -79,7 +76,6 @@ class IntradayBehaviorEngine:
             final_scores.update(res_dict)
         print(f"日内行为诊断完成: {final_scores}")
         return final_scores
-
     async def _diagnose_axiom_attack(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
         【V1.1 · 归一化窗口参数化版】日内行为公理一：诊断“攻击强度”
@@ -101,7 +97,6 @@ class IntradayBehaviorEngine:
         norm_window = self.params.get('meta_analysis_params', {}).get('norm_window', 55)
         final_score = normalize_to_bipolar(raw_attack_score, df_minute.index, window=norm_window).iloc[-1]
         return {"SCORE_INTRADAY_AXIOM_ATTACK": final_score}
-
     async def _diagnose_axiom_control(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
         【V1.1 · 归一化窗口参数化版】日内行为公理二：诊断“控制能力”
@@ -119,7 +114,6 @@ class IntradayBehaviorEngine:
         norm_window = self.params.get('meta_analysis_params', {}).get('norm_window', 55)
         final_score = normalize_to_bipolar(raw_control_score, df_minute.index, window=norm_window, sensitivity=2.0).iloc[-1]
         return {"SCORE_INTRADAY_AXIOM_CONTROL": final_score}
-
     async def _diagnose_axiom_turning(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
         【V1.0】日内行为公理三：诊断“博弈转折”

@@ -15,7 +15,6 @@ class IntradayMultiTimeframeAnalyzer:
         self.min_30min_ema_slope = config.get('playbooks', {}).get('multi_timeframe_ema_confluence', {}).get('min_30min_ema_slope', 0.0001)
         self.min_60min_ema_slope = config.get('playbooks', {}).get('multi_timeframe_ema_confluence', {}).get('min_60min_ema_slope', 0.00005)
         print("IntradayMultiTimeframeAnalyzer initialized.")
-
     def analyze_confluence(self, all_data: Dict[str, pd.DataFrame]) -> Dict[str, bool]:
         """
         分析不同时间周期之间的共振信号。
@@ -34,7 +33,6 @@ class IntradayMultiTimeframeAnalyzer:
         # - 5min VWAP突破，同时30min VWAP也向上
         # ...
         return confluence_features
-
     def _check_ema_alignment_confluence(self, all_data: Dict[str, pd.DataFrame]) -> bool:
         """
         检查5min, 30min, 60min EMA是否形成多头排列共振。

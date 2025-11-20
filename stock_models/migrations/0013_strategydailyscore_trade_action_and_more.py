@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0012_atomicsignalperformance_strategydailystate'),
     ]
-
     operations = [
         migrations.AddField(
             model_name='strategydailyscore',

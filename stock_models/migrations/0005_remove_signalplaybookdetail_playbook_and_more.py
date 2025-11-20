@@ -4,11 +4,9 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0004_remove_positionscoredetail_snapshot_and_more'),
     ]
-
     operations = [
         migrations.DeleteModel(
             name='Playbook',

@@ -64,7 +64,6 @@ def execute_save_today_fund_flow_method(method_name: str, trade_date: datetime.d
     fund_flow_dao = FundFlowDao(cache_manager)
     logger.info(f"子任务启动: {task_id} - {method_name}")
     print(f"调试信息：子任务 {task_id} 启动，执行异步方法: {method_name}")
-
     async def main():
         save_method = getattr(fund_flow_dao, method_name)
         return await save_method(trade_date)

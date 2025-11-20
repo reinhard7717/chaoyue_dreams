@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0039_alter_kplconceptinfo_name'),
     ]
-
     operations = [
         migrations.AlterField(
             model_name='swindustrydaily',

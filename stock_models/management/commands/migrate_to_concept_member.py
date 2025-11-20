@@ -21,7 +21,6 @@ class Command(BaseCommand):
     python manage.py migrate_to_concept_member
     """
     help = '【V2.0 终极版】将所有来源的成分股数据迁移到统一的 ConceptMember 模型中。'
-
     def handle(self, *args, **options):
         self.stdout.write(self.style.SUCCESS("====== 开始迁移成分股数据到 ConceptMember (V2.0 终极版) ======"))
         try:
@@ -31,7 +30,6 @@ class Command(BaseCommand):
         except Exception as e:
             self.stderr.write(self.style.ERROR(f"迁移过程中发生严重错误: {e}"))
             self.stdout.write(self.style.WARNING("由于错误发生，数据库事务已自动回滚，未做任何更改。"))
-
     async def async_main(self):
         """
         异步主逻辑，负责编排整个迁移过程。
@@ -53,7 +51,6 @@ class Command(BaseCommand):
         results = await asyncio.gather(*tasks)
         total_migrated = sum(results)
         self.stdout.write(f"\n  - 所有来源处理完毕，总计迁移 {total_migrated} 条成分股记录。")
-
     async def _parse_date(self, date_val):
         """健壮的日期解析函数"""
         if isinstance(date_val, date):
@@ -64,7 +61,6 @@ class Command(BaseCommand):
             except (ValueError, TypeError):
                 return None
         return None
-
     async def migrate_sw_members(self, concept_map):
         """迁移申万行业成分"""
         self.stdout.write("  -> 正在迁移 [申万行业] 成分股...")
@@ -100,7 +96,6 @@ class Command(BaseCommand):
             count += len(members_to_create)
         self.stdout.write(f"     ...完成，处理 {count} 条申万行业成分记录。")
         return count
-
     # 彻底重构 migrate_ths_members
     async def migrate_ths_members(self, concept_map):
         """
@@ -134,7 +129,6 @@ class Command(BaseCommand):
         self.stdout.write(f"     ...完成，处理 {count} 条同花顺板块成分记录。")
         return count
     
-
     async def migrate_dc_members(self, concept_map):
         """迁移东方财富板块成分"""
         self.stdout.write("  -> 正在迁移 [东方财富板块] 成分股...")
@@ -162,7 +156,6 @@ class Command(BaseCommand):
             count += len(members_to_create)
         self.stdout.write(f"     ...完成，处理 {count} 条东方财富板块成分记录。")
         return count
-
     async def migrate_kpl_members(self, concept_map):
         """迁移开盘啦题材成分"""
         self.stdout.write("  -> 正在迁移 [开盘啦题材] 成分股...")

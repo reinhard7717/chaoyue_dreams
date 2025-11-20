@@ -10,7 +10,6 @@ class PatternIntelligence:
     """
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
-
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -19,7 +18,6 @@ class PatternIntelligence:
             print(f"    -> [形态情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
-
     def run_pattern_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V8.5 · 多方炮集成版】形态分析总指挥
@@ -49,7 +47,6 @@ class PatternIntelligence:
         axiom_duofangpao = self._diagnose_axiom_duofangpao(df)
         all_states['SCORE_PATTERN_DUOFANGPAO'] = axiom_duofangpao
         return all_states
-
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V3.1 · 清洁与多时间维度归一化版】形态公理一：诊断“背离”
@@ -65,7 +62,6 @@ class PatternIntelligence:
         tf_weights_pattern = get_param_value(p_conf_pattern.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}) # 借用筹码的MTF权重配置
         divergence_score = get_adaptive_mtf_normalized_bipolar_score(raw_divergence_score, df.index, tf_weights_pattern)
         return divergence_score.astype(np.float32)
-
     def _diagnose_axiom_reversal(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V3.1 · 清洁与多时间维度归一化版】形态公理二：诊断“反转”
@@ -77,7 +73,6 @@ class PatternIntelligence:
         tf_weights_pattern = get_param_value(p_conf_pattern.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         reversal_score = get_adaptive_mtf_normalized_bipolar_score(raw_reversal_score, df.index, tf_weights_pattern)
         return reversal_score.astype(np.float32)
-
     def _diagnose_axiom_breakout(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V3.1 · 清洁与多时间维度归一化版】形态公理三：诊断“突破”
@@ -93,7 +88,6 @@ class PatternIntelligence:
         tf_weights_pattern = get_param_value(p_conf_pattern.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         breakout_score = get_adaptive_mtf_normalized_bipolar_score(raw_breakout_score, df.index, tf_weights_pattern)
         return breakout_score.astype(np.float32)
-
     def _diagnose_axiom_pullback_confirmation(self, df: pd.DataFrame) -> pd.Series:
         """
         【V5.5 · 纯粹量能洗盘识别版 - 探针增强 & 修复数据缺失处理】形态公理四：诊断“回踩确认二次启动”形态
@@ -312,7 +306,6 @@ class PatternIntelligence:
             print(f"    -> [回踩确认二次启动探针] 最终结果 @ {probe_target_date.date()}:")
             print(f"       - SCORE_PATTERN_PULLBACK_CONFIRMATION: {pullback_confirmation_score.loc[probe_target_date]:.4f}")
         return pullback_confirmation_score.astype(np.float32)
-
     def _diagnose_axiom_duofangpao(self, df: pd.DataFrame) -> pd.Series:
         """
         【V1.0】形态公理五：诊断“多方炮”形态

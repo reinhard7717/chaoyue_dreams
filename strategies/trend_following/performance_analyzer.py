@@ -40,7 +40,6 @@ class PerformanceAnalyzer:
         self.look_forward_days = get_param_value(self.analysis_params.get('look_forward_days'), 20)
         self.profit_target_pct = get_param_value(self.analysis_params.get('profit_target_pct'), 0.15)
         self.stop_loss_pct = get_param_value(self.analysis_params.get('stop_loss_pct'), 0.07)
-
     def run_analysis(self) -> list:
         """
         【V4.7 · 法典统一版】运行性能分析的主函数。
@@ -75,7 +74,6 @@ class PerformanceAnalyzer:
                     })
         # 步骤3: 聚合所有结果并生成报告
         return self._aggregate_and_report_v2(all_trade_outcomes)
-
     def _identify_all_events(self) -> Dict[str, pd.Series]:
         """
         【V4.6 终极净化版】全情报源事件识别器
@@ -128,7 +126,6 @@ class PerformanceAnalyzer:
         filtered_count = len(filtered_events)
         print(f"      -> [战报净化] 已执行过滤：从 {original_count} 个原始信号中筛选出 {filtered_count} 个战斗/风险信号进行分析。")
         return filtered_events
-
     def _analyze_single_trade_performance(self, entry_date, is_offensive: bool) -> dict:
         """
         【V4.1 角色识别版】深度分析单次交易的性能表现。
@@ -143,7 +140,6 @@ class PerformanceAnalyzer:
             stop_loss_pct=self.stop_loss_pct,
             is_offensive=is_offensive # 将接收到的角色参数传递下去
         )
-
     def _aggregate_and_report_v2(self, trade_outcomes: list) -> list:
         """
         【V4.7 · 法典统一版】

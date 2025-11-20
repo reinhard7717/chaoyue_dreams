@@ -20,7 +20,6 @@ class ReportingLayer:
         self.strategy = strategy_instance
         self.playbooks_cache = None
         self.score_type_map = get_params_block(self.strategy, 'score_type_map', {})
-
     async def _ensure_playbooks_cached(self):
         if self.playbooks_cache is not None: return
         try:
@@ -28,7 +27,6 @@ class ReportingLayer:
         except Exception as e:
             self.playbooks_cache = {}
             print(f"    -> [报告层] 警告：异步加载战法定义缓存失败。错误: {e}")
-
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
         【V533.0 · 盖亚裁决适配版】

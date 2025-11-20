@@ -22,7 +22,6 @@ def make_utc_aware(value):
     # 如果输入值为空或不是datetime对象，直接返回，不做处理
     if not isinstance(value, datetime.datetime):
         return value
-
     # ▼▼▼【核心逻辑】▼▼▼
     # 检查时间是否是朴素的 (naive)
     if timezone.is_naive(value):
@@ -44,7 +43,6 @@ def replace(value, args):
     # 使用竖线 '|' 作为新的分隔符
     if '|' not in args:
         return value # 如果参数格式不正确，直接返回原值
-
     old, new = args.split('|', 1) # 使用 split('|', 1) 只分割一次，更健壮
     return value.replace(old, new)
 
@@ -69,7 +67,6 @@ def query_builder(context, **kwargs):
         # 否则，直接设置
         else:
             query_dict[key] = str(value)
-
     # 特殊处理 playbook 的添加/移除逻辑 (如果需要的话)
     add_playbook_val = kwargs.get('add_playbook')
     remove_playbook_val = kwargs.get('remove_playbook')
@@ -87,7 +84,6 @@ def query_builder(context, **kwargs):
             query_dict.setlist('playbooks', playbooks_list)
         else:
             query_dict.pop('playbooks', None)
-
     # 生成最终URL
     if query_dict:
         # doseq=True 确保列表参数被正确编码为 a=1&a=2 的形式

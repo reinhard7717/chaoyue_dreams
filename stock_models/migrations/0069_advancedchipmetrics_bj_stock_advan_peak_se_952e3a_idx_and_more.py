@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0068_remove_advancedchipmetrics_bj_capitulation_absorption_quality_and_more'),
     ]
-
     operations = [
         migrations.AddIndex(
             model_name='advancedchipmetrics_bj',

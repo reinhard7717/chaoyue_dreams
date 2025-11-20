@@ -39,47 +39,37 @@ logger = logging.getLogger(__name__)
 # --- 单个股票的训练逻辑（主进程直接调用） ---
 def train_single_stock_model(item_name, django_settings_module):
     logger.info(f"开始处理股票: {item_name}")
-
     # 路径读取
     if hasattr(django_settings_module, 'STRATEGY_DATA_DIR'):
         actual_model_base_dir = Path(django_settings_module.STRATEGY_DATA_DIR)
     else:
         logger.error("Django settings 中未找到 STRATEGY_DATA_DIR。")
         return {"item_name": item_name, "status": "failed", "reason": "no_STRATEGY_DATA_DIR"}
-
     if hasattr(django_settings_module, 'INDICATOR_PARAMETERS_CONFIG_PATH'):
         actual_params_file = Path(django_settings_module.INDICATOR_PARAMETERS_CONFIG_PATH)
     else:
         logger.error("Django settings 中未找到 INDICATOR_PARAMETERS_CONFIG_PATH。")
         return {"item_name": item_name, "status": "failed", "reason": "no_INDICATOR_PARAMETERS_CONFIG_PATH"}
-
     if not actual_params_file.is_file():
         logger.error(f"指标参数文件 '{actual_params_file}' 不存在。")
         return {"item_name": item_name, "status": "failed", "reason": "params_file_not_found"}
-
     if not actual_model_base_dir.is_dir():
         logger.error(f"模型根目录 '{actual_model_base_dir}' 不存在。")
         return {"item_name": item_name, "status": "failed", "reason": "model_base_dir_not_found"}
-
     item_path = actual_model_base_dir / item_name
     prepared_data_path = item_path / "prepared_data"
     trained_model_path = actual_model_base_dir / "trained_model"
-
     if not prepared_data_path.is_dir():
         logger.warning(f"[{item_name}] 预处理数据目录 '{prepared_data_path}' 不存在，跳过。")
         return {"item_name": item_name, "status": "skipped", "reason": "no_prepared_data_dir"}
-
     npz_files = list(prepared_data_path.glob("*.npz"))
     if not npz_files:
         return {"item_name": item_name, "status": "skipped", "reason": "no_npz_files"}
-
     pth_files = []
     if trained_model_path.is_dir():
         pth_files = list(trained_model_path.glob(f"best_transformer_model_{item_name}.pth"))
-
     if pth_files:
         return {"item_name": item_name, "status": "skipped", "reason": "existing_pth"}
-
     logger.info(f"开始为股票 {item_name} 执行 Transformer 模型训练...")
     try:
         strategy = TrendFollowingStrategy(params_file=actual_params_file, base_data_dir=actual_model_base_dir)
@@ -104,7 +94,6 @@ def run_local_transformer_training_batch_single(
     processing_order='asc'
 ):
     logger.info("开始执行本地 Transformer 模型批量训练任务 (单进程)...")
-
     # 路径解析
     if DJANGO_SETTINGS_AVAILABLE_IN_MAIN and imported_django_settings_main and hasattr(imported_django_settings_main, 'STRATEGY_DATA_DIR'):
         actual_model_base_dir = Path(imported_django_settings_main.STRATEGY_DATA_DIR)
@@ -117,7 +106,6 @@ def run_local_transformer_training_batch_single(
         else:
             logger.error("模型根目录未在 Django settings 或命令行参数中指定。")
             return {"status": "error", "message": "模型根目录配置未找到。"}
-
     if DJANGO_SETTINGS_AVAILABLE_IN_MAIN and imported_django_settings_main and hasattr(imported_django_settings_main, 'INDICATOR_PARAMETERS_CONFIG_PATH'):
         actual_params_file = Path(imported_django_settings_main.INDICATOR_PARAMETERS_CONFIG_PATH)
         logger.info(f"使用 Django settings 的指标参数文件路径: '{actual_params_file}'")
@@ -129,14 +117,12 @@ def run_local_transformer_training_batch_single(
         else:
             logger.error("指标参数文件未在 Django settings 或命令行参数中指定。")
             return {"status": "error", "message": "指标参数文件配置未找到。"}
-
     if not actual_model_base_dir.is_dir():
         logger.error(f"指定的模型根目录 '{actual_model_base_dir}' 不存在或不是一个目录。")
         return {"status": "error", "message": f"模型根目录 '{actual_model_base_dir}' 未找到。"}
     if not actual_params_file.is_file():
         logger.error(f"指定的指标参数文件 '{actual_params_file}' 不存在或不是一个文件。")
         return {"status": "error", "message": f"指标参数文件 '{actual_params_file}' 未找到。"}
-
     all_item_names = [item.name for item in actual_model_base_dir.iterdir() if item.is_dir()]
     all_item_names.sort(reverse=(processing_order == 'desc'))
     total_stock_folders = len(all_item_names)
@@ -144,20 +130,17 @@ def run_local_transformer_training_batch_single(
     if not all_item_names:
         logger.warning("未找到任何股票文件夹进行处理。")
         return {"status": "completed", "message": "未找到任何股票文件夹进行处理。", "successfully_trained": 0, "skipped_no_npz": 0, "skipped_existing_pth": 0, "failed_training": 0, "total_processed_folders": 0, "total_discovered_folders": 0}
-
     results_list = []
     for i, item_name in enumerate(all_item_names):
         result = train_single_stock_model(item_name, imported_django_settings_main)
         results_list.append(result)
         logger.info(f"完成 {i+1}/{total_stock_folders} 个股票训练。股票 '{result.get('item_name', 'UNKNOWN')}' 状态: {result.get('status', 'N/A')} 原因： {result.get('reason', 'N/A')}")
-
     # 结果汇总
     successfully_trained_count = sum(1 for r in results_list if r.get("status") == "success")
     skipped_due_to_no_npz = sum(1 for r in results_list if r.get("reason") in ["no_npz_files", "no_prepared_data_dir"])
     skipped_due_to_existing_pth = sum(1 for r in results_list if r.get("reason") == "existing_pth")
     failed_training_count = sum(1 for r in results_list if r.get("status") == "failed")
     processed_stock_folders = len(results_list)
-
     summary_message = (
         f"\n本地 Transformer 模型批量训练完成。\n"
         f"总共发现的股票文件夹数量: {total_stock_folders}.\n"
@@ -193,7 +176,6 @@ if __name__ == '__main__':
         ]
     )
     print("--- 脚本开始执行 (run_local_training_single.py) ---")
-
     parser = argparse.ArgumentParser(description="本地批量训练 Transformer 模型脚本（单进程版）。")
     parser.add_argument(
         "--params-file",
@@ -213,15 +195,12 @@ if __name__ == '__main__':
         help="处理股票文件夹的顺序。'asc' 为正序 (默认)，'desc' 为倒序。"
     )
     args = parser.parse_args()
-
     logger.info(f"命令行参数已解析。Params File: '{args.params_file}', Strategy Data Dir: '{args.strategy_data_dir}', Order: '{args.order}'")
-
     results = run_local_transformer_training_batch_single(
         model_base_dir_path_str=args.strategy_data_dir,
         params_file_path_str=args.params_file,
         processing_order=args.order
     )
-
     print(f"\n--- 执行结果摘要 ---")
     if results and isinstance(results, dict):
         for key, value in results.items():
@@ -232,5 +211,4 @@ if __name__ == '__main__':
                 print(f"{key}: {value}")
     else:
         print(f"执行返回了意外的结果或错误: {results}")
-
     print("\n--- 脚本执行完毕 ---")

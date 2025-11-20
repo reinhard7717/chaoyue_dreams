@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0014_advancedchipmetrics_bj_concentration_70pct_and_more'),
     ]
-
     operations = [
         migrations.AlterModelOptions(
             name='advancedchipmetrics_bj',

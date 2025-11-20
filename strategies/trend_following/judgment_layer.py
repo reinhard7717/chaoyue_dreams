@@ -8,7 +8,6 @@ from strategies.trend_following.utils import get_params_block, get_param_value
 class JudgmentLayer:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
-
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
         【V538.0 · 风险否决净化版】
@@ -52,7 +51,6 @@ class JudgmentLayer:
         df['final_score'] = df['final_score'].fillna(0).round().astype(int)
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df)
         self._finalize_signals()
-
     def _get_human_readable_summary(self, details_df: pd.DataFrame) -> pd.Series:
         """
         【V5.2 · 统一情报总线版】
@@ -91,7 +89,6 @@ class JudgmentLayer:
                     offense_list.append(signal_dict)
             return {'offense': offense_list, 'risk': risk_list}
         return details_df_numeric.apply(generate_summary_for_day, axis=1)
-
     def _get_dynamic_combat_action(self) -> pd.Series:
         """
         【V319.0 · 终极信号适配版】动态力学战术矩阵
@@ -111,7 +108,6 @@ class JudgmentLayer:
         actions.loc[is_force_attack] = 'FORCE_ATTACK'
         actions.loc[is_avoid] = 'AVOID'
         return actions
-
     def _finalize_signals(self):
         """
         【V522.0 · 统一号令版】
@@ -126,7 +122,6 @@ class JudgmentLayer:
         final_buy_condition = (df['signal_type'] == '买入信号')
         df.loc[final_buy_condition, 'signal_entry'] = True
         df.loc[final_buy_condition, 'exit_signal_code'] = 0
-
     def _adjudicate_risk_level(self) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         """
         【V2.9 · 否决权上收版】风险裁决者 (Risk Adjudicator)
@@ -177,7 +172,6 @@ class JudgmentLayer:
         alert_reason = pd.Series(np.select(conditions, choices_reason, default=''), index=df.index)
         self.strategy.atomic_states['ALERT_LEVEL'] = alert_level.astype(np.int8)
         return alert_level, alert_reason, fused_risks_df
-
     def _get_dominant_offense_type(self, score_details_df: pd.DataFrame) -> pd.Series:
         """
         【V1.0】识别每日最强的进攻信号及其类型 ('positional' 或 'dynamic')。

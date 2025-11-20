@@ -24,14 +24,12 @@ class UserLoginForm(AuthenticationForm):
         initial=True,
         widget=forms.CheckboxInput(attrs={'class': 'form-check-input'})
     )
-
     error_messages = {
         'invalid_login': _(
             "请输入正确的用户名和密码。注意区分大小写。"
         ),
         'inactive': _("该账号已被禁用。"),
     }
-
     class Meta:
         model = User
         fields = ('username', 'password', 'remember_me')
@@ -69,7 +67,6 @@ class UserProfileForm(forms.ModelForm):
         required=False,
         widget=forms.EmailInput(attrs={'class': 'form-control'})
     )
-
     class Meta:
         model = UserProfile
         fields = ('phone', 'avatar', 'bio', 'email_notification')

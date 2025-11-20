@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0025_remove_advancedfundflowmetrics_bj_main_force_net_flow_consensus_sum_144d_and_more'),
     ]
-
     operations = [
         migrations.AlterField(
             model_name='advancedchipmetrics_bj',

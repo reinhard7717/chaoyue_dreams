@@ -20,7 +20,6 @@ class IntradayVolatilityAnalyzer:
         self.boll_period = config.get('indicators', {}).get('boll_bands_and_width', {}).get('configs', [{}])[0].get('periods', [20])[0]
         self.boll_std_dev = config.get('indicators', {}).get('boll_bands_and_width', {}).get('configs', [{}])[0].get('std_dev', 2.0)
         print("IntradayVolatilityAnalyzer initialized.")
-
     def analyze_volatility(self, df: pd.DataFrame, timeframe: str) -> Dict[str, float]: # 修改返回类型为 float
         """
         分析给定DataFrame中最新K线的波动率，并返回量化值。

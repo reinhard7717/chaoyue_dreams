@@ -26,18 +26,15 @@ class Playbook(models.Model):
         TRIGGER = 'TRIGGER', '触发事件'
         CONTEXT = 'CONTEXT', '环境信号'
         UNKNOWN = 'UNKNOWN', '未知类型'
-
     name = models.CharField(max_length=255, primary_key=True, help_text="战法/规则的唯一英文代码 (例如 TACTIC_LOCK_CHIP_RALLY_S)")
     cn_name = models.CharField(max_length=255, help_text="战法/规则的中文名称")
     playbook_type = models.CharField(max_length=20, choices=PlaybookType.choices, db_index=True, help_text="战法类型 (进攻/风险/离场/触发)")
     description = models.TextField(blank=True, null=True, help_text="战法的详细描述")
     default_score = models.FloatField(default=0.0, help_text="配置文件中定义的默认分数")
-
     class Meta:
         db_table = "strategy_playbook"
         verbose_name = "策略战法库"
         verbose_name_plural = verbose_name
-
     def __str__(self):
         return f"[{self.get_playbook_type_display()}] {self.cn_name} ({self.name})"
 
@@ -91,7 +88,6 @@ class SignalPlaybookDetail(models.Model):
     signal = models.ForeignKey(TradingSignal, on_delete=models.CASCADE, null=True, blank=True)
     playbook = models.ForeignKey(Playbook, on_delete=models.CASCADE, null=True, blank=True)
     contributed_score = models.FloatField(help_text="此战法在当天实际贡献的分数")
-
     class Meta:
         db_table = "strategy_signal_playbook_detail"
         unique_together = ('signal', 'playbook') # 确保一个信号和一个战法的关联是唯一的
@@ -117,10 +113,8 @@ class PositionTracker(models.Model):
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.WATCHING, db_index=True)
     current_quantity = models.PositiveIntegerField(default=0, help_text="当前持仓数量 (股)")
     average_cost = models.DecimalField(max_digits=10, decimal_places=3, default=0, help_text="持仓平均成本")
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
     class Meta:
         db_table = "strategy_position_tracker"
         # 确保每个用户对一个股票只有一个持仓账户
@@ -128,7 +122,6 @@ class PositionTracker(models.Model):
         ordering = ['-updated_at']
         verbose_name = "策略持仓追踪器"
         verbose_name_plural = verbose_name
-
     def __str__(self):
         return f"{self.user.username} - {self.stock.stock_code} ({self.get_status_display()})"
 
@@ -153,13 +146,11 @@ class Transaction(models.Model):
     transaction_date = models.DateTimeField(help_text="交易日期和时间")
     commission = models.DecimalField(max_digits=10, decimal_places=3, default=0, help_text="手续费")
     created_at = models.DateTimeField(auto_now_add=True)
-
     class Meta:
         db_table = "strategy_transaction"
         ordering = ['-transaction_date']
         verbose_name = "交易流水"
         verbose_name_plural = verbose_name
-
     def __str__(self):
         return f"[{self.tracker.stock.stock_code}] {self.get_transaction_type_display()} {self.quantity}股 @ {self.price}"
 
@@ -172,7 +163,6 @@ class DailyPositionSnapshot(models.Model):
     snapshot_date = models.DateField(db_index=True)
     close_price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity_at_snapshot = models.PositiveIntegerField(help_text="快照当日的持仓数量", default=0)
-
     profit_loss = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     profit_loss_pct = models.DecimalField(max_digits=8, decimal_places=4, default=0)
     daily_score = models.ForeignKey(
@@ -182,12 +172,10 @@ class DailyPositionSnapshot(models.Model):
         null=True,
         blank=True
     )
-
     class Meta:
         db_table = 'strategy_daily_position_snapshot'
         unique_together = ('tracker', 'snapshot_date')
         ordering = ['-snapshot_date']
-
     def __str__(self):
         return f"{self.tracker.stock.stock_code} @ {self.snapshot_date} - P/L: {self.profit_loss_pct}%"
 
@@ -216,7 +204,6 @@ class StrategyDailyScore(models.Model):
         FORCE_ATTACK = 'FORCE_ATTACK', '强力进攻'
         NO_SIGNAL = 'NO_SIGNAL', '无信号'
         GAP_UP_SKIPPED = 'GAP_UP_SKIPPED', '高开跳过'
-
     stock = models.ForeignKey(
         'StockInfo',
         on_delete=models.CASCADE,
@@ -240,14 +227,12 @@ class StrategyDailyScore(models.Model):
         verbose_name='模拟交易动作',
         help_text="模拟层根据策略规则执行的交易动作 (例如: INITIAL_ENTRY, PROFIT_EXIT, REDUCE_POSITION)"
     )
-
     class Meta:
         db_table = 'strategy_daily_score'
         verbose_name = '策略每日分数'
         verbose_name_plural = verbose_name
         unique_together = ('stock', 'trade_date', 'strategy_name')
         ordering = ['-trade_date']
-
     def __str__(self):
         return f"{self.stock.stock_code} @ {self.trade_date} [{self.strategy_name}]"
 
@@ -357,13 +342,11 @@ class AtomicSignalPerformance(models.Model):
     avg_max_drawdown_pct = models.FloatField(verbose_name='平均最大回撤(%)')
     avg_exit_days = models.FloatField(verbose_name='平均退出天数')
     last_analyzed = models.DateTimeField(auto_now=True, verbose_name='最后分析时间')
-
     class Meta:
         db_table = 'strategy_atomic_signal_performance'
         verbose_name = '原子信号性能'
         verbose_name_plural = verbose_name
         ordering = ['-win_rate_pct']
-
     def __str__(self):
         return f"{self.signal_cn_name} ({self.signal_name}) - WinRate: {self.win_rate_pct:.2f}%"
 

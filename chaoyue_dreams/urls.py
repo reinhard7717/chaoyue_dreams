@@ -12,7 +12,6 @@ urlpatterns = [
     # path('', include('django.contrib.auth.urls')), # 添加这行可以快速使用内置的登录/登出等URL name
     # # 可以设置一个根路径重定向到 dashboard
     # path('', RedirectView.as_view(url='/dashboard/', permanent=False), name='go-to-dashboard'),
-
     path('reinhard7717_admin/', admin.site.urls),
     path('users/', include('users.urls', namespace='users')),  # 用户相关URL
     path('dashboard/', include('dashboard.urls', namespace='dashboard')), # dashboard URLs

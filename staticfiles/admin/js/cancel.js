@@ -10,7 +10,6 @@
             document.addEventListener('DOMContentLoaded', fn);
         }
     }
-
     ready(function() {
         function handleClick(event) {
             event.preventDefault();

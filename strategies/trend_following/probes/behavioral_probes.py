@@ -11,7 +11,6 @@ class BehavioralProbes:
         self.intelligence_layer = intel_layer
         self.strategy = intel_layer.strategy
         self.behavioral_intel = intel_layer.behavioral_intel
-
     def _deploy_prometheus_torch_probe(self, probe_date: pd.Timestamp):
         """
         【V2.6 · 结构行为同步版】“普罗米修斯火炬”探针
@@ -67,7 +66,6 @@ class BehavioralProbes:
         bullish_composite_state = (get_val(positive_day_strength, probe_date) * csi_score * (1 + bull_div_score) * auction_power_score * trend_eff_score * bullish_d_intensity)**(1/6)
         print(f"    - [看涨复合状态]: {bullish_composite_state:.4f}")
         print("\n--- “普罗米修斯火炬”探针解剖完毕 ---")
-
     def _deploy_pressure_transmutation_probe(self, probe_date: pd.Timestamp):
         """
         【V1.0】广义抛压嬗变探针
@@ -120,7 +118,6 @@ class BehavioralProbes:
         print(f"    - 【探针重算最终风险】: {recalc_final_risk:.4f}")
         print(f"    - 【探针重算机会分】: {recalc_opportunity:.4f}")
         print("\n--- “广义抛压嬗变探针”解剖完毕 ---")
-
     def _deploy_liquidity_dynamics_probe(self, probe_date: pd.Timestamp):
         """
         【探针 V1.0】流动性动态探针

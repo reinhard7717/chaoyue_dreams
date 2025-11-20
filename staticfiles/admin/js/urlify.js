@@ -105,7 +105,6 @@
         'ქ': 'q', 'ღ': 'g', 'ყ': 'y', 'შ': 'sh', 'ჩ': 'ch', 'ც': 'c', 'ძ': 'dz',
         'წ': 'w', 'ჭ': 'ch', 'ხ': 'x', 'ჯ': 'j', 'ჰ': 'h'
     };
-
     const ALL_DOWNCODE_MAPS = [
         LATIN_MAP,
         LATIN_SYMBOLS_MAP,
@@ -124,7 +123,6 @@
         AZERBAIJANI_MAP,
         GEORGIAN_MAP
     ];
-
     const Downcoder = {
         'Initialize': function() {
             if (Downcoder.map) { // already made
@@ -137,14 +135,12 @@
             Downcoder.regex = new RegExp(Object.keys(Downcoder.map).join('|'), 'g');
         }
     };
-
     function downcode(slug) {
         Downcoder.Initialize();
         return slug.replace(Downcoder.regex, function(m) {
             return Downcoder.map[m];
         });
     }
-
 
     function URLify(s, num_chars, allowUnicode) {
         // changes, e.g., "Petty theft" to "petty-theft"

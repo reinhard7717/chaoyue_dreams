@@ -31,7 +31,6 @@ class StrategiesDAO(BaseDAO):
         self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
         self.fund_flow_dao = FundFlowDao(cache_manager_instance)
         self.cache_manager = cache_manager_instance
-
     async def get_latest_strategy_result(self, stock_code: str):
         """
         获取指定股票的最新策略信号。
@@ -51,7 +50,6 @@ class StrategiesDAO(BaseDAO):
         if not latest_strategy:
             print(f"未找到股票{stock_code}的最新策略信号")
         return latest_strategy  # 返回最新策略信号对象
-
     # --- 一个更通用的、基于字典列表的保存方法 ---
     async def save_monthly_trend_strategy_reports(self, reports_data: List[Dict[str, Any]]) -> int:
         """
@@ -108,7 +106,6 @@ class StrategiesDAO(BaseDAO):
         success_count = result_stats.get("创建/更新成功", 0)
         print(f"调试信息: [DAO] 批量保存完成。尝试: {len(reports_data)}, 成功: {success_count}")
         return success_count
-
     async def save_trend_follow_strategy_reports(self, reports_data: List[Dict[str, Any]]) -> int:
         """
         【V2.0 N+1查询优化版】根据标准化的字典列表，批量创建或更新趋势跟踪策略报告。
@@ -162,7 +159,6 @@ class StrategiesDAO(BaseDAO):
         )
         success_count = result_stats.get("创建/更新成功", 0)
         return success_count
-
     @sync_to_async
     def get_latest_monthly_trend_reports_by_stock_codes(self, stock_codes):
         """
@@ -232,7 +228,6 @@ class StrategiesDAO(BaseDAO):
             'signal_continuation_entry',
             'signal_take_profit'
         )
-
     # 内部辅助方法，用于获取日线策略报告的核心查询逻辑
     def _get_latest_trend_follow_reports_queryset(self, base_queryset=None):
         """
@@ -301,7 +296,6 @@ class StrategiesDAO(BaseDAO):
         """
         print("--- [DAO] 正在调用 get_latest_trend_follow_reports ---")
         return self._get_latest_trend_follow_reports_queryset()
-
     # 根据股票代码列表获取最新日线策略报告的方法
     @sync_to_async
     def get_latest_trend_follow_reports_by_stock_codes(self, stock_codes: List[str]):
@@ -316,7 +310,6 @@ class StrategiesDAO(BaseDAO):
         initial_queryset = TrendFollowStrategyReport.objects.filter(stock__stock_code__in=stock_codes)
         # 将预过滤的queryset传给辅助函数
         return self._get_latest_trend_follow_reports_queryset(base_queryset=initial_queryset)
-
     # 获取指定股票的日线资金流和筹码性能数据。
     @sync_to_async
     def get_fund_flow_and_chips_data(self, stock_code: str, trade_time: Optional[datetime] = None, limit: Optional[int] = None) -> pd.DataFrame:
@@ -373,7 +366,6 @@ class StrategiesDAO(BaseDAO):
         df_merged.set_index('trade_time', inplace=True)
         # print(f"    - [DAO] 成功获取并合并了 {stock_code} 的 {len(df_merged)} 条补充数据。")
         return df_merged
-
     @sync_to_async(thread_sensitive=True)
     def get_daily_basic_data(self, stock_code: str, trade_time: Optional[datetime] = None, limit: int = 1200) -> Optional[pd.DataFrame]:
         """
@@ -406,7 +398,6 @@ class StrategiesDAO(BaseDAO):
         except Exception as e:
             logger.error(f"获取 {stock_code} 的每日基本面数据时出错: {e}", exc_info=True)
             return None
-
     async def save_strategy_signals(self, records_tuple: Tuple[List, List, List, List, List]) -> int:
         """
         【V507.0 全景沙盤版】
@@ -560,7 +551,6 @@ class StrategiesDAO(BaseDAO):
         except Exception as e:
             print(f"错误: [DAO-V507.0] 异步执行事务时捕获到异常: {e}")
             return 0
-
     # 筹码高级信息AdvancedChipMetrics
     async def get_advanced_chip_metrics_data(
         self,
@@ -604,7 +594,6 @@ class StrategiesDAO(BaseDAO):
         df = df.set_index('trade_time')
         df = df.sort_index(ascending=True)
         return df
-
     async def get_daily_buy_signals(self, trade_date: date) -> List['TrendFollowStrategySignalLog']:
         """
         【V1.0 - 盘中引擎专用】
@@ -638,7 +627,6 @@ class StrategiesDAO(BaseDAO):
             logger.error(f"查询日线买入信号时发生严重错误: {e}", exc_info=True)
             # 在生产环境中，发生错误时返回空列表是安全的做法
             return []
-
     async def get_latest_daily_data_for_stocks(self, stock_codes: List[str], end_date: str) -> Dict[str, pd.DataFrame]:
         """
         【V1.0 新增】使用窗口函数高效获取一批股票在指定日期或之前的最新日线行情数据。

@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0038_alter_kplconceptconstituent_concept_info'),
     ]
-
     operations = [
         migrations.AlterField(
             model_name='kplconceptinfo',

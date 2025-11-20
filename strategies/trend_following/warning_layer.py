@@ -11,7 +11,6 @@ class WarningLayer:
         self.strategy = strategy_instance
         # risk_metadata 现在从 signal_dictionary.json 加载
         self.risk_metadata = get_params_block(self.strategy, 'score_type_map', {})
-
     def run_all_warnings(self) -> pd.DataFrame:
         """
         【V3.0 · 配置驱动重构版】预警层总指挥
@@ -36,7 +35,6 @@ class WarningLayer:
         # print(f"        -> [预警层分析中心 V3.0] 已根据配置收集 {len(risk_details_df.columns)} 个风险信号。")
         # 只返回一个完整的、包含所有原始风险分的DataFrame
         return risk_details_df
-
     def _diagnose_risk_momentum(self, total_risk_score_series: pd.Series) -> pd.Series:
         window = 3
         accel_threshold = 20.0
@@ -50,7 +48,6 @@ class WarningLayer:
         states = np.select(conditions, choices, default="STABLE")
         reports = [{'momentum_state': state, 'risk_slope': round(slope, 2), 'risk_accel': round(accel, 2)} if state != "STABLE" else {} for state, slope, accel in zip(states, risk_slope, risk_accel)]
         return pd.Series(reports, index=total_risk_score_series.index)
-
     def _diagnose_risk_dynamics(self, combined_risk_details_df: pd.DataFrame) -> pd.Series:
         if combined_risk_details_df.empty:
             return pd.Series([{} for _ in range(len(combined_risk_details_df))], index=combined_risk_details_df.index)

@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0064_remove_advancedchipmetrics_bj_chip_zscore_and_more'),
     ]
-
     operations = [
         migrations.AlterModelOptions(
             name='advancedchipmetrics_bj',

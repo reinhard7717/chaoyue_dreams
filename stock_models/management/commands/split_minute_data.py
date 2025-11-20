@@ -59,7 +59,6 @@ def get_target_model(time_level, stock_code):
 
 class Command(BaseCommand):
     help = '拆分StockMinuteData数据到新表'
-
     def handle(self, *args, **options):
         # 只处理5/15/30/60分钟
         time_levels = ['5', '15', '30', '60']

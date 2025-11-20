@@ -97,7 +97,6 @@ def objective(trial, strategy, item_name, epochs):
     reduce_lr_factor = trial.suggest_float("reduce_lr_factor", 0.3, 0.4)  # 原0.1-0.5
     # 采样 min_lr，范围 1e-7 到 1e-5，对数尺度
     min_lr = trial.suggest_float("min_lr", 1e-7, 5e-7, log=True)  # 原1e-7-1e-5
-
     transformer_hyperparams = {
         "transformer_model_config": {
             "d_model": d_model,
@@ -128,20 +127,16 @@ def objective(trial, strategy, item_name, epochs):
             "tensorboard_log_dir": "logs/tensorboard"
         }
     }
-
     print(f"\n[Optuna][{item_name}] Trial {trial.number} 开始，采样参数如下：")
     for k, v in transformer_hyperparams["transformer_model_config"].items():
         print(f"  [Model] {k}: {v}")
     for k, v in transformer_hyperparams["transformer_training_config"].items():
         print(f"  [Train] {k}: {v}")
-
     print(f"[Optuna][{item_name}] Trial {trial.number} 开始，采样参数: d_model={transformer_hyperparams['transformer_model_config']['d_model']}, "
           f"nhead={transformer_hyperparams['transformer_model_config']['nhead']}, learning_rate={transformer_hyperparams['transformer_training_config']['learning_rate']:.6e}")
-
     # 初始化 val_mae 为 NaN，以避免 NoneType 错误
     val_mae = float('nan')
     # 
-
     try:
         # 将 train_transformer_model_from_prepared_data 的返回值赋给一个临时变量
         returned_val_mae = strategy.train_transformer_model_from_prepared_data(
@@ -181,7 +176,6 @@ def run_local_transformer_training_batch(
     epochs: int = 10
     ):
     logger.info("开始执行本地 Transformer 模型批量训练任务...")
-
     # --- 解析和验证路径 ---
     actual_model_base_dir = None
     if model_base_dir_path_str:
@@ -197,7 +191,6 @@ def run_local_transformer_training_batch(
         elif not hasattr(django_settings_module, 'STRATEGY_DATA_DIR'):
             print(f"DEBUG: Django settings 中未找到 STRATEGY_DATA_DIR 属性。Django settings available: {DJANGO_SETTINGS_AVAILABLE}")
         return {"status": "error", "message": "模型根目录配置未找到。"}
-
     actual_params_file = None
     if params_file_path_str:
         actual_params_file = Path(params_file_path_str)
@@ -214,34 +207,27 @@ def run_local_transformer_training_batch(
         elif not hasattr(django_settings_module, 'INDICATOR_PARAMETERS_CONFIG_PATH'):
             print(f"DEBUG: Django settings 中未找到 INDICATOR_PARAMETERS_CONFIG_PATH 属性。Django settings available: {DJANGO_SETTINGS_AVAILABLE}")
         return {"status": "error", "message": "指标参数文件配置未找到。"}
-
     if not actual_params_file.is_file():
         logger.error(f"错误：指定的指标参数文件 '{actual_params_file}' 不存在或不是一个文件。")
         return {"status": "error", "message": f"指标参数文件 '{actual_params_file}' 未找到。"}
-
     if not actual_model_base_dir.is_dir():
         logger.error(f"错误：指定的模型根目录 '{actual_model_base_dir}' 不存在或不是一个目录。")
         return {"status": "error", "message": f"模型根目录 '{actual_model_base_dir}' 未找到。"}
-
     successfully_trained_count = 0
     skipped_due_to_no_npz = 0
     skipped_due_to_existing_pth = 0
     failed_training_count = 0
     processed_stock_folders = 0
-
     # 获取所有股票文件夹名称并根据参数排序
     all_item_names = [item.name for item in actual_model_base_dir.iterdir() if item.is_dir()] # 获取所有子目录名称
     all_item_names.sort() # 默认按字典序正序排序
-
     if processing_order == 'desc': # 如果参数是倒序
         all_item_names.reverse() # 将列表反转，实现倒序
         print(f"INFO: 将按倒序处理股票文件夹。") # 提示信息
     else:
         print(f"INFO: 将按正序处理股票文件夹。") # 提示信息
-
     total_stock_folders = len(all_item_names) # 总数现在是排序后的列表长度
     print(f"DEBUG: 在 '{actual_model_base_dir}' 中找到 {total_stock_folders} 个潜在的股票文件夹。")
-
     # 遍历排序/反转后的 item_name 列表
     for item_idx, item_name in enumerate(all_item_names):
         processed_stock_folders += 1
@@ -302,7 +288,6 @@ def run_local_transformer_training_batch(
             logger.error(f"为股票 {item_name} 执行 Transformer 贝叶斯优化+最终训练时发生意外错误: {e}", exc_info=True)
             failed_training_count += 1
     # 排序和遍历逻辑已更新
-
     summary_message = (
         f"\n本地 Transformer 模型批量训练完成。\n"
         f"总共检查的股票文件夹数量: {processed_stock_folders} (在 {total_stock_folders} 个已发现的文件夹中).\n"
@@ -328,7 +313,6 @@ if __name__ == '__main__':
     root_logger = logging.getLogger()
     if root_logger.hasHandlers():
         root_logger.handlers.clear()
-
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -337,7 +321,6 @@ if __name__ == '__main__':
         ]
     )
     print("--- 脚本开始执行 (run_local_training.py) ---")
-
     parser = argparse.ArgumentParser(description="本地批量训练 Transformer 模型脚本。")
     parser.add_argument(
         "--params-file",
@@ -370,9 +353,7 @@ if __name__ == '__main__':
         help="每次 trial 训练的 epoch 数，默认 10"
     )
     args = parser.parse_args()
-
     print(f"INFO: 命令行参数已解析。Params File: '{args.params_file}', Strategy Data Dir: '{args.strategy_data_dir}', Order: '{args.order}'") # 打印新的参数值
-
     results = run_local_transformer_training_batch(
         model_base_dir_path_str=args.strategy_data_dir,
         params_file_path_str=args.params_file,
@@ -380,7 +361,6 @@ if __name__ == '__main__':
         n_trials=args.n_trials,
         epochs=args.epochs
     )
-
     print(f"\n--- 执行结果摘要 ---")
     if results and isinstance(results, dict):
         for key, value in results.items():
@@ -391,6 +371,5 @@ if __name__ == '__main__':
                 print(f"{key}: {value}")
     else:
         print(f"执行返回了意外的结果或错误: {results}")
-
     print("\n--- 脚本执行完毕 ---")
 

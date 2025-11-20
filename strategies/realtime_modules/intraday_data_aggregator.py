@@ -24,7 +24,6 @@ class IntradayDataAggregator:
         self.data_buffer = {tf: pd.DataFrame() for tf in self.processed_timeframes + [self.base_timeframe]}
         self.last_processed_time = {tf: None for tf in self.processed_timeframes}
         print("IntradayDataAggregator initialized.")
-
     def update_1min_data(self, new_1min_kline: pd.Series):
         """
         接收新的1分钟K线数据，并更新内部数据缓冲区。
@@ -55,7 +54,6 @@ class IntradayDataAggregator:
         self.data_buffer[self.base_timeframe] = pd.concat([self.data_buffer[self.base_timeframe], pd.DataFrame([new_1min_kline])])
         self.data_buffer[self.base_timeframe].index.name = 'datetime'
         # print(f"  [数据聚合器] 添加1分钟K线: {new_1min_kline.name}")
-
     def aggregate_and_calculate_indicators(self) -> Dict[str, pd.DataFrame]:
         """
         聚合1分钟数据到所有配置的时间周期，并计算指标。
@@ -97,7 +95,6 @@ class IntradayDataAggregator:
             all_processed_data[tf_str] = self.data_buffer[tf_str]
             # print(f"  [数据聚合器] {tf_str} 聚合完成，当前数据量: {len(self.data_buffer[tf_str])}")
         return all_processed_data
-
     def _ohlcv_agg_func(self, group: pd.Series) -> pd.Series:
         """自定义OHLCV聚合函数"""
         if group.empty:
@@ -111,7 +108,6 @@ class IntradayDataAggregator:
             'close': group_df['close'].iloc[-1],
             'volume': group_df['volume'].sum()
         })
-
     def _convert_timeframe_to_freq(self, tf_str: str) -> str:
         """将时间周期字符串转换为pandas resample频率字符串"""
         if tf_str.endswith('min'):
@@ -119,7 +115,6 @@ class IntradayDataAggregator:
         elif tf_str.endswith('h'):
             return tf_str.replace('h', 'H')
         return tf_str # 默认返回原字符串
-
     def _calculate_technical_indicators(self, df: pd.DataFrame, timeframe: str):
         """
         为给定的DataFrame计算技术指标。

@@ -21,7 +21,6 @@ class BaseStrategy(ABC):
     策略基类，定义所有策略的通用接口。
     """
     strategy_name = "Base Strategy" # 默认策略名称，子类应覆盖
-
     def __init__(self, params: Optional[Dict[str, Any]] = None):
         """
         初始化策略。
@@ -30,14 +29,12 @@ class BaseStrategy(ABC):
         self.params = params if params is not None else {}
         # 移除这里的 self._validate_params() 调用
         # self._validate_params() # 验证参数 - 应该由子类在完成自身初始化后调用
-
     def _validate_params(self):
         """
         （可选）验证传入的参数是否满足策略要求。
         可以在子类中重写。
         """
         pass # 子类可以实现具体的验证逻辑
-
     @abstractmethod
     def generate_signals(self, data: pd.DataFrame, stock_code: Optional[str] = None, indicator_configs: Optional[List[Dict]] = None, **kwargs) -> pd.DataFrame: # 修改返回类型为 DataFrame
         """
@@ -50,7 +47,6 @@ class BaseStrategy(ABC):
                  应包含原始数据、所有计算的中间列，以及最终的信号列(例如 'final_rule_signal', 'combined_signal')。
         """
         pass
-
     def run(self, data: pd.DataFrame, stock_code: Optional[str] = None, indicator_configs: Optional[List[Dict]] = None, **kwargs) -> pd.DataFrame: # 修改返回类型为 DataFrame
         """
         执行策略并生成包含所有信号和中间结果的DataFrame。
@@ -87,17 +83,14 @@ class BaseStrategy(ABC):
             # 为了安全，返回空 DataFrame
             return pd.DataFrame()
         return processed_data_with_signals
-
     @abstractmethod
     def get_required_columns(self) -> List[str]:
         """
         返回该策略运行所必需的数据列名列表。
         """
         pass
-
     def __str__(self):
         return f"{self.strategy_name}(params={self.params})"
-
     def __repr__(self):
         return self.__str__()
 

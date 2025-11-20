@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0050_alter_strategydailyscore_trade_action'),
     ]
-
     operations = [
         migrations.CreateModel(
             name='StockPriceLimit_BJ',

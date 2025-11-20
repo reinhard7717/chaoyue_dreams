@@ -12,7 +12,6 @@ class ChipProbes:
         self.intelligence_layer = intel_layer
         self.strategy = intel_layer.strategy
         self.chip_intel = intel_layer.chip_intel
-
     def _deploy_hephaestus_forge_probe(self, probe_date: pd.Timestamp):
         """
         【V1.5 · 焦点转移版】“赫菲斯托斯熔炉”探针
@@ -47,7 +46,6 @@ class ChipProbes:
             }
             print(f"    - [周期 {p:2d}] 公理得分: 聚散({axiom_scores_by_period[p]['concentration']:.2f}), 吸派({axiom_scores_by_period[p]['accumulation']:.2f}), 转移({axiom_scores_by_period[p]['power_transfer']:.2f}), 峰健康({axiom_scores_by_period[p]['peak_integrity']:.2f})")
         print("\n--- “赫菲斯托斯熔炉”探针解剖完毕 ---")
-
     def _deploy_chip_resonance_probe(self, probe_date: pd.Timestamp):
         """
         【V1.1 · 健壮性修复版】筹码共振探针
@@ -94,7 +92,6 @@ class ChipProbes:
             bearish_scores_by_period[p] = max(0, -bipolar_health_by_period[p])
             print(f"    - [周期 {p:2d}] 双极性健康分: {bipolar_health_by_period[p]:.4f} -> 看涨: {bullish_scores_by_period[p]:.4f}, 看跌: {bearish_scores_by_period[p]:.4f}")
         print("\n--- “筹码共振探针”解剖完毕 ---")
-
     def _deploy_bottom_accumulation_lockdown_probe(self, probe_date: pd.Timestamp):
         """
         【探针 V1.0】底部吸筹锁仓探针
@@ -169,7 +166,6 @@ class ChipProbes:
         match = np.isclose(actual_score, recalc_score)
         print(f"    - [对比]: 系统最终值 {actual_score:.4f} vs. 探针正确值 {recalc_score:.4f} -> {'✅ 一致' if match else '❌ 不一致'}")
         print("\n--- “底部吸筹锁仓探针”解剖完毕 ---")
-
     def _deploy_lockdown_scramble_probe(self, probe_date: pd.Timestamp):
         """
         【探针 V2.0 · 原始数据穿透版】锁仓抢筹探针

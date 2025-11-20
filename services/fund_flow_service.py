@@ -32,7 +32,6 @@ class AdvancedFundFlowMetricsService:
     def __init__(self, debug_params: dict = None): # 新增 debug_params 参数
         self.max_lookback_days = 300
         self.debug_params = debug_params if debug_params is not None else {}
-
     def _get_safe_numeric_series(self, df: pd.DataFrame, col_name: str, default_value=0) -> pd.Series:
         """
         【V2.0 · 单行兼容版】类型安全的列获取辅助函数。
@@ -46,7 +45,6 @@ class AdvancedFundFlowMetricsService:
         series = df[col_name]
         # 先转换为数值类型，再填充NaN
         return pd.to_numeric(series, errors='coerce').fillna(default_value)
-
     def _get_numeric_series_with_nan(self, df: pd.DataFrame, col_name: str) -> pd.Series:
         """
         安全地获取一个列作为数值型Series，并保留NaN。
@@ -57,7 +55,6 @@ class AdvancedFundFlowMetricsService:
         # 使用 df[col_name] 保证返回的是Series，而不是标量
         series = df[col_name]
         return pd.to_numeric(series, errors='coerce')
-
     async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None, preloaded_minute_data: pd.DataFrame = None):
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental, start_date_str
@@ -103,7 +100,6 @@ class AdvancedFundFlowMetricsService:
         chunk_to_save = final_metrics_df[final_metrics_df.index.isin(all_new_core_metrics_df.index)]
         total_processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
         return total_processed_count
-
     async def _initialize_context(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         from datetime import datetime
         stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
@@ -234,7 +230,6 @@ class AdvancedFundFlowMetricsService:
             overlap_cols = merged_df.columns.intersection(base_daily_df.columns).drop('trade_time', errors='ignore')
             merged_df = merged_df.join(base_daily_df.drop(columns=overlap_cols, errors='ignore'), how='left')
         return merged_df
-
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None):
         """
         【V1.14 · 日内数据回退增强版】不再查询数据库，仅处理由上游任务传入的日内数据maps。
@@ -309,7 +304,6 @@ class AdvancedFundFlowMetricsService:
             elif not processed_with_tick_data:
                 pass # 修改行：移除了此处的print调试信息
         return intraday_data_map
-
     def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame) -> tuple[dict, None]:
         """
         【V1.2 · 聚合成本计算集成版】
@@ -353,7 +347,6 @@ class AdvancedFundFlowMetricsService:
         day_metrics['trade_time'] = daily_data_series.name
         # 7. 返回最终的指标字典
         return day_metrics, None
-
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
         【V10.10 · 数据流修复版 - 跨服务数据完整性修复】
@@ -395,7 +388,6 @@ class AdvancedFundFlowMetricsService:
         final_metrics_df = pd.DataFrame(all_metrics_list)
         final_metrics_df.set_index('trade_time', inplace=True)
         return final_metrics_df, attributed_minute_data_map, failures
-
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series) -> dict:
         results = {}
         # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
@@ -516,7 +508,6 @@ class AdvancedFundFlowMetricsService:
         else:
             results['inferred_active_order_size'] = np.nan
         return results
-
     def _calculate_probabilistic_costs(self, stock_code: str, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> tuple[dict, pd.DataFrame]:
         """
         【V6.14 · 完整归因返回版】
@@ -558,7 +549,6 @@ class AdvancedFundFlowMetricsService:
             day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
         fully_attributed_df = self._attribute_minute_volume_to_players(df_to_attribute)
         return day_results, fully_attributed_df
-
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         temp_df = pvwap_df.copy()
         # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
@@ -658,7 +648,6 @@ class AdvancedFundFlowMetricsService:
         if 'market_cost_battle_premium' in result_agg_df.columns:
             result_agg_df = result_agg_df.drop(columns=['market_cost_battle_premium'])
         return result_agg_df
-
     def _attribute_minute_volume_to_players(self, minute_df: pd.DataFrame) -> pd.DataFrame:
         """
         【V1.1】将基础成交量归因为主力/散户的核心辅助函数。
@@ -674,7 +663,6 @@ class AdvancedFundFlowMetricsService:
         df['retail_net_vol'] = df['retail_buy_vol'] - df['retail_sell_vol']
         # 修改行：移除了检查归因后成交量的探针print语句
         return df
-
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
         derivatives_df = pd.DataFrame(index=consensus_df.index)
         import pandas_ta as ta
@@ -722,7 +710,6 @@ class AdvancedFundFlowMetricsService:
                     accel_col_name = f'{col}_accel_{p}d'
                     derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=ACCEL_WINDOW)
         return derivatives_df
-
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         records_to_save_df = final_df
         stock_code = stock_info.stock_code
@@ -765,7 +752,6 @@ class AdvancedFundFlowMetricsService:
             records_for_atomic_save.append(record_data)
         processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
         return processed_count
-
     def _calculate_advanced_behavioral_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: dict) -> pd.DataFrame:
         """
         【V28.0 · 行为计算核心整合版】
@@ -788,7 +774,6 @@ class AdvancedFundFlowMetricsService:
         if not all_results:
             return pd.DataFrame()
         return pd.DataFrame.from_dict(all_results, orient='index').set_index('trade_time')
-
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series) -> dict:
         from scipy.signal import find_peaks
         results = {}
@@ -830,11 +815,9 @@ class AdvancedFundFlowMetricsService:
         results['retail_fomo_premium_index'] = np.nan
         results['retail_panic_surrender_index'] = np.nan
         results['volatility_asymmetry_index'] = np.nan
-
         # 新增代码：为新迁移过来的指标初始化默认值
         results['hidden_accumulation_intensity'] = np.nan
         results['microstructure_efficiency_index'] = np.nan
-
         # 修改行：移除了所有检查核心依赖变量的探针print语句
         if pd.notna(daily_vwap) and daily_total_volume > 0 and pd.notna(atr) and atr > 0 and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
             price_deviation_value = (intraday_data['minute_vwap'] - daily_vwap) * intraday_data['vol_shares']
@@ -1202,7 +1185,6 @@ class AdvancedFundFlowMetricsService:
                 if mf_net_vol_series.var() > 0 and price_change_norm_series.var() > 0:
                     results['microstructure_efficiency_index'] = mf_net_vol_series.corr(price_change_norm_series)
         return results
-
     def _calculate_intraday_attribution_weights(self, intraday_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
         """
         【V9.5 · 逐笔数据兼容版 - 价格范围零值修复】
@@ -1275,7 +1257,6 @@ class AdvancedFundFlowMetricsService:
             df[f'{size}_sell_weight'] = sell_score / total_sell_score if total_sell_score > 1e-9 else 0
             # 修改行：移除了检查score总和的探针print语句
         return df
-
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """
         【V2.2 · 索引修复版】从数据库加载并净化历史高级资金流指标。
@@ -1298,7 +1279,6 @@ class AdvancedFundFlowMetricsService:
             for col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
-
     def _calculate_microstructure_signals(self, stock_code: str, daily_intraday_df: pd.DataFrame, daily_level5_df: pd.DataFrame, daily_total_volume: float) -> dict:
         results = {
             'wash_trade_intensity': np.nan,
@@ -1435,7 +1415,6 @@ class AdvancedFundFlowMetricsService:
             results['retail_ofi'] = ofi[~is_large_trade].sum()
         # 5. & 6. 移除 hidden_accumulation_intensity 和 microstructure_efficiency_index 的计算
         return results
-
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
         """【V1.15 · 数据完整性修复版 - 辅助列添加 - 智能列名识别】从预加载的DataFrame构建按日分组的数据。
         - 核心职责: 确保传入的DataFrame保持 `trade_time` 作为 `DatetimeIndex`，并正确处理时区，添加 `amount_yuan`, `vol_shares`, `minute_vwap`, `vol_weight` 等辅助列。

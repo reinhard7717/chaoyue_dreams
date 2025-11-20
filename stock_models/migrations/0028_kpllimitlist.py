@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0027_tradingsignal_final_score'),
     ]
-
     operations = [
         migrations.CreateModel(
             name='KplLimitList',

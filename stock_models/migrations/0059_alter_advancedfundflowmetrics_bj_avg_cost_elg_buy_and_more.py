@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0058_alter_stocktimetrade_unique_together_and_more'),
     ]
-
     operations = [
         migrations.AlterField(
             model_name='advancedfundflowmetrics_bj',

@@ -12,7 +12,6 @@ class StructuralDefenseLayer: # 类名从 ExitLayer 修改为 StructuralDefenseL
     """
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
-
     def generate_hard_exit_triggers(self) -> pd.DataFrame:
         """
         【V602.0 · 战神之盾协议版】硬性离场触发器生成器 (最后防线)

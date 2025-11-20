@@ -30,7 +30,6 @@ class DashboardConsumer(AsyncWebsocketConsumer):
         await self.accept()
         print(f"WebSocket connected for user {self.user.username}")
 
-
     async def disconnect(self, close_code):
         if hasattr(self, 'user_group_name'):
             await self.channel_layer.group_discard(
@@ -43,7 +42,6 @@ class DashboardConsumer(AsyncWebsocketConsumer):
                 self.channel_name
             )
         print(f"WebSocket disconnected for user {self.user.username}")
-
     # 从 WebSocket 接收消息 (前端发送过来的，这个场景可能用得少)
     async def receive(self, text_data):
         # text_data_json = json.loads(text_data)
@@ -51,7 +49,6 @@ class DashboardConsumer(AsyncWebsocketConsumer):
         # print(f"Received message from {self.user.username}: {message}")
         # 可以根据前端发来的指令做些事情，但不推荐用 WebSocket 做 API 调用
         pass
-
     # --- 处理从 Channel Layer 发送到 Group 的消息 ---
     # 处理发送到 user_{id} 组的消息
     async def user_message(self, event):
@@ -66,7 +63,6 @@ class DashboardConsumer(AsyncWebsocketConsumer):
             'type': message_sub_type, # 使用子类型作为前端判断依据
             'payload': payload
         }, cls=DjangoJSONEncoder))
-
     # 处理发送到 dashboard_public 组的消息
     async def public_message(self, event):
         message_type = event.get('type') # 'public.message' -> 'message'
@@ -76,7 +72,6 @@ class DashboardConsumer(AsyncWebsocketConsumer):
             'type': message_sub_type,
             'payload': data.get('payload', {})
         }))
-
     # 专门处理盘中引擎信号的方法
     async def intraday_signal_update(self, event):
         """

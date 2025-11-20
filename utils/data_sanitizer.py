@@ -41,7 +41,6 @@ def sanitize_for_json(data):
     if isinstance(data, (datetime, date, pd.Timestamp)):
         # 转换为标准的 ISO 8601 格式字符串
         return data.isoformat()
-
     # --- 递归处理容器类型 ---
     # 必须在处理完原子类型之后
     # 如果是字典，递归处理它的每一个值
@@ -51,7 +50,6 @@ def sanitize_for_json(data):
     # 如果是列表或元组，递归处理它的每一个元素
     if isinstance(data, (list, tuple)):
         return [sanitize_for_json(element) for element in data]
-
     # 如果以上都不是，假定数据类型是安全的，直接返回
     return data
 

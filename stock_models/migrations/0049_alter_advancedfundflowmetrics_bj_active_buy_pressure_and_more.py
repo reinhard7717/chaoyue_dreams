@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0048_advancedfundflowmetrics_bj_net_lg_amount_consensus_and_more'),
     ]
-
     operations = [
         migrations.AlterField(
             model_name='advancedfundflowmetrics_bj',

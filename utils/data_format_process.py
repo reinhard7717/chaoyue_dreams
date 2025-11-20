@@ -47,7 +47,6 @@ class UserDataFormatProcess(BaseDAO):
         # 调用父类的 __init__ 方法，并将“接力棒”传递下去
         # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
-
     def set_user_favorites(self, user_id: int, api_data: Any) -> Dict:
         if isinstance(api_data, FavoriteStock):
             data_dict = {
@@ -76,7 +75,6 @@ class IndexDataFormatProcess(BaseDAO):
         # 调用父类的 __init__ 方法，并将“接力棒”传递下去
         # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
-
     # 指数基础信息
     def set_index_info_data(self, api_data: Any) -> Dict:
         data_dict = {
@@ -95,7 +93,6 @@ class IndexDataFormatProcess(BaseDAO):
             "exp_date": getattr(api_data, "exp_date", None),  # 终止日期
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 指数成分和权重
     def set_index_weight_data(self, index_info: IndexInfo, api_data: Any) -> Dict:
         data_dict = {
@@ -105,7 +102,6 @@ class IndexDataFormatProcess(BaseDAO):
             "weight": self._parse_number(getattr(api_data, "weight", None)),  # 权重
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 指数每日指标
     def set_index_daily_data(self, index_info: IndexInfo, api_data: Any) -> Dict:
         data_dict = {
@@ -124,7 +120,6 @@ class IndexDataFormatProcess(BaseDAO):
             "amount": self._parse_number(getattr(api_data, "amount", None)),  # 成交额
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 大盘指数每日指标
     def set_index_daily_basic_data(self, index_info: IndexInfo, api_data: Any) -> Dict:
         data_dict = {
@@ -144,7 +139,6 @@ class IndexDataFormatProcess(BaseDAO):
             "pb": self._parse_number(getattr(api_data, "pb", None)),  # 市净率
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 交易日历
     def set_trade_calendar_data(self, api_data: Any) -> Dict:
         data_dict = {
@@ -164,7 +158,6 @@ class StockInfoFormatProcess(BaseDAO):
         # 调用父类的 __init__ 方法，并将“接力棒”传递下去
         # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
-
     def set_stock_info_data(self, api_data: Any) -> Dict:
         data_dict = {
             'stock_code': getattr(api_data, 'ts_code', getattr(api_data, 'stock_code', None)),  # 股票代码
@@ -185,7 +178,6 @@ class StockInfoFormatProcess(BaseDAO):
             'actual_controller_type': getattr(api_data, 'act_ent_type', getattr(api_data, 'actual_controller_type', None)),  # 实控人企业性质
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_stock_info_basic_data(self, api_data: Any) -> Dict:
         data_dict = {
             'stock_code': getattr(api_data, 'ts_code', getattr(api_data, 'stock_code', None)),  # 股票代码
@@ -198,7 +190,6 @@ class StockInfoFormatProcess(BaseDAO):
             'is_hs': getattr(api_data, 'is_hs', None),  # 是否沪深港通标的
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_company_info_data(self, stock: StockInfo, api_data: Any) -> Dict:
         data_dict = {
             'stock': stock,
@@ -221,7 +212,6 @@ class StockInfoFormatProcess(BaseDAO):
             'business_scope': getattr(api_data, 'business_scope', None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_hs_const_data(self, stock: StockInfo, api_data: Any) -> Dict:
         data_dict = {
             'stock': stock,
@@ -241,7 +231,6 @@ class StockTimeTradeFormatProcess(BaseDAO):
         # 调用父类的 __init__ 方法，并将“接力棒”传递下去
         # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
-
     def set_time_trade_day_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
@@ -268,7 +257,6 @@ class StockTimeTradeFormatProcess(BaseDAO):
             "pre_close_hfq": getattr(df_data, "pre_close_hfq", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_time_trade_minute_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
@@ -282,7 +270,6 @@ class StockTimeTradeFormatProcess(BaseDAO):
             "amount": getattr(df_data, "amount", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_time_trade_week_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
@@ -298,7 +285,6 @@ class StockTimeTradeFormatProcess(BaseDAO):
             "amount": self._parse_number(getattr(df_data, "amount", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_time_trade_month_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
@@ -314,7 +300,6 @@ class StockTimeTradeFormatProcess(BaseDAO):
             "amount": self._parse_number(getattr(df_data, "amount", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_stock_daily_basic_data(self, stock: StockInfo, df_data: Any) -> Dict:
         # 负责将从Tushare获取的单行数据（通常是DataFrame的一行）转换为符合数据库模型要求的字典。
         data_dict = {
@@ -340,7 +325,6 @@ class StockTimeTradeFormatProcess(BaseDAO):
         }
         # 使用 safe_value 函数对字典中的所有值进行最终处理，确保数据安全
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_cyq_perf_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
@@ -356,7 +340,6 @@ class StockTimeTradeFormatProcess(BaseDAO):
             "winner_rate": self._parse_number(getattr(df_data, "winner_rate", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_cyq_chips_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
@@ -375,7 +358,6 @@ class StockRealtimeDataFormatProcess(BaseDAO):
         # 调用父类的 __init__ 方法，并将“接力棒”传递下去
         # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
-
     # ================ 数据格式 ================
     def set_realtime_tick_data(self, stock: Optional[StockInfo], df_data: Any) -> Dict:
         """
@@ -402,7 +384,6 @@ class StockRealtimeDataFormatProcess(BaseDAO):
             "turnover_value": self._parse_number(getattr(df_data, "AMOUNT", None)),
         }
         return {k: v for k, v in data_dict.items() if v is not None}
-
     def set_level5_data(self, stock: Optional[StockInfo], df_data: Any) -> Dict:
         """
         【V3.0 - 单位修正版】
@@ -454,7 +435,6 @@ class StrategiesDataFormatProcess(BaseDAO):
         # 调用父类的 __init__ 方法，并将“接力棒”传递下去
         # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
-
     def set_strategies_data(self, api_data: Dict) -> Dict:
         data_dict = {
             "generated_at": api_data.get('generated_at'),
@@ -476,7 +456,6 @@ class FundFlowFormatProcess(BaseDAO):
         # 调用父类的 __init__ 方法，并将“接力棒”传递下去
         # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
-
     def set_fund_flow_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
@@ -501,7 +480,6 @@ class FundFlowFormatProcess(BaseDAO):
             "net_mf_amount": getattr(df_data, "net_mf_amount", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_fund_flow_data_ths(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
@@ -516,7 +494,6 @@ class FundFlowFormatProcess(BaseDAO):
             "buy_sm_amount_rate": getattr(df_data, "buy_sm_amount_rate", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_fund_flow_data_dc(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
@@ -536,7 +513,6 @@ class FundFlowFormatProcess(BaseDAO):
             "buy_sm_amount_rate": getattr(df_data, "buy_sm_amount_rate", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_fund_flow_cnt_ths_data(self, ths_index: 'ThsIndex', df_data: Any) -> Dict:
         data_dict = {
             "ths_index": ths_index,
@@ -552,7 +528,6 @@ class FundFlowFormatProcess(BaseDAO):
             "net_amount": self._parse_number(getattr(df_data, "net_amount", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_fund_flow_cnt_dc_data(self, dc_index: 'DcIndex', df_data: Any) -> Dict:
         data_dict = {
             "dc_index": dc_index,
@@ -574,7 +549,6 @@ class FundFlowFormatProcess(BaseDAO):
             "buy_sm_amount_stock": getattr(df_data, "buy_sm_amount_stock", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_fund_flow_industry_ths_data(self, ths_index: ThsIndex, df_data: Any) -> Dict:
         data_dict = {
             "ths_index": ths_index,
@@ -591,7 +565,6 @@ class FundFlowFormatProcess(BaseDAO):
             "net_amount": getattr(df_data, "net_amount", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_fund_flow_market_dc_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
             "stock": stock,
@@ -622,7 +595,6 @@ class IndustryFormatProcess(BaseDAO):
         # 调用父类的 __init__ 方法，并将“接力棒”传递下去
         # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
-
     # 申万行业分类
     def set_sw_industry_data(self, index: IndexInfo, df_data: Any) -> Dict:
         data_dict = {
@@ -636,7 +608,6 @@ class IndustryFormatProcess(BaseDAO):
             "src": getattr(df_data, "src", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 申万行业成分
     def set_sw_industry_member_data(self, sw_industry: 'SwIndustry', stock: 'StockInfo', df_data: Any) -> Dict:
         data_dict = {
@@ -653,7 +624,6 @@ class IndustryFormatProcess(BaseDAO):
             "is_new": getattr(df_data, "is_new", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 申万行业日线行情
     def set_sw_industry_daily_data(self, index: IndexInfo, df_data: Any) -> Dict:
         data_dict = {
@@ -676,7 +646,6 @@ class IndustryFormatProcess(BaseDAO):
         }
         # return {k: safe_value(v) for k, v in data_dict.items()}
         return data_dict
-
     # 开盘啦题材字典
     def set_kpl_concept_info_data(self, df_data: Any) -> Dict:
         """【V2.0 新增】用于格式化 KplConceptInfo 主表数据"""
@@ -685,7 +654,6 @@ class IndustryFormatProcess(BaseDAO):
             "name": getattr(df_data, "name", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 开盘啦题材每日快照 (原 set_kpl_concept_data)
     def set_kpl_concept_daily_data(self, concept_info: 'KplConceptInfo', df_data: Any) -> Dict:
         """【V2.0 重构】用于格式化 KplConceptDaily 每日快照数据"""
@@ -696,7 +664,6 @@ class IndustryFormatProcess(BaseDAO):
             "up_num": self._parse_number(getattr(df_data, "up_num", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 开盘啦题材成分股
     def set_kpl_concept_member_data(self, concept_info: 'KplConceptInfo', stock: 'StockInfo', df_data: Any) -> Dict:
         """【V2.0 重构】更新外键为 KplConceptInfo"""
@@ -708,7 +675,6 @@ class IndustryFormatProcess(BaseDAO):
             "hot_num": self._parse_number(getattr(df_data, "hot_num", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 同花顺概念和行业指数
     def set_ths_index_data(self, df_data: Any) -> Dict:
         raw_count = getattr(df_data, "count", None)
@@ -730,7 +696,6 @@ class IndustryFormatProcess(BaseDAO):
         if result.get("count") is None:
             result["count"] = 0
         return result
-
     # 同花顺概念板块成分
     def set_ths_index_member_data(self, ths_index: 'ThsIndex', stock: 'StockInfo', df_data: Any) -> Dict:
         data_dict = {
@@ -742,7 +707,6 @@ class IndustryFormatProcess(BaseDAO):
             "is_new": getattr(df_data, "is_new", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 同花顺板块指数行情
     def set_ths_index_daily_data(self, ths_index: 'ThsIndex', df_data: Any) -> Dict:
         data_dict = {
@@ -764,7 +728,6 @@ class IndustryFormatProcess(BaseDAO):
             "pb_mrq": self._parse_number(getattr(df_data, "pb_mrq", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 东方财富概念板块
     def set_dc_index_data(self, df_data: Any) -> Dict:
         data_dict = {
@@ -774,7 +737,6 @@ class IndustryFormatProcess(BaseDAO):
             "type": "C",
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 东方财富板块成分
     def set_dc_index_member_data(self, dc_index: 'DcIndex', stock: 'StockInfo', df_data: Any) -> Dict:
         data_dict = {
@@ -784,7 +746,6 @@ class IndustryFormatProcess(BaseDAO):
             "name": getattr(df_data, "name", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 东方财富板块指数行情
     def set_dc_index_daily_data(self, dc_index: 'DcIndex', df_data: Any) -> Dict:
         """
@@ -807,9 +768,7 @@ class IndustryFormatProcess(BaseDAO):
             "turnover_rate": self._parse_number(getattr(df_data, "turnover_rate", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # --- 新增区域: ConceptDaily 适配器 ---
-
     def adapt_to_concept_daily(self, source: str, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
         """
         【V3.0 总适配器】根据来源调用相应的具体适配器。
@@ -825,7 +784,6 @@ class IndustryFormatProcess(BaseDAO):
         else:
             # 提供一个通用后备，以防未来增加新来源
             return self._adapt_generic_daily(daily_dict, concept_master)
-
     def _adapt_ths_daily(self, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
         """将 ThsIndexDaily 的数据字典适配到 ConceptDaily 模型实例。"""
         return ConceptDaily(
@@ -841,7 +799,6 @@ class IndustryFormatProcess(BaseDAO):
             amount=daily_dict.get('amount'), # 同花顺单位是'千元'
             turnover_rate=daily_dict.get('turnover_rate')
         )
-
     def _adapt_sw_daily(self, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
         """将 SwIndustryDaily 的数据字典适配到 ConceptDaily 模型实例。"""
         # 单位转换：申万成交量是“万股”，成交额是“万元”
@@ -860,7 +817,6 @@ class IndustryFormatProcess(BaseDAO):
             amount=amount_standard,
             turnover_rate=None # 申万API不提供换手率
         )
-
     def _adapt_dc_daily(self, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
         """将 DcIndexDaily 的数据字典适配到 ConceptDaily 模型实例。"""
         # 东方财富单位：成交量是'手'，成交额是'千元'，与我们的目标单位一致
@@ -877,7 +833,6 @@ class IndustryFormatProcess(BaseDAO):
             amount=daily_dict.get('amount'),
             turnover_rate=daily_dict.get('turnover_rate')
         )
-
     def _adapt_ci_daily(self, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
         """将 CiDaily 的数据字典适配到 ConceptDaily 模型实例。"""
         # 中信单位：成交量是'万股'，成交额是'万元'
@@ -896,7 +851,6 @@ class IndustryFormatProcess(BaseDAO):
             amount=amount_standard,
             turnover_rate=None # 中信API不提供换手率
         )
-
     def _adapt_generic_daily(self, daily_dict: dict, concept_master: 'ConceptMaster') -> 'ConceptDaily':
         """一个通用的、尽力而为的后备适配器。"""
         return ConceptDaily(
@@ -923,7 +877,6 @@ class MarketFormatProcess(BaseDAO):
         # 调用父类的 __init__ 方法，并将“接力棒”传递下去
         # 因为这个类不直接操作某个特定模型，所以 model_class 可以是 None
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
-
     # 市场交易统计(MarketDailyInfo)
     def set_market_daily_info_data(self, df_data: Any) -> Dict:
         data_dict = {
@@ -943,7 +896,6 @@ class MarketFormatProcess(BaseDAO):
             "exchange": getattr(df_data, "exchange", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 游资名录
     def set_hm_list_data(self, df_data: Any) -> Dict:
         data_dict = {
@@ -952,7 +904,6 @@ class MarketFormatProcess(BaseDAO):
             "orgs": getattr(df_data, "orgs", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 游资每日明细
     def set_hm_detail_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
@@ -967,7 +918,6 @@ class MarketFormatProcess(BaseDAO):
             "tag": getattr(df_data, "tag", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 同花顺板块指数行情
     def set_ths_daily_data(self, ths_index: 'ThsIndex', df_data: Any) -> Dict:
         data_dict = {
@@ -987,7 +937,6 @@ class MarketFormatProcess(BaseDAO):
             "float_mv": self._parse_number(getattr(df_data, "float_mv", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 涨跌停榜单 - 同花顺
     def set_limit_list_ths_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
@@ -1013,7 +962,6 @@ class MarketFormatProcess(BaseDAO):
             "market_type": getattr(df_data, "market_type", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 连板天梯
     def set_limit_step_data(self, stock: StockInfo, df_data: Any) -> Dict:
         data_dict = {
@@ -1023,7 +971,6 @@ class MarketFormatProcess(BaseDAO):
             "nums": self._parse_number(getattr(df_data, "nums", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 最强板块统计 - 同花顺
     def set_limit_cpt_list_data(self, ths_index: 'ThsIndex', df_data: Any) -> Dict:
         data_dict = {
@@ -1038,7 +985,6 @@ class MarketFormatProcess(BaseDAO):
             "rank": getattr(df_data, "rank", None),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     def set_kpl_list_data(self, stock: StockInfo, df_data: Any) -> Dict:
         """
         将Tushare的kpl_list接口返回的单行数据，格式化为准备入库的字典。
@@ -1066,7 +1012,6 @@ class MarketFormatProcess(BaseDAO):
             "bid_pct_chg": self._parse_number(getattr(df_data, "bid_pct_chg", None)),
         }
         return {k: safe_value(v) for k, v in data_dict.items()}
-
     # 涨跌停列表
     def set_limit_list_d_data(self, stock: StockInfo, df_data: Any) -> Dict:
         """

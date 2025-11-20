@@ -18,7 +18,6 @@ function getCookie(name) {
 // 将所有代码包裹在 DOMContentLoaded 事件监听器中
 // 这确保了在执行JS代码时，页面上的所有HTML元素（如表格、按钮）都已经加载完毕
 document.addEventListener('DOMContentLoaded', function () {
-
     // =========================================================================
     // === 自选股监控 (fav_trend_following_list.html) 功能 ====================
     // =========================================================================
@@ -287,7 +286,6 @@ document.addEventListener('DOMContentLoaded', function () {
         // 启动该页面的WebSocket连接
         connectFavListWebSocket();
     }
-
     // 调用上面定义的初始化函数
     initializeFavTrendListPage();
 

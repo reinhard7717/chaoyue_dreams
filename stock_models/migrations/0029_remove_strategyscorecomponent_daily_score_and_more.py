@@ -4,11 +4,9 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0028_kpllimitlist'),
     ]
-
     operations = [
         migrations.RemoveField(
             model_name='strategyscorecomponent',

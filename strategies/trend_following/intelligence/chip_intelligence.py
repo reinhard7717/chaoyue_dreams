@@ -13,7 +13,6 @@ class ChipIntelligence:
         """
         self.strategy = strategy_instance
         self.dynamic_thresholds = dynamic_thresholds
-
     def _get_safe_series(self, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame或字典中获取Series，如果不存在则打印警告并返回默认Series。
@@ -38,7 +37,6 @@ class ChipIntelligence:
         else:
             print(f"    -> [筹码情报警告] 方法 '{method_name}' 接收到未知数据源类型 {type(data_source)}，无法获取 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df_index)
-
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V9.9 · 结构共识信号版】筹码情报总指挥
@@ -111,7 +109,6 @@ class ChipIntelligence:
                         print(f"       - {k}: {v}")
         # --- End Debugging output ---
         return all_chip_states
-
     def _run_integrity_probe(self, df: pd.DataFrame, required_signals: list, probe_name: str):
         """
         【V2.4 · 物证探针版】
@@ -133,7 +130,6 @@ class ChipIntelligence:
                 val = df.loc[probe_date, s]
                 std_dev = df[s].loc[:probe_date].tail(21).std()
                 print(f"        - [物证] 信号: {s:<45} | 当日值: {val:<10.4f} | 近期标准差: {std_dev:.4f}")
-
     def _diagnose_axiom_concentration(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
         【V3.0 · 微观筹码博弈增强与峰融合增强及列名引用修复版】筹码公理一：诊断筹码“聚散”动态
@@ -196,7 +192,6 @@ class ChipIntelligence:
                 print(f"       - peak_exchange_purity_score: {peak_exchange_purity_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_score: {final_score.loc[probe_date_for_loop]:.4f}")
         return final_score
-
     def _diagnose_axiom_cost_structure(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
         【V2.9 · 微观筹码博弈增强与偏度增强版】筹码公理二：诊断“成本结构”动态
@@ -254,7 +249,6 @@ class ChipIntelligence:
                 print(f"       - support_validation_score: {support_validation_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_score: {final_score.loc[probe_date_for_loop]:.4f}")
         return final_score
-
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
         【V2.9 · 微观筹码博弈增强与敏感度优化版】筹码公理三：诊断“持股心态”动态
@@ -323,7 +317,6 @@ class ChipIntelligence:
                 print(f"       - covert_accumulation_score: {covert_accumulation_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_score: {final_score.loc[probe_date_for_loop]:.4f}")
         return final_score
-
     def _diagnose_axiom_peak_integrity(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
         【V2.6 · 微观筹码博弈增强版】筹码公理四：诊断“筹码峰形态”
@@ -350,7 +343,6 @@ class ChipIntelligence:
         # 融合所有分数，调整权重
         final_score = (price_vs_peak_score * peak_solidity_score * 0.8 + price_volume_entropy_score * 0.2).clip(-1, 1) # 调整权重并加入新信号
         return final_score
-
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
         【V1.4 · OCH数据层获取与多时间维度归一化版】筹码公理六：诊断“筹码趋势动量”
@@ -404,7 +396,6 @@ class ChipIntelligence:
                 print(f"       - structural_resilience_score: {structural_resilience_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - chip_trend_momentum_score: {chip_trend_momentum_score.loc[probe_date_for_loop]:.4f}")
         return chip_trend_momentum_score.astype(np.float32)
-
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
         【V1.1】筹码公理五：诊断筹码“背离”动态

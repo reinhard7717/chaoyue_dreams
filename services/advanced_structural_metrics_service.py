@@ -28,7 +28,6 @@ class AdvancedStructuralMetricsService:
     def __init__(self):
         """初始化服务，设定回溯期等基础参数"""
         self.max_lookback_days = 300 # 为计算衍生指标所需的最大历史回溯天数
-
     async def run_precomputation(self, stock_info: StockInfo, dates_to_process: pd.DatetimeIndex, daily_df_with_atr: pd.DataFrame, intraday_data_map: dict):
         """
         【V3.0 · 纯计算引擎版】高级结构与行为指标预计算总指挥
@@ -64,7 +63,6 @@ class AdvancedStructuralMetricsService:
         chunk_to_save = final_metrics_df[final_metrics_df.index.isin(all_new_core_metrics_df.index)]
         total_processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
         return total_processed_count
-
     async def _initialize_context(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         """
         【V1.0】初始化计算上下文，确定股票实体、目标模型、计算模式和日期范围。
@@ -97,7 +95,6 @@ class AdvancedStructuralMetricsService:
                 fetch_start_date = None
                 
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
-
     async def _load_intraday_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp) -> dict:
         """
         【V2.4 · 范围查询修正版】
@@ -176,7 +173,6 @@ class AdvancedStructuralMetricsService:
                     minute_df_fallback['date'] = minute_df_fallback['trade_time'].dt.date
                     intraday_data_map.update({date: group_df for date, group_df in minute_df_fallback.groupby('date')})
         return intraday_data_map
-
     async def _forge_advanced_structural_metrics(self, intraday_data_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
         【V18.1 · 类型转换修正版】
@@ -237,7 +233,6 @@ class AdvancedStructuralMetricsService:
             return pd.DataFrame()
         result_df = pd.DataFrame(daily_metrics)
         return result_df.set_index(pd.to_datetime(result_df['trade_time']))
-
     def _compute_all_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict) -> dict:
         """
         【V3.4 · 全局类型净化版】
@@ -502,7 +497,6 @@ class AdvancedStructuralMetricsService:
         results['_today_vah'] = today_vah
         results['_today_val'] = today_val
         return results
-
     def _calculate_derivatives(self, stock_code: str, metrics_df: pd.DataFrame) -> pd.DataFrame:
         """
         【V1.1 · 导数净化版】为所有核心结构指标计算斜率和加速度。
@@ -536,7 +530,6 @@ class AdvancedStructuralMetricsService:
         # 将衍生指标合并回原始指标DataFrame
         final_df = metrics_df.join(derivatives_df)
         return final_df
-
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
         【V1.0】准备数据并以原子方式批量保存到数据库。
@@ -582,7 +575,6 @@ class AdvancedStructuralMetricsService:
             records_for_atomic_save.append(record_data)
         processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
         return processed_count
-
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """
         【V1.0】从数据库加载并净化历史高级结构指标。
@@ -604,7 +596,6 @@ class AdvancedStructuralMetricsService:
                 if col != 'trade_time':
                     df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
-
     def _calculate_value_area(self, vp: pd.Series, total_volume: float, vpoc_interval: pd.Interval) -> tuple:
         """
         【V2.3 · 优化】计算日内价值区域 (VAH/VAL)
@@ -633,7 +624,6 @@ class AdvancedStructuralMetricsService:
         val = vp_sorted_by_price.index[low_idx].left
         vah = vp_sorted_by_price.index[high_idx].right
         return vah, val
-
     def _calculate_gini(self, array: np.ndarray) -> float:
         """计算基尼系数"""
         if array is None or len(array) < 2 or np.sum(array) == 0:

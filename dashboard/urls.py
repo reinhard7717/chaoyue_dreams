@@ -18,7 +18,6 @@ urlpatterns = [
     path('prophet-signals/', views.prophet_signal_list, name='prophet_signal_list'),
     path('fav_trend_following_list/', views.fav_trend_following_list, name='fav_trend_following_list'),
     path('realtime_engine/', views.realtime_engine_view, name='realtime_engine'),
-
     # API URLs
     path('api/search/', views.StockSearchView.as_view(), name='stock-search'),
     path('api/', include(router.urls)), # 包含 ViewSet 的 URLs (/api/favorites/)

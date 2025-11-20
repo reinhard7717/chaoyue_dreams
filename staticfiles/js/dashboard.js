@@ -1,5 +1,4 @@
 document.addEventListener('DOMContentLoaded', function () {
-
     const favoriteMessagesList = document.querySelector('#favorite-stock-messages .message-list');
     const strategyMessagesList = document.querySelector('#strategy-messages .message-list');
     const searchInput = document.getElementById('stock-search-input');
@@ -9,15 +8,12 @@ document.addEventListener('DOMContentLoaded', function () {
     const favoritesLoading = document.getElementById('favorites-loading');
     const favoritesEmpty = document.getElementById('favorites-empty');
     const addFavoriteBtn = document.getElementById('add-favorite-btn'); // 获取添加按钮
-
     const MAX_FAV_MESSAGES = 20;
     const MAX_STRATEGY_MESSAGES = 30;
-
     // --- WebSocket 连接 ---
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsPath = `${wsProtocol}//${window.location.host}/ws/dashboard/`;
     let socket;
-
     function connectWebSocket() {
         console.log('Attempting to connect WebSocket...');
         socket = new WebSocket(wsPath);
@@ -59,7 +55,6 @@ document.addEventListener('DOMContentLoaded', function () {
             // 错误发生时也会触发 onclose，所以重连逻辑在 onclose 中处理
         };
     }
-
     // --- 消息处理 ---
     function addMessage(listElement, messageData, maxSize) {
         if (!listElement) return;
@@ -78,7 +73,6 @@ document.addEventListener('DOMContentLoaded', function () {
             listElement.removeChild(listElement.lastChild);
         }
     }
-
     // --- 股票搜索与添加 ---
     let searchDebounceTimer;
     searchInput.addEventListener('input', () => {
@@ -93,14 +87,12 @@ document.addEventListener('DOMContentLoaded', function () {
             searchResultsContainer.style.display = 'none';
         }
     });
-
     // 阻止搜索表单的默认提交行为 (如果它是 <form>)
     if (addFavoriteForm) {
         addFavoriteForm.addEventListener('submit', (event) => {
             event.preventDefault();
         });
     }
-
     async function performSearch(query) {
         console.log(`Searching for: ${query}`);
         searchResultsContainer.innerHTML = '<div class="search-result-item empty">正在搜索...</div>'; // 显示加载状态
@@ -130,7 +122,6 @@ document.addEventListener('DOMContentLoaded', function () {
             searchResultsContainer.style.display = 'block';
         }
     }
-
     function displaySearchResults(results) {
         searchResultsContainer.innerHTML = ''; // 清空旧结果 (包括加载状态)
         if (results.length === 0) {
@@ -154,14 +145,12 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         searchResultsContainer.style.display = 'block'; // 确保容器可见
     }
-
     // 点击页面其他地方隐藏搜索结果
     document.addEventListener('click', function (event) {
         if (!searchResultsContainer.contains(event.target) && event.target !== searchInput) {
             searchResultsContainer.style.display = 'none';
         }
     });
-
     // 处理表单提交（如果不用点击结果添加）
     addFavoriteForm.addEventListener('submit', async (event) => {
         event.preventDefault(); // 阻止表单默认提交
@@ -172,7 +161,6 @@ document.addEventListener('DOMContentLoaded', function () {
             searchResultsContainer.style.display = 'none'; // 隐藏结果
         }
     });
-
     async function addFavoriteStock(stockCode) {
         console.log(`正在尝试添加自选股: ${stockCode}`);
         // 可以在这里加一个简单的视觉反馈，比如按钮禁用，但因为是点击结果触发，可能不需要
@@ -218,7 +206,6 @@ document.addEventListener('DOMContentLoaded', function () {
             // 可以在这里恢复按钮状态（如果之前禁用了）
         }
     }
-
     // --- 添加单个股票行 ---
     function addStockRow(favData) {
         if (!favoritesTbody) return;
@@ -256,7 +243,6 @@ document.addEventListener('DOMContentLoaded', function () {
         favoritesTbody.appendChild(row); // 添加新行到表格末尾
         flashRow(row); // 给新行一个闪烁效果
     }
-
     // --- 移除单个股票行 ---
     function removeStockRow(favoriteId) {
         if (!favoritesTbody) return;
@@ -272,7 +258,6 @@ document.addEventListener('DOMContentLoaded', function () {
             console.warn(`Could not find row with favorite ID ${favoriteId} to remove.`);
         }
     }
-
     // --- 自选股表格渲染与更新 (需要修改以存储 ID) ---
     function renderFavoritesTable(favoritesData) {
         if (!favoritesTbody) return;
@@ -312,7 +297,6 @@ document.addEventListener('DOMContentLoaded', function () {
             favoritesTbody.appendChild(row);
         });
     }
-
     function updateStockRow(updateData) {
         // updateData 结构: { code: '600036', latest_price: 35.48, change_percent: 0.90, volume: 155000, signal: { type: 'hold', text: '持有中' } }
         if (!favoritesTbody) return;
@@ -340,7 +324,6 @@ document.addEventListener('DOMContentLoaded', function () {
         // 可以添加闪烁效果提示更新
         flashRow(row);
     }
-
     // --- 表格删除操作 ---
     favoritesTbody.addEventListener('click', function (event) {
         const target = event.target;
@@ -366,7 +349,6 @@ document.addEventListener('DOMContentLoaded', function () {
             // window.location.href = `/stocks/${stockCode}/`; // 跳转逻辑
         }
     });
-
     async function removeFavoriteStock(stockCode, stockName, favoriteId, rowElement) {
         if (!confirm(`确定要从自选中移除 ${stockCode} - ${stockName} 吗？`)) {
             return;
@@ -411,7 +393,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
     }
-
     // 辅助函数：根据 stockCode 查找 Favorite ID (需要调用 API)
     async function findFavoriteIdByCode(stockCode) {
         try {
@@ -428,7 +409,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-
     // --- 初始化 (使用模板传递的数据) ---
     function initializeDashboard() {
         if (typeof initialFavoritesData !== 'undefined') {
@@ -439,7 +419,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         connectWebSocket();
     }
-
     // 保留 fetchInitialFavorites 作为备用或手动刷新
     async function fetchInitialFavorites() {
         if (!favoritesTbody) return;
@@ -478,7 +457,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-
     // --- 辅助函数 ---
     function getCookie(name) {
         let cookieValue = null;
@@ -494,31 +472,26 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         return cookieValue;
     }
-
     function formatNumber(value, decimals = 2) {
         if (value === null || value === undefined || isNaN(value)) return '--';
         return parseFloat(value).toFixed(decimals);
     }
-
     function formatPercent(value) {
         if (value === null || value === undefined || isNaN(value)) return '--';
         const percent = parseFloat(value);
         const sign = percent > 0 ? '+' : '';
         return `${sign}${percent.toFixed(2)}%`;
     }
-
     function formatVolume(value) {
         if (value === null || value === undefined || isNaN(value)) return '--';
         return Number(value).toLocaleString(); // 强制转为数字
     }
-
     function flashRow(rowElement) {
         rowElement.classList.add('flash');
         setTimeout(() => {
             rowElement.classList.remove('flash');
         }, 500); // 闪烁 500ms
     }
-
     // 简单的通知函数 (可以替换为更美观的库)
     function showNotification(message, type = 'info') {
         console.log(`[${type.toUpperCase()}] ${message}`);
@@ -532,7 +505,6 @@ document.addEventListener('DOMContentLoaded', function () {
             setTimeout(() => div.remove(), 3000); // 3秒后自动消失
         }
     }
-
     // --- 启动 ---
     initializeDashboard();
 

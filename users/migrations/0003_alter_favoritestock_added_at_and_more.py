@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('users', '0002_alter_favoritestock_added_at_and_more'),
     ]
-
     operations = [
         migrations.AlterField(
             model_name='favoritestock',

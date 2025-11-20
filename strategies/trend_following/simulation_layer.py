@@ -11,7 +11,6 @@ from stock_models.stock_analytics import StrategyDailyScore # 导入 StrategyDai
 class SimulationLayer:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
-
     def run_position_management_simulation(self):
         """
         【V516.0 · 解除武装版】
@@ -169,7 +168,6 @@ class SimulationLayer:
             df.loc[current_date, 'position_size'] = current_position_size
             df.loc[current_date, 'entry_price_actual'] = actual_entry_price
         self.strategy.df_indicators = df
-
     def _check_tactical_alerts(self, row) -> Tuple[int, str]:
         """
         【V2.0 · 审判日协同版】

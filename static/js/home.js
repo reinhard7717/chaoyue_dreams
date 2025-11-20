@@ -273,7 +273,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         connectWebSocket();
     }
-
     // 在这里调用上面定义的初始化函数，以确保它能够执行
     initializeHomePage();
 });

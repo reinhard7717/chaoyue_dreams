@@ -16,7 +16,6 @@ class MarketDailyInfo(models.Model):
     pe = models.FloatField(verbose_name="平均市盈率")
     tr = models.FloatField(verbose_name="换手率(%)", null=True, blank=True)
     exchange = models.CharField(max_length=10, verbose_name="交易所")
-
     class Meta:
         db_table = "market_daily_info"
         verbose_name = "市场交易统计"
@@ -28,7 +27,6 @@ class HmList(models.Model):
     name = models.CharField(max_length=50, unique=True, verbose_name="游资名称")
     desc = models.TextField(verbose_name="说明", null=True, blank=True)
     orgs = models.TextField(verbose_name="关联机构", null=True, blank=True)
-
     class Meta:
         db_table = "hm_list"
         verbose_name = "游资名录"
@@ -52,7 +50,6 @@ class HmDetail(models.Model):
     hm_name = models.CharField(max_length=50, verbose_name="游资名称")
     hm_orgs = models.TextField(verbose_name="关联机构", null=True, blank=True)
     tag = models.CharField(max_length=100, verbose_name="标签", null=True, blank=True)
-
     class Meta:
         db_table = "hm_detail"
         verbose_name = "游资每日明细"
@@ -93,7 +90,6 @@ class LimitListThs(models.Model):
     rise_rate = models.FloatField(verbose_name="涨速", null=True, blank=True)
     sum_float = models.FloatField(verbose_name="总市值", null=True, blank=True)
     market_type = models.CharField(max_length=10, verbose_name="股票类型")
-
     class Meta:
         db_table = "limit_list_ths"
         verbose_name = "同花顺涨跌停榜单"
@@ -127,7 +123,6 @@ class LimitListD(models.Model):
     up_stat = models.CharField(max_length=20, verbose_name="涨停统计")
     limit_times = models.IntegerField(verbose_name="连板数")
     limit = models.CharField(max_length=2, verbose_name="涨跌停类型")
-
     class Meta:
         db_table = "limit_list_d"
         verbose_name = "A股涨跌停列表"
@@ -147,7 +142,6 @@ class LimitStep(models.Model):
     )
     name = models.CharField(max_length=50, verbose_name="名称")
     nums = models.IntegerField(verbose_name="连板次数")
-
     class Meta:
         db_table = "limit_step"
         verbose_name = "连板天梯"
@@ -172,7 +166,6 @@ class LimitCptList(models.Model):
     up_nums = models.CharField(max_length=20, verbose_name="涨停家数")
     pct_chg = models.FloatField(verbose_name="涨跌幅")
     rank = models.CharField(max_length=10, verbose_name="板块热点排名")
-
     class Meta:
         db_table = "limit_cpt_list"
         verbose_name = "最强板块统计"

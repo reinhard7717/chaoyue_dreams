@@ -46,13 +46,7 @@ class ChipFeatureCalculator:
         self.processed_intraday_df = self._prepare_intraday_data_features(intraday_data_raw, trade_date, debug_params)
         # 将处理后的日内数据存入 self.ctx，供后续方法使用
         self.ctx['processed_intraday_df'] = self.processed_intraday_df # 使用 self.ctx
-
     def calculate_all_metrics(self) -> dict:
-        """
-        【V16.0 · 结构势能注入版】
-        - 核心重构: 将 `structural_stability_score` 的计算替换为调用全新的 `_calculate_structural_potential_score`，并更新指标名称。
-        - 动态因子注入: 在流程中增加了对 `cost_gini_coefficient` 1日斜率的计算，并将其注入上下文，为势能评估提供关键的动态输入。
-        """
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
         if self.df.empty:
@@ -63,61 +57,58 @@ class ChipFeatureCalculator:
         if missing_keys:
             logger.warning(f"[{stock_code}] [{trade_date}] 筹码计算中止，原因：上下文(context_data)中缺少核心字段: {missing_keys}。")
             return {}
+        # 修改代码块：重构整个聚合流程，确保所有指标都被正确收集
+        # 1. 初始化一个空的 all_metrics 字典
+        all_metrics = {}
+        # 2. 逐步计算并更新 all_metrics
         summary_info = self._get_summary_metrics_from_context()
+        all_metrics.update(summary_info)
         self.ctx.update(summary_info)
         static_structure_metrics = self._compute_static_structure_metrics()
+        all_metrics.update(static_structure_metrics)
         self.ctx.update(static_structure_metrics)
-
-        # 新增代码行：计算并注入基尼系数1日斜率
+        # 动态因子注入
         prev_gini = self.ctx.get('prev_metrics', {}).get('cost_gini_coefficient')
         today_gini = static_structure_metrics.get('cost_gini_coefficient')
         if pd.notna(prev_gini) and pd.notna(today_gini):
             self.ctx['cost_gini_coefficient_slope_1d'] = today_gini - prev_gini
         else:
             self.ctx['cost_gini_coefficient_slope_1d'] = 0.0
-
         intraday_dynamics_metrics = self._compute_intraday_dynamics_metrics(self.ctx)
+        all_metrics.update(intraday_dynamics_metrics)
         self.ctx.update(intraday_dynamics_metrics)
         cross_day_flow_metrics = self._compute_cross_day_flow_metrics(self.ctx)
+        all_metrics.update(cross_day_flow_metrics)
         self.ctx.update(cross_day_flow_metrics)
+        # 3. 单独计算并显式添加指标
         winner_profit_margin_avg = self.ctx.get('winner_profit_margin_avg')
         total_winner_rate = self.ctx.get('total_winner_rate')
         profit_taking_flow_ratio = self.ctx.get('profit_taking_flow_ratio')
-        if profit_taking_flow_ratio is None:
-            profit_taking_flow_ratio = np.nan
         profit_realization_quality = np.nan
         if pd.notna(winner_profit_margin_avg) and pd.notna(total_winner_rate) and pd.notna(profit_taking_flow_ratio) and profit_taking_flow_ratio > 0:
             profit_realization_quality = (winner_profit_margin_avg * (total_winner_rate / 100)) / (profit_taking_flow_ratio / 100)
+        all_metrics['profit_realization_quality'] = profit_realization_quality
         self.ctx['profit_realization_quality'] = profit_realization_quality
         game_theoretic_metrics = self._compute_game_theoretic_metrics(self.ctx)
+        all_metrics.update(game_theoretic_metrics)
         self.ctx.update(game_theoretic_metrics)
-        vital_signs_metrics = self._compute_vital_sign_metrics(self.ctx)
-        self.ctx.update(vital_signs_metrics)
-        microstructure_game_metrics = self._compute_microstructure_game_metrics(self.ctx)
-        self.ctx.update(microstructure_game_metrics)
-        all_metrics = {
-            **summary_info,
-            **static_structure_metrics,
-            **intraday_dynamics_metrics,
-            **cross_day_flow_metrics,
-            **game_theoretic_metrics,
-            **vital_signs_metrics,
-            **microstructure_game_metrics,
-            'profit_realization_quality': profit_realization_quality,
-        }
-
-        # 修改代码行：调用新的势能函数并更新指标名称
+        # 结构势能分依赖博弈指标，所以在其后计算
         potential_score = self._calculate_structural_potential_score(self.ctx, all_metrics)
         all_metrics['structural_potential_score'] = potential_score
-
+        self.ctx['structural_potential_score'] = potential_score
+        vital_signs_metrics = self._compute_vital_sign_metrics(self.ctx)
+        all_metrics.update(vital_signs_metrics)
+        self.ctx.update(vital_signs_metrics)
+        microstructure_game_metrics = self._compute_microstructure_game_metrics(self.ctx)
+        all_metrics.update(microstructure_game_metrics)
+        self.ctx.update(microstructure_game_metrics)
         health_score_info = self._calculate_chip_structure_health_score(self.ctx)
         all_metrics.update(health_score_info)
+        # 4. 清理和收尾
         all_metrics.pop('peak_range_low', None)
         all_metrics.pop('peak_range_high', None)
-        # 在传递给 memory 之前，将今天的基尼系数存入 all_metrics
-        all_metrics['cost_gini_coefficient'] = today_gini
+        all_metrics['cost_gini_coefficient'] = today_gini # 确保当日基尼系数被传递
         return all_metrics
-
     def _prepare_intraday_data_features(self, intraday_df: pd.DataFrame, trade_date: datetime.date, debug_params: dict) -> pd.DataFrame:
         import pytz
         results = {}
@@ -137,7 +128,6 @@ class ChipFeatureCalculator:
         start_time = datetime.time(9, 25)
         processed_intraday_df = intraday_df[intraday_df.index.time >= start_time].copy()
         return processed_intraday_df
-
     def _get_summary_metrics_from_context(self) -> dict:
         """
         【V14.0 · 稳定性前置注入版】
@@ -156,7 +146,6 @@ class ChipFeatureCalculator:
             'total_winner_rate': total_winner_rate,
             'concentration_70pct': concentration_70pct, # 注入上下文
         }
-
     def _compute_cross_day_flow_metrics(self, context: dict) -> dict:
         results = {
             'peak_mass_transfer_rate': np.nan,
@@ -219,7 +208,6 @@ class ChipFeatureCalculator:
         # --- 兼容旧指标 ---
         results.update(self._compute_legacy_cross_day_metrics(context))
         return results
-
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         results = {
             'strategic_phase_score': np.nan,
@@ -262,7 +250,6 @@ class ChipFeatureCalculator:
         # --- 5. 兼容旧指标 ---
         results.update(self._compute_legacy_game_theory_metrics(context))
         return results
-
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
         results = {
             'signal_conviction_score': np.nan,
@@ -311,8 +298,9 @@ class ChipFeatureCalculator:
                  (results['trend_vitality_index'] / 100)
         results['overall_t1_rating'] = np.clip(rating, -100, 100)
         return results
-
     def _compute_static_structure_metrics(self) -> dict:
+        from scipy.signal import find_peaks
+        from scipy.stats import skew
         results = {
             # --- 核心新指标 ---
             'structural_node_count': np.nan,
@@ -331,32 +319,22 @@ class ChipFeatureCalculator:
             'total_winner_rate': np.nan, 'total_loser_rate': np.nan,
             'winner_profit_margin_avg': np.nan, 'loser_loss_margin_avg': np.nan,
             'loser_pain_index': np.nan, 'cost_structure_skewness': np.nan,
-            'structural_potential_score': np.nan, 'price_volume_entropy': np.nan,
+            'price_volume_entropy': np.nan,
         }
         close_price = self.ctx.get('close_price')
         atr_14d = self.ctx.get('atr_14d')
         if self.df.empty or pd.isna(close_price) or pd.isna(atr_14d) or atr_14d <= 0:
             return results
         def _calculate_weighted_kurtosis(values: pd.Series, weights: pd.Series) -> float:
-            """
-            手动计算加权峰态系数（Fisher's Kurtosis），以兼容不支持 weights 参数的旧版 scipy。
-            """
             if values.empty or weights.empty or weights.sum() <= 0:
                 return np.nan
-            # 1. 计算加权平均值
             weighted_mean = np.average(values, weights=weights)
-            # 2. 计算加权方差 (二阶中心矩)
             weighted_variance = np.average((values - weighted_mean)**2, weights=weights)
-            # 如果方差接近于0，说明所有值都相同，峰态无意义或为无穷大，返回NaN
             if weighted_variance < 1e-9:
                 return np.nan
-            # 3. 计算加权四阶中心矩
             m4 = np.average((values - weighted_mean)**4, weights=weights)
-            # 4. 计算费雪峰态系数 (超额峰态)
             kurt = m4 / (weighted_variance**2) - 3.0
             return kurt
-        # ================== 1. 多峰节点与主峰形态分析 ==================
-        # 使用 find_peaks 识别所有显著的筹码峰
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
         results['structural_node_count'] = len(peaks)
         if len(peaks) > 0:
@@ -369,7 +347,6 @@ class ChipFeatureCalculator:
             main_peak_cost = main_peak['cost']
             results['dominant_peak_cost'] = main_peak_cost
             results['dominant_peak_volume_ratio'] = main_peak['volume']
-            # 计算主峰峰态系数
             peak_region_df = self.df.iloc[int(main_peak['left_base']):int(main_peak['right_base'])+1]
             if not peak_region_df.empty and peak_region_df['percent'].sum() > 0:
                 results['primary_peak_kurtosis'] = _calculate_weighted_kurtosis(peak_region_df['price'], peak_region_df['percent'])
@@ -378,50 +355,14 @@ class ChipFeatureCalculator:
                 results['secondary_peak_cost'] = secondary_peak['cost']
                 if main_peak_cost > 0:
                     results['peak_separation_ratio'] = abs(main_peak_cost - secondary_peak['cost']) / main_peak_cost * 100
-        else: # 如果未找到显著山峰，则使用最大值作为主峰
+        else:
             main_peak_idx = self.df['percent'].idxmax()
             results['dominant_peak_cost'] = self.df.loc[main_peak_idx, 'price']
             results['dominant_peak_volume_ratio'] = self.df.loc[main_peak_idx, 'percent']
         if pd.notna(results['dominant_peak_cost']) and results['dominant_peak_cost'] > 0:
             results['dominant_peak_profit_margin'] = (close_price / results['dominant_peak_cost'] - 1) * 100
-        # ================== 2. 全局结构量化 (基尼系数, 张力, 杠杆) ==================
-        def _calculate_gini(prices: pd.Series, weights: pd.Series) -> float:
-            if weights.sum() <= 0: return np.nan
-            df = pd.DataFrame({'price': prices, 'weight': weights}).sort_values('price')
-            df['weight'] /= df['weight'].sum()
-            df['cum_weight'] = df['weight'].cumsum()
-            df['cum_cost'] = (df['price'] * df['weight']).cumsum()
-            total_cost = df['cum_cost'].iloc[-1]
-            if total_cost <= 0: return np.nan
-            df['cum_cost'] /= total_cost
-            # 修复：确保 B 的计算使用正确的移位值
-            B_values = df['cum_cost'].iloc[:-1].values
-            A_values = df['cum_weight'].iloc[1:].values - df['cum_weight'].iloc[:-1].values
-            # 确保 B 和 A 的计算基于洛伦兹曲线下的面积
-            # A = 0.5 * (df['cum_cost'].iloc[0] * df['cum_weight'].iloc[0])
-            # A += 0.5 * np.sum((df['cum_cost'].iloc[:-1].values + df['cum_cost'].iloc[1:].values) * (df['cum_weight'].iloc[1:].values - df['cum_weight'].iloc[:-1].values))
-            # B = 0.5
-            # return (B - A) / B if B > 0 else 0.0
-            area_under_lorenz = np.trapz(df['cum_cost'], df['cum_weight'])
-            return 1 - 2 * area_under_lorenz
-        # 尝试恢复原始的基尼系数计算逻辑，因为它可能更符合预期
-        def _calculate_gini_original(prices: pd.Series, weights: pd.Series) -> float:
-            if weights.sum() <= 0: return np.nan
-            df = pd.DataFrame({'price': prices, 'weight': weights}).sort_values('price')
-            df['weight'] /= df['weight'].sum()
-            df['cum_weight'] = df['weight'].cumsum()
-            df['cum_cost'] = (df['price'] * df['weight']).cumsum()
-            total_cost = df['cum_cost'].iloc[-1]
-            if total_cost <= 0: return np.nan
-            df['cum_cost'] /= total_cost
-            # 洛伦兹曲线下面积的离散近似
-            B = np.sum(df['cum_cost'].iloc[1:].values * df['weight'].iloc[1:].values)
-            A = np.sum(df['cum_cost'].iloc[:-1].values * df['weight'].iloc[1:].values)
-            return 1 - (A + B)
-        # 经过验证，使用原始的、更简洁的基尼系数计算方式
         def _calculate_gini_final(prices: pd.Series, weights: pd.Series) -> float:
             if weights.sum() <= 0: return np.nan
-            # 确保数据是浮点数类型以进行计算
             prices = prices.astype(float)
             weights = weights.astype(float)
             df = pd.DataFrame({'price': prices, 'weight': weights}).sort_values('price')
@@ -429,18 +370,19 @@ class ChipFeatureCalculator:
             df['cum_weight_pct'] = df['weight_pct'].cumsum()
             df['cost_x_weight'] = df['price'] * df['weight_pct']
             df['cum_cost_pct'] = df['cost_x_weight'].cumsum()
-            # 使用梯形法则计算洛伦兹曲线下的面积
-            # 为了正确计算，需要在起点(0,0)
             x = np.insert(df['cum_weight_pct'].values, 0, 0)
             y = np.insert(df['cum_cost_pct'].values, 0, 0)
             area = np.trapz(y, x)
             return 1 - 2 * area
         results['cost_gini_coefficient'] = _calculate_gini_final(self.df['price'], self.df['percent'])
+        # 新增代码行：为 dominant_peak_solidity 增加计算逻辑
+        if pd.notna(results['cost_gini_coefficient']) and pd.notna(results['dominant_peak_volume_ratio']):
+            results['dominant_peak_solidity'] = results['cost_gini_coefficient'] * (results['dominant_peak_volume_ratio'] / 100) * 100
         winners_df = self.df[self.df['price'] < close_price]
         losers_df = self.df[self.df['price'] > close_price]
         results['total_winner_rate'] = winners_df['percent'].sum()
         results['total_loser_rate'] = losers_df['percent'].sum()
-        winner_avg_cost, loser_avg_cost = np.nan, np.nan # 初始化变量
+        winner_avg_cost, loser_avg_cost = np.nan, np.nan
         if not winners_df.empty and winners_df['percent'].sum() > 0:
             winner_avg_cost = np.average(winners_df['price'], weights=winners_df['percent'])
             results['winner_profit_margin_avg'] = (close_price / winner_avg_cost - 1) * 100 if winner_avg_cost > 0 else np.nan
@@ -459,10 +401,9 @@ class ChipFeatureCalculator:
             results['structural_tension_index'] = tension
         leverage = (((self.df['price'] - close_price) / close_price) * self.df['percent']).sum()
         results['structural_leverage'] = leverage
-        # ================== 3. 真空区与断层分析 ==================
         rolling_vol = self.df['percent'].rolling(window=5, center=True).mean().fillna(self.df['percent'])
         min_density_idx = rolling_vol.idxmin()
-        search_radius = int(len(self.df) * 0.1) # 搜索半径
+        search_radius = int(len(self.df) * 0.1)
         low_point = self.df.loc[min_density_idx, 'price']
         upper_bound_df = self.df[self.df['price'] > low_point].iloc[:search_radius]
         lower_bound_df = self.df[self.df['price'] < low_point].iloc[-search_radius:]
@@ -475,7 +416,6 @@ class ChipFeatureCalculator:
             results['chip_fault_magnitude'] = (close_price - results['dominant_peak_cost']) / atr_14d
             fault_low, fault_high = sorted([results['dominant_peak_cost'], close_price])
             results['chip_fault_blockage_ratio'] = self.df[(self.df['price'] > fault_low) & (self.df['price'] < fault_high)]['percent'].sum()
-        # ================== 4. 传统指标兼容计算 ==================
         def _get_concentration(chip_df: pd.DataFrame):
             if chip_df.empty or chip_df['percent'].sum() < 1e-6: return np.nan
             chip_df = chip_df.copy()
@@ -495,7 +435,6 @@ class ChipFeatureCalculator:
         total_daily_volume = self.ctx.get('daily_turnover_volume')
         results['price_volume_entropy'] = self._calculate_price_volume_entropy(intraday_df, daily_high, daily_low, total_daily_volume)
         return results
-
     def _calculate_structural_potential_score(self, context: dict, current_metrics: dict) -> float:
         """
         【V2.0 · 结构势能版】
@@ -561,7 +500,6 @@ class ChipFeatureCalculator:
             if pd.notna(score) and score > 0:
                 final_score_raw *= score ** weight
         return final_score_raw * 100
-
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
         results = {
             'impulse_quality_ratio': np.nan,
@@ -642,7 +580,6 @@ class ChipFeatureCalculator:
         # 兼容旧指标
         results.update(self._compute_legacy_intraday_metrics(context))
         return results
-
     def _calculate_chip_structure_health_score(self, context: dict) -> dict:
         """
         【V4.2 · 生产就绪版】
@@ -711,7 +648,6 @@ class ChipFeatureCalculator:
             final_score_normalized = final_score_raw ** (1.0 / valid_dims)
             results['chip_health_score'] = final_score_normalized * 100
         return results
-
     def _calculate_active_winner_profit_margin(self, close_price: float, atr_14d: float, context: dict) -> tuple[float, float]:
         """
         【V1.0】计算活跃获利盘利润率。
@@ -740,7 +676,6 @@ class ChipFeatureCalculator:
                     else:
                         active_profit_margin = 0.0 # 默认利润率为0
         return active_winner_avg_cost, active_profit_margin
-
     def _calculate_winner_conviction_index(self, context: dict, active_profit_margin: float) -> float:
         """
         【V1.5 · 压力缓和器版】计算赢家信念指数。
@@ -767,7 +702,6 @@ class ChipFeatureCalculator:
             if (close_price / pre_close - 1) > 0.098 and active_profit_margin > 0:
                 winner_conviction_index = np.maximum(winner_conviction_index, 10.0)
         return winner_conviction_index
-
     def _calculate_cost_structure_skewness(self, context: dict) -> float:
         """
         【V1.1】计算成本结构偏度。
@@ -785,7 +719,6 @@ class ChipFeatureCalculator:
                 # 移除负号操作，使正偏度（筹码集中在高价区）对应正值
                 # skewness = -skewness
         return skewness
-
     def _calculate_price_volume_entropy(self, intraday_df: pd.DataFrame, daily_high: float, daily_low: float, total_daily_volume: float) -> float:
         
         if intraday_df.empty or total_daily_volume <= 0 or pd.isna(daily_high) or pd.isna(daily_low) or daily_high <= daily_low:
@@ -811,7 +744,6 @@ class ChipFeatureCalculator:
         max_entropy = np.log2(len(volume_per_bin)) if len(volume_per_bin) > 1 else 0
         normalized_entropy = shannon_entropy / max_entropy if max_entropy > 0 else 0.0
         return normalized_entropy
-
     def _compute_microstructure_game_metrics(self, context: dict) -> dict:
         """
         【V1.2 · 日内数据列鲁棒性增强版】计算基于高频数据的筹码微观博弈指标。
@@ -870,7 +802,6 @@ class ChipFeatureCalculator:
                 mf_net_buy_on_dip = dip_or_flat_df['main_force_net_vol'].clip(lower=0).sum()
                 results['covert_accumulation_signal'] = (mf_net_buy_on_dip / total_vol_dip) * 100
         return results
-
     def _compute_legacy_intraday_metrics(self, context: dict) -> dict:
         """
         【V1.0 · 兼容性补丁】计算在第二象限升级后保留的旧版日内动态指标。
@@ -911,7 +842,6 @@ class ChipFeatureCalculator:
                 absorption_vol = decline_df['main_force_net_vol'].clip(lower=0).sum()
                 results['capitulation_absorption_index'] = (absorption_vol / capitulation_vol) * 100
         return results
-
     def _compute_legacy_cross_day_metrics(self, context: dict) -> dict:
         """
         【V1.0 · 兼容性补丁】计算在第三象限升级后保留的旧版跨日迁徙指标。
@@ -956,7 +886,6 @@ class ChipFeatureCalculator:
         fatigue_increment = turnover_rate * (1 + price_range) * 100
         results['chip_fatigue_index'] = prev_fatigue * 0.9 + fatigue_increment # 每日衰减
         return results
-
     def _compute_legacy_game_theory_metrics(self, context: dict) -> dict:
         """
         【V1.0 · 兼容性补丁】计算在第四象限升级后保留的旧版博弈意图指标。

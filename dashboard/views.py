@@ -84,7 +84,6 @@ def trend_following_list(request):
     # 1. 确定要查询的目标日期
     selected_date_str = request.GET.get('date')
     target_date = None
-
     if selected_date_str:
         try:
             target_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
@@ -112,7 +111,6 @@ def trend_following_list(request):
             ).order_by('-cal_date').first()
             if latest_trade_day_obj:
                 target_date = latest_trade_day_obj.cal_date
-
     # 2. 如果无法确定目标日期，则不进行查询
     if not target_date:
         latest_buy_signals = TradingSignal.objects.none()
@@ -133,7 +131,6 @@ def trend_following_list(request):
         ).select_related('stock').prefetch_related(
             Prefetch('signalplaybookdetail_set', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
         ).order_by('-final_score') # 恢复数据库排序
-
     # 5. 数据处理与筛选 (恢复为简化逻辑)
     all_logs_in_memory = []
     all_playbook_objects = set()
@@ -154,23 +151,19 @@ def trend_following_list(request):
             'strategy_name': signal.strategy_name,
             'close_price': signal.close_price,
         })
-
     unique_playbooks = sorted(list(all_playbook_objects), key=lambda p: p.cn_name or p.name)
     selected_playbooks_pks = request.GET.getlist('playbooks')
     final_filtered_logs = all_logs_in_memory
-
     if selected_playbooks_pks:
         selected_pks_set = set(selected_playbooks_pks)
         final_filtered_logs = [
             log for log in all_logs_in_memory
             if selected_pks_set.issubset({str(p.pk) for p in log['active_playbooks']})
         ]
-
     # 6. 分页与上下文准备
     paginator = Paginator(final_filtered_logs, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
-
     context = {
         'page_title': page_title,
         'items_for_display': page_obj.object_list,
@@ -193,7 +186,6 @@ def prophet_signal_list(request):
     # 1. 确定要查询的目标日期
     selected_date_str = request.GET.get('date')
     target_date = None
-
     if selected_date_str:
         try:
             target_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
@@ -221,7 +213,6 @@ def prophet_signal_list(request):
             ).order_by('-cal_date').first()
             if latest_trade_day_obj:
                 target_date = latest_trade_day_obj.cal_date
-
     # 2. 查询“先知”信号
     if not target_date:
         prophet_signals = TradingSignal.objects.none()
@@ -238,12 +229,10 @@ def prophet_signal_list(request):
             timeframe='D',
             strategy_name=prophet_strategy_name # 核心过滤条件
         ).select_related('stock').order_by('-final_score')
-
     # 3. 分页与上下文准备
     paginator = Paginator(prophet_signals, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
-
     context = {
         'page_title': page_title,
         'page_obj': page_obj,
@@ -261,7 +250,6 @@ def fav_trend_following_list(request):
     - 功能增强: 查询并展示每日分数中的具体风险/离场剧本，为用户提供明确的风险预警。
     - 技术改造: 适配 AdvancedChipMetrics 模型分表，实现跨表动态查询。
     """
-
     def _calculate_score_deltas(current_score, baseline_score):
         if not current_score or not baseline_score: return None
         return {
@@ -270,7 +258,6 @@ def fav_trend_following_list(request):
             'dynamic': current_score.dynamic_score - baseline_score.dynamic_score,
             'composite': current_score.composite_score - baseline_score.composite_score,
         }
-
     # --- 步骤1: 预抓取所有需要的数据  ---
     base_queryset = PositionTracker.objects.filter(user=request.user).select_related('stock').prefetch_related(
         Prefetch('snapshots', queryset=DailyPositionSnapshot.objects.select_related('daily_score').order_by('-snapshot_date'), to_attr='latest_snapshot_list'),
@@ -287,12 +274,10 @@ def fav_trend_following_list(request):
         page_title = '全部自选追踪'
         queryset = base_queryset
     ordered_queryset = queryset.order_by('-updated_at')
-
     # --- 步骤2: 收集所有需要查询的“关键日期” ---
     score_lookups = set()
     chip_metrics_lookups = set() # 用于收集筹码指标的查询需求
     trackers_with_key_dates = []
-
     for tracker in ordered_queryset:
         transactions = getattr(tracker, 'sorted_transactions', [])
         snapshot_list = getattr(tracker, 'latest_snapshot_list', [])
@@ -316,7 +301,6 @@ def fav_trend_following_list(request):
                 # 收集筹码指标查询需求时，带上 stock_code
                 chip_metrics_lookups.add((tracker.stock_id, stock_code, key_dates['last_buy']))
         trackers_with_key_dates.append({'tracker': tracker, 'key_dates': key_dates})
-
     # --- 步骤3: 一次性查询所有关键数据 (分数 + 筹码) ---
     score_map = {}
     if score_lookups:
@@ -326,7 +310,6 @@ def fav_trend_following_list(request):
                 functools.reduce(operator.or_, queries)
             ).prefetch_related('components')
             score_map = {(s.stock_id, s.trade_date): s for s in all_key_scores}
-
     # 适配分表，动态查询 AdvancedChipMetrics
     chip_metrics_map = {}
     if chip_metrics_lookups:
@@ -350,7 +333,6 @@ def fav_trend_following_list(request):
                 all_key_chip_metrics.extend(list(results))
         # 3.3 将所有查询结果合并到最终的 map 中
         chip_metrics_map = {(cm.stock_id, cm.trade_time): cm for cm in all_key_chip_metrics}
-
     # --- 步骤4: 组装最终数据，进行精细化计算  ---
     trackers_for_display = []
     for item in trackers_with_key_dates:
@@ -394,7 +376,6 @@ def fav_trend_following_list(request):
             'last_buy_chip_metrics': last_buy_chip_metrics,
             'risk_playbooks': risk_playbooks,
         })
-
     stock_ids = [d['tracker'].stock_id for d in trackers_for_display]
     fav_id_map = {}
     if stock_ids:
@@ -402,11 +383,9 @@ def fav_trend_following_list(request):
         fav_id_map = {item['stock_id']: item['id'] for item in favorite_stocks}
     for item in trackers_for_display:
         item['fav_id'] = fav_id_map.get(item['tracker'].stock_id)
-
     paginator = Paginator(trackers_for_display, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
-
     context = {
         'page_title': page_title,
         'page_obj': page_obj,
@@ -426,7 +405,6 @@ def realtime_engine_view(request, cache_manager=None):
     today_str = date.today().strftime('%Y-%m-%d')
     cache_key_builder = IntradayEngineCashKey()
     user_dao = UserDAO(cache_manager_instance=cache_manager)
-
     async def get_initial_signals_for_favorites():
         # 1. 获取用户的自选股列表
         favorite_stocks = await user_dao.get_user_favorites(user.id)
@@ -451,7 +429,6 @@ def realtime_engine_view(request, cache_manager=None):
         # 5. 按时间倒序排序所有信号
         all_signals.sort(key=lambda s: s.get('entry_time', ''), reverse=True)
         return all_signals
-
     # 在同步视图中调用异步函数
     initial_signals = async_to_sync(get_initial_signals_for_favorites)()
     context = {
@@ -481,7 +458,6 @@ def stock_detail_view(request, stock_code, cache_manager=None):
     time_trade_dao = StockTimeTradeDAO(cache_manager_instance=cache_manager)
     get_kl_data_async = time_trade_dao.get_kl_data_for_chart
     kline_data = async_to_sync(get_kl_data_async)(stock_code, start_date, end_date)
-
     # 4. 获取“先知信号”数据
     prophet_signals = TradingSignal.objects.filter(
         stock=stock,
@@ -491,7 +467,6 @@ def stock_detail_view(request, stock_code, cache_manager=None):
         trade_time__date__range=(start_date, end_date)
     ).order_by('trade_time')
     print(f"调试信息: 在 {start_date} 到 {end_date} 期间找到 {prophet_signals.count()} 个先知信号。")
-
     # 5. 为图表准备数据
     # K线图数据
     kline_chart_data = {
@@ -505,7 +480,6 @@ def stock_detail_view(request, stock_code, cache_manager=None):
         'dates': kline_chart_data['dates'],
         'scores': [score_map.get(datetime.strptime(d, '%Y-%m-%d').date(), None) for d in kline_chart_data['dates']]
     }
-
     # 新增开始: 为“先知信号”准备标记点数据
     prophet_signal_markers = []
     for signal in prophet_signals:
@@ -521,7 +495,6 @@ def stock_detail_view(request, stock_code, cache_manager=None):
             })
     score_chart_data['prophet_signals'] = prophet_signal_markers # 将标记点数据加入字典
     # 新增结束
-
     context = {
         'page_title': f'{stock.stock_name} ({stock.stock_code}) - 深度分析',
         'stock': stock,
@@ -537,7 +510,6 @@ def stock_detail_view(request, stock_code, cache_manager=None):
 class StockSearchView(generics.ListAPIView):
     serializer_class = StockInfoSerializer
     permission_classes = [IsAuthenticated]
-
     def get_queryset(self):
         query = self.request.query_params.get('q', None)
         if query:
@@ -549,10 +521,8 @@ class StockSearchView(generics.ListAPIView):
 class FavoriteStockViewSet(viewsets.ModelViewSet):
     serializer_class = FavoriteStockSerializer
     permission_classes = [IsAuthenticated]
-
     def get_queryset(self):
         return FavoriteStock.objects.filter(user=self.request.user).select_related('stock')
-
     def create(self, request, *args, **kwargs):
         """
         【V6.0 - 简化版】
@@ -587,7 +557,6 @@ class FavoriteStockViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"添加自选股 {stock_code} 时发生错误: {e}", exc_info=True)
             return Response({'detail': '添加自选时发生内部错误。'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
     def perform_destroy(self, instance):
         user_id = instance.user.id
         instance.delete()
@@ -627,7 +596,6 @@ class TransactionViewSet(viewsets.ModelViewSet):
     queryset = Transaction.objects.all()
     serializer_class = TransactionSerializer
     permission_classes = [IsAuthenticated]
-
     def get_queryset(self):
         """
         过滤，确保用户只能看到自己的交易流水，并支持按tracker_id查询。
@@ -637,7 +605,6 @@ class TransactionViewSet(viewsets.ModelViewSet):
         if tracker_id:
             queryset = queryset.filter(tracker_id=tracker_id)
         return queryset.order_by('transaction_date')
-
     def perform_create(self, serializer):
         """
         【V1.1 修正版】创建交易后，调用服务更新持仓状态并重建快照。
@@ -661,7 +628,6 @@ class TransactionViewSet(viewsets.ModelViewSet):
             {'status': 'success', 'tracker_id': tracker.id}
         )
         logger.info(f"已向用户 {self.request.user.username} 发送快照重建通知。")
-
     def perform_destroy(self, instance):
         """
         【V1.1 修正版】删除交易后，调用服务更新持仓状态并重建快照。
@@ -688,7 +654,6 @@ class TransactionViewSet(viewsets.ModelViewSet):
             {'status': 'success', 'tracker_id': tracker.id}
         )
         logger.info(f"因交易删除，为 Tracker ID {tracker.id} 成功重建快照，并发送通知。")
-
     def perform_update(self, serializer):
         """
         更新交易后，调用服务更新持仓状态并重建快照。

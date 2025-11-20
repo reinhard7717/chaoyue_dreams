@@ -23,7 +23,6 @@ class StockInfo(models.Model):
     is_hs = models.CharField(max_length=2, verbose_name='是否沪深港通标的', null=True, blank=True)
     actual_controller = models.CharField(max_length=100, verbose_name='实控人名称', null=True, blank=True)
     actual_controller_type = models.CharField(max_length=50, verbose_name='实控人企业性质', null=True, blank=True)
-
     class Meta:
         verbose_name = '股票基础信息'
         verbose_name_plural = verbose_name
@@ -62,13 +61,11 @@ class StockCompany(models.Model):
     employees = models.IntegerField(null=True, blank=True, verbose_name='员工人数')
     main_business = models.TextField(null=True, blank=True, verbose_name='主要业务及产品')
     business_scope = models.TextField(null=True, blank=True, verbose_name='经营范围')
-
     class Meta:
         verbose_name = '上市公司基本信息'
         verbose_name_plural = verbose_name
         db_table = 'stock_company'
         ordering = ['stock']
-
     def __str__(self):
         return f"{self.stock.stock_code} - {self.com_name}"
 
@@ -87,14 +84,12 @@ class HSConst(models.Model):
     in_date = models.DateField(verbose_name='纳入日期')
     out_date = models.DateField(null=True, blank=True, verbose_name='剔除日期')
     is_new = models.BooleanField(default=True, verbose_name='是否最新')
-
     class Meta:
         verbose_name = '沪深港通成分'
         verbose_name_plural = verbose_name
         db_table = 'hs_const'
         unique_together = ('stock', 'hs_type', 'in_date')
         ordering = ['-in_date']
-
     def __str__(self):
         return f"{self.stock.stock_code} - {self.hs_type} - {self.in_date}"
 

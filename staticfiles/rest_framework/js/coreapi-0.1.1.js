@@ -8,9 +8,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
 var BasicAuthentication = function () {
   function BasicAuthentication() {
     var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-
     _classCallCheck(this, BasicAuthentication);
-
     var username = options.username;
     var password = options.password;
     var hash = window.btoa(username + ':' + password);
@@ -76,9 +74,7 @@ function getCookie(cookieName, cookieString) {
 var SessionAuthentication = function () {
   function SessionAuthentication() {
     var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-
     _classCallCheck(this, SessionAuthentication);
-
     this.csrfToken = getCookie(options.csrfCookieName, options.cookieString);
     this.csrfHeaderName = options.csrfHeaderName;
   }
@@ -111,9 +107,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
 var TokenAuthentication = function () {
   function TokenAuthentication() {
     var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-
     _classCallCheck(this, TokenAuthentication);
-
     this.token = options.token;
     this.scheme = options.scheme || 'Bearer';
   }
@@ -154,7 +148,6 @@ function lookupLink(node, keys) {
   try {
     for (var _iterator = keys[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
       var key = _step.value;
-
       if (node instanceof document.Document) {
         node = node.content[key];
       } else {
@@ -188,16 +181,13 @@ function lookupLink(node, keys) {
 var Client = function () {
   function Client() {
     var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-
     _classCallCheck(this, Client);
-
     var transportOptions = {
       auth: options.auth || null,
       headers: options.headers || {},
       requestCallback: options.requestCallback,
       responseCallback: options.responseCallback
     };
-
     this.decoders = options.decoders || [new codecs.CoreJSONCodec(), new codecs.JSONCodec(), new codecs.TextCodec()];
     this.transports = options.transports || [new transports.HTTPTransport(transportOptions)];
   }
@@ -206,7 +196,6 @@ var Client = function () {
     key: 'action',
     value: function action(document, keys) {
       var params = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
-
       var link = lookupLink(document, keys);
       var transport = utils.determineTransport(this.transports, link.url);
       return transport.action(link, this.decoders, params);
@@ -346,7 +335,6 @@ function primitiveToNode(data, baseUrl) {
 var CoreJSONCodec = function () {
   function CoreJSONCodec() {
     _classCallCheck(this, CoreJSONCodec);
-
     this.mediaType = 'application/coreapi+json';
   }
 
@@ -354,7 +342,6 @@ var CoreJSONCodec = function () {
     key: 'decode',
     value: function decode(text) {
       var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-
       var data = text;
       if (options.preloaded === undefined || !options.preloaded) {
         data = JSON.parse(text);
@@ -393,7 +380,6 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
 var JSONCodec = function () {
   function JSONCodec() {
     _classCallCheck(this, JSONCodec);
-
     this.mediaType = 'application/json';
   }
 
@@ -401,7 +387,6 @@ var JSONCodec = function () {
     key: 'decode',
     value: function decode(text) {
       var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-
       return JSON.parse(text);
     }
   }]);
@@ -423,7 +408,6 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
 var TextCodec = function () {
   function TextCodec() {
     _classCallCheck(this, TextCodec);
-
     this.mediaType = 'text/*';
   }
 
@@ -431,7 +415,6 @@ var TextCodec = function () {
     key: 'decode',
     value: function decode(text) {
       var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-
       return text;
     }
   }]);
@@ -523,9 +506,7 @@ var ParameterError = function (_Error) {
 
   function ParameterError(message) {
     _classCallCheck(this, ParameterError);
-
     var _this = _possibleConstructorReturn(this, (ParameterError.__proto__ || Object.getPrototypeOf(ParameterError)).call(this, message));
-
     _this.message = message;
     _this.name = 'ParameterError';
     return _this;
@@ -539,9 +520,7 @@ var LinkLookupError = function (_Error2) {
 
   function LinkLookupError(message) {
     _classCallCheck(this, LinkLookupError);
-
     var _this2 = _possibleConstructorReturn(this, (LinkLookupError.__proto__ || Object.getPrototypeOf(LinkLookupError)).call(this, message));
-
     _this2.message = message;
     _this2.name = 'LinkLookupError';
     return _this2;
@@ -555,9 +534,7 @@ var ErrorMessage = function (_Error3) {
 
   function ErrorMessage(message, content) {
     _classCallCheck(this, ErrorMessage);
-
     var _this3 = _possibleConstructorReturn(this, (ErrorMessage.__proto__ || Object.getPrototypeOf(ErrorMessage)).call(this, message));
-
     _this3.message = message;
     _this3.content = content;
     _this3.name = 'ErrorMessage';
@@ -625,9 +602,7 @@ var parseResponse = function parseResponse(response, decoders, responseCallback)
 var HTTPTransport = function () {
   function HTTPTransport() {
     var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-
     _classCallCheck(this, HTTPTransport);
-
     this.schemes = ['http', 'https'];
     this.auth = options.auth || null;
     this.headers = options.headers || {};
@@ -641,7 +616,6 @@ var HTTPTransport = function () {
     key: 'buildRequest',
     value: function buildRequest(link, decoders) {
       var params = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
-
       var fields = link.fields;
       var method = link.method.toUpperCase();
       var queryParams = {};
@@ -649,7 +623,6 @@ var HTTPTransport = function () {
       var formParams = {};
       var fieldNames = [];
       var hasBody = false;
-
       for (var idx = 0, len = fields.length; idx < len; idx++) {
         var field = fields[idx];
         // Ensure any required fields are included
@@ -673,18 +646,14 @@ var HTTPTransport = function () {
           hasBody = true;
         }
       }
-
       // Check for any parameters that did not have a matching field
       for (var property in params) {
         if (params.hasOwnProperty(property) && !fieldNames.includes(property)) {
           throw new errors.ParameterError('Unknown parameter: "' + property + '"');
         }
       }
-
       var requestOptions = { method: method, headers: {} };
-
       Object.assign(requestOptions.headers, this.headers);
-
       if (hasBody) {
         if (link.encoding === 'application/json') {
           requestOptions.body = JSON.stringify(formParams);
@@ -707,16 +676,13 @@ var HTTPTransport = function () {
           requestOptions.headers['Content-Type'] = 'application/x-www-form-urlencoded';
         }
       }
-
       if (this.auth) {
         requestOptions = this.auth.authenticate(requestOptions);
       }
-
       var parsedUrl = urlTemplate.parse(link.url);
       parsedUrl = parsedUrl.expand(pathParams);
       parsedUrl = new URL(parsedUrl);
       parsedUrl.set('query', queryParams);
-
       return {
         url: parsedUrl.toString(),
         options: requestOptions
@@ -726,14 +692,11 @@ var HTTPTransport = function () {
     key: 'action',
     value: function action(link, decoders) {
       var params = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
-
       var responseCallback = this.responseCallback;
       var request = this.buildRequest(link, decoders, params);
-
       if (this.requestCallback) {
         this.requestCallback(request);
       }
-
       return this.fetch(request.url, request.options).then(function (response) {
         if (response.status === 204) {
           return;
@@ -783,7 +746,6 @@ var determineTransport = function determineTransport(transports, url) {
   try {
     for (var _iterator = transports[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
       var transport = _step.value;
-
       if (transport.schemes.includes(scheme)) {
         return transport;
       }
@@ -823,7 +785,6 @@ var negotiateDecoder = function negotiateDecoder(decoders, contentType) {
   try {
     for (var _iterator2 = decoders[Symbol.iterator](), _step2; !(_iteratorNormalCompletion2 = (_step2 = _iterator2.next()).done); _iteratorNormalCompletion2 = true) {
       var decoder = _step2.value;
-
       if (acceptableTypes.includes(decoder.mediaType)) {
         return decoder;
       }
@@ -951,17 +912,13 @@ module.exports = function required(port, protocol) {
     case 'http':
     case 'ws':
     return port !== 80;
-
     case 'https':
     case 'wss':
     return port !== 443;
-
     case 'ftp':
     return port !== 21;
-
     case 'gopher':
     return port !== 70;
-
     case 'file':
     return false;
   }
@@ -1119,7 +1076,6 @@ function URL(address, location, parser) {
     instruction = instructions[i];
     parse = instruction[0];
     key = instruction[1];
-
     if (parse !== parse) {
       url[key] = address;
     } else if ('string' === typeof parse) {
@@ -1136,11 +1092,9 @@ function URL(address, location, parser) {
       url[key] = index[1];
       address = address.slice(0, index.index);
     }
-
     url[key] = url[key] || (
       relative && instruction[3] ? location[key] || '' : ''
     );
-
     //
     // Hostname, host and protocol should be lowercased so they can be used to
     // create a proper `origin`.
@@ -1218,32 +1172,24 @@ URL.prototype.set = function set(part, value, fn) {
       if ('string' === typeof value && value.length) {
         value = (fn || qs.parse)(value);
       }
-
       url[part] = value;
       break;
-
     case 'port':
       url[part] = value;
-
       if (!required(value, url.protocol)) {
         url.host = url.hostname;
         url[part] = '';
       } else if (value) {
         url.host = url.hostname +':'+ value;
       }
-
       break;
-
     case 'hostname':
       url[part] = value;
-
       if (url.port) value += ':'+ url.port;
       url.host = value;
       break;
-
     case 'host':
       url[part] = value;
-
       if (/:\d+$/.test(value)) {
         value = value.split(':');
         url.port = value.pop();
@@ -1252,26 +1198,20 @@ URL.prototype.set = function set(part, value, fn) {
         url.hostname = value;
         url.port = '';
       }
-
       break;
-
     case 'protocol':
       url.protocol = value.toLowerCase();
       url.slashes = !fn;
       break;
-
     case 'pathname':
       url.pathname = value.length && value.charAt(0) !== '/' ? '/' + value : value;
-
       break;
-
     default:
       url[part] = value;
   }
 
   for (var i = 0; i < rules.length; i++) {
     var ins = rules[i];
-
     if (ins[4]) url[ins[1]] = url[ins[1]].toLowerCase();
   }
 
@@ -1375,7 +1315,6 @@ module.exports = function lolcation(loc) {
       if (key in ignore) continue;
       finaldestination[key] = loc[key];
     }
-
     if (finaldestination.slashes === undefined) {
       finaldestination.slashes = slashes.test(loc.href);
     }
@@ -1436,7 +1375,6 @@ module.exports = function lolcation(loc) {
    */
   UrlTemplate.prototype.encodeValue = function (operator, value, key) {
     value = (operator === '+' || operator === '#') ? this.encodeReserved(value) : this.encodeUnreserved(value);
-
     if (key) {
       return this.encodeUnreserved(key) + '=' + value;
     } else {
@@ -1472,7 +1410,6 @@ module.exports = function lolcation(loc) {
   UrlTemplate.prototype.getValues = function (context, operator, key, modifier) {
     var value = context[key],
         result = [];
-
     if (this.isDefined(value) && value !== '') {
       if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
         value = value.toString();
@@ -1535,7 +1472,6 @@ module.exports = function lolcation(loc) {
   UrlTemplate.prototype.parse = function (template) {
     var that = this;
     var operators = ['+', '#', '.', '/', ';', '?', '&'];
-
     return {
       expand: function (context) {
         return template.replace(/\{([^\{\}]+)\}|([^\{\}]+)/g, function (_, expression, literal) {
@@ -1607,11 +1543,9 @@ module.exports = function lolcation(loc) {
       '[object Float32Array]',
       '[object Float64Array]'
     ]
-
     var isDataView = function(obj) {
       return obj && DataView.prototype.isPrototypeOf(obj)
     }
-
     var isArrayBufferView = ArrayBuffer.isView || function(obj) {
       return obj && viewClasses.indexOf(Object.prototype.toString.call(obj)) > -1
     }
@@ -1642,24 +1576,20 @@ module.exports = function lolcation(loc) {
         return {done: value === undefined, value: value}
       }
     }
-
     if (support.iterable) {
       iterator[Symbol.iterator] = function() {
         return iterator
       }
     }
-
     return iterator
   }
 
   function Headers(headers) {
     this.map = {}
-
     if (headers instanceof Headers) {
       headers.forEach(function(value, name) {
         this.append(name, value)
       }, this)
-
     } else if (headers) {
       Object.getOwnPropertyNames(headers).forEach(function(name) {
         this.append(name, headers[name])
@@ -1765,7 +1695,6 @@ module.exports = function lolcation(loc) {
 
   function Body() {
     this.bodyUsed = false
-
     this._initBody = function(body) {
       this._bodyInit = body
       if (!body) {
@@ -1787,7 +1716,6 @@ module.exports = function lolcation(loc) {
       } else {
         throw new Error('unsupported BodyInit type')
       }
-
       if (!this.headers.get('content-type')) {
         if (typeof body === 'string') {
           this.headers.set('content-type', 'text/plain;charset=UTF-8')
@@ -1798,7 +1726,6 @@ module.exports = function lolcation(loc) {
         }
       }
     }
-
     if (support.blob) {
       this.blob = function() {
         var rejected = consumed(this)
@@ -1816,13 +1743,11 @@ module.exports = function lolcation(loc) {
         }
       }
     }
-
     this.text = function() {
       var rejected = consumed(this)
       if (rejected) {
         return rejected
       }
-
       if (this._bodyBlob) {
         return readBlobAsText(this._bodyBlob)
       } else if (this._bodyArrayBuffer) {
@@ -1835,7 +1760,6 @@ module.exports = function lolcation(loc) {
         return Promise.resolve(this._bodyText)
       }
     }
-
     if (support.arrayBuffer) {
       this.arrayBuffer = function() {
         if (this._bodyArrayBuffer) {
@@ -1845,17 +1769,14 @@ module.exports = function lolcation(loc) {
         }
       }
     }
-
     if (support.formData) {
       this.formData = function() {
         return this.text().then(decode)
       }
     }
-
     this.json = function() {
       return this.text().then(JSON.parse)
     }
-
     return this
   }
 
@@ -1870,7 +1791,6 @@ module.exports = function lolcation(loc) {
   function Request(input, options) {
     options = options || {}
     var body = options.body
-
     if (typeof input === 'string') {
       this.url = input
     } else {
@@ -1889,7 +1809,6 @@ module.exports = function lolcation(loc) {
         input.bodyUsed = true
       }
     }
-
     this.credentials = options.credentials || this.credentials || 'omit'
     if (options.headers || !this.headers) {
       this.headers = new Headers(options.headers)
@@ -1897,7 +1816,6 @@ module.exports = function lolcation(loc) {
     this.method = normalizeMethod(options.method || this.method || 'GET')
     this.mode = options.mode || this.mode || null
     this.referrer = null
-
     if ((this.method === 'GET' || this.method === 'HEAD') && body) {
       throw new TypeError('Body not allowed for GET or HEAD requests')
     }
@@ -1940,7 +1858,6 @@ module.exports = function lolcation(loc) {
     if (!options) {
       options = {}
     }
-
     this.type = 'default'
     this.status = 'status' in options ? options.status : 200
     this.ok = this.status >= 200 && this.status < 300
@@ -1973,7 +1890,6 @@ module.exports = function lolcation(loc) {
     if (redirectStatuses.indexOf(status) === -1) {
       throw new RangeError('Invalid status code')
     }
-
     return new Response(null, {status: status, headers: {location: url}})
   }
 
@@ -1985,7 +1901,6 @@ module.exports = function lolcation(loc) {
     return new Promise(function(resolve, reject) {
       var request = new Request(input, init)
       var xhr = new XMLHttpRequest()
-
       xhr.onload = function() {
         var options = {
           status: xhr.status,
@@ -1996,29 +1911,22 @@ module.exports = function lolcation(loc) {
         var body = 'response' in xhr ? xhr.response : xhr.responseText
         resolve(new Response(body, options))
       }
-
       xhr.onerror = function() {
         reject(new TypeError('Network request failed'))
       }
-
       xhr.ontimeout = function() {
         reject(new TypeError('Network request failed'))
       }
-
       xhr.open(request.method, request.url, true)
-
       if (request.credentials === 'include') {
         xhr.withCredentials = true
       }
-
       if ('responseType' in xhr && support.blob) {
         xhr.responseType = 'blob'
       }
-
       request.headers.forEach(function(value, name) {
         xhr.setRequestHeader(name, value)
       })
-
       xhr.send(typeof request._bodyInit === 'undefined' ? null : request._bodyInit)
     })
   }

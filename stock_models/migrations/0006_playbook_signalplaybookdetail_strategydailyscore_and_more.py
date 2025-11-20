@@ -6,12 +6,10 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0005_remove_signalplaybookdetail_playbook_and_more'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
-
     operations = [
         migrations.CreateModel(
             name='Playbook',

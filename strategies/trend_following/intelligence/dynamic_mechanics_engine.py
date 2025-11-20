@@ -10,7 +10,6 @@ class DynamicMechanicsEngine:
         :param strategy_instance: 策略主实例的引用，用于访问 df_indicators。
         """
         self.strategy = strategy_instance
-
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -19,7 +18,6 @@ class DynamicMechanicsEngine:
             print(f"    -> [力学情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
-
     def run_dynamic_analysis_command(self) -> Dict[str, pd.Series]:
         """
         【V5.8 · 均线动态增强版】动态力学引擎总指挥
@@ -51,7 +49,6 @@ class DynamicMechanicsEngine:
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return all_dynamic_states
-
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.1 · 多时间维度归一化版】力学公理五：诊断“力学背离”
@@ -67,7 +64,6 @@ class DynamicMechanicsEngine:
         # 这里直接使用计算出的双极性分数，不再进行额外的 normalize_to_bipolar，因为 momentum_score 和 inertia_score 已经是双极性。
         divergence_score = (inertia_score - momentum_score).clip(-1, 1)
         return divergence_score.astype(np.float32)
-
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.1 · 多时间维度归一化版】力学公理一：诊断“动量”
@@ -83,7 +79,6 @@ class DynamicMechanicsEngine:
         macd_h_score = get_adaptive_mtf_normalized_bipolar_score(macd_h, df.index, default_weights)
         momentum_score = (roc_score * 0.6 + macd_h_score * 0.4).clip(-1, 1)
         return momentum_score.astype(np.float32)
-
     def _diagnose_axiom_inertia(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V2.6 · 均线动态增强与列名引用修复及多时间维度归一化版】力学公理二：诊断“惯性”
@@ -126,7 +121,6 @@ class DynamicMechanicsEngine:
         adx_direction = (self._get_safe_series(df, 'PDI_14_D', 0, method_name="_diagnose_axiom_inertia") > self._get_safe_series(df, 'NDI_14_D', 0, method_name="_diagnose_axiom_inertia")).astype(float) * 2 - 1
         inertia_score = (inertia_quality * adx_direction).clip(-1, 1)
         return inertia_score.astype(np.float32)
-
     def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V2.3 · 稳健融合重构与多时间维度归一化版】力学公理三：诊断“稳定性”
@@ -156,7 +150,6 @@ class DynamicMechanicsEngine:
         ).clip(0, 1)
         stability_score = (raw_stability_score * 2 - 1).clip(-1, 1)
         return stability_score.astype(np.float32)
-
     def _diagnose_axiom_energy(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.2 · 稳健融合重构与多时间维度归一化版】力学公理四：诊断“能量”
@@ -178,7 +171,6 @@ class DynamicMechanicsEngine:
             cmf_bipolar * 0.5
         ).clip(-1, 1)
         return energy_score.astype(np.float32)
-
     def _diagnose_axiom_ma_dynamics(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.3 · 列名引用修复与多时间维度归一化版】力学公理六：诊断“均线动态”

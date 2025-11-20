@@ -24,7 +24,6 @@ class DistributedRateLimiter:
         self.period = period
         self.cache_manager = cache_manager
         print(f"DEBUG: 分布式速率限制器 '{self.redis_key}' 已创建，限制为 {max_calls}次/{period}秒。")
-
     async def acquire(self) -> bool:
         try:
             redis_client = await self.cache_manager._ensure_client()
@@ -59,7 +58,6 @@ class RateLimiterFactory:
     """
     _instance = None
     _lock = threading.Lock() # 用于保护实例创建和字典操作的线程锁
-
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
             with cls._lock:
@@ -69,7 +67,6 @@ class RateLimiterFactory:
                     cls._instance._cache_manager = CacheManager() # 持有CacheManager单例
                     # print("DEBUG: RateLimiterFactory 单例已初始化。")
         return cls._instance
-
     def get_limiter(self, name: str) -> DistributedRateLimiter:
         """
         获取一个具名的速率限制器。

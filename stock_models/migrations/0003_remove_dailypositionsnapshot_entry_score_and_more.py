@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0002_playbook_signalplaybookdetail_tradingsignal_and_more'),
     ]
-
     operations = [
         migrations.RemoveField(
             model_name='dailypositionsnapshot',

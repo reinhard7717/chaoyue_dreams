@@ -15,7 +15,6 @@ class MicroBehaviorEngine:
         :param strategy_instance: 策略主实例的引用。
         """
         self.strategy = strategy_instance
-
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -24,11 +23,9 @@ class MicroBehaviorEngine:
             print(f"    -> [微观行为情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
-
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default=0.0) -> pd.Series:
         """安全地从原子状态库中获取分数。"""
         return self.strategy.atomic_states.get(name, pd.Series(default, index=df.index))
-
     def _get_signal(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:
         """
         【V1.0】信号获取哨兵方法
@@ -39,7 +36,6 @@ class MicroBehaviorEngine:
             print(f"    -> [微观行为引擎警告] 依赖信号 '{signal_name}' 在数据帧中不存在，将使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[signal_name]
-
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V5.5 · 纯粹原子版】微观行为诊断引擎总指挥
@@ -66,7 +62,6 @@ class MicroBehaviorEngine:
         all_states['SCORE_MICRO_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_MICRO_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return all_states
-
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.2 · 信号修复与多时间维度归一化版】微观行为公理四：诊断“微观背离”
@@ -88,7 +83,6 @@ class MicroBehaviorEngine:
         order_flow_trend = get_adaptive_mtf_normalized_bipolar_score(active_buy_sell_diff.diff(1), df.index, default_weights)
         divergence_score = (order_flow_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
-
     def _diagnose_axiom_deception(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.3 · 健壮性修复与多时间维度归一化版】微观行为公理一：诊断“伪装与欺骗”
@@ -113,7 +107,6 @@ class MicroBehaviorEngine:
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         deception_score = get_adaptive_mtf_normalized_bipolar_score(raw_deception_score, df.index, default_weights)
         return deception_score.astype(np.float32)
-
     def _diagnose_axiom_probe(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.2 · 健壮性修复与多时间维度归一化版】微观行为公理二：诊断“试探与确认”
@@ -138,7 +131,6 @@ class MicroBehaviorEngine:
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         probe_score = get_adaptive_mtf_normalized_bipolar_score(raw_probe_score, df.index, default_weights)
         return probe_score.astype(np.float32)
-
     def _diagnose_axiom_efficiency(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.2 · 健壮性修复与多时间维度归一化版】微观行为公理三：诊断“成本与效率”

@@ -7,10 +7,8 @@ def _strip_comments_recursive(data: Any) -> Any:
     递归地从字典或字典列表中移除所有说明性键。
     说明性键定义为 '说明' 或以 '说明_' 开头的键。
     这个函数确保业务逻辑代码接收到的是纯净的参数字典。
-
     Args:
         data: 输入的数据，可以是字典、列表或任何其他类型。
-
     Returns:
         移除了说明性键后的纯净数据。
     """
@@ -34,10 +32,8 @@ def _strip_comments_recursive(data: Any) -> Any:
 def load_strategy_config(file_path: str) -> Dict:
     """
     加载策略JSON配置文件，并自动移除所有说明性键。
-
     Args:
         file_path: JSON配置文件的路径。
-
     Returns:
         一个不包含任何说明性键的纯净配置字典。
     Raises:

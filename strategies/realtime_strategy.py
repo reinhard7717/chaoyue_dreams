@@ -61,7 +61,6 @@ class RealtimeStrategy:
         self.micro_price_analyzer = IntradayMicroPriceAnalyzer(self.realtime_config.get('micro_price_action_params', {}))
         self.multi_timeframe_analyzer = IntradayMultiTimeframeAnalyzer(self.realtime_config)
         print("RealtimeStrategy initialized with config and modules.")
-
     def _load_realtime_config(self):
         self.trade_start_time = datetime.strptime(self.realtime_config.get('trade_start_time', '09:45'), '%H:%M').time()
         self.trade_end_time = datetime.strptime(self.realtime_config.get('trade_end_time', '14:50'), '%H:%M').time()
@@ -77,7 +76,6 @@ class RealtimeStrategy:
         self.rating_thresholds = self.intraday_scoring_params.get('rating_thresholds', {})
         self.daily_score_influence_multiplier = self.intraday_scoring_params.get('daily_score_influence_multiplier', {}).get('value', 0.5)
         self.daily_risk_penalty_multiplier = self.intraday_scoring_params.get('daily_risk_penalty_multiplier', {}).get('value', 0.8)
-
     def update_data(self, new_1min_kline: pd.Series):
         """
         接收新的1分钟K线数据，更新内部数据缓冲区，并聚合计算所有时间周期的指标。
@@ -98,7 +96,6 @@ class RealtimeStrategy:
         self.data_aggregator.update_1min_data(new_1min_kline)
         self.data = self.data_aggregator.aggregate_and_calculate_indicators()
         # print(f"  [盘中策略] 数据更新至 {new_1min_kline.name}，5min数据量: {len(self.data.get('5min', []))}")
-
     def run_strategy(self, stock_code: str, daily_signal_info: Dict) -> Optional[Dict]:
         """
         对单个股票执行所有交易剧本，寻找第一个满足条件的入场信号。
@@ -222,7 +219,6 @@ class RealtimeStrategy:
             print(f"      - 错误: 在处理 {stock_code} K线时发生异常: {e}")
             traceback.print_exc()
             return None
-
     #剧本1: 5分钟VWAP突破动能
     def _check_5min_vwap_breakout(self, stock_code: str, kline: pd.Series, prev_kline: pd.Series) -> bool:
         """
@@ -240,7 +236,6 @@ class RealtimeStrategy:
             return all([cond_price_break, cond_volume, cond_pct_change])
         except KeyError as ke:
             return False
-
     # 剧本2: 5分钟布林带突破
     def _check_5min_bollinger_breakout(self, stock_code: str, kline: pd.Series, prev_kline: pd.Series) -> bool:
         """
@@ -258,7 +253,6 @@ class RealtimeStrategy:
             return all([cond_price_break, cond_volume, cond_bbw])
         except KeyError as ke:
             return False
-
     # 剧本3: 30分钟EMA多头排列突破
     def _check_30min_ema_bullish_breakout(self, stock_code: str, kline: pd.Series, prev_kline: pd.Series) -> bool:
         """
@@ -276,7 +270,6 @@ class RealtimeStrategy:
             return all([cond_ema_alignment, cond_price_break, cond_vwap_up])
         except KeyError as ke:
             return False
-
     # 剧本4: 盘中回调支撑反弹 (5分钟VWAP)
     def _check_5min_pullback_rebound(self, stock_code: str, kline: pd.Series, prev_kline: pd.Series) -> bool:
         """
@@ -296,7 +289,6 @@ class RealtimeStrategy:
             return all([cond_pullback, cond_rebound_candle, cond_close_above_vwap, cond_volume_moderate])
         except KeyError as ke:
             return False
-
     # 新增剧本5: 盘中K线反转形态
     def _check_intraday_candlestick_reversal(self, stock_code: str, kline: pd.Series) -> bool:
         """
@@ -316,7 +308,6 @@ class RealtimeStrategy:
             return all([cond_bullish_pattern, cond_volume, cond_pct_change])
         except KeyError as ke:
             return False
-
     # 新增剧本6: 布林带压缩后放量突破
     def _check_volume_breakout_with_bbw_squeeze(self, stock_code: str, kline: pd.Series, df_5min: pd.DataFrame) -> bool:
         """
@@ -336,7 +327,6 @@ class RealtimeStrategy:
             return all([cond_bbw_squeezed, cond_price_break, cond_giant_volume])
         except KeyError as ke:
             return False
-
     # 新增剧本7: VWAP通道支撑反弹
     def _check_vwap_channel_rebound(self, stock_code: str, kline: pd.Series) -> bool:
         """
@@ -352,7 +342,6 @@ class RealtimeStrategy:
             return all([cond_touch_rebound, cond_rebound_candle, cond_pct_change])
         except KeyError as ke:
             return False
-
     # 新增剧本8: 多周期EMA共振突破
     def _check_multi_timeframe_ema_confluence(self, stock_code: str, kline: pd.Series) -> bool:
         """
@@ -366,7 +355,6 @@ class RealtimeStrategy:
             return all([cond_ema_confluence, cond_price_break_5min])
         except KeyError as ke:
             return False
-
     # 新增剧本9: 枢轴点支撑反转
     def _check_pivot_point_reversal(self, stock_code: str, kline: pd.Series) -> bool:
         """
@@ -385,7 +373,6 @@ class RealtimeStrategy:
             return all([cond_rebound_from_pivot, cond_rebound_candle, cond_volume])
         except KeyError as ke:
             return False
-
     # 新增剧本10: 微观价格行为拒绝反弹
     def _check_micro_price_rejection_rebound(self, stock_code: str, kline: pd.Series) -> bool:
         """
@@ -402,7 +389,6 @@ class RealtimeStrategy:
             return all([cond_price_rejection_lower, cond_rebound_candle, cond_volume])
         except KeyError as ke:
             return False
-
     # 修改方法：计算盘中综合评分和评级
     def _calculate_intraday_rating(self, stock_code: str, current_kline_5min: pd.Series, 
                                    all_intraday_features: Dict[str, float], # 特征值可以是浮点数

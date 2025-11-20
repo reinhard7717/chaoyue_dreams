@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0043_conceptmaster_conceptdaily_conceptmember_and_more'),
     ]
-
     operations = [
         migrations.CreateModel(
             name='IndustryLifecycle',

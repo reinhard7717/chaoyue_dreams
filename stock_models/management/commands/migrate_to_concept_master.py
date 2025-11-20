@@ -8,7 +8,6 @@ from stock_models.industry import ConceptMaster, SwIndustry, ThsIndex, DcIndex, 
 
 class Command(BaseCommand):
     help = '【一次性数据迁移】将所有来源的行业/概念数据迁移到统一的 ConceptMaster 模型中。'
-
     def handle(self, *args, **options):
         self.stdout.write(self.style.SUCCESS("====== 开始迁移数据到 ConceptMaster ======"))
         try:
@@ -21,7 +20,6 @@ class Command(BaseCommand):
         except Exception as e:
             self.stderr.write(self.style.ERROR(f"迁移过程中发生严重错误: {e}"))
             self.stdout.write(self.style.WARNING("由于错误发生，数据库事务已自动回滚，未做任何更改。"))
-
     async def async_main(self):
         """
         异步主逻辑，现在它只负责业务操作，不再关心事务。
@@ -41,7 +39,6 @@ class Command(BaseCommand):
         # 成功信息移到 handle 方法中，确保事务提交后才显示
         # self.stdout.write(self.style.SUCCESS(f"\n====== 数据迁移成功！共迁移 {total_migrated} 条记录。 ======"))
 
-
     async def migrate_sw_industry(self):
         self.stdout.write("  -> 正在迁移 [申万行业] 数据...")
         # 使用 aall() 替代 sync_to_async(list) 以获得更好的异步性能
@@ -59,7 +56,6 @@ class Command(BaseCommand):
             await ConceptMaster.objects.abulk_create(concepts_to_create, ignore_conflicts=True)
         self.stdout.write(f"     ...完成，处理 {len(concepts_to_create)} 条申万行业记录。")
         return len(concepts_to_create)
-
     async def migrate_ths_index(self):
         self.stdout.write("  -> 正在迁移 [同花顺板块] 数据...")
         ths_indices = [ind async for ind in ThsIndex.objects.all()]
@@ -76,7 +72,6 @@ class Command(BaseCommand):
             await ConceptMaster.objects.abulk_create(concepts_to_create, ignore_conflicts=True)
         self.stdout.write(f"     ...完成，处理 {len(concepts_to_create)} 条同花顺板块记录。")
         return len(concepts_to_create)
-
     async def migrate_dc_index(self):
         self.stdout.write("  -> 正在迁移 [东方财富板块] 数据...")
         dc_indices = [ind async for ind in DcIndex.objects.all()]
@@ -93,7 +88,6 @@ class Command(BaseCommand):
             await ConceptMaster.objects.abulk_create(concepts_to_create, ignore_conflicts=True)
         self.stdout.write(f"     ...完成，处理 {len(concepts_to_create)} 条东方财富板块记录。")
         return len(concepts_to_create)
-
     async def migrate_kpl_concept(self):
         self.stdout.write("  -> 正在迁移 [开盘啦题材] 数据...")
         kpl_concepts = [cpt async for cpt in KplConceptInfo.objects.all()]

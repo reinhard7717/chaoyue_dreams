@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0076_alter_stocktickdata_bj_type_and_more'),
     ]
-
     operations = [
         migrations.AlterUniqueTogether(
             name='stockrealtimedata',

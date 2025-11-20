@@ -21,7 +21,6 @@
             navSidebar.setAttribute('aria-expanded', navSidebarIsOpen);
         });
     }
-
     function initSidebarQuickFilter() {
         const options = [];
         const navSidebar = document.getElementById('nav-sidebar');

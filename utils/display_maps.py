@@ -36,7 +36,6 @@ def _load_dynamic_scoring_map() -> dict:
                 
         logger.info(f"成功从JSON配置中动态加载了 {len(dynamic_map)} 个评分项的中文名称。")
         return dynamic_map
-
     except Exception as e:
         logger.error(f"加载动态评分项中文名时发生错误: {e}", exc_info=True)
         # 在发生错误时返回一个空字典，确保程序不会崩溃

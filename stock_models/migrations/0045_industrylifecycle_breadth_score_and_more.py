@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0044_industrylifecycle'),
     ]
-
     operations = [
         migrations.AddField(
             model_name='industrylifecycle',

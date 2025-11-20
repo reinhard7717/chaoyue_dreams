@@ -41,7 +41,6 @@ class IntradayFeatureEngine:
         self.slope_window = slope_window
         self.stats_window = stats_window
         self.corr_window = corr_window
-
     def generate_features(self, stock_code: str, df_quotes: pd.DataFrame, df_real_ticks: Optional[pd.DataFrame], time_level: str) -> Optional[pd.DataFrame]:
         """
         执行完整的、基于真实逐笔数据的特征计算流水线。
@@ -73,7 +72,6 @@ class IntradayFeatureEngine:
         # 填充由滚动窗口计算产生的初始NaN值
         df_minute.fillna(0, inplace=True)
         return df_minute
-
     def _calculate_primary_features(self, df_quotes: pd.DataFrame) -> pd.DataFrame:
         """计算基于分钟K线的基础特征，如VWAP。"""
         # 确保列是数值类型
@@ -82,7 +80,6 @@ class IntradayFeatureEngine:
         # 计算当日累计VWAP (Volume Weighted Average Price)
         df_quotes['vwap'] = df_quotes['turnover_value'].cumsum() / (df_quotes['volume'].cumsum() + 1e-9)
         return df_quotes
-
     def _aggregate_tick_data(self, df_ticks: pd.DataFrame, time_level: str) -> Optional[pd.DataFrame]:
         """
         对真实逐笔数据进行处理和分钟级聚合，计算主动性指标。
@@ -108,7 +105,6 @@ class IntradayFeatureEngine:
         except Exception as e:
             logger.error(f"聚合真实逐笔数据时发生异常: {e}", exc_info=True)
             return None
-
     def _apply_pandas_ta_strategy(self, df_minute: pd.DataFrame) -> pd.DataFrame:
         """
         使用 pandas-ta 库计算各种衍生技术指标。
@@ -153,7 +149,6 @@ def cpu_bound_calculation_task(
     """
     stock_code = stock_data_package[0]
     # print(f"    -> [WORKER V9.0] 开始处理 {stock_code}...")
-
     try:
         # 1. 初始化特征引擎
         feature_engine = IntradayFeatureEngine(slope_window, stats_window)
@@ -171,7 +166,6 @@ def cpu_bound_calculation_task(
             queue='cpu_intensive_queue',
             routing_key='cpu_intensive_queue'
         )
-
     except Exception as e:
         logger.error(f"    -> [WORKER V9.0] 处理 {stock_code} 时发生严重错误: {e}", exc_info=True)
 
@@ -190,7 +184,6 @@ class RealtimeServices:
         # 将窗口参数定义在服务实例中
         self.slope_window = 5
         self.stats_window = 20
-
     @sync_to_async
     def _get_monitoring_pool_from_sources(self, trade_date: date) -> tuple[list[str], list[str]]:
         """
@@ -216,7 +209,6 @@ class RealtimeServices:
             logger.error(f"获取所有自选股时出错: {e}", exc_info=True)
             watchlist_stocks = []
         return strategy_stocks, watchlist_stocks
-
     async def update_and_cache_monitoring_pool(self):
         """
         【盘前任务入口 - V2.0】使用数据库中的TradeCalendar模型更新监控池。
@@ -242,7 +234,6 @@ class RealtimeServices:
         await self.cache_manager.sadd(redis_key, *final_pool_list)
         await self.cache_manager.expire(redis_key, 86400)
         print(f"  -> 成功将 {len(final_pool_list)} 支股票存入Redis缓存键: {redis_key}")
-
     async def get_monitoring_pool_from_cache(self) -> List[str]:
         """
         【盘中任务入口 - V2.1 修正版】从Redis中获取盘中监控的股票池。
@@ -259,7 +250,6 @@ class RealtimeServices:
         stock_codes = stock_codes_from_cache
         print(f"成功从Redis加载监控池，共 {len(stock_codes)} 支股票。")
         return stock_codes
-
     async def process_all_stocks_intraday_data(self, stock_codes: List[str], time_level: str, trade_date: str):
         """
         【V4.0 - 重构版】
@@ -303,7 +293,6 @@ class RealtimeServices:
             print("-> [服务层 V4.0] 所有分析任务已成功分派。")
         else:
             print("-> [服务层 V4.0] 没有需要分析的任务。")
-
     async def _get_all_base_data(self, stock_codes: List[str], trade_date: str) -> tuple[dict, dict]:
         """
         并发获取所有股票的行情快照和真实逐笔数据。
@@ -329,7 +318,6 @@ class RealtimeServices:
         real_ticks_map = results[1] if not isinstance(results[1], Exception) else {}
         print(f"  -> [数据获取] 完成。获取到 {len(quotes_map)} 支股票的快照数据和 {len(real_ticks_map)} 支股票的逐笔数据。")
         return quotes_map, real_ticks_map
-
     async def _get_all_real_ticks_in_bulk(self, stock_codes: List[str], trade_date: str) -> Dict[str, pd.DataFrame]:
         """
         并发获取多只股票的真实逐笔数据。

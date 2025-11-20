@@ -83,7 +83,6 @@ def run_yesterday_data_ingestion_task(self):
     这个任务由 Celery Beat 调度，通常在收盘后执行。
     """
     logger.info("整体任务启动: run_yesterday_data_ingestion_task - 开始执行当日数据采集流程")
-
     try:
         # 步骤 1: 执行分钟数据采集调度任务
         # 这个任务会获取所有股票并分批派发 save_stocks_minute_data_today_batch
@@ -116,7 +115,6 @@ def run_yesterday_data_ingestion_task(self):
                 "daily_basic_info": daily_basic_task_result.id,
             }
         }
-
     except Exception as e:
         logger.error(f"整体任务 run_yesterday_data_ingestion_task 执行失败: {e}", exc_info=True)
         # 记录异常并返回错误状态
@@ -132,7 +130,6 @@ def run_this_week_data_ingestion_task(self, trade_time_str=None):
     这个任务由 Celery Beat 调度，通常在收盘后执行。
     """
     logger.info("整体任务启动: run_this_week_data_ingestion_task - 开始执行当日数据采集流程")
-
     try:
         # 步骤 1: 执行分钟数据采集调度任务
         # 这个任务会获取所有股票并分批派发 save_stocks_minute_data_today_batch
@@ -171,7 +168,6 @@ def run_this_week_data_ingestion_task(self, trade_time_str=None):
                 "daily_basic_info": daily_basic_task_result.id,
             }
         }
-
     except Exception as e:
         logger.error(f"整体任务 run_this_week_data_ingestion_task 执行失败: {e}", exc_info=True)
         # 记录异常并返回错误状态

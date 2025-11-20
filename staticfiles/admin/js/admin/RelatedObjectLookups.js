@@ -6,7 +6,6 @@
     const $ = django.jQuery;
     let popupIndex = 0;
     const relatedWindows = [];
-
     function dismissChildPopups() {
         relatedWindows.forEach(function(win) {
             if(!win.closed) {
@@ -15,7 +14,6 @@
             }
         });
     }
-
     function setPopupIndex() {
         if(document.getElementsByName("_popup").length > 0) {
             const index = window.name.lastIndexOf("__") + 2;
@@ -24,15 +22,12 @@
             popupIndex = 0;
         }
     }
-
     function addPopupIndex(name) {
         return name + "__" + (popupIndex + 1);
     }
-
     function removePopupIndex(name) {
         return name.replace(new RegExp("__" + (popupIndex + 1) + "$"), '');
     }
-
     function showAdminPopup(triggeringLink, name_regexp, add_popup) {
         const name = addPopupIndex(triggeringLink.id.replace(name_regexp, ''));
         const href = new URL(triggeringLink.href);
@@ -44,11 +39,9 @@
         win.focus();
         return false;
     }
-
     function showRelatedObjectLookupPopup(triggeringLink) {
         return showAdminPopup(triggeringLink, /^lookup_/, true);
     }
-
     function dismissRelatedLookupPopup(win, chosenId) {
         const name = removePopupIndex(win.name);
         const elem = document.getElementById(name);
@@ -63,11 +56,9 @@
         }
         win.close();
     }
-
     function showRelatedObjectPopup(triggeringLink) {
         return showAdminPopup(triggeringLink, /^(change|add|delete)_/, false);
     }
-
     function updateRelatedObjectLinks(triggeringLink) {
         const $this = $(triggeringLink);
         const siblings = $this.nextAll('.view-related, .change-related, .delete-related');
@@ -86,7 +77,6 @@
             siblings.attr('aria-disabled', true);
         }
     }
-
     function updateRelatedSelectsOptions(currentSelect, win, objId, newRepr, newId) {
         // After create/edit a model from the options next to the current
         // select (+ or :pencil:) update ForeignKey PK of the rest of selects
@@ -111,7 +101,6 @@
             option.value = newId;
         });
     }
-
     function dismissAddRelatedObjectPopup(win, newId, newRepr) {
         const name = removePopupIndex(win.name);
         const elem = document.getElementById(name);
@@ -141,7 +130,6 @@
         }
         win.close();
     }
-
     function dismissChangeRelatedObjectPopup(win, objId, newRepr, newId) {
         const id = removePopupIndex(win.name.replace(/^edit_/, ''));
         const selectsSelector = interpolate('#%s, #%s_from, #%s_to', [id, id, id]);
@@ -165,7 +153,6 @@
         }
         win.close();
     }
-
     function dismissDeleteRelatedObjectPopup(win, objId) {
         const id = removePopupIndex(win.name.replace(/^delete_/, ''));
         const selectsSelector = interpolate('#%s, #%s_from, #%s_to', [id, id, id]);
@@ -181,7 +168,6 @@
         }
         win.close();
     }
-
     window.showRelatedObjectLookupPopup = showRelatedObjectLookupPopup;
     window.dismissRelatedLookupPopup = dismissRelatedLookupPopup;
     window.showRelatedObjectPopup = showRelatedObjectPopup;
@@ -190,15 +176,12 @@
     window.dismissChangeRelatedObjectPopup = dismissChangeRelatedObjectPopup;
     window.dismissDeleteRelatedObjectPopup = dismissDeleteRelatedObjectPopup;
     window.dismissChildPopups = dismissChildPopups;
-
     // Kept for backward compatibility
     window.showAddAnotherPopup = showRelatedObjectPopup;
     window.dismissAddAnotherPopup = dismissAddRelatedObjectPopup;
-
     window.addEventListener('unload', function(evt) {
         window.dismissChildPopups();
     });
-
     $(document).ready(function() {
         setPopupIndex();
         $("a[data-popup-opener]").on('click', function(event) {

@@ -66,10 +66,8 @@ CPU_CHECK_INTERVAL = 5 # 检查间隔和等待时间 (秒)
 def log_execution_time(func: Callable) -> Callable:
     """
     记录函数执行时间的装饰器。
-
     Args:
         func (Callable): 被装饰的函数。
-
     Returns:
         Callable: 装饰后的函数。
     """
@@ -86,10 +84,8 @@ def log_execution_time(func: Callable) -> Callable:
 def handle_exceptions(func: Callable) -> Callable:
     """
     处理函数执行过程中产生的异常的装饰器。
-
     Args:
         func (Callable): 被装饰的函数。
-
     Returns:
         Callable: 装饰后的函数。
     """
@@ -146,7 +142,6 @@ class TimeSeriesDataset(Dataset):
             self.num_windows = self.num_samples - window_size + 1
         # logger.info(f"TimeSeriesDataset 初始化: 原始样本数={self.num_samples}, 窗口大小={self.window_size}, "
         #             f"特征维度={self.num_original_features}, 可生成窗口数={self.num_windows}")
-
     def __len__(self) -> int:
         """
         返回数据集中可生成的窗口数量。
@@ -155,7 +150,6 @@ class TimeSeriesDataset(Dataset):
             int: 可生成的窗口数量。
         """
         return self.num_windows
-
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         获取指定索引的窗口数据和目标值。
@@ -216,7 +210,6 @@ class PositionalEncoding(nn.Module):
         # 这里注册的 pe 是 (max_len, d_model)，在使用时会根据输入调整
         # self.register_buffer 将 pe 注册为模型的持久状态，但不是模型参数（即不会被优化器更新）
         self.register_buffer('pe', pe) # pe 形状 (max_len, d_model)
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         将位置编码添加到输入序列中。
@@ -302,7 +295,6 @@ class TransformerModel(nn.Module):
             nn.Linear(d_model // 2, 1) # 输出一个标量预测值
         )
         self.init_weights() # 初始化模型权重
-
     def init_weights(self):
         """
         初始化模型权重。
@@ -320,7 +312,6 @@ class TransformerModel(nn.Module):
                 if layer.bias is not None:
                     layer.bias.data.zero_()
         # TransformerEncoder 内部的权重由其模块自身进行默认初始化，通常是合理的。
-
     def forward(self, src: torch.Tensor) -> torch.Tensor:
         """
         模型的前向传播过程。
@@ -390,7 +381,6 @@ def prepare_data_for_transformer(
     此函数负责数据清洗、特征工程（方差过滤、PCA、基于模型的选择）、数据分割和缩放。
     数据分割严格按时间顺序，确保无未来数据泄露。
     窗口化操作由后续的 TimeSeriesDataset 类处理。
-
     Args:
         data (pd.DataFrame): 包含所有特征和目标列的原始DataFrame。
         required_columns (List[str]): 用于初始筛选的原始特征列名列表。
@@ -412,7 +402,6 @@ def prepare_data_for_transformer(
                                                     仅在 `fs_max_features` 为 None 时生效。
         target_scaler_type (str): 目标变量缩放器类型 ('minmax', 'standard', 'robust')。
         random_state_seed (Optional[int]): 用于需要随机性的步骤 (如 PCA, RandomForest, XGBoost)。
-
     Returns:
         Tuple:
             - features_scaled_train (np.ndarray): 缩放后的训练集特征 (NumPy 数组)。
@@ -433,19 +422,16 @@ def prepare_data_for_transformer(
     # 记录除大型数据对象外的所有参数
     log_params = {k: v for k, v in locals().items() if k not in ['data', 'required_columns']}
     logger.info(f"数据准备参数: {log_params}")
-
     # --- 0. 复制数据，避免修改原始 DataFrame ---
     # 复制是必要的，因为后续的 NaN 处理会修改 DataFrame
     data_processed = data.copy()
     print(f"prepare_data_for_transformer: 复制输入数据完成。形状: {data_processed.shape}, 内存使用 (MB): {data_processed.memory_usage(deep=True).sum() / 1024**2:.2f}")
-
     # --- 1. 检查目标列是否存在 ---
     if target_column not in data_processed.columns:
         logger.error(f"目标列 '{target_column}' 不存在于输入数据中。可用列: {data_processed.columns.tolist()}")
         # 返回空数组和 None 对象，保持返回类型一致性
         empty_np_array = np.array([], dtype=np.float32)
         return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, [], None, None, None
-
     # --- 2. 初始特征列选择 ---
     # 从 required_columns 中筛选出实际存在于数据中且不是目标列的列名
     initial_feature_names = [col for col in required_columns if col in data_processed.columns and col != target_column]
@@ -454,12 +440,10 @@ def prepare_data_for_transformer(
         empty_np_array = np.array([], dtype=np.float32)
         return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, [], None, None, None
     logger.info(f"初始筛选后，特征列数量: {len(initial_feature_names)}。部分列名 (最多10个): {initial_feature_names[:10]}...")
-
     # --- 3. 处理 NaN 值 ---
     # 分离特征和目标
     features_df = data_processed[initial_feature_names]
     targets_series = data_processed[target_column]
-
     # 使用前向填充 (ffill) 和后向填充 (bfill) 处理特征中的 NaN
     features_filled_df = features_df.ffill().bfill()
     # 检查是否仍有 NaN (例如，如果整列都是 NaN)
@@ -468,23 +452,19 @@ def prepare_data_for_transformer(
     if not nan_cols_features.empty:
         # logger.warning(f"特征数据在 ffill().bfill() 后，以下列仍包含 NaN (将被填充为0): {nan_cols_features.index.tolist()}")
         features_filled_df.fillna(0, inplace=True) # 对剩余 NaN 用 0 填充
-
     # 同样处理目标列中的 NaN
     targets_filled_series = targets_series.ffill().bfill()
     if targets_filled_series.isnull().any():
         logger.warning(f"目标列 '{target_column}' 在 ffill().bfill() 后仍包含 NaN (将被填充为0)。请检查目标数据质量。")
         targets_filled_series.fillna(0, inplace=True)
-
     # 转换为 NumPy 数组进行后续处理
     # 使用 astype(np.float32) 确保数据类型一致并节省内存
     current_features_np = features_filled_df.values.astype(np.float32)
     current_feature_names = initial_feature_names[:] # 创建副本
     targets_np = targets_filled_series.values.astype(np.float32)
-
     logger.info(f"NaN 值处理完成。特征矩阵形状: {current_features_np.shape}, 目标数组形状: {targets_np.shape}")
     print(f"prepare_data_for_transformer: NaN处理后，特征数组形状: {current_features_np.shape}, dtype: {current_features_np.dtype}")
     print(f"prepare_data_for_transformer: NaN处理后，目标数组形状: {targets_np.shape}, dtype: {targets_np.dtype}")
-
     # --- 3.5. 终极 NaN/Inf 处理 (确保所有数值都有限且在 float32 范围内) ---
     # 尽管前面进行了 ffill/bfill/fillna(0)，但可能存在原始 Inf 值，或者极少数情况下 NaN 未被完全清除。
     # np.nan_to_num 是一个非常鲁棒的函数，可以处理 NaN, Inf, -Inf
@@ -502,29 +482,24 @@ def prepare_data_for_transformer(
         posinf=np.finfo(np.float32).max, # 将正无穷替换为 float32 的最大值
         neginf=np.finfo(np.float32).min # 将负无穷替换为 float32 的最小值
     ).astype(np.float32) # 再次确保 dtype 为 float32，虽然 nan_to_num 会尝试保持原始dtype，但显式转换更安全
-
     if np.any(np.isinf(targets_np)) or np.any(np.isnan(targets_np)):
         logger.warning(f"目标数据在转换为 NumPy 数组后发现 Inf 或 NaN 值。将使用 np.nan_to_num 进行最终清理。")
         num_inf_target = np.sum(np.isinf(targets_np))
         num_nan_target = np.sum(np.isnan(targets_np))
         logger.warning(f"处理前目标中 Inf 数量: {num_inf_target}, NaN 数量: {num_nan_target}")
-
     targets_np = np.nan_to_num(
         targets_np,
         nan=0.0,
         posinf=np.finfo(np.float32).max,
         neginf=np.finfo(np.float32).min
     ).astype(np.float32)
-
     logger.info(f"最终 NaN/Inf 处理完成。特征矩阵形状: {current_features_np.shape}, 目标数组形状: {targets_np.shape}")
     print(f"prepare_data_for_transformer: 最终NaN/Inf处理后，特征数组形状: {current_features_np.shape}, dtype: {current_features_np.dtype}")
     print(f"prepare_data_for_transformer: 最终NaN/Inf处理后，目标数组形状: {targets_np.shape}, dtype: {targets_np.dtype}")
 
-
     # 显式删除不再需要的 DataFrame，释放内存
     del features_df, targets_series, features_filled_df, targets_filled_series, data_processed
     print("prepare_data_for_transformer: 已删除中间 DataFrame。")
-
     # --- 4. (可选) 方差阈值过滤 ---
     # 移除方差过低的特征，这些特征可能对模型贡献不大
     if apply_variance_threshold:
@@ -554,14 +529,12 @@ def prepare_data_for_transformer(
                  logger.warning("所有特征方差接近零或为零，跳过方差阈值选择。")
         else:
              logger.warning("特征数据不足 (样本数 <= 1 或特征数为 0)，跳过方差阈值选择。")
-
     # 如果经过处理后没有特征了，则无法继续
     if current_features_np.shape[1] == 0:
         logger.error("经过初始处理和方差过滤后，特征数量为零。无法继续进行数据准备。")
         empty_np_array = np.array([], dtype=np.float32)
         return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, [], None, None, None
     print(f"prepare_data_for_transformer: 方差过滤后，特征数组形状: {current_features_np.shape}, dtype: {current_features_np.dtype}")
-
     # --- 5. 按时间顺序分割数据集 ---
     # 确保数据分割的正确性对于时间序列至关重要，以防数据泄露
     n_samples_total = current_features_np.shape[0]
@@ -569,24 +542,20 @@ def prepare_data_for_transformer(
         logger.error("数据为空，无法进行分割。")
         empty_np_array = np.array([], dtype=np.float32)
         return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, [], None, None, None
-
     # 校验分割比例
     if not (0 < train_split < 1 and 0 <= val_split < 1 and train_split + val_split <= 1.00001): # 增加浮点容差
         logger.error(f"无效的数据集分割比例: train_split={train_split}, val_split={val_split}。"
                      f"比例应在 (0,1) (训练集) 或 [0,1) (验证集) 范围内，且总和 <= 1。")
         empty_np_array = np.array([], dtype=np.float32)
         return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, [], None, None, None
-
     n_train = int(n_samples_total * train_split)
     n_val = int(n_samples_total * val_split)
     # n_test = n_samples_total - n_train - n_val # 测试集是剩余部分
-
     if n_train == 0:
         logger.error(f"计算得到的训练集样本数为零 (总样本数: {n_samples_total}, 训练比例: {train_split})。"
                      f"请增加数据量或调整训练集比例。")
         empty_np_array = np.array([], dtype=np.float32)
         return empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, empty_np_array, None, None, [], None, None, None
-
     # 分割特征
     features_train_raw = current_features_np[:n_train]
     features_val_raw = current_features_np[n_train : n_train + n_val]
@@ -595,7 +564,6 @@ def prepare_data_for_transformer(
     targets_train_raw = targets_np[:n_train]
     targets_val_raw = targets_np[n_train : n_train + n_val]
     targets_test_raw = targets_np[n_train + n_val:]
-
     logger.info(f"数据按时间顺序分割完成: "
                 f"训练集 {features_train_raw.shape[0]}条 (特征形状: {features_train_raw.shape}), "
                 f"验证集 {features_val_raw.shape[0]}条 (特征形状: {features_val_raw.shape}), "
@@ -604,13 +572,11 @@ def prepare_data_for_transformer(
     print(f"prepare_data_for_transformer: 分割后，验证集特征形状: {features_val_raw.shape}, 目标形状: {targets_val_raw.shape}")
     print(f"prepare_data_for_transformer: 分割后，测试集特征形状: {features_test_raw.shape}, 目标形状: {targets_test_raw.shape}")
 
-
     # 初始化用于后续特征工程的变量
     features_eng_train = features_train_raw
     features_eng_val = features_val_raw
     features_eng_test = features_test_raw
     feature_names_after_eng = current_feature_names[:] # 创建副本
-
     # --- 6. (可选) PCA 降维 ---
     # PCA 应在数据分割后，且仅在训练集上拟合，然后应用到验证集和测试集
     pca_applied = False
@@ -662,7 +628,6 @@ def prepare_data_for_transformer(
                 pca_model = None # 重置
                 scaler_for_pca = None # 重置
     print(f"prepare_data_for_transformer: PCA处理后，训练集特征形状: {features_eng_train.shape}, dtype: {features_eng_train.dtype}")
-
     # --- CPU 占用度检查 ---
     # 在进行基于模型的特征选择（可能使用多核）之前检查CPU占用
     print(f"prepare_data_for_transformer: 准备进行基于模型的特征选择，检查CPU占用...") # 使用 print 输出调试信息
@@ -683,7 +648,6 @@ def prepare_data_for_transformer(
         except Exception as e_cpu: # 捕获其他可能的异常
             print(f"prepare_data_for_transformer: 错误 - 检查CPU占用失败: {e_cpu}") # 使用 print 输出调试信息
             break # 发生错误，退出循环
-
     # --- 7. (可选) 基于模型的特征选择 (仅当PCA未应用或PCA后仍希望进一步选择时) ---
     # 通常 PCA 和基于模型的特征选择是互斥的，或按特定顺序进行。这里假设 PCA 优先。
     feature_selector_model: Optional[SelectFromModel] = None # 用于可能保存或后续使用的选择器模型
@@ -771,13 +735,11 @@ def prepare_data_for_transformer(
         logger.info("PCA已应用，跳过基于模型的特征选择。")
     else: # neither use_feature_selection nor pca_applied
         logger.info("未启用基于模型的特征选择。")
-
     # 最终用于缩放的特征集
     final_features_train = features_eng_train
     final_features_val = features_eng_val
     final_features_test = features_eng_test
     final_selected_feature_names = feature_names_after_eng[:] # 创建副本
-
     if final_features_train.shape[1] == 0:
          logger.error("经过所有特征工程步骤后，训练集特征维度为零。无法继续。")
          empty_np_array = np.array([], dtype=np.float32)
@@ -785,7 +747,6 @@ def prepare_data_for_transformer(
     logger.info(f"所有特征工程处理完成。最终用于缩放的特征维度: {final_features_train.shape[1]}")
     logger.debug(f"最终选定特征名 (部分): {final_selected_feature_names[:10]}...")
     print(f"prepare_data_for_transformer: 特征工程后，训练集特征形状: {final_features_train.shape}, dtype: {final_features_train.dtype}")
-
 
     # --- 8. 特征缩放 (Feature Scaling) ---
     # 缩放器应在处理后的训练集特征上拟合，然后应用到所有数据集
@@ -799,11 +760,9 @@ def prepare_data_for_transformer(
     else:
         logger.warning(f"不支持的特征缩放器类型: '{scaler_type}'。将默认使用 MinMaxScaler。")
         feature_scaler = MinMaxScaler()
-
     features_scaled_train = np.array([], dtype=np.float32)
     features_scaled_val = np.array([], dtype=np.float32)
     features_scaled_test = np.array([], dtype=np.float32)
-
     # 仅当训练集有数据且有特征时才进行拟合和转换
     if final_features_train.shape[0] > 0 and final_features_train.shape[1] > 0:
         feature_scaler.fit(final_features_train)
@@ -823,7 +782,6 @@ def prepare_data_for_transformer(
         features_scaled_val = final_features_val.astype(np.float32) if final_features_val.size > 0 else np.array([], dtype=np.float32)
         features_scaled_test = final_features_test.astype(np.float32) if final_features_test.size > 0 else np.array([], dtype=np.float32)
 
-
     # --- 9. 目标变量缩放 (Target Scaling) ---
     # 目标变量缩放器在原始训练集目标上拟合
     target_scaler: Union[MinMaxScaler, StandardScaler, RobustScaler, None] = None
@@ -836,11 +794,9 @@ def prepare_data_for_transformer(
     else:
         logger.warning(f"不支持的目标变量缩放器类型: '{target_scaler_type}'。将默认使用 MinMaxScaler。")
         target_scaler = MinMaxScaler()
-
     targets_scaled_train = np.array([], dtype=np.float32)
     targets_scaled_val = np.array([], dtype=np.float32)
     targets_scaled_test = np.array([], dtype=np.float32)
-
     if targets_train_raw.shape[0] > 0:
         # reshape(-1, 1) 是因为 scaler 期望二维输入
         target_scaler.fit(targets_train_raw.reshape(-1, 1))
@@ -858,7 +814,6 @@ def prepare_data_for_transformer(
         targets_scaled_train = targets_train_raw.astype(np.float32) if targets_train_raw.size > 0 else np.array([], dtype=np.float32)
         targets_scaled_val = targets_val_raw.astype(np.float32) if targets_val_raw.size > 0 else np.array([], dtype=np.float32)
         targets_scaled_test = targets_test_raw.astype(np.float32) if targets_test_raw.size > 0 else np.array([], dtype=np.float32)
-
 
     logger.info("Transformer 数据准备流程结束。")
     # 返回 NumPy 数组 (确保 float32 类型以匹配 PyTorch 默认) 和 scaler 对象
@@ -904,7 +859,6 @@ def build_transformer_model( num_features: int, model_config: Dict[str, Any], su
         raise ValueError(f"输入特征数量 (num_features) 必须大于0，当前为: {num_features}")
     if window_size <= 0:
         raise ValueError(f"窗口大小 (window_size) 必须大于0，当前为: {window_size}")
-
     # 从配置字典中获取模型参数，提供默认值
     d_model = model_config.get('d_model', 128)
     nhead = model_config.get('nhead', 8)
@@ -912,11 +866,9 @@ def build_transformer_model( num_features: int, model_config: Dict[str, Any], su
     nlayers = model_config.get('nlayers', 4)
     dropout = model_config.get('dropout', 0.2)
     activation = model_config.get('activation', 'relu')
-
     # Transformer 的一个重要约束：d_model 必须是 nhead 的整数倍
     if d_model % nhead != 0:
         raise ValueError(f"模型的特征维度 d_model ({d_model}) 必须是注意力头数 nhead ({nhead}) 的整数倍。")
-
     model = TransformerModel(
         num_features=num_features,
         d_model=d_model,
@@ -927,13 +879,11 @@ def build_transformer_model( num_features: int, model_config: Dict[str, Any], su
         activation=activation,
         window_size=window_size # 传递窗口大小给模型，主要用于 PositionalEncoding
     )
-
     # if summary:
     #     logger.info("Transformer 模型结构:")
     #     logger.info(str(model)) # 打印模型对象会显示其模块结构
     #     total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     #     logger.info(f"模型可训练参数总量: {total_params:,}")
-
     logger.info("Transformer 模型构建完成。")
     return model
 
@@ -953,7 +903,6 @@ def train_transformer_model(
 ) -> Tuple[TransformerModel, pd.DataFrame]:
     """
     训练 Transformer 模型。
-
     Args:
         model (TransformerModel): 要训练的 PyTorch Transformer 模型实例。
         train_loader (DataLoader): 训练数据加载器。建议设置 num_workers > 0 和 pin_memory=True
@@ -997,7 +946,6 @@ def train_transformer_model(
     start_time = time.time()
     logger.info(f"开始训练 Transformer 模型 (股票/标识: {stock_code})...")
     logger.info(f"训练配置: {training_config}")
-
     # 根据参数启用 PyTorch 异常检测
     if enable_anomaly_detection:
         torch.autograd.set_detect_anomaly(True) # pylint: disable=not-callable
@@ -1008,20 +956,16 @@ def train_transformer_model(
         if hasattr(torch.autograd, 'set_detect_anomaly'):
             torch.autograd.set_detect_anomaly(False) # pylint: disable=not-callable
 
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"使用设备: {device}")
     model.to(device) # 将模型移动到指定设备
-
     optimizer_name = training_config.get('optimizer', 'adam').lower()
     # 获取 Warmup 后的目标学习率
     learning_rate = training_config.get('learning_rate', 0.001)
     weight_decay = training_config.get('weight_decay', 0.0)
     momentum = training_config.get('momentum', 0.0)
-
     # 存储 Warmup 后的目标学习率
     initial_optimizer_lr = learning_rate
-
     optimizer: optim.Optimizer
     if optimizer_name == 'adam':
         optimizer = optim.Adam(model.parameters(), lr=initial_optimizer_lr, weight_decay=weight_decay)
@@ -1035,7 +979,6 @@ def train_transformer_model(
         logger.warning(f"未知的优化器名称: '{optimizer_name}'。将默认使用 Adam.")
         optimizer = optim.Adam(model.parameters(), lr=initial_optimizer_lr, weight_decay=weight_decay)
     logger.info(f"优化器: {optimizer_name}, 初始学习率 (Warmup后目标): {initial_optimizer_lr:.2e}, 权重衰减: {weight_decay}")
-
     loss_name = training_config.get('loss', 'mse').lower()
     criterion: nn.Module
     if loss_name == 'mse':
@@ -1050,9 +993,7 @@ def train_transformer_model(
         logger.warning(f"未知的损失函数名称: '{loss_name}'。将默认使用 MSELoss.")
         criterion = nn.MSELoss()
     logger.info(f"损失函数: {loss_name}")
-
     mae_eval_metric = nn.L1Loss() # 用于评估 MAE (scaled)
-
     epochs = training_config.get('epochs', 100)
     early_stopping_patience = training_config.get('early_stopping_patience', 30)
     nan_metric_patience = training_config.get('nan_metric_patience', 5) # NaN 指标的耐心
@@ -1062,7 +1003,6 @@ def train_transformer_model(
     monitor_metric = training_config.get('monitor_metric', 'avg_val_mae').lower()
     clip_grad_norm_value = training_config.get('clip_grad_norm', None) # 梯度裁剪值
     use_amp_config = training_config.get('use_amp', False) # 是否使用AMP
-
     # 初始化梯度缩放器 (仅在 CUDA 且启用 AMP 时创建)
     grad_scaler = None
     if use_amp_config and device.type == 'cuda':
@@ -1072,17 +1012,14 @@ def train_transformer_model(
         logger.warning(f"AMP 配置为启用但设备为 '{device.type}'。AMP 将被禁用。")
     else: # use_amp_config is False
         logger.info("自动混合精度训练 (AMP) 未启用。")
-
     # --- Warmup Configuration ---
     warmup_epochs = training_config.get('warmup_epochs', 0)
     # 如果未提供 warmup_start_lr，则默认为 Warmup 后的目标学习率 (即不进行 Warmup)
     warmup_start_lr = training_config.get('warmup_start_lr', initial_optimizer_lr)
-
     # 初始化全局步数计数器 (用于 Warmup)
     global_step = 0
     total_train_batches = len(train_loader)
     total_warmup_steps = warmup_epochs * total_train_batches
-
     # 检查 Warmup 配置是否有效
     if warmup_epochs > 0 and warmup_start_lr < initial_optimizer_lr:
         logger.info(f"启用学习率 Warmup: 从 {warmup_start_lr:.2e} 线性增加到 {initial_optimizer_lr:.2e}，持续 {warmup_epochs} 轮 ({total_warmup_steps} 步).")
@@ -1096,12 +1033,10 @@ def train_transformer_model(
     else:
         logger.info("学习率 Warmup 未启用。")
 
-
     # 初始化学习率调度器
     lr_scheduler_type = training_config.get('lr_scheduler', 'ReduceLROnPlateau').lower()
     scheduler = None
     scheduler_mode = 'min' if 'loss' in monitor_metric or 'mae' in monitor_metric else 'max'
-
     if val_loader is not None and len(val_loader) > 0 and reduce_lr_patience > 0:
          scheduler = ReduceLROnPlateau(
              optimizer, mode=scheduler_mode, factor=reduce_lr_factor,
@@ -1110,12 +1045,10 @@ def train_transformer_model(
          logger.info(f"启用 ReduceLROnPlateau: monitor='{monitor_metric}', mode='{scheduler_mode}', factor={reduce_lr_factor}, patience={reduce_lr_patience}, min_lr={min_lr:.2e}. 调度器将在 Warmup ({warmup_epochs} 轮) 后生效。")
     elif reduce_lr_patience > 0:
          logger.warning("验证集 (val_loader) 为空或未提供，ReduceLROnPlateau 将被禁用。")
-
     # --- 模型文件路径和 TensorBoard 日志目录的动态生成 ---
     # checkpoint_dir 是外部传入的股票专属目录 (e.g., /.../000089.SZ/trained_model)
     base_checkpoint_path = Path(checkpoint_dir)
     os.makedirs(base_checkpoint_path, exist_ok=True) # 确保目录存在
-
     best_model_filename = "" # 实际用于保存的检查点文件名
     if trial is not None:
         # 如果是 Optuna Trial，使用 Trial ID 作为后缀，避免并行冲突
@@ -1126,10 +1059,8 @@ def train_transformer_model(
         # 对于最终训练或独立运行，使用标准文件名
         best_model_filename = f"best_transformer_model_{stock_code}.pth"
         logger.info(f"非 Optuna Trial: 最佳模型将保存到标准文件: {best_model_filename}")
-
     # 这是在训练过程中实际保存和加载的路径
     current_best_model_filepath = base_checkpoint_path / best_model_filename
-
     # TensorBoard writer 的路径也需要区分 Trial
     writer = None
     tensorboard_log_dir_base = training_config.get('tensorboard_log_dir', None)
@@ -1144,7 +1075,6 @@ def train_transformer_model(
         logger.info(f"启用 TensorBoard: 日志将保存到 '{run_log_dir}'")
     # --- 动态路径生成结束 ---
 
-
     # 早停和最佳模型保存相关变量
     best_monitored_value = float('inf') if scheduler_mode == 'min' else float('-inf')
     epochs_no_improve = 0
@@ -1152,10 +1082,8 @@ def train_transformer_model(
     early_stop_triggered = False
     training_halted_due_to_retries = False # 标记因 NaN/Inf 重试次数用尽导致训练停止
     best_model_saved = False # 标记是否成功保存过最佳模型
-
     # 存储训练历史
     history = {'epoch': [], 'loss': [], 'mae': [], 'lr': [], 'val_loss': [], 'val_mae': [], 'val_true_mae': []}
-
     logger.info(f"开始训练，共 {epochs} 轮。每轮训练批次数: {len(train_loader)}, 验证批次数: {len(val_loader) if val_loader else 0}.")
     if len(train_loader) == 0:
         logger.error("训练 DataLoader 为空，无法进行模型训练。")
@@ -1165,10 +1093,8 @@ def train_transformer_model(
                 torch.autograd.set_detect_anomaly(False) # pylint: disable=not-callable
             logger.info("PyTorch 异常检测已禁用。")
         return model, pd.DataFrame(history)
-
     current_epoch = 0 # 当前训练的 Epoch 编号 (从 0 开始)
     max_epoch_retries = 10 # 每个 Epoch 的最大重试次数
-
     try:
         while current_epoch < epochs and not early_stop_triggered and not training_halted_due_to_retries:
             epoch_start_time = time.time()
@@ -1510,7 +1436,6 @@ def train_transformer_model(
                 if early_stop_triggered:
                     print(f"[Epoch {current_epoch}] 训练完成，早停触发。") # 注意：current_epoch 此时已加 1
                     break
-
     finally: # 确保在函数退出前（无论正常或异常）关闭异常检测和 TensorBoard writer
         if enable_anomaly_detection:
             if hasattr(torch.autograd, 'set_detect_anomaly'):
@@ -1518,7 +1443,6 @@ def train_transformer_model(
             logger.info("PyTorch 异常检测已禁用。")
         if writer:
             writer.close()
-
     # --- 训练循环结束后的最终模型处理逻辑 ---
     # 如果训练因 NaN/Inf 重试次数用尽而停止，且之前没有保存过最佳模型，则返回当前模型状态。
     # 否则，会尝试加载保存的最佳模型。
@@ -1534,7 +1458,6 @@ def train_transformer_model(
                 logger.error(f"加载最佳模型 '{current_best_model_filepath}' 失败: {e_load}。将返回停止时的模型状态。", exc_info=True)
                 # 再次强调：如果加载失败，应该抛出异常，让 Optuna 知道这个 Trial 失败
                 raise RuntimeError(f"Error(s) in loading state_dict for TransformerModel (on retry/early stop load): {e_load}")
-
     elif early_stop_triggered:
         logger.info(f"早停在 Epoch {current_epoch} 被触发。尝试加载最佳模型。")
         if best_model_saved and current_best_model_filepath.exists():
@@ -1547,7 +1470,6 @@ def train_transformer_model(
                 raise RuntimeError(f"Error(s) in loading state_dict for TransformerModel (on early stop load): {e_load}")
         else:
             logger.warning(f"早停已触发，但未找到最佳模型文件 '{current_best_model_filepath}' 或之前保存失败。将返回当前模型状态。")
-
     else: # 自然结束训练 (跑满了所有 Epoch)
         logger.info(f"训练完成 {epochs} 轮。")
         # 训练自然完成时，将当前模型状态保存为“最终模型”。
@@ -1559,10 +1481,8 @@ def train_transformer_model(
              logger.info(f"训练完成，已保存最终模型到 '{current_best_model_filepath}'。")
         except Exception as e_save:
              logger.error(f"保存最终模型 '{current_best_model_filepath}' 失败: {e_save}.", exc_info=True)
-
     # 将 history 字典转换为 DataFrame
     history_df = pd.DataFrame(history)
-
     # --- Optuna Trial 文件清理 (仅当在 Optuna Trial 模式下) ---
     # 这一步旨在删除 Optuna Trial 过程中产生的临时模型文件，
     # 避免磁盘被大量临时文件占满，同时保留最终的 `best_transformer_model_{stock_code}.pth` 文件。
@@ -1576,7 +1496,6 @@ def train_transformer_model(
                 except Exception as e_del:
                     logger.warning(f"Optuna Trial {trial.number}: 删除临时模型文件 '{current_best_model_filepath.name}' 失败: {e_del}")
     # --- 清理结束 ---
-
     # 可选：绘制训练历史
     # if plot_training_history:
     #     try:
@@ -1589,19 +1508,16 @@ def train_transformer_model(
     #         axes[0].set_ylabel('Loss')
     #         axes[0].legend()
     #         axes[0].set_title(f'Training and Validation Loss ({stock_code})')
-
     #         if 'mae' in history_df.columns:
     #             axes[1].plot(history_df['epoch'], history_df['mae'], label='Train MAE (Scaled)')
     #         if 'val_mae' in history_df.columns and not history_df['val_mae'].isnull().all():
     #             axes[1].plot(history_df['epoch'], history_df['val_mae'], label='Validation MAE (Scaled)')
     #         if 'val_true_mae' in history_df.columns and not history_df['val_true_mae'].isnull().all():
     #             axes[1].plot(history_df['epoch'], history_df['val_true_mae'], label='Validation MAE (True)', linestyle='--')
-
     #         axes[1].set_xlabel('Epoch')
     #         axes[1].set_ylabel('Mean Absolute Error (MAE)')
     #         axes[1].legend()
     #         axes[1].set_title(f'Training and Validation MAE ({stock_code})')
-
     #         plt.tight_layout()
     #         # 这里的 plot_filename 也应该考虑 Optuna Trial ID，如果需要在每个 trial 结束时保存图表
     #         plot_filename_suffix = ""
@@ -1615,7 +1531,6 @@ def train_transformer_model(
     #         logger.warning("Matplotlib 未安装，无法绘制训练历史图表。")
     #     except Exception as e_plot:
     #         logger.error(f"绘制训练历史图表时出错: {e_plot}", exc_info=True)
-
     logger.info(f"Transformer 模型训练流程结束 (股票/标识: {stock_code})。")
     return model, history_df
 
@@ -1813,7 +1728,6 @@ def evaluate_transformer_model(
                 total_samples += batch_size
                 # 更新 tqdm 进度条的 postfix 信息，显示当前批次的损失和 MAE
                 test_loop.set_postfix(loss=loss_batch.item(), mae_scaled=mae_scaled_batch_val.item())
-
     if total_samples == 0: # 避免除以零
         logger.warning("测试集中总样本数为零，无法计算平均指标。返回 NaN。")
         return {'loss': np.nan, 'mae_scaled': np.nan, 'mae_true': np.nan}

@@ -45,14 +45,12 @@ def with_cache_manager(task_function):
                     # print(f"任务 {task_id}: [装饰器] Redis连接已成功关闭。")
                 except Exception as e:
                     logger.error(f"任务 {task_id}: [装饰器] 在关闭Redis连接时发生错误: {e}", exc_info=True)
-
     return wrapper
 
 def with_cache_manager_for_views(view_func):
     """
     一个专为 Django 视图设计的装饰器，用于自动管理 CacheManager 的生命周期。
     它适用于函数视图(FBV)和类视图(CBV)的方法。
-
     功能:
     1. 在视图函数执行前，自动创建一个 CacheManager 实例。
     2. 将创建的实例作为关键字参数 `cache_manager` 注入到视图函数中。
@@ -87,5 +85,4 @@ def with_cache_manager_for_views(view_func):
                     # print(f"视图 {view_name}: [装饰器] Redis连接已成功关闭。")
                 except Exception as e:
                     logger.error(f"视图 {view_name}: [装饰器] 关闭Redis连接时发生错误: {e}", exc_info=True)
-
     return wrapper

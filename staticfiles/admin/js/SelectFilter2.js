@@ -254,7 +254,6 @@ Requires core.js and SelectBox.js.
             }
         }
     };
-
     window.addEventListener('load', function(e) {
         document.querySelectorAll('select.selectfilter, select.selectfilterstacked').forEach(function(el) {
             const data = el.dataset;

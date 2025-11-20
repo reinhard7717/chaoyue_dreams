@@ -54,7 +54,6 @@ async def _get_all_relevant_stock_codes_for_processing():
     stock_basic_dao = StockBasicInfoDao(cache_manager)
     favorite_stock_codes = set()
     all_stock_codes = set()
-
     # 获取自选股
     try:
         favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
@@ -63,7 +62,6 @@ async def _get_all_relevant_stock_codes_for_processing():
         logger.info(f"获取到 {len(favorite_stock_codes)} 个自选股代码")
     except Exception as e:
         logger.error(f"获取自选股列表时出错: {e}", exc_info=True)
-
     # 获取所有A股 (或者你需要的范围)
     try:
         # 注意：如果 get_stock_list() 返回大量数据，考虑分页或流式处理
@@ -75,17 +73,13 @@ async def _get_all_relevant_stock_codes_for_processing():
         logger.info(f"获取到 {len(all_stock_codes)} 个全市场股票代码")
     except Exception as e:
         logger.error(f"获取全市场股票列表时出错: {e}", exc_info=True)
-
     # 计算非自选股代码 (在所有代码中，但不在自选代码中)
     non_favorite_stock_codes = list(all_stock_codes - favorite_stock_codes)
     favorite_stock_codes_list = list(favorite_stock_codes) # 转换为列表
-
     total_unique_stocks = len(favorite_stock_codes) + len(non_favorite_stock_codes)
     # logger.info(f"总计需要处理的股票: {total_unique_stocks} (自选: {len(favorite_stock_codes_list)}, 非自选: {len(non_favorite_stock_codes)})")
-
     if not favorite_stock_codes_list and not non_favorite_stock_codes:
          logger.warning("未能获取到任何需要处理的股票代码")
-
     return favorite_stock_codes_list, non_favorite_stock_codes
 
 # 任务调度：计算所有股票的指标

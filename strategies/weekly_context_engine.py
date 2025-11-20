@@ -23,7 +23,6 @@ class WeeklyContextEngine:
       4.  **量化战略分数**: 将所有分析合成为一个分数，为日线策略提供
                          带有置信度的作战指导。
     """
-
     def __init__(self, config: dict):
         """
         【V1.1 适配统一指挥版】
@@ -42,7 +41,6 @@ class WeeklyContextEngine:
         kline_params = config.get('strategy_params', {}).get('trend_follow', {}).get('kline_pattern_params', {})
         self.pattern_recognizer = KlinePatternRecognizer(params=kline_params)
         self._warned_missing_cols_weekly = set()
-
     def generate_context(self, df_weekly: pd.DataFrame) -> pd.DataFrame:
         """
         【V4.0 · 战略情报生成流水线】
@@ -113,7 +111,6 @@ class WeeklyContextEngine:
         # print(f"    - [指挥中心] 已生成 {len(final_output_cols)} 个最终周线战略指挥信号。")
         # print("="*30 + "【周线战略战场指挥官 V4.0】执行完毕" + "="*30 + "\n")
         return context_df[final_output_cols]
-
     def _analyze_fft_regime(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【V1.1 信号处理强化版】使用FFT分析周线价格序列，识别市场政权。
@@ -191,7 +188,6 @@ class WeeklyContextEngine:
         df['fft_dominant_period_W'] = pd.Series(dominant_periods, index=df.index)
         logger.debug("    - [FFT分析 V1.1] 完成。已通过去趋势和加窗优化周期识别。")
         return df
-
     def _define_key_reference_levels(self, df: pd.DataFrame) -> pd.DataFrame:
         """定义战场关键参照物"""
         # 增加对核心OHLC列的依赖检查，从根源上防止KeyError崩溃。
@@ -208,7 +204,6 @@ class WeeklyContextEngine:
         df['ref_support_level_W'] = df['low_W'].rolling(26, min_periods=10).min()
         # print("    - [参照物] 完成。已标定52周高点与关键支撑位。")
         return df
-
     def _analyze_candlestick_psychology(self, df: pd.DataFrame) -> pd.DataFrame:
         """解读周线K线心理学"""
         # 增加依赖检查，确保K线形态识别所需的基础OHLC列存在。
@@ -240,7 +235,6 @@ class WeeklyContextEngine:
         df['psych_rejection_bearish_W'] = df_with_patterns[[p for p in bearish_patterns if p in df_with_patterns.columns]].any(axis=1)
         # print("    - [心理学] 完成。已解读周线K线的多空意图。")
         return df
-
     def _calculate_dynamic_risk_levels(self, df: pd.DataFrame) -> pd.DataFrame:
         """标定动态风险控制线"""
         # 将 close_W 也加入依赖检查，并使用统一的检查函数，优化日志。
@@ -254,7 +248,6 @@ class WeeklyContextEngine:
         df['risk_volatility_stop_W'] = df['close_W'] - (2 * df[atr_col])
         # print("    - [风险线] 完成。已基于ATR计算动态风险控制线。")
         return df
-
     def _characterize_trend_health(self, df: pd.DataFrame) -> pd.DataFrame:
         """诊断趋势“品格”"""
         # EMA周期配置化
@@ -272,7 +265,6 @@ class WeeklyContextEngine:
         df['trend_health_strong_W'] = is_price_above_ema10 & is_ema10_above_ema21
         logger.debug("    - [趋势品格] 完成。已诊断趋势的健康度。")
         return df
-
     def _build_market_regime(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【核心进化一】构建市场状态机
@@ -304,7 +296,6 @@ class WeeklyContextEngine:
         df['regime_bear_quiet_W'] = is_downtrend & is_vol_contraction         # 熊市静默期 (阴跌/筑底)
         logger.debug("    - [状态机] 完成。已将市场划分为四种核心状态。")
         return df
-
     def _analyze_vpa(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【核心进化二】深度量价分析引擎
@@ -331,7 +322,6 @@ class WeeklyContextEngine:
         df['cmf_distribution_W'] = df[cmf_col] < cmf_dist_thresh
         logger.debug("    - [VPA] 完成。已分析OBV趋势与CMF资金流状态。")
         return df
-
     def _detect_divergences(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【核心进化三】关键背离检测引擎
@@ -362,7 +352,6 @@ class WeeklyContextEngine:
         df['opp_bullish_divergence_W'] = price_near_low & rsi_not_at_low
         logger.debug("    - [背离检测] 完成。已检测价格与RSI的潜在背离。")
         return df
-
     def _calculate_strategic_score(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【核心进化四】合成量化战略分数
@@ -404,7 +393,6 @@ class WeeklyContextEngine:
         df['strategic_score_W'] = score
         logger.debug("    - [战略计分] 完成。已生成综合战略分数。")
         return df
-
     def _calculate_all_playbooks(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【V3.5 命名规范化版】动态遍历JSON配置，并确保输出的剧本名称为大写，与日线策略对齐。
@@ -459,7 +447,6 @@ class WeeklyContextEngine:
             else:
                 logger.warning(f"JSON中配置的剧本 '{playbook_name}' 在代码中没有找到对应的实现函数，已跳过。")
         return context_df
-
     def _playbook_ma20_is_rising(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
         【V3.1 升级剧本】: 识别指定周线均线是否处于“有效”上升状态。
@@ -492,7 +479,6 @@ class WeeklyContextEngine:
         # print(f"    - 条件2 (价格确认): {'[✓]' if c2_last else '[✗]'} (收盘价: {last.get(close_col, 0):.2f} vs 均线: {last.get(ema_col, 0):.2f})")
         # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         return final_signal.fillna(False)
-
     def _playbook_ma20_turn_up_event(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
         【V3.1 升级剧本】: 识别指定周线均线“加速拐头向上”的事件。
@@ -531,7 +517,6 @@ class WeeklyContextEngine:
         # print(f"    - 条件3 (价格确认): {'[✓]' if c3_last else '[✗]'} (收盘价: {last.get(close_col, 0):.2f} vs 均线: {last.get(ema_col, 0):.2f})")
         # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         return final_signal.fillna(False)
-
     def _playbook_early_uptrend(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """剧本：捕捉周线趋势反转的早期“上拐”信号"""
         # print(f"\n--- 剧本检查: [{params.get('说明', '早期上升趋势')}] ---")
@@ -564,7 +549,6 @@ class WeeklyContextEngine:
         print(f"    - 子信号2 (趋势延续): {'[✓]' if ieu_last else '[✗]'}")
         print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}] (逻辑: 拐点 OR 延续)")
         return final_signal.fillna(False)
-
     def _playbook_classic_breakout(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
         【剧本 V4.0 动态增强版】: 经典高点突破 (注入动态灵魂)
@@ -599,7 +583,6 @@ class WeeklyContextEngine:
         print(f"    - 条件3 (趋势动能支持): {'[✓]' if is_trend_supportive.iloc[-1] else '[✗]'} (斜率: {df[slope_col].iloc[-1]:.4f} > 阈值: {slope_threshold})")
         print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         return final_signal.fillna(False)
-
     def _playbook_check_ma_uptrend(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
         【剧本 V4.0 动态增强版】: 均线多头排列 (注入动态灵魂)
@@ -651,7 +634,6 @@ class WeeklyContextEngine:
         # print(f"    - 条件2 (本周正反弹): {'[✓]' if ir_last else '[✗]'} (本周BIAS: {last.get(bias_col, 0):.2f} > 阈值: {rebound_trigger})")
         # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         return final_signal.fillna(False)
-
     def _playbook_calculate_washout_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """诊断剧本：量化周线级别的洗盘行为"""
         # print(f"\n--- 诊断检查: [{params.get('说明', '洗盘行为评分')}] ---")
@@ -685,7 +667,6 @@ class WeeklyContextEngine:
         # print(f"    - 模式5 (缩量确认): {'[+1分]' if washout_volume_contraction.iloc[-1] else '[+0分]'}")
         # print(f"    - 结论: 最新一周总得分为 [{washout_score.iloc[-1]}]")
         return washout_score.fillna(0)
-
     def _get_weekly_support_level(self, df: pd.DataFrame, params: dict) -> Optional[pd.Series]:
         """辅助函数: 获取周线级别的支撑位"""
         support_type = params.get('support_type', 'MA')
@@ -710,7 +691,6 @@ class WeeklyContextEngine:
         if support_level.isnull().all():
             return None
         return support_level.ffill()
-
     def _playbook_check_rejection_filters(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """诊断剧本：识别均线和箱体压力位的拒绝信号"""
         # print(f"\n--- 诊断检查: [{params.get('说明', '压力位拒绝信号')}] ---")
@@ -726,7 +706,6 @@ class WeeklyContextEngine:
         final_signal[box_rejection] -= 2
         # print(f"    - 结论: 最新一周总得分为 [{final_signal.iloc[-1]}] (均线拒绝-1分, 箱顶拒绝-2分)")
         return final_signal
-
     def _playbook_box_consolidation_breakout(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """剧本：专业箱体突破"""
         # print(f"\n--- 剧本检查: [{params.get('说明', '专业箱体突破')}] ---")
@@ -768,7 +747,6 @@ class WeeklyContextEngine:
         # print(f"    - 条件3 (成交量突破): {'[✓]' if c3 else '[✗]'} (本周成交量: {curr_vol:.0f} vs 阈值: {(prev_box_avg_vol * volume_multiplier):.0f})")
         # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[last_idx] else '未触发'}]")
         return final_signal.fillna(False)
-
     def _playbook_trix_golden_cross(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
         【V3.2 升级剧本】: 识别周线TRIX“强力金叉”。
@@ -893,7 +871,6 @@ class WeeklyContextEngine:
         #     print(f"    - 条件3 (TRIX确认): {'[✓]' if c3 else '[✗]'} (TRIX: {last.get(trix_col, 0):.2f} > 信号线: {last.get(trix_signal_col, 0):.2f})")
         # print(f"    - 结论: 最新一周信号为 [{'触发' if final_signal.iloc[-1] else '未触发'}]")
         return final_signal.fillna(False)
-
     def _check_resistance_rejection(self, df: pd.DataFrame, resistance_col: str, params: dict, source_name: str) -> pd.Series:
         """辅助函数: 检查在给定压力列上的拒绝信号"""
         # print(f"  - 检查子项: [{source_name}]")
@@ -920,7 +897,6 @@ class WeeklyContextEngine:
         # print(f"    - 条件4 (收盘偏低): {'[✓]' if c4 else '[✗]'}")
         # print(f"    - 小结: [{source_name}] {'触发' if final_signal.iloc[-1] else '未触发'}")
         return final_signal.fillna(False)
-
     def _check_dependencies(self, df: pd.DataFrame, cols: list, log_details: bool = False) -> bool:
         """检查DataFrame中是否存在所有必需的列。"""
         missing_cols = [col for col in cols if col not in df.columns]

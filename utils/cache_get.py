@@ -21,7 +21,6 @@ class CacheGet():
         self.cache_key_stock = StockCashKey()
         self.cache_key_strategy = StrategyCashKey()
         self.data_format_process = IndexDataFormatProcess(cache_manager_instance)
-
     async def _index_latest_data(self, index_code: str, time_level: str, cache_key: str) -> Optional[Dict[str, Any]]:
         try:
             cached_data = await self.cache_manager.get(key=cache_key)
@@ -31,7 +30,6 @@ class CacheGet():
         except Exception as e:
             logger.error(f"从缓存获取指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}", exc_info=True)
             return None
-
     # --- 修正后的读取缓存方法 (使用 ZRANGEBYSCORE) ---
     async def _history_data_by_date_range(self, stock_code: str, time_level: str, start_time: datetime, end_time: datetime, cache_key: str) -> Optional[List[Dict[str, Any]]]:
         if not isinstance(start_time, datetime) or not isinstance(end_time, datetime):
@@ -44,7 +42,6 @@ class CacheGet():
         except Exception as e:
             logger.error(f"从缓存获取时间序列数据时发生异常: {str(e)}", exc_info=True)
             return None
-
     async def _history_data_by_limit(self, cache_key: str, limit: int,) -> Optional[List[Dict[str, Any]]]:
         try:
             cached_data_list = await self.cache_manager.zrange_by_limit(key=cache_key, limit=limit)
@@ -52,7 +49,6 @@ class CacheGet():
         except Exception as e:
             logger.error(f"从缓存 (ZSET) 获取时间序列数据时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
             return None
-
     async def _realtime_data(self, stock_code: str, cache_key: str) -> Optional[Dict[str, Any]]:
         try:
             cached_data = await self.cache_manager.get(key=cache_key)
@@ -66,7 +62,6 @@ class CacheGet():
         except Exception as e:
             logger.error(f"从缓存获取股票[{stock_code}]实时数据时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
             return None
-
     async def _stock_latest_data(self, stock_code: str, time_level: str, cache_key: str) -> Optional[Dict[str, Any]]:
         try:
             # 1. 生成缓存键 (必须与写入时使用的键完全一致)
@@ -87,7 +82,6 @@ class CacheGet():
         except Exception as e:
             logger.error(f"StockIndicatorsDAO._stock_latest_data从缓存获取股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return None
-
     async def _stock_strategy_datas(self, stock_code: str, cache_key: str, days_count: int) -> List[Dict[str, Any]]:
         try:
             logger.info(f"尝试从缓存获取股票[{stock_code}] 近三日策略数据, key: {cache_key}")
@@ -129,13 +123,11 @@ class UserCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
         # 调用父类并传递实例
         super().__init__(cache_manager_instance)
-
     async def initialize(self):
         """
         初始化缓存管理器。代理调用父类的 initialize_cache_manager 方法。
         这确保了与 user_dao.py 中代码的兼容性。
         """
-
     async def user_favorites(self, user_id: int) -> Optional[List['FavoriteStock']]:
         """
         从缓存中异步读取用户自选股列表，并将字典转换为模型实例。
@@ -168,7 +160,6 @@ class UserCacheGet(CacheGet):
         except Exception as e:
             logger.error(f"获取用户 {user_id} 自选股列表失败: {str(e)}", exc_info=True)
             return None  # 出错时返回 None
-
     async def all_favorites(self) -> Optional[List['FavoriteStock']]:
         """
         从缓存中异步读取所有自选股列表，并将字典转换为模型实例。
@@ -180,7 +171,6 @@ class IndexCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
         # 调用父类并传递实例
         super().__init__(cache_manager_instance)
-
     async def all_indexes(self) -> Optional[List[Dict]]:
         """
         从缓存中获取所有指数列表，按照指数代码排序
@@ -199,7 +189,6 @@ class IndexCacheGet(CacheGet):
         except Exception as e:
             logger.error(f"从缓存获取所有指数列表时发生错误: {str(e)}", exc_info=True)
             return None
-
     async def index_data_by_code(self, index_code: str) -> Optional[Dict[str, Any]]:
         """
         从缓存中获取指定指数的基础信息。
@@ -213,7 +202,6 @@ class IndexCacheGet(CacheGet):
         if cached_data:
             return cached_data
         return None
-
     async def index_weight(self, index_code: str) -> Optional[List[Dict[str, Any]]]:
         """
         从缓存中获取指定指数的成分权重。
@@ -227,7 +215,6 @@ class IndexCacheGet(CacheGet):
         if cached_data:
             return cached_data
         return None
-
     async def realtime_data(self, index_code: str) -> Optional[Dict[str, Any]]:
         """
         从缓存中获取指定指数的实时数据。
@@ -261,7 +248,6 @@ class IndexCacheGet(CacheGet):
             logger.error(f"从缓存获取指数[{index_code}]实时数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             # 确保在异常情况下返回 None
             return None
-
     async def latest_time_series(self, index_code: str, time_level: str,) -> Optional[Dict[str, Any]]:
         """
         从缓存中获取指定指数和时间级别的最新时间序列数据点。
@@ -273,7 +259,6 @@ class IndexCacheGet(CacheGet):
         """
         cache_key = self.cache_key_index.latest_time_series(index_code, time_level)
         return await self._index_latest_data(index_code, time_level, cache_key)
-
     async def history_time_series(self, index_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
         cache_key = self.cache_key_index.history_time_series(index_code, time_level)
         return await self._history_data_by_date_range(index_code, time_level, start_time, end_time, cache_key)
@@ -282,7 +267,6 @@ class StockInfoCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
         # 调用父类并传递实例
         super().__init__(cache_manager_instance)
-
     async def all_stocks(self) -> Optional[List[Dict]]:
         """
         从缓存中获取所有股票列表，按照股票代码排序
@@ -292,7 +276,6 @@ class StockInfoCacheGet(CacheGet):
         if cached_data:
             return sorted(cached_data, key=lambda x: x['stock_code'])
         return None
-
     async def stock_data_by_code(self, stock_code: str) -> Optional[Dict[str, Any]]:
         """
         从缓存中获取指定股票代码的股票数据
@@ -311,11 +294,9 @@ class StockTimeTradeCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
         # 调用父类并传递实例
         super().__init__(cache_manager_instance)
-
     async def stock_day_basic_info_by_limit(self, stock_code: str, limit: int) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_stock.stock_day_basic_info(stock_code)
         return await self._history_data_by_limit(cache_key, limit)
-
     async def latest_time_trade(self, stock_code: str, time_level: str,) -> Optional[Dict[str, Any]]:
         """
         从缓存中获取指定指数和时间级别的最新时间序列数据点。
@@ -327,7 +308,6 @@ class StockTimeTradeCacheGet(CacheGet):
         """
         cache_key = self.cache_key_stock.latest_time_trade(stock_code, time_level)
         return await self._stock_latest_data(stock_code, time_level, cache_key)
-
     async def history_time_trade(self, stock_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
         cache_key = self.cache_key_stock.history_time_trade(stock_code, time_level)
         return await self._history_data_by_date_range(stock_code, time_level, start_time, end_time, cache_key)
@@ -339,7 +319,6 @@ class StockRealtimeCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
         # MODIFIED: 调用父类构造函数时，传递 cache_manager_instance
         super().__init__(cache_manager_instance)
-
     async def get_intraday_ticks(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
         """
         【V1.1 - 修复 datetime 导入问题】从Redis ZSET缓存中获取指定股票、指定日期的【全部】Tick快照数据。
@@ -387,7 +366,6 @@ class StockRealtimeCacheGet(CacheGet):
             # MODIFIED: 明确地记录下当前方法名，便于追踪
             logger.error(f"在 get_intraday_ticks 中发生异常 for {stock_code}: {e}", exc_info=True)
             return None
-
     async def latest_tick_data(self, stock_code: str) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_stock.latest_realtime_data(stock_code)
         # logger.info(f"尝试从缓存获取股票[{stock_code}]最新实时数据, key: {cache_key}")
@@ -398,11 +376,9 @@ class StockRealtimeCacheGet(CacheGet):
     async def latest_level5_data(self, stock_code: str) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_stock.latest_level5_data(stock_code)
         return await self._stock_latest_data(stock_code, cache_key)
-
     async def history_level5_data(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
         cache_key = self.cache_key_stock.history_level5_data(stock_code)
         return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
-
     async def get_intraday_ticks(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
         """
         【V1.0 - 新增】从Redis ZSET缓存中获取指定股票、指定日期的【全部】Tick快照数据。
@@ -453,7 +429,6 @@ class StockRealtimeCacheGet(CacheGet):
         except Exception as e:
             logger.error(f"在 get_intraday_ticks 中发生异常 for {stock_code}: {e}", exc_info=True)
             return None
-
     # ▼▼▼ 新增方法: 从缓存读取真实的逐笔成交数据 ▼▼▼
     async def get_daily_real_ticks(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
         """
@@ -493,42 +468,33 @@ class StockIndicatorsCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
         # 调用父类并传递实例
         super().__init__(cache_manager_instance)
-
     async def latest_kdj(self, stock_code: str, time_level: str) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_stock.latest_kdj(stock_code, time_level)
         data = await self._stock_latest_data(stock_code, time_level, cache_key)
         return data
-
     async def history_kdj_by_date_range(self, stock_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
         cache_key = self.cache_key_stock.history_kdj(stock_code, time_level)
         data = await self._history_data_by_date_range(stock_code, time_level, start_time, end_time, cache_key)
         return data
-
     async def history_kdj_by_limit(self, stock_code: str, time_level: str, limit: int) -> Optional[List[Dict[str, Any]]]:
         cache_key = self.cache_key_stock.history_kdj(stock_code, time_level)
         data = await self._history_data_by_limit(cache_key, limit)
         return data
-
     async def latest_macd(self, stock_code: str, time_level: str) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_stock.latest_macd(stock_code, time_level)
         return await self._stock_latest_data(stock_code, time_level, cache_key)
-
     async def history_macd(self, stock_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
         cache_key = self.cache_key_stock.history_macd(stock_code, time_level)
         return await self._history_data_by_date_range(stock_code, time_level, start_time, end_time, cache_key)
-
     async def latest_ma(self, stock_code: str, time_level: str) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_stock.latest_ma(stock_code, time_level)
         return await self._stock_latest_data(stock_code, time_level, cache_key)
-
     async def history_ma(self, stock_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
         cache_key = self.cache_key_stock.history_ma(stock_code, time_level)
         return await self._history_data_by_date_range(stock_code, time_level, start_time, end_time, cache_key)
-
     async def latest_boll(self, stock_code: str, time_level: str) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_stock.latest_boll(stock_code, time_level)
         return await self._stock_latest_data(stock_code, time_level, cache_key)
-
     async def history_boll(self, stock_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
         cache_key = self.cache_key_stock.history_boll(stock_code, time_level)
         return await self._history_data_by_date_range(stock_code, time_level, start_time, end_time, cache_key)
@@ -537,7 +503,6 @@ class StrategyCacheGet(CacheGet):
     def __init__(self, cache_manager_instance):
         # 调用父类并传递实例
         super().__init__(cache_manager_instance)
-
     async def lastest_analyze_signals_trend_following_data(self, stock_code: str):
         cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
         # 2. 调用 CacheManager 获取数据
@@ -578,7 +543,6 @@ class StrategyCacheGet(CacheGet):
             if data is not None:
                 result[stock_code] = data
         return result
-
 
     async def analyze_signals_trend_following_datas(self, stock_code: str, days_count: int = 1) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)

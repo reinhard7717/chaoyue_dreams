@@ -6,7 +6,6 @@ from stock_models.stock_analytics import PositionTracker, TradingSignal
 
 class Command(BaseCommand):
     help = '【V2.1 兼容V4.0模型版】从 FavoriteStock 迁移数据到 PositionTracker，为所有自选股创建追踪器。' # 更新帮助信息
-
     def handle(self, *args, **options):
         self.stdout.write(self.style.SUCCESS('开始从 FavoriteStock 迁移数据到 PositionTracker (V2.1)...')) # 更新版本号
         User = get_user_model()

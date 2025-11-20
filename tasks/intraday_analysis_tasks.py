@@ -23,7 +23,6 @@ def compute_dynamics_for_stock_and_date(self, stock_code: str, trade_date_str: s
     """
     【核心执行器】为单只股票、单个交易日计算并存储日内动态指标。
     这是一个原子任务，可以被上层调度器大规模调用。
-
     Args:
         stock_code (str): 股票代码, e.g., '000001.SZ'
         trade_date_str (str): 交易日期字符串, 格式 'YYYY-MM-DD'
@@ -33,7 +32,6 @@ def compute_dynamics_for_stock_and_date(self, stock_code: str, trade_date_str: s
     basic_dao = StockBasicInfoDao(cache_manager)
     trade_date = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
     logger.info(f"[{stock_code} @ {trade_date_str}] 开始执行日内动态指标计算任务...")
-
     # --- 2. 异步数据准备 ---
     # 使用 async_to_sync 在同步的Celery任务中调用异步DAO方法
     @async_to_sync
@@ -63,7 +61,6 @@ def compute_dynamics_for_stock_and_date(self, stock_code: str, trade_date_str: s
                 return None
         daily_basic_info = get_daily_basic_sync(stock_info, trade_date)
         return minute_df, stock_info, daily_basic_info
-
     try:
         minute_df, stock_info, daily_basic_info = get_required_data()
         # --- 3. 数据校验 ---
@@ -97,7 +94,6 @@ def compute_dynamics_for_stock_and_date(self, stock_code: str, trade_date_str: s
             )
             logger.info(f"[{stock_code} @ {trade_date_str}] 成功关联并保存 DailyTurnoverDistribution 记录。")
         return {'status': 'success', 'stock_code': stock_code, 'trade_date': trade_date_str}
-
     except Exception as e:
         logger.error(f"[{stock_code} @ {trade_date_str}] 计算日内动态指标时发生未知异常: {e}", exc_info=True)
         # 重新抛出异常，以便Celery可以将任务标记为失败

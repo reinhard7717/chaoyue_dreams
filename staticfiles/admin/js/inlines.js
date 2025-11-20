@@ -183,7 +183,6 @@
         }
         return this;
     };
-
     /* Setup plugin defaults */
     $.fn.formset.defaults = {
         prefix: "form", // The form prefix for your django formset
@@ -197,7 +196,6 @@
         removed: null, // Function called each time a form is deleted
         addButton: null // Existing add button to use
     };
-
 
     // Tabular inlines ---------------------------------------------------------
     $.fn.tabularFormset = function(selector, options) {
@@ -251,7 +249,6 @@
         });
         return $rows;
     };
-
     // Stacked inlines ---------------------------------------------------------
     $.fn.stackedFormset = function(selector, options) {
         const $rows = $(this);
@@ -317,7 +314,6 @@
         });
         return $rows;
     };
-
     $(document).ready(function() {
         $(".js-inline-admin-formset").each(function() {
             const data = $(this).data(),

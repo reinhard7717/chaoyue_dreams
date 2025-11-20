@@ -6,19 +6,16 @@
             el.classList.remove('hidden');
         });
     }
-
     function hide(selector) {
         document.querySelectorAll(selector).forEach(function(el) {
             el.classList.add('hidden');
         });
     }
-
     function showQuestion(options) {
         hide(options.acrossClears);
         show(options.acrossQuestions);
         hide(options.allContainer);
     }
-
     function showClear(options) {
         show(options.acrossClears);
         hide(options.acrossQuestions);
@@ -26,14 +23,12 @@
         show(options.allContainer);
         hide(options.counterContainer);
     }
-
     function reset(options) {
         hide(options.acrossClears);
         hide(options.acrossQuestions);
         hide(options.allContainer);
         show(options.counterContainer);
     }
-
     function clearAcross(options) {
         reset(options);
         const acrossInputs = document.querySelectorAll(options.acrossInput);
@@ -42,7 +37,6 @@
         });
         document.querySelector(options.actionContainer).classList.remove(options.selectedClass);
     }
-
     function checker(actionCheckboxes, options, checked) {
         if (checked) {
             showQuestion(options);
@@ -54,7 +48,6 @@
             el.closest('tr').classList.toggle(options.selectedClass, checked);
         });
     }
-
     function updateCounter(actionCheckboxes, options) {
         const sel = Array.from(actionCheckboxes).filter(function(el) {
             return el.checked;
@@ -76,7 +69,6 @@
             clearAcross(options);
         }
     }
-
     const defaults = {
         actionContainer: "div.actions",
         counterContainer: "span.action-counter",
@@ -87,7 +79,6 @@
         allToggleId: "action-toggle",
         selectedClass: "selected"
     };
-
     window.Actions = function(actionCheckboxes, options) {
         options = Object.assign({}, defaults, options);
         let list_editable_changed = false;
@@ -174,7 +165,6 @@
         // button.
         window.addEventListener('pageshow', (event) => updateCounter(actionCheckboxes, options));
     };
-
     // Call function fn when the DOM is loaded and ready. If it is already
     // loaded, call the function now.
     // http://youmightnotneedjquery.com/#ready
@@ -185,7 +175,6 @@
             document.addEventListener('DOMContentLoaded', fn);
         }
     }
-
     ready(function() {
         const actionsEls = document.querySelectorAll('tr input.action-select');
         if (actionsEls.length > 0) {

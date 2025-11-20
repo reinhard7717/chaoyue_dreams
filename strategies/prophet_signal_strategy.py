@@ -19,7 +19,6 @@ class ProphetSignalStrategy:
         self.orchestrator = orchestrator_instance
         # 不再从总指挥处继承，而是使用注入的专属配置
         self.unified_config = strategy_config
-
     async def apply_strategy(self, stock_code: str, df_daily: pd.DataFrame, atomic_states: dict) -> Tuple[List, List, List, List, List]:
         """
         应用先知策略，生成独立的数据库记录。

@@ -42,7 +42,6 @@ class IndustryDao(BaseDAO):
         self.stock_basic_info_dao = StockBasicInfoDao(self.cache_manager)
         self.market_format_process = MarketFormatProcess(self.cache_manager)
         self.cache_key_stock = StockCashKey()
-
     # ============== 申万行业分类 ==============
     async def get_swan_industry_list(self) -> List['SwIndustry']:
         """
@@ -57,7 +56,6 @@ class IndustryDao(BaseDAO):
             for industry in industry_list:
                 return_data.append(industry)
         return return_data
-
     async def get_swan_industry_l1_list(self) -> List['SwIndustry']:
         """
         获取所有申万行业的基本信息
@@ -71,7 +69,6 @@ class IndustryDao(BaseDAO):
             for industry in industry_list:
                 return_data.append(industry)
         return return_data
-
     async def get_swan_industry_by_code(self, index_code: str) -> Optional['SwIndustry']:
         """
         获取指定申万行业的基本信息
@@ -85,7 +82,6 @@ class IndustryDao(BaseDAO):
         if industry:
             return industry
         return None
-
     async def save_swan_industry_list(self) -> Dict:
         """
         【V2.0 向量化与N+1优化版】保存申万行业分类列表
@@ -129,7 +125,6 @@ class IndustryDao(BaseDAO):
             unique_fields=['index', 'src'] # 优化：直接使用index对象作为唯一键
         )
         return result
-
     # ============== 申万行业成分 ==============
     async def get_sw_industry_member(self, industry_code: str) -> List['SwIndustryMember']:
         """
@@ -142,7 +137,6 @@ class IndustryDao(BaseDAO):
         # 从数据库获取
         industry_weight = await sync_to_async(lambda: SwIndustryMember.objects.filter(industry_code=industry_code).all())()
         return industry_weight
-
     async def save_sw_industry_member(self) -> Dict:
         """
         【V2.3 统一模型同步修复版】获取申万行业成分并保存
@@ -254,7 +248,6 @@ class IndustryDao(BaseDAO):
         else:
             logger.warning("没有可供保存的申万行业成分数据。")
         return final_result
-
     # ============== 申万行业日线行情 ==============
     async def get_sw_industry_daily(self, ts_code: str) -> List['SwIndustryDaily']:
         """
@@ -267,7 +260,6 @@ class IndustryDao(BaseDAO):
         # 从数据库获取
         industry_daily_basic = await sync_to_async(lambda: SwIndustryDaily.objects.filter(ts_code=ts_code).all())()
         return industry_daily_basic
-
     async def save_sw_industry_daily(self, trade_date: Any = None) -> Dict:
         """
         【V3.1 向量化与N+1优化版】获取申万行业日线行情，并同步到 ConceptDaily。
@@ -344,7 +336,6 @@ class IndustryDao(BaseDAO):
                 await ConceptDaily.objects.abulk_create(concept_daily_to_save, ignore_conflicts=True)
                 print(f"        ...同步完成，处理 {len(concept_daily_to_save)} 条记录到 [ConceptDaily] 表。")
         return result
-
     # ============== 同花顺概念和行业指数 ==============
     async def get_ths_index_list(self) -> List['ThsIndex']:
         """
@@ -356,7 +347,6 @@ class IndustryDao(BaseDAO):
         # 用 sync_to_async 包装整个 list(ThsIndex.objects.all())
         industry_list = await sync_to_async(lambda: list(ThsIndex.objects.all()))()
         return industry_list
-
     async def get_ths_indices_by_codes(self, codes: list) -> dict:
         """
         根据ts_code列表，一次性从数据库获取所有ThsIndex对象，并返回一个 code -> object 的映射字典。
@@ -367,7 +357,6 @@ class IndustryDao(BaseDAO):
         indices = ThsIndex.objects.filter(ts_code__in=codes)
         # 使用 avalues 或 aiterator 进行异步迭代，构建字典
         return {index.ts_code: index async for index in indices}
-
     async def get_ths_index_by_code(self, index_code: str) -> Optional['ThsIndex']:
         """
         获取指定同花顺概念和行业指数的基本信息
@@ -381,7 +370,6 @@ class IndustryDao(BaseDAO):
         if industry:
             return industry
         return None
-
     async def save_ths_index_list(self) -> Dict:
         """
         【V2.0 向量化优化版】保存同花顺板块指数列表
@@ -415,7 +403,6 @@ class IndustryDao(BaseDAO):
         except Exception as e:
             logger.error("同花顺概念和行业指数保存失败。", exc_info=True)
             return {}
-
     # ============== 同花顺概念板块成分 ==============
     async def get_ths_index_member(self, ts_code: str) -> List['ThsIndexMember']:
         """
@@ -428,7 +415,6 @@ class IndustryDao(BaseDAO):
         # 从数据库获取
         ths_index_members = await sync_to_async(lambda: ThsIndexMember.objects.filter(ts_code=ts_code).all())()
         return ths_index_members
-
     # 获取某只股票所属的所有同花顺板块/行业/概念
     async def get_stock_ths_indices(self, stock_code: str) -> list:
         """
@@ -437,7 +423,6 @@ class IndustryDao(BaseDAO):
         return await sync_to_async(list)(
             ThsIndexMember.objects.filter(stock__stock_code=stock_code, is_new='Y').select_related('ths_index')
         )
-
     @sync_to_async
     def get_stock_codes_by_industry(self, industry_code: str) -> List[str]:
         """根据同花顺行业代码获取所有成分股代码列表"""
@@ -451,7 +436,6 @@ class IndustryDao(BaseDAO):
         except Exception as e:
             logger.error(f"查询行业 {industry_code} 成分股代码时出错: {e}")
             return []
-
     async def save_ths_index_member(self) -> Dict:
         """
         【V3.0 终极建模版】获取同花顺概念板块成分列表并保存
@@ -535,7 +519,6 @@ class IndustryDao(BaseDAO):
             await self._sync_to_concept_member(concept_member_sync_list, 'ths')
         logger.info("同花顺概念板块成分保存与同步任务全部完成。")
         return {"status": "completed", "saved_count": len(data_to_save_ths)}
-
     # ============== 同花顺板块指数行情 ==============
     async def get_ths_index_daily(self, ts_code: str) -> List['ThsIndexDaily']:
         """
@@ -548,7 +531,6 @@ class IndustryDao(BaseDAO):
         # 从数据库获取
         ths_index_daily_basic = await sync_to_async(lambda: ThsIndexDaily.objects.filter(ts_code=ts_code).all())()
         return ths_index_daily_basic
-
     # 获取某个板块/行业/概念在指定日期的行情特征
     async def get_ths_index_daily_feature(self, ts_code: str, trade_date: str) -> dict:
         """
@@ -569,7 +551,6 @@ class IndustryDao(BaseDAO):
                 # ...可扩展
             }
         return {}
-
     async def get_ths_index_daily_for_range(self, ts_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
         """
         根据代码和日期范围获取同花顺板块指数行情。
@@ -587,7 +568,6 @@ class IndustryDao(BaseDAO):
         df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
         df.set_index('trade_time', inplace=True)
         return df
-
     async def get_stock_ths_industry_info(self, stock_code: str) -> Optional[Dict[str, str]]:
         """
         根据股票代码获取其当前所属的同花顺行业/概念板块信息。
@@ -612,7 +592,6 @@ class IndustryDao(BaseDAO):
         except Exception as e:
             logger.error(f"查询股票 {stock_code} 的行业信息时发生数据库错误: {e}", exc_info=True)
             return None
-
     # 一次性获取所有ths_codes的最后limit条数据
     async def get_latest_n_per_ths_code_async(self, ths_codes, limit: int = 333):
         qs = ThsIndexDaily.objects.filter(
@@ -626,7 +605,6 @@ class IndustryDao(BaseDAO):
         ).filter(row_number__lte=limit)
         objs = await sync_to_async(list)(qs)
         return objs
-
     async def save_ths_index_daily_today(self) -> Dict:
         """
         接口：ths_daily
@@ -669,7 +647,6 @@ class IndustryDao(BaseDAO):
                 unique_fields=['ths_index', 'trade_time']
             )
         return result
-
     async def save_ths_index_daily_by_trade_date(self, trade_date: date) -> Dict:
         """
         【V3.1 向量化优化版】获取同花顺板块日线行情，并同步到 ConceptDaily。
@@ -727,7 +704,6 @@ class IndustryDao(BaseDAO):
                 await ConceptDaily.objects.abulk_create(concept_daily_to_save, ignore_conflicts=True)
                 print(f"        ...同步完成，处理 {len(concept_daily_to_save)} 条记录到 [ConceptDaily] 表。")
         return result
-
     async def _save_ths_index_daily_history_by_index(self, start_date: date, end_date: date = None) -> Dict:
         """
         接口：ths_daily
@@ -779,7 +755,6 @@ class IndustryDao(BaseDAO):
                 unique_fields=['ths_index', 'trade_time']
             )
         return result
-
     async def save_ths_index_daily_history(self, trade_dates: List[date]) -> Dict:
         """
         【V3.1 向量化内循环优化版】按天并行获取同花顺历史行情，并同步到 ConceptDaily。
@@ -845,7 +820,6 @@ class IndustryDao(BaseDAO):
                     print(f"     ...已同步 {i + len(batch)} / {len(concept_daily_to_save)} 条记录。")
             print("     ...历史数据同步完成。")
         return {"status": "completed", "processed_days": len(trade_dates)}
-
     # ============== 开盘啦题材与榜单 ============== 
     async def save_kpl_concept_list_by_date(self, trade_date: date) -> Dict:
         """
@@ -893,7 +867,6 @@ class IndustryDao(BaseDAO):
         )
         print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(daily_items_to_save)} 条题材每日快照。")
         return result
-
     async def save_kpl_concept_members_by_date(self, trade_date: date) -> Dict:
         """
         【V2.0 重构】接口：kpl_concept_cons
@@ -953,14 +926,12 @@ class IndustryDao(BaseDAO):
         print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条题材成分数据。")
         await self._sync_to_concept_member(concept_member_sync_list, 'kpl')
         return result
-
     async def get_kpl_concepts_by_codes(self, codes: List[str]) -> Dict[str, KplConceptInfo]:
         """【V2.0 新增】根据题材代码列表批量获取 KplConceptInfo 对象"""
         if not codes:
             return {}
         instances = await sync_to_async(list)(KplConceptInfo.objects.filter(ts_code__in=codes))
         return {instance.ts_code: instance for instance in instances}
-
     async def get_kpl_themes_for_stock(self, stock_code: str, start_date: date, end_date: date) -> pd.DataFrame:
         """【V1.2 修复版】获取股票在指定日期范围内所属的KPL题材列表。返回 tz-naive 的日期。"""
         # print(f"    - [DAO-KPL] 正在为 {stock_code} 获取 {start_date} 到 {end_date} 的KPL题材归属...")
@@ -978,7 +949,6 @@ class IndustryDao(BaseDAO):
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
         # print(f"    - [DAO-KPL] 成功获取 {len(df)} 条题材归属记录。")
         return df
-
     async def get_kpl_themes_hotness(self, concept_codes: List[str], start_date: date, end_date: date) -> pd.DataFrame:
         """获取一批KPL题材在指定日期范围内的热度指标"""
         query = KplConceptDaily.objects.filter(
@@ -996,7 +966,6 @@ class IndustryDao(BaseDAO):
         df.rename(columns={'trade_time': 'trade_date'}, inplace=True)
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
         return df
-
     async def save_kpl_list_by_date(self, trade_date: date) -> Dict:
         """
         接口：kpl_list
@@ -1044,7 +1013,6 @@ class IndustryDao(BaseDAO):
         )
         print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条开盘啦榜单数据。")
         return result
-
     # ============== 东方财富概念板块 ==============
     async def get_dc_index_list(self) -> List['DcIndex']:
         """
@@ -1055,7 +1023,6 @@ class IndustryDao(BaseDAO):
         # 从数据库获取
         industry_list = await sync_to_async(list)(DcIndex.objects.all())
         return industry_list
-
     async def get_dc_indices_by_codes(self, codes: list) -> dict:
         """
         根据ts_code列表，一次性从数据库获取所有DcIndex对象，并返回一个 code -> object 的映射字典。
@@ -1065,7 +1032,6 @@ class IndustryDao(BaseDAO):
         # 使用 Django ORM 的异步接口 afilter 和异步推导式
         indices = DcIndex.objects.filter(ts_code__in=codes)
         return {index.ts_code: index async for index in indices}
-
     async def get_dc_index_by_code(self, ts_code: str) -> Optional['DcIndex']:
         """
         获取指定东方财富概念板块的基本信息
@@ -1077,7 +1043,6 @@ class IndustryDao(BaseDAO):
         # 从数据库获取
         industry = await sync_to_async(DcIndex.objects.filter(ts_code=ts_code).first)()
         return industry
-
     async def save_dc_index_list_by_date(self, trade_date: date) -> Dict:
         """
         【V1.1 修复版】接口：dc_index
@@ -1123,7 +1088,6 @@ class IndustryDao(BaseDAO):
         )
         print(f"    -- 完成 [东方财富板块列表] 更新，共处理 {len(unique_indices)} 条板块元数据。") # 更新日志输出变量
         return result
-
     # ============== 东方财富板块指数行情 ==============
     async def get_dc_index_daily(self, ts_code: str) -> List['DcIndexDaily']:
         """
@@ -1136,7 +1100,6 @@ class IndustryDao(BaseDAO):
         # 从数据库获取
         dc_index_daily_basic = await sync_to_async(lambda: DcIndexDaily.objects.filter(ts_code=ts_code).all())()
         return dc_index_daily_basic
-
     async def save_dc_index_daily_by_trade_time(self, trade_time: date = None) -> Dict:
         """
         【V3.3 向量化优化版】获取东方财富板块日线行情，并同步到 ConceptDaily。
@@ -1208,7 +1171,6 @@ class IndustryDao(BaseDAO):
                 await ConceptDaily.objects.abulk_create(concept_daily_to_save, ignore_conflicts=True)
                 print(f"        ...同步完成，处理 {len(concept_daily_to_save)} 条记录到 [ConceptDaily] 表。")
         return result
-
     # ============== 东方财富板块成分 ==============
     async def get_dc_index_member(self, ts_code: str) -> List['DcIndexMember']:
         """
@@ -1221,7 +1183,6 @@ class IndustryDao(BaseDAO):
         # 从数据库获取
         dc_index_members = await sync_to_async(list)(DcIndexMember.objects.filter(ts_code=ts_code).all())
         return dc_index_members
-
     async def save_dc_index_member_history_by_code(self, ts_code: str) -> Dict:
         """
         【V3.0 历史回补专用版】接口：dc_member
@@ -1305,7 +1266,6 @@ class IndustryDao(BaseDAO):
             await self._sync_to_concept_member(concept_member_sync_list, 'dc')
             print(f"    - [DAO-历史回补] 板块 {ts_code} 历史成分保存完成。")
         return result
-
     async def save_dc_index_members_by_date(self, trade_date: date) -> Dict:
         """
         【V1.2 limit更新版】接口：dc_member
@@ -1396,7 +1356,6 @@ class IndustryDao(BaseDAO):
         # --- 步骤7: 同步到 ConceptMember ---
         await self._sync_to_concept_member(concept_member_sync_list, 'dc')
         return result
-
     async def _sync_to_concept_member(self, sync_list: List[Dict], source: str):
         """
         将格式化后的成分股数据同步到统一的 ConceptMember 表。
@@ -1425,7 +1384,6 @@ class IndustryDao(BaseDAO):
                 unique_fields=['concept', 'stock', 'in_date', 'source']
             )
             print(f"    -- [同步任务] 完成，成功处理 {len(final_data_to_save)} 条 [{source.upper()}] 成分股数据。")
-
     # ============== 市场情绪与涨跌停数据 ==============
     async def save_limit_list_ths_by_date(self, trade_date: date) -> Dict:
         """
@@ -1475,7 +1433,6 @@ class IndustryDao(BaseDAO):
         )
         print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条同花顺涨跌停数据。")
         return result
-
     async def save_limit_list_d_by_date(self, trade_date: date) -> Dict:
         """
         【V1.1 速率限制修复版】接口：limit_list_d
@@ -1520,7 +1477,6 @@ class IndustryDao(BaseDAO):
         )
         print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条Tushare涨跌停数据。")
         return result
-
     async def save_limit_step_by_date(self, trade_date: date) -> Dict:
         """
         【V1.1 速率限制修复版】接口：limit_step
@@ -1559,7 +1515,6 @@ class IndustryDao(BaseDAO):
         )
         print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条连板天梯数据。")
         return result
-
     async def save_limit_cpt_list_by_date(self, trade_date: date) -> Dict:
         """
         【V1.1 速率限制修复版】接口：limit_cpt_list
@@ -1598,7 +1553,6 @@ class IndustryDao(BaseDAO):
         )
         print(f"  - [DAO] 完成保存 {trade_date_str} 的 {len(items_to_save)} 条最强板块数据。")
         return result
-
     # ============== 市场情绪与涨跌停数据 (Getter方法) ==============
     async def get_limit_list_d_for_range(self, start_date: date, end_date: date, stock_codes: Optional[List[str]] = None) -> pd.DataFrame:
         """根据日期范围和股票代码列表，获取Tushare版涨跌停数据。"""
@@ -1614,7 +1568,6 @@ class IndustryDao(BaseDAO):
         df = pd.DataFrame(data).rename(columns={'stock__stock_code': 'stock_code'})
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
         return df
-
     async def get_limit_step_for_range(self, start_date: date, end_date: date) -> pd.DataFrame:
         """根据日期范围，获取连板天梯数据。"""
         query = LimitStep.objects.filter(trade_date__gte=start_date, trade_date__lte=end_date)
@@ -1626,7 +1579,6 @@ class IndustryDao(BaseDAO):
         df = pd.DataFrame(data).rename(columns={'stock__stock_code': 'stock_code'})
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
         return df
-
     async def get_limit_cpt_list_for_range(self, start_date: date, end_date: date, industry_codes: Optional[List[str]] = None) -> pd.DataFrame:
         """根据日期范围和板块代码列表，获取最强板块统计数据。"""
         query = LimitCptList.objects.filter(trade_date__gte=start_date, trade_date__lte=end_date)
@@ -1640,7 +1592,6 @@ class IndustryDao(BaseDAO):
         df = pd.DataFrame(data).rename(columns={'ths_index__ts_code': 'industry_code'})
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
         return df
-
     async def get_limit_cpt_list_for_industry_and_date(self, industry_code: str, trade_date: date) -> Optional[Dict]:
         """获取单个板块在指定日期的最强板块统计数据。"""
         record = await sync_to_async(
@@ -1655,14 +1606,12 @@ class IndustryDao(BaseDAO):
                 'pct_chg': record.pct_chg
             }
         return None
-
     # ============== 板块/概念主数据 (ConceptMaster) ==============
     async def get_all_concepts_by_source(self, source: str) -> List[ConceptMaster]:
         """
         【V3.0 新增】根据来源获取所有板块/概念主数据。
         """
         return await sync_to_async(list)(ConceptMaster.objects.filter(source=source))
-
     async def get_concepts_by_codes(self, codes: List[str]) -> Dict[str, ConceptMaster]:
         """
         【V3.0 新增】根据代码列表批量获取 ConceptMaster 对象。
@@ -1671,7 +1620,6 @@ class IndustryDao(BaseDAO):
             return {}
         concepts = await sync_to_async(list)(ConceptMaster.objects.filter(code__in=codes))
         return {concept.code: concept for concept in concepts}
-
     async def get_concept_members_on_date(self, concept_code: str, trade_date: date) -> List[ConceptMember]:
         """
         【V2.1 终极版】获取指定板块在指定日期的所有有效成分股。
@@ -1721,7 +1669,6 @@ class IndustryDao(BaseDAO):
             logger.warning(f"未知的概念来源 '{source}' (板块代码: {concept_code})，无法确定成分股查询策略。")
             return []
         return members
-
     async def get_limit_list_for_stocks(self, stock_codes: List[str], trade_date: date, tag: str) -> pd.DataFrame:
         """
         根据股票代码列表和日期，获取KPL榜单数据。
@@ -1742,9 +1689,7 @@ class IndustryDao(BaseDAO):
         if not data:
             return pd.DataFrame()
         return pd.DataFrame.from_records(data)
-
     # ============== 板块/概念日线行情 (ConceptDaily) ==============
-
     async def get_concept_daily_for_range(self, concept_code: str, start_date: date, end_date: date) -> pd.DataFrame:
         """
         【V3.0 新增】根据代码和日期范围获取通用板块日线行情。
@@ -1761,7 +1706,6 @@ class IndustryDao(BaseDAO):
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
         df.set_index('trade_date', inplace=True)
         return df
-
     # ============== 行业生命周期预计算 ==============
     async def save_industry_lifecycle(self, lifecycle_data: List[Dict]) -> Dict:
         """
@@ -1792,7 +1736,6 @@ class IndustryDao(BaseDAO):
             data_list=records_to_save,
             unique_fields=['concept', 'trade_date']
         )
-
     async def get_raw_lifecycle_data_for_stock(self, stock_code: str, start_date: date, end_date: date) -> pd.DataFrame:
         """
         【V6.0 职责净化版】根据股票代码，仅获取其所属的所有行业/概念在指定日期范围内的【原始】生命周期数据。
@@ -1833,9 +1776,7 @@ class IndustryDao(BaseDAO):
         df.rename(columns={'concept__code': 'concept_code', 'concept__source': 'source'}, inplace=True)
         # print(f"    - [DAO-查询] 成功获取 {len(df)} 条原始生命周期记录。")
         return df
-    # =================================================================
     # ============ V3.0 多维概念融合分析 - 核心数据获取方法 ============
-    # =================================================================
 
     async def get_stock_all_concepts(self, stock_code: str) -> List[Dict[str, str]]:
         """
@@ -1879,7 +1820,6 @@ class IndustryDao(BaseDAO):
         ]
         # print(f"    - [多维概念融合DAO] 完成。为 {stock_code} 共获取到 {len(final_concepts)} 个唯一概念标签。")
         return final_concepts
-
     async def _get_sw_concepts(self, stock_code: str) -> List[Dict[str, str]]:
         """【V1.2 终极修复版】获取申万行业概念，修复 FieldError，并使用内存映射优化性能。"""
         cache_key = self.cache_key_stock.stock_concepts(stock_code, 'sw')
@@ -1911,7 +1851,6 @@ class IndustryDao(BaseDAO):
         except Exception as e:
             logger.error(f"查询股票 {stock_code} 的申万行业时出错: {e}", exc_info=True)
             return []
-
     async def _get_ci_concepts(self, stock_code: str) -> List[Dict[str, str]]:
         """获取中信行业概念"""
         cache_key = self.cache_key_stock.stock_concepts(stock_code, 'ci')
@@ -1963,7 +1902,6 @@ class IndustryDao(BaseDAO):
         except Exception as e:
             logger.error(f"查询股票 {stock_code} 的开盘啦题材时出错: {e}", exc_info=True)
             return []
-
     async def _get_ths_concepts(self, stock_code: str) -> List[Dict[str, str]]:
         """获取同花顺行业与概念"""
         cache_key = self.cache_key_stock.stock_concepts(stock_code, 'ths')

@@ -18,7 +18,6 @@ class MonthlyTrendFollowStrategy:
     - 修复报告生成中的格式问题。
     - 策略逻辑已于V6.0版修复并确认正确。
     """
-
     def __init__(self):
         """
         构造函数，初始化服务和事件循环。
@@ -33,7 +32,6 @@ class MonthlyTrendFollowStrategy:
         except RuntimeError:
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
-
     async def apply_strategy(self, df: pd.DataFrame, params: dict) -> pd.DataFrame:
         """
         【核心策略应用函数 V5.0 - 终极修复版】
@@ -100,7 +98,6 @@ class MonthlyTrendFollowStrategy:
         df.loc[:, 'take_profit_signal'] = self.apply_take_profit_rules(df, self.params.get('take_profit_params', {}))
         # logger.info(f"策略应用完成。")
         return df
-
     def _score_and_generate_report(self, signal_row: pd.Series, stock_code: str, params: dict) -> Dict:
         """
         【V6.2 报告重构版】对最新信号进行评分并生成报告。
@@ -196,7 +193,6 @@ class MonthlyTrendFollowStrategy:
             "buy_score": total_score,
             "signal_type": signal_type
         }
-
     def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, params: dict) -> List[Dict[str, Any]]:
         """
         【V7.2 标准化版】将策略分析结果转换为用于数据库存储的标准化字典列表。
@@ -265,7 +261,6 @@ class MonthlyTrendFollowStrategy:
             }
             records.append(record)
         return records
-
     def run_analysis(self, stock_code: str, params_file: str = "config/monthly_trend_follow_strategy.json", trade_time: Optional[str] = None, data_df: Optional[pd.DataFrame] = None, start_date_str: Optional[str] = None) -> Tuple[Optional[pd.DataFrame], Optional[List[Dict[str, Any]]]]:
         """
         【V7.1 重构版 - 新增起始日期计算支持】运行单只股票的完整策略分析流程。
@@ -300,11 +295,9 @@ class MonthlyTrendFollowStrategy:
         #     logger.info(f"为 {stock_code} 的分析完成，无任何信号需要记录。")
         # 返回原始的DataFrame和标准化的记录列表
         return final_df, db_records
-
     # --------------------------------------------------------------------
     # 以下是所有策略的辅助计算方法 (Helper Methods)
     # --------------------------------------------------------------------
-
     def apply_take_profit_rules(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
         【V6.3 增强版】应用所有已启用的止盈规则，返回一个代表止盈类型的整数Series。
@@ -325,7 +318,6 @@ class MonthlyTrendFollowStrategy:
         take_profit_type.loc[tp_signal_indicator] = 3
         # 返回包含止盈类型编码的Series
         return take_profit_type
-
     def _check_monthly_accumulation(self, df: pd.DataFrame, params: dict) -> pd.Series:
         if not params.get('enabled', False): return pd.Series(True, index=df.index)
         ma_period = params.get('ma_period', 20)
@@ -349,7 +341,6 @@ class MonthlyTrendFollowStrategy:
         else: is_near_ma = pd.Series(True, index=df.index)
         accumulation_signal = (is_coppock_buy | is_trix_rising) & is_near_ma
         return accumulation_signal
-
     def _check_monthly_breakout(self, df: pd.DataFrame, params: dict) -> pd.Series:
         if not params.get('enabled', False): return pd.Series(True, index=df.index)
         lookback_months = params.get('lookback_months', 6)
@@ -365,7 +356,6 @@ class MonthlyTrendFollowStrategy:
         is_above_support = df['close_M'] > df[period_low_col]
         monthly_breakout_signal = is_price_breakout & is_volume_breakout & is_above_support
         return monthly_breakout_signal
-
     def _find_pullback_entry_signal(self, df: pd.DataFrame, params: dict) -> pd.Series:
         if not params.get('enabled', False): return pd.Series(0, index=df.index)
         lookback_window = params.get('lookback_window', 3)
@@ -394,7 +384,6 @@ class MonthlyTrendFollowStrategy:
                     pullback_signal.loc[current_idx] = 1
                     break
         return pullback_signal
-
     def _find_continuation_entry_signal(self, df: pd.DataFrame, params: dict) -> pd.Series:
         if not params.get('enabled', False): return pd.Series(0, index=df.index)
         continuation_days = params.get('continuation_days', 3)
@@ -421,7 +410,6 @@ class MonthlyTrendFollowStrategy:
                 entry_day_idx = df.index[entry_day_loc]
                 continuation_signal.loc[entry_day_idx] = 1
         return continuation_signal
-
     def _calculate_washout_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
         if not params.get('enabled', False): return pd.Series(0, index=df.index)
         washout_score = pd.Series(0, index=df.index)
@@ -471,20 +459,17 @@ class MonthlyTrendFollowStrategy:
         pre_condition = df.get('signal_monthly_accumulation', pd.Series(True, index=df.index))
         final_score = washout_score.where(pre_condition, 0)
         return final_score
-
     def _check_ma_rejection_signal(self, df: pd.DataFrame, params: dict) -> pd.Series:
         if not params.get('enabled', False): return pd.Series(0, index=df.index)
         ma_period = params.get('ma_period', 20)
         ma_col = f'EMA_{ma_period}_D'
         return self._check_resistance_rejection(df, ma_col, params)
-
     def _check_box_rejection_signal(self, df: pd.DataFrame, params: dict) -> pd.Series:
         if not params.get('enabled', False): return pd.Series(0, index=df.index)
         lookback_period = params.get('lookback_period', 60)
         resistance_col_name = f'box_top_{lookback_period}D_resistance'
         df[resistance_col_name] = df['high_D'].shift(1).rolling(window=lookback_period, min_periods=int(lookback_period * 0.8)).max()
         return self._check_resistance_rejection(df, resistance_col_name, params)
-
     def _get_support_level(self, df: pd.DataFrame, washout_params: dict) -> pd.Series | None:
         support_type = washout_params.get('support_type', 'MA')
         support_level = pd.Series(np.nan, index=df.index)
@@ -504,7 +489,6 @@ class MonthlyTrendFollowStrategy:
         if support_level.isnull().all(): return None
         support_level.ffill(inplace=True)
         return support_level
-
     def _check_resistance_take_profit(self, df: pd.DataFrame, params: dict) -> pd.Series:
         if not params.get('enabled', False): return pd.Series(False, index=df.index)
         lookback_period = params.get('lookback_period', 90)
@@ -512,7 +496,6 @@ class MonthlyTrendFollowStrategy:
         resistance_level = df['high_D'].shift(1).rolling(window=lookback_period, min_periods=int(lookback_period*0.8)).max()
         signal = df['high_D'] >= resistance_level * (1 - approach_threshold)
         return signal & resistance_level.notna()
-
     def _check_trailing_stop_take_profit(self, df: pd.DataFrame, params: dict) -> pd.Series:
         if not params.get('enabled', False): return pd.Series(False, index=df.index)
         pullback_percentage = params.get('percentage_pullback', 0.10)
@@ -521,7 +504,6 @@ class MonthlyTrendFollowStrategy:
         stop_price = highest_close_since * (1 - pullback_percentage)
         signal = df['close_D'] < stop_price
         return signal & highest_close_since.notna()
-
     def _check_indicator_take_profit(self, df: pd.DataFrame, params: dict) -> pd.Series:
         if not params.get('enabled', False): return pd.Series(False, index=df.index)
         indicator_type = params.get('indicator_type', 'RSI')
@@ -539,7 +521,6 @@ class MonthlyTrendFollowStrategy:
             if not all(col in df.columns for col in [trix_col, trix_signal_col]): return pd.Series(False, index=df.index)
             return (df[trix_col].shift(1) > df[trix_signal_col].shift(1)) & (df[trix_col] < df[trix_signal_col])
         return pd.Series(False, index=df.index)
-
     def _check_resistance_rejection(self, df: pd.DataFrame, resistance_col: str, params: dict) -> pd.Series:
         volume_multiplier = params.get('volume_multiplier', 1.5)
         vol_ma_col = 'VOL_MA_21_D' 

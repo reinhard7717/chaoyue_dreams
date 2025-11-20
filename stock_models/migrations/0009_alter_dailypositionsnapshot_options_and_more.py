@@ -6,12 +6,10 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0008_positiontracker_quantity'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
-
     operations = [
         migrations.AlterModelOptions(
             name='dailypositionsnapshot',

@@ -20,7 +20,6 @@ document.addEventListener('DOMContentLoaded', function () {
     // =========================================================================
     // === 策略监控中心 (trend_following_list.html) 功能 =======================
     // =========================================================================
-
     function initializeTrendListPage() {
         const tableBody = document.getElementById('trend-table-body');
         if (!tableBody) return; // 卫兵子句

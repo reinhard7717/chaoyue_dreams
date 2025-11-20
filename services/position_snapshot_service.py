@@ -21,7 +21,6 @@ class PositionSnapshotService:
     def __init__(self, cache_manager: CacheManager):
         self.strategies_dao = StrategiesDAO(cache_manager)
         self.stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
-
     async def rebuild_snapshots_for_tracker(self, tracker_id: int):
         try:
             tracker = await self._get_tracker(tracker_id)
@@ -102,16 +101,13 @@ class PositionSnapshotService:
             return PositionTracker.objects.select_related('stock').get(id=tracker_id)
         except PositionTracker.DoesNotExist:
             return None
-
     @sync_to_async(thread_sensitive=True)
     def _get_transactions(self, tracker_id):
         # 按日期升序排列，这是正确的
         return list(Transaction.objects.filter(tracker_id=tracker_id).order_by('transaction_date'))
-
     async def _get_price_map(self, stock_code, start_date, end_date):
         df = await self.stock_time_trade_dao.get_daily_data(stock_code, start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d'))
         return {row.name.date(): row['close'] for _, row in df.iterrows()} if not df.empty else {}
-
     @sync_to_async(thread_sensitive=True)
     def _get_score_map(self, stock_code, start_date, end_date):
         scores = StrategyDailyScore.objects.filter(
@@ -120,11 +116,9 @@ class PositionSnapshotService:
             trade_date__lte=end_date
         ).select_related('stock') # 优化
         return {s.trade_date: s for s in scores}
-
     @sync_to_async(thread_sensitive=True)
     def _delete_existing_snapshots(self, tracker):
         DailyPositionSnapshot.objects.filter(tracker=tracker).delete()
-
     @sync_to_async(thread_sensitive=True)
     def _bulk_create_snapshots(self, snapshots):
         DailyPositionSnapshot.objects.bulk_create(snapshots, batch_size=500)

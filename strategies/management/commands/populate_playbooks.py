@@ -8,7 +8,6 @@ from stock_models.stock_analytics import Playbook
 
 class Command(BaseCommand):
     help = '【V4.0 · 权威配置驱动版】解析唯一的信号字典(signal_dictionary.json)，填充或更新Playbook模型。'
-
     def handle(self, *args, **options):
         """
         【V4.0 · 权威配置驱动版】

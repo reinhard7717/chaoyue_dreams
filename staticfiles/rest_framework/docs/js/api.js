@@ -38,11 +38,9 @@ function formEntries (form) {
 
   for (var i = 0; i < form.elements.length; i++) {
     var element = form.elements[i]
-
     if (!element.name) {
       continue
     }
-
     if (element.type === 'file') {
       for (var j = 0; j < element.files.length; j++) {
         entries.push([element.name, element.files[j]])
@@ -77,12 +75,9 @@ $(function () {
     var $languageControls = $(this).closest('ul').find('li')
     var $languageControlLinks = $languageControls.find('a')
     var language = $languageMenuItem.data('language')
-
     $languageControlLinks.not('[data-language="' + language + '"]').parent().removeClass('active')
     $languageControlLinks.filter('[data-language="' + language + '"]').parent().addClass('active')
-
     $('#selected-language').text(language)
-
     var $codeBlocks = $('pre.highlight')
     $codeBlocks.not('[data-language="' + language + '"]').addClass('hide')
     $codeBlocks.filter('[data-language="' + language + '"]').removeClass('hide')
@@ -91,7 +86,6 @@ $(function () {
   // API Explorer
   $('form.api-interaction').submit(function (event) {
     event.preventDefault()
-
     var $form = $(this).closest('form')
     var $requestMethod = $form.find('.request-method')
     var $requestUrl = $form.find('.request-url')
@@ -105,14 +99,12 @@ $(function () {
     var key = normalizeKeys($form.data('key'))
     var params = {}
     var entries = formEntries($form.get()[0])
-
     for (var i = 0; i < entries.length; i++) {
       var entry = entries[i]
       var paramKey = entry[0]
       var paramValue = entry[1]
       var $elem = $form.find('[name="' + paramKey + '"]')
       var dataType = $elem.data('type') || 'string'
-
       if (dataType === 'integer' && paramValue) {
         var value = parseInt(paramValue)
         if (!isNaN(value)) {
@@ -141,7 +133,6 @@ $(function () {
         params[paramKey] = paramValue
       }
     }
-
     $form.find(':checkbox').each(function (index) {
       // Handle unselected checkboxes
       var name = $(this).attr('name')
@@ -149,22 +140,18 @@ $(function () {
         params[name] = false
       }
     })
-
     function requestCallback (request) {
       // Fill in the "GET /foo/" display.
       var parser = document.createElement('a')
       parser.href = request.url
       var method = request.options.method
       var path = parser.pathname + parser.hash + parser.search
-
       $requestMethod.text(method)
       $requestUrl.text(path)
     }
-
     function responseCallback (response, responseText) {
       // Display the 'Data'/'Raw' control.
       $toggleView.removeClass('hide')
-
       // Fill in the "200 OK" display.
       $responseStatusCode.removeClass('label-success').removeClass('label-danger')
       if (response.ok) {
@@ -174,7 +161,6 @@ $(function () {
       }
       $responseStatusCode.text(response.status)
       $meta.removeClass('hide')
-
       // Fill in the Raw HTTP response display.
       var panelText = 'HTTP/1.1 ' + response.status + ' ' + response.statusText + '\n'
       response.headers.forEach(function (header, key) {
@@ -185,13 +171,11 @@ $(function () {
       }
       $responseRawResponse.text(panelText)
     }
-
     // Instantiate a client to make the outgoing request.
     var options = {
       requestCallback: requestCallback,
       responseCallback: responseCallback
     }
-
     // Setup authentication options.
     if (window.auth && window.auth.type === 'token') {
       // Header authentication
@@ -212,14 +196,12 @@ $(function () {
         csrfHeaderName: 'X-CSRFToken'
       })
     }
-
     var client = new coreapi.Client(options)
     client.action(schema, key, params).then(function (data) {
       var response = JSON.stringify(data, null, 2)
       $requestAwaiting.addClass('hide')
       $responseRaw.addClass('hide')
       $responseData.addClass('hide').text('').jsonView(response)
-
       if (responseDisplay === 'data') {
         $responseData.removeClass('hide')
       } else {
@@ -230,7 +212,6 @@ $(function () {
       $requestAwaiting.addClass('hide')
       $responseRaw.addClass('hide')
       $responseData.addClass('hide').text('').jsonView(response)
-
       if (responseDisplay === 'data') {
         $responseData.removeClass('hide')
       } else {
@@ -244,11 +225,8 @@ $(function () {
     var $modalContent = $(this).closest('.modal-content')
     var $modalResponseRaw = $modalContent.find('.response-raw')
     var $modalResponseData = $modalContent.find('.response-data')
-
     responseDisplay = $(this).data('display-toggle')
-
     $(this).removeClass('btn-default').addClass('btn-info').siblings().removeClass('btn-info')
-
     if (responseDisplay === 'raw') {
       $modalResponseRaw.removeClass('hide')
       $modalResponseData.addClass('hide')

@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0009_alter_dailypositionsnapshot_options_and_more'),
     ]
-
     operations = [
         migrations.CreateModel(
             name='IntradayChipDynamics',

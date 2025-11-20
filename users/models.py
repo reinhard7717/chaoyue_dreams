@@ -65,11 +65,9 @@ class UserProfile(models.Model):
     # 创建时间和更新时间
     created_at = models.DateTimeField(_('创建时间'), auto_now_add=True)
     updated_at = models.DateTimeField(_('更新时间'), auto_now=True)
-
     class Meta:
         verbose_name = _('用户资料')
         verbose_name_plural = _('用户资料')
-
     def __str__(self):
         # 确保 self.user 存在再访问 username，虽然 OneToOne 理论上 user 总存在
         return self.user.username if hasattr(self, 'user') and self.user else f"Profile for User ID {self.pk}"
@@ -93,14 +91,12 @@ class FavoriteStock(models.Model):
     is_pinned = models.BooleanField(_('是否置顶'), default=False)
     # 标签，用于分组
     tags = models.CharField(_('标签'), max_length=200, blank=True)
-
     class Meta:
         verbose_name = _('自选股')
         verbose_name_plural = _('自选股')
         ordering = ['-is_pinned', '-added_at']
         # 确保一个用户不会添加重复的股票
         unique_together = ['user', 'stock']
-
     def __str__(self):
         return f"{self.user.username} - {self.stock.stock_name}({self.stock.stock_code})"
 

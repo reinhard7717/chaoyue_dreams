@@ -94,10 +94,8 @@ document.addEventListener('DOMContentLoaded', function () {
         // });
         // ... 其他只应在主控台页面执行的JS代码
     }
-
     // 调用初始化函数
     initializeSearchFunctionality();
-
     // 此处可以安全地放置其他全局初始化代码
     console.log('[dashboard.js] DOMContentLoaded event fired and processed without fatal errors.');
 });

@@ -17,14 +17,12 @@ class IndicatorCalculator:
     - 设计原则: 本类不处理业务流程、数据获取或配置解析，仅专注于接收一个DataFrame并返回计算结果。
                这使得指标计算逻辑可以被独立测试和复用。
     """
-
     def __init__(self):
         """
         初始化指标计算器。
         目前不需要任何特定状态，但保留构造函数以便未来扩展。
         """
         pass
-
     # --- 所有指标计算函数 async def calculate_* ---
     async def calculate_atr(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
         """【V1.1 · 命名净化版】计算 ATR (平均真实波幅)"""
@@ -48,7 +46,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 ATR (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_atrr(self, df: pd.DataFrame, period: int = 14, high_col: str = 'high', low_col: str = 'low', close_col: str = 'close') -> Optional[pd.DataFrame]:
         """
         【V1.1 异步优化版】计算 ATRR (平均真实波幅率)。
@@ -78,7 +75,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 ATRR (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_atrn(self, df: pd.DataFrame, period: int = 14, high_col: str = 'high', low_col: str = 'low', close_col: str = 'close') -> Optional[pd.DataFrame]:
         """
         计算 ATRN (归一化平均真实波幅)。
@@ -120,7 +116,6 @@ class IndicatorCalculator:
             # 步骤7: 捕获并记录异常。
             logger.error(f"计算 ATRN (period={period}) 时出错: {e}", exc_info=True)
             return None
-
     async def calculate_boll_bands_and_width(self, df: pd.DataFrame, period: int = 20, std_dev: float = 2.0, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
         """
         【V1.3 · 接口契约修复版】计算布林带 (BBANDS) 及其宽度 (BBW) 和百分比B (%B)。
@@ -156,7 +151,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算布林带及宽度 (周期 {period}, 标准差 {std_dev}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_historical_volatility(self, df: pd.DataFrame, period: int = 20, window_type: Optional[str] = None, close_col='close', annual_factor: int = 252) -> Optional[pd.DataFrame]:
         """计算历史波动率 (HV)"""
         if df is None or df.empty or close_col not in df.columns: return None
@@ -170,7 +164,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算历史波动率 (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_keltner_channels(self, df: pd.DataFrame, ema_period: int = 20, atr_period: int = 10, atr_multiplier: float = 2.0, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
         """计算肯特纳通道 (KC)"""
         if df is None or df.empty or not all(col in df.columns for col in [high_col, low_col, close_col]):
@@ -205,7 +198,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算肯特纳通道 (EMA周期 {ema_period}, ATR周期 {atr_period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_cci(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
         """计算 CCI (商品渠道指数)"""
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]): return None
@@ -219,7 +211,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 CCI (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_cmf(self, df: pd.DataFrame, period: int = 20, high_col='high', low_col='low', close_col='close', volume_col='volume', suffix: str = '') -> Optional[pd.DataFrame]:
         """
         【V2.2 · 接口健壮性修复版】计算 CMF (蔡金货币流量)。
@@ -250,7 +241,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 CMF (周期 {period}) 时发生未知异常: {e}", exc_info=True)
             return None
-
     async def calculate_dma(self, df: pd.DataFrame, smooth_factor_series: pd.Series, close_col: str = 'close') -> Optional[pd.DataFrame]:
         """
         【V1.0】计算 DMA (动态移动平均线)。
@@ -285,7 +275,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 DMA (close_col={close_col}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_atan_ma_angle(self, df: pd.DataFrame, ma_col_base: str, timeframe_key: str) -> Optional[pd.DataFrame]:
         """
         【V1.1】计算均线的角度 (ATAN)。
@@ -312,7 +301,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 ATAN 均线角度 (ma_col_base={ma_col_base}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_dmi(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
         """【V1.2 · f-string修复版】计算 DMI (动向指标), 包括 PDI (+DI), NDI (-DI), ADX"""
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]): return None
@@ -338,7 +326,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 DMI (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_kdj(self, df: pd.DataFrame, period: int = 9, signal_period: int = 3, smooth_k_period: int = 3, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
         """计算KDJ指标"""
         required_cols = [high_col, low_col, close_col]
@@ -369,7 +356,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 KDJ (p={period}, sig={signal_period}, smooth={smooth_k_period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_ma(self, df: pd.DataFrame, period: int, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
         """【V1.1 · 命名净化版】计算 MA (简单移动平均线)"""
         if df is None or df.empty or close_col not in df.columns: return None
@@ -384,7 +370,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 MA (周期 {period}) 时发生未知错误: {e}", exc_info=True)
             return None
-
     async def calculate_ma_velocity_acceleration(self, df: pd.DataFrame, ma_col_base: str, timeframe_key: str, ema_period: int = 3, sma_period: int = 3) -> Optional[pd.DataFrame]:
         """
         【V1.1】计算均线的速度和加速度。
@@ -420,7 +405,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算均线速度加速度 (ma_col_base={ma_col_base}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_ema(self, df: pd.DataFrame, period: int, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
         """【V1.1 · 命名净化版】计算 EMA (指数移动平均线)"""
         if df is None or df.empty or close_col not in df.columns: return None
@@ -435,7 +419,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 EMA (周期 {period}) 时发生未知错误: {e}", exc_info=True)
             return None
-
     async def calculate_zigzag(self, df: pd.DataFrame, period: int = 3, percent: float = 5.0, close_col: str = 'close') -> Optional[pd.DataFrame]:
         """
         【V1.0】计算 ZIGZAG 指标。
@@ -513,7 +496,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 ZIGZAG (period={period}, percent={percent}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_ichimoku(self, df: pd.DataFrame, tenkan_period: int = 9, kijun_period: int = 26, senkou_period: int = 52, name_suffix: Optional[str] = None, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
         """
         计算一目均衡表 (Ichimoku Cloud) 的时间对齐特征。
@@ -569,7 +551,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 Ichimoku (t={tenkan_period}, k={kijun_period}, s={senkou_period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_sma(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
         """计算 SMA (简单移动平均线)"""
         if df is None or df.empty or close_col not in df.columns: return None
@@ -583,7 +564,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 SMA (周期 {period}) 时发生未知错误: {e}", exc_info=True)
             return None
-
     async def calculate_amount_ma(self, df: pd.DataFrame, period: int = 20, amount_col='amount') -> Optional[pd.DataFrame]:
         """计算成交额的移动平均线 (AMT_MA)"""
         if df is None or df.empty or amount_col not in df.columns: return None
@@ -596,7 +576,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 AMT_MA (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_macd(self, df: pd.DataFrame, period_fast: int = 12, period_slow: int = 26, signal_period: int = 9, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
         """【V1.1 · 命名净化版】计算移动平均收敛散度 (MACD)"""
         if df is None or df.empty or close_col not in df.columns:
@@ -615,7 +594,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 MACD (f={period_fast},s={period_slow},sig={signal_period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_mfi(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close', volume_col='volume') -> Optional[pd.DataFrame]:
         """计算 MFI (资金流量指标)"""
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col, volume_col]): return None
@@ -629,7 +607,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 MFI (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_mom(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
         """计算 MOM (动量指标)"""
         if df is None or df.empty or close_col not in df.columns: return None
@@ -643,7 +620,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 MOM (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_obv(self, df: pd.DataFrame, close_col='close', volume_col='volume', suffix: str = '') -> Optional[pd.DataFrame]:
         """【V1.1 · 命名净化版】计算 OBV (能量潮指标)"""
         if df is None or df.empty or not all(c in df.columns for c in [close_col, volume_col]): return None
@@ -657,7 +633,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 OBV 出错: {e}", exc_info=True)
             return None
-
     async def calculate_roc(self, df: pd.DataFrame, period: int = 12, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
         """【V1.1 · 命名净化版】计算 ROC (价格变化率)"""
         if df is None or df.empty or close_col not in df.columns: return None
@@ -672,7 +647,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 ROC (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_amount_roc(self, df: pd.DataFrame, period: int, amount_col='amount') -> Optional[pd.DataFrame]:
         """计算成交额的 ROC (AROC)"""
         if df is None or df.empty or amount_col not in df.columns:
@@ -701,7 +675,6 @@ class IndicatorCalculator:
             # 记录详细的错误信息，包括堆栈跟踪
             logger.error(f"计算 Amount ROC (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_volume_roc(self, df: pd.DataFrame, period: int, volume_col='volume') -> Optional[pd.DataFrame]:
         """计算成交量的 ROC (VROC)"""
         if df is None or df.empty or volume_col not in df.columns:
@@ -727,7 +700,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 Volume ROC (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_rsi(self, df: pd.DataFrame, period: int, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
         """【V1.1 · 命名净化版】计算相对强弱指数 (RSI)"""
         if df is None or df.empty or close_col not in df.columns:
@@ -746,7 +718,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 RSI (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_sar(self, df: pd.DataFrame, af_step: float = 0.02, max_af: float = 0.2, high_col='high', low_col='low') -> Optional[pd.DataFrame]:
         """计算 SAR (抛物线转向指标)"""
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col]): return None
@@ -771,7 +742,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 SAR (af={af_step:.2f}, max_af={max_af:.2f}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_stoch(self, df: pd.DataFrame, k_period: int = 14, d_period: int = 3, smooth_k_period: int = 3, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
         """计算 STOCH (随机指标)"""
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]): return None
@@ -785,7 +755,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 STOCH (k={k_period},d={d_period},s={smooth_k_period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_adl(self, df: pd.DataFrame, high_col='high', low_col='low', close_col='close', volume_col='volume') -> Optional[pd.DataFrame]:
         """计算 ADL (累积/派发线)"""
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col, volume_col]):
@@ -800,7 +769,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 ADL 出错: {e}", exc_info=True)
             return None
-
     async def calculate_pivot_points(self, df: pd.DataFrame, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
         """计算经典枢轴点和斐波那契枢轴点 (基于前一周期数据)"""
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]):
@@ -834,7 +802,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 Pivot Points 出错: {e}", exc_info=True)
             return None
-
     async def calculate_vol_ma(self, df: pd.DataFrame, period: int = 20, volume_col='volume', suffix: str = '') -> Optional[pd.DataFrame]:
         """【V1.1 · 命名净化版】计算成交量的移动平均线 (VOL_MA)"""
         if df is None or df.empty or volume_col not in df.columns: return None
@@ -848,7 +815,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 VOL_MA (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_vwap(self, df: pd.DataFrame, anchor: Optional[str] = None, high_col='high', low_col='low', close_col='close', volume_col='volume', suffix: str = '') -> Optional[pd.DataFrame]:
         """
         【V1.2 · 接口契约修复版】计算 VWAP (成交量加权平均价)。
@@ -873,7 +839,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 VWAP (anchor={anchor}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_willr(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
         """计算威廉姆斯 %R (WILLR)"""
         required_cols = [high_col, low_col, close_col]
@@ -896,7 +861,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 WILLR (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_trix(self, df: pd.DataFrame, period: int = 14, signal_period: int = 9, close_col='close') -> Optional[pd.DataFrame]:
         """
         计算 TRIX (三重指数平滑移动平均线) 及其信号线。
@@ -925,7 +889,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 TRIX (period={period}, signal={signal_period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_coppock(self, df: pd.DataFrame, long_roc_period: int = 26, short_roc_period: int = 13, wma_period: int = 10, close_col: str = 'close') -> Optional[pd.DataFrame]:
         """
         【V1.4 · 接口契约修复版】计算 Coppock Curve (COPP) 指标。
@@ -957,7 +920,6 @@ class IndicatorCalculator:
             else:
                 logger.error(f"计算 Coppock Curve 时发生未知错误: {type(e).__name__}: {e}", exc_info=False)
         return None
-
     async def calculate_uo(self, df: pd.DataFrame, short_period: int = 7, medium_period: int = 14, long_period: int = 28, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
         """
         计算 Ultimate Oscillator (终极波动指标)。
@@ -989,7 +951,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 Ultimate Oscillator 出错: {e}", exc_info=True)
             return None
-
     async def calculate_bias(self, df: pd.DataFrame, period: int = 20, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
         """
         【V1.4 · 命名净化版】计算 BIAS，并强制重命名列以符合系统标准。
@@ -1015,7 +976,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 BIAS (period={period}) 时发生未知错误: {e}", exc_info=True)
             return None
-
     async def calculate_fibonacci_levels(self, df: pd.DataFrame, params: dict, suffix: str = '') -> Optional[pd.DataFrame]:
         """
         【V1.2 · 接口净化版】计算斐波那契回撤/扩展位。
@@ -1040,7 +1000,6 @@ class IndicatorCalculator:
                 result_df[f'fib_{level_name}_support_{period}{suffix}'] = rolling_low + (price_range * level)
                 result_df[f'fib_{level_name}_resistance_{period}{suffix}'] = rolling_high - (price_range * level)
         return result_df
-
     async def calculate_price_volume_ma_comparison(self, df: pd.DataFrame, params: dict, suffix: str = '') -> Optional[pd.DataFrame]:
         """
         【V4.2 · 接口净化版】计算价格/成交量与各自均线的比率。
@@ -1065,7 +1024,6 @@ class IndicatorCalculator:
                 volume_ratio = df[volume_source_col] / df[vol_ma_col].replace(0, np.nan)
                 result_df[f'volume_vs_ma_{period}_ratio{suffix}'] = volume_ratio.fillna(1.0)
         return result_df
-
     async def calculate_donchian(self, df: pd.DataFrame, period: int = 21, high_col='high', low_col='low') -> Optional[pd.DataFrame]:
         """计算唐奇安通道 (Donchian Channels)"""
         required_cols = [high_col, low_col]
@@ -1083,7 +1041,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 Donchian Channels (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_squeeze(self, df: pd.DataFrame, bb_period: int = 21, kc_period: int = 21, atr_period: int = 13, bb_std: float = 2.0, kc_mult: float = 1.5) -> Optional[pd.DataFrame]:
         """计算布林带与肯特纳通道的压缩 (Squeeze) 状态"""
         required_cols = ['high', 'low', 'close']
@@ -1112,7 +1069,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 Squeeze (bb={bb_period}, kc={kc_period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_eom(self, df: pd.DataFrame, period: int = 13, high_col='high', low_col='low', volume_col='volume') -> Optional[pd.DataFrame]:
         """计算简易波动指标 (Ease of Movement)"""
         required_cols = [high_col, low_col, volume_col]
@@ -1130,7 +1086,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算 EOM (周期 {period}) 出错: {e}", exc_info=True)
             return None
-
     async def calculate_intraday_vwap_divergence_index(self, df_minute: pd.DataFrame) -> Optional[pd.DataFrame]:
         """
         【V1.4 · 命名规范修复版】计算日内VWAP偏离度积分指数。
@@ -1166,7 +1121,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算日内VWAP偏离指数时发生错误: {e}", exc_info=True)
             return None
-
 
     async def calculate_counterparty_exhaustion_index(self, df_minute: pd.DataFrame, efficiency_window: int = 21) -> Optional[pd.DataFrame]:
         """
@@ -1215,7 +1169,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算对手盘衰竭指数(V2.3)时发生错误: {e}", exc_info=True)
             return None
-
     async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
         【V2.4 · 生产就绪版】计算突破质量分。

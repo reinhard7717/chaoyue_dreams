@@ -8,7 +8,6 @@ from django.db import transaction
 
 class Command(BaseCommand):
     help = '将StockDailyData表数据按规则拆分到新表'
-
     def handle(self, *args, **options):
         # 批量处理，防止内存溢出
         batch_size = 30000

@@ -296,13 +296,11 @@ class IndexMonthlySerializer(serializers.ModelSerializer):
 class FavoriteStockSerializer(serializers.ModelSerializer):
     stock = StockInfoSerializer(read_only=True) # 输出时显示 stock 详情
     stock_code = serializers.CharField(write_only=True, required=True, label="股票代码")
-
     class Meta:
         model = FavoriteStock
         # fields 列表现在只包含模型字段和只读字段，以及上面定义的 write_only 字段
         fields = ['id', 'stock', 'added_at', 'stock_code']
         read_only_fields = ['id', 'added_at', 'stock']
-
     def create(self, validated_data):
         stock_code_data = validated_data.pop('stock_code')
         user = self.context['request'].user
@@ -324,7 +322,6 @@ class TransactionSerializer(serializers.ModelSerializer):
     """
     # 让 tracker 字段在创建时只接受主键ID，在响应时显示详细信息
     tracker = serializers.PrimaryKeyRelatedField(queryset=PositionTracker.objects.all())
-
     class Meta:
         model = Transaction
         fields = [
@@ -337,13 +334,11 @@ class TransactionSerializer(serializers.ModelSerializer):
             'created_at'
         ]
         read_only_fields = ('created_at',)
-
     def validate_transaction_date(self, value):
         # 确保交易日期不能在未来
         if value > timezone.now():
             raise serializers.ValidationError("交易日期不能在未来。")
         return value
-
     def validate_quantity(self, value):
         if value <= 0:
             raise serializers.ValidationError("交易数量必须是正数。")

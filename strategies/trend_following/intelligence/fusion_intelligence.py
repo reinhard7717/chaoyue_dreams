@@ -18,7 +18,6 @@ class FusionIntelligence:
     """
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
-
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -27,7 +26,6 @@ class FusionIntelligence:
             print(f"    -> [融合情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
-
     def _get_atomic_score(self, name: str, default: float = 0.0) -> pd.Series:
         """
         【V1.3 · 严格原子信号获取与数据层回退版】安全地从原子状态库或主数据帧中获取分数，处理缺失情况。
@@ -42,7 +40,6 @@ class FusionIntelligence:
         else:
             print(f"    -> [融合层-原子信号警告] 预期原子信号 '{name}' 在 atomic_states 和 df_indicators 中均不存在，使用默认值 {default}。")
             return pd.Series(default, index=self.strategy.df_indicators.index)
-
     def run_fusion_diagnostics(self) -> Dict[str, pd.Series]:
         print("启动【V3.2 · 战场态势引擎】融合情报分析...")
         all_fusion_states = {}
@@ -89,7 +86,6 @@ class FusionIntelligence:
         self.strategy.atomic_states.update(accumulation_inflection_states)
         print(f"【V3.2 · 战场态势引擎】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
-
     def _synthesize_market_contradiction(self) -> Dict[str, pd.Series]:
         """
         【V1.0】冶炼“市场矛盾” (Market Contradiction)
@@ -117,7 +113,6 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_MARKET_CONTRADICTION'] = bipolar_contradiction.astype(np.float32)
         print(f"  -- [融合层] “市场矛盾”冶炼完成，最新分值: {bipolar_contradiction.iloc[-1]:.4f}")
         return states
-
     def _synthesize_market_regime(self) -> Dict[str, pd.Series]:
         """
         【V1.1 · 柔性评估重构版】冶炼“市场政权” (Market Regime)
@@ -143,7 +138,6 @@ class FusionIntelligence:
         bipolar_regime = (trend_evidence - reversion_evidence).clip(-1, 1)
         states['FUSION_BIPOLAR_MARKET_REGIME'] = bipolar_regime.astype(np.float32)
         return states
-
     def _synthesize_market_pressure(self) -> Dict[str, pd.Series]:
         """
         【V1.2 · 底分型集成版】冶炼“市场压力” (Market Pressure)
@@ -195,7 +189,6 @@ class FusionIntelligence:
                 print(f"       - FUSION_BIPOLAR_MARKET_PRESSURE: {bipolar_pressure.loc[probe_date_for_loop]:.4f}")
         print(f"  -- [融合层] “市场压力”冶炼完成，最新分值: {bipolar_pressure.iloc[-1]:.4f}")
         return states
-
     def _synthesize_trend_quality(self) -> Dict[str, pd.Series]:
         """
         【V1.9 · 底分型集成版】冶炼“趋势质量” (Trend Quality)
@@ -301,7 +294,6 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_TREND_QUALITY'] = bipolar_quality.astype(np.float32)
         print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {bipolar_quality.iloc[-1]:.4f}")
         return states
-
     def _synthesize_stagnation_risk(self) -> Dict[str, pd.Series]:
         """
         【V1.0 · 深度博弈版】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
@@ -363,7 +355,6 @@ class FusionIntelligence:
         states['FUSION_RISK_STAGNATION'] = final_stagnation_risk.astype(np.float32)
         print(f"  -- [融合层] “滞涨风险”冶炼完成，最新分值: {final_stagnation_risk.iloc[-1]:.4f}")
         return states
-
     def _synthesize_capital_confrontation(self) -> Dict[str, pd.Series]:
         """
         【V1.2 · 探针增强与打印修复版】冶炼“资本对抗” (Capital Confrontation)
@@ -402,7 +393,6 @@ class FusionIntelligence:
         else:
             print(f"  -- [融合层] “资本对抗”冶炼完成，最新分值: {bipolar_confrontation.iloc[-1]:.4f}")
         return states
-
     def _synthesize_price_overextension_intent(self) -> Dict[str, pd.Series]:
         """
         【V3.0 · 深度博弈版】冶炼“价格超买意图” (Price Overextension Intent)
@@ -495,7 +485,6 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT'] = final_overextension_intent.astype(np.float32)
         print(f"  -- [融合层] “价格超买意图”冶炼完成，最新分值: {final_overextension_intent.iloc[-1]:.4f}")
         return states
-
     def _synthesize_upper_shadow_intent(self) -> Dict[str, pd.Series]: # 修改方法
         """
         【V2.0 · 深度博弈版】冶炼“上影线意图” (Upper Shadow Intent)
@@ -590,7 +579,6 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_UPPER_SHADOW_INTENT'] = final_intent.astype(np.float32)
         print(f"  -- [融合层] “上影线意图”冶炼完成，最新分值: {final_intent.iloc[-1]:.4f}")
         return states
-
     def _synthesize_trend_structure_score(self) -> Dict[str, pd.Series]:
         """
         【V1.4 · 趋势结构分优化版】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
@@ -703,7 +691,6 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_TREND_STRUCTURE_SCORE'] = final_trend_structure_score.astype(np.float32)
         print(f"  -- [融合层] “趋势结构分”冶炼完成，最新分值: {final_trend_structure_score.iloc[-1]:.4f}")
         return states
-
     def _synthesize_fund_flow_trend(self) -> Dict[str, pd.Series]:
         """
         【V1.1 · 资金流动量版】冶炼“资金趋势” (FUSION_BIPOLAR_FUND_FLOW_TREND)
@@ -736,7 +723,6 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_FUND_FLOW_TREND'] = fund_flow_trend_score.astype(np.float32)
         print(f"  -- [融合层] “资金趋势”冶炼完成，最新分值: {fund_flow_trend_score.iloc[-1]:.4f}")
         return states
-
     def _synthesize_chip_trend(self) -> Dict[str, pd.Series]:
         """
         【V1.6 · 筹码趋势动量强化与缺失信号严格处理及探针版】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
@@ -824,7 +810,6 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_CHIP_TREND'] = chip_trend_score.astype(np.float32)
         print(f"  -- [融合层] “筹码趋势”冶炼完成，最新分值: {chip_trend_score.iloc[-1]:.4f}")
         return states
-
     def _synthesize_accumulation_inflection(self) -> Dict[str, pd.Series]:
         """
         【V1.0 · 资金筹码融合版】冶炼“吸筹拐点信号” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)

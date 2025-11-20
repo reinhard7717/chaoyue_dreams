@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0032_alter_dcindexdaily_options_and_more'),
     ]
-
     operations = [
         migrations.CreateModel(
             name='KplConceptInfo',

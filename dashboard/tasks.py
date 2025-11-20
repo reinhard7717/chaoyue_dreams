@@ -35,7 +35,6 @@ def push_realtime_updates_for_stocks(updated_stock_codes: list):
     if not updated_stock_codes:
         logger.info("没有更新的股票代码，跳过推送任务。")
         return
-
     channel_layer = get_channel_layer()
     if channel_layer is None:
         logger.error("无法获取 Channel Layer，WebSocket推送失败。")

@@ -7,7 +7,6 @@ from django.conf import settings # 导入Django的settings
 class TasksConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'tasks'
-
     def ready(self):
         """
         Django应用加载就绪后执行的钩子函数。

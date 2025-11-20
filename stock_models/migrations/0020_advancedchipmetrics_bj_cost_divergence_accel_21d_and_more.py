@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0019_advancedfundflowmetrics_bj_main_force_flow_intensity_ratio_slope_13d_and_more'),
     ]
-
     operations = [
         migrations.AddField(
             model_name='advancedchipmetrics_bj',

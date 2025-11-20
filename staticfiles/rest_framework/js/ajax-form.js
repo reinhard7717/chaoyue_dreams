@@ -43,7 +43,6 @@ function doAjaxSubmit(e) {
 
   if (contentType) {
     data = form.find('[data-override="content"]').val() || ''
-
     if (contentType === 'multipart/form-data') {
       // We need to add a boundary parameter to the header
       // We assume the first valid-looking boundary line in the body is correct
@@ -60,13 +59,11 @@ function doAjaxSubmit(e) {
     }
   } else {
     contentType = form.attr('enctype') || form.attr('encoding')
-
     if (contentType === 'multipart/form-data') {
       if (!window.FormData) {
         alert('Your browser does not support AJAX multipart form submissions');
         return;
       }
-
       // Use the FormData API and allow the content type to be set automatically,
       // so it includes the boundary string.
       // See https://developer.mozilla.org/en-US/docs/Web/API/FormData/Using_FormData_Objects
@@ -93,12 +90,9 @@ function doAjaxSubmit(e) {
     if (textStatus != 'success') {
       jqXHR = data;
     }
-
     var responseContentType = jqXHR.getResponseHeader("content-type") || "";
-
     if (responseContentType.toLowerCase().indexOf('text/html') === 0) {
       replaceDocument(jqXHR.responseText);
-
       try {
         // Modify the location and scroll to top, as if after page load.
         history.replaceState({}, '', url);

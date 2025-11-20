@@ -11,7 +11,6 @@ class StructuralProbes:
         self.intelligence_layer = intel_layer
         self.strategy = intel_layer.strategy
         self.structural_intel = intel_layer.structural_intel
-
     def _deploy_structural_health_probe(self, probe_date: pd.Timestamp):
         """
         【探针 V2.0 · 信号流穿透版】结构健康度探针
@@ -71,7 +70,6 @@ class StructuralProbes:
         print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针重算值 {final_recalc_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, final_recalc_score) else '❌ 不一致'}")
         print("\n--- “结构健康度探针”解剖完毕 ---")
         
-
     def _deploy_structural_pillar_fusion_probe(self, probe_date: pd.Timestamp, period: int = 13):
         """
         【探针 V2.0 · V20引擎同步版】结构支柱融合探针
@@ -133,7 +131,6 @@ class StructuralProbes:
         system_fused_score = get_val(s_bull_overall.get(period), probe_date)
         print(f"    - [对比]: 系统值 {system_fused_score:.4f} vs. 探针重算值 {final_recalc_score:.4f} -> {'✅ 一致' if np.isclose(system_fused_score, final_recalc_score) else '❌ 不一致'}")
         print("\n--- “结构支柱融合探针”解剖完毕 ---")
-
     def _deploy_structural_pillar_dissection_probe(self, probe_date: pd.Timestamp, pillar_name: str = 'trend_integrity', period: int = 13):
         """
         【探针 V1.4 · 堡垒完整度同步版】结构支柱穿透式解剖探针

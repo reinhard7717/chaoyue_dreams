@@ -19,16 +19,13 @@ for stock_code in os.listdir(root_dir):
     trained_model_dir = os.path.join(stock_path, "trained_model")
     if not os.path.isdir(trained_model_dir):
         continue  # 没有trained_model文件夹跳过
-
     weights_folder = os.path.join(trained_model_dir, "trend_following_transformer_weights.pth")
     if not os.path.isdir(weights_folder):
         # print(f"缺少文件夹: {weights_folder}，跳过")
         continue
-
     target_filename = f"best_transformer_model_{stock_code}.pth"
     src_file = os.path.join(weights_folder, target_filename)
     dst_file = os.path.join(trained_model_dir, target_filename)
-
     if os.path.exists(src_file):
         shutil.move(src_file, dst_file)  # 移动文件到trained_model目录
         print(f"已移动文件: {src_file} -> {dst_file}")
@@ -48,7 +45,6 @@ for stock_code in os.listdir(root_dir):
     trained_model_dir = os.path.join(stock_path, "trained_model")
     if not os.path.isdir(trained_model_dir):
         continue
-
     weights_folder = os.path.join(trained_model_dir, "trend_following_transformer_weights.pth")
     # 取消非空判断，直接删除文件夹及其内容
     if os.path.isdir(weights_folder):

@@ -15,7 +15,6 @@ class IntradayDynamicsCalculator:
     - 输出: 两个字典，分别对应 IntradayChipDynamics 和 DailyTurnoverDistribution 模型所需的数据。
     - 设计: 这是一个纯计算服务，不包含任何数据库IO操作，便于测试和维护。
     """
-
     def __init__(self, minute_df: pd.DataFrame, stock_info: StockInfo, daily_basic_info: StockDailyBasic):
         """
         初始化计算器。
@@ -41,7 +40,6 @@ class IntradayDynamicsCalculator:
         # 3. 初始化结果容器
         self.dynamics_result = {}
         self.distribution_result = {}
-
     def calculate_all(self) -> tuple[dict, dict]:
         """
         执行所有计算，并返回最终结果。
@@ -58,7 +56,6 @@ class IntradayDynamicsCalculator:
         self._prepare_turnover_distribution(volume_profile)
         print(f"[{self.stock_info.stock_code}] 日内动态指标计算完成。")
         return self.dynamics_result, self.distribution_result
-
     def _calculate_vwap_and_turnover(self):
         """计算VWAP和总成交量/额"""
         total_volume = self.df['vol'].sum()
@@ -73,7 +70,6 @@ class IntradayDynamicsCalculator:
             self.dynamics_result['total_float_shares_on_day'] = int(self.daily_basic_info.float_share * 10000)
         else:
             self.dynamics_result['total_float_shares_on_day'] = None # 如果没有数据则为None
-
     def _calculate_volume_profile(self) -> pd.Series:
         """计算成交量分布，并返回POC和VA"""
         # 按收盘价对成交量进行分组，形成成交量分布图
@@ -112,7 +108,6 @@ class IntradayDynamicsCalculator:
         self.dynamics_result['value_area_low'] = Decimal(value_area_low)
         self.dynamics_result['value_area_high'] = Decimal(value_area_high)
         return volume_at_price
-
     def _calculate_narrative_metrics(self, volume_profile: pd.Series):
         """计算时间叙事指标"""
         # 默认值
@@ -135,7 +130,6 @@ class IntradayDynamicsCalculator:
                 self.dynamics_result['closing_auction_type'] = IntradayChipDynamics.DriveType.STRONG_BUY
             elif closing_df['close'].iloc[-1] < closing_vwap * 0.998:
                 self.dynamics_result['closing_auction_type'] = IntradayChipDynamics.DriveType.STRONG_SELL
-
     def _calculate_delta_and_shape(self, volume_profile: pd.Series):
         """计算成交量Delta和分布形态"""
         # 1. 计算成交量Delta
@@ -165,7 +159,6 @@ class IntradayDynamicsCalculator:
             self.dynamics_result['profile_shape_type'] = IntradayChipDynamics.ProfileShape.B_SHAPE
         else:
             self.dynamics_result['profile_shape_type'] = IntradayChipDynamics.ProfileShape.P_SHAPE
-
     def _prepare_turnover_distribution(self, volume_profile: pd.Series):
         """准备当日成交分布的JSON数据"""
         if volume_profile.empty:

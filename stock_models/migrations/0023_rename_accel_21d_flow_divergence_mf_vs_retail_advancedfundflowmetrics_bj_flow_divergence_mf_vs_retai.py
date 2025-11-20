@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0022_advancedchipmetrics_bj_chip_health_score_accel_1d_and_more'),
     ]
-
     operations = [
         migrations.RenameField(
             model_name='advancedfundflowmetrics_bj',

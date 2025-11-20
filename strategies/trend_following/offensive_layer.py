@@ -8,7 +8,6 @@ from strategies.trend_following.utils import get_params_block, get_param_value
 class OffensiveLayer:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
-
     def calculate_entry_score(self, trigger_events: Dict, bottom_context_score: pd.Series, top_context_score: pd.Series) -> Tuple[pd.Series, pd.DataFrame]:
         """
         【V520.1 · 时区同步探针版】

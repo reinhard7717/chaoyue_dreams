@@ -18,23 +18,17 @@ def main():
     parser.add_argument('first_item_name', type=str, help='范围的起始子文件夹名称 (包含)')
     parser.add_argument('last_item_name', type=str, help='范围的结束子文件夹名称 (包含)')
     args = parser.parse_args()
-
     first_item_name = args.first_item_name
     last_item_name = args.last_item_name
     print(f"INFO: Processing trained_model for item names from '{first_item_name}' to '{last_item_name}' (inclusive).")
-
     files_to_archive_relative = []
-
     original_cwd = os.getcwd()
     archive_full_path = ARCHIVE_NAME
-
     print(f"INFO: Scanning directory: {STRATEGY_DATA_DIR}")
     if not os.path.isdir(STRATEGY_DATA_DIR):
         print(f"ERROR: Strategy data directory not found: {STRATEGY_DATA_DIR}")
         sys.exit(1)
-
     all_item_names = sorted(os.listdir(STRATEGY_DATA_DIR))
-
     try:
         start_index = all_item_names.index(first_item_name)
     except ValueError:
@@ -48,10 +42,8 @@ def main():
     if start_index > end_index:
         print(f"ERROR: Start item name '{first_item_name}' comes after end item name '{last_item_name}' in sorted order.")
         sys.exit(1)
-
     items_to_process = all_item_names[start_index : end_index + 1]
     print(f"INFO: Found {len(items_to_process)} items within the specified range.")
-
     # 第一步：先批量删除所有需要删除的 prepared_data 目录
     for item_name in items_to_process:
         stock_code_path = os.path.join(STRATEGY_DATA_DIR, item_name)
@@ -65,7 +57,6 @@ def main():
                         print(f"INFO: Deleted prepared_data directory: {prepared_data_path}")
                     except Exception as e:
                         print(f"ERROR: Failed to delete prepared_data directory {prepared_data_path}: {e}")
-
     # 第二步：收集所有 trained_model 目录下的文件
     for item_name in items_to_process:
         stock_code_path = os.path.join(STRATEGY_DATA_DIR, item_name)
@@ -81,14 +72,11 @@ def main():
                         files_to_archive_relative.append(relative_path)
             else:
                 print(f"INFO: Skipping {trained_model_path}: Directory does not exist.")
-
     if not files_to_archive_relative:
         print(f"INFO: No files found in trained_model directories within the range '{first_item_name}' to '{last_item_name}'. No archive will be created.")
         sys.exit(0)
-
     seven_zip_command = SEVEN_ZIP_COMMAND_BASE + [archive_full_path] + files_to_archive_relative
     print(f"INFO: Executing command from {STRATEGY_DATA_DIR}: {' '.join(seven_zip_command)}")
-
     try:
         os.chdir(STRATEGY_DATA_DIR)
         print(f"INFO: Changed current directory to {os.getcwd()}")

@@ -21,7 +21,6 @@ def get_params_block(strategy_instance, block_name: str, default_return: Any = N
     """
     if default_return is None:
         default_return = {}
-
     config = {}
     if isinstance(strategy_instance, dict):
         # 如果传入的是字典，直接用 .get() 方法获取
@@ -29,7 +28,6 @@ def get_params_block(strategy_instance, block_name: str, default_return: Any = N
     else:
         # 如果传入的是对象实例，用 getattr() 安全地获取属性
         config = getattr(strategy_instance, 'unified_config', {})
-
     # 后续逻辑都基于上面提取出的 config 字典进行操作，不再依赖于 strategy_instance 的类型
     trend_follow_params = config.get('strategy_params', {}).get('trend_follow', {})
     params = trend_follow_params.get(block_name)
@@ -152,10 +150,8 @@ def create_persistent_state(df: pd.DataFrame, entry_event_series: pd.Series, per
     entry_indices = entry_event_series.index[entry_event_series]
     if entry_indices.empty:
         return persistent_series.astype(np.int8) # 返回int8以节省内存
-
     # 预先筛选出所有可能的中断点索引，避免在循环中对整个Series进行掩码操作
     break_indices = df.index[break_condition_series]
-
     for entry_idx in entry_indices:
         window_end_date = entry_idx + pd.Timedelta(days=persistence_days)
         # 在预筛选的中断点索引上进行范围查找，比在整个Series上应用掩码更快
@@ -220,10 +216,8 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
     """
     if series is None or series.isnull().all() or series.empty:
         return pd.Series(default_value, index=target_index, dtype=np.float32)
-
     # 确保series的索引与目标索引对齐，避免后续操作因索引不匹配产生问题
     series = series.reindex(target_index)
-
     # min_periods确保在窗口数据不足时也能计算，增加了早期数据的可用性
     min_periods = max(1, int(window * 0.2))
     rank = series.rolling(
@@ -366,7 +360,6 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int,
     # 默认敏感度从1.0调整为2.0
     if sensitivity == 1.0: # 仅当使用默认值时才修改
         sensitivity = 2.0
-
     if series is None or series.isnull().all() or series.empty:
         return pd.Series(default_value, index=target_index, dtype=np.float32)
     series = series.reindex(target_index)
@@ -391,14 +384,12 @@ def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window
     """
     # 创建一个默认的Series，用于在df.get找不到列时返回，构建双重保险
     default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
-
     # 维度一：速度变化 (加速度) - 衡量趋势斜率的变化趋势
     slope_1 = df.get(f'SLOPE_1_{base_name}', default_series)
     slope_5 = df.get(f'SLOPE_5_{base_name}', default_series)
     slope_diff = slope_1 - slope_5
     velocity_accel_score = normalize_score(slope_diff, df.index, norm_window, ascending=True)
     velocity_decel_score = normalize_score(slope_diff, df.index, norm_window, ascending=False)
-
     # 维度二：力量变化 (加加速度 / Jerk) - 衡量趋势加速度的变化趋势
     accel_1 = df.get(f'ACCEL_1_{base_name}', default_series)
     accel_5 = df.get(f'ACCEL_5_{base_name}', default_series)
@@ -911,21 +902,16 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: p
     """
     if tf_weights is None:
         tf_weights = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}}
-
     if 'weights' in tf_weights and isinstance(tf_weights['weights'], dict):
         valid_weights = {k: v for k, v in tf_weights['weights'].items() if isinstance(v, (int, float))}
     else:
         valid_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
-
     if not valid_weights or series is None or series.empty:
         return pd.Series(0.0, index=target_index, dtype=np.float32)
-
     final_score = pd.Series(0.0, index=target_index, dtype=np.float32)
     total_weight = sum(valid_weights.values())
-
     if total_weight <= 0:
         return pd.Series(0.0, index=target_index, dtype=np.float32)
-
     for period_str, weight in valid_weights.items():
         try:
             period = int(period_str)

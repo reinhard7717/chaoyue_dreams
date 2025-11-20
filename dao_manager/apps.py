@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 class DaoManagerConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'dao_manager' # 【重要】这里必须是您的app的准确名称
-
     def ready(self):
         """
         【核心代码】Django应用启动时执行的初始化逻辑。

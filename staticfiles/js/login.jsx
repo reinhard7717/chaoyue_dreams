@@ -23,7 +23,6 @@ const LoginForm = (props) => {
       setError('用户名和密码不能为空');
       return;
     }
-
     // 提交表单
     document.getElementById('login-form').submit();
   };

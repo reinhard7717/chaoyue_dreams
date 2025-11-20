@@ -17,7 +17,6 @@ class IntradayPatternRecognizer:
         self.patterns_to_check = config.get('patterns', [])
         self.hammer_strength_params = config.get('hammer_strength_params', {}) # 加载锤头线强度参数
         print("IntradayPatternRecognizer initialized.")
-
     def recognize_patterns(self, df: pd.DataFrame, timeframe: str) -> Dict[str, float]: # 修改返回类型为 float
         """
         识别给定DataFrame中最新K线的K线形态，并返回量化强度。

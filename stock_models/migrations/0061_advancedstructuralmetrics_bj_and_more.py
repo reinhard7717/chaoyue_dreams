@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0060_advancedfundflowmetrics_bj_consensus_calibrated_main_flow_sum_13d_accel_13d_and_more'),
     ]
-
     operations = [
         migrations.CreateModel(
             name='AdvancedStructuralMetrics_BJ',

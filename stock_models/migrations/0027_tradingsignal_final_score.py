@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0026_alter_advancedchipmetrics_bj_chip_fault_strength_accel_13d_and_more'),
     ]
-
     operations = [
         migrations.AddField(
             model_name='tradingsignal',

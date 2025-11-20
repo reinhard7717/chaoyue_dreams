@@ -21,7 +21,6 @@ class KlinePatternRecognizer:
     - _reversal: 反转形态
     - _continuation: 持续形态
     """
-
     def __init__(self, params: Dict = None):
         """
         使用传入的参数进行初始化。
@@ -30,7 +29,6 @@ class KlinePatternRecognizer:
         # 合并默认参数和用户传入参数
         defaults = self._get_default_params()
         self.params = {**defaults, **(params if params is not None else {})}
-
     def _get_default_params(self) -> Dict:
         """
          定义所有形态识别的默认阈值，区分为“标准级”和“完美级”。
@@ -52,7 +50,6 @@ class KlinePatternRecognizer:
                 "penetration_ratio": {"decent": 0.4, "perfect": 0.6} # 刺透形态：刺入深度
             }
         }
-
     def identify_all(self, df: pd.DataFrame, suffix: str = '_D') -> pd.DataFrame:
         """
         【修改 V2.2 - 多周期适配版】运行所有K线形态识别。

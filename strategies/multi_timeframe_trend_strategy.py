@@ -27,7 +27,6 @@ class MultiTimeframeTrendStrategy:
     """
     【V203.0 总指挥重构版】
     多时间框架趋势跟踪策略 - 总指挥层 (Orchestrator)。
-
     核心职责:
     1.  **统一配置管理**: 加载并持有唯一的全局配置文件。
     2.  **引擎初始化**: 初始化下属的各个专业引擎（周线战略、日线战术等）。
@@ -35,7 +34,6 @@ class MultiTimeframeTrendStrategy:
     4.  **情报融合**: 将不同时间框架（周、日、分钟）的分析结果进行高效、准确的合并与处理。
     5.  **战报生成**: 汇总所有信号，生成标准化的最终记录。
     """
-
     def __init__(self, cache_manager_instance: CacheManager):
         """
         【V206.0 · 主权配置协议版】初始化总指挥部。
@@ -113,7 +111,6 @@ class MultiTimeframeTrendStrategy:
         print(f"🏁 [总指挥层] 完成处理 {stock_code}, 共生成 {len(all_signals)} 条主信号记录。")
         # 修正最终返回值的来源，确保返回5个列表
         return (all_signals, all_details, records_from_tactical[2], records_from_tactical[3], records_from_tactical[4])
-
     async def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[List, List, List, List, List]:
         """
         【V511.0 · 双子星协议版】
@@ -155,7 +152,6 @@ class MultiTimeframeTrendStrategy:
         except Exception as e:
             logger.error(f"在 {stock_code} 的战术引擎执行期间发生错误: {e}", exc_info=True)
             return (([], [], [], [], []), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
-
     async def run_for_latest_signal(self, stock_code: str, trade_time: Optional[datetime] = None) -> Tuple[List, List, List, List, List]:
         """
         【V506.0 适配版 - 闪电突袭模式】
@@ -184,7 +180,6 @@ class MultiTimeframeTrendStrategy:
         latest_daily_states = [state for state in all_daily_states if state.daily_score in latest_daily_scores]
         print(f"🏁 [总指挥层-闪电突袭] 高效模式处理完毕, 共生成 {len(latest_signals)} 条最新信号和 {len(latest_daily_scores)} 条最新分数。")
         return (latest_signals, latest_details, latest_daily_scores, latest_score_components, latest_daily_states)
-
     async def _run_intraday_entry_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> Tuple[List, List]:
         """
         【V203.6 修正版】盘中入场确认引擎
@@ -264,7 +259,6 @@ class MultiTimeframeTrendStrategy:
             final_entry_signals.append(signal_obj)
         # 返回一个元组，主信号列表在前，空的详情列表在后
         return (final_entry_signals, [])
-
     def _run_intraday_alert_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame]) -> Tuple[List, List]:
         """
         【V203.6 修正版】盘中风险预警引擎
@@ -369,7 +363,6 @@ class MultiTimeframeTrendStrategy:
                 for playbook in sorted(playbooks):
                     report_parts.append(f"  - {playbook}")
         return "\n".join(report_parts)
-
     # NEW: 新增的性能分析专属方法
     async def analyze_signal_performance_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
@@ -446,7 +439,6 @@ class MultiTimeframeTrendStrategy:
             print("    -> [内存管理] 已清理本次分析任务产生的临时数据。")
             # 在finally块中返回结果，确保无论如何都有返回值
             return analysis_results
-
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
         【V324.0 · 真理之镜协议版】
@@ -525,7 +517,6 @@ class MultiTimeframeTrendStrategy:
         finally:
             gc.collect()
             # print("    -> [内存管理] 已清理本次分析任务产生的临时数据。")
-
     def _deploy_bottom_reversal_probe(self, probe_date: str, daily_analysis_df: pd.DataFrame, atomic_states: dict):
         """
         【V1.3 · 作用域及逻辑修复版】底部反转信号深度诊断探针

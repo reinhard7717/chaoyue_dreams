@@ -23,7 +23,6 @@ app.conf.update(
     accept_content=['pickle', 'json'],
     task_serializer='pickle',
     result_serializer='pickle',
-
     # ****** 包含的任务模块列表 ******
     include=[
         'tasks.tushare.stock_time_trade_tasks',

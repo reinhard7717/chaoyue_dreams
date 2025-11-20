@@ -10,7 +10,6 @@ class FundFlowIntelligence:
         :param strategy_instance: 策略主实例的引用。
         """
         self.strategy = strategy_instance
-
     def _get_safe_series(self, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame或字典中获取Series，如果不存在则打印警告并返回默认Series。
@@ -35,7 +34,6 @@ class FundFlowIntelligence:
         else:
             print(f"    -> [资金流情报警告] 方法 '{method_name}' 接收到未知数据源类型 {type(data_source)}，无法获取 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df_index)
-
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V21.8 · 资金流吸筹拐点意图参数传递版】资金流情报分析总指挥
@@ -70,7 +68,6 @@ class FundFlowIntelligence:
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return all_states
-
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.1 · 多时间维度归一化版】资金流公理四：诊断“资金背离”
@@ -86,7 +83,6 @@ class FundFlowIntelligence:
         main_force_flow_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_axiom_divergence"), df.index, tf_weights)
         divergence_score = (main_force_flow_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
-
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.12 · 微观资金流博弈增强与df_indicators引用修复版】资金流公理一：诊断“共识与分歧”
@@ -199,7 +195,6 @@ class FundFlowIntelligence:
                 print(f"       - retail_ofi_score: {retail_ofi_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - consensus_score: {consensus_score.loc[probe_date_for_loop]:.4f}")
         return consensus_score.astype(np.float32)
-
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.5 · 微观资金流博弈增强与探针增强版】资金流公理二：诊断“信念与决心”
@@ -260,7 +255,6 @@ class FundFlowIntelligence:
                 print(f"       - raw_bipolar_series: {raw_bipolar_series.loc[probe_date_for_loop]:.4f}")
                 print(f"       - conviction_score: {conviction_score.loc[probe_date_for_loop]:.4f}")
         return conviction_score.astype(np.float32)
-
     def _diagnose_axiom_flow_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V2.2 · 微观资金流博弈增强与资金流动量与多时间维度归一化版】资金流公理三：诊断“资金流动量”
@@ -328,7 +322,6 @@ class FundFlowIntelligence:
                 print(f"       - order_book_imbalance_score: {order_book_imbalance_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - flow_momentum_score: {flow_momentum_score.loc[probe_date_for_loop]:.4f}")
         return flow_momentum_score.astype(np.float32)
-
     def _diagnose_fund_flow_accumulation_inflection_intent(self, df: pd.DataFrame, norm_window: int, flow_momentum_current: pd.Series, consensus_score_current: pd.Series) -> pd.Series:
         """
         【V1.3 · 微观资金流博弈增强与资金流吸筹拐点意图参数接收版】识别主力从隐蔽吸筹转向公开抢筹的资金流迹象。

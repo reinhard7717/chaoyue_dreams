@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0041_alter_ciindexmember_name_alter_kpllimitlist_name_and_more'),
     ]
-
     operations = [
         migrations.CreateModel(
             name='IndustryLifecycle',

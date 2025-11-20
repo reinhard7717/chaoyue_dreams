@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0010_intradaychipdynamics_dailyturnoverdistribution_and_more'),
     ]
-
     operations = [
         migrations.CreateModel(
             name='StockDailyBasic_BJ',

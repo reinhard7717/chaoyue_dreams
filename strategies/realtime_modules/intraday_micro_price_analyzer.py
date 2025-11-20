@@ -16,7 +16,6 @@ class IntradayMicroPriceAnalyzer:
         self.min_shadow_body_ratio = config.get('min_shadow_body_ratio', 0.8)
         self.rejection_threshold_pct = config.get('rejection_threshold_pct', 0.003)
         print("IntradayMicroPriceAnalyzer initialized.")
-
     def analyze_micro_price_action(self, kline: pd.Series, prev_kline: pd.Series) -> Dict[str, float]: # 修改返回类型为 float
         """
         分析当前K线的微观价格行为，并返回量化值。

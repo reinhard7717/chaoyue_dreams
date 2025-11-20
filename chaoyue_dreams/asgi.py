@@ -18,7 +18,6 @@ import dashboard.routing
 application = ProtocolTypeRouter({
     # Django's ASGI application to handle traditional HTTP requests
     "http": get_asgi_application(),
-
     # WebSocket chat handler
     "websocket": AllowedHostsOriginValidator( # 生产环境建议使用
         AuthMiddlewareStack( # 处理 WebSocket 连接的用户认证

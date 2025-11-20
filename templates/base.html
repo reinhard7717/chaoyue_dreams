@@ -7,7 +7,6 @@
     <meta name="theme-color" content="#1f1f1f"> {# 暗色主题颜色 #}
     <meta name="description" content="超越梦想 - A股量化分析与交易平台"> {# 修改为你的描述 #}
     <title>{% block title %}超越梦想量化{% endblock %}</title>
-
     {# --- 全局 CSS --- #}
     <link rel="stylesheet" href="{% static 'css/theme.css' %}">
     <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
@@ -16,7 +15,6 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body class="dark-theme {% block body_class %}{% endblock %}"> {# 允许子模板添加 body 类, 如 'has-sidebar' #}
-
     {# --- 页头 --- #}
     <header class="site-header">
         <nav class="container header-nav">
@@ -46,7 +44,6 @@
             </div>
         </nav>
     </header>
-
     {# --- 主体内容区域 (包含侧边栏和主内容) --- #}
     <div class="main-wrapper {% if block.sidebar %}with-sidebar{% endif %}"> {# 根据是否有 sidebar block 添加类 #}
         {# --- 侧边栏 (可选) --- #}
@@ -69,9 +66,7 @@
             {# 子模板将在这里填充主要内容 #}
             {% endblock content %}
         </main>
-
     </div>
-
     {# --- 页脚 --- #}
     <footer class="site-footer">
         <div class="container">
@@ -81,10 +76,8 @@
             </p>
         </div>
     </footer>
-
     {# --- 全局 JavaScript (如果需要) --- #}
     {# <script src="{% static 'js/main.js' %}"></script> #}
-
     {# --- 页面特定的额外 Scripts --- #}
     {% block extra_scripts %}
         <!-- 这个脚本包含所有页面都可能用到的通用辅助函数 -->

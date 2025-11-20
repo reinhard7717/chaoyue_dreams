@@ -20,7 +20,6 @@ class UserDAO(BaseDAO):
         self.cache_set = UserCacheSet(self.cache_manager)
         self.cache_get = UserCacheGet(self.cache_manager)
         self.data_format_process = UserDataFormatProcess(cache_manager_instance)
-
     async def get_user_favorites(self, user_id: int) -> List[FavoriteStock]:
         """
         仅从数据库获取用户自选股列表，不使用缓存

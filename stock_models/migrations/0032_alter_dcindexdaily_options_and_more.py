@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0031_alter_swindustry_is_pub'),
     ]
-
     operations = [
         migrations.AlterModelOptions(
             name='dcindexdaily',

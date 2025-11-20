@@ -621,7 +621,6 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.stock_analysis_tasks.rebuild_snapshots_for_all_active_trackers_task',
         'schedule': crontab(hour=22, minute=55, day_of_week='1-5'),
     },
-
     'save_stocks_minute_data_realtime_task_1min': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
         'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
@@ -1140,7 +1139,6 @@ CELERY_BEAT_SCHEDULE = {
         'kwargs': {'time_level': '30'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
-
     'save_stocks_minute_data_realtime_task_30min-1300': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
         'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名
@@ -1176,7 +1174,6 @@ CELERY_BEAT_SCHEDULE = {
         'kwargs': {'time_level': '30'},
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
-
     'save_stocks_minute_data_realtime_task_60min-1030': {
         # 这里包含了获得最新数据、计算指标、执行策略等步骤
         'task': 'tasks.tushare.stock_realtime_tasks.save_stocks_minute_data_realtime_task', # 任务函数名

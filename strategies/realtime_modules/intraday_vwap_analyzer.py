@@ -17,7 +17,6 @@ class IntradayVWAPAnalyzer:
         self.vwap_channel_std_dev = config.get('vwap_channel_std_dev', 1.0)
         self.vwap_deviation_threshold_pct = config.get('vwap_deviation_threshold_pct', 0.005)
         print("IntradayVWAPAnalyzer initialized.")
-
     def analyze_vwap(self, df: pd.DataFrame, timeframe: str) -> Dict[str, float]: # 修改返回类型为 float
         """
         分析给定DataFrame中最新K线的VWAP相关指标，并返回量化值。

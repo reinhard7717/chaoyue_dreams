@@ -120,7 +120,6 @@
     #nav-sidebar, #toggle-nav-sidebar {
         display: none;
     }
-
     .main > #nav-sidebar + .content,
     .main.shifted > #nav-sidebar + .content {
         max-width: 100%;

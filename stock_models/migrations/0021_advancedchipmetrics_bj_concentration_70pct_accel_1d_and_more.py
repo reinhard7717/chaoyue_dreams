@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0020_advancedchipmetrics_bj_cost_divergence_accel_21d_and_more'),
     ]
-
     operations = [
         migrations.AddField(
             model_name='advancedchipmetrics_bj',

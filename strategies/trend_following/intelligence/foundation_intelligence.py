@@ -10,7 +10,6 @@ class FoundationIntelligence:
         :param strategy_instance: 策略主实例的引用，用于访问df和atomic_states。
         """
         self.strategy = strategy_instance
-
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -19,7 +18,6 @@ class FoundationIntelligence:
             print(f"    -> [基础情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
-
     def run_foundation_analysis_command(self) -> Dict[str, pd.Series]:
         """
         【V6.4 · 纯粹原子版】基础情报分析总指挥
@@ -53,7 +51,6 @@ class FoundationIntelligence:
         all_states['SCORE_FOUNDATION_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FOUNDATION_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return all_states
-
     def _diagnose_context_trend_confirmed(self, df: pd.DataFrame, norm_window: int) -> Dict[str, pd.Series]:
         """
         【V1.1 · 多时间维度归一化版】诊断内部上下文信号：趋势确认分 (CONTEXT_TREND_CONFIRMED)
@@ -72,7 +69,6 @@ class FoundationIntelligence:
         bias_health_score = 1 - get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BIAS_55_D', pd.Series(0.0, index=df.index), method_name="_diagnose_context_trend_confirmed").clip(lower=0), df.index, ascending=True, tf_weights=long_term_weights)
         trend_confirmed = (adx_score * direction_score * bias_health_score).pow(1/3).fillna(0.0)
         return {'CONTEXT_TREND_CONFIRMED': trend_confirmed.astype(np.float32)}
-
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.1 · 多时间维度归一化版】基础公理五：诊断“基础背离”
@@ -89,7 +85,6 @@ class FoundationIntelligence:
         oscillator_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'SLOPE_13_RSI_13_D', 0.0, method_name="_diagnose_axiom_divergence"), df.index, default_weights)
         divergence_score = (oscillator_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
-
     def _diagnose_axiom_trend(self, df: pd.DataFrame, norm_window: int, params: dict) -> pd.Series:
         """
         【V1.3 · DMA趋势增强与列名引用修复及多时间维度归一化版】基础公理一：诊断“趋势”
@@ -121,7 +116,6 @@ class FoundationIntelligence:
         # 融合 DMA 斜率分数
         trend_score = (macd_score * 0.3 + structure_score * 0.5 + dma_slope_score * 0.2).clip(-1, 1)
         return trend_score.astype(np.float32)
-
     def _diagnose_axiom_oscillator(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.1 · 多时间维度归一化版】基础公理二：诊断“摆动”
@@ -135,7 +129,6 @@ class FoundationIntelligence:
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         oscillator_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df.index, default_weights, sensitivity=10.0)
         return oscillator_score.astype(np.float32)
-
     def _diagnose_axiom_flow(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.2 · 探针增强与多时间维度归一化版】基础公理三：诊断“流体”
@@ -161,7 +154,6 @@ class FoundationIntelligence:
                 print(f"       - CMF_21_D: {cmf.loc[probe_date_for_loop]:.4f}")
                 print(f"       - flow_score: {flow_score.loc[probe_date_for_loop]:.4f}")
         return flow_score.astype(np.float32)
-
     def _diagnose_axiom_volatility(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.1 · 多时间维度归一化版】基础公理四：诊断“波动”

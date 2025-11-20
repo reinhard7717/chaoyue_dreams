@@ -26,7 +26,6 @@ RATE_LIMIT_REQUESTS = 1200
 class SecurityMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
-
     def __call__(self, request):
         # 1. 路径扫描防御
         # ----------------
@@ -55,7 +54,6 @@ class SecurityMiddleware:
                 return HttpResponseForbidden("Rate limit exceeded. Access Denied.") # 返回403 Forbidden
         response = self.get_response(request)
         return response
-
     def get_client_ip(self, request):
         """获取客户端IP地址"""
         # 尝试从 X-Forwarded-For 头获取IP，这在Nginx等反向代理后是必须的

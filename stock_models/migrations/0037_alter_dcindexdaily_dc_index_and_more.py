@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0036_alter_kplconceptconstituent_trade_time_and_more'),
     ]
-
     operations = [
         # 开始手动SQL操作
         # 在Django执行AlterField之前，我们手动将数据库列名更改为Django历史记录所期望的名称。

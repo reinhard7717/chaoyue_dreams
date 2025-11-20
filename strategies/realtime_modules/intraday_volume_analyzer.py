@@ -17,7 +17,6 @@ class IntradayVolumeAnalyzer:
         self.shrinking_volume_ratio = config.get('shrinking_volume_ratio', 0.5)
         self.volume_ma_period = config.get('volume_ma_period', 21)
         print("IntradayVolumeAnalyzer initialized.")
-
     def analyze_volume(self, df: pd.DataFrame, timeframe: str) -> Dict[str, float]: # 修改返回类型为 float
         """
         分析给定DataFrame中最新K线的成交量异动，并返回量化值。

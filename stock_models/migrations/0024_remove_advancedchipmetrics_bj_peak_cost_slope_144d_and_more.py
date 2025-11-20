@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0023_rename_accel_21d_flow_divergence_mf_vs_retail_advancedfundflowmetrics_bj_flow_divergence_mf_vs_retai'),
     ]
-
     operations = [
         migrations.RemoveField(
             model_name='advancedchipmetrics_bj',

@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0029_remove_strategyscorecomponent_daily_score_and_more'),
     ]
-
     operations = [
         migrations.CreateModel(
             name='StrategyDailyState',

@@ -42,7 +42,6 @@ def save_trade_cal(self):
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
     """
     print(f"开始处理 交易日历数据...")
-
     # 结构调整：主业务逻辑放入main异步函数
     async def main():
         # 创建CacheManager实例
@@ -51,7 +50,6 @@ def save_trade_cal(self):
         index_info_dao = IndexBasicDAO(cache_manager)
         # 执行业务逻辑
         await index_info_dao.save_trade_cal()
-
     try:
         async_to_sync(main)()
         print("任务完成 - 交易日历数据")
@@ -66,7 +64,6 @@ def save_index_infos(self):
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
     """
     print(f"开始处理 指数基本信息...")
-
     async def main():
         # 创建CacheManager实例
         cache_manager = CacheManager()
@@ -74,7 +71,6 @@ def save_index_infos(self):
         index_basic_dao = IndexBasicDAO(cache_manager)
         # 执行业务逻辑
         await index_basic_dao.save_indexs()
-
     try:
         async_to_sync(main)()
         print("任务完成 - 指数基本信息")
@@ -95,7 +91,6 @@ def save_index_daily_today_task(self):
         index_basic_dao = IndexBasicDAO(cache_manager)
         # 执行业务逻辑
         await index_basic_dao.save_index_daily_basic_today()
-
     try:
         async_to_sync(main)()
         print("任务完成 - 大盘指数每日指标")
@@ -115,7 +110,6 @@ def save_index_daily_yesterday_task(self):
         index_basic_dao = IndexBasicDAO(cache_manager)
         # 执行业务逻辑
         await index_basic_dao.save_index_daily_basic_yesterday()
-
     try:
         async_to_sync(main)()
         print("任务完成 - 大盘指数每日指标")
@@ -129,7 +123,6 @@ def save_index_daily_this_week_task(self):
     从Tushare批量获取历史日级资金流向数据并保存到数据库（异步并发处理）
     """
     this_monday, this_friday = get_this_monday_and_friday()
-
     async def main():
         # 创建CacheManager实例
         cache_manager = CacheManager()
@@ -137,7 +130,6 @@ def save_index_daily_this_week_task(self):
         index_basic_dao = IndexBasicDAO(cache_manager)
         # 执行业务逻辑
         await index_basic_dao.save_index_daily_history(start_date=this_monday, end_date=this_friday)
-
     try:
         async_to_sync(main)()
         print("任务完成 - 大盘指数每日指标")
@@ -155,7 +147,6 @@ def save_index_daily_history_slice(index_codes_slice: List[str]):
         index_codes_slice: 指数代码列表切片
     """
     task_id = self.request.id  # 获取任务ID用于日志追踪
-
     async def main():
         # 创建CacheManager实例
         cache_manager = CacheManager()
@@ -163,7 +154,6 @@ def save_index_daily_history_slice(index_codes_slice: List[str]):
         index_basic_dao = IndexBasicDAO(cache_manager)
         # 执行业务逻辑
         await index_basic_dao.save_index_daily_history(index_codes=index_codes_slice)
-
     try:
         logger.info(f"[{task_id}] 开始执行任务 - 处理指数切片，包含 {len(index_codes_slice)} 个代码: {index_codes_slice[:3]}...")
         async_to_sync(main)()
@@ -222,7 +212,6 @@ def save_index_daily_basic_history(self):
         index_basic_dao = IndexBasicDAO(cache_manager)
         # 执行业务逻辑
         return await index_basic_dao.save_index_daily_basic_history()
-
     try:
         print(f"开始处理 指数每日指标...")
         async_to_sync(main)()

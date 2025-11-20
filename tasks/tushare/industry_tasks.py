@@ -167,7 +167,6 @@ def update_static_industry_data_task(cache_manager=None):
     task_name = 'update_static_industry_data_task'
     logger.info(f"开始执行【静态行业元数据更新】任务: {task_name}")
     industry_dao = IndustryDao(cache_manager)
-
     async def main():
         print("\n--- [静态数据更新] 开始处理不按天变化的元数据 ---")
         try:
@@ -186,7 +185,6 @@ def update_static_industry_data_task(cache_manager=None):
         except Exception as e:
             logger.error(f"[{task_name}] 更新静态元数据时发生错误: {e}", exc_info=True)
             raise # 抛出异常以便Celery监控
-
     async_to_sync(main)()
     final_message = f"【静态行业元数据更新】任务: {task_name} 执行完毕。"
     logger.info(final_message)
@@ -203,7 +201,6 @@ def backfill_dc_member_history_task(cache_manager=None):
     task_name = 'backfill_dc_member_history_task'
     logger.info(f"--- [历史回补] 启动【东方财富板块历史成分】任务: {task_name} ---")
     industry_dao = IndustryDao(cache_manager)
-
     async def main():
         # 1. 获取所有东方财富板块列表
         all_dc_indices = await industry_dao.get_dc_index_list()
@@ -220,7 +217,6 @@ def backfill_dc_member_history_task(cache_manager=None):
             except Exception as e:
                 logger.error(f"回补板块 {dc_index.ts_code} 历史成分时发生错误: {e}", exc_info=True)
                 continue # 单个板块失败不影响下一个
-
     async_to_sync(main)()
     final_message = f"--- [历史回补] 任务: {task_name} 执行完毕。 ---"
     logger.info(final_message)
@@ -242,7 +238,6 @@ def process_single_day_historical_data_task(trade_date_str: str, cache_manager=N
     logger.info(f"--- [执行器] 开始处理交易日: {trade_date_str} 的所有数据 ---")
     industry_dao = IndustryDao(cache_manager)
     trade_date = datetime.datetime.strptime(trade_date_str, '%Y-%m-%d').date()
-
     async def main():
         # 辅助函数，用于安全运行单个协程
         async def run_safely(coro, name, **kwargs):
@@ -275,7 +270,6 @@ def process_single_day_historical_data_task(trade_date_str: str, cache_manager=N
         ]
         # 并发执行当天的所有任务
         await asyncio.gather(*tasks)
-
     try:
         async_to_sync(main)()
         final_message = f"--- [执行器] 交易日 {trade_date_str} 的所有数据处理完毕。 ---"
@@ -297,7 +291,6 @@ def save_all_historical_data_task(days_to_fetch: int = 30, cache_manager=None):
     task_name = 'save_all_historical_data_task'
     logger.info(f"--- [调度器] 启动【全面历史数据回补】任务: {task_name}，回补天数: {days_to_fetch} ---")
     index_dao = IndexBasicDAO(cache_manager)
-
     async def main():
         # --- 步骤1: 获取需要回补的交易日列表 ---
         trade_dates = await index_dao.get_last_n_trade_cal_open(n=days_to_fetch)
@@ -317,7 +310,6 @@ def save_all_historical_data_task(days_to_fetch: int = 30, cache_manager=None):
         # group(...) 创建一个任务组，当它被调用时，其内部的所有任务会同时发送到消息队列。
         task_group = group(worker_tasks)
         task_group.apply_async() # 异步执行任务组
-
     async_to_sync(main)()
     final_message = f"--- [调度器] 任务: {task_name} 已成功派发 {days_to_fetch} 个单日处理任务到队列。 ---"
     logger.info(final_message)

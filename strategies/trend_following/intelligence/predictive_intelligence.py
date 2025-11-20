@@ -13,7 +13,6 @@ class PredictiveIntelligence:
     def __init__(self, strategy_context):
         self.strategy = strategy_context
         self.params = get_params_block(self.strategy, 'predictive_intelligence_params', {})
-
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -22,7 +21,6 @@ class PredictiveIntelligence:
             print(f"    -> [结构情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
-
     def run_predictive_diagnostics(self) -> Dict[str, pd.Series]:
         """
         【V2.0 · 德尔菲神谕版】运行所有预测性诊断模型
@@ -40,7 +38,6 @@ class PredictiveIntelligence:
         capitulation_opportunity = self._diagnose_capitulation_reversal(df, atomic_states)
         states['PREDICTIVE_OPP_CAPITULATION_REVERSAL'] = capitulation_opportunity.astype(np.float32)
         return states
-
     def _diagnose_climactic_exhaustion(self, df: pd.DataFrame, atomic_states: Dict) -> pd.Series:
         """
         【V1.4 · 日间影线版】(已撤销哈迪斯审判协议) 诊断“高潮衰竭”风险
@@ -66,7 +63,6 @@ class PredictiveIntelligence:
             kline_weakness_score * weights['kline']
         )
         return final_risk_score.clip(0, 1)
-
     def _diagnose_capitulation_reversal(self, df: pd.DataFrame, atomic_states: Dict) -> pd.Series:
         """
         【V2.0 · 三位一体版】诊断“恐慌投降反转”机会 (入场神谕)

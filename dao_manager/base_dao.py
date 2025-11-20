@@ -34,7 +34,6 @@ class BaseDAO(Generic[T]):
     基础数据访问对象 (DAO) 类。
     【V2.0 - 依赖注入版】
     """
-
     def __init__(self, 
                  cache_manager_instance: CacheManager, # <--- 1. 新增参数
                  model_class: Optional[Type[T]] = None, 
@@ -59,7 +58,6 @@ class BaseDAO(Generic[T]):
         # ts.set_token(...) 返回 None，所以不需要赋值
         ts.set_token(settings.API_LICENCES_TUSHARE)
         self.model_name = model_class._meta.model_name if model_class else "multi_model"
-
     def _get_cache_key(self, key_suffix: str) -> str:
         """
         (内部方法) 根据模型名称和后缀生成标准化的缓存键。
@@ -71,7 +69,6 @@ class BaseDAO(Generic[T]):
         # 确保 self.model_name 有意义
         prefix = self.model_name if self.model_name != "multi_model" else "base_dao"
         return f"{prefix}:{key_suffix}"
-
     # ==================== 缓存辅助函数 ====================
     async def _prepare_data_for_cache(self, data: Union[models.Model, Dict],
                                       related_field_map: Optional[Dict[str, str]] = None) -> Optional[Dict]:
@@ -153,7 +150,6 @@ class BaseDAO(Generic[T]):
                 # 其他基本类型 (int, str, bool, etc.) 或已处理的外键 ID
                 cache_dict[key] = value
         return cache_dict
-
     async def _build_model_from_cache(self, model_class: Type[T], cached_data: Dict,
                                       related_dao_map: Optional[Dict[str, 'BaseDAO']] = None) -> Optional[T]:
         """
@@ -295,7 +291,6 @@ class BaseDAO(Generic[T]):
             # 捕获在处理字段或实例化模型过程中发生的任何其他异常
             logger.error(f"从缓存数据构建 {model_class.__name__} 实例时发生未知错误: {e}, data: {cached_data}", exc_info=True)
             return None # 构建失败返回 None
-
     def _sanitize_for_json(self, data: Any) -> Any:
         """
         递归地清洗数据，使其完全兼容JSON序列化。
@@ -320,9 +315,7 @@ class BaseDAO(Generic[T]):
             return None
         # 其他类型原样返回
         return data
-
     # ==================== CRUD 操作 ====================
-
     async def get_by_id(self, id_value: Any, related_dao_map: Optional[Dict[str, 'BaseDAO']] = None) -> Optional[T]:
         """
         (异步) 根据主键 ID 获取单个实体。
@@ -408,7 +401,6 @@ class BaseDAO(Generic[T]):
             except Exception as e:
                 logger.error(f"API 获取 {self.model_name} (ID: {id_value}) 数据错误: {str(e)}", exc_info=True)
         return None # 所有尝试失败
-
     async def _get_from_db_by_id(self, id_value: Any) -> Optional[T]:
         """
         (内部方法/异步) 从数据库根据主键获取单个实体。
@@ -430,7 +422,6 @@ class BaseDAO(Generic[T]):
         except Exception as e:
             logger.error(f"数据库查询 {self.model_name} (ID: {id_value}) 错误: {str(e)}", exc_info=True)
             return None
-
     async def _fetch_from_api_by_id(self, id_value: Any) -> Optional[Dict[str, Any]]:
         """
         (内部方法/异步/待子类实现) 从 API 获取单个实体数据。
@@ -441,7 +432,6 @@ class BaseDAO(Generic[T]):
             从 API 获取并处理后的实体数据字典，如果获取失败则返回 None。
         """
         raise NotImplementedError(f"{self.__class__.__name__} 必须实现 _fetch_from_api_by_id 方法")
-
     async def get_all(self, related_dao_map: Optional[Dict[str, 'BaseDAO']] = None) -> List[T]:
         """
         (异步) 获取模型的所有实体列表。
@@ -529,7 +519,6 @@ class BaseDAO(Generic[T]):
                 logger.error(f"数据库查询所有 {self.model_name} 错误: {str(e)}", exc_info=True)
                 instances = [] # 查询失败返回空列表
         return instances
-
     async def _get_all_from_db(self) -> List[T]:
         """
         (内部方法/异步) 从数据库获取所有实体。
@@ -547,7 +536,6 @@ class BaseDAO(Generic[T]):
         except Exception as e:
             logger.error(f"数据库查询所有 {self.model_name} 错误: {str(e)}", exc_info=True)
             return []
-
     async def _fetch_all_from_api(self) -> List[Dict[str, Any]]:
         """
         (内部方法/异步/待子类实现) 从 API 获取所有实体数据。
@@ -556,7 +544,6 @@ class BaseDAO(Generic[T]):
             从 API 获取并处理后的实体数据字典列表。
         """
         raise NotImplementedError(f"{self.__class__.__name__} 必须实现 _fetch_all_from_api 方法")
-
     async def filter(self, related_dao_map: Optional[Dict[str, 'BaseDAO']] = None, **kwargs) -> List[T]:
         """
         (异步) 根据提供的关键字参数从数据库筛选实体。
@@ -588,7 +575,6 @@ class BaseDAO(Generic[T]):
         except Exception as e:
             logger.error(f"数据库筛选 {self.model_name} 错误: {str(e)}", exc_info=True)
             return []
-
     # ==================== 批量保存方法 ====================
     async def _save_all_to_db_native_upsert(self, model_class, data_list: list, unique_fields: list, batch_size=10000):
         """
@@ -648,7 +634,6 @@ class BaseDAO(Generic[T]):
         # 6. 返回结果
         failed_count = total_records - success_count
         return {"尝试处理": total_records, "失败": failed_count, "创建/更新成功": success_count}
-
     async def process_batch_async(self, model_class, data_list: list, unique_fields: list, update_fields: list, batch_size=5000):
         """
         【V4.0 - 流程重构版】的异步批处理调度器。
@@ -682,7 +667,6 @@ class BaseDAO(Generic[T]):
             logger.error(f"获取Redis分布式锁 {lock_key} 失败或在持有锁期间发生未捕获的异常: {lock_error}", exc_info=True)
             return 0
         return total_processed
-
     def _process_batch_mysql_upsert_sync(self, model_class, data_list, unique_fields, update_fields=None, **kwargs):
         """
         【V3.2 死锁重试修复版】
@@ -777,7 +761,6 @@ class BaseDAO(Generic[T]):
                 return 0
         logger.error(f"模型 {model_class.__name__} 的批量 Upsert 在 {max_retries} 次尝试后均失败。")
         return 0
-
     async def _prepare_model_instance(self, model_class, prepared_data, fk_fields_map):
         """
         【V8 - 修复字段移除问题版】
@@ -812,7 +795,6 @@ class BaseDAO(Generic[T]):
         cleaned_data = {k: v for k, v in prepared_data.items() if k in model_field_names}
         # print(f"DEBUG: Final cleaned data for model instance: {cleaned_data.keys()}")
         return cleaned_data
-
     @staticmethod
     @sync_to_async
     def _get_or_create_fk_sync(fk_model: Type[models.Model], lookup_field: str, code_value: str) -> models.Model | None:
@@ -835,7 +817,6 @@ class BaseDAO(Generic[T]):
             # 捕获可能的数据库错误或其他问题，并记录详细日志。
             logger.error(f"在 _get_or_create_fk_sync 中为代码 '{code_value}' (字段: {lookup_field}) 操作 '{fk_model.__name__}' 时出错: {e}", exc_info=True)
             return None # 出错时返回 None，上层会捕获并抛出 ValueError
-
     async def get_or_create_fk_instance(self, fk_model: Type[models.Model], code_field_name: str, code_value: str) -> models.Model | None:
         """
         【V6 动态字段版】
@@ -847,9 +828,7 @@ class BaseDAO(Generic[T]):
         # print(f"DEBUG: get_or_create_fk_instance: fk_model={fk_model.__name__}, code_field_name='{code_field_name}', code_value='{code_value}'")
         # 关键修改：方法签名已更新为 (self, fk_model, code_field_name, code_value)，现在可以正确地将参数传递给下一层。
         return await self._get_or_create_fk_sync(fk_model, code_field_name, code_value)
-
     # ==================== 更新和删除操作 ====================
-
     async def update(self, id_value: Any, data: Dict[str, Any]) -> Optional[T]:
         """
         (异步) 更新指定 ID 的实体。
@@ -897,7 +876,6 @@ class BaseDAO(Generic[T]):
         except Exception as e:
             logger.error(f"更新实体 {self.model_name} (ID: {id_value}) 错误: {str(e)}", exc_info=True)
             return None
-
     async def delete(self, id_value: Any) -> bool:
         """
         (异步) 删除指定 ID 的实体。
@@ -939,9 +917,7 @@ class BaseDAO(Generic[T]):
         except Exception as e:
             logger.error(f"删除实体 {self.model_name} (ID: {id_value}) 错误: {str(e)}", exc_info=True)
             return False
-
     # ==================== 数据解析工具方法 ====================
-
     def _parse_datetime(self, value, default_format=None):
         """
         (内部方法/同步) 解析各种格式的日期时间值，返回 timezone-aware 或 naive datetime 对象。
@@ -1020,7 +996,6 @@ class BaseDAO(Generic[T]):
             pass # 不是时间戳，继续尝试其他格式
         logger.warning(f"无法解析日期时间值: {value}")
         return None # 所有尝试失败
-
     def _parse_number(self, value: Any, default: Optional[Decimal] = None) -> Optional[Decimal]:
         """
         (内部方法/同步) 解析数字，处理各种格式的数字字符串，返回 Decimal 类型以保证精度。
@@ -1078,7 +1053,6 @@ class BaseDAO(Generic[T]):
         except Exception as e_outer:
             logger.warning(f"解析数字失败: {value}, 错误: {e_outer}")
             return default
-
     @staticmethod
     def _get_model_fields(model_class: Type[models.Model]) -> List[str]:
         """
@@ -1095,9 +1069,7 @@ class BaseDAO(Generic[T]):
         except Exception as e:
             logger.error(f"获取模型 {model_class.__name__} 字段时出错: {e}")
             return []
-
     # ==================== 日期方法 ====================
-
     # 获取本周一和本周五的日期
     def get_this_monday_and_friday():
         """获取本周一和本周五的日期"""
@@ -1105,7 +1077,6 @@ class BaseDAO(Generic[T]):
         this_monday = today - datetime.timedelta(days=today.weekday())
         this_friday = this_monday + datetime.timedelta(days=4)
         return this_monday, this_friday
-
     # 获取上周一和上周五的日期
     def get_last_monday_and_friday():
         """获取上周一和上周五的日期"""

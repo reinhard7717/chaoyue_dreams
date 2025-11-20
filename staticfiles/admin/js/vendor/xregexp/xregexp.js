@@ -81,25 +81,20 @@ var _default = function _default(XRegExp) {
     var lastEnd = -1;
     (0, _forEach["default"])(XRegExp).call(XRegExp, range, /(\\x..|\\u....|\\?[\s\S])(?:-(\\x..|\\u....|\\?[\s\S]))?/, function (m) {
       var start = charCode(m[1]);
-
       if (start > lastEnd + 1) {
         output += "\\u".concat(pad4(hex(lastEnd + 1)));
         if (start > lastEnd + 2) {
           output += "-\\u".concat(pad4(hex(start - 1)));
         }
       }
-
       lastEnd = charCode(m[2] || m[1]);
     });
-
     if (lastEnd < 0xFFFF) {
       output += "\\u".concat(pad4(hex(lastEnd + 1)));
-
       if (lastEnd < 0xFFFE) {
         output += '-\\uFFFF';
       }
     }
-
     return output;
   } // Generates an inverted BMP range on first use
 
@@ -113,23 +108,17 @@ var _default = function _default(XRegExp) {
   function buildAstral(slug, isNegated) {
     var item = unicode[slug];
     var combined = '';
-
     if (item.bmp && !item.isBmpLast) {
       var _context;
-
       combined = (0, _concat["default"])(_context = "[".concat(item.bmp, "]")).call(_context, item.astral ? '|' : '');
     }
-
     if (item.astral) {
       combined += item.astral;
     }
-
     if (item.isBmpLast && item.bmp) {
       var _context2;
-
       combined += (0, _concat["default"])(_context2 = "".concat(item.astral ? '|' : '', "[")).call(_context2, item.bmp, "]");
     } // Astral Unicode tokens always match a code point, never a code unit
-
 
     return isNegated ? "(?:(?!".concat(combined, ")(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[\0-\uFFFF]))") : "(?:".concat(combined, ")");
   } // Builds a complete astral pattern on first use
@@ -154,7 +143,6 @@ var _default = function _default(XRegExp) {
     var ERR_UNKNOWN_REF = 'Unicode token missing data ';
     var ERR_ASTRAL_ONLY = 'Astral mode required for Unicode token ';
     var ERR_ASTRAL_IN_CLASS = 'Astral mode does not support Unicode tokens within character classes';
-
     var _match = (0, _slicedToArray2["default"])(match, 6),
         fullToken = _match[0],
         pPrefix = _match[1],
@@ -163,55 +151,41 @@ var _default = function _default(XRegExp) {
         tokenName = _match[4],
         tokenSingleCharName = _match[5]; // Negated via \P{..} or \p{^..}
 
-
     var isNegated = pPrefix === 'P' || !!caretNegation; // Switch from BMP (0-FFFF) to astral (0-10FFFF) mode via flag A
-
     var isAstralMode = (0, _indexOf["default"])(flags).call(flags, 'A') !== -1; // Token lookup name. Check `tokenSingleCharName` first to avoid passing `undefined`
     // via `\p{}`
-
     var slug = normalize(tokenSingleCharName || tokenName); // Token data object
-
     var item = unicode[slug];
-
     if (pPrefix === 'P' && caretNegation) {
       throw new SyntaxError(ERR_DOUBLE_NEG + fullToken);
     }
-
     if (!unicode.hasOwnProperty(slug)) {
       throw new SyntaxError(ERR_UNKNOWN_NAME + fullToken);
     }
-
     if (typePrefix) {
       if (!(unicodeTypes[typePrefix] && unicodeTypes[typePrefix][slug])) {
         throw new SyntaxError(ERR_UNKNOWN_NAME + fullToken);
       }
     } // Switch to the negated form of the referenced Unicode token
 
-
     if (item.inverseOf) {
       slug = normalize(item.inverseOf);
-
       if (!unicode.hasOwnProperty(slug)) {
         var _context3;
         throw new ReferenceError((0, _concat["default"])(_context3 = "".concat(ERR_UNKNOWN_REF + fullToken, " -> ")).call(_context3, item.inverseOf));
       }
-
       item = unicode[slug];
       isNegated = !isNegated;
     }
-
     if (!(item.bmp || isAstralMode)) {
       throw new SyntaxError(ERR_ASTRAL_ONLY + fullToken);
     }
-
     if (isAstralMode) {
       if (scope === 'class') {
         throw new SyntaxError(ERR_ASTRAL_IN_CLASS);
       }
-
       return cacheAstral(slug, isNegated);
     }
-
     return scope === 'class' ? isNegated ? cacheInvertedBmp(slug) : item.bmp : "".concat((isNegated ? '[^' : '[') + item.bmp, "]");
   }, {
     scope: 'all',
@@ -253,15 +227,12 @@ var _default = function _default(XRegExp) {
   XRegExp.addUnicodeData = function (data, typePrefix) {
     var ERR_NO_NAME = 'Unicode token requires name';
     var ERR_NO_DATA = 'Unicode token has no character data ';
-
     if (typePrefix) {
       // Case sensitive to match ES2018
       unicodeTypes[typePrefix] = {};
     }
-
     var _iterator = _createForOfIteratorHelper(data),
         _step;
-
     try {
       for (_iterator.s(); !(_step = _iterator.n()).done;) {
         var item = _step.value;
@@ -285,13 +256,11 @@ var _default = function _default(XRegExp) {
         }
       } // Reset the pattern cache used by the `XRegExp` constructor, since the same pattern and
       // flags might now produce different results
-
     } catch (err) {
       _iterator.e(err);
     } finally {
       _iterator.f();
     }
-
     XRegExp.cache.flush('patterns');
   };
   /**
@@ -494,15 +463,12 @@ function hasNativeFlag(flag) {
     // Can't use regex literals for testing even in a `try` because regex literals with
     // unsupported flags cause a compilation error in IE
     new RegExp('', flag); // Work around a broken/incomplete IE11 polyfill for sticky introduced in core-js 3.6.0
-
     if (flag === 'y') {
       // Using function to avoid babel transform to regex literal
       var gy = function () {
         return 'gy';
       }();
-
       var incompleteY = '.a'.replace(new RegExp('a', gy), '.') === '..';
-
       if (incompleteY) {
         isSupported = false;
       }
@@ -652,7 +618,6 @@ function copyRegex(regex, options) {
       xregexpSource = xData.source;
     } // null or undefined; don't want to add to `flags` if the previous value was null, since
     // that indicates we're not tracking original precompilation flags
-
 
     if ((0, _flags["default"])(xData) != null) {
       // Flags are only added for non-internal regexes by `XRegExp.globalize`. Flags are never
@@ -842,7 +807,6 @@ function prepareFlags(pattern, flags) {
       throw new SyntaxError("Cannot use flags dgy in mode modifier ".concat($0));
     } // Allow duplicate flags within the mode modifier
 
-
     flags = clipDuplicates(flags + $1);
     return '';
   }); // Throw on unknown native or nonnative flags
@@ -853,7 +817,6 @@ function prepareFlags(pattern, flags) {
   try {
     for (_iterator.s(); !(_step = _iterator.n()).done;) {
       var flag = _step.value;
-
       if (!registeredFlags[flag]) {
         throw new SyntaxError("Unknown regex flag ".concat(flag));
       }
@@ -928,20 +891,16 @@ function runTokens(pattern, flags, pos, scope, context) {
 
   while (i--) {
     t = tokens[i];
-
     if (t.leadChar && t.leadChar !== leadChar || t.scope !== scope && t.scope !== 'all' || t.flag && !((0, _indexOf["default"])(flags).call(flags, t.flag) !== -1)) {
       continue;
     }
-
     match = XRegExp.exec(pattern, t.regex, pos, 'sticky');
-
     if (match) {
       result = {
         matchLength: match[0].length,
         output: t.handler.call(context, match, scope, flags),
         reparse: t.reparse
       }; // Finished with token tests
-
       break;
     }
   }
@@ -1018,7 +977,6 @@ function XRegExp(pattern, flags) {
     if (flags !== undefined) {
       throw new TypeError('Cannot supply flags when copying a RegExp');
     }
-
     return copyRegex(pattern);
   } // Copy the argument behavior of `RegExp`
 
@@ -1044,12 +1002,10 @@ function XRegExp(pattern, flags) {
     var output = '';
     var pos = 0;
     var result; // Check for flag-related errors, and strip/apply flags in a leading mode modifier
-
     var applied = prepareFlags(pattern, flags);
     var appliedPattern = applied.pattern;
     var appliedFlags = (0, _flags["default"])(applied); // Use XRegExp's tokens to translate the pattern to a native regex pattern.
     // `appliedPattern.length` may change on each iteration if tokens use `reparse`
-
     while (pos < appliedPattern.length) {
       do {
         // Check for custom tokens at the current position
@@ -1059,7 +1015,6 @@ function XRegExp(pattern, flags) {
           appliedPattern = (0, _slice["default"])(appliedPattern).call(appliedPattern, 0, pos) + result.output + (0, _slice["default"])(appliedPattern).call(appliedPattern, pos + result.matchLength);
         }
       } while (result && result.reparse);
-
       if (result) {
         output += result.output;
         pos += result.matchLength || 1;
@@ -1077,7 +1032,6 @@ function XRegExp(pattern, flags) {
         }
       }
     }
-
     patternCache[pattern][flags] = {
       // Use basic cleanup to collapse repeated empty groups like `(?:)(?:)` to `(?:)`. Empty
       // groups are sometimes inserted during regex transpilation in order to keep tokens
@@ -1179,10 +1133,8 @@ XRegExp.addToken = function (regex, handler, options) {
 
   if (optionalFlags) {
     optionalFlags = optionalFlags.split('');
-
     var _iterator2 = _createForOfIteratorHelper(optionalFlags),
         _step2;
-
     try {
       for (_iterator2.s(); !(_step2 = _iterator2.n()).done;) {
         var flag = _step2.value;
@@ -1571,7 +1523,6 @@ XRegExp.matchChain = function (str, chain) {
       regex: chain[level]
     };
     var matches = [];
-
     function addMatch(match) {
       if (item.backref) {
         var ERR_UNDEFINED_GROUP = "Backreference to undefined group: ".concat(item.backref);
@@ -1590,10 +1541,8 @@ XRegExp.matchChain = function (str, chain) {
         matches.push(match[0]);
       }
     }
-
     var _iterator3 = _createForOfIteratorHelper(values),
         _step3;
-
     try {
       for (_iterator3.s(); !(_step3 = _iterator3.n()).done;) {
         var value = _step3.value;
@@ -1604,7 +1553,6 @@ XRegExp.matchChain = function (str, chain) {
     } finally {
       _iterator3.f();
     }
-
     return level === chain.length - 1 || !matches.length ? matches : recurseChain(matches, level + 1);
   }([str], 0);
 };
@@ -1671,7 +1619,6 @@ XRegExp.replace = function (str, search, replacement, scope) {
   if (isRegex) {
     search[REGEX_DATA] = search[REGEX_DATA] || {}; // Shares cached copies with `XRegExp.exec`/`match`. Since a copy is used, `search`'s
     // `lastIndex` isn't updated *during* replacement iterations
-
     s2 = search[REGEX_DATA][cacheKey] || (search[REGEX_DATA][cacheKey] = copyRegex(search, {
       addG: !!global,
       removeG: scope === 'one',
@@ -1858,19 +1805,15 @@ XRegExp.union = function (patterns, flags, options) {
 
   function rewrite(match, paren, backref) {
     var name = captureNames[numCaptures - numPriorCaptures]; // Capturing group
-
     if (paren) {
       ++numCaptures; // If the current capture has a name, preserve the name
-
       if (name) {
         return "(?<".concat(name, ">");
       } // Backreference
-
     } else if (backref) {
       // Rewrite the backreference
       return "\\".concat(+backref + numPriorCaptures);
     }
-
     return match;
   }
 
@@ -1887,7 +1830,6 @@ XRegExp.union = function (patterns, flags, options) {
   try {
     for (_iterator5.s(); !(_step5 = _iterator5.n()).done;) {
       var pattern = _step5.value;
-
       if (XRegExp.isRegExp(pattern)) {
         numPriorCaptures = numCaptures;
         captureNames = pattern[REGEX_DATA] && pattern[REGEX_DATA].captureNames || []; // Rewrite backreferences. Passing to XRegExp dies on octals and ensures patterns are
@@ -1929,13 +1871,11 @@ fixed.exec = function (str) {
     // in standards mode follows the spec.
     if (!correctExecNpcg && match.length > 1 && (0, _indexOf["default"])(match).call(match, '') !== -1) {
       var _context3;
-
       var r2 = copyRegex(this, {
         removeG: true,
         isInternalOnly: true
       }); // Using `str.slice(match.index)` rather than `match[0]` in case lookahead allowed
       // matching due to characters outside the match
-
       (0, _slice["default"])(_context3 = String(str)).call(_context3, match.index).replace(r2, function () {
         var len = arguments.length; // Skip index 0 and the last 2
         for (var i = 1; i < len - 2; ++i) {
@@ -1946,16 +1886,13 @@ fixed.exec = function (str) {
       });
     } // Attach named capture properties
 
-
     if (this[REGEX_DATA] && this[REGEX_DATA].captureNames) {
       var groupsObject = match;
-
       if (XRegExp.isInstalled('namespacing')) {
         // https://tc39.github.io/proposal-regexp-named-groups/#sec-regexpbuiltinexec
         match.groups = (0, _create["default"])(null);
         groupsObject = match.groups;
       } // Skip index 0
-
 
       for (var i = 1; i < match.length; ++i) {
         var name = this[REGEX_DATA].captureNames[i - 1];
@@ -1963,11 +1900,9 @@ fixed.exec = function (str) {
           groupsObject[name] = match[i];
         }
       } // Preserve any existing `groups` obj that came from native ES2018 named capture
-
     } else if (!match.groups && XRegExp.isInstalled('namespacing')) {
       match.groups = undefined;
     } // Fix browsers that increment `lastIndex` after zero-length matches
-
 
     if (this.global && !match[0].length && this.lastIndex > match.index) {
       this.lastIndex = match.index;
@@ -2011,7 +1946,6 @@ fixed.match = function (regex) {
     regex = new RegExp(regex);
   } else if (regex.global) {
     var result = String.prototype.match.apply(this, arguments); // Fixes IE bug
-
     regex.lastIndex = 0;
     return result;
   }
@@ -2044,7 +1978,6 @@ fixed.replace = function (search, replacement) {
       captureNames = search[REGEX_DATA].captureNames;
     } // Only needed if `search` is nonglobal
 
-
     origLastIndex = search.lastIndex;
   } else {
     search += ''; // Type-convert
@@ -2058,7 +1991,6 @@ fixed.replace = function (search, replacement) {
       for (var _len = arguments.length, args = new Array(_len), _key = 0; _key < _len; _key++) {
         args[_key] = arguments[_key];
       }
-
       if (captureNames) {
         var groupsObject;
         if (XRegExp.isInstalled('namespacing')) {
@@ -2078,7 +2010,6 @@ fixed.replace = function (search, replacement) {
         }
       } // ES6 specs the context for replacement functions as `undefined`
 
-
       return replacement.apply(void 0, args);
     });
   } else {
@@ -2088,9 +2019,7 @@ fixed.replace = function (search, replacement) {
       for (var _len2 = arguments.length, args = new Array(_len2), _key2 = 0; _key2 < _len2; _key2++) {
         args[_key2] = arguments[_key2];
       }
-
       return String(replacement).replace(replacementToken, replacer);
-
       function replacer($0, bracketed, angled, dollarToken) {
         bracketed = bracketed || angled; // ES2018 added a new trailing `groups` arg that's passed to replacement functions
         // when the search regex uses native named capture
@@ -2210,11 +2139,9 @@ fixed.split = function (separator, limit) {
     // This condition is not the same as `if (match[0].length)`
     if (match.index + match[0].length > lastLastIndex) {
       output.push((0, _slice["default"])(str).call(str, lastLastIndex, match.index));
-
       if (match.length > 1 && match.index < str.length) {
         Array.prototype.push.apply(output, (0, _slice["default"])(match).call(match, 1));
       }
-
       lastLength = match[0].length;
       lastLastIndex = match.index + lastLength;
     }
@@ -2474,7 +2401,6 @@ function _iterableToArrayLimit(arr, i) {
   try {
     for (_i = _i.call(arr); !(_n = (_s = _i.next()).done); _n = true) {
       _arr.push(_s.value);
-
       if (i && _arr.length === i) break;
     }
   } catch (err) {
@@ -3567,19 +3493,14 @@ module.exports = function (options, source) {
     FORCED = isForced(GLOBAL ? key : TARGET + (STATIC ? '.' : '#') + key, options.forced);
     // contains in native
     USE_NATIVE = !FORCED && nativeSource && hasOwn(nativeSource, key);
-
     targetProperty = target[key];
-
     if (USE_NATIVE) if (options.noTargetGet) {
       descriptor = getOwnPropertyDescriptor(nativeSource, key);
       nativeProperty = descriptor && descriptor.value;
     } else nativeProperty = nativeSource[key];
-
     // export native or implementation
     sourceProperty = (USE_NATIVE && nativeProperty) ? nativeProperty : source[key];
-
     if (USE_NATIVE && typeof targetProperty == typeof sourceProperty) continue;
-
     // bind timers to global for call from export context
     if (options.bind && USE_NATIVE) resultProperty = bind(sourceProperty, global);
     // wrap global constructors for prevent changs in this version
@@ -3588,14 +3509,11 @@ module.exports = function (options, source) {
     else if (PROTO && isCallable(sourceProperty)) resultProperty = uncurryThis(sourceProperty);
     // default case
     else resultProperty = sourceProperty;
-
     // add a flag to not completely full polyfills
     if (options.sham || (sourceProperty && sourceProperty.sham) || (targetProperty && targetProperty.sham)) {
       createNonEnumerableProperty(resultProperty, 'sham', true);
     }
-
     createNonEnumerableProperty(target, key, resultProperty);
-
     if (PROTO) {
       VIRTUAL_PROTOTYPE = TARGET + 'Prototype';
       if (!hasOwn(path, VIRTUAL_PROTOTYPE)) {
@@ -5144,13 +5062,11 @@ var STABLE_SORT = !fails(function () {
   // generate an array with more 512 elements (Chakra and old V8 fails only in this case)
   for (code = 65; code < 76; code++) {
     chr = String.fromCharCode(code);
-
     switch (code) {
       case 66: case 69: case 70: case 72: value = 3; break;
       case 68: case 71: value = 4; break;
       default: value = 2;
     }
-
     for (index = 0; index < 47; index++) {
       test.push({ k: chr + index, v: value });
     }
@@ -5182,27 +5098,19 @@ var getSortCompare = function (comparefn) {
 $({ target: 'Array', proto: true, forced: FORCED }, {
   sort: function sort(comparefn) {
     if (comparefn !== undefined) aCallable(comparefn);
-
     var array = toObject(this);
-
     if (STABLE_SORT) return comparefn === undefined ? un$Sort(array) : un$Sort(array, comparefn);
-
     var items = [];
     var arrayLength = lengthOfArrayLike(array);
     var itemsLength, index;
-
     for (index = 0; index < arrayLength; index++) {
       if (index in array) push(items, array[index]);
     }
-
     internalSort(items, getSortCompare(comparefn));
-
     itemsLength = items.length;
     index = 0;
-
     while (index < itemsLength) array[index] = items[index++];
     while (index < arrayLength) delete array[index++];
-
     return array;
   }
 });

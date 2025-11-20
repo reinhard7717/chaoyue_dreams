@@ -12,11 +12,9 @@ class MicroBehaviorProbes:
     def __init__(self, intelligence_layer_instance):
         self.intelligence_layer = intelligence_layer_instance
         self.strategy = intelligence_layer_instance.strategy
-
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default=0.0) -> pd.Series:
         """安全地从原子状态库中获取分数。"""
         return self.strategy.atomic_states.get(name, pd.Series(default, index=df.index))
-
     def _deploy_euphoric_acceleration_transmutation_probe(self, probe_date: pd.Timestamp):
         """
         【探针 V1.0】亢奋加速嬗变探针
@@ -83,7 +81,6 @@ class MicroBehaviorProbes:
         print(f"    - [风险分对比]: 系统值 {actual_risk_score:.4f} vs. 探针值 {recalc_risk_score:.4f} -> {'✅ 一致' if risk_match else '❌ 不一致'}")
         print(f"    - [机会分对比]: 系统值 {actual_opp_score:.4f} vs. 探针值 {recalc_opp_score:.4f} -> {'✅ 一致' if opp_match else '❌ 不一致'}")
         print("\n--- “亢奋加速嬗变探针”解剖完毕 ---")
-
     def _deploy_profit_taking_pressure_probe(self, probe_date: pd.Timestamp):
         """
         【探针 V5.0 · 燃料转化协议同步版】利润兑现压力探针

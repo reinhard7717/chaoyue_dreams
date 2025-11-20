@@ -17,14 +17,12 @@ class Income(models.Model):
     revenue = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True, verbose_name='营业收入')
     # ... 省略其余字段，按需添加
     update_flag = models.CharField(max_length=10, null=True, blank=True, verbose_name='更新标识')
-
     class Meta:
         verbose_name = '利润表'
         verbose_name_plural = verbose_name
         db_table = 'income'
         unique_together = ('stock', 'end_date', 'report_type')
         ordering = ['-end_date']
-
     def __str__(self):
         return f"{self.stock.stock_code} {self.end_date}"
 
@@ -42,14 +40,12 @@ class BalanceSheet(models.Model):
     cap_rese = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True, verbose_name='资本公积金')
     # ... 省略其余字段，按需添加
     update_flag = models.CharField(max_length=10, null=True, blank=True, verbose_name='更新标识')
-
     class Meta:
         verbose_name = '资产负债表'
         verbose_name_plural = verbose_name
         db_table = 'balance_sheet'
         unique_together = ('stock', 'end_date', 'report_type')
         ordering = ['-end_date']
-
     def __str__(self):
         return f"{self.stock.stock_code} {self.end_date}"
 
@@ -67,14 +63,12 @@ class CashFlow(models.Model):
     finan_exp = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True, verbose_name='财务费用')
     # ... 省略其余字段，按需添加
     update_flag = models.CharField(max_length=10, null=True, blank=True, verbose_name='更新标志')
-
     class Meta:
         verbose_name = '现金流量表'
         verbose_name_plural = verbose_name
         db_table = 'cash_flow'
         unique_together = ('stock', 'end_date', 'report_type')
         ordering = ['-end_date']
-
     def __str__(self):
         return f"{self.stock.stock_code} {self.end_date}"
 
@@ -93,14 +87,12 @@ class Forecast(models.Model):
     first_ann_date = models.DateField(null=True, blank=True, verbose_name='首次公告日')
     summary = models.TextField(null=True, blank=True, verbose_name='业绩预告摘要')
     change_reason = models.TextField(null=True, blank=True, verbose_name='业绩变动原因')
-
     class Meta:
         verbose_name = '业绩预告'
         verbose_name_plural = verbose_name
         db_table = 'forecast'
         unique_together = ('stock', 'ann_date', 'end_date')
         ordering = ['-ann_date']
-
     def __str__(self):
         return f"{self.stock.stock_code} {self.ann_date} {self.type}"
 
@@ -121,14 +113,12 @@ class Express(models.Model):
     perf_summary = models.TextField(null=True, blank=True, verbose_name='业绩简要说明')
     is_audit = models.BooleanField(default=False, verbose_name='是否审计')
     remark = models.TextField(null=True, blank=True, verbose_name='备注')
-
     class Meta:
         verbose_name = '业绩快报'
         verbose_name_plural = verbose_name
         db_table = 'express'
         unique_together = ('stock', 'ann_date', 'end_date')
         ordering = ['-ann_date']
-
     def __str__(self):
         return f"{self.stock.stock_code} {self.ann_date}"
 
@@ -151,14 +141,12 @@ class Dividend(models.Model):
     imp_ann_date = models.DateField(null=True, blank=True, verbose_name='实施公告日')
     base_date = models.DateField(null=True, blank=True, verbose_name='基准日')
     base_share = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True, verbose_name='基准股本(万)')
-
     class Meta:
         verbose_name = '分红送股'
         verbose_name_plural = verbose_name
         db_table = 'dividend'
         unique_together = ('stock', 'end_date', 'ann_date')
         ordering = ['-ann_date']
-
     def __str__(self):
         return f"{self.stock.stock_code} {self.end_date}"
 
@@ -177,14 +165,12 @@ class FinaIndicator(models.Model):
     debt_to_assets = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, verbose_name='资产负债率')
     update_flag = models.CharField(max_length=10, null=True, blank=True, verbose_name='更新标识')
     # ... 其他常用字段可按需补充
-
     class Meta:
         verbose_name = '财务指标'
         verbose_name_plural = verbose_name
         db_table = 'fina_indicator'
         unique_together = ('stock', 'ann_date', 'end_date')
         ordering = ['-ann_date']
-
     def __str__(self):
         return f"{self.stock.stock_code} {self.ann_date}"
 
@@ -198,14 +184,12 @@ class FinaAudit(models.Model):
     audit_fees = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True, verbose_name='审计总费用(元)')
     audit_agency = models.CharField(max_length=100, null=True, blank=True, verbose_name='会计事务所')
     audit_sign = models.CharField(max_length=100, null=True, blank=True, verbose_name='签字会计师')
-
     class Meta:
         verbose_name = '财务审计意见'
         verbose_name_plural = verbose_name
         db_table = 'fina_audit'
         unique_together = ('stock', 'ann_date', 'end_date')
         ordering = ['-ann_date']
-
     def __str__(self):
         return f"{self.stock.stock_code} {self.ann_date}"
 
@@ -220,14 +204,12 @@ class FinaMainBZ(models.Model):
     bz_cost = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True, verbose_name='主营业务成本(元)')
     curr_type = models.CharField(max_length=10, null=True, blank=True, verbose_name='货币代码')
     update_flag = models.CharField(max_length=10, null=True, blank=True, verbose_name='是否更新')
-
     class Meta:
         verbose_name = '主营业务构成'
         verbose_name_plural = verbose_name
         db_table = 'fina_mainbz'
         unique_together = ('stock', 'end_date', 'bz_item')
         ordering = ['-end_date']
-
     def __str__(self):
         return f"{self.stock.stock_code} {self.end_date} {self.bz_item}"
 
@@ -240,14 +222,12 @@ class DisclosureDate(models.Model):
     pre_date = models.DateField(null=True, blank=True, verbose_name='预计披露日期')
     actual_date = models.DateField(null=True, blank=True, verbose_name='实际披露日期')
     modify_date = models.DateField(null=True, blank=True, verbose_name='披露日期修正记录')
-
     class Meta:
         verbose_name = '财报披露计划'
         verbose_name_plural = verbose_name
         db_table = 'disclosure_date'
         unique_together = ('stock', 'end_date', 'ann_date')
         ordering = ['-ann_date']
-
     def __str__(self):
         return f"{self.stock.stock_code} {self.end_date}"
 

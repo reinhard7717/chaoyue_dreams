@@ -85,7 +85,6 @@ def debug_stock_over_period(self, stock_code: str, start_date: str, end_date: st
     logger.info(f"  - 股票代码: {stock_code}")
     logger.info(f"  - 分析时段: {start_date} to {end_date}")
     logger.info("="*80)
-
     async def main():
         strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
         # 执行业务逻辑
@@ -98,7 +97,6 @@ def debug_stock_over_period(self, stock_code: str, start_date: str, end_date: st
         logger.info(f"股票 [{stock_code}] 的回溯分析执行完毕。")
         logger.info("="*80)
         return {"status": "success", "stock_code": stock_code, "period": f"{start_date}-{end_date}"}
-
     try:
         return async_to_sync(main)()
     except Exception as e:
@@ -119,7 +117,6 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str = None, 
     - 新增功能: 增加了可选参数 `start_date_str`。当 `latest_only=False` 时，
                 可以指定一个起始日期，任务将只保存该日期之后（含当天）的策略记录。
                 这保证了指标计算的准确性（使用全历史数据），同时提供了灵活的数据保存范围。
-
     Args:
         stock_code (str): 股票代码。
         trade_date (str, optional): 目标交易日 'YYYY-MM-DD'，主要用于 latest_only=True 模式。
@@ -175,7 +172,6 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str = None, 
                 if strategy_name and timeframe:
                     unique_signal_types.add((strategy_name, timeframe))
         return {"status": "success", "saved_count": save_count}
-
     try:
         return async_to_sync(main)()
     except Exception as e:
@@ -190,7 +186,6 @@ def analyze_all_stocks_full_history(self, *, start_date_str: str = None, cache_m
     - 核心架构: 回归本源，此任务的【唯一职责】是建设和更新 StrategyDailyScore 公共数据库。
     - 工作流: 彻底移除所有下游任务链，只对所有股票并行执行 run_multi_timeframe_strategy。
     - 新增功能: 支持可选的 `start_date_str` 参数，用于从指定日期开始回测，方便增量修复或分段回测。
-
     Args:
         start_date_str (str, optional): 起始日期字符串，格式为 'YYYY-MM-DD'。
                                         如果为 None，则处理所有历史。Defaults to None.
@@ -408,18 +403,14 @@ def rebuild_all_snapshots_for_all_trackers(self):
         status=PositionTracker.Status.HOLDING,
         current_quantity__gt=0
     ).values_list('id', flat=True))
-
     if not holding_tracker_ids:
         logger.info("没有发现任何需要重建快照的持仓，任务结束。")
         return {"status": "skipped", "reason": "no active trackers found"}
-
     logger.info(f"发现 {len(holding_tracker_ids)} 个持仓，准备为它们派发重建任务...")
-
     # 为每个ID派发一个独立的重建任务
     for tracker_id in holding_tracker_ids:
         # 这里我们调用的是任务签名，而不是直接调用函数或服务，这是正确的解耦方式。
         rebuild_snapshots_for_tracker_task.delay(tracker_id)
-
     logger.info("所有重建任务已成功派发。")
     return {"status": "dispatched", "tracker_count": len(holding_tracker_ids)}
 
@@ -432,7 +423,6 @@ def rebuild_snapshots_for_tracker_task(self, tracker_id: int, *, cache_manager: 
     - 职责: 调用 PositionSnapshotService 为指定的 tracker_id 重建快照。
     """
     from services.position_snapshot_service import PositionSnapshotService
-
     logger.info(f"接收到重建快照任务，Tracker ID: {tracker_id}")
     service = PositionSnapshotService(cache_manager)
     # 因为 service 的方法是 async，而 Celery 任务是 sync，所以需要 async_to_sync
@@ -454,7 +444,6 @@ def rebuild_snapshots_for_all_active_trackers_task(self):
     if not active_trackers.exists():
         logger.info("没有找到任何活跃的持仓记录，任务结束。")
         return "没有找到任何活跃的持仓记录。"
-
     tracker_count = active_trackers.count()
     logger.info(f"发现 {tracker_count} 个活跃的持仓记录，准备开始重建...")
     success_count = 0
@@ -474,7 +463,6 @@ def rebuild_snapshots_for_all_active_trackers_task(self):
         except Exception as e:
             failure_count += 1
             logger.error(f"  处理 Tracker ID: {tracker.id} 时发生意外错误: {e}", exc_info=True)
-
     summary = f"====== 【每晚活跃持仓快照重建】任务完成。总数: {tracker_count}, 成功: {success_count}, 失败: {failure_count} ======"
     logger.info(summary)
     return summary
@@ -1241,7 +1229,6 @@ def calculate_strength_rank_for_date(self, trade_date_str: str, source: str, *, 
             "source": source,
             "rank_data_json": rank_df.to_json(orient='split')
         }
-
     try:
         return async_to_sync(main)()
     except Exception as e:
@@ -1428,7 +1415,6 @@ def run_global_performance_analysis_v2_map_reduce(self, start_date: str = None, 
     logger.info(f"--- [全局信号性能扫描 V2.0 - MapReduce版 任务启动] ---")
     logger.info(f"  - 分析时段: {start_date} to {end_date}")
     logger.info("="*80)
-
     try:
         # 1. 获取全市场股票列表 (这部分仍然是异步的，但由总管任务一次性完成)
         stock_dao = StockBasicInfoDao(cache_manager)
@@ -1462,7 +1448,6 @@ def run_global_performance_analysis_v2_map_reduce(self, start_date: str = None, 
         logger.info(f"成功派发 {total_stocks} 个股票分析子任务。聚合报告将在所有子任务完成后自动生成。")
         logger.info(f"--- [全局信号性能扫描 V2.0 - 任务派发完成] ---")
         return {"status": "workflow_dispatched", "total_stocks": total_stocks}
-
     except Exception as e:
         logger.error(f"在派发全局性能分析任务时发生严重错误: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}
@@ -1505,7 +1490,6 @@ def analyze_performance_for_one_stock(self, stock_code: str, *, cache_manager: C
         result = analyzer.run_analysis()
         logger.info(f"  [Map] 完成处理: {stock_code}, 发现 {len(result)} 个有效信号统计。")
         return result
-
     except Exception as e:
         logger.error(f"  [Map] 处理 {stock_code} 时发生严重错误: {e}", exc_info=True)
         return [] # 返回空列表以保证整个工作流能继续进行
@@ -1519,25 +1503,20 @@ def aggregate_performance_results(self, results: list):
     """
     logger.info("====== [全局信号性能分析 V2.0 - Reduce] 聚合任务启动 ======")
     logger.info(f"已收到来自 {len(results)} 个并行任务的结果，开始聚合...")
-
     all_stats = [item for sublist in results if sublist for item in sublist]
     if not all_stats:
         logger.warning("[全局分析] 未能从任何股票中收集到有效的信号统计数据，无法生成报告。")
         return {"status": "finished", "reason": "no data to aggregate"}
-
     df = pd.DataFrame(all_stats)
-
     agg_df = df.groupby(['signal_name', 'signal_cn_name', 'signal_type', 'metric_name']).agg(
         triggers=('total_triggers', 'sum'),
         successes=('successes', 'sum')
     ).reset_index()
-
     # 效能指标的计算保持不变，因为它现在是标准化的
     agg_df['effectiveness_pct'] = (agg_df['successes'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
     # 特别处理风险信号的效能指标
     is_risk = agg_df['signal_type'] == 'risk'
     agg_df.loc[is_risk, 'effectiveness_pct'] = 1 - agg_df.loc[is_risk, 'effectiveness_pct']
-
     # 格式化输出
     agg_df = agg_df.rename(columns={
         'signal_cn_name': '信号名称',
@@ -1548,7 +1527,6 @@ def aggregate_performance_results(self, results: list):
     def format_effectiveness(row):
         value = row['effectiveness_pct']
         return f"{value:.1%}"
-
     agg_df['效能指标(%)'] = agg_df.apply(format_effectiveness, axis=1)
     agg_df['指标类型'] = np.where(agg_df['类型'] == 'risk', '风险规避率', '成功率')
     # 按效能指标排序
@@ -1556,7 +1534,6 @@ def aggregate_performance_results(self, results: list):
         by=['类型', 'effectiveness_pct', '总触发'], 
         ascending=[True, False, False]
     )[['信号名称', '类型', '总触发', '总成功', '指标类型', '效能指标(%)']]
-
     # 打印最终报告
     print("\n\n" + "="*35 + " [全市场信号性能终极报告 V2.0] " + "="*35)
     with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 120):
@@ -1588,12 +1565,10 @@ def run_top_n_performance_analysis(
         end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
     else:
         end_date = TradeCalendar.get_latest_trade_date()
-
     if start_date_str:
         start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
     else:
         start_date = TradeCalendar.get_trade_date_offset(end_date, -30)
-
     logger.info("\n" + "="*60)
     logger.info(f"=======      Top-{top_n} 信号性能聚焦分析报告      =======")
     logger.info("="*60)
@@ -1606,13 +1581,11 @@ def run_top_n_performance_analysis(
     logger.info(f" 入场价格: 信号日【次日开盘价】")
     logger.info(f" 成功定义: 入场后 {holding_days} 个交易日内，最高价涨幅达到 {profit_threshold}%")
     logger.info("-"*60)
-
     # --- 2. 筛选每日Top-N信号 ---
     trade_dates = list(TradeCalendar.get_trade_dates_between(start_date, end_date))
     if not trade_dates:
         logger.warning("在指定范围内未找到任何交易日，任务终止。")
         return
-
     logger.info("步骤1: 正在从数据库中筛选【每日】Top-N买入信号...")
     top_signals = []
     for trade_date in tqdm(trade_dates, desc="筛选每日信号"):
@@ -1627,14 +1600,12 @@ def run_top_n_performance_analysis(
         daily_top_scores = StrategyDailyScore.objects.filter(**filter_kwargs)\
             .select_related('stock').order_by('-final_score')[:top_n]
         top_signals.extend(list(daily_top_scores))
-
     if not top_signals:
         logger.warning("在指定时间段内未发现任何符合条件的Top-N买入信号，任务终止。")
         return
         
     total_signals = len(top_signals)
     logger.info(f"步骤1完成: 共发现 {total_signals} 个Top-{top_n}信号实例。")
-
     # --- 3. 高效评估信号表现 (无变化) ---
     logger.info("步骤2: 正在预加载所有相关价格数据以提升效率...")
     all_stock_codes = list(set(s.stock.stock_code for s in top_signals))
@@ -1651,12 +1622,10 @@ def run_top_n_performance_analysis(
         max_date_needed = end_date
     else:
         max_date_needed = max_date_needed_candidate
-
     model_to_codes_map = defaultdict(list)
     for code in all_stock_codes:
         model_class = get_daily_data_model_by_code(code)
         model_to_codes_map[model_class].append(code)
-
     price_map = {}
     for model_class, codes in model_to_codes_map.items():
         daily_data_qs = model_class.objects.filter(
@@ -1691,19 +1660,15 @@ def run_top_n_performance_analysis(
                 if future_price_info['high'] >= target_price:
                     success_count += 1
                     break
-
     logger.info("步骤3完成: 所有信号评估完毕。")
     logger.info("-"*60)
-
     success_rate = (success_count / evaluated_signals_count * 100) if evaluated_signals_count > 0 else 0
-
     logger.info("\n【最终分析结果】")
     logger.info(f"  - 总信号样本数: {total_signals}")
     logger.info(f"  - 有效评估样本数: {evaluated_signals_count}")
     logger.info(f"  - 成功信号数:   {success_count}")
     logger.info(f"  - 聚焦成功率:   {success_rate:.2f}% (基于有效评估样本)")
     logger.info("="*60 + "\n")
-
     return f"Top-{top_n} 信号性能聚焦分析完成。成功率: {success_rate:.2f}%"
 
 
@@ -1762,16 +1727,13 @@ def aggregate_performance_results(self, results: list, *, cache_manager: CacheMa
     with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 150):
         print(report_df_for_print.to_string(index=False))
     logger.info("=" * 95 + "\n")
-
     # 8. 将最终报告转换为Python原生对象(List[Dict])，再进行持久化
     #    我们使用未被格式化用于打印的 report_df_for_log，以保留原始的数值类型。
     report_data = report_df_for_log.to_dict(orient='records')
     cache_key = "strategy:performance_report:global_v2"
     # 将 report_data (一个Python列表) 传递给 cache_manager，让它处理序列化
     async_to_sync(cache_manager.set)(cache_key, report_data, timeout=60 * 60 * 24 * 7) # 缓存7天
-
     logger.info(f"终极报告已成功持久化到Redis缓存。Key: '{cache_key}'")
-
     logger.info("====== [全局性能分析 V2.1 - Reduce] 聚合任务完成 ======")
     return {"status": "success", "aggregated_signals": len(report_df_for_log), "cache_key": cache_key}
 
@@ -1871,7 +1833,6 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
             logger.info(f"[原子信号 Reduce] 成功更新 {len(records_to_update)} 条已有的信号性能记录。")
         logger.info("====== [原子信号分析 V1.2 - Reduce] 聚合任务完成 ======")
         return {"status": "success", "created": len(records_to_create), "updated": len(records_to_update)}
-
     except Exception as e:
         logger.error(f"[原子信号 Reduce] 聚合任务执行时发生严重错误: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}
@@ -1894,7 +1855,6 @@ def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date
             end_date=end_date
         )
         return raw_results
-
     try:
         result = async_to_sync(main)()
         if result:
@@ -1917,7 +1877,6 @@ def run_global_performance_analysis(self, stock_list: list = None, start_date: s
     logger.info(f"--- [全局性能分析 V3.2 - 全并行架构总指挥启动] ---")
     logger.info(f"  - 分析时段: {start_date or '默认'} to {end_date or '默认'}")
     logger.info("="*80)
-
     try:
         codes_to_run = stock_list
         if not codes_to_run:
@@ -1958,7 +1917,6 @@ def run_global_performance_analysis(self, stock_list: list = None, start_date: s
         logger.info("\n" + "="*80)
         logger.info(f"--- [全局性能分析 V3.2 - 所有作战指令已下达] ---")
         return {"status": "all_workflows_dispatched", "total_stocks": total_stocks}
-
     except Exception as e:
         logger.error(f"在派发全局性能分析任务时发生严重错误: {e}", exc_info=True)
         return {"status": "error", "reason": str(e)}

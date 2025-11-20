@@ -38,7 +38,6 @@ class PerformanceAnalysisService:
         self.look_forward_days = get_param_value(self.analyzer_params.get('look_forward_days'), 20)
         self.profit_target_pct = get_param_value(self.analyzer_params.get('profit_target_pct'), 0.15)
         self.stop_loss_pct = get_param_value(self.analyzer_params.get('stop_loss_pct'), 0.07)
-
     @staticmethod
     def _simulate_trade_outcome(
         entry_date: date, 
@@ -117,7 +116,6 @@ class PerformanceAnalysisService:
             'outcome': outcome, 'exit_days': exit_days,
             'max_profit_pct': max_profit_pct, 'max_drawdown_pct': max_drawdown_pct,
         }
-
     # 实现 Celery Map 任务所需的核心业务逻辑。
     async def analyze_atomic_signals_for_single_stock(self, stock_code: str) -> List[Dict]:
         """
@@ -187,7 +185,6 @@ class PerformanceAnalysisService:
             })
         # print(f"    -> [Service-Map] 完成 {stock_code} 分析，返回 {len(stock_results)} 条信号统计。")
         return stock_results
-
     async def _fetch_data_for_single_stock(self, stock_code: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
         【V1.0 新增】为单只股票获取原子状态和价格数据。
@@ -219,7 +216,6 @@ class PerformanceAnalysisService:
         # 设置索引以便快速查找
         price_df = price_df_raw.set_index('trade_date').sort_index()
         return stock_states_df, price_df
-
     # 一个全新的公共方法，作为新Celery任务的入口。
     async def analyze_all_atomic_signals(self) -> List[Dict]:
         """
@@ -279,7 +275,6 @@ class PerformanceAnalysisService:
         final_report = self._aggregate_atomic_results(trade_outcomes)
         print(f"-> [Service V4.2] 全景沙盘推演完成，生成 {len(final_report)} 条信号的性能报告。")
         return final_report
-
     def _evaluate_offensive_signal(self, entry_date: date, price_df: pd.DataFrame) -> Optional[Dict]:
         """
         【V4.3 逻辑统一版】评估“进攻型”信号的表现 (看涨)。
@@ -294,7 +289,6 @@ class PerformanceAnalysisService:
             stop_loss_pct=self.stop_loss_pct,
             is_offensive=True
         )
-
     def _evaluate_defensive_signal(self, entry_date: date, price_df: pd.DataFrame) -> Optional[Dict]:
         """
         【V4.3 逻辑统一版】评估“防御/风险型”信号的表现 (看跌)。
@@ -309,7 +303,6 @@ class PerformanceAnalysisService:
             stop_loss_pct=self.stop_loss_pct,
             is_offensive=False
         )
-
     async def _fetch_atomic_analysis_data_from_db(self) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
         【V4.2 原生日期标准化版】为全景分析从数据库批量获取数据。
@@ -351,7 +344,6 @@ class PerformanceAnalysisService:
         all_prices_df['trade_date'] = pd.to_datetime(all_prices_df['trade_date'])
         print(f"调试信息: all_prices_df['trade_date'] 的类型是 {all_prices_df['trade_date'].dtype}")
         return all_states_df, all_prices_df
-
     def _analyze_single_trade_performance(self, entry_date: date, price_df: pd.DataFrame) -> Optional[Dict]:
         """
         【V2.1 T+1交易修正版】深度分析单次交易的性能表现。
@@ -412,7 +404,6 @@ class PerformanceAnalysisService:
             'outcome': final_outcome, 'exit_days': exit_days,
             'max_profit_pct': max_profit_pct, 'max_drawdown_pct': max_drawdown_pct,
         }
-
     def _aggregate_atomic_results(self, trade_outcomes: List[Dict]) -> List[Dict]:
         """
         【V4.0 角色扮演版 - 聚合器】
@@ -455,7 +446,6 @@ class PerformanceAnalysisService:
             })
         analysis_results.sort(key=lambda x: x['win_rate_pct'], reverse=True)
         return analysis_results
-
     async def run_analysis_for_stock(self, stock_code: str, start_date: Optional[str], end_date: Optional[str]) -> list:
         """
         【V2.3 精确归因版】
@@ -510,7 +500,6 @@ class PerformanceAnalysisService:
         except Exception as e:
             logger.error(f"[{stock_code}] (精确归因模式)性能分析器在执行过程中发生异常: {e}", exc_info=True)
             return []
-
     async def _fetch_analysis_data_from_db(self, stock_code: str, start_date: str, end_date: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
         【V1.5 日期标准化版】(旧方法) 从数据库中异步获取并构建分析所需的核心DataFrame。

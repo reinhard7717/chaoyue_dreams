@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0011_stockdailybasic_bj_stockdailybasic_cy_and_more'),
     ]
-
     operations = [
         migrations.CreateModel(
             name='AtomicSignalPerformance',

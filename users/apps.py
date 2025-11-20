@@ -6,7 +6,6 @@ class UsersConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'users'
     verbose_name = _('用户管理')
-
     def ready(self):
         """
         导入信号处理器

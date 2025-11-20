@@ -46,10 +46,8 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
     logger.info(f"{task_id_str} [{stock_code}]：策略参数检查通过 (params 和 tf_params 非空)。")
     # 打印 Transformer 窗口大小关键参数 (注意：window_size 用于 TimeSeriesDataset，不直接用于 prepare_data_for_transformer)
     logger.info(f"{task_id_str} [{stock_code}]：确认 Transformer 窗口大小 (用于后续的TimeSeriesDataset): {strategy.transformer_window_size}")
-
     data_df = None # 初始化为 None
     data_for_transformer_prep = None # 初始化为 None
-
     # 阶段 1: 使用 IndicatorService 准备数据 (获取原始数据和指标)
     try:
         # 记录数据准备开始信息
@@ -85,12 +83,10 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         # logger.info(f"{task_id_str} [{stock_code}]：尝试转换完成，成功转换 {converted_cols_count} 列到 float32。") # 添加日志
         # print(f"{task_id_str} [{stock_code}]：转换后 data_df 数据类型:\n{data_df.dtypes}") # 打印转换后数据类型
         print(f"{task_id_str} [{stock_code}]：转换后 data_df 内存使用 (MB): {data_df.memory_usage(deep=True).sum() / 1024**2:.2f}") # 打印转换后内存使用
-
     except Exception as prep_err:
         # 记录数据准备错误信息并重新抛出异常
         logger.error(f"{task_id_str} [{stock_code}]：使用 IndicatorService 准备数据时出错: {prep_err}", exc_info=True)
         raise prep_err
-
     # 阶段 2: 从准备好的数据中提取 Transformer 训练所需的特征和目标
     # 这一步取代了之前调用 generate_signals 来获取数据
     try:
@@ -129,7 +125,6 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
              logger.error(f"{task_id_str} [{stock_code}]：提取的 DataFrame 中除了目标列外没有其他特征列。")
              return {"status": "error", "message": "提取的 Transformer 训练数据子集不包含特征列。"}
         logger.info(f"{task_id_str} [{stock_code}]：用于 prepare_data_for_transformer 的特征列数: {len(required_columns_for_transformer)}")
-
     except Exception as subset_prep_err:
         logger.error(f"{task_id_str} [{stock_code}]：提取 Transformer 训练数据子集时出错: {subset_prep_err}", exc_info=True)
         raise subset_prep_err
@@ -140,14 +135,12 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
             del data_df
             print(f"{task_id_str} [{stock_code}]：已删除原始 data_df。")
 
-
     # 阶段 3: 使用 prepare_data_for_transformer 准备数据 (特征选择、标准化、分割)
     # 使用精简后的 data_for_transformer_prep 作为输入
     features_scaled_train = features_scaled_val = features_scaled_test = np.array([], dtype=np.float32) # 初始化为 float32 空数组
     targets_scaled_train = targets_scaled_val = targets_scaled_test = np.array([], dtype=np.float32) # 初始化为 float32 空数组
     feature_scaler = target_scaler = pca_model = scaler_for_pca = feature_selector_model = None # 初始化为 None
     selected_feature_names = [] # 初始化为空列表
-
     try:
         # 记录 Transformer 数据准备开始信息
         logger.info(f"{task_id_str} [{stock_code}]：开始调用 prepare_data_for_transformer...")
@@ -217,7 +210,6 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         print(f"{task_id_str} [{stock_code}]：targets_scaled_val shape: {targets_scaled_val.shape}, dtype: {targets_scaled_val.dtype}")
         print(f"{task_id_str} [{stock_code}]：features_scaled_test shape: {features_scaled_test.shape}, dtype: {features_scaled_test.dtype}")
         print(f"{task_id_str} [{stock_code}]：targets_scaled_test shape: {targets_scaled_test.shape}, dtype: {targets_scaled_test.dtype}")
-
     except Exception as data_prep_err:
         # 记录数据准备错误信息并重新抛出异常
         logger.error(f"{task_id_str} [{stock_code}]：准备 Transformer 数据时出错: {data_prep_err}", exc_info=True)
@@ -227,7 +219,6 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         if data_for_transformer_prep is not None:
             del data_for_transformer_prep
             print(f"{task_id_str} [{stock_code}]：已删除 data_for_transformer_prep。")
-
     # 阶段 4: 保存准备好的数据和 Scaler
     try:
         # 记录保存数据开始信息
@@ -414,7 +405,6 @@ def schedule_transformer_training_chain(self): # 参数名一致性
             total_dispatched_chains += 1
         logger.info(f"任务结束: schedule_transformer_training_chain (调度器模式) - 共分派 {total_dispatched_chains} 个任务") # 日志信息
         return {"status": "success", "dispatched_chains": total_dispatched_chains}
-
     except Exception as e:
         logger.error(f"执行 schedule_transformer_training_chain (调度器模式) 时出错: {e}", exc_info=True) # 日志信息
         return {"status": "error", "message": str(e), "dispatched_chains": 0}

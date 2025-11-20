@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0030_strategydailystate_strategyscorecomponent'),
     ]
-
     operations = [
         migrations.AlterField(
             model_name='swindustry',

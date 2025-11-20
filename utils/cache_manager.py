@@ -99,14 +99,12 @@ class CacheManager:
                     instance._context_lock = threading.Lock()
                     cls._instance = instance
         return cls._instance
-
     def __init__(self):
         # 初始化方法保持不变
         if hasattr(self, 'is_initialized') and self.is_initialized:
             return
         self.is_initialized = True
         print("DEBUG: CacheManager __init__ is executing (once per instance).")
-
     # MODIFIED: initialize 方法现在是私有的，因为它由 _ensure_client 内部调用
     async def _initialize_for_loop(self, loop: asyncio.AbstractEventLoop):
         """
@@ -145,7 +143,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"为 Event Loop {id(loop)} 初始化 Redis 客户端失败: {e}", exc_info=True)
             raise
-
     # MODIFIED: 这是最核心的修改，重写 _ensure_client 方法
     async def _ensure_client(self) -> Redis:
         """
@@ -189,7 +186,6 @@ class CacheManager:
                     self._contexts.pop(loop_id, None)
                 # 将异常向上抛出，让调用者知道操作失败了
                 raise
-
     # NEW: 新增并修正 get_redis_lock 方法
     async def get_redis_lock(self, lock_name: str, timeout: int = 30, blocking_timeout: int = 5):
         """
@@ -207,7 +203,6 @@ class CacheManager:
             # 向上抛出一个明确的异常，让调用者（如 BaseDAO）知道操作失败，而不是静默返回 None。
             # 这使得 BaseDAO 可以正确地中止数据库操作。
             raise ConnectionError(f"获取 Redis 锁 '{lock_name}' 失败。") from e
-
     def get_timeout(self, cache_type: str) -> int:
         """获取指定缓存类型的过期时间"""
         return self.DEFAULT_TIMEOUTS.get(cache_type, 300)  # 默认5分钟
@@ -227,7 +222,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"序列化时发生意外错误: {e}", exc_info=True)
             raise ValueError(f"Unexpected serialization error: {e}") from e
-
     def _deserialize(self, data: bytes) -> Any:
         """反序列化数据"""
         if not data:
@@ -241,7 +235,6 @@ class CacheManager:
             print(f"DEBUG: _deserialize failed for data: {data[:100]}... (truncated). Error: {e}")
             logger.error(f"反序列化失败: {e}", exc_info=True)
             return None
-
     def _restore_objects(self, data: Any) -> Any:
         """还原特殊对象"""
         if not isinstance(data, dict):
@@ -282,7 +275,6 @@ class CacheManager:
             if key not in result:
                 result[key] = value
         return result
-
     async def set(self, key: str, data: Any, timeout: Optional[int] = None, nx: bool = False) -> bool:
         """(异步) 将数据序列化后存入 Redis"""
         try:
@@ -319,7 +311,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"缓存设置时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return False
-
     async def get(self, key: str, default: Any = None) -> Any:
         """(异步) 从 Redis 获取数据并反序列化"""
         try:
@@ -341,7 +332,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"缓存获取时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return default
-
     async def get_model(self, key: str, model_class: Type[T]) -> Optional[T]:
         """(异步) 获取缓存数据并尝试转换为指定模型实例"""
         # 注意：此方法依赖于 model_class 的 __init__ 能够处理
@@ -369,7 +359,6 @@ class CacheManager:
              logger.warning(f"缓存数据不是字典，无法转换为模型: key='{key}', type={type(data)}")
              return None
         return None # 缓存未命中或数据为空
-
     async def delete(self, key: str) -> bool:
         """(异步) 删除指定的缓存键"""
         try:
@@ -387,7 +376,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"缓存删除时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return False
-
     async def exists(self, key: str) -> bool:
         """(异步) 检查缓存键是否存在"""
         try:
@@ -400,7 +388,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"缓存检查时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return False
-
     async def ttl(self, key: str) -> int:
         """(异步) 获取缓存键的剩余生存时间 (秒)"""
         try:
@@ -413,13 +400,11 @@ class CacheManager:
         except Exception as e:
             logger.error(f"获取 TTL 时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return -2
-
     async def pipeline(self) -> Pipeline:
         """(异步) 获取一个 Redis pipeline 对象"""
         redis_client = await self._ensure_client() # 确保客户端已初始化
         # redis-py 的 pipeline() 方法直接返回 pipeline 对象
         return redis_client.pipeline()
-
     async def hset(self, key: str, field: str, value: Any, timeout: Optional[int] = None) -> bool:
         """(异步) 设置哈希表中的字段值"""
         try:
@@ -458,7 +443,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"Hash 设置时发生未知 Redis 错误: key='{key}', field='{field}', error='{e}'", exc_info=True)
             return False
-
     async def hget(self, key: str, field: str, default: Any = None) -> Any:
         """(异步) 获取哈希表中的字段值"""
         try:
@@ -476,7 +460,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"Hash 获取时发生未知 Redis 错误: key='{key}', field='{field}', error='{e}'", exc_info=True)
             return default
-
     async def hgetall(self, key: str) -> Dict[str, Any]:
         """(异步) 获取哈希表中的所有字段和值"""
         result_dict = {}
@@ -504,7 +487,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"Hash 获取全部时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return {} # 出错时返回空字典
-
     async def mget(self, keys: List[str]) -> List[Any]:
         """(异步) 批量获取多个键的值"""
         if not keys:
@@ -561,7 +543,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"ZADD 操作时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return None
-
     async def zrangebyscore(self, key: str, min_score: Union[float, str], max_score: Union[float, str],
                             withscores: bool = False) -> Optional[List[Any]]:
         """(异步) 通过分数区间返回有序集合的成员"""
@@ -602,7 +583,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"ZRANGEBYSCORE 操作时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return None
-
     async def zrange_by_limit(self, key: str, limit: int, desc: bool = True, withscores: bool = False) -> Optional[List[Any]]:
         """(异步) 按排名获取有序集合成员 (默认降序)"""
         if limit <= 0:
@@ -643,7 +623,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"ZRANGE/ZREVRANGE 操作时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return None
-
     async def ztrim_by_rank(self, key: str, keep_latest: int) -> Optional[int]:
         """(异步) 修剪有序集合，只保留最新的 N 个成员 (按分数降序)"""
         if keep_latest <= 0:
@@ -666,7 +645,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"ZTRIMBYRANK 操作时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return None
-
     async def zadd_and_trim(self, key: str, mapping: Mapping[Any, float], limit: int, timeout: Optional[int] = None) -> Optional[int]:
         """(异步) 原子地添加成员并修剪有序集合，保持指定数量的最新成员"""
         if not mapping or not isinstance(mapping, dict):
@@ -719,7 +697,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"ZADD_AND_TRIM 操作时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return None
-
     async def scan_keys(self, pattern: str):
         """
         (异步) 扫描并返回所有匹配 pattern 的 key 列表
@@ -749,7 +726,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"scan_keys 时发生未知 Redis 错误: pattern='{pattern}', error='{e}'", exc_info=True)
             return []
-
     async def sadd(self, key: str, *values: Any) -> Optional[int]:
         """
         (异步) 向集合添加一个或多个成员。
@@ -778,7 +754,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"SADD 操作时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return None
-
     async def smembers(self, key: str) -> Optional[List[Any]]:
         """
         (异步) 获取集合中的所有成员。
@@ -804,7 +779,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"SMEMBERS 操作时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return None
-
     async def expire(self, key: str, timeout: int) -> bool:
         """
         (异步) 为指定的键设置过期时间。
@@ -832,7 +806,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"EXPIRE 操作时发生未知 Redis 错误: key='{key}', error='{e}'", exc_info=True)
             return False
-
     async def close(self):
         """
         (异步) 优雅地关闭所有已创建的 Redis 客户端连接。
@@ -863,7 +836,6 @@ class CacheManager:
                 logger.error(f"关闭 Redis 连接过程中发生意外错误: {e}", exc_info=True)
         else:
             print("DEBUG: 没有找到活动的 Redis 客户端实例来关闭。")
-
     # --- 辅助方法 ---
     def generate_key(self, cache_type: str, *args: str) -> str:
         """生成标准化的缓存键"""

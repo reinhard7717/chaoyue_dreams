@@ -377,7 +377,6 @@
             DateTimeShortcuts.dismissCalendar(num);
         }
     };
-
     window.addEventListener('load', DateTimeShortcuts.init);
     window.DateTimeShortcuts = DateTimeShortcuts;
 }

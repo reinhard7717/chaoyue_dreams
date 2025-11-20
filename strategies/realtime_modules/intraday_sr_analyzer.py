@@ -19,7 +19,6 @@ class IntradaySRAnalyzer:
         self.prev_day_data: Optional[Dict] = None
         self.pivot_points: Dict = {}
         print("IntradaySRAnalyzer initialized.")
-
     def set_prev_day_data(self, prev_day_data: Dict):
         """
         设置前一日的OHLC数据，用于计算枢轴点。
@@ -31,7 +30,6 @@ class IntradaySRAnalyzer:
             self._calculate_pivot_points()
         else:
             self.pivot_points = {}
-
     def _calculate_pivot_points(self):
         """
         根据前一日数据计算经典枢轴点。
@@ -56,7 +54,6 @@ class IntradaySRAnalyzer:
             'PP': pp, 'R1': r1, 'S1': s1,
             'R2': r2, 'S2': s2, 'R3': r3, 'S3': s3
         }
-
     def analyze_sr_levels(self, current_kline: pd.Series, timeframe: str, tolerance_pct: float = 0.001) -> Dict[str, float]: # 修改返回类型为 float
         """
         分析当前K线与支撑阻力位的关系，并返回量化值。

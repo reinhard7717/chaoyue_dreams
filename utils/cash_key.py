@@ -45,7 +45,6 @@ class IndexCashKey(CashKey):
     指数缓存键生成器
     负责生成与指数相关的缓存键
     """
-
     # ================ Cash_key 缓存键设置 ================
     def indexs_data(self) -> str:
         cache_key = self.generate_key(
@@ -70,7 +69,6 @@ class IndexCashKey(CashKey):
             subtype=cc.SUBTYPE_CONCEPTS
         )
         return cache_key
-
     def realtime_data(self, index_code: str) -> str:
         cache_key = self.generate_key(
                 cache_type=cc.TYPE_REALTIME,    # 实时数据类型
@@ -214,7 +212,6 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_BASIC_INFO
         )
         return cache_key
-
     def stock_day_basic_info(self, stock_code: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
@@ -224,7 +221,6 @@ class StockCashKey(CashKey):
             params={cc.PARAM_PERIOD: "day_basic_info"}
         )
         return cache_key
-
     # 单个股票的最新分时成交数据cache_key
     def latest_time_trade(self, stock_code: str, time_level: str) -> str:
         """
@@ -243,7 +239,6 @@ class StockCashKey(CashKey):
             # params={cc.PARAM_PERIOD: time_level, 'tag': 'latest'}
         )
         return cache_key
-
     # 单个股票的历史分时成交数据cache_key
     def history_time_trade(self, stock_code: str, time_level: str) -> str:
         """
@@ -262,7 +257,6 @@ class StockCashKey(CashKey):
             params={cc.PARAM_PERIOD: time_level}
         )
         return cache_key
-
     # 单个股票的最新实时数据cache_key
     def latest_realtime_data(self, stock_code: str) -> str:
         """
@@ -279,7 +273,6 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_QUOTE
         )
         return cache_key
-
     # 单个股票的历史实时数据cache_key
     def history_realtime_data(self, stock_code: str) -> str:
         """
@@ -296,7 +289,6 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_QUOTE
         )
         return cache_key
-
     # 单个股票的最新买卖五档盘口数据cache_key
     def latest_level5_data(self, stock_code: str) -> str:
         """
@@ -313,7 +305,6 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_LEVEL5
         )
         return cache_key
-
     # 单个股票的历史买卖五档盘口数据cache_key
     def history_level5_data(self, stock_code: str) -> str:
         """
@@ -330,7 +321,6 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_LEVEL5
         )
         return cache_key
-
     # 单个股票的最新逐笔交易数据cache_key
     def latest_time_deal(self, stock_code: str) -> str:
         """
@@ -347,7 +337,6 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_TIME_DEAL
         )
         return cache_key
-
     # 单个股票的历史逐笔交易数据cache_key
     def history_time_deal(self, stock_code: str) -> str:
         """
@@ -364,7 +353,6 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_TIME_DEAL
         )
         return cache_key
-
     # 单个股票的最新分价成交占比数据cache_key
     def latest_real_percent(self, stock_code: str) -> str:
         """
@@ -381,7 +369,6 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_REAL_PERCENT
         )
         return cache_key
-
     # 单个股票的历史分价成交占比数据cache_key
     def history_real_percent(self, stock_code: str) -> str:
         """
@@ -398,7 +385,6 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_REAL_PERCENT
         )
         return cache_key
-
     # 单个股票的最新逐笔大单交易数据cache_key
     def latest_big_deal(self, stock_code: str) -> str:
         """
@@ -415,7 +401,6 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_BIG_DEAL
         )
         return cache_key
-
     # 单个股票的历史逐笔大单交易数据cache_key
     def history_big_deal(self, stock_code: str) -> str:
         """
@@ -432,7 +417,6 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_BIG_DEAL
         )
         return cache_key
-
     # 单个股票的最新盘中异动数据
     def latest_abnormal_movement(self, stock_code: str) -> str:
         """
@@ -449,7 +433,6 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_ABNORMAL_MOVEMENT
         )
         return cache_key
-
     # 单个股票的每日筹码分布
     def latest_cyq_chips(self, stock_code: str) -> str:
         """
@@ -466,7 +449,6 @@ class StockCashKey(CashKey):
             subtype=cc.SUBTYPE_CYQ_CHIPS
         )
         return cache_key
-
     # 【盘中引擎专用】生成单个股票指定日期的分钟K线ZSET缓存键
     def intraday_minute_kline(self, stock_code: str, time_level: str, date_str: str) -> str:
         """
@@ -489,7 +471,6 @@ class StockCashKey(CashKey):
             date=date_str
         )
         return cache_key
-
     # 【盘中引擎专用】生成单个股票指定日期的实时行情Tick ZSET缓存键
     def intraday_ticks_realtime(self, stock_code: str, date_str: str) -> str:
         """
@@ -502,7 +483,6 @@ class StockCashKey(CashKey):
             subtype='ticks_realtime',
             date=date_str
         )
-
     # 【盘中引擎专用】生成单个股票指定日期的五档盘口Tick ZSET缓存键
     def intraday_ticks_level5(self, stock_code: str, date_str: str) -> str:
         """
@@ -515,7 +495,6 @@ class StockCashKey(CashKey):
             subtype='ticks_level5',
             date=date_str
         )
-
     # 【盘中引擎专用】生成当日监控股票池的缓存键
     def intraday_monitoring_pool(self) -> str:
         """
@@ -531,7 +510,6 @@ class StockCashKey(CashKey):
             entity_id=cc.ID_INTRADAY_MONITORING
         )
         return cache_key
-
     def intraday_real_ticks(self, stock_code: str, date_str: str) -> str:
         """
         为真实的、带有买卖盘属性的逐笔成交数据 (realtime_tick) 生成ZSET缓存键。
@@ -543,7 +521,6 @@ class StockCashKey(CashKey):
             subtype='real_ticks', # 使用 'real_ticks' 以区别于之前的快照 'ticks_realtime'
             date=date_str
         )
-
     def stock_concepts(self, stock_code: str, source: str) -> str:
         """
         【V1.0 新增】生成单个股票特定来源的概念/行业列表的缓存键。
@@ -560,10 +537,8 @@ class StockCashKey(CashKey):
 class StrategyCashKey(CashKey):
     def __init__(self):
         self.cache_manager = None  # 改为 None，等待异步初始化
-
     async def initialize(self):
         self.cache_manager = await cache_manager  # 异步初始化
-
     def analyze_signals_trend_following(self, stock_code: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_STRATEGY,
@@ -585,15 +560,12 @@ class IntradayEngineCashKey(CashKey):
             entity_type='intraday_engine',
             entity_id=date_str
         )
-
     def watchlist_key(self, date_str: str) -> str:
         """待买入池的缓存键 (使用Redis Set)"""
         return f"{self._engine_base_key(date_str)}:watchlist"
-
     def position_list_key(self, date_str: str) -> str:
         """持仓监控池的缓存键 (使用Redis Hash)"""
         return f"{self._engine_base_key(date_str)}:position_list"
-
     def user_signals_key(self, user_id: int, date_str: str) -> str:
         """单个用户当日盘中信号的缓存键 (使用Redis List)"""
         return self.generate_key(
@@ -617,7 +589,6 @@ class IntradayEngineCashKey(CashKey):
             subtype='intraday_full_metrics', # 子类型明确指出是盘中全量指标
             date=trade_date.replace('-', '') # 使用 YYYYMMDD 格式的日期
         )
-
     def stock_signals_key(self, stock_code: str, trade_date: str) -> str:
         """
         为单支股票的【最终信号】生成的键 (给前端使用)。

@@ -40,7 +40,6 @@ def get_minute_data_model_by_code_and_timelevel(stock_code: str, time_level_str:
     if not time_level_str.isdigit():
         print(f"调试信息: 分钟线级别 '{time_level_str}' 必须是数字字符串。")
         return None
-
     model_map = None
     if stock_code.endswith('.SZ'):
         base_map = {'1': StockMinuteData_1_SZ, '5': StockMinuteData_5_SZ, '15': StockMinuteData_15_SZ, '30': StockMinuteData_30_SZ, '60': StockMinuteData_60_SZ}

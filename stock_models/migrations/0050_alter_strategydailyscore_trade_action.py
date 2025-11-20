@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0049_alter_advancedfundflowmetrics_bj_active_buy_pressure_and_more'),
     ]
-
     operations = [
         migrations.AlterField(
             model_name='strategydailyscore',

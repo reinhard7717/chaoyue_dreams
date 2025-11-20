@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0033_kplconceptinfo_alter_dcindexdaily_dc_index_and_more'),
     ]
-
     operations = [
         migrations.AlterField(
             model_name='dcindexdaily',

@@ -74,23 +74,18 @@ def run_intraday_strategy_for_all_stocks(self, *, cache_manager: CacheManager):
     current_dt = timezone.now() # 获取当前带时区的时间
     current_date = current_dt.date()
     current_time = current_dt.time()
-
     # 1. 检查是否在交易日和交易时段内
     is_trading_day = async_to_sync(TradeCalendar.is_trading_day_async)(current_date)
     if not is_trading_day:
         logger.info(f"今日 {current_date} 非交易日，跳过盘中策略调度。")
         return {"status": "skipped", "reason": "Not a trading day."}
-
     # 从配置中获取盘中策略的交易开始和结束时间
     trade_start_time = datetime.strptime(REALTIME_STRATEGY_CONFIG.get('trade_start_time', '09:45'), '%H:%M').time()
     trade_end_time = datetime.strptime(REALTIME_STRATEGY_CONFIG.get('trade_end_time', '14:50'), '%H:%M').time()
-
     if not (trade_start_time <= current_time <= trade_end_time):
         logger.info(f"当前时间 {current_time} 不在盘中策略执行时段 ({trade_start_time}-{trade_end_time}) 内，跳过调度。")
         return {"status": "skipped", "reason": "Not within trading hours."}
-
     logger.info(f"当前交易日: {current_date}, 当前时间: {current_time}。")
-
     # 2. 获取所有股票代码
     stock_basic_dao = StockBasicInfoDao(cache_manager)
     favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(stock_basic_dao)
@@ -101,7 +96,6 @@ def run_intraday_strategy_for_all_stocks(self, *, cache_manager: CacheManager):
         
     total_stocks = len(all_codes)
     logger.info(f"[盘中策略] 准备为 {total_stocks} 只股票执行盘中分析。")
-
     # 3. 派发并行子任务
     analysis_tasks = [
         run_intraday_strategy_for_single_stock.s(
@@ -180,7 +174,6 @@ def run_intraday_strategy_for_single_stock(self, stock_code: str, trade_date_str
         else:
             logger.debug(f"    - [盘中策略] {stock_code} 未触发盘中信号。")
             return {"status": "no_signal", "stock_code": stock_code}
-
     try:
         return async_to_sync(main)()
     except Exception as e:

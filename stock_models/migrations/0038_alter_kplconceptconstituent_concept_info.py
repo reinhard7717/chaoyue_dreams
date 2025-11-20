@@ -5,11 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0037_alter_dcindexdaily_dc_index_and_more'),
     ]
-
     operations = [
         # 开始手动SQL操作
         # 在Django执行AlterField之前，我们手动将数据库列名'ts_code'更改为Django历史记录所期望的'concept_info_id'。

@@ -56,7 +56,6 @@ class CacheSet():
         self.cache_key_strategy = StrategyCashKey()
         self.data_format_process = IndexDataFormatProcess(cache_manager_instance)
         self.cache_key_user = UserCashKey()
-
     async def _index_latest_data(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
         if not data_to_cache:
             logger.warning(f"试图缓存指数[{index_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
@@ -99,7 +98,6 @@ class CacheSet():
         except Exception as e:
             logger.error(f"StockIndicatorsDAO._stock_latest_data缓存股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return False
-
     async def _realtime_data(self, stock_code: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
         if not data_to_cache:
             logger.warning(f"试图缓存股票[{stock_code}] 的空实时数据，操作跳过。")
@@ -119,7 +117,6 @@ class CacheSet():
         except Exception as e:
             logger.error(f"StockIndicatorsDAO._stock_latest_data缓存股票[{stock_code}] 实时数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return False
-
     async def _stock_strategy_data(self, stock_code: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool: # 添加 timestamp 参数
         if not data_to_cache:
             logger.warning(f"试图缓存股票[{stock_code}] 的空时间序列数据，操作跳过。")
@@ -139,7 +136,6 @@ class CacheSet():
         except Exception as e:
             logger.error(f"StockIndicatorsDAO._stock_strategy_data缓存股票[{stock_code}] 策略数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return False
-
     # --- 修正后的写入缓存方法 (使用 ZADD) ---
     async def _history_data(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
         from dao_manager.base_dao import BaseDAO
@@ -174,7 +170,6 @@ class CacheSet():
         except Exception as e:
             logger.error(f"添加到缓存 (ZSET) 时发生异常: {str(e)}", exc_info=True)
             return False
-
     async def _format_conversion(self, data_to_cache: Dict[str, Any]) -> Dict[str, Any]:
         from stock_models.index import IndexInfo
         from stock_models.stock_basic import StockInfo
@@ -194,7 +189,6 @@ class UserCacheSet(CacheSet):
         # 调用父类并传递实例
         super().__init__(cache_manager_instance)
         self.cache_key_user = UserCashKey()
-
     async def user_favorites(self, user_id: int, data_to_cache: List[Dict]) -> bool:
         """
         将用户自选股列表缓存到 Redis，使用 Hash 类型。
@@ -237,7 +231,6 @@ class IndexCacheSet(CacheSet):
             return await self.cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
         except Exception as e:
             logger.error(f"缓存指数 {index_code} 基本信息失败: {str(e)}", exc_info=True)
-
     async def all_indexes(self, indexes: List[Dict]) -> bool:
         """
         将提供的指数数据列表（简单字典格式）设置到缓存中。
@@ -287,7 +280,6 @@ class IndexCacheSet(CacheSet):
         except Exception as e:
             logger.error(f"设置指数数据到缓存时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
             return False
-
     async def realtime_data(self, index_code: str, data_to_cache: Dict[str, Any]) -> bool:
         """
         将处理后的指数实时数据字典缓存到 Redis。
@@ -323,7 +315,6 @@ class IndexCacheSet(CacheSet):
         except Exception as e:
             logger.error(f"缓存指数[{index_code}]实时数据时发生异常: {str(e)}, key: {cache_key}", exc_info=True)
             return False
-
     async def latest_time_series(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         """
         将处理后的单个最新指数时间序列数据点缓存到 Redis。
@@ -343,7 +334,6 @@ class IndexCacheSet(CacheSet):
             return False
         cache_key = self.cache_key_index.latest_time_series(index_code, time_level)
         return await self._index_latest_data(index_code, time_level, data_to_cache, cache_key)
-
     async def history_time_series(self, index_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         """
         将处理后的单个时间序列数据点缓存到 Redis。
@@ -380,7 +370,6 @@ class StockTimeTradeCacheSet(CacheSet):
     def __init__(self, cache_manager_instance):
         # 调用父类并传递实例
         super().__init__(cache_manager_instance)
-
     async def latest_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         """
         将处理后的单个最新指数时间序列数据点缓存到 Redis。
@@ -400,15 +389,12 @@ class StockTimeTradeCacheSet(CacheSet):
         cache_key = self.cache_key_stock.latest_time_trade(stock_code, time_level)
         # print(f"latest_time_trade.cache_key: {cache_key}")
         return await self._stock_latest_data(stock_code, time_level, data_to_cache, cache_key)
-
     async def history_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         cache_key = self.cache_key_stock.history_time_trade(stock_code, time_level)
         return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
-
     async def stock_day_basic_info(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         cache_key = self.cache_key_stock.stock_day_basic_info(stock_code)
         return await self._history_data(stock_code, "Day_Basic_Info", data_to_cache, cache_key)
-
     async def batch_set_latest_time_trade(self, cache_payload: Dict[str, dict], time_level: str) -> bool:
         """
         【V1 - 高效版】使用 Redis Pipeline 批量缓存最新的分钟线数据。
@@ -462,7 +448,6 @@ class StockTimeTradeCacheSet(CacheSet):
         except Exception as e:
             logger.error(f"批量写入分钟线缓存时发生异常: {e}", exc_info=True)
             return False
-
     async def batch_set_intraday_minute_kline(self, payload: Dict[str, List[Dict]], time_level: str) -> bool:
         """
         【V2.0 - 盘中引擎专用】使用 Pipeline 批量将分钟K线数据写入 Redis ZSET。
@@ -515,7 +500,6 @@ class StockIndicatorsCacheSet(CacheSet):
         # 调用父类并传递实例
         super().__init__(cache_manager_instance)
         self.cache_key_stock = StockCashKey()
-
     async def latest_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         """
         将处理后的单个最新指数时间序列数据点缓存到 Redis。
@@ -534,7 +518,6 @@ class StockIndicatorsCacheSet(CacheSet):
             return False
         cache_key = self.cache_key_stock.latest_time_trade(stock_code, time_level)
         return await self._stock_latest_data(stock_code, time_level, data_to_cache, cache_key)
-
     async def history_time_trade(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any]) -> bool:
         cache_key = self.cache_key_stock.history_time_trade(stock_code, time_level)
         return await self._history_data(stock_code, time_level, data_to_cache, cache_key)
@@ -543,7 +526,6 @@ class StockRealtimeCacheSet(CacheSet):
     def __init__(self, cache_manager_instance):
         # MODIFIED: 调用父类构造函数时，传递 cache_manager_instance
         super().__init__(cache_manager_instance)
-
     async def batch_set_latest_realtime_data(self, cache_payload: Dict[str, dict]) -> bool:
         """
         使用 Redis Pipeline 批量缓存最新的实时行情数据。
@@ -580,7 +562,6 @@ class StockRealtimeCacheSet(CacheSet):
         except Exception as e:
             logger.error(f"批量写入实时行情缓存时发生异常: {e}", exc_info=True)
             return False
-
     # 【代码新增处】批量设置最新Level5数据
     async def batch_set_latest_level5_data(self, cache_payload: Dict[str, dict]) -> bool:
         """
@@ -618,7 +599,6 @@ class StockRealtimeCacheSet(CacheSet):
         except Exception as e:
             logger.error(f"批量写入Level5缓存时发生异常: {e}", exc_info=True)
             return False
-
     async def latest_realtime_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
@@ -626,7 +606,6 @@ class StockRealtimeCacheSet(CacheSet):
             return False
         cache_key = self.cache_key_stock.latest_realtime_data(stock_code)
         return await self.cache_manager.set(cache_key, data_to_cache)
-
     async def latest_level5_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
@@ -640,7 +619,6 @@ class StockRealtimeCacheSet(CacheSet):
     async def history_level5_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         cache_key = self.cache_key_stock.history_level5_data(stock_code)
         return await self._history_data(stock_code, data_to_cache, cache_key)
-
     async def batch_append_intraday_ticks(self, realtime_payload: Dict, level5_payload: Dict) -> bool:
         """
         【V2.2 - 健壮版】使用 Pipeline 批量将Tick数据追加到当日的 Redis ZSET 中。
@@ -694,7 +672,6 @@ class StockRealtimeCacheSet(CacheSet):
         except Exception as e:
             logger.error(f"批量追加盘中Ticks缓存时发生异常: {e}", exc_info=True)
             return False
-
     async def batch_append_real_ticks(self, tick_data_map: Dict[str, pd.DataFrame]) -> bool:
         """
         使用 Pipeline 批量将真实的逐笔成交数据 (realtime_tick) 追加到当日的 Redis ZSET 中。
@@ -741,7 +718,6 @@ class StrategyCacheSet(CacheSet):
     def __init__(self, cache_manager_instance):
         # 调用父类并传递实例
         super().__init__(cache_manager_instance)
-
     async def lastest_analyze_signals_trend_following_data(self, stock_code: str, data_to_cache: Dict[str, Any]):
         data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:
@@ -750,7 +726,6 @@ class StrategyCacheSet(CacheSet):
         cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
         # print(f"lastest_analyze_signals_trend_following_data.cache_key: {cache_key}")
         return await self._stock_strategy_data(stock_code=stock_code, data_to_cache=data_to_cache, cache_key=cache_key)
-
     async def analyze_signals_trend_following(self, stock_code: str, data_to_cache: Dict[str, Any], timestamp: pd.Timestamp) -> bool: # 添加 timestamp 参数
         data_to_cache = await self._format_conversion(data_to_cache)
         if data_to_cache is None:

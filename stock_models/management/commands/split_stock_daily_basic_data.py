@@ -16,7 +16,6 @@ class Command(BaseCommand):
     """
     # 定义在命令行中执行 `manage.py help <command_name>` 时显示的帮助信息
     help = '将StockDailyBasic表数据按规则拆分到新表'
-
     def handle(self, *args, **options):
         """
         命令执行的入口方法。
@@ -81,7 +80,6 @@ class Command(BaseCommand):
             offset += batch_size
         # 所有数据处理完成后，打印最终的成功信息
         print("StockDailyBasic 数据迁移完成！")
-
     def _create_new_instance(self, model_class, source_obj):
         """
         一个辅助方法，用于从源对象创建一个新的模型实例并复制所有字段。

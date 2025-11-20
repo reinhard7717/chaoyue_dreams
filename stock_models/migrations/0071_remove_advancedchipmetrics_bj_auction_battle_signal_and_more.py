@@ -4,11 +4,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ('stock_models', '0070_advancedchipmetrics_bj_auction_intent_signal_and_more'),
     ]
-
     operations = [
         migrations.RemoveField(
             model_name='advancedchipmetrics_bj',

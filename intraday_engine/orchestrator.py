@@ -31,7 +31,6 @@ class IntradayEngineOrchestrator:
         self.strategy = RealtimeStrategy(params)
         self.cache_key = IntradayEngineCashKey()
         self.today_str = date.today().strftime('%Y-%m-%d')
-
     async def initialize_pools(self):
         """
         【盘前准备 V2.2 - 数据库时区修复版】
@@ -121,7 +120,6 @@ class IntradayEngineOrchestrator:
             await pipe.execute()
         logger.info(f"待买入池 ({len(watchlist)}只) 和持仓池 ({len(position_list)}只) 已成功写入Redis。")
         return True
-
     # MODIFIED: 重写此方法以增加健壮性
     async def run_single_cycle(self, time_level: str = '1'):
         """
@@ -186,7 +184,6 @@ class IntradayEngineOrchestrator:
             await self._save_signals_to_cache(all_signals)
         print(f"本轮循环分析完成。产出 {len(all_signals)} 条信号。")
         return all_signals
-
     async def _save_signals_to_cache(self, signals: List[Dict]):
         """将产生的信号按用户ID分组，写入Redis List"""
         user_signals_map = {}

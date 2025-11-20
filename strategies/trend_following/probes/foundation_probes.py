@@ -11,7 +11,6 @@ class FoundationProbes:
         self.intelligence_layer = intel_layer
         self.strategy = intel_layer.strategy
         self.foundation_intel = intel_layer.foundation_intel
-
     def _deploy_apollos_lyre_probe(self, probe_date: pd.Timestamp):
         """
         【V1.4 · 三叉戟协议版】“阿波罗的七弦琴”探针
@@ -51,7 +50,6 @@ class FoundationProbes:
             elif name in pillar_source_cols:
                 self._deploy_caduceus_probe_for_indicator(name, pillar_source_cols[name], probe_date)
         print("\n--- “基础引擎探针”解剖完毕 ---")
-
     def _deploy_caduceus_probe_for_ema(self, probe_date: pd.Timestamp):
         """
         【V1.1 · 修复版】“赫尔墨斯的商神杖”深度诊断单元 (EMA专用)
@@ -98,7 +96,6 @@ class FoundationProbes:
         actual_val = get_val(actual_snapshot_series, probe_date)
         print(f"      - [最终融合] 探针重算: {recalc_snapshot:.4f} vs. 引擎实际: {actual_val:.4f} -> {'✅ 一致' if np.isclose(recalc_snapshot, actual_val) else '❌ 不一致'}")
         print("-"*(32+22) + "\n")
-
     def _deploy_caduceus_probe_for_indicator(self, indicator_name: str, source_col: str, probe_date: pd.Timestamp):
         """
         【V2.0 · 三叉戟协议版】通用指标深度诊断单元

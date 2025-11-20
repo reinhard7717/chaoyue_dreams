@@ -6,7 +6,6 @@ from stock_models.industry import ThsIndex, ThsIndexDaily, DcIndex, DcIndexDaily
 
 class Command(BaseCommand):
     help = 'Deletes orphan daily records from ThsIndexDaily and DcIndexDaily that lack a corresponding parent index.'
-
     def handle(self, *args, **options):
         self.stdout.write(self.style.SUCCESS("开始清理孤儿日线数据..."))
         # 清理 ThsIndexDaily

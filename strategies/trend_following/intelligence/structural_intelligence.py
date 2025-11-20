@@ -17,7 +17,6 @@ class StructuralIntelligence:
         """
         self.strategy = strategy_instance
         self.dynamic_thresholds = dynamic_thresholds
-
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -26,7 +25,6 @@ class StructuralIntelligence:
             print(f"    -> [结构情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
-
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V4.4 · 底分型集成版】结构情报分析总指挥
@@ -58,7 +56,6 @@ class StructuralIntelligence:
         bottom_fractal_score = self._diagnose_bottom_fractal(df, n=5, min_depth_ratio=0.001)
         all_states['SCORE_STRUCT_BOTTOM_FRACTAL'] = bottom_fractal_score
         return all_states
-
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.1 · 多时间维度归一化版】结构公理四：诊断“结构背离”
@@ -80,7 +77,6 @@ class StructuralIntelligence:
         ma_structure_trend = get_adaptive_mtf_normalized_bipolar_score(ema_short_long_diff.diff(1), df.index, tf_weights_struct)
         divergence_score = (ma_structure_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
-
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         print("    -> [结构情报] 正在诊断结构公理一：趋势形态...")
         df_index = df.index
@@ -226,7 +222,6 @@ class StructuralIntelligence:
                 print(f"       - is_limit_up_day: {is_limit_up_day.loc[probe_date_for_loop]}")
                 print(f"       - trend_form_score: {trend_form_score.loc[probe_date_for_loop]:.4f}")
         return trend_form_score
-
     def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V3.1 · 微观结构博弈信号缺失处理与物理直观重构及共识增强版】结构公理三：诊断“结构稳定性”
@@ -319,7 +314,6 @@ class StructuralIntelligence:
                 print(f"       - volume_structure_skew_score: {volume_structure_skew_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - stability_score: {stability_score.loc[probe_date_for_loop]:.4f}")
         return stability_score
-
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, norm_window: int, daily_trend_form_score: pd.Series) -> pd.Series:
         """
         【V1.4 · 涨停日多周期协同增强与多时间维度归一化版】结构公理二：诊断“多周期协同”
@@ -390,7 +384,6 @@ class StructuralIntelligence:
                 print(f"       - is_limit_up_day: {is_limit_up_day.loc[probe_date_for_loop]}")
                 print(f"       - cohesion_score: {cohesion_score.loc[probe_date_for_loop]:.4f}")
         return cohesion_score
-
     def _diagnose_bottom_fractal(self, df: pd.DataFrame, n: int = 5, min_depth_ratio: float = 0.001) -> pd.Series:
         """
         【V1.0】结构公理五：诊断“底分型”结构

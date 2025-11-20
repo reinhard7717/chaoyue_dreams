@@ -121,7 +121,6 @@ class IndicatorDAO(BaseDAO):
         self.industry_dao = IndustryDao(cache_manager_instance)
         self.index_basic_dao = IndexBasicDAO(cache_manager_instance)  # 添加 IndexBasicDAO 的初始化
         self.ta = ta
-
     async def get_history_ohlcv_df(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000, trade_time: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
         【V118.11 模型字段适配修复版】
@@ -187,7 +186,6 @@ class IndicatorDAO(BaseDAO):
         except Exception as e:
             logger.error(f"从数据库获取并转换 {stock_code} {time_level_str} 数据失败: {e}", exc_info=True)
             return None
-
     # ▼▼▼ 行业分析相关的所有DAO方法 ▼▼▼
     async def get_all_industries(self, industry_type: str = '行业') -> List[ThsIndex]:
         """
@@ -202,7 +200,6 @@ class IndicatorDAO(BaseDAO):
         industries = await sync_to_async(list)(ThsIndex.objects.filter(type=industry_type))
         print(f"    [DAO] Found {len(industries)} industries.")
         return industries
-
     async def get_stocks_daily_close(self, stock_codes: List[str], trade_date: datetime.date) -> pd.DataFrame:
         """
         获取一批股票在指定交易日的收盘价和前收盘价。
@@ -230,7 +227,6 @@ class IndicatorDAO(BaseDAO):
         df = pd.DataFrame(data)
         print(f"    [DAO] Fetched close prices for {len(df)} stocks.")
         return df
-
     @sync_to_async
     def get_latest_industry_fund_flow(self, industry_code: str, trade_date: datetime.date) -> Optional[FundFlowIndustryTHS]:
         """
@@ -267,7 +263,6 @@ class IndicatorDAO(BaseDAO):
         except Exception as e:
             logger.error(f"查询行业 {industry_code} 最新资金流时出错: {e}")
             return None
-
     @sync_to_async
     def get_industry_members(self, industry_code: str) -> List[ThsIndexMember]:
         """
@@ -292,7 +287,6 @@ class IndicatorDAO(BaseDAO):
         except Exception as e:
             logger.error(f"查询行业 {industry_code} 成分股时出错: {e}")
             return []
-
     @sync_to_async
     def get_stocks_daily_basic(self, stock_codes: List[str], trade_date: datetime.date) -> List[StockDailyBasic]:
         """
@@ -319,7 +313,6 @@ class IndicatorDAO(BaseDAO):
         except Exception as e:
             logger.error(f"批量查询股票每日基本面指标时出错: {e}")
             return []
-
     @sync_to_async
     def get_industry_daily_data(self, industry_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
         """获取行业指数的历史日线行情"""
@@ -334,7 +327,6 @@ class IndicatorDAO(BaseDAO):
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
         return df
-
     @sync_to_async
     def get_market_index_daily_data(self, market_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
         """
@@ -360,7 +352,6 @@ class IndicatorDAO(BaseDAO):
             df.rename(columns={'close': 'market_close'}, inplace=True)
         # print(f"    [DAO] 获取到 {len(df)} 条指数 {market_code} 的行情数据。")
         return df
-
     @sync_to_async
     def get_cyq_perf_for_stock_and_dates(self, stock_code: str, trade_dates: List[pd.Timestamp]) -> Optional[pd.DataFrame]:
         """
@@ -405,7 +396,6 @@ class IndicatorDAO(BaseDAO):
         except Exception as e:
             print(f"[错误] 在CyqDao中获取股票 {stock_code} 的筹码数据时出错: {e}")
             return None
-
     # 添加安全转换辅助函数（确保存在且正确）
     def _safe_decimal(self, value: Any) -> Optional[Decimal]:
         """将输入值安全转换为 Decimal 类型"""
@@ -418,7 +408,6 @@ class IndicatorDAO(BaseDAO):
         except (InvalidOperation, ValueError, TypeError) as e:
             logger.warning(f"无法将值 '{value}' (类型: {type(value).__name__}) 安全转换为 Decimal: {e}", exc_info=True)
             return None
-
     def _safe_int(self, value: Any) -> Optional[int]:
         """将输入值安全转换为 int 类型"""
         if value is None:
@@ -440,7 +429,6 @@ class IndicatorDAO(BaseDAO):
         except (ValueError, TypeError) as e:
             logger.warning(f"无法将值 '{value}' (类型: {type(value).__name__}) 安全转换为 int: {e}", exc_info=True)
             return None
-
     def _safe_float(self, value: Any) -> Optional[float]:
         """将输入值安全转换为 float 类型"""
         if value is None:
@@ -458,7 +446,6 @@ class IndicatorDAO(BaseDAO):
         except (ValueError, TypeError) as e:
             logger.warning(f"无法将值 '{value}' (类型: {type(value).__name__}) 安全转换为 float: {e}", exc_info=True)
             return None
-
     def _safe_datetime(self, value: Any) -> Optional[datetime.datetime]:
         """
         将输入值安全转换为时区感知的 datetime 对象 (目标时区为默认时区，通常为上海)。

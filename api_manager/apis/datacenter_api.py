@@ -431,7 +431,6 @@ class DataCenterAPI(BaseAPI):
             return None
         return await self.get(f'data/all/orgqfiizc/{year}_{quarter}', expected_type='list')
     # 资金流向相关API
-
     async def get_industry_capital_flow(self) -> Optional[List[Dict]]:
         """
         获取证监会行业资金路线图数据
@@ -482,7 +481,6 @@ class DataCenterAPI(BaseAPI):
         """
         return await self.get('data/all/zjlx/ggjdtj_20', expected_type='list')
     
-
     async def get_net_inflow_amount_rank(self) -> Optional[List[Dict]]:
         """
         获取净流入额排名数据
