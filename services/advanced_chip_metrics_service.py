@@ -224,6 +224,13 @@ class AdvancedChipMetricsService:
                 continue
             cyq_perf_keys = ['weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'prev_20d_close', 'open_qfq']
             context_for_calc = {key: context_data.get(key) for key in cyq_perf_keys}
+            # 新增行：为筹码计算器准备daily_vwap
+            daily_amount = pd.to_numeric(context_data.get('amount'), errors='coerce') * 1000
+            daily_vol_shares = pd.to_numeric(context_data.get('vol'), errors='coerce') * 100
+            if pd.notna(daily_amount) and pd.notna(daily_vol_shares) and daily_vol_shares > 0:
+                context_for_calc['daily_vwap'] = daily_amount / daily_vol_shares
+            else:
+                context_for_calc['daily_vwap'] = np.nan
             close_price_today = context_data.get('close_qfq')
             recent_closes_list = prev_metrics.get('recent_closes_queue', [])
             if len(recent_closes_list) >= 10:
