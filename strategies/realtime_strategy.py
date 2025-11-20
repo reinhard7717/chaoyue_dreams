@@ -72,8 +72,8 @@ class RealtimeStrategy:
         # 加载盘中评分参数
         self.intraday_scoring_params = self.realtime_config.get('intraday_scoring_params', {})
         self.base_score_per_playbook = self.intraday_scoring_params.get('base_score_per_playbook', {})
-        self.tiered_feature_scoring = self.intraday_scoring_params.get('tiered_feature_scoring', {}) # 修改行：加载分层特征评分配置
-        self.fixed_feature_scoring = self.intraday_scoring_params.get('fixed_feature_scoring', {}) # 修改行：加载固定特征评分配置
+        self.tiered_feature_scoring = self.intraday_scoring_params.get('tiered_feature_scoring', {}) # 加载分层特征评分配置
+        self.fixed_feature_scoring = self.intraday_scoring_params.get('fixed_feature_scoring', {}) # 加载固定特征评分配置
         self.rating_thresholds = self.intraday_scoring_params.get('rating_thresholds', {})
         self.daily_score_influence_multiplier = self.intraday_scoring_params.get('daily_score_influence_multiplier', {}).get('value', 0.5)
         self.daily_risk_penalty_multiplier = self.intraday_scoring_params.get('daily_risk_penalty_multiplier', {}).get('value', 0.8)
@@ -128,7 +128,7 @@ class RealtimeStrategy:
             return None
         try:
             # --- 提取更多对策略有支撑作用的信息 ---
-            # 修改行：各分析器现在返回 Dict[str, float]，包含量化值
+            # 各分析器现在返回 Dict[str, float]，包含量化值
             intraday_patterns_5min = self.pattern_recognizer.recognize_patterns(df_5min, '5min')
             intraday_patterns_30min = self.pattern_recognizer.recognize_patterns(df_30min, '30min') if current_kline_30min is not None else {}
             volume_anomalies_5min = self.volume_analyzer.analyze_volume(df_5min, '5min')
@@ -140,7 +140,7 @@ class RealtimeStrategy:
                 micro_price_features_5min = self.micro_price_analyzer.analyze_micro_price_action(current_kline_5min, prev_kline_5min)
             multi_timeframe_confluence = self.multi_timeframe_analyzer.analyze_confluence(self.data)
             # 将所有特征合并到一个字典，方便传递给评分函数
-            # 修改行：all_intraday_features 现在包含量化值
+            # all_intraday_features 现在包含量化值
             all_intraday_features = {
                 **intraday_patterns_5min,
                 **intraday_patterns_30min,
@@ -307,7 +307,7 @@ class RealtimeStrategy:
         try:
             cond_bullish_pattern = kline.get("CDL_HAMMER", 0.0) > 0.5 or \
                                    kline.get("CDL_ENGULFING_BULLISH", 0.0) > 0.5 or \
-                                   kline.get("CDL_MORNINGSTAR", 0.0) > 0.5 # 修改行：使用get获取浮点值并判断
+                                   kline.get("CDL_MORNINGSTAR", 0.0) > 0.5 # 使用get获取浮点值并判断
             if not cond_bullish_pattern: return False
             volume_multiplier = self.playbook_params.get('intraday_candlestick_reversal', {}).get('min_reversal_volume_multiplier', 1.2)
             cond_volume = kline['volume_5'] > kline['VOL_MA_21_5'] * volume_multiplier
@@ -345,7 +345,7 @@ class RealtimeStrategy:
         """
         if not self.playbook_params.get('vwap_channel_rebound', {}).get('enabled', False): return False
         try:
-            cond_touch_rebound = kline.get("PRICE_TOUCHING_VWAP_LOWER_CHANNEL", 0.0) > 0.5 # 修改行：使用get获取浮点值并判断
+            cond_touch_rebound = kline.get("PRICE_TOUCHING_VWAP_LOWER_CHANNEL", 0.0) > 0.5 # 使用get获取浮点值并判断
             cond_rebound_candle = kline['close_5'] > kline['open_5']
             rebound_min_pct_change = self.playbook_params.get('vwap_channel_rebound', {}).get('rebound_min_pct_change', 0.003)
             cond_pct_change = (kline['close_5'] / kline['open_5'] - 1) > rebound_min_pct_change
@@ -361,7 +361,7 @@ class RealtimeStrategy:
         """
         if not self.playbook_params.get('multi_timeframe_ema_confluence', {}).get('enabled', False): return False
         try:
-            cond_ema_confluence = kline.get("EMA_BULLISH_CONFLUENCE", 0.0) > 0.5 # 修改行：使用get获取浮点值并判断
+            cond_ema_confluence = kline.get("EMA_BULLISH_CONFLUENCE", 0.0) > 0.5 # 使用get获取浮点值并判断
             cond_price_break_5min = kline['close_5'] > kline['EMA_5_5'] and kline['open_5'] <= kline['EMA_5_5']
             return all([cond_ema_confluence, cond_price_break_5min])
         except KeyError as ke:
@@ -377,7 +377,7 @@ class RealtimeStrategy:
         try:
             cond_rebound_from_pivot = kline.get("PRICE_REBOUNDING_FROM_S1", 0.0) > 0.5 or \
                                       kline.get("PRICE_REBOUNDING_FROM_S2", 0.0) > 0.5 or \
-                                      kline.get("PRICE_REBOUNDING_FROM_S3", 0.0) > 0.5 # 修改行：使用get获取浮点值并判断
+                                      kline.get("PRICE_REBOUNDING_FROM_S3", 0.0) > 0.5 # 使用get获取浮点值并判断
             if not cond_rebound_from_pivot: return False
             cond_rebound_candle = kline['close_5'] > kline['open_5']
             volume_multiplier = self.playbook_params.get('pivot_point_reversal', {}).get('rebound_volume_multiplier', 1.2)
@@ -394,7 +394,7 @@ class RealtimeStrategy:
         """
         if not self.playbook_params.get('micro_price_rejection_rebound', {}).get('enabled', False): return False
         try:
-            cond_price_rejection_lower = kline.get("PRICE_REJECTION_LOWER", 0.0) > 0.5 # 修改行：使用get获取浮点值并判断
+            cond_price_rejection_lower = kline.get("PRICE_REJECTION_LOWER", 0.0) > 0.5 # 使用get获取浮点值并判断
             if not cond_price_rejection_lower: return False
             cond_rebound_candle = kline['close_5'] > kline['open_5']
             volume_multiplier = self.playbook_params.get('micro_price_rejection_rebound', {}).get('rejection_volume_multiplier', 1.1)
@@ -405,7 +405,7 @@ class RealtimeStrategy:
 
     # 修改方法：计算盘中综合评分和评级
     def _calculate_intraday_rating(self, stock_code: str, current_kline_5min: pd.Series, 
-                                   all_intraday_features: Dict[str, float], # 修改行：特征值可以是浮点数
+                                   all_intraday_features: Dict[str, float], # 特征值可以是浮点数
                                    triggered_playbooks: List[str], 
                                    daily_signal_info: Dict) -> Tuple[int, str, str]:
         """

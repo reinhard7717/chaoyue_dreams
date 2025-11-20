@@ -180,7 +180,6 @@ class AdvancedChipMetricsService:
             is_probe_date_global = True
         if is_probe_date_global:
             print(f"    -> [筹码合成探针-初始化] debug_params: {debug_params}, probe_date_naive: {probe_date_naive}")
-
             # 新增探针：在方法入口处检查 fund_flow_attributed_minute_map
             if probe_date_naive and probe_date_naive in fund_flow_attributed_minute_map:
                 probe_df_at_entry = fund_flow_attributed_minute_map[probe_date_naive]
@@ -195,7 +194,6 @@ class AdvancedChipMetricsService:
                     print(f"       - 'retail_sell_vol' 列缺失。")
             else:
                 print(f"    -> [筹码合成探针-方法入口] @ {probe_date_naive}: fund_flow_attributed_minute_map 为空或不包含指定日期。")
-
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             date_obj = trade_date.date()
             is_current_probe_date = is_probe_date_global and (probe_date_naive == date_obj)
@@ -262,10 +260,10 @@ class AdvancedChipMetricsService:
                 context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
             else:
                 context_for_calc['historical_components'] = pd.DataFrame(columns=hist_comp_cols)
-            # 修改行：将 trade_date 替换为 date_obj 进行字典查找
+            # 将 trade_date 替换为 date_obj 进行字典查找
             if fund_flow_attributed_minute_map and date_obj in fund_flow_attributed_minute_map:
                 enhanced_intraday_data = fund_flow_attributed_minute_map[date_obj]
-                # 修改行：无条件打印此探针
+                # 无条件打印此探针
                 print(f"    -> [筹码合成探针-赋值即刻] @ {date_obj}: enhanced_intraday_data (直接赋值后) 检查。")
                 if 'main_force_sell_vol' in enhanced_intraday_data.columns:
                     print(f"       - 'main_force_sell_vol' sum: {enhanced_intraday_data['main_force_sell_vol'].sum():.2f}")
@@ -277,10 +275,10 @@ class AdvancedChipMetricsService:
                     print(f"       - 'retail_sell_vol' 列缺失。")
                 print(f"调试信息: [{stock_code}] [{date_obj}] ChipFeatureCalculator 使用资金流服务提供的精确分钟数据。")
             else:
-                # 修改行：将 trade_date.date() 替换为 date_obj
+                # 将 trade_date.date() 替换为 date_obj
                 enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
             
-            # 修改行：无条件打印此探针
+            # 无条件打印此探针
             print(f"    -> [筹码合成探针-传递给计算器前] @ {date_obj}: enhanced_intraday_data (传递给计算器前) 检查。")
             if 'main_force_sell_vol' in enhanced_intraday_data.columns:
                 print(f"       - 'main_force_sell_vol' sum: {enhanced_intraday_data['main_force_sell_vol'].sum():.2f}")
@@ -290,7 +288,6 @@ class AdvancedChipMetricsService:
                 print(f"       - 'retail_sell_vol' sum: {enhanced_intraday_data['retail_sell_vol'].sum():.2f}")
             else:
                 print(f"       - 'retail_sell_vol' 列缺失。")
-
             context_for_calc['intraday_data'] = enhanced_intraday_data
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
@@ -465,7 +462,7 @@ class AdvancedChipMetricsService:
             else:
                 logger.warning("DataFrame passed to _group_minute_data_from_df has no 'trade_time' column and no DatetimeIndex.")
                 return pd.DataFrame()
-        # 修改行：统一处理时区，确保最终输出为北京时间
+        # 统一处理时区，确保最终输出为北京时间
         if df.index.tz is None:
             # 如果索引是 naive，假定它是 UTC（因为DAO层应该输出UTC aware，但可能在某些操作后丢失时区信息）
             df.index = df.index.tz_localize('UTC', ambiguous='infer').tz_convert(timezone.get_current_timezone())

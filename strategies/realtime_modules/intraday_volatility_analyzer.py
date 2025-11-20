@@ -33,7 +33,7 @@ class IntradayVolatilityAnalyzer:
         if not self.enabled or timeframe not in self.apply_on or df.empty:
             return {}
         volatility_features = {}
-        if len(df) < max(self.boll_period, self.bbw_slope_period, self.bbw_lookback_window) + 1: # 修改行：确保足够数据计算BBW分位数
+        if len(df) < max(self.boll_period, self.bbw_slope_period, self.bbw_lookback_window) + 1: # 确保足够数据计算BBW分位数
             return {}
         current_kline = df.iloc[-1]
         bbw_col = f"BBW_{self.boll_period}_{self.boll_std_dev}_{timeframe.replace('min','')}"

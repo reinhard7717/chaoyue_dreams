@@ -401,15 +401,14 @@ class StockTimeTradeDAO(BaseDAO):
                 return None
             start_dt_aware = timezone.make_aware(datetime.combine(trade_date, time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
             end_dt_aware = timezone.make_aware(datetime.combine(trade_date + timedelta(days=1), time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
-
             kline_queryset = model_class.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__gte=start_dt_aware,
                 trade_time__lt=end_dt_aware
-            ).order_by('trade_time').values( # 修改行：添加 .values() 来指定获取的字段
+            ).order_by('trade_time').values( # 添加 .values() 来指定获取的字段
                 'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
             )
-            kline_values = await sync_to_async(list)(kline_queryset) # 修改行：执行 QuerySet 并赋值给 kline_values
+            kline_values = await sync_to_async(list)(kline_queryset) # 执行 QuerySet 并赋值给 kline_values
             if not kline_values:
                 logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {trade_date} 的 {time_level}分钟 K线数据。")
                 return None
@@ -439,15 +438,14 @@ class StockTimeTradeDAO(BaseDAO):
                 return None
             start_datetime = timezone.make_aware(datetime.combine(trade_date, time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
             end_datetime = timezone.make_aware(datetime.combine(trade_date + timedelta(days=1), time.min), timezone=pytz.timezone('Asia/Shanghai')).astimezone(pytz.utc)
-
             kline_queryset = model_class.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__gte=start_datetime,
                 trade_time__lt=end_datetime
-            ).order_by('trade_time').values( # 修改行：添加 .values() 来指定获取的字段
+            ).order_by('trade_time').values( # 添加 .values() 来指定获取的字段
                 'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
             )
-            kline_values = await sync_to_async(list)(kline_queryset) # 修改行：执行 QuerySet 并赋值给 kline_values
+            kline_values = await sync_to_async(list)(kline_queryset) # 执行 QuerySet 并赋值给 kline_values
             if not kline_values:
                 logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {trade_date} 的1分钟K线数据。")
                 return None
@@ -838,7 +836,7 @@ class StockTimeTradeDAO(BaseDAO):
                 logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {start_dt} 到 {end_dt} 之间的 {time_level} K线数据。")
                 return None
             df = pd.DataFrame.from_records(kline_values)
-            # 修改行：从数据库取出的时间已经是UTC，直接设置为索引，并确保是 aware UTC
+            # 从数据库取出的时间已经是UTC，直接设置为索引，并确保是 aware UTC
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True) # 修改行
             df.set_index('trade_time', inplace=True)
             df.rename(columns={'vol': 'volume', 'amount': 'turnover_value'}, inplace=True)

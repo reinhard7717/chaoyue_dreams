@@ -615,32 +615,32 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Tick Data原始时间范围: {data_dfs['stock_tick_data']['trade_time'].min()} to {data_dfs['stock_tick_data']['trade_time'].max()}")
     if not data_dfs["stock_minute_data"].empty:
         print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Minute Data原始时间范围: {data_dfs['stock_minute_data']['trade_time'].min()} to {data_dfs['stock_minute_data']['trade_time'].max()}")
-    def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str, data_source_name: str) -> dict: # 修改行：增加 data_source_name 参数
+    def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str, data_source_name: str) -> dict: # 增加 data_source_name 参数
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         target_tz = pytz.timezone('Asia/Shanghai')
         if stock_code_for_log == '600475.SH':
-            print(f"    -> [时间修正探针] {stock_code_for_log} {data_source_name} _process_intraday_df_to_map 初始状态 (来自 DAO)：") # 修改行：增加数据源名称
+            print(f"    -> [时间修正探针] {stock_code_for_log} {data_source_name} _process_intraday_df_to_map 初始状态 (来自 DAO)：") # 增加数据源名称
             print(f"       - 原始 df['trade_time'].iloc[0]: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z') if df['trade_time'].iloc[0].tz is not None else df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')} (tz: {df['trade_time'].iloc[0].tz})")
         # 统一转换为目标时区 (Asia/Shanghai)
         if df['trade_time'].dt.tz is None:
             # 如果是 naive datetime，假定它是北京时间（因为DAO层应该输出aware，但可能在某些操作后丢失时区信息）
             df['trade_time'] = df['trade_time'].dt.tz_localize(target_tz, ambiguous='infer')
             if stock_code_for_log == '600475.SH':
-                print(f"    -> [时间修正探针] {stock_code_for_log} {data_source_name} 修正：Naive时间本地化为Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}") # 修改行：增加数据源名称
+                print(f"    -> [时间修正探针] {stock_code_for_log} {data_source_name} 修正：Naive时间本地化为Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}") # 增加数据源名称
         else:
             # 如果已经是 aware datetime，直接转换为目标时区
             df['trade_time'] = df['trade_time'].dt.tz_convert(target_tz)
             if stock_code_for_log == '600475.SH':
-                print(f"    -> [时间修正探针] {stock_code_for_log} {data_source_name} 转换：已是Aware时间，转换为Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}") # 修改行：增加数据源名称
+                print(f"    -> [时间修正探针] {stock_code_for_log} {data_source_name} 转换：已是Aware时间，转换为Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}") # 增加数据源名称
         df = df.set_index('trade_time')
         grouped_data = {}
         for date, group_df in df.groupby(df.index.date):
             grouped_data[date] = group_df
         return grouped_data
-    data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"], stock_info.stock_code, "Tick Data") # 修改行：传入数据源名称
-    data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"], stock_info.stock_code, "Level5 Data") # 修改行：传入数据源名称
-    data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"], stock_info.stock_code, "Minute K-line Data") # 修改行：传入数据源名称
+    data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"], stock_info.stock_code, "Tick Data") # 传入数据源名称
+    data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"], stock_info.stock_code, "Level5 Data") # 传入数据源名称
+    data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"], stock_info.stock_code, "Minute K-line Data") # 传入数据源名称
     for name, df in data_dfs.items():
         if name in ["stock_tick_data_map", "stock_level5_data_map", "stock_minute_data_map"]:
             continue
@@ -749,11 +749,11 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
             df = pd.DataFrame.from_records(qs)
             if df.empty: return df
             df['trade_time'] = pd.to_datetime(df['trade_time'])
-            # 修改行：增加探针，查看从数据库加载后的原始时区状态
+            # 增加探针，查看从数据库加载后的原始时区状态
             if stock_info_obj.stock_code == '600475.SH':
                 print(f"    -> [原始数据加载探针] Stock: {stock_info_obj.stock_code}, get_intraday_data_async 原始加载状态：")
                 print(f"       - df['trade_time'].iloc[0]: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z') if df['trade_time'].iloc[0].tz is not None else df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')} (tz: {df['trade_time'].iloc[0].tz})")
-            # 修改行：标准化为 UTC aware datetime
+            # 标准化为 UTC aware datetime
             if df['trade_time'].dt.tz is None:
                 df['trade_time'] = df['trade_time'].dt.tz_localize('UTC', ambiguous='infer')
                 if stock_info_obj.stock_code == '600475.SH':
@@ -763,7 +763,6 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
                 if stock_info_obj.stock_code == '600475.SH':
                     print(f"    -> [原始数据加载探针] Stock: {stock_info_obj.stock_code}, get_intraday_data_async 转换为 UTC aware。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
             return df
-
         chunk_start_date = dates_to_process.min().date()
         chunk_end_date = dates_to_process.max().date()
         tick_model = get_stock_tick_data_model_by_code(stock_code)
@@ -930,7 +929,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         seed_date = await sync_to_async(TradeCalendar.get_trade_date_offset)(reference_date=first_processing_day, offset=-1)
         if seed_date:
             seed_chunk_dates = pd.DatetimeIndex([pd.to_datetime(seed_date)])
-            seed_data_dfs = await _load_all_sources_unified(stock_info, DailyModel, seed_chunk_dates, cache_manager) # 修改行：传入 cache_manager
+            seed_data_dfs = await _load_all_sources_unified(stock_info, DailyModel, seed_chunk_dates, cache_manager) # 传入 cache_manager
             if not seed_data_dfs["daily_data"].empty and not seed_data_dfs["daily_basic"].empty:
                 seed_daily_df = seed_data_dfs["daily_data"].set_index(pd.to_datetime(seed_data_dfs["daily_data"]['trade_time'])).drop(columns='trade_time')
                 seed_daily_basic_df = seed_data_dfs["daily_basic"].set_index(pd.to_datetime(seed_data_dfs["daily_basic"]['trade_time'])).drop(columns='trade_time')
@@ -955,7 +954,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
-            data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_dates, cache_manager) # 修改行：传入 cache_manager
+            data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_dates, cache_manager) # 传入 cache_manager
             tick_data_map = data_dfs.pop("stock_tick_data_map")
             level5_data_map = data_dfs.pop("stock_level5_data_map")
             minute_data_map = data_dfs.pop("stock_minute_data_map")
@@ -1003,7 +1002,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             all_failures.extend(ff_failures)
             
             fund_flow_attributed_minute_map_for_chip_service = copy.deepcopy(fund_flow_attributed_minute_map)
-
             probe_date_naive = pd.to_datetime(debug_params.get('probe_dates', [None])[0]).date() if debug_params.get('probe_dates') and debug_params.get('probe_dates')[0] else None
             if probe_date_naive:
                 print(f"    -> [任务调度器探针-传递前] @ {probe_date_naive}: fund_flow_attributed_minute_map_for_chip_service (传递前) 检查。")
@@ -1025,7 +1023,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     print(f"       - fund_flow_attributed_minute_map_for_chip_service 不包含日期 {probe_date_naive}。")
             else:
                 print(f"    -> [任务调度器探针-传递前] probe_date_naive 未设置。")
-
             chip_data_dfs = {"cyq_chips": data_dfs["cyq_chips"], "cyq_perf": data_dfs["cyq_perf"]}
             chip_raw_df = chip_service._preprocess_and_merge_data(
                 stock_code, chip_data_dfs, base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
@@ -1052,7 +1049,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             ff_derivatives = fund_flow_service._calculate_derivatives(stock_code, full_sequence_for_derivatives)
             chip_derivatives = chip_service._calculate_derivatives(full_sequence_for_derivatives)
             chunk_final_df = full_sequence_for_derivatives.join([ff_derivatives, chip_derivatives])
-            all_final_metrics_to_save = pd.concat([all_final_metrics_to_save, chunk_final_df[chunk_final_df.index.date >= save_start_date]]) # 修改行：确保只保存 save_start_date 及之后的数据
+            all_final_metrics_to_save = pd.concat([all_final_metrics_to_save, chunk_final_df[chunk_final_df.index.date >= save_start_date]]) # 确保只保存 save_start_date 及之后的数据
             context_df = full_sequence_for_derivatives
         if not all_final_metrics_to_save.empty:
             if save_start_date:

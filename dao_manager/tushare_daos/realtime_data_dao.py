@@ -212,9 +212,9 @@ class StockRealtimeDAO(BaseDAO):
                 df.index = df.index.tz_localize('Asia/Shanghai', ambiguous='infer')
             else:
                 # 如果已经是 aware datetime (例如被错误地标记为UTC)，先转换为 naive，再本地化为北京时间
-                df.index = df.index.tz_convert(None).tz_localize('Asia/Shanghai', ambiguous='infer') # 修改行：先转naive再localize为Asia/Shanghai
+                df.index = df.index.tz_convert(None).tz_localize('Asia/Shanghai', ambiguous='infer') # 先转naive再localize为Asia/Shanghai
             # DAO统一输出UTC aware datetime，所以最后转换为UTC
-            df.index = df.index.tz_convert('UTC') # 修改行：确保DAO输出UTC aware
+            df.index = df.index.tz_convert('UTC') # 确保DAO输出UTC aware
             return df
         except Exception as e:
             logger.error(f"从数据库获取 {stock_code} 逐笔数据失败: {e}", exc_info=True)
@@ -365,8 +365,8 @@ class StockRealtimeDAO(BaseDAO):
                 if df_quotes.index.tz is None:
                     df_quotes.index = df_quotes.index.tz_localize('Asia/Shanghai', ambiguous='infer')
                 else:
-                    df_quotes.index = df_quotes.index.tz_convert(None).tz_localize('Asia/Shanghai', ambiguous='infer') # 修改行：先转naive再localize为Asia/Shanghai
-                df_quotes.index = df_quotes.index.tz_convert('UTC') # 修改行：确保DAO输出UTC aware
+                    df_quotes.index = df_quotes.index.tz_convert(None).tz_localize('Asia/Shanghai', ambiguous='infer') # 先转naive再localize为Asia/Shanghai
+                df_quotes.index = df_quotes.index.tz_convert('UTC') # 确保DAO输出UTC aware
         if level5_model:
             query_level5 = level5_model.objects.filter(
                 stock__stock_code=stock_code,
@@ -385,8 +385,8 @@ class StockRealtimeDAO(BaseDAO):
                 if df_level5.index.tz is None:
                     df_level5.index = df_level5.index.tz_localize('Asia/Shanghai', ambiguous='infer')
                 else:
-                    df_level5.index = df_level5.index.tz_convert(None).tz_localize('Asia/Shanghai', ambiguous='infer') # 修改行：先转naive再localize为Asia/Shanghai
-                df_level5.index = df_level5.index.tz_convert('UTC') # 修改行：确保DAO输出UTC aware
+                    df_level5.index = df_level5.index.tz_convert(None).tz_localize('Asia/Shanghai', ambiguous='infer') # 先转naive再localize为Asia/Shanghai
+                df_level5.index = df_level5.index.tz_convert('UTC') # 确保DAO输出UTC aware
         return df_quotes, df_level5
 
     async def get_latest_tick_data(self, stock_code: str) -> dict:
