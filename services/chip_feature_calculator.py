@@ -46,6 +46,7 @@ class ChipFeatureCalculator:
         self.processed_intraday_df = self._prepare_intraday_data_features(intraday_data_raw, trade_date, debug_params)
         # 将处理后的日内数据存入 self.ctx，供后续方法使用
         self.ctx['processed_intraday_df'] = self.processed_intraday_df # 使用 self.ctx
+
     def calculate_all_metrics(self) -> dict:
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
@@ -57,17 +58,21 @@ class ChipFeatureCalculator:
         if missing_keys:
             logger.warning(f"[{stock_code}] [{trade_date}] 筹码计算中止，原因：上下文(context_data)中缺少核心字段: {missing_keys}。")
             return {}
-        # 修改代码块：重构整个聚合流程，确保所有指标都被正确收集
-        # 1. 初始化一个空的 all_metrics 字典
         all_metrics = {}
-        # 2. 逐步计算并更新 all_metrics
         summary_info = self._get_summary_metrics_from_context()
         all_metrics.update(summary_info)
         self.ctx.update(summary_info)
         static_structure_metrics = self._compute_static_structure_metrics()
         all_metrics.update(static_structure_metrics)
         self.ctx.update(static_structure_metrics)
-        # 动态因子注入
+        # =================================================================
+        # 新增代码块：为微观博弈指标计算注入关键的上下文依赖
+        dominant_peak_cost = self.ctx.get('dominant_peak_cost')
+        atr_14d = self.ctx.get('atr_14d')
+        if pd.notna(dominant_peak_cost) and pd.notna(atr_14d) and atr_14d > 0:
+            self.ctx['peak_range_low'] = dominant_peak_cost - atr_14d * 0.2
+            self.ctx['peak_range_high'] = dominant_peak_cost + atr_14d * 0.2
+        # =================================================================
         prev_gini = self.ctx.get('prev_metrics', {}).get('cost_gini_coefficient')
         today_gini = static_structure_metrics.get('cost_gini_coefficient')
         if pd.notna(prev_gini) and pd.notna(today_gini):
@@ -80,7 +85,6 @@ class ChipFeatureCalculator:
         cross_day_flow_metrics = self._compute_cross_day_flow_metrics(self.ctx)
         all_metrics.update(cross_day_flow_metrics)
         self.ctx.update(cross_day_flow_metrics)
-        # 3. 单独计算并显式添加指标
         winner_profit_margin_avg = self.ctx.get('winner_profit_margin_avg')
         total_winner_rate = self.ctx.get('total_winner_rate')
         profit_taking_flow_ratio = self.ctx.get('profit_taking_flow_ratio')
@@ -92,7 +96,6 @@ class ChipFeatureCalculator:
         game_theoretic_metrics = self._compute_game_theoretic_metrics(self.ctx)
         all_metrics.update(game_theoretic_metrics)
         self.ctx.update(game_theoretic_metrics)
-        # 结构势能分依赖博弈指标，所以在其后计算
         potential_score = self._calculate_structural_potential_score(self.ctx, all_metrics)
         all_metrics['structural_potential_score'] = potential_score
         self.ctx['structural_potential_score'] = potential_score
@@ -104,11 +107,11 @@ class ChipFeatureCalculator:
         self.ctx.update(microstructure_game_metrics)
         health_score_info = self._calculate_chip_structure_health_score(self.ctx)
         all_metrics.update(health_score_info)
-        # 4. 清理和收尾
         all_metrics.pop('peak_range_low', None)
         all_metrics.pop('peak_range_high', None)
-        all_metrics['cost_gini_coefficient'] = today_gini # 确保当日基尼系数被传递
+        all_metrics['cost_gini_coefficient'] = today_gini
         return all_metrics
+
     def _prepare_intraday_data_features(self, intraday_df: pd.DataFrame, trade_date: datetime.date, debug_params: dict) -> pd.DataFrame:
         import pytz
         results = {}
@@ -128,6 +131,7 @@ class ChipFeatureCalculator:
         start_time = datetime.time(9, 25)
         processed_intraday_df = intraday_df[intraday_df.index.time >= start_time].copy()
         return processed_intraday_df
+
     def _get_summary_metrics_from_context(self) -> dict:
         """
         【V14.0 · 稳定性前置注入版】
@@ -146,6 +150,7 @@ class ChipFeatureCalculator:
             'total_winner_rate': total_winner_rate,
             'concentration_70pct': concentration_70pct, # 注入上下文
         }
+
     def _compute_cross_day_flow_metrics(self, context: dict) -> dict:
         results = {
             'peak_mass_transfer_rate': np.nan,
@@ -208,6 +213,7 @@ class ChipFeatureCalculator:
         # --- 兼容旧指标 ---
         results.update(self._compute_legacy_cross_day_metrics(context))
         return results
+
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         results = {
             'strategic_phase_score': np.nan,
@@ -250,6 +256,7 @@ class ChipFeatureCalculator:
         # --- 5. 兼容旧指标 ---
         results.update(self._compute_legacy_game_theory_metrics(context))
         return results
+
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
         results = {
             'signal_conviction_score': np.nan,
@@ -298,6 +305,7 @@ class ChipFeatureCalculator:
                  (results['trend_vitality_index'] / 100)
         results['overall_t1_rating'] = np.clip(rating, -100, 100)
         return results
+
     def _compute_static_structure_metrics(self) -> dict:
         from scipy.signal import find_peaks
         from scipy.stats import skew
@@ -435,6 +443,7 @@ class ChipFeatureCalculator:
         total_daily_volume = self.ctx.get('daily_turnover_volume')
         results['price_volume_entropy'] = self._calculate_price_volume_entropy(intraday_df, daily_high, daily_low, total_daily_volume)
         return results
+
     def _calculate_structural_potential_score(self, context: dict, current_metrics: dict) -> float:
         """
         【V2.0 · 结构势能版】
@@ -500,6 +509,7 @@ class ChipFeatureCalculator:
             if pd.notna(score) and score > 0:
                 final_score_raw *= score ** weight
         return final_score_raw * 100
+
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
         results = {
             'impulse_quality_ratio': np.nan,
@@ -580,6 +590,7 @@ class ChipFeatureCalculator:
         # 兼容旧指标
         results.update(self._compute_legacy_intraday_metrics(context))
         return results
+
     def _calculate_chip_structure_health_score(self, context: dict) -> dict:
         """
         【V4.2 · 生产就绪版】
@@ -648,6 +659,7 @@ class ChipFeatureCalculator:
             final_score_normalized = final_score_raw ** (1.0 / valid_dims)
             results['chip_health_score'] = final_score_normalized * 100
         return results
+
     def _calculate_active_winner_profit_margin(self, close_price: float, atr_14d: float, context: dict) -> tuple[float, float]:
         """
         【V1.0】计算活跃获利盘利润率。
@@ -676,6 +688,7 @@ class ChipFeatureCalculator:
                     else:
                         active_profit_margin = 0.0 # 默认利润率为0
         return active_winner_avg_cost, active_profit_margin
+
     def _calculate_winner_conviction_index(self, context: dict, active_profit_margin: float) -> float:
         """
         【V1.5 · 压力缓和器版】计算赢家信念指数。
@@ -702,6 +715,7 @@ class ChipFeatureCalculator:
             if (close_price / pre_close - 1) > 0.098 and active_profit_margin > 0:
                 winner_conviction_index = np.maximum(winner_conviction_index, 10.0)
         return winner_conviction_index
+
     def _calculate_cost_structure_skewness(self, context: dict) -> float:
         """
         【V1.1】计算成本结构偏度。
@@ -719,6 +733,7 @@ class ChipFeatureCalculator:
                 # 移除负号操作，使正偏度（筹码集中在高价区）对应正值
                 # skewness = -skewness
         return skewness
+
     def _calculate_price_volume_entropy(self, intraday_df: pd.DataFrame, daily_high: float, daily_low: float, total_daily_volume: float) -> float:
         
         if intraday_df.empty or total_daily_volume <= 0 or pd.isna(daily_high) or pd.isna(daily_low) or daily_high <= daily_low:
@@ -744,12 +759,8 @@ class ChipFeatureCalculator:
         max_entropy = np.log2(len(volume_per_bin)) if len(volume_per_bin) > 1 else 0
         normalized_entropy = shannon_entropy / max_entropy if max_entropy > 0 else 0.0
         return normalized_entropy
+
     def _compute_microstructure_game_metrics(self, context: dict) -> dict:
-        """
-        【V1.2 · 日内数据列鲁棒性增强版】计算基于高频数据的筹码微观博弈指标。
-        - 核心增强: 增加数据源检查。如果日内数据不包含高频特征（如 'buy_vol_raw'），则优雅地跳过计算，返回默认值。
-        - 核心修复: 修正 `dip_or_flat_df` 的计算，优先使用 'close' 和 'open' 列，若不存在则回退到 'minute_vwap'。
-        """
         results = {
             'peak_exchange_purity': np.nan,
             'pressure_validation_score': np.nan,
@@ -757,51 +768,54 @@ class ChipFeatureCalculator:
             'covert_accumulation_signal': np.nan,
         }
         intraday_df = context.get('processed_intraday_df')
-        if intraday_df.empty or 'buy_vol_raw' not in intraday_df.columns:
+        if intraday_df.empty:
             return results
         peak_low = context.get('peak_range_low')
         peak_high = context.get('peak_range_high')
-        if not all(pd.notna(v) for v in [peak_low, peak_high]):
-            return results
-        # 1. 筹码交换纯度 (Peak Exchange Purity)
-        peak_zone_df = intraday_df[(intraday_df['minute_vwap'] >= peak_low) & (intraday_df['minute_vwap'] <= peak_high)]
-        if not peak_zone_df.empty:
-            total_vol_peak = peak_zone_df['vol_shares'].sum()
-            if total_vol_peak > 0:
-                active_buy_vol = peak_zone_df['buy_vol_raw'].sum()
-                active_sell_vol = peak_zone_df['sell_vol_raw'].sum()
-                purity = 1 - abs(active_buy_vol - active_sell_vol) / total_vol_peak
-                results['peak_exchange_purity'] = purity * 100
-        # 2. 压力/支撑有效性验证 (Pressure/Support Validation)
-        pre_close = context.get('pre_close')
-        if pd.notna(pre_close):
-            pressure_zone_df = intraday_df[intraday_df['minute_vwap'] > pre_close]
-            support_zone_df = intraday_df[intraday_df['minute_vwap'] < pre_close]
-            if not pressure_zone_df.empty:
-                total_vol_pressure = pressure_zone_df['vol_shares'].sum()
-                if total_vol_pressure > 0:
-                    active_sell_pressure = pressure_zone_df['sell_vol_raw'].sum()
-                    results['pressure_validation_score'] = (active_sell_pressure / total_vol_pressure) * 100
-            if not support_zone_df.empty:
-                total_vol_support = support_zone_df['vol_shares'].sum()
-                if total_vol_support > 0:
-                    active_buy_support = support_zone_df['buy_vol_raw'].sum()
-                    results['support_validation_score'] = (active_buy_support / total_vol_support) * 100
-        # 3. 隐蔽吸筹信号 (Covert Accumulation Signal)
-        # 优先使用 'close' 和 'open'，如果不存在则回退到 'minute_vwap'
-        if 'close' in intraday_df.columns and 'open' in intraday_df.columns:
-            dip_or_flat_df = intraday_df[intraday_df['close'] <= intraday_df['open']]
-        else:
-            # 如果没有 'close' 和 'open'，则使用 minute_vwap 作为替代
-            # 假设 minute_vwap 下降或持平代表“下跌或平盘”
-            dip_or_flat_df = intraday_df[intraday_df['minute_vwap'].diff().fillna(0) <= 0]
-            logger.warning(f"[{context.get('stock_code', 'UNKNOWN')}] [{context.get('trade_date', 'UNKNOWN')}] 日内数据缺少'close'或'open'列，'隐蔽吸筹信号'计算回退到使用'minute_vwap'。")
-        if not dip_or_flat_df.empty:
-            total_vol_dip = dip_or_flat_df['vol_shares'].sum()
-            if total_vol_dip > 0:
-                mf_net_buy_on_dip = dip_or_flat_df['main_force_net_vol'].clip(lower=0).sum()
-                results['covert_accumulation_signal'] = (mf_net_buy_on_dip / total_vol_dip) * 100
+        # =================================================================
+        # 修改代码块：解耦不同依赖的指标计算，增强健壮性
+        # 1. 依赖 buy_vol_raw (Tick数据) 的指标
+        if 'buy_vol_raw' in intraday_df.columns:
+            if all(pd.notna(v) for v in [peak_low, peak_high]):
+                # 1.1 筹码交换纯度 (Peak Exchange Purity)
+                peak_zone_df = intraday_df[(intraday_df['minute_vwap'] >= peak_low) & (intraday_df['minute_vwap'] <= peak_high)]
+                if not peak_zone_df.empty:
+                    total_vol_peak = peak_zone_df['vol_shares'].sum()
+                    if total_vol_peak > 0:
+                        active_buy_vol = peak_zone_df['buy_vol_raw'].sum()
+                        active_sell_vol = peak_zone_df['sell_vol_raw'].sum()
+                        purity = 1 - abs(active_buy_vol - active_sell_vol) / total_vol_peak
+                        results['peak_exchange_purity'] = purity * 100
+            # 1.2 压力/支撑有效性验证 (Pressure/Support Validation)
+            pre_close = context.get('pre_close')
+            if pd.notna(pre_close):
+                pressure_zone_df = intraday_df[intraday_df['minute_vwap'] > pre_close]
+                support_zone_df = intraday_df[intraday_df['minute_vwap'] < pre_close]
+                if not pressure_zone_df.empty:
+                    total_vol_pressure = pressure_zone_df['vol_shares'].sum()
+                    if total_vol_pressure > 0:
+                        active_sell_pressure = pressure_zone_df['sell_vol_raw'].sum()
+                        results['pressure_validation_score'] = (active_sell_pressure / total_vol_pressure) * 100
+                if not support_zone_df.empty:
+                    total_vol_support = support_zone_df['vol_shares'].sum()
+                    if total_vol_support > 0:
+                        active_buy_support = support_zone_df['buy_vol_raw'].sum()
+                        results['support_validation_score'] = (active_buy_support / total_vol_support) * 100
+        # 2. 仅依赖 main_force_net_vol (资金流归因) 的指标
+        if 'main_force_net_vol' in intraday_df.columns:
+            # 2.1 隐蔽吸筹信号 (Covert Accumulation Signal)
+            if 'close' in intraday_df.columns and 'open' in intraday_df.columns:
+                dip_or_flat_df = intraday_df[intraday_df['close'] <= intraday_df['open']]
+            else:
+                dip_or_flat_df = intraday_df[intraday_df['minute_vwap'].diff().fillna(0) <= 0]
+            if not dip_or_flat_df.empty:
+                total_vol_dip = dip_or_flat_df['vol_shares'].sum()
+                if total_vol_dip > 0:
+                    mf_net_buy_on_dip = dip_or_flat_df['main_force_net_vol'].clip(lower=0).sum()
+                    results['covert_accumulation_signal'] = (mf_net_buy_on_dip / total_vol_dip) * 100
+        # =================================================================
         return results
+
     def _compute_legacy_intraday_metrics(self, context: dict) -> dict:
         """
         【V1.0 · 兼容性补丁】计算在第二象限升级后保留的旧版日内动态指标。
@@ -842,6 +856,7 @@ class ChipFeatureCalculator:
                 absorption_vol = decline_df['main_force_net_vol'].clip(lower=0).sum()
                 results['capitulation_absorption_index'] = (absorption_vol / capitulation_vol) * 100
         return results
+
     def _compute_legacy_cross_day_metrics(self, context: dict) -> dict:
         """
         【V1.0 · 兼容性补丁】计算在第三象限升级后保留的旧版跨日迁徙指标。
@@ -886,6 +901,7 @@ class ChipFeatureCalculator:
         fatigue_increment = turnover_rate * (1 + price_range) * 100
         results['chip_fatigue_index'] = prev_fatigue * 0.9 + fatigue_increment # 每日衰减
         return results
+
     def _compute_legacy_game_theory_metrics(self, context: dict) -> dict:
         """
         【V1.0 · 兼容性补丁】计算在第四象限升级后保留的旧版博弈意图指标。
