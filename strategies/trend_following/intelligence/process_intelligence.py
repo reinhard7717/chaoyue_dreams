@@ -202,10 +202,9 @@ class ProcessIntelligence:
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         # 1. 获取核心信号
         price_change = self._get_safe_series(df, 'pct_change_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
-        # [代码修改开始] 将 active_winner_avg_cost 替换为 dominant_peak_cost
+        # 将 active_winner_avg_cost 替换为 dominant_peak_cost
         main_force_cost_change_raw = self._get_safe_series(df, f'SLOPE_5_dominant_peak_cost_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
         main_force_cost_accel_raw = self._get_safe_series(df, f'ACCEL_5_dominant_peak_cost_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
-        # [代码修改结束]
         main_force_net_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
         chip_concentration_change = self._get_safe_series(df, f'SLOPE_5_winner_concentration_90pct_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship") # [代码修改] 修正信号名称
         # 新增主力控盘和成本优势相关信号
@@ -455,12 +454,11 @@ class ProcessIntelligence:
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         antidote_signal_name = config.get('antidote_signal')
-        # [代码修改开始] 临时补丁，将已废弃的 imminent_profit_taking_supply_D 替换为 rally_distribution_pressure_D
+        # 临时补丁，将已废弃的 imminent_profit_taking_supply_D 替换为 rally_distribution_pressure_D
         if antidote_signal_name == 'imminent_profit_taking_supply_D':
             original_signal_name = antidote_signal_name
             antidote_signal_name = 'rally_distribution_pressure_D'
             print(f"    -> [过程情报补丁] 在赢家信念分析中，信号 '{original_signal_name}' 已被 '{antidote_signal_name}' 替代。")
-        # [代码修改结束]
         df_index = df.index
         def get_signal_series(signal_name: str) -> Optional[pd.Series]:
             return self._get_safe_series(df, signal_name, method_name="_calculate_winner_conviction_relationship")
@@ -499,12 +497,10 @@ class ProcessIntelligence:
         """
         signal_name = config.get('name')
         source_signal_name = config.get('source_signal')
-        # [代码修改开始] 临时补丁，将已废弃的 winner_conviction_index_D 替换为 winner_stability_index_D
+        # 临时补丁，将已废弃的 winner_conviction_index_D 替换为 winner_stability_index_D
         if source_signal_name == 'winner_conviction_index_D':
             original_signal_name = source_signal_name
             source_signal_name = 'winner_stability_index_D'
-            print(f"    -> [过程情报补丁] 在衰减分析中，信号 '{original_signal_name}' 已被 '{source_signal_name}' 替代。")
-        # [代码修改结束]
         source_type = config.get('source_type', 'df')
         df_index = df.index
         if not source_signal_name:

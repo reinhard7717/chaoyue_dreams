@@ -806,10 +806,8 @@ class IndicatorService:
                     if indicator_name == 'atan_ma_angle':
                         ma_col_base = sub_config.get('ma_col')
                         if ma_col_base and f"{ma_col_base}_{timeframe_key}" in df_for_calc.columns:
-                            # [代码修改开始]
                             # 传递 ma_col_base 和 timeframe_key，但不在 kwargs 中添加 suffix
                             kwargs.update({'ma_col_base': ma_col_base, 'timeframe_key': timeframe_key})
-                            # [代码修改结束]
                             result_df = await method_to_call(**kwargs)
                             merge_results(result_df, df_for_calc)
                         else:
@@ -818,10 +816,8 @@ class IndicatorService:
                     if indicator_name == 'ma_velocity_acceleration':
                         ma_col_base = sub_config.get('ma_col')
                         if ma_col_base and f"{ma_col_base}_{timeframe_key}" in df_for_calc.columns:
-                            # [代码修改开始]
                             # 传递 ma_col_base 和 timeframe_key，但不在 kwargs 中添加 suffix
                             kwargs.update({'ma_col_base': ma_col_base, 'timeframe_key': timeframe_key, 'ema_period': sub_config.get('ema_period', 3), 'sma_period': sub_config.get('sma_period', 3)})
-                            # [代码修改结束]
                             result_df = await method_to_call(**kwargs)
                             merge_results(result_df, df_for_calc)
                         else:

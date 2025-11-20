@@ -56,6 +56,7 @@ class IntelligenceLayer:
         from .forensic_probes import ForensicProbes
         # ForensicProbes 现在会内部加载和管理所有专业探针模块
         self.probes = ForensicProbes(self)
+
     def run_all_diagnostics(self) -> Dict:
         """
         【V423.2 · 指挥链重建与调试增强版】情报层总指挥官
@@ -113,8 +114,12 @@ class IntelligenceLayer:
         # --- 阶段四：认知推演层 (Cognitive & Playbook Layer) ---
         # 此层消费阶段三的态势和阶段一/二的原子/过程信号，生成最终战术剧本
         self._ignite_relational_dynamics_engine()
-        self.cognitive_intel.synthesize_cognitive_scores(df)
+        # [代码修改开始] 捕获认知层返回的剧本信号，并更新到策略的 playbook_states
+        playbook_states_from_cognitive = self.cognitive_intel.synthesize_cognitive_scores(df)
+        self.strategy.playbook_states.update(playbook_states_from_cognitive)
+        # [代码修改结束]
         return self.strategy.atomic_states
+
     def deploy_forensic_probes(self):
         """
         【V2.24 · 赢家信念探针激活版】法医探针调度中心
@@ -173,6 +178,7 @@ class IntelligenceLayer:
             if debug_params.get('enable_lockdown_scramble_probe', False):
                 self.probes._deploy_lockdown_scramble_probe(probe_date)
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
+
     def _ignite_relational_dynamics_engine(self):
         """
         【V1.0】关系动力引擎（普罗米修斯神坛）

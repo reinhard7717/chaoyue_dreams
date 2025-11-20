@@ -18,6 +18,7 @@ class CognitiveIntelligence:
         self.strategy = strategy_instance
         self.min_evidence_threshold = 1e-9 # 最小证据阈值，避免对数运算错误
         self.norm_window = 55 # 统一归一化窗口，可根据需要调整
+
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -26,6 +27,7 @@ class CognitiveIntelligence:
             print(f"    -> [CognitiveIntelligence情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
+
     def _get_fused_score(self, name: str, default: float = 0.0) -> pd.Series:
         """
         【V1.2 · 真理探针版】安全地从原子状态库中获取由融合层提供的态势分数。
@@ -48,6 +50,7 @@ class CognitiveIntelligence:
         else:
             print(f"    -> [认知层警告] 融合态势信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
             return pd.Series(default, index=self.strategy.df_indicators.index)
+
     def _get_atomic_score(self, name: str, default: float = 0.0) -> pd.Series:
         """
         【V2.1 · 真理探针版】安全地从原子状态库或主数据帧中获取信号。
@@ -60,6 +63,7 @@ class CognitiveIntelligence:
         else:
             print(f"    -> [认知层警告] 原子信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
             return pd.Series(default, index=self.strategy.df_indicators.index)
+
     def _get_playbook_score(self, signal_name: str, default_value: float = 0.0) -> pd.Series:
         """
         安全地从 playbook_states 获取剧本信号分数。
@@ -82,42 +86,51 @@ class CognitiveIntelligence:
                 else:
                     print(f"    -> [DEBUG _get_playbook_score] 信号 '{signal_name}' 原始值: {score:.4f}")
         return score
+
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V25.9 · 剧本调用顺序优化版】总指挥
         - 核心修复: 调整风险剧本的调用顺序，确保依赖的剧本信号在被使用前已计算。
         """
         print("启动【V25.9 · 剧本调用顺序优化版】认知情报分析...")
-        self.strategy.playbook_states = {} # 初始化剧本状态库
+        playbook_states = {} # [代码修改] 使用局部变量，不再直接修改 self.strategy.playbook_states
         priors = self._establish_prior_beliefs()
         self.strategy.atomic_states.update(priors)
-        # 计算所有机会剧本，并立即更新到 self.strategy.playbook_states
-        self.strategy.playbook_states.update(self._deduce_suppressive_accumulation(priors))
-        self.strategy.playbook_states.update(self._deduce_chasing_accumulation(priors))
-        self.strategy.playbook_states.update(self._deduce_capitulation_reversal(priors))
-        self.strategy.playbook_states.update(self._deduce_leading_dragon_awakening(priors))
-        self.strategy.playbook_states.update(self._deduce_sector_rotation_vanguard(priors))
-        self.strategy.playbook_states.update(self._deduce_energy_compression_breakout(priors))
-        self.strategy.playbook_states.update(self._deduce_stealth_bottoming_divergence(priors))
-        self.strategy.playbook_states.update(self._deduce_micro_absorption_divergence(priors))
-        # 优先计算所有风险信号，并立即更新到 self.strategy.playbook_states
+        # 计算所有机会剧本，并立即更新到 playbook_states
+        playbook_states.update(self._deduce_suppressive_accumulation(priors)) # [代码修改] 更新局部变量
+        playbook_states.update(self._deduce_chasing_accumulation(priors)) # [代码修改] 更新局部变量
+        playbook_states.update(self._deduce_capitulation_reversal(priors)) # [代码修改] 更新局部变量
+        playbook_states.update(self._deduce_leading_dragon_awakening(priors)) # [代码修改] 更新局部变量
+        playbook_states.update(self._deduce_sector_rotation_vanguard(priors)) # [代码修改] 更新局部变量
+        playbook_states.update(self._deduce_energy_compression_breakout(priors)) # [代码修改] 更新局部变量
+        playbook_states.update(self._deduce_stealth_bottoming_divergence(priors)) # [代码修改] 更新局部变量
+        playbook_states.update(self._deduce_micro_absorption_divergence(priors)) # [代码修改] 更新局部变量
+        # 优先计算所有风险信号，并立即更新到 playbook_states
         # 第一批风险剧本：无内部剧本依赖
-        self.strategy.playbook_states.update(self._deduce_distribution_at_high(priors))
-        self.strategy.playbook_states.update(self._deduce_retail_fomo_retreat_risk(priors))
-        self.strategy.playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors))
-        self.strategy.playbook_states.update(self._deduce_market_uncertainty_risk(priors))
-        self.strategy.playbook_states.update(self._deduce_liquidity_trap_risk(priors))
-        self.strategy.playbook_states.update(self._deduce_t0_arbitrage_pressure_risk(priors))
-        self.strategy.playbook_states.update(self._deduce_key_support_break_risk(priors))
+        playbook_states.update(self._deduce_distribution_at_high(priors)) # [代码修改] 更新局部变量
+        playbook_states.update(self._deduce_retail_fomo_retreat_risk(priors)) # [代码修改] 更新局部变量
+        playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors)) # [代码修改] 更新局部变量
+        playbook_states.update(self._deduce_market_uncertainty_risk(priors)) # [代码修改] 更新局部变量
+        playbook_states.update(self._deduce_liquidity_trap_risk(priors)) # [代码修改] 更新局部变量
+        playbook_states.update(self._deduce_t0_arbitrage_pressure_risk(priors)) # [代码修改] 更新局部变量
+        playbook_states.update(self._deduce_key_support_break_risk(priors)) # [代码修改] 更新局部变量
         # 第二批风险剧本：依赖第一批剧本
-        self.strategy.playbook_states.update(self._deduce_trend_exhaustion_risk(priors)) # 依赖 RETAIL_FOMO_RETREAT, LONG_TERM_PROFIT_DISTRIBUTION
-        self.strategy.playbook_states.update(self._deduce_harvest_confirmation_risk(priors)) # 依赖 DISTRIBUTION_AT_HIGH
-        self.strategy.playbook_states.update(self._deduce_bull_trap_distribution_risk(priors)) # 依赖 RETAIL_FOMO_RETREAT, LONG_TERM_PROFIT_DISTRIBUTION
-        self.strategy.playbook_states.update(self._deduce_high_level_structural_collapse_risk(priors)) # 依赖 DISTRIBUTION_AT_HIGH, RETAIL_FOMO_RETREAT
+        # [代码修改] 在调用依赖剧本之前，将当前已生成的剧本更新到 self.strategy.playbook_states 以供 _get_playbook_score 使用
+        self.strategy.playbook_states.update(playbook_states)
+        playbook_states.update(self._deduce_trend_exhaustion_risk(priors)) # 依赖 RETAIL_FOMO_RETREAT, LONG_TERM_PROFIT_DISTRIBUTION
+        self.strategy.playbook_states.update(playbook_states) # [代码修改] 再次更新
+        playbook_states.update(self._deduce_harvest_confirmation_risk(priors)) # 依赖 DISTRIBUTION_AT_HIGH
+        self.strategy.playbook_states.update(playbook_states) # [代码修改] 再次更新
+        playbook_states.update(self._deduce_bull_trap_distribution_risk(priors)) # 依赖 RETAIL_FOMO_RETREAT, LONG_TERM_PROFIT_DISTRIBUTION
+        self.strategy.playbook_states.update(playbook_states) # [代码修改] 再次更新
+        playbook_states.update(self._deduce_high_level_structural_collapse_risk(priors)) # 依赖 DISTRIBUTION_AT_HIGH, RETAIL_FOMO_RETREAT
+        self.strategy.playbook_states.update(playbook_states) # [代码修改] 再次更新
         # 第三批风险剧本：依赖第二批剧本
-        self.strategy.playbook_states.update(self._deduce_divergence_reversal(priors)) # 依赖 TREND_EXHAUSTION
-        print(f"【V25.9 · 剧本调用顺序优化版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。")
-        return self.strategy.playbook_states
+        playbook_states.update(self._deduce_divergence_reversal(priors)) # 依赖 TREND_EXHAUSTION
+        self.strategy.playbook_states.update(playbook_states) # [代码修改] 最终更新
+        print(f"【V25.9 · 剧本调用顺序优化版】分析完成，生成 {len(playbook_states)} 个剧本信号并存入专属状态库。")
+        return playbook_states # [代码修改] 返回局部变量
+
     def _deduce_suppressive_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V3.2 · 背离证据增强版】贝叶斯推演：“主力打压吸筹”剧本
@@ -145,6 +158,7 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION': posterior_prob.astype(np.float32)}
+
     def _deduce_distribution_at_high(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V3.10 · 风险信号重构与趋势背景调制版】贝叶斯推演：“高位派发”风险剧本
@@ -225,6 +239,7 @@ class CognitiveIntelligence:
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_DISTRIBUTION_AT_HIGH': posterior_prob.astype(np.float32)}
+
     def _deduce_trend_exhaustion_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V3.2 · 深度博弈版证据链优化与趋势背景调制版】贝叶斯推演：“趋势衰竭”风险剧本
@@ -368,6 +383,7 @@ class CognitiveIntelligence:
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_TREND_EXHAUSTION': posterior_prob.astype(np.float32)}
+
     def _establish_prior_beliefs(self) -> Dict[str, pd.Series]:
         """
         【V1.7 · 结构共识强化版】建立先验信念
@@ -449,6 +465,7 @@ class CognitiveIntelligence:
                 print(f"       - 抑制因子 (suppression_factor): {suppression_factor.loc[probe_date]:.4f}")
                 print(f"       - 最终反转先验概率 (prior_reversal): {prior_reversal.loc[probe_date]:.4f}")
         return states
+
     def _fuse_and_adjudicate_playbooks(self, playbook_scores: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V3.5 · 微观承接背离剧本集成版】融合与裁决模块
@@ -490,6 +507,7 @@ class CognitiveIntelligence:
         cognitive_bearish_score = np.maximum.reduce([s.values for s in bearish_scores])
         states['COGNITIVE_BEARISH_SCORE'] = pd.Series(cognitive_bearish_score, index=df_index, dtype=np.float32)
         return states
+
     def _deduce_chasing_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V3.6 · 多方炮强化版】贝叶斯推演：“主力拉升抢筹”剧本
@@ -548,6 +566,7 @@ class CognitiveIntelligence:
                 print(f"         - 似然度 (P(证据|剧本)): {likelihood.loc[probe_date]:.4f}")
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION': posterior_prob.astype(np.float32)}
+
     def _deduce_capitulation_reversal(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V3.5 · 纯粹原子与WW1模式版】贝叶斯推演：“恐慌投降反转”剧本
@@ -576,6 +595,7 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL': posterior_prob.astype(np.float32)}
+
     def _deduce_leading_dragon_awakening(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.4 · 结构共识增强版】贝叶斯推演：“龙头苏醒”剧本
@@ -605,6 +625,7 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_TREND_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING': posterior_prob.astype(np.float32)}
+
     def _deduce_divergence_reversal(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V2.0 · 深度博弈版证据链优化版】贝叶斯推演：“背离反转”剧本
@@ -659,6 +680,7 @@ class CognitiveIntelligence:
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_PLAYBOOK_DIVERGENCE_REVERSAL': posterior_prob.astype(np.float32)}
+
     def _deduce_sector_rotation_vanguard(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.5 · 纯粹原子版】贝叶斯推演：“板块轮动先锋”剧本
@@ -678,6 +700,7 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD': posterior_prob.astype(np.float32)}
+
     def _deduce_energy_compression_breakout(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.7 · 能量压缩爆发增强版 - 量能萎缩信号升级】贝叶斯推演：“能量压缩爆发”剧本
@@ -730,6 +753,7 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION': posterior_prob.astype(np.float32)}
+
     def _forge_dynamic_evidence(self, evidence: pd.Series, is_probability: bool = False) -> pd.Series:
         """
         【V2.0 · 动态证据锻造】
@@ -749,6 +773,7 @@ class CognitiveIntelligence:
         if not is_probability:
             evidence = normalize_score(evidence, self.strategy.df_indicators.index, window=self.norm_window, ascending=True)
         return evidence
+
     def _deduce_long_term_profit_distribution_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.3 · 风险剧本与趋势背景调制版】贝叶斯推演：“长期获利盘派发”风险剧本
@@ -818,6 +843,7 @@ class CognitiveIntelligence:
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION': posterior_prob.astype(np.float32)}
+
     def _deduce_market_uncertainty_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.3 · 风险剧本与趋势背景调制版】贝叶斯推演：“市场方向不明”风险剧本
@@ -885,6 +911,7 @@ class CognitiveIntelligence:
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_MARKET_UNCERTAINTY': posterior_prob.astype(np.float32)}
+
     def _deduce_retail_fomo_retreat_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.8 · 风险剧本证据链优化与趋势背景调制版】贝叶斯推演：“散户狂热主力撤退”风险剧本
@@ -953,6 +980,7 @@ class CognitiveIntelligence:
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_RETAIL_FOMO_RETREAT': posterior_prob.astype(np.float32)}
+
     def _deduce_harvest_confirmation_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.4 · 风险剧本与趋势背景调制版】贝叶斯推演：“收割确认”风险剧本
@@ -1022,6 +1050,7 @@ class CognitiveIntelligence:
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_HARVEST_CONFIRMATION': posterior_prob.astype(np.float32)}
+
     def _deduce_bull_trap_distribution_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.8 · 深度博弈版证据链优化与趋势背景调制版】贝叶斯推演：“主力诱多派发”风险剧本
@@ -1138,6 +1167,7 @@ class CognitiveIntelligence:
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_BULL_TRAP_DISTRIBUTION': posterior_prob.astype(np.float32)}
+
     def _deduce_liquidity_trap_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.3 · 风险剧本与趋势背景调制版】贝叶斯推演：“流动性陷阱”风险剧本
@@ -1201,6 +1231,7 @@ class CognitiveIntelligence:
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_LIQUIDITY_TRAP': posterior_prob.astype(np.float32)}
+
     def _deduce_t0_arbitrage_pressure_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.3 · 风险剧本与趋势背景调制版】贝叶斯推演：“T+0套利压力”风险剧本
@@ -1264,6 +1295,7 @@ class CognitiveIntelligence:
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE': posterior_prob.astype(np.float32)}
+
     def _deduce_key_support_break_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.3 · 风险剧本与趋势背景调制版】贝叶斯推演：“关键支撑破位”风险剧本
@@ -1345,6 +1377,7 @@ class CognitiveIntelligence:
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_KEY_SUPPORT_BREAK': posterior_prob.astype(np.float32)}
+
     def _deduce_high_level_structural_collapse_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.4 · 风险剧本与趋势背景调制版】贝叶斯推演：“高位结构瓦解”风险剧本
@@ -1418,6 +1451,7 @@ class CognitiveIntelligence:
                 print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
                 print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_HIGH_LEVEL_STRUCTURAL_COLLAPSE': posterior_prob.astype(np.float32)}
+
     def _deduce_stealth_bottoming_divergence(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.1 · 结构共识增强版】贝叶斯推演：“隐秘筑底背离”剧本
@@ -1484,6 +1518,7 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_STEALTH_BOTTOMING_DIVERGENCE': posterior_prob.astype(np.float32)}
+
     def _deduce_micro_absorption_divergence(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V1.1 · 结构共识增强版】贝叶斯推演：“微观承接背离”剧本
@@ -1540,6 +1575,7 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_MICRO_ABSORPTION_DIVERGENCE': posterior_prob.astype(np.float32)}
+
     def _get_main_force_holding_strength(self) -> pd.Series:
         """
         【V1.0】计算主力持仓信念强度。

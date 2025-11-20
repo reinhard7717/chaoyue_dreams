@@ -337,7 +337,9 @@ class FusionIntelligence:
         # 5. 筹码集中度下降 (来自筹码层，负向集中度代表风险)
         chip_dispersion_risk = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(upper=0).abs()
         # 6. 获利盘供给压力 (来自筹码高级指标，需要归一化)
-        profit_taking_supply_risk = normalize_score(self._get_safe_series(self.strategy.df_indicators, 'imminent_profit_taking_supply_D', 0.0, method_name="_synthesize_stagnation_risk"), df_index, window=55, ascending=True).clip(0, 1)
+        # [代码修改开始] 将 imminent_profit_taking_supply_D 替换为 rally_distribution_pressure_D
+        profit_taking_supply_risk = normalize_score(self._get_safe_series(self.strategy.df_indicators, 'rally_distribution_pressure_D', 0.0, method_name="_synthesize_stagnation_risk"), df_index, window=55, ascending=True).clip(0, 1)
+        # [代码修改结束]
         # 7. 趋势确认度下降 (来自基础层上下文，反向代表风险)
         trend_confirmation_risk = (1 - self._get_atomic_score('CONTEXT_TREND_CONFIRMED', 0.0)).clip(0, 1)
         # 8. 市场情绪亢奋 (来自资金流高级指标，需要归一化)

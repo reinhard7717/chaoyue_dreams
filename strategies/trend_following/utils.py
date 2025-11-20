@@ -853,11 +853,9 @@ def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series) -> Tuple[pd.Series, 
     【V3.1 · 类型安全版】将双极性分数转换为互斥的单极性分数。
     - 核心升级: 在返回前，将结果明确转换为 np.float32 类型，确保数据流中的类型一致性。
     """
-    # [代码修改开始]
     s_bull = bipolar_score.clip(lower=0)
     s_bear = bipolar_score.clip(upper=0).abs()
     return s_bull.astype(np.float32), s_bear.astype(np.float32)
-    # [代码修改结束]
 
 def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index, ascending: bool = True, tf_weights: Dict = None) -> pd.Series:
     """

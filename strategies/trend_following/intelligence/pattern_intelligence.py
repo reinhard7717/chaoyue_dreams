@@ -134,26 +134,25 @@ class PatternIntelligence:
         vol_ma21_D = self._get_safe_series(df, 'VOL_MA_21_D', method_name="_diagnose_axiom_pullback_confirmation")
         # 获取高级指标
         main_force_net_flow_calibrated_D = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', method_name="_diagnose_axiom_pullback_confirmation")
-        # [代码修改开始] 使用 SLOPE_5_winner_concentration_90pct_D 替代 SLOPE_5_short_term_concentration_90pct_D
+        # 使用 SLOPE_5_winner_concentration_90pct_D 替代 SLOPE_5_short_term_concentration_90pct_D
         short_term_concentration_90pct_D_slope_5d = self._get_safe_series(df, 'SLOPE_5_winner_concentration_90pct_D', method_name="_diagnose_axiom_pullback_confirmation")
         large_order_pressure_D = self._get_safe_series(df, 'large_order_pressure_D', method_name="_diagnose_axiom_pullback_confirmation")
         large_order_support_D = self._get_safe_series(df, 'large_order_support_D', method_name="_diagnose_axiom_pullback_confirmation")
         hidden_accumulation_intensity_D = self._get_safe_series(df, 'hidden_accumulation_intensity_D', method_name="_diagnose_axiom_pullback_confirmation")
-        # [代码修改开始] 使用 dip_absorption_power_D 替代 absorption_strength_index_D
+        # 使用 dip_absorption_power_D 替代 absorption_strength_index_D
         absorption_strength_index_D = self._get_safe_series(df, 'dip_absorption_power_D', method_name="_diagnose_axiom_pullback_confirmation")
         upper_shadow_selling_pressure_D = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', method_name="_diagnose_axiom_pullback_confirmation")
         lower_shadow_absorption_strength_D = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', method_name="_diagnose_axiom_pullback_confirmation")
-        # [代码修改开始] 使用 winner_stability_index_D 替代 winner_conviction_index_D
+        # 使用 winner_stability_index_D 替代 winner_conviction_index_D
         winner_conviction_index_D = self._get_safe_series(df, 'winner_stability_index_D', method_name="_diagnose_axiom_pullback_confirmation")
-        # [代码修改开始] 使用 control_solidity_index_D 替代 main_force_control_leverage_D
+        # 使用 control_solidity_index_D 替代 main_force_control_leverage_D
         main_force_control_leverage_D = self._get_safe_series(df, 'control_solidity_index_D', method_name="_diagnose_axiom_pullback_confirmation")
         score_struct_axiom_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0) # [代码修改]：修正信号获取方式，从原子状态库读取
         main_force_ofi_D = self._get_safe_series(df, 'main_force_ofi_D', method_name="_diagnose_axiom_pullback_confirmation")
         retail_ofi_D = self._get_safe_series(df, 'retail_ofi_D', method_name="_diagnose_axiom_pullback_confirmation")
         wash_trade_intensity_D = self._get_safe_series(df, 'wash_trade_intensity_D', method_name="_diagnose_axiom_pullback_confirmation")
-        # [代码修改开始] 使用 closing_price_deviation_score_D 替代 closing_conviction_score_D
+        # 使用 closing_price_deviation_score_D 替代 closing_conviction_score_D
         closing_conviction_score_D = self._get_safe_series(df, 'closing_price_deviation_score_D', method_name="_diagnose_axiom_pullback_confirmation")
-        # [代码修改结束]
         max_vol_ma = pd.concat([vol_ma5_D, vol_ma21_D], axis=1).max(axis=1)
         # 计算有效成交量 (纯粹量能)
         effective_volume_D = volume_D * (1 - wash_trade_intensity_D.fillna(0).clip(0, 1))

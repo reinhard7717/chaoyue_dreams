@@ -99,13 +99,13 @@ class MicroBehaviorEngine:
         """
         main_force_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', method_name="_diagnose_axiom_deception")
         main_force_outflow = -main_force_flow_raw.clip(upper=0)
-        # [代码修改开始] 使用 SLOPE_5_winner_concentration_90pct_D 替代 SLOPE_5_short_term_concentration_90pct_D
+        # 使用 SLOPE_5_winner_concentration_90pct_D 替代 SLOPE_5_short_term_concentration_90pct_D
         chip_concentration_slope = self._get_safe_series(df, 'SLOPE_5_winner_concentration_90pct_D', method_name="_diagnose_axiom_deception")
         chip_concentration_increase = chip_concentration_slope.clip(lower=0)
         flow_vs_chip_deception = main_force_outflow * chip_concentration_increase
         granularity_slope = self._get_safe_series(df, 'SLOPE_5_inferred_active_order_size_D', method_name="_diagnose_axiom_deception")
         granularity_decrease = -granularity_slope.clip(upper=0)
-        # [代码修改开始] 使用 SLOPE_5_main_force_net_flow_calibrated_D 替代 SLOPE_5_main_force_control_leverage_D
+        # 使用 SLOPE_5_main_force_net_flow_calibrated_D 替代 SLOPE_5_main_force_control_leverage_D
         control_leverage_slope = self._get_safe_series(df, 'SLOPE_5_main_force_net_flow_calibrated_D', method_name="_diagnose_axiom_deception")
         control_increase = control_leverage_slope.clip(lower=0)
         granularity_vs_control_deception = granularity_decrease * control_increase
