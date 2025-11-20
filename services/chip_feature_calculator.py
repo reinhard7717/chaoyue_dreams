@@ -65,14 +65,11 @@ class ChipFeatureCalculator:
         static_structure_metrics = self._compute_static_structure_metrics()
         all_metrics.update(static_structure_metrics)
         self.ctx.update(static_structure_metrics)
-        # =================================================================
-        # 新增代码块：为微观博弈指标计算注入关键的上下文依赖
         dominant_peak_cost = self.ctx.get('dominant_peak_cost')
         atr_14d = self.ctx.get('atr_14d')
         if pd.notna(dominant_peak_cost) and pd.notna(atr_14d) and atr_14d > 0:
             self.ctx['peak_range_low'] = dominant_peak_cost - atr_14d * 0.2
             self.ctx['peak_range_high'] = dominant_peak_cost + atr_14d * 0.2
-        # =================================================================
         prev_gini = self.ctx.get('prev_metrics', {}).get('cost_gini_coefficient')
         today_gini = static_structure_metrics.get('cost_gini_coefficient')
         if pd.notna(prev_gini) and pd.notna(today_gini):
@@ -93,12 +90,17 @@ class ChipFeatureCalculator:
             profit_realization_quality = (winner_profit_margin_avg * (total_winner_rate / 100)) / (profit_taking_flow_ratio / 100)
         all_metrics['profit_realization_quality'] = profit_realization_quality
         self.ctx['profit_realization_quality'] = profit_realization_quality
-        game_theoretic_metrics = self._compute_game_theoretic_metrics(self.ctx)
-        all_metrics.update(game_theoretic_metrics)
-        self.ctx.update(game_theoretic_metrics)
+        # =================================================================
+        # 修改代码块：调整 structural_potential_score 的计算顺序，确保它在 game_theoretic_metrics 之前计算
+        # 1. 先计算结构势能分，因为它本身是第四象限博弈推演的关键输入
         potential_score = self._calculate_structural_potential_score(self.ctx, all_metrics)
         all_metrics['structural_potential_score'] = potential_score
         self.ctx['structural_potential_score'] = potential_score
+        # 2. 然后再进行博弈推演，此时它依赖的 potential_score 已经存在
+        game_theoretic_metrics = self._compute_game_theoretic_metrics(self.ctx)
+        all_metrics.update(game_theoretic_metrics)
+        self.ctx.update(game_theoretic_metrics)
+        # =================================================================
         vital_signs_metrics = self._compute_vital_sign_metrics(self.ctx)
         all_metrics.update(vital_signs_metrics)
         self.ctx.update(vital_signs_metrics)
