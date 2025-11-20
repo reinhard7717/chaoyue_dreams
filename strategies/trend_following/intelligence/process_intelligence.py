@@ -42,13 +42,13 @@ class ProcessIntelligence:
             return pd.Series(default_value, index=df.index)
         return df[column_name]
 
-    def run_process_diagnostics(self, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
+    def run_process_diagnostics(self, df: pd.DataFrame, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
-        【V3.2.0 · 衰减与反转分析版】运行所有在配置中定义的元分析诊断任务。
-        - 核心升级: 新增对 'decay_analysis' 和 'domain_reversal' 任务类型的支持。
+        【V3.3.0 · 上下文修复版】运行所有在配置中定义的元分析诊断任务。
+        - 【V3.3.0 修复】接收 df 参数作为统一的数据上下文，并移除内部对 self.strategy.df_indicators 的依赖。
         """
         all_process_states = {}
-        df = self.strategy.df_indicators
+        # df = self.strategy.df_indicators # [代码删除]
         if df.empty:
             return {}
         for config in self.diagnostics_config:
@@ -68,7 +68,6 @@ class ProcessIntelligence:
                     decay_states = self._diagnose_signal_decay(df, config)
                     if decay_states:
                         all_process_states.update(decay_states)
-                # 新增路由到领域反转诊断器
                 elif custom_signal_type == 'domain_reversal':
                     reversal_states = self._diagnose_domain_reversal(df, config)
                     if reversal_states:

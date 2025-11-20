@@ -54,7 +54,7 @@ class TrendFollowStrategy:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         self.df_indicators = self._merge_all_timeframes(all_dfs)
         # 步骤1: 情报层完成所有诊断与合成，包括专业层、融合层和认知层。这是唯一的情报生成入口。
-        self.intelligence_layer.run_all_diagnostics(self.df_indicators) # [代码修改] 重新传递 df_indicators
+        self.intelligence_layer.run_all_diagnostics(self.df_indicators)
         # 步骤2: 基于完整的诊断结果，进行顶层上下文分析
         from .trend_following.utils import calculate_context_scores
         bottom_context_score, top_context_score = calculate_context_scores(self.df_indicators, self.atomic_states)

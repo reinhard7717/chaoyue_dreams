@@ -174,7 +174,7 @@ class CognitiveIntelligence:
         - 【V3.11 修复】接收并使用 df 参数，确保索引上下文统一。
         """
         print("    -- [剧本推演] 高位派发风险 (动态证据)...")
-        df_index = df.index.index
+        df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
@@ -248,7 +248,7 @@ class CognitiveIntelligence:
         - 【V3.4 修复】接收并使用 df 参数，确保索引上下文统一。
         """
         print("    -- [剧本推演] 趋势衰竭风险 (动态证据)...")
-        df_index = df.index.index
+        df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         trend_modulator = pd.Series(1.0, index=df_index)
@@ -316,7 +316,7 @@ class CognitiveIntelligence:
         - 【V1.8 修复】接收并使用 df 参数，确保索引上下文统一。
         """
         states = {}
-        df_index = df.index.index
+        df_index = df.index
         market_regime = self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_REGIME', 0.0)
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         trend_structure_score = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_STRUCTURE_SCORE', 0.0)
@@ -374,7 +374,7 @@ class CognitiveIntelligence:
         - 【V3.6 修复】接收并使用 df 参数，确保索引上下文统一。
         """
         states = {}
-        df_index = df.index.index
+        df_index = df.index
         bullish_playbooks = [
             'COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION', 'COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION',
             'COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL', 'COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING',
@@ -1005,7 +1005,7 @@ class CognitiveIntelligence:
         - 核心逻辑: 融合筹码集中度、资金流信念、主力控盘和成本优势趋势，评估主力当前对股票的持有信念。
         - 【V1.1 修复】接收并使用 df 参数，确保索引上下文统一。
         """
-        df_index = df.index.index
+        df_index = df.index
         chip_concentration = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(lower=0)
         fund_flow_conviction = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONVICTION', 0.0).clip(lower=0)
         main_force_control = self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_CONTROL', 0.0).clip(lower=0)

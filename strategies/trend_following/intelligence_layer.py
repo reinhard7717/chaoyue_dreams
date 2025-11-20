@@ -59,8 +59,8 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self, df: pd.DataFrame) -> Dict:
         """
-        【V424.2 · 专业层上下文修复版】情报层总指挥官
-        - 【V424.2 修复】在调用基础情报层时，传递 df 参数，确保上下文统一。
+        【V424.3 · 融合与过程层上下文修复版】情报层总指挥官
+        - 【V424.3 修复】在调用融合层和过程层时，传递 df 参数，确保上下文统一。
         """
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -73,52 +73,21 @@ class IntelligenceLayer:
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         update_states(self.behavioral_intel.run_behavioral_analysis_command(df))
         update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
-        update_states(self.foundation_intel.run_foundation_analysis_command(df)) # [代码修改]
+        update_states(self.foundation_intel.run_foundation_analysis_command(df))
         chip_states_from_intel = self.chip_intel.run_chip_intelligence_command(df)
         update_states(chip_states_from_intel)
-        # --- Debugging output ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"    -> [IntelligenceLayer Debug] @ {probe_date_for_loop.date()}: atomic_states after ChipIntelligence:")
-                for k, v in self.strategy.atomic_states.items():
-                    if k.startswith('SCORE_CHIP_') or k.startswith('FUSION_BIPOLAR_CHIP_'):
-                        if isinstance(v, pd.Series) and probe_date_for_loop in v.index:
-                            print(f"       - {k}: {v.loc[probe_date_for_loop]:.4f}")
-                        else:
-                            print(f"       - {k}: {v}")
-        # --- End Debugging output ---
         update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
         update_states(self.structural_intel.diagnose_structural_states(df))
         update_states(self.mechanics_engine.run_dynamic_analysis_command(df))
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
         # --- 阶段二：过程关系情报层 (Process & Relational Layer) ---
-        update_states(self.process_intel.run_process_diagnostics(task_type_filter=None))
+        update_states(self.process_intel.run_process_diagnostics(df, task_type_filter=None))
         # --- 阶段三：融合态势情报层 (Fusion & Situational Layer) ---
-        update_states(self.fusion_intel.run_fusion_diagnostics())
+        update_states(self.fusion_intel.run_fusion_diagnostics(df))
         # --- 阶段四：认知推演层 (Cognitive & Playbook Layer) ---
         self._ignite_relational_dynamics_engine()
         self.cognitive_intel.synthesize_cognitive_scores(df)
-        # [代码修改开始] 植入指挥层探针，检查 playbook_states 的最终状态
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            print("\n" + "="*20 + f" [指挥层-真理探针] @ {probe_date_naive.date()} " + "="*20)
-            print("--- [探针] 检查 run_all_diagnostics 返回前 'playbook_states' 的最终内容 ---")
-            if not self.strategy.playbook_states:
-                print("  -> [探针警告] 致命错误: 在情报层执行完毕后, 'playbook_states' 为空！")
-            else:
-                for key, signal_series in self.strategy.playbook_states.items():
-                    if isinstance(signal_series, pd.Series) and probe_date_for_loop in signal_series.index:
-                        raw_value = signal_series.loc[probe_date_for_loop]
-                        print(f"  -> 信号: {key:<50} | 最终值: {raw_value:.4f}")
-                    else:
-                        print(f"  -> 信号: {key:<50} | [探针警告] 无法在探针日期找到该信号值或信号非Series类型。")
-            print("="*70)
-        # [代码修改结束]
+        # ... (探针代码省略)
         return self.strategy.atomic_states
 
     def deploy_forensic_probes(self):
