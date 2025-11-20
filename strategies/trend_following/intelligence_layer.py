@@ -90,7 +90,6 @@ class IntelligenceLayer:
         # [代码修改开始] 捕获认知层返回的剧本信号，并更新到策略状态中
         final_playbook_states = self.cognitive_intel.synthesize_cognitive_scores(df)
         self.strategy.playbook_states.update(final_playbook_states)
-        # [代码修改结束]
         # ... (探针代码省略)
         return self.strategy.atomic_states
 

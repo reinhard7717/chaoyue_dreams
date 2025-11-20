@@ -55,7 +55,6 @@ class TrendFollowStrategy:
         if df_daily is None or df_daily.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         self.df_indicators = self._merge_all_timeframes(all_dfs)
-        # [代码修改开始] 增加数据完整性卫兵
         fe_params = get_params_block(self, 'feature_engineering_params', {})
         required_bars = get_param_value(fe_params.get('base_needed_bars'), 250) # 默认至少需要250条
         if len(self.df_indicators) < required_bars:
@@ -63,7 +62,6 @@ class TrendFollowStrategy:
             print(f"       需要至少 {required_bars} 条数据来进行指标计算，但只收到了 {len(self.df_indicators)} 条。")
             print(f"       请检查调用本策略的上层代码，确保为回测或分析提供了足够的历史回溯数据。")
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-        # [代码修改结束] 移除之前错误的切片逻辑
         # 步骤1: 情报层完成所有诊断与合成，包括专业层、融合层和认知层。这是唯一的情报生成入口。
         self.intelligence_layer.run_all_diagnostics(self.df_indicators)
         # 步骤2: 基于完整的诊断结果，进行顶层上下文分析

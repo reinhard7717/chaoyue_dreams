@@ -149,9 +149,6 @@ class PatternIntelligence:
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_target_date = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            # 新增行: 打印当前DataFrame的所有列名，仅在探针日期存在时
-            if probe_target_date is not None and probe_target_date in df.index:
-                print(f"    -> [回踩确认二次启动探针] @ {probe_target_date.date()}: 当前DataFrame包含的列: {df.columns.tolist()}")
         for i in range(n_pre_A, len(df_index)):
             day_A_idx = i
             current_A_date = df_index[day_A_idx]
