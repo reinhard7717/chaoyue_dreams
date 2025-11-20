@@ -87,42 +87,52 @@ class CognitiveIntelligence:
                     print(f"    -> [DEBUG _get_playbook_score] 信号 '{signal_name}' 原始值: {score:.4f}")
         return score
 
-    def synthesize_cognitive_scores(self, df: pd.DataFrame) -> None:
+    def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V25.10 · 状态权威重构版】总指挥
-        - 核心重构: 本方法不再返回任何值，而是作为 playbook_states 的唯一权威，直接、实时地更新 self.strategy.playbook_states。
-        - 解决问题: 彻底修复了因职责不清和执行时差导致的下游模块无法找到剧本信号的“状态真空”问题。
+        【V26.0 · 混合状态管理版】总指挥
+        - 核心重构: 采用混合状态管理模式。方法内部使用局部字典收集结果，并通过 return 返回最终产出，
+                      同时在计算过程中，阶段性地更新 self.strategy.playbook_states 以解决内部剧本依赖问题。
+        - 解决问题: 既保证了对外的接口清晰无副作用，又解决了内部依赖导致的“状态真空”问题。
         """
-        print("启动【V25.10 · 状态权威重构版】认知情报分析...")
+        print("启动【V26.0 · 混合状态管理版】认知情报分析...")
+        playbook_states = {} # [代码修改] 使用局部变量，不再直接修改 self.strategy.playbook_states
         priors = self._establish_prior_beliefs()
         self.strategy.atomic_states.update(priors)
         # --- 剧本计算与状态更新 ---
-        # 按照依赖关系，逐一计算剧本并立即更新到权威状态库
+        # 按照依赖关系，逐一计算剧本并更新到局部状态库
         # 第1批：机会剧本 (通常无内部依赖)
-        self.strategy.playbook_states.update(self._deduce_suppressive_accumulation(priors))
-        self.strategy.playbook_states.update(self._deduce_chasing_accumulation(priors))
-        self.strategy.playbook_states.update(self._deduce_capitulation_reversal(priors))
-        self.strategy.playbook_states.update(self._deduce_leading_dragon_awakening(priors))
-        self.strategy.playbook_states.update(self._deduce_sector_rotation_vanguard(priors))
-        self.strategy.playbook_states.update(self._deduce_energy_compression_breakout(priors))
-        self.strategy.playbook_states.update(self._deduce_stealth_bottoming_divergence(priors))
-        self.strategy.playbook_states.update(self._deduce_micro_absorption_divergence(priors))
+        playbook_states.update(self._deduce_suppressive_accumulation(priors))
+        playbook_states.update(self._deduce_chasing_accumulation(priors))
+        playbook_states.update(self._deduce_capitulation_reversal(priors))
+        playbook_states.update(self._deduce_leading_dragon_awakening(priors))
+        playbook_states.update(self._deduce_sector_rotation_vanguard(priors))
+        playbook_states.update(self._deduce_energy_compression_breakout(priors))
+        playbook_states.update(self._deduce_stealth_bottoming_divergence(priors))
+        playbook_states.update(self._deduce_micro_absorption_divergence(priors))
         # 第2批：无内部依赖的风险剧本
-        self.strategy.playbook_states.update(self._deduce_distribution_at_high(priors))
-        self.strategy.playbook_states.update(self._deduce_retail_fomo_retreat_risk(priors))
-        self.strategy.playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors))
-        self.strategy.playbook_states.update(self._deduce_market_uncertainty_risk(priors))
-        self.strategy.playbook_states.update(self._deduce_liquidity_trap_risk(priors))
-        self.strategy.playbook_states.update(self._deduce_t0_arbitrage_pressure_risk(priors))
-        self.strategy.playbook_states.update(self._deduce_key_support_break_risk(priors))
+        playbook_states.update(self._deduce_distribution_at_high(priors))
+        playbook_states.update(self._deduce_retail_fomo_retreat_risk(priors))
+        playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors))
+        playbook_states.update(self._deduce_market_uncertainty_risk(priors))
+        playbook_states.update(self._deduce_liquidity_trap_risk(priors))
+        playbook_states.update(self._deduce_t0_arbitrage_pressure_risk(priors))
+        playbook_states.update(self._deduce_key_support_break_risk(priors))
+        # [代码修改开始] 在调用依赖剧本之前，将当前已生成的剧本更新到 self.strategy.playbook_states 以供 _get_playbook_score 使用
+        self.strategy.playbook_states.update(playbook_states)
+        # [代码修改结束]
         # 第3批：依赖第2批剧本的风险剧本
-        self.strategy.playbook_states.update(self._deduce_trend_exhaustion_risk(priors)) # 依赖 RETAIL_FOMO_RETREAT, LONG_TERM_PROFIT_DISTRIBUTION
-        self.strategy.playbook_states.update(self._deduce_harvest_confirmation_risk(priors)) # 依赖 DISTRIBUTION_AT_HIGH
-        self.strategy.playbook_states.update(self._deduce_bull_trap_distribution_risk(priors)) # 依赖 RETAIL_FOMO_RETREAT, LONG_TERM_PROFIT_DISTRIBUTION
-        self.strategy.playbook_states.update(self._deduce_high_level_structural_collapse_risk(priors)) # 依赖 DISTRIBUTION_AT_HIGH, RETAIL_FOMO_RETREAT
+        playbook_states.update(self._deduce_trend_exhaustion_risk(priors)) # 依赖 RETAIL_FOMO_RETREAT, LONG_TERM_PROFIT_DISTRIBUTION
+        self.strategy.playbook_states.update(playbook_states) # [代码修改] 再次更新以包含上一行计算的结果
+        playbook_states.update(self._deduce_harvest_confirmation_risk(priors)) # 依赖 DISTRIBUTION_AT_HIGH
+        self.strategy.playbook_states.update(playbook_states) # [代码修改] 再次更新
+        playbook_states.update(self._deduce_bull_trap_distribution_risk(priors)) # 依赖 RETAIL_FOMO_RETREAT, LONG_TERM_PROFIT_DISTRIBUTION
+        self.strategy.playbook_states.update(playbook_states) # [代码修改] 再次更新
+        playbook_states.update(self._deduce_high_level_structural_collapse_risk(priors)) # 依赖 DISTRIBUTION_AT_HIGH, RETAIL_FOMO_RETREAT
+        self.strategy.playbook_states.update(playbook_states) # [代码修改] 再次更新
         # 第4批：依赖第3批剧本的机会剧本
-        self.strategy.playbook_states.update(self._deduce_divergence_reversal(priors)) # 依赖 TREND_EXHAUSTION
-        print(f"【V25.10 · 状态权威重构版】分析完成，已将 {len(self.strategy.playbook_states)} 个剧本信号更新至专属状态库。")
+        playbook_states.update(self._deduce_divergence_reversal(priors)) # 依赖 TREND_EXHAUSTION
+        print(f"【V26.0 · 混合状态管理版】分析完成，生成 {len(playbook_states)} 个剧本信号。")
+        return playbook_states # [代码修改] 返回包含所有剧本结果的局部字典
 
     def _deduce_suppressive_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
@@ -235,7 +245,7 @@ class CognitiveIntelligence:
 
     def _deduce_trend_exhaustion_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.2 · 深度博弈版证据链优化与趋势背景调制版】贝叶斯推演：“趋势衰竭”风险剧本
+        【V3.3 · 职责净化版】贝യെ斯推演：“趋势衰竭”风险剧本
         - 核心升级: 引入“趋势背景调制因子”，当趋势质量和结构形态良好时，降低风险证据的权重。
         - 【增强】引入下跌吸收能力作为反向证据，抑制误报。
         - 【优化】对涨停日后的回调，降低风险权重。
@@ -243,6 +253,7 @@ class CognitiveIntelligence:
         - 【修复】修正 `_forge_dynamic_evidence` 对已是概率值的信号进行二次归一化的问题。
         - 【优化】将 `trend_modulator` 应用到 `likelihood` 计算中。
         - 【新增】增加探针输出，检查各组成部分的贡献。
+        - 【V3.3 修复】移除直接修改 self.strategy.playbook_states 的副作用代码，确保方法职责单一。
         """
         print("    -- [剧本推演] 趋势衰竭风险 (动态证据)...")
         df_index = self.strategy.df_indicators.index
@@ -344,7 +355,9 @@ class CognitiveIntelligence:
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         # 涨停日后的回调，进一步降低风险
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
-        self.strategy.playbook_states['COGNITIVE_RISK_TREND_EXHAUSTION'] = posterior_prob.astype(np.float32)
+        # [代码修改开始] 移除直接修改 self.strategy.playbook_states 的副作用代码
+        # self.strategy.playbook_states['COGNITIVE_RISK_TREND_EXHAUSTION'] = posterior_prob.astype(np.float32)
+        # [代码修改结束]
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
