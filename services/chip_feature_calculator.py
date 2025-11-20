@@ -237,23 +237,7 @@ class ChipFeatureCalculator:
         close_price = context.get('close_price')
         open_price = context.get('open_price')
         atr = context.get('atr_14d')
-        # =================================================================
-        # 新增代码块：植入核心诊断探针，检查所有依赖项的值
-        stock_code = context.get('stock_code', 'N/A')
-        trade_date = context.get('trade_date', 'N/A')
-        print(f"--- 调试探针 [{stock_code}] [{trade_date}] 进入 _compute_game_theoretic_metrics ---")
-        print(f"    - structural_potential_score (势能): {potential}")
-        print(f"    - intraday_posture_score (姿态): {posture}")
-        print(f"    - structural_entropy_change (熵变): {entropy_change}")
-        print(f"    - cost_gini_coefficient (基尼): {gini}")
-        print(f"    - peak_control_transfer (主峰控制): {peak_transfer}")
-        print(f"    - chip_fatigue_index (疲劳): {fatigue}")
-        print(f"    - loser_pain_index (痛苦): {loser_pain}")
-        print(f"    - impulse_quality_ratio (脉冲品质): {impulse_quality}")
-        print(f"    - 核心价格/波动率: close={close_price}, open={open_price}, atr={atr}")
-        # =================================================================
         if any(pd.isna(v) for v in [potential, posture, entropy_change, gini, peak_transfer, fatigue, loser_pain, impulse_quality, close_price, open_price, atr]):
-            print(f"--- 调试探针 [{stock_code}] [{trade_date}] 依赖项存在NaN，计算中止。 ---") # 新增探针
             return results
         results['control_solidity_index'] = gini * peak_transfer
         results['exhaustion_risk_index'] = np.log1p(fatigue) * np.log1p(loser_pain)
@@ -320,36 +304,28 @@ class ChipFeatureCalculator:
         from scipy.signal import find_peaks
         from scipy.stats import skew
         results = {
-            # --- 核心新指标 ---
-            'structural_node_count': np.nan,
-            'primary_peak_kurtosis': np.nan,
-            'cost_gini_coefficient': np.nan,
-            'structural_tension_index': np.nan,
-            'structural_leverage': np.nan,
-            'vacuum_zone_magnitude': np.nan,
-            'winner_stability_index': np.nan,
-            # --- 升级/保留指标 ---
-            'dominant_peak_cost': np.nan, 'dominant_peak_volume_ratio': np.nan,
-            'dominant_peak_profit_margin': np.nan, 'dominant_peak_solidity': np.nan,
-            'secondary_peak_cost': np.nan, 'peak_separation_ratio': np.nan,
-            'winner_concentration_90pct': np.nan, 'loser_concentration_90pct': np.nan,
-            'chip_fault_magnitude': np.nan, 'chip_fault_blockage_ratio': np.nan,
-            'total_winner_rate': np.nan, 'total_loser_rate': np.nan,
-            'winner_profit_margin_avg': np.nan, 'loser_loss_margin_avg': np.nan,
-            'loser_pain_index': np.nan, 'cost_structure_skewness': np.nan,
-            'price_volume_entropy': np.nan,
+            'structural_node_count': np.nan, 'primary_peak_kurtosis': np.nan,
+            'cost_gini_coefficient': np.nan, 'structural_tension_index': np.nan,
+            'structural_leverage': np.nan, 'vacuum_zone_magnitude': np.nan,
+            'winner_stability_index': np.nan, 'dominant_peak_cost': np.nan,
+            'dominant_peak_volume_ratio': np.nan, 'dominant_peak_profit_margin': np.nan,
+            'dominant_peak_solidity': np.nan, 'secondary_peak_cost': np.nan,
+            'peak_separation_ratio': np.nan, 'winner_concentration_90pct': np.nan,
+            'loser_concentration_90pct': np.nan, 'chip_fault_magnitude': np.nan,
+            'chip_fault_blockage_ratio': np.nan, 'total_winner_rate': np.nan,
+            'total_loser_rate': np.nan, 'winner_profit_margin_avg': np.nan,
+            'loser_loss_margin_avg': np.nan, 'loser_pain_index': np.nan,
+            'cost_structure_skewness': np.nan, 'price_volume_entropy': np.nan,
         }
         close_price = self.ctx.get('close_price')
         atr_14d = self.ctx.get('atr_14d')
         if self.df.empty or pd.isna(close_price) or pd.isna(atr_14d) or atr_14d <= 0:
             return results
         def _calculate_weighted_kurtosis(values: pd.Series, weights: pd.Series) -> float:
-            if values.empty or weights.empty or weights.sum() <= 0:
-                return np.nan
+            if values.empty or weights.empty or weights.sum() <= 0: return np.nan
             weighted_mean = np.average(values, weights=weights)
             weighted_variance = np.average((values - weighted_mean)**2, weights=weights)
-            if weighted_variance < 1e-9:
-                return np.nan
+            if weighted_variance < 1e-9: return np.nan
             m4 = np.average((values - weighted_mean)**4, weights=weights)
             kurt = m4 / (weighted_variance**2) - 3.0
             return kurt
@@ -387,13 +363,18 @@ class ChipFeatureCalculator:
             df['weight_pct'] = df['weight'] / df['weight'].sum()
             df['cum_weight_pct'] = df['weight_pct'].cumsum()
             df['cost_x_weight'] = df['price'] * df['weight_pct']
-            df['cum_cost_pct'] = df['cost_x_weight'].cumsum()
+            # =================================================================
+            # 修改代码块：修正基尼系数计算的核心错误
+            total_weighted_cost = df['cost_x_weight'].sum()
+            if total_weighted_cost <= 0: return np.nan
+            # 核心修复：对累计成本进行归一化，确保其为百分比
+            df['cum_cost_pct'] = df['cost_x_weight'].cumsum() / total_weighted_cost
+            # =================================================================
             x = np.insert(df['cum_weight_pct'].values, 0, 0)
             y = np.insert(df['cum_cost_pct'].values, 0, 0)
             area = np.trapz(y, x)
             return 1 - 2 * area
         results['cost_gini_coefficient'] = _calculate_gini_final(self.df['price'], self.df['percent'])
-        # 新增代码行：为 dominant_peak_solidity 增加计算逻辑
         if pd.notna(results['cost_gini_coefficient']) and pd.notna(results['dominant_peak_volume_ratio']):
             results['dominant_peak_solidity'] = results['cost_gini_coefficient'] * (results['dominant_peak_volume_ratio'] / 100) * 100
         winners_df = self.df[self.df['price'] < close_price]
@@ -456,8 +437,8 @@ class ChipFeatureCalculator:
 
     def _calculate_structural_potential_score(self, context: dict, current_metrics: dict) -> float:
         """
-        【V2.1 · 诊断探针版】
-        - 核心新增: 在方法末尾添加调试探针，输出最终计算的势能分。
+        【V2.2 · 生产就绪版】
+        - 核心维护: 移除所有调试探针。
         """
         def _sigmoid(x, k=1):
             return 1 / (1 + np.exp(-k * x))
@@ -500,12 +481,6 @@ class ChipFeatureCalculator:
             if pd.notna(score) and score > 0:
                 final_score_raw *= score ** weight
         final_score = final_score_raw * 100
-        # =================================================================
-        # 新增代码块：植入诊断探针，检查最终输出值
-        stock_code = context.get('stock_code', 'N/A')
-        trade_date = context.get('trade_date', 'N/A')
-        print(f"--- 调试探针 [{stock_code}] [{trade_date}] _calculate_structural_potential_score 计算结果: {final_score} ---")
-        # =================================================================
         return final_score
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
