@@ -433,9 +433,19 @@ class ChipFeatureCalculator:
     def _calculate_structural_potential_score(self, context: dict, current_metrics: dict) -> float:
         """
         【V2.3 · 多级诊断探针版】
+        - 核心新增: 植入三级诊断探针，分别监控“原始依赖输入”、“三大支柱中间件”和“最终输出”，以解剖计算失败的根源。
         """
         stock_code = context.get('stock_code', 'N/A')
         trade_date = context.get('trade_date', 'N/A')
+        gini = current_metrics.get('cost_gini_coefficient')
+        peak_margin = current_metrics.get('dominant_peak_profit_margin')
+        peak_kurtosis = current_metrics.get('primary_peak_kurtosis')
+        leverage = current_metrics.get('structural_leverage')
+        winner_stability = current_metrics.get('winner_stability_index')
+        loser_pain = current_metrics.get('loser_pain_index')
+        tension = current_metrics.get('structural_tension_index')
+        vacuum = current_metrics.get('vacuum_zone_magnitude')
+        gini_slope_1d = context.get('cost_gini_coefficient_slope_1d', 0)
         def _sigmoid(x, k=1):
             return 1 / (1 + np.exp(-k * x))
         if any(pd.isna(v) for v in [gini, peak_margin, peak_kurtosis]):
@@ -444,30 +454,18 @@ class ChipFeatureCalculator:
         margin_score = _sigmoid(peak_margin / 10)
         kurtosis_score = _sigmoid(peak_kurtosis / 5)
         foundation_score = 0.3 * gini_score + 0.3 * margin_score + 0.4 * kurtosis_score
-        # =================================================================
-        # 新增代码块：【二级探针】检查第一个支柱的计算结果
-        print(f"    [支柱1] foundation_score: {foundation_score}")
-        # =================================================================
         if any(pd.isna(v) for v in [leverage, winner_stability, loser_pain]):
             return np.nan
         leverage_score = 1 - _sigmoid(leverage, k=5)
         stability_score = _sigmoid(winner_stability / 20)
         pain_score = 1 - _sigmoid(loser_pain / 50)
         pressure_balance_score = np.mean([leverage_score, stability_score, pain_score])
-        # =================================================================
-        # 新增代码块：【二级探针】检查第二个支柱的计算结果
-        print(f"    [支柱2] pressure_balance_score: {pressure_balance_score}")
-        # =================================================================
         if any(pd.isna(v) for v in [tension, vacuum]):
             return np.nan
         tension_score = _sigmoid((tension - 0.1) * 20)
         vacuum_score = _sigmoid((vacuum - 1) * 2)
         dynamic_factor = 1 + np.tanh(gini_slope_1d * 50)
         upward_potential_score = (0.5 * tension_score + 0.5 * vacuum_score) * dynamic_factor
-        # =================================================================
-        # 新增代码块：【二级探针】检查第三个支柱的计算结果
-        print(f"    [支柱3] upward_potential_score: {upward_potential_score}")
-        # =================================================================
         weights = {'foundation': 0.4, 'balance': 0.25, 'potential': 0.35}
         scores = {
             'foundation': foundation_score,
