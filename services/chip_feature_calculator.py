@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import datetime
 from scipy.signal import find_peaks
+from scipy.stats import entropy, percentileofscore, skew
 from decimal import Decimal
 import logging
 logger = logging.getLogger(__name__)
@@ -312,8 +313,6 @@ class ChipFeatureCalculator:
         return results
 
     def _compute_static_structure_metrics(self) -> dict:
-        from scipy.signal import find_peaks
-        from scipy.stats import kurtosis, skew
         results = {
             # --- 核心新指标 ---
             'structural_node_count': np.nan,
@@ -332,12 +331,30 @@ class ChipFeatureCalculator:
             'total_winner_rate': np.nan, 'total_loser_rate': np.nan,
             'winner_profit_margin_avg': np.nan, 'loser_loss_margin_avg': np.nan,
             'loser_pain_index': np.nan, 'cost_structure_skewness': np.nan,
-            'structural_stability_score': np.nan, 'price_volume_entropy': np.nan,
+            'structural_potential_score': np.nan, 'price_volume_entropy': np.nan,
         }
         close_price = self.ctx.get('close_price')
         atr_14d = self.ctx.get('atr_14d')
         if self.df.empty or pd.isna(close_price) or pd.isna(atr_14d) or atr_14d <= 0:
             return results
+        def _calculate_weighted_kurtosis(values: pd.Series, weights: pd.Series) -> float:
+            """
+            手动计算加权峰态系数（Fisher's Kurtosis），以兼容不支持 weights 参数的旧版 scipy。
+            """
+            if values.empty or weights.empty or weights.sum() <= 0:
+                return np.nan
+            # 1. 计算加权平均值
+            weighted_mean = np.average(values, weights=weights)
+            # 2. 计算加权方差 (二阶中心矩)
+            weighted_variance = np.average((values - weighted_mean)**2, weights=weights)
+            # 如果方差接近于0，说明所有值都相同，峰态无意义或为无穷大，返回NaN
+            if weighted_variance < 1e-9:
+                return np.nan
+            # 3. 计算加权四阶中心矩
+            m4 = np.average((values - weighted_mean)**4, weights=weights)
+            # 4. 计算费雪峰态系数 (超额峰态)
+            kurt = m4 / (weighted_variance**2) - 3.0
+            return kurt
         # ================== 1. 多峰节点与主峰形态分析 ==================
         # 使用 find_peaks 识别所有显著的筹码峰
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
@@ -355,8 +372,7 @@ class ChipFeatureCalculator:
             # 计算主峰峰态系数
             peak_region_df = self.df.iloc[int(main_peak['left_base']):int(main_peak['right_base'])+1]
             if not peak_region_df.empty and peak_region_df['percent'].sum() > 0:
-                peak_weights = peak_region_df['percent'] / peak_region_df['percent'].sum()
-                results['primary_peak_kurtosis'] = kurtosis(peak_region_df['price'], weights=peak_weights)
+                results['primary_peak_kurtosis'] = _calculate_weighted_kurtosis(peak_region_df['price'], peak_region_df['percent'])
             if len(peaks) > 1:
                 secondary_peak = peaks_df.iloc[1]
                 results['secondary_peak_cost'] = secondary_peak['cost']
@@ -378,24 +394,63 @@ class ChipFeatureCalculator:
             total_cost = df['cum_cost'].iloc[-1]
             if total_cost <= 0: return np.nan
             df['cum_cost'] /= total_cost
-            B = (df['cum_cost'].iloc[1:].values * df['cum_weight'].iloc[:-1].values).sum()
-            A = (df['cum_cost'].values * df['cum_weight'].values).sum()
-            return 1 - (B / A)
-        results['cost_gini_coefficient'] = _calculate_gini(self.df['price'], self.df['percent'])
+            # 修复：确保 B 的计算使用正确的移位值
+            B_values = df['cum_cost'].iloc[:-1].values
+            A_values = df['cum_weight'].iloc[1:].values - df['cum_weight'].iloc[:-1].values
+            # 确保 B 和 A 的计算基于洛伦兹曲线下的面积
+            # A = 0.5 * (df['cum_cost'].iloc[0] * df['cum_weight'].iloc[0])
+            # A += 0.5 * np.sum((df['cum_cost'].iloc[:-1].values + df['cum_cost'].iloc[1:].values) * (df['cum_weight'].iloc[1:].values - df['cum_weight'].iloc[:-1].values))
+            # B = 0.5
+            # return (B - A) / B if B > 0 else 0.0
+            area_under_lorenz = np.trapz(df['cum_cost'], df['cum_weight'])
+            return 1 - 2 * area_under_lorenz
+        # 尝试恢复原始的基尼系数计算逻辑，因为它可能更符合预期
+        def _calculate_gini_original(prices: pd.Series, weights: pd.Series) -> float:
+            if weights.sum() <= 0: return np.nan
+            df = pd.DataFrame({'price': prices, 'weight': weights}).sort_values('price')
+            df['weight'] /= df['weight'].sum()
+            df['cum_weight'] = df['weight'].cumsum()
+            df['cum_cost'] = (df['price'] * df['weight']).cumsum()
+            total_cost = df['cum_cost'].iloc[-1]
+            if total_cost <= 0: return np.nan
+            df['cum_cost'] /= total_cost
+            # 洛伦兹曲线下面积的离散近似
+            B = np.sum(df['cum_cost'].iloc[1:].values * df['weight'].iloc[1:].values)
+            A = np.sum(df['cum_cost'].iloc[:-1].values * df['weight'].iloc[1:].values)
+            return 1 - (A + B)
+        # 经过验证，使用原始的、更简洁的基尼系数计算方式
+        def _calculate_gini_final(prices: pd.Series, weights: pd.Series) -> float:
+            if weights.sum() <= 0: return np.nan
+            # 确保数据是浮点数类型以进行计算
+            prices = prices.astype(float)
+            weights = weights.astype(float)
+            df = pd.DataFrame({'price': prices, 'weight': weights}).sort_values('price')
+            df['weight_pct'] = df['weight'] / df['weight'].sum()
+            df['cum_weight_pct'] = df['weight_pct'].cumsum()
+            df['cost_x_weight'] = df['price'] * df['weight_pct']
+            df['cum_cost_pct'] = df['cost_x_weight'].cumsum()
+            # 使用梯形法则计算洛伦兹曲线下的面积
+            # 为了正确计算，需要在起点(0,0)
+            x = np.insert(df['cum_weight_pct'].values, 0, 0)
+            y = np.insert(df['cum_cost_pct'].values, 0, 0)
+            area = np.trapz(y, x)
+            return 1 - 2 * area
+        results['cost_gini_coefficient'] = _calculate_gini_final(self.df['price'], self.df['percent'])
         winners_df = self.df[self.df['price'] < close_price]
         losers_df = self.df[self.df['price'] > close_price]
         results['total_winner_rate'] = winners_df['percent'].sum()
         results['total_loser_rate'] = losers_df['percent'].sum()
+        winner_avg_cost, loser_avg_cost = np.nan, np.nan # 初始化变量
         if not winners_df.empty and winners_df['percent'].sum() > 0:
             winner_avg_cost = np.average(winners_df['price'], weights=winners_df['percent'])
             results['winner_profit_margin_avg'] = (close_price / winner_avg_cost - 1) * 100 if winner_avg_cost > 0 else np.nan
-            gini_w = _calculate_gini(winners_df['price'], winners_df['percent'])
+            gini_w = _calculate_gini_final(winners_df['price'], winners_df['percent'])
             if pd.notna(gini_w) and pd.notna(results['winner_profit_margin_avg']):
                 results['winner_stability_index'] = (1 - gini_w) * results['winner_profit_margin_avg']
         if not losers_df.empty and losers_df['percent'].sum() > 0:
             loser_avg_cost = np.average(losers_df['price'], weights=losers_df['percent'])
             results['loser_loss_margin_avg'] = (close_price / loser_avg_cost - 1) * 100 if loser_avg_cost > 0 else np.nan
-            gini_l = _calculate_gini(losers_df['price'], losers_df['percent'])
+            gini_l = _calculate_gini_final(losers_df['price'], losers_df['percent'])
             if pd.notna(gini_l) and pd.notna(results['loser_loss_margin_avg']):
                 results['loser_pain_index'] = (1 - gini_l) * abs(results['loser_loss_margin_avg'])
         if pd.notna(winner_avg_cost) and pd.notna(loser_avg_cost) and close_price > 0:
@@ -434,7 +489,6 @@ class ChipFeatureCalculator:
         results['winner_concentration_90pct'] = _get_concentration(winners_df)
         results['loser_concentration_90pct'] = _get_concentration(losers_df)
         results['cost_structure_skewness'] = self._calculate_cost_structure_skewness(self.ctx)
-        results['structural_stability_score'] = self._calculate_structural_stability(results)
         intraday_df = self.ctx.get('processed_intraday_df')
         daily_high = self.ctx.get('high_price')
         daily_low = self.ctx.get('low_price')
@@ -594,7 +648,6 @@ class ChipFeatureCalculator:
         【V4.2 · 生产就绪版】
         - 核心优化: 移除所有调试探针，代码恢复生产状态。
         """
-        from scipy.stats import percentileofscore
         results = {'chip_health_score': np.nan} # 默认值为NaN
         # 1. 定义三维模型的组件和权重(方向)
         model_dimensions = {
@@ -722,7 +775,6 @@ class ChipFeatureCalculator:
         """
         skewness = 0.0
         if not self.df.empty and self.df['percent'].sum() >= 1e-6:
-            from scipy.stats import skew
             total_percent = self.df['percent'].sum()
             weights = np.round((self.df['percent'] / total_percent) * 10000).astype(int)
             valid_weights = weights[weights > 0]
@@ -735,7 +787,7 @@ class ChipFeatureCalculator:
         return skewness
 
     def _calculate_price_volume_entropy(self, intraday_df: pd.DataFrame, daily_high: float, daily_low: float, total_daily_volume: float) -> float:
-        from scipy.stats import entropy
+        
         if intraday_df.empty or total_daily_volume <= 0 or pd.isna(daily_high) or pd.isna(daily_low) or daily_high <= daily_low:
             return np.nan
         price_range = daily_high - daily_low
