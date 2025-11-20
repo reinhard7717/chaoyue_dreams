@@ -59,8 +59,9 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self, df: pd.DataFrame) -> Dict:
         """
-        【V424.3 · 融合与过程层上下文修复版】情报层总指挥官
-        - 【V424.3 修复】在调用融合层和过程层时，传递 df 参数，确保上下文统一。
+        【V424.4 · 认知层指挥链修复版】情报层总指挥官
+        - 【V424.4 修复】捕获 cognitive_intel.synthesize_cognitive_scores 的返回值，并用其更新 self.strategy.playbook_states，
+                      修复了认知剧本信号丢失的致命bug。
         """
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -86,7 +87,10 @@ class IntelligenceLayer:
         update_states(self.fusion_intel.run_fusion_diagnostics(df))
         # --- 阶段四：认知推演层 (Cognitive & Playbook Layer) ---
         self._ignite_relational_dynamics_engine()
-        self.cognitive_intel.synthesize_cognitive_scores(df)
+        # [代码修改开始] 捕获认知层返回的剧本信号，并更新到策略状态中
+        final_playbook_states = self.cognitive_intel.synthesize_cognitive_scores(df)
+        self.strategy.playbook_states.update(final_playbook_states)
+        # [代码修改结束]
         # ... (探针代码省略)
         return self.strategy.atomic_states
 
