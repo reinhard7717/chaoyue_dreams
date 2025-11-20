@@ -20,6 +20,19 @@ class PatternIntelligence:
             return pd.Series(default_value, index=df.index)
         return df[column_name]
 
+    def _get_atomic_score(self, name: str, default: float = 0.0) -> pd.Series:
+        """
+        安全地从原子状态库或主数据帧中获取分数，处理缺失情况。
+        优先从 self.strategy.atomic_states 获取，若无则从 self.strategy.df_indicators 获取。
+        """
+        if name in self.strategy.atomic_states:
+            return self.strategy.atomic_states[name]
+        elif name in self.strategy.df_indicators.columns:
+            return self.strategy.df_indicators[name]
+        else:
+            print(f"    -> [形态情报警告] 原子信号 '{name}' 不存在，使用默认值 {default}。")
+            return pd.Series(default, index=self.strategy.df_indicators.index)
+
     def run_pattern_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V8.5 · 多方炮集成版】形态分析总指挥
@@ -134,7 +147,7 @@ class PatternIntelligence:
         winner_conviction_index_D = self._get_safe_series(df, 'winner_stability_index_D', method_name="_diagnose_axiom_pullback_confirmation")
         # [代码修改开始] 使用 control_solidity_index_D 替代 main_force_control_leverage_D
         main_force_control_leverage_D = self._get_safe_series(df, 'control_solidity_index_D', method_name="_diagnose_axiom_pullback_confirmation")
-        score_struct_axiom_trend_form = self._get_safe_series(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', method_name="_diagnose_axiom_pullback_confirmation")
+        score_struct_axiom_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0) # [代码修改]：修正信号获取方式，从原子状态库读取
         main_force_ofi_D = self._get_safe_series(df, 'main_force_ofi_D', method_name="_diagnose_axiom_pullback_confirmation")
         retail_ofi_D = self._get_safe_series(df, 'retail_ofi_D', method_name="_diagnose_axiom_pullback_confirmation")
         wash_trade_intensity_D = self._get_safe_series(df, 'wash_trade_intensity_D', method_name="_diagnose_axiom_pullback_confirmation")
