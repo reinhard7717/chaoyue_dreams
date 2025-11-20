@@ -1000,7 +1000,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 stock_code, fund_flow_raw_df, tick_data_map=tick_data_map, level5_data_map=level5_data_map, minute_data_map=minute_data_map
             )
             all_failures.extend(ff_failures)
-            
             fund_flow_attributed_minute_map_for_chip_service = copy.deepcopy(fund_flow_attributed_minute_map)
             probe_date_naive = pd.to_datetime(debug_params.get('probe_dates', [None])[0]).date() if debug_params.get('probe_dates') and debug_params.get('probe_dates')[0] else None
             if probe_date_naive:

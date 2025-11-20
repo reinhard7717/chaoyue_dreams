@@ -955,7 +955,6 @@ class ChipFeatureCalculator:
                 results['dominant_peak_volume_ratio'] = self.df.loc[main_peak_idx, 'percent']
                 results['peak_range_low'] = main_peak_cost * 0.99
                 results['peak_range_high'] = main_peak_cost * 1.01
-            
             peak_width = max(1, int(len(self.df) * 0.05))
             exclusion_start = max(0, main_peak_idx - peak_width)
             exclusion_end = min(len(self.df), main_peak_idx + peak_width)

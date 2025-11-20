@@ -277,7 +277,6 @@ class AdvancedChipMetricsService:
             else:
                 # 将 trade_date.date() 替换为 date_obj
                 enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
-            
             # 无条件打印此探针
             print(f"    -> [筹码合成探针-传递给计算器前] @ {date_obj}: enhanced_intraday_data (传递给计算器前) 检查。")
             if 'main_force_sell_vol' in enhanced_intraday_data.columns:
