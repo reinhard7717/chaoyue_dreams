@@ -87,11 +87,12 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V27.2 · 源头探针版】总指挥
-        - 【V27.2 新增】植入“总指挥探针”，在方法返回前，对所有生成的剧本信号进行最终检查，
-                       以验证信号是否在源头成功生成并包含探针日期的数据。
+        【V27.3 · 清单探针版】总指挥
+        - 【V27.3 探针升级】将“总指挥探针”升级为两阶段报告：
+                         1. 首先明确报告生成信号的总数并列出所有信号名称的清单。
+                         2. 然后再逐一检查每个信号在探针日期的数据，并提供更清晰的诊断信息。
         """
-        print("启动【V27.2 · 源头探针版】认知情报分析...")
+        print("启动【V27.3 · 清单探针版】认知情报分析...")
         playbook_states = {}
         priors = self._establish_prior_beliefs(df)
         self.strategy.atomic_states.update(priors)
@@ -126,26 +127,34 @@ class CognitiveIntelligence:
         self.strategy.playbook_states.update(playbook_states)
         # 第4批：依赖第3批剧本的机会剧本
         playbook_states.update(self._deduce_divergence_reversal(df, priors))
-        print(f"【V27.2 · 源头探针版】分析完成，生成 {len(playbook_states)} 个剧本信号。")
-        # [代码修改开始] 植入总指挥探针，检查即将返回的 playbook_states
+        print(f"【V27.3 · 清单探针版】分析完成，生成 {len(playbook_states)} 个剧本信号。")
+        # [代码修改开始] 升级总指挥探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            print("\n" + "="*20 + f" [认知层-总指挥探针] @ {probe_date_naive.date()} " + "="*20)
-            print("--- [探针] 检查 synthesize_cognitive_scores 返回前的 'playbook_states' 内容 ---")
+            print("\n" + "="*20 + f" [认知层-总指挥探针 V2] @ {probe_date_naive.date()} " + "="*20)
+            print("--- [探针 1/2] 检查 'playbook_states' 的内容和信号清单 ---")
             if not playbook_states:
-                print("  -> [探针警告] 致命错误: 'playbook_states' 为空，没有任何剧本信号被生成！")
+                print("  -> [探针结果] 致命错误: 'playbook_states' 字典为空，没有任何剧本信号被生成！")
             else:
+                print(f"  -> [探针结果] 成功生成 {len(playbook_states)} 个剧本信号。信号清单如下:")
+                for i, key in enumerate(playbook_states.keys(), 1):
+                    print(f"     {i}. {key}")
+                print("\n--- [探针 2/2] 逐一检查各信号在探针日期 '{probe_date_naive.date()}' 的值 ---")
                 for key, signal_series in playbook_states.items():
                     if isinstance(signal_series, pd.Series) and not signal_series.empty and probe_date_for_loop in signal_series.index:
                         raw_value = signal_series.loc[probe_date_for_loop]
-                        print(f"  -> 信号: {key:<50} | 当日原始值: {raw_value:.4f}")
+                        print(f"  -> 信号: {key:<50} | [成功] 当日原始值: {raw_value:.4f}")
                     else:
-                        print(f"  -> 信号: {key:<50} | [探针警告] 无法在探针日期找到该信号值或信号为空！")
-                        if isinstance(signal_series, pd.Series):
-                            print(f"     信号Series非空: {not signal_series.empty}, 索引范围: {signal_series.index.min()} to {signal_series.index.max()}")
+                        print(f"  -> 信号: {key:<50} | [失败] 无法在探针日期找到该信号值或信号为空！")
+                        if isinstance(signal_series, pd.Series) and not signal_series.empty:
+                            print(f"     详细信息: Series非空=True, 索引范围=[{signal_series.index.min().date()}] to [{signal_series.index.max().date()}]")
+                        elif isinstance(signal_series, pd.Series):
+                            print(f"     详细信息: Series为空(empty)!")
+                        else:
+                            print(f"     详细信息: 对象不是一个有效的Pandas Series！类型为 {type(signal_series)}")
             print("="*70)
         # [代码修改结束]
         return playbook_states
