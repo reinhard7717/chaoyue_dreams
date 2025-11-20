@@ -44,15 +44,34 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V414.0 · 指挥链修复版】
-        - 核心修复: 恢复了向 intelligence_layer.run_all_diagnostics() 方法传递 df_indicators 参数的指挥链，
-                      以确保情报层在正确的、可能被切片的数据上下文上运行，从根本上解决索引不匹配问题。
+        【V415.0 · 数据上下文校准版】
+        - 核心修复: 实现了对 `start_date_str` 参数的正确处理。在所有情报分析开始前，
+                      使用此参数对主数据帧 `df_indicators` 进行切片，确保整个策略在正确的、
+                      由调用者指定的日期上下文上运行，从根本上解决因数据范围错误导致的索引找不到问题。
         """
         self.params = self.unified_config
         df_daily = all_dfs.get('D')
         if df_daily is None or df_daily.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         self.df_indicators = self._merge_all_timeframes(all_dfs)
+        # [代码修改开始] 根据传入的 start_date_str 对数据帧进行切片，校准分析上下文
+        if start_date_str:
+            try:
+                start_date = pd.to_datetime(start_date_str)
+                # 检查并同步时区
+                if self.df_indicators.index.tz is not None and start_date.tzinfo is None:
+                    start_date = start_date.tz_localize(self.df_indicators.index.tz)
+                
+                print(f"    -> [上下文校准] 应用起始日期过滤器: {start_date}")
+                self.df_indicators = self.df_indicators[self.df_indicators.index >= start_date]
+                
+                if self.df_indicators.empty:
+                    print(f"    -> [上下文校准] 警告: 应用起始日期 '{start_date_str}' 后，数据帧为空。")
+                    return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+            except Exception as e:
+                print(f"    -> [上下文校准] 错误: 处理起始日期 '{start_date_str}' 失败: {e}")
+                return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        # [代码修改结束]
         # 步骤1: 情报层完成所有诊断与合成，包括专业层、融合层和认知层。这是唯一的情报生成入口。
         self.intelligence_layer.run_all_diagnostics(self.df_indicators)
         # 步骤2: 基于完整的诊断结果，进行顶层上下文分析
