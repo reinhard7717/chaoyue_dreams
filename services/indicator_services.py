@@ -414,7 +414,7 @@ class IndicatorService:
                 for col in smart_money_signals_df.columns:
                     df_daily[col] = df_daily[col].fillna(False).astype(bool)
         all_dfs['D'] = df_daily
-        # self._log_final_data_columns(all_dfs)
+        self._log_final_data_columns(all_dfs)
         return all_dfs
     async def _prepare_base_data_and_indicators(
         self,
@@ -491,12 +491,10 @@ class IndicatorService:
         tasks.append(_fetch_fund_flow_dc_tagged(stock_code, trade_time_dt_date, base_needed_bars))
         async def _fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, limit):
             df = await self.fund_flow_dao.get_fund_flow_daily_data(stock_code, trade_time_dt_date, limit)
-            # [代码修改开始]
             # 对 fund_flow_tushare 的列名进行标准化，添加 _D 后缀
             if not df.empty:
                 rename_map = {col: f"{col}_D" for col in df.columns if col not in ['trade_time', 'ts_code']}
                 df.rename(columns=rename_map, inplace=True)
-            # [代码修改结束]
             return ('fund_flow_tushare', df)
         tasks.append(_fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, base_needed_bars))
         async def _fetch_advanced_fund_flow_tagged(stock_code, trade_time_dt_date, limit):
@@ -550,12 +548,10 @@ class IndicatorService:
                     df_supp_std.rename(columns={'total_mv': 'total_market_value'}, inplace=True)
                 # 确保所有 daily_basic 的列都带上 _D 后缀
                 df_supp_std = df_supp_std.add_suffix('_D')
-            # [代码修改开始]
             # 针对 fund_flow_tushare，不再添加额外的后缀，因为其列名已在 _fetch_fund_flow_tushare_tagged 中标准化为 _D
             if tag in ['fund_flow_ths', 'fund_flow_dc']: # fund_flow_tushare 已在获取时处理
                 suffix = f"_{tag}"
                 df_supp_std = df_supp_std.add_suffix(suffix)
-            # [代码修改结束]
             else:
                 # 避免与 df_daily_master 现有列冲突，但要保留 total_market_value_D
                 conflicting_cols = df_daily_master.columns.intersection(df_supp_std.columns)

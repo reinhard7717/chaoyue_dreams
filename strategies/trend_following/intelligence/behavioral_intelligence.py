@@ -18,6 +18,7 @@ class BehavioralIntelligence:
         """
         self.strategy = strategy_instance
         self.pattern_recognizer = strategy_instance.pattern_recognizer
+
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -26,6 +27,7 @@ class BehavioralIntelligence:
             print(f"    -> [行为情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
+
     def run_behavioral_analysis_command(self) -> Dict[str, pd.Series]:
         """
         【V5.6 · 原始信号纯粹版】行为情报模块总指挥
@@ -58,6 +60,7 @@ class BehavioralIntelligence:
         self.strategy.atomic_states.update(df_with_dynamics[dynamic_cols])
         all_behavioral_states.update(df_with_dynamics[dynamic_cols])
         return all_behavioral_states
+
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
         """
         【V1.0】安全地从原子状态库或主数据帧中获取分数。
@@ -71,6 +74,7 @@ class BehavioralIntelligence:
         else:
             print(f"     -> [行为情报引擎警告] 信号 '{name}' 不存在，使用默认值 {default}。")
             return pd.Series(default, index=df.index)
+
     def _get_signal(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:
         """
         【V1.0】信号获取哨兵方法
@@ -81,6 +85,7 @@ class BehavioralIntelligence:
             print(f"    -> [行为情报引擎警告] 依赖信号 '{signal_name}' 在数据帧中不存在，将使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[signal_name]
+
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V3.0 · 职责净化版】原子信号中心
@@ -97,6 +102,7 @@ class BehavioralIntelligence:
         self.strategy.atomic_states.update(atomic_signals)
         atomic_signals.update(self._diagnose_upper_shadow_intent(df))
         return atomic_signals
+
     def _calculate_signal_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【V4.3 · 上涨衰竭动态增强与多时间维度归一化版】信号动态计算引擎
@@ -146,6 +152,7 @@ class BehavioralIntelligence:
                 print(f"     - [警告] 信号 '{signal_name}' 在原子状态库中不存在，跳过动态因子计算。")
         final_df = pd.concat([df, dynamics_df], axis=1)
         return final_df
+
     def _calculate_behavioral_day_quality(self, df: pd.DataFrame) -> pd.Series:
         """
         【V1.1 · 工具归位版】行为K线质量分计算引擎
@@ -168,6 +175,7 @@ class BehavioralIntelligence:
         ).clip(-1, 1)
         print("【纯净版行为K线质量分】计算完成。")
         return day_quality_score.astype(np.float32)
+
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V3.5 · 微观量价效率信号缺失处理与变量名修复版】原子信号中心
@@ -217,16 +225,20 @@ class BehavioralIntelligence:
         stagnation_evidence_raw_score = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_evidence_components, weights_stagnation_evidence)], axis=0), index=df.index)
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = (stagnation_evidence_raw_score * is_rising).clip(0, 1).astype(np.float32)
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
-        active_volume_price_efficiency_raw = self._get_safe_series(df, 'active_volume_price_efficiency_D', 0.5, method_name="_diagnose_behavioral_axioms")
+        # 使用 VPA_EFFICIENCY_D 替代 active_volume_price_efficiency_D
+        active_volume_price_efficiency_raw = self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.5, method_name="_diagnose_behavioral_axioms")
         if not active_volume_price_efficiency_raw.isnull().all() and not (active_volume_price_efficiency_raw == 0.5).all():
             states['SCORE_BEHAVIOR_ACTIVE_VOLUME_PRICE_EFFICIENCY'] = get_adaptive_mtf_normalized_score(active_volume_price_efficiency_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        absorption_strength_index_raw = self._get_safe_series(df, 'absorption_strength_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        # 使用 dip_absorption_power_D 替代 absorption_strength_index_D
+        absorption_strength_index_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_behavioral_axioms")
         if not absorption_strength_index_raw.isnull().all() and not (absorption_strength_index_raw == 0.0).all():
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH_INDEX'] = get_adaptive_mtf_normalized_score(absorption_strength_index_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        distribution_pressure_index_raw = self._get_safe_series(df, 'distribution_pressure_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        # 使用 rally_distribution_pressure_D 替代 distribution_pressure_index_D
+        distribution_pressure_index_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_behavioral_axioms")
         if not distribution_pressure_index_raw.isnull().all() and not (distribution_pressure_index_raw == 0.0).all():
             states['SCORE_BEHAVIOR_DISTRIBUTION_PRESSURE_INDEX'] = get_adaptive_mtf_normalized_score(distribution_pressure_index_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         return states
+
     def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
         【V1.1 · 量能萎缩证据增强版】计算 SCORE_BEHAVIOR_VOLUME_ATROPHY 信号。
@@ -289,6 +301,7 @@ class BehavioralIntelligence:
         safe_evidence_components = [comp + 1e-9 for comp in aligned_evidence_components] # 避免log(0)
         volume_atrophy_score = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_evidence_components, weights)], axis=0), index=df_index)
         return volume_atrophy_score.clip(0, 1)
+
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V1.1 · 多时间维度归一化版】诊断内部上下文信号：新高强度 (CONTEXT_NEW_HIGH_STRENGTH)
@@ -305,6 +318,7 @@ class BehavioralIntelligence:
         bias_health_score = 1 - get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BIAS_55_D', pd.Series(0.0, index=df.index), method_name="_diagnose_context_new_high_strength").clip(lower=0), df.index, ascending=True, tf_weights=long_term_weights)
         new_high_strength = (price_breakthrough_score * ma_slope_score * bias_health_score).pow(1/3).fillna(0.0)
         return {'CONTEXT_NEW_HIGH_STRENGTH': new_high_strength.astype(np.float32)}
+
     def _resolve_pressure_absorption_dynamics(self, provisional_pressure: pd.Series, intent_diagnosis: pd.Series) -> Dict[str, pd.Series]:
         """
         【V3.2 · 工具归位与多时间维度归一化版】压力-承接能量转化模型
