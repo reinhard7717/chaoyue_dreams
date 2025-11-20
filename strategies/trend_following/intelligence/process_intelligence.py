@@ -278,15 +278,10 @@ class ProcessIntelligence:
 
     def _calculate_main_force_control_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.1 · 多时间维度归一化版】计算“主力控盘”的专属关系分数。
-        - 核心逻辑: 诊断主力控盘的强度和趋势，基于通达信公式中的“控盘”和“有庄控盘”逻辑。
-        - 证据链:
-          1. 控盘指标 (VARN1-REF(VARN1,1))/REF(VARN1,1)*1000
-          2. 控盘趋势 (控盘>REF(控盘,1) AND 控盘>0)
-          3. 主力资金净流入 (main_force_net_flow_calibrated_D)
-        - 输出: [-1, 1] 的双极性分数，正分代表主力控盘强且趋势向上，负分代表控盘弱或趋势向下。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将 `kongpan_score` 和 `main_force_flow_score` 的归一化方式改为多时间维度自适应归一化。
+        【V1.2 · 健壮性修复版】计算“主力控盘”的专属关系分数。
+        - 【V1.2 修复】增加了对 ta.ema 计算结果的检查。当输入数据长度不足以计算EMA时，
+                       ta.ema 会返回 None。此修复会捕获这种情况，打印警告并返回一个默认的
+                       零值Series，从而避免 'NoneType' object has no attribute 'shift' 错误。
         """
         print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_CONTROL (主力控盘)...")
         df_index = df.index
@@ -294,7 +289,13 @@ class ProcessIntelligence:
         bipolar_sensitivity = self.bipolar_sensitivity
         # 1. 计算 VARN1 (EMA(EMA(CLOSE,13),13))
         ema13 = ta.ema(close=self._get_safe_series(df, 'close_D', method_name="_calculate_main_force_control_relationship"), length=13, append=False)
+        if ema13 is None:
+            print(f"    -> [过程层警告] '主力控盘'计算失败：数据长度不足以计算13周期EMA。")
+            return pd.Series(0.0, index=df_index)
         varn1 = ta.ema(close=ema13, length=13, append=False)
+        if varn1 is None:
+            print(f"    -> [过程层警告] '主力控盘'计算失败：数据长度不足以计算双重13周期EMA。")
+            return pd.Series(0.0, index=df_index)
         # 2. 计算控盘 (VARN1-REF(VARN1,1))/REF(VARN1,1)*1000
         # 避免除以零
         prev_varn1 = varn1.shift(1).replace(0, np.nan)
