@@ -222,8 +222,13 @@ class ChipFeatureCalculator:
             'exhaustion_risk_index': np.nan,
             'breakout_readiness_score': np.nan,
         }
-        # --- 1. 依赖项准备 ---
-        # 从上下文中获取前三象限的核心输出
+        # =================================================================
+        # 修改代码块：将兼容旧指标的计算提前，与新指标的计算逻辑解耦
+        # 这一步确保无论新指标的复杂依赖是否满足，旧指标都会被计算
+        legacy_metrics = self._compute_legacy_game_theory_metrics(context)
+        results.update(legacy_metrics)
+        # =================================================================
+        # --- 1. 新战略指标的依赖项准备 ---
         potential = context.get('structural_potential_score')
         posture = context.get('intraday_posture_score')
         entropy_change = context.get('structural_entropy_change')
@@ -235,26 +240,22 @@ class ChipFeatureCalculator:
         close_price = context.get('close_price')
         open_price = context.get('open_price')
         atr = context.get('atr_14d')
+        # 卫语句：仅保护新指标的计算
         if any(pd.isna(v) for v in [potential, posture, entropy_change, gini, peak_transfer, fatigue, loser_pain, impulse_quality, close_price, open_price, atr]):
-            return results
+            return results # 如果依赖不满足，返回已包含旧指标的 results
         # --- 2. 风险与稳固度计算 ---
         results['control_solidity_index'] = gini * peak_transfer
         results['exhaustion_risk_index'] = np.log1p(fatigue) * np.log1p(loser_pain)
         # --- 3. 欺骗指数计算 ---
         price_momentum = (close_price - open_price) / atr if atr > 0 else 0
-        # 当价格强劲上涨但脉冲品质很差时，为诱多；反之为诱空
         results['deception_index'] = np.tanh(price_momentum) * (1 - np.tanh(impulse_quality / 100)) * 100
         # --- 4. 核心战略推演 ---
-        # 突破就绪分 = 结构势能 * 日内姿态 * 结构熵减
         readiness = (potential / 100) * (posture / 100) * np.clip(1 - entropy_change, 0, 2)
         results['breakout_readiness_score'] = np.clip(readiness * 100, 0, 100)
-        # 战略阶段评分
         markup_force = results['breakout_readiness_score'] * (1 + np.tanh(results['control_solidity_index'] / 100))
         distribution_force = results['exhaustion_risk_index'] * (1 + np.tanh(results['deception_index'] / 100))
         phase_score = markup_force - distribution_force
-        results['strategic_phase_score'] = np.tanh(phase_score / 50) * 100 # 用tanh压缩到-100到100
-        # --- 5. 兼容旧指标 ---
-        results.update(self._compute_legacy_game_theory_metrics(context))
+        results['strategic_phase_score'] = np.tanh(phase_score / 50) * 100
         return results
 
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
@@ -904,22 +905,16 @@ class ChipFeatureCalculator:
 
     def _compute_legacy_game_theory_metrics(self, context: dict) -> dict:
         """
-        【V1.1 · 逻辑修正版】计算在第四象限升级后保留的旧版博弈意图指标。
-        - 核心修复: 补全了 auction_intent_signal 和 auction_closing_position 在 results 字典中的初始化和赋值逻辑。
-        - 核心新增: 为 main_force_cost_advantage 添加调试探针，以排查上游数据问题。
+        【V1.2 · 生产就绪版】计算在第四象限升级后保留的旧版博弈意图指标。
+        - 核心维护: 移除调试探针。
         """
-        # =================================================================
-        # 修改代码行：在 results 字典中添加缺失的键
         results = {
             'main_force_cost_advantage': np.nan,
             'auction_intent_signal': np.nan,
             'auction_closing_position': np.nan,
         }
-        # =================================================================
         daily_vwap = context.get('daily_vwap')
         weight_avg_cost = context.get('weight_avg_cost')
-        # 新增代码行：添加调试探针
-        print(f"调试信息 [{context.get('stock_code')}] [{context.get('trade_date')}]: main_force_cost_advantage 计算依赖 -> daily_vwap={daily_vwap}, weight_avg_cost={weight_avg_cost}")
         if pd.notna(daily_vwap) and pd.notna(weight_avg_cost) and weight_avg_cost > 0 and daily_vwap > 0:
             results['main_force_cost_advantage'] = (weight_avg_cost / daily_vwap - 1) * 100
         intraday_df = context.get('processed_intraday_df')
@@ -932,13 +927,10 @@ class ChipFeatureCalculator:
             if all(pd.notna(v) for v in [open_price, pre_close, high_price, low_price]) and high_price > low_price:
                 gap_pct = (open_price / pre_close - 1) * 100
                 daily_turnover_volume = context.get('daily_turnover_volume', 1)
-                if daily_turnover_volume <= 0: daily_turnover_volume = 1 # 避免除零
+                if daily_turnover_volume <= 0: daily_turnover_volume = 1
                 auction_vol_ratio = auction_data['vol_shares'] / daily_turnover_volume
-                # =================================================================
-                # 新增代码行：将计算结果正确赋值给 results 字典
                 results['auction_intent_signal'] = gap_pct * np.log1p(auction_vol_ratio * 100)
                 results['auction_closing_position'] = ((open_price - low_price) / (high_price - low_price) * 2 - 1) * 100
-                # =================================================================
         return results
 
 
