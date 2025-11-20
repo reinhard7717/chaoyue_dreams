@@ -159,6 +159,14 @@
             "scoring_mode": "bipolar",
             "description": "【V1.0】融合筹码原子情报层的核心公理信号（集中度、成本结构、持股心态、筹码峰形态、背离、干净度、锁定度），形成筹码的整体趋势判断。正分代表筹码趋势向好，负分代表筹码趋势恶化。"
         },
+        "FUSION_BIPOLAR_CHIP_STRUCTURAL_POTENTIAL": {
+            "cn_name": "【融合】筹码结构势能",
+            "category": "融合层-环境",
+            "type": "context",
+            "score": 100,
+            "scoring_mode": "bipolar",
+            "description": "【V1.0 · 结构动力学】融合新一代筹码指标中具备“势能”和“潜力”属性的信号（如结构势能分、突破就绪分、结构张力、结构杠杆、真空区量级），专门用于量化当前筹码结构中蕴含的、未来可能爆发的能量。旨在为认知层的“突破”、“加速”等剧本提供关键的先验信念。"
+        },
         "FUSION_BIPOLAR_LIQUIDITY_DYNAMICS": {
             "cn_name": "【融合】流动性博弈动态",
             "category": "融合层-环境",

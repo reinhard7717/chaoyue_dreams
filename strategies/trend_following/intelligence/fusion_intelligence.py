@@ -18,6 +18,7 @@ class FusionIntelligence:
     """
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
+
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -26,6 +27,7 @@ class FusionIntelligence:
             print(f"    -> [融合情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
+
     def _get_atomic_score(self, name: str, default: float = 0.0) -> pd.Series:
         """
         【V1.3 · 严格原子信号获取与数据层回退版】安全地从原子状态库或主数据帧中获取分数，处理缺失情况。
@@ -40,8 +42,9 @@ class FusionIntelligence:
         else:
             print(f"    -> [融合层-原子信号警告] 预期原子信号 '{name}' 在 atomic_states 和 df_indicators 中均不存在，使用默认值 {default}。")
             return pd.Series(default, index=self.strategy.df_indicators.index)
+
     def run_fusion_diagnostics(self) -> Dict[str, pd.Series]:
-        print("启动【V3.2 · 战场态势引擎】融合情报分析...")
+        print("启动【V3.3 · 结构势能版】融合情报分析...") # 修改版本号
         all_fusion_states = {}
         # 每次合成后立即更新到 self.strategy.atomic_states，确保后续方法能获取到
         regime_states = self._synthesize_market_regime()
@@ -80,12 +83,17 @@ class FusionIntelligence:
         chip_trend_states = self._synthesize_chip_trend()
         all_fusion_states.update(chip_trend_states)
         self.strategy.atomic_states.update(chip_trend_states)
+        # 新增代码行：冶炼“筹码结构势能”
+        chip_potential_states = self._synthesize_chip_structural_potential()
+        all_fusion_states.update(chip_potential_states)
+        self.strategy.atomic_states.update(chip_potential_states)
         # 新增：冶炼“吸筹拐点信号”
         accumulation_inflection_states = self._synthesize_accumulation_inflection()
         all_fusion_states.update(accumulation_inflection_states)
         self.strategy.atomic_states.update(accumulation_inflection_states)
-        print(f"【V3.2 · 战场态势引擎】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
+        print(f"【V3.3 · 结构势能版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。") # 修改版本号
         return all_fusion_states
+
     def _synthesize_market_contradiction(self) -> Dict[str, pd.Series]:
         """
         【V1.0】冶炼“市场矛盾” (Market Contradiction)
@@ -113,6 +121,7 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_MARKET_CONTRADICTION'] = bipolar_contradiction.astype(np.float32)
         print(f"  -- [融合层] “市场矛盾”冶炼完成，最新分值: {bipolar_contradiction.iloc[-1]:.4f}")
         return states
+
     def _synthesize_market_regime(self) -> Dict[str, pd.Series]:
         """
         【V1.1 · 柔性评估重构版】冶炼“市场政权” (Market Regime)
@@ -138,6 +147,7 @@ class FusionIntelligence:
         bipolar_regime = (trend_evidence - reversion_evidence).clip(-1, 1)
         states['FUSION_BIPOLAR_MARKET_REGIME'] = bipolar_regime.astype(np.float32)
         return states
+
     def _synthesize_market_pressure(self) -> Dict[str, pd.Series]:
         """
         【V1.2 · 底分型集成版】冶炼“市场压力” (Market Pressure)
@@ -189,19 +199,14 @@ class FusionIntelligence:
                 print(f"       - FUSION_BIPOLAR_MARKET_PRESSURE: {bipolar_pressure.loc[probe_date_for_loop]:.4f}")
         print(f"  -- [融合层] “市场压力”冶炼完成，最新分值: {bipolar_pressure.iloc[-1]:.4f}")
         return states
+
     def _synthesize_trend_quality(self) -> Dict[str, pd.Series]:
         """
-        【V1.9 · 底分型集成版】冶炼“趋势质量” (Trend Quality)
-        - 核心修复: 不再消费原子层的“共振”信号，而是直接消费各原子情报模块的**公理信号**。
-        - 核心逻辑: 融合各领域公理的双极性分数，形成一个整体的趋势质量判断。
-        - 增加调试探针，打印组成公理在探针日期的值及其贡献。
-        - 引入 `main_force_on_peak_flow` (主力在主峰区的净流入) 作为趋势质量的重要证据。
-        - 【新增】引入均线动态（速度和加速度）作为趋势质量的组成部分。
-        - 【修正】调整 `main_force_on_peak_flow` 的权重，避免其在融合时贡献过大。
-        - 【新增】引入 `AAA_D` (平均绝对偏差) 和 `PDI_14_D` (正向动能指数) 作为趋势质量的组成部分。
+        【V2.0 · 结构动力学增强版】冶炼“趋势质量” (Trend Quality)
+        - 核心增强: 引入新一代筹码高级指标 `breakout_readiness_score_D` 和 `trend_vitality_index_D` 作为趋势质量的直接证据，
+                      前者衡量突破的准备程度，后者评估趋势的内在生命力。
+        - 核心修复: 遵循原有融合逻辑，将各领域公理的双极性分数进行加权，形成整体判断。
         - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【修复】将 `SCORE_FF_AXIOM_INCREMENT` 信号引用更正为 `SCORE_FF_AXIOM_FLOW_MOMENTUM`。
-        - 【新增】将 `SCORE_STRUCT_BOTTOM_FRACTAL` 信号作为趋势质量改善的证据之一。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
@@ -246,47 +251,54 @@ class FusionIntelligence:
         aaa_score = normalize_to_bipolar(aaa_raw * -1, df_index, window=55)
         pdi_raw = self._get_safe_series(self.strategy.df_indicators, 'PDI_14_D', 0.0, method_name="_synthesize_trend_quality")
         pdi_score = normalize_to_bipolar(pdi_raw, df_index, window=55)
-        # 【新增代码行】获取结构底分型信号
         structural_bottom_fractal = self._get_atomic_score('SCORE_STRUCT_BOTTOM_FRACTAL', 0.0)
+        # 新增代码行：获取新一代筹码高级指标并进行归一化
+        breakout_readiness_raw = self._get_safe_series(self.strategy.df_indicators, 'breakout_readiness_score_D', 0.0, method_name="_synthesize_trend_quality")
+        breakout_readiness_score = normalize_to_bipolar(breakout_readiness_raw, df_index, window=55, sensitivity=20)
+        trend_vitality_raw = self._get_safe_series(self.strategy.df_indicators, 'trend_vitality_index_D', 0.0, method_name="_synthesize_trend_quality")
+        trend_vitality_score = normalize_to_bipolar(trend_vitality_raw, df_index, window=55, sensitivity=0.5)
         components_and_weights = {
-            'foundation_trend': (foundation_trend, 0.1),
-            'foundation_oscillator': (foundation_oscillator, -0.05),
-            'foundation_flow': (foundation_flow, 0.05),
-            'foundation_volatility': (foundation_volatility, 0.05),
-            'structural_trend_form': (structural_trend_form, 0.15),
-            'structural_mtf_cohesion': (structural_mtf_cohesion, 0.1),
-            'structural_stability': (structural_stability, 0.1),
-            'dynamic_momentum': (dynamic_momentum, 0.1),
-            'dynamic_inertia': (dynamic_inertia, 0.1),
-            'dynamic_stability': (dynamic_stability, 0.05),
-            'dynamic_energy': (dynamic_energy, 0.05),
-            'dynamic_ma_acceleration': (dynamic_ma_acceleration, 0.05),
-            'fund_flow_consensus': (fund_flow_consensus, 0.05),
-            'fund_flow_conviction': (fund_flow_conviction, 0.05),
-            'fund_flow_increment': (fund_flow_increment, 0.05),
-            'chip_concentration': (chip_concentration, 0.05),
-            'chip_cost_structure': (chip_cost_structure, 0.05),
-            'chip_holder_sentiment': (chip_holder_sentiment, 0.05),
-            'chip_peak_integrity': (chip_peak_integrity, 0.05),
-            'micro_deception': (micro_deception, 0.02),
-            'micro_probe': (micro_probe, 0.02),
-            'micro_efficiency': (micro_efficiency, 0.02),
-            'behavior_upward_efficiency': (behavior_upward_efficiency, 0.03),
-            'behavior_downward_resistance': (behavior_downward_resistance, 0.03),
-            'behavior_intraday_bull_control': (behavior_intraday_bull_control, 0.02),
-            'pattern_reversal': (pattern_reversal, 0.02),
-            'pattern_breakout': (pattern_breakout, 0.03),
-            'main_force_on_peak_flow': (main_force_on_peak_flow, 0.02),
-            'aaa_score': (aaa_score, 0.03),
-            'pdi_score': (pdi_score, 0.05),
-            'structural_bottom_fractal': (structural_bottom_fractal, 0.05) # 【新增代码行】底分型信号及其权重
+            'foundation_trend': (foundation_trend, 0.08),
+            'foundation_oscillator': (foundation_oscillator, -0.02),
+            'foundation_flow': (foundation_flow, 0.03),
+            'foundation_volatility': (foundation_volatility, 0.02),
+            'structural_trend_form': (structural_trend_form, 0.10),
+            'structural_mtf_cohesion': (structural_mtf_cohesion, 0.05),
+            'structural_stability': (structural_stability, 0.05),
+            'dynamic_momentum': (dynamic_momentum, 0.08),
+            'dynamic_inertia': (dynamic_inertia, 0.05),
+            'dynamic_stability': (dynamic_stability, 0.02),
+            'dynamic_energy': (dynamic_energy, 0.02),
+            'dynamic_ma_acceleration': (dynamic_ma_acceleration, 0.03),
+            'fund_flow_consensus': (fund_flow_consensus, 0.03),
+            'fund_flow_conviction': (fund_flow_conviction, 0.03),
+            'fund_flow_increment': (fund_flow_increment, 0.03),
+            'chip_concentration': (chip_concentration, 0.03),
+            'chip_cost_structure': (chip_cost_structure, 0.03),
+            'chip_holder_sentiment': (chip_holder_sentiment, 0.03),
+            'chip_peak_integrity': (chip_peak_integrity, 0.03),
+            'micro_deception': (micro_deception, 0.01),
+            'micro_probe': (micro_probe, 0.01),
+            'micro_efficiency': (micro_efficiency, 0.01),
+            'behavior_upward_efficiency': (behavior_upward_efficiency, 0.02),
+            'behavior_downward_resistance': (behavior_downward_resistance, 0.02),
+            'behavior_intraday_bull_control': (behavior_intraday_bull_control, 0.01),
+            'pattern_reversal': (pattern_reversal, 0.01),
+            'pattern_breakout': (pattern_breakout, 0.02),
+            'main_force_on_peak_flow': (main_force_on_peak_flow, 0.01),
+            'aaa_score': (aaa_score, 0.02),
+            'pdi_score': (pdi_score, 0.03),
+            'structural_bottom_fractal': (structural_bottom_fractal, 0.02),
+            'breakout_readiness_score': (breakout_readiness_score, 0.10), # 新增代码行：突破就绪分及其权重
+            'trend_vitality_score': (trend_vitality_score, 0.10) # 新增代码行：趋势生命力及其权重
         }
         bipolar_quality = pd.Series(0.0, index=df_index)
         if probe_date_for_loop is not None and probe_date_for_loop in df_index:
             print(f"    -> [趋势质量探针] @ {probe_date_for_loop.date()}: 组成公理贡献明细")
+        total_weight = sum(w for _, w in components_and_weights.values()) # 新增代码行：计算总权重
         for name, (series, weight) in components_and_weights.items():
             if not series.empty:
-                contribution = series * weight
+                contribution = series * (weight / total_weight) # 修改代码行：使用归一化后的权重
                 bipolar_quality += contribution
                 if probe_date_for_loop is not None and probe_date_for_loop in df_index:
                     print(f"       - {name:<30}: 原始值={series.loc[probe_date_for_loop]:.4f}, 权重={weight:.2f}, 贡献={contribution.loc[probe_date_for_loop]:.4f}")
@@ -294,6 +306,7 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_TREND_QUALITY'] = bipolar_quality.astype(np.float32)
         print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {bipolar_quality.iloc[-1]:.4f}")
         return states
+
     def _synthesize_stagnation_risk(self) -> Dict[str, pd.Series]:
         """
         【V1.0 · 深度博弈版】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
@@ -355,6 +368,7 @@ class FusionIntelligence:
         states['FUSION_RISK_STAGNATION'] = final_stagnation_risk.astype(np.float32)
         print(f"  -- [融合层] “滞涨风险”冶炼完成，最新分值: {final_stagnation_risk.iloc[-1]:.4f}")
         return states
+
     def _synthesize_capital_confrontation(self) -> Dict[str, pd.Series]:
         """
         【V1.2 · 探针增强与打印修复版】冶炼“资本对抗” (Capital Confrontation)
@@ -393,6 +407,7 @@ class FusionIntelligence:
         else:
             print(f"  -- [融合层] “资本对抗”冶炼完成，最新分值: {bipolar_confrontation.iloc[-1]:.4f}")
         return states
+
     def _synthesize_price_overextension_intent(self) -> Dict[str, pd.Series]:
         """
         【V3.0 · 深度博弈版】冶炼“价格超买意图” (Price Overextension Intent)
@@ -485,6 +500,7 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT'] = final_overextension_intent.astype(np.float32)
         print(f"  -- [融合层] “价格超买意图”冶炼完成，最新分值: {final_overextension_intent.iloc[-1]:.4f}")
         return states
+
     def _synthesize_upper_shadow_intent(self) -> Dict[str, pd.Series]: # 修改方法
         """
         【V2.0 · 深度博弈版】冶炼“上影线意图” (Upper Shadow Intent)
@@ -579,6 +595,7 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_UPPER_SHADOW_INTENT'] = final_intent.astype(np.float32)
         print(f"  -- [融合层] “上影线意图”冶炼完成，最新分值: {final_intent.iloc[-1]:.4f}")
         return states
+
     def _synthesize_trend_structure_score(self) -> Dict[str, pd.Series]:
         """
         【V1.4 · 趋势结构分优化版】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
@@ -691,6 +708,7 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_TREND_STRUCTURE_SCORE'] = final_trend_structure_score.astype(np.float32)
         print(f"  -- [融合层] “趋势结构分”冶炼完成，最新分值: {final_trend_structure_score.iloc[-1]:.4f}")
         return states
+
     def _synthesize_fund_flow_trend(self) -> Dict[str, pd.Series]:
         """
         【V1.1 · 资金流动量版】冶炼“资金趋势” (FUSION_BIPOLAR_FUND_FLOW_TREND)
@@ -723,6 +741,7 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_FUND_FLOW_TREND'] = fund_flow_trend_score.astype(np.float32)
         print(f"  -- [融合层] “资金趋势”冶炼完成，最新分值: {fund_flow_trend_score.iloc[-1]:.4f}")
         return states
+
     def _synthesize_chip_trend(self) -> Dict[str, pd.Series]:
         """
         【V1.6 · 筹码趋势动量强化与缺失信号严格处理及探针版】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
@@ -810,6 +829,7 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_CHIP_TREND'] = chip_trend_score.astype(np.float32)
         print(f"  -- [融合层] “筹码趋势”冶炼完成，最新分值: {chip_trend_score.iloc[-1]:.4f}")
         return states
+
     def _synthesize_accumulation_inflection(self) -> Dict[str, pd.Series]:
         """
         【V1.0 · 资金筹码融合版】冶炼“吸筹拐点信号” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
@@ -887,4 +907,46 @@ class FusionIntelligence:
         print(f"  -- [融合层] “吸筹拐点信号”冶炼完成，最新分值: {inflection_score_normalized.iloc[-1]:.4f}")
         return states
 
+    def _synthesize_chip_structural_potential(self) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】冶炼“筹码结构势能” (FUSION_BIPOLAR_CHIP_STRUCTURAL_POTENTIAL)
+        - 核心思想: 融合新一代筹码指标中具备“势能”和“潜力”属性的信号，专门用于量化当前筹码结构中蕴含的、
+                      未来可能爆发的能量。旨在为认知层的“突破”、“加速”等剧本提供关键的先验信念。
+        - 证据链:
+          1. 结构势能分 (structural_potential_score_D): 官方综合势能评分。
+          2. 突破就绪分 (breakout_readiness_score_D): 对即将突破的量化评估。
+          3. 结构张力指数 (structural_tension_index_D): 结构内部积蓄的能量。
+          4. 结构杠杆 (structural_leverage_D): 势能释放的效率。
+          5. 真空区量级 (vacuum_zone_magnitude_D): 价格运动的潜在空间。
+        - 输出: [-1, 1] 的双极性分数，正分代表向上的结构势能强大，负分代表结构松散或存在向下的势能。
+        """
+        print("  -- [融合层] 正在冶炼“筹码结构势能”...")
+        states = {}
+        df_index = self.strategy.df_indicators.index
+        # 获取所有势能相关指标
+        potential_score_raw = self._get_safe_series(self.strategy.df_indicators, 'structural_potential_score_D', 50.0, method_name="_synthesize_chip_structural_potential")
+        breakout_readiness_raw = self._get_safe_series(self.strategy.df_indicators, 'breakout_readiness_score_D', 50.0, method_name="_synthesize_chip_structural_potential")
+        tension_raw = self._get_safe_series(self.strategy.df_indicators, 'structural_tension_index_D', 0.0, method_name="_synthesize_chip_structural_potential")
+        leverage_raw = self._get_safe_series(self.strategy.df_indicators, 'structural_leverage_D', 0.0, method_name="_synthesize_chip_structural_potential")
+        vacuum_raw = self._get_safe_series(self.strategy.df_indicators, 'vacuum_zone_magnitude_D', 0.0, method_name="_synthesize_chip_structural_potential")
+        # 归一化为双极性分数
+        potential_score = normalize_to_bipolar(potential_score_raw, df_index, window=55, sensitivity=20)
+        breakout_readiness_score = normalize_to_bipolar(breakout_readiness_raw, df_index, window=55, sensitivity=20)
+        tension_score = normalize_to_bipolar(tension_raw, df_index, window=55, sensitivity=0.5)
+        leverage_score = normalize_to_bipolar(leverage_raw, df_index, window=55, sensitivity=0.5)
+        vacuum_score = normalize_to_bipolar(vacuum_raw, df_index, window=55, sensitivity=0.5)
+        # 定义权重并进行加权融合
+        components = [potential_score, breakout_readiness_score, tension_score, leverage_score, vacuum_score]
+        weights = np.array([0.3, 0.3, 0.15, 0.15, 0.1])
+        aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
+        structural_potential_score = (
+            aligned_components[0] * weights[0] +
+            aligned_components[1] * weights[1] +
+            aligned_components[2] * weights[2] +
+            aligned_components[3] * weights[3] +
+            aligned_components[4] * weights[4]
+        ).clip(-1, 1)
+        states['FUSION_BIPOLAR_CHIP_STRUCTURAL_POTENTIAL'] = structural_potential_score.astype(np.float32)
+        print(f"  -- [融合层] “筹码结构势能”冶炼完成，最新分值: {structural_potential_score.iloc[-1]:.4f}")
+        return states
 

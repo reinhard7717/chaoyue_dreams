@@ -13,6 +13,7 @@ class ChipIntelligence:
         """
         self.strategy = strategy_instance
         self.dynamic_thresholds = dynamic_thresholds
+
     def _get_safe_series(self, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame或字典中获取Series，如果不存在则打印警告并返回默认Series。
@@ -37,6 +38,7 @@ class ChipIntelligence:
         else:
             print(f"    -> [筹码情报警告] 方法 '{method_name}' 接收到未知数据源类型 {type(data_source)}，无法获取 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df_index)
+
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V9.9 · 结构共识信号版】筹码情报总指挥
@@ -109,6 +111,7 @@ class ChipIntelligence:
                         print(f"       - {k}: {v}")
         # --- End Debugging output ---
         return all_chip_states
+
     def _run_integrity_probe(self, df: pd.DataFrame, required_signals: list, probe_name: str):
         """
         【V2.4 · 物证探针版】
@@ -130,6 +133,7 @@ class ChipIntelligence:
                 val = df.loc[probe_date, s]
                 std_dev = df[s].loc[:probe_date].tail(21).std()
                 print(f"        - [物证] 信号: {s:<45} | 当日值: {val:<10.4f} | 近期标准差: {std_dev:.4f}")
+
     def _diagnose_axiom_concentration(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
         【V3.0 · 微观筹码博弈增强与峰融合增强及列名引用修复版】筹码公理一：诊断筹码“聚散”动态
@@ -192,20 +196,19 @@ class ChipIntelligence:
                 print(f"       - peak_exchange_purity_score: {peak_exchange_purity_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_score: {final_score.loc[probe_date_for_loop]:.4f}")
         return final_score
+
     def _diagnose_axiom_cost_structure(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.9 · 微观筹码博弈增强与偏度增强版】筹码公理二：诊断“成本结构”动态
-        - 核心修复: 遵循“先归一，后融合”原则。将尺度差异巨大的 'winner_loser_momentum_D' 和 'cost_divergence_normalized_D'
-                      分别进行自适应双极性归一化，然后再进行相减，避免了信号被单一指标主导的问题。
-        - 引入 `cost_structure_skewness` (成本结构偏度) 作为判断成本结构健康度的重要证据。
-        - 【修正】调整 `skewness_score` 的 `normalize_to_bipolar` 敏感度，避免极端值。
+        【V3.0 · 结构动力学增强版】筹码公理二：诊断“成本结构”动态
+        - 核心增强: 引入 `cost_gini_coefficient_D`, `structural_tension_index_D`, `structural_leverage_D` 三大新一代结构指标，
+                      从成本分布公平性、结构内应力和潜在能量等物理学视角，深度量化成本结构的健康度与势能。
+        - 核心修复: 遵循“先归一，后融合”原则。
         - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将 `momentum_score`, `divergence_score`, `skewness_score` 的归一化方式改为多时间维度自适应归一化。
-        - 【新增】引入 `pressure_validation_score_D` (压力验证分) 和 `support_validation_score_D` (支撑验证分) 作为判断成本结构健康度的微观证据。
         """
         required_signals = [
             'winner_loser_momentum_D', 'cost_divergence_normalized_D', 'cost_structure_skewness_D',
-            'pressure_validation_score_D', 'support_validation_score_D' # 新增微观筹码博弈指标
+            'pressure_validation_score_D', 'support_validation_score_D',
+            'cost_gini_coefficient_D', 'structural_tension_index_D', 'structural_leverage_D' # 新增代码行：引入新指标
         ]
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
@@ -214,26 +217,35 @@ class ChipIntelligence:
         momentum_raw = self._get_safe_series(df, 'winner_loser_momentum_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
         divergence_raw = self._get_safe_series(df, 'cost_divergence_normalized_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
         skewness_raw = self._get_safe_series(df, 'cost_structure_skewness_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        # 获取压力验证分和支撑验证分
         pressure_validation_raw = self._get_safe_series(df, 'pressure_validation_score_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
         support_validation_raw = self._get_safe_series(df, 'support_validation_score_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
+        # 新增代码行：获取新一代结构指标
+        cost_gini_raw = self._get_safe_series(df, 'cost_gini_coefficient_D', pd.Series(0.5, index=df.index), method_name="_diagnose_axiom_cost_structure")
+        structural_tension_raw = self._get_safe_series(df, 'structural_tension_index_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
+        structural_leverage_raw = self._get_safe_series(df, 'structural_leverage_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         momentum_score = get_adaptive_mtf_normalized_bipolar_score(momentum_raw, df.index, tf_weights, sensitivity=1.0)
         divergence_score = get_adaptive_mtf_normalized_bipolar_score(divergence_raw, df.index, tf_weights, sensitivity=1.0)
         skewness_score = get_adaptive_mtf_normalized_bipolar_score(skewness_raw, df.index, tf_weights, sensitivity=0.5)
-        # 归一化压力验证分和支撑验证分
         pressure_validation_score = get_adaptive_mtf_normalized_bipolar_score(pressure_validation_raw, df.index, tf_weights, sensitivity=0.5)
         support_validation_score = get_adaptive_mtf_normalized_bipolar_score(support_validation_raw, df.index, tf_weights, sensitivity=0.5)
-        # 融合所有分数，调整权重
-        # 融合逻辑：动量（正向）- 发散（负向）+ 偏度（正向）+ 支撑验证（正向）- 压力验证（负向）
+        # 新增代码行：归一化新指标
+        # 基尼系数越小越好，因此用 1-gini 进行归一化
+        cost_gini_score = get_adaptive_mtf_normalized_bipolar_score(1 - cost_gini_raw, df.index, tf_weights, sensitivity=0.2)
+        structural_tension_score = get_adaptive_mtf_normalized_bipolar_score(structural_tension_raw, df.index, tf_weights, sensitivity=0.5)
+        structural_leverage_score = get_adaptive_mtf_normalized_bipolar_score(structural_leverage_raw, df.index, tf_weights, sensitivity=0.5)
+        # 修改代码行：融合所有分数，调整权重以纳入新指标
         final_score = (
-            momentum_score * 0.3 +
-            skewness_score * 0.2 +
-            support_validation_score * 0.2 - # 新增支撑验证分
-            divergence_score * 0.2 -
-            pressure_validation_score * 0.1 # 新增压力验证分
-        ).clip(-1, 1) # 调整权重并加入新信号
+            momentum_score * 0.20 +
+            skewness_score * 0.10 +
+            support_validation_score * 0.10 +
+            cost_gini_score * 0.20 +           # 新增：成本基尼系数
+            structural_tension_score * 0.15 +  # 新增：结构张力
+            structural_leverage_score * 0.15 - # 新增：结构杠杆
+            divergence_score * 0.05 -
+            pressure_validation_score * 0.05
+        ).clip(-1, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -244,28 +256,29 @@ class ChipIntelligence:
                 print(f"       - momentum_score: {momentum_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - divergence_score: {divergence_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - skewness_score: {skewness_score.loc[probe_date_for_loop]:.4f}")
-                # 打印压力验证分和支撑验证分
                 print(f"       - pressure_validation_score: {pressure_validation_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - support_validation_score: {support_validation_score.loc[probe_date_for_loop]:.4f}")
+                # 新增代码行：打印新指标分数
+                print(f"       - cost_gini_score: {cost_gini_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - structural_tension_score: {structural_tension_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - structural_leverage_score: {structural_leverage_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_score: {final_score.loc[probe_date_for_loop]:.4f}")
         return final_score
+
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.9 · 微观筹码博弈增强与敏感度优化版】筹码公理三：诊断“持股心态”动态
-        - 核心修复: 遵循“先归一，后融合”原则。将三个尺度不同的心态指标分别归一化，再进行融合。
-                      'winner_conviction' 为正向贡献，'loser_pain' 和 'chip_fatigue' 为负向贡献。
-        - 核心优化: 调整 `pain_score` 和 `fatigue_score` 的 `sensitivity`，避免在积极行情下过度惩罚。
-        - 引入 `locked_profit_rate` 和 `locked_loss_rate` 作为判断持股心态的重要证据。
-        - 【修正】调整 `conviction_score` 的 `normalize_to_bipolar` 敏感度，确保在涨停日能正确反映积极心态。
+        【V3.0 · 结构动力学增强版】筹码公理三：诊断“持股心态”动态
+        - 核心增强: 引入 `winner_stability_index_D` (获利盘稳定度)，更直接地量化获利盘的持股信心与决心，
+                      为诊断持股心态提供关键的微观结构证据。
+        - 核心修复: 遵循“先归一，后融合”原则。
         - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将所有心态相关分数的归一化方式改为多时间维度自适应归一化。
-        - 【新增】引入 `covert_accumulation_signal_D` (隐蔽吸筹信号) 作为判断持股心态的微观证据。
         """
         df_index = df.index
         required_signals = [
             'winner_conviction_index_D', 'loser_pain_index_D', 'chip_fatigue_index_D',
             'locked_profit_rate_D', 'locked_loss_rate_D',
-            'covert_accumulation_signal_D' # 新增微观筹码博弈指标
+            'covert_accumulation_signal_D',
+            'winner_stability_index_D' # 新增代码行：引入新指标
         ]
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
@@ -276,8 +289,9 @@ class ChipIntelligence:
         fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_holder_sentiment")
         locked_profit_raw = self._get_safe_series(df, 'locked_profit_rate_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
         locked_loss_raw = self._get_safe_series(df, 'locked_loss_rate_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
-        # 获取隐蔽吸筹信号
         covert_accumulation_raw = self._get_safe_series(df, 'covert_accumulation_signal_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
+        # 新增代码行：获取获利盘稳定度
+        winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         conviction_score = get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df_index, tf_weights, sensitivity=0.5)
@@ -285,17 +299,19 @@ class ChipIntelligence:
         fatigue_score = get_adaptive_mtf_normalized_bipolar_score(fatigue_raw, df_index, tf_weights, sensitivity=5.0)
         locked_profit_score = get_adaptive_mtf_normalized_bipolar_score(locked_profit_raw, df_index, tf_weights, sensitivity=20.0)
         locked_loss_score = get_adaptive_mtf_normalized_bipolar_score(locked_loss_raw, df_index, tf_weights, sensitivity=20.0)
-        # 归一化隐蔽吸筹信号，越高越好
         covert_accumulation_score = get_adaptive_mtf_normalized_bipolar_score(covert_accumulation_raw, df_index, tf_weights, sensitivity=0.5)
-        # 调整权重并融合 covert_accumulation_score
+        # 新增代码行：归一化获利盘稳定度
+        winner_stability_score = get_adaptive_mtf_normalized_bipolar_score(winner_stability_raw, df_index, tf_weights, sensitivity=0.5)
+        # 修改代码行：调整权重并融合新指标
         final_score = (
-            conviction_score * 0.35 +
-            locked_profit_score * 0.15 +
-            covert_accumulation_score * 0.15 - # 新增隐蔽吸筹信号
+            conviction_score * 0.25 +
+            locked_profit_score * 0.10 +
+            covert_accumulation_score * 0.10 +
+            winner_stability_score * 0.25 - # 新增：获利盘稳定度
             pain_score * 0.15 -
             fatigue_score * 0.1 -
-            locked_loss_score * 0.1
-        ).clip(-1, 1) # 调整权重并加入新信号
+            locked_loss_score * 0.05
+        ).clip(-1, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -303,46 +319,53 @@ class ChipIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df.index:
                 print(f"    -> [持股心态探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - conviction_raw: {conviction_raw.loc[probe_date_for_loop]:.4f}")
-                print(f"       - pain_raw: {pain_raw.loc[probe_date_for_loop]:.4f}")
-                print(f"       - fatigue_raw: {fatigue_raw.loc[probe_date_for_loop]:.4f}")
-                print(f"       - locked_profit_raw: {locked_profit_raw.loc[probe_date_for_loop]:.4f}")
-                print(f"       - locked_loss_raw: {locked_loss_raw.loc[probe_date_for_loop]:.4f}")
-                print(f"       - covert_accumulation_raw: {covert_accumulation_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - conviction_score: {conviction_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - pain_score: {pain_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - fatigue_score: {fatigue_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - locked_profit_score: {locked_profit_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - locked_loss_score: {locked_loss_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - covert_accumulation_score: {covert_accumulation_score.loc[probe_date_for_loop]:.4f}")
+                # 新增代码行：打印新指标分数
+                print(f"       - winner_stability_score: {winner_stability_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_score: {final_score.loc[probe_date_for_loop]:.4f}")
         return final_score
+
     def _diagnose_axiom_peak_integrity(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.6 · 微观筹码博弈增强版】筹码公理四：诊断“筹码峰形态”
-        - 核心修复: 遵循“先归一，后融合”原则。将“价格与筹码峰的距离”和“筹码峰的坚实度”分别归一化，
-                      然后相乘。相乘的逻辑是合理的，代表“坚实度”对“价格偏离”信号的确认或证伪。
+        【V3.0 · 结构动力学增强版】筹码公理四：诊断“筹码峰形态”
+        - 核心增强: 引入 `primary_peak_kurtosis_D` (主峰峰态系数) 和 `price_volume_entropy_D` (价格成交量熵)，
+                      从统计学和信息论角度，更精确地刻画筹码峰的形态（尖锐/平缓）与内部结构的有序性。
+        - 核心修复: 遵循“先归一，后融合”原则。
         - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将 `price_vs_peak_score` 和 `peak_solidity_score` 的归一化方式改为多时间维度自适应归一化。
-        - 【新增】引入 `price_volume_entropy_D` (价格成交量熵) 作为判断筹码峰形态的微观证据。
         """
-        required_signals = ['dominant_peak_cost_D', 'dominant_peak_solidity_D', 'price_volume_entropy_D'] # 新增微观筹码博弈指标
+        required_signals = [
+            'dominant_peak_cost_D', 'dominant_peak_solidity_D', 'price_volume_entropy_D',
+            'primary_peak_kurtosis_D' # 新增代码行：引入新指标
+        ]
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             return pd.Series(0.0, index=df.index)
         price_vs_peak_raw = self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_peak_integrity") - self._get_safe_series(df, 'dominant_peak_cost_D', self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_peak_integrity"), method_name="_diagnose_axiom_peak_integrity")
         peak_solidity_raw = self._get_safe_series(df, 'dominant_peak_solidity_D', pd.Series(0.5, index=df.index), method_name="_diagnose_axiom_peak_integrity")
-        # 获取价格成交量熵
         price_volume_entropy_raw = self._get_safe_series(df, 'price_volume_entropy_D', pd.Series(0.5, index=df.index), method_name="_diagnose_axiom_peak_integrity")
+        # 新增代码行：获取主峰峰态系数
+        primary_peak_kurtosis_raw = self._get_safe_series(df, 'primary_peak_kurtosis_D', pd.Series(3.0, index=df.index), method_name="_diagnose_axiom_peak_integrity")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         price_vs_peak_score = get_adaptive_mtf_normalized_bipolar_score(price_vs_peak_raw, df.index, tf_weights, sensitivity=1.2)
         peak_solidity_score = get_adaptive_mtf_normalized_score(peak_solidity_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 归一化价格成交量熵，熵值越低（结构越有序）越好
+        # 熵值越低（结构越有序）越好，因此乘以-1
         price_volume_entropy_score = get_adaptive_mtf_normalized_bipolar_score(price_volume_entropy_raw * -1, df.index, tf_weights, sensitivity=0.5)
-        # 融合所有分数，调整权重
-        final_score = (price_vs_peak_score * peak_solidity_score * 0.8 + price_volume_entropy_score * 0.2).clip(-1, 1) # 调整权重并加入新信号
+        # 新增代码行：归一化主峰峰态系数，越高越好
+        primary_peak_kurtosis_score = get_adaptive_mtf_normalized_bipolar_score(primary_peak_kurtosis_raw, df.index, tf_weights, sensitivity=2.0)
+        # 修改代码行：融合所有分数，调整权重
+        final_score = (
+            price_vs_peak_score * peak_solidity_score * 0.5 +
+            price_volume_entropy_score * 0.25 +
+            primary_peak_kurtosis_score * 0.25
+        ).clip(-1, 1)
         return final_score
+
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
         【V1.4 · OCH数据层获取与多时间维度归一化版】筹码公理六：诊断“筹码趋势动量”
@@ -396,6 +419,7 @@ class ChipIntelligence:
                 print(f"       - structural_resilience_score: {structural_resilience_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - chip_trend_momentum_score: {chip_trend_momentum_score.loc[probe_date_for_loop]:.4f}")
         return chip_trend_momentum_score.astype(np.float32)
+
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
         【V1.1】筹码公理五：诊断筹码“背离”动态

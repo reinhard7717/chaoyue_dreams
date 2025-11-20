@@ -433,32 +433,9 @@ class ChipFeatureCalculator:
     def _calculate_structural_potential_score(self, context: dict, current_metrics: dict) -> float:
         """
         【V2.3 · 多级诊断探针版】
-        - 核心新增: 植入三级诊断探针，分别监控“原始依赖输入”、“三大支柱中间件”和“最终输出”，以解剖计算失败的根源。
         """
         stock_code = context.get('stock_code', 'N/A')
         trade_date = context.get('trade_date', 'N/A')
-        # =================================================================
-        # 新增代码块：【一级探针】检查所有原始依赖项
-        print(f"--- 诊断探针 [{stock_code}] [{trade_date}] 进入 _calculate_structural_potential_score ---")
-        gini = current_metrics.get('cost_gini_coefficient')
-        peak_margin = current_metrics.get('dominant_peak_profit_margin')
-        peak_kurtosis = current_metrics.get('primary_peak_kurtosis')
-        leverage = current_metrics.get('structural_leverage')
-        winner_stability = current_metrics.get('winner_stability_index')
-        loser_pain = current_metrics.get('loser_pain_index')
-        tension = current_metrics.get('structural_tension_index')
-        vacuum = current_metrics.get('vacuum_zone_magnitude')
-        gini_slope_1d = context.get('cost_gini_coefficient_slope_1d', 0)
-        print(f"    [输入] cost_gini_coefficient: {gini}")
-        print(f"    [输入] dominant_peak_profit_margin: {peak_margin}")
-        print(f"    [输入] primary_peak_kurtosis: {peak_kurtosis}")
-        print(f"    [输入] structural_leverage: {leverage}")
-        print(f"    [输入] winner_stability_index: {winner_stability}")
-        print(f"    [输入] loser_pain_index: {loser_pain}")
-        print(f"    [输入] structural_tension_index: {tension}")
-        print(f"    [输入] vacuum_zone_magnitude: {vacuum}")
-        print(f"    [输入] cost_gini_coefficient_slope_1d: {gini_slope_1d}")
-        # =================================================================
         def _sigmoid(x, k=1):
             return 1 / (1 + np.exp(-k * x))
         if any(pd.isna(v) for v in [gini, peak_margin, peak_kurtosis]):
@@ -503,10 +480,6 @@ class ChipFeatureCalculator:
             if pd.notna(score) and score > 0:
                 final_score_raw *= score ** weight
         final_score = final_score_raw * 100
-        # =================================================================
-        # 新增代码块：【三级探针】检查最终输出
-        print(f"--- 诊断探针 [{stock_code}] [{trade_date}] structural_potential_score [最终输出]: {final_score} ---")
-        # =================================================================
         return final_score
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
