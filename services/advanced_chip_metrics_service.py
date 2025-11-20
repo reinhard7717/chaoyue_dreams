@@ -28,6 +28,7 @@ class AdvancedChipMetricsService:
     """
     def __init__(self):
         self.max_lookback_days = 200
+
     async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None, fund_flow_attributed_minute_map: dict = None, debug_params: dict = None):
         """
         【V1.1 · 融合接口版】服务层主执行器。
@@ -68,6 +69,7 @@ class AdvancedChipMetricsService:
         chunk_to_save = final_metrics_df[final_metrics_df.index.isin(base_metrics_df.index)]
         processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
         return processed_count
+
     async def _initialize_context(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         """初始化任务上下文，确定计算模式和日期范围。"""
         stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
@@ -95,6 +97,7 @@ class AdvancedChipMetricsService:
             else:
                 is_incremental = False
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
+
     async def _load_all_sources(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp):
         """统一加载并审计所有筹码计算所需的数据源。"""
         @sync_to_async(thread_sensitive=True)
@@ -117,6 +120,7 @@ class AdvancedChipMetricsService:
             if df is None or df.empty:
                 raise ValueError(f"[审计失败] 核心数据源 '{name}' 在日期范围 {start_date.date()} to {end_date.date()} 为空！")
         return data_dfs
+
     def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, base_daily_df: pd.DataFrame, close_map: dict, date_20d_ago_map: dict, atr_map: dict, high_20d_map: dict, low_20d_map: dict, high_5d_map: dict, low_5d_map: dict, turnover_vol_5d_map: dict) -> pd.DataFrame:
         """
         【V4.0 · 瘦身重构版】
@@ -143,6 +147,7 @@ class AdvancedChipMetricsService:
         merged_df['turnover_vol_5d'] = merged_df['trade_time'].map(turnover_vol_5d_map)
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
         return merged_df
+
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -169,14 +174,6 @@ class AdvancedChipMetricsService:
             if chip_data_for_calc.empty:
                 reason = "当日源筹码分布(cyq_chips)数据缺失"
                 logger.warning(f"[{stock_code}] [{trade_date.date()}] 预警：{reason}。")
-                prev_metrics = {
-                    'concentration_90pct': None, 'winner_avg_cost': None, 'chip_distribution': chip_data_for_calc,
-                    'close_price': context_data.get('close_qfq'), 'prev_20d_close': context_data.get('prev_20d_close'),
-                    'high_20d': context_data.get('high_20d'), 'low_20d': context_data.get('low_20d'),
-                    'total_chip_volume': context_data.get('float_share', 0) * 10000, 'chip_fatigue_index': 0.0,
-                    'recent_closes_queue': [], 'dominant_peak_cost': None, 'atr_14d': None,
-                    'cost_gini_coefficient': None, # 新增
-                }
                 failures_list.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': reason})
                 if is_first_day_in_batch: is_first_day_in_batch = False
                 continue
@@ -215,18 +212,8 @@ class AdvancedChipMetricsService:
                 'atr_14d': context_data.get('atr_14d'),
                 'high_5d': context_data.get('high_5d'), 'low_5d': context_data.get('low_5d'),
                 'turnover_vol_5d': context_data.get('turnover_vol_5d'),
-                'prev_concentration_90pct': prev_metrics.get('concentration_90pct'),
-                'prev_winner_avg_cost': prev_metrics.get('winner_avg_cost'),
-                'prev_chip_distribution': prev_metrics.get('chip_distribution'),
-                'prev_dominant_peak_cost': prev_metrics.get('dominant_peak_cost'),
-                'prev_day_20d_ago_close': prev_metrics.get('prev_20d_close'),
-                'prev_high_20d': context_data.get('high_20d'), 'prev_low_20d': context_data.get('low_20d'),
-                'prev_total_chip_volume': prev_metrics.get('total_chip_volume'),
-                'prev_chip_fatigue_index': prev_metrics.get('chip_fatigue_index', 0.0),
-                'recent_10d_closes': recent_closes_list,
-                'prev_atr_14d': prev_metrics.get('atr_14d'),
                 'debug_params': debug_params,
-                'prev_metrics': prev_metrics, # 注入完整的 prev_metrics
+                'prev_metrics': prev_metrics,
             })
             historical_data_for_day = {k: v for k, v in hist_comp_dict.items() if k < trade_date}
             if historical_data_for_day:
@@ -247,26 +234,38 @@ class AdvancedChipMetricsService:
                 today_metrics_for_hist = {k: [daily_metrics.get(k)] for k in hist_comp_cols}
                 today_df = pd.DataFrame(today_metrics_for_hist, index=[trade_date])
                 hist_comp_dict.update(today_df.to_dict('index'))
-    
-            # 修改代码行：更新 prev_metrics 的构建逻辑，确保包含 cost_gini_coefficient
-            prev_metrics = {
-                'concentration_90pct': daily_metrics.get('concentration_90pct') if daily_metrics else None,
-                'winner_avg_cost': daily_metrics.get('winner_avg_cost') if daily_metrics else None,
+            # =================================================================
+            # 修改代码块：重构 prev_metrics 的构建逻辑，确保所有计算出的指标都被完整传递
+            # 1. 准备一个基础字典，包含非计算结果但需要传递的上下文
+            next_prev_metrics = {
                 'chip_distribution': chip_data_for_calc,
-                'dominant_peak_cost': daily_metrics.get('dominant_peak_cost') if daily_metrics else None,
                 'close_price': context_data.get('close_qfq'),
-                'prev_20d_close': context_data.get('prev_20d_close'), 'high_20d': context_data.get('high_20d'),
-                'low_20d': context_data.get('low_20d'), 'total_chip_volume': total_chip_volume_today,
-                'chip_fatigue_index': daily_metrics.get('chip_fatigue_index', 0.0) if daily_metrics else 0.0,
+                'prev_20d_close': context_data.get('prev_20d_close'),
+                'high_20d': context_data.get('high_20d'),
+                'low_20d': context_data.get('low_20d'),
+                'total_chip_volume': total_chip_volume_today,
                 'recent_closes_queue': recent_closes_list,
                 'atr_14d': context_data.get('atr_14d'),
-                'cost_gini_coefficient': daily_metrics.get('cost_gini_coefficient') if daily_metrics else None,
             }
-    
+            # 2. 如果当天指标计算成功，用完整的 daily_metrics 更新基础字典
+            if daily_metrics:
+                next_prev_metrics.update(daily_metrics)
+            # 3. 如果计算失败，为关键的前值指标提供默认值，防止下一天崩溃
+            else:
+                next_prev_metrics.update({
+                    'concentration_90pct': None, 'winner_avg_cost': None,
+                    'dominant_peak_cost': None, 'chip_fatigue_index': 0.0,
+                    'cost_gini_coefficient': None, 'total_winner_rate': None,
+                    'price_volume_entropy': None, 'strategic_phase_score': None,
+                })
+            # 4. 将构建好的、完整的“记忆”赋值给 prev_metrics，供下一次循环使用
+            prev_metrics = next_prev_metrics
+            # =================================================================
             if is_first_day_in_batch: is_first_day_in_batch = False
         if not all_metrics_list:
             return pd.DataFrame(), prev_metrics, failures_list
         return pd.DataFrame(all_metrics_list).set_index('trade_time'), prev_metrics, failures_list
+
     def _enhance_minute_data_fallback(self, minute_df: pd.DataFrame) -> pd.DataFrame:
         """
         【V1.2 · 竞价数据保全版】当资金流数据缺失时，提供一个基础的分钟数据增强。
@@ -278,6 +277,7 @@ class AdvancedChipMetricsService:
         df['vol_shares'] = pd.to_numeric(df['vol'], errors='coerce')
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         return df
+
     async def _load_minute_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp, tick_data_map: dict = None, minute_data_map: dict = None):
         """
         【V1.8 · 探针清理版】不再查询数据库，仅处理由上游任务传入的日内数据maps。
@@ -320,6 +320,7 @@ class AdvancedChipMetricsService:
                 # 已移除: 清理了在未找到预加载日内数据时打印调试信息的逻辑
                 logger.info(f"[{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 未找到任何预加载的日内数据。")
         return intraday_data_map
+
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """从数据库加载历史高级筹码指标。"""
         @sync_to_async
@@ -337,6 +338,7 @@ class AdvancedChipMetricsService:
                 # 此处的 if col != 'trade_time' 检查现在是多余但无害的
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
+
     def _calculate_derivatives(self, consensus_df: pd.DataFrame) -> pd.DataFrame:
         """【V2.2 · 导数定律统一版】修正加速度计算窗口，与资金流服务保持一致。"""
         derivatives_df = pd.DataFrame(index=consensus_df.index)
@@ -361,6 +363,7 @@ class AdvancedChipMetricsService:
                         # 强制为加速度计算使用独立的短窗口 ACCEL_WINDOW
                         derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=ACCEL_WINDOW)
         return derivatives_df
+
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """准备并以“更新或创建”的方式原子化保存数据。"""
         if final_df.empty: return 0
@@ -393,6 +396,7 @@ class AdvancedChipMetricsService:
             records_for_atomic_save.append(record_data)
         processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
         return processed_count
+
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
         """【V1.4 · 数据完整性修复版 - 辅助列添加 - 智能列名识别】从预加载的DataFrame构建按日分组的数据。
         - 核心职责: 确保传入的DataFrame保持 `trade_time` 作为 `DatetimeIndex`，并正确处理时区，添加 `amount_yuan`, `vol_shares`, `minute_vwap`, `vol_weight` 等辅助列。
