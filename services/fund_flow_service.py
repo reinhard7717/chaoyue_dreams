@@ -358,7 +358,7 @@ class AdvancedFundFlowMetricsService:
         # 此时 daily_data_series 已经包含了 day_metrics 中所有更新的指标
         # 所以这里需要将 day_metrics 重新合并到 daily_data_series，或者直接传递 day_metrics
         # 为了避免修改 daily_data_series 的原始结构，我们创建一个新的 Series 传递
-        updated_daily_data_series = pd.Series({**daily_data_series.to_dict(), **day_metrics})
+        updated_daily_data_series = pd.Series({**daily_data_series.to_dict(), **day_metrics}, name=daily_data_series.name) # 修改行：在创建Series时，通过name参数保留日期索引
         behavioral_metrics = self._compute_all_behavioral_metrics(attributed_minute_df, updated_daily_data_series)
         day_metrics.update(behavioral_metrics)
         # 5. 计算基于高频数据的微观结构信号
