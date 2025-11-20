@@ -611,28 +611,17 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     data_dfs["stock_tick_data"] = pd.concat(tick_data_df_list) if tick_data_df_list else pd.DataFrame()
     data_dfs["stock_level5_data"] = pd.concat(level5_data_df_list) if level5_data_df_list else pd.DataFrame()
     data_dfs["stock_minute_data"] = pd.concat(minute_data_df_list) if minute_data_df_list else pd.DataFrame()
-    if not data_dfs["stock_tick_data"].empty:
-        print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Tick Data原始时间范围: {data_dfs['stock_tick_data']['trade_time'].min()} to {data_dfs['stock_tick_data']['trade_time'].max()}")
-    if not data_dfs["stock_minute_data"].empty:
-        print(f"    -> [原始日内数据探针] Stock: {stock_info.stock_code}, Minute Data原始时间范围: {data_dfs['stock_minute_data']['trade_time'].min()} to {data_dfs['stock_minute_data']['trade_time'].max()}")
     def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str, data_source_name: str) -> dict: # 增加 data_source_name 参数
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         target_tz = pytz.timezone('Asia/Shanghai')
-        if stock_code_for_log == '600475.SH':
-            print(f"    -> [时间修正探针] {stock_code_for_log} {data_source_name} _process_intraday_df_to_map 初始状态 (来自 DAO)：") # 增加数据源名称
-            print(f"       - 原始 df['trade_time'].iloc[0]: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z') if df['trade_time'].iloc[0].tz is not None else df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')} (tz: {df['trade_time'].iloc[0].tz})")
         # 统一转换为目标时区 (Asia/Shanghai)
         if df['trade_time'].dt.tz is None:
             # 如果是 naive datetime，假定它是北京时间（因为DAO层应该输出aware，但可能在某些操作后丢失时区信息）
             df['trade_time'] = df['trade_time'].dt.tz_localize(target_tz, ambiguous='infer')
-            if stock_code_for_log == '600475.SH':
-                print(f"    -> [时间修正探针] {stock_code_for_log} {data_source_name} 修正：Naive时间本地化为Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}") # 增加数据源名称
         else:
             # 如果已经是 aware datetime，直接转换为目标时区
             df['trade_time'] = df['trade_time'].dt.tz_convert(target_tz)
-            if stock_code_for_log == '600475.SH':
-                print(f"    -> [时间修正探针] {stock_code_for_log} {data_source_name} 转换：已是Aware时间，转换为Asia/Shanghai。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}") # 增加数据源名称
         df = df.set_index('trade_time')
         grouped_data = {}
         for date, group_df in df.groupby(df.index.date):
@@ -648,9 +637,10 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
             if 'fund_flow_ths' in name or 'fund_flow_dc' in name:
                 data_dfs[name] = pd.DataFrame()
                 continue
-            if name in ["stock_tick_data", "stock_level5_data", "stock_minute_data"]:
-                print(f"调试信息: [{stock_info.stock_code}] [统一加载] 可选日内数据源 '{name}' 为空。")
-                continue
+            # 修改：删除调试信息输出
+            # if name in ["stock_tick_data", "stock_level5_data", "stock_minute_data"]:
+            #     print(f"调试信息: [{stock_info.stock_code}] [统一加载] 可选日内数据源 '{name}' 为空。")
+            #     continue
             if name == "cyq_chips":
                 logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！查询日期列表: {chunk_dates_list}")
             else:
@@ -749,19 +739,11 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
             df = pd.DataFrame.from_records(qs)
             if df.empty: return df
             df['trade_time'] = pd.to_datetime(df['trade_time'])
-            # 增加探针，查看从数据库加载后的原始时区状态
-            if stock_info_obj.stock_code == '600475.SH':
-                print(f"    -> [原始数据加载探针] Stock: {stock_info_obj.stock_code}, get_intraday_data_async 原始加载状态：")
-                print(f"       - df['trade_time'].iloc[0]: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z') if df['trade_time'].iloc[0].tz is not None else df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S')} (tz: {df['trade_time'].iloc[0].tz})")
             # 标准化为 UTC aware datetime
             if df['trade_time'].dt.tz is None:
                 df['trade_time'] = df['trade_time'].dt.tz_localize('UTC', ambiguous='infer')
-                if stock_info_obj.stock_code == '600475.SH':
-                    print(f"    -> [原始数据加载探针] Stock: {stock_info_obj.stock_code}, get_intraday_data_async 修正为 naive UTC。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
             else:
                 df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
-                if stock_info_obj.stock_code == '600475.SH':
-                    print(f"    -> [原始数据加载探针] Stock: {stock_info_obj.stock_code}, get_intraday_data_async 转换为 UTC aware。示例: {df['trade_time'].iloc[0].strftime('%Y-%m-%d %H:%M:%S%z')}")
             return df
         chunk_start_date = dates_to_process.min().date()
         chunk_end_date = dates_to_process.max().date()
@@ -817,10 +799,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         import os
         from django.conf import settings
         import copy
-        print(f"--- [任务启动探针] 耦合计算任务 precompute_advanced_chips_for_stock ---")
-        print(f"  -> 股票代码: {stock_code}")
-        print(f"  -> 运行模式: {'增量' if incremental_flag else '全量'}")
-        print(f"  -> 指定起始日期: {start_date_override}")
         config_path = os.path.join(settings.BASE_DIR, 'config', 'trend_follow_strategy.json')
         strategy_config = {}
         try:
@@ -836,10 +814,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, lookback_start_date, process_start_date, save_start_date = await _initialize_task_context_unified(
             stock_code, incremental_flag, start_date_override
         )
-        print(f"  -> [初始化后] 最终模式: {'增量' if is_incremental_final else '全量'}")
-        print(f"  -> [初始化后] 数据回溯起点 (lookback_start_date): {lookback_start_date}")
-        print(f"  -> [初始化后] 计算循环起点 (process_start_date): {process_start_date}")
-        print(f"  -> [初始化后] 指标存储起点 (save_start_date): {save_start_date}")
         DailyModel = get_daily_data_model_by_code(stock_code)
         DateSourceModel = StockDailyBasic
         process_date_filter = {'stock': stock_info}
@@ -855,7 +829,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             end_date=raw_dates_to_process.max().date()
         )
         dates_to_process = pd.to_datetime([d for d in trade_dates_only if pd.to_datetime(d) in raw_dates_to_process])
-        print(f"  -> [日期范围探针] 找到 {len(dates_to_process)} 个待处理交易日。范围: {dates_to_process.min().date() if not dates_to_process.empty else 'N/A'} to {dates_to_process.max().date() if not dates_to_process.empty else 'N/A'}")
         if dates_to_process.empty:
             logger.info(f"[{stock_code}] 过滤非交易日后，没有需要计算的交易日，合并任务终止。")
             return {"status": "skipped", "reason": "No trade dates to process after filtering.", "failures": []}
@@ -1001,27 +974,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             )
             all_failures.extend(ff_failures)
             fund_flow_attributed_minute_map_for_chip_service = copy.deepcopy(fund_flow_attributed_minute_map)
-            probe_date_naive = pd.to_datetime(debug_params.get('probe_dates', [None])[0]).date() if debug_params.get('probe_dates') and debug_params.get('probe_dates')[0] else None
-            if probe_date_naive:
-                print(f"    -> [任务调度器探针-传递前] @ {probe_date_naive}: fund_flow_attributed_minute_map_for_chip_service (传递前) 检查。")
-                print(f"       - 对象类型: {type(fund_flow_attributed_minute_map_for_chip_service)}")
-                print(f"       - 对象ID: {id(fund_flow_attributed_minute_map_for_chip_service)}")
-                print(f"       - 包含的日期键: {list(fund_flow_attributed_minute_map_for_chip_service.keys())}")
-                if probe_date_naive in fund_flow_attributed_minute_map_for_chip_service:
-                    probe_df = fund_flow_attributed_minute_map_for_chip_service[probe_date_naive]
-                    if 'main_force_sell_vol' in probe_df.columns:
-                        print(f"       - 'main_force_sell_vol' sum: {probe_df['main_force_sell_vol'].sum():.2f}")
-                    else:
-                        print(f"       - 'main_force_sell_vol' 列缺失。")
-                    if 'retail_sell_vol' in probe_df.columns:
-                        print(f"       - 'retail_sell_vol' sum: {probe_df['retail_sell_vol'].sum():.2f}")
-                    else:
-                        print(f"       - 'retail_sell_vol' 列缺失。")
-                    print(f"       - 包含的列: {list(probe_df.columns)}")
-                else:
-                    print(f"       - fund_flow_attributed_minute_map_for_chip_service 不包含日期 {probe_date_naive}。")
-            else:
-                print(f"    -> [任务调度器探针-传递前] probe_date_naive 未设置。")
             chip_data_dfs = {"cyq_chips": data_dfs["cyq_chips"], "cyq_perf": data_dfs["cyq_perf"]}
             chip_raw_df = chip_service._preprocess_and_merge_data(
                 stock_code, chip_data_dfs, base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
@@ -1118,7 +1070,6 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
         start_date_chip_ff, is_incremental_chip_ff = None, is_incremental
         start_date_structural, is_incremental_structural = None, is_incremental
         if start_date_str is None and is_incremental:
-            print("✅✅✅ [总调度器] 未指定起始日期，进入自动增量模式，开始分组检测...")
             start_date_chip_ff, is_incremental_chip_ff = get_group_start_date(chip_ff_models, "筹码-资金流")
             start_date_structural, is_incremental_structural = get_group_start_date(structural_models, "结构")
         else:
@@ -1131,33 +1082,19 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
         if not stock_codes:
             logger.warning("【总调度】在StockInfo中未找到任何符合条件的上市状态股票，任务终止。")
             return {"status": "skipped", "reason": "No listed stocks found."}
-        print(f"✅✅✅ [总调度器] 发现 {len(stock_codes)} 只符合条件的股票。开始分派任务...")
         total_tasks_dispatched = 0
         if start_date_chip_ff is not None or is_incremental_chip_ff:
-            mode_str_cf = '增量' if is_incremental_chip_ff else '全量'
-            start_date_display_cf = start_date_chip_ff if start_date_chip_ff else "自动检测"
-            print(f"  -> [耦合组] 模式: {mode_str_cf}, 起始: {start_date_display_cf}")
             chip_ff_tasks = [precompute_advanced_chips_for_stock.s(stock_code=code, is_incremental=is_incremental_chip_ff, start_date_str=start_date_chip_ff) for code in stock_codes]
             if chip_ff_tasks:
                 callback = summarize_computation_failures.s()
                 chord(chip_ff_tasks)(callback)
                 total_tasks_dispatched += len(chip_ff_tasks)
-                print(f"  -> [耦合组] 已创建并发送 {len(chip_ff_tasks)} 个【合并计算】任务，并设置了汇总回调。")
-        else:
-            print("  -> [耦合组] 无需更新，跳过任务分派。")
         if start_date_structural is not None or is_incremental_structural:
-            mode_str_s = '增量' if is_incremental_structural else '全量'
-            start_date_display_s = start_date_structural if start_date_structural else "自动检测"
-            print(f"  -> [独立组] 模式: {mode_str_s}, 起始: {start_date_display_s}")
             structural_tasks = [precompute_advanced_structural_metrics_for_stock.s(stock_code=code, is_incremental=is_incremental_structural, start_date_str=start_date_structural) for code in stock_codes]
             if structural_tasks:
                 job_group_s = group(structural_tasks)
                 job_group_s.apply_async()
                 total_tasks_dispatched += len(structural_tasks)
-                print(f"  -> [独立组] 已创建并发送 {len(structural_tasks)} 个【结构指标】任务。")
-        else:
-            print("  -> [独立组] 无需更新，跳过任务分派。")
-        print(f"✅✅✅ [总调度器] 任务组已异步发送。总派遣任务数: {total_tasks_dispatched}。")
         logger.info(f"【总调度】成功！已向计算集群分发 {total_tasks_dispatched} 个子任务。")
         return {
             "status": "success",
@@ -1165,9 +1102,6 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             "total_tasks_dispatched": total_tasks_dispatched
         }
     except Exception as e:
-        import traceback
-        print(f"🔥🔥🔥 [总调度器-严重错误] 捕获到 Exception: {e} 🔥🔥🔥")
-        print(traceback.format_exc())
         logger.error(f"【总调度】任务分发过程中发生严重错误: {e}", exc_info=True)
         raise self.retry(exc=e, countdown=300, max_retries=3)
 
