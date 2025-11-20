@@ -79,6 +79,12 @@ class ChipFeatureCalculator:
         intraday_dynamics_metrics = self._compute_intraday_dynamics_metrics(self.ctx)
         all_metrics.update(intraday_dynamics_metrics)
         self.ctx.update(intraday_dynamics_metrics)
+        # =================================================================
+        # 新增代码块：恢复对旧版日内动态指标计算方法的调用，以修复指标丢失问题
+        legacy_intraday_metrics = self._compute_legacy_intraday_metrics(self.ctx)
+        all_metrics.update(legacy_intraday_metrics)
+        self.ctx.update(legacy_intraday_metrics)
+        # =================================================================
         cross_day_flow_metrics = self._compute_cross_day_flow_metrics(self.ctx)
         all_metrics.update(cross_day_flow_metrics)
         self.ctx.update(cross_day_flow_metrics)
@@ -90,17 +96,12 @@ class ChipFeatureCalculator:
             profit_realization_quality = (winner_profit_margin_avg * (total_winner_rate / 100)) / (profit_taking_flow_ratio / 100)
         all_metrics['profit_realization_quality'] = profit_realization_quality
         self.ctx['profit_realization_quality'] = profit_realization_quality
-        # =================================================================
-        # 修改代码块：调整 structural_potential_score 的计算顺序，确保它在 game_theoretic_metrics 之前计算
-        # 1. 先计算结构势能分，因为它本身是第四象限博弈推演的关键输入
         potential_score = self._calculate_structural_potential_score(self.ctx, all_metrics)
         all_metrics['structural_potential_score'] = potential_score
         self.ctx['structural_potential_score'] = potential_score
-        # 2. 然后再进行博弈推演，此时它依赖的 potential_score 已经存在
         game_theoretic_metrics = self._compute_game_theoretic_metrics(self.ctx)
         all_metrics.update(game_theoretic_metrics)
         self.ctx.update(game_theoretic_metrics)
-        # =================================================================
         vital_signs_metrics = self._compute_vital_sign_metrics(self.ctx)
         all_metrics.update(vital_signs_metrics)
         self.ctx.update(vital_signs_metrics)
