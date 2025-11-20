@@ -11,7 +11,7 @@ from .trend_following.structural_defense_layer import StructuralDefenseLayer
 from .trend_following.judgment_layer import JudgmentLayer
 from .trend_following.simulation_layer import SimulationLayer
 from .trend_following.reporting_layer import ReportingLayer
-from .trend_following.utils import ensure_numeric_types, optimize_df_memory, get_params_block
+from .trend_following.utils import ensure_numeric_types, optimize_df_memory, get_params_block, get_param_value
 
 logger = logging.getLogger(__name__)
 
