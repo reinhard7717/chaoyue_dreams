@@ -22,19 +22,17 @@ class CognitiveIntelligence:
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
-        【V27.0 修复】使用传入的 df 作为数据源和索引源。
+        【V27.1 · 返回值修复版】修复了在信号不存在时错误返回索引而非Series的问题。
         """
         if column_name not in df.columns:
             print(f"    -> [CognitiveIntelligence情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
-            return pd.Series(default_value, index=df.index).index
+            return pd.Series(default_value, index=df.index) # [代码修改] 移除了末尾的 .index
         return df[column_name]
 
     def _get_fused_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
         """
-        【V1.3 · 数据帧上下文修复版】安全地从原子状态库中获取由融合层提供的态势分数。
-        - 核心升级: 植入真理探针。如果获取不到信号，将打印明确的警告信息。
-        - 【新增】增加探针输出，打印获取到的融合信号原始值，特别是针对 FUSION_BIPOLAR_CAPITAL_CONFRONTATION。
-        - 【V1.3 修复】接收 df 参数，确保默认 Series 的索引正确。
+        【V1.4 · 返回值修复版】安全地从原子状态库中获取由融合层提供的态势分数。
+        - 【V1.4 修复】修复了在信号不存在时错误返回索引而非Series的问题。
         """
         if name in self.strategy.atomic_states:
             score = self.strategy.atomic_states[name]
@@ -51,13 +49,12 @@ class CognitiveIntelligence:
             return score
         else:
             print(f"    -> [认知层警告] 融合态势信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
-            return pd.Series(default, index=df.index).index
+            return pd.Series(default, index=df.index) # [代码修改] 移除了末尾的 .index
 
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
         """
-        【V2.2 · 数据帧上下文修复版】安全地从原子状态库或主数据帧中获取信号。
-        - 核心升级: 植入真理探针。如果获取不到信号，将打印明确的警告信息。
-        - 【V2.2 修复】接收 df 参数，确保数据和索引来源正确。
+        【V2.3 · 返回值修复版】安全地从原子状态库或主数据帧中获取信号。
+        - 【V2.3 修复】修复了在信号不存在时错误返回索引而非Series的问题。
         """
         if name in self.strategy.atomic_states:
             return self.strategy.atomic_states[name]
@@ -65,20 +62,17 @@ class CognitiveIntelligence:
             return df[name]
         else:
             print(f"    -> [认知层警告] 原子信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
-            return pd.Series(default, index=df.index).index
+            return pd.Series(default, index=df.index) # [代码修改] 移除了末尾的 .index
 
     def _get_playbook_score(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:
         """
         安全地从 playbook_states 获取剧本信号分数。
-        如果信号不存在，则返回默认值，并打印警告。
-        【V27.0 修复】接收 df 参数，确保默认 Series 的索引正确。
+        【V27.1 · 返回值修复版】修复了在信号不存在时错误返回索引而非Series的问题。
         """
         score = self.strategy.playbook_states.get(signal_name)
         if score is None:
             print(f"    -> [认知层警告] 剧本信号 '{signal_name}' 不存在，无法作为证据！返回默认值 {default_value}。")
-            # 创建一个与 df_indicators 索引对齐的 Series
-            return pd.Series(default_value, index=df.index).index
-        # 打印实际获取到的值，以便调试
+            return pd.Series(default_value, index=df.index) # [代码修改] 移除了末尾的 .index
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -574,16 +568,15 @@ class CognitiveIntelligence:
 
     def _forge_dynamic_evidence(self, df: pd.DataFrame, evidence: pd.Series, is_probability: bool = False) -> pd.Series:
         """
-        【V2.1 · 数据帧上下文修复版】动态证据锻造
-        - 核心逻辑: 对原始证据进行动态处理，确保其有效性并转换为适合贝叶斯推断的格式。
-        - 【V2.1 修复】接收并使用 df 参数，确保索引上下文统一。
+        【V2.2 · 返回值修复版】动态证据锻造
+        - 【V2.2 修复】修复了方法内部多处错误返回索引而非Series的问题，确保返回值始终是数值型Series。
         """
         if not isinstance(evidence, pd.Series):
-            evidence = pd.Series(evidence, index=df.index).index
+            evidence = pd.Series(evidence, index=df.index) # [代码修改] 移除了末尾的 .index
         evidence = evidence.fillna(self.min_evidence_threshold)
         evidence = evidence.mask(evidence < self.min_evidence_threshold, self.min_evidence_threshold)
         if not is_probability:
-            evidence = normalize_score(evidence, df.index, window=self.norm_window, ascending=True).index
+            evidence = normalize_score(evidence, df.index, window=self.norm_window, ascending=True) # [代码修改] 移除了末尾的 .index
         return evidence
 
     def _deduce_long_term_profit_distribution_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
