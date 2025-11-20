@@ -87,18 +87,15 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V27.0 · 数据帧上下文修复版】总指挥
-        - 核心重构: 采用混合状态管理模式。方法内部使用局部字典收集结果，并通过 return 返回最终产出，
-                      同时在计算过程中，阶段性地更新 self.strategy.playbook_states 以解决内部剧本依赖问题。
-        - 解决问题: 既保证了对外的接口清晰无副作用，又解决了内部依赖导致的“状态真空”问题。
-        - 【V27.0 修复】将接收到的 df 参数严格传递到所有子方法，确保索引上下文统一。
+        【V27.2 · 源头探针版】总指挥
+        - 【V27.2 新增】植入“总指挥探针”，在方法返回前，对所有生成的剧本信号进行最终检查，
+                       以验证信号是否在源头成功生成并包含探针日期的数据。
         """
-        print("启动【V27.0 · 数据帧上下文修复版】认知情报分析...")
+        print("启动【V27.2 · 源头探针版】认知情报分析...")
         playbook_states = {}
         priors = self._establish_prior_beliefs(df)
         self.strategy.atomic_states.update(priors)
         # --- 剧本计算与状态更新 ---
-        # 按照依赖关系，逐一计算剧本并更新到局部状态库
         # 第1批：机会剧本 (通常无内部依赖)
         playbook_states.update(self._deduce_suppressive_accumulation(df, priors))
         playbook_states.update(self._deduce_chasing_accumulation(df, priors))
@@ -129,7 +126,28 @@ class CognitiveIntelligence:
         self.strategy.playbook_states.update(playbook_states)
         # 第4批：依赖第3批剧本的机会剧本
         playbook_states.update(self._deduce_divergence_reversal(df, priors))
-        print(f"【V27.0 · 数据帧上下文修复版】分析完成，生成 {len(playbook_states)} 个剧本信号。")
+        print(f"【V27.2 · 源头探针版】分析完成，生成 {len(playbook_states)} 个剧本信号。")
+        # [代码修改开始] 植入总指挥探针，检查即将返回的 playbook_states
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
+            print("\n" + "="*20 + f" [认知层-总指挥探针] @ {probe_date_naive.date()} " + "="*20)
+            print("--- [探针] 检查 synthesize_cognitive_scores 返回前的 'playbook_states' 内容 ---")
+            if not playbook_states:
+                print("  -> [探针警告] 致命错误: 'playbook_states' 为空，没有任何剧本信号被生成！")
+            else:
+                for key, signal_series in playbook_states.items():
+                    if isinstance(signal_series, pd.Series) and not signal_series.empty and probe_date_for_loop in signal_series.index:
+                        raw_value = signal_series.loc[probe_date_for_loop]
+                        print(f"  -> 信号: {key:<50} | 当日原始值: {raw_value:.4f}")
+                    else:
+                        print(f"  -> 信号: {key:<50} | [探针警告] 无法在探针日期找到该信号值或信号为空！")
+                        if isinstance(signal_series, pd.Series):
+                            print(f"     信号Series非空: {not signal_series.empty}, 索引范围: {signal_series.index.min()} to {signal_series.index.max()}")
+            print("="*70)
+        # [代码修改结束]
         return playbook_states
 
     def _deduce_suppressive_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
