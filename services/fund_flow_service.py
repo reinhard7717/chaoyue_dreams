@@ -237,27 +237,18 @@ class AdvancedFundFlowMetricsService:
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None):
         """
-        【V1.14 · 日内数据回退增强版 - 探针增强】不再查询数据库，仅处理由上游任务传入的日内数据maps。
+        【V1.14 · 日内数据回退增强版】不再查询数据库，仅处理由上游任务传入的日内数据maps。
         - 核心重构: 移除所有数据库查询逻辑，职责单一化为数据处理与聚合。
         - 核心逻辑: 遍历所需日期，优先尝试逐笔数据，若处理失败则回退到分钟数据。
         - 核心修复: 修正逐笔数据与Level5数据合并后，价格、成交量、成交额列名未被 `suffixes` 参数重命名的问题。
                     这些列名应保持原始名称，避免 `KeyError`。
         - 核心增强: 引入逐笔数据处理失败回退机制，确保分钟数据在逐笔数据不可用时能被利用。
-        - 【新增探针】增加探针，确认 `intraday_data_map` 是否成功填充了指定日期的数据，并检查其 `vol_shares` 总和及行数。
         """
         import pandas as pd
         from django.utils import timezone
         if date_index.empty:
             return {}
         intraday_data_map = {}
-        # 新增行：获取调试参数
-        debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
-        probe_dates_str = debug_params.get('probe_dates', [])
-        is_probe_date = False
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
-            if probe_date_naive == date_index.date[0]: # 假设date_index通常是单日
-                is_probe_date = True
         for date_obj in date_index.date:
             processed_with_tick_data = False
             if tick_data_map and date_obj in tick_data_map:
@@ -316,14 +307,7 @@ class AdvancedFundFlowMetricsService:
             if not processed_with_tick_data and minute_data_map and date_obj in minute_data_map:
                 intraday_data_map[date_obj] = self._group_minute_data_from_df(minute_data_map[date_obj])
             elif not processed_with_tick_data:
-                print(f"调试信息: [{stock_info.stock_code}] [资金流服务] 日期 {date_obj} 未找到任何预加载的日内数据。")
-            # 新增探针：检查最终的日内数据
-            if is_probe_date and date_obj == probe_date_naive:
-                final_intraday_df = intraday_data_map.get(date_obj)
-                if final_intraday_df is not None and not final_intraday_df.empty:
-                    print(f"    -> [资金流服务探针] @ {date_obj}: 成功加载日内数据。行数: {len(final_intraday_df)}, vol_shares总和: {final_intraday_df['vol_shares'].sum():.2f}。")
-                else:
-                    print(f"    -> [资金流服务探针] @ {date_obj}: 未能加载日内数据或数据为空。")
+                pass # 修改行：移除了此处的print调试信息
         return intraday_data_map
 
     def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame) -> tuple[dict, None]:
@@ -372,23 +356,14 @@ class AdvancedFundFlowMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V10.10 · 数据流修复版 - 探针增强 - 跨服务数据完整性修复】
+        【V10.10 · 数据流修复版 - 跨服务数据完整性修复】
         - 核心修正: 调整对 `_calculate_probabilistic_costs` 的调用，以接收其返回的成本字典和完整归因后的分钟DataFrame，确保下游计算能获得必要的 `main_force_net_vol` 等列。
-        - 【新增探针】检查 `attributed_minute_df` 中的主力/散户买卖量。
         - 【关键修复】在将 `attributed_minute_df` 存储到 `attributed_minute_data_map` 之前，进行深拷贝，确保跨服务传递时数据完整性。
         """
         all_metrics_list = []
         attributed_minute_data_map = {}
         failures = []
-        debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
-        probe_dates_str = debug_params.get('probe_dates', [])
-        is_probe_date_global = False
-        probe_date_naive = None
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
-            is_probe_date_global = True
-        if is_probe_date_global:
-            print(f"    -> [资金流合成探针-初始化] debug_params: {debug_params}, probe_date_naive: {probe_date_naive}")
+        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
         for trade_date, daily_data_series in merged_df.iterrows():
             date_obj = trade_date.date()
             # 新增行：提前计算当日VWAP并添加到daily_data_series中
@@ -398,20 +373,15 @@ class AdvancedFundFlowMetricsService:
                 daily_data_series['daily_vwap'] = daily_amount / daily_vol_shares
             else:
                 daily_data_series['daily_vwap'] = np.nan
-            is_current_probe_date = is_probe_date_global and (probe_date_naive == date_obj)
-            if is_current_probe_date:
-                print(f"    -> [资金流合成探针] @ {date_obj}: is_current_probe_date is TRUE.")
+            # 修改行：移除了is_current_probe_date探针变量及其相关的print语句
             intraday_data = self._minute_df_daily_grouped.get(date_obj)
             if intraday_data is None or intraday_data.empty:
-                print(f"日内数据特征准备跳过，原因：日内数据(intraday_data)为空")
+                # 修改行：移除了此处的print调试信息
                 failures.append({'stock_code': stock_code, 'trade_date': str(date_obj), 'reason': '当日分钟线/逐笔聚合数据缺失'})
                 continue
             attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data, daily_data_series)
             probabilistic_costs_dict, attributed_minute_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series)
-            if is_current_probe_date:
-                print(f"    -> [资金流合成探针] @ {date_obj}: attributed_minute_df 检查。")
-                print(f"       - attributed_minute_df['main_force_sell_vol'] sum: {attributed_minute_df['main_force_sell_vol'].sum():.2f}")
-                print(f"       - attributed_minute_df['retail_sell_vol'] sum: {attributed_minute_df['retail_sell_vol'].sum():.2f}")
+            # 修改行：移除了检查attributed_minute_df的探针print语句
             day_metrics, _ = self._calculate_all_metrics_for_day(
                 stock_code, daily_data_series, intraday_data, attributed_minute_df, probabilistic_costs_dict,
                 tick_data_map.get(date_obj) if tick_data_map else None,
@@ -428,14 +398,7 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series) -> dict:
         results = {}
-        trade_date = daily_data_series.name.date()
-        debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
-        probe_dates_str = debug_params.get('probe_dates', [])
-        is_probe_date = False
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
-            if probe_date_naive == trade_date:
-                is_probe_date = True
+        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
         consensus_map = {
             'net_flow_calibrated': ('net_flow_tushare', ['net_flow_ths', 'net_flow_dc']),
             'main_force_net_flow_calibrated': ('main_force_net_flow_tushare', ['main_force_net_flow_ths', 'main_force_net_flow_dc']),
@@ -447,13 +410,11 @@ class AdvancedFundFlowMetricsService:
         }
         for target_col, (base_col, confirm_cols) in consensus_map.items():
             base_value = pd.to_numeric(daily_data_series.get(base_col), errors='coerce')
-            if is_probe_date and pd.isna(base_value):
-                print(f"    -> [资金流校准探针] @ {trade_date}: 基础列 '{base_col}' 缺失。")
+            # 修改行：移除了检查base_col缺失的探针print语句
             if pd.isna(base_value):
                 for conf_col in confirm_cols:
                     alt_value = pd.to_numeric(daily_data_series.get(conf_col), errors='coerce')
-                    if is_probe_date and pd.isna(alt_value):
-                        print(f"    -> [资金流校准探针] @ {trade_date}: 确认列 '{conf_col}' 缺失。")
+                    # 修改行：移除了检查conf_col缺失的探针print语句
                     if pd.notna(alt_value):
                         base_value = alt_value
                         break
@@ -465,24 +426,15 @@ class AdvancedFundFlowMetricsService:
             else:
                 results[target_col] = np.nan
         turnover_amount_yuan = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
-        if is_probe_date and pd.isna(daily_data_series.get('amount')):
-            print(f"    -> [日线衍生探针] @ {trade_date}: 原始列 'amount' 缺失。")
-        if is_probe_date and turnover_amount_yuan <= 0:
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'turnover_amount_yuan' 为 {turnover_amount_yuan}，无法计算依赖其的指标。")
+        # 修改行：移除了所有检查变量缺失或无效的探针print语句
         if turnover_amount_yuan > 0:
             base_flow = pd.to_numeric(daily_data_series.get('main_force_net_flow_tushare'), errors='coerce')
-            if is_probe_date and pd.isna(base_flow):
-                print(f"    -> [日线衍生探针] @ {trade_date}: 'main_force_net_flow_tushare' 缺失。")
             confirm_flows = [pd.to_numeric(daily_data_series.get(c), errors='coerce') for c in ['main_force_net_flow_ths', 'main_force_net_flow_dc']]
             if pd.notna(base_flow):
                 deviations = [abs(conf_flow - base_flow) / turnover_amount_yuan for conf_flow in confirm_flows if pd.notna(conf_flow)]
                 results['flow_credibility_index'] = (1.0 - np.mean(deviations)) * 100 if deviations else 50.0
             mf_flow = results.get('main_force_net_flow_calibrated')
             retail_flow = results.get('retail_net_flow_calibrated')
-            if is_probe_date and pd.isna(mf_flow):
-                print(f"    -> [日线衍生探针] @ {trade_date}: 'main_force_net_flow_calibrated' 缺失。")
-            if is_probe_date and pd.isna(retail_flow):
-                print(f"    -> [日线衍生探针] @ {trade_date}: 'retail_net_flow_calibrated' 缺失。")
             if pd.notna(mf_flow) and pd.notna(retail_flow):
                 total_flow_abs = abs(mf_flow) + abs(retail_flow)
                 if total_flow_abs > 0:
@@ -500,28 +452,14 @@ class AdvancedFundFlowMetricsService:
             pd.to_numeric(daily_data_series.get('sell_lg_amount'), errors='coerce'),
             pd.to_numeric(daily_data_series.get('sell_elg_amount'), errors='coerce')
         ])
-        if is_probe_date and pd.isna(daily_data_series.get('buy_lg_amount')):
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'buy_lg_amount' 缺失。")
-        if is_probe_date and pd.isna(daily_data_series.get('buy_elg_amount')):
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'buy_elg_amount' 缺失。")
-        if is_probe_date and pd.isna(daily_data_series.get('sell_lg_amount')):
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'sell_lg_amount' 缺失。")
-        if is_probe_date and pd.isna(daily_data_series.get('sell_elg_amount')):
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'sell_elg_amount' 缺失。")
         mf_total_activity = mf_buy + mf_sell
         total_turnover_wan = turnover_amount_yuan / 10000
-        if is_probe_date and total_turnover_wan <= 0:
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'total_turnover_wan' 为 {total_turnover_wan}，无法计算 'main_force_activity_ratio'。")
         if total_turnover_wan > 0:
             results['main_force_activity_ratio'] = (mf_total_activity / total_turnover_wan) * 100
         else:
             results['main_force_activity_ratio'] = np.nan
-        if is_probe_date and mf_total_activity <= 0:
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'mf_total_activity' 为 {mf_total_activity}，无法计算 'main_force_flow_directionality'。")
         if mf_total_activity > 0:
             mf_net_calibrated = results.get('main_force_net_flow_calibrated')
-            if is_probe_date and pd.isna(mf_net_calibrated):
-                print(f"    -> [日线衍生探针] @ {trade_date}: 'main_force_net_flow_calibrated' 缺失，无法计算 'main_force_flow_directionality'。")
             if pd.notna(mf_net_calibrated):
                 results['main_force_flow_directionality'] = (mf_net_calibrated / mf_total_activity) * 100
             else:
@@ -531,20 +469,12 @@ class AdvancedFundFlowMetricsService:
         def get_directionality(buy_c, sell_c):
             b = np.nan_to_num(pd.to_numeric(daily_data_series.get(buy_c), errors='coerce'))
             s = np.nan_to_num(pd.to_numeric(daily_data_series.get(sell_c), errors='coerce'))
-            if is_probe_date and pd.isna(daily_data_series.get(buy_c)):
-                print(f"    -> [日线衍生探针] @ {trade_date}: '{buy_c}' 缺失。")
-            if is_probe_date and pd.isna(daily_data_series.get(sell_c)):
-                print(f"    -> [日线衍生探针] @ {trade_date}: '{sell_c}' 缺失。")
             return (b - s) / (b + s) if (b + s) > 0 else 0.0
         xl_directionality = get_directionality('buy_elg_amount', 'sell_elg_amount')
         lg_directionality = get_directionality('buy_lg_amount', 'sell_lg_amount')
         results['main_force_conviction_index'] = ((xl_directionality + lg_directionality) / 2.0) * (1.0 - abs(xl_directionality - lg_directionality)) * 100
         mf_flow = results.get('main_force_net_flow_calibrated')
         retail_flow = results.get('retail_net_flow_calibrated')
-        if is_probe_date and pd.isna(mf_flow):
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'main_force_net_flow_calibrated' 缺失。")
-        if is_probe_date and pd.isna(retail_flow):
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'retail_net_flow_calibrated' 缺失。")
         if pd.notna(mf_flow) and pd.notna(retail_flow):
             total_opinionated_flow = abs(mf_flow) + abs(retail_flow)
             if total_opinionated_flow > 0:
@@ -556,12 +486,6 @@ class AdvancedFundFlowMetricsService:
         else:
             results['retail_flow_dominance_index'] = np.nan
         pct_change = pd.to_numeric(daily_data_series.get('pct_change'), errors='coerce')
-        if is_probe_date and pd.isna(pct_change):
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'pct_change' 缺失。")
-        if is_probe_date and pd.isna(mf_flow):
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'main_force_net_flow_calibrated' 缺失。")
-        if is_probe_date and total_turnover_wan <= 0:
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'total_turnover_wan' 为 {total_turnover_wan}，无法计算 'main_force_price_impact_ratio'。")
         if pd.notna(pct_change) and pd.notna(mf_flow) and total_turnover_wan > 0:
             standardized_mf_flow = mf_flow / total_turnover_wan
             if abs(standardized_mf_flow) > 1e-6:
@@ -570,22 +494,12 @@ class AdvancedFundFlowMetricsService:
                 results['main_force_price_impact_ratio'] = 0.0 if pct_change == 0 else np.inf * np.sign(pct_change)
         else:
             results['main_force_price_impact_ratio'] = np.nan
-        if is_probe_date and total_turnover_wan <= 0:
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'total_turnover_wan' 为 {total_turnover_wan}，无法计算 'main_force_buy_rate_consensus'。")
         if total_turnover_wan > 0:
             results['main_force_buy_rate_consensus'] = (mf_buy / total_turnover_wan) * 100
         else:
             results['main_force_buy_rate_consensus'] = np.nan
         results['flow_efficiency_index'] = np.nan
         circ_mv = pd.to_numeric(daily_data_series.get('circ_mv'), errors='coerce')
-        if is_probe_date and pd.isna(circ_mv):
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'circ_mv' 缺失。")
-        if is_probe_date and circ_mv <= 0:
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'circ_mv' 为 {circ_mv}，无法计算 'flow_efficiency_index'。")
-        if is_probe_date and pd.isna(mf_flow):
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'main_force_net_flow_calibrated' 缺失，无法计算 'flow_efficiency_index'。")
-        if is_probe_date and pd.isna(pct_change):
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'pct_change' 缺失，无法计算 'flow_efficiency_index'。")
         if pd.notna(circ_mv) and circ_mv > 0 and pd.notna(mf_flow) and pd.notna(pct_change):
             flow_input = mf_flow / circ_mv
             if abs(flow_input) > 1e-9:
@@ -597,14 +511,6 @@ class AdvancedFundFlowMetricsService:
             results['flow_efficiency_index'] = np.nan
         results['inferred_active_order_size'] = np.nan
         trade_count = pd.to_numeric(daily_data_series.get('trade_count'), errors='coerce')
-        if is_probe_date and pd.isna(trade_count):
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'trade_count' 缺失。")
-        if is_probe_date and trade_count <= 0:
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'trade_count' 为 {trade_count}，无法计算 'inferred_active_order_size'。")
-        if is_probe_date and pd.isna(turnover_amount_yuan):
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'turnover_amount_yuan' 缺失，无法计算 'inferred_active_order_size'。")
-        if is_probe_date and turnover_amount_yuan <= 0:
-            print(f"    -> [日线衍生探针] @ {trade_date}: 'turnover_amount_yuan' 为 {turnover_amount_yuan}，无法计算 'inferred_active_order_size'。")
         if pd.notna(trade_count) and trade_count > 0 and pd.notna(turnover_amount_yuan) and turnover_amount_yuan > 0:
             results['inferred_active_order_size'] = turnover_amount_yuan * 1000 / trade_count
         else:
@@ -613,26 +519,12 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_probabilistic_costs(self, stock_code: str, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> tuple[dict, pd.DataFrame]:
         """
-        【V6.14 · 完整归因返回版 - 探针增强】
+        【V6.14 · 完整归因返回版】
         - 核心重构: 修改方法职责，使其在计算完概率成本后，继续调用 `_attribute_minute_volume_to_players` 进行主力/散户级别的成交量聚合。
         - 核心修复: 更改返回签名，同时返回成本指标字典和被完整归因（包含 `main_force_net_vol` 等列）的分钟DataFrame，修复数据流中断问题。
-        - 【新增探针】增加探针，检查 `daily_vol_shares` 和 `weight_series.sum()` 的值，并打印 `daily_data` 中所有 `*_vol` 列。
         """
-        trade_date = daily_data.name.date()
-        debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
-        probe_dates_str = debug_params.get('probe_dates', [])
-        is_probe_date = False
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
-            if probe_date_naive == trade_date:
-                is_probe_date = True
-        if is_probe_date:
-            print(f"    -> [概率成本探针] @ {trade_date}: 检查 daily_data 中的成交量。")
-            for col in ['buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol', 'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol']:
-                print(f"       - daily_data['{col}']: {daily_data.get(col, 'N/A')}")
+        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
         if minute_data_for_day is None or minute_data_for_day.empty:
-            if is_probe_date:
-                print(f"    -> [概率成本探针] @ {trade_date}: 'minute_data_for_day' 为空，跳过计算。")
             return {}, pd.DataFrame()
         day_results = {}
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
@@ -641,34 +533,25 @@ class AdvancedFundFlowMetricsService:
             size, direction = cost_type.split('_')
             db_vol_key = f'{direction}_{size}_vol'
             daily_vol_shares = pd.to_numeric(daily_data.get(db_vol_key), errors='coerce') * 100 # 转换为股数
-            if is_probe_date:
-                print(f"    -> [概率成本探针] @ {trade_date}: '{cost_type}' - 每日总成交量 ('{db_vol_key}'): {daily_vol_shares:.2f}。")
+            # 修改行：移除了检查daily_vol_shares的探针print语句
             if pd.isna(daily_vol_shares) or daily_vol_shares == 0:
                 day_results[f'avg_cost_{cost_type}'] = np.nan
                 df_to_attribute[f'{cost_type}_vol_attr'] = 0
-                if is_probe_date:
-                    print(f"    -> [概率成本探针] @ {trade_date}: '{cost_type}' - 每日总成交量为0或缺失，'{cost_type}_vol_attr' 设为0。")
                 continue
             weight_col = f'{size}_{direction}_weight'
             if weight_col not in df_to_attribute.columns:
-                if is_probe_date:
-                    print(f"    -> [概率成本探针] @ {trade_date}: '{cost_type}' - 缺少权重列 '{weight_col}'。")
                 day_results[f'avg_cost_{cost_type}'] = np.nan
                 df_to_attribute[f'{cost_type}_vol_attr'] = 0
                 continue
             weight_series = df_to_attribute[weight_col]
-            if is_probe_date:
-                print(f"    -> [概率成本探针] @ {trade_date}: '{cost_type}' - 权重序列 ('{weight_col}') 总和: {weight_series.sum():.6f}。")
+            # 修改行：移除了检查weight_series的探针print语句
             if weight_series.sum() < 1e-9: # 检查权重总和是否过小
                 day_results[f'avg_cost_{cost_type}'] = np.nan
                 df_to_attribute[f'{cost_type}_vol_attr'] = 0
-                if is_probe_date:
-                    print(f"    -> [概率成本探针] @ {trade_date}: '{cost_type}' - 权重序列总和过小，'{cost_type}_vol_attr' 设为0。")
                 continue
             attributed_vol = weight_series * daily_vol_shares
             df_to_attribute[f'{cost_type}_vol_attr'] = attributed_vol
-            if is_probe_date:
-                print(f"    -> [概率成本探针] @ {trade_date}: '{cost_type}' - 归因成交量 ('{cost_type}_vol_attr') 总和: {attributed_vol.sum():.2f}。")
+            # 修改行：移除了检查attributed_vol的探针print语句
             attributed_value = attributed_vol * df_to_attribute['minute_vwap']
             total_attributed_value = attributed_value.sum()
             total_attributed_vol = attributed_vol.sum()
@@ -678,14 +561,7 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         temp_df = pvwap_df.copy()
-        trade_date = temp_df.index[0].date() if not temp_df.empty else 'UNKNOWN'
-        debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
-        probe_dates_str = debug_params.get('probe_dates', [])
-        is_probe_date = False
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
-            if probe_date_naive == trade_date:
-                is_probe_date = True
+        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
         cols_to_join = [
             'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
             'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol',
@@ -699,8 +575,7 @@ class AdvancedFundFlowMetricsService:
             'main_force_execution_alpha', 'main_force_t0_efficiency', 'flow_temperature_premium'
         ]
         if not existing_cols_to_join:
-            if is_probe_date:
-                print(f"    -> [聚合成本探针] @ {trade_date}: 'daily_df' 缺少所有资金流成交量/额列。")
+            # 修改行：移除了检查daily_df列缺失的探针print语句
             return pd.DataFrame(columns=agg_cols, index=pvwap_df.index)
         temp_df = temp_df.join(daily_df[existing_cols_to_join])
         def weighted_avg_cost(cost_cols, vol_cols):
@@ -719,8 +594,7 @@ class AdvancedFundFlowMetricsService:
                     numerator += value_contribution
                     denominator += volume_shares.where(cost.notna(), 0)
                 else:
-                    if is_probe_date:
-                        print(f"    -> [聚合成本探针] @ {trade_date}: 缺少列 '{cost_col}' 或 '{vol_col}'。")
+                    pass # 修改行：移除了检查列缺失的探针print语句
             return numerator / denominator.replace(0, np.nan)
         result_agg_df = pd.DataFrame(index=pvwap_df.index)
         result_agg_df['avg_cost_main_buy'] = weighted_avg_cost(['avg_cost_lg_buy', 'avg_cost_elg_buy'], ['buy_lg_vol', 'buy_elg_vol'])
@@ -731,10 +605,7 @@ class AdvancedFundFlowMetricsService:
         amount = pd.to_numeric(daily_df.get('amount'), errors='coerce') * 1000
         volume = pd.to_numeric(daily_df.get('vol'), errors='coerce') * 100
         daily_vwap = amount / volume.replace(0, np.nan)
-        if is_probe_date and pd.isna(daily_vwap).any():
-            print(f"    -> [聚合成本探针] @ {trade_date}: 'daily_vwap' 存在缺失值。")
-        if is_probe_date and (daily_vwap == 0).any():
-            print(f"    -> [聚合成本探针] @ {trade_date}: 'daily_vwap' 存在0值。")
+        # 修改行：移除了检查daily_vwap的探针print语句
         if 'avg_cost_main_buy' in result_agg_df.columns and daily_vwap is not None and not daily_vwap.empty:
             safe_vwap = daily_vwap.replace(0, np.nan)
             result_agg_df['main_force_cost_alpha'] = ((safe_vwap - result_agg_df['avg_cost_main_buy']) / safe_vwap) * 100
@@ -749,8 +620,7 @@ class AdvancedFundFlowMetricsService:
         result_agg_df['flow_temperature_premium'] = np.nan
         if 'avg_cost_main_buy' in result_agg_df.columns and daily_vwap is not None and not daily_vwap.empty:
             safe_vwap = daily_vwap.replace(0, np.nan)
-            if is_probe_date and pd.isna(result_agg_df['avg_cost_main_buy']).any():
-                print(f"    -> [聚合成本探针] @ {trade_date}: 'avg_cost_main_buy' 存在缺失值。")
+            # 修改行：移除了检查avg_cost_main_buy的探针print语句
             if pd.notna(result_agg_df['avg_cost_main_buy']).all() and pd.notna(safe_vwap).all():
                 result_agg_df['flow_temperature_premium'] = (result_agg_df['avg_cost_main_buy'] / safe_vwap - 1) * 100
         if 'avg_cost_main_sell' in result_agg_df.columns and 'avg_cost_main_buy' in result_agg_df.columns and daily_vwap is not None and not daily_vwap.empty:
@@ -763,10 +633,7 @@ class AdvancedFundFlowMetricsService:
         result_agg_df['main_force_execution_alpha'] = np.nan
         mf_buy_vol_series = self._get_numeric_series_with_nan(temp_df, 'buy_lg_vol').fillna(0) + self._get_numeric_series_with_nan(temp_df, 'buy_elg_vol').fillna(0)
         mf_sell_vol_series = self._get_numeric_series_with_nan(temp_df, 'sell_lg_vol').fillna(0) + self._get_numeric_series_with_nan(temp_df, 'sell_elg_vol').fillna(0)
-        if is_probe_date and (mf_buy_vol_series == 0).all():
-            print(f"    -> [聚合成本探针] @ {trade_date}: 'mf_buy_vol_series' 全为0。")
-        if is_probe_date and (mf_sell_vol_series == 0).all():
-            print(f"    -> [聚合成本探针] @ {trade_date}: 'mf_sell_vol_series' 全为0。")
+        # 修改行：移除了检查mf_buy_vol_series和mf_sell_vol_series的探针print语句
         total_mf_vol = (mf_buy_vol_series + mf_sell_vol_series) * 100 # 转换为股数
         if daily_vwap is not None and not daily_vwap.empty and \
            'avg_cost_main_buy' in result_agg_df.columns and 'avg_cost_main_sell' in result_agg_df.columns:
@@ -774,24 +641,19 @@ class AdvancedFundFlowMetricsService:
             alpha_buy = ((safe_vwap - result_agg_df['avg_cost_main_buy']) / safe_vwap).fillna(0)
             alpha_sell = ((result_agg_df['avg_cost_main_sell'] - safe_vwap) / safe_vwap).fillna(0)
             weighted_alpha = (alpha_buy * mf_buy_vol_series + alpha_sell * mf_sell_vol_series)
-            if is_probe_date and (total_mf_vol == 0).any():
-                print(f"    -> [聚合成本探针] @ {trade_date}: 'total_mf_vol' 存在0值，导致 'main_force_execution_alpha' 分母为0。")
+            # 修改行：移除了检查total_mf_vol的探针print语句
             result_agg_df['main_force_execution_alpha'] = (weighted_alpha / np.where(total_mf_vol == 0, np.nan, total_mf_vol)) * 100
         # main_force_t0_efficiency
         result_agg_df['main_force_t0_efficiency'] = np.nan
         mf_buy_amount_series = self._get_numeric_series_with_nan(temp_df, 'buy_lg_amount').fillna(0) + self._get_numeric_series_with_nan(temp_df, 'buy_elg_amount').fillna(0)
         mf_sell_amount_series = self._get_numeric_series_with_nan(temp_df, 'sell_lg_amount').fillna(0) + self._get_numeric_series_with_nan(temp_df, 'sell_elg_amount').fillna(0)
-        if is_probe_date and (mf_buy_amount_series == 0).all():
-            print(f"    -> [聚合成本探针] @ {trade_date}: 'mf_buy_amount_series' 全为0。")
-        if is_probe_date and (mf_sell_amount_series == 0).all():
-            print(f"    -> [聚合成本探针] @ {trade_date}: 'mf_sell_amount_series' 全为0。")
+        # 修改行：移除了检查mf_buy_amount_series和mf_sell_amount_series的探针print语句
         # 将 pd.min 替换为 np.minimum
         t0_vol = np.minimum(mf_buy_vol_series, mf_sell_vol_series)
         if 'avg_cost_main_sell' in result_agg_df.columns and 'avg_cost_main_buy' in result_agg_df.columns:
             t0_profit = (result_agg_df['avg_cost_main_sell'] - result_agg_df['avg_cost_main_buy']) * t0_vol
             total_mf_amount = (mf_buy_amount_series + mf_sell_amount_series) * 10000 # 转换为元
-            if is_probe_date and (total_mf_amount == 0).any():
-                print(f"    -> [聚合成本探针] @ {trade_date}: 'total_mf_amount' 存在0值，导致 'main_force_t0_efficiency' 分母为0。")
+            # 修改行：移除了检查total_mf_amount的探针print语句
             result_agg_df['main_force_t0_efficiency'] = (t0_profit / np.where(total_mf_amount == 0, np.nan, total_mf_amount)) * 100
         if 'market_cost_battle_premium' in result_agg_df.columns:
             result_agg_df = result_agg_df.drop(columns=['market_cost_battle_premium'])
@@ -799,46 +661,24 @@ class AdvancedFundFlowMetricsService:
 
     def _attribute_minute_volume_to_players(self, minute_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.1 · 探针增强版】将基础成交量归因为主力/散户的核心辅助函数。
+        【V1.1】将基础成交量归因为主力/散户的核心辅助函数。
         - 核心职责: 聚合基础的 *_vol_attr 列，生成 main_force_* 和 retail_* 级别的成交量列。
-        - 【新增探针】检查归因后的主力/散户买卖量。
         """
         df = minute_df.copy()
-        trade_date = df.index[0].date() if not df.empty else 'UNKNOWN'
-        debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
-        probe_dates_str = debug_params.get('probe_dates', [])
-        is_probe_date = False
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
-            if probe_date_naive == trade_date:
-                is_probe_date = True
+        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
         df['main_force_buy_vol'] = df.get('lg_buy_vol_attr', 0) + df.get('elg_buy_vol_attr', 0)
         df['main_force_sell_vol'] = df.get('lg_sell_vol_attr', 0) + df.get('elg_sell_vol_attr', 0)
         df['main_force_net_vol'] = df['main_force_buy_vol'] - df['main_force_sell_vol']
         df['retail_buy_vol'] = df.get('sm_buy_vol_attr', 0) + df.get('md_buy_vol_attr', 0)
         df['retail_sell_vol'] = df.get('sm_sell_vol_attr', 0) + df.get('md_sell_vol_attr', 0)
         df['retail_net_vol'] = df['retail_buy_vol'] - df['retail_sell_vol']
-        if is_probe_date:
-            print(f"    -> [归因聚合探针] @ {trade_date}: _attribute_minute_volume_to_players 内部检查。")
-            print(f"       - lg_sell_vol_attr sum: {df.get('lg_sell_vol_attr', pd.Series(0.0, index=df.index)).sum():.2f}")
-            print(f"       - elg_sell_vol_attr sum: {df.get('elg_sell_vol_attr', pd.Series(0.0, index=df.index)).sum():.2f}")
-            print(f"       - sm_sell_vol_attr sum: {df.get('sm_sell_vol_attr', pd.Series(0.0, index=df.index)).sum():.2f}")
-            print(f"       - md_sell_vol_attr sum: {df.get('md_sell_vol_attr', pd.Series(0.0, index=df.index)).sum():.2f}")
-            print(f"       - main_force_sell_vol sum (after agg): {df['main_force_sell_vol'].sum():.2f}")
-            print(f"       - retail_sell_vol sum (after agg): {df['retail_sell_vol'].sum():.2f}")
+        # 修改行：移除了检查归因后成交量的探针print语句
         return df
 
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
         derivatives_df = pd.DataFrame(index=consensus_df.index)
         import pandas_ta as ta
-        trade_date = consensus_df.index[-1].date() if not consensus_df.empty else 'UNKNOWN'
-        debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
-        probe_dates_str = debug_params.get('probe_dates', [])
-        is_probe_date = False
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
-            if probe_date_naive == trade_date:
-                is_probe_date = True
+        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedFundFlowMetrics.SLOPE_ACCEL_EXCLUSIONS
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
         ACCEL_WINDOW = 2
@@ -854,13 +694,11 @@ class AdvancedFundFlowMetricsService:
             for col in sum_cols:
                 if col in consensus_df.columns:
                     source_series_for_sum = pd.to_numeric(consensus_df[col], errors='coerce')
-                    if is_probe_date and source_series_for_sum.isnull().any():
-                        print(f"    -> [衍生指标探针] @ {trade_date}: 累计值计算源 '{col}' 存在缺失值。")
+                    # 修改行：移除了检查数据源缺失值的探针print语句
                     sum_col_name = f'{col}_sum_{p}d'
                     derivatives_df[sum_col_name] = source_series_for_sum.rolling(window=p, min_periods=min_p).sum()
                 else:
-                    if is_probe_date:
-                        print(f"    -> [衍生指标探针] @ {trade_date}: 累计值计算源 '{col}' 不存在于 'consensus_df'。")
+                    pass # 修改行：移除了检查数据源列是否存在的探针print语句
         all_cols_to_derive = CORE_METRICS_TO_DERIVE + list(derivatives_df.columns)
         for col in all_cols_to_derive:
             base_col_name = col.split('_sum_')[0] if '_sum_' in col else col
@@ -872,8 +710,7 @@ class AdvancedFundFlowMetricsService:
                 source_series = derivatives_df[col]
             else:
                 continue
-            if is_probe_date and source_series.isnull().all():
-                print(f"    -> [衍生指标探针] @ {trade_date}: 斜率/加速度计算源 '{col}' 全为缺失值。")
+            # 修改行：移除了检查数据源是否全为缺失值的探针print语句
             if source_series.isnull().all():
                 continue
             for p in UNIFIED_PERIODS:
@@ -955,17 +792,8 @@ class AdvancedFundFlowMetricsService:
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series) -> dict:
         from scipy.signal import find_peaks
         results = {}
-        trade_date = daily_data.name.date()
-        debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
-        probe_dates_str = debug_params.get('probe_dates', [])
-        is_probe_date = False
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
-            if probe_date_naive == trade_date:
-                is_probe_date = True
+        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
         if intraday_data.empty:
-            if is_probe_date:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'intraday_data' 为空，跳过所有计算。")
             return results
         daily_total_volume = daily_data.get('vol', 0) * 100
         daily_total_amount = pd.to_numeric(daily_data.get('amount', 0), errors='coerce') * 1000
@@ -1002,32 +830,12 @@ class AdvancedFundFlowMetricsService:
         results['retail_fomo_premium_index'] = np.nan
         results['retail_panic_surrender_index'] = np.nan
         results['volatility_asymmetry_index'] = np.nan
-        # results['opening_gap_defense_strength'] = np.nan # 撤回
-        # results['upward_impulse_purity'] = np.nan # 撤回
-        # 逐一检查核心依赖
-        if is_probe_date and pd.isna(daily_vwap):
-            print(f"    -> [行为指标探针] @ {trade_date}: 'daily_vwap' 缺失。")
-        if is_probe_date and daily_total_volume <= 0:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'daily_total_volume' 为 {daily_total_volume}，无法计算依赖其的指标。")
-        if is_probe_date and pd.isna(atr):
-            print(f"    -> [行为指标探针] @ {trade_date}: 'atr_14d' 缺失。")
-        if is_probe_date and atr <= 0:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'atr_14d' 为 {atr}，无法计算依赖其的指标。")
-        if is_probe_date and 'minute_vwap' not in intraday_data.columns:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'intraday_data' 缺少 'minute_vwap' 列。")
-        if is_probe_date and 'vol_shares' not in intraday_data.columns:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'intraday_data' 缺少 'vol_shares' 列。")
-        if is_probe_date and 'main_force_net_vol' not in intraday_data.columns:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'intraday_data' 缺少 'main_force_net_vol' 列。")
+        # 修改行：移除了所有检查核心依赖变量的探针print语句
         if pd.notna(daily_vwap) and daily_total_volume > 0 and pd.notna(atr) and atr > 0 and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
             price_deviation_value = (intraday_data['minute_vwap'] - daily_vwap) * intraday_data['vol_shares']
             results['vwap_control_strength'] = price_deviation_value.sum() / (atr * daily_total_volume)
             price_dev_series = intraday_data['minute_vwap'] - daily_vwap
             mf_net_flow_series = intraday_data['main_force_net_vol']
-            if is_probe_date and price_dev_series.var() == 0:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'price_dev_series' 方差为0，无法计算相关性。")
-            if is_probe_date and mf_net_flow_series.var() == 0:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'mf_net_flow_series' 方差为0，无法计算相关性。")
             if price_dev_series.var() != 0 and mf_net_flow_series.var() != 0 and len(price_dev_series) > 1:
                 correlation = price_dev_series.corr(mf_net_flow_series)
                 results['main_force_vwap_guidance'] = correlation if pd.notna(correlation) else np.nan
@@ -1037,10 +845,6 @@ class AdvancedFundFlowMetricsService:
             crossings = position_vs_vwap.diff().ne(0)
             results['vwap_crossing_intensity'] = intraday_data.loc[crossings, 'vol_shares'].sum() / daily_total_volume
             twap = intraday_data['minute_vwap'].mean()
-            if is_probe_date and pd.isna(twap):
-                print(f"    -> [行为指标探针] @ {trade_date}: 'twap' 缺失。")
-            if is_probe_date and twap <= 0:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'twap' 为 {twap}，无法计算 'vwap_structure_skew'。")
             if pd.notna(twap) and twap > 0:
                 results['vwap_structure_skew'] = (daily_vwap - twap) / twap * 100
             else:
@@ -1052,32 +856,12 @@ class AdvancedFundFlowMetricsService:
             results['vwap_structure_skew'] = np.nan
         # 使用 intraday_data.index 访问时间
         opening_battle_df = intraday_data[(intraday_data.index.time >= time(9, 30)) & (intraday_data.index.time <= time(9, 45))]
-        if is_probe_date and opening_battle_df.empty:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'opening_battle_df' 为空。")
-        if is_probe_date and len(opening_battle_df) <= 1:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'opening_battle_df' 长度不足2。")
-        if is_probe_date and pd.isna(atr):
-            print(f"    -> [行为指标探针] @ {trade_date}: 'atr_14d' 缺失。")
-        if is_probe_date and atr <= 0:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'atr_14d' 为 {atr}，无法计算 'opening_battle_result'。")
-        if is_probe_date and 'close' not in opening_battle_df.columns:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'opening_battle_df' 缺少 'close' 列。")
-        if is_probe_date and 'open' not in opening_battle_df.columns:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'opening_battle_df' 缺少 'open' 列。")
-        if is_probe_date and 'vol_shares' not in opening_battle_df.columns:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'opening_battle_df' 缺少 'vol_shares' 列。")
-        if is_probe_date and 'minute_vwap' not in opening_battle_df.columns:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'opening_battle_df' 缺少 'minute_vwap' 列。")
-        if is_probe_date and 'main_force_net_vol' not in opening_battle_df.columns:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'opening_battle_df' 缺少 'main_force_net_vol' 列。")
         if not opening_battle_df.empty and len(opening_battle_df) > 1 and pd.notna(atr) and atr > 0 and \
            'close' in opening_battle_df.columns and 'open' in opening_battle_df.columns and \
            'vol_shares' in opening_battle_df.columns and 'minute_vwap' in opening_battle_df.columns and \
            'main_force_net_vol' in opening_battle_df.columns:
             price_gain = (opening_battle_df['close'].iloc[-1] - opening_battle_df['open'].iloc[0]) / atr
             battle_amount = (opening_battle_df['vol_shares'] * opening_battle_df['minute_vwap']).sum()
-            if is_probe_date and battle_amount <= 0:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'opening_battle_df' 的 'battle_amount' 为 {battle_amount}。")
             if battle_amount > 0:
                 mf_power = opening_battle_df['main_force_net_vol'].sum() * opening_battle_df['minute_vwap'].mean() / battle_amount
                 results['opening_battle_result'] = np.sign(price_gain) * np.sqrt(abs(price_gain)) * (1 + mf_power) * 100
@@ -1085,41 +869,17 @@ class AdvancedFundFlowMetricsService:
                 results['opening_battle_result'] = np.nan
         else:
             results['opening_battle_result'] = np.nan
-        if is_probe_date and pd.isna(day_open):
-            print(f"    -> [行为指标探针] @ {trade_date}: 'day_open' 缺失。")
-        if is_probe_date and pd.isna(day_close):
-            print(f"    -> [行为指标探针] @ {trade_date}: 'day_close' 缺失。")
-        if is_probe_date and pd.isna(day_high):
-            print(f"    -> [行为指标探针] @ {trade_date}: 'day_high' 缺失。")
-        if is_probe_date and pd.isna(day_low):
-            print(f"    -> [行为指标探针] @ {trade_date}: 'day_low' 缺失。")
-        if is_probe_date and 'high' not in intraday_data.columns:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'intraday_data' 缺少 'high' 列。")
-        if is_probe_date and 'low' not in intraday_data.columns:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'intraday_data' 缺少 'low' 列。")
-        if is_probe_date and 'vol_shares' not in intraday_data.columns:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'intraday_data' 缺少 'vol_shares' 列。")
-        if is_probe_date and 'main_force_net_vol' not in intraday_data.columns:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'intraday_data' 缺少 'main_force_net_vol' 列。")
         if pd.notna(day_open) and pd.notna(day_close) and pd.notna(day_high) and pd.notna(day_low) and \
            'high' in intraday_data.columns and 'low' in intraday_data.columns and \
            'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
             body_high, body_low = max(day_open, day_close), min(day_open, day_close)
             upper_shadow_df = intraday_data[intraday_data['high'] > body_high]
-            if is_probe_date and upper_shadow_df.empty:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'upper_shadow_df' 为空。")
-            if is_probe_date and upper_shadow_df['vol_shares'].sum() <= 0:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'upper_shadow_df' 的 'vol_shares' 总和为 {upper_shadow_df['vol_shares'].sum()}。")
             if not upper_shadow_df.empty and upper_shadow_df['vol_shares'].sum() > 0:
                 mf_sell_in_shadow = abs(upper_shadow_df[upper_shadow_df['main_force_net_vol'] < 0]['main_force_net_vol'].sum())
                 results['upper_shadow_selling_pressure'] = (mf_sell_in_shadow / upper_shadow_df['vol_shares'].sum())
             else:
                 results['upper_shadow_selling_pressure'] = np.nan
             lower_shadow_df = intraday_data[intraday_data['low'] < body_low]
-            if is_probe_date and lower_shadow_df.empty:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'lower_shadow_df' 为空。")
-            if is_probe_date and lower_shadow_df['vol_shares'].sum() <= 0:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'lower_shadow_df' 的 'vol_shares' 总和为 {lower_shadow_df['vol_shares'].sum()}。")
             if not lower_shadow_df.empty and lower_shadow_df['vol_shares'].sum() > 0:
                 mf_net_flow = lower_shadow_df['main_force_net_vol'].sum()
                 results['lower_shadow_absorption_strength'] = mf_net_flow / lower_shadow_df['vol_shares'].sum()
@@ -1128,39 +888,15 @@ class AdvancedFundFlowMetricsService:
         else:
             results['upper_shadow_selling_pressure'] = np.nan
             results['lower_shadow_absorption_strength'] = np.nan
-        if is_probe_date and len(intraday_data) < 10:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'intraday_data' 长度不足10。")
-        if is_probe_date and pd.isna(day_open):
-            print(f"    -> [行为指标探针] @ {trade_date}: 'day_open' 缺失。")
-        if is_probe_date and pd.isna(day_close):
-            print(f"    -> [行为指标探针] @ {trade_date}: 'day_close' 缺失。")
-        if is_probe_date and pd.isna(day_high):
-            print(f"    -> [行为指标探针] @ {trade_date}: 'day_high' 缺失。")
-        if is_probe_date and pd.isna(day_low):
-            print(f"    -> [行为指标探针] @ {trade_date}: 'day_low' 缺失。")
-        if is_probe_date and pd.isna(atr):
-            print(f"    -> [行为指标探针] @ {trade_date}: 'atr_14d' 缺失。")
-        if is_probe_date and atr <= 0:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'atr_14d' 为 {atr}，无法计算 'trend_conviction_ratio'。")
-        if is_probe_date and daily_total_volume <= 0:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'daily_total_volume' 为 {daily_total_volume}，无法计算 'trend_conviction_ratio'。")
-        if is_probe_date and 'main_force_buy_vol' not in intraday_data.columns:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'intraday_data' 缺少 'main_force_buy_vol' 列。")
-        if is_probe_date and 'main_force_sell_vol' not in intraday_data.columns:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'intraday_data' 缺少 'main_force_sell_vol' 列。")
         if len(intraday_data) >= 10 and pd.notna(day_open) and pd.notna(day_close) and pd.notna(day_high) and pd.notna(day_low) and pd.notna(atr) and atr > 0 and daily_total_volume > 0 and \
            'main_force_buy_vol' in intraday_data.columns and 'main_force_sell_vol' in intraday_data.columns:
             mf_activity_ratio = (intraday_data['main_force_buy_vol'].sum() + intraday_data['main_force_sell_vol'].sum()) / daily_total_volume
-            if is_probe_date and mf_activity_ratio <= 0:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'mf_activity_ratio' 为 {mf_activity_ratio}，无法计算 'trend_conviction_ratio'。")
             if mf_activity_ratio > 0:
                 price_outcome = (day_close - day_open) / atr
                 results['trend_conviction_ratio'] = price_outcome / mf_activity_ratio
             else:
                 results['trend_conviction_ratio'] = np.nan
             day_range = day_high - day_low
-            if is_probe_date and day_range <= 0:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'day_range' 为 {day_range}。")
             if day_range > 0:
                 is_v_shape = (day_close - day_open) > 0
                 turn_point_idx = np.argmin(intraday_data['low'].values) if is_v_shape else np.argmax(intraday_data['high'].values)
@@ -1168,10 +904,6 @@ class AdvancedFundFlowMetricsService:
                     initial_phase = intraday_data.iloc[:turn_point_idx]
                     reversal_phase = intraday_data.iloc[turn_point_idx:]
                     vol_initial, vol_reversal = initial_phase['vol_shares'].sum(), reversal_phase['vol_shares'].sum()
-                    if is_probe_date and vol_initial <= 0:
-                        print(f"    -> [行为指标探针] @ {trade_date}: 'initial_phase' 的 'vol_shares' 总和为 {vol_initial}。")
-                    if is_probe_date and vol_reversal <= 0:
-                        print(f"    -> [行为指标探针] @ {trade_date}: 'reversal_phase' 的 'vol_shares' 总和为 {vol_reversal}。")
                     if vol_initial > 0 and vol_reversal > 0:
                         turn_point_vwap = intraday_data['minute_vwap'].iloc[turn_point_idx]
                         price_recovery = abs(day_close - turn_point_vwap) / day_range
@@ -1195,20 +927,14 @@ class AdvancedFundFlowMetricsService:
             for col in cols_to_process:
                 df_cmf[col] = pd.to_numeric(df_cmf[col], errors='coerce')
             df_cmf.dropna(subset=cols_to_process, inplace=True)
-            if is_probe_date and df_cmf.empty:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'df_cmf' 为空。")
             if not df_cmf.empty:
                 price_range_cmf = df_cmf['high'] - df_cmf['low']
                 mfm = ((df_cmf['minute_vwap'] - df_cmf['low']) - (df_cmf['high'] - df_cmf['minute_vwap'])) / price_range_cmf.replace(0, np.nan)
                 mfm.fillna(0, inplace=True)
-                if is_probe_date and df_cmf['vol_shares'].sum() <= 0:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'df_cmf' 的 'vol_shares' 总和为 {df_cmf['vol_shares'].sum()}。")
                 if df_cmf['vol_shares'].sum() > 0:
                     results['holistic_cmf'] = (mfm * df_cmf['vol_shares']).sum() / df_cmf['vol_shares'].sum()
                 else:
                     results['holistic_cmf'] = np.nan
-                if is_probe_date and df_cmf['main_force_net_vol'].abs().sum() <= 0:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'df_cmf' 的 'main_force_net_vol' 绝对值总和为 {df_cmf['main_force_net_vol'].abs().sum()}。")
                 if df_cmf['main_force_net_vol'].abs().sum() > 0:
                     results['main_force_cmf'] = (mfm * df_cmf['main_force_net_vol']).sum() / df_cmf['main_force_net_vol'].abs().sum()
                 else:
@@ -1224,8 +950,6 @@ class AdvancedFundFlowMetricsService:
             results['cmf_divergence_score'] = np.nan
         if 'main_force_net_vol' in intraday_data.columns and pd.notna(day_close) and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns:
             vp_global = intraday_data.groupby(pd.cut(intraday_data['minute_vwap'], bins=30, duplicates='drop'))['vol_shares'].sum()
-            if is_probe_date and vp_global.empty:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'vp_global' 为空。")
             if not vp_global.empty:
                 vpoc_interval = vp_global.idxmax()
                 global_vpoc_price = vpoc_interval.mid
@@ -1233,12 +957,8 @@ class AdvancedFundFlowMetricsService:
                     (intraday_data['minute_vwap'] >= vpoc_interval.left) &
                     (intraday_data['minute_vwap'] < vpoc_interval.right)
                 ]
-                if is_probe_date and peak_zone_df.empty:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'peak_zone_df' 为空。")
                 if not peak_zone_df.empty:
                     mf_net_vol_on_peak = peak_zone_df['main_force_net_vol'].sum()
-                    if is_probe_date and daily_total_amount <= 0:
-                        print(f"    -> [行为指标探针] @ {trade_date}: 'daily_total_amount' 为 {daily_total_amount}。")
                     if daily_total_amount > 0:
                         normalized_mf_on_peak_flow = np.tanh((mf_net_vol_on_peak * global_vpoc_price) / daily_total_amount)
                         results['main_force_on_peak_flow'] = normalized_mf_on_peak_flow
@@ -1249,21 +969,11 @@ class AdvancedFundFlowMetricsService:
             else:
                 results['main_force_on_peak_flow'] = np.nan
             mf_net_buy_df = intraday_data[intraday_data['main_force_net_vol'] > 0]
-            if is_probe_date and mf_net_buy_df.empty:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'mf_net_buy_df' 为空。")
             if not mf_net_buy_df.empty:
                 vp_mf = mf_net_buy_df.groupby(pd.cut(mf_net_buy_df['minute_vwap'], bins=30, duplicates='drop'))['main_force_net_vol'].sum()
-                if is_probe_date and vp_mf.empty:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'vp_mf' 为空。")
                 if not vp_mf.empty:
                     mf_vpoc = vp_mf.idxmax().mid
                     results['main_force_vpoc'] = mf_vpoc
-                    if is_probe_date and pd.isna(global_vpoc_price):
-                        print(f"    -> [行为指标探针] @ {trade_date}: 'global_vpoc_price' 缺失。")
-                    if is_probe_date and global_vpoc_price <= 0:
-                        print(f"    -> [行为指标探针] @ {trade_date}: 'global_vpoc_price' 为 {global_vpoc_price}。")
-                    if is_probe_date and pd.isna(mf_vpoc):
-                        print(f"    -> [行为指标探针] @ {trade_date}: 'mf_vpoc' 缺失。")
                     if pd.notna(global_vpoc_price) and global_vpoc_price > 0 and pd.notna(mf_vpoc):
                         results['mf_vpoc_premium'] = (mf_vpoc / global_vpoc_price - 1) * 100
                     else:
@@ -1281,10 +991,6 @@ class AdvancedFundFlowMetricsService:
         if 'main_force_net_vol' in intraday_data.columns and 'retail_net_vol' in intraday_data.columns:
             mf_net_series = intraday_data['main_force_net_vol']
             retail_net_series = intraday_data['retail_net_vol']
-            if is_probe_date and mf_net_series.var() == 0:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'mf_net_series' 方差为0。")
-            if is_probe_date and retail_net_series.var() == 0:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'retail_net_series' 方差为0。")
             if mf_net_series.var() != 0 and retail_net_series.var() != 0 and len(mf_net_series) > 1:
                 rolling_corr = mf_net_series.rolling(window=30).corr(retail_net_series)
                 results['mf_retail_liquidity_swap_corr'] = rolling_corr.mean()
@@ -1294,32 +1000,20 @@ class AdvancedFundFlowMetricsService:
             results['mf_retail_liquidity_swap_corr'] = np.nan
         # 使用 intraday_data.index 访问时间
         continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
-        if is_probe_date and continuous_trading_df.empty:
-            print(f"    -> [行为指标探针] @ {trade_date}: 'continuous_trading_df' 为空。")
         if pd.notna(daily_vwap) and daily_total_volume > 0 and pd.notna(atr) and atr > 0 and not continuous_trading_df.empty and \
            'close' in continuous_trading_df.columns and 'open' in continuous_trading_df.columns and \
            'vol_shares' in continuous_trading_df.columns and 'minute_vwap' in continuous_trading_df.columns and \
            'main_force_net_vol' in continuous_trading_df.columns:
             up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
             down_minutes = continuous_trading_df[continuous_trading_df['close'] < continuous_trading_df['open']]
-            if is_probe_date and up_minutes.empty:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'up_minutes' 为空。")
-            if is_probe_date and down_minutes.empty:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'down_minutes' 为空。")
             if not up_minutes.empty and not down_minutes.empty:
                 up_price_change = (up_minutes['close'] - up_minutes['open']).sum()
                 up_vol = up_minutes['vol_shares'].sum()
                 down_price_change = (down_minutes['open'] - down_minutes['close']).sum()
                 down_vol = down_minutes['vol_shares'].sum()
-                if is_probe_date and up_vol <= 0:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'up_vol' 为 {up_vol}。")
-                if is_probe_date and down_vol <= 0:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'down_vol' 为 {down_vol}。")
                 if up_vol > 0 and down_vol > 0:
                     upward_efficacy = up_price_change / up_vol
                     downward_efficacy = down_price_change / down_vol
-                    if is_probe_date and downward_efficacy <= 1e-9:
-                        print(f"    -> [行为指标探针] @ {trade_date}: 'downward_efficacy' 为 {downward_efficacy}。")
                     if downward_efficacy > 1e-9:
                         thrust_ratio = upward_efficacy / downward_efficacy
                         results['asymmetric_volume_thrust'] = np.log(thrust_ratio) if thrust_ratio > 0 else -np.log(-thrust_ratio) if thrust_ratio < 0 else 0.0
@@ -1329,10 +1023,6 @@ class AdvancedFundFlowMetricsService:
                     results['asymmetric_volume_thrust'] = np.nan
                 avg_up_speed = up_price_change / len(up_minutes) if len(up_minutes) > 0 else 0
                 avg_down_speed = down_price_change / len(down_minutes) if len(down_minutes) > 0 else 0
-                if is_probe_date and avg_up_speed <= 0:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'avg_up_speed' 为 {avg_up_speed}。")
-                if is_probe_date and avg_down_speed <= 0:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'avg_down_speed' 为 {avg_down_speed}。")
                 if avg_up_speed > 0 and avg_down_speed > 0:
                     results['volatility_asymmetry_index'] = np.log(avg_up_speed / avg_down_speed)
                 else:
@@ -1341,8 +1031,6 @@ class AdvancedFundFlowMetricsService:
                 results['asymmetric_volume_thrust'] = np.nan
                 results['volatility_asymmetry_index'] = np.nan
             day_range = day_high - day_low
-            if is_probe_date and day_range <= 0:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'day_range' 为 {day_range}。")
             if day_range > 0:
                 range_pos_factor = ((day_close - day_low) / day_range) * 2 - 1
                 value_dev_factor = np.tanh((day_close - daily_vwap) / atr)
@@ -1352,10 +1040,6 @@ class AdvancedFundFlowMetricsService:
                 results['closing_price_deviation_score'] = np.nan
             # 使用 intraday_data.index 访问时间
             auction_df = intraday_data[intraday_data.index.time >= time(14, 57)]
-            if is_probe_date and auction_df.empty:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'auction_df' 为空。")
-            if is_probe_date and continuous_trading_df.empty:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'continuous_trading_df' 为空。")
             if not auction_df.empty and not continuous_trading_df.empty and \
                'close' in continuous_trading_df.columns and 'vol_shares' in continuous_trading_df.columns and \
                'vol' in auction_df.columns and 'high' in auction_df.columns and 'low' in auction_df.columns and \
@@ -1363,16 +1047,10 @@ class AdvancedFundFlowMetricsService:
                 pre_auction_close = continuous_trading_df['close'].iloc[-1]
                 auction_vol = auction_df['vol_shares'].sum()
                 avg_minute_vol = continuous_trading_df['vol_shares'].mean()
-                if is_probe_date and auction_vol <= 0:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'auction_vol' 为 {auction_vol}。")
-                if is_probe_date and avg_minute_vol <= 0:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'avg_minute_vol' 为 {avg_minute_vol}。")
                 if auction_vol > 0 and avg_minute_vol > 0:
                     price_impact = (day_close - pre_auction_close) / atr
                     volume_impact = np.log1p((auction_vol / 3) / avg_minute_vol)
                     auction_amount = (auction_df['vol_shares'] * auction_df['minute_vwap']).sum()
-                    if is_probe_date and auction_amount <= 0:
-                        print(f"    -> [行为指标探针] @ {trade_date}: 'auction_amount' 为 {auction_amount}。")
                     if auction_amount > 0:
                         mf_participation = auction_df['main_force_net_vol'].sum() * auction_df['minute_vwap'].mean() / auction_amount
                         results['closing_auction_ambush'] = price_impact * volume_impact * (1 + mf_participation) * 100
@@ -1383,23 +1061,15 @@ class AdvancedFundFlowMetricsService:
             else:
                 results['closing_auction_ambush'] = np.nan
             absorption_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < daily_vwap]
-            if is_probe_date and absorption_zone_df.empty:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'absorption_zone_df' 为空。")
             if not absorption_zone_df.empty and \
                'main_force_net_vol' in absorption_zone_df.columns and 'vol_shares' in absorption_zone_df.columns and \
                'minute_vwap' in absorption_zone_df.columns:
                 mf_absorption_df = absorption_zone_df[absorption_zone_df['main_force_net_vol'] > 0]
-                if is_probe_date and mf_absorption_df.empty:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'mf_absorption_df' 为空。")
                 if not mf_absorption_df.empty:
                     absorption_vol = mf_absorption_df['main_force_net_vol'].sum()
-                    if is_probe_date and absorption_vol <= 0:
-                        print(f"    -> [行为指标探针] @ {trade_date}: 'absorption_vol' 为 {absorption_vol}。")
                     if absorption_vol > 0:
                         absorption_cost = (mf_absorption_df['minute_vwap'] * mf_absorption_df['main_force_net_vol']).sum() / absorption_vol
                         cost_deviation = (daily_vwap - absorption_cost) / atr
-                        if is_probe_date and daily_total_volume <= 0:
-                            print(f"    -> [行为指标探针] @ {trade_date}: 'daily_total_volume' 为 {daily_total_volume}。")
                         if daily_total_volume > 0:
                             results['dip_absorption_power'] = (absorption_vol / daily_total_volume) * cost_deviation * 100
                         else:
@@ -1417,10 +1087,6 @@ class AdvancedFundFlowMetricsService:
             for i in range(len(turning_points) - 1):
                 start_idx, end_idx = turning_points[i], turning_points[i+1]
                 window_df = continuous_trading_df.iloc[start_idx:end_idx+1]
-                if is_probe_date and window_df.empty:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'window_df' 为空。")
-                if is_probe_date and len(window_df) < 2:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'window_df' 长度不足2。")
                 if window_df.empty or len(window_df) < 2 or \
                    'minute_vwap' not in window_df.columns or 'main_force_net_vol' not in window_df.columns or \
                    'vol_shares' not in window_df.columns:
@@ -1435,30 +1101,22 @@ class AdvancedFundFlowMetricsService:
                     total_panic_vol += window_vol
                     if mf_net_vol < 0:
                         panic_vol += abs(mf_net_vol)
-            if is_probe_date and total_rally_vol <= 0:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'total_rally_vol' 为 {total_rally_vol}。")
             if total_rally_vol > 0:
                 results['rally_distribution_pressure'] = (rally_dist_vol / total_rally_vol) * 100
             else:
                 results['rally_distribution_pressure'] = np.nan
-            if is_probe_date and total_panic_vol <= 0:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'total_panic_vol' 为 {total_panic_vol}。")
             if total_panic_vol > 0:
                 results['panic_selling_cascade'] = (panic_vol / total_panic_vol) * 100
             else:
                 results['panic_selling_cascade'] = np.nan
             # 使用 intraday_data.index 访问时间
             posturing_df = continuous_trading_df[continuous_trading_df.index.time >= time(14, 30)]
-            if is_probe_date and posturing_df.empty:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'posturing_df' 为空。")
             if pd.notna(daily_vwap) and atr > 0 and not posturing_df.empty and \
                'vol_shares' in posturing_df.columns and 'minute_vwap' in posturing_df.columns and \
                'main_force_net_vol' in posturing_df.columns:
                 posturing_vwap = (posturing_df['vol_shares'] * posturing_df['minute_vwap']).sum() / posturing_df['vol_shares'].sum()
                 price_posture = (posturing_vwap - daily_vwap) / atr
                 posturing_amount = (posturing_df['vol_shares'] * posturing_df['minute_vwap']).sum()
-                if is_probe_date and posturing_amount <= 0:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'posturing_amount' 为 {posturing_amount}。")
                 if posturing_amount > 0:
                     force_posture = (posturing_df['main_force_net_vol'].sum() * posturing_vwap) / posturing_amount
                     results['pre_closing_posturing'] = (0.6 * price_posture + 0.4 * force_posture) * 100
@@ -1470,31 +1128,19 @@ class AdvancedFundFlowMetricsService:
             continuous_high = continuous_trading_df['high'].max()
             continuous_low = continuous_trading_df['low'].min()
             continuous_range = continuous_high - continuous_low
-            if is_probe_date and continuous_range <= 0:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'continuous_range' 为 {continuous_range}。")
             if continuous_range > 0:
                 fomo_zone_threshold = continuous_low + 0.75 * continuous_range # 修改行
                 fomo_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] > fomo_zone_threshold]
-                if is_probe_date and fomo_zone_df.empty:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'fomo_zone_df' 为空。")
                 if not fomo_zone_df.empty and \
                    'retail_net_vol' in fomo_zone_df.columns and 'retail_buy_vol' in continuous_trading_df.columns and \
                    'minute_vwap' in fomo_zone_df.columns:
                     fomo_retail_df = fomo_zone_df[fomo_zone_df['retail_net_vol'] > 0]
-                    if is_probe_date and fomo_retail_df.empty:
-                        print(f"    -> [行为指标探针] @ {trade_date}: 'fomo_retail_df' 为空。")
                     if not fomo_retail_df.empty:
                         fomo_vol = fomo_retail_df['retail_net_vol'].sum()
                         total_retail_buy_vol = continuous_trading_df[continuous_trading_df['retail_buy_vol'] > 0]['retail_buy_vol'].sum()
-                        if is_probe_date and fomo_vol <= 0:
-                            print(f"    -> [行为指标探针] @ {trade_date}: 'fomo_vol' 为 {fomo_vol}。")
-                        if is_probe_date and total_retail_buy_vol <= 0:
-                            print(f"    -> [行为指标探针] @ {trade_date}: 'total_retail_buy_vol' 为 {total_retail_buy_vol}。")
                         if fomo_vol > 0 and total_retail_buy_vol > 0:
                             cost_fomo = (fomo_retail_df['minute_vwap'] * fomo_retail_df['retail_net_vol']).sum() / fomo_vol
                             cost_mf_sell = daily_data.get('avg_cost_main_sell')
-                            if is_probe_date and pd.isna(cost_mf_sell): # 增加 pd.isna() 检查
-                                print(f"    -> [行为指标探针] @ {trade_date}: 'avg_cost_main_sell' 缺失。")
                             if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
                                 premium = (cost_fomo / cost_mf_sell - 1)
                                 results['retail_fomo_premium_index'] = premium * (fomo_vol / total_retail_buy_vol) * 100
@@ -1508,26 +1154,16 @@ class AdvancedFundFlowMetricsService:
                     results['retail_fomo_premium_index'] = np.nan
                 panic_zone_threshold = continuous_low + 0.25 * continuous_range # 修改行
                 panic_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < panic_zone_threshold]
-                if is_probe_date and panic_zone_df.empty:
-                    print(f"    -> [行为指标探针] @ {trade_date}: 'panic_zone_df' 为空。")
                 if not panic_zone_df.empty and \
                    'retail_net_vol' in panic_zone_df.columns and 'retail_sell_vol' in continuous_trading_df.columns and \
                    'minute_vwap' in panic_zone_df.columns:
                     panic_retail_df = panic_zone_df[panic_zone_df['retail_net_vol'] < 0]
-                    if is_probe_date and panic_retail_df.empty:
-                        print(f"    -> [行为指标探针] @ {trade_date}: 'panic_retail_df' 为空。")
                     if not panic_retail_df.empty:
                         panic_vol = abs(panic_retail_df['retail_net_vol'].sum())
                         total_retail_sell_vol = continuous_trading_df[continuous_trading_df['retail_sell_vol'] > 0]['retail_sell_vol'].sum()
-                        if is_probe_date and panic_vol <= 0:
-                            print(f"    -> [行为指标探针] @ {trade_date}: 'panic_vol' 为 {panic_vol}。")
-                        if is_probe_date and total_retail_sell_vol <= 0:
-                            print(f"    -> [行为指标探针] @ {trade_date}: 'total_retail_sell_vol' 为 {total_retail_sell_vol}。")
                         if panic_vol > 0 and total_retail_sell_vol > 0:
                             cost_panic = (panic_retail_df['minute_vwap'] * abs(panic_retail_df['retail_net_vol'])).sum() / panic_vol
                             cost_mf_buy = daily_data.get('avg_cost_main_buy')
-                            if is_probe_date and pd.isna(cost_mf_buy): # 增加 pd.isna() 检查
-                                print(f"    -> [行为指标探针] @ {trade_date}: 'avg_cost_main_buy' 缺失。")
                             if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
                                 discount = (cost_mf_buy - cost_panic) / cost_mf_buy
                                 results['retail_panic_surrender_index'] = discount * (panic_vol / total_retail_sell_vol) * 100
@@ -1546,7 +1182,7 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_intraday_attribution_weights(self, intraday_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
         """
-        【V9.5 · 逐笔数据兼容版 - 价格范围零值修复 - 探针增强】
+        【V9.5 · 逐笔数据兼容版 - 价格范围零值修复】
         - 核心革命: 废弃“一体适用”的权重模型，为超大单、大单、中单、小单引入各自独特的、基于行为特征的权重分配逻辑。
         - 核心思想:
           - 超大单(ELG) -> 脉冲修正: 权重集中在成交量和振幅剧增的“暴力分钟”。
@@ -1554,25 +1190,11 @@ class AdvancedFundFlowMetricsService:
           - 中单(MD) -> 动量修正: 权重与短期价格动量相关，体现追涨杀跌特性。
           - 小单(SM) -> 基准压力: 沿用原有的K线形态压力模型作为基准。
         - 核心修复: 修复了 `price_range` 为零时导致的 `decimal.InvalidOperation` 错误。
-        - 【新增探针】增加探针，检查提前返回的条件是否被触发，以及 `buy_pressure_proxy` 和 `sell_score` 的中间计算结果。
         - 【修正】修复 `impulse_modifier` 计算中 `price_range` 的错误使用。
         """
         df = intraday_data_for_day.copy()
-        trade_date = daily_data.name.date()
-        debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
-        probe_dates_str = debug_params.get('probe_dates', [])
-        is_probe_date = False
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
-            if probe_date_naive == trade_date:
-                is_probe_date = True
-        if is_probe_date:
-            print(f"    -> [归因权重探针] @ {trade_date}: 开始计算归因权重。")
-            print(f"       - 传入df 'vol_shares' 总和: {df['vol_shares'].sum():.6f}")
-            print(f"       - 传入df 行数: {len(df)}")
+        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
         if 'vol_shares' not in df.columns or df['vol_shares'].sum() < 1e-6 or len(df) < 5:
-            if is_probe_date:
-                print(f"    -> [归因权重探针] @ {trade_date}: 提前返回！原因：'vol_shares'总和 ({df['vol_shares'].sum():.6f}) < 1e-6 或 行数 ({len(df)}) < 5。")
             for size in ['sm', 'md', 'lg', 'elg']:
                 df[f'{size}_buy_weight'] = 0; df[f'{size}_sell_weight'] = 0
             return df
@@ -1580,8 +1202,6 @@ class AdvancedFundFlowMetricsService:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         price_range = df['high'] - df['low']
-        if is_probe_date:
-            print(f"       - price_range min: {price_range.min():.4f}, max: {price_range.max():.4f}, mean: {price_range.mean():.4f}")
         buy_pressure_proxy_ratio = np.where(
             price_range != 0,
             (df['close'] - df['low']) / price_range,
@@ -1598,9 +1218,7 @@ class AdvancedFundFlowMetricsService:
             0.0
         ]
         buy_pressure_proxy = np.select(conditions, choices, default=0.5)
-        if is_probe_date:
-            print(f"       - buy_pressure_proxy min: {buy_pressure_proxy.min():.4f}, max: {buy_pressure_proxy.max():.4f}, mean: {buy_pressure_proxy.mean():.4f}")
-            print(f"       - (1 - buy_pressure_proxy) min: {(1 - buy_pressure_proxy).min():.4f}, max: {(1 - buy_pressure_proxy).max():.4f}, mean: {(1 - buy_pressure_proxy).mean():.4f}")
+        # 修改行：移除了检查中间计算结果的探针print语句
         vol_ma = df['vol_shares'].rolling(window=20, min_periods=1).mean()
         range_ma = price_range.rolling(window=20, min_periods=1).mean()
         impulse_modifier = (df['vol_shares'] / vol_ma) * (price_range / range_ma.replace(0, 1e-9))
@@ -1632,9 +1250,7 @@ class AdvancedFundFlowMetricsService:
             df[f'{size}_buy_weight'] = buy_score / total_buy_score if total_buy_score > 1e-9 else 0
             total_sell_score = sell_score.sum()
             df[f'{size}_sell_weight'] = sell_score / total_sell_score if total_sell_score > 1e-9 else 0
-            if is_probe_date:
-                print(f"       - {size}_sell_score sum: {sell_score.sum():.6f}")
-                print(f"       - {size}_buy_score sum: {buy_score.sum():.6f}")
+            # 修改行：移除了检查score总和的探针print语句
         return df
 
     async def _load_historical_metrics(self, model, stock_info, end_date):
@@ -1672,20 +1288,7 @@ class AdvancedFundFlowMetricsService:
             daily_intraday_df = pd.DataFrame()
         if daily_level5_df is None:
             daily_level5_df = pd.DataFrame()
-        trade_date = daily_intraday_df.index[0].date() if not daily_intraday_df.empty else (daily_level5_df.index[0].date() if not daily_level5_df.empty else 'UNKNOWN')
-        debug_params = self.debug_params if hasattr(self, 'debug_params') else {}
-        probe_dates_str = debug_params.get('probe_dates', [])
-        is_probe_date = False
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
-            if probe_date_naive == trade_date:
-                is_probe_date = True
-        if is_probe_date and daily_intraday_df.empty:
-            print(f"    -> [微观结构探针] @ {trade_date}: 'daily_intraday_df' 为空。")
-        if is_probe_date and daily_level5_df.empty:
-            print(f"    -> [微观结构探针] @ {trade_date}: 'daily_level5_df' 为空。")
-        if is_probe_date and daily_total_volume <= 0:
-            print(f"    -> [微观结构探针] @ {trade_date}: 'daily_total_volume' 为 {daily_total_volume}。")
+        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
         if daily_intraday_df.empty or daily_level5_df.empty or daily_total_volume <= 0:
             return results
         daily_intraday_df = daily_intraday_df.copy()
@@ -1724,16 +1327,13 @@ class AdvancedFundFlowMetricsService:
             })
         # 1. 计算主力对倒强度 (Wash Trade Intensity)
         if 'type' not in daily_intraday_df.columns:
-            if is_probe_date:
-                print(f"    -> [微观结构探针] @ {trade_date}: 'daily_intraday_df' 缺少 'type' 列，无法计算 'wash_trade_intensity'。")
+            # 修改行：移除了检查'type'列缺失的探针print语句
             results['wash_trade_intensity'] = np.nan
         else:
             daily_intraday_df['direction'] = daily_intraday_df['type'].map({'B': 1, 'S': -1, 'M': 0})
             daily_intraday_df['reversal'] = (daily_intraday_df['direction'] * daily_intraday_df['direction'].shift(1)) < 0
             minute_agg = daily_intraday_df.resample('1min').apply(_aggregate_minute_group)
             minute_agg.dropna(subset=['vol', 'vwap', 'reversals', 'trades'], inplace=True)
-            if is_probe_date and minute_agg.empty:
-                print(f"    -> [微观结构探针] @ {trade_date}: 'minute_agg' 为空。")
             if not minute_agg.empty:
                 minute_agg['wash_score'] = (minute_agg['vol'] / daily_total_volume) * (minute_agg['reversals'] / minute_agg['trades'].replace(0, 1)) * np.exp(-100 * minute_agg['vwap_std'] / minute_agg['vwap'].replace(0, 1))
                 results['wash_trade_intensity'] = minute_agg['wash_score'].sum() * 100
@@ -1744,8 +1344,7 @@ class AdvancedFundFlowMetricsService:
                              'sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']
         missing_level5_cols = [col for col in level5_cols_check if col not in daily_level5_df.columns]
         if missing_level5_cols:
-            if is_probe_date:
-                print(f"    -> [微观结构探针] @ {trade_date}: 'daily_level5_df' 缺少 '{missing_level5_cols}' 列，无法计算 'order_book_imbalance'。")
+            # 修改行：移除了检查Level5列缺失的探针print语句
             results['order_book_imbalance'] = np.nan
         else: # 只有当所有列都存在时才计算
             daily_level5_df['buy_vol_total'] = daily_level5_df[['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5']].sum(axis=1)
@@ -1753,8 +1352,6 @@ class AdvancedFundFlowMetricsService:
             total_book_vol = daily_level5_df['buy_vol_total'] + daily_level5_df['sell_vol_total']
             daily_level5_df['imbalance'] = (daily_level5_df['buy_vol_total'] - daily_level5_df['sell_vol_total']) / total_book_vol.replace(0, np.nan)
             daily_level5_df.dropna(subset=['imbalance'], inplace=True)
-            if is_probe_date and daily_level5_df.empty:
-                print(f"    -> [微观结构探针] @ {trade_date}: 'daily_level5_df' (dropna) 为空。")
             if not daily_level5_df.empty:
                 time_diffs = daily_level5_df.index.to_series().diff().dt.total_seconds().fillna(0)
                 results['order_book_imbalance'] = np.average(daily_level5_df['imbalance'], weights=time_diffs) * 100
@@ -1768,8 +1365,7 @@ class AdvancedFundFlowMetricsService:
                                               'buy_price1', 'buy_volume1', 'buy_price2', 'buy_volume2']
         missing_level5_cols_large_order = [col for col in level5_price_vol_check_large_order if col not in daily_level5_df.columns]
         if missing_level5_cols_large_order:
-            if is_probe_date:
-                print(f"    -> [微观结构探针] @ {trade_date}: 'daily_level5_df' 缺少列 {missing_level5_cols_large_order}，无法计算大单压制/支撑。")
+            # 修改行：移除了检查Level5列缺失的探针print语句
             results['large_order_pressure'] = np.nan
             results['large_order_support'] = np.nan
         elif not daily_level5_df.empty:
@@ -1779,18 +1375,10 @@ class AdvancedFundFlowMetricsService:
                 duration = time_diffs_seconds[i]
                 # 计算压制强度
                 for p, v in [('sell_price1', 'sell_volume1'), ('sell_price2', 'sell_volume2')]:
-                    if is_probe_date and pd.isna(row[p]):
-                        print(f"    -> [微观结构探针] @ {trade_date}: Level5 '{p}' 缺失。")
-                    if is_probe_date and pd.isna(row[v]):
-                        print(f"    -> [微观结构探针] @ {trade_date}: Level5 '{v}' 缺失。")
                     if pd.notna(row[p]) and pd.notna(row[v]) and row[p] * row[v] * 100 > large_order_threshold_value:
                         pressure_strength += row[v] * 100 * duration
                 # 计算支撑强度
                 for p, v in [('buy_price1', 'buy_volume1'), ('buy_price2', 'buy_volume2')]:
-                    if is_probe_date and pd.isna(row[p]):
-                        print(f"    -> [微观结构探针] @ {trade_date}: Level5 '{p}' 缺失。")
-                    if is_probe_date and pd.isna(row[v]):
-                        print(f"    -> [微观结构探针] @ {trade_date}: Level5 '{v}' 缺失。")
                     if pd.notna(row[p]) and pd.notna(row[v]) and row[p] * row[v] * 100 > large_order_threshold_value:
                         support_strength += row[v] * 100 * duration
             if daily_total_volume > 0:
