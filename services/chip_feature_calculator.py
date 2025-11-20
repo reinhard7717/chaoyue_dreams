@@ -114,10 +114,6 @@ class ChipFeatureCalculator:
         results = {}
         if intraday_df.empty:
             return pd.DataFrame()
-        required_cols = ['open', 'high', 'low', 'close', 'vol', 'amount', 'buy_vol_raw', 'sell_vol_raw', 'amount_yuan', 'vol_shares', 'minute_vwap', 'vol_weight', 'sm_buy_weight', 'sm_sell_weight', 'md_buy_weight', 'md_sell_weight', 'lg_buy_weight', 'lg_sell_weight', 'elg_buy_weight', 'elg_sell_weight', 'sm_buy_vol_attr', 'sm_sell_vol_attr', 'md_buy_vol_attr', 'md_sell_vol_attr', 'lg_buy_vol_attr', 'lg_sell_vol_attr', 'elg_buy_vol_attr', 'elg_sell_vol_attr', 'main_force_buy_vol', 'main_force_sell_vol', 'main_force_net_vol', 'retail_buy_vol', 'retail_sell_vol', 'retail_net_vol']
-        missing_cols = [col for col in required_cols if col not in intraday_df.columns]
-        if missing_cols:
-            return pd.DataFrame()
         target_tz = pytz.timezone('Asia/Shanghai')
         if not isinstance(intraday_df.index, pd.DatetimeIndex):
             intraday_df.index = pd.to_datetime(intraday_df.index)
@@ -130,8 +126,7 @@ class ChipFeatureCalculator:
             # 如果已经是 aware，直接转换为目标时区
             intraday_df.index = intraday_df.index.tz_convert(target_tz)
         start_time = datetime.time(9, 25)
-        end_time = datetime.time(15, 0)
-        processed_intraday_df = intraday_df[(intraday_df.index.time >= start_time) & (intraday_df.index.time <= end_time)].copy()
+        processed_intraday_df = intraday_df[intraday_df.index.time >= start_time].copy()
         return processed_intraday_df
 
     def _get_summary_metrics_from_context(self) -> dict:
@@ -444,15 +439,17 @@ class ChipFeatureCalculator:
                 auction_high = auction_bar['high']
                 auction_low = auction_bar['low']
                 auction_range = auction_high - auction_low
+                # =================================================================
+                # 修改代码：修正 auction_closing_position 的计算逻辑
+                # 原始逻辑在 auction_range 为0时会错误地返回100。
+                # 新逻辑在 auction_range 为0时返回0，代表中性、无波动。
                 if auction_range > 1e-6:
                     position = (close_price - auction_low) / auction_range
                     results['auction_closing_position'] = (position * 2 - 1) * 100
-                elif close_price >= auction_high:
-                    results['auction_closing_position'] = 100.0
-                elif close_price <= auction_low:
-                    results['auction_closing_position'] = -100.0
                 else:
-                    results['auction_closing_position'] = np.nan
+                    # 当竞价范围为0时，代表价格没有波动，位置是中性的，应为0
+                    results['auction_closing_position'] = 0.0
+                # =================================================================
             else:
                 results['auction_intent_signal'] = np.nan
                 results['auction_closing_position'] = np.nan
@@ -491,10 +488,19 @@ class ChipFeatureCalculator:
                 retail_net_flow_panic_zone = panic_zone_df['retail_net_vol'].sum()
                 total_vol_panic_zone = panic_zone_df['vol_shares'].sum()
                 if total_vol_panic_zone > 0:
-                    if mf_net_flow_panic_zone > 0 and retail_net_flow_panic_zone < 0:
-                        results['capitulation_absorption_index'] = (mf_net_flow_panic_zone / (mf_net_flow_panic_zone + abs(retail_net_flow_panic_zone))) * 100
+                    # =================================================================
+                    # 修改代码：修正 capitulation_absorption_index 的计算逻辑
+                    # 原始逻辑要求主力净买入且散户净卖出，过于严格。
+                    # 新逻辑只要主力在恐慌区净买入，就计算其吸收强度。
+                    if mf_net_flow_panic_zone > 0:
+                        denominator = mf_net_flow_panic_zone + abs(retail_net_flow_panic_zone)
+                        if denominator > 0:
+                            results['capitulation_absorption_index'] = (mf_net_flow_panic_zone / denominator) * 100
+                        else:
+                            results['capitulation_absorption_index'] = 0.0
                     else:
                         results['capitulation_absorption_index'] = 0.0
+                    # =================================================================
                 else:
                     results['capitulation_absorption_index'] = np.nan
             else:
