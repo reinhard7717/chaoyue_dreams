@@ -44,34 +44,26 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V415.0 · 数据上下文校准版】
-        - 核心修复: 实现了对 `start_date_str` 参数的正确处理。在所有情报分析开始前，
-                      使用此参数对主数据帧 `df_indicators` 进行切片，确保整个策略在正确的、
-                      由调用者指定的日期上下文上运行，从根本上解决因数据范围错误导致的索引找不到问题。
+        【V416.0 · 数据完整性卫兵版】
+        - 核心修复: 移除了上一版中错误的、基于 start_date_str 的数据切片逻辑。
+        - 核心新增: 增加了“数据完整性卫兵”。在策略执行开始时，会检查传入的数据帧长度是否
+                      满足配置文件中 `base_needed_bars` 的要求。如果数据长度不足，将打印
+                      明确警告并提前终止，从根本上防止因上游数据供给不足导致的所有后续错误。
         """
         self.params = self.unified_config
         df_daily = all_dfs.get('D')
         if df_daily is None or df_daily.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         self.df_indicators = self._merge_all_timeframes(all_dfs)
-        # [代码修改开始] 根据传入的 start_date_str 对数据帧进行切片，校准分析上下文
-        if start_date_str:
-            try:
-                start_date = pd.to_datetime(start_date_str)
-                # 检查并同步时区
-                if self.df_indicators.index.tz is not None and start_date.tzinfo is None:
-                    start_date = start_date.tz_localize(self.df_indicators.index.tz)
-                
-                print(f"    -> [上下文校准] 应用起始日期过滤器: {start_date}")
-                self.df_indicators = self.df_indicators[self.df_indicators.index >= start_date]
-                
-                if self.df_indicators.empty:
-                    print(f"    -> [上下文校准] 警告: 应用起始日期 '{start_date_str}' 后，数据帧为空。")
-                    return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-            except Exception as e:
-                print(f"    -> [上下文校准] 错误: 处理起始日期 '{start_date_str}' 失败: {e}")
-                return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-        # [代码修改结束]
+        # [代码修改开始] 增加数据完整性卫兵
+        fe_params = get_params_block(self, 'feature_engineering_params', {})
+        required_bars = get_param_value(fe_params.get('base_needed_bars'), 250) # 默认至少需要250条
+        if len(self.df_indicators) < required_bars:
+            print(f"    -> [策略执行终止] 错误：数据完整性检查失败！")
+            print(f"       需要至少 {required_bars} 条数据来进行指标计算，但只收到了 {len(self.df_indicators)} 条。")
+            print(f"       请检查调用本策略的上层代码，确保为回测或分析提供了足够的历史回溯数据。")
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        # [代码修改结束] 移除之前错误的切片逻辑
         # 步骤1: 情报层完成所有诊断与合成，包括专业层、融合层和认知层。这是唯一的情报生成入口。
         self.intelligence_layer.run_all_diagnostics(self.df_indicators)
         # 步骤2: 基于完整的诊断结果，进行顶层上下文分析
