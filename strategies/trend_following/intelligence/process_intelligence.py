@@ -454,11 +454,6 @@ class ProcessIntelligence:
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         antidote_signal_name = config.get('antidote_signal')
-        # 临时补丁，将已废弃的 imminent_profit_taking_supply_D 替换为 rally_distribution_pressure_D
-        if antidote_signal_name == 'imminent_profit_taking_supply_D':
-            original_signal_name = antidote_signal_name
-            antidote_signal_name = 'rally_distribution_pressure_D'
-            print(f"    -> [过程情报补丁] 在赢家信念分析中，信号 '{original_signal_name}' 已被 '{antidote_signal_name}' 替代。")
         df_index = df.index
         def get_signal_series(signal_name: str) -> Optional[pd.Series]:
             return self._get_safe_series(df, signal_name, method_name="_calculate_winner_conviction_relationship")

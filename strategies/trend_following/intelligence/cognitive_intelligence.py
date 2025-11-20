@@ -87,49 +87,42 @@ class CognitiveIntelligence:
                     print(f"    -> [DEBUG _get_playbook_score] 信号 '{signal_name}' 原始值: {score:.4f}")
         return score
 
-    def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def synthesize_cognitive_scores(self, df: pd.DataFrame) -> None:
         """
-        【V25.9 · 剧本调用顺序优化版】总指挥
-        - 核心修复: 调整风险剧本的调用顺序，确保依赖的剧本信号在被使用前已计算。
+        【V25.10 · 状态权威重构版】总指挥
+        - 核心重构: 本方法不再返回任何值，而是作为 playbook_states 的唯一权威，直接、实时地更新 self.strategy.playbook_states。
+        - 解决问题: 彻底修复了因职责不清和执行时差导致的下游模块无法找到剧本信号的“状态真空”问题。
         """
-        print("启动【V25.9 · 剧本调用顺序优化版】认知情报分析...")
-        playbook_states = {} # [代码修改] 使用局部变量，不再直接修改 self.strategy.playbook_states
+        print("启动【V25.10 · 状态权威重构版】认知情报分析...")
         priors = self._establish_prior_beliefs()
         self.strategy.atomic_states.update(priors)
-        # 计算所有机会剧本，并立即更新到 playbook_states
-        playbook_states.update(self._deduce_suppressive_accumulation(priors)) # [代码修改] 更新局部变量
-        playbook_states.update(self._deduce_chasing_accumulation(priors)) # [代码修改] 更新局部变量
-        playbook_states.update(self._deduce_capitulation_reversal(priors)) # [代码修改] 更新局部变量
-        playbook_states.update(self._deduce_leading_dragon_awakening(priors)) # [代码修改] 更新局部变量
-        playbook_states.update(self._deduce_sector_rotation_vanguard(priors)) # [代码修改] 更新局部变量
-        playbook_states.update(self._deduce_energy_compression_breakout(priors)) # [代码修改] 更新局部变量
-        playbook_states.update(self._deduce_stealth_bottoming_divergence(priors)) # [代码修改] 更新局部变量
-        playbook_states.update(self._deduce_micro_absorption_divergence(priors)) # [代码修改] 更新局部变量
-        # 优先计算所有风险信号，并立即更新到 playbook_states
-        # 第一批风险剧本：无内部剧本依赖
-        playbook_states.update(self._deduce_distribution_at_high(priors)) # [代码修改] 更新局部变量
-        playbook_states.update(self._deduce_retail_fomo_retreat_risk(priors)) # [代码修改] 更新局部变量
-        playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors)) # [代码修改] 更新局部变量
-        playbook_states.update(self._deduce_market_uncertainty_risk(priors)) # [代码修改] 更新局部变量
-        playbook_states.update(self._deduce_liquidity_trap_risk(priors)) # [代码修改] 更新局部变量
-        playbook_states.update(self._deduce_t0_arbitrage_pressure_risk(priors)) # [代码修改] 更新局部变量
-        playbook_states.update(self._deduce_key_support_break_risk(priors)) # [代码修改] 更新局部变量
-        # 第二批风险剧本：依赖第一批剧本
-        # [代码修改] 在调用依赖剧本之前，将当前已生成的剧本更新到 self.strategy.playbook_states 以供 _get_playbook_score 使用
-        self.strategy.playbook_states.update(playbook_states)
-        playbook_states.update(self._deduce_trend_exhaustion_risk(priors)) # 依赖 RETAIL_FOMO_RETREAT, LONG_TERM_PROFIT_DISTRIBUTION
-        self.strategy.playbook_states.update(playbook_states) # [代码修改] 再次更新
-        playbook_states.update(self._deduce_harvest_confirmation_risk(priors)) # 依赖 DISTRIBUTION_AT_HIGH
-        self.strategy.playbook_states.update(playbook_states) # [代码修改] 再次更新
-        playbook_states.update(self._deduce_bull_trap_distribution_risk(priors)) # 依赖 RETAIL_FOMO_RETREAT, LONG_TERM_PROFIT_DISTRIBUTION
-        self.strategy.playbook_states.update(playbook_states) # [代码修改] 再次更新
-        playbook_states.update(self._deduce_high_level_structural_collapse_risk(priors)) # 依赖 DISTRIBUTION_AT_HIGH, RETAIL_FOMO_RETREAT
-        self.strategy.playbook_states.update(playbook_states) # [代码修改] 再次更新
-        # 第三批风险剧本：依赖第二批剧本
-        playbook_states.update(self._deduce_divergence_reversal(priors)) # 依赖 TREND_EXHAUSTION
-        self.strategy.playbook_states.update(playbook_states) # [代码修改] 最终更新
-        print(f"【V25.9 · 剧本调用顺序优化版】分析完成，生成 {len(playbook_states)} 个剧本信号并存入专属状态库。")
-        return playbook_states # [代码修改] 返回局部变量
+        # --- 剧本计算与状态更新 ---
+        # 按照依赖关系，逐一计算剧本并立即更新到权威状态库
+        # 第1批：机会剧本 (通常无内部依赖)
+        self.strategy.playbook_states.update(self._deduce_suppressive_accumulation(priors))
+        self.strategy.playbook_states.update(self._deduce_chasing_accumulation(priors))
+        self.strategy.playbook_states.update(self._deduce_capitulation_reversal(priors))
+        self.strategy.playbook_states.update(self._deduce_leading_dragon_awakening(priors))
+        self.strategy.playbook_states.update(self._deduce_sector_rotation_vanguard(priors))
+        self.strategy.playbook_states.update(self._deduce_energy_compression_breakout(priors))
+        self.strategy.playbook_states.update(self._deduce_stealth_bottoming_divergence(priors))
+        self.strategy.playbook_states.update(self._deduce_micro_absorption_divergence(priors))
+        # 第2批：无内部依赖的风险剧本
+        self.strategy.playbook_states.update(self._deduce_distribution_at_high(priors))
+        self.strategy.playbook_states.update(self._deduce_retail_fomo_retreat_risk(priors))
+        self.strategy.playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors))
+        self.strategy.playbook_states.update(self._deduce_market_uncertainty_risk(priors))
+        self.strategy.playbook_states.update(self._deduce_liquidity_trap_risk(priors))
+        self.strategy.playbook_states.update(self._deduce_t0_arbitrage_pressure_risk(priors))
+        self.strategy.playbook_states.update(self._deduce_key_support_break_risk(priors))
+        # 第3批：依赖第2批剧本的风险剧本
+        self.strategy.playbook_states.update(self._deduce_trend_exhaustion_risk(priors)) # 依赖 RETAIL_FOMO_RETREAT, LONG_TERM_PROFIT_DISTRIBUTION
+        self.strategy.playbook_states.update(self._deduce_harvest_confirmation_risk(priors)) # 依赖 DISTRIBUTION_AT_HIGH
+        self.strategy.playbook_states.update(self._deduce_bull_trap_distribution_risk(priors)) # 依赖 RETAIL_FOMO_RETREAT, LONG_TERM_PROFIT_DISTRIBUTION
+        self.strategy.playbook_states.update(self._deduce_high_level_structural_collapse_risk(priors)) # 依赖 DISTRIBUTION_AT_HIGH, RETAIL_FOMO_RETREAT
+        # 第4批：依赖第3批剧本的机会剧本
+        self.strategy.playbook_states.update(self._deduce_divergence_reversal(priors)) # 依赖 TREND_EXHAUSTION
+        print(f"【V25.10 · 状态权威重构版】分析完成，已将 {len(self.strategy.playbook_states)} 个剧本信号更新至专属状态库。")
 
     def _deduce_suppressive_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """

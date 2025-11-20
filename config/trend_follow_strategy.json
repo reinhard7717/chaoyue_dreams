@@ -621,7 +621,7 @@
             "name": "PROCESS_META_WINNER_CONVICTION",
             "type": "meta_analysis", "task_type": "base",
             "relationship_type": "divergence",
-            "signal_A": "imminent_profit_taking_supply_D", "source_A": "df", "change_type_A": "diff",
+            "signal_A": "rally_distribution_pressure_D", "source_A": "df", "change_type_A": "diff",
             "signal_B": "winner_profit_margin_avg_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
             "antidote_signal": "total_winner_rate_D",
