@@ -149,10 +149,10 @@ class AdvancedChipMetricsService:
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
-        """【V4.14 · 日线价格字段修复版 - 跨服务数据流修复】
+        """【V4.15 · 探针清理版】
         - 核心修复: 修正 `context_for_calc` 中 `low_price` 和 `high_price` 字段的获取，确保它们从 `context_data` 中正确获取 `_qfq` 后缀的列名。
         - 【关键修复】修正 `fund_flow_attributed_minute_map` 字典查找时，键类型不匹配的问题，确保正确获取包含资金流归因列的日内数据。
-        - 【新增探针】在方法入口处检查 `fund_flow_attributed_minute_map` 的列完整性，并在 `enhanced_intraday_data` 赋值后和传递给计算器前进行更细致的检查。
+        - 【维护】移除了所有用于调试的 `print` 探针语句，净化代码。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -172,33 +172,8 @@ class AdvancedChipMetricsService:
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq', 'open_qfq', 'high_qfq', 'low_qfq']
         is_first_day_in_batch = True
         debug_params = debug_params if debug_params is not None else {}
-        probe_dates_str = debug_params.get('probe_dates', [])
-        is_probe_date_global = False
-        probe_date_naive = None
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
-            is_probe_date_global = True
-        if is_probe_date_global:
-            print(f"    -> [筹码合成探针-初始化] debug_params: {debug_params}, probe_date_naive: {probe_date_naive}")
-            # 新增探针：在方法入口处检查 fund_flow_attributed_minute_map
-            if probe_date_naive and probe_date_naive in fund_flow_attributed_minute_map:
-                probe_df_at_entry = fund_flow_attributed_minute_map[probe_date_naive]
-                print(f"    -> [筹码合成探针-方法入口] @ {probe_date_naive}: fund_flow_attributed_minute_map (方法入口) 检查。")
-                if 'main_force_sell_vol' in probe_df_at_entry.columns:
-                    print(f"       - 'main_force_sell_vol' sum: {probe_df_at_entry['main_force_sell_vol'].sum():.2f}")
-                else:
-                    print(f"       - 'main_force_sell_vol' 列缺失。")
-                if 'retail_sell_vol' in probe_df_at_entry.columns:
-                    print(f"       - 'retail_sell_vol' sum: {probe_df_at_entry['retail_sell_vol'].sum():.2f}")
-                else:
-                    print(f"       - 'retail_sell_vol' 列缺失。")
-            else:
-                print(f"    -> [筹码合成探针-方法入口] @ {probe_date_naive}: fund_flow_attributed_minute_map 为空或不包含指定日期。")
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             date_obj = trade_date.date()
-            is_current_probe_date = is_probe_date_global and (probe_date_naive == date_obj)
-            if is_current_probe_date:
-                print(f"    -> [筹码合成探针] @ {date_obj}: is_current_probe_date is TRUE.")
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()
             if chip_data_for_calc.empty:
@@ -270,29 +245,9 @@ class AdvancedChipMetricsService:
             # 将 trade_date 替换为 date_obj 进行字典查找
             if fund_flow_attributed_minute_map and date_obj in fund_flow_attributed_minute_map:
                 enhanced_intraday_data = fund_flow_attributed_minute_map[date_obj]
-                # 无条件打印此探针
-                print(f"    -> [筹码合成探针-赋值即刻] @ {date_obj}: enhanced_intraday_data (直接赋值后) 检查。")
-                if 'main_force_sell_vol' in enhanced_intraday_data.columns:
-                    print(f"       - 'main_force_sell_vol' sum: {enhanced_intraday_data['main_force_sell_vol'].sum():.2f}")
-                else:
-                    print(f"       - 'main_force_sell_vol' 列缺失。")
-                if 'retail_sell_vol' in enhanced_intraday_data.columns:
-                    print(f"       - 'retail_sell_vol' sum: {enhanced_intraday_data['retail_sell_vol'].sum():.2f}")
-                else:
-                    print(f"       - 'retail_sell_vol' 列缺失。")
             else:
                 # 将 trade_date.date() 替换为 date_obj
                 enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
-            # 无条件打印此探针
-            print(f"    -> [筹码合成探针-传递给计算器前] @ {date_obj}: enhanced_intraday_data (传递给计算器前) 检查。")
-            if 'main_force_sell_vol' in enhanced_intraday_data.columns:
-                print(f"       - 'main_force_sell_vol' sum: {enhanced_intraday_data['main_force_sell_vol'].sum():.2f}")
-            else:
-                print(f"       - 'main_force_sell_vol' 列缺失。")
-            if 'retail_sell_vol' in enhanced_intraday_data.columns:
-                print(f"       - 'retail_sell_vol' sum: {enhanced_intraday_data['retail_sell_vol'].sum():.2f}")
-            else:
-                print(f"       - 'retail_sell_vol' 列缺失。")
             context_for_calc['intraday_data'] = enhanced_intraday_data
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
@@ -334,10 +289,11 @@ class AdvancedChipMetricsService:
 
     async def _load_minute_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp, tick_data_map: dict = None, minute_data_map: dict = None):
         """
-        【V1.7 · 日内数据结构统一版】不再查询数据库，仅处理由上游任务传入的日内数据maps。
+        【V1.8 · 探针清理版】不再查询数据库，仅处理由上游任务传入的日内数据maps。
         - 核心重构: 移除所有数据库查询逻辑，职责单一化为数据处理与聚合。
         - 核心逻辑: 遍历所需日期，优先使用tick_data_map，若无则回退到minute_data_map。
         - 核心修复: 确保返回的DataFrame都经过 `_group_minute_data_from_df` 处理，并以 `trade_time` 为 `DatetimeIndex`，保持数据结构一致性。
+        - 【维护】移除了所有用于调试的 `print` 探针语句。
         """
         from stock_models.time_trade import StockDailyBasic
         intraday_data_map = {}
@@ -370,7 +326,8 @@ class AdvancedChipMetricsService:
             if processed_intraday_for_day is not None:
                 intraday_data_map[date_obj] = processed_intraday_for_day
             else:
-                print(f"调试信息: [{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 未找到任何预加载的日内数据。")
+                # 已移除: 清理了在未找到预加载日内数据时打印调试信息的逻辑
+                logger.info(f"[{stock_info.stock_code}] [筹码服务] 日期 {date_obj} 未找到任何预加载的日内数据。")
         return intraday_data_map
 
     async def _load_historical_metrics(self, model, stock_info, end_date):
