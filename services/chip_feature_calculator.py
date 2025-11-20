@@ -904,17 +904,24 @@ class ChipFeatureCalculator:
 
     def _compute_legacy_game_theory_metrics(self, context: dict) -> dict:
         """
-        【V1.0 · 兼容性补丁】计算在第四象限升级后保留的旧版博弈意图指标。
+        【V1.1 · 逻辑修正版】计算在第四象限升级后保留的旧版博弈意图指标。
+        - 核心修复: 补全了 auction_intent_signal 和 auction_closing_position 在 results 字典中的初始化和赋值逻辑。
+        - 核心新增: 为 main_force_cost_advantage 添加调试探针，以排查上游数据问题。
         """
+        # =================================================================
+        # 修改代码行：在 results 字典中添加缺失的键
         results = {
             'main_force_cost_advantage': np.nan,
+            'auction_intent_signal': np.nan,
+            'auction_closing_position': np.nan,
         }
+        # =================================================================
         daily_vwap = context.get('daily_vwap')
         weight_avg_cost = context.get('weight_avg_cost')
-        if pd.notna(daily_vwap) and pd.notna(weight_avg_cost) and weight_avg_cost > 0:
-            # 主力成本优势 = (市场平均成本 / 主力当日成本 - 1)
+        # 新增代码行：添加调试探针
+        print(f"调试信息 [{context.get('stock_code')}] [{context.get('trade_date')}]: main_force_cost_advantage 计算依赖 -> daily_vwap={daily_vwap}, weight_avg_cost={weight_avg_cost}")
+        if pd.notna(daily_vwap) and pd.notna(weight_avg_cost) and weight_avg_cost > 0 and daily_vwap > 0:
             results['main_force_cost_advantage'] = (weight_avg_cost / daily_vwap - 1) * 100
-        # 竞价相关指标
         intraday_df = context.get('processed_intraday_df')
         if not intraday_df.empty:
             auction_data = intraday_df.iloc[0]
@@ -924,9 +931,14 @@ class ChipFeatureCalculator:
             low_price = context.get('low_price')
             if all(pd.notna(v) for v in [open_price, pre_close, high_price, low_price]) and high_price > low_price:
                 gap_pct = (open_price / pre_close - 1) * 100
-                auction_vol_ratio = auction_data['vol_shares'] / context.get('daily_turnover_volume', 1)
+                daily_turnover_volume = context.get('daily_turnover_volume', 1)
+                if daily_turnover_volume <= 0: daily_turnover_volume = 1 # 避免除零
+                auction_vol_ratio = auction_data['vol_shares'] / daily_turnover_volume
+                # =================================================================
+                # 新增代码行：将计算结果正确赋值给 results 字典
                 results['auction_intent_signal'] = gap_pct * np.log1p(auction_vol_ratio * 100)
                 results['auction_closing_position'] = ((open_price - low_price) / (high_price - low_price) * 2 - 1) * 100
+                # =================================================================
         return results
 
 
