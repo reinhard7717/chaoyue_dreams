@@ -871,8 +871,118 @@ class ChipFeatureCalculator:
                 results['covert_accumulation_signal'] = (mf_net_buy_on_dip / total_vol_dip) * 100
         return results
 
+    def _compute_legacy_intraday_metrics(self, context: dict) -> dict:
+        """
+        【V1.0 · 兼容性补丁】计算在第二象限升级后保留的旧版日内动态指标。
+        """
+        results = {
+            'active_selling_pressure': np.nan,
+            'active_buying_support': np.nan,
+            'upward_impulse_purity': np.nan,
+            'opening_gap_defense_strength': np.nan,
+            'capitulation_absorption_index': np.nan,
+        }
+        intraday_df = context.get('processed_intraday_df')
+        total_vol = context.get('daily_turnover_volume')
+        if intraday_df.empty or pd.isna(total_vol) or total_vol <= 0 or 'main_force_net_vol' not in intraday_df.columns:
+            return results
+        mf_net_vol = intraday_df['main_force_net_vol']
+        results['active_selling_pressure'] = -mf_net_vol.clip(upper=0).sum() / total_vol * 100
+        results['active_buying_support'] = mf_net_vol.clip(lower=0).sum() / total_vol * 100
+        price_change = intraday_df['minute_vwap'].diff().fillna(0)
+        up_swing_df = intraday_df[price_change > 0]
+        if not up_swing_df.empty:
+            total_price_change_up = (up_swing_df['minute_vwap'] - up_swing_df['minute_vwap'].shift(1).fillna(up_swing_df['minute_vwap'])).sum()
+            total_vol_up = up_swing_df['vol_shares'].sum()
+            if total_vol_up > 0:
+                results['upward_impulse_purity'] = (total_price_change_up / context.get('pre_close', 1)) / (total_vol_up / total_vol) * 100
+        open_price = context.get('open_price')
+        pre_close = context.get('pre_close')
+        low_price = context.get('low_price')
+        if pd.notna(open_price) and pd.notna(pre_close) and pd.notna(low_price):
+            gap = open_price - pre_close
+            if abs(gap) > 0.01: # 存在缺口
+                strength = (low_price - pre_close) / gap if gap > 0 else (open_price - low_price) / abs(gap)
+                results['opening_gap_defense_strength'] = np.clip(strength, -1, 1) * 100
+        decline_df = intraday_df[price_change < -0.01 * context.get('pre_close', 1)] # 价格显著下跌的分钟
+        if not decline_df.empty:
+            capitulation_vol = decline_df['vol_shares'].sum()
+            if capitulation_vol > 0:
+                absorption_vol = decline_df['main_force_net_vol'].clip(lower=0).sum()
+                results['capitulation_absorption_index'] = (absorption_vol / capitulation_vol) * 100
+        return results
 
+    def _compute_legacy_cross_day_metrics(self, context: dict) -> dict:
+        """
+        【V1.0 · 兼容性补丁】计算在第三象限升级后保留的旧版跨日迁徙指标。
+        """
+        results = {
+            'gathering_by_support': np.nan, 'gathering_by_chasing': np.nan,
+            'dispersal_by_distribution': np.nan, 'dispersal_by_capitulation': np.nan,
+            'profit_taking_flow_ratio': np.nan, 'capitulation_flow_ratio': np.nan,
+            'winner_loser_momentum': np.nan, 'chip_fatigue_index': np.nan,
+        }
+        intraday_df = context.get('processed_intraday_df')
+        total_vol = context.get('daily_turnover_volume')
+        total_chip_vol = context.get('total_chip_volume')
+        daily_vwap = context.get('daily_vwap')
+        prev_metrics = context.get('prev_metrics', {})
+        if intraday_df.empty or pd.isna(total_vol) or total_vol <= 0 or 'main_force_net_vol' not in intraday_df.columns or pd.isna(daily_vwap):
+            return results
+        mf_net_vol = intraday_df['main_force_net_vol']
+        # 1. 四象限流量计算
+        support_zone = intraday_df['minute_vwap'] < daily_vwap
+        chasing_zone = intraday_df['minute_vwap'] > daily_vwap
+        results['gathering_by_support'] = mf_net_vol[support_zone].clip(lower=0).sum() / total_vol * 100
+        results['gathering_by_chasing'] = mf_net_vol[chasing_zone].clip(lower=0).sum() / total_vol * 100
+        results['dispersal_by_distribution'] = -mf_net_vol[chasing_zone].clip(upper=0).sum() / total_vol * 100
+        results['dispersal_by_capitulation'] = -mf_net_vol[support_zone].clip(upper=0).sum() / total_vol * 100
+        # 2. 盈亏盘流量估算
+        winner_rate = context.get('total_winner_rate', 0) / 100
+        loser_rate = context.get('total_loser_rate', 0) / 100
+        turnover_rate = total_vol / total_chip_vol if total_chip_vol > 0 else 0
+        # 假设卖方中盈亏比例与存量比例一致
+        results['profit_taking_flow_ratio'] = turnover_rate * winner_rate * 100
+        results['capitulation_flow_ratio'] = turnover_rate * loser_rate * 100
+        # 3. 盈亏动量
+        prev_winner_rate = prev_metrics.get('total_winner_rate', 0)
+        prev_loser_rate = prev_metrics.get('total_loser_rate', 0)
+        winner_change = context.get('total_winner_rate', 0) - prev_winner_rate
+        loser_change = context.get('total_loser_rate', 0) - prev_loser_rate
+        results['winner_loser_momentum'] = winner_change + loser_change # loser_change is negative
+        # 4. 筹码疲劳指数
+        prev_fatigue = prev_metrics.get('chip_fatigue_index', 0)
+        price_range = (context.get('high_price', 0) - context.get('low_price', 0)) / context.get('pre_close', 1)
+        fatigue_increment = turnover_rate * (1 + price_range) * 100
+        results['chip_fatigue_index'] = prev_fatigue * 0.9 + fatigue_increment # 每日衰减
+        return results
 
+    def _compute_legacy_game_theory_metrics(self, context: dict) -> dict:
+        """
+        【V1.0 · 兼容性补丁】计算在第四象限升级后保留的旧版博弈意图指标。
+        """
+        results = {
+            'main_force_cost_advantage': np.nan,
+        }
+        daily_vwap = context.get('daily_vwap')
+        weight_avg_cost = context.get('weight_avg_cost')
+        if pd.notna(daily_vwap) and pd.notna(weight_avg_cost) and weight_avg_cost > 0:
+            # 主力成本优势 = (市场平均成本 / 主力当日成本 - 1)
+            results['main_force_cost_advantage'] = (weight_avg_cost / daily_vwap - 1) * 100
+        # 竞价相关指标
+        intraday_df = context.get('processed_intraday_df')
+        if not intraday_df.empty:
+            auction_data = intraday_df.iloc[0]
+            open_price = context.get('open_price')
+            pre_close = context.get('pre_close')
+            high_price = context.get('high_price')
+            low_price = context.get('low_price')
+            if all(pd.notna(v) for v in [open_price, pre_close, high_price, low_price]) and high_price > low_price:
+                gap_pct = (open_price / pre_close - 1) * 100
+                auction_vol_ratio = auction_data['vol_shares'] / context.get('daily_turnover_volume', 1)
+                results['auction_intent_signal'] = gap_pct * np.log1p(auction_vol_ratio * 100)
+                results['auction_closing_position'] = ((open_price - low_price) / (high_price - low_price) * 2 - 1) * 100
+        return results
 
 
 
