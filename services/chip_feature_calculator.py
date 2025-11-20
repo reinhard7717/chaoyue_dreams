@@ -363,13 +363,9 @@ class ChipFeatureCalculator:
             df['weight_pct'] = df['weight'] / df['weight'].sum()
             df['cum_weight_pct'] = df['weight_pct'].cumsum()
             df['cost_x_weight'] = df['price'] * df['weight_pct']
-            # =================================================================
-            # 修改代码块：修正基尼系数计算的核心错误
             total_weighted_cost = df['cost_x_weight'].sum()
             if total_weighted_cost <= 0: return np.nan
-            # 核心修复：对累计成本进行归一化，确保其为百分比
             df['cum_cost_pct'] = df['cost_x_weight'].cumsum() / total_weighted_cost
-            # =================================================================
             x = np.insert(df['cum_weight_pct'].values, 0, 0)
             y = np.insert(df['cum_cost_pct'].values, 0, 0)
             area = np.trapz(y, x)
@@ -400,17 +396,15 @@ class ChipFeatureCalculator:
             results['structural_tension_index'] = tension
         leverage = (((self.df['price'] - close_price) / close_price) * self.df['percent']).sum()
         results['structural_leverage'] = leverage
-        rolling_vol = self.df['percent'].rolling(window=5, center=True).mean().fillna(self.df['percent'])
-        min_density_idx = rolling_vol.idxmin()
-        search_radius = int(len(self.df) * 0.1)
-        low_point = self.df.loc[min_density_idx, 'price']
-        upper_bound_df = self.df[self.df['price'] > low_point].iloc[:search_radius]
-        lower_bound_df = self.df[self.df['price'] < low_point].iloc[-search_radius:]
-        if not upper_bound_df.empty and not lower_bound_df.empty:
-            upper_peak_idx = upper_bound_df['percent'].idxmax()
-            lower_peak_idx = lower_bound_df['percent'].idxmax()
-            vacuum_width = self.df.loc[upper_peak_idx, 'price'] - self.df.loc[lower_peak_idx, 'price']
+        # =================================================================
+        # 修改代码块：重构真空区大小的计算逻辑，增强其在边缘情况下的健壮性
+        # 使用主峰和次峰之间的距离来定义真空区，而不是寻找最低密度点
+        dominant_peak_cost = results.get('dominant_peak_cost')
+        secondary_peak_cost = results.get('secondary_peak_cost')
+        if pd.notna(dominant_peak_cost) and pd.notna(secondary_peak_cost) and atr_14d > 0:
+            vacuum_width = abs(dominant_peak_cost - secondary_peak_cost)
             results['vacuum_zone_magnitude'] = vacuum_width / atr_14d
+        # =================================================================
         if pd.notna(results['dominant_peak_cost']):
             results['chip_fault_magnitude'] = (close_price - results['dominant_peak_cost']) / atr_14d
             fault_low, fault_high = sorted([results['dominant_peak_cost'], close_price])
