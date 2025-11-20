@@ -1459,10 +1459,14 @@ class AdvancedFundFlowMetricsService:
                     results['pre_closing_posturing'] = np.nan
             else:
                 results['pre_closing_posturing'] = np.nan
-            if is_probe_date and day_range <= 0:
-                print(f"    -> [行为指标探针] @ {trade_date}: 'day_range' 为 {day_range}。")
-            if day_range > 0:
-                fomo_zone_threshold = day_low + 0.75 * day_range
+            # 修改行：使用 continuous_trading_df 的高低点来定义阈值，而不是全天的高低点
+            continuous_high = continuous_trading_df['high'].max()
+            continuous_low = continuous_trading_df['low'].min()
+            continuous_range = continuous_high - continuous_low
+            if is_probe_date and continuous_range <= 0:
+                print(f"    -> [行为指标探针] @ {trade_date}: 'continuous_range' 为 {continuous_range}。")
+            if continuous_range > 0:
+                fomo_zone_threshold = continuous_low + 0.75 * continuous_range # 修改行
                 fomo_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] > fomo_zone_threshold]
                 if is_probe_date and fomo_zone_df.empty:
                     print(f"    -> [行为指标探针] @ {trade_date}: 'fomo_zone_df' 为空。")
@@ -1495,7 +1499,7 @@ class AdvancedFundFlowMetricsService:
                         results['retail_fomo_premium_index'] = np.nan
                 else:
                     results['retail_fomo_premium_index'] = np.nan
-                panic_zone_threshold = day_low + 0.25 * day_range
+                panic_zone_threshold = continuous_low + 0.25 * continuous_range # 修改行
                 panic_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < panic_zone_threshold]
                 if is_probe_date and panic_zone_df.empty:
                     print(f"    -> [行为指标探针] @ {trade_date}: 'panic_zone_df' 为空。")
