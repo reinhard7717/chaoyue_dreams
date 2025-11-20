@@ -391,6 +391,13 @@ class AdvancedFundFlowMetricsService:
             print(f"    -> [资金流合成探针-初始化] debug_params: {debug_params}, probe_date_naive: {probe_date_naive}")
         for trade_date, daily_data_series in merged_df.iterrows():
             date_obj = trade_date.date()
+            # 新增行：提前计算当日VWAP并添加到daily_data_series中
+            daily_amount = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
+            daily_vol_shares = pd.to_numeric(daily_data_series.get('vol'), errors='coerce') * 100
+            if pd.notna(daily_amount) and pd.notna(daily_vol_shares) and daily_vol_shares > 0:
+                daily_data_series['daily_vwap'] = daily_amount / daily_vol_shares
+            else:
+                daily_data_series['daily_vwap'] = np.nan
             is_current_probe_date = is_probe_date_global and (probe_date_naive == date_obj)
             if is_current_probe_date:
                 print(f"    -> [资金流合成探针] @ {date_obj}: is_current_probe_date is TRUE.")
