@@ -168,7 +168,6 @@ class StockRealtimeDAO(BaseDAO):
             df_ticks_from_db = await self._get_daily_real_ticks_from_db(stock_code, trade_date)
             if df_ticks_from_db is not None and not df_ticks_from_db.empty:
                 return df_ticks_from_db
-            logger.warning(f"数据库中未找到 {stock_code} on {trade_date} 的真实逐笔数据。")
             return None
         except Exception as e:
             logger.error(f"get_daily_real_ticks 发生严重异常 for {stock_code}: {e}", exc_info=True)

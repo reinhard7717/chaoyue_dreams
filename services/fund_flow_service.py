@@ -329,10 +329,10 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame) -> tuple[dict, None]:
         """
-        【V1.1 · 返回值简化版】
+        【V1.2 · 聚合成本计算集成版】
         - 核心职责: 作为单日所有高级资金流指标计算的总调度中心。
         - 核心逻辑: 依次调用日线、行为、微观结构等专项计算模块，并将结果聚合。
-        - 核心修正: 由于上游已处理好 `attributed_minute_df`，本方法不再需要将其传回，故第二个返回值修改为 None。
+        - 核心修正: 在调用 `_compute_all_behavioral_metrics` 之前，集成 `_calculate_aggregate_pvwap_costs` 的计算结果。
         """
         # 1. 初始化当日指标字典
         day_metrics = {}
@@ -341,9 +341,32 @@ class AdvancedFundFlowMetricsService:
         day_metrics.update(daily_derived_metrics)
         # 3. 合并预先计算好的概率成本
         day_metrics.update(probabilistic_costs_dict)
+
+        # 修改行：新增 - 计算聚合的PVWAP成本并合并到 day_metrics
+        # _calculate_aggregate_pvwap_costs 期望一个 DataFrame 作为 pvwap_df 参数
+        # 这里我们将 probabilistic_costs_dict 转换为 Series，再转换为 DataFrame，以便传递
+        prob_costs_series = pd.Series(probabilistic_costs_dict)
+        # 确保索引是 DatetimeIndex，因为 _calculate_aggregate_pvwap_costs 期望索引
+        prob_costs_df_for_agg = pd.DataFrame([prob_costs_series], index=[daily_data_series.name])
+        
+        # _calculate_aggregate_pvwap_costs 还需要 daily_df，这里传入 daily_data_series
+        # 但 daily_data_series 是 Series，需要转换为 DataFrame
+        daily_df_for_agg = pd.DataFrame([daily_data_series.to_dict()], index=[daily_data_series.name])
+
+        aggregate_pvwap_costs_df = self._calculate_aggregate_pvwap_costs(prob_costs_df_for_agg, daily_df_for_agg)
+        
+        # 将计算出的聚合成本从 DataFrame 转换为字典并合并到 day_metrics
+        if not aggregate_pvwap_costs_df.empty:
+            day_metrics.update(aggregate_pvwap_costs_df.iloc[0].to_dict())
+        # 修改行：结束
+
         # 4. 计算基于分钟数据的行为指标
         # 注意：_compute_all_behavioral_metrics 需要归因后的分钟数据
-        behavioral_metrics = self._compute_all_behavioral_metrics(attributed_minute_df, daily_data_series)
+        # 此时 daily_data_series 已经包含了 day_metrics 中所有更新的指标
+        # 所以这里需要将 day_metrics 重新合并到 daily_data_series，或者直接传递 day_metrics
+        # 为了避免修改 daily_data_series 的原始结构，我们创建一个新的 Series 传递
+        updated_daily_data_series = pd.Series({**daily_data_series.to_dict(), **day_metrics})
+        behavioral_metrics = self._compute_all_behavioral_metrics(attributed_minute_df, updated_daily_data_series)
         day_metrics.update(behavioral_metrics)
         # 5. 计算基于高频数据的微观结构信号
         daily_total_volume = daily_data_series.get('vol', 0) * 100
@@ -1503,6 +1526,7 @@ class AdvancedFundFlowMetricsService:
                         results['retail_fomo_premium_index'] = np.nan
                 else:
                     results['retail_fomo_premium_index'] = np.nan
+
                 panic_zone_threshold = day_low + 0.25 * day_range
                 panic_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < panic_zone_threshold]
                 if is_probe_date and panic_zone_df.empty:
