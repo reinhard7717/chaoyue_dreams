@@ -1283,6 +1283,13 @@ class AdvancedFundFlowMetricsService:
             'order_book_imbalance': np.nan,
             'large_order_pressure': np.nan,
             'large_order_support': np.nan,
+            # =================================================================
+            # 为新指标初始化默认值
+            'main_force_ofi': np.nan,
+            'retail_ofi': np.nan,
+            'microstructure_efficiency_index': np.nan,
+            'hidden_accumulation_intensity': np.nan,
+            # =================================================================
         }
         # 修复：在方法入口处，将 None 转换为空的 DataFrame
         if daily_intraday_df is None:
@@ -1391,6 +1398,44 @@ class AdvancedFundFlowMetricsService:
         else:
             results['large_order_pressure'] = np.nan
             results['large_order_support'] = np.nan
+        # 计算OFI、隐蔽吸筹强度和微观结构效率
+        # 4. 计算订单流失衡 (OFI)
+        if not daily_level5_df.empty and not daily_intraday_df.empty and 'type' in daily_intraday_df.columns:
+            merged_df = pd.merge_asof(daily_intraday_df.sort_index(), daily_level5_df.sort_index(), left_index=True, right_index=True, direction='backward')
+            merged_df['mid_price'] = (merged_df['buy_price1'] + merged_df['sell_price1']) / 2
+            merged_df['mid_price_change'] = merged_df['mid_price'].diff().fillna(0)
+            ofi = (merged_df['mid_price_change'] >= 0).astype(int) * merged_df['buy_volume1'] - \
+                  (merged_df['mid_price_change'] <= 0).astype(int) * merged_df['sell_volume1']
+            ofi = ofi.cumsum()
+            # 归因到主力和散户 (简化版：按成交额大小)
+            is_large_trade = merged_df['amount'] > 200000 # 假设大于20万为大单
+            results['main_force_ofi'] = ofi[is_large_trade].sum()
+            results['retail_ofi'] = ofi[~is_large_trade].sum()
+        # 5. 计算隐蔽吸筹强度 (Hidden Accumulation Intensity)
+        minute_agg_df = daily_intraday_df.resample('1min').agg(
+            open=('price', 'first'),
+            close=('price', 'last'),
+            vol=('volume', 'sum'),
+            main_force_net_vol=('main_force_net_vol', 'sum') # 假设此列已由上游归因
+        ).dropna()
+        if not minute_agg_df.empty and 'main_force_net_vol' in minute_agg_df.columns:
+            dip_or_flat_df = minute_agg_df[minute_agg_df['close'] <= minute_agg_df['open']]
+            if not dip_or_flat_df.empty:
+                total_vol_dip = dip_or_flat_df['vol'].sum()
+                if total_vol_dip > 0:
+                    mf_net_buy_on_dip = dip_or_flat_df['main_force_net_vol'].clip(lower=0).sum()
+                    results['hidden_accumulation_intensity'] = (mf_net_buy_on_dip / total_vol_dip) * 100
+        # 6. 计算微观结构效率指数 (Microstructure Efficiency Index)
+        if not minute_agg_df.empty and 'main_force_net_vol' in minute_agg_df.columns:
+            minute_agg_df['price_change'] = minute_agg_df['close'].diff()
+            # 假设ATR已通过daily_data传入
+            atr = daily_data.get('atr_14d', 0)
+            if atr > 0:
+                minute_agg_df['price_change_norm'] = minute_agg_df['price_change'] / atr
+                mf_net_vol_series = minute_agg_df['main_force_net_vol']
+                price_change_norm_series = minute_agg_df['price_change_norm']
+                if mf_net_vol_series.var() > 0 and price_change_norm_series.var() > 0:
+                    results['microstructure_efficiency_index'] = mf_net_vol_series.corr(price_change_norm_series)
         return results
 
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
