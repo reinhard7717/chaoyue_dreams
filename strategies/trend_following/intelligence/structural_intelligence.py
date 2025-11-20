@@ -262,11 +262,13 @@ class StructuralIntelligence:
         # 获取并归一化 vpoc_consensus_strength_D
         vpoc_consensus_raw = self._get_safe_series(df, 'mf_vpoc_premium_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability") # 替换为 mf_vpoc_premium_D
         vpoc_consensus_score = get_adaptive_mtf_normalized_score(vpoc_consensus_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        # 获取成交结构偏度，并检查是否缺失
-        volume_structure_skew_raw = self._get_safe_series(df, 'volume_structure_skew_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
+        # [代码修改开始] 使用 vwap_structure_skew_D 替代 volume_structure_skew_D
+        volume_structure_skew_raw = self._get_safe_series(df, 'vwap_structure_skew_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
         volume_structure_skew_score = pd.Series(0.0, index=df_index)
         if not volume_structure_skew_raw.isnull().all() and not (volume_structure_skew_raw == 0.0).all():
-            volume_structure_skew_score = get_adaptive_mtf_normalized_bipolar_score(volume_structure_skew_raw * -1, df.index, tf_weights_struct, sensitivity=0.5)
+            # 移除 * -1，因为正的VWAP偏度通常代表强势，对稳定性是积极贡献
+            volume_structure_skew_score = get_adaptive_mtf_normalized_bipolar_score(volume_structure_skew_raw, df.index, tf_weights_struct, sensitivity=0.5)
+        # [代码修改结束]
         if not all(col in df.columns for col in required_ma_cols + required_slope_cols):
             print("    -> [结构情报警告] 方法 '_diagnose_axiom_stability' 缺少必要的长期MA或其斜率列，长期结构评估将跳过。")
             foundation_health_score = pd.Series(0.5, index=df_index)
