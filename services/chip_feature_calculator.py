@@ -224,13 +224,8 @@ class ChipFeatureCalculator:
             'exhaustion_risk_index': np.nan,
             'breakout_readiness_score': np.nan,
         }
-        # =================================================================
-        # 修改代码块：将兼容旧指标的计算提前，与新指标的计算逻辑解耦
-        # 这一步确保无论新指标的复杂依赖是否满足，旧指标都会被计算
         legacy_metrics = self._compute_legacy_game_theory_metrics(context)
         results.update(legacy_metrics)
-        # =================================================================
-        # --- 1. 新战略指标的依赖项准备 ---
         potential = context.get('structural_potential_score')
         posture = context.get('intraday_posture_score')
         entropy_change = context.get('structural_entropy_change')
@@ -242,16 +237,28 @@ class ChipFeatureCalculator:
         close_price = context.get('close_price')
         open_price = context.get('open_price')
         atr = context.get('atr_14d')
-        # 卫语句：仅保护新指标的计算
+        # =================================================================
+        # 新增代码块：植入核心诊断探针，检查所有依赖项的值
+        stock_code = context.get('stock_code', 'N/A')
+        trade_date = context.get('trade_date', 'N/A')
+        print(f"--- 调试探针 [{stock_code}] [{trade_date}] 进入 _compute_game_theoretic_metrics ---")
+        print(f"    - structural_potential_score (势能): {potential}")
+        print(f"    - intraday_posture_score (姿态): {posture}")
+        print(f"    - structural_entropy_change (熵变): {entropy_change}")
+        print(f"    - cost_gini_coefficient (基尼): {gini}")
+        print(f"    - peak_control_transfer (主峰控制): {peak_transfer}")
+        print(f"    - chip_fatigue_index (疲劳): {fatigue}")
+        print(f"    - loser_pain_index (痛苦): {loser_pain}")
+        print(f"    - impulse_quality_ratio (脉冲品质): {impulse_quality}")
+        print(f"    - 核心价格/波动率: close={close_price}, open={open_price}, atr={atr}")
+        # =================================================================
         if any(pd.isna(v) for v in [potential, posture, entropy_change, gini, peak_transfer, fatigue, loser_pain, impulse_quality, close_price, open_price, atr]):
-            return results # 如果依赖不满足，返回已包含旧指标的 results
-        # --- 2. 风险与稳固度计算 ---
+            print(f"--- 调试探针 [{stock_code}] [{trade_date}] 依赖项存在NaN，计算中止。 ---") # 新增探针
+            return results
         results['control_solidity_index'] = gini * peak_transfer
         results['exhaustion_risk_index'] = np.log1p(fatigue) * np.log1p(loser_pain)
-        # --- 3. 欺骗指数计算 ---
         price_momentum = (close_price - open_price) / atr if atr > 0 else 0
         results['deception_index'] = np.tanh(price_momentum) * (1 - np.tanh(impulse_quality / 100)) * 100
-        # --- 4. 核心战略推演 ---
         readiness = (potential / 100) * (posture / 100) * np.clip(1 - entropy_change, 0, 2)
         results['breakout_readiness_score'] = np.clip(readiness * 100, 0, 100)
         markup_force = results['breakout_readiness_score'] * (1 + np.tanh(results['control_solidity_index'] / 100))
@@ -449,57 +456,38 @@ class ChipFeatureCalculator:
 
     def _calculate_structural_potential_score(self, context: dict, current_metrics: dict) -> float:
         """
-        【V2.0 · 结构势能版】
-        - 核心思想: 废弃静态的“稳定性”评估，引入基于物理学和博弈论的“结构势能”评估模型，旨在预测T+1及未来的上涨潜力。
-        - 核心架构: 采用“三支柱”模型，分别从“地基稳固度”、“承压与支撑均衡”和“上涨势能”三个维度进行量化。
-        - 动态因子: 首次引入关键的动态时间序列因子——基尼系数的1日斜率，用于捕捉筹码的实时集结过程。
+        【V2.1 · 诊断探针版】
+        - 核心新增: 在方法末尾添加调试探针，输出最终计算的势能分。
         """
-        # 辅助函数：将数值映射到 (0, 1) 区间
         def _sigmoid(x, k=1):
             return 1 / (1 + np.exp(-k * x))
-        # ================== 1. 支柱一：地基稳固度 (Foundation Solidity) ==================
         gini = current_metrics.get('cost_gini_coefficient')
         peak_margin = current_metrics.get('dominant_peak_profit_margin')
         peak_kurtosis = current_metrics.get('primary_peak_kurtosis')
         if any(pd.isna(v) for v in [gini, peak_margin, peak_kurtosis]):
             return np.nan
-        # 基尼系数越高 -> 控盘度越高 -> 分数越高
         gini_score = np.clip(gini, 0, 1)
-        # 主峰利润垫越厚 -> 持股信心越足 -> 分数越高
-        margin_score = _sigmoid(peak_margin / 10) # 利润率超过10%后，边际效应递减
-        # 主峰峰态越高 -> 筹码锁定度越高 -> 分数越高 (强庄核心特征)
-        kurtosis_score = _sigmoid(peak_kurtosis / 5) # 峰态超过5后，边际效应递减
-        # 加权算术平均，峰态系数权重最高
+        margin_score = _sigmoid(peak_margin / 10)
+        kurtosis_score = _sigmoid(peak_kurtosis / 5)
         foundation_score = 0.3 * gini_score + 0.3 * margin_score + 0.4 * kurtosis_score
-        # ================== 2. 支柱二：承压与支撑均衡 (Pressure-Support Balance) ==================
         leverage = current_metrics.get('structural_leverage')
         winner_stability = current_metrics.get('winner_stability_index')
         loser_pain = current_metrics.get('loser_pain_index')
         if any(pd.isna(v) for v in [leverage, winner_stability, loser_pain]):
             return np.nan
-        # 结构杠杆为负（支撑力矩大）-> 均衡状态越好 -> 分数越高
-        leverage_score = 1 - _sigmoid(leverage, k=5) # k=5 使得函数在0附近更陡峭
-        # 获利盘稳定度越高 -> 潜在抛压越小 -> 分数越高
+        leverage_score = 1 - _sigmoid(leverage, k=5)
         stability_score = _sigmoid(winner_stability / 20)
-        # 套牢盘痛苦指数越低 -> 潜在割肉盘越小 -> 分数越高
         pain_score = 1 - _sigmoid(loser_pain / 50)
         pressure_balance_score = np.mean([leverage_score, stability_score, pain_score])
-        # ================== 3. 支柱三：上涨势能 (Upward Potential) ==================
         tension = current_metrics.get('structural_tension_index')
         vacuum = current_metrics.get('vacuum_zone_magnitude')
-        # 动态因子：获取基尼系数的1日斜率
-        gini_slope_1d = context.get('cost_gini_coefficient_slope_1d', 0) # 从context获取，需要上游计算并传入
+        gini_slope_1d = context.get('cost_gini_coefficient_slope_1d', 0)
         if any(pd.isna(v) for v in [tension, vacuum]):
             return np.nan
-        # 结构张力代表能量储备，适度的张力是爆发前兆
-        tension_score = _sigmoid((tension - 0.1) * 20) # 在0.1附近最敏感
-        # 真空区越大 -> 上涨阻力越小 -> 分数越高
-        vacuum_score = _sigmoid((vacuum - 1) * 2) # 大于1倍ATR时开始显著加分
-        # 动态信号：基尼系数斜率为正 -> 筹码正在集结 -> 强力加分项
-        dynamic_factor = 1 + np.tanh(gini_slope_1d * 50) # 将斜率放大并用tanh约束到(0,2)区间
+        tension_score = _sigmoid((tension - 0.1) * 20)
+        vacuum_score = _sigmoid((vacuum - 1) * 2)
+        dynamic_factor = 1 + np.tanh(gini_slope_1d * 50)
         upward_potential_score = (0.5 * tension_score + 0.5 * vacuum_score) * dynamic_factor
-        # ================== 最终合成：加权几何平均 ==================
-        # 几何平均确保任何一个支柱的极端弱势都会拉低总分
         weights = {'foundation': 0.4, 'balance': 0.25, 'potential': 0.35}
         scores = {
             'foundation': foundation_score,
@@ -511,7 +499,14 @@ class ChipFeatureCalculator:
             score = scores.get(pillar)
             if pd.notna(score) and score > 0:
                 final_score_raw *= score ** weight
-        return final_score_raw * 100
+        final_score = final_score_raw * 100
+        # =================================================================
+        # 新增代码块：植入诊断探针，检查最终输出值
+        stock_code = context.get('stock_code', 'N/A')
+        trade_date = context.get('trade_date', 'N/A')
+        print(f"--- 调试探针 [{stock_code}] [{trade_date}] _calculate_structural_potential_score 计算结果: {final_score} ---")
+        # =================================================================
+        return final_score
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
         results = {
