@@ -40,11 +40,9 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V10.0 · 结构动力学重构版】筹码情报总指挥
-        - 核心重构: 超级原子信号 `SCORE_CHIP_CLEANLINESS` 和 `SCORE_CHIP_LOCKDOWN_DEGREE` 的计算逻辑
-                      全面升级，使用新一代指标 `winner_stability_index_D` 和 `loser_pain_index_D` 进行重构。
-        - 核心新增: 引入超级原子信号 `SCORE_CHIP_STRUCTURAL_CONSENSUS`。
-        - 核心职责: 只输出筹码领域的原子公理信号和筹码背离信号。
+        【V10.1 · 调用修复版】筹码情报总指挥
+        - 核心修复: 修正了方法内部对 _get_safe_series 的调用，确保正确传递 data_source 参数，
+                      解决了因参数错位导致的“未知数据源类型”警告。
         """
         all_chip_states = {}
         periods = [5, 13, 21, 55]
@@ -66,9 +64,9 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         # 步骤二: 工程化超级原子信号
         # 信号1: 筹码干净度 (SCORE_CHIP_CLEANLINESS)
-        chip_fault = self._get_safe_series(df, 'chip_fault_blockage_ratio_D', 0.5, method_name="run_chip_intelligence_command")
+        chip_fault = self._get_safe_series(df, df, 'chip_fault_blockage_ratio_D', 0.5, method_name="run_chip_intelligence_command") # [代码修改]
         # 修改代码行：使用(1 - 获利盘稳定度)作为短期获利盘压力的代理
-        winner_stability = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="run_chip_intelligence_command")
+        winner_stability = self._get_safe_series(df, df, 'winner_stability_index_D', 0.5, method_name="run_chip_intelligence_command") # [代码修改]
         profit_pressure = 1 - winner_stability
         cleanliness_raw_score = ((1 - chip_fault) * (1 - profit_pressure)).pow(0.5).fillna(0.5)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
@@ -77,8 +75,8 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_CLEANLINESS'] = cleanliness_score.astype(np.float32)
         # 信号2: 筹码锁定度 (SCORE_CHIP_LOCKDOWN_DEGREE)
         # 修改代码行：使用获利盘稳定度代表盈利锁定，使用套牢盘痛苦指数代表亏损锁定
-        locked_profit = self._get_safe_series(df, 'winner_stability_index_D', 0.0, method_name="run_chip_intelligence_command")
-        loser_pain = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="run_chip_intelligence_command")
+        locked_profit = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="run_chip_intelligence_command") # [代码修改]
+        loser_pain = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="run_chip_intelligence_command") # [代码修改]
         # 痛苦指数越高，越不愿卖出，锁定度越高，因此直接归一化
         locked_loss = utils.normalize_score(loser_pain, df.index, 55, ascending=True)
         lockdown_degree = (locked_profit * 0.6 + locked_loss * 0.4).clip(0, 1).fillna(0.0) # 盈利锁定权重更高
