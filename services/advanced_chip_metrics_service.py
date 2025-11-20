@@ -273,14 +273,13 @@ class AdvancedChipMetricsService:
                     print(f"       - 'retail_sell_vol' sum: {enhanced_intraday_data['retail_sell_vol'].sum():.2f}")
                 else:
                     print(f"       - 'retail_sell_vol' 列缺失。")
-                print(f"调试信息: [{stock_code}] [{date_obj}] ChipFeatureCalculator 使用资金流服务提供的精确分钟数据。")
             else:
                 # 将 trade_date.date() 替换为 date_obj
                 enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
             # 无条件打印此探针
             print(f"    -> [筹码合成探针-传递给计算器前] @ {date_obj}: enhanced_intraday_data (传递给计算器前) 检查。")
             if 'main_force_sell_vol' in enhanced_intraday_data.columns:
-                print(f"       - 'main_force_sell_vol' sum: {enhanced_intraday_data['main_force_sell_vol'].sum():.2f}")
+                continue
             else:
                 print(f"       - 'main_force_sell_vol' 列缺失。")
             if 'retail_sell_vol' in enhanced_intraday_data.columns:

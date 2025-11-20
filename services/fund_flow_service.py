@@ -720,7 +720,10 @@ class AdvancedFundFlowMetricsService:
         result_agg_df['avg_cost_main_sell'] = weighted_avg_cost(['avg_cost_lg_sell', 'avg_cost_elg_sell'], ['sell_lg_vol', 'sell_elg_vol'])
         result_agg_df['avg_cost_retail_buy'] = weighted_avg_cost(['avg_cost_sm_buy', 'avg_cost_md_buy'], ['buy_sm_vol', 'buy_md_vol'])
         result_agg_df['avg_cost_retail_sell'] = weighted_avg_cost(['avg_cost_sm_sell', 'avg_cost_md_sell'], ['sell_sm_vol', 'sell_md_vol'])
-        daily_vwap = pvwap_df.get('daily_vwap')
+        # 修改行：修正daily_vwap的来源，应从daily_df计算而不是pvwap_df获取
+        amount = pd.to_numeric(daily_df.get('amount'), errors='coerce') * 1000
+        volume = pd.to_numeric(daily_df.get('vol'), errors='coerce') * 100
+        daily_vwap = amount / volume.replace(0, np.nan)
         if is_probe_date and pd.isna(daily_vwap).any():
             print(f"    -> [聚合成本探针] @ {trade_date}: 'daily_vwap' 存在缺失值。")
         if is_probe_date and (daily_vwap == 0).any():
