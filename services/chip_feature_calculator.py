@@ -741,18 +741,18 @@ class ChipFeatureCalculator:
             'pressure_validation_score': np.nan,
             'support_validation_score': np.nan,
             'covert_accumulation_signal': np.nan,
+            # 新增代码：重新初始化被遗漏的指标
+            'pressure_rejection_strength': np.nan,
+            'support_validation_strength': np.nan,
+            'vacuum_traversal_efficiency': np.nan,
         }
         intraday_df = context.get('processed_intraday_df')
         if intraday_df.empty:
             return results
         peak_low = context.get('peak_range_low')
         peak_high = context.get('peak_range_high')
-        # =================================================================
-        # 修改代码块：解耦不同依赖的指标计算，增强健壮性
-        # 1. 依赖 buy_vol_raw (Tick数据) 的指标
         if 'buy_vol_raw' in intraday_df.columns:
             if all(pd.notna(v) for v in [peak_low, peak_high]):
-                # 1.1 筹码交换纯度 (Peak Exchange Purity)
                 peak_zone_df = intraday_df[(intraday_df['minute_vwap'] >= peak_low) & (intraday_df['minute_vwap'] <= peak_high)]
                 if not peak_zone_df.empty:
                     total_vol_peak = peak_zone_df['vol_shares'].sum()
@@ -761,7 +761,6 @@ class ChipFeatureCalculator:
                         active_sell_vol = peak_zone_df['sell_vol_raw'].sum()
                         purity = 1 - abs(active_buy_vol - active_sell_vol) / total_vol_peak
                         results['peak_exchange_purity'] = purity * 100
-            # 1.2 压力/支撑有效性验证 (Pressure/Support Validation)
             pre_close = context.get('pre_close')
             if pd.notna(pre_close):
                 pressure_zone_df = intraday_df[intraday_df['minute_vwap'] > pre_close]
@@ -776,9 +775,7 @@ class ChipFeatureCalculator:
                     if total_vol_support > 0:
                         active_buy_support = support_zone_df['buy_vol_raw'].sum()
                         results['support_validation_score'] = (active_buy_support / total_vol_support) * 100
-        # 2. 仅依赖 main_force_net_vol (资金流归因) 的指标
         if 'main_force_net_vol' in intraday_df.columns:
-            # 2.1 隐蔽吸筹信号 (Covert Accumulation Signal)
             if 'close' in intraday_df.columns and 'open' in intraday_df.columns:
                 dip_or_flat_df = intraday_df[intraday_df['close'] <= intraday_df['open']]
             else:
@@ -788,6 +785,44 @@ class ChipFeatureCalculator:
                 if total_vol_dip > 0:
                     mf_net_buy_on_dip = dip_or_flat_df['main_force_net_vol'].clip(lower=0).sum()
                     results['covert_accumulation_signal'] = (mf_net_buy_on_dip / total_vol_dip) * 100
+        # =================================================================
+        # 新增代码块：重新植入被遗漏的压力、支撑和穿越效率指标的计算逻辑
+        daily_high = context.get('high_price')
+        daily_low = context.get('low_price')
+        atr = context.get('atr_14d')
+        total_daily_volume = context.get('daily_turnover_volume')
+        if all(pd.notna(v) for v in [daily_high, daily_low, atr]) and atr > 0 and 'main_force_net_vol' in intraday_df.columns:
+            # 1. 压力区拒绝强度
+            rejection_zone_start = daily_high - 0.5 * atr
+            rejection_df = intraday_df[intraday_df['minute_vwap'] >= rejection_zone_start]
+            if not rejection_df.empty:
+                rejection_vol = rejection_df['vol_shares'].sum()
+                if rejection_vol > 0:
+                    mf_net_sell_in_zone = -rejection_df['main_force_net_vol'].clip(upper=0).sum()
+                    results['pressure_rejection_strength'] = (mf_net_sell_in_zone / rejection_vol) * 100
+            # 2. 支撑区验证强度
+            support_zone_end = daily_low + 0.5 * atr
+            support_df = intraday_df[intraday_df['minute_vwap'] <= support_zone_end]
+            if not support_df.empty:
+                support_vol = support_df['vol_shares'].sum()
+                if support_vol > 0:
+                    mf_net_buy_in_zone = support_df['main_force_net_vol'].clip(lower=0).sum()
+                    results['support_validation_strength'] = (mf_net_buy_in_zone / support_vol) * 100
+        # 3. 真空区穿越效率
+        dominant_peak_cost = context.get('dominant_peak_cost')
+        secondary_peak_cost = context.get('secondary_peak_cost')
+        if all(pd.notna(v) for v in [dominant_peak_cost, secondary_peak_cost, atr]) and atr > 0 and total_daily_volume > 0:
+            vacuum_low = min(dominant_peak_cost, secondary_peak_cost)
+            vacuum_high = max(dominant_peak_cost, secondary_peak_cost)
+            traversal_df = intraday_df[(intraday_df['minute_vwap'] >= vacuum_low) & (intraday_df['minute_vwap'] <= vacuum_high)]
+            if not traversal_df.empty:
+                traversal_volume = traversal_df['vol_shares'].sum()
+                if traversal_volume > 0:
+                    traversal_range = traversal_df['minute_vwap'].max() - traversal_df['minute_vwap'].min()
+                    normalized_range = traversal_range / atr
+                    normalized_volume = traversal_volume / total_daily_volume
+                    efficiency = normalized_range / normalized_volume
+                    results['vacuum_traversal_efficiency'] = np.log1p(efficiency)
         # =================================================================
         return results
 
