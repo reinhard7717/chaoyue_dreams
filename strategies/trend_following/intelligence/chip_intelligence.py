@@ -14,12 +14,12 @@ class ChipIntelligence:
         self.strategy = strategy_instance
         self.dynamic_thresholds = dynamic_thresholds
 
-    def _get_safe_series(self, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+    def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
-        安全地从DataFrame或字典中获取Series，如果不存在则打印警告并返回默认Series。
-        - 核心修复: 兼容处理 pd.DataFrame 和 Dict[str, pd.Series] 两种数据源。
+        【V2.0 · 上下文修复版】安全地从DataFrame或字典中获取Series，如果不存在则打印警告并返回默认Series。
+        - 核心修复: 接收 df 参数，并使用其索引创建默认 Series，确保上下文一致。
         """
-        df_index = self.strategy.df_indicators.index # 获取全局的DataFrame索引
+        df_index = df.index # [代码修改] 使用传入的 df.index
         if isinstance(data_source, pd.DataFrame):
             if column_name not in data_source.columns:
                 print(f"    -> [筹码情报警告] 方法 '{method_name}' 缺少DataFrame数据 '{column_name}'，使用默认值 {default_value}。")
@@ -29,11 +29,10 @@ class ChipIntelligence:
             if column_name not in data_source:
                 print(f"    -> [筹码情报警告] 方法 '{method_name}' 缺少字典数据 '{column_name}'，使用默认值 {default_value}。")
                 return pd.Series(default_value, index=df_index)
-            # 确保从字典中取出的也是Series，并且索引对齐
             series = data_source[column_name]
             if isinstance(series, pd.Series):
                 return series.reindex(df_index, fill_value=default_value)
-            else: # 如果字典中存储的不是Series，则转换为Series
+            else:
                 return pd.Series(series, index=df_index)
         else:
             print(f"    -> [筹码情报警告] 方法 '{method_name}' 接收到未知数据源类型 {type(data_source)}，无法获取 '{column_name}'，使用默认值 {default_value}。")
@@ -127,13 +126,9 @@ class ChipIntelligence:
 
     def _diagnose_axiom_concentration(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V3.1 · 结构动力学重构版】筹码公理一：诊断筹码“聚散”动态
-        - 核心重构: 废弃 short_term/long_term_concentration, peak_fusion_indicator 等旧指标。
-        - 核心增强: 引入 `cost_gini_coefficient_D` 作为衡量集中度水平的核心证据。
-        - 核心增强: 引入 `structural_node_count_D` 和 `peak_separation_ratio_D` 作为衡量筹码峰融合度的核心证据。
-        - 核心修复: 遵循“先归一，后融合”原则，并增加对所有依赖数据的存在性检查。
+        【V3.2 · 上下文修复版】筹码公理一：诊断筹码“聚散”动态
+        - 【V3.2 修复】在调用 _get_safe_series 时传递 df 参数。
         """
-        # 修改代码行：更新依赖信号列表以匹配新指标体系
         required_signals = [
             'cost_gini_coefficient_D', 'structural_node_count_D', 'peak_separation_ratio_D',
             'winner_concentration_90pct_D', 'ZIG_5_5.0_D', 'peak_exchange_purity_D'
@@ -142,21 +137,18 @@ class ChipIntelligence:
         if missing_signals:
             print(f"    -> [筹码集中度探针] 警告: 缺少核心信号 {missing_signals}，使用默认值0.0。")
             return pd.Series(0.0, index=df.index)
-        # 修改代码行：使用成本基尼系数作为集中度水平的核心度量（基尼越小越集中）
-        concentration_level_raw = 1 - self._get_safe_series(df, 'cost_gini_coefficient_D', 0.5, method_name="_diagnose_axiom_concentration")
+        concentration_level_raw = 1 - self._get_safe_series(df, df, 'cost_gini_coefficient_D', 0.5, method_name="_diagnose_axiom_concentration") # [代码修改]
         concentration_trend_raw = pd.Series(0.0, index=df.index)
         for p in periods:
             slope_col = f'SLOPE_{p}_winner_concentration_90pct_D'
-            concentration_trend_raw += self._get_safe_series(df, slope_col, 0.0, method_name="_diagnose_axiom_concentration")
+            concentration_trend_raw += self._get_safe_series(df, df, slope_col, 0.0, method_name="_diagnose_axiom_concentration") # [代码修改]
         concentration_trend_raw /= len(periods)
-        # 修改代码行：使用结构节点数量和峰群分离度来衡量筹码峰的融合程度
-        node_count_raw = self._get_safe_series(df, 'structural_node_count_D', 3.0, method_name="_diagnose_axiom_concentration")
-        separation_raw = self._get_safe_series(df, 'peak_separation_ratio_D', 50.0, method_name="_diagnose_axiom_concentration")
-        # 节点越少、分离度越低，融合度越高
+        node_count_raw = self._get_safe_series(df, df, 'structural_node_count_D', 3.0, method_name="_diagnose_axiom_concentration") # [代码修改]
+        separation_raw = self._get_safe_series(df, df, 'peak_separation_ratio_D', 50.0, method_name="_diagnose_axiom_concentration") # [代码修改]
         peak_fusion_raw = (1 - utils.normalize_score(node_count_raw, df.index, 55, ascending=True)) * \
                           (1 - utils.normalize_score(separation_raw, df.index, 55, ascending=True))
-        zigzag_trend_raw = self._get_safe_series(df, 'ZIG_5_5.0_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_concentration")
-        peak_exchange_purity_raw = self._get_safe_series(df, 'peak_exchange_purity_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_concentration")
+        zigzag_trend_raw = self._get_safe_series(df, df, 'ZIG_5_5.0_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_concentration") # [代码修改]
+        peak_exchange_purity_raw = self._get_safe_series(df, df, 'peak_exchange_purity_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_concentration") # [代码修改]
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         level_score = get_adaptive_mtf_normalized_bipolar_score(concentration_level_raw, df.index, tf_weights, sensitivity=0.2)
@@ -164,31 +156,14 @@ class ChipIntelligence:
         fusion_score = get_adaptive_mtf_normalized_bipolar_score(peak_fusion_raw, df.index, tf_weights, sensitivity=0.5)
         zigzag_score = get_adaptive_mtf_normalized_bipolar_score(zigzag_trend_raw, df.index, tf_weights, sensitivity=0.05)
         peak_exchange_purity_score = get_adaptive_mtf_normalized_bipolar_score(peak_exchange_purity_raw, df.index, tf_weights, sensitivity=0.5)
-        # 修改代码行：重新分配权重
         final_score = (level_score * 0.30 + trend_score * 0.20 + fusion_score * 0.20 + zigzag_score * 0.10 + peak_exchange_purity_score * 0.20).clip(-1, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"    -> [筹码集中度探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - level_score (from Gini): {level_score.loc[probe_date_for_loop]:.4f}") # 修改代码行
-                print(f"       - trend_score: {trend_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - fusion_score (from Node/Separation): {fusion_score.loc[probe_date_for_loop]:.4f}") # 修改代码行
-                print(f"       - zigzag_score: {zigzag_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - peak_exchange_purity_score: {peak_exchange_purity_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - final_score: {final_score.loc[probe_date_for_loop]:.4f}")
         return final_score
 
     def _diagnose_axiom_cost_structure(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V3.1 · 结构动力学重构版】筹码公理二：诊断“成本结构”动态
-        - 核心重构: 废弃 cost_divergence_normalized_D，引入 `chip_fault_magnitude_D` (筹码断层量级) 作为结构发散和不健康的关键负向证据。
-        - 核心增强: 引入 `cost_gini_coefficient_D`, `structural_tension_index_D`, `structural_leverage_D` 三大新一代结构指标。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
+        【V3.2 · 上下文修复版】筹码公理二：诊断“成本结构”动态
+        - 【V3.2 修复】在调用 _get_safe_series 时传递 df 参数。
         """
-        # 修改代码行：更新依赖信号列表
         required_signals = [
             'winner_loser_momentum_D', 'chip_fault_magnitude_D', 'cost_structure_skewness_D',
             'pressure_validation_score_D', 'support_validation_score_D',
@@ -198,19 +173,17 @@ class ChipIntelligence:
         if missing_signals:
             print(f"    -> [筹码成本结构探针] 警告: 缺少核心信号 {missing_signals}，使用默认值0.0。")
             return pd.Series(0.0, index=df.index)
-        momentum_raw = self._get_safe_series(df, 'winner_loser_momentum_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        # 修改代码行：使用筹码断层量级替代成本发散
-        fault_raw = self._get_safe_series(df, 'chip_fault_magnitude_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        skewness_raw = self._get_safe_series(df, 'cost_structure_skewness_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        pressure_validation_raw = self._get_safe_series(df, 'pressure_validation_score_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        support_validation_raw = self._get_safe_series(df, 'support_validation_score_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        cost_gini_raw = self._get_safe_series(df, 'cost_gini_coefficient_D', pd.Series(0.5, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        structural_tension_raw = self._get_safe_series(df, 'structural_tension_index_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        structural_leverage_raw = self._get_safe_series(df, 'structural_leverage_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
+        momentum_raw = self._get_safe_series(df, df, 'winner_loser_momentum_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure") # [代码修改]
+        fault_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure") # [代码修改]
+        skewness_raw = self._get_safe_series(df, df, 'cost_structure_skewness_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure") # [代码修改]
+        pressure_validation_raw = self._get_safe_series(df, df, 'pressure_validation_score_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure") # [代码修改]
+        support_validation_raw = self._get_safe_series(df, df, 'support_validation_score_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure") # [代码修改]
+        cost_gini_raw = self._get_safe_series(df, df, 'cost_gini_coefficient_D', pd.Series(0.5, index=df.index), method_name="_diagnose_axiom_cost_structure") # [代码修改]
+        structural_tension_raw = self._get_safe_series(df, df, 'structural_tension_index_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure") # [代码修改]
+        structural_leverage_raw = self._get_safe_series(df, df, 'structural_leverage_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure") # [代码修改]
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         momentum_score = get_adaptive_mtf_normalized_bipolar_score(momentum_raw, df.index, tf_weights, sensitivity=1.0)
-        # 修改代码行：归一化断层量级，断层越大风险越高，因此乘以-1
         fault_score = get_adaptive_mtf_normalized_bipolar_score(fault_raw, df.index, tf_weights, sensitivity=0.5) * -1
         skewness_score = get_adaptive_mtf_normalized_bipolar_score(skewness_raw, df.index, tf_weights, sensitivity=0.5)
         pressure_validation_score = get_adaptive_mtf_normalized_bipolar_score(pressure_validation_raw, df.index, tf_weights, sensitivity=0.5)
@@ -218,7 +191,6 @@ class ChipIntelligence:
         cost_gini_score = get_adaptive_mtf_normalized_bipolar_score(1 - cost_gini_raw, df.index, tf_weights, sensitivity=0.2)
         structural_tension_score = get_adaptive_mtf_normalized_bipolar_score(structural_tension_raw, df.index, tf_weights, sensitivity=0.5)
         structural_leverage_score = get_adaptive_mtf_normalized_bipolar_score(structural_leverage_raw, df.index, tf_weights, sensitivity=0.5)
-        # 修改代码行：融合所有分数，用 fault_score 替换 divergence_score
         final_score = (
             momentum_score * 0.20 +
             skewness_score * 0.10 +
@@ -226,37 +198,17 @@ class ChipIntelligence:
             cost_gini_score * 0.20 +
             structural_tension_score * 0.15 +
             structural_leverage_score * 0.15 +
-            fault_score * 0.05 - # 替换 divergence_score
+            fault_score * 0.05 -
             pressure_validation_score * 0.05
         ).clip(-1, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"    -> [筹码成本结构探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - momentum_score: {momentum_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - fault_score: {fault_score.loc[probe_date_for_loop]:.4f}") # 修改代码行
-                print(f"       - skewness_score: {skewness_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - pressure_validation_score: {pressure_validation_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - support_validation_score: {support_validation_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - cost_gini_score: {cost_gini_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - structural_tension_score: {structural_tension_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - structural_leverage_score: {structural_leverage_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - final_score: {final_score.loc[probe_date_for_loop]:.4f}")
         return final_score
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V3.1 · 结构动力学重构版】筹码公理三：诊断“持股心态”动态
-        - 核心重构: 废弃 winner_conviction_index, locked_profit/loss_rate 等旧指标。
-        - 核心增强: 引入 `winner_stability_index_D` (获利盘稳定度) 作为衡量赢家心态的核心证据。
-        - 核心增强: 引入 `conviction_flow_index_D` (信念流转指数) 作为衡量市场整体信念流向的核心证据。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
+        【V3.2 · 上下文修复版】筹码公理三：诊断“持股心态”动态
+        - 【V3.2 修复】在调用 _get_safe_series 时传递 df 参数。
         """
         df_index = df.index
-        # 修改代码行：更新依赖信号列表
         required_signals = [
             'winner_stability_index_D', 'conviction_flow_index_D', 'loser_pain_index_D', 'chip_fatigue_index_D',
             'covert_accumulation_signal_D'
@@ -265,22 +217,18 @@ class ChipIntelligence:
         if missing_signals:
             print(f"    -> [持股心态探针] 警告: 缺少核心信号 {missing_signals}，使用默认值0.0。")
             return pd.Series(0.0, index=df.index)
-        # 修改代码行：使用获利盘稳定度替代旧的赢家信念和锁定利润指标
-        winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
-        # 新增代码行：获取信念流转指数
-        conviction_flow_raw = self._get_safe_series(df, 'conviction_flow_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
-        pain_raw = self._get_safe_series(df, 'loser_pain_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
-        fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
-        covert_accumulation_raw = self._get_safe_series(df, 'covert_accumulation_signal_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
+        winner_stability_raw = self._get_safe_series(df, df, 'winner_stability_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment") # [代码修改]
+        conviction_flow_raw = self._get_safe_series(df, df, 'conviction_flow_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment") # [代码修改]
+        pain_raw = self._get_safe_series(df, df, 'loser_pain_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment") # [代码修改]
+        fatigue_raw = self._get_safe_series(df, df, 'chip_fatigue_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment") # [代码修改]
+        covert_accumulation_raw = self._get_safe_series(df, df, 'covert_accumulation_signal_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment") # [代码修改]
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 修改代码行：归一化新指标
         winner_stability_score = get_adaptive_mtf_normalized_bipolar_score(winner_stability_raw, df_index, tf_weights, sensitivity=0.5)
         conviction_flow_score = get_adaptive_mtf_normalized_bipolar_score(conviction_flow_raw, df_index, tf_weights, sensitivity=0.5)
         pain_score = get_adaptive_mtf_normalized_bipolar_score(pain_raw, df_index, tf_weights, sensitivity=5.0)
         fatigue_score = get_adaptive_mtf_normalized_bipolar_score(fatigue_raw, df_index, tf_weights, sensitivity=5.0)
         covert_accumulation_score = get_adaptive_mtf_normalized_bipolar_score(covert_accumulation_raw, df_index, tf_weights, sensitivity=0.5)
-        # 修改代码行：重新分配权重并融合新指标
         final_score = (
             winner_stability_score * 0.35 +
             conviction_flow_score * 0.35 +
@@ -288,50 +236,30 @@ class ChipIntelligence:
             pain_score * 0.10 -
             fatigue_score * 0.10
         ).clip(-1, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"    -> [持股心态探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - winner_stability_score: {winner_stability_score.loc[probe_date_for_loop]:.4f}") # 修改代码行
-                print(f"       - conviction_flow_score: {conviction_flow_score.loc[probe_date_for_loop]:.4f}") # 新增代码行
-                print(f"       - pain_score: {pain_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - fatigue_score: {fatigue_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - covert_accumulation_score: {covert_accumulation_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - final_score: {final_score.loc[probe_date_for_loop]:.4f}")
         return final_score
 
     def _diagnose_axiom_peak_integrity(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V3.0 · 结构动力学增强版】筹码公理四：诊断“筹码峰形态”
-        - 核心增强: 引入 `primary_peak_kurtosis_D` (主峰峰态系数) 和 `price_volume_entropy_D` (价格成交量熵)，
-                      从统计学和信息论角度，更精确地刻画筹码峰的形态（尖锐/平缓）与内部结构的有序性。
-        - 核心修复: 遵循“先归一，后融合”原则。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
+        【V3.1 · 上下文修复版】筹码公理四：诊断“筹码峰形态”
+        - 【V3.1 修复】在调用 _get_safe_series 时传递 df 参数。
         """
         required_signals = [
             'dominant_peak_cost_D', 'dominant_peak_solidity_D', 'price_volume_entropy_D',
-            'primary_peak_kurtosis_D' # 新增代码行：引入新指标
+            'primary_peak_kurtosis_D'
         ]
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             return pd.Series(0.0, index=df.index)
-        price_vs_peak_raw = self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_peak_integrity") - self._get_safe_series(df, 'dominant_peak_cost_D', self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_peak_integrity"), method_name="_diagnose_axiom_peak_integrity")
-        peak_solidity_raw = self._get_safe_series(df, 'dominant_peak_solidity_D', pd.Series(0.5, index=df.index), method_name="_diagnose_axiom_peak_integrity")
-        price_volume_entropy_raw = self._get_safe_series(df, 'price_volume_entropy_D', pd.Series(0.5, index=df.index), method_name="_diagnose_axiom_peak_integrity")
-        # 新增代码行：获取主峰峰态系数
-        primary_peak_kurtosis_raw = self._get_safe_series(df, 'primary_peak_kurtosis_D', pd.Series(3.0, index=df.index), method_name="_diagnose_axiom_peak_integrity")
+        price_vs_peak_raw = self._get_safe_series(df, df, 'close_D', method_name="_diagnose_axiom_peak_integrity") - self._get_safe_series(df, df, 'dominant_peak_cost_D', self._get_safe_series(df, df, 'close_D', method_name="_diagnose_axiom_peak_integrity"), method_name="_diagnose_axiom_peak_integrity") # [代码修改]
+        peak_solidity_raw = self._get_safe_series(df, df, 'dominant_peak_solidity_D', pd.Series(0.5, index=df.index), method_name="_diagnose_axiom_peak_integrity") # [代码修改]
+        price_volume_entropy_raw = self._get_safe_series(df, df, 'price_volume_entropy_D', pd.Series(0.5, index=df.index), method_name="_diagnose_axiom_peak_integrity") # [代码修改]
+        primary_peak_kurtosis_raw = self._get_safe_series(df, df, 'primary_peak_kurtosis_D', pd.Series(3.0, index=df.index), method_name="_diagnose_axiom_peak_integrity") # [代码修改]
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         price_vs_peak_score = get_adaptive_mtf_normalized_bipolar_score(price_vs_peak_raw, df.index, tf_weights, sensitivity=1.2)
         peak_solidity_score = get_adaptive_mtf_normalized_score(peak_solidity_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 熵值越低（结构越有序）越好，因此乘以-1
         price_volume_entropy_score = get_adaptive_mtf_normalized_bipolar_score(price_volume_entropy_raw * -1, df.index, tf_weights, sensitivity=0.5)
-        # 新增代码行：归一化主峰峰态系数，越高越好
         primary_peak_kurtosis_score = get_adaptive_mtf_normalized_bipolar_score(primary_peak_kurtosis_raw, df.index, tf_weights, sensitivity=2.0)
-        # 修改代码行：融合所有分数，调整权重
         final_score = (
             price_vs_peak_score * peak_solidity_score * 0.5 +
             price_volume_entropy_score * 0.25 +
@@ -341,57 +269,34 @@ class ChipIntelligence:
 
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.0 · 结构动力学重构版】筹码公理六：诊断“筹码趋势动量”
-        - 核心重构: 废弃对预合成指标 OCH_D 的依赖，回归原子公理本质。
-        - 核心增强: 直接使用新一代“跨日迁徙”指标 `structural_entropy_change_D`, `peak_mass_transfer_rate_D`,
-                      和 `constructive_turnover_ratio_D` 来诊断筹码结构的动态演化趋势和动量。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
+        【V2.1 · 上下文修复版】筹码公理六：诊断“筹码趋势动量”
+        - 【V2.1 修复】在调用 _get_safe_series 时传递 df 参数。
         """
         df_index = df.index
-        # 修改代码行：更新依赖信号为新一代动态指标
         required_signals = ['structural_entropy_change_D', 'peak_mass_transfer_rate_D', 'constructive_turnover_ratio_D']
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             print(f"    -> [筹码趋势动量探针] 警告: 缺少核心信号 {missing_signals}，使用默认值0.0。")
             return pd.Series(0.0, index=df_index)
-        # 修改代码行：获取新的动态指标
-        entropy_change_raw = self._get_safe_series(df, 'structural_entropy_change_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_momentum")
-        mass_transfer_raw = self._get_safe_series(df, 'peak_mass_transfer_rate_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_momentum")
-        constructive_turnover_raw = self._get_safe_series(df, 'constructive_turnover_ratio_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_momentum")
+        entropy_change_raw = self._get_safe_series(df, df, 'structural_entropy_change_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_momentum") # [代码修改]
+        mass_transfer_raw = self._get_safe_series(df, df, 'peak_mass_transfer_rate_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_momentum") # [代码修改]
+        constructive_turnover_raw = self._get_safe_series(df, df, 'constructive_turnover_ratio_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_momentum") # [代码修改]
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # 修改代码行：归一化新指标
-        # 结构熵变是负向指标（熵减是好事），因此乘以-1
         entropy_change_score = get_adaptive_mtf_normalized_bipolar_score(entropy_change_raw * -1, df_index, tf_weights, sensitivity=0.1)
         mass_transfer_score = get_adaptive_mtf_normalized_bipolar_score(mass_transfer_raw, df_index, tf_weights, sensitivity=0.1)
         constructive_turnover_score = get_adaptive_mtf_normalized_bipolar_score(constructive_turnover_raw, df_index, tf_weights, sensitivity=0.1)
-        # 修改代码行：融合新的动态指标
         chip_trend_momentum_score = (
             entropy_change_score * 0.4 +
             mass_transfer_score * 0.3 +
             constructive_turnover_score * 0.3
         ).clip(-1, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"    -> [筹码趋势动量探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - entropy_change_score: {entropy_change_score.loc[probe_date_for_loop]:.4f}") # 修改代码行
-                print(f"       - mass_transfer_score: {mass_transfer_score.loc[probe_date_for_loop]:.4f}") # 修改代码行
-                print(f"       - constructive_turnover_score: {constructive_turnover_score.loc[probe_date_for_loop]:.4f}") # 修改代码行
-                print(f"       - chip_trend_momentum_score: {chip_trend_momentum_score.loc[probe_date_for_loop]:.4f}")
         return chip_trend_momentum_score.astype(np.float32)
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V1.1】筹码公理五：诊断筹码“背离”动态
-        - 核心逻辑: 诊断价格行为与筹码集中度之间的背离。
-          - 看涨背离：价格下跌但筹码集中度上升（主力吸筹）。
-          - 看跌背离：价格上涨但筹码集中度下降（主力派发）。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将 `price_trend` 和 `concentration_trend` 的归一化方式改为多时间维度自适应归一化。
+        【V1.2 · 上下文修复版】筹码公理五：诊断筹码“背离”动态
+        - 【V1.2 修复】在调用 _get_safe_series 时传递 df 参数。
         """
         required_signals = ['pct_change_D', 'SLOPE_5_short_term_concentration_90pct_D']
         missing_signals = [s for s in required_signals if s not in df.columns]
@@ -399,8 +304,8 @@ class ChipIntelligence:
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        price_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_axiom_divergence"), df.index, tf_weights)
-        concentration_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'SLOPE_5_short_term_concentration_90pct_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_divergence"), df.index, tf_weights)
+        price_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, df, 'pct_change_D', method_name="_diagnose_axiom_divergence"), df.index, tf_weights) # [代码修改]
+        concentration_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, df, 'SLOPE_5_short_term_concentration_90pct_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_divergence"), df.index, tf_weights) # [代码修改]
         divergence_score = (concentration_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
 

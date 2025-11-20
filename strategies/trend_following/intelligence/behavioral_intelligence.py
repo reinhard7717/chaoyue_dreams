@@ -28,15 +28,12 @@ class BehavioralIntelligence:
             return pd.Series(default_value, index=df.index)
         return df[column_name]
 
-    def run_behavioral_analysis_command(self) -> Dict[str, pd.Series]:
+    def run_behavioral_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.6 · 原始信号纯粹版】行为情报模块总指挥
-        - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
-        - 核心职责: 只输出行为领域的原子公理信号、行为背离信号和上下文信号。
-        - 【修改】将上影线抛压风险的判断逻辑迁移至融合层，行为层只输出原始信号。
-        - 移除信号: SCORE_BEHAVIOR_BULLISH_RESONANCE, SCORE_BEHAVIOR_BEARISH_RESONANCE, BIPOLAR_BEHAVIORAL_DOMAIN_HEALTH, SCORE_BEHAVIOR_BOTTOM_REVERSAL, SCORE_BEHAVIOR_TOP_REVERSAL。
+        【V5.7 · 上下文修复版】行为情报模块总指挥
+        - 【V5.7 修复】接收 df 参数作为统一的数据上下文，并移除内部对 self.strategy.df_indicators 的依赖。
         """
-        df = self.strategy.df_indicators
+        # df = self.strategy.df_indicators # [代码删除]
         all_behavioral_states = {}
         atomic_signals = self._diagnose_behavioral_axioms(df)
         self.strategy.atomic_states.update(atomic_signals)
@@ -44,14 +41,9 @@ class BehavioralIntelligence:
         context_new_high_strength = self._diagnose_context_new_high_strength(df)
         self.strategy.atomic_states.update(context_new_high_strength)
         all_behavioral_states.update(context_new_high_strength)
-        # 引入行为层面的看涨/看跌背离信号
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(atomic_signals.get('SCORE_BEHAVIOR_PRICE_VS_VOLUME_DIVERGENCE', pd.Series(0.0, index=df.index)))
         all_behavioral_states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_behavioral_states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
-        # 【移除行】诊断深度博弈版的上影线抛压风险，现在由融合层处理
-        # 【移除行】upper_shadow_risk = self._diagnose_upper_shadow_pressure_risk(df)
-        # 【移除行】self.strategy.atomic_states.update(upper_shadow_risk)
-        # 【移除行】all_behavioral_states.update(upper_shadow_risk)
         for k, v in atomic_signals.items():
             if k not in df.columns:
                 df[k] = v
