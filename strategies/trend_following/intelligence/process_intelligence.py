@@ -32,6 +32,7 @@ class ProcessIntelligence:
         self.bipolar_sensitivity = get_param_value(self.params.get('bipolar_sensitivity'), 1.0)
         self.meta_score_weights = get_param_value(self.params.get('meta_score_weights'), [0.6, 0.4])
         self.diagnostics_config = get_param_value(self.params.get('diagnostics'), [])
+
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -40,6 +41,7 @@ class ProcessIntelligence:
             print(f"    -> [过程情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
+
     def run_process_diagnostics(self, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
         【V3.2.0 · 衰减与反转分析版】运行所有在配置中定义的元分析诊断任务。
@@ -76,6 +78,7 @@ class ProcessIntelligence:
                     if meta_states:
                         all_process_states.update(meta_states)
         return all_process_states
+
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         signal_name = config.get('name')
         if signal_name == 'PROCESS_META_MAIN_FORCE_URGENCY':
@@ -122,6 +125,7 @@ class ProcessIntelligence:
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
         self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
         return relationship_score
+
     def _calculate_cost_advantage_trend_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         print("    -> [过程层] 正在计算 PROCESS_META_COST_ADVANTAGE_TREND (深度博弈四象限版)...")
         df_index = df.index
@@ -176,6 +180,7 @@ class ProcessIntelligence:
         self.strategy.atomic_states[f"_DEBUG_Q4_final"] = Q4_final
         print(f"    -> [过程层] PROCESS_META_COST_ADVANTAGE_TREND 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
+
     def _calculate_main_force_urgency_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V2.1 · 主力拉升意图重构与多时间维度归一化版】计算“主力拉升意图”的专属关系分数。
@@ -197,12 +202,14 @@ class ProcessIntelligence:
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         # 1. 获取核心信号
         price_change = self._get_safe_series(df, 'pct_change_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
-        main_force_cost_change_raw = self._get_safe_series(df, f'SLOPE_5_active_winner_avg_cost_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
-        main_force_cost_accel_raw = self._get_safe_series(df, f'ACCEL_5_active_winner_avg_cost_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
+        # [代码修改开始] 将 active_winner_avg_cost 替换为 dominant_peak_cost
+        main_force_cost_change_raw = self._get_safe_series(df, f'SLOPE_5_dominant_peak_cost_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
+        main_force_cost_accel_raw = self._get_safe_series(df, f'ACCEL_5_dominant_peak_cost_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
+        # [代码修改结束]
         main_force_net_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
-        chip_concentration_change = self._get_safe_series(df, f'SLOPE_5_short_term_concentration_90pct_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
+        chip_concentration_change = self._get_safe_series(df, f'SLOPE_5_winner_concentration_90pct_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship") # [代码修改] 修正信号名称
         # 新增主力控盘和成本优势相关信号
-        main_force_control_leverage = self._get_safe_series(df, 'main_force_control_leverage_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
+        main_force_control_leverage = self._get_safe_series(df, 'control_solidity_index_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship") # [代码修改] 修正信号名称
         main_force_cost_advantage = self._get_safe_series(df, 'main_force_cost_advantage_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
         main_force_price_impact_ratio = self._get_safe_series(df, 'main_force_price_impact_ratio_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
         # 获取MTF权重配置
@@ -270,6 +277,7 @@ class ProcessIntelligence:
         self.strategy.atomic_states[f"_DEBUG_final_rally_intent_raw"] = final_rally_intent
         print(f"    -> [过程层] PROCESS_META_MAIN_FORCE_RALLY_INTENT 计算完成，最新分值: {final_rally_intent.iloc[-1]:.4f}")
         return final_rally_intent.astype(np.float32)
+
     def _calculate_main_force_control_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V1.1 · 多时间维度归一化版】计算“主力控盘”的专属关系分数。
@@ -322,6 +330,7 @@ class ProcessIntelligence:
         self.strategy.atomic_states[f"_DEBUG_main_force_flow_score"] = main_force_flow_score
         print(f"    -> [过程层] PROCESS_META_MAIN_FORCE_CONTROL 计算完成，最新分值: {final_control_score.iloc[-1]:.4f}")
         return final_control_score.astype(np.float32)
+
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
         【V4.0.3 · 希格斯场分析法 - 信号存储与多时间维度归一化修复版】对“关系分”进行元分析，输出分数。
@@ -391,6 +400,7 @@ class ProcessIntelligence:
             meta_score = meta_score.clip(lower=0)
         meta_score = meta_score.clip(-1, 1).astype(np.float32)
         return {signal_name: meta_score}
+
     def _diagnose_split_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
         【V2.1 · 希格斯场分析法与多时间维度归一化版】分裂型元关系诊断器
@@ -434,6 +444,7 @@ class ProcessIntelligence:
         risk_part = meta_score.clip(upper=0).abs()
         states[risk_signal_name] = risk_part.astype(np.float32)
         return states
+
     def _calculate_winner_conviction_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V1.2 · 真理探针植入与多时间维度归一化版】“赢家信念”专属关系计算引擎
@@ -444,6 +455,12 @@ class ProcessIntelligence:
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         antidote_signal_name = config.get('antidote_signal')
+        # [代码修改开始] 临时补丁，将已废弃的 imminent_profit_taking_supply_D 替换为 rally_distribution_pressure_D
+        if antidote_signal_name == 'imminent_profit_taking_supply_D':
+            original_signal_name = antidote_signal_name
+            antidote_signal_name = 'rally_distribution_pressure_D'
+            print(f"    -> [过程情报补丁] 在赢家信念分析中，信号 '{original_signal_name}' 已被 '{antidote_signal_name}' 替代。")
+        # [代码修改结束]
         df_index = df.index
         def get_signal_series(signal_name: str) -> Optional[pd.Series]:
             return self._get_safe_series(df, signal_name, method_name="_calculate_winner_conviction_relationship")
@@ -470,6 +487,7 @@ class ProcessIntelligence:
         k = config.get('signal_b_factor_k', 1.0)
         relationship_score = (k * momentum_b_corrected - momentum_a) / (k + 1)
         return relationship_score.clip(-1, 1)
+
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
         【V1.1 · 多时间维度归一化版】信号衰减诊断器
@@ -481,6 +499,12 @@ class ProcessIntelligence:
         """
         signal_name = config.get('name')
         source_signal_name = config.get('source_signal')
+        # [代码修改开始] 临时补丁，将已废弃的 winner_conviction_index_D 替换为 winner_stability_index_D
+        if source_signal_name == 'winner_conviction_index_D':
+            original_signal_name = source_signal_name
+            source_signal_name = 'winner_stability_index_D'
+            print(f"    -> [过程情报补丁] 在衰减分析中，信号 '{original_signal_name}' 已被 '{source_signal_name}' 替代。")
+        # [代码修改结束]
         source_type = config.get('source_type', 'df')
         df_index = df.index
         if not source_signal_name:
@@ -502,6 +526,7 @@ class ProcessIntelligence:
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         decay_score = get_adaptive_mtf_normalized_score(decay_magnitude, df_index, ascending=True, tf_weights=default_weights)
         return {signal_name: decay_score.astype(np.float32)}
+
     def _diagnose_domain_reversal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
         【V1.1 · 多时间维度归一化版】通用领域反转诊断器
