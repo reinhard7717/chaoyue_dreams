@@ -48,11 +48,9 @@ class ChipFeatureCalculator:
 
     def calculate_all_metrics(self) -> dict:
         """
-        【V15.2 · 利润实现质量计算顺序修复版】
-        - 核心修复: 调整 `profit_realization_quality` 的计算顺序，确保其依赖的 `profit_taking_flow_ratio` 已在上下文中。
-        - 核心新增: 增加第六个计算单元 `_compute_microstructure_game_metrics`，专门负责计算基于高频数据的筹码微观博弈指标。
-        - 核心重构: 废除中间调度方法，由本方法直接指挥六大计算单元，实现扁平化、高效的指挥链。
-        - 核心思想: 将所有计算逻辑整合为六个高度内聚的“合成营”方法，并按依赖顺序依次执行。
+        【V16.0 · 结构势能注入版】
+        - 核心重构: 将 `structural_stability_score` 的计算替换为调用全新的 `_calculate_structural_potential_score`，并更新指标名称。
+        - 动态因子注入: 在流程中增加了对 `cost_gini_coefficient` 1日斜率的计算，并将其注入上下文，为势能评估提供关键的动态输入。
         """
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
@@ -64,17 +62,23 @@ class ChipFeatureCalculator:
         if missing_keys:
             logger.warning(f"[{stock_code}] [{trade_date}] 筹码计算中止，原因：上下文(context_data)中缺少核心字段: {missing_keys}。")
             return {}
-        # 步骤1: 提取基础指标并更新上下文
         summary_info = self._get_summary_metrics_from_context()
         self.ctx.update(summary_info)
-        # 步骤2: 按依赖顺序调用六大计算单元，并持续更新上下文
         static_structure_metrics = self._compute_static_structure_metrics()
         self.ctx.update(static_structure_metrics)
+
+        # 新增代码行：计算并注入基尼系数1日斜率
+        prev_gini = self.ctx.get('prev_metrics', {}).get('cost_gini_coefficient')
+        today_gini = static_structure_metrics.get('cost_gini_coefficient')
+        if pd.notna(prev_gini) and pd.notna(today_gini):
+            self.ctx['cost_gini_coefficient_slope_1d'] = today_gini - prev_gini
+        else:
+            self.ctx['cost_gini_coefficient_slope_1d'] = 0.0
+
         intraday_dynamics_metrics = self._compute_intraday_dynamics_metrics(self.ctx)
         self.ctx.update(intraday_dynamics_metrics)
         cross_day_flow_metrics = self._compute_cross_day_flow_metrics(self.ctx)
         self.ctx.update(cross_day_flow_metrics)
-        # 将 profit_realization_quality 的计算移到此处，确保依赖项已在上下文中
         winner_profit_margin_avg = self.ctx.get('winner_profit_margin_avg')
         total_winner_rate = self.ctx.get('total_winner_rate')
         profit_taking_flow_ratio = self.ctx.get('profit_taking_flow_ratio')
@@ -90,7 +94,6 @@ class ChipFeatureCalculator:
         self.ctx.update(vital_signs_metrics)
         microstructure_game_metrics = self._compute_microstructure_game_metrics(self.ctx)
         self.ctx.update(microstructure_game_metrics)
-        # 步骤3: 整合所有计算结果
         all_metrics = {
             **summary_info,
             **static_structure_metrics,
@@ -99,14 +102,19 @@ class ChipFeatureCalculator:
             **game_theoretic_metrics,
             **vital_signs_metrics,
             **microstructure_game_metrics,
-            'profit_realization_quality': profit_realization_quality, # 将 profit_realization_quality 添加到最终结果
+            'profit_realization_quality': profit_realization_quality,
         }
-        # 步骤4: 计算最终的健康分 (它依赖于之前计算出的所有指标)
+
+        # 修改代码行：调用新的势能函数并更新指标名称
+        potential_score = self._calculate_structural_potential_score(self.ctx, all_metrics)
+        all_metrics['structural_potential_score'] = potential_score
+
         health_score_info = self._calculate_chip_structure_health_score(self.ctx)
         all_metrics.update(health_score_info)
-        # 步骤5: 清理临时或中间指标
         all_metrics.pop('peak_range_low', None)
         all_metrics.pop('peak_range_high', None)
+        # 在传递给 memory 之前，将今天的基尼系数存入 all_metrics
+        all_metrics['cost_gini_coefficient'] = today_gini
         return all_metrics
 
     def _prepare_intraday_data_features(self, intraday_df: pd.DataFrame, trade_date: datetime.date, debug_params: dict) -> pd.DataFrame:
@@ -149,568 +157,270 @@ class ChipFeatureCalculator:
         }
 
     def _compute_cross_day_flow_metrics(self, context: dict) -> dict:
-        import datetime
-        results = {}
+        results = {
+            'peak_mass_transfer_rate': np.nan,
+            'conviction_flow_index': np.nan,
+            'constructive_turnover_ratio': np.nan,
+            'structural_entropy_change': np.nan,
+            'main_force_flow_gini': np.nan,
+        }
+        # --- 依赖项准备 ---
         intraday_df = context.get('processed_intraday_df')
-        total_daily_vol = context.get('daily_turnover_volume')
+        turnover_vol = context.get('daily_turnover_volume')
+        total_chip_vol = context.get('total_chip_volume')
+        prev_metrics = context.get('prev_metrics', {})
+        prev_chip_dist = prev_metrics.get('chip_distribution')
+        if intraday_df.empty or pd.isna(turnover_vol) or turnover_vol <= 0 or prev_chip_dist is None or prev_chip_dist.empty:
+            return results
+        turnover_rate = turnover_vol / total_chip_vol if total_chip_vol > 0 else 0
+        # --- 1. 筹码峰质量转移率 (Peak Mass Transfer Rate) ---
+        today_peak_cost = context.get('dominant_peak_cost')
+        prev_peak_cost = prev_metrics.get('dominant_peak_cost')
+        if pd.notna(today_peak_cost) and pd.notna(prev_peak_cost):
+            today_peak_zone_df = self.df[(self.df['price'] >= today_peak_cost * 0.98) & (self.df['price'] <= today_peak_cost * 1.02)]
+            prev_peak_zone_df = prev_chip_dist[(prev_chip_dist['price'] >= prev_peak_cost * 0.98) & (prev_chip_dist['price'] <= prev_peak_cost * 1.02)]
+            mass_change = today_peak_zone_df['percent'].sum() - prev_peak_zone_df['percent'].sum()
+            if turnover_rate > 0:
+                results['peak_mass_transfer_rate'] = mass_change / (turnover_rate * 100)
+        # --- 2. 信念流转指数 (Conviction Flow Index) ---
         daily_vwap = context.get('daily_vwap')
-        pre_close = context.get('pre_close')
-        results['gathering_by_support'] = np.nan
-        results['gathering_by_chasing'] = np.nan
-        results['dispersal_by_distribution'] = np.nan
-        results['dispersal_by_capitulation'] = np.nan
-        results['profit_taking_flow_ratio'] = np.nan
-        results['capitulation_flow_ratio'] = np.nan
-        results['active_winner_pressure_ratio'] = np.nan
-        results['locked_profit_pressure_ratio'] = np.nan
-        results['active_loser_pressure_ratio'] = np.nan
-        results['locked_loss_pressure_ratio'] = np.nan
-        results['cost_divergence'] = np.nan
-        results['cost_divergence_normalized'] = np.nan
-        results['winner_loser_momentum'] = np.nan
-        results['chip_fatigue_index'] = np.nan
-        results['peak_shoulder_growth_rate'] = np.nan
-        required_cols_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol']
-        if not intraday_df.empty and pd.notna(total_daily_vol) and total_daily_vol > 0 and pd.notna(daily_vwap):
-            for col in required_cols_1:
-                if col not in intraday_df.columns:
-                    return results
-            intraday_df['mf_net_vol'] = intraday_df['main_force_buy_vol'] - intraday_df['main_force_sell_vol']
-            gathering_vol_per_minute = intraday_df['mf_net_vol'].clip(lower=0)
-            dispersal_vol_per_minute = (-intraday_df['mf_net_vol']).clip(lower=0)
-            below_vwap_mask = intraday_df['minute_vwap'] < daily_vwap
-            above_vwap_mask = intraday_df['minute_vwap'] > daily_vwap
-            results['gathering_by_support'] = (gathering_vol_per_minute[below_vwap_mask].sum() / total_daily_vol) * 100
-            results['gathering_by_chasing'] = (gathering_vol_per_minute[above_vwap_mask].sum() / total_daily_vol) * 100
-            results['dispersal_by_distribution'] = (dispersal_vol_per_minute[above_vwap_mask].sum() / total_daily_vol) * 100
-            results['dispersal_by_capitulation'] = (dispersal_vol_per_minute[below_vwap_mask].sum() / total_daily_vol) * 100
-        else:
-            results['gathering_by_support'] = np.nan
-            results['gathering_by_chasing'] = np.nan
-            results['dispersal_by_distribution'] = np.nan
-            results['dispersal_by_capitulation'] = np.nan
-        required_cols_2 = ['minute_vwap', 'main_force_sell_vol', 'retail_sell_vol']
-        total_sell_vol_today = 0.0
-        if not intraday_df.empty and pd.notna(pre_close):
-            for col in required_cols_2:
-                if col not in intraday_df.columns:
-                    return results
-            total_sell_vol_today = (intraday_df['main_force_sell_vol'] + intraday_df['retail_sell_vol']).sum()
-            if total_sell_vol_today > 0:
-                profit_taking_vol = (intraday_df[intraday_df['minute_vwap'] > pre_close]['main_force_sell_vol'] + intraday_df[intraday_df['minute_vwap'] > pre_close]['retail_sell_vol']).sum()
-                capitulation_vol = (intraday_df[intraday_df['minute_vwap'] < pre_close]['main_force_sell_vol'] + intraday_df[intraday_df['minute_vwap'] < pre_close]['retail_sell_vol']).sum()
-                results['profit_taking_flow_ratio'] = (profit_taking_vol / total_sell_vol_today) * 100
-                results['capitulation_flow_ratio'] = (capitulation_vol / total_sell_vol_today) * 100
+        if pd.notna(daily_vwap) and 'main_force_net_vol' in intraday_df.columns:
+            mf_net_vol = intraday_df['main_force_net_vol']
+            gathering_vol = mf_net_vol[intraday_df['minute_vwap'] < daily_vwap].clip(lower=0).sum()
+            dispersal_vol = -mf_net_vol[intraday_df['minute_vwap'] > daily_vwap].clip(upper=0).sum()
+            if gathering_vol > 0 and dispersal_vol > 0:
+                results['conviction_flow_index'] = np.log1p(gathering_vol) / np.log1p(dispersal_vol)
+            elif gathering_vol > 0:
+                results['conviction_flow_index'] = 10.0 # 极度看涨
             else:
-                results['profit_taking_flow_ratio'] = np.nan
-                results['capitulation_flow_ratio'] = np.nan
-        else:
-            results['profit_taking_flow_ratio'] = np.nan
-            results['capitulation_flow_ratio'] = np.nan
-        prev_df = context.get('prev_chip_distribution')
-        prev_high_20d = context.get('prev_high_20d')
-        prev_low_20d = context.get('prev_low_20d')
-        prev_total_chips = context.get('prev_total_chip_volume')
-        if prev_df is not None and not prev_df.empty and pd.notna(prev_high_20d) and pd.notna(prev_low_20d) and pd.notna(prev_total_chips) and prev_total_chips > 0 and total_sell_vol_today > 0:
-            prev_active_mask = (prev_df['price'] >= prev_low_20d) & (prev_df['price'] <= prev_high_20d)
-            vol_active_winners = (prev_df[prev_active_mask & (prev_df['price'] < pre_close)]['percent'].sum() / 100) * prev_total_chips
-            vol_locked_winners = (prev_df[~prev_active_mask & (prev_df['price'] < pre_close)]['percent'].sum() / 100) * prev_total_chips
-            vol_active_losers = (prev_df[prev_active_mask & (prev_df['price'] > pre_close)]['percent'].sum() / 100) * prev_total_chips
-            vol_locked_losers = (prev_df[~prev_active_mask & (prev_df['price'] > pre_close)]['percent'].sum() / 100) * prev_total_chips
-            if vol_active_winners > 0: results['active_winner_pressure_ratio'] = (total_sell_vol_today / vol_active_winners) * 100
-            else: results['active_winner_pressure_ratio'] = np.nan
-            if vol_locked_winners > 0: results['locked_profit_pressure_ratio'] = (total_sell_vol_today / vol_locked_winners) * 100
-            else: results['locked_profit_pressure_ratio'] = np.nan
-            if vol_active_losers > 0: results['active_loser_pressure_ratio'] = (total_sell_vol_today / vol_active_losers) * 100
-            else: results['active_loser_pressure_ratio'] = np.nan
-            if vol_locked_losers > 0: results['locked_loss_pressure_ratio'] = (total_sell_vol_today / vol_locked_losers) * 100
-            else: results['locked_loss_pressure_ratio'] = np.nan
-        else:
-            results['active_winner_pressure_ratio'] = np.nan
-            results['locked_profit_pressure_ratio'] = np.nan
-            results['active_loser_pressure_ratio'] = np.nan
-            results['locked_loss_pressure_ratio'] = np.nan
-        high_20d = context.get('high_20d')
-        low_20d = context.get('low_20d')
-        close_price = context.get('close_price')
-        atr_14d = context.get('atr_14d')
-        if not self.df.empty and pd.notna(high_20d) and pd.notna(low_20d) and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
-            active_chips_df = self.df[(self.df['price'] >= low_20d) & (self.df['price'] <= high_20d)]
-            foundational_chips_df = self.df[self.df['price'] < low_20d]
-            avg_cost_active = np.average(active_chips_df['price'], weights=active_chips_df['percent']) if not active_chips_df.empty and active_chips_df['percent'].sum() > 0 else np.nan
-            avg_cost_foundational = np.average(foundational_chips_df['price'], weights=foundational_chips_df['percent']) if not foundational_chips_df.empty and foundational_chips_df['percent'].sum() > 0 else np.nan
-            if pd.notna(avg_cost_active) and pd.notna(avg_cost_foundational) and avg_cost_foundational > 0:
-                divergence = (avg_cost_active / avg_cost_foundational - 1) * 100
-                results['cost_divergence'] = divergence
-                volatility_pct = (atr_14d / close_price) * 100
-                if volatility_pct > 0: results['cost_divergence_normalized'] = divergence / volatility_pct
-                else: results['cost_divergence_normalized'] = np.nan
-            else:
-                results['cost_divergence'] = np.nan
-                results['cost_divergence_normalized'] = np.nan
-        else:
-            results['cost_divergence'] = np.nan
-            results['cost_divergence_normalized'] = np.nan
-        total_chip_volume = context.get('total_chip_volume')
-        if not self.df.empty and pd.notna(close_price) and pd.notna(pre_close) and pd.notna(total_chip_volume) and total_chip_volume > 0 and pd.notna(total_daily_vol) and total_daily_vol > 0:
-            critical_chips_df = self.df[(self.df['price'] > min(close_price, pre_close)) & (self.df['price'] < max(close_price, pre_close))]
-            status_change_net_flow_pct = critical_chips_df['percent'].sum() * np.sign(close_price - pre_close)
-            turnover_rate = total_daily_vol / total_chip_volume
-            if turnover_rate > 0: results['winner_loser_momentum'] = status_change_net_flow_pct / turnover_rate
-            else: results['winner_loser_momentum'] = np.nan
-        else:
-            results['winner_loser_momentum'] = np.nan
-        prev_fatigue_index = context.get('prev_chip_fatigue_index', np.nan)
-        recent_closes = context.get('recent_10d_closes')
-        # 调整 chip_fatigue_index 的计算逻辑
-        if pd.notna(close_price) and pd.notna(total_chip_volume) and total_chip_volume > 0 and pd.notna(total_daily_vol):
-            # 如果 prev_fatigue_index 为 NaN，或者 recent_closes 长度不足以进行有效日判断，则进行初始化
-            # prev_fatigue_index 在首次计算时会是 0.0 (来自 .get(..., 0.0))，但 recent_closes 长度会不足
-            if pd.isna(prev_fatigue_index) or recent_closes is None or len(recent_closes) < 9:
-                # 初始化 fatigue_index 基于当日换手率
-                fatigue_index = (total_daily_vol / total_chip_volume) * 100
-                results['chip_fatigue_index'] = fatigue_index
-            else:
-                # 正常计算
-                is_effective_day = (close_price >= max(recent_closes)) or (close_price <= min(recent_closes))
-                fatigue_index = prev_fatigue_index * 0.98
-                if is_effective_day: fatigue_index *= 0.5
-                else: fatigue_index += (total_daily_vol / total_chip_volume) * 100
-                results['chip_fatigue_index'] = fatigue_index
-        else:
-            results['chip_fatigue_index'] = np.nan
-        prev_chip_dist = context.get('prev_chip_distribution')
-        prev_dominant_peak_cost = context.get('prev_dominant_peak_cost')
-        today_dominant_peak_cost = context.get('dominant_peak_cost')
-        if prev_chip_dist is not None and not prev_chip_dist.empty and pd.notna(prev_dominant_peak_cost) and pd.notna(today_dominant_peak_cost):
-            prev_upper_shoulder_df = prev_chip_dist[(prev_chip_dist['price'] >= prev_dominant_peak_cost * 1.02) & (prev_chip_dist['price'] <= prev_dominant_peak_cost * 1.07)]
-            prev_lower_shoulder_df = prev_chip_dist[(prev_chip_dist['price'] >= prev_dominant_peak_cost * 0.93) & (prev_chip_dist['price'] <= prev_dominant_peak_cost * 0.98)]
-            today_upper_shoulder_df = self.df[(self.df['price'] >= today_dominant_peak_cost * 1.02) & (self.df['price'] <= today_dominant_peak_cost * 1.07)]
-            today_lower_shoulder_df = self.df[(self.df['price'] >= today_dominant_peak_cost * 0.93) & (self.df['price'] <= today_dominant_peak_cost * 0.98)]
-            chip_vol_upper_yesterday = prev_upper_shoulder_df['percent'].sum()
-            chip_vol_lower_yesterday = prev_lower_shoulder_df['percent'].sum()
-            chip_vol_upper_today = today_upper_shoulder_df['percent'].sum()
-            chip_vol_lower_today = today_lower_shoulder_df['percent'].sum()
-            upper_growth = (chip_vol_upper_today / chip_vol_upper_yesterday - 1) * 100 if chip_vol_upper_yesterday > 0 else (100 if chip_vol_upper_today > 0 else 0)
-            lower_growth = (chip_vol_lower_today / chip_vol_lower_yesterday - 1) * 100 if chip_vol_lower_yesterday > 0 else (100 if chip_vol_lower_today > 0 else 0)
-            results['peak_shoulder_growth_rate'] = upper_growth - lower_growth
-        else:
-            results['peak_shoulder_growth_rate'] = np.nan
+                results['conviction_flow_index'] = 0.1 # 极度看跌
+        # --- 3. 建设性换手率 (Constructive Turnover Ratio) ---
+        today_winner_rate = context.get('total_winner_rate')
+        prev_winner_rate = prev_metrics.get('total_winner_rate')
+        if pd.notna(today_winner_rate) and pd.notna(prev_winner_rate) and turnover_rate > 0:
+            winner_rate_change = today_winner_rate - prev_winner_rate
+            results['constructive_turnover_ratio'] = winner_rate_change / (turnover_rate * 100)
+        # --- 4. 结构熵变 (Structural Entropy Change) ---
+        today_entropy = context.get('price_volume_entropy')
+        prev_entropy = prev_metrics.get('price_volume_entropy')
+        if pd.notna(today_entropy) and pd.notna(prev_entropy):
+            results['structural_entropy_change'] = today_entropy - prev_entropy
+        # --- 5. 主力资金流基尼系数 (Main Force Flow Gini) ---
+        def _calculate_gini_for_flow(flow_series: pd.Series) -> float:
+            flow = np.abs(flow_series.dropna())
+            if len(flow) < 2 or flow.sum() == 0: return np.nan
+            flow = np.sort(flow)
+            index = np.arange(1, len(flow) + 1)
+            n = len(flow)
+            return ((2 * np.sum(flow * index)) / (n * np.sum(flow))) - (n + 1) / n
+        if 'main_force_net_vol' in intraday_df.columns:
+            results['main_force_flow_gini'] = _calculate_gini_for_flow(intraday_df['main_force_net_vol'])
+        # --- 兼容旧指标 ---
+        results.update(self._compute_legacy_cross_day_metrics(context))
         return results
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
-        import datetime
-        results = {}
-        intraday_df = context.get('processed_intraday_df')
-        total_daily_vol = context.get('daily_turnover_volume')
+        results = {
+            'strategic_phase_score': np.nan,
+            'deception_index': np.nan,
+            'control_solidity_index': np.nan,
+            'exhaustion_risk_index': np.nan,
+            'breakout_readiness_score': np.nan,
+        }
+        # --- 1. 依赖项准备 ---
+        # 从上下文中获取前三象限的核心输出
+        potential = context.get('structural_potential_score')
+        posture = context.get('intraday_posture_score')
+        entropy_change = context.get('structural_entropy_change')
+        gini = context.get('cost_gini_coefficient')
+        peak_transfer = context.get('peak_control_transfer')
+        fatigue = context.get('chip_fatigue_index')
+        loser_pain = context.get('loser_pain_index')
+        impulse_quality = context.get('impulse_quality_ratio')
         close_price = context.get('close_price')
-        atr_14d = context.get('atr_14d')
-        pre_close = context.get('pre_close')
-        daily_high = context.get('high_price')
-        daily_low = context.get('low_price')
-        results['suppressive_accumulation_intensity'] = np.nan
-        results['rally_distribution_intensity'] = np.nan
-        results['rally_accumulation_intensity'] = np.nan
-        results['panic_selling_intensity'] = np.nan
-        results['active_winner_avg_cost'] = np.nan
-        results['active_winner_profit_margin'] = np.nan
-        results['loser_avg_cost'] = np.nan
-        results['winner_conviction_index'] = np.nan
-        results['main_force_cost_advantage'] = np.nan
-        results['main_force_control_leverage'] = np.nan
-        results['loser_capitulation_pressure_index'] = np.nan
-        results['intraday_new_loser_pressure'] = np.nan
-        results['auction_intent_signal'] = np.nan
-        results['auction_closing_position'] = np.nan
-        results['intraday_probe_rebound_quality'] = np.nan
-        results['capitulation_absorption_index'] = np.nan
-        results['peak_battle_intensity'] = np.nan
-        results['peak_dynamic_strength_ratio'] = np.nan
-        results['peak_main_force_premium'] = np.nan
-        results['peak_mf_conviction_flow'] = np.nan
-        required_cols_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol']
-        if not intraday_df.empty and pd.notna(total_daily_vol) and total_daily_vol > 0:
-            for col in required_cols_1:
-                if col not in intraday_df.columns:
-                    return results
-            intraday_df['mf_net_vol'] = intraday_df['main_force_buy_vol'] - intraday_df['main_force_sell_vol']
-            peaks, _ = find_peaks(intraday_df['minute_vwap'], prominence=0.001)
-            troughs, _ = find_peaks(-intraday_df['minute_vwap'], prominence=0.001)
-            turning_points = sorted(list(set(np.concatenate(([0], troughs, peaks, [len(intraday_df)-1])))))
-            suppressive_vol, rally_dist_vol, rally_acc_vol, panic_vol = 0, 0, 0, 0
-            for i in range(len(turning_points) - 1):
-                window_df = intraday_df.iloc[turning_points[i]:turning_points[i+1]+1]
-                if window_df.empty: continue
-                mf_net = window_df['mf_net_vol'].sum()
-                if window_df['minute_vwap'].iloc[-1] < window_df['minute_vwap'].iloc[0]:
-                    if mf_net > 0: suppressive_vol += mf_net
-                    else: panic_vol += abs(mf_net)
-                else:
-                    if mf_net < 0: rally_dist_vol += abs(mf_net)
-                    else: rally_acc_vol += mf_net
-            results['suppressive_accumulation_intensity'] = (suppressive_vol / total_daily_vol) * 100
-            results['rally_distribution_intensity'] = (rally_dist_vol / total_daily_vol) * 100
-            results['rally_accumulation_intensity'] = (rally_acc_vol / total_daily_vol) * 100
-            results['panic_selling_intensity'] = (panic_vol / total_daily_vol) * 100
-        else:
-            results['suppressive_accumulation_intensity'] = np.nan
-            results['rally_distribution_intensity'] = np.nan
-            results['rally_accumulation_intensity'] = np.nan
-            results['panic_selling_intensity'] = np.nan
-        active_winner_avg_cost, active_profit_margin = self._calculate_active_winner_profit_margin(close_price, atr_14d, context)
-        results['active_winner_avg_cost'] = active_winner_avg_cost
-        results['active_winner_profit_margin'] = active_profit_margin
-        losers_df = self.df[self.df['price'] > close_price]
-        if not losers_df.empty and losers_df['percent'].sum() > 0:
-            results['loser_avg_cost'] = np.average(losers_df['price'], weights=losers_df['percent'])
-        else:
-            results['loser_avg_cost'] = np.nan
-        results['winner_conviction_index'] = self._calculate_winner_conviction_index(context, active_profit_margin)
-        required_cols_4_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
-        if not intraday_df.empty:
-            for col in required_cols_4_1:
-                if col not in intraday_df.columns:
-                    return results
-            mf_total_vol = intraday_df['main_force_buy_vol'].sum() + intraday_df['main_force_sell_vol'].sum()
-            retail_total_vol = intraday_df['retail_buy_vol'].sum() + intraday_df['retail_sell_vol'].sum()
-            if mf_total_vol > 0 and retail_total_vol > 0:
-                mf_total_amount = (intraday_df['main_force_buy_vol'] * intraday_df['minute_vwap']).sum() + (intraday_df['main_force_sell_vol'] * intraday_df['minute_vwap']).sum()
-                retail_total_amount = (intraday_df['retail_buy_vol'] * intraday_df['minute_vwap']).sum() + (intraday_df['retail_sell_vol'] * intraday_df['minute_vwap']).sum()
-                vwap_mf = mf_total_amount / mf_total_vol
-                vwap_retail = retail_total_amount / retail_total_vol
-                if vwap_mf > 0: results['main_force_cost_advantage'] = (vwap_retail / vwap_mf - 1) * 100
-                else: results['main_force_cost_advantage'] = np.nan
-            else:
-                results['main_force_cost_advantage'] = np.nan
-        else:
-            results['main_force_cost_advantage'] = np.nan
-        required_cols_4_2 = ['main_force_buy_vol', 'main_force_sell_vol']
-        if not intraday_df.empty:
-            for col in required_cols_4_2:
-                if col not in intraday_df.columns:
-                    return results
-            mf_buy_vol = intraday_df['main_force_buy_vol'].sum()
-            mf_sell_vol = intraday_df['main_force_sell_vol'].sum()
-            if (mf_buy_vol + mf_sell_vol) > 0:
-                results['main_force_control_leverage'] = ((mf_buy_vol - mf_sell_vol) / (mf_buy_vol + mf_sell_vol)) * 100
-            else:
-                results['main_force_control_leverage'] = np.nan
-        else:
-            results['main_force_control_leverage'] = np.nan
-        loser_loss_margin = context.get('loser_loss_margin_avg')
-        loser_concentration = context.get('loser_concentration_90pct')
-        if pd.notna(loser_loss_margin) and pd.notna(loser_concentration):
-            results['loser_capitulation_pressure_index'] = abs(loser_loss_margin) * loser_concentration
-        else:
-            results['loser_capitulation_pressure_index'] = np.nan
-        daily_volume = context.get('daily_turnover_volume')
-        if not intraday_df.empty and pd.notna(close_price) and pd.notna(daily_volume) and daily_volume > 0:
-            new_losers_df = intraday_df[intraday_df['minute_vwap'] > close_price].copy()
-            if not new_losers_df.empty:
-                new_loser_vol = new_losers_df['vol_shares'].sum()
-                if new_loser_vol > 0:
-                    new_loser_vwap = (new_losers_df['minute_vwap'] * new_losers_df['vol_shares']).sum() / new_loser_vol
-                    avg_loss_rate = abs((close_price / new_loser_vwap - 1))
-                    results['intraday_new_loser_pressure'] = (new_loser_vol / daily_volume) * avg_loss_rate * 100
-                else:
-                    results['intraday_new_loser_pressure'] = np.nan
-            else:
-                results['intraday_new_loser_pressure'] = np.nan
-        else:
-            results['intraday_new_loser_pressure'] = np.nan
-        results['auction_intent_signal'] = np.nan
-        results['auction_closing_position'] = np.nan
-        # 调整竞价信号的计算逻辑
-        if not intraday_df.empty and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
-            closing_auction_time = datetime.time(15, 0)
-            # 直接使用 intraday_df.index.time
-            pre_auction_df = intraday_df[intraday_df.index.time < closing_auction_time]
-            auction_bar_df = intraday_df[intraday_df.index.time == closing_auction_time]
-            if not pre_auction_df.empty and not auction_bar_df.empty and 'vol' in auction_bar_df.columns and auction_bar_df['vol'].sum() > 0:
-                pre_auction_close = pre_auction_df['close'].iloc[-1]
-                auction_bar = auction_bar_df.iloc[0]
-                auction_volume = auction_bar['vol']
-                if total_daily_vol > 0:
-                    price_impact = (close_price - pre_auction_close) / atr_14d
-                    volume_weight = np.log1p(auction_volume / total_daily_vol)
-                    results['auction_intent_signal'] = price_impact * volume_weight * 100
-                else:
-                    results['auction_intent_signal'] = np.nan
-                auction_high = auction_bar['high']
-                auction_low = auction_bar['low']
-                auction_range = auction_high - auction_low
-                # =================================================================
-                # 修改代码：修正 auction_closing_position 的计算逻辑
-                # 原始逻辑在 auction_range 为0时会错误地返回100。
-                # 新逻辑在 auction_range 为0时返回0，代表中性、无波动。
-                if auction_range > 1e-6:
-                    position = (close_price - auction_low) / auction_range
-                    results['auction_closing_position'] = (position * 2 - 1) * 100
-                else:
-                    # 当竞价范围为0时，代表价格没有波动，位置是中性的，应为0
-                    results['auction_closing_position'] = 0.0
-                # =================================================================
-            else:
-                results['auction_intent_signal'] = np.nan
-                results['auction_closing_position'] = np.nan
-        else:
-            results['auction_intent_signal'] = np.nan
-            results['auction_closing_position'] = np.nan
-        if not intraday_df.empty and pd.notna(daily_low) and pd.notna(daily_high) and pd.notna(close_price):
-            day_range = daily_high - daily_low
-            if day_range > 1e-6:
-                if 'low' in intraday_df.columns and not intraday_df['low'].empty:
-                    low_price_idx = intraday_df['low'].idxmin()
-                else:
-                    low_price_idx = intraday_df['minute_vwap'].idxmin()
-                rebound_df = intraday_df.loc[low_price_idx:]
-                if not rebound_df.empty and len(rebound_df) > 1:
-                    price_recovery_ratio = (close_price - daily_low) / day_range
-                    rebound_volume = rebound_df['vol_shares'].sum()
-                    if rebound_volume > 0 and 'main_force_net_vol' in rebound_df.columns:
-                        rebound_mf_net_flow = rebound_df['main_force_net_vol'].sum()
-                        rebound_purity = rebound_mf_net_flow / rebound_volume
-                        results['intraday_probe_rebound_quality'] = price_recovery_ratio * rebound_purity * 100
-                    else:
-                        results['intraday_probe_rebound_quality'] = np.nan
-                else:
-                    results['intraday_probe_rebound_quality'] = np.nan
-            else:
-                results['intraday_probe_rebound_quality'] = np.nan
-        else:
-            results['intraday_probe_rebound_quality'] = np.nan
-        if not intraday_df.empty and pd.notna(daily_low) and pd.notna(daily_high) and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
-            panic_selling_zone_low = daily_low
-            panic_selling_zone_high = daily_low + atr_14d * 0.5
-            panic_zone_df = intraday_df[(intraday_df['minute_vwap'] >= panic_selling_zone_low) & (intraday_df['minute_vwap'] <= panic_selling_zone_high)]
-            if not panic_zone_df.empty and 'main_force_net_vol' in panic_zone_df.columns and 'retail_net_vol' in panic_zone_df.columns and 'vol_shares' in panic_zone_df.columns:
-                mf_net_flow_panic_zone = panic_zone_df['main_force_net_vol'].sum()
-                retail_net_flow_panic_zone = panic_zone_df['retail_net_vol'].sum()
-                total_vol_panic_zone = panic_zone_df['vol_shares'].sum()
-                if total_vol_panic_zone > 0:
-                    # =================================================================
-                    # 修改代码：修正 capitulation_absorption_index 的计算逻辑
-                    # 原始逻辑要求主力净买入且散户净卖出，过于严格。
-                    # 新逻辑只要主力在恐慌区净买入，就计算其吸收强度。
-                    if mf_net_flow_panic_zone > 0:
-                        denominator = mf_net_flow_panic_zone + abs(retail_net_flow_panic_zone)
-                        if denominator > 0:
-                            results['capitulation_absorption_index'] = (mf_net_flow_panic_zone / denominator) * 100
-                        else:
-                            results['capitulation_absorption_index'] = 0.0
-                    else:
-                        results['capitulation_absorption_index'] = 0.0
-                    # =================================================================
-                else:
-                    results['capitulation_absorption_index'] = np.nan
-            else:
-                results['capitulation_absorption_index'] = np.nan
-        else:
-            results['capitulation_absorption_index'] = np.nan
-        dominant_peak_cost = context.get('dominant_peak_cost')
-        dominant_peak_volume_ratio = context.get('dominant_peak_volume_ratio')
-        if pd.notna(dominant_peak_cost) and pd.notna(dominant_peak_volume_ratio) and pd.notna(atr_14d) and atr_14d > 0 and not intraday_df.empty:
-            peak_zone_low = dominant_peak_cost - atr_14d * 0.2
-            peak_zone_high = dominant_peak_cost + atr_14d * 0.2
-            intraday_peak_zone_df = intraday_df[(intraday_df['minute_vwap'] >= peak_zone_low) & (intraday_df['minute_vwap'] <= peak_zone_high)]
-            if not intraday_peak_zone_df.empty and 'main_force_net_vol' in intraday_peak_zone_df.columns and 'retail_net_vol' in intraday_peak_zone_df.columns and 'vol_shares' in intraday_peak_zone_df.columns:
-                mf_net_flow_in_peak_zone = intraday_peak_zone_df['main_force_net_vol'].sum()
-                retail_net_flow_in_peak_zone = intraday_peak_zone_df['retail_net_vol'].sum()
-                total_vol_in_peak_zone = intraday_peak_zone_df['vol_shares'].sum()
-                if total_vol_in_peak_zone > 0:
-                    results['peak_battle_intensity'] = (total_vol_in_peak_zone / total_daily_vol) * 100 if total_daily_vol > 0 else np.nan
-                    results['peak_dynamic_strength_ratio'] = (mf_net_flow_in_peak_zone / total_vol_in_peak_zone) * 100
-                    avg_price_in_peak_zone = (intraday_peak_zone_df['minute_vwap'] * intraday_peak_zone_df['vol_shares']).sum() / total_vol_in_peak_zone
-                    if avg_price_in_peak_zone > 0:
-                        results['peak_main_force_premium'] = (dominant_peak_cost / avg_price_in_peak_zone - 1) * 100
-                    else:
-                        results['peak_main_force_premium'] = np.nan
-                    total_net_flow_in_peak_zone = abs(mf_net_flow_in_peak_zone) + abs(retail_net_flow_in_peak_zone)
-                    if total_net_flow_in_peak_zone > 0:
-                        results['peak_mf_conviction_flow'] = (mf_net_flow_in_peak_zone / total_net_flow_in_peak_zone) * 100
-                    else:
-                        results['peak_mf_conviction_flow'] = np.nan
-                else:
-                    results['peak_battle_intensity'] = np.nan
-                    results['peak_dynamic_strength_ratio'] = np.nan
-                    results['peak_main_force_premium'] = np.nan
-                    results['peak_mf_conviction_flow'] = np.nan
-            else:
-                results['peak_battle_intensity'] = np.nan
-                results['peak_dynamic_strength_ratio'] = np.nan
-                results['peak_main_force_premium'] = np.nan
-                results['peak_mf_conviction_flow'] = np.nan
-        else:
-            results['peak_battle_intensity'] = np.nan
-            results['peak_dynamic_strength_ratio'] = np.nan
-            results['peak_main_force_premium'] = np.nan
-            results['peak_mf_conviction_flow'] = np.nan
+        open_price = context.get('open_price')
+        atr = context.get('atr_14d')
+        if any(pd.isna(v) for v in [potential, posture, entropy_change, gini, peak_transfer, fatigue, loser_pain, impulse_quality, close_price, open_price, atr]):
+            return results
+        # --- 2. 风险与稳固度计算 ---
+        results['control_solidity_index'] = gini * peak_transfer
+        results['exhaustion_risk_index'] = np.log1p(fatigue) * np.log1p(loser_pain)
+        # --- 3. 欺骗指数计算 ---
+        price_momentum = (close_price - open_price) / atr if atr > 0 else 0
+        # 当价格强劲上涨但脉冲品质很差时，为诱多；反之为诱空
+        results['deception_index'] = np.tanh(price_momentum) * (1 - np.tanh(impulse_quality / 100)) * 100
+        # --- 4. 核心战略推演 ---
+        # 突破就绪分 = 结构势能 * 日内姿态 * 结构熵减
+        readiness = (potential / 100) * (posture / 100) * np.clip(1 - entropy_change, 0, 2)
+        results['breakout_readiness_score'] = np.clip(readiness * 100, 0, 100)
+        # 战略阶段评分
+        markup_force = results['breakout_readiness_score'] * (1 + np.tanh(results['control_solidity_index'] / 100))
+        distribution_force = results['exhaustion_risk_index'] * (1 + np.tanh(results['deception_index'] / 100))
+        phase_score = markup_force - distribution_force
+        results['strategic_phase_score'] = np.tanh(phase_score / 50) * 100 # 用tanh压缩到-100到100
+        # --- 5. 兼容旧指标 ---
+        results.update(self._compute_legacy_game_theory_metrics(context))
         return results
 
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
-        """
-        【V3.3 · 共识度鲁棒性增强版】
-        - 核心修复: 增强 `structural_consensus_score` 的计算鲁棒性，当上游集中度指标为空时，采用中性值替代。
-        """
-        results = {}
-        # 1. 成本结构共识与筹码成本动量
-        concentration_90pct = context.get('concentration_90pct')
-        total_winner_rate = context.get('total_winner_rate')
-        # 增强鲁棒性：如果集中度指标为空，则赋予一个中性值，而不是让计算失败
-        if pd.notna(total_winner_rate):
-            if pd.notna(concentration_90pct):
-                concentration_factor = 1.0 - np.clip(concentration_90pct, 0, 1)
-            else:
-                # 当上游集中度为空时（例如市场极端行情），赋予一个中性值0.5
-                concentration_factor = 0.5
-            profit_factor = total_winner_rate / 100.0
-            results['structural_consensus_score'] = concentration_factor * profit_factor * 100
-        # 升级为 `dominant_cost_momentum`
-        dominant_peak_cost = context.get('dominant_peak_cost')
-        prev_dominant_peak_cost = context.get('prev_dominant_peak_cost')
-        prev_atr = context.get('prev_atr_14d')
-        if all(pd.notna(v) for v in [dominant_peak_cost, prev_dominant_peak_cost, prev_atr]) and prev_atr > 0:
-            results['dominant_cost_momentum'] = (dominant_peak_cost - prev_dominant_peak_cost) / prev_atr
-        # 2. 结构韧性指数
-        def normalize(value, default=0.0): return value if pd.notna(value) else default
-        consensus_index = normalize(results.get('structural_consensus_score'))
-        peak_profit_margin = normalize(context.get('dominant_peak_profit_margin'))
-        foundation_score = np.log1p(consensus_index) * np.log1p(np.maximum(0, peak_profit_margin))
-        active_winner_margin = normalize(context.get('active_winner_profit_margin'))
-        winner_conviction = normalize(context.get('winner_conviction_index'))
-        pressure_score = np.log1p(np.maximum(0, active_winner_margin)) * np.log1p(np.maximum(0, winner_conviction))
-        cost_momentum = normalize(results.get('dominant_cost_momentum'))
-        upward_purity = normalize(context.get('upward_impulse_purity'))
-        reinforcement_score = (np.tanh(cost_momentum) + 1) * ((upward_purity / 100.0) + 1)
-        if foundation_score >= 0 and pressure_score >= 0 and reinforcement_score >= 0:
-            resilience_raw = (foundation_score * pressure_score * reinforcement_score) ** (1.0 / 3.0)
-            results['structural_resilience_index'] = np.clip(resilience_raw * 20, 0, 100)
-        # 3. 主力姿态坐标
-        resilience = normalize(results.get('structural_resilience_index')) / 100.0
-        cost_advantage = np.tanh(normalize(context.get('main_force_cost_advantage')) / 10.0)
-        loser_pressure = normalize(context.get('loser_capitulation_pressure_index'))
-        pressure_penalty = np.tanh(loser_pressure / 50.0)
-        results['posture_control_score'] = (resilience + cost_advantage) / 2.0 * (1 - pressure_penalty) * 100
-        control_leverage = normalize(context.get('main_force_control_leverage')) / 100.0
-        buy_intensity = normalize(context.get('suppressive_accumulation_intensity')) + normalize(context.get('rally_accumulation_intensity'))
-        sell_intensity = normalize(context.get('rally_distribution_intensity')) + normalize(context.get('panic_selling_intensity'))
-        tactical_factor = np.tanh((buy_intensity - sell_intensity) / 50.0)
-        results['posture_action_score'] = (0.7 * control_leverage + 0.3 * tactical_factor) * 100
+        results = {
+            'signal_conviction_score': np.nan,
+            'risk_reward_profile': np.nan,
+            'trend_vitality_index': np.nan,
+            'overall_t1_rating': np.nan,
+        }
+        # --- 1. 依赖项准备 (元分析) ---
+        phase_score = context.get('strategic_phase_score')
+        posture_score = context.get('intraday_posture_score')
+        control_solidity = context.get('control_solidity_index')
+        readiness_score = context.get('breakout_readiness_score')
+        exhaustion_risk = context.get('exhaustion_risk_index')
+        prev_metrics = context.get('prev_metrics', {})
+        prev_phase_score = prev_metrics.get('strategic_phase_score')
+        if any(pd.isna(v) for v in [phase_score, posture_score, control_solidity, readiness_score, exhaustion_risk]):
+            return results
+        # --- 2. 信号置信度评分 (Signal Conviction Score) ---
+        # 衡量战略、战术、控盘三者的一致性
+        s1 = phase_score / 100
+        s2 = posture_score / 100
+        s3 = np.tanh(control_solidity / 100)
+        # 使用几何平均数，如果任何一个环节为负，则置信度会受影响
+        conviction = np.sign(s1) * (abs(s1 * s2 * s3))**(1/3)
+        results['signal_conviction_score'] = conviction * 100
+        # --- 3. 风险收益剖面 (Risk-Reward Profile) ---
+        reward_potential = np.log1p(readiness_score)
+        risk_exposure = np.log1p(exhaustion_risk)
+        if risk_exposure > 0:
+            results['risk_reward_profile'] = reward_potential / risk_exposure
+        else:
+            results['risk_reward_profile'] = reward_potential * 10 # 风险极低时，收益潜力被放大
+        # --- 4. 趋势生命力指数 (Trend Vitality Index) ---
+        vitality = readiness_score
+        if pd.notna(prev_phase_score):
+            phase_slope = phase_score - prev_phase_score
+            # 如果战略评分正在改善，则放大生命力；反之则削弱
+            vitality_multiplier = 1 + np.tanh(phase_slope / 20) # tanh将斜率影响约束在(0,2)
+            vitality *= vitality_multiplier
+        results['trend_vitality_index'] = vitality
+        # --- 5. T+1综合评级 (Overall T+1 Rating) ---
+        # 最终评级 = 置信度 * (1 + tanh(风险收益)) * 生命力
+        # tanh将风险收益剖面压缩到(-1, 1)，使其成为一个调整因子
+        rating = results['signal_conviction_score'] * \
+                 (1 + np.tanh(results['risk_reward_profile'] - 1)) * \
+                 (results['trend_vitality_index'] / 100)
+        results['overall_t1_rating'] = np.clip(rating, -100, 100)
         return results
 
     def _compute_static_structure_metrics(self) -> dict:
-        results = {}
+        from scipy.signal import find_peaks
+        from scipy.stats import kurtosis, skew
+        results = {
+            # --- 核心新指标 ---
+            'structural_node_count': np.nan,
+            'primary_peak_kurtosis': np.nan,
+            'cost_gini_coefficient': np.nan,
+            'structural_tension_index': np.nan,
+            'structural_leverage': np.nan,
+            'vacuum_zone_magnitude': np.nan,
+            'winner_stability_index': np.nan,
+            # --- 升级/保留指标 ---
+            'dominant_peak_cost': np.nan, 'dominant_peak_volume_ratio': np.nan,
+            'dominant_peak_profit_margin': np.nan, 'dominant_peak_solidity': np.nan,
+            'secondary_peak_cost': np.nan, 'peak_separation_ratio': np.nan,
+            'winner_concentration_90pct': np.nan, 'loser_concentration_90pct': np.nan,
+            'chip_fault_magnitude': np.nan, 'chip_fault_blockage_ratio': np.nan,
+            'total_winner_rate': np.nan, 'total_loser_rate': np.nan,
+            'winner_profit_margin_avg': np.nan, 'loser_loss_margin_avg': np.nan,
+            'loser_pain_index': np.nan, 'cost_structure_skewness': np.nan,
+            'structural_stability_score': np.nan, 'price_volume_entropy': np.nan,
+        }
         close_price = self.ctx.get('close_price')
         atr_14d = self.ctx.get('atr_14d')
-        intraday_df = self.ctx.get('processed_intraday_df')
-        results.update({
-            'dominant_peak_cost': np.nan, 'dominant_peak_volume_ratio': np.nan,
-            'secondary_peak_cost': np.nan, 'peak_separation_ratio': np.nan,
-            'peak_volume_ratio': np.nan, 'peak_distance_volatility_ratio': np.nan,
-            'peak_separation_intensity': np.nan, 'peak_fusion_indicator': np.nan,
-            'dominant_peak_profit_margin': np.nan, 'dominant_peak_solidity': np.nan,
-            'winner_concentration_90pct': np.nan, 'loser_concentration_90pct': np.nan,
-            'dynamic_pressure_index': np.nan, 'dynamic_support_index': np.nan,
-            'total_winner_rate': np.nan, 'total_loser_rate': np.nan,
-            'winner_profit_margin_avg': np.nan, 'effective_winner_rate': np.nan,
-            'loser_loss_margin_avg': np.nan, 'active_winner_rate': np.nan,
-            'active_loser_rate': np.nan, 'locked_profit_rate': np.nan,
-            'locked_loss_rate': np.nan, 'chip_fault_blockage_ratio': np.nan,
-            'chip_fault_magnitude': np.nan, 'short_term_holder_cost': np.nan,
-            'short_term_concentration_90pct': np.nan, 'long_term_holder_cost': np.nan,
-            'long_term_concentration_90pct': np.nan, 'winner_profit_cushion': np.nan,
-            'loser_pain_index': np.nan, 'cost_structure_skewness': np.nan,
-            'structural_stability_score': np.nan, 'recent_trapped_pressure': np.nan,
-            'imminent_profit_taking_supply': np.nan, 'price_volume_entropy': np.nan,
-            'profit_realization_quality': np.nan, # 初始化为 np.nan，但实际计算已移走
-            'active_buying_support': np.nan,
-            'active_selling_pressure': np.nan,
-        })
-        # 1. 主导峰与潜在次峰引力点(PSGP)剖面
-        if not self.df.empty:
-            from scipy.signal import find_peaks
-            peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
-            if len(peaks) > 0:
-                peaks_df = pd.DataFrame({
-                    'peak_index': peaks, 'volume': self.df['percent'].iloc[peaks].values,
-                    'cost': self.df['price'].iloc[peaks].values, 'prominence': properties['prominences'],
-                    'left_ip': properties['left_ips'], 'right_ip': properties['right_ips'],
-                }).sort_values(by='prominence', ascending=False).reset_index(drop=True)
-                main_peak = peaks_df.iloc[0]
-                main_peak_cost = main_peak['cost']
-                main_peak_idx = int(main_peak['peak_index'])
-                results['dominant_peak_cost'] = main_peak_cost
-                results['dominant_peak_volume_ratio'] = main_peak['volume']
-                results['peak_range_low'] = np.interp(main_peak['left_ip'], self.df.index, self.df['price'])
-                results['peak_range_high'] = np.interp(main_peak['right_ip'], self.df.index, self.df['price'])
-            else:
-                main_peak_idx = self.df['percent'].idxmax()
-                main_peak_cost = self.df.loc[main_peak_idx, 'price']
-                results['dominant_peak_cost'] = main_peak_cost
-                results['dominant_peak_volume_ratio'] = self.df.loc[main_peak_idx, 'percent']
-                results['peak_range_low'] = main_peak_cost * 0.99
-                results['peak_range_high'] = main_peak_cost * 1.01
-            peak_width = max(1, int(len(self.df) * 0.05))
-            exclusion_start = max(0, main_peak_idx - peak_width)
-            exclusion_end = min(len(self.df), main_peak_idx + peak_width)
-            remaining_chips_df = self.df.drop(self.df.index[exclusion_start:exclusion_end])
-            if not remaining_chips_df.empty:
-                psgp_idx = remaining_chips_df['percent'].idxmax()
-                psgp_cost = remaining_chips_df.loc[psgp_idx, 'price']
-                psgp_volume = remaining_chips_df.loc[psgp_idx, 'percent']
-                results['secondary_peak_cost'] = psgp_cost
-                if pd.notna(main_peak_cost) and main_peak_cost > 0:
-                    separation = abs(main_peak_cost - psgp_cost) / main_peak_cost
-                    results['peak_separation_ratio'] = separation * 100
-                    valley_df = self.df.loc[min(main_peak_idx, psgp_idx):max(main_peak_idx, psgp_idx)]
-                    valley_chip_percent = valley_df['percent'].sum() - results['dominant_peak_volume_ratio'] - psgp_volume
-                    fusion_penalty = np.tanh(valley_chip_percent / 10)
-                    results['peak_separation_intensity'] = results['peak_separation_ratio'] * (1 - fusion_penalty)
-                    results['peak_fusion_indicator'] = (1 - separation) * (1 + fusion_penalty) * 100
-                else:
-                    results['peak_separation_ratio'] = np.nan
-                    results['peak_separation_intensity'] = np.nan
-                    results['peak_fusion_indicator'] = np.nan
-                if pd.notna(results['dominant_peak_volume_ratio']) and results['dominant_peak_volume_ratio'] > 0:
-                    results['peak_volume_ratio'] = (psgp_volume / results['dominant_peak_volume_ratio']) * 100
-                else:
-                    results['peak_volume_ratio'] = np.nan
-                if pd.notna(atr_14d) and atr_14d > 0:
-                    peak_distance = abs(main_peak_cost - psgp_cost)
-                    results['peak_distance_volatility_ratio'] = peak_distance / atr_14d
-                else:
-                    results['peak_distance_volatility_ratio'] = np.nan
-            else:
-                results['secondary_peak_cost'] = np.nan
-                results['peak_separation_ratio'] = np.nan
-                results['peak_volume_ratio'] = np.nan
-                results['peak_distance_volatility_ratio'] = np.nan
-                results['peak_separation_intensity'] = np.nan
-                results['peak_fusion_indicator'] = np.nan
-        if pd.notna(close_price) and results.get('dominant_peak_cost', np.nan) > 0:
+        if self.df.empty or pd.isna(close_price) or pd.isna(atr_14d) or atr_14d <= 0:
+            return results
+        # ================== 1. 多峰节点与主峰形态分析 ==================
+        # 使用 find_peaks 识别所有显著的筹码峰
+        peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
+        results['structural_node_count'] = len(peaks)
+        if len(peaks) > 0:
+            peaks_df = pd.DataFrame({
+                'peak_index': peaks, 'volume': self.df['percent'].iloc[peaks].values,
+                'cost': self.df['price'].iloc[peaks].values, 'prominence': properties['prominences'],
+                'left_base': properties['left_bases'], 'right_base': properties['right_bases'],
+            }).sort_values(by='prominence', ascending=False).reset_index(drop=True)
+            main_peak = peaks_df.iloc[0]
+            main_peak_cost = main_peak['cost']
+            results['dominant_peak_cost'] = main_peak_cost
+            results['dominant_peak_volume_ratio'] = main_peak['volume']
+            # 计算主峰峰态系数
+            peak_region_df = self.df.iloc[int(main_peak['left_base']):int(main_peak['right_base'])+1]
+            if not peak_region_df.empty and peak_region_df['percent'].sum() > 0:
+                peak_weights = peak_region_df['percent'] / peak_region_df['percent'].sum()
+                results['primary_peak_kurtosis'] = kurtosis(peak_region_df['price'], weights=peak_weights)
+            if len(peaks) > 1:
+                secondary_peak = peaks_df.iloc[1]
+                results['secondary_peak_cost'] = secondary_peak['cost']
+                if main_peak_cost > 0:
+                    results['peak_separation_ratio'] = abs(main_peak_cost - secondary_peak['cost']) / main_peak_cost * 100
+        else: # 如果未找到显著山峰，则使用最大值作为主峰
+            main_peak_idx = self.df['percent'].idxmax()
+            results['dominant_peak_cost'] = self.df.loc[main_peak_idx, 'price']
+            results['dominant_peak_volume_ratio'] = self.df.loc[main_peak_idx, 'percent']
+        if pd.notna(results['dominant_peak_cost']) and results['dominant_peak_cost'] > 0:
             results['dominant_peak_profit_margin'] = (close_price / results['dominant_peak_cost'] - 1) * 100
-        else:
-            results['dominant_peak_profit_margin'] = np.nan
-        dominant_peak_cost = results.get('dominant_peak_cost')
-        cost_95pct = self.ctx.get('cost_95pct')
-        cost_5pct = self.ctx.get('cost_5pct')
-        if pd.notna(dominant_peak_cost) and pd.notna(cost_95pct) and pd.notna(cost_5pct) and pd.notna(close_price) and close_price > 0:
-            peak_zone_low = dominant_peak_cost * 0.995
-            peak_zone_high = dominant_peak_cost * 1.005
-            volume_in_peak_zone = self.df[(self.df['price'] >= peak_zone_low) & (self.df['price'] <= peak_zone_high)]['percent'].sum()
-            chip_width_90pct = cost_95pct - cost_5pct
-            if chip_width_90pct > 0:
-                peak_top_density = volume_in_peak_zone / (peak_zone_high - peak_zone_low)
-                normalized_chip_width = chip_width_90pct / close_price
-                if normalized_chip_width > 0:
-                    results['dominant_peak_solidity'] = peak_top_density / normalized_chip_width
-                else:
-                    results['dominant_peak_solidity'] = np.nan
-            else:
-                results['dominant_peak_solidity'] = np.nan
-        else:
-            results['dominant_peak_solidity'] = np.nan
-        # 2. 集中度剖面
+        # ================== 2. 全局结构量化 (基尼系数, 张力, 杠杆) ==================
+        def _calculate_gini(prices: pd.Series, weights: pd.Series) -> float:
+            if weights.sum() <= 0: return np.nan
+            df = pd.DataFrame({'price': prices, 'weight': weights}).sort_values('price')
+            df['weight'] /= df['weight'].sum()
+            df['cum_weight'] = df['weight'].cumsum()
+            df['cum_cost'] = (df['price'] * df['weight']).cumsum()
+            total_cost = df['cum_cost'].iloc[-1]
+            if total_cost <= 0: return np.nan
+            df['cum_cost'] /= total_cost
+            B = (df['cum_cost'].iloc[1:].values * df['cum_weight'].iloc[:-1].values).sum()
+            A = (df['cum_cost'].values * df['cum_weight'].values).sum()
+            return 1 - (B / A)
+        results['cost_gini_coefficient'] = _calculate_gini(self.df['price'], self.df['percent'])
+        winners_df = self.df[self.df['price'] < close_price]
+        losers_df = self.df[self.df['price'] > close_price]
+        results['total_winner_rate'] = winners_df['percent'].sum()
+        results['total_loser_rate'] = losers_df['percent'].sum()
+        if not winners_df.empty and winners_df['percent'].sum() > 0:
+            winner_avg_cost = np.average(winners_df['price'], weights=winners_df['percent'])
+            results['winner_profit_margin_avg'] = (close_price / winner_avg_cost - 1) * 100 if winner_avg_cost > 0 else np.nan
+            gini_w = _calculate_gini(winners_df['price'], winners_df['percent'])
+            if pd.notna(gini_w) and pd.notna(results['winner_profit_margin_avg']):
+                results['winner_stability_index'] = (1 - gini_w) * results['winner_profit_margin_avg']
+        if not losers_df.empty and losers_df['percent'].sum() > 0:
+            loser_avg_cost = np.average(losers_df['price'], weights=losers_df['percent'])
+            results['loser_loss_margin_avg'] = (close_price / loser_avg_cost - 1) * 100 if loser_avg_cost > 0 else np.nan
+            gini_l = _calculate_gini(losers_df['price'], losers_df['percent'])
+            if pd.notna(gini_l) and pd.notna(results['loser_loss_margin_avg']):
+                results['loser_pain_index'] = (1 - gini_l) * abs(results['loser_loss_margin_avg'])
+        if pd.notna(winner_avg_cost) and pd.notna(loser_avg_cost) and close_price > 0:
+            tension = (abs(winner_avg_cost - loser_avg_cost) / close_price) * \
+                      np.log1p((results['total_winner_rate'] / 100) * (results['total_loser_rate'] / 100))
+            results['structural_tension_index'] = tension
+        leverage = (((self.df['price'] - close_price) / close_price) * self.df['percent']).sum()
+        results['structural_leverage'] = leverage
+        # ================== 3. 真空区与断层分析 ==================
+        rolling_vol = self.df['percent'].rolling(window=5, center=True).mean().fillna(self.df['percent'])
+        min_density_idx = rolling_vol.idxmin()
+        search_radius = int(len(self.df) * 0.1) # 搜索半径
+        low_point = self.df.loc[min_density_idx, 'price']
+        upper_bound_df = self.df[self.df['price'] > low_point].iloc[:search_radius]
+        lower_bound_df = self.df[self.df['price'] < low_point].iloc[-search_radius:]
+        if not upper_bound_df.empty and not lower_bound_df.empty:
+            upper_peak_idx = upper_bound_df['percent'].idxmax()
+            lower_peak_idx = lower_bound_df['percent'].idxmax()
+            vacuum_width = self.df.loc[upper_peak_idx, 'price'] - self.df.loc[lower_peak_idx, 'price']
+            results['vacuum_zone_magnitude'] = vacuum_width / atr_14d
+        if pd.notna(results['dominant_peak_cost']):
+            results['chip_fault_magnitude'] = (close_price - results['dominant_peak_cost']) / atr_14d
+            fault_low, fault_high = sorted([results['dominant_peak_cost'], close_price])
+            results['chip_fault_blockage_ratio'] = self.df[(self.df['price'] > fault_low) & (self.df['price'] < fault_high)]['percent'].sum()
+        # ================== 4. 传统指标兼容计算 ==================
         def _get_concentration(chip_df: pd.DataFrame):
             if chip_df.empty or chip_df['percent'].sum() < 1e-6: return np.nan
             chip_df = chip_df.copy()
@@ -721,335 +431,162 @@ class ChipFeatureCalculator:
             price_low = np.interp(5, chip_df['cum_percent'], chip_df['price'])
             price_high = np.interp(95, chip_df['cum_percent'], chip_df['price'])
             return (price_high - price_low) / avg_cost
-        if pd.notna(close_price):
-            results['winner_concentration_90pct'] = _get_concentration(self.df[self.df['price'] < close_price])
-            results['loser_concentration_90pct'] = _get_concentration(self.df[self.df['price'] > close_price])
-        else:
-            results['winner_concentration_90pct'] = np.nan
-            results['loser_concentration_90pct'] = np.nan
-        # 3. 动态压力支撑 (升级为力矩模型)
-        if pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
-            zone_width = 0.5 * atr_14d
-            pressure_df = self.df[(self.df['price'] > close_price) & (self.df['price'] <= close_price + zone_width)]
-            if not pressure_df.empty:
-                pressure_torque = ((pressure_df['price'] - close_price) / atr_14d * pressure_df['percent']).sum()
-                results['dynamic_pressure_index'] = pressure_torque
-            else:
-                results['dynamic_pressure_index'] = np.nan
-            support_df = self.df[(self.df['price'] >= close_price - zone_width) & (self.df['price'] < close_price)]
-            if not support_df.empty:
-                support_torque = ((close_price - support_df['price']) / atr_14d * support_df['percent']).sum()
-                results['dynamic_support_index'] = support_torque
-            else:
-                results['dynamic_support_index'] = np.nan
-        else:
-            results['dynamic_pressure_index'] = np.nan
-            results['dynamic_support_index'] = np.nan
-        # 4. 盈亏结构
-        if pd.notna(close_price):
-            winners_df = self.df[self.df['price'] < close_price]
-            losers_df = self.df[self.df['price'] > close_price]
-            results['total_winner_rate'] = winners_df['percent'].sum()
-            results['total_loser_rate'] = losers_df['percent'].sum()
-            if not winners_df.empty and winners_df['percent'].sum() > 0:
-                winner_avg_cost = np.average(winners_df['price'], weights=winners_df['percent'])
-                if winner_avg_cost > 0:
-                    results['winner_profit_margin_avg'] = (close_price / winner_avg_cost - 1) * 100
-                    if pd.notna(results['total_winner_rate']) and pd.notna(results['winner_profit_margin_avg']):
-                        results['effective_winner_rate'] = results['total_winner_rate'] * results['winner_profit_margin_avg']
-                    else:
-                        results['effective_winner_rate'] = np.nan
-                else:
-                    results['winner_profit_margin_avg'] = np.nan
-                    results['effective_winner_rate'] = np.nan
-            else:
-                results['winner_profit_margin_avg'] = np.nan
-                results['effective_winner_rate'] = np.nan
-            if not losers_df.empty and losers_df['percent'].sum() > 0:
-                loser_avg_cost = np.average(losers_df['price'], weights=losers_df['percent'])
-                if loser_avg_cost > 0: results['loser_loss_margin_avg'] = (close_price / loser_avg_cost - 1) * 100
-                else: results['loser_loss_margin_avg'] = np.nan
-            else:
-                results['loser_loss_margin_avg'] = np.nan
-            if pd.notna(atr_14d) and atr_14d > 0:
-                active_winner_mask = (self.df['price'] < close_price) & (self.df['price'] >= close_price - 2 * atr_14d)
-                results['active_winner_rate'] = self.df[active_winner_mask]['percent'].sum()
-                active_loser_mask = (self.df['price'] > close_price) & (self.df['price'] <= close_price + 2 * atr_14d)
-                results['active_loser_rate'] = self.df[active_loser_mask]['percent'].sum()
-            else:
-                results['active_winner_rate'] = np.nan
-                results['active_loser_rate'] = np.nan
-            locked_profit_mask = (self.df['price'] < close_price) & (~active_winner_mask if pd.notna(atr_14d) else (self.df['price'] < close_price))
-            results['locked_profit_rate'] = self.df[locked_profit_mask]['percent'].sum()
-            locked_loss_mask = (self.df['price'] > close_price) & (~active_loser_mask if pd.notna(atr_14d) else (self.df['price'] > close_price))
-            results['locked_loss_rate'] = self.df[locked_loss_mask]['percent'].sum()
-        else:
-            results['total_winner_rate'] = np.nan
-            results['total_loser_rate'] = np.nan
-            results['winner_profit_margin_avg'] = np.nan
-            results['effective_winner_rate'] = np.nan
-            results['loser_loss_margin_avg'] = np.nan
-            results['active_winner_rate'] = np.nan
-            results['active_loser_rate'] = np.nan
-            results['locked_profit_rate'] = np.nan
-            results['locked_loss_rate'] = np.nan
-        # 5. 断层动态 (鲁棒性优化)
-        peak_cost = results.get('dominant_peak_cost')
-        results['chip_fault_blockage_ratio'] = np.nan
-        if pd.notna(peak_cost) and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
-            magnitude = (close_price - peak_cost) / atr_14d
-            results['chip_fault_magnitude'] = magnitude
-            fault_zone_low, fault_zone_high = sorted([peak_cost, close_price])
-            fault_zone_df = self.df[(self.df['price'] > fault_zone_low) & (self.df['price'] < fault_zone_high)]
-            if not fault_zone_df.empty:
-                results['chip_fault_blockage_ratio'] = fault_zone_df['percent'].sum()
-            else:
-                results['chip_fault_blockage_ratio'] = np.nan
-        else:
-            results['chip_fault_magnitude'] = np.nan
-            results['chip_fault_blockage_ratio'] = np.nan
-        # 6. 分层成本
-        high_20d = self.ctx.get('high_20d')
-        low_20d = self.ctx.get('low_20d')
-        if pd.notna(high_20d) and pd.notna(low_20d):
-            active_zone_mask = (self.df['price'] >= low_20d) & (self.df['price'] <= high_20d)
-            short_term_chips_df = self.df[active_zone_mask]
-            long_term_chips_df = self.df[~active_zone_mask]
-            if not short_term_chips_df.empty and short_term_chips_df['percent'].sum() > 0:
-                results['short_term_holder_cost'] = np.average(short_term_chips_df['price'], weights=short_term_chips_df['percent'])
-                results['short_term_concentration_90pct'] = _get_concentration(short_term_chips_df)
-            else:
-                results['short_term_holder_cost'] = np.nan
-                results['short_term_concentration_90pct'] = np.nan
-            if not long_term_chips_df.empty and long_term_chips_df['percent'].sum() > 0:
-                results['long_term_holder_cost'] = np.average(long_term_chips_df['price'], weights=long_term_chips_df['percent'])
-                results['long_term_concentration_90pct'] = _get_concentration(long_term_chips_df)
-            else:
-                results['long_term_holder_cost'] = np.nan
-                results['long_term_concentration_90pct'] = np.nan
-        else:
-            results['short_term_holder_cost'] = np.nan
-            results['short_term_concentration_90pct'] = np.nan
-            results['long_term_holder_cost'] = np.nan
-            results['long_term_concentration_90pct'] = np.nan
-        # 7. 盈利亏损质量分析
-        if not self.df.empty and pd.notna(close_price):
-            winners_df_quality = self.df[self.df['price'] < close_price].copy()
-            if not winners_df_quality.empty and winners_df_quality['percent'].sum() > 0:
-                winners_df_quality['percent'] = (winners_df_quality['percent'] / winners_df_quality['percent'].sum()) * 100
-                winners_df_quality['cum_percent'] = winners_df_quality['percent'].cumsum()
-                cost_at_85pct = np.interp(85, winners_df_quality['cum_percent'], winners_df_quality['price'])
-                if pd.notna(cost_at_85pct) and cost_at_85pct > 0:
-                    results['winner_profit_cushion'] = (close_price / cost_at_85pct - 1) * 100
-                else:
-                    results['winner_profit_cushion'] = np.nan
-            else:
-                results['winner_profit_cushion'] = np.nan
-            losers_df_quality = self.df[self.df['price'] > close_price].copy()
-            if not losers_df_quality.empty and losers_df_quality['percent'].sum() > 0:
-                loser_avg_cost_quality = np.average(losers_df_quality['price'], weights=losers_df_quality['percent'])
-                avg_loss_margin = abs((close_price / loser_avg_cost_quality - 1) * 100) if loser_avg_cost_quality > 0 else 0
-                losers_df_quality['percent'] = (losers_df_quality['percent'] / losers_df_quality['percent'].sum()) * 100
-                losers_df_quality['cum_percent'] = losers_df_quality['percent'].cumsum()
-                cost_5pct_loser = np.interp(5, losers_df_quality['cum_percent'], losers_df_quality['price'])
-                cost_95pct_loser = np.interp(95, losers_df_quality['cum_percent'], losers_df_quality['price'])
-                loser_concentration = (cost_95pct_loser - cost_5pct_loser) / loser_avg_cost_quality if loser_avg_cost_quality > 0 else 0
-                results['loser_pain_index'] = avg_loss_margin * (1 - np.clip(loser_concentration, 0, 1))
-            else:
-                results['loser_pain_index'] = np.nan
-        else:
-            results['winner_profit_cushion'] = np.nan
-            results['loser_pain_index'] = np.nan
-        # 8. 成本分布形态分析
+        results['winner_concentration_90pct'] = _get_concentration(winners_df)
+        results['loser_concentration_90pct'] = _get_concentration(losers_df)
         results['cost_structure_skewness'] = self._calculate_cost_structure_skewness(self.ctx)
-        # 9. 结构稳定性评估
-        concentration_70pct = self.ctx.get('concentration_70pct')
-        total_winner_rate_stability = results.get('total_winner_rate')
-        winner_profit_cushion_stability = results.get('winner_profit_cushion')
-        dominant_peak_profit_margin_stability = results.get('dominant_peak_profit_margin')
-        if pd.notna(concentration_70pct) and pd.notna(total_winner_rate_stability) and pd.notna(winner_profit_cushion_stability) and pd.notna(dominant_peak_profit_margin_stability):
-            concentration_score = np.exp(-5 * np.clip(concentration_70pct, 0, None))
-            winner_rate_score = total_winner_rate_stability / 100.0
-            cushion_score = np.tanh(winner_profit_cushion_stability / 10.0)
-            peak_profit_score = np.tanh(dominant_peak_profit_margin_stability / 20.0)
-            scores = [s for s in [concentration_score, winner_rate_score, cushion_score, peak_profit_score] if s > 0]
-            if scores:
-                stability_raw = np.prod(scores)
-                final_score = stability_raw ** (1.0 / len(scores))
-                results['structural_stability_score'] = final_score * 100
-            else:
-                results['structural_stability_score'] = np.nan
-        else:
-            results['structural_stability_score'] = np.nan
-        # 10. 近期套牢盘压力
-        recent_5d_high = self.ctx.get('high_5d')
-        recent_5d_low = self.ctx.get('low_5d')
-        turnover_vol_5d = self.ctx.get('turnover_vol_5d')
-        total_chip_volume = self.ctx.get('total_chip_volume', np.nan)
-        if pd.notna(recent_5d_high) and pd.notna(recent_5d_low) and pd.notna(turnover_vol_5d) and turnover_vol_5d > 0 and pd.notna(close_price) and pd.notna(total_chip_volume) and total_chip_volume > 0:
-            trapped_mask = (self.df['price'] > close_price) & (self.df['price'] >= recent_5d_low) & (self.df['price'] <= recent_5d_high)
-            recent_trapped_percent = self.df[trapped_mask]['percent'].sum()
-            recent_trapped_vol = (recent_trapped_percent / 100) * total_chip_volume
-            results['recent_trapped_pressure'] = (recent_trapped_vol / turnover_vol_5d) * 100
-        else:
-            results['recent_trapped_pressure'] = np.nan
-        # 11. 潜在获利盘供给
-        if pd.notna(close_price):
-            imminent_supply_mask = (self.df['price'] >= close_price / 1.05) & (self.df['price'] < close_price)
-            results['imminent_profit_taking_supply'] = self.df[imminent_supply_mask]['percent'].sum()
-        else:
-            results['imminent_profit_taking_supply'] = np.nan
-        # 12. 价格成交量熵 (新增)
+        results['structural_stability_score'] = self._calculate_structural_stability(results)
         intraday_df = self.ctx.get('processed_intraday_df')
         daily_high = self.ctx.get('high_price')
         daily_low = self.ctx.get('low_price')
         total_daily_volume = self.ctx.get('daily_turnover_volume')
         results['price_volume_entropy'] = self._calculate_price_volume_entropy(intraday_df, daily_high, daily_low, total_daily_volume)
-        # 新增：active_buying_support 和 active_selling_pressure
-        if not intraday_df.empty and 'buy_vol_raw' in intraday_df.columns and 'sell_vol_raw' in intraday_df.columns and total_daily_volume > 0:
-            total_buy_vol_intraday = intraday_df['buy_vol_raw'].sum()
-            total_sell_vol_intraday = intraday_df['sell_vol_raw'].sum()
-            results['active_buying_support'] = (total_buy_vol_intraday / total_daily_volume) * 100
-            results['active_selling_pressure'] = (total_sell_vol_intraday / total_daily_volume) * 100
-        else:
-            results['active_buying_support'] = np.nan
-            results['active_selling_pressure'] = np.nan
         return results
 
-    def _compute_intraday_dynamics_metrics(self, ctx: dict) -> dict:
-        results = {}
-        intraday_df = ctx.get('processed_intraday_df', pd.DataFrame())
-        daily_high = ctx.get('high_price')
-        daily_low = ctx.get('low_price')
-        daily_open = ctx.get('open_price')
-        daily_close = ctx.get('close_price')
-        pre_close = ctx.get('pre_close')
-        atr_14d = ctx.get('atr_14d')
-        total_daily_volume = ctx.get('daily_turnover_volume')
-        results['opening_30min_vol_ratio'] = np.nan
-        results['opening_30min_range_ratio'] = np.nan
-        results['opening_30min_vwap_change'] = np.nan
-        results['closing_30min_vol_ratio'] = np.nan
-        results['closing_30min_range_ratio'] = np.nan
-        results['closing_30min_vwap_change'] = np.nan
-        results['intraday_volatility'] = np.nan
-        results['intraday_volume_skew'] = np.nan
-        results['intraday_trend_persistence'] = np.nan
-        results['intraday_reversal_strength'] = np.nan
-        results['vwap_close_deviation'] = np.nan
-        results['close_to_range_ratio'] = np.nan
-        results['opening_gap_defense_strength'] = np.nan
-        results['upward_impulse_purity'] = np.nan
-        results['active_zone_combat_intensity'] = np.nan
-        results['active_zone_mf_stance'] = np.nan
-        if intraday_df.empty:
+    def _calculate_structural_potential_score(self, context: dict, current_metrics: dict) -> float:
+        """
+        【V2.0 · 结构势能版】
+        - 核心思想: 废弃静态的“稳定性”评估，引入基于物理学和博弈论的“结构势能”评估模型，旨在预测T+1及未来的上涨潜力。
+        - 核心架构: 采用“三支柱”模型，分别从“地基稳固度”、“承压与支撑均衡”和“上涨势能”三个维度进行量化。
+        - 动态因子: 首次引入关键的动态时间序列因子——基尼系数的1日斜率，用于捕捉筹码的实时集结过程。
+        """
+        # 辅助函数：将数值映射到 (0, 1) 区间
+        def _sigmoid(x, k=1):
+            return 1 / (1 + np.exp(-k * x))
+        # ================== 1. 支柱一：地基稳固度 (Foundation Solidity) ==================
+        gini = current_metrics.get('cost_gini_coefficient')
+        peak_margin = current_metrics.get('dominant_peak_profit_margin')
+        peak_kurtosis = current_metrics.get('primary_peak_kurtosis')
+        if any(pd.isna(v) for v in [gini, peak_margin, peak_kurtosis]):
+            return np.nan
+        # 基尼系数越高 -> 控盘度越高 -> 分数越高
+        gini_score = np.clip(gini, 0, 1)
+        # 主峰利润垫越厚 -> 持股信心越足 -> 分数越高
+        margin_score = _sigmoid(peak_margin / 10) # 利润率超过10%后，边际效应递减
+        # 主峰峰态越高 -> 筹码锁定度越高 -> 分数越高 (强庄核心特征)
+        kurtosis_score = _sigmoid(peak_kurtosis / 5) # 峰态超过5后，边际效应递减
+        # 加权算术平均，峰态系数权重最高
+        foundation_score = 0.3 * gini_score + 0.3 * margin_score + 0.4 * kurtosis_score
+        # ================== 2. 支柱二：承压与支撑均衡 (Pressure-Support Balance) ==================
+        leverage = current_metrics.get('structural_leverage')
+        winner_stability = current_metrics.get('winner_stability_index')
+        loser_pain = current_metrics.get('loser_pain_index')
+        if any(pd.isna(v) for v in [leverage, winner_stability, loser_pain]):
+            return np.nan
+        # 结构杠杆为负（支撑力矩大）-> 均衡状态越好 -> 分数越高
+        leverage_score = 1 - _sigmoid(leverage, k=5) # k=5 使得函数在0附近更陡峭
+        # 获利盘稳定度越高 -> 潜在抛压越小 -> 分数越高
+        stability_score = _sigmoid(winner_stability / 20)
+        # 套牢盘痛苦指数越低 -> 潜在割肉盘越小 -> 分数越高
+        pain_score = 1 - _sigmoid(loser_pain / 50)
+        pressure_balance_score = np.mean([leverage_score, stability_score, pain_score])
+        # ================== 3. 支柱三：上涨势能 (Upward Potential) ==================
+        tension = current_metrics.get('structural_tension_index')
+        vacuum = current_metrics.get('vacuum_zone_magnitude')
+        # 动态因子：获取基尼系数的1日斜率
+        gini_slope_1d = context.get('cost_gini_coefficient_slope_1d', 0) # 从context获取，需要上游计算并传入
+        if any(pd.isna(v) for v in [tension, vacuum]):
+            return np.nan
+        # 结构张力代表能量储备，适度的张力是爆发前兆
+        tension_score = _sigmoid((tension - 0.1) * 20) # 在0.1附近最敏感
+        # 真空区越大 -> 上涨阻力越小 -> 分数越高
+        vacuum_score = _sigmoid((vacuum - 1) * 2) # 大于1倍ATR时开始显著加分
+        # 动态信号：基尼系数斜率为正 -> 筹码正在集结 -> 强力加分项
+        dynamic_factor = 1 + np.tanh(gini_slope_1d * 50) # 将斜率放大并用tanh约束到(0,2)区间
+        upward_potential_score = (0.5 * tension_score + 0.5 * vacuum_score) * dynamic_factor
+        # ================== 最终合成：加权几何平均 ==================
+        # 几何平均确保任何一个支柱的极端弱势都会拉低总分
+        weights = {'foundation': 0.4, 'balance': 0.25, 'potential': 0.35}
+        scores = {
+            'foundation': foundation_score,
+            'balance': pressure_balance_score,
+            'potential': upward_potential_score
+        }
+        final_score_raw = 1.0
+        for pillar, weight in weights.items():
+            score = scores.get(pillar)
+            if pd.notna(score) and score > 0:
+                final_score_raw *= score ** weight
+        return final_score_raw * 100
+
+    def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
+        results = {
+            'impulse_quality_ratio': np.nan,
+            'peak_control_transfer': np.nan,
+            'support_validation_strength': np.nan,
+            'pressure_rejection_strength': np.nan,
+            'vacuum_traversal_efficiency': np.nan,
+            'intraday_posture_score': np.nan,
+        }
+        intraday_df = context.get('processed_intraday_df')
+        if intraday_df.empty or 'main_force_net_vol' not in intraday_df.columns:
             return results
-        # 使用 datetime.time 定义时间
-        opening_30min_start_time = datetime.time(9, 30) # 修改行
-        opening_30min_end_time = datetime.time(10, 0)   # 修改行
-        opening_30min_df = intraday_df[(intraday_df.index.time >= opening_30min_start_time) & (intraday_df.index.time < opening_30min_end_time)]
-        if not opening_30min_df.empty:
-            if total_daily_volume > 0:
-                results['opening_30min_vol_ratio'] = opening_30min_df['vol_shares'].sum() / total_daily_volume
-            else:
-                results['opening_30min_vol_ratio'] = np.nan
-            if pd.notna(daily_high) and pd.notna(daily_low) and (daily_high - daily_low) > 0:
-                results['opening_30min_range_ratio'] = (opening_30min_df['high'].max() - opening_30min_df['low'].min()) / (daily_high - daily_low)
-            else:
-                results['opening_30min_range_ratio'] = np.nan
-            if opening_30min_df['minute_vwap'].iloc[0] > 0:
-                results['opening_30min_vwap_change'] = (opening_30min_df['minute_vwap'].iloc[-1] - opening_30min_df['minute_vwap'].iloc[0]) / opening_30min_df['minute_vwap'].iloc[0]
-            else:
-                results['opening_30min_vwap_change'] = np.nan
-        # 使用 datetime.time 定义时间
-        closing_30min_df = intraday_df[intraday_df.index.time >= datetime.time(14, 30)] # 修改行
-        if not closing_30min_df.empty:
-            if total_daily_volume > 0:
-                results['closing_30min_vol_ratio'] = closing_30min_df['vol_shares'].sum() / total_daily_volume
-            else:
-                results['closing_30min_vol_ratio'] = np.nan
-            if pd.notna(daily_high) and pd.notna(daily_low) and (daily_high - daily_low) > 0:
-                results['closing_30min_range_ratio'] = (closing_30min_df['high'].max() - closing_30min_df['low'].min()) / (daily_high - daily_low)
-            else:
-                results['closing_30min_range_ratio'] = np.nan
-            if closing_30min_df['minute_vwap'].iloc[0] > 0:
-                results['closing_30min_vwap_change'] = (closing_30min_df['minute_vwap'].iloc[-1] - closing_30min_df['minute_vwap'].iloc[0]) / closing_30min_df['minute_vwap'].iloc[0]
-            else:
-                results['closing_30min_vwap_change'] = np.nan
-        if intraday_df['minute_vwap'].mean() > 0:
-            results['intraday_volatility'] = intraday_df['minute_vwap'].std() / intraday_df['minute_vwap'].mean()
-        else:
-            results['intraday_volatility'] = np.nan
-        results['intraday_volume_skew'] = intraday_df['vol_shares'].skew()
-        price_diff = intraday_df['minute_vwap'].diff().dropna()
-        if len(price_diff) > 0:
-            results['intraday_trend_persistence'] = (price_diff > 0).sum() / len(price_diff)
-        else:
-            results['intraday_trend_persistence'] = np.nan
-        if pd.notna(daily_close) and pd.notna(daily_open) and pd.notna(daily_high) and pd.notna(daily_low) and (daily_high - daily_low) > 0:
-            results['intraday_reversal_strength'] = (daily_close - daily_open) / (daily_high - daily_low)
-        else:
-            results['intraday_reversal_strength'] = np.nan
-        if pd.notna(daily_close) and intraday_df['minute_vwap'].mean() > 0:
-            results['vwap_close_deviation'] = (daily_close - intraday_df['minute_vwap'].mean()) / intraday_df['minute_vwap'].mean()
-        else:
-            results['vwap_close_deviation'] = np.nan
-        if pd.notna(daily_close) and pd.notna(daily_low) and pd.notna(daily_high) and (daily_high - daily_low) > 0:
-            results['close_to_range_ratio'] = (daily_close - daily_low) / (daily_high - daily_low)
-        else:
-            results['close_to_range_ratio'] = np.nan
-        if pd.notna(daily_open) and pd.notna(pre_close) and pd.notna(atr_14d) and atr_14d > 0 and 'main_force_net_vol' in intraday_df.columns and 'vol_shares' in intraday_df.columns:
-            gap_size = (daily_open - pre_close) / atr_14d
-            if gap_size > 0:
-                # 使用 datetime.time 定义时间
-                opening_30min_df = intraday_df[(intraday_df.index.time >= datetime.time(9, 30)) & (intraday_df.index.time < datetime.time(10, 0))] # 修改行
-                if not opening_30min_df.empty:
-                    mf_net_flow_opening = opening_30min_df['main_force_net_vol'].sum()
-                    total_vol_opening = opening_30min_df['vol_shares'].sum()
-                    if total_vol_opening > 0:
-                        defense_ratio = mf_net_flow_opening / total_vol_opening
-                        results['opening_gap_defense_strength'] = defense_ratio * np.log1p(gap_size) * 100
-                    else:
-                        results['opening_gap_defense_strength'] = np.nan
-                else:
-                    results['opening_gap_defense_strength'] = np.nan
-            else:
-                results['opening_gap_defense_strength'] = 0.0
-        else:
-            results['opening_gap_defense_strength'] = np.nan
-        if pd.notna(daily_close) and pd.notna(daily_open) and pd.notna(daily_high) and pd.notna(daily_low):
-            if daily_close > daily_open:
-                up_range = daily_high - max(daily_open, daily_close)
-                down_range = min(daily_open, daily_close) - daily_low
-                total_range = daily_high - daily_low
-                if total_range > 0:
-                    purity = ((daily_close - daily_open) - (up_range + down_range)) / total_range
-                    results['upward_impulse_purity'] = purity * 100
-                else:
-                    results['upward_impulse_purity'] = np.nan
-            else:
-                results['upward_impulse_purity'] = 0.0
-        else:
-            results['upward_impulse_purity'] = np.nan
-        # 新增 active_zone_combat_intensity 和 active_zone_mf_stance 的计算
-        if not intraday_df.empty and pd.notna(daily_close) and pd.notna(atr_14d) and atr_14d > 0 and total_daily_volume > 0 and 'main_force_net_vol' in intraday_df.columns and 'vol_shares' in intraday_df.columns:
-            active_zone_low = daily_close - 0.5 * atr_14d
-            active_zone_high = daily_close + 0.5 * atr_14d
-            active_zone_df = intraday_df[(intraday_df['minute_vwap'] >= active_zone_low) & (intraday_df['minute_vwap'] <= active_zone_high)]
-            if not active_zone_df.empty:
-                active_zone_vol = active_zone_df['vol_shares'].sum()
-                results['active_zone_combat_intensity'] = (active_zone_vol / total_daily_volume) * 100
-                mf_net_flow_active_zone = active_zone_df['main_force_net_vol'].sum()
-                if active_zone_vol > 0:
-                    results['active_zone_mf_stance'] = (mf_net_flow_active_zone / active_zone_vol) * 100
-                else:
-                    results['active_zone_mf_stance'] = np.nan
-            else:
-                results['active_zone_combat_intensity'] = np.nan
-                results['active_zone_mf_stance'] = np.nan
-        else:
-            results['active_zone_combat_intensity'] = np.nan
-            results['active_zone_mf_stance'] = np.nan
+        atr_14d = context.get('atr_14d')
+        dominant_peak_cost = context.get('dominant_peak_cost')
+        if pd.isna(atr_14d) or atr_14d <= 0: return results
+        # 1. 脉冲品质分析 (Impulse Quality)
+        peaks, _ = find_peaks(intraday_df['minute_vwap'])
+        troughs, _ = find_peaks(-intraday_df['minute_vwap'])
+        turning_points = sorted(list(set(np.concatenate(([0], troughs, peaks, [len(intraday_df)-1])))))
+        total_up_swing_vol = 0
+        mf_net_up_swing_vol = 0
+        for i in range(len(turning_points) - 1):
+            start_idx, end_idx = turning_points[i], turning_points[i+1]
+            window_df = intraday_df.iloc[start_idx:end_idx+1]
+            if window_df.empty: continue
+            if window_df['minute_vwap'].iloc[-1] > window_df['minute_vwap'].iloc[0]: # 上涨波段
+                total_up_swing_vol += window_df['vol_shares'].sum()
+                mf_net_up_swing_vol += window_df['main_force_net_vol'].sum()
+        if total_up_swing_vol > 0:
+            results['impulse_quality_ratio'] = (mf_net_up_swing_vol / total_up_swing_vol) * 100
+        # 2. 主峰控制权转移 (Peak Control Transfer)
+        if pd.notna(dominant_peak_cost):
+            peak_zone_low = dominant_peak_cost - atr_14d * 0.2
+            peak_zone_high = dominant_peak_cost + atr_14d * 0.2
+            peak_zone_df = intraday_df[(intraday_df['minute_vwap'] >= peak_zone_low) & (intraday_df['minute_vwap'] <= peak_zone_high)]
+            if not peak_zone_df.empty:
+                peak_zone_vol = peak_zone_df['vol_shares'].sum()
+                if peak_zone_vol > 0:
+                    mf_net_in_peak = peak_zone_df['main_force_net_vol'].sum()
+                    results['peak_control_transfer'] = (mf_net_in_peak / peak_zone_vol) * 100
+        # 3. 支撑与压力验证 (Support/Pressure Validation)
+        daily_low_idx = intraday_df['low'].idxmin()
+        rebound_window = intraday_df.loc[daily_low_idx:].head(6) # 低点后的5分钟窗口
+        if not rebound_window.empty and len(rebound_window) > 1:
+            rebound_vol = rebound_window['vol_shares'].sum()
+            if rebound_vol > 0:
+                mf_net_rebound = rebound_window['main_force_net_vol'].sum()
+                price_recovery = (rebound_window['close'].iloc[-1] - rebound_window['low'].iloc[0]) / atr_14d
+                results['support_validation_strength'] = (mf_net_rebound / rebound_vol) * (1 + np.log1p(max(0, price_recovery))) * 100
+        daily_high_idx = intraday_df['high'].idxmax()
+        rejection_window = intraday_df.loc[daily_high_idx:].head(6) # 高点后的5分钟窗口
+        if not rejection_window.empty and len(rejection_window) > 1:
+            rejection_vol = rejection_window['vol_shares'].sum()
+            if rejection_vol > 0:
+                mf_net_rejection = rejection_window['main_force_net_vol'].sum()
+                price_rejection = (rejection_window['high'].iloc[0] - rejection_window['close'].iloc[-1]) / atr_14d
+                results['pressure_rejection_strength'] = (-mf_net_rejection / rejection_vol) * (1 + np.log1p(max(0, price_rejection))) * 100
+        # 4. 真空区通行效率 (Vacuum Traversal Efficiency)
+        secondary_peak_cost = context.get('secondary_peak_cost')
+        if pd.notna(dominant_peak_cost) and pd.notna(secondary_peak_cost):
+            vac_low, vac_high = sorted([dominant_peak_cost, secondary_peak_cost])
+            vacuum_zone_df = intraday_df[(intraday_df['minute_vwap'] > vac_low) & (intraday_df['minute_vwap'] < vac_high)]
+            if not vacuum_zone_df.empty:
+                price_change_in_vac = abs(vacuum_zone_df['minute_vwap'].iloc[-1] - vacuum_zone_df['minute_vwap'].iloc[0])
+                vol_in_vac = vacuum_zone_df['vol_shares'].sum()
+                if vol_in_vac > 0:
+                    efficiency = (price_change_in_vac / atr_14d) / np.log1p(vol_in_vac)
+                    results['vacuum_traversal_efficiency'] = efficiency * 1000 # 放大系数
+        # 5. 日内姿态综合评分 (Intraday Posture Score)
+        def normalize(val): return 0 if pd.isna(val) else val
+        s1 = np.tanh(normalize(results['impulse_quality_ratio']) / 50)
+        s2 = np.tanh(normalize(results['peak_control_transfer']) / 50)
+        s3 = np.tanh(normalize(results['support_validation_strength']) / 50)
+        s4 = -np.tanh(normalize(results['pressure_rejection_strength']) / 50)
+        s5 = np.tanh(normalize(results['vacuum_traversal_efficiency']) / 100)
+        posture_score = (0.3*s1 + 0.3*s2 + 0.2*s3 + 0.1*s4 + 0.1*s5) * 100
+        results['intraday_posture_score'] = posture_score
+        # 兼容旧指标
+        results.update(self._compute_legacy_intraday_metrics(context))
         return results
 
     def _calculate_chip_structure_health_score(self, context: dict) -> dict:

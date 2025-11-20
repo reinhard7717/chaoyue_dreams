@@ -149,11 +149,6 @@ class AdvancedChipMetricsService:
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
-        """【V4.15 · 探针清理版】
-        - 核心修复: 修正 `context_for_calc` 中 `low_price` 和 `high_price` 字段的获取，确保它们从 `context_data` 中正确获取 `_qfq` 后缀的列名。
-        - 【关键修复】修正 `fund_flow_attributed_minute_map` 字典查找时，键类型不匹配的问题，确保正确获取包含资金流归因列的日内数据。
-        - 【维护】移除了所有用于调试的 `print` 探针语句，净化代码。
-        """
         stock_code = stock_info.stock_code
         all_metrics_list = []
         failures_list = []
@@ -185,6 +180,7 @@ class AdvancedChipMetricsService:
                     'high_20d': context_data.get('high_20d'), 'low_20d': context_data.get('low_20d'),
                     'total_chip_volume': context_data.get('float_share', 0) * 10000, 'chip_fatigue_index': 0.0,
                     'recent_closes_queue': [], 'dominant_peak_cost': None, 'atr_14d': None,
+                    'cost_gini_coefficient': None, # 新增
                 }
                 failures_list.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': reason})
                 if is_first_day_in_batch: is_first_day_in_batch = False
@@ -199,7 +195,6 @@ class AdvancedChipMetricsService:
                 continue
             cyq_perf_keys = ['weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'prev_20d_close', 'open_qfq']
             context_for_calc = {key: context_data.get(key) for key in cyq_perf_keys}
-            # 新增行：为筹码计算器准备daily_vwap
             daily_amount = pd.to_numeric(context_data.get('amount'), errors='coerce') * 1000
             daily_vol_shares = pd.to_numeric(context_data.get('vol'), errors='coerce') * 100
             if pd.notna(daily_amount) and pd.notna(daily_vol_shares) and daily_vol_shares > 0:
@@ -236,17 +231,16 @@ class AdvancedChipMetricsService:
                 'recent_10d_closes': recent_closes_list,
                 'prev_atr_14d': prev_metrics.get('atr_14d'),
                 'debug_params': debug_params,
+                'prev_metrics': prev_metrics, # 注入完整的 prev_metrics
             })
             historical_data_for_day = {k: v for k, v in hist_comp_dict.items() if k < trade_date}
             if historical_data_for_day:
                 context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
             else:
                 context_for_calc['historical_components'] = pd.DataFrame(columns=hist_comp_cols)
-            # 将 trade_date 替换为 date_obj 进行字典查找
             if fund_flow_attributed_minute_map and date_obj in fund_flow_attributed_minute_map:
                 enhanced_intraday_data = fund_flow_attributed_minute_map[date_obj]
             else:
-                # 将 trade_date.date() 替换为 date_obj
                 enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
             context_for_calc['intraday_data'] = enhanced_intraday_data
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
@@ -258,6 +252,8 @@ class AdvancedChipMetricsService:
                 today_metrics_for_hist = {k: [daily_metrics.get(k)] for k in hist_comp_cols}
                 today_df = pd.DataFrame(today_metrics_for_hist, index=[trade_date])
                 hist_comp_dict.update(today_df.to_dict('index'))
+            # =================================================================
+            # 修改代码行：更新 prev_metrics 的构建逻辑，确保包含 cost_gini_coefficient
             prev_metrics = {
                 'concentration_90pct': daily_metrics.get('concentration_90pct') if daily_metrics else None,
                 'winner_avg_cost': daily_metrics.get('winner_avg_cost') if daily_metrics else None,
@@ -269,7 +265,9 @@ class AdvancedChipMetricsService:
                 'chip_fatigue_index': daily_metrics.get('chip_fatigue_index', 0.0) if daily_metrics else 0.0,
                 'recent_closes_queue': recent_closes_list,
                 'atr_14d': context_data.get('atr_14d'),
+                'cost_gini_coefficient': daily_metrics.get('cost_gini_coefficient') if daily_metrics else None,
             }
+            # =================================================================
             if is_first_day_in_batch: is_first_day_in_batch = False
         if not all_metrics_list:
             return pd.DataFrame(), prev_metrics, failures_list

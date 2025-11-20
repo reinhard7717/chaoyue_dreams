@@ -830,11 +830,11 @@ class AdvancedFundFlowMetricsService:
         results['retail_fomo_premium_index'] = np.nan
         results['retail_panic_surrender_index'] = np.nan
         results['volatility_asymmetry_index'] = np.nan
-        # =================================================================
+
         # 新增代码：为新迁移过来的指标初始化默认值
         results['hidden_accumulation_intensity'] = np.nan
         results['microstructure_efficiency_index'] = np.nan
-        # =================================================================
+
         # 修改行：移除了所有检查核心依赖变量的探针print语句
         if pd.notna(daily_vwap) and daily_total_volume > 0 and pd.notna(atr) and atr > 0 and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
             price_deviation_value = (intraday_data['minute_vwap'] - daily_vwap) * intraday_data['vol_shares']
@@ -1129,7 +1129,7 @@ class AdvancedFundFlowMetricsService:
                     results['pre_closing_posturing'] = np.nan
             else:
                 results['pre_closing_posturing'] = np.nan
-            # =================================================================
+    
             # 修改代码：修正FOMO和恐慌区域的定义基准
             # 原始逻辑使用14:57前的日内高低点，这在逻辑上不准确。
             # 新逻辑使用全天的最高价(day_high)和最低价(day_low)来定义价格区间，确保阈值的准确性。
@@ -1305,13 +1305,13 @@ class AdvancedFundFlowMetricsService:
             'order_book_imbalance': np.nan,
             'large_order_pressure': np.nan,
             'large_order_support': np.nan,
-            # =================================================================
+    
             # 修改代码：移除不再由此方法计算的指标的初始化
             'main_force_ofi': np.nan,
             'retail_ofi': np.nan,
             # 'microstructure_efficiency_index': np.nan, # 已移除
             # 'hidden_accumulation_intensity': np.nan, # 已移除
-            # =================================================================
+    
         }
         # 修复：在方法入口处，将 None 转换为空的 DataFrame
         if daily_intraday_df is None:

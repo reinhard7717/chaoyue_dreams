@@ -7,102 +7,89 @@ import pandas as pd
 # 筹码高级指标模型
 class BaseAdvancedChipMetrics(models.Model):
     """
-    【V32.3 · 筹码微观博弈版】
-    - 核心新增: 引入 `peak_exchange_purity`, `pressure_validation_score`, `support_validation_score`, `covert_accumulation_signal` 四个基于高频数据的筹码微观博弈指标。
-    - 核心新增: 引入 `price_volume_entropy` 字段，用于存储由逐笔数据衍生的价格成交量熵。
-    - 核心重构: 基于15:00分钟线，重构 `auction_intent_signal`，并用 `auction_closing_position` 替代原 `auction_pressure_ratio`。
-    - 核心优化: 更新模型定义与衍生计算排除列表，以匹配新的竞价信号体系。
+    【V33.0 · 结构动力学重构版】
+    - 核心重构: 第一象限(静态结构)指标体系全面升级，引入基于物理学、信息熵和多峰系统动力学的新一代指标。
+    - 核心新增: 引入 `structural_node_count`, `primary_peak_kurtosis`, `cost_gini_coefficient`, `structural_tension_index`, `structural_leverage`, `vacuum_zone_magnitude`, `winner_stability_index` 等核心结构指标。
+    - 核心废弃: 移除 `dynamic_pressure_index`, `effective_winner_rate` 等被新体系替代或冗余的旧指标，大幅精简模型。
+    - 核心优化: 更新衍生计算排除列表，以匹配新的指标体系。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     # --- 第一象限: 静态结构 (Static Structure) ---
     STATIC_STRUCTURE_METRICS = {
+        'structural_node_count': '结构节点数量',
+        'primary_peak_kurtosis': '主峰峰态系数',
+        'cost_gini_coefficient': '成本基尼系数',
+        'structural_tension_index': '结构张力指数',
+        'structural_leverage': '结构杠杆',
+        'vacuum_zone_magnitude': '真空区量级(ATR)',
+        'winner_stability_index': '获利盘稳定度',
         'dominant_peak_cost': '主导峰成本',
         'dominant_peak_volume_ratio': '主导峰筹码占比(%)',
         'dominant_peak_profit_margin': '主导峰利润边际(%)',
         'dominant_peak_solidity': '主峰稳固度',
         'secondary_peak_cost': '次筹码峰成本',
         'peak_separation_ratio': '峰群分离度(%)',
-        'peak_separation_intensity': '峰间分离强度',
-        'peak_fusion_indicator': '峰间融合指标',
-        'peak_volume_ratio': '峰群量能比(%)',
-        'peak_distance_volatility_ratio': '波动率标准化峰距',
         'winner_concentration_90pct': '获利盘集中度',
         'loser_concentration_90pct': '套牢盘集中度',
-        'long_term_concentration_90pct': '长期筹码集中度',
-        'short_term_concentration_90pct': '短期筹码集中度',
-        'dynamic_pressure_index': '动态压力指数',
-        'dynamic_support_index': '动态支撑指数',
         'chip_fault_magnitude': '筹码断层量级(ATR)',
         'chip_fault_blockage_ratio': '断层阻碍度(%)',
         'total_winner_rate': '存量总获利盘(%)',
         'total_loser_rate': '存量总套牢盘(%)',
-        'effective_winner_rate': '有效获利盘比例(%)',
         'winner_profit_margin_avg': '平均获利盘利润率(%)',
         'loser_loss_margin_avg': '平均套牢盘亏损率(%)',
-        'active_winner_rate': '活跃获利盘比例(%)',
-        'active_loser_rate': '活跃套牢盘比例(%)',
-        'locked_profit_rate': '锁定利润盘比例(%)',
-        'locked_loss_rate': '锁定亏损盘比例(%)',
-        'winner_profit_cushion': '获利盘缓冲垫(%)',
-        'loser_pain_index': '套牢盘痛苦指数',
-        'structural_stability_score': '结构稳定性评分(0-100)',
+        'loser_pain_index': '套牢盘痛苦指数', # 逻辑已升级
+        'structural_potential_score': '结构势能分(0-100)',
         'cost_structure_skewness': '成本结构偏度',
-        'recent_trapped_pressure': '近期套牢盘压力(%)',
-        'imminent_profit_taking_supply': '潜在获利盘供给(%)',
         'price_volume_entropy': '价格成交量熵',
     }
     # --- 第二象限: 内部动态 (Intraday Dynamics) ---
     INTRADAY_DYNAMICS_METRICS = {
+        # 新增代码行：引入新一代日内动态博弈指标
+        'impulse_quality_ratio': '脉冲品质比率(%)',
+        'peak_control_transfer': '主峰控制权转移(%)',
+        'support_validation_strength': '支撑验证强度',
+        'pressure_rejection_strength': '压力拒绝强度',
+        'vacuum_traversal_efficiency': '真空区通行效率',
+        'intraday_posture_score': '日内姿态评分(-100~100)',
+        # --- 保留和兼容的指标 ---
         'active_selling_pressure': '主动卖压强度(%)',
         'active_buying_support': '主动买盘支撑(%)',
-        'peak_battle_intensity': '主峰交战强度(%)',
-        'peak_dynamic_strength_ratio': '峰区压力平衡(%)',
-        'peak_main_force_premium': '主峰主力溢价(%)',
-        'peak_mf_conviction_flow': '主峰主力信念流(%)',
-        'upward_impulse_purity': '上涨脉冲纯度(%)',
+        'upward_impulse_purity': '上涨脉冲纯度(%)', # 旧有逻辑，可作为参考
         'opening_gap_defense_strength': '开盘缺口防御强度',
-        'active_zone_combat_intensity': '活跃战区交战强度(%)',
-        'active_zone_mf_stance': '活跃战区主力姿态(%)',
         'profit_realization_quality': '获利盘兑现质量(%)',
         'capitulation_absorption_index': '投降承接指数(%)'
     }
     # --- 第三象限: 跨日迁徙 (Cross-Day Flow) ---
     CROSS_DAY_FLOW_METRICS = {
+        # 新增代码行：引入新一代信念交割与结构演化指标
+        'peak_mass_transfer_rate': '主峰质量转移率',
+        'conviction_flow_index': '信念流转指数',
+        'constructive_turnover_ratio': '建设性换手率',
+        'structural_entropy_change': '结构熵变',
+        'main_force_flow_gini': '主力资金流基尼系数',
+        # --- 保留和兼容的指标 ---
         'gathering_by_support': '承接式集结量(%)',
         'gathering_by_chasing': '追涨式集结量(%)',
         'dispersal_by_distribution': '派发式分散量(%)',
         'dispersal_by_capitulation': '承接式分散量(%)',
         'profit_taking_flow_ratio': '获利兑现流量占比(%)',
         'capitulation_flow_ratio': '恐慌抛售流量占比(%)',
-        'active_winner_pressure_ratio': '活跃获利盘承压比(%)',
-        'locked_profit_pressure_ratio': '锁定利润盘承压比(%)',
-        'active_loser_pressure_ratio': '活跃套牢盘承压比(%)',
-        'locked_loss_pressure_ratio': '锁定亏损盘承压比(%)',
-        'cost_divergence': '成本分离度',
-        'cost_divergence_normalized': '标准化成本分离度',
         'winner_loser_momentum': '盈亏动量',
         'chip_fatigue_index': '筹码疲劳指数',
-        'peak_shoulder_growth_rate': '筹码峰肩增长率(%)',
     }
     # --- 第四象限: 博弈意图 (Game-Theoretic Intent) ---
     GAME_THEORY_METRICS = {
-        'suppressive_accumulation_intensity': '打压吸筹强度(%)',
-        'rally_distribution_intensity': '拉高出货强度(%)',
-        'rally_accumulation_intensity': '追涨吸筹强度(%)',
-        'panic_selling_intensity': '恐慌派发强度(%)',
+        # 新增代码行：引入新一代战略推演指标
+        'strategic_phase_score': '战略阶段评分(-100~100)',
+        'deception_index': '欺骗指数(-100~100)',
+        'control_solidity_index': '控制力稳固度',
+        'exhaustion_risk_index': '衰竭风险指数',
+        'breakout_readiness_score': '突破就绪分(0-100)',
+        # --- 保留和兼容的指标 ---
         'main_force_cost_advantage': '主力成本优势(%)',
-        'active_winner_avg_cost': '活跃获利盘均价',
-        'active_winner_profit_margin': '活跃获利盘利润垫(%)',
-        'short_term_holder_cost': '短期持仓者成本',
-        'long_term_holder_cost': '长期持仓者成本',
-        'winner_conviction_index': '获利盘信念指数',
-        'chip_health_score': '筹码健康分(0-100)',
-        'main_force_control_leverage': '主力控盘杠杆(%)',
-        'loser_capitulation_pressure_index': '套牢盘投降压力指数',
-        'intraday_new_loser_pressure': '日内新增套牢盘压力',
+        'chip_health_score': '筹码健康分(0-100)', # 逻辑会依赖新指标
         'auction_intent_signal': '竞价意图信号',
         'auction_closing_position': '竞价收盘位置(-100~100)',
-        'intraday_probe_rebound_quality': '日内试探回升质量',
         'peak_exchange_purity': '主峰交换纯度',
         'pressure_validation_score': '压力验证分',
         'support_validation_score': '支撑验证分',
@@ -110,11 +97,10 @@ class BaseAdvancedChipMetrics(models.Model):
     }
     # --- 第五象限: 生命体征 (Vital Signs) ---
     VITAL_SIGNS_METRICS = {
-        'structural_consensus_score': '结构共识分',
-        'dominant_cost_momentum': '主导成本动量',
-        'structural_resilience_index': '结构韧性指数',
-        'posture_control_score': '主力姿态-控盘分',
-        'posture_action_score': '主力姿态-行动分',
+        'signal_conviction_score': '信号置信度评分(-100~100)',
+        'risk_reward_profile': '风险收益剖面',
+        'trend_vitality_index': '趋势生命力指数',
+        'overall_t1_rating': 'T+1综合评级(-100~100)',
     }
     CORE_METRICS = {
         **STATIC_STRUCTURE_METRICS,
@@ -130,41 +116,39 @@ class BaseAdvancedChipMetrics(models.Model):
         'gathering_by_support', 'gathering_by_chasing',
         'dispersal_by_distribution', 'dispersal_by_capitulation',
         'profit_taking_flow_ratio', 'capitulation_flow_ratio',
-        'active_winner_pressure_ratio', 'locked_profit_pressure_ratio',
-        'active_loser_pressure_ratio', 'locked_loss_pressure_ratio',
-        'suppressive_accumulation_intensity',
-        'rally_distribution_intensity',
-        'rally_accumulation_intensity',
-        'panic_selling_intensity',
         'main_force_cost_advantage',
-        'main_force_control_leverage',
-        'fault_traversal_momentum', 'intraday_trend_efficiency',
-        'intraday_new_loser_pressure',
         'auction_intent_signal',
         'auction_closing_position',
-        'intraday_probe_rebound_quality',
-        'structural_consensus_score',
-        'dominant_cost_momentum',
-        'capitulation_absorption_index',
-        'structural_resilience_index',
-        'posture_control_score',
-        'posture_action_score',
         'loser_pain_index',
-        'structural_stability_score',
+        'structural_potential_score',
         'cost_structure_skewness',
-        'recent_trapped_pressure',
-        'imminent_profit_taking_supply',
-        'peak_shoulder_growth_rate',
-        'dominant_peak_solidity',
-        'peak_distance_volatility_ratio',
-        'peak_dynamic_strength_ratio',
-        'peak_separation_intensity',
-        'peak_fusion_indicator',
         'price_volume_entropy',
         'peak_exchange_purity',
         'pressure_validation_score',
         'support_validation_score',
         'covert_accumulation_signal',
+        'structural_node_count',
+        'primary_peak_kurtosis',
+        'cost_gini_coefficient',
+        'structural_tension_index',
+        'structural_leverage',
+        'vacuum_zone_magnitude',
+        'winner_stability_index',
+        'intraday_posture_score',
+        'peak_mass_transfer_rate',
+        'conviction_flow_index',
+        'constructive_turnover_ratio',
+        'structural_entropy_change',
+        'main_force_flow_gini',
+        'strategic_phase_score',
+        'deception_index',
+        'control_solidity_index',
+        'exhaustion_risk_index',
+        'breakout_readiness_score',
+        'signal_conviction_score',
+        'risk_reward_profile',
+        'trend_vitality_index',
+        'overall_t1_rating',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in INTEGER_FIELDS:
@@ -201,7 +185,6 @@ class AdvancedChipMetrics_SZ(BaseAdvancedChipMetrics):
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
             models.Index(fields=['chip_health_score']),
-            models.Index(fields=['structural_resilience_index']),
             models.Index(fields=['peak_separation_ratio']),
             models.Index(fields=['dominant_peak_solidity']),
         ]
@@ -223,7 +206,6 @@ class AdvancedChipMetrics_SH(BaseAdvancedChipMetrics):
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
             models.Index(fields=['chip_health_score']),
-            models.Index(fields=['structural_resilience_index']),
             models.Index(fields=['peak_separation_ratio']),
             models.Index(fields=['dominant_peak_solidity']),
         ]
@@ -245,7 +227,6 @@ class AdvancedChipMetrics_CY(BaseAdvancedChipMetrics):
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
             models.Index(fields=['chip_health_score']),
-            models.Index(fields=['structural_resilience_index']),
             models.Index(fields=['peak_separation_ratio']),
             models.Index(fields=['dominant_peak_solidity']),
         ]
@@ -267,7 +248,6 @@ class AdvancedChipMetrics_KC(BaseAdvancedChipMetrics):
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
             models.Index(fields=['chip_health_score']),
-            models.Index(fields=['structural_resilience_index']),
             models.Index(fields=['peak_separation_ratio']),
             models.Index(fields=['dominant_peak_solidity']),
         ]
@@ -289,7 +269,6 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
             models.Index(fields=['chip_health_score']),
-            models.Index(fields=['structural_resilience_index']),
             models.Index(fields=['peak_separation_ratio']),
             models.Index(fields=['dominant_peak_solidity']),
         ]
