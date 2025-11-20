@@ -18,6 +18,7 @@ class FeatureEngineeringService:
     """
     def __init__(self):
         pass
+
     async def calculate_all_slopes(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V3.1 注释优化版】计算所有配置的斜率特征。
@@ -68,6 +69,7 @@ class FeatureEngineeringService:
                 df[slope_col_name] = slope_series.fillna(0)
             all_dfs[timeframe] = df
         return all_dfs
+
     async def calculate_all_accelerations(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V2.1 注释优化版】计算所有配置的加速度特征。
@@ -109,6 +111,7 @@ class FeatureEngineeringService:
                 accel_series = accel_linreg_result if isinstance(accel_linreg_result, pd.Series) else accel_linreg_result.iloc[:, 0]
                 df[accel_col_name] = accel_series.fillna(0)
         return all_dfs
+
     async def calculate_vpa_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V1.1 注释优化版】VPA效率指标生产线
@@ -135,6 +138,7 @@ class FeatureEngineeringService:
         df['VPA_EFFICIENCY_D'] = vpa_efficiency.replace([np.inf, -np.inf], np.nan).fillna(0)
         all_dfs[timeframe] = df
         return all_dfs
+
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V3.0 · 物理洞察重铸版】元特征计算车间
@@ -241,6 +245,7 @@ class FeatureEngineeringService:
             df[vi_col] = df[atr_col].rolling(window=vi_window).std()
         all_dfs[timeframe] = df
         return all_dfs
+
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
         【V3.5 · 通达信模式与AAA指标独立化版】高级模式识别信号生产线
@@ -255,12 +260,16 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs:
             return all_dfs
         df = all_dfs[timeframe]
+        # [代码修改开始] 基于可用数据列，替换缺失的特征
         required_cols = [
             'high_D', 'low_D', 'close_D', 'volume_D', 'pct_change_D', 'VOL_MA_21_D', 'BBW_21_2.0_D', 'ATR_14_D', 'ADX_14_D',
             'open_D', 'amount_D',
-            'chip_health_score_D', 'structural_resilience_index_D', 'suppressive_accumulation_intensity_D',
-            'rally_distribution_intensity_D', 'winner_conviction_index_D', 'cost_structure_skewness_D',
-            'dominant_peak_solidity_D',
+            'chip_health_score_D',
+            'hidden_accumulation_intensity_D',   # 修改: 使用 hidden_accumulation_intensity_D 替代 suppressive_accumulation_intensity_D
+            'rally_distribution_pressure_D',     # 修改: 使用 rally_distribution_pressure_D 替代 rally_distribution_intensity_D
+            'winner_stability_index_D',          # 修改: 使用 winner_stability_index_D 替代 winner_conviction_index_D
+            'cost_structure_skewness_D',
+            'dominant_peak_solidity_D',          # 修改: 使用 dominant_peak_solidity_D 替代 structural_resilience_index_D
             'main_force_net_flow_calibrated_D', 'main_force_execution_alpha_D', 'dip_absorption_power_D',
             'main_force_on_peak_flow_D', 'flow_efficiency_index_D', 'main_force_flow_directionality_D',
             'MA_POTENTIAL_TENSION_INDEX_D',
@@ -268,6 +277,7 @@ class FeatureEngineeringService:
             'MA_POTENTIAL_COMPRESSION_RATE_D',
             'VPA_EFFICIENCY_D'
         ]
+        # [代码修改结束]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             print(f"高级模式识别引擎缺少关键数据: {missing_cols}，模块已跳过！")
@@ -277,12 +287,16 @@ class FeatureEngineeringService:
         # --- 2. 【战场状态定义】: 基于“状态+势能”的多因子共振 ---
         cond_high_tension = df['MA_POTENTIAL_TENSION_INDEX_D'] < df['MA_POTENTIAL_TENSION_INDEX_D'].rolling(60).quantile(0.20)
         cond_low_orderliness = df['MA_POTENTIAL_ORDERLINESS_SCORE_D'].abs() < 0.5
-        cond_struct_healthy = (df['chip_health_score_D'] > 50) & (df['structural_resilience_index_D'] > 0)
+        # [代码修改开始] 使用 dominant_peak_solidity_D 替代 structural_resilience_index_D
+        cond_struct_healthy = (df['chip_health_score_D'] > 50) & (df['dominant_peak_solidity_D'] > 0.5) # 稳固度是0-1，使用0.5作为阈值
+        # [代码修改结束]
         cond_low_volatility = df['BBW_21_2.0_D'] < df['BBW_21_2.0_D'].rolling(60).quantile(0.25)
         cond_weak_trend = df['ADX_14_D'] < 25
         df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = cond_high_tension & cond_low_orderliness & cond_struct_healthy & cond_low_volatility & cond_weak_trend
         cond_compressing = df['MA_POTENTIAL_COMPRESSION_RATE_D'] < 0
-        cond_main_force_accum = (df['suppressive_accumulation_intensity_D'] > 0) | (df['dip_absorption_power_D'] > 0.5)
+        # [代码修改开始] 使用 hidden_accumulation_intensity_D 替代 suppressive_accumulation_intensity_D
+        cond_main_force_accum = (df['hidden_accumulation_intensity_D'] > 0) | (df['dip_absorption_power_D'] > 0.5)
+        # [代码修改结束]
         cond_peak_flow_positive = df['main_force_on_peak_flow_D'].rolling(3).mean() > 0
         cond_vpa_efficient_accum = df['VPA_EFFICIENCY_D'] > df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.5)
         df['IS_ACCUMULATION_D'] = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] & cond_compressing & (cond_main_force_accum | cond_peak_flow_positive) & cond_vpa_efficient_accum
@@ -295,11 +309,17 @@ class FeatureEngineeringService:
                                     (df['volume_D'] > df['VOL_MA_21_D'] * 1.2) & \
                                     (df['VPA_EFFICIENCY_D'] > df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.9))
         df['IS_BREAKOUT_D'] = cond_was_consolidating & cond_orderliness_turn_up & cond_main_force_ignition & cond_price_volume_confirm
-        cond_rally_dist = (df['pct_change_D'] > 0) & (df['rally_distribution_intensity_D'] > 0.5)
+        # [代码修改开始] 使用 rally_distribution_pressure_D 替代 rally_distribution_intensity_D
+        cond_rally_dist = (df['pct_change_D'] > 0) & (df['rally_distribution_pressure_D'] > 0.5)
+        # [代码修改结束]
         cond_main_force_outflow = (df['main_force_net_flow_calibrated_D'].rolling(3).sum() < 0) & \
                                   (df['main_force_flow_directionality_D'] < -0.3)
-        cond_winner_conviction_drop = df['winner_conviction_index_D'].diff() < 0
-        cond_resilience_drop = df['structural_resilience_index_D'].diff() < 0
+        # [代码修改开始] 使用 winner_stability_index_D 替代 winner_conviction_index_D
+        cond_winner_conviction_drop = df['winner_stability_index_D'].diff() < 0
+        # [代码修改结束]
+        # [代码修改开始] 使用 dominant_peak_solidity_D 替代 structural_resilience_index_D
+        cond_resilience_drop = df['dominant_peak_solidity_D'].diff() < 0
+        # [代码修改结束]
         cond_vpa_inefficient_dist = (df['pct_change_D'] > 0) & (df['VPA_EFFICIENCY_D'] < df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.2))
         df['IS_DISTRIBUTION_D'] = cond_rally_dist | (cond_main_force_outflow & cond_winner_conviction_drop & cond_resilience_drop & cond_vpa_inefficient_dist)
         # --- 3. 【通达信模式集成】 ---
@@ -336,6 +356,7 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         logger.info("高级模式识别引擎(V3.5 通达信模式与AAA指标独立化版)分析完成。")
         return all_dfs
+
     async def calculate_aaa_indicator(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
         【V1.0】计算通达信 AAA 指标。
@@ -365,6 +386,7 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         logger.info("AAA 指标计算完成。")
         return all_dfs
+
     async def calculate_ma_convergence(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
         【V2.1 · 均线势能命名优化版】均线系统势能分析引擎
@@ -428,6 +450,7 @@ class FeatureEngineeringService:
                 except Exception as e:
                     logger.error(f"计算均线系统势能时发生错误({output_prefix}_{timeframe}): {e}", exc_info=True)
         return all_dfs
+
     async def calculate_consolidation_period(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
         【V1.0 新增】根据多因子共振识别盘整期。
@@ -477,6 +500,7 @@ class FeatureEngineeringService:
         df[f'dynamic_consolidation_duration_{timeframe}'] = df.get(f'dynamic_consolidation_duration_{timeframe}', pd.Series(index=df.index)).fillna(0)
         all_dfs[timeframe] = df
         return all_dfs
+
     async def calculate_pattern_enhancement_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict, calculator) -> Dict[str, pd.DataFrame]:
         """
         【V1.4 · 后门封堵与命名修复版】形态增强信号编排器
@@ -518,6 +542,7 @@ class FeatureEngineeringService:
         all_dfs['D'] = df_daily
         logger.info("分钟级形态增强信号计算完成并已集成。")
         return all_dfs
+
     async def calculate_ma_potential_metrics(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
         【V1.0】均线系统势能分析引擎
@@ -577,6 +602,7 @@ class FeatureEngineeringService:
             except Exception as e:
                 logger.error(f"计算均线系统势能时发生错误({timeframe}): {e}", exc_info=True)
         return all_dfs
+
     async def calculate_breakout_quality(self, all_dfs: Dict, params: dict, calculator) -> Dict:
         """
         【V3.1 · 后门封堵版】突破质量分计算专用通道
@@ -618,6 +644,7 @@ class FeatureEngineeringService:
         else:
             logger.warning("突破质量分计算器返回了None或空DataFrame，未集成。")
         return all_dfs
+
     async def calculate_nmfnf(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
         【V1.0】计算标准化主力净流量 (Normalized Main Force Net Flow, NMFNF)。
@@ -641,6 +668,7 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         logger.info("NMFNF 指标计算完成。")
         return all_dfs
+
     async def calculate_och(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
         【V3.0 · 筹码全息健康度版】计算整体筹码健康度 (Overall Chip Health, OCH)。
@@ -680,8 +708,10 @@ class FeatureEngineeringService:
                 return pd.Series(default_val, index=df_index)
             return df[col_name].fillna(default_val)
         # --- 1. 筹码集中度与结构优化 (Concentration & Structure Optimization Score) ---
-        st_concentration = _get_safe_series_local('short_term_concentration_90pct_D', 50.0) / 100 # 归一化到 0-1
-        lt_concentration = _get_safe_series_local('long_term_concentration_90pct_D', 50.0) / 100 # 归一化到 0-1
+        # [代码修改开始] 使用 winner_concentration_90pct_D 和 loser_concentration_90pct_D 替代 short/long_term_concentration
+        st_concentration = _get_safe_series_local('winner_concentration_90pct_D', 50.0) / 100 # 归一化到 0-1, 使用获利盘集中度替代短期集中度
+        lt_concentration = _get_safe_series_local('loser_concentration_90pct_D', 50.0) / 100 # 归一化到 0-1, 使用套牢盘集中度替代长期集中度
+        # [代码修改结束]
         winner_concentration = _get_safe_series_local('winner_concentration_90pct_D', 50.0) / 100
         loser_concentration = _get_safe_series_local('loser_concentration_90pct_D', 50.0) / 100
         peak_solidity = _get_safe_series_local('dominant_peak_solidity_D', 0.5) # 0-1
@@ -707,10 +737,14 @@ class FeatureEngineeringService:
         total_loser_rate = _get_safe_series_local('total_loser_rate_D', 0.5) # 0-1
         winner_profit_margin = _get_safe_series_local('winner_profit_margin_avg_D', 0.0) / 100 # 归一化到 0-1
         loser_loss_margin = _get_safe_series_local('loser_loss_margin_avg_D', 0.0) / 100 # 归一化到 0-1
-        cost_divergence = _get_safe_series_local('cost_divergence_normalized_D', 0.0) # -1到1
+        # [代码修改开始] 使用 cost_structure_skewness_D 替代 cost_divergence_normalized_D
+        cost_divergence = _get_safe_series_local('cost_structure_skewness_D', 0.0) # -1到1
+        # [代码修改结束]
         mf_cost_advantage = _get_safe_series_local('main_force_cost_advantage_D', 0.0) # -1到1
-        imminent_profit_taking = _get_safe_series_local('imminent_profit_taking_supply_D', 0.0) # 0-1
-        loser_capitulation_pressure = _get_safe_series_local('loser_capitulation_pressure_index_D', 0.0) # 0-1
+        # [代码修改开始] 使用 profit_taking_flow_ratio_D 和 loser_pain_index_D 替代
+        imminent_profit_taking = _get_safe_series_local('profit_taking_flow_ratio_D', 0.0) # 0-1
+        loser_capitulation_pressure = _get_safe_series_local('loser_pain_index_D', 0.0) # 0-1
+        # [代码修改结束]
         # 获利盘压力：获利盘比例、利润率、抛压意愿的乘积 (负向贡献)
         profit_pressure = total_winner_rate * winner_profit_margin * imminent_profit_taking
         # 亏损盘支撑：亏损盘比例、亏损率、投降压力低的乘积 (正向贡献)
@@ -724,14 +758,18 @@ class FeatureEngineeringService:
             (profit_pressure * 0.2)
         ).clip(0, 1)
         # --- 3. 持股心态与交易行为 (Holder Sentiment & Behavior Score) ---
-        winner_conviction = _get_safe_series_local('winner_conviction_index_D', 0.0) # 0-1
+        # [代码修改开始] 使用 winner_stability_index_D 和 (1 - capitulation_flow_ratio_D) 等替代
+        winner_conviction = _get_safe_series_local('winner_stability_index_D', 0.0) # 0-1
         chip_fatigue = _get_safe_series_local('chip_fatigue_index_D', 0.0) # 0-1
-        locked_profit = _get_safe_series_local('locked_profit_rate_D', 0.0) # 0-1
-        locked_loss = _get_safe_series_local('locked_loss_rate_D', 0.0) # 0-1
+        locked_profit = _get_safe_series_local('winner_stability_index_D', 0.0) # 0-1
+        locked_loss = 1.0 - _get_safe_series_local('capitulation_flow_ratio_D', 0.0) # 0-1
+        # [代码修改结束]
         capitulation_absorption = _get_safe_series_local('capitulation_absorption_index_D', 0.0) # 0-1
         active_buying = _get_safe_series_local('active_buying_support_D', 0.0) # 0-1
         active_selling = _get_safe_series_local('active_selling_pressure_D', 0.0) # 0-1
-        combat_intensity = _get_safe_series_local('active_zone_combat_intensity_D', 0.0) # 0-1
+        # [代码修改开始] 使用 mf_retail_battle_intensity_D 替代 active_zone_combat_intensity_D
+        combat_intensity = _get_safe_series_local('mf_retail_battle_intensity_D', 0.0) # 0-1
+        # [代码修改结束]
         # 信念与锁定：信念、锁定利润盘正向，疲劳、锁定亏损盘负向
         conviction_lock_score = (winner_conviction + locked_profit - chip_fatigue - locked_loss).clip(-1, 1)
         # 吸收与支撑：吸收能力、主动买盘正向，主动卖盘负向
@@ -743,7 +781,9 @@ class FeatureEngineeringService:
             (combat_intensity * 0.2)
         ).clip(0, 1)
         # --- 4. 主力控盘与意图 (Main Force Control & Intent Score) ---
-        mf_control_leverage = _get_safe_series_local('main_force_control_leverage_D', 0.0) # 0-1
+        # [代码修改开始] 使用 control_solidity_index_D 替代 main_force_control_leverage_D
+        mf_control_leverage = _get_safe_series_local('control_solidity_index_D', 0.0) # 0-1
+        # [代码修改结束]
         mf_on_peak_flow = _get_safe_series_local('main_force_on_peak_flow_D', 0.0) # 金额，需要归一化
         mf_flow_directionality = _get_safe_series_local('main_force_flow_directionality_D', 0.0) # -1到1
         mf_execution_alpha = _get_safe_series_local('main_force_execution_alpha_D', 0.0) # -1到1
