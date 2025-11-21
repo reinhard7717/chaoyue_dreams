@@ -551,7 +551,9 @@ class AdvancedStructuralMetricsService:
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
-        【V1.0】准备数据并以原子方式批量保存到数据库。
+        【V19.4 · 持久化鲁棒性修复版】
+        - 核心修正: 修改列筛选逻辑，不再依赖可能存在缓存或元编程问题的 `MetricsModel._meta.get_fields()`。
+        - 核心方案: 直接使用 `BaseAdvancedStructuralMetrics.CORE_METRICS.keys()` 作为权威的字段列表来源，确保所有在模型中定义的核心指标列都能被正确筛选并进入保存流程，从根本上解决新指标数据丢失的问题。
         """
         if final_df.empty:
             return 0
@@ -559,9 +561,22 @@ class AdvancedStructuralMetricsService:
         from decimal import Decimal, ROUND_HALF_UP
         # 替换无穷大值为NaN
         final_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        # 筛选出模型中存在的列
-        model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
-        df_filtered = final_df[[col for col in final_df.columns if col in model_fields]]
+        # 修改代码块：使用确定性的字段列表进行筛选
+        # model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'} # 旧的、不可靠的方式
+        model_fields = set(BaseAdvancedStructuralMetrics.CORE_METRICS.keys())
+        # 额外添加 trade_time 和 stock_id 以防万一，尽管它们通常不是问题
+        model_fields.add('trade_time')
+        model_fields.add('stock_id')
+        
+        # 筛选出模型中存在的列，现在使用更可靠的字段列表
+        # 我们只保留 final_df 中存在于 model_fields 的列
+        cols_to_keep = [col for col in final_df.columns if col in model_fields]
+        df_filtered = final_df[cols_to_keep]
+        print(f"调试信息: [{stock_info.stock_code}] 准备保存数据。DataFrame总列数: {len(final_df.columns)}, 筛选后列数: {len(df_filtered.columns)}")
+        if 'buy_sweep_intensity' in df_filtered.columns:
+            print(f"调试信息: 'buy_sweep_intensity' 列在筛选后依然存在。")
+        else:
+            print(f"警告: 'buy_sweep_intensity' 列在筛选后被意外丢弃！")
         # 转换为字典列表
         records_list = df_filtered.to_dict('records')
         @sync_to_async(thread_sensitive=True)
