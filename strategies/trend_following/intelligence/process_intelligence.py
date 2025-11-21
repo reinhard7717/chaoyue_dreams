@@ -46,6 +46,34 @@ class ProcessIntelligence:
             return pd.Series(default_value, index=df.index)
         return df[column_name]
 
+    def _normalize_series(self, series: pd.Series, target_index: pd.Index, bipolar: bool = False) -> pd.Series:
+        """
+        【V1.0 · 统一归一化引擎】
+        - 核心职责: 为类内部提供一个统一的、基于多时间框架自适应归一化的方法。
+        - 核心逻辑: 根据 bipolar 参数，调用 get_adaptive_mtf_normalized_score (单极) 或
+                     get_adaptive_mtf_normalized_bipolar_score (双极) 进行归一化。
+        - 修复: 解决了 'ProcessIntelligence' object has no attribute '_normalize_series' 的 AttributeError。
+        """
+        # [代码新增] 实现了统一的归一化逻辑
+        # 获取MTF权重配置
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        if bipolar:
+            return get_adaptive_mtf_normalized_bipolar_score(
+                series=series,
+                target_index=target_index,
+                tf_weights=default_weights,
+                sensitivity=self.bipolar_sensitivity
+            )
+        else:
+            return get_adaptive_mtf_normalized_score(
+                series=series,
+                target_index=target_index,
+                ascending=True,
+                tf_weights=default_weights
+            )
+
     def run_process_diagnostics(self, df: pd.DataFrame, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
         【V5.2 · 任务过滤修复版】过程情报分析总指挥
