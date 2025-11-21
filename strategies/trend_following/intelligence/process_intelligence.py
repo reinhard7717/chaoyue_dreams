@@ -83,6 +83,27 @@ class ProcessIntelligence:
         print(f"【V5.2 · 任务过滤修复版】分析完成，生成 {len(all_process_states)} 个过程元信号。") # [代码修改] 更新版本信息
         return all_process_states
 
+    def _run_meta_analysis(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 元分析调度中心】
+        - 核心职责: 作为所有非自定义元分析任务的中央调度器。
+        - 核心逻辑: 根据诊断配置中的 'diagnosis_type' 字段，将任务分派给具体的诊断方法。
+        - 修复: 解决了 'ProcessIntelligence' object has no attribute '_run_meta_analysis' 的 AttributeError。
+        """
+        # [代码新增] 实现了元分析的调度逻辑
+        diagnosis_type = config.get('diagnosis_type', 'meta_relationship') # 默认为最常见的元关系分析
+        if diagnosis_type == 'meta_relationship':
+            return self._diagnose_meta_relationship(df, config)
+        elif diagnosis_type == 'split_meta_relationship':
+            return self._diagnose_split_meta_relationship(df, config)
+        elif diagnosis_type == 'signal_decay':
+            return self._diagnose_signal_decay(df, config)
+        elif diagnosis_type == 'domain_reversal':
+            return self._diagnose_domain_reversal(df, config)
+        else:
+            print(f"    -> [过程情报警告] 未知的元分析诊断类型: '{diagnosis_type}'，跳过信号 '{config.get('name')}' 的计算。")
+            return {}
+
     def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V3.0 · 微观勘察版】计算“权力转移”信号，融合高频微观结构证据进行最终裁决。
