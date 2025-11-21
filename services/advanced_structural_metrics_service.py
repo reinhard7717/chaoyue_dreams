@@ -179,8 +179,8 @@ class AdvancedStructuralMetricsService:
 
     async def _forge_advanced_structural_metrics(self, intraday_data_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
-        【V19.1 · 索引修复版】
-        - 核心修正: 在获取到分钟数据(group)后，立即调用 reset_index()，将 trade_time 从索引恢复为列，以解决因上游数据结构变更导致的 KeyError。
+        【V19.2 · 兼容性修复版】
+        - 核心修正: 增加成交量列名智能识别逻辑，兼容 'vol' 和 'volume' 两种列名，并统一重命名为 'vol'，以根治 KeyError。
         """
         if not intraday_data_map:
             return pd.DataFrame()
@@ -209,8 +209,19 @@ class AdvancedStructuralMetricsService:
             if group is None or group.empty or len(group) < 10:
                 logger.warning(f"[{stock_code}] [{date}] 跳过结构指标计算，分钟级数据不足。")
                 continue
-            # 新增代码行：将 trade_time 索引重置为列，修复KeyError
             group.reset_index(inplace=True)
+            # 新增代码块：智能识别并统一成交量列名
+            volume_col_name = None
+            if 'volume' in group.columns:
+                volume_col_name = 'volume'
+            elif 'vol' in group.columns:
+                volume_col_name = 'vol'
+            if volume_col_name and volume_col_name != 'vol':
+                print(f"调试信息: [{stock_code}] [{date}] 发现成交量列名为 '{volume_col_name}'，统一重命名为 'vol'。")
+                group.rename(columns={volume_col_name: 'vol'}, inplace=True)
+            elif not volume_col_name:
+                logger.error(f"[{stock_code}] [{date}] 分钟数据中缺少成交量列 ('volume' 或 'vol')，跳过当天计算。列: {group.columns.tolist()}")
+                continue
             try:
                 daily_series_for_day = daily_df.loc[date]
                 atr_5_for_day = atr_5.get(date)
