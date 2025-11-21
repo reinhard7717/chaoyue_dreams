@@ -741,7 +741,7 @@
             "task_type": "base",
             "diagnosis_type": "domain_reversal",
             "domain_name": "FOUNDATION",
-            "output_bottom_reversal_name": "PROCESS_META_FOUNDATION_BOTTOM_REversal",
+            "output_bottom_reversal_name": "PROCESS_META_FOUNDATION_BOTTOM_REVERSAL",
             "output_top_reversal_name": "PROCESS_META_FOUNDATION_TOP_REVERSAL",
             "axioms": [
               {"name": "SCORE_FOUNDATION_AXIOM_TREND", "weight": 0.4},
