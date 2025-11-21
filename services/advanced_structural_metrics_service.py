@@ -257,7 +257,7 @@ class AdvancedStructuralMetricsService:
         result_df = pd.DataFrame(daily_metrics)
         return result_df.set_index(pd.to_datetime(result_df['trade_time']))
 
-    def _compute_all_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict) -> dict:
+    def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict) -> dict:
         """
         【V3.4 · 全局类型净化版】
         - 核心修正: 将 'amount' 和 'vol' 的类型转换操作提前至方法入口，应用于完整的 `group` DataFrame，从而根除所有下游计算中的 `Decimal/float` 类型冲突。
