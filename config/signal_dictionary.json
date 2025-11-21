@@ -424,6 +424,38 @@
             "scoring_mode": "unipolar",
             "description": "【事件型】主力在不拉高价格的情况下悄悄收集筹码的过程。只应有加分。"
         },
+        "PROCESS_META_DECEPTIVE_ACCUMULATION": {
+            "cn_name": "【过程】诡道吸筹",
+            "category": "过程层-机会",
+            "type": "process",
+            "score": 260,
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 诡道博弈】诊断主力通过制造虚假抛压（如大单压单）来掩盖真实吸筹意图（如拆单买入）的高级欺骗行为。"
+        },
+        "PROCESS_META_PANIC_WASHOUT_ACCUMULATION": {
+            "cn_name": "【过程】恐慌洗盘吸筹",
+            "category": "过程层-机会",
+            "type": "process",
+            "score": 350,
+            "scoring_mode": "unipolar",
+            "description": "【V2.0 · 诡道博弈版】诊断主力通过制造恐慌性下跌来清洗浮筹并借机吸筹的“黄金坑”战术。"
+        },
+        "PROCESS_META_UPTHRUST_WASHOUT": {
+            "cn_name": "【过程】上冲回落洗盘",
+            "category": "过程层-机会",
+            "type": "process",
+            "score": 280,
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 假阴线甄别】识别主力在拉升初期利用高开低走“假阴线”进行的洗盘行为。"
+        },
+        "PROCESS_META_ACCUMULATION_INFLECTION": {
+            "cn_name": "【过程】吸筹末端拐点",
+            "category": "过程层-机会",
+            "type": "process",
+            "score": 450,
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 势能转换】识别多日累积吸筹后，由“量变”到“质变”的拉升启动临界点。"
+        },
         "PROCESS_META_WINNER_CONVICTION": {
             "cn_name": "【过程】赢家信念",
             "type": "process",
