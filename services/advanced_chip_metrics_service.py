@@ -365,35 +365,57 @@ class AdvancedChipMetricsService:
         return derivatives_df
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
-        """准备并以“更新或创建”的方式原子化保存数据。"""
-        if final_df.empty: return 0
+        """
+        【V19.5 · 持久化策略升级版】
+        - 核心升级: 采纳 update_or_create 策略替换 bulk_create，实现幂等性写入，确保数据在重复执行时能被正确更新。
+        - 核心保留: 维持 V19.4 的关键修复，即使用 BaseAdvancedStructuralMetrics.CORE_METRICS 作为权威字段源进行列筛选，根治新指标数据丢失问题。
+        """
+        if final_df.empty:
+            return 0
+        # 替换无穷大值为NaN
         final_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        # 健壮性修复：确保所有布尔字段在保存前都有确定的值 (True/False)，而不是 NaN。
-        # NaN 在保存时会变成 NULL，导致数据库 NOT NULL 约束错误。
-        boolean_fields = BaseAdvancedChipMetrics.BOOLEAN_FIELDS
-        for col in boolean_fields:
-            if col in final_df.columns:
-                # 将 NaN 值填充为 False，这是布尔字段最安全的默认值
-                final_df[col] = final_df[col].fillna(False)
-        model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
-        df_filtered = final_df[[col for col in final_df.columns if col in model_fields]]
+        # 使用确定性的字段列表进行筛选，这是解决数据丢失的关键
+        model_fields = set(BaseAdvancedStructuralMetrics.CORE_METRICS.keys())
+        model_fields.add('trade_time') # 确保 trade_time 总是被包含
+        
+        # 筛选出模型中存在的列
+        cols_to_keep = [col for col in final_df.columns if col in model_fields]
+        df_filtered = final_df[cols_to_keep]
+        
+        print(f"调试信息: [{stock_info.stock_code}] 准备保存数据。DataFrame总列数: {len(final_df.columns)}, 筛选后列数: {len(df_filtered.columns)}")
+        if 'buy_sweep_intensity' in df_filtered.columns:
+            print(f"调试信息: 'buy_sweep_intensity' 列在筛选后依然存在。")
+        else:
+            # 如果此警告出现，说明问题依然存在于上游的数据生成环节
+            print(f"警告: 'buy_sweep_intensity' 列在筛选前就不存在或筛选后被意外丢弃！")
+            
+        # 转换为字典列表
         records_list = df_filtered.to_dict('records')
+        
         @sync_to_async(thread_sensitive=True)
         def save_atomically(model, stock_obj, records_to_process):
             processed_count = 0
             for record_data in records_to_process:
                 trade_time = record_data.pop('trade_time').date()
+                # 清理 NaN 值，这是 update_or_create 的最佳实践
                 defaults_data = {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in record_data.items()}
                 try:
-                    obj, created = model.objects.update_or_create(stock=stock_obj, trade_time=trade_time, defaults=defaults_data)
+                    # 使用 update_or_create 实现“更新或创建”
+                    obj, created = model.objects.update_or_create(
+                        stock=stock_obj, 
+                        trade_time=trade_time, 
+                        defaults=defaults_data
+                    )
                     processed_count += 1
                 except Exception as e:
-                    logger.error(f"[{stock_obj.stock_code}] [筹码保存失败] 日期: {trade_time}, 错误: {e}")
+                    logger.error(f"[{stock_obj.stock_code}] [结构指标保存失败] 日期: {trade_time}, 错误: {e}")
             return processed_count
+            
         records_for_atomic_save = []
         for record_date, record_data in zip(df_filtered.index, records_list):
             record_data['trade_time'] = record_date
             records_for_atomic_save.append(record_data)
+            
         processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
         return processed_count
 
