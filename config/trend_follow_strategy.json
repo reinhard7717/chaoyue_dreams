@@ -547,7 +547,7 @@
             "name": "PROCESS_DYNAMICS_PRICE_EFFICIENCY",
             "type": "meta_analysis",
             "task_type": "base",
-            "diagnosis_type": "split_meta_analysis",
+            "diagnosis_type": "split_meta_relationship",
             "output_names": {
               "opportunity": "PROCESS_OPP_VPA_EFFICIENCY_TURN",
               "risk": "PROCESS_RISK_VPA_EFFICIENCY_DECAY"
