@@ -4,7 +4,11 @@ import numpy as np
 import pandas_ta as ta
 from typing import Dict, List, Optional, Any
 
-from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_score, is_limit_up, get_adaptive_mtf_normalized_bipolar_score
+from strategies.trend_following.utils import (
+    get_params_block, get_param_value, get_adaptive_mtf_normalized_score, 
+    get_adaptive_mtf_normalized_score, is_limit_up, get_adaptive_mtf_normalized_bipolar_score, 
+    normalize_score
+)
 
 class ProcessIntelligence:
     """
@@ -809,7 +813,7 @@ class ProcessIntelligence:
         # 对每日强度进行时间积分（滚动求和），代表累积的势能
         potential_energy_raw = daily_accumulation_strength.rolling(window=accumulation_window, min_periods=5).sum()
         # 归一化势能得分
-        potential_energy_score = utils.normalize_score(potential_energy_raw, df_index, window=accumulation_window, ascending=True).clip(0, 1)
+        potential_energy_score = normalize_score(potential_energy_raw, df_index, window=accumulation_window, ascending=True).clip(0, 1)
         # 3. 获取动能扳机信号
         price_slope_1d = self._get_safe_series(df, f'SLOPE_1_close_D', 0.0, method_name="_calculate_accumulation_inflection")
         volume_burst = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_BURST', pd.Series(0.0, index=df_index))
