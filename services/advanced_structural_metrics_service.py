@@ -257,10 +257,11 @@ class AdvancedStructuralMetricsService:
         result_df = pd.DataFrame(daily_metrics)
         return result_df.set_index(pd.to_datetime(result_df['trade_time']))
 
-    def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict) -> dict:
+    def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict, tick_df_for_day: pd.DataFrame = None, level5_df_for_day: pd.DataFrame = None) -> dict:
         """
-        【V3.4 · 全局类型净化版】
-        - 核心修正: 将 'amount' 和 'vol' 的类型转换操作提前至方法入口，应用于完整的 `group` DataFrame，从而根除所有下游计算中的 `Decimal/float` 类型冲突。
+        【V19.1 · 签名修复与微观集成版】
+        - 核心修正: 重命名自 _compute_all_structural_metrics，并更新方法签名以接收 tick_df_for_day 和 level5_df_for_day，解决 TypeError。
+        - 核心新增: 在计算流程末尾调用 _calculate_microstructure_metrics，将微观动力学指标集成进来。
         """
         results = {}
         # 初始化所有指标，包括新的高频指标
@@ -278,15 +279,6 @@ class AdvancedStructuralMetricsService:
         results['sell_sweep_intensity'] = np.nan
         results['vpin_score'] = np.nan
         results['vwap_mean_reversion_corr'] = np.nan
-        group['amount'] = pd.to_numeric(group['amount'], errors='coerce')
-        group['vol'] = pd.to_numeric(group['vol'], errors='coerce')
-        total_volume = group['vol'].sum()
-        total_volume_safe = total_volume if total_volume > 0 else np.nan
-        day_open_qfq, day_high_qfq, day_low_qfq, day_close_qfq, pre_close_qfq = (
-            daily_series_for_day.get('open_qfq'), daily_series_for_day.get('high_qfq'),
-            daily_series_for_day.get('low_qfq'), daily_series_for_day.get('close_qfq'),
-            daily_series_for_day.get('pre_close_qfq')
-        )
         group['amount'] = pd.to_numeric(group['amount'], errors='coerce')
         group['vol'] = pd.to_numeric(group['vol'], errors='coerce')
         total_volume = group['vol'].sum()
@@ -530,7 +522,6 @@ class AdvancedStructuralMetricsService:
                 avg_vol_ends = (avg_vol_open + avg_vol_tail) / 2
                 if avg_vol_ends > 0:
                     results['volume_structure_skew'] = avg_vol_mid / avg_vol_ends
-        # 新增代码块: 调用微观结构指标计算模块
         # --- 7. 微观结构动力学 (Microstructure Dynamics) ---
         microstructure_metrics = self._calculate_microstructure_metrics(
             tick_df=tick_df_for_day,
