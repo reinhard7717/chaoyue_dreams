@@ -217,7 +217,6 @@ class AdvancedStructuralMetricsService:
             elif 'vol' in group.columns:
                 volume_col_name = 'vol'
             if volume_col_name and volume_col_name != 'vol':
-                print(f"调试信息: [{stock_code}] [{date}] 发现成交量列名为 '{volume_col_name}'，统一重命名为 'vol'。")
                 group.rename(columns={volume_col_name: 'vol'}, inplace=True)
             elif not volume_col_name:
                 logger.error(f"[{stock_code}] [{date}] 分钟数据中缺少成交量列 ('volume' 或 'vol')，跳过当天计算。列: {group.columns.tolist()}")
