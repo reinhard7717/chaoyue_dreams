@@ -32,6 +32,7 @@ class AdvancedFundFlowMetricsService:
     def __init__(self, debug_params: dict = None): # 新增 debug_params 参数
         self.max_lookback_days = 300
         self.debug_params = debug_params if debug_params is not None else {}
+
     def _get_safe_numeric_series(self, df: pd.DataFrame, col_name: str, default_value=0) -> pd.Series:
         """
         【V2.0 · 单行兼容版】类型安全的列获取辅助函数。
@@ -45,6 +46,7 @@ class AdvancedFundFlowMetricsService:
         series = df[col_name]
         # 先转换为数值类型，再填充NaN
         return pd.to_numeric(series, errors='coerce').fillna(default_value)
+
     def _get_numeric_series_with_nan(self, df: pd.DataFrame, col_name: str) -> pd.Series:
         """
         安全地获取一个列作为数值型Series，并保留NaN。
@@ -55,6 +57,7 @@ class AdvancedFundFlowMetricsService:
         # 使用 df[col_name] 保证返回的是Series，而不是标量
         series = df[col_name]
         return pd.to_numeric(series, errors='coerce')
+
     async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None, preloaded_minute_data: pd.DataFrame = None):
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental, start_date_str
@@ -100,6 +103,7 @@ class AdvancedFundFlowMetricsService:
         chunk_to_save = final_metrics_df[final_metrics_df.index.isin(all_new_core_metrics_df.index)]
         total_processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
         return total_processed_count
+
     async def _initialize_context(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         from datetime import datetime
         stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
@@ -230,6 +234,7 @@ class AdvancedFundFlowMetricsService:
             overlap_cols = merged_df.columns.intersection(base_daily_df.columns).drop('trade_time', errors='ignore')
             merged_df = merged_df.join(base_daily_df.drop(columns=overlap_cols, errors='ignore'), how='left')
         return merged_df
+
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None):
         """
         【V1.14 · 日内数据回退增强版】不再查询数据库，仅处理由上游任务传入的日内数据maps。
@@ -304,6 +309,7 @@ class AdvancedFundFlowMetricsService:
             elif not processed_with_tick_data:
                 pass # 修改行：移除了此处的print调试信息
         return intraday_data_map
+
     def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame) -> tuple[dict, None]:
         """
         【V1.2 · 聚合成本计算集成版】
@@ -347,6 +353,7 @@ class AdvancedFundFlowMetricsService:
         day_metrics['trade_time'] = daily_data_series.name
         # 7. 返回最终的指标字典
         return day_metrics, None
+
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
         【V10.10 · 数据流修复版 - 跨服务数据完整性修复】
@@ -388,6 +395,7 @@ class AdvancedFundFlowMetricsService:
         final_metrics_df = pd.DataFrame(all_metrics_list)
         final_metrics_df.set_index('trade_time', inplace=True)
         return final_metrics_df, attributed_minute_data_map, failures
+
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series) -> dict:
         results = {}
         # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
@@ -508,6 +516,7 @@ class AdvancedFundFlowMetricsService:
         else:
             results['inferred_active_order_size'] = np.nan
         return results
+
     def _calculate_probabilistic_costs(self, stock_code: str, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> tuple[dict, pd.DataFrame]:
         """
         【V6.14 · 完整归因返回版】
@@ -549,6 +558,7 @@ class AdvancedFundFlowMetricsService:
             day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
         fully_attributed_df = self._attribute_minute_volume_to_players(df_to_attribute)
         return day_results, fully_attributed_df
+
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         temp_df = pvwap_df.copy()
         # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
@@ -648,6 +658,7 @@ class AdvancedFundFlowMetricsService:
         if 'market_cost_battle_premium' in result_agg_df.columns:
             result_agg_df = result_agg_df.drop(columns=['market_cost_battle_premium'])
         return result_agg_df
+
     def _attribute_minute_volume_to_players(self, minute_df: pd.DataFrame) -> pd.DataFrame:
         """
         【V1.1】将基础成交量归因为主力/散户的核心辅助函数。
@@ -663,6 +674,7 @@ class AdvancedFundFlowMetricsService:
         df['retail_net_vol'] = df['retail_buy_vol'] - df['retail_sell_vol']
         # 修改行：移除了检查归因后成交量的探针print语句
         return df
+
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
         derivatives_df = pd.DataFrame(index=consensus_df.index)
         import pandas_ta as ta
@@ -710,6 +722,7 @@ class AdvancedFundFlowMetricsService:
                     accel_col_name = f'{col}_accel_{p}d'
                     derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=ACCEL_WINDOW)
         return derivatives_df
+
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         records_to_save_df = final_df
         stock_code = stock_info.stock_code
@@ -752,6 +765,7 @@ class AdvancedFundFlowMetricsService:
             records_for_atomic_save.append(record_data)
         processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
         return processed_count
+
     def _calculate_advanced_behavioral_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: dict) -> pd.DataFrame:
         """
         【V28.0 · 行为计算核心整合版】
@@ -774,6 +788,7 @@ class AdvancedFundFlowMetricsService:
         if not all_results:
             return pd.DataFrame()
         return pd.DataFrame.from_dict(all_results, orient='index').set_index('trade_time')
+
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series) -> dict:
         from scipy.signal import find_peaks
         results = {}
@@ -1185,6 +1200,7 @@ class AdvancedFundFlowMetricsService:
                 if mf_net_vol_series.var() > 0 and price_change_norm_series.var() > 0:
                     results['microstructure_efficiency_index'] = mf_net_vol_series.corr(price_change_norm_series)
         return results
+
     def _calculate_intraday_attribution_weights(self, intraday_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
         """
         【V9.5 · 逐笔数据兼容版 - 价格范围零值修复】
@@ -1257,6 +1273,7 @@ class AdvancedFundFlowMetricsService:
             df[f'{size}_sell_weight'] = sell_score / total_sell_score if total_sell_score > 1e-9 else 0
             # 修改行：移除了检查score总和的探针print语句
         return df
+
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """
         【V2.2 · 索引修复版】从数据库加载并净化历史高级资金流指标。
@@ -1279,142 +1296,110 @@ class AdvancedFundFlowMetricsService:
             for col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
+
     def _calculate_microstructure_signals(self, stock_code: str, daily_intraday_df: pd.DataFrame, daily_level5_df: pd.DataFrame, daily_total_volume: float) -> dict:
+        """
+        【V2.0 · 微观结构情报引擎版】
+        - 核心重构: 全面升级为基于Tick和Level5数据的高级博弈指标计算中心。
+        - 核心引入: 实现了更精确的订单流失衡(OFI)计算，并区分主力与散户OFI。
+        - 核心增强: 优化了对倒强度、盘口失衡的计算逻辑，引入时间加权和价格惩罚项。
+        - 核心输出: 锻造出'main_force_ofi', 'retail_ofi', 'wash_trade_intensity'等高保真微观博弈指标。
+        """
         results = {
             'wash_trade_intensity': np.nan,
             'order_book_imbalance': np.nan,
             'large_order_pressure': np.nan,
             'large_order_support': np.nan,
-    
-            # 修改代码：移除不再由此方法计算的指标的初始化
             'main_force_ofi': np.nan,
             'retail_ofi': np.nan,
-            # 'microstructure_efficiency_index': np.nan, # 已移除
-            # 'hidden_accumulation_intensity': np.nan, # 已移除
-    
         }
-        # 修复：在方法入口处，将 None 转换为空的 DataFrame
-        if daily_intraday_df is None:
+        if daily_intraday_df is None or daily_intraday_df.empty:
             daily_intraday_df = pd.DataFrame()
-        if daily_level5_df is None:
+        if daily_level5_df is None or daily_level5_df.empty:
             daily_level5_df = pd.DataFrame()
-        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
         if daily_intraday_df.empty or daily_level5_df.empty or daily_total_volume <= 0:
             return results
-        daily_intraday_df = daily_intraday_df.copy()
+        # --- 数据预处理 ---
+        tick_df = daily_intraday_df.copy()
+        level5_df = daily_level5_df.copy()
         for col in ['price', 'volume', 'amount']:
-            if col in daily_intraday_df.columns:
-                daily_intraday_df[col] = pd.to_numeric(daily_intraday_df[col], errors='coerce')
-        daily_level5_df = daily_level5_df.copy()
+            if col in tick_df.columns:
+                tick_df[col] = pd.to_numeric(tick_df[col], errors='coerce')
         for i in range(1, 6):
             for prefix in ['buy_price', 'buy_volume', 'sell_price', 'sell_volume']:
                 col_name = f'{prefix}{i}'
-                if col_name in daily_level5_df.columns:
-                    daily_level5_df[col_name] = pd.to_numeric(daily_level5_df[col_name], errors='coerce')
-        def _aggregate_minute_group(group_df: pd.DataFrame) -> pd.Series:
-            if group_df.empty:
-                return pd.Series({
-                    'vol': 0.0,
-                    'vwap': np.nan,
-                    'reversals': 0.0,
-                    'trades': 0.0,
-                    'vwap_std': 0.0
-                })
-            temp_df = group_df[['price', 'volume', 'reversal']].copy()
-            temp_df['price'] = pd.to_numeric(temp_df['price'], errors='coerce')
-            temp_df['volume'] = pd.to_numeric(temp_df['volume'], errors='coerce')
-            temp_df.dropna(subset=['price', 'volume'], inplace=True)
-            current_vol = temp_df['volume'].sum()
-            current_vwap = np.nan
-            if current_vol > 0:
-                current_vwap = np.average(temp_df['price'], weights=temp_df['volume'])
-            return pd.Series({
-                'vol': current_vol,
-                'vwap': current_vwap,
-                'reversals': temp_df['reversal'].sum(),
-                'trades': len(temp_df),
-                'vwap_std': temp_df['price'].std() if len(temp_df) > 1 else 0.0
-            })
-        # 1. 计算主力对倒强度 (Wash Trade Intensity)
-        if 'type' not in daily_intraday_df.columns:
-            # 修改行：移除了检查'type'列缺失的探针print语句
-            results['wash_trade_intensity'] = np.nan
-        else:
-            daily_intraday_df['direction'] = daily_intraday_df['type'].map({'B': 1, 'S': -1, 'M': 0})
-            daily_intraday_df['reversal'] = (daily_intraday_df['direction'] * daily_intraday_df['direction'].shift(1)) < 0
-            minute_agg = daily_intraday_df.resample('1min').apply(_aggregate_minute_group)
-            minute_agg.dropna(subset=['vol', 'vwap', 'reversals', 'trades'], inplace=True)
-            if not minute_agg.empty:
-                minute_agg['wash_score'] = (minute_agg['vol'] / daily_total_volume) * (minute_agg['reversals'] / minute_agg['trades'].replace(0, 1)) * np.exp(-100 * minute_agg['vwap_std'] / minute_agg['vwap'].replace(0, 1))
-                results['wash_trade_intensity'] = minute_agg['wash_score'].sum() * 100
-            else:
-                results['wash_trade_intensity'] = np.nan
-        # 2. 计算五档盘口失衡度 (Order Book Imbalance)
-        level5_cols_check = ['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5',
-                             'sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']
-        missing_level5_cols = [col for col in level5_cols_check if col not in daily_level5_df.columns]
-        if missing_level5_cols:
-            # 修改行：移除了检查Level5列缺失的探针print语句
-            results['order_book_imbalance'] = np.nan
-        else: # 只有当所有列都存在时才计算
-            daily_level5_df['buy_vol_total'] = daily_level5_df[['buy_volume1', 'buy_volume2', 'buy_volume3', 'buy_volume4', 'buy_volume5']].sum(axis=1)
-            daily_level5_df['sell_vol_total'] = daily_level5_df[['sell_volume1', 'sell_volume2', 'sell_volume3', 'sell_volume4', 'sell_volume5']].sum(axis=1)
-            total_book_vol = daily_level5_df['buy_vol_total'] + daily_level5_df['sell_vol_total']
-            daily_level5_df['imbalance'] = (daily_level5_df['buy_vol_total'] - daily_level5_df['sell_vol_total']) / total_book_vol.replace(0, np.nan)
-            daily_level5_df.dropna(subset=['imbalance'], inplace=True)
-            if not daily_level5_df.empty:
-                time_diffs = daily_level5_df.index.to_series().diff().dt.total_seconds().fillna(0)
-                results['order_book_imbalance'] = np.average(daily_level5_df['imbalance'], weights=time_diffs) * 100
-            else:
-                results['order_book_imbalance'] = np.nan
-        # 3. 计算大单压制与支撑强度 (Large Order Pressure/Support)
-        large_order_threshold_value = 500000 # 定义大单门槛为50万元
+                if col_name in level5_df.columns:
+                    level5_df[col_name] = pd.to_numeric(level5_df[col_name], errors='coerce')
+        # --- 1. 订单流失衡 (OFI) ---
+        # [代码修改] 引入更精确的OFI计算逻辑
+        merged_df = pd.merge_asof(tick_df.sort_index(), level5_df.sort_index(), left_index=True, right_index=True, direction='backward').dropna()
+        if not merged_df.empty and 'buy_price1' in merged_df.columns and 'sell_price1' in merged_df.columns:
+            merged_df['mid_price'] = (merged_df['buy_price1'] + merged_df['sell_price1']) / 2
+            merged_df['prev_mid_price'] = merged_df['mid_price'].shift(1)
+            # 计算OFI
+            buy_pressure = np.where(merged_df['mid_price'] >= merged_df['prev_mid_price'], merged_df['buy_volume1'].shift(1), 0)
+            sell_pressure = np.where(merged_df['mid_price'] <= merged_df['prev_mid_price'], merged_df['sell_volume1'].shift(1), 0)
+            merged_df['ofi'] = buy_pressure - sell_pressure
+            # 按交易金额区分主力与散户
+            is_main_force_trade = merged_df['amount'] > 200000  # 阈值：20万元
+            main_force_ofi_series = merged_df.loc[is_main_force_trade, 'ofi']
+            retail_ofi_series = merged_df.loc[~is_main_force_trade, 'ofi']
+            # 对OFI进行归一化处理，使其具有可比性
+            total_ofi_range = merged_df['ofi'].abs().sum()
+            if total_ofi_range > 0:
+                results['main_force_ofi'] = main_force_ofi_series.sum() / total_ofi_range
+                results['retail_ofi'] = retail_ofi_series.sum() / total_ofi_range
+        # --- 2. 对倒强度 (Wash Trade Intensity) ---
+        # [代码修改] 引入价格变动作为惩罚项
+        if 'type' in tick_df.columns:
+            tick_df['direction'] = tick_df['type'].map({'B': 1, 'S': -1, 'M': 0})
+            tick_df['reversal'] = (tick_df['direction'] * tick_df['direction'].shift(1)) < 0
+            tick_df['price_change_abs'] = tick_df['price'].diff().abs().fillna(0)
+            # 价格变化越小，对倒嫌疑越大
+            price_penalty = np.exp(-tick_df['price_change_abs'] * 100)
+            wash_trade_vol = tick_df[tick_df['reversal']]['volume'] * price_penalty[tick_df['reversal']]
+            results['wash_trade_intensity'] = wash_trade_vol.sum() / (daily_total_volume / 100) if daily_total_volume > 0 else np.nan
+        # --- 3. 盘口失衡度 (Order Book Imbalance) ---
+        # [代码修改] 引入时间加权
+        if not level5_df.empty and 'buy_volume1' in level5_df.columns:
+            level5_df['buy_vol_total'] = level5_df[[f'buy_volume{i}' for i in range(1, 6)]].sum(axis=1)
+            level5_df['sell_vol_total'] = level5_df[[f'sell_volume{i}' for i in range(1, 6)]].sum(axis=1)
+            total_book_vol = level5_df['buy_vol_total'] + level5_df['sell_vol_total']
+            level5_df['imbalance'] = (level5_df['buy_vol_total'] - level5_df['sell_vol_total']) / total_book_vol.replace(0, np.nan)
+            level5_df.dropna(subset=['imbalance'], inplace=True)
+            if not level5_df.empty:
+                time_diffs = level5_df.index.to_series().diff().dt.total_seconds().fillna(0)
+                if time_diffs.sum() > 0:
+                    results['order_book_imbalance'] = np.average(level5_df['imbalance'], weights=time_diffs) * 100
+        # --- 4. 大单压制与支撑强度 (保留原逻辑) ---
+        large_order_threshold_value = 500000
         pressure_strength = 0
         support_strength = 0
-        level5_price_vol_check_large_order = ['sell_price1', 'sell_volume1', 'sell_price2', 'sell_volume2',
-                                              'buy_price1', 'buy_volume1', 'buy_price2', 'buy_volume2']
-        missing_level5_cols_large_order = [col for col in level5_price_vol_check_large_order if col not in daily_level5_df.columns]
-        if missing_level5_cols_large_order:
-            # 修改行：移除了检查Level5列缺失的探针print语句
-            results['large_order_pressure'] = np.nan
-            results['large_order_support'] = np.nan
-        elif not daily_level5_df.empty:
-            time_diffs_seconds = daily_level5_df.index.to_series().diff().dt.total_seconds().values
-            for i in range(1, len(daily_level5_df)):
-                row = daily_level5_df.iloc[i]
+        if not level5_df.empty and 'sell_price1' in level5_df.columns:
+            time_diffs_seconds = level5_df.index.to_series().diff().dt.total_seconds().values
+            for i in range(1, len(level5_df)):
+                row = level5_df.iloc[i]
                 duration = time_diffs_seconds[i]
-                # 计算压制强度
                 for p, v in [('sell_price1', 'sell_volume1'), ('sell_price2', 'sell_volume2')]:
                     if pd.notna(row[p]) and pd.notna(row[v]) and row[p] * row[v] * 100 > large_order_threshold_value:
                         pressure_strength += row[v] * 100 * duration
-                # 计算支撑强度
                 for p, v in [('buy_price1', 'buy_volume1'), ('buy_price2', 'buy_volume2')]:
                     if pd.notna(row[p]) and pd.notna(row[v]) and row[p] * row[v] * 100 > large_order_threshold_value:
                         support_strength += row[v] * 100 * duration
             if daily_total_volume > 0:
-                results['large_order_pressure'] = pressure_strength / (daily_total_volume * 240 * 60) * 100
-                results['large_order_support'] = support_strength / (daily_total_volume * 240 * 60) * 100
-            else:
-                results['large_order_pressure'] = np.nan
-                results['large_order_support'] = np.nan
-        else:
-            results['large_order_pressure'] = np.nan
-            results['large_order_support'] = np.nan
-        # 修改代码：移除错误放置的计算逻辑，保留OFI的计算
-        # 4. 计算订单流失衡 (OFI)
-        if not daily_level5_df.empty and not daily_intraday_df.empty and 'type' in daily_intraday_df.columns:
-            merged_df = pd.merge_asof(daily_intraday_df.sort_index(), daily_level5_df.sort_index(), left_index=True, right_index=True, direction='backward')
-            merged_df['mid_price'] = (merged_df['buy_price1'] + merged_df['sell_price1']) / 2
-            merged_df['mid_price_change'] = merged_df['mid_price'].diff().fillna(0)
-            ofi = (merged_df['mid_price_change'] >= 0).astype(int) * merged_df['buy_volume1'] - \
-                  (merged_df['mid_price_change'] <= 0).astype(int) * merged_df['sell_volume1']
-            ofi = ofi.cumsum()
-            # 归因到主力和散户 (简化版：按成交额大小)
-            is_large_trade = merged_df['amount'] > 200000 # 假设大于20万为大单
-            results['main_force_ofi'] = ofi[is_large_trade].sum()
-            results['retail_ofi'] = ofi[~is_large_trade].sum()
-        # 5. & 6. 移除 hidden_accumulation_intensity 和 microstructure_efficiency_index 的计算
+                total_seconds = 4 * 60 * 60 # 交易总秒数
+                results['large_order_pressure'] = pressure_strength / (daily_total_volume * total_seconds) * 100
+                results['large_order_support'] = support_strength / (daily_total_volume * total_seconds) * 100
+        print(f"    -> [探针] --- 微观结构情报 @ {tick_df.index[0].date()} ---")
+        print(f"      - 主力OFI: {results.get('main_force_ofi', np.nan):.4f}")
+        print(f"      - 散户OFI: {results.get('retail_ofi', np.nan):.4f}")
+        print(f"      - 对倒强度: {results.get('wash_trade_intensity', np.nan):.4f}")
+        print(f"      - 盘口失衡: {results.get('order_book_imbalance', np.nan):.2f}%")
+        print(f"      - 大单压制: {results.get('large_order_pressure', np.nan):.4f}")
+        print(f"      - 大单支撑: {results.get('large_order_support', np.nan):.4f}")
+        print("    -> [探针] ----------------------------------------------------")
         return results
+
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
         """【V1.15 · 数据完整性修复版 - 辅助列添加 - 智能列名识别】从预加载的DataFrame构建按日分组的数据。
         - 核心职责: 确保传入的DataFrame保持 `trade_time` 作为 `DatetimeIndex`，并正确处理时区，添加 `amount_yuan`, `vol_shares`, `minute_vwap`, `vol_weight` 等辅助列。
