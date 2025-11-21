@@ -397,23 +397,46 @@ class AdvancedStructuralMetricsService:
             elif day_close_qfq < today_vpoc: results['closing_acceptance_type'] = -1
             else: results['closing_acceptance_type'] = 0
         # --- 3.5 高频力学指标 (仅当有高频数据时计算) ---
+        is_hf_data = tick_df_for_day is not None and not tick_df_for_day.empty and 'type' in tick_df_for_day.columns
         if is_hf_data:
-            net_active_volume = group['buy_vol_raw'].sum() - group['sell_vol_raw'].sum()
+            print(f"调试信息: [{daily_series_for_day.name}] 检测到高频Tick数据，开始计算高频力学指标...")
+            # 统一转换tick数据时区以进行比较
+            tick_df_for_day.index = tick_df_for_day.index.tz_convert('Asia/Shanghai')
+            buy_ticks = tick_df_for_day[tick_df_for_day['type'] == 'B']
+            sell_ticks = tick_df_for_day[tick_df_for_day['type'] == 'S']
+            net_active_volume = buy_ticks['volume'].sum() - sell_ticks['volume'].sum()
             price_change_in_atr = (day_close_qfq - day_open_qfq) / atr_14 if pd.notna(atr_14) and atr_14 > 0 else 0
-            if net_active_volume != 0:
-                results['active_volume_price_efficiency'] = price_change_in_atr / (net_active_volume / total_volume_safe) if total_volume_safe > 0 else np.nan
+            if net_active_volume != 0 and total_volume_safe > 0:
+                results['active_volume_price_efficiency'] = price_change_in_atr / (net_active_volume / total_volume_safe)
+            # 定义下跌分钟和上涨分钟
             down_minutes_df = group[group['close'] < group['open']]
+            up_minutes_df = group[group['close'] > group['open']]
+            # 计算下跌吸筹强度
             if not down_minutes_df.empty:
-                active_buy_on_dip = down_minutes_df['buy_vol_raw'].sum()
-                active_sell_on_dip = down_minutes_df['sell_vol_raw'].sum()
+                active_buy_on_dip = 0
+                active_sell_on_dip = 0
+                for _, minute_row in down_minutes_df.iterrows():
+                    minute_start = minute_row['trade_time']
+                    minute_end = minute_start + pd.Timedelta(minutes=1)
+                    ticks_in_minute = tick_df_for_day[(tick_df_for_day.index >= minute_start) & (tick_df_for_day.index < minute_end)]
+                    active_buy_on_dip += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
+                    active_sell_on_dip += ticks_in_minute[ticks_in_minute['type'] == 'S']['volume'].sum()
                 if active_sell_on_dip > 0:
                     results['absorption_strength_index'] = active_buy_on_dip / active_sell_on_dip
-            up_minutes_df = group[group['close'] > group['open']]
+                print(f"调试信息: 下跌时段 - 主动买入: {active_buy_on_dip}, 主动卖出: {active_sell_on_dip}, 吸筹强度: {results['absorption_strength_index']}")
+            # 计算上涨派发压力
             if not up_minutes_df.empty:
-                active_sell_on_rally = up_minutes_df['sell_vol_raw'].sum()
-                active_buy_on_rally = up_minutes_df['buy_vol_raw'].sum()
+                active_sell_on_rally = 0
+                active_buy_on_rally = 0
+                for _, minute_row in up_minutes_df.iterrows():
+                    minute_start = minute_row['trade_time']
+                    minute_end = minute_start + pd.Timedelta(minutes=1)
+                    ticks_in_minute = tick_df_for_day[(tick_df_for_day.index >= minute_start) & (tick_df_for_day.index < minute_end)]
+                    active_sell_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'S']['volume'].sum()
+                    active_buy_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
                 if active_buy_on_rally > 0:
                     results['distribution_pressure_index'] = active_sell_on_rally / active_buy_on_rally
+                print(f"调试信息: 上涨时段 - 主动卖出: {active_sell_on_rally}, 主动买入: {active_buy_on_rally}, 派发压力: {results['distribution_pressure_index']}")
         # --- 4. 传统博弈效率 (兼容所有数据源) ---
         continuous_group['price_diff'] = continuous_group['close'] - continuous_group['open']
         up_minutes = continuous_group[continuous_group['price_diff'] > 0]
