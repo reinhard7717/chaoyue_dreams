@@ -84,8 +84,11 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.13 · 上下文修复版】资金流公理一：诊断“共识与分歧”
-        - 【V1.13 修复】在调用 _get_safe_series 时传递 df 参数。
+        【V1.14 · 诡道吸筹增强与探针植入版】资金流公理一：诊断“共识与分歧”
+        - 核心升级 (V1.14): 重构“拆单吸筹”信号的计算逻辑。废弃了原有的“全额吸收”二元判断，
+                           引入了更符合实战博弈的“吸收率”连续评分模型。
+                           新模型基于“博弈量级”与“吸收率”的乘积，能更精确、更鲁棒地量化主力“大单砸、小单接”的诡道吸筹行为。
+        - 新增功能: 植入深度探针，用于在指定日期详细剖析“拆单吸筹”信号的计算过程。
         """
         df_index = df.index
         buy_sm_amount = self._get_safe_series(df, df, 'buy_sm_amount_D', 0, method_name="_diagnose_axiom_consensus")
@@ -113,11 +116,32 @@ class FundFlowIntelligence:
         lg_xl_net_flow = net_lg_amount + net_elg_amount
         pct_change = self._get_safe_series(df, df, 'pct_change_D', 0.0, method_name="_diagnose_axiom_consensus")
         split_order_accumulation_raw = pd.Series(0.0, index=df_index)
-        condition_4_optimized = (sm_md_net_flow > lg_xl_net_flow.abs()) | np.isclose(sm_md_net_flow, lg_xl_net_flow.abs(), atol=1e-5)
-        condition_mask = (pct_change <= 0) & (sm_md_net_flow > 0) & (lg_xl_net_flow <= 0) & condition_4_optimized
-        # ... (探针代码省略)
-        split_order_accumulation_raw.loc[condition_mask] = (sm_md_net_flow - lg_xl_net_flow).loc[condition_mask]
-        # ... (探针代码省略)
+        # [核心修改] 诡道吸筹逻辑重构
+        condition_mask = (pct_change <= 0) & (sm_md_net_flow > 0) & (lg_xl_net_flow < 0)
+        if condition_mask.any():
+            lg_xl_net_flow_abs = lg_xl_net_flow.abs()
+            # 计算吸收率
+            absorption_ratio = (sm_md_net_flow / lg_xl_net_flow_abs.replace(0, 1e-9)).clip(0, 1)
+            # 计算博弈量级
+            battle_magnitude = sm_md_net_flow + lg_xl_net_flow_abs
+            # 计算新的原始分
+            new_raw_score = battle_magnitude * absorption_ratio
+            split_order_accumulation_raw.loc[condition_mask] = new_raw_score.loc[condition_mask]
+        # [代码新增] 探针输出逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
+            for probe_date in probe_dates:
+                if probe_date in df_index and condition_mask.loc[probe_date]:
+                    print(f"    -> [探针] --- 拆单吸筹强度计算 @ {probe_date.date()} ---")
+                    print(f"      - 场景条件 (跌/平 & 中小买 & 大卖): TRUE")
+                    print(f"      - 中小单净买入 (sm_md_net_flow): {sm_md_net_flow.loc[probe_date]:.2f}")
+                    print(f"      - 大单净卖出 (lg_xl_net_flow): {lg_xl_net_flow.loc[probe_date]:.2f}")
+                    print(f"      - 吸收率 (Absorption Ratio): {absorption_ratio.loc[probe_date]:.4f}")
+                    print(f"      - 博弈量级 (Battle Magnitude): {battle_magnitude.loc[probe_date]:.2f}")
+                    print(f"      - 最终原始分 (Raw Score): {split_order_accumulation_raw.loc[probe_date]:.2f}")
+                    print("    -> [探针] ----------------------------------------------------")
         normalized_split_factor_series = get_adaptive_mtf_normalized_score(split_order_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
         split_order_accumulation_factor = normalized_split_factor_series.where(split_order_accumulation_raw > 0, 0)
         self.strategy.df_indicators['FUND_FLOW_MAIN_FORCE_FLOW'] = main_force_flow
@@ -134,7 +158,6 @@ class FundFlowIntelligence:
             main_force_ofi_score * 0.15 -
             retail_ofi_score * 0.05
         ).clip(-1, 1)
-        # ... (探针代码省略)
         return consensus_score.astype(np.float32)
 
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
