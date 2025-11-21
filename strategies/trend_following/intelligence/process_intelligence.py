@@ -91,39 +91,38 @@ class ProcessIntelligence:
 
     def run_process_diagnostics(self, df: pd.DataFrame, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
-        【V5.2 · 任务过滤修复版】过程情报分析总指挥
-        - 核心修复 (V5.2): 增加了对 task_type_filter 参数的支持，解决了接口不匹配导致的 TypeError。
-                           现在可以根据任务类型筛选要执行的诊断任务。
+        【V5.3 · 调度逻辑修复版】过程情报分析总指挥
+        - 核心修复 (V5.3): 移除了对 '_run_custom_analysis' 的错误调用。统一所有元分析任务
+                           入口至 '_run_meta_analysis'，解决了 AttributeError 并简化了调度逻辑。
+        - 核心修复 (V5.2): 增加了对 task_type_filter 参数的支持。
         - 核心升级 (V5.1): 对 PROCESS_META_POWER_TRANSFER 的计算进行重构。
         """
-        print("启动【V5.2 · 任务过滤修复版】过程情报分析...") # [代码修改] 更新版本信息
+        print("启动【V5.3 · 调度逻辑修复版】过程情报分析...") # [代码修改] 更新版本信息
         all_process_states = {}
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
         diagnostics = get_param_value(p_conf.get('diagnostics'), [])
         for diag_config in diagnostics:
-            # [代码新增] 任务类型过滤器逻辑
             if task_type_filter:
                 if diag_config.get('task_type') != task_type_filter:
                     continue
             diag_name = diag_config.get('name')
             if not diag_name:
                 continue
+            # [代码修改] 拦截并使用新方法计算权力转移
             if diag_name == 'PROCESS_META_POWER_TRANSFER':
                 power_transfer_score = self._calculate_power_transfer(df, diag_config)
                 all_process_states[diag_name] = power_transfer_score
                 self.strategy.atomic_states[diag_name] = power_transfer_score
-                continue
-            if diag_config.get('relationship_type') == 'custom':
-                score = self._run_custom_analysis(df, diag_config)
-            else:
-                score = self._run_meta_analysis(df, diag_config)
+                continue # 计算完后跳过通用逻辑
+            # [代码修改] 移除了 'custom' 和 'meta' 的错误分支，统一由 _run_meta_analysis 处理
+            score = self._run_meta_analysis(df, diag_config)
             if isinstance(score, pd.Series):
                 all_process_states[diag_name] = score
                 self.strategy.atomic_states[diag_name] = score
             elif isinstance(score, dict):
                 all_process_states.update(score)
                 self.strategy.atomic_states.update(score)
-        print(f"【V5.2 · 任务过滤修复版】分析完成，生成 {len(all_process_states)} 个过程元信号。") # [代码修改] 更新版本信息
+        print(f"【V5.3 · 调度逻辑修复版】分析完成，生成 {len(all_process_states)} 个过程元信号。") # [代码修改] 更新版本信息
         return all_process_states
 
     def _run_meta_analysis(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
