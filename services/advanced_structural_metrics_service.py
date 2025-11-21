@@ -549,67 +549,6 @@ class AdvancedStructuralMetricsService:
         final_df = metrics_df.join(derivatives_df)
         return final_df
 
-    async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
-        """
-        【V19.4 · 持久化鲁棒性修复版】
-        - 核心修正: 修改列筛选逻辑，不再依赖可能存在缓存或元编程问题的 `MetricsModel._meta.get_fields()`。
-        - 核心方案: 直接使用 `BaseAdvancedStructuralMetrics.CORE_METRICS.keys()` 作为权威的字段列表来源，确保所有在模型中定义的核心指标列都能被正确筛选并进入保存流程，从根本上解决新指标数据丢失的问题。
-        """
-        if final_df.empty:
-            return 0
-        from django.db.models import DecimalField
-        from decimal import Decimal, ROUND_HALF_UP
-        # 替换无穷大值为NaN
-        final_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        # 修改代码块：使用确定性的字段列表进行筛选
-        # model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'} # 旧的、不可靠的方式
-        model_fields = set(BaseAdvancedStructuralMetrics.CORE_METRICS.keys())
-        # 额外添加 trade_time 和 stock_id 以防万一，尽管它们通常不是问题
-        model_fields.add('trade_time')
-        model_fields.add('stock_id')
-        
-        # 筛选出模型中存在的列，现在使用更可靠的字段列表
-        # 我们只保留 final_df 中存在于 model_fields 的列
-        cols_to_keep = [col for col in final_df.columns if col in model_fields]
-        df_filtered = final_df[cols_to_keep]
-        print(f"调试信息: [{stock_info.stock_code}] 准备保存数据。DataFrame总列数: {len(final_df.columns)}, 筛选后列数: {len(df_filtered.columns)}")
-        if 'buy_sweep_intensity' in df_filtered.columns:
-            print(f"调试信息: 'buy_sweep_intensity' 列在筛选后依然存在。")
-        else:
-            print(f"警告: 'buy_sweep_intensity' 列在筛选后被意外丢弃！")
-        # 转换为字典列表
-        records_list = df_filtered.to_dict('records')
-        @sync_to_async(thread_sensitive=True)
-        def save_atomically(model, stock_obj, records_to_process):
-            processed_count = 0
-            # 使用 Django 的 bulk_create 提高性能
-            objs_to_create = []
-            for record_data in records_to_process:
-                # 确保 trade_time 是 date 对象
-                trade_time = record_data.pop('trade_time').date()
-                # 清理 NaN 值
-                defaults_data = {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in record_data.items()}
-                objs_to_create.append(
-                    model(
-                        stock=stock_obj,
-                        trade_time=trade_time,
-                        **defaults_data
-                    )
-                )
-            try:
-                # 批量创建，忽略冲突（因为我们已经在前面删除了）
-                model.objects.bulk_create(objs_to_create, ignore_conflicts=True)
-                processed_count = len(objs_to_create)
-            except Exception as e:
-                logger.error(f"[{stock_obj.stock_code}] [结构指标批量保存失败] 错误: {e}")
-            return processed_count
-        records_for_atomic_save = []
-        for record_date, record_data in zip(df_filtered.index, records_list):
-            record_data['trade_time'] = record_date
-            records_for_atomic_save.append(record_data)
-        processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
-        return processed_count
-
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """
         【V1.0】从数据库加载并净化历史高级结构指标。
@@ -782,6 +721,60 @@ class AdvancedStructuralMetricsService:
         print(f"调试信息: [微观结构计算] 完成, OFI: {results['order_flow_imbalance_score']:.4f}, 买方扫单: {results['buy_sweep_intensity']:.4f}, 吸筹强度: {results['absorption_strength_index']:.4f}, 派发压力: {results['distribution_pressure_index']:.4f}")
         return results
 
+    async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
+        """
+        【V19.5 · 持久化策略升级版】
+        - 核心升级: 采纳 update_or_create 策略替换 bulk_create，实现幂等性写入，确保数据在重复执行时能被正确更新。
+        - 核心保留: 维持 V19.4 的关键修复，即使用 BaseAdvancedStructuralMetrics.CORE_METRICS 作为权威字段源进行列筛选，根治新指标数据丢失问题。
+        """
+        if final_df.empty:
+            return 0
+        # 替换无穷大值为NaN
+        final_df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        # 使用确定性的字段列表进行筛选，这是解决数据丢失的关键
+        model_fields = set(BaseAdvancedStructuralMetrics.CORE_METRICS.keys())
+        model_fields.add('trade_time') # 确保 trade_time 总是被包含
+        
+        # 筛选出模型中存在的列
+        cols_to_keep = [col for col in final_df.columns if col in model_fields]
+        df_filtered = final_df[cols_to_keep]
+        
+        print(f"调试信息: [{stock_info.stock_code}] 准备保存数据。DataFrame总列数: {len(final_df.columns)}, 筛选后列数: {len(df_filtered.columns)}")
+        if 'buy_sweep_intensity' in df_filtered.columns:
+            print(f"调试信息: 'buy_sweep_intensity' 列在筛选后依然存在。")
+        else:
+            # 如果此警告出现，说明问题依然存在于上游的数据生成环节
+            print(f"警告: 'buy_sweep_intensity' 列在筛选前就不存在或筛选后被意外丢弃！")
+            
+        # 转换为字典列表
+        records_list = df_filtered.to_dict('records')
+        
+        @sync_to_async(thread_sensitive=True)
+        def save_atomically(model, stock_obj, records_to_process):
+            processed_count = 0
+            for record_data in records_to_process:
+                trade_time = record_data.pop('trade_time').date()
+                # 清理 NaN 值，这是 update_or_create 的最佳实践
+                defaults_data = {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in record_data.items()}
+                try:
+                    # 使用 update_or_create 实现“更新或创建”
+                    obj, created = model.objects.update_or_create(
+                        stock=stock_obj, 
+                        trade_time=trade_time, 
+                        defaults=defaults_data
+                    )
+                    processed_count += 1
+                except Exception as e:
+                    logger.error(f"[{stock_obj.stock_code}] [结构指标保存失败] 日期: {trade_time}, 错误: {e}")
+            return processed_count
+            
+        records_for_atomic_save = []
+        for record_date, record_data in zip(df_filtered.index, records_list):
+            record_data['trade_time'] = record_date
+            records_for_atomic_save.append(record_data)
+            
+        processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
+        return processed_count
 
 
 
