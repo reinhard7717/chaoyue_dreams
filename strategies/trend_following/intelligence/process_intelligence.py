@@ -74,6 +74,21 @@ class ProcessIntelligence:
                 tf_weights=default_weights
             )
 
+    def _get_atomic_score(self, df: pd.DataFrame, score_name: str, default_value: float = 0.0) -> pd.Series:
+        """
+        【V1.0 · 原子信号访问器】
+        - 核心职责: 提供一个标准的、安全的方法来从 self.strategy.atomic_states 中获取预先计算好的原子信号。
+        - 核心逻辑: 尝试从 atomic_states 字典中获取指定的信号 Series。如果不存在，则打印警告并
+                     返回一个与 df 索引对齐的、填充了默认值的 Series，以保证数据流的健壮性。
+        - 修复: 解决了 'ProcessIntelligence' object has no attribute '_get_atomic_score' 的 AttributeError。
+        """
+        # [代码新增] 实现了安全的原子信号访问逻辑
+        score_series = self.strategy.atomic_states.get(score_name)
+        if score_series is None:
+            print(f"    -> [过程情报警告] 依赖的原子信号 '{score_name}' 不存在，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return score_series
+
     def run_process_diagnostics(self, df: pd.DataFrame, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
         【V5.2 · 任务过滤修复版】过程情报分析总指挥
