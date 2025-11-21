@@ -179,9 +179,8 @@ class AdvancedStructuralMetricsService:
 
     async def _forge_advanced_structural_metrics(self, intraday_data_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
-        【V19.0 · 数据流升级版】
-        - 核心修改: 适配新的 intraday_data_map 结构 (Dict[date, Dict[str, pd.DataFrame]])，能够同时处理分钟、Tick和Level5数据。
-        - 核心修改: 将高频数据（tick_df, level5_df）传递给底层的指标计算引擎。
+        【V19.1 · 索引修复版】
+        - 核心修正: 在获取到分钟数据(group)后，立即调用 reset_index()，将 trade_time 从索引恢复为列，以解决因上游数据结构变更导致的 KeyError。
         """
         if not intraday_data_map:
             return pd.DataFrame()
@@ -203,14 +202,15 @@ class AdvancedStructuralMetricsService:
         atr_14 = daily_df['ATR_14']
         atr_50 = daily_df['ATR_50']
         prev_day_metrics = {}
-        for date, data_bundle in intraday_data_map.items(): # 修改代码行: 迭代数据包
-            # 修改代码块: 从数据包中提取不同粒度的数据
-            group = data_bundle.get('minute')  # 分钟级别数据
-            tick_df_for_day = data_bundle.get('tick')  # 逐笔数据
-            level5_df_for_day = data_bundle.get('level5')  # Level5数据
+        for date, data_bundle in intraday_data_map.items():
+            group = data_bundle.get('minute')
+            tick_df_for_day = data_bundle.get('tick')
+            level5_df_for_day = data_bundle.get('level5')
             if group is None or group.empty or len(group) < 10:
                 logger.warning(f"[{stock_code}] [{date}] 跳过结构指标计算，分钟级数据不足。")
                 continue
+            # 新增代码行：将 trade_time 索引重置为列，修复KeyError
+            group.reset_index(inplace=True)
             try:
                 daily_series_for_day = daily_df.loc[date]
                 atr_5_for_day = atr_5.get(date)
@@ -228,7 +228,6 @@ class AdvancedStructuralMetricsService:
             continuous_group['minute_vwap'] = continuous_group['amount'] / continuous_group['vol'].replace(0, np.nan)
             continuous_group['minute_vwap'].fillna(method='ffill', inplace=True)
             continuous_group['minute_vwap'].fillna(group['open'].iloc[0], inplace=True)
-            # 修改代码行: 调用重命名后的方法，并传入高频数据
             day_metric_dict = self._calculate_daily_structural_metrics(
                 group, continuous_group, daily_series_for_day, atr_5_for_day, atr_14_for_day, atr_50_for_day, prev_day_metrics,
                 tick_df_for_day=tick_df_for_day,

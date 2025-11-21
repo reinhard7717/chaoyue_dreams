@@ -528,16 +528,6 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': timedelta(seconds=3),  # 每3秒执行一次
         'options': {'queue': 'celery'},  # 添加此行：指定队列名称，这是调度器的队列
     },
-    # 'init_realtime_engine_task': {
-    #     'task': 'tasks.stock_analysis_tasks.prepare_pools', # 任务函数名
-    #     'schedule': crontab(hour=9, minute=16, day_of_week='1-5'),
-    #     'options': {'queue': 'intraday_queue'},
-    # },
-    # 'run_realtime_engine_task': {
-    #     'task': 'tasks.stock_analysis_tasks.run_cycle', # 任务函数名
-    #     'schedule': timedelta(seconds=15),
-    #     'options': {'queue': 'intraday_queue'},
-    # },
     '每天运行一次(午盘): “真实逐笔(Tick)”数据获取任务': {
         'task': 'tasks.tushare.stock_realtime_tasks.dispatch_stocks_real_tick_task',
         'schedule': crontab(minute=33, hour=11, day_of_week='mon,tue,wed,thu,fri'),
@@ -553,14 +543,24 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(minute=5, hour=9, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveData_TimeTrade'}
     },
-    '每天运行一次: 今日分钟K线数据': {
-        'task': 'tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_task',
-        'schedule': crontab(minute=25, hour=19, day_of_week='mon,tue,wed,thu,fri'),
+    '每天运行一次: 股票列表': {
+        'task': 'tasks.tushare.stock_tasks.save_stock_list_data',
+        'schedule': crontab(minute=25, hour=18, day_of_week='mon,tue,wed,thu,fri'),
+        'options': {'queue': 'celery'}
+    },
+    '每天运行一次: 今日股票基本信息数据': {
+        'task': 'tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_today_task',
+        'schedule': crontab(minute=25, hour=18, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
     '每天运行一次: 今日日K线数据': {
         'task': 'tasks.tushare.stock_time_trade_tasks.save_day_data_latest_days_task',
         'schedule': crontab(minute=15, hour=19, day_of_week='mon,tue,wed,thu,fri'),
+        'options': {'queue': 'SaveHistoryData_TimeTrade'}
+    },
+    '每天运行一次: 今日分钟K线数据': {
+        'task': 'tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_task',
+        'schedule': crontab(minute=20, hour=19, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
     '每天运行一次: 今日筹码数据': {
@@ -570,52 +570,47 @@ CELERY_BEAT_SCHEDULE = {
     },
     '每天运行一次: 今日全渠道板块指数行情数据': {
         'task': 'tasks.tushare.industry_tasks.save_all_daily_industry_concept_data_task',
-        'schedule': crontab(minute=5, hour=20, day_of_week='mon,tue,wed,thu,fri'),
+        'schedule': crontab(minute=8, hour=20, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
     '每天运行一次: 今日周K线数据': {
         'task': 'tasks.tushare.stock_time_trade_tasks.save_week_data_today_task',
-        'schedule': crontab(minute=5, hour=20, day_of_week='mon,tue,wed,thu,fri'),
+        'schedule': crontab(minute=11, hour=20, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
     '每天运行一次: 今日月K线数据': {
         'task': 'tasks.tushare.stock_time_trade_tasks.save_month_data_today_task',
-        'schedule': crontab(minute=5, hour=20, day_of_week='mon,tue,wed,thu,fri'),
+        'schedule': crontab(minute=14, hour=20, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
     '每天运行一次: 今日指数数据': {
         'task': 'tasks.tushare.index_tasks.save_index_daily_today_task',
-        'schedule': crontab(minute=5, hour=20, day_of_week='mon,tue,wed,thu,fri'),
-        'options': {'queue': 'SaveHistoryData_TimeTrade'}
-    },
-    '每天运行一次: 今日股票基本信息数据': {
-        'task': 'tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_today_task',
-        'schedule': crontab(minute=25, hour=18, day_of_week='mon,tue,wed,thu,fri'),
+        'schedule': crontab(minute=17, hour=20, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
     '每天运行一次: 今日资金流数据': {
         'task': 'tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_today',
-        'schedule': crontab(minute=5, hour=20, day_of_week='mon,tue,wed,thu,fri'),
+        'schedule': crontab(minute=20, hour=20, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
     '每天运行一次: 今日同花顺资金流数据': {
         'task': 'tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_today',
-        'schedule': crontab(minute=5, hour=20, day_of_week='mon,tue,wed,thu,fri'),
+        'schedule': crontab(minute=23, hour=20, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
     '每天运行一次: 今日游资每日明细数据': {
         'task': 'tasks.tushare.fund_flow_tasks.save_hm_detail_data_today',
-        'schedule': crontab(minute=5, hour=20, day_of_week='mon,tue,wed,thu,fri'),
+        'schedule': crontab(minute=26, hour=20, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
-    '每天运行一次筹码高级指标任务': {
+    '每天运行一次：筹码高级指标任务': {
         'task': 'tasks.tushare.stock_analysis_tasks.precompute_all_stocks_advanced_metrics',
-        'schedule': crontab(minute=45, hour=20, day_of_week='mon,tue,wed,thu,fri'),
+        'schedule': crontab(minute=55, hour=20, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'celery'}, # 指定队列为 celery
     },
-    'run-strategy': {
+    '每天运行一次：策略': {
         'task': 'tasks.stock_analysis_tasks.analyze_all_stocks',
-        'schedule': crontab(hour=21, minute=15, day_of_week='1-5'),
+        'schedule': crontab(hour=21, minute=55, day_of_week='1-5'),
     },
     'rebuild_snapshots_for_all_active_trackers_task': {
         'task': 'tasks.stock_analysis_tasks.rebuild_snapshots_for_all_active_trackers_task',
