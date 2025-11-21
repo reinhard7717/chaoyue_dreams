@@ -391,8 +391,6 @@ class AdvancedStructuralMetricsService:
             elif day_close_qfq < today_val: results['closing_acceptance_type'] = -2
             elif day_close_qfq < today_vpoc: results['closing_acceptance_type'] = -1
             else: results['closing_acceptance_type'] = 0
-        # --- 3.5 高频力学指标 (仅当有高频数据时计算) ---
-        # 删除代码块：此部分逻辑已完全移至 _calculate_microstructure_metrics
         # --- 4. 传统博弈效率 (兼容所有数据源) ---
         continuous_group['price_diff'] = continuous_group['close'] - continuous_group['open']
         up_minutes = continuous_group[continuous_group['price_diff'] > 0]
@@ -657,11 +655,12 @@ class AdvancedStructuralMetricsService:
         cum_array = np.cumsum(sorted_array, dtype=float)
         return (n + 1 - 2 * np.sum(cum_array) / cum_array[-1]) / n
 
-    def _calculate_microstructure_metrics(self, tick_df: pd.DataFrame, level5_df: pd.DataFrame, minute_df: pd.DataFrame, total_volume: float) -> dict:
+    def _calculate_microstructure_metrics(self, tick_df: pd.DataFrame, level5_df: pd.DataFrame, minute_df: pd.DataFrame, total_volume: float, group: pd.DataFrame, daily_series_for_day: pd.Series, atr_14: float) -> dict:
         """
-        【V19.2 · 扫单算法重构版】
-        - 核心修正: 重构扫单强度算法，从固定时间窗口改为识别连续同向交易块，使其更符合A股市场实际情况，解决指标恒为0的问题。
-        - 核心修正: 将对订单流失衡(OFI)结果的空值检查从 pandas 的 `.empty` 属性修改为 numpy 的 `.size > 0`，以修复因 `np.where` 返回 ndarray 导致的 AttributeError。
+        【V19.3 · 职责集中重构版】
+        - 核心重构: 将 active_volume_price_efficiency, absorption_strength_index, distribution_pressure_index 的计算逻辑从 _calculate_daily_structural_metrics 移入此方法。
+        - 核心目标: 使此方法成为所有基于Tick/Level5数据的微观指标的唯一计算中心，从根本上解决因逻辑分散导致的数据流问题。
+        - 核心修正: 扫单算法维持V19.2的重构版本。
         """
         from scipy.stats import norm
         results = {
@@ -670,10 +669,13 @@ class AdvancedStructuralMetricsService:
             'sell_sweep_intensity': np.nan,
             'vpin_score': np.nan,
             'vwap_mean_reversion_corr': np.nan,
+            'active_volume_price_efficiency': np.nan,
+            'absorption_strength_index': np.nan,
+            'distribution_pressure_index': np.nan,
         }
         if tick_df is None or tick_df.empty or total_volume == 0:
             return results
-        print(f"调试信息: [{tick_df['stock_code'].iloc[0] if 'stock_code' in tick_df.columns else ''}] [微观结构计算] 开始，Tick数据: {len(tick_df)}条, Level5数据: {len(level5_df) if level5_df is not None else 0}条")
+        print(f"调试信息: [{daily_series_for_day.name}] [微观结构计算] 开始，Tick数据: {len(tick_df)}条, Level5数据: {len(level5_df) if level5_df is not None else 0}条")
         # 1. VWAP均值回归相关性
         if minute_df is not None and not minute_df.empty and 'minute_vwap' in minute_df.columns and len(minute_df) > 1:
             daily_vwap = (minute_df['amount'].sum() / minute_df['vol'].sum()) if minute_df['vol'].sum() > 0 else np.nan
@@ -694,34 +696,26 @@ class AdvancedStructuralMetricsService:
             ofi_series = ofi_static + ofi_dynamic
             if ofi_series.size > 0:
                 results['order_flow_imbalance_score'] = np.nansum(ofi_series) / total_volume
-        # 3. 扫单强度 (Sweep Intensity) - 重构算法
+        # 3. 扫单强度 (Sweep Intensity)
         buy_sweep_vol = 0
         sell_sweep_vol = 0
-        min_sweep_len = 3 # 定义扫单的最短连续笔数
-        # 识别连续的同向交易块
+        min_sweep_len = 3
         tick_df['block'] = (tick_df['type'] != tick_df['type'].shift()).cumsum()
         tick_df['block_size'] = tick_df.groupby('block')['type'].transform('size')
-        # 筛选出可能是扫单的交易块 (长度达标且方向为B或S)
         sweep_candidates = tick_df[(tick_df['block_size'] >= min_sweep_len) & (tick_df['type'].isin(['B', 'S']))]
         if not sweep_candidates.empty:
-            for block_id, group in sweep_candidates.groupby('block'):
-                trade_type = group['type'].iloc[0]
-                prices = group['price']
-                # 检查价格单调性
-                is_sweep = False
+            for block_id, group_sweep in sweep_candidates.groupby('block'):
+                trade_type = group_sweep['type'].iloc[0]
+                prices = group_sweep['price']
                 if trade_type == 'B' and prices.is_monotonic_increasing:
-                    is_sweep = True
-                    buy_sweep_vol += group['volume'].sum()
+                    buy_sweep_vol += group_sweep['volume'].sum()
                 elif trade_type == 'S' and prices.is_monotonic_decreasing:
-                    is_sweep = True
-                    sell_sweep_vol += group['volume'].sum()
+                    sell_sweep_vol += group_sweep['volume'].sum()
         total_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
         total_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
-        if total_buy_vol > 0:
-            results['buy_sweep_intensity'] = buy_sweep_vol / total_buy_vol
-        if total_sell_vol > 0:
-            results['sell_sweep_intensity'] = sell_sweep_vol / total_sell_vol
-        # 4. VPIN (Volume-Synchronized Probability of Informed Trading)
+        if total_buy_vol > 0: results['buy_sweep_intensity'] = buy_sweep_vol / total_buy_vol
+        if total_sell_vol > 0: results['sell_sweep_intensity'] = sell_sweep_vol / total_sell_vol
+        # 4. VPIN
         vpin_bucket_size = total_volume / 50
         vpin_window = 10
         if vpin_bucket_size > 0:
@@ -738,6 +732,39 @@ class AdvancedStructuralMetricsService:
                 z_score = abs_imbalance / sigma_imbalance
                 vpin_series = z_score.apply(lambda z: norm.cdf(z) if pd.notna(z) else np.nan)
                 results['vpin_score'] = vpin_series.mean()
+        # 5. 新增：高频力学指标 (原位于 _calculate_daily_structural_metrics)
+        day_open_qfq = daily_series_for_day.get('open_qfq')
+        day_close_qfq = daily_series_for_day.get('close_qfq')
+        net_active_volume = total_buy_vol - total_sell_vol
+        price_change_in_atr = (day_close_qfq - day_open_qfq) / atr_14 if pd.notna(atr_14) and atr_14 > 0 else 0
+        if net_active_volume != 0 and total_volume > 0:
+            results['active_volume_price_efficiency'] = price_change_in_atr / (net_active_volume / total_volume)
+        tick_df.index = tick_df.index.tz_convert('Asia/Shanghai')
+        down_minutes_df = group[group['close'] < group['open']]
+        up_minutes_df = group[group['close'] > group['open']]
+        if not down_minutes_df.empty:
+            active_buy_on_dip = 0
+            active_sell_on_dip = 0
+            for _, minute_row in down_minutes_df.iterrows():
+                minute_start = minute_row['trade_time']
+                minute_end = minute_start + pd.Timedelta(minutes=1)
+                ticks_in_minute = tick_df[(tick_df.index >= minute_start) & (tick_df.index < minute_end)]
+                active_buy_on_dip += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
+                active_sell_on_dip += ticks_in_minute[ticks_in_minute['type'] == 'S']['volume'].sum()
+            if active_sell_on_dip > 0:
+                results['absorption_strength_index'] = active_buy_on_dip / active_sell_on_dip
+        if not up_minutes_df.empty:
+            active_sell_on_rally = 0
+            active_buy_on_rally = 0
+            for _, minute_row in up_minutes_df.iterrows():
+                minute_start = minute_row['trade_time']
+                minute_end = minute_start + pd.Timedelta(minutes=1)
+                ticks_in_minute = tick_df[(tick_df.index >= minute_start) & (tick_df.index < minute_end)]
+                active_sell_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'S']['volume'].sum()
+                active_buy_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
+            if active_buy_on_rally > 0:
+                results['distribution_pressure_index'] = active_sell_on_rally / active_buy_on_rally
+        print(f"调试信息: [微观结构计算] 完成, OFI: {results['order_flow_imbalance_score']:.4f}, 买方扫单: {results['buy_sweep_intensity']:.4f}, 吸筹强度: {results['absorption_strength_index']:.4f}, 派发压力: {results['distribution_pressure_index']:.4f}")
         return results
 
 
