@@ -258,9 +258,9 @@ class AdvancedStructuralMetricsService:
 
     def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict, tick_df_for_day: pd.DataFrame = None, level5_df_for_day: pd.DataFrame = None) -> dict:
         """
-        【V19.1 · 签名修复与微观集成版】
-        - 核心修正: 重命名自 _compute_all_structural_metrics，并更新方法签名以接收 tick_df_for_day 和 level5_df_for_day，解决 TypeError。
-        - 核心新增: 在计算流程末尾调用 _calculate_microstructure_metrics，将微观动力学指标集成进来。
+        【V19.3 · 职责集中重构版】
+        - 核心重构: 剥离所有基于Tick数据的指标计算逻辑（active_volume_price_efficiency等），将其移至 _calculate_microstructure_metrics。
+        - 核心目标: 此方法现在专注于基于分钟线和日线数据的结构指标计算，职责更清晰。
         """
         results = {}
         # 初始化所有指标，包括新的高频指标
@@ -292,17 +292,12 @@ class AdvancedStructuralMetricsService:
             turnover_rate = pd.to_numeric(daily_series_for_day.get('turnover_rate_f'), errors='coerce')
             if pd.notna(turnover_rate):
                 results['intraday_energy_density'] = np.log1p(turnover_rate) / atr_14
-        is_hf_data = 'buy_vol_raw' in group.columns and 'sell_vol_raw' in group.columns
-        if is_hf_data:
-            net_active_volume = group['buy_vol_raw'].sum() - group['sell_vol_raw'].sum()
-            if total_volume > 0:
-                results['intraday_thrust_purity'] = net_active_volume / total_volume
-        else:
-            thrust_vector = (group['close'] - group['open']) * group['vol']
-            absolute_energy = abs(group['close'] - group['open']) * group['vol']
-            total_energy = absolute_energy.sum()
-            if total_energy > 0:
-                results['intraday_thrust_purity'] = thrust_vector.sum() / total_energy
+        # 修正：intraday_thrust_purity 现在只使用分钟线数据计算，不再依赖旧的 is_hf_data
+        thrust_vector = (group['close'] - group['open']) * group['vol']
+        absolute_energy = abs(group['close'] - group['open']) * group['vol']
+        total_energy = absolute_energy.sum()
+        if total_energy > 0:
+            results['intraday_thrust_purity'] = thrust_vector.sum() / total_energy
         results['volume_burstiness_index'] = self._calculate_gini(group['vol'].values)
         if all(pd.notna(v) for v in [day_open_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
             results['auction_impact_score'] = (day_open_qfq - pre_close_qfq) / atr_14
@@ -397,46 +392,7 @@ class AdvancedStructuralMetricsService:
             elif day_close_qfq < today_vpoc: results['closing_acceptance_type'] = -1
             else: results['closing_acceptance_type'] = 0
         # --- 3.5 高频力学指标 (仅当有高频数据时计算) ---
-        is_hf_data = tick_df_for_day is not None and not tick_df_for_day.empty and 'type' in tick_df_for_day.columns
-        if is_hf_data:
-            print(f"调试信息: [{daily_series_for_day.name}] 检测到高频Tick数据，开始计算高频力学指标...")
-            # 统一转换tick数据时区以进行比较
-            tick_df_for_day.index = tick_df_for_day.index.tz_convert('Asia/Shanghai')
-            buy_ticks = tick_df_for_day[tick_df_for_day['type'] == 'B']
-            sell_ticks = tick_df_for_day[tick_df_for_day['type'] == 'S']
-            net_active_volume = buy_ticks['volume'].sum() - sell_ticks['volume'].sum()
-            price_change_in_atr = (day_close_qfq - day_open_qfq) / atr_14 if pd.notna(atr_14) and atr_14 > 0 else 0
-            if net_active_volume != 0 and total_volume_safe > 0:
-                results['active_volume_price_efficiency'] = price_change_in_atr / (net_active_volume / total_volume_safe)
-            # 定义下跌分钟和上涨分钟
-            down_minutes_df = group[group['close'] < group['open']]
-            up_minutes_df = group[group['close'] > group['open']]
-            # 计算下跌吸筹强度
-            if not down_minutes_df.empty:
-                active_buy_on_dip = 0
-                active_sell_on_dip = 0
-                for _, minute_row in down_minutes_df.iterrows():
-                    minute_start = minute_row['trade_time']
-                    minute_end = minute_start + pd.Timedelta(minutes=1)
-                    ticks_in_minute = tick_df_for_day[(tick_df_for_day.index >= minute_start) & (tick_df_for_day.index < minute_end)]
-                    active_buy_on_dip += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
-                    active_sell_on_dip += ticks_in_minute[ticks_in_minute['type'] == 'S']['volume'].sum()
-                if active_sell_on_dip > 0:
-                    results['absorption_strength_index'] = active_buy_on_dip / active_sell_on_dip
-                print(f"调试信息: 下跌时段 - 主动买入: {active_buy_on_dip}, 主动卖出: {active_sell_on_dip}, 吸筹强度: {results['absorption_strength_index']}")
-            # 计算上涨派发压力
-            if not up_minutes_df.empty:
-                active_sell_on_rally = 0
-                active_buy_on_rally = 0
-                for _, minute_row in up_minutes_df.iterrows():
-                    minute_start = minute_row['trade_time']
-                    minute_end = minute_start + pd.Timedelta(minutes=1)
-                    ticks_in_minute = tick_df_for_day[(tick_df_for_day.index >= minute_start) & (tick_df_for_day.index < minute_end)]
-                    active_sell_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'S']['volume'].sum()
-                    active_buy_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
-                if active_buy_on_rally > 0:
-                    results['distribution_pressure_index'] = active_sell_on_rally / active_buy_on_rally
-                print(f"调试信息: 上涨时段 - 主动卖出: {active_sell_on_rally}, 主动买入: {active_buy_on_rally}, 派发压力: {results['distribution_pressure_index']}")
+        # 删除代码块：此部分逻辑已完全移至 _calculate_microstructure_metrics
         # --- 4. 传统博弈效率 (兼容所有数据源) ---
         continuous_group['price_diff'] = continuous_group['close'] - continuous_group['open']
         up_minutes = continuous_group[continuous_group['price_diff'] > 0]
@@ -545,11 +501,15 @@ class AdvancedStructuralMetricsService:
                 if avg_vol_ends > 0:
                     results['volume_structure_skew'] = avg_vol_mid / avg_vol_ends
         # --- 7. 微观结构动力学 (Microstructure Dynamics) ---
+        # 修改代码块：调用重构后的微观结构计算中心
         microstructure_metrics = self._calculate_microstructure_metrics(
             tick_df=tick_df_for_day,
             level5_df=level5_df_for_day,
             minute_df=continuous_group,
-            total_volume=total_volume_safe
+            total_volume=total_volume_safe,
+            group=group,
+            daily_series_for_day=daily_series_for_day,
+            atr_14=atr_14
         )
         results.update(microstructure_metrics)
         results['_today_vpoc'] = today_vpoc
@@ -755,8 +715,6 @@ class AdvancedStructuralMetricsService:
                 elif trade_type == 'S' and prices.is_monotonic_decreasing:
                     is_sweep = True
                     sell_sweep_vol += group['volume'].sum()
-                if is_sweep:
-                    print(f"调试信息: 发现扫单块 Block ID: {block_id}, Type: {trade_type}, Ticks: {len(group)}, Volume: {group['volume'].sum()}")
         total_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
         total_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
         if total_buy_vol > 0:
@@ -780,7 +738,6 @@ class AdvancedStructuralMetricsService:
                 z_score = abs_imbalance / sigma_imbalance
                 vpin_series = z_score.apply(lambda z: norm.cdf(z) if pd.notna(z) else np.nan)
                 results['vpin_score'] = vpin_series.mean()
-        print(f"调试信息: [微观结构计算] 完成, VPIN: {results['vpin_score']:.4f}, OFI: {results['order_flow_imbalance_score']:.4f}, 买方扫单强度: {results['buy_sweep_intensity']:.4f}")
         return results
 
 
