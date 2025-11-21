@@ -929,6 +929,12 @@
             "type": "context",
             "description": "【V3.0 · 内部】融合所有原子情报层看涨共振信号的原始几何平均值，是计算健康度的基础。"
         },
+        "SCORE_BEHAVIOR_ABSORPTION_STRENGTH": {
+            "cn_name": "【行为】下跌吸筹强度",
+            "category": "行为层-原子",
+            "type": "context",
+            "description": "【结构指标升维】基于微观结构指标 `absorption_strength_index`，直接量化下跌分钟内的真实主动买入与主动卖出的比值。高分代表下跌时承接盘异常强劲，是主力资金逆势吸筹或强力护盘的直接证据。"
+        },
         "SCORE_BEHAVIOR_DISTRIBUTION_PRESSURE": {
             "cn_name": "【行为】上涨派发压力",
             "category": "行为层-原子",
