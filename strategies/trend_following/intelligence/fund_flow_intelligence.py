@@ -84,11 +84,12 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.14 · 诡道吸筹增强与探针植入版】资金流公理一：诊断“共识与分歧”
-        - 核心升级 (V1.14): 重构“拆单吸筹”信号的计算逻辑。废弃了原有的“全额吸收”二元判断，
-                           引入了更符合实战博弈的“吸收率”连续评分模型。
-                           新模型基于“博弈量级”与“吸收率”的乘积，能更精确、更鲁棒地量化主力“大单砸、小单接”的诡道吸筹行为。
-        - 新增功能: 植入深度探针，用于在指定日期详细剖析“拆单吸筹”信号的计算过程。
+        【V1.15 · 状态同步修复版】资金流公理一：诊断“共识与分歧”
+        - 核心修复 (V1.15): 解决了“信号状态同步失败”的BUG。在计算出“拆单吸筹强度”信号后，
+                           不仅将其存入 df_indicators，同时立即存入 atomic_states 字典，
+                           确保下游的 ProcessIntelligence 模块能够实时获取到正确的信号值。
+        - 核心升级: 重构“拆单吸筹”信号的计算逻辑，引入“吸收率”连续评分模型。
+        - 新增功能: 植入深度探针，用于剖析“拆单吸筹”信号的计算过程。
         """
         df_index = df.index
         buy_sm_amount = self._get_safe_series(df, df, 'buy_sm_amount_D', 0, method_name="_diagnose_axiom_consensus")
@@ -116,7 +117,7 @@ class FundFlowIntelligence:
         lg_xl_net_flow = net_lg_amount + net_elg_amount
         pct_change = self._get_safe_series(df, df, 'pct_change_D', 0.0, method_name="_diagnose_axiom_consensus")
         split_order_accumulation_raw = pd.Series(0.0, index=df_index)
-        # [核心修改] 诡道吸筹逻辑重构
+        # 诡道吸筹逻辑重构
         condition_mask = (pct_change <= 0) & (sm_md_net_flow > 0) & (lg_xl_net_flow < 0)
         if condition_mask.any():
             lg_xl_net_flow_abs = lg_xl_net_flow.abs()
@@ -127,7 +128,7 @@ class FundFlowIntelligence:
             # 计算新的原始分
             new_raw_score = battle_magnitude * absorption_ratio
             split_order_accumulation_raw.loc[condition_mask] = new_raw_score.loc[condition_mask]
-        # [代码新增] 探针输出逻辑
+        # 探针输出逻辑
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -149,6 +150,7 @@ class FundFlowIntelligence:
         self.strategy.df_indicators['FUND_FLOW_SM_MD_NET_FLOW'] = sm_md_net_flow
         self.strategy.df_indicators['FUND_FLOW_LG_XL_NET_FLOW'] = lg_xl_net_flow
         self.strategy.df_indicators['PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'] = split_order_accumulation_factor
+        self.strategy.atomic_states['PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'] = split_order_accumulation_factor # [代码新增] 核心修复：将信号同步到atomic_states，供下游模块使用
         consensus_score_base = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df_index, tf_weights_ff, sensitivity=1.0)
         main_force_ofi_score = get_adaptive_mtf_normalized_bipolar_score(main_force_ofi_raw, df_index, tf_weights_ff, sensitivity=0.5)
         retail_ofi_score = get_adaptive_mtf_normalized_bipolar_score(retail_ofi_raw, df_index, tf_weights_ff, sensitivity=0.5)
