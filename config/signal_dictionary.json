@@ -929,6 +929,18 @@
             "type": "context",
             "description": "【V3.0 · 内部】融合所有原子情报层看涨共振信号的原始几何平均值，是计算健康度的基础。"
         },
+        "SCORE_BEHAVIOR_DISTRIBUTION_PRESSURE": {
+            "cn_name": "【行为】上涨派发压力",
+            "category": "行为层-原子",
+            "type": "context",
+            "description": "【结构指标升维】基于微观结构指标 `distribution_pressure_index`，直接量化上涨分钟内的真实主动卖出压力。高分代表上涨时遭遇的抛压越大。"
+        },
+        "SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT": {
+            "cn_name": "【行为】微观结构意图",
+            "category": "行为层-原子",
+            "type": "context",
+            "description": "【结构指标升维】融合订单流失衡(OFI)与扫单强度，诊断隐藏在分钟线之下的最原始的攻击或撤退意图。正分代表微观层面存在暴力抢筹或积极吸筹，负分代表存在恐慌抛售或主力出逃。"
+        },
         "RESONANCE_HEALTH_D": {
             "cn_name": "【行为】共振健康度",
             "category": "内部计分-行为",

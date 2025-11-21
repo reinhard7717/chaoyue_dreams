@@ -837,7 +837,6 @@ class ProcessIntelligence:
         # 7. 存储调试信息
         self.strategy.atomic_states["_DEBUG_accum_suppressive_score"] = suppressive_score
         self.strategy.atomic_states["_DEBUG_accum_consolidative_score"] = consolidative_score
-        
         print(f"    -> [过程层] PROCESS_META_STEALTH_ACCUMULATION 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 

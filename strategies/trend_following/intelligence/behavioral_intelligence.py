@@ -30,14 +30,17 @@ class BehavioralIntelligence:
 
     def run_behavioral_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.7 · 上下文修复版】行为情报模块总指挥
-        - 【V5.7 修复】接收 df 参数作为统一的数据上下文，并移除内部对 self.strategy.df_indicators 的依赖。
+        【V29.0 · 结构指标升维版】行为情报模块总指挥
+        - 核心升级: 新增对 _diagnose_microstructure_intent 方法的调用，引入微观结构意图信号。
         """
-        # df = self.strategy.df_indicators # [代码删除]
         all_behavioral_states = {}
         atomic_signals = self._diagnose_behavioral_axioms(df)
         self.strategy.atomic_states.update(atomic_signals)
         all_behavioral_states.update(atomic_signals)
+        # [新增代码块] 调用微观结构意图诊断
+        micro_intent_signals = self._diagnose_microstructure_intent(df)
+        self.strategy.atomic_states.update(micro_intent_signals)
+        all_behavioral_states.update(micro_intent_signals)
         context_new_high_strength = self._diagnose_context_new_high_strength(df)
         self.strategy.atomic_states.update(context_new_high_strength)
         all_behavioral_states.update(context_new_high_strength)
@@ -170,19 +173,11 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.5 · 微观量价效率信号缺失处理与变量名修复版】原子信号中心
-        - 核心升级: 遵循“三层金字塔”架构，本方法不再计算跨领域的“趋势健康度”和“绝望度”。
-                      这些高级融合逻辑已迁移至 FusionIntelligence。
-                      新增对纯净版“行为K线质量分”的计算和发布。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【修复】将 `price_trend` 和 `volume_trend` 计算中使用的未定义变量 `tf_weights` 替换为 `default_weights`。
-        - 【优化】将所有行为原子信号的归一化方式改为多时间维度自适应归一化。
-        - 【新增】引入 `active_volume_price_efficiency_D`, `absorption_strength_index_D`, `distribution_pressure_index_D` 作为行为公理的证据。
-        - 【修正】当 `active_volume_price_efficiency_D`, `absorption_strength_index_D`, `distribution_pressure_index_D` 信号缺失时，不将其添加到 `states` 中。
-        - 【修复】将 `p_behavior` 变量名统一为 `p_conf`，解决 `NameError`。
+        【V29.0 · 结构指标升维版】原子信号中心
+        - 核心升级: 引入 active_volume_price_efficiency, absorption_strength_index, distribution_pressure_index 等高级结构指标，
+                    对上涨效率、下跌抵抗等核心行为公理进行高保真重构。
         """
         states = {}
-        # 将 p_behavior 变量名统一为 p_conf
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -192,8 +187,12 @@ class BehavioralIntelligence:
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BIAS_55_D', 0.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=long_term_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights).astype(np.float32)
-        states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.5, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.5, method_name="_diagnose_behavioral_axioms"), df.index, ascending=False, tf_weights=default_weights).astype(np.float32)
+        # 使用 active_volume_price_efficiency_D 替换 VPA_EFFICIENCY_D，实现对上涨效率的高保真度量
+        upward_efficiency_raw = self._get_safe_series(df, 'active_volume_price_efficiency_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = get_adaptive_mtf_normalized_score(upward_efficiency_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        # 使用 absorption_strength_index_D 替换旧的下跌抵抗逻辑，直接量化下跌过程中的真实吸筹强度
+        downward_resistance_raw = self._get_safe_series(df, 'absorption_strength_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = get_adaptive_mtf_normalized_score(downward_resistance_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'vwap_control_strength_D', 0.5, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
@@ -217,18 +216,9 @@ class BehavioralIntelligence:
         stagnation_evidence_raw_score = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_evidence_components, weights_stagnation_evidence)], axis=0), index=df.index)
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = (stagnation_evidence_raw_score * is_rising).clip(0, 1).astype(np.float32)
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
-        # 使用 VPA_EFFICIENCY_D 替代 active_volume_price_efficiency_D
-        active_volume_price_efficiency_raw = self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.5, method_name="_diagnose_behavioral_axioms")
-        if not active_volume_price_efficiency_raw.isnull().all() and not (active_volume_price_efficiency_raw == 0.5).all():
-            states['SCORE_BEHAVIOR_ACTIVE_VOLUME_PRICE_EFFICIENCY'] = get_adaptive_mtf_normalized_score(active_volume_price_efficiency_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        # 使用 dip_absorption_power_D 替代 absorption_strength_index_D
-        absorption_strength_index_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        if not absorption_strength_index_raw.isnull().all() and not (absorption_strength_index_raw == 0.0).all():
-            states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH_INDEX'] = get_adaptive_mtf_normalized_score(absorption_strength_index_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        # 使用 rally_distribution_pressure_D 替代 distribution_pressure_index_D
-        distribution_pressure_index_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        if not distribution_pressure_index_raw.isnull().all() and not (distribution_pressure_index_raw == 0.0).all():
-            states['SCORE_BEHAVIOR_DISTRIBUTION_PRESSURE_INDEX'] = get_adaptive_mtf_normalized_score(distribution_pressure_index_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        # 派发压力指数，直接反映上涨过程中的真实抛压
+        distribution_pressure_raw = self._get_safe_series(df, 'distribution_pressure_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        states['SCORE_BEHAVIOR_DISTRIBUTION_PRESSURE'] = get_adaptive_mtf_normalized_score(distribution_pressure_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         return states
 
     def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -340,4 +330,33 @@ class BehavioralIntelligence:
         states['SCORE_RISK_UNRESOLVED_PRESSURE'] = final_risk_score.astype(np.float32)
         states['SCORE_OPPORTUNITY_PRESSURE_ABSORPTION'] = final_opportunity_score.astype(np.float32)
         return states
+
+    def _diagnose_microstructure_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】微观结构意图诊断引擎
+        - 核心职责: 融合订单流失衡(OFI)与扫单强度，生成一个全新的原子信号 `SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT`，
+                    用于捕捉最细微的主力攻击或撤退意图。
+        - 数学思想: OFI反映了挂单册上的力量变化，扫单强度反映了直接吃单的决心。两者结合，可以区分是“温和吸筹”还是“暴力抢筹”。
+        """
+        states = {}
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        ofi_raw = self._get_safe_series(df, 'order_flow_imbalance_score_D', 0.0, method_name="_diagnose_microstructure_intent")
+        buy_sweep_raw = self._get_safe_series(df, 'buy_sweep_intensity_D', 0.0, method_name="_diagnose_microstructure_intent")
+        sell_sweep_raw = self._get_safe_series(df, 'sell_sweep_intensity_D', 0.0, method_name="_diagnose_microstructure_intent")
+        ofi_score = get_adaptive_mtf_normalized_bipolar_score(ofi_raw, df.index, default_weights)
+        buy_sweep_score = get_adaptive_mtf_normalized_score(buy_sweep_raw, df.index, ascending=True, tf_weights=default_weights)
+        sell_sweep_score = get_adaptive_mtf_normalized_score(sell_sweep_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 融合逻辑：
+        # 攻击意图 = 订单流优势 + 扫单决心
+        # 正向意图 = (正向OFI + 买方扫单) - 卖方扫单
+        # 负向意图 = (负向OFI + 卖方扫单) - 买方扫单
+        bullish_intent = (ofi_score.clip(lower=0) * 0.5 + buy_sweep_score * 0.5)
+        bearish_intent = (ofi_score.clip(upper=0).abs() * 0.5 + sell_sweep_score * 0.5)
+        micro_intent_score = (bullish_intent - bearish_intent).clip(-1, 1)
+        states['SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT'] = micro_intent_score.astype(np.float32)
+        return states
+
+
 

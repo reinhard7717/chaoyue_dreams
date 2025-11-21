@@ -682,7 +682,6 @@ class ChipFeatureCalculator:
         return skewness
 
     def _calculate_price_volume_entropy(self, intraday_df: pd.DataFrame, daily_high: float, daily_low: float, total_daily_volume: float) -> float:
-        
         if intraday_df.empty or total_daily_volume <= 0 or pd.isna(daily_high) or pd.isna(daily_low) or daily_high <= daily_low:
             return np.nan
         price_range = daily_high - daily_low

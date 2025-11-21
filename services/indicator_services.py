@@ -414,7 +414,7 @@ class IndicatorService:
                 for col in smart_money_signals_df.columns:
                     df_daily[col] = df_daily[col].fillna(False).astype(bool)
         all_dfs['D'] = df_daily
-        self._log_final_data_columns(all_dfs)
+        # self._log_final_data_columns(all_dfs)
         return all_dfs
     async def _prepare_base_data_and_indicators(
         self,

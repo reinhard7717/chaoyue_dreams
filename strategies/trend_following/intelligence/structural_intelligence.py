@@ -229,22 +229,9 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V3.1 · 微观结构博弈信号缺失处理与物理直观重构及共识增强版】结构公理三：诊断“结构稳定性”
-        - 核心重构: 废除对间接且脆弱的 'MA_CONV_CV_SHORT_D' 的依赖。将“能量积蓄度”的评估核心完全聚焦于更直观、更稳健的布林带宽度(BBW)指标。
-        - 诊断维度:
-          1. 能量积蓄度 (Energy Accumulation): 直接使用BBW的收缩程度。
-          2. 基石支撑度 (Foundation Support): 价格是否站稳在关键长期MA(55, 144)之上。
-          3. 长期趋势健康度 (Long-term Trend Health): 关键长期MA自身的斜率方向。
-        - 核心修复: 将 `raw_stability_score` 的计算从乘法改为加权平均，避免“一票否决”效应。
-        - 增加探针，打印 `foundation_support_score` 和 `long_term_trend_health_score`。
-        - 引入 `vpoc_consensus_strength_D` (VPOC共识强度) 和 `volatility_skew_index_D` (波动率偏度指数)
-                   来增强对结构稳定性的判断。
-        - 【修正】优化 `foundation_support_score` 和 `long_term_trend_health_score` 的计算，使其在涨停日能正确反映积极稳定性。
-        - 【修复】移除 `normalize_score` 函数调用中的 `sensitivity` 参数，因为该函数不接受此参数。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
-        - 【新增】引入 `volume_structure_skew_D` (成交结构偏度) 作为判断结构稳定性的微观证据。
-        - 【修正】当 `volume_structure_skew_D` 信号缺失时，不将其纳入融合计算。
+        【V4.0 · 结构共识增强版】结构公理三：诊断“结构稳定性”
+        - 核心升级: 引入 `vpoc_consensus_strength_D` (VPOC共识强度) 和 `volume_structure_skew_D` (成交结构偏度)
+                    来增强对结构稳定性的判断。高共识和健康的成交结构是稳定性的核心证据。
         """
         df_index = df.index
         bbw_col = 'BBW_21_2.0_D'
@@ -257,21 +244,17 @@ class StructuralIntelligence:
         energy_accumulation_score = energy_accumulation_score.fillna(0.5)
         long_term_ma_periods = [55, 144]
         required_ma_cols = [f'MA_{p}_D' for p in long_term_ma_periods]
-        required_slope_cols = [f'SLOPE_5_MA_{p}_D' for p in long_term_ma_periods] # 默认使用5日斜率
+        required_slope_cols = [f'SLOPE_5_MA_{p}_D' for p in long_term_ma_periods]
         # 获取并归一化 vpoc_consensus_strength_D
-        vpoc_consensus_raw = self._get_safe_series(df, 'mf_vpoc_premium_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability") # 替换为 mf_vpoc_premium_D
+        vpoc_consensus_raw = self._get_safe_series(df, 'vpoc_consensus_strength_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
         vpoc_consensus_score = get_adaptive_mtf_normalized_score(vpoc_consensus_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        # 使用 vwap_structure_skew_D 替代 volume_structure_skew_D
-        volume_structure_skew_raw = self._get_safe_series(df, 'vwap_structure_skew_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
-        volume_structure_skew_score = pd.Series(0.0, index=df_index)
-        if not volume_structure_skew_raw.isnull().all() and not (volume_structure_skew_raw == 0.0).all():
-            # 移除 * -1，因为正的VWAP偏度通常代表强势，对稳定性是积极贡献
-            volume_structure_skew_score = get_adaptive_mtf_normalized_bipolar_score(volume_structure_skew_raw, df.index, tf_weights_struct, sensitivity=0.5)
+        # 获取并归一化 volume_structure_skew_D
+        volume_structure_skew_raw = self._get_safe_series(df, 'volume_structure_skew_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
+        # 成交结构偏度 > 1 代表盘中缩量，两头放量，是健康结构，对稳定性是正贡献
+        volume_structure_skew_score = get_adaptive_mtf_normalized_bipolar_score(volume_structure_skew_raw - 1, df.index, tf_weights_struct, sensitivity=0.5)
         if not all(col in df.columns for col in required_ma_cols + required_slope_cols):
             print("    -> [结构情报警告] 方法 '_diagnose_axiom_stability' 缺少必要的长期MA或其斜率列，长期结构评估将跳过。")
             foundation_health_score = pd.Series(0.5, index=df_index)
-            foundation_support_score = pd.Series(0.5, index=df_index)
-            long_term_trend_health_score = pd.Series(0.5, index=df_index)
         else:
             support_scores = []
             for p in long_term_ma_periods:
@@ -286,39 +269,19 @@ class StructuralIntelligence:
                 health_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, slope_col_name, pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability").clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct).clip(0, 1)
                 health_scores.append(health_score)
             long_term_trend_health_score = pd.Series(np.mean(health_scores, axis=0), index=df_index)
+            # 将 vpoc_consensus_score 加入基石健康度融合
             foundation_health_score = (foundation_support_score * 0.5 + long_term_trend_health_score * 0.3 + vpoc_consensus_score * 0.2).clip(0, 1)
         raw_stability_score = (energy_accumulation_score * 0.3 + foundation_health_score * 0.7).fillna(0.5)
-        volatility_skew_raw = self._get_safe_series(df, 'volatility_asymmetry_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
-        volatility_skew_score = get_adaptive_mtf_normalized_bipolar_score(volatility_skew_raw, df_index, tf_weights_struct, sensitivity=0.5).fillna(0.0)
-        # 融合所有分数，调整权重
+        volatility_skew_raw = self._get_safe_series(df, 'volatility_skew_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
+        volatility_skew_score = get_adaptive_mtf_normalized_bipolar_score(volatility_skew_raw, df.index, tf_weights_struct, sensitivity=0.5).fillna(0.0)
+        # 融合所有分数，加入成交结构偏度
         stability_score = (
-            raw_stability_score * 0.7 +
-            volatility_skew_score.clip(lower=0) * 0.15 -
-            volatility_skew_score.clip(upper=0).abs() * 0.15
+            raw_stability_score * 0.6 +
+            volatility_skew_score.clip(lower=0) * 0.1 -
+            volatility_skew_score.clip(upper=0).abs() * 0.1 +
+            volume_structure_skew_score.clip(lower=0) * 0.2 # 健康的成交结构是稳定性的重要加分项
         )
-        # 只有当 volume_structure_skew_score 有效时才加入融合
-        if not volume_structure_skew_score.isnull().all() and not (volume_structure_skew_score == 0.0).all():
-            stability_score += volume_structure_skew_score * 0.15
         stability_score = stability_score.clip(-1, 1)
-        # --- Debugging output for probe date ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"    -> [结构稳定性探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - energy_accumulation_score: {energy_accumulation_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - foundation_support_score: {foundation_support_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - long_term_trend_health_score: {long_term_trend_health_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - vpoc_consensus_score: {vpoc_consensus_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - foundation_health_score: {foundation_health_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - raw_stability_score: {raw_stability_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - volatility_skew_raw: {volatility_skew_raw.loc[probe_date_for_loop]:.4f}")
-                print(f"       - volatility_skew_score: {volatility_skew_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - volume_structure_skew_raw: {volume_structure_skew_raw.loc[probe_date_for_loop]:.4f}")
-                print(f"       - volume_structure_skew_score: {volume_structure_skew_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - stability_score: {stability_score.loc[probe_date_for_loop]:.4f}")
         return stability_score
 
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, norm_window: int, daily_trend_form_score: pd.Series) -> pd.Series:
