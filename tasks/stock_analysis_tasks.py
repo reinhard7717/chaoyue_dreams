@@ -672,17 +672,16 @@ def summarize_computation_failures(results):
 @with_cache_manager
 def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V3.0 · 终极指挥官模式】为单只股票预计算高级结构与行为指标的Celery任务。
-    - 核心重构: 本任务从简单的服务调用者，升级为负责数据加载和流程调度的“指挥官”，与耦合任务架构完全对齐。
-    - 核心逻辑: 1. 确定处理日期范围。 2. 统一加载日线、分钟、Tick、Level5数据。 3. 将预加载的数据传递给服务层进行纯粹计算。
+    【V4.0 · 微观动力学集成版】为单只股票预计算高级结构与行为指标的Celery任务。
+    - 核心重构: 废弃独立的数据加载逻辑，改为复用公用的 `_load_all_sources_unified` 方法，以统一数据源获取。
+    - 核心新增: 增加数据结构重组逻辑，将加载器返回的多个数据map整合成服务层所需的嵌套结构 `Dict[date, Dict[str, pd.DataFrame]]`，从而支持微观结构指标计算。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.advanced_structural_metrics_service import AdvancedStructuralMetricsService
         from stock_models.index import TradeCalendar
-        from utils.model_helpers import get_daily_data_model_by_code, get_stock_tick_data_model_by_code, get_stock_level5_data_model_by_code, get_minute_data_model_by_code_and_timelevel
-        from datetime import timedelta, time, datetime
+        from utils.model_helpers import get_daily_data_model_by_code
+        from datetime import timedelta
         import pandas_ta as ta
-        from django.utils import timezone
         structural_service = AdvancedStructuralMetricsService()
         stock_info, MetricsModel, _, last_metric_date, fetch_start_date = await structural_service._initialize_context(
             stock_code, incremental_flag, start_date_override
@@ -713,53 +712,31 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
         daily_df_with_atr.ta.atr(length=5, append=True, col_names=('ATR_5',))
         daily_df_with_atr.ta.atr(length=14, append=True, col_names=('ATR_14',))
         daily_df_with_atr.ta.atr(length=50, append=True, col_names=('ATR_50',))
-        # 新增代码块：在此处统一加载所有日内数据
-        @sync_to_async(thread_sensitive=True)
-        def get_intraday_data_async(model, stock_info_obj, start_date: datetime.date, end_date: datetime.date, value_fields: tuple = None):
-            if not model or not start_date or not end_date: return pd.DataFrame()
-            start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
-            end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
-            qs = model.objects.filter(stock=stock_info_obj, trade_time__gte=start_datetime, trade_time__lte=end_datetime)
-            if value_fields:
-                qs = qs.values(*value_fields)
-            else:
-                qs = qs.values()
-            df = pd.DataFrame.from_records(qs)
-            if df.empty: return df
-            df['trade_time'] = pd.to_datetime(df['trade_time'])
-            # 标准化为 UTC aware datetime
-            if df['trade_time'].dt.tz is None:
-                df['trade_time'] = df['trade_time'].dt.tz_localize('UTC', ambiguous='infer')
-            else:
-                df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
-            return df
-        chunk_start_date = dates_to_process.min().date()
-        chunk_end_date = dates_to_process.max().date()
-        tick_model = get_stock_tick_data_model_by_code(stock_code)
-        level5_model = get_stock_level5_data_model_by_code(stock_code)
-        minute_model = get_minute_data_model_by_code_and_timelevel(stock_code, '1')
-        tick_df, level5_df, minute_df = await asyncio.gather(
-            get_intraday_data_async(tick_model, stock_info, chunk_start_date, chunk_end_date),
-            get_intraday_data_async(level5_model, stock_info, chunk_start_date, chunk_end_date),
-            get_intraday_data_async(minute_model, stock_info, chunk_start_date, chunk_end_date)
-        )
-        intraday_data_map = {}
-        if not tick_df.empty:
-            tick_df['trade_time'] = pd.to_datetime(tick_df['trade_time']).dt.tz_convert('Asia/Shanghai')
-            tick_df['date'] = tick_df['trade_time'].dt.date
-            intraday_data_map.update({date: group_df for date, group_df in tick_df.groupby('date')})
-        if not minute_df.empty:
-            minute_df['trade_time'] = pd.to_datetime(minute_df['trade_time']).dt.tz_convert('Asia/Shanghai')
-            minute_df['date'] = minute_df['trade_time'].dt.date
-            for date, group_df in minute_df.groupby('date'):
-                if date not in intraday_data_map: # 优先使用tick数据，如果不存在则用分钟数据回退
-                    intraday_data_map[date] = group_df
-        # 调用重构后的服务执行器，传入预加载的数据
+        # 修改代码块：复用公用加载器加载所有日内数据
+        print(f"调试信息: [{stock_code}] [结构指标任务] 开始调用公用加载器 _load_all_sources_unified 加载所有日内数据...")
+        data_dfs = await _load_all_sources_unified(stock_info, DailyModel, dates_to_process, cache_manager)
+        # 新增代码块：重组数据结构以适配服务层的新要求
+        tick_data_map = data_dfs.get("stock_tick_data_map", {})
+        level5_data_map = data_dfs.get("stock_level5_data_map", {})
+        minute_data_map = data_dfs.get("stock_minute_data_map", {})
+        # 将多个map整合成一个嵌套map
+        nested_intraday_data_map = {}
+        all_dates_from_maps = set(tick_data_map.keys()) | set(level5_data_map.keys()) | set(minute_data_map.keys())
+        for date_obj in all_dates_from_maps:
+            # 确保只处理当前任务需要计算的日期
+            if pd.to_datetime(date_obj) in dates_to_process:
+                nested_intraday_data_map[date_obj] = {
+                    'minute': minute_data_map.get(date_obj),
+                    'tick': tick_data_map.get(date_obj),
+                    'level5': level5_data_map.get(date_obj),
+                }
+        print(f"调试信息: [{stock_code}] [结构指标任务] 数据重组完成，共 {len(nested_intraday_data_map)} 天的数据将被处理。")
+        # 修改代码行：调用服务执行器，传入重组后的嵌套数据map
         processed_count = await structural_service.run_precomputation(
             stock_info=stock_info,
             dates_to_process=dates_to_process,
             daily_df_with_atr=daily_df_with_atr,
-            intraday_data_map=intraday_data_map
+            intraday_data_map=nested_intraday_data_map
         )
         logger.info(f"[{stock_code}] [结构指标任务] 成功完成，处理了 {processed_count} 条记录。")
         return {"status": "success", "stock_code": stock_code, "processed_days": processed_count}

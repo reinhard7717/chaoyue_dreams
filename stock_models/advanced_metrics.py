@@ -539,9 +539,9 @@ class AdvancedFundFlowMetrics_BJ(BaseAdvancedFundFlowMetrics):
 # 结构与行为高级指标模型
 class BaseAdvancedStructuralMetrics(models.Model):
     """
-    【V18.1 · 高频力学模型版】
-    - 核心新增: 引入 `active_volume_price_efficiency`, `absorption_strength_index`, `distribution_pressure_index` 三大基于高频数据的力学模型指标，用于精确度量趋势效率与多空吸收/派发强度。
-    - 核心新增: 引入 trend_quality_score, closing_momentum_index, volume_structure_skew 三大高级结构指标，深度剖析日内走势质量。
+    【V19.0 · 微观结构动力学版】
+    - 核心新增: 引入 `MICROSTRUCTURE_DYNAMICS_METRICS` 指标组，利用Tick和Level5数据深度量化订单流、交易行为和市场脆弱性。
+    - 核心新增: 引入 `order_flow_imbalance_score`, `buy_sweep_intensity`, `sell_sweep_intensity`, `vpin_score`, `vwap_mean_reversion_corr` 五大微观结构指标。
     - 核心优化: 更新指标分组与衍生计算排除列表，以集成新指标。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
@@ -588,6 +588,14 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'closing_momentum_index': '收盘动能指数',
         'volume_structure_skew': '成交结构偏度',
     }
+    # 新增代码块：定义微观结构动力学指标
+    MICROSTRUCTURE_DYNAMICS_METRICS = {
+        'order_flow_imbalance_score': '订单流失衡分数',
+        'buy_sweep_intensity': '买方扫单强度',
+        'sell_sweep_intensity': '卖方扫单强度',
+        'vpin_score': 'VPIN得分',
+        'vwap_mean_reversion_corr': 'VWAP均值回归相关性',
+    }
     AUXILIARY_METRICS = {
         'value_area_migration': '价值区迁移度(ATR)',
         'value_area_overlap_pct': '价值区重叠度(%)',
@@ -599,6 +607,7 @@ class BaseAdvancedStructuralMetrics(models.Model):
         **GAME_EFFICIENCY_METRICS,
         **FORWARD_LOOKING_METRICS,
         **ADVANCED_BATTLEFIELD_METRICS,
+        **MICROSTRUCTURE_DYNAMICS_METRICS, # 修改代码行：加入新的指标组
         **AUXILIARY_METRICS,
     }
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
@@ -637,6 +646,12 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'active_volume_price_efficiency',
         'absorption_strength_index',
         'distribution_pressure_index',
+        # 新增代码块：将新指标加入排除列表
+        'order_flow_imbalance_score',
+        'buy_sweep_intensity',
+        'sell_sweep_intensity',
+        'vpin_score',
+        'vwap_mean_reversion_corr',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in BOOLEAN_FIELDS:

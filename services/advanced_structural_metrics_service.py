@@ -28,6 +28,7 @@ class AdvancedStructuralMetricsService:
     def __init__(self):
         """初始化服务，设定回溯期等基础参数"""
         self.max_lookback_days = 300 # 为计算衍生指标所需的最大历史回溯天数
+
     async def run_precomputation(self, stock_info: StockInfo, dates_to_process: pd.DatetimeIndex, daily_df_with_atr: pd.DataFrame, intraday_data_map: dict):
         """
         【V3.0 · 纯计算引擎版】高级结构与行为指标预计算总指挥
@@ -63,6 +64,7 @@ class AdvancedStructuralMetricsService:
         chunk_to_save = final_metrics_df[final_metrics_df.index.isin(all_new_core_metrics_df.index)]
         total_processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
         return total_processed_count
+
     async def _initialize_context(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         """
         【V1.0】初始化计算上下文，确定股票实体、目标模型、计算模式和日期范围。
@@ -95,6 +97,7 @@ class AdvancedStructuralMetricsService:
                 fetch_start_date = None
                 
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
+
     async def _load_intraday_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp) -> dict:
         """
         【V2.4 · 范围查询修正版】
@@ -173,10 +176,12 @@ class AdvancedStructuralMetricsService:
                     minute_df_fallback['date'] = minute_df_fallback['trade_time'].dt.date
                     intraday_data_map.update({date: group_df for date, group_df in minute_df_fallback.groupby('date')})
         return intraday_data_map
+
     async def _forge_advanced_structural_metrics(self, intraday_data_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
-        【V18.1 · 类型转换修正版】
-        - 核心修正: 在计算分钟VWAP前，将'amount'和'vol'列强制转换为数值类型，以解决Decimal与float运算时的TypeError。
+        【V19.0 · 数据流升级版】
+        - 核心修改: 适配新的 intraday_data_map 结构 (Dict[date, Dict[str, pd.DataFrame]])，能够同时处理分钟、Tick和Level5数据。
+        - 核心修改: 将高频数据（tick_df, level5_df）传递给底层的指标计算引擎。
         """
         if not intraday_data_map:
             return pd.DataFrame()
@@ -198,9 +203,13 @@ class AdvancedStructuralMetricsService:
         atr_14 = daily_df['ATR_14']
         atr_50 = daily_df['ATR_50']
         prev_day_metrics = {}
-        for date, group in intraday_data_map.items():
-            if group.empty or len(group) < 10:
-                logger.warning(f"[{stock_code}] [{date}] 跳过结构指标计算，日内数据不足。")
+        for date, data_bundle in intraday_data_map.items(): # 修改代码行: 迭代数据包
+            # 修改代码块: 从数据包中提取不同粒度的数据
+            group = data_bundle.get('minute')  # 分钟级别数据
+            tick_df_for_day = data_bundle.get('tick')  # 逐笔数据
+            level5_df_for_day = data_bundle.get('level5')  # Level5数据
+            if group is None or group.empty or len(group) < 10:
+                logger.warning(f"[{stock_code}] [{date}] 跳过结构指标计算，分钟级数据不足。")
                 continue
             try:
                 daily_series_for_day = daily_df.loc[date]
@@ -214,13 +223,17 @@ class AdvancedStructuralMetricsService:
             continuous_mask = group['trade_time'].dt.time < time(14, 57, 0)
             continuous_group = group[continuous_mask].copy()
             if continuous_group.empty: continue
-            # 增加类型转换
             continuous_group['amount'] = pd.to_numeric(continuous_group['amount'], errors='coerce')
             continuous_group['vol'] = pd.to_numeric(continuous_group['vol'], errors='coerce')
             continuous_group['minute_vwap'] = continuous_group['amount'] / continuous_group['vol'].replace(0, np.nan)
             continuous_group['minute_vwap'].fillna(method='ffill', inplace=True)
             continuous_group['minute_vwap'].fillna(group['open'].iloc[0], inplace=True)
-            day_metric_dict = self._compute_all_structural_metrics(group, continuous_group, daily_series_for_day, atr_5_for_day, atr_14_for_day, atr_50_for_day, prev_day_metrics)
+            # 修改代码行: 调用重命名后的方法，并传入高频数据
+            day_metric_dict = self._calculate_daily_structural_metrics(
+                group, continuous_group, daily_series_for_day, atr_5_for_day, atr_14_for_day, atr_50_for_day, prev_day_metrics,
+                tick_df_for_day=tick_df_for_day,
+                level5_df_for_day=level5_df_for_day
+            )
             day_metric_dict['trade_time'] = date
             prev_day_metrics = {
                 'vpoc': day_metric_dict.pop('_today_vpoc', np.nan),
@@ -233,6 +246,7 @@ class AdvancedStructuralMetricsService:
             return pd.DataFrame()
         result_df = pd.DataFrame(daily_metrics)
         return result_df.set_index(pd.to_datetime(result_df['trade_time']))
+
     def _compute_all_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict) -> dict:
         """
         【V3.4 · 全局类型净化版】
@@ -249,7 +263,20 @@ class AdvancedStructuralMetricsService:
         results['active_volume_price_efficiency'] = np.nan
         results['absorption_strength_index'] = np.nan
         results['distribution_pressure_index'] = np.nan
-        # 新增代码块: 在方法入口处对源数据进行类型净化
+        results['order_flow_imbalance_score'] = np.nan
+        results['buy_sweep_intensity'] = np.nan
+        results['sell_sweep_intensity'] = np.nan
+        results['vpin_score'] = np.nan
+        results['vwap_mean_reversion_corr'] = np.nan
+        group['amount'] = pd.to_numeric(group['amount'], errors='coerce')
+        group['vol'] = pd.to_numeric(group['vol'], errors='coerce')
+        total_volume = group['vol'].sum()
+        total_volume_safe = total_volume if total_volume > 0 else np.nan
+        day_open_qfq, day_high_qfq, day_low_qfq, day_close_qfq, pre_close_qfq = (
+            daily_series_for_day.get('open_qfq'), daily_series_for_day.get('high_qfq'),
+            daily_series_for_day.get('low_qfq'), daily_series_for_day.get('close_qfq'),
+            daily_series_for_day.get('pre_close_qfq')
+        )
         group['amount'] = pd.to_numeric(group['amount'], errors='coerce')
         group['vol'] = pd.to_numeric(group['vol'], errors='coerce')
         total_volume = group['vol'].sum()
@@ -493,10 +520,20 @@ class AdvancedStructuralMetricsService:
                 avg_vol_ends = (avg_vol_open + avg_vol_tail) / 2
                 if avg_vol_ends > 0:
                     results['volume_structure_skew'] = avg_vol_mid / avg_vol_ends
+        # 新增代码块: 调用微观结构指标计算模块
+        # --- 7. 微观结构动力学 (Microstructure Dynamics) ---
+        microstructure_metrics = self._calculate_microstructure_metrics(
+            tick_df=tick_df_for_day,
+            level5_df=level5_df_for_day,
+            minute_df=continuous_group,
+            total_volume=total_volume_safe
+        )
+        results.update(microstructure_metrics)
         results['_today_vpoc'] = today_vpoc
         results['_today_vah'] = today_vah
         results['_today_val'] = today_val
         return results
+
     def _calculate_derivatives(self, stock_code: str, metrics_df: pd.DataFrame) -> pd.DataFrame:
         """
         【V1.1 · 导数净化版】为所有核心结构指标计算斜率和加速度。
@@ -530,6 +567,7 @@ class AdvancedStructuralMetricsService:
         # 将衍生指标合并回原始指标DataFrame
         final_df = metrics_df.join(derivatives_df)
         return final_df
+
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
         【V1.0】准备数据并以原子方式批量保存到数据库。
@@ -575,6 +613,7 @@ class AdvancedStructuralMetricsService:
             records_for_atomic_save.append(record_data)
         processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
         return processed_count
+
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """
         【V1.0】从数据库加载并净化历史高级结构指标。
@@ -596,6 +635,7 @@ class AdvancedStructuralMetricsService:
                 if col != 'trade_time':
                     df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
+
     def _calculate_value_area(self, vp: pd.Series, total_volume: float, vpoc_interval: pd.Interval) -> tuple:
         """
         【V2.3 · 优化】计算日内价值区域 (VAH/VAL)
@@ -624,6 +664,7 @@ class AdvancedStructuralMetricsService:
         val = vp_sorted_by_price.index[low_idx].left
         vah = vp_sorted_by_price.index[high_idx].right
         return vah, val
+
     def _calculate_gini(self, array: np.ndarray) -> float:
         """计算基尼系数"""
         if array is None or len(array) < 2 or np.sum(array) == 0:
@@ -633,6 +674,81 @@ class AdvancedStructuralMetricsService:
         cum_array = np.cumsum(sorted_array, dtype=float)
         return (n + 1 - 2 * np.sum(cum_array) / cum_array[-1]) / n
 
+    def _calculate_microstructure_metrics(self, tick_df: pd.DataFrame, level5_df: pd.DataFrame, minute_df: pd.DataFrame, total_volume: float) -> dict:
+        """
+        【新增方法】计算微观结构动力学指标
+        - 核心职责: 利用tick和level5数据，计算订单流失衡、扫单强度、VPIN和VWAP回归等高级指标。
+        - 注意: 此方法依赖 scipy 库，请确保已安装 (pip install scipy)。
+        """
+        from scipy.stats import norm # 引入scipy用于VPIN计算
+        results = {
+            'order_flow_imbalance_score': np.nan,
+            'buy_sweep_intensity': np.nan,
+            'sell_sweep_intensity': np.nan,
+            'vpin_score': np.nan,
+            'vwap_mean_reversion_corr': np.nan,
+        }
+        # 确保有有效数据才进行计算
+        if tick_df is None or tick_df.empty or total_volume == 0:
+            return results
+        print(f"调试信息: [{tick_df['stock_code'].iloc[0] if 'stock_code' in tick_df.columns else ''}] [微观结构计算] 开始，Tick数据: {len(tick_df)}条, Level5数据: {len(level5_df) if level5_df is not None else 0}条")
+        # 1. VWAP均值回归相关性 (VWAP Mean Reversion Correlation)
+        if minute_df is not None and not minute_df.empty and 'minute_vwap' in minute_df.columns and len(minute_df) > 1:
+            daily_vwap = (minute_df['amount'].sum() / minute_df['vol'].sum()) if minute_df['vol'].sum() > 0 else np.nan
+            if pd.notna(daily_vwap):
+                deviation = minute_df['minute_vwap'] - daily_vwap
+                results['vwap_mean_reversion_corr'] = deviation.autocorr(lag=1)
+        # 2. 订单流失衡 (Order Flow Imbalance - OFI)
+        if level5_df is not None and not level5_df.empty and len(level5_df) > 1:
+            df = level5_df[['buy_price1', 'buy_volume1', 'sell_price1', 'sell_volume1']].copy()
+            df_prev = df.shift(1)
+            delta_buy_price = df['buy_price1'] - df_prev['buy_price1']
+            delta_sell_price = df['sell_price1'] - df_prev['sell_price1']
+            # 价格未变，看量变
+            ofi_static = np.where((delta_buy_price == 0) & (delta_sell_price == 0), df['buy_volume1'] - df_prev['buy_volume1'], 0)
+            # 价格变化
+            ofi_dynamic = np.where(delta_buy_price > 0, df_prev['buy_volume1'], 0)
+            ofi_dynamic = np.where(delta_buy_price < 0, -df['buy_volume1'], ofi_dynamic)
+            ofi_dynamic = np.where(delta_sell_price > 0, ofi_dynamic + df['sell_volume1'], ofi_dynamic)
+            ofi_dynamic = np.where(delta_sell_price < 0, ofi_dynamic - df_prev['sell_volume1'], ofi_dynamic)
+            ofi_series = ofi_static + ofi_dynamic
+            if not ofi_series.empty:
+                results['order_flow_imbalance_score'] = ofi_series.sum() / total_volume
+        # 3. 扫单强度 (Sweep Intensity)
+        tick_df['time_group'] = tick_df.index.floor('500ms')
+        buy_sweep_vol = 0
+        sell_sweep_vol = 0
+        for _, group in tick_df.groupby('time_group'):
+            if len(group) > 2 and group['type'].nunique() == 1:  # 500ms内至少3笔同向交易
+                if group['type'].iloc[0] == 'B' and group['price'].is_monotonic_increasing:
+                    buy_sweep_vol += group['volume'].sum()
+                elif group['type'].iloc[0] == 'S' and group['price'].is_monotonic_decreasing:
+                    sell_sweep_vol += group['volume'].sum()
+        total_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
+        total_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
+        if total_buy_vol > 0:
+            results['buy_sweep_intensity'] = buy_sweep_vol / total_buy_vol
+        if total_sell_vol > 0:
+            results['sell_sweep_intensity'] = sell_sweep_vol / total_sell_vol
+        # 4. VPIN (Volume-Synchronized Probability of Informed Trading)
+        vpin_bucket_size = total_volume / 50  # 每天50个成交量桶
+        vpin_window = 10  # 滚动窗口为10个桶
+        if vpin_bucket_size > 0:
+            tick_df['buy_vol'] = np.where(tick_df['type'] == 'B', tick_df['volume'], 0)
+            tick_df['sell_vol'] = np.where(tick_df['type'] == 'S', tick_df['volume'], 0)
+            tick_df['cum_vol'] = tick_df['volume'].cumsum()
+            tick_df['bucket'] = (tick_df['cum_vol'] // vpin_bucket_size).astype(int)
+            bucket_imbalance = tick_df.groupby('bucket').agg(buy_vol=('buy_vol', 'sum'), sell_vol=('sell_vol', 'sum'))
+            bucket_imbalance['imbalance'] = bucket_imbalance['buy_vol'] - bucket_imbalance['sell_vol']
+            if len(bucket_imbalance) > vpin_window:
+                imbalance_std = bucket_imbalance['imbalance'].rolling(window=vpin_window).std().bfill()
+                abs_imbalance = bucket_imbalance['imbalance'].abs()
+                sigma_imbalance = imbalance_std.replace(0, np.nan)
+                z_score = abs_imbalance / sigma_imbalance
+                vpin_series = z_score.apply(lambda z: norm.cdf(z) if pd.notna(z) else np.nan)
+                results['vpin_score'] = vpin_series.mean()  # 使用当日VPIN均值作为最终得分
+        print(f"调试信息: [微观结构计算] 完成, VPIN: {results['vpin_score']:.4f}, OFI: {results['order_flow_imbalance_score']:.4f}")
+        return results
 
 
 
