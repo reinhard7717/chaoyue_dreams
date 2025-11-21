@@ -741,16 +741,19 @@ class ProcessIntelligence:
 
     def _calculate_upthrust_washout(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.0 · 假阴线甄别版】识别主力在拉升初期利用“高开低走”阴线进行的洗盘行为。
-        - 核心逻辑: 通过“证伪法”识别。一个看似凶险的阴线，如果其发生环境、内部资金流和最终筹码结构都显示为良性，则大概率是洗盘而非出货。
+        【V1.2 · 诡道甄别版】识别主力在拉升初期利用“高开低走”阴线进行的洗盘行为。
+        - 核心升级 (V1.2): 引入“洗盘真实性评分”，通过订单结构显微镜，精细化判定洗盘意图。
+                           该评分融合了“拆单吸筹强度”、“权力转移”和“筹码集中度趋势”，
+                           旨在精确区分“诡道洗盘吸筹”与“真实高位派发”的核心差异。
         - 证据链:
           1. 环境 (Context): 发生在趋势健康且未严重超买的拉升初期或中期。
           2. 动作 (Action): 标准的高开/冲高回落阴线，并伴随放量。
-          3. 内核 (Internals): 主力在相对层面仍在吸收筹码（权力转移），盘中留下清晰的承接痕迹（长下影），且核心筹码结构未被破坏。
-        - 数学模型: Final_Score = (Context_Score * Action_Score * Internals_Score)^(1/3)。
+          3. 内核 (Internals): 盘中留下承接痕迹（长下影），且筹码结构未被破坏。
+          4. 真实性 (Authenticity): 资金“DNA检测”显示为吸筹而非派发。
+        - 数学模型: Final_Score = (Context_Score * Internals_Score) * Authenticity_Score。
         - 输出: [0, 1] 的单极性分数，分数越高，代表“假阴线真洗盘”的可能性越大。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_UPTHRUST_WASHOUT (假阴线甄别版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_UPTHRUST_WASHOUT (诡道甄别版)...")
         df_index = df.index
         # 1. 获取证据
         # 环境证据
@@ -765,26 +768,59 @@ class ProcessIntelligence:
         power_transfer = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
         lower_shadow_strength = self.strategy.atomic_states.get('SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', pd.Series(0.0, index=df_index))
         concentration_slope = self._get_safe_series(df, f'SLOPE_1_winner_concentration_90pct_D', 0.0, method_name="_calculate_upthrust_washout")
+        # 引入订单结构和筹码公理作为真实性检测的核心证据
+        split_order_accumulation = self.strategy.atomic_states.get('PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', pd.Series(0.0, index=df_index))
+        chip_concentration_axiom = self.strategy.atomic_states.get('SCORE_CHIP_AXIOM_CONCENTRATION', pd.Series(0.0, index=df_index))
         # 2. 构建各维度评分
         # 环境分: 趋势健康 ( > 0.2 ) 且未严重超买 ( bias < 0.2 )
         context_score = ((trend_form_score > 0.2) & (bias_21 < 0.2)).astype(float)
         # 动作分: 高开/冲高回落 + 放量
         is_high_open_low_close = (open_price > prev_close) & (close_price < open_price)
         action_score = (is_high_open_low_close & (volume_burst > 0.3)).astype(float)
-        # 内核分: 权力转移为正 + 有下影线 + 筹码未散
+        # 内核分: 有下影线 + 筹码未散 (移除power_transfer，因为它将在真实性评分中被更精细地使用)
         internals_score = (
-            power_transfer.clip(lower=0) * 0.5 +
-            lower_shadow_strength * 0.3 +
-            (concentration_slope > 0).astype(float) * 0.2
+            lower_shadow_strength * 0.7 +
+            (concentration_slope > 0).astype(float) * 0.3
         ).clip(0, 1)
-        # 3. 融合计算
+        # 3. [核心修改] 构建洗盘真实性评分 (Washout Authenticity Score)
+        bullish_evidence = (
+            split_order_accumulation * 0.5 +                 # 拆单吸筹是核心证据
+            power_transfer.clip(lower=0) * 0.3 +             # 权力转移为正向是加分项
+            chip_concentration_axiom.clip(lower=0) * 0.2     # 筹码集中是结果确认
+        ).clip(0, 1)
+        bearish_evidence = power_transfer.clip(upper=0).abs() # 权力大幅流失是唯一的核心风险信号
+        washout_authenticity_score = (bullish_evidence - bearish_evidence).clip(0, 1)
+        # 4. 融合计算
         # 只有在满足动作条件时才计算分数
-        final_score = (context_score * internals_score)
+        final_score = (context_score * internals_score * washout_authenticity_score)
         final_score = final_score.where(action_score > 0, 0.0).fillna(0.0)
-        # 4. 存储调试信息
+        # 5. 存储调试信息
         self.strategy.atomic_states["_DEBUG_washout_context_score"] = context_score
         self.strategy.atomic_states["_DEBUG_washout_action_score"] = action_score
         self.strategy.atomic_states["_DEBUG_washout_internals_score"] = internals_score
+        self.strategy.atomic_states["_DEBUG_washout_authenticity_score"] = washout_authenticity_score
+        self.strategy.atomic_states["_DEBUG_washout_auth_bull_evidence"] = bullish_evidence
+        self.strategy.atomic_states["_DEBUG_washout_auth_bear_evidence"] = bearish_evidence
+        # [代码新增] 探针输出逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
+            for probe_date in probe_dates:
+                if probe_date in df_index:
+                    print(f"    -> [探针] --- PROCESS_META_UPTHRUST_WASHOUT @ {probe_date.date()} ---")
+                    print(f"      - 环境分 (Context): {context_score.loc[probe_date]:.4f} (趋势形态: {trend_form_score.loc[probe_date]:.2f}, BIAS21: {bias_21.loc[probe_date]:.2f})")
+                    print(f"      - 动作分 (Action): {action_score.loc[probe_date]:.4f} (高开低走 & 放量)")
+                    print(f"      - 内核分 (Internals): {internals_score.loc[probe_date]:.4f} (下影线: {lower_shadow_strength.loc[probe_date]:.2f}, 筹码斜率>0: {(concentration_slope.loc[probe_date] > 0).astype(int)})")
+                    print(f"      - 真实性评分 (Authenticity): {washout_authenticity_score.loc[probe_date]:.4f}")
+                    print(f"        - 看涨证据 (Bullish Evidence): {bullish_evidence.loc[probe_date]:.4f}")
+                    print(f"          - 拆单吸筹强度 (权重 0.5): {split_order_accumulation.loc[probe_date]:.4f}")
+                    print(f"          - 权力转移(正向) (权重 0.3): {power_transfer.clip(lower=0).loc[probe_date]:.4f}")
+                    print(f"          - 筹码集中公理(正向) (权重 0.2): {chip_concentration_axiom.clip(lower=0).loc[probe_date]:.4f}")
+                    print(f"        - 看跌证据 (Bearish Evidence): {bearish_evidence.loc[probe_date]:.4f}")
+                    print(f"          - 权力转移(负向绝对值): {power_transfer.clip(upper=0).abs().loc[probe_date]:.4f}")
+                    print(f"      - 最终得分 (Final Score): {final_score.loc[probe_date]:.4f}")
+                    print("    -> [探针] ----------------------------------------------------")
         print(f"    -> [过程层] PROCESS_META_UPTHRUST_WASHOUT 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
