@@ -699,7 +699,8 @@ class AdvancedStructuralMetricsService:
 
     def _calculate_microstructure_metrics(self, tick_df: pd.DataFrame, level5_df: pd.DataFrame, minute_df: pd.DataFrame, total_volume: float) -> dict:
         """
-        【V19.1 · NumPy兼容性修复版】
+        【V19.2 · 扫单算法重构版】
+        - 核心修正: 重构扫单强度算法，从固定时间窗口改为识别连续同向交易块，使其更符合A股市场实际情况，解决指标恒为0的问题。
         - 核心修正: 将对订单流失衡(OFI)结果的空值检查从 pandas 的 `.empty` 属性修改为 numpy 的 `.size > 0`，以修复因 `np.where` 返回 ndarray 导致的 AttributeError。
         """
         from scipy.stats import norm
@@ -713,11 +714,13 @@ class AdvancedStructuralMetricsService:
         if tick_df is None or tick_df.empty or total_volume == 0:
             return results
         print(f"调试信息: [{tick_df['stock_code'].iloc[0] if 'stock_code' in tick_df.columns else ''}] [微观结构计算] 开始，Tick数据: {len(tick_df)}条, Level5数据: {len(level5_df) if level5_df is not None else 0}条")
+        # 1. VWAP均值回归相关性
         if minute_df is not None and not minute_df.empty and 'minute_vwap' in minute_df.columns and len(minute_df) > 1:
             daily_vwap = (minute_df['amount'].sum() / minute_df['vol'].sum()) if minute_df['vol'].sum() > 0 else np.nan
             if pd.notna(daily_vwap):
                 deviation = minute_df['minute_vwap'] - daily_vwap
                 results['vwap_mean_reversion_corr'] = deviation.autocorr(lag=1)
+        # 2. 订单流失衡 (OFI)
         if level5_df is not None and not level5_df.empty and len(level5_df) > 1:
             df = level5_df[['buy_price1', 'buy_volume1', 'sell_price1', 'sell_volume1']].copy()
             df_prev = df.shift(1)
@@ -729,24 +732,38 @@ class AdvancedStructuralMetricsService:
             ofi_dynamic = np.where(delta_sell_price > 0, ofi_dynamic + df['sell_volume1'], ofi_dynamic)
             ofi_dynamic = np.where(delta_sell_price < 0, ofi_dynamic - df_prev['sell_volume1'], ofi_dynamic)
             ofi_series = ofi_static + ofi_dynamic
-            # 修改代码行：使用 .size 检查 numpy 数组是否为空
             if ofi_series.size > 0:
                 results['order_flow_imbalance_score'] = np.nansum(ofi_series) / total_volume
-        tick_df['time_group'] = tick_df.index.floor('500ms')
+        # 3. 扫单强度 (Sweep Intensity) - 重构算法
         buy_sweep_vol = 0
         sell_sweep_vol = 0
-        for _, group in tick_df.groupby('time_group'):
-            if len(group) > 2 and group['type'].nunique() == 1:
-                if group['type'].iloc[0] == 'B' and group['price'].is_monotonic_increasing:
+        min_sweep_len = 3 # 定义扫单的最短连续笔数
+        # 识别连续的同向交易块
+        tick_df['block'] = (tick_df['type'] != tick_df['type'].shift()).cumsum()
+        tick_df['block_size'] = tick_df.groupby('block')['type'].transform('size')
+        # 筛选出可能是扫单的交易块 (长度达标且方向为B或S)
+        sweep_candidates = tick_df[(tick_df['block_size'] >= min_sweep_len) & (tick_df['type'].isin(['B', 'S']))]
+        if not sweep_candidates.empty:
+            for block_id, group in sweep_candidates.groupby('block'):
+                trade_type = group['type'].iloc[0]
+                prices = group['price']
+                # 检查价格单调性
+                is_sweep = False
+                if trade_type == 'B' and prices.is_monotonic_increasing:
+                    is_sweep = True
                     buy_sweep_vol += group['volume'].sum()
-                elif group['type'].iloc[0] == 'S' and group['price'].is_monotonic_decreasing:
+                elif trade_type == 'S' and prices.is_monotonic_decreasing:
+                    is_sweep = True
                     sell_sweep_vol += group['volume'].sum()
+                if is_sweep:
+                    print(f"调试信息: 发现扫单块 Block ID: {block_id}, Type: {trade_type}, Ticks: {len(group)}, Volume: {group['volume'].sum()}")
         total_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
         total_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
         if total_buy_vol > 0:
             results['buy_sweep_intensity'] = buy_sweep_vol / total_buy_vol
         if total_sell_vol > 0:
             results['sell_sweep_intensity'] = sell_sweep_vol / total_sell_vol
+        # 4. VPIN (Volume-Synchronized Probability of Informed Trading)
         vpin_bucket_size = total_volume / 50
         vpin_window = 10
         if vpin_bucket_size > 0:
@@ -763,7 +780,7 @@ class AdvancedStructuralMetricsService:
                 z_score = abs_imbalance / sigma_imbalance
                 vpin_series = z_score.apply(lambda z: norm.cdf(z) if pd.notna(z) else np.nan)
                 results['vpin_score'] = vpin_series.mean()
-        print(f"调试信息: [微观结构计算] 完成, VPIN: {results['vpin_score']:.4f}, OFI: {results['order_flow_imbalance_score']:.4f}")
+        print(f"调试信息: [微观结构计算] 完成, VPIN: {results['vpin_score']:.4f}, OFI: {results['order_flow_imbalance_score']:.4f}, 买方扫单强度: {results['buy_sweep_intensity']:.4f}")
         return results
 
 
