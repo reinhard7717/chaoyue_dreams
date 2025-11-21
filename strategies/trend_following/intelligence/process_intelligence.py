@@ -635,7 +635,9 @@ class ProcessIntelligence:
 
     def _calculate_panic_washout_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0 · 诡道博弈版】计算“恐慌洗盘吸筹”的专属信号。
+        【V2.1 · 依赖修复版】计算“恐慌洗盘吸筹”的专属信号。
+        - 核心修复 (V2.1): 移除了对不存在的 'SLOPE_1_main_force_cost_advantage_D' 指标的硬编码依赖。
+                           改为在方法内部直接计算 'main_force_cost_advantage_D' 的1日差分，以保证逻辑的健壮性和正确性。
         - 核心升级: 深刻理解主力洗盘的欺骗性，不再依赖“主力资金净流入为正”这一理想化假设。
         - 核心逻辑: 吸收度的判断从“绝对资金流入”转向“相对权力转移”和“行为足迹”。
           1. 动作 (Action): 剧烈、放量的下跌K线。 (不变)
@@ -645,7 +647,7 @@ class ProcessIntelligence:
         - 数学模型: Final_Score = (Panic_Score * Absorption_Score * Repair_Score)^(1/3)。
         - 输出: [0, 1] 的单极性分数，分数越高，代表主力“假摔真吸”的战术意图越明显。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (诡道博弈版)...") # [代码修改] 更新版本信息
+        print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (依赖修复版)...") # [代码修改] 更新版本信息
         df_index = df.index
         # 1. 获取MTF权重配置
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -664,7 +666,9 @@ class ProcessIntelligence:
         active_buying_support = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_calculate_panic_washout_accumulation")
         # 阶段四：修复证据 (核心修改)
         concentration_slope = self._get_safe_series(df, f'SLOPE_1_winner_concentration_90pct_D', 0.0, method_name="_calculate_panic_washout_accumulation")
-        cost_advantage_slope = self._get_safe_series(df, f'SLOPE_1_main_force_cost_advantage_D', 0.0, method_name="_calculate_panic_washout_accumulation")
+        # [代码修改] 移除对不存在的 'SLOPE_1_main_force_cost_advantage_D' 的依赖，改为直接计算1日差分
+        main_force_cost_advantage = self._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name="_calculate_panic_washout_accumulation")
+        cost_advantage_slope = main_force_cost_advantage.diff(1).fillna(0)
         # 3. 证据归一化
         retail_panic_norm = get_adaptive_mtf_normalized_score(retail_panic_index, df_index, ascending=True, tf_weights=default_weights)
         loser_pain_norm = get_adaptive_mtf_normalized_score(loser_pain_index, df_index, ascending=True, tf_weights=default_weights)
