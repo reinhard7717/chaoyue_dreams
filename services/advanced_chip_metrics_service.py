@@ -235,7 +235,7 @@ class AdvancedChipMetricsService:
                 today_df = pd.DataFrame(today_metrics_for_hist, index=[trade_date])
                 hist_comp_dict.update(today_df.to_dict('index'))
             # =================================================================
-            # 修改代码块：重构 prev_metrics 的构建逻辑，确保所有计算出的指标都被完整传递
+            # 重构 prev_metrics 的构建逻辑，确保所有计算出的指标都被完整传递
             # 1. 准备一个基础字典，包含非计算结果但需要传递的上下文
             next_prev_metrics = {
                 'chip_distribution': chip_data_for_calc,

@@ -712,10 +712,9 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
         daily_df_with_atr.ta.atr(length=5, append=True, col_names=('ATR_5',))
         daily_df_with_atr.ta.atr(length=14, append=True, col_names=('ATR_14',))
         daily_df_with_atr.ta.atr(length=50, append=True, col_names=('ATR_50',))
-        # 修改代码块：复用公用加载器加载所有日内数据
-        print(f"调试信息: [{stock_code}] [结构指标任务] 开始调用公用加载器 _load_all_sources_unified 加载所有日内数据...")
+        # 复用公用加载器加载所有日内数据
         data_dfs = await _load_all_sources_unified(stock_info, DailyModel, dates_to_process, cache_manager)
-        # 新增代码块：重组数据结构以适配服务层的新要求
+        # 重组数据结构以适配服务层的新要求
         tick_data_map = data_dfs.get("stock_tick_data_map", {})
         level5_data_map = data_dfs.get("stock_level5_data_map", {})
         minute_data_map = data_dfs.get("stock_minute_data_map", {})

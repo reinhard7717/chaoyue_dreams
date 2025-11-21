@@ -210,7 +210,7 @@ class AdvancedStructuralMetricsService:
                 logger.warning(f"[{stock_code}] [{date}] 跳过结构指标计算，分钟级数据不足。")
                 continue
             group.reset_index(inplace=True)
-            # 新增代码块：智能识别并统一成交量列名
+            # 智能识别并统一成交量列名
             volume_col_name = None
             if 'volume' in group.columns:
                 volume_col_name = 'volume'
@@ -499,7 +499,7 @@ class AdvancedStructuralMetricsService:
                 if avg_vol_ends > 0:
                     results['volume_structure_skew'] = avg_vol_mid / avg_vol_ends
         # --- 7. 微观结构动力学 (Microstructure Dynamics) ---
-        # 修改代码块：调用重构后的微观结构计算中心
+        # 调用重构后的微观结构计算中心
         microstructure_metrics = self._calculate_microstructure_metrics(
             tick_df=tick_df_for_day,
             level5_df=level5_df_for_day,
@@ -629,7 +629,6 @@ class AdvancedStructuralMetricsService:
         }
         if tick_df is None or tick_df.empty or total_volume == 0:
             return results
-        print(f"调试信息: [{daily_series_for_day.name}] [微观结构计算] 开始，Tick数据: {len(tick_df)}条, Level5数据: {len(level5_df) if level5_df is not None else 0}条")
         # 1. VWAP均值回归相关性
         if minute_df is not None and not minute_df.empty and 'minute_vwap' in minute_df.columns and len(minute_df) > 1:
             daily_vwap = (minute_df['amount'].sum() / minute_df['vol'].sum()) if minute_df['vol'].sum() > 0 else np.nan
@@ -718,7 +717,6 @@ class AdvancedStructuralMetricsService:
                 active_buy_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
             if active_buy_on_rally > 0:
                 results['distribution_pressure_index'] = active_sell_on_rally / active_buy_on_rally
-        print(f"调试信息: [微观结构计算] 完成, OFI: {results['order_flow_imbalance_score']:.4f}, 买方扫单: {results['buy_sweep_intensity']:.4f}, 吸筹强度: {results['absorption_strength_index']:.4f}, 派发压力: {results['distribution_pressure_index']:.4f}")
         return results
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
@@ -734,21 +732,12 @@ class AdvancedStructuralMetricsService:
         # 使用确定性的字段列表进行筛选，这是解决数据丢失的关键
         model_fields = set(BaseAdvancedStructuralMetrics.CORE_METRICS.keys())
         model_fields.add('trade_time') # 确保 trade_time 总是被包含
-        
         # 筛选出模型中存在的列
         cols_to_keep = [col for col in final_df.columns if col in model_fields]
         df_filtered = final_df[cols_to_keep]
-        
         print(f"调试信息: [{stock_info.stock_code}] 准备保存数据。DataFrame总列数: {len(final_df.columns)}, 筛选后列数: {len(df_filtered.columns)}")
-        if 'buy_sweep_intensity' in df_filtered.columns:
-            print(f"调试信息: 'buy_sweep_intensity' 列在筛选后依然存在。")
-        else:
-            # 如果此警告出现，说明问题依然存在于上游的数据生成环节
-            print(f"警告: 'buy_sweep_intensity' 列在筛选前就不存在或筛选后被意外丢弃！")
-            
         # 转换为字典列表
         records_list = df_filtered.to_dict('records')
-        
         @sync_to_async(thread_sensitive=True)
         def save_atomically(model, stock_obj, records_to_process):
             processed_count = 0
@@ -767,12 +756,10 @@ class AdvancedStructuralMetricsService:
                 except Exception as e:
                     logger.error(f"[{stock_obj.stock_code}] [结构指标保存失败] 日期: {trade_time}, 错误: {e}")
             return processed_count
-            
         records_for_atomic_save = []
         for record_date, record_data in zip(df_filtered.index, records_list):
             record_data['trade_time'] = record_date
             records_for_atomic_save.append(record_data)
-            
         processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
         return processed_count
 

@@ -80,7 +80,7 @@ class ChipFeatureCalculator:
         all_metrics.update(intraday_dynamics_metrics)
         self.ctx.update(intraday_dynamics_metrics)
         # =================================================================
-        # 新增代码块：恢复对旧版日内动态指标计算方法的调用，以修复指标丢失问题
+        # 恢复对旧版日内动态指标计算方法的调用，以修复指标丢失问题
         legacy_intraday_metrics = self._compute_legacy_intraday_metrics(self.ctx)
         all_metrics.update(legacy_intraday_metrics)
         self.ctx.update(legacy_intraday_metrics)
@@ -398,7 +398,7 @@ class ChipFeatureCalculator:
         leverage = (((self.df['price'] - close_price) / close_price) * self.df['percent']).sum()
         results['structural_leverage'] = leverage
         # =================================================================
-        # 修改代码块：重构真空区大小的计算逻辑，增强其在边缘情况下的健壮性
+        # 重构真空区大小的计算逻辑，增强其在边缘情况下的健壮性
         # 使用主峰和次峰之间的距离来定义真空区，而不是寻找最低密度点
         dominant_peak_cost = results.get('dominant_peak_cost')
         secondary_peak_cost = results.get('secondary_peak_cost')
@@ -520,7 +520,7 @@ class ChipFeatureCalculator:
             gap_pct = (open_price / pre_close - 1) * 100
             if abs(gap_pct) > 0.1:
                 # =================================================================
-                # 修改代码块：修正时间过滤逻辑，使用 DatetimeIndex 进行比较
+                # 修正时间过滤逻辑，使用 DatetimeIndex 进行比较
                 # 原始错误逻辑: first_5_min_df = intraday_df[(intraday_df['time_marker'] > '09:30:00') & (intraday_df['time_marker'] <= '09:35:00')]
                 first_5_min_df = intraday_df[(intraday_df.index.time > time(9, 30)) & (intraday_df.index.time <= time(9, 35))]
                 # =================================================================
@@ -758,7 +758,7 @@ class ChipFeatureCalculator:
                     mf_net_buy_on_dip = dip_or_flat_df['main_force_net_vol'].clip(lower=0).sum()
                     results['covert_accumulation_signal'] = (mf_net_buy_on_dip / total_vol_dip) * 100
         # =================================================================
-        # 新增代码块：重新植入被遗漏的压力、支撑和穿越效率指标的计算逻辑
+        # 重新植入被遗漏的压力、支撑和穿越效率指标的计算逻辑
         daily_high = context.get('high_price')
         daily_low = context.get('low_price')
         atr = context.get('atr_14d')

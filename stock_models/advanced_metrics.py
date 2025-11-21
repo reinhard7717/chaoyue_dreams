@@ -588,7 +588,7 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'closing_momentum_index': '收盘动能指数',
         'volume_structure_skew': '成交结构偏度',
     }
-    # 新增代码块：定义微观结构动力学指标
+    # 定义微观结构动力学指标
     MICROSTRUCTURE_DYNAMICS_METRICS = {
         'order_flow_imbalance_score': '订单流失衡分数',
         'buy_sweep_intensity': '买方扫单强度',
@@ -646,7 +646,7 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'active_volume_price_efficiency',
         'absorption_strength_index',
         'distribution_pressure_index',
-        # 新增代码块：将新指标加入排除列表
+        # 将新指标加入排除列表
         'order_flow_imbalance_score',
         'buy_sweep_intensity',
         'sell_sweep_intensity',
