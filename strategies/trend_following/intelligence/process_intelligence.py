@@ -196,7 +196,7 @@ class ProcessIntelligence:
                      采用几何平均（乘法模型），确保任何一个维度的缺失都会导致最终意图分数的显著降低，符合“证据链”逻辑。
         - 输出: [-1, 1] 的双极性分数。正分代表三维证据链完整、拉升意图强烈；负分代表主力派发或无作为。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (三维一体证据链版)...") # [代码修改] 更新打印信息
+        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (三维一体证据链版)...")
         df_index = df.index
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         # 1. 获取MTF权重配置
@@ -225,7 +225,7 @@ class ProcessIntelligence:
         net_flow_norm = get_adaptive_mtf_normalized_bipolar_score(main_force_net_flow, df_index, default_weights, self.bipolar_sensitivity)
         price_impact_norm = get_adaptive_mtf_normalized_bipolar_score(price_impact_ratio, df_index, default_weights, self.bipolar_sensitivity)
         impulse_purity_norm = get_adaptive_mtf_normalized_bipolar_score(upward_impulse_purity, df_index, default_weights, self.bipolar_sensitivity)
-        volume_ratio_norm = get_adaptive_mtf_normalized_bipolar_score(volume_ratio, df_index, default_weights, self.bipolar_sensitivity, center=1.0)
+        volume_ratio_norm = get_adaptive_mtf_normalized_bipolar_score(volume_ratio - 1.0, df_index, default_weights, self.bipolar_sensitivity) # [代码修改] 移除不支持的 'center' 参数，改为在输入端进行中心化处理
         # 控盘度证据
         control_solidity_norm = get_adaptive_mtf_normalized_bipolar_score(control_solidity, df_index, default_weights, self.bipolar_sensitivity)
         cost_advantage_norm = get_adaptive_mtf_normalized_bipolar_score(cost_advantage, df_index, default_weights, self.bipolar_sensitivity)
@@ -234,7 +234,7 @@ class ProcessIntelligence:
         # 扫清障碍证据
         buying_support_norm = get_adaptive_mtf_normalized_bipolar_score(active_buying_support, df_index, default_weights, self.bipolar_sensitivity)
         pressure_rejection_norm = get_adaptive_mtf_normalized_bipolar_score(pressure_rejection, df_index, default_weights, self.bipolar_sensitivity)
-        profit_absorption_norm = get_adaptive_mtf_normalized_bipolar_score(1 - profit_realization_quality, df_index, default_weights, self.bipolar_sensitivity, center=0.5)
+        profit_absorption_norm = get_adaptive_mtf_normalized_bipolar_score((1 - profit_realization_quality) - 0.5, df_index, default_weights, self.bipolar_sensitivity) # [代码修改] 移除不支持的 'center' 参数，改为在输入端进行中心化处理
         # 4. 计算三维支柱得分 [0, 1]
         aggressiveness_score = (
             price_change_norm.clip(lower=0) * 0.30 +
@@ -260,7 +260,6 @@ class ProcessIntelligence:
         # 6. 处理负向情况（派发或无作为）
         bearish_mask = (price_change_norm < 0) | (net_flow_norm < 0)
         bearish_score = (price_change_norm.clip(upper=0).abs() * 0.5 + net_flow_norm.clip(upper=0).abs() * 0.5).clip(0, 1) * -1
-        
         # 7. 合成最终分数
         final_rally_intent = bullish_intent.mask(bearish_mask, bearish_score)
         # 8. 涨停日额外加成：涨停是扫清一切障碍的最强信号
@@ -271,7 +270,6 @@ class ProcessIntelligence:
         self.strategy.atomic_states["_DEBUG_rally_obstacle_clearance"] = obstacle_clearance_score
         self.strategy.atomic_states["_DEBUG_rally_bullish_intent"] = bullish_intent
         self.strategy.atomic_states["_DEBUG_rally_bearish_score"] = bearish_score
-        
         print(f"    -> [过程层] PROCESS_META_MAIN_FORCE_RALLY_INTENT 计算完成，最新分值: {final_rally_intent.iloc[-1]:.4f}")
         return final_rally_intent.astype(np.float32)
 
