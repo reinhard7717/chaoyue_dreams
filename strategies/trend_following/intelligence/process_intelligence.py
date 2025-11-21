@@ -195,12 +195,10 @@ class ProcessIntelligence:
         print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (三维一体证据链版)...") # [代码修改] 更新打印信息
         df_index = df.index
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
-
         # 1. 获取MTF权重配置
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-
         # 2. 安全地获取所有维度的核心证据
         # 维度一: 攻击性
         price_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_main_force_rally_intent")
@@ -217,7 +215,6 @@ class ProcessIntelligence:
         active_buying_support = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_calculate_main_force_rally_intent")
         pressure_rejection = self._get_safe_series(df, 'pressure_rejection_strength_D', 0.0, method_name="_calculate_main_force_rally_intent")
         profit_realization_quality = self._get_safe_series(df, 'profit_realization_quality_D', 0.5, method_name="_calculate_main_force_rally_intent")
-
         # 3. 将所有证据归一化为 [-1, 1] 的双极性分数
         # 攻击性证据
         price_change_norm = get_adaptive_mtf_normalized_bipolar_score(price_change, df_index, default_weights, self.bipolar_sensitivity)
@@ -234,7 +231,6 @@ class ProcessIntelligence:
         buying_support_norm = get_adaptive_mtf_normalized_bipolar_score(active_buying_support, df_index, default_weights, self.bipolar_sensitivity)
         pressure_rejection_norm = get_adaptive_mtf_normalized_bipolar_score(pressure_rejection, df_index, default_weights, self.bipolar_sensitivity)
         profit_absorption_norm = get_adaptive_mtf_normalized_bipolar_score(1 - profit_realization_quality, df_index, default_weights, self.bipolar_sensitivity, center=0.5)
-
         # 4. 计算三维支柱得分 [0, 1]
         aggressiveness_score = (
             price_change_norm.clip(lower=0) * 0.30 +
@@ -254,21 +250,17 @@ class ProcessIntelligence:
             pressure_rejection_norm.clip(lower=0) * 0.30 +
             profit_absorption_norm.clip(lower=0) * 0.30
         ).clip(0, 1)
-
         # 5. 融合三维支柱，计算看涨意图
         # 使用几何平均，确保三者缺一不可
         bullish_intent = (aggressiveness_score * control_score * obstacle_clearance_score).pow(1/3)
-
         # 6. 处理负向情况（派发或无作为）
         bearish_mask = (price_change_norm < 0) | (net_flow_norm < 0)
         bearish_score = (price_change_norm.clip(upper=0).abs() * 0.5 + net_flow_norm.clip(upper=0).abs() * 0.5).clip(0, 1) * -1
         
         # 7. 合成最终分数
         final_rally_intent = bullish_intent.mask(bearish_mask, bearish_score)
-
         # 8. 涨停日额外加成：涨停是扫清一切障碍的最强信号
         final_rally_intent = final_rally_intent.mask(is_limit_up_day, (final_rally_intent + 0.35)).clip(-1, 1)
-
         # 9. 存储调试信息
         self.strategy.atomic_states["_DEBUG_rally_aggressiveness"] = aggressiveness_score
         self.strategy.atomic_states["_DEBUG_rally_control"] = control_score
@@ -592,12 +584,10 @@ class ProcessIntelligence:
         """
         print("    -> [过程层] 正在计算 PROCESS_META_STEALTH_ACCUMULATION (双战术场景建模版)...")
         df_index = df.index
-
         # 1. 获取MTF权重配置
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-
         # 2. 获取跨领域的原子信号和过程信号作为证据
         # 价格与波动
         price_trend_raw = self._get_safe_series(df, f'SLOPE_5_close_D', 0.0, method_name="_calculate_stealth_accumulation")
@@ -611,13 +601,11 @@ class ProcessIntelligence:
         # 资金流
         power_transfer_score = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
         split_order_accumulation_score = self.strategy.atomic_states.get('PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', pd.Series(0.0, index=df_index))
-
         # 3. 证据归一化
         price_trend_norm = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df_index, default_weights, self.bipolar_sensitivity)
         concentration_trend_norm = get_adaptive_mtf_normalized_bipolar_score(concentration_trend_raw, df_index, default_weights, self.bipolar_sensitivity)
         peak_solidity_trend_norm = get_adaptive_mtf_normalized_bipolar_score(peak_solidity_trend_raw, df_index, default_weights, self.bipolar_sensitivity)
         cost_advantage_norm = get_adaptive_mtf_normalized_bipolar_score(cost_advantage_raw, df_index, default_weights, self.bipolar_sensitivity)
-
         # 4. 场景一: 打压式吸筹 (价格不涨 + 缩量 + 权力转移 + 筹码集中)
         suppressive_mask = price_trend_norm <= 0.1 # 允许微弱上涨或下跌
         evidence1_suppressive = volume_atrophy_score.clip(lower=0)
@@ -626,7 +614,6 @@ class ProcessIntelligence:
         evidence4_suppressive = cost_advantage_norm.clip(lower=0)
         suppressive_score = (evidence1_suppressive * evidence2_suppressive * evidence3_suppressive * evidence4_suppressive).pow(1/4)
         suppressive_score = suppressive_score.where(suppressive_mask, 0.0)
-
         # 5. 场景二: 横盘式吸筹 (低波 + 缩量 + 权力转移 + 筹码固化 + 拆单)
         consolidative_mask = stability_score > 0.2 # 波动率较低
         evidence1_consolidative = volume_atrophy_score.clip(lower=0)
@@ -635,10 +622,8 @@ class ProcessIntelligence:
         evidence4_consolidative = split_order_accumulation_score.clip(lower=0)
         consolidative_score = (evidence1_consolidative * evidence2_consolidative * evidence3_consolidative * evidence4_consolidative).pow(1/4)
         consolidative_score = consolidative_score.where(consolidative_mask, 0.0)
-
         # 6. 融合两种战术得分，取最大值
         final_score = pd.concat([suppressive_score, consolidative_score], axis=1).max(axis=1).fillna(0.0)
-
         # 7. 存储调试信息
         self.strategy.atomic_states["_DEBUG_accum_suppressive_score"] = suppressive_score
         self.strategy.atomic_states["_DEBUG_accum_consolidative_score"] = consolidative_score
@@ -660,12 +645,10 @@ class ProcessIntelligence:
         """
         print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (诡道博弈版)...") # [代码修改] 更新版本信息
         df_index = df.index
-
         # 1. 获取MTF权重配置
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-
         # 2. 获取多维度证据
         # 阶段一：动作证据
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_panic_washout_accumulation")
@@ -680,14 +663,12 @@ class ProcessIntelligence:
         # 阶段四：修复证据 (核心修改)
         concentration_slope = self._get_safe_series(df, f'SLOPE_1_winner_concentration_90pct_D', 0.0, method_name="_calculate_panic_washout_accumulation")
         cost_advantage_slope = self._get_safe_series(df, f'SLOPE_1_main_force_cost_advantage_D', 0.0, method_name="_calculate_panic_washout_accumulation")
-
         # 3. 证据归一化
         retail_panic_norm = get_adaptive_mtf_normalized_score(retail_panic_index, df_index, ascending=True, tf_weights=default_weights)
         loser_pain_norm = get_adaptive_mtf_normalized_score(loser_pain_index, df_index, ascending=True, tf_weights=default_weights)
         active_buying_support_norm = get_adaptive_mtf_normalized_score(active_buying_support, df_index, ascending=True, tf_weights=default_weights)
         concentration_slope_norm = get_adaptive_mtf_normalized_score(concentration_slope, df_index, ascending=True, tf_weights=default_weights)
         cost_advantage_slope_norm = get_adaptive_mtf_normalized_score(cost_advantage_slope, df_index, ascending=True, tf_weights=default_weights)
-
         # 4. 构建三维核心分数
         # 恐慌度: 散户恐慌与套牢盘痛苦的融合
         panic_score = (retail_panic_norm * 0.7 + loser_pain_norm * 0.3).clip(0, 1)
@@ -695,21 +676,17 @@ class ProcessIntelligence:
         absorption_score = (power_transfer_score.clip(lower=0) * 0.5 + lower_shadow_strength * 0.25 + active_buying_support_norm * 0.25).clip(0, 1)
         # 修复度: 筹码集中趋势 + 主力成本优势扩大的融合确认
         repair_score = (concentration_slope_norm * 0.6 + cost_advantage_slope_norm * 0.4).clip(0, 1)
-
         # 5. 定义触发条件 (洗盘K线)
         is_significant_drop = (pct_change < -0.03) | (lower_shadow_strength > 0.6)
         is_volume_spike = volume_burst > 0.5
         washout_candidate_mask = is_significant_drop & is_volume_spike
-
         # 6. 融合计算最终分数
         final_score = (panic_score * absorption_score * repair_score).pow(1/3)
         final_score = final_score.where(washout_candidate_mask, 0.0).fillna(0.0)
-
         # 7. 存储调试信息
         self.strategy.atomic_states["_DEBUG_washout_panic_score"] = panic_score
         self.strategy.atomic_states["_DEBUG_washout_absorption_score"] = absorption_score
         self.strategy.atomic_states["_DEBUG_washout_repair_score"] = repair_score
-
         print(f"    -> [过程层] PROCESS_META_PANIC_WASHOUT_ACCUMULATION 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
@@ -727,12 +704,10 @@ class ProcessIntelligence:
         """
         print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (诡道博弈版)...")
         df_index = df.index
-
         # 1. 获取MTF权重配置
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-
         # 2. 获取核心证据与验证信号
         # 核心行为
         deception_index_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_calculate_deceptive_accumulation")
@@ -741,31 +716,74 @@ class ProcessIntelligence:
         structural_consensus_score = self.strategy.atomic_states.get('SCORE_CHIP_STRUCTURAL_CONSENSUS', pd.Series(0.0, index=df_index))
         # 场景约束
         price_trend_raw = self._get_safe_series(df, f'SLOPE_5_close_D', 0.0, method_name="_calculate_deceptive_accumulation")
-
         # 3. 证据归一化
         # deception_index_D 的范围是 -100 到 100，我们将其映射到 -1 到 1
         deception_score = (deception_index_raw / 100).clip(-1, 1)
         price_trend_norm = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df_index, default_weights, self.bipolar_sensitivity)
-
         # 4. 定义场景约束掩码
         price_suppression_mask = price_trend_norm <= 0.1 # 价格被抑制（横盘或缓跌）
-
         # 5. 融合计算
         # 我们只关心正向的欺骗（吸筹）、正向的权力转移和正向的结构共识
         evidence1_deception = deception_score.clip(lower=0)
         evidence2_power_transfer = power_transfer_score.clip(lower=0)
         evidence3_consensus = structural_consensus_score.clip(lower=0)
-
         # 几何平均确保所有证据都存在
         final_score = (evidence1_deception * evidence2_power_transfer * evidence3_consensus).pow(1/3)
         final_score = final_score.where(price_suppression_mask, 0.0).fillna(0.0)
-
         # 6. 存储调试信息
         self.strategy.atomic_states["_DEBUG_decep_deception_score"] = evidence1_deception
         self.strategy.atomic_states["_DEBUG_decep_power_transfer"] = evidence2_power_transfer
         self.strategy.atomic_states["_DEBUG_decep_consensus"] = evidence3_consensus
-
         print(f"    -> [过程层] PROCESS_META_DECEPTIVE_ACCUMULATION 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
+        return final_score.astype(np.float32)
+
+    def _calculate_upthrust_washout(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0 · 假阴线甄别版】识别主力在拉升初期利用“高开低走”阴线进行的洗盘行为。
+        - 核心逻辑: 通过“证伪法”识别。一个看似凶险的阴线，如果其发生环境、内部资金流和最终筹码结构都显示为良性，则大概率是洗盘而非出货。
+        - 证据链:
+          1. 环境 (Context): 发生在趋势健康且未严重超买的拉升初期或中期。
+          2. 动作 (Action): 标准的高开/冲高回落阴线，并伴随放量。
+          3. 内核 (Internals): 主力在相对层面仍在吸收筹码（权力转移），盘中留下清晰的承接痕迹（长下影），且核心筹码结构未被破坏。
+        - 数学模型: Final_Score = (Context_Score * Action_Score * Internals_Score)^(1/3)。
+        - 输出: [0, 1] 的单极性分数，分数越高，代表“假阴线真洗盘”的可能性越大。
+        """
+        print("    -> [过程层] 正在计算 PROCESS_META_UPTHRUST_WASHOUT (假阴线甄别版)...")
+        df_index = df.index
+        # 1. 获取证据
+        # 环境证据
+        trend_form_score = self.strategy.atomic_states.get('SCORE_STRUCT_AXIOM_TREND_FORM', pd.Series(0.0, index=df_index))
+        bias_21 = self._get_safe_series(df, 'BIAS_21_D', 0.0, method_name="_calculate_upthrust_washout")
+        # 动作证据
+        open_price = self._get_safe_series(df, 'open_D', 0.0, method_name="_calculate_upthrust_washout")
+        close_price = self._get_safe_series(df, 'close_D', 0.0, method_name="_calculate_upthrust_washout")
+        prev_close = close_price.shift(1)
+        volume_burst = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_BURST', pd.Series(0.0, index=df_index))
+        # 内核证据
+        power_transfer = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
+        lower_shadow_strength = self.strategy.atomic_states.get('SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', pd.Series(0.0, index=df_index))
+        concentration_slope = self._get_safe_series(df, f'SLOPE_1_winner_concentration_90pct_D', 0.0, method_name="_calculate_upthrust_washout")
+        # 2. 构建各维度评分
+        # 环境分: 趋势健康 ( > 0.2 ) 且未严重超买 ( bias < 0.2 )
+        context_score = ((trend_form_score > 0.2) & (bias_21 < 0.2)).astype(float)
+        # 动作分: 高开/冲高回落 + 放量
+        is_high_open_low_close = (open_price > prev_close) & (close_price < open_price)
+        action_score = (is_high_open_low_close & (volume_burst > 0.3)).astype(float)
+        # 内核分: 权力转移为正 + 有下影线 + 筹码未散
+        internals_score = (
+            power_transfer.clip(lower=0) * 0.5 +
+            lower_shadow_strength * 0.3 +
+            (concentration_slope > 0).astype(float) * 0.2
+        ).clip(0, 1)
+        # 3. 融合计算
+        # 只有在满足动作条件时才计算分数
+        final_score = (context_score * internals_score)
+        final_score = final_score.where(action_score > 0, 0.0).fillna(0.0)
+        # 4. 存储调试信息
+        self.strategy.atomic_states["_DEBUG_washout_context_score"] = context_score
+        self.strategy.atomic_states["_DEBUG_washout_action_score"] = action_score
+        self.strategy.atomic_states["_DEBUG_washout_internals_score"] = internals_score
+        print(f"    -> [过程层] PROCESS_META_UPTHRUST_WASHOUT 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
     def _calculate_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -781,12 +799,10 @@ class ProcessIntelligence:
         print("    -> [过程层] 正在计算 PROCESS_META_ACCUMULATION_INFLECTION (势能转换版)...")
         df_index = df.index
         accumulation_window = config.get('accumulation_window', 21)
-
         # 1. 获取多种吸筹过程信号
         stealth_accum = self.strategy.atomic_states.get('PROCESS_META_STEALTH_ACCUMULATION', pd.Series(0.0, index=df_index))
         deceptive_accum = self.strategy.atomic_states.get('PROCESS_META_DECEPTIVE_ACCUMULATION', pd.Series(0.0, index=df_index))
         panic_washout_accum = self.strategy.atomic_states.get('PROCESS_META_PANIC_WASHOUT_ACCUMULATION', pd.Series(0.0, index=df_index))
-
         # 2. 计算累积势能
         # 将多种吸筹行为融合成一个总的每日吸筹强度分
         daily_accumulation_strength = pd.concat([stealth_accum, deceptive_accum, panic_washout_accum], axis=1).max(axis=1)
@@ -794,25 +810,20 @@ class ProcessIntelligence:
         potential_energy_raw = daily_accumulation_strength.rolling(window=accumulation_window, min_periods=5).sum()
         # 归一化势能得分
         potential_energy_score = utils.normalize_score(potential_energy_raw, df_index, window=accumulation_window, ascending=True).clip(0, 1)
-
         # 3. 获取动能扳机信号
         price_slope_1d = self._get_safe_series(df, f'SLOPE_1_close_D', 0.0, method_name="_calculate_accumulation_inflection")
         volume_burst = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_BURST', pd.Series(0.0, index=df_index))
         closing_position = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.0, method_name="_calculate_accumulation_inflection") # -100~100
-
         # 4. 计算动能扳机得分
         price_trigger = (price_slope_1d > 0).astype(float)
         volume_trigger = (volume_burst > 0.1).astype(float)
         kline_trigger = ((closing_position / 100).clip(0, 1)) # 只取收盘在当日上半区的部分
         kinetic_trigger_score = (price_trigger * 0.4 + volume_trigger * 0.3 + kline_trigger * 0.3).clip(0, 1)
-
         # 5. 融合计算最终拐点分数
         final_score = (potential_energy_score * kinetic_trigger_score).fillna(0.0)
-
         # 6. 存储调试信息
         self.strategy.atomic_states["_DEBUG_inflection_potential_energy"] = potential_energy_score
         self.strategy.atomic_states["_DEBUG_inflection_kinetic_trigger"] = kinetic_trigger_score
-
         print(f"    -> [过程层] PROCESS_META_ACCUMULATION_INFLECTION 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
