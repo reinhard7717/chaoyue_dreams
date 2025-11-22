@@ -26,10 +26,15 @@ import pandas_ta as ta
 from django.db import transaction, connection
 from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
-from stock_models.advanced_metrics import BaseAdvancedChipMetrics, AdvancedChipMetrics_SZ, AdvancedChipMetrics_SH, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
-from stock_models.stock_analytics import DailyPositionSnapshot, PositionTracker, StrategyDailyScore, TradingSignal, AtomicSignalPerformance, StrategyDailyState
+from stock_models.advanced_metrics import (
+    AdvancedChipMetrics_SH, AdvancedChipMetrics_SZ, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ,
+    AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_BJ,
+    AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_BJ,
+    PlatformFeature_SH, PlatformFeature_SZ, PlatformFeature_CY, PlatformFeature_KC, PlatformFeature_BJ,
+    TrendlineFeature_SH, TrendlineFeature_SZ, TrendlineFeature_CY, TrendlineFeature_KC, TrendlineFeature_BJ
+)
 from stock_models.index import TradeCalendar
 from services.contextual_analysis_service import ContextualAnalysisService
 from services.chip_feature_calculator import ChipFeatureCalculator
@@ -586,11 +591,15 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     tick_data_df_list = []
     level5_data_df_list = []
     minute_data_df_list = []
+    realtime_data_df_list = [] # 新增代码行：初始化realtime数据列表
     for single_date in dates_in_chunk.normalize().unique().date:
         df_tick = await realtime_dao.get_daily_real_ticks(stock_info.stock_code, single_date.strftime('%Y-%m-%d'))
         if df_tick is not None and not df_tick.empty:
             tick_data_df_list.append(df_tick.reset_index())
-        _, df_level5 = await realtime_dao._get_single_stock_quotes_and_level5_from_db(stock_info.stock_code, single_date)
+        # 同时获取realtime快照和level5数据
+        df_realtime, df_level5 = await realtime_dao._get_single_stock_quotes_and_level5_from_db(stock_info.stock_code, single_date)
+        if df_realtime is not None and not df_realtime.empty: # 新增代码块：处理realtime数据
+            realtime_data_df_list.append(df_realtime.reset_index())
         if df_level5 is not None and not df_level5.empty:
             level5_data_df_list.append(df_level5.reset_index())
         df_minute = await time_trade_dao.get_intraday_kline_by_date(stock_info.stock_code, single_date, '1')
@@ -599,36 +608,31 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     data_dfs["stock_tick_data"] = pd.concat(tick_data_df_list) if tick_data_df_list else pd.DataFrame()
     data_dfs["stock_level5_data"] = pd.concat(level5_data_df_list) if level5_data_df_list else pd.DataFrame()
     data_dfs["stock_minute_data"] = pd.concat(minute_data_df_list) if minute_data_df_list else pd.DataFrame()
+    data_dfs["stock_realtime_data"] = pd.concat(realtime_data_df_list) if realtime_data_df_list else pd.DataFrame() # 新增代码行：拼接realtime数据
     def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str, data_source_name: str) -> dict: # 增加 data_source_name 参数
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         target_tz = pytz.timezone('Asia/Shanghai')
-        # 统一转换为目标时区 (Asia/Shanghai)
         if df['trade_time'].dt.tz is None:
-            # 如果是 naive datetime，假定它是北京时间（因为DAO层应该输出aware，但可能在某些操作后丢失时区信息）
             df['trade_time'] = df['trade_time'].dt.tz_localize(target_tz, ambiguous='infer')
         else:
-            # 如果已经是 aware datetime，直接转换为目标时区
             df['trade_time'] = df['trade_time'].dt.tz_convert(target_tz)
         df = df.set_index('trade_time')
         grouped_data = {}
         for date, group_df in df.groupby(df.index.date):
             grouped_data[date] = group_df
         return grouped_data
-    data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"], stock_info.stock_code, "Tick Data") # 传入数据源名称
-    data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"], stock_info.stock_code, "Level5 Data") # 传入数据源名称
-    data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"], stock_info.stock_code, "Minute K-line Data") # 传入数据源名称
+    data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"], stock_info.stock_code, "Tick Data")
+    data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"], stock_info.stock_code, "Level5 Data")
+    data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"], stock_info.stock_code, "Minute K-line Data")
+    data_dfs["stock_realtime_data_map"] = _process_intraday_df_to_map(data_dfs["stock_realtime_data"], stock_info.stock_code, "Realtime Snapshot Data") # 新增代码行：创建realtime数据map
     for name, df in data_dfs.items():
-        if name in ["stock_tick_data_map", "stock_level5_data_map", "stock_minute_data_map"]:
+        if name in ["stock_tick_data_map", "stock_level5_data_map", "stock_minute_data_map", "stock_realtime_data_map"]: # 修改代码行：加入realtime map
             continue
         if df is None or df.empty:
             if 'fund_flow_ths' in name or 'fund_flow_dc' in name:
                 data_dfs[name] = pd.DataFrame()
                 continue
-            # 修改：删除调试信息输出
-            # if name in ["stock_tick_data", "stock_level5_data", "stock_minute_data"]:
-            #     print(f"调试信息: [{stock_info.stock_code}] [统一加载] 可选日内数据源 '{name}' 为空。")
-            #     continue
             if name == "cyq_chips":
                 logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！查询日期列表: {chunk_dates_list}")
             else:
@@ -989,21 +993,62 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock (merged task) for {stock_code}: {e}", exc_info=True)
         raise
 
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_geometric_patterns_for_stock', queue='SaveHistoryData_TimeTrade')
+@with_cache_manager
+def precompute_geometric_patterns_for_stock(self, stock_code: str, *, cache_manager: CacheManager):
+    """
+    【V2.1 · 动态演化分析版】为单只股票预计算几何形态，并分析其动态演化事件。
+    - 核心职责: 调用GeometricPatternService，执行平台、趋势线矩阵、动态事件的计算并持久化。
+    - V2.1 升级: 调用统一入口，支持多时间维度趋势线和旗形预测。
+    """
+    async def main():
+        from services.geometric_pattern_service import GeometricPatternService
+        from utils.model_helpers import get_daily_data_model_by_code
+        from stock_models.models import StockInfo
+        try:
+            stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
+            service = GeometricPatternService(stock_code=stock_code, stock_id=stock_info.id)
+            daily_model = get_daily_data_model_by_code(stock_code)
+            all_dates_qs = daily_model.objects.filter(stock=stock_info).values_list('trade_time', flat=True).order_by('trade_time')
+            dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
+            if dates_to_process.empty or len(dates_to_process) < 60:
+                logger.info(f"[{stock_code}] [几何形态任务] 数据不足 (<60天)，跳过计算。")
+                return {"status": "skipped", "reason": "Insufficient data."}
+            data_dfs = await _load_all_sources_unified(stock_info, daily_model, dates_to_process, cache_manager)
+            # 修改代码行：调用重构后的统一入口方法
+            await sync_to_async(service.calculate_and_save_all_patterns)(data_dfs)
+            return {"status": "success", "stock_code": stock_code}
+        except StockInfo.DoesNotExist:
+            logger.error(f"[{stock_code}] [几何形态任务] 股票信息不存在，任务终止。")
+            return {"status": "error", "reason": "StockInfo not found."}
+        except Exception as e:
+            logger.error(f"[{stock_code}] [几何形态任务] 发生未知错误: {e}", exc_info=True)
+            raise
+
+    try:
+        result = async_to_sync(main)()
+        return result
+    except Exception as e:
+        logger.error(f"--- CATCHING EXCEPTION in precompute_geometric_patterns_for_stock for {stock_code}: {e}", exc_info=True)
+        raise
+
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_incremental: bool = True):
     """
-    【总调度器 V3.1 · BJ股过滤版】
-    - 核心升级: 使用 Celery Chord 编排任务，在所有计算任务完成后调用汇总报告任务。
-    - 核心修正: 在获取股票列表时，排除所有以 .BJ 结尾的股票代码。
+    【总调度器 V3.3 · 责任链重构版】
+    - 核心重构: 废除并行的任务分发模式，改为为每支股票构建一个独立的、保证执行顺序的“责任链”工作流。
+    - 设计思想: 使用 Celery Chain 来确保几何形态计算 (Geometric) 严格在其依赖的高级指标 (Chip, Fund, Structural) 计算完成之后才执行，根除竞态条件。
     """
     try:
-        from celery import chord, group
+        from celery import chord, group, chain # 修改代码行：导入 chain
         from datetime import timedelta, datetime
         from stock_models.stock_basic import StockInfo
         from stock_models.advanced_metrics import (
             AdvancedChipMetrics_SH, AdvancedChipMetrics_SZ, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ,
             AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_BJ,
-            AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_BJ
+            AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_BJ,
+            PlatformFeature_SH, PlatformFeature_SZ, PlatformFeature_CY, PlatformFeature_KC, PlatformFeature_BJ,
+            TrendlineFeature_SH, TrendlineFeature_SZ, TrendlineFeature_CY, TrendlineFeature_KC, TrendlineFeature_BJ
         )
         from stock_models.time_trade import StockDailyBasic
         chip_ff_models = [
@@ -1012,6 +1057,10 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
         ]
         structural_models = [
             AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_BJ
+        ]
+        geometric_models = [
+            PlatformFeature_SH, PlatformFeature_SZ, PlatformFeature_CY, PlatformFeature_KC, PlatformFeature_BJ,
+            TrendlineFeature_SH, TrendlineFeature_SZ, TrendlineFeature_CY, TrendlineFeature_KC, TrendlineFeature_BJ
         ]
         def get_group_start_date(models, group_name: str):
             all_latest_dates = []
@@ -1033,6 +1082,7 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             return None, True
         start_date_chip_ff, is_incremental_chip_ff = None, is_incremental
         start_date_structural, is_incremental_structural = None, is_incremental
+        run_geometric_task = True 
         if start_date_str is None and is_incremental:
             start_date_chip_ff, is_incremental_chip_ff = get_group_start_date(chip_ff_models, "筹码-资金流")
             start_date_structural, is_incremental_structural = get_group_start_date(structural_models, "结构")
@@ -1041,25 +1091,45 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             start_date_structural = start_date_str
             is_incremental_chip_ff = is_incremental
             is_incremental_structural = is_incremental
-        # 核心修正：在查询股票列表时，使用 exclude 方法排除所有以 .BJ 结尾的北交所股票。
         stock_codes = list(StockInfo.objects.filter(list_status='L').exclude(stock_code__endswith='.BJ').values_list('stock_code', flat=True))
         if not stock_codes:
             logger.warning("【总调度】在StockInfo中未找到任何符合条件的上市状态股票，任务终止。")
             return {"status": "skipped", "reason": "No listed stocks found."}
-        total_tasks_dispatched = 0
-        if start_date_chip_ff is not None or is_incremental_chip_ff:
-            chip_ff_tasks = [precompute_advanced_chips_for_stock.s(stock_code=code, is_incremental=is_incremental_chip_ff, start_date_str=start_date_chip_ff) for code in stock_codes]
-            if chip_ff_tasks:
-                callback = summarize_computation_failures.s()
-                chord(chip_ff_tasks)(callback)
-                total_tasks_dispatched += len(chip_ff_tasks)
-        if start_date_structural is not None or is_incremental_structural:
-            structural_tasks = [precompute_advanced_structural_metrics_for_stock.s(stock_code=code, is_incremental=is_incremental_structural, start_date_str=start_date_structural) for code in stock_codes]
-            if structural_tasks:
-                job_group_s = group(structural_tasks)
-                job_group_s.apply_async()
-                total_tasks_dispatched += len(structural_tasks)
-        logger.info(f"【总调度】成功！已向计算集群分发 {total_tasks_dispatched} 个子任务。")
+        # 修改代码块：重构为责任链模式
+        all_stock_workflows = []
+        # 检查是否有前置任务需要执行
+        run_precursor_tasks = (start_date_chip_ff is not None or is_incremental_chip_ff) and \
+                              (start_date_structural is not None or is_incremental_structural)
+        if not run_precursor_tasks:
+            logger.info("【总调度】前置高级指标任务无需更新，跳过本次调度。")
+            return {"status": "skipped", "reason": "No precursor tasks to run."}
+        for code in stock_codes:
+            # 1. 定义每个阶段的任务签名
+            chip_ff_task = precompute_advanced_chips_for_stock.s(
+                stock_code=code, is_incremental=is_incremental_chip_ff, start_date_str=start_date_chip_ff
+            )
+            structural_task = precompute_advanced_structural_metrics_for_stock.s(
+                stock_code=code, is_incremental=is_incremental_structural, start_date_str=start_date_structural
+            )
+            geometric_task = precompute_geometric_patterns_for_stock.s(stock_code=code)
+            # 2. 构建责任链
+            #    第一步: 并行执行筹码和结构计算 (group)
+            #    第二步: 等待第一步完成后，执行几何形态计算 (chain)
+            #    注意：chain的第二个任务会自动接收第一个任务（或任务组）的结果，
+            #    虽然这里我们不需要传递结果，但这个机制保证了执行顺序。
+            stock_chain = chain(
+                group(chip_ff_task, structural_task),
+                geometric_task
+            )
+            all_stock_workflows.append(stock_chain)
+        if not all_stock_workflows:
+            logger.warning("【总调度】未能为任何股票创建工作流，任务终止。")
+            return {"status": "skipped", "reason": "No workflows created."}
+        # 3. 将所有股票的责任链作为一个大的并行组来执行
+        computation_workflow = group(all_stock_workflows)
+        computation_workflow.apply_async()
+        total_tasks_dispatched = len(stock_codes) * 3 # 每个工作流包含3个核心任务
+        logger.info(f"【总调度】成功！已为 {len(stock_codes)} 支股票分发了责任链工作流，共计 {total_tasks_dispatched} 个子任务。")
         return {
             "status": "success",
             "dispatched_stocks": len(stock_codes),

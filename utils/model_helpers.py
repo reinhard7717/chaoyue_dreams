@@ -16,8 +16,13 @@ from stock_models.time_trade import (
 from stock_models.advanced_metrics import (
     AdvancedChipMetrics_CY, AdvancedChipMetrics_SZ, AdvancedChipMetrics_KC, AdvancedChipMetrics_SH, AdvancedChipMetrics_BJ,
     AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_BJ,
-    AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_BJ
+    AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_BJ,
+    PlatformFeature_CY, PlatformFeature_SZ, PlatformFeature_KC, PlatformFeature_SH, PlatformFeature_BJ,
+    TrendlineFeature_CY, TrendlineFeature_SZ, TrendlineFeature_KC, TrendlineFeature_SH, TrendlineFeature_BJ,
+    MultiTimeframeTrendline_CY, MultiTimeframeTrendline_SZ, MultiTimeframeTrendline_KC, MultiTimeframeTrendline_SH, MultiTimeframeTrendline_BJ,
+    TrendlineEvent_CY, TrendlineEvent_SZ, TrendlineEvent_KC, TrendlineEvent_SH, TrendlineEvent_BJ
 )
+
 from stock_models.stock_realtime import (
     StockRealtimeData_SH, StockRealtimeData_SZ, StockRealtimeData_CY, StockRealtimeData_KC, StockRealtimeData_BJ,
     StockLevel5Data_SH, StockLevel5Data_SZ, StockLevel5Data_CY, StockLevel5Data_KC, StockLevel5Data_BJ,
@@ -227,7 +232,81 @@ def get_advanced_structural_metrics_model_by_code(stock_code: str):
     else:
         print(f"未识别的股票代码: {stock_code}，默认使用SZ主板高级结构指标表")
         return AdvancedStructuralMetrics_SZ
-    
+
+# [新增代码块] 在文件末尾添加新的辅助函数
+def get_platform_feature_model_by_code(stock_code: str) -> Optional[Type[models.Model]]:
+    """
+    【V1.0】根据股票代码返回对应的矩形平台特征数据表Model
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return PlatformFeature_CY
+    elif stock_code.endswith('.SZ'):
+        return PlatformFeature_SZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return PlatformFeature_KC
+    elif stock_code.endswith('.SH'):
+        return PlatformFeature_SH
+    elif stock_code.endswith('.BJ'):
+        return PlatformFeature_BJ
+    else:
+        print(f"未识别的股票代码: {stock_code}，平台特征默认使用SZ主板表")
+        return PlatformFeature_SZ
+
+def get_trendline_feature_model_by_code(stock_code: str) -> Optional[Type[models.Model]]:
+    """
+    【V1.0】根据股票代码返回对应的趋势线特征数据表Model
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return TrendlineFeature_CY
+    elif stock_code.endswith('.SZ'):
+        return TrendlineFeature_SZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return TrendlineFeature_KC
+    elif stock_code.endswith('.SH'):
+        return TrendlineFeature_SH
+    elif stock_code.endswith('.BJ'):
+        return TrendlineFeature_BJ
+    else:
+        print(f"未识别的股票代码: {stock_code}，趋势线特征默认使用SZ主板表")
+        return TrendlineFeature_SZ
+
+# [新增代码块] 在文件末尾添加新的模型辅助函数
+def get_multi_timeframe_trendline_model_by_code(stock_code: str) -> Optional[Type[models.Model]]:
+    """
+    【V2.1】根据股票代码返回对应的趋势线矩阵数据表Model
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return MultiTimeframeTrendline_CY
+    elif stock_code.endswith('.SZ'):
+        return MultiTimeframeTrendline_SZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return MultiTimeframeTrendline_KC
+    elif stock_code.endswith('.SH'):
+        return MultiTimeframeTrendline_SH
+    elif stock_code.endswith('.BJ'):
+        return MultiTimeframeTrendline_BJ
+    else:
+        print(f"未识别的股票代码: {stock_code}，趋势线矩阵默认使用SZ主板表")
+        return MultiTimeframeTrendline_SZ
+
+def get_trendline_event_model_by_code(stock_code: str) -> Optional[Type[models.Model]]:
+    """
+    【V2.1】根据股票代码返回对应的趋势线事件数据表Model
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return TrendlineEvent_CY
+    elif stock_code.endswith('.SZ'):
+        return TrendlineEvent_SZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return TrendlineEvent_KC
+    elif stock_code.endswith('.SH'):
+        return TrendlineEvent_SH
+    elif stock_code.endswith('.BJ'):
+        return TrendlineEvent_BJ
+    else:
+        print(f"未识别的股票代码: {stock_code}，趋势线事件默认使用SZ主板表")
+        return TrendlineEvent_SZ
+
 
 def get_price_limit_percent(stock_code: str) -> float:
     """

@@ -766,3 +766,253 @@ class AdvancedStructuralMetrics_BJ(BaseAdvancedStructuralMetrics):
             models.Index(fields=['intraday_energy_density']),
             models.Index(fields=['divergence_conviction_score']),
         ]
+
+# [修改代码块] 几何形态特征模型 - 平台
+class BasePlatformFeature(models.Model):
+    """
+    【V2.0 · 微观博弈增强版】
+    - 核心职责: 持久化存储通过算法识别出的每一个矩形平台的核心量化特征。
+    - 设计思想: 每个平台作为一个独立的实体记录，而非每日状态，便于进行结构性回溯和分析。
+    - V2.0 新增: 引入 `precise_vpoc`, `internal_accumulation_intensity`, `breakout_quality_score` 字段，利用分钟和Tick数据精炼平台质量评估。
+    """
+    stock = models.ForeignKey(
+        'StockInfo',
+        on_delete=models.CASCADE,
+        verbose_name='股票',
+        db_index=True
+    )
+    start_date = models.DateField(verbose_name='平台起始日期', db_index=True)
+    end_date = models.DateField(verbose_name='平台结束日期', db_index=True)
+    duration = models.IntegerField(verbose_name='平台持续天数')
+    high = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='平台上轨')
+    low = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='平台下轨')
+    vpoc = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='平台成交量加权均价(VPOC-日线)')
+    total_volume = models.BigIntegerField(verbose_name='平台期总成交量')
+    quality_score = models.FloatField(verbose_name='平台质量分(0-1)', help_text='综合评估平台的吸筹/派发潜力')
+    # 新增代码行：V2.0 微观指标
+    precise_vpoc = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='精确VPOC(分钟级)', null=True, blank=True)
+    internal_accumulation_intensity = models.FloatField(verbose_name='内部吸筹强度', null=True, blank=True, help_text='平台期内Tick级净主动买入量占比')
+    breakout_quality_score = models.FloatField(verbose_name='突破质量分', null=True, blank=True, help_text='突破日微观结构评估分')
+    
+    class Meta:
+        abstract = True
+        ordering = ['-start_date']
+        unique_together = ('stock', 'start_date') # 每个股票的平台由其起始日期唯一确定
+
+class PlatformFeature_SH(BasePlatformFeature):
+    class Meta(BasePlatformFeature.Meta):
+        abstract = False
+        db_table = 'stock_platform_feature_sh'
+        verbose_name = '矩形平台特征-上海'
+        verbose_name_plural = verbose_name
+
+class PlatformFeature_SZ(BasePlatformFeature):
+    class Meta(BasePlatformFeature.Meta):
+        abstract = False
+        db_table = 'stock_platform_feature_sz'
+        verbose_name = '矩形平台特征-深圳'
+        verbose_name_plural = verbose_name
+
+class PlatformFeature_CY(BasePlatformFeature):
+    class Meta(BasePlatformFeature.Meta):
+        abstract = False
+        db_table = 'stock_platform_feature_cy'
+        verbose_name = '矩形平台特征-创业'
+        verbose_name_plural = verbose_name
+
+class PlatformFeature_KC(BasePlatformFeature):
+    class Meta(BasePlatformFeature.Meta):
+        abstract = False
+        db_table = 'stock_platform_feature_kc'
+        verbose_name = '矩形平台特征-科创'
+        verbose_name_plural = verbose_name
+
+class PlatformFeature_BJ(BasePlatformFeature):
+    class Meta(BasePlatformFeature.Meta):
+        abstract = False
+        db_table = 'stock_platform_feature_bj'
+        verbose_name = '矩形平台特征-北京'
+        verbose_name_plural = verbose_name
+
+# [修改代码块] 几何形态特征模型 - 趋势线
+class BaseTrendlineFeature(models.Model):
+    """
+    【V2.0 · 微观博弈增强版】
+    - 核心职责: 持久化存储通过算法识别出的最有效的趋势线的代数表达。
+    - 设计思想: 存储线的方程（斜率、截距）而非每日价格，实现高效的动态计算和应用。
+    - V2.0 新增: 引入 `touch_conviction_score` 字段，量化每次触及趋势线时的博弈强度。
+    """
+    LINE_TYPE_CHOICES = [
+        ('support', '支撑线'),
+        ('resistance', '阻力线'),
+    ]
+    stock = models.ForeignKey(
+        'StockInfo',
+        on_delete=models.CASCADE,
+        verbose_name='股票',
+        db_index=True
+    )
+    start_date = models.DateField(verbose_name='趋势线起始日期', db_index=True)
+    end_date = models.DateField(verbose_name='趋势线结束日期', db_index=True)
+    line_type = models.CharField(max_length=20, choices=LINE_TYPE_CHOICES, verbose_name='趋势线类型')
+    slope = models.FloatField(verbose_name='斜率', help_text='y=mx+c中的m')
+    intercept = models.FloatField(verbose_name='截距', help_text='y=mx+c中的c, 基于时间索引')
+    touch_points = models.IntegerField(verbose_name='有效触及点数')
+    validity_score = models.FloatField(verbose_name='趋势线有效性得分(0-1)')
+    # 新增代码行：V2.0 微观指标
+    touch_conviction_score = models.FloatField(verbose_name='触及信念得分', null=True, blank=True, help_text='所有触及点微观博弈强度的平均分')
+
+    class Meta:
+        abstract = True
+        ordering = ['-validity_score']
+        unique_together = ('stock', 'start_date', 'line_type')
+
+class TrendlineFeature_SH(BaseTrendlineFeature):
+    class Meta(BaseTrendlineFeature.Meta):
+        abstract = False
+        db_table = 'stock_trendline_feature_sh'
+        verbose_name = '趋势线特征-上海'
+        verbose_name_plural = verbose_name
+
+class TrendlineFeature_SZ(BaseTrendlineFeature):
+    class Meta(BaseTrendlineFeature.Meta):
+        abstract = False
+        db_table = 'stock_trendline_feature_sz'
+        verbose_name = '趋势线特征-深圳'
+        verbose_name_plural = verbose_name
+
+class TrendlineFeature_CY(BaseTrendlineFeature):
+    class Meta(BaseTrendlineFeature.Meta):
+        abstract = False
+        db_table = 'stock_trendline_feature_cy'
+        verbose_name = '趋势线特征-创业'
+        verbose_name_plural = verbose_name
+
+class TrendlineFeature_KC(BaseTrendlineFeature):
+    class Meta(BaseTrendlineFeature.Meta):
+        abstract = False
+        db_table = 'stock_trendline_feature_kc'
+        verbose_name = '趋势线特征-科创'
+        verbose_name_plural = verbose_name
+
+class TrendlineFeature_BJ(BaseTrendlineFeature):
+    class Meta(BaseTrendlineFeature.Meta):
+        abstract = False
+        db_table = 'stock_trendline_feature_bj'
+        verbose_name = '趋势线特征-北京'
+        verbose_name_plural = verbose_name
+
+# [新增代码块] 多时间维度趋势线每日快照模型
+class BaseMultiTimeframeTrendline(models.Model):
+    """
+    【V2.1 · 趋势线矩阵版】
+    - 核心职责: 持久化存储每日计算出的、代表不同时间维度市场共识的趋势线阵列。
+    - 设计思想: 从记录单条线的“生命周期”转变为记录每日的“战场快照”，为动态分析提供基础。
+    """
+    LINE_TYPE_CHOICES = [('support', '支撑线'), ('resistance', '阻力线')]
+    PERIOD_CHOICES = [(5, '5日'), (13, '13日'), (21, '21日'), (55, '55日')]
+
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, db_index=True)
+    trade_date = models.DateField(verbose_name='交易日期', db_index=True)
+    period = models.IntegerField(choices=PERIOD_CHOICES, verbose_name='时间周期')
+    line_type = models.CharField(max_length=20, choices=LINE_TYPE_CHOICES, verbose_name='趋势线类型')
+    
+    slope = models.FloatField(verbose_name='斜率')
+    intercept = models.FloatField(verbose_name='截距 (基于时间索引)')
+    validity_score = models.FloatField(verbose_name='综合有效性得分(0-1)')
+    
+    class Meta:
+        abstract = True
+        unique_together = ('stock', 'trade_date', 'period', 'line_type')
+        ordering = ['-trade_date', 'period']
+
+# ... 为 SH, SZ, CY, KC, BJ 创建对应的分表模型 ...
+class MultiTimeframeTrendline_SH(BaseMultiTimeframeTrendline):
+    class Meta(BaseMultiTimeframeTrendline.Meta):
+        abstract = False
+        db_table = 'stock_trendline_matrix_sh'
+        verbose_name = '趋势线矩阵-上海'
+
+class MultiTimeframeTrendline_SZ(BaseMultiTimeframeTrendline):
+    class Meta(BaseMultiTimeframeTrendline.Meta):
+        abstract = False
+        db_table = 'stock_trendline_matrix_sz'
+        verbose_name = '趋势线矩阵-深圳'
+
+class MultiTimeframeTrendline_CY(BaseMultiTimeframeTrendline):
+    class Meta(BaseMultiTimeframeTrendline.Meta):
+        abstract = False
+        db_table = 'stock_trendline_matrix_cy'
+        verbose_name = '趋势线矩阵-创业'
+
+class MultiTimeframeTrendline_KC(BaseMultiTimeframeTrendline):
+    class Meta(BaseMultiTimeframeTrendline.Meta):
+        abstract = False
+        db_table = 'stock_trendline_matrix_kc'
+        verbose_name = '趋势线矩阵-科创'
+
+class MultiTimeframeTrendline_BJ(BaseMultiTimeframeTrendline):
+    class Meta(BaseMultiTimeframeTrendline.Meta):
+        abstract = False
+        db_table = 'stock_trendline_matrix_bj'
+        verbose_name = '趋势线矩阵-北京'
+
+# [新增代码块] 趋势线动态事件模型
+class BaseTrendlineEvent(models.Model):
+    """
+    【V2.1 · 趋势线动态事件版】
+    - 核心职责: 记录由趋势线矩阵动态演化而产生的关键交易信号事件。
+    - 设计思想: 将“状态”（趋势线本身）与“事件”（拐点、突破、旗形）分离，便于策略回测和信号挖掘。
+    """
+    EVENT_TYPE_CHOICES = [
+        ('INFLECTION_ACCEL', '趋势加速'),
+        ('INFLECTION_DECEL', '趋势减速'),
+        ('INFLECTION_REVERSAL', '趋势反转'),
+        ('CROSSOVER_BULLISH', '短期上穿长期'),
+        ('CROSSOVER_BEARISH', '短期下穿长期'),
+        ('FLAG_FORMED', '旗形形态确立'),
+    ]
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, db_index=True)
+    event_date = models.DateField(verbose_name='事件发生日期', db_index=True)
+    event_type = models.CharField(max_length=50, choices=EVENT_TYPE_CHOICES, verbose_name='事件类型')
+    details = models.JSONField(verbose_name='事件详情') # 存储相关周期、概率、特征等
+
+    class Meta:
+        abstract = True
+        ordering = ['-event_date']
+
+# ... 为 SH, SZ, CY, KC, BJ 创建对应的分表模型 ...
+class TrendlineEvent_SH(BaseTrendlineEvent):
+    class Meta(BaseTrendlineEvent.Meta):
+        abstract = False
+        db_table = 'stock_trendline_event_sh'
+        verbose_name = '趋势线事件-上海'
+
+class TrendlineEvent_SZ(BaseTrendlineEvent):
+    class Meta(BaseTrendlineEvent.Meta):
+        abstract = False
+        db_table = 'stock_trendline_event_sz'
+        verbose_name = '趋势线事件-深圳'
+
+class TrendlineEvent_CY(BaseTrendlineEvent):
+    class Meta(BaseTrendlineEvent.Meta):
+        abstract = False
+        db_table = 'stock_trendline_event_cy'
+        verbose_name = '趋势线事件-创业'
+
+class TrendlineEvent_KC(BaseTrendlineEvent):
+    class Meta(BaseTrendlineEvent.Meta):
+        abstract = False
+        db_table = 'stock_trendline_event_kc'
+        verbose_name = '趋势线事件-科创'
+
+class TrendlineEvent_BJ(BaseTrendlineEvent):
+    class Meta(BaseTrendlineEvent.Meta):
+        abstract = False
+        db_table = 'stock_trendline_event_bj'
+        verbose_name = '趋势线事件-北京'
+
+
+
+
+
