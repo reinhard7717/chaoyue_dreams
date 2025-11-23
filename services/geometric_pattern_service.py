@@ -1,6 +1,7 @@
 # services/geometric_pattern_service.py
 import pandas as pd
 import numpy as np
+from numba import njit
 import pandas_ta as ta
 from itertools import combinations
 import joblib # 用于加载机器学习模型
@@ -17,6 +18,60 @@ from utils.model_helpers import (
     get_advanced_fund_flow_metrics_model_by_code, # 新增：导入高级资金流指标模型辅助函数
     get_advanced_structural_metrics_model_by_code, # 新增：导入高级结构性指标模型辅助函数
 )
+
+@njit
+def _calculate_zigzag_numba(highs: np.ndarray, lows: np.ndarray, threshold: float = 0.05) -> np.ndarray:
+    """
+    【V2.9 · Numba JIT 加速版】使用 Numba 加速的 Zigzag 核心实现。
+    - 接收 NumPy 数组，运行在 nopython 模式下，以接近 C 的速度执行。
+    - 算法逻辑与 V2.8 的经典重构版完全一致，但性能大幅提升。
+    """
+    n = len(highs)
+    if n < 2:
+        return np.zeros(n, dtype=np.int8)
+    zigzag = np.zeros(n, dtype=np.int8)
+    initial_high = highs[0]
+    initial_low = lows[0]
+    trend = 0  # 1 for up, -1 for down
+    cursor = 1
+    while cursor < n:
+        if trend == 0:
+            if highs[cursor] > initial_high:
+                trend = 1
+                zigzag[0] = -1
+                break
+            elif lows[cursor] < initial_low:
+                trend = -1
+                zigzag[0] = 1
+                break
+        cursor += 1
+    if trend == 0:
+        return zigzag
+    pivot_idx = 0
+    while cursor < n:
+        if trend == 1:
+            segment_highs = highs[pivot_idx : cursor + 1]
+            current_high = np.max(segment_highs)
+            current_high_idx_loc = pivot_idx + np.argmax(segment_highs)
+            if (current_high - lows[cursor]) / current_high > threshold:
+                zigzag[current_high_idx_loc] = 1
+                trend = -1
+                pivot_idx = current_high_idx_loc
+                cursor = pivot_idx + 1
+            else:
+                cursor += 1
+        elif trend == -1:
+            segment_lows = lows[pivot_idx : cursor + 1]
+            current_low = np.min(segment_lows)
+            current_low_idx_loc = pivot_idx + np.argmin(segment_lows)
+            if (highs[cursor] - current_low) / current_low > threshold:
+                zigzag[current_low_idx_loc] = -1
+                trend = 1
+                pivot_idx = current_low_idx_loc
+                cursor = pivot_idx + 1
+            else:
+                cursor += 1
+    return zigzag
 
 class GeometricPatternService:
     """
@@ -741,63 +796,17 @@ class GeometricPatternService:
 
     def _calculate_zigzag(self, df: pd.DataFrame, threshold: float = 0.05) -> pd.Series:
         """
-        【V2.8 · 经典重构版】使用标准的 while 循环和状态机重构 Zigzag 算法，确保逻辑的健壮性。
-        - 修复了 V2.6 版本中因 for 循环导致的拐点被错误覆盖以及对最后一个点处理不当的BUG。
-        - 算法: 使用 while 循环，在找到一个拐点后，将搜索起点“跳跃”到该拐点，避免重复判断。
+        【V2.9 · Numba JIT 包装器】调用 Numba 加速的 Zigzag 实现，并将其结果包装为 Pandas Series。
+        - 负责 Pandas 数据到 NumPy 数组的转换，以及结果的重新包装。
+        - 保持了对服务内其他方法的接口兼容性。
         """
-        if len(df) < 2:
-            return pd.Series(0, index=df.index)
-        zigzag = pd.Series(0, index=df.index)
-        # 确定初始趋势和第一个拐点
-        initial_high = df['high_qfq'].iloc[0]
-        initial_low = df['low_qfq'].iloc[0]
-        zigzag.loc[df.index[0]] = 0 # 初始点不确定
-        trend = 0 # 1 for up, -1 for down
-        cursor = 1
-        # 找到第一个有效趋势
-        while cursor < len(df):
-            if trend == 0:
-                if df['high_qfq'].iloc[cursor] > initial_high:
-                    trend = 1
-                    zigzag.loc[df.index[0]] = -1 # 确认起点为低点
-                    break
-                elif df['low_qfq'].iloc[cursor] < initial_low:
-                    trend = -1
-                    zigzag.loc[df.index[0]] = 1 # 确认起点为高点
-                    break
-            cursor += 1
-        if trend == 0: # 如果没有趋势（例如一条直线）
-            return zigzag
-        
-        pivot_idx = 0
-        while cursor < len(df):
-            if trend == 1: # 上升趋势，寻找高点
-                segment = df.iloc[pivot_idx:cursor+1]
-                current_high = segment['high_qfq'].max()
-                current_high_idx_loc = segment['high_qfq'].idxmax()
-                # 检查从最高点回撤是否超过阈值
-                if (current_high - df['low_qfq'].iloc[cursor]) / current_high > threshold:
-                    pivot_loc = df.index.get_loc(current_high_idx_loc)
-                    zigzag.loc[current_high_idx_loc] = 1
-                    trend = -1
-                    pivot_idx = pivot_loc
-                    cursor = pivot_loc + 1
-                else:
-                    cursor += 1
-            elif trend == -1: # 下降趋势，寻找低点
-                segment = df.iloc[pivot_idx:cursor+1]
-                current_low = segment['low_qfq'].min()
-                current_low_idx_loc = segment['low_qfq'].idxmin()
-                # 检查从最低点反弹是否超过阈值
-                if (df['high_qfq'].iloc[cursor] - current_low) / current_low > threshold:
-                    pivot_loc = df.index.get_loc(current_low_idx_loc)
-                    zigzag.loc[current_low_idx_loc] = -1
-                    trend = 1
-                    pivot_idx = pivot_loc
-                    cursor = pivot_loc + 1
-                else:
-                    cursor += 1
-        return zigzag
+        # 将Pandas Series转换为Numba兼容的NumPy数组
+        highs = df['high_qfq'].values
+        lows = df['low_qfq'].values
+        # 调用JIT编译的函数
+        zigzag_array = _calculate_zigzag_numba(highs, lows, threshold)
+        # 将结果包装回带有正确索引的Pandas Series
+        return pd.Series(zigzag_array, index=df.index, dtype=int)
 
     def _sanitize_json_dict(self, data: dict) -> dict:
         """
