@@ -346,10 +346,9 @@ class GeometricPatternService:
 
     def _compute_trendline_matrix_for_day(self, current_date: pd.Timestamp, df_daily: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V2.4 · 探针调试版】为指定的一天，计算出所有斐波那契周期的支撑和阻力线矩阵。
-        - V2.4 调试: 新增探针，用于详细追踪最后一个交易日的数据流转和锚点识别情况。
+        【V2.5 · Zigzag敏感度修复版】为指定的一天，计算出所有斐波那契周期的支撑和阻力线矩阵。
+        - V2.5 修复: 为 zigzag 指标调用添加了核心的 `pivot_leg=0.05` 参数，以确保能够正确识别价格拐点。
         """
-        # 新增代码块：定义一个flag，只对最后一个日期打印详细探针信息
         is_last_day_debug = (current_date == df_daily.index.max())
         if is_last_day_debug:
             print(f"\n--- [探针模式启动] 正在详细检查日期: {current_date.date()} ---")
@@ -363,17 +362,17 @@ class GeometricPatternService:
                     print(f"  -> [周期 {period}] 数据不足 ({len(df_slice)}天)，跳过。")
                 continue
             if is_last_day_debug:
-                print(f"\n  -> [周期 {period}] 数据切片长度: {len(df_slice)} (回溯自 {df_slice.index.min().date()})")
-            zigzag_series = df_slice.ta(kind='zigzag', high='high_qfq', low='low_qfq', length=max(3, int(period/5)))
+                # 修改代码行：在探针输出中也反映出我们使用了新的参数
+                print(f"\n  -> [周期 {period}] 数据切片长度: {len(df_slice)} (回溯自 {df_slice.index.min().date()}) | 使用 pivot_leg=0.05")
+            # 修改代码块：移除 length 参数，添加 pivot_leg 参数来控制敏感度
+            zigzag_series = df_slice.ta(kind='zigzag', high='high_qfq', low='low_qfq', pivot_leg=0.05)
             if zigzag_series is not None and isinstance(zigzag_series, pd.Series):
                 zigzag_series.name = 'zigzag'
                 df_slice = df_slice.join(zigzag_series)
             else:
                 df_slice['zigzag'] = 0
-            # 填充NaN值以避免后续过滤出错
             df_slice['zigzag'] = df_slice['zigzag'].fillna(0)
             if is_last_day_debug:
-                # 打印包含zigzag结果的DataFrame尾部，检查是否有1或-1
                 print(f"    [探针] Zigzag计算结果 (最近10条):")
                 print(df_slice[['high_qfq', 'low_qfq', 'zigzag']].tail(10).to_string())
             df_slice['time_idx'] = np.arange(len(df_slice))
@@ -398,7 +397,6 @@ class GeometricPatternService:
         if is_last_day_debug:
             print(f"--- [探针模式结束] 日期 {current_date.date()} 共生成 {len(matrix_records)} 条有效趋势线 ---\n")
         else:
-            # 保持原有日志输出的简洁性
             print(f"    -> [趋势线矩阵引擎] 为 {current_date.date()} 生成了 {len(matrix_records)} 条有效趋势线。")
         return matrix_records
 
