@@ -1036,17 +1036,24 @@ def precompute_geometric_patterns_for_stock(self, stock_code: str, start_date_st
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_incremental: bool = True):
     """
-    【总调度器 V3.5 · 适配器模式修复版】
-    - 核心重构: 废除并行的任务分发模式，改为为每支股票构建一个独立的、保证执行顺序的“责任链”工作流。
-    - 设计思想: 使用 Celery Chain 来确保几何形态计算 (Geometric) 严格在其依赖的高级指标 (Chip, Fund, Structural) 计算完成之后才执行，根除竞态条件。
-    - V3.5 修复: 引入一个适配器任务 `_trigger_geometric_patterns_computation` 来接收和丢弃上游任务组的结果，从而以纯净的参数调用几何形态任务，彻底解决 TypeError。
+    【总调度器 V3.6 · 日期传递终极修复版】
+    - V3.6 修复: 在创建责任链时，为适配器任务 `_trigger_geometric_patterns_computation` 显式传递 `start_date_str` 参数，
+                 确保日期范围过滤能够在整个工作流中正确传递，彻底解决计算历史数据的问题。
     """
     try:
         from celery import chord, group, chain
         from datetime import timedelta, datetime
         from stock_models.stock_basic import StockInfo
-        # ... 此处省略大量模型导入代码 ...
         from stock_models.time_trade import StockDailyBasic
+        from stock_models.advanced_metrics import (
+            AdvancedChipMetrics_SH, AdvancedChipMetrics_SZ, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ,
+            AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_BJ,
+            AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_BJ
+        )
+        from stock_models.geometric_features import (
+            PlatformFeature_SH, PlatformFeature_SZ, PlatformFeature_CY, PlatformFeature_KC, PlatformFeature_BJ,
+            TrendlineFeature_SH, TrendlineFeature_SZ, TrendlineFeature_CY, TrendlineFeature_KC, TrendlineFeature_BJ
+        )
         chip_ff_models = [
             AdvancedChipMetrics_SH, AdvancedChipMetrics_SZ, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ,
             AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_BJ,
@@ -1054,12 +1061,7 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
         structural_models = [
             AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_BJ
         ]
-        geometric_models = [
-            PlatformFeature_SH, PlatformFeature_SZ, PlatformFeature_CY, PlatformFeature_KC, PlatformFeature_BJ,
-            TrendlineFeature_SH, TrendlineFeature_SZ, TrendlineFeature_CY, TrendlineFeature_KC, TrendlineFeature_BJ
-        ]
         def get_group_start_date(models, group_name: str):
-            # ... 此处省略 get_group_start_date 的内部实现 ...
             all_latest_dates = []
             for model in models:
                 latest_metric = model.objects.order_by('-trade_time').first()
@@ -1073,13 +1075,12 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             if not latest_basic_data:
                 raise ValueError("StockDailyBasic 为空，无法确定数据范围。")
             start_date_obj = sync_date + timedelta(days=1)
-            if start_date_obj > latest_basic_data.trade_time:
+            if start_date_obj.date() > latest_basic_data.trade_time:
                 logger.info(f"【总调度-{group_name}组】所有指标已同步至 {sync_date}，无需更新。")
                 return None, True
-            return None, True
+            return start_date_obj.strftime('%Y-%m-%d'), True
         start_date_chip_ff, is_incremental_chip_ff = None, is_incremental
         start_date_structural, is_incremental_structural = None, is_incremental
-        run_geometric_task = True 
         if start_date_str is None and is_incremental:
             start_date_chip_ff, is_incremental_chip_ff = get_group_start_date(chip_ff_models, "筹码-资金流")
             start_date_structural, is_incremental_structural = get_group_start_date(structural_models, "结构")
@@ -1093,8 +1094,7 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             logger.warning("【总调度】在StockInfo中未找到任何符合条件的上市状态股票，任务终止。")
             return {"status": "skipped", "reason": "No listed stocks found."}
         all_stock_workflows = []
-        run_precursor_tasks = (start_date_chip_ff is not None or is_incremental_chip_ff) and \
-                              (start_date_structural is not None or is_incremental_structural)
+        run_precursor_tasks = (start_date_chip_ff is not None) and (start_date_structural is not None)
         if not run_precursor_tasks:
             logger.info("【总调度】前置高级指标任务无需更新，跳过本次调度。")
             return {"status": "skipped", "reason": "No precursor tasks to run."}
@@ -1105,8 +1105,8 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             structural_task = precompute_advanced_structural_metrics_for_stock.s(
                 stock_code=code, is_incremental=is_incremental_structural, start_date_str=start_date_structural
             )
-            # 修改代码行：调用适配器任务，而不是直接调用几何形态任务
-            trigger_task = _trigger_geometric_patterns_computation.s(stock_code=code)
+            # 修改代码行：为适配器任务显式传递 start_date_str
+            trigger_task = _trigger_geometric_patterns_computation.s(stock_code=code, start_date_str=start_date_chip_ff)
             stock_chain = chain(
                 group(chip_ff_task, structural_task),
                 trigger_task
@@ -1117,8 +1117,7 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             return {"status": "skipped", "reason": "No workflows created."}
         computation_workflow = group(all_stock_workflows)
         computation_workflow.apply_async()
-        # 任务总数现在是 N * (2+1)，但适配器任务很轻量，所以总逻辑任务数仍可视为 N*3
-        total_logical_tasks = len(stock_codes) * 3 
+        total_logical_tasks = len(stock_codes) * 3
         logger.info(f"【总调度】成功！已为 {len(stock_codes)} 支股票分发了包含适配器的责任链工作流，共计 {total_logical_tasks} 个核心计算任务。")
         return {
             "status": "success",
