@@ -346,8 +346,8 @@ class GeometricPatternService:
 
     def _compute_trendline_matrix_for_day(self, current_date: pd.Timestamp, df_daily: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V2.5 · Zigzag敏感度修复版】为指定的一天，计算出所有斐波那契周期的支撑和阻力线矩阵。
-        - V2.5 修复: 为 zigzag 指标调用添加了核心的 `pivot_leg=0.05` 参数，以确保能够正确识别价格拐点。
+        【V2.6 · 自定义Zigzag引擎集成版】为指定的一天，计算出所有斐波那契周期的支撑和阻力线矩阵。
+        - V2.6 升级: 废弃不稳定的 pandas_ta.zigzag，改为调用内部实现的 `_calculate_zigzag` 方法。
         """
         is_last_day_debug = (current_date == df_daily.index.max())
         if is_last_day_debug:
@@ -362,15 +362,10 @@ class GeometricPatternService:
                     print(f"  -> [周期 {period}] 数据不足 ({len(df_slice)}天)，跳过。")
                 continue
             if is_last_day_debug:
-                # 修改代码行：在探针输出中也反映出我们使用了新的参数
-                print(f"\n  -> [周期 {period}] 数据切片长度: {len(df_slice)} (回溯自 {df_slice.index.min().date()}) | 使用 pivot_leg=0.05")
-            # 修改代码块：移除 length 参数，添加 pivot_leg 参数来控制敏感度
-            zigzag_series = df_slice.ta(kind='zigzag', high='high_qfq', low='low_qfq', pivot_leg=0.05)
-            if zigzag_series is not None and isinstance(zigzag_series, pd.Series):
-                zigzag_series.name = 'zigzag'
-                df_slice = df_slice.join(zigzag_series)
-            else:
-                df_slice['zigzag'] = 0
+                print(f"\n  -> [周期 {period}] 数据切片长度: {len(df_slice)} (回溯自 {df_slice.index.min().date()}) | 使用自定义Zigzag引擎(threshold=0.05)")
+            # 修改代码块：调用我们自己的zigzag实现
+            zigzag_series = self._calculate_zigzag(df_slice, threshold=0.05)
+            df_slice['zigzag'] = zigzag_series
             df_slice['zigzag'] = df_slice['zigzag'].fillna(0)
             if is_last_day_debug:
                 print(f"    [探针] Zigzag计算结果 (最近10条):")
@@ -395,7 +390,7 @@ class GeometricPatternService:
                         'validity_score': line_data['validity_score'],
                     })
         if is_last_day_debug:
-            print(f"--- [探针模式结束] 日期 {current_date.date()} 共生成 {len(matrix_records)} 条有效趋势线 ---\n")
+            print(f"--- [探針模式結束] 日期 {current_date.date()} 共生成 {len(matrix_records)} 條有效趨勢線 ---\n")
         else:
             print(f"    -> [趋势线矩阵引擎] 为 {current_date.date()} 生成了 {len(matrix_records)} 条有效趋势线。")
         return matrix_records
@@ -762,6 +757,60 @@ class GeometricPatternService:
         instances = [self.event_model(**evt) for evt in events]
         self.event_model.objects.bulk_create(instances)
 
+    def _calculate_zigzag(self, df: pd.DataFrame, threshold: float = 0.05) -> pd.Series:
+        """
+        【V2.6 · 自定义Zigzag引擎】根据经典定义，实现一个高可靠性的Zigzag拐点识别算法。
+        - 替代 pandas_ta 中行为不稳定的 zigzag 实现。
+        - 算法: 追踪趋势，当价格从阶段性极值点反转超过指定阈值时，确认一个拐点。
+        """
+        if df.empty:
+            return pd.Series(index=df.index, dtype=int)
+        zigzag = pd.Series(0, index=df.index)
+        trend = 0  # 0: undefined, 1: up, -1: down
+        last_pivot_price = 0
+        last_pivot_idx = None
+        # 寻找第一个趋势
+        for i in range(1, len(df)):
+            if df['high_qfq'].iloc[i] > df['high_qfq'].iloc[0]:
+                trend = 1
+                last_pivot_price = df['low_qfq'].iloc[0]
+                last_pivot_idx = df.index[0]
+                zigzag.loc[last_pivot_idx] = -1
+                break
+            elif df['low_qfq'].iloc[i] < df['low_qfq'].iloc[0]:
+                trend = -1
+                last_pivot_price = df['high_qfq'].iloc[0]
+                last_pivot_idx = df.index[0]
+                zigzag.loc[last_pivot_idx] = 1
+                break
+        if trend == 0: # 如果是直线或数据太少
+            return zigzag
+        # 主循环
+        segment_start_idx = df.index.get_loc(last_pivot_idx)
+        for i in range(segment_start_idx + 1, len(df)):
+            if trend == 1:  # 上升趋势中，寻找高点
+                segment = df.iloc[segment_start_idx:i+1]
+                current_high = segment['high_qfq'].max()
+                current_high_idx = segment['high_qfq'].idxmax()
+                # 如果当前价格从当前段的最高点回撤超过阈值
+                if (current_high - df['low_qfq'].iloc[i]) / current_high > threshold:
+                    zigzag.loc[current_high_idx] = 1
+                    trend = -1
+                    last_pivot_price = current_high
+                    last_pivot_idx = current_high_idx
+                    segment_start_idx = df.index.get_loc(last_pivot_idx)
+            elif trend == -1:  # 下降趋势中，寻找低点
+                segment = df.iloc[segment_start_idx:i+1]
+                current_low = segment['low_qfq'].min()
+                current_low_idx = segment['low_qfq'].idxmin()
+                # 如果当前价格从当前段的最低点反弹超过阈值
+                if (df['high_qfq'].iloc[i] - current_low) / current_low > threshold:
+                    zigzag.loc[current_low_idx] = -1
+                    trend = 1
+                    last_pivot_price = current_low
+                    last_pivot_idx = current_low_idx
+                    segment_start_idx = df.index.get_loc(last_pivot_idx)
+        return zigzag
 
 
 
