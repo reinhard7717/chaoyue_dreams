@@ -13,6 +13,9 @@ from utils.model_helpers import (
     get_platform_feature_model_by_code,
     get_multi_timeframe_trendline_model_by_code, # 修改：导入新模型辅助函数
     get_trendline_event_model_by_code, # 新增：导入事件模型辅助函数
+    get_advanced_chip_metrics_model_by_code, # 新增：导入高级芯片指标模型辅助函数
+    get_advanced_fund_flow_metrics_model_by_code, # 新增：导入高级资金流指标模型辅助函数
+    get_advanced_structural_metrics_model_by_code, # 新增：导入高级结构性指标模型辅助函数
 )
 
 class GeometricPatternService:
