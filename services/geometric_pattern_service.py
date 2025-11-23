@@ -21,17 +21,15 @@ class GeometricPatternService:
     - 核心职责: 识别几何结构，并分析其在多时间维度下的动态演化，生成结构性事件。
     - V2.1 升级: 引入趋势线矩阵、动态事件分析、旗形突破概率预测。
     """
-    def __init__(self, stock_code: str, stock_id: str):
+    def __init__(self, stock_code: str, stock_instance: StockInfo):
         """
-        【V2.2 · 主键适配修复版】
-        - 核心职责: 识别几何结构，并分析其在多时间维度下的动态演化，生成结构性事件。
-        - V2.1 升级: 引入趋势线矩阵、动态事件分析、旗形突破概率预测。
-        - V2.2 修复: 修正了内部查询 StockInfo 实例时对主键的引用，从不存在的 'id' 改为 'stock_code'。
+        【轻量化构造函数】
+        此方法现在是完全同步的，只负责接收预先获取的数据并设置属性。
         """
         self.stock_code = stock_code
-        self.stock_id = stock_id
-        # 修改代码行：查询条件从 id=stock_id 修正为 stock_code=stock_id
-        self.stock_instance = StockInfo.objects.get(stock_code=stock_id)
+        self.stock_instance = stock_instance
+        # stock_id 仍然有用，可以从 instance 中获取
+        self.stock_id = stock_instance.stock_code
         self.daily_model = get_daily_data_model_by_code(stock_code)
         self.platform_model = get_platform_feature_model_by_code(stock_code)
         self.mtt_model = get_multi_timeframe_trendline_model_by_code(stock_code)
@@ -43,6 +41,19 @@ class GeometricPatternService:
         self.fib_periods = [5, 8, 13, 21, 34, 55]
         self.long_term_period = max(self.fib_periods) if self.fib_periods else 55
         self.ultra_long_term_period = 233
+
+    @classmethod
+    async def create(cls, stock_code: str):
+        """
+        【异步工厂方法】
+        这是实例化服务的唯一入口。它负责处理所有异步I/O操作。
+        """
+        from asgiref.sync import sync_to_async
+        # 使用 sync_to_async 安全地执行同步数据库查询
+        stock_instance = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
+        # 使用获取到的实例来调用同步的构造函数
+        return cls(stock_code=stock_code, stock_instance=stock_instance)
+
 
     def _load_predictor_model(self):
         # 辅助方法：加载预训练的旗形突破概率预测模型

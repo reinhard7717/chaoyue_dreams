@@ -997,20 +997,21 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
 @with_cache_manager
 def precompute_geometric_patterns_for_stock(self, stock_code: str, *, cache_manager: CacheManager):
     """
-    【V2.2 · 主键适配修复版】为单只股票预计算几何形态，并分析其动态演化事件。
-    - 核心职责: 调用GeometricPatternService，执行平台、趋势线矩阵、动态事件的计算并持久化。
-    - V2.1 升级: 调用统一入口，支持多时间维度趋势线和旗形预测。
-    - V2.2 修复: 修正了在初始化服务时对 StockInfo 模型主键的引用，从不存在的 .id 改为正确的主键 .stock_code。
+    【V2.3 · 异步工厂调用版】为单只股票预计算几何形态，并分析其动态演化事件。
+    - V2.3 修复: 修改服务实例化方式，调用 GeometricPatternService.create() 异步工厂方法，
+                 以解决 SynchronousOnlyOperation 错误。
     """
     async def main():
         from services.geometric_pattern_service import GeometricPatternService
         from utils.model_helpers import get_daily_data_model_by_code
         from stock_models.models import StockInfo
         try:
-            stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
-            # 修改代码行：使用 stock_info.stock_code (主键) 代替 stock_info.id
-            service = GeometricPatternService(stock_code=stock_code, stock_id=stock_info.stock_code)
-            daily_model = get_daily_data_model_by_code(stock_code)
+            # 修改代码块：使用异步工厂方法创建服务实例
+            # 不再需要手动查询 stock_info，工厂方法会处理
+            service = await GeometricPatternService.create(stock_code=stock_code)
+            # 从 service 实例中获取 daily_model 和 stock_instance
+            daily_model = service.daily_model
+            stock_info = service.stock_instance
             all_dates_qs = daily_model.objects.filter(stock=stock_info).values_list('trade_time', flat=True).order_by('trade_time')
             dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
             if dates_to_process.empty or len(dates_to_process) < 60:
@@ -1026,7 +1027,6 @@ def precompute_geometric_patterns_for_stock(self, stock_code: str, *, cache_mana
             logger.error(f"[{stock_code}] [几何形态任务] 发生未知错误: {e}", exc_info=True)
             raise
     try:
-        # 注意：由于 main 函数内部不再需要 stock_code 参数，我们直接调用它
         result = async_to_sync(main)()
         return result
     except Exception as e:
