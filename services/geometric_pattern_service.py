@@ -741,57 +741,62 @@ class GeometricPatternService:
 
     def _calculate_zigzag(self, df: pd.DataFrame, threshold: float = 0.05) -> pd.Series:
         """
-        【V2.6 · 自定义Zigzag引擎】根据经典定义，实现一个高可靠性的Zigzag拐点识别算法。
-        - 替代 pandas_ta 中行为不稳定的 zigzag 实现。
-        - 算法: 追踪趋势，当价格从阶段性极值点反转超过指定阈值时，确认一个拐点。
+        【V2.8 · 经典重构版】使用标准的 while 循环和状态机重构 Zigzag 算法，确保逻辑的健壮性。
+        - 修复了 V2.6 版本中因 for 循环导致的拐点被错误覆盖以及对最后一个点处理不当的BUG。
+        - 算法: 使用 while 循环，在找到一个拐点后，将搜索起点“跳跃”到该拐点，避免重复判断。
         """
-        if df.empty:
-            return pd.Series(index=df.index, dtype=int)
+        if len(df) < 2:
+            return pd.Series(0, index=df.index)
         zigzag = pd.Series(0, index=df.index)
-        trend = 0  # 0: undefined, 1: up, -1: down
-        last_pivot_price = 0
-        last_pivot_idx = None
-        # 寻找第一个趋势
-        for i in range(1, len(df)):
-            if df['high_qfq'].iloc[i] > df['high_qfq'].iloc[0]:
-                trend = 1
-                last_pivot_price = df['low_qfq'].iloc[0]
-                last_pivot_idx = df.index[0]
-                zigzag.loc[last_pivot_idx] = -1
-                break
-            elif df['low_qfq'].iloc[i] < df['low_qfq'].iloc[0]:
-                trend = -1
-                last_pivot_price = df['high_qfq'].iloc[0]
-                last_pivot_idx = df.index[0]
-                zigzag.loc[last_pivot_idx] = 1
-                break
-        if trend == 0: # 如果是直线或数据太少
-            return zigzag
-        # 主循环
-        segment_start_idx = df.index.get_loc(last_pivot_idx)
-        for i in range(segment_start_idx + 1, len(df)):
-            if trend == 1:  # 上升趋势中，寻找高点
-                segment = df.iloc[segment_start_idx:i+1]
-                current_high = segment['high_qfq'].max()
-                current_high_idx = segment['high_qfq'].idxmax()
-                # 如果当前价格从当前段的最高点回撤超过阈值
-                if (current_high - df['low_qfq'].iloc[i]) / current_high > threshold:
-                    zigzag.loc[current_high_idx] = 1
-                    trend = -1
-                    last_pivot_price = current_high
-                    last_pivot_idx = current_high_idx
-                    segment_start_idx = df.index.get_loc(last_pivot_idx)
-            elif trend == -1:  # 下降趋势中，寻找低点
-                segment = df.iloc[segment_start_idx:i+1]
-                current_low = segment['low_qfq'].min()
-                current_low_idx = segment['low_qfq'].idxmin()
-                # 如果当前价格从当前段的最低点反弹超过阈值
-                if (df['high_qfq'].iloc[i] - current_low) / current_low > threshold:
-                    zigzag.loc[current_low_idx] = -1
+        # 确定初始趋势和第一个拐点
+        initial_high = df['high_qfq'].iloc[0]
+        initial_low = df['low_qfq'].iloc[0]
+        zigzag.loc[df.index[0]] = 0 # 初始点不确定
+        trend = 0 # 1 for up, -1 for down
+        cursor = 1
+        # 找到第一个有效趋势
+        while cursor < len(df):
+            if trend == 0:
+                if df['high_qfq'].iloc[cursor] > initial_high:
                     trend = 1
-                    last_pivot_price = current_low
-                    last_pivot_idx = current_low_idx
-                    segment_start_idx = df.index.get_loc(last_pivot_idx)
+                    zigzag.loc[df.index[0]] = -1 # 确认起点为低点
+                    break
+                elif df['low_qfq'].iloc[cursor] < initial_low:
+                    trend = -1
+                    zigzag.loc[df.index[0]] = 1 # 确认起点为高点
+                    break
+            cursor += 1
+        if trend == 0: # 如果没有趋势（例如一条直线）
+            return zigzag
+        
+        pivot_idx = 0
+        while cursor < len(df):
+            if trend == 1: # 上升趋势，寻找高点
+                segment = df.iloc[pivot_idx:cursor+1]
+                current_high = segment['high_qfq'].max()
+                current_high_idx_loc = segment['high_qfq'].idxmax()
+                # 检查从最高点回撤是否超过阈值
+                if (current_high - df['low_qfq'].iloc[cursor]) / current_high > threshold:
+                    pivot_loc = df.index.get_loc(current_high_idx_loc)
+                    zigzag.loc[current_high_idx_loc] = 1
+                    trend = -1
+                    pivot_idx = pivot_loc
+                    cursor = pivot_loc + 1
+                else:
+                    cursor += 1
+            elif trend == -1: # 下降趋势，寻找低点
+                segment = df.iloc[pivot_idx:cursor+1]
+                current_low = segment['low_qfq'].min()
+                current_low_idx_loc = segment['low_qfq'].idxmin()
+                # 检查从最低点反弹是否超过阈值
+                if (df['high_qfq'].iloc[cursor] - current_low) / current_low > threshold:
+                    pivot_loc = df.index.get_loc(current_low_idx_loc)
+                    zigzag.loc[current_low_idx_loc] = -1
+                    trend = 1
+                    pivot_idx = pivot_loc
+                    cursor = pivot_loc + 1
+                else:
+                    cursor += 1
         return zigzag
 
     def _sanitize_json_dict(self, data: dict) -> dict:
