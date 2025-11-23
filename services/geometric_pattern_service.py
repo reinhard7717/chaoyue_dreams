@@ -224,21 +224,24 @@ class GeometricPatternService:
 
     def _calculate_and_save_trendline_matrix_and_events(self, df_daily: pd.DataFrame, data_dfs: dict):
         """
-        【V2.3 · 顺序修正版】为给定的全部历史时段，逐日生成趋势线矩阵，并进行全周期动态分析。
-        - V2.3 修复: 在方法入口处强制对 df_daily 按索引（日期）进行升序排序，
-                     以确保历史回溯的 for 循环严格按照时间正序执行，修正倒序计算的BUG。
+        【V2.4 · 精细化门槛版】为给定的全部历史时段，逐日生成趋势线矩阵，并进行全周期动态分析。
+        - V2.4 修复: 移除了过于严格的全局数据量检查。改为动态地、逐周期地判断数据是否充足，
+                     允许在总数据量不足以计算长周期趋势线时，仍然能够计算并保存短周期的趋势线。
         """
         print(f"  -> [历史回溯引擎] 开始为 {df_daily.index.min().date()} 至 {df_daily.index.max().date()} 生成趋势线矩阵...")
-        # 新增代码行：防御性编程，强制确保DataFrame按时间正序排列
         df_daily = df_daily.sort_index(ascending=True)
         all_matrix_records = []
-        min_lookback_days = self.long_term_period * 3
-        if len(df_daily) < min_lookback_days:
-            print(f"    -> [历史回溯引擎] 数据总量 ({len(df_daily)}天) 不足最小回溯要求 ({min_lookback_days}天)，跳过矩阵计算。")
+        # --- 以下是修改的代码块 ---
+        # 移除全局的 min_lookback_days 和 if len(df_daily) < min_lookback_days 检查。
+        # 循环应该遍历所有可用的日期，数据是否充足的判断将在 _compute_trendline_matrix_for_day 内部进行。
+        if df_daily.empty:
+            print("    -> [历史回溯引擎] 日线数据为空，跳过矩阵计算。")
             return
-        for current_date in df_daily.index[min_lookback_days:]:
+        for current_date in df_daily.index:
+            # _compute_trendline_matrix_for_day 内部会对每个 period 进行独立的数据量检查
             daily_matrix_records = self._compute_trendline_matrix_for_day(current_date, df_daily, data_dfs)
             all_matrix_records.extend(daily_matrix_records)
+        # --- 修改结束 ---
         if not all_matrix_records:
             print("  -> [历史回溯引擎] 未生成任何新的趋势线矩阵记录。")
             return
