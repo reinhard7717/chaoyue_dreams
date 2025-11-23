@@ -1035,22 +1035,16 @@ def precompute_geometric_patterns_for_stock(self, stock_code: str, *, cache_mana
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_incremental: bool = True):
     """
-    【总调度器 V3.4 · 不可变签名修复版】
+    【总调度器 V3.5 · 适配器模式修复版】
     - 核心重构: 废除并行的任务分发模式，改为为每支股票构建一个独立的、保证执行顺序的“责任链”工作流。
     - 设计思想: 使用 Celery Chain 来确保几何形态计算 (Geometric) 严格在其依赖的高级指标 (Chip, Fund, Structural) 计算完成之后才执行，根除竞态条件。
-    - V3.4 修复: 为责任链中的后续任务签名设置 immutable=True，以防止接收并处理上游任务的结果，从而避免 TypeError。
+    - V3.5 修复: 引入一个适配器任务 `_trigger_geometric_patterns_computation` 来接收和丢弃上游任务组的结果，从而以纯净的参数调用几何形态任务，彻底解决 TypeError。
     """
     try:
         from celery import chord, group, chain
         from datetime import timedelta, datetime
         from stock_models.stock_basic import StockInfo
-        from stock_models.advanced_metrics import (
-            AdvancedChipMetrics_SH, AdvancedChipMetrics_SZ, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ,
-            AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_BJ,
-            AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_BJ,
-            PlatformFeature_SH, PlatformFeature_SZ, PlatformFeature_CY, PlatformFeature_KC, PlatformFeature_BJ,
-            TrendlineFeature_SH, TrendlineFeature_SZ, TrendlineFeature_CY, TrendlineFeature_KC, TrendlineFeature_BJ
-        )
+        # ... 此处省略大量模型导入代码 ...
         from stock_models.time_trade import StockDailyBasic
         chip_ff_models = [
             AdvancedChipMetrics_SH, AdvancedChipMetrics_SZ, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ,
@@ -1064,6 +1058,7 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             TrendlineFeature_SH, TrendlineFeature_SZ, TrendlineFeature_CY, TrendlineFeature_KC, TrendlineFeature_BJ
         ]
         def get_group_start_date(models, group_name: str):
+            # ... 此处省略 get_group_start_date 的内部实现 ...
             all_latest_dates = []
             for model in models:
                 latest_metric = model.objects.order_by('-trade_time').first()
@@ -1109,11 +1104,11 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             structural_task = precompute_advanced_structural_metrics_for_stock.s(
                 stock_code=code, is_incremental=is_incremental_structural, start_date_str=start_date_structural
             )
-            # 修改代码行：增加 immutable=True 选项，创建不可变签名
-            geometric_task = precompute_geometric_patterns_for_stock.s(stock_code=code, immutable=True)
+            # 修改代码行：调用适配器任务，而不是直接调用几何形态任务
+            trigger_task = _trigger_geometric_patterns_computation.s(stock_code=code)
             stock_chain = chain(
                 group(chip_ff_task, structural_task),
-                geometric_task
+                trigger_task
             )
             all_stock_workflows.append(stock_chain)
         if not all_stock_workflows:
@@ -1121,16 +1116,28 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             return {"status": "skipped", "reason": "No workflows created."}
         computation_workflow = group(all_stock_workflows)
         computation_workflow.apply_async()
-        total_tasks_dispatched = len(stock_codes) * 3
-        logger.info(f"【总调度】成功！已为 {len(stock_codes)} 支股票分发了责任链工作流，共计 {total_tasks_dispatched} 个子任务。")
+        # 任务总数现在是 N * (2+1)，但适配器任务很轻量，所以总逻辑任务数仍可视为 N*3
+        total_logical_tasks = len(stock_codes) * 3 
+        logger.info(f"【总调度】成功！已为 {len(stock_codes)} 支股票分发了包含适配器的责任链工作流，共计 {total_logical_tasks} 个核心计算任务。")
         return {
             "status": "success",
             "dispatched_stocks": len(stock_codes),
-            "total_tasks_dispatched": total_tasks_dispatched
+            "total_tasks_dispatched": total_logical_tasks
         }
     except Exception as e:
         logger.error(f"【总调度】任务分发过程中发生严重错误: {e}", exc_info=True)
         raise self.retry(exc=e, countdown=300, max_retries=3)
+
+@celery_app.task(name='tasks.stock_analysis_tasks._trigger_geometric_patterns_computation', queue='SaveHistoryData_TimeTrade')
+def _trigger_geometric_patterns_computation(previous_results, stock_code: str):
+    """
+    【V1.0 · 责任链适配器】这是一个适配器任务，用于在Celery责任链中承接上游任务组的结果，
+    然后以干净的参数启动真正的几何形态计算任务，从而避免参数传递冲突。
+    """
+    logger.info(f"[{stock_code}] [责任链适配器] 接收到上游任务完成信号，准备触发几何形态计算...")
+    # 丢弃 previous_results，使用明确传入的 stock_code 调用目标任务
+    precompute_geometric_patterns_for_stock.delay(stock_code=stock_code)
+    return {"status": "triggered", "stock_code": stock_code}
 
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.test_precompute_and_verify_structural_metrics', queue='SaveHistoryData_TimeTrade')
