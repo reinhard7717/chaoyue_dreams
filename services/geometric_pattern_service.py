@@ -21,10 +21,17 @@ class GeometricPatternService:
     - 核心职责: 识别几何结构，并分析其在多时间维度下的动态演化，生成结构性事件。
     - V2.1 升级: 引入趋势线矩阵、动态事件分析、旗形突破概率预测。
     """
-    def __init__(self, stock_code: str, stock_id: int):
+    def __init__(self, stock_code: str, stock_id: str):
+        """
+        【V2.2 · 主键适配修复版】
+        - 核心职责: 识别几何结构，并分析其在多时间维度下的动态演化，生成结构性事件。
+        - V2.1 升级: 引入趋势线矩阵、动态事件分析、旗形突破概率预测。
+        - V2.2 修复: 修正了内部查询 StockInfo 实例时对主键的引用，从不存在的 'id' 改为 'stock_code'。
+        """
         self.stock_code = stock_code
         self.stock_id = stock_id
-        self.stock_instance = StockInfo.objects.get(id=stock_id)
+        # 修改代码行：查询条件从 id=stock_id 修正为 stock_code=stock_id
+        self.stock_instance = StockInfo.objects.get(stock_code=stock_id)
         self.daily_model = get_daily_data_model_by_code(stock_code)
         self.platform_model = get_platform_feature_model_by_code(stock_code)
         self.mtt_model = get_multi_timeframe_trendline_model_by_code(stock_code)
@@ -34,9 +41,7 @@ class GeometricPatternService:
         self.fund_flow_metrics_model = get_advanced_fund_flow_metrics_model_by_code(stock_code)
         self.structural_metrics_model = get_advanced_structural_metrics_model_by_code(stock_code)
         self.fib_periods = [5, 8, 13, 21, 34, 55]
-        # 新增代码行：定义长期时间基准为斐波那契序列的最大值
         self.long_term_period = max(self.fib_periods) if self.fib_periods else 55
-        # 新增代码行：定义超长期时间基准为斐波那契数233，以替代传统年线250
         self.ultra_long_term_period = 233
 
     def _load_predictor_model(self):
