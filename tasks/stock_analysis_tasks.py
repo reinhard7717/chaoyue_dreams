@@ -1035,12 +1035,13 @@ def precompute_geometric_patterns_for_stock(self, stock_code: str, *, cache_mana
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_incremental: bool = True):
     """
-    【总调度器 V3.3 · 责任链重构版】
+    【总调度器 V3.4 · 不可变签名修复版】
     - 核心重构: 废除并行的任务分发模式，改为为每支股票构建一个独立的、保证执行顺序的“责任链”工作流。
     - 设计思想: 使用 Celery Chain 来确保几何形态计算 (Geometric) 严格在其依赖的高级指标 (Chip, Fund, Structural) 计算完成之后才执行，根除竞态条件。
+    - V3.4 修复: 为责任链中的后续任务签名设置 immutable=True，以防止接收并处理上游任务的结果，从而避免 TypeError。
     """
     try:
-        from celery import chord, group, chain # 修改代码行：导入 chain
+        from celery import chord, group, chain
         from datetime import timedelta, datetime
         from stock_models.stock_basic import StockInfo
         from stock_models.advanced_metrics import (
@@ -1095,28 +1096,21 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
         if not stock_codes:
             logger.warning("【总调度】在StockInfo中未找到任何符合条件的上市状态股票，任务终止。")
             return {"status": "skipped", "reason": "No listed stocks found."}
-        # 修改代码块：重构为责任链模式
         all_stock_workflows = []
-        # 检查是否有前置任务需要执行
         run_precursor_tasks = (start_date_chip_ff is not None or is_incremental_chip_ff) and \
                               (start_date_structural is not None or is_incremental_structural)
         if not run_precursor_tasks:
             logger.info("【总调度】前置高级指标任务无需更新，跳过本次调度。")
             return {"status": "skipped", "reason": "No precursor tasks to run."}
         for code in stock_codes:
-            # 1. 定义每个阶段的任务签名
             chip_ff_task = precompute_advanced_chips_for_stock.s(
                 stock_code=code, is_incremental=is_incremental_chip_ff, start_date_str=start_date_chip_ff
             )
             structural_task = precompute_advanced_structural_metrics_for_stock.s(
                 stock_code=code, is_incremental=is_incremental_structural, start_date_str=start_date_structural
             )
-            geometric_task = precompute_geometric_patterns_for_stock.s(stock_code=code)
-            # 2. 构建责任链
-            #    第一步: 并行执行筹码和结构计算 (group)
-            #    第二步: 等待第一步完成后，执行几何形态计算 (chain)
-            #    注意：chain的第二个任务会自动接收第一个任务（或任务组）的结果，
-            #    虽然这里我们不需要传递结果，但这个机制保证了执行顺序。
+            # 修改代码行：增加 immutable=True 选项，创建不可变签名
+            geometric_task = precompute_geometric_patterns_for_stock.s(stock_code=code, immutable=True)
             stock_chain = chain(
                 group(chip_ff_task, structural_task),
                 geometric_task
@@ -1125,10 +1119,9 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
         if not all_stock_workflows:
             logger.warning("【总调度】未能为任何股票创建工作流，任务终止。")
             return {"status": "skipped", "reason": "No workflows created."}
-        # 3. 将所有股票的责任链作为一个大的并行组来执行
         computation_workflow = group(all_stock_workflows)
         computation_workflow.apply_async()
-        total_tasks_dispatched = len(stock_codes) * 3 # 每个工作流包含3个核心任务
+        total_tasks_dispatched = len(stock_codes) * 3
         logger.info(f"【总调度】成功！已为 {len(stock_codes)} 支股票分发了责任链工作流，共计 {total_tasks_dispatched} 个子任务。")
         return {
             "status": "success",
