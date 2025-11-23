@@ -402,7 +402,7 @@ class StockTimeTradeDAO(BaseDAO):
             )
             kline_values = await sync_to_async(list)(kline_queryset) # 执行 QuerySet 并赋值给 kline_values
             if not kline_values:
-                logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {trade_date} 的 {time_level}分钟 K线数据。")
+                # logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {trade_date} 的 {time_level}分钟 K线数据。")
                 return None
             df = pd.DataFrame.from_records(kline_values)
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
@@ -819,7 +819,7 @@ class StockTimeTradeDAO(BaseDAO):
                 'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
             ))
             if not kline_values:
-                logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {start_dt} 到 {end_dt} 之间的 {time_level} K线数据。")
+                # logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {start_dt} 到 {end_dt} 之间的 {time_level} K线数据。")
                 return None
             df = pd.DataFrame.from_records(kline_values)
             # 从数据库取出的时间已经是UTC，直接设置为索引，并确保是 aware UTC

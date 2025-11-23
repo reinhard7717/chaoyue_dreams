@@ -72,8 +72,8 @@ class GeometricPatternService:
 
     def _prepare_enriched_dataframe(self, df_daily: pd.DataFrame) -> pd.DataFrame:
         """
-        【新增】准备一个包含所有高级指标的、信息增强的DataFrame。
-        这是将不同维度情报整合到统一战场沙盤的关键步骤。
+        【V2.1 · 修复版】准备一个包含所有高级指标的、信息增强的DataFrame。
+        - 修复: 为主 DataFrame (df_daily_reset) 手动添加 'stock_id' 列，以满足 pd.merge 的连接键要求。
         """
         print(f"  -> [数据融合] 正在加载并整合高级指标...")
         # 加载所有高级指标数据
@@ -89,9 +89,12 @@ class GeometricPatternService:
                 df['trade_date'] = pd.to_datetime(df['trade_date'])
         # 将日线数据的索引转换为日期列以便合并
         df_daily_reset = df_daily.reset_index().rename(columns={'trade_time': 'trade_date'})
+        # 新增代码行：为左侧 DataFrame 添加缺失的 'stock_id' 连接键
+        df_daily_reset['stock_id'] = self.stock_id
         # 逐一合并
         enriched_df = df_daily_reset
         if not df_chip.empty:
+            # 此处的 on=['stock_id', 'trade_date'] 现在可以正常工作
             enriched_df = pd.merge(enriched_df, df_chip, on=['stock_id', 'trade_date'], how='left')
         if not df_fund.empty:
             enriched_df = pd.merge(enriched_df, df_fund, on=['stock_id', 'trade_date'], how='left')
