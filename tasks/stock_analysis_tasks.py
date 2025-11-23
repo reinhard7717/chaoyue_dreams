@@ -997,9 +997,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
 @with_cache_manager
 def precompute_geometric_patterns_for_stock(self, stock_code: str, *, cache_manager: CacheManager):
     """
-    【V2.1 · 动态演化分析版】为单只股票预计算几何形态，并分析其动态演化事件。
+    【V2.2 · 主键适配修复版】为单只股票预计算几何形态，并分析其动态演化事件。
     - 核心职责: 调用GeometricPatternService，执行平台、趋势线矩阵、动态事件的计算并持久化。
     - V2.1 升级: 调用统一入口，支持多时间维度趋势线和旗形预测。
+    - V2.2 修复: 修正了在初始化服务时对 StockInfo 模型主键的引用，从不存在的 .id 改为正确的主键 .stock_code。
     """
     async def main():
         from services.geometric_pattern_service import GeometricPatternService
@@ -1007,7 +1008,8 @@ def precompute_geometric_patterns_for_stock(self, stock_code: str, *, cache_mana
         from stock_models.models import StockInfo
         try:
             stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
-            service = GeometricPatternService(stock_code=stock_code, stock_id=stock_info.id)
+            # 修改代码行：使用 stock_info.stock_code (主键) 代替 stock_info.id
+            service = GeometricPatternService(stock_code=stock_code, stock_id=stock_info.stock_code)
             daily_model = get_daily_data_model_by_code(stock_code)
             all_dates_qs = daily_model.objects.filter(stock=stock_info).values_list('trade_time', flat=True).order_by('trade_time')
             dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
@@ -1015,7 +1017,6 @@ def precompute_geometric_patterns_for_stock(self, stock_code: str, *, cache_mana
                 logger.info(f"[{stock_code}] [几何形态任务] 数据不足 (<60天)，跳过计算。")
                 return {"status": "skipped", "reason": "Insufficient data."}
             data_dfs = await _load_all_sources_unified(stock_info, daily_model, dates_to_process, cache_manager)
-            # 修改代码行：调用重构后的统一入口方法
             await sync_to_async(service.calculate_and_save_all_patterns)(data_dfs)
             return {"status": "success", "stock_code": stock_code}
         except StockInfo.DoesNotExist:
@@ -1024,8 +1025,8 @@ def precompute_geometric_patterns_for_stock(self, stock_code: str, *, cache_mana
         except Exception as e:
             logger.error(f"[{stock_code}] [几何形态任务] 发生未知错误: {e}", exc_info=True)
             raise
-
     try:
+        # 注意：由于 main 函数内部不再需要 stock_code 参数，我们直接调用它
         result = async_to_sync(main)()
         return result
     except Exception as e:
