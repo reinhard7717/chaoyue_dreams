@@ -995,24 +995,24 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_geometric_patterns_for_stock', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
-def precompute_geometric_patterns_for_stock(self, stock_code: str, *, cache_manager: CacheManager):
+def precompute_geometric_patterns_for_stock(self, stock_code: str, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V2.3 · 异步工厂调用版】为单只股票预计算几何形态，并分析其动态演化事件。
-    - V2.3 修复: 修改服务实例化方式，调用 GeometricPatternService.create() 异步工厂方法，
-                 以解决 SynchronousOnlyOperation 错误。
+    【V2.4 · 日期过滤与流程修正版】为单只股票预计算几何形态，并分析其动态演化事件。
+    - V2.4 升级: 新增 start_date_str 参数，并在数据库查询时应用该日期过滤，确保只处理指定范围内的数据。
     """
     async def main():
         from services.geometric_pattern_service import GeometricPatternService
         from utils.model_helpers import get_daily_data_model_by_code
         from stock_models.models import StockInfo
         try:
-            # 修改代码块：使用异步工厂方法创建服务实例
-            # 不再需要手动查询 stock_info，工厂方法会处理
             service = await GeometricPatternService.create(stock_code=stock_code)
-            # 从 service 实例中获取 daily_model 和 stock_instance
             daily_model = service.daily_model
             stock_info = service.stock_instance
-            all_dates_qs = daily_model.objects.filter(stock=stock_info).values_list('trade_time', flat=True).order_by('trade_time')
+            # 修改代码块：根据 start_date_str 过滤查询集
+            all_dates_qs = daily_model.objects.filter(stock=stock_info)
+            if start_date_str:
+                all_dates_qs = all_dates_qs.filter(trade_time__gte=start_date_str)
+            all_dates_qs = all_dates_qs.values_list('trade_time', flat=True).order_by('trade_time')
             dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
             if dates_to_process.empty or len(dates_to_process) < 60:
                 logger.info(f"[{stock_code}] [几何形态任务] 数据不足 (<60天)，跳过计算。")
@@ -1130,15 +1130,16 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
         raise self.retry(exc=e, countdown=300, max_retries=3)
 
 @celery_app.task(name='tasks.stock_analysis_tasks._trigger_geometric_patterns_computation', queue='SaveHistoryData_TimeTrade')
-def _trigger_geometric_patterns_computation(previous_results, stock_code: str):
+def _trigger_geometric_patterns_computation(previous_results, stock_code: str, start_date_str: str = None):
     """
-    【V1.0 · 责任链适配器】这是一个适配器任务，用于在Celery责任链中承接上游任务组的结果，
+    【V1.1 · 日期传递升级版】这是一个适配器任务，用于在Celery责任链中承接上游任务组的结果，
     然后以干净的参数启动真正的几何形态计算任务，从而避免参数传递冲突。
+    - V1.1 升级: 新增 start_date_str 参数，确保计算的时间范围能够被正确传递。
     """
-    logger.info(f"[{stock_code}] [责任链适配器] 接收到上游任务完成信号，准备触发几何形态计算...")
-    # 丢弃 previous_results，使用明确传入的 stock_code 调用目标任务
-    precompute_geometric_patterns_for_stock.delay(stock_code=stock_code)
-    return {"status": "triggered", "stock_code": stock_code}
+    logger.info(f"[{stock_code}] [责任链适配器] 接收到上游任务完成信号，准备触发几何形态计算 (起始日期: {start_date_str})...")
+    # 丢弃 previous_results，使用明确传入的参数调用目标任务
+    precompute_geometric_patterns_for_stock.delay(stock_code=stock_code, start_date_str=start_date_str)
+    return {"status": "triggered", "stock_code": stock_code, "start_date": start_date_str}
 
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.test_precompute_and_verify_structural_metrics', queue='SaveHistoryData_TimeTrade')

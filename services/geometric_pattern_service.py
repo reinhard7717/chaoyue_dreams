@@ -224,36 +224,32 @@ class GeometricPatternService:
 
     def _calculate_and_save_trendline_matrix_and_events(self, df_daily: pd.DataFrame, data_dfs: dict):
         """
-        【V2.2 历史回溯引擎】为给定的全部历史时段，逐日生成趋势线矩阵，并进行全周期动态分析。
+        【V2.3 · 顺序修正版】为给定的全部历史时段，逐日生成趋势线矩阵，并进行全周期动态分析。
+        - V2.3 修复: 在方法入口处强制对 df_daily 按索引（日期）进行升序排序，
+                     以确保历史回溯的 for 循环严格按照时间正序执行，修正倒序计算的BUG。
         """
         print(f"  -> [历史回溯引擎] 开始为 {df_daily.index.min().date()} 至 {df_daily.index.max().date()} 生成趋势线矩阵...")
+        # 新增代码行：防御性编程，强制确保DataFrame按时间正序排列
+        df_daily = df_daily.sort_index(ascending=True)
         all_matrix_records = []
-        # 1. 历史回溯计算
-        # 确保有足够的回溯数据进行计算，该值由 _compute_trendline_matrix_for_day 中的 lookback_days 决定
         min_lookback_days = self.long_term_period * 3
         if len(df_daily) < min_lookback_days:
             print(f"    -> [历史回溯引擎] 数据总量 ({len(df_daily)}天) 不足最小回溯要求 ({min_lookback_days}天)，跳过矩阵计算。")
             return
-        # 从有足够历史数据的第一个交易日开始循环
         for current_date in df_daily.index[min_lookback_days:]:
-            # 为每一天计算其当时的矩阵快照
             daily_matrix_records = self._compute_trendline_matrix_for_day(current_date, df_daily, data_dfs)
             all_matrix_records.extend(daily_matrix_records)
-        # 2. 批量持久化
         if not all_matrix_records:
             print("  -> [历史回溯引擎] 未生成任何新的趋势线矩阵记录。")
             return
         self._save_trendline_matrix(all_matrix_records)
         print(f"  -> [历史回溯引擎] 批量保存了 {len(all_matrix_records)} 条趋势线矩阵记录。")
-        # 3. 全周期动态分析
-        # 加载包含新数据的完整历史矩阵
         matrix_qs = self.mtt_model.objects.filter(stock=self.stock_instance).order_by('trade_date').values()
         matrix_df = pd.DataFrame.from_records(matrix_qs)
         if matrix_df.empty:
             print("  -> [历史回溯引擎] 加载完整矩阵失败，跳过动态分析。")
             return
         matrix_df['trade_date'] = pd.to_datetime(matrix_df['trade_date'])
-        # 基于完整的历史进行动态分析
         dynamic_events = self._analyze_matrix_dynamics(matrix_df)
         self._save_trendline_events(dynamic_events)
 
@@ -352,7 +348,6 @@ class GeometricPatternService:
         - V2.3 修复: 采用 pandas_ta 最稳定通用的接口 df.ta(kind='...') 来调用 zigzag 指标，
                      并显式重命名结果列，彻底解决所有 AttributeError。
         """
-        print(f"    -> [趋势线矩阵引擎] 正在为 {current_date.date()} 计算矩阵...")
         matrix_records = []
         for period in self.fib_periods:
             lookback_days = period * 3
