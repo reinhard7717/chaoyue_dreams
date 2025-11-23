@@ -348,29 +348,35 @@ class GeometricPatternService:
 
     def _compute_trendline_matrix_for_day(self, current_date: pd.Timestamp, df_daily: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V2.1 引擎室】为指定的一天，计算出所有斐波那契周期的支撑和阻力线矩阵。
-        此方法是整个趋势线分析体系的核心，融合了宏观几何、微观博弈和动态有效性。
+        【V2.2 · pandas_ta 语法修正版】为指定的一天，计算出所有斐波那契周期的支撑和阻力线矩阵。
+        - V2.2 修复: 修正了 pandas_ta.zigzag 指标的调用方式，从错误的访问器调用 (df.ta.zigzag)
+                     改为正确的函数式调用 (ta.zigzag(...))，以解决 AttributeError。
         """
         print(f"    -> [趋势线矩阵引擎] 正在为 {current_date.date()} 计算矩阵...")
         matrix_records = []
-        # 修改代码行：使用在__init__中定义的斐波那契周期列表
         for period in self.fib_periods:
-            # 1. 候选线生成：根据周期动态设定回看窗口和ZigZag参数
             lookback_days = period * 3
             start_date = current_date - pd.Timedelta(days=lookback_days)
             df_slice = df_daily[(df_daily.index >= start_date) & (df_daily.index <= current_date)].copy()
             if len(df_slice) < period:
                 print(f"      -> [周期 {period}] 数据不足 ({len(df_slice)}天)，跳过。")
                 continue
-            # 使用更灵敏的ZigZag参数来捕捉更多潜在锚点
-            df_slice.ta.zigzag(high='high_qfq', low='low_qfq', length=max(3, int(period/5)), inplace=True)
+            # 修改代码块：修正 zigzag 的调用方式
+            # 错误的方式: df_slice.ta.zigzag(..., inplace=True)
+            # 正确的方式: 直接调用 ta.zigzag 函数并合并结果
+            zigzag_df = ta.zigzag(high=df_slice['high_qfq'], low=df_slice['low_qfq'], length=max(3, int(period/5)))
+            # 将返回的 zigzag 结果合并回原始的 df_slice
+            if zigzag_df is not None and not zigzag_df.empty:
+                # zigzag 函数返回的DataFrame的列名就是 'zigzag'
+                df_slice = df_slice.join(zigzag_df)
+            else:
+                # 如果计算失败，则创建一个空列以避免后续代码出错
+                df_slice['zigzag'] = 0
             df_slice['time_idx'] = np.arange(len(df_slice))
             pivot_highs = df_slice[df_slice['zigzag'] == 1]
             pivot_lows = df_slice[df_slice['zigzag'] == -1]
-            # 2. 评分与裁决：为当前周期找到最佳的支撑线和阻力线
             best_support = self._find_best_line_with_micro_validation(pivot_lows, 'low_qfq', df_slice, 'support', data_dfs)
             best_resistance = self._find_best_line_with_micro_validation(pivot_highs, 'high_qfq', df_slice, 'resistance', data_dfs)
-            # 3. 记录结果
             for line_data in [best_support, best_resistance]:
                 if line_data:
                     matrix_records.append({
