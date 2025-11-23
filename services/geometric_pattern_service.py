@@ -348,9 +348,9 @@ class GeometricPatternService:
 
     def _compute_trendline_matrix_for_day(self, current_date: pd.Timestamp, df_daily: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V2.2 · pandas_ta 语法修正版】为指定的一天，计算出所有斐波那契周期的支撑和阻力线矩阵。
-        - V2.2 修复: 修正了 pandas_ta.zigzag 指标的调用方式，从错误的访问器调用 (df.ta.zigzag)
-                     改为正确的函数式调用 (ta.zigzag(...))，以解决 AttributeError。
+        【V2.3 · 通用接口终极修复版】为指定的一天，计算出所有斐波那契周期的支撑和阻力线矩阵。
+        - V2.3 修复: 采用 pandas_ta 最稳定通用的接口 df.ta(kind='...') 来调用 zigzag 指标，
+                     并显式重命名结果列，彻底解决所有 AttributeError。
         """
         print(f"    -> [趋势线矩阵引擎] 正在为 {current_date.date()} 计算矩阵...")
         matrix_records = []
@@ -361,14 +361,13 @@ class GeometricPatternService:
             if len(df_slice) < period:
                 print(f"      -> [周期 {period}] 数据不足 ({len(df_slice)}天)，跳过。")
                 continue
-            # 修改代码块：修正 zigzag 的调用方式
-            # 错误的方式: df_slice.ta.zigzag(..., inplace=True)
-            # 正确的方式: 直接调用 ta.zigzag 函数并合并结果
-            zigzag_df = ta.zigzag(high=df_slice['high_qfq'], low=df_slice['low_qfq'], length=max(3, int(period/5)))
-            # 将返回的 zigzag 结果合并回原始的 df_slice
-            if zigzag_df is not None and not zigzag_df.empty:
-                # zigzag 函数返回的DataFrame的列名就是 'zigzag'
-                df_slice = df_slice.join(zigzag_df)
+            # 修改代码块：使用最稳定通用的 `df.ta(kind=...)` 接口调用 zigzag
+            zigzag_series = df_slice.ta(kind='zigzag', high='high_qfq', low='low_qfq', length=max(3, int(period/5)))
+            # 检查计算结果，重命名并合并回主DataFrame
+            if zigzag_series is not None and isinstance(zigzag_series, pd.Series):
+                # 将返回的Series命名为'zigzag'，以匹配后续代码的引用
+                zigzag_series.name = 'zigzag'
+                df_slice = df_slice.join(zigzag_series)
             else:
                 # 如果计算失败，则创建一个空列以避免后续代码出错
                 df_slice['zigzag'] = 0
