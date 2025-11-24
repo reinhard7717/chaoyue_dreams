@@ -539,11 +539,10 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex, cache_manager: CacheManager):
     """
-    【V2.29 · 日期保护版】
-    - 核心修复: 在数据净化逻辑中，将 'trade_time' 和 'trade_date' 明确加入
-                 非数值白名单。此举旨在防止净化循环错误地对日期列（当其类型为
-                 object 时）执行 `pd.to_numeric`，从而从根源上杜绝日期数据被
-                 破坏为 NaN/NaT 的问题。
+    【V2.30 · 数据类型保护增强版】
+    - 核心修复: 将 'type' 列（用于标识逐笔成交方向）明确加入非数值白名单。
+                 此举旨在从根源上杜绝数据净化循环错误地将 'B'/'S'/'M' 字符串
+                 转换为 NaN，从而修复下游OFI等微观指标计算失败的问题。
     """
     import pytz
     from utils.model_helpers import (
@@ -615,9 +614,9 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     data_dfs["stock_level5_data"] = pd.concat(level5_data_df_list) if level5_data_df_list else pd.DataFrame()
     data_dfs["stock_minute_data"] = pd.concat(minute_data_df_list) if minute_data_df_list else pd.DataFrame()
     data_dfs["stock_realtime_data"] = pd.concat(realtime_data_df_list) if realtime_data_df_list else pd.DataFrame()
-    print(f"  -> [{stock_info.stock_code}] [数据源头净化 V2.29] 正在对所有加载的数据帧进行强制数值类型转换...")
-    # [代码修改] V2.29 明确将日期列加入白名单，防止被错误转换
-    non_numeric_whitelist = ['stock_id', 'stock_code', 'trade_time', 'trade_date']
+    print(f"  -> [{stock_info.stock_code}] [数据源头净化 V2.30] 正在对所有加载的数据帧进行强制数值类型转换...")
+    # [代码修改] V2.30 将 'type' 列加入白名单，防止被错误转换为NaN
+    non_numeric_whitelist = ['stock_id', 'stock_code', 'trade_time', 'trade_date', 'type']
     for name, df in data_dfs.items():
         if isinstance(df, pd.DataFrame) and not df.empty and "_map" not in name:
             for col in df.columns:
@@ -771,9 +770,10 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.11 · DAO集成与时区统一版】
-    - 核心修复: 废除任务直接操作数据库读取日内数据，改为通过 DAO 层统一获取和标准化时区。
-    - 核心修复: 修正 `_load_all_sources_unified` 的调用，传入 `cache_manager`。
+    【V34.12 · 数据管道修复版】
+    - 核心修复: 补全了对 fund_flow_service._synthesize_and_forge_metrics 方法调用时
+                 缺失的 `realtime_data_map` 参数，确保实时盘口数据能被正确传递，
+                 修复依赖此数据的下游指标计算。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -897,8 +897,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"]}
                 fund_flow_service.debug_params = debug_params
                 seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=seed_base_daily_df)
-                fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index, tick_data_map=seed_data_dfs["stock_tick_data_map"], level5_data_map=seed_data_dfs["stock_level5_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
-                _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df, tick_data_map=seed_data_dfs["stock_tick_data_map"], level5_data_map=seed_data_dfs["stock_level5_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
                 seed_ff_minute_map_for_chip_service = copy.deepcopy(seed_ff_minute_map)
                 seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "cyq_perf": seed_data_dfs["cyq_perf"]}
                 seed_chip_raw_df = chip_service._preprocess_and_merge_data(
@@ -955,8 +953,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(
                 stock_info, fund_flow_raw_df.index, tick_data_map=tick_data_map, level5_data_map=level5_data_map, minute_data_map=minute_data_map
             )
+            # [代码修改] V34.12 补全缺失的 realtime_data_map 参数
             fund_flow_metrics_df, fund_flow_attributed_minute_map, ff_failures = fund_flow_service._synthesize_and_forge_metrics(
-                stock_code, fund_flow_raw_df, tick_data_map=tick_data_map, level5_data_map=level5_data_map, minute_data_map=minute_data_map
+                stock_code, fund_flow_raw_df, tick_data_map=tick_data_map, level5_data_map=level5_data_map, minute_data_map=minute_data_map, realtime_data_map=realtime_data_map
             )
             all_failures.extend(ff_failures)
             fund_flow_attributed_minute_map_for_chip_service = copy.deepcopy(fund_flow_attributed_minute_map)

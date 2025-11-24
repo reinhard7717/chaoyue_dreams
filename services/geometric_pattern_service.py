@@ -212,13 +212,12 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, bbw_quantile: float = 0.25, potential_threshold: float = 0.6, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
         """
-        【V2.37 · 索引对齐修复版】识别、量化并存储矩形平台。
-        - 核心修复: 解决了因 .dropna() 导致布尔索引器与DataFrame索引不对齐的致命错误。
-                     修改逻辑为在完整的Series上进行布尔比较，然后使用 .fillna(False)
-                     处理计算过程中产生的NaN，确保索引的绝对对齐，从而修复了
-                     'Unalignable boolean Series' 的问题。
+        【V2.38 · 诊断探针阵列版】识别、量化并存储矩形平台。
+        - 核心升级: 在平台识别的核心逻辑后，植入一个全新的“诊断探针阵列”。
+                     该阵列将逐一打印 ADX、BBW、潜在平台标记、潜力得分以及最终的
+                     进出信号等关键中间变量的统计信息，旨在精确定位为何没有平台被发现。
         """
-        print(f"  -> [V2.37 索引对齐] 正在识别和量化矩形平台...")
+        print(f"  -> [V2.38 诊断探针阵列] 正在识别和量化矩形平台...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
@@ -259,13 +258,36 @@ class GeometricPatternService:
         is_low_volatility = df_copy[bbw_col] < bbw_rolling_quantile
         df_copy['is_potential_platform'] = (is_low_trend | is_low_volatility).astype(int)
         df_copy['platform_potential_score'] = df_copy['is_potential_platform'].rolling(window=potential_window, min_periods=potential_window//2).mean()
-        # [代码修改] V2.37 修复索引不对齐的BUG
+        # [代码新增] V2.38 植入平台识别诊断探针阵列
+        print("\n" + "="*30 + " [平台识别诊断探针阵列] " + "="*30)
+        print(f"--- [探针 E1: ADX & 低趋势条件] ---")
+        print(f"  -> ADX 阈值 (adx_threshold): {adx_threshold}")
+        print(f"  -> ADX_14 指标统计:\n{df_copy['ADX_14'].describe().to_string()}")
+        print(f"  -> 满足 '低趋势' (ADX < {adx_threshold}) 的天数: {is_low_trend.sum()}")
+        print("\n" + "-"*80 + "\n")
+        print(f"--- [探针 E2: BBW & 低波动条件] ---")
+        print(f"  -> BBW 分位数 (bbw_quantile): {bbw_quantile}")
+        print(f"  -> BBW_20_2.0 指标统计:\n{df_copy[bbw_col].describe().to_string()}")
+        print(f"  -> BBW 滚动分位数指标统计:\n{bbw_rolling_quantile.describe().to_string()}")
+        print(f"  -> 满足 '低波动' (BBW < 滚动分位数) 的天数: {is_low_volatility.sum()}")
+        print("\n" + "-"*80 + "\n")
+        print(f"--- [探针 E3: 潜在平台标记] ---")
+        print(f"  -> is_potential_platform (低趋势 或 低波动) 标记分布:\n{df_copy['is_potential_platform'].value_counts().to_string()}")
+        print("\n" + "-"*80 + "\n")
+        print(f"--- [探针 E4: 平台潜力得分] ---")
+        print(f"  -> 潜力得分阈值 (potential_threshold): {potential_threshold}")
+        print(f"  -> platform_potential_score 指标统计:\n{df_copy['platform_potential_score'].describe().to_string()}")
+        print(f"  -> 最近5天的潜力得分:\n{df_copy['platform_potential_score'].tail(5).to_string()}")
+        print("\n" + "-"*80 + "\n")
         score_series = df_copy['platform_potential_score']
         entering_platform = (score_series > potential_threshold) & (score_series.shift(1) <= potential_threshold)
         exiting_platform = (score_series < potential_threshold) & (score_series.shift(1) >= potential_threshold)
-        # [代码新增] V2.37 关键修复：将NaN填充为False以保证索引器有效且对齐
         entering_platform = entering_platform.fillna(False)
         exiting_platform = exiting_platform.fillna(False)
+        print(f"--- [探针 E5: 最终进出信号] ---")
+        print(f"  -> 识别到的平台进入信号 (entering_platform) 数量: {entering_platform.sum()}")
+        print(f"  -> 识别到的平台退出信号 (exiting_platform) 数量: {exiting_platform.sum()}")
+        print("="*80 + "\n")
         platform_start_dates = df_copy[entering_platform].index
         platform_end_dates = df_copy[exiting_platform].index
         platforms_to_save = []
@@ -321,9 +343,9 @@ class GeometricPatternService:
                 }
                 platforms_to_save.append(platform_data)
         found_count = len(platforms_to_save)
-        print(f"  -> [V2.37 索引对齐] 发现 {found_count} 个有效平台。")
+        print(f"  -> [V2.38 诊断探针阵列] 发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.37 索引对齐] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.38 诊断探针阵列] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
