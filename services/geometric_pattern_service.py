@@ -220,13 +220,13 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict):
         """
-        【V2.50 · 拟合优度版】识别、量化并存储矩形平台。
-        - 核心升级: 1. 引入 `_calculate_goodness_of_fit` 评分机制，取代了原有的“硬边界”匹配逻辑。
-                     2. 系统不再寻找“完美匹配”，而是为每个候选平台计算与所有原型的拟合分数，并选择“最佳匹配”。
-                     3. 将最佳拟合分数 `goodness_of_fit_score` 存入数据库，为后续策略提供更丰富的决策依据。
+        【V2.51 · 信念评分版】识别、量化并存储矩形平台。
+        - 核心升级: 1. 在平台被归类后，新增调用 `_calculate_platform_conviction_score` 方法。
+                     2. 该方法用于评估平台本身的结构质量和主力控盘的“信念强度”。
+                     3. 将计算出的 `platform_conviction_score` 存入数据库，为策略提供更深度的质量评估维度。
         """
         import math
-        print(f"  -> [V2.50 拟合优度] 启动...")
+        print(f"  -> [V2.51 信念评分] 启动...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
@@ -261,7 +261,7 @@ class GeometricPatternService:
         if bbands_results is not None and not bbands_results.empty:
             df_copy = df_copy.join(bbands_results)
         if all(col in df_copy.columns for col in [bbu_col, bbl_col, bbm_col]):
-            df_copy[bbw_col] = (df_copy[bbu_col] - df_copy[bbm_col]) / df_copy[bbm_col]
+            df_copy[bbw_col] = (df_copy[bbu_col] - df_copy[bbl_col]) / df_copy[bbm_col]
         else:
             print(f"  -> [计算失败] 布林带基础指标未能生成。任务终止。")
             return
@@ -318,7 +318,6 @@ class GeometricPatternService:
                 'rss': self._calculate_linear_regression_slope(group['rs']) if 'rs' in group else 0.0
             }
             print(f"     - [博弈指标] VPSkew: {metrics['vps']:.2f}, VolSlope: {metrics['vts']:.2f}, VolatilityContract: {metrics['vcr']:.2f}, PriceKurtosis: {metrics['pk']:.2f}, RSSlope: {metrics['rss']:.3f}")
-            # [代码修改] V2.50 引入“选优”逻辑
             best_archetype = None
             best_fit_score = -1.0
             print("     - [拟合度评估] 开始计算与所有原型的拟合优度...")
@@ -326,7 +325,6 @@ class GeometricPatternService:
                 archetype_name = archetype.get('name', 'UNKNOWN')
                 min_duration = archetype.get('min_duration', 0)
                 max_range_pct = archetype.get('max_range_pct', 1.0)
-                # 基础几何形态作为硬性门槛
                 if len(group) >= min_duration and price_range_pct <= max_range_pct:
                     fit_score = self._calculate_goodness_of_fit(metrics, archetype)
                     print(f"       - 与原型 [{archetype_name}] 的拟合度: {fit_score:.2f}")
@@ -338,6 +336,9 @@ class GeometricPatternService:
             if best_archetype:
                 archetype_name = best_archetype.get('name', 'UNKNOWN')
                 print(f"     - [BEST FIT & ACCEPTED] 最佳匹配原型为 [{archetype_name}] (拟合度: {best_fit_score:.2f})，将被量化。")
+                # [代码修改] V2.51 新增调用信念评分计算
+                conviction_score = self._calculate_platform_conviction_score(group)
+                print(f"     - [信念评估] 平台内在信念评分为: {conviction_score:.2f}")
                 character, score_val = self._assess_platform_character(group)
                 platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
                 precise_vpoc = None
@@ -378,16 +379,17 @@ class GeometricPatternService:
                     'breakout_readiness_score': breakout_readiness,
                     'platform_character': character, 'character_score': score_val,
                     'platform_archetype': archetype_name,
-                    'goodness_of_fit_score': best_fit_score, # [代码修改] V2.50 新增拟合优度分
+                    'goodness_of_fit_score': best_fit_score,
+                    'platform_conviction_score': conviction_score, # [代码修改] V2.51 新增信念评分
                 }
                 platforms_to_save.append(platform_data)
                 saved_start_dates.add(start_date)
             else:
                 print(f"     - [REJECTED] 未找到任何在几何门槛内且有意义的匹配原型。")
         found_count = len(platforms_to_save)
-        print(f"\n  -> [V2.50 拟合优度] 扫描完成，共发现 {found_count} 个有效平台。")
+        print(f"\n  -> [V2.51 信念评分] 扫描完成，共发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.50 拟合优度] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.51 信念评分] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
@@ -1233,4 +1235,39 @@ class GeometricPatternService:
                     penalty = (deviation / target_range) * 100
                     scores.append(max(0, 100 - penalty))
         return np.mean(scores) if scores else 100.0
+
+    def _calculate_platform_conviction_score(self, platform_group: pd.DataFrame) -> float:
+        """
+        【V2.51 新增】计算平台的“内在信念”分数。
+        该评分融合五大支柱，用于评估平台本身的结构质量和主力控盘的信念强度。
+        """
+        # 支柱一: 控盘与洗盘力度 (Price Kurtosis) - 权重 30%
+        pk = self._calculate_price_kurtosis(platform_group)
+        # 将峰度值映射到0-100分，峰度在[3, 15]区间内线性得分
+        score_kurtosis = np.clip((pk - 3) / (15 - 3), 0, 1) * 100
+        # 支柱二: 多空共识凝聚度 (Volatility Contraction Ratio) - 权重 25%
+        vcr = self._calculate_volatility_contraction_ratio(platform_group)
+        # VCR越小越好，将[0.5, 1.5]的范围映射到[100, 0]分
+        score_vcr = np.clip(1 - (vcr - 0.5) / (1.5 - 0.5), 0, 1) * 100
+        # 支柱三: 供应枯竭信号 (Volume Trend Slope) - 权重 20%
+        vts = self._calculate_linear_regression_slope(platform_group['vol'])
+        # 斜率越小越好，将[-0.1, 0.1]的范围映射到[100, 0]分
+        score_vts = np.clip(1 - (vts - (-0.1)) / (0.1 - (-0.1)), 0, 1) * 100
+        # 支柱四: 日内控制权归属 (Average Internal Strength) - 权重 15%
+        daily_range = platform_group['high_qfq'] - platform_group['low_qfq']
+        internal_strength = ((platform_group['close_qfq'] - platform_group['low_qfq']) / daily_range.replace(0, np.nan)).fillna(0.5)
+        score_internal = internal_strength.mean() * 100
+        # 支柱五: 相对市场强度 (Relative Strength Slope) - 权重 10%
+        rss = self._calculate_linear_regression_slope(platform_group['rs']) if 'rs' in platform_group else 0.0
+        # 斜率越大越好，将[-0.01, 0.01]的范围映射到[0, 100]分
+        score_rss = np.clip((rss - (-0.01)) / (0.01 - (-0.01)), 0, 1) * 100
+        # 融合总分
+        conviction_score = (
+            score_kurtosis * 0.30 +
+            score_vcr * 0.25 +
+            score_vts * 0.20 +
+            score_internal * 0.15 +
+            score_rss * 0.10
+        )
+        return conviction_score
 

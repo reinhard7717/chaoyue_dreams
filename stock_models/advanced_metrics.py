@@ -787,10 +787,10 @@ class AdvancedStructuralMetrics_BJ(BaseAdvancedStructuralMetrics):
 # [修改代码块] 几何形态特征模型 - 平台
 class BasePlatformFeature(models.Model):
     """
-    【V2.48 · 突破准备度版】
+    【V2.51 · 信念评分版】
     - 核心职责: 持久化存储通过算法识别出的每一个矩形平台的核心量化特征。
     - 设计思想: 每个平台作为一个独立的实体记录，而非每日状态，便于进行结构性回溯和分析。
-    - V2.48 新增: 引入 `breakout_readiness_score` 字段，用于量化平台结束时其“蓄势待发”的程度。
+    - V2.51 新增: 引入 `platform_conviction_score` 字段，用于评估平台本身的结构质量和主力控盘信念。
     """
     # 定义平台性质的选项
     CHARACTER_CHOICES = [
@@ -821,6 +821,7 @@ class BasePlatformFeature(models.Model):
     platform_archetype = models.CharField(max_length=50, verbose_name='平台原型', null=True, blank=True, help_text='识别出此平台的原型名称')
     breakout_readiness_score = models.FloatField(verbose_name='突破准备度分(0-100)', null=True, blank=True, help_text='平台结束时，衡量其即将突破可能性的综合评分')
     goodness_of_fit_score = models.FloatField(verbose_name='拟合优度分(0-100)', null=True, blank=True, help_text='平台与最佳匹配原型之间的相似度得分')
+    platform_conviction_score = models.FloatField(verbose_name='平台信念分(0-100)', null=True, blank=True, help_text='评估平台结构质量和主力控盘信念的综合得分')
     class Meta:
         abstract = True
         ordering = ['-start_date']
