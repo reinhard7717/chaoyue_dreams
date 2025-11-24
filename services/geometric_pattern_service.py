@@ -83,15 +83,17 @@ class GeometricPatternService:
     """
     def __init__(self, stock_code: str, stock_instance: StockInfo):
         """
-        【V2.22 · 合并键修复版】
-        - 核心修复: 新增 self.stock_id_int 属性，存储整数类型的股票ID (stock_instance.id)，
-                     以解决后续与高级指标表（使用整数外键）合并时因数据类型不匹配导致的失败问题。
+        【V2.23 · 主键认知修正版】
+        - 核心修复: 根据 StockInfo 模型定义，其主键是 `stock_code` (CharField) 而非
+                     自动生成的 `id` (AutoField)。因此，移除对不存在的 `stock_instance.id`
+                     属性的调用，废除错误的 `self.stock_id_int` 属性。
         """
         self.stock_code = stock_code
         self.stock_instance = stock_instance
+        # [代码修改] self.stock_id 存储的就是正确的主键 (stock_code)
         self.stock_id = stock_instance.stock_code
-        # [代码新增] 存储整数ID用于数据库层面的连接
-        self.stock_id_int = stock_instance.id
+        # [代码删除] 移除错误的整数ID属性
+        # self.stock_id_int = stock_instance.id
         self.daily_model = get_daily_data_model_by_code(stock_code)
         self.platform_model = get_platform_feature_model_by_code(stock_code)
         self.mtt_model = get_multi_timeframe_trendline_model_by_code(stock_code)
@@ -130,9 +132,10 @@ class GeometricPatternService:
 
     def _prepare_enriched_dataframe(self, df_daily: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.22 · 合并键修复版】准备一个包含所有高级指标的、信息增强的DataFrame。
-        - 核心修复: 使用整数类型的 `self.stock_id_int` 作为合并键，确保与高级指标表
-                     的整数外键 `stock_id` 类型匹配，从而使 `pd.merge` 能够成功。
+        【V2.23 · 主键认知修正版】准备一个包含所有高级指标的、信息增强的DataFrame。
+        - 核心修复: 恢复使用字符串类型的 `self.stock_id` (即 stock_code) 作为合并键，
+                     确保与高级指标表的外键列 `stock_id` (其类型为CharField)
+                     在数据类型和值上完全匹配，从而实现正确的 `pd.merge`。
         """
         # --- [探针 C: 进入数据融合函数] ---
         if not df_daily.empty:
@@ -151,8 +154,8 @@ class GeometricPatternService:
             if not df.empty:
                 df['trade_date'] = pd.to_datetime(df['trade_date'])
         df_daily_reset = df_daily.reset_index().rename(columns={'trade_time': 'trade_date'})
-        # [代码修改] 使用整数ID (self.stock_id_int) 作为合并键
-        df_daily_reset['stock_id'] = self.stock_id_int
+        # [代码修改] 恢复使用正确的字符串 stock_code 作为合并键
+        df_daily_reset['stock_id'] = self.stock_id
         enriched_df = df_daily_reset
         join_keys = ['stock_id', 'trade_date']
         for df_right in [df_chip, df_fund, df_struct]:
