@@ -193,23 +193,42 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, bbw_quantile: float = 0.25, potential_threshold: float = 0.6, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
         """
-        【V2.23 · 指标计算兼容性修复版】识别、量化并存储矩形平台。
-        - V2.23 核心修复: 解决了因列名不标准(`_qfq`后缀)导致pandas_ta指标计算静默失败的问题。
-                         通过在 adx() 和 bbands() 函数中显式传递列名参数(e.g., high='high_qfq')，
-                         确保了核心指标能够被正确计算，从而使平台识别流程得以正常执行。
+        【V2.24 · 诊断探针与兼容性修复版】识别、量化并存储矩形平台。
+        - V2.24 核心升级: 植入一系列“诊断探针”，在计算前详细打印输入DataFrame的结构、
+                         数据和空值情况，以获取问题的第一手证据。
+        - V2.24 核心修复: 将指标计算分解为独立的、带事后验证的步骤，确保能精确定位
+                         到具体是哪个指标计算失败，并提前终止流程，防止错误蔓延。
         """
-        print(f"  -> [V2.22 双维共振状态机] 正在识别和量化矩形平台...")
+        print(f"  -> [V2.24 诊断探针与修复] 正在识别和量化矩形平台...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
-        df_copy = enriched_df.copy()
-        # 1. 计算双重证据，并显式指定列名以确保计算成功
-        # 修改代码行：明确告知pandas_ta使用哪些列进行计算
-        df_copy.ta.adx(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True)
-        df_copy.ta.bbands(close='close_qfq', length=20, append=True)
-        if 'ADX_14' not in df_copy.columns or 'BBW_20_2.0' not in df_copy.columns:
-            print("  -> 核心指标(ADX或BBW)计算失败，跳过平台识别。")
+        # --- 植入诊断探针 ---
+        print("    [探针] 检查输入 enriched_df 的状态...")
+        print("    [探针] enriched_df 的列名:")
+        print(f"    {enriched_df.columns.tolist()}")
+        print("\n    [探针] enriched_df 的前5行数据:")
+        print(enriched_df.head().to_string())
+        required_cols = ['high_qfq', 'low_qfq', 'close_qfq']
+        if not all(col in enriched_df.columns for col in required_cols):
+            print(f"\n  -> [诊断失败] 输入的DataFrame缺少核心计算列。需要: {required_cols}。任务终止。")
             return
+        print("\n    [探针] 核心计算列的空值(NaN)数量:")
+        print(enriched_df[required_cols].isnull().sum().to_string())
+        # --- 探针式计算与验证 ---
+        df_copy = enriched_df.copy()
+        print("\n  -> [探针式计算] 正在尝试计算 ADX...")
+        df_copy.ta.adx(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True)
+        if 'ADX_14' not in df_copy.columns:
+            print("  -> [计算失败] ADX 指标未能成功生成。请检查上游数据是否存在足够的非空值。任务终止。")
+            return
+        print("  -> [计算成功] ADX 指标已生成。")
+        print("  -> [探针式计算] 正在尝试计算 BBands...")
+        df_copy.ta.bbands(close='close_qfq', length=20, append=True)
+        if 'BBW_20_2.0' not in df_copy.columns:
+            print("  -> [计算失败] 布林带宽度(BBW) 指标未能成功生成。请检查 'close_qfq' 列是否存在足够的非空值。任务终止。")
+            return
+        print("  -> [计算成功] 所有核心指标均已成功生成。继续执行平台识别...")
         # 2. 定义“低趋势”和“低波动”状态
         is_low_trend = df_copy['ADX_14'] < adx_threshold
         bbw_rolling_quantile = df_copy['BBW_20_2.0'].rolling(120, min_periods=60).quantile(bbw_quantile)
@@ -218,21 +237,10 @@ class GeometricPatternService:
         df_copy['is_potential_platform'] = (is_low_trend | is_low_volatility).astype(int)
         # 4. 将融合后的潜力输入状态机
         df_copy['platform_potential_score'] = df_copy['is_potential_platform'].rolling(window=potential_window, min_periods=potential_window//2).mean()
-        # --- 调试信息打印 ---
-        print("    [调试信息] ADX_14 统计:")
-        print(df_copy['ADX_14'].describe().to_string())
-        print("\n    [调试信息] BBW_20_2.0 统计:")
-        print(df_copy['BBW_20_2.0'].describe().to_string())
-        print(f"\n    [调试信息] 低趋势天数: {is_low_trend.sum()} / {len(df_copy)}")
-        print(f"    [调试信息] 低波动天数: {is_low_volatility.sum()} / {len(df_copy)}")
-        print(f"    [调试信息] 融合后潜力天数: {df_copy['is_potential_platform'].sum()} / {len(df_copy)}")
-        print("\n    [调试信息] 平台潜力分(platform_potential_score)统计:")
-        print(df_copy['platform_potential_score'].describe().to_string())
         # --- 状态机逻辑 ---
         score = df_copy['platform_potential_score'].dropna()
         entering_platform = (score > potential_threshold) & (score.shift(1) <= potential_threshold)
         exiting_platform = (score < potential_threshold) & (score.shift(1) >= potential_threshold)
-        print(f"\n    [调试信息] 发现 {entering_platform.sum()} 个平台进入点，{exiting_platform.sum()} 个平台退出点。")
         platform_start_dates = df_copy[entering_platform].index
         platform_end_dates = df_copy[exiting_platform].index
         platforms_to_save = []
@@ -288,9 +296,9 @@ class GeometricPatternService:
                 }
                 platforms_to_save.append(platform_data)
         found_count = len(platforms_to_save)
-        print(f"  -> [V2.22 双维共振状态机] 发现 {found_count} 个有效平台。")
+        print(f"  -> [V2.24 诊断探针与修复] 发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.22 双维共振状态机] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.24 诊断探针与修复] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
