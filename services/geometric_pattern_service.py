@@ -128,73 +128,77 @@ class GeometricPatternService:
 
     def _prepare_enriched_dataframe(self, df_daily: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.2 · 防御性合并修复版】准备一个包含所有高级指标的、信息增强的DataFrame。
-        - 核心修复: 在合并高级指标数据时，采取防御性策略。明确筛选出右侧DataFrame中
-                     不与左侧DataFrame冲突的列进行合并，从根本上防止因其他数据模型中
-                     可能存在的同名冗余列（其值可能为0或NULL）覆盖原始的、正确的
-                     `*_qfq` 价格数据。
+        【V2.21 · 数据链路探针版】准备一个包含所有高级指标的、信息增强的DataFrame。
+        - V2.21 调试升级: 植入C、D探针，监控数据在融合前后的变化。
         """
+        # --- [探针 C: 进入数据融合函数] ---
+        if not df_daily.empty:
+            latest_day_input = df_daily.iloc[-1]
+            print(f"--- [探针 C: 进入数据融合函数] 最新日期: {latest_day_input.name.date()} ---")
+            print(f"  -> high_qfq: {latest_day_input.get('high_qfq')}, low_qfq: {latest_day_input.get('low_qfq')}, close_qfq: {latest_day_input.get('close_qfq')}")
+            print(f"--- [探针 C 结束] ---")
         print(f"  -> [数据融合] 正在加载并整合高级指标...")
-        # 加载所有高级指标数据
         chip_metrics_qs = self.chip_metrics_model.objects.filter(stock=self.stock_instance).values()
         fund_flow_metrics_qs = self.fund_flow_metrics_model.objects.filter(stock=self.stock_instance).values()
         structural_metrics_qs = self.structural_metrics_model.objects.filter(stock=self.stock_instance).values()
         df_chip = pd.DataFrame.from_records(chip_metrics_qs).rename(columns={'trade_time': 'trade_date'})
         df_fund = pd.DataFrame.from_records(fund_flow_metrics_qs).rename(columns={'trade_time': 'trade_date'})
         df_struct = pd.DataFrame.from_records(structural_metrics_qs).rename(columns={'trade_time': 'trade_date'})
-        # 将日期列转换为datetime对象以便合并
         for df in [df_chip, df_fund, df_struct]:
             if not df.empty:
                 df['trade_date'] = pd.to_datetime(df['trade_date'])
-        # 将日线数据的索引转换为日期列以便合并
         df_daily_reset = df_daily.reset_index().rename(columns={'trade_time': 'trade_date'})
         df_daily_reset['stock_id'] = self.stock_id
         enriched_df = df_daily_reset
-        # [代码修改] 采用防御性合并策略
         join_keys = ['stock_id', 'trade_date']
         for df_right in [df_chip, df_fund, df_struct]:
             if not df_right.empty:
-                # 找出左侧已有的列
                 left_cols = enriched_df.columns.tolist()
-                # 找出右侧独有的、需要被合并的列
                 right_only_cols = [col for col in df_right.columns if col not in left_cols]
-                # 最终用于合并的列 = 连接键 + 右侧独有列
                 cols_to_merge = join_keys + right_only_cols
-                # 执行合并，只使用筛选后的列，防止覆盖
                 enriched_df = pd.merge(enriched_df, df_right[cols_to_merge], on=join_keys, how='left')
-        # 将日期重新设为索引
         enriched_df = enriched_df.set_index('trade_date').sort_index()
+        # --- [探针 D: 数据融合完成] ---
+        if not enriched_df.empty:
+            latest_day_output = enriched_df.iloc[-1]
+            print(f"--- [探针 D: 数据融合完成] 最新日期: {latest_day_output.name.date()} ---")
+            print(f"  -> high_qfq: {latest_day_output.get('high_qfq')}, low_qfq: {latest_day_output.get('low_qfq')}, close_qfq: {latest_day_output.get('close_qfq')}")
+            print(f"--- [探针 D 结束] ---")
         print(f"  -> [数据融合] 全维度战场沙盘构建完成。")
         return enriched_df
 
     def calculate_and_save_all_patterns(self, data_dfs: dict, start_date_str: str = None):
         """
-        【V2.20 · 数据流净化版】执行所有几何形态的计算和存储，并融合全维度高级指标。
-        - V2.20 核心修复: 在所有计算的最上游，即 `df_daily` 从 `data_dfs` 提取后，
-                         立即对所有 `*_qfq` 和 `vol` 列进行强制数值类型转换。
-                         此举旨在从数据流的源头根治因 `Decimal` 对象类型导致的下游计算失败问题。
-        - V2.20 逻辑修复: 修正 `ta.atr` 的调用，使其明确使用 `*_qfq` 列，确保计算一致性。
+        【V2.21 · 数据链路探针版】执行所有几何形态的计算和存储，并融合全维度高级指标。
+        - V2.21 调试升级: 植入A、B探针，追踪数据在进入融合前的状态。
         """
         print(f"[{self.stock_code}] [动态演化分析] 开始计算几何形态特征...")
         df_daily = data_dfs.get('daily_data')
         if df_daily is None or df_daily.empty:
             print(f"[{self.stock_code}] 日线数据为空，跳过计算。")
             return
+        # --- [探针 A: 初始加载] ---
+        if not df_daily.empty:
+            latest_day_raw = df_daily.iloc[-1]
+            print(f"--- [探针 A: 初始加载] 最新日期: {latest_day_raw['trade_time']} ---")
+            print(f"  -> high_qfq: {latest_day_raw.get('high_qfq')}, low_qfq: {latest_day_raw.get('low_qfq')}, close_qfq: {latest_day_raw.get('close_qfq')}")
+            print(f"--- [探针 A 结束] ---")
         df_daily['trade_time'] = pd.to_datetime(df_daily['trade_time'])
         df_daily = df_daily.set_index('trade_time')
-        # [代码新增] 核心修复：在数据流源头强制转换核心列为数值类型
         cols_to_convert = ['high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'vol']
         for col in cols_to_convert:
             if col in df_daily.columns:
                 df_daily[col] = pd.to_numeric(df_daily[col], errors='coerce')
-        # [代码修改] 逻辑修复：明确指定 ta.atr 使用 *_qfq 列
+        # --- [探针 B: 类型转换后] ---
+        if not df_daily.empty:
+            latest_day_converted = df_daily.iloc[-1]
+            print(f"--- [探针 B: 类型转换后] 最新日期: {latest_day_converted.name.date()} ---")
+            print(f"  -> high_qfq: {latest_day_converted.get('high_qfq')}, low_qfq: {latest_day_converted.get('low_qfq')}, close_qfq: {latest_day_converted.get('close_qfq')}")
+            print(f"--- [探针 B 结束] ---")
         df_daily.ta.atr(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True, col_names=('ATR_14_D',))
         enriched_df = self._prepare_enriched_dataframe(df_daily)
-        # 1. 计算平台特征 (传入信息增强的 enriched_df)
         self._calculate_and_save_platforms(enriched_df, data_dfs)
-        # 2. 计算趋势线矩阵并分析动态事件
         self._calculate_and_save_trendline_matrix_and_events(df_daily, data_dfs, start_date_str=start_date_str)
-        # 3. 识别并预测旗形
         flag_events = self._predict_flag_breakout_probability(enriched_df, data_dfs)
         if start_date_str:
             self.event_model.objects.filter(
@@ -207,33 +211,30 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, bbw_quantile: float = 0.25, potential_threshold: float = 0.6, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
         """
-        【V2.25 · 数据类型净化版】识别、量化并存储矩形平台。
-        - V2.25 核心修复: 在所有计算开始前，强制将核心价格与成交量列转换为float类型。
-                         此举旨在解决因上游数据源（如数据库DecimalField）导致列类型为'object'，
-                         进而引发部分pandas_ta指标（如bbands）计算失败的根本问题。
+        【V2.25 · 数据链路探针版】识别、量化并存储矩形平台。
+        - V2.25 调试升级: 植入E探针，验证最终进入计算模块的数据状态。
         """
+        # --- [探针 E: 进入平台计算函数] ---
+        if not enriched_df.empty:
+            latest_day_final = enriched_df.iloc[-1]
+            print(f"--- [探针 E: 进入平台计算函数] 最新日期: {latest_day_final.name.date()} ---")
+            print(f"  -> high_qfq: {latest_day_final.get('high_qfq')}, low_qfq: {latest_day_final.get('low_qfq')}, close_qfq: {latest_day_final.get('close_qfq')}")
+            print(f"--- [探针 E 结束] ---")
         print(f"  -> [V2.25 数据类型净化] 正在识别和量化矩形平台...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
-        # [代码新增] 核心修复：强制转换核心计算列为数值类型，以兼容pandas_ta
         cols_to_convert = ['high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'vol']
         for col in cols_to_convert:
             if col in enriched_df.columns:
                 enriched_df[col] = pd.to_numeric(enriched_df[col], errors='coerce')
-        # --- 植入诊断探针 ---
         print("    [探针] 检查输入 enriched_df 的状态...")
-        print("    [探针] enriched_df 的列名:")
-        print(f"    {enriched_df.columns.tolist()}")
-        print("\n    [探针] enriched_df 的前5行数据:")
-        print(enriched_df.head().to_string())
         required_cols = ['high_qfq', 'low_qfq', 'close_qfq']
         if not all(col in enriched_df.columns for col in required_cols):
             print(f"\n  -> [诊断失败] 输入的DataFrame缺少核心计算列。需要: {required_cols}。任务终止。")
             return
         print("\n    [探针] 核心计算列的空值(NaN)数量:")
         print(enriched_df[required_cols].isnull().sum().to_string())
-        # --- 探针式计算与验证 ---
         df_copy = enriched_df.copy()
         print("\n  -> [探针式计算] 正在尝试计算 ADX...")
         df_copy.ta.adx(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True)
@@ -247,15 +248,11 @@ class GeometricPatternService:
             print("  -> [计算失败] 布林带宽度(BBW) 指标未能成功生成。请检查 'close_qfq' 列是否存在足够的非空值。任务终止。")
             return
         print("  -> [计算成功] 所有核心指标均已成功生成。继续执行平台识别...")
-        # 2. 定义“低趋势”和“低波动”状态
         is_low_trend = df_copy['ADX_14'] < adx_threshold
         bbw_rolling_quantile = df_copy['BBW_20_2.0'].rolling(120, min_periods=60).quantile(bbw_quantile)
         is_low_volatility = df_copy['BBW_20_2.0'] < bbw_rolling_quantile
-        # 3. 融合双重证据
         df_copy['is_potential_platform'] = (is_low_trend | is_low_volatility).astype(int)
-        # 4. 将融合后的潜力输入状态机
         df_copy['platform_potential_score'] = df_copy['is_potential_platform'].rolling(window=potential_window, min_periods=potential_window//2).mean()
-        # --- 状态机逻辑 ---
         score = df_copy['platform_potential_score'].dropna()
         entering_platform = (score > potential_threshold) & (score.shift(1) <= potential_threshold)
         exiting_platform = (score < potential_threshold) & (score.shift(1) >= potential_threshold)
