@@ -173,7 +173,6 @@ class GeometricPatternService:
         df_daily['trade_time'] = pd.to_datetime(df_daily['trade_time'])
         df_daily = df_daily.set_index('trade_time')
         df_daily.ta.atr(length=14, append=True, col_names=('ATR_14_D',))
-        # 新增代码行：构建包含所有高级指标的“全维战场沙盘”
         enriched_df = self._prepare_enriched_dataframe(df_daily)
         # 1. 计算平台特征 (传入原始df_daily即可)
         self._calculate_and_save_platforms(df_daily, data_dfs)
@@ -181,7 +180,8 @@ class GeometricPatternService:
         self._calculate_and_save_trendline_matrix_and_events(df_daily, data_dfs)
         # 3. 识别并预测旗形 (传入信息增强的enriched_df)
         flag_events = self._predict_flag_breakout_probability(enriched_df, data_dfs)
-        self._save_trendline_events(flag_events)
+        # 修改代码行：调用增量保存方法，修复AttributeError
+        self._save_trendline_events_incrementally(flag_events)
         print(f"[{self.stock_code}] [动态演化分析] 几何形态特征计算完成。")
 
     def _calculate_and_save_platforms(self, df: pd.DataFrame, data_dfs: dict, lookback_period: int = 21, volatility_quantile: float = 0.3, range_threshold_pct: float = 0.20):
