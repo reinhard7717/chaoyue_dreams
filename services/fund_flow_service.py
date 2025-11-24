@@ -310,10 +310,13 @@ class AdvancedFundFlowMetricsService:
                 pass # 修改行：移除了此处的print调试信息
         return intraday_data_map
 
-    def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame, realtime_data_for_day: pd.DataFrame) -> tuple[dict, None]: # [代码修改] 增加realtime_data_for_day参数
+    def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame, realtime_data_for_day: pd.DataFrame) -> tuple[dict, None]:
         """
-        【V1.3 · 实时盘口指标调度版】
-        - 核心升级: 调度新增的 `_calculate_realtime_orderbook_signals` 方法，将实时盘口指标集成到最终结果中。
+        【V1.4 · 数据流校正版】
+        - 核心修复: 修正了对 `_calculate_realtime_orderbook_signals` 的调用，
+                     将之前错误传递的实时行情数据 (`realtime_data_for_day`)
+                     校正为正确的五档盘口数据 (`level5_data_for_day`)，
+                     从根源上修复了因数据源错配导致的 `KeyError`。
         """
         day_metrics = {}
         daily_derived_metrics = self._calculate_daily_derived_metrics(daily_data_series)
@@ -331,8 +334,8 @@ class AdvancedFundFlowMetricsService:
         daily_total_volume = daily_data_series.get('vol', 0) * 100
         microstructure_signals = self._calculate_microstructure_signals(stock_code, tick_data_for_day, level5_data_for_day, daily_total_volume)
         day_metrics.update(microstructure_signals)
-        # [代码新增] 调用实时盘口指标计算
-        realtime_orderbook_signals = self._calculate_realtime_orderbook_signals(realtime_data_for_day, daily_total_volume)
+        # [代码修改] 将 realtime_data_for_day 校正为 level5_data_for_day
+        realtime_orderbook_signals = self._calculate_realtime_orderbook_signals(level5_data_for_day, daily_total_volume)
         day_metrics.update(realtime_orderbook_signals)
         day_metrics['trade_time'] = daily_data_series.name
         return day_metrics, None
@@ -1418,50 +1421,54 @@ class AdvancedFundFlowMetricsService:
         df['vol_weight'] = df['vol_shares'] / current_day_total_vol if current_day_total_vol > 0 else 0
         return df
 
-    def _calculate_realtime_orderbook_signals(self, realtime_df: pd.DataFrame, daily_total_volume: float) -> dict:
+    def _calculate_realtime_orderbook_signals(self, level5_df: pd.DataFrame, daily_total_volume: float) -> dict:
         """
-        【V1.0 · 实时盘口】计算基于实时行情快照的资金意图指标。
+        【V1.1 · 命名统一修复版】计算基于五档盘口快照的资金意图指标。
+        - 核心修复: 将输入参数从 `realtime_df` 修正为 `level5_df`，以反映正确的数据源。
+        - 核心修复: 将内部所有列名引用（如 'b1_p', 'a1_v'）更新为与 Django 模型
+                     `BaseStockLevel5Data` 一致的名称（如 'buy_price1', 'sell_volume1'），
+                     彻底解决 `KeyError`。
         """
         results = {
             'order_book_liquidity_supply': np.nan,
             'buy_quote_exhaustion_rate': np.nan,
             'sell_quote_exhaustion_rate': np.nan,
         }
-        if realtime_df is None or realtime_df.empty or daily_total_volume <= 0:
+        if level5_df is None or level5_df.empty or daily_total_volume <= 0:
             return results
-        
         # --- 1. 盘口流动性供给 ---
-        bid_supply = pd.Series(0, index=realtime_df.index, dtype=float)
-        ask_supply = pd.Series(0, index=realtime_df.index, dtype=float)
+        bid_supply = pd.Series(0, index=level5_df.index, dtype=float)
+        ask_supply = pd.Series(0, index=level5_df.index, dtype=float)
         for i in range(1, 6):
-            bid_supply += realtime_df[f'b{i}_p'] * realtime_df[f'b{i}_v'] * 100
-            ask_supply += realtime_df[f'a{i}_p'] * realtime_df[f'a{i}_v'] * 100
-        
-        time_diffs = realtime_df.index.to_series().diff().dt.total_seconds().fillna(0)
+            # [代码修改] 更新列名为Django模型定义的名称
+            bid_price_col = f'buy_price{i}'
+            bid_vol_col = f'buy_volume{i}'
+            ask_price_col = f'sell_price{i}'
+            ask_vol_col = f'sell_volume{i}'
+            if all(c in level5_df.columns for c in [bid_price_col, bid_vol_col, ask_price_col, ask_vol_col]):
+                bid_supply += level5_df[bid_price_col] * level5_df[bid_vol_col] * 100
+                ask_supply += level5_df[ask_price_col] * level5_df[ask_vol_col] * 100
+        time_diffs = level5_df.index.to_series().diff().dt.total_seconds().fillna(0)
         if time_diffs.sum() > 0:
             avg_bid_supply = np.average(bid_supply, weights=time_diffs)
             avg_ask_supply = np.average(ask_supply, weights=time_diffs)
             if avg_ask_supply > 0:
                 results['order_book_liquidity_supply'] = avg_bid_supply / avg_ask_supply
-
         # --- 2. 报价消耗率 ---
-        df = realtime_df.copy()
-        df['prev_a1_p'] = df['a1_p'].shift(1)
-        df['prev_b1_p'] = df['b1_p'].shift(1)
-        df['prev_a1_v'] = df['a1_v'].shift(1)
-        df['prev_b1_v'] = df['b1_v'].shift(1)
-
+        df = level5_df.copy()
+        # [代码修改] 更新列名为Django模型定义的名称
+        df['prev_a1_p'] = df['sell_price1'].shift(1)
+        df['prev_b1_p'] = df['buy_price1'].shift(1)
+        df['prev_a1_v'] = df['sell_volume1'].shift(1)
+        df['prev_b1_v'] = df['buy_volume1'].shift(1)
         # 买方消耗：当前卖一价 > 上一刻卖一价，意味着上一刻的卖一盘被击穿
-        buy_exhaustion_mask = df['a1_p'] > df['prev_a1_p']
+        buy_exhaustion_mask = df['sell_price1'] > df['prev_a1_p']
         buy_exhausted_vol = (df.loc[buy_exhaustion_mask, 'prev_a1_v'] * 100).sum()
-
         # 卖方消耗：当前买一价 < 上一刻买一价，意味着上一刻的买一盘被击穿
-        sell_exhaustion_mask = df['b1_p'] < df['prev_b1_p']
+        sell_exhaustion_mask = df['buy_price1'] < df['prev_b1_p']
         sell_exhausted_vol = (df.loc[sell_exhaustion_mask, 'prev_b1_v'] * 100).sum()
-
         results['buy_quote_exhaustion_rate'] = (buy_exhausted_vol / daily_total_volume) * 100
         results['sell_quote_exhaustion_rate'] = (sell_exhausted_vol / daily_total_volume) * 100
-        
         return results
 
 
