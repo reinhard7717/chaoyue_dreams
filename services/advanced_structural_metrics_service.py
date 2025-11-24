@@ -635,49 +635,51 @@ class AdvancedStructuralMetricsService:
         }
         if tick_df is None or tick_df.empty or total_volume == 0:
             return results
+        level5_df_renamed = level5_df.copy()
+        column_rename_map = {
+            **{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)},
+            **{f'buy_volume{i}': f'b{i}_v' for i in range(1, 6)},
+            **{f'sell_price{i}': f'a{i}_p' for i in range(1, 6)},
+            **{f'sell_volume{i}': f'a{i}_v' for i in range(1, 6)},
+        }
+        level5_df_renamed.rename(columns=column_rename_map, inplace=True)
         # --- 意图与执行交叉验证：流动性真实性评分 ---
         # 1. 数据准备：将tick与前后level5快照对齐
         tick_df_sorted = tick_df.sort_index()
-        level5_df_sorted = level5_df.sort_index()
-        
-        # 匹配每个tick发生前最近的level5快照
+        # [代码修改] 使用重命名后的DataFrame进行排序和合并
+        level5_df_sorted = level5_df_renamed.sort_index()
         merged_before = pd.merge_asof(tick_df_sorted, level5_df_sorted, on='trade_time', direction='backward', suffixes=('_tick', '_pre'))
-        # 匹配每个tick发生后最近的level5快照
         merged_after = pd.merge_asof(tick_df_sorted, level5_df_sorted, on='trade_time', direction='forward', suffixes=('_tick', '_post'))
-        
         if not merged_before.empty and not merged_after.empty:
             merged_before.set_index('trade_time', inplace=True)
             merged_after.set_index('trade_time', inplace=True)
-            # 选取核心列进行合并
             cols_to_join = [col for col in merged_after.columns if '_post' in col]
             merged_full = merged_before.join(merged_after[cols_to_join])
-            # 2. 识别关键事件
-            merged_full['is_buy_impact'] = (merged_full['type'] == 'B') & (merged_full['volume'] > 0.3 * merged_full['a1_v_pre'])
-            merged_full['is_sell_impact'] = (merged_full['type'] == 'S') & (merged_full['volume'] > 0.3 * merged_full['b1_v_pre'])
-            impact_ticks = merged_full[merged_full['is_buy_impact'] | merged_full['is_sell_impact']].copy()
-            scores = []
-            if not impact_ticks.empty:
-                # 3. 计算分数
-                # 处理买方冲击（验证卖盘真实性）
-                buy_impacts = impact_ticks[impact_ticks['is_buy_impact']]
-                # 预期：卖一价被消耗后，新的卖一价应该等于或高于旧的卖二价
-                # 欺骗：新的卖一价又回到了旧的卖一价，且挂单量迅速恢复
-                deception_mask_buy = (buy_impacts['a1_p_post'] == buy_impacts['a1_p_pre']) & (buy_impacts['a1_v_post'] >= 0.8 * buy_impacts['a1_v_pre'])
-                deception_scores = -buy_impacts.loc[deception_mask_buy, 'amount']
-                scores.append(deception_scores)
-                # 处理卖方冲击（验证买盘真实性）
-                sell_impacts = impact_ticks[impact_ticks['is_sell_impact']]
-                # 预期：买一价被消耗后，新的买一价应该等于或低于旧的买二价
-                # 真实支撑：新的买一价迅速回到旧的买一价，且挂单量恢复
-                support_mask_sell = (sell_impacts['b1_p_post'] == sell_impacts['b1_p_pre']) & (sell_impacts['b1_v_post'] >= 0.8 * sell_impacts['b1_v_pre'])
-                support_scores = sell_impacts.loc[support_mask_sell, 'amount']
-                scores.append(support_scores)
-                all_scores = pd.concat(scores)
-                if not all_scores.empty and all_scores.abs().sum() > 0:
-                    # 使用总成交额进行归一化
-                    total_day_amount = daily_series_for_day.get('amount', 0)
-                    if total_day_amount > 0:
-                        results['liquidity_authenticity_score'] = all_scores.sum() / total_day_amount
+            # 增加健壮性检查，确保所有需要的列都存在
+            required_join_cols = ['a1_v_pre', 'b1_v_pre', 'a1_p_post', 'a1_p_pre', 'a1_v_post', 'b1_p_post', 'b1_p_pre', 'b1_v_post']
+            if not all(col in merged_full.columns for col in required_join_cols):
+                print(f"调试信息: [{daily_series_for_day.name.date()}] 合并后的DataFrame缺少关键列，跳过流动性真实性评分计算。")
+                return results # 提前返回，因为后续计算会失败
+            merged_full.dropna(subset=required_join_cols, inplace=True)
+            if not merged_full.empty:
+                merged_full['is_buy_impact'] = (merged_full['type'] == 'B') & (merged_full['volume'] > 0.3 * merged_full['a1_v_pre'])
+                merged_full['is_sell_impact'] = (merged_full['type'] == 'S') & (merged_full['volume'] > 0.3 * merged_full['b1_v_pre'])
+                impact_ticks = merged_full[merged_full['is_buy_impact'] | merged_full['is_sell_impact']].copy()
+                scores = []
+                if not impact_ticks.empty:
+                    buy_impacts = impact_ticks[impact_ticks['is_buy_impact']]
+                    deception_mask_buy = (buy_impacts['a1_p_post'] == buy_impacts['a1_p_pre']) & (buy_impacts['a1_v_post'] >= 0.8 * buy_impacts['a1_v_pre'])
+                    deception_scores = -buy_impacts.loc[deception_mask_buy, 'amount']
+                    scores.append(deception_scores)
+                    sell_impacts = impact_ticks[impact_ticks['is_sell_impact']]
+                    support_mask_sell = (sell_impacts['b1_p_post'] == sell_impacts['b1_p_pre']) & (sell_impacts['b1_v_post'] >= 0.8 * sell_impacts['b1_v_pre'])
+                    support_scores = sell_impacts.loc[support_mask_sell, 'amount']
+                    scores.append(support_scores)
+                    all_scores = pd.concat(scores)
+                    if not all_scores.empty and all_scores.abs().sum() > 0:
+                        total_day_amount = daily_series_for_day.get('amount', 0)
+                        if total_day_amount > 0:
+                            results['liquidity_authenticity_score'] = all_scores.sum() / total_day_amount
         # 1. VWAP均值回归相关性
         if minute_df is not None and not minute_df.empty and 'minute_vwap' in minute_df.columns and len(minute_df) > 1:
             daily_vwap = (minute_df['amount'].sum() / minute_df['vol'].sum()) if minute_df['vol'].sum() > 0 else np.nan
