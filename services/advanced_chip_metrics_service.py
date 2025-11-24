@@ -225,16 +225,12 @@ class AdvancedChipMetricsService:
             else:
                 enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
             context_for_calc['intraday_data'] = enhanced_intraday_data
+            # [代码修改] 确保level5数据被正确且唯一地注入，并移除后续的覆盖操作
             if level5_data_map and date_obj in level5_data_map:
                 context_for_calc['realtime_data'] = level5_data_map[date_obj]
             else:
                 context_for_calc['realtime_data'] = pd.DataFrame()
-            calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
-            if realtime_data_map and date_obj in realtime_data_map:
-                context_for_calc['realtime_data'] = realtime_data_map[date_obj]
-            else:
-                context_for_calc['realtime_data'] = pd.DataFrame()
-            calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
+            # [代码修改] 移除冗余的实例化，只保留一次
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
             if daily_metrics:
