@@ -658,7 +658,7 @@ class AdvancedStructuralMetricsService:
             # 增加健壮性检查，确保所有需要的列都存在
             required_join_cols = ['a1_v_pre', 'b1_v_pre', 'a1_p_post', 'a1_p_pre', 'a1_v_post', 'b1_p_post', 'b1_p_pre', 'b1_v_post']
             if not all(col in merged_full.columns for col in required_join_cols):
-                print(f"调试信息: [{daily_series_for_day.name.date()}] 合并后的DataFrame缺少关键列，跳过流动性真实性评分计算。")
+                print(f"调试信息: [{daily_series_for_day.name}] 合并后的DataFrame缺少关键列，跳过流动性真实性评分计算。")
                 return results # 提前返回，因为后续计算会失败
             merged_full.dropna(subset=required_join_cols, inplace=True)
             if not merged_full.empty:
