@@ -163,8 +163,11 @@ class GeometricPatternService:
 
     def calculate_and_save_all_patterns(self, data_dfs: dict, start_date_str: str = None):
         """
-        【V2.19 · 多维情报增强版】执行所有几何形态的计算和存储，并融合全维度高级指标。
-        - V2.19 修正: 将信息增强后的 `enriched_df` 传递给平台计算函数，为其提供多维证据。
+        【V2.20 · 数据流净化版】执行所有几何形态的计算和存储，并融合全维度高级指标。
+        - V2.20 核心修复: 在所有计算的最上游，即 `df_daily` 从 `data_dfs` 提取后，
+                         立即对所有 `*_qfq` 和 `vol` 列进行强制数值类型转换。
+                         此举旨在从数据流的源头根治因 `Decimal` 对象类型导致的下游计算失败问题。
+        - V2.20 逻辑修复: 修正 `ta.atr` 的调用，使其明确使用 `*_qfq` 列，确保计算一致性。
         """
         print(f"[{self.stock_code}] [动态演化分析] 开始计算几何形态特征...")
         df_daily = data_dfs.get('daily_data')
@@ -173,10 +176,15 @@ class GeometricPatternService:
             return
         df_daily['trade_time'] = pd.to_datetime(df_daily['trade_time'])
         df_daily = df_daily.set_index('trade_time')
-        df_daily.ta.atr(length=14, append=True, col_names=('ATR_14_D',))
+        # [代码新增] 核心修复：在数据流源头强制转换核心列为数值类型
+        cols_to_convert = ['high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'vol']
+        for col in cols_to_convert:
+            if col in df_daily.columns:
+                df_daily[col] = pd.to_numeric(df_daily[col], errors='coerce')
+        # [代码修改] 逻辑修复：明确指定 ta.atr 使用 *_qfq 列
+        df_daily.ta.atr(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True, col_names=('ATR_14_D',))
         enriched_df = self._prepare_enriched_dataframe(df_daily)
         # 1. 计算平台特征 (传入信息增强的 enriched_df)
-        # 修改代码行：传入 enriched_df 而不是原始的 df_daily
         self._calculate_and_save_platforms(enriched_df, data_dfs)
         # 2. 计算趋势线矩阵并分析动态事件
         self._calculate_and_save_trendline_matrix_and_events(df_daily, data_dfs, start_date_str=start_date_str)
