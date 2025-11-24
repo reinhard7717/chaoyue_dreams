@@ -220,13 +220,12 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict):
         """
-        【V2.41 · 识别分类解耦版】识别、量化并存储矩形平台。
-        - 核心架构重构: 采用“一次识别，多次匹配”的两阶段新架构。
-          1. **识别阶段**: 使用基准参数，生成一份唯一的通用候选平台列表。
-          2. **分类阶段**: 遍历候选列表，对每个候选平台依次尝试匹配所有原型，
-                         一旦匹配成功即完成分类，避免重复和错漏。
+        【V2.42 · 公式修正版】识别、量化并存储矩形平台。
+        - 核心修复: 修正了布林带宽度（BBW）的计算公式，将除数从错误的
+                     宽度列自身（bbw_col）更正为正确的中轨列（bbm_col），
+                     解决了因此导致的 KeyError。
         """
-        print(f"  -> [V2.41 识别分类解耦] 启动...")
+        print(f"  -> [V2.42 公式修正] 启动...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
@@ -245,16 +244,16 @@ class GeometricPatternService:
             print(f"\n  -> [诊断失败] 输入的DataFrame缺少核心计算列。需要: {required_cols}。任务终止。")
             return
         df_copy.ta.adx(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True)
-        bbu_col, bbl_col, bbm_col, bbw_col = 'BBU_20_2.0', 'BBL_20_2.0', 'BBM_20_2.0', 'BBW_20_2.0'
-        bbands_results = ta.bbands(close=df_copy['close_qfq'], length=20, std=2.0, append=False)
+        bbu_col, bbl_col, bbm_col, bbw_col = 'BBU_21_2.0', 'BBL_21_2.0', 'BBM_21_2.0', 'BBW_21_2.0'
+        bbands_results = ta.bbands(close=df_copy['close_qfq'], length=21, std=2.0, append=False)
         if bbands_results is not None and not bbands_results.empty:
             df_copy = df_copy.join(bbands_results)
         if all(col in df_copy.columns for col in [bbu_col, bbl_col, bbm_col]):
-            df_copy[bbw_col] = (df_copy[bbu_col] - df_copy[bbl_col]) / df_copy[bbw_col]
+            # [代码修改] V2.42 修正BBW计算公式的除数
+            df_copy[bbw_col] = (df_copy[bbu_col] - df_copy[bbl_col]) / df_copy[bbm_col]
         else:
             print(f"  -> [计算失败] 布林带基础指标未能生成。任务终止。")
             return
-        # [代码修改] V2.41 阶段一：通用识别
         print(f"\n{'='*20} 阶段一: 通用平台识别 {'='*20}")
         baseline_archetype = self.platform_archetypes[0]
         print(f"  -> 使用基准原型 [{baseline_archetype.get('name', 'UNKNOWN')}] 的参数进行扫描...")
@@ -278,7 +277,6 @@ class GeometricPatternService:
             if not possible_end_dates.empty:
                 raw_candidates.append((start_date, possible_end_dates[0]))
         print(f"  -> 识别完成，共发现 {len(raw_candidates)} 个原始候选平台。")
-        # [代码修改] V2.41 阶段二：多原型分类
         print(f"\n{'='*20} 阶段二: 多原型分类与验证 {'='*20}")
         platforms_to_save = []
         saved_start_dates = set()
@@ -343,9 +341,9 @@ class GeometricPatternService:
                 else:
                     print(f"     - [REJECTED] 未能匹配。")
         found_count = len(platforms_to_save)
-        print(f"\n  -> [V2.41 识别分类解耦] 扫描完成，共发现 {found_count} 个有效平台。")
+        print(f"\n  -> [V2.42 公式修正] 扫描完成，共发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.41 识别分类解耦] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.42 公式修正] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
