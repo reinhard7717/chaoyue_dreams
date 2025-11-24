@@ -434,33 +434,50 @@ class GeometricPatternService:
 
     def _find_best_line_with_micro_validation(self, pivots: pd.DataFrame, price_col: str, full_df: pd.DataFrame, line_type: str, data_dfs: dict):
         """
-        【V2.11 · 终极性能版】从候选锚点中，通过三维立体评分体系，找出最终的“主战线”。
-        - V2.11 性能修复: 向量化了计算额外触及点的逻辑，移除了该函数中最后一个已知的
-                         iterrows() 性能瓶颈，彻底解决了计算卡死问题。
+        【V2.12 · 锚点剪枝版】通过启发式剪枝策略，从根本上解决组合爆炸导致的性能问题。
+        - V2.12 性能修复: 当候选锚点过多时，不再进行暴力组合。而是筛选出 "近期" + "极端"
+                         的锚点子集进行计算，将计算复杂度降低数个数量级，彻底解决卡死问题。
         """
         is_last_day_debug = (full_df.index.max() == data_dfs.get('daily_data').index.max())
         if is_last_day_debug:
             print(f"      [内部探针] 进入 _find_best_line... | 类型: {line_type}, 接收到锚点数: {len(pivots)}")
         if len(pivots) < 2: return None
+        # --- 以下是修改的代码块 ---
+        # 锚点剪枝策略，防止组合爆炸
+        MAX_PIVOTS_TO_COMBINE = 20 # 超过20个锚点就启动剪枝
+        NUM_RECENT_PIVOTS = 10
+        NUM_EXTREME_PIVOTS = 10
+        if len(pivots) > MAX_PIVOTS_TO_COMBINE:
+            recent_pivots = pivots.tail(NUM_RECENT_PIVOTS)
+            if line_type == 'support':
+                extreme_pivots = pivots.nsmallest(NUM_EXTREME_PIVOTS, price_col)
+            else: # resistance
+                extreme_pivots = pivots.nlargest(NUM_EXTREME_PIVOTS, price_col)
+            # 合并最重要的锚点，并去重
+            pivots_to_check = pd.concat([recent_pivots, extreme_pivots]).drop_duplicates()
+            if is_last_day_debug:
+                print(f"        [剪枝策略启动] 锚点数从 {len(pivots)} 减少到 {len(pivots_to_check)}")
+        else:
+            pivots_to_check = pivots
+        # --- 修改结束 ---
         best_line_info = None
         max_final_score = -1
         tick_map = data_dfs.get("stock_tick_data_map", {})
-        for p1_idx, p2_idx in combinations(pivots.index, 2):
-            p1 = pivots.loc[p1_idx]
-            p2 = pivots.loc[p2_idx]
+        # 修改代码行：在精简后的锚点集上进行组合
+        for p1_idx, p2_idx in combinations(pivots_to_check.index, 2):
+            p1 = pivots_to_check.loc[p1_idx]
+            p2 = pivots_to_check.loc[p2_idx]
             if p1['time_idx'] == p2['time_idx']: continue
             m = (p2[price_col] - p1[price_col]) / (p2['time_idx'] - p1['time_idx'])
             c = p1[price_col] - m * p1['time_idx']
-            # --- 以下是修改的代码块 ---
             touch_points_indices = {p1_idx, p2_idx}
-            all_other_pivots = pivots.drop(index=[p1_idx, p2_idx])
-            # 使用向量化操作替代 for 循环来寻找额外的触及点
+            # 修改代码行：在精简后的锚点集上进行检查
+            all_other_pivots = pivots_to_check.drop(index=[p1_idx, p2_idx])
             if not all_other_pivots.empty:
                 predicted_prices = m * all_other_pivots['time_idx'] + c
                 errors = np.abs(all_other_pivots[price_col] - predicted_prices) / all_other_pivots[price_col]
                 additional_touches = all_other_pivots[errors < 0.015].index
                 touch_points_indices.update(additional_touches)
-            # --- 修改结束 ---
             duration = (p2_idx - p1_idx).days
             duration_score = np.log1p(duration) / np.log1p(90)
             geometric_score = (np.log1p(len(touch_points_indices)) / np.log1p(10)) * 0.7 + duration_score * 0.3
