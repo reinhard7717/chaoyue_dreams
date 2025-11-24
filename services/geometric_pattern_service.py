@@ -212,13 +212,15 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, bbw_quantile: float = 0.25, potential_threshold: float = 0.6, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
         """
-        【V2.34 · 核心诊断探针版】识别、量化并存储矩形平台。
-        - 核心修改: 移除所有旧探针，并在 BBands 计算前植入一个高度详细的诊断探针，
-                     同时使用 try-except 块捕获并打印来自 pandas_ta 库的原始异常信息，
-                     旨在对核心故障点进行最终的、决定性的诊断。
+        【V2.35 · 终极数据净化版】识别、量化并存储矩形平台。
+        - 核心修复: 锁定 pandas_ta.bbands 存在处理带 DatetimeIndex 的 Series 的潜在Bug。
+                     为彻底规避此问题，在调用函数时，不再传入Pandas Series，而是传入
+                     其最纯粹的 .values (NumPy数组)。计算返回后，再手动将原始索引
+                     重新赋给结果DataFrame，确保数据对齐和合并的正确性。
+                     此举从根源上杜绝了库函数内部任何与索引相关的异常行为。
         """
         import traceback
-        print(f"  -> [V2.34 核心诊断] 正在识别和量化矩形平台...")
+        print(f"  -> [V2.35 终极净化] 正在识别和量化矩形平台...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
@@ -239,29 +241,17 @@ class GeometricPatternService:
             print("  -> [计算失败] ADX 指标未能成功生成。任务终止。")
             return
         print("  -> [计算成功] ADX 指标已生成。")
-        # [代码新增] 植入全新的 BBANDS 核心诊断探针
-        print("\n" + "="*30 + " [BBANDS 输入数据深度诊断] " + "="*30)
-        close_series_for_bbands = df_copy['close_qfq']
-        print(f"  -> 输入Series类型: {type(close_series_for_bbands)}")
-        print(f"  -> 数据类型 (dtype): {close_series_for_bbands.dtype}")
-        print(f"  -> 数据点总数 (length): {len(close_series_for_bbands)}")
-        print(f"  -> 空值 (NaN) 数量: {close_series_for_bbands.isnull().sum()}")
-        print(f"  -> 无穷大 (inf) 值数量: {np.isinf(close_series_for_bbands).sum()}")
-        print("  -> 统计描述 (describe):")
-        print(close_series_for_bbands.describe().to_string())
-        print("  -> 头部5行数据:")
-        print(close_series_for_bbands.head(5).to_string())
-        print("  -> 尾部5行数据:")
-        print(close_series_for_bbands.tail(5).to_string())
-        print("="*80 + "\n")
         print("  -> [探针式计算] 正在尝试计算 BBands...")
         try:
-            bbands_results = ta.bbands(close=close_series_for_bbands, length=20, std=2.0, append=False)
+            close_series_for_bbands = df_copy['close_qfq']
+            # [代码修改] V2.35 终极修复：传入纯NumPy数组以规避pandas_ta的索引处理BUG
+            bbands_results = ta.bbands(close=close_series_for_bbands.values, length=20, std=2.0, append=False)
             if bbands_results is not None and not bbands_results.empty:
+                # [代码新增] V2.35 关键步骤：将原始索引重新赋给计算结果
+                bbands_results.index = df_copy.index
                 df_copy = df_copy.join(bbands_results)
             else:
-                # 如果返回为空也视为失败
-                raise ValueError("pandas_ta.bbands 返回了空结果 (None 或 empty DataFrame)。")
+                raise ValueError("pandas_ta.bbands 静默失败，返回了空结果 (None 或 empty DataFrame)。")
         except Exception as e:
             print(f"  -> [计算异常捕获] BBands 计算过程中遭遇致命错误！")
             print(f"  -> 原始异常类型: {type(e).__name__}")
@@ -271,7 +261,7 @@ class GeometricPatternService:
             print("  -> 任务终止。")
             return
         if 'BBW_20_2.0' not in df_copy.columns:
-            print("  -> [计算失败] 布林带宽度(BBW) 指标未能成功生成，但未捕获到异常。请检查上游逻辑。任务终止。")
+            print("  -> [计算失败] 布林带宽度(BBW) 指标未能成功生成，即使在捕获异常后。请检查上游逻辑。任务终止。")
             return
         print("  -> [计算成功] 所有核心指标均已成功生成。继续执行平台识别...")
         is_low_trend = df_copy['ADX_14'] < adx_threshold
@@ -337,9 +327,9 @@ class GeometricPatternService:
                 }
                 platforms_to_save.append(platform_data)
         found_count = len(platforms_to_save)
-        print(f"  -> [V2.34 核心诊断] 发现 {found_count} 个有效平台。")
+        print(f"  -> [V2.35 终极净化] 发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.34 核心诊断] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.35 终极净化] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
