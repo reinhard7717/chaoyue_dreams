@@ -614,12 +614,10 @@ class AdvancedStructuralMetricsService:
 
     def _calculate_microstructure_metrics(self, tick_df: pd.DataFrame, level5_df: pd.DataFrame, realtime_df: pd.DataFrame, minute_df: pd.DataFrame, total_volume: float, group: pd.DataFrame, daily_series_for_day: pd.Series, atr_14: float) -> dict:
         """
-        【V19.3 · 职责集中重构版】
-        - 核心重构: 将 active_volume_price_efficiency, absorption_strength_index, distribution_pressure_index 的计算逻辑从 _calculate_daily_structural_metrics 移入此方法。
-        - 核心目标: 使此方法成为所有基于Tick/Level5数据的微观指标的唯一计算中心，从根本上解决因逻辑分散导致的数据流问题。
-        - 核心修正: 扫单算法维持V19.2的重构版本。
+        【V21.3 · 合并逻辑修正版】
+        - 核心修复: 修正 `pd.merge_asof` 的使用逻辑。移除无效的 `suffixes` 参数，改为在合并后手动重命名列以添加 `_pre` 和 `_post` 后缀，从根本上解决“合并后的DataFrame缺少关键列”的问题。
         """
-        from scipy.stats import norm
+        from scipy.stats import norm, linregress
         results = {
             'order_flow_imbalance_score': np.nan,
             'buy_sweep_intensity': np.nan,
@@ -629,12 +627,13 @@ class AdvancedStructuralMetricsService:
             'active_volume_price_efficiency': np.nan,
             'absorption_strength_index': np.nan,
             'distribution_pressure_index': np.nan,
-            'market_impact_cost': np.nan, # [代码新增]
-            'liquidity_slope': np.nan, # [代码新增]
+            'market_impact_cost': np.nan,
+            'liquidity_slope': np.nan,
             'liquidity_authenticity_score': np.nan,
         }
-        if tick_df is None or tick_df.empty or total_volume == 0:
+        if tick_df is None or tick_df.empty or level5_df is None or level5_df.empty or total_volume == 0:
             return results
+        # --- 意图与执行交叉验证：流动性真实性评分 ---
         level5_df_renamed = level5_df.copy()
         column_rename_map = {
             **{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)},
@@ -643,23 +642,32 @@ class AdvancedStructuralMetricsService:
             **{f'sell_volume{i}': f'a{i}_v' for i in range(1, 6)},
         }
         level5_df_renamed.rename(columns=column_rename_map, inplace=True)
-        # --- 意图与执行交叉验证：流动性真实性评分 ---
-        # 1. 数据准备：将tick与前后level5快照对齐
         tick_df_sorted = tick_df.sort_index()
-        # [代码修改] 使用重命名后的DataFrame进行排序和合并
         level5_df_sorted = level5_df_renamed.sort_index()
-        merged_before = pd.merge_asof(tick_df_sorted, level5_df_sorted, on='trade_time', direction='backward', suffixes=('_tick', '_pre'))
-        merged_after = pd.merge_asof(tick_df_sorted, level5_df_sorted, on='trade_time', direction='forward', suffixes=('_tick', '_post'))
+        # [代码修改] 重构合并逻辑，确保 _pre 和 _post 后缀被正确添加
+        level5_cols = list(column_rename_map.values())
+        # 1. 合并获取 tick 发生前的 level5 状态
+        merged_before = pd.merge_asof(tick_df_sorted, level5_df_sorted, on='trade_time', direction='backward')
+        rename_map_pre = {col: f"{col}_pre" for col in level5_cols if col in merged_before.columns}
+        merged_before.rename(columns=rename_map_pre, inplace=True)
+        # 2. 合并获取 tick 发生后的 level5 状态
+        merged_after = pd.merge_asof(tick_df_sorted, level5_df_sorted, on='trade_time', direction='forward')
+        rename_map_post = {col: f"{col}_post" for col in level5_cols if col in merged_after.columns}
+        merged_after.rename(columns=rename_map_post, inplace=True)
+        # 3. 将 "after" 状态的数据合并到 "before" 状态的数据中
+        merged_full = pd.DataFrame()
         if not merged_before.empty and not merged_after.empty:
             merged_before.set_index('trade_time', inplace=True)
             merged_after.set_index('trade_time', inplace=True)
-            cols_to_join = [col for col in merged_after.columns if '_post' in col]
+            post_cols = list(rename_map_post.values())
+            # 确保只合并需要的列，避免重复
+            cols_to_join = [col for col in post_cols if col in merged_after.columns]
             merged_full = merged_before.join(merged_after[cols_to_join])
-            # 增加健壮性检查，确保所有需要的列都存在
+        if not merged_full.empty:
             required_join_cols = ['a1_v_pre', 'b1_v_pre', 'a1_p_post', 'a1_p_pre', 'a1_v_post', 'b1_p_post', 'b1_p_pre', 'b1_v_post']
             if not all(col in merged_full.columns for col in required_join_cols):
                 print(f"调试信息: [{daily_series_for_day.name}] 合并后的DataFrame缺少关键列，跳过流动性真实性评分计算。")
-                return results # 提前返回，因为后续计算会失败
+                return results
             merged_full.dropna(subset=required_join_cols, inplace=True)
             if not merged_full.empty:
                 merged_full['is_buy_impact'] = (merged_full['type'] == 'B') & (merged_full['volume'] > 0.3 * merged_full['a1_v_pre'])

@@ -918,9 +918,8 @@ class ChipFeatureCalculator:
 
     def _compute_realtime_orderbook_metrics(self, context: dict) -> dict:
         """
-        【V2.0 · 战术清洗分析版】
-        - 核心重构: 深化 `floating_chip_cleansing_efficiency` 的计算逻辑，引入 V型恢复度、成本效益、主力参与度三大核心因子。
-        - 核心思想: 一次高质量的浮筹清洗，应具备“跌得快、收得回、成本低、主力在承接”的特征。
+        【V2.1 · 类型兼容性修复版】
+        - 核心修复: 在计算前，将所有价格和成交量列强制转换为float类型，避免 'float' 和 'decimal.Decimal' 混合运算导致的 TypeError。
         """
         results = {
             'mf_cost_zone_defense_intent': np.nan,
@@ -933,6 +932,12 @@ class ChipFeatureCalculator:
         if not all(col in realtime_df.columns for col in required_cols):
             logger.warning(f"[{context.get('stock_code')}] [{context.get('trade_date')}] 实时盘口指标计算跳过，因缺少必要的五档行情列。")
             return results
+        # [代码新增] 核心修复：在计算前，将所有价格和成交量列强制转换为float类型，
+        # 避免 'float' 和 'decimal.Decimal' 混合运算导致的 TypeError。
+        numeric_cols = [f'{prefix}{i}_{suffix}' for prefix in ['b', 'a'] for i in range(1, 6) for suffix in ['p', 'v']]
+        for col in numeric_cols:
+            if col in realtime_df.columns:
+                realtime_df[col] = pd.to_numeric(realtime_df[col], errors='coerce')
         dominant_peak_cost = context.get('dominant_peak_cost')
         atr = context.get('atr_14d')
         # --- 1. 主力成本区攻防意图 (逻辑不变) ---
@@ -953,7 +958,6 @@ class ChipFeatureCalculator:
                 ask_power_series += realtime_df.loc[in_zone_mask, p_col] * realtime_df.loc[in_zone_mask, v_col] * 100
             total_power = bid_power_series + ask_power_series
             instant_intent = (bid_power_series - ask_power_series) / total_power.replace(0, np.nan)
-            # [代码修改] 检查realtime_df中是否有'volume'列，因为level5数据可能没有
             if 'volume' in realtime_df.columns and not instant_intent.dropna().empty:
                 weights = realtime_df['volume'].diff().fillna(0).clip(lower=0)
                 if weights.sum() > 0:
@@ -965,12 +969,11 @@ class ChipFeatureCalculator:
         if intraday_df is None or intraday_df.empty or pd.isna(atr) or atr <= 0 or pd.isna(total_daily_volume) or total_daily_volume <= 0:
             return results
         intraday_df['price_impulse'] = intraday_df['close'].diff().abs()
-        impulse_threshold = 0.5 * atr / 240 # 脉冲阈值调整为更灵敏
+        impulse_threshold = 0.5 * atr / 240
         impulse_events = intraday_df[intraday_df['price_impulse'] > impulse_threshold]
         if not impulse_events.empty:
             cleansing_scores = []
             for event_time, event_row in impulse_events.iterrows():
-                # 只分析向下的脉冲作为清洗事件
                 if event_row['close'] >= event_row['open']:
                     continue
                 impulse_window_start = event_time - pd.Timedelta(minutes=1)
@@ -980,35 +983,29 @@ class ChipFeatureCalculator:
                 recovery_df = intraday_df.loc[impulse_window_end:recovery_window_end]
                 if impulse_df.empty or recovery_df.empty:
                     continue
-                # 因子1: V型恢复得分
                 price_start = event_row['open']
                 price_trough = impulse_df['low'].min()
                 price_recovery_end = recovery_df['close'].iloc[-1]
                 price_drop = price_start - price_trough
                 if price_drop <= 0: continue
                 recovery_score = (price_recovery_end - price_trough) / price_drop
-                recovery_score = np.clip(recovery_score, 0, 1.5) # 允许超调，但设置上限
-                # 因子2: 成本效益得分
+                recovery_score = np.clip(recovery_score, 0, 1.5)
                 volume_during_impulse = impulse_df['vol_shares'].sum()
                 normalized_volume_cost = volume_during_impulse / total_daily_volume
                 normalized_price_impact = price_drop / atr
                 if normalized_volume_cost <= 0: continue
                 cost_effectiveness_score = normalized_price_impact / normalized_volume_cost
-                # 因子3: 主力参与得分
                 mf_participation_score = 0.0
                 if 'main_force_net_vol' in impulse_df.columns:
                     mf_net_vol_impulse = impulse_df['main_force_net_vol'].sum()
-                    # 清洗行为中，主力应该是承接方，因此净流入为正
                     mf_participation_score = np.tanh(mf_net_vol_impulse / volume_during_impulse) if volume_during_impulse > 0 else 0
-                # 综合评分
                 final_event_score = recovery_score * np.log1p(cost_effectiveness_score) * (1 + mf_participation_score)
                 cleansing_scores.append({'score': final_event_score, 'volume': volume_during_impulse})
             if cleansing_scores:
                 scores_df = pd.DataFrame(cleansing_scores)
                 if scores_df['volume'].sum() > 0:
-                    # 使用成交量加权平均
                     weighted_avg_score = np.average(scores_df['score'], weights=scores_df['volume'])
-                    results['floating_chip_cleansing_efficiency'] = np.clip(weighted_avg_score * 10, -100, 100) # 放大并裁剪
+                    results['floating_chip_cleansing_efficiency'] = np.clip(weighted_avg_score * 10, -100, 100)
         return results
 
 
