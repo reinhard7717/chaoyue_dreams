@@ -770,10 +770,10 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.12 · 数据管道修复版】
-    - 核心修复: 补全了对 fund_flow_service._synthesize_and_forge_metrics 方法调用时
-                 缺失的 `realtime_data_map` 参数，确保实时盘口数据能被正确传递，
-                 修复依赖此数据的下游指标计算。
+    【V34.13 · 种子逻辑修复版】
+    - 核心修复: 修复了在“上下文播种”逻辑中因遗漏调用资金流计算引擎
+                 `_synthesize_and_forge_metrics` 而导致的 `NameError`。
+                 通过补全此调用，确保 `seed_ff_minute_map` 变量在使用前被正确定义。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -897,6 +897,20 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"]}
                 fund_flow_service.debug_params = debug_params
                 seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=seed_base_daily_df)
+                # [代码修改] V34.13 补全缺失的资金流计算步骤，以正确生成 seed_ff_minute_map
+                fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(
+                    stock_info, seed_ff_raw_df.index, 
+                    tick_data_map=seed_data_dfs.get("stock_tick_data_map"), 
+                    level5_data_map=seed_data_dfs.get("stock_level5_data_map"), 
+                    minute_data_map=seed_data_dfs.get("stock_minute_data_map")
+                )
+                _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(
+                    stock_code, seed_ff_raw_df, 
+                    tick_data_map=seed_data_dfs.get("stock_tick_data_map"), 
+                    level5_data_map=seed_data_dfs.get("stock_level5_data_map"), 
+                    minute_data_map=seed_data_dfs.get("stock_minute_data_map"),
+                    realtime_data_map=seed_data_dfs.get("stock_realtime_data_map")
+                )
                 seed_ff_minute_map_for_chip_service = copy.deepcopy(seed_ff_minute_map)
                 seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "cyq_perf": seed_data_dfs["cyq_perf"]}
                 seed_chip_raw_df = chip_service._preprocess_and_merge_data(
@@ -904,7 +918,13 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
                 )
                 seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max(), tick_data_map=seed_data_dfs["stock_tick_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
-                _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map_for_chip_service, memory={}, historical_components=historical_components_df, debug_params=debug_params, tick_data_map=seed_data_dfs["stock_tick_data_map"])
+                _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(
+                    stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map_for_chip_service, 
+                    memory={}, historical_components=historical_components_df, debug_params=debug_params, 
+                    tick_data_map=seed_data_dfs.get("stock_tick_data_map"),
+                    realtime_data_map=seed_data_dfs.get("stock_realtime_data_map"),
+                    level5_data_map=seed_data_dfs.get("stock_level5_data_map")
+                )
             else:
                 logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
@@ -953,7 +973,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(
                 stock_info, fund_flow_raw_df.index, tick_data_map=tick_data_map, level5_data_map=level5_data_map, minute_data_map=minute_data_map
             )
-            # [代码修改] V34.12 补全缺失的 realtime_data_map 参数
             fund_flow_metrics_df, fund_flow_attributed_minute_map, ff_failures = fund_flow_service._synthesize_and_forge_metrics(
                 stock_code, fund_flow_raw_df, tick_data_map=tick_data_map, level5_data_map=level5_data_map, minute_data_map=minute_data_map, realtime_data_map=realtime_data_map
             )
