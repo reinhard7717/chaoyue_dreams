@@ -280,56 +280,69 @@ class GeometricPatternService:
 
     def _calculate_and_save_trendline_matrix_and_events(self, df_daily: pd.DataFrame, data_dfs: dict):
         """
-        【V2.4 · 精细化门槛版】为给定的全部历史时段，逐日生成趋势线矩阵，并进行全周期动态分析。
-        - V2.4 修复: 移除了过于严格的全局数据量检查。改为动态地、逐周期地判断数据是否充足，
-                     允许在总数据量不足以计算长周期趋势线时，仍然能够计算并保存短周期的趋势线。
+        【V2.16 · 增量计算版】为给定的全部历史时段，逐日生成趋势线矩阵，并进行全周期动态分析。
+        - V2.16 性能优化: 引入增量计算机制。不再每次都全量回溯，而是只计算自上次更新
+                         以来的新增交易日数据，大幅提升后续运行效率。
         """
-        print(f"  -> [历史回溯引擎] 开始为 {df_daily.index.min().date()} 至 {df_daily.index.max().date()} 生成趋势线矩阵...")
+        print(f"  -> [增量回溯引擎] 开始检查并计算新的趋势线矩阵...")
         df_daily = df_daily.sort_index(ascending=True)
-        all_matrix_records = []
-        # --- 以下是修改的代码块 ---
-        # 移除全局的 min_lookback_days 和 if len(df_daily) < min_lookback_days 检查。
-        # 循环应该遍历所有可用的日期，数据是否充足的判断将在 _compute_trendline_matrix_for_day 内部进行。
-        if df_daily.empty:
-            print("    -> [历史回溯引擎] 日线数据为空，跳过矩阵计算。")
+        # 1. 确定需要开始计算的日期
+        last_record = self.mtt_model.objects.filter(stock=self.stock_instance).order_by('-trade_date').first()
+        start_process_date = None
+        if last_record:
+            # 从最后记录的下一天开始处理
+            start_process_date = pd.to_datetime(last_record.trade_date) + pd.Timedelta(days=1)
+        else:
+            # 如果没有记录，从头开始
+            start_process_date = df_daily.index.min()
+        # 筛选出需要处理的日期
+        df_to_process = df_daily[df_daily.index >= start_process_date]
+        if df_to_process.empty:
+            print("  -> [增量回溯引擎] 数据已是最新，无需计算。")
             return
-        for current_date in df_daily.index:
-            # _compute_trendline_matrix_for_day 内部会对每个 period 进行独立的数据量检查
+        print(f"  -> [增量回溯引擎] 将处理从 {df_to_process.index.min().date()} 到 {df_to_process.index.max().date()} 的 {len(df_to_process)} 个新交易日。")
+        # 2. 仅对新日期进行计算
+        new_matrix_records = []
+        for current_date in df_to_process.index:
             daily_matrix_records = self._compute_trendline_matrix_for_day(current_date, df_daily, data_dfs)
-            all_matrix_records.extend(daily_matrix_records)
-        # --- 修改结束 ---
-        if not all_matrix_records:
-            print("  -> [历史回溯引擎] 未生成任何新的趋势线矩阵记录。")
+            new_matrix_records.extend(daily_matrix_records)
+        if not new_matrix_records:
+            print("  -> [增量回溯引擎] 未生成任何新的趋势线矩阵记录。")
             return
-        self._save_trendline_matrix(all_matrix_records)
-        print(f"  -> [历史回溯引擎] 批量保存了 {len(all_matrix_records)} 条趋势线矩阵记录。")
+        # 3. 存储新生成的记录
+        self._save_trendline_matrix_incrementally(new_matrix_records)
+        print(f"  -> [增量回溯引擎] 批量保存了 {len(new_matrix_records)} 条新的趋势线矩阵记录。")
+        # 4. 进行增量动态分析
         matrix_qs = self.mtt_model.objects.filter(stock=self.stock_instance).order_by('trade_date').values()
         matrix_df = pd.DataFrame.from_records(matrix_qs)
         if matrix_df.empty:
-            print("  -> [历史回溯引擎] 加载完整矩阵失败，跳过动态分析。")
+            print("  -> [增量回溯引擎] 加载完整矩阵失败，跳过动态分析。")
             return
         matrix_df['trade_date'] = pd.to_datetime(matrix_df['trade_date'])
-        dynamic_events = self._analyze_matrix_dynamics(matrix_df)
-        self._save_trendline_events(dynamic_events)
+        # 修改代码行：调用新的增量分析方法
+        dynamic_events = self._analyze_matrix_dynamics(matrix_df, start_analysis_date=start_process_date)
+        self._save_trendline_events_incrementally(dynamic_events)
 
-    def _analyze_matrix_dynamics(self, matrix_df: pd.DataFrame) -> list:
+    def _analyze_matrix_dynamics(self, matrix_df: pd.DataFrame, start_analysis_date: pd.Timestamp = None) -> list:
         """
-        【V2.7 · JSON净化版】分析趋势线矩阵的时间序列，识别动态事件，并对结果进行净化。
-        - V2.7 修复: 在生成每个事件的 details 字典后，调用 _sanitize_json_dict 方法进行净化，
-                     将 NaN/Infinity 等非法值替换为 None，解决数据库JSON存储错误。
-        - V2.7 修复: 修正了事件日期被错误记录为最后一天的BUG，现在正确记录为事件发生的当天。
+        【V2.16 · 增量分析版】分析趋势线矩阵的时间序列，识别动态事件。
+        - V2.16 性能优化: 新增 start_analysis_date 参数，使得事件检测循环可以跳过
+                         无需重复分析的历史数据，实现高效的增量分析。
         """
         if matrix_df.empty or len(matrix_df['trade_date'].unique()) < 2:
             return []
         print(f"    -> [战场AI参谋] 开始分析趋势线矩阵动态...")
-        final_events = [] # 修改代码行：直接构建最终的事件列表
+        final_events = []
         matrix_wide_df = matrix_df.pivot_table(
             index='trade_date',
             columns=['period', 'line_type'],
             values=['slope', 'intercept', 'validity_score']
         ).sort_index()
         matrix_wide_df.columns = ['_'.join(map(str, col)) for col in matrix_wide_df.columns.values]
-        for trade_date, today_row in matrix_wide_df.iterrows():
+        # 修改代码行：获取用于循环的DataFrame切片
+        analysis_df = matrix_wide_df[matrix_wide_df.index >= start_analysis_date] if start_analysis_date else matrix_wide_df
+        for trade_date, today_row in analysis_df.iterrows():
+            # 使用完整的 matrix_wide_df 来安全地获取前一天的数据
             yesterday_row = matrix_wide_df.loc[:trade_date].iloc[-2] if len(matrix_wide_df.loc[:trade_date]) > 1 else None
             if yesterday_row is None: continue
             # A. 拐点分析
@@ -355,14 +368,89 @@ class GeometricPatternService:
                             'stock': self.stock_instance, 'event_date': trade_date.date(),
                             'event_type': event_type, 'details': self._sanitize_json_dict(details)
                         })
-            # B. 交叉分析
+            # B. 交叉分析: 量化多空力量的战略性逆转，而非简单的几何相交
             for short_p, long_p in combinations(self.fib_periods, 2):
-                # ... (此处省略交叉分析的详细代码，其内部也应在构建details后调用净化函数)
-                pass # 假设交叉分析逻辑不变，但其结果也需要净化
-            # C. 共振与背离分析
-            # ... (此处省略共振分析的详细代码)
-            pass
-            # D. 通道压缩分析
+                if short_p >= long_p: continue # 确保 short_p < long_p
+                # 提取长短周期、今日昨日的四条线数据
+                sup_s_t, int_s_t = today_row.get(f'slope_{short_p}_support'), today_row.get(f'intercept_{short_p}_support')
+                sup_l_t, int_l_t = today_row.get(f'slope_{long_p}_support'), today_row.get(f'intercept_{long_p}_support')
+                sup_s_y, int_s_y = yesterday_row.get(f'slope_{short_p}_support'), yesterday_row.get(f'intercept_{short_p}_support')
+                sup_l_y, int_l_y = yesterday_row.get(f'slope_{long_p}_support'), yesterday_row.get(f'intercept_{long_p}_support')
+                # 确保所有数据都有效
+                if not all(pd.notna(v) for v in [sup_s_t, int_s_t, sup_l_t, int_l_t, sup_s_y, int_s_y, sup_l_y, int_l_y]):
+                    continue
+                # 检查是否发生交叉 (今天的位置关系与昨天相反)
+                pos_today = (sup_s_t - sup_l_t) * time_idx + (int_s_t - int_l_t)
+                pos_yesterday = (sup_s_y - sup_l_y) * (time_idx - 1) + (int_s_y - int_l_y)
+                if np.sign(pos_today) != np.sign(pos_yesterday):
+                    event_type = None
+                    # 计算交叉角度 (角度越大，信号越强)
+                    angle_short = np.degrees(np.arctan(sup_s_t))
+                    angle_long = np.degrees(np.arctan(sup_l_t))
+                    intersection_angle = abs(angle_short - angle_long)
+                    # 计算收敛速度 (正值表示加速收敛)
+                    gap_yesterday = abs(((sup_s_y - sup_l_y) * (time_idx - 1) + (int_s_y - int_l_y)))
+                    convergence_rate = gap_yesterday # 今天gap为0，速率即为昨天的距离
+                    details = {
+                        'periods': f'{short_p}v{long_p}',
+                        'angle': intersection_angle,
+                        'convergence_rate': convergence_rate
+                    }
+                    if pos_today > 0: # 短期线上穿长期线 -> 金叉
+                        event_type = 'CROSS_GOLDEN_DECISIVE' if intersection_angle > 20 else 'CROSS_GOLDEN_TENTATIVE'
+                    else: # 短期线下穿长期线 -> 死叉
+                        event_type = 'CROSS_DEATH_DECISIVE' if intersection_angle > 20 else 'CROSS_DEATH_TENTATIVE'
+                    if event_type:
+                        final_events.append({
+                            'stock': self.stock_instance, 'event_date': trade_date.date(),
+                            'event_type': event_type, 'details': self._sanitize_json_dict(details)
+                        })
+            # C. 共振与背离分析: 量化多周期“合力”与“力竭”的结构性信号
+            all_periods_slopes = {p: today_row.get(f'slope_{p}_support') for p in self.fib_periods}
+            valid_slopes = {p: s for p, s in all_periods_slopes.items() if pd.notna(s)}
+            if len(valid_slopes) >= 3: # 至少需要3个周期的数据才有分析意义
+                slopes_series = pd.Series(valid_slopes)
+                # 1. 共振分析
+                concordance_score = ((slopes_series > 0).sum() / len(slopes_series)) # 多头方向协同度
+                cohesion_score = 1 / (1 + slopes_series.std()) # 强度凝聚度 (标准差越小，得分越高)
+                event_type = None
+                details = {'concordance': concordance_score, 'cohesion': cohesion_score}
+                if concordance_score >= 0.8 and cohesion_score >= 0.8:
+                    event_type = 'RESONANCE_BULLISH_STRONG' # 强烈多头共振
+                elif concordance_score <= 0.2 and cohesion_score >= 0.8:
+                    event_type = 'RESONANCE_BEARISH_STRONG' # 强烈空头共振
+                if event_type:
+                    final_events.append({
+                        'stock': self.stock_instance, 'event_date': trade_date.date(),
+                        'event_type': event_type, 'details': self._sanitize_json_dict(details)
+                    })
+                # 2. 背离分析 (A股市场的精髓)
+                short_term_periods = [p for p in valid_slopes.keys() if p < 21]
+                long_term_periods = [p for p in valid_slopes.keys() if p >= 21]
+                if short_term_periods and long_term_periods:
+                    short_term_slope_mean = slopes_series[short_term_periods].mean()
+                    long_term_slope_mean = slopes_series[long_term_periods].mean()
+                    # 获取昨日斜率以判断变化
+                    yesterday_slopes_series = pd.Series({p: yesterday_row.get(f'slope_{p}_support') for p in valid_slopes.keys()})
+                    short_term_slope_change = short_term_slope_mean - yesterday_slopes_series[short_term_periods].mean()
+                    event_type = None
+                    details = {
+                        'short_term_slope': short_term_slope_mean,
+                        'long_term_slope': long_term_slope_mean,
+                        'short_term_momentum': short_term_slope_change
+                    }
+                    # 顶背离: 长线向上，短线动能衰竭
+                    if long_term_slope_mean > 0.005 and short_term_slope_mean > 0 and short_term_slope_change < -0.001:
+                        event_type = 'DIVERGENCE_BEARISH_TOP'
+                    # 底背离: 长线向下，短线止跌企稳
+                    elif long_term_slope_mean < -0.005 and short_term_slope_mean < 0 and short_term_slope_change > 0.001:
+                        event_type = 'DIVERGENCE_BULLISH_BOTTOM'
+                    if event_type:
+                        final_events.append({
+                            'stock': self.stock_instance, 'event_date': trade_date.date(),
+                            'event_type': event_type, 'details': self._sanitize_json_dict(details)
+                        })
+            # D. 通道压缩分析 (逻辑不变, 依然使用完整的 matrix_wide_df 获取历史分位数)
             if len(self.fib_periods) > 0:
                 median_period_index = len(self.fib_periods) // 2
                 period = self.fib_periods[median_period_index]
@@ -373,14 +461,14 @@ class GeometricPatternService:
                     channel_width = (res_slope * time_idx + res_intc) - (sup_slope * time_idx + sup_intc)
                     historical_widths = (matrix_wide_df[f'slope_{period}_resistance'] * np.arange(len(matrix_wide_df)) + matrix_wide_df[f'intercept_{period}_resistance']) - \
                                         (matrix_wide_df[f'slope_{period}_support'] * np.arange(len(matrix_wide_df)) + matrix_wide_df[f'intercept_{period}_support'])
-                    squeeze_threshold = historical_widths.rolling(250, min_periods=50).quantile(0.1).iloc[-1]
+                    squeeze_threshold = historical_widths.rolling(250, min_periods=50).quantile(0.1).loc[trade_date]
                     if not np.isnan(squeeze_threshold) and channel_width < squeeze_threshold:
                         details = {'period': period, 'width': channel_width, 'threshold': squeeze_threshold}
                         final_events.append({
                             'stock': self.stock_instance, 'event_date': trade_date.date(),
                             'event_type': 'COMPRESSION_SQUEEZE', 'details': self._sanitize_json_dict(details)
                         })
-        print(f"    -> [战场AI参谋] 分析完毕，共发现 {len(final_events)} 个潜在动态事件。")
+        print(f"    -> [战场AI参谋] 分析完毕，共发现 {len(final_events)} 个新的动态事件。")
         return final_events
 
     def _compute_trendline_matrix_for_day(self, current_date: pd.Timestamp, df_daily: pd.DataFrame, data_dfs: dict) -> list:
@@ -791,25 +879,6 @@ class GeometricPatternService:
         }
         return final_probability, features
 
-    def _save_trendline_matrix(self, records: list):
-        """持久化存储趋势线矩阵。"""
-        if not records: return
-        print(f"  -> [趋势线矩阵] 正在保存 {len(records)} 条记录...")
-        # 先删除当天的旧数据，确保幂等性
-        today = records[0]['trade_date']
-        self.mtt_model.objects.filter(stock=self.stock_instance, trade_date=today).delete()
-        instances = [self.mtt_model(**rec) for rec in records]
-        self.mtt_model.objects.bulk_create(instances)
-
-    def _save_trendline_events(self, events: list):
-        """持久化存储趋势线动态事件。"""
-        if not events: return
-        print(f"  -> [趋势线事件] 正在保存 {len(events)} 个事件...")
-        today = events[0]['event_date']
-        self.event_model.objects.filter(stock=self.stock_instance, event_date=today).delete()
-        instances = [self.event_model(**evt) for evt in events]
-        self.event_model.objects.bulk_create(instances)
-
     def _calculate_zigzag(self, df: pd.DataFrame, threshold: float = 0.05) -> pd.Series:
         """
         【V2.9 · Numba JIT 包装器】调用 Numba 加速的 Zigzag 实现，并将其结果包装为 Pandas Series。
@@ -846,4 +915,17 @@ class GeometricPatternService:
                 clean_data[key] = value
         return clean_data
 
+    def _save_trendline_matrix_incrementally(self, records: list):
+        """【V2.16】持久化存储新增的趋势线矩阵记录。"""
+        if not records: return
+        print(f"  -> [趋势线矩阵] 正在新增 {len(records)} 条记录...")
+        instances = [self.mtt_model(**rec) for rec in records]
+        self.mtt_model.objects.bulk_create(instances, ignore_conflicts=True)
+
+    def _save_trendline_events_incrementally(self, events: list):
+        """【V2.16】持久化存储新增的趋势线动态事件。"""
+        if not events: return
+        print(f"  -> [趋势线事件] 正在新增 {len(events)} 个事件...")
+        instances = [self.event_model(**evt) for evt in events]
+        self.event_model.objects.bulk_create(instances, ignore_conflicts=True)
 
