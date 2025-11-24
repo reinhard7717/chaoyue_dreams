@@ -251,11 +251,12 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, bbw_quantile: float = 0.25, potential_threshold: float = 0.6, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
         """
-        【V2.32 · 歧义消除版】识别、量化并存储矩形平台。
-        - 核心修复: 在调用 pandas_ta 计算指标前，从本地副本 DataFrame (`df_copy`)
-                     中显式删除未经复权的 'open', 'high', 'low', 'close' 列。
-                     此举旨在为 pandas_ta 提供一个无歧义的计算环境，根除因其内部
-                     列名智能识别机制与 *_qfq 列并存而导致的潜在冲突和计算失败。
+        【V2.33 · 直接调用修复版】识别、量化并存储矩形平台。
+        - 核心修复: 放弃使用 pandas_ta 的扩展方法 `df.ta.bbands()`，因为它被证实
+                     在当前场景下存在不稳定性。改为采用更稳健的直接函数调用方式
+                     `ta.bbands(close=df['col'], append=False)`，然后将返回的结果
+                     DataFrame 合并回主数据帧。此举绕开了扩展方法中潜在的“黑盒”
+                     问题，从根本上解决了布林带计算失败的顽固BUG。
         """
         # --- [探针 E: 进入平台计算函数] ---
         if enriched_df.empty or enriched_df.index.isnull().all():
@@ -265,12 +266,11 @@ class GeometricPatternService:
         print(f"--- [探针 E: 进入平台计算函数] 最新日期: {latest_day_final.name.date()} ---")
         print(f"  -> high_qfq: {latest_day_final.get('high_qfq')}, low_qfq: {latest_day_final.get('low_qfq')}, close_qfq: {latest_day_final.get('close_qfq')}")
         print(f"--- [探针 E 结束] ---")
-        print(f"  -> [V2.32 歧义消除] 正在识别和量化矩形平台...")
+        print(f"  -> [V2.33 直接调用] 正在识别和量化矩形平台...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
         df_copy = enriched_df.copy()
-        # [代码新增] V2.32 消除歧义：移除原始OHLC列，避免pandas_ta混淆
         cols_to_drop = ['open', 'high', 'low', 'close']
         df_copy.drop(columns=[col for col in cols_to_drop if col in df_copy.columns], inplace=True)
         print(f"  -> [歧义消除] 已从计算副本中移除原始OHLC列，确保计算精度。")
@@ -295,7 +295,10 @@ class GeometricPatternService:
             return
         print("  -> [计算成功] ADX 指标已生成。")
         print("  -> [探针式计算] 正在尝试计算 BBands...")
-        df_copy.ta.bbands(close='close_qfq', length=20, append=True)
+        # [代码修改] V2.33 改为直接函数调用，绕开扩展方法的潜在BUG
+        bbands_results = ta.bbands(close=df_copy['close_qfq'], length=20, std=2.0, append=False)
+        if bbands_results is not None and not bbands_results.empty:
+            df_copy = df_copy.join(bbands_results)
         if 'BBW_20_2.0' not in df_copy.columns:
             print("  -> [计算失败] 布林带宽度(BBW) 指标未能成功生成。请检查 'close_qfq' 列是否存在足够的非空值。任务终止。")
             return
@@ -363,9 +366,9 @@ class GeometricPatternService:
                 }
                 platforms_to_save.append(platform_data)
         found_count = len(platforms_to_save)
-        print(f"  -> [V2.32 歧义消除] 发现 {found_count} 个有效平台。")
+        print(f"  -> [V2.33 直接调用] 发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.32 歧义消除] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.33 直接调用] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
