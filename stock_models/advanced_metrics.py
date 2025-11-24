@@ -933,22 +933,23 @@ class TrendlineFeature_BJ(BaseTrendlineFeature):
 # [新增代码块] 多时间维度趋势线每日快照模型
 class BaseMultiTimeframeTrendline(models.Model):
     """
-    【V2.1 · 趋势线矩阵版】
+    【V2.52 · 趋势信念版】
     - 核心职责: 持久化存储每日计算出的、代表不同时间维度市场共识的趋势线阵列。
     - 设计思想: 从记录单条线的“生命周期”转变为记录每日的“战场快照”，为动态分析提供基础。
+    - V2.52 新增: 引入 `trend_conviction_score` 字段，通过融合几何、资金、筹码、行为
+                 四大情报体系，对趋势本身的“质量”和“信念”进行深度量化评估。
     """
     LINE_TYPE_CHOICES = [('support', '支撑线'), ('resistance', '阻力线')]
     PERIOD_CHOICES = [(5, '5日'), (13, '13日'), (21, '21日'), (55, '55日')]
-
     stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, db_index=True)
     trade_date = models.DateField(verbose_name='交易日期', db_index=True)
     period = models.IntegerField(choices=PERIOD_CHOICES, verbose_name='时间周期')
     line_type = models.CharField(max_length=20, choices=LINE_TYPE_CHOICES, verbose_name='趋势线类型')
-    
     slope = models.FloatField(verbose_name='斜率')
     intercept = models.FloatField(verbose_name='截距 (基于时间索引)')
     validity_score = models.FloatField(verbose_name='综合有效性得分(0-1)')
-    
+    # [代码修改] V2.52 新增趋势信念分数字段
+    trend_conviction_score = models.FloatField(verbose_name='趋势信念分(0-100)', null=True, blank=True, help_text='评估趋势内在质量和主力信念的综合得分')
     class Meta:
         abstract = True
         unique_together = ('stock', 'trade_date', 'period', 'line_type')
