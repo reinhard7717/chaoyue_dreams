@@ -83,13 +83,15 @@ class GeometricPatternService:
     """
     def __init__(self, stock_code: str, stock_instance: StockInfo):
         """
-        【轻量化构造函数】
-        此方法现在是完全同步的，只负责接收预先获取的数据并设置属性。
+        【V2.22 · 合并键修复版】
+        - 核心修复: 新增 self.stock_id_int 属性，存储整数类型的股票ID (stock_instance.id)，
+                     以解决后续与高级指标表（使用整数外键）合并时因数据类型不匹配导致的失败问题。
         """
         self.stock_code = stock_code
         self.stock_instance = stock_instance
-        # stock_id 仍然有用，可以从 instance 中获取
         self.stock_id = stock_instance.stock_code
+        # [代码新增] 存储整数ID用于数据库层面的连接
+        self.stock_id_int = stock_instance.id
         self.daily_model = get_daily_data_model_by_code(stock_code)
         self.platform_model = get_platform_feature_model_by_code(stock_code)
         self.mtt_model = get_multi_timeframe_trendline_model_by_code(stock_code)
@@ -128,8 +130,9 @@ class GeometricPatternService:
 
     def _prepare_enriched_dataframe(self, df_daily: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.21 · 数据链路探针版】准备一个包含所有高级指标的、信息增强的DataFrame。
-        - V2.21 调试升级: 植入C、D探针，监控数据在融合前后的变化。
+        【V2.22 · 合并键修复版】准备一个包含所有高级指标的、信息增强的DataFrame。
+        - 核心修复: 使用整数类型的 `self.stock_id_int` 作为合并键，确保与高级指标表
+                     的整数外键 `stock_id` 类型匹配，从而使 `pd.merge` 能够成功。
         """
         # --- [探针 C: 进入数据融合函数] ---
         if not df_daily.empty:
@@ -148,7 +151,8 @@ class GeometricPatternService:
             if not df.empty:
                 df['trade_date'] = pd.to_datetime(df['trade_date'])
         df_daily_reset = df_daily.reset_index().rename(columns={'trade_time': 'trade_date'})
-        df_daily_reset['stock_id'] = self.stock_id
+        # [代码修改] 使用整数ID (self.stock_id_int) 作为合并键
+        df_daily_reset['stock_id'] = self.stock_id_int
         enriched_df = df_daily_reset
         join_keys = ['stock_id', 'trade_date']
         for df_right in [df_chip, df_fund, df_struct]:
@@ -158,7 +162,7 @@ class GeometricPatternService:
                 cols_to_merge = join_keys + right_only_cols
                 enriched_df = pd.merge(enriched_df, df_right[cols_to_merge], on=join_keys, how='left')
         enriched_df = enriched_df.set_index('trade_date').sort_index()
-        # --- [探针 D: 数据融合完成] ---
+        # --- [探針 D: 数据融合完成] ---
         if not enriched_df.empty:
             latest_day_output = enriched_df.iloc[-1]
             print(f"--- [探针 D: 数据融合完成] 最新日期: {latest_day_output.name.date()} ---")
@@ -169,22 +173,25 @@ class GeometricPatternService:
 
     def calculate_and_save_all_patterns(self, data_dfs: dict, start_date_str: str = None):
         """
-        【V2.21 · 数据链路探针版】执行所有几何形态的计算和存储，并融合全维度高级指标。
-        - V2.21 调试升级: 植入A、B探针，追踪数据在进入融合前的状态。
+        【V2.22 · 数据流净化版】执行所有几何形态的计算和存储，并融合全维度高级指标。
+        - V2.22 诊断修复: 在数据流早期即对 df_daily 进行排序，确保所有探针和后续处理
+                         都基于一致的时间顺序，根除因数据乱序导致的调试误判。
         """
         print(f"[{self.stock_code}] [动态演化分析] 开始计算几何形态特征...")
         df_daily = data_dfs.get('daily_data')
         if df_daily is None or df_daily.empty:
             print(f"[{self.stock_code}] 日线数据为空，跳过计算。")
             return
-        # --- [探针 A: 初始加载] ---
-        if not df_daily.empty:
-            latest_day_raw = df_daily.iloc[-1]
-            print(f"--- [探针 A: 初始加载] 最新日期: {latest_day_raw['trade_time']} ---")
-            print(f"  -> high_qfq: {latest_day_raw.get('high_qfq')}, low_qfq: {latest_day_raw.get('low_qfq')}, close_qfq: {latest_day_raw.get('close_qfq')}")
-            print(f"--- [探针 A 结束] ---")
         df_daily['trade_time'] = pd.to_datetime(df_daily['trade_time'])
         df_daily = df_daily.set_index('trade_time')
+        # [代码新增] 立即排序，保证数据时序一致性
+        df_daily.sort_index(inplace=True)
+        # --- [探针 A: 初始加载 & 排序后] ---
+        if not df_daily.empty:
+            latest_day_raw = df_daily.iloc[-1]
+            print(f"--- [探针 A: 初始加载 & 排序后] 最新日期: {latest_day_raw.name.date()} ---")
+            print(f"  -> high_qfq: {latest_day_raw.get('high_qfq')}, low_qfq: {latest_day_raw.get('low_qfq')}, close_qfq: {latest_day_raw.get('close_qfq')}")
+            print(f"--- [探针 A 结束] ---")
         cols_to_convert = ['high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'vol']
         for col in cols_to_convert:
             if col in df_daily.columns:
