@@ -998,29 +998,43 @@
       },
       "geometric_pattern_params": {
         "enabled": true,
-        "description": "【V1.0 · 多尺度平台】几何形态引擎的专属参数块。",
+        "description": "【V2.0 · 博弈深化】几何形态引擎，融合了量价、波动率和相对强度的博弈规则。",
         "platform_recognition": {
           "description": "【多尺度平台识别准则】定义多种平台原型及其识别参数。",
           "archetypes": [
             {
               "name": "TACTICAL_CONSOLIDATION",
-              "description": "战术性盘整平台：周期短、振幅紧凑的中继形态。",
+              "description": "战术性盘整平台：周期短、振幅紧凑、抛压衰竭的中继形态。",
+              "//--- 基础几何规则 ---": "",
               "min_duration": 5,
               "max_range_pct": 0.15,
+              "//--- 核心识别准则 ---": "",
               "adx_threshold": 25,
               "bbw_quantile": 0.25,
               "potential_threshold": 0.6,
-              "potential_window": 10
+              "potential_window": 10,
+              "//--- V2.0 博弈深化规则 ---": "",
+              "volume_profile_skewness": {"min": 0.1, "max": 2.0},
+              "volume_trend_slope": {"min": -999, "max": -0.1},
+              "volatility_contraction_ratio": {"min": 0, "max": 0.8},
+              "relative_strength_slope": {"min": 0.0, "max": 999}
             },
             {
               "name": "STRATEGIC_BASE",
-              "description": "战略性蓄势平台：周期长、振幅可适当放宽的大型底部或休整形态。",
+              "description": "战略性蓄势平台：周期长、经过激烈洗盘、主力深度介入的大型底部形态。",
+              "//--- 基础几何规则 ---": "",
               "min_duration": 20,
               "max_range_pct": 0.35,
+              "//--- 核心识别准则 ---": "",
               "adx_threshold": 30,
               "bbw_quantile": 0.30,
               "potential_threshold": 0.5,
-              "potential_window": 20
+              "potential_window": 20,
+              "//--- V2.0 博弈深化规则 ---": "",
+              "volume_profile_skewness": {"min": 0.2, "max": 2.5},
+              "volume_trend_slope": {"min": -999, "max": -0.05},
+              "price_kurtosis": {"min": 3.5, "max": 999},
+              "relative_strength_slope": {"min": -0.05, "max": 999}
             }
           ]
         }

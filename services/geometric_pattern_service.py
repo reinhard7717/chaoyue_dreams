@@ -220,11 +220,13 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict):
         """
-        【V2.43 · BBands周期修正版】识别、量化并存储矩形平台。
-        - 核心修正: 根据策略要求，将布林带（Bollinger Bands）的计算周期
-                     从 20日 调整为 21日，并同步更新所有相关的列名。
+        【V2.46 · 博弈规则适配版】识别、量化并存储矩形平台。
+        - 核心升级: 全面适配V2.0博弈深化规则。在第二阶段验证中，为每个候选平台
+                     计算成交量偏度、波动率收缩率、相对强度斜率等高级博弈指标，
+                     并与原型配置中的动态要求进行匹配，实现从“几何”到“博弈”的
+                     识别逻辑升维。
         """
-        print(f"  -> [V2.43 BBands周期修正] 启动...")
+        print(f"  -> [V2.46 博弈规则适配] 启动...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
@@ -232,6 +234,18 @@ class GeometricPatternService:
             print("  -> [配置缺失] 在配置文件中未找到平台原型定义，跳过平台识别。")
             return
         df_copy = enriched_df.copy()
+        # [代码修改] V2.46 预计算博弈指标所需的基础数据 (ATR, RS)
+        df_copy.ta.atr(length=14, append=True)
+        index_df = data_dfs.get('index_df')
+        if index_df is not None and not index_df.empty:
+            df_copy = df_copy.join(index_df.add_suffix('_index'))
+            if 'close_index' in df_copy.columns and df_copy['close_index'].notna().any():
+                df_copy['rs'] = df_copy['close_qfq'] / df_copy['close_index']
+                print("  -> [数据预处理] 相对强度(RS)数据已成功计算并合并。")
+            else:
+                print("  -> [数据预处理警告] 指数数据合并后无有效收盘价，无法计算RS。")
+        else:
+            print("  -> [数据预处理警告] 未提供指数数据(index_df)，相对强度相关指标将无法计算。")
         cols_to_drop = ['open', 'high', 'low', 'close']
         df_copy.drop(columns=[col for col in cols_to_drop if col in df_copy.columns], inplace=True)
         cols_to_convert = ['high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'vol']
@@ -243,7 +257,6 @@ class GeometricPatternService:
             print(f"\n  -> [诊断失败] 输入的DataFrame缺少核心计算列。需要: {required_cols}。任务终止。")
             return
         df_copy.ta.adx(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True)
-        # [代码修改] V2.43 将布林带周期从20调整为21
         bbu_col, bbl_col, bbm_col, bbw_col = 'BBU_21_2.0', 'BBL_21_2.0', 'BBM_21_2.0', 'BBW_21_2.0'
         bbands_results = ta.bbands(close=df_copy['close_qfq'], length=21, std=2.0, append=False)
         if bbands_results is not None and not bbands_results.empty:
@@ -253,17 +266,23 @@ class GeometricPatternService:
         else:
             print(f"  -> [计算失败] 布林带基础指标未能生成。任务终止。")
             return
-        print(f"\n{'='*20} 阶段一: 通用平台识别 {'='*20}")
+        print(f"\n{'='*20} 阶段一: 多准则通用平台识别 {'='*20}")
+        combined_is_potential = pd.Series(False, index=df_copy.index)
+        print("  -> 遍历所有原型，通过逻辑'或'合并识别准则以扩大扫描范围...")
+        for archetype in self.platform_archetypes:
+            archetype_name = archetype.get('name', 'UNKNOWN')
+            adx_threshold = archetype.get('adx_threshold', 25)
+            bbw_quantile = archetype.get('bbw_quantile', 0.25)
+            print(f"     - 应用原型 [{archetype_name}] 的准则 (ADX < {adx_threshold}, BBW < {bbw_quantile}分位数)")
+            is_low_trend = df_copy['ADX_14'] < adx_threshold
+            bbw_rolling_quantile = df_copy[bbw_col].rolling(120, min_periods=60).quantile(bbw_quantile)
+            is_low_volatility = df_copy[bbw_col] < bbw_rolling_quantile
+            archetype_potential = is_low_trend | is_low_volatility
+            combined_is_potential = combined_is_potential | archetype_potential
+        df_copy['is_potential_platform'] = combined_is_potential.astype(int)
         baseline_archetype = self.platform_archetypes[0]
-        print(f"  -> 使用基准原型 [{baseline_archetype.get('name', 'UNKNOWN')}] 的参数进行扫描...")
-        adx_threshold = baseline_archetype.get('adx_threshold', 25)
-        bbw_quantile = baseline_archetype.get('bbw_quantile', 0.25)
         potential_threshold = baseline_archetype.get('potential_threshold', 0.6)
         potential_window = baseline_archetype.get('potential_window', 20)
-        is_low_trend = df_copy['ADX_14'] < adx_threshold
-        bbw_rolling_quantile = df_copy[bbw_col].rolling(120, min_periods=60).quantile(bbw_quantile)
-        is_low_volatility = df_copy[bbw_col] < bbw_rolling_quantile
-        df_copy['is_potential_platform'] = (is_low_trend | is_low_volatility).astype(int)
         df_copy['platform_potential_score'] = df_copy['is_potential_platform'].rolling(window=potential_window, min_periods=potential_window//2).mean()
         score_series = df_copy['platform_potential_score']
         entering_platform = (score_series > potential_threshold) & (score_series.shift(1) <= potential_threshold)
@@ -276,7 +295,7 @@ class GeometricPatternService:
             if not possible_end_dates.empty:
                 raw_candidates.append((start_date, possible_end_dates[0]))
         print(f"  -> 识别完成，共发现 {len(raw_candidates)} 个原始候选平台。")
-        print(f"\n{'='*20} 阶段二: 多原型分类与验证 {'='*20}")
+        print(f"\n{'='*20} 阶段二: 多原型分类与博弈验证 {'='*20}")
         platforms_to_save = []
         saved_start_dates = set()
         minute_map = data_dfs.get("stock_minute_data_map", {})
@@ -290,13 +309,36 @@ class GeometricPatternService:
             platform_low = group['low_qfq'].min()
             if platform_low == 0: continue
             price_range_pct = (platform_high - platform_low) / platform_low
-            print(f"\n  -> [验证探针] 正在验证候选平台: {start_date.date()} -> {end_date.date()} (持续 {len(group)} 天, 振幅 {price_range_pct:.2%})")
+            print(f"\n  -> [验证探针] 候选平台: {start_date.date()} -> {end_date.date()} (持续 {len(group)} 天, 振幅 {price_range_pct:.2%})")
+            # [代码修改] V2.46 计算所有博弈指标
+            vps = self._calculate_volume_profile_skewness(group)
+            vts = self._calculate_linear_regression_slope(group['vol'])
+            vcr = self._calculate_volatility_contraction_ratio(group)
+            pk = self._calculate_price_kurtosis(group)
+            rss = self._calculate_linear_regression_slope(group['rs']) if 'rs' in group and group['rs'].notna().all() else 0.0
+            print(f"     - [博弈指标] VPSkew: {vps:.2f}, VolSlope: {vts:.2f}, VolatilityContract: {vcr:.2f}, PriceKurtosis: {pk:.2f}, RSSlope: {rss:.3f}")
             for archetype in self.platform_archetypes:
                 archetype_name = archetype.get('name', 'UNKNOWN')
-                min_duration = archetype.get('min_duration', 10)
-                max_range_pct = archetype.get('max_range_pct', 0.30)
-                print(f"     - 尝试匹配原型 [{archetype_name}] (要求: 时长>={min_duration}, 振幅<={max_range_pct:.2%})")
-                if len(group) >= min_duration and price_range_pct <= max_range_pct:
+                # [代码修改] V2.46 获取所有几何与博弈规则
+                min_duration = archetype.get('min_duration', 0)
+                max_range_pct = archetype.get('max_range_pct', 1.0)
+                vps_rules = archetype.get('volume_profile_skewness', {})
+                vts_rules = archetype.get('volume_trend_slope', {})
+                vcr_rules = archetype.get('volatility_contraction_ratio', {})
+                pk_rules = archetype.get('price_kurtosis', {})
+                rss_rules = archetype.get('relative_strength_slope', {})
+                print(f"     - 尝试匹配原型 [{archetype_name}] (要求: 时长>={min_duration}, 振幅<={max_range_pct:.2%}, VPSkew:{vps_rules}, VolSlope:{vts_rules}, VolContract:{vcr_rules}, PriceKurtosis:{pk_rules}, RSSlope:{rss_rules})")
+                # [代码修改] V2.46 构建全参数验证逻辑
+                checks = {
+                    'duration': len(group) >= min_duration,
+                    'range_pct': price_range_pct <= max_range_pct,
+                    'vps': vps_rules.get('min', -np.inf) <= vps <= vps_rules.get('max', np.inf),
+                    'vts': vts_rules.get('min', -np.inf) <= vts <= vts_rules.get('max', np.inf),
+                    'vcr': vcr_rules.get('min', -np.inf) <= vcr <= vcr_rules.get('max', np.inf),
+                    'pk': pk_rules.get('min', -np.inf) <= pk <= pk_rules.get('max', np.inf),
+                    'rss': rss_rules.get('min', -np.inf) <= rss <= rss_rules.get('max', np.inf)
+                }
+                if all(checks.values()):
                     print(f"     - [MATCHED & ACCEPTED] 成功匹配原型 [{archetype_name}]，将被量化。")
                     character, score_val = self._assess_platform_character(group)
                     platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
@@ -338,11 +380,12 @@ class GeometricPatternService:
                     saved_start_dates.add(start_date)
                     break
                 else:
-                    print(f"     - [REJECTED] 未能匹配。")
+                    failed_checks = [k for k, v in checks.items() if not v]
+                    print(f"     - [REJECTED] 未能匹配。失败的规则: {failed_checks}")
         found_count = len(platforms_to_save)
-        print(f"\n  -> [V2.43 BBands周期修正] 扫描完成，共发现 {found_count} 个有效平台。")
+        print(f"\n  -> [V2.46 博弈规则适配] 扫描完成，共发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.43 BBands周期修正] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.46 博弈规则适配] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
@@ -1082,4 +1125,46 @@ class GeometricPatternService:
         print(f"  -> [趋势线事件] 正在新增 {len(events)} 个事件...")
         instances = [self.event_model(**evt) for evt in events]
         self.event_model.objects.bulk_create(instances, ignore_conflicts=True)
+
+    def _calculate_volume_profile_skewness(self, group: pd.DataFrame) -> float:
+        """计算加权成交量分布的价格偏度。"""
+        if group['vol'].sum() == 0: return 0.0
+        prices = group['close_qfq']
+        weights = group['vol']
+        weighted_mean = np.average(prices, weights=weights)
+        weighted_std = np.sqrt(np.average((prices - weighted_mean)**2, weights=weights))
+        if weighted_std == 0: return 0.0
+        weighted_skew = np.average(((prices - weighted_mean) / weighted_std)**3, weights=weights)
+        return weighted_skew
+
+    def _calculate_linear_regression_slope(self, series: pd.Series) -> float:
+        """对一个序列进行线性回归并返回斜率。"""
+        series = series.dropna()
+        if len(series) < 2: return 0.0
+        x = np.arange(len(series))
+        slope, _ = np.polyfit(x, series.values, 1)
+        # 对斜率进行归一化，使其不受序列绝对值大小的影响
+        return slope / series.mean() if series.mean() != 0 else 0.0
+
+    def _calculate_volatility_contraction_ratio(self, group: pd.DataFrame) -> float:
+        """计算平台前后半段的波动率收缩比。"""
+        if 'ATRr_14' not in group.columns or len(group) < 4: return 1.0
+        n = len(group) // 2
+        first_half_atr = group['ATRr_14'].iloc[:n].mean()
+        second_half_atr = group['ATRr_14'].iloc[n:].mean()
+        if first_half_atr == 0: return 1.0 if second_half_atr == 0 else 999.0
+        return second_half_atr / first_half_atr
+
+    def _calculate_price_kurtosis(self, group: pd.DataFrame) -> float:
+        """计算平台内日内行为的价格峰度。"""
+        if len(group) < 4: return 3.0 # 返回正态分布的峰度
+        daily_range = group['high_qfq'] - group['low_qfq']
+        body_range = (group['close_qfq'] - group['open_qfq']).abs()
+        # 避免除以零
+        body_range[body_range == 0] = 0.0001
+        ratio_series = daily_range / body_range
+        # 移除极端值和无效值
+        clean_series = ratio_series.replace([np.inf, -np.inf], np.nan).dropna()
+        if len(clean_series) < 4: return 3.0
+        return clean_series.kurt()
 
