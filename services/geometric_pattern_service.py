@@ -193,9 +193,9 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 20, min_duration: int = 10, max_range_pct: float = 0.25):
         """
-        【V2.19 · 多维情报增强版】识别、量化并存储矩形平台。
-        - V2.19 核心升级: 在ADX识别出平台区间后，调用 `_assess_platform_character` 方法，
-                         利用筹码、资金、结构三大情报体系对平台性质进行深度审问和量化评分。
+        【V2.20 · 日志增强版】识别、量化并存储矩形平台。
+        - V2.20 修正: 修正了日志输出逻辑，确保无论找到多少个平台（包括0个），
+                         都会明确打印出结果，避免在未找到平台时静默无输出。
         """
         print(f"  -> [V2.19 多维情报平台引擎] 正在识别和量化矩形平台...")
         if len(enriched_df) < 30:
@@ -219,10 +219,8 @@ class GeometricPatternService:
             if platform_low == 0: continue
             price_range_pct = (platform_high - platform_low) / platform_low
             if price_range_pct > max_range_pct: continue
-            # 新增代码块：对平台进行多维情报审问
             character, score = self._assess_platform_character(group)
             start_date, end_date = group.index.min(), group.index.max()
-            # ... [原有的 precise_vpoc, internal_accumulation_intensity, breakout_quality_score 计算逻辑保持不变] ...
             platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
             precise_vpoc = None
             if platform_minutes_dfs:
@@ -261,17 +259,19 @@ class GeometricPatternService:
                 'low': platform_low,
                 'vpoc': np.average(group['close_qfq'], weights=group['vol']),
                 'total_volume': group['vol'].sum() * 100,
-                'quality_score': (score + 100) / 200, # 将-100~100映射到0~1
+                'quality_score': (score + 100) / 200,
                 'precise_vpoc': precise_vpoc,
                 'internal_accumulation_intensity': internal_accumulation_intensity,
                 'breakout_quality_score': breakout_quality_score,
-                # 新增代码行：保存审问结果
                 'platform_character': character,
                 'character_score': score,
             }
             platforms_to_save.append(platform_data)
-        if platforms_to_save:
-            print(f"  -> [V2.19 多维情报平台引擎] 发现 {len(platforms_to_save)} 个有效平台，正在存入数据库...")
+        # 修改代码块：确保无论找到多少平台，都会打印日志
+        found_count = len(platforms_to_save)
+        print(f"  -> [V2.19 多维情报平台引擎] 发现 {found_count} 个有效平台。")
+        if found_count > 0:
+            print(f"  -> [V2.19 多维情报平台引擎] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'],
