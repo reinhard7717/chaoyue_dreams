@@ -132,11 +132,9 @@ class GeometricPatternService:
 
     def _prepare_enriched_dataframe(self, df_daily: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.30 · 安全合并版】准备一个包含所有高级指标的、信息增强的DataFrame。
-        - 核心修复: 彻底重写数据合并逻辑，采用绝对安全的列选择策略。在每次 merge 前，
-                     显式地只从右侧DataFrame中选取“连接键”和“左侧不存在的独有列”
-                     进行合并。这从根本上杜绝了因列名冲突导致原始日线数据（如 *_qfq
-                     和 trade_date）被覆盖或损坏的风险，确保了数据流的纯净与安全。
+        【V2.31 · 司法探针版】准备一个包含所有高级指标的、信息增强的DataFrame。
+        - V2.31 探针升级: 部署高密度探针网络(C.1, C.2)，在数据融合的每一步都进行
+                         快照取证，以捕捉导致 *_qfq 列数据被污染的确切瞬间。
         """
         # --- [探针 C: 进入数据融合函数] ---
         if not df_daily.empty:
@@ -153,7 +151,8 @@ class GeometricPatternService:
         df_struct = pd.DataFrame.from_records(structural_metrics_qs).rename(columns={'trade_time': 'trade_date'})
         print(f"  -> [数据净化] 正在对加载的高级指标进行强制类型转换...")
         non_numeric_whitelist = ['stock_id']
-        for df in [df_chip, df_fund, df_struct]:
+        dataframes_to_process = {'chip': df_chip, 'fund': df_fund, 'struct': df_struct}
+        for name, df in dataframes_to_process.items():
             if not df.empty:
                 if 'trade_date' in df.columns:
                     df['trade_date'] = pd.to_datetime(df['trade_date'])
@@ -161,24 +160,36 @@ class GeometricPatternService:
                     if col not in non_numeric_whitelist and col != 'trade_date':
                         if df[col].dtype == 'object':
                             df[col] = pd.to_numeric(df[col], errors='coerce')
+        # [代码新增] 探针 C.1: 检查待合并数据源
+        print("\n--- [探针 C.1: 待合并数据源检查] ---")
+        for name, df in dataframes_to_process.items():
+            print(f"  -> DataFrame '{name}': Shape={df.shape}")
+            if not df.empty:
+                print(f"     Columns: {df.columns.tolist()}")
+                print(df.head(2).to_string())
+        print("--- [探针 C.1 结束] ---\n")
         df_daily_reset = df_daily.reset_index().rename(columns={'trade_time': 'trade_date'})
         df_daily_reset['stock_id'] = self.stock_id
         enriched_df = df_daily_reset
         join_keys = ['stock_id', 'trade_date']
-        for df_right in [df_chip, df_fund, df_struct]:
+        # [代码修改] 增加循环内探针 C.2
+        print(f"--- [探针 C.2: 循环合并追踪] ---")
+        print(f"  -> [Pre-Loop] enriched_df 初始状态 (qfq数据):")
+        print(enriched_df[['trade_date', 'high_qfq', 'low_qfq', 'close_qfq']].tail(3).to_string())
+        for name, df_right in dataframes_to_process.items():
             if not df_right.empty:
-                # [代码修改] V2.30 采用更稳健的合并逻辑，显式避免列名冲突
-                # 找出右侧DataFrame中独有的列（不包括已存在的列）
                 unique_cols_from_right = [col for col in df_right.columns if col not in enriched_df.columns]
-                # 要合并的列 = 连接键 + 右侧的独有列
                 cols_to_merge_from_right = join_keys + unique_cols_from_right
-                # 执行合并，只从右侧DataFrame中取指定的列，防止覆盖左侧同名列
                 enriched_df = pd.merge(
                     enriched_df,
                     df_right[cols_to_merge_from_right],
                     on=join_keys,
                     how='left'
                 )
+                print(f"  -> [Post-Merge with '{name}'] enriched_df 状态 (qfq数据):")
+                print(enriched_df[['trade_date', 'high_qfq', 'low_qfq', 'close_qfq']].tail(3).to_string())
+                print(f"     Null counts for qfq: \n{enriched_df[['high_qfq', 'low_qfq', 'close_qfq']].isnull().sum().to_string()}")
+        print(f"--- [探针 C.2 结束] ---")
         enriched_df = enriched_df.set_index('trade_date').sort_index()
         # --- [探針 D: 数据融合完成] ---
         if not enriched_df.empty and not enriched_df.index.isnull().all():
@@ -193,10 +204,8 @@ class GeometricPatternService:
 
     def calculate_and_save_all_patterns(self, data_dfs: dict, start_date_str: str = None):
         """
-        【V2.28 · 数据回滚修复版】执行所有几何形态的计算和存储。
-        - V2.28 修复: 新增平台(Platform)数据的回滚逻辑。当提供 `start_date_str` 时，
-                     在计算前会先删除该日期之后的所有平台记录，确保重算的幂等性，
-                     与趋势线和事件的回滚逻辑保持一致。
+        【V2.31 · 司法探针版】执行所有几何形态的计算和存储。
+        - V2.31 探针升级: 增加探针 B.5，在数据送入融合函数前进行最后一次核查。
         """
         print(f"[{self.stock_code}] [动态演化分析] 开始计算几何形态特征...")
         df_daily = data_dfs.get('daily_data')
@@ -223,8 +232,13 @@ class GeometricPatternService:
             print(f"  -> high_qfq: {latest_day_converted.get('high_qfq')}, low_qfq: {latest_day_converted.get('low_qfq')}, close_qfq: {latest_day_converted.get('close_qfq')}")
             print(f"--- [探针 B 结束] ---")
         df_daily.ta.atr(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True, col_names=('ATR_14_D',))
+        # [代码新增] 探针 B.5，检查进入融合函数前的最终数据状态
+        if not df_daily.empty:
+            latest_day_pre_merge = df_daily.iloc[-1]
+            print(f"--- [探针 B.5: 融合前最终检查] 最新日期: {latest_day_pre_merge.name.date()} ---")
+            print(f"  -> high_qfq: {latest_day_pre_merge.get('high_qfq')}, low_qfq: {latest_day_pre_merge.get('low_qfq')}, close_qfq: {latest_day_pre_merge.get('close_qfq')}")
+            print(f"--- [探针 B.5 结束] ---")
         enriched_df = self._prepare_enriched_dataframe(df_daily)
-        # [代码新增] 如果是重算模式，先删除旧的平台数据
         if start_date_str:
             deleted_count, _ = self.platform_model.objects.filter(
                 stock=self.stock_instance,
@@ -266,10 +280,6 @@ class GeometricPatternService:
             if col in df_copy.columns:
                 df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
         # --- [代码新增] 深度诊断探针 ---
-        print("\n" + "="*30 + " [深度诊断探针: 计算前] " + "="*30)
-        print("打印 df_copy 的完整信息 (df.info)，以检查最终的 dtypes:")
-        df_copy.info(verbose=True, show_counts=True)
-        print("="*80 + "\n")
         required_cols = ['high_qfq', 'low_qfq', 'close_qfq']
         if not all(col in df_copy.columns for col in required_cols):
             print(f"\n  -> [诊断失败] 输入的DataFrame缺少核心计算列。需要: {required_cols}。任务终止。")
