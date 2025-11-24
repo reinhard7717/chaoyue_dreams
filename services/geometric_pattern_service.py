@@ -161,9 +161,10 @@ class GeometricPatternService:
         print(f"  -> [数据融合] 全维度战场沙盘构建完成。")
         return enriched_df
 
-    def calculate_and_save_all_patterns(self, data_dfs: dict):
+    def calculate_and_save_all_patterns(self, data_dfs: dict, start_date_str: str = None):
         """
-        【V2.2 主入口】执行所有几何形态的计算和存储，并融合全维度高级指标。
+        【V2.17 · 回滚重算版】执行所有几何形态的计算和存储，并融合全维度高级指标。
+        - V2.17 升级: 新增 start_date_str 参数，以支持从指定日期开始的回滚重算。
         """
         print(f"[{self.stock_code}] [动态演化分析] 开始计算几何形态特征...")
         df_daily = data_dfs.get('daily_data')
@@ -174,13 +175,20 @@ class GeometricPatternService:
         df_daily = df_daily.set_index('trade_time')
         df_daily.ta.atr(length=14, append=True, col_names=('ATR_14_D',))
         enriched_df = self._prepare_enriched_dataframe(df_daily)
-        # 1. 计算平台特征 (传入原始df_daily即可)
+        # 1. 计算平台特征 (平台特征的增量逻辑较为复杂，暂保持update_or_create)
         self._calculate_and_save_platforms(df_daily, data_dfs)
-        # 2. 计算趋势线矩阵并分析动态事件 (传入原始df_daily)
-        self._calculate_and_save_trendline_matrix_and_events(df_daily, data_dfs)
-        # 3. 识别并预测旗形 (传入信息增强的enriched_df)
+        # 2. 计算趋势线矩阵并分析动态事件 (传入 start_date_str 以启动回滚逻辑)
+        # 修改代码行：将 start_date_str 参数传递下去
+        self._calculate_and_save_trendline_matrix_and_events(df_daily, data_dfs, start_date_str=start_date_str)
+        # 3. 识别并预测旗形 (旗形事件也需要回滚)
         flag_events = self._predict_flag_breakout_probability(enriched_df, data_dfs)
-        # 修改代码行：调用增量保存方法，修复AttributeError
+        # 旗形事件也需要清理
+        if start_date_str:
+            self.event_model.objects.filter(
+                stock=self.stock_instance,
+                event_date__gte=start_date_str,
+                event_type='FLAG_FORMED'
+            ).delete()
         self._save_trendline_events_incrementally(flag_events)
         print(f"[{self.stock_code}] [动态演化分析] 几何形态特征计算完成。")
 
@@ -278,22 +286,17 @@ class GeometricPatternService:
         total_amount = (df_tick['price'] * df_tick['volume']).sum()
         return ofi, total_amount
 
-    def _calculate_and_save_trendline_matrix_and_events(self, df_daily: pd.DataFrame, data_dfs: dict):
+    def _calculate_and_save_trendline_matrix_and_events(self, df_daily: pd.DataFrame, data_dfs: dict, start_date_str: str = None):
         """
-        【V2.16 · 增量计算版】为给定的全部历史时段，逐日生成趋势线矩阵，并进行全周期动态分析。
-        - V2.16 性能优化: 引入增量计算机制。不再每次都全量回溯，而是只计算自上次更新
-                         以来的新增交易日数据，大幅提升后续运行效率。
+        【V2.17 · 回滚重算版】为给定的全部历史时段，逐日生成趋势线矩阵，并进行全周期动态分析。
+        - V2.17 升级: 调用新的上下文初始化方法，该方法会根据 start_date_str 执行数据清理。
         """
         print(f"  -> [增量回溯引擎] 开始检查并计算新的趋势线矩阵...")
         df_daily = df_daily.sort_index(ascending=True)
-        # 1. 确定需要开始计算的日期
-        last_record = self.mtt_model.objects.filter(stock=self.stock_instance).order_by('-trade_date').first()
-        start_process_date = None
-        if last_record:
-            # 从最后记录的下一天开始处理
-            start_process_date = pd.to_datetime(last_record.trade_date) + pd.Timedelta(days=1)
-        else:
-            # 如果没有记录，从头开始
+        # 1. 调用新的上下文初始化方法，它会处理数据清理和日期确定
+        start_process_date = self._initialize_incremental_context(start_date_str)
+        if start_process_date is None:
+            # 如果是首次运行，从头开始
             start_process_date = df_daily.index.min()
         # 筛选出需要处理的日期
         df_to_process = df_daily[df_daily.index >= start_process_date]
@@ -319,9 +322,33 @@ class GeometricPatternService:
             print("  -> [增量回溯引擎] 加载完整矩阵失败，跳过动态分析。")
             return
         matrix_df['trade_date'] = pd.to_datetime(matrix_df['trade_date'])
-        # 修改代码行：调用新的增量分析方法
         dynamic_events = self._analyze_matrix_dynamics(matrix_df, start_analysis_date=start_process_date)
         self._save_trendline_events_incrementally(dynamic_events)
+
+    def _initialize_incremental_context(self, start_date_override: str = None) -> pd.Timestamp:
+        """
+        【V2.17 新增】初始化增量计算上下文，处理数据清理和起始日期确定。
+        参照高级筹码和资金流任务的统一上下文初始化逻辑。
+        """
+        from datetime import datetime
+        # 1. 如果提供了起始日期，执行回滚删除逻辑
+        if start_date_override:
+            try:
+                save_start_date = datetime.strptime(start_date_override, '%Y-%m-%d').date()
+                # 删除指定日期之后的所有趋势线矩阵和事件记录
+                mtt_del_count, _ = self.mtt_model.objects.filter(stock=self.stock_instance, trade_date__gte=save_start_date).delete()
+                event_del_count, _ = self.event_model.objects.filter(stock=self.stock_instance, event_date__gte=save_start_date).delete()
+                print(f"  -> [统一回滚] 趋势线矩阵删除 {mtt_del_count} 条，动态事件删除 {event_del_count} 条。")
+                return pd.to_datetime(save_start_date)
+            except (ValueError, TypeError):
+                print(f"  -> [错误] 提供的起始日期 '{start_date_override}' 格式错误，将执行标准增量更新。")
+        # 2. 标准增量逻辑：查找最新记录
+        last_record = self.mtt_model.objects.filter(stock=self.stock_instance).order_by('-trade_date').first()
+        if last_record:
+            # 从最后记录的下一天开始处理
+            return pd.to_datetime(last_record.trade_date) + pd.Timedelta(days=1)
+        # 3. 如果没有任何记录，返回None，表示需要从头开始
+        return None
 
     def _analyze_matrix_dynamics(self, matrix_df: pd.DataFrame, start_analysis_date: pd.Timestamp = None) -> list:
         """

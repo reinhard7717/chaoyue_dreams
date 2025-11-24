@@ -997,8 +997,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
 @with_cache_manager
 def precompute_geometric_patterns_for_stock(self, stock_code: str, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V2.4 · 日期过滤与流程修正版】为单只股票预计算几何形态，并分析其动态演化事件。
-    - V2.4 升级: 新增 start_date_str 参数，并在数据库查询时应用该日期过滤，确保只处理指定范围内的数据。
+    【V2.17 · 回滚重算版】为单只股票预计算几何形态，并分析其动态演化事件。
+    - V2.17 升级: 将 start_date_str 传递给服务层，以触发可能的数据回滚。
     """
     async def main():
         from services.geometric_pattern_service import GeometricPatternService
@@ -1008,8 +1008,8 @@ def precompute_geometric_patterns_for_stock(self, stock_code: str, start_date_st
             service = await GeometricPatternService.create(stock_code=stock_code)
             daily_model = service.daily_model
             stock_info = service.stock_instance
-            # 修改代码块：根据 start_date_str 过滤查询集
             all_dates_qs = daily_model.objects.filter(stock=stock_info)
+            # 日期过滤逻辑保持不变，它决定了加载哪些原始数据
             if start_date_str:
                 all_dates_qs = all_dates_qs.filter(trade_time__gte=start_date_str)
             all_dates_qs = all_dates_qs.values_list('trade_time', flat=True).order_by('trade_time')
@@ -1018,7 +1018,8 @@ def precompute_geometric_patterns_for_stock(self, stock_code: str, start_date_st
                 logger.info(f"[{stock_code}] [几何形态任务] 数据不足 (<60天)，跳过计算。")
                 return {"status": "skipped", "reason": "Insufficient data."}
             data_dfs = await _load_all_sources_unified(stock_info, daily_model, dates_to_process, cache_manager)
-            await sync_to_async(service.calculate_and_save_all_patterns)(data_dfs)
+            # 修改代码行：将 start_date_str 传递给服务层
+            await sync_to_async(service.calculate_and_save_all_patterns)(data_dfs, start_date_str=start_date_str)
             return {"status": "success", "stock_code": stock_code}
         except StockInfo.DoesNotExist:
             logger.error(f"[{stock_code}] [几何形态任务] 股票信息不存在，任务终止。")
