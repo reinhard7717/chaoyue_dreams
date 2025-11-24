@@ -1052,6 +1052,24 @@
               "volume_trend_slope": {"min": -999, "max": 0.1},
               "price_kurtosis": {"min": 3.5, "max": 999},
               "relative_strength_slope": {"min": -0.05, "max": 999}
+            },
+            {
+              "name": "VOLATILITY_COMPRESSION_POCKET",
+              "description": "【新增】波动率压缩口袋(VCPocket)：突破前最后的、极度紧凑的能量压缩区，是主力高度控盘和供应枯竭的终极信号。",
+              "//--- 基础几何规则 ---": "",
+              "min_duration": 8,
+              "max_range_pct": 0.12,
+              "//--- 核心识别准则 ---": "",
+              "adx_threshold": 22,
+              "bbw_quantile": 0.15,
+              "potential_threshold": 0.65,
+              "potential_window": 10,
+              "//--- V2.51 博弈规则 ---": "",
+              "volume_profile_skewness": {"min": 0.1, "max": 2.5},
+              "volume_trend_slope": {"min": -999, "max": -0.05},
+              "volatility_contraction_ratio": {"min": 0, "max": 0.85},
+              "price_kurtosis": {"min": 4.0, "max": 999},
+              "relative_strength_slope": {"min": 0.01, "max": 999}
             }
           ]
         }
