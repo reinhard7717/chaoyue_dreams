@@ -148,7 +148,7 @@ class AdvancedChipMetricsService:
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
         return merged_df
 
-    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None, realtime_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
+    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None, realtime_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         stock_code = stock_info.stock_code
         all_metrics_list = []
         failures_list = []
@@ -225,6 +225,11 @@ class AdvancedChipMetricsService:
             else:
                 enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
             context_for_calc['intraday_data'] = enhanced_intraday_data
+            if level5_data_map and date_obj in level5_data_map:
+                context_for_calc['realtime_data'] = level5_data_map[date_obj]
+            else:
+                context_for_calc['realtime_data'] = pd.DataFrame()
+            calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             if realtime_data_map and date_obj in realtime_data_map:
                 context_for_calc['realtime_data'] = realtime_data_map[date_obj]
             else:

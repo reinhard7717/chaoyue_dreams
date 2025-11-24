@@ -956,7 +956,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             chip_metrics_df, cross_chunk_memory, chunk_failures = chip_service._synthesize_and_forge_metrics(
                 stock_info, chip_raw_df, minute_data_map_for_chip, fund_flow_attributed_minute_map_for_chip_service, 
                 memory=cross_chunk_memory, historical_components=historical_components_df, debug_params=debug_params, 
-                tick_data_map=tick_data_map, realtime_data_map=realtime_data_map
+                tick_data_map=tick_data_map, realtime_data_map=realtime_data_map, level5_data_map=level5_data_map
             )
             all_failures.extend(chunk_failures)
             chunk_core_metrics_df = fund_flow_metrics_df.join(chip_metrics_df, how='outer')
