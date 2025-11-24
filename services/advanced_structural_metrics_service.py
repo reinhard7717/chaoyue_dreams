@@ -614,8 +614,9 @@ class AdvancedStructuralMetricsService:
 
     def _calculate_microstructure_metrics(self, tick_df: pd.DataFrame, level5_df: pd.DataFrame, realtime_df: pd.DataFrame, minute_df: pd.DataFrame, total_volume: float, group: pd.DataFrame, daily_series_for_day: pd.Series, atr_14: float) -> dict:
         """
-        【V21.4 · 实时数据处理修复版】
-        - 核心修复: 在计算市场冲击成本和流动性斜率之前，对 `realtime_df` 进行列名重命名和类型转换，解决了 `KeyError: 'b1_p'` 和潜在的 `TypeError`。
+        【V21.5 · 数据源合并修复版】
+        - 核心修复: 彻底修正微观结构指标计算的数据源使用。将 `realtime_df` (含累计成交量) 与 `level5_df` (含五档行情) 进行合并，
+                    确保在计算市场冲击成本和流动性斜率时，所有必需列（如 'volume', 'b1_p', 'a1_p'）都存在于同一个DataFrame中，从根本上解决 `KeyError`。
         """
         from scipy.stats import norm, linregress
         results = {
@@ -631,7 +632,6 @@ class AdvancedStructuralMetricsService:
             'liquidity_slope': np.nan,
             'liquidity_authenticity_score': np.nan,
         }
-        # [代码修改] 将列名映射表提前定义，以便在多个地方复用
         column_rename_map = {
             **{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)},
             **{f'buy_volume{i}': f'b{i}_v' for i in range(1, 6)},
@@ -774,21 +774,33 @@ class AdvancedStructuralMetricsService:
             if active_buy_on_rally > 0:
                 results['distribution_pressure_index'] = active_sell_on_rally / active_buy_on_rally
         # --- 新增：实时盘口结构指标 ---
-        if realtime_df is not None and not realtime_df.empty:
-            # [代码修改] 核心修复：对realtime_df进行重命名和类型转换，以匹配计算逻辑
-            realtime_df_processed = realtime_df.copy()
-            realtime_df_processed.rename(columns=column_rename_map, inplace=True)
+        # [代码修改] 核心修复：将实时快照(realtime_df)与五档行情(level5_df)合并后再进行计算
+        if realtime_df is not None and not realtime_df.empty and level5_df is not None and not level5_df.empty:
+            # 1. 预处理 level5 数据
+            level5_df_processed = level5_df.copy()
+            level5_df_processed.rename(columns=column_rename_map, inplace=True)
             numeric_cols = list(column_rename_map.values())
             for col in numeric_cols:
-                if col in realtime_df_processed.columns:
-                    realtime_df_processed[col] = pd.to_numeric(realtime_df_processed[col], errors='coerce')
-            # 1. 市场冲击成本 (Market Impact Cost)
+                if col in level5_df_processed.columns:
+                    level5_df_processed[col] = pd.to_numeric(level5_df_processed[col], errors='coerce')
+            # 2. 合并数据源，确保所有计算列都在一个DataFrame中
+            # 假设 realtime_df 和 level5_df 具有相同的DatetimeIndex
+            combined_df = realtime_df.join(level5_df_processed)
+            # 3. 健壮性检查，确保合并后所需列都存在
+            required_calc_cols = ['volume', 'b1_p', 'a1_p'] + numeric_cols
+            if not all(col in combined_df.columns for col in required_calc_cols):
+                return results
+            combined_df.dropna(subset=required_calc_cols, inplace=True)
+            if combined_df.empty:
+                return results
+            # 4. 在合并后的 DataFrame 上执行计算
+            # 4.1. 市场冲击成本 (Market Impact Cost)
             total_amount = daily_series_for_day.get('amount', 0)
             if total_amount > 0:
                 standard_amount = total_amount * 0.001
                 impact_costs = []
-                snapshot_volumes = realtime_df_processed['volume'].diff().fillna(0).clip(lower=0)
-                for idx, row in realtime_df_processed.iterrows():
+                snapshot_volumes = combined_df['volume'].diff().fillna(0).clip(lower=0)
+                for idx, row in combined_df.iterrows():
                     amount_to_fill = standard_amount
                     filled_amount = 0
                     filled_volume = 0
@@ -811,9 +823,9 @@ class AdvancedStructuralMetricsService:
                             impact_costs.append((exec_price / mid_price - 1) * 100)
                 if impact_costs and snapshot_volumes.sum() > 0:
                     results['market_impact_cost'] = np.average(impact_costs, weights=snapshot_volumes.iloc[:len(impact_costs)])
-            # 2. 盘口深度斜率 (Liquidity Slope)
+            # 4.2. 盘口深度斜率 (Liquidity Slope)
             slopes = []
-            for idx, row in realtime_df_processed.iterrows():
+            for idx, row in combined_df.iterrows():
                 mid_price = (row['b1_p'] + row['a1_p']) / 2
                 if mid_price > 0:
                     ask_points_x = [(row[f'a{i}_p'] - mid_price) / mid_price for i in range(1, 6)]
