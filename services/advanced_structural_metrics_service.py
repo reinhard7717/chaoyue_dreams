@@ -614,8 +614,8 @@ class AdvancedStructuralMetricsService:
 
     def _calculate_microstructure_metrics(self, tick_df: pd.DataFrame, level5_df: pd.DataFrame, realtime_df: pd.DataFrame, minute_df: pd.DataFrame, total_volume: float, group: pd.DataFrame, daily_series_for_day: pd.Series, atr_14: float) -> dict:
         """
-        【V21.3 · 合并逻辑修正版】
-        - 核心修复: 修正 `pd.merge_asof` 的使用逻辑。移除无效的 `suffixes` 参数，改为在合并后手动重命名列以添加 `_pre` 和 `_post` 后缀，从根本上解决“合并后的DataFrame缺少关键列”的问题。
+        【V21.4 · 实时数据处理修复版】
+        - 核心修复: 在计算市场冲击成本和流动性斜率之前，对 `realtime_df` 进行列名重命名和类型转换，解决了 `KeyError: 'b1_p'` 和潜在的 `TypeError`。
         """
         from scipy.stats import norm, linregress
         results = {
@@ -631,63 +631,60 @@ class AdvancedStructuralMetricsService:
             'liquidity_slope': np.nan,
             'liquidity_authenticity_score': np.nan,
         }
-        if tick_df is None or tick_df.empty or level5_df is None or level5_df.empty or total_volume == 0:
-            return results
-        # --- 意图与执行交叉验证：流动性真实性评分 ---
-        level5_df_renamed = level5_df.copy()
+        # [代码修改] 将列名映射表提前定义，以便在多个地方复用
         column_rename_map = {
             **{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)},
             **{f'buy_volume{i}': f'b{i}_v' for i in range(1, 6)},
             **{f'sell_price{i}': f'a{i}_p' for i in range(1, 6)},
             **{f'sell_volume{i}': f'a{i}_v' for i in range(1, 6)},
         }
-        level5_df_renamed.rename(columns=column_rename_map, inplace=True)
-        tick_df_sorted = tick_df.sort_index()
-        level5_df_sorted = level5_df_renamed.sort_index()
-        # [代码修改] 重构合并逻辑，确保 _pre 和 _post 后缀被正确添加
-        level5_cols = list(column_rename_map.values())
-        # 1. 合并获取 tick 发生前的 level5 状态
-        merged_before = pd.merge_asof(tick_df_sorted, level5_df_sorted, on='trade_time', direction='backward')
-        rename_map_pre = {col: f"{col}_pre" for col in level5_cols if col in merged_before.columns}
-        merged_before.rename(columns=rename_map_pre, inplace=True)
-        # 2. 合并获取 tick 发生后的 level5 状态
-        merged_after = pd.merge_asof(tick_df_sorted, level5_df_sorted, on='trade_time', direction='forward')
-        rename_map_post = {col: f"{col}_post" for col in level5_cols if col in merged_after.columns}
-        merged_after.rename(columns=rename_map_post, inplace=True)
-        # 3. 将 "after" 状态的数据合并到 "before" 状态的数据中
-        merged_full = pd.DataFrame()
-        if not merged_before.empty and not merged_after.empty:
-            merged_before.set_index('trade_time', inplace=True)
-            merged_after.set_index('trade_time', inplace=True)
-            post_cols = list(rename_map_post.values())
-            # 确保只合并需要的列，避免重复
-            cols_to_join = [col for col in post_cols if col in merged_after.columns]
-            merged_full = merged_before.join(merged_after[cols_to_join])
-        if not merged_full.empty:
-            required_join_cols = ['a1_v_pre', 'b1_v_pre', 'a1_p_post', 'a1_p_pre', 'a1_v_post', 'b1_p_post', 'b1_p_pre', 'b1_v_post']
-            if not all(col in merged_full.columns for col in required_join_cols):
-                print(f"调试信息: [{daily_series_for_day.name}] 合并后的DataFrame缺少关键列，跳过流动性真实性评分计算。")
-                return results
-            merged_full.dropna(subset=required_join_cols, inplace=True)
+        if tick_df is None or tick_df.empty or total_volume == 0:
+            return results
+        # --- 意图与执行交叉验证：流动性真实性评分 ---
+        if level5_df is not None and not level5_df.empty:
+            level5_df_renamed = level5_df.copy()
+            level5_df_renamed.rename(columns=column_rename_map, inplace=True)
+            tick_df_sorted = tick_df.sort_index()
+            level5_df_sorted = level5_df_renamed.sort_index()
+            level5_cols = list(column_rename_map.values())
+            merged_before = pd.merge_asof(tick_df_sorted, level5_df_sorted, on='trade_time', direction='backward')
+            rename_map_pre = {col: f"{col}_pre" for col in level5_cols if col in merged_before.columns}
+            merged_before.rename(columns=rename_map_pre, inplace=True)
+            merged_after = pd.merge_asof(tick_df_sorted, level5_df_sorted, on='trade_time', direction='forward')
+            rename_map_post = {col: f"{col}_post" for col in level5_cols if col in merged_after.columns}
+            merged_after.rename(columns=rename_map_post, inplace=True)
+            merged_full = pd.DataFrame()
+            if not merged_before.empty and not merged_after.empty:
+                merged_before.set_index('trade_time', inplace=True)
+                merged_after.set_index('trade_time', inplace=True)
+                post_cols = list(rename_map_post.values())
+                cols_to_join = [col for col in post_cols if col in merged_after.columns]
+                merged_full = merged_before.join(merged_after[cols_to_join])
             if not merged_full.empty:
-                merged_full['is_buy_impact'] = (merged_full['type'] == 'B') & (merged_full['volume'] > 0.3 * merged_full['a1_v_pre'])
-                merged_full['is_sell_impact'] = (merged_full['type'] == 'S') & (merged_full['volume'] > 0.3 * merged_full['b1_v_pre'])
-                impact_ticks = merged_full[merged_full['is_buy_impact'] | merged_full['is_sell_impact']].copy()
-                scores = []
-                if not impact_ticks.empty:
-                    buy_impacts = impact_ticks[impact_ticks['is_buy_impact']]
-                    deception_mask_buy = (buy_impacts['a1_p_post'] == buy_impacts['a1_p_pre']) & (buy_impacts['a1_v_post'] >= 0.8 * buy_impacts['a1_v_pre'])
-                    deception_scores = -buy_impacts.loc[deception_mask_buy, 'amount']
-                    scores.append(deception_scores)
-                    sell_impacts = impact_ticks[impact_ticks['is_sell_impact']]
-                    support_mask_sell = (sell_impacts['b1_p_post'] == sell_impacts['b1_p_pre']) & (sell_impacts['b1_v_post'] >= 0.8 * sell_impacts['b1_v_pre'])
-                    support_scores = sell_impacts.loc[support_mask_sell, 'amount']
-                    scores.append(support_scores)
-                    all_scores = pd.concat(scores)
-                    if not all_scores.empty and all_scores.abs().sum() > 0:
-                        total_day_amount = daily_series_for_day.get('amount', 0)
-                        if total_day_amount > 0:
-                            results['liquidity_authenticity_score'] = all_scores.sum() / total_day_amount
+                required_join_cols = ['a1_v_pre', 'b1_v_pre', 'a1_p_post', 'a1_p_pre', 'a1_v_post', 'b1_p_post', 'b1_p_pre', 'b1_v_post']
+                if not all(col in merged_full.columns for col in required_join_cols):
+                    print(f"调试信息: [{daily_series_for_day.name}] 合并后的DataFrame缺少关键列，跳过流动性真实性评分计算。")
+                else:
+                    merged_full.dropna(subset=required_join_cols, inplace=True)
+                    if not merged_full.empty:
+                        merged_full['is_buy_impact'] = (merged_full['type'] == 'B') & (merged_full['volume'] > 0.3 * merged_full['a1_v_pre'])
+                        merged_full['is_sell_impact'] = (merged_full['type'] == 'S') & (merged_full['volume'] > 0.3 * merged_full['b1_v_pre'])
+                        impact_ticks = merged_full[merged_full['is_buy_impact'] | merged_full['is_sell_impact']].copy()
+                        scores = []
+                        if not impact_ticks.empty:
+                            buy_impacts = impact_ticks[impact_ticks['is_buy_impact']]
+                            deception_mask_buy = (buy_impacts['a1_p_post'] == buy_impacts['a1_p_pre']) & (buy_impacts['a1_v_post'] >= 0.8 * buy_impacts['a1_v_pre'])
+                            deception_scores = -buy_impacts.loc[deception_mask_buy, 'amount']
+                            scores.append(deception_scores)
+                            sell_impacts = impact_ticks[impact_ticks['is_sell_impact']]
+                            support_mask_sell = (sell_impacts['b1_p_post'] == sell_impacts['b1_p_pre']) & (sell_impacts['b1_v_post'] >= 0.8 * sell_impacts['b1_v_pre'])
+                            support_scores = sell_impacts.loc[support_mask_sell, 'amount']
+                            scores.append(support_scores)
+                            all_scores = pd.concat(scores)
+                            if not all_scores.empty and all_scores.abs().sum() > 0:
+                                total_day_amount = daily_series_for_day.get('amount', 0)
+                                if total_day_amount > 0:
+                                    results['liquidity_authenticity_score'] = all_scores.sum() / total_day_amount
         # 1. VWAP均值回归相关性
         if minute_df is not None and not minute_df.empty and 'minute_vwap' in minute_df.columns and len(minute_df) > 1:
             daily_vwap = (minute_df['amount'].sum() / minute_df['vol'].sum()) if minute_df['vol'].sum() > 0 else np.nan
@@ -778,13 +775,20 @@ class AdvancedStructuralMetricsService:
                 results['distribution_pressure_index'] = active_sell_on_rally / active_buy_on_rally
         # --- 新增：实时盘口结构指标 ---
         if realtime_df is not None and not realtime_df.empty:
+            # [代码修改] 核心修复：对realtime_df进行重命名和类型转换，以匹配计算逻辑
+            realtime_df_processed = realtime_df.copy()
+            realtime_df_processed.rename(columns=column_rename_map, inplace=True)
+            numeric_cols = list(column_rename_map.values())
+            for col in numeric_cols:
+                if col in realtime_df_processed.columns:
+                    realtime_df_processed[col] = pd.to_numeric(realtime_df_processed[col], errors='coerce')
             # 1. 市场冲击成本 (Market Impact Cost)
             total_amount = daily_series_for_day.get('amount', 0)
             if total_amount > 0:
-                standard_amount = total_amount * 0.001 # 标准交易额为当日成交额的千分之一
+                standard_amount = total_amount * 0.001
                 impact_costs = []
-                snapshot_volumes = realtime_df['volume'].diff().fillna(0).clip(lower=0)
-                for idx, row in realtime_df.iterrows():
+                snapshot_volumes = realtime_df_processed['volume'].diff().fillna(0).clip(lower=0)
+                for idx, row in realtime_df_processed.iterrows():
                     amount_to_fill = standard_amount
                     filled_amount = 0
                     filled_volume = 0
@@ -807,10 +811,9 @@ class AdvancedStructuralMetricsService:
                             impact_costs.append((exec_price / mid_price - 1) * 100)
                 if impact_costs and snapshot_volumes.sum() > 0:
                     results['market_impact_cost'] = np.average(impact_costs, weights=snapshot_volumes.iloc[:len(impact_costs)])
-
             # 2. 盘口深度斜率 (Liquidity Slope)
             slopes = []
-            for idx, row in realtime_df.iterrows():
+            for idx, row in realtime_df_processed.iterrows():
                 mid_price = (row['b1_p'] + row['a1_p']) / 2
                 if mid_price > 0:
                     ask_points_x = [(row[f'a{i}_p'] - mid_price) / mid_price for i in range(1, 6)]
