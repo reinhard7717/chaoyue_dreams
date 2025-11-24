@@ -83,17 +83,15 @@ class GeometricPatternService:
     """
     def __init__(self, stock_code: str, stock_instance: StockInfo):
         """
-        【V2.23 · 主键认知修正版】
-        - 核心修复: 根据 StockInfo 模型定义，其主键是 `stock_code` (CharField) 而非
-                     自动生成的 `id` (AutoField)。因此，移除对不存在的 `stock_instance.id`
-                     属性的调用，废除错误的 `self.stock_id_int` 属性。
+        【V2.40 · 多尺度平台版】
+        - 核心升级: 加载 `trend_follow_strategy.json` 配置文件，并读取
+                     其中定义的多种平台识别原型（archetypes）。
         """
+        import json
+        import os
         self.stock_code = stock_code
         self.stock_instance = stock_instance
-        # [代码修改] self.stock_id 存储的就是正确的主键 (stock_code)
         self.stock_id = stock_instance.stock_code
-        # [代码删除] 移除错误的整数ID属性
-        # self.stock_id_int = stock_instance.id
         self.daily_model = get_daily_data_model_by_code(stock_code)
         self.platform_model = get_platform_feature_model_by_code(stock_code)
         self.mtt_model = get_multi_timeframe_trendline_model_by_code(stock_code)
@@ -105,6 +103,16 @@ class GeometricPatternService:
         self.fib_periods = [5, 8, 13, 21, 34, 55]
         self.long_term_period = max(self.fib_periods) if self.fib_periods else 55
         self.ultra_long_term_period = 233
+        # [代码新增] V2.40 加载策略配置，获取平台识别原型
+        config_path = os.path.join(settings.BASE_DIR, 'config', 'trend_follow_strategy.json')
+        strategy_config = {}
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                strategy_config = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"[{self.stock_code}] 加载策略配置文件失败: {e}")
+        geometric_params = strategy_config.get("strategy_params", {}).get("trend_follow", {}).get("geometric_pattern_params", {})
+        self.platform_archetypes = geometric_params.get("platform_recognition", {}).get("archetypes", [])
 
     @classmethod
     async def create(cls, stock_code: str):
@@ -210,16 +218,21 @@ class GeometricPatternService:
         self._save_trendline_events_incrementally(flag_events)
         print(f"[{self.stock_code}] [动态演化分析] 几何形态特征计算完成。")
 
-    def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, bbw_quantile: float = 0.25, potential_threshold: float = 0.6, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
+    def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict):
         """
-        【V2.39 · 平台验证探针版】识别、量化并存储矩形平台。
-        - 核心升级: 在验证候选平台的循环内部，植入“平台验证探针”。
-                     该探针将明确打印每个候选平台的持续时间、价格振幅，并清晰地
-                     标明其被接受或因何种具体原因被拒绝，使过滤逻辑完全透明化。
+        【V2.40 · 多尺度平台版】识别、量化并存储矩形平台。
+        - 核心重构: 废除固定的单一识别标准，改为遍历配置文件中定义的多种
+                     平台原型（Archetype），对每一种原型应用其专属的参数集
+                     （如时长、振幅等）进行独立的扫描和验证。
+        - 核心升级: 在保存平台时，增加 `platform_archetype` 字段，以区分
+                     识别出的平台类型（如战术性盘整、战略性蓄势等）。
         """
-        print(f"  -> [V2.39 平台验证探针] 正在识别和量化矩形平台...")
+        print(f"  -> [V2.40 多尺度平台识别准则] 启动...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
+            return
+        if not self.platform_archetypes:
+            print("  -> [配置缺失] 在配置文件中未找到平台原型定义，跳过平台识别。")
             return
         df_copy = enriched_df.copy()
         cols_to_drop = ['open', 'high', 'low', 'close']
@@ -232,131 +245,106 @@ class GeometricPatternService:
         if not all(col in df_copy.columns for col in required_cols):
             print(f"\n  -> [诊断失败] 输入的DataFrame缺少核心计算列。需要: {required_cols}。任务终止。")
             return
-        print("\n  -> [探针式计算] 正在尝试计算 ADX...")
         df_copy.ta.adx(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True)
-        if 'ADX_14' not in df_copy.columns:
-            print("  -> [计算失败] ADX 指标未能成功生成。任务终止。")
-            return
-        print("  -> [计算成功] ADX 指标已生成。")
-        print("  -> [探针式计算] 正在尝试计算 BBands...")
-        bbu_col = 'BBU_20_2.0'
-        bbl_col = 'BBL_20_2.0'
-        bbm_col = 'BBM_20_2.0'
-        bbw_col = 'BBW_20_2.0'
+        bbu_col, bbl_col, bbm_col, bbw_col = 'BBU_20_2.0', 'BBL_20_2.0', 'BBM_20_2.0', 'BBW_20_2.0'
         bbands_results = ta.bbands(close=df_copy['close_qfq'], length=20, std=2.0, append=False)
         if bbands_results is not None and not bbands_results.empty:
             df_copy = df_copy.join(bbands_results)
         if all(col in df_copy.columns for col in [bbu_col, bbl_col, bbm_col]):
             df_copy[bbw_col] = (df_copy[bbu_col] - df_copy[bbl_col]) / df_copy[bbm_col]
-            print("  -> [计算成功] BBands 指标已生成，并手动计算了 BBW。")
         else:
-            print(f"  -> [计算失败] 布林带基础指标 ({bbu_col}, {bbl_col}, {bbm_col}) 未能生成。任务终止。")
+            print(f"  -> [计算失败] 布林带基础指标未能生成。任务终止。")
             return
-        print("  -> [计算成功] 所有核心指标均已成功生成。继续执行平台识别...")
-        is_low_trend = df_copy['ADX_14'] < adx_threshold
-        bbw_rolling_quantile = df_copy[bbw_col].rolling(120, min_periods=60).quantile(bbw_quantile)
-        is_low_volatility = df_copy[bbw_col] < bbw_rolling_quantile
-        df_copy['is_potential_platform'] = (is_low_trend | is_low_volatility).astype(int)
-        df_copy['platform_potential_score'] = df_copy['is_potential_platform'].rolling(window=potential_window, min_periods=potential_window//2).mean()
-        print("\n" + "="*30 + " [平台识别诊断探针阵列] " + "="*30)
-        print(f"--- [探针 E1: ADX & 低趋势条件] ---")
-        print(f"  -> ADX 阈值 (adx_threshold): {adx_threshold}")
-        print(f"  -> ADX_14 指标统计:\n{df_copy['ADX_14'].describe().to_string()}")
-        print(f"  -> 满足 '低趋势' (ADX < {adx_threshold}) 的天数: {is_low_trend.sum()}")
-        print("\n" + "-"*80 + "\n")
-        print(f"--- [探针 E2: BBW & 低波动条件] ---")
-        print(f"  -> BBW 分位数 (bbw_quantile): {bbw_quantile}")
-        print(f"  -> BBW_20_2.0 指标统计:\n{df_copy[bbw_col].describe().to_string()}")
-        print(f"  -> BBW 滚动分位数指标统计:\n{bbw_rolling_quantile.describe().to_string()}")
-        print(f"  -> 满足 '低波动' (BBW < 滚动分位数) 的天数: {is_low_volatility.sum()}")
-        print("\n" + "-"*80 + "\n")
-        print(f"--- [探针 E3: 潜在平台标记] ---")
-        print(f"  -> is_potential_platform (低趋势 或 低波动) 标记分布:\n{df_copy['is_potential_platform'].value_counts().to_string()}")
-        print("\n" + "-"*80 + "\n")
-        print(f"--- [探针 E4: 平台潜力得分] ---")
-        print(f"  -> 潜力得分阈值 (potential_threshold): {potential_threshold}")
-        print(f"  -> platform_potential_score 指标统计:\n{df_copy['platform_potential_score'].describe().to_string()}")
-        print(f"  -> 最近5天的潜力得分:\n{df_copy['platform_potential_score'].tail(5).to_string()}")
-        print("\n" + "-"*80 + "\n")
-        score_series = df_copy['platform_potential_score']
-        entering_platform = (score_series > potential_threshold) & (score_series.shift(1) <= potential_threshold)
-        exiting_platform = (score_series < potential_threshold) & (score_series.shift(1) >= potential_threshold)
-        entering_platform = entering_platform.fillna(False)
-        exiting_platform = exiting_platform.fillna(False)
-        print(f"--- [探针 E5: 最终进出信号] ---")
-        print(f"  -> 识别到的平台进入信号 (entering_platform) 数量: {entering_platform.sum()}")
-        print(f"  -> 识别到的平台退出信号 (exiting_platform) 数量: {exiting_platform.sum()}")
-        print("="*80 + "\n")
-        platform_start_dates = df_copy[entering_platform].index
-        platform_end_dates = df_copy[exiting_platform].index
         platforms_to_save = []
         minute_map = data_dfs.get("stock_minute_data_map", {})
         tick_map = data_dfs.get("stock_tick_data_map", {})
         realtime_map = data_dfs.get("stock_realtime_data_map", {})
-        for start_date in platform_start_dates:
-            possible_end_dates = platform_end_dates[platform_end_dates > start_date]
-            if not possible_end_dates.empty:
-                end_date = possible_end_dates[0]
-                # [代码新增] V2.39 植入平台验证探针
-                print(f"\n  -> [平台验证探针] 正在验证候选平台...")
-                print(f"     - 候选开始日期: {start_date.date()}, 候选结束日期: {end_date.date()}")
-                group = df_copy.loc[start_date:end_date]
-                print(f"     - 计算持续天数: {len(group)} (要求 >= {min_duration})")
-                if len(group) < min_duration:
-                    print(f"     - [REJECTED] 原因: 持续天数不足。")
-                    continue
-                platform_high = group['high_qfq'].max()
-                platform_low = group['low_qfq'].min()
-                if platform_low == 0:
-                    print(f"     - [REJECTED] 原因: 平台最低价为0，数据异常。")
-                    continue
-                price_range_pct = (platform_high - platform_low) / platform_low
-                print(f"     - 计算价格振幅: {price_range_pct:.2%} (要求 <= {max_range_pct:.2%})")
-                if price_range_pct > max_range_pct:
-                    print(f"     - [REJECTED] 原因: 价格振幅过大。")
-                    continue
-                print(f"     - [ACCEPTED] 候选平台通过所有验证，将被量化。")
-                character, score_val = self._assess_platform_character(group)
-                platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
-                precise_vpoc = None
-                if platform_minutes_dfs:
-                    platform_minutes_df = pd.concat(platform_minutes_dfs)
-                    if not platform_minutes_df.empty and 'volume' in platform_minutes_df.columns and platform_minutes_df['volume'].sum() > 0:
-                        precise_vpoc = np.average(platform_minutes_df['close'], weights=platform_minutes_df['volume'])
-                internal_ofi_sum = 0
-                internal_total_amount = 0
-                for d in group.index:
-                    if d.date() in tick_map:
-                        ofi, amount = self._calculate_daily_ofi_from_ticks(tick_map[d.date()])
-                        internal_ofi_sum += ofi * df_copy.loc[d, 'close_qfq']
-                        internal_total_amount += amount
-                internal_accumulation_intensity = (internal_ofi_sum / internal_total_amount) * 100 if internal_total_amount > 0 else 0.0
-                breakout_quality_score = None
-                next_trade_date = TradeCalendar.get_next_trade_date(end_date.date())
-                if next_trade_date and pd.to_datetime(next_trade_date) in df_copy.index:
-                    breakout_day_close = df_copy.loc[pd.to_datetime(next_trade_date), 'close_qfq']
-                    if breakout_day_close > platform_high:
-                        ofi_score, momentum_score = 0.0, 0.0
-                        if next_trade_date in tick_map:
-                            ofi, _ = self._calculate_daily_ofi_from_ticks(tick_map[next_trade_date])
-                            breakout_vol = df_copy.loc[pd.to_datetime(next_trade_date), 'vol'] * 100
-                            if breakout_vol > 0: ofi_score = np.clip(ofi / breakout_vol, -1, 1)
-                        if next_trade_date in realtime_map:
-                            momentum_score = self._calculate_breakout_momentum_from_realtime(realtime_map[next_trade_date])
-                        breakout_quality_score = (ofi_score * 0.6) + (momentum_score * 0.4)
-                platform_data = {
-                    'stock': self.stock_instance, 'start_date': start_date.date(), 'end_date': end_date.date(),
-                    'duration': len(group), 'high': platform_high, 'low': platform_low,
-                    'vpoc': np.average(group['close_qfq'], weights=group['vol']),
-                    'total_volume': group['vol'].sum() * 100, 'quality_score': (score_val + 100) / 200,
-                    'precise_vpoc': precise_vpoc, 'internal_accumulation_intensity': internal_accumulation_intensity,
-                    'breakout_quality_score': breakout_quality_score, 'platform_character': character, 'character_score': score_val,
-                }
-                platforms_to_save.append(platform_data)
+        # [代码修改] V2.40 遍历所有平台原型进行扫描
+        for archetype in self.platform_archetypes:
+            archetype_name = archetype.get('name', 'UNKNOWN')
+            print(f"\n{'='*20} 正在使用原型 [{archetype_name}] 进行扫描 {'='*20}")
+            # 从原型配置中获取参数
+            adx_threshold = archetype.get('adx_threshold', 25)
+            bbw_quantile = archetype.get('bbw_quantile', 0.25)
+            potential_threshold = archetype.get('potential_threshold', 0.6)
+            potential_window = archetype.get('potential_window', 20)
+            min_duration = archetype.get('min_duration', 10)
+            max_range_pct = archetype.get('max_range_pct', 0.30)
+            is_low_trend = df_copy['ADX_14'] < adx_threshold
+            bbw_rolling_quantile = df_copy[bbw_col].rolling(120, min_periods=60).quantile(bbw_quantile)
+            is_low_volatility = df_copy[bbw_col] < bbw_rolling_quantile
+            df_copy['is_potential_platform'] = (is_low_trend | is_low_volatility).astype(int)
+            df_copy['platform_potential_score'] = df_copy['is_potential_platform'].rolling(window=potential_window, min_periods=potential_window//2).mean()
+            score_series = df_copy['platform_potential_score']
+            entering_platform = (score_series > potential_threshold) & (score_series.shift(1) <= potential_threshold)
+            exiting_platform = (score_series < potential_threshold) & (score_series.shift(1) >= potential_threshold)
+            entering_platform = entering_platform.fillna(False)
+            exiting_platform = exiting_platform.fillna(False)
+            platform_start_dates = df_copy[entering_platform].index
+            platform_end_dates = df_copy[exiting_platform].index
+            for start_date in platform_start_dates:
+                possible_end_dates = platform_end_dates[platform_end_dates > start_date]
+                if not possible_end_dates.empty:
+                    end_date = possible_end_dates[0]
+                    print(f"\n  -> [平台验证探针] 正在验证候选平台 (原型: {archetype_name})...")
+                    print(f"     - 候选开始日期: {start_date.date()}, 候选结束日期: {end_date.date()}")
+                    group = df_copy.loc[start_date:end_date]
+                    print(f"     - 计算持续天数: {len(group)} (要求 >= {min_duration})")
+                    if len(group) < min_duration:
+                        print(f"     - [REJECTED] 原因: 持续天数不足。")
+                        continue
+                    platform_high = group['high_qfq'].max()
+                    platform_low = group['low_qfq'].min()
+                    if platform_low == 0:
+                        print(f"     - [REJECTED] 原因: 平台最低价为0，数据异常。")
+                        continue
+                    price_range_pct = (platform_high - platform_low) / platform_low
+                    print(f"     - 计算价格振幅: {price_range_pct:.2%} (要求 <= {max_range_pct:.2%})")
+                    if price_range_pct > max_range_pct:
+                        print(f"     - [REJECTED] 原因: 价格振幅过大。")
+                        continue
+                    print(f"     - [ACCEPTED] 候选平台通过所有验证，将被量化。")
+                    character, score_val = self._assess_platform_character(group)
+                    platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
+                    precise_vpoc = None
+                    if platform_minutes_dfs:
+                        platform_minutes_df = pd.concat(platform_minutes_dfs)
+                        if not platform_minutes_df.empty and 'volume' in platform_minutes_df.columns and platform_minutes_df['volume'].sum() > 0:
+                            precise_vpoc = np.average(platform_minutes_df['close'], weights=platform_minutes_df['volume'])
+                    internal_ofi_sum, internal_total_amount = 0, 0
+                    for d in group.index:
+                        if d.date() in tick_map:
+                            ofi, amount = self._calculate_daily_ofi_from_ticks(tick_map[d.date()])
+                            internal_ofi_sum += ofi * df_copy.loc[d, 'close_qfq']
+                            internal_total_amount += amount
+                    internal_accumulation_intensity = (internal_ofi_sum / internal_total_amount) * 100 if internal_total_amount > 0 else 0.0
+                    breakout_quality_score = None
+                    next_trade_date = TradeCalendar.get_next_trade_date(end_date.date())
+                    if next_trade_date and pd.to_datetime(next_trade_date) in df_copy.index:
+                        breakout_day_close = df_copy.loc[pd.to_datetime(next_trade_date), 'close_qfq']
+                        if breakout_day_close > platform_high:
+                            ofi_score, momentum_score = 0.0, 0.0
+                            if next_trade_date in tick_map:
+                                ofi, _ = self._calculate_daily_ofi_from_ticks(tick_map[next_trade_date])
+                                breakout_vol = df_copy.loc[pd.to_datetime(next_trade_date), 'vol'] * 100
+                                if breakout_vol > 0: ofi_score = np.clip(ofi / breakout_vol, -1, 1)
+                            if next_trade_date in realtime_map:
+                                momentum_score = self._calculate_breakout_momentum_from_realtime(realtime_map[next_trade_date])
+                            breakout_quality_score = (ofi_score * 0.6) + (momentum_score * 0.4)
+                    platform_data = {
+                        'stock': self.stock_instance, 'start_date': start_date.date(), 'end_date': end_date.date(),
+                        'duration': len(group), 'high': platform_high, 'low': platform_low,
+                        'vpoc': np.average(group['close_qfq'], weights=group['vol']),
+                        'total_volume': group['vol'].sum() * 100, 'quality_score': (score_val + 100) / 200,
+                        'precise_vpoc': precise_vpoc, 'internal_accumulation_intensity': internal_accumulation_intensity,
+                        'breakout_quality_score': breakout_quality_score, 'platform_character': character, 'character_score': score_val,
+                        'platform_archetype': archetype_name, # [代码新增] V2.40 记录平台原型
+                    }
+                    platforms_to_save.append(platform_data)
         found_count = len(platforms_to_save)
-        print(f"  -> [V2.39 平台验证探针] 发现 {found_count} 个有效平台。")
+        print(f"\n  -> [V2.40 多尺度平台识别准则] 扫描完成，共发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.39 平台验证探针] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.40 多尺度平台识别准则] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
@@ -678,8 +666,8 @@ class GeometricPatternService:
                     })
         if is_last_day_debug:
             print(f"--- [探針模式結束] 日期 {current_date.date()} 共生成 {len(matrix_records)} 條有效趨勢線 ---\n")
-        else:
-            print(f"    -> [趋势线矩阵引擎] 为 {current_date.date()} 生成了 {len(matrix_records)} 条有效趋势线。")
+        # else:
+        #     print(f"    -> [趋势线矩阵引擎] 为 {current_date.date()} 生成了 {len(matrix_records)} 条有效趋势线。")
         return matrix_records
 
     def _find_best_line_with_micro_validation(self, pivots: pd.DataFrame, price_col: str, full_df: pd.DataFrame, line_type: str, data_dfs: dict):

@@ -996,6 +996,35 @@
           "pullback_confirmation_n_pre_A": 10,
           "pullback_confirmation_n_pullback_max": 13
       },
+      "geometric_pattern_params": {
+        "enabled": true,
+        "description": "【V1.0 · 多尺度平台】几何形态引擎的专属参数块。",
+        "platform_recognition": {
+          "description": "【多尺度平台识别准则】定义多种平台原型及其识别参数。",
+          "archetypes": [
+            {
+              "name": "TACTICAL_CONSOLIDATION",
+              "description": "战术性盘整平台：周期短、振幅紧凑的中继形态。",
+              "min_duration": 5,
+              "max_range_pct": 0.15,
+              "adx_threshold": 25,
+              "bbw_quantile": 0.25,
+              "potential_threshold": 0.6,
+              "potential_window": 10
+            },
+            {
+              "name": "STRATEGIC_BASE",
+              "description": "战略性蓄势平台：周期长、振幅可适当放宽的大型底部或休整形态。",
+              "min_duration": 20,
+              "max_range_pct": 0.35,
+              "adx_threshold": 30,
+              "bbw_quantile": 0.30,
+              "potential_threshold": 0.5,
+              "potential_window": 20
+            }
+          ]
+        }
+      },
       "consolidation_breakout_params": {
         "enabled": true,
         "description": "【V1.0】结构性盘整突破诊断引擎参数。",
