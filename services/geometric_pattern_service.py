@@ -383,36 +383,49 @@ class GeometricPatternService:
 
     def _compute_trendline_matrix_for_day(self, current_date: pd.Timestamp, df_daily: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V2.6 · 自定义Zigzag引擎集成版】为指定的一天，计算出所有斐波那契周期的支撑和阻力线矩阵。
-        - V2.6 升级: 废弃不稳定的 pandas_ta.zigzag，改为调用内部实现的 `_calculate_zigzag` 方法。
+        【V2.14 · 断路器探针版】为 Zigzag 计算过程添加探针，定位 Numba 函数的潜在死循环问题。
         """
+        import time # 导入time模块
         is_last_day_debug = (current_date == df_daily.index.max())
-        if is_last_day_debug:
-            print(f"\n--- [探针模式启动] 正在详细检查日期: {current_date.date()} ---")
+        # --- 以下是修改的代码块 ---
+        # 即使不是最后一天，如果日期是问题日期，也开启探针模式
+        is_problem_date_debug = (current_date.date() == pd.to_datetime('2025-05-23').date())
+        if is_problem_date_debug:
+            print(f"\n--- [关键日期探针启动] 正在详细检查日期: {current_date.date()} ---")
+        # --- 修改结束 ---
         matrix_records = []
         for period in self.fib_periods:
+            # --- 以下是新增的探针代码 ---
+            if is_problem_date_debug:
+                print(f"  -> [周期 {period}] 开始处理...")
+            # --- 修改结束 ---
             lookback_days = period * 3
             start_date = current_date - pd.Timedelta(days=lookback_days)
             df_slice = df_daily[(df_daily.index >= start_date) & (df_daily.index <= current_date)].copy()
             if len(df_slice) < period:
-                if is_last_day_debug:
-                    print(f"  -> [周期 {period}] 数据不足 ({len(df_slice)}天)，跳过。")
+                if is_problem_date_debug:
+                    print(f"    -> [周期 {period}] 数据不足 ({len(df_slice)}天)，跳过。")
                 continue
-            if is_last_day_debug:
-                print(f"\n  -> [周期 {period}] 数据切片长度: {len(df_slice)} (回溯自 {df_slice.index.min().date()}) | 使用自定义Zigzag引擎(threshold=0.05)")
-            # 修改代码块：调用我们自己的zigzag实现
+            
+            # --- 以下是新增的探针代码 ---
+            if is_problem_date_debug:
+                print(f"    -> [周期 {period}] 数据切片完成，长度 {len(df_slice)}。准备计算Zigzag...")
+            t_start_zigzag = time.time()
             zigzag_series = self._calculate_zigzag(df_slice, threshold=0.05)
+            t_end_zigzag = time.time()
+            if is_problem_date_debug:
+                print(f"    -> [周期 {period}] Zigzag计算完成，耗时: {(t_end_zigzag - t_start_zigzag)*1000:.2f}ms。")
+            # --- 修改结束 ---
+
             df_slice['zigzag'] = zigzag_series
             df_slice['zigzag'] = df_slice['zigzag'].fillna(0)
-            if is_last_day_debug:
-                print(f"    [探针] Zigzag计算结果 (最近10条):")
-                print(df_slice[['high_qfq', 'low_qfq', 'zigzag']].tail(10).to_string())
             df_slice['time_idx'] = np.arange(len(df_slice))
             pivot_highs = df_slice[df_slice['zigzag'] == 1]
             pivot_lows = df_slice[df_slice['zigzag'] == -1]
-            if is_last_day_debug:
-                print(f"    [探针] 识别出的高点锚点(pivot_highs)数量: {len(pivot_highs)}")
-                print(f"    [探针] 识别出的低点锚点(pivot_lows)数量: {len(pivot_lows)}")
+            
+            if is_problem_date_debug:
+                print(f"    -> [周期 {period}] 高点锚点数: {len(pivot_highs)}, 低点锚点数: {len(pivot_lows)}")
+
             best_support = self._find_best_line_with_micro_validation(pivot_lows, 'low_qfq', df_slice, 'support', data_dfs)
             best_resistance = self._find_best_line_with_micro_validation(pivot_highs, 'high_qfq', df_slice, 'resistance', data_dfs)
             for line_data in [best_support, best_resistance]:
@@ -426,10 +439,15 @@ class GeometricPatternService:
                         'intercept': line_data['intercept'],
                         'validity_score': line_data['validity_score'],
                     })
-        if is_last_day_debug:
-            print(f"--- [探針模式結束] 日期 {current_date.date()} 共生成 {len(matrix_records)} 條有效趨勢線 ---\n")
-        else:
-            print(f"    -> [趋势线矩阵引擎] 为 {current_date.date()} 生成了 {len(matrix_records)} 条有效趋势线。")
+        if is_problem_date_debug:
+            print(f"--- [关键日期探针结束] 日期 {current_date.date()} 共生成 {len(matrix_records)} 條有效趨勢線 ---\n")
+        
+        # 保持原有的日志输出
+        if not is_last_day_debug and not is_problem_date_debug:
+             print(f"    -> [趋势线矩阵引擎] 为 {current_date.date()} 生成了 {len(matrix_records)} 条有效趋势线。")
+        elif is_last_day_debug:
+             print(f"--- [探針模式結束] 日期 {current_date.date()} 共生成 {len(matrix_records)} 條有效趨勢線 ---\n")
+
         return matrix_records
 
     def _find_best_line_with_micro_validation(self, pivots: pd.DataFrame, price_col: str, full_df: pd.DataFrame, line_type: str, data_dfs: dict):
