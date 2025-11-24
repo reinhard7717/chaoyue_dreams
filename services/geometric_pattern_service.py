@@ -723,15 +723,19 @@ class GeometricPatternService:
 
     def _compute_trendline_matrix_for_day(self, current_date: pd.Timestamp, df_daily: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V2.52 · 趋势信念版】为指定的一天，计算出所有斐波那契周期的支撑和阻力线矩阵，并为其注入“信念评分”。
-        - V2.52 升级: 在找到最佳几何趋势线后，调用 `_calculate_trend_conviction_score` 对其进行
-                     多维情报审问，量化其内在信念强度，并将结果一并存入数据库。
+        【V2.52 · 探针增强版】为指定的一天，计算出所有斐波那契周期的支撑和阻力线矩阵，并为其注入“信念评分”。
+        - V2.52 升级: 新增了仅在最新交易日才会激活的“信念探针”，用于输出最终信念评分
+                     及其详细的四维构成，确保了核心决策过程的完全透明。
         """
         matrix_records = []
-        enriched_df = data_dfs.get('enriched_df') # 从data_dfs获取增强数据
+        enriched_df = data_dfs.get('enriched_df')
         if enriched_df is None:
             print("  -> [信念评估警告] 未能在data_dfs中找到enriched_df，无法计算趋势信念分。")
-            return [] # 如果没有增强数据，则无法计算，直接返回
+            return []
+        # [代码修改] V2.52 新增调试日判断逻辑
+        is_debug_day = (current_date == df_daily.index.max())
+        if is_debug_day:
+            print(f"\n    -> [趋势信念探针] {current_date.date()} (最新交易日)")
         for period in self.fib_periods:
             lookback_days = period * 3
             start_date = current_date - pd.Timedelta(days=lookback_days)
@@ -748,8 +752,12 @@ class GeometricPatternService:
             best_resistance = self._find_best_line_with_micro_validation(pivot_highs, 'high_qfq', df_slice, 'resistance', data_dfs)
             for line_data in [best_support, best_resistance]:
                 if line_data:
-                    # [代码修改] V2.52 新增调用信念评分计算
-                    conviction_score = self._calculate_trend_conviction_score(line_data, enriched_df)
+                    # [代码修改] V2.52 传入debug_flag激活探针
+                    conviction_score = self._calculate_trend_conviction_score(line_data, enriched_df, debug_flag=is_debug_day)
+                    # [代码修改] V2.52 新增一级探针（最终得分）
+                    if is_debug_day:
+                        line_type_display = "支撑线" if line_data['line_type'] == 'support' else "阻力线"
+                        print(f"      - [{period}日 {line_type_display}] -> 最终信念评分: {conviction_score:.2f}")
                     matrix_records.append({
                         'stock': self.stock_instance,
                         'trade_date': current_date.date(),
@@ -758,7 +766,7 @@ class GeometricPatternService:
                         'slope': line_data['slope'],
                         'intercept': line_data['intercept'],
                         'validity_score': line_data['validity_score'],
-                        'trend_conviction_score': conviction_score, # [代码修改] V2.52 新增信念评分
+                        'trend_conviction_score': conviction_score,
                     })
         return matrix_records
 
@@ -1282,11 +1290,11 @@ class GeometricPatternService:
         )
         return conviction_score
 
-    def _calculate_trend_conviction_score(self, line_data: dict, enriched_df: pd.DataFrame) -> float:
+    def _calculate_trend_conviction_score(self, line_data: dict, enriched_df: pd.DataFrame, debug_flag: bool = False) -> float:
         """
-        【V2.52 新增 · 战役评估AI参谋】计算趋势线的“内在信念”分数。
-        该模型模拟战役参谋的思维，从“力量源泉(资金)”、“结构完整性(筹码)”、“行为确认(效率)”
-        和“几何有效性(战线)”四个维度，对趋势的内在质量和主力意志进行深度量化。
+        【V2.52 · 探针增强版】计算趋势线的“内在信念”分数。
+        - V2.52 升级: 新增 `debug_flag` 参数。当激活时，会打印出构成最终分数的
+                     四大支柱的详细得分，实现决策过程的透明化。
         """
         start_date = line_data.get('start_date')
         end_date = line_data.get('end_date')
@@ -1297,38 +1305,33 @@ class GeometricPatternService:
         if trend_df.empty:
             return 50.0
         # 支柱一: 几何有效性 (Geometric Validity) - 权重 15%
-        # 直接使用已有的几何评分，这是评估的基础。
         score_geometry = line_data.get('validity_score', 0.5) * 100
         # 支柱二: 力量源泉 (Power Source) - 权重 35%
-        # 审问资金：趋势是由主力真金白银推动，还是散户情绪的狂欢？
         total_amount = trend_df['amount'].sum()
         mf_net_flow = trend_df['main_force_net_flow_calibrated'].sum()
         flow_ratio = (mf_net_flow * 10000) / total_amount if total_amount > 0 else 0
-        # 将资金流占比归一化到[-100, 100]的得分。净流入超过3%视为极强。
         normalized_flow_score = np.clip(flow_ratio / 3.0, -1, 1) * 100
         score_power = normalized_flow_score if line_type == 'support' else -normalized_flow_score
         # 支柱三: 结构完整性 (Structural Integrity) - 权重 30%
-        # 审问筹码：趋势是否得到了筹码结构的确认？是锁定惜售还是恐慌派发？
         solidity_series = trend_df['dominant_peak_solidity'].dropna()
         if len(solidity_series) > 2:
             solidity_slope = self._calculate_linear_regression_slope(solidity_series)
-            # 将斜率归一化到[-100, 100]的得分。每日0.5%的增长视为极强。
             normalized_slope_score = np.clip(solidity_slope / 0.005, -1, 1) * 100
             score_structure = normalized_slope_score if line_type == 'support' else -normalized_slope_score
         else:
             score_structure = 0
         # 支柱四: 行为确认 (Behavioral Confirmation) - 权重 20%
-        # 审问效率：趋势的推进是流畅高效，还是犹豫不决、充满内耗？
         efficiency_series = trend_df['trend_efficiency_ratio'].dropna()
         if not efficiency_series.empty:
             avg_efficiency = efficiency_series.mean()
-            # 将效率值归一化到[-100, 100]的得分。平均效率0.5视为极强。
             normalized_efficiency_score = np.clip(avg_efficiency / 0.5, -1, 1) * 100
             score_behavior = normalized_efficiency_score if line_type == 'support' else -normalized_efficiency_score
         else:
             score_behavior = 0
+        # [代码修改] V2.52 新增二级探针（评分细则）
+        if debug_flag:
+            print(f"          [评分细则] 几何: {score_geometry:.2f}, 力量(资金): {score_power:.2f}, 结构(筹码): {score_structure:.2f}, 行为(效率): {score_behavior:.2f}")
         # 最终信念融合
-        # 将所有得分从[-100, 100]转换到[0, 100]的信念空间
         final_score = (
             (score_geometry) * 0.15 +
             ((score_power + 100) / 2) * 0.35 +
