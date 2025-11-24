@@ -722,6 +722,7 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
         tick_data_map = data_dfs.get("stock_tick_data_map", {})
         level5_data_map = data_dfs.get("stock_level5_data_map", {})
         minute_data_map = data_dfs.get("stock_minute_data_map", {})
+        realtime_data_map = data_dfs.get("stock_realtime_data_map", {})
         # 将多个map整合成一个嵌套map
         nested_intraday_data_map = {}
         all_dates_from_maps = set(tick_data_map.keys()) | set(level5_data_map.keys()) | set(minute_data_map.keys())
@@ -732,6 +733,7 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
                     'minute': minute_data_map.get(date_obj),
                     'tick': tick_data_map.get(date_obj),
                     'level5': level5_data_map.get(date_obj),
+                    'realtime': realtime_data_map.get(date_obj),
                 }
         print(f"调试信息: [{stock_code}] [结构指标任务] 数据重组完成，共 {len(nested_intraday_data_map)} 天的数据将被处理。")
         # 修改代码行：调用服务执行器，传入重组后的嵌套数据map

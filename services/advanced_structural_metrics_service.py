@@ -206,6 +206,7 @@ class AdvancedStructuralMetricsService:
             group = data_bundle.get('minute')
             tick_df_for_day = data_bundle.get('tick')
             level5_df_for_day = data_bundle.get('level5')
+            realtime_df_for_day = data_bundle.get('realtime')
             if group is None or group.empty or len(group) < 10:
                 logger.warning(f"[{stock_code}] [{date}] 跳过结构指标计算，分钟级数据不足。")
                 continue
@@ -241,7 +242,8 @@ class AdvancedStructuralMetricsService:
             day_metric_dict = self._calculate_daily_structural_metrics(
                 group, continuous_group, daily_series_for_day, atr_5_for_day, atr_14_for_day, atr_50_for_day, prev_day_metrics,
                 tick_df_for_day=tick_df_for_day,
-                level5_df_for_day=level5_df_for_day
+                level5_df_for_day=level5_df_for_day,
+                realtime_df_for_day=realtime_df_for_day
             )
             day_metric_dict['trade_time'] = date
             prev_day_metrics = {
@@ -256,7 +258,7 @@ class AdvancedStructuralMetricsService:
         result_df = pd.DataFrame(daily_metrics)
         return result_df.set_index(pd.to_datetime(result_df['trade_time']))
 
-    def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict, tick_df_for_day: pd.DataFrame = None, level5_df_for_day: pd.DataFrame = None) -> dict:
+    def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict, tick_df_for_day: pd.DataFrame = None, level5_df_for_day: pd.DataFrame = None, realtime_df_for_day: pd.DataFrame = None) -> dict:
         """
         【V19.3 · 职责集中重构版】
         - 核心重构: 剥离所有基于Tick数据的指标计算逻辑（active_volume_price_efficiency等），将其移至 _calculate_microstructure_metrics。
@@ -503,6 +505,7 @@ class AdvancedStructuralMetricsService:
         microstructure_metrics = self._calculate_microstructure_metrics(
             tick_df=tick_df_for_day,
             level5_df=level5_df_for_day,
+            realtime_df=realtime_df_for_day,
             minute_df=continuous_group,
             total_volume=total_volume_safe,
             group=group,
@@ -609,7 +612,7 @@ class AdvancedStructuralMetricsService:
         cum_array = np.cumsum(sorted_array, dtype=float)
         return (n + 1 - 2 * np.sum(cum_array) / cum_array[-1]) / n
 
-    def _calculate_microstructure_metrics(self, tick_df: pd.DataFrame, level5_df: pd.DataFrame, minute_df: pd.DataFrame, total_volume: float, group: pd.DataFrame, daily_series_for_day: pd.Series, atr_14: float) -> dict:
+    def _calculate_microstructure_metrics(self, tick_df: pd.DataFrame, level5_df: pd.DataFrame, realtime_df: pd.DataFrame, minute_df: pd.DataFrame, total_volume: float, group: pd.DataFrame, daily_series_for_day: pd.Series, atr_14: float) -> dict:
         """
         【V19.3 · 职责集中重构版】
         - 核心重构: 将 active_volume_price_efficiency, absorption_strength_index, distribution_pressure_index 的计算逻辑从 _calculate_daily_structural_metrics 移入此方法。
@@ -626,9 +629,55 @@ class AdvancedStructuralMetricsService:
             'active_volume_price_efficiency': np.nan,
             'absorption_strength_index': np.nan,
             'distribution_pressure_index': np.nan,
+            'market_impact_cost': np.nan, # [代码新增]
+            'liquidity_slope': np.nan, # [代码新增]
+            'liquidity_authenticity_score': np.nan,
         }
         if tick_df is None or tick_df.empty or total_volume == 0:
             return results
+        # --- 意图与执行交叉验证：流动性真实性评分 ---
+        # 1. 数据准备：将tick与前后level5快照对齐
+        tick_df_sorted = tick_df.sort_index()
+        level5_df_sorted = level5_df.sort_index()
+        
+        # 匹配每个tick发生前最近的level5快照
+        merged_before = pd.merge_asof(tick_df_sorted, level5_df_sorted, on='trade_time', direction='backward', suffixes=('_tick', '_pre'))
+        # 匹配每个tick发生后最近的level5快照
+        merged_after = pd.merge_asof(tick_df_sorted, level5_df_sorted, on='trade_time', direction='forward', suffixes=('_tick', '_post'))
+        
+        if not merged_before.empty and not merged_after.empty:
+            merged_before.set_index('trade_time', inplace=True)
+            merged_after.set_index('trade_time', inplace=True)
+            # 选取核心列进行合并
+            cols_to_join = [col for col in merged_after.columns if '_post' in col]
+            merged_full = merged_before.join(merged_after[cols_to_join])
+            # 2. 识别关键事件
+            merged_full['is_buy_impact'] = (merged_full['type'] == 'B') & (merged_full['volume'] > 0.3 * merged_full['a1_v_pre'])
+            merged_full['is_sell_impact'] = (merged_full['type'] == 'S') & (merged_full['volume'] > 0.3 * merged_full['b1_v_pre'])
+            impact_ticks = merged_full[merged_full['is_buy_impact'] | merged_full['is_sell_impact']].copy()
+            scores = []
+            if not impact_ticks.empty:
+                # 3. 计算分数
+                # 处理买方冲击（验证卖盘真实性）
+                buy_impacts = impact_ticks[impact_ticks['is_buy_impact']]
+                # 预期：卖一价被消耗后，新的卖一价应该等于或高于旧的卖二价
+                # 欺骗：新的卖一价又回到了旧的卖一价，且挂单量迅速恢复
+                deception_mask_buy = (buy_impacts['a1_p_post'] == buy_impacts['a1_p_pre']) & (buy_impacts['a1_v_post'] >= 0.8 * buy_impacts['a1_v_pre'])
+                deception_scores = -buy_impacts.loc[deception_mask_buy, 'amount']
+                scores.append(deception_scores)
+                # 处理卖方冲击（验证买盘真实性）
+                sell_impacts = impact_ticks[impact_ticks['is_sell_impact']]
+                # 预期：买一价被消耗后，新的买一价应该等于或低于旧的买二价
+                # 真实支撑：新的买一价迅速回到旧的买一价，且挂单量恢复
+                support_mask_sell = (sell_impacts['b1_p_post'] == sell_impacts['b1_p_pre']) & (sell_impacts['b1_v_post'] >= 0.8 * sell_impacts['b1_v_pre'])
+                support_scores = sell_impacts.loc[support_mask_sell, 'amount']
+                scores.append(support_scores)
+                all_scores = pd.concat(scores)
+                if not all_scores.empty and all_scores.abs().sum() > 0:
+                    # 使用总成交额进行归一化
+                    total_day_amount = daily_series_for_day.get('amount', 0)
+                    if total_day_amount > 0:
+                        results['liquidity_authenticity_score'] = all_scores.sum() / total_day_amount
         # 1. VWAP均值回归相关性
         if minute_df is not None and not minute_df.empty and 'minute_vwap' in minute_df.columns and len(minute_df) > 1:
             daily_vwap = (minute_df['amount'].sum() / minute_df['vol'].sum()) if minute_df['vol'].sum() > 0 else np.nan
@@ -717,6 +766,50 @@ class AdvancedStructuralMetricsService:
                 active_buy_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
             if active_buy_on_rally > 0:
                 results['distribution_pressure_index'] = active_sell_on_rally / active_buy_on_rally
+        # --- 新增：实时盘口结构指标 ---
+        if realtime_df is not None and not realtime_df.empty:
+            # 1. 市场冲击成本 (Market Impact Cost)
+            total_amount = daily_series_for_day.get('amount', 0)
+            if total_amount > 0:
+                standard_amount = total_amount * 0.001 # 标准交易额为当日成交额的千分之一
+                impact_costs = []
+                snapshot_volumes = realtime_df['volume'].diff().fillna(0).clip(lower=0)
+                for idx, row in realtime_df.iterrows():
+                    amount_to_fill = standard_amount
+                    filled_amount = 0
+                    filled_volume = 0
+                    for i in range(1, 6):
+                        price = row[f'a{i}_p']
+                        vol = row[f'a{i}_v'] * 100
+                        value = price * vol
+                        if amount_to_fill > value:
+                            filled_amount += value
+                            filled_volume += vol
+                            amount_to_fill -= value
+                        else:
+                            filled_volume += amount_to_fill / price
+                            filled_amount += amount_to_fill
+                            break
+                    if filled_volume > 0:
+                        exec_price = filled_amount / filled_volume
+                        mid_price = (row['b1_p'] + row['a1_p']) / 2
+                        if mid_price > 0:
+                            impact_costs.append((exec_price / mid_price - 1) * 100)
+                if impact_costs and snapshot_volumes.sum() > 0:
+                    results['market_impact_cost'] = np.average(impact_costs, weights=snapshot_volumes.iloc[:len(impact_costs)])
+
+            # 2. 盘口深度斜率 (Liquidity Slope)
+            slopes = []
+            for idx, row in realtime_df.iterrows():
+                mid_price = (row['b1_p'] + row['a1_p']) / 2
+                if mid_price > 0:
+                    ask_points_x = [(row[f'a{i}_p'] - mid_price) / mid_price for i in range(1, 6)]
+                    ask_points_y = np.cumsum([row[f'a{i}_v'] * 100 for i in range(1, 6)])
+                    if len(ask_points_x) > 1 and np.std(ask_points_x) > 0:
+                        slope, _, _, _, _ = linregress(ask_points_x, ask_points_y)
+                        slopes.append(slope)
+            if slopes and snapshot_volumes.sum() > 0:
+                results['liquidity_slope'] = np.average(slopes, weights=snapshot_volumes.iloc[:len(slopes)])
         return results
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):

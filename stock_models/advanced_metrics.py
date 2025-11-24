@@ -606,6 +606,9 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'sell_sweep_intensity': '卖方扫单强度',
         'vpin_score': 'VPIN得分',
         'vwap_mean_reversion_corr': 'VWAP均值回归相关性',
+        'market_impact_cost': '市场冲击成本(%)', # [代码新增]
+        'liquidity_slope': '盘口深度斜率', # [代码新增]
+        'liquidity_authenticity_score': '流动性真实性评分',
     }
     AUXILIARY_METRICS = {
         'value_area_migration': '价值区迁移度(ATR)',
@@ -663,6 +666,9 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'sell_sweep_intensity',
         'vpin_score',
         'vwap_mean_reversion_corr',
+        'market_impact_cost', # [代码新增]
+        'liquidity_slope', # [代码新增]
+        'liquidity_authenticity_score',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in BOOLEAN_FIELDS:
