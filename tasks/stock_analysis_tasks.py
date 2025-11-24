@@ -676,9 +676,9 @@ def summarize_computation_failures(results):
 @with_cache_manager
 def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V4.0 · 微观动力学集成版】为单只股票预计算高级结构与行为指标的Celery任务。
-    - 核心重构: 废弃独立的数据加载逻辑，改为复用公用的 `_load_all_sources_unified` 方法，以统一数据源获取。
-    - 核心新增: 增加数据结构重组逻辑，将加载器返回的多个数据map整合成服务层所需的嵌套结构 `Dict[date, Dict[str, pd.DataFrame]]`，从而支持微观结构指标计算。
+    【V4.1 · 数据加载修复版】为单只股票预计算高级结构与行为指标的Celery任务。
+    - 核心修复: 在加载用于计算ATR的日线数据时，补充加载 `amount` 和 `vol` 字段。
+                此修复旨在根治下游计算模块因缺少成交额数据而误判为0，从而引发 `UnboundLocalError` 或逻辑错误的问题。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.advanced_structural_metrics_service import AdvancedStructuralMetricsService
@@ -702,11 +702,12 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
             logger.info(f"[{stock_code}] [结构指标任务] 无需计算的日期，任务终止。")
             return 0
         history_start_date = dates_to_process.min().date() - timedelta(days=100)
+        # [代码修改] 在 .values() 中增加 'amount' 和 'vol' 字段，确保数据加载完整
         daily_data_qs = DailyModel.objects.filter(
             stock=stock_info,
             trade_time__gte=history_start_date,
             trade_time__lte=dates_to_process.max().date()
-        ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'pre_close_qfq').order_by('trade_time')
+        ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'pre_close_qfq', 'amount', 'vol').order_by('trade_time')
         daily_df_with_atr = pd.DataFrame.from_records(await sync_to_async(list)(daily_data_qs))
         if daily_df_with_atr.empty:
             logger.error(f"[{stock_code}] [结构指标任务] 无法加载必要的日线数据，任务终止。")
