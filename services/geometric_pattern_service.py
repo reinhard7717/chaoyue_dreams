@@ -220,11 +220,13 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict):
         """
-        【V2.48 · 突破准备度版】识别、量化并存储矩形平台。
+        【V2.49 · 数据净化版】识别、量化并存储矩形平台。
         - 核心升级: 1. 新增调用 `_calculate_breakout_readiness` 方法，为每日数据计算“突破准备度”评分。
-                     2. 在平台量化时，提取并存储平台最后一天的准备度分数，作为其“临门一脚”状态的关键度量。
+                     2. 在数据存入数据库前，增加了一个最终的“净化”步骤，将所有 `nan` 值转换为 `None`，
+                        以确保与MySQL数据库的兼容性，彻底解决 `nan can not be used` 错误。
         """
-        print(f"  -> [V2.48 突破准备度] 启动...")
+        import math # 导入math库用于nan值检查
+        print(f"  -> [V2.49 数据净化] 启动...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
@@ -263,7 +265,6 @@ class GeometricPatternService:
         else:
             print(f"  -> [计算失败] 布林带基础指标未能生成。任务终止。")
             return
-        # [代码修改] V2.48 调用新增的准备度评分计算
         df_copy = self._calculate_breakout_readiness(df_copy)
         print(f"\n{'='*20} 阶段一: 多准则通用平台识别 {'='*20}")
         combined_is_potential = pd.Series(False, index=df_copy.index)
@@ -363,8 +364,10 @@ class GeometricPatternService:
                             if next_trade_date in realtime_map:
                                 momentum_score = self._calculate_breakout_momentum_from_realtime(realtime_map[next_trade_date])
                             breakout_quality_score = (ofi_score * 0.6) + (momentum_score * 0.4)
-                    # [代码修改] V2.48 提取并准备存储平台最后一天的准备度分数
                     breakout_readiness = group['breakout_readiness_score'].iloc[-1] if 'breakout_readiness_score' in group else None
+                    # [代码修改] V2.49 增加最终的nan值净化步骤，确保数据库兼容性
+                    if breakout_readiness is not None and math.isnan(breakout_readiness):
+                        breakout_readiness = None
                     platform_data = {
                         'stock': self.stock_instance, 'start_date': start_date.date(), 'end_date': end_date.date(),
                         'duration': len(group), 'high': platform_high, 'low': platform_low,
@@ -383,9 +386,9 @@ class GeometricPatternService:
                     failed_checks = [k for k, v in checks.items() if not v]
                     print(f"     - [REJECTED] 未能匹配。失败的规则: {failed_checks}")
         found_count = len(platforms_to_save)
-        print(f"\n  -> [V2.48 突破准备度] 扫描完成，共发现 {found_count} 个有效平台。")
+        print(f"\n  -> [V2.49 数据净化] 扫描完成，共发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.48 突破准备度] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.49 数据净化] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
@@ -393,37 +396,37 @@ class GeometricPatternService:
 
     def _calculate_breakout_readiness(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.48 新增】计算“突破准备度”评分。
+        【V2.49 · 计算加固版】计算“突破准备度”评分。
         该评分融合了五大核心支柱，用于量化一个平台是否处于“高能待发”的临界状态。
+        - V2.49 升级: 加固了“内部强势”支柱的计算逻辑，通过预处理分母为0的情况，
+                      从源头上避免了除零错误导致的 `inf` 或 `nan`。
         """
         print("  -> [发射倒计时] 正在计算'突破准备度'评分...")
         df_copy = df.copy()
         # 支柱一: 波动率压缩 (Volatility Compression) - 权重 30%
-        # 使用BBW在过去120天的滚动百分位排名。排名越低（越窄），得分越高。
         bbw_col = 'BBW_21_2.0'
         if bbw_col in df_copy.columns:
             score_volatility = (1 - df_copy[bbw_col].rolling(120, min_periods=60).rank(pct=True)) * 100
         else:
-            score_volatility = pd.Series(50, index=df_copy.index) # 若无数据则给中性分
+            score_volatility = pd.Series(50, index=df_copy.index)
         # 支柱二: 成交量萎缩 (Volume Atrophy) - 权重 30%
-        # 使用5日均量与55日均量的比值。比值越小，得分越高。
         vol_ma_short = df_copy['vol'].rolling(5).mean()
         vol_ma_long = df_copy['vol'].rolling(55).mean()
         volume_ratio = vol_ma_short / vol_ma_long
-        score_volume = (1 - np.clip(volume_ratio, 0, 2)) * 50 + 50 # 将[0,2]的比值映射到[100,0]分
+        score_volume = (1 - np.clip(volume_ratio, 0, 2)) * 50 + 50
         # 支柱三: 价格收敛 (Price Coiling) - 权重 15%
-        # 使用ATR在过去120天的滚动百分位排名。排名越低（振幅越窄），得分越高。
         atr_col = 'ATRr_14'
         if atr_col in df_copy.columns:
             score_coiling = (1 - df_copy[atr_col].rolling(120, min_periods=60).rank(pct=True)) * 100
         else:
             score_coiling = pd.Series(50, index=df_copy.index)
         # 支柱四: 内部强势 (Internal Strength) - 权重 10%
-        # 计算收盘价在当日振幅中的位置，并取5日平滑。位置越高，得分越高。
-        internal_strength = (df_copy['close_qfq'] - df_copy['low_qfq']) / (df_copy['high_qfq'] - df_copy['low_qfq'])
+        # [代码修改] V2.49 加固计算逻辑，预处理分母为0的情况，防止除零错误
+        daily_range = df_copy['high_qfq'] - df_copy['low_qfq']
+        # 将daily_range为0的地方替换为nan，这样除法会得到nan，然后被fillna安全处理
+        internal_strength = ((df_copy['close_qfq'] - df_copy['low_qfq']) / daily_range.replace(0, np.nan)).fillna(0.5)
         score_internal = internal_strength.rolling(5).mean().fillna(0.5) * 100
         # 支柱五: 相对强度 (Relative Strength) - 权重 15%
-        # 计算RS序列的5日斜率的滚动百分位排名。斜率越大，得分越高。
         if 'rs' in df_copy.columns and df_copy['rs'].notna().any():
             rs_slope = df_copy['rs'].rolling(5).apply(lambda x: np.polyfit(np.arange(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else 0.0, raw=False)
             score_rs = rs_slope.rolling(120, min_periods=60).rank(pct=True).fillna(0.5) * 100
