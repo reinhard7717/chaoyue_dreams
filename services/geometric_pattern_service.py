@@ -212,15 +212,13 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, bbw_quantile: float = 0.25, potential_threshold: float = 0.6, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
         """
-        【V2.35 · 终极数据净化版】识别、量化并存储矩形平台。
-        - 核心修复: 锁定 pandas_ta.bbands 存在处理带 DatetimeIndex 的 Series 的潜在Bug。
-                     为彻底规避此问题，在调用函数时，不再传入Pandas Series，而是传入
-                     其最纯粹的 .values (NumPy数组)。计算返回后，再手动将原始索引
-                     重新赋给结果DataFrame，确保数据对齐和合并的正确性。
-                     此举从根源上杜绝了库函数内部任何与索引相关的异常行为。
+        【V2.36 · API契约修正版】识别、量化并存储矩形平台。
+        - 核心修复: 纠正了对 pandas_ta.bbands 函数输出的根本性误解。该函数返回 'BBB'
+                     (带宽百分比)，而非 'BBW' (宽度)。本版借鉴已知正确实现，在 bbands
+                     计算后，通过 (BBU - BBL) / BBM 的数学公式手动创建下游所需的
+                     'BBW_20_2.0' 列，从而彻底解决因API契约误解导致的逻辑中断。
         """
-        import traceback
-        print(f"  -> [V2.35 终极净化] 正在识别和量化矩形平台...")
+        print(f"  -> [V2.36 API契约修正] 正在识别和量化矩形平台...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
@@ -242,31 +240,28 @@ class GeometricPatternService:
             return
         print("  -> [计算成功] ADX 指标已生成。")
         print("  -> [探针式计算] 正在尝试计算 BBands...")
-        try:
-            close_series_for_bbands = df_copy['close_qfq']
-            # [代码修改] V2.35 终极修复：传入纯NumPy数组以规避pandas_ta的索引处理BUG
-            bbands_results = ta.bbands(close=close_series_for_bbands.values, length=20, std=2.0, append=False)
-            if bbands_results is not None and not bbands_results.empty:
-                # [代码新增] V2.35 关键步骤：将原始索引重新赋给计算结果
-                bbands_results.index = df_copy.index
-                df_copy = df_copy.join(bbands_results)
-            else:
-                raise ValueError("pandas_ta.bbands 静默失败，返回了空结果 (None 或 empty DataFrame)。")
-        except Exception as e:
-            print(f"  -> [计算异常捕获] BBands 计算过程中遭遇致命错误！")
-            print(f"  -> 原始异常类型: {type(e).__name__}")
-            print(f"  -> 原始异常信息: {e}")
-            print("  -> 详细堆栈跟踪:")
-            print(traceback.format_exc())
-            print("  -> 任务终止。")
-            return
-        if 'BBW_20_2.0' not in df_copy.columns:
-            print("  -> [计算失败] 布林带宽度(BBW) 指标未能成功生成，即使在捕获异常后。请检查上游逻辑。任务终止。")
+        # [代码修改] V2.36 修正对 pandas_ta API 的使用方式
+        bbands_results = ta.bbands(close=df_copy['close_qfq'], length=20, std=2.0, append=False)
+        if bbands_results is not None and not bbands_results.empty:
+            df_copy = df_copy.join(bbands_results)
+        # 定义布林带指标的标准列名
+        bbu_col = 'BBU_20_2.0'
+        bbl_col = 'BBL_20_2.0'
+        bbm_col = 'BBM_20_2.0'
+        bbw_col = 'BBW_20_2.0' # 这是我们最终需要的列
+        # 检查核心布林带指标是否已成功生成
+        if all(col in df_copy.columns for col in [bbu_col, bbl_col, bbm_col]):
+            # 手动计算布林带宽度 (BBW)，因为库不直接提供此列
+            # 公式: (上轨 - 下轨) / 中轨
+            df_copy[bbw_col] = (df_copy[bbu_col] - df_copy[bbl_col]) / df_copy[bbm_col]
+            print("  -> [计算成功] BBands 指标已生成，并手动计算了 BBW。")
+        else:
+            print(f"  -> [计算失败] 布林带基础指标 ({bbu_col}, {bbl_col}, {bbm_col}) 未能生成。任务终止。")
             return
         print("  -> [计算成功] 所有核心指标均已成功生成。继续执行平台识别...")
         is_low_trend = df_copy['ADX_14'] < adx_threshold
-        bbw_rolling_quantile = df_copy['BBW_20_2.0'].rolling(120, min_periods=60).quantile(bbw_quantile)
-        is_low_volatility = df_copy['BBW_20_2.0'] < bbw_rolling_quantile
+        bbw_rolling_quantile = df_copy[bbw_col].rolling(120, min_periods=60).quantile(bbw_quantile)
+        is_low_volatility = df_copy[bbw_col] < bbw_rolling_quantile
         df_copy['is_potential_platform'] = (is_low_trend | is_low_volatility).astype(int)
         df_copy['platform_potential_score'] = df_copy['is_potential_platform'].rolling(window=potential_window, min_periods=potential_window//2).mean()
         score = df_copy['platform_potential_score'].dropna()
@@ -327,9 +322,9 @@ class GeometricPatternService:
                 }
                 platforms_to_save.append(platform_data)
         found_count = len(platforms_to_save)
-        print(f"  -> [V2.35 终极净化] 发现 {found_count} 个有效平台。")
+        print(f"  -> [V2.36 API契约修正] 发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.35 终极净化] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.36 API契约修正] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
