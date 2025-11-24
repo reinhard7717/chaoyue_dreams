@@ -193,16 +193,20 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, bbw_quantile: float = 0.25, potential_threshold: float = 0.6, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
         """
-        【V2.24 · 诊断探针与兼容性修复版】识别、量化并存储矩形平台。
-        - V2.24 核心升级: 植入一系列“诊断探针”，在计算前详细打印输入DataFrame的结构、
-                         数据和空值情况，以获取问题的第一手证据。
-        - V2.24 核心修复: 将指标计算分解为独立的、带事后验证的步骤，确保能精确定位
-                         到具体是哪个指标计算失败，并提前终止流程，防止错误蔓延。
+        【V2.25 · 数据类型净化版】识别、量化并存储矩形平台。
+        - V2.25 核心修复: 在所有计算开始前，强制将核心价格与成交量列转换为float类型。
+                         此举旨在解决因上游数据源（如数据库DecimalField）导致列类型为'object'，
+                         进而引发部分pandas_ta指标（如bbands）计算失败的根本问题。
         """
-        print(f"  -> [V2.24 诊断探针与修复] 正在识别和量化矩形平台...")
+        print(f"  -> [V2.25 数据类型净化] 正在识别和量化矩形平台...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
+        # [代码新增] 核心修复：强制转换核心计算列为数值类型，以兼容pandas_ta
+        cols_to_convert = ['high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'vol']
+        for col in cols_to_convert:
+            if col in enriched_df.columns:
+                enriched_df[col] = pd.to_numeric(enriched_df[col], errors='coerce')
         # --- 植入诊断探针 ---
         print("    [探针] 检查输入 enriched_df 的状态...")
         print("    [探针] enriched_df 的列名:")
@@ -296,9 +300,9 @@ class GeometricPatternService:
                 }
                 platforms_to_save.append(platform_data)
         found_count = len(platforms_to_save)
-        print(f"  -> [V2.24 诊断探针与修复] 发现 {found_count} 个有效平台。")
+        print(f"  -> [V2.25 数据类型净化] 发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.24 诊断探针与修复] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.25 数据类型净化] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
