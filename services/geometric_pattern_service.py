@@ -192,27 +192,47 @@ class GeometricPatternService:
         self._save_trendline_events_incrementally(flag_events)
         print(f"[{self.stock_code}] [动态演化分析] 几何形态特征计算完成。")
 
-    def _calculate_and_save_platforms(self, df: pd.DataFrame, data_dfs: dict, lookback_period: int = 21, volatility_quantile: float = 0.3, range_threshold_pct: float = 0.20):
+    def _calculate_and_save_platforms(self, df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 20, min_duration: int = 10, max_range_pct: float = 0.25):
         """
-        【V2.0】识别、量化并存储矩形平台，并融合微观数据。
+        【V2.18 · ADX状态识别版】识别、量化并存储矩形平台。
+        - V2.18 核心升级: 废弃原有的“低波动+窄振幅”双重过滤的机械性算法。
+                         改为引入ADX指标，先识别出市场处于“无趋势”的横盘状态区间，
+                         再对整个区间进行整体性评估，极大提升了平台识别的准确性和鲁棒性，
+                         更符合A股市场的真实博弈特征。
         """
-        print(f"  -> [V2.0] 正在识别和量化矩形平台...")
+        print(f"  -> [V2.18 ADX状态识别引擎] 正在识别和量化矩形平台...")
+        if len(df) < 30: # ADX计算需要一定数据量
+            print("  -> 数据量不足，跳过平台识别。")
+            return
         df_copy = df.copy()
-        df_copy['atr_pct'] = df_copy['ATR_14_D'] / df_copy['close_qfq']
-        df_copy['atr_pct_quantile'] = df_copy['atr_pct'].rolling(window=lookback_period * 3, min_periods=lookback_period).quantile(volatility_quantile)
-        is_low_volatility = df_copy['atr_pct'] < df_copy['atr_pct_quantile']
-        rolling_high = df_copy['high_qfq'].rolling(window=lookback_period).max()
-        rolling_low = df_copy['low_qfq'].rolling(window=lookback_period).min()
-        price_range = (rolling_high - rolling_low) / rolling_low
-        is_tight_range = price_range < range_threshold_pct
-        df_copy['is_in_platform'] = (is_low_volatility & is_tight_range).astype(int)
-        df_copy['platform_id'] = (df_copy['is_in_platform'].diff() != 0).cumsum()
+        # 1. 计算ADX指标，ADX < 20 通常表示无明显趋势
+        df_copy.ta.adx(length=14, append=True)
+        # 检查ADX列是否存在
+        if 'ADX_14' not in df_copy.columns:
+            print("  -> ADX指标计算失败，跳过平台识别。")
+            return
+        # 2. 识别所有处于“无趋势状态”的日子
+        df_copy['is_in_consolidation'] = (df_copy['ADX_14'] < adx_threshold).astype(int)
+        # 3. 为每个连续的“无趋势状态”区间分配唯一ID
+        df_copy['platform_id'] = (df_copy['is_in_consolidation'].diff() != 0).cumsum()
         platforms_to_save = []
         minute_map = data_dfs.get("stock_minute_data_map", {})
         tick_map = data_dfs.get("stock_tick_data_map", {})
-        realtime_map = data_dfs.get("stock_realtime_data_map", {}) # 新增代码行：获取realtime数据map
-        for platform_id, group in df_copy[df_copy['is_in_platform'] == 1].groupby('platform_id'):
-            if len(group) < 10: continue
+        realtime_map = data_dfs.get("stock_realtime_data_map", {})
+        # 4. 遍历所有候选平台区间
+        for platform_id, group in df_copy[df_copy['is_in_consolidation'] == 1].groupby('platform_id'):
+            # 5. 对整个区间进行整体性校验
+            # a. 校验持续时间
+            if len(group) < min_duration:
+                continue
+            # b. 校验整体振幅
+            platform_high = group['high_qfq'].max()
+            platform_low = group['low_qfq'].min()
+            if platform_low == 0: continue
+            price_range_pct = (platform_high - platform_low) / platform_low
+            if price_range_pct > max_range_pct:
+                continue
+            # 6. 通过校验后，进行微观数据融合与计算 (此部分逻辑不变)
             start_date, end_date = group.index.min(), group.index.max()
             platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
             precise_vpoc = None
@@ -230,41 +250,36 @@ class GeometricPatternService:
             internal_accumulation_intensity = (internal_ofi_sum / internal_total_amount) * 100 if internal_total_amount > 0 else 0.0
             breakout_quality_score = None
             next_trade_date = TradeCalendar.get_next_trade_date(end_date.date())
-            if next_trade_date and pd.to_datetime(next_trade_date) in df_copy.index: # 确保下一天有日线数据
+            if next_trade_date and pd.to_datetime(next_trade_date) in df_copy.index:
                 breakout_day_close = df_copy.loc[pd.to_datetime(next_trade_date), 'close_qfq']
-                platform_high = group['high_qfq'].max()
                 if breakout_day_close > platform_high:
-                    # [修改代码块] V2.0 突破质量分融合计算
                     ofi_score = 0.0
                     momentum_score = 0.0
-                    # 1. 从Tick数据计算意图分
                     if next_trade_date in tick_map:
                         ofi, _ = self._calculate_daily_ofi_from_ticks(tick_map[next_trade_date])
                         breakout_vol = df_copy.loc[pd.to_datetime(next_trade_date), 'vol'] * 100
                         if breakout_vol > 0:
                             ofi_score = np.clip(ofi / breakout_vol, -1, 1)
-                    # 2. 从Realtime数据计算动能分
                     if next_trade_date in realtime_map:
                         momentum_score = self._calculate_breakout_momentum_from_realtime(realtime_map[next_trade_date])
-                    # 3. 融合得分 (意图权重60%，动能权重40%)
                     breakout_quality_score = (ofi_score * 0.6) + (momentum_score * 0.4)
             platform_data = {
                 'stock': self.stock_instance,
                 'start_date': start_date.date(),
                 'end_date': end_date.date(),
                 'duration': len(group),
-                'high': group['high_qfq'].max(),
-                'low': group['low_qfq'].min(),
+                'high': platform_high,
+                'low': platform_low,
                 'vpoc': np.average(group['close_qfq'], weights=group['vol']),
                 'total_volume': group['vol'].sum() * 100,
-                'quality_score': 0.5,
+                'quality_score': 0.5, # 此分数可后续优化
                 'precise_vpoc': precise_vpoc,
                 'internal_accumulation_intensity': internal_accumulation_intensity,
                 'breakout_quality_score': breakout_quality_score,
             }
             platforms_to_save.append(platform_data)
         if platforms_to_save:
-            print(f"  -> [V2.0] 发现 {len(platforms_to_save)} 个平台，正在存入数据库...")
+            print(f"  -> [V2.18 ADX状态识别引擎] 发现 {len(platforms_to_save)} 个有效平台，正在存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'],
