@@ -614,8 +614,7 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     data_dfs["stock_level5_data"] = pd.concat(level5_data_df_list) if level5_data_df_list else pd.DataFrame()
     data_dfs["stock_minute_data"] = pd.concat(minute_data_df_list) if minute_data_df_list else pd.DataFrame()
     data_dfs["stock_realtime_data"] = pd.concat(realtime_data_df_list) if realtime_data_df_list else pd.DataFrame()
-    print(f"  -> [{stock_info.stock_code}] [数据源头净化 V2.30] 正在对所有加载的数据帧进行强制数值类型转换...")
-    # [代码修改] V2.30 将 'type' 列加入白名单，防止被错误转换为NaN
+    # V2.30 将 'type' 列加入白名单，防止被错误转换为NaN
     non_numeric_whitelist = ['stock_id', 'stock_code', 'trade_time', 'trade_date', 'type']
     for name, df in data_dfs.items():
         if isinstance(df, pd.DataFrame) and not df.empty and "_map" not in name:
@@ -715,7 +714,7 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
             logger.info(f"[{stock_code}] [结构指标任务] 无需计算的日期，任务终止。")
             return 0
         history_start_date = dates_to_process.min().date() - timedelta(days=100)
-        # [代码修改] 在 .values() 中增加 'amount' 和 'vol' 字段，确保数据加载完整
+        # 在 .values() 中增加 'amount' 和 'vol' 字段，确保数据加载完整
         daily_data_qs = DailyModel.objects.filter(
             stock=stock_info,
             trade_time__gte=history_start_date,
@@ -897,7 +896,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"]}
                 fund_flow_service.debug_params = debug_params
                 seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=seed_base_daily_df)
-                # [代码修改] V34.13 补全缺失的资金流计算步骤，以正确生成 seed_ff_minute_map
+                # V34.13 补全缺失的资金流计算步骤，以正确生成 seed_ff_minute_map
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(
                     stock_info, seed_ff_raw_df.index, 
                     tick_data_map=seed_data_dfs.get("stock_tick_data_map"), 

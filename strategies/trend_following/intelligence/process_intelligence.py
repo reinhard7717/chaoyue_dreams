@@ -54,7 +54,7 @@ class ProcessIntelligence:
                      get_adaptive_mtf_normalized_bipolar_score (双极) 进行归一化。
         - 修复: 解决了 'ProcessIntelligence' object has no attribute '_normalize_series' 的 AttributeError。
         """
-        # [代码新增] 实现了统一的归一化逻辑
+        #  实现了统一的归一化逻辑
         # 获取MTF权重配置
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
@@ -82,7 +82,7 @@ class ProcessIntelligence:
                      返回一个与 df 索引对齐的、填充了默认值的 Series，以保证数据流的健壮性。
         - 修复: 解决了 'ProcessIntelligence' object has no attribute '_get_atomic_score' 的 AttributeError。
         """
-        # [代码新增] 实现了安全的原子信号访问逻辑
+        #  实现了安全的原子信号访问逻辑
         score_series = self.strategy.atomic_states.get(score_name)
         if score_series is None:
             print(f"    -> [过程情报警告] 依赖的原子信号 '{score_name}' 不存在，使用默认值 {default_value}。")
@@ -97,7 +97,7 @@ class ProcessIntelligence:
         - 核心修复 (V5.2): 增加了对 task_type_filter 参数的支持。
         - 核心升级 (V5.1): 对 PROCESS_META_POWER_TRANSFER 的计算进行重构。
         """
-        print("启动【V5.3 · 调度逻辑修复版】过程情报分析...") # [代码修改] 更新版本信息
+        print("启动【V5.3 · 调度逻辑修复版】过程情报分析...") # 更新版本信息
         all_process_states = {}
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
         diagnostics = get_param_value(p_conf.get('diagnostics'), [])
@@ -108,13 +108,13 @@ class ProcessIntelligence:
             diag_name = diag_config.get('name')
             if not diag_name:
                 continue
-            # [代码修改] 拦截并使用新方法计算权力转移
+            # 拦截并使用新方法计算权力转移
             if diag_name == 'PROCESS_META_POWER_TRANSFER':
                 power_transfer_score = self._calculate_power_transfer(df, diag_config)
                 all_process_states[diag_name] = power_transfer_score
                 self.strategy.atomic_states[diag_name] = power_transfer_score
                 continue # 计算完后跳过通用逻辑
-            # [代码修改] 移除了 'custom' 和 'meta' 的错误分支，统一由 _run_meta_analysis 处理
+            # 移除了 'custom' 和 'meta' 的错误分支，统一由 _run_meta_analysis 处理
             score = self._run_meta_analysis(df, diag_config)
             if isinstance(score, pd.Series):
                 all_process_states[diag_name] = score
@@ -122,7 +122,7 @@ class ProcessIntelligence:
             elif isinstance(score, dict):
                 all_process_states.update(score)
                 self.strategy.atomic_states.update(score)
-        print(f"【V5.3 · 调度逻辑修复版】分析完成，生成 {len(all_process_states)} 个过程元信号。") # [代码修改] 更新版本信息
+        print(f"【V5.3 · 调度逻辑修复版】分析完成，生成 {len(all_process_states)} 个过程元信号。") # 更新版本信息
         return all_process_states
 
     def _run_meta_analysis(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
@@ -132,7 +132,7 @@ class ProcessIntelligence:
         - 核心逻辑: 根据诊断配置中的 'diagnosis_type' 字段，将任务分派给具体的诊断方法。
         - 修复: 解决了 'ProcessIntelligence' object has no attribute '_run_meta_analysis' 的 AttributeError。
         """
-        # [代码新增] 实现了元分析的调度逻辑
+        #  实现了元分析的调度逻辑
         diagnosis_type = config.get('diagnosis_type', 'meta_relationship') # 默认为最常见的元关系分析
         if diagnosis_type == 'meta_relationship':
             return self._diagnose_meta_relationship(df, config)
@@ -433,7 +433,7 @@ class ProcessIntelligence:
         net_flow_norm = get_adaptive_mtf_normalized_bipolar_score(main_force_net_flow, df_index, default_weights, self.bipolar_sensitivity)
         price_impact_norm = get_adaptive_mtf_normalized_bipolar_score(price_impact_ratio, df_index, default_weights, self.bipolar_sensitivity)
         impulse_purity_norm = get_adaptive_mtf_normalized_bipolar_score(upward_impulse_purity, df_index, default_weights, self.bipolar_sensitivity)
-        volume_ratio_norm = get_adaptive_mtf_normalized_bipolar_score(volume_ratio - 1.0, df_index, default_weights, self.bipolar_sensitivity) # [代码修改] 移除不支持的 'center' 参数，改为在输入端进行中心化处理
+        volume_ratio_norm = get_adaptive_mtf_normalized_bipolar_score(volume_ratio - 1.0, df_index, default_weights, self.bipolar_sensitivity) # 移除不支持的 'center' 参数，改为在输入端进行中心化处理
         # 控盘度证据
         control_solidity_norm = get_adaptive_mtf_normalized_bipolar_score(control_solidity, df_index, default_weights, self.bipolar_sensitivity)
         cost_advantage_norm = get_adaptive_mtf_normalized_bipolar_score(cost_advantage, df_index, default_weights, self.bipolar_sensitivity)
@@ -442,7 +442,7 @@ class ProcessIntelligence:
         # 扫清障碍证据
         buying_support_norm = get_adaptive_mtf_normalized_bipolar_score(active_buying_support, df_index, default_weights, self.bipolar_sensitivity)
         pressure_rejection_norm = get_adaptive_mtf_normalized_bipolar_score(pressure_rejection, df_index, default_weights, self.bipolar_sensitivity)
-        profit_absorption_norm = get_adaptive_mtf_normalized_bipolar_score((1 - profit_realization_quality) - 0.5, df_index, default_weights, self.bipolar_sensitivity) # [代码修改] 移除不支持的 'center' 参数，改为在输入端进行中心化处理
+        profit_absorption_norm = get_adaptive_mtf_normalized_bipolar_score((1 - profit_realization_quality) - 0.5, df_index, default_weights, self.bipolar_sensitivity) # 移除不支持的 'center' 参数，改为在输入端进行中心化处理
         # 4. 计算三维支柱得分 [0, 1]
         aggressiveness_score = (
             price_change_norm.clip(lower=0) * 0.30 +
@@ -556,12 +556,12 @@ class ProcessIntelligence:
             relationship_score = self._calculate_stealth_accumulation(df, config)
         elif signal_name == 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION':
             relationship_score = self._calculate_panic_washout_accumulation(df, config)
-        elif signal_name == 'PROCESS_META_DECEPTIVE_ACCUMULATION': # [代码新增] 增加对诡道吸筹信号的判断
-            relationship_score = self._calculate_deceptive_accumulation(df, config) # [代码新增] 调用专属计算方法
-        elif signal_name == 'PROCESS_META_UPTHRUST_WASHOUT': # [代码新增]
-            relationship_score = self._calculate_upthrust_washout(df, config) # [代码新增]
-        elif signal_name == 'PROCESS_META_ACCUMULATION_INFLECTION': # [代码新增]
-            relationship_score = self._calculate_accumulation_inflection(df, config) # [代码新增]
+        elif signal_name == 'PROCESS_META_DECEPTIVE_ACCUMULATION': #  增加对诡道吸筹信号的判断
+            relationship_score = self._calculate_deceptive_accumulation(df, config) #  调用专属计算方法
+        elif signal_name == 'PROCESS_META_UPTHRUST_WASHOUT': # 
+            relationship_score = self._calculate_upthrust_washout(df, config) # 
+        elif signal_name == 'PROCESS_META_ACCUMULATION_INFLECTION': # 
+            relationship_score = self._calculate_accumulation_inflection(df, config) # 
         else:
             relationship_score = self._calculate_instantaneous_relationship(df, config)
         if relationship_score.empty:
@@ -854,7 +854,7 @@ class ProcessIntelligence:
         - 数学模型: Final_Score = (Panic_Score * Absorption_Score * Repair_Score)^(1/3)。
         - 输出: [0, 1] 的单极性分数，分数越高，代表主力“假摔真吸”的战术意图越明显。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (依赖修复版)...") # [代码修改] 更新版本信息
+        print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (依赖修复版)...") # 更新版本信息
         df_index = df.index
         # 1. 获取MTF权重配置
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -873,7 +873,7 @@ class ProcessIntelligence:
         active_buying_support = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_calculate_panic_washout_accumulation")
         # 阶段四：修复证据 (核心修改)
         concentration_slope = self._get_safe_series(df, f'SLOPE_1_winner_concentration_90pct_D', 0.0, method_name="_calculate_panic_washout_accumulation")
-        # [代码修改] 移除对不存在的 'SLOPE_1_main_force_cost_advantage_D' 的依赖，改为直接计算1日差分
+        # 移除对不存在的 'SLOPE_1_main_force_cost_advantage_D' 的依赖，改为直接计算1日差分
         main_force_cost_advantage = self._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name="_calculate_panic_washout_accumulation")
         cost_advantage_slope = main_force_cost_advantage.diff(1).fillna(0)
         # 3. 证据归一化
@@ -965,7 +965,7 @@ class ProcessIntelligence:
         self.strategy.atomic_states["_DEBUG_washout_authenticity_score"] = washout_authenticity_score
         self.strategy.atomic_states["_DEBUG_washout_auth_bull_evidence"] = bullish_evidence
         self.strategy.atomic_states["_DEBUG_washout_auth_bear_evidence"] = bearish_evidence
-        # [代码新增] 探针输出逻辑
+        #  探针输出逻辑
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:

@@ -19,7 +19,7 @@ class ChipIntelligence:
         【V2.0 · 上下文修复版】安全地从DataFrame或字典中获取Series，如果不存在则打印警告并返回默认Series。
         - 核心修复: 接收 df 参数，并使用其索引创建默认 Series，确保上下文一致。
         """
-        df_index = df.index # [代码修改] 使用传入的 df.index
+        df_index = df.index # 使用传入的 df.index
         if isinstance(data_source, pd.DataFrame):
             if column_name not in data_source.columns:
                 print(f"    -> [筹码情报警告] 方法 '{method_name}' 缺少DataFrame数据 '{column_name}'，使用默认值 {default_value}。")

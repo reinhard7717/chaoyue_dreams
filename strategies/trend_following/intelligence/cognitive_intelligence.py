@@ -26,7 +26,7 @@ class CognitiveIntelligence:
         """
         if column_name not in df.columns:
             print(f"    -> [CognitiveIntelligence情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
-            return pd.Series(default_value, index=df.index) # [代码修改] 移除了末尾的 .index
+            return pd.Series(default_value, index=df.index) # 移除了末尾的 .index
         return df[column_name]
 
     def _get_fused_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
@@ -49,7 +49,7 @@ class CognitiveIntelligence:
             return score
         else:
             print(f"    -> [认知层警告] 融合态势信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
-            return pd.Series(default, index=df.index) # [代码修改] 移除了末尾的 .index
+            return pd.Series(default, index=df.index) # 移除了末尾的 .index
 
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
         """
@@ -62,7 +62,7 @@ class CognitiveIntelligence:
             return df[name]
         else:
             print(f"    -> [认知层警告] 原子信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
-            return pd.Series(default, index=df.index) # [代码修改] 移除了末尾的 .index
+            return pd.Series(default, index=df.index) # 移除了末尾的 .index
 
     def _get_playbook_score(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:
         """
@@ -72,7 +72,7 @@ class CognitiveIntelligence:
         score = self.strategy.playbook_states.get(signal_name)
         if score is None:
             print(f"    -> [认知层警告] 剧本信号 '{signal_name}' 不存在，无法作为证据！返回默认值 {default_value}。")
-            return pd.Series(default_value, index=df.index) # [代码修改] 移除了末尾的 .index
+            return pd.Series(default_value, index=df.index) # 移除了末尾的 .index
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -568,11 +568,11 @@ class CognitiveIntelligence:
         - 【V2.2 修复】修复了方法内部多处错误返回索引而非Series的问题，确保返回值始终是数值型Series。
         """
         if not isinstance(evidence, pd.Series):
-            evidence = pd.Series(evidence, index=df.index) # [代码修改] 移除了末尾的 .index
+            evidence = pd.Series(evidence, index=df.index) # 移除了末尾的 .index
         evidence = evidence.fillna(self.min_evidence_threshold)
         evidence = evidence.mask(evidence < self.min_evidence_threshold, self.min_evidence_threshold)
         if not is_probability:
-            evidence = normalize_score(evidence, df.index, window=self.norm_window, ascending=True) # [代码修改] 移除了末尾的 .index
+            evidence = normalize_score(evidence, df.index, window=self.norm_window, ascending=True) # 移除了末尾的 .index
         return evidence
 
     def _deduce_long_term_profit_distribution_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:

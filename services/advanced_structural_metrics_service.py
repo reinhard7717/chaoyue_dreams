@@ -685,7 +685,7 @@ class AdvancedStructuralMetricsService:
                             if not all_scores.empty and all_scores.abs().sum() > 0:
                                 total_day_amount = daily_series_for_day.get('amount', 0)
                                 if total_day_amount > 0:
-                                    # [代码修改] 将 all_scores.sum() 也转换为 float
+                                    # 将 all_scores.sum() 也转换为 float
                                     results['liquidity_authenticity_score'] = float(all_scores.sum()) / float(total_day_amount)
         # 1. VWAP均值回归相关性
         if minute_df is not None and not minute_df.empty and 'minute_vwap' in minute_df.columns and len(minute_df) > 1:
@@ -810,14 +810,14 @@ class AdvancedStructuralMetricsService:
                     for i in range(1, 6):
                         price = row[f'a{i}_p']
                         vol = row[f'a{i}_v'] * 100
-                        # [代码修改] 预防性修复：将 price 转换为 float
+                        # 预防性修复：将 price 转换为 float
                         value = float(price) * vol
                         if amount_to_fill > value:
                             filled_amount += value
                             filled_volume += vol
                             amount_to_fill -= value
                         else:
-                            # [代码修改] 预防性修复：将 price 转换为 float
+                            # 预防性修复：将 price 转换为 float
                             filled_volume += amount_to_fill / float(price)
                             filled_amount += amount_to_fill
                             break
@@ -825,7 +825,7 @@ class AdvancedStructuralMetricsService:
                         exec_price = filled_amount / filled_volume
                         mid_price = (row['b1_p'] + row['a1_p']) / 2
                         if mid_price > 0:
-                            # [代码修改] 预防性修复：将 mid_price 转换为 float
+                            # 预防性修复：将 mid_price 转换为 float
                             impact_costs.append((exec_price / float(mid_price) - 1) * 100)
                 if impact_costs and snapshot_volumes.sum() > 0:
                     results['market_impact_cost'] = np.average(impact_costs, weights=snapshot_volumes.iloc[:len(impact_costs)])
@@ -834,7 +834,7 @@ class AdvancedStructuralMetricsService:
             for idx, row in combined_df.iterrows():
                 mid_price = (row['b1_p'] + row['a1_p']) / 2
                 if mid_price > 0:
-                    # [代码修改] 预防性修复：将价格转换为 float 以便 scipy 处理
+                    # 预防性修复：将价格转换为 float 以便 scipy 处理
                     mid_price_float = float(mid_price)
                     ask_points_x = [(float(row[f'a{i}_p']) - mid_price_float) / mid_price_float for i in range(1, 6)]
                     ask_points_y = np.cumsum([row[f'a{i}_v'] * 100 for i in range(1, 6)])

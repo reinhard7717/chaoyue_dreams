@@ -16,7 +16,7 @@ class FundFlowIntelligence:
         【V1.1 · 上下文修复版】安全地从DataFrame或字典中获取Series，如果不存在则打印警告并返回默认Series。
         - 核心修复: 接收 df 参数，并使用其索引创建默认 Series，确保上下文一致。
         """
-        df_index = df.index # [代码修改] 使用传入的 df.index
+        df_index = df.index # 使用传入的 df.index
         if isinstance(data_source, pd.DataFrame):
             if column_name not in data_source.columns:
                 print(f"    -> [资金流情报警告] 方法 '{method_name}' 缺少DataFrame数据 '{column_name}'，使用默认值 {default_value}。")
@@ -150,7 +150,7 @@ class FundFlowIntelligence:
         self.strategy.df_indicators['FUND_FLOW_SM_MD_NET_FLOW'] = sm_md_net_flow
         self.strategy.df_indicators['FUND_FLOW_LG_XL_NET_FLOW'] = lg_xl_net_flow
         self.strategy.df_indicators['PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'] = split_order_accumulation_factor
-        self.strategy.atomic_states['PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'] = split_order_accumulation_factor # [代码新增] 核心修复：将信号同步到atomic_states，供下游模块使用
+        self.strategy.atomic_states['PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'] = split_order_accumulation_factor #  核心修复：将信号同步到atomic_states，供下游模块使用
         consensus_score_base = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df_index, tf_weights_ff, sensitivity=1.0)
         main_force_ofi_score = get_adaptive_mtf_normalized_bipolar_score(main_force_ofi_raw, df_index, tf_weights_ff, sensitivity=0.5)
         retail_ofi_score = get_adaptive_mtf_normalized_bipolar_score(retail_ofi_raw, df_index, tf_weights_ff, sensitivity=0.5)

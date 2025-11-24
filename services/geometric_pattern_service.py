@@ -103,7 +103,7 @@ class GeometricPatternService:
         self.fib_periods = [5, 8, 13, 21, 34, 55]
         self.long_term_period = max(self.fib_periods) if self.fib_periods else 55
         self.ultra_long_term_period = 233
-        # [代码新增] V2.40 加载策略配置，获取平台识别原型
+        #  V2.40 加载策略配置，获取平台识别原型
         config_path = os.path.join(settings.BASE_DIR, 'config', 'trend_follow_strategy.json')
         strategy_config = {}
         try:
@@ -259,7 +259,7 @@ class GeometricPatternService:
         minute_map = data_dfs.get("stock_minute_data_map", {})
         tick_map = data_dfs.get("stock_tick_data_map", {})
         realtime_map = data_dfs.get("stock_realtime_data_map", {})
-        # [代码修改] V2.40 遍历所有平台原型进行扫描
+        # V2.40 遍历所有平台原型进行扫描
         for archetype in self.platform_archetypes:
             archetype_name = archetype.get('name', 'UNKNOWN')
             print(f"\n{'='*20} 正在使用原型 [{archetype_name}] 进行扫描 {'='*20}")
@@ -338,7 +338,7 @@ class GeometricPatternService:
                         'total_volume': group['vol'].sum() * 100, 'quality_score': (score_val + 100) / 200,
                         'precise_vpoc': precise_vpoc, 'internal_accumulation_intensity': internal_accumulation_intensity,
                         'breakout_quality_score': breakout_quality_score, 'platform_character': character, 'character_score': score_val,
-                        'platform_archetype': archetype_name, # [代码新增] V2.40 记录平台原型
+                        'platform_archetype': archetype_name, #  V2.40 记录平台原型
                     }
                     platforms_to_save.append(platform_data)
         found_count = len(platforms_to_save)

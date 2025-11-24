@@ -932,7 +932,7 @@ class ChipFeatureCalculator:
         if not all(col in realtime_df.columns for col in required_cols):
             logger.warning(f"[{context.get('stock_code')}] [{context.get('trade_date')}] 实时盘口指标计算跳过，因缺少必要的五档行情列。")
             return results
-        # [代码新增] 核心修复：在计算前，将所有价格和成交量列强制转换为float类型，
+        #  核心修复：在计算前，将所有价格和成交量列强制转换为float类型，
         # 避免 'float' 和 'decimal.Decimal' 混合运算导致的 TypeError。
         numeric_cols = [f'{prefix}{i}_{suffix}' for prefix in ['b', 'a'] for i in range(1, 6) for suffix in ['p', 'v']]
         for col in numeric_cols:

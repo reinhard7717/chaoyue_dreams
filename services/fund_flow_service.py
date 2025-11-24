@@ -334,13 +334,13 @@ class AdvancedFundFlowMetricsService:
         daily_total_volume = daily_data_series.get('vol', 0) * 100
         microstructure_signals = self._calculate_microstructure_signals(stock_code, tick_data_for_day, level5_data_for_day, daily_total_volume)
         day_metrics.update(microstructure_signals)
-        # [代码修改] 将 realtime_data_for_day 校正为 level5_data_for_day
+        # 将 realtime_data_for_day 校正为 level5_data_for_day
         realtime_orderbook_signals = self._calculate_realtime_orderbook_signals(level5_data_for_day, daily_total_volume)
         day_metrics.update(realtime_orderbook_signals)
         day_metrics['trade_time'] = daily_data_series.name
         return day_metrics, None
 
-    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None, realtime_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]: # [代码修改] 增加realtime_data_map参数
+    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None, realtime_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]: # 增加realtime_data_map参数
         """
         【V11.0 · 实时盘口数据注入版】
         - 核心升级: 接收 `realtime_data_map` 并将其逐日传递给核心计算引擎，为盘口意图分析提供数据。
@@ -362,7 +362,7 @@ class AdvancedFundFlowMetricsService:
                 continue
             attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data, daily_data_series)
             probabilistic_costs_dict, attributed_minute_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series)
-            # [代码修改] 将realtime数据传递给单日计算引擎
+            # 将realtime数据传递给单日计算引擎
             day_metrics, _ = self._calculate_all_metrics_for_day(
                 stock_code, daily_data_series, intraday_data, attributed_minute_df, probabilistic_costs_dict,
                 tick_data_map.get(date_obj) if tick_data_map else None,
@@ -1312,7 +1312,7 @@ class AdvancedFundFlowMetricsService:
                 if col_name in level5_df.columns:
                     level5_df[col_name] = pd.to_numeric(level5_df[col_name], errors='coerce')
         # --- 1. 订单流失衡 (OFI) ---
-        # [代码修改] 引入更精确的OFI计算逻辑
+        # 引入更精确的OFI计算逻辑
         merged_df = pd.merge_asof(tick_df.sort_index(), level5_df.sort_index(), left_index=True, right_index=True, direction='backward').dropna()
         if not merged_df.empty and 'buy_price1' in merged_df.columns and 'sell_price1' in merged_df.columns:
             merged_df['mid_price'] = (merged_df['buy_price1'] + merged_df['sell_price1']) / 2
@@ -1331,7 +1331,7 @@ class AdvancedFundFlowMetricsService:
                 results['main_force_ofi'] = main_force_ofi_series.sum() / total_ofi_range
                 results['retail_ofi'] = retail_ofi_series.sum() / total_ofi_range
         # --- 2. 对倒强度 (Wash Trade Intensity) ---
-        # [代码修改] 引入价格变动作为惩罚项
+        # 引入价格变动作为惩罚项
         if 'type' in tick_df.columns:
             tick_df['direction'] = tick_df['type'].map({'B': 1, 'S': -1, 'M': 0})
             tick_df['reversal'] = (tick_df['direction'] * tick_df['direction'].shift(1)) < 0
@@ -1341,7 +1341,7 @@ class AdvancedFundFlowMetricsService:
             wash_trade_vol = tick_df[tick_df['reversal']]['volume'] * price_penalty[tick_df['reversal']]
             results['wash_trade_intensity'] = wash_trade_vol.sum() / (daily_total_volume / 100) if daily_total_volume > 0 else np.nan
         # --- 3. 盘口失衡度 (Order Book Imbalance) ---
-        # [代码修改] 引入时间加权
+        # 引入时间加权
         if not level5_df.empty and 'buy_volume1' in level5_df.columns:
             level5_df['buy_vol_total'] = level5_df[[f'buy_volume{i}' for i in range(1, 6)]].sum(axis=1)
             level5_df['sell_vol_total'] = level5_df[[f'sell_volume{i}' for i in range(1, 6)]].sum(axis=1)
@@ -1440,7 +1440,7 @@ class AdvancedFundFlowMetricsService:
         bid_supply = pd.Series(0, index=level5_df.index, dtype=float)
         ask_supply = pd.Series(0, index=level5_df.index, dtype=float)
         for i in range(1, 6):
-            # [代码修改] 更新列名为Django模型定义的名称
+            # 更新列名为Django模型定义的名称
             bid_price_col = f'buy_price{i}'
             bid_vol_col = f'buy_volume{i}'
             ask_price_col = f'sell_price{i}'
@@ -1456,7 +1456,7 @@ class AdvancedFundFlowMetricsService:
                 results['order_book_liquidity_supply'] = avg_bid_supply / avg_ask_supply
         # --- 2. 报价消耗率 ---
         df = level5_df.copy()
-        # [代码修改] 更新列名为Django模型定义的名称
+        # 更新列名为Django模型定义的名称
         df['prev_a1_p'] = df['sell_price1'].shift(1)
         df['prev_b1_p'] = df['buy_price1'].shift(1)
         df['prev_a1_v'] = df['sell_volume1'].shift(1)

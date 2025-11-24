@@ -44,14 +44,14 @@ class BaseAdvancedChipMetrics(models.Model):
     }
     # --- 第二象限: 内部动态 (Intraday Dynamics) ---
     INTRADAY_DYNAMICS_METRICS = {
-        # 新增代码行：引入新一代日内动态博弈指标
+        # 引入新一代日内动态博弈指标
         'impulse_quality_ratio': '脉冲品质比率(%)',
         'peak_control_transfer': '主峰控制权转移(%)',
         'support_validation_strength': '支撑验证强度',
         'pressure_rejection_strength': '压力拒绝强度',
         'vacuum_traversal_efficiency': '真空区通行效率',
         'intraday_posture_score': '日内姿态评分(-100~100)',
-        'floating_chip_cleansing_efficiency': '浮筹清洗效率', # [代码新增]
+        'floating_chip_cleansing_efficiency': '浮筹清洗效率',
         'active_selling_pressure': '主动卖压强度(%)',
         'active_buying_support': '主动买盘支撑(%)',
         'upward_impulse_purity': '上涨脉冲纯度(%)', # 旧有逻辑，可作为参考
@@ -61,7 +61,7 @@ class BaseAdvancedChipMetrics(models.Model):
     }
     # --- 第三象限: 跨日迁徙 (Cross-Day Flow) ---
     CROSS_DAY_FLOW_METRICS = {
-        # 新增代码行：引入新一代信念交割与结构演化指标
+        # 引入新一代信念交割与结构演化指标
         'peak_mass_transfer_rate': '主峰质量转移率',
         'conviction_flow_index': '信念流转指数',
         'constructive_turnover_ratio': '建设性换手率',
@@ -79,13 +79,13 @@ class BaseAdvancedChipMetrics(models.Model):
     }
     # --- 第四象限: 博弈意图 (Game-Theoretic Intent) ---
     GAME_THEORY_METRICS = {
-        # 新增代码行：引入新一代战略推演指标
+        # 引入新一代战略推演指标
         'strategic_phase_score': '战略阶段评分(-100~100)',
         'deception_index': '欺骗指数(-100~100)',
         'control_solidity_index': '控制力稳固度',
         'exhaustion_risk_index': '衰竭风险指数',
         'breakout_readiness_score': '突破就绪分(0-100)',
-        'mf_cost_zone_defense_intent': '主力成本区攻防意图(-100~100)', # [代码新增]
+        'mf_cost_zone_defense_intent': '主力成本区攻防意图(-100~100)',
         'main_force_cost_advantage': '主力成本优势(%)',
         'chip_health_score': '筹码健康分(0-100)', # 逻辑会依赖新指标
         'auction_intent_signal': '竞价意图信号',
@@ -149,8 +149,8 @@ class BaseAdvancedChipMetrics(models.Model):
         'risk_reward_profile',
         'trend_vitality_index',
         'overall_t1_rating',
-        'mf_cost_zone_defense_intent', # [代码新增]
-        'floating_chip_cleansing_efficiency', # [代码新增]
+        'mf_cost_zone_defense_intent',
+        'floating_chip_cleansing_efficiency',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in INTEGER_FIELDS:
@@ -339,9 +339,9 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'order_book_imbalance': '五档盘口失衡度',
         'large_order_pressure': '大单压制强度',
         'large_order_support': '大单支撑强度',
-        'order_book_liquidity_supply': '盘口流动性供给(买/卖比)', # [代码新增]
-        'buy_quote_exhaustion_rate': '买方报价消耗率(%)', # [代码新增]
-        'sell_quote_exhaustion_rate': '卖方报价消耗率(%)', # [代码新增]
+        'order_book_liquidity_supply': '盘口流动性供给(买/卖比)',
+        'buy_quote_exhaustion_rate': '买方报价消耗率(%)',
+        'sell_quote_exhaustion_rate': '卖方报价消耗率(%)',
     }
     OUTCOME_ASSESSMENT_METRICS = {
         'volatility_asymmetry_index': '波动不对称指数',
@@ -375,9 +375,9 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'order_book_imbalance',
         'large_order_pressure',
         'large_order_support',
-        'order_book_liquidity_supply', # [代码新增]
-        'buy_quote_exhaustion_rate', # [代码新增]
-        'sell_quote_exhaustion_rate', # [代码新增]
+        'order_book_liquidity_supply',
+        'buy_quote_exhaustion_rate',
+        'sell_quote_exhaustion_rate',
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -403,9 +403,9 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'order_book_imbalance',
         'large_order_pressure',
         'large_order_support',
-        'order_book_liquidity_supply', # [代码新增]
-        'buy_quote_exhaustion_rate', # [代码新增]
-        'sell_quote_exhaustion_rate', # [代码新增]
+        'order_book_liquidity_supply',
+        'buy_quote_exhaustion_rate',
+        'sell_quote_exhaustion_rate',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:
@@ -606,8 +606,8 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'sell_sweep_intensity': '卖方扫单强度',
         'vpin_score': 'VPIN得分',
         'vwap_mean_reversion_corr': 'VWAP均值回归相关性',
-        'market_impact_cost': '市场冲击成本(%)', # [代码新增]
-        'liquidity_slope': '盘口深度斜率', # [代码新增]
+        'market_impact_cost': '市场冲击成本(%)',
+        'liquidity_slope': '盘口深度斜率',
         'liquidity_authenticity_score': '流动性真实性评分',
     }
     AUXILIARY_METRICS = {
@@ -666,8 +666,8 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'sell_sweep_intensity',
         'vpin_score',
         'vwap_mean_reversion_corr',
-        'market_impact_cost', # [代码新增]
-        'liquidity_slope', # [代码新增]
+        'market_impact_cost',
+        'liquidity_slope',
         'liquidity_authenticity_score',
     ]
     for name, verbose in CORE_METRICS.items():
@@ -793,7 +793,7 @@ class BasePlatformFeature(models.Model):
     - V2.19 新增: 引入 `platform_character` 和 `character_score` 字段，通过融合筹码、资金、结构
                  三大情报体系，对平台的真实性质（吸筹/派发）进行深度评估和量化。
     """
-    # 新增代码行：定义平台性质的选项
+    # 定义平台性质的选项
     CHARACTER_CHOICES = [
         ('ACCUMULATION', '主力吸筹'),
         ('DISTRIBUTION', '主力派发'),
@@ -817,9 +817,10 @@ class BasePlatformFeature(models.Model):
     precise_vpoc = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='精确VPOC(分钟级)', null=True, blank=True)
     internal_accumulation_intensity = models.FloatField(verbose_name='内部吸筹强度', null=True, blank=True, help_text='平台期内Tick级净主动买入量占比')
     breakout_quality_score = models.FloatField(verbose_name='突破质量分', null=True, blank=True, help_text='突破日微观结构评估分')
-    # 新增代码块：V2.19 多维情报评估结果
+    # V2.19 多维情报评估结果
     platform_character = models.CharField(max_length=20, choices=CHARACTER_CHOICES, verbose_name='平台性质', null=True, blank=True)
     character_score = models.FloatField(verbose_name='平台性质分(-100~100)', null=True, blank=True, help_text='综合筹码、资金、结构证据的量化评分')
+    platform_archetype = models.CharField(max_length=50, verbose_name='平台原型', null=True, blank=True, help_text='识别出此平台的原型名称')
     
     class Meta:
         abstract = True
@@ -886,7 +887,7 @@ class BaseTrendlineFeature(models.Model):
     intercept = models.FloatField(verbose_name='截距', help_text='y=mx+c中的c, 基于时间索引')
     touch_points = models.IntegerField(verbose_name='有效触及点数')
     validity_score = models.FloatField(verbose_name='趋势线有效性得分(0-1)')
-    # 新增代码行：V2.0 微观指标
+    # V2.0 微观指标
     touch_conviction_score = models.FloatField(verbose_name='触及信念得分', null=True, blank=True, help_text='所有触及点微观博弈强度的平均分')
 
     class Meta:

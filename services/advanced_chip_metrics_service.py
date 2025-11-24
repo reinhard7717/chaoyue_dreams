@@ -225,7 +225,7 @@ class AdvancedChipMetricsService:
             else:
                 enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
             context_for_calc['intraday_data'] = enhanced_intraday_data
-            # [代码修改] 核心修复：在注入上下文前，将level5数据的列名重命名为计算器所需的格式
+            # 核心修复：在注入上下文前，将level5数据的列名重命名为计算器所需的格式
             if level5_data_map and date_obj in level5_data_map:
                 level5_df_original = level5_data_map[date_obj]
                 if not level5_df_original.empty:
