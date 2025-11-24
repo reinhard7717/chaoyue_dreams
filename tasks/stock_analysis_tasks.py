@@ -538,6 +538,14 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, lookback_start_date, process_start_date, save_start_date
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex, cache_manager: CacheManager):
+    """
+    【V2.27 · 源头净化版】
+    - 核心修复: 在所有数据源加载完毕后，增加一个数据净化循环。该循环会遍历所有
+                 加载的DataFrame，并使用 `pd.to_numeric` 强制将所有包含数值但被
+                 识别为 `object` 类型的列（通常是由数据库Decimal类型引起）转换为
+                 `float64`。此举从数据加载的源头根除了因数据类型污染导致的下游
+                 计算库（如pandas_ta）的执行失败问题。
+    """
     import pytz
     from utils.model_helpers import (
         get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code,
@@ -591,14 +599,13 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     tick_data_df_list = []
     level5_data_df_list = []
     minute_data_df_list = []
-    realtime_data_df_list = [] # 新增代码行：初始化realtime数据列表
+    realtime_data_df_list = []
     for single_date in dates_in_chunk.normalize().unique().date:
         df_tick = await realtime_dao.get_daily_real_ticks(stock_info.stock_code, single_date.strftime('%Y-%m-%d'))
         if df_tick is not None and not df_tick.empty:
             tick_data_df_list.append(df_tick.reset_index())
-        # 同时获取realtime快照和level5数据
         df_realtime, df_level5 = await realtime_dao._get_single_stock_quotes_and_level5_from_db(stock_info.stock_code, single_date)
-        if df_realtime is not None and not df_realtime.empty: # 新增代码块：处理realtime数据
+        if df_realtime is not None and not df_realtime.empty:
             realtime_data_df_list.append(df_realtime.reset_index())
         if df_level5 is not None and not df_level5.empty:
             level5_data_df_list.append(df_level5.reset_index())
@@ -608,8 +615,21 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     data_dfs["stock_tick_data"] = pd.concat(tick_data_df_list) if tick_data_df_list else pd.DataFrame()
     data_dfs["stock_level5_data"] = pd.concat(level5_data_df_list) if level5_data_df_list else pd.DataFrame()
     data_dfs["stock_minute_data"] = pd.concat(minute_data_df_list) if minute_data_df_list else pd.DataFrame()
-    data_dfs["stock_realtime_data"] = pd.concat(realtime_data_df_list) if realtime_data_df_list else pd.DataFrame() # 新增代码行：拼接realtime数据
-    def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str, data_source_name: str) -> dict: # 增加 data_source_name 参数
+    data_dfs["stock_realtime_data"] = pd.concat(realtime_data_df_list) if realtime_data_df_list else pd.DataFrame()
+    # [代码新增] V2.27 终极数据净化：在数据源头强制转换所有 object 类型的数值列
+    print(f"  -> [{stock_info.stock_code}] [数据源头净化] 正在对所有加载的数据帧进行强制数值类型转换...")
+    for name, df in data_dfs.items():
+        if isinstance(df, pd.DataFrame) and not df.empty and "_map" not in name:
+            for col in df.columns:
+                if df[col].dtype == 'object':
+                    # 尝试转换为数值类型，同时保留非数值列（如ID、时间字符串）的原样
+                    try:
+                        # 使用 pd.to_numeric 进行转换，无法转换的值会变成 NaN
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                    except (ValueError, TypeError):
+                        # 如果整列转换失败（例如，它是一个真正的字符串列），则跳过
+                        continue
+    def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str, data_source_name: str) -> dict:
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         target_tz = pytz.timezone('Asia/Shanghai')
@@ -625,9 +645,9 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"], stock_info.stock_code, "Tick Data")
     data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"], stock_info.stock_code, "Level5 Data")
     data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"], stock_info.stock_code, "Minute K-line Data")
-    data_dfs["stock_realtime_data_map"] = _process_intraday_df_to_map(data_dfs["stock_realtime_data"], stock_info.stock_code, "Realtime Snapshot Data") # 新增代码行：创建realtime数据map
+    data_dfs["stock_realtime_data_map"] = _process_intraday_df_to_map(data_dfs["stock_realtime_data"], stock_info.stock_code, "Realtime Snapshot Data")
     for name, df in data_dfs.items():
-        if name in ["stock_tick_data_map", "stock_level5_data_map", "stock_minute_data_map", "stock_realtime_data_map"]: # 修改代码行：加入realtime map
+        if name in ["stock_tick_data_map", "stock_level5_data_map", "stock_minute_data_map", "stock_realtime_data_map"]:
             continue
         if df is None or df.empty:
             if 'fund_flow_ths' in name or 'fund_flow_dc' in name:
