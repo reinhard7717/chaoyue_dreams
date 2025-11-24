@@ -108,11 +108,14 @@ class ChipFeatureCalculator:
         microstructure_game_metrics = self._compute_microstructure_game_metrics(self.ctx)
         all_metrics.update(microstructure_game_metrics)
         self.ctx.update(microstructure_game_metrics)
+        realtime_orderbook_metrics = self._compute_realtime_orderbook_metrics(self.ctx)
+        all_metrics.update(realtime_orderbook_metrics)
+        self.ctx.update(realtime_orderbook_metrics)
         health_score_info = self._calculate_chip_structure_health_score(self.ctx)
         all_metrics.update(health_score_info)
         all_metrics.pop('peak_range_low', None)
         all_metrics.pop('peak_range_high', None)
-        all_metrics['cost_gini_coefficient'] = today_gini
+        all_metrics['cost_gini_coefficient'] = self.ctx.get('cost_gini_coefficient')
         return all_metrics
 
     def _prepare_intraday_data_features(self, intraday_df: pd.DataFrame, trade_date: datetime.date, debug_params: dict) -> pd.DataFrame:
@@ -913,6 +916,62 @@ class ChipFeatureCalculator:
                 results['auction_closing_position'] = ((open_price - low_price) / (high_price - low_price) * 2 - 1) * 100
         return results
 
-
+    def _compute_realtime_orderbook_metrics(self, context: dict) -> dict:
+        """
+        【V1.0 · 实时盘口】计算基于实时行情快照的博弈指标。
+        """
+        results = {
+            'mf_cost_zone_defense_intent': np.nan,
+            'floating_chip_cleansing_efficiency': np.nan,
+        }
+        realtime_df = context.get('realtime_data')
+        if realtime_df is None or realtime_df.empty:
+            return results
+        dominant_peak_cost = context.get('dominant_peak_cost')
+        atr = context.get('atr_14d')
+        if pd.notna(dominant_peak_cost) and pd.notna(atr) and atr > 0:
+            cost_zone_low = dominant_peak_cost - 0.5 * atr
+            cost_zone_high = dominant_peak_cost + 0.5 * atr
+            bid_prices = [f'b{i}_p' for i in range(1, 6)]
+            bid_vols = [f'b{i}_v' for i in range(1, 6)]
+            ask_prices = [f'a{i}_p' for i in range(1, 6)]
+            ask_vols = [f'a{i}_v' for i in range(1, 6)]
+            bid_power_series = pd.Series(0, index=realtime_df.index, dtype=float)
+            ask_power_series = pd.Series(0, index=realtime_df.index, dtype=float)
+            for p_col, v_col in zip(bid_prices, bid_vols):
+                in_zone_mask = (realtime_df[p_col] >= cost_zone_low) & (realtime_df[p_col] <= cost_zone_high)
+                bid_power_series += realtime_df.loc[in_zone_mask, p_col] * realtime_df.loc[in_zone_mask, v_col] * 100
+            for p_col, v_col in zip(ask_prices, ask_vols):
+                in_zone_mask = (realtime_df[p_col] >= cost_zone_low) & (realtime_df[p_col] <= cost_zone_high)
+                ask_power_series += realtime_df.loc[in_zone_mask, p_col] * realtime_df.loc[in_zone_mask, v_col] * 100
+            total_power = bid_power_series + ask_power_series
+            instant_intent = (bid_power_series - ask_power_series) / total_power.replace(0, np.nan)
+            if 'volume' in realtime_df.columns and not instant_intent.dropna().empty:
+                weights = realtime_df['volume'].diff().fillna(0).clip(lower=0)
+                if weights.sum() > 0:
+                    weighted_intent = np.average(instant_intent.dropna(), weights=weights.loc[instant_intent.dropna().index])
+                    results['mf_cost_zone_defense_intent'] = np.clip(weighted_intent * 100, -100, 100)
+        intraday_df = context.get('processed_intraday_df')
+        if intraday_df is not None and not intraday_df.empty and pd.notna(atr) and atr > 0:
+            intraday_df['price_impulse'] = intraday_df['close'].diff().abs()
+            impulse_threshold = 0.8 * atr / 240
+            impulse_events = intraday_df[intraday_df['price_impulse'] > impulse_threshold]
+            if not impulse_events.empty:
+                efficiencies = []
+                for event_time in impulse_events.index:
+                    before_window = realtime_df.loc[event_time - pd.Timedelta(minutes=5) : event_time]
+                    after_window = realtime_df.loc[event_time : event_time + pd.Timedelta(minutes=5)]
+                    if not before_window.empty and not after_window.empty:
+                        depth_before = before_window[[f'b{i}_v' for i in range(1,6)] + [f'a{i}_v' for i in range(1,6)]].sum(axis=1).mean()
+                        depth_after = after_window[[f'b{i}_v' for i in range(1,6)] + [f'a{i}_v' for i in range(1,6)]].sum(axis=1).mean()
+                        if depth_before > 0:
+                            efficiency = np.log(depth_after / depth_before)
+                            if intraday_df.loc[event_time, 'close'] < intraday_df.loc[event_time, 'open']:
+                                efficiencies.append(efficiency)
+                            else:
+                                efficiencies.append(-efficiency)
+                if efficiencies:
+                    results['floating_chip_cleansing_efficiency'] = np.nanmean(efficiencies)
+        return results
 
 

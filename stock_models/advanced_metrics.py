@@ -51,7 +51,7 @@ class BaseAdvancedChipMetrics(models.Model):
         'pressure_rejection_strength': '压力拒绝强度',
         'vacuum_traversal_efficiency': '真空区通行效率',
         'intraday_posture_score': '日内姿态评分(-100~100)',
-        # --- 保留和兼容的指标 ---
+        'floating_chip_cleansing_efficiency': '浮筹清洗效率', # [代码新增]
         'active_selling_pressure': '主动卖压强度(%)',
         'active_buying_support': '主动买盘支撑(%)',
         'upward_impulse_purity': '上涨脉冲纯度(%)', # 旧有逻辑，可作为参考
@@ -85,7 +85,7 @@ class BaseAdvancedChipMetrics(models.Model):
         'control_solidity_index': '控制力稳固度',
         'exhaustion_risk_index': '衰竭风险指数',
         'breakout_readiness_score': '突破就绪分(0-100)',
-        # --- 保留和兼容的指标 ---
+        'mf_cost_zone_defense_intent': '主力成本区攻防意图(-100~100)', # [代码新增]
         'main_force_cost_advantage': '主力成本优势(%)',
         'chip_health_score': '筹码健康分(0-100)', # 逻辑会依赖新指标
         'auction_intent_signal': '竞价意图信号',
@@ -149,6 +149,8 @@ class BaseAdvancedChipMetrics(models.Model):
         'risk_reward_profile',
         'trend_vitality_index',
         'overall_t1_rating',
+        'mf_cost_zone_defense_intent', # [代码新增]
+        'floating_chip_cleansing_efficiency', # [代码新增]
     ]
     for name, verbose in CORE_METRICS.items():
         if name in INTEGER_FIELDS:
@@ -337,6 +339,9 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'order_book_imbalance': '五档盘口失衡度',
         'large_order_pressure': '大单压制强度',
         'large_order_support': '大单支撑强度',
+        'order_book_liquidity_supply': '盘口流动性供给(买/卖比)', # [代码新增]
+        'buy_quote_exhaustion_rate': '买方报价消耗率(%)', # [代码新增]
+        'sell_quote_exhaustion_rate': '卖方报价消耗率(%)', # [代码新增]
     }
     OUTCOME_ASSESSMENT_METRICS = {
         'volatility_asymmetry_index': '波动不对称指数',
@@ -370,6 +375,9 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'order_book_imbalance',
         'large_order_pressure',
         'large_order_support',
+        'order_book_liquidity_supply', # [代码新增]
+        'buy_quote_exhaustion_rate', # [代码新增]
+        'sell_quote_exhaustion_rate', # [代码新增]
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -395,6 +403,9 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'order_book_imbalance',
         'large_order_pressure',
         'large_order_support',
+        'order_book_liquidity_supply', # [代码新增]
+        'buy_quote_exhaustion_rate', # [代码新增]
+        'sell_quote_exhaustion_rate', # [代码新增]
     ]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:

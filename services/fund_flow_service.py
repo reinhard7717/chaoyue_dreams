@@ -310,85 +310,63 @@ class AdvancedFundFlowMetricsService:
                 pass # 修改行：移除了此处的print调试信息
         return intraday_data_map
 
-    def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame) -> tuple[dict, None]:
+    def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame, realtime_data_for_day: pd.DataFrame) -> tuple[dict, None]: # [代码修改] 增加realtime_data_for_day参数
         """
-        【V1.2 · 聚合成本计算集成版】
-        - 核心职责: 作为单日所有高级资金流指标计算的总调度中心。
-        - 核心逻辑: 依次调用日线、行为、微观结构等专项计算模块，并将结果聚合。
-        - 核心修正: 在调用 `_compute_all_behavioral_metrics` 之前，集成 `_calculate_aggregate_pvwap_costs` 的计算结果。
+        【V1.3 · 实时盘口指标调度版】
+        - 核心升级: 调度新增的 `_calculate_realtime_orderbook_signals` 方法，将实时盘口指标集成到最终结果中。
         """
-        # 1. 初始化当日指标字典
         day_metrics = {}
-        # 2. 计算基于日线数据的衍生指标
         daily_derived_metrics = self._calculate_daily_derived_metrics(daily_data_series)
         day_metrics.update(daily_derived_metrics)
-        # 3. 合并预先计算好的概率成本
         day_metrics.update(probabilistic_costs_dict)
-        # 新增 - 计算聚合的PVWAP成本并合并到 day_metrics
-        # _calculate_aggregate_pvwap_costs 期望一个 DataFrame 作为 pvwap_df 参数
-        # 这里我们将 probabilistic_costs_dict 转换为 Series，再转换为 DataFrame，以便传递
         prob_costs_series = pd.Series(probabilistic_costs_dict)
-        # 确保索引是 DatetimeIndex，因为 _calculate_aggregate_pvwap_costs 期望索引
         prob_costs_df_for_agg = pd.DataFrame([prob_costs_series], index=[daily_data_series.name])
-        # _calculate_aggregate_pvwap_costs 还需要 daily_df，这里传入 daily_data_series
-        # 但 daily_data_series 是 Series，需要转换为 DataFrame
         daily_df_for_agg = pd.DataFrame([daily_data_series.to_dict()], index=[daily_data_series.name])
         aggregate_pvwap_costs_df = self._calculate_aggregate_pvwap_costs(prob_costs_df_for_agg, daily_df_for_agg)
-        # 将计算出的聚合成本从 DataFrame 转换为字典并合并到 day_metrics
         if not aggregate_pvwap_costs_df.empty:
             day_metrics.update(aggregate_pvwap_costs_df.iloc[0].to_dict())
-        # 4. 计算基于分钟数据的行为指标
-        # 注意：_compute_all_behavioral_metrics 需要归因后的分钟数据
-        # 此时 daily_data_series 已经包含了 day_metrics 中所有更新的指标
-        # 所以这里需要将 day_metrics 重新合并到 daily_data_series，或者直接传递 day_metrics
-        # 为了避免修改 daily_data_series 的原始结构，我们创建一个新的 Series 传递
-        updated_daily_data_series = pd.Series({**daily_data_series.to_dict(), **day_metrics}, name=daily_data_series.name) # 修改行：在创建Series时，通过name参数保留日期索引
+        updated_daily_data_series = pd.Series({**daily_data_series.to_dict(), **day_metrics}, name=daily_data_series.name)
         behavioral_metrics = self._compute_all_behavioral_metrics(attributed_minute_df, updated_daily_data_series)
         day_metrics.update(behavioral_metrics)
-        # 5. 计算基于高频数据的微观结构信号
         daily_total_volume = daily_data_series.get('vol', 0) * 100
         microstructure_signals = self._calculate_microstructure_signals(stock_code, tick_data_for_day, level5_data_for_day, daily_total_volume)
         day_metrics.update(microstructure_signals)
-        # 6. 填充 trade_time 字段
+        # [代码新增] 调用实时盘口指标计算
+        realtime_orderbook_signals = self._calculate_realtime_orderbook_signals(realtime_data_for_day, daily_total_volume)
+        day_metrics.update(realtime_orderbook_signals)
         day_metrics['trade_time'] = daily_data_series.name
-        # 7. 返回最终的指标字典
         return day_metrics, None
 
-    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
+    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None, realtime_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]: # [代码修改] 增加realtime_data_map参数
         """
-        【V10.10 · 数据流修复版 - 跨服务数据完整性修复】
-        - 核心修正: 调整对 `_calculate_probabilistic_costs` 的调用，以接收其返回的成本字典和完整归因后的分钟DataFrame，确保下游计算能获得必要的 `main_force_net_vol` 等列。
-        - 【关键修复】在将 `attributed_minute_df` 存储到 `attributed_minute_data_map` 之前，进行深拷贝，确保跨服务传递时数据完整性。
+        【V11.0 · 实时盘口数据注入版】
+        - 核心升级: 接收 `realtime_data_map` 并将其逐日传递给核心计算引擎，为盘口意图分析提供数据。
         """
         all_metrics_list = []
         attributed_minute_data_map = {}
         failures = []
-        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
         for trade_date, daily_data_series in merged_df.iterrows():
             date_obj = trade_date.date()
-            # 新增行：提前计算当日VWAP并添加到daily_data_series中
             daily_amount = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
             daily_vol_shares = pd.to_numeric(daily_data_series.get('vol'), errors='coerce') * 100
             if pd.notna(daily_amount) and pd.notna(daily_vol_shares) and daily_vol_shares > 0:
                 daily_data_series['daily_vwap'] = daily_amount / daily_vol_shares
             else:
                 daily_data_series['daily_vwap'] = np.nan
-            # 修改行：移除了is_current_probe_date探针变量及其相关的print语句
             intraday_data = self._minute_df_daily_grouped.get(date_obj)
             if intraday_data is None or intraday_data.empty:
-                # 修改行：移除了此处的print调试信息
                 failures.append({'stock_code': stock_code, 'trade_date': str(date_obj), 'reason': '当日分钟线/逐笔聚合数据缺失'})
                 continue
             attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data, daily_data_series)
             probabilistic_costs_dict, attributed_minute_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series)
-            # 修改行：移除了检查attributed_minute_df的探针print语句
+            # [代码修改] 将realtime数据传递给单日计算引擎
             day_metrics, _ = self._calculate_all_metrics_for_day(
                 stock_code, daily_data_series, intraday_data, attributed_minute_df, probabilistic_costs_dict,
                 tick_data_map.get(date_obj) if tick_data_map else None,
-                level5_data_map.get(date_obj) if level5_data_map else None
+                level5_data_map.get(date_obj) if level5_data_map else None,
+                realtime_data_map.get(date_obj) if realtime_data_map else None
             )
             all_metrics_list.append(day_metrics)
-            # 在存储到 map 之前进行深拷贝
             attributed_minute_data_map[date_obj] = attributed_minute_df.copy(deep=True)
         if not all_metrics_list:
             return pd.DataFrame(), {}, failures
@@ -1440,6 +1418,51 @@ class AdvancedFundFlowMetricsService:
         df['vol_weight'] = df['vol_shares'] / current_day_total_vol if current_day_total_vol > 0 else 0
         return df
 
+    def _calculate_realtime_orderbook_signals(self, realtime_df: pd.DataFrame, daily_total_volume: float) -> dict:
+        """
+        【V1.0 · 实时盘口】计算基于实时行情快照的资金意图指标。
+        """
+        results = {
+            'order_book_liquidity_supply': np.nan,
+            'buy_quote_exhaustion_rate': np.nan,
+            'sell_quote_exhaustion_rate': np.nan,
+        }
+        if realtime_df is None or realtime_df.empty or daily_total_volume <= 0:
+            return results
+        
+        # --- 1. 盘口流动性供给 ---
+        bid_supply = pd.Series(0, index=realtime_df.index, dtype=float)
+        ask_supply = pd.Series(0, index=realtime_df.index, dtype=float)
+        for i in range(1, 6):
+            bid_supply += realtime_df[f'b{i}_p'] * realtime_df[f'b{i}_v'] * 100
+            ask_supply += realtime_df[f'a{i}_p'] * realtime_df[f'a{i}_v'] * 100
+        
+        time_diffs = realtime_df.index.to_series().diff().dt.total_seconds().fillna(0)
+        if time_diffs.sum() > 0:
+            avg_bid_supply = np.average(bid_supply, weights=time_diffs)
+            avg_ask_supply = np.average(ask_supply, weights=time_diffs)
+            if avg_ask_supply > 0:
+                results['order_book_liquidity_supply'] = avg_bid_supply / avg_ask_supply
+
+        # --- 2. 报价消耗率 ---
+        df = realtime_df.copy()
+        df['prev_a1_p'] = df['a1_p'].shift(1)
+        df['prev_b1_p'] = df['b1_p'].shift(1)
+        df['prev_a1_v'] = df['a1_v'].shift(1)
+        df['prev_b1_v'] = df['b1_v'].shift(1)
+
+        # 买方消耗：当前卖一价 > 上一刻卖一价，意味着上一刻的卖一盘被击穿
+        buy_exhaustion_mask = df['a1_p'] > df['prev_a1_p']
+        buy_exhausted_vol = (df.loc[buy_exhaustion_mask, 'prev_a1_v'] * 100).sum()
+
+        # 卖方消耗：当前买一价 < 上一刻买一价，意味着上一刻的买一盘被击穿
+        sell_exhaustion_mask = df['b1_p'] < df['prev_b1_p']
+        sell_exhausted_vol = (df.loc[sell_exhaustion_mask, 'prev_b1_v'] * 100).sum()
+
+        results['buy_quote_exhaustion_rate'] = (buy_exhausted_vol / daily_total_volume) * 100
+        results['sell_quote_exhaustion_rate'] = (sell_exhausted_vol / daily_total_volume) * 100
+        
+        return results
 
 
 
