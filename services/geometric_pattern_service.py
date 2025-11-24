@@ -220,14 +220,13 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict):
         """
-        【V2.40 · 多尺度平台版】识别、量化并存储矩形平台。
-        - 核心重构: 废除固定的单一识别标准，改为遍历配置文件中定义的多种
-                     平台原型（Archetype），对每一种原型应用其专属的参数集
-                     （如时长、振幅等）进行独立的扫描和验证。
-        - 核心升级: 在保存平台时，增加 `platform_archetype` 字段，以区分
-                     识别出的平台类型（如战术性盘整、战略性蓄势等）。
+        【V2.41 · 识别分类解耦版】识别、量化并存储矩形平台。
+        - 核心架构重构: 采用“一次识别，多次匹配”的两阶段新架构。
+          1. **识别阶段**: 使用基准参数，生成一份唯一的通用候选平台列表。
+          2. **分类阶段**: 遍历候选列表，对每个候选平台依次尝试匹配所有原型，
+                         一旦匹配成功即完成分类，避免重复和错漏。
         """
-        print(f"  -> [V2.40 多尺度平台识别准则] 启动...")
+        print(f"  -> [V2.41 识别分类解耦] 启动...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
@@ -251,59 +250,57 @@ class GeometricPatternService:
         if bbands_results is not None and not bbands_results.empty:
             df_copy = df_copy.join(bbands_results)
         if all(col in df_copy.columns for col in [bbu_col, bbl_col, bbm_col]):
-            df_copy[bbw_col] = (df_copy[bbu_col] - df_copy[bbl_col]) / df_copy[bbm_col]
+            df_copy[bbw_col] = (df_copy[bbu_col] - df_copy[bbl_col]) / df_copy[bbw_col]
         else:
             print(f"  -> [计算失败] 布林带基础指标未能生成。任务终止。")
             return
+        # [代码修改] V2.41 阶段一：通用识别
+        print(f"\n{'='*20} 阶段一: 通用平台识别 {'='*20}")
+        baseline_archetype = self.platform_archetypes[0]
+        print(f"  -> 使用基准原型 [{baseline_archetype.get('name', 'UNKNOWN')}] 的参数进行扫描...")
+        adx_threshold = baseline_archetype.get('adx_threshold', 25)
+        bbw_quantile = baseline_archetype.get('bbw_quantile', 0.25)
+        potential_threshold = baseline_archetype.get('potential_threshold', 0.6)
+        potential_window = baseline_archetype.get('potential_window', 20)
+        is_low_trend = df_copy['ADX_14'] < adx_threshold
+        bbw_rolling_quantile = df_copy[bbw_col].rolling(120, min_periods=60).quantile(bbw_quantile)
+        is_low_volatility = df_copy[bbw_col] < bbw_rolling_quantile
+        df_copy['is_potential_platform'] = (is_low_trend | is_low_volatility).astype(int)
+        df_copy['platform_potential_score'] = df_copy['is_potential_platform'].rolling(window=potential_window, min_periods=potential_window//2).mean()
+        score_series = df_copy['platform_potential_score']
+        entering_platform = (score_series > potential_threshold) & (score_series.shift(1) <= potential_threshold)
+        exiting_platform = (score_series < potential_threshold) & (score_series.shift(1) >= potential_threshold)
+        platform_start_dates = df_copy[entering_platform.fillna(False)].index
+        platform_end_dates = df_copy[exiting_platform.fillna(False)].index
+        raw_candidates = []
+        for start_date in platform_start_dates:
+            possible_end_dates = platform_end_dates[platform_end_dates > start_date]
+            if not possible_end_dates.empty:
+                raw_candidates.append((start_date, possible_end_dates[0]))
+        print(f"  -> 识别完成，共发现 {len(raw_candidates)} 个原始候选平台。")
+        # [代码修改] V2.41 阶段二：多原型分类
+        print(f"\n{'='*20} 阶段二: 多原型分类与验证 {'='*20}")
         platforms_to_save = []
+        saved_start_dates = set()
         minute_map = data_dfs.get("stock_minute_data_map", {})
         tick_map = data_dfs.get("stock_tick_data_map", {})
         realtime_map = data_dfs.get("stock_realtime_data_map", {})
-        # V2.40 遍历所有平台原型进行扫描
-        for archetype in self.platform_archetypes:
-            archetype_name = archetype.get('name', 'UNKNOWN')
-            print(f"\n{'='*20} 正在使用原型 [{archetype_name}] 进行扫描 {'='*20}")
-            # 从原型配置中获取参数
-            adx_threshold = archetype.get('adx_threshold', 25)
-            bbw_quantile = archetype.get('bbw_quantile', 0.25)
-            potential_threshold = archetype.get('potential_threshold', 0.6)
-            potential_window = archetype.get('potential_window', 20)
-            min_duration = archetype.get('min_duration', 10)
-            max_range_pct = archetype.get('max_range_pct', 0.30)
-            is_low_trend = df_copy['ADX_14'] < adx_threshold
-            bbw_rolling_quantile = df_copy[bbw_col].rolling(120, min_periods=60).quantile(bbw_quantile)
-            is_low_volatility = df_copy[bbw_col] < bbw_rolling_quantile
-            df_copy['is_potential_platform'] = (is_low_trend | is_low_volatility).astype(int)
-            df_copy['platform_potential_score'] = df_copy['is_potential_platform'].rolling(window=potential_window, min_periods=potential_window//2).mean()
-            score_series = df_copy['platform_potential_score']
-            entering_platform = (score_series > potential_threshold) & (score_series.shift(1) <= potential_threshold)
-            exiting_platform = (score_series < potential_threshold) & (score_series.shift(1) >= potential_threshold)
-            entering_platform = entering_platform.fillna(False)
-            exiting_platform = exiting_platform.fillna(False)
-            platform_start_dates = df_copy[entering_platform].index
-            platform_end_dates = df_copy[exiting_platform].index
-            for start_date in platform_start_dates:
-                possible_end_dates = platform_end_dates[platform_end_dates > start_date]
-                if not possible_end_dates.empty:
-                    end_date = possible_end_dates[0]
-                    print(f"\n  -> [平台验证探针] 正在验证候选平台 (原型: {archetype_name})...")
-                    print(f"     - 候选开始日期: {start_date.date()}, 候选结束日期: {end_date.date()}")
-                    group = df_copy.loc[start_date:end_date]
-                    print(f"     - 计算持续天数: {len(group)} (要求 >= {min_duration})")
-                    if len(group) < min_duration:
-                        print(f"     - [REJECTED] 原因: 持续天数不足。")
-                        continue
-                    platform_high = group['high_qfq'].max()
-                    platform_low = group['low_qfq'].min()
-                    if platform_low == 0:
-                        print(f"     - [REJECTED] 原因: 平台最低价为0，数据异常。")
-                        continue
-                    price_range_pct = (platform_high - platform_low) / platform_low
-                    print(f"     - 计算价格振幅: {price_range_pct:.2%} (要求 <= {max_range_pct:.2%})")
-                    if price_range_pct > max_range_pct:
-                        print(f"     - [REJECTED] 原因: 价格振幅过大。")
-                        continue
-                    print(f"     - [ACCEPTED] 候选平台通过所有验证，将被量化。")
+        for start_date, end_date in raw_candidates:
+            if start_date in saved_start_dates:
+                continue
+            group = df_copy.loc[start_date:end_date]
+            platform_high = group['high_qfq'].max()
+            platform_low = group['low_qfq'].min()
+            if platform_low == 0: continue
+            price_range_pct = (platform_high - platform_low) / platform_low
+            print(f"\n  -> [验证探针] 正在验证候选平台: {start_date.date()} -> {end_date.date()} (持续 {len(group)} 天, 振幅 {price_range_pct:.2%})")
+            for archetype in self.platform_archetypes:
+                archetype_name = archetype.get('name', 'UNKNOWN')
+                min_duration = archetype.get('min_duration', 10)
+                max_range_pct = archetype.get('max_range_pct', 0.30)
+                print(f"     - 尝试匹配原型 [{archetype_name}] (要求: 时长>={min_duration}, 振幅<={max_range_pct:.2%})")
+                if len(group) >= min_duration and price_range_pct <= max_range_pct:
+                    print(f"     - [MATCHED & ACCEPTED] 成功匹配原型 [{archetype_name}]，将被量化。")
                     character, score_val = self._assess_platform_character(group)
                     platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
                     precise_vpoc = None
@@ -338,13 +335,17 @@ class GeometricPatternService:
                         'total_volume': group['vol'].sum() * 100, 'quality_score': (score_val + 100) / 200,
                         'precise_vpoc': precise_vpoc, 'internal_accumulation_intensity': internal_accumulation_intensity,
                         'breakout_quality_score': breakout_quality_score, 'platform_character': character, 'character_score': score_val,
-                        'platform_archetype': archetype_name, #  V2.40 记录平台原型
+                        'platform_archetype': archetype_name,
                     }
                     platforms_to_save.append(platform_data)
+                    saved_start_dates.add(start_date)
+                    break
+                else:
+                    print(f"     - [REJECTED] 未能匹配。")
         found_count = len(platforms_to_save)
-        print(f"\n  -> [V2.40 多尺度平台识别准则] 扫描完成，共发现 {found_count} 个有效平台。")
+        print(f"\n  -> [V2.41 识别分类解耦] 扫描完成，共发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.40 多尺度平台识别准则] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.41 识别分类解耦] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
