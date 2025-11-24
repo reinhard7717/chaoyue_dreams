@@ -998,7 +998,7 @@
       },
       "geometric_pattern_params": {
         "enabled": true,
-        "description": "【V2.1 · 实战校准版】几何形态引擎，融合了量价、波动率和相对强度的博弈规则。",
+        "description": "【V2.2 · 混合机动版】几何形态引擎，引入第三原型以填补识别盲区。",
         "platform_recognition": {
           "description": "【多尺度平台识别准则】定义多种平台原型及其识别参数。",
           "archetypes": [
@@ -1018,6 +1018,23 @@
               "volume_trend_slope": {"min": -999, "max": 0.05},
               "volatility_contraction_ratio": {"min": 0, "max": 1.1},
               "relative_strength_slope": {"min": 0.0, "max": 999}
+            },
+            {
+              "name": "HYBRID_MANEUVER",
+              "description": "【新增】混合机动平台：介于战术与战略之间，通常为中期趋势中的显著换手或“空中加油”形态。",
+              "//--- 基础几何规则 ---": "",
+              "min_duration": 10,
+              "max_range_pct": 0.25,
+              "//--- 核心识别准则 ---": "",
+              "adx_threshold": 28,
+              "bbw_quantile": 0.28,
+              "potential_threshold": 0.55,
+              "potential_window": 15,
+              "//--- V2.2 博弈规则 ---": "",
+              "volume_profile_skewness": {"min": -0.3, "max": 2.0},
+              "volume_trend_slope": {"min": -999, "max": 0.15},
+              "price_kurtosis": {"min": 3.0, "max": 999},
+              "relative_strength_slope": {"min": -0.05, "max": 999}
             },
             {
               "name": "STRATEGIC_BASE",
