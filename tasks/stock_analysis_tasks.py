@@ -539,12 +539,12 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex, cache_manager: CacheManager):
     """
-    【V2.27 · 源头净化版】
-    - 核心修复: 在所有数据源加载完毕后，增加一个数据净化循环。该循环会遍历所有
-                 加载的DataFrame，并使用 `pd.to_numeric` 强制将所有包含数值但被
-                 识别为 `object` 类型的列（通常是由数据库Decimal类型引起）转换为
-                 `float64`。此举从数据加载的源头根除了因数据类型污染导致的下游
-                 计算库（如pandas_ta）的执行失败问题。
+    【V2.28 · 强化净化版】
+    - 核心修复: 采用更稳健的“白名单排除法”进行数据净化。对所有加载的DataFrame中的
+                 每一列，除非它在明确的非数值列白名单中（如'stock_id'），否则一律
+                 使用 `pd.to_numeric(errors='coerce')` 进行强制转换。这确保了所有
+                 潜在的数值列（包括Decimal对象）都被彻底转换为float64或int64，
+                 根除任何可能的数据类型污染。
     """
     import pytz
     from utils.model_helpers import (
@@ -616,19 +616,17 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     data_dfs["stock_level5_data"] = pd.concat(level5_data_df_list) if level5_data_df_list else pd.DataFrame()
     data_dfs["stock_minute_data"] = pd.concat(minute_data_df_list) if minute_data_df_list else pd.DataFrame()
     data_dfs["stock_realtime_data"] = pd.concat(realtime_data_df_list) if realtime_data_df_list else pd.DataFrame()
-    # [代码新增] V2.27 终极数据净化：在数据源头强制转换所有 object 类型的数值列
-    print(f"  -> [{stock_info.stock_code}] [数据源头净化] 正在对所有加载的数据帧进行强制数值类型转换...")
+    # [代码修改] V2.28 强化数据净化逻辑
+    print(f"  -> [{stock_info.stock_code}] [数据源头净化 V2.28] 正在对所有加载的数据帧进行强制数值类型转换...")
+    # 定义一个白名单，这些列即使是object类型也不应被转换
+    non_numeric_whitelist = ['stock_id', 'stock_code']
     for name, df in data_dfs.items():
         if isinstance(df, pd.DataFrame) and not df.empty and "_map" not in name:
             for col in df.columns:
-                if df[col].dtype == 'object':
-                    # 尝试转换为数值类型，同时保留非数值列（如ID、时间字符串）的原样
-                    try:
-                        # 使用 pd.to_numeric 进行转换，无法转换的值会变成 NaN
-                        df[col] = pd.to_numeric(df[col], errors='coerce')
-                    except (ValueError, TypeError):
-                        # 如果整列转换失败（例如，它是一个真正的字符串列），则跳过
-                        continue
+                # 如果列不在白名单中，并且不是日期时间类型，就尝试转换
+                if col not in non_numeric_whitelist and not pd.api.types.is_datetime64_any_dtype(df[col]):
+                    # 使用 apply + to_numeric 确保转换的稳健性
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
     def _process_intraday_df_to_map(df: pd.DataFrame, stock_code_for_log: str, data_source_name: str) -> dict:
         if df.empty: return {}
         df['trade_time'] = pd.to_datetime(df['trade_time'])

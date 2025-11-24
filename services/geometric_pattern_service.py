@@ -176,9 +176,10 @@ class GeometricPatternService:
 
     def calculate_and_save_all_patterns(self, data_dfs: dict, start_date_str: str = None):
         """
-        【V2.22 · 数据流净化版】执行所有几何形态的计算和存储，并融合全维度高级指标。
-        - V2.22 诊断修复: 在数据流早期即对 df_daily 进行排序，确保所有探针和后续处理
-                         都基于一致的时间顺序，根除因数据乱序导致的调试误判。
+        【V2.28 · 数据回滚修复版】执行所有几何形态的计算和存储。
+        - V2.28 修复: 新增平台(Platform)数据的回滚逻辑。当提供 `start_date_str` 时，
+                     在计算前会先删除该日期之后的所有平台记录，确保重算的幂等性，
+                     与趋势线和事件的回滚逻辑保持一致。
         """
         print(f"[{self.stock_code}] [动态演化分析] 开始计算几何形态特征...")
         df_daily = data_dfs.get('daily_data')
@@ -187,7 +188,6 @@ class GeometricPatternService:
             return
         df_daily['trade_time'] = pd.to_datetime(df_daily['trade_time'])
         df_daily = df_daily.set_index('trade_time')
-        # [代码新增] 立即排序，保证数据时序一致性
         df_daily.sort_index(inplace=True)
         # --- [探针 A: 初始加载 & 排序后] ---
         if not df_daily.empty:
@@ -207,6 +207,13 @@ class GeometricPatternService:
             print(f"--- [探针 B 结束] ---")
         df_daily.ta.atr(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True, col_names=('ATR_14_D',))
         enriched_df = self._prepare_enriched_dataframe(df_daily)
+        # [代码新增] 如果是重算模式，先删除旧的平台数据
+        if start_date_str:
+            deleted_count, _ = self.platform_model.objects.filter(
+                stock=self.stock_instance,
+                start_date__gte=start_date_str
+            ).delete()
+            print(f"  -> [统一回滚] 平台特征删除 {deleted_count} 条。")
         self._calculate_and_save_platforms(enriched_df, data_dfs)
         self._calculate_and_save_trendline_matrix_and_events(df_daily, data_dfs, start_date_str=start_date_str)
         flag_events = self._predict_flag_breakout_probability(enriched_df, data_dfs)
