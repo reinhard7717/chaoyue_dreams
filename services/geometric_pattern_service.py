@@ -160,14 +160,6 @@ class GeometricPatternService:
                     if col not in non_numeric_whitelist and col != 'trade_date':
                         if df[col].dtype == 'object':
                             df[col] = pd.to_numeric(df[col], errors='coerce')
-        # [代码新增] 探针 C.1: 检查待合并数据源
-        print("\n--- [探针 C.1: 待合并数据源检查] ---")
-        for name, df in dataframes_to_process.items():
-            print(f"  -> DataFrame '{name}': Shape={df.shape}")
-            if not df.empty:
-                print(f"     Columns: {df.columns.tolist()}")
-                print(df.head(2).to_string())
-        print("--- [探针 C.1 结束] ---\n")
         df_daily_reset = df_daily.reset_index().rename(columns={'trade_time': 'trade_date'})
         df_daily_reset['stock_id'] = self.stock_id
         enriched_df = df_daily_reset
@@ -259,27 +251,37 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, bbw_quantile: float = 0.25, potential_threshold: float = 0.6, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
         """
-        【V2.26 · 深度诊断探针版】识别、量化并存储矩形平台。
-        - V2.26 终极诊断: 之前的探针被 object-dtype 列的 `isnull()` 行为误导。
-                         此版本引入 `df.info()` 作为终极诊断工具，它能精确显示每列的
-                         真实数据类型(dtype)，从而在计算前彻底揭示问题的根源。
+        【V2.32 · 歧义消除版】识别、量化并存储矩形平台。
+        - 核心修复: 在调用 pandas_ta 计算指标前，从本地副本 DataFrame (`df_copy`)
+                     中显式删除未经复权的 'open', 'high', 'low', 'close' 列。
+                     此举旨在为 pandas_ta 提供一个无歧义的计算环境，根除因其内部
+                     列名智能识别机制与 *_qfq 列并存而导致的潜在冲突和计算失败。
         """
         # --- [探针 E: 进入平台计算函数] ---
-        if not enriched_df.empty:
-            latest_day_final = enriched_df.iloc[-1]
-            print(f"--- [探针 E: 进入平台计算函数] 最新日期: {latest_day_final.name.date()} ---")
-            print(f"  -> high_qfq: {latest_day_final.get('high_qfq')}, low_qfq: {latest_day_final.get('low_qfq')}, close_qfq: {latest_day_final.get('close_qfq')}")
-            print(f"--- [探针 E 结束] ---")
-        print(f"  -> [V2.26 深度诊断] 正在识别和量化矩形平台...")
+        if enriched_df.empty or enriched_df.index.isnull().all():
+            print(f"--- [探针 E: 失败] 传入的DataFrame为空或索引损坏，跳过平台计算。 ---")
+            return
+        latest_day_final = enriched_df.iloc[-1]
+        print(f"--- [探针 E: 进入平台计算函数] 最新日期: {latest_day_final.name.date()} ---")
+        print(f"  -> high_qfq: {latest_day_final.get('high_qfq')}, low_qfq: {latest_day_final.get('low_qfq')}, close_qfq: {latest_day_final.get('close_qfq')}")
+        print(f"--- [探针 E 结束] ---")
+        print(f"  -> [V2.32 歧义消除] 正在识别和量化矩形平台...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
         df_copy = enriched_df.copy()
+        # [代码新增] V2.32 消除歧义：移除原始OHLC列，避免pandas_ta混淆
+        cols_to_drop = ['open', 'high', 'low', 'close']
+        df_copy.drop(columns=[col for col in cols_to_drop if col in df_copy.columns], inplace=True)
+        print(f"  -> [歧义消除] 已从计算副本中移除原始OHLC列，确保计算精度。")
         cols_to_convert = ['high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'vol']
         for col in cols_to_convert:
             if col in df_copy.columns:
                 df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
-        # --- [代码新增] 深度诊断探针 ---
+        print("\n" + "="*30 + " [深度诊断探针: 计算前] " + "="*30)
+        print("打印 df_copy 的完整信息 (df.info)，以检查最终的 dtypes:")
+        df_copy.info(verbose=True, show_counts=True)
+        print("="*80 + "\n")
         required_cols = ['high_qfq', 'low_qfq', 'close_qfq']
         if not all(col in df_copy.columns for col in required_cols):
             print(f"\n  -> [诊断失败] 输入的DataFrame缺少核心计算列。需要: {required_cols}。任务终止。")
@@ -361,9 +363,9 @@ class GeometricPatternService:
                 }
                 platforms_to_save.append(platform_data)
         found_count = len(platforms_to_save)
-        print(f"  -> [V2.26 深度诊断] 发现 {found_count} 个有效平台。")
+        print(f"  -> [V2.32 歧义消除] 发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.26 深度诊断] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.32 歧义消除] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
