@@ -132,16 +132,9 @@ class GeometricPatternService:
 
     def _prepare_enriched_dataframe(self, df_daily: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.31 · 司法探针版】准备一个包含所有高级指标的、信息增强的DataFrame。
-        - V2.31 探针升级: 部署高密度探针网络(C.1, C.2)，在数据融合的每一步都进行
-                         快照取证，以捕捉导致 *_qfq 列数据被污染的确切瞬间。
+        【V2.34 · 核心诊断探针版】准备一个包含所有高级指标的、信息增强的DataFrame。
+        - 核心修改: 移除此方法内的所有旧探针，将诊断焦点集中到下游。
         """
-        # --- [探针 C: 进入数据融合函数] ---
-        if not df_daily.empty:
-            latest_day_input = df_daily.iloc[-1]
-            print(f"--- [探针 C: 进入数据融合函数] 最新日期: {latest_day_input.name.date()} ---")
-            print(f"  -> high_qfq: {latest_day_input.get('high_qfq')}, low_qfq: {latest_day_input.get('low_qfq')}, close_qfq: {latest_day_input.get('close_qfq')}")
-            print(f"--- [探针 C 结束] ---")
         print(f"  -> [数据融合] 正在加载并整合高级指标...")
         chip_metrics_qs = self.chip_metrics_model.objects.filter(stock=self.stock_instance).values()
         fund_flow_metrics_qs = self.fund_flow_metrics_model.objects.filter(stock=self.stock_instance).values()
@@ -164,10 +157,6 @@ class GeometricPatternService:
         df_daily_reset['stock_id'] = self.stock_id
         enriched_df = df_daily_reset
         join_keys = ['stock_id', 'trade_date']
-        # [代码修改] 增加循环内探针 C.2
-        print(f"--- [探针 C.2: 循环合并追踪] ---")
-        print(f"  -> [Pre-Loop] enriched_df 初始状态 (qfq数据):")
-        print(enriched_df[['trade_date', 'high_qfq', 'low_qfq', 'close_qfq']].tail(3).to_string())
         for name, df_right in dataframes_to_process.items():
             if not df_right.empty:
                 unique_cols_from_right = [col for col in df_right.columns if col not in enriched_df.columns]
@@ -178,26 +167,16 @@ class GeometricPatternService:
                     on=join_keys,
                     how='left'
                 )
-                print(f"  -> [Post-Merge with '{name}'] enriched_df 状态 (qfq数据):")
-                print(enriched_df[['trade_date', 'high_qfq', 'low_qfq', 'close_qfq']].tail(3).to_string())
-                print(f"     Null counts for qfq: \n{enriched_df[['high_qfq', 'low_qfq', 'close_qfq']].isnull().sum().to_string()}")
-        print(f"--- [探针 C.2 结束] ---")
         enriched_df = enriched_df.set_index('trade_date').sort_index()
-        # --- [探針 D: 数据融合完成] ---
-        if not enriched_df.empty and not enriched_df.index.isnull().all():
-            latest_day_output = enriched_df.iloc[-1]
-            print(f"--- [探针 D: 数据融合完成] 最新日期: {latest_day_output.name.date()} ---")
-            print(f"  -> high_qfq: {latest_day_output.get('high_qfq')}, low_qfq: {latest_day_output.get('low_qfq')}, close_qfq: {latest_day_output.get('close_qfq')}")
-            print(f"--- [探针 D 结束] ---")
-        else:
-            print(f"--- [探针 D: 数据融合失败] DataFrame为空或索引损坏 ---")
+        if enriched_df.empty or enriched_df.index.isnull().all():
+            print(f"--- [数据融合失败] DataFrame为空或索引损坏 ---")
         print(f"  -> [数据融合] 全维度战场沙盘构建完成。")
         return enriched_df
 
     def calculate_and_save_all_patterns(self, data_dfs: dict, start_date_str: str = None):
         """
-        【V2.31 · 司法探针版】执行所有几何形态的计算和存储。
-        - V2.31 探针升级: 增加探针 B.5，在数据送入融合函数前进行最后一次核查。
+        【V2.34 · 核心诊断探针版】执行所有几何形态的计算和存储。
+        - 核心修改: 移除此方法内的所有旧探针，将诊断焦点集中到下游。
         """
         print(f"[{self.stock_code}] [动态演化分析] 开始计算几何形态特征...")
         df_daily = data_dfs.get('daily_data')
@@ -207,29 +186,11 @@ class GeometricPatternService:
         df_daily['trade_time'] = pd.to_datetime(df_daily['trade_time'])
         df_daily = df_daily.set_index('trade_time')
         df_daily.sort_index(inplace=True)
-        # --- [探针 A: 初始加载 & 排序后] ---
-        if not df_daily.empty:
-            latest_day_raw = df_daily.iloc[-1]
-            print(f"--- [探针 A: 初始加载 & 排序后] 最新日期: {latest_day_raw.name.date()} ---")
-            print(f"  -> high_qfq: {latest_day_raw.get('high_qfq')}, low_qfq: {latest_day_raw.get('low_qfq')}, close_qfq: {latest_day_raw.get('close_qfq')}")
-            print(f"--- [探针 A 结束] ---")
         cols_to_convert = ['high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'vol']
         for col in cols_to_convert:
             if col in df_daily.columns:
                 df_daily[col] = pd.to_numeric(df_daily[col], errors='coerce')
-        # --- [探针 B: 类型转换后] ---
-        if not df_daily.empty:
-            latest_day_converted = df_daily.iloc[-1]
-            print(f"--- [探针 B: 类型转换后] 最新日期: {latest_day_converted.name.date()} ---")
-            print(f"  -> high_qfq: {latest_day_converted.get('high_qfq')}, low_qfq: {latest_day_converted.get('low_qfq')}, close_qfq: {latest_day_converted.get('close_qfq')}")
-            print(f"--- [探针 B 结束] ---")
         df_daily.ta.atr(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True, col_names=('ATR_14_D',))
-        # [代码新增] 探针 B.5，检查进入融合函数前的最终数据状态
-        if not df_daily.empty:
-            latest_day_pre_merge = df_daily.iloc[-1]
-            print(f"--- [探针 B.5: 融合前最终检查] 最新日期: {latest_day_pre_merge.name.date()} ---")
-            print(f"  -> high_qfq: {latest_day_pre_merge.get('high_qfq')}, low_qfq: {latest_day_pre_merge.get('low_qfq')}, close_qfq: {latest_day_pre_merge.get('close_qfq')}")
-            print(f"--- [探针 B.5 结束] ---")
         enriched_df = self._prepare_enriched_dataframe(df_daily)
         if start_date_str:
             deleted_count, _ = self.platform_model.objects.filter(
@@ -251,56 +212,66 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, bbw_quantile: float = 0.25, potential_threshold: float = 0.6, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
         """
-        【V2.33 · 直接调用修复版】识别、量化并存储矩形平台。
-        - 核心修复: 放弃使用 pandas_ta 的扩展方法 `df.ta.bbands()`，因为它被证实
-                     在当前场景下存在不稳定性。改为采用更稳健的直接函数调用方式
-                     `ta.bbands(close=df['col'], append=False)`，然后将返回的结果
-                     DataFrame 合并回主数据帧。此举绕开了扩展方法中潜在的“黑盒”
-                     问题，从根本上解决了布林带计算失败的顽固BUG。
+        【V2.34 · 核心诊断探针版】识别、量化并存储矩形平台。
+        - 核心修改: 移除所有旧探针，并在 BBands 计算前植入一个高度详细的诊断探针，
+                     同时使用 try-except 块捕获并打印来自 pandas_ta 库的原始异常信息，
+                     旨在对核心故障点进行最终的、决定性的诊断。
         """
-        # --- [探针 E: 进入平台计算函数] ---
-        if enriched_df.empty or enriched_df.index.isnull().all():
-            print(f"--- [探针 E: 失败] 传入的DataFrame为空或索引损坏，跳过平台计算。 ---")
-            return
-        latest_day_final = enriched_df.iloc[-1]
-        print(f"--- [探针 E: 进入平台计算函数] 最新日期: {latest_day_final.name.date()} ---")
-        print(f"  -> high_qfq: {latest_day_final.get('high_qfq')}, low_qfq: {latest_day_final.get('low_qfq')}, close_qfq: {latest_day_final.get('close_qfq')}")
-        print(f"--- [探针 E 结束] ---")
-        print(f"  -> [V2.33 直接调用] 正在识别和量化矩形平台...")
+        import traceback
+        print(f"  -> [V2.34 核心诊断] 正在识别和量化矩形平台...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
         df_copy = enriched_df.copy()
         cols_to_drop = ['open', 'high', 'low', 'close']
         df_copy.drop(columns=[col for col in cols_to_drop if col in df_copy.columns], inplace=True)
-        print(f"  -> [歧义消除] 已从计算副本中移除原始OHLC列，确保计算精度。")
         cols_to_convert = ['high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'vol']
         for col in cols_to_convert:
             if col in df_copy.columns:
                 df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
-        print("\n" + "="*30 + " [深度诊断探针: 计算前] " + "="*30)
-        print("打印 df_copy 的完整信息 (df.info)，以检查最终的 dtypes:")
-        df_copy.info(verbose=True, show_counts=True)
-        print("="*80 + "\n")
         required_cols = ['high_qfq', 'low_qfq', 'close_qfq']
         if not all(col in df_copy.columns for col in required_cols):
             print(f"\n  -> [诊断失败] 输入的DataFrame缺少核心计算列。需要: {required_cols}。任务终止。")
             return
-        print("\n    [探针] 核心计算列的空值(NaN)数量:")
-        print(df_copy[required_cols].isnull().sum().to_string())
         print("\n  -> [探针式计算] 正在尝试计算 ADX...")
         df_copy.ta.adx(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True)
         if 'ADX_14' not in df_copy.columns:
-            print("  -> [计算失败] ADX 指标未能成功生成。请检查上游数据是否存在足够的非空值。任务终止。")
+            print("  -> [计算失败] ADX 指标未能成功生成。任务终止。")
             return
         print("  -> [计算成功] ADX 指标已生成。")
+        # [代码新增] 植入全新的 BBANDS 核心诊断探针
+        print("\n" + "="*30 + " [BBANDS 输入数据深度诊断] " + "="*30)
+        close_series_for_bbands = df_copy['close_qfq']
+        print(f"  -> 输入Series类型: {type(close_series_for_bbands)}")
+        print(f"  -> 数据类型 (dtype): {close_series_for_bbands.dtype}")
+        print(f"  -> 数据点总数 (length): {len(close_series_for_bbands)}")
+        print(f"  -> 空值 (NaN) 数量: {close_series_for_bbands.isnull().sum()}")
+        print(f"  -> 无穷大 (inf) 值数量: {np.isinf(close_series_for_bbands).sum()}")
+        print("  -> 统计描述 (describe):")
+        print(close_series_for_bbands.describe().to_string())
+        print("  -> 头部5行数据:")
+        print(close_series_for_bbands.head(5).to_string())
+        print("  -> 尾部5行数据:")
+        print(close_series_for_bbands.tail(5).to_string())
+        print("="*80 + "\n")
         print("  -> [探针式计算] 正在尝试计算 BBands...")
-        # [代码修改] V2.33 改为直接函数调用，绕开扩展方法的潜在BUG
-        bbands_results = ta.bbands(close=df_copy['close_qfq'], length=20, std=2.0, append=False)
-        if bbands_results is not None and not bbands_results.empty:
-            df_copy = df_copy.join(bbands_results)
+        try:
+            bbands_results = ta.bbands(close=close_series_for_bbands, length=20, std=2.0, append=False)
+            if bbands_results is not None and not bbands_results.empty:
+                df_copy = df_copy.join(bbands_results)
+            else:
+                # 如果返回为空也视为失败
+                raise ValueError("pandas_ta.bbands 返回了空结果 (None 或 empty DataFrame)。")
+        except Exception as e:
+            print(f"  -> [计算异常捕获] BBands 计算过程中遭遇致命错误！")
+            print(f"  -> 原始异常类型: {type(e).__name__}")
+            print(f"  -> 原始异常信息: {e}")
+            print("  -> 详细堆栈跟踪:")
+            print(traceback.format_exc())
+            print("  -> 任务终止。")
+            return
         if 'BBW_20_2.0' not in df_copy.columns:
-            print("  -> [计算失败] 布林带宽度(BBW) 指标未能成功生成。请检查 'close_qfq' 列是否存在足够的非空值。任务终止。")
+            print("  -> [计算失败] 布林带宽度(BBW) 指标未能成功生成，但未捕获到异常。请检查上游逻辑。任务终止。")
             return
         print("  -> [计算成功] 所有核心指标均已成功生成。继续执行平台识别...")
         is_low_trend = df_copy['ADX_14'] < adx_threshold
@@ -366,9 +337,9 @@ class GeometricPatternService:
                 }
                 platforms_to_save.append(platform_data)
         found_count = len(platforms_to_save)
-        print(f"  -> [V2.33 直接调用] 发现 {found_count} 个有效平台。")
+        print(f"  -> [V2.34 核心诊断] 发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.33 直接调用] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.34 核心诊断] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
