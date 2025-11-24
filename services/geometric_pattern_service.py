@@ -428,16 +428,15 @@ class GeometricPatternService:
                     })
         if is_last_day_debug:
             print(f"--- [探針模式結束] 日期 {current_date.date()} 共生成 {len(matrix_records)} 條有效趨勢線 ---\n")
-        else:
-            print(f"    -> [趋势线矩阵引擎] 为 {current_date.date()} 生成了 {len(matrix_records)} 条有效趋势线。")
         return matrix_records
 
     def _find_best_line_with_micro_validation(self, pivots: pd.DataFrame, price_col: str, full_df: pd.DataFrame, line_type: str, data_dfs: dict):
         """
-        【V2.1 · 探针调试版】从候选锚点中，通过三维立体评分体系，找出最终的“主战线”。
-        - V2.1 调试: 新增探针，用于打印接收到的锚点数量和最终计算出的最高分。
+        【V2.10 · 性能优化版】从候选锚点中，通过三维立体评分体系，找出最终的“主战线”。
+        - V2.10 性能修复: 移除了内部循环中极其缓慢的 `iterrows()` 调用，
+                         改为使用向量化的布尔索引和 .sum() 方法计算假突破，
+                         解决了因锚点组合跨度过大导致的计算性能雪崩问题。
         """
-        # 新增代码块：定义一个flag，只对最后一个日期打印详细探针信息
         is_last_day_debug = (full_df.index.max() == data_dfs.get('daily_data').index.max())
         if is_last_day_debug:
             print(f"      [内部探针] 进入 _find_best_line... | 类型: {line_type}, 接收到锚点数: {len(pivots)}")
@@ -465,20 +464,28 @@ class GeometricPatternService:
                 score = self._calculate_micro_conviction_score(touch_date, line_type, tick_map)
                 micro_scores.append(score)
             avg_micro_score = np.mean(micro_scores) if micro_scores else 0.0
-            line_df = full_df[(full_df.index >= p1_idx) & (full_df.index <= p2_idx)]
+            line_df = full_df[(full_df.index >= p1_idx) & (full_df.index <= p2_idx)].copy() # 使用.copy()避免SettingWithCopyWarning
             line_df['line_price'] = m * line_df['time_idx'] + c
+            # --- 以下是修改的代码块 ---
             fake_break_bonus = 0
             if line_type == 'support':
+                # 找出所有价格低于支撑线的K线
                 penetrations = line_df[line_df['low_qfq'] < line_df['line_price']]
-                for _, row in penetrations.iterrows():
-                    if row['close_qfq'] > row['line_price']:
-                        fake_break_bonus += 1
-            else:
+                # 在这些K线中，向量化地计算收盘价又回到线上方的数量
+                if not penetrations.empty:
+                    fake_break_bonus = (penetrations['close_qfq'] > penetrations['line_price']).sum()
+                penetration_count = len(penetrations)
+            else: # resistance
+                # 找出所有价格高于阻力线的K线
                 penetrations = line_df[line_df['high_qfq'] > line_df['line_price']]
-                for _, row in penetrations.iterrows():
-                    if row['close_qfq'] < row['line_price']:
-                        fake_break_bonus += 1
-            penetration_penalty = (len(penetrations) - fake_break_bonus) / len(line_df)
+                # 在这些K线中，向量化地计算收盘价又回到线下方的数量
+                if not penetrations.empty:
+                    fake_break_bonus = (penetrations['close_qfq'] < penetrations['line_price']).sum()
+                penetration_count = len(penetrations)
+            
+            # 使用总穿透数进行惩罚计算
+            penetration_penalty = (penetration_count - fake_break_bonus) / len(line_df) if len(line_df) > 0 else 0
+            # --- 修改结束 ---
             dynamic_score = 1 - penetration_penalty
             final_score = (geometric_score * 0.3) + (avg_micro_score * 0.5) + (dynamic_score * 0.2)
             if final_score > max_final_score:
