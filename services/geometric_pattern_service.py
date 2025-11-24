@@ -128,8 +128,11 @@ class GeometricPatternService:
 
     def _prepare_enriched_dataframe(self, df_daily: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.1 · 修复版】准备一个包含所有高级指标的、信息增强的DataFrame。
-        - 修复: 为主 DataFrame (df_daily_reset) 手动添加 'stock_id' 列，以满足 pd.merge 的连接键要求。
+        【V2.2 · 防御性合并修复版】准备一个包含所有高级指标的、信息增强的DataFrame。
+        - 核心修复: 在合并高级指标数据时，采取防御性策略。明确筛选出右侧DataFrame中
+                     不与左侧DataFrame冲突的列进行合并，从根本上防止因其他数据模型中
+                     可能存在的同名冗余列（其值可能为0或NULL）覆盖原始的、正确的
+                     `*_qfq` 价格数据。
         """
         print(f"  -> [数据融合] 正在加载并整合高级指标...")
         # 加载所有高级指标数据
@@ -145,17 +148,20 @@ class GeometricPatternService:
                 df['trade_date'] = pd.to_datetime(df['trade_date'])
         # 将日线数据的索引转换为日期列以便合并
         df_daily_reset = df_daily.reset_index().rename(columns={'trade_time': 'trade_date'})
-        # 新增代码行：为左侧 DataFrame 添加缺失的 'stock_id' 连接键
         df_daily_reset['stock_id'] = self.stock_id
-        # 逐一合并
         enriched_df = df_daily_reset
-        if not df_chip.empty:
-            # 此处的 on=['stock_id', 'trade_date'] 现在可以正常工作
-            enriched_df = pd.merge(enriched_df, df_chip, on=['stock_id', 'trade_date'], how='left')
-        if not df_fund.empty:
-            enriched_df = pd.merge(enriched_df, df_fund, on=['stock_id', 'trade_date'], how='left')
-        if not df_struct.empty:
-            enriched_df = pd.merge(enriched_df, df_struct, on=['stock_id', 'trade_date'], how='left')
+        # [代码修改] 采用防御性合并策略
+        join_keys = ['stock_id', 'trade_date']
+        for df_right in [df_chip, df_fund, df_struct]:
+            if not df_right.empty:
+                # 找出左侧已有的列
+                left_cols = enriched_df.columns.tolist()
+                # 找出右侧独有的、需要被合并的列
+                right_only_cols = [col for col in df_right.columns if col not in left_cols]
+                # 最终用于合并的列 = 连接键 + 右侧独有列
+                cols_to_merge = join_keys + right_only_cols
+                # 执行合并，只使用筛选后的列，防止覆盖
+                enriched_df = pd.merge(enriched_df, df_right[cols_to_merge], on=join_keys, how='left')
         # 将日期重新设为索引
         enriched_df = enriched_df.set_index('trade_date').sort_index()
         print(f"  -> [数据融合] 全维度战场沙盘构建完成。")
