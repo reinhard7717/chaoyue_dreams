@@ -614,9 +614,10 @@ class AdvancedStructuralMetricsService:
 
     def _calculate_microstructure_metrics(self, tick_df: pd.DataFrame, level5_df: pd.DataFrame, realtime_df: pd.DataFrame, minute_df: pd.DataFrame, total_volume: float, group: pd.DataFrame, daily_series_for_day: pd.Series, atr_14: float) -> dict:
         """
-        【V21.8 · 类型转换修复版】
-        - 核心修复: 在计算 `standard_amount` 时，将从数据库加载的 `Decimal` 类型的 `total_amount` 显式转换为 `float` 类型，
-                    以解决 `Decimal` 与 `float` 混合运算导致的 `TypeError`。
+        【V21.9 · 全函数类型净化版】
+        - 核心修复: 修复了 `liquidity_authenticity_score` 计算中 `Decimal` 与 `float` 的除法 `TypeError`。
+        - 核心强化: 主动审查并修复了 `market_impact_cost` 计算循环中所有潜在的 `Decimal` 与 `float` 混合运算 `TypeError`，
+                    通过在计算前进行显式的 `float()` 类型转换，确保了整个函数的数值计算类型安全。
         """
         from scipy.stats import norm, linregress
         results = {
@@ -684,7 +685,8 @@ class AdvancedStructuralMetricsService:
                             if not all_scores.empty and all_scores.abs().sum() > 0:
                                 total_day_amount = daily_series_for_day.get('amount', 0)
                                 if total_day_amount > 0:
-                                    results['liquidity_authenticity_score'] = all_scores.sum() / float(total_day_amount)
+                                    # [代码修改] 将 all_scores.sum() 也转换为 float
+                                    results['liquidity_authenticity_score'] = float(all_scores.sum()) / float(total_day_amount)
         # 1. VWAP均值回归相关性
         if minute_df is not None and not minute_df.empty and 'minute_vwap' in minute_df.columns and len(minute_df) > 1:
             daily_vwap = (minute_df['amount'].sum() / minute_df['vol'].sum()) if minute_df['vol'].sum() > 0 else np.nan
@@ -799,7 +801,6 @@ class AdvancedStructuralMetricsService:
                 print(daily_series_for_day.to_string())
                 print(f"--- [探针结束] ---")
             if total_amount > 0:
-                # [代码修改] 将 Decimal 类型的 total_amount 转换为 float
                 standard_amount = float(total_amount) * 0.001
                 impact_costs = []
                 for idx, row in combined_df.iterrows():
@@ -809,20 +810,23 @@ class AdvancedStructuralMetricsService:
                     for i in range(1, 6):
                         price = row[f'a{i}_p']
                         vol = row[f'a{i}_v'] * 100
-                        value = price * vol
+                        # [代码修改] 预防性修复：将 price 转换为 float
+                        value = float(price) * vol
                         if amount_to_fill > value:
                             filled_amount += value
                             filled_volume += vol
                             amount_to_fill -= value
                         else:
-                            filled_volume += amount_to_fill / price
+                            # [代码修改] 预防性修复：将 price 转换为 float
+                            filled_volume += amount_to_fill / float(price)
                             filled_amount += amount_to_fill
                             break
                     if filled_volume > 0:
                         exec_price = filled_amount / filled_volume
                         mid_price = (row['b1_p'] + row['a1_p']) / 2
                         if mid_price > 0:
-                            impact_costs.append((exec_price / mid_price - 1) * 100)
+                            # [代码修改] 预防性修复：将 mid_price 转换为 float
+                            impact_costs.append((exec_price / float(mid_price) - 1) * 100)
                 if impact_costs and snapshot_volumes.sum() > 0:
                     results['market_impact_cost'] = np.average(impact_costs, weights=snapshot_volumes.iloc[:len(impact_costs)])
             # 2. 盘口深度斜率 (Liquidity Slope)
@@ -830,7 +834,9 @@ class AdvancedStructuralMetricsService:
             for idx, row in combined_df.iterrows():
                 mid_price = (row['b1_p'] + row['a1_p']) / 2
                 if mid_price > 0:
-                    ask_points_x = [(row[f'a{i}_p'] - mid_price) / mid_price for i in range(1, 6)]
+                    # [代码修改] 预防性修复：将价格转换为 float 以便 scipy 处理
+                    mid_price_float = float(mid_price)
+                    ask_points_x = [(float(row[f'a{i}_p']) - mid_price_float) / mid_price_float for i in range(1, 6)]
                     ask_points_y = np.cumsum([row[f'a{i}_v'] * 100 for i in range(1, 6)])
                     if len(ask_points_x) > 1 and np.std(ask_points_x) > 0:
                         slope, _, _, _, _ = linregress(ask_points_x, ask_points_y)
