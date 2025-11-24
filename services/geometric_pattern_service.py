@@ -132,10 +132,12 @@ class GeometricPatternService:
 
     def _prepare_enriched_dataframe(self, df_daily: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.23 · 主键认知修正版】准备一个包含所有高级指标的、信息增强的DataFrame。
-        - 核心修复: 恢复使用字符串类型的 `self.stock_id` (即 stock_code) 作为合并键，
-                     确保与高级指标表的外键列 `stock_id` (其类型为CharField)
-                     在数据类型和值上完全匹配，从而实现正确的 `pd.merge`。
+        【V2.29 · 精准净化版】准备一个包含所有高级指标的、信息增强的DataFrame。
+        - 核心修复: 将数据净化逻辑移至正确的位置。在从数据库加载高级指标数据
+                     (df_chip, df_fund, df_struct)后，立即对它们进行“消毒”处理，
+                     强制将所有 object 类型的数值列转换为 float64。这确保了在数据
+                     融合（merge）之前，所有参与方的数据类型都是纯净的，从而根除
+                     因数据类型污染导致的所有下游计算失败和索引损坏问题。
         """
         # --- [探针 C: 进入数据融合函数] ---
         if not df_daily.empty:
@@ -150,19 +152,34 @@ class GeometricPatternService:
         df_chip = pd.DataFrame.from_records(chip_metrics_qs).rename(columns={'trade_time': 'trade_date'})
         df_fund = pd.DataFrame.from_records(fund_flow_metrics_qs).rename(columns={'trade_time': 'trade_date'})
         df_struct = pd.DataFrame.from_records(structural_metrics_qs).rename(columns={'trade_time': 'trade_date'})
+        # [代码新增] V2.29 数据净化消毒步骤
+        print(f"  -> [数据净化] 正在对加载的高级指标进行强制类型转换...")
+        non_numeric_whitelist = ['stock_id']
         for df in [df_chip, df_fund, df_struct]:
             if not df.empty:
-                df['trade_date'] = pd.to_datetime(df['trade_date'])
+                # 首先处理日期列
+                if 'trade_date' in df.columns:
+                    df['trade_date'] = pd.to_datetime(df['trade_date'])
+                # 然后处理其他所有列
+                for col in df.columns:
+                    if col not in non_numeric_whitelist and col != 'trade_date':
+                        if df[col].dtype == 'object':
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
         df_daily_reset = df_daily.reset_index().rename(columns={'trade_time': 'trade_date'})
-        # [代码修改] 恢复使用正确的字符串 stock_code 作为合并键
         df_daily_reset['stock_id'] = self.stock_id
         enriched_df = df_daily_reset
         join_keys = ['stock_id', 'trade_date']
         for df_right in [df_chip, df_fund, df_struct]:
             if not df_right.empty:
+                # 确保连接键类型一致
+                if 'stock_id' in df_right.columns:
+                    df_right['stock_id'] = df_right['stock_id'].astype(str)
                 left_cols = enriched_df.columns.tolist()
-                right_only_cols = [col for col in df_right.columns if col not in left_cols]
-                cols_to_merge = join_keys + right_only_cols
+                right_only_cols = [col for col in df_right.columns if col not in left_cols or col in join_keys]
+                # 修正：从右侧DF选择列时，应排除重复的非连接键列
+                cols_to_merge = join_keys + [col for col in right_only_cols if col not in join_keys]
+                # 去重，以防万一
+                cols_to_merge = list(dict.fromkeys(cols_to_merge))
                 enriched_df = pd.merge(enriched_df, df_right[cols_to_merge], on=join_keys, how='left')
         enriched_df = enriched_df.set_index('trade_date').sort_index()
         # --- [探針 D: 数据融合完成] ---
