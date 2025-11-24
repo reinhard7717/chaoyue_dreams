@@ -220,12 +220,11 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict):
         """
-        【V2.42 · 公式修正版】识别、量化并存储矩形平台。
-        - 核心修复: 修正了布林带宽度（BBW）的计算公式，将除数从错误的
-                     宽度列自身（bbw_col）更正为正确的中轨列（bbm_col），
-                     解决了因此导致的 KeyError。
+        【V2.43 · BBands周期修正版】识别、量化并存储矩形平台。
+        - 核心修正: 根据策略要求，将布林带（Bollinger Bands）的计算周期
+                     从 20日 调整为 21日，并同步更新所有相关的列名。
         """
-        print(f"  -> [V2.42 公式修正] 启动...")
+        print(f"  -> [V2.43 BBands周期修正] 启动...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
@@ -244,12 +243,12 @@ class GeometricPatternService:
             print(f"\n  -> [诊断失败] 输入的DataFrame缺少核心计算列。需要: {required_cols}。任务终止。")
             return
         df_copy.ta.adx(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True)
+        # [代码修改] V2.43 将布林带周期从20调整为21
         bbu_col, bbl_col, bbm_col, bbw_col = 'BBU_21_2.0', 'BBL_21_2.0', 'BBM_21_2.0', 'BBW_21_2.0'
         bbands_results = ta.bbands(close=df_copy['close_qfq'], length=21, std=2.0, append=False)
         if bbands_results is not None and not bbands_results.empty:
             df_copy = df_copy.join(bbands_results)
         if all(col in df_copy.columns for col in [bbu_col, bbl_col, bbm_col]):
-            # [代码修改] V2.42 修正BBW计算公式的除数
             df_copy[bbw_col] = (df_copy[bbu_col] - df_copy[bbl_col]) / df_copy[bbm_col]
         else:
             print(f"  -> [计算失败] 布林带基础指标未能生成。任务终止。")
@@ -341,27 +340,34 @@ class GeometricPatternService:
                 else:
                     print(f"     - [REJECTED] 未能匹配。")
         found_count = len(platforms_to_save)
-        print(f"\n  -> [V2.42 公式修正] 扫描完成，共发现 {found_count} 个有效平台。")
+        print(f"\n  -> [V2.43 BBands周期修正] 扫描完成，共发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.42 公式修正] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.43 BBands周期修正] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
                 )
 
     def _calculate_daily_ofi_from_ticks(self, df_tick: pd.DataFrame) -> (float, float):
-        """从Tick数据计算日内OFI(订单流失衡)和总成交额"""
+        """
+        【V2.44 · Tick数据格式再适配版】
+        根据单日tick数据计算订单流失衡（OFI）。
+        - 核心修复: 根据数据库实际存储的tick数据格式，将买卖方向的判断
+                     条件从中文'买盘'/'卖盘'修正为大写字母 'B'/'S'，
+                     确保OFI计算的准确性。
+        """
         if df_tick is None or df_tick.empty:
             return 0.0, 0.0
-        buy_vol = df_tick[df_tick['side'] == 'B']['volume'].sum()
-        sell_vol = df_tick[df_tick['side'] == 'S']['volume'].sum()
-        total_vol = buy_vol + sell_vol
-        if total_vol == 0:
+        try:
+            # [代码修改] V2.44 适配 'B'/'S'/'M' 的tick数据格式
+            buy_vol = df_tick[df_tick['type'] == 'B']['volume'].sum()
+            sell_vol = df_tick[df_tick['type'] == 'S']['volume'].sum()
+            total_amount = df_tick['amount'].sum()
+            ofi = buy_vol - sell_vol
+            return ofi, total_amount
+        except KeyError as e:
+            print(f"  -> [Tick计算警告] 计算OFI时发生KeyError: {e}。可能是tick数据缺少'type'或'volume'列。返回0。")
             return 0.0, 0.0
-            
-        ofi = (buy_vol - sell_vol)
-        total_amount = (df_tick['price'] * df_tick['volume']).sum()
-        return ofi, total_amount
 
     def _calculate_and_save_trendline_matrix_and_events(self, df_daily: pd.DataFrame, data_dfs: dict, start_date_str: str = None):
         """
