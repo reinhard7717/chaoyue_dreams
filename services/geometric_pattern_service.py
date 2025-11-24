@@ -212,13 +212,13 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, bbw_quantile: float = 0.25, potential_threshold: float = 0.6, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
         """
-        【V2.36 · API契约修正版】识别、量化并存储矩形平台。
-        - 核心修复: 纠正了对 pandas_ta.bbands 函数输出的根本性误解。该函数返回 'BBB'
-                     (带宽百分比)，而非 'BBW' (宽度)。本版借鉴已知正确实现，在 bbands
-                     计算后，通过 (BBU - BBL) / BBM 的数学公式手动创建下游所需的
-                     'BBW_20_2.0' 列，从而彻底解决因API契约误解导致的逻辑中断。
+        【V2.37 · 索引对齐修复版】识别、量化并存储矩形平台。
+        - 核心修复: 解决了因 .dropna() 导致布尔索引器与DataFrame索引不对齐的致命错误。
+                     修改逻辑为在完整的Series上进行布尔比较，然后使用 .fillna(False)
+                     处理计算过程中产生的NaN，确保索引的绝对对齐，从而修复了
+                     'Unalignable boolean Series' 的问题。
         """
-        print(f"  -> [V2.36 API契约修正] 正在识别和量化矩形平台...")
+        print(f"  -> [V2.37 索引对齐] 正在识别和量化矩形平台...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
@@ -240,19 +240,14 @@ class GeometricPatternService:
             return
         print("  -> [计算成功] ADX 指标已生成。")
         print("  -> [探针式计算] 正在尝试计算 BBands...")
-        # [代码修改] V2.36 修正对 pandas_ta API 的使用方式
-        bbands_results = ta.bbands(close=df_copy['close_qfq'], length=20, std=2.0, append=False)
-        if bbands_results is not None and not bbands_results.empty:
-            df_copy = df_copy.join(bbands_results)
-        # 定义布林带指标的标准列名
         bbu_col = 'BBU_20_2.0'
         bbl_col = 'BBL_20_2.0'
         bbm_col = 'BBM_20_2.0'
-        bbw_col = 'BBW_20_2.0' # 这是我们最终需要的列
-        # 检查核心布林带指标是否已成功生成
+        bbw_col = 'BBW_20_2.0'
+        bbands_results = ta.bbands(close=df_copy['close_qfq'], length=20, std=2.0, append=False)
+        if bbands_results is not None and not bbands_results.empty:
+            df_copy = df_copy.join(bbands_results)
         if all(col in df_copy.columns for col in [bbu_col, bbl_col, bbm_col]):
-            # 手动计算布林带宽度 (BBW)，因为库不直接提供此列
-            # 公式: (上轨 - 下轨) / 中轨
             df_copy[bbw_col] = (df_copy[bbu_col] - df_copy[bbl_col]) / df_copy[bbm_col]
             print("  -> [计算成功] BBands 指标已生成，并手动计算了 BBW。")
         else:
@@ -264,9 +259,13 @@ class GeometricPatternService:
         is_low_volatility = df_copy[bbw_col] < bbw_rolling_quantile
         df_copy['is_potential_platform'] = (is_low_trend | is_low_volatility).astype(int)
         df_copy['platform_potential_score'] = df_copy['is_potential_platform'].rolling(window=potential_window, min_periods=potential_window//2).mean()
-        score = df_copy['platform_potential_score'].dropna()
-        entering_platform = (score > potential_threshold) & (score.shift(1) <= potential_threshold)
-        exiting_platform = (score < potential_threshold) & (score.shift(1) >= potential_threshold)
+        # [代码修改] V2.37 修复索引不对齐的BUG
+        score_series = df_copy['platform_potential_score']
+        entering_platform = (score_series > potential_threshold) & (score_series.shift(1) <= potential_threshold)
+        exiting_platform = (score_series < potential_threshold) & (score_series.shift(1) >= potential_threshold)
+        # [代码新增] V2.37 关键修复：将NaN填充为False以保证索引器有效且对齐
+        entering_platform = entering_platform.fillna(False)
+        exiting_platform = exiting_platform.fillna(False)
         platform_start_dates = df_copy[entering_platform].index
         platform_end_dates = df_copy[exiting_platform].index
         platforms_to_save = []
@@ -322,9 +321,9 @@ class GeometricPatternService:
                 }
                 platforms_to_save.append(platform_data)
         found_count = len(platforms_to_save)
-        print(f"  -> [V2.36 API契约修正] 发现 {found_count} 个有效平台。")
+        print(f"  -> [V2.37 索引对齐] 发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.36 API契约修正] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.37 索引对齐] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
