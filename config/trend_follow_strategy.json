@@ -998,7 +998,7 @@
       },
       "geometric_pattern_params": {
         "enabled": true,
-        "description": "【V2.0 · 博弈深化】几何形态引擎，融合了量价、波动率和相对强度的博弈规则。",
+        "description": "【V2.1 · 实战校准版】几何形态引擎，融合了量价、波动率和相对强度的博弈规则。",
         "platform_recognition": {
           "description": "【多尺度平台识别准则】定义多种平台原型及其识别参数。",
           "archetypes": [
@@ -1013,10 +1013,10 @@
               "bbw_quantile": 0.25,
               "potential_threshold": 0.6,
               "potential_window": 10,
-              "//--- V2.0 博弈深化规则 ---": "",
-              "volume_profile_skewness": {"min": 0.1, "max": 2.0},
-              "volume_trend_slope": {"min": -999, "max": -0.1},
-              "volatility_contraction_ratio": {"min": 0, "max": 0.8},
+              "//--- V2.1 博弈规则实战校准 ---": "",
+              "volume_profile_skewness": {"min": -0.1, "max": 2.0},
+              "volume_trend_slope": {"min": -999, "max": 0.05},
+              "volatility_contraction_ratio": {"min": 0, "max": 1.1},
               "relative_strength_slope": {"min": 0.0, "max": 999}
             },
             {
@@ -1030,9 +1030,9 @@
               "bbw_quantile": 0.30,
               "potential_threshold": 0.5,
               "potential_window": 20,
-              "//--- V2.0 博弈深化规则 ---": "",
-              "volume_profile_skewness": {"min": 0.2, "max": 2.5},
-              "volume_trend_slope": {"min": -999, "max": -0.05},
+              "//--- V2.1 博弈规则实战校准 ---": "",
+              "volume_profile_skewness": {"min": -0.2, "max": 2.5},
+              "volume_trend_slope": {"min": -999, "max": 0.1},
               "price_kurtosis": {"min": 3.5, "max": 999},
               "relative_strength_slope": {"min": -0.05, "max": 999}
             }

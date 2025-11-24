@@ -220,13 +220,12 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict):
         """
-        【V2.46 · 博弈规则适配版】识别、量化并存储矩形平台。
-        - 核心升级: 全面适配V2.0博弈深化规则。在第二阶段验证中，为每个候选平台
-                     计算成交量偏度、波动率收缩率、相对强度斜率等高级博弈指标，
-                     并与原型配置中的动态要求进行匹配，实现从“几何”到“博弈”的
-                     识别逻辑升维。
+        【V2.47 · 规则校准与代码加固版】识别、量化并存储矩形平台。
+        - 核心升级: 1. 全面适配V2.1实战校准后的博弈规则。
+                     2. 修复了相对强度斜率(RSSlope)计算中因数据缺失而误判为0的BUG，
+                        移除了过于严格的.all()检查，增强了代码的鲁棒性。
         """
-        print(f"  -> [V2.46 博弈规则适配] 启动...")
+        print(f"  -> [V2.47 规则校准与代码加固] 启动...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
@@ -234,7 +233,6 @@ class GeometricPatternService:
             print("  -> [配置缺失] 在配置文件中未找到平台原型定义，跳过平台识别。")
             return
         df_copy = enriched_df.copy()
-        # [代码修改] V2.46 预计算博弈指标所需的基础数据 (ATR, RS)
         df_copy.ta.atr(length=14, append=True)
         index_df = data_dfs.get('index_df')
         if index_df is not None and not index_df.empty:
@@ -310,16 +308,15 @@ class GeometricPatternService:
             if platform_low == 0: continue
             price_range_pct = (platform_high - platform_low) / platform_low
             print(f"\n  -> [验证探针] 候选平台: {start_date.date()} -> {end_date.date()} (持续 {len(group)} 天, 振幅 {price_range_pct:.2%})")
-            # [代码修改] V2.46 计算所有博弈指标
             vps = self._calculate_volume_profile_skewness(group)
             vts = self._calculate_linear_regression_slope(group['vol'])
             vcr = self._calculate_volatility_contraction_ratio(group)
             pk = self._calculate_price_kurtosis(group)
-            rss = self._calculate_linear_regression_slope(group['rs']) if 'rs' in group and group['rs'].notna().all() else 0.0
+            # [代码修改] V2.47 修复RSSlope计算的脆弱性，移除.all()检查
+            rss = self._calculate_linear_regression_slope(group['rs']) if 'rs' in group else 0.0
             print(f"     - [博弈指标] VPSkew: {vps:.2f}, VolSlope: {vts:.2f}, VolatilityContract: {vcr:.2f}, PriceKurtosis: {pk:.2f}, RSSlope: {rss:.3f}")
             for archetype in self.platform_archetypes:
                 archetype_name = archetype.get('name', 'UNKNOWN')
-                # [代码修改] V2.46 获取所有几何与博弈规则
                 min_duration = archetype.get('min_duration', 0)
                 max_range_pct = archetype.get('max_range_pct', 1.0)
                 vps_rules = archetype.get('volume_profile_skewness', {})
@@ -328,7 +325,6 @@ class GeometricPatternService:
                 pk_rules = archetype.get('price_kurtosis', {})
                 rss_rules = archetype.get('relative_strength_slope', {})
                 print(f"     - 尝试匹配原型 [{archetype_name}] (要求: 时长>={min_duration}, 振幅<={max_range_pct:.2%}, VPSkew:{vps_rules}, VolSlope:{vts_rules}, VolContract:{vcr_rules}, PriceKurtosis:{pk_rules}, RSSlope:{rss_rules})")
-                # [代码修改] V2.46 构建全参数验证逻辑
                 checks = {
                     'duration': len(group) >= min_duration,
                     'range_pct': price_range_pct <= max_range_pct,
@@ -383,9 +379,9 @@ class GeometricPatternService:
                     failed_checks = [k for k, v in checks.items() if not v]
                     print(f"     - [REJECTED] 未能匹配。失败的规则: {failed_checks}")
         found_count = len(platforms_to_save)
-        print(f"\n  -> [V2.46 博弈规则适配] 扫描完成，共发现 {found_count} 个有效平台。")
+        print(f"\n  -> [V2.47 规则校准与代码加固] 扫描完成，共发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.46 博弈规则适配] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.47 规则校准与代码加固] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
@@ -673,32 +669,19 @@ class GeometricPatternService:
         【V2.6 · 自定义Zigzag引擎集成版】为指定的一天，计算出所有斐波那契周期的支撑和阻力线矩阵。
         - V2.6 升级: 废弃不稳定的 pandas_ta.zigzag，改为调用内部实现的 `_calculate_zigzag` 方法。
         """
-        is_last_day_debug = (current_date == df_daily.index.max())
-        if is_last_day_debug:
-            print(f"\n--- [探针模式启动] 正在详细检查日期: {current_date.date()} ---")
         matrix_records = []
         for period in self.fib_periods:
             lookback_days = period * 3
             start_date = current_date - pd.Timedelta(days=lookback_days)
             df_slice = df_daily[(df_daily.index >= start_date) & (df_daily.index <= current_date)].copy()
             if len(df_slice) < period:
-                if is_last_day_debug:
-                    print(f"  -> [周期 {period}] 数据不足 ({len(df_slice)}天)，跳过。")
                 continue
-            if is_last_day_debug:
-                print(f"\n  -> [周期 {period}] 数据切片长度: {len(df_slice)} (回溯自 {df_slice.index.min().date()}) | 使用自定义Zigzag引擎(threshold=0.05)")
             zigzag_series = self._calculate_zigzag(df_slice, threshold=0.05)
             df_slice['zigzag'] = zigzag_series
             df_slice['zigzag'] = df_slice['zigzag'].fillna(0)
-            if is_last_day_debug:
-                print(f"    [探针] Zigzag计算结果 (最近10条):")
-                print(df_slice[['high_qfq', 'low_qfq', 'zigzag']].tail(10).to_string())
             df_slice['time_idx'] = np.arange(len(df_slice))
             pivot_highs = df_slice[df_slice['zigzag'] == 1]
             pivot_lows = df_slice[df_slice['zigzag'] == -1]
-            if is_last_day_debug:
-                print(f"    [探针] 识别出的高点锚点(pivot_highs)数量: {len(pivot_highs)}")
-                print(f"    [探针] 识别出的低点锚点(pivot_lows)数量: {len(pivot_lows)}")
             best_support = self._find_best_line_with_micro_validation(pivot_lows, 'low_qfq', df_slice, 'support', data_dfs)
             best_resistance = self._find_best_line_with_micro_validation(pivot_highs, 'high_qfq', df_slice, 'resistance', data_dfs)
             for line_data in [best_support, best_resistance]:
@@ -712,10 +695,6 @@ class GeometricPatternService:
                         'intercept': line_data['intercept'],
                         'validity_score': line_data['validity_score'],
                     })
-        if is_last_day_debug:
-            print(f"--- [探針模式結束] 日期 {current_date.date()} 共生成 {len(matrix_records)} 條有效趨勢線 ---\n")
-        # else:
-        #     print(f"    -> [趋势线矩阵引擎] 为 {current_date.date()} 生成了 {len(matrix_records)} 条有效趋势线。")
         return matrix_records
 
     def _find_best_line_with_micro_validation(self, pivots: pd.DataFrame, price_col: str, full_df: pd.DataFrame, line_type: str, data_dfs: dict):
