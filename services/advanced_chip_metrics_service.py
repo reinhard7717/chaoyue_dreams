@@ -225,12 +225,23 @@ class AdvancedChipMetricsService:
             else:
                 enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
             context_for_calc['intraday_data'] = enhanced_intraday_data
-            # [代码修改] 确保level5数据被正确且唯一地注入，并移除后续的覆盖操作
+            # [代码修改] 核心修复：在注入上下文前，将level5数据的列名重命名为计算器所需的格式
             if level5_data_map and date_obj in level5_data_map:
-                context_for_calc['realtime_data'] = level5_data_map[date_obj]
+                level5_df_original = level5_data_map[date_obj]
+                if not level5_df_original.empty:
+                    level5_df_renamed = level5_df_original.copy()
+                    column_rename_map = {
+                        **{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)},
+                        **{f'buy_volume{i}': f'b{i}_v' for i in range(1, 6)},
+                        **{f'sell_price{i}': f'a{i}_p' for i in range(1, 6)},
+                        **{f'sell_volume{i}': f'a{i}_v' for i in range(1, 6)},
+                    }
+                    level5_df_renamed.rename(columns=column_rename_map, inplace=True)
+                    context_for_calc['realtime_data'] = level5_df_renamed
+                else:
+                    context_for_calc['realtime_data'] = pd.DataFrame()
             else:
                 context_for_calc['realtime_data'] = pd.DataFrame()
-            # [代码修改] 移除冗余的实例化，只保留一次
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
             if daily_metrics:

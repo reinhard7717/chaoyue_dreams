@@ -191,55 +191,68 @@ class GeometricPatternService:
         self._save_trendline_events_incrementally(flag_events)
         print(f"[{self.stock_code}] [动态演化分析] 几何形态特征计算完成。")
 
-    def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, potential_threshold: float = 0.7, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
+    def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, bbw_quantile: float = 0.25, potential_threshold: float = 0.6, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
         """
-        【V2.21 · 状态机识别版】识别、量化并存储矩形平台。
-        - V2.21 核心升级: 彻底废弃基于每日ADX的“一票否决”式识别逻辑。
-                         引入基于滚动窗口的“状态机”模型。通过计算“平台潜力分”
-                         (滚动窗口内低ADX日的占比)，并识别分数的阈值穿越来定义
-                         平台的开始与结束，极大提升了对“噪音日”的容忍度和识别鲁棒性。
+        【V2.22 · 双维共振状态机版】识别、量化并存储矩形平台。
+        - V2.22 核心升级: 引入布林带宽度(BBW)作为第二个核心判断维度，与ADX形成“趋势+波动”双重证据链。
+                         平台潜力日由“低趋势(ADX)”或“低波动(BBW)”共同决定，从根本上解决了
+                         单一指标的视角局限，能够更精确地捕捉能量收敛的平台形态。
+        - V2.22 调试增强: 加入详细的中间步骤打印，用于追踪和分析识别过程。
         """
-        print(f"  -> [V2.21 状态机平台引擎] 正在识别和量化矩形平台...")
-        if len(enriched_df) < potential_window + 14: # 确保有足够数据计算ADX和滚动潜力分
-            print("  -> 数据量不足，跳过平台识别。")
+        print(f"  -> [V2.22 双维共振状态机] 正在识别和量化矩形平台...")
+        if len(enriched_df) < 120: # 确保有足够数据计算历史分位数
+            print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
         df_copy = enriched_df.copy()
-        # 1. 计算ADX，并适当放宽阈值以捕捉更多潜在的无趋势日
+        # 1. 计算双重证据：ADX用于趋势判断，BBW用于波动判断
         df_copy.ta.adx(length=14, append=True)
-        if 'ADX_14' not in df_copy.columns:
-            print("  -> ADX指标计算失败，跳过平台识别。")
+        df_copy.ta.bbands(length=20, append=True) # BBANDS会同时生成BBW
+        if 'ADX_14' not in df_copy.columns or 'BBW_20_2.0' not in df_copy.columns:
+            print("  -> 核心指标(ADX或BBW)计算失败，跳过平台识别。")
             return
-        df_copy['is_low_trend'] = (df_copy['ADX_14'] < adx_threshold).astype(int)
-        # 2. 计算“平台潜力分”
-        df_copy['platform_potential_score'] = df_copy['is_low_trend'].rolling(window=potential_window, min_periods=potential_window//2).mean()
-        # 3. 识别状态转换点
-        score = df_copy['platform_potential_score']
-        # 进入平台状态：潜力分上穿阈值
+        # 2. 定义“低趋势”和“低波动”状态
+        is_low_trend = df_copy['ADX_14'] < adx_threshold
+        # 低波动定义为：当前BBW小于过去半年(120天)的25%分位数
+        bbw_rolling_quantile = df_copy['BBW_20_2.0'].rolling(120, min_periods=60).quantile(bbw_quantile)
+        is_low_volatility = df_copy['BBW_20_2.0'] < bbw_rolling_quantile
+        # 3. 融合双重证据：满足任一条件即为“潜力日”
+        df_copy['is_potential_platform'] = (is_low_trend | is_low_volatility).astype(int)
+        # 4. 将融合后的潜力输入状态机
+        df_copy['platform_potential_score'] = df_copy['is_potential_platform'].rolling(window=potential_window, min_periods=potential_window//2).mean()
+        # --- 调试信息打印 ---
+        print("    [调试信息] ADX_14 统计:")
+        print(df_copy['ADX_14'].describe().to_string())
+        print("\n    [调试信息] BBW_20_2.0 统计:")
+        print(df_copy['BBW_20_2.0'].describe().to_string())
+        print(f"\n    [调试信息] 低趋势天数: {is_low_trend.sum()} / {len(df_copy)}")
+        print(f"    [调试信息] 低波动天数: {is_low_volatility.sum()} / {len(df_copy)}")
+        print(f"    [调试信息] 融合后潜力天数: {df_copy['is_potential_platform'].sum()} / {len(df_copy)}")
+        print("\n    [调试信息] 平台潜力分(platform_potential_score)统计:")
+        print(df_copy['platform_potential_score'].describe().to_string())
+        # --- 状态机逻辑 ---
+        score = df_copy['platform_potential_score'].dropna()
         entering_platform = (score > potential_threshold) & (score.shift(1) <= potential_threshold)
-        # 退出平台状态：潜力分下穿阈值
         exiting_platform = (score < potential_threshold) & (score.shift(1) >= potential_threshold)
+        print(f"\n    [调试信息] 发现 {entering_platform.sum()} 个平台进入点，{exiting_platform.sum()} 个平台退出点。")
         platform_start_dates = df_copy[entering_platform].index
         platform_end_dates = df_copy[exiting_platform].index
         platforms_to_save = []
         minute_map = data_dfs.get("stock_minute_data_map", {})
         tick_map = data_dfs.get("stock_tick_data_map", {})
         realtime_map = data_dfs.get("stock_realtime_data_map", {})
-        # 4. 匹配开始和结束点，构建平台区间
         for start_date in platform_start_dates:
-            # 寻找在start_date之后的第一个结束点
             possible_end_dates = platform_end_dates[platform_end_dates > start_date]
             if not possible_end_dates.empty:
                 end_date = possible_end_dates[0]
                 group = df_copy.loc[start_date:end_date]
-                # 5. 对识别出的完整平台进行整体性校验
                 if len(group) < min_duration: continue
                 platform_high = group['high_qfq'].max()
                 platform_low = group['low_qfq'].min()
                 if platform_low == 0: continue
                 price_range_pct = (platform_high - platform_low) / platform_low
                 if price_range_pct > max_range_pct: continue
-                # 6. 通过校验后，进行多维情报审问和数据融合
-                character, score = self._assess_platform_character(group)
+                character, score_val = self._assess_platform_character(group)
+                # ... [后续数据融合与保存逻辑不变] ...
                 platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
                 precise_vpoc = None
                 if platform_minutes_dfs:
@@ -271,15 +284,15 @@ class GeometricPatternService:
                     'stock': self.stock_instance, 'start_date': start_date.date(), 'end_date': end_date.date(),
                     'duration': len(group), 'high': platform_high, 'low': platform_low,
                     'vpoc': np.average(group['close_qfq'], weights=group['vol']),
-                    'total_volume': group['vol'].sum() * 100, 'quality_score': (score + 100) / 200,
+                    'total_volume': group['vol'].sum() * 100, 'quality_score': (score_val + 100) / 200,
                     'precise_vpoc': precise_vpoc, 'internal_accumulation_intensity': internal_accumulation_intensity,
-                    'breakout_quality_score': breakout_quality_score, 'platform_character': character, 'character_score': score,
+                    'breakout_quality_score': breakout_quality_score, 'platform_character': character, 'character_score': score_val,
                 }
                 platforms_to_save.append(platform_data)
         found_count = len(platforms_to_save)
-        print(f"  -> [V2.21 状态机平台引擎] 发现 {found_count} 个有效平台。")
+        print(f"  -> [V2.22 双维共振状态机] 发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.21 状态机平台引擎] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.22 双维共振状态机] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
