@@ -820,6 +820,7 @@ class BasePlatformFeature(models.Model):
     character_score = models.FloatField(verbose_name='平台性质分(-100~100)', null=True, blank=True, help_text='综合筹码、资金、结构证据的量化评分')
     platform_archetype = models.CharField(max_length=50, verbose_name='平台原型', null=True, blank=True, help_text='识别出此平台的原型名称')
     breakout_readiness_score = models.FloatField(verbose_name='突破准备度分(0-100)', null=True, blank=True, help_text='平台结束时，衡量其即将突破可能性的综合评分')
+    goodness_of_fit_score = models.FloatField(verbose_name='拟合优度分(0-100)', null=True, blank=True, help_text='平台与最佳匹配原型之间的相似度得分')
     class Meta:
         abstract = True
         ordering = ['-start_date']

@@ -220,13 +220,13 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict):
         """
-        【V2.49 · 数据净化版】识别、量化并存储矩形平台。
-        - 核心升级: 1. 新增调用 `_calculate_breakout_readiness` 方法，为每日数据计算“突破准备度”评分。
-                     2. 在数据存入数据库前，增加了一个最终的“净化”步骤，将所有 `nan` 值转换为 `None`，
-                        以确保与MySQL数据库的兼容性，彻底解决 `nan can not be used` 错误。
+        【V2.50 · 拟合优度版】识别、量化并存储矩形平台。
+        - 核心升级: 1. 引入 `_calculate_goodness_of_fit` 评分机制，取代了原有的“硬边界”匹配逻辑。
+                     2. 系统不再寻找“完美匹配”，而是为每个候选平台计算与所有原型的拟合分数，并选择“最佳匹配”。
+                     3. 将最佳拟合分数 `goodness_of_fit_score` 存入数据库，为后续策略提供更丰富的决策依据。
         """
-        import math # 导入math库用于nan值检查
-        print(f"  -> [V2.49 数据净化] 启动...")
+        import math
+        print(f"  -> [V2.50 拟合优度] 启动...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
@@ -261,7 +261,7 @@ class GeometricPatternService:
         if bbands_results is not None and not bbands_results.empty:
             df_copy = df_copy.join(bbands_results)
         if all(col in df_copy.columns for col in [bbu_col, bbl_col, bbm_col]):
-            df_copy[bbw_col] = (df_copy[bbu_col] - df_copy[bbl_col]) / df_copy[bbm_col]
+            df_copy[bbw_col] = (df_copy[bbu_col] - df_copy[bbm_col]) / df_copy[bbm_col]
         else:
             print(f"  -> [计算失败] 布林带基础指标未能生成。任务终止。")
             return
@@ -310,85 +310,84 @@ class GeometricPatternService:
             if platform_low == 0: continue
             price_range_pct = (platform_high - platform_low) / platform_low
             print(f"\n  -> [验证探针] 候选平台: {start_date.date()} -> {end_date.date()} (持续 {len(group)} 天, 振幅 {price_range_pct:.2%})")
-            vps = self._calculate_volume_profile_skewness(group)
-            vts = self._calculate_linear_regression_slope(group['vol'])
-            vcr = self._calculate_volatility_contraction_ratio(group)
-            pk = self._calculate_price_kurtosis(group)
-            rss = self._calculate_linear_regression_slope(group['rs']) if 'rs' in group else 0.0
-            print(f"     - [博弈指标] VPSkew: {vps:.2f}, VolSlope: {vts:.2f}, VolatilityContract: {vcr:.2f}, PriceKurtosis: {pk:.2f}, RSSlope: {rss:.3f}")
+            metrics = {
+                'vps': self._calculate_volume_profile_skewness(group),
+                'vts': self._calculate_linear_regression_slope(group['vol']),
+                'vcr': self._calculate_volatility_contraction_ratio(group),
+                'pk': self._calculate_price_kurtosis(group),
+                'rss': self._calculate_linear_regression_slope(group['rs']) if 'rs' in group else 0.0
+            }
+            print(f"     - [博弈指标] VPSkew: {metrics['vps']:.2f}, VolSlope: {metrics['vts']:.2f}, VolatilityContract: {metrics['vcr']:.2f}, PriceKurtosis: {metrics['pk']:.2f}, RSSlope: {metrics['rss']:.3f}")
+            # [代码修改] V2.50 引入“选优”逻辑
+            best_archetype = None
+            best_fit_score = -1.0
+            print("     - [拟合度评估] 开始计算与所有原型的拟合优度...")
             for archetype in self.platform_archetypes:
                 archetype_name = archetype.get('name', 'UNKNOWN')
                 min_duration = archetype.get('min_duration', 0)
                 max_range_pct = archetype.get('max_range_pct', 1.0)
-                vps_rules = archetype.get('volume_profile_skewness', {})
-                vts_rules = archetype.get('volume_trend_slope', {})
-                vcr_rules = archetype.get('volatility_contraction_ratio', {})
-                pk_rules = archetype.get('price_kurtosis', {})
-                rss_rules = archetype.get('relative_strength_slope', {})
-                print(f"     - 尝试匹配原型 [{archetype_name}] (要求: 时长>={min_duration}, 振幅<={max_range_pct:.2%}, VPSkew:{vps_rules}, VolSlope:{vts_rules}, VolContract:{vcr_rules}, PriceKurtosis:{pk_rules}, RSSlope:{rss_rules})")
-                checks = {
-                    'duration': len(group) >= min_duration,
-                    'range_pct': price_range_pct <= max_range_pct,
-                    'vps': vps_rules.get('min', -np.inf) <= vps <= vps_rules.get('max', np.inf),
-                    'vts': vts_rules.get('min', -np.inf) <= vts <= vts_rules.get('max', np.inf),
-                    'vcr': vcr_rules.get('min', -np.inf) <= vcr <= vcr_rules.get('max', np.inf),
-                    'pk': pk_rules.get('min', -np.inf) <= pk <= pk_rules.get('max', np.inf),
-                    'rss': rss_rules.get('min', -np.inf) <= rss <= rss_rules.get('max', np.inf)
-                }
-                if all(checks.values()):
-                    print(f"     - [MATCHED & ACCEPTED] 成功匹配原型 [{archetype_name}]，将被量化。")
-                    character, score_val = self._assess_platform_character(group)
-                    platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
-                    precise_vpoc = None
-                    if platform_minutes_dfs:
-                        platform_minutes_df = pd.concat(platform_minutes_dfs)
-                        if not platform_minutes_df.empty and 'volume' in platform_minutes_df.columns and platform_minutes_df['volume'].sum() > 0:
-                            precise_vpoc = np.average(platform_minutes_df['close'], weights=platform_minutes_df['volume'])
-                    internal_ofi_sum, internal_total_amount = 0, 0
-                    for d in group.index:
-                        if d.date() in tick_map:
-                            ofi, amount = self._calculate_daily_ofi_from_ticks(tick_map[d.date()])
-                            internal_ofi_sum += ofi * df_copy.loc[d, 'close_qfq']
-                            internal_total_amount += amount
-                    internal_accumulation_intensity = (internal_ofi_sum / internal_total_amount) * 100 if internal_total_amount > 0 else 0.0
-                    breakout_quality_score = None
-                    next_trade_date = TradeCalendar.get_next_trade_date(end_date.date())
-                    if next_trade_date and pd.to_datetime(next_trade_date) in df_copy.index:
-                        breakout_day_close = df_copy.loc[pd.to_datetime(next_trade_date), 'close_qfq']
-                        if breakout_day_close > platform_high:
-                            ofi_score, momentum_score = 0.0, 0.0
-                            if next_trade_date in tick_map:
-                                ofi, _ = self._calculate_daily_ofi_from_ticks(tick_map[next_trade_date])
-                                breakout_vol = df_copy.loc[pd.to_datetime(next_trade_date), 'vol'] * 100
-                                if breakout_vol > 0: ofi_score = np.clip(ofi / breakout_vol, -1, 1)
-                            if next_trade_date in realtime_map:
-                                momentum_score = self._calculate_breakout_momentum_from_realtime(realtime_map[next_trade_date])
-                            breakout_quality_score = (ofi_score * 0.6) + (momentum_score * 0.4)
-                    breakout_readiness = group['breakout_readiness_score'].iloc[-1] if 'breakout_readiness_score' in group else None
-                    # [代码修改] V2.49 增加最终的nan值净化步骤，确保数据库兼容性
-                    if breakout_readiness is not None and math.isnan(breakout_readiness):
-                        breakout_readiness = None
-                    platform_data = {
-                        'stock': self.stock_instance, 'start_date': start_date.date(), 'end_date': end_date.date(),
-                        'duration': len(group), 'high': platform_high, 'low': platform_low,
-                        'vpoc': np.average(group['close_qfq'], weights=group['vol']),
-                        'total_volume': group['vol'].sum() * 100, 'quality_score': (score_val + 100) / 200,
-                        'precise_vpoc': precise_vpoc, 'internal_accumulation_intensity': internal_accumulation_intensity,
-                        'breakout_quality_score': breakout_quality_score,
-                        'breakout_readiness_score': breakout_readiness,
-                        'platform_character': character, 'character_score': score_val,
-                        'platform_archetype': archetype_name,
-                    }
-                    platforms_to_save.append(platform_data)
-                    saved_start_dates.add(start_date)
-                    break
+                # 基础几何形态作为硬性门槛
+                if len(group) >= min_duration and price_range_pct <= max_range_pct:
+                    fit_score = self._calculate_goodness_of_fit(metrics, archetype)
+                    print(f"       - 与原型 [{archetype_name}] 的拟合度: {fit_score:.2f}")
+                    if fit_score > best_fit_score:
+                        best_fit_score = fit_score
+                        best_archetype = archetype
                 else:
-                    failed_checks = [k for k, v in checks.items() if not v]
-                    print(f"     - [REJECTED] 未能匹配。失败的规则: {failed_checks}")
+                    print(f"       - 与原型 [{archetype_name}] 的几何门槛不符，跳过。")
+            if best_archetype:
+                archetype_name = best_archetype.get('name', 'UNKNOWN')
+                print(f"     - [BEST FIT & ACCEPTED] 最佳匹配原型为 [{archetype_name}] (拟合度: {best_fit_score:.2f})，将被量化。")
+                character, score_val = self._assess_platform_character(group)
+                platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
+                precise_vpoc = None
+                if platform_minutes_dfs:
+                    platform_minutes_df = pd.concat(platform_minutes_dfs)
+                    if not platform_minutes_df.empty and 'volume' in platform_minutes_df.columns and platform_minutes_df['volume'].sum() > 0:
+                        precise_vpoc = np.average(platform_minutes_df['close'], weights=platform_minutes_df['volume'])
+                internal_ofi_sum, internal_total_amount = 0, 0
+                for d in group.index:
+                    if d.date() in tick_map:
+                        ofi, amount = self._calculate_daily_ofi_from_ticks(tick_map[d.date()])
+                        internal_ofi_sum += ofi * df_copy.loc[d, 'close_qfq']
+                        internal_total_amount += amount
+                internal_accumulation_intensity = (internal_ofi_sum / internal_total_amount) * 100 if internal_total_amount > 0 else 0.0
+                breakout_quality_score = None
+                next_trade_date = TradeCalendar.get_next_trade_date(end_date.date())
+                if next_trade_date and pd.to_datetime(next_trade_date) in df_copy.index:
+                    breakout_day_close = df_copy.loc[pd.to_datetime(next_trade_date), 'close_qfq']
+                    if breakout_day_close > platform_high:
+                        ofi_score, momentum_score = 0.0, 0.0
+                        if next_trade_date in tick_map:
+                            ofi, _ = self._calculate_daily_ofi_from_ticks(tick_map[next_trade_date])
+                            breakout_vol = df_copy.loc[pd.to_datetime(next_trade_date), 'vol'] * 100
+                            if breakout_vol > 0: ofi_score = np.clip(ofi / breakout_vol, -1, 1)
+                        if next_trade_date in realtime_map:
+                            momentum_score = self._calculate_breakout_momentum_from_realtime(realtime_map[next_trade_date])
+                        breakout_quality_score = (ofi_score * 0.6) + (momentum_score * 0.4)
+                breakout_readiness = group['breakout_readiness_score'].iloc[-1] if 'breakout_readiness_score' in group else None
+                if breakout_readiness is not None and math.isnan(breakout_readiness):
+                    breakout_readiness = None
+                platform_data = {
+                    'stock': self.stock_instance, 'start_date': start_date.date(), 'end_date': end_date.date(),
+                    'duration': len(group), 'high': platform_high, 'low': platform_low,
+                    'vpoc': np.average(group['close_qfq'], weights=group['vol']),
+                    'total_volume': group['vol'].sum() * 100, 'quality_score': (score_val + 100) / 200,
+                    'precise_vpoc': precise_vpoc, 'internal_accumulation_intensity': internal_accumulation_intensity,
+                    'breakout_quality_score': breakout_quality_score,
+                    'breakout_readiness_score': breakout_readiness,
+                    'platform_character': character, 'character_score': score_val,
+                    'platform_archetype': archetype_name,
+                    'goodness_of_fit_score': best_fit_score, # [代码修改] V2.50 新增拟合优度分
+                }
+                platforms_to_save.append(platform_data)
+                saved_start_dates.add(start_date)
+            else:
+                print(f"     - [REJECTED] 未找到任何在几何门槛内且有意义的匹配原型。")
         found_count = len(platforms_to_save)
-        print(f"\n  -> [V2.49 数据净化] 扫描完成，共发现 {found_count} 个有效平台。")
+        print(f"\n  -> [V2.50 拟合优度] 扫描完成，共发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.49 数据净化] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.50 拟合优度] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
@@ -1201,4 +1200,37 @@ class GeometricPatternService:
         clean_series = ratio_series.replace([np.inf, -np.inf], np.nan).dropna()
         if len(clean_series) < 4: return 3.0
         return clean_series.kurt()
+
+    def _calculate_goodness_of_fit(self, metrics: dict, archetype: dict) -> float:
+        """
+        【V2.50 新增】计算候选平台与指定原型的“拟合优度”分数。
+        - 核心思想: 对每一条规则，计算指标的满足度。完美满足得100分，
+                     在规则边界外则按偏离程度线性扣分，最多扣除100分（即最低0分）。
+                     总分是所有规则得分的平均值。
+        """
+        scores = []
+        rules_map = {
+            'vps': 'volume_profile_skewness',
+            'vts': 'volume_trend_slope',
+            'vcr': 'volatility_contraction_ratio',
+            'pk': 'price_kurtosis',
+            'rss': 'relative_strength_slope'
+        }
+        for metric_key, rule_key in rules_map.items():
+            if rule_key in archetype:
+                rules = archetype[rule_key]
+                min_val = rules.get('min', -np.inf)
+                max_val = rules.get('max', np.inf)
+                value = metrics.get(metric_key, (min_val + max_val) / 2) # 若指标不存在，取中性值
+                # 核心评分逻辑
+                if min_val <= value <= max_val:
+                    scores.append(100.0)
+                else:
+                    # 计算偏离度并进行惩罚
+                    target_range = max_val - min_val if np.isfinite(min_val) and np.isfinite(max_val) else abs(value * 2)
+                    if target_range == 0: target_range = 1 # 避免除零
+                    deviation = min(abs(value - min_val), abs(value - max_val))
+                    penalty = (deviation / target_range) * 100
+                    scores.append(max(0, 100 - penalty))
+        return np.mean(scores) if scores else 100.0
 
