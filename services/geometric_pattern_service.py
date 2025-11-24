@@ -434,58 +434,74 @@ class GeometricPatternService:
 
     def _find_best_line_with_micro_validation(self, pivots: pd.DataFrame, price_col: str, full_df: pd.DataFrame, line_type: str, data_dfs: dict):
         """
-        【V2.12 · 锚点剪枝版】通过启发式剪枝策略，从根本上解决组合爆炸导致的性能问题。
-        - V2.12 性能修复: 当候选锚点过多时，不再进行暴力组合。而是筛选出 "近期" + "极端"
-                         的锚点子集进行计算，将计算复杂度降低数个数量级，彻底解决卡死问题。
+        【V2.13 · 深度诊断探针版】植入高精度计时探针，测量内部各计算环节的耗时，定位最终瓶颈。
         """
+        import time # 导入time模块用于计时
         is_last_day_debug = (full_df.index.max() == data_dfs.get('daily_data').index.max())
         if is_last_day_debug:
             print(f"      [内部探针] 进入 _find_best_line... | 类型: {line_type}, 接收到锚点数: {len(pivots)}")
         if len(pivots) < 2: return None
-        # --- 以下是修改的代码块 ---
-        # 锚点剪枝策略，防止组合爆炸
-        MAX_PIVOTS_TO_COMBINE = 20 # 超过20个锚点就启动剪枝
+        MAX_PIVOTS_TO_COMBINE = 20
         NUM_RECENT_PIVOTS = 10
         NUM_EXTREME_PIVOTS = 10
         if len(pivots) > MAX_PIVOTS_TO_COMBINE:
             recent_pivots = pivots.tail(NUM_RECENT_PIVOTS)
             if line_type == 'support':
                 extreme_pivots = pivots.nsmallest(NUM_EXTREME_PIVOTS, price_col)
-            else: # resistance
+            else:
                 extreme_pivots = pivots.nlargest(NUM_EXTREME_PIVOTS, price_col)
-            # 合并最重要的锚点，并去重
             pivots_to_check = pd.concat([recent_pivots, extreme_pivots]).drop_duplicates()
             if is_last_day_debug:
                 print(f"        [剪枝策略启动] 锚点数从 {len(pivots)} 减少到 {len(pivots_to_check)}")
         else:
             pivots_to_check = pivots
-        # --- 修改结束 ---
         best_line_info = None
         max_final_score = -1
         tick_map = data_dfs.get("stock_tick_data_map", {})
-        # 修改代码行：在精简后的锚点集上进行组合
-        for p1_idx, p2_idx in combinations(pivots_to_check.index, 2):
+        
+        # --- 以下是新增的探针代码 ---
+        combinations_list = list(combinations(pivots_to_check.index, 2))
+        num_combinations = len(combinations_list)
+        print(f"        [探针] 将要执行 {num_combinations} 次组合计算...")
+        loop_count = 0
+        # --- 修改结束 ---
+
+        for p1_idx, p2_idx in combinations_list:
+            loop_count += 1
+            t_start_loop = time.time()
+
             p1 = pivots_to_check.loc[p1_idx]
             p2 = pivots_to_check.loc[p2_idx]
             if p1['time_idx'] == p2['time_idx']: continue
             m = (p2[price_col] - p1[price_col]) / (p2['time_idx'] - p1['time_idx'])
             c = p1[price_col] - m * p1['time_idx']
+            
+            # 探针 1: 检查额外触点计算耗时
+            t_start_touch = time.time()
             touch_points_indices = {p1_idx, p2_idx}
-            # 修改代码行：在精简后的锚点集上进行检查
             all_other_pivots = pivots_to_check.drop(index=[p1_idx, p2_idx])
             if not all_other_pivots.empty:
                 predicted_prices = m * all_other_pivots['time_idx'] + c
                 errors = np.abs(all_other_pivots[price_col] - predicted_prices) / all_other_pivots[price_col]
                 additional_touches = all_other_pivots[errors < 0.015].index
                 touch_points_indices.update(additional_touches)
+            t_end_touch = time.time()
+
             duration = (p2_idx - p1_idx).days
             duration_score = np.log1p(duration) / np.log1p(90)
             geometric_score = (np.log1p(len(touch_points_indices)) / np.log1p(10)) * 0.7 + duration_score * 0.3
+            
+            # 探针 2: 检查微观分数计算耗时
+            t_start_micro = time.time()
             micro_scores = []
             for touch_date in sorted(list(touch_points_indices)):
                 score = self._calculate_micro_conviction_score(touch_date, line_type, tick_map)
                 micro_scores.append(score)
             avg_micro_score = np.mean(micro_scores) if micro_scores else 0.0
+            t_end_micro = time.time()
+
+            # 探针 3: 检查动态分数计算耗时
+            t_start_dynamic = time.time()
             line_df = full_df[(full_df.index >= p1_idx) & (full_df.index <= p2_idx)].copy()
             line_df['line_price'] = m * line_df['time_idx'] + c
             fake_break_bonus = 0
@@ -494,22 +510,28 @@ class GeometricPatternService:
                 if not penetrations.empty:
                     fake_break_bonus = (penetrations['close_qfq'] > penetrations['line_price']).sum()
                 penetration_count = len(penetrations)
-            else: # resistance
+            else:
                 penetrations = line_df[line_df['high_qfq'] > line_df['line_price']]
                 if not penetrations.empty:
                     fake_break_bonus = (penetrations['close_qfq'] < penetrations['line_price']).sum()
                 penetration_count = len(penetrations)
             penetration_penalty = (penetration_count - fake_break_bonus) / len(line_df) if len(line_df) > 0 else 0
             dynamic_score = 1 - penetration_penalty
+            t_end_dynamic = time.time()
+
             final_score = (geometric_score * 0.3) + (avg_micro_score * 0.5) + (dynamic_score * 0.2)
             if final_score > max_final_score:
                 max_final_score = final_score
-                best_line_info = {
-                    'line_type': line_type,
-                    'slope': m,
-                    'intercept': c,
-                    'validity_score': final_score,
-                }
+                best_line_info = { 'line_type': line_type, 'slope': m, 'intercept': c, 'validity_score': final_score }
+            
+            t_end_loop = time.time()
+            # 只对最后一个日期，并且是长周期（锚点可能较多）的情况打印详细耗时
+            if is_last_day_debug and len(pivots) > 15:
+                print(f"        [探针 @ 循环 {loop_count}/{num_combinations}] 触点({len(touch_points_indices)})耗时: {(t_end_touch - t_start_touch)*1000:.2f}ms | "
+                      f"微观({len(micro_scores)})耗时: {(t_end_micro - t_start_micro)*1000:.2f}ms | "
+                      f"动态(len:{len(line_df)})耗时: {(t_end_dynamic - t_start_dynamic)*1000:.2f}ms | "
+                      f"总耗时: {(t_end_loop - t_start_loop)*1000:.2f}ms")
+
         if is_last_day_debug:
             print(f"      [内部探针] 退出 _find_best_line... | 类型: {line_type}, 最高得分为: {max_final_score:.4f}")
         return best_line_info
