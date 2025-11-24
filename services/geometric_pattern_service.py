@@ -221,8 +221,10 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, bbw_quantile: float = 0.25, potential_threshold: float = 0.6, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
         """
-        【V2.25 · 数据链路探针版】识别、量化并存储矩形平台。
-        - V2.25 调试升级: 植入E探针，验证最终进入计算模块的数据状态。
+        【V2.26 · 深度诊断探针版】识别、量化并存储矩形平台。
+        - V2.26 终极诊断: 之前的探针被 object-dtype 列的 `isnull()` 行为误导。
+                         此版本引入 `df.info()` 作为终极诊断工具，它能精确显示每列的
+                         真实数据类型(dtype)，从而在计算前彻底揭示问题的根源。
         """
         # --- [探针 E: 进入平台计算函数] ---
         if not enriched_df.empty:
@@ -230,22 +232,26 @@ class GeometricPatternService:
             print(f"--- [探针 E: 进入平台计算函数] 最新日期: {latest_day_final.name.date()} ---")
             print(f"  -> high_qfq: {latest_day_final.get('high_qfq')}, low_qfq: {latest_day_final.get('low_qfq')}, close_qfq: {latest_day_final.get('close_qfq')}")
             print(f"--- [探针 E 结束] ---")
-        print(f"  -> [V2.25 数据类型净化] 正在识别和量化矩形平台...")
+        print(f"  -> [V2.26 深度诊断] 正在识别和量化矩形平台...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
+        df_copy = enriched_df.copy()
         cols_to_convert = ['high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'vol']
         for col in cols_to_convert:
-            if col in enriched_df.columns:
-                enriched_df[col] = pd.to_numeric(enriched_df[col], errors='coerce')
-        print("    [探针] 检查输入 enriched_df 的状态...")
+            if col in df_copy.columns:
+                df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
+        # --- [代码新增] 深度诊断探针 ---
+        print("\n" + "="*30 + " [深度诊断探针: 计算前] " + "="*30)
+        print("打印 df_copy 的完整信息 (df.info)，以检查最终的 dtypes:")
+        df_copy.info(verbose=True, show_counts=True)
+        print("="*80 + "\n")
         required_cols = ['high_qfq', 'low_qfq', 'close_qfq']
-        if not all(col in enriched_df.columns for col in required_cols):
+        if not all(col in df_copy.columns for col in required_cols):
             print(f"\n  -> [诊断失败] 输入的DataFrame缺少核心计算列。需要: {required_cols}。任务终止。")
             return
         print("\n    [探针] 核心计算列的空值(NaN)数量:")
-        print(enriched_df[required_cols].isnull().sum().to_string())
-        df_copy = enriched_df.copy()
+        print(df_copy[required_cols].isnull().sum().to_string())
         print("\n  -> [探针式计算] 正在尝试计算 ADX...")
         df_copy.ta.adx(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True)
         if 'ADX_14' not in df_copy.columns:
@@ -321,9 +327,9 @@ class GeometricPatternService:
                 }
                 platforms_to_save.append(platform_data)
         found_count = len(platforms_to_save)
-        print(f"  -> [V2.25 数据类型净化] 发现 {found_count} 个有效平台。")
+        print(f"  -> [V2.26 深度诊断] 发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.25 数据类型净化] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.26 深度诊断] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
