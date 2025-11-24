@@ -434,10 +434,9 @@ class GeometricPatternService:
 
     def _find_best_line_with_micro_validation(self, pivots: pd.DataFrame, price_col: str, full_df: pd.DataFrame, line_type: str, data_dfs: dict):
         """
-        【V2.10 · 性能优化版】从候选锚点中，通过三维立体评分体系，找出最终的“主战线”。
-        - V2.10 性能修复: 移除了内部循环中极其缓慢的 `iterrows()` 调用，
-                         改为使用向量化的布尔索引和 .sum() 方法计算假突破，
-                         解决了因锚点组合跨度过大导致的计算性能雪崩问题。
+        【V2.11 · 终极性能版】从候选锚点中，通过三维立体评分体系，找出最终的“主战线”。
+        - V2.11 性能修复: 向量化了计算额外触及点的逻辑，移除了该函数中最后一个已知的
+                         iterrows() 性能瓶颈，彻底解决了计算卡死问题。
         """
         is_last_day_debug = (full_df.index.max() == data_dfs.get('daily_data').index.max())
         if is_last_day_debug:
@@ -452,12 +451,16 @@ class GeometricPatternService:
             if p1['time_idx'] == p2['time_idx']: continue
             m = (p2[price_col] - p1[price_col]) / (p2['time_idx'] - p1['time_idx'])
             c = p1[price_col] - m * p1['time_idx']
+            # --- 以下是修改的代码块 ---
             touch_points_indices = {p1_idx, p2_idx}
             all_other_pivots = pivots.drop(index=[p1_idx, p2_idx])
-            for idx, pivot in all_other_pivots.iterrows():
-                predicted_price = m * pivot['time_idx'] + c
-                if abs(pivot[price_col] - predicted_price) / pivot[price_col] < 0.015:
-                    touch_points_indices.add(idx)
+            # 使用向量化操作替代 for 循环来寻找额外的触及点
+            if not all_other_pivots.empty:
+                predicted_prices = m * all_other_pivots['time_idx'] + c
+                errors = np.abs(all_other_pivots[price_col] - predicted_prices) / all_other_pivots[price_col]
+                additional_touches = all_other_pivots[errors < 0.015].index
+                touch_points_indices.update(additional_touches)
+            # --- 修改结束 ---
             duration = (p2_idx - p1_idx).days
             duration_score = np.log1p(duration) / np.log1p(90)
             geometric_score = (np.log1p(len(touch_points_indices)) / np.log1p(10)) * 0.7 + duration_score * 0.3
@@ -466,28 +469,20 @@ class GeometricPatternService:
                 score = self._calculate_micro_conviction_score(touch_date, line_type, tick_map)
                 micro_scores.append(score)
             avg_micro_score = np.mean(micro_scores) if micro_scores else 0.0
-            line_df = full_df[(full_df.index >= p1_idx) & (full_df.index <= p2_idx)].copy() # 使用.copy()避免SettingWithCopyWarning
+            line_df = full_df[(full_df.index >= p1_idx) & (full_df.index <= p2_idx)].copy()
             line_df['line_price'] = m * line_df['time_idx'] + c
-            # --- 以下是修改的代码块 ---
             fake_break_bonus = 0
             if line_type == 'support':
-                # 找出所有价格低于支撑线的K线
                 penetrations = line_df[line_df['low_qfq'] < line_df['line_price']]
-                # 在这些K线中，向量化地计算收盘价又回到线上方的数量
                 if not penetrations.empty:
                     fake_break_bonus = (penetrations['close_qfq'] > penetrations['line_price']).sum()
                 penetration_count = len(penetrations)
             else: # resistance
-                # 找出所有价格高于阻力线的K线
                 penetrations = line_df[line_df['high_qfq'] > line_df['line_price']]
-                # 在这些K线中，向量化地计算收盘价又回到线下方的数量
                 if not penetrations.empty:
                     fake_break_bonus = (penetrations['close_qfq'] < penetrations['line_price']).sum()
                 penetration_count = len(penetrations)
-            
-            # 使用总穿透数进行惩罚计算
             penetration_penalty = (penetration_count - fake_break_bonus) / len(line_df) if len(line_df) > 0 else 0
-            # --- 修改结束 ---
             dynamic_score = 1 - penetration_penalty
             final_score = (geometric_score * 0.3) + (avg_micro_score * 0.5) + (dynamic_score * 0.2)
             if final_score > max_final_score:
