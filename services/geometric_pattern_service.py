@@ -163,8 +163,8 @@ class GeometricPatternService:
 
     def calculate_and_save_all_patterns(self, data_dfs: dict, start_date_str: str = None):
         """
-        【V2.17 · 回滚重算版】执行所有几何形态的计算和存储，并融合全维度高级指标。
-        - V2.17 升级: 新增 start_date_str 参数，以支持从指定日期开始的回滚重算。
+        【V2.19 · 多维情报增强版】执行所有几何形态的计算和存储，并融合全维度高级指标。
+        - V2.19 修正: 将信息增强后的 `enriched_df` 传递给平台计算函数，为其提供多维证据。
         """
         print(f"[{self.stock_code}] [动态演化分析] 开始计算几何形态特征...")
         df_daily = data_dfs.get('daily_data')
@@ -175,14 +175,13 @@ class GeometricPatternService:
         df_daily = df_daily.set_index('trade_time')
         df_daily.ta.atr(length=14, append=True, col_names=('ATR_14_D',))
         enriched_df = self._prepare_enriched_dataframe(df_daily)
-        # 1. 计算平台特征 (平台特征的增量逻辑较为复杂，暂保持update_or_create)
-        self._calculate_and_save_platforms(df_daily, data_dfs)
-        # 2. 计算趋势线矩阵并分析动态事件 (传入 start_date_str 以启动回滚逻辑)
-        # 修改代码行：将 start_date_str 参数传递下去
+        # 1. 计算平台特征 (传入信息增强的 enriched_df)
+        # 修改代码行：传入 enriched_df 而不是原始的 df_daily
+        self._calculate_and_save_platforms(enriched_df, data_dfs)
+        # 2. 计算趋势线矩阵并分析动态事件
         self._calculate_and_save_trendline_matrix_and_events(df_daily, data_dfs, start_date_str=start_date_str)
-        # 3. 识别并预测旗形 (旗形事件也需要回滚)
+        # 3. 识别并预测旗形
         flag_events = self._predict_flag_breakout_probability(enriched_df, data_dfs)
-        # 旗形事件也需要清理
         if start_date_str:
             self.event_model.objects.filter(
                 stock=self.stock_instance,
@@ -192,48 +191,38 @@ class GeometricPatternService:
         self._save_trendline_events_incrementally(flag_events)
         print(f"[{self.stock_code}] [动态演化分析] 几何形态特征计算完成。")
 
-    def _calculate_and_save_platforms(self, df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 20, min_duration: int = 10, max_range_pct: float = 0.25):
+    def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 20, min_duration: int = 10, max_range_pct: float = 0.25):
         """
-        【V2.18 · ADX状态识别版】识别、量化并存储矩形平台。
-        - V2.18 核心升级: 废弃原有的“低波动+窄振幅”双重过滤的机械性算法。
-                         改为引入ADX指标，先识别出市场处于“无趋势”的横盘状态区间，
-                         再对整个区间进行整体性评估，极大提升了平台识别的准确性和鲁棒性，
-                         更符合A股市场的真实博弈特征。
+        【V2.19 · 多维情报增强版】识别、量化并存储矩形平台。
+        - V2.19 核心升级: 在ADX识别出平台区间后，调用 `_assess_platform_character` 方法，
+                         利用筹码、资金、结构三大情报体系对平台性质进行深度审问和量化评分。
         """
-        print(f"  -> [V2.18 ADX状态识别引擎] 正在识别和量化矩形平台...")
-        if len(df) < 30: # ADX计算需要一定数据量
+        print(f"  -> [V2.19 多维情报平台引擎] 正在识别和量化矩形平台...")
+        if len(enriched_df) < 30:
             print("  -> 数据量不足，跳过平台识别。")
             return
-        df_copy = df.copy()
-        # 1. 计算ADX指标，ADX < 20 通常表示无明显趋势
+        df_copy = enriched_df.copy()
         df_copy.ta.adx(length=14, append=True)
-        # 检查ADX列是否存在
         if 'ADX_14' not in df_copy.columns:
             print("  -> ADX指标计算失败，跳过平台识别。")
             return
-        # 2. 识别所有处于“无趋势状态”的日子
         df_copy['is_in_consolidation'] = (df_copy['ADX_14'] < adx_threshold).astype(int)
-        # 3. 为每个连续的“无趋势状态”区间分配唯一ID
         df_copy['platform_id'] = (df_copy['is_in_consolidation'].diff() != 0).cumsum()
         platforms_to_save = []
         minute_map = data_dfs.get("stock_minute_data_map", {})
         tick_map = data_dfs.get("stock_tick_data_map", {})
         realtime_map = data_dfs.get("stock_realtime_data_map", {})
-        # 4. 遍历所有候选平台区间
         for platform_id, group in df_copy[df_copy['is_in_consolidation'] == 1].groupby('platform_id'):
-            # 5. 对整个区间进行整体性校验
-            # a. 校验持续时间
-            if len(group) < min_duration:
-                continue
-            # b. 校验整体振幅
+            if len(group) < min_duration: continue
             platform_high = group['high_qfq'].max()
             platform_low = group['low_qfq'].min()
             if platform_low == 0: continue
             price_range_pct = (platform_high - platform_low) / platform_low
-            if price_range_pct > max_range_pct:
-                continue
-            # 6. 通过校验后，进行微观数据融合与计算 (此部分逻辑不变)
+            if price_range_pct > max_range_pct: continue
+            # 新增代码块：对平台进行多维情报审问
+            character, score = self._assess_platform_character(group)
             start_date, end_date = group.index.min(), group.index.max()
+            # ... [原有的 precise_vpoc, internal_accumulation_intensity, breakout_quality_score 计算逻辑保持不变] ...
             platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
             precise_vpoc = None
             if platform_minutes_dfs:
@@ -272,14 +261,17 @@ class GeometricPatternService:
                 'low': platform_low,
                 'vpoc': np.average(group['close_qfq'], weights=group['vol']),
                 'total_volume': group['vol'].sum() * 100,
-                'quality_score': 0.5, # 此分数可后续优化
+                'quality_score': (score + 100) / 200, # 将-100~100映射到0~1
                 'precise_vpoc': precise_vpoc,
                 'internal_accumulation_intensity': internal_accumulation_intensity,
                 'breakout_quality_score': breakout_quality_score,
+                # 新增代码行：保存审问结果
+                'platform_character': character,
+                'character_score': score,
             }
             platforms_to_save.append(platform_data)
         if platforms_to_save:
-            print(f"  -> [V2.18 ADX状态识别引擎] 发现 {len(platforms_to_save)} 个有效平台，正在存入数据库...")
+            print(f"  -> [V2.19 多维情报平台引擎] 发现 {len(platforms_to_save)} 个有效平台，正在存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'],
@@ -512,6 +504,50 @@ class GeometricPatternService:
                         })
         print(f"    -> [战场AI参谋] 分析完毕，共发现 {len(final_events)} 个新的动态事件。")
         return final_events
+
+    def _assess_platform_character(self, platform_df: pd.DataFrame) -> (str, float):
+        """
+        【V2.19 新增】平台性质评估专家系统。
+        对给定的平台区间进行多维情报审问，返回其定性性质和定量评分。
+        """
+        scores = {}
+        # 1. 资金证据 (权重: 40%)
+        # 主力资金累计流向
+        mf_net_flow_sum = platform_df['main_force_net_flow_calibrated'].sum()
+        total_amount = platform_df['amount'].sum()
+        mf_flow_ratio = (mf_net_flow_sum * 10000) / total_amount if total_amount > 0 else 0
+        scores['fund_flow'] = np.clip(mf_flow_ratio / 5.0, -1, 1) * 25 # 占比超过5%视为极强
+        # 隐蔽吸筹强度
+        hidden_accum_mean = platform_df['hidden_accumulation_intensity'].mean()
+        scores['hidden_accum'] = np.clip(hidden_accum_mean / 20.0, 0, 1) * 15 # 平均强度20为满分
+        # 2. 筹码证据 (权重: 40%)
+        # 主峰稳固度变化趋势
+        solidity_trend = platform_df['dominant_peak_solidity'].diff().mean()
+        scores['chip_solidity'] = np.clip(solidity_trend * 100, -1, 1) * 15 # 每日增长0.01为满分
+        # 结构张力
+        tension_mean = platform_df['structural_tension_index'].mean()
+        scores['chip_tension'] = np.clip((tension_mean - 1) / 0.5, 0, 1) * 15 # 张力指数1.5为满分
+        # 获利盘稳定度
+        winner_stability_mean = platform_df['winner_stability_index'].mean()
+        scores['winner_stability'] = np.clip((winner_stability_mean - 0.8) / 0.2, 0, 1) * 10 # 稳定度0.8以上开始加分
+        # 3. 结构证据 (权重: 20%)
+        # 成交量爆裂度 (越低越好)
+        burstiness_mean = platform_df['volume_burstiness_index'].mean()
+        scores['structure_burst'] = (1 - np.clip(burstiness_mean / 2.0, 0, 1)) * 10 # 爆裂度超过2认为混乱
+        # 日内能量密度 (越低越好)
+        energy_mean = platform_df['intraday_energy_density'].mean()
+        scores['structure_energy'] = (1 - np.clip(energy_mean / 1.5, 0, 1)) * 10 # 能量密度超过1.5认为博弈激烈
+        # 计算最终得分
+        final_score = sum(scores.values())
+        # 根据得分定性
+        character = 'CONSOLIDATION'
+        if final_score > 40:
+            character = 'ACCUMULATION'
+        elif final_score < -30:
+            character = 'DISTRIBUTION'
+        elif -30 <= final_score < 0 and scores.get('structure_burst', 0) < 5: # 结构混乱，偏向洗盘
+            character = 'SHAKEOUT'
+        return character, round(final_score, 2)
 
     def _compute_trendline_matrix_for_day(self, current_date: pd.Timestamp, df_daily: pd.DataFrame, data_dfs: dict) -> list:
         """

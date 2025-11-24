@@ -770,11 +770,19 @@ class AdvancedStructuralMetrics_BJ(BaseAdvancedStructuralMetrics):
 # [修改代码块] 几何形态特征模型 - 平台
 class BasePlatformFeature(models.Model):
     """
-    【V2.0 · 微观博弈增强版】
+    【V2.19 · 多维情报增强版】
     - 核心职责: 持久化存储通过算法识别出的每一个矩形平台的核心量化特征。
     - 设计思想: 每个平台作为一个独立的实体记录，而非每日状态，便于进行结构性回溯和分析。
-    - V2.0 新增: 引入 `precise_vpoc`, `internal_accumulation_intensity`, `breakout_quality_score` 字段，利用分钟和Tick数据精炼平台质量评估。
+    - V2.19 新增: 引入 `platform_character` 和 `character_score` 字段，通过融合筹码、资金、结构
+                 三大情报体系，对平台的真实性质（吸筹/派发）进行深度评估和量化。
     """
+    # 新增代码行：定义平台性质的选项
+    CHARACTER_CHOICES = [
+        ('ACCUMULATION', '主力吸筹'),
+        ('DISTRIBUTION', '主力派发'),
+        ('CONSOLIDATION', '中性整理'),
+        ('SHAKEOUT', '震仓洗盘'),
+    ]
     stock = models.ForeignKey(
         'StockInfo',
         on_delete=models.CASCADE,
@@ -789,15 +797,17 @@ class BasePlatformFeature(models.Model):
     vpoc = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='平台成交量加权均价(VPOC-日线)')
     total_volume = models.BigIntegerField(verbose_name='平台期总成交量')
     quality_score = models.FloatField(verbose_name='平台质量分(0-1)', help_text='综合评估平台的吸筹/派发潜力')
-    # 新增代码行：V2.0 微观指标
     precise_vpoc = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='精确VPOC(分钟级)', null=True, blank=True)
     internal_accumulation_intensity = models.FloatField(verbose_name='内部吸筹强度', null=True, blank=True, help_text='平台期内Tick级净主动买入量占比')
     breakout_quality_score = models.FloatField(verbose_name='突破质量分', null=True, blank=True, help_text='突破日微观结构评估分')
+    # 新增代码块：V2.19 多维情报评估结果
+    platform_character = models.CharField(max_length=20, choices=CHARACTER_CHOICES, verbose_name='平台性质', null=True, blank=True)
+    character_score = models.FloatField(verbose_name='平台性质分(-100~100)', null=True, blank=True, help_text='综合筹码、资金、结构证据的量化评分')
     
     class Meta:
         abstract = True
         ordering = ['-start_date']
-        unique_together = ('stock', 'start_date') # 每个股票的平台由其起始日期唯一确定
+        unique_together = ('stock', 'start_date')
 
 class PlatformFeature_SH(BasePlatformFeature):
     class Meta(BasePlatformFeature.Meta):
