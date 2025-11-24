@@ -22,9 +22,9 @@ from utils.model_helpers import (
 @njit
 def _calculate_zigzag_numba(highs: np.ndarray, lows: np.ndarray, threshold: float = 0.05) -> np.ndarray:
     """
-    【V2.9 · Numba JIT 加速版】使用 Numba 加速的 Zigzag 核心实现。
-    - 接收 NumPy 数组，运行在 nopython 模式下，以接近 C 的速度执行。
-    - 算法逻辑与 V2.8 的经典重构版完全一致，但性能大幅提升。
+    【V2.15 · 逻辑修正版】修复了 Numba JIT 实现中因 cursor 回跳导致的无限循环BUG。
+    - 核心修复: 当找到拐点时，不再将 cursor 重置为 pivot_idx + 1，而是让其继续前进 (cursor += 1)，
+                 从根本上保证了循环的向前推进，杜绝了死循环的可能。
     """
     n = len(highs)
     if n < 2:
@@ -32,7 +32,7 @@ def _calculate_zigzag_numba(highs: np.ndarray, lows: np.ndarray, threshold: floa
     zigzag = np.zeros(n, dtype=np.int8)
     initial_high = highs[0]
     initial_low = lows[0]
-    trend = 0  # 1 for up, -1 for down
+    trend = 0
     cursor = 1
     while cursor < n:
         if trend == 0:
@@ -57,7 +57,8 @@ def _calculate_zigzag_numba(highs: np.ndarray, lows: np.ndarray, threshold: floa
                 zigzag[current_high_idx_loc] = 1
                 trend = -1
                 pivot_idx = current_high_idx_loc
-                cursor = pivot_idx + 1
+                # 修改代码行：不再重置cursor，而是让其继续前进，防止回跳
+                cursor += 1
             else:
                 cursor += 1
         elif trend == -1:
@@ -68,7 +69,8 @@ def _calculate_zigzag_numba(highs: np.ndarray, lows: np.ndarray, threshold: floa
                 zigzag[current_low_idx_loc] = -1
                 trend = 1
                 pivot_idx = current_low_idx_loc
-                cursor = pivot_idx + 1
+                # 修改代码行：不再重置cursor，而是让其继续前进，防止回跳
+                cursor += 1
             else:
                 cursor += 1
     return zigzag
@@ -383,49 +385,35 @@ class GeometricPatternService:
 
     def _compute_trendline_matrix_for_day(self, current_date: pd.Timestamp, df_daily: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V2.14 · 断路器探针版】为 Zigzag 计算过程添加探针，定位 Numba 函数的潜在死循环问题。
+        【V2.6 · 自定义Zigzag引擎集成版】为指定的一天，计算出所有斐波那契周期的支撑和阻力线矩阵。
+        - V2.6 升级: 废弃不稳定的 pandas_ta.zigzag，改为调用内部实现的 `_calculate_zigzag` 方法。
         """
-        import time # 导入time模块
         is_last_day_debug = (current_date == df_daily.index.max())
-        # --- 以下是修改的代码块 ---
-        # 即使不是最后一天，如果日期是问题日期，也开启探针模式
-        is_problem_date_debug = (current_date.date() == pd.to_datetime('2025-05-23').date())
-        if is_problem_date_debug:
-            print(f"\n--- [关键日期探针启动] 正在详细检查日期: {current_date.date()} ---")
-        # --- 修改结束 ---
+        if is_last_day_debug:
+            print(f"\n--- [探针模式启动] 正在详细检查日期: {current_date.date()} ---")
         matrix_records = []
         for period in self.fib_periods:
-            # --- 以下是新增的探针代码 ---
-            if is_problem_date_debug:
-                print(f"  -> [周期 {period}] 开始处理...")
-            # --- 修改结束 ---
             lookback_days = period * 3
             start_date = current_date - pd.Timedelta(days=lookback_days)
             df_slice = df_daily[(df_daily.index >= start_date) & (df_daily.index <= current_date)].copy()
             if len(df_slice) < period:
-                if is_problem_date_debug:
-                    print(f"    -> [周期 {period}] 数据不足 ({len(df_slice)}天)，跳过。")
+                if is_last_day_debug:
+                    print(f"  -> [周期 {period}] 数据不足 ({len(df_slice)}天)，跳过。")
                 continue
-            
-            # --- 以下是新增的探针代码 ---
-            if is_problem_date_debug:
-                print(f"    -> [周期 {period}] 数据切片完成，长度 {len(df_slice)}。准备计算Zigzag...")
-            t_start_zigzag = time.time()
+            if is_last_day_debug:
+                print(f"\n  -> [周期 {period}] 数据切片长度: {len(df_slice)} (回溯自 {df_slice.index.min().date()}) | 使用自定义Zigzag引擎(threshold=0.05)")
             zigzag_series = self._calculate_zigzag(df_slice, threshold=0.05)
-            t_end_zigzag = time.time()
-            if is_problem_date_debug:
-                print(f"    -> [周期 {period}] Zigzag计算完成，耗时: {(t_end_zigzag - t_start_zigzag)*1000:.2f}ms。")
-            # --- 修改结束 ---
-
             df_slice['zigzag'] = zigzag_series
             df_slice['zigzag'] = df_slice['zigzag'].fillna(0)
+            if is_last_day_debug:
+                print(f"    [探针] Zigzag计算结果 (最近10条):")
+                print(df_slice[['high_qfq', 'low_qfq', 'zigzag']].tail(10).to_string())
             df_slice['time_idx'] = np.arange(len(df_slice))
             pivot_highs = df_slice[df_slice['zigzag'] == 1]
             pivot_lows = df_slice[df_slice['zigzag'] == -1]
-            
-            if is_problem_date_debug:
-                print(f"    -> [周期 {period}] 高点锚点数: {len(pivot_highs)}, 低点锚点数: {len(pivot_lows)}")
-
+            if is_last_day_debug:
+                print(f"    [探针] 识别出的高点锚点(pivot_highs)数量: {len(pivot_highs)}")
+                print(f"    [探针] 识别出的低点锚点(pivot_lows)数量: {len(pivot_lows)}")
             best_support = self._find_best_line_with_micro_validation(pivot_lows, 'low_qfq', df_slice, 'support', data_dfs)
             best_resistance = self._find_best_line_with_micro_validation(pivot_highs, 'high_qfq', df_slice, 'resistance', data_dfs)
             for line_data in [best_support, best_resistance]:
@@ -439,22 +427,18 @@ class GeometricPatternService:
                         'intercept': line_data['intercept'],
                         'validity_score': line_data['validity_score'],
                     })
-        if is_problem_date_debug:
-            print(f"--- [关键日期探针结束] 日期 {current_date.date()} 共生成 {len(matrix_records)} 條有效趨勢線 ---\n")
-        
-        # 保持原有的日志输出
-        if not is_last_day_debug and not is_problem_date_debug:
-             print(f"    -> [趋势线矩阵引擎] 为 {current_date.date()} 生成了 {len(matrix_records)} 条有效趋势线。")
-        elif is_last_day_debug:
-             print(f"--- [探針模式結束] 日期 {current_date.date()} 共生成 {len(matrix_records)} 條有效趨勢線 ---\n")
-
+        if is_last_day_debug:
+            print(f"--- [探針模式結束] 日期 {current_date.date()} 共生成 {len(matrix_records)} 條有效趨勢線 ---\n")
+        else:
+            print(f"    -> [趋势线矩阵引擎] 为 {current_date.date()} 生成了 {len(matrix_records)} 条有效趋势线。")
         return matrix_records
 
     def _find_best_line_with_micro_validation(self, pivots: pd.DataFrame, price_col: str, full_df: pd.DataFrame, line_type: str, data_dfs: dict):
         """
-        【V2.13 · 深度诊断探针版】植入高精度计时探针，测量内部各计算环节的耗时，定位最终瓶颈。
+        【V2.12 · 锚点剪枝版】通过启发式剪枝策略，从根本上解决组合爆炸导致的性能问题。
+        - V2.12 性能修复: 当候选锚点过多时，不再进行暴力组合。而是筛选出 "近期" + "极端"
+                         的锚点子集进行计算，将计算复杂度降低数个数量级，彻底解决卡死问题。
         """
-        import time # 导入time模块用于计时
         is_last_day_debug = (full_df.index.max() == data_dfs.get('daily_data').index.max())
         if is_last_day_debug:
             print(f"      [内部探针] 进入 _find_best_line... | 类型: {line_type}, 接收到锚点数: {len(pivots)}")
@@ -466,7 +450,7 @@ class GeometricPatternService:
             recent_pivots = pivots.tail(NUM_RECENT_PIVOTS)
             if line_type == 'support':
                 extreme_pivots = pivots.nsmallest(NUM_EXTREME_PIVOTS, price_col)
-            else:
+            else: # resistance
                 extreme_pivots = pivots.nlargest(NUM_EXTREME_PIVOTS, price_col)
             pivots_to_check = pd.concat([recent_pivots, extreme_pivots]).drop_duplicates()
             if is_last_day_debug:
@@ -476,26 +460,12 @@ class GeometricPatternService:
         best_line_info = None
         max_final_score = -1
         tick_map = data_dfs.get("stock_tick_data_map", {})
-        
-        # --- 以下是新增的探针代码 ---
-        combinations_list = list(combinations(pivots_to_check.index, 2))
-        num_combinations = len(combinations_list)
-        print(f"        [探针] 将要执行 {num_combinations} 次组合计算...")
-        loop_count = 0
-        # --- 修改结束 ---
-
-        for p1_idx, p2_idx in combinations_list:
-            loop_count += 1
-            t_start_loop = time.time()
-
+        for p1_idx, p2_idx in combinations(pivots_to_check.index, 2):
             p1 = pivots_to_check.loc[p1_idx]
             p2 = pivots_to_check.loc[p2_idx]
             if p1['time_idx'] == p2['time_idx']: continue
             m = (p2[price_col] - p1[price_col]) / (p2['time_idx'] - p1['time_idx'])
             c = p1[price_col] - m * p1['time_idx']
-            
-            # 探针 1: 检查额外触点计算耗时
-            t_start_touch = time.time()
             touch_points_indices = {p1_idx, p2_idx}
             all_other_pivots = pivots_to_check.drop(index=[p1_idx, p2_idx])
             if not all_other_pivots.empty:
@@ -503,23 +473,14 @@ class GeometricPatternService:
                 errors = np.abs(all_other_pivots[price_col] - predicted_prices) / all_other_pivots[price_col]
                 additional_touches = all_other_pivots[errors < 0.015].index
                 touch_points_indices.update(additional_touches)
-            t_end_touch = time.time()
-
             duration = (p2_idx - p1_idx).days
             duration_score = np.log1p(duration) / np.log1p(90)
             geometric_score = (np.log1p(len(touch_points_indices)) / np.log1p(10)) * 0.7 + duration_score * 0.3
-            
-            # 探针 2: 检查微观分数计算耗时
-            t_start_micro = time.time()
             micro_scores = []
             for touch_date in sorted(list(touch_points_indices)):
                 score = self._calculate_micro_conviction_score(touch_date, line_type, tick_map)
                 micro_scores.append(score)
             avg_micro_score = np.mean(micro_scores) if micro_scores else 0.0
-            t_end_micro = time.time()
-
-            # 探针 3: 检查动态分数计算耗时
-            t_start_dynamic = time.time()
             line_df = full_df[(full_df.index >= p1_idx) & (full_df.index <= p2_idx)].copy()
             line_df['line_price'] = m * line_df['time_idx'] + c
             fake_break_bonus = 0
@@ -528,28 +489,22 @@ class GeometricPatternService:
                 if not penetrations.empty:
                     fake_break_bonus = (penetrations['close_qfq'] > penetrations['line_price']).sum()
                 penetration_count = len(penetrations)
-            else:
+            else: # resistance
                 penetrations = line_df[line_df['high_qfq'] > line_df['line_price']]
                 if not penetrations.empty:
                     fake_break_bonus = (penetrations['close_qfq'] < penetrations['line_price']).sum()
                 penetration_count = len(penetrations)
             penetration_penalty = (penetration_count - fake_break_bonus) / len(line_df) if len(line_df) > 0 else 0
             dynamic_score = 1 - penetration_penalty
-            t_end_dynamic = time.time()
-
             final_score = (geometric_score * 0.3) + (avg_micro_score * 0.5) + (dynamic_score * 0.2)
             if final_score > max_final_score:
                 max_final_score = final_score
-                best_line_info = { 'line_type': line_type, 'slope': m, 'intercept': c, 'validity_score': final_score }
-            
-            t_end_loop = time.time()
-            # 只对最后一个日期，并且是长周期（锚点可能较多）的情况打印详细耗时
-            if is_last_day_debug and len(pivots) > 15:
-                print(f"        [探针 @ 循环 {loop_count}/{num_combinations}] 触点({len(touch_points_indices)})耗时: {(t_end_touch - t_start_touch)*1000:.2f}ms | "
-                      f"微观({len(micro_scores)})耗时: {(t_end_micro - t_start_micro)*1000:.2f}ms | "
-                      f"动态(len:{len(line_df)})耗时: {(t_end_dynamic - t_start_dynamic)*1000:.2f}ms | "
-                      f"总耗时: {(t_end_loop - t_start_loop)*1000:.2f}ms")
-
+                best_line_info = {
+                    'line_type': line_type,
+                    'slope': m,
+                    'intercept': c,
+                    'validity_score': final_score,
+                }
         if is_last_day_debug:
             print(f"      [内部探针] 退出 _find_best_line... | 类型: {line_type}, 最高得分为: {max_final_score:.4f}")
         return best_line_info
