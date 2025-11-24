@@ -212,12 +212,12 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, bbw_quantile: float = 0.25, potential_threshold: float = 0.6, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
         """
-        【V2.38 · 诊断探针阵列版】识别、量化并存储矩形平台。
-        - 核心升级: 在平台识别的核心逻辑后，植入一个全新的“诊断探针阵列”。
-                     该阵列将逐一打印 ADX、BBW、潜在平台标记、潜力得分以及最终的
-                     进出信号等关键中间变量的统计信息，旨在精确定位为何没有平台被发现。
+        【V2.39 · 平台验证探针版】识别、量化并存储矩形平台。
+        - 核心升级: 在验证候选平台的循环内部，植入“平台验证探针”。
+                     该探针将明确打印每个候选平台的持续时间、价格振幅，并清晰地
+                     标明其被接受或因何种具体原因被拒绝，使过滤逻辑完全透明化。
         """
-        print(f"  -> [V2.38 诊断探针阵列] 正在识别和量化矩形平台...")
+        print(f"  -> [V2.39 平台验证探针] 正在识别和量化矩形平台...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
@@ -258,7 +258,6 @@ class GeometricPatternService:
         is_low_volatility = df_copy[bbw_col] < bbw_rolling_quantile
         df_copy['is_potential_platform'] = (is_low_trend | is_low_volatility).astype(int)
         df_copy['platform_potential_score'] = df_copy['is_potential_platform'].rolling(window=potential_window, min_periods=potential_window//2).mean()
-        # [代码新增] V2.38 植入平台识别诊断探针阵列
         print("\n" + "="*30 + " [平台识别诊断探针阵列] " + "="*30)
         print(f"--- [探针 E1: ADX & 低趋势条件] ---")
         print(f"  -> ADX 阈值 (adx_threshold): {adx_threshold}")
@@ -298,19 +297,31 @@ class GeometricPatternService:
             possible_end_dates = platform_end_dates[platform_end_dates > start_date]
             if not possible_end_dates.empty:
                 end_date = possible_end_dates[0]
+                # [代码新增] V2.39 植入平台验证探针
+                print(f"\n  -> [平台验证探针] 正在验证候选平台...")
+                print(f"     - 候选开始日期: {start_date.date()}, 候选结束日期: {end_date.date()}")
                 group = df_copy.loc[start_date:end_date]
-                if len(group) < min_duration: continue
+                print(f"     - 计算持续天数: {len(group)} (要求 >= {min_duration})")
+                if len(group) < min_duration:
+                    print(f"     - [REJECTED] 原因: 持续天数不足。")
+                    continue
                 platform_high = group['high_qfq'].max()
                 platform_low = group['low_qfq'].min()
-                if platform_low == 0: continue
+                if platform_low == 0:
+                    print(f"     - [REJECTED] 原因: 平台最低价为0，数据异常。")
+                    continue
                 price_range_pct = (platform_high - platform_low) / platform_low
-                if price_range_pct > max_range_pct: continue
+                print(f"     - 计算价格振幅: {price_range_pct:.2%} (要求 <= {max_range_pct:.2%})")
+                if price_range_pct > max_range_pct:
+                    print(f"     - [REJECTED] 原因: 价格振幅过大。")
+                    continue
+                print(f"     - [ACCEPTED] 候选平台通过所有验证，将被量化。")
                 character, score_val = self._assess_platform_character(group)
                 platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
                 precise_vpoc = None
                 if platform_minutes_dfs:
                     platform_minutes_df = pd.concat(platform_minutes_dfs)
-                    if not platform_minutes_df.empty and platform_minutes_df['volume'].sum() > 0:
+                    if not platform_minutes_df.empty and 'volume' in platform_minutes_df.columns and platform_minutes_df['volume'].sum() > 0:
                         precise_vpoc = np.average(platform_minutes_df['close'], weights=platform_minutes_df['volume'])
                 internal_ofi_sum = 0
                 internal_total_amount = 0
@@ -343,9 +354,9 @@ class GeometricPatternService:
                 }
                 platforms_to_save.append(platform_data)
         found_count = len(platforms_to_save)
-        print(f"  -> [V2.38 诊断探针阵列] 发现 {found_count} 个有效平台。")
+        print(f"  -> [V2.39 平台验证探针] 发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.38 诊断探针阵列] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.39 平台验证探针] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
