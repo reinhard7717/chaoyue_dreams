@@ -193,29 +193,28 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict, adx_threshold: int = 25, bbw_quantile: float = 0.25, potential_threshold: float = 0.6, potential_window: int = 20, min_duration: int = 10, max_range_pct: float = 0.30):
         """
-        【V2.22 · 双维共振状态机版】识别、量化并存储矩形平台。
-        - V2.22 核心升级: 引入布林带宽度(BBW)作为第二个核心判断维度，与ADX形成“趋势+波动”双重证据链。
-                         平台潜力日由“低趋势(ADX)”或“低波动(BBW)”共同决定，从根本上解决了
-                         单一指标的视角局限，能够更精确地捕捉能量收敛的平台形态。
-        - V2.22 调试增强: 加入详细的中间步骤打印，用于追踪和分析识别过程。
+        【V2.23 · 指标计算兼容性修复版】识别、量化并存储矩形平台。
+        - V2.23 核心修复: 解决了因列名不标准(`_qfq`后缀)导致pandas_ta指标计算静默失败的问题。
+                         通过在 adx() 和 bbands() 函数中显式传递列名参数(e.g., high='high_qfq')，
+                         确保了核心指标能够被正确计算，从而使平台识别流程得以正常执行。
         """
         print(f"  -> [V2.22 双维共振状态机] 正在识别和量化矩形平台...")
-        if len(enriched_df) < 120: # 确保有足够数据计算历史分位数
+        if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
         df_copy = enriched_df.copy()
-        # 1. 计算双重证据：ADX用于趋势判断，BBW用于波动判断
-        df_copy.ta.adx(length=14, append=True)
-        df_copy.ta.bbands(length=20, append=True) # BBANDS会同时生成BBW
+        # 1. 计算双重证据，并显式指定列名以确保计算成功
+        # 修改代码行：明确告知pandas_ta使用哪些列进行计算
+        df_copy.ta.adx(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True)
+        df_copy.ta.bbands(close='close_qfq', length=20, append=True)
         if 'ADX_14' not in df_copy.columns or 'BBW_20_2.0' not in df_copy.columns:
             print("  -> 核心指标(ADX或BBW)计算失败，跳过平台识别。")
             return
         # 2. 定义“低趋势”和“低波动”状态
         is_low_trend = df_copy['ADX_14'] < adx_threshold
-        # 低波动定义为：当前BBW小于过去半年(120天)的25%分位数
         bbw_rolling_quantile = df_copy['BBW_20_2.0'].rolling(120, min_periods=60).quantile(bbw_quantile)
         is_low_volatility = df_copy['BBW_20_2.0'] < bbw_rolling_quantile
-        # 3. 融合双重证据：满足任一条件即为“潜力日”
+        # 3. 融合双重证据
         df_copy['is_potential_platform'] = (is_low_trend | is_low_volatility).astype(int)
         # 4. 将融合后的潜力输入状态机
         df_copy['platform_potential_score'] = df_copy['is_potential_platform'].rolling(window=potential_window, min_periods=potential_window//2).mean()
@@ -252,7 +251,6 @@ class GeometricPatternService:
                 price_range_pct = (platform_high - platform_low) / platform_low
                 if price_range_pct > max_range_pct: continue
                 character, score_val = self._assess_platform_character(group)
-                # ... [后续数据融合与保存逻辑不变] ...
                 platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
                 precise_vpoc = None
                 if platform_minutes_dfs:

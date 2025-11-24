@@ -614,9 +614,9 @@ class AdvancedStructuralMetricsService:
 
     def _calculate_microstructure_metrics(self, tick_df: pd.DataFrame, level5_df: pd.DataFrame, realtime_df: pd.DataFrame, minute_df: pd.DataFrame, total_volume: float, group: pd.DataFrame, daily_series_for_day: pd.Series, atr_14: float) -> dict:
         """
-        【V21.7 · 诊断探针植入版】
-        - 核心新增: 植入一个诊断探针，当 `total_amount` 为零或无效时，打印详细的日线数据上下文，以便于调试和定位停牌等特殊情况。
-        - 核心继承: 保留 V21.6 的 `snapshot_volumes` 作用域修复。
+        【V21.8 · 类型转换修复版】
+        - 核心修复: 在计算 `standard_amount` 时，将从数据库加载的 `Decimal` 类型的 `total_amount` 显式转换为 `float` 类型，
+                    以解决 `Decimal` 与 `float` 混合运算导致的 `TypeError`。
         """
         from scipy.stats import norm, linregress
         results = {
@@ -684,7 +684,7 @@ class AdvancedStructuralMetricsService:
                             if not all_scores.empty and all_scores.abs().sum() > 0:
                                 total_day_amount = daily_series_for_day.get('amount', 0)
                                 if total_day_amount > 0:
-                                    results['liquidity_authenticity_score'] = all_scores.sum() / total_day_amount
+                                    results['liquidity_authenticity_score'] = all_scores.sum() / float(total_day_amount)
         # 1. VWAP均值回归相关性
         if minute_df is not None and not minute_df.empty and 'minute_vwap' in minute_df.columns and len(minute_df) > 1:
             daily_vwap = (minute_df['amount'].sum() / minute_df['vol'].sum()) if minute_df['vol'].sum() > 0 else np.nan
@@ -791,7 +791,6 @@ class AdvancedStructuralMetricsService:
             snapshot_volumes = combined_df['volume'].diff().fillna(0).clip(lower=0)
             # 1. 市场冲击成本 (Market Impact Cost)
             total_amount = daily_series_for_day.get('amount', 0)
-            # [代码新增] 植入诊断探针，用于捕获 total_amount 为零或无效的罕见情况
             if not pd.notna(total_amount) or total_amount <= 0:
                 print(f"--- [探针调试] 结构指标 ---")
                 print(f"  -> 日期: {daily_series_for_day.name}, 发现当日总成交额为零或无效。可能原因：全天停牌。")
@@ -800,7 +799,8 @@ class AdvancedStructuralMetricsService:
                 print(daily_series_for_day.to_string())
                 print(f"--- [探针结束] ---")
             if total_amount > 0:
-                standard_amount = total_amount * 0.001
+                # [代码修改] 将 Decimal 类型的 total_amount 转换为 float
+                standard_amount = float(total_amount) * 0.001
                 impact_costs = []
                 for idx, row in combined_df.iterrows():
                     amount_to_fill = standard_amount
