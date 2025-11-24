@@ -787,11 +787,10 @@ class AdvancedStructuralMetrics_BJ(BaseAdvancedStructuralMetrics):
 # [修改代码块] 几何形态特征模型 - 平台
 class BasePlatformFeature(models.Model):
     """
-    【V2.19 · 多维情报增强版】
+    【V2.48 · 突破准备度版】
     - 核心职责: 持久化存储通过算法识别出的每一个矩形平台的核心量化特征。
     - 设计思想: 每个平台作为一个独立的实体记录，而非每日状态，便于进行结构性回溯和分析。
-    - V2.19 新增: 引入 `platform_character` 和 `character_score` 字段，通过融合筹码、资金、结构
-                 三大情报体系，对平台的真实性质（吸筹/派发）进行深度评估和量化。
+    - V2.48 新增: 引入 `breakout_readiness_score` 字段，用于量化平台结束时其“蓄势待发”的程度。
     """
     # 定义平台性质的选项
     CHARACTER_CHOICES = [
@@ -817,11 +816,10 @@ class BasePlatformFeature(models.Model):
     precise_vpoc = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='精确VPOC(分钟级)', null=True, blank=True)
     internal_accumulation_intensity = models.FloatField(verbose_name='内部吸筹强度', null=True, blank=True, help_text='平台期内Tick级净主动买入量占比')
     breakout_quality_score = models.FloatField(verbose_name='突破质量分', null=True, blank=True, help_text='突破日微观结构评估分')
-    # V2.19 多维情报评估结果
     platform_character = models.CharField(max_length=20, choices=CHARACTER_CHOICES, verbose_name='平台性质', null=True, blank=True)
     character_score = models.FloatField(verbose_name='平台性质分(-100~100)', null=True, blank=True, help_text='综合筹码、资金、结构证据的量化评分')
     platform_archetype = models.CharField(max_length=50, verbose_name='平台原型', null=True, blank=True, help_text='识别出此平台的原型名称')
-    
+    breakout_readiness_score = models.FloatField(verbose_name='突破准备度分(0-100)', null=True, blank=True, help_text='平台结束时，衡量其即将突破可能性的综合评分')
     class Meta:
         abstract = True
         ordering = ['-start_date']
