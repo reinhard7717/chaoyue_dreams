@@ -5,6 +5,7 @@ import logging
 import datetime
 from typing import List, Dict, Any, Optional # 引入 List, Dict, Any
 from chaoyue_dreams.celery import app as celery_app
+from stock_models.index import TradeCalendar
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from utils.cache_manager import CacheManager
 
