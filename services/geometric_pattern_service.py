@@ -1149,77 +1149,81 @@ class GeometricPatternService:
 
     def _identify_flag(self, df: pd.DataFrame, pole_data: dict, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
-        【V3.6 · 单调剪枝版】植入基于数学必然性的剪枝协议，根除战术上的徒劳计算。
-        - V3.6 核心升级:
-          1. [单调剪枝] 引入“临界回撤分”阈值。利用 `depth_score` 随周期延长只会单调恶化
-                         的数学特性，进行提前判断。
-          2. [战术性放弃] 一旦 `depth_score` 低于临界阈值，立即 `break` 循环，终止对当前
-                         旗杆的所有后续更长周期的扫描，避免在注定失败的结构上浪费算力。
+        【V3.7 · 弹性耦合版】引入时间缓冲，识别非紧密邻接的真实世界形态。
+        - V3.7 核心升级:
+          1. [弹性耦合] 废弃旗面必须从 T+1 开始的僵硬规则。
+          2. [时间缓冲] 引入一个新的外层 `for gap in ...` 循环，允许在旗杆和旗面之间
+                         存在一个可配置的缓冲期（例如0-2天）。
+          3. [认知扩展] 使引擎能够识别那些在真实市场中更常见、但非完美邻接的旗形结构。
         """
         min_dur = archetype.get('flag_min_dur', 5)
         max_dur = archetype.get('flag_max_dur', 20)
+        # [代码修改] V3.7 从原型配置中获取允许的最大缓冲天数
+        max_gap_days = archetype.get('flag_max_gap_days', 2)
         vol_shrink_pole = archetype.get('flag_vol_shrink_pole', 0.7)
         vol_shrink_ma = archetype.get('flag_vol_shrink_ma', 1.0)
         max_retracement = archetype.get('flag_max_retracement', 0.5)
-        # [代码修改] V3.6 定义一个临界阈值，低于此值意味着结构已严重受损
         CRITICAL_DEPTH_SCORE_THRESHOLD = 10.0
         pole_end_loc = df.index.get_loc(pole_data['end_date'])
         tick_map = data_dfs.get("stock_tick_data_map", {})
-        print(f"    -> [旗面探针 V3.6] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用单调剪枝)...")
+        print(f"    -> [旗面探针 V3.7] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用弹性耦合)...")
         best_flag = None
         max_conviction_score = -1.0
-        for duration in range(min_dur, max_dur + 1):
-            flag_start_loc = pole_end_loc + 1
-            flag_end_loc = flag_start_loc + duration -1
-            if flag_end_loc >= len(df): break
-            flag_df = df.iloc[flag_start_loc : flag_end_loc + 1]
-            start_date = flag_df.index[0]
-            end_date = flag_df.index[-1]
-            print(f"      - [候选周期: {duration}天] ({start_date.date()} -> {end_date.date()})")
-            avg_volume_flag = flag_df['vol'].mean()
-            vol_ma_at_flag_start = df[vol_ma_col_name].iloc[flag_start_loc -1]
-            shrink_ratio_pole = avg_volume_flag / pole_data['avg_volume'] if pole_data['avg_volume'] > 0 else 1.0
-            shrink_ratio_ma = avg_volume_flag / vol_ma_at_flag_start if vol_ma_at_flag_start > 0 else 1.0
-            score1 = np.clip((vol_shrink_pole * 1.2 - shrink_ratio_pole) / (vol_shrink_pole * 0.7), 0, 1) * 100
-            score2 = np.clip((vol_shrink_ma * 1.2 - shrink_ratio_ma) / (vol_shrink_ma * 0.7), 0, 1) * 100
-            volume_score = score1 * 0.5 + score2 * 0.5
-            print(f"        - [成交量萎缩] vs旗杆: {shrink_ratio_pole:.2f} | vs均线: {shrink_ratio_ma:.2f} -> 得分: {volume_score:.1f}/100")
-            flag_low = flag_df['low_qfq'].min()
-            pole_range = pole_data['high_price'] - pole_data['low_price']
-            if pole_range == 0: continue
-            retracement_depth = (pole_data['high_price'] - flag_low) / pole_range
-            depth_score = np.clip((max_retracement * 1.5 - retracement_depth) / (max_retracement * 1.5), 0, 1) * 100
-            print(f"        - [回撤深度] 计算值: {retracement_depth:.2%} -> 得分: {depth_score:.1f}/100")
-            # [代码修改] V3.6 植入“单调剪枝”协议
-            if depth_score < CRITICAL_DEPTH_SCORE_THRESHOLD:
-                print(f"        - [单调剪枝] 回撤深度已恶化至临界点({depth_score:.1f} < {CRITICAL_DEPTH_SCORE_THRESHOLD:.1f})，终止后续周期扫描。")
-                break
-            integrity_score = (flag_df['close_qfq'] <= pole_data['high_price']).mean() * 100
-            print(f"        - [盘整完整性] 保持在旗杆高点之下 -> 得分: {integrity_score:.1f}/100")
-            tick_dfs_to_concat = [tick_map.get(d.date()) for d in flag_df.index if tick_map.get(d.date()) is not None]
-            if tick_dfs_to_concat:
-                flag_period_ticks = pd.concat(tick_dfs_to_concat)
-                microstructure_score = self._calculate_flag_microstructure_score(flag_period_ticks)
-            else:
-                microstructure_score = 50.0
-            print(f"        - [微观结构] 盘内吸筹强度 -> 得分: {microstructure_score:.1f}/100")
-            scores_product = volume_score * depth_score * integrity_score * microstructure_score
-            if scores_product < 1e-9:
-                conviction_score = 0.0
-            else:
-                conviction_score = scores_product ** (1/4)
-            print(f"        - [几何共识评分]: {conviction_score:.2f}")
-            if conviction_score > max_conviction_score:
-                max_conviction_score = conviction_score
-                best_flag = {
-                    'start_date': start_date, 'end_date': end_date,
-                    'duration': duration, 'avg_volume': avg_volume_flag,
-                    'retracement_depth': retracement_depth,
-                    'conviction_score': conviction_score
-                }
+        # [代码修改] V3.7 引入外层循环以测试不同的时间缓冲（gap）
+        for gap in range(max_gap_days + 1):
+            for duration in range(min_dur, max_dur + 1):
+                # [代码修改] V3.7 旗面起始位置现在考虑了缓冲天数
+                flag_start_loc = pole_end_loc + 1 + gap
+                flag_end_loc = flag_start_loc + duration -1
+                if flag_end_loc >= len(df): break
+                flag_df = df.iloc[flag_start_loc : flag_end_loc + 1]
+                start_date = flag_df.index[0]
+                end_date = flag_df.index[-1]
+                print(f"      - [候选周期: {duration}天, 缓冲: {gap}天] ({start_date.date()} -> {end_date.date()})")
+                avg_volume_flag = flag_df['vol'].mean()
+                vol_ma_at_flag_start = df[vol_ma_col_name].iloc[flag_start_loc -1]
+                shrink_ratio_pole = avg_volume_flag / pole_data['avg_volume'] if pole_data['avg_volume'] > 0 else 1.0
+                shrink_ratio_ma = avg_volume_flag / vol_ma_at_flag_start if vol_ma_at_flag_start > 0 else 1.0
+                score1 = np.clip((vol_shrink_pole * 1.2 - shrink_ratio_pole) / (vol_shrink_pole * 0.7), 0, 1) * 100
+                score2 = np.clip((vol_shrink_ma * 1.2 - shrink_ratio_ma) / (vol_shrink_ma * 0.7), 0, 1) * 100
+                volume_score = score1 * 0.5 + score2 * 0.5
+                print(f"        - [成交量萎缩] vs旗杆: {shrink_ratio_pole:.2f} | vs均线: {shrink_ratio_ma:.2f} -> 得分: {volume_score:.1f}/100")
+                flag_low = flag_df['low_qfq'].min()
+                pole_range = pole_data['high_price'] - pole_data['low_price']
+                if pole_range == 0: continue
+                retracement_depth = (pole_data['high_price'] - flag_low) / pole_range
+                depth_score = np.clip((max_retracement * 1.5 - retracement_depth) / (max_retracement * 1.5), 0, 1) * 100
+                print(f"        - [回撤深度] 计算值: {retracement_depth:.2%} -> 得分: {depth_score:.1f}/100")
+                if depth_score < CRITICAL_DEPTH_SCORE_THRESHOLD:
+                    print(f"        - [单调剪枝] 回撤深度已恶化至临界点({depth_score:.1f} < {CRITICAL_DEPTH_SCORE_THRESHOLD:.1f})，终止当前缓冲设置下的后续周期扫描。")
+                    break
+                integrity_score = (flag_df['close_qfq'] <= pole_data['high_price']).mean() * 100
+                print(f"        - [盘整完整性] 保持在旗杆高点之下 -> 得分: {integrity_score:.1f}/100")
+                tick_dfs_to_concat = [tick_map.get(d.date()) for d in flag_df.index if tick_map.get(d.date()) is not None]
+                if tick_dfs_to_concat:
+                    flag_period_ticks = pd.concat(tick_dfs_to_concat)
+                    microstructure_score = self._calculate_flag_microstructure_score(flag_period_ticks)
+                else:
+                    microstructure_score = 50.0
+                print(f"        - [微观结构] 盘内吸筹强度 -> 得分: {microstructure_score:.1f}/100")
+                scores_product = volume_score * depth_score * integrity_score * microstructure_score
+                if scores_product < 1e-9:
+                    conviction_score = 0.0
+                else:
+                    conviction_score = scores_product ** (1/4)
+                print(f"        - [几何共识评分]: {conviction_score:.2f}")
+                if conviction_score > max_conviction_score:
+                    max_conviction_score = conviction_score
+                    best_flag = {
+                        'start_date': start_date, 'end_date': end_date,
+                        'duration': duration, 'avg_volume': avg_volume_flag,
+                        'retracement_depth': retracement_depth,
+                        'conviction_score': conviction_score,
+                        'gap_days': gap # 记录下最佳旗面的缓冲天数
+                    }
         MIN_ACCEPTANCE_SCORE = 50.0
         if best_flag and best_flag['conviction_score'] >= MIN_ACCEPTANCE_SCORE:
-            print(f"    -> [✓ ACCEPTED] 发现最佳旗面 (周期 {best_flag['duration']}天), 最高信念分: {best_flag['conviction_score']:.2f}")
+            print(f"    -> [✓ ACCEPTED] 发现最佳旗面 (周期 {best_flag['duration']}天, 缓冲 {best_flag['gap_days']}天), 最高信念分: {best_flag['conviction_score']:.2f}")
             return best_flag
         else:
             print(f"    -> [✗ REJECTED] 未发现任何候选旗面的信念分超过 {MIN_ACCEPTANCE_SCORE:.1f} 的最低门槛。")
