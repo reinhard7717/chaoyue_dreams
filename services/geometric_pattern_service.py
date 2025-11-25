@@ -1149,21 +1149,23 @@ class GeometricPatternService:
 
     def _identify_flag(self, df: pd.DataFrame, pole_data: dict, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
-        【V3.5 · 几何共识版】引入几何平均数，建立“一票否决”的战略判断力。
-        - V3.5 核心升级:
-          1. [数学革命] 废弃原有的加权平均评分公式，因为它无法处理关键维度的“0分”否决票。
-          2. [几何共识] 采用几何平均数 `(s1*s2*s3*s4)^(1/4)` 作为新的 `conviction_score`。
-                         该公式确保任何一个维度的评分为0，最终信念即为0，实现“一票否决”，
-                         从根本上杜绝了对“回撤过深”等畸形形态的误判。
+        【V3.6 · 单调剪枝版】植入基于数学必然性的剪枝协议，根除战术上的徒劳计算。
+        - V3.6 核心升级:
+          1. [单调剪枝] 引入“临界回撤分”阈值。利用 `depth_score` 随周期延长只会单调恶化
+                         的数学特性，进行提前判断。
+          2. [战术性放弃] 一旦 `depth_score` 低于临界阈值，立即 `break` 循环，终止对当前
+                         旗杆的所有后续更长周期的扫描，避免在注定失败的结构上浪费算力。
         """
         min_dur = archetype.get('flag_min_dur', 5)
         max_dur = archetype.get('flag_max_dur', 20)
         vol_shrink_pole = archetype.get('flag_vol_shrink_pole', 0.7)
         vol_shrink_ma = archetype.get('flag_vol_shrink_ma', 1.0)
         max_retracement = archetype.get('flag_max_retracement', 0.5)
+        # [代码修改] V3.6 定义一个临界阈值，低于此值意味着结构已严重受损
+        CRITICAL_DEPTH_SCORE_THRESHOLD = 10.0
         pole_end_loc = df.index.get_loc(pole_data['end_date'])
         tick_map = data_dfs.get("stock_tick_data_map", {})
-        print(f"    -> [旗面探针 V3.5] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用几何共识)...")
+        print(f"    -> [旗面探针 V3.6] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用单调剪枝)...")
         best_flag = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1188,6 +1190,10 @@ class GeometricPatternService:
             retracement_depth = (pole_data['high_price'] - flag_low) / pole_range
             depth_score = np.clip((max_retracement * 1.5 - retracement_depth) / (max_retracement * 1.5), 0, 1) * 100
             print(f"        - [回撤深度] 计算值: {retracement_depth:.2%} -> 得分: {depth_score:.1f}/100")
+            # [代码修改] V3.6 植入“单调剪枝”协议
+            if depth_score < CRITICAL_DEPTH_SCORE_THRESHOLD:
+                print(f"        - [单调剪枝] 回撤深度已恶化至临界点({depth_score:.1f} < {CRITICAL_DEPTH_SCORE_THRESHOLD:.1f})，终止后续周期扫描。")
+                break
             integrity_score = (flag_df['close_qfq'] <= pole_data['high_price']).mean() * 100
             print(f"        - [盘整完整性] 保持在旗杆高点之下 -> 得分: {integrity_score:.1f}/100")
             tick_dfs_to_concat = [tick_map.get(d.date()) for d in flag_df.index if tick_map.get(d.date()) is not None]
@@ -1197,9 +1203,8 @@ class GeometricPatternService:
             else:
                 microstructure_score = 50.0
             print(f"        - [微观结构] 盘内吸筹强度 -> 得分: {microstructure_score:.1f}/100")
-            # [代码修改] V3.5 废弃旧的评分公式，采用几何平均数建立“一票否决”机制
             scores_product = volume_score * depth_score * integrity_score * microstructure_score
-            if scores_product < 1e-9: # 避免对极小或零的数进行开方
+            if scores_product < 1e-9:
                 conviction_score = 0.0
             else:
                 conviction_score = scores_product ** (1/4)
