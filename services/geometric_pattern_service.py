@@ -559,9 +559,8 @@ class GeometricPatternService:
 
     def _analyze_matrix_dynamics(self, matrix_df: pd.DataFrame, start_analysis_date: pd.Timestamp = None) -> list:
         """
-        【V2.16 · 增量分析版】分析趋势线矩阵的时间序列，识别动态事件。
-        - V2.16 性能优化: 新增 start_analysis_date 参数，使得事件检测循环可以跳过
-                         无需重复分析的历史数据，实现高效的增量分析。
+        【V2.17 · 启示录版】分析趋势线矩阵的时间序列，识别动态事件。
+        - V2.17 升级: 重构交叉分析逻辑，采用更稳健的“相对位置比较法”，消除对`time_idx`的脆弱依赖。
         """
         if matrix_df.empty or len(matrix_df['trade_date'].unique()) < 2:
             return []
@@ -573,13 +572,22 @@ class GeometricPatternService:
             values=['slope', 'intercept', 'validity_score']
         ).sort_index()
         matrix_wide_df.columns = ['_'.join(map(str, col)) for col in matrix_wide_df.columns.values]
-        # 修改代码行：获取用于循环的DataFrame切片
         analysis_df = matrix_wide_df[matrix_wide_df.index >= start_analysis_date] if start_analysis_date else matrix_wide_df
-        for trade_date, today_row in analysis_df.iterrows():
-            # 使用完整的 matrix_wide_df 来安全地获取前一天的数据
-            yesterday_row = matrix_wide_df.loc[:trade_date].iloc[-2] if len(matrix_wide_df.loc[:trade_date]) > 1 else None
-            if yesterday_row is None: continue
-            # A. 拐点分析
+        
+        # [代码修改] V2.17 定义辅助函数以提高代码清晰度和复用性
+        def _get_line_value(row, period, line_type, time_idx):
+            slope = row.get(f'slope_{period}_{line_type}')
+            intercept = row.get(f'intercept_{period}_{line_type}')
+            if pd.notna(slope) and pd.notna(intercept):
+                return slope * time_idx + intercept
+            return np.nan
+
+        for i, (trade_date, today_row) in enumerate(analysis_df.iterrows()):
+            if i == 0: continue
+            yesterday_row = analysis_df.iloc[i-1]
+            time_idx_today = i + (len(matrix_wide_df) - len(analysis_df)) # 获取在完整df中的真实索引
+            time_idx_yesterday = time_idx_today - 1
+            # A. 拐点分析 (逻辑不变)
             for period in self.fib_periods:
                 slope_col = f'slope_{period}_support'
                 if slope_col in today_row and slope_col in yesterday_row and pd.notna(today_row[slope_col]) and pd.notna(yesterday_row[slope_col]):
@@ -602,69 +610,67 @@ class GeometricPatternService:
                             'stock': self.stock_instance, 'event_date': trade_date.date(),
                             'event_type': event_type, 'details': self._sanitize_json_dict(details)
                         })
-            # B. 交叉分析: 量化多空力量的战略性逆转，而非简单的几何相交
+            # [代码修改] V2.17 重构交叉分析逻辑
+            # B. 交叉分析: 采用更稳健的相对位置比较法
             for short_p, long_p in combinations(self.fib_periods, 2):
-                if short_p >= long_p: continue # 确保 short_p < long_p
-                # 提取长短周期、今日昨日的四条线数据
-                sup_s_t, int_s_t = today_row.get(f'slope_{short_p}_support'), today_row.get(f'intercept_{short_p}_support')
-                sup_l_t, int_l_t = today_row.get(f'slope_{long_p}_support'), today_row.get(f'intercept_{long_p}_support')
-                sup_s_y, int_s_y = yesterday_row.get(f'slope_{short_p}_support'), yesterday_row.get(f'intercept_{short_p}_support')
-                sup_l_y, int_l_y = yesterday_row.get(f'slope_{long_p}_support'), yesterday_row.get(f'intercept_{long_p}_support')
-                # 确保所有数据都有效
-                if not all(pd.notna(v) for v in [sup_s_t, int_s_t, sup_l_t, int_l_t, sup_s_y, int_s_y, sup_l_y, int_l_y]):
+                if short_p >= long_p: continue
+                
+                short_val_t = _get_line_value(today_row, short_p, 'support', time_idx_today)
+                long_val_t = _get_line_value(today_row, long_p, 'support', time_idx_today)
+                short_val_y = _get_line_value(yesterday_row, short_p, 'support', time_idx_yesterday)
+                long_val_y = _get_line_value(yesterday_row, long_p, 'support', time_idx_yesterday)
+
+                if not all(pd.notna(v) for v in [short_val_t, long_val_t, short_val_y, long_val_y]):
                     continue
-                # 检查是否发生交叉 (今天的位置关系与昨天相反)
-                pos_today = (sup_s_t - sup_l_t) * time_idx + (int_s_t - int_l_t)
-                pos_yesterday = (sup_s_y - sup_l_y) * (time_idx - 1) + (int_s_y - int_l_y)
+
+                pos_today = short_val_t - long_val_t
+                pos_yesterday = short_val_y - long_val_y
+
                 if np.sign(pos_today) != np.sign(pos_yesterday):
                     event_type = None
-                    # 计算交叉角度 (角度越大，信号越强)
+                    sup_s_t = today_row.get(f'slope_{short_p}_support')
+                    sup_l_t = today_row.get(f'slope_{long_p}_support')
                     angle_short = np.degrees(np.arctan(sup_s_t))
                     angle_long = np.degrees(np.arctan(sup_l_t))
                     intersection_angle = abs(angle_short - angle_long)
-                    # 计算收敛速度 (正值表示加速收敛)
-                    gap_yesterday = abs(((sup_s_y - sup_l_y) * (time_idx - 1) + (int_s_y - int_l_y)))
-                    convergence_rate = gap_yesterday # 今天gap为0，速率即为昨天的距离
+                    convergence_rate = abs(pos_yesterday)
                     details = {
                         'periods': f'{short_p}v{long_p}',
                         'angle': intersection_angle,
                         'convergence_rate': convergence_rate
                     }
-                    if pos_today > 0: # 短期线上穿长期线 -> 金叉
+                    if pos_today > 0:
                         event_type = 'CROSS_GOLDEN_DECISIVE' if intersection_angle > 20 else 'CROSS_GOLDEN_TENTATIVE'
-                    else: # 短期线下穿长期线 -> 死叉
+                    else:
                         event_type = 'CROSS_DEATH_DECISIVE' if intersection_angle > 20 else 'CROSS_DEATH_TENTATIVE'
                     if event_type:
                         final_events.append({
                             'stock': self.stock_instance, 'event_date': trade_date.date(),
                             'event_type': event_type, 'details': self._sanitize_json_dict(details)
                         })
-            # C. 共振与背离分析: 量化多周期“合力”与“力竭”的结构性信号
+            # C. 共振与背离分析 (逻辑不变)
             all_periods_slopes = {p: today_row.get(f'slope_{p}_support') for p in self.fib_periods}
             valid_slopes = {p: s for p, s in all_periods_slopes.items() if pd.notna(s)}
-            if len(valid_slopes) >= 3: # 至少需要3个周期的数据才有分析意义
+            if len(valid_slopes) >= 3:
                 slopes_series = pd.Series(valid_slopes)
-                # 1. 共振分析
-                concordance_score = ((slopes_series > 0).sum() / len(slopes_series)) # 多头方向协同度
-                cohesion_score = 1 / (1 + slopes_series.std()) # 强度凝聚度 (标准差越小，得分越高)
+                concordance_score = ((slopes_series > 0).sum() / len(slopes_series))
+                cohesion_score = 1 / (1 + slopes_series.std())
                 event_type = None
                 details = {'concordance': concordance_score, 'cohesion': cohesion_score}
                 if concordance_score >= 0.8 and cohesion_score >= 0.8:
-                    event_type = 'RESONANCE_BULLISH_STRONG' # 强烈多头共振
+                    event_type = 'RESONANCE_BULLISH_STRONG'
                 elif concordance_score <= 0.2 and cohesion_score >= 0.8:
-                    event_type = 'RESONANCE_BEARISH_STRONG' # 强烈空头共振
+                    event_type = 'RESONANCE_BEARISH_STRONG'
                 if event_type:
                     final_events.append({
                         'stock': self.stock_instance, 'event_date': trade_date.date(),
                         'event_type': event_type, 'details': self._sanitize_json_dict(details)
                     })
-                # 2. 背离分析 (A股市场的精髓)
                 short_term_periods = [p for p in valid_slopes.keys() if p < 21]
                 long_term_periods = [p for p in valid_slopes.keys() if p >= 21]
                 if short_term_periods and long_term_periods:
                     short_term_slope_mean = slopes_series[short_term_periods].mean()
                     long_term_slope_mean = slopes_series[long_term_periods].mean()
-                    # 获取昨日斜率以判断变化
                     yesterday_slopes_series = pd.Series({p: yesterday_row.get(f'slope_{p}_support') for p in valid_slopes.keys()})
                     short_term_slope_change = short_term_slope_mean - yesterday_slopes_series[short_term_periods].mean()
                     event_type = None
@@ -673,10 +679,8 @@ class GeometricPatternService:
                         'long_term_slope': long_term_slope_mean,
                         'short_term_momentum': short_term_slope_change
                     }
-                    # 顶背离: 长线向上，短线动能衰竭
                     if long_term_slope_mean > 0.005 and short_term_slope_mean > 0 and short_term_slope_change < -0.001:
                         event_type = 'DIVERGENCE_BEARISH_TOP'
-                    # 底背离: 长线向下，短线止跌企稳
                     elif long_term_slope_mean < -0.005 and short_term_slope_mean < 0 and short_term_slope_change > 0.001:
                         event_type = 'DIVERGENCE_BULLISH_BOTTOM'
                     if event_type:
@@ -684,17 +688,14 @@ class GeometricPatternService:
                             'stock': self.stock_instance, 'event_date': trade_date.date(),
                             'event_type': event_type, 'details': self._sanitize_json_dict(details)
                         })
-            # D. 通道压缩分析 (逻辑不变, 依然使用完整的 matrix_wide_df 获取历史分位数)
+            # D. 通道压缩分析 (逻辑不变)
             if len(self.fib_periods) > 0:
                 median_period_index = len(self.fib_periods) // 2
                 period = self.fib_periods[median_period_index]
-                sup_slope, sup_intc = today_row.get(f'slope_{period}_support'), today_row.get(f'intercept_{period}_support')
-                res_slope, res_intc = today_row.get(f'slope_{period}_resistance'), today_row.get(f'intercept_{period}_resistance')
-                if all(v is not None and pd.notna(v) for v in [sup_slope, sup_intc, res_slope, res_intc]):
-                    time_idx = matrix_wide_df.index.get_loc(trade_date)
-                    channel_width = (res_slope * time_idx + res_intc) - (sup_slope * time_idx + sup_intc)
-                    historical_widths = (matrix_wide_df[f'slope_{period}_resistance'] * np.arange(len(matrix_wide_df)) + matrix_wide_df[f'intercept_{period}_resistance']) - \
-                                        (matrix_wide_df[f'slope_{period}_support'] * np.arange(len(matrix_wide_df)) + matrix_wide_df[f'intercept_{period}_support'])
+                channel_width = _get_line_value(today_row, period, 'resistance', time_idx_today) - _get_line_value(today_row, period, 'support', time_idx_today)
+                if pd.notna(channel_width):
+                    historical_widths = (_get_line_value(matrix_wide_df, period, 'resistance', np.arange(len(matrix_wide_df))) - 
+                                         _get_line_value(matrix_wide_df, period, 'support', np.arange(len(matrix_wide_df))))
                     squeeze_threshold = historical_widths.rolling(250, min_periods=50).quantile(0.1).loc[trade_date]
                     if not np.isnan(squeeze_threshold) and channel_width < squeeze_threshold:
                         details = {'period': period, 'width': channel_width, 'threshold': squeeze_threshold}
@@ -992,11 +993,31 @@ class GeometricPatternService:
                 }
         return best_line
 
-    def _predict_flag_breakout_probability(self, enriched_df: pd.DataFrame, data_dfs: dict) -> list:
+    def _translate_conviction_to_probability(self, flag: dict) -> (float, dict):
         """
-        【V2.73 · 归一版】实现信念与概率的哲学统一。
-        - V2.73 核心升级:
-          1. [认知统一] 简化调用流程，确认`_identify_flag`的信念评分是概率判断的唯一信息来源。
+        【V2.74 · 启示录版】将信念评分直接转换为突破概率，实现认知统一。
+        - V2.74 核心升级:
+          1. [方法更名] `_predict_flag_breakout_probability` 更名为 `_translate_conviction_to_probability`，实现名实相符。
+          2. [逻辑固化] 保持V2.73“归一”版本的核心逻辑，即信念分数的直接线性映射。
+        """
+        conviction_score = flag.get('conviction_score', 0.0)
+        final_probability = conviction_score / 100.0
+        print(f"    -> [认知统一 V2.74]")
+        print(f"      - 接收到'全息审判'信念评分: {conviction_score:.2f}")
+        print(f"      - >> 直接映射为最终突破概率: {final_probability:.2%}")
+        features = {
+            'conviction_score': conviction_score,
+            'retracement_depth': flag.get('retracement_depth'),
+            'duration': flag.get('duration'),
+        }
+        return final_probability, features
+
+    def _find_and_evaluate_flags(self, enriched_df: pd.DataFrame, data_dfs: dict) -> list:
+        """
+        【V2.74 · 启示录版】重构为原型驱动的多时间框架识别引擎。
+        - V2.74 核心升级:
+          1. [方法更名] 将 `_predict_flag_breakout_probability` 更名为 `_find_and_evaluate_flags`，以更准确地描述其核心职责：发现并评估旗形。
+          2. [语义统一] 内部调用 `_translate_conviction_to_probability`，完成最终的语义统一。
         """
         events = []
         for archetype in self.flag_archetypes:
@@ -1038,9 +1059,9 @@ class GeometricPatternService:
                     if flag_df['low_qfq'].min() < dominant_peak_cost_at_start: continue
                     breakout_readiness = flag_df['breakout_readiness_score'].iloc[-1]
                     if breakout_readiness < 60: continue
-                print(f"  -> [高置信度旗形发现!] 日期: {flag['end_date'].date()}, 级别: [{timeframe}], 原型: [{archetype_name}]。启动概率精算...")
-                # [代码修改] V2.73 简化调用，只传递核心的flag信念对象
-                probability, features = self._calculate_expert_breakout_probability(flag)
+                print(f"  -> [高置信度旗形发现!] 日期: {flag['end_date'].date()}, 级别: [{timeframe}], 原型: [{archetype_name}]。启动概率转换...")
+                # [代码修改] V2.74 更新调用为新方法名
+                probability, features = self._translate_conviction_to_probability(flag)
                 events.append({
                     'stock': self.stock_instance,
                     'event_date': flag['end_date'].date(),

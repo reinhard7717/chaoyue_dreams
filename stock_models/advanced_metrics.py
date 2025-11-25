@@ -955,7 +955,7 @@ class BaseMultiTimeframeTrendline(models.Model):
         unique_together = ('stock', 'trade_date', 'period', 'line_type')
         ordering = ['-trade_date', 'period']
 
-# ... 为 SH, SZ, CY, KC, BJ 创建对应的分表模型 ...
+
 class MultiTimeframeTrendline_SH(BaseMultiTimeframeTrendline):
     class Meta(BaseMultiTimeframeTrendline.Meta):
         abstract = False
@@ -989,17 +989,27 @@ class MultiTimeframeTrendline_BJ(BaseMultiTimeframeTrendline):
 # [新增代码块] 趋势线动态事件模型
 class BaseTrendlineEvent(models.Model):
     """
-    【V2.1 · 趋势线动态事件版】
+    【V2.2 · 启示录版】
     - 核心职责: 记录由趋势线矩阵动态演化而产生的关键交易信号事件。
     - 设计思想: 将“状态”（趋势线本身）与“事件”（拐点、突破、旗形）分离，便于策略回测和信号挖掘。
+    - V2.2 升级: 全面同步并扩充事件类型，使其成为系统中所有几何与动态事件的“唯一真实来源”。
     """
+    # [代码修改] V2.2 全面扩充事件类型
     EVENT_TYPE_CHOICES = [
         ('INFLECTION_ACCEL', '趋势加速'),
         ('INFLECTION_DECEL', '趋势减速'),
         ('INFLECTION_REVERSAL', '趋势反转'),
-        ('CROSSOVER_BULLISH', '短期上穿长期'),
-        ('CROSSOVER_BEARISH', '短期下穿长期'),
-        ('FLAG_FORMED', '旗形形态确立'),
+        ('CROSS_GOLDEN_DECISIVE', '决定性金叉'),
+        ('CROSS_GOLDEN_TENTATIVE', '试探性金叉'),
+        ('CROSS_DEATH_DECISIVE', '决定性死叉'),
+        ('CROSS_DEATH_TENTATIVE', '试探性死叉'),
+        ('RESONANCE_BULLISH_STRONG', '强烈多头共振'),
+        ('RESONANCE_BEARISH_STRONG', '强烈空头共振'),
+        ('DIVERGENCE_BEARISH_TOP', '顶部结构背离'),
+        ('DIVERGENCE_BULLISH_BOTTOM', '底部结构背离'),
+        ('COMPRESSION_SQUEEZE', '通道能量压缩'),
+        ('FLAG_FORMED_D', '日线旗形确立'),
+        ('FLAG_FORMED_W', '周线旗形确立'),
     ]
     stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, db_index=True)
     event_date = models.DateField(verbose_name='事件发生日期', db_index=True)
@@ -1010,7 +1020,6 @@ class BaseTrendlineEvent(models.Model):
         abstract = True
         ordering = ['-event_date']
 
-# ... 为 SH, SZ, CY, KC, BJ 创建对应的分表模型 ...
 class TrendlineEvent_SH(BaseTrendlineEvent):
     class Meta(BaseTrendlineEvent.Meta):
         abstract = False
