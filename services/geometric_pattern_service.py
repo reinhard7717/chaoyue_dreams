@@ -1341,14 +1341,13 @@ class GeometricPatternService:
 
     def _calculate_trend_conviction_score(self, line_data: dict, enriched_df: pd.DataFrame, debug_flag: bool = False) -> float:
         """
-        【V2.60 · 最终和谐版】为每个支柱量身定制智慧，实现模型的最终和谐。
-        - V2.60 核心升级:
-          1. [定制化智慧] 打破“单一模型”的框架，为“行为”支柱量身定制了最符合其物理意义的
-             评分体系，彻底解决了因模型错配导致的系统性评分偏差。
-          2. [回归本源] “行为”支柱的评分不再使用高斯归一化，而是直接采用其在趋势期间的
-             “平均效率值 * 100”。这使得评分回归其最纯粹、最直观的物理含义。
-          3. [最终和谐] 模型至此达到了逻辑、数学和领域知识的最终和谐，每个支柱都以最适合
-             其天性的方式贡献见解，并在一个数学统一的框架下完美融合。
+        【V2.61 · 协同共振版】引入加权几何平均数，实现从“加法”到“乘法”的思维跃迁。
+        - V2.61 核心升级:
+          1. [协同共振] 最终分数融合公式从“加权算术平均”升级为“加权几何平均数”。
+             此举旨在奖励“全面强劲”的趋势，并严厉惩罚存在“致命短板”的趋势，
+             完美模拟了“木桶效应”，使评分更符合实战的非线性特征。
+          2. [数学鲁棒性] 在计算几何平均前，将各支柱的贡献分从 [0, 100] 平移至
+             [1, 101]，避免了0值导致整个分数坍缩的极端情况，增强了模型的数学稳定性。
         """
         import math
         start_date = line_data.get('start_date')
@@ -1368,46 +1367,44 @@ class GeometricPatternService:
             return 100 * math.erf(z_score / math.sqrt(2))
         avg_flow, avg_slope, avg_efficiency = 0.0, 0.0, 0.0
         score_power, score_structure, score_behavior = 0.0, 0.0, 0.0
-        # 支柱二: 力量源泉 - 使用高斯模型理解其相对强度 [-100, 100]
         if 'daily_flow_ratio' in trend_df.columns:
             avg_flow = trend_df['daily_flow_ratio'].mean()
             mean, std = last_day_stats.get('flow_mean'), last_day_stats.get('flow_std')
             score_power = gaussian_normalize(avg_flow, mean, std)
-        # 支柱三: 结构完整性 - 使用高斯模型理解其相对强度 [-100, 100]
         if 'solidity_slope_5d' in trend_df.columns:
             avg_slope = trend_df['solidity_slope_5d'].mean()
             mean, std = last_day_stats.get('structure_mean'), last_day_stats.get('structure_std')
             score_structure = gaussian_normalize(avg_slope, mean, std)
-        # [代码修改] V2.60 “行为”支柱回归其物理本源
-        # 支柱四: 行为确认 - 直接使用其物理值作为质量分 [0, 100]
         if 'efficiency_avg_5d' in trend_df.columns:
             avg_efficiency = trend_df['efficiency_avg_5d'].mean()
-            # 趋势效率(TER)的值域是[0,1]，其本身就是完美的“得分率”。
-            # 直接乘以100，即可得到最纯粹、最无偏的趋势质量分数。
             score_behavior = avg_efficiency * 100 if not pd.isna(avg_efficiency) else 0.0
         if debug_flag:
             flow_stats = (last_day_stats.get('flow_mean', 'N/A'), last_day_stats.get('flow_std', 'N/A'))
             struct_stats = (last_day_stats.get('structure_mean', 'N/A'), last_day_stats.get('structure_std', 'N/A'))
-            # [代码修改] V2.60 精简L2探针，不再为“行为”显示无意义的统计量
             print(f"            [原始读数 & 高斯统计(μ,σ)] "
                   f"力量: {avg_flow:.4f} vs ({flow_stats[0]:.4f}, {flow_stats[1]:.4f}) | "
                   f"结构: {avg_slope:.6f} vs ({struct_stats[0]:.6f}, {struct_stats[1]:.6f}) | "
                   f"行为: {avg_efficiency:.4f}")
             print(f"          [评分细则] 几何: {score_geometry:.2f}, 力量(资金): {score_power:.2f}, 结构(筹码): {score_structure:.2f}, 行为(效率): {score_behavior:.2f}")
-        # 在最终融合阶段，根据line_type统一立场
         if line_type == 'resistance':
             score_power = -score_power
             score_structure = -score_structure
-        # 统一所有支柱到 [0, 100] 的贡献度量表
         power_contribution = (score_power + 100) / 2
         structure_contribution = (score_structure + 100) / 2
         behavior_contribution = score_behavior
+        # [代码修改] V2.61 引入加权几何平均数进行最终融合
+        # 为避免0值影响，将所有贡献分平移到 [1, 101] 区间
+        g_geom = score_geometry + 1
+        g_power = power_contribution + 1
+        g_struct = structure_contribution + 1
+        g_behav = behavior_contribution + 1
+        # 使用乘法逻辑计算最终得分，更能体现协同效应
         final_score = (
-            score_geometry * 0.15 +
-            power_contribution * 0.35 +
-            structure_contribution * 0.30 +
-            behavior_contribution * 0.20
-        )
+            (g_geom ** 0.15) *
+            (g_power ** 0.35) *
+            (g_struct ** 0.30) *
+            (g_behav ** 0.20)
+        ) - 1 # 将结果平移回 [0, 100] 区间
         return final_score
 
 

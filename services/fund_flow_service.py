@@ -1371,14 +1371,7 @@ class AdvancedFundFlowMetricsService:
                 total_seconds = 4 * 60 * 60 # 交易总秒数
                 results['large_order_pressure'] = pressure_strength / (daily_total_volume * total_seconds) * 100
                 results['large_order_support'] = support_strength / (daily_total_volume * total_seconds) * 100
-        print(f"    -> [探针] --- 微观结构情报 @ {tick_df.index[0].date()} ---")
-        print(f"      - 主力OFI: {results.get('main_force_ofi', np.nan):.4f}")
-        print(f"      - 散户OFI: {results.get('retail_ofi', np.nan):.4f}")
-        print(f"      - 对倒强度: {results.get('wash_trade_intensity', np.nan):.4f}")
-        print(f"      - 盘口失衡: {results.get('order_book_imbalance', np.nan):.2f}%")
-        print(f"      - 大单压制: {results.get('large_order_pressure', np.nan):.4f}")
-        print(f"      - 大单支撑: {results.get('large_order_support', np.nan):.4f}")
-        print("    -> [探针] ----------------------------------------------------")
+        # [代码修改] 移除所有调试性质的print探针
         return results
 
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):

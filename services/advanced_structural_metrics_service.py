@@ -118,7 +118,7 @@ class AdvancedStructuralMetricsService:
             return pd.DataFrame.from_records(qs.values())
         tick_df = await get_hf_data(TickModel, stock_info.pk, start_datetime, end_datetime)
         if not tick_df.empty:
-            print(f"调试信息: [{stock_info.stock_code}] [结构服务] 在 {start_date.date()} 到 {end_date.date()} 范围内发现逐笔数据，开始处理。")
+            # [代码修改] 移除调试信息
             tick_df['trade_time'] = pd.to_datetime(tick_df['trade_time']).dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
             level5_df = await get_hf_data(Level5Model, stock_info.pk, start_datetime, end_datetime)
             if not level5_df.empty:
@@ -146,7 +146,7 @@ class AdvancedStructuralMetricsService:
         dates_with_hf_data = set(intraday_data_map.keys())
         dates_for_fallback = sorted(list(all_required_dates - dates_with_hf_data))
         if dates_for_fallback:
-            print(f"调试信息: [{stock_info.stock_code}] [结构服务] 为 {len(dates_for_fallback)} 个日期回退加载分钟数据: {dates_for_fallback}")
+            # [代码修改] 移除调试信息
             MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
             if MinuteModel:
                 @sync_to_async(thread_sensitive=True)
@@ -156,11 +156,7 @@ class AdvancedStructuralMetricsService:
                     end_dt_fallback = timezone.make_aware(datetime.combine(dates_list[-1], time.max))
                     qs = model.objects.filter(stock_id=stock_pk, trade_time__gte=start_dt_fallback, trade_time__lte=end_dt_fallback)
                     qs_count = qs.count()
-                    print(f"--- [DB查询探针] 结构服务分钟数据回退 ---")
-                    print(f"  -> 模型: {model.__name__}")
-                    print(f"  -> 查询日期数量: {len(dates_list)}")
-                    print(f"  -> 数据库返回记录数: {qs_count}")
-                    print(f"--- [探针结束] ---")
+                    # [代码修改] 移除DB查询探针
                     if qs_count == 0:
                         return pd.DataFrame()
                     # 额外过滤确保只包含请求的日期
@@ -664,7 +660,8 @@ class AdvancedStructuralMetricsService:
             if not merged_full.empty:
                 required_join_cols = ['a1_v_pre', 'b1_v_pre', 'a1_p_post', 'a1_p_pre', 'a1_v_post', 'b1_p_post', 'b1_p_pre', 'b1_v_post']
                 if not all(col in merged_full.columns for col in required_join_cols):
-                    print(f"调试信息: [{daily_series_for_day.name}] 合并后的DataFrame缺少关键列，跳过流动性真实性评分计算。")
+                    # [代码修改] 移除调试信息
+                    pass
                 else:
                     merged_full.dropna(subset=required_join_cols, inplace=True)
                     if not merged_full.empty:
@@ -794,12 +791,8 @@ class AdvancedStructuralMetricsService:
             # 1. 市场冲击成本 (Market Impact Cost)
             total_amount = daily_series_for_day.get('amount', 0)
             if not pd.notna(total_amount) or total_amount <= 0:
-                print(f"--- [探针调试] 结构指标 ---")
-                print(f"  -> 日期: {daily_series_for_day.name}, 发现当日总成交额为零或无效。可能原因：全天停牌。")
-                print(f"  -> total_amount 的值: {total_amount}")
-                print(f"  -> 当日日线数据 (daily_series_for_day):")
-                print(daily_series_for_day.to_string())
-                print(f"--- [探针结束] ---")
+                # [代码修改] 移除调试探针
+                pass
             if total_amount > 0:
                 standard_amount = float(total_amount) * 0.001
                 impact_costs = []
@@ -861,7 +854,7 @@ class AdvancedStructuralMetricsService:
         # 筛选出模型中存在的列
         cols_to_keep = [col for col in final_df.columns if col in model_fields]
         df_filtered = final_df[cols_to_keep]
-        print(f"调试信息: [{stock_info.stock_code}] 准备保存数据。DataFrame总列数: {len(final_df.columns)}, 筛选后列数: {len(df_filtered.columns)}")
+        # [代码修改] 移除调试信息
         # 转换为字典列表
         records_list = df_filtered.to_dict('records')
         @sync_to_async(thread_sensitive=True)
