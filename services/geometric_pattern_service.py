@@ -1084,24 +1084,22 @@ class GeometricPatternService:
 
     def _identify_flagpole(self, df: pd.DataFrame, end_index_loc: int, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
-        【V4.1 · 脉冲纯度版】引入结构连续性约束，过滤掉意图不纯的伪旗杆。
-        - V4.1 核心升级:
-          1. [脉冲纯度协议] 新增一个决定性约束：一个合法的旗杆，其内部不应包含任何
-                             显著破坏结构连续性的回调日。
-          2. [动态阈值] 检查候选旗杆周期内，是否存在任何一天的收盘价跌幅超过基于ATR
-                         动态计算的容忍阈值（例如 0.5 * ATR）。
-          3. [源头过滤] 一旦发现“污染日”，立即判定当前候选旗杆无效，从源头上保证了
-                         旗杆定义的结构纯粹性和意图单一性。
+        【V4.2 · 和谐评分版】重构评分体系，引入非线性曲线以取代脆弱的线性函数。
+        - V4.2 核心升级:
+          1. [和谐评分] 废弃原有的线性`clip`评分公式，以解决其在阈值附近过于“脆弱”的问题。
+          2. [非线性校准] 为“幅度”和“能量”维度引入基于二次方函数的评分模型，
+                         使得分曲线更平滑，更能反映市场表现的非线性特征。
+          3. [评分鲁棒性] 新体系能够更公平地为表现“尚可”的候选者赋分，避免了因微小
+                         差距而导致评分直接归零的“悬崖效应”，大幅提升了评估的鲁棒性。
         """
         min_dur = archetype.get('pole_min_dur', 2)
         max_dur = archetype.get('pole_max_dur', 8)
         min_magnitude_atr = archetype.get('pole_magnitude_atr', 4.0)
         min_vol_multiple = archetype.get('pole_vol_multiple', 1.8)
-        # [代码修改] V4.1 从原型配置中获取最大日内回撤ATR倍数
         max_daily_drop_atr = archetype.get('pole_max_daily_drop_atr', 0.5)
         end_date = df.index[end_index_loc]
         minute_map = data_dfs.get("stock_minute_data_map", {})
-        print(f"    -> [旗杆探针 V4.1] 检查结束于 {end_date.date()} 的候选旗杆 (采用脉冲纯度协议)...")
+        print(f"    -> [旗杆探针 V4.2] 检查结束于 {end_date.date()} 的候选旗杆 (采用和谐评分)...")
         best_pole = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1112,7 +1110,6 @@ class GeometricPatternService:
             print(f"      - [候选周期: {duration}天] ({start_date.date()} -> {end_date.date()})")
             atr_at_start = df['ATR_14_D'].iloc[start_index_loc - 1] if start_index_loc > 0 else df['ATR_14_D'].iloc[0]
             if atr_at_start == 0: continue
-            # [代码修改] V4.1 植入“脉冲纯度”检查
             daily_drops = pole_df['close_qfq'].diff().dropna()
             max_drop_value = abs(daily_drops[daily_drops < 0].min()) if not daily_drops[daily_drops < 0].empty else 0
             if max_drop_value > max_daily_drop_atr * atr_at_start:
@@ -1121,7 +1118,8 @@ class GeometricPatternService:
             pole_high = pole_df['high_qfq'].max()
             pole_low = pole_df['low_qfq'].min()
             magnitude_atr = (pole_high - pole_low) / atr_at_start
-            magnitude_score = np.clip((magnitude_atr - min_magnitude_atr * 0.5) / (min_magnitude_atr * 1.0), 0, 1) * 100
+            # [代码修改] V4.2 引入“和谐评分”体系，替换脆弱的线性评分
+            magnitude_score = 100 * (np.clip(magnitude_atr / (min_magnitude_atr * 1.5), 0, 1)) ** 2
             print(f"        - [幅度] ATR倍数: {magnitude_atr:.2f} -> 得分: {magnitude_score:.1f}/100")
             closes = pole_df['close_qfq'].values
             if len(closes) < 2: continue
@@ -1133,7 +1131,8 @@ class GeometricPatternService:
             vol_ma_at_start = df[vol_ma_col_name].iloc[start_index_loc - 1] if start_index_loc > 0 else df[vol_ma_col_name].iloc[0]
             avg_volume_pole = pole_df['vol'].mean()
             actual_vol_multiple = avg_volume_pole / vol_ma_at_start if vol_ma_at_start > 0 else 0
-            energy_score = np.clip((actual_vol_multiple - min_vol_multiple * 0.8) / (min_vol_multiple * 0.7), 0, 1) * 100
+            # [代码修改] V4.2 引入“和谐评分”体系，替换脆弱的线性评分
+            energy_score = 100 * (np.clip(actual_vol_multiple / (min_vol_multiple * 1.5), 0, 1)) ** 2
             print(f"        - [能量] 成交量倍数: {actual_vol_multiple:.2f}x -> 得分: {energy_score:.1f}/100")
             purity_scores = [self._calculate_intraday_trend_purity(minute_map.get(d.date())) for d in pole_df.index]
             purity_score = np.mean(purity_scores) if purity_scores else 50.0
