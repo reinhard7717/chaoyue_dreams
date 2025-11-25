@@ -994,19 +994,17 @@ class GeometricPatternService:
 
     def _predict_flag_breakout_probability(self, enriched_df: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V2.65 · 全息旗形版】重构为原型驱动的多时间框架识别引擎。
-        - V2.65 核心升级:
-          1. [原型驱动] 不再执行写死的日线逻辑，而是遍历配置文件中定义的所有旗形原型。
-          2. [MTF扫描] 根据每个原型指定的 `timeframe`，在对应的时间框架数据上执行识别。
-          3. [参数化调用] 将原型中定义的具体参数（如持续时间、幅度等）动态传递给
-             `_identify_flagpole` 和 `_identify_flag` 方法，实现高度可配置。
+        【V2.66 · 全息诊断探针版】重构为原型驱动的多时间框架识别引擎。
+        - V2.66 核心升级:
+          1. [顶层探针] 植入顶层诊断探针，清晰展示当前扫描的时间框架、应用的原型，
+             以及最终发现高置信度旗形时的确认信息。
         """
         events = []
-        # [代码修改] V2.65 顶层循环遍历所有旗形原型
         for archetype in self.flag_archetypes:
             timeframe = archetype.get('timeframe', 'D')
             archetype_name = archetype.get('name', 'UNKNOWN_FLAG')
-            print(f"  -> [全息旗形扫描] 开始在 [{timeframe}] 级别应用原型 [{archetype_name}]...")
+            # [代码修改] V2.66 植入顶层探针
+            print(f"\n  -> [全息旗形扫描] 开始在 [{timeframe}] 级别应用原型 [{archetype_name}]...")
             df_source = None
             if timeframe == 'D':
                 df_source = enriched_df
@@ -1020,12 +1018,10 @@ class GeometricPatternService:
                 print(f"     - [数据不足] {timeframe} 级别数据长度 {len(df_source)} < {min_data_len}，跳过此原型。")
                 continue
             df = df_source.copy()
-            # 动态准备数据
             vol_ma_col_name = f'vol_ma{self.long_term_period}_{timeframe}'
             df[vol_ma_col_name] = df['vol'].rolling(self.long_term_period).mean()
             ultra_long_ma_col_name = f'ma{self.ultra_long_term_period}_{timeframe}'
             df[ultra_long_ma_col_name] = df['close_qfq'].rolling(self.ultra_long_term_period, min_periods=self.long_term_period).mean()
-            # 核心识别循环
             for i in range(len(df) - 5, min_data_len, -1):
                 pole = self._identify_flagpole(df, end_index_loc=i, vol_ma_col_name=vol_ma_col_name, archetype=archetype)
                 if not pole:
@@ -1033,7 +1029,6 @@ class GeometricPatternService:
                 flag = self._identify_flag(df, pole, vol_ma_col_name=vol_ma_col_name, archetype=archetype)
                 if not flag:
                     continue
-                # 旗形验证逻辑 (暂时保持日线级别的验证指标，未来可扩展)
                 if timeframe == 'D':
                     pole_df = df.loc[pole['start_date']:pole['end_date']]
                     flag_df = df.loc[flag['start_date']:flag['end_date']]
@@ -1045,12 +1040,13 @@ class GeometricPatternService:
                     if flag_df['low_qfq'].min() < dominant_peak_cost_at_start: continue
                     breakout_readiness = flag_df['breakout_readiness_score'].iloc[-1]
                     if breakout_readiness < 60: continue
-                print(f"  -> [高置信度旗形] 在 {flag['end_date']} 于 [{timeframe}] 级别发现！原型: [{archetype_name}]。")
+                # [代码修改] V2.66 植入高置信度发现探针
+                print(f"  -> [高置信度旗形发现!] 日期: {flag['end_date'].date()}, 级别: [{timeframe}], 原型: [{archetype_name}]。启动概率精算...")
                 probability, features = self._calculate_expert_breakout_probability(df, pole, flag, vol_ma_col_name=vol_ma_col_name, ultra_long_ma_col_name=ultra_long_ma_col_name)
                 events.append({
                     'stock': self.stock_instance,
                     'event_date': flag['end_date'].date(),
-                    'event_type': f'FLAG_FORMED_{timeframe}', # 事件类型包含时间框架
+                    'event_type': f'FLAG_FORMED_{timeframe}',
                     'details': {
                         'archetype': archetype_name,
                         'probability': probability,
@@ -1064,31 +1060,42 @@ class GeometricPatternService:
 
     def _identify_flagpole(self, df: pd.DataFrame, end_index_loc: int, vol_ma_col_name: str, archetype: dict) -> dict:
         """
-        【V2.65 · 原型驱动版】识别旗杆：寻找一次暴力的、出人意料的、能量充沛的突袭。
-        - V2.65 核心升级: 不再使用硬编码参数，所有识别准则均从传入的 `archetype` 字典中动态获取。
+        【V2.66 · 全息诊断探针版】识别旗杆：寻找一次暴力的、出人意料的、能量充沛的突袭。
+        - V2.66 核心升级: 植入“条件解剖探针”，详细展示幅度、能量、方向三大核心条件的
+                         计算过程与判断结果，实现完全的决策透明化。
         """
-        # [代码修改] V2.65 从原型中获取参数
         min_dur = archetype.get('pole_min_dur', 2)
         max_dur = archetype.get('pole_max_dur', 8)
         min_magnitude_atr = archetype.get('pole_magnitude_atr', 4.0)
         min_vol_multiple = archetype.get('pole_vol_multiple', 1.8)
+        # [代码修改] V2.66 植入旗杆识别探针
+        end_date = df.index[end_index_loc]
+        print(f"    -> [旗杆探针] 检查结束于 {end_date.date()} 的候选旗杆...")
         for duration in range(min_dur, max_dur + 1):
             start_index_loc = end_index_loc - duration + 1
             if start_index_loc < 0: continue
             pole_df = df.iloc[start_index_loc : end_index_loc + 1]
+            start_date = pole_df.index[0]
+            print(f"      - [候选周期: {duration}天] ({start_date.date()} -> {end_date.date()})")
             atr_at_start = df['ATR_14_D'].iloc[start_index_loc - 1] if start_index_loc > 0 else df['ATR_14_D'].iloc[0]
-            if atr_at_start == 0: continue
+            if atr_at_start == 0:
+                print(f"        - [幅度(ATR)] 初始ATR为0，无法计算。 [✗ REJECTED]")
+                continue
             pole_high = pole_df['high_qfq'].max()
             pole_low = pole_df['low_qfq'].min()
             magnitude_atr = (pole_high - pole_low) / atr_at_start
-            if magnitude_atr < min_magnitude_atr:
-                continue
+            mag_check = magnitude_atr >= min_magnitude_atr
+            print(f"        - [幅度(ATR)] 计算值: {magnitude_atr:.2f}, 要求: >= {min_magnitude_atr} [{ '✓' if mag_check else '✗'}]")
+            if not mag_check: continue
             vol_ma_at_start = df[vol_ma_col_name].iloc[start_index_loc - 1] if start_index_loc > 0 else df[vol_ma_col_name].iloc[0]
             avg_volume_pole = pole_df['vol'].mean()
-            if avg_volume_pole < min_vol_multiple * vol_ma_at_start:
-                continue
-            if pole_df['close_qfq'].iloc[-1] <= pole_df['open_qfq'].iloc[0]:
-                continue
+            vol_check = avg_volume_pole >= min_vol_multiple * vol_ma_at_start
+            print(f"        - [能量(成交量)] 均量: {avg_volume_pole:,.0f}, 要求: >= {min_vol_multiple * vol_ma_at_start:,.0f} ({min_vol_multiple}倍MA) [{ '✓' if vol_check else '✗'}]")
+            if not vol_check: continue
+            dir_check = pole_df['close_qfq'].iloc[-1] > pole_df['open_qfq'].iloc[0]
+            print(f"        - [方向] 收盘价 > 开盘价: {pole_df['close_qfq'].iloc[-1]:.2f} > {pole_df['open_qfq'].iloc[0]:.2f} [{ '✓' if dir_check else '✗'}]")
+            if not dir_check: continue
+            print(f"        - [✓ ACCEPTED] 所有条件满足，确认为有效旗杆。")
             return {
                 'start_date': pole_df.index[0],
                 'end_date': pole_df.index[-1],
@@ -1101,33 +1108,45 @@ class GeometricPatternService:
 
     def _identify_flag(self, df: pd.DataFrame, pole_data: dict, vol_ma_col_name: str, archetype: dict) -> dict:
         """
-        【V2.65 · 原型驱动版】识别旗面：寻找一次成交极度萎缩、回撤可控的战术性佯退。
-        - V2.65 核心升级: 不再使用硬编码参数，所有识别准则均从传入的 `archetype` 字典中动态获取。
+        【V2.66 · 全息诊断探针版】识别旗面：寻找一次成交极度萎缩、回撤可控的战术性佯退。
+        - V2.66 核心升级: 植入“条件解剖探针”，详细展示成交量萎缩、回撤深度、价格压制
+                         三大核心条件的计算过程与判断结果。
         """
-        # [代码修改] V2.65 从原型中获取参数
         min_dur = archetype.get('flag_min_dur', 5)
         max_dur = archetype.get('flag_max_dur', 20)
         vol_shrink_pole = archetype.get('flag_vol_shrink_pole', 0.7)
         vol_shrink_ma = archetype.get('flag_vol_shrink_ma', 1.0)
         max_retracement = archetype.get('flag_max_retracement', 0.5)
         pole_end_loc = df.index.get_loc(pole_data['end_date'])
+        # [代码修改] V2.66 植入旗面识别探针
+        print(f"    -> [旗面探针] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面...")
         for duration in range(min_dur, max_dur + 1):
             flag_start_loc = pole_end_loc + 1
             flag_end_loc = flag_start_loc + duration -1
             if flag_end_loc >= len(df): break
             flag_df = df.iloc[flag_start_loc : flag_end_loc + 1]
+            start_date = flag_df.index[0]
+            end_date = flag_df.index[-1]
+            print(f"      - [候选周期: {duration}天] ({start_date.date()} -> {end_date.date()})")
             avg_volume_flag = flag_df['vol'].mean()
             vol_ma_at_flag_start = df[vol_ma_col_name].iloc[flag_start_loc -1]
-            if not (avg_volume_flag < vol_shrink_pole * pole_data['avg_volume'] and avg_volume_flag < vol_shrink_ma * vol_ma_at_flag_start):
-                continue
+            vol_check1 = avg_volume_flag < vol_shrink_pole * pole_data['avg_volume']
+            vol_check2 = avg_volume_flag < vol_shrink_ma * vol_ma_at_flag_start
+            print(f"        - [成交量萎缩] 均量: {avg_volume_flag:,.0f} | vs旗杆({vol_shrink_pole*100}%): < {vol_shrink_pole * pole_data['avg_volume']:,.0f} [{ '✓' if vol_check1 else '✗'}] | vs均线({vol_shrink_ma*100}%): < {vol_shrink_ma * vol_ma_at_flag_start:,.0f} [{ '✓' if vol_check2 else '✗'}]")
+            if not (vol_check1 and vol_check2): continue
             flag_low = flag_df['low_qfq'].min()
             pole_range = pole_data['high_price'] - pole_data['low_price']
             if pole_range == 0: continue
             retracement_depth = (pole_data['high_price'] - flag_low) / pole_range
-            if retracement_depth > max_retracement:
+            depth_check = retracement_depth <= max_retracement
+            print(f"        - [回撤深度] 计算值: {retracement_depth:.2%}, 要求: <= {max_retracement:.2%} [{ '✓' if depth_check else '✗'}]")
+            if not depth_check:
+                print(f"        - [✗ REJECTED] 回撤过深，识别终止。")
                 return None
-            if flag_df['close_qfq'].max() > pole_data['high_price']:
-                continue
+            price_check = flag_df['close_qfq'].max() <= pole_data['high_price']
+            print(f"        - [价格压制] 旗面最高收盘价 <= 旗杆最高价: {flag_df['close_qfq'].max():.2f} <= {pole_data['high_price']:.2f} [{ '✓' if price_check else '✗'}]")
+            if not price_check: continue
+            print(f"        - [✓ ACCEPTED] 所有条件满足，确认为有效旗面。")
             return {
                 'start_date': flag_df.index[0],
                 'end_date': flag_df.index[-1],
@@ -1139,11 +1158,9 @@ class GeometricPatternService:
 
     def _calculate_expert_breakout_probability(self, df: pd.DataFrame, pole: dict, flag: dict, vol_ma_col_name: str, ultra_long_ma_col_name: str) -> (float, dict):
         """
-        【V2.64 · 宏观解耦版】基于一个模拟专家决策的加权评分系统，计算旗形突破的概率。
-        - V2.64 核心升级:
-          1. [宏观适应性评分] 重构了对超长周期趋势的评估逻辑，不再是简单的二元判断。
-          2. [动态评估] 新的评估函数会综合考量价格与年线的相对位置以及年线自身的斜率，
-             生成一个连续的、更精细的调整因子，使概率预测更具弹性。
+        【V2.66 · 全息诊断探针版】基于一个模拟专家决策的加权评分系统，计算旗形突破的概率。
+        - V2.66 核心升级: 植入“专家系统探针”，详细展示从基础概率到最终概率的完整
+                         Log-Odds调整过程，量化每一个决策因子的贡献。
         """
         import math
         base_probability = 0.55
@@ -1161,45 +1178,51 @@ class GeometricPatternService:
             adjustments['flag_shallow_retracement'] = 0.4
         if flag['duration'] > 15:
             adjustments['flag_long_duration'] = -0.3
-        if flag_df['main_force_net_flow_calibrated_sum_5d'].iloc[-1] > 0:
+        if 'main_force_net_flow_calibrated_sum_5d' in flag_df.columns and flag_df['main_force_net_flow_calibrated_sum_5d'].iloc[-1] > 0:
             adjustments['flag_mf_accumulation'] = 0.6
-        if flag_df['retail_net_flow_calibrated'].mean() > 0:
+        if 'retail_net_flow_calibrated' in flag_df.columns and flag_df['retail_net_flow_calibrated'].mean() > 0:
             adjustments['flag_retail_frontrun'] = -0.4
-        dominant_peak_cost = flag_df['dominant_peak_cost'].iloc[0]
-        support_margin = (flag_df['low_qfq'].min() - dominant_peak_cost) / dominant_peak_cost if dominant_peak_cost > 0 else 0
-        if support_margin > 0.05:
-            adjustments['chip_strong_support'] = 0.5
-        if flag_df['chip_health_score'].iloc[-1] > 75:
+        if 'dominant_peak_cost' in flag_df.columns:
+            dominant_peak_cost = flag_df['dominant_peak_cost'].iloc[0]
+            support_margin = (flag_df['low_qfq'].min() - dominant_peak_cost) / dominant_peak_cost if dominant_peak_cost > 0 else 0
+            if support_margin > 0.05:
+                adjustments['chip_strong_support'] = 0.5
+        if 'chip_health_score' in flag_df.columns and flag_df['chip_health_score'].iloc[-1] > 75:
             adjustments['chip_health_high'] = 0.3
-        if flag_df['breakout_readiness_score'].iloc[-1] > 80:
+        if 'breakout_readiness_score' in flag_df.columns and flag_df['breakout_readiness_score'].iloc[-1] > 80:
             adjustments['structure_high_readiness'] = 0.4
-        # [代码修改] V2.64 引入宏观背景适应性评分
         long_term_trend_adjustment = 0.0
         ma_ultra_long = df[ultra_long_ma_col_name].loc[flag['end_date']]
         if pd.notna(ma_ultra_long):
-            # 1. 评估相对位置
             close_price = flag_df['close_qfq'].iloc[-1]
             position_ratio = (close_price - ma_ultra_long) / ma_ultra_long
-            position_score = np.clip(position_ratio / 0.15, -1, 1) # 偏离15%视为强信号
-            # 2. 评估均线自身趋势
+            position_score = np.clip(position_ratio / 0.15, -1, 1)
             ma_series = df[ultra_long_ma_col_name].dropna()
             if len(ma_series) > 20:
                 ma_slope = ta.slope(ma_series, length=20).iloc[-1]
-                slope_score = np.clip(ma_slope / (ma_ultra_long * 0.001), -1, 1) # 日均0.1%的涨幅视为强趋势
+                slope_score = np.clip(ma_slope / (ma_ultra_long * 0.001), -1, 1)
             else:
-                slope_score = 0.0 # 数据不足，给予中性分
-            # 3. 融合评分 (位置权重60%，趋势权重40%)
+                slope_score = 0.0
             context_score = position_score * 0.6 + slope_score * 0.4
-            long_term_trend_adjustment = context_score * 0.5 # 最大调整幅度为0.5
+            long_term_trend_adjustment = context_score * 0.5
         adjustments['long_term_trend_aligned'] = long_term_trend_adjustment
         total_adjustment = sum(adjustments.values())
         final_log_odds = log_odds + total_adjustment
         final_probability = 1 / (1 + math.exp(-final_log_odds))
+        # [代码修改] V2.66 植入专家系统概率精算探针
+        print(f"    -> [专家系统概率精算]")
+        print(f"      - 基础概率: {base_probability:.2%} -> 初始Log-Odds: {log_odds:.4f}")
+        print(f"      - 概率调整项:")
+        for key, value in adjustments.items():
+            print(f"        - {key:<30}: {value:+.4f}")
+        print(f"      - 总调整值: {total_adjustment:+.4f}")
+        print(f"      - 最终Log-Odds: {log_odds:.4f} + {total_adjustment:.4f} = {final_log_odds:.4f}")
+        print(f"      - >> 最终突破概率: {final_probability:.2%}")
         features = {
             'base_probability': base_probability,
             'pole_height_atr': pole['magnitude_atr'],
             'flag_retracement_pct': flag['retracement_depth'],
-            'breakout_readiness_score': flag_df['breakout_readiness_score'].iloc[-1],
+            'breakout_readiness_score': flag_df['breakout_readiness_score'].iloc[-1] if 'breakout_readiness_score' in flag_df.columns else None,
             'adjustments': adjustments,
             'total_adjustment': total_adjustment,
             'final_log_odds': final_log_odds
