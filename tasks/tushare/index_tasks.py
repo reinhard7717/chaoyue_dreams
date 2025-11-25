@@ -3,7 +3,7 @@ import asyncio
 from asgiref.sync import async_to_sync
 import logging
 import datetime
-from typing import List, Dict, Any # 引入 List, Dict, Any
+from typing import List, Dict, Any, Optional # 引入 List, Dict, Any
 from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.index_basic_dao import IndexBasicDAO
 from utils.cache_manager import CacheManager
