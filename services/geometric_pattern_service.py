@@ -224,13 +224,13 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict):
         """
-        【V2.51 · 信念评分版】识别、量化并存储矩形平台。
-        - 核心升级: 1. 在平台被归类后，新增调用 `_calculate_platform_conviction_score` 方法。
-                     2. 该方法用于评估平台本身的结构质量和主力控盘的“信念强度”。
-                     3. 将计算出的 `platform_conviction_score` 存入数据库，为策略提供更深度的质量评估维度。
+        【V2.52 · 参照系校准版】修正了RSSlope的计算逻辑，引入动态参照系。
+        - V2.52 核心修复: 在计算RSSlope前，将平台内的RS序列除以其首个值进行归一化。
+                         这使得斜率能够准确反映平台内部的相对强弱演化，解决了因绝对
+                         值过大导致归一化斜率趋近于零的问题。
         """
         import math
-        print(f"  -> [V2.51 信念评分] 启动...")
+        print(f"  -> [V2.52 参照系校准] 启动...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
@@ -319,7 +319,8 @@ class GeometricPatternService:
                 'vts': self._calculate_linear_regression_slope(group['vol']),
                 'vcr': self._calculate_volatility_contraction_ratio(group),
                 'pk': self._calculate_price_kurtosis(group),
-                'rss': self._calculate_linear_regression_slope(group['rs']) if 'rs' in group else 0.0
+                # [代码修改] V2.52 引入动态参照系，对RS序列进行归一化处理
+                'rss': self._calculate_linear_regression_slope(group['rs'] / group['rs'].iloc[0]) if 'rs' in group and not group.empty and group['rs'].iloc[0] != 0 else 0.0
             }
             print(f"     - [博弈指标] VPSkew: {metrics['vps']:.2f}, VolSlope: {metrics['vts']:.2f}, VolatilityContract: {metrics['vcr']:.2f}, PriceKurtosis: {metrics['pk']:.2f}, RSSlope: {metrics['rss']:.3f}")
             best_archetype = None
@@ -340,7 +341,6 @@ class GeometricPatternService:
             if best_archetype:
                 archetype_name = best_archetype.get('name', 'UNKNOWN')
                 print(f"     - [BEST FIT & ACCEPTED] 最佳匹配原型为 [{archetype_name}] (拟合度: {best_fit_score:.2f})，将被量化。")
-                # [代码修改] V2.51 新增调用信念评分计算
                 conviction_score = self._calculate_platform_conviction_score(group)
                 print(f"     - [信念评估] 平台内在信念评分为: {conviction_score:.2f}")
                 character, score_val = self._assess_platform_character(group)
@@ -384,16 +384,16 @@ class GeometricPatternService:
                     'platform_character': character, 'character_score': score_val,
                     'platform_archetype': archetype_name,
                     'goodness_of_fit_score': best_fit_score,
-                    'platform_conviction_score': conviction_score, # [代码修改] V2.51 新增信念评分
+                    'platform_conviction_score': conviction_score,
                 }
                 platforms_to_save.append(platform_data)
                 saved_start_dates.add(start_date)
             else:
                 print(f"     - [REJECTED] 未找到任何在几何门槛内且有意义的匹配原型。")
         found_count = len(platforms_to_save)
-        print(f"\n  -> [V2.51 信念评分] 扫描完成，共发现 {found_count} 个有效平台。")
+        print(f"\n  -> [V2.52 参照系校准] 扫描完成，共发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.51 信念评分] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.52 参照系校准] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
@@ -1403,8 +1403,9 @@ class GeometricPatternService:
 
     def _calculate_platform_conviction_score(self, platform_group: pd.DataFrame) -> float:
         """
-        【V2.51 新增】计算平台的“内在信念”分数。
-        该评分融合五大支柱，用于评估平台本身的结构质量和主力控盘的信念强度。
+        【V2.52 · 参照系校准版】修正了RSSlope的计算逻辑，与主诊断流程保持一致。
+        - V2.52 核心修复: 在计算用于信念评分的RSSlope时，同样采用动态参照系对RS序列
+                         进行归一化，确保了从诊断到评分的逻辑一致性和计算准确性。
         """
         # 支柱一: 控盘与洗盘力度 (Price Kurtosis) - 权重 30%
         pk = self._calculate_price_kurtosis(platform_group)
@@ -1423,7 +1424,8 @@ class GeometricPatternService:
         internal_strength = ((platform_group['close_qfq'] - platform_group['low_qfq']) / daily_range.replace(0, np.nan)).fillna(0.5)
         score_internal = internal_strength.mean() * 100
         # 支柱五: 相对市场强度 (Relative Strength Slope) - 权重 10%
-        rss = self._calculate_linear_regression_slope(platform_group['rs']) if 'rs' in platform_group else 0.0
+        # [代码修改] V2.52 引入动态参照系，对RS序列进行归一化处理
+        rss = self._calculate_linear_regression_slope(platform_group['rs'] / platform_group['rs'].iloc[0]) if 'rs' in platform_group and not platform_group.empty and platform_group['rs'].iloc[0] != 0 else 0.0
         # 斜率越大越好，将[-0.01, 0.01]的范围映射到[0, 100]分
         score_rss = np.clip((rss - (-0.01)) / (0.01 - (-0.01)), 0, 1) * 100
         # 融合总分
