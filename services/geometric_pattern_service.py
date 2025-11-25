@@ -1119,11 +1119,11 @@ class GeometricPatternService:
 
     def _identify_flag(self, df: pd.DataFrame, pole_data: dict, vol_ma_col_name: str, archetype: dict) -> dict:
         """
-        【V2.71 · 协同判断版】引入动态协同加权与三位一体评估，实现智慧的非线性融合。
-        - V2.71 核心升级:
-          1. [三位一体] 废除“价格压制”的刚性否决，将其升级为第三大评分支柱“盘整完整性得分”。
-          2. [协同判断] 引入动态加权系统。任一维度的“王牌分数”将动态提升自身权重，模拟专家思维。
-          3. [探针升级] 探针将完全展示三大支柱得分、权重动态调整过程及最终的协同判断结果。
+        【V2.72 · 全息审判版】引入证据自我加权模型，实现最终的非线性智慧融合。
+        - V2.72 核心升级:
+          1. [全息审判] 废除所有预设权重，引入“证据即权重”的终极融合哲学。
+          2. [自我加权] 每个维度的权重由其自身得分动态决定，完美模拟专家的非线性判断。
+          3. [终极形态] 旗面识别逻辑达到思想上的最终形态，成为一个自适应的、由证据驱动的智慧体。
         """
         min_dur = archetype.get('flag_min_dur', 5)
         max_dur = archetype.get('flag_max_dur', 20)
@@ -1131,7 +1131,7 @@ class GeometricPatternService:
         vol_shrink_ma = archetype.get('flag_vol_shrink_ma', 1.0)
         max_retracement = archetype.get('flag_max_retracement', 0.5)
         pole_end_loc = df.index.get_loc(pole_data['end_date'])
-        print(f"    -> [旗面探针 V2.71] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用协同判断)...")
+        print(f"    -> [旗面探针 V2.72] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用全息审判)...")
         best_flag = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1142,7 +1142,6 @@ class GeometricPatternService:
             start_date = flag_df.index[0]
             end_date = flag_df.index[-1]
             print(f"      - [候选周期: {duration}天] ({start_date.date()} -> {end_date.date()})")
-            # [代码修改] V2.71 引入三位一体评分
             # 1. 成交量萎缩评分
             avg_volume_flag = flag_df['vol'].mean()
             vol_ma_at_flag_start = df[vol_ma_col_name].iloc[flag_start_loc -1]
@@ -1159,31 +1158,22 @@ class GeometricPatternService:
             retracement_depth = (pole_data['high_price'] - flag_low) / pole_range
             depth_score = np.clip((max_retracement * 1.5 - retracement_depth) / (max_retracement * 1.5), 0, 1) * 100
             print(f"        - [回撤深度] 计算值: {retracement_depth:.2%} -> 得分: {depth_score:.1f}/100")
-            # 3. 盘整完整性评分 (新)
+            # 3. 盘整完整性评分
             integrity_score = (flag_df['close_qfq'] <= pole_data['high_price']).mean() * 100
             print(f"        - [盘整完整性] 保持在旗杆高点之下 -> 得分: {integrity_score:.1f}/100")
-            # 4. 动态协同加权与最终信念评分
-            base_weights = {'volume': 0.4, 'depth': 0.4, 'integrity': 0.2}
-            final_weights = base_weights.copy()
-            synergy_bonus = 0.1
-            synergy_applied = False
-            if volume_score > 85:
-                final_weights['volume'] += synergy_bonus
-                final_weights['depth'] -= synergy_bonus / 2
-                final_weights['integrity'] -= synergy_bonus / 2
-                synergy_applied = True
-            if depth_score > 85:
-                final_weights['depth'] += synergy_bonus
-                final_weights['volume'] -= synergy_bonus / 2
-                final_weights['integrity'] -= synergy_bonus / 2
-                synergy_applied = True
-            total_weight = sum(final_weights.values())
-            final_weights = {k: v / total_weight for k, v in final_weights.items()}
-            if synergy_applied:
-                print(f"        - [协同判断] 检测到王牌证据，权重动态调整为: V:{final_weights['volume']:.2f}, D:{final_weights['depth']:.2f}, I:{final_weights['integrity']:.2f}")
-            conviction_score = (volume_score * final_weights['volume'] +
-                                depth_score * final_weights['depth'] +
-                                integrity_score * final_weights['integrity'])
+            # [代码修改] V2.72 引入全息审判融合模型
+            # 4. 全息审判：证据即权重
+            total_score_sum = volume_score + depth_score + integrity_score
+            if total_score_sum < 1e-6: # 避免除零
+                conviction_score = 0.0
+            else:
+                # 最终信念分 = 各维度得分的二次方加权平均
+                conviction_score = (volume_score**2 + depth_score**2 + integrity_score**2) / total_score_sum
+                # 探针日志
+                weight_v = volume_score / total_score_sum
+                weight_d = depth_score / total_score_sum
+                weight_i = integrity_score / total_score_sum
+                print(f"        - [全息审判] 证据权重动态生成: V:{weight_v:.2f}, D:{weight_d:.2f}, I:{weight_i:.2f}")
             print(f"        - [综合信念评分]: {conviction_score:.2f}")
             if conviction_score > max_conviction_score:
                 max_conviction_score = conviction_score
