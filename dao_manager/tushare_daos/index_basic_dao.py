@@ -461,7 +461,7 @@ class IndexBasicDAO(BaseDAO):
                 logger.warning(f"跳过处理: 在数据库中未找到代码为 {index_code} 的指数信息。")
                 continue
             start_date_str = start_date.strftime('%Y%m%d') if start_date else index_info.list_date
-            end_date_str = end_date.strftime('%Y%m%d') if end_date else today.strftime('%Y%m%d')
+            end_date_str = end_date.strftime('%Y%m%d') if end_date else today.strftime('%Ym%d')
             offset = 0
             while True:
                 if offset >= 100000:
@@ -477,8 +477,8 @@ class IndexBasicDAO(BaseDAO):
                     df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
                     df['index'] = index_info
                     df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
-                    df.rename(columns={'pct_chg': 'pct_change'}, inplace=True) # 修改代码：移除了对 ts_code 的重命名
-                    model_cols = ['index', 'trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_change', 'vol', 'amount'] # 修改代码：移除了 'index_code'
+                    # 修改代码：移除不正确的重命名操作
+                    model_cols = ['index', 'trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg', 'vol', 'amount'] # 修改代码：使用正确的模型字段名 'pct_chg'
                     df_final = df[[col for col in model_cols if col in df.columns]]
                     new_dicts = df_final.where(pd.notnull(df_final), None).to_dict('records')
                     index_daily_dicts.extend(new_dicts)
