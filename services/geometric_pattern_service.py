@@ -994,16 +994,14 @@ class GeometricPatternService:
 
     def _predict_flag_breakout_probability(self, enriched_df: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V2.66 · 全息诊断探针版】重构为原型驱动的多时间框架识别引擎。
-        - V2.66 核心升级:
-          1. [顶层探针] 植入顶层诊断探针，清晰展示当前扫描的时间框架、应用的原型，
-             以及最终发现高置信度旗形时的确认信息。
+        【V2.73 · 归一版】实现信念与概率的哲学统一。
+        - V2.73 核心升级:
+          1. [认知统一] 简化调用流程，确认`_identify_flag`的信念评分是概率判断的唯一信息来源。
         """
         events = []
         for archetype in self.flag_archetypes:
             timeframe = archetype.get('timeframe', 'D')
             archetype_name = archetype.get('name', 'UNKNOWN_FLAG')
-            # [代码修改] V2.66 植入顶层探针
             print(f"\n  -> [全息旗形扫描] 开始在 [{timeframe}] 级别应用原型 [{archetype_name}]...")
             df_source = None
             if timeframe == 'D':
@@ -1040,9 +1038,9 @@ class GeometricPatternService:
                     if flag_df['low_qfq'].min() < dominant_peak_cost_at_start: continue
                     breakout_readiness = flag_df['breakout_readiness_score'].iloc[-1]
                     if breakout_readiness < 60: continue
-                # [代码修改] V2.66 植入高置信度发现探针
                 print(f"  -> [高置信度旗形发现!] 日期: {flag['end_date'].date()}, 级别: [{timeframe}], 原型: [{archetype_name}]。启动概率精算...")
-                probability, features = self._calculate_expert_breakout_probability(df, pole, flag, vol_ma_col_name=vol_ma_col_name, ultra_long_ma_col_name=ultra_long_ma_col_name)
+                # [代码修改] V2.73 简化调用，只传递核心的flag信念对象
+                probability, features = self._calculate_expert_breakout_probability(flag)
                 events.append({
                     'stock': self.stock_instance,
                     'event_date': flag['end_date'].date(),
@@ -1191,76 +1189,25 @@ class GeometricPatternService:
             print(f"    -> [✗ REJECTED] 未发现任何候选旗面的信念分超过 {MIN_ACCEPTANCE_SCORE:.1f} 的最低门槛。")
             return None
 
-    def _calculate_expert_breakout_probability(self, df: pd.DataFrame, pole: dict, flag: dict, vol_ma_col_name: str, ultra_long_ma_col_name: str) -> (float, dict):
+    def _calculate_expert_breakout_probability(self, flag: dict) -> (float, dict):
         """
-        【V2.66 · 全息诊断探针版】基于一个模拟专家决策的加权评分系统，计算旗形突破的概率。
-        - V2.66 核心升级: 植入“专家系统探针”，详细展示从基础概率到最终概率的完整
-                         Log-Odds调整过程，量化每一个决策因子的贡献。
+        【V2.73 · 归一版】废除独立的专家规则系统，实现信念与概率的直接映射。
+        - V2.73 核心升级:
+          1. [认知统一] 移除所有硬编码的`if/then`规则和`log-odds`调整，消除认知冗余。
+          2. [信念即概率] 最终的突破概率直接由`_identify_flag`方法计算出的`conviction_score`线性映射而来。
+          3. [终极简化] 方法达到最终的、最纯粹的形态，标志着整个识别引擎思想的完全统一。
         """
-        import math
-        base_probability = 0.55
-        log_odds = math.log(base_probability / (1 - base_probability))
-        adjustments = {}
-        pole_df = df.loc[pole['start_date']:pole['end_date']]
-        flag_df = df.loc[flag['start_date']:flag['end_date']]
-        if pole['magnitude_atr'] > 6.0:
-            adjustments['pole_extreme_magnitude'] = 0.4
-        if pole_df['main_force_conviction_index'].is_monotonic_increasing:
-            adjustments['pole_mf_conviction_increase'] = 0.3
-        if flag['avg_volume'] < 0.5 * df[vol_ma_col_name].loc[flag['start_date']]:
-            adjustments['flag_extreme_volume_shrink'] = 0.5
-        if flag['retracement_depth'] < 0.236:
-            adjustments['flag_shallow_retracement'] = 0.4
-        if flag['duration'] > 15:
-            adjustments['flag_long_duration'] = -0.3
-        if 'main_force_net_flow_calibrated_sum_5d' in flag_df.columns and flag_df['main_force_net_flow_calibrated_sum_5d'].iloc[-1] > 0:
-            adjustments['flag_mf_accumulation'] = 0.6
-        if 'retail_net_flow_calibrated' in flag_df.columns and flag_df['retail_net_flow_calibrated'].mean() > 0:
-            adjustments['flag_retail_frontrun'] = -0.4
-        if 'dominant_peak_cost' in flag_df.columns:
-            dominant_peak_cost = flag_df['dominant_peak_cost'].iloc[0]
-            support_margin = (flag_df['low_qfq'].min() - dominant_peak_cost) / dominant_peak_cost if dominant_peak_cost > 0 else 0
-            if support_margin > 0.05:
-                adjustments['chip_strong_support'] = 0.5
-        if 'chip_health_score' in flag_df.columns and flag_df['chip_health_score'].iloc[-1] > 75:
-            adjustments['chip_health_high'] = 0.3
-        if 'breakout_readiness_score' in flag_df.columns and flag_df['breakout_readiness_score'].iloc[-1] > 80:
-            adjustments['structure_high_readiness'] = 0.4
-        long_term_trend_adjustment = 0.0
-        ma_ultra_long = df[ultra_long_ma_col_name].loc[flag['end_date']]
-        if pd.notna(ma_ultra_long):
-            close_price = flag_df['close_qfq'].iloc[-1]
-            position_ratio = (close_price - ma_ultra_long) / ma_ultra_long
-            position_score = np.clip(position_ratio / 0.15, -1, 1)
-            ma_series = df[ultra_long_ma_col_name].dropna()
-            if len(ma_series) > 20:
-                ma_slope = ta.slope(ma_series, length=20).iloc[-1]
-                slope_score = np.clip(ma_slope / (ma_ultra_long * 0.001), -1, 1)
-            else:
-                slope_score = 0.0
-            context_score = position_score * 0.6 + slope_score * 0.4
-            long_term_trend_adjustment = context_score * 0.5
-        adjustments['long_term_trend_aligned'] = long_term_trend_adjustment
-        total_adjustment = sum(adjustments.values())
-        final_log_odds = log_odds + total_adjustment
-        final_probability = 1 / (1 + math.exp(-final_log_odds))
-        # [代码修改] V2.66 植入专家系统概率精算探针
-        print(f"    -> [专家系统概率精算]")
-        print(f"      - 基础概率: {base_probability:.2%} -> 初始Log-Odds: {log_odds:.4f}")
-        print(f"      - 概率调整项:")
-        for key, value in adjustments.items():
-            print(f"        - {key:<30}: {value:+.4f}")
-        print(f"      - 总调整值: {total_adjustment:+.4f}")
-        print(f"      - 最终Log-Odds: {log_odds:.4f} + {total_adjustment:.4f} = {final_log_odds:.4f}")
-        print(f"      - >> 最终突破概率: {final_probability:.2%}")
+        conviction_score = flag.get('conviction_score', 0.0)
+        # [代码修改] V2.73 核心逻辑：信念即概率
+        final_probability = conviction_score / 100.0
+        # [代码修改] V2.73 升级探针日志，宣告认知统一
+        print(f"    -> [认知统一 V2.73]")
+        print(f"      - 接收到'全息审判'信念评分: {conviction_score:.2f}")
+        print(f"      - >> 直接映射为最终突破概率: {final_probability:.2%}")
         features = {
-            'base_probability': base_probability,
-            'pole_height_atr': pole['magnitude_atr'],
-            'flag_retracement_pct': flag['retracement_depth'],
-            'breakout_readiness_score': flag_df['breakout_readiness_score'].iloc[-1] if 'breakout_readiness_score' in flag_df.columns else None,
-            'adjustments': adjustments,
-            'total_adjustment': total_adjustment,
-            'final_log_odds': final_log_odds
+            'conviction_score': conviction_score,
+            'retracement_depth': flag.get('retracement_depth'),
+            'duration': flag.get('duration'),
         }
         return final_probability, features
 
