@@ -1119,10 +1119,11 @@ class GeometricPatternService:
 
     def _identify_flag(self, df: pd.DataFrame, pole_data: dict, vol_ma_col_name: str, archetype: dict) -> dict:
         """
-        【V2.70 · 智能统一版】将旗面识别的智能程度提升至与旗杆同等的全谱评分标准。
-        - V2.70 核心升级:
-          1. [智能统一] 重构“回撤深度”评分函数，采用更具弹性的全谱评分逻辑。
-          2. [消除断层] 允许对深度稍大的回撤给予低分而非零分，避免因单一维度瑕疵错失良机。
+        【V2.71 · 协同判断版】引入动态协同加权与三位一体评估，实现智慧的非线性融合。
+        - V2.71 核心升级:
+          1. [三位一体] 废除“价格压制”的刚性否决，将其升级为第三大评分支柱“盘整完整性得分”。
+          2. [协同判断] 引入动态加权系统。任一维度的“王牌分数”将动态提升自身权重，模拟专家思维。
+          3. [探针升级] 探针将完全展示三大支柱得分、权重动态调整过程及最终的协同判断结果。
         """
         min_dur = archetype.get('flag_min_dur', 5)
         max_dur = archetype.get('flag_max_dur', 20)
@@ -1130,7 +1131,7 @@ class GeometricPatternService:
         vol_shrink_ma = archetype.get('flag_vol_shrink_ma', 1.0)
         max_retracement = archetype.get('flag_max_retracement', 0.5)
         pole_end_loc = df.index.get_loc(pole_data['end_date'])
-        print(f"    -> [旗面探针 V2.70] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用全谱评分)...")
+        print(f"    -> [旗面探针 V2.71] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用协同判断)...")
         best_flag = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1141,6 +1142,8 @@ class GeometricPatternService:
             start_date = flag_df.index[0]
             end_date = flag_df.index[-1]
             print(f"      - [候选周期: {duration}天] ({start_date.date()} -> {end_date.date()})")
+            # [代码修改] V2.71 引入三位一体评分
+            # 1. 成交量萎缩评分
             avg_volume_flag = flag_df['vol'].mean()
             vol_ma_at_flag_start = df[vol_ma_col_name].iloc[flag_start_loc -1]
             shrink_ratio_pole = avg_volume_flag / pole_data['avg_volume'] if pole_data['avg_volume'] > 0 else 1.0
@@ -1149,19 +1152,38 @@ class GeometricPatternService:
             score2 = np.clip((vol_shrink_ma * 1.2 - shrink_ratio_ma) / (vol_shrink_ma * 0.7), 0, 1) * 100
             volume_score = score1 * 0.5 + score2 * 0.5
             print(f"        - [成交量萎缩] vs旗杆: {shrink_ratio_pole:.2f} | vs均线: {shrink_ratio_ma:.2f} -> 得分: {volume_score:.1f}/100")
+            # 2. 回撤深度评分
             flag_low = flag_df['low_qfq'].min()
             pole_range = pole_data['high_price'] - pole_data['low_price']
             if pole_range == 0: continue
             retracement_depth = (pole_data['high_price'] - flag_low) / pole_range
-            # [代码修改] V2.70 升级回撤深度为全谱评分函数
-            # 将 [max_retracement * 1.5, 0] 的回撤范围映射到 [0, 100] 分
             depth_score = np.clip((max_retracement * 1.5 - retracement_depth) / (max_retracement * 1.5), 0, 1) * 100
             print(f"        - [回撤深度] 计算值: {retracement_depth:.2%} -> 得分: {depth_score:.1f}/100")
-            price_check = flag_df['close_qfq'].max() <= pole_data['high_price']
-            if not price_check:
-                print(f"        - [价格压制] 旗面收盘价突破旗杆高点，形态失效。 [✗ REJECTED]")
-                continue
-            conviction_score = volume_score * 0.4 + depth_score * 0.6
+            # 3. 盘整完整性评分 (新)
+            integrity_score = (flag_df['close_qfq'] <= pole_data['high_price']).mean() * 100
+            print(f"        - [盘整完整性] 保持在旗杆高点之下 -> 得分: {integrity_score:.1f}/100")
+            # 4. 动态协同加权与最终信念评分
+            base_weights = {'volume': 0.4, 'depth': 0.4, 'integrity': 0.2}
+            final_weights = base_weights.copy()
+            synergy_bonus = 0.1
+            synergy_applied = False
+            if volume_score > 85:
+                final_weights['volume'] += synergy_bonus
+                final_weights['depth'] -= synergy_bonus / 2
+                final_weights['integrity'] -= synergy_bonus / 2
+                synergy_applied = True
+            if depth_score > 85:
+                final_weights['depth'] += synergy_bonus
+                final_weights['volume'] -= synergy_bonus / 2
+                final_weights['integrity'] -= synergy_bonus / 2
+                synergy_applied = True
+            total_weight = sum(final_weights.values())
+            final_weights = {k: v / total_weight for k, v in final_weights.items()}
+            if synergy_applied:
+                print(f"        - [协同判断] 检测到王牌证据，权重动态调整为: V:{final_weights['volume']:.2f}, D:{final_weights['depth']:.2f}, I:{final_weights['integrity']:.2f}")
+            conviction_score = (volume_score * final_weights['volume'] +
+                                depth_score * final_weights['depth'] +
+                                integrity_score * final_weights['integrity'])
             print(f"        - [综合信念评分]: {conviction_score:.2f}")
             if conviction_score > max_conviction_score:
                 max_conviction_score = conviction_score
