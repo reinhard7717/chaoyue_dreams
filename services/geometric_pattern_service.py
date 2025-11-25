@@ -1341,13 +1341,14 @@ class GeometricPatternService:
 
     def _calculate_trend_conviction_score(self, line_data: dict, enriched_df: pd.DataFrame, debug_flag: bool = False) -> float:
         """
-        【V2.61 · 协同共振版】引入加权几何平均数，实现从“加法”到“乘法”的思维跃迁。
-        - V2.61 核心升级:
-          1. [协同共振] 最终分数融合公式从“加权算术平均”升级为“加权几何平均数”。
-             此举旨在奖励“全面强劲”的趋势，并严厉惩罚存在“致命短板”的趋势，
-             完美模拟了“木桶效应”，使评分更符合实战的非线性特征。
-          2. [数学鲁棒性] 在计算几何平均前，将各支柱的贡献分从 [0, 100] 平移至
-             [1, 101]，避免了0值导致整个分数坍缩的极端情况，增强了模型的数学稳定性。
+        【V2.62 · 感知和谐版】引入非线性认知校准，为模型注入最终的感知智慧。
+        - V2.62 核心升级:
+          1. [认知校准] 彻底重构“行为”支柱的评分逻辑，废除线性的“物理直译”，引入
+             `100 * (avg_efficiency ** 0.5)` 的非线性认知校准函数。
+          2. [感知智慧] 新的评分函数模拟了人类分析师对趋势质量的“感知”，对低质量趋势
+             给予了更合理的宽容度，同时保留了对高质量趋势的精确奖励，解决了V2.61中
+             低效率分对总分的过度惩罚问题。
+          3. [最终和谐] 至此，模型的逻辑、数学与感知智慧三者合一，达到了设计的最终形态。
         """
         import math
         start_date = line_data.get('start_date')
@@ -1377,7 +1378,12 @@ class GeometricPatternService:
             score_structure = gaussian_normalize(avg_slope, mean, std)
         if 'efficiency_avg_5d' in trend_df.columns:
             avg_efficiency = trend_df['efficiency_avg_5d'].mean()
-            score_behavior = avg_efficiency * 100 if not pd.isna(avg_efficiency) else 0.0
+            # [代码修改] V2.62 引入非线性认知校准函数
+            if pd.notna(avg_efficiency) and avg_efficiency >= 0:
+                # 使用平方根对效率值进行感知校准，使其更符合人类判断
+                score_behavior = 100 * (avg_efficiency ** 0.5)
+            else:
+                score_behavior = 0.0
         if debug_flag:
             flow_stats = (last_day_stats.get('flow_mean', 'N/A'), last_day_stats.get('flow_std', 'N/A'))
             struct_stats = (last_day_stats.get('structure_mean', 'N/A'), last_day_stats.get('structure_std', 'N/A'))
@@ -1392,19 +1398,16 @@ class GeometricPatternService:
         power_contribution = (score_power + 100) / 2
         structure_contribution = (score_structure + 100) / 2
         behavior_contribution = score_behavior
-        # [代码修改] V2.61 引入加权几何平均数进行最终融合
-        # 为避免0值影响，将所有贡献分平移到 [1, 101] 区间
         g_geom = score_geometry + 1
         g_power = power_contribution + 1
         g_struct = structure_contribution + 1
         g_behav = behavior_contribution + 1
-        # 使用乘法逻辑计算最终得分，更能体现协同效应
         final_score = (
             (g_geom ** 0.15) *
             (g_power ** 0.35) *
             (g_struct ** 0.30) *
             (g_behav ** 0.20)
-        ) - 1 # 将结果平移回 [0, 100] 区间
+        ) - 1
         return final_score
 
 
