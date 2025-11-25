@@ -1148,12 +1148,12 @@ class GeometricPatternService:
 
     def _identify_flag(self, df: pd.DataFrame, pole_data: dict, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
-        【V3.8 · 有效推力版】修正回撤深度计算逻辑，锚定于有效推力而非总波幅。
-        - V3.8 核心升级:
-          1. [基准修正] 彻底改变 `pole_range` 的计算方式。
-          2. [有效推力] 新的 `pole_range` = `pole_data['high_price'] - pole_data['start_price']`。
-                         这个值代表了旗杆的有效上涨幅度，是比总波幅更合理的回撤计算基准，
-                         从根本上解决了“基准锚定谬误”。
+        【V3.9 · 战略性撤退版】植入跨隙记忆，在确认战场无法挽回时彻底放弃。
+        - V3.9 核心升级:
+          1. [战略性撤退] 当“单调剪枝”被触发时，增加一步根源分析。
+          2. [跨隙记忆] 检查造成回撤的最低点 (`low_date`) 是否在候选旗面的第一天之后。
+          3. [终极效率] 如果是，则证明该结构性缺陷是内在的，后续任何缓冲 (`gap`) 尝试都
+                         注定失败。此时将彻底跳出所有循环，终止对当前旗杆的徒劳扫描。
         """
         min_dur = archetype.get('flag_min_dur', 5)
         max_dur = archetype.get('flag_max_dur', 20)
@@ -1164,9 +1164,11 @@ class GeometricPatternService:
         CRITICAL_DEPTH_SCORE_THRESHOLD = 10.0
         pole_end_loc = df.index.get_loc(pole_data['end_date'])
         tick_map = data_dfs.get("stock_tick_data_map", {})
-        print(f"    -> [旗面探针 V3.8] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用有效推力基准)...")
+        print(f"    -> [旗面探针 V3.9] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用战略性撤退)...")
         best_flag = None
         max_conviction_score = -1.0
+        # [代码修改] V3.9 新增标志位，用于触发外层循环的终止
+        should_abandon_pole = False
         for gap in range(max_gap_days + 1):
             for duration in range(min_dur, max_dur + 1):
                 flag_start_loc = pole_end_loc + 1 + gap
@@ -1185,14 +1187,18 @@ class GeometricPatternService:
                 volume_score = score1 * 0.5 + score2 * 0.5
                 print(f"        - [成交量萎缩] vs旗杆: {shrink_ratio_pole:.2f} | vs均线: {shrink_ratio_ma:.2f} -> 得分: {volume_score:.1f}/100")
                 flag_low = flag_df['low_qfq'].min()
-                # [代码修改] V3.8 修正回撤基准，使用“有效推力”进行计算
                 pole_range = pole_data['high_price'] - pole_data['start_price']
-                if pole_range <= 0: continue # 避免除零或无效推力
+                if pole_range <= 0: continue
                 retracement_depth = (pole_data['high_price'] - flag_low) / pole_range
                 depth_score = np.clip((max_retracement * 1.5 - retracement_depth) / (max_retracement * 1.5), 0, 1) * 100
                 print(f"        - [回撤深度] 计算值: {retracement_depth:.2%} -> 得分: {depth_score:.1f}/100")
                 if depth_score < CRITICAL_DEPTH_SCORE_THRESHOLD:
                     print(f"        - [单调剪枝] 回撤深度已恶化至临界点({depth_score:.1f} < {CRITICAL_DEPTH_SCORE_THRESHOLD:.1f})，终止当前缓冲设置下的后续周期扫描。")
+                    # [代码修改] V3.9 植入“战略性撤退”协议
+                    low_date = flag_df['low_qfq'].idxmin()
+                    if low_date > start_date:
+                        print(f"        - [战略性撤退] 致命低点 ({low_date.date()}) 不在起始日，后续缓冲扫描已无意义。")
+                        should_abandon_pole = True
                     break
                 integrity_score = (flag_df['close_qfq'] <= pole_data['high_price']).mean() * 100
                 print(f"        - [盘整完整性] 保持在旗杆高点之下 -> 得分: {integrity_score:.1f}/100")
@@ -1218,6 +1224,9 @@ class GeometricPatternService:
                         'conviction_score': conviction_score,
                         'gap_days': gap
                     }
+            # [代码修改] V3.9 检查标志位，如果为True，则跳出最外层循环
+            if should_abandon_pole:
+                break
         MIN_ACCEPTANCE_SCORE = 50.0
         if best_flag and best_flag['conviction_score'] >= MIN_ACCEPTANCE_SCORE:
             print(f"    -> [✓ ACCEPTED] 发现最佳旗面 (周期 {best_flag['duration']}天, 缓冲 {best_flag['gap_days']}天), 最高信念分: {best_flag['conviction_score']:.2f}")
