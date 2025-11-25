@@ -12,11 +12,11 @@ from stock_models.index import TradeCalendar
 from utils.model_helpers import (
     get_daily_data_model_by_code,
     get_platform_feature_model_by_code,
-    get_multi_timeframe_trendline_model_by_code, # 修改：导入新模型辅助函数
-    get_trendline_event_model_by_code, # 新增：导入事件模型辅助函数
-    get_advanced_chip_metrics_model_by_code, # 新增：导入高级芯片指标模型辅助函数
-    get_advanced_fund_flow_metrics_model_by_code, # 新增：导入高级资金流指标模型辅助函数
-    get_advanced_structural_metrics_model_by_code, # 新增：导入高级结构性指标模型辅助函数
+    get_multi_timeframe_trendline_model_by_code, # 导入新模型辅助函数
+    get_trendline_event_model_by_code, # 导入事件模型辅助函数
+    get_advanced_chip_metrics_model_by_code, # 导入高级芯片指标模型辅助函数
+    get_advanced_fund_flow_metrics_model_by_code, # 导入高级资金流指标模型辅助函数
+    get_advanced_structural_metrics_model_by_code, # 导入高级结构性指标模型辅助函数
 )
 
 @njit
@@ -112,7 +112,7 @@ class GeometricPatternService:
             print(f"[{self.stock_code}] 加载策略配置文件失败: {e}")
         geometric_params = strategy_config.get("strategy_params", {}).get("trend_follow", {}).get("geometric_pattern_params", {})
         self.platform_archetypes = geometric_params.get("platform_recognition", {}).get("archetypes", [])
-        # [代码修改] V2.65 新增：加载旗形识别原型
+        # V2.65 加载旗形识别原型
         self.flag_archetypes = geometric_params.get("flag_recognition", {}).get("archetypes", [])
 
     @classmethod
@@ -211,7 +211,7 @@ class GeometricPatternService:
             print(f"  -> [统一回滚] 平台特征删除 {deleted_count} 条。")
         self._calculate_and_save_platforms(enriched_df, data_dfs)
         self._calculate_and_save_trendline_matrix_and_events(df_daily, data_dfs, start_date_str=start_date_str)
-        # [代码修改] V2.54 修正方法调用，使用新的方法名 _find_and_evaluate_flags
+        # V2.54 修正方法调用，使用新的方法名 _find_and_evaluate_flags
         flag_events = self._find_and_evaluate_flags(enriched_df, data_dfs)
         if start_date_str:
             self.event_model.objects.filter(
@@ -224,13 +224,12 @@ class GeometricPatternService:
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict):
         """
-        【V2.52 · 参照系校准版】修正了RSSlope的计算逻辑，引入动态参照系。
-        - V2.52 核心修复: 在计算RSSlope前，将平台内的RS序列除以其首个值进行归一化。
-                         这使得斜率能够准确反映平台内部的相对强弱演化，解决了因绝对
-                         值过大导致归一化斜率趋近于零的问题。
+        【V2.53 · 智能归一化版】应用升级后的斜率计算函数，为RSSlope关闭冗余归一化。
+        - V2.53 核心升级: 在计算 RSSlope 时，调用斜率计算函数并传入 `normalize=False`，
+                         确保参照系校准后的序列不再被错误地二次归一化。
         """
         import math
-        print(f"  -> [V2.52 参照系校准] 启动...")
+        print(f"  -> [V2.53 智能归一化] 启动...")
         if len(enriched_df) < 120:
             print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
@@ -314,13 +313,14 @@ class GeometricPatternService:
             if platform_low == 0: continue
             price_range_pct = (platform_high - platform_low) / platform_low
             print(f"\n  -> [验证探针] 候选平台: {start_date.date()} -> {end_date.date()} (持续 {len(group)} 天, 振幅 {price_range_pct:.2%})")
+            # [代码修改] V2.53 在计算rss时，关闭内部归一化
+            rebased_rs = group['rs'] / group['rs'].iloc[0] if 'rs' in group and not group.empty and group['rs'].iloc[0] != 0 else pd.Series()
             metrics = {
                 'vps': self._calculate_volume_profile_skewness(group),
-                'vts': self._calculate_linear_regression_slope(group['vol']),
+                'vts': self._calculate_linear_regression_slope(group['vol']), # 保持默认归一化
                 'vcr': self._calculate_volatility_contraction_ratio(group),
                 'pk': self._calculate_price_kurtosis(group),
-                # [代码修改] V2.52 引入动态参照系，对RS序列进行归一化处理
-                'rss': self._calculate_linear_regression_slope(group['rs'] / group['rs'].iloc[0]) if 'rs' in group and not group.empty and group['rs'].iloc[0] != 0 else 0.0
+                'rss': self._calculate_linear_regression_slope(rebased_rs, normalize=False) if not rebased_rs.empty else 0.0
             }
             print(f"     - [博弈指标] VPSkew: {metrics['vps']:.2f}, VolSlope: {metrics['vts']:.2f}, VolatilityContract: {metrics['vcr']:.2f}, PriceKurtosis: {metrics['pk']:.2f}, RSSlope: {metrics['rss']:.3f}")
             best_archetype = None
@@ -391,9 +391,9 @@ class GeometricPatternService:
             else:
                 print(f"     - [REJECTED] 未找到任何在几何门槛内且有意义的匹配原型。")
         found_count = len(platforms_to_save)
-        print(f"\n  -> [V2.52 参照系校准] 扫描完成，共发现 {found_count} 个有效平台。")
+        print(f"\n  -> [V2.53 智能归一化] 扫描完成，共发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.52 参照系校准] 正在将 {found_count} 个平台存入数据库...")
+            print(f"  -> [V2.53 智能归一化] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
@@ -426,7 +426,7 @@ class GeometricPatternService:
         else:
             score_coiling = pd.Series(50, index=df_copy.index)
         # 支柱四: 内部强势 (Internal Strength) - 权重 10%
-        # [代码修改] V2.49 加固计算逻辑，预处理分母为0的情况，防止除零错误
+        # V2.49 加固计算逻辑，预处理分母为0的情况，防止除零错误
         daily_range = df_copy['high_qfq'] - df_copy['low_qfq']
         # 将daily_range为0的地方替换为nan，这样除法会得到nan，然后被fillna安全处理
         internal_strength = ((df_copy['close_qfq'] - df_copy['low_qfq']) / daily_range.replace(0, np.nan)).fillna(0.5)
@@ -458,7 +458,7 @@ class GeometricPatternService:
         if df_tick is None or df_tick.empty:
             return 0.0, 0.0
         try:
-            # [代码修改] V2.44 适配 'B'/'S'/'M' 的tick数据格式
+            # V2.44 适配 'B'/'S'/'M' 的tick数据格式
             buy_vol = df_tick[df_tick['type'] == 'B']['volume'].sum()
             sell_vol = df_tick[df_tick['type'] == 'S']['volume'].sum()
             total_amount = df_tick['amount'].sum()
@@ -492,7 +492,7 @@ class GeometricPatternService:
         # 3. 行为(效率)支柱: 计算趋势效率的5日滚动均值
         if 'trend_efficiency_ratio' in enriched_df.columns:
             enriched_df['efficiency_avg_5d'] = enriched_df['trend_efficiency_ratio'].rolling(5).mean()
-        # [代码修改] V2.57 从计算分位数改为计算均值和标准差
+        # V2.57 从计算分位数改为计算均值和标准差
         # 4. 为三大支柱生成滚动统计量 (使用250天窗口，约1年)
         stat_window = 250
         metrics_to_calibrate = {
@@ -678,7 +678,7 @@ class GeometricPatternService:
                             'stock': self.stock_instance, 'event_date': trade_date.date(),
                             'event_type': event_type, 'details': self._sanitize_json_dict(details)
                         })
-            # [代码修改] V2.18 修正矢量化误用问题
+            # V2.18 修正矢量化误用问题
             # D. 通道压缩分析
             if len(self.fib_periods) > 0:
                 median_period_index = len(self.fib_periods) // 2
@@ -757,7 +757,7 @@ class GeometricPatternService:
         if enriched_df is None:
             print("  -> [信念评估警告] 未能在data_dfs中找到enriched_df，无法计算趋势信念分。")
             return []
-        # [代码修改] V2.52 新增调试日判断逻辑
+        # V2.52 新增调试日判断逻辑
         is_debug_day = (current_date == df_daily.index.max())
         if is_debug_day:
             print(f"\n    -> [趋势信念探针] {current_date.date()} (最新交易日)")
@@ -777,9 +777,9 @@ class GeometricPatternService:
             best_resistance = self._find_best_line_with_micro_validation(pivot_highs, 'high_qfq', df_slice, 'resistance', data_dfs)
             for line_data in [best_support, best_resistance]:
                 if line_data:
-                    # [代码修改] V2.52 传入debug_flag激活探针
+                    # V2.52 传入debug_flag激活探针
                     conviction_score = self._calculate_trend_conviction_score(line_data, enriched_df)
-                    # [代码修改] V2.52 新增一级探针（最终得分）
+                    # V2.52 新增一级探针（最终得分）
                     if is_debug_day:
                         line_type_display = "支撑线" if line_data['line_type'] == 'support' else "阻力线"
                         print(f"      - [{period}日 {line_type_display}] -> 最终信念评分: {conviction_score:.2f}")
@@ -866,8 +866,8 @@ class GeometricPatternService:
                     'slope': m,
                     'intercept': c,
                     'validity_score': final_score,
-                    'start_date': p1_idx, # [代码修改] V2.52 新增起始日期
-                    'end_date': p2_idx,   # [代码修改] V2.52 新增结束日期
+                    'start_date': p1_idx, # V2.52 新增起始日期
+                    'end_date': p2_idx,   # V2.52 新增结束日期
                 }
         if is_last_day_debug:
             print(f"      [内部探针] 退出 _find_best_line... | 类型: {line_type}, 最高得分为: {max_final_score:.4f}")
@@ -1010,18 +1010,17 @@ class GeometricPatternService:
 
     def _find_and_evaluate_flags(self, enriched_df: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V4.0 · 时空跳跃版】引入非线性扫描，根除顶层战略的冗余计算。
-        - V4.0 核心升级:
-          1. [时空跳跃] 修正了主扫描循环的线性后退逻辑。
-          2. [战略性规避] 只要一个 `pole` 被识别，无论后续 `flag` 是否找到，扫描指针 `i`
-                         都将直接“跳跃”到该 `pole` 的起始日期之前。
-          3. [宏观效率] 从根本上避免了对已识别、已分析的结构化时间段进行任何重复扫描。
+        【V5.0 · 生产净化版】移除所有内部诊断探针，实现日志的最终净化。
+        - V5.0 核心升级:
+          1. [日志净化] 移除了“认知焦点”和“时空跳跃”等过程性探针日志。
+          2. [聚焦结果] 只保留最高级别的启动、警告和最终发现日志，使输出聚焦于核心决策结果。
         """
         events = []
         for archetype in self.flag_archetypes:
             timeframe = archetype.get('timeframe', 'D')
             archetype_name = archetype.get('name', 'UNKNOWN_FLAG')
-            print(f"\n  -> [全息旗形扫描 V4.0] 开始在 [{timeframe}] 级别应用原型 [{archetype_name}]...")
+            # 简化顶层日志
+            print(f"\n  -> [全息旗形扫描] 开始在 [{timeframe}] 级别应用原型 [{archetype_name}]...")
             df_source = None
             if timeframe == 'D':
                 df_source = enriched_df
@@ -1042,7 +1041,7 @@ class GeometricPatternService:
             i = len(df) - 5
             while i > min_data_len:
                 if not self._is_potential_pole_peak(df, i, vol_ma_col_name):
-                    print(f"    -> [认知焦点] 日期 {df.index[i].date()} 未通过潜力筛选，跳过。")
+                    # 移除“认知焦点”探针
                     i -= 1
                     continue
                 pole = self._identify_flagpole(df, end_index_loc=i, vol_ma_col_name=vol_ma_col_name, archetype=archetype, data_dfs=data_dfs)
@@ -1074,9 +1073,7 @@ class GeometricPatternService:
                                     'pole_end_date': pole['end_date'].date(),
                                 }
                             })
-                    # [代码修改] V4.0 将时空跳跃逻辑移至 if pole 块的末尾
-                    # 无论是否找到旗面，只要识别出一个旗杆，就跳跃到其开始之前，避免重叠扫描
-                    print(f"    -> [时空跳跃] 扫描指针从 {df.index[i].date()} 跳跃至 {pole['start_date'].date()} 之前...")
+                    # 移除“时空跳跃”探针
                     i = df.index.get_loc(pole['start_date']) - 1
                     continue
                 i -= 1
@@ -1084,13 +1081,10 @@ class GeometricPatternService:
 
     def _identify_flagpole(self, df: pd.DataFrame, end_index_loc: int, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
-        【V4.4 · 推力向量版】用非线性向量取代线性回归，实现对方向性的终极认知。
-        - V4.4 核心升级:
-          1. [推力向量] 彻底废弃基于线性回归的、脆弱的方向性计算方法。
-          2. [认知升维] 引入全新的“推力向量”指标，其定义为：(最高价 - 起始价) / (周期 * ATR)，
-                         精准衡量价格在单位时间内的向上推进效率。
-          3. [终极鲁棒性] 新的方向性评估完全免疫了旗杆末端无意义的回调“噪声”，使其能够
-                         正确识别那些以“喘息”而非“冲刺”结束的强劲启动。
+        【V5.0 · 生产净化版】移除所有内部诊断探针，实现日志的最终净化。
+        - V5.0 核心升级:
+          1. [日志净化] 移除了对每个候选周期的所有评分细节（点火、幅度、方向等）的探针日志。
+          2. [静默执行] 方法在执行过程中将保持静默，只在最终输出决策结果。
         """
         min_dur = archetype.get('pole_min_dur', 2)
         max_dur = archetype.get('pole_max_dur', 8)
@@ -1101,7 +1095,8 @@ class GeometricPatternService:
         ignition_min_vol_ratio = archetype.get('ignition_min_vol_ratio', 1.5)
         end_date = df.index[end_index_loc]
         minute_map = data_dfs.get("stock_minute_data_map", {})
-        print(f"    -> [旗杆探针 V4.4] 检查结束于 {end_date.date()} 的候选旗杆 (采用推力向量)...")
+        # 简化入口日志
+        print(f"    -> [旗杆探针] 检查结束于 {end_date.date()} 的候选旗杆...")
         best_pole = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1109,13 +1104,13 @@ class GeometricPatternService:
             if start_index_loc < 1: continue
             pole_df = df.iloc[start_index_loc : end_index_loc + 1]
             start_date = pole_df.index[0]
-            print(f"      - [候选周期: {duration}天] ({start_date.date()} -> {end_date.date()})")
+            # 移除“候选周期”探针
             atr_at_start = df['ATR_14_D'].iloc[start_index_loc - 1]
             if atr_at_start == 0: continue
             daily_drops = pole_df['close_qfq'].diff().dropna()
             max_drop_value = abs(daily_drops[daily_drops < 0].min()) if not daily_drops[daily_drops < 0].empty else 0
             if max_drop_value > max_daily_drop_atr * atr_at_start:
-                print(f"        - [✗ 纯度不符] 发现显著回调日 (最大跌幅: {max_drop_value:.2f} > 阈值: {max_daily_drop_atr * atr_at_start:.2f})，候选周期无效。")
+                # 移除“纯度不符”探针
                 continue
             ignition_day = pole_df.iloc[0]
             prev_day_vol = df['vol'].iloc[start_index_loc - 1]
@@ -1124,31 +1119,30 @@ class GeometricPatternService:
             score_pct = np.clip(ignition_pct_change / (ignition_min_pct_change * 1.5), 0, 1)
             score_vol = np.clip(ignition_vol_ratio / (ignition_min_vol_ratio * 1.5), 0, 1)
             ignition_score = 100 * (score_pct * 0.6 + score_vol * 0.4)
-            print(f"        - [点火强度] 涨幅: {ignition_pct_change:.2f}%, 成交量倍数: {ignition_vol_ratio:.2f}x -> 得分: {ignition_score:.1f}/100")
+            # 移除“点火强度”探针
             pole_high = pole_df['high_qfq'].max()
             pole_low = pole_df['low_qfq'].min()
             magnitude_atr = (pole_high - pole_low) / atr_at_start
             magnitude_score = 100 * (np.clip(magnitude_atr / (min_magnitude_atr * 1.5), 0, 1)) ** 2
-            print(f"        - [幅度] ATR倍数: {magnitude_atr:.2f} -> 得分: {magnitude_score:.1f}/100")
-            # [代码修改] V4.4 引入“推力向量”取代线性回归
+            # 移除“幅度”探针
             pole_start_price = pole_df['open_qfq'].iloc[0]
             thrust_vector = (pole_high - pole_start_price) / (duration * atr_at_start)
-            directional_score = np.clip(thrust_vector / 0.75, 0, 1) * 100 # 设定0.75为满分基准
-            print(f"        - [方向] 推力向量: {thrust_vector:.4f} -> 得分: {directional_score:.1f}/100")
+            directional_score = np.clip(thrust_vector / 0.75, 0, 1) * 100
+            # 移除“方向”探针
             vol_ma_at_start = df[vol_ma_col_name].iloc[start_index_loc - 1]
             avg_volume_pole = pole_df['vol'].mean()
             actual_vol_multiple = avg_volume_pole / vol_ma_at_start if vol_ma_at_start > 0 else 0
             energy_score = 100 * (np.clip(actual_vol_multiple / (min_vol_multiple * 1.5), 0, 1)) ** 2
-            print(f"        - [能量] 成交量倍数: {actual_vol_multiple:.2f}x -> 得分: {energy_score:.1f}/100")
+            # 移除“能量”探针
             purity_scores = [self._calculate_intraday_trend_purity(minute_map.get(d.date())) for d in pole_df.index]
             purity_score = np.mean(purity_scores) if purity_scores else 50.0
-            print(f"        - [纯度] 日内趋势纯度: {purity_score:.1f}/100")
+            # 移除“纯度”探针
             conviction_score = (ignition_score * 0.30 +
                                 magnitude_score * 0.25 +
                                 directional_score * 0.15 +
                                 energy_score * 0.10 +
                                 purity_score * 0.20)
-            print(f"        - [综合信念评分]: {conviction_score:.2f}")
+            # 移除“综合信念评分”探针
             if conviction_score > max_conviction_score:
                 max_conviction_score = conviction_score
                 best_pole = {
@@ -1169,12 +1163,10 @@ class GeometricPatternService:
 
     def _identify_flag(self, df: pd.DataFrame, pole: dict, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
-        【V4.0 · 时空融合版】打破旗杆与旗面的人为时间割裂，实现对时间连续体的终极认知。
-        - V4.0 核心升级:
-          1. [时空融合] 废除了“旗面必须在旗杆结束后第二天开始”的底层假设。
-          2. [无缝衔接] 将旗面搜索的起始点从 `pole_end_loc + 1` 修正为 `pole_end_loc`，
-                         允许引擎识别那些在顶峰日当天就转入盘整的、更真实的形态。
-          3. [认知飞跃] 从基于离散“事件”的分析，升维至理解连续“过程”的哲学高度。
+        【V5.0 · 生产净化版】移除所有内部诊断探针，实现日志的最终净化。
+        - V5.0 核心升级:
+          1. [日志净化] 移除了对每个候选周期的所有评分细节（成交量、回撤等）的探针日志。
+          2. [静默执行] 方法在执行过程中将保持静默，只在最终输出决策结果。
         """
         pole_end_loc = df.index.get_loc(pole['end_date'])
         max_dur = archetype.get('flag_max_dur', 15)
@@ -1182,13 +1174,13 @@ class GeometricPatternService:
         max_retracement = archetype.get('flag_max_retracement', 0.618)
         vol_shrink_ratio = archetype.get('flag_vol_shrink_ratio', 0.7)
         max_buffers = archetype.get('flag_max_buffers', 2)
-        print(f"    -> [旗面探针 V4.0] 检查附着于 {pole['end_date'].date()} 旗杆的候选旗面 (采用时空融合协议)...")
+        # 简化入口日志
+        print(f"    -> [旗面探针] 检查附着于 {pole['end_date'].date()} 旗杆的候选旗面...")
         pole_rise = pole['high_price'] - pole['start_price']
         if pole_rise <= 0: return None
         best_flag = None
         max_conviction_score = -1.0
         for buffer in range(max_buffers + 1):
-            # [代码修改] V4.0 实施“时空融合”，旗面搜索从旗杆结束当天开始
             flag_start_loc = pole_end_loc + buffer
             if flag_start_loc >= len(df) - min_dur: continue
             is_fatal_low_not_at_start = False
@@ -1196,19 +1188,19 @@ class GeometricPatternService:
                 flag_end_loc = flag_start_loc + duration - 1
                 if flag_end_loc >= len(df): break
                 flag_df = df.iloc[flag_start_loc : flag_end_loc + 1]
-                print(f"      - [候选周期: {duration}天, 缓冲: {buffer}天] ({flag_df.index[0].date()} -> {flag_df.index[-1].date()})")
+                # 移除“候选周期”探针
                 avg_volume_flag = flag_df['vol'].mean()
                 avg_vol_ma_flag = flag_df[vol_ma_col_name].mean()
                 vol_vs_pole = avg_volume_flag / pole['avg_volume'] if pole['avg_volume'] > 0 else 1.0
                 vol_vs_ma = avg_volume_flag / avg_vol_ma_flag if avg_vol_ma_flag > 0 else 1.0
                 vol_score = (np.clip(1 - vol_vs_pole, 0, 1) * 0.6 + np.clip(1 - vol_vs_ma, 0, 1) * 0.4) * 100
-                print(f"        - [成交量萎缩] vs旗杆: {vol_vs_pole:.2f} | vs均线: {vol_vs_ma:.2f} -> 得分: {vol_score:.1f}/100")
+                # 移除“成交量萎缩”探针
                 flag_low = flag_df['low_qfq'].min()
                 retracement = (pole['high_price'] - flag_low) / pole_rise
                 retracement_score = np.clip((max_retracement - retracement) / (max_retracement - 0.10), 0, 1) * 100 if max_retracement > 0.10 else 0
-                print(f"        - [回撤深度] 计算值: {retracement*100:.2f}% -> 得分: {retracement_score:.1f}/100")
+                # 移除“回撤深度”探针
                 if retracement_score < 10.0:
-                    print(f"        - [单调剪枝] 回撤深度已恶化至临界点({retracement_score:.1f} < 10.0)，终止当前缓冲设置下的后续周期扫描。")
+                    # 移除“单调剪枝”探针
                     if flag_df['low_qfq'].idxmin() != flag_df.index[0]:
                         is_fatal_low_not_at_start = True
                     break
@@ -1221,7 +1213,7 @@ class GeometricPatternService:
                         'duration_days': len(flag_df)
                     }
             if is_fatal_low_not_at_start:
-                print(f"        - [战略性撤退] 致命低点 ({flag_df['low_qfq'].idxmin().date()}) 不在起始日，后续缓冲扫描已无意义。")
+                # 移除“战略性撤退”探针
                 break
         MIN_ACCEPTANCE_SCORE = 50.0
         if best_flag and best_flag['conviction_score'] >= MIN_ACCEPTANCE_SCORE:
@@ -1240,13 +1232,13 @@ class GeometricPatternService:
           3. [终极简化] 方法达到最终的、最纯粹的形态，标志着整个识别引擎思想的完全统一。
         """
         conviction_score = flag.get('conviction_score', 0.0)
-        # [代码修改] V2.73 核心逻辑：信念即概率
+        # V2.73 核心逻辑：信念即概率
         final_probability = conviction_score / 100.0
-        # [代码修改] V2.73 升级探针日志，宣告认知统一
+        # V2.73 升级探针日志，宣告认知统一
         print(f"    -> [认知统一 V2.73]")
         print(f"      - 接收到'全息审判'信念评分: {conviction_score:.2f}")
         print(f"      - >> 直接映射为最终突破概率: {final_probability:.2%}")
-        # [代码修改] V2.73 净化返回的特征字典，使其与“归一”哲学对齐
+        # V2.73 净化返回的特征字典，使其与“归一”哲学对齐
         features = {
             'conviction_score': conviction_score,
             'retracement_depth': flag.get('retracement_depth'),
@@ -1302,7 +1294,7 @@ class GeometricPatternService:
             print("  -> [趋势线矩阵] 没有新的记录需要保存。")
             return
         print(f"  -> [趋势线矩阵] 正在新增 {len(records)} 条记录...")
-        # [代码修改] V2.56 新增：NaN值净化器
+        # V2.56 NaN值净化器
         sanitized_records = [
             {key: (None if isinstance(value, float) and pd.isna(value) else value) for key, value in record.items()}
             for record in records
@@ -1337,14 +1329,23 @@ class GeometricPatternService:
         weighted_skew = np.average(((prices - weighted_mean) / weighted_std)**3, weights=weights)
         return weighted_skew
 
-    def _calculate_linear_regression_slope(self, series: pd.Series) -> float:
-        """对一个序列进行线性回归并返回斜率。"""
+    def _calculate_linear_regression_slope(self, series: pd.Series, normalize: bool = True) -> float:
+        """
+        【V2.53 · 智能归一化版】对一个序列进行线性回归并返回斜率。
+        - V2.53 核心升级: 新增 `normalize` 参数，允许调用者选择性地关闭内部的斜率归一化
+                         步骤，以根除因外部已归一化而导致的“归一化冗余”问题。
+        """
         series = series.dropna()
         if len(series) < 2: return 0.0
         x = np.arange(len(series))
         slope, _ = np.polyfit(x, series.values, 1)
-        # 对斜率进行归一化，使其不受序列绝对值大小的影响
-        return slope / series.mean() if series.mean() != 0 else 0.0
+        # [代码修改] V2.53 引入智能归一化逻辑
+        if normalize:
+            # 对斜率进行归一化，使其不受序列绝对值大小的影响
+            return slope / series.mean() if series.mean() != 0 else 0.0
+        else:
+            # 直接返回原始斜率
+            return slope
 
     def _calculate_volatility_contraction_ratio(self, group: pd.DataFrame) -> float:
         """计算平台前后半段的波动率收缩比。"""
@@ -1403,9 +1404,9 @@ class GeometricPatternService:
 
     def _calculate_platform_conviction_score(self, platform_group: pd.DataFrame) -> float:
         """
-        【V2.52 · 参照系校准版】修正了RSSlope的计算逻辑，与主诊断流程保持一致。
-        - V2.52 核心修复: 在计算用于信念评分的RSSlope时，同样采用动态参照系对RS序列
-                         进行归一化，确保了从诊断到评分的逻辑一致性和计算准确性。
+        【V2.53 · 智能归一化版】应用升级后的斜率计算函数，为RSSlope关闭冗余归一化。
+        - V2.53 核心升级: 在计算 RSSlope 时，调用斜率计算函数并传入 `normalize=False`，
+                         确保与主诊断流程的计算逻辑绝对一致。
         """
         # 支柱一: 控盘与洗盘力度 (Price Kurtosis) - 权重 30%
         pk = self._calculate_price_kurtosis(platform_group)
@@ -1424,8 +1425,9 @@ class GeometricPatternService:
         internal_strength = ((platform_group['close_qfq'] - platform_group['low_qfq']) / daily_range.replace(0, np.nan)).fillna(0.5)
         score_internal = internal_strength.mean() * 100
         # 支柱五: 相对市场强度 (Relative Strength Slope) - 权重 10%
-        # [代码修改] V2.52 引入动态参照系，对RS序列进行归一化处理
-        rss = self._calculate_linear_regression_slope(platform_group['rs'] / platform_group['rs'].iloc[0]) if 'rs' in platform_group and not platform_group.empty and platform_group['rs'].iloc[0] != 0 else 0.0
+        # [代码修改] V2.53 在计算rss时，关闭内部归一化
+        rebased_rs = platform_group['rs'] / platform_group['rs'].iloc[0] if 'rs' in platform_group and not platform_group.empty and platform_group['rs'].iloc[0] != 0 else pd.Series()
+        rss = self._calculate_linear_regression_slope(rebased_rs, normalize=False) if not rebased_rs.empty else 0.0
         # 斜率越大越好，将[-0.01, 0.01]的范围映射到[0, 100]分
         score_rss = np.clip((rss - (-0.01)) / (0.01 - (-0.01)), 0, 1) * 100
         # 融合总分

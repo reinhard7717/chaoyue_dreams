@@ -118,7 +118,7 @@ class AdvancedStructuralMetricsService:
             return pd.DataFrame.from_records(qs.values())
         tick_df = await get_hf_data(TickModel, stock_info.pk, start_datetime, end_datetime)
         if not tick_df.empty:
-            # [代码修改] 移除调试信息
+            # 移除调试信息
             tick_df['trade_time'] = pd.to_datetime(tick_df['trade_time']).dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
             level5_df = await get_hf_data(Level5Model, stock_info.pk, start_datetime, end_datetime)
             if not level5_df.empty:
@@ -146,7 +146,7 @@ class AdvancedStructuralMetricsService:
         dates_with_hf_data = set(intraday_data_map.keys())
         dates_for_fallback = sorted(list(all_required_dates - dates_with_hf_data))
         if dates_for_fallback:
-            # [代码修改] 移除调试信息
+            # 移除调试信息
             MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
             if MinuteModel:
                 @sync_to_async(thread_sensitive=True)
@@ -156,7 +156,7 @@ class AdvancedStructuralMetricsService:
                     end_dt_fallback = timezone.make_aware(datetime.combine(dates_list[-1], time.max))
                     qs = model.objects.filter(stock_id=stock_pk, trade_time__gte=start_dt_fallback, trade_time__lte=end_dt_fallback)
                     qs_count = qs.count()
-                    # [代码修改] 移除DB查询探针
+                    # 移除DB查询探针
                     if qs_count == 0:
                         return pd.DataFrame()
                     # 额外过滤确保只包含请求的日期
@@ -660,7 +660,7 @@ class AdvancedStructuralMetricsService:
             if not merged_full.empty:
                 required_join_cols = ['a1_v_pre', 'b1_v_pre', 'a1_p_post', 'a1_p_pre', 'a1_v_post', 'b1_p_post', 'b1_p_pre', 'b1_v_post']
                 if not all(col in merged_full.columns for col in required_join_cols):
-                    # [代码修改] 移除调试信息
+                    # 移除调试信息
                     pass
                 else:
                     merged_full.dropna(subset=required_join_cols, inplace=True)
@@ -740,7 +740,7 @@ class AdvancedStructuralMetricsService:
                 z_score = abs_imbalance / sigma_imbalance
                 vpin_series = z_score.apply(lambda z: norm.cdf(z) if pd.notna(z) else np.nan)
                 results['vpin_score'] = vpin_series.mean()
-        # 5. 新增：高频力学指标 (原位于 _calculate_daily_structural_metrics)
+        # 5. 高频力学指标 (原位于 _calculate_daily_structural_metrics)
         day_open_qfq = daily_series_for_day.get('open_qfq')
         day_close_qfq = daily_series_for_day.get('close_qfq')
         net_active_volume = total_buy_vol - total_sell_vol
@@ -772,7 +772,7 @@ class AdvancedStructuralMetricsService:
                 active_buy_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
             if active_buy_on_rally > 0:
                 results['distribution_pressure_index'] = active_sell_on_rally / active_buy_on_rally
-        # --- 新增：实时盘口结构指标 ---
+        # --- 实时盘口结构指标 ---
         if realtime_df is not None and not realtime_df.empty and level5_df is not None and not level5_df.empty:
             level5_df_processed = level5_df.copy()
             level5_df_processed.rename(columns=column_rename_map, inplace=True)
@@ -791,7 +791,7 @@ class AdvancedStructuralMetricsService:
             # 1. 市场冲击成本 (Market Impact Cost)
             total_amount = daily_series_for_day.get('amount', 0)
             if not pd.notna(total_amount) or total_amount <= 0:
-                # [代码修改] 移除调试探针
+                # 移除调试探针
                 pass
             if total_amount > 0:
                 standard_amount = float(total_amount) * 0.001
@@ -854,7 +854,7 @@ class AdvancedStructuralMetricsService:
         # 筛选出模型中存在的列
         cols_to_keep = [col for col in final_df.columns if col in model_fields]
         df_filtered = final_df[cols_to_keep]
-        # [代码修改] 移除调试信息
+        # 移除调试信息
         # 转换为字典列表
         records_list = df_filtered.to_dict('records')
         @sync_to_async(thread_sensitive=True)

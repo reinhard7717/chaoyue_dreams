@@ -948,7 +948,7 @@ class BaseMultiTimeframeTrendline(models.Model):
     slope = models.FloatField(verbose_name='斜率')
     intercept = models.FloatField(verbose_name='截距 (基于时间索引)')
     validity_score = models.FloatField(verbose_name='综合有效性得分(0-1)')
-    # [代码修改] V2.52 新增趋势信念分数字段
+    # V2.52 新增趋势信念分数字段
     trend_conviction_score = models.FloatField(verbose_name='趋势信念分(0-100)', null=True, blank=True, help_text='评估趋势内在质量和主力信念的综合得分')
     class Meta:
         abstract = True
@@ -994,7 +994,7 @@ class BaseTrendlineEvent(models.Model):
     - 设计思想: 将“状态”（趋势线本身）与“事件”（拐点、突破、旗形）分离，便于策略回测和信号挖掘。
     - V2.2 升级: 全面同步并扩充事件类型，使其成为系统中所有几何与动态事件的“唯一真实来源”。
     """
-    # [代码修改] V2.2 全面扩充事件类型
+    # V2.2 全面扩充事件类型
     EVENT_TYPE_CHOICES = [
         ('INFLECTION_ACCEL', '趋势加速'),
         ('INFLECTION_DECEL', '趋势减速'),

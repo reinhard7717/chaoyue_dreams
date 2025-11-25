@@ -1371,7 +1371,7 @@ class AdvancedFundFlowMetricsService:
                 total_seconds = 4 * 60 * 60 # 交易总秒数
                 results['large_order_pressure'] = pressure_strength / (daily_total_volume * total_seconds) * 100
                 results['large_order_support'] = support_strength / (daily_total_volume * total_seconds) * 100
-        # [代码修改] 移除所有调试性质的print探针
+        # 移除所有调试性质的print探针
         return results
 
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
