@@ -559,8 +559,9 @@ class GeometricPatternService:
 
     def _analyze_matrix_dynamics(self, matrix_df: pd.DataFrame, start_analysis_date: pd.Timestamp = None) -> list:
         """
-        【V2.17 · 启示录版】分析趋势线矩阵的时间序列，识别动态事件。
-        - V2.17 升级: 重构交叉分析逻辑，采用更稳健的“相对位置比较法”，消除对`time_idx`的脆弱依赖。
+        【V2.18 · 维度校准版】分析趋势线矩阵的时间序列，识别动态事件。
+        - V2.18 核心修复: 修正了“通道压缩分析”中的矢量化误用问题。通过直接在DataFrame列上进行
+                         矢量化计算来生成`historical_widths`，根除了因维度不匹配导致的ValueError。
         """
         if matrix_df.empty or len(matrix_df['trade_date'].unique()) < 2:
             return []
@@ -573,21 +574,17 @@ class GeometricPatternService:
         ).sort_index()
         matrix_wide_df.columns = ['_'.join(map(str, col)) for col in matrix_wide_df.columns.values]
         analysis_df = matrix_wide_df[matrix_wide_df.index >= start_analysis_date] if start_analysis_date else matrix_wide_df
-        
-        # [代码修改] V2.17 定义辅助函数以提高代码清晰度和复用性
         def _get_line_value(row, period, line_type, time_idx):
             slope = row.get(f'slope_{period}_{line_type}')
             intercept = row.get(f'intercept_{period}_{line_type}')
             if pd.notna(slope) and pd.notna(intercept):
                 return slope * time_idx + intercept
             return np.nan
-
         for i, (trade_date, today_row) in enumerate(analysis_df.iterrows()):
             if i == 0: continue
             yesterday_row = analysis_df.iloc[i-1]
-            time_idx_today = i + (len(matrix_wide_df) - len(analysis_df)) # 获取在完整df中的真实索引
+            time_idx_today = i + (len(matrix_wide_df) - len(analysis_df))
             time_idx_yesterday = time_idx_today - 1
-            # A. 拐点分析 (逻辑不变)
             for period in self.fib_periods:
                 slope_col = f'slope_{period}_support'
                 if slope_col in today_row and slope_col in yesterday_row and pd.notna(today_row[slope_col]) and pd.notna(yesterday_row[slope_col]):
@@ -610,22 +607,16 @@ class GeometricPatternService:
                             'stock': self.stock_instance, 'event_date': trade_date.date(),
                             'event_type': event_type, 'details': self._sanitize_json_dict(details)
                         })
-            # [代码修改] V2.17 重构交叉分析逻辑
-            # B. 交叉分析: 采用更稳健的相对位置比较法
             for short_p, long_p in combinations(self.fib_periods, 2):
                 if short_p >= long_p: continue
-                
                 short_val_t = _get_line_value(today_row, short_p, 'support', time_idx_today)
                 long_val_t = _get_line_value(today_row, long_p, 'support', time_idx_today)
                 short_val_y = _get_line_value(yesterday_row, short_p, 'support', time_idx_yesterday)
                 long_val_y = _get_line_value(yesterday_row, long_p, 'support', time_idx_yesterday)
-
                 if not all(pd.notna(v) for v in [short_val_t, long_val_t, short_val_y, long_val_y]):
                     continue
-
                 pos_today = short_val_t - long_val_t
                 pos_yesterday = short_val_y - long_val_y
-
                 if np.sign(pos_today) != np.sign(pos_yesterday):
                     event_type = None
                     sup_s_t = today_row.get(f'slope_{short_p}_support')
@@ -648,7 +639,6 @@ class GeometricPatternService:
                             'stock': self.stock_instance, 'event_date': trade_date.date(),
                             'event_type': event_type, 'details': self._sanitize_json_dict(details)
                         })
-            # C. 共振与背离分析 (逻辑不变)
             all_periods_slopes = {p: today_row.get(f'slope_{p}_support') for p in self.fib_periods}
             valid_slopes = {p: s for p, s in all_periods_slopes.items() if pd.notna(s)}
             if len(valid_slopes) >= 3:
@@ -688,14 +678,20 @@ class GeometricPatternService:
                             'stock': self.stock_instance, 'event_date': trade_date.date(),
                             'event_type': event_type, 'details': self._sanitize_json_dict(details)
                         })
-            # D. 通道压缩分析 (逻辑不变)
+            # [代码修改] V2.18 修正矢量化误用问题
+            # D. 通道压缩分析
             if len(self.fib_periods) > 0:
                 median_period_index = len(self.fib_periods) // 2
                 period = self.fib_periods[median_period_index]
                 channel_width = _get_line_value(today_row, period, 'resistance', time_idx_today) - _get_line_value(today_row, period, 'support', time_idx_today)
                 if pd.notna(channel_width):
-                    historical_widths = (_get_line_value(matrix_wide_df, period, 'resistance', np.arange(len(matrix_wide_df))) - 
-                                         _get_line_value(matrix_wide_df, period, 'support', np.arange(len(matrix_wide_df))))
+                    # 使用直接的矢量化操作，而不是错误地调用_get_line_value
+                    time_indices = np.arange(len(matrix_wide_df))
+                    resistance_values = (matrix_wide_df.get(f'slope_{period}_resistance') * time_indices + 
+                                         matrix_wide_df.get(f'intercept_{period}_resistance'))
+                    support_values = (matrix_wide_df.get(f'slope_{period}_support') * time_indices + 
+                                      matrix_wide_df.get(f'intercept_{period}_support'))
+                    historical_widths = resistance_values - support_values
                     squeeze_threshold = historical_widths.rolling(250, min_periods=50).quantile(0.1).loc[trade_date]
                     if not np.isnan(squeeze_threshold) and channel_width < squeeze_threshold:
                         details = {'period': period, 'width': channel_width, 'threshold': squeeze_threshold}
@@ -1014,16 +1010,17 @@ class GeometricPatternService:
 
     def _find_and_evaluate_flags(self, enriched_df: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V2.74 · 启示录版】重构为原型驱动的多时间框架识别引擎。
-        - V2.74 核心升级:
-          1. [方法更名] 将 `_predict_flag_breakout_probability` 更名为 `_find_and_evaluate_flags`，以更准确地描述其核心职责：发现并评估旗形。
-          2. [语义统一] 内部调用 `_translate_conviction_to_probability`，完成最终的语义统一。
+        【V3.0 · 量子透镜版】升级数据管道，为微观分析提供高频数据源。
+        - V3.0 核心升级:
+          1. [数据赋能] 修改对 `_identify_flagpole` 和 `_identify_flag` 的调用，
+                         将包含分钟线和Tick数据的 `data_dfs` 字典传递下去，
+                         为“量子透镜”的微观分析模块提供必要的弹药。
         """
         events = []
         for archetype in self.flag_archetypes:
             timeframe = archetype.get('timeframe', 'D')
             archetype_name = archetype.get('name', 'UNKNOWN_FLAG')
-            print(f"\n  -> [全息旗形扫描] 开始在 [{timeframe}] 级别应用原型 [{archetype_name}]...")
+            print(f"\n  -> [全息旗形扫描 V3.0] 开始在 [{timeframe}] 级别应用原型 [{archetype_name}]...")
             df_source = None
             if timeframe == 'D':
                 df_source = enriched_df
@@ -1042,10 +1039,12 @@ class GeometricPatternService:
             ultra_long_ma_col_name = f'ma{self.ultra_long_term_period}_{timeframe}'
             df[ultra_long_ma_col_name] = df['close_qfq'].rolling(self.ultra_long_term_period, min_periods=self.long_term_period).mean()
             for i in range(len(df) - 5, min_data_len, -1):
-                pole = self._identify_flagpole(df, end_index_loc=i, vol_ma_col_name=vol_ma_col_name, archetype=archetype)
+                # [代码修改] V3.0 传递 data_dfs 以支持微观分析
+                pole = self._identify_flagpole(df, end_index_loc=i, vol_ma_col_name=vol_ma_col_name, archetype=archetype, data_dfs=data_dfs)
                 if not pole:
                     continue
-                flag = self._identify_flag(df, pole, vol_ma_col_name=vol_ma_col_name, archetype=archetype)
+                # [代码修改] V3.0 传递 data_dfs 以支持微观分析
+                flag = self._identify_flag(df, pole, vol_ma_col_name=vol_ma_col_name, archetype=archetype, data_dfs=data_dfs)
                 if not flag:
                     continue
                 if timeframe == 'D':
@@ -1060,7 +1059,6 @@ class GeometricPatternService:
                     breakout_readiness = flag_df['breakout_readiness_score'].iloc[-1]
                     if breakout_readiness < 60: continue
                 print(f"  -> [高置信度旗形发现!] 日期: {flag['end_date'].date()}, 级别: [{timeframe}], 原型: [{archetype_name}]。启动概率转换...")
-                # [代码修改] V2.74 更新调用为新方法名
                 probability, features = self._translate_conviction_to_probability(flag)
                 events.append({
                     'stock': self.stock_instance,
@@ -1077,18 +1075,22 @@ class GeometricPatternService:
                 i = df.index.get_loc(pole['start_date'])
         return events
 
-    def _identify_flagpole(self, df: pd.DataFrame, end_index_loc: int, vol_ma_col_name: str, archetype: dict) -> dict:
+    def _identify_flagpole(self, df: pd.DataFrame, end_index_loc: int, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
-        【V2.70 · 智能统一版】引入“全谱双极评分函数”，根除所有评分盲区。
-        - V2.70 核心升级:
-          1. [日志修正] 修正探针日志中周期计算的BUG，使其正确反映交易日天数。
+        【V3.0 · 量子透镜版】引入第四维度“趋势纯度”，洞察日内博弈真相。
+        - V3.0 核心升级:
+          1. [微观洞察] 新增调用 `_calculate_intraday_trend_purity`，分析旗杆周期内每日的分钟线VWAP，
+                         量化上涨过程的“纯粹性”。
+          2. [四维评分] 将“纯度分”作为第四个核心维度，与幅度、方向、能量共同构成最终的旗杆信念评分。
         """
         min_dur = archetype.get('pole_min_dur', 2)
         max_dur = archetype.get('pole_max_dur', 8)
         min_magnitude_atr = archetype.get('pole_magnitude_atr', 4.0)
         min_vol_multiple = archetype.get('pole_vol_multiple', 1.8)
         end_date = df.index[end_index_loc]
-        print(f"    -> [旗杆探针 V2.70] 检查结束于 {end_date.date()} 的候选旗杆 (采用全谱评分)...")
+        # [代码修改] V3.0 获取分钟数据映射
+        minute_map = data_dfs.get("stock_minute_data_map", {})
+        print(f"    -> [旗杆探针 V3.0] 检查结束于 {end_date.date()} 的候选旗杆 (采用量子透镜)...")
         best_pole = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1116,7 +1118,12 @@ class GeometricPatternService:
             actual_vol_multiple = avg_volume_pole / vol_ma_at_start if vol_ma_at_start > 0 else 0
             energy_score = np.clip((actual_vol_multiple - min_vol_multiple * 0.8) / (min_vol_multiple * 0.7), 0, 1) * 100
             print(f"        - [能量] 成交量倍数: {actual_vol_multiple:.2f}x -> 得分: {energy_score:.1f}/100")
-            conviction_score = magnitude_score * 0.5 + directional_score * 0.3 + energy_score * 0.2
+            # [代码修改] V3.0 计算并整合趋势纯度分
+            purity_scores = [self._calculate_intraday_trend_purity(minute_map.get(d.date())) for d in pole_df.index]
+            purity_score = np.mean(purity_scores) if purity_scores else 50.0
+            print(f"        - [纯度] 日内趋势纯度: {purity_score:.1f}/100")
+            # [代码修改] V3.0 更新信念评分模型，加入纯度维度
+            conviction_score = magnitude_score * 0.4 + directional_score * 0.2 + energy_score * 0.15 + purity_score * 0.25
             print(f"        - [综合信念评分]: {conviction_score:.2f}")
             if conviction_score > max_conviction_score:
                 max_conviction_score = conviction_score
@@ -1125,24 +1132,24 @@ class GeometricPatternService:
                     'high_price': pole_high, 'low_price': pole_low,
                     'magnitude_atr': magnitude_atr, 'avg_volume': avg_volume_pole,
                     'conviction_score': conviction_score,
-                    'duration_days': len(pole_df) # [代码修改] V2.70 存储真实的交易日天数
+                    'duration_days': len(pole_df)
                 }
         MIN_ACCEPTANCE_SCORE = 60.0
         if best_pole and best_pole['conviction_score'] >= MIN_ACCEPTANCE_SCORE:
-            # [代码修改] V2.70 使用正确的交易日天数进行日志记录
             print(f"    -> [✓ ACCEPTED] 发现最佳旗杆 (周期 {best_pole['duration_days']}天), 最高信念分: {best_pole['conviction_score']:.2f}")
             return best_pole
         else:
             print(f"    -> [✗ REJECTED] 未发现任何候选旗杆的信念分超过 {MIN_ACCEPTANCE_SCORE:.1f} 的最低门槛。")
             return None
 
-    def _identify_flag(self, df: pd.DataFrame, pole_data: dict, vol_ma_col_name: str, archetype: dict) -> dict:
+    def _identify_flag(self, df: pd.DataFrame, pole_data: dict, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
-        【V2.72 · 全息审判版】引入证据自我加权模型，实现最终的非线性智慧融合。
-        - V2.72 核心升级:
-          1. [全息审判] 废除所有预设权重，引入“证据即权重”的终极融合哲学。
-          2. [自我加权] 每个维度的权重由其自身得分动态决定，完美模拟专家的非线性判断。
-          3. [终极形态] 旗面识别逻辑达到思想上的最终形态，成为一个自适应的、由证据驱动的智慧体。
+        【V3.0 · 量子透镜版】为“全息审判”模型注入微观博弈证据。
+        - V3.0 核心升级:
+          1. [微观洞察] 新增调用 `_calculate_flag_microstructure_score`，分析旗面周期内的Tick数据，
+                         量化盘整期间的“被动吸筹”强度。
+          2. [审判升维] 将“微观结构分”作为新的证据维度，融入“全息审判”模型，使其能够洞察
+                         几何形态背后的真实资金意图。
         """
         min_dur = archetype.get('flag_min_dur', 5)
         max_dur = archetype.get('flag_max_dur', 20)
@@ -1150,7 +1157,9 @@ class GeometricPatternService:
         vol_shrink_ma = archetype.get('flag_vol_shrink_ma', 1.0)
         max_retracement = archetype.get('flag_max_retracement', 0.5)
         pole_end_loc = df.index.get_loc(pole_data['end_date'])
-        print(f"    -> [旗面探针 V2.72] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用全息审判)...")
+        # [代码修改] V3.0 获取Tick数据映射
+        tick_map = data_dfs.get("stock_tick_data_map", {})
+        print(f"    -> [旗面探针 V3.0] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用量子透镜)...")
         best_flag = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1161,7 +1170,6 @@ class GeometricPatternService:
             start_date = flag_df.index[0]
             end_date = flag_df.index[-1]
             print(f"      - [候选周期: {duration}天] ({start_date.date()} -> {end_date.date()})")
-            # 1. 成交量萎缩评分
             avg_volume_flag = flag_df['vol'].mean()
             vol_ma_at_flag_start = df[vol_ma_col_name].iloc[flag_start_loc -1]
             shrink_ratio_pole = avg_volume_flag / pole_data['avg_volume'] if pole_data['avg_volume'] > 0 else 1.0
@@ -1170,29 +1178,29 @@ class GeometricPatternService:
             score2 = np.clip((vol_shrink_ma * 1.2 - shrink_ratio_ma) / (vol_shrink_ma * 0.7), 0, 1) * 100
             volume_score = score1 * 0.5 + score2 * 0.5
             print(f"        - [成交量萎缩] vs旗杆: {shrink_ratio_pole:.2f} | vs均线: {shrink_ratio_ma:.2f} -> 得分: {volume_score:.1f}/100")
-            # 2. 回撤深度评分
             flag_low = flag_df['low_qfq'].min()
             pole_range = pole_data['high_price'] - pole_data['low_price']
             if pole_range == 0: continue
             retracement_depth = (pole_data['high_price'] - flag_low) / pole_range
             depth_score = np.clip((max_retracement * 1.5 - retracement_depth) / (max_retracement * 1.5), 0, 1) * 100
             print(f"        - [回撤深度] 计算值: {retracement_depth:.2%} -> 得分: {depth_score:.1f}/100")
-            # 3. 盘整完整性评分
             integrity_score = (flag_df['close_qfq'] <= pole_data['high_price']).mean() * 100
             print(f"        - [盘整完整性] 保持在旗杆高点之下 -> 得分: {integrity_score:.1f}/100")
-            # [代码修改] V2.72 引入全息审判融合模型
-            # 4. 全息审判：证据即权重
-            total_score_sum = volume_score + depth_score + integrity_score
-            if total_score_sum < 1e-6: # 避免除零
+            # [代码修改] V3.0 计算并整合微观结构分
+            flag_period_ticks = pd.concat([tick_map.get(d.date()) for d in flag_df.index if tick_map.get(d.date()) is not None])
+            microstructure_score = self._calculate_flag_microstructure_score(flag_period_ticks)
+            print(f"        - [微观结构] 盘内吸筹强度 -> 得分: {microstructure_score:.1f}/100")
+            # [代码修改] V3.0 升维全息审判模型
+            total_score_sum = volume_score + depth_score + integrity_score + microstructure_score
+            if total_score_sum < 1e-6:
                 conviction_score = 0.0
             else:
-                # 最终信念分 = 各维度得分的二次方加权平均
-                conviction_score = (volume_score**2 + depth_score**2 + integrity_score**2) / total_score_sum
-                # 探针日志
+                conviction_score = (volume_score**2 + depth_score**2 + integrity_score**2 + microstructure_score**2) / total_score_sum
                 weight_v = volume_score / total_score_sum
                 weight_d = depth_score / total_score_sum
                 weight_i = integrity_score / total_score_sum
-                print(f"        - [全息审判] 证据权重动态生成: V:{weight_v:.2f}, D:{weight_d:.2f}, I:{weight_i:.2f}")
+                weight_m = microstructure_score / total_score_sum
+                print(f"        - [全息审判] 证据权重动态生成: V:{weight_v:.2f}, D:{weight_d:.2f}, I:{weight_i:.2f}, M:{weight_m:.2f}")
             print(f"        - [综合信念评分]: {conviction_score:.2f}")
             if conviction_score > max_conviction_score:
                 max_conviction_score = conviction_score
@@ -1472,7 +1480,54 @@ class GeometricPatternService:
         ) - 1
         return final_score
 
+    def _calculate_intraday_trend_purity(self, df_minute: pd.DataFrame) -> float:
+        """
+        【V3.0 · 量子透镜版 新增】计算日内趋势纯度。
+        - 核心思想: 一根高质量的上涨K线（旗杆部分），其价格在盘中应持续运行在VWAP之上。
+        - 计算逻辑: 综合考量价格在VWAP上方的时间占比和平均偏离幅度。
+        - 返回值: [0, 100] 的纯度评分。
+        """
+        if df_minute is None or df_minute.empty or 'volume' not in df_minute.columns or df_minute['volume'].sum() == 0:
+            return 50.0  # 数据不足，给予中性分
+        df_minute.ta.vwap(append=True)
+        vwap_col = [col for col in df_minute.columns if 'VWAP' in col]
+        if not vwap_col:
+            return 50.0
+        vwap_col = vwap_col[0]
+        above_vwap = df_minute['close'] > df_minute[vwap_col]
+        time_purity = above_vwap.mean() * 100
+        # 计算价格偏离VWAP的幅度，并进行归一化
+        deviation = (df_minute['close'] - df_minute[vwap_col]) / df_minute[vwap_col]
+        # 只考虑在VWAP上方的情况，偏离越大越好
+        magnitude_purity = np.clip(deviation[above_vwap].mean() / 0.01, 0, 1) * 100 if above_vwap.any() else 0
+        # 综合评分：时间纯度权重更高
+        final_purity_score = time_purity * 0.7 + magnitude_purity * 0.3
+        return final_purity_score
 
+    def _calculate_flag_microstructure_score(self, flag_ticks: pd.DataFrame) -> float:
+        """
+        【V3.0 · 量子透镜版 新增】计算旗面微观结构分。
+        - 核心思想: 一个高质量的旗面盘整，其内部应表现为“被动吸筹”而非“主动出货”。
+        - 计算逻辑: 分析Tick数据中的买卖盘成交量。被动买盘（成交在卖一价）远大于被动卖盘（成交在买一价）
+                     是强烈的吸筹信号。此处简化为分析主动买卖单（B/S type）的成交量对比。
+        - 返回值: [0, 100] 的微观结构评分。
+        """
+        if flag_ticks is None or flag_ticks.empty:
+            return 50.0 # 无Tick数据，给予中性分
+        # 'B'代表主动买，'S'代表主动卖
+        buy_vol = flag_ticks[flag_ticks['type'] == 'B']['volume'].sum()
+        sell_vol = flag_ticks[flag_ticks['type'] == 'S']['volume'].sum()
+        total_vol = buy_vol + sell_vol
+        if total_vol == 0:
+            return 50.0
+        # 我们期望在旗面盘整时，主动卖盘（散户行为）被更强的力量吸收，或者市场整体交易意愿低
+        # 一个健康的旗面，主动买盘不应过强（否则就不是盘整了），主动卖盘也不应占主导
+        # 这里我们定义一个“微观失衡指数”，衡量主动买盘相对于总成交量的比例
+        imbalance_ratio = (buy_vol - sell_vol) / total_vol
+        # 将[-1, 1]的失衡比映射到[0, 100]分。我们期望一个接近平衡或轻微卖盘主导（被吸收）的状态。
+        # 因此，失衡比接近0时得分最高。
+        score = (1 - abs(imbalance_ratio)) * 100
+        return score
 
 
 
