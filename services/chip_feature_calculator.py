@@ -918,8 +918,11 @@ class ChipFeatureCalculator:
 
     def _compute_realtime_orderbook_metrics(self, context: dict) -> dict:
         """
-        【V2.1 · 类型兼容性修复版】
-        - 核心修复: 在计算前，将所有价格和成交量列强制转换为float类型，避免 'float' 和 'decimal.Decimal' 混合运算导致的 TypeError。
+        【V2.2 · 高斯引力权重重构版】
+        - 核心修复: 修复了因Pandas索引对齐问题导致bid/ask power计算中出现NaN，进而使整个指标为空的严重BUG。
+        - 核心重构: 引入基于高斯函数的“引力权重”模型，为距离主峰成本更近的挂单赋予更高权重，使指标更精准地反映核心区域的攻防意图。
+        - 核心优化: 改变了挂单力量的累加方式，确保Series操作的索引安全，从根本上杜绝NaN传播。
+        - 新增: 增加了关键中间变量的调试打印输出。
         """
         results = {
             'mf_cost_zone_defense_intent': np.nan,
@@ -932,43 +935,77 @@ class ChipFeatureCalculator:
         if not all(col in realtime_df.columns for col in required_cols):
             logger.warning(f"[{context.get('stock_code')}] [{context.get('trade_date')}] 实时盘口指标计算跳过，因缺少必要的五档行情列。")
             return results
-        #  核心修复：在计算前，将所有价格和成交量列强制转换为float类型，
-        # 避免 'float' 和 'decimal.Decimal' 混合运算导致的 TypeError。
         numeric_cols = [f'{prefix}{i}_{suffix}' for prefix in ['b', 'a'] for i in range(1, 6) for suffix in ['p', 'v']]
         for col in numeric_cols:
             if col in realtime_df.columns:
                 realtime_df[col] = pd.to_numeric(realtime_df[col], errors='coerce')
         dominant_peak_cost = context.get('dominant_peak_cost')
         atr = context.get('atr_14d')
-        # --- 1. 主力成本区攻防意图 (逻辑不变) ---
+        # --- 1. 主力成本区攻防意图 (mf_cost_zone_defense_intent) ---
         if pd.notna(dominant_peak_cost) and pd.notna(atr) and atr > 0:
             cost_zone_low = dominant_peak_cost - 0.5 * atr
             cost_zone_high = dominant_peak_cost + 0.5 * atr
-            bid_prices = [f'b{i}_p' for i in range(1, 6)]
-            bid_vols = [f'b{i}_v' for i in range(1, 6)]
-            ask_prices = [f'a{i}_p' for i in range(1, 6)]
-            ask_vols = [f'a{i}_v' for i in range(1, 6)]
-            bid_power_series = pd.Series(0, index=realtime_df.index, dtype=float)
-            ask_power_series = pd.Series(0, index=realtime_df.index, dtype=float)
-            for p_col, v_col in zip(bid_prices, bid_vols):
-                in_zone_mask = (realtime_df[p_col] >= cost_zone_low) & (realtime_df[p_col] <= cost_zone_high)
-                bid_power_series += realtime_df.loc[in_zone_mask, p_col] * realtime_df.loc[in_zone_mask, v_col] * 100
-            for p_col, v_col in zip(ask_prices, ask_vols):
-                in_zone_mask = (realtime_df[p_col] >= cost_zone_low) & (realtime_df[p_col] <= cost_zone_high)
-                ask_power_series += realtime_df.loc[in_zone_mask, p_col] * realtime_df.loc[in_zone_mask, v_col] * 100
-            total_power = bid_power_series + ask_power_series
-            instant_intent = (bid_power_series - ask_power_series) / total_power.replace(0, np.nan)
+            # 新增代码行：定义高斯权重函数，用于计算“引力权重”
+            def _gaussian_weight(price_series, center, sigma):
+                # 只有在sigma大于0时才计算，避免除零错误
+                if sigma > 0:
+                    return np.exp(-((price_series - center)**2) / (2 * sigma**2))
+                # 如果sigma为0，则只有完全等于中心点的价格才有权重1，其他为0
+                return pd.Series(np.where(price_series == center, 1.0, 0.0), index=price_series.index)
+            bid_prices_cols = [f'b{i}_p' for i in range(1, 6)]
+            bid_vols_cols = [f'b{i}_v' for i in range(1, 6)]
+            ask_prices_cols = [f'a{i}_p' for i in range(1, 6)]
+            ask_vols_cols = [f'a{i}_v' for i in range(1, 6)]
+            # 修改代码行：初始化为完整的Series，确保索引对齐
+            total_weighted_bid_power = pd.Series(0.0, index=realtime_df.index)
+            total_weighted_ask_power = pd.Series(0.0, index=realtime_df.index)
+            # 修改代码行：重构整个计算循环以修复NaN Bug并引入高斯权重
+            for p_col, v_col in zip(bid_prices_cols, bid_vols_cols):
+                price_series = realtime_df[p_col]
+                vol_series = realtime_df[v_col]
+                # 筛选出在成本区内的挂单
+                in_zone_mask = (price_series >= cost_zone_low) & (price_series <= cost_zone_high)
+                # 计算引力权重
+                gravity_weight = _gaussian_weight(price_series, center=dominant_peak_cost, sigma=0.5 * atr)
+                # 计算当前档位的加权力量，区域外力量为0
+                level_power = price_series * vol_series * gravity_weight
+                # 使用.where确保只有区域内的力量被计入，其他位置为0，避免NaN
+                total_weighted_bid_power += level_power.where(in_zone_mask, 0)
+            for p_col, v_col in zip(ask_prices_cols, ask_vols_cols):
+                price_series = realtime_df[p_col]
+                vol_series = realtime_df[v_col]
+                in_zone_mask = (price_series >= cost_zone_low) & (price_series <= cost_zone_high)
+                gravity_weight = _gaussian_weight(price_series, center=dominant_peak_cost, sigma=0.5 * atr)
+                level_power = price_series * vol_series * gravity_weight
+                total_weighted_ask_power += level_power.where(in_zone_mask, 0)
+            total_power = total_weighted_bid_power + total_weighted_ask_power
+            # 计算瞬时意图，分母为0时结果为NaN
+            instant_intent = (total_weighted_bid_power - total_weighted_ask_power) / total_power.replace(0, np.nan)
+            # 使用成交量作为权重进行加权平均
             if 'volume' in realtime_df.columns and not instant_intent.dropna().empty:
+                # 权重为每个快照期间的成交量
                 weights = realtime_df['volume'].diff().fillna(0).clip(lower=0)
-                if weights.sum() > 0:
-                    weighted_intent = np.average(instant_intent.dropna(), weights=weights.loc[instant_intent.dropna().index])
+                valid_intent = instant_intent.dropna()
+                valid_weights = weights.loc[valid_intent.index]
+                print(f"[{context.get('stock_code')}] [{context.get('trade_date')}] 调试信息: 攻防意图计算。有效瞬时意图数量: {len(valid_intent)}, 总权重: {valid_weights.sum()}")
+                if valid_weights.sum() > 0:
+                    weighted_intent = np.average(valid_intent, weights=valid_weights)
                     results['mf_cost_zone_defense_intent'] = np.clip(weighted_intent * 100, -100, 100)
-        # --- 2. 浮筹清洗效率 (V2.0 深度逻辑) ---
+                    print(f"[{context.get('stock_code')}] [{context.get('trade_date')}] 调试信息: 最终攻防意图得分: {results['mf_cost_zone_defense_intent']}")
+        # --- 2. 浮筹清洗效率 (floating_chip_cleansing_efficiency) ---
         intraday_df = context.get('processed_intraday_df')
         total_daily_volume = context.get('daily_turnover_volume')
         if intraday_df is None or intraday_df.empty or pd.isna(atr) or atr <= 0 or pd.isna(total_daily_volume) or total_daily_volume <= 0:
             return results
-        intraday_df['price_impulse'] = intraday_df['close'].diff().abs()
+        # 确保 'open' 和 'close' 列存在
+        if 'open' not in intraday_df.columns or 'close' not in intraday_df.columns:
+             # 如果没有分钟线的开盘收盘，则使用vwap的差异作为替代
+            intraday_df['price_impulse'] = intraday_df['minute_vwap'].diff().abs()
+            intraday_df['open'] = intraday_df['minute_vwap'].shift(1).fillna(intraday_df['minute_vwap'])
+            intraday_df['close'] = intraday_df['minute_vwap']
+            intraday_df['low'] = intraday_df[['open', 'close']].min(axis=1)
+        else:
+            intraday_df['price_impulse'] = intraday_df['close'].diff().abs()
         impulse_threshold = 0.5 * atr / 240
         impulse_events = intraday_df[intraday_df['price_impulse'] > impulse_threshold]
         if not impulse_events.empty:

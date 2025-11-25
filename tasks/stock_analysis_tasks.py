@@ -769,10 +769,11 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.13 · 种子逻辑修复版】
-    - 核心修复: 修复了在“上下文播种”逻辑中因遗漏调用资金流计算引擎
-                 `_synthesize_and_forge_metrics` 而导致的 `NameError`。
-                 通过补全此调用，确保 `seed_ff_minute_map` 变量在使用前被正确定义。
+    【V34.14 · 审计逻辑优化版】
+    - 核心修复: 重构了数据完整性审计逻辑，废除了过于严苛的“逐日审计熔断”机制。
+                 旧机制会导致只要批次内有一天数据缺失，整个批次都会被跳过，造成计算提前中止。
+    - 核心优化: 采用更具韧性的宏观校验，仅当关键数据源在整个批次内完全为空时才跳过，
+                 将单日数据完整性的判断交由下游服务层处理，确保任务能最大限度地完成可计算部分。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -896,7 +897,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"]}
                 fund_flow_service.debug_params = debug_params
                 seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=seed_base_daily_df)
-                # V34.13 补全缺失的资金流计算步骤，以正确生成 seed_ff_minute_map
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(
                     stock_info, seed_ff_raw_df.index, 
                     tick_data_map=seed_data_dfs.get("stock_tick_data_map"), 
@@ -934,30 +934,21 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             level5_data_map = data_dfs.pop("stock_level5_data_map")
             minute_data_map = data_dfs.pop("stock_minute_data_map")
             realtime_data_map = data_dfs.pop("stock_realtime_data_map")
+            # 修改代码行：采用更合理的宏观校验，替换原有的逐日审计
             critical_sources = ["cyq_chips", "daily_data", "daily_basic", "cyq_perf", "fund_flow_tushare"]
-            is_chunk_valid = True
-            chunk_missing_records = []
-            for date in chunk_dates:
-                for source_name in critical_sources:
-                    source_df = data_dfs.get(source_name)
-                    if source_df is None or source_df.empty or date.date() not in pd.to_datetime(source_df['trade_time']).dt.date.values:
-                        is_chunk_valid = False
-                        reason_str = f"上游核心数据源 '{source_name}' 缺失"
-                        chunk_missing_records.append({
+            if any(data_dfs.get(src) is None or data_dfs.get(src).empty for src in critical_sources):
+                logger.warning(f"[{stock_code}] [审计熔断] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 因一个或多个关键数据源在整个批次内完全为空而被跳过。")
+                # 记录下具体是哪个数据源为空
+                for src in critical_sources:
+                    if data_dfs.get(src) is None or data_dfs.get(src).empty:
+                        all_failures.append({
                             'stock_code': stock_code,
-                            'trade_date': str(date.date()),
-                            'reason': reason_str,
-                            'missing_source': source_name
+                            'trade_date': f"{chunk_dates.min().date()} to {chunk_dates.max().date()}",
+                            'reason': f"上游核心数据源 '{src}' 在整个批次内完全为空",
+                            'missing_source': src
                         })
-                        break
-                if not is_chunk_valid:
-                    break
-            if not is_chunk_valid:
-                logger.warning(f"[{stock_code}] [审计熔断] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 因数据缺失被跳过。")
-                for missing_rec in chunk_missing_records:
-                    logger.warning(f"    -> 详细: 日期 {missing_rec['trade_date']}, 缺失上游核心数据源: '{missing_rec['missing_source']}'")
-                all_failures.extend(chunk_missing_records)
                 continue
+            # 删除代码行：移除旧的、过于严苛的逐日审计逻辑
             daily_df = data_dfs["daily_data"].set_index(pd.to_datetime(data_dfs["daily_data"]['trade_time'])).drop(columns='trade_time')
             daily_basic_df = data_dfs["daily_basic"].set_index(pd.to_datetime(data_dfs["daily_basic"]['trade_time'])).drop(columns='trade_time')
             overlap_cols = daily_df.columns.intersection(daily_basic_df.columns)
