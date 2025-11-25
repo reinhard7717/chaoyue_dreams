@@ -1149,11 +1149,12 @@ class GeometricPatternService:
 
     def _identify_flag(self, df: pd.DataFrame, pole_data: dict, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
-        【V3.1 · 虚空复原版】为“量子透镜”植入对数据缺失的容错能力。
-        - V3.1 核心修复:
-          1. [虚空协议] 在调用 `pd.concat` 之前，增加防御性检查。
-          2. [中性赋值] 当候选旗面周期内完全没有Tick数据时，不再尝试拼接，而是为
-                         `microstructure_score` 赋予一个中性分(50.0)，确保算法的鲁棒性。
+        【V3.5 · 几何共识版】引入几何平均数，建立“一票否决”的战略判断力。
+        - V3.5 核心升级:
+          1. [数学革命] 废弃原有的加权平均评分公式，因为它无法处理关键维度的“0分”否决票。
+          2. [几何共识] 采用几何平均数 `(s1*s2*s3*s4)^(1/4)` 作为新的 `conviction_score`。
+                         该公式确保任何一个维度的评分为0，最终信念即为0，实现“一票否决”，
+                         从根本上杜绝了对“回撤过深”等畸形形态的误判。
         """
         min_dur = archetype.get('flag_min_dur', 5)
         max_dur = archetype.get('flag_max_dur', 20)
@@ -1162,7 +1163,7 @@ class GeometricPatternService:
         max_retracement = archetype.get('flag_max_retracement', 0.5)
         pole_end_loc = df.index.get_loc(pole_data['end_date'])
         tick_map = data_dfs.get("stock_tick_data_map", {})
-        print(f"    -> [旗面探针 V3.1] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用量子透镜)...")
+        print(f"    -> [旗面探针 V3.5] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用几何共识)...")
         best_flag = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1189,28 +1190,20 @@ class GeometricPatternService:
             print(f"        - [回撤深度] 计算值: {retracement_depth:.2%} -> 得分: {depth_score:.1f}/100")
             integrity_score = (flag_df['close_qfq'] <= pole_data['high_price']).mean() * 100
             print(f"        - [盘整完整性] 保持在旗杆高点之下 -> 得分: {integrity_score:.1f}/100")
-            # [代码修改] V3.1 首先收集所有可用的Tick DataFrame
             tick_dfs_to_concat = [tick_map.get(d.date()) for d in flag_df.index if tick_map.get(d.date()) is not None]
-            # [代码修改] V3.1 增加对空列表的防御性检查
             if tick_dfs_to_concat:
-                # [代码修改] V3.1 如果有数据，则进行拼接和计算
                 flag_period_ticks = pd.concat(tick_dfs_to_concat)
                 microstructure_score = self._calculate_flag_microstructure_score(flag_period_ticks)
             else:
-                # 如果没有Tick数据，则赋予中性分
                 microstructure_score = 50.0
             print(f"        - [微观结构] 盘内吸筹强度 -> 得分: {microstructure_score:.1f}/100")
-            total_score_sum = volume_score + depth_score + integrity_score + microstructure_score
-            if total_score_sum < 1e-6:
+            # [代码修改] V3.5 废弃旧的评分公式，采用几何平均数建立“一票否决”机制
+            scores_product = volume_score * depth_score * integrity_score * microstructure_score
+            if scores_product < 1e-9: # 避免对极小或零的数进行开方
                 conviction_score = 0.0
             else:
-                conviction_score = (volume_score**2 + depth_score**2 + integrity_score**2 + microstructure_score**2) / total_score_sum
-                weight_v = volume_score / total_score_sum
-                weight_d = depth_score / total_score_sum
-                weight_i = integrity_score / total_score_sum
-                weight_m = microstructure_score / total_score_sum
-                print(f"        - [全息审判] 证据权重动态生成: V:{weight_v:.2f}, D:{weight_d:.2f}, I:{weight_i:.2f}, M:{weight_m:.2f}")
-            print(f"        - [综合信念评分]: {conviction_score:.2f}")
+                conviction_score = scores_product ** (1/4)
+            print(f"        - [几何共识评分]: {conviction_score:.2f}")
             if conviction_score > max_conviction_score:
                 max_conviction_score = conviction_score
                 best_flag = {
