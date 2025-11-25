@@ -1060,18 +1060,16 @@ class GeometricPatternService:
 
     def _identify_flagpole(self, df: pd.DataFrame, end_index_loc: int, vol_ma_col_name: str, archetype: dict) -> dict:
         """
-        【V2.69 · 全谱评分版】引入“全谱双极评分函数”，根除所有评分盲区。
-        - V2.69 核心升级:
-          1. [全谱评分] 重构所有评分函数，将合理的输入范围完整、连续地映射到[0, 100]分。
-          2. [消除盲区] 新函数能有效惩罚表现差的候选者（得分<50），彻底消除50分的地板效应。
-          3. [终极形态] 旗杆识别逻辑达到最终的、与人类专家思维一致的成熟形态。
+        【V2.70 · 智能统一版】引入“全谱双极评分函数”，根除所有评分盲区。
+        - V2.70 核心升级:
+          1. [日志修正] 修正探针日志中周期计算的BUG，使其正确反映交易日天数。
         """
         min_dur = archetype.get('pole_min_dur', 2)
         max_dur = archetype.get('pole_max_dur', 8)
         min_magnitude_atr = archetype.get('pole_magnitude_atr', 4.0)
         min_vol_multiple = archetype.get('pole_vol_multiple', 1.8)
         end_date = df.index[end_index_loc]
-        print(f"    -> [旗杆探针 V2.69] 检查结束于 {end_date.date()} 的候选旗杆 (采用全谱评分)...")
+        print(f"    -> [旗杆探针 V2.70] 检查结束于 {end_date.date()} 的候选旗杆 (采用全谱评分)...")
         best_pole = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1080,33 +1078,25 @@ class GeometricPatternService:
             pole_df = df.iloc[start_index_loc : end_index_loc + 1]
             start_date = pole_df.index[0]
             print(f"      - [候选周期: {duration}天] ({start_date.date()} -> {end_date.date()})")
-            # [代码修改] V2.69 引入全谱双极评分函数
-            # 1. 幅度评分
             atr_at_start = df['ATR_14_D'].iloc[start_index_loc - 1] if start_index_loc > 0 else df['ATR_14_D'].iloc[0]
             if atr_at_start == 0: continue
             pole_high = pole_df['high_qfq'].max()
             pole_low = pole_df['low_qfq'].min()
             magnitude_atr = (pole_high - pole_low) / atr_at_start
-            # 将 [min_magnitude_atr * 0.5, min_magnitude_atr * 1.5] 映射到 [0, 100] 分
             magnitude_score = np.clip((magnitude_atr - min_magnitude_atr * 0.5) / (min_magnitude_atr * 1.0), 0, 1) * 100
             print(f"        - [幅度] ATR倍数: {magnitude_atr:.2f} -> 得分: {magnitude_score:.1f}/100")
-            # 2. 方向意图评分
             closes = pole_df['close_qfq'].values
             if len(closes) < 2: continue
             x = np.arange(len(closes))
             slope = np.polyfit(x, closes, 1)[0]
             normalized_slope = slope / np.mean(closes) if np.mean(closes) > 0 else 0
-            # 将日均涨幅 [-1%, 2%] 映射到 [0, 100] 分
             directional_score = np.clip((normalized_slope - (-0.01)) / (0.02 - (-0.01)), 0, 1) * 100
             print(f"        - [方向] 归一化斜率: {normalized_slope:.4f} -> 得分: {directional_score:.1f}/100")
-            # 3. 能量评分
             vol_ma_at_start = df[vol_ma_col_name].iloc[start_index_loc - 1] if start_index_loc > 0 else df[vol_ma_col_name].iloc[0]
             avg_volume_pole = pole_df['vol'].mean()
             actual_vol_multiple = avg_volume_pole / vol_ma_at_start if vol_ma_at_start > 0 else 0
-            # 沿用 V2.68 的能量评分逻辑，因为它本身就是 [0, 100] 的全谱映射
             energy_score = np.clip((actual_vol_multiple - min_vol_multiple * 0.8) / (min_vol_multiple * 0.7), 0, 1) * 100
             print(f"        - [能量] 成交量倍数: {actual_vol_multiple:.2f}x -> 得分: {energy_score:.1f}/100")
-            # 4. 最终信念评分 (幅度50%, 方向30%, 能量20%)
             conviction_score = magnitude_score * 0.5 + directional_score * 0.3 + energy_score * 0.2
             print(f"        - [综合信念评分]: {conviction_score:.2f}")
             if conviction_score > max_conviction_score:
@@ -1115,11 +1105,13 @@ class GeometricPatternService:
                     'start_date': start_date, 'end_date': end_date,
                     'high_price': pole_high, 'low_price': pole_low,
                     'magnitude_atr': magnitude_atr, 'avg_volume': avg_volume_pole,
-                    'conviction_score': conviction_score
+                    'conviction_score': conviction_score,
+                    'duration_days': len(pole_df) # [代码修改] V2.70 存储真实的交易日天数
                 }
         MIN_ACCEPTANCE_SCORE = 60.0
         if best_pole and best_pole['conviction_score'] >= MIN_ACCEPTANCE_SCORE:
-            print(f"    -> [✓ ACCEPTED] 发现最佳旗杆 (周期 { (best_pole['end_date'] - best_pole['start_date']).days + 1 }天), 最高信念分: {best_pole['conviction_score']:.2f}")
+            # [代码修改] V2.70 使用正确的交易日天数进行日志记录
+            print(f"    -> [✓ ACCEPTED] 发现最佳旗杆 (周期 {best_pole['duration_days']}天), 最高信念分: {best_pole['conviction_score']:.2f}")
             return best_pole
         else:
             print(f"    -> [✗ REJECTED] 未发现任何候选旗杆的信念分超过 {MIN_ACCEPTANCE_SCORE:.1f} 的最低门槛。")
@@ -1127,11 +1119,10 @@ class GeometricPatternService:
 
     def _identify_flag(self, df: pd.DataFrame, pole_data: dict, vol_ma_col_name: str, archetype: dict) -> dict:
         """
-        【V2.67 · 信念评分版】识别旗面，引入“信念评分”系统取代刚性的布尔门槛。
-        - V2.67 核心升级:
-          1. [信念评分] 为成交量萎缩、回撤深度、价格压制三大核心条件引入0-100的连续评分。
-          2. [整体主义] 融合各维度得分为一个最终的“旗面信念评分”，寻找信念最强的候选者。
-          3. [探针升级] 探针同步升级，展示每个维度的具体得分。
+        【V2.70 · 智能统一版】将旗面识别的智能程度提升至与旗杆同等的全谱评分标准。
+        - V2.70 核心升级:
+          1. [智能统一] 重构“回撤深度”评分函数，采用更具弹性的全谱评分逻辑。
+          2. [消除断层] 允许对深度稍大的回撤给予低分而非零分，避免因单一维度瑕疵错失良机。
         """
         min_dur = archetype.get('flag_min_dur', 5)
         max_dur = archetype.get('flag_max_dur', 20)
@@ -1139,7 +1130,7 @@ class GeometricPatternService:
         vol_shrink_ma = archetype.get('flag_vol_shrink_ma', 1.0)
         max_retracement = archetype.get('flag_max_retracement', 0.5)
         pole_end_loc = df.index.get_loc(pole_data['end_date'])
-        print(f"    -> [旗面探针 V2.67] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用信念评分)...")
+        print(f"    -> [旗面探针 V2.70] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用全谱评分)...")
         best_flag = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1150,32 +1141,26 @@ class GeometricPatternService:
             start_date = flag_df.index[0]
             end_date = flag_df.index[-1]
             print(f"      - [候选周期: {duration}天] ({start_date.date()} -> {end_date.date()})")
-            # [代码修改] V2.67 引入信念评分计算
-            # 1. 成交量萎缩评分
             avg_volume_flag = flag_df['vol'].mean()
             vol_ma_at_flag_start = df[vol_ma_col_name].iloc[flag_start_loc -1]
             shrink_ratio_pole = avg_volume_flag / pole_data['avg_volume'] if pole_data['avg_volume'] > 0 else 1.0
             shrink_ratio_ma = avg_volume_flag / vol_ma_at_flag_start if vol_ma_at_flag_start > 0 else 1.0
-            # 将[vol_shrink_pole * 1.2, vol_shrink_pole * 0.5] 映射到 [0, 100]分
             score1 = np.clip((vol_shrink_pole * 1.2 - shrink_ratio_pole) / (vol_shrink_pole * 0.7), 0, 1) * 100
-            # 将[vol_shrink_ma * 1.2, vol_shrink_ma * 0.5] 映射到 [0, 100]分
             score2 = np.clip((vol_shrink_ma * 1.2 - shrink_ratio_ma) / (vol_shrink_ma * 0.7), 0, 1) * 100
             volume_score = score1 * 0.5 + score2 * 0.5
-            print(f"        - [成交量萎缩] vs旗杆: {shrink_ratio_pole:.2f} (要求<{vol_shrink_pole}) | vs均线: {shrink_ratio_ma:.2f} (要求<{vol_shrink_ma}) -> 得分: {volume_score:.1f}/100")
-            # 2. 回撤深度评分
+            print(f"        - [成交量萎缩] vs旗杆: {shrink_ratio_pole:.2f} | vs均线: {shrink_ratio_ma:.2f} -> 得分: {volume_score:.1f}/100")
             flag_low = flag_df['low_qfq'].min()
             pole_range = pole_data['high_price'] - pole_data['low_price']
             if pole_range == 0: continue
             retracement_depth = (pole_data['high_price'] - flag_low) / pole_range
-            # 回撤越小越好，将[max_retracement, 0] 映射到 [0, 100]分
-            depth_score = np.clip((max_retracement - retracement_depth) / max_retracement, 0, 1) * 100
-            print(f"        - [回撤深度] 计算值: {retracement_depth:.2%} (要求<{max_retracement:.2%}) -> 得分: {depth_score:.1f}/100")
-            # 3. 价格压制评分 (一票否决项)
+            # [代码修改] V2.70 升级回撤深度为全谱评分函数
+            # 将 [max_retracement * 1.5, 0] 的回撤范围映射到 [0, 100] 分
+            depth_score = np.clip((max_retracement * 1.5 - retracement_depth) / (max_retracement * 1.5), 0, 1) * 100
+            print(f"        - [回撤深度] 计算值: {retracement_depth:.2%} -> 得分: {depth_score:.1f}/100")
             price_check = flag_df['close_qfq'].max() <= pole_data['high_price']
             if not price_check:
                 print(f"        - [价格压制] 旗面收盘价突破旗杆高点，形态失效。 [✗ REJECTED]")
                 continue
-            # 4. 最终信念评分 (成交量权重40%，回撤深度60%)
             conviction_score = volume_score * 0.4 + depth_score * 0.6
             print(f"        - [综合信念评分]: {conviction_score:.2f}")
             if conviction_score > max_conviction_score:
