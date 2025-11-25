@@ -1204,6 +1204,7 @@ class GeometricPatternService:
         print(f"    -> [认知统一 V2.73]")
         print(f"      - 接收到'全息审判'信念评分: {conviction_score:.2f}")
         print(f"      - >> 直接映射为最终突破概率: {final_probability:.2%}")
+        # [代码修改] V2.73 净化返回的特征字典，使其与“归一”哲学对齐
         features = {
             'conviction_score': conviction_score,
             'retracement_depth': flag.get('retracement_depth'),

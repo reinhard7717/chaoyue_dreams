@@ -993,6 +993,15 @@
             "reversal": 0.4,
             "breakout": 0.2
           },
+          "geometric_signal_integration": {
+            "enabled": true,
+            "description": "【V1.0 · 战略连接版】将几何形态信号（如旗形）正式纳入形态公理的评分体系。",
+            "flag_breakout_boost": {
+              "description": "旗形突破助推函数：根据旗形事件的概率，为突破公理提供额外加成。",
+              "min_probability_threshold": 0.70,
+              "base_boost_factor": 0.3
+            }
+          },
           "pullback_confirmation_n_pre_A": 10,
           "pullback_confirmation_n_pullback_max": 13
       },
