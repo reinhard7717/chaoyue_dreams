@@ -993,7 +993,12 @@ class GeometricPatternService:
 
     def _predict_flag_breakout_probability(self, enriched_df: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V2.3 专家系统】识别旗形，并使用基于规则和加权评分的专家系统进行突破概率预测。
+        【V2.64 · 宏观解耦版】识别旗形，并使用基于规则和加权评分的专家系统进行突破概率预测。
+        - V2.64 核心升级:
+          1. [解耦识别与评估] 彻底解除了旗形识别与233日超长周期的“硬绑定”，将数据长度门槛
+             从233日大幅降低至55日，使模型能够在中期趋势中捕捉战术性旗形机会。
+          2. [实战适应性] 移除了僵化的超长周期数据检查，循环的回溯终点从年线级别调整至
+             季度线级别，更符合A股市场中短期战役的实战节律。
         """
         events = []
         if len(enriched_df) < self.long_term_period:
@@ -1003,12 +1008,10 @@ class GeometricPatternService:
         df[vol_ma_col_name] = df['vol'].rolling(self.long_term_period).mean()
         # 动态计算超长期均线
         ultra_long_ma_col_name = f'ma{self.ultra_long_term_period}'
-        df[ultra_long_ma_col_name] = df['close_qfq'].rolling(self.ultra_long_term_period).mean()
-        # 修改代码行：使用 self.ultra_long_term_period 作为循环的回溯终点和数据长度要求
-        if len(df) < self.ultra_long_term_period:
-            print(f"[{self.stock_code}] 数据长度不足 {self.ultra_long_term_period} 天，无法进行超长期趋势分析，跳过旗形识别。")
-            return []
-        for i in range(len(df) - 5, self.ultra_long_term_period, -1):
+        # [代码修改] V2.64 即使数据不足233天，也尝试计算，不足部分会是NaN，下游会处理
+        df[ultra_long_ma_col_name] = df['close_qfq'].rolling(self.ultra_long_term_period, min_periods=self.long_term_period).mean()
+        # [代码修改] V2.64 移除硬性的超长周期数据长度检查，并将循环终点调整为长期周期(55)
+        for i in range(len(df) - 5, self.long_term_period, -1):
             pole = self._identify_flagpole(df, end_index_loc=i, vol_ma_col_name=vol_ma_col_name)
             if not pole:
                 continue
@@ -1030,7 +1033,6 @@ class GeometricPatternService:
             if breakout_readiness < 60:
                 continue
             print(f"  -> [高置信度旗形] 在 {flag['end_date']} 发现！通过多维情报验证。")
-            # 修改代码行：将动态的超长期均线列名传递给概率计算方法
             probability, features = self._calculate_expert_breakout_probability(df, pole, flag, vol_ma_col_name=vol_ma_col_name, ultra_long_ma_col_name=ultra_long_ma_col_name)
             events.append({
                 'stock': self.stock_instance,
@@ -1110,7 +1112,11 @@ class GeometricPatternService:
 
     def _calculate_expert_breakout_probability(self, df: pd.DataFrame, pole: dict, flag: dict, vol_ma_col_name: str, ultra_long_ma_col_name: str) -> (float, dict):
         """
-        【V2.3 概率精算】基于一个模拟专家决策的加权评分系统，计算旗形突破的概率。
+        【V2.64 · 宏观解耦版】基于一个模拟专家决策的加权评分系统，计算旗形突破的概率。
+        - V2.64 核心升级:
+          1. [宏观适应性评分] 重构了对超长周期趋势的评估逻辑，不再是简单的二元判断。
+          2. [动态评估] 新的评估函数会综合考量价格与年线的相对位置以及年线自身的斜率，
+             生成一个连续的、更精细的调整因子，使概率预测更具弹性。
         """
         import math
         base_probability = 0.55
@@ -1140,9 +1146,25 @@ class GeometricPatternService:
             adjustments['chip_health_high'] = 0.3
         if flag_df['breakout_readiness_score'].iloc[-1] > 80:
             adjustments['structure_high_readiness'] = 0.4
-        # 修改代码行：使用传入的 ultra_long_ma_col_name 进行动态列选择
-        if flag_df['close_qfq'].iloc[-1] > df[ultra_long_ma_col_name].loc[flag['end_date']]:
-            adjustments['long_term_trend_aligned'] = 0.2
+        # [代码修改] V2.64 引入宏观背景适应性评分
+        long_term_trend_adjustment = 0.0
+        ma_ultra_long = df[ultra_long_ma_col_name].loc[flag['end_date']]
+        if pd.notna(ma_ultra_long):
+            # 1. 评估相对位置
+            close_price = flag_df['close_qfq'].iloc[-1]
+            position_ratio = (close_price - ma_ultra_long) / ma_ultra_long
+            position_score = np.clip(position_ratio / 0.15, -1, 1) # 偏离15%视为强信号
+            # 2. 评估均线自身趋势
+            ma_series = df[ultra_long_ma_col_name].dropna()
+            if len(ma_series) > 20:
+                ma_slope = ta.slope(ma_series, length=20).iloc[-1]
+                slope_score = np.clip(ma_slope / (ma_ultra_long * 0.001), -1, 1) # 日均0.1%的涨幅视为强趋势
+            else:
+                slope_score = 0.0 # 数据不足，给予中性分
+            # 3. 融合评分 (位置权重60%，趋势权重40%)
+            context_score = position_score * 0.6 + slope_score * 0.4
+            long_term_trend_adjustment = context_score * 0.5 # 最大调整幅度为0.5
+        adjustments['long_term_trend_aligned'] = long_term_trend_adjustment
         total_adjustment = sum(adjustments.values())
         final_log_odds = log_odds + total_adjustment
         final_probability = 1 / (1 + math.exp(-final_log_odds))
@@ -1339,16 +1361,13 @@ class GeometricPatternService:
         )
         return conviction_score
 
-    def _calculate_trend_conviction_score(self, line_data: dict, enriched_df: pd.DataFrame, debug_flag: bool = False) -> float:
+    def _calculate_trend_conviction_score(self, line_data: dict, enriched_df: pd.DataFrame) -> float:
         """
-        【V2.62 · 感知和谐版】引入非线性认知校准，为模型注入最终的感知智慧。
-        - V2.62 核心升级:
-          1. [认知校准] 彻底重构“行为”支柱的评分逻辑，废除线性的“物理直译”，引入
-             `100 * (avg_efficiency ** 0.5)` 的非线性认知校准函数。
-          2. [感知智慧] 新的评分函数模拟了人类分析师对趋势质量的“感知”，对低质量趋势
-             给予了更合理的宽容度，同时保留了对高质量趋势的精确奖励，解决了V2.61中
-             低效率分对总分的过度惩罚问题。
-          3. [最终和谐] 至此，模型的逻辑、数学与感知智慧三者合一，达到了设计的最终形态。
+        【V2.63 · 意志统一版】最终净化，移除所有调试探针，模型达到最终生产状态。
+        - V2.63 核心升级:
+          1. [代码净化] 移除了方法签名中的 `debug_flag` 参数以及所有相关的 `print` 调试代码块。
+          2. [生产就绪] 核心计算函数至此达到最终的纯粹形态，为生产环境部署做好准备。
+             模型的进化之旅宣告完成。
         """
         import math
         start_date = line_data.get('start_date')
@@ -1366,7 +1385,6 @@ class GeometricPatternService:
                 return 0.0
             z_score = (value - mean) / std
             return 100 * math.erf(z_score / math.sqrt(2))
-        avg_flow, avg_slope, avg_efficiency = 0.0, 0.0, 0.0
         score_power, score_structure, score_behavior = 0.0, 0.0, 0.0
         if 'daily_flow_ratio' in trend_df.columns:
             avg_flow = trend_df['daily_flow_ratio'].mean()
@@ -1378,20 +1396,10 @@ class GeometricPatternService:
             score_structure = gaussian_normalize(avg_slope, mean, std)
         if 'efficiency_avg_5d' in trend_df.columns:
             avg_efficiency = trend_df['efficiency_avg_5d'].mean()
-            # [代码修改] V2.62 引入非线性认知校准函数
             if pd.notna(avg_efficiency) and avg_efficiency >= 0:
-                # 使用平方根对效率值进行感知校准，使其更符合人类判断
                 score_behavior = 100 * (avg_efficiency ** 0.5)
             else:
                 score_behavior = 0.0
-        if debug_flag:
-            flow_stats = (last_day_stats.get('flow_mean', 'N/A'), last_day_stats.get('flow_std', 'N/A'))
-            struct_stats = (last_day_stats.get('structure_mean', 'N/A'), last_day_stats.get('structure_std', 'N/A'))
-            print(f"            [原始读数 & 高斯统计(μ,σ)] "
-                  f"力量: {avg_flow:.4f} vs ({flow_stats[0]:.4f}, {flow_stats[1]:.4f}) | "
-                  f"结构: {avg_slope:.6f} vs ({struct_stats[0]:.6f}, {struct_stats[1]:.6f}) | "
-                  f"行为: {avg_efficiency:.4f}")
-            print(f"          [评分细则] 几何: {score_geometry:.2f}, 力量(资金): {score_power:.2f}, 结构(筹码): {score_structure:.2f}, 行为(效率): {score_behavior:.2f}")
         if line_type == 'resistance':
             score_power = -score_power
             score_structure = -score_structure
