@@ -1010,17 +1010,17 @@ class GeometricPatternService:
 
     def _find_and_evaluate_flags(self, enriched_df: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V3.3 · 跃迁修正版】实现无条件时空跳跃，彻底分离识别与评估。
-        - V3.3 核心修复:
-          1. [逻辑重构] 重构 while 循环，将“时空跳跃”作为识别出完整几何形态后的无条件操作。
-          2. [权责分离] 质量过滤仅决定是否“记录”事件，而不再影响是否“跳跃”。
-                         无论几何形态质量如何，只要被识别，就执行跳跃，从而根治重复识别的“口吃”问题。
+        【V3.4 · 认知焦点版】植入预处理器，聚焦高潜力目标，大幅提升扫描效率。
+        - V3.4 核心升级:
+          1. [认知预处理] 在主循环入口，新增对 `_is_potential_pole_peak` 的调用。
+          2. [战术性跳过] 只有当某一天被预处理器识别为“高潜力杆顶”时，才启动后续昂贵的
+                         旗杆识别流程。否则，直接跳过，避免在低价值区域空耗算力。
         """
         events = []
         for archetype in self.flag_archetypes:
             timeframe = archetype.get('timeframe', 'D')
             archetype_name = archetype.get('name', 'UNKNOWN_FLAG')
-            print(f"\n  -> [全息旗形扫描 V3.3] 开始在 [{timeframe}] 级别应用原型 [{archetype_name}]...")
+            print(f"\n  -> [全息旗形扫描 V3.4] 开始在 [{timeframe}] 级别应用原型 [{archetype_name}]...")
             df_source = None
             if timeframe == 'D':
                 df_source = enriched_df
@@ -1040,12 +1040,15 @@ class GeometricPatternService:
             df[ultra_long_ma_col_name] = df['close_qfq'].rolling(self.ultra_long_term_period, min_periods=self.long_term_period).mean()
             i = len(df) - 5
             while i > min_data_len:
+                # [代码修改] V3.4 植入“认知焦点”预处理器
+                if not self._is_potential_pole_peak(df, i, vol_ma_col_name):
+                    print(f"    -> [认知焦点] 日期 {df.index[i].date()} 未通过潜力筛选，跳过。")
+                    i -= 1
+                    continue
                 pole = self._identify_flagpole(df, end_index_loc=i, vol_ma_col_name=vol_ma_col_name, archetype=archetype, data_dfs=data_dfs)
-                # [代码修改] V3.3 只要找到 pole 和 flag，就进入统一处理块
                 if pole:
                     flag = self._identify_flag(df, pole, vol_ma_col_name=vol_ma_col_name, archetype=archetype, data_dfs=data_dfs)
                     if flag:
-                        # 成功发现完整几何形态，现在进行质量评估
                         passes_quality_check = True
                         if timeframe == 'D':
                             pole_df = df.loc[pole['start_date']:pole['end_date']]
@@ -1071,11 +1074,9 @@ class GeometricPatternService:
                                     'pole_end_date': pole['end_date'].date(),
                                 }
                             })
-                        # [代码修改] V3.3 无论质量如何，只要识别出完整几何形态，就无条件执行时空跳跃
                         print(f"    -> [时空跳跃] 扫描指针从 {df.index[i].date()} 跳跃至 {pole['start_date'].date()} 之前...")
                         i = df.index.get_loc(pole['start_date']) - 1
-                        continue # 跳跃后立即开始下一次大循环
-                # [代码修改] V3.3 如果没有找到 pole 或 flag，则线性后退
+                        continue
                 i -= 1
         return events
 
@@ -1537,6 +1538,31 @@ class GeometricPatternService:
         score = (1 - abs(imbalance_ratio)) * 100
         return score
 
+    def _is_potential_pole_peak(self, df: pd.DataFrame, index_loc: int, vol_ma_col_name: str) -> bool:
+        """
+        【V3.4 · 认知焦点版 新增】判断某一天是否是潜在的旗杆顶点（“杆顶”）。
+        - 核心思想: 作为一个轻量级的“门卫”，在进行昂贵的旗杆识别前，快速筛选掉
+                     明显不可能是强劲拉升终点的日期。
+        - 判断标准:
+          1. 当日必须有显著的波动（日内振幅 > 1.2倍ATR）。
+          2. 当日成交量必须显著放大（> 1.5倍长期均量）。
+        - 返回值: 布尔值，表示是否值得进行深度扫描。
+        """
+        if index_loc <= 0:
+            return False
+        current_day = df.iloc[index_loc]
+        atr = current_day.get('ATR_14_D', 0)
+        if atr == 0:
+            return False
+        day_range = current_day['high_qfq'] - current_day['low_qfq']
+        vol_ma = current_day.get(vol_ma_col_name, 0)
+        if vol_ma == 0:
+            return False
+        # 条件1: 波动性要求
+        is_volatile_enough = (day_range / atr) > 1.2
+        # 条件2: 成交量要求
+        is_volume_spiked = current_day['vol'] > vol_ma * 1.5
+        return is_volatile_enough and is_volume_spiked
 
 
 
