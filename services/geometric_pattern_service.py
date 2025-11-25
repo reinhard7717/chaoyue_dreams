@@ -1060,18 +1060,18 @@ class GeometricPatternService:
 
     def _identify_flagpole(self, df: pd.DataFrame, end_index_loc: int, vol_ma_col_name: str, archetype: dict) -> dict:
         """
-        【V2.67 · 信念评分版】识别旗杆，引入“信念评分”系统取代刚性的布尔门槛。
-        - V2.67 核心升级:
-          1. [信念评分] 废除“一票否决”逻辑，为幅度和能量两大核心条件引入0-100的连续评分。
-          2. [整体主义] 融合各维度得分为一个最终的“旗杆信念评分”，寻找信念最强的候选者。
-          3. [探针升级] 探针同步升级，展示每个维度的具体得分，使决策过程更具洞察力。
+        【V2.68 · 方向意图版】识别旗杆，引入“方向意图评分”取代狭隘的端点比较。
+        - V2.68 核心升级:
+          1. [方向意图] 引入基于线性回归斜率的“方向意图评分”，取代原有的“终点近视”逻辑。
+          2. [三位一体] 旗杆信念评分重构为“幅度、方向、能量”三位一体的加权评估体系。
+          3. [探针升级] 探针完全展示三大支柱的评估细节，实现对旗杆信念的深度解剖。
         """
         min_dur = archetype.get('pole_min_dur', 2)
         max_dur = archetype.get('pole_max_dur', 8)
         min_magnitude_atr = archetype.get('pole_magnitude_atr', 4.0)
         min_vol_multiple = archetype.get('pole_vol_multiple', 1.8)
         end_date = df.index[end_index_loc]
-        print(f"    -> [旗杆探针 V2.67] 检查结束于 {end_date.date()} 的候选旗杆 (采用信念评分)...")
+        print(f"    -> [旗杆探针 V2.68] 检查结束于 {end_date.date()} 的候选旗杆 (采用三位一体信念评分)...")
         best_pole = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1080,30 +1080,32 @@ class GeometricPatternService:
             pole_df = df.iloc[start_index_loc : end_index_loc + 1]
             start_date = pole_df.index[0]
             print(f"      - [候选周期: {duration}天] ({start_date.date()} -> {end_date.date()})")
-            # [代码修改] V2.67 引入信念评分计算
-            # 1. 方向检查 (一票否决项)
-            dir_check = pole_df['close_qfq'].iloc[-1] > pole_df['open_qfq'].iloc[0]
-            if not dir_check:
-                print(f"        - [方向] 收盘价 <= 开盘价，不满足基本攻击形态。 [✗ REJECTED]")
-                continue
-            # 2. 幅度评分
+            # [代码修改] V2.68 引入三位一体信念评分
+            # 1. 幅度评分
             atr_at_start = df['ATR_14_D'].iloc[start_index_loc - 1] if start_index_loc > 0 else df['ATR_14_D'].iloc[0]
             if atr_at_start == 0: continue
             pole_high = pole_df['high_qfq'].max()
             pole_low = pole_df['low_qfq'].min()
             magnitude_atr = (pole_high - pole_low) / atr_at_start
-            # 将[min_magnitude_atr, min_magnitude_atr * 2] 映射到 [50, 100]分
             magnitude_score = 50 + 50 * np.clip((magnitude_atr - min_magnitude_atr) / min_magnitude_atr, 0, 1)
-            print(f"        - [幅度] 计算值: {magnitude_atr:.2f} (要求 > {min_magnitude_atr}) -> 得分: {magnitude_score:.1f}/100")
+            print(f"        - [幅度] ATR倍数: {magnitude_atr:.2f} (要求 > {min_magnitude_atr}) -> 得分: {magnitude_score:.1f}/100")
+            # 2. 方向意图评分
+            closes = pole_df['close_qfq'].values
+            if len(closes) < 2: continue
+            x = np.arange(len(closes))
+            slope = np.polyfit(x, closes, 1)[0]
+            normalized_slope = slope / np.mean(closes) if np.mean(closes) > 0 else 0
+            # 将日均涨幅 [0%, 2%] 映射到 [50, 100] 分
+            directional_score = 50 + 50 * np.clip(normalized_slope / 0.02, 0, 1)
+            print(f"        - [方向] 归一化斜率: {normalized_slope:.4f} -> 得分: {directional_score:.1f}/100")
             # 3. 能量评分
             vol_ma_at_start = df[vol_ma_col_name].iloc[start_index_loc - 1] if start_index_loc > 0 else df[vol_ma_col_name].iloc[0]
             avg_volume_pole = pole_df['vol'].mean()
             actual_vol_multiple = avg_volume_pole / vol_ma_at_start if vol_ma_at_start > 0 else 0
-            # 将[min_vol_multiple * 0.8, min_vol_multiple * 1.5] 映射到 [0, 100]分
             energy_score = np.clip((actual_vol_multiple - min_vol_multiple * 0.8) / (min_vol_multiple * 0.7), 0, 1) * 100
-            print(f"        - [能量] 倍数: {actual_vol_multiple:.2f}x (要求 > {min_vol_multiple}x) -> 得分: {energy_score:.1f}/100")
-            # 4. 最终信念评分 (幅度权重60%，能量权重40%)
-            conviction_score = magnitude_score * 0.6 + energy_score * 0.4
+            print(f"        - [能量] 成交量倍数: {actual_vol_multiple:.2f}x (要求 > {min_vol_multiple}x) -> 得分: {energy_score:.1f}/100")
+            # 4. 最终信念评分 (幅度50%, 方向30%, 能量20%)
+            conviction_score = magnitude_score * 0.5 + directional_score * 0.3 + energy_score * 0.2
             print(f"        - [综合信念评分]: {conviction_score:.2f}")
             if conviction_score > max_conviction_score:
                 max_conviction_score = conviction_score
@@ -1113,7 +1115,7 @@ class GeometricPatternService:
                     'magnitude_atr': magnitude_atr, 'avg_volume': avg_volume_pole,
                     'conviction_score': conviction_score
                 }
-        MIN_ACCEPTANCE_SCORE = 50.0
+        MIN_ACCEPTANCE_SCORE = 60.0 # 适当提高接受门槛
         if best_pole and best_pole['conviction_score'] >= MIN_ACCEPTANCE_SCORE:
             print(f"    -> [✓ ACCEPTED] 发现最佳旗杆 (周期 { (best_pole['end_date'] - best_pole['start_date']).days + 1 }天), 最高信念分: {best_pole['conviction_score']:.2f}")
             return best_pole
