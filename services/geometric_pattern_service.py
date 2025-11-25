@@ -184,9 +184,9 @@ class GeometricPatternService:
 
     def calculate_and_save_all_patterns(self, data_dfs: dict, start_date_str: str = None):
         """
-        【V2.52 · 趋势信念版】执行所有几何形态的计算和存储。
-        - V2.52 升级: 调整了 `enriched_df` 的生成和传递逻辑，确保平台和趋势线
-                     两大计算模块都能访问到这份包含全维度情报的核心数据。
+        【V2.54 · 残影修正版】执行所有几何形态的计算和存储。
+        - V2.54 核心修复: 修正了因方法重命名（_predict_flag_breakout_probability -> _find_and_evaluate_flags）
+                         而遗漏更新的调用点，根除了由此引发的 AttributeError。
         """
         print(f"[{self.stock_code}] [动态演化分析] 开始计算几何形态特征...")
         df_daily = data_dfs.get('daily_data')
@@ -201,9 +201,8 @@ class GeometricPatternService:
             if col in df_daily.columns:
                 df_daily[col] = pd.to_numeric(df_daily[col], errors='coerce')
         df_daily.ta.atr(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True, col_names=('ATR_14_D',))
-        # [代码修改] V2.52 调整enriched_df的生成和传递逻辑
         enriched_df = self._prepare_enriched_dataframe(df_daily)
-        data_dfs['enriched_df'] = enriched_df # 将其存入共享字典
+        data_dfs['enriched_df'] = enriched_df
         if start_date_str:
             deleted_count, _ = self.platform_model.objects.filter(
                 stock=self.stock_instance,
@@ -212,12 +211,13 @@ class GeometricPatternService:
             print(f"  -> [统一回滚] 平台特征删除 {deleted_count} 条。")
         self._calculate_and_save_platforms(enriched_df, data_dfs)
         self._calculate_and_save_trendline_matrix_and_events(df_daily, data_dfs, start_date_str=start_date_str)
-        flag_events = self._predict_flag_breakout_probability(enriched_df, data_dfs)
+        # [代码修改] V2.54 修正方法调用，使用新的方法名 _find_and_evaluate_flags
+        flag_events = self._find_and_evaluate_flags(enriched_df, data_dfs)
         if start_date_str:
             self.event_model.objects.filter(
                 stock=self.stock_instance,
                 event_date__gte=start_date_str,
-                event_type='FLAG_FORMED'
+                event_type__startswith='FLAG_FORMED'
             ).delete()
         self._save_trendline_events_incrementally(flag_events)
         print(f"[{self.stock_code}] [动态演化分析] 几何形态特征计算完成。")
