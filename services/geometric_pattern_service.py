@@ -1010,17 +1010,18 @@ class GeometricPatternService:
 
     def _find_and_evaluate_flags(self, enriched_df: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V3.4 · 认知焦点版】植入预处理器，聚焦高潜力目标，大幅提升扫描效率。
-        - V3.4 核心升级:
-          1. [认知预处理] 在主循环入口，新增对 `_is_potential_pole_peak` 的调用。
-          2. [战术性跳过] 只有当某一天被预处理器识别为“高潜力杆顶”时，才启动后续昂贵的
-                         旗杆识别流程。否则，直接跳过，避免在低价值区域空耗算力。
+        【V4.0 · 时空跳跃版】引入非线性扫描，根除顶层战略的冗余计算。
+        - V4.0 核心升级:
+          1. [时空跳跃] 修正了主扫描循环的线性后退逻辑。
+          2. [战略性规避] 只要一个 `pole` 被识别，无论后续 `flag` 是否找到，扫描指针 `i`
+                         都将直接“跳跃”到该 `pole` 的起始日期之前。
+          3. [宏观效率] 从根本上避免了对已识别、已分析的结构化时间段进行任何重复扫描。
         """
         events = []
         for archetype in self.flag_archetypes:
             timeframe = archetype.get('timeframe', 'D')
             archetype_name = archetype.get('name', 'UNKNOWN_FLAG')
-            print(f"\n  -> [全息旗形扫描 V3.4] 开始在 [{timeframe}] 级别应用原型 [{archetype_name}]...")
+            print(f"\n  -> [全息旗形扫描 V4.0] 开始在 [{timeframe}] 级别应用原型 [{archetype_name}]...")
             df_source = None
             if timeframe == 'D':
                 df_source = enriched_df
@@ -1040,7 +1041,6 @@ class GeometricPatternService:
             df[ultra_long_ma_col_name] = df['close_qfq'].rolling(self.ultra_long_term_period, min_periods=self.long_term_period).mean()
             i = len(df) - 5
             while i > min_data_len:
-                # [代码修改] V3.4 植入“认知焦点”预处理器
                 if not self._is_potential_pole_peak(df, i, vol_ma_col_name):
                     print(f"    -> [认知焦点] 日期 {df.index[i].date()} 未通过潜力筛选，跳过。")
                     i -= 1
@@ -1074,9 +1074,11 @@ class GeometricPatternService:
                                     'pole_end_date': pole['end_date'].date(),
                                 }
                             })
-                        print(f"    -> [时空跳跃] 扫描指针从 {df.index[i].date()} 跳跃至 {pole['start_date'].date()} 之前...")
-                        i = df.index.get_loc(pole['start_date']) - 1
-                        continue
+                    # [代码修改] V4.0 将时空跳跃逻辑移至 if pole 块的末尾
+                    # 无论是否找到旗面，只要识别出一个旗杆，就跳跃到其开始之前，避免重叠扫描
+                    print(f"    -> [时空跳跃] 扫描指针从 {df.index[i].date()} 跳跃至 {pole['start_date'].date()} 之前...")
+                    i = df.index.get_loc(pole['start_date']) - 1
+                    continue
                 i -= 1
         return events
 
