@@ -139,12 +139,14 @@ def save_index_daily_this_week_task(self):
 
 INDEX_SLICE_SIZE = 100 # 优化：将切片大小从10增加到100，减少任务总数，降低系统开销
 
-@celery_app.task(bind=True, queue='SaveData_TimeTrade', rate_limit='180/m') # 修改代码：添加 bind=True
-def save_index_daily_history_slice(self, index_codes_slice: List[str]): # 修改代码：添加 self 参数
+@celery_app.task(bind=True, queue='SaveData_TimeTrade', rate_limit='180/m')
+def save_index_daily_history_slice(self, index_codes_slice: List[str], start_date: Optional[datetime.date] = None, end_date: Optional[datetime.date] = None): # 修改代码：增加 start_date 和 end_date 参数
     """
     【优化版】执行保存单个指数切片的历史日级指标数据到数据库
     Args:
         index_codes_slice: 指数代码列表切片
+        start_date (Optional[datetime.date]): 开始日期
+        end_date (Optional[datetime.date]): 结束日期
     """
     task_id = self.request.id  # 获取任务ID用于日志追踪
     async def main():
@@ -153,18 +155,22 @@ def save_index_daily_history_slice(self, index_codes_slice: List[str]): # 修改
         # 创建DAO实例并注入cache_manager
         index_basic_dao = IndexBasicDAO(cache_manager)
         # 执行业务逻辑
-        await index_basic_dao.save_index_daily_history(index_codes=index_codes_slice)
+        # 修改代码：将 start_date 和 end_date 传递给DAO方法
+        await index_basic_dao.save_index_daily_history(index_codes=index_codes_slice, start_date=start_date, end_date=end_date)
     try:
-        logger.info(f"[{task_id}] 开始执行任务 - 处理指数切片，包含 {len(index_codes_slice)} 个代码: {index_codes_slice[:3]}...")
+        date_range_log = f"从 {start_date} 到 {end_date}" if start_date and end_date else "全部历史"
+        logger.info(f"[{task_id}] 开始执行任务 - 处理指数切片 (日期范围: {date_range_log})，包含 {len(index_codes_slice)} 个代码: {index_codes_slice[:3]}...")
         async_to_sync(main)()
         logger.info(f"[{task_id}] 任务成功 - 指数切片处理完成，包含 {len(index_codes_slice)} 个代码。")
     except Exception as e:
         logger.error(f"[{task_id}] 执行指数切片任务时发生错误 (切片: {index_codes_slice[:3]}...): {e}", exc_info=True)
 
 @celery_app.task(bind=True, name='tasks.tushare.index_tasks.save_index_daily_history_task', queue='celery')
-def save_index_daily_history_task(self):
+def save_index_daily_history_task(self, lookback_days: int = None): # 修改代码：增加 lookback_days 参数
     """
     【优化版】从数据库获取所有指数代码，切片后分发给执行器任务进行处理（调度任务）
+    Args:
+        lookback_days (int, optional): 回溯的交易日数量。如果提供，则只获取最近N个交易日的数据。默认为None，获取全部历史数据。
     """
     # 在任务开始时创建一次 CacheManager 实例
     cache_manager = CacheManager()
@@ -173,6 +179,20 @@ def save_index_daily_history_task(self):
     task_id = self.request.id
     try:
         logger.info(f"[{task_id}] 开始调度 [指数每日指标] 任务...")
+        # 新增代码：根据 lookback_days 计算日期范围
+        start_date, end_date = None, None
+        if lookback_days and lookback_days > 0:
+            today = datetime.date.today()
+            # 使用 TradeCalendar 模型获取最近N个交易日
+            trade_dates = TradeCalendar.get_latest_n_trade_dates(n=lookback_days, reference_date=today)
+            if trade_dates:
+                end_date = trade_dates[0] # 最近的日期是结束日期
+                start_date = trade_dates[-1] # 最远的日期是开始日期
+                logger.info(f"[{task_id}] 已设置回溯天数: {lookback_days}。将获取 {start_date} 到 {end_date} 的数据。")
+            else:
+                logger.warning(f"[{task_id}] 无法根据回溯天数 {lookback_days} 获取到交易日历，将执行默认的全量更新。")
+        else:
+            logger.info(f"[{task_id}] 未设置回溯天数，将获取全部历史数据。")
         # 代码修改处: 直接调用高效的DAO方法获取所有指数代码列表
         # 无需在Celery任务中再嵌套一层 async_to_sync
         logger.info(f"[{task_id}] 正在从数据库获取所有指数代码列表...")
@@ -191,7 +211,8 @@ def save_index_daily_history_task(self):
             )
             logger.info(log_msg)
             # 分配执行任务
-            save_index_daily_history_slice.delay(index_codes_slice)
+            # 修改代码：将计算出的 start_date 和 end_date 传递给执行任务
+            save_index_daily_history_slice.delay(index_codes_slice, start_date=start_date, end_date=end_date)
         logger.info(f"[{task_id}] 调度任务完成 - 所有 {len(range(0, len(all_index_codes), INDEX_SLICE_SIZE))} 个指数切片任务已成功分配。")
     except Exception as e:
         logger.error(f"[{task_id}] 执行 [指数每日指标] 调度任务时发生严重错误: {e}", exc_info=True)
