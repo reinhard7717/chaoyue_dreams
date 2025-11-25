@@ -1404,9 +1404,10 @@ class GeometricPatternService:
 
     def _calculate_platform_conviction_score(self, platform_group: pd.DataFrame) -> float:
         """
-        【V2.53 · 智能归一化版】应用升级后的斜率计算函数，为RSSlope关闭冗余归一化。
-        - V2.53 核心升级: 在计算 RSSlope 时，调用斜率计算函数并传入 `normalize=False`，
-                         确保与主诊断流程的计算逻辑绝对一致。
+        【V2.54 · 真理契约版】引入故障快速失败协议，处理上游数据空洞。
+        - V2.54 核心修复: 在计算相对强度斜率得分前，检查'rs'列是否存在。如果不存在，
+                         直接将该项得分置为中立的50分，而不是基于一个虚假的0.0斜率
+                         进行计算，从而保证最终信念评分不受数据缺失的污染。
         """
         # 支柱一: 控盘与洗盘力度 (Price Kurtosis) - 权重 30%
         pk = self._calculate_price_kurtosis(platform_group)
@@ -1425,11 +1426,15 @@ class GeometricPatternService:
         internal_strength = ((platform_group['close_qfq'] - platform_group['low_qfq']) / daily_range.replace(0, np.nan)).fillna(0.5)
         score_internal = internal_strength.mean() * 100
         # 支柱五: 相对市场强度 (Relative Strength Slope) - 权重 10%
-        # [代码修改] V2.53 在计算rss时，关闭内部归一化
-        rebased_rs = platform_group['rs'] / platform_group['rs'].iloc[0] if 'rs' in platform_group and not platform_group.empty and platform_group['rs'].iloc[0] != 0 else pd.Series()
-        rss = self._calculate_linear_regression_slope(rebased_rs, normalize=False) if not rebased_rs.empty else 0.0
-        # 斜率越大越好，将[-0.01, 0.01]的范围映射到[0, 100]分
-        score_rss = np.clip((rss - (-0.01)) / (0.01 - (-0.01)), 0, 1) * 100
+        # [代码修改] V2.54 实施“真理契约”，检查'rs'列是否存在
+        if 'rs' in platform_group and not platform_group.empty and platform_group['rs'].iloc[0] != 0:
+            rebased_rs = platform_group['rs'] / platform_group['rs'].iloc[0]
+            rss = self._calculate_linear_regression_slope(rebased_rs, normalize=False)
+            # 斜率越大越好，将[-0.01, 0.01]的范围映射到[0, 100]分
+            score_rss = np.clip((rss - (-0.01)) / (0.01 - (-0.01)), 0, 1) * 100
+        else:
+            # 如果'rs'数据不存在，则给予中立分50，避免评分被污染
+            score_rss = 50.0
         # 融合总分
         conviction_score = (
             score_kurtosis * 0.30 +
