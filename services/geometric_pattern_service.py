@@ -1084,19 +1084,24 @@ class GeometricPatternService:
 
     def _identify_flagpole(self, df: pd.DataFrame, end_index_loc: int, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
-        【V3.8 · 有效推力版】修正旗杆定义，为下游提供精确的回撤计算基准。
-        - V3.8 核心升级:
-          1. [基准修正] 在识别出最佳旗杆后，额外捕获并存储其周期的第一天开盘价 `start_price`。
-          2. [信息传递] 将 `start_price` 存入返回的 `best_pole` 字典中，为下游 `_identify_flag`
-                         方法计算“有效推力”提供必要的输入。
+        【V4.1 · 脉冲纯度版】引入结构连续性约束，过滤掉意图不纯的伪旗杆。
+        - V4.1 核心升级:
+          1. [脉冲纯度协议] 新增一个决定性约束：一个合法的旗杆，其内部不应包含任何
+                             显著破坏结构连续性的回调日。
+          2. [动态阈值] 检查候选旗杆周期内，是否存在任何一天的收盘价跌幅超过基于ATR
+                         动态计算的容忍阈值（例如 0.5 * ATR）。
+          3. [源头过滤] 一旦发现“污染日”，立即判定当前候选旗杆无效，从源头上保证了
+                         旗杆定义的结构纯粹性和意图单一性。
         """
         min_dur = archetype.get('pole_min_dur', 2)
         max_dur = archetype.get('pole_max_dur', 8)
         min_magnitude_atr = archetype.get('pole_magnitude_atr', 4.0)
         min_vol_multiple = archetype.get('pole_vol_multiple', 1.8)
+        # [代码修改] V4.1 从原型配置中获取最大日内回撤ATR倍数
+        max_daily_drop_atr = archetype.get('pole_max_daily_drop_atr', 0.5)
         end_date = df.index[end_index_loc]
         minute_map = data_dfs.get("stock_minute_data_map", {})
-        print(f"    -> [旗杆探针 V3.8] 检查结束于 {end_date.date()} 的候选旗杆 (采用有效推力基准)...")
+        print(f"    -> [旗杆探针 V4.1] 检查结束于 {end_date.date()} 的候选旗杆 (采用脉冲纯度协议)...")
         best_pole = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1107,6 +1112,12 @@ class GeometricPatternService:
             print(f"      - [候选周期: {duration}天] ({start_date.date()} -> {end_date.date()})")
             atr_at_start = df['ATR_14_D'].iloc[start_index_loc - 1] if start_index_loc > 0 else df['ATR_14_D'].iloc[0]
             if atr_at_start == 0: continue
+            # [代码修改] V4.1 植入“脉冲纯度”检查
+            daily_drops = pole_df['close_qfq'].diff().dropna()
+            max_drop_value = abs(daily_drops[daily_drops < 0].min()) if not daily_drops[daily_drops < 0].empty else 0
+            if max_drop_value > max_daily_drop_atr * atr_at_start:
+                print(f"        - [✗ 纯度不符] 发现显著回调日 (最大跌幅: {max_drop_value:.2f} > 阈值: {max_daily_drop_atr * atr_at_start:.2f})，候选周期无效。")
+                continue
             pole_high = pole_df['high_qfq'].max()
             pole_low = pole_df['low_qfq'].min()
             magnitude_atr = (pole_high - pole_low) / atr_at_start
@@ -1134,7 +1145,6 @@ class GeometricPatternService:
                 best_pole = {
                     'start_date': start_date, 'end_date': end_date,
                     'high_price': pole_high, 'low_price': pole_low,
-                    # [代码修改] V3.8 新增：记录旗杆第一天的开盘价作为有效推力的起点
                     'start_price': pole_df['open_qfq'].iloc[0],
                     'magnitude_atr': magnitude_atr, 'avg_volume': avg_volume_pole,
                     'conviction_score': conviction_score,
