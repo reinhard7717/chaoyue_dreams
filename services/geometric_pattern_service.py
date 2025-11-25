@@ -1144,12 +1144,11 @@ class GeometricPatternService:
 
     def _identify_flag(self, df: pd.DataFrame, pole_data: dict, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
-        【V3.0 · 量子透镜版】为“全息审判”模型注入微观博弈证据。
-        - V3.0 核心升级:
-          1. [微观洞察] 新增调用 `_calculate_flag_microstructure_score`，分析旗面周期内的Tick数据，
-                         量化盘整期间的“被动吸筹”强度。
-          2. [审判升维] 将“微观结构分”作为新的证据维度，融入“全息审判”模型，使其能够洞察
-                         几何形态背后的真实资金意图。
+        【V3.1 · 虚空复原版】为“量子透镜”植入对数据缺失的容错能力。
+        - V3.1 核心修复:
+          1. [虚空协议] 在调用 `pd.concat` 之前，增加防御性检查。
+          2. [中性赋值] 当候选旗面周期内完全没有Tick数据时，不再尝试拼接，而是为
+                         `microstructure_score` 赋予一个中性分(50.0)，确保算法的鲁棒性。
         """
         min_dur = archetype.get('flag_min_dur', 5)
         max_dur = archetype.get('flag_max_dur', 20)
@@ -1157,9 +1156,8 @@ class GeometricPatternService:
         vol_shrink_ma = archetype.get('flag_vol_shrink_ma', 1.0)
         max_retracement = archetype.get('flag_max_retracement', 0.5)
         pole_end_loc = df.index.get_loc(pole_data['end_date'])
-        # [代码修改] V3.0 获取Tick数据映射
         tick_map = data_dfs.get("stock_tick_data_map", {})
-        print(f"    -> [旗面探针 V3.0] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用量子透镜)...")
+        print(f"    -> [旗面探针 V3.1] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用量子透镜)...")
         best_flag = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1186,11 +1184,17 @@ class GeometricPatternService:
             print(f"        - [回撤深度] 计算值: {retracement_depth:.2%} -> 得分: {depth_score:.1f}/100")
             integrity_score = (flag_df['close_qfq'] <= pole_data['high_price']).mean() * 100
             print(f"        - [盘整完整性] 保持在旗杆高点之下 -> 得分: {integrity_score:.1f}/100")
-            # [代码修改] V3.0 计算并整合微观结构分
-            flag_period_ticks = pd.concat([tick_map.get(d.date()) for d in flag_df.index if tick_map.get(d.date()) is not None])
-            microstructure_score = self._calculate_flag_microstructure_score(flag_period_ticks)
+            # [代码修改] V3.1 首先收集所有可用的Tick DataFrame
+            tick_dfs_to_concat = [tick_map.get(d.date()) for d in flag_df.index if tick_map.get(d.date()) is not None]
+            # [代码修改] V3.1 增加对空列表的防御性检查
+            if tick_dfs_to_concat:
+                # [代码修改] V3.1 如果有数据，则进行拼接和计算
+                flag_period_ticks = pd.concat(tick_dfs_to_concat)
+                microstructure_score = self._calculate_flag_microstructure_score(flag_period_ticks)
+            else:
+                # 如果没有Tick数据，则赋予中性分
+                microstructure_score = 50.0
             print(f"        - [微观结构] 盘内吸筹强度 -> 得分: {microstructure_score:.1f}/100")
-            # [代码修改] V3.0 升维全息审判模型
             total_score_sum = volume_score + depth_score + integrity_score + microstructure_score
             if total_score_sum < 1e-6:
                 conviction_score = 0.0
