@@ -759,7 +759,7 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
                     'realtime': realtime_data_map.get(date_obj),
                 }
         print(f"调试信息: [{stock_code}] [结构指标任务] 数据重组完成，共 {len(nested_intraday_data_map)} 天的数据将被处理。")
-        # 修改代码行：调用服务执行器，传入重组后的嵌套数据map
+        # 调用服务执行器，传入重组后的嵌套数据map
         processed_count = await structural_service.run_precomputation(
             stock_info=stock_info,
             dates_to_process=dates_to_process,
@@ -944,7 +944,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             level5_data_map = data_dfs.pop("stock_level5_data_map")
             minute_data_map = data_dfs.pop("stock_minute_data_map")
             realtime_data_map = data_dfs.pop("stock_realtime_data_map")
-            # 修改代码行：采用更合理的宏观校验，替换原有的逐日审计
+            # 采用更合理的宏观校验，替换原有的逐日审计
             critical_sources = ["cyq_chips", "daily_data", "daily_basic", "cyq_perf", "fund_flow_tushare"]
             if any(data_dfs.get(src) is None or data_dfs.get(src).empty for src in critical_sources):
                 logger.warning(f"[{stock_code}] [审计熔断] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 因一个或多个关键数据源在整个批次内完全为空而被跳过。")
@@ -1056,7 +1056,7 @@ def precompute_geometric_patterns_for_stock(self, stock_code: str, start_date_st
                 logger.info(f"[{stock_code}] [几何形态任务] 数据不足 (<60天)，跳过计算。")
                 return {"status": "skipped", "reason": "Insufficient data."}
             data_dfs = await _load_all_sources_unified(stock_info, daily_model, dates_to_process, cache_manager)
-            # 修改代码行：将 start_date_str 传递给服务层
+            # 将 start_date_str 传递给服务层
             await sync_to_async(service.calculate_and_save_all_patterns)(data_dfs, start_date_str=start_date_str)
             return {"status": "success", "stock_code": stock_code}
         except StockInfo.DoesNotExist:
@@ -1144,7 +1144,7 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             structural_task = precompute_advanced_structural_metrics_for_stock.s(
                 stock_code=code, is_incremental=is_incremental_structural, start_date_str=start_date_structural
             )
-            # 修改代码行：为适配器任务显式传递 start_date_str
+            # 为适配器任务显式传递 start_date_str
             trigger_task = _trigger_geometric_patterns_computation.s(stock_code=code, start_date_str=start_date_chip_ff)
             stock_chain = chain(
                 group(chip_ff_task, structural_task),

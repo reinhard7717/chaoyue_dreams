@@ -621,7 +621,7 @@ class BaseAdvancedStructuralMetrics(models.Model):
         **GAME_EFFICIENCY_METRICS,
         **FORWARD_LOOKING_METRICS,
         **ADVANCED_BATTLEFIELD_METRICS,
-        **MICROSTRUCTURE_DYNAMICS_METRICS, # 修改代码行：加入新的指标组
+        **MICROSTRUCTURE_DYNAMICS_METRICS, # 加入新的指标组
         **AUXILIARY_METRICS,
     }
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]

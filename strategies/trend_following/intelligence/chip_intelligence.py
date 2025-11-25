@@ -65,7 +65,7 @@ class ChipIntelligence:
         # 步骤二: 工程化超级原子信号
         # 信号1: 筹码干净度 (SCORE_CHIP_CLEANLINESS)
         chip_fault = self._get_safe_series(df, df, 'chip_fault_blockage_ratio_D', 0.5, method_name="run_chip_intelligence_command") # [代码修改]
-        # 修改代码行：使用(1 - 获利盘稳定度)作为短期获利盘压力的代理
+        # 使用(1 - 获利盘稳定度)作为短期获利盘压力的代理
         winner_stability = self._get_safe_series(df, df, 'winner_stability_index_D', 0.5, method_name="run_chip_intelligence_command") # [代码修改]
         profit_pressure = 1 - winner_stability
         cleanliness_raw_score = ((1 - chip_fault) * (1 - profit_pressure)).pow(0.5).fillna(0.5)
@@ -74,7 +74,7 @@ class ChipIntelligence:
         cleanliness_score = get_adaptive_mtf_normalized_score(cleanliness_raw_score, df.index, ascending=True, tf_weights=tf_weights)
         all_chip_states['SCORE_CHIP_CLEANLINESS'] = cleanliness_score.astype(np.float32)
         # 信号2: 筹码锁定度 (SCORE_CHIP_LOCKDOWN_DEGREE)
-        # 修改代码行：使用获利盘稳定度代表盈利锁定，使用套牢盘痛苦指数代表亏损锁定
+        # 使用获利盘稳定度代表盈利锁定，使用套牢盘痛苦指数代表亏损锁定
         locked_profit = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="run_chip_intelligence_command") # [代码修改]
         loser_pain = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="run_chip_intelligence_command") # [代码修改]
         # 痛苦指数越高，越不愿卖出，锁定度越高，因此直接归一化

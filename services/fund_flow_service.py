@@ -340,10 +340,12 @@ class AdvancedFundFlowMetricsService:
         day_metrics['trade_time'] = daily_data_series.name
         return day_metrics, None
 
-    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None, realtime_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]: # 增加realtime_data_map参数
+    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None, realtime_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V11.0 · 实时盘口数据注入版】
-        - 核心升级: 接收 `realtime_data_map` 并将其逐日传递给核心计算引擎，为盘口意图分析提供数据。
+        【V11.1 · 数据融合同步版】
+        - 核心同步: 与筹码服务保持一致，引入数据融合逻辑。
+        - 核心逻辑: 在注入计算引擎前，使用pd.merge_asof将Level5盘口数据与Realtime快照数据进行合并，
+                     确保下游所有计算函数都能接收到包含完整信息的（盘口+成交量）DataFrame。
         """
         all_metrics_list = []
         attributed_minute_data_map = {}
@@ -362,12 +364,35 @@ class AdvancedFundFlowMetricsService:
                 continue
             attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data, daily_data_series)
             probabilistic_costs_dict, attributed_minute_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series)
-            # 将realtime数据传递给单日计算引擎
+            # 数据融合逻辑
+            merged_realtime_df_for_day = pd.DataFrame()
+            if level5_data_map and date_obj in level5_data_map and realtime_data_map and date_obj in realtime_data_map:
+                level5_df = level5_data_map[date_obj]
+                realtime_df = realtime_data_map[date_obj]
+                if not level5_df.empty and not realtime_df.empty and 'volume' in realtime_df.columns:
+                    # 注意：level5数据的列名在传入前已经被任务层统一重命名过，这里直接使用
+                    # 但为保险起见，我们使用原始的 buy_price1 格式进行检查和合并
+                    level5_df_renamed = level5_df.copy()
+                    column_rename_map = {
+                        **{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)},
+                        **{f'buy_volume{i}': f'b{i}_v' for i in range(1, 6)},
+                        **{f'sell_price{i}': f'a{i}_p' for i in range(1, 6)},
+                        **{f'sell_volume{i}': f'a{i}_v' for i in range(1, 6)},
+                    }
+                    # 检查原始列名是否存在，如果存在则重命名
+                    if 'buy_price1' in level5_df_renamed.columns:
+                         level5_df_renamed.rename(columns=column_rename_map, inplace=True)
+                    merged_realtime_df_for_day = pd.merge_asof(
+                        left=level5_df.sort_index(),
+                        right=realtime_df[['volume']].sort_index(),
+                        on='trade_time',
+                        direction='nearest'
+                    )
+            # 将融合后的DataFrame传递给单日计算引擎
             day_metrics, _ = self._calculate_all_metrics_for_day(
                 stock_code, daily_data_series, intraday_data, attributed_minute_df, probabilistic_costs_dict,
                 tick_data_map.get(date_obj) if tick_data_map else None,
-                level5_data_map.get(date_obj) if level5_data_map else None,
-                realtime_data_map.get(date_obj) if realtime_data_map else None
+                merged_realtime_df_for_day # 传递融合后的DF
             )
             all_metrics_list.append(day_metrics)
             attributed_minute_data_map[date_obj] = attributed_minute_df.copy(deep=True)

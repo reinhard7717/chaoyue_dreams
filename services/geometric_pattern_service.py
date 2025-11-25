@@ -57,7 +57,7 @@ def _calculate_zigzag_numba(highs: np.ndarray, lows: np.ndarray, threshold: floa
                 zigzag[current_high_idx_loc] = 1
                 trend = -1
                 pivot_idx = current_high_idx_loc
-                # 修改代码行：不再重置cursor，而是让其继续前进，防止回跳
+                # 不再重置cursor，而是让其继续前进，防止回跳
                 cursor += 1
             else:
                 cursor += 1
@@ -69,7 +69,7 @@ def _calculate_zigzag_numba(highs: np.ndarray, lows: np.ndarray, threshold: floa
                 zigzag[current_low_idx_loc] = -1
                 trend = 1
                 pivot_idx = current_low_idx_loc
-                # 修改代码行：不再重置cursor，而是让其继续前进，防止回跳
+                # 不再重置cursor，而是让其继续前进，防止回跳
                 cursor += 1
             else:
                 cursor += 1
@@ -1272,7 +1272,7 @@ class GeometricPatternService:
         for key, value in data.items():
             if isinstance(value, dict):
                 clean_data[key] = self._sanitize_json_dict(value)
-            # 修改代码行：同时处理Python原生float和Numpy的浮点类型
+            # 同时处理Python原生float和Numpy的浮点类型
             elif isinstance(value, (float, np.floating)):
                 if math.isnan(value) or math.isinf(value):
                     clean_data[key] = None  # 替换为None，对应JSON的null
