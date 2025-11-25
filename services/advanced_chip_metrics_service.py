@@ -169,6 +169,12 @@ class AdvancedChipMetricsService:
         debug_params = debug_params if debug_params is not None else {}
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             date_obj = trade_date.date()
+            # 新增探针：检查当前处理日期和传入的level5_data_map
+            print(f"\n--- [探针] [服务层-循环开始] [{stock_code}] 日期: {date_obj} ---")
+            if level5_data_map:
+                print(f"探针: level5_data_map存在，包含日期: {list(level5_data_map.keys())}")
+            else:
+                print("探针: 警告！level5_data_map为空或未传入。")
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()
             if chip_data_for_calc.empty:
@@ -225,10 +231,11 @@ class AdvancedChipMetricsService:
             else:
                 enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
             context_for_calc['intraday_data'] = enhanced_intraday_data
-            # 核心修复：在注入上下文前，将level5数据的列名重命名为计算器所需的格式
             if level5_data_map and date_obj in level5_data_map:
                 level5_df_original = level5_data_map[date_obj]
                 if not level5_df_original.empty:
+                    # 新增探针：检查当日的原始Level5数据
+                    print(f"探针: [{date_obj}] 找到Level5数据，共 {len(level5_df_original)} 条。")
                     level5_df_renamed = level5_df_original.copy()
                     column_rename_map = {
                         **{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)},
@@ -238,10 +245,14 @@ class AdvancedChipMetricsService:
                     }
                     level5_df_renamed.rename(columns=column_rename_map, inplace=True)
                     context_for_calc['realtime_data'] = level5_df_renamed
+                    # 新增探针：检查重命名后准备注入计算器的数据
+                    print(f"探针: [{date_obj}] Level5数据已重命名并准备注入上下文。列名: {level5_df_renamed.columns.tolist()}")
                 else:
                     context_for_calc['realtime_data'] = pd.DataFrame()
+                    print(f"探针: [{date_obj}] 找到Level5数据，但DataFrame为空。")
             else:
                 context_for_calc['realtime_data'] = pd.DataFrame()
+                print(f"探针: [{date_obj}] 未在level5_data_map中找到当日数据。")
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
             if daily_metrics:
@@ -251,9 +262,6 @@ class AdvancedChipMetricsService:
                 today_metrics_for_hist = {k: [daily_metrics.get(k)] for k in hist_comp_cols}
                 today_df = pd.DataFrame(today_metrics_for_hist, index=[trade_date])
                 hist_comp_dict.update(today_df.to_dict('index'))
-            # =================================================================
-            # 重构 prev_metrics 的构建逻辑，确保所有计算出的指标都被完整传递
-            # 1. 准备一个基础字典，包含非计算结果但需要传递的上下文
             next_prev_metrics = {
                 'chip_distribution': chip_data_for_calc,
                 'close_price': context_data.get('close_qfq'),
@@ -264,10 +272,8 @@ class AdvancedChipMetricsService:
                 'recent_closes_queue': recent_closes_list,
                 'atr_14d': context_data.get('atr_14d'),
             }
-            # 2. 如果当天指标计算成功，用完整的 daily_metrics 更新基础字典
             if daily_metrics:
                 next_prev_metrics.update(daily_metrics)
-            # 3. 如果计算失败，为关键的前值指标提供默认值，防止下一天崩溃
             else:
                 next_prev_metrics.update({
                     'concentration_90pct': None, 'winner_avg_cost': None,
@@ -275,9 +281,7 @@ class AdvancedChipMetricsService:
                     'cost_gini_coefficient': None, 'total_winner_rate': None,
                     'price_volume_entropy': None, 'strategic_phase_score': None,
                 })
-            # 4. 将构建好的、完整的“记忆”赋值给 prev_metrics，供下一次循环使用
             prev_metrics = next_prev_metrics
-            # =================================================================
             if is_first_day_in_batch: is_first_day_in_batch = False
         if not all_metrics_list:
             return pd.DataFrame(), prev_metrics, failures_list

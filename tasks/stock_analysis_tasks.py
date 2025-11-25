@@ -539,10 +539,8 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex, cache_manager: CacheManager):
     """
-    【V2.30 · 数据类型保护增强版】
-    - 核心修复: 将 'type' 列（用于标识逐笔成交方向）明确加入非数值白名单。
-                 此举旨在从根源上杜绝数据净化循环错误地将 'B'/'S'/'M' 字符串
-                 转换为 NaN，从而修复下游OFI等微观指标计算失败的问题。
+    【V2.31 · 链路探针植入版】
+    - 核心新增: 植入探针，用于追踪Level5盘口数据的加载与处理流程。
     """
     import pytz
     from utils.model_helpers import (
@@ -612,9 +610,15 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
             minute_data_df_list.append(df_minute.reset_index())
     data_dfs["stock_tick_data"] = pd.concat(tick_data_df_list) if tick_data_df_list else pd.DataFrame()
     data_dfs["stock_level5_data"] = pd.concat(level5_data_df_list) if level5_data_df_list else pd.DataFrame()
+    # 新增探针：检查原始加载的Level5数据
+    print(f"--- [探针] [加载层] [{stock_info.stock_code}] ---")
+    if not data_dfs["stock_level5_data"].empty:
+        print(f"探针: 成功从数据库加载Level5数据，共 {len(data_dfs['stock_level5_data'])} 条记录。")
+        print(data_dfs["stock_level5_data"].head())
+    else:
+        print(f"探针: 警告！未能从数据库加载任何Level5数据。处理日期范围: {chunk_start_date} to {chunk_end_date}")
     data_dfs["stock_minute_data"] = pd.concat(minute_data_df_list) if minute_data_df_list else pd.DataFrame()
     data_dfs["stock_realtime_data"] = pd.concat(realtime_data_df_list) if realtime_data_df_list else pd.DataFrame()
-    # V2.30 将 'type' 列加入白名单，防止被错误转换为NaN
     non_numeric_whitelist = ['stock_id', 'stock_code', 'trade_time', 'trade_date', 'type']
     for name, df in data_dfs.items():
         if isinstance(df, pd.DataFrame) and not df.empty and "_map" not in name:
@@ -636,6 +640,12 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         return grouped_data
     data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"], stock_info.stock_code, "Tick Data")
     data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"], stock_info.stock_code, "Level5 Data")
+    # 新增探针：检查处理后的Level5数据Map
+    print(f"--- [探针] [加载层-Map处理后] [{stock_info.stock_code}] ---")
+    if data_dfs["stock_level5_data_map"]:
+        print(f"探针: 成功将Level5数据处理为Map，包含的日期: {list(data_dfs['stock_level5_data_map'].keys())}")
+    else:
+        print("探针: 警告！未能将任何Level5数据处理为Map。")
     data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"], stock_info.stock_code, "Minute K-line Data")
     data_dfs["stock_realtime_data_map"] = _process_intraday_df_to_map(data_dfs["stock_realtime_data"], stock_info.stock_code, "Realtime Snapshot Data")
     for name, df in data_dfs.items():
