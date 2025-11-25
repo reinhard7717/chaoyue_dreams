@@ -1292,13 +1292,12 @@ class GeometricPatternService:
 
     def _calculate_trend_conviction_score(self, line_data: dict, enriched_df: pd.DataFrame, debug_flag: bool = False) -> float:
         """
-        【V2.53 · 鲁棒重构版】计算趋势线的“内在信念”分数。
-        - V2.53 核心重构:
-          1. [力量源泉] 修复“总账”谬误：从计算周期总流量占比，改为计算“每日流量占比”的均值，
-             以评估主力信念的“持续性”而非“瞬时爆发力”，使其对趋势线的长短不再敏感。
-          2. [结构完整性] 修复“除零”风险：废除不稳定的、按均值归一化的斜率计算。改为直接计算
-             原始斜率，并用一个合理的绝对阈值进行标定，根除了数值不稳定性。
-          3. [健壮性] 增加了对核心指标列是否存在的检查，防止因数据缺失导致任务崩溃。
+        【V2.54 · L2级探针版】计算趋势线的“内在信念”分数。
+        - V2.54 核心升级:
+          1. [L2级探针] 新增“原始读数”探针，用于打印送入归一化函数前最原始的计算值
+             (如：日均资金流占比、筹码斜率的原始值)。
+          2. 此举旨在暴露核心指标在真实市场中的波动范围，为下一步科学地“标定阈值”提供
+             决定性的数据依据，根治指标得分极端化的问题。
         """
         start_date = line_data.get('start_date')
         end_date = line_data.get('end_date')
@@ -1308,31 +1307,26 @@ class GeometricPatternService:
         trend_df = enriched_df.loc[start_date:end_date].copy()
         if trend_df.empty:
             return 50.0
+        # 初始化原始值变量，用于L2探针
+        avg_daily_flow_ratio, raw_slope, avg_efficiency = 0.0, 0.0, 0.0
         # 支柱一: 几何有效性 (Geometric Validity) - 权重 15%
         score_geometry = line_data.get('validity_score', 0.5) * 100
-        # [代码修改] V2.53 重构力量源泉(资金)支柱的计算逻辑
         # 支柱二: 力量源泉 (Power Source) - 权重 35%
         score_power = 0.0
         if 'main_force_net_flow_calibrated' in trend_df.columns and 'amount' in trend_df.columns:
-            # 避免除以零
             valid_amount_mask = trend_df['amount'] > 0
-            # 计算每日的主力净流入占当天总成交额的比例
             daily_flow_ratio = (trend_df.loc[valid_amount_mask, 'main_force_net_flow_calibrated'] * 10000) / trend_df.loc[valid_amount_mask, 'amount']
-            # 对每日比例求均值，评估趋势期间资金支持的“持续性”和“平均力度”
-            avg_daily_flow_ratio = daily_flow_ratio.mean()
-            # 将平均资金流占比归一化到[-100, 100]的得分。平均每日净流入超过1.5%视为极强。
+            if not daily_flow_ratio.empty:
+                avg_daily_flow_ratio = daily_flow_ratio.mean()
             normalized_flow_score = np.clip(avg_daily_flow_ratio / 1.5, -1, 1) * 100
             score_power = normalized_flow_score if line_type == 'support' else -normalized_flow_score
-        # [代码修改] V2.53 重构结构完整性(筹码)支柱的计算逻辑
         # 支柱三: 结构完整性 (Structural Integrity) - 权重 30%
         score_structure = 0.0
         if 'dominant_peak_solidity' in trend_df.columns:
             solidity_series = trend_df['dominant_peak_solidity'].dropna()
             if len(solidity_series) > 2:
-                # 直接计算原始斜率，不再使用不稳定的归一化函数
                 x = np.arange(len(solidity_series))
                 raw_slope = np.polyfit(x, solidity_series.values, 1)[0]
-                # 将原始斜率用一个合理的“绝对阈值”进行标定。每日增长0.005(0.5%)视为极强。
                 normalized_slope_score = np.clip(raw_slope / 0.005, -1, 1) * 100
                 score_structure = normalized_slope_score if line_type == 'support' else -normalized_slope_score
         # 支柱四: 行为确认 (Behavioral Confirmation) - 权重 20%
@@ -1344,6 +1338,8 @@ class GeometricPatternService:
                 normalized_efficiency_score = np.clip(avg_efficiency / 0.5, -1, 1) * 100
                 score_behavior = normalized_efficiency_score if line_type == 'support' else -normalized_efficiency_score
         if debug_flag:
+            # [代码修改] V2.54 新增L2级探针（原始读数）
+            print(f"            [原始读数] 力量(资金) avg_ratio: {avg_daily_flow_ratio:.4f}, 结构(筹码) raw_slope: {raw_slope:.6f}, 行为(效率) avg_eff: {avg_efficiency:.4f}")
             print(f"          [评分细则] 几何: {score_geometry:.2f}, 力量(资金): {score_power:.2f}, 结构(筹码): {score_structure:.2f}, 行为(效率): {score_behavior:.2f}")
         # 最终信念融合
         final_score = (
