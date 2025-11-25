@@ -1084,41 +1084,53 @@ class GeometricPatternService:
 
     def _identify_flagpole(self, df: pd.DataFrame, end_index_loc: int, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
-        【V4.2 · 和谐评分版】重构评分体系，引入非线性曲线以取代脆弱的线性函数。
-        - V4.2 核心升级:
-          1. [和谐评分] 废弃原有的线性`clip`评分公式，以解决其在阈值附近过于“脆弱”的问题。
-          2. [非线性校准] 为“幅度”和“能量”维度引入基于二次方函数的评分模型，
-                         使得分曲线更平滑，更能反映市场表现的非线性特征。
-          3. [评分鲁棒性] 新体系能够更公平地为表现“尚可”的候选者赋分，避免了因微小
-                         差距而导致评分直接归零的“悬崖效应”，大幅提升了评估的鲁棒性。
+        【V4.3 · 点火信号版】植入识别“创世纪”事件的本能，聚焦趋势启动的决定性信号。
+        - V4.3 核心升级:
+          1. [点火信号] 引入全新的、高权重的“点火强度”评分维度，专门评估候选旗杆的
+                         第一天是否为决定性的启动信号。
+          2. [信号量化] “点火强度”由第一天的价格涨幅和成交量放大倍数共同决定，确保
+                         只有量价齐升的爆发日才能获得高分。
+          3. [权重重构] 为“点火强度”分配 0.3 的高权重，使整个评分体系的重心从评估
+                         “平均过程”转移到识别“关键事件”，与市场真实逻辑高度统一。
         """
         min_dur = archetype.get('pole_min_dur', 2)
         max_dur = archetype.get('pole_max_dur', 8)
         min_magnitude_atr = archetype.get('pole_magnitude_atr', 4.0)
         min_vol_multiple = archetype.get('pole_vol_multiple', 1.8)
         max_daily_drop_atr = archetype.get('pole_max_daily_drop_atr', 0.5)
+        # [代码修改] V4.3 新增点火信号的参数阈值
+        ignition_min_pct_change = archetype.get('ignition_min_pct_change', 4.0)
+        ignition_min_vol_ratio = archetype.get('ignition_min_vol_ratio', 1.5)
         end_date = df.index[end_index_loc]
         minute_map = data_dfs.get("stock_minute_data_map", {})
-        print(f"    -> [旗杆探针 V4.2] 检查结束于 {end_date.date()} 的候选旗杆 (采用和谐评分)...")
+        print(f"    -> [旗杆探针 V4.3] 检查结束于 {end_date.date()} 的候选旗杆 (采用点火信号协议)...")
         best_pole = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
             start_index_loc = end_index_loc - duration + 1
-            if start_index_loc < 0: continue
+            if start_index_loc < 1: continue # 需要前一天数据来计算成交量比率
             pole_df = df.iloc[start_index_loc : end_index_loc + 1]
             start_date = pole_df.index[0]
             print(f"      - [候选周期: {duration}天] ({start_date.date()} -> {end_date.date()})")
-            atr_at_start = df['ATR_14_D'].iloc[start_index_loc - 1] if start_index_loc > 0 else df['ATR_14_D'].iloc[0]
+            atr_at_start = df['ATR_14_D'].iloc[start_index_loc - 1]
             if atr_at_start == 0: continue
             daily_drops = pole_df['close_qfq'].diff().dropna()
             max_drop_value = abs(daily_drops[daily_drops < 0].min()) if not daily_drops[daily_drops < 0].empty else 0
             if max_drop_value > max_daily_drop_atr * atr_at_start:
                 print(f"        - [✗ 纯度不符] 发现显著回调日 (最大跌幅: {max_drop_value:.2f} > 阈值: {max_daily_drop_atr * atr_at_start:.2f})，候选周期无效。")
                 continue
+            # [代码修改] V4.3 计算全新的“点火强度”评分
+            ignition_day = pole_df.iloc[0]
+            prev_day_vol = df['vol'].iloc[start_index_loc - 1]
+            ignition_pct_change = ignition_day['pct_change']
+            ignition_vol_ratio = ignition_day['vol'] / prev_day_vol if prev_day_vol > 0 else 10.0
+            score_pct = np.clip(ignition_pct_change / (ignition_min_pct_change * 1.5), 0, 1)
+            score_vol = np.clip(ignition_vol_ratio / (ignition_min_vol_ratio * 1.5), 0, 1)
+            ignition_score = 100 * (score_pct * 0.6 + score_vol * 0.4)
+            print(f"        - [点火强度] 涨幅: {ignition_pct_change:.2f}%, 成交量倍数: {ignition_vol_ratio:.2f}x -> 得分: {ignition_score:.1f}/100")
             pole_high = pole_df['high_qfq'].max()
             pole_low = pole_df['low_qfq'].min()
             magnitude_atr = (pole_high - pole_low) / atr_at_start
-            # [代码修改] V4.2 引入“和谐评分”体系，替换脆弱的线性评分
             magnitude_score = 100 * (np.clip(magnitude_atr / (min_magnitude_atr * 1.5), 0, 1)) ** 2
             print(f"        - [幅度] ATR倍数: {magnitude_atr:.2f} -> 得分: {magnitude_score:.1f}/100")
             closes = pole_df['close_qfq'].values
@@ -1128,16 +1140,20 @@ class GeometricPatternService:
             normalized_slope = slope / np.mean(closes) if np.mean(closes) > 0 else 0
             directional_score = np.clip((normalized_slope - (-0.01)) / (0.02 - (-0.01)), 0, 1) * 100
             print(f"        - [方向] 归一化斜率: {normalized_slope:.4f} -> 得分: {directional_score:.1f}/100")
-            vol_ma_at_start = df[vol_ma_col_name].iloc[start_index_loc - 1] if start_index_loc > 0 else df[vol_ma_col_name].iloc[0]
+            vol_ma_at_start = df[vol_ma_col_name].iloc[start_index_loc - 1]
             avg_volume_pole = pole_df['vol'].mean()
             actual_vol_multiple = avg_volume_pole / vol_ma_at_start if vol_ma_at_start > 0 else 0
-            # [代码修改] V4.2 引入“和谐评分”体系，替换脆弱的线性评分
             energy_score = 100 * (np.clip(actual_vol_multiple / (min_vol_multiple * 1.5), 0, 1)) ** 2
             print(f"        - [能量] 成交量倍数: {actual_vol_multiple:.2f}x -> 得分: {energy_score:.1f}/100")
             purity_scores = [self._calculate_intraday_trend_purity(minute_map.get(d.date())) for d in pole_df.index]
             purity_score = np.mean(purity_scores) if purity_scores else 50.0
             print(f"        - [纯度] 日内趋势纯度: {purity_score:.1f}/100")
-            conviction_score = magnitude_score * 0.4 + directional_score * 0.2 + energy_score * 0.15 + purity_score * 0.25
+            # [代码修改] V4.3 重构权重，为“点火强度”赋予最高优先级
+            conviction_score = (ignition_score * 0.30 +
+                                magnitude_score * 0.25 +
+                                directional_score * 0.15 +
+                                energy_score * 0.10 +
+                                purity_score * 0.20)
             print(f"        - [综合信念评分]: {conviction_score:.2f}")
             if conviction_score > max_conviction_score:
                 max_conviction_score = conviction_score
