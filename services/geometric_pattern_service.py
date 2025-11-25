@@ -1195,11 +1195,33 @@ class GeometricPatternService:
         return clean_data
 
     def _save_trendline_matrix_incrementally(self, records: list):
-        """【V2.16】持久化存储新增的趋势线矩阵记录。"""
-        if not records: return
+        """
+        【V2.56 · NaN值净化器版】批量保存新的趋势线矩阵记录。
+        - V2.56 核心修复: 新增了一个“NaN值净化器”。在执行 `bulk_create` 之前，
+                         会遍历所有待保存的记录，将其中所有Pandas/Numpy计算产生的
+                         `NaN` 值替换为Python的 `None`。此举旨在根治因滚动窗口初期
+                         数据不足而产生的 `NaN` 导致的数据库写入失败问题。
+        """
+        if not records:
+            print("  -> [趋势线矩阵] 没有新的记录需要保存。")
+            return
         print(f"  -> [趋势线矩阵] 正在新增 {len(records)} 条记录...")
-        instances = [self.mtt_model(**rec) for rec in records]
-        self.mtt_model.objects.bulk_create(instances, ignore_conflicts=True)
+        # [代码修改] V2.56 新增：NaN值净化器
+        sanitized_records = [
+            {key: (None if isinstance(value, float) and pd.isna(value) else value) for key, value in record.items()}
+            for record in records
+        ]
+        instances = [self.mtt_model(**record) for record in sanitized_records]
+        try:
+            self.mtt_model.objects.bulk_create(instances, ignore_conflicts=True)
+        except Exception as e:
+            print(f"  -> [数据库错误] 批量保存趋势线矩阵时发生错误: {e}")
+            # 如果批量创建失败，可以尝试逐条插入以便调试
+            for instance in instances:
+                try:
+                    instance.save()
+                except Exception as single_e:
+                    print(f"    -> 无法保存记录: {instance.__dict__}, 错误: {single_e}")
 
     def _save_trendline_events_incrementally(self, events: list):
         """【V2.16】持久化存储新增的趋势线动态事件。"""
