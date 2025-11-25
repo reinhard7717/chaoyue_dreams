@@ -469,22 +469,21 @@ class GeometricPatternService:
 
     def _calculate_and_save_trendline_matrix_and_events(self, df_daily: pd.DataFrame, data_dfs: dict, start_date_str: str = None):
         """
-        【V2.55 · 动态自适应校准版】为趋势线矩阵计算引入动态自适应阈值。
-        - V2.55 核心升级: 在此方法中对 enriched_df 进行大规模预处理，计算出三大核心支柱指标
-                         (资金、筹码、行为) 的滚动分位数，生成动态阈值。这些包含“历史记忆”的
-                         动态阈值将被传递给下游，彻底取代脆弱的静态阈值。
+        【V2.57 · 高斯信念归一化版】为趋势线矩阵计算引入基于高斯分布的动态自适应统计量。
+        - V2.57 核心升级: 预处理中心不再计算脆弱的分位数，而是计算更稳健的滚动均值(mean)
+                         和滚动标准差(std)。这些核心统计量将作为下游“高斯归一化”引擎的
+                         历史参照系，实现从分段线性到概率平滑的思维跃迁。
         """
         print(f"  -> [增量回溯引擎] 开始检查并计算新的趋势线矩阵...")
         df_daily = df_daily.sort_index(ascending=True)
         if 'enriched_df' not in data_dfs:
              data_dfs['enriched_df'] = self._prepare_enriched_dataframe(df_daily)
-        # [代码修改] V2.55 新增：动态自适应阈值预处理中心
         enriched_df = data_dfs['enriched_df']
-        print(f"    -> [动态校准] 正在为三大支柱生成自适应阈值...")
+        print(f"    -> [高斯校准] 正在为三大支柱生成动态统计参照系 (mean, std)...")
         # 1. 力量(资金)支柱: 计算每日资金流占比
         if 'main_force_net_flow_calibrated' in enriched_df.columns and 'amount' in enriched_df.columns:
             enriched_df['daily_flow_ratio'] = (enriched_df['main_force_net_flow_calibrated'] * 10000) / enriched_df['amount'].replace(0, np.nan)
-        # 2. 结构(筹码)支柱: 计算主峰稳固度的5日滚动斜率，代表筹码结构动量
+        # 2. 结构(筹码)支柱: 计算主峰稳固度的5日滚动斜率
         if 'dominant_peak_solidity' in enriched_df.columns:
             enriched_df['solidity_slope_5d'] = enriched_df['dominant_peak_solidity'].rolling(5).apply(
                 lambda x: np.polyfit(np.arange(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else 0.0, raw=False
@@ -492,8 +491,9 @@ class GeometricPatternService:
         # 3. 行为(效率)支柱: 计算趋势效率的5日滚动均值
         if 'trend_efficiency_ratio' in enriched_df.columns:
             enriched_df['efficiency_avg_5d'] = enriched_df['trend_efficiency_ratio'].rolling(5).mean()
-        # 4. 为三大支柱生成滚动分位数作为动态阈值 (使用250天窗口，约1年)
-        quantile_window = 250
+        # [代码修改] V2.57 从计算分位数改为计算均值和标准差
+        # 4. 为三大支柱生成滚动统计量 (使用250天窗口，约1年)
+        stat_window = 250
         metrics_to_calibrate = {
             'flow': 'daily_flow_ratio',
             'structure': 'solidity_slope_5d',
@@ -501,11 +501,10 @@ class GeometricPatternService:
         }
         for key, metric_col in metrics_to_calibrate.items():
             if metric_col in enriched_df.columns:
-                enriched_df[f'{key}_q05'] = enriched_df[metric_col].rolling(quantile_window, min_periods=30).quantile(0.05)
-                enriched_df[f'{key}_q50'] = enriched_df[metric_col].rolling(quantile_window, min_periods=30).quantile(0.50)
-                enriched_df[f'{key}_q95'] = enriched_df[metric_col].rolling(quantile_window, min_periods=30).quantile(0.95)
-        data_dfs['enriched_df'] = enriched_df # 将处理后的df存回共享字典
-        print(f"    -> [动态校准] 自适应阈值生成完毕。")
+                enriched_df[f'{key}_mean'] = enriched_df[metric_col].rolling(stat_window, min_periods=30).mean()
+                enriched_df[f'{key}_std'] = enriched_df[metric_col].rolling(stat_window, min_periods=30).std()
+        data_dfs['enriched_df'] = enriched_df
+        print(f"    -> [高斯校准] 动态统计参照系生成完毕。")
         start_process_date = self._initialize_incremental_context(start_date_str)
         if start_process_date is None:
             start_process_date = df_daily.index.min()
@@ -1342,15 +1341,15 @@ class GeometricPatternService:
 
     def _calculate_trend_conviction_score(self, line_data: dict, enriched_df: pd.DataFrame, debug_flag: bool = False) -> float:
         """
-        【V2.55 · 动态自适应校准版】使用动态分位数阈值计算趋势线的“内在信念”分数。
-        - V2.55 核心升级:
-          1. [动态归一化] 彻底废弃所有静态阈值。所有三大支柱的评分，都基于其在自身历史
-             滚动分位数（由上游传入）区间内的位置进行动态计算，实现了模型的自适应。
-          2. [指标精炼] 不再在函数内计算斜率等，而是直接对上游预处理好的日度指标序列
-             (如5日斜率) 求均值，使评估更平滑、更贴近趋势过程。
-          3. [探针升级] L2探针现在会同时打印原始值和用于校准它的动态阈值(q05, q95)，
-             使得整个动态评分过程完全透明化、可追溯。
+        【V2.57 · 高斯信念归一化版】使用基于高斯误差函数的动态归一化引擎计算信念分数。
+        - V2.57 核心升级:
+          1. [高斯归一化] 彻底废弃分段线性的归一化逻辑，引入基于均值(μ)和标准差(σ)的
+             高斯误差函数(erf)归一化。此方法将Z-Score平滑映射至[-100, 100]区间，
+             根除了“悬崖效应”和数值不稳定性，实现了概率层面的平滑评估。
+          2. [探针升级] L2探针现在会打印原始值及其在历史分布中的均值和标准差，
+             使得整个高斯评分过程完全透明化。
         """
+        import math
         start_date = line_data.get('start_date')
         end_date = line_data.get('end_date')
         line_type = line_data.get('line_type')
@@ -1359,52 +1358,46 @@ class GeometricPatternService:
         trend_df = enriched_df.loc[start_date:end_date].copy()
         if trend_df.empty or len(trend_df) < 2:
             return 50.0
-        # 获取趋势结束日的动态阈值作为本次评估的标尺
-        last_day_thresholds = trend_df.iloc[-1]
-        # 支柱一: 几何有效性 (Geometric Validity) - 权重 15%
+        last_day_stats = trend_df.iloc[-1]
         score_geometry = line_data.get('validity_score', 0.5) * 100
-        # 定义一个可复用的动态归一化函数
-        def dynamic_normalize(value, q05, q50, q95):
-            if pd.isna(q05) or pd.isna(q95) or q95 == q05:
+        # [代码修改] V2.57 引入高斯归一化函数
+        def gaussian_normalize(value, mean, std):
+            if pd.isna(value) or pd.isna(mean) or pd.isna(std) or std == 0:
                 return 0.0
-            if value >= q95: return 100.0
-            if value <= q05: return -100.0
-            if value >= q50:
-                return (value - q50) / (q95 - q50) * 100 if q95 > q50 else 0.0
-            else: # value < q50
-                return (value - q50) / (q50 - q05) * 100 if q50 > q05 else 0.0
-        # 初始化所有读数和得分
+            z_score = (value - mean) / std
+            # 使用误差函数 erf 将 z-score 映射到 [-1, 1]，再乘以 100
+            # erf(z / sqrt(2)) 是标准正态分布的累积分布函数(CDF)的两倍减一
+            return 100 * math.erf(z_score / math.sqrt(2))
         avg_flow, avg_slope, avg_efficiency = 0.0, 0.0, 0.0
         score_power, score_structure, score_behavior = 0.0, 0.0, 0.0
         # 支柱二: 力量源泉 (Power Source) - 权重 35%
         if 'daily_flow_ratio' in trend_df.columns:
             avg_flow = trend_df['daily_flow_ratio'].mean()
-            q05, q50, q95 = last_day_thresholds.get('flow_q05'), last_day_thresholds.get('flow_q50'), last_day_thresholds.get('flow_q95')
-            normalized_flow_score = dynamic_normalize(avg_flow, q05, q50, q95)
+            mean, std = last_day_stats.get('flow_mean'), last_day_stats.get('flow_std')
+            normalized_flow_score = gaussian_normalize(avg_flow, mean, std)
             score_power = normalized_flow_score if line_type == 'support' else -normalized_flow_score
         # 支柱三: 结构完整性 (Structural Integrity) - 权重 30%
         if 'solidity_slope_5d' in trend_df.columns:
             avg_slope = trend_df['solidity_slope_5d'].mean()
-            q05, q50, q95 = last_day_thresholds.get('structure_q05'), last_day_thresholds.get('structure_q50'), last_day_thresholds.get('structure_q95')
-            normalized_slope_score = dynamic_normalize(avg_slope, q05, q50, q95)
+            mean, std = last_day_stats.get('structure_mean'), last_day_stats.get('structure_std')
+            normalized_slope_score = gaussian_normalize(avg_slope, mean, std)
             score_structure = normalized_slope_score if line_type == 'support' else -normalized_slope_score
         # 支柱四: 行为确认 (Behavioral Confirmation) - 权重 20%
         if 'efficiency_avg_5d' in trend_df.columns:
             avg_efficiency = trend_df['efficiency_avg_5d'].mean()
-            q05, q50, q95 = last_day_thresholds.get('behavior_q05'), last_day_thresholds.get('behavior_q50'), last_day_thresholds.get('behavior_q95')
-            normalized_efficiency_score = dynamic_normalize(avg_efficiency, q05, q50, q95)
+            mean, std = last_day_stats.get('behavior_mean'), last_day_stats.get('behavior_std')
+            normalized_efficiency_score = gaussian_normalize(avg_efficiency, mean, std)
             score_behavior = normalized_efficiency_score if line_type == 'support' else -normalized_efficiency_score
         if debug_flag:
-            # [代码修改] V2.55 升级L2探针，同时显示原始值和动态阈值
-            flow_thresh = (last_day_thresholds.get('flow_q05', 'N/A'), last_day_thresholds.get('flow_q95', 'N/A'))
-            struct_thresh = (last_day_thresholds.get('structure_q05', 'N/A'), last_day_thresholds.get('structure_q95', 'N/A'))
-            behav_thresh = (last_day_thresholds.get('behavior_q05', 'N/A'), last_day_thresholds.get('behavior_q95', 'N/A'))
-            print(f"            [原始读数 & 动态阈值(q05,q95)] "
-                  f"力量: {avg_flow:.4f} vs ({flow_thresh[0]:.4f}, {flow_thresh[1]:.4f}) | "
-                  f"结构: {avg_slope:.6f} vs ({struct_thresh[0]:.6f}, {struct_thresh[1]:.6f}) | "
-                  f"行为: {avg_efficiency:.4f} vs ({behav_thresh[0]:.4f}, {behav_thresh[1]:.4f})")
+            # [代码修改] V2.57 升级L2探针，显示高斯统计量
+            flow_stats = (last_day_stats.get('flow_mean', 'N/A'), last_day_stats.get('flow_std', 'N/A'))
+            struct_stats = (last_day_stats.get('structure_mean', 'N/A'), last_day_stats.get('structure_std', 'N/A'))
+            behav_stats = (last_day_stats.get('behavior_mean', 'N/A'), last_day_stats.get('behavior_std', 'N/A'))
+            print(f"            [原始读数 & 高斯统计(μ,σ)] "
+                  f"力量: {avg_flow:.4f} vs ({flow_stats[0]:.4f}, {flow_stats[1]:.4f}) | "
+                  f"结构: {avg_slope:.6f} vs ({struct_stats[0]:.6f}, {struct_stats[1]:.6f}) | "
+                  f"行为: {avg_efficiency:.4f} vs ({behav_stats[0]:.4f}, {behav_stats[1]:.4f})")
             print(f"          [评分细则] 几何: {score_geometry:.2f}, 力量(资金): {score_power:.2f}, 结构(筹码): {score_structure:.2f}, 行为(效率): {score_behavior:.2f}")
-        # 最终信念融合
         final_score = (
             (score_geometry) * 0.15 +
             ((score_power + 100) / 2) * 0.35 +
