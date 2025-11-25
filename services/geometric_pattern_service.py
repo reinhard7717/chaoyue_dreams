@@ -1082,20 +1082,19 @@ class GeometricPatternService:
 
     def _identify_flagpole(self, df: pd.DataFrame, end_index_loc: int, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
-        【V3.0 · 量子透镜版】引入第四维度“趋势纯度”，洞察日内博弈真相。
-        - V3.0 核心升级:
-          1. [微观洞察] 新增调用 `_calculate_intraday_trend_purity`，分析旗杆周期内每日的分钟线VWAP，
-                         量化上涨过程的“纯粹性”。
-          2. [四维评分] 将“纯度分”作为第四个核心维度，与幅度、方向、能量共同构成最终的旗杆信念评分。
+        【V3.8 · 有效推力版】修正旗杆定义，为下游提供精确的回撤计算基准。
+        - V3.8 核心升级:
+          1. [基准修正] 在识别出最佳旗杆后，额外捕获并存储其周期的第一天开盘价 `start_price`。
+          2. [信息传递] 将 `start_price` 存入返回的 `best_pole` 字典中，为下游 `_identify_flag`
+                         方法计算“有效推力”提供必要的输入。
         """
         min_dur = archetype.get('pole_min_dur', 2)
         max_dur = archetype.get('pole_max_dur', 8)
         min_magnitude_atr = archetype.get('pole_magnitude_atr', 4.0)
         min_vol_multiple = archetype.get('pole_vol_multiple', 1.8)
         end_date = df.index[end_index_loc]
-        # [代码修改] V3.0 获取分钟数据映射
         minute_map = data_dfs.get("stock_minute_data_map", {})
-        print(f"    -> [旗杆探针 V3.0] 检查结束于 {end_date.date()} 的候选旗杆 (采用量子透镜)...")
+        print(f"    -> [旗杆探针 V3.8] 检查结束于 {end_date.date()} 的候选旗杆 (采用有效推力基准)...")
         best_pole = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1123,11 +1122,9 @@ class GeometricPatternService:
             actual_vol_multiple = avg_volume_pole / vol_ma_at_start if vol_ma_at_start > 0 else 0
             energy_score = np.clip((actual_vol_multiple - min_vol_multiple * 0.8) / (min_vol_multiple * 0.7), 0, 1) * 100
             print(f"        - [能量] 成交量倍数: {actual_vol_multiple:.2f}x -> 得分: {energy_score:.1f}/100")
-            # [代码修改] V3.0 计算并整合趋势纯度分
             purity_scores = [self._calculate_intraday_trend_purity(minute_map.get(d.date())) for d in pole_df.index]
             purity_score = np.mean(purity_scores) if purity_scores else 50.0
             print(f"        - [纯度] 日内趋势纯度: {purity_score:.1f}/100")
-            # [代码修改] V3.0 更新信念评分模型，加入纯度维度
             conviction_score = magnitude_score * 0.4 + directional_score * 0.2 + energy_score * 0.15 + purity_score * 0.25
             print(f"        - [综合信念评分]: {conviction_score:.2f}")
             if conviction_score > max_conviction_score:
@@ -1135,6 +1132,8 @@ class GeometricPatternService:
                 best_pole = {
                     'start_date': start_date, 'end_date': end_date,
                     'high_price': pole_high, 'low_price': pole_low,
+                    # [代码修改] V3.8 新增：记录旗杆第一天的开盘价作为有效推力的起点
+                    'start_price': pole_df['open_qfq'].iloc[0],
                     'magnitude_atr': magnitude_atr, 'avg_volume': avg_volume_pole,
                     'conviction_score': conviction_score,
                     'duration_days': len(pole_df)
@@ -1149,16 +1148,15 @@ class GeometricPatternService:
 
     def _identify_flag(self, df: pd.DataFrame, pole_data: dict, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
         """
-        【V3.7 · 弹性耦合版】引入时间缓冲，识别非紧密邻接的真实世界形态。
-        - V3.7 核心升级:
-          1. [弹性耦合] 废弃旗面必须从 T+1 开始的僵硬规则。
-          2. [时间缓冲] 引入一个新的外层 `for gap in ...` 循环，允许在旗杆和旗面之间
-                         存在一个可配置的缓冲期（例如0-2天）。
-          3. [认知扩展] 使引擎能够识别那些在真实市场中更常见、但非完美邻接的旗形结构。
+        【V3.8 · 有效推力版】修正回撤深度计算逻辑，锚定于有效推力而非总波幅。
+        - V3.8 核心升级:
+          1. [基准修正] 彻底改变 `pole_range` 的计算方式。
+          2. [有效推力] 新的 `pole_range` = `pole_data['high_price'] - pole_data['start_price']`。
+                         这个值代表了旗杆的有效上涨幅度，是比总波幅更合理的回撤计算基准，
+                         从根本上解决了“基准锚定谬误”。
         """
         min_dur = archetype.get('flag_min_dur', 5)
         max_dur = archetype.get('flag_max_dur', 20)
-        # [代码修改] V3.7 从原型配置中获取允许的最大缓冲天数
         max_gap_days = archetype.get('flag_max_gap_days', 2)
         vol_shrink_pole = archetype.get('flag_vol_shrink_pole', 0.7)
         vol_shrink_ma = archetype.get('flag_vol_shrink_ma', 1.0)
@@ -1166,13 +1164,11 @@ class GeometricPatternService:
         CRITICAL_DEPTH_SCORE_THRESHOLD = 10.0
         pole_end_loc = df.index.get_loc(pole_data['end_date'])
         tick_map = data_dfs.get("stock_tick_data_map", {})
-        print(f"    -> [旗面探针 V3.7] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用弹性耦合)...")
+        print(f"    -> [旗面探针 V3.8] 检查附着于 {pole_data['end_date'].date()} 旗杆的候选旗面 (采用有效推力基准)...")
         best_flag = None
         max_conviction_score = -1.0
-        # [代码修改] V3.7 引入外层循环以测试不同的时间缓冲（gap）
         for gap in range(max_gap_days + 1):
             for duration in range(min_dur, max_dur + 1):
-                # [代码修改] V3.7 旗面起始位置现在考虑了缓冲天数
                 flag_start_loc = pole_end_loc + 1 + gap
                 flag_end_loc = flag_start_loc + duration -1
                 if flag_end_loc >= len(df): break
@@ -1189,8 +1185,9 @@ class GeometricPatternService:
                 volume_score = score1 * 0.5 + score2 * 0.5
                 print(f"        - [成交量萎缩] vs旗杆: {shrink_ratio_pole:.2f} | vs均线: {shrink_ratio_ma:.2f} -> 得分: {volume_score:.1f}/100")
                 flag_low = flag_df['low_qfq'].min()
-                pole_range = pole_data['high_price'] - pole_data['low_price']
-                if pole_range == 0: continue
+                # [代码修改] V3.8 修正回撤基准，使用“有效推力”进行计算
+                pole_range = pole_data['high_price'] - pole_data['start_price']
+                if pole_range <= 0: continue # 避免除零或无效推力
                 retracement_depth = (pole_data['high_price'] - flag_low) / pole_range
                 depth_score = np.clip((max_retracement * 1.5 - retracement_depth) / (max_retracement * 1.5), 0, 1) * 100
                 print(f"        - [回撤深度] 计算值: {retracement_depth:.2%} -> 得分: {depth_score:.1f}/100")
@@ -1219,7 +1216,7 @@ class GeometricPatternService:
                         'duration': duration, 'avg_volume': avg_volume_flag,
                         'retracement_depth': retracement_depth,
                         'conviction_score': conviction_score,
-                        'gap_days': gap # 记录下最佳旗面的缓冲天数
+                        'gap_days': gap
                     }
         MIN_ACCEPTANCE_SCORE = 50.0
         if best_flag and best_flag['conviction_score'] >= MIN_ACCEPTANCE_SCORE:
