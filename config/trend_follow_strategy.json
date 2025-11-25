@@ -998,7 +998,7 @@
       },
       "geometric_pattern_params": {
         "enabled": true,
-        "description": "【V2.2 · 混合机动版】几何形态引擎，引入第三原型以填补识别盲区。",
+        "description": "【V2.65 · 全息旗形版】几何形态引擎，引入多时间框架旗形识别原型。",
         "platform_recognition": {
           "description": "【多尺度平台识别准则】定义多种平台原型及其识别参数。",
           "archetypes": [
@@ -1070,6 +1070,27 @@
               "volatility_contraction_ratio": {"min": 0, "max": 0.85},
               "price_kurtosis": {"min": 4.0, "max": 999},
               "relative_strength_slope": {"min": 0.01, "max": 999}
+            }
+          ]
+        },
+        "flag_recognition": {
+          "description": "【V2.65 · 全息旗形版】多时间框架旗形识别原型。",
+          "archetypes": [
+            {
+              "name": "TACTICAL_DAILY_FLAG",
+              "timeframe": "D",
+              "description": "战术日线旗形：捕捉短期主升浪中的中继形态。",
+              "min_data_len": 55,
+              "pole_min_dur": 2, "pole_max_dur": 8, "pole_magnitude_atr": 4.0, "pole_vol_multiple": 1.8,
+              "flag_min_dur": 5, "flag_max_dur": 20, "flag_vol_shrink_pole": 0.7, "flag_vol_shrink_ma": 1.0, "flag_max_retracement": 0.5
+            },
+            {
+              "name": "STRATEGIC_WEEKLY_FLAG",
+              "timeframe": "W",
+              "description": "战略周线旗形：识别中期趋势中的大型、高能量级别的中继形态。",
+              "min_data_len": 20,
+              "pole_min_dur": 2, "pole_max_dur": 5, "pole_magnitude_atr": 3.0, "pole_vol_multiple": 1.5,
+              "flag_min_dur": 3, "flag_max_dur": 10, "flag_vol_shrink_pole": 0.8, "flag_vol_shrink_ma": 1.1, "flag_max_retracement": 0.618
             }
           ]
         }

@@ -83,9 +83,9 @@ class GeometricPatternService:
     """
     def __init__(self, stock_code: str, stock_instance: StockInfo):
         """
-        【V2.40 · 多尺度平台版】
-        - 核心升级: 加载 `trend_follow_strategy.json` 配置文件，并读取
-                     其中定义的多种平台识别原型（archetypes）。
+        【V2.65 · 全息旗形版】
+        - 核心升级: 加载 `trend_follow_strategy.json` 配置文件中新增的
+                     `flag_recognition` 原型定义。
         """
         import json
         import os
@@ -103,7 +103,6 @@ class GeometricPatternService:
         self.fib_periods = [5, 8, 13, 21, 34, 55]
         self.long_term_period = max(self.fib_periods) if self.fib_periods else 55
         self.ultra_long_term_period = 233
-        #  V2.40 加载策略配置，获取平台识别原型
         config_path = os.path.join(settings.BASE_DIR, 'config', 'trend_follow_strategy.json')
         strategy_config = {}
         try:
@@ -113,6 +112,8 @@ class GeometricPatternService:
             print(f"[{self.stock_code}] 加载策略配置文件失败: {e}")
         geometric_params = strategy_config.get("strategy_params", {}).get("trend_follow", {}).get("geometric_pattern_params", {})
         self.platform_archetypes = geometric_params.get("platform_recognition", {}).get("archetypes", [])
+        # [代码修改] V2.65 新增：加载旗形识别原型
+        self.flag_archetypes = geometric_params.get("flag_recognition", {}).get("archetypes", [])
 
     @classmethod
     async def create(cls, stock_code: str):
@@ -780,7 +781,7 @@ class GeometricPatternService:
             for line_data in [best_support, best_resistance]:
                 if line_data:
                     # [代码修改] V2.52 传入debug_flag激活探针
-                    conviction_score = self._calculate_trend_conviction_score(line_data, enriched_df, debug_flag=is_debug_day)
+                    conviction_score = self._calculate_trend_conviction_score(line_data, enriched_df)
                     # [代码修改] V2.52 新增一级探针（最终得分）
                     if is_debug_day:
                         line_type_display = "支撑线" if line_data['line_type'] == 'support' else "阻力线"
@@ -993,63 +994,84 @@ class GeometricPatternService:
 
     def _predict_flag_breakout_probability(self, enriched_df: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V2.64 · 宏观解耦版】识别旗形，并使用基于规则和加权评分的专家系统进行突破概率预测。
-        - V2.64 核心升级:
-          1. [解耦识别与评估] 彻底解除了旗形识别与233日超长周期的“硬绑定”，将数据长度门槛
-             从233日大幅降低至55日，使模型能够在中期趋势中捕捉战术性旗形机会。
-          2. [实战适应性] 移除了僵化的超长周期数据检查，循环的回溯终点从年线级别调整至
-             季度线级别，更符合A股市场中短期战役的实战节律。
+        【V2.65 · 全息旗形版】重构为原型驱动的多时间框架识别引擎。
+        - V2.65 核心升级:
+          1. [原型驱动] 不再执行写死的日线逻辑，而是遍历配置文件中定义的所有旗形原型。
+          2. [MTF扫描] 根据每个原型指定的 `timeframe`，在对应的时间框架数据上执行识别。
+          3. [参数化调用] 将原型中定义的具体参数（如持续时间、幅度等）动态传递给
+             `_identify_flagpole` 和 `_identify_flag` 方法，实现高度可配置。
         """
         events = []
-        if len(enriched_df) < self.long_term_period:
-            return events
-        df = enriched_df.copy()
-        vol_ma_col_name = f'vol_ma{self.long_term_period}'
-        df[vol_ma_col_name] = df['vol'].rolling(self.long_term_period).mean()
-        # 动态计算超长期均线
-        ultra_long_ma_col_name = f'ma{self.ultra_long_term_period}'
-        # [代码修改] V2.64 即使数据不足233天，也尝试计算，不足部分会是NaN，下游会处理
-        df[ultra_long_ma_col_name] = df['close_qfq'].rolling(self.ultra_long_term_period, min_periods=self.long_term_period).mean()
-        # [代码修改] V2.64 移除硬性的超长周期数据长度检查，并将循环终点调整为长期周期(55)
-        for i in range(len(df) - 5, self.long_term_period, -1):
-            pole = self._identify_flagpole(df, end_index_loc=i, vol_ma_col_name=vol_ma_col_name)
-            if not pole:
+        # [代码修改] V2.65 顶层循环遍历所有旗形原型
+        for archetype in self.flag_archetypes:
+            timeframe = archetype.get('timeframe', 'D')
+            archetype_name = archetype.get('name', 'UNKNOWN_FLAG')
+            print(f"  -> [全息旗形扫描] 开始在 [{timeframe}] 级别应用原型 [{archetype_name}]...")
+            df_source = None
+            if timeframe == 'D':
+                df_source = enriched_df
+            elif timeframe == 'W':
+                df_source = data_dfs.get('weekly_data')
+            if df_source is None or df_source.empty:
+                print(f"     - [数据缺失] 未找到 [{timeframe}] 级别数据，跳过此原型。")
                 continue
-            flag = self._identify_flag(df, pole, vol_ma_col_name=vol_ma_col_name)
-            if not flag:
+            min_data_len = archetype.get('min_data_len', 55)
+            if len(df_source) < min_data_len:
+                print(f"     - [数据不足] {timeframe} 级别数据长度 {len(df_source)} < {min_data_len}，跳过此原型。")
                 continue
-            pole_df = df.loc[pole['start_date']:pole['end_date']]
-            flag_df = df.loc[flag['start_date']:flag['end_date']]
-            is_main_force_led = pole_df['main_force_net_flow_calibrated_sum_5d'].iloc[-1] > 0
-            if not is_main_force_led:
-                continue
-            avg_hidden_accumulation = flag_df['hidden_accumulation_intensity'].mean()
-            if avg_hidden_accumulation <= 0:
-                continue
-            dominant_peak_cost_at_start = flag_df['dominant_peak_cost'].iloc[0]
-            if flag_df['low_qfq'].min() < dominant_peak_cost_at_start:
-                continue
-            breakout_readiness = flag_df['breakout_readiness_score'].iloc[-1]
-            if breakout_readiness < 60:
-                continue
-            print(f"  -> [高置信度旗形] 在 {flag['end_date']} 发现！通过多维情报验证。")
-            probability, features = self._calculate_expert_breakout_probability(df, pole, flag, vol_ma_col_name=vol_ma_col_name, ultra_long_ma_col_name=ultra_long_ma_col_name)
-            events.append({
-                'stock': self.stock_instance,
-                'event_date': flag['end_date'].date(),
-                'event_type': 'FLAG_FORMED',
-                'details': {
-                    'probability': probability, 
-                    'features': features,
-                    'pole_start_date': pole['start_date'].date(),
-                    'pole_end_date': pole['end_date'].date(),
-                }
-            })
-            i = df.index.get_loc(pole['start_date'])
+            df = df_source.copy()
+            # 动态准备数据
+            vol_ma_col_name = f'vol_ma{self.long_term_period}_{timeframe}'
+            df[vol_ma_col_name] = df['vol'].rolling(self.long_term_period).mean()
+            ultra_long_ma_col_name = f'ma{self.ultra_long_term_period}_{timeframe}'
+            df[ultra_long_ma_col_name] = df['close_qfq'].rolling(self.ultra_long_term_period, min_periods=self.long_term_period).mean()
+            # 核心识别循环
+            for i in range(len(df) - 5, min_data_len, -1):
+                pole = self._identify_flagpole(df, end_index_loc=i, vol_ma_col_name=vol_ma_col_name, archetype=archetype)
+                if not pole:
+                    continue
+                flag = self._identify_flag(df, pole, vol_ma_col_name=vol_ma_col_name, archetype=archetype)
+                if not flag:
+                    continue
+                # 旗形验证逻辑 (暂时保持日线级别的验证指标，未来可扩展)
+                if timeframe == 'D':
+                    pole_df = df.loc[pole['start_date']:pole['end_date']]
+                    flag_df = df.loc[flag['start_date']:flag['end_date']]
+                    is_main_force_led = pole_df['main_force_net_flow_calibrated_sum_5d'].iloc[-1] > 0
+                    if not is_main_force_led: continue
+                    avg_hidden_accumulation = flag_df['hidden_accumulation_intensity'].mean()
+                    if avg_hidden_accumulation <= 0: continue
+                    dominant_peak_cost_at_start = flag_df['dominant_peak_cost'].iloc[0]
+                    if flag_df['low_qfq'].min() < dominant_peak_cost_at_start: continue
+                    breakout_readiness = flag_df['breakout_readiness_score'].iloc[-1]
+                    if breakout_readiness < 60: continue
+                print(f"  -> [高置信度旗形] 在 {flag['end_date']} 于 [{timeframe}] 级别发现！原型: [{archetype_name}]。")
+                probability, features = self._calculate_expert_breakout_probability(df, pole, flag, vol_ma_col_name=vol_ma_col_name, ultra_long_ma_col_name=ultra_long_ma_col_name)
+                events.append({
+                    'stock': self.stock_instance,
+                    'event_date': flag['end_date'].date(),
+                    'event_type': f'FLAG_FORMED_{timeframe}', # 事件类型包含时间框架
+                    'details': {
+                        'archetype': archetype_name,
+                        'probability': probability,
+                        'features': features,
+                        'pole_start_date': pole['start_date'].date(),
+                        'pole_end_date': pole['end_date'].date(),
+                    }
+                })
+                i = df.index.get_loc(pole['start_date'])
         return events
 
-    def _identify_flagpole(self, df: pd.DataFrame, end_index_loc: int, vol_ma_col_name: str, min_dur: int = 2, max_dur: int = 8) -> dict:
-        """识别旗杆：寻找一次暴力的、出人意料的、能量充沛的突袭。"""
+    def _identify_flagpole(self, df: pd.DataFrame, end_index_loc: int, vol_ma_col_name: str, archetype: dict) -> dict:
+        """
+        【V2.65 · 原型驱动版】识别旗杆：寻找一次暴力的、出人意料的、能量充沛的突袭。
+        - V2.65 核心升级: 不再使用硬编码参数，所有识别准则均从传入的 `archetype` 字典中动态获取。
+        """
+        # [代码修改] V2.65 从原型中获取参数
+        min_dur = archetype.get('pole_min_dur', 2)
+        max_dur = archetype.get('pole_max_dur', 8)
+        min_magnitude_atr = archetype.get('pole_magnitude_atr', 4.0)
+        min_vol_multiple = archetype.get('pole_vol_multiple', 1.8)
         for duration in range(min_dur, max_dur + 1):
             start_index_loc = end_index_loc - duration + 1
             if start_index_loc < 0: continue
@@ -1059,13 +1081,11 @@ class GeometricPatternService:
             pole_high = pole_df['high_qfq'].max()
             pole_low = pole_df['low_qfq'].min()
             magnitude_atr = (pole_high - pole_low) / atr_at_start
-            if magnitude_atr < 4.0:
+            if magnitude_atr < min_magnitude_atr:
                 continue
-            # 条件2: 能量充沛 (成交量显著放大)
-            # 使用传入的 vol_ma_col_name 进行动态列选择
             vol_ma_at_start = df[vol_ma_col_name].iloc[start_index_loc - 1] if start_index_loc > 0 else df[vol_ma_col_name].iloc[0]
             avg_volume_pole = pole_df['vol'].mean()
-            if avg_volume_pole < 1.8 * vol_ma_at_start:
+            if avg_volume_pole < min_vol_multiple * vol_ma_at_start:
                 continue
             if pole_df['close_qfq'].iloc[-1] <= pole_df['open_qfq'].iloc[0]:
                 continue
@@ -1079,25 +1099,32 @@ class GeometricPatternService:
             }
         return None
 
-    def _identify_flag(self, df: pd.DataFrame, pole_data: dict, vol_ma_col_name: str, min_dur: int = 5, max_dur: int = 20) -> dict:
-        """识别旗面：寻找一次成交极度萎缩、回撤可控的战术性佯退。"""
+    def _identify_flag(self, df: pd.DataFrame, pole_data: dict, vol_ma_col_name: str, archetype: dict) -> dict:
+        """
+        【V2.65 · 原型驱动版】识别旗面：寻找一次成交极度萎缩、回撤可控的战术性佯退。
+        - V2.65 核心升级: 不再使用硬编码参数，所有识别准则均从传入的 `archetype` 字典中动态获取。
+        """
+        # [代码修改] V2.65 从原型中获取参数
+        min_dur = archetype.get('flag_min_dur', 5)
+        max_dur = archetype.get('flag_max_dur', 20)
+        vol_shrink_pole = archetype.get('flag_vol_shrink_pole', 0.7)
+        vol_shrink_ma = archetype.get('flag_vol_shrink_ma', 1.0)
+        max_retracement = archetype.get('flag_max_retracement', 0.5)
         pole_end_loc = df.index.get_loc(pole_data['end_date'])
         for duration in range(min_dur, max_dur + 1):
             flag_start_loc = pole_end_loc + 1
             flag_end_loc = flag_start_loc + duration -1
             if flag_end_loc >= len(df): break
             flag_df = df.iloc[flag_start_loc : flag_end_loc + 1]
-            # 条件1: 成交极度萎缩 (最核心)
             avg_volume_flag = flag_df['vol'].mean()
-            # 修改代码行：使用传入的 vol_ma_col_name 进行动态列选择
             vol_ma_at_flag_start = df[vol_ma_col_name].iloc[flag_start_loc -1]
-            if not (avg_volume_flag < 0.7 * pole_data['avg_volume'] and avg_volume_flag < vol_ma_at_flag_start):
+            if not (avg_volume_flag < vol_shrink_pole * pole_data['avg_volume'] and avg_volume_flag < vol_shrink_ma * vol_ma_at_flag_start):
                 continue
             flag_low = flag_df['low_qfq'].min()
             pole_range = pole_data['high_price'] - pole_data['low_price']
             if pole_range == 0: continue
             retracement_depth = (pole_data['high_price'] - flag_low) / pole_range
-            if retracement_depth > 0.5:
+            if retracement_depth > max_retracement:
                 return None
             if flag_df['close_qfq'].max() > pole_data['high_price']:
                 continue
