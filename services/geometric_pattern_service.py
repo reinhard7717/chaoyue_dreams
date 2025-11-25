@@ -1010,17 +1010,18 @@ class GeometricPatternService:
 
     def _find_and_evaluate_flags(self, enriched_df: pd.DataFrame, data_dfs: dict) -> list:
         """
-        【V3.0 · 量子透镜版】升级数据管道，为微观分析提供高频数据源。
-        - V3.0 核心升级:
-          1. [数据赋能] 修改对 `_identify_flagpole` 和 `_identify_flag` 的调用，
-                         将包含分钟线和Tick数据的 `data_dfs` 字典传递下去，
-                         为“量子透镜”的微观分析模块提供必要的弹药。
+        【V3.2 · 时空跳跃版】引入动态扫描引擎，根除事件冗余。
+        - V3.2 核心升级:
+          1. [循环革命] 将主循环从线性的 `for` 循环重构为动态的 `while` 循环。
+          2. [时空跳跃] 在成功识别一个完整旗形后，不再是简单地倒退一天，而是将扫描指针 `i`
+                         直接“跳跃”到该旗杆的起始点之前。这确保了事件的独立性，
+                         从根本上解决了对同一演化形态的重复识别问题。
         """
         events = []
         for archetype in self.flag_archetypes:
             timeframe = archetype.get('timeframe', 'D')
             archetype_name = archetype.get('name', 'UNKNOWN_FLAG')
-            print(f"\n  -> [全息旗形扫描 V3.0] 开始在 [{timeframe}] 级别应用原型 [{archetype_name}]...")
+            print(f"\n  -> [全息旗形扫描 V3.2] 开始在 [{timeframe}] 级别应用原型 [{archetype_name}]...")
             df_source = None
             if timeframe == 'D':
                 df_source = enriched_df
@@ -1038,26 +1039,37 @@ class GeometricPatternService:
             df[vol_ma_col_name] = df['vol'].rolling(self.long_term_period).mean()
             ultra_long_ma_col_name = f'ma{self.ultra_long_term_period}_{timeframe}'
             df[ultra_long_ma_col_name] = df['close_qfq'].rolling(self.ultra_long_term_period, min_periods=self.long_term_period).mean()
-            for i in range(len(df) - 5, min_data_len, -1):
-                # [代码修改] V3.0 传递 data_dfs 以支持微观分析
+            # [代码修改] V3.2 将 for 循环改为 while 循环以支持动态跳跃
+            i = len(df) - 5
+            while i > min_data_len:
                 pole = self._identify_flagpole(df, end_index_loc=i, vol_ma_col_name=vol_ma_col_name, archetype=archetype, data_dfs=data_dfs)
                 if not pole:
+                    i -= 1 # 未找到旗杆，线性后退
                     continue
-                # [代码修改] V3.0 传递 data_dfs 以支持微观分析
                 flag = self._identify_flag(df, pole, vol_ma_col_name=vol_ma_col_name, archetype=archetype, data_dfs=data_dfs)
                 if not flag:
+                    i -= 1 # 未找到匹配的旗面，线性后退
                     continue
+                # 成功发现完整旗形，执行后续逻辑
                 if timeframe == 'D':
                     pole_df = df.loc[pole['start_date']:pole['end_date']]
                     flag_df = df.loc[flag['start_date']:flag['end_date']]
                     is_main_force_led = pole_df['main_force_net_flow_calibrated_sum_5d'].iloc[-1] > 0
-                    if not is_main_force_led: continue
+                    if not is_main_force_led:
+                        i -= 1
+                        continue
                     avg_hidden_accumulation = flag_df['hidden_accumulation_intensity'].mean()
-                    if avg_hidden_accumulation <= 0: continue
+                    if avg_hidden_accumulation <= 0:
+                        i -= 1
+                        continue
                     dominant_peak_cost_at_start = flag_df['dominant_peak_cost'].iloc[0]
-                    if flag_df['low_qfq'].min() < dominant_peak_cost_at_start: continue
+                    if flag_df['low_qfq'].min() < dominant_peak_cost_at_start:
+                        i -= 1
+                        continue
                     breakout_readiness = flag_df['breakout_readiness_score'].iloc[-1]
-                    if breakout_readiness < 60: continue
+                    if breakout_readiness < 60:
+                        i -= 1
+                        continue
                 print(f"  -> [高置信度旗形发现!] 日期: {flag['end_date'].date()}, 级别: [{timeframe}], 原型: [{archetype_name}]。启动概率转换...")
                 probability, features = self._translate_conviction_to_probability(flag)
                 events.append({
@@ -1072,7 +1084,9 @@ class GeometricPatternService:
                         'pole_end_date': pole['end_date'].date(),
                     }
                 })
-                i = df.index.get_loc(pole['start_date'])
+                # [代码修改] V3.2 执行“时空跳跃”，将扫描指针移动到当前已发现旗杆的起点之前
+                print(f"    -> [时空跳跃] 扫描指针从 {df.index[i].date()} 跳跃至 {pole['start_date'].date()} 之前...")
+                i = df.index.get_loc(pole['start_date']) - 1
         return events
 
     def _identify_flagpole(self, df: pd.DataFrame, end_index_loc: int, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
