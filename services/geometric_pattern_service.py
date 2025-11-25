@@ -1341,13 +1341,14 @@ class GeometricPatternService:
 
     def _calculate_trend_conviction_score(self, line_data: dict, enriched_df: pd.DataFrame, debug_flag: bool = False) -> float:
         """
-        【V2.57 · 高斯信念归一化版】使用基于高斯误差函数的动态归一化引擎计算信念分数。
-        - V2.57 核心升级:
-          1. [高斯归一化] 彻底废弃分段线性的归一化逻辑，引入基于均值(μ)和标准差(σ)的
-             高斯误差函数(erf)归一化。此方法将Z-Score平滑映射至[-100, 100]区间，
-             根除了“悬崖效应”和数值不稳定性，实现了概率层面的平滑评估。
-          2. [探针升级] L2探针现在会打印原始值及其在历史分布中的均值和标准差，
-             使得整个高斯评分过程完全透明化。
+        【V2.58 · 独立世界观版】为每个评分支柱赋予独立的逻辑，在最终融合时统一立场。
+        - V2.58 核心升级:
+          1. [逻辑反转修复] 彻底重构了三大支柱的评分逻辑，根治了“一刀切”导致的逻辑反转问题。
+          2. [独立世界观] “力量”和“结构”的得分现在直接反映其内在的“看涨/看跌”性，不再预先翻转符号。
+          3. [行为指标重构] “行为”指标的评分逻辑被重写，现在它衡量的是趋势的“质量”而非“方向”，
+             其得分永远为正，正确反映了该指标的物理意义。
+          4. [立场中心化] `line_type` 的影响被移至最终分数融合阶段，作为“立场调节器”，使整个
+             评分流程的逻辑更清晰、更健壮、更符合分析直觉。
         """
         import math
         start_date = line_data.get('start_date')
@@ -1360,36 +1361,32 @@ class GeometricPatternService:
             return 50.0
         last_day_stats = trend_df.iloc[-1]
         score_geometry = line_data.get('validity_score', 0.5) * 100
-        # [代码修改] V2.57 引入高斯归一化函数
         def gaussian_normalize(value, mean, std):
             if pd.isna(value) or pd.isna(mean) or pd.isna(std) or std == 0:
                 return 0.0
             z_score = (value - mean) / std
-            # 使用误差函数 erf 将 z-score 映射到 [-1, 1]，再乘以 100
-            # erf(z / sqrt(2)) 是标准正态分布的累积分布函数(CDF)的两倍减一
             return 100 * math.erf(z_score / math.sqrt(2))
         avg_flow, avg_slope, avg_efficiency = 0.0, 0.0, 0.0
         score_power, score_structure, score_behavior = 0.0, 0.0, 0.0
-        # 支柱二: 力量源泉 (Power Source) - 权重 35%
+        # [代码修改] V2.58 修正三大支柱的评分逻辑
+        # 支柱二: 力量源泉 - 得分直接反映看涨/看跌性
         if 'daily_flow_ratio' in trend_df.columns:
             avg_flow = trend_df['daily_flow_ratio'].mean()
             mean, std = last_day_stats.get('flow_mean'), last_day_stats.get('flow_std')
-            normalized_flow_score = gaussian_normalize(avg_flow, mean, std)
-            score_power = normalized_flow_score if line_type == 'support' else -normalized_flow_score
-        # 支柱三: 结构完整性 (Structural Integrity) - 权重 30%
+            score_power = gaussian_normalize(avg_flow, mean, std) # 直接赋值，不再预先翻转
+        # 支柱三: 结构完整性 - 得分直接反映看涨/看跌性
         if 'solidity_slope_5d' in trend_df.columns:
             avg_slope = trend_df['solidity_slope_5d'].mean()
             mean, std = last_day_stats.get('structure_mean'), last_day_stats.get('structure_std')
-            normalized_slope_score = gaussian_normalize(avg_slope, mean, std)
-            score_structure = normalized_slope_score if line_type == 'support' else -normalized_slope_score
-        # 支柱四: 行为确认 (Behavioral Confirmation) - 权重 20%
+            score_structure = gaussian_normalize(avg_slope, mean, std) # 直接赋值，不再预先翻转
+        # 支柱四: 行为确认 - 得分反映趋势质量(永远为正)，不再反映方向
         if 'efficiency_avg_5d' in trend_df.columns:
             avg_efficiency = trend_df['efficiency_avg_5d'].mean()
             mean, std = last_day_stats.get('behavior_mean'), last_day_stats.get('behavior_std')
-            normalized_efficiency_score = gaussian_normalize(avg_efficiency, mean, std)
-            score_behavior = normalized_efficiency_score if line_type == 'support' else -normalized_efficiency_score
+            # 效率指标衡量的是趋势的“纯粹度”，是无方向的质量指标。
+            # 因此，我们取其归一化得分的绝对值，高分永远代表“高质量趋势”。
+            score_behavior = abs(gaussian_normalize(avg_efficiency, mean, std))
         if debug_flag:
-            # [代码修改] V2.57 升级L2探针，显示高斯统计量
             flow_stats = (last_day_stats.get('flow_mean', 'N/A'), last_day_stats.get('flow_std', 'N/A'))
             struct_stats = (last_day_stats.get('structure_mean', 'N/A'), last_day_stats.get('structure_std', 'N/A'))
             behav_stats = (last_day_stats.get('behavior_mean', 'N/A'), last_day_stats.get('behavior_std', 'N/A'))
@@ -1398,11 +1395,18 @@ class GeometricPatternService:
                   f"结构: {avg_slope:.6f} vs ({struct_stats[0]:.6f}, {struct_stats[1]:.6f}) | "
                   f"行为: {avg_efficiency:.4f} vs ({behav_stats[0]:.4f}, {behav_stats[1]:.4f})")
             print(f"          [评分细则] 几何: {score_geometry:.2f}, 力量(资金): {score_power:.2f}, 结构(筹码): {score_structure:.2f}, 行为(效率): {score_behavior:.2f}")
+        # [代码修改] V2.58 在最终融合阶段，根据line_type统一立场
+        # 对于阻力线(看跌)，我们需要反转有方向性指标(力量、结构)的得分
+        if line_type == 'resistance':
+            score_power = -score_power
+            score_structure = -score_structure
+            # 行为指标(score_behavior)衡量质量，不反转
         final_score = (
             (score_geometry) * 0.15 +
             ((score_power + 100) / 2) * 0.35 +
             ((score_structure + 100) / 2) * 0.30 +
-            ((score_behavior + 100) / 2) * 0.20
+            # 行为指标得分已是[0,100]，直接使用
+            (score_behavior) * 0.20
         )
         return final_score
 
