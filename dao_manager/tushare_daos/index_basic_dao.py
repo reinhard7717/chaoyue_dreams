@@ -322,6 +322,7 @@ class IndexBasicDAO(BaseDAO):
                 unique_fields=['index_code']
             )
         return result
+
     # ============== 指数成分和权重 ==============
     async def get_index_weight(self, index_code):
         """
@@ -331,6 +332,7 @@ class IndexBasicDAO(BaseDAO):
         # 从数据库获取
         index_weight = await sync_to_async(lambda: IndexWeight.objects.filter(index__index_code=index_code).all())()
         return index_weight
+
     async def save_index_weight_monthly(self) -> Dict:
         """
         【V2.0 向量化与N+1优化版】保存指数成分到数据库
@@ -381,6 +383,7 @@ class IndexBasicDAO(BaseDAO):
             unique_fields=['index', 'stock_code', 'trade_time']
         )
         return result
+
     async def save_index_weight_history_by_index_code(self, index_code) -> Dict:
         """
         保存指数成分到数据库
@@ -400,6 +403,7 @@ class IndexBasicDAO(BaseDAO):
             for row in df.itertuples():
                 index_weight_dict = self.data_format_process.set_index_weight_data(row)
                 index_weight_dicts.append(index_weight_dict)
+
     # ============== 指数日线行情 ==============
     async def get_index_daily(self, index_code: str, start_date: str, end_date: str) -> List['IndexDaily']:
         """
@@ -415,6 +419,7 @@ class IndexBasicDAO(BaseDAO):
             return index_daily_basic
         else:
             return None
+
     async def get_index_daily_by_limit(self, index_code: str, limit: int) -> List['IndexDaily']:
         """
         获得指数每日指标
@@ -426,6 +431,7 @@ class IndexBasicDAO(BaseDAO):
             lambda: list(IndexDaily.objects.filter(index__index_code=index_code).order_by('-trade_time')[:limit])
         )()
         return index_daily_basic
+
     async def save_index_daily_history(self, start_date: datetime.date = None, end_date: datetime.date = None, index_codes: list = None) -> Dict:
         """
         【V2.0 向量化内循环优化版】保存指数每日指标到数据库
@@ -500,6 +506,7 @@ class IndexBasicDAO(BaseDAO):
             logger.info(f"最后的批量写入完成。结果: {final_result}")
         logger.info("指数每日指标历史数据保存任务全部完成。")
         return final_result
+
     # ============== 大盘指数每日指标 ==============
     async def get_index_daily_basic_by_limit(self, index_code: str, limit: int) -> List['IndexDailyBasic']:
         """
@@ -510,6 +517,7 @@ class IndexBasicDAO(BaseDAO):
         # 从数据库获取
         index_daily_basic = await sync_to_async(lambda: IndexDailyBasic.objects.filter(index__index_code=index_code).order_by('-trade_time')[:limit])()
         return index_daily_basic
+
     async def save_index_daily_basic_today(self) -> Dict:
         """
         【V2.0 优化版】保存当天的大盘指数每日指标。
@@ -518,6 +526,7 @@ class IndexBasicDAO(BaseDAO):
         # 直接调用重构后的辅助方法
         today = datetime.date.today()
         return await self._save_index_daily_basic_by_date(today)
+
     async def save_index_daily_basic_yesterday(self) -> Dict:
         """
         【V2.0 优化版】保存昨天的大盘指数每日指标。
@@ -526,6 +535,7 @@ class IndexBasicDAO(BaseDAO):
         # 直接调用重构后的辅助方法
         yesterday = datetime.date.today() - datetime.timedelta(days=1)
         return await self._save_index_daily_basic_by_date(yesterday)
+
     async def save_index_daily_basic_history(self, start_date: datetime.date = None, end_date: datetime.date = None) -> Dict:
         """
         【V2.0 向量化内循环优化版】保存历史大盘指数每日指标
@@ -590,6 +600,7 @@ class IndexBasicDAO(BaseDAO):
         )
         print(f"保存大盘指数每日指标历史数据完成。")
         return result
+
     async def _save_index_daily_basic_by_date(self, target_date: datetime.date) -> Optional[Dict]:
         """
         【V1.0 新增辅助方法】根据指定日期，获取并保存大盘指数每日指标。

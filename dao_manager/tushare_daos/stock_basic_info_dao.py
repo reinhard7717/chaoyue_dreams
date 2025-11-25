@@ -30,6 +30,7 @@ class StockBasicInfoDao(BaseDAO):
         self.stock_cache_get = StockInfoCacheGet(self.cache_manager)
         self.user_cache_set = UserCacheSet(self.cache_manager)
         self.user_cache_get = UserCacheGet(self.cache_manager)
+
     async def get_stock_list(self) -> List['StockInfo']:
         """
         获取所有股票的基本信息
@@ -68,6 +69,7 @@ class StockBasicInfoDao(BaseDAO):
         except Exception as e:
             logger.error(f"从数据库读取股票列表失败: {e}", exc_info=True)
         return return_data
+
     async def get_stock_by_code(self, stock_code: str) -> Optional['StockInfo']:
         retry = 3
         for i in range(retry):
@@ -82,6 +84,7 @@ class StockBasicInfoDao(BaseDAO):
                 print(f"数据库连接丢失，重试第{i+1}次: {e}")
                 time.sleep(0.2)
         return None
+
     async def get_stocks_by_codes(self, stock_codes: List[str]) -> Dict[str, 'StockInfo']:
         """
         【V2 - 最佳实践版】批量获取股票信息，返回以stock_code为key的字典。
@@ -119,6 +122,7 @@ class StockBasicInfoDao(BaseDAO):
         # 理论上，由于上面的逻辑总会返回或抛出异常，代码不会执行到这里。
         # 但为了代码完整性，保留一个返回。
         return {}
+
     async def get_all_favorite_stocks(self) -> Optional[List[Dict]]:
         """
         获取所有用户的自选股，并按股票代码排序 (已优化)
@@ -155,6 +159,7 @@ class StockBasicInfoDao(BaseDAO):
         except Exception as e:
             logger.error(f"从数据库获取所有自选股失败: {e}", exc_info=True)
             return None
+
     # --- 增加一个更常用的“获取指定用户自选股”的方法 ---
     async def get_user_favorite_stocks(self, user: AbstractUser) -> Optional[List[Dict]]:
         """
@@ -192,10 +197,15 @@ class StockBasicInfoDao(BaseDAO):
         except Exception as e:
             logger.error(f"为用户 {user.username} 获取自选股失败: {e}", exc_info=True)
             return None
+
     async def save_stocks(self) -> Dict:
         """
-        【V2.0 向量化优化版】通过tushare获取股票数据并保存到数据库
+        【V2.1 健壮性增强版】通过tushare获取股票数据并保存到数据库
         - 核心优化: 使用Pandas的向量化操作替代了原有的 `itertuples()` 循环，大幅提升了数据处理效率。
+        - 健壮性增强:
+          1. 扩展了列名映射，确保API字段能正确对应模型字段。
+          2. 在保存到数据库前，动态筛选DataFrame的列，只保留模型中存在的字段，避免因API返回多余字段（如'symbol'）导致程序崩溃。
+          3. 修正了缓存列名，与重命名后的列名保持一致。
         """
         # 从Tushare API获取所有股票基本信息
         df = self.ts_pro.stock_basic(**{
@@ -214,12 +224,29 @@ class StockBasicInfoDao(BaseDAO):
         df['list_date'] = pd.to_datetime(df['list_date'], format='%Y%m%d', errors='coerce').dt.date
         df['delist_date'] = pd.to_datetime(df['delist_date'], format='%Y%m%d', errors='coerce').dt.date
         # 3. 向量化重命名列以匹配模型字段
-        df.rename(columns={'ts_code': 'stock_code', 'name': 'stock_name'}, inplace=True)
+        # [代码修改处] 扩展rename_map以匹配所有模型字段
+        rename_map = {
+            'ts_code': 'stock_code',
+            'name': 'stock_name',
+            'fullname': 'full_name',
+            'enname': 'en_name',
+            'cnspell': 'cn_spell',
+            'market': 'market_type',
+            'curr_type': 'currency_type',
+            'act_name': 'actual_controller',
+            'act_ent_type': 'actual_controller_type'
+        }
+        df.rename(columns=rename_map, inplace=True)
         # 4. 准备用于数据库和缓存的数据
-        # 数据库需要所有列
-        stock_dicts = df.to_dict('records')
+        # [代码修改处] 获取模型所有字段名，用于筛选DataFrame的列，避免因API返回多余字段（如'symbol'）导致错误
+        model_fields = [f.name for f in StockInfo._meta.get_fields()]
+        # [代码修改处] 筛选出DataFrame中与模型字段匹配的列，用于数据库保存
+        db_cols = [col for col in df.columns if col in model_fields]
+        db_df = df[db_cols]
+        stock_dicts = db_df.to_dict('records')
         # 缓存只需要部分基础列
-        cache_cols = ['stock_code', 'stock_name', 'list_status', 'list_date', 'delist_date', 'exchange', 'market', 'is_hs', 'industry']
+        # [代码修改处] 修正缓存列名，将 'market' 改为 'market_type' 以匹配重命名后的列
+        cache_cols = ['stock_code', 'stock_name', 'list_status', 'list_date', 'delist_date', 'exchange', 'market_type', 'is_hs', 'industry']
         cache_df = df[[col for col in cache_cols if col in df.columns]]
         cache_dicts = cache_df.to_dict('records')
         # --- 向量化处理结束，原有的itertuples()循环已被移除 ---
@@ -236,6 +263,7 @@ class StockBasicInfoDao(BaseDAO):
             )
             return result
         return {}
+
     async def save_company_info(self) -> Dict:
         """
         【V2 - 优化版】通过tushare获取所有公司信息并保存到数据库
@@ -305,6 +333,7 @@ class StockBasicInfoDao(BaseDAO):
             logger.error(f"保存公司信息时发生严重错误: {e}", exc_info=True)
             print(f"调试: 发生异常: {e}")
             raise
+
     async def save_hs_const(self) -> Dict:
         """
         【V2.0 向量化与N+1优化版】通过tushare获取沪深港通成分股信息并保存到数据库
