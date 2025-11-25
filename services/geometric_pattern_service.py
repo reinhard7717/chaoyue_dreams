@@ -1341,13 +1341,14 @@ class GeometricPatternService:
 
     def _calculate_trend_conviction_score(self, line_data: dict, enriched_df: pd.DataFrame, debug_flag: bool = False) -> float:
         """
-        【V2.59 · 数学和谐版】统一所有支柱的数学框架，实现最终的评分和谐。
-        - V2.59 核心升级:
-          1. [最终融合修正] 修正了最终分数融合公式中的数学不一致性。此前，“行为”支柱的
-             贡献度量表与其他支柱不统一，导致评分被系统性拉低。
-          2. [统一框架] 新公式确保所有四个支柱在应用权重之前，都公平地映射到
-             一个统一的 [0, 100] 贡献度量表上 (0=最差, 50=中性, 100=最佳)。
-             这是模型达到数学纯粹性和逻辑一致性的最后一步。
+        【V2.60 · 最终和谐版】为每个支柱量身定制智慧，实现模型的最终和谐。
+        - V2.60 核心升级:
+          1. [定制化智慧] 打破“单一模型”的框架，为“行为”支柱量身定制了最符合其物理意义的
+             评分体系，彻底解决了因模型错配导致的系统性评分偏差。
+          2. [回归本源] “行为”支柱的评分不再使用高斯归一化，而是直接采用其在趋势期间的
+             “平均效率值 * 100”。这使得评分回归其最纯粹、最直观的物理含义。
+          3. [最终和谐] 模型至此达到了逻辑、数学和领域知识的最终和谐，每个支柱都以最适合
+             其天性的方式贡献见解，并在一个数学统一的框架下完美融合。
         """
         import math
         start_date = line_data.get('start_date')
@@ -1367,41 +1368,39 @@ class GeometricPatternService:
             return 100 * math.erf(z_score / math.sqrt(2))
         avg_flow, avg_slope, avg_efficiency = 0.0, 0.0, 0.0
         score_power, score_structure, score_behavior = 0.0, 0.0, 0.0
-        # 支柱二: 力量源泉 - 得分直接反映看涨/看跌性 [-100, 100]
+        # 支柱二: 力量源泉 - 使用高斯模型理解其相对强度 [-100, 100]
         if 'daily_flow_ratio' in trend_df.columns:
             avg_flow = trend_df['daily_flow_ratio'].mean()
             mean, std = last_day_stats.get('flow_mean'), last_day_stats.get('flow_std')
             score_power = gaussian_normalize(avg_flow, mean, std)
-        # 支柱三: 结构完整性 - 得分直接反映看涨/看跌性 [-100, 100]
+        # 支柱三: 结构完整性 - 使用高斯模型理解其相对强度 [-100, 100]
         if 'solidity_slope_5d' in trend_df.columns:
             avg_slope = trend_df['solidity_slope_5d'].mean()
             mean, std = last_day_stats.get('structure_mean'), last_day_stats.get('structure_std')
             score_structure = gaussian_normalize(avg_slope, mean, std)
-        # 支柱四: 行为确认 - 得分反映趋势质量 [0, 100]
+        # [代码修改] V2.60 “行为”支柱回归其物理本源
+        # 支柱四: 行为确认 - 直接使用其物理值作为质量分 [0, 100]
         if 'efficiency_avg_5d' in trend_df.columns:
             avg_efficiency = trend_df['efficiency_avg_5d'].mean()
-            mean, std = last_day_stats.get('behavior_mean'), last_day_stats.get('behavior_std')
-            score_behavior = abs(gaussian_normalize(avg_efficiency, mean, std))
+            # 趋势效率(TER)的值域是[0,1]，其本身就是完美的“得分率”。
+            # 直接乘以100，即可得到最纯粹、最无偏的趋势质量分数。
+            score_behavior = avg_efficiency * 100 if not pd.isna(avg_efficiency) else 0.0
         if debug_flag:
             flow_stats = (last_day_stats.get('flow_mean', 'N/A'), last_day_stats.get('flow_std', 'N/A'))
             struct_stats = (last_day_stats.get('structure_mean', 'N/A'), last_day_stats.get('structure_std', 'N/A'))
-            behav_stats = (last_day_stats.get('behavior_mean', 'N/A'), last_day_stats.get('behavior_std', 'N/A'))
+            # [代码修改] V2.60 精简L2探针，不再为“行为”显示无意义的统计量
             print(f"            [原始读数 & 高斯统计(μ,σ)] "
                   f"力量: {avg_flow:.4f} vs ({flow_stats[0]:.4f}, {flow_stats[1]:.4f}) | "
                   f"结构: {avg_slope:.6f} vs ({struct_stats[0]:.6f}, {struct_stats[1]:.6f}) | "
-                  f"行为: {avg_efficiency:.4f} vs ({behav_stats[0]:.4f}, {behav_stats[1]:.4f})")
+                  f"行为: {avg_efficiency:.4f}")
             print(f"          [评分细则] 几何: {score_geometry:.2f}, 力量(资金): {score_power:.2f}, 结构(筹码): {score_structure:.2f}, 行为(效率): {score_behavior:.2f}")
         # 在最终融合阶段，根据line_type统一立场
         if line_type == 'resistance':
             score_power = -score_power
             score_structure = -score_structure
-        # [代码修改] V2.59 修正最终融合公式，确保所有支柱在统一的[0, 100]贡献度量表上进行加权
-        # 1. 几何分 (score_geometry) 已经是 [0, 100] 的贡献分
-        # 2. 力量分 (score_power) 从 [-100, 100] 映射到 [0, 100]
+        # 统一所有支柱到 [0, 100] 的贡献度量表
         power_contribution = (score_power + 100) / 2
-        # 3. 结构分 (score_structure) 从 [-100, 100] 映射到 [0, 100]
         structure_contribution = (score_structure + 100) / 2
-        # 4. 行为分 (score_behavior) 已经是 [0, 100] 的贡献分
         behavior_contribution = score_behavior
         final_score = (
             score_geometry * 0.15 +
