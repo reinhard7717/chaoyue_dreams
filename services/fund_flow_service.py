@@ -991,21 +991,26 @@ class AdvancedFundFlowMetricsService:
                 # 新增代码块：为新指标添加探针
                 print("\n[4. 观测大单平均规模 溯源]")
                 print(f"  - 最终结果: {results.get('observed_large_order_size_avg', 'N/A')}")
+                # 【修正点】这里也需要修正，与上一个bug修复保持一致
                 large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
                 print(f"  - 输入-观测到的大单数量: {len(large_orders_df)}")
+                # 【修正点】这里也需要修正
                 print(f"  - 输入-大单总成交额: {large_orders_df['amount'].sum():.2f}")
                 print("\n[5. 微观价格冲击不对称性 溯源]")
                 print(f"  - 最终结果: {results.get('micro_price_impact_asymmetry', 'N/A')}")
                 up_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] > 0]
                 down_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] < 0]
-                vol_per_cent_up = up_ticks['volume_x'].sum() / (up_ticks['mid_price_change'].sum() * 100) if not up_ticks.empty and up_ticks['mid_price_change'].sum() > 0 else np.nan
-                vol_per_cent_down = down_ticks['volume_x'].sum() / (down_ticks['mid_price_change'].abs().sum() * 100) if not down_ticks.empty and down_ticks['mid_price_change'].abs().sum() > 0 else np.nan
+                # 【修改点 1】将 'volume_x' 改为 'volume_tick'
+                vol_per_cent_up = up_ticks['volume_tick'].sum() / (up_ticks['mid_price_change'].sum() * 100) if not up_ticks.empty and up_ticks['mid_price_change'].sum() > 0 else np.nan
+                # 【修改点 2】将 'volume_x' 改为 'volume_tick'
+                vol_per_cent_down = down_ticks['volume_tick'].sum() / (down_ticks['mid_price_change'].abs().sum() * 100) if not down_ticks.empty and down_ticks['mid_price_change'].abs().sum() > 0 else np.nan
                 print(f"  - 中间-向上冲击成本(股/分): {vol_per_cent_up:.2f}")
                 print(f"  - 中间-向下冲击成本(股/分): {vol_per_cent_down:.2f}")
                 print("\n[6. 盘口清扫率 溯源]")
                 print(f"  - 最终结果: {results.get('order_book_clearing_rate', 'N/A')}")
                 print(f"  - 中间-盘口总清扫量(股): {total_cleared_vol:.2f}")
-                print(f"  - 中间-市场总增量成交量(股): {total_market_vol:.2f}")
+                # 【修改点 3】将未定义的 'total_market_vol' 改为 'daily_total_volume'
+                print(f"  - 中间-市场总增量成交量(股): {daily_total_volume:.2f}")
             else:
                 print("\n探针警告: 高频分析数据(hf_analysis_df)为空，无法进行OFI增强指标的溯源。")
             print("--- [探针] 溯源结束 ---\n")
