@@ -150,10 +150,8 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None, realtime_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V1.1 · 数据融合修复版】
-        - 核心修复: 修复了mf_cost_zone_defense_intent指标因缺少'volume'列而计算失败的BUG。
-        - 核心逻辑: 在注入计算器前，使用pd.merge_asof将Level5盘口数据与Realtime快照数据进行合并，
-                     确保传递给计算器的DataFrame同时包含五档行情和用于加权的累计成交量'volume'列。
+        【V1.3 · 融合验证探针版】
+        - 核心新增: 在数据融合后增加探针，打印DataFrame的.info()和.head()，以最终确认融合结果的数据结构。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -231,16 +229,11 @@ class AdvancedChipMetricsService:
             else:
                 enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
             context_for_calc['intraday_data'] = enhanced_intraday_data
-            # 修改代码块：数据融合逻辑
-            # 默认设置为空DataFrame
             context_for_calc['realtime_data'] = pd.DataFrame()
-            # 检查Level5和Realtime快照数据是否都存在
             if level5_data_map and date_obj in level5_data_map and realtime_data_map and date_obj in realtime_data_map:
                 level5_df = level5_data_map[date_obj]
                 realtime_df = realtime_data_map[date_obj]
                 if not level5_df.empty and not realtime_df.empty and 'volume' in realtime_df.columns:
-                    print(f"--- [探针] [服务层-数据融合] [{stock_code}] 日期: {date_obj} ---")
-                    print("探针: 发现当日的Level5和Realtime快照数据，开始融合。")
                     level5_df_renamed = level5_df.copy()
                     column_rename_map = {
                         **{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)},
@@ -249,21 +242,21 @@ class AdvancedChipMetricsService:
                         **{f'sell_volume{i}': f'a{i}_v' for i in range(1, 6)},
                     }
                     level5_df_renamed.rename(columns=column_rename_map, inplace=True)
-                    # 使用merge_asof进行融合，确保即使时间戳有微秒级差异也能正确合并
                     merged_realtime_df = pd.merge_asof(
-                        left=level5_df_renamed.sort_index(),
-                        right=realtime_df[['volume']].sort_index(),
+                        left=level5_df_renamed.sort_index().reset_index(),
+                        right=realtime_df[['volume']].sort_index().reset_index(),
                         on='trade_time',
                         direction='nearest'
                     )
+                    if 'trade_time' in merged_realtime_df.columns:
+                        merged_realtime_df.set_index('trade_time', inplace=True)
+                        # 新增探针：打印融合后DataFrame的详细信息
+                        print(f"\n--- [探针] [服务层-融合后] [{stock_code}] 日期: {date_obj} ---")
+                        print("探针: 融合后的DataFrame.info():")
+                        merged_realtime_df.info()
+                        print("\n探针: 融合后的DataFrame.head():")
+                        print(merged_realtime_df.head())
                     context_for_calc['realtime_data'] = merged_realtime_df
-                    print(f"探针: 数据融合成功。合并后DataFrame行数: {len(merged_realtime_df)}, 是否包含'volume'列: {'volume' in merged_realtime_df.columns}")
-                else:
-                    print(f"--- [探针] [服务层-数据融合] [{stock_code}] 日期: {date_obj} ---")
-                    print("探针: 警告！Level5或Realtime快照数据为空，或Realtime快照缺少'volume'列，无法融合。")
-            # else:
-            #     print(f"--- [探针] [服务层-数据融合] [{stock_code}] 日期: {date_obj} ---")
-            #     print("探针: 警告！缺少当日的Level5或Realtime快照数据，无法进行融合。")
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
             if daily_metrics:
