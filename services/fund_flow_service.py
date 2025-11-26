@@ -770,10 +770,10 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V30.0 · 最终架构修复版】
-        - 核心修复(架构): 彻底移除了方法开头的广谱初始化循环。此前的“先全部置NaN再计算”模式是导致上游正确计算结果被覆盖的根源。
-                         新模式为“按需计算并赋值”，确保本函数只输出其自身负责的指标，从根本上杜绝了与上游函数的“管辖权冲突”。
-                         这是针对此类问题的最终、也是最稳健的解决方案。
+        【V30.1 · 终局诊断探针版】
+        - 核心增强: 为 retail_fomo_premium_index 和 retail_panic_surrender_index 植入了高精度逻辑探针。
+                     该探针将逐一打印计算路径上的所有判断条件、关键依赖项（如聚合成本）和中间变量，
+                     旨在最终定位这两个指标计算失败的精确原因。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -1039,30 +1039,59 @@ class AdvancedFundFlowMetricsService:
             if day_range > 0:
                 fomo_zone_threshold = day_low + 0.75 * day_range
                 fomo_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] > fomo_zone_threshold]
+                if debug_mode:
+                    stock_code = daily_data.get('stock_code', 'N/A')
+                    trade_date_str = daily_data.name.strftime('%Y-%m-%d')
+                    print(f"\n--- [探针] [Retail FOMO 指标诊断] [{stock_code}] 日期: {trade_date_str} ---")
+                    print(f"[1] 前置条件检查: day_range > 0 -> True")
+                    print(f"    - day_high={day_high}, day_low={day_low}, day_range={day_range:.2f}")
+                    print(f"    - fomo_zone_threshold (price > {fomo_zone_threshold:.2f})")
+                    print(f"[2] FOMO区数据检查: not fomo_zone_df.empty -> {not fomo_zone_df.empty}")
                 if not fomo_zone_df.empty and 'retail_net_vol' in fomo_zone_df.columns and 'retail_buy_vol' in continuous_trading_df.columns and 'minute_vwap' in fomo_zone_df.columns:
                     fomo_retail_df = fomo_zone_df[fomo_zone_df['retail_net_vol'] > 0]
+                    if debug_mode: print(f"[3] FOMO区散户净买入检查: not fomo_retail_df.empty -> {not fomo_retail_df.empty}")
                     if not fomo_retail_df.empty:
                         fomo_vol = fomo_retail_df['retail_net_vol'].sum()
                         total_retail_buy_vol = continuous_trading_df[continuous_trading_df['retail_buy_vol'] > 0]['retail_buy_vol'].sum()
+                        if debug_mode: print(f"[4] 成交量检查: fomo_vol > 0 ({fomo_vol:.0f}) -> {fomo_vol > 0}, total_retail_buy_vol > 0 ({total_retail_buy_vol:.0f}) -> {total_retail_buy_vol > 0}")
                         if fomo_vol > 0 and total_retail_buy_vol > 0:
                             cost_fomo = (fomo_retail_df['minute_vwap'] * fomo_retail_df['retail_net_vol']).sum() / fomo_vol
                             cost_mf_sell = daily_data.get('avg_cost_main_sell')
+                            if debug_mode:
+                                print(f"[5] 关键依赖检查: pd.notna(cost_mf_sell) ({cost_mf_sell}) -> {pd.notna(cost_mf_sell)}, cost_mf_sell > 0 -> {cost_mf_sell > 0 if pd.notna(cost_mf_sell) else 'N/A'}")
                             if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
                                 premium = (cost_fomo / cost_mf_sell - 1)
-                                results['retail_fomo_premium_index'] = premium * (fomo_vol / total_retail_buy_vol) * 100
+                                final_value = premium * (fomo_vol / total_retail_buy_vol) * 100
+                                results['retail_fomo_premium_index'] = final_value
+                                if debug_mode:
+                                    print(f"    - cost_fomo: {cost_fomo:.4f}, premium: {premium:.4f}")
+                                    print(f"[6] 计算成功: retail_fomo_premium_index = {final_value}")
                 panic_zone_threshold = day_low + 0.25 * day_range
                 panic_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < panic_zone_threshold]
+                if debug_mode:
+                    print(f"\n--- [探针] [Retail Panic 指标诊断] [{stock_code}] 日期: {trade_date_str} ---")
+                    print(f"[1] 前置条件检查: day_range > 0 -> True")
+                    print(f"    - panic_zone_threshold (price < {panic_zone_threshold:.2f})")
+                    print(f"[2] 恐慌区数据检查: not panic_zone_df.empty -> {not panic_zone_df.empty}")
                 if not panic_zone_df.empty and 'retail_net_vol' in panic_zone_df.columns and 'retail_sell_vol' in continuous_trading_df.columns and 'minute_vwap' in panic_zone_df.columns:
                     panic_retail_df = panic_zone_df[panic_zone_df['retail_net_vol'] < 0]
+                    if debug_mode: print(f"[3] 恐慌区散户净卖出检查: not panic_retail_df.empty -> {not panic_retail_df.empty}")
                     if not panic_retail_df.empty:
                         panic_vol = abs(panic_retail_df['retail_net_vol'].sum())
                         total_retail_sell_vol = continuous_trading_df[continuous_trading_df['retail_sell_vol'] > 0]['retail_sell_vol'].sum()
+                        if debug_mode: print(f"[4] 成交量检查: panic_vol > 0 ({panic_vol:.0f}) -> {panic_vol > 0}, total_retail_sell_vol > 0 ({total_retail_sell_vol:.0f}) -> {total_retail_sell_vol > 0}")
                         if panic_vol > 0 and total_retail_sell_vol > 0:
                             cost_panic = (panic_retail_df['minute_vwap'] * abs(panic_retail_df['retail_net_vol'])).sum() / panic_vol
                             cost_mf_buy = daily_data.get('avg_cost_main_buy')
+                            if debug_mode:
+                                print(f"[5] 关键依赖检查: pd.notna(cost_mf_buy) ({cost_mf_buy}) -> {pd.notna(cost_mf_buy)}, cost_mf_buy > 0 -> {cost_mf_buy > 0 if pd.notna(cost_mf_buy) else 'N/A'}")
                             if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
                                 discount = (cost_mf_buy - cost_panic) / cost_mf_buy
-                                results['retail_panic_surrender_index'] = discount * (panic_vol / total_retail_sell_vol) * 100
+                                final_value = discount * (panic_vol / total_retail_sell_vol) * 100
+                                results['retail_panic_surrender_index'] = final_value
+                                if debug_mode:
+                                    print(f"    - cost_panic: {cost_panic:.4f}, discount: {discount:.4f}")
+                                    print(f"[6] 计算成功: retail_panic_surrender_index = {final_value}")
         if not intraday_data.empty and 'main_force_net_vol' in intraday_data.columns and 'open' in intraday_data.columns and 'close' in intraday_data.columns:
             dip_or_flat_df = intraday_data[intraday_data['close'] <= intraday_data['open']]
             if not dip_or_flat_df.empty:
