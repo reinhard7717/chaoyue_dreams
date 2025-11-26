@@ -150,8 +150,10 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None, realtime_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V1.3 · 探针清理版】
-        - 核心维护: 移除了所有用于调试数据流和数据融合的探针print语句。
+        【V1.4 · 微观数据注入版】
+        - 核心修复: 修复了原始Tick和Level5数据未能注入计算上下文的BUG。
+        - 核心逻辑: 在每日循环中，将当天的 tick_df 和 level5_df 从map中提取，并以 'tick_data' 和 'level5_data'
+                     为键名注入到 context_for_calc 中，为微观动力学计算引擎提供原料。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -229,6 +231,9 @@ class AdvancedChipMetricsService:
             else:
                 enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
             context_for_calc['intraday_data'] = enhanced_intraday_data
+            # 新增代码块：注入原始Tick和Level5数据，供微观动力学引擎使用
+            context_for_calc['tick_data'] = tick_data_map.get(date_obj, pd.DataFrame()) if tick_data_map else pd.DataFrame()
+            context_for_calc['level5_data'] = level5_data_map.get(date_obj, pd.DataFrame()) if level5_data_map else pd.DataFrame()
             context_for_calc['realtime_data'] = pd.DataFrame()
             if level5_data_map and date_obj in level5_data_map and realtime_data_map and date_obj in realtime_data_map:
                 level5_df = level5_data_map[date_obj]

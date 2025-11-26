@@ -65,6 +65,10 @@ class ChipFeatureCalculator:
         static_structure_metrics = self._compute_static_structure_metrics()
         all_metrics.update(static_structure_metrics)
         self.ctx.update(static_structure_metrics)
+        # 新增代码块：调用微观动力学引擎
+        microstructure_dynamics_metrics = self._compute_microstructure_dynamics(self.ctx)
+        all_metrics.update(microstructure_dynamics_metrics)
+        self.ctx.update(microstructure_dynamics_metrics)
         dominant_peak_cost = self.ctx.get('dominant_peak_cost')
         atr_14d = self.ctx.get('atr_14d')
         if pd.notna(dominant_peak_cost) and pd.notna(atr_14d) and atr_14d > 0:
@@ -79,12 +83,9 @@ class ChipFeatureCalculator:
         intraday_dynamics_metrics = self._compute_intraday_dynamics_metrics(self.ctx)
         all_metrics.update(intraday_dynamics_metrics)
         self.ctx.update(intraday_dynamics_metrics)
-        # =================================================================
-        # 恢复对旧版日内动态指标计算方法的调用，以修复指标丢失问题
         legacy_intraday_metrics = self._compute_legacy_intraday_metrics(self.ctx)
         all_metrics.update(legacy_intraday_metrics)
         self.ctx.update(legacy_intraday_metrics)
-        # =================================================================
         cross_day_flow_metrics = self._compute_cross_day_flow_metrics(self.ctx)
         all_metrics.update(cross_day_flow_metrics)
         self.ctx.update(cross_day_flow_metrics)
@@ -158,6 +159,11 @@ class ChipFeatureCalculator:
         }
 
     def _compute_cross_day_flow_metrics(self, context: dict) -> dict:
+        """
+        【V1.1 · 微观动力学校准版】
+        - 核心升级: 引入 `buy_sweep_intensity` 对 `conviction_flow_index` 进行校准，使其更能反映主力追涨的决心和成本。
+        - 核心升级: 引入 `order_flow_imbalance` 修正 `constructive_turnover_ratio`，衡量换手过程中的真实买卖压力。
+        """
         results = {
             'peak_mass_transfer_rate': np.nan,
             'conviction_flow_index': np.nan,
@@ -165,7 +171,6 @@ class ChipFeatureCalculator:
             'structural_entropy_change': np.nan,
             'main_force_flow_gini': np.nan,
         }
-        # --- 依赖项准备 ---
         intraday_df = context.get('processed_intraday_df')
         turnover_vol = context.get('daily_turnover_volume')
         total_chip_vol = context.get('total_chip_volume')
@@ -174,7 +179,6 @@ class ChipFeatureCalculator:
         if intraday_df.empty or pd.isna(turnover_vol) or turnover_vol <= 0 or prev_chip_dist is None or prev_chip_dist.empty:
             return results
         turnover_rate = turnover_vol / total_chip_vol if total_chip_vol > 0 else 0
-        # --- 1. 筹码峰质量转移率 (Peak Mass Transfer Rate) ---
         today_peak_cost = context.get('dominant_peak_cost')
         prev_peak_cost = prev_metrics.get('dominant_peak_cost')
         if pd.notna(today_peak_cost) and pd.notna(prev_peak_cost):
@@ -183,30 +187,34 @@ class ChipFeatureCalculator:
             mass_change = today_peak_zone_df['percent'].sum() - prev_peak_zone_df['percent'].sum()
             if turnover_rate > 0:
                 results['peak_mass_transfer_rate'] = mass_change / (turnover_rate * 100)
-        # --- 2. 信念流转指数 (Conviction Flow Index) ---
         daily_vwap = context.get('daily_vwap')
+        buy_sweep_intensity = context.get('buy_sweep_intensity', 0) # 获取扫单强度
         if pd.notna(daily_vwap) and 'main_force_net_vol' in intraday_df.columns:
             mf_net_vol = intraday_df['main_force_net_vol']
             gathering_vol = mf_net_vol[intraday_df['minute_vwap'] < daily_vwap].clip(lower=0).sum()
+            # 升级逻辑：用扫单强度加权追涨部分的成交量
+            chasing_vol_raw = mf_net_vol[intraday_df['minute_vwap'] > daily_vwap].clip(lower=0).sum()
+            chasing_vol_conviction_weighted = chasing_vol_raw * (1 + buy_sweep_intensity)
+            gathering_vol_total_weighted = gathering_vol + chasing_vol_conviction_weighted
             dispersal_vol = -mf_net_vol[intraday_df['minute_vwap'] > daily_vwap].clip(upper=0).sum()
-            if gathering_vol > 0 and dispersal_vol > 0:
-                results['conviction_flow_index'] = np.log1p(gathering_vol) / np.log1p(dispersal_vol)
-            elif gathering_vol > 0:
-                results['conviction_flow_index'] = 10.0 # 极度看涨
+            if gathering_vol_total_weighted > 0 and dispersal_vol > 0:
+                results['conviction_flow_index'] = np.log1p(gathering_vol_total_weighted) / np.log1p(dispersal_vol)
+            elif gathering_vol_total_weighted > 0:
+                results['conviction_flow_index'] = 10.0
             else:
-                results['conviction_flow_index'] = 0.1 # 极度看跌
-        # --- 3. 建设性换手率 (Constructive Turnover Ratio) ---
+                results['conviction_flow_index'] = 0.1
         today_winner_rate = context.get('total_winner_rate')
         prev_winner_rate = prev_metrics.get('total_winner_rate')
+        order_flow_imbalance = context.get('order_flow_imbalance', 0) # 获取OFI
         if pd.notna(today_winner_rate) and pd.notna(prev_winner_rate) and turnover_rate > 0:
             winner_rate_change = today_winner_rate - prev_winner_rate
-            results['constructive_turnover_ratio'] = winner_rate_change / (turnover_rate * 100)
-        # --- 4. 结构熵变 (Structural Entropy Change) ---
+            # 升级逻辑：用OFI调整换手效率
+            constructive_ratio = winner_rate_change / (turnover_rate * 100)
+            results['constructive_turnover_ratio'] = constructive_ratio * (1 + np.tanh(order_flow_imbalance * 5))
         today_entropy = context.get('price_volume_entropy')
         prev_entropy = prev_metrics.get('price_volume_entropy')
         if pd.notna(today_entropy) and pd.notna(prev_entropy):
             results['structural_entropy_change'] = today_entropy - prev_entropy
-        # --- 5. 主力资金流基尼系数 (Main Force Flow Gini) ---
         def _calculate_gini_for_flow(flow_series: pd.Series) -> float:
             flow = np.abs(flow_series.dropna())
             if len(flow) < 2 or flow.sum() == 0: return np.nan
@@ -216,7 +224,6 @@ class ChipFeatureCalculator:
             return ((2 * np.sum(flow * index)) / (n * np.sum(flow))) - (n + 1) / n
         if 'main_force_net_vol' in intraday_df.columns:
             results['main_force_flow_gini'] = _calculate_gini_for_flow(intraday_df['main_force_net_vol'])
-        # --- 兼容旧指标 ---
         results.update(self._compute_legacy_cross_day_metrics(context))
         return results
 
@@ -710,12 +717,16 @@ class ChipFeatureCalculator:
         return normalized_entropy
 
     def _compute_microstructure_game_metrics(self, context: dict) -> dict:
+        """
+        【V1.1 · OFI增强版】
+        - 核心升级: 引入订单流失衡(OFI)来增强 `covert_accumulation_signal` 的计算精度，
+                     使其能更准确地识别“价格下跌但买盘被动消耗”的隐蔽吸筹高级手法。
+        """
         results = {
             'peak_exchange_purity': np.nan,
             'pressure_validation_score': np.nan,
             'support_validation_score': np.nan,
             'covert_accumulation_signal': np.nan,
-            # 新增代码：重新初始化被遗漏的指标
             'pressure_rejection_strength': np.nan,
             'support_validation_strength': np.nan,
             'vacuum_traversal_efficiency': np.nan,
@@ -749,24 +760,19 @@ class ChipFeatureCalculator:
                     if total_vol_support > 0:
                         active_buy_support = support_zone_df['buy_vol_raw'].sum()
                         results['support_validation_score'] = (active_buy_support / total_vol_support) * 100
-        if 'main_force_net_vol' in intraday_df.columns:
-            if 'close' in intraday_df.columns and 'open' in intraday_df.columns:
-                dip_or_flat_df = intraday_df[intraday_df['close'] <= intraday_df['open']]
-            else:
-                dip_or_flat_df = intraday_df[intraday_df['minute_vwap'].diff().fillna(0) <= 0]
-            if not dip_or_flat_df.empty:
-                total_vol_dip = dip_or_flat_df['vol_shares'].sum()
-                if total_vol_dip > 0:
-                    mf_net_buy_on_dip = dip_or_flat_df['main_force_net_vol'].clip(lower=0).sum()
-                    results['covert_accumulation_signal'] = (mf_net_buy_on_dip / total_vol_dip) * 100
-        # =================================================================
-        # 重新植入被遗漏的压力、支撑和穿越效率指标的计算逻辑
+        # 升级 `covert_accumulation_signal` 逻辑
+        order_flow_imbalance = context.get('order_flow_imbalance', 0)
+        price_momentum = (context.get('close_price', 0) - context.get('open_price', 0)) / context.get('atr_14d', 1)
+        # 隐蔽吸筹 = 价格弱势/下跌 + 订单流显著偏向买方
+        if price_momentum < 0.1: # 价格未明显上涨
+            results['covert_accumulation_signal'] = np.clip(order_flow_imbalance * 100, 0, 100)
+        else:
+            results['covert_accumulation_signal'] = 0
         daily_high = context.get('high_price')
         daily_low = context.get('low_price')
         atr = context.get('atr_14d')
         total_daily_volume = context.get('daily_turnover_volume')
         if all(pd.notna(v) for v in [daily_high, daily_low, atr]) and atr > 0 and 'main_force_net_vol' in intraday_df.columns:
-            # 1. 压力区拒绝强度
             rejection_zone_start = daily_high - 0.5 * atr
             rejection_df = intraday_df[intraday_df['minute_vwap'] >= rejection_zone_start]
             if not rejection_df.empty:
@@ -774,7 +780,6 @@ class ChipFeatureCalculator:
                 if rejection_vol > 0:
                     mf_net_sell_in_zone = -rejection_df['main_force_net_vol'].clip(upper=0).sum()
                     results['pressure_rejection_strength'] = (mf_net_sell_in_zone / rejection_vol) * 100
-            # 2. 支撑区验证强度
             support_zone_end = daily_low + 0.5 * atr
             support_df = intraday_df[intraday_df['minute_vwap'] <= support_zone_end]
             if not support_df.empty:
@@ -782,7 +787,6 @@ class ChipFeatureCalculator:
                 if support_vol > 0:
                     mf_net_buy_in_zone = support_df['main_force_net_vol'].clip(lower=0).sum()
                     results['support_validation_strength'] = (mf_net_buy_in_zone / support_vol) * 100
-        # 3. 真空区穿越效率
         dominant_peak_cost = context.get('dominant_peak_cost')
         secondary_peak_cost = context.get('secondary_peak_cost')
         if all(pd.notna(v) for v in [dominant_peak_cost, secondary_peak_cost, atr]) and atr > 0 and total_daily_volume > 0:
@@ -797,7 +801,6 @@ class ChipFeatureCalculator:
                     normalized_volume = traversal_volume / total_daily_volume
                     efficiency = normalized_range / normalized_volume
                     results['vacuum_traversal_efficiency'] = np.log1p(efficiency)
-        # =================================================================
         return results
 
     def _compute_legacy_intraday_metrics(self, context: dict) -> dict:
@@ -1023,5 +1026,84 @@ class ChipFeatureCalculator:
                     weighted_avg_score = np.average(scores_df['score'], weights=scores_df['volume'])
                     results['floating_chip_cleansing_efficiency'] = np.clip(weighted_avg_score * 10, -100, 100)
         return results
+
+    def _compute_microstructure_dynamics(self, context: dict) -> dict:
+        """
+        【V1.0 · 微观动力学引擎】
+        - 核心职责: 利用Tick和Level5数据，锻造订单流失衡(OFI)、扫单强度和盘口流动性斜率等高频博弈指标。
+        """
+        from scipy.stats import linregress
+        results = {
+            'order_flow_imbalance': np.nan,
+            'buy_sweep_intensity': np.nan,
+            'sell_sweep_intensity': np.nan,
+            'liquidity_slope': np.nan,
+        }
+        tick_df = context.get('tick_data') # 假设tick数据已传入context
+        level5_df = context.get('level5_data') # 假设level5数据已传入context
+        realtime_df = context.get('realtime_data') # 融合后的realtime数据
+        total_volume = context.get('daily_turnover_volume')
+        if tick_df is None or tick_df.empty or level5_df is None or level5_df.empty or total_volume == 0:
+            return results
+        # --- 1. 订单流失衡 (OFI) ---
+        merged_hf_df = pd.merge_asof(
+            tick_df.sort_index().reset_index(),
+            level5_df.sort_index().reset_index(),
+            on='trade_time',
+            direction='backward'
+        ).set_index('trade_time')
+        if not merged_hf_df.empty and 'buy_price1' in merged_hf_df.columns and 'sell_price1' in merged_hf_df.columns:
+            merged_hf_df['mid_price'] = (merged_hf_df['buy_price1'] + merged_hf_df['sell_price1']) / 2
+            merged_hf_df['prev_mid_price'] = merged_hf_df['mid_price'].shift(1)
+            buy_pressure = np.where(merged_hf_df['mid_price'] >= merged_hf_df['prev_mid_price'], merged_hf_df['buy_volume1'].shift(1), 0)
+            sell_pressure = np.where(merged_hf_df['mid_price'] <= merged_hf_df['prev_mid_price'], merged_hf_df['sell_volume1'].shift(1), 0)
+            merged_hf_df['ofi'] = buy_pressure - sell_pressure
+            results['order_flow_imbalance'] = merged_hf_df['ofi'].sum() / total_volume
+        # --- 2. 扫单强度 (Sweep Intensity) ---
+        min_sweep_len = 3 # 至少连续3笔同向成交
+        tick_df['block'] = (tick_df['type'] != tick_df['type'].shift()).cumsum()
+        tick_df['block_size'] = tick_df.groupby('block')['type'].transform('size')
+        sweep_candidates = tick_df[(tick_df['block_size'] >= min_sweep_len) & (tick_df['type'].isin(['B', 'S']))]
+        buy_sweep_vol, sell_sweep_vol = 0, 0
+        if not sweep_candidates.empty:
+            for _, group_sweep in sweep_candidates.groupby('block'):
+                trade_type = group_sweep['type'].iloc[0]
+                prices = group_sweep['price']
+                if trade_type == 'B' and prices.is_monotonic_increasing:
+                    buy_sweep_vol += group_sweep['volume'].sum()
+                elif trade_type == 'S' and prices.is_monotonic_decreasing:
+                    sell_sweep_vol += group_sweep['volume'].sum()
+        total_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
+        total_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
+        if total_buy_vol > 0: results['buy_sweep_intensity'] = buy_sweep_vol / total_buy_vol
+        if total_sell_vol > 0: results['sell_sweep_intensity'] = sell_sweep_vol / total_sell_vol
+        # --- 3. 盘口流动性斜率 (Liquidity Slope) ---
+        if realtime_df is not None and not realtime_df.empty:
+            slopes = []
+            snapshot_volumes = realtime_df['volume'].diff().fillna(0).clip(lower=0)
+            for _, row in realtime_df.iterrows():
+                mid_price = (row['b1_p'] + row['a1_p']) / 2
+                if mid_price > 0:
+                    ask_prices = np.array([row[f'a{i}_p'] for i in range(1, 6)])
+                    ask_volumes = np.array([row[f'a{i}_v'] for i in range(1, 6)]) * 100
+                    valid_asks = (ask_prices > 0) & (ask_volumes > 0)
+                    if np.sum(valid_asks) > 1:
+                        x = (ask_prices[valid_asks] - mid_price) / mid_price
+                        y = np.cumsum(ask_volumes[valid_asks])
+                        slope, _, _, _, _ = linregress(x, y)
+                        slopes.append(slope)
+            if slopes and snapshot_volumes.sum() > 0:
+                results['liquidity_slope'] = np.average(slopes, weights=snapshot_volumes.iloc[:len(slopes)])
+        return results
+
+
+
+
+
+
+
+
+
+
 
 
