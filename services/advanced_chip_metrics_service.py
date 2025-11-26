@@ -150,10 +150,9 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None, realtime_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V1.4 · 微观数据注入版】
+        【V1.5 · 终局探针版】
+        - 核心新增: 植入一个“终局探针”，仅在处理批次中的最后一个交易日时，打印出所有新增及增强的微观指标的计算结果，用于精确验证。
         - 核心修复: 修复了原始Tick和Level5数据未能注入计算上下文的BUG。
-        - 核心逻辑: 在每日循环中，将当天的 tick_df 和 level5_df 从map中提取，并以 'tick_data' 和 'level5_data'
-                     为键名注入到 context_for_calc 中，为微观动力学计算引擎提供原料。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -170,6 +169,8 @@ class AdvancedChipMetricsService:
             ])
         hist_comp_dict = historical_components.to_dict('index') if historical_components is not None and not historical_components.empty else {}
         grouped_data = merged_df.groupby('trade_time')
+        # 新增代码行：获取批次中的总天数
+        num_days_in_batch = len(grouped_data)
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq', 'open_qfq', 'high_qfq', 'low_qfq']
         is_first_day_in_batch = True
         debug_params = debug_params if debug_params is not None else {}
@@ -231,7 +232,6 @@ class AdvancedChipMetricsService:
             else:
                 enhanced_intraday_data = minute_data_map.get(date_obj, pd.DataFrame())
             context_for_calc['intraday_data'] = enhanced_intraday_data
-            # 新增代码块：注入原始Tick和Level5数据，供微观动力学引擎使用
             context_for_calc['tick_data'] = tick_data_map.get(date_obj, pd.DataFrame()) if tick_data_map else pd.DataFrame()
             context_for_calc['level5_data'] = level5_data_map.get(date_obj, pd.DataFrame()) if level5_data_map else pd.DataFrame()
             context_for_calc['realtime_data'] = pd.DataFrame()
@@ -258,6 +258,24 @@ class AdvancedChipMetricsService:
                     context_for_calc['realtime_data'] = merged_realtime_df
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
+            # 新增代码块：终局探针，仅在处理最后一个交易日时触发
+            if i == num_days_in_batch - 1:
+                print(f"\n--- [探针] [最终指标检查] [{stock_code}] 最新日期: {trade_date.date()} ---")
+                if daily_metrics:
+                    print("探针: 核心微观动力学指标:")
+                    print(f"  - 订单流失衡 (OFI): {daily_metrics.get('order_flow_imbalance', 'N/A')}")
+                    print(f"  - 买方扫单强度: {daily_metrics.get('buy_sweep_intensity', 'N/A')}")
+                    print(f"  - 卖方扫单强度: {daily_metrics.get('sell_sweep_intensity', 'N/A')}")
+                    print(f"  - 盘口流动性斜率: {daily_metrics.get('liquidity_slope', 'N/A')}")
+                    print("\n探针: 微观数据增强指标:")
+                    print(f"  - 信念流转指数 (校准后): {daily_metrics.get('conviction_flow_index', 'N/A')}")
+                    print(f"  - 建设性换手率 (校准后): {daily_metrics.get('constructive_turnover_ratio', 'N/A')}")
+                    print(f"  - 隐蔽吸筹信号 (增强后): {daily_metrics.get('covert_accumulation_signal', 'N/A')}")
+                    print("\n探针: 实时盘口指标:")
+                    print(f"  - 主力成本区攻防意图: {daily_metrics.get('mf_cost_zone_defense_intent', 'N/A')}")
+                else:
+                    print("探针: 警告！未能计算出任何指标。")
+                print("--- [探针] 检查结束 ---\n")
             if daily_metrics:
                 daily_metrics['trade_time'] = trade_date
                 daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
