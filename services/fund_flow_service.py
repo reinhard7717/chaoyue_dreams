@@ -822,26 +822,27 @@ class AdvancedFundFlowMetricsService:
                 tick_data.sort_index(), level5_data.sort_index(),
                 left_index=True, right_index=True, direction='backward',
                 suffixes=('_tick', '_realtime')
-            # 修改代码行：更新dropna的subset以使用新的列名
-            ).dropna(subset=['buy_price1', 'sell_price1', 'amount_tick', 'volume_realtime'])
+            # 【修改点 1】将 'amount_tick' 改为 'amount'
+            ).dropna(subset=['buy_price1', 'sell_price1', 'amount', 'volume_realtime'])
             if not merged_hf.empty:
                 merged_hf['mid_price'] = (merged_hf['buy_price1'] + merged_hf['sell_price1']) / 2
                 merged_hf['prev_mid_price'] = merged_hf['mid_price'].shift(1)
                 buy_pressure = np.where(merged_hf['mid_price'] >= merged_hf['prev_mid_price'], merged_hf['buy_volume1'].shift(1), 0)
                 sell_pressure = np.where(merged_hf['mid_price'] <= merged_hf['prev_mid_price'], merged_hf['sell_volume1'].shift(1), 0)
                 merged_hf['ofi'] = buy_pressure - sell_pressure
-                # 修改代码行：使用 amount_tick 进行判断
-                is_main_force_trade = merged_hf['amount_tick'] > 200000
+                # 【修改点 2】将 'amount_tick' 改为 'amount'
+                is_main_force_trade = merged_hf['amount'] > 200000
                 merged_hf['main_force_ofi'] = np.where(is_main_force_trade, merged_hf['ofi'], 0)
                 merged_hf['mid_price_change'] = merged_hf['mid_price'].diff()
                 # 修改代码行：使用 volume_realtime 计算增量
                 merged_hf['market_vol_delta'] = merged_hf['volume_realtime'].diff().fillna(0)
                 hf_analysis_df = merged_hf
         if not hf_analysis_df.empty:
-            # 修改代码行：使用 amount_tick 进行筛选和计算
-            large_orders_df = hf_analysis_df[hf_analysis_df['amount_tick'] > 200000]
+            # 【修改点 3】将 'amount_tick' 改为 'amount'
+            large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
             if not large_orders_df.empty:
-                results['observed_large_order_size_avg'] = large_orders_df['amount_tick'].mean()
+                # 【修改点 4】将 'amount_tick' 改为 'amount'
+                results['observed_large_order_size_avg'] = large_orders_df['amount'].mean()
             up_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] > 0]
             down_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] < 0]
             if not up_ticks.empty and not down_ticks.empty:
@@ -853,10 +854,11 @@ class AdvancedFundFlowMetricsService:
                     results['micro_price_impact_asymmetry'] = np.log1p(asymmetry_ratio) if asymmetry_ratio > 0 else np.nan
             hf_analysis_df['prev_a1_p'] = hf_analysis_df['sell_price1'].shift(1)
             hf_analysis_df['prev_b1_p'] = hf_analysis_df['buy_price1'].shift(1)
-            # 修改代码行：明确使用 price_tick 和 volume_tick
-            ask_clearing_mask = (hf_analysis_df['type_tick'] == 'B') & (hf_analysis_df['price_tick'] == hf_analysis_df['prev_a1_p'])
+            # 【修改点 5】将 'type_tick' 改为 'type', 'price_tick' 改为 'price'
+            ask_clearing_mask = (hf_analysis_df['type'] == 'B') & (hf_analysis_df['price'] == hf_analysis_df['prev_a1_p'])
             ask_clearing_vol = hf_analysis_df.loc[ask_clearing_mask, 'volume_tick'].sum()
-            bid_clearing_mask = (hf_analysis_df['type_tick'] == 'S') & (hf_analysis_df['price_tick'] == hf_analysis_df['prev_b1_p'])
+            # 【修改点 6】将 'type_tick' 改为 'type', 'price_tick' 改为 'price'
+            bid_clearing_mask = (hf_analysis_df['type'] == 'S') & (hf_analysis_df['price'] == hf_analysis_df['prev_b1_p'])
             bid_clearing_vol = hf_analysis_df.loc[bid_clearing_mask, 'volume_tick'].sum()
             total_cleared_vol = ask_clearing_vol + bid_clearing_vol
             if daily_total_volume > 0:
