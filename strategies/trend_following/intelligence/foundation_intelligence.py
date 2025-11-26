@@ -20,6 +20,17 @@ class FoundationIntelligence:
             return pd.Series(default_value, index=df.index)
         return df[column_name]
 
+    def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
+        """
+        【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
+        """
+        missing_signals = [s for s in required_signals if s not in df.columns]
+        if missing_signals:
+            # [新增] 调整校验信息为“基础情报校验”
+            print(f"    -> [基础情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
+            return False
+        return True
+
     def run_foundation_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V6.5 · 上下文修复版】基础情报分析总指挥
@@ -51,11 +62,15 @@ class FoundationIntelligence:
 
     def _diagnose_context_trend_confirmed(self, df: pd.DataFrame, norm_window: int) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 多时间维度归一化版】诊断内部上下文信号：趋势确认分 (CONTEXT_TREND_CONFIRMED)
+        【V1.2 · 信号校验增强版】诊断内部上下文信号：趋势确认分 (CONTEXT_TREND_CONFIRMED)
         - 核心逻辑: 融合趋势强度(ADX)、方向(PDI/NDI)和健康度(BIAS)，评估上升趋势的确认程度。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        required_signals = ['ADX_14_D', 'PDI_14_D', 'NDI_14_D', 'SLOPE_5_PDI_14_D', 'BIAS_55_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_context_trend_confirmed"):
+            return {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -70,13 +85,15 @@ class FoundationIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.1 · 多时间维度归一化版】基础公理五：诊断“基础背离”
+        【V1.2 · 信号校验增强版】基础公理五：诊断“基础背离”
         - 核心逻辑: 诊断价格趋势与摆动指标（如RSI）之间的背离。
-          - 看涨背离：价格创新低但RSI未创新低。
-          - 看跌背离：价格创新高但RSI未创新高。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `price_trend` 和 `oscillator_trend` 的归一化方式改为多时间维度自适应归一化。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        required_signals = ['SLOPE_13_close_D', 'SLOPE_13_RSI_13_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
+            return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -87,42 +104,49 @@ class FoundationIntelligence:
 
     def _diagnose_axiom_trend(self, df: pd.DataFrame, norm_window: int, params: dict) -> pd.Series:
         """
-        【V1.3 · DMA趋势增强与列名引用修复及多时间维度归一化版】基础公理一：诊断“趋势”
+        【V1.4 · 信号校验增强版】基础公理一：诊断“趋势”
         - 【新增】引入 DMA 指标的斜率作为趋势判断的辅助证据。
         - 【修复】修正了引用 DMA 斜率列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        ma_periods = [5, 13, 21, 55]
+        required_signals = ['MACDh_13_34_8_D', 'SLOPE_5_DMA_D']
+        required_signals.extend([f'EMA_{p}_D' for p in ma_periods])
+        required_signals.extend([f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods])
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend"):
+            return pd.Series(0.0, index=df.index)
         macd_h = self._get_safe_series(df, 'MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_trend")
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         macd_score = get_adaptive_mtf_normalized_bipolar_score(macd_h, df.index, default_weights)
         fusion_weights = params.get('ma_health_fusion_weights', {'alignment': 0.5, 'slope': 0.5})
-        ma_periods = [5, 13, 21, 55]
         bull_alignment_scores = [(self._get_safe_series(df, f'EMA_{ma_periods[i]}_D', method_name="_diagnose_axiom_trend") > self._get_safe_series(df, f'EMA_{ma_periods[i+1]}_D', method_name="_diagnose_axiom_trend")).astype(float).values for i in range(len(ma_periods) - 1)]
         alignment_score = np.mean(bull_alignment_scores, axis=0) if bull_alignment_scores else np.full(len(df.index), 0.5)
         alignment_bipolar = (pd.Series(alignment_score, index=df.index) - 0.5) * 2
         slope_scores = [get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, f'SLOPE_{p}_EMA_{p}_D', 0.0, method_name="_diagnose_axiom_trend"), df.index, default_weights).values for p in ma_periods]
         avg_slope_bipolar = pd.Series(np.mean(slope_scores, axis=0), index=df.index)
-        # 新增 DMA 斜率作为趋势证据
-        # 修正列名引用，确保与 merge_results 后的列名一致
         dma_slope = self._get_safe_series(df, 'SLOPE_5_DMA_D', 0.0, method_name="_diagnose_axiom_trend")
         dma_slope_score = get_adaptive_mtf_normalized_bipolar_score(dma_slope, df.index, default_weights)
         structure_score = (
             alignment_bipolar * fusion_weights.get('alignment', 0.5) +
             avg_slope_bipolar * fusion_weights.get('slope', 0.5)
         ).clip(-1, 1)
-        # 融合 DMA 斜率分数
         trend_score = (macd_score * 0.3 + structure_score * 0.5 + dma_slope_score * 0.2).clip(-1, 1)
         return trend_score.astype(np.float32)
 
     def _diagnose_axiom_oscillator(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.1 · 多时间维度归一化版】基础公理二：诊断“摆动”
+        【V1.2 · 信号校验增强版】基础公理二：诊断“摆动”
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `oscillator_score` 的归一化方式改为多时间维度自适应归一化。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        required_signals = ['RSI_13_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_oscillator"):
+            return pd.Series(0.0, index=df.index)
         rsi = self._get_safe_series(df, 'RSI_13_D', 50.0, method_name="_diagnose_axiom_oscillator")
         raw_bipolar_series = rsi - 50.0
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
@@ -133,19 +157,21 @@ class FoundationIntelligence:
 
     def _diagnose_axiom_flow(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.2 · 探针增强与多时间维度归一化版】基础公理三：诊断“流体”
+        【V1.3 · 信号校验增强版】基础公理三：诊断“流体”
         - 核心升级: 增加调试探针，打印 CMF 原始值和归一化分数。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `flow_score` 的归一化方式改为多时间维度自适应归一化。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        required_signals = ['CMF_21_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_flow"):
+            return pd.Series(0.0, index=df.index)
         df_index = df.index
         cmf = self._get_safe_series(df, 'CMF_21_D', 0.0, method_name="_diagnose_axiom_flow")
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 调整 sensitivity，使其对 CMF 的波动不那么敏感，避免极端负值
         flow_score = get_adaptive_mtf_normalized_bipolar_score(cmf, df_index, default_weights, sensitivity=0.5) # 提高敏感度
-        # --- Debugging output for probe date ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -159,10 +185,14 @@ class FoundationIntelligence:
 
     def _diagnose_axiom_volatility(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.1 · 多时间维度归一化版】基础公理四：诊断“波动”
+        【V1.2 · 信号校验增强版】基础公理四：诊断“波动”
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `volatility_score` 的归一化方式改为多时间维度自适应归一化。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        required_signals = ['BBW_21_2.0_D', 'ATR_14_D', 'close_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_volatility"):
+            return pd.Series(0.0, index=df.index)
         bbw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name="_diagnose_axiom_volatility")
         atr_pct = self._get_safe_series(df, 'ATR_14_D', 0.0, method_name="_diagnose_axiom_volatility") / self._get_safe_series(df, 'close_D', 1e-9, method_name="_diagnose_axiom_volatility")
         raw_volatility = bbw + atr_pct

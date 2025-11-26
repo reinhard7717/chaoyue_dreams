@@ -18,6 +18,7 @@ class IntradayBehaviorEngine:
         self.strategy = strategy_instance
         self.calculator = strategy_instance.orchestrator.indicator_service.calculator
         self.params = get_params_block(self.strategy, 'intraday_behavior_engine_params', {})
+
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
@@ -26,6 +27,18 @@ class IntradayBehaviorEngine:
             print(f"    -> [日内行为情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
+
+    def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
+        """
+        【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
+        """
+        missing_signals = [s for s in required_signals if s not in df.columns]
+        if missing_signals:
+            # [新增] 调整校验信息为“日内行为情报校验”
+            print(f"    -> [日内行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
+            return False
+        return True
+
     async def _prepare_intraday_indicators(self, df_minute: pd.DataFrame) -> Optional[pd.DataFrame]:
         """
         【V2.0 · 公理化精简版】
@@ -47,6 +60,7 @@ class IntradayBehaviorEngine:
             if res_df is not None and not res_df.empty:
                 df_enriched = df_enriched.join(res_df, how='left')
         return df_enriched
+
     async def run_intraday_diagnostics(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
         【V2.0 · 三大公理重构版】日内诊断总指挥
@@ -76,44 +90,42 @@ class IntradayBehaviorEngine:
             final_scores.update(res_dict)
         print(f"日内行为诊断完成: {final_scores}")
         return final_scores
+
     async def _diagnose_axiom_attack(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.1 · 归一化窗口参数化版】日内行为公理一：诊断“攻击强度”
+        【V1.2 · 信号校验增强版】日内行为公理一：诊断“攻击强度”
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `normalize_to_bipolar` 的 `window` 参数改为从配置中获取的 `norm_window`。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
-        # 攻击强度 = K线实体方向与大小 * 成交额变化
-        # 1. K线实体强度 (归一化到 [-1, 1])
+        required_signals = ['close', 'open', 'high', 'low', 'amount']
+        if not self._validate_required_signals(df_minute, required_signals, "_diagnose_axiom_attack"):
+            return {"SCORE_INTRADAY_AXIOM_ATTACK": 0.0}
         body = self._get_safe_series(df_minute, 'close', method_name="_diagnose_axiom_attack") - self._get_safe_series(df_minute, 'open', method_name="_diagnose_axiom_attack")
         body_range = self._get_safe_series(df_minute, 'high', method_name="_diagnose_axiom_attack") - self._get_safe_series(df_minute, 'low', method_name="_diagnose_axiom_attack")
         body_strength = (body / body_range.replace(0, np.nan)).fillna(0)
-        # 2. 成交额强度 (相比近期均值的倍数，归一化到 [0, N])
         amount_ma = self._get_safe_series(df_minute, 'amount', method_name="_diagnose_axiom_attack").rolling(window=21, min_periods=1).mean()
         amount_strength = (self._get_safe_series(df_minute, 'amount', method_name="_diagnose_axiom_attack") / amount_ma.replace(0, np.nan)).fillna(1.0)
-        # 3. 融合：实体强度 * 成交额强度
         raw_attack_score = body_strength * amount_strength
-        # 4. 使用双极归一化，得到最终的攻击强度分
-        # 【优化】使用配置中的 norm_window
         norm_window = self.params.get('meta_analysis_params', {}).get('norm_window', 55)
         final_score = normalize_to_bipolar(raw_attack_score, df_minute.index, window=norm_window).iloc[-1]
         return {"SCORE_INTRADAY_AXIOM_ATTACK": final_score}
+
     async def _diagnose_axiom_control(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.1 · 归一化窗口参数化版】日内行为公理二：诊断“控制能力”
+        【V1.2 · 信号校验增强版】日内行为公理二：诊断“控制能力”
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `normalize_to_bipolar` 的 `window` 参数改为从配置中获取的 `norm_window`。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
-        if 'vwap' not in df_minute.columns:
-            print(f"    -> [日内行为情报警告] 方法 '_diagnose_axiom_control' 缺少数据 'vwap'，使用默认值 0.0。")
+        required_signals = ['close', 'vwap']
+        if not self._validate_required_signals(df_minute, required_signals, "_diagnose_axiom_control"):
             return {"SCORE_INTRADAY_AXIOM_CONTROL": 0.0}
-        # 控制能力 = (收盘价 - VWAP) / VWAP
-        # 正值代表多头控盘，负值代表空头控盘
         raw_control_score = (self._get_safe_series(df_minute, 'close', method_name="_diagnose_axiom_control") - self._get_safe_series(df_minute, 'vwap', method_name="_diagnose_axiom_control")) / self._get_safe_series(df_minute, 'vwap', method_name="_diagnose_axiom_control")
-        # 使用双极归一化，得到最终的控制能力分
-        # 【优化】使用配置中的 norm_window
         norm_window = self.params.get('meta_analysis_params', {}).get('norm_window', 55)
         final_score = normalize_to_bipolar(raw_control_score, df_minute.index, window=norm_window, sensitivity=2.0).iloc[-1]
         return {"SCORE_INTRADAY_AXIOM_CONTROL": final_score}
+
     async def _diagnose_axiom_turning(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
         【V1.0】日内行为公理三：诊断“博弈转折”
