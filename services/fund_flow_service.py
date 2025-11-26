@@ -318,10 +318,6 @@ class AdvancedFundFlowMetricsService:
         return intraday_data_map
 
     def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame, realtime_data_for_day: pd.DataFrame, debug_mode: bool = False) -> tuple[dict, None]:
-        """
-        【V1.10 · 数据流适配版】
-        - 核心修改: 更新方法签名，以接收原始的tick, level5, realtime数据帧，并将其透传给下游计算引擎。
-        """
         day_metrics = {}
         daily_derived_metrics = self._calculate_daily_derived_metrics(daily_data_series, debug_mode=debug_mode)
         day_metrics.update(daily_derived_metrics)
@@ -333,11 +329,13 @@ class AdvancedFundFlowMetricsService:
         if not aggregate_pvwap_costs_df.empty:
             day_metrics.update(aggregate_pvwap_costs_df.iloc[0].to_dict())
         updated_daily_data_series = pd.Series({**daily_data_series.to_dict(), **day_metrics}, name=daily_data_series.name)
+        main_force_net_flow_calibrated = daily_derived_metrics.get('main_force_net_flow_calibrated')
         behavioral_metrics = self._compute_all_behavioral_metrics(
             attributed_minute_df, updated_daily_data_series, 
             tick_data=tick_data_for_day, 
             level5_data=level5_data_for_day,
             realtime_data=realtime_data_for_day,
+            main_force_net_flow_calibrated=main_force_net_flow_calibrated,
             debug_mode=debug_mode
         )
         day_metrics.update(behavioral_metrics)
@@ -499,64 +497,6 @@ class AdvancedFundFlowMetricsService:
                 results['main_force_price_impact_ratio'] = np.nan
         except Exception:
             results['main_force_price_impact_ratio'] = np.nan
-        try:
-            pct_change = pd.to_numeric(daily_data_series.get('pct_change'), errors='coerce')
-            mf_flow_calibrated = results.get('main_force_net_flow_calibrated')
-            circ_mv_raw = daily_data_series.get('circ_mv')
-            circ_mv_yuan = pd.to_numeric(circ_mv_raw, errors='coerce') * WAN
-            final_result = np.nan
-            if debug_mode:
-                stock_code = daily_data_series.get('stock_code', 'N/A')
-                trade_date_str = daily_data_series.name.strftime('%Y-%m-%d')
-                print(f"\n--- [探针] [flow_efficiency_index 计算过程精细化诊断] [{stock_code}] 日期: {trade_date_str} ---")
-                print("[1. 原始数据输入]")
-                print(f"  - pct_change: {pct_change}")
-                print(f"  - circ_mv: {circ_mv_raw}")
-                print(f"  - main_force_net_flow_calibrated: {mf_flow_calibrated}")
-                print("[2. 核心逻辑检查]")
-                print(f"  - pd.notna(circ_mv_yuan): {pd.notna(circ_mv_yuan)}")
-                print(f"  - circ_mv_yuan > 0: {circ_mv_yuan > 0 if pd.notna(circ_mv_yuan) else 'N/A'}")
-                print(f"  - pd.notna(mf_flow_calibrated): {pd.notna(mf_flow_calibrated)}")
-                print(f"  - pd.notna(pct_change): {pd.notna(pct_change)}")
-            if pd.notna(circ_mv_yuan) and circ_mv_yuan > 0 and pd.notna(mf_flow_calibrated) and pd.notna(pct_change):
-                mf_flow_yuan = mf_flow_calibrated * WAN
-                flow_input = mf_flow_yuan / circ_mv_yuan
-                if debug_mode:
-                    print("[3. 中间过程计算]")
-                    print(f"  - mf_flow_yuan: {mf_flow_yuan:.2f}")
-                    print(f"  - circ_mv_yuan: {circ_mv_yuan:.2f}")
-                    print(f"  - flow_input (主力净流入/流通市值): {flow_input:.6f}")
-                if abs(flow_input) > 1e-9:
-                    efficiency = (pct_change / 100) / flow_input
-                    final_result = np.sign(efficiency) * np.log1p(abs(efficiency))
-                    if debug_mode:
-                        print(f"  - efficiency (涨跌幅 / flow_input): {efficiency:.4f}")
-                else:
-                    if debug_mode:
-                        print("  - 逻辑分支: flow_input 过小，指标计为 NaN")
-            else:
-                if debug_mode:
-                    print("  - 逻辑分支: 核心逻辑检查未通过，指标计为 NaN")
-            results['flow_efficiency_index'] = final_result
-            if debug_mode:
-                print(f"[4. 最终结果] \n  - flow_efficiency_index: {final_result}")
-                print("--- [探针] 诊断结束 ---\n")
-        except Exception as e:
-            if debug_mode:
-                stock_code = daily_data_series.get('stock_code', 'N/A')
-                print(f"\n--- [探针] [flow_efficiency_index 计算过程异常] [{stock_code}] ---")
-                print(f"  - 异常类型: {type(e).__name__}")
-                print(f"  - 异常信息: {e}")
-                print("--- [探针] 诊断结束 ---\n")
-            results['flow_efficiency_index'] = np.nan
-        try:
-            trade_count = pd.to_numeric(daily_data_series.get('trade_count'), errors='coerce')
-            if pd.notna(trade_count) and trade_count > 0 and pd.notna(turnover_amount_yuan) and turnover_amount_yuan > 0:
-                results['inferred_active_order_size'] = turnover_amount_yuan / trade_count
-            else:
-                results['inferred_active_order_size'] = np.nan
-        except Exception:
-            results['inferred_active_order_size'] = np.nan
         return results
 
     def _calculate_probabilistic_costs(self, stock_code: str, minute_data_for_day: pd.DataFrame, daily_data: pd.Series, debug_mode: bool = False) -> tuple[dict, pd.DataFrame]:
@@ -839,12 +779,11 @@ class AdvancedFundFlowMetricsService:
             return pd.DataFrame()
         return pd.DataFrame.from_dict(all_results, orient='index').set_index('trade_time')
 
-    def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, debug_mode: bool = False) -> dict:
+    def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V29.6 · 最终修复版】
-        - 核心修复(权限边界): 修正了方法初始化的权限边界问题，不再重置宏观指标。
-        - 核心重构(数据流): 接收原始高频数据，并在内部实现统一、健壮的合并逻辑，根治因上游预处理失败导致的微观指标计算中断问题。
-        - 核心增强(诊断): 植入高频数据合并探针，用于诊断合并流程是否成功。
+        【V29.7 · 责任迁移最终版】
+        - 核心修复(责任迁移): 将 flow_efficiency_index 和 inferred_active_order_size 的计算逻辑迁移至此，确保指标的初始化和计算在同一函数内完成，根治覆盖问题。
+        - 核心修改(数据流): 更新方法签名以接收 main_force_net_flow_calibrated，为迁移过来的计算逻辑提供必要的数据输入。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -886,13 +825,6 @@ class AdvancedFundFlowMetricsService:
                 if 'volume_realtime' in merged_hf.columns:
                     merged_hf['market_vol_delta'] = merged_hf['volume_realtime'].diff().fillna(0)
                 hf_analysis_df = merged_hf
-        if debug_mode:
-            print(f"\n--- [探针] [高频数据合并诊断] [{daily_data.get('stock_code', 'N/A')}] 日期: {daily_data.name.strftime('%Y-%m-%d')} ---")
-            print(f"  - 输入 tick_data 维度: {tick_data.shape if tick_data is not None else 'None'}")
-            print(f"  - 输入 level5_data 维度: {level5_data.shape if level5_data is not None else 'None'}")
-            print(f"  - 输入 realtime_data 维度: {realtime_data.shape if realtime_data is not None else 'None'}")
-            print(f"  - 输出 hf_analysis_df 维度: {hf_analysis_df.shape}")
-            print("--- [探针] 诊断结束 ---\n")
         if not hf_analysis_df.empty:
             large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
             if not large_orders_df.empty:
@@ -1156,6 +1088,25 @@ class AdvancedFundFlowMetricsService:
                 price_change_norm_series = intraday_data['price_change_norm']
                 if mf_net_vol_series.var() > 0 and price_change_norm_series.var() > 0:
                     results['microstructure_efficiency_index'] = mf_net_vol_series.corr(price_change_norm_series)
+        WAN = 10000.0
+        try:
+            pct_change = pd.to_numeric(daily_data.get('pct_change'), errors='coerce')
+            circ_mv_yuan = pd.to_numeric(daily_data.get('circ_mv'), errors='coerce') * WAN
+            if pd.notna(circ_mv_yuan) and circ_mv_yuan > 0 and pd.notna(main_force_net_flow_calibrated) and pd.notna(pct_change):
+                mf_flow_yuan = main_force_net_flow_calibrated * WAN
+                flow_input = mf_flow_yuan / circ_mv_yuan
+                if abs(flow_input) > 1e-9:
+                    efficiency = (pct_change / 100) / flow_input
+                    results['flow_efficiency_index'] = np.sign(efficiency) * np.log1p(abs(efficiency))
+        except Exception:
+            results['flow_efficiency_index'] = np.nan
+        try:
+            trade_count = pd.to_numeric(daily_data.get('trade_count'), errors='coerce')
+            turnover_amount_yuan = pd.to_numeric(daily_data.get('amount'), errors='coerce') * 1000
+            if pd.notna(trade_count) and trade_count > 0 and pd.notna(turnover_amount_yuan) and turnover_amount_yuan > 0:
+                results['inferred_active_order_size'] = turnover_amount_yuan / trade_count
+        except Exception:
+            results['inferred_active_order_size'] = np.nan
         return results
 
     def _calculate_intraday_attribution_weights(self, intraday_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
