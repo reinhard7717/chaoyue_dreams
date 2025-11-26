@@ -886,12 +886,10 @@ class GeometricPatternService:
         buy_vol = df_tick[df_tick['type'] == 'B']['volume'].sum()
         sell_vol = df_tick[df_tick['type'] == 'S']['volume'].sum()
         total_active_vol = buy_vol + sell_vol
-        
         if total_active_vol == 0:
             return 0.5
 
         ofi_ratio = (buy_vol - sell_vol) / total_active_vol
-        
         # 根据趋势线类型，判断OFI是否提供了“信念”证明
         conviction_score = 0.5
         if line_type == 'support':

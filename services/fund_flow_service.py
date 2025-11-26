@@ -425,7 +425,8 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series) -> dict:
         results = {}
-        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
+        # 统一单位为 元
+        WAN = 10000.0
         consensus_map = {
             'net_flow_calibrated': ('net_flow_tushare', ['net_flow_ths', 'net_flow_dc']),
             'main_force_net_flow_calibrated': ('main_force_net_flow_tushare', ['main_force_net_flow_ths', 'main_force_net_flow_dc']),
@@ -436,12 +437,11 @@ class AdvancedFundFlowMetricsService:
             'net_sh_amount_calibrated': ('net_sh_amount_tushare', ['net_sh_amount_ths', 'net_sh_amount_dc']),
         }
         for target_col, (base_col, confirm_cols) in consensus_map.items():
+            # 原始数据单位是万元，直接计算
             base_value = pd.to_numeric(daily_data_series.get(base_col), errors='coerce')
-            # 修改行：移除了检查base_col缺失的探针print语句
             if pd.isna(base_value):
                 for conf_col in confirm_cols:
                     alt_value = pd.to_numeric(daily_data_series.get(conf_col), errors='coerce')
-                    # 修改行：移除了检查conf_col缺失的探针print语句
                     if pd.notna(alt_value):
                         base_value = alt_value
                         break
@@ -452,83 +452,95 @@ class AdvancedFundFlowMetricsService:
                 results[target_col] = base_value * calibration_factor
             else:
                 results[target_col] = np.nan
+
+        # 从这里开始，所有计算都基于统一的单位（元）
         turnover_amount_yuan = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
-        # 修改行：移除了所有检查变量缺失或无效的探针print语句
         if turnover_amount_yuan > 0:
-            base_flow = pd.to_numeric(daily_data_series.get('main_force_net_flow_tushare'), errors='coerce')
-            confirm_flows = [pd.to_numeric(daily_data_series.get(c), errors='coerce') for c in ['main_force_net_flow_ths', 'main_force_net_flow_dc']]
-            if pd.notna(base_flow):
-                deviations = [abs(conf_flow - base_flow) / turnover_amount_yuan for conf_flow in confirm_flows if pd.notna(conf_flow)]
+            base_flow_yuan = pd.to_numeric(daily_data_series.get('main_force_net_flow_tushare'), errors='coerce') * WAN
+            confirm_flows_yuan = [pd.to_numeric(daily_data_series.get(c), errors='coerce') * WAN for c in ['main_force_net_flow_ths', 'main_force_net_flow_dc']]
+            if pd.notna(base_flow_yuan):
+                # 【修复1】单位统一为元
+                deviations = [abs(conf_flow - base_flow_yuan) / turnover_amount_yuan for conf_flow in confirm_flows_yuan if pd.notna(conf_flow)]
                 results['flow_credibility_index'] = (1.0 - np.mean(deviations)) * 100 if deviations else 50.0
-            mf_flow = results.get('main_force_net_flow_calibrated')
-            retail_flow = results.get('retail_net_flow_calibrated')
-            if pd.notna(mf_flow) and pd.notna(retail_flow):
-                total_flow_abs = abs(mf_flow) + abs(retail_flow)
-                if total_flow_abs > 0:
-                    battle_volume = min(abs(mf_flow), abs(retail_flow))
-                    results['mf_retail_battle_intensity'] = np.sign(mf_flow) * (battle_volume / (turnover_amount_yuan / 10000)) * 100
+
+            mf_flow_yuan = results.get('main_force_net_flow_calibrated', np.nan) * WAN
+            retail_flow_yuan = results.get('retail_net_flow_calibrated', np.nan) * WAN
+            if pd.notna(mf_flow_yuan) and pd.notna(retail_flow_yuan):
+                total_flow_abs_yuan = abs(mf_flow_yuan) + abs(retail_flow_yuan)
+                if total_flow_abs_yuan > 0:
+                    battle_volume_yuan = min(abs(mf_flow_yuan), abs(retail_flow_yuan))
+                    # 【修复2】修正博弈强度计算逻辑
+                    battle_turnover_yuan = 2 * battle_volume_yuan
+                    results['mf_retail_battle_intensity'] = (battle_turnover_yuan / turnover_amount_yuan) * 100
                 else:
                     results['mf_retail_battle_intensity'] = 0.0
             else:
                 results['mf_retail_battle_intensity'] = np.nan
-        mf_buy = np.nansum([
+
+        mf_buy_yuan = np.nansum([
             pd.to_numeric(daily_data_series.get('buy_lg_amount'), errors='coerce'),
             pd.to_numeric(daily_data_series.get('buy_elg_amount'), errors='coerce')
-        ])
-        mf_sell = np.nansum([
+        ]) * WAN
+        mf_sell_yuan = np.nansum([
             pd.to_numeric(daily_data_series.get('sell_lg_amount'), errors='coerce'),
             pd.to_numeric(daily_data_series.get('sell_elg_amount'), errors='coerce')
-        ])
-        mf_total_activity = mf_buy + mf_sell
-        total_turnover_wan = turnover_amount_yuan / 10000
-        if total_turnover_wan > 0:
-            results['main_force_activity_ratio'] = (mf_total_activity / total_turnover_wan) * 100
+        ]) * WAN
+        mf_total_activity_yuan = mf_buy_yuan + mf_sell_yuan
+        if turnover_amount_yuan > 0:
+            results['main_force_activity_ratio'] = (mf_total_activity_yuan / turnover_amount_yuan) * 100
         else:
             results['main_force_activity_ratio'] = np.nan
-        if mf_total_activity > 0:
-            mf_net_calibrated = results.get('main_force_net_flow_calibrated')
-            if pd.notna(mf_net_calibrated):
-                results['main_force_flow_directionality'] = (mf_net_calibrated / mf_total_activity) * 100
+            
+        if mf_total_activity_yuan > 0:
+            mf_net_calibrated_yuan = results.get('main_force_net_flow_calibrated', np.nan) * WAN
+            if pd.notna(mf_net_calibrated_yuan):
+                results['main_force_flow_directionality'] = (mf_net_calibrated_yuan / mf_total_activity_yuan) * 100
             else:
                 results['main_force_flow_directionality'] = np.nan
         else:
             results['main_force_flow_directionality'] = np.nan
+
         def get_directionality(buy_c, sell_c):
             b = np.nan_to_num(pd.to_numeric(daily_data_series.get(buy_c), errors='coerce'))
             s = np.nan_to_num(pd.to_numeric(daily_data_series.get(sell_c), errors='coerce'))
             return (b - s) / (b + s) if (b + s) > 0 else 0.0
+            
         xl_directionality = get_directionality('buy_elg_amount', 'sell_elg_amount')
         lg_directionality = get_directionality('buy_lg_amount', 'sell_lg_amount')
         results['main_force_conviction_index'] = ((xl_directionality + lg_directionality) / 2.0) * (1.0 - abs(xl_directionality - lg_directionality)) * 100
-        mf_flow = results.get('main_force_net_flow_calibrated')
-        retail_flow = results.get('retail_net_flow_calibrated')
-        if pd.notna(mf_flow) and pd.notna(retail_flow):
-            total_opinionated_flow = abs(mf_flow) + abs(retail_flow)
-            if total_opinionated_flow > 0:
-                dominance_ratio = abs(retail_flow) / total_opinionated_flow
-                divergence_penalty = 1 if np.sign(mf_flow) != np.sign(retail_flow) and mf_flow != 0 and retail_flow != 0 else 0
-                results['retail_flow_dominance_index'] = np.sign(retail_flow) * dominance_ratio * (1 + divergence_penalty) * 100
+
+        mf_flow_yuan = results.get('main_force_net_flow_calibrated', np.nan) * WAN
+        retail_flow_yuan = results.get('retail_net_flow_calibrated', np.nan) * WAN
+        if pd.notna(mf_flow_yuan) and pd.notna(retail_flow_yuan):
+            total_opinionated_flow_yuan = abs(mf_flow_yuan) + abs(retail_flow_yuan)
+            if total_opinionated_flow_yuan > 0:
+                dominance_ratio = abs(retail_flow_yuan) / total_opinionated_flow_yuan
+                divergence_penalty = 1 if np.sign(mf_flow_yuan) != np.sign(retail_flow_yuan) and mf_flow_yuan != 0 and retail_flow_yuan != 0 else 0
+                results['retail_flow_dominance_index'] = np.sign(retail_flow_yuan) * dominance_ratio * (1 + divergence_penalty) * 100
             else:
                 results['retail_flow_dominance_index'] = np.nan
         else:
             results['retail_flow_dominance_index'] = np.nan
+
         pct_change = pd.to_numeric(daily_data_series.get('pct_change'), errors='coerce')
-        if pd.notna(pct_change) and pd.notna(mf_flow) and total_turnover_wan > 0:
-            standardized_mf_flow = mf_flow / total_turnover_wan
+        if pd.notna(pct_change) and pd.notna(mf_flow_yuan) and turnover_amount_yuan > 0:
+            # 【修复3】确保单位一致
+            standardized_mf_flow = mf_flow_yuan / turnover_amount_yuan
             if abs(standardized_mf_flow) > 1e-6:
                 results['main_force_price_impact_ratio'] = (pct_change / 100) / standardized_mf_flow
             else:
                 results['main_force_price_impact_ratio'] = 0.0 if pct_change == 0 else np.inf * np.sign(pct_change)
         else:
             results['main_force_price_impact_ratio'] = np.nan
-        if total_turnover_wan > 0:
-            results['main_force_buy_rate_consensus'] = (mf_buy / total_turnover_wan) * 100
+
+        if turnover_amount_yuan > 0:
+            results['main_force_buy_rate_consensus'] = (mf_buy_yuan / turnover_amount_yuan) * 100
         else:
             results['main_force_buy_rate_consensus'] = np.nan
-        results['flow_efficiency_index'] = np.nan
-        circ_mv = pd.to_numeric(daily_data_series.get('circ_mv'), errors='coerce')
-        if pd.notna(circ_mv) and circ_mv > 0 and pd.notna(mf_flow) and pd.notna(pct_change):
-            flow_input = mf_flow / circ_mv
+
+        circ_mv_yuan = pd.to_numeric(daily_data_series.get('circ_mv'), errors='coerce') * WAN
+        if pd.notna(circ_mv_yuan) and circ_mv_yuan > 0 and pd.notna(mf_flow_yuan) and pd.notna(pct_change):
+            flow_input = mf_flow_yuan / circ_mv_yuan
             if abs(flow_input) > 1e-9:
                 efficiency = (pct_change / 100) / flow_input
                 results['flow_efficiency_index'] = np.sign(efficiency) * np.log1p(abs(efficiency))
@@ -536,12 +548,13 @@ class AdvancedFundFlowMetricsService:
                 results['flow_efficiency_index'] = np.nan
         else:
             results['flow_efficiency_index'] = np.nan
-        results['inferred_active_order_size'] = np.nan
+
         trade_count = pd.to_numeric(daily_data_series.get('trade_count'), errors='coerce')
         if pd.notna(trade_count) and trade_count > 0 and pd.notna(turnover_amount_yuan) and turnover_amount_yuan > 0:
-            results['inferred_active_order_size'] = turnover_amount_yuan * 1000 / trade_count
+            results['inferred_active_order_size'] = turnover_amount_yuan / trade_count
         else:
             results['inferred_active_order_size'] = np.nan
+            
         return results
 
     def _calculate_probabilistic_costs(self, stock_code: str, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> tuple[dict, pd.DataFrame]:
@@ -672,16 +685,20 @@ class AdvancedFundFlowMetricsService:
             result_agg_df['main_force_execution_alpha'] = (weighted_alpha / np.where(total_mf_vol == 0, np.nan, total_mf_vol)) * 100
         # main_force_t0_efficiency
         result_agg_df['main_force_t0_efficiency'] = np.nan
-        mf_buy_amount_series = self._get_numeric_series_with_nan(temp_df, 'buy_lg_amount').fillna(0) + self._get_numeric_series_with_nan(temp_df, 'buy_elg_amount').fillna(0)
-        mf_sell_amount_series = self._get_numeric_series_with_nan(temp_df, 'sell_lg_amount').fillna(0) + self._get_numeric_series_with_nan(temp_df, 'sell_elg_amount').fillna(0)
-        # 修改行：移除了检查mf_buy_amount_series和mf_sell_amount_series的探针print语句
-        # 将 pd.min 替换为 np.minimum
-        t0_vol = np.minimum(mf_buy_vol_series, mf_sell_vol_series)
+        mf_buy_amount_series = self._get_numeric_series_with_nan(daily_df, 'buy_lg_amount').fillna(0) + self._get_numeric_series_with_nan(daily_df, 'buy_elg_amount').fillna(0)
+        mf_sell_amount_series = self._get_numeric_series_with_nan(daily_df, 'sell_lg_amount').fillna(0) + self._get_numeric_series_with_nan(daily_df, 'sell_elg_amount').fillna(0)
+        # 【修复4】修正T+0效率计算逻辑
+        mf_buy_vol_series = self._get_numeric_series_with_nan(daily_df, 'buy_lg_vol').fillna(0) + self._get_numeric_series_with_nan(daily_df, 'buy_elg_vol').fillna(0)
+        mf_sell_vol_series = self._get_numeric_series_with_nan(daily_df, 'sell_lg_vol').fillna(0) + self._get_numeric_series_with_nan(daily_df, 'sell_elg_vol').fillna(0)
+        # t0_vol 单位是手
+        t0_vol_hands = np.minimum(mf_buy_vol_series, mf_sell_vol_series)
         if 'avg_cost_main_sell' in result_agg_df.columns and 'avg_cost_main_buy' in result_agg_df.columns:
-            t0_profit = (result_agg_df['avg_cost_main_sell'] - result_agg_df['avg_cost_main_buy']) * t0_vol
-            total_mf_amount = (mf_buy_amount_series + mf_sell_amount_series) * 10000 # 转换为元
-            # 修改行：移除了检查total_mf_amount的探针print语句
-            result_agg_df['main_force_t0_efficiency'] = (t0_profit / np.where(total_mf_amount == 0, np.nan, total_mf_amount)) * 100
+            # t0_profit 单位是元
+            t0_profit_yuan = (result_agg_df['avg_cost_main_sell'] - result_agg_df['avg_cost_main_buy']) * t0_vol_hands * 100
+            # total_mf_amount 单位是元
+            total_mf_amount_yuan = (mf_buy_amount_series + mf_sell_amount_series) * 10000
+            result_agg_df['main_force_t0_efficiency'] = (t0_profit_yuan / np.where(total_mf_amount_yuan == 0, np.nan, total_mf_amount_yuan)) * 100
+
         if 'market_cost_battle_premium' in result_agg_df.columns:
             result_agg_df = result_agg_df.drop(columns=['market_cost_battle_premium'])
         return result_agg_df
