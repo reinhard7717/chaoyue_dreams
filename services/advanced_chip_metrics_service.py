@@ -150,9 +150,8 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None, realtime_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V1.5 · 终局探针版】
-        - 核心新增: 植入一个“终局探针”，仅在处理批次中的最后一个交易日时，打印出所有新增及增强的微观指标的计算结果，用于精确验证。
-        - 核心修复: 修复了原始Tick和Level5数据未能注入计算上下文的BUG。
+        【V1.6 · 溯源探针版】
+        - 核心升级: 终局探针升级为“溯源探针”，在打印最终指标结果的同时，打印出计算该指标所依赖的核心原始数据、DataFrame样本及关键中间变量，实现计算过程的可验证性。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -169,7 +168,6 @@ class AdvancedChipMetricsService:
             ])
         hist_comp_dict = historical_components.to_dict('index') if historical_components is not None and not historical_components.empty else {}
         grouped_data = merged_df.groupby('trade_time')
-        # 新增代码行：获取批次中的总天数
         num_days_in_batch = len(grouped_data)
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq', 'open_qfq', 'high_qfq', 'low_qfq']
         is_first_day_in_batch = True
@@ -258,21 +256,60 @@ class AdvancedChipMetricsService:
                     context_for_calc['realtime_data'] = merged_realtime_df
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
-            # 新增代码块：终局探针，仅在处理最后一个交易日时触发
+            # 修改代码块：升级为溯源探针
             if i == num_days_in_batch - 1:
-                print(f"\n--- [探针] [最终指标检查] [{stock_code}] 最新日期: {trade_date.date()} ---")
+                print(f"\n--- [探针] [最终指标检查 & 原始数据溯源] [{stock_code}] 最新日期: {trade_date.date()} ---")
                 if daily_metrics:
-                    print("探针: 核心微观动力学指标:")
-                    print(f"  - 订单流失衡 (OFI): {daily_metrics.get('order_flow_imbalance', 'N/A')}")
-                    print(f"  - 买方扫单强度: {daily_metrics.get('buy_sweep_intensity', 'N/A')}")
-                    print(f"  - 卖方扫单强度: {daily_metrics.get('sell_sweep_intensity', 'N/A')}")
-                    print(f"  - 盘口流动性斜率: {daily_metrics.get('liquidity_slope', 'N/A')}")
-                    print("\n探针: 微观数据增强指标:")
-                    print(f"  - 信念流转指数 (校准后): {daily_metrics.get('conviction_flow_index', 'N/A')}")
-                    print(f"  - 建设性换手率 (校准后): {daily_metrics.get('constructive_turnover_ratio', 'N/A')}")
-                    print(f"  - 隐蔽吸筹信号 (增强后): {daily_metrics.get('covert_accumulation_signal', 'N/A')}")
-                    print("\n探针: 实时盘口指标:")
-                    print(f"  - 主力成本区攻防意图: {daily_metrics.get('mf_cost_zone_defense_intent', 'N/A')}")
+                    # 1. 溯源 `mf_cost_zone_defense_intent`
+                    print("\n[1. 主力成本区攻防意图 溯源]")
+                    print(f"  - 最终结果: {daily_metrics.get('mf_cost_zone_defense_intent', 'N/A')}")
+                    peak_cost = calculator.ctx.get('dominant_peak_cost', 'N/A')
+                    atr = calculator.ctx.get('atr_14d', 'N/A')
+                    print(f"  - 输入-主峰成本: {peak_cost}, ATR: {atr}")
+                    if pd.notna(peak_cost) and pd.notna(atr):
+                        print(f"  - 计算-成本防守区: [{peak_cost - 0.5 * atr:.2f}, {peak_cost + 0.5 * atr:.2f}]")
+                    rt_df = calculator.ctx.get('realtime_data')
+                    if rt_df is not None and not rt_df.empty:
+                        print(f"  - 输入-实时盘口数据(realtime_data): Shape={rt_df.shape}")
+                        print("    - Head(3):\n", rt_df.head(3).to_string())
+                        print("    - Tail(3):\n", rt_df.tail(3).to_string())
+                    else:
+                        print("  - 输入-实时盘口数据: 未提供或为空")
+                    # 2. 溯源 `covert_accumulation_signal`
+                    print("\n[2. 隐蔽吸筹信号 溯源]")
+                    print(f"  - 最终结果: {daily_metrics.get('covert_accumulation_signal', 'N/A')}")
+                    price_mom = (calculator.ctx.get('close_price', 0) - calculator.ctx.get('open_price', 0)) / calculator.ctx.get('atr_14d', 1)
+                    ofi = daily_metrics.get('order_flow_imbalance', 'N/A')
+                    print(f"  - 输入-价格动能(ATR标准化): {price_mom:.4f}")
+                    print(f"  - 输入-订单流失衡(OFI): {ofi}")
+                    print(f"  - 判断逻辑: 价格动能 < 0.1 ({price_mom < 0.1})")
+                    # 3. 溯源 `conviction_flow_index`
+                    print("\n[3. 信念流转指数 溯源]")
+                    print(f"  - 最终结果: {daily_metrics.get('conviction_flow_index', 'N/A')}")
+                    buy_sweep = daily_metrics.get('buy_sweep_intensity', 0)
+                    print(f"  - 输入-买方扫单强度: {buy_sweep}")
+                    # 在探针内复现计算逻辑
+                    intra_df = calculator.ctx.get('processed_intraday_df')
+                    dv = calculator.ctx.get('daily_vwap')
+                    if intra_df is not None and not intra_df.empty and 'main_force_net_vol' in intra_df.columns and pd.notna(dv):
+                        mf_nv = intra_df['main_force_net_vol']
+                        g_vol = mf_nv[intra_df['minute_vwap'] < dv].clip(lower=0).sum()
+                        c_vol = mf_nv[intra_df['minute_vwap'] > dv].clip(lower=0).sum()
+                        d_vol = -mf_nv[intra_df['minute_vwap'] > dv].clip(upper=0).sum()
+                        print(f"  - 中间-低吸量: {g_vol:.2f}, 追涨量: {c_vol:.2f}, 派发量: {d_vol:.2f}")
+                        print(f"  - 中间-加权后总买入: {g_vol + c_vol * (1 + buy_sweep):.2f}")
+                    # 4. 溯源 `order_flow_imbalance` 和 `sweep_intensity`
+                    print("\n[4. 核心微观动力学 溯源]")
+                    print(f"  - 最终结果-OFI: {daily_metrics.get('order_flow_imbalance', 'N/A')}")
+                    print(f"  - 最终结果-买方扫单: {daily_metrics.get('buy_sweep_intensity', 'N/A')}")
+                    print(f"  - 最终结果-卖方扫单: {daily_metrics.get('sell_sweep_intensity', 'N/A')}")
+                    tk_df = calculator.ctx.get('tick_data')
+                    if tk_df is not None and not tk_df.empty:
+                        print(f"  - 输入-逐笔数据(tick_data): Shape={tk_df.shape}")
+                        print("    - Head(3):\n", tk_df[['type', 'price', 'volume']].head(3).to_string())
+                        print("    - Tail(3):\n", tk_df[['type', 'price', 'volume']].tail(3).to_string())
+                    else:
+                        print("  - 输入-逐笔数据: 未提供或为空")
                 else:
                     print("探针: 警告！未能计算出任何指标。")
                 print("--- [探针] 检查结束 ---\n")
