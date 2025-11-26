@@ -231,8 +231,26 @@ class AdvancedFundFlowMetricsService:
                 merged_df = pd.merge(merged_df, right_df_cleaned, on='trade_time', how='left')
         merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
         if not base_daily_df.empty:
-            overlap_cols = merged_df.columns.intersection(base_daily_df.columns).drop('trade_time', errors='ignore')
-            merged_df = merged_df.join(base_daily_df.drop(columns=overlap_cols, errors='ignore'), how='left')
+            try:
+                # 强制确保双方索引都为 normalized DatetimeIndex
+                merged_df.index = pd.to_datetime(merged_df.index).normalize()
+                base_daily_df_copy = base_daily_df.copy()
+                base_daily_df_copy.index = pd.to_datetime(base_daily_df_copy.index).normalize()
+
+                overlap_cols = merged_df.columns.intersection(base_daily_df_copy.columns)
+                merged_df = merged_df.join(base_daily_df_copy.drop(columns=overlap_cols, errors='ignore'), how='left')
+
+                # 诊断日志
+                if 'amount' not in merged_df.columns or merged_df['amount'].isnull().all():
+                    logger.warning(f"[{stock_info.stock_code}] [数据合并诊断] 'amount' 列在合并后缺失或全为NaN。")
+                if 'pct_change' not in merged_df.columns or merged_df['pct_change'].isnull().all():
+                    logger.warning(f"[{stock_info.stock_code}] [数据合并诊断] 'pct_change' 列在合并后缺失或全为NaN。")
+
+            except Exception as e:
+                logger.error(f"[{stock_info.stock_code}] 在 _load_and_merge_sources 中合并 base_daily_df 时发生严重错误: {e}", exc_info=True)
+                # 可以在这里决定是返回部分数据还是空DataFrame
+                return pd.DataFrame()
+
         return merged_df
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None):
@@ -331,11 +349,6 @@ class AdvancedFundFlowMetricsService:
             debug_mode=debug_mode # 修改代码行：传递调试标志
         )
         day_metrics.update(behavioral_metrics)
-        daily_total_volume = daily_data_series.get('vol', 0) * 100
-        microstructure_signals = self._calculate_microstructure_signals(stock_code, tick_data_for_day, merged_realtime_df_for_day, daily_total_volume)
-        day_metrics.update(microstructure_signals)
-        realtime_orderbook_signals = self._calculate_realtime_orderbook_signals(merged_realtime_df_for_day, daily_total_volume)
-        day_metrics.update(realtime_orderbook_signals)
         day_metrics['trade_time'] = daily_data_series.name
         return day_metrics, None
 
