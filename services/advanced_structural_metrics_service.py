@@ -175,8 +175,10 @@ class AdvancedStructuralMetricsService:
 
     async def _forge_advanced_structural_metrics(self, intraday_data_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
-        【V19.2 · 兼容性修复版】
-        - 核心修正: 增加成交量列名智能识别逻辑，兼容 'vol' 和 'volume' 两种列名，并统一重命名为 'vol'，以根治 KeyError。
+        【V19.3 · 索引修复版】
+        - 核心修正: 修复了 set_index 未能正确移除原始 'trade_time' 列，导致下游 reset_index 操作失败的BUG。
+        - 核心逻辑: 采用更标准的 `set_index('trade_time')` 写法，确保索引设置的原子性和正确性。
+        - 兼容性修复: 增加成交量列名智能识别逻辑，兼容 'vol' 和 'volume' 两种列名，并统一重命名为 'vol'，以根治 KeyError。
         """
         if not intraday_data_map:
             return pd.DataFrame()
@@ -207,7 +209,6 @@ class AdvancedStructuralMetricsService:
                 logger.warning(f"[{stock_code}] [{date}] 跳过结构指标计算，分钟级数据不足。")
                 continue
             group.reset_index(inplace=True)
-            # 智能识别并统一成交量列名
             volume_col_name = None
             if 'volume' in group.columns:
                 volume_col_name = 'volume'
@@ -252,7 +253,9 @@ class AdvancedStructuralMetricsService:
         if not daily_metrics:
             return pd.DataFrame()
         result_df = pd.DataFrame(daily_metrics)
-        return result_df.set_index(pd.to_datetime(result_df['trade_time']))
+        # 修改代码行：确保 'trade_time' 列在设置索引后被移除
+        result_df['trade_time'] = pd.to_datetime(result_df['trade_time'])
+        return result_df.set_index('trade_time')
 
     def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict, tick_df_for_day: pd.DataFrame = None, level5_df_for_day: pd.DataFrame = None, realtime_df_for_day: pd.DataFrame = None) -> dict:
         """
@@ -840,46 +843,21 @@ class AdvancedStructuralMetricsService:
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
-        【V19.6 · 字段筛选终极修复版】
+        【V19.7 · 索引健壮性修复版】
         - 核心修复: 修复了因错误地使用 CORE_METRICS 筛选待保存列而导致所有衍生指标（斜率、加速度）被丢弃的严重BUG。
-        - 核心逻辑: 改为直接从模型元数据 `MetricsModel._meta.get_fields()` 获取所有已定义的字段名进行筛选，
-                     确保所有计算出的基础指标和衍生指标都能被正确持久化。
+        - 核心逻辑: 改为直接从模型元数据 `MetricsModel._meta.get_fields()` 获取所有已定义的字段名进行筛选。
+        - 核心优化: 统一并简化了保存逻辑，使用 `reset_index()` 来安全地处理 `trade_time`，避免冲突。
         """
         if final_df.empty:
             return 0
         final_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        # 修改代码行：从模型元数据获取所有字段，而不是只从CORE_METRICS获取
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
-        # 筛选出模型中存在的列
-        cols_to_keep = [col for col in final_df.columns if col in model_fields]
-        df_filtered = final_df[cols_to_keep]
-        records_list = df_filtered.to_dict('records')
+        df_filtered = final_df[[col for col in final_df.columns if col in model_fields]]
         @sync_to_async(thread_sensitive=True)
-        def save_atomically(model, stock_obj, records_to_process):
+        def save_atomically(model, stock_obj, df_to_save):
             processed_count = 0
-            for record_data in records_to_process:
-                # trade_time 可能不在 record_data 中，因为它现在是索引
-                if 'trade_time' in record_data:
-                    trade_time = record_data.pop('trade_time').date()
-                else:
-                    # 如果不在，说明它就是索引，需要从 final_df 中获取
-                    # 但更简单的方式是在 to_dict 前 reset_index
-                    # 这里我们假设调用者会处理好索引和列的关系
-                    # 为了健壮性，我们从 final_df 的索引中找到对应的日期
-                    # 但由于 records_list 的顺序与 df_filtered 一致，我们可以这样做：
-                    # (这个逻辑有点复杂，更好的方式是在前面处理好)
-                    # 让我们简化一下，在 to_dict 之前 reset_index
-                    pass # 保持原有逻辑，假设调用者传入的df的索引是trade_time
-                defaults_data = {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in record_data.items()}
-                try:
-                    # 假设 trade_time 已经从 record_data 中移除
-                    # 我们需要从 final_df 的索引中获取它
-                    # 为了简化，我们修改 records_list 的生成方式
-                    pass # 保持原有逻辑
-                except Exception as e:
-                    logger.error(f"[{stock_obj.stock_code}] [结构指标保存失败] 日期: {record_data.get('trade_time', '未知')}, 错误: {e}")
-            # 重构保存逻辑以确保 trade_time 正确处理
-            for record_data in df_filtered.reset_index().to_dict('records'):
+            # 修改代码块：使用 reset_index() 来安全地将索引转换为列进行迭代
+            for record_data in df_to_save.reset_index().to_dict('records'):
                 trade_time = record_data.pop('trade_time').date()
                 defaults_data = {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in record_data.items()}
                 try:
@@ -892,8 +870,7 @@ class AdvancedStructuralMetricsService:
                 except Exception as e:
                     logger.error(f"[{stock_obj.stock_code}] [结构指标保存失败] 日期: {trade_time}, 错误: {e}")
             return processed_count
-        # 调用重构后的保存逻辑
-        processed_count = await save_atomically(MetricsModel, stock_info, []) # 传递一个空列表，因为逻辑已移入
+        processed_count = await save_atomically(MetricsModel, stock_info, df_filtered)
         return processed_count
 
 
