@@ -741,10 +741,10 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V31.5 · 兵器谱修正版】
-        - 核心修复: 修正了 `market_vol_delta` 计算中因混用Numpy和Pandas方法而导致的 `AttributeError`。
-                     通过将 `.fillna(0)` 操作提前作用于Pandas Series，确保了后续Numpy操作的类型正确性。
-                     这是对模型实现的最后一次精炼，确保其坚不可摧。
+        【V32.0 · 生产就绪版】
+        - 核心维护: 移除了所有用于调试的诊断探针，代码恢复整洁与高效。
+        - 最终形态: 包含了经过完整验证和修复的“三位一体”高频数据融合逻辑，
+                     以及基于此的全套盘口微观结构指标计算。此版本为最终生产版本。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -792,7 +792,6 @@ class AdvancedFundFlowMetricsService:
                 
                 if 'volume_realtime' in merged_hf.columns and 'snapshot_time' in merged_hf.columns:
                     snapshot_changed_mask = merged_hf['snapshot_time'] != merged_hf['snapshot_time'].shift(1)
-                    # 【终极语法修正】先对Pandas Series执行fillna，再将其传递给np.where
                     volume_delta = merged_hf['volume_realtime'].diff().fillna(0)
                     merged_hf['market_vol_delta'] = np.where(snapshot_changed_mask, volume_delta, 0)
 
@@ -821,28 +820,8 @@ class AdvancedFundFlowMetricsService:
             if daily_total_volume > 0:
                 results['order_book_clearing_rate'] = (total_cleared_vol / daily_total_volume) * 100
             
-            # =================================================================
-            # ================= 盘口微观结构指标 (逻辑基于修复后的 market_vol_delta) =================
-            # =================================================================
-            if debug_mode:
-                stock_code = daily_data.get('stock_code', 'N/A')
-                trade_date_str = daily_data.name.strftime('%Y-%m-%d')
-                print(f"\n\n--- [探针] [盘口微观结构指标诊断] [{stock_code}] 日期: {trade_date_str} ---")
-                print("[1.0] 战场情报概览")
-                print(f"  - 输入 Tick 数据: {tick_data.shape if tick_data is not None else '无'}")
-                print(f"  - 输入 Level5 数据: {level5_data.shape if level5_data is not None else '无'}")
-                print(f"  - 输入 Realtime 数据: {realtime_data.shape if realtime_data is not None else '无'}")
-                print(f"  - 融合后 hf_analysis_df: {hf_analysis_df.shape}")
-                if 'market_vol_delta' in hf_analysis_df.columns:
-                    print("  - 关键列 'market_vol_delta' (战场迷雾) 样本 (修复后):")
-                    print(hf_analysis_df[hf_analysis_df['market_vol_delta'] > 0][['volume', 'volume_realtime', 'market_vol_delta', 'snapshot_time']].head(3).to_string())
-                else:
-                    print("  - 警告: 'market_vol_delta' 未能计算，Realtime数据可能缺失。")
-
             try:
-                # --- 1. 对倒强度 (Wash Trade Intensity) ---
                 wash_trade_vol = 0
-                wash_mask = pd.Series(False, index=hf_analysis_df.index)
                 if 'market_vol_delta' in hf_analysis_df.columns:
                     df_wash = hf_analysis_df[['type', 'volume', 'price', 'market_vol_delta']].copy()
                     df_wash['direction'] = df_wash['type'].map({'B': 1, 'S': -1}).fillna(0)
@@ -856,27 +835,12 @@ class AdvancedFundFlowMetricsService:
                         (df_wash['market_vol_delta'] > df_wash['volume'] * 2)
                     )
                     wash_trade_vol = df_wash.loc[wash_mask, 'market_vol_delta'].sum()
-                
                 if daily_total_volume > 0:
                     results['wash_trade_intensity'] = (wash_trade_vol / daily_total_volume) * 100
-                
-                if debug_mode:
-                    print("\n[2.0] 对倒强度 (Wash Trade) 诊断")
-                    print(f"  [2.1] 识别出的对倒交易样本 (共 {wash_mask.sum()} 笔):")
-                    if 'market_vol_delta' in hf_analysis_df.columns:
-                        wash_samples = df_wash[wash_mask][['type', 'volume', 'price', 'market_vol_delta', 'price_change_ratio']]
-                        print(wash_samples.head(5).to_string() if not wash_samples.empty else "  无")
-                    else:
-                        print("  无 (market_vol_delta 缺失)")
-                    print(f"  [2.2] 计算过程: wash_trade_vol={wash_trade_vol:.0f}, daily_total_volume={daily_total_volume:.0f}")
-                    print(f"  [2.3] 最终结果: wash_trade_intensity = {results.get('wash_trade_intensity', 'N/A')}")
-
-            except Exception as e:
+            except Exception:
                 results['wash_trade_intensity'] = np.nan
-                if debug_mode: print(f"  - 对倒强度计算异常: {e}")
 
             try:
-                # --- 2. 盘口失衡度与流动性供给 (Order Book Imbalance & Liquidity Supply) ---
                 df_book = hf_analysis_df.copy()
                 weighted_buy_vol = pd.Series(0, index=df_book.index); weighted_sell_vol = pd.Series(0, index=df_book.index)
                 total_buy_value = pd.Series(0, index=df_book.index); total_sell_value = pd.Series(0, index=df_book.index)
@@ -892,26 +856,16 @@ class AdvancedFundFlowMetricsService:
                     results['order_book_liquidity_supply'] = np.average(df_book['liquidity_supply_ratio'].dropna(), weights=time_diffs[df_book['liquidity_supply_ratio'].notna()])
                 if 'market_vol_delta' in df_book.columns and df_book['imbalance'].var() > 0 and df_book['market_vol_delta'].var() > 0:
                     results['imbalance_effectiveness'] = df_book['imbalance'].corr(df_book['market_vol_delta'])
-
-                if debug_mode:
-                    print("\n[3.0] 盘口失衡度 (Imbalance) 诊断")
-                    print("  [3.1] 中间计算列样本:")
-                    print(df_book[['buy_volume1', 'sell_volume1', 'imbalance', 'liquidity_supply_ratio']].assign(time_diffs=time_diffs).head(3).to_string())
-                    print(f"  [3.2] 最终结果: order_book_imbalance = {results.get('order_book_imbalance', 'N/A')}")
-                    print(f"  [3.3] 最终结果: order_book_liquidity_supply = {results.get('order_book_liquidity_supply', 'N/A')}")
-                    print(f"  [3.4] 最终结果: imbalance_effectiveness = {results.get('imbalance_effectiveness', 'N/A')}")
-
-            except Exception as e:
+            except Exception:
                 results['order_book_imbalance'] = np.nan; results['order_book_liquidity_supply'] = np.nan; results['imbalance_effectiveness'] = np.nan
-                if debug_mode: print(f"  - 盘口失衡度计算异常: {e}")
 
             try:
-                # --- 3. 大单压制与支撑强度 (Large Order Pressure & Support) ---
                 df_static = hf_analysis_df.copy()
                 large_order_threshold_value = 500000
                 pressure_mask = (df_static['sell_volume1'] * df_static['sell_price1'] > large_order_threshold_value) | (df_static['sell_volume2'] * df_static['sell_price2'] > large_order_threshold_value)
                 support_mask = (df_static['buy_volume1'] * df_static['buy_price1'] > large_order_threshold_value) | (df_static['buy_volume2'] * df_static['buy_price2'] > large_order_threshold_value)
                 time_diffs = df_static.index.to_series().diff().dt.total_seconds().fillna(0)
+                pressure_strength = 0; support_strength = 0
                 if 'market_vol_delta' in df_static.columns:
                     market_activity = df_static['market_vol_delta'].rolling(window=20, min_periods=1).mean().replace(0, np.nan)
                     activity_factor = 1 / np.log1p(market_activity)
@@ -923,25 +877,10 @@ class AdvancedFundFlowMetricsService:
                 if total_trading_seconds > 0:
                     results['large_order_pressure'] = (pressure_strength / total_trading_seconds) * 100
                     results['large_order_support'] = (support_strength / total_trading_seconds) * 100
-
-                if debug_mode:
-                    print("\n[4.0] 大单压制/支撑 (Pressure/Support) 诊断")
-                    print(f"  [4.1] 识别出的大额压单样本 (共 {pressure_mask.sum()} 个快照):")
-                    pressure_samples = df_static[pressure_mask][['sell_price1', 'sell_volume1', 'sell_price2', 'sell_volume2']]
-                    print(pressure_samples.head(3).to_string() if not pressure_samples.empty else "  无")
-                    print(f"  [4.2] 识别出的大额托单样本 (共 {support_mask.sum()} 个快照):")
-                    support_samples = df_static[support_mask][['buy_price1', 'buy_volume1', 'buy_price2', 'buy_volume2']]
-                    print(support_samples.head(3).to_string() if not support_samples.empty else "  无")
-                    print(f"  [4.3] 计算过程: pressure_strength={pressure_strength:.2f}, support_strength={support_strength:.2f}, total_seconds={total_trading_seconds:.0f}")
-                    print(f"  [4.4] 最终结果: large_order_pressure = {results.get('large_order_pressure', 'N/A')}")
-                    print(f"  [4.5] 最终结果: large_order_support = {results.get('large_order_support', 'N/A')}")
-
-            except Exception as e:
+            except Exception:
                 results['large_order_pressure'] = np.nan; results['large_order_support'] = np.nan
-                if debug_mode: print(f"  - 大单压制/支撑计算异常: {e}")
 
             try:
-                # --- 4. 报价消耗率 (Quote Exhaustion Rate) ---
                 df_exhaust = hf_analysis_df.copy()
                 df_exhaust['prev_a1_v'] = df_exhaust['sell_volume1'].shift(1)
                 df_exhaust['prev_b1_v'] = df_exhaust['buy_volume1'].shift(1)
@@ -952,23 +891,8 @@ class AdvancedFundFlowMetricsService:
                 if daily_total_volume > 0:
                     results['buy_quote_exhaustion_rate'] = (buy_exhausted_vol / daily_total_volume) * 100
                     results['sell_quote_exhaustion_rate'] = (sell_exhausted_vol / daily_total_volume) * 100
-
-                if debug_mode:
-                    print("\n[5.0] 报价消耗率 (Exhaustion Rate) 诊断")
-                    print(f"  [5.1] 识别出的买方消耗(扫货)事件样本 (共 {buy_exhaustion_mask.sum()} 笔):")
-                    buy_exhaust_samples = df_exhaust[buy_exhaustion_mask][['sell_price1', 'prev_a1_p', 'prev_a1_v']]
-                    print(buy_exhaust_samples.head(3).to_string() if not buy_exhaust_samples.empty else "  无")
-                    print(f"  [5.2] 识别出的卖方消耗(砸盘)事件样本 (共 {sell_exhaustion_mask.sum()} 笔):")
-                    sell_exhaust_samples = df_exhaust[sell_exhaustion_mask][['buy_price1', 'prev_b1_p', 'prev_b1_v']]
-                    print(sell_exhaust_samples.head(3).to_string() if not sell_exhaust_samples.empty else "  无")
-                    print(f"  [5.3] 计算过程: buy_exhausted_vol={buy_exhausted_vol:.0f}, sell_exhausted_vol={sell_exhausted_vol:.0f}")
-                    print(f"  [5.4] 最终结果: buy_quote_exhaustion_rate = {results.get('buy_quote_exhaustion_rate', 'N/A')}")
-                    print(f"  [5.5] 最终结果: sell_quote_exhaustion_rate = {results.get('sell_quote_exhaustion_rate', 'N/A')}")
-                    print("--- [探针] 盘口微观结构指标诊断结束 ---\n")
-
-            except Exception as e:
+            except Exception:
                 results['buy_quote_exhaustion_rate'] = np.nan; results['sell_quote_exhaustion_rate'] = np.nan
-                if debug_mode: print(f"  - 报价消耗率计算异常: {e}")
 
         # ... (后续其他指标计算逻辑保持不变) ...
         if pd.notna(daily_vwap) and daily_total_volume > 0 and pd.notna(atr) and atr > 0 and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
