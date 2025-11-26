@@ -741,10 +741,12 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V30.1 · 终局诊断探针版】
-        - 核心增强: 为 retail_fomo_premium_index 和 retail_panic_surrender_index 植入了高精度逻辑探针。
-                     该探针将逐一打印计算路径上的所有判断条件、关键依赖项（如聚合成本）和中间变量，
-                     旨在最终定位这两个指标计算失败的精确原因。
+        【V31.1 · 战场迷雾版】
+        - 核心升级: 引入 Realtime 数据中的累计成交量，计算出“市场成交量增量”(market_vol_delta)，
+                     用于增强盘口指标的博弈特性解读，揭示Tick数据之间的“隐藏”交易活动。
+            - wash_trade_intensity: 结合成交量增量，更精准地识别那些能“凭空”制造市场热度的对倒行为。
+            - large_order_pressure/support: 根据市场实时活跃度对挂单的威慑力进行动态调整。
+            - order_book_imbalance: 增加“失衡有效性”评估，判断盘口压力是否真正转化为市场成交。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -763,12 +765,15 @@ class AdvancedFundFlowMetricsService:
                 tick_data.sort_index(), level5_data.sort_index(),
                 left_index=True, right_index=True, direction='backward'
             ).dropna(subset=['buy_price1', 'sell_price1', 'amount', 'volume'])
+            
+            # 【核心升级】将Realtime数据也合并进来
             if realtime_data is not None and not realtime_data.empty and not merged_hf.empty:
                 merged_hf = pd.merge_asof(
                     merged_hf.reset_index(),
                     realtime_data[['volume']].sort_index().reset_index(),
                     on='trade_time', direction='backward', suffixes=('_tick', '_realtime')
                 ).set_index('trade_time')
+
             if not merged_hf.empty:
                 merged_hf.rename(columns={'volume_tick': 'volume'}, inplace=True)
                 merged_hf['mid_price'] = (merged_hf['buy_price1'] + merged_hf['sell_price1']) / 2
@@ -781,8 +786,11 @@ class AdvancedFundFlowMetricsService:
                 merged_hf['main_force_ofi'] = np.where(is_main_force_trade, merged_hf['ofi'], 0)
                 merged_hf['retail_ofi'] = np.where(is_retail_trade, merged_hf['ofi'], 0)
                 merged_hf['mid_price_change'] = merged_hf['mid_price'].diff()
+                
+                # 【核心升级】计算“战场迷雾”：市场成交量增量
                 if 'volume_realtime' in merged_hf.columns:
                     merged_hf['market_vol_delta'] = merged_hf['volume_realtime'].diff().fillna(0)
+
                 hf_analysis_df = merged_hf
                 results['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
                 results['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
@@ -807,6 +815,120 @@ class AdvancedFundFlowMetricsService:
             total_cleared_vol = ask_clearing_vol + bid_clearing_vol
             if daily_total_volume > 0:
                 results['order_book_clearing_rate'] = (total_cleared_vol / daily_total_volume) * 100
+            
+            # =================================================================
+            # ================= 盘口微观结构指标 (三位一体升级版) =================
+            # =================================================================
+            try:
+                # --- 1. 对倒强度 (Wash Trade Intensity) - 升级版 ---
+                df_wash = hf_analysis_df[['type', 'volume', 'price', 'market_vol_delta']].copy()
+                df_wash['direction'] = df_wash['type'].map({'B': 1, 'S': -1}).fillna(0)
+                df_wash['prev_direction'] = df_wash['direction'].shift(1)
+                df_wash['prev_volume'] = df_wash['volume'].shift(1)
+                df_wash['price_change_ratio'] = df_wash['price'].pct_change().abs()
+                
+                wash_mask = (
+                    (df_wash['direction'] * df_wash['prev_direction'] == -1) &
+                    (np.abs(df_wash['volume'] - df_wash['prev_volume']) / df_wash['prev_volume'] < 0.2) &
+                    (df_wash['price_change_ratio'] < 0.001)
+                )
+                # 诡道升级：真正的对倒，不仅自身成交，还会引发“迷雾”中的成交量（HFT跟风），但价格不动
+                # 我们寻找那些自身成交量不大，但市场成交量增量远大于自身成交量的对倒行为
+                wash_mask &= (df_wash['market_vol_delta'] > df_wash['volume'] * 2)
+
+                wash_trade_vol = df_wash.loc[wash_mask, 'market_vol_delta'].sum() # 用市场增量来衡量其真实影响力
+                if daily_total_volume > 0:
+                    results['wash_trade_intensity'] = (wash_trade_vol / daily_total_volume) * 100
+            except Exception:
+                results['wash_trade_intensity'] = np.nan
+
+            try:
+                # --- 2. 盘口失衡度与流动性供给 (Order Book Imbalance & Liquidity Supply) - 升级版 ---
+                df_book = hf_analysis_df.copy()
+                weighted_buy_vol = pd.Series(0, index=df_book.index)
+                weighted_sell_vol = pd.Series(0, index=df_book.index)
+                total_buy_value = pd.Series(0, index=df_book.index)
+                total_sell_value = pd.Series(0, index=df_book.index)
+                
+                for i in range(1, 6):
+                    weight = 1 / i
+                    weighted_buy_vol += df_book[f'buy_volume{i}'] * weight
+                    weighted_sell_vol += df_book[f'sell_volume{i}'] * weight
+                    total_buy_value += df_book[f'buy_volume{i}'] * df_book[f'buy_price{i}']
+                    total_sell_value += df_book[f'sell_volume{i}'] * df_book[f'sell_price{i}']
+                
+                df_book['imbalance'] = (weighted_buy_vol - weighted_sell_vol) / (weighted_buy_vol + weighted_sell_vol).replace(0, np.nan)
+                df_book['liquidity_supply_ratio'] = total_buy_value / total_sell_value.replace(0, np.nan)
+                
+                time_diffs = df_book.index.to_series().diff().dt.total_seconds().fillna(0)
+                if time_diffs.sum() > 0:
+                    results['order_book_imbalance'] = np.average(df_book['imbalance'].dropna(), weights=time_diffs[df_book['imbalance'].notna()]) * 100
+                    results['order_book_liquidity_supply'] = np.average(df_book['liquidity_supply_ratio'].dropna(), weights=time_diffs[df_book['liquidity_supply_ratio'].notna()])
+                
+                # 诡道升级：失衡有效性 - 盘口失衡是否能有效驱动市场成交量？
+                if 'market_vol_delta' in df_book.columns and df_book['imbalance'].var() > 0 and df_book['market_vol_delta'].var() > 0:
+                    # 我们期望正失衡（买方强）对应大的成交量增量
+                    results['imbalance_effectiveness'] = df_book['imbalance'].corr(df_book['market_vol_delta'])
+
+            except Exception:
+                results['order_book_imbalance'] = np.nan
+                results['order_book_liquidity_supply'] = np.nan
+                results['imbalance_effectiveness'] = np.nan
+
+            try:
+                # --- 3. 大单压制与支撑强度 (Large Order Pressure & Support) - 升级版 ---
+                df_static = hf_analysis_df.copy()
+                large_order_threshold_value = 500000
+                
+                pressure_mask = (df_static['sell_volume1'] * df_static['sell_price1'] > large_order_threshold_value) | \
+                                (df_static['sell_volume2'] * df_static['sell_price2'] > large_order_threshold_value)
+                support_mask = (df_static['buy_volume1'] * df_static['buy_price1'] > large_order_threshold_value) | \
+                               (df_static['buy_volume2'] * df_static['buy_price2'] > large_order_threshold_value)
+                
+                time_diffs = df_static.index.to_series().diff().dt.total_seconds().fillna(0)
+                
+                # 诡道升级：威慑力需要根据市场活跃度进行调整
+                # 市场越冷清，大单威慑力越强；市场越火热，大单越容易被淹没
+                if 'market_vol_delta' in df_static.columns:
+                    market_activity = df_static['market_vol_delta'].rolling(window=20, min_periods=1).mean().replace(0, np.nan)
+                    # 活跃度越高，调整因子越小
+                    activity_factor = 1 / np.log1p(market_activity)
+                    
+                    pressure_strength = (time_diffs * activity_factor)[pressure_mask].sum()
+                    support_strength = (time_diffs * activity_factor)[support_mask].sum()
+                else: # 回退到原逻辑
+                    pressure_strength = time_diffs[pressure_mask].sum()
+                    support_strength = time_diffs[support_mask].sum()
+
+                total_trading_seconds = (df_static.index.max() - df_static.index.min()).total_seconds()
+                if total_trading_seconds > 0:
+                    # 归一化后的结果
+                    results['large_order_pressure'] = (pressure_strength / total_trading_seconds) * 100
+                    results['large_order_support'] = (support_strength / total_trading_seconds) * 100
+            except Exception:
+                results['large_order_pressure'] = np.nan
+                results['large_order_support'] = np.nan
+
+            try:
+                # --- 4. 报价消耗率 (Quote Exhaustion Rate) - (逻辑不变，已足够强大) ---
+                df_exhaust = hf_analysis_df.copy()
+                df_exhaust['prev_a1_v'] = df_exhaust['sell_volume1'].shift(1)
+                df_exhaust['prev_b1_v'] = df_exhaust['buy_volume1'].shift(1)
+                
+                buy_exhaustion_mask = df_exhaust['sell_price1'] > df_exhaust['prev_a1_p']
+                buy_exhausted_vol = df_exhaust.loc[buy_exhaustion_mask, 'prev_a1_v'].sum()
+                
+                sell_exhaustion_mask = df_exhaust['buy_price1'] < df_exhaust['prev_b1_p']
+                sell_exhausted_vol = df_exhaust.loc[sell_exhaustion_mask, 'prev_b1_v'].sum()
+                
+                if daily_total_volume > 0:
+                    results['buy_quote_exhaustion_rate'] = (buy_exhausted_vol / daily_total_volume) * 100
+                    results['sell_quote_exhaustion_rate'] = (sell_exhausted_vol / daily_total_volume) * 100
+            except Exception:
+                results['buy_quote_exhaustion_rate'] = np.nan
+                results['sell_quote_exhaustion_rate'] = np.nan
+
+        # ... (后续其他指标计算逻辑保持不变) ...
         if pd.notna(daily_vwap) and daily_total_volume > 0 and pd.notna(atr) and atr > 0 and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
             price_deviation_value = (intraday_data['minute_vwap'] - daily_vwap) * intraday_data['vol_shares']
             results['vwap_control_strength'] = price_deviation_value.sum() / (atr * daily_total_volume)
@@ -1010,59 +1132,30 @@ class AdvancedFundFlowMetricsService:
             if day_range > 0:
                 fomo_zone_threshold = day_low + 0.75 * day_range
                 fomo_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] > fomo_zone_threshold]
-                if debug_mode:
-                    stock_code = daily_data.get('stock_code', 'N/A')
-                    trade_date_str = daily_data.name.strftime('%Y-%m-%d')
-                    print(f"\n--- [探针] [Retail FOMO 指标诊断] [{stock_code}] 日期: {trade_date_str} ---")
-                    print(f"[1] 前置条件检查: day_range > 0 -> True")
-                    print(f"    - day_high={day_high}, day_low={day_low}, day_range={day_range:.2f}")
-                    print(f"    - fomo_zone_threshold (price > {fomo_zone_threshold:.2f})")
-                    print(f"[2] FOMO区数据检查: not fomo_zone_df.empty -> {not fomo_zone_df.empty}")
                 if not fomo_zone_df.empty and 'retail_net_vol' in fomo_zone_df.columns and 'retail_buy_vol' in continuous_trading_df.columns and 'minute_vwap' in fomo_zone_df.columns:
                     fomo_retail_df = fomo_zone_df[fomo_zone_df['retail_net_vol'] > 0]
-                    if debug_mode: print(f"[3] FOMO区散户净买入检查: not fomo_retail_df.empty -> {not fomo_retail_df.empty}")
                     if not fomo_retail_df.empty:
                         fomo_vol = fomo_retail_df['retail_net_vol'].sum()
                         total_retail_buy_vol = continuous_trading_df[continuous_trading_df['retail_buy_vol'] > 0]['retail_buy_vol'].sum()
-                        if debug_mode: print(f"[4] 成交量检查: fomo_vol > 0 ({fomo_vol:.0f}) -> {fomo_vol > 0}, total_retail_buy_vol > 0 ({total_retail_buy_vol:.0f}) -> {total_retail_buy_vol > 0}")
                         if fomo_vol > 0 and total_retail_buy_vol > 0:
                             cost_fomo = (fomo_retail_df['minute_vwap'] * fomo_retail_df['retail_net_vol']).sum() / fomo_vol
                             cost_mf_sell = daily_data.get('avg_cost_main_sell')
-                            if debug_mode:
-                                print(f"[5] 关键依赖检查: pd.notna(cost_mf_sell) ({cost_mf_sell}) -> {pd.notna(cost_mf_sell)}, cost_mf_sell > 0 -> {cost_mf_sell > 0 if pd.notna(cost_mf_sell) else 'N/A'}")
                             if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
                                 premium = (cost_fomo / cost_mf_sell - 1)
-                                final_value = premium * (fomo_vol / total_retail_buy_vol) * 100
-                                results['retail_fomo_premium_index'] = final_value
-                                if debug_mode:
-                                    print(f"    - cost_fomo: {cost_fomo:.4f}, premium: {premium:.4f}")
-                                    print(f"[6] 计算成功: retail_fomo_premium_index = {final_value}")
+                                results['retail_fomo_premium_index'] = premium * (fomo_vol / total_retail_buy_vol) * 100
                 panic_zone_threshold = day_low + 0.25 * day_range
                 panic_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < panic_zone_threshold]
-                if debug_mode:
-                    print(f"\n--- [探针] [Retail Panic 指标诊断] [{stock_code}] 日期: {trade_date_str} ---")
-                    print(f"[1] 前置条件检查: day_range > 0 -> True")
-                    print(f"    - panic_zone_threshold (price < {panic_zone_threshold:.2f})")
-                    print(f"[2] 恐慌区数据检查: not panic_zone_df.empty -> {not panic_zone_df.empty}")
                 if not panic_zone_df.empty and 'retail_net_vol' in panic_zone_df.columns and 'retail_sell_vol' in continuous_trading_df.columns and 'minute_vwap' in panic_zone_df.columns:
                     panic_retail_df = panic_zone_df[panic_zone_df['retail_net_vol'] < 0]
-                    if debug_mode: print(f"[3] 恐慌区散户净卖出检查: not panic_retail_df.empty -> {not panic_retail_df.empty}")
                     if not panic_retail_df.empty:
                         panic_vol = abs(panic_retail_df['retail_net_vol'].sum())
                         total_retail_sell_vol = continuous_trading_df[continuous_trading_df['retail_sell_vol'] > 0]['retail_sell_vol'].sum()
-                        if debug_mode: print(f"[4] 成交量检查: panic_vol > 0 ({panic_vol:.0f}) -> {panic_vol > 0}, total_retail_sell_vol > 0 ({total_retail_sell_vol:.0f}) -> {total_retail_sell_vol > 0}")
                         if panic_vol > 0 and total_retail_sell_vol > 0:
                             cost_panic = (panic_retail_df['minute_vwap'] * abs(panic_retail_df['retail_net_vol'])).sum() / panic_vol
                             cost_mf_buy = daily_data.get('avg_cost_main_buy')
-                            if debug_mode:
-                                print(f"[5] 关键依赖检查: pd.notna(cost_mf_buy) ({cost_mf_buy}) -> {pd.notna(cost_mf_buy)}, cost_mf_buy > 0 -> {cost_mf_buy > 0 if pd.notna(cost_mf_buy) else 'N/A'}")
                             if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
                                 discount = (cost_mf_buy - cost_panic) / cost_mf_buy
-                                final_value = discount * (panic_vol / total_retail_sell_vol) * 100
-                                results['retail_panic_surrender_index'] = final_value
-                                if debug_mode:
-                                    print(f"    - cost_panic: {cost_panic:.4f}, discount: {discount:.4f}")
-                                    print(f"[6] 计算成功: retail_panic_surrender_index = {final_value}")
+                                results['retail_panic_surrender_index'] = discount * (panic_vol / total_retail_sell_vol) * 100
         if not intraday_data.empty and 'main_force_net_vol' in intraday_data.columns and 'open' in intraday_data.columns and 'close' in intraday_data.columns:
             dip_or_flat_df = intraday_data[intraday_data['close'] <= intraday_data['open']]
             if not dip_or_flat_df.empty:
