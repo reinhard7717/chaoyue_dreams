@@ -35,6 +35,16 @@ class FundFlowIntelligence:
             print(f"    -> [资金流情报警告] 方法 '{method_name}' 接收到未知数据源类型 {type(data_source)}，无法获取 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df_index)
 
+    def _validate_required_signals(self, df: pd.DataFrame, required_signals: List[str], method_name: str) -> bool:
+        """
+        【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
+        """
+        missing_signals = [s for s in required_signals if s not in df.columns]
+        if missing_signals:
+            print(f"    -> [资金流情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
+            return False
+        return True
+
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V21.8 · 资金流吸筹拐点意图参数传递版】资金流情报分析总指挥
@@ -84,195 +94,160 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.15 · 状态同步修复版】资金流公理一：诊断“共识与分歧”
-        - 核心修复 (V1.15): 解决了“信号状态同步失败”的BUG。在计算出“拆单吸筹强度”信号后，
-                           不仅将其存入 df_indicators，同时立即存入 atomic_states 字典，
-                           确保下游的 ProcessIntelligence 模块能够实时获取到正确的信号值。
-        - 核心升级: 重构“拆单吸筹”信号的计算逻辑，引入“吸收率”连续评分模型。
-        - 新增功能: 植入深度探针，用于剖析“拆单吸筹”信号的计算过程。
+        【V2.1 · 情报校验加固版】资金流公理一：诊断“战场控制权”
+        - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算，提升了健壮性。
+        - 核心升级: 不再仅依赖资金流向，而是引入高频盘口指标来衡量主力对市场的实际控制力。
+        - 新增权重: 引入`order_book_imbalance`（盘口压力）和`imbalance_effectiveness`（压力有效性）作为核心判断依据。
+        - 引入惩罚: 引入`wash_trade_intensity`（对倒强度）作为负向调节因子，惩罚虚假繁荣。
         """
+        required_signals = [
+            'main_force_net_flow_calibrated_D', 'retail_net_flow_calibrated_D',
+            'order_book_imbalance_D', 'imbalance_effectiveness_D', 'wash_trade_intensity_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_consensus"):
+            return pd.Series(0.0, index=df.index)
         df_index = df.index
-        buy_sm_amount = self._get_safe_series(df, df, 'buy_sm_amount_D', 0, method_name="_diagnose_axiom_consensus")
-        sell_sm_amount = self._get_safe_series(df, df, 'sell_sm_amount_D', 0, method_name="_diagnose_axiom_consensus")
-        buy_md_amount = self._get_safe_series(df, df, 'buy_md_amount_D', 0, method_name="_diagnose_axiom_consensus")
-        sell_md_amount = self._get_safe_series(df, df, 'sell_md_amount_D', 0, method_name="_diagnose_axiom_consensus")
-        buy_lg_amount = self._get_safe_series(df, df, 'buy_lg_amount_D', 0, method_name="_diagnose_axiom_consensus")
-        sell_lg_amount = self._get_safe_series(df, df, 'sell_lg_amount_D', 0, method_name="_diagnose_axiom_consensus")
-        buy_elg_amount = self._get_safe_series(df, df, 'buy_elg_amount_D', 0, method_name="_diagnose_axiom_consensus")
-        sell_elg_amount = self._get_safe_series(df, df, 'sell_elg_amount_D', 0, method_name="_diagnose_axiom_consensus")
-        net_sm_amount = buy_sm_amount - sell_sm_amount
-        net_md_amount = buy_md_amount - sell_md_amount
-        net_lg_amount = buy_lg_amount - sell_lg_amount
-        net_elg_amount = buy_elg_amount - sell_elg_amount
-        main_force_flow = net_elg_amount + net_lg_amount
-        retail_flow = net_md_amount + net_sm_amount
+        main_force_flow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
+        retail_flow = self._get_safe_series(df, df, 'retail_net_flow_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
         raw_bipolar_series = main_force_flow - retail_flow
-        battle_intensity_raw = self._get_safe_series(df, df, 'mf_retail_battle_intensity_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_consensus")
-        main_force_ofi_raw = self._get_safe_series(df, df, 'main_force_ofi_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_consensus")
-        retail_ofi_raw = self._get_safe_series(df, df, 'retail_ofi_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_consensus")
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        battle_intensity_factor = get_adaptive_mtf_normalized_score(battle_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
-        sm_md_net_flow = net_sm_amount + net_md_amount
-        lg_xl_net_flow = net_lg_amount + net_elg_amount
-        pct_change = self._get_safe_series(df, df, 'pct_change_D', 0.0, method_name="_diagnose_axiom_consensus")
-        split_order_accumulation_raw = pd.Series(0.0, index=df_index)
-        # 诡道吸筹逻辑重构
-        condition_mask = (pct_change <= 0) & (sm_md_net_flow > 0) & (lg_xl_net_flow < 0)
-        if condition_mask.any():
-            lg_xl_net_flow_abs = lg_xl_net_flow.abs()
-            # 计算吸收率
-            absorption_ratio = (sm_md_net_flow / lg_xl_net_flow_abs.replace(0, 1e-9)).clip(0, 1)
-            # 计算博弈量级
-            battle_magnitude = sm_md_net_flow + lg_xl_net_flow_abs
-            # 计算新的原始分
-            new_raw_score = battle_magnitude * absorption_ratio
-            split_order_accumulation_raw.loc[condition_mask] = new_raw_score.loc[condition_mask]
-        # 探针输出逻辑
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
-            for probe_date in probe_dates:
-                if probe_date in df_index and condition_mask.loc[probe_date]:
-                    print(f"    -> [探针] --- 拆单吸筹强度计算 @ {probe_date.date()} ---")
-                    print(f"      - 场景条件 (跌/平 & 中小买 & 大卖): TRUE")
-                    print(f"      - 中小单净买入 (sm_md_net_flow): {sm_md_net_flow.loc[probe_date]:.2f}")
-                    print(f"      - 大单净卖出 (lg_xl_net_flow): {lg_xl_net_flow.loc[probe_date]:.2f}")
-                    print(f"      - 吸收率 (Absorption Ratio): {absorption_ratio.loc[probe_date]:.4f}")
-                    print(f"      - 博弈量级 (Battle Magnitude): {battle_magnitude.loc[probe_date]:.2f}")
-                    print(f"      - 最终原始分 (Raw Score): {split_order_accumulation_raw.loc[probe_date]:.2f}")
-                    print("    -> [探针] ----------------------------------------------------")
-        normalized_split_factor_series = get_adaptive_mtf_normalized_score(split_order_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0, 1)
-        split_order_accumulation_factor = normalized_split_factor_series.where(split_order_accumulation_raw > 0, 0)
-        self.strategy.df_indicators['FUND_FLOW_MAIN_FORCE_FLOW'] = main_force_flow
-        self.strategy.df_indicators['FUND_FLOW_RETAIL_FLOW'] = retail_flow
-        self.strategy.df_indicators['FUND_FLOW_SM_MD_NET_FLOW'] = sm_md_net_flow
-        self.strategy.df_indicators['FUND_FLOW_LG_XL_NET_FLOW'] = lg_xl_net_flow
-        self.strategy.df_indicators['PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'] = split_order_accumulation_factor
-        self.strategy.atomic_states['PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY'] = split_order_accumulation_factor #  核心修复：将信号同步到atomic_states，供下游模块使用
         consensus_score_base = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df_index, tf_weights_ff, sensitivity=1.0)
-        main_force_ofi_score = get_adaptive_mtf_normalized_bipolar_score(main_force_ofi_raw, df_index, tf_weights_ff, sensitivity=0.5)
-        retail_ofi_score = get_adaptive_mtf_normalized_bipolar_score(retail_ofi_raw, df_index, tf_weights_ff, sensitivity=0.5)
+        order_book_imbalance_raw = self._get_safe_series(df, df, 'order_book_imbalance_D', 0.0, method_name="_diagnose_axiom_consensus")
+        imbalance_effectiveness_raw = self._get_safe_series(df, df, 'imbalance_effectiveness_D', 0.0, method_name="_diagnose_axiom_consensus")
+        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_consensus")
+        imbalance_score = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, tf_weights_ff, sensitivity=0.5)
+        effectiveness_score = get_adaptive_mtf_normalized_bipolar_score(imbalance_effectiveness_raw, df_index, tf_weights_ff, sensitivity=0.5)
+        wash_trade_penalty = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=False, tf_weights=tf_weights_ff).clip(0, 1)
+        control_power_score = (imbalance_score * 0.6 + effectiveness_score * 0.4).clip(-1, 1)
         consensus_score = (
-            consensus_score_base * 0.6 +
-            split_order_accumulation_factor * 0.2 +
-            main_force_ofi_score * 0.15 -
-            retail_ofi_score * 0.05
-        ).clip(-1, 1)
-        return consensus_score.astype(np.float32)
+            consensus_score_base * 0.4 +
+            control_power_score * 0.6
+        ) * wash_trade_penalty
+        return consensus_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.6 · 上下文修复版】资金流公理二：诊断“信念与决心”
-        - 【V1.6 修复】在调用 _get_safe_series 时传递 df 参数。
+        【V2.1 · 情报校验加固版】资金流公理二：诊断“攻击性意图”
+        - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
+        - 核心升级: 将信念的度量从被动的成本优势，升级为主动的攻击行为。
+        - 核心证据: 引入`buy_quote_exhaustion_rate`和`sell_quote_exhaustion_rate`，构建“主动攻击得分”，作为信念的最强表征。
+        - 辅助证据: 引入`large_order_support`和`large_order_pressure`，构建“阵地战决心”因子。
+        - 权重重构: 大幅提升主动攻击证据的权重，重塑信念的定义。
         """
+        required_signals = [
+            'main_force_conviction_index_D', 'main_force_cost_advantage_D', 'hidden_accumulation_intensity_D',
+            'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D',
+            'large_order_support_D', 'large_order_pressure_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_conviction"):
+            return pd.Series(0.0, index=df.index)
         df_index = df.index
-        conviction_index_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_conviction")
-        cost_advantage_raw = self._get_safe_series(df, df, 'main_force_cost_advantage_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_conviction")
-        t0_efficiency_raw = self._get_safe_series(df, df, 'main_force_t0_efficiency_D', pd.Series(0.5, index=df_index), method_name="_diagnose_axiom_conviction")
-        price_impact_raw = self._get_safe_series(df, df, 'main_force_price_impact_ratio_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_conviction")
-        microstructure_efficiency_raw = self._get_safe_series(df, df, 'microstructure_efficiency_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_conviction")
-        hidden_accumulation_raw = self._get_safe_series(df, df, 'hidden_accumulation_intensity_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_conviction")
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        conviction_index_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_conviction")
+        cost_advantage_raw = self._get_safe_series(df, df, 'main_force_cost_advantage_D', 0.0, method_name="_diagnose_axiom_conviction")
+        hidden_accumulation_raw = self._get_safe_series(df, df, 'hidden_accumulation_intensity_D', 0.0, method_name="_diagnose_axiom_conviction")
         conviction_index_bipolar = get_adaptive_mtf_normalized_bipolar_score(conviction_index_raw, df_index, tf_weights_ff, sensitivity=10.0)
         cost_advantage_bipolar = get_adaptive_mtf_normalized_bipolar_score(cost_advantage_raw, df_index, tf_weights_ff, sensitivity=100.0)
-        t0_efficiency_bipolar = get_adaptive_mtf_normalized_bipolar_score(t0_efficiency_raw, df_index, tf_weights_ff, sensitivity=0.5)
-        price_impact_bipolar = get_adaptive_mtf_normalized_bipolar_score(price_impact_raw, df_index, tf_weights_ff, sensitivity=10.0)
-        microstructure_efficiency_score = get_adaptive_mtf_normalized_bipolar_score(microstructure_efficiency_raw, df_index, tf_weights_ff, sensitivity=0.5)
-        hidden_accumulation_score = get_adaptive_mtf_normalized_bipolar_score(hidden_accumulation_raw, df_index, tf_weights_ff, sensitivity=0.5)
+        hidden_accumulation_score = get_adaptive_mtf_normalized_score(hidden_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+        buy_exhaustion_raw = self._get_safe_series(df, df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_axiom_conviction")
+        sell_exhaustion_raw = self._get_safe_series(df, df, 'sell_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_axiom_conviction")
+        large_support_raw = self._get_safe_series(df, df, 'large_order_support_D', 0.0, method_name="_diagnose_axiom_conviction")
+        large_pressure_raw = self._get_safe_series(df, df, 'large_order_pressure_D', 0.0, method_name="_diagnose_axiom_conviction")
+        aggressive_action_raw = buy_exhaustion_raw - sell_exhaustion_raw
+        aggressive_action_score = get_adaptive_mtf_normalized_bipolar_score(aggressive_action_raw, df_index, tf_weights_ff, sensitivity=0.5)
+        positional_warfare_raw = large_support_raw - large_pressure_raw
+        positional_warfare_score = get_adaptive_mtf_normalized_bipolar_score(positional_warfare_raw, df_index, tf_weights_ff, sensitivity=0.5)
         raw_bipolar_series = (
-            conviction_index_bipolar * 0.3 +
-            cost_advantage_bipolar * 0.3 +
-            price_impact_bipolar * 0.15 +
-            hidden_accumulation_score * 0.1 -
-            t0_efficiency_bipolar * 0.1 -
-            microstructure_efficiency_score * 0.05
+            aggressive_action_score * 0.5 +
+            positional_warfare_score * 0.2 +
+            cost_advantage_bipolar * 0.15 +
+            conviction_index_bipolar * 0.1 +
+            hidden_accumulation_score * 0.05
         ).clip(-1, 1)
         conviction_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df_index, tf_weights_ff, sensitivity=1.0)
-        # ... (探针代码省略)
         return conviction_score.astype(np.float32)
 
     def _diagnose_axiom_flow_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V2.3 · 上下文修复版】资金流公理三：诊断“资金流动量”
-        - 【V2.3 修复】在调用 _get_safe_series 时传递 df 参数。
+        【V3.1 · 情报校验加固版】资金流公理三：诊断“资金流纯度与动能”
+        - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
+        - 核心升级: 将动能的评估从纯粹的“量”升级为“量”与“质”的结合。
+        - 引入纯度: 强化`wash_trade_intensity`的负向权重，严厉惩罚含有杂质的资金流动。
+        - 引入环境: 引入`order_book_liquidity_supply`作为环境因子，在流动性稀薄时放大动能得分，反之则削弱。
         """
-        df_index = df.index
         required_signals = [
-            'main_force_net_flow_calibrated_D', 'total_market_value_D',
-            'SLOPE_5_NMFNF_D', 'SLOPE_21_NMFNF_D',
-            'wash_trade_intensity_D', 'order_book_imbalance_D'
+            'main_force_net_flow_calibrated_D', 'total_market_value_D', 'SLOPE_5_NMFNF_D',
+            'SLOPE_21_NMFNF_D', 'wash_trade_intensity_D', 'order_book_imbalance_D',
+            'order_book_liquidity_supply_D'
         ]
-        missing_signals = [s for s in required_signals if s not in df.columns]
-        if missing_signals:
-            print(f"    -> [资金流动量探针] 警告: 缺少核心信号 {missing_signals}，使用默认值0.0。")
-            return pd.Series(0.0, index=df_index)
-        main_force_net_flow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_flow_momentum")
-        total_market_value = self._get_safe_series(df, df, 'total_market_value_D', pd.Series(1e9, index=df_index), method_name="_diagnose_axiom_flow_momentum")
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_flow_momentum"):
+            return pd.Series(0.0, index=df.index)
+        df_index = df.index
+        main_force_net_flow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_axiom_flow_momentum")
+        total_market_value = self._get_safe_series(df, df, 'total_market_value_D', 1e9, method_name="_diagnose_axiom_flow_momentum")
         nmfnf = (main_force_net_flow / total_market_value.replace(0, 1e9)).fillna(0)
-        slope_5_nmfnf = self._get_safe_series(df, df, 'SLOPE_5_NMFNF_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_flow_momentum")
-        slope_21_nmfnf = self._get_safe_series(df, df, 'SLOPE_21_NMFNF_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_flow_momentum")
-        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_flow_momentum")
-        order_book_imbalance_raw = self._get_safe_series(df, df, 'order_book_imbalance_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_flow_momentum")
+        slope_5_nmfnf = self._get_safe_series(df, df, 'SLOPE_5_NMFNF_D', 0.0, method_name="_diagnose_axiom_flow_momentum")
+        slope_21_nmfnf = self._get_safe_series(df, df, 'SLOPE_21_NMFNF_D', 0.0, method_name="_diagnose_axiom_flow_momentum")
+        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_flow_momentum")
+        order_book_imbalance_raw = self._get_safe_series(df, df, 'order_book_imbalance_D', 0.0, method_name="_diagnose_axiom_flow_momentum")
+        liquidity_supply_raw = self._get_safe_series(df, df, 'order_book_liquidity_supply_D', 1.0, method_name="_diagnose_axiom_flow_momentum")
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         nmfnf_score = get_adaptive_mtf_normalized_bipolar_score(nmfnf, df_index, tf_weights_ff, sensitivity=0.001)
         slope_5_nmfnf_score = get_adaptive_mtf_normalized_bipolar_score(slope_5_nmfnf, df_index, tf_weights_ff, sensitivity=0.0001)
         slope_21_nmfnf_score = get_adaptive_mtf_normalized_bipolar_score(slope_21_nmfnf, df_index, tf_weights_ff, sensitivity=0.00005)
-        wash_trade_intensity_score = get_adaptive_mtf_normalized_bipolar_score(wash_trade_intensity_raw * -1, df_index, tf_weights_ff, sensitivity=0.5)
+        wash_trade_penalty_score = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=False, tf_weights=tf_weights_ff).clip(0, 1)
         order_book_imbalance_score = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, tf_weights_ff, sensitivity=0.5)
-        flow_momentum_score = (
-            nmfnf_score * 0.3 +
-            slope_5_nmfnf_score * 0.25 +
+        liquidity_amplifier = 1 / liquidity_supply_raw.replace(0, 1e-9).clip(0.5, 2.0)
+        liquidity_amplifier_score = get_adaptive_mtf_normalized_score(liquidity_amplifier, df_index, ascending=True, tf_weights=tf_weights_ff).clip(0.5, 1.5)
+        base_momentum = (
+            nmfnf_score * 0.4 +
+            slope_5_nmfnf_score * 0.3 +
             slope_21_nmfnf_score * 0.2 +
-            order_book_imbalance_score * 0.15 +
-            wash_trade_intensity_score * 0.1
+            order_book_imbalance_score * 0.1
         ).clip(-1, 1)
-        # ... (探针代码省略)
-        return flow_momentum_score.astype(np.float32)
+        flow_momentum_score = base_momentum * liquidity_amplifier_score * wash_trade_penalty_score
+        return flow_momentum_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_fund_flow_accumulation_inflection_intent(self, df: pd.DataFrame, norm_window: int, flow_momentum_current: pd.Series, consensus_score_current: pd.Series) -> pd.Series:
         """
-        【V1.4 · 上下文修复版】识别主力从隐蔽吸筹转向公开抢筹的资金流迹象。
-        - 【V1.4 修复】在调用 _get_safe_series 时传递 df 参数。
+        【V2.1 · 情报校验加固版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
+        - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
+        - 核心升级: 引入高频指标作为转折点的核心确认证据，而非简单的加分项。
+        - 核心证据 (强攻): `buy_quote_exhaustion_rate`的飙升是确认主力开始“抢筹”的关键。
+        - 核心证据 (摊牌): `large_order_pressure`的减弱是确认主力放弃伪装的信号。
+        - 触发逻辑重构: 只有在“强攻”和“摊牌”的高频证据出现时，拐点意图信号才会被激活并赋予高分。
         """
+        required_signals = ['buy_quote_exhaustion_rate_D', 'large_order_pressure_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_fund_flow_accumulation_inflection_intent"):
+            return pd.Series(0.0, index=df.index)
         df_index = df.index
-        inflection_intent_score = pd.Series(0.0, index=df_index)
-        # ... (探针代码省略)
-        # 1. 获取核心资金流信号
+        p_conf_inflection = get_params_block(self.strategy, 'fund_flow_inflection_params', {})
+        tf_weights_inflection = get_param_value(p_conf_inflection.get('tf_fusion_weights'), {5: 0.5, 13: 0.3, 21: 0.2})
         psai = self._get_safe_series(df, self.strategy.df_indicators, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
         main_force_flow = self._get_safe_series(df, self.strategy.df_indicators, 'FUND_FLOW_MAIN_FORCE_FLOW', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
-        lg_xl_net_flow = self._get_safe_series(df, self.strategy.df_indicators, 'FUND_FLOW_LG_XL_NET_FLOW', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
+        buy_exhaustion_raw = self._get_safe_series(df, df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
+        large_pressure_raw = self._get_safe_series(df, df, 'large_order_pressure_D', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
         flow_momentum = flow_momentum_current
-        consensus_score = consensus_score_current
-        large_order_pressure_raw = self._get_safe_series(df, df, 'large_order_pressure_D', pd.Series(0.0, index=df_index), method_name="_diagnose_fund_flow_accumulation_inflection_intent")
-        large_order_support_raw = self._get_safe_series(df, df, 'large_order_support_D', pd.Series(0.0, index=df_index), method_name="_diagnose_fund_flow_accumulation_inflection_intent")
-        # ... (后续逻辑省略)
-        p_conf_inflection = get_params_block(self.strategy, 'fund_flow_inflection_params', {})
         psai_high_threshold = get_param_value(p_conf_inflection.get('psai_high_threshold'), 0.5)
         mf_flow_positive_threshold = get_param_value(p_conf_inflection.get('mf_flow_positive_threshold'), 0.0)
-        lg_xl_flow_positive_threshold = get_param_value(p_conf_inflection.get('lg_xl_flow_positive_threshold'), 0.0)
-        flow_momentum_positive_threshold = get_param_value(p_conf_inflection.get('flow_momentum_positive_threshold'), 0.0)
-        consensus_score_positive_threshold = get_param_value(p_conf_inflection.get('consensus_score_positive_threshold'), 0.0)
-        large_order_pressure_threshold = get_param_value(p_conf_inflection.get('large_order_pressure_threshold'), 0.5)
-        large_order_support_threshold = get_param_value(p_conf_inflection.get('large_order_support_threshold'), 0.5)
-        cond_psai_high = (psai > psai_high_threshold)
-        cond_mf_overt_buying = (main_force_flow > mf_flow_positive_threshold) & (lg_xl_net_flow > lg_xl_flow_positive_threshold)
-        cond_flow_momentum_positive = (flow_momentum > flow_momentum_positive_threshold)
-        cond_consensus_improving = (consensus_score > consensus_score_positive_threshold) | (consensus_score.diff(1) > 0)
-        cond_large_order_favorable = (large_order_pressure_raw < large_order_pressure_threshold) & (large_order_support_raw > large_order_support_threshold)
-        base_intent_mask = cond_psai_high & cond_mf_overt_buying
-        inflection_intent_score.loc[base_intent_mask] = 0.5
-        inflection_intent_score.loc[base_intent_mask & cond_flow_momentum_positive] += 0.2
-        inflection_intent_score.loc[base_intent_mask & cond_consensus_improving] += 0.3
-        inflection_intent_score.loc[base_intent_mask & cond_large_order_favorable] += 0.2
-        inflection_intent_score = inflection_intent_score.clip(0, 1)
-        tf_weights_inflection = get_param_value(p_conf_inflection.get('tf_fusion_weights'), {5: 0.5, 13: 0.3, 21: 0.2})
+        buy_exhaustion_threshold = get_param_value(p_conf_inflection.get('buy_exhaustion_threshold'), 0.7)
+        large_pressure_low_threshold = get_param_value(p_conf_inflection.get('large_pressure_low_threshold'), 0.3)
+        buy_exhaustion_score = get_adaptive_mtf_normalized_score(buy_exhaustion_raw, df_index, ascending=True, tf_weights=tf_weights_inflection)
+        large_pressure_score = get_adaptive_mtf_normalized_score(large_pressure_raw, df_index, ascending=True, tf_weights=tf_weights_inflection)
+        cond_prelude_accumulation = (psai.rolling(window=5).mean() > psai_high_threshold)
+        cond_overt_attack = (
+            (main_force_flow > mf_flow_positive_threshold) &
+            (buy_exhaustion_score > buy_exhaustion_threshold) &
+            (large_pressure_score < large_pressure_low_threshold)
+        )
+        inflection_intent_mask = cond_prelude_accumulation & cond_overt_attack
+        inflection_intent_score = (flow_momentum.clip(lower=0) * 0.5 + buy_exhaustion_score * 0.5)
+        inflection_intent_score = inflection_intent_score.where(inflection_intent_mask, 0.0)
         inflection_intent_score_normalized = get_adaptive_mtf_normalized_score(inflection_intent_score, df_index, ascending=True, tf_weights=tf_weights_inflection).clip(0, 1)
         self.strategy.df_indicators['PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT'] = inflection_intent_score_normalized
-        # ... (探针代码省略)
         return inflection_intent_score_normalized.astype(np.float32)
 
 

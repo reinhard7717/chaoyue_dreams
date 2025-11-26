@@ -27,6 +27,16 @@ class StructuralIntelligence:
             return pd.Series(default_value, index=df.index)
         return df[column_name]
 
+    def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
+        """
+        【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
+        """
+        missing_signals = [s for s in required_signals if s not in df.columns]
+        if missing_signals:
+            print(f"    -> [结构情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
+            return False
+        return True
+
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V4.4 · 底分型集成版】结构情报分析总指挥
@@ -82,278 +92,132 @@ class StructuralIntelligence:
         return divergence_score.astype(np.float32)
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        print("    -> [结构情报] 正在诊断结构公理一：趋势形态...")
-        df_index = df.index
+        """
+        【V2.0 · 趋势能量与形态版】结构公理一：诊断“趋势能量与形态”
+        - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
+        - 核心升级: 将静态的均线排列与动态的日内能量指标相结合，评估趋势的综合质量。
+        - 核心证据 (能量): 引入`intraday_energy_density`和`intraday_thrust_purity`，量化趋势形态背后的“动力强度”。
+        """
+        required_signals = [
+            'intraday_energy_density_D', 'intraday_thrust_purity_D', 'close_D', 'pct_change_D'
+        ]
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        tf_weights_struct = get_param_value(p_conf_struct.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         ema_periods = get_param_value(p_conf_struct.get('trend_form_ema_periods'), [5, 13, 21, 55])
-        ma_periods = get_param_value(p_conf_struct.get('trend_form_ma_periods'), [5, 13, 21, 55])
-        # --- EMA均线排列 (Alignment) ---
-        bull_alignment_ema_raw = pd.Series(0.0, index=df_index)
-        bear_alignment_ema_raw = pd.Series(0.0, index=df_index)
-        ema_alignment_weights = [0.4, 0.3, 0.3]
+        required_signals.extend([f'EMA_{p}_D' for p in ema_periods])
+        required_signals.extend([f'SLOPE_5_EMA_{p}_D' for p in ema_periods])
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_form"):
+            return pd.Series(0.0, index=df.index)
+        df_index = df.index
+        tf_weights_struct = get_param_value(p_conf_struct.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # --- 1. 形态 (Form) ---
+        bull_alignment_raw = pd.Series(0.0, index=df_index)
+        alignment_weights = [0.4, 0.3, 0.3]
         for i in range(len(ema_periods) - 1):
             ema_i = self._get_safe_series(df, f'EMA_{ema_periods[i]}_D', method_name="_diagnose_axiom_trend_form")
             ema_i_plus_1 = self._get_safe_series(df, f'EMA_{ema_periods[i+1]}_D', method_name="_diagnose_axiom_trend_form")
-            bull_alignment_ema_raw += (ema_i > ema_i_plus_1).astype(float) * ema_alignment_weights[i]
-            bear_alignment_ema_raw += (ema_i < ema_i_plus_1).astype(float) * ema_alignment_weights[i]
-        price_above_all_ema = pd.Series(True, index=df_index)
-        close_D = self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_trend_form")
-        for p in ema_periods:
-            price_above_all_ema &= (close_D > self._get_safe_series(df, f'EMA_{p}_D', method_name="_diagnose_axiom_trend_form"))
-        bull_alignment_ema_raw += price_above_all_ema.astype(float) * 0.5
-        price_ema_distance = pd.Series(0.0, index=df_index)
-        for p in ema_periods:
-            price_ema_distance += (close_D - self._get_safe_series(df, f'EMA_{p}_D', method_name="_diagnose_axiom_trend_form")).clip(lower=0)
-        price_ema_distance_score = get_adaptive_mtf_normalized_score(price_ema_distance, df_index, ascending=True, tf_weights=tf_weights_struct)
-        bull_alignment_ema_raw += price_ema_distance_score * 0.5
-        bull_alignment_ema = bull_alignment_ema_raw / (sum(ema_alignment_weights) + 1.0)
-        bear_alignment_ema = bear_alignment_ema_raw / sum(ema_alignment_weights)
-        # --- MA均线排列 (Alignment) ---
-        bull_alignment_ma_raw = pd.Series(0.0, index=df_index)
-        bear_alignment_ma_raw = pd.Series(0.0, index=df_index)
-        ma_alignment_weights = [0.4, 0.3, 0.3]
-        for i in range(len(ma_periods) - 1):
-            ma_i = self._get_safe_series(df, f'MA_{ma_periods[i]}_D', method_name="_diagnose_axiom_trend_form")
-            ma_i_plus_1 = self._get_safe_series(df, f'MA_{ma_periods[i+1]}_D', method_name="_diagnose_axiom_trend_form")
-            bull_alignment_ma_raw += (ma_i > ma_i_plus_1).astype(float) * ma_alignment_weights[i]
-            bear_alignment_ma_raw += (ma_i < ma_i_plus_1).astype(float) * ma_alignment_weights[i]
-        price_above_all_ma = pd.Series(True, index=df_index)
-        for p in ma_periods:
-            price_above_all_ma &= (close_D > self._get_safe_series(df, f'MA_{p}_D', method_name="_diagnose_axiom_trend_form"))
-        bull_alignment_ma_raw += price_above_all_ma.astype(float) * 0.5
-        price_ma_distance = pd.Series(0.0, index=df_index)
-        for p in ma_periods:
-            price_ma_distance += (close_D - self._get_safe_series(df, f'MA_{p}_D', method_name="_diagnose_axiom_trend_form")).clip(lower=0)
-        price_ma_distance_score = get_adaptive_mtf_normalized_score(price_ma_distance, df_index, ascending=True, tf_weights=tf_weights_struct)
-        bull_alignment_ma_raw += price_ma_distance_score * 0.5
-        bull_alignment_ma = bull_alignment_ma_raw / (sum(ma_alignment_weights) + 1.0)
-        bear_alignment_ma = bear_alignment_ma_raw / sum(ma_alignment_weights)
-        # 融合EMA和MA的排列分数
-        alignment_fusion_weights = get_param_value(p_conf_struct.get('trend_form_alignment_fusion_weights'), {'ema': 0.6, 'ma': 0.4})
-        bull_alignment = (bull_alignment_ema * alignment_fusion_weights['ema'] + bull_alignment_ma * alignment_fusion_weights['ma']).clip(0, 1)
-        bear_alignment = (bear_alignment_ema * alignment_fusion_weights['ema'] + bear_alignment_ma * alignment_fusion_weights['ma']).clip(0, 1)
-        # --- EMA均线速度 (Velocity) ---
-        slope_ema_cols = [f'SLOPE_5_EMA_{p}_D' for p in ema_periods if f'SLOPE_5_EMA_{p}_D' in df.columns]
-        bull_velocity_ema_raw = pd.Series(0.0, index=df_index)
-        bear_velocity_ema_raw = pd.Series(0.0, index=df_index)
-        if slope_ema_cols:
-            for col in slope_ema_cols:
-                bull_velocity_ema_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_trend_form").clip(lower=0)
-                bear_velocity_ema_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_trend_form").clip(upper=0).abs()
-        # --- MA均线速度 (Velocity) ---
-        slope_ma_cols = [f'SLOPE_5_MA_{p}_D' for p in ma_periods if f'SLOPE_5_MA_{p}_D' in df.columns]
-        bull_velocity_ma_raw = pd.Series(0.0, index=df_index)
-        bear_velocity_ma_raw = pd.Series(0.0, index=df_index)
-        if slope_ma_cols:
-            for col in slope_ma_cols:
-                bull_velocity_ma_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_trend_form").clip(lower=0)
-                bear_velocity_ma_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_trend_form").clip(upper=0).abs()
-        pct_change_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_axiom_trend_form").clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct)
-        bull_velocity_ema_raw += pct_change_score * 0.5
-        bull_velocity_ma_raw += pct_change_score * 0.5
-        # 融合EMA和MA的速度分数
-        velocity_fusion_weights = get_param_value(p_conf_struct.get('trend_form_velocity_fusion_weights'), {'ema': 0.6, 'ma': 0.4})
-        bull_velocity = get_adaptive_mtf_normalized_score(bull_velocity_ema_raw * velocity_fusion_weights['ema'] + bull_velocity_ma_raw * velocity_fusion_weights['ma'], df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        bear_velocity = get_adaptive_mtf_normalized_score(bear_velocity_ema_raw * velocity_fusion_weights['ema'] + bear_velocity_ma_raw * velocity_fusion_weights['ma'], df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        # --- 引入成交量爆裂度、上涨推力效能 ---
-        volume_burstiness_raw = self._get_safe_series(df, 'volume_ratio_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
-        upward_thrust_efficacy_raw = self._get_safe_series(df, 'upward_impulse_purity_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
-        downward_absorption_efficacy_raw = self._get_safe_series(df, 'dip_absorption_power_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
-        burstiness_score = get_adaptive_mtf_normalized_score(volume_burstiness_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        upward_efficacy_score = get_adaptive_mtf_normalized_score(upward_thrust_efficacy_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        downward_efficacy_score = get_adaptive_mtf_normalized_score(downward_absorption_efficacy_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        # --- 引入均线角度 ---
-        ma_angle_raw = self._get_safe_series(df, f'ATAN_ANGLE_EMA_55_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
-        ma_angle_score = get_adaptive_mtf_normalized_bipolar_score(ma_angle_raw, df_index, tf_weights_struct, sensitivity=10.0)
-        # 使用 trend_vitality_index_D 和 closing_price_deviation_score_D 替代缺失的信号
-        trend_quality_raw = self._get_safe_series(df, 'trend_vitality_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
-        closing_momentum_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
-        trend_quality_score = pd.Series(0.0, index=df_index)
-        closing_momentum_score = pd.Series(0.0, index=df_index)
-        if not trend_quality_raw.isnull().all() and not (trend_quality_raw == 0.0).all():
-            trend_quality_score = get_adaptive_mtf_normalized_bipolar_score(trend_quality_raw, df.index, tf_weights_struct, sensitivity=0.5)
-        if not closing_momentum_raw.isnull().all() and not (closing_momentum_raw == 0.0).all():
-            closing_momentum_score = get_adaptive_mtf_normalized_bipolar_score(closing_momentum_raw, df.index, tf_weights_struct, sensitivity=0.5)
-        # 融合牛熊分数
-        bull_score = (
-            bull_alignment * bull_velocity * (1 + burstiness_score * 0.2) +
-            upward_efficacy_score * 0.1 +
-            ma_angle_score.clip(lower=0) * 0.1 +
-            trend_quality_score.clip(lower=0) * 0.1 +
-            closing_momentum_score.clip(lower=0) * 0.1
-        ).clip(0, 1)
-        bear_score = (
-            bear_alignment * bear_velocity * (1 + burstiness_score * 0.2) +
-            downward_efficacy_score * 0.1 +
-            ma_angle_score.clip(upper=0).abs() * 0.1 +
-            trend_quality_score.clip(upper=0).abs() * 0.1 +
-            closing_momentum_score.clip(upper=0).abs() * 0.1
-        ).clip(0, 1)
-        bull_score = bull_score.mask(is_limit_up_day, bull_score + 0.5).clip(0, 1)
-        bear_score = bear_score.mask(is_limit_up_day, bear_score * 0.1).clip(0, 1)
-        trend_form_score = (bull_score - bear_score).clip(-1, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"    -> [趋势形态探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - bull_alignment_ema_raw: {bull_alignment_ema_raw.loc[probe_date_for_loop]:.4f}")
-                print(f"       - price_above_all_ema: {price_above_all_ema.loc[probe_date_for_loop]:.4f}")
-                print(f"       - price_ema_distance_score: {price_ema_distance_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - bull_alignment_ema: {bull_alignment_ema.loc[probe_date_for_loop]:.4f}")
-                print(f"       - bull_alignment_ma_raw: {bull_alignment_ma_raw.loc[probe_date_for_loop]:.4f}")
-                print(f"       - price_above_all_ma: {price_above_all_ma.loc[probe_date_for_loop]:.4f}")
-                print(f"       - price_ma_distance_score: {price_ma_distance_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - bull_alignment_ma: {bull_alignment_ma.loc[probe_date_for_loop]:.4f}")
-                print(f"       - bull_alignment: {bull_alignment.loc[probe_date_for_loop]:.4f}")
-                print(f"       - bull_velocity_ema_raw: {bull_velocity_ema_raw.loc[probe_date_for_loop]:.4f}")
-                print(f"       - bull_velocity_ma_raw: {bull_velocity_ma_raw.loc[probe_date_for_loop]:.4f}")
-                print(f"       - pct_change_score: {pct_change_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - bull_velocity: {bull_velocity.loc[probe_date_for_loop]:.4f}")
-                print(f"       - burstiness_score: {burstiness_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - upward_efficacy_score: {upward_efficacy_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - ma_angle_score: {ma_angle_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - trend_quality_raw: {trend_quality_raw.loc[probe_date_for_loop]:.4f}")
-                print(f"       - closing_momentum_raw: {closing_momentum_raw.loc[probe_date_for_loop]:.4f}")
-                print(f"       - trend_quality_score: {trend_quality_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - closing_momentum_score: {closing_momentum_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - bull_score: {bull_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - bear_score: {bear_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - is_limit_up_day: {is_limit_up_day.loc[probe_date_for_loop]}")
-                print(f"       - trend_form_score: {trend_form_score.loc[probe_date_for_loop]:.4f}")
-        return trend_form_score
+            bull_alignment_raw += (ema_i > ema_i_plus_1).astype(float) * alignment_weights[i]
+        bull_alignment_score = bull_alignment_raw / sum(alignment_weights)
+        slope_scores = [get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, f'SLOPE_5_EMA_{p}_D', 0.0, method_name="_diagnose_axiom_trend_form"), df_index, tf_weights_struct).values for p in ema_periods]
+        avg_slope_bipolar = pd.Series(np.mean(slope_scores, axis=0), index=df_index)
+        form_score = (bull_alignment_score * 0.5 + avg_slope_bipolar.clip(lower=0) * 0.5).clip(0, 1)
+        # --- 2. 能量 (Energy) ---
+        energy_density_raw = self._get_safe_series(df, 'intraday_energy_density_D', 0.0, method_name="_diagnose_axiom_trend_form")
+        thrust_purity_raw = self._get_safe_series(df, 'intraday_thrust_purity_D', 0.0, method_name="_diagnose_axiom_trend_form")
+        energy_density_score = get_adaptive_mtf_normalized_score(energy_density_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
+        thrust_purity_score = get_adaptive_mtf_normalized_score(thrust_purity_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
+        energy_score = (energy_density_score * 0.6 + thrust_purity_score * 0.4).clip(0, 1)
+        # --- 3. 融合 ---
+        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_axiom_trend_form")
+        trend_direction = np.sign(pct_change)
+        # 只有在上涨时，形态和能量才有意义；下跌时，形态和能量越强，说明下跌趋势越猛烈
+        bullish_score = form_score * energy_score
+        bearish_score = (1 - form_score) * energy_score # 形态越差，能量越大，熊市得分越高
+        trend_form_score = np.where(trend_direction >= 0, bullish_score, -bearish_score)
+        return pd.Series(trend_form_score, index=df_index).clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V4.0 · 结构共识增强版】结构公理三：诊断“结构稳定性”
-        - 核心升级: 引入 `vpoc_consensus_strength_D` (VPOC共识强度) 和 `volume_structure_skew_D` (成交结构偏度)
-                    来增强对结构稳定性的判断。高共识和健康的成交结构是稳定性的核心证据。
+        【V5.0 · 结构韧性与微观流动性版】结构公理三：诊断“结构韧性与微观流动性”
+        - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
+        - 核心升级: 将稳定性的评估深入到微观层面，引入流动性指标来验证宏观结构的真实支撑力。
+        - 核心证据 (微观): `liquidity_authenticity_score`和`market_impact_cost`评估稳定性的“微观基础”。
+        - 核心证据 (韧性): `pullback_depth_ratio`作为结构在压力测试下的直接表现。
         """
-        df_index = df.index
-        bbw_col = 'BBW_21_2.0_D'
-        if bbw_col not in df.columns:
-            print(f"    -> [结构情报警告] 方法 '_diagnose_axiom_stability' 缺少核心列 '{bbw_col}'。")
-            return pd.Series(0.0, index=df_index)
-        p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        tf_weights_struct = get_param_value(p_conf_struct.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        energy_accumulation_score = 1 - get_adaptive_mtf_normalized_score(self._get_safe_series(df, bbw_col, method_name="_diagnose_axiom_stability"), df_index, ascending=True, tf_weights=tf_weights_struct)
-        energy_accumulation_score = energy_accumulation_score.fillna(0.5)
+        required_signals = [
+            'liquidity_authenticity_score_D', 'market_impact_cost_D', 'pullback_depth_ratio_D',
+            'vpoc_consensus_strength_D', 'close_D'
+        ]
         long_term_ma_periods = [55, 144]
-        required_ma_cols = [f'MA_{p}_D' for p in long_term_ma_periods]
-        required_slope_cols = [f'SLOPE_5_MA_{p}_D' for p in long_term_ma_periods]
-        # 获取并归一化 vpoc_consensus_strength_D
-        vpoc_consensus_raw = self._get_safe_series(df, 'vpoc_consensus_strength_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
-        vpoc_consensus_score = get_adaptive_mtf_normalized_score(vpoc_consensus_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        # 获取并归一化 volume_structure_skew_D
-        volume_structure_skew_raw = self._get_safe_series(df, 'volume_structure_skew_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
-        # 成交结构偏度 > 1 代表盘中缩量，两头放量，是健康结构，对稳定性是正贡献
-        volume_structure_skew_score = get_adaptive_mtf_normalized_bipolar_score(volume_structure_skew_raw - 1, df.index, tf_weights_struct, sensitivity=0.5)
-        if not all(col in df.columns for col in required_ma_cols + required_slope_cols):
-            print("    -> [结构情报警告] 方法 '_diagnose_axiom_stability' 缺少必要的长期MA或其斜率列，长期结构评估将跳过。")
-            foundation_health_score = pd.Series(0.5, index=df_index)
-        else:
-            support_scores = []
-            for p in long_term_ma_periods:
-                support_score = get_adaptive_mtf_normalized_score((self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_stability") - self._get_safe_series(df, f'MA_{p}_D', method_name="_diagnose_axiom_stability")).clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct).clip(0, 1)
-                support_scores.append(support_score)
-            foundation_support_score = pd.Series(np.mean(support_scores, axis=0), index=df_index)
-            health_scores = []
-            for p in long_term_ma_periods:
-                slope_col_name = f'SLOPE_21_MA_{p}_D'
-                if slope_col_name not in df.columns:
-                    slope_col_name = f'SLOPE_5_MA_{p}_D'
-                health_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, slope_col_name, pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability").clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct).clip(0, 1)
-                health_scores.append(health_score)
-            long_term_trend_health_score = pd.Series(np.mean(health_scores, axis=0), index=df_index)
-            # 将 vpoc_consensus_score 加入基石健康度融合
-            foundation_health_score = (foundation_support_score * 0.5 + long_term_trend_health_score * 0.3 + vpoc_consensus_score * 0.2).clip(0, 1)
-        raw_stability_score = (energy_accumulation_score * 0.3 + foundation_health_score * 0.7).fillna(0.5)
-        volatility_skew_raw = self._get_safe_series(df, 'volatility_skew_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
-        volatility_skew_score = get_adaptive_mtf_normalized_bipolar_score(volatility_skew_raw, df.index, tf_weights_struct, sensitivity=0.5).fillna(0.0)
-        # 融合所有分数，加入成交结构偏度
+        required_signals.extend([f'MA_{p}_D' for p in long_term_ma_periods])
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_stability"):
+            return pd.Series(0.0, index=df.index)
+        df_index = df.index
+        tf_weights_struct = get_params_block(self.strategy, 'structural_ultimate_params', {}).get('tf_fusion_weights', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # --- 1. 宏观支撑 (Macro Support) ---
+        foundation_support_scores = []
+        for p in long_term_ma_periods:
+            support_score = get_adaptive_mtf_normalized_score((self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_stability") - self._get_safe_series(df, f'MA_{p}_D', method_name="_diagnose_axiom_stability")).clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct)
+            foundation_support_scores.append(support_score)
+        foundation_support_score = pd.Series(np.mean(foundation_support_scores, axis=0), index=df_index)
+        vpoc_consensus_raw = self._get_safe_series(df, 'vpoc_consensus_strength_D', 0.0, method_name="_diagnose_axiom_stability")
+        vpoc_consensus_score = get_adaptive_mtf_normalized_score(vpoc_consensus_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
+        macro_support_score = (foundation_support_score * 0.6 + vpoc_consensus_score * 0.4).clip(0, 1)
+        # --- 2. 结构韧性 (Structural Resilience) ---
+        pullback_depth_raw = self._get_safe_series(df, 'pullback_depth_ratio_D', 0.5, method_name="_diagnose_axiom_stability")
+        resilience_score = get_adaptive_mtf_normalized_score(pullback_depth_raw, df_index, ascending=False, tf_weights=tf_weights_struct) # 回撤越浅越好
+        # --- 3. 微观流动性 (Micro-Liquidity) ---
+        liquidity_auth_raw = self._get_safe_series(df, 'liquidity_authenticity_score_D', 0.5, method_name="_diagnose_axiom_stability")
+        market_impact_raw = self._get_safe_series(df, 'market_impact_cost_D', 0.1, method_name="_diagnose_axiom_stability")
+        liquidity_auth_score = get_adaptive_mtf_normalized_score(liquidity_auth_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
+        market_impact_score = get_adaptive_mtf_normalized_score(market_impact_raw, df_index, ascending=False, tf_weights=tf_weights_struct) # 冲击成本越低越好
+        micro_liquidity_score = (liquidity_auth_score * 0.6 + market_impact_score * 0.4).clip(0, 1)
+        # --- 4. 融合 ---
         stability_score = (
-            raw_stability_score * 0.6 +
-            volatility_skew_score.clip(lower=0) * 0.1 -
-            volatility_skew_score.clip(upper=0).abs() * 0.1 +
-            volume_structure_skew_score.clip(lower=0) * 0.2 # 健康的成交结构是稳定性的重要加分项
-        )
-        stability_score = stability_score.clip(-1, 1)
-        return stability_score
+            macro_support_score * 0.4 +
+            resilience_score * 0.3 +
+            micro_liquidity_score * 0.3
+        ).clip(0, 1)
+        return (stability_score * 2 - 1).astype(np.float32) # 转换为双极性
 
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, norm_window: int, daily_trend_form_score: pd.Series) -> pd.Series:
         """
-        【V1.4 · 涨停日多周期协同增强与多时间维度归一化版】结构公理二：诊断“多周期协同”
-        - 引入 `trend_efficiency_ratio_D` (趋势效率比) 来增强多周期协同的质量判断。
-        - 【修正】优化 `cohesion_score` 的计算，使其在积极信号时贡献正分。
-        - 【增强】在涨停日，大幅增强 `weekly_trend_form_score` 的贡献，并优化 `cohesion_score` 的融合逻辑。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
+        【V2.0 · 多周期协同与微观意图版】结构公理二：诊断“多周期协同与微观意图”
+        - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
+        - 核心升级: 引入微观结构指标，对宏观的多周期共振信号进行“意图验真”。
+        - 核心证据 (意图): `order_flow_imbalance_score`和`buy_sweep_intensity`被用作“测谎仪”，验证共振背后的真实攻击意图。
         """
-        df_index = df.index
+        required_signals = [
+            'order_flow_imbalance_score_D', 'buy_sweep_intensity_D', 'sell_sweep_intensity_D', 'close_D'
+        ]
         ma_periods_w = [5, 13, 21, 55]
-        required_cols_w = [f'EMA_{p}_W' for p in ma_periods_w]
-        if not all(col in df.columns for col in required_cols_w):
-            print("诊断多周期协同失败：缺少必要的周线EMA列，将仅使用日线结构。")
-            return pd.Series(0.0, index=df_index)
-        # 判断是否为涨停日
-        is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
-        p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        tf_weights_struct = get_param_value(p_conf_struct.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # --- 周线均线排列 (Weekly Alignment) ---
+        required_signals.extend([f'EMA_{p}_W' for p in ma_periods_w])
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_mtf_cohesion"):
+            return pd.Series(0.0, index=df.index)
+        df_index = df.index
+        tf_weights_struct = get_params_block(self.strategy, 'structural_ultimate_params', {}).get('tf_fusion_weights', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # --- 1. 宏观共振 (Macro Cohesion) ---
         bull_alignment_w_raw = pd.Series(0.0, index=df_index)
-        bear_alignment_w_raw = pd.Series(0.0, index=df_index)
         for i in range(len(ma_periods_w) - 1):
             bull_alignment_w_raw += (self._get_safe_series(df, f'EMA_{ma_periods_w[i]}_W', method_name="_diagnose_axiom_mtf_cohesion") > self._get_safe_series(df, f'EMA_{ma_periods_w[i+1]}_W', method_name="_diagnose_axiom_mtf_cohesion")).astype(float)
-            bear_alignment_w_raw += (self._get_safe_series(df, f'EMA_{ma_periods_w[i]}_W', method_name="_diagnose_axiom_mtf_cohesion") < self._get_safe_series(df, f'EMA_{ma_periods_w[i+1]}_W', method_name="_diagnose_axiom_mtf_cohesion")).astype(float)
-        bull_alignment_w = bull_alignment_w_raw / (len(ma_periods_w) - 1)
-        bear_alignment_w = bear_alignment_w_raw / (len(ma_periods_w) - 1)
-        # --- 周线均线速度 (Weekly Velocity) ---
-        slope_cols_w = [f'SLOPE_5_EMA_{p}_W' for p in ma_periods_w if f'SLOPE_5_EMA_{p}_W' in df.columns]
-        if not slope_cols_w:
-            return pd.Series(0.0, index=df_index)
-        bull_velocity_w_raw = pd.Series(0.0, index=df_index)
-        bear_velocity_w_raw = pd.Series(0.0, index=df_index)
-        for col in slope_cols_w:
-            bull_velocity_w_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_mtf_cohesion").clip(lower=0)
-            bear_velocity_w_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_mtf_cohesion").clip(upper=0).abs()
-        # 增强 bull_velocity_w: 引入 pct_change_W 的贡献
-        pct_change_w_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_W', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_mtf_cohesion").clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct)
-        bull_velocity_w_raw += pct_change_w_score * 0.5 # 额外权重
-        bull_velocity_w = get_adaptive_mtf_normalized_score(bull_velocity_w_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        bear_velocity_w = get_adaptive_mtf_normalized_score(bear_velocity_w_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        weekly_trend_form_score = (pd.Series(bull_alignment_w * bull_velocity_w, index=df_index) - pd.Series(bear_alignment_w * bear_velocity_w, index=df_index)).clip(-1, 1)
-        # 涨停日特殊处理：如果日线趋势形态为正，则周线趋势形态也应该至少有一个积极的基础分
-        weekly_trend_form_score = weekly_trend_form_score.mask(is_limit_up_day & (daily_trend_form_score > 0), weekly_trend_form_score + 0.3).clip(-1, 1)
-        # 获取并归一化 trend_efficiency_ratio_D
-        trend_efficiency_raw = self._get_safe_series(df, 'VPA_EFFICIENCY_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_mtf_cohesion") # 替换为 VPA_EFFICIENCY_D
-        efficiency_score = get_adaptive_mtf_normalized_score(trend_efficiency_raw, df_index, ascending=True, tf_weights=tf_weights_struct).fillna(0.0)
-        # 融合效率分数。效率分数作为乘数因子，增强协同的质量。
-        # 确保在积极信号时贡献正分。
-        # 优化 cohesion_score 融合逻辑，在涨停日，如果日线趋势形态为正，则协同分数更倾向于正向
-        cohesion_score = (daily_trend_form_score.clip(lower=0) * weekly_trend_form_score.clip(lower=0) * (1 + efficiency_score * 0.5) -
-                          daily_trend_form_score.clip(upper=0).abs() * weekly_trend_form_score.clip(upper=0).abs() * (1 + efficiency_score * 0.5)).fillna(0).clip(-1, 1)
-        # 涨停日进一步增强协同分数
-        cohesion_score = cohesion_score.mask(is_limit_up_day & (daily_trend_form_score > 0), cohesion_score + 0.2).clip(-1, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"    -> [多周期协同探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - bull_alignment_w: {bull_alignment_w.loc[probe_date_for_loop]:.4f}")
-                print(f"       - bull_velocity_w: {bull_velocity_w.loc[probe_date_for_loop]:.4f}")
-                print(f"       - pct_change_w_score: {pct_change_w_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - weekly_trend_form_score: {weekly_trend_form_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - efficiency_score: {efficiency_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - daily_trend_form_score: {daily_trend_form_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - is_limit_up_day: {is_limit_up_day.loc[probe_date_for_loop]}")
-                print(f"       - cohesion_score: {cohesion_score.loc[probe_date_for_loop]:.4f}")
-        return cohesion_score
+        bull_alignment_w_score = bull_alignment_w_raw / (len(ma_periods_w) - 1)
+        macro_cohesion_score = (daily_trend_form_score.clip(lower=0) * bull_alignment_w_score).clip(0, 1)
+        # --- 2. 微观意图 (Micro Intent) ---
+        ofi_raw = self._get_safe_series(df, 'order_flow_imbalance_score_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
+        buy_sweep_raw = self._get_safe_series(df, 'buy_sweep_intensity_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
+        sell_sweep_raw = self._get_safe_series(df, 'sell_sweep_intensity_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
+        ofi_score = get_adaptive_mtf_normalized_bipolar_score(ofi_raw, df_index, tf_weights_struct)
+        buy_sweep_score = get_adaptive_mtf_normalized_score(buy_sweep_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
+        sell_sweep_score = get_adaptive_mtf_normalized_score(sell_sweep_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
+        bullish_intent = (ofi_score.clip(lower=0) * 0.5 + buy_sweep_score * 0.5)
+        bearish_intent = (ofi_score.clip(upper=0).abs() * 0.5 + sell_sweep_score * 0.5)
+        micro_intent_score = (bullish_intent - bearish_intent).clip(-1, 1)
+        # --- 3. 融合 ---
+        # 只有当微观意图为正时，宏观共振才被认为是有效的
+        cohesion_score = macro_cohesion_score * micro_intent_score.clip(lower=0)
+        # 对于负向协同，也需要微观意图的确认
+        bearish_cohesion = ((1 - daily_trend_form_score.clip(lower=0)) * (1 - bull_alignment_w_score)).clip(0, 1)
+        final_score = cohesion_score - (bearish_cohesion * micro_intent_score.clip(upper=0).abs())
+        return final_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_bottom_fractal(self, df: pd.DataFrame, n: int = 5, min_depth_ratio: float = 0.001) -> pd.Series:
         """

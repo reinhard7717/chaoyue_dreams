@@ -38,6 +38,16 @@ class ChipIntelligence:
             print(f"    -> [筹码情报警告] 方法 '{method_name}' 接收到未知数据源类型 {type(data_source)}，无法获取 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df_index)
 
+    def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
+        """
+        【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
+        """
+        missing_signals = [s for s in required_signals if s not in df.columns]
+        if missing_signals:
+            print(f"    -> [筹码情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
+            return False
+        return True
+
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V10.1 · 调用修复版】筹码情报总指挥
@@ -124,146 +134,137 @@ class ChipIntelligence:
 
     def _diagnose_axiom_concentration(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V3.2 · 上下文修复版】筹码公理一：诊断筹码“聚散”动态
-        - 【V3.2 修复】在调用 _get_safe_series 时传递 df 参数。
+        【V4.0 · 集结效率与纯度版】筹码公理一：诊断“集结效率与纯度”
+        - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
+        - 核心升级: 引入高频指标，将对“集中”的评估从静态数量提升到动态质量。
+        - 核心证据 (纯度): `peak_exchange_purity`，高纯度的交换意味着真实的、具有攻击性的筹码集结。
+        - 辅助证据 (效率): `impulse_quality_ratio`，高质量的上涨脉冲验证了集结过程的健康度。
         """
         required_signals = [
             'cost_gini_coefficient_D', 'structural_node_count_D', 'peak_separation_ratio_D',
-            'winner_concentration_90pct_D', 'ZIG_5_5.0_D', 'peak_exchange_purity_D'
-        ] + [f'SLOPE_{p}_winner_concentration_90pct_D' for p in periods if f'SLOPE_{p}_winner_concentration_90pct_D' in df.columns]
-        missing_signals = [s for s in required_signals if s not in df.columns]
-        if missing_signals:
-            print(f"    -> [筹码集中度探针] 警告: 缺少核心信号 {missing_signals}，使用默认值0.0。")
+            'peak_exchange_purity_D', 'impulse_quality_ratio_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_concentration"):
             return pd.Series(0.0, index=df.index)
         concentration_level_raw = 1 - self._get_safe_series(df, df, 'cost_gini_coefficient_D', 0.5, method_name="_diagnose_axiom_concentration")
-        concentration_trend_raw = pd.Series(0.0, index=df.index)
-        for p in periods:
-            slope_col = f'SLOPE_{p}_winner_concentration_90pct_D'
-            concentration_trend_raw += self._get_safe_series(df, df, slope_col, 0.0, method_name="_diagnose_axiom_concentration")
-        concentration_trend_raw /= len(periods)
         node_count_raw = self._get_safe_series(df, df, 'structural_node_count_D', 3.0, method_name="_diagnose_axiom_concentration")
         separation_raw = self._get_safe_series(df, df, 'peak_separation_ratio_D', 50.0, method_name="_diagnose_axiom_concentration")
         peak_fusion_raw = (1 - utils.normalize_score(node_count_raw, df.index, 55, ascending=True)) * \
                           (1 - utils.normalize_score(separation_raw, df.index, 55, ascending=True))
-        zigzag_trend_raw = self._get_safe_series(df, df, 'ZIG_5_5.0_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_concentration")
-        peak_exchange_purity_raw = self._get_safe_series(df, df, 'peak_exchange_purity_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_concentration")
+        peak_exchange_purity_raw = self._get_safe_series(df, df, 'peak_exchange_purity_D', 0.0, method_name="_diagnose_axiom_concentration")
+        impulse_quality_raw = self._get_safe_series(df, df, 'impulse_quality_ratio_D', 0.0, method_name="_diagnose_axiom_concentration")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         level_score = get_adaptive_mtf_normalized_bipolar_score(concentration_level_raw, df.index, tf_weights, sensitivity=0.2)
-        trend_score = get_adaptive_mtf_normalized_bipolar_score(concentration_trend_raw, df.index, tf_weights, sensitivity=1.0)
         fusion_score = get_adaptive_mtf_normalized_bipolar_score(peak_fusion_raw, df.index, tf_weights, sensitivity=0.5)
-        zigzag_score = get_adaptive_mtf_normalized_bipolar_score(zigzag_trend_raw, df.index, tf_weights, sensitivity=0.05)
-        peak_exchange_purity_score = get_adaptive_mtf_normalized_bipolar_score(peak_exchange_purity_raw, df.index, tf_weights, sensitivity=0.5)
-        final_score = (level_score * 0.30 + trend_score * 0.20 + fusion_score * 0.20 + zigzag_score * 0.10 + peak_exchange_purity_score * 0.20).clip(-1, 1)
-        return final_score
+        purity_score = get_adaptive_mtf_normalized_bipolar_score(peak_exchange_purity_raw, df.index, tf_weights, sensitivity=0.5)
+        quality_score = get_adaptive_mtf_normalized_bipolar_score(impulse_quality_raw, df.index, tf_weights, sensitivity=0.5)
+        final_score = (
+            purity_score * 0.4 +             # 交换纯度是核心
+            level_score * 0.25 +             # 集中度水平是基础
+            fusion_score * 0.2 +             # 峰形融合是过程
+            quality_score * 0.15             # 脉冲品质是验证
+        ).clip(-1, 1)
+        return final_score.astype(np.float32)
 
     def _diagnose_axiom_cost_structure(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V3.2 · 上下文修复版】筹码公理二：诊断“成本结构”动态
-        - 【V3.2 修复】在调用 _get_safe_series 时传递 df 参数。
+        【V4.0 · 攻防阵地有效性版】筹码公理二：诊断“攻防阵地有效性”
+        - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
+        - 核心升级: 从分析静态的成本结构，升级为通过高频数据验证这些结构在实战中的攻防有效性。
+        - 核心证据 (验证): `support_validation_strength` 和 `pressure_rejection_strength` 直接量化了支撑和压力的真实强度。
+        - 核心证据 (利用): `vacuum_traversal_efficiency` 衡量了主力利用结构优势（真空区）的能力。
         """
         required_signals = [
-            'winner_loser_momentum_D', 'chip_fault_magnitude_D', 'cost_structure_skewness_D',
-            'pressure_validation_score_D', 'support_validation_score_D',
-            'cost_gini_coefficient_D', 'structural_tension_index_D', 'structural_leverage_D'
+            'support_validation_strength_D', 'pressure_rejection_strength_D', 'vacuum_traversal_efficiency_D',
+            'structural_tension_index_D', 'structural_leverage_D', 'chip_fault_magnitude_D'
         ]
-        missing_signals = [s for s in required_signals if s not in df.columns]
-        if missing_signals:
-            print(f"    -> [筹码成本结构探针] 警告: 缺少核心信号 {missing_signals}，使用默认值0.0。")
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_cost_structure"):
             return pd.Series(0.0, index=df.index)
-        momentum_raw = self._get_safe_series(df, df, 'winner_loser_momentum_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        fault_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        skewness_raw = self._get_safe_series(df, df, 'cost_structure_skewness_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        pressure_validation_raw = self._get_safe_series(df, df, 'pressure_validation_score_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        support_validation_raw = self._get_safe_series(df, df, 'support_validation_score_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        cost_gini_raw = self._get_safe_series(df, df, 'cost_gini_coefficient_D', pd.Series(0.5, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        structural_tension_raw = self._get_safe_series(df, df, 'structural_tension_index_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
-        structural_leverage_raw = self._get_safe_series(df, df, 'structural_leverage_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
+        support_validation_raw = self._get_safe_series(df, df, 'support_validation_strength_D', 0.0, method_name="_diagnose_axiom_cost_structure")
+        pressure_rejection_raw = self._get_safe_series(df, df, 'pressure_rejection_strength_D', 0.0, method_name="_diagnose_axiom_cost_structure")
+        vacuum_efficiency_raw = self._get_safe_series(df, df, 'vacuum_traversal_efficiency_D', 0.0, method_name="_diagnose_axiom_cost_structure")
+        structural_tension_raw = self._get_safe_series(df, df, 'structural_tension_index_D', 0.0, method_name="_diagnose_axiom_cost_structure")
+        structural_leverage_raw = self._get_safe_series(df, df, 'structural_leverage_D', 0.0, method_name="_diagnose_axiom_cost_structure")
+        fault_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', 0.0, method_name="_diagnose_axiom_cost_structure")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        momentum_score = get_adaptive_mtf_normalized_bipolar_score(momentum_raw, df.index, tf_weights, sensitivity=1.0)
-        fault_score = get_adaptive_mtf_normalized_bipolar_score(fault_raw, df.index, tf_weights, sensitivity=0.5) * -1
-        skewness_score = get_adaptive_mtf_normalized_bipolar_score(skewness_raw, df.index, tf_weights, sensitivity=0.5)
-        pressure_validation_score = get_adaptive_mtf_normalized_bipolar_score(pressure_validation_raw, df.index, tf_weights, sensitivity=0.5)
-        support_validation_score = get_adaptive_mtf_normalized_bipolar_score(support_validation_raw, df.index, tf_weights, sensitivity=0.5)
-        cost_gini_score = get_adaptive_mtf_normalized_bipolar_score(1 - cost_gini_raw, df.index, tf_weights, sensitivity=0.2)
-        structural_tension_score = get_adaptive_mtf_normalized_bipolar_score(structural_tension_raw, df.index, tf_weights, sensitivity=0.5)
-        structural_leverage_score = get_adaptive_mtf_normalized_bipolar_score(structural_leverage_raw, df.index, tf_weights, sensitivity=0.5)
+        support_score = get_adaptive_mtf_normalized_bipolar_score(support_validation_raw, df.index, tf_weights, sensitivity=0.5)
+        rejection_score = get_adaptive_mtf_normalized_bipolar_score(pressure_rejection_raw, df.index, tf_weights, sensitivity=0.5)
+        vacuum_score = get_adaptive_mtf_normalized_bipolar_score(vacuum_efficiency_raw, df.index, tf_weights, sensitivity=0.5)
+        tension_score = get_adaptive_mtf_normalized_bipolar_score(structural_tension_raw, df.index, tf_weights, sensitivity=0.5)
+        leverage_score = get_adaptive_mtf_normalized_bipolar_score(structural_leverage_raw, df.index, tf_weights, sensitivity=0.5)
+        fault_penalty = get_adaptive_mtf_normalized_score(fault_raw, df.index, ascending=False, tf_weights=tf_weights)
         final_score = (
-            momentum_score * 0.20 +
-            skewness_score * 0.10 +
-            support_validation_score * 0.10 +
-            cost_gini_score * 0.20 +
-            structural_tension_score * 0.15 +
-            structural_leverage_score * 0.15 +
-            fault_score * 0.05 -
-            pressure_validation_score * 0.05
-        ).clip(-1, 1)
-        return final_score
+            (support_score * 0.4 + vacuum_score * 0.3 - rejection_score * 0.3).clip(-1, 1) * 0.6 +
+            (tension_score * 0.5 + leverage_score * 0.5).clip(-1, 1) * 0.4
+        ) * fault_penalty
+        return final_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V3.2 · 上下文修复版】筹码公理三：诊断“持股心态”动态
-        - 【V3.2 修复】在调用 _get_safe_series 时传递 df 参数。
+        【V4.0 · 持仓稳定性与博弈意图版】筹码公理三：诊断“持仓稳定性与博弈意图”
+        - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
+        - 核心升级: 通过高频日内行为指标，从侧面推断和验证持股者的真实心态和稳定性。
+        - 核心证据 (稳定化): `floating_chip_cleansing_efficiency`，衡量主力主动优化持仓结构的意图。
+        - 核心证据 (承压测试): `profit_realization_quality` 和 `capitulation_absorption_index`，评估在压力下持仓结构的真实稳定性。
         """
-        df_index = df.index
         required_signals = [
-            'winner_stability_index_D', 'conviction_flow_index_D', 'loser_pain_index_D', 'chip_fatigue_index_D',
-            'covert_accumulation_signal_D'
+            'winner_stability_index_D', 'conviction_flow_index_D', 'floating_chip_cleansing_efficiency_D',
+            'profit_realization_quality_D', 'capitulation_absorption_index_D'
         ]
-        missing_signals = [s for s in required_signals if s not in df.columns]
-        if missing_signals:
-            print(f"    -> [持股心态探针] 警告: 缺少核心信号 {missing_signals}，使用默认值0.0。")
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_holder_sentiment"):
             return pd.Series(0.0, index=df.index)
-        winner_stability_raw = self._get_safe_series(df, df, 'winner_stability_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
-        conviction_flow_raw = self._get_safe_series(df, df, 'conviction_flow_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
-        pain_raw = self._get_safe_series(df, df, 'loser_pain_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
-        fatigue_raw = self._get_safe_series(df, df, 'chip_fatigue_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
-        covert_accumulation_raw = self._get_safe_series(df, df, 'covert_accumulation_signal_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_holder_sentiment")
+        df_index = df.index
+        winner_stability_raw = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        conviction_flow_raw = self._get_safe_series(df, df, 'conviction_flow_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        cleansing_efficiency_raw = self._get_safe_series(df, df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        profit_quality_raw = self._get_safe_series(df, df, 'profit_realization_quality_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        absorption_index_raw = self._get_safe_series(df, df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         winner_stability_score = get_adaptive_mtf_normalized_bipolar_score(winner_stability_raw, df_index, tf_weights, sensitivity=0.5)
         conviction_flow_score = get_adaptive_mtf_normalized_bipolar_score(conviction_flow_raw, df_index, tf_weights, sensitivity=0.5)
-        pain_score = get_adaptive_mtf_normalized_bipolar_score(pain_raw, df_index, tf_weights, sensitivity=5.0)
-        fatigue_score = get_adaptive_mtf_normalized_bipolar_score(fatigue_raw, df_index, tf_weights, sensitivity=5.0)
-        covert_accumulation_score = get_adaptive_mtf_normalized_bipolar_score(covert_accumulation_raw, df_index, tf_weights, sensitivity=0.5)
+        cleansing_score = get_adaptive_mtf_normalized_bipolar_score(cleansing_efficiency_raw, df_index, tf_weights, sensitivity=0.5)
+        profit_quality_score = get_adaptive_mtf_normalized_bipolar_score(profit_quality_raw, df_index, tf_weights, sensitivity=0.5)
+        absorption_score = get_adaptive_mtf_normalized_bipolar_score(absorption_index_raw, df_index, tf_weights, sensitivity=0.5)
         final_score = (
-            winner_stability_score * 0.35 +
-            conviction_flow_score * 0.35 +
-            covert_accumulation_score * 0.10 -
-            pain_score * 0.10 -
-            fatigue_score * 0.10
+            (cleansing_score * 0.5 + absorption_score * 0.5).clip(-1, 1) * 0.4 + # 主动行为
+            (winner_stability_score * 0.5 + profit_quality_score * 0.5).clip(-1, 1) * 0.4 + # 状态结果
+            conviction_flow_score * 0.2 # 跨日信念流转
         ).clip(-1, 1)
-        return final_score
+        return final_score.astype(np.float32)
 
     def _diagnose_axiom_peak_integrity(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V3.1 · 上下文修复版】筹码公理四：诊断“筹码峰形态”
-        - 【V3.1 修复】在调用 _get_safe_series 时传递 df 参数。
+        【V4.0 · 主峰控制权与有效性版】筹码公理四：诊断“主峰控制权与有效性”
+        - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
+        - 核心升级: 从静态的形态分析，升级为对主峰的动态控制权和日内有效性的综合评估。
+        - 核心证据 (控制权): `peak_control_transfer`，衡量主力是否在巩固其核心阵地。
+        - 核心证据 (有效性): `intraday_posture_score`，验证主峰在日内实战中是支撑平台还是压力区。
         """
         required_signals = [
-            'dominant_peak_cost_D', 'dominant_peak_solidity_D', 'price_volume_entropy_D',
-            'primary_peak_kurtosis_D'
+            'dominant_peak_cost_D', 'dominant_peak_solidity_D', 'peak_control_transfer_D',
+            'intraday_posture_score_D', 'close_D'
         ]
-        missing_signals = [s for s in required_signals if s not in df.columns]
-        if missing_signals:
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_peak_integrity"):
             return pd.Series(0.0, index=df.index)
         price_vs_peak_raw = self._get_safe_series(df, df, 'close_D', method_name="_diagnose_axiom_peak_integrity") - self._get_safe_series(df, df, 'dominant_peak_cost_D', self._get_safe_series(df, df, 'close_D', method_name="_diagnose_axiom_peak_integrity"), method_name="_diagnose_axiom_peak_integrity")
-        peak_solidity_raw = self._get_safe_series(df, df, 'dominant_peak_solidity_D', pd.Series(0.5, index=df.index), method_name="_diagnose_axiom_peak_integrity")
-        price_volume_entropy_raw = self._get_safe_series(df, df, 'price_volume_entropy_D', pd.Series(0.5, index=df.index), method_name="_diagnose_axiom_peak_integrity")
-        primary_peak_kurtosis_raw = self._get_safe_series(df, df, 'primary_peak_kurtosis_D', pd.Series(3.0, index=df.index), method_name="_diagnose_axiom_peak_integrity")
+        peak_solidity_raw = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5, method_name="_diagnose_axiom_peak_integrity")
+        control_transfer_raw = self._get_safe_series(df, df, 'peak_control_transfer_D', 0.0, method_name="_diagnose_axiom_peak_integrity")
+        intraday_posture_raw = self._get_safe_series(df, df, 'intraday_posture_score_D', 0.0, method_name="_diagnose_axiom_peak_integrity")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         price_vs_peak_score = get_adaptive_mtf_normalized_bipolar_score(price_vs_peak_raw, df.index, tf_weights, sensitivity=1.2)
         peak_solidity_score = get_adaptive_mtf_normalized_score(peak_solidity_raw, df.index, ascending=True, tf_weights=tf_weights)
-        price_volume_entropy_score = get_adaptive_mtf_normalized_bipolar_score(price_volume_entropy_raw * -1, df.index, tf_weights, sensitivity=0.5)
-        primary_peak_kurtosis_score = get_adaptive_mtf_normalized_bipolar_score(primary_peak_kurtosis_raw, df.index, tf_weights, sensitivity=2.0)
-        final_score = (
-            price_vs_peak_score * peak_solidity_score * 0.5 +
-            price_volume_entropy_score * 0.25 +
-            primary_peak_kurtosis_score * 0.25
-        ).clip(-1, 1)
-        return final_score
+        control_transfer_score = get_adaptive_mtf_normalized_bipolar_score(control_transfer_raw, df.index, tf_weights, sensitivity=0.5)
+        intraday_posture_score = get_adaptive_mtf_normalized_bipolar_score(intraday_posture_raw, df.index, tf_weights, sensitivity=0.5)
+        # 价格突破主峰，且主峰稳固，是基础看涨信号
+        base_bullish_signal = (price_vs_peak_score * peak_solidity_score).clip(0, 1)
+        # 日内姿态和控制权转移是强力验证
+        validation_score = (intraday_posture_score * 0.6 + control_transfer_score * 0.4).clip(-1, 1)
+        final_score = (base_bullish_signal * 0.5 + validation_score * 0.5).clip(-1, 1)
+        return final_score.astype(np.float32)
 
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
