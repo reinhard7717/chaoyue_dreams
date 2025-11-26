@@ -310,13 +310,11 @@ class AdvancedFundFlowMetricsService:
                 pass # 修改行：移除了此处的print调试信息
         return intraday_data_map
 
-    def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame, realtime_data_for_day: pd.DataFrame) -> tuple[dict, None]:
+    def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, merged_realtime_df_for_day: pd.DataFrame) -> tuple[dict, None]:
         """
-        【V1.4 · 数据流校正版】
-        - 核心修复: 修正了对 `_calculate_realtime_orderbook_signals` 的调用，
-                     将之前错误传递的实时行情数据 (`realtime_data_for_day`)
-                     校正为正确的五档盘口数据 (`level5_data_for_day`)，
-                     从根源上修复了因数据源错配导致的 `KeyError`。
+        【V1.5 · 数据流同步版】
+        - 核心修复: 修改方法签名，接收融合后的`merged_realtime_df_for_day`，以适配上游的数据融合逻辑。
+        - 核心优化: 移除冗余的`realtime_data_for_day`参数，并将融合后的DataFrame统一传递给所有需要实时数据的下游计算函数。
         """
         day_metrics = {}
         daily_derived_metrics = self._calculate_daily_derived_metrics(daily_data_series)
@@ -332,10 +330,11 @@ class AdvancedFundFlowMetricsService:
         behavioral_metrics = self._compute_all_behavioral_metrics(attributed_minute_df, updated_daily_data_series)
         day_metrics.update(behavioral_metrics)
         daily_total_volume = daily_data_series.get('vol', 0) * 100
-        microstructure_signals = self._calculate_microstructure_signals(stock_code, tick_data_for_day, level5_data_for_day, daily_total_volume)
+        # 修改代码行：将merged_realtime_df_for_day作为level5数据源传递
+        microstructure_signals = self._calculate_microstructure_signals(stock_code, tick_data_for_day, merged_realtime_df_for_day, daily_total_volume)
         day_metrics.update(microstructure_signals)
-        # 将 realtime_data_for_day 校正为 level5_data_for_day
-        realtime_orderbook_signals = self._calculate_realtime_orderbook_signals(level5_data_for_day, daily_total_volume)
+        # 修改代码行：将merged_realtime_df_for_day作为level5数据源传递
+        realtime_orderbook_signals = self._calculate_realtime_orderbook_signals(merged_realtime_df_for_day, daily_total_volume)
         day_metrics.update(realtime_orderbook_signals)
         day_metrics['trade_time'] = daily_data_series.name
         return day_metrics, None
