@@ -40,6 +40,17 @@ class MicroBehaviorEngine:
             return pd.Series(default_value, index=df.index)
         return df[signal_name]
 
+    def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
+        """
+        【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
+        """
+        missing_signals = [s for s in required_signals if s not in df.columns]
+        if missing_signals:
+            # [修改] 调整校验信息为“微观行为情报校验”
+            print(f"    -> [微观行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
+            return False
+        return True
+
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V5.5 · 纯粹原子版】微观行为诊断引擎总指挥
@@ -69,15 +80,17 @@ class MicroBehaviorEngine:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.2 · 信号修复与多时间维度归一化版】微观行为公理四：诊断“微观背离”
+        【V1.3 · 信号校验增强版】微观行为公理四：诊断“微观背离”
         - 核心修复: 将依赖信号 'active_buy_amount_D' 和 'active_sell_amount_D' 修正为实际存在的
                       'active_buying_support_D' 和 'active_selling_pressure_D'。
         - 核心逻辑: 诊断价格行为与微观订单流（如主动买卖盘）之间的背离。
-          - 看涨背离：价格下跌但主动买盘增强。
-          - 看跌背离：价格上涨但主动卖盘增强。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `price_trend` 和 `order_flow_trend` 的归一化方式改为多时间维度自适应归一化。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        required_signals = ['pct_change_D', 'active_buying_support_D', 'active_selling_pressure_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
+            return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -91,22 +104,27 @@ class MicroBehaviorEngine:
 
     def _diagnose_axiom_deception(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.3 · 健壮性修复与多时间维度归一化版】微观行为公理一：诊断“伪装与欺骗”
+        【V1.5 · 信号校验增强版】微观行为公理一：诊断“伪装与欺骗”
         - 核心修复: 使用 _get_safe_series 方法安全获取所有依赖信号，防止因信号缺失而崩溃。
-        - 逻辑修正: 明确使用 'SLOPE_5_short_term_concentration_90pct_D' 作为筹码集中度变化的证据。
+        - 逻辑修正: 明确使用 'SLOPE_5_winner_concentration_90pct_D' 作为筹码集中度变化的证据。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `deception_score` 的归一化方式改为多时间维度自适应归一化。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        required_signals = [
+            'main_force_net_flow_calibrated_D', 'SLOPE_5_winner_concentration_90pct_D',
+            'SLOPE_5_observed_large_order_size_avg_D', 'SLOPE_5_NMFNF_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_deception"):
+            return pd.Series(0.0, index=df.index)
         main_force_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', method_name="_diagnose_axiom_deception")
         main_force_outflow = -main_force_flow_raw.clip(upper=0)
-        # 使用 SLOPE_5_winner_concentration_90pct_D 替代 SLOPE_5_short_term_concentration_90pct_D
         chip_concentration_slope = self._get_safe_series(df, 'SLOPE_5_winner_concentration_90pct_D', method_name="_diagnose_axiom_deception")
         chip_concentration_increase = chip_concentration_slope.clip(lower=0)
         flow_vs_chip_deception = main_force_outflow * chip_concentration_increase
-        granularity_slope = self._get_safe_series(df, 'SLOPE_5_inferred_active_order_size_D', method_name="_diagnose_axiom_deception")
+        granularity_slope = self._get_safe_series(df, 'SLOPE_5_observed_large_order_size_avg_D', method_name="_diagnose_axiom_deception")
         granularity_decrease = -granularity_slope.clip(upper=0)
-        # 使用 SLOPE_5_main_force_net_flow_calibrated_D 替代 SLOPE_5_main_force_control_leverage_D
-        control_leverage_slope = self._get_safe_series(df, 'SLOPE_5_main_force_net_flow_calibrated_D', method_name="_diagnose_axiom_deception")
+        control_leverage_slope = self._get_safe_series(df, 'SLOPE_5_NMFNF_D', method_name="_diagnose_axiom_deception")
         control_increase = control_leverage_slope.clip(lower=0)
         granularity_vs_control_deception = granularity_decrease * control_increase
         raw_deception_score = flow_vs_chip_deception + granularity_vs_control_deception
@@ -118,11 +136,15 @@ class MicroBehaviorEngine:
 
     def _diagnose_axiom_probe(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.2 · 健壮性修复与多时间维度归一化版】微观行为公理二：诊断“试探与确认”
+        【V1.3 · 信号校验增强版】微观行为公理二：诊断“试探与确认”
         - 核心修复: 使用 _get_safe_series 方法安全获取所有依赖信号。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `probe_score` 的归一化方式改为多时间维度自适应归一化。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        required_signals = ['high_D', 'low_D', 'open_D', 'close_D', 'main_force_net_flow_calibrated_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_probe"):
+            return pd.Series(0.0, index=df.index)
         total_range = (self._get_safe_series(df, 'high_D', method_name="_diagnose_axiom_probe") - self._get_safe_series(df, 'low_D', method_name="_diagnose_axiom_probe")).replace(0, np.nan)
         upper_shadow_ratio = ((self._get_safe_series(df, 'high_D', method_name="_diagnose_axiom_probe") - np.maximum(self._get_safe_series(df, 'open_D', method_name="_diagnose_axiom_probe"), self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_probe"))) / total_range).fillna(0)
         main_force_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', method_name="_diagnose_axiom_probe")
@@ -143,11 +165,15 @@ class MicroBehaviorEngine:
 
     def _diagnose_axiom_efficiency(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.2 · 健壮性修复与多时间维度归一化版】微观行为公理三：诊断“成本与效率”
+        【V1.3 · 信号校验增强版】微观行为公理三：诊断“成本与效率”
         - 核心修复: 使用 _get_safe_series 方法安全获取所有依赖信号。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `efficiency_score` 的归一化方式改为多时间维度自适应归一化。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        required_signals = ['amount_D', 'pct_change_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_efficiency"):
+            return pd.Series(0.0, index=df.index)
         amount_series = self._get_safe_series(df, 'amount_D', method_name="_diagnose_axiom_efficiency")
         amount_ma = amount_series.rolling(norm_window).mean().replace(0, np.nan)
         amount_input = (amount_series / amount_ma).fillna(1.0)

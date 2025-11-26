@@ -71,13 +71,15 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.1 · 多时间维度归一化版】结构公理四：诊断“结构背离”
+        【V1.2 · 信号校验增强版】结构公理四：诊断“结构背离”
         - 核心逻辑: 诊断价格行为与均线结构（如均线排列）的背离。
-          - 看涨背离：价格下跌但均线排列开始收敛或转好。
-          - 看跌背离：价格上涨但均线排列开始发散或恶化。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `price_trend` 和 `ma_structure_trend` 的归一化方式改为多时间维度自适应归一化。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        required_signals = ['pct_change_D', 'EMA_5_D', 'EMA_55_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
+            return pd.Series(0.0, index=df.index)
         ma_periods = [5, 13, 21, 55]
         required_cols = [f'EMA_{p}_D' for p in ma_periods]
         if not all(col in df.columns for col in required_cols):
@@ -93,16 +95,17 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V2.0 · 趋势能量与形态版】结构公理一：诊断“趋势能量与形态”
+        【V2.1 · 新指标适配版】结构公理一：诊断“趋势能量与形态”
         - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
         - 核心升级: 将静态的均线排列与动态的日内能量指标相结合，评估趋势的综合质量。
-        - 核心证据 (能量): 引入`intraday_energy_density`和`intraday_thrust_purity`，量化趋势形态背后的“动力强度”。
+        - 核心证据 (能量): 引入`trend_vitality_index`和`upward_impulse_purity`，量化趋势形态背后的“动力强度”。
         """
         required_signals = [
-            'intraday_energy_density_D', 'intraday_thrust_purity_D', 'close_D', 'pct_change_D'
+            'trend_vitality_index_D', 'upward_impulse_purity_D', 'close_D', 'pct_change_D' # [修改] 替换 intraday_energy_density_D, intraday_thrust_purity_D
         ]
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        ema_periods = get_param_value(p_conf_struct.get('trend_form_ema_periods'), [5, 13, 21, 55])
+        # [修改] 剔除未计算5日斜率的周期13，以匹配配置文件，避免运行时错误
+        ema_periods = get_param_value(p_conf_struct.get('trend_form_ema_periods'), [5, 21, 55])
         required_signals.extend([f'EMA_{p}_D' for p in ema_periods])
         required_signals.extend([f'SLOPE_5_EMA_{p}_D' for p in ema_periods])
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_form"):
@@ -111,7 +114,8 @@ class StructuralIntelligence:
         tf_weights_struct = get_param_value(p_conf_struct.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # --- 1. 形态 (Form) ---
         bull_alignment_raw = pd.Series(0.0, index=df_index)
-        alignment_weights = [0.4, 0.3, 0.3]
+        # [修改] 动态调整权重数量以匹配修改后的ema_periods
+        alignment_weights = np.linspace(0.4, 0.3, len(ema_periods) - 1)
         for i in range(len(ema_periods) - 1):
             ema_i = self._get_safe_series(df, f'EMA_{ema_periods[i]}_D', method_name="_diagnose_axiom_trend_form")
             ema_i_plus_1 = self._get_safe_series(df, f'EMA_{ema_periods[i+1]}_D', method_name="_diagnose_axiom_trend_form")
@@ -121,8 +125,10 @@ class StructuralIntelligence:
         avg_slope_bipolar = pd.Series(np.mean(slope_scores, axis=0), index=df_index)
         form_score = (bull_alignment_score * 0.5 + avg_slope_bipolar.clip(lower=0) * 0.5).clip(0, 1)
         # --- 2. 能量 (Energy) ---
-        energy_density_raw = self._get_safe_series(df, 'intraday_energy_density_D', 0.0, method_name="_diagnose_axiom_trend_form")
-        thrust_purity_raw = self._get_safe_series(df, 'intraday_thrust_purity_D', 0.0, method_name="_diagnose_axiom_trend_form")
+        # [修改] 使用 trend_vitality_index_D 替换 intraday_energy_density_D
+        energy_density_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_axiom_trend_form")
+        # [修改] 使用 upward_impulse_purity_D 替换 intraday_thrust_purity_D
+        thrust_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_axiom_trend_form")
         energy_density_score = get_adaptive_mtf_normalized_score(energy_density_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
         thrust_purity_score = get_adaptive_mtf_normalized_score(thrust_purity_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
         energy_score = (energy_density_score * 0.6 + thrust_purity_score * 0.4).clip(0, 1)
@@ -137,15 +143,15 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V5.0 · 结构韧性与微观流动性版】结构公理三：诊断“结构韧性与微观流动性”
+        【V5.1 · 新指标适配版】结构公理三：诊断“结构韧性与微观流动性”
         - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
         - 核心升级: 将稳定性的评估深入到微观层面，引入流动性指标来验证宏观结构的真实支撑力。
-        - 核心证据 (微观): `liquidity_authenticity_score`和`market_impact_cost`评估稳定性的“微观基础”。
-        - 核心证据 (韧性): `pullback_depth_ratio`作为结构在压力测试下的直接表现。
+        - 核心证据 (微观): `flow_credibility_index`和`main_force_price_impact_ratio`评估稳定性的“微观基础”。
+        - 核心证据 (韧性): `support_validation_strength`作为结构在压力测试下的直接表现。
         """
         required_signals = [
-            'liquidity_authenticity_score_D', 'market_impact_cost_D', 'pullback_depth_ratio_D',
-            'vpoc_consensus_strength_D', 'close_D'
+            'flow_credibility_index_D', 'main_force_price_impact_ratio_D', 'support_validation_strength_D', # [修改] 替换旧指标
+            'dominant_peak_solidity_D', 'close_D' # [修改] 替换旧指标
         ]
         long_term_ma_periods = [55, 144]
         required_signals.extend([f'MA_{p}_D' for p in long_term_ma_periods])
@@ -159,15 +165,19 @@ class StructuralIntelligence:
             support_score = get_adaptive_mtf_normalized_score((self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_stability") - self._get_safe_series(df, f'MA_{p}_D', method_name="_diagnose_axiom_stability")).clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct)
             foundation_support_scores.append(support_score)
         foundation_support_score = pd.Series(np.mean(foundation_support_scores, axis=0), index=df_index)
-        vpoc_consensus_raw = self._get_safe_series(df, 'vpoc_consensus_strength_D', 0.0, method_name="_diagnose_axiom_stability")
+        # [修改] 使用 dominant_peak_solidity_D 替换 vpoc_consensus_strength_D
+        vpoc_consensus_raw = self._get_safe_series(df, 'dominant_peak_solidity_D', 0.0, method_name="_diagnose_axiom_stability")
         vpoc_consensus_score = get_adaptive_mtf_normalized_score(vpoc_consensus_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
         macro_support_score = (foundation_support_score * 0.6 + vpoc_consensus_score * 0.4).clip(0, 1)
         # --- 2. 结构韧性 (Structural Resilience) ---
-        pullback_depth_raw = self._get_safe_series(df, 'pullback_depth_ratio_D', 0.5, method_name="_diagnose_axiom_stability")
-        resilience_score = get_adaptive_mtf_normalized_score(pullback_depth_raw, df_index, ascending=False, tf_weights=tf_weights_struct) # 回撤越浅越好
+        # [修改] 使用 support_validation_strength_D 替换 pullback_depth_ratio_D
+        pullback_depth_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.5, method_name="_diagnose_axiom_stability")
+        resilience_score = get_adaptive_mtf_normalized_score(pullback_depth_raw, df_index, ascending=True, tf_weights=tf_weights_struct) # 支撑强度越强越好
         # --- 3. 微观流动性 (Micro-Liquidity) ---
-        liquidity_auth_raw = self._get_safe_series(df, 'liquidity_authenticity_score_D', 0.5, method_name="_diagnose_axiom_stability")
-        market_impact_raw = self._get_safe_series(df, 'market_impact_cost_D', 0.1, method_name="_diagnose_axiom_stability")
+        # [修改] 使用 flow_credibility_index_D 替换 liquidity_authenticity_score_D
+        liquidity_auth_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.5, method_name="_diagnose_axiom_stability")
+        # [修改] 使用 main_force_price_impact_ratio_D 替换 market_impact_cost_D
+        market_impact_raw = self._get_safe_series(df, 'main_force_price_impact_ratio_D', 0.1, method_name="_diagnose_axiom_stability")
         liquidity_auth_score = get_adaptive_mtf_normalized_score(liquidity_auth_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
         market_impact_score = get_adaptive_mtf_normalized_score(market_impact_raw, df_index, ascending=False, tf_weights=tf_weights_struct) # 冲击成本越低越好
         micro_liquidity_score = (liquidity_auth_score * 0.6 + market_impact_score * 0.4).clip(0, 1)
@@ -181,13 +191,13 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, norm_window: int, daily_trend_form_score: pd.Series) -> pd.Series:
         """
-        【V2.0 · 多周期协同与微观意图版】结构公理二：诊断“多周期协同与微观意图”
+        【V2.1 · 新指标适配版】结构公理二：诊断“多周期协同与微观意图”
         - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
         - 核心升级: 引入微观结构指标，对宏观的多周期共振信号进行“意图验真”。
-        - 核心证据 (意图): `order_flow_imbalance_score`和`buy_sweep_intensity`被用作“测谎仪”，验证共振背后的真实攻击意图。
+        - 核心证据 (意图): `order_book_imbalance`和`buy_quote_exhaustion_rate`被用作“测谎仪”，验证共振背后的真实攻击意图。
         """
         required_signals = [
-            'order_flow_imbalance_score_D', 'buy_sweep_intensity_D', 'sell_sweep_intensity_D', 'close_D'
+            'order_book_imbalance_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D', 'close_D' # [修改] 替换旧指标
         ]
         ma_periods_w = [5, 13, 21, 55]
         required_signals.extend([f'EMA_{p}_W' for p in ma_periods_w])
@@ -202,9 +212,12 @@ class StructuralIntelligence:
         bull_alignment_w_score = bull_alignment_w_raw / (len(ma_periods_w) - 1)
         macro_cohesion_score = (daily_trend_form_score.clip(lower=0) * bull_alignment_w_score).clip(0, 1)
         # --- 2. 微观意图 (Micro Intent) ---
-        ofi_raw = self._get_safe_series(df, 'order_flow_imbalance_score_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
-        buy_sweep_raw = self._get_safe_series(df, 'buy_sweep_intensity_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
-        sell_sweep_raw = self._get_safe_series(df, 'sell_sweep_intensity_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
+        # [修改] 使用 order_book_imbalance_D 替换 order_flow_imbalance_score_D
+        ofi_raw = self._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
+        # [修改] 使用 buy_quote_exhaustion_rate_D 替换 buy_sweep_intensity_D
+        buy_sweep_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
+        # [修改] 使用 sell_quote_exhaustion_rate_D 替换 sell_sweep_intensity_D
+        sell_sweep_raw = self._get_safe_series(df, 'sell_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
         ofi_score = get_adaptive_mtf_normalized_bipolar_score(ofi_raw, df_index, tf_weights_struct)
         buy_sweep_score = get_adaptive_mtf_normalized_score(buy_sweep_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
         sell_sweep_score = get_adaptive_mtf_normalized_score(sell_sweep_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
@@ -221,21 +234,20 @@ class StructuralIntelligence:
 
     def _diagnose_bottom_fractal(self, df: pd.DataFrame, n: int = 5, min_depth_ratio: float = 0.001) -> pd.Series:
         """
-        【V1.0】结构公理五：诊断“底分型”结构
+        【V1.1 · 信号校验增强版】结构公理五：诊断“底分型”结构
         - 核心逻辑: 识别底分型结构形态，并输出一个双极性分数 `SCORE_STRUCT_BOTTOM_FRACTAL`。
-        - 底分型定义: 中间K线的最低价是其左右各 (n-1)/2 根K线中的最低价。
-        - 信号输出: 识别到底分型时，输出1.0；否则输出0.0。
-        - 引入 `min_depth_ratio` 过滤微小波动形成的底分型。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        required_signals = ['low_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_bottom_fractal"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
         bottom_fractal_score = pd.Series(0.0, index=df_index, dtype=np.float32)
-        # 确保 n 是大于等于3的奇数
         if n % 2 == 0 or n < 3:
             print(f"    -> [结构情报警告] 底分型识别错误: 参数 n 必须是大于等于3的奇数，当前为 {n}。将使用默认值5。")
             n = 5
         half_n = n // 2
-        # 确保 'low' 列存在
         if 'low_D' not in df.columns:
             print(f"    -> [结构情报警告] 诊断底分型失败: 缺少 'low_D' 列，返回默认分数。")
             return bottom_fractal_score
@@ -253,16 +265,14 @@ class StructuralIntelligence:
                     is_bottom = False
                     break
             if is_bottom:
-                # 进一步检查深度比例
                 if min_depth_ratio > 0:
                     avg_surrounding_low = np.mean(surrounding_lows)
-                    if avg_surrounding_low <= 0: # 避免除以零或负数
+                    if avg_surrounding_low <= 0: 
                         is_bottom = False
                     elif (avg_surrounding_low - middle_low) / avg_surrounding_low < min_depth_ratio:
                         is_bottom = False
             if is_bottom:
-                bottom_fractal_score.iloc[i] = 1.0 # 识别到底分型，记为1.0
-        # 调试信息
+                bottom_fractal_score.iloc[i] = 1.0 
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:

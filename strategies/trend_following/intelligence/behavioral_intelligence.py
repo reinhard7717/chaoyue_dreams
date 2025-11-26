@@ -28,6 +28,16 @@ class BehavioralIntelligence:
             return pd.Series(default_value, index=df.index)
         return df[column_name]
 
+    def _validate_required_signals(self, df: pd.DataFrame, required_signals: list, method_name: str) -> bool:
+        """
+        【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
+        """
+        missing_signals = [s for s in required_signals if s not in df.columns]
+        if missing_signals:
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
+            return False
+        return True
+
     def run_behavioral_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V29.0 · 结构指标升维版】行为情报模块总指挥
@@ -150,10 +160,17 @@ class BehavioralIntelligence:
 
     def _calculate_behavioral_day_quality(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.1 · 工具归位版】行为K线质量分计算引擎
+        【V1.2 · 信号校验增强版】行为K线质量分计算引擎
         - 核心修改: 调用从 utils.py 导入的公共归一化工具。
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        required_signals = [
+            'closing_price_deviation_score_D', 'real_body_vs_range_ratio_D', 'shadow_dominance_D',
+            'VPA_EFFICIENCY_D', 'vwap_control_strength_D', 'intraday_trend_purity_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_calculate_behavioral_day_quality"):
+            return pd.Series(0.0, index=df.index)
         print("开始执行【V1.0 · 纯净版】行为K线质量分计算...")
         outcome_core = (self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_calculate_behavioral_day_quality") * 2 - 1).clip(-1, 1)
         body_dominance = self._get_safe_series(df, 'real_body_vs_range_ratio_D', 0.0, method_name="_calculate_behavioral_day_quality")
@@ -173,10 +190,18 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V29.0 · 结构指标升维版】原子信号中心
-        - 核心升级: 引入 active_volume_price_efficiency, absorption_strength_index, distribution_pressure_index 等高级结构指标，
+        【V29.2 · 信号校验增强版】原子信号中心
+        - 核心升级: 引入 microstructure_efficiency_index, dip_absorption_power, rally_distribution_pressure 等高级结构指标，
                     对上涨效率、下跌抵抗等核心行为公理进行高保真重构。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        required_signals = [
+            'pct_change_D', 'BIAS_55_D', 'volume_ratio_D', 'microstructure_efficiency_index_D',
+            'dip_absorption_power_D', 'vwap_control_strength_D', 'lower_shadow_absorption_strength_D',
+            'upper_shadow_selling_pressure_D', 'volume_D', 'rally_distribution_pressure_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_behavioral_axioms"):
+            return {}
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
@@ -187,11 +212,9 @@ class BehavioralIntelligence:
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BIAS_55_D', 0.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=long_term_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights).astype(np.float32)
-        # 使用 active_volume_price_efficiency_D 替换 VPA_EFFICIENCY_D，实现对上涨效率的高保真度量
-        upward_efficiency_raw = self._get_safe_series(df, 'active_volume_price_efficiency_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        upward_efficiency_raw = self._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
         states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = get_adaptive_mtf_normalized_score(upward_efficiency_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        # 使用 absorption_strength_index_D 替换旧的下跌抵抗逻辑，直接量化下跌过程中的真实吸筹强度
-        downward_resistance_raw = self._get_safe_series(df, 'absorption_strength_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        downward_resistance_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_behavioral_axioms")
         states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = get_adaptive_mtf_normalized_score(downward_resistance_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'vwap_control_strength_D', 0.5, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
@@ -216,8 +239,7 @@ class BehavioralIntelligence:
         stagnation_evidence_raw_score = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_evidence_components, weights_stagnation_evidence)], axis=0), index=df.index)
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = (stagnation_evidence_raw_score * is_rising).clip(0, 1).astype(np.float32)
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
-        # 派发压力指数，直接反映上涨过程中的真实抛压
-        distribution_pressure_raw = self._get_safe_series(df, 'distribution_pressure_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        distribution_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_behavioral_axioms")
         states['SCORE_BEHAVIOR_DISTRIBUTION_PRESSURE'] = get_adaptive_mtf_normalized_score(distribution_pressure_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         return states
 
@@ -286,11 +308,15 @@ class BehavioralIntelligence:
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 多时间维度归一化版】诊断内部上下文信号：新高强度 (CONTEXT_NEW_HIGH_STRENGTH)
+        【V1.2 · 信号校验增强版】诊断内部上下文信号：新高强度 (CONTEXT_NEW_HIGH_STRENGTH)
         - 核心逻辑: 融合价格突破、均线斜率和BIAS健康度，评估新高的综合质量。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        required_signals = ['pct_change_D', 'SLOPE_5_EMA_55_D', 'BIAS_55_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_context_new_high_strength"):
+            return {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -303,13 +329,21 @@ class BehavioralIntelligence:
 
     def _resolve_pressure_absorption_dynamics(self, provisional_pressure: pd.Series, intent_diagnosis: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V3.2 · 工具归位与多时间维度归一化版】压力-承接能量转化模型
+        【V3.3 · 情报校验加固版】压力-承接能量转化模型
         - 核心修改: 调用从 utils.py 导入的公共归一化工具。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `absorption_efficiency` 和 `absorption_control` 的归一化方式改为多时间维度自适应归一化。
+        - 【新增】增加战前情报校验，确保所有依赖信号存在。
         """
         states = {}
         df = self.strategy.df_indicators
+        # [新增代码块] 战前情报校验
+        required_signals = ['VPA_EFFICIENCY_D', 'vwap_control_strength_D']
+        if not self._validate_required_signals(df, required_signals, "_resolve_pressure_absorption_dynamics"):
+            return {
+                'SCORE_RISK_UNRESOLVED_PRESSURE': pd.Series(0.0, index=df.index),
+                'SCORE_OPPORTUNITY_PRESSURE_ABSORPTION': pd.Series(0.0, index=df.index)
+            }
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -333,25 +367,25 @@ class BehavioralIntelligence:
 
     def _diagnose_microstructure_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】微观结构意图诊断引擎
+        【V1.2 · 信号校验增强版】微观结构意图诊断引擎
         - 核心职责: 融合订单流失衡(OFI)与扫单强度，生成一个全新的原子信号 `SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT`，
                     用于捕捉最细微的主力攻击或撤退意图。
         - 数学思想: OFI反映了挂单册上的力量变化，扫单强度反映了直接吃单的决心。两者结合，可以区分是“温和吸筹”还是“暴力抢筹”。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
+        required_signals = ['order_book_imbalance_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_microstructure_intent"):
+            return {}
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        ofi_raw = self._get_safe_series(df, 'order_flow_imbalance_score_D', 0.0, method_name="_diagnose_microstructure_intent")
-        buy_sweep_raw = self._get_safe_series(df, 'buy_sweep_intensity_D', 0.0, method_name="_diagnose_microstructure_intent")
-        sell_sweep_raw = self._get_safe_series(df, 'sell_sweep_intensity_D', 0.0, method_name="_diagnose_microstructure_intent")
+        ofi_raw = self._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name="_diagnose_microstructure_intent")
+        buy_sweep_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_microstructure_intent")
+        sell_sweep_raw = self._get_safe_series(df, 'sell_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_microstructure_intent")
         ofi_score = get_adaptive_mtf_normalized_bipolar_score(ofi_raw, df.index, default_weights)
         buy_sweep_score = get_adaptive_mtf_normalized_score(buy_sweep_raw, df.index, ascending=True, tf_weights=default_weights)
         sell_sweep_score = get_adaptive_mtf_normalized_score(sell_sweep_raw, df.index, ascending=True, tf_weights=default_weights)
-        # 融合逻辑：
-        # 攻击意图 = 订单流优势 + 扫单决心
-        # 正向意图 = (正向OFI + 买方扫单) - 卖方扫单
-        # 负向意图 = (负向OFI + 卖方扫单) - 买方扫单
         bullish_intent = (ofi_score.clip(lower=0) * 0.5 + buy_sweep_score * 0.5)
         bearish_intent = (ofi_score.clip(upper=0).abs() * 0.5 + sell_sweep_score * 0.5)
         micro_intent_score = (bullish_intent - bearish_intent).clip(-1, 1)
