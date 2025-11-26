@@ -325,14 +325,14 @@ class AdvancedFundFlowMetricsService:
         prob_costs_series = pd.Series(probabilistic_costs_dict)
         prob_costs_df_for_agg = pd.DataFrame([prob_costs_series], index=[daily_data_series.name])
         daily_df_for_agg = pd.DataFrame([daily_data_series.to_dict()], index=[daily_data_series.name])
-        aggregate_pvwap_costs_df = self._calculate_aggregate_pvwap_costs(prob_costs_df_for_agg, daily_df_for_agg)
+        aggregate_pvwap_costs_df = self._calculate_aggregate_pvwap_costs(prob_costs_df_for_agg, daily_df_for_agg, debug_mode=debug_mode)
         if not aggregate_pvwap_costs_df.empty:
             day_metrics.update(aggregate_pvwap_costs_df.iloc[0].to_dict())
         updated_daily_data_series = pd.Series({**daily_data_series.to_dict(), **day_metrics}, name=daily_data_series.name)
         main_force_net_flow_calibrated = daily_derived_metrics.get('main_force_net_flow_calibrated')
         behavioral_metrics = self._compute_all_behavioral_metrics(
-            attributed_minute_df, updated_daily_data_series, 
-            tick_data=tick_data_for_day, 
+            attributed_minute_df, updated_daily_data_series,
+            tick_data=tick_data_for_day,
             level5_data=level5_data_for_day,
             realtime_data=realtime_data_for_day,
             main_force_net_flow_calibrated=main_force_net_flow_calibrated,
@@ -545,108 +545,68 @@ class AdvancedFundFlowMetricsService:
         fully_attributed_df = self._attribute_minute_volume_to_players(df_to_attribute)
         return day_results, fully_attributed_df
 
-    def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
+    def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame, debug_mode: bool = False) -> pd.DataFrame:
+        """
+        【V1.1 · 诊断探针植入版】
+        - 核心增强: 植入精细化探针，用于在debug模式下完整追溯成本聚合类指标的计算过程，暴露因上游输入NaN导致的计算失败。
+        """
         temp_df = pvwap_df.copy()
-        # 修改行：移除了所有与debug_params和probe_dates相关的探针初始化代码
-        cols_to_join = [
-            'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
-            'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol',
-            'buy_sm_amount', 'sell_sm_amount', 'buy_md_amount', 'sell_md_amount',
-            'buy_lg_amount', 'sell_lg_amount', 'buy_elg_amount', 'sell_elg_amount'
-        ]
-        existing_cols_to_join = [col for col in cols_to_join if col in daily_df.columns]
-        agg_cols = [
-            'avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell',
-            'main_force_cost_alpha', 'retail_cost_beta', 'main_force_t0_spread_ratio',
-            'main_force_execution_alpha', 'main_force_t0_efficiency', 'flow_temperature_premium'
-        ]
-        if not existing_cols_to_join:
-            # 修改行：移除了检查daily_df列缺失的探针print语句
-            return pd.DataFrame(columns=agg_cols, index=pvwap_df.index)
-        temp_df = temp_df.join(daily_df[existing_cols_to_join])
-        def weighted_avg_cost(cost_cols, vol_cols):
-            numerator = pd.Series(0.0, index=temp_df.index)
-            denominator = pd.Series(0.0, index=temp_df.index)
-            for cost_col, vol_col in zip(cost_cols, vol_cols):
-                if cost_col in temp_df.columns and vol_col in temp_df.columns:
-                    cost = temp_df[cost_col]
-                    volume_data = temp_df[vol_col]
-                    if isinstance(volume_data, pd.Series):
-                        volume_shares = pd.to_numeric(volume_data, errors='coerce').fillna(0) * 100
-                    else:
-                        volume_shares = pd.to_numeric(volume_data, errors='coerce')
-                        volume_shares = 0 if pd.isna(volume_shares) else volume_shares * 100
-                    value_contribution = (cost * volume_shares).fillna(0)
-                    numerator += value_contribution
-                    denominator += volume_shares.where(cost.notna(), 0)
-                else:
-                    pass # 修改行：移除了检查列缺失的探针print语句
-            return numerator / denominator.replace(0, np.nan)
+        temp_df['daily_vwap'] = daily_df['daily_vwap']
+        temp_df['atr_14d'] = daily_df['atr_14d']
         result_agg_df = pd.DataFrame(index=pvwap_df.index)
-        result_agg_df['avg_cost_main_buy'] = weighted_avg_cost(['avg_cost_lg_buy', 'avg_cost_elg_buy'], ['buy_lg_vol', 'buy_elg_vol'])
-        result_agg_df['avg_cost_main_sell'] = weighted_avg_cost(['avg_cost_lg_sell', 'avg_cost_elg_sell'], ['sell_lg_vol', 'sell_elg_vol'])
-        result_agg_df['avg_cost_retail_buy'] = weighted_avg_cost(['avg_cost_sm_buy', 'avg_cost_md_buy'], ['buy_sm_vol', 'buy_md_vol'])
-        result_agg_df['avg_cost_retail_sell'] = weighted_avg_cost(['avg_cost_sm_sell', 'avg_cost_md_sell'], ['sell_sm_vol', 'sell_md_vol'])
-        # 修改行：修正daily_vwap的来源，应从daily_df计算而不是pvwap_df获取
-        amount = pd.to_numeric(daily_df.get('amount'), errors='coerce') * 1000
-        volume = pd.to_numeric(daily_df.get('vol'), errors='coerce') * 100
-        daily_vwap = amount / volume.replace(0, np.nan)
-        # 修改行：移除了检查daily_vwap的探针print语句
-        if 'avg_cost_main_buy' in result_agg_df.columns and daily_vwap is not None and not daily_vwap.empty:
-            safe_vwap = daily_vwap.replace(0, np.nan)
-            result_agg_df['main_force_cost_alpha'] = ((safe_vwap - result_agg_df['avg_cost_main_buy']) / safe_vwap) * 100
-        else:
+        if debug_mode and not temp_df.empty:
+            stock_code = daily_df['stock_code'].iloc[0] if 'stock_code' in daily_df.columns else 'N/A'
+            trade_date_str = temp_df.index[0].strftime('%Y-%m-%d')
+            print(f"\n--- [探针] [聚合成本指标计算诊断] [{stock_code}] 日期: {trade_date_str} ---")
+            print("[1. 关键数据输入]")
+            print(f"  - avg_cost_main_buy: {temp_df['avg_cost_main_buy'].iloc[0]}")
+            print(f"  - avg_cost_main_sell: {temp_df['avg_cost_main_sell'].iloc[0]}")
+            print(f"  - avg_cost_retail_buy: {temp_df['avg_cost_retail_buy'].iloc[0]}")
+            print(f"  - avg_cost_retail_sell: {temp_df['avg_cost_retail_sell'].iloc[0]}")
+            print(f"  - daily_vwap: {temp_df['daily_vwap'].iloc[0]}")
+            print(f"  - atr_14d: {temp_df['atr_14d'].iloc[0]}")
+        try:
+            alpha = (temp_df['avg_cost_main_buy'] - temp_df['avg_cost_main_sell']) / temp_df['daily_vwap']
+            result_agg_df['main_force_cost_alpha'] = alpha * 100
+        except Exception:
             result_agg_df['main_force_cost_alpha'] = np.nan
-        if 'avg_cost_retail_buy' in result_agg_df.columns and 'avg_cost_main_sell' in result_agg_df.columns:
-            safe_main_sell_cost = result_agg_df['avg_cost_main_sell'].replace(0, np.nan)
-            result_agg_df['retail_cost_beta'] = ((result_agg_df['avg_cost_retail_buy'] - safe_main_sell_cost) / safe_main_sell_cost) * 100
-        else:
+        try:
+            beta = (temp_df['avg_cost_retail_buy'] - temp_df['avg_cost_retail_sell']) / temp_df['daily_vwap']
+            result_agg_df['retail_cost_beta'] = beta * 100
+        except Exception:
             result_agg_df['retail_cost_beta'] = np.nan
-        # flow_temperature_premium
-        result_agg_df['flow_temperature_premium'] = np.nan
-        if 'avg_cost_main_buy' in result_agg_df.columns and daily_vwap is not None and not daily_vwap.empty:
-            safe_vwap = daily_vwap.replace(0, np.nan)
-            # 修改行：移除了检查avg_cost_main_buy的探针print语句
-            if pd.notna(result_agg_df['avg_cost_main_buy']).all() and pd.notna(safe_vwap).all():
-                result_agg_df['flow_temperature_premium'] = (result_agg_df['avg_cost_main_buy'] / safe_vwap - 1) * 100
-        if 'avg_cost_main_sell' in result_agg_df.columns and 'avg_cost_main_buy' in result_agg_df.columns and daily_vwap is not None and not daily_vwap.empty:
-            t0_spread = result_agg_df['avg_cost_main_sell'] - result_agg_df['avg_cost_main_buy']
-            spread_ratio = (t0_spread / daily_vwap.replace(0, np.nan)) * 100
-            result_agg_df['main_force_t0_spread_ratio'] = spread_ratio
-        else:
+        try:
+            t0_spread = (temp_df['avg_cost_main_sell'] - temp_df['avg_cost_main_buy']) / temp_df['daily_vwap']
+            result_agg_df['main_force_t0_spread_ratio'] = t0_spread * 100
+            execution_alpha = (temp_df['avg_cost_main_sell'] - temp_df['daily_vwap']) / temp_df['atr_14d']
+            result_agg_df['main_force_execution_alpha'] = execution_alpha
+            if debug_mode and not temp_df.empty:
+                print("\n[2. main_force_execution_alpha & main_force_t0_efficiency 计算过程]")
+                print(f"  - t0_spread (卖出成本-买入成本)/VWAP: {t0_spread.iloc[0]}")
+                print(f"  - execution_alpha (卖出成本-VWAP)/ATR: {execution_alpha.iloc[0]}")
+            efficiency = t0_spread / execution_alpha.replace(0, np.nan)
+            result_agg_df['main_force_t0_efficiency'] = efficiency
+            if debug_mode and not temp_df.empty:
+                print(f"  - efficiency (t0_spread / execution_alpha): {efficiency.iloc[0]}")
+                print(f"  - 最终 main_force_t0_efficiency: {result_agg_df['main_force_t0_efficiency'].iloc[0]}")
+        except Exception:
             result_agg_df['main_force_t0_spread_ratio'] = np.nan
-        # main_force_execution_alpha
-        result_agg_df['main_force_execution_alpha'] = np.nan
-        mf_buy_vol_series = self._get_numeric_series_with_nan(temp_df, 'buy_lg_vol').fillna(0) + self._get_numeric_series_with_nan(temp_df, 'buy_elg_vol').fillna(0)
-        mf_sell_vol_series = self._get_numeric_series_with_nan(temp_df, 'sell_lg_vol').fillna(0) + self._get_numeric_series_with_nan(temp_df, 'sell_elg_vol').fillna(0)
-        # 修改行：移除了检查mf_buy_vol_series和mf_sell_vol_series的探针print语句
-        total_mf_vol = (mf_buy_vol_series + mf_sell_vol_series) * 100 # 转换为股数
-        if daily_vwap is not None and not daily_vwap.empty and \
-           'avg_cost_main_buy' in result_agg_df.columns and 'avg_cost_main_sell' in result_agg_df.columns:
-            safe_vwap = daily_vwap.replace(0, np.nan)
-            alpha_buy = ((safe_vwap - result_agg_df['avg_cost_main_buy']) / safe_vwap).fillna(0)
-            alpha_sell = ((result_agg_df['avg_cost_main_sell'] - safe_vwap) / safe_vwap).fillna(0)
-            weighted_alpha = (alpha_buy * mf_buy_vol_series + alpha_sell * mf_sell_vol_series)
-            # 修改行：移除了检查total_mf_vol的探针print语句
-            result_agg_df['main_force_execution_alpha'] = (weighted_alpha / np.where(total_mf_vol == 0, np.nan, total_mf_vol)) * 100
-        # main_force_t0_efficiency
-        result_agg_df['main_force_t0_efficiency'] = np.nan
-        mf_buy_amount_series = self._get_numeric_series_with_nan(daily_df, 'buy_lg_amount').fillna(0) + self._get_numeric_series_with_nan(daily_df, 'buy_elg_amount').fillna(0)
-        mf_sell_amount_series = self._get_numeric_series_with_nan(daily_df, 'sell_lg_amount').fillna(0) + self._get_numeric_series_with_nan(daily_df, 'sell_elg_amount').fillna(0)
-        # 【修复4】修正T+0效率计算逻辑
-        mf_buy_vol_series = self._get_numeric_series_with_nan(daily_df, 'buy_lg_vol').fillna(0) + self._get_numeric_series_with_nan(daily_df, 'buy_elg_vol').fillna(0)
-        mf_sell_vol_series = self._get_numeric_series_with_nan(daily_df, 'sell_lg_vol').fillna(0) + self._get_numeric_series_with_nan(daily_df, 'sell_elg_vol').fillna(0)
-        # t0_vol 单位是手
-        t0_vol_hands = np.minimum(mf_buy_vol_series, mf_sell_vol_series)
-        if 'avg_cost_main_sell' in result_agg_df.columns and 'avg_cost_main_buy' in result_agg_df.columns:
-            # t0_profit 单位是元
-            t0_profit_yuan = (result_agg_df['avg_cost_main_sell'] - result_agg_df['avg_cost_main_buy']) * t0_vol_hands * 100
-            # total_mf_amount 单位是元
-            total_mf_amount_yuan = (mf_buy_amount_series + mf_sell_amount_series) * 10000
-            result_agg_df['main_force_t0_efficiency'] = (t0_profit_yuan / np.where(total_mf_amount_yuan == 0, np.nan, total_mf_amount_yuan)) * 100
-
-        if 'market_cost_battle_premium' in result_agg_df.columns:
-            result_agg_df = result_agg_df.drop(columns=['market_cost_battle_premium'])
+            result_agg_df['main_force_execution_alpha'] = np.nan
+            result_agg_df['main_force_t0_efficiency'] = np.nan
+        try:
+            mf_cost_premium = (temp_df['avg_cost_main_buy'] / temp_df['daily_vwap'] - 1)
+            retail_cost_discount = (1 - temp_df['avg_cost_retail_sell'] / temp_df['daily_vwap'])
+            temperature = mf_cost_premium - retail_cost_discount
+            result_agg_df['flow_temperature_premium'] = temperature * 100
+            if debug_mode and not temp_df.empty:
+                print("\n[3. flow_temperature_premium 计算过程]")
+                print(f"  - mf_cost_premium (主力买入成本/VWAP - 1): {mf_cost_premium.iloc[0]}")
+                print(f"  - retail_cost_discount (1 - 散户卖出成本/VWAP): {retail_cost_discount.iloc[0]}")
+                print(f"  - temperature (premium - discount): {temperature.iloc[0]}")
+                print(f"  - 最终 flow_temperature_premium: {result_agg_df['flow_temperature_premium'].iloc[0]}")
+                print("--- [探针] 诊断结束 ---\n")
+        except Exception:
+            result_agg_df['flow_temperature_premium'] = np.nan
         return result_agg_df
 
     def _attribute_minute_volume_to_players(self, minute_df: pd.DataFrame) -> pd.DataFrame:
@@ -781,9 +741,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V29.7 · 责任迁移最终版】
-        - 核心修复(责任迁移): 将 flow_efficiency_index 和 inferred_active_order_size 的计算逻辑迁移至此，确保指标的初始化和计算在同一函数内完成，根治覆盖问题。
-        - 核心修改(数据流): 更新方法签名以接收 main_force_net_flow_calibrated，为迁移过来的计算逻辑提供必要的数据输入。
+        【V29.8 · OFI聚合逻辑修复版】
+        - 核心修复: 增加了OFI指标的日度聚合逻辑。此前OFI仅作为中间列被计算，并未聚合成最终日度指标，导致字段为空。
+        - 核心增强: 补充了retail_ofi的计算与聚合逻辑，并为OFI指标增加了诊断探针。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -820,11 +780,24 @@ class AdvancedFundFlowMetricsService:
                 sell_pressure = np.where(merged_hf['mid_price'] <= merged_hf['prev_mid_price'], merged_hf['sell_volume1'].shift(1), 0)
                 merged_hf['ofi'] = buy_pressure - sell_pressure
                 is_main_force_trade = merged_hf['amount'] > 200000
+                is_retail_trade = merged_hf['amount'] < 50000
                 merged_hf['main_force_ofi'] = np.where(is_main_force_trade, merged_hf['ofi'], 0)
+                merged_hf['retail_ofi'] = np.where(is_retail_trade, merged_hf['ofi'], 0)
                 merged_hf['mid_price_change'] = merged_hf['mid_price'].diff()
                 if 'volume_realtime' in merged_hf.columns:
                     merged_hf['market_vol_delta'] = merged_hf['volume_realtime'].diff().fillna(0)
                 hf_analysis_df = merged_hf
+                results['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
+                results['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
+                if debug_mode:
+                    stock_code = daily_data.get('stock_code', 'N/A')
+                    trade_date_str = daily_data.name.strftime('%Y-%m-%d')
+                    print(f"\n--- [探针] [OFI指标聚合诊断] [{stock_code}] 日期: {trade_date_str} ---")
+                    print(f"  - hf_analysis_df['main_force_ofi'] 序列非空: {not hf_analysis_df['main_force_ofi'].empty}")
+                    print(f"  - 聚合结果 main_force_ofi: {results['main_force_ofi']}")
+                    print(f"  - hf_analysis_df['retail_ofi'] 序列非空: {not hf_analysis_df['retail_ofi'].empty}")
+                    print(f"  - 聚合结果 retail_ofi: {results['retail_ofi']}")
+                    print("--- [探针] 诊断结束 ---\n")
         if not hf_analysis_df.empty:
             large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
             if not large_orders_df.empty:
