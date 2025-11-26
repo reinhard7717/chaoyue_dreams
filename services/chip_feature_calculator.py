@@ -718,9 +718,10 @@ class ChipFeatureCalculator:
 
     def _compute_microstructure_game_metrics(self, context: dict) -> dict:
         """
-        【V1.1 · OFI增强版】
-        - 核心升级: 引入订单流失衡(OFI)来增强 `covert_accumulation_signal` 的计算精度，
-                     使其能更准确地识别“价格下跌但买盘被动消耗”的隐蔽吸筹高级手法。
+        【V1.2 · 隐蔽吸筹逻辑修正版】
+        - 核心修正: 收紧 `covert_accumulation_signal` 的触发条件，从 `price_momentum < 0.1` 修正为 `price_momentum <= 0`，
+                     确保只在价格下跌或横盘时才识别吸筹信号，使其更符合“隐蔽”的博弈内涵。
+        - 核心升级: 引入订单流失衡(OFI)来增强 `covert_accumulation_signal` 的计算精度。
         """
         results = {
             'peak_exchange_purity': np.nan,
@@ -760,11 +761,10 @@ class ChipFeatureCalculator:
                     if total_vol_support > 0:
                         active_buy_support = support_zone_df['buy_vol_raw'].sum()
                         results['support_validation_score'] = (active_buy_support / total_vol_support) * 100
-        # 升级 `covert_accumulation_signal` 逻辑
         order_flow_imbalance = context.get('order_flow_imbalance', 0)
         price_momentum = (context.get('close_price', 0) - context.get('open_price', 0)) / context.get('atr_14d', 1)
-        # 隐蔽吸筹 = 价格弱势/下跌 + 订单流显著偏向买方
-        if price_momentum < 0.1: # 价格未明显上涨
+        # 修改代码行：收紧“隐蔽”的定义，要求价格动能为负或零
+        if price_momentum <= 0:
             results['covert_accumulation_signal'] = np.clip(order_flow_imbalance * 100, 0, 100)
         else:
             results['covert_accumulation_signal'] = 0
