@@ -796,14 +796,17 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, debug_mode: bool = False) -> dict:
         """
-        【V29.1 · 微观行为引擎-溯源探针版】
-        - 核心新增: 接收 `debug_mode` 标志，当其为True时，激活探针，打印OFI增强指标的计算过程、中间变量和原始高频数据样本，用于精确验证。
+        【V29.2 · 盘口博弈引擎增强版】
+        - 核心升级(observed_large_order_size_avg): 基于tick数据精确计算真实大单的平均规模，取代原有的模糊推断。
+        - 核心升级(micro_price_impact_asymmetry): 基于高频数据计算推动价格变化的微观成本，取代原有的分钟级推力指标。
+        - 核心新增(order_book_clearing_rate): 利用realtime数据计算盘口消耗与市场成交的比率，量化市场主动性。
         """
         from scipy.signal import find_peaks
         results = {}
         if intraday_data.empty:
             return results
-        all_metrics_keys = list(BaseAdvancedFundFlowMetrics.TACTICAL_LOG_METRICS.keys()) + list(BaseAdvancedFundFlowMetrics.OUTCOME_ASSESSMENT_METRICS.keys())
+        # 修改代码行：将新指标的key加入初始化列表
+        all_metrics_keys = list(BaseAdvancedFundFlowMetrics.TACTICAL_LOG_METRICS.keys()) + list(BaseAdvancedFundFlowMetrics.OUTCOME_ASSESSMENT_METRICS.keys()) + list(BaseAdvancedFundFlowMetrics.POWER_STRUCTURE_METRICS.keys())
         for key in all_metrics_keys:
             results[key] = np.nan
         daily_total_volume = daily_data.get('vol', 0) * 100
@@ -815,10 +818,12 @@ class AdvancedFundFlowMetricsService:
         pre_close = daily_data.get('pre_close_qfq')
         hf_analysis_df = pd.DataFrame()
         if tick_data is not None and not tick_data.empty and level5_data is not None and not level5_data.empty:
+            # 关键：level5_data在这里实际是包含realtime累计成交量的merged_realtime_df_for_day
+            # `merge_asof` 会自动处理同名列，tick的volume会是volume_x, level5/realtime的会是volume_y
             merged_hf = pd.merge_asof(
                 tick_data.sort_index(), level5_data.sort_index(),
                 left_index=True, right_index=True, direction='backward'
-            ).dropna(subset=['buy_price1', 'sell_price1', 'amount'])
+            ).dropna(subset=['buy_price1', 'sell_price1', 'amount', 'volume_y']) # 确保realtime的volume列存在
             if not merged_hf.empty:
                 merged_hf['mid_price'] = (merged_hf['buy_price1'] + merged_hf['sell_price1']) / 2
                 merged_hf['prev_mid_price'] = merged_hf['mid_price'].shift(1)
@@ -828,7 +833,37 @@ class AdvancedFundFlowMetricsService:
                 is_main_force_trade = merged_hf['amount'] > 200000
                 merged_hf['main_force_ofi'] = np.where(is_main_force_trade, merged_hf['ofi'], 0)
                 merged_hf['mid_price_change'] = merged_hf['mid_price'].diff()
+                # 新增代码行：计算快照间的市场成交量 (volume_y是realtime的累计成交量)
+                merged_hf['market_vol_delta'] = merged_hf['volume_y'].diff().fillna(0)
                 hf_analysis_df = merged_hf
+        # --- 新增/升级指标计算 ---
+        if not hf_analysis_df.empty:
+            # 1. 【升级】计算观测大单平均规模
+            large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
+            if not large_orders_df.empty:
+                results['observed_large_order_size_avg'] = large_orders_df['amount'].mean()
+            # 2. 【升级】计算微观价格冲击不对称性
+            up_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] > 0]
+            down_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] < 0]
+            if not up_ticks.empty and not down_ticks.empty:
+                # 计算每推动1分钱需要的成交量（股），volume_x是tick的逐笔成交量
+                vol_per_cent_up = up_ticks['volume_x'].sum() / (up_ticks['mid_price_change'].sum() * 100)
+                vol_per_cent_down = down_ticks['volume_x'].sum() / (down_ticks['mid_price_change'].abs().sum() * 100)
+                if vol_per_cent_down > 1e-6:
+                    # 比率 < 1: 拉升更容易; 比率 > 1: 打压更容易
+                    asymmetry_ratio = vol_per_cent_up / vol_per_cent_down
+                    results['micro_price_impact_asymmetry'] = np.log1p(asymmetry_ratio) if asymmetry_ratio > 0 else np.nan
+            # 3. 【新增】计算盘口清扫率
+            hf_analysis_df['prev_b1_v'] = hf_analysis_df['buy_volume1'].shift(1)
+            hf_analysis_df['prev_a1_v'] = hf_analysis_df['sell_volume1'].shift(1)
+            # 买方清扫：当前买一量 < 上一刻买一量 (且价格未变)
+            buy_cleared_vol = (hf_analysis_df['prev_b1_v'] - hf_analysis_df['buy_volume1']).clip(lower=0)[hf_analysis_df['mid_price_change'] == 0].sum()
+            # 卖方清扫：当前卖一量 < 上一刻卖一量 (且价格未变)
+            sell_cleared_vol = (hf_analysis_df['prev_a1_v'] - hf_analysis_df['sell_volume1']).clip(lower=0)[hf_analysis_df['mid_price_change'] == 0].sum()
+            total_cleared_vol = buy_cleared_vol + sell_cleared_vol
+            total_market_vol = hf_analysis_df['market_vol_delta'].sum()
+            if total_market_vol > 0:
+                results['order_book_clearing_rate'] = (total_cleared_vol / total_market_vol) * 100
         if pd.notna(daily_vwap) and daily_total_volume > 0 and pd.notna(atr) and atr > 0 and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
             price_deviation_value = (intraday_data['minute_vwap'] - daily_vwap) * intraday_data['vol_shares']
             results['vwap_control_strength'] = price_deviation_value.sum() / (atr * daily_total_volume)
@@ -869,6 +904,8 @@ class AdvancedFundFlowMetricsService:
         peaks, _ = find_peaks(continuous_trading_df['minute_vwap'].values)
         troughs, _ = find_peaks(-continuous_trading_df['minute_vwap'].values)
         turning_points = sorted(list(set(np.concatenate(([0], troughs, peaks, [len(continuous_trading_df)-1])))))
+        total_rally_dist_ofi = 0
+        total_rally_ofi_abs = 0
         if not hf_analysis_df.empty and pd.notna(daily_vwap):
             absorption_zone_hf = hf_analysis_df[hf_analysis_df['mid_price'] < daily_vwap]
             mf_positive_ofi_in_dip = 0
@@ -877,8 +914,6 @@ class AdvancedFundFlowMetricsService:
             total_ofi_abs = hf_analysis_df['ofi'].abs().sum()
             if total_ofi_abs > 0:
                 results['dip_absorption_power'] = (mf_positive_ofi_in_dip / total_ofi_abs) * 100
-            total_rally_dist_ofi = 0
-            total_rally_ofi_abs = 0
             for i in range(len(turning_points) - 1):
                 start_idx, end_idx = turning_points[i], turning_points[i+1]
                 window_df = continuous_trading_df.iloc[start_idx:end_idx+1]
@@ -925,7 +960,6 @@ class AdvancedFundFlowMetricsService:
             price_change_series = hf_analysis_df['mid_price_change']
             if mf_ofi_series.var() > 0 and price_change_series.var() > 0:
                 results['ofi_price_impact_factor'] = mf_ofi_series.corr(price_change_series)
-        # 新增代码块：溯源探针
         if debug_mode:
             stock_code = daily_data.get('stock_code', 'N/A')
             trade_date_str = daily_data.name.strftime('%Y-%m-%d')
@@ -933,8 +967,8 @@ class AdvancedFundFlowMetricsService:
             if not hf_analysis_df.empty:
                 print("\n[0. 核心高频数据预览 (hf_analysis_df)]")
                 print(f"  - 维度: {hf_analysis_df.shape}")
-                print("  - Head(3):\n", hf_analysis_df[['mid_price', 'ofi', 'main_force_ofi', 'mid_price_change']].head(3).to_string())
-                print("  - Tail(3):\n", hf_analysis_df[['mid_price', 'ofi', 'main_force_ofi', 'mid_price_change']].tail(3).to_string())
+                print("  - Head(3):\n", hf_analysis_df[['mid_price', 'ofi', 'main_force_ofi', 'mid_price_change', 'market_vol_delta']].head(3).to_string())
+                print("  - Tail(3):\n", hf_analysis_df[['mid_price', 'ofi', 'main_force_ofi', 'mid_price_change', 'market_vol_delta']].tail(3).to_string())
                 print("\n[1. OFI价格冲击因子 溯源]")
                 print(f"  - 最终结果: {results.get('ofi_price_impact_factor', 'N/A')}")
                 mf_ofi_var = hf_analysis_df['main_force_ofi'].var()
@@ -955,6 +989,24 @@ class AdvancedFundFlowMetricsService:
                 print(f"  - 输入-分钟线上涨/下跌拐点(索引): {turning_points}")
                 print(f"  - 中间-上涨波段主力负向OFI累计: {total_rally_dist_ofi:.2f}")
                 print(f"  - 中间-上涨波段OFI绝对值总和: {total_rally_ofi_abs:.2f}")
+                # 新增代码块：为新指标添加探针
+                print("\n[4. 观测大单平均规模 溯源]")
+                print(f"  - 最终结果: {results.get('observed_large_order_size_avg', 'N/A')}")
+                large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
+                print(f"  - 输入-观测到的大单数量: {len(large_orders_df)}")
+                print(f"  - 输入-大单总成交额: {large_orders_df['amount'].sum():.2f}")
+                print("\n[5. 微观价格冲击不对称性 溯源]")
+                print(f"  - 最终结果: {results.get('micro_price_impact_asymmetry', 'N/A')}")
+                up_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] > 0]
+                down_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] < 0]
+                vol_per_cent_up = up_ticks['volume_x'].sum() / (up_ticks['mid_price_change'].sum() * 100) if not up_ticks.empty and up_ticks['mid_price_change'].sum() > 0 else np.nan
+                vol_per_cent_down = down_ticks['volume_x'].sum() / (down_ticks['mid_price_change'].abs().sum() * 100) if not down_ticks.empty and down_ticks['mid_price_change'].abs().sum() > 0 else np.nan
+                print(f"  - 中间-向上冲击成本(股/分): {vol_per_cent_up:.2f}")
+                print(f"  - 中间-向下冲击成本(股/分): {vol_per_cent_down:.2f}")
+                print("\n[6. 盘口清扫率 溯源]")
+                print(f"  - 最终结果: {results.get('order_book_clearing_rate', 'N/A')}")
+                print(f"  - 中间-盘口总清扫量(股): {total_cleared_vol:.2f}")
+                print(f"  - 中间-市场总增量成交量(股): {total_market_vol:.2f}")
             else:
                 print("\n探针警告: 高频分析数据(hf_analysis_df)为空，无法进行OFI增强指标的溯源。")
             print("--- [探针] 溯源结束 ---\n")
@@ -1027,19 +1079,12 @@ class AdvancedFundFlowMetricsService:
            'close' in continuous_trading_df.columns and 'open' in continuous_trading_df.columns and \
            'vol_shares' in continuous_trading_df.columns and 'minute_vwap' in continuous_trading_df.columns and \
            'main_force_net_vol' in continuous_trading_df.columns:
+            # 修改代码块：移除废弃的 asymmetric_volume_thrust 计算逻辑
             up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
             down_minutes = continuous_trading_df[continuous_trading_df['close'] < continuous_trading_df['open']]
             if not up_minutes.empty and not down_minutes.empty:
                 up_price_change = (up_minutes['close'] - up_minutes['open']).sum()
-                up_vol = up_minutes['vol_shares'].sum()
                 down_price_change = (down_minutes['open'] - down_minutes['close']).sum()
-                down_vol = down_minutes['vol_shares'].sum()
-                if up_vol > 0 and down_vol > 0:
-                    upward_efficacy = up_price_change / up_vol
-                    downward_efficacy = down_price_change / down_vol
-                    if downward_efficacy > 1e-9:
-                        thrust_ratio = upward_efficacy / downward_efficacy
-                        results['asymmetric_volume_thrust'] = np.log(thrust_ratio) if thrust_ratio > 0 else -np.log(-thrust_ratio) if thrust_ratio < 0 else 0.0
                 avg_up_speed = up_price_change / len(up_minutes) if len(up_minutes) > 0 else 0
                 avg_down_speed = down_price_change / len(down_minutes) if len(down_minutes) > 0 else 0
                 if avg_up_speed > 0 and avg_down_speed > 0:

@@ -295,7 +295,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'main_force_activity_ratio': '主力活跃度(%)',
         'main_force_flow_directionality': '主力资金流向性(%)',
         'main_force_conviction_index': '主力信念指数',
-        'inferred_active_order_size': '推断活跃订单规模(元)',
+        'observed_large_order_size_avg': '观测大单平均规模(元)',
         'retail_flow_dominance_index': '散户流动性主导指数',
         'main_force_price_impact_ratio': '主力价格冲击比率',
     }
@@ -312,7 +312,10 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'main_force_t0_efficiency': '主力T+0效率(%)',
         'vwap_structure_skew': 'VWAP结构偏离度',
         'flow_efficiency_index': '资金效率指数',
-        'asymmetric_volume_thrust': '非对称成交量推力',
+        # 新增代码行：微观价格冲击不对称性
+        'micro_price_impact_asymmetry': '微观价格冲击不对称性',
+        # 新增代码行：盘口清扫率
+        'order_book_clearing_rate': '盘口清扫率(%)',
         'vwap_control_strength': 'VWAP控制强度',
         'main_force_vwap_guidance': '主力VWAP引导力',
         'vwap_crossing_intensity': 'VWAP穿越烈度',
@@ -358,7 +361,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'rally_distribution_pressure', 'panic_selling_cascade', 'opening_battle_result',
         'pre_closing_posturing', 'closing_auction_ambush', 'main_force_execution_alpha',
         'retail_panic_surrender_index', 'retail_fomo_premium_index', 'main_force_t0_efficiency',
-        'vwap_structure_skew', 'flow_efficiency_index', 'asymmetric_volume_thrust',
+        'vwap_structure_skew', 'flow_efficiency_index',
         'volatility_asymmetry_index', 'closing_price_deviation_score',
         'vwap_control_strength', 'main_force_vwap_guidance', 'vwap_crossing_intensity',
         'upper_shadow_selling_pressure', 'lower_shadow_absorption_strength',
@@ -370,18 +373,18 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'hidden_accumulation_intensity', 'wash_trade_intensity', 'order_book_imbalance',
         'large_order_pressure', 'large_order_support', 'order_book_liquidity_supply',
         'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
-        # 新增代码行：将新因子加入排除列表
+        'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
         'ofi_price_impact_factor',
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
         'main_force_flow_directionality', 'main_force_conviction_index',
-        'inferred_active_order_size', 'retail_flow_dominance_index', 'main_force_price_impact_ratio',
+        'retail_flow_dominance_index', 'main_force_price_impact_ratio',
         'dip_absorption_power', 'rally_distribution_pressure', 'panic_selling_cascade',
         'opening_battle_result', 'pre_closing_posturing', 'closing_auction_ambush',
         'main_force_execution_alpha', 'retail_panic_surrender_index',
         'retail_fomo_premium_index', 'main_force_t0_efficiency',
-        'vwap_structure_skew', 'flow_efficiency_index', 'asymmetric_volume_thrust',
+        'vwap_structure_skew', 'flow_efficiency_index',
         'volatility_asymmetry_index', 'closing_price_deviation_score',
         'vwap_control_strength', 'main_force_vwap_guidance', 'vwap_crossing_intensity',
         'upper_shadow_selling_pressure', 'lower_shadow_absorption_strength',
@@ -392,7 +395,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'hidden_accumulation_intensity', 'wash_trade_intensity', 'order_book_imbalance',
         'large_order_pressure', 'large_order_support', 'order_book_liquidity_supply',
         'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
-        # 新增代码行：将新因子定义为浮点型
+        'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
         'ofi_price_impact_factor',
     ]
     for name, verbose in CORE_METRICS.items():
