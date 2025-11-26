@@ -150,8 +150,8 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None, realtime_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V1.6 · 溯源探针版】
-        - 核心升级: 终局探针升级为“溯源探针”，在打印最终指标结果的同时，打印出计算该指标所依赖的核心原始数据、DataFrame样本及关键中间变量，实现计算过程的可验证性。
+        【V1.7 · 探针逻辑同步版】
+        - 核心修复: 修正了溯源探针中“隐蔽吸筹信号”的判断逻辑报告，使其与最新的业务逻辑（price_momentum <= 0）保持严格一致，消除了报告与实际结果的矛盾。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -256,11 +256,9 @@ class AdvancedChipMetricsService:
                     context_for_calc['realtime_data'] = merged_realtime_df
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
-            # 修改代码块：升级为溯源探针
             if i == num_days_in_batch - 1:
                 print(f"\n--- [探针] [最终指标检查 & 原始数据溯源] [{stock_code}] 最新日期: {trade_date.date()} ---")
                 if daily_metrics:
-                    # 1. 溯源 `mf_cost_zone_defense_intent`
                     print("\n[1. 主力成本区攻防意图 溯源]")
                     print(f"  - 最终结果: {daily_metrics.get('mf_cost_zone_defense_intent', 'N/A')}")
                     peak_cost = calculator.ctx.get('dominant_peak_cost', 'N/A')
@@ -275,20 +273,18 @@ class AdvancedChipMetricsService:
                         print("    - Tail(3):\n", rt_df.tail(3).to_string())
                     else:
                         print("  - 输入-实时盘口数据: 未提供或为空")
-                    # 2. 溯源 `covert_accumulation_signal`
                     print("\n[2. 隐蔽吸筹信号 溯源]")
                     print(f"  - 最终结果: {daily_metrics.get('covert_accumulation_signal', 'N/A')}")
                     price_mom = (calculator.ctx.get('close_price', 0) - calculator.ctx.get('open_price', 0)) / calculator.ctx.get('atr_14d', 1)
                     ofi = daily_metrics.get('order_flow_imbalance', 'N/A')
                     print(f"  - 输入-价格动能(ATR标准化): {price_mom:.4f}")
                     print(f"  - 输入-订单流失衡(OFI): {ofi}")
-                    print(f"  - 判断逻辑: 价格动能 < 0.1 ({price_mom < 0.1})")
-                    # 3. 溯源 `conviction_flow_index`
+                    # 修改代码行：同步探针的报告逻辑与最新的业务逻辑
+                    print(f"  - 判断逻辑: 价格动能 <= 0 ({price_mom <= 0})")
                     print("\n[3. 信念流转指数 溯源]")
                     print(f"  - 最终结果: {daily_metrics.get('conviction_flow_index', 'N/A')}")
                     buy_sweep = daily_metrics.get('buy_sweep_intensity', 0)
                     print(f"  - 输入-买方扫单强度: {buy_sweep}")
-                    # 在探针内复现计算逻辑
                     intra_df = calculator.ctx.get('processed_intraday_df')
                     dv = calculator.ctx.get('daily_vwap')
                     if intra_df is not None and not intra_df.empty and 'main_force_net_vol' in intra_df.columns and pd.notna(dv):
@@ -298,7 +294,6 @@ class AdvancedChipMetricsService:
                         d_vol = -mf_nv[intra_df['minute_vwap'] > dv].clip(upper=0).sum()
                         print(f"  - 中间-低吸量: {g_vol:.2f}, 追涨量: {c_vol:.2f}, 派发量: {d_vol:.2f}")
                         print(f"  - 中间-加权后总买入: {g_vol + c_vol * (1 + buy_sweep):.2f}")
-                    # 4. 溯源 `order_flow_imbalance` 和 `sweep_intensity`
                     print("\n[4. 核心微观动力学 溯源]")
                     print(f"  - 最终结果-OFI: {daily_metrics.get('order_flow_imbalance', 'N/A')}")
                     print(f"  - 最终结果-买方扫单: {daily_metrics.get('buy_sweep_intensity', 'N/A')}")
