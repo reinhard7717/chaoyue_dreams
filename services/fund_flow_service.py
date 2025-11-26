@@ -547,24 +547,56 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame, debug_mode: bool = False) -> pd.DataFrame:
         """
-        【V1.1 · 诊断探针植入版】
-        - 核心增强: 植入精细化探针，用于在debug模式下完整追溯成本聚合类指标的计算过程，暴露因上游输入NaN导致的计算失败。
+        【V2.0 · 逻辑重构与诊断升级版】
+        - 核心重构: 彻底修正了此前的逻辑倒置错误。此方法现在正确地承担起其核心职责：
+                    1. 接收基础概率成本 (avg_cost_lg_buy等)。
+                    2. 基于日度分单成交量作为权重，计算出聚合成本 (avg_cost_main_buy等)。
+                    3. 基于聚合成本，计算最终的衍生指标 (main_force_t0_efficiency等)。
+        - 核心增强: 探针被全面升级，现在能够清晰地展示从基础成本到聚合成本的加权平均计算过程。
         """
+        if pvwap_df.empty or daily_df.empty:
+            return pd.DataFrame()
         temp_df = pvwap_df.copy()
+        result_agg_df = pd.DataFrame(index=pvwap_df.index)
+        stock_code = daily_df['stock_code'].iloc[0] if 'stock_code' in daily_df.columns else 'N/A'
+        trade_date_str = temp_df.index[0].strftime('%Y-%m-%d')
+        def weighted_average_cost(cost_keys, vol_keys):
+            total_value = 0
+            total_volume = 0
+            costs = []
+            vols = []
+            for cost_key, vol_key in zip(cost_keys, vol_keys):
+                cost = pd.to_numeric(temp_df.get(cost_key, np.nan).iloc[0], errors='coerce')
+                vol = pd.to_numeric(daily_df.get(vol_key, 0).iloc[0], errors='coerce') * 100
+                costs.append(cost)
+                vols.append(vol)
+                if pd.notna(cost) and pd.notna(vol) and vol > 0:
+                    total_value += cost * vol
+                    total_volume += vol
+            if debug_mode:
+                debug_str = " + ".join([f"({c:.2f} * {v:.0f})" if pd.notna(c) and pd.notna(v) else "(NaN)" for c, v in zip(costs, vols)])
+                print(f"    - 权重计算: ({debug_str}) / {total_volume:.0f}")
+            return total_value / total_volume if total_volume > 0 else np.nan
+        if debug_mode:
+            print(f"\n--- [探针] [聚合成本指标计算诊断] [{stock_code}] 日期: {trade_date_str} ---")
+            print("[1. 计算聚合成本: avg_cost_main_buy]")
+        temp_df['avg_cost_main_buy'] = weighted_average_cost(['avg_cost_lg_buy', 'avg_cost_elg_buy'], ['buy_lg_vol', 'buy_elg_vol'])
+        if debug_mode:
+            print(f"    - 结果: {temp_df['avg_cost_main_buy'].iloc[0]:.4f}")
+            print("[2. 计算聚合成本: avg_cost_main_sell]")
+        temp_df['avg_cost_main_sell'] = weighted_average_cost(['avg_cost_lg_sell', 'avg_cost_elg_sell'], ['sell_lg_vol', 'sell_elg_vol'])
+        if debug_mode:
+            print(f"    - 结果: {temp_df['avg_cost_main_sell'].iloc[0]:.4f}")
+            print("[3. 计算聚合成本: avg_cost_retail_buy]")
+        temp_df['avg_cost_retail_buy'] = weighted_average_cost(['avg_cost_sm_buy', 'avg_cost_md_buy'], ['buy_sm_vol', 'buy_md_vol'])
+        if debug_mode:
+            print(f"    - 结果: {temp_df['avg_cost_retail_buy'].iloc[0]:.4f}")
+            print("[4. 计算聚合成本: avg_cost_retail_sell]")
+        temp_df['avg_cost_retail_sell'] = weighted_average_cost(['avg_cost_sm_sell', 'avg_cost_md_sell'], ['sell_sm_vol', 'sell_md_vol'])
+        if debug_mode:
+            print(f"    - 结果: {temp_df['avg_cost_retail_sell'].iloc[0]:.4f}")
         temp_df['daily_vwap'] = daily_df['daily_vwap']
         temp_df['atr_14d'] = daily_df['atr_14d']
-        result_agg_df = pd.DataFrame(index=pvwap_df.index)
-        if debug_mode and not temp_df.empty:
-            stock_code = daily_df['stock_code'].iloc[0] if 'stock_code' in daily_df.columns else 'N/A'
-            trade_date_str = temp_df.index[0].strftime('%Y-%m-%d')
-            print(f"\n--- [探针] [聚合成本指标计算诊断] [{stock_code}] 日期: {trade_date_str} ---")
-            print("[1. 关键数据输入]")
-            print(f"  - avg_cost_main_buy: {temp_df['avg_cost_main_buy'].iloc[0]}")
-            print(f"  - avg_cost_main_sell: {temp_df['avg_cost_main_sell'].iloc[0]}")
-            print(f"  - avg_cost_retail_buy: {temp_df['avg_cost_retail_buy'].iloc[0]}")
-            print(f"  - avg_cost_retail_sell: {temp_df['avg_cost_retail_sell'].iloc[0]}")
-            print(f"  - daily_vwap: {temp_df['daily_vwap'].iloc[0]}")
-            print(f"  - atr_14d: {temp_df['atr_14d'].iloc[0]}")
         try:
             alpha = (temp_df['avg_cost_main_buy'] - temp_df['avg_cost_main_sell']) / temp_df['daily_vwap']
             result_agg_df['main_force_cost_alpha'] = alpha * 100
@@ -580,15 +612,13 @@ class AdvancedFundFlowMetricsService:
             result_agg_df['main_force_t0_spread_ratio'] = t0_spread * 100
             execution_alpha = (temp_df['avg_cost_main_sell'] - temp_df['daily_vwap']) / temp_df['atr_14d']
             result_agg_df['main_force_execution_alpha'] = execution_alpha
-            if debug_mode and not temp_df.empty:
-                print("\n[2. main_force_execution_alpha & main_force_t0_efficiency 计算过程]")
-                print(f"  - t0_spread (卖出成本-买入成本)/VWAP: {t0_spread.iloc[0]}")
-                print(f"  - execution_alpha (卖出成本-VWAP)/ATR: {execution_alpha.iloc[0]}")
             efficiency = t0_spread / execution_alpha.replace(0, np.nan)
             result_agg_df['main_force_t0_efficiency'] = efficiency
-            if debug_mode and not temp_df.empty:
-                print(f"  - efficiency (t0_spread / execution_alpha): {efficiency.iloc[0]}")
-                print(f"  - 最终 main_force_t0_efficiency: {result_agg_df['main_force_t0_efficiency'].iloc[0]}")
+            if debug_mode:
+                print("\n[5. 计算衍生指标: main_force_execution_alpha & main_force_t0_efficiency]")
+                print(f"  - t0_spread (卖出成本-买入成本)/VWAP: {t0_spread.iloc[0]}")
+                print(f"  - execution_alpha (卖出成本-VWAP)/ATR: {execution_alpha.iloc[0]}")
+                print(f"  - 最终 main_force_t0_efficiency: {efficiency.iloc[0]}")
         except Exception:
             result_agg_df['main_force_t0_spread_ratio'] = np.nan
             result_agg_df['main_force_execution_alpha'] = np.nan
@@ -598,11 +628,10 @@ class AdvancedFundFlowMetricsService:
             retail_cost_discount = (1 - temp_df['avg_cost_retail_sell'] / temp_df['daily_vwap'])
             temperature = mf_cost_premium - retail_cost_discount
             result_agg_df['flow_temperature_premium'] = temperature * 100
-            if debug_mode and not temp_df.empty:
-                print("\n[3. flow_temperature_premium 计算过程]")
+            if debug_mode:
+                print("\n[6. 计算衍生指标: flow_temperature_premium]")
                 print(f"  - mf_cost_premium (主力买入成本/VWAP - 1): {mf_cost_premium.iloc[0]}")
                 print(f"  - retail_cost_discount (1 - 散户卖出成本/VWAP): {retail_cost_discount.iloc[0]}")
-                print(f"  - temperature (premium - discount): {temperature.iloc[0]}")
                 print(f"  - 最终 flow_temperature_premium: {result_agg_df['flow_temperature_premium'].iloc[0]}")
                 print("--- [探针] 诊断结束 ---\n")
         except Exception:
