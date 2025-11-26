@@ -741,13 +741,10 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V31.4 · 战场迷雾终极修复版】
-        - 核心修复: 彻底重构了 `market_vol_delta` (市场成交量增量) 的计算逻辑，解决了因数据融合方式
-                     导致的差分恒为零的致命缺陷。
-        - 新逻辑:   通过在合并前为Realtime数据创建'snapshot_time'列来保留其原始时间戳，
-                     然后通过识别'snapshot_time'的变化来精确定位快照边界，并将成交量增量正确归因。
-                     这使得所有依赖此变量的下游诡道博弈指标（如对倒强度、大单威慑力等）恢复其设计威力。
-                     这是对微观结构分析能力的决定性修正。
+        【V31.5 · 兵器谱修正版】
+        - 核心修复: 修正了 `market_vol_delta` 计算中因混用Numpy和Pandas方法而导致的 `AttributeError`。
+                     通过将 `.fillna(0)` 操作提前作用于Pandas Series，确保了后续Numpy操作的类型正确性。
+                     这是对模型实现的最后一次精炼，确保其坚不可摧。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -768,7 +765,6 @@ class AdvancedFundFlowMetricsService:
             ).dropna(subset=['buy_price1', 'sell_price1', 'amount', 'volume'])
             
             if realtime_data is not None and not realtime_data.empty and not merged_hf.empty:
-                # 【终极修复 - 步骤1】准备realtime数据，保留原始时间戳
                 realtime_prepped = realtime_data[['volume']].copy()
                 realtime_prepped['snapshot_time'] = realtime_prepped.index
                 
@@ -794,11 +790,11 @@ class AdvancedFundFlowMetricsService:
                 merged_hf['retail_ofi'] = np.where(is_retail_trade, merged_hf['ofi'], 0)
                 merged_hf['mid_price_change'] = merged_hf['mid_price'].diff()
                 
-                # 【终极修复 - 步骤2】重铸“战场迷雾”的计算逻辑
                 if 'volume_realtime' in merged_hf.columns and 'snapshot_time' in merged_hf.columns:
                     snapshot_changed_mask = merged_hf['snapshot_time'] != merged_hf['snapshot_time'].shift(1)
-                    volume_delta = merged_hf['volume_realtime'].diff()
-                    merged_hf['market_vol_delta'] = np.where(snapshot_changed_mask, volume_delta, 0).fillna(0)
+                    # 【终极语法修正】先对Pandas Series执行fillna，再将其传递给np.where
+                    volume_delta = merged_hf['volume_realtime'].diff().fillna(0)
+                    merged_hf['market_vol_delta'] = np.where(snapshot_changed_mask, volume_delta, 0)
 
                 hf_analysis_df = merged_hf
                 results['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
