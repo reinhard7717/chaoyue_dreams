@@ -840,32 +840,49 @@ class AdvancedStructuralMetricsService:
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
-        【V19.5 · 持久化策略升级版】
-        - 核心升级: 采纳 update_or_create 策略替换 bulk_create，实现幂等性写入，确保数据在重复执行时能被正确更新。
-        - 核心保留: 维持 V19.4 的关键修复，即使用 BaseAdvancedStructuralMetrics.CORE_METRICS 作为权威字段源进行列筛选，根治新指标数据丢失问题。
+        【V19.6 · 字段筛选终极修复版】
+        - 核心修复: 修复了因错误地使用 CORE_METRICS 筛选待保存列而导致所有衍生指标（斜率、加速度）被丢弃的严重BUG。
+        - 核心逻辑: 改为直接从模型元数据 `MetricsModel._meta.get_fields()` 获取所有已定义的字段名进行筛选，
+                     确保所有计算出的基础指标和衍生指标都能被正确持久化。
         """
         if final_df.empty:
             return 0
-        # 替换无穷大值为NaN
         final_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        # 使用确定性的字段列表进行筛选，这是解决数据丢失的关键
-        model_fields = set(BaseAdvancedStructuralMetrics.CORE_METRICS.keys())
-        model_fields.add('trade_time') # 确保 trade_time 总是被包含
+        # 修改代码行：从模型元数据获取所有字段，而不是只从CORE_METRICS获取
+        model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
         # 筛选出模型中存在的列
         cols_to_keep = [col for col in final_df.columns if col in model_fields]
         df_filtered = final_df[cols_to_keep]
-        # 移除调试信息
-        # 转换为字典列表
         records_list = df_filtered.to_dict('records')
         @sync_to_async(thread_sensitive=True)
         def save_atomically(model, stock_obj, records_to_process):
             processed_count = 0
             for record_data in records_to_process:
-                trade_time = record_data.pop('trade_time').date()
-                # 清理 NaN 值，这是 update_or_create 的最佳实践
+                # trade_time 可能不在 record_data 中，因为它现在是索引
+                if 'trade_time' in record_data:
+                    trade_time = record_data.pop('trade_time').date()
+                else:
+                    # 如果不在，说明它就是索引，需要从 final_df 中获取
+                    # 但更简单的方式是在 to_dict 前 reset_index
+                    # 这里我们假设调用者会处理好索引和列的关系
+                    # 为了健壮性，我们从 final_df 的索引中找到对应的日期
+                    # 但由于 records_list 的顺序与 df_filtered 一致，我们可以这样做：
+                    # (这个逻辑有点复杂，更好的方式是在前面处理好)
+                    # 让我们简化一下，在 to_dict 之前 reset_index
+                    pass # 保持原有逻辑，假设调用者传入的df的索引是trade_time
                 defaults_data = {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in record_data.items()}
                 try:
-                    # 使用 update_or_create 实现“更新或创建”
+                    # 假设 trade_time 已经从 record_data 中移除
+                    # 我们需要从 final_df 的索引中获取它
+                    # 为了简化，我们修改 records_list 的生成方式
+                    pass # 保持原有逻辑
+                except Exception as e:
+                    logger.error(f"[{stock_obj.stock_code}] [结构指标保存失败] 日期: {record_data.get('trade_time', '未知')}, 错误: {e}")
+            # 重构保存逻辑以确保 trade_time 正确处理
+            for record_data in df_filtered.reset_index().to_dict('records'):
+                trade_time = record_data.pop('trade_time').date()
+                defaults_data = {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in record_data.items()}
+                try:
                     obj, created = model.objects.update_or_create(
                         stock=stock_obj, 
                         trade_time=trade_time, 
@@ -875,11 +892,8 @@ class AdvancedStructuralMetricsService:
                 except Exception as e:
                     logger.error(f"[{stock_obj.stock_code}] [结构指标保存失败] 日期: {trade_time}, 错误: {e}")
             return processed_count
-        records_for_atomic_save = []
-        for record_date, record_data in zip(df_filtered.index, records_list):
-            record_data['trade_time'] = record_date
-            records_for_atomic_save.append(record_data)
-        processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
+        # 调用重构后的保存逻辑
+        processed_count = await save_atomically(MetricsModel, stock_info, []) # 传递一个空列表，因为逻辑已移入
         return processed_count
 
 

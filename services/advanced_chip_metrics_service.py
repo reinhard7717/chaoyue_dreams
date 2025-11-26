@@ -150,8 +150,9 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None, realtime_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V1.3 · 融合验证探针版】
-        - 核心新增: 在数据融合后增加探针，打印DataFrame的.info()和.head()，以最终确认融合结果的数据结构。
+        【V1.2 · 索引修复版】
+        - 核心修复: 与资金流服务同步，修复了在数据融合后因索引丢失导致的 `.dt accessor` 错误。
+        - 核心逻辑: 在 `pd.merge_asof` 操作后，立即将 `trade_time` 列重新设置为DataFrame的索引。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -250,12 +251,6 @@ class AdvancedChipMetricsService:
                     )
                     if 'trade_time' in merged_realtime_df.columns:
                         merged_realtime_df.set_index('trade_time', inplace=True)
-                        # 新增探针：打印融合后DataFrame的详细信息
-                        print(f"\n--- [探针] [服务层-融合后] [{stock_code}] 日期: {date_obj} ---")
-                        print("探针: 融合后的DataFrame.info():")
-                        merged_realtime_df.info()
-                        print("\n探针: 融合后的DataFrame.head():")
-                        print(merged_realtime_df.head())
                     context_for_calc['realtime_data'] = merged_realtime_df
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()

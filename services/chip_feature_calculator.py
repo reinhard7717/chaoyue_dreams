@@ -918,27 +918,22 @@ class ChipFeatureCalculator:
 
     def _compute_realtime_orderbook_metrics(self, context: dict) -> dict:
         """
-        【V2.4 · 终极诊断探针版】
-        - 核心新增: 植入终极探针，专门用于统计盘口报价落入“主力成本区”的数量，以验证“有效博弈区偏离”假设。
-        - 核心新增: 打印盘口价格本身的统计信息，便于与成本区范围进行直接比对。
+        【V2.2 · 高斯引力权重重构版】
+        - 核心修复: 修复了因Pandas索引对齐问题导致bid/ask power计算中出现NaN，进而使整个指标为空的严重BUG。
+        - 核心重构: 引入基于高斯函数的“引力权重”模型，为距离主峰成本更近的挂单赋予更高权重，使指标更精准地反映核心区域的攻防意图。
+        - 核心优化: 改变了挂单力量的累加方式，确保Series操作的索引安全，从根本上杜绝NaN传播。
+        - 维护: 移除了V2.3/V2.4版中用于诊断的探针代码。
         """
         results = {
             'mf_cost_zone_defense_intent': np.nan,
             'floating_chip_cleansing_efficiency': np.nan,
         }
         realtime_df = context.get('realtime_data')
-        stock_code = context.get('stock_code', 'UNKNOWN')
-        trade_date = context.get('trade_date', 'UNKNOWN')
-        print(f"\n------ [探针] [计算层-入口] [{stock_code}] [{trade_date}] ------")
         if realtime_df is None or realtime_df.empty:
-            print("探针: 失败！realtime_data (融合后的数据) 未传入或为空，计算中止。")
             return results
-        print(f"探针: 成功接收realtime_data，共 {len(realtime_df)} 条记录。")
-        required_cols = [f'b{i}_{s}' for i in range(1, 6) for s in ['p', 'v']] + \
-                        [f'a{i}_{s}' for i in range(1, 6) for s in ['p', 'v']] + ['volume']
+        required_cols = [f'{prefix}{i}_{suffix}' for prefix in ['b', 'a'] for i in range(1, 6) for suffix in ['p', 'v']] + ['volume']
         if not all(col in realtime_df.columns for col in required_cols):
-            logger.warning(f"[{stock_code}] [{trade_date}] 实时盘口指标计算跳过，因缺少必要的列。")
-            print(f"探针: 失败！融合后的realtime_data缺少必要的列。缺失的列: {[c for c in required_cols if c not in realtime_df.columns]}")
+            logger.warning(f"[{context.get('stock_code')}] [{context.get('trade_date')}] 实时盘口指标计算跳过，因缺少必要的五档行情或volume列。")
             return results
         numeric_cols = required_cols
         for col in numeric_cols:
@@ -946,40 +941,17 @@ class ChipFeatureCalculator:
                 realtime_df[col] = pd.to_numeric(realtime_df[col], errors='coerce')
         dominant_peak_cost = context.get('dominant_peak_cost')
         atr = context.get('atr_14d')
-        print(f"--- [探针] [计算层-输入检查] [{stock_code}] [{trade_date}] ---")
-        print(f"探针: dominant_peak_cost = {dominant_peak_cost} (类型: {type(dominant_peak_cost)})")
-        print(f"探针: atr_14d = {atr} (类型: {type(atr)})")
         if pd.notna(dominant_peak_cost) and pd.notna(atr) and atr > 0:
-            print("探针: 输入检查通过，开始计算攻防意图。")
             cost_zone_low = dominant_peak_cost - 0.5 * atr
             cost_zone_high = dominant_peak_cost + 0.5 * atr
-            print(f"--- [探针] [计算层-中间变量] [{stock_code}] [{trade_date}] ---")
-            print(f"探针: 主力成本区范围 (Cost Zone): [{cost_zone_low:.4f}, {cost_zone_high:.4f}]")
-            bid_prices_cols = [f'b{i}_p' for i in range(1, 6)]
-            bid_vols_cols = [f'b{i}_v' for i in range(1, 6)]
-            ask_prices_cols = [f'a{i}_p' for i in range(1, 6)]
-            ask_vols_cols = [f'a{i}_v' for i in range(1, 6)]
-            # 新增探针：打印盘口价格统计信息
-            print("\n--- [探针] [计算层-盘口价格分析] ---")
-            print("探针: 买一价(b1_p)统计信息:")
-            print(realtime_df['b1_p'].describe())
-            print("\n探针: 卖一价(a1_p)统计信息:")
-            print(realtime_df['a1_p'].describe())
-            # 新增探针：统计落在成本区内的报价数量
-            print("\n--- [探针] [计算层-区域重合度分析] ---")
-            total_in_zone_count = 0
-            for p_col in bid_prices_cols + ask_prices_cols:
-                in_zone_mask = (realtime_df[p_col] >= cost_zone_low) & (realtime_df[p_col] <= cost_zone_high)
-                count = in_zone_mask.sum()
-                total_in_zone_count += count
-                print(f"探针: {p_col} 在成本区内的记录数: {count}")
-            print(f"探针: >> 总计，所有盘口价格在成本区内的记录数: {total_in_zone_count} <<")
-            if total_in_zone_count == 0:
-                print("探针: 结论 -> 由于没有任何盘口报价落入主力成本区，火力计算结果将为0，最终指标将为空。这是预期行为。")
             def _gaussian_weight(price_series, center, sigma):
                 if sigma > 0:
                     return np.exp(-((price_series - center)**2) / (2 * sigma**2))
                 return pd.Series(np.where(price_series == center, 1.0, 0.0), index=price_series.index)
+            bid_prices_cols = [f'b{i}_p' for i in range(1, 6)]
+            bid_vols_cols = [f'b{i}_v' for i in range(1, 6)]
+            ask_prices_cols = [f'a{i}_p' for i in range(1, 6)]
+            ask_vols_cols = [f'a{i}_v' for i in range(1, 6)]
             total_weighted_bid_power = pd.Series(0.0, index=realtime_df.index)
             total_weighted_ask_power = pd.Series(0.0, index=realtime_df.index)
             for p_col, v_col in zip(bid_prices_cols, bid_vols_cols):
@@ -996,31 +968,15 @@ class ChipFeatureCalculator:
                 gravity_weight = _gaussian_weight(price_series, center=dominant_peak_cost, sigma=0.5 * atr)
                 level_power = price_series * vol_series * gravity_weight
                 total_weighted_ask_power += level_power.where(in_zone_mask, 0)
-            print("\n--- [探针] [计算层-火力统计] ---")
-            print("探针: 加权买盘火力 (total_weighted_bid_power) 统计:")
-            print(total_weighted_bid_power.describe())
-            print("\n探针: 加权卖盘火力 (total_weighted_ask_power) 统计:")
-            print(total_weighted_ask_power.describe())
             total_power = total_weighted_bid_power + total_weighted_ask_power
             instant_intent = (total_weighted_bid_power - total_weighted_ask_power) / total_power.replace(0, np.nan)
-            print("\n探针: 瞬时意图 (instant_intent) 统计:")
-            print(instant_intent.describe())
             if 'volume' in realtime_df.columns and not instant_intent.dropna().empty:
                 weights = realtime_df['volume'].diff().fillna(0).clip(lower=0)
                 valid_intent = instant_intent.dropna()
                 valid_weights = weights.loc[valid_intent.index]
-                print("\n--- [探针] [计算层-最终加权] ---")
-                print(f"探针: 最终加权。有效瞬时意图数量: {len(valid_intent)}, 总权重(成交量): {valid_weights.sum()}")
                 if valid_weights.sum() > 0:
                     weighted_intent = np.average(valid_intent, weights=valid_weights)
                     results['mf_cost_zone_defense_intent'] = np.clip(weighted_intent * 100, -100, 100)
-                    print(f"探针: 成功！最终攻防意图得分: {results['mf_cost_zone_defense_intent']}")
-                else:
-                    print("探针: 失败！总权重为0，无法进行加权平均。")
-            else:
-                print("探针: 失败！没有有效的瞬时意图（可能因火力均为0），无法进行最终加权。")
-        else:
-            print("探针: 失败！因 dominant_peak_cost 或 atr 无效，跳过了攻防意图计算。")
         intraday_df = context.get('processed_intraday_df')
         total_daily_volume = context.get('daily_turnover_volume')
         if intraday_df is None or intraday_df.empty or pd.isna(atr) or atr <= 0 or pd.isna(total_daily_volume) or total_daily_volume <= 0:
@@ -1069,7 +1025,6 @@ class ChipFeatureCalculator:
                 if scores_df['volume'].sum() > 0:
                     weighted_avg_score = np.average(scores_df['score'], weights=scores_df['volume'])
                     results['floating_chip_cleansing_efficiency'] = np.clip(weighted_avg_score * 10, -100, 100)
-        print(f"------ [探针] [计算层-结束] [{stock_code}] [{trade_date}] ------\n")
         return results
 
 
