@@ -278,11 +278,8 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
 # 资金高级指标模型
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V33.2 · 微观博弈指标版】
-    - 核心新增: 引入 `wash_trade_intensity`, `order_book_imbalance`, `large_order_pressure`, `large_order_support` 字段，用于量化主力对倒、盘口失衡及真实托压单行为。
-    - 核心新增: 引入 `main_force_ofi`, `retail_ofi`, `microstructure_efficiency_index`, `hidden_accumulation_intensity` 字段。
-    - 核心新增: 实现了 flow_temperature_premium, main_force_on_peak_flow 的计算逻辑。
-    - 核心优化: 调整模型字段定义，以承载新的指标。
+    【V33.3 · OFI冲击因子版】
+    - 核心新增: 引入 `ofi_price_impact_factor` 字段，用于量化主力订单流对价格的微观冲击效率。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     POWER_STRUCTURE_METRICS = {
@@ -342,6 +339,8 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'order_book_liquidity_supply': '盘口流动性供给(买/卖比)',
         'buy_quote_exhaustion_rate': '买方报价消耗率(%)',
         'sell_quote_exhaustion_rate': '卖方报价消耗率(%)',
+        # 新增代码行：添加OFI价格冲击因子
+        'ofi_price_impact_factor': 'OFI价格冲击因子',
     }
     OUTCOME_ASSESSMENT_METRICS = {
         'volatility_asymmetry_index': '波动不对称指数',
@@ -378,6 +377,8 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'order_book_liquidity_supply',
         'buy_quote_exhaustion_rate',
         'sell_quote_exhaustion_rate',
+        # 新增代码行：将新因子加入排除列表
+        'ofi_price_impact_factor',
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -406,46 +407,14 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'order_book_liquidity_supply',
         'buy_quote_exhaustion_rate',
         'sell_quote_exhaustion_rate',
+        # 新增代码行：将新因子定义为浮点型
+        'ofi_price_impact_factor',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:
             vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
         else:
             vars()[name] = models.DecimalField(max_digits=22, decimal_places=6, verbose_name=verbose, null=True, blank=True)
-    main_force_buy_rate_consensus = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='共识-主力买入率(%)', null=True, blank=True)
-    UNIFIED_PERIODS = [1, 5, 13, 21, 55]
-    sum_cols = [
-        'net_flow_calibrated', 'main_force_net_flow_calibrated', 'retail_net_flow_calibrated',
-        'net_xl_amount_calibrated', 'net_lg_amount_calibrated', 'net_md_amount_calibrated',
-        'net_sh_amount_calibrated',
-        'main_force_on_peak_flow',
-    ]
-    for p in UNIFIED_PERIODS:
-        if p > 1:
-            for name in sum_cols:
-                if name in CORE_METRICS:
-                    verbose_name = CORE_METRICS.get(name, name)
-                    vars()[f'{name}_sum_{p}d'] = models.DecimalField(max_digits=24, decimal_places=6, verbose_name=f'{verbose_name}{p}日累计', null=True, blank=True)
-    all_derivable_metrics = list(CORE_METRICS.keys())
-    for p in UNIFIED_PERIODS:
-        if p > 1:
-            for name in sum_cols:
-                all_derivable_metrics.append(f'{name}_sum_{p}d')
-    for name in all_derivable_metrics:
-        base_name = name.split('_sum_')[0]
-        if base_name in SLOPE_ACCEL_EXCLUSIONS:
-            continue
-        verbose_name = CORE_METRICS.get(name, name)
-        if '_sum_' in name:
-            original_verbose = CORE_METRICS.get(base_name, base_name)
-            period_str = name.split('_sum_')[1].split('d')[0]
-            verbose_name = f'{original_verbose}{period_str}日累计'
-        for p in UNIFIED_PERIODS:
-            vars()[f'{name}_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose_name}{p}日斜率', null=True, blank=True)
-            vars()[f'{name}_accel_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日加速度', null=True, blank=True)
-    class Meta:
-        abstract = True
-        ordering = ['-trade_time']
 
 class AdvancedFundFlowMetrics_SH(BaseAdvancedFundFlowMetrics):
     stock = models.ForeignKey(
