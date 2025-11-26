@@ -876,7 +876,8 @@ class AdvancedFundFlowMetricsService:
                 if debug_mode:
                     print("\n[3.0] 盘口失衡度 (Imbalance) 诊断")
                     print("  [3.1] 中间计算列样本:")
-                    print(df_book[['buy_volume1', 'sell_volume1', 'imbalance', 'liquidity_supply_ratio', 'time_diffs']].assign(time_diffs=time_diffs).head(3).to_string())
+                    # 【探针修复】修正此处的print语句，先选取存在的列，再用.assign()添加临时列
+                    print(df_book[['buy_volume1', 'sell_volume1', 'imbalance', 'liquidity_supply_ratio']].assign(time_diffs=time_diffs).head(3).to_string())
                     print(f"  [3.2] 最终结果: order_book_imbalance = {results.get('order_book_imbalance', 'N/A')}")
                     print(f"  [3.3] 最终结果: order_book_liquidity_supply = {results.get('order_book_liquidity_supply', 'N/A')}")
                     print(f"  [3.4] 最终结果: imbalance_effectiveness = {results.get('imbalance_effectiveness', 'N/A')}")
