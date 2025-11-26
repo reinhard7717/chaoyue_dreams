@@ -261,9 +261,9 @@ class AdvancedChipMetricsService:
                 else:
                     print(f"--- [探针] [服务层-数据融合] [{stock_code}] 日期: {date_obj} ---")
                     print("探针: 警告！Level5或Realtime快照数据为空，或Realtime快照缺少'volume'列，无法融合。")
-            else:
-                print(f"--- [探针] [服务层-数据融合] [{stock_code}] 日期: {date_obj} ---")
-                print("探针: 警告！缺少当日的Level5或Realtime快照数据，无法进行融合。")
+            # else:
+            #     print(f"--- [探针] [服务层-数据融合] [{stock_code}] 日期: {date_obj} ---")
+            #     print("探针: 警告！缺少当日的Level5或Realtime快照数据，无法进行融合。")
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
             if daily_metrics:
