@@ -741,12 +741,12 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V31.3 · 战场迷雾终极修复版】
+        【V31.4 · 战场迷雾终极修复版】
         - 核心修复: 彻底重构了 `market_vol_delta` (市场成交量增量) 的计算逻辑，解决了因数据融合方式
                      导致的差分恒为零的致命缺陷。
-        - 新逻辑:   通过识别 Realtime 快照的更新边界，将整个快照周期的成交量变化精确归因到
-                     边界后的第一个tick上，从而真实地反映了Tick之间的“隐藏”市场成交量，
-                     使得所有依赖此变量的下游诡道博弈指标（如对倒强度、大单威慑力等）恢复其设计威力。
+        - 新逻辑:   通过在合并前为Realtime数据创建'snapshot_time'列来保留其原始时间戳，
+                     然后通过识别'snapshot_time'的变化来精确定位快照边界，并将成交量增量正确归因。
+                     这使得所有依赖此变量的下游诡道博弈指标（如对倒强度、大单威慑力等）恢复其设计威力。
                      这是对微观结构分析能力的决定性修正。
         """
         from scipy.signal import find_peaks
@@ -766,13 +766,21 @@ class AdvancedFundFlowMetricsService:
                 tick_data.sort_index(), level5_data.sort_index(),
                 left_index=True, right_index=True, direction='backward'
             ).dropna(subset=['buy_price1', 'sell_price1', 'amount', 'volume'])
+            
             if realtime_data is not None and not realtime_data.empty and not merged_hf.empty:
-                # 在merge_asof中保留realtime的时间戳，用于识别快照边界
+                # 【终极修复 - 步骤1】准备realtime数据，保留原始时间戳
+                realtime_prepped = realtime_data[['volume']].copy()
+                realtime_prepped['snapshot_time'] = realtime_prepped.index
+                
                 merged_hf = pd.merge_asof(
-                    merged_hf.reset_index(),
-                    realtime_data[['volume']].sort_index().reset_index(),
-                    on='trade_time', direction='backward', suffixes=('_tick', '_realtime')
-                ).set_index('trade_time')
+                    merged_hf,
+                    realtime_prepped,
+                    left_index=True,
+                    right_index=True,
+                    direction='backward',
+                    suffixes=('_tick', '_realtime')
+                )
+
             if not merged_hf.empty:
                 merged_hf.rename(columns={'volume_tick': 'volume'}, inplace=True)
                 merged_hf['mid_price'] = (merged_hf['buy_price1'] + merged_hf['sell_price1']) / 2
@@ -786,13 +794,10 @@ class AdvancedFundFlowMetricsService:
                 merged_hf['retail_ofi'] = np.where(is_retail_trade, merged_hf['ofi'], 0)
                 merged_hf['mid_price_change'] = merged_hf['mid_price'].diff()
                 
-                # 【终极修复】重铸“战场迷雾”的计算逻辑
-                if 'volume_realtime' in merged_hf.columns and 'trade_time_realtime' in merged_hf.columns:
-                    # 1. 识别快照更新的边界
-                    snapshot_changed_mask = merged_hf['trade_time_realtime'] != merged_hf['trade_time_realtime'].shift(1)
-                    # 2. 计算所有时间点的潜在增量
+                # 【终极修复 - 步骤2】重铸“战场迷雾”的计算逻辑
+                if 'volume_realtime' in merged_hf.columns and 'snapshot_time' in merged_hf.columns:
+                    snapshot_changed_mask = merged_hf['snapshot_time'] != merged_hf['snapshot_time'].shift(1)
                     volume_delta = merged_hf['volume_realtime'].diff()
-                    # 3. 只在快照更新的边界处应用增量，其他地方为0
                     merged_hf['market_vol_delta'] = np.where(snapshot_changed_mask, volume_delta, 0).fillna(0)
 
                 hf_analysis_df = merged_hf
@@ -834,12 +839,14 @@ class AdvancedFundFlowMetricsService:
                 print(f"  - 融合后 hf_analysis_df: {hf_analysis_df.shape}")
                 if 'market_vol_delta' in hf_analysis_df.columns:
                     print("  - 关键列 'market_vol_delta' (战场迷雾) 样本 (修复后):")
-                    print(hf_analysis_df[hf_analysis_df['market_vol_delta'] > 0][['volume', 'volume_realtime', 'market_vol_delta']].head(3).to_string())
+                    print(hf_analysis_df[hf_analysis_df['market_vol_delta'] > 0][['volume', 'volume_realtime', 'market_vol_delta', 'snapshot_time']].head(3).to_string())
                 else:
                     print("  - 警告: 'market_vol_delta' 未能计算，Realtime数据可能缺失。")
 
             try:
                 # --- 1. 对倒强度 (Wash Trade Intensity) ---
+                wash_trade_vol = 0
+                wash_mask = pd.Series(False, index=hf_analysis_df.index)
                 if 'market_vol_delta' in hf_analysis_df.columns:
                     df_wash = hf_analysis_df[['type', 'volume', 'price', 'market_vol_delta']].copy()
                     df_wash['direction'] = df_wash['type'].map({'B': 1, 'S': -1}).fillna(0)
@@ -853,14 +860,18 @@ class AdvancedFundFlowMetricsService:
                         (df_wash['market_vol_delta'] > df_wash['volume'] * 2)
                     )
                     wash_trade_vol = df_wash.loc[wash_mask, 'market_vol_delta'].sum()
-                    if daily_total_volume > 0:
-                        results['wash_trade_intensity'] = (wash_trade_vol / daily_total_volume) * 100
+                
+                if daily_total_volume > 0:
+                    results['wash_trade_intensity'] = (wash_trade_vol / daily_total_volume) * 100
                 
                 if debug_mode:
                     print("\n[2.0] 对倒强度 (Wash Trade) 诊断")
                     print(f"  [2.1] 识别出的对倒交易样本 (共 {wash_mask.sum()} 笔):")
-                    wash_samples = df_wash[wash_mask][['type', 'volume', 'price', 'market_vol_delta', 'price_change_ratio']]
-                    print(wash_samples.head(5).to_string() if not wash_samples.empty else "  无")
+                    if 'market_vol_delta' in hf_analysis_df.columns:
+                        wash_samples = df_wash[wash_mask][['type', 'volume', 'price', 'market_vol_delta', 'price_change_ratio']]
+                        print(wash_samples.head(5).to_string() if not wash_samples.empty else "  无")
+                    else:
+                        print("  无 (market_vol_delta 缺失)")
                     print(f"  [2.2] 计算过程: wash_trade_vol={wash_trade_vol:.0f}, daily_total_volume={daily_total_volume:.0f}")
                     print(f"  [2.3] 最终结果: wash_trade_intensity = {results.get('wash_trade_intensity', 'N/A')}")
 
