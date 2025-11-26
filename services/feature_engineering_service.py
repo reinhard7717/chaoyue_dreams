@@ -678,19 +678,29 @@ class FeatureEngineeringService:
         df = all_dfs[timeframe]
         df_index = df.index
         # 定义所有需要的原始筹码相关列
+        # 修改代码行：更新必需列的列表，以匹配V33.0版本的新指标体系
         required_cols = [
-            'short_term_concentration_90pct_D', 'long_term_concentration_90pct_D',
-            'winner_concentration_90pct_D', 'loser_concentration_90pct_D',
+            # 维度一: 筹码集中度与结构优化
+            'winner_concentration_90pct_D', 'loser_concentration_90pct_D', # 替代 short/long_term_concentration
             'dominant_peak_solidity_D', 'dominant_peak_volume_ratio_D',
             'chip_fault_blockage_ratio_D',
+            # 维度二: 成本与盈亏结构动态
             'total_winner_rate_D', 'total_loser_rate_D',
             'winner_profit_margin_avg_D', 'loser_loss_margin_avg_D',
-            'cost_divergence_normalized_D', 'main_force_cost_advantage_D',
-            'imminent_profit_taking_supply_D', 'loser_capitulation_pressure_index_D',
-            'winner_conviction_index_D', 'chip_fatigue_index_D',
-            'locked_profit_rate_D', 'locked_loss_rate_D', 'capitulation_absorption_index_D',
-            'active_buying_support_D', 'active_selling_pressure_D', 'active_zone_combat_intensity_D',
-            'main_force_control_leverage_D', 'main_force_on_peak_flow_D',
+            'cost_structure_skewness_D',      # 新增: 替代 cost_divergence_normalized_D
+            'main_force_cost_advantage_D',
+            'profit_taking_flow_ratio_D',     # 新增: 替代 imminent_profit_taking_supply_D
+            'loser_pain_index_D',             # 新增: 替代 loser_capitulation_pressure_index_D
+            # 维度三: 持股心态与交易行为
+            'winner_stability_index_D',       # 新增: 替代 winner_conviction_index_D 和 locked_profit_rate_D
+            'chip_fatigue_index_D',
+            'capitulation_flow_ratio_D',      # 新增: 用于替代 locked_loss_rate_D
+            'capitulation_absorption_index_D',
+            'active_buying_support_D', 'active_selling_pressure_D',
+            'mf_retail_battle_intensity_D',   # 新增: 替代 active_zone_combat_intensity_D
+            # 维度四: 主力控盘与意图
+            'control_solidity_index_D',       # 新增: 替代 main_force_control_leverage_D
+            'main_force_on_peak_flow_D',
             'main_force_flow_directionality_D', 'main_force_execution_alpha_D',
             'main_force_conviction_index_D', 'mf_vpoc_premium_D', 'vwap_control_strength_D',
             'turnover_rate_f_D'
@@ -698,7 +708,7 @@ class FeatureEngineeringService:
         # 使用 _get_safe_series 确保所有数据都存在，并用默认值填充缺失值
         def _get_safe_series_local(col_name, default_val=0.0):
             if col_name not in df.columns:
-                logger.warning(f"OCH计算缺少列: {col_name}，使用默认值 {default_val}。")
+                print(f"调试信息: OCH计算缺少列: {col_name}，使用默认值 {default_val}。")
                 return pd.Series(default_val, index=df_index)
             return df[col_name].fillna(default_val)
         # --- 1. 筹码集中度与结构优化 (Concentration & Structure Optimization Score) ---
