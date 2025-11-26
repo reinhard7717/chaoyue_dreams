@@ -432,16 +432,19 @@ class AdvancedFundFlowMetricsService:
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series, debug_mode: bool = False) -> dict:
         results = {}
         WAN = 10000.0
-        consensus_map = {
-            'net_flow_calibrated': ('net_flow_tushare', ['net_flow_ths', 'net_flow_dc']),
-            'main_force_net_flow_calibrated': ('main_force_net_flow_tushare', ['main_force_net_flow_ths', 'main_force_net_flow_dc']),
-            'retail_net_flow_calibrated': ('retail_net_flow_tushare', ['retail_net_flow_ths', 'retail_net_flow_dc']),
-            'net_xl_amount_calibrated': ('net_xl_amount_tushare', ['net_xl_amount_dc']),
-            'net_lg_amount_calibrated': ('net_lg_amount_tushare', ['net_lg_amount_ths', 'net_lg_amount_dc']),
-            'net_md_amount_calibrated': ('net_md_amount_tushare', ['net_md_amount_ths', 'net_md_amount_dc']),
-            'net_sh_amount_calibrated': ('net_sh_amount_tushare', ['net_sh_amount_ths', 'net_sh_amount_dc']),
-        }
-        for target_col, (base_col, confirm_cols) in consensus_map.items():
+        def get_calibrated_value(target_col_name: str):
+            consensus_map = {
+                'net_flow_calibrated': ('net_flow_tushare', ['net_flow_ths', 'net_flow_dc']),
+                'main_force_net_flow_calibrated': ('main_force_net_flow_tushare', ['main_force_net_flow_ths', 'main_force_net_flow_dc']),
+                'retail_net_flow_calibrated': ('retail_net_flow_tushare', ['retail_net_flow_ths', 'retail_net_flow_dc']),
+                'net_xl_amount_calibrated': ('net_xl_amount_tushare', ['net_xl_amount_dc']),
+                'net_lg_amount_calibrated': ('net_lg_amount_tushare', ['net_lg_amount_ths', 'net_lg_amount_dc']),
+                'net_md_amount_calibrated': ('net_md_amount_tushare', ['net_md_amount_ths', 'net_md_amount_dc']),
+                'net_sh_amount_calibrated': ('net_sh_amount_tushare', ['net_sh_amount_ths', 'net_sh_amount_dc']),
+            }
+            if target_col_name not in consensus_map:
+                return np.nan
+            base_col, confirm_cols = consensus_map[target_col_name]
             base_value = pd.to_numeric(daily_data_series.get(base_col), errors='coerce')
             if pd.isna(base_value):
                 for conf_col in confirm_cols:
@@ -453,108 +456,118 @@ class AdvancedFundFlowMetricsService:
                 confirmation_score = sum(1 for conf_col in confirm_cols if pd.notna(daily_data_series.get(conf_col)) and np.sign(base_value) == np.sign(pd.to_numeric(daily_data_series.get(conf_col), errors='coerce')))
                 available_sources = sum(1 for conf_col in confirm_cols if pd.notna(daily_data_series.get(conf_col)))
                 calibration_factor = (1 + confirmation_score) / (1 + available_sources) if available_sources > 0 else 1.0
-                results[target_col] = base_value * calibration_factor
-            else:
-                results[target_col] = np.nan
+                return base_value * calibration_factor
+            return np.nan
+        for col_name in ['net_flow_calibrated', 'main_force_net_flow_calibrated', 'retail_net_flow_calibrated', 'net_xl_amount_calibrated', 'net_lg_amount_calibrated', 'net_md_amount_calibrated', 'net_sh_amount_calibrated']:
+            results[col_name] = get_calibrated_value(col_name)
         turnover_amount_yuan = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
-        if turnover_amount_yuan > 0:
-            base_flow_yuan = pd.to_numeric(daily_data_series.get('main_force_net_flow_tushare'), errors='coerce') * WAN
-            confirm_flows_yuan = [pd.to_numeric(daily_data_series.get(c), errors='coerce') * WAN for c in ['main_force_net_flow_ths', 'main_force_net_flow_dc']]
-            if pd.notna(base_flow_yuan):
-                deviations = [abs(conf_flow - base_flow_yuan) / turnover_amount_yuan for conf_flow in confirm_flows_yuan if pd.notna(conf_flow)]
-                final_value = (1.0 - np.mean(deviations)) * 100 if deviations else 50.0
-                results['flow_credibility_index'] = final_value
-                if debug_mode:
-                    stock_code = daily_data_series.get('stock_code', 'N/A')
-                    trade_date_str = daily_data_series.name.strftime('%Y-%m-%d')
-                    print(f"\n--- [探针] [flow_credibility_index 计算过程精细化诊断] [{stock_code}] 日期: {trade_date_str} ---")
-                    print(f"  - 1. 输入-总成交额(元): {turnover_amount_yuan:.2f}")
-                    print(f"  - 2. 输入-基准资金流(元): {base_flow_yuan:.2f}")
-                    print(f"  - 3. 输入-确认资金流列表(元): {[f'{f:.2f}' for f in confirm_flows_yuan]}")
-                    print(f"  - 4. 中间-有效确认流数量: {len([f for f in confirm_flows_yuan if pd.notna(f)])}")
-                    print(f"  - 5. 中间-偏差率列表(deviations): {deviations}")
-                    print(f"  - 6. 中间-偏差率均值: {np.mean(deviations) if deviations else 'N/A (列表为空)'}")
-                    print(f"  - 7. 最终结果: {final_value:.4f}")
-                    print("--- [探针] 诊断结束 ---\n")
-            mf_flow_yuan = results.get('main_force_net_flow_calibrated', np.nan) * WAN
-            retail_flow_yuan = results.get('retail_net_flow_calibrated', np.nan) * WAN
-            if pd.notna(mf_flow_yuan) and pd.notna(retail_flow_yuan):
-                total_flow_abs_yuan = abs(mf_flow_yuan) + abs(retail_flow_yuan)
-                if total_flow_abs_yuan > 0:
-                    battle_volume_yuan = min(abs(mf_flow_yuan), abs(retail_flow_yuan))
-                    battle_turnover_yuan = 2 * battle_volume_yuan
-                    results['mf_retail_battle_intensity'] = (battle_turnover_yuan / turnover_amount_yuan) * 100
-                else:
-                    results['mf_retail_battle_intensity'] = 0.0
+        try:
+            if turnover_amount_yuan > 0:
+                base_flow_yuan = pd.to_numeric(daily_data_series.get('main_force_net_flow_tushare'), errors='coerce') * WAN
+                confirm_flows_yuan = [pd.to_numeric(daily_data_series.get(c), errors='coerce') * WAN for c in ['main_force_net_flow_ths', 'main_force_net_flow_dc']]
+                if pd.notna(base_flow_yuan):
+                    deviations = [abs(conf_flow - base_flow_yuan) / turnover_amount_yuan for conf_flow in confirm_flows_yuan if pd.notna(conf_flow)]
+                    results['flow_credibility_index'] = (1.0 - np.mean(deviations)) * 100 if deviations else 50.0
+            else:
+                results['flow_credibility_index'] = np.nan
+        except Exception:
+            results['flow_credibility_index'] = np.nan
+        try:
+            mf_flow_calibrated = results.get('main_force_net_flow_calibrated')
+            retail_flow_calibrated = results.get('retail_net_flow_calibrated')
+            if turnover_amount_yuan > 0 and pd.notna(mf_flow_calibrated) and pd.notna(retail_flow_calibrated):
+                mf_flow_yuan = mf_flow_calibrated * WAN
+                retail_flow_yuan = retail_flow_calibrated * WAN
+                battle_volume_yuan = min(abs(mf_flow_yuan), abs(retail_flow_yuan))
+                battle_turnover_yuan = 2 * battle_volume_yuan
+                results['mf_retail_battle_intensity'] = (battle_turnover_yuan / turnover_amount_yuan) * 100
             else:
                 results['mf_retail_battle_intensity'] = np.nan
-        mf_buy_yuan = np.nansum([
-            pd.to_numeric(daily_data_series.get('buy_lg_amount'), errors='coerce'),
-            pd.to_numeric(daily_data_series.get('buy_elg_amount'), errors='coerce')
-        ]) * WAN
-        mf_sell_yuan = np.nansum([
-            pd.to_numeric(daily_data_series.get('sell_lg_amount'), errors='coerce'),
-            pd.to_numeric(daily_data_series.get('sell_elg_amount'), errors='coerce')
-        ]) * WAN
-        mf_total_activity_yuan = mf_buy_yuan + mf_sell_yuan
-        if turnover_amount_yuan > 0:
-            results['main_force_activity_ratio'] = (mf_total_activity_yuan / turnover_amount_yuan) * 100
-        else:
-            results['main_force_activity_ratio'] = np.nan
-        if mf_total_activity_yuan > 0:
-            mf_net_calibrated_yuan = results.get('main_force_net_flow_calibrated', np.nan) * WAN
-            if pd.notna(mf_net_calibrated_yuan):
-                results['main_force_flow_directionality'] = (mf_net_calibrated_yuan / mf_total_activity_yuan) * 100
+        except Exception:
+            results['mf_retail_battle_intensity'] = np.nan
+        try:
+            mf_buy_yuan = np.nansum([pd.to_numeric(daily_data_series.get('buy_lg_amount'), errors='coerce'), pd.to_numeric(daily_data_series.get('buy_elg_amount'), errors='coerce')]) * WAN
+            mf_sell_yuan = np.nansum([pd.to_numeric(daily_data_series.get('sell_lg_amount'), errors='coerce'), pd.to_numeric(daily_data_series.get('sell_elg_amount'), errors='coerce')]) * WAN
+            mf_total_activity_yuan = mf_buy_yuan + mf_sell_yuan
+            if turnover_amount_yuan > 0:
+                results['main_force_activity_ratio'] = (mf_total_activity_yuan / turnover_amount_yuan) * 100
+                results['main_force_buy_rate_consensus'] = (mf_buy_yuan / turnover_amount_yuan) * 100
+            else:
+                results['main_force_activity_ratio'] = np.nan
+                results['main_force_buy_rate_consensus'] = np.nan
+            mf_net_calibrated = results.get('main_force_net_flow_calibrated')
+            if mf_total_activity_yuan > 0 and pd.notna(mf_net_calibrated):
+                results['main_force_flow_directionality'] = (mf_net_calibrated * WAN / mf_total_activity_yuan) * 100
             else:
                 results['main_force_flow_directionality'] = np.nan
-        else:
+        except Exception:
+            results['main_force_activity_ratio'] = np.nan
+            results['main_force_buy_rate_consensus'] = np.nan
             results['main_force_flow_directionality'] = np.nan
-        def get_directionality(buy_c, sell_c):
-            b = np.nan_to_num(pd.to_numeric(daily_data_series.get(buy_c), errors='coerce'))
-            s = np.nan_to_num(pd.to_numeric(daily_data_series.get(sell_c), errors='coerce'))
-            return (b - s) / (b + s) if (b + s) > 0 else 0.0
-        xl_directionality = get_directionality('buy_elg_amount', 'sell_elg_amount')
-        lg_directionality = get_directionality('buy_lg_amount', 'sell_lg_amount')
-        results['main_force_conviction_index'] = ((xl_directionality + lg_directionality) / 2.0) * (1.0 - abs(xl_directionality - lg_directionality)) * 100
-        mf_flow_yuan = results.get('main_force_net_flow_calibrated', np.nan) * WAN
-        retail_flow_yuan = results.get('retail_net_flow_calibrated', np.nan) * WAN
-        if pd.notna(mf_flow_yuan) and pd.notna(retail_flow_yuan):
-            total_opinionated_flow_yuan = abs(mf_flow_yuan) + abs(retail_flow_yuan)
-            if total_opinionated_flow_yuan > 0:
-                dominance_ratio = abs(retail_flow_yuan) / total_opinionated_flow_yuan
-                divergence_penalty = 1 if np.sign(mf_flow_yuan) != np.sign(retail_flow_yuan) and mf_flow_yuan != 0 and retail_flow_yuan != 0 else 0
-                results['retail_flow_dominance_index'] = np.sign(retail_flow_yuan) * dominance_ratio * (1 + divergence_penalty) * 100
+        try:
+            def get_directionality(buy_c, sell_c):
+                b = np.nan_to_num(pd.to_numeric(daily_data_series.get(buy_c), errors='coerce'))
+                s = np.nan_to_num(pd.to_numeric(daily_data_series.get(sell_c), errors='coerce'))
+                return (b - s) / (b + s) if (b + s) > 0 else 0.0
+            xl_directionality = get_directionality('buy_elg_amount', 'sell_elg_amount')
+            lg_directionality = get_directionality('buy_lg_amount', 'sell_lg_amount')
+            results['main_force_conviction_index'] = ((xl_directionality + lg_directionality) / 2.0) * (1.0 - abs(xl_directionality - lg_directionality)) * 100
+        except Exception:
+            results['main_force_conviction_index'] = np.nan
+        try:
+            mf_flow_calibrated = results.get('main_force_net_flow_calibrated')
+            retail_flow_calibrated = results.get('retail_net_flow_calibrated')
+            if pd.notna(mf_flow_calibrated) and pd.notna(retail_flow_calibrated):
+                mf_flow_yuan = mf_flow_calibrated * WAN
+                retail_flow_yuan = retail_flow_calibrated * WAN
+                total_opinionated_flow_yuan = abs(mf_flow_yuan) + abs(retail_flow_yuan)
+                if total_opinionated_flow_yuan > 0:
+                    dominance_ratio = abs(retail_flow_yuan) / total_opinionated_flow_yuan
+                    divergence_penalty = 1 if np.sign(mf_flow_yuan) != np.sign(retail_flow_yuan) and mf_flow_yuan != 0 and retail_flow_yuan != 0 else 0
+                    results['retail_flow_dominance_index'] = np.sign(retail_flow_yuan) * dominance_ratio * (1 + divergence_penalty) * 100
+                else:
+                    results['retail_flow_dominance_index'] = np.nan
             else:
                 results['retail_flow_dominance_index'] = np.nan
-        else:
+        except Exception:
             results['retail_flow_dominance_index'] = np.nan
-        pct_change = pd.to_numeric(daily_data_series.get('pct_change'), errors='coerce')
-        if pd.notna(pct_change) and pd.notna(mf_flow_yuan) and turnover_amount_yuan > 0:
-            standardized_mf_flow = mf_flow_yuan / turnover_amount_yuan
-            if abs(standardized_mf_flow) > 1e-6:
-                results['main_force_price_impact_ratio'] = (pct_change / 100) / standardized_mf_flow
+        try:
+            pct_change = pd.to_numeric(daily_data_series.get('pct_change'), errors='coerce')
+            mf_flow_calibrated = results.get('main_force_net_flow_calibrated')
+            if pd.notna(pct_change) and pd.notna(mf_flow_calibrated) and turnover_amount_yuan > 0:
+                mf_flow_yuan = mf_flow_calibrated * WAN
+                standardized_mf_flow = mf_flow_yuan / turnover_amount_yuan
+                if abs(standardized_mf_flow) > 1e-6:
+                    results['main_force_price_impact_ratio'] = (pct_change / 100) / standardized_mf_flow
+                else:
+                    results['main_force_price_impact_ratio'] = 0.0 if pct_change == 0 else np.inf * np.sign(pct_change)
             else:
-                results['main_force_price_impact_ratio'] = 0.0 if pct_change == 0 else np.inf * np.sign(pct_change)
-        else:
+                results['main_force_price_impact_ratio'] = np.nan
+        except Exception:
             results['main_force_price_impact_ratio'] = np.nan
-        if turnover_amount_yuan > 0:
-            results['main_force_buy_rate_consensus'] = (mf_buy_yuan / turnover_amount_yuan) * 100
-        else:
-            results['main_force_buy_rate_consensus'] = np.nan
-        circ_mv_yuan = pd.to_numeric(daily_data_series.get('circ_mv'), errors='coerce') * WAN
-        if pd.notna(circ_mv_yuan) and circ_mv_yuan > 0 and pd.notna(mf_flow_yuan) and pd.notna(pct_change):
-            flow_input = mf_flow_yuan / circ_mv_yuan
-            if abs(flow_input) > 1e-9:
-                efficiency = (pct_change / 100) / flow_input
-                results['flow_efficiency_index'] = np.sign(efficiency) * np.log1p(abs(efficiency))
+        try:
+            pct_change = pd.to_numeric(daily_data_series.get('pct_change'), errors='coerce')
+            mf_flow_calibrated = results.get('main_force_net_flow_calibrated')
+            circ_mv_yuan = pd.to_numeric(daily_data_series.get('circ_mv'), errors='coerce') * WAN
+            if pd.notna(circ_mv_yuan) and circ_mv_yuan > 0 and pd.notna(mf_flow_calibrated) and pd.notna(pct_change):
+                mf_flow_yuan = mf_flow_calibrated * WAN
+                flow_input = mf_flow_yuan / circ_mv_yuan
+                if abs(flow_input) > 1e-9:
+                    efficiency = (pct_change / 100) / flow_input
+                    results['flow_efficiency_index'] = np.sign(efficiency) * np.log1p(abs(efficiency))
+                else:
+                    results['flow_efficiency_index'] = np.nan
             else:
                 results['flow_efficiency_index'] = np.nan
-        else:
+        except Exception:
             results['flow_efficiency_index'] = np.nan
-        trade_count = pd.to_numeric(daily_data_series.get('trade_count'), errors='coerce')
-        if pd.notna(trade_count) and trade_count > 0 and pd.notna(turnover_amount_yuan) and turnover_amount_yuan > 0:
-            results['inferred_active_order_size'] = turnover_amount_yuan / trade_count
-        else:
+        try:
+            trade_count = pd.to_numeric(daily_data_series.get('trade_count'), errors='coerce')
+            if pd.notna(trade_count) and trade_count > 0 and pd.notna(turnover_amount_yuan) and turnover_amount_yuan > 0:
+                results['inferred_active_order_size'] = turnover_amount_yuan / trade_count
+            else:
+                results['inferred_active_order_size'] = np.nan
+        except Exception:
             results['inferred_active_order_size'] = np.nan
         return results
 
