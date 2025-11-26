@@ -343,34 +343,27 @@ class AdvancedFundFlowMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None, realtime_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V11.3 · 溯源探针植入版】
-        - 核心新增: 植入探针触发逻辑，在处理批次中的最后一个交易日时，生成一个 `debug_mode=True` 信号并向下游传递，以激活溯源探针。
+        【V11.5 · 出口诊断探针版】
+        - 核心增强: 在方法返回前增加一个“出口探针”，用于检查最终生成的DataFrame中是否包含了所有计算出的指标，以定位数据在后续流程中丢失的问题。
         """
         all_metrics_list = []
         attributed_minute_data_map = {}
         failures = []
-        # 新增代码行：获取批次中的总天数
         num_days = len(merged_df)
         for i, (trade_date, daily_data_series) in enumerate(merged_df.iterrows()):
-            # 新增代码行：设置调试模式标志
             debug_mode = (i == num_days - 1)
-
-            # 【探针代码块】
             if debug_mode:
                 print(f"\n--- [探针] [数据进入计算引擎前诊断] [{stock_code}] 日期: {trade_date.strftime('%Y-%m-%d')} ---")
-                # 检查关键宏观字段
                 macro_keys = ['amount', 'pct_change', 'circ_mv', 'net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']
                 print("\n[1. 关键宏观字段检查]")
                 for key in macro_keys:
                     value = daily_data_series.get(key, '!!!不存在!!!')
                     print(f"  - {key:<30}: {value}")
-                
-                # 检查高频数据是否存在
-                date_obj = trade_date.date()
+                date_obj_check = trade_date.date()
                 print("\n[2. 高频数据源检查]")
-                print(f"  - tick_data_map.get(date_obj) is not None : {tick_data_map.get(date_obj) is not None}")
-                print(f"  - level5_data_map.get(date_obj) is not None: {level5_data_map.get(date_obj) is not None}")
-                print(f"  - minute_data_map.get(date_obj) is not None: {minute_data_map.get(date_obj) is not None}")
+                print(f"  - tick_data_map.get(date_obj) is not None : {tick_data_map.get(date_obj_check) is not None}")
+                print(f"  - level5_data_map.get(date_obj) is not None: {level5_data_map.get(date_obj_check) is not None}")
+                print(f"  - minute_data_map.get(date_obj) is not None: {minute_data_map.get(date_obj_check) is not None}")
                 print("--- [探针] 诊断结束 ---\n")
             date_obj = trade_date.date()
             daily_amount = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
@@ -407,13 +400,11 @@ class AdvancedFundFlowMetricsService:
                     )
                     if 'trade_time' in merged_realtime_df_for_day.columns:
                         merged_realtime_df_for_day.set_index('trade_time', inplace=True)
-            # 新增代码行：设置调试模式标志
-            debug_mode = (i == num_days - 1)
             day_metrics, _ = self._calculate_all_metrics_for_day(
                 stock_code, daily_data_series, intraday_data, attributed_minute_df, probabilistic_costs_dict,
                 tick_data_map.get(date_obj) if tick_data_map else None,
                 merged_realtime_df_for_day,
-                debug_mode=debug_mode  # 修改代码行：传递调试标志
+                debug_mode=debug_mode
             )
             all_metrics_list.append(day_metrics)
             attributed_minute_data_map[date_obj] = attributed_minute_df.copy(deep=True)
@@ -421,6 +412,21 @@ class AdvancedFundFlowMetricsService:
             return pd.DataFrame(), {}, failures
         final_metrics_df = pd.DataFrame(all_metrics_list)
         final_metrics_df.set_index('trade_time', inplace=True)
+        if debug_mode and not final_metrics_df.empty:
+            print(f"\n--- [探针] [服务层出口数据帧诊断] [{stock_code}] ---")
+            print(f"  - DataFrame维度: {final_metrics_df.shape}")
+            print(f"  - DataFrame列名: {final_metrics_df.columns.tolist()}")
+            last_day_results = final_metrics_df.iloc[-1]
+            print("\n  [最后一天宏观指标检查]")
+            keys_to_check = [
+                'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
+                'main_force_price_impact_ratio', 'flow_efficiency_index', 'main_force_t0_efficiency',
+                'main_force_net_flow_calibrated'
+            ]
+            for key in keys_to_check:
+                value = last_day_results.get(key, '!!!列不存在!!!')
+                print(f"    - {key:<35}: {value}")
+            print("--- [探针] 诊断结束 ---\n")
         return final_metrics_df, attributed_minute_data_map, failures
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series, debug_mode: bool = False) -> dict:
