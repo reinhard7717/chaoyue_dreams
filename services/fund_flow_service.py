@@ -796,9 +796,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, debug_mode: bool = False) -> dict:
         """
-        【V29.3 · 盘口清扫率逻辑修正版】
-        - 核心修正(order_book_clearing_rate): 废弃基于挂单量变化的间接推断，修正为基于成交事实的直接度量。
-                                         “清扫”被精确定义为成交价等于前一刻最佳对价的tick，彻底排除了订单撤销的干扰。
+        【V29.4 · 列名冲突修复版】
+        - 核心修复: 解决了因 tick_data 和 realtime_data 均包含 'volume' 列，在 merge_asof 时导致的列名自动重命名 (`_x`, `_y`) 与后续代码引用不一致的 KeyError。
+        - 核心策略: 在 merge_asof 中引入 `suffixes=('_tick', '_realtime')` 参数，显式控制重名列，并同步更新所有下游代码对这些列的引用。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -806,7 +806,7 @@ class AdvancedFundFlowMetricsService:
             return results
         all_metrics_keys = list(BaseAdvancedFundFlowMetrics.TACTICAL_LOG_METRICS.keys()) + list(BaseAdvancedFundFlowMetrics.OUTCOME_ASSESSMENT_METRICS.keys()) + list(BaseAdvancedFundFlowMetrics.POWER_STRUCTURE_METRICS.keys())
         for key in all_metrics_keys:
-            if key not in ['inferred_active_order_size', 'asymmetric_volume_thrust']: # 排除废弃的指标
+            if key not in ['inferred_active_order_size', 'asymmetric_volume_thrust']:
                 results[key] = np.nan
         daily_total_volume = daily_data.get('vol', 0) * 100
         daily_total_amount = pd.to_numeric(daily_data.get('amount', 0), errors='coerce') * 1000
@@ -817,45 +817,47 @@ class AdvancedFundFlowMetricsService:
         pre_close = daily_data.get('pre_close_qfq')
         hf_analysis_df = pd.DataFrame()
         if tick_data is not None and not tick_data.empty and level5_data is not None and not level5_data.empty:
+            # 修改代码行：添加suffixes参数以解决列名冲突
             merged_hf = pd.merge_asof(
                 tick_data.sort_index(), level5_data.sort_index(),
-                left_index=True, right_index=True, direction='backward'
-            ).dropna(subset=['buy_price1', 'sell_price1', 'amount', 'volume'])
+                left_index=True, right_index=True, direction='backward',
+                suffixes=('_tick', '_realtime')
+            # 修改代码行：更新dropna的subset以使用新的列名
+            ).dropna(subset=['buy_price1', 'sell_price1', 'amount_tick', 'volume_realtime'])
             if not merged_hf.empty:
                 merged_hf['mid_price'] = (merged_hf['buy_price1'] + merged_hf['sell_price1']) / 2
                 merged_hf['prev_mid_price'] = merged_hf['mid_price'].shift(1)
                 buy_pressure = np.where(merged_hf['mid_price'] >= merged_hf['prev_mid_price'], merged_hf['buy_volume1'].shift(1), 0)
                 sell_pressure = np.where(merged_hf['mid_price'] <= merged_hf['prev_mid_price'], merged_hf['sell_volume1'].shift(1), 0)
                 merged_hf['ofi'] = buy_pressure - sell_pressure
-                is_main_force_trade = merged_hf['amount'] > 200000
+                # 修改代码行：使用 amount_tick 进行判断
+                is_main_force_trade = merged_hf['amount_tick'] > 200000
                 merged_hf['main_force_ofi'] = np.where(is_main_force_trade, merged_hf['ofi'], 0)
                 merged_hf['mid_price_change'] = merged_hf['mid_price'].diff()
-                merged_hf['market_vol_delta'] = merged_hf['volume'].diff().fillna(0)
+                # 修改代码行：使用 volume_realtime 计算增量
+                merged_hf['market_vol_delta'] = merged_hf['volume_realtime'].diff().fillna(0)
                 hf_analysis_df = merged_hf
         if not hf_analysis_df.empty:
-            large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
+            # 修改代码行：使用 amount_tick 进行筛选和计算
+            large_orders_df = hf_analysis_df[hf_analysis_df['amount_tick'] > 200000]
             if not large_orders_df.empty:
-                results['observed_large_order_size_avg'] = large_orders_df['amount'].mean()
+                results['observed_large_order_size_avg'] = large_orders_df['amount_tick'].mean()
             up_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] > 0]
             down_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] < 0]
             if not up_ticks.empty and not down_ticks.empty:
-                # 注意：merge_asof后，tick的成交量列名可能变为 volume_x
-                vol_col = 'volume_x' if 'volume_x' in hf_analysis_df.columns else 'volume'
-                vol_per_tick_up = up_ticks[vol_col].sum() / (up_ticks['mid_price_change'].sum() * 100)
-                vol_per_tick_down = down_ticks[vol_col].sum() / (down_ticks['mid_price_change'].abs().sum() * 100)
+                # 修改代码行：明确使用 volume_tick (单笔成交量)
+                vol_per_tick_up = up_ticks['volume_tick'].sum() / (up_ticks['mid_price_change'].sum() * 100)
+                vol_per_tick_down = down_ticks['volume_tick'].sum() / (down_ticks['mid_price_change'].abs().sum() * 100)
                 if vol_per_tick_down > 1e-6:
                     asymmetry_ratio = vol_per_tick_up / vol_per_tick_down
                     results['micro_price_impact_asymmetry'] = np.log1p(asymmetry_ratio) if asymmetry_ratio > 0 else np.nan
-            # 修改代码块：修正盘口清扫率的计算逻辑
             hf_analysis_df['prev_a1_p'] = hf_analysis_df['sell_price1'].shift(1)
             hf_analysis_df['prev_b1_p'] = hf_analysis_df['buy_price1'].shift(1)
-            vol_col = 'volume_x' if 'volume_x' in hf_analysis_df.columns else 'volume'
-            # 买方清扫成交量：买单('B')成交在上一刻的卖一价
-            ask_clearing_mask = (hf_analysis_df['type'] == 'B') & (hf_analysis_df['price'] == hf_analysis_df['prev_a1_p'])
-            ask_clearing_vol = hf_analysis_df.loc[ask_clearing_mask, vol_col].sum()
-            # 卖方清扫成交量：卖单('S')成交在上一刻的买一价
-            bid_clearing_mask = (hf_analysis_df['type'] == 'S') & (hf_analysis_df['price'] == hf_analysis_df['prev_b1_p'])
-            bid_clearing_vol = hf_analysis_df.loc[bid_clearing_mask, vol_col].sum()
+            # 修改代码行：明确使用 price_tick 和 volume_tick
+            ask_clearing_mask = (hf_analysis_df['type_tick'] == 'B') & (hf_analysis_df['price_tick'] == hf_analysis_df['prev_a1_p'])
+            ask_clearing_vol = hf_analysis_df.loc[ask_clearing_mask, 'volume_tick'].sum()
+            bid_clearing_mask = (hf_analysis_df['type_tick'] == 'S') & (hf_analysis_df['price_tick'] == hf_analysis_df['prev_b1_p'])
+            bid_clearing_vol = hf_analysis_df.loc[bid_clearing_mask, 'volume_tick'].sum()
             total_cleared_vol = ask_clearing_vol + bid_clearing_vol
             if daily_total_volume > 0:
                 results['order_book_clearing_rate'] = (total_cleared_vol / daily_total_volume) * 100
