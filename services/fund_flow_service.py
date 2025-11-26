@@ -502,18 +502,52 @@ class AdvancedFundFlowMetricsService:
         try:
             pct_change = pd.to_numeric(daily_data_series.get('pct_change'), errors='coerce')
             mf_flow_calibrated = results.get('main_force_net_flow_calibrated')
-            circ_mv_yuan = pd.to_numeric(daily_data_series.get('circ_mv'), errors='coerce') * WAN
+            circ_mv_raw = daily_data_series.get('circ_mv')
+            circ_mv_yuan = pd.to_numeric(circ_mv_raw, errors='coerce') * WAN
+            final_result = np.nan
+            if debug_mode:
+                stock_code = daily_data_series.get('stock_code', 'N/A')
+                trade_date_str = daily_data_series.name.strftime('%Y-%m-%d')
+                print(f"\n--- [探针] [flow_efficiency_index 计算过程精细化诊断] [{stock_code}] 日期: {trade_date_str} ---")
+                print("[1. 原始数据输入]")
+                print(f"  - pct_change: {pct_change}")
+                print(f"  - circ_mv: {circ_mv_raw}")
+                print(f"  - main_force_net_flow_calibrated: {mf_flow_calibrated}")
+                print("[2. 核心逻辑检查]")
+                print(f"  - pd.notna(circ_mv_yuan): {pd.notna(circ_mv_yuan)}")
+                print(f"  - circ_mv_yuan > 0: {circ_mv_yuan > 0 if pd.notna(circ_mv_yuan) else 'N/A'}")
+                print(f"  - pd.notna(mf_flow_calibrated): {pd.notna(mf_flow_calibrated)}")
+                print(f"  - pd.notna(pct_change): {pd.notna(pct_change)}")
             if pd.notna(circ_mv_yuan) and circ_mv_yuan > 0 and pd.notna(mf_flow_calibrated) and pd.notna(pct_change):
                 mf_flow_yuan = mf_flow_calibrated * WAN
                 flow_input = mf_flow_yuan / circ_mv_yuan
+                if debug_mode:
+                    print("[3. 中间过程计算]")
+                    print(f"  - mf_flow_yuan: {mf_flow_yuan:.2f}")
+                    print(f"  - circ_mv_yuan: {circ_mv_yuan:.2f}")
+                    print(f"  - flow_input (主力净流入/流通市值): {flow_input:.6f}")
                 if abs(flow_input) > 1e-9:
                     efficiency = (pct_change / 100) / flow_input
-                    results['flow_efficiency_index'] = np.sign(efficiency) * np.log1p(abs(efficiency))
+                    final_result = np.sign(efficiency) * np.log1p(abs(efficiency))
+                    if debug_mode:
+                        print(f"  - efficiency (涨跌幅 / flow_input): {efficiency:.4f}")
                 else:
-                    results['flow_efficiency_index'] = np.nan
+                    if debug_mode:
+                        print("  - 逻辑分支: flow_input 过小，指标计为 NaN")
             else:
-                results['flow_efficiency_index'] = np.nan
-        except Exception:
+                if debug_mode:
+                    print("  - 逻辑分支: 核心逻辑检查未通过，指标计为 NaN")
+            results['flow_efficiency_index'] = final_result
+            if debug_mode:
+                print(f"[4. 最终结果] \n  - flow_efficiency_index: {final_result}")
+                print("--- [探针] 诊断结束 ---\n")
+        except Exception as e:
+            if debug_mode:
+                stock_code = daily_data_series.get('stock_code', 'N/A')
+                print(f"\n--- [探针] [flow_efficiency_index 计算过程异常] [{stock_code}] ---")
+                print(f"  - 异常类型: {type(e).__name__}")
+                print(f"  - 异常信息: {e}")
+                print("--- [探针] 诊断结束 ---\n")
             results['flow_efficiency_index'] = np.nan
         try:
             trade_count = pd.to_numeric(daily_data_series.get('trade_count'), errors='coerce')
