@@ -539,8 +539,8 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex, cache_manager: CacheManager):
     """
-    【V2.31 · 链路探针植入版】
-    - 核心新增: 植入探针，用于追踪Level5盘口数据的加载与处理流程。
+    【V2.32 · 探针清理版】
+    - 核心维护: 移除了所有用于链路追踪的探针print语句。
     """
     import pytz
     from utils.model_helpers import (
@@ -610,13 +610,6 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
             minute_data_df_list.append(df_minute.reset_index())
     data_dfs["stock_tick_data"] = pd.concat(tick_data_df_list) if tick_data_df_list else pd.DataFrame()
     data_dfs["stock_level5_data"] = pd.concat(level5_data_df_list) if level5_data_df_list else pd.DataFrame()
-    # 新增探针：检查原始加载的Level5数据
-    print(f"--- [探针] [加载层] [{stock_info.stock_code}] ---")
-    if not data_dfs["stock_level5_data"].empty:
-        print(f"探针: 成功从数据库加载Level5数据，共 {len(data_dfs['stock_level5_data'])} 条记录。")
-        print(data_dfs["stock_level5_data"].head())
-    else:
-        print(f"探针: 警告！未能从数据库加载任何Level5数据。处理日期范围: {chunk_start_date} to {chunk_end_date}")
     data_dfs["stock_minute_data"] = pd.concat(minute_data_df_list) if minute_data_df_list else pd.DataFrame()
     data_dfs["stock_realtime_data"] = pd.concat(realtime_data_df_list) if realtime_data_df_list else pd.DataFrame()
     non_numeric_whitelist = ['stock_id', 'stock_code', 'trade_time', 'trade_date', 'type']
@@ -640,12 +633,6 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         return grouped_data
     data_dfs["stock_tick_data_map"] = _process_intraday_df_to_map(data_dfs["stock_tick_data"], stock_info.stock_code, "Tick Data")
     data_dfs["stock_level5_data_map"] = _process_intraday_df_to_map(data_dfs["stock_level5_data"], stock_info.stock_code, "Level5 Data")
-    # 新增探针：检查处理后的Level5数据Map
-    print(f"--- [探针] [加载层-Map处理后] [{stock_info.stock_code}] ---")
-    if data_dfs["stock_level5_data_map"]:
-        print(f"探针: 成功将Level5数据处理为Map，包含的日期: {list(data_dfs['stock_level5_data_map'].keys())}")
-    else:
-        print("探针: 警告！未能将任何Level5数据处理为Map。")
     data_dfs["stock_minute_data_map"] = _process_intraday_df_to_map(data_dfs["stock_minute_data"], stock_info.stock_code, "Minute K-line Data")
     data_dfs["stock_realtime_data_map"] = _process_intraday_df_to_map(data_dfs["stock_realtime_data"], stock_info.stock_code, "Realtime Snapshot Data")
     for name, df in data_dfs.items():
@@ -698,9 +685,8 @@ def summarize_computation_failures(results):
 @with_cache_manager
 def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V4.1 · 数据加载修复版】为单只股票预计算高级结构与行为指标的Celery任务。
-    - 核心修复: 在加载用于计算ATR的日线数据时，补充加载 `amount` 和 `vol` 字段。
-                此修复旨在根治下游计算模块因缺少成交额数据而误判为0，从而引发 `UnboundLocalError` 或逻辑错误的问题。
+    【V4.2 · 探针清理版】为单只股票预计算高级结构与行为指标的Celery任务。
+    - 核心维护: 移除了所有用于调试的print语句。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.advanced_structural_metrics_service import AdvancedStructuralMetricsService
@@ -724,7 +710,6 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
             logger.info(f"[{stock_code}] [结构指标任务] 无需计算的日期，任务终止。")
             return 0
         history_start_date = dates_to_process.min().date() - timedelta(days=100)
-        # 在 .values() 中增加 'amount' 和 'vol' 字段，确保数据加载完整
         daily_data_qs = DailyModel.objects.filter(
             stock=stock_info,
             trade_time__gte=history_start_date,
@@ -739,18 +724,14 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
         daily_df_with_atr.ta.atr(length=5, append=True, col_names=('ATR_5',))
         daily_df_with_atr.ta.atr(length=14, append=True, col_names=('ATR_14',))
         daily_df_with_atr.ta.atr(length=50, append=True, col_names=('ATR_50',))
-        # 复用公用加载器加载所有日内数据
         data_dfs = await _load_all_sources_unified(stock_info, DailyModel, dates_to_process, cache_manager)
-        # 重组数据结构以适配服务层的新要求
         tick_data_map = data_dfs.get("stock_tick_data_map", {})
         level5_data_map = data_dfs.get("stock_level5_data_map", {})
         minute_data_map = data_dfs.get("stock_minute_data_map", {})
         realtime_data_map = data_dfs.get("stock_realtime_data_map", {})
-        # 将多个map整合成一个嵌套map
         nested_intraday_data_map = {}
         all_dates_from_maps = set(tick_data_map.keys()) | set(level5_data_map.keys()) | set(minute_data_map.keys())
         for date_obj in all_dates_from_maps:
-            # 确保只处理当前任务需要计算的日期
             if pd.to_datetime(date_obj) in dates_to_process:
                 nested_intraday_data_map[date_obj] = {
                     'minute': minute_data_map.get(date_obj),
@@ -758,8 +739,6 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
                     'level5': level5_data_map.get(date_obj),
                     'realtime': realtime_data_map.get(date_obj),
                 }
-        print(f"调试信息: [{stock_code}] [结构指标任务] 数据重组完成，共 {len(nested_intraday_data_map)} 天的数据将被处理。")
-        # 调用服务执行器，传入重组后的嵌套数据map
         processed_count = await structural_service.run_precomputation(
             stock_info=stock_info,
             dates_to_process=dates_to_process,

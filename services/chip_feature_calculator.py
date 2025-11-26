@@ -918,11 +918,8 @@ class ChipFeatureCalculator:
 
     def _compute_realtime_orderbook_metrics(self, context: dict) -> dict:
         """
-        【V2.2 · 高斯引力权重重构版】
-        - 核心修复: 修复了因Pandas索引对齐问题导致bid/ask power计算中出现NaN，进而使整个指标为空的严重BUG。
-        - 核心重构: 引入基于高斯函数的“引力权重”模型，为距离主峰成本更近的挂单赋予更高权重，使指标更精准地反映核心区域的攻防意图。
-        - 核心优化: 改变了挂单力量的累加方式，确保Series操作的索引安全，从根本上杜绝NaN传播。
-        - 维护: 移除了V2.3/V2.4版中用于诊断的探针代码。
+        【V2.4 · 探针清理版】
+        - 核心维护: 移除了所有用于诊断的探针代码，恢复生产状态。
         """
         results = {
             'mf_cost_zone_defense_intent': np.nan,
@@ -931,11 +928,11 @@ class ChipFeatureCalculator:
         realtime_df = context.get('realtime_data')
         if realtime_df is None or realtime_df.empty:
             return results
-        required_cols = [f'{prefix}{i}_{suffix}' for prefix in ['b', 'a'] for i in range(1, 6) for suffix in ['p', 'v']] + ['volume']
-        if not all(col in realtime_df.columns for col in required_cols):
+        required_cols = [f'{prefix}{i}_{suffix}' for prefix in ['b', 'a'] for i in range(1, 6) for suffix in ['p', 'v']]
+        if not all(col in realtime_df.columns for col in required_cols) or 'volume' not in realtime_df.columns:
             logger.warning(f"[{context.get('stock_code')}] [{context.get('trade_date')}] 实时盘口指标计算跳过，因缺少必要的五档行情或volume列。")
             return results
-        numeric_cols = required_cols
+        numeric_cols = [f'{prefix}{i}_{suffix}' for prefix in ['b', 'a'] for i in range(1, 6) for suffix in ['p', 'v']] + ['volume']
         for col in numeric_cols:
             if col in realtime_df.columns:
                 realtime_df[col] = pd.to_numeric(realtime_df[col], errors='coerce')
