@@ -770,18 +770,15 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V29.8 · OFI聚合逻辑修复版】
-        - 核心修复: 增加了OFI指标的日度聚合逻辑。此前OFI仅作为中间列被计算，并未聚合成最终日度指标，导致字段为空。
-        - 核心增强: 补充了retail_ofi的计算与聚合逻辑，并为OFI指标增加了诊断探针。
+        【V30.0 · 最终架构修复版】
+        - 核心修复(架构): 彻底移除了方法开头的广谱初始化循环。此前的“先全部置NaN再计算”模式是导致上游正确计算结果被覆盖的根源。
+                         新模式为“按需计算并赋值”，确保本函数只输出其自身负责的指标，从根本上杜绝了与上游函数的“管辖权冲突”。
+                         这是针对此类问题的最终、也是最稳健的解决方案。
         """
         from scipy.signal import find_peaks
         results = {}
         if intraday_data.empty:
             return results
-        all_metrics_keys = list(BaseAdvancedFundFlowMetrics.TACTICAL_LOG_METRICS.keys()) + list(BaseAdvancedFundFlowMetrics.OUTCOME_ASSESSMENT_METRICS.keys())
-        for key in all_metrics_keys:
-            if key not in ['inferred_active_order_size']:
-                results[key] = np.nan
         daily_total_volume = daily_data.get('vol', 0) * 100
         daily_total_amount = pd.to_numeric(daily_data.get('amount', 0), errors='coerce') * 1000
         daily_vwap = daily_total_amount / daily_total_volume if daily_total_volume > 0 else np.nan
@@ -818,15 +815,6 @@ class AdvancedFundFlowMetricsService:
                 hf_analysis_df = merged_hf
                 results['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
                 results['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
-                if debug_mode:
-                    stock_code = daily_data.get('stock_code', 'N/A')
-                    trade_date_str = daily_data.name.strftime('%Y-%m-%d')
-                    print(f"\n--- [探针] [OFI指标聚合诊断] [{stock_code}] 日期: {trade_date_str} ---")
-                    print(f"  - hf_analysis_df['main_force_ofi'] 序列非空: {not hf_analysis_df['main_force_ofi'].empty}")
-                    print(f"  - 聚合结果 main_force_ofi: {results['main_force_ofi']}")
-                    print(f"  - hf_analysis_df['retail_ofi'] 序列非空: {not hf_analysis_df['retail_ofi'].empty}")
-                    print(f"  - 聚合结果 retail_ofi: {results['retail_ofi']}")
-                    print("--- [探针] 诊断结束 ---\n")
         if not hf_analysis_df.empty:
             large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
             if not large_orders_df.empty:
