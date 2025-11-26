@@ -231,25 +231,14 @@ class AdvancedFundFlowMetricsService:
                 merged_df = pd.merge(merged_df, right_df_cleaned, on='trade_time', how='left')
         merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
         if not base_daily_df.empty:
-            try:
-                # 强制确保双方索引都为 normalized DatetimeIndex
-                merged_df.index = pd.to_datetime(merged_df.index).normalize()
-                base_daily_df_copy = base_daily_df.copy()
-                base_daily_df_copy.index = pd.to_datetime(base_daily_df_copy.index).normalize()
+            # 【修改点】增加健壮性处理
+            base_daily_df_copy = base_daily_df.copy()
+            # 强制确保双方索引都为 normalized DatetimeIndex (即 YYYY-MM-DD 00:00:00)
+            merged_df.index = pd.to_datetime(merged_df.index).normalize()
+            base_daily_df_copy.index = pd.to_datetime(base_daily_df_copy.index).normalize()
 
-                overlap_cols = merged_df.columns.intersection(base_daily_df_copy.columns)
-                merged_df = merged_df.join(base_daily_df_copy.drop(columns=overlap_cols, errors='ignore'), how='left')
-
-                # 诊断日志
-                if 'amount' not in merged_df.columns or merged_df['amount'].isnull().all():
-                    logger.warning(f"[{stock_info.stock_code}] [数据合并诊断] 'amount' 列在合并后缺失或全为NaN。")
-                if 'pct_change' not in merged_df.columns or merged_df['pct_change'].isnull().all():
-                    logger.warning(f"[{stock_info.stock_code}] [数据合并诊断] 'pct_change' 列在合并后缺失或全为NaN。")
-
-            except Exception as e:
-                logger.error(f"[{stock_info.stock_code}] 在 _load_and_merge_sources 中合并 base_daily_df 时发生严重错误: {e}", exc_info=True)
-                # 可以在这里决定是返回部分数据还是空DataFrame
-                return pd.DataFrame()
+            overlap_cols = merged_df.columns.intersection(base_daily_df_copy.columns)
+            merged_df = merged_df.join(base_daily_df_copy.drop(columns=overlap_cols, errors='ignore'), how='left')
 
         return merged_df
 
@@ -363,6 +352,26 @@ class AdvancedFundFlowMetricsService:
         # 新增代码行：获取批次中的总天数
         num_days = len(merged_df)
         for i, (trade_date, daily_data_series) in enumerate(merged_df.iterrows()):
+            # 新增代码行：设置调试模式标志
+            debug_mode = (i == num_days - 1)
+
+            # 【探针代码块】
+            if debug_mode:
+                print(f"\n--- [探针] [数据进入计算引擎前诊断] [{stock_code}] 日期: {trade_date.strftime('%Y-%m-%d')} ---")
+                # 检查关键宏观字段
+                macro_keys = ['amount', 'pct_change', 'circ_mv', 'net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']
+                print("\n[1. 关键宏观字段检查]")
+                for key in macro_keys:
+                    value = daily_data_series.get(key, '!!!不存在!!!')
+                    print(f"  - {key:<30}: {value}")
+                
+                # 检查高频数据是否存在
+                date_obj = trade_date.date()
+                print("\n[2. 高频数据源检查]")
+                print(f"  - tick_data_map.get(date_obj) is not None : {tick_data_map.get(date_obj) is not None}")
+                print(f"  - level5_data_map.get(date_obj) is not None: {level5_data_map.get(date_obj) is not None}")
+                print(f"  - minute_data_map.get(date_obj) is not None: {minute_data_map.get(date_obj) is not None}")
+                print("--- [探针] 诊断结束 ---\n")
             date_obj = trade_date.date()
             daily_amount = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
             daily_vol_shares = pd.to_numeric(daily_data_series.get('vol'), errors='coerce') * 100
