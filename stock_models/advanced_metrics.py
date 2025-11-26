@@ -366,17 +366,10 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
         'main_force_vpoc', 'mf_vpoc_premium',
         'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
-        'main_force_ofi',
-        'retail_ofi',
-        'microstructure_efficiency_index',
-        'hidden_accumulation_intensity',
-        'wash_trade_intensity',
-        'order_book_imbalance',
-        'large_order_pressure',
-        'large_order_support',
-        'order_book_liquidity_supply',
-        'buy_quote_exhaustion_rate',
-        'sell_quote_exhaustion_rate',
+        'main_force_ofi', 'retail_ofi', 'microstructure_efficiency_index',
+        'hidden_accumulation_intensity', 'wash_trade_intensity', 'order_book_imbalance',
+        'large_order_pressure', 'large_order_support', 'order_book_liquidity_supply',
+        'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
         # 新增代码行：将新因子加入排除列表
         'ofi_price_impact_factor',
     ]
@@ -394,19 +387,11 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'upper_shadow_selling_pressure', 'lower_shadow_absorption_strength',
         'trend_conviction_ratio', 'reversal_power_index',
         'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
-        'mf_vpoc_premium',
-        'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
-        'main_force_ofi',
-        'retail_ofi',
-        'microstructure_efficiency_index',
-        'hidden_accumulation_intensity',
-        'wash_trade_intensity',
-        'order_book_imbalance',
-        'large_order_pressure',
-        'large_order_support',
-        'order_book_liquidity_supply',
-        'buy_quote_exhaustion_rate',
-        'sell_quote_exhaustion_rate',
+        'mf_vpoc_premium', 'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
+        'main_force_ofi', 'retail_ofi', 'microstructure_efficiency_index',
+        'hidden_accumulation_intensity', 'wash_trade_intensity', 'order_book_imbalance',
+        'large_order_pressure', 'large_order_support', 'order_book_liquidity_supply',
+        'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
         # 新增代码行：将新因子定义为浮点型
         'ofi_price_impact_factor',
     ]
@@ -415,6 +400,10 @@ class BaseAdvancedFundFlowMetrics(models.Model):
             vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
         else:
             vars()[name] = models.DecimalField(max_digits=22, decimal_places=6, verbose_name=verbose, null=True, blank=True)
+
+    class Meta:
+        abstract = True
+        ordering = ['-trade_time']
 
 class AdvancedFundFlowMetrics_SH(BaseAdvancedFundFlowMetrics):
     stock = models.ForeignKey(
