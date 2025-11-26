@@ -741,12 +741,10 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V31.1 · 战场迷雾版】
-        - 核心升级: 引入 Realtime 数据中的累计成交量，计算出“市场成交量增量”(market_vol_delta)，
-                     用于增强盘口指标的博弈特性解读，揭示Tick数据之间的“隐藏”交易活动。
-            - wash_trade_intensity: 结合成交量增量，更精准地识别那些能“凭空”制造市场热度的对倒行为。
-            - large_order_pressure/support: 根据市场实时活跃度对挂单的威慑力进行动态调整。
-            - order_book_imbalance: 增加“失衡有效性”评估，判断盘口压力是否真正转化为市场成交。
+        【V31.2 · 全链路诊断探针版】
+        - 核心增强: 植入全链路诊断探针，用于在debug模式下完整追溯盘口微观结构指标的计算过程。
+                     探针覆盖了从原始高频数据输入、三位一体数据融合，到每个指标（如对倒强度、盘口失衡等）
+                     的关键计算步骤、核心中间变量和最终输出的全过程，确保模型逻辑的透明与可验证性。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -765,15 +763,12 @@ class AdvancedFundFlowMetricsService:
                 tick_data.sort_index(), level5_data.sort_index(),
                 left_index=True, right_index=True, direction='backward'
             ).dropna(subset=['buy_price1', 'sell_price1', 'amount', 'volume'])
-            
-            # 【核心升级】将Realtime数据也合并进来
             if realtime_data is not None and not realtime_data.empty and not merged_hf.empty:
                 merged_hf = pd.merge_asof(
                     merged_hf.reset_index(),
                     realtime_data[['volume']].sort_index().reset_index(),
                     on='trade_time', direction='backward', suffixes=('_tick', '_realtime')
                 ).set_index('trade_time')
-
             if not merged_hf.empty:
                 merged_hf.rename(columns={'volume_tick': 'volume'}, inplace=True)
                 merged_hf['mid_price'] = (merged_hf['buy_price1'] + merged_hf['sell_price1']) / 2
@@ -786,11 +781,8 @@ class AdvancedFundFlowMetricsService:
                 merged_hf['main_force_ofi'] = np.where(is_main_force_trade, merged_hf['ofi'], 0)
                 merged_hf['retail_ofi'] = np.where(is_retail_trade, merged_hf['ofi'], 0)
                 merged_hf['mid_price_change'] = merged_hf['mid_price'].diff()
-                
-                # 【核心升级】计算“战场迷雾”：市场成交量增量
                 if 'volume_realtime' in merged_hf.columns:
                     merged_hf['market_vol_delta'] = merged_hf['volume_realtime'].diff().fillna(0)
-
                 hf_analysis_df = merged_hf
                 results['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
                 results['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
@@ -819,114 +811,144 @@ class AdvancedFundFlowMetricsService:
             # =================================================================
             # ================= 盘口微观结构指标 (三位一体升级版) =================
             # =================================================================
+            if debug_mode:
+                stock_code = daily_data.get('stock_code', 'N/A')
+                trade_date_str = daily_data.name.strftime('%Y-%m-%d')
+                print(f"\n\n--- [探针] [盘口微观结构指标诊断] [{stock_code}] 日期: {trade_date_str} ---")
+                print("[1.0] 战场情报概览")
+                print(f"  - 输入 Tick 数据: {tick_data.shape if tick_data is not None else '无'}")
+                print(f"  - 输入 Level5 数据: {level5_data.shape if level5_data is not None else '无'}")
+                print(f"  - 输入 Realtime 数据: {realtime_data.shape if realtime_data is not None else '无'}")
+                print(f"  - 融合后 hf_analysis_df: {hf_analysis_df.shape}")
+                if 'market_vol_delta' in hf_analysis_df.columns:
+                    print("  - 关键列 'market_vol_delta' (战场迷雾) 样本:")
+                    print(hf_analysis_df[['volume', 'volume_realtime', 'market_vol_delta']].head(3).to_string())
+                else:
+                    print("  - 警告: 'market_vol_delta' 未能计算，Realtime数据可能缺失。")
+
             try:
-                # --- 1. 对倒强度 (Wash Trade Intensity) - 升级版 ---
+                # --- 1. 对倒强度 (Wash Trade Intensity) ---
                 df_wash = hf_analysis_df[['type', 'volume', 'price', 'market_vol_delta']].copy()
                 df_wash['direction'] = df_wash['type'].map({'B': 1, 'S': -1}).fillna(0)
                 df_wash['prev_direction'] = df_wash['direction'].shift(1)
                 df_wash['prev_volume'] = df_wash['volume'].shift(1)
                 df_wash['price_change_ratio'] = df_wash['price'].pct_change().abs()
-                
                 wash_mask = (
                     (df_wash['direction'] * df_wash['prev_direction'] == -1) &
                     (np.abs(df_wash['volume'] - df_wash['prev_volume']) / df_wash['prev_volume'] < 0.2) &
-                    (df_wash['price_change_ratio'] < 0.001)
+                    (df_wash['price_change_ratio'] < 0.001) &
+                    (df_wash['market_vol_delta'] > df_wash['volume'] * 2)
                 )
-                # 诡道升级：真正的对倒，不仅自身成交，还会引发“迷雾”中的成交量（HFT跟风），但价格不动
-                # 我们寻找那些自身成交量不大，但市场成交量增量远大于自身成交量的对倒行为
-                wash_mask &= (df_wash['market_vol_delta'] > df_wash['volume'] * 2)
-
-                wash_trade_vol = df_wash.loc[wash_mask, 'market_vol_delta'].sum() # 用市场增量来衡量其真实影响力
+                wash_trade_vol = df_wash.loc[wash_mask, 'market_vol_delta'].sum()
                 if daily_total_volume > 0:
                     results['wash_trade_intensity'] = (wash_trade_vol / daily_total_volume) * 100
-            except Exception:
+                
+                if debug_mode:
+                    print("\n[2.0] 对倒强度 (Wash Trade) 诊断")
+                    print(f"  [2.1] 识别出的对倒交易样本 (共 {wash_mask.sum()} 笔):")
+                    wash_samples = df_wash[wash_mask][['type', 'volume', 'price', 'market_vol_delta', 'price_change_ratio']]
+                    print(wash_samples.head(5).to_string() if not wash_samples.empty else "  无")
+                    print(f"  [2.2] 计算过程: wash_trade_vol={wash_trade_vol:.0f}, daily_total_volume={daily_total_volume:.0f}")
+                    print(f"  [2.3] 最终结果: wash_trade_intensity = {results.get('wash_trade_intensity', 'N/A')}")
+
+            except Exception as e:
                 results['wash_trade_intensity'] = np.nan
+                if debug_mode: print(f"  - 对倒强度计算异常: {e}")
 
             try:
-                # --- 2. 盘口失衡度与流动性供给 (Order Book Imbalance & Liquidity Supply) - 升级版 ---
+                # --- 2. 盘口失衡度与流动性供给 (Order Book Imbalance & Liquidity Supply) ---
                 df_book = hf_analysis_df.copy()
-                weighted_buy_vol = pd.Series(0, index=df_book.index)
-                weighted_sell_vol = pd.Series(0, index=df_book.index)
-                total_buy_value = pd.Series(0, index=df_book.index)
-                total_sell_value = pd.Series(0, index=df_book.index)
-                
+                weighted_buy_vol = pd.Series(0, index=df_book.index); weighted_sell_vol = pd.Series(0, index=df_book.index)
+                total_buy_value = pd.Series(0, index=df_book.index); total_sell_value = pd.Series(0, index=df_book.index)
                 for i in range(1, 6):
                     weight = 1 / i
-                    weighted_buy_vol += df_book[f'buy_volume{i}'] * weight
-                    weighted_sell_vol += df_book[f'sell_volume{i}'] * weight
-                    total_buy_value += df_book[f'buy_volume{i}'] * df_book[f'buy_price{i}']
-                    total_sell_value += df_book[f'sell_volume{i}'] * df_book[f'sell_price{i}']
-                
+                    weighted_buy_vol += df_book[f'buy_volume{i}'] * weight; weighted_sell_vol += df_book[f'sell_volume{i}'] * weight
+                    total_buy_value += df_book[f'buy_volume{i}'] * df_book[f'buy_price{i}']; total_sell_value += df_book[f'sell_volume{i}'] * df_book[f'sell_price{i}']
                 df_book['imbalance'] = (weighted_buy_vol - weighted_sell_vol) / (weighted_buy_vol + weighted_sell_vol).replace(0, np.nan)
                 df_book['liquidity_supply_ratio'] = total_buy_value / total_sell_value.replace(0, np.nan)
-                
                 time_diffs = df_book.index.to_series().diff().dt.total_seconds().fillna(0)
                 if time_diffs.sum() > 0:
                     results['order_book_imbalance'] = np.average(df_book['imbalance'].dropna(), weights=time_diffs[df_book['imbalance'].notna()]) * 100
                     results['order_book_liquidity_supply'] = np.average(df_book['liquidity_supply_ratio'].dropna(), weights=time_diffs[df_book['liquidity_supply_ratio'].notna()])
-                
-                # 诡道升级：失衡有效性 - 盘口失衡是否能有效驱动市场成交量？
                 if 'market_vol_delta' in df_book.columns and df_book['imbalance'].var() > 0 and df_book['market_vol_delta'].var() > 0:
-                    # 我们期望正失衡（买方强）对应大的成交量增量
                     results['imbalance_effectiveness'] = df_book['imbalance'].corr(df_book['market_vol_delta'])
 
-            except Exception:
-                results['order_book_imbalance'] = np.nan
-                results['order_book_liquidity_supply'] = np.nan
-                results['imbalance_effectiveness'] = np.nan
+                if debug_mode:
+                    print("\n[3.0] 盘口失衡度 (Imbalance) 诊断")
+                    print("  [3.1] 中间计算列样本:")
+                    print(df_book[['buy_volume1', 'sell_volume1', 'imbalance', 'liquidity_supply_ratio', 'time_diffs']].assign(time_diffs=time_diffs).head(3).to_string())
+                    print(f"  [3.2] 最终结果: order_book_imbalance = {results.get('order_book_imbalance', 'N/A')}")
+                    print(f"  [3.3] 最终结果: order_book_liquidity_supply = {results.get('order_book_liquidity_supply', 'N/A')}")
+                    print(f"  [3.4] 最终结果: imbalance_effectiveness = {results.get('imbalance_effectiveness', 'N/A')}")
+
+            except Exception as e:
+                results['order_book_imbalance'] = np.nan; results['order_book_liquidity_supply'] = np.nan; results['imbalance_effectiveness'] = np.nan
+                if debug_mode: print(f"  - 盘口失衡度计算异常: {e}")
 
             try:
-                # --- 3. 大单压制与支撑强度 (Large Order Pressure & Support) - 升级版 ---
+                # --- 3. 大单压制与支撑强度 (Large Order Pressure & Support) ---
                 df_static = hf_analysis_df.copy()
                 large_order_threshold_value = 500000
-                
-                pressure_mask = (df_static['sell_volume1'] * df_static['sell_price1'] > large_order_threshold_value) | \
-                                (df_static['sell_volume2'] * df_static['sell_price2'] > large_order_threshold_value)
-                support_mask = (df_static['buy_volume1'] * df_static['buy_price1'] > large_order_threshold_value) | \
-                               (df_static['buy_volume2'] * df_static['buy_price2'] > large_order_threshold_value)
-                
+                pressure_mask = (df_static['sell_volume1'] * df_static['sell_price1'] > large_order_threshold_value) | (df_static['sell_volume2'] * df_static['sell_price2'] > large_order_threshold_value)
+                support_mask = (df_static['buy_volume1'] * df_static['buy_price1'] > large_order_threshold_value) | (df_static['buy_volume2'] * df_static['buy_price2'] > large_order_threshold_value)
                 time_diffs = df_static.index.to_series().diff().dt.total_seconds().fillna(0)
-                
-                # 诡道升级：威慑力需要根据市场活跃度进行调整
-                # 市场越冷清，大单威慑力越强；市场越火热，大单越容易被淹没
                 if 'market_vol_delta' in df_static.columns:
                     market_activity = df_static['market_vol_delta'].rolling(window=20, min_periods=1).mean().replace(0, np.nan)
-                    # 活跃度越高，调整因子越小
                     activity_factor = 1 / np.log1p(market_activity)
-                    
                     pressure_strength = (time_diffs * activity_factor)[pressure_mask].sum()
                     support_strength = (time_diffs * activity_factor)[support_mask].sum()
-                else: # 回退到原逻辑
-                    pressure_strength = time_diffs[pressure_mask].sum()
-                    support_strength = time_diffs[support_mask].sum()
-
+                else:
+                    pressure_strength = time_diffs[pressure_mask].sum(); support_strength = time_diffs[support_mask].sum()
                 total_trading_seconds = (df_static.index.max() - df_static.index.min()).total_seconds()
                 if total_trading_seconds > 0:
-                    # 归一化后的结果
                     results['large_order_pressure'] = (pressure_strength / total_trading_seconds) * 100
                     results['large_order_support'] = (support_strength / total_trading_seconds) * 100
-            except Exception:
-                results['large_order_pressure'] = np.nan
-                results['large_order_support'] = np.nan
+
+                if debug_mode:
+                    print("\n[4.0] 大单压制/支撑 (Pressure/Support) 诊断")
+                    print(f"  [4.1] 识别出的大额压单样本 (共 {pressure_mask.sum()} 个快照):")
+                    pressure_samples = df_static[pressure_mask][['sell_price1', 'sell_volume1', 'sell_price2', 'sell_volume2']]
+                    print(pressure_samples.head(3).to_string() if not pressure_samples.empty else "  无")
+                    print(f"  [4.2] 识别出的大额托单样本 (共 {support_mask.sum()} 个快照):")
+                    support_samples = df_static[support_mask][['buy_price1', 'buy_volume1', 'buy_price2', 'buy_volume2']]
+                    print(support_samples.head(3).to_string() if not support_samples.empty else "  无")
+                    print(f"  [4.3] 计算过程: pressure_strength={pressure_strength:.2f}, support_strength={support_strength:.2f}, total_seconds={total_trading_seconds:.0f}")
+                    print(f"  [4.4] 最终结果: large_order_pressure = {results.get('large_order_pressure', 'N/A')}")
+                    print(f"  [4.5] 最终结果: large_order_support = {results.get('large_order_support', 'N/A')}")
+
+            except Exception as e:
+                results['large_order_pressure'] = np.nan; results['large_order_support'] = np.nan
+                if debug_mode: print(f"  - 大单压制/支撑计算异常: {e}")
 
             try:
-                # --- 4. 报价消耗率 (Quote Exhaustion Rate) - (逻辑不变，已足够强大) ---
+                # --- 4. 报价消耗率 (Quote Exhaustion Rate) ---
                 df_exhaust = hf_analysis_df.copy()
                 df_exhaust['prev_a1_v'] = df_exhaust['sell_volume1'].shift(1)
                 df_exhaust['prev_b1_v'] = df_exhaust['buy_volume1'].shift(1)
-                
                 buy_exhaustion_mask = df_exhaust['sell_price1'] > df_exhaust['prev_a1_p']
                 buy_exhausted_vol = df_exhaust.loc[buy_exhaustion_mask, 'prev_a1_v'].sum()
-                
                 sell_exhaustion_mask = df_exhaust['buy_price1'] < df_exhaust['prev_b1_p']
                 sell_exhausted_vol = df_exhaust.loc[sell_exhaustion_mask, 'prev_b1_v'].sum()
-                
                 if daily_total_volume > 0:
                     results['buy_quote_exhaustion_rate'] = (buy_exhausted_vol / daily_total_volume) * 100
                     results['sell_quote_exhaustion_rate'] = (sell_exhausted_vol / daily_total_volume) * 100
-            except Exception:
-                results['buy_quote_exhaustion_rate'] = np.nan
-                results['sell_quote_exhaustion_rate'] = np.nan
+
+                if debug_mode:
+                    print("\n[5.0] 报价消耗率 (Exhaustion Rate) 诊断")
+                    print(f"  [5.1] 识别出的买方消耗(扫货)事件样本 (共 {buy_exhaustion_mask.sum()} 笔):")
+                    buy_exhaust_samples = df_exhaust[buy_exhaustion_mask][['sell_price1', 'prev_a1_p', 'prev_a1_v']]
+                    print(buy_exhaust_samples.head(3).to_string() if not buy_exhaust_samples.empty else "  无")
+                    print(f"  [5.2] 识别出的卖方消耗(砸盘)事件样本 (共 {sell_exhaustion_mask.sum()} 笔):")
+                    sell_exhaust_samples = df_exhaust[sell_exhaustion_mask][['buy_price1', 'prev_b1_p', 'prev_b1_v']]
+                    print(sell_exhaust_samples.head(3).to_string() if not sell_exhaust_samples.empty else "  无")
+                    print(f"  [5.3] 计算过程: buy_exhausted_vol={buy_exhausted_vol:.0f}, sell_exhausted_vol={sell_exhausted_vol:.0f}")
+                    print(f"  [5.4] 最终结果: buy_quote_exhaustion_rate = {results.get('buy_quote_exhaustion_rate', 'N/A')}")
+                    print(f"  [5.5] 最终结果: sell_quote_exhaustion_rate = {results.get('sell_quote_exhaustion_rate', 'N/A')}")
+                    print("--- [探针] 盘口微观结构指标诊断结束 ---\n")
+
+            except Exception as e:
+                results['buy_quote_exhaustion_rate'] = np.nan; results['sell_quote_exhaustion_rate'] = np.nan
+                if debug_mode: print(f"  - 报价消耗率计算异常: {e}")
 
         # ... (后续其他指标计算逻辑保持不变) ...
         if pd.notna(daily_vwap) and daily_total_volume > 0 and pd.notna(atr) and atr > 0 and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
