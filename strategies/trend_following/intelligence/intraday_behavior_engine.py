@@ -128,15 +128,16 @@ class IntradayBehaviorEngine:
 
     async def _diagnose_axiom_turning(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.0】日内行为公理三：诊断“博弈转折”
+        【V1.1 · 信号校验增强版】日内行为公理三：诊断“博弈转折”
         - 核心修复: 增加对所有依赖数据的存在性检查。
+        - [新增] 在方法入口处添加信号校验逻辑。
         """
         kdj_params = self.params.get('kdj_params', {})
         k_col = f"K_{kdj_params.get('period', 13)}_{kdj_params.get('signal_period', 5)}_{kdj_params.get('smooth_k_period', 3)}"
         d_col = f"D_{kdj_params.get('period', 13)}_{kdj_params.get('signal_period', 5)}_{kdj_params.get('smooth_k_period', 3)}"
         j_col = f"J_{kdj_params.get('period', 13)}_{kdj_params.get('signal_period', 5)}_{kdj_params.get('smooth_k_period', 3)}"
-        if not all(c in df_minute.columns for c in [k_col, d_col, j_col]):
-            print(f"    -> [日内行为情报警告] 方法 '_diagnose_axiom_turning' 缺少KDJ相关数据 '{k_col}', '{d_col}', '{j_col}'，使用默认值 0.0。")
+        required_signals = [k_col, d_col, j_col]
+        if not self._validate_required_signals(df_minute, required_signals, "_diagnose_axiom_turning"):
             return {"SCORE_INTRADAY_AXIOM_TURNING": 0.0}
         # 1. 看涨转折信号：KDJ在超卖区金叉
         is_oversold = (self._get_safe_series(df_minute, j_col, method_name="_diagnose_axiom_turning") < 20)
@@ -149,9 +150,9 @@ class IntradayBehaviorEngine:
         # 3. 融合为双极性分数
         # 只取最后一次信号
         final_score = 0.0
-        if bullish_turn_signal.iloc[-1] > 0:
+        if not bullish_turn_signal.empty and bullish_turn_signal.iloc[-1] > 0:
             final_score = 1.0
-        elif bearish_turn_signal.iloc[-1] > 0:
+        elif not bearish_turn_signal.empty and bearish_turn_signal.iloc[-1] > 0:
             final_score = -1.0
         return {"SCORE_INTRADAY_AXIOM_TURNING": final_score}
 

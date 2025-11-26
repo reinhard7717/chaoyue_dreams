@@ -33,26 +33,30 @@ class FoundationIntelligence:
 
     def run_foundation_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.5 · 上下文修复版】基础情报分析总指挥
+        【V6.6 · 结构形态公理版】基础情报分析总指挥
         - 【V6.5 修复】接收 df 参数作为统一的数据上下文，并移除内部对 self.strategy.df_indicators 的依赖。
+        - [新增] 调用新增的 _diagnose_axiom_structure_form 方法，引入结构形态公理。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             print("基础情报引擎已在配置中禁用，跳过。")
             return {}
-        # df = self.strategy.df_indicators # [代码删除]
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         axiom_trend = self._diagnose_axiom_trend(df, norm_window, p_conf)
         axiom_oscillator = self._diagnose_axiom_oscillator(df, norm_window)
         axiom_flow = self._diagnose_axiom_flow(df, norm_window)
         axiom_volatility = self._diagnose_axiom_volatility(df, norm_window)
+        # 调用新增的结构形态公理诊断方法
+        axiom_structure_form = self._diagnose_axiom_structure_form(df, norm_window)
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
         all_states['SCORE_FOUNDATION_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_FOUNDATION_AXIOM_TREND'] = axiom_trend
         all_states['SCORE_FOUNDATION_AXIOM_OSCILLATOR'] = axiom_oscillator
         all_states['SCORE_FOUNDATION_AXIOM_FLOW'] = axiom_flow
         all_states['SCORE_FOUNDATION_AXIOM_VOLATILITY'] = axiom_volatility
+        # 将新的结构形态公理分数存入状态字典
+        all_states['SCORE_FOUNDATION_AXIOM_STRUCTURE_FORM'] = axiom_structure_form
         context_trend_confirmed = self._diagnose_context_trend_confirmed(df, norm_window)
         all_states.update(context_trend_confirmed)
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
@@ -203,3 +207,34 @@ class FoundationIntelligence:
         volatility_score = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df.index, default_weights, sensitivity=1.0)
         return volatility_score.astype(np.float32)
 
+    def _diagnose_axiom_structure_form(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+        """
+        【V1.0 · 新增】基础公理六：诊断“结构形态” (平台与趋势线)
+        - 核心逻辑: 融合平台势能与趋势动能，评估当前市场结构。
+        - 平台势能: 基于 IS_HIGH_POTENTIAL_CONSOLIDATION_D 和 BBW_21_2.0_D。
+        - 趋势动能: 基于 ATAN_ANGLE_EMA_55_D 和 ZIG_5_5.0_D。
+        - [新增] 在方法入口处添加信号校验逻辑。
+        """
+        required_signals = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'BBW_21_2.0_D', 'ATAN_ANGLE_EMA_55_D', 'ZIG_5_5.0_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_structure_form"):
+            return pd.Series(0.0, index=df.index)
+        df_index = df.index
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 1. 计算平台势能分 (Potential Energy Score)
+        is_platform = self._get_safe_series(df, 'IS_HIGH_POTENTIAL_CONSOLIDATION_D', 0.0, method_name="_diagnose_axiom_structure_form").astype(float)
+        # BBW越小，squeeze程度越高，分数越高
+        squeeze_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name="_diagnose_axiom_structure_form"), df_index, ascending=False, tf_weights=default_weights)
+        platform_score = (is_platform * squeeze_score).clip(0, 1)
+        # 2. 计算趋势动能分 (Kinetic Energy Score)
+        angle_score = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'ATAN_ANGLE_EMA_55_D', 0.0, method_name="_diagnose_axiom_structure_form"), df_index, default_weights)
+        zigzag_slope = self._get_safe_series(df, 'ZIG_5_5.0_D', 0.0, method_name="_diagnose_axiom_structure_form").diff().fillna(0)
+        zigzag_score = get_adaptive_mtf_normalized_bipolar_score(zigzag_slope, df_index, default_weights)
+        trend_score = (angle_score * 0.7 + zigzag_score * 0.3).clip(-1, 1)
+        # 3. 融合势能与动能
+        # 核心公式: final_score = trend_score * (1 - platform_score) + platform_score * 0.1
+        # 释义: 当处于平台时(platform_score -> 1)，最终得分趋向于一个小的正值(0.1)，代表中性偏多的蓄势状态。
+        #       当不处于平台时(platform_score -> 0)，最终得分完全由趋势决定。
+        final_score = trend_score * (1 - platform_score) + platform_score * 0.1
+        return final_score.clip(-1, 1).astype(np.float32)
