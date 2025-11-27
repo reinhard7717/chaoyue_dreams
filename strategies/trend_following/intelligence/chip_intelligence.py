@@ -352,14 +352,17 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V1.0 · 探针植入版】诊断“结构共识分”
-        - 核心职责: 独立计算结构共识分，并内置调试探针。
-        - 探针逻辑: 在指定的探针日期，输出输入的公理分数、裁剪后的中间值以及最终结果。
+        【V2.0 · 非线性共振版】诊断“结构共识分”
+        - 核心重构: 废弃了旧的“一票否决”式裁剪逻辑，该逻辑会导致严重的信息熵损失。
+        - 引入新模型: 采用非线性共振模型 `((s1+1)*(s2+1))^0.5 - 1`。该模型能更真实地反映两大公理之间的“共振”（同向增强）与“失调”（反向削弱）关系，
+                      避免了将一个负向维度直接归零的逻辑缺陷，保留了完整的博弈信息。
+        - 探针逻辑: 在指定的探针日期，输出输入的公理分数、转换后的中间值以及最终结果。
         """
-        # 1. 关键计算过程
-        bullish_structure_score = cost_structure_scores.clip(lower=0)
-        positive_sentiment_score = holder_sentiment_scores.clip(lower=0)
-        structural_consensus_score = (bullish_structure_score * positive_sentiment_score).pow(0.5).fillna(0.0)
+        # 1. 关键计算过程 - [修改] 采用新的非线性共振模型
+        bullish_structure_factor = cost_structure_scores + 1
+        positive_sentiment_factor = holder_sentiment_scores + 1
+        structural_consensus_score = (bullish_structure_factor * positive_sentiment_factor).pow(0.5) - 1
+        structural_consensus_score = structural_consensus_score.clip(-1, 1).fillna(0.0)
         # 2. 植入探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -369,9 +372,10 @@ class ChipIntelligence:
             if probe_date in df.index:
                 print(f"    -> [探针: _diagnose_structural_consensus] @ {probe_date.date()}:")
                 print(f"       - 原料: cost_structure_scores: {cost_structure_scores.loc[probe_date]:.4f}")
-                print(f"       - 过程: bullish_structure_score (裁剪后): {bullish_structure_score.loc[probe_date]:.4f}")
+                # [修改] 更新探针输出以匹配新逻辑
+                print(f"       - 过程: bullish_structure_factor (平移后): {bullish_structure_factor.loc[probe_date]:.4f}")
                 print(f"       - 原料: holder_sentiment_scores: {holder_sentiment_scores.loc[probe_date]:.4f}")
-                print(f"       - 过程: positive_sentiment_score (裁剪后): {positive_sentiment_score.loc[probe_date]:.4f}")
+                print(f"       - 过程: positive_sentiment_factor (平移后): {positive_sentiment_factor.loc[probe_date]:.4f}")
                 print(f"       - 结果: final structural_consensus_score: {structural_consensus_score.loc[probe_date]:.4f}")
         return structural_consensus_score.astype(np.float32)
 
