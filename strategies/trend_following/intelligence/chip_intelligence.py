@@ -50,52 +50,46 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V10.1 · 调用修复版】筹码情报总指挥
-        - 核心修复: 修正了方法内部对 _get_safe_series 的调用，确保正确传递 data_source 参数，
-                      解决了因参数错位导致的“未知数据源类型”警告。
+        【V10.2 · 探针植入与逻辑重构版】筹码情报总指挥
+        - 核心重构: 将 `SCORE_CHIP_LOCKDOWN_DEGREE` 和 `SCORE_CHIP_STRUCTURAL_CONSENSUS` 的计算逻辑
+                      剥离至独立的诊断方法 `_diagnose_chip_lockdown_degree` 和 `_diagnose_structural_consensus`，
+                      以增强代码模块化并便于植入高精度调试探针。
         """
         all_chip_states = {}
         periods = [5, 13, 21, 55]
-        # 步骤一: 诊断四大公理，生成纯粹的筹码原子信号
+        # 步骤一: 诊断五大公理，生成纯粹的筹码原子信号
         concentration_scores = self._diagnose_axiom_concentration(df, periods)
         cost_structure_scores = self._diagnose_axiom_cost_structure(df, periods)
         holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
         peak_integrity_scores = self._diagnose_axiom_peak_integrity(df, periods)
         divergence_scores = self._diagnose_axiom_divergence(df, periods)
+        chip_trend_momentum_scores = self._diagnose_axiom_trend_momentum(df, periods)
         all_chip_states['SCORE_CHIP_AXIOM_DIVERGENCE'] = divergence_scores
         all_chip_states['SCORE_CHIP_AXIOM_CONCENTRATION'] = concentration_scores
         all_chip_states['SCORE_CHIP_AXIOM_COST_STRUCTURE'] = cost_structure_scores
         all_chip_states['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
         all_chip_states['SCORE_CHIP_AXIOM_PEAK_INTEGRITY'] = peak_integrity_scores
-        chip_trend_momentum_scores = self._diagnose_axiom_trend_momentum(df, periods)
         all_chip_states['SCORE_CHIP_AXIOM_TREND_MOMENTUM'] = chip_trend_momentum_scores
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(divergence_scores)
         all_chip_states['SCORE_CHIP_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_chip_states['SCORE_CHIP_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         # 步骤二: 工程化超级原子信号
         # 信号1: 筹码干净度 (SCORE_CHIP_CLEANLINESS)
-        chip_fault = self._get_safe_series(df, df, 'chip_fault_blockage_ratio_D', 0.5, method_name="run_chip_intelligence_command") # [代码修改]
-        # 使用(1 - 获利盘稳定度)作为短期获利盘压力的代理
-        winner_stability = self._get_safe_series(df, df, 'winner_stability_index_D', 0.5, method_name="run_chip_intelligence_command") # [代码修改]
+        chip_fault = self._get_safe_series(df, df, 'chip_fault_blockage_ratio_D', 0.5, method_name="run_chip_intelligence_command")
+        winner_stability = self._get_safe_series(df, df, 'winner_stability_index_D', 0.5, method_name="run_chip_intelligence_command")
         profit_pressure = 1 - winner_stability
         cleanliness_raw_score = ((1 - chip_fault) * (1 - profit_pressure)).pow(0.5).fillna(0.5)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         cleanliness_score = get_adaptive_mtf_normalized_score(cleanliness_raw_score, df.index, ascending=True, tf_weights=tf_weights)
         all_chip_states['SCORE_CHIP_CLEANLINESS'] = cleanliness_score.astype(np.float32)
+        # [修改] 调用新的独立诊断方法
         # 信号2: 筹码锁定度 (SCORE_CHIP_LOCKDOWN_DEGREE)
-        # 使用获利盘稳定度代表盈利锁定，使用套牢盘痛苦指数代表亏损锁定
-        locked_profit = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="run_chip_intelligence_command") # [代码修改]
-        loser_pain = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="run_chip_intelligence_command") # [代码修改]
-        # 痛苦指数越高，越不愿卖出，锁定度越高，因此直接归一化
-        locked_loss = utils.normalize_score(loser_pain, df.index, 55, ascending=True)
-        lockdown_degree = (locked_profit * 0.6 + locked_loss * 0.4).clip(0, 1).fillna(0.0) # 盈利锁定权重更高
-        all_chip_states['SCORE_CHIP_LOCKDOWN_DEGREE'] = lockdown_degree.astype(np.float32)
+        lockdown_degree = self._diagnose_chip_lockdown_degree(df)
+        all_chip_states['SCORE_CHIP_LOCKDOWN_DEGREE'] = lockdown_degree
         # 信号3: 结构共识分 (SCORE_CHIP_STRUCTURAL_CONSENSUS)
-        bullish_structure_score = cost_structure_scores.clip(lower=0)
-        positive_sentiment_score = holder_sentiment_scores.clip(lower=0)
-        structural_consensus_score = (bullish_structure_score * positive_sentiment_score).pow(0.5)
-        all_chip_states['SCORE_CHIP_STRUCTURAL_CONSENSUS'] = structural_consensus_score.astype(np.float32)
+        structural_consensus_score = self._diagnose_structural_consensus(df, cost_structure_scores, holder_sentiment_scores)
+        all_chip_states['SCORE_CHIP_STRUCTURAL_CONSENSUS'] = structural_consensus_score
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -294,8 +288,8 @@ class ChipIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V1.2 · 上下文修复版】筹码公理五：诊断筹码“背离”动态
-        - 【V1.2 修复】在调用 _get_safe_series 时传递 df 参数。
+        【V1.3 · 探针植入版】筹码公理五：诊断筹码“背离”动态
+        - 核心增强: 增加了调试探针，用于在指定日期输出计算背离分数的所有原料数据和关键过程值。
         """
         required_signals = ['pct_change_D', 'SLOPE_5_short_term_concentration_90pct_D']
         missing_signals = [s for s in required_signals if s not in df.columns]
@@ -303,10 +297,77 @@ class ChipIntelligence:
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        price_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, df, 'pct_change_D', method_name="_diagnose_axiom_divergence"), df.index, tf_weights)
-        concentration_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, df, 'SLOPE_5_short_term_concentration_90pct_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_divergence"), df.index, tf_weights)
+        # 1. 获取原料数据
+        price_raw = self._get_safe_series(df, df, 'pct_change_D', method_name="_diagnose_axiom_divergence")
+        concentration_slope_raw = self._get_safe_series(df, df, 'SLOPE_5_short_term_concentration_90pct_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_divergence")
+        # 2. 关键计算过程
+        price_trend = get_adaptive_mtf_normalized_bipolar_score(price_raw, df.index, tf_weights)
+        concentration_trend = get_adaptive_mtf_normalized_bipolar_score(concentration_slope_raw, df.index, tf_weights)
         divergence_score = (concentration_trend - price_trend).clip(-1, 1)
+        # 3. 植入探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
+            if probe_date in df.index:
+                print(f"    -> [探针: _diagnose_axiom_divergence] @ {probe_date.date()}:")
+                print(f"       - 原料: pct_change_D: {price_raw.loc[probe_date]:.4f}")
+                print(f"       - 过程: price_trend (归一化): {price_trend.loc[probe_date]:.4f}")
+                print(f"       - 原料: SLOPE_5_short_term_concentration_90pct_D: {concentration_slope_raw.loc[probe_date]:.4f}")
+                print(f"       - 过程: concentration_trend (归一化): {concentration_trend.loc[probe_date]:.4f}")
+                print(f"       - 结果: final divergence_score: {divergence_score.loc[probe_date]:.4f}")
         return divergence_score.astype(np.float32)
 
+    def _diagnose_chip_lockdown_degree(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 探针植入版】诊断“筹码锁定度”
+        - 核心职责: 独立计算筹码锁定度，并内置调试探针。
+        - 探针逻辑: 在指定的探针日期，输出所有原料数据和关键计算过程值。
+        """
+        # 1. 获取原料数据
+        locked_profit_raw = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="_diagnose_chip_lockdown_degree")
+        loser_pain_raw = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_chip_lockdown_degree")
+        # 2. 关键计算过程
+        locked_loss_score = utils.normalize_score(loser_pain_raw, df.index, 55, ascending=True)
+        lockdown_degree = (locked_profit_raw * 0.6 + locked_loss_score * 0.4).clip(0, 1).fillna(0.0)
+        # 3. 植入探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
+            if probe_date in df.index:
+                print(f"    -> [探针: _diagnose_chip_lockdown_degree] @ {probe_date.date()}:")
+                print(f"       - 原料: winner_stability_index_D (盈利锁定): {locked_profit_raw.loc[probe_date]:.4f}")
+                print(f"       - 原料: loser_pain_index_D (亏损锁定): {loser_pain_raw.loc[probe_date]:.4f}")
+                print(f"       - 过程: locked_loss_score (亏损锁定归一化): {locked_loss_score.loc[probe_date]:.4f}")
+                print(f"       - 结果: final lockdown_degree: {lockdown_degree.loc[probe_date]:.4f}")
+        return lockdown_degree.astype(np.float32)
+
+    def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 探针植入版】诊断“结构共识分”
+        - 核心职责: 独立计算结构共识分，并内置调试探针。
+        - 探针逻辑: 在指定的探针日期，输出输入的公理分数、裁剪后的中间值以及最终结果。
+        """
+        # 1. 关键计算过程
+        bullish_structure_score = cost_structure_scores.clip(lower=0)
+        positive_sentiment_score = holder_sentiment_scores.clip(lower=0)
+        structural_consensus_score = (bullish_structure_score * positive_sentiment_score).pow(0.5).fillna(0.0)
+        # 2. 植入探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
+            if probe_date in df.index:
+                print(f"    -> [探针: _diagnose_structural_consensus] @ {probe_date.date()}:")
+                print(f"       - 原料: cost_structure_scores: {cost_structure_scores.loc[probe_date]:.4f}")
+                print(f"       - 过程: bullish_structure_score (裁剪后): {bullish_structure_score.loc[probe_date]:.4f}")
+                print(f"       - 原料: holder_sentiment_scores: {holder_sentiment_scores.loc[probe_date]:.4f}")
+                print(f"       - 过程: positive_sentiment_score (裁剪后): {positive_sentiment_score.loc[probe_date]:.4f}")
+                print(f"       - 结果: final structural_consensus_score: {structural_consensus_score.loc[probe_date]:.4f}")
+        return structural_consensus_score.astype(np.float32)
 
 

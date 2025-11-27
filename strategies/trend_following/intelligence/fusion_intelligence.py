@@ -43,10 +43,11 @@ class FusionIntelligence:
 
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.4 · 上下文修复版】融合情报分析总指挥
-        - 【V3.4 修复】接收 df 参数并将其传递给所有 _synthesize_* 方法，确保上下文统一。
+        【V3.5 · 时序修复版】融合情报分析总指挥
+        - 核心修复: 调整了内部方法的调用顺序。将 `_synthesize_chip_structural_potential` 的调用提前至 `_synthesize_chip_trend` 之前，
+                    解决了因计算时序错乱导致的 `FUSION_BIPOLAR_CHIP_STRUCTURAL_POTENTIAL` 信号缺失问题。
         """
-        print("启动【V3.4 · 上下文修复版】融合情报分析...")
+        print("启动【V3.5 · 时序修复版】融合情报分析...")
         all_fusion_states = {}
         regime_states = self._synthesize_market_regime(df)
         all_fusion_states.update(regime_states)
@@ -78,28 +79,31 @@ class FusionIntelligence:
         fund_flow_trend_states = self._synthesize_fund_flow_trend(df)
         all_fusion_states.update(fund_flow_trend_states)
         self.strategy.atomic_states.update(fund_flow_trend_states)
-        chip_trend_states = self._synthesize_chip_trend(df)
-        all_fusion_states.update(chip_trend_states)
-        self.strategy.atomic_states.update(chip_trend_states)
+        # [修改] 将 chip_potential 的计算提前到 chip_trend 之前
         chip_potential_states = self._synthesize_chip_structural_potential(df)
         all_fusion_states.update(chip_potential_states)
         self.strategy.atomic_states.update(chip_potential_states)
+        chip_trend_states = self._synthesize_chip_trend(df)
+        all_fusion_states.update(chip_trend_states)
+        self.strategy.atomic_states.update(chip_trend_states)
         accumulation_inflection_states = self._synthesize_accumulation_inflection(df)
         all_fusion_states.update(accumulation_inflection_states)
         self.strategy.atomic_states.update(accumulation_inflection_states)
-        print(f"【V3.4 · 上下文修复版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
+        print(f"【V3.5 · 时序修复版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
 
     def _synthesize_market_contradiction(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 上下文修复版】冶炼“市场矛盾” (Market Contradiction)
-        - 【V1.1 修复】接收 df 参数并在调用 _get_atomic_score 时传递。
+        【V1.2 · 信号协议修复版】冶炼“市场矛盾” (Market Contradiction)
+        - 核心修复: 更新了对行为层背离信号的引用，从已废弃的 `SCORE_BEHAVIOR...DIVERGENCE` 切换到
+                    更高质量的 `SCORE_BEHAVIOR...DIVERGENCE_QUALITY`，以匹配上游情报引擎的命名协议变更。
         """
         print("  -- [融合层] 正在冶炼“市场矛盾”...")
         states = {}
         divergence_sources = [
             'FOUNDATION', 'STRUCTURE', 'PATTERN', 'DYNAMIC_MECHANICS',
-            'CHIP', 'FUND_FLOW', 'MICRO_BEHAVIOR', 'BEHAVIOR'
+            'CHIP', 'FUND_FLOW', 'MICRO_BEHAVIOR'
+            # [修改] 移除旧的 'BEHAVIOR' 源，因为它将被单独处理
         ]
         bullish_divergence_scores = []
         bearish_divergence_scores = []
@@ -108,6 +112,9 @@ class FusionIntelligence:
             bear_signal_name = f'SCORE_{source}_BEARISH_DIVERGENCE'
             bullish_divergence_scores.append(self._get_atomic_score(df, bull_signal_name, 0.0).values)
             bearish_divergence_scores.append(self._get_atomic_score(df, bear_signal_name, 0.0).values)
+        # [修改] 单独添加更高质量的行为层背离信号
+        bullish_divergence_scores.append(self._get_atomic_score(df, 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY', 0.0).values)
+        bearish_divergence_scores.append(self._get_atomic_score(df, 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY', 0.0).values)
         net_bullish_divergence = np.maximum.reduce(bullish_divergence_scores)
         net_bearish_divergence = np.maximum.reduce(bearish_divergence_scores)
         bipolar_contradiction = (pd.Series(net_bullish_divergence, index=df.index) -
