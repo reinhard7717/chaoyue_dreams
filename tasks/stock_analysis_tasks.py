@@ -1089,7 +1089,7 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             if not latest_basic_data:
                 raise ValueError("StockDailyBasic 为空，无法确定数据范围。")
             start_date_obj = sync_date + timedelta(days=1)
-            if start_date_obj.date() > latest_basic_data.trade_time:
+            if start_date_obj > latest_basic_data.trade_time:
                 logger.info(f"【总调度-{group_name}组】所有指标已同步至 {sync_date}，无需更新。")
                 return None, True
             return start_date_obj.strftime('%Y-%m-%d'), True
