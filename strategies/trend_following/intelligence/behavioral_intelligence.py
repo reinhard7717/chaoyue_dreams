@@ -163,7 +163,6 @@ class BehavioralIntelligence:
         【V1.2 · 信号校验增强版】行为K线质量分计算引擎
         - 核心修改: 调用从 utils.py 导入的公共归一化工具。
         - 核心修复: 增加对所有依赖数据的存在性检查。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = [
             'closing_price_deviation_score_D', 'real_body_vs_range_ratio_D', 'shadow_dominance_D',
@@ -190,15 +189,22 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V29.2 · 信号校验增强版】原子信号中心
-        - 核心升级: 引入 microstructure_efficiency_index, dip_absorption_power, rally_distribution_pressure 等高级结构指标，
-                    对上涨效率、下跌抵抗等核心行为公理进行高保真重构。
-        - [新增] 在方法入口处添加信号校验逻辑。
+        【V29.9 · 战术信号增补版】原子信号中心
+        - 核心增补: 新增两个高阶战术博弈信号，用于识别关键的战场转折点。
+          - 新增机会信号: SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK (伏击式反攻)，识别主力利用恐慌完成吸筹后的反攻。
+          - 新增风险信号: SCORE_RISK_BREAKOUT_FAILURE_CASCADE (突破失败风险)，识别“牛市陷阱”式的假突破。
         """
         required_signals = [
             'pct_change_D', 'BIAS_55_D', 'volume_ratio_D', 'microstructure_efficiency_index_D',
             'dip_absorption_power_D', 'vwap_control_strength_D', 'lower_shadow_absorption_strength_D',
-            'upper_shadow_selling_pressure_D', 'volume_D', 'rally_distribution_pressure_D'
+            'upper_shadow_selling_pressure_D', 'volume_D', 'rally_distribution_pressure_D',
+            'closing_price_deviation_score_D', 'intraday_posture_score_D', 'main_force_net_flow_calibrated_D',
+            'amount_D', 'BIAS_21_D', 'ACCEL_5_pct_change_D', 'RSI_13_D', 'total_winner_rate_D',
+            'winner_stability_index_D', 'control_solidity_index_D', 'trend_vitality_index_D',
+            'upward_impulse_purity_D', 'vacuum_traversal_efficiency_D', 'support_validation_strength_D',
+            'impulse_quality_ratio_D', 'floating_chip_cleansing_efficiency_D',
+            #  为新增战术信号补充所需信号
+            'panic_selling_cascade_D', 'main_force_execution_alpha_D', 'covert_accumulation_signal_D', 'high_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_behavioral_axioms"):
             return {}
@@ -206,19 +212,86 @@ class BehavioralIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        long_term_weights = get_param_value(p_mtf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
-        states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_behavioral_axioms").clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BIAS_55_D', 0.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=long_term_weights).astype(np.float32)
-        states['SCORE_BEHAVIOR_VOLUME_BURST'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        long_term_weights = get_param_value(p_conf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
+        # --- 基础信号计算 (维持V29.8版本) ---
+        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        closing_deviation = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_diagnose_behavioral_axioms")
+        intraday_posture = self._get_safe_series(df, 'intraday_posture_score_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_behavioral_axioms").replace(0, 1e-9)
+        bias_21 = self._get_safe_series(df, 'BIAS_21_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        magnitude_factor_up = get_adaptive_mtf_normalized_score(pct_change.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        internal_strength_score = closing_deviation.clip(0, 1)
+        path_efficiency_score = get_adaptive_mtf_normalized_score(intraday_posture, df.index, ascending=True, tf_weights=default_weights)
+        flow_ratio = main_force_flow / amount
+        norm_flow_ratio = get_adaptive_mtf_normalized_bipolar_score(flow_ratio, df.index, default_weights, sensitivity=0.05)
+        smart_money_confirmation_score = (np.tanh(norm_flow_ratio * 2.0) + 1) / 2
+        quality_factor = (internal_strength_score * path_efficiency_score * smart_money_confirmation_score).pow(1/3).fillna(0.0)
+        overextension_risk_up = get_adaptive_mtf_normalized_score(bias_21.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        sustainability_factor = (1 - overextension_risk_up).clip(0, 1)
+        upward_momentum_score = (magnitude_factor_up * quality_factor * sustainability_factor).clip(0, 1)
+        states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
+        price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_behavioral_axioms")
+        magnitude_factor_down = get_adaptive_mtf_normalized_score(pct_change.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        internal_panic_score = (1 - closing_deviation).clip(0, 1)
+        path_weakness_score = get_adaptive_mtf_normalized_score(intraday_posture.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        smart_money_intent_score = (1 - norm_flow_ratio) / 2
+        authenticity_factor = (internal_panic_score * path_weakness_score * smart_money_intent_score).pow(1/3).fillna(0.0)
+        volume_burst_score_down = get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=default_weights)
+        price_accel_score = get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        panic_score = (volume_burst_score_down * price_accel_score).pow(0.5)
+        panic_amplifier = 1 + panic_score
+        downward_momentum_score = (magnitude_factor_down * authenticity_factor * panic_amplifier).clip(0, 1)
+        states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
+        rsi = self._get_safe_series(df, 'RSI_13_D', 50.0, method_name="_diagnose_behavioral_axioms")
+        winner_rate = self._get_safe_series(df, 'total_winner_rate_D', 50.0, method_name="_diagnose_behavioral_axioms")
+        winner_stability = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_behavioral_axioms")
+        control_solidity = self._get_safe_series(df, 'control_solidity_index_D', 0.5, method_name="_diagnose_behavioral_axioms")
+        trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        norm_bias = get_adaptive_mtf_normalized_score(bias_21, df.index, ascending=True, tf_weights=default_weights)
+        norm_rsi = get_adaptive_mtf_normalized_score(rsi, df.index, ascending=True, tf_weights=default_weights)
+        norm_winner_rate = get_adaptive_mtf_normalized_score(winner_rate, df.index, ascending=True, tf_weights=default_weights)
+        excitement_force = (norm_bias * norm_rsi * norm_winner_rate).pow(1/3).fillna(0.0)
+        norm_winner_stability = get_adaptive_mtf_normalized_score(winner_stability, df.index, ascending=True, tf_weights=long_term_weights)
+        norm_control_solidity = get_adaptive_mtf_normalized_score(control_solidity, df.index, ascending=True, tf_weights=long_term_weights)
+        norm_trend_vitality = get_adaptive_mtf_normalized_score(trend_vitality, df.index, ascending=True, tf_weights=long_term_weights)
+        conviction_force = (norm_winner_stability * norm_control_solidity * norm_trend_vitality).pow(1/3).fillna(0.0)
+        overextension_raw_score = (excitement_force - conviction_force).clip(lower=0)
+        states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = overextension_raw_score.astype(np.float32)
+        base_efficiency_raw = self._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        path_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        structural_confirm_raw = self._get_safe_series(df, 'vacuum_traversal_efficiency_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        base_efficiency_score = get_adaptive_mtf_normalized_score(base_efficiency_raw, df.index, ascending=True, tf_weights=default_weights)
+        path_purity_score = get_adaptive_mtf_normalized_score(path_purity_raw, df.index, ascending=True, tf_weights=default_weights)
+        structural_confirm_score = get_adaptive_mtf_normalized_score(structural_confirm_raw, df.index, ascending=True, tf_weights=default_weights)
+        upward_efficiency_score = (base_efficiency_score.pow(0.4) * path_purity_score.pow(0.3) * structural_confirm_score.pow(0.3)).fillna(0.0)
+        states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
+        passive_absorption_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        active_defense_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        counter_attack_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        passive_absorption_score = get_adaptive_mtf_normalized_score(passive_absorption_raw, df.index, ascending=True, tf_weights=default_weights)
+        active_defense_score = get_adaptive_mtf_normalized_score(active_defense_raw, df.index, ascending=True, tf_weights=default_weights)
+        counter_attack_score = get_adaptive_mtf_normalized_score(counter_attack_raw, df.index, ascending=True, tf_weights=default_weights)
+        downward_resistance_score = (passive_absorption_score.pow(0.2) * active_defense_score.pow(0.4) * counter_attack_score.pow(0.4)).fillna(0.0)
+        states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
+        strategic_position_raw = self._get_safe_series(df, 'vwap_control_strength_D', 0.5, method_name="_diagnose_behavioral_axioms")
+        offensive_capability_raw = self._get_safe_series(df, 'impulse_quality_ratio_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        defensive_resilience_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        strategic_position_score = get_adaptive_mtf_normalized_score(strategic_position_raw, df.index, ascending=True, tf_weights=default_weights)
+        offensive_capability_score = get_adaptive_mtf_normalized_score(offensive_capability_raw, df.index, ascending=True, tf_weights=default_weights)
+        defensive_resilience_score = get_adaptive_mtf_normalized_score(defensive_resilience_raw, df.index, ascending=True, tf_weights=default_weights)
+        intraday_bull_control_score = (strategic_position_score.pow(0.4) * offensive_capability_score.pow(0.3) * defensive_resilience_score.pow(0.3)).fillna(0.0)
+        states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
+        lower_shadow_quality = self._diagnose_lower_shadow_quality(df)
+        upper_shadow_risk = self._diagnose_upper_shadow_risk(df)
+        states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
+        states['INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW'] = upper_shadow_risk
+        #  调用新增的战术信号诊断方法
+        states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] = self._diagnose_ambush_counterattack(df, lower_shadow_quality)
+        states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = self._diagnose_breakout_failure_risk(df, upper_shadow_risk)
+        states['SCORE_BEHAVIOR_VOLUME_BURST'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights).astype(np.float32)
-        upward_efficiency_raw = self._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = get_adaptive_mtf_normalized_score(upward_efficiency_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        downward_resistance_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = get_adaptive_mtf_normalized_score(downward_resistance_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'vwap_control_strength_D', 0.5, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        states['INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         price_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_behavioral_axioms"), df.index, default_weights)
         volume_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'volume_D', method_name="_diagnose_behavioral_axioms").diff(1), df.index, default_weights)
         divergence_score = (volume_trend - price_trend).clip(-1, 1)
@@ -226,21 +299,28 @@ class BehavioralIntelligence:
         is_rising = (self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_behavioral_axioms") > 0).astype(float)
         is_falling = (self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_behavioral_axioms") < 0).astype(float)
         states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = (is_rising * states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] * states['SCORE_BEHAVIOR_VOLUME_ATROPHY']).pow(1/3).astype(np.float32)
-        states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] * states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']).pow(1/3).astype(np.float32)
-        evidence_components = [
-            states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'].clip(0, 1),
-            (1 - states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY']).clip(0, 1),
-            states['SCORE_BEHAVIOR_VOLUME_BURST'].clip(0, 1),
-            (1 - states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL']).clip(0, 1)
-        ]
-        weights_stagnation_evidence = np.array([0.2, 0.3, 0.3, 0.2])
-        aligned_evidence_components = [comp.reindex(df.index, fill_value=0.0) for comp in evidence_components]
-        safe_evidence_components = [comp + 1e-9 for comp in aligned_evidence_components]
-        stagnation_evidence_raw_score = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_evidence_components, weights_stagnation_evidence)], axis=0), index=df.index)
-        states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = (stagnation_evidence_raw_score * is_rising).clip(0, 1).astype(np.float32)
+        #  --- 开始重构 SCORE_OPPORTUNITY_SELLING_EXHAUSTION ---
+        # 1. 获取额外所需原始数据
+        price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        # 2. 计算新维度得分
+        # 卖出动能衰减分：负向加速度的绝对值越小，得分越高
+        selling_deceleration_score = (1 - get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)).clip(0, 1)
+        # 投降确认分
+        capitulation_confirm_score = get_adaptive_mtf_normalized_score(capitulation_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 3. 融合新旧维度
+        selling_exhaustion_score = (
+            states['SCORE_BEHAVIOR_VOLUME_ATROPHY'].pow(0.3) *
+            states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'].pow(0.3) *
+            selling_deceleration_score.pow(0.2) *
+            capitulation_confirm_score.pow(0.2)
+        ).fillna(0.0)
+        states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * selling_exhaustion_score).astype(np.float32)
+        # --- 结束重构 ---
+        states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = self._diagnose_stagnation_evidence(df, states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'])
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
         distribution_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        states['SCORE_BEHAVIOR_DISTRIBUTION_PRESSURE'] = get_adaptive_mtf_normalized_score(distribution_pressure_raw, df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        states['SCORE_BEHAVIOR_DISTRIBUTION_PRESSURE'] = get_adaptive_mtf_normalized_score(distribution_pressure_raw, df.index, ascending=True, tf_weights=default_weights)
         return states
 
     def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -312,7 +392,6 @@ class BehavioralIntelligence:
         - 核心逻辑: 融合价格突破、均线斜率和BIAS健康度，评估新高的综合质量。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['pct_change_D', 'SLOPE_5_EMA_55_D', 'BIAS_55_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_context_new_high_strength"):
@@ -371,7 +450,6 @@ class BehavioralIntelligence:
         - 核心职责: 融合订单流失衡(OFI)与扫单强度，生成一个全新的原子信号 `SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT`，
                     用于捕捉最细微的主力攻击或撤退意图。
         - 数学思想: OFI反映了挂单册上的力量变化，扫单强度反映了直接吃单的决心。两者结合，可以区分是“温和吸筹”还是“暴力抢筹”。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['order_book_imbalance_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_microstructure_intent"):
@@ -391,6 +469,197 @@ class BehavioralIntelligence:
         micro_intent_score = (bullish_intent - bearish_intent).clip(-1, 1)
         states['SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT'] = micro_intent_score.astype(np.float32)
         return states
+
+    def _diagnose_stagnation_evidence(self, df: pd.DataFrame, upward_efficiency: pd.Series) -> pd.Series:
+        """
+        【V3.0 · 宏观共振版】诊断内部行为信号：滞涨证据
+        - 核心重构: 在V2.0“多头衰竭 vs 空头伏击”模型基础上，嫁接一个“宏观风险放大器”，实现微观行为与宏观势能的风险共振。
+        - 微观增强: 在“多头衰竭”维度中，新增“筹码疲劳度”证据。
+        - 宏观放大: 引入“获利盘压力”和“趋势活力衰减”作为风险放大器，一波巨大上涨后的滞涨，其风险将被指数级放大。
+        - 最终证据 = (微观冲突) * (宏观风险放大器)，旨在捕捉最危险的、发生在趋势末端的滞涨信号。
+        """
+        df_index = df.index
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 1. 数据准备
+        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_stagnation_evidence")
+        price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', 0.0, method_name="_diagnose_stagnation_evidence")
+        upper_shadow = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_stagnation_evidence")
+        closing_deviation = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_diagnose_stagnation_evidence")
+        distribution_pressure = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_stagnation_evidence")
+        active_selling = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name="_diagnose_stagnation_evidence")
+        chip_fatigue = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name="_diagnose_stagnation_evidence") # 新增
+        winner_rate = self._get_safe_series(df, 'total_winner_rate_D', 50.0, method_name="_diagnose_stagnation_evidence") # 新增
+        trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_stagnation_evidence") # 新增
+        # 2. 计算“微观滞涨证据”
+        # 2.1 “多头衰竭 (Bullish Exhaustion)” - 增强版
+        inefficiency_score = (1 - upward_efficiency).clip(0, 1)
+        momentum_decay_score = get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
+        intraday_failure_score = get_adaptive_mtf_normalized_score(upper_shadow * (1 - closing_deviation), df_index, ascending=True, tf_weights=default_weights)
+        chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue, df_index, ascending=True, tf_weights=default_weights) # 新增
+        bullish_exhaustion = (inefficiency_score * momentum_decay_score * intraday_failure_score * chip_fatigue_score).pow(1/4).fillna(0.0)
+        # 2.2 “空头伏击 (Bearish Ambush)”
+        distribution_score = get_adaptive_mtf_normalized_score(distribution_pressure, df_index, ascending=True, tf_weights=default_weights)
+        active_selling_score = get_adaptive_mtf_normalized_score(active_selling, df_index, ascending=True, tf_weights=default_weights)
+        bearish_ambush = np.maximum(distribution_score, active_selling_score)
+        micro_conflict_score = (bullish_exhaustion * bearish_ambush).pow(0.5)
+        # 3. 构建“宏观风险放大器”
+        profit_pressure_score = get_adaptive_mtf_normalized_score(winner_rate, df_index, ascending=True, tf_weights=default_weights)
+        vitality_decay_raw = trend_vitality.diff(3).clip(upper=0).abs() # 趋势活力3日衰减量
+        vitality_decay_score = get_adaptive_mtf_normalized_score(vitality_decay_raw, df_index, ascending=True, tf_weights=default_weights)
+        macro_amplifier = 1 + (profit_pressure_score * vitality_decay_score).pow(0.5)
+        # 4. 非线性合成最终证据
+        stagnation_evidence = micro_conflict_score * macro_amplifier
+        is_rising_or_flat = (pct_change >= -0.005).astype(float)
+        final_stagnation_evidence = (stagnation_evidence * is_rising_or_flat).clip(0, 1)
+        return final_stagnation_evidence.astype(np.float32)
+
+    def _diagnose_lower_shadow_quality(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V2.0 · 反击品质版】诊断下影线承接品质
+        - 核心重构: 将单一的“承接强度”升级为“反击品质”三维诊断模型，旨在识别真实的、由主力主导的强势反击，过滤诱多陷阱。
+        - 1. 反击幅度 (Magnitude): 基础的下影线强度。
+        - 2. 主力意图 (Intent): 主力资金当天是否净流入？这是识别真伪的核心。
+        - 3. 战场位置 (Location): 反击是否发生在关键支撑位？
+        - 非线性合成: 品质分 = (幅度^0.3 * 意图^0.5 * 位置^0.2)，主力意图具备最高的权重和一票否决能力。
+        """
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 1. 获取三维度原始数据
+        magnitude_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_lower_shadow_quality")
+        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_lower_shadow_quality")
+        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_lower_shadow_quality").replace(0, 1e-9)
+        location_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_diagnose_lower_shadow_quality")
+        # 2. 计算各维度得分
+        magnitude_score = get_adaptive_mtf_normalized_score(magnitude_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 主力意图得分：只有主力净流入才算有效意图
+        flow_ratio = main_force_flow / amount
+        intent_score = get_adaptive_mtf_normalized_score(flow_ratio.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        location_score = get_adaptive_mtf_normalized_score(location_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 3. 非线性合成
+        lower_shadow_quality_score = (magnitude_score.pow(0.3) * intent_score.pow(0.5) * location_score.pow(0.2)).fillna(0.0)
+        return lower_shadow_quality_score.astype(np.float32)
+
+    def _diagnose_upper_shadow_risk(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V2.0 · 派发风险版】诊断上影线派发风险
+        - 核心重构: 将单一的“上影线压力”升级为“派发风险”三维诊断模型，旨在识别真实的、由主力主导的拉高派发行为。
+        - 1. 压力强度 (Magnitude): 基础的上影线抛压强度。
+        - 2. 主力行为 (Behavior): 主力资金当天是否净流出？
+        - 3. 派发过程 (Process): 是否伴随了“拉高出货”的特征？
+        - 非线性合成: 风险分 = (强度^0.3 * 行为^0.4 * 过程^0.3)，精准锁定“天线杀”风险。
+        """
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 1. 获取三维度原始数据
+        magnitude_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_upper_shadow_risk")
+        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_upper_shadow_risk")
+        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_upper_shadow_risk").replace(0, 1e-9)
+        process_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_upper_shadow_risk")
+        # 2. 计算各维度得分
+        magnitude_score = get_adaptive_mtf_normalized_score(magnitude_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 主力行为得分：主力净流出额越大，得分越高
+        flow_ratio = main_force_flow / amount
+        behavior_score = get_adaptive_mtf_normalized_score(flow_ratio.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        process_score = get_adaptive_mtf_normalized_score(process_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 3. 非线性合成
+        upper_shadow_risk_score = (magnitude_score.pow(0.3) * behavior_score.pow(0.4) * process_score.pow(0.3)).fillna(0.0)
+        return upper_shadow_risk_score.astype(np.float32)
+
+    def _diagnose_ambush_counterattack(self, df: pd.DataFrame, lower_shadow_quality: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 伏击战术版】诊断伏击式反攻信号
+        - 核心目标: 识别主力利用日内恐慌进行大规模隐蔽吸筹后发动的强势反攻。
+        - 战术要素:
+          1. 反击形态 (Morphology): 必须有高质量的长下影线。
+          2. 恐慌环境 (Panic): 日内必须出现过恐慌性抛售。
+          3. 主力伏击 (Ambush): 主力展现出精准的低吸高抛能力。
+          4. 隐蔽吸筹 (Covert Ops): 存在隐蔽吸筹的微观证据。
+        - 非线性合成: 信号分 = (形态^0.3 * 环境^0.2 * 伏击^0.4 * 隐蔽^0.1)，赋予主力行为最高权重。
+        """
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 1. 获取战术要素原始数据
+        panic_evidence_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_ambush_counterattack")
+        main_force_alpha_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_ambush_counterattack")
+        covert_ops_raw = self._get_safe_series(df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_ambush_counterattack")
+        # 2. 归一化各要素
+        morphology_score = lower_shadow_quality # 直接使用传入的高质量下影线分数
+        panic_score = get_adaptive_mtf_normalized_score(panic_evidence_raw, df.index, ascending=True, tf_weights=default_weights)
+        ambush_score = get_adaptive_mtf_normalized_score(main_force_alpha_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        covert_ops_score = get_adaptive_mtf_normalized_score(covert_ops_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 3. 战术合成
+        ambush_counterattack_score = (morphology_score.pow(0.3) * panic_score.pow(0.2) * ambush_score.pow(0.4) * covert_ops_score.pow(0.1)).fillna(0.0)
+        return ambush_counterattack_score.astype(np.float32)
+
+    def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, upper_shadow_risk: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 牛市陷阱版】诊断突破失败级联风险
+        - 核心目标: 识别并量化“假突破”或“牛市陷阱”形态的风险，其核心是大量跟风盘在高位被套牢。
+        - 风险要素:
+          1. 突破尝试 (Attempt): 当天必须有向上突破近期高点的行为。
+          2. 快速溃败 (Collapse): 突破后快速回落，形成高风险上影线。
+          3. 高位换手 (Volume): 突破时成交量显著放大，意味着大量资金被套。
+        - 非线性合成: 风险分 = 突破尝试(布尔) * (快速溃败^0.6 * 高位换手^0.4)，只有在突破失败时才激活。
+        """
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 1. 定义突破尝试
+        high_price = self._get_safe_series(df, 'high_D', 0.0, method_name="_diagnose_breakout_failure_risk")
+        recent_high = high_price.rolling(window=21, min_periods=21).max().shift(1)
+        is_breakout_attempt = (high_price > recent_high).astype(float)
+        # 2. 获取其他风险要素
+        collapse_score = upper_shadow_risk # 直接使用传入的高风险上影线分数
+        volume_raw = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_breakout_failure_risk")
+        volume_score = get_adaptive_mtf_normalized_score(volume_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 3. 风险合成
+        breakout_failure_risk = is_breakout_attempt * (collapse_score.pow(0.6) * volume_score.pow(0.4)).fillna(0.0)
+        return breakout_failure_risk.astype(np.float32)
+
+    def _diagnose_divergence_quality(self, df: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
+        """
+        【V2.0 · 背离品质版】诊断高品质价量/价资背离
+        - 核心重构: 废弃简单的线性差值，引入“背离品质”三维诊断模型，旨在识别由主力意图确认的、发生在关键位置的、真正有效的背离信号。
+        - 诊断维度:
+          1. 背离形态 (Morphology): 价格趋势与资金流趋势的明确“背道而驰”。
+          2. 主力意图 (Intent): 主力资金流向是背离的核心驱动力。
+          3. 战场位置 (Location): 背离是否发生在超卖/超买的极端区域。
+        - 输出: 分别输出独立的、[0, 1]区间的牛市背离品质分和熊市背离品质分。
+        """
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 1. 获取原始数据
+        price = self._get_safe_series(df, 'close_D', 0.0, method_name="_diagnose_divergence_quality")
+        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_divergence_quality")
+        bias = self._get_safe_series(df, 'BIAS_21_D', 0.0, method_name="_diagnose_divergence_quality")
+        # 2. 计算各指标的趋势 (使用短期EMA的斜率来表示)
+        price_trend = price.ewm(span=5, adjust=False).mean().diff().fillna(0)
+        flow_trend = main_force_flow.ewm(span=5, adjust=False).mean().diff().fillna(0)
+        # 3. 归一化趋势和位置指标
+        norm_price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend, df.index, default_weights)
+        norm_flow_trend = get_adaptive_mtf_normalized_bipolar_score(flow_trend, df.index, default_weights)
+        norm_bias = get_adaptive_mtf_normalized_bipolar_score(bias, df.index, default_weights)
+        # 4. 计算牛市背离品质 (价格跌，资金涨，位置超卖)
+        bullish_morphology_evidence = (norm_flow_trend.clip(lower=0) - norm_price_trend.clip(upper=0).abs()).clip(lower=0)
+        oversold_location_evidence = norm_bias.clip(upper=0).abs()
+        bullish_divergence_quality = (bullish_morphology_evidence * oversold_location_evidence).pow(0.5).fillna(0.0)
+        # 5. 计算熊市背离品质 (价格涨，资金跌，位置超买)
+        bearish_morphology_evidence = (norm_price_trend.clip(lower=0) - norm_flow_trend.clip(upper=0).abs()).clip(lower=0)
+        overbought_location_evidence = norm_bias.clip(lower=0)
+        bearish_divergence_quality = (bearish_morphology_evidence * overbought_location_evidence).pow(0.5).fillna(0.0)
+        return bullish_divergence_quality.astype(np.float32), bearish_divergence_quality.astype(np.float32)
+
+
+
+
+
+
 
 
 

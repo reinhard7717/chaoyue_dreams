@@ -26,7 +26,7 @@ class DynamicMechanicsEngine:
         """
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
-            # [新增] 调整校验信息为“力学情报校验”
+            # 调整校验信息为“力学情报校验”
             print(f"    -> [力学情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
@@ -81,7 +81,6 @@ class DynamicMechanicsEngine:
         【V1.2 · 信号校验增强版】力学公理一：诊断“动量”
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `roc_score` 和 `macd_h_score` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['ROC_12_D', 'MACDh_13_34_8_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_momentum"):
@@ -104,7 +103,6 @@ class DynamicMechanicsEngine:
         - 【修复】修正了引用均线速度和加速度列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         ma_col_base = 'EMA_55'
         timeframe_key = 'D'
@@ -143,7 +141,6 @@ class DynamicMechanicsEngine:
         - 核心重构: 废除脆弱的乘法融合模型，改为更稳健的加权平均模型。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `volatility_level_score` 和 `volatility_stability_score` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         vol_instability_col = next((col for col in df.columns if col.startswith('VOLATILITY_INSTABILITY_INDEX_')), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         required_signals = ['BBW_21_2.0_D', 'ATR_14_D', 'close_D', vol_instability_col]
@@ -171,7 +168,6 @@ class DynamicMechanicsEngine:
         - 核心重构: 废除脆弱的乘法融合模型，改为更稳健的加权平均模型。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `cmf_bipolar` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['VPA_EFFICIENCY_D', 'CMF_21_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_energy"):
@@ -196,7 +192,6 @@ class DynamicMechanicsEngine:
         - 【修复】修正了引用均线速度和加速度列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `velocity_score` 和 `acceleration_score` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         ma_col_base = 'EMA_55'
         timeframe_key = 'D'

@@ -26,7 +26,7 @@ class FoundationIntelligence:
         """
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
-            # [新增] 调整校验信息为“基础情报校验”
+            # 调整校验信息为“基础情报校验”
             print(f"    -> [基础情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
@@ -35,7 +35,7 @@ class FoundationIntelligence:
         """
         【V6.6 · 结构形态公理版】基础情报分析总指挥
         - 【V6.5 修复】接收 df 参数作为统一的数据上下文，并移除内部对 self.strategy.df_indicators 的依赖。
-        - [新增] 调用新增的 _diagnose_axiom_structure_form 方法，引入结构形态公理。
+        - 调用新增的 _diagnose_axiom_structure_form 方法，引入结构形态公理。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
@@ -70,7 +70,6 @@ class FoundationIntelligence:
         - 核心逻辑: 融合趋势强度(ADX)、方向(PDI/NDI)和健康度(BIAS)，评估上升趋势的确认程度。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['ADX_14_D', 'PDI_14_D', 'NDI_14_D', 'SLOPE_5_PDI_14_D', 'BIAS_55_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_context_trend_confirmed"):
@@ -93,7 +92,6 @@ class FoundationIntelligence:
         - 核心逻辑: 诊断价格趋势与摆动指标（如RSI）之间的背离。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `price_trend` 和 `oscillator_trend` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['SLOPE_13_close_D', 'SLOPE_13_RSI_13_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
@@ -113,7 +111,6 @@ class FoundationIntelligence:
         - 【修复】修正了引用 DMA 斜率列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         ma_periods = [5, 13, 21, 55]
         required_signals = ['MACDh_13_34_8_D', 'SLOPE_5_DMA_D']
@@ -146,7 +143,6 @@ class FoundationIntelligence:
         【V1.2 · 信号校验增强版】基础公理二：诊断“摆动”
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `oscillator_score` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['RSI_13_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_oscillator"):
@@ -165,7 +161,6 @@ class FoundationIntelligence:
         - 核心升级: 增加调试探针，打印 CMF 原始值和归一化分数。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `flow_score` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['CMF_21_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_flow"):
@@ -192,7 +187,6 @@ class FoundationIntelligence:
         【V1.2 · 信号校验增强版】基础公理四：诊断“波动”
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `volatility_score` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['BBW_21_2.0_D', 'ATR_14_D', 'close_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_volatility"):
@@ -213,7 +207,6 @@ class FoundationIntelligence:
         - 核心逻辑: 融合平台势能与趋势动能，评估当前市场结构。
         - 平台势能: 基于 IS_HIGH_POTENTIAL_CONSOLIDATION_D 和 BBW_21_2.0_D。
         - 趋势动能: 基于 ATAN_ANGLE_EMA_55_D 和 ZIG_5_5.0_D。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'BBW_21_2.0_D', 'ATAN_ANGLE_EMA_55_D', 'ZIG_5_5.0_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_structure_form"):

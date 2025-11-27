@@ -75,7 +75,6 @@ class StructuralIntelligence:
         - 核心逻辑: 诊断价格行为与均线结构（如均线排列）的背离。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `price_trend` 和 `ma_structure_trend` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['pct_change_D', 'EMA_5_D', 'EMA_55_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
@@ -101,10 +100,10 @@ class StructuralIntelligence:
         - 核心证据 (能量): 引入`trend_vitality_index`和`upward_impulse_purity`，量化趋势形态背后的“动力强度”。
         """
         required_signals = [
-            'trend_vitality_index_D', 'upward_impulse_purity_D', 'close_D', 'pct_change_D' # [修改] 替换 intraday_energy_density_D, intraday_thrust_purity_D
+            'trend_vitality_index_D', 'upward_impulse_purity_D', 'close_D', 'pct_change_D' # 替换 intraday_energy_density_D, intraday_thrust_purity_D
         ]
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        # [修改] 剔除未计算5日斜率的周期13，以匹配配置文件，避免运行时错误
+        # 剔除未计算5日斜率的周期13，以匹配配置文件，避免运行时错误
         ema_periods = get_param_value(p_conf_struct.get('trend_form_ema_periods'), [5, 21, 55])
         required_signals.extend([f'EMA_{p}_D' for p in ema_periods])
         required_signals.extend([f'SLOPE_5_EMA_{p}_D' for p in ema_periods])
@@ -114,7 +113,7 @@ class StructuralIntelligence:
         tf_weights_struct = get_param_value(p_conf_struct.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # --- 1. 形态 (Form) ---
         bull_alignment_raw = pd.Series(0.0, index=df_index)
-        # [修改] 动态调整权重数量以匹配修改后的ema_periods
+        # 动态调整权重数量以匹配修改后的ema_periods
         alignment_weights = np.linspace(0.4, 0.3, len(ema_periods) - 1)
         for i in range(len(ema_periods) - 1):
             ema_i = self._get_safe_series(df, f'EMA_{ema_periods[i]}_D', method_name="_diagnose_axiom_trend_form")
@@ -125,9 +124,9 @@ class StructuralIntelligence:
         avg_slope_bipolar = pd.Series(np.mean(slope_scores, axis=0), index=df_index)
         form_score = (bull_alignment_score * 0.5 + avg_slope_bipolar.clip(lower=0) * 0.5).clip(0, 1)
         # --- 2. 能量 (Energy) ---
-        # [修改] 使用 trend_vitality_index_D 替换 intraday_energy_density_D
+        # 使用 trend_vitality_index_D 替换 intraday_energy_density_D
         energy_density_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_axiom_trend_form")
-        # [修改] 使用 upward_impulse_purity_D 替换 intraday_thrust_purity_D
+        # 使用 upward_impulse_purity_D 替换 intraday_thrust_purity_D
         thrust_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_axiom_trend_form")
         energy_density_score = get_adaptive_mtf_normalized_score(energy_density_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
         thrust_purity_score = get_adaptive_mtf_normalized_score(thrust_purity_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
@@ -150,8 +149,8 @@ class StructuralIntelligence:
         - 核心证据 (韧性): `support_validation_strength`作为结构在压力测试下的直接表现。
         """
         required_signals = [
-            'flow_credibility_index_D', 'main_force_price_impact_ratio_D', 'support_validation_strength_D', # [修改] 替换旧指标
-            'dominant_peak_solidity_D', 'close_D' # [修改] 替换旧指标
+            'flow_credibility_index_D', 'main_force_price_impact_ratio_D', 'support_validation_strength_D', # 替换旧指标
+            'dominant_peak_solidity_D', 'close_D' # 替换旧指标
         ]
         long_term_ma_periods = [55, 144]
         required_signals.extend([f'MA_{p}_D' for p in long_term_ma_periods])
@@ -165,18 +164,18 @@ class StructuralIntelligence:
             support_score = get_adaptive_mtf_normalized_score((self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_stability") - self._get_safe_series(df, f'MA_{p}_D', method_name="_diagnose_axiom_stability")).clip(lower=0), df_index, ascending=True, tf_weights=tf_weights_struct)
             foundation_support_scores.append(support_score)
         foundation_support_score = pd.Series(np.mean(foundation_support_scores, axis=0), index=df_index)
-        # [修改] 使用 dominant_peak_solidity_D 替换 vpoc_consensus_strength_D
+        # 使用 dominant_peak_solidity_D 替换 vpoc_consensus_strength_D
         vpoc_consensus_raw = self._get_safe_series(df, 'dominant_peak_solidity_D', 0.0, method_name="_diagnose_axiom_stability")
         vpoc_consensus_score = get_adaptive_mtf_normalized_score(vpoc_consensus_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
         macro_support_score = (foundation_support_score * 0.6 + vpoc_consensus_score * 0.4).clip(0, 1)
         # --- 2. 结构韧性 (Structural Resilience) ---
-        # [修改] 使用 support_validation_strength_D 替换 pullback_depth_ratio_D
+        # 使用 support_validation_strength_D 替换 pullback_depth_ratio_D
         pullback_depth_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.5, method_name="_diagnose_axiom_stability")
         resilience_score = get_adaptive_mtf_normalized_score(pullback_depth_raw, df_index, ascending=True, tf_weights=tf_weights_struct) # 支撑强度越强越好
         # --- 3. 微观流动性 (Micro-Liquidity) ---
-        # [修改] 使用 flow_credibility_index_D 替换 liquidity_authenticity_score_D
+        # 使用 flow_credibility_index_D 替换 liquidity_authenticity_score_D
         liquidity_auth_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.5, method_name="_diagnose_axiom_stability")
-        # [修改] 使用 main_force_price_impact_ratio_D 替换 market_impact_cost_D
+        # 使用 main_force_price_impact_ratio_D 替换 market_impact_cost_D
         market_impact_raw = self._get_safe_series(df, 'main_force_price_impact_ratio_D', 0.1, method_name="_diagnose_axiom_stability")
         liquidity_auth_score = get_adaptive_mtf_normalized_score(liquidity_auth_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
         market_impact_score = get_adaptive_mtf_normalized_score(market_impact_raw, df_index, ascending=False, tf_weights=tf_weights_struct) # 冲击成本越低越好
@@ -197,7 +196,7 @@ class StructuralIntelligence:
         - 核心证据 (意图): `order_book_imbalance`和`buy_quote_exhaustion_rate`被用作“测谎仪”，验证共振背后的真实攻击意图。
         """
         required_signals = [
-            'order_book_imbalance_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D', 'close_D' # [修改] 替换旧指标
+            'order_book_imbalance_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D', 'close_D' # 替换旧指标
         ]
         ma_periods_w = [5, 13, 21, 55]
         required_signals.extend([f'EMA_{p}_W' for p in ma_periods_w])
@@ -212,11 +211,11 @@ class StructuralIntelligence:
         bull_alignment_w_score = bull_alignment_w_raw / (len(ma_periods_w) - 1)
         macro_cohesion_score = (daily_trend_form_score.clip(lower=0) * bull_alignment_w_score).clip(0, 1)
         # --- 2. 微观意图 (Micro Intent) ---
-        # [修改] 使用 order_book_imbalance_D 替换 order_flow_imbalance_score_D
+        # 使用 order_book_imbalance_D 替换 order_flow_imbalance_score_D
         ofi_raw = self._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
-        # [修改] 使用 buy_quote_exhaustion_rate_D 替换 buy_sweep_intensity_D
+        # 使用 buy_quote_exhaustion_rate_D 替换 buy_sweep_intensity_D
         buy_sweep_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
-        # [修改] 使用 sell_quote_exhaustion_rate_D 替换 sell_sweep_intensity_D
+        # 使用 sell_quote_exhaustion_rate_D 替换 sell_sweep_intensity_D
         sell_sweep_raw = self._get_safe_series(df, 'sell_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
         ofi_score = get_adaptive_mtf_normalized_bipolar_score(ofi_raw, df_index, tf_weights_struct)
         buy_sweep_score = get_adaptive_mtf_normalized_score(buy_sweep_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
@@ -237,7 +236,6 @@ class StructuralIntelligence:
         【V1.1 · 信号校验增强版】结构公理五：诊断“底分型”结构
         - 核心逻辑: 识别底分型结构形态，并输出一个双极性分数 `SCORE_STRUCT_BOTTOM_FRACTAL`。
         - 核心修复: 增加对所有依赖数据的存在性检查。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['low_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_bottom_fractal"):

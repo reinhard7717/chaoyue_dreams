@@ -84,7 +84,6 @@ class FundFlowIntelligence:
         """
         【V1.3 · 信号校验增强版】资金流公理四：诊断“资金背离”
         - 【V1.2 修复】在调用 _get_safe_series 时传递 df 参数。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['pct_change_D', 'main_force_net_flow_calibrated_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
@@ -106,7 +105,7 @@ class FundFlowIntelligence:
         """
         required_signals = [
             'main_force_net_flow_calibrated_D', 'retail_net_flow_calibrated_D',
-            'order_book_imbalance_D', 'ofi_price_impact_factor_D', 'wash_trade_intensity_D' # [修改] 替换 imbalance_effectiveness_D
+            'order_book_imbalance_D', 'ofi_price_impact_factor_D', 'wash_trade_intensity_D' # 替换 imbalance_effectiveness_D
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_consensus"):
             return pd.Series(0.0, index=df.index)
@@ -118,7 +117,7 @@ class FundFlowIntelligence:
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         consensus_score_base = get_adaptive_mtf_normalized_bipolar_score(raw_bipolar_series, df_index, tf_weights_ff, sensitivity=1.0)
         order_book_imbalance_raw = self._get_safe_series(df, df, 'order_book_imbalance_D', 0.0, method_name="_diagnose_axiom_consensus")
-        # [修改] 使用 ofi_price_impact_factor_D 替换 imbalance_effectiveness_D
+        # 使用 ofi_price_impact_factor_D 替换 imbalance_effectiveness_D
         imbalance_effectiveness_raw = self._get_safe_series(df, df, 'ofi_price_impact_factor_D', 0.0, method_name="_diagnose_axiom_consensus")
         wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_consensus")
         imbalance_score = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, tf_weights_ff, sensitivity=0.5)
@@ -231,9 +230,9 @@ class FundFlowIntelligence:
         df_index = df.index
         p_conf_inflection = get_params_block(self.strategy, 'fund_flow_inflection_params', {})
         tf_weights_inflection = get_param_value(p_conf_inflection.get('tf_fusion_weights'), {5: 0.5, 13: 0.3, 21: 0.2})
-        # [修改] 使用 hidden_accumulation_intensity_D 替换 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY
+        # 使用 hidden_accumulation_intensity_D 替换 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY
         psai = self._get_safe_series(df, self.strategy.df_indicators, 'hidden_accumulation_intensity_D', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
-        # [修改] 使用 main_force_net_flow_calibrated_D 替换 FUND_FLOW_MAIN_FORCE_FLOW
+        # 使用 main_force_net_flow_calibrated_D 替换 FUND_FLOW_MAIN_FORCE_FLOW
         main_force_flow = self._get_safe_series(df, self.strategy.df_indicators, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
         buy_exhaustion_raw = self._get_safe_series(df, df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")
         large_pressure_raw = self._get_safe_series(df, df, 'large_order_pressure_D', 0.0, method_name="_diagnose_fund_flow_accumulation_inflection_intent")

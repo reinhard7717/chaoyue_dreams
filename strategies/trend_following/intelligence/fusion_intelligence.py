@@ -434,69 +434,108 @@ class FusionIntelligence:
 
     def _synthesize_fund_flow_trend(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 上下文修复版】冶炼“资金趋势” (FUSION_BIPOLAR_FUND_FLOW_TREND)
-        - 【V1.2 修复】接收 df 参数并在调用 _get_atomic_score 时传递。
+        【V2.0 · 诡道博弈版】冶炼“资金趋势” (FUSION_BIPOLAR_FUND_FLOW_TREND)
+        - 核心重构: 废弃V1.x的线性加权模型，引入基于“攻防力量博弈”的非线性数学模型。
+        - 攻方力量: 融合主力共识、信念与动能，并以资金纯度(对倒强度)和隐蔽吸筹行为进行修正，量化真实、健康的多头攻击力。
+        - 守方弱点: 聚合空头力量、派发压力与散户FOMO陷阱等风险因子，通过“木桶短板”逻辑识别最主要的威胁。
+        - 诡道融合: 将“攻防力量差”与“价资背离”信号进行非线性融合，旨在穿透数据表象，揭示博弈格局与趋势的可持续性。
         """
-        print("  -- [融合层] 正在冶炼“资金趋势”...")
+        print("  -- [融合层] 正在冶炼“资金趋势”(V2.0 · 诡道博弈版)...") # 更新打印信息
         states = {}
         df_index = df.index
+        # 1. 获取核心原子信号
         ff_consensus = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0)
         ff_conviction = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONVICTION', 0.0)
         ff_flow_momentum = self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0)
         ff_divergence = self._get_atomic_score(df, 'SCORE_FF_AXIOM_DIVERGENCE', 0.0)
-        components = [ff_consensus, ff_conviction, ff_flow_momentum, ff_divergence]
-        weights = np.array([0.35, 0.30, 0.25, 0.10])
-        aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
-        fund_flow_trend_score = (
-            aligned_components[0] * weights[0] + aligned_components[1] * weights[1] +
-            aligned_components[2] * weights[2] + aligned_components[3] * weights[3]
-        ).clip(-1, 1)
+        # 2. 获取用于深度博弈分析的原始数据
+        hidden_accumulation_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_synthesize_fund_flow_trend")
+        wash_trade_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_synthesize_fund_flow_trend")
+        distribution_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_synthesize_fund_flow_trend")
+        retail_fomo_raw = self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name="_synthesize_fund_flow_trend")
+        # 3. 数据归一化处理
+        norm_window = 55
+        hidden_accumulation_score = normalize_score(hidden_accumulation_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
+        wash_trade_score = normalize_score(wash_trade_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
+        distribution_pressure_score = normalize_score(distribution_pressure_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
+        retail_fomo_score = normalize_score(retail_fomo_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
+        # 4. 核心数学逻辑 - 攻防力量模型
+        # 4.1 定义“攻方”力量 (多头力量)
+        bullish_base_force = (ff_consensus.clip(lower=0) * ff_conviction.clip(lower=0)).pow(0.5)
+        bullish_momentum_amplifier = ff_flow_momentum.clip(lower=0) * (1 + hidden_accumulation_score * 0.5)
+        purity_factor = 1 - wash_trade_score
+        bullish_power = (bullish_base_force * bullish_momentum_amplifier).pow(0.5) * purity_factor
+        # 4.2 定义“守方”弱点 (空头力量与风险)
+        bearish_explicit_force = np.maximum.reduce([
+            ff_consensus.clip(upper=0).abs(),
+            ff_conviction.clip(upper=0).abs(),
+            ff_flow_momentum.clip(upper=0).abs()
+        ])
+        bearish_implicit_risk = np.maximum(distribution_pressure_score, retail_fomo_score)
+        bearish_weakness = np.maximum(bearish_explicit_force, bearish_implicit_risk)
+        # 5. 融合攻防力量与“诡道”因子(背离)
+        power_balance = (bullish_power - bearish_weakness).clip(-1, 1)
+        fund_flow_trend_score = np.tanh(power_balance * 1.5 + ff_divergence * 0.5)
         states['FUSION_BIPOLAR_FUND_FLOW_TREND'] = fund_flow_trend_score.astype(np.float32)
         print(f"  -- [融合层] “资金趋势”冶炼完成，最新分值: {fund_flow_trend_score.iloc[-1]:.4f}")
         return states
 
     def _synthesize_chip_trend(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.7 · 上下文修复版】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
-        - 【V1.7 修复】接收 df 参数并在调用 _get_atomic_score 时传递。
+        【V2.0 · 势能与稳定性版】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
+        - 核心重构: 废弃V1.x的线性加权模型，引入基于“筹码结构势能与稳定性”的非线性数学模型。
+        - 结构基础: 通过几何平均融合“集中度、成本结构、主峰完整性、锁定度”，确保地基稳固。
+        - 上涨势能: 融合“结构势能”与“筹码干净度”，量化向上突破的潜力。
+        - 结构风险: 聚合“衰竭、派发、断层”等风险，通过“木桶短板”逻辑识别核心威胁。
+        - 动态演化: 将“净结构分”与“趋势动量”、“价筹背离”等动态因子进行非线性融合，旨在穿透静态结构，预判趋势的演化方向与可持续性。
         """
-        print("  -- [融合层] 正在冶炼“筹码趋势”...")
+        print("  -- [融合层] 正在冶炼“筹码趋势”(V2.0 · 势能与稳定性版)...") # 更新打印信息
         states = {}
         df_index = df.index
-        required_chip_signals_meta = {
-            'SCORE_CHIP_AXIOM_CONCENTRATION': {'polarity': 0, 'default_on_missing': 0.0},
-            'SCORE_CHIP_AXIOM_COST_STRUCTURE': {'polarity': 0, 'default_on_missing': 0.0},
-            'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT': {'polarity': 0, 'default_on_missing': 0.0},
-            'SCORE_CHIP_AXIOM_PEAK_INTEGRITY': {'polarity': 0, 'default_on_missing': 0.0},
-            'SCORE_CHIP_AXIOM_DIVERGENCE': {'polarity': 0, 'default_on_missing': 0.0},
-            'SCORE_CHIP_CLEANLINESS': {'polarity': 1, 'default_on_missing': 0.0},
-            'SCORE_CHIP_LOCKDOWN_DEGREE': {'polarity': 1, 'default_on_missing': 0.0},
-            'SCORE_CHIP_AXIOM_TREND_MOMENTUM': {'polarity': 0, 'default_on_missing': 0.0}
-        }
-        missing_signals_in_atomic_states = [sig for sig in required_chip_signals_meta.keys() if sig not in self.strategy.atomic_states]
-        if missing_signals_in_atomic_states:
-            print(f"    -> [融合层-筹码趋势警告] 缺少以下关键筹码信号: {', '.join(missing_signals_in_atomic_states)}")
-        chip_concentration = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', required_chip_signals_meta['SCORE_CHIP_AXIOM_CONCENTRATION']['default_on_missing'])
-        chip_cost_structure = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_COST_STRUCTURE', required_chip_signals_meta['SCORE_CHIP_AXIOM_COST_STRUCTURE']['default_on_missing'])
-        chip_holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', required_chip_signals_meta['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT']['default_on_missing'])
-        chip_peak_integrity = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_PEAK_INTEGRITY', required_chip_signals_meta['SCORE_CHIP_AXIOM_PEAK_INTEGRITY']['default_on_missing'])
-        chip_divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', required_chip_signals_meta['SCORE_CHIP_AXIOM_DIVERGENCE']['default_on_missing'])
-        chip_cleanliness = self._get_atomic_score(df, 'SCORE_CHIP_CLEANLINESS', required_chip_signals_meta['SCORE_CHIP_CLEANLINESS']['default_on_missing'])
-        chip_lockdown_degree = self._get_atomic_score(df, 'SCORE_CHIP_LOCKDOWN_DEGREE', required_chip_signals_meta['SCORE_CHIP_LOCKDOWN_DEGREE']['default_on_missing'])
-        chip_trend_momentum = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_TREND_MOMENTUM', required_chip_signals_meta['SCORE_CHIP_AXIOM_TREND_MOMENTUM']['default_on_missing'])
-        components = [
-            chip_concentration, chip_cost_structure, chip_holder_sentiment,
-            chip_peak_integrity, chip_divergence, chip_cleanliness, chip_lockdown_degree,
-            chip_trend_momentum
-        ]
-        weights = np.array([0.12, 0.12, 0.12, 0.08, 0.08, 0.05, 0.05, 0.38])
-        aligned_components = []
-        for comp, meta_key in zip(components, required_chip_signals_meta.keys()):
-            aligned_components.append(comp.reindex(df_index, fill_value=required_chip_signals_meta[meta_key]['default_on_missing']))
-        chip_trend_score = pd.Series(0.0, index=df_index)
-        for i, (comp_series, weight) in enumerate(zip(aligned_components, weights)):
-            chip_trend_score += comp_series * weight
-        chip_trend_score = chip_trend_score.clip(-1, 1)
+        norm_window = 55
+        # 1. 扩充数据获取范围
+        chip_concentration = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
+        chip_cost_structure = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_COST_STRUCTURE', 0.0)
+        chip_holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
+        chip_peak_integrity = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_PEAK_INTEGRITY', 0.0)
+        chip_divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
+        chip_cleanliness = self._get_atomic_score(df, 'SCORE_CHIP_CLEANLINESS', 0.0)
+        chip_lockdown_degree = self._get_atomic_score(df, 'SCORE_CHIP_LOCKDOWN_DEGREE', 0.0)
+        chip_trend_momentum = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_TREND_MOMENTUM', 0.0)
+        chip_potential = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_STRUCTURAL_POTENTIAL', 0.0)
+        # 获取风险和派发相关的原始指标
+        exhaustion_risk_raw = self._get_safe_series(df, 'exhaustion_risk_index_D', 0.0, method_name="_synthesize_chip_trend")
+        distribution_raw = self._get_safe_series(df, 'dispersal_by_distribution_D', 0.0, method_name="_synthesize_chip_trend")
+        fault_magnitude_raw = self._get_safe_series(df, 'chip_fault_magnitude_D', 0.0, method_name="_synthesize_chip_trend")
+        # 2. 风险指标归一化
+        exhaustion_risk_score = normalize_score(exhaustion_risk_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
+        distribution_risk_score = normalize_score(distribution_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
+        fault_risk_score = normalize_score(fault_magnitude_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
+        # 3. 核心数学逻辑 - 势能与稳定性模型
+        # 3.1 结构基础 (Structural Foundation) - 使用几何平均确保所有基石都稳固
+        structural_foundation = (
+            chip_concentration.clip(lower=0) *
+            chip_cost_structure.clip(lower=0) *
+            chip_peak_integrity.clip(lower=0) *
+            chip_lockdown_degree.clip(lower=0)
+        ).pow(0.25).fillna(0.0)
+        # 3.2 上涨势能 (Upward Potential Energy)
+        upward_potential = (chip_potential.clip(lower=0) * chip_cleanliness.clip(lower=0)).pow(0.5).fillna(0.0)
+        # 3.3 结构风险 (Structural Risk) - 木桶短板效应，取最大风险项
+        structural_risk = np.maximum.reduce([
+            exhaustion_risk_score,
+            distribution_risk_score,
+            fault_risk_score,
+            chip_holder_sentiment.clip(upper=0).abs() # 负向心态也是一种风险
+        ])
+        # 3.4 计算净结构分
+        net_structure_score = (structural_foundation * upward_potential - structural_risk).clip(-1, 1)
+        # 4. 非线性融合动态演化因子
+        chip_trend_score = np.tanh(
+            net_structure_score * 1.5 +       # 净结构分是核心
+            chip_trend_momentum * 0.5 +       # 动量提供加速度
+            chip_divergence * 0.2             # 背离作为诡道修正项
+        )
         states['FUSION_BIPOLAR_CHIP_TREND'] = chip_trend_score.astype(np.float32)
         print(f"  -- [融合层] “筹码趋势”冶炼完成，最新分值: {chip_trend_score.iloc[-1]:.4f}")
         return states
@@ -541,30 +580,56 @@ class FusionIntelligence:
 
     def _synthesize_chip_structural_potential(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 上下文修复版】冶炼“筹码结构势能” (FUSION_BIPOLAR_CHIP_STRUCTURAL_POTENTIAL)
-        - 【V1.1 修复】接收 df 参数并在调用 _get_safe_series 时传递。
+        【V2.0 · 弹性势能版】冶炼“筹码结构势能” (FUSION_BIPOLAR_CHIP_STRUCTURAL_POTENTIAL)
+        - 核心重构: 废弃V1.x的线性加权模型，引入基于物理学“弹性势能”思想的非线性数学模型。
+        - 势能三要素: 将势能解构为“结构锚固强度(k)”、“能量压缩状态(x)”和“方向偏置(Vector)”。
+        - 结构锚固强度: 通过几何平均融合主峰稳固度、控制力、获利盘稳定性，确保结构“刚度”。
+        - 能量压缩状态: 融合结构张力与突破就绪度，量化能量的积蓄程度。
+        - 非线性方程: 最终势能由 `tanh(锚固强度 * 压缩状态 * 方向偏置 * 催化因子)` 决定，旨在模拟真实博弈中势能的存储、方向与释放过程。
         """
-        print("  -- [融合层] 正在冶炼“筹码结构势能”...")
+        print("  -- [融合层] 正在冶炼“筹码结构势能”(V2.0 · 弹性势能版)...") #  更新打印信息
         states = {}
         df_index = df.index
+        norm_window = 55
+        #  1. 扩充数据获取，覆盖势能三要素+催化剂
+        # 原始输入
         potential_score_raw = self._get_safe_series(df, 'structural_potential_score_D', 50.0, method_name="_synthesize_chip_structural_potential")
         breakout_readiness_raw = self._get_safe_series(df, 'breakout_readiness_score_D', 50.0, method_name="_synthesize_chip_structural_potential")
         tension_raw = self._get_safe_series(df, 'structural_tension_index_D', 0.0, method_name="_synthesize_chip_structural_potential")
-        leverage_raw = self._get_safe_series(df, 'structural_leverage_D', 0.0, method_name="_synthesize_chip_structural_potential")
         vacuum_raw = self._get_safe_series(df, 'vacuum_zone_magnitude_D', 0.0, method_name="_synthesize_chip_structural_potential")
-        potential_score = normalize_to_bipolar(potential_score_raw, df_index, window=55, sensitivity=20)
-        breakout_readiness_score = normalize_to_bipolar(breakout_readiness_raw, df_index, window=55, sensitivity=20)
-        tension_score = normalize_to_bipolar(tension_raw, df_index, window=55, sensitivity=0.5)
-        leverage_score = normalize_to_bipolar(leverage_raw, df_index, window=55, sensitivity=0.5)
-        vacuum_score = normalize_to_bipolar(vacuum_raw, df_index, window=55, sensitivity=0.5)
-        components = [potential_score, breakout_readiness_score, tension_score, leverage_score, vacuum_score]
-        weights = np.array([0.3, 0.3, 0.15, 0.15, 0.1])
-        aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
-        structural_potential_score = (
-            aligned_components[0] * weights[0] + aligned_components[1] * weights[1] +
-            aligned_components[2] * weights[2] + aligned_components[3] * weights[3] +
-            aligned_components[4] * weights[4]
-        ).clip(-1, 1)
+        #  用于构建“结构锚固强度”的指标
+        solidity_raw = self._get_safe_series(df, 'dominant_peak_solidity_D', 0.5, method_name="_synthesize_chip_structural_potential")
+        control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.5, method_name="_synthesize_chip_structural_potential")
+        winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_synthesize_chip_structural_potential")
+        #  用于构建“催化因子”和“方向偏置”的指标
+        deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_synthesize_chip_structural_potential")
+        control_transfer_raw = self._get_safe_series(df, 'peak_control_transfer_D', 0.0, method_name="_synthesize_chip_structural_potential")
+        cost_advantage_raw = self._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name="_synthesize_chip_structural_potential")
+        #  2. 核心数学逻辑 - 弹性势能模型
+        #  2.1 计算“结构锚固强度 (Anchor Strength)” - k
+        solidity_score = normalize_score(solidity_raw, df_index, window=norm_window, ascending=True)
+        control_solidity_score = normalize_score(control_solidity_raw, df_index, window=norm_window, ascending=True)
+        winner_stability_score = normalize_score(winner_stability_raw, df_index, window=norm_window, ascending=True)
+        anchor_strength = (solidity_score * control_solidity_score * winner_stability_score).pow(1/3).fillna(0.0)
+        #  2.2 计算“能量压缩状态 (Compression State)” - x
+        tension_score = normalize_score(tension_raw.abs(), df_index, window=norm_window, ascending=True)
+        readiness_score = normalize_score(breakout_readiness_raw, df_index, window=norm_window, ascending=True)
+        compression_state = (tension_score * readiness_score).pow(0.5).fillna(0.0)
+        #  2.3 计算“方向偏置 (Directional Bias)” - Vector
+        vacuum_bias = normalize_to_bipolar(vacuum_raw, df_index, window=norm_window, sensitivity=0.5)
+        cost_advantage_bias = normalize_to_bipolar(cost_advantage_raw, df_index, window=norm_window, sensitivity=5.0)
+        directional_bias = (vacuum_bias * 0.6 + cost_advantage_bias * 0.4).clip(-1, 1)
+        #  2.4 计算“催化因子 (Catalyst Factor)”
+        deception_catalyst = normalize_to_bipolar(deception_raw, df_index, window=norm_window, sensitivity=20)
+        control_transfer_catalyst = normalize_to_bipolar(control_transfer_raw, df_index, window=norm_window, sensitivity=0.2)
+        catalyst_factor = (deception_catalyst * 0.5 + control_transfer_catalyst * 0.5).clip(-1, 1)
+        #  3. 非线性势能方程合成
+        # 基础势能 = 锚固强度 * 压缩状态
+        base_potential_magnitude = (anchor_strength * compression_state).clip(0, 1)
+        # 考虑方向和催化剂
+        structural_potential_score = np.tanh(
+            base_potential_magnitude * directional_bias * (1 + catalyst_factor.clip(lower=0) * 0.5) * 2.0
+        )
         states['FUSION_BIPOLAR_CHIP_STRUCTURAL_POTENTIAL'] = structural_potential_score.astype(np.float32)
         print(f"  -- [融合层] “筹码结构势能”冶炼完成，最新分值: {structural_potential_score.iloc[-1]:.4f}")
         return states

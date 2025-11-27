@@ -39,7 +39,7 @@ class PatternIntelligence:
         """
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
-            # [新增] 调整校验信息为“形态情报校验”
+            # 调整校验信息为“形态情报校验”
             print(f"    -> [形态情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
@@ -79,7 +79,6 @@ class PatternIntelligence:
         【V3.2 · 信号校验增强版】形态公理一：诊断“背离”
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `divergence_score` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['SLOPE_13_close_D', 'SLOPE_13_intraday_vwap_div_index_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
@@ -99,7 +98,6 @@ class PatternIntelligence:
         【V3.2 · 信号校验增强版】形态公理二：诊断“反转”
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `reversal_score` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['counterparty_exhaustion_index_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_reversal"):
@@ -115,7 +113,6 @@ class PatternIntelligence:
         【V3.2 · 信号校验增强版】形态公理三：诊断“突破”
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `breakout_score` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['close_D', 'dynamic_consolidation_high_D', 'dynamic_consolidation_low_D', 'breakout_quality_score_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_breakout"):
@@ -134,7 +131,6 @@ class PatternIntelligence:
         """
         【V5.7 · 信号校验增强版】形态公理四：诊断“回踩确认二次启动”形态
         - 【V5.6 修复】在调用 _get_atomic_score 时传递 df 参数。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = [
             'open_D', 'close_D', 'high_D', 'low_D', 'pct_change_D', 'volume_D', 'VOL_MA_5_D', 'VOL_MA_21_D',
@@ -339,7 +335,6 @@ class PatternIntelligence:
         - 核心逻辑: 识别经典的“多方炮”K线组合。
         - 信号输出: 在形态的第三根K线日输出1.0；否则输出0.0。
         - 核心修复: 增加对所有依赖数据的存在性检查。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['open_D', 'close_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_5_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_duofangpao"):

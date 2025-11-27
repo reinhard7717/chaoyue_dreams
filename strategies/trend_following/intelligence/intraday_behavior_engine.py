@@ -34,7 +34,7 @@ class IntradayBehaviorEngine:
         """
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
-            # [新增] 调整校验信息为“日内行为情报校验”
+            # 调整校验信息为“日内行为情报校验”
             print(f"    -> [日内行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
@@ -96,7 +96,6 @@ class IntradayBehaviorEngine:
         【V1.2 · 信号校验增强版】日内行为公理一：诊断“攻击强度”
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `normalize_to_bipolar` 的 `window` 参数改为从配置中获取的 `norm_window`。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['close', 'open', 'high', 'low', 'amount']
         if not self._validate_required_signals(df_minute, required_signals, "_diagnose_axiom_attack"):
@@ -116,7 +115,6 @@ class IntradayBehaviorEngine:
         【V1.2 · 信号校验增强版】日内行为公理二：诊断“控制能力”
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `normalize_to_bipolar` 的 `window` 参数改为从配置中获取的 `norm_window`。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['close', 'vwap']
         if not self._validate_required_signals(df_minute, required_signals, "_diagnose_axiom_control"):
@@ -130,7 +128,6 @@ class IntradayBehaviorEngine:
         """
         【V1.1 · 信号校验增强版】日内行为公理三：诊断“博弈转折”
         - 核心修复: 增加对所有依赖数据的存在性检查。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         kdj_params = self.params.get('kdj_params', {})
         k_col = f"K_{kdj_params.get('period', 13)}_{kdj_params.get('signal_period', 5)}_{kdj_params.get('smooth_k_period', 3)}"

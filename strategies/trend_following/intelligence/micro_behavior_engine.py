@@ -46,7 +46,7 @@ class MicroBehaviorEngine:
         """
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
-            # [修改] 调整校验信息为“微观行为情报校验”
+            # 调整校验信息为“微观行为情报校验”
             print(f"    -> [微观行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
         return True
@@ -86,7 +86,6 @@ class MicroBehaviorEngine:
         - 核心逻辑: 诊断价格行为与微观订单流（如主动买卖盘）之间的背离。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `price_trend` 和 `order_flow_trend` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['pct_change_D', 'active_buying_support_D', 'active_selling_pressure_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
@@ -109,7 +108,6 @@ class MicroBehaviorEngine:
         - 逻辑修正: 明确使用 'SLOPE_5_winner_concentration_90pct_D' 作为筹码集中度变化的证据。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `deception_score` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = [
             'main_force_net_flow_calibrated_D', 'SLOPE_5_winner_concentration_90pct_D',
@@ -140,7 +138,6 @@ class MicroBehaviorEngine:
         - 核心修复: 使用 _get_safe_series 方法安全获取所有依赖信号。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `probe_score` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['high_D', 'low_D', 'open_D', 'close_D', 'main_force_net_flow_calibrated_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_probe"):
@@ -169,7 +166,6 @@ class MicroBehaviorEngine:
         - 核心修复: 使用 _get_safe_series 方法安全获取所有依赖信号。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         - 【优化】将 `efficiency_score` 的归一化方式改为多时间维度自适应归一化。
-        - [新增] 在方法入口处添加信号校验逻辑。
         """
         required_signals = ['amount_D', 'pct_change_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_efficiency"):
