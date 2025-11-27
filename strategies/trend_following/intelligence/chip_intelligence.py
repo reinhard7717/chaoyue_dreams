@@ -321,16 +321,20 @@ class ChipIntelligence:
 
     def _diagnose_chip_lockdown_degree(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.0 · 探针植入版】诊断“筹码锁定度”
-        - 核心职责: 独立计算筹码锁定度，并内置调试探针。
+        【V1.1 · 逻辑修复版】诊断“筹码锁定度”
+        - 核心修复: 增加了对 `winner_stability_index_D` 的归一化处理。此前代码错误地假设其为[0,1]区间的值，
+                      导致计算结果饱和。现在，盈利锁定和亏损锁定都在归一化后进行加权，确保逻辑的正确性。
         - 探针逻辑: 在指定的探针日期，输出所有原料数据和关键计算过程值。
         """
         # 1. 获取原料数据
         locked_profit_raw = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="_diagnose_chip_lockdown_degree")
         loser_pain_raw = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_chip_lockdown_degree")
         # 2. 关键计算过程
+        # [修改] 对盈利锁定原始值进行归一化
+        locked_profit_score = utils.normalize_score(locked_profit_raw, df.index, 55, ascending=True)
         locked_loss_score = utils.normalize_score(loser_pain_raw, df.index, 55, ascending=True)
-        lockdown_degree = (locked_profit_raw * 0.6 + locked_loss_score * 0.4).clip(0, 1).fillna(0.0)
+        # [修改] 使用归一化后的分数进行计算
+        lockdown_degree = (locked_profit_score * 0.6 + locked_loss_score * 0.4).clip(0, 1).fillna(0.0)
         # 3. 植入探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -339,8 +343,9 @@ class ChipIntelligence:
             probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
             if probe_date in df.index:
                 print(f"    -> [探针: _diagnose_chip_lockdown_degree] @ {probe_date.date()}:")
-                print(f"       - 原料: winner_stability_index_D (盈利锁定): {locked_profit_raw.loc[probe_date]:.4f}")
-                print(f"       - 原料: loser_pain_index_D (亏损锁定): {loser_pain_raw.loc[probe_date]:.4f}")
+                print(f"       - 原料: winner_stability_index_D: {locked_profit_raw.loc[probe_date]:.4f}")
+                print(f"       - 过程: locked_profit_score (盈利锁定归一化): {locked_profit_score.loc[probe_date]:.4f}") # [修改] 更新探针输出
+                print(f"       - 原料: loser_pain_index_D: {loser_pain_raw.loc[probe_date]:.4f}")
                 print(f"       - 过程: locked_loss_score (亏损锁定归一化): {locked_loss_score.loc[probe_date]:.4f}")
                 print(f"       - 结果: final lockdown_degree: {lockdown_degree.loc[probe_date]:.4f}")
         return lockdown_degree.astype(np.float32)
