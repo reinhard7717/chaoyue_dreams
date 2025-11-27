@@ -144,14 +144,13 @@ class GeometricPatternService:
         【V2.34 · 核心诊断探针版】准备一个包含所有高级指标的、信息增强的DataFrame。
         - 核心修改: 移除此方法内的所有旧探针，将诊断焦点集中到下游。
         """
-        print(f"  -> [数据融合] 正在加载并整合高级指标...")
+        # 修改代码：移除了所有探针print语句
         chip_metrics_qs = self.chip_metrics_model.objects.filter(stock=self.stock_instance).values()
         fund_flow_metrics_qs = self.fund_flow_metrics_model.objects.filter(stock=self.stock_instance).values()
         structural_metrics_qs = self.structural_metrics_model.objects.filter(stock=self.stock_instance).values()
         df_chip = pd.DataFrame.from_records(chip_metrics_qs).rename(columns={'trade_time': 'trade_date'})
         df_fund = pd.DataFrame.from_records(fund_flow_metrics_qs).rename(columns={'trade_time': 'trade_date'})
         df_struct = pd.DataFrame.from_records(structural_metrics_qs).rename(columns={'trade_time': 'trade_date'})
-        print(f"  -> [数据净化] 正在对加载的高级指标进行强制类型转换...")
         non_numeric_whitelist = ['stock_id']
         dataframes_to_process = {'chip': df_chip, 'fund': df_fund, 'struct': df_struct}
         for name, df in dataframes_to_process.items():
@@ -177,9 +176,6 @@ class GeometricPatternService:
                     how='left'
                 )
         enriched_df = enriched_df.set_index('trade_date').sort_index()
-        if enriched_df.empty or enriched_df.index.isnull().all():
-            print(f"--- [数据融合失败] DataFrame为空或索引损坏 ---")
-        print(f"  -> [数据融合] 全维度战场沙盘构建完成。")
         return enriched_df
 
     def calculate_and_save_all_patterns(self, data_dfs: dict, start_date_str: str = None):
@@ -188,10 +184,9 @@ class GeometricPatternService:
         - V2.54 核心修复: 修正了因方法重命名（_predict_flag_breakout_probability -> _find_and_evaluate_flags）
                          而遗漏更新的调用点，根除了由此引发的 AttributeError。
         """
-        print(f"[{self.stock_code}] [动态演化分析] 开始计算几何形态特征...")
+        # 修改代码：移除了所有探针print语句
         df_daily = data_dfs.get('daily_data')
         if df_daily is None or df_daily.empty:
-            print(f"[{self.stock_code}] 日线数据为空，跳过计算。")
             return
         df_daily['trade_time'] = pd.to_datetime(df_daily['trade_time'])
         df_daily = df_daily.set_index('trade_time')
@@ -208,7 +203,6 @@ class GeometricPatternService:
                 stock=self.stock_instance,
                 start_date__gte=start_date_str
             ).delete()
-            print(f"  -> [统一回滚] 平台特征删除 {deleted_count} 条。")
         self._calculate_and_save_platforms(enriched_df, data_dfs)
         self._calculate_and_save_trendline_matrix_and_events(df_daily, data_dfs, start_date_str=start_date_str)
         # V2.54 修正方法调用，使用新的方法名 _find_and_evaluate_flags
@@ -220,7 +214,6 @@ class GeometricPatternService:
                 event_type__startswith='FLAG_FORMED'
             ).delete()
         self._save_trendline_events_incrementally(flag_events)
-        print(f"[{self.stock_code}] [动态演化分析] 几何形态特征计算完成。")
 
     def _calculate_and_save_platforms(self, enriched_df: pd.DataFrame, data_dfs: dict):
         """
@@ -229,12 +222,10 @@ class GeometricPatternService:
                          确保参照系校准后的序列不再被错误地二次归一化。
         """
         import math
-        print(f"  -> [V2.53 智能归一化] 启动...")
+        # 修改代码：移除了所有探针print语句
         if len(enriched_df) < 120:
-            print("  -> 数据量不足(<120天)，跳过平台识别。")
             return
         if not self.platform_archetypes:
-            print("  -> [配置缺失] 在配置文件中未找到平台原型定义，跳过平台识别。")
             return
         df_copy = enriched_df.copy()
         df_copy.ta.atr(length=14, append=True)
@@ -243,11 +234,6 @@ class GeometricPatternService:
             df_copy = df_copy.join(index_df.add_suffix('_index'))
             if 'close_index' in df_copy.columns and df_copy['close_index'].notna().any():
                 df_copy['rs'] = df_copy['close_qfq'] / df_copy['close_index']
-                print("  -> [数据预处理] 相对强度(RS)数据已成功计算并合并。")
-            else:
-                print("  -> [数据预处理警告] 指数数据合并后无有效收盘价，无法计算RS。")
-        else:
-            print("  -> [数据预处理警告] 未提供指数数据(index_df)，相对强度相关指标将无法计算。")
         cols_to_drop = ['open', 'high', 'low', 'close']
         df_copy.drop(columns=[col for col in cols_to_drop if col in df_copy.columns], inplace=True)
         cols_to_convert = ['high_qfq', 'low_qfq', 'close_qfq', 'open_qfq', 'vol']
@@ -256,7 +242,6 @@ class GeometricPatternService:
                 df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
         required_cols = ['high_qfq', 'low_qfq', 'close_qfq']
         if not all(col in df_copy.columns for col in required_cols):
-            print(f"\n  -> [诊断失败] 输入的DataFrame缺少核心计算列。需要: {required_cols}。任务终止。")
             return
         df_copy.ta.adx(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True)
         bbu_col, bbl_col, bbm_col, bbw_col = 'BBU_21_2.0', 'BBL_21_2.0', 'BBM_21_2.0', 'BBW_21_2.0'
@@ -266,17 +251,13 @@ class GeometricPatternService:
         if all(col in df_copy.columns for col in [bbu_col, bbl_col, bbm_col]):
             df_copy[bbw_col] = (df_copy[bbu_col] - df_copy[bbl_col]) / df_copy[bbm_col]
         else:
-            print(f"  -> [计算失败] 布林带基础指标未能生成。任务终止。")
             return
         df_copy = self._calculate_breakout_readiness(df_copy)
-        print(f"\n{'='*20} 阶段一: 多准则通用平台识别 {'='*20}")
         combined_is_potential = pd.Series(False, index=df_copy.index)
-        print("  -> 遍历所有原型，通过逻辑'或'合并识别准则以扩大扫描范围...")
         for archetype in self.platform_archetypes:
             archetype_name = archetype.get('name', 'UNKNOWN')
             adx_threshold = archetype.get('adx_threshold', 25)
             bbw_quantile = archetype.get('bbw_quantile', 0.25)
-            print(f"     - 应用原型 [{archetype_name}] 的准则 (ADX < {adx_threshold}, BBW < {bbw_quantile}分位数)")
             is_low_trend = df_copy['ADX_14'] < adx_threshold
             bbw_rolling_quantile = df_copy[bbw_col].rolling(120, min_periods=60).quantile(bbw_quantile)
             is_low_volatility = df_copy[bbw_col] < bbw_rolling_quantile
@@ -297,8 +278,6 @@ class GeometricPatternService:
             possible_end_dates = platform_end_dates[platform_end_dates > start_date]
             if not possible_end_dates.empty:
                 raw_candidates.append((start_date, possible_end_dates[0]))
-        print(f"  -> 识别完成，共发现 {len(raw_candidates)} 个原始候选平台。")
-        print(f"\n{'='*20} 阶段二: 多原型分类与博弈验证 {'='*20}")
         platforms_to_save = []
         saved_start_dates = set()
         minute_map = data_dfs.get("stock_minute_data_map", {})
@@ -312,7 +291,6 @@ class GeometricPatternService:
             platform_low = group['low_qfq'].min()
             if platform_low == 0: continue
             price_range_pct = (platform_high - platform_low) / platform_low
-            print(f"\n  -> [验证探针] 候选平台: {start_date.date()} -> {end_date.date()} (持续 {len(group)} 天, 振幅 {price_range_pct:.2%})")
             # [代码修改] V2.53 在计算rss时，关闭内部归一化
             rebased_rs = group['rs'] / group['rs'].iloc[0] if 'rs' in group and not group.empty and group['rs'].iloc[0] != 0 else pd.Series()
             metrics = {
@@ -322,27 +300,20 @@ class GeometricPatternService:
                 'pk': self._calculate_price_kurtosis(group),
                 'rss': self._calculate_linear_regression_slope(rebased_rs, normalize=False) if not rebased_rs.empty else 0.0
             }
-            print(f"     - [博弈指标] VPSkew: {metrics['vps']:.2f}, VolSlope: {metrics['vts']:.2f}, VolatilityContract: {metrics['vcr']:.2f}, PriceKurtosis: {metrics['pk']:.2f}, RSSlope: {metrics['rss']:.3f}")
             best_archetype = None
             best_fit_score = -1.0
-            print("     - [拟合度评估] 开始计算与所有原型的拟合优度...")
             for archetype in self.platform_archetypes:
                 archetype_name = archetype.get('name', 'UNKNOWN')
                 min_duration = archetype.get('min_duration', 0)
                 max_range_pct = archetype.get('max_range_pct', 1.0)
                 if len(group) >= min_duration and price_range_pct <= max_range_pct:
                     fit_score = self._calculate_goodness_of_fit(metrics, archetype)
-                    print(f"       - 与原型 [{archetype_name}] 的拟合度: {fit_score:.2f}")
                     if fit_score > best_fit_score:
                         best_fit_score = fit_score
                         best_archetype = archetype
-                else:
-                    print(f"       - 与原型 [{archetype_name}] 的几何门槛不符，跳过。")
             if best_archetype:
                 archetype_name = best_archetype.get('name', 'UNKNOWN')
-                print(f"     - [BEST FIT & ACCEPTED] 最佳匹配原型为 [{archetype_name}] (拟合度: {best_fit_score:.2f})，将被量化。")
                 conviction_score = self._calculate_platform_conviction_score(group)
-                print(f"     - [信念评估] 平台内在信念评分为: {conviction_score:.2f}")
                 character, score_val = self._assess_platform_character(group)
                 platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
                 precise_vpoc = None
@@ -388,12 +359,8 @@ class GeometricPatternService:
                 }
                 platforms_to_save.append(platform_data)
                 saved_start_dates.add(start_date)
-            else:
-                print(f"     - [REJECTED] 未找到任何在几何门槛内且有意义的匹配原型。")
         found_count = len(platforms_to_save)
-        print(f"\n  -> [V2.53 智能归一化] 扫描完成，共发现 {found_count} 个有效平台。")
         if found_count > 0:
-            print(f"  -> [V2.53 智能归一化] 正在将 {found_count} 个平台存入数据库...")
             for data in platforms_to_save:
                 self.platform_model.objects.update_or_create(
                     stock=data['stock'], start_date=data['start_date'], defaults=data
@@ -406,7 +373,6 @@ class GeometricPatternService:
         - V2.49 升级: 加固了“内部强势”支柱的计算逻辑，通过预处理分母为0的情况，
                       从源头上避免了除零错误导致的 `inf` 或 `nan`。
         """
-        print("  -> [发射倒计时] 正在计算'突破准备度'评分...")
         df_copy = df.copy()
         # 支柱一: 波动率压缩 (Volatility Compression) - 权重 30%
         bbw_col = 'BBW_21_2.0'
@@ -465,7 +431,7 @@ class GeometricPatternService:
             ofi = buy_vol - sell_vol
             return ofi, total_amount
         except KeyError as e:
-            print(f"  -> [Tick计算警告] 计算OFI时发生KeyError: {e}。可能是tick数据缺少'type'或'volume'列。返回0。")
+            # 修改代码：移除了探针print语句
             return 0.0, 0.0
 
     def _calculate_and_save_trendline_matrix_and_events(self, df_daily: pd.DataFrame, data_dfs: dict, start_date_str: str = None):
@@ -475,12 +441,11 @@ class GeometricPatternService:
                          和滚动标准差(std)。这些核心统计量将作为下游“高斯归一化”引擎的
                          历史参照系，实现从分段线性到概率平滑的思维跃迁。
         """
-        print(f"  -> [增量回溯引擎] 开始检查并计算新的趋势线矩阵...")
+        # 修改代码：移除了所有探针print语句
         df_daily = df_daily.sort_index(ascending=True)
         if 'enriched_df' not in data_dfs:
              data_dfs['enriched_df'] = self._prepare_enriched_dataframe(df_daily)
         enriched_df = data_dfs['enriched_df']
-        print(f"    -> [高斯校准] 正在为三大支柱生成动态统计参照系 (mean, std)...")
         # 1. 力量(资金)支柱: 计算每日资金流占比
         if 'main_force_net_flow_calibrated' in enriched_df.columns and 'amount' in enriched_df.columns:
             enriched_df['daily_flow_ratio'] = (enriched_df['main_force_net_flow_calibrated'] * 10000) / enriched_df['amount'].replace(0, np.nan)
@@ -505,28 +470,22 @@ class GeometricPatternService:
                 enriched_df[f'{key}_mean'] = enriched_df[metric_col].rolling(stat_window, min_periods=30).mean()
                 enriched_df[f'{key}_std'] = enriched_df[metric_col].rolling(stat_window, min_periods=30).std()
         data_dfs['enriched_df'] = enriched_df
-        print(f"    -> [高斯校准] 动态统计参照系生成完毕。")
         start_process_date = self._initialize_incremental_context(start_date_str)
         if start_process_date is None:
             start_process_date = df_daily.index.min()
         df_to_process = df_daily[df_daily.index >= start_process_date]
         if df_to_process.empty:
-            print("  -> [增量回溯引擎] 数据已是最新，无需计算。")
             return
-        print(f"  -> [增量回溯引擎] 将处理从 {df_to_process.index.min().date()} 到 {df_to_process.index.max().date()} 的 {len(df_to_process)} 个新交易日。")
         new_matrix_records = []
         for current_date in df_to_process.index:
             daily_matrix_records = self._compute_trendline_matrix_for_day(current_date, df_daily, data_dfs)
             new_matrix_records.extend(daily_matrix_records)
         if not new_matrix_records:
-            print("  -> [增量回溯引擎] 未生成任何新的趋势线矩阵记录。")
             return
         self._save_trendline_matrix_incrementally(new_matrix_records)
-        print(f"  -> [增量回溯引擎] 批量保存了 {len(new_matrix_records)} 条新的趋势线矩阵记录。")
         matrix_qs = self.mtt_model.objects.filter(stock=self.stock_instance).order_by('trade_date').values()
         matrix_df = pd.DataFrame.from_records(matrix_qs)
         if matrix_df.empty:
-            print("  -> [增量回溯引擎] 加载完整矩阵失败，跳过动态分析。")
             return
         matrix_df['trade_date'] = pd.to_datetime(matrix_df['trade_date'])
         dynamic_events = self._analyze_matrix_dynamics(matrix_df, start_analysis_date=start_process_date)
@@ -545,10 +504,11 @@ class GeometricPatternService:
                 # 删除指定日期之后的所有趋势线矩阵和事件记录
                 mtt_del_count, _ = self.mtt_model.objects.filter(stock=self.stock_instance, trade_date__gte=save_start_date).delete()
                 event_del_count, _ = self.event_model.objects.filter(stock=self.stock_instance, event_date__gte=save_start_date).delete()
-                print(f"  -> [统一回滚] 趋势线矩阵删除 {mtt_del_count} 条，动态事件删除 {event_del_count} 条。")
+                # 修改代码：移除了探针print语句
                 return pd.to_datetime(save_start_date)
             except (ValueError, TypeError):
-                print(f"  -> [错误] 提供的起始日期 '{start_date_override}' 格式错误，将执行标准增量更新。")
+                # 修改代码：移除了探针print语句
+                pass
         # 2. 标准增量逻辑：查找最新记录
         last_record = self.mtt_model.objects.filter(stock=self.stock_instance).order_by('-trade_date').first()
         if last_record:
@@ -565,7 +525,6 @@ class GeometricPatternService:
         """
         if matrix_df.empty or len(matrix_df['trade_date'].unique()) < 2:
             return []
-        print(f"    -> [战场AI参谋] 开始分析趋势线矩阵动态...")
         final_events = []
         matrix_wide_df = matrix_df.pivot_table(
             index='trade_date',
@@ -699,7 +658,6 @@ class GeometricPatternService:
                             'stock': self.stock_instance, 'event_date': trade_date.date(),
                             'event_type': 'COMPRESSION_SQUEEZE', 'details': self._sanitize_json_dict(details)
                         })
-        print(f"    -> [战场AI参谋] 分析完毕，共发现 {len(final_events)} 个新的动态事件。")
         return final_events
 
     def _assess_platform_character(self, platform_df: pd.DataFrame) -> (str, float):
@@ -755,12 +713,8 @@ class GeometricPatternService:
         matrix_records = []
         enriched_df = data_dfs.get('enriched_df')
         if enriched_df is None:
-            print("  -> [信念评估警告] 未能在data_dfs中找到enriched_df，无法计算趋势信念分。")
             return []
-        # V2.52 新增调试日判断逻辑
-        is_debug_day = (current_date == df_daily.index.max())
-        if is_debug_day:
-            print(f"\n    -> [趋势信念探针] {current_date.date()} (最新交易日)")
+        # 修改代码：移除了所有探针print语句
         for period in self.fib_periods:
             lookback_days = period * 3
             start_date = current_date - pd.Timedelta(days=lookback_days)
@@ -780,9 +734,6 @@ class GeometricPatternService:
                     # V2.52 传入debug_flag激活探针
                     conviction_score = self._calculate_trend_conviction_score(line_data, enriched_df)
                     # V2.52 新增一级探针（最终得分）
-                    if is_debug_day:
-                        line_type_display = "支撑线" if line_data['line_type'] == 'support' else "阻力线"
-                        print(f"      - [{period}日 {line_type_display}] -> 最终信念评分: {conviction_score:.2f}")
                     matrix_records.append({
                         'stock': self.stock_instance,
                         'trade_date': current_date.date(),
@@ -801,9 +752,7 @@ class GeometricPatternService:
         - V2.52 升级: 在返回的最佳趋势线信息中，增加 `start_date` 和 `end_date`，
                      为下游的“趋势信念评分”计算提供必要的起止区间。
         """
-        is_last_day_debug = (full_df.index.max() == data_dfs.get('daily_data').index.max())
-        if is_last_day_debug:
-            print(f"      [内部探针] 进入 _find_best_line... | 类型: {line_type}, 接收到锚点数: {len(pivots)}")
+        # 修改代码：移除了所有探针print语句
         if len(pivots) < 2: return None
         MAX_PIVOTS_TO_COMBINE = 20
         NUM_RECENT_PIVOTS = 10
@@ -815,8 +764,6 @@ class GeometricPatternService:
             else: # resistance
                 extreme_pivots = pivots.nlargest(NUM_EXTREME_PIVOTS, price_col)
             pivots_to_check = pd.concat([recent_pivots, extreme_pivots]).drop_duplicates()
-            if is_last_day_debug:
-                print(f"        [剪枝策略启动] 锚点数从 {len(pivots)} 减少到 {len(pivots_to_check)}")
         else:
             pivots_to_check = pivots
         best_line_info = None
@@ -869,8 +816,6 @@ class GeometricPatternService:
                     'start_date': p1_idx, # V2.52 新增起始日期
                     'end_date': p2_idx,   # V2.52 新增结束日期
                 }
-        if is_last_day_debug:
-            print(f"      [内部探针] 退出 _find_best_line... | 类型: {line_type}, 最高得分为: {max_final_score:.4f}")
         return best_line_info
 
     def _calculate_micro_conviction_score(self, touch_date: pd.Timestamp, line_type: str, tick_map: dict) -> float:
@@ -996,9 +941,7 @@ class GeometricPatternService:
         """
         conviction_score = flag.get('conviction_score', 0.0)
         final_probability = conviction_score / 100.0
-        print(f"    -> [认知统一 V2.74]")
-        print(f"      - 接收到'全息审判'信念评分: {conviction_score:.2f}")
-        print(f"      - >> 直接映射为最终突破概率: {final_probability:.2%}")
+        # 修改代码：移除了所有探针print语句
         features = {
             'conviction_score': conviction_score,
             'retracement_depth': flag.get('retracement_depth'),
@@ -1017,19 +960,16 @@ class GeometricPatternService:
         for archetype in self.flag_archetypes:
             timeframe = archetype.get('timeframe', 'D')
             archetype_name = archetype.get('name', 'UNKNOWN_FLAG')
-            # 简化顶层日志
-            print(f"\n  -> [全息旗形扫描] 开始在 [{timeframe}] 级别应用原型 [{archetype_name}]...")
+            # 修改代码：移除了所有探针print语句
             df_source = None
             if timeframe == 'D':
                 df_source = enriched_df
             elif timeframe == 'W':
                 df_source = data_dfs.get('weekly_data')
             if df_source is None or df_source.empty:
-                print(f"     - [数据缺失] 未找到 [{timeframe}] 级别数据，跳过此原型。")
                 continue
             min_data_len = archetype.get('min_data_len', 55)
             if len(df_source) < min_data_len:
-                print(f"     - [数据不足] {timeframe} 级别数据长度 {len(df_source)} < {min_data_len}，跳过此原型。")
                 continue
             df = df_source.copy()
             vol_ma_col_name = f'vol_ma{self.long_term_period}_{timeframe}'
@@ -1039,7 +979,6 @@ class GeometricPatternService:
             i = len(df) - 5
             while i > min_data_len:
                 if not self._is_potential_pole_peak(df, i, vol_ma_col_name):
-                    # 移除“认知焦点”探针
                     i -= 1
                     continue
                 pole = self._identify_flagpole(df, end_index_loc=i, vol_ma_col_name=vol_ma_col_name, archetype=archetype, data_dfs=data_dfs)
@@ -1057,7 +996,6 @@ class GeometricPatternService:
                             if not is_main_force_led or avg_hidden_accumulation <= 0 or flag_df['low_qfq'].min() < dominant_peak_cost_at_start or breakout_readiness < 60:
                                 passes_quality_check = False
                         if passes_quality_check:
-                            print(f"  -> [高置信度旗形发现!] 日期: {flag['end_date'].date()}, 级别: [{timeframe}], 原型: [{archetype_name}]。启动概率转换...")
                             probability, features = self._translate_conviction_to_probability(flag)
                             events.append({
                                 'stock': self.stock_instance,
@@ -1071,7 +1009,6 @@ class GeometricPatternService:
                                     'pole_end_date': pole['end_date'].date(),
                                 }
                             })
-                    # 移除“时空跳跃”探针
                     i = df.index.get_loc(pole['start_date']) - 1
                     continue
                 i -= 1
@@ -1093,8 +1030,7 @@ class GeometricPatternService:
         ignition_min_vol_ratio = archetype.get('ignition_min_vol_ratio', 1.5)
         end_date = df.index[end_index_loc]
         minute_map = data_dfs.get("stock_minute_data_map", {})
-        # 简化入口日志
-        print(f"    -> [旗杆探针] 检查结束于 {end_date.date()} 的候选旗杆...")
+        # 修改代码：移除了所有探针print语句
         best_pole = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1102,13 +1038,11 @@ class GeometricPatternService:
             if start_index_loc < 1: continue
             pole_df = df.iloc[start_index_loc : end_index_loc + 1]
             start_date = pole_df.index[0]
-            # 移除“候选周期”探针
             atr_at_start = df['ATR_14_D'].iloc[start_index_loc - 1]
             if atr_at_start == 0: continue
             daily_drops = pole_df['close_qfq'].diff().dropna()
             max_drop_value = abs(daily_drops[daily_drops < 0].min()) if not daily_drops[daily_drops < 0].empty else 0
             if max_drop_value > max_daily_drop_atr * atr_at_start:
-                # 移除“纯度不符”探针
                 continue
             ignition_day = pole_df.iloc[0]
             prev_day_vol = df['vol'].iloc[start_index_loc - 1]
@@ -1117,30 +1051,24 @@ class GeometricPatternService:
             score_pct = np.clip(ignition_pct_change / (ignition_min_pct_change * 1.5), 0, 1)
             score_vol = np.clip(ignition_vol_ratio / (ignition_min_vol_ratio * 1.5), 0, 1)
             ignition_score = 100 * (score_pct * 0.6 + score_vol * 0.4)
-            # 移除“点火强度”探针
             pole_high = pole_df['high_qfq'].max()
             pole_low = pole_df['low_qfq'].min()
             magnitude_atr = (pole_high - pole_low) / atr_at_start
             magnitude_score = 100 * (np.clip(magnitude_atr / (min_magnitude_atr * 1.5), 0, 1)) ** 2
-            # 移除“幅度”探针
             pole_start_price = pole_df['open_qfq'].iloc[0]
             thrust_vector = (pole_high - pole_start_price) / (duration * atr_at_start)
             directional_score = np.clip(thrust_vector / 0.75, 0, 1) * 100
-            # 移除“方向”探针
             vol_ma_at_start = df[vol_ma_col_name].iloc[start_index_loc - 1]
             avg_volume_pole = pole_df['vol'].mean()
             actual_vol_multiple = avg_volume_pole / vol_ma_at_start if vol_ma_at_start > 0 else 0
             energy_score = 100 * (np.clip(actual_vol_multiple / (min_vol_multiple * 1.5), 0, 1)) ** 2
-            # 移除“能量”探针
             purity_scores = [self._calculate_intraday_trend_purity(minute_map.get(d.date())) for d in pole_df.index]
             purity_score = np.mean(purity_scores) if purity_scores else 50.0
-            # 移除“纯度”探针
             conviction_score = (ignition_score * 0.30 +
                                 magnitude_score * 0.25 +
                                 directional_score * 0.15 +
                                 energy_score * 0.10 +
                                 purity_score * 0.20)
-            # 移除“综合信念评分”探针
             if conviction_score > max_conviction_score:
                 max_conviction_score = conviction_score
                 best_pole = {
@@ -1153,10 +1081,8 @@ class GeometricPatternService:
                 }
         MIN_ACCEPTANCE_SCORE = 60.0
         if best_pole and best_pole['conviction_score'] >= MIN_ACCEPTANCE_SCORE:
-            print(f"    -> [✓ ACCEPTED] 发现最佳旗杆 (周期 {best_pole['duration_days']}天), 最高信念分: {best_pole['conviction_score']:.2f}")
             return best_pole
         else:
-            print(f"    -> [✗ REJECTED] 未发现任何候选旗杆的信念分超过 {MIN_ACCEPTANCE_SCORE:.1f} 的最低门槛。")
             return None
 
     def _identify_flag(self, df: pd.DataFrame, pole: dict, vol_ma_col_name: str, archetype: dict, data_dfs: dict) -> dict:
@@ -1172,8 +1098,7 @@ class GeometricPatternService:
         max_retracement = archetype.get('flag_max_retracement', 0.618)
         vol_shrink_ratio = archetype.get('flag_vol_shrink_ratio', 0.7)
         max_buffers = archetype.get('flag_max_buffers', 2)
-        # 简化入口日志
-        print(f"    -> [旗面探针] 检查附着于 {pole['end_date'].date()} 旗杆的候选旗面...")
+        # 修改代码：移除了所有探针print语句
         pole_rise = pole['high_price'] - pole['start_price']
         if pole_rise <= 0: return None
         best_flag = None
@@ -1186,19 +1111,15 @@ class GeometricPatternService:
                 flag_end_loc = flag_start_loc + duration - 1
                 if flag_end_loc >= len(df): break
                 flag_df = df.iloc[flag_start_loc : flag_end_loc + 1]
-                # 移除“候选周期”探针
                 avg_volume_flag = flag_df['vol'].mean()
                 avg_vol_ma_flag = flag_df[vol_ma_col_name].mean()
                 vol_vs_pole = avg_volume_flag / pole['avg_volume'] if pole['avg_volume'] > 0 else 1.0
                 vol_vs_ma = avg_volume_flag / avg_vol_ma_flag if avg_vol_ma_flag > 0 else 1.0
                 vol_score = (np.clip(1 - vol_vs_pole, 0, 1) * 0.6 + np.clip(1 - vol_vs_ma, 0, 1) * 0.4) * 100
-                # 移除“成交量萎缩”探针
                 flag_low = flag_df['low_qfq'].min()
                 retracement = (pole['high_price'] - flag_low) / pole_rise
                 retracement_score = np.clip((max_retracement - retracement) / (max_retracement - 0.10), 0, 1) * 100 if max_retracement > 0.10 else 0
-                # 移除“回撤深度”探针
                 if retracement_score < 10.0:
-                    # 移除“单调剪枝”探针
                     if flag_df['low_qfq'].idxmin() != flag_df.index[0]:
                         is_fatal_low_not_at_start = True
                     break
@@ -1211,14 +1132,11 @@ class GeometricPatternService:
                         'duration_days': len(flag_df)
                     }
             if is_fatal_low_not_at_start:
-                # 移除“战略性撤退”探针
                 break
         MIN_ACCEPTANCE_SCORE = 50.0
         if best_flag and best_flag['conviction_score'] >= MIN_ACCEPTANCE_SCORE:
-            print(f"    -> [✓ ACCEPTED] 发现最佳旗面 (周期 {best_flag['duration_days']}天), 最高信念分: {best_flag['conviction_score']:.2f}")
             return best_flag
         else:
-            print(f"    -> [✗ REJECTED] 未发现任何候选旗面的信念分超过 {MIN_ACCEPTANCE_SCORE:.1f} 的最低门槛。")
             return None
 
     def _calculate_expert_breakout_probability(self, flag: dict) -> (float, dict):
@@ -1232,10 +1150,7 @@ class GeometricPatternService:
         conviction_score = flag.get('conviction_score', 0.0)
         # V2.73 核心逻辑：信念即概率
         final_probability = conviction_score / 100.0
-        # V2.73 升级探针日志，宣告认知统一
-        print(f"    -> [认知统一 V2.73]")
-        print(f"      - 接收到'全息审判'信念评分: {conviction_score:.2f}")
-        print(f"      - >> 直接映射为最终突破概率: {final_probability:.2%}")
+        # 修改代码：移除了所有探针print语句
         # V2.73 净化返回的特征字典，使其与“归一”哲学对齐
         features = {
             'conviction_score': conviction_score,
@@ -1289,9 +1204,8 @@ class GeometricPatternService:
                          数据不足而产生的 `NaN` 导致的数据库写入失败问题。
         """
         if not records:
-            print("  -> [趋势线矩阵] 没有新的记录需要保存。")
             return
-        print(f"  -> [趋势线矩阵] 正在新增 {len(records)} 条记录...")
+        # 修改代码：移除了所有探针print语句
         # V2.56 NaN值净化器
         sanitized_records = [
             {key: (None if isinstance(value, float) and pd.isna(value) else value) for key, value in record.items()}
@@ -1301,18 +1215,16 @@ class GeometricPatternService:
         try:
             self.mtt_model.objects.bulk_create(instances, ignore_conflicts=True)
         except Exception as e:
-            print(f"  -> [数据库错误] 批量保存趋势线矩阵时发生错误: {e}")
             # 如果批量创建失败，可以尝试逐条插入以便调试
             for instance in instances:
                 try:
                     instance.save()
                 except Exception as single_e:
-                    print(f"    -> 无法保存记录: {instance.__dict__}, 错误: {single_e}")
+                    pass
 
     def _save_trendline_events_incrementally(self, events: list):
         """【V2.16】持久化存储新增的趋势线动态事件。"""
         if not events: return
-        print(f"  -> [趋势线事件] 正在新增 {len(events)} 个事件...")
         instances = [self.event_model(**evt) for evt in events]
         self.event_model.objects.bulk_create(instances, ignore_conflicts=True)
 

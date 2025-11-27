@@ -509,8 +509,7 @@ class AdvancedFundFlowMetricsService:
         day_results = {}
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
         df_to_attribute = minute_data_for_day
-        if debug_mode:
-            print(f"\n--- [探针] [概率成本计算诊断] [{stock_code}] 日期: {daily_data.name.strftime('%Y-%m-%d')} ---")
+        # 修改代码：移除了所有与debug_mode和探针相关的print语句
         for cost_type in cost_types:
             size, direction = cost_type.split('_')
             db_vol_key = f'{direction}_{size}_vol'
@@ -528,8 +527,6 @@ class AdvancedFundFlowMetricsService:
             if weight_series.sum() < 1e-9:
                 day_results[f'avg_cost_{cost_type}'] = np.nan
                 df_to_attribute[f'{cost_type}_vol_attr'] = 0
-                if debug_mode:
-                    print(f"  - 警告: {cost_type} 的权重总和过小 ({weight_series.sum()}), 成本无法计算。")
                 continue
             attributed_vol = weight_series * daily_vol_shares
             df_to_attribute[f'{cost_type}_vol_attr'] = attributed_vol
@@ -538,10 +535,6 @@ class AdvancedFundFlowMetricsService:
             total_attributed_vol = attributed_vol.sum()
             calculated_cost = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
             day_results[f'avg_cost_{cost_type}'] = calculated_cost
-            if debug_mode:
-                print(f"  - {cost_type:<10}: 日成交量(股)={daily_vol_shares:<12.2f} | 权重和={weight_series.sum():<8.4f} | 计算成本={calculated_cost:.4f}")
-        if debug_mode:
-            print("--- [探针] 诊断结束 ---\n")
         fully_attributed_df = self._attribute_minute_volume_to_players(df_to_attribute)
         return day_results, fully_attributed_df
 
