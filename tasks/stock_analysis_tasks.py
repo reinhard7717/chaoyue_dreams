@@ -1068,10 +1068,6 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_BJ,
             AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_BJ
         )
-        from stock_models.geometric_features import (
-            PlatformFeature_SH, PlatformFeature_SZ, PlatformFeature_CY, PlatformFeature_KC, PlatformFeature_BJ,
-            TrendlineFeature_SH, TrendlineFeature_SZ, TrendlineFeature_CY, TrendlineFeature_KC, TrendlineFeature_BJ
-        )
         chip_ff_models = [
             AdvancedChipMetrics_SH, AdvancedChipMetrics_SZ, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ,
             AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_BJ,
