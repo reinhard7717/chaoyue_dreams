@@ -319,6 +319,13 @@ class BehavioralIntelligence:
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights)
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights)
         states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = self._calculate_absorption_strength(df, default_weights)
+        # [新增代码块] 调用新增的洗盘确认诊断
+        states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] = self._diagnose_shakeout_confirmation(
+            df,
+            states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'],
+            states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
+            states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
+        )
         # --- 开始重构背离信号 ---
         bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(df)
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
@@ -828,6 +835,35 @@ class BehavioralIntelligence:
                 print(f"        - 最终下跌吸筹强度分: {final_score.loc[probe_ts]:.4f}")
         return final_score.astype(np.float32)
 
+    def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, downward_resistance: pd.Series, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 战术确认版】诊断震荡洗盘确认信号
+        - 核心目标: 在行为层面区分“伪装派发”与“震荡洗盘”。
+        - 战术逻辑: 一次成功的洗盘 = 强大的防守反击能力 × 派发意图的缺席。
+        - 数学公式: 洗盘分 = (下跌抵抗 * 下跌吸筹)^0.5 * (1 - 派发意图)
+        """
+        # --- 1. 获取核心输入 ---
+        # 输入信号已由主方法传入，无需再次获取
+        # --- 2. 计算防守反击强度 ---
+        defense_counter_attack_strength = (downward_resistance * absorption_strength).pow(0.5).fillna(0.0)
+        # --- 3. 计算派发意图的否定因子 ---
+        non_distribution_factor = (1 - distribution_intent).clip(0, 1)
+        # --- 4. 战术合成 ---
+        shakeout_confirmation_score = (defense_counter_attack_strength * non_distribution_factor).clip(0, 1)
+        # --- 探针监测 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _diagnose_shakeout_confirmation @ {probe_date_str}")
+                print(f"        - 防守反击强度: {defense_counter_attack_strength.loc[probe_ts]:.4f} (抵抗={downward_resistance.loc[probe_ts]:.2f}, 吸筹={absorption_strength.loc[probe_ts]:.2f})")
+                print(f"        - 派发否定因子: {non_distribution_factor.loc[probe_ts]:.4f} (派发意图={distribution_intent.loc[probe_ts]:.2f})")
+                print(f"        - 最终洗盘确认分: {shakeout_confirmation_score.loc[probe_ts]:.4f}")
+        return shakeout_confirmation_score.astype(np.float32)
 
 
 
