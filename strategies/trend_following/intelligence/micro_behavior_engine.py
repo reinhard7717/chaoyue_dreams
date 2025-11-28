@@ -121,19 +121,16 @@ class MicroBehaviorEngine:
 
     def _diagnose_strategy_stealth_ops(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.0 · 隐秘行动版】微观诡道一策：诊断“隐秘行动”
-        - 核心逻辑: 替代旧的“伪装”公理，直接捕捉主力“明修栈道，暗度陈仓”的操盘战术。
-        - 战术证据: 1. 大单压制强度 (明修栈道); 2. 隐蔽吸筹强度 (暗度陈仓)。
-        - 输出: [0, 1] 的单极性分数，分数越高代表主力当天执行隐蔽吸筹战术的证据越确凿。
+        【V1.2 · 探针模型统一版】微观诡道一策：诊断“隐秘行动”
+        - 核心升级: 探针激活逻辑与全局标准模型统一，仅依赖 `enabled` 和 `probe_dates`。
+        - ... (其他注释保持不变)
         """
-        # --- 探针初始化 ---
+        # --- [修改代码块] 统一探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        is_probe_enabled = get_param_value(debug_params.get('enable_micro_behavior_probe'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        should_probe = is_debug_day and is_probe_enabled
         # --- 获取战术证据 ---
         pressure_raw = self._get_safe_series(df, 'large_order_pressure_D', 0.0, method_name="_diagnose_strategy_stealth_ops")
         accumulation_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_diagnose_strategy_stealth_ops")
@@ -143,7 +140,7 @@ class MicroBehaviorEngine:
         # --- 战术合成 ---
         stealth_ops_score = (pressure_score * accumulation_score).pow(0.5).fillna(0.0)
         # --- 探针监测 ---
-        if should_probe:
+        if is_debug_day:
             print(f"      [微观行为探针] _diagnose_strategy_stealth_ops @ {last_date_str}")
             print(f"        - 原始值: 大单压制={pressure_raw.iloc[-1]:.2f}, 隐蔽吸筹={accumulation_raw.iloc[-1]:.2f}")
             print(f"        - 归一化分: 压制分={pressure_score.iloc[-1]:.4f}, 吸筹分={accumulation_score.iloc[-1]:.4f}")

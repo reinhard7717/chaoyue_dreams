@@ -84,52 +84,42 @@ class IntradayBehaviorEngine:
 
     async def _diagnose_offensive_purity(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.0 · 进攻纯度版】日内战报之一：诊断“进攻纯度”
-        - 核心逻辑: 替代旧的“攻击强度”，通过分析全天分钟数据，评估每一次上涨的“质量”。
-                    一次高纯度的进攻应是“主力驱动的、高效率的、高紧迫性的”。
-        - 聚合方式: 对全天所有上涨分钟的“纯度分”进行成交额加权平均，得出日内总攻质量。
-        - 输出: [-1, 1] 的双极性分数。正分代表多方进攻纯度高，负分代表空方进攻纯度高。
+        【V1.2 · 探针模型统一版】日内战报之一：诊断“进攻纯度”
+        - 核心升级: 探针激活逻辑与全局标准模型统一，仅依赖 `enabled` 和 `probe_dates`。
+        - ... (其他注释保持不变)
         """
         required_signals = ['close', 'amount', 'main_force_ofi', 'retail_ofi', 'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate']
         if not self._validate_required_signals(df_minute, required_signals, "_diagnose_offensive_purity"):
             return {"SCORE_INTRADAY_OFFENSIVE_PURITY": 0.0}
-        # --- 探针初始化 ---
+        # --- [修改代码块] 统一探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        is_probe_enabled = get_param_value(debug_params.get('enable_intraday_behavior_probe'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = self.strategy.df_indicators.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        should_probe = is_debug_day and is_probe_enabled
         # --- 计算分钟级纯度因子 ---
         price_change = self._get_safe_series(df_minute, 'close').diff().fillna(0)
         amount = self._get_safe_series(df_minute, 'amount').replace(0, 1e-9)
-        # 效率: 价格变化 / 成交额
         efficiency = price_change / amount
         norm_efficiency = normalize_to_bipolar(efficiency, df_minute.index, window=240, sensitivity=0.1)
-        # 驱动力: 主力OFI vs 散户OFI
         mf_ofi = self._get_safe_series(df_minute, 'main_force_ofi')
         retail_ofi = self._get_safe_series(df_minute, 'retail_ofi')
         driver = mf_ofi - retail_ofi
         norm_driver = normalize_to_bipolar(driver, df_minute.index, window=240)
-        # 紧迫性: 买方扫单 vs 卖方扫单
         buy_urgency = self._get_safe_series(df_minute, 'buy_quote_exhaustion_rate')
         sell_urgency = self._get_safe_series(df_minute, 'sell_quote_exhaustion_rate')
         urgency = buy_urgency - sell_urgency
         norm_urgency = normalize_to_bipolar(urgency, df_minute.index, window=240)
-        # --- 融合为分钟级纯度分 ---
         purity_score = (norm_efficiency.pow(0.2) * norm_driver.pow(0.5) * norm_urgency.pow(0.3)).fillna(0)
-        # --- 按日内多空进攻分别聚合 ---
         bullish_minutes = purity_score[price_change > 0]
         bullish_weights = amount[price_change > 0]
         bearish_minutes = purity_score[price_change < 0].abs()
         bearish_weights = amount[price_change < 0]
-        # 加权平均
         avg_bullish_purity = np.average(bullish_minutes, weights=bullish_weights) if not bullish_minutes.empty and bullish_weights.sum() > 0 else 0
         avg_bearish_purity = np.average(bearish_minutes, weights=bearish_weights) if not bearish_minutes.empty and bearish_weights.sum() > 0 else 0
         final_score = (avg_bullish_purity - avg_bearish_purity)
         # --- 探针监测 ---
-        if should_probe:
+        if is_debug_day:
             print(f"      [日内行为探针] _diagnose_offensive_purity @ {last_date_str}")
             print(f"        - 日内平均多头进攻纯度: {avg_bullish_purity:.4f}")
             print(f"        - 日内平均空头进攻纯度: {avg_bearish_purity:.4f}")
