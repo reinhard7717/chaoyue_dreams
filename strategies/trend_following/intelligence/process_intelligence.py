@@ -1099,19 +1099,18 @@ class ProcessIntelligence:
 
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.0 · 破阵战矛版】诊断“突破加速抢筹”战术。
-        - 核心职责: 识别主力在成功突破关键平台后，乘胜追击、加速抢筹的高能战术场景。
-        - 战术逻辑: 基于“前置-驱动-交割-确认”四维证据链。
-          1. 前置 (Trigger): 近期必须发生过“突破”事件。
-          2. 驱动 (Driver): 上涨必须由“主力拉升意图”驱动。
-          3. 交割 (Transfer): 必须发生正向的“权力转移”。
-          4. 确认 (Confirmation): 整体“趋势形态”必须健康。
+        【V1.1 · 精准制导版】诊断“突破加速抢筹”战术。
+        - 核心修正: 修正了“驱动证据”的情报源。现在直接使用最原始、最即时的“主力拉升意图”原子信号
+                     (`PROCESS_ATOMIC_REL_SCORE_...`)，而不是经过二次平滑处理的元信号。
+        - 战术意义: 确保战术的触发完全基于当日最真实的意图，排除了历史趋势的干扰，使其反应更迅捷、判断更精准。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_BREAKOUT_ACCELERATION (V1.0 · 破阵战矛版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_BREAKOUT_ACCELERATION (V1.1 · 精准制导版)...") # 修改: 更新版本信息
         df_index = df.index
         # 1. 获取四维证据
         breakout_signal = self.strategy.atomic_states.get('SCORE_PATTERN_AXIOM_BREAKOUT', pd.Series(0.0, index=df_index))
-        rally_intent = self.strategy.atomic_states.get('PROCESS_META_MAIN_FORCE_RALLY_INTENT', pd.Series(0.0, index=df_index))
+        # [修改] 直接使用最原始、最即时的“主力拉升意图”原子信号
+        rally_intent_signal_name = 'PROCESS_ATOMIC_REL_SCORE_PROCESS_META_MAIN_FORCE_RALLY_INTENT'
+        rally_intent = self.strategy.atomic_states.get(rally_intent_signal_name, pd.Series(0.0, index=df_index))
         power_transfer = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
         trend_form = self.strategy.atomic_states.get('SCORE_STRUCT_AXIOM_TREND_FORM', pd.Series(0.0, index=df_index))
         # 2. 定义战术前置条件
@@ -1137,7 +1136,8 @@ class ProcessIntelligence:
                     print(f"      --- 战术前置 (Trigger) ---")
                     print(f"        - 近期突破事件: {breakout_trigger_mask.loc[probe_date]}")
                     print(f"      --- 核心证据链 ---")
-                    print(f"        - 驱动证据 (主力拉升意图): {driver_evidence.loc[probe_date]:.4f}")
+                    # [修改] 更新探针，明确指出使用的是原始意图信号
+                    print(f"        - 驱动证据 (原始主力拉升意图): {driver_evidence.loc[probe_date]:.4f}")
                     print(f"        - 交割证据 (权力转移): {transfer_evidence.loc[probe_date]:.4f}")
                     print(f"        - 确认证据 (趋势形态): {confirmation_evidence.loc[probe_date]:.4f}")
                     print(f"      --- 最终裁决 ---")

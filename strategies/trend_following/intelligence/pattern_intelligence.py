@@ -188,14 +188,6 @@ class PatternIntelligence:
             if probe_target_date is not None and current_A_date < probe_target_date:
                 if (probe_target_date - current_A_date).days <= n_pullback_max + 1:
                     is_relevant_a_day_for_probe = True
-            pre_A_volume_atrophy = (volume_D.iloc[pre_A_slice_start:day_A_idx] < max_vol_ma.iloc[pre_A_slice_start:day_A_idx]).all()
-            if is_relevant_a_day_for_probe:
-                print(f"    -> [回踩确认二次启动探针] 目标B日为 {probe_target_date.date()}，正在检查候选A日 @ {current_A_date.date()}:")
-                print(f"       - A日之前 {n_pre_A} 天量能萎缩 ({pre_A_volume_atrophy})")
-            if not pre_A_volume_atrophy:
-                if is_relevant_a_day_for_probe:
-                    print(f"       - A日条件: 量能萎缩不满足，跳过此A日。")
-                continue
             day_A_pct_change = pct_change_D.iloc[day_A_idx]
             day_A_volume = volume_D.iloc[day_A_idx]
             day_A_max_vol_ma = max_vol_ma.iloc[day_A_idx]
@@ -221,8 +213,6 @@ class PatternIntelligence:
                 is_probing_this_b_day = (probe_target_date is not None and current_B_date == probe_target_date)
                 if not is_probing_this_b_day:
                     continue 
-                print(f"    -> [回踩确认二次启动探针] 正在尝试匹配模式，目标B日 @ {current_B_date.date()}:")
-                print(f"       - 候选A日 @ {df_index[day_A_idx].date()} (已通过A日条件检查):")
                 day_B_pct_change = pct_change_D.iloc[day_B_idx]
                 day_B_volume = volume_D.iloc[day_B_idx]
                 day_B_max_vol_ma = max_vol_ma.iloc[day_B_idx]
@@ -324,9 +314,6 @@ class PatternIntelligence:
                     break
                 else:
                     print(f"       - 健康洗盘条件不满足，跳过。")
-        if probe_target_date is not None and probe_target_date in df.index:
-            print(f"    -> [回踩确认二次启动探针] 最终结果 @ {probe_target_date.date()}:")
-            print(f"       - SCORE_PATTERN_PULLBACK_CONFIRMATION: {pullback_confirmation_score.loc[probe_target_date]:.4f}")
         return pullback_confirmation_score.astype(np.float32)
 
     def _diagnose_axiom_duofangpao(self, df: pd.DataFrame) -> pd.Series:
