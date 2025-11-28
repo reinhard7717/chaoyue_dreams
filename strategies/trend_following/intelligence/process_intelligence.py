@@ -1077,15 +1077,17 @@ class ProcessIntelligence:
 
     def _calculate_split_order_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.0 · 实体化版】计算“拆单吸筹强度”的专属信号。
-        - 核心逻辑: 对底层的原始指标 `split_order_accumulation_intensity_D` 进行场景化的归一化处理。
+        【V1.1 · 情报源校准版】计算“拆单吸筹强度”的专属信号。
+        - 核心修复: 将依赖的数据源从不存在的 `split_order_accumulation_intensity_D` 校准为
+                     真实存在的 `hidden_accumulation_intensity_D`，解决了信号源头枯竭的问题。
+        - 核心逻辑: 对底层的原始指标 `hidden_accumulation_intensity_D` 进行场景化的归一化处理。
         - 场景约束: 仅在价格被抑制（下跌、横盘或微涨）的场景下，该信号才具有战术意义。
         - 探针: 植入深度探针，展示原始值、场景掩码状态和最终归一化得分。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (实体化版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (V1.1 · 情报源校准版)...") # 修改: 更新版本信息
         df_index = df.index
-        # 1. 获取核心原始数据
-        raw_intensity = self._get_safe_series(df, 'split_order_accumulation_intensity_D', 0.0, method_name="_calculate_split_order_accumulation")
+        # 1. [修改] 获取核心原始数据，校准信号名称
+        raw_intensity = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_calculate_split_order_accumulation")
         # 2. 定义场景约束
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_split_order_accumulation")
         scene_mask = pct_change <= 0.02 # 价格被抑制，允许微弱上涨
@@ -1102,7 +1104,8 @@ class ProcessIntelligence:
             for probe_date in probe_dates:
                 if probe_date in df_index:
                     print(f"    -> [探针] --- PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY @ {probe_date.date()} ---")
-                    print(f"      - 原始数据 (split_order_accumulation_intensity_D): {raw_intensity.loc[probe_date]:.4f}")
+                    # [修改] 更新探针报告的数据源名称
+                    print(f"      - 原始数据 (hidden_accumulation_intensity_D): {raw_intensity.loc[probe_date]:.4f}")
                     print(f"      - 场景约束 (涨幅 <= 2%): {scene_mask.loc[probe_date]} (当日涨幅: {pct_change.loc[probe_date]:.2%})")
                     print(f"      - 归一化得分 (原始值/100): {normalized_score.loc[probe_date]:.4f}")
                     print(f"      - 最终得分 (应用场景约束后): {final_score.loc[probe_date]:.4f}")
