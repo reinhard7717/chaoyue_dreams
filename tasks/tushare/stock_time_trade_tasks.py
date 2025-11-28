@@ -269,9 +269,9 @@ def save_stocks_daily_basic_data_today_task(cache_manager=None):
             else:
                 print(f"[{task_name}] 保存 今日股票重要的基本面指标 完成。result: {result}")
             # 无论是否获取到数据，都尝试执行行业轮动分析
-            rotation_report = await service.analyze_industry_rotation(datetime.date.today(), lookback_days=10)
-            print(f"--- [{task_name}] 行业轮动强度报告 ---")
-            print(rotation_report.head(10))
+            # rotation_report = await service.analyze_industry_rotation(datetime.date.today(), lookback_days=10)
+            # print(f"--- [{task_name}] 行业轮动强度报告 ---")
+            # print(rotation_report.head(10))
             return {
                 "status": "success",
                 "message": f"每日基本面指标和行业轮动分析完成 for {today_date}",
