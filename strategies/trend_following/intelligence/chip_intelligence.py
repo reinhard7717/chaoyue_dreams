@@ -136,7 +136,7 @@ class ChipIntelligence:
         - 核心升级: 植入“真理探针”，详细打印三大支柱“阵型部署”、“指挥官决心”、“战场控制力”的
                      构成细节和最终得分，用于诊断信号输出为零的根本原因。
         """
-        print("    -> [筹码层] 正在计算 SCORE_CHIP_STRATEGIC_POSTURE (V6.1 · 真理探针版)...") # 修改: 更新版本信息
+        print("    -> [筹码层] 正在计算 SCORE_CHIP_STRATEGIC_POSTURE (V6.1 · 真理探针版)...")
         required_signals = [
             'cost_gini_coefficient_D', 'covert_accumulation_signal_D', 'peak_exchange_purity_D',
             'main_force_cost_advantage_D', 'control_solidity_index_D', 'SLOPE_5_main_force_conviction_index_D',
@@ -427,7 +427,7 @@ class ChipIntelligence:
             probe_dates = [pd.to_datetime(d).tz_localize(df.index.tz if df.index.tz else None) for d in probe_dates_str]
             for probe_date in probe_dates:
                 if probe_date in df.index:
-                    print(f"    -> [探针] --- SCORE_CHIP_COHERENT_DRIVE (V4.3) @ {probe_date.date()} ---") # 修改: 更新版本信息
+                    print(f"    -> [探针] --- SCORE_CHIP_COHERENT_DRIVE (V4.3) @ {probe_date.date()} ---")
                     print(f"      --- 引擎 (Base Drive) ---")
                     print(f"        - 引擎得分 (原始holder_sentiment): {base_drive.loc[probe_date]:.4f}")
                     print(f"      --- 传动系统 (Transmission) ---")
