@@ -976,11 +976,12 @@ class ProcessIntelligence:
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.0 · 过程层迁移版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
-        - 核心职责: 作为过程层的一个战术剧本，消费资金流原子公理和高频数据，推演拐点意图。
-        - 架构归正: 此方法从资金流层迁移至此，以保证职责单一和信息流的正确性。
+        【V1.1 · 数据管道归正版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
+        - 核心修复: 修正了数据访问逻辑，确保所有依赖的底层原子信号（如高频强度、校准后资金流等）
+                      都从正确的数据源 `df` 中获取，而非从 `atomic_states` 中错误查找，
+                      彻底解决了“依赖信号不存在”的警告。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT (V1.0 · 迁移版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT (V1.1 · 数据管道归正版)...")
         required_signals = [
             'SCORE_FF_AXIOM_FLOW_MOMENTUM', 'hidden_accumulation_intensity_D',
             'main_force_net_flow_calibrated_D', 'buy_quote_exhaustion_rate_D', 'large_order_pressure_D'
@@ -991,12 +992,12 @@ class ProcessIntelligence:
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         tf_weights_inflection = get_param_value(p_mtf.get('short_term_weights'), {'weights': {3: 0.5, 5: 0.3, 8: 0.2}})
-        # 从原子状态库安全获取依赖信号
+        # [修改代码块] 修正数据源，从 df 获取原子原料，从 atomic_states 获取情报产物
         flow_momentum = self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0)
-        psai = self._get_atomic_score(df, 'hidden_accumulation_intensity_D', 0.0)
-        main_force_flow = self._get_atomic_score(df, 'main_force_net_flow_calibrated_D', 0.0)
-        buy_exhaustion_raw = self._get_atomic_score(df, 'buy_quote_exhaustion_rate_D', 0.0)
-        large_pressure_raw = self._get_atomic_score(df, 'large_order_pressure_D', 0.0)
+        psai = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_calculate_fund_flow_accumulation_inflection")
+        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_fund_flow_accumulation_inflection")
+        buy_exhaustion_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_calculate_fund_flow_accumulation_inflection")
+        large_pressure_raw = self._get_safe_series(df, 'large_order_pressure_D', 0.0, method_name="_calculate_fund_flow_accumulation_inflection")
         # 从config中读取参数
         psai_high_threshold = config.get('psai_high_threshold', 0.5)
         mf_flow_positive_threshold = config.get('mf_flow_positive_threshold', 0.0)
