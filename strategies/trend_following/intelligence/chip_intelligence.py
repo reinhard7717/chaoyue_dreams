@@ -489,10 +489,12 @@ class ChipIntelligence:
 
     def _diagnose_axiom_historical_potential(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.2 · 探针增强版】筹码公理六：诊断“筹码势能”
-        - 核心升级: 增强了调试探针，补充输出最关键的原始数据，使信息链条更完整。
+        【V1.3 · 幻觉修复版】筹码公理六：诊断“筹码势能”
+        - 核心修复: 修正了“长期筹码集中趋势”的计算逻辑。改用双极性归一化来处理集中度斜率，
+                      确保筹码的长期发散趋势（负斜率）能够正确地产生惩罚效应，从而拉低最终势能分。
+                      此修复彻底解决了因错误处理负值而导致的“强盛幻觉”悖论。
         """
-        print("    -> [筹码层] 正在诊断“筹码势能”公理 (V1.2 · 探针增强版)...")
+        print("    -> [筹码层] 正在诊断“筹码势能”公理 (V1.3 · 幻觉修复版)...")
         required_signals = [
             'main_force_net_flow_calibrated_D', 'SLOPE_55_winner_concentration_90pct_D',
             'dominant_peak_solidity_D'
@@ -506,11 +508,14 @@ class ChipIntelligence:
         mf_net_flow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0)
         long_term_flow_accumulation = mf_net_flow.clip(lower=0).rolling(window=long_window, min_periods=55).sum()
         flow_score = get_adaptive_mtf_normalized_score(long_term_flow_accumulation, df_index, ascending=True, tf_weights=tf_weights)
+        # [修改代码块] 使用双极性归一化处理斜率，并进行映射
         concentration_slope = self._get_safe_series(df, df, 'SLOPE_55_winner_concentration_90pct_D', 0.0)
-        concentration_score = get_adaptive_mtf_normalized_score(concentration_slope.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights)
+        concentration_score_bipolar = get_adaptive_mtf_normalized_bipolar_score(concentration_slope, df_index, tf_weights=tf_weights)
+        concentration_score_unipolar = (concentration_score_bipolar + 1) / 2
         peak_solidity = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5)
         stability_score = get_adaptive_mtf_normalized_score(peak_solidity, df_index, ascending=True, tf_weights=tf_weights)
-        potential_score = (flow_score * 0.5 + concentration_score * 0.3 + stability_score * 0.2)
+        # [修改代码行] 使用映射后的单极性分数进行融合
+        potential_score = (flow_score * 0.5 + concentration_score_unipolar * 0.3 + stability_score * 0.2)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -518,9 +523,9 @@ class ChipIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df_index:
                 print(f"    -> [筹码势能探针] @ {probe_date_for_loop.date()}:")
-                # [修改代码块] 增强探针，补充原始数据输出
                 print(f"       - 原料: long_term_flow_accum: {long_term_flow_accumulation.loc[probe_date_for_loop]:.2f}, conc_slope_55d: {concentration_slope.loc[probe_date_for_loop]:.4f}, peak_solidity: {peak_solidity.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 过程: flow_score: {flow_score.loc[probe_date_for_loop]:.4f}, concentration_score: {concentration_score.loc[probe_date_for_loop]:.4f}, stability_score: {stability_score.loc[probe_date_for_loop]:.4f}")
+                # [修改代码块] 更新探针输出以反映新的计算过程
+                print(f"       - 过程: flow_score: {flow_score.loc[probe_date_for_loop]:.4f}, concentration_score_bipolar: {concentration_score_bipolar.loc[probe_date_for_loop]:.4f}, stability_score: {stability_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 结果: final_potential_score: {potential_score.loc[probe_date_for_loop]:.4f}")
         return potential_score.clip(0, 1).astype(np.float32)
 
