@@ -517,14 +517,6 @@
             "description": "【V1.0 · 实体化】对底层的 `split_order_accumulation_intensity_D` 原始指标进行场景化归一，生成[0,1]区间的拆单吸筹强度分。"
           },
           {
-            "name": "PROCESS_META_BREAKOUT_ACCELERATION",
-            "type": "meta_analysis",
-            "task_type": "base",
-            "relationship_type": "custom",
-            "scoring_mode": "unipolar",
-            "description": "【V1.0 · 破阵战矛】诊断主力在成功突破后，乘胜追击、加速抢筹的战术行为。"
-          },
-          {
             "name": "PROCESS_META_PF_REL_BULLISH_TURN",
             "type": "meta_analysis",
             "task_type": "base",
@@ -661,6 +653,14 @@
             "scoring_mode": "unipolar",
             "accumulation_window": 21,
             "description": "【V1.0 · 势能转换】识别多日累积吸筹后，即将由量变到质变的拉升拐点。"
+          },
+          {
+            "name": "PROCESS_META_BREAKOUT_ACCELERATION",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "relationship_type": "custom",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 破阵战矛】诊断主力在成功突破后，乘胜追击、加速抢筹的战术行为。"
           },
           {
             "name": "PROCESS_META_WINNER_CONVICTION",
