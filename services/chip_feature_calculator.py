@@ -275,6 +275,14 @@ class ChipFeatureCalculator:
         return results
 
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
+        """
+        【V1.1 · 信念悖论修复版】
+        - 核心修复: 彻底废除了 `signal_conviction_score` 的几何平均数算法。该算法因“负负得正”
+                     的数学特性，会错误地将多个负面信号解读为中性或正面信号，引发“信念悖论”。
+        - 核心升级: 引入“加权内阁”模型（加权算术平均），根据战略(0.5)、战术(0.3)、控盘(0.2)
+                     的权重来融合三大支柱，确保多维度共振的弱势能被正确地、叠加地惩罚，
+                     使最终的“信号置信度”评分更符合实战逻辑。
+        """
         results = {
             'signal_conviction_score': np.nan,
             'risk_reward_profile': np.nan,
@@ -291,13 +299,14 @@ class ChipFeatureCalculator:
         prev_phase_score = prev_metrics.get('strategic_phase_score')
         if any(pd.isna(v) for v in [phase_score, posture_score, control_solidity, readiness_score, exhaustion_risk]):
             return results
+        # [修改代码块] 废除几何平均，引入“加权内阁”模型
         # --- 2. 信号置信度评分 (Signal Conviction Score) ---
         # 衡量战略、战术、控盘三者的一致性
-        s1 = phase_score / 100
-        s2 = posture_score / 100
-        s3 = np.tanh(control_solidity / 100)
-        # 使用几何平均数，如果任何一个环节为负，则置信度会受影响
-        conviction = np.sign(s1) * (abs(s1 * s2 * s3))**(1/3)
+        s1 = phase_score / 100  # 战略
+        s2 = posture_score / 100  # 战术
+        s3 = np.tanh(control_solidity / 100)  # 控盘
+        # 使用加权算术平均，正确处理负信号的叠加效应
+        conviction = (0.5 * s1 + 0.3 * s2 + 0.2 * s3)
         results['signal_conviction_score'] = conviction * 100
         # --- 3. 风险收益剖面 (Risk-Reward Profile) ---
         reward_potential = np.log1p(readiness_score)
