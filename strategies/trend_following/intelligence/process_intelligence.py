@@ -548,13 +548,14 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V4.2 · 破阵战矛调度版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 新增对 `PROCESS_META_BREAKOUT_ACCELERATION` 信号的调度，
-                     将其指向专属的 `_calculate_breakout_acceleration` 计算方法。
+        【V4.3 · 指挥链重组版】对“关系分”进行元分析，输出分数。
+        - 核心重构: 剥夺了所有下级 `_calculate_...` 方法的战报发布权，将最终的“计算完成”
+                     日志统一在此处发布。
+        - 战报真实性: 确保了日志中汇报的分数，是经过所有裁决（如 diagnosis_mode, scoring_mode）
+                       之后的最终分数，彻底解决了“幻影信号”BUG。
         """
         signal_name = config.get('name')
         df_index = df.index
-        # 根据信号名称调用不同的计算方法
         if signal_name == 'PROCESS_META_MAIN_FORCE_RALLY_INTENT':
             relationship_score = self._calculate_main_force_rally_intent(df, config)
         elif signal_name == 'PROCESS_META_WINNER_CONVICTION' and 'antidote_signal' in config:
@@ -575,7 +576,6 @@ class ProcessIntelligence:
             relationship_score = self._calculate_upthrust_washout(df, config) 
         elif signal_name == 'PROCESS_META_ACCUMULATION_INFLECTION': 
             relationship_score = self._calculate_accumulation_inflection(df, config)
-        # [新增] 为突破加速抢筹信号添加专属调度
         elif signal_name == 'PROCESS_META_BREAKOUT_ACCELERATION':
             relationship_score = self._calculate_breakout_acceleration(df, config)
         else:
@@ -586,7 +586,6 @@ class ProcessIntelligence:
         intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{signal_name}"
         self.strategy.atomic_states[intermediate_signal_name] = relationship_score.astype(np.float32)
         diagnosis_mode = config.get('diagnosis_mode', 'meta_analysis')
-        # [修改] 新增信号到直接确认列表
         if signal_name in ['PROCESS_META_STEALTH_ACCUMULATION', 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 'PROCESS_META_DECEPTIVE_ACCUMULATION', 'PROCESS_META_UPTHRUST_WASHOUT', 'PROCESS_META_ACCUMULATION_INFLECTION', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 'PROCESS_META_BREAKOUT_ACCELERATION']:
             diagnosis_mode = 'direct_confirmation'
         if diagnosis_mode == 'direct_confirmation':
@@ -627,6 +626,8 @@ class ProcessIntelligence:
         if scoring_mode == 'unipolar':
             meta_score = meta_score.clip(lower=0)
         meta_score = meta_score.clip(-1, 1).astype(np.float32)
+        # [新增] 统一在此处发布最终战报，确保战报真实性
+        print(f"    -> [过程层] {signal_name} 计算完成，最新分值: {meta_score.iloc[-1]:.4f}")
         return {signal_name: meta_score}
 
     def _diagnose_split_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
@@ -795,10 +796,11 @@ class ProcessIntelligence:
 
     def _calculate_stealth_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.2 · 战报修正版】计算“隐蔽吸筹”的专属关系分数。
-        - 核心修复: 修正了最终日志输出，确保其汇报的是最终得分 final_score，解决了“幻影信号”BUG。
+        【V3.3 · 指挥链重组版】计算“隐蔽吸筹”的专属关系分数。
+        - 核心重构: 移除了此处的最终日志输出。战报发布权已上移至调度中心
+                     `_diagnose_meta_relationship`，以确保战报的绝对真实性。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_STEALTH_ACCUMULATION (V3.2 · 战报修正版)...") # 修改: 更新版本信息
+        print("    -> [过程层] 正在计算 PROCESS_META_STEALTH_ACCUMULATION (V3.3 · 指挥链重组版)...") # 修改: 更新版本信息
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
@@ -856,8 +858,7 @@ class ProcessIntelligence:
                     print("    -> [探针] ----------------------------------------------------")
         self.strategy.atomic_states["_DEBUG_accum_suppressive_score"] = suppressive_score
         self.strategy.atomic_states["_DEBUG_accum_consolidative_score"] = consolidative_score
-        # [修改] 修复战报誊写错误，确保汇报的是最终得分 final_score
-        print(f"    -> [过程层] PROCESS_META_STEALTH_ACCUMULATION 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
+        # [删除] 移除此处的战报发布
         return final_score.astype(np.float32)
 
     def _calculate_panic_washout_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:

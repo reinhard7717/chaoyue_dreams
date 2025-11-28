@@ -398,52 +398,36 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V4.2 · 四象限博弈版】诊断筹码同调驱动力
-        - 核心升维: 引入完整的四象限博弈逻辑，重构“非对称调制因子”，使其能更智能地处理心态与结构之间的复杂关系。
-          - 看涨·顺风: 放大乐观情绪。
-          - 看涨·逆风: 削弱乐观情绪。
-          - 看跌·顺风: 放大悲观情绪。
-          - 看跌·逆风: 缓冲悲观情绪。
+        【V4.3 · 罗盘核心替换版】诊断筹码同调驱动力
+        - 核心修复: 发现并修复了“极性反转”的致命BUG。废弃了在特定场景下不可靠的
+                     `get_adaptive_mtf_normalized_bipolar_score` 工具。
+        - 罗盘核心替换: 采用数学上绝对可靠的 `np.tanh` 函数作为新的归一化核心。
+                         `tanh` 能完美地将任何实数映射到 [-1, 1] 区间，并绝对保证信号的
+                         正负极性不被改变，彻底解决了“叛变罗盘”的问题。
         """
-        # 1. 引擎双极化 (Engine): 直接使用原始的、双极性的持股心态
         base_drive = holder_sentiment_scores
-        # 2. [修改] 传动系统四象限博弈化 (Four-Quadrant Gaming Transmission)
         modulation_factor = pd.Series(1.0, index=df.index)
-        # --- 看涨场景 (心态 > 0) ---
         bullish_mask = base_drive > 0
-        # 看涨·顺风 (结构 > 0): 放大
         bullish_tailwind_mask = bullish_mask & (cost_structure_scores > 0)
         modulation_factor.loc[bullish_tailwind_mask] = 1 + cost_structure_scores.loc[bullish_tailwind_mask]
-        # 看涨·逆风 (结构 < 0): 削弱
         bullish_headwind_mask = bullish_mask & (cost_structure_scores < 0)
-        modulation_factor.loc[bullish_headwind_mask] = (1 - cost_structure_scores.loc[bullish_headwind_mask].abs()).clip(lower=0.1) # 保证不完全熄火
-        # --- 看跌场景 (心态 < 0) ---
+        modulation_factor.loc[bullish_headwind_mask] = (1 - cost_structure_scores.loc[bullish_headwind_mask].abs()).clip(lower=0.1)
         bearish_mask = base_drive < 0
-        # 看跌·顺风 (结构 < 0): 放大
         bearish_tailwind_mask = bearish_mask & (cost_structure_scores < 0)
         modulation_factor.loc[bearish_tailwind_mask] = 1 + cost_structure_scores.loc[bearish_tailwind_mask].abs()
-        # 看跌·逆风 (结构 > 0): 缓冲
         bearish_headwind_mask = bearish_mask & (cost_structure_scores > 0)
-        modulation_factor.loc[bearish_headwind_mask] = (1 - cost_structure_scores.loc[bearish_headwind_mask]).clip(lower=0.1) # 保证不完全抵消
-        # 3. 非对称调制合成
+        modulation_factor.loc[bearish_headwind_mask] = (1 - cost_structure_scores.loc[bearish_headwind_mask]).clip(lower=0.1)
         coherent_drive_raw = base_drive * modulation_factor
-        # 4. 使用统一的双极归一化工具进行最终输出
-        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
-        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        final_score = get_adaptive_mtf_normalized_bipolar_score(
-            series=coherent_drive_raw,
-            target_index=df.index,
-            tf_weights=tf_weights,
-            sensitivity=self.bipolar_sensitivity
-        )
-        # 升级探针
+        # [修改] 使用 np.tanh 替换 get_adaptive_mtf_normalized_bipolar_score
+        # tanh 函数能确保负输入得到负输出，正输入得到正输出，完美修复极性反转BUG
+        final_score = np.tanh(coherent_drive_raw * (self.bipolar_sensitivity * 2)) # 乘以敏感度因子放大信号
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
             probe_dates = [pd.to_datetime(d).tz_localize(df.index.tz if df.index.tz else None) for d in probe_dates_str]
             for probe_date in probe_dates:
                 if probe_date in df.index:
-                    print(f"    -> [探针] --- SCORE_CHIP_COHERENT_DRIVE (V4.2) @ {probe_date.date()} ---") # 修改: 更新版本信息
+                    print(f"    -> [探针] --- SCORE_CHIP_COHERENT_DRIVE (V4.3) @ {probe_date.date()} ---") # 修改: 更新版本信息
                     print(f"      --- 引擎 (Base Drive) ---")
                     print(f"        - 引擎得分 (原始holder_sentiment): {base_drive.loc[probe_date]:.4f}")
                     print(f"      --- 传动系统 (Transmission) ---")
@@ -451,7 +435,7 @@ class ChipIntelligence:
                     print(f"        - 四象限调制因子 (modulation_factor): {modulation_factor.loc[probe_date]:.4f}")
                     print(f"      --- 最终裁决 ---")
                     print(f"        - 原始驱动力 (引擎 * 调制因子): {coherent_drive_raw.loc[probe_date]:.4f}")
-                    print(f"        - 最终得分 (归一化后): {final_score.loc[probe_date]:.4f}")
+                    print(f"        - 最终得分 (tanh归一化后): {final_score.loc[probe_date]:.4f}") # 修改: 更新探针描述
                     print("    -> [探针] ----------------------------------------------------")
         return final_score.astype(np.float32)
 
