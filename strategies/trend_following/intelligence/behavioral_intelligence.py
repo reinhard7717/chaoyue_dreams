@@ -550,15 +550,16 @@ class BehavioralIntelligence:
 
     def _diagnose_lower_shadow_quality(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V3.2 · 探针逻辑重构版】诊断下影线承接品质 (SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION)。
-        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
-                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
-                      完美适配历史区间调试。
+        【V3.3 · 双向奖惩版】诊断下影线承接品质。
+        - 核心重构: 修复了“奖惩不对称”的逻辑漏洞。引入“双向奖惩机制”，将主力伏击Alpha
+                      (ambush_intent_score) 改为双极性评分，使其能奖励精准伏击（正分），
+                      并惩罚拙劣操作（负分），从根本上提升了信号的博弈内涵。
+        - ... (其他注释保持不变)
         """
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # --- 1. 计算基础K线品质分 (逻辑同V2.0) ---
+        # --- 1. 计算基础K线品质分 (逻辑不变) ---
         magnitude_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_lower_shadow_quality").replace(0, 1e-9)
@@ -568,15 +569,20 @@ class BehavioralIntelligence:
         intent_score = get_adaptive_mtf_normalized_score(flow_ratio.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         location_score = get_adaptive_mtf_normalized_score(location_raw, df.index, ascending=True, tf_weights=default_weights)
         base_quality_score = (magnitude_score.pow(0.3) * intent_score.pow(0.5) * location_score.pow(0.2)).fillna(0.0)
-        # --- 2. 构建战术价值放大器 ---
+        # --- 2. [修改代码块] 构建双向奖惩机制和新的放大器 ---
         panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         ambush_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_lower_shadow_quality")
+        # 2.1 主力伏击意图（双向奖惩）
+        ambush_intent_score = get_adaptive_mtf_normalized_bipolar_score(ambush_raw, df.index, default_weights)
+        # 2.2 调制基础品质分
+        # 权重0.5表示Alpha对基础分的调节上限为±50%
+        modulated_quality_score = base_quality_score * (1 + ambush_intent_score * 0.5).clip(0, 2)
+        # 2.3 恐慌承接放大器
         panic_absorption_score = get_adaptive_mtf_normalized_score((panic_raw * capitulation_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
-        ambush_intent_score = get_adaptive_mtf_normalized_score(ambush_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
-        context_amplifier = 1 + (panic_absorption_score * ambush_intent_score).pow(0.5)
+        context_amplifier = 1 + panic_absorption_score
         # --- 3. 非线性合成 ---
-        final_lower_shadow_quality = (base_quality_score * context_amplifier).clip(0, 1)
+        final_lower_shadow_quality = (modulated_quality_score * context_amplifier).clip(0, 1)
         # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -588,26 +594,28 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_lower_shadow_quality @ {probe_date_str}")
                 print(f"        - 基础品质分: {base_quality_score.loc[probe_ts]:.4f} (幅度={magnitude_score.loc[probe_ts]:.2f}, 意图={intent_score.loc[probe_ts]:.2f}, 位置={location_score.loc[probe_ts]:.2f})")
-                print(f"        - 战术放大器原始值: 恐慌={panic_raw.loc[probe_ts]:.2f}, 投降承接={capitulation_raw.loc[probe_ts]:.2f}, 伏击Alpha={ambush_raw.loc[probe_ts]:.2f}")
-                print(f"        - 战术放大器因子: 恐慌承接度={panic_absorption_score.loc[probe_ts]:.4f}, 伏击意图={ambush_intent_score.loc[probe_ts]:.4f} -> 放大倍数={context_amplifier.loc[probe_ts]:.4f}")
+                print(f"        - 伏击意图(双向奖惩): {ambush_intent_score.loc[probe_ts]:.4f} (原始Alpha={ambush_raw.loc[probe_ts]:.2f}) -> 调制后品质分: {modulated_quality_score.loc[probe_ts]:.4f}")
+                print(f"        - 恐慌承接放大器: 恐慌={panic_raw.loc[probe_ts]:.2f}, 承接={capitulation_raw.loc[probe_ts]:.2f} -> 放大倍数={context_amplifier.loc[probe_ts]:.4f}")
                 print(f"        - 最终下影线品质分: {final_lower_shadow_quality.loc[probe_ts]:.4f}")
         return final_lower_shadow_quality.astype(np.float32)
 
     def _calculate_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.3 · 探针逻辑重构版】计算派发意图
-        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
-                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
-                      完美适配历史区间调试。
+        【V1.4 · 伪装风险版】计算派发意图
+        - 核心重构: 修复了忽视“伪装派发”风险的认知盲点。引入“市场接受度放大器”，
+                      对于收盘强势（高接受度）的派发行为，其风险分将被放大，以反映其
+                      “成功伪装”所带来的更高危险等级。
+        - ... (其他注释保持不变)
         """
+        # [修改代码行] 增加对 closing_price_deviation_score_D 的依赖
         required_signals = [
             'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D',
             'profit_taking_flow_ratio_D', 'main_force_execution_alpha_D',
-            'SLOPE_5_main_force_conviction_index_D'
+            'SLOPE_5_main_force_conviction_index_D', 'closing_price_deviation_score_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_calculate_distribution_intent"):
             return pd.Series(0.0, index=df.index)
-        # --- 使用新的信号作为“过程证据” ---
+        # --- 五维证据链融合 (逻辑不变) ---
         rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_calculate_distribution_intent")
         process_evidence = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
         upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_calculate_distribution_intent")
@@ -620,14 +628,18 @@ class BehavioralIntelligence:
         conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_calculate_distribution_intent")
         conviction_decay = abs(conviction_slope_raw.clip(upper=0))
         conviction_evidence = get_adaptive_mtf_normalized_score(conviction_decay, df.index, ascending=True, tf_weights=tf_weights)
-        # --- 五维证据链融合 ---
-        distribution_intent_score = (
+        base_distribution_intent = (
             process_evidence.pow(0.3) *
             outcome_evidence.pow(0.2) *
             flow_evidence.pow(0.2) *
             main_force_evidence.pow(0.15) *
             conviction_evidence.pow(0.15)
         ).fillna(0.0)
+        # --- [新增代码块] 市场接受度放大器 ---
+        market_acceptance_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_calculate_distribution_intent")
+        # 权重0.5表示，最强的伪装（收在最高点）能将风险放大50%
+        acceptance_amplifier = 1 + (market_acceptance_raw * 0.5)
+        distribution_intent_score = (base_distribution_intent * acceptance_amplifier).clip(0, 1)
         # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -639,6 +651,8 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _calculate_distribution_intent @ {probe_date_str}")
                 print(f"        - 过程证据(新): rally_distribution_pressure_D = {rally_pressure_raw.loc[probe_ts]:.2f} -> 归一化分 = {process_evidence.loc[probe_ts]:.4f}")
+                print(f"        - 基础派发意图分: {base_distribution_intent.loc[probe_ts]:.4f}")
+                print(f"        - 市场接受度放大器: {acceptance_amplifier.loc[probe_ts]:.4f} (收盘偏离度={market_acceptance_raw.loc[probe_ts]:.2f})")
                 print(f"        - 最终派发意图分: {distribution_intent_score.loc[probe_ts]:.4f}")
         return distribution_intent_score.astype(np.float32)
 
