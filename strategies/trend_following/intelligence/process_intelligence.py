@@ -673,19 +673,13 @@ class ProcessIntelligence:
 
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 多时间维度归一化版】信号衰减诊断器
-        - 核心职责: 专门用于计算单个信号的负向变化（衰减）强度。
-        - 数学逻辑: 1. 计算信号的一阶差分。 2. 只保留负值（代表衰减）。 3. 取绝对值。 4. 归一化。
-        - 收益: 提供了计算“衰减”的正确且健壮的数学模型，取代了错误的关系诊断模型。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将 `decay_score` 的归一化方式改为多时间维度自适应归一化。
+        【V1.2 · 补丁移除版】信号衰减诊断器
+        - 核心清理: 移除了为兼容旧信号 `winner_conviction_index_D` 而设置的临时补丁，
+                      因为配置文件已完成信号同步，代码逻辑恢复纯粹。
         """
         signal_name = config.get('name')
         source_signal_name = config.get('source_signal')
-        # 临时补丁，将已废弃的 winner_conviction_index_D 替换为 winner_stability_index_D
-        if source_signal_name == 'winner_conviction_index_D':
-            original_signal_name = source_signal_name
-            source_signal_name = 'winner_stability_index_D'
+        # [删除代码块] 移除兼容旧信号的临时补丁
         source_type = config.get('source_type', 'df')
         df_index = df.index
         if not source_signal_name:
@@ -701,7 +695,6 @@ class ProcessIntelligence:
             return {}
         signal_change = source_series.diff(1).fillna(0)
         decay_magnitude = signal_change.clip(upper=0).abs()
-        # 获取MTF权重配置
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})

@@ -726,7 +726,7 @@
             "type": "meta_analysis",
             "task_type": "base",
             "diagnosis_type": "signal_decay",
-            "source_signal": "winner_conviction_index_D",
+            "source_signal": "winner_stability_index_D",
             "source_type": "df",
             "comment": "【V2.0 · 逻辑重铸】诊断赢家信念的衰减。使用专属的衰减分析器，直接计算信号的负向变化。"
           },
@@ -818,7 +818,7 @@
             "axioms": [
               {"name": "SCORE_FF_AXIOM_CONSENSUS", "weight": 0.5},
               {"name": "SCORE_FF_AXIOM_CONVICTION", "weight": 0.3},
-              {"name": "SCORE_FF_AXIOM_INCREMENT", "weight": 0.2}
+              {"name": "SCORE_FF_AXIOM_FLOW_MOMENTUM", "weight": 0.2}
             ],
             "comment": "资金流领域反转信号，由过程层生成。"
           },
