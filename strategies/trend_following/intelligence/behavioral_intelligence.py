@@ -550,10 +550,10 @@ class BehavioralIntelligence:
 
     def _diagnose_lower_shadow_quality(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V3.3 · 双向奖惩版】诊断下影线承接品质。
-        - 核心重构: 修复了“奖惩不对称”的逻辑漏洞。引入“双向奖惩机制”，将主力伏击Alpha
-                      (ambush_intent_score) 改为双极性评分，使其能奖励精准伏击（正分），
-                      并惩罚拙劣操作（负分），从根本上提升了信号的博弈内涵。
+        【V3.4 · 智能放大器版】诊断下影线承接品质。
+        - 核心重构: 修复了放大器“无脑放大”低品质事件的逻辑悖论。新版“智能放大器”的
+                      放大效能与被放大的“调制后品质分”正相关，确保只有在恐慌背景下
+                      “高质量”的应对才能获得显著加分，使评估更符合战场逻辑。
         - ... (其他注释保持不变)
         """
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -569,18 +569,16 @@ class BehavioralIntelligence:
         intent_score = get_adaptive_mtf_normalized_score(flow_ratio.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         location_score = get_adaptive_mtf_normalized_score(location_raw, df.index, ascending=True, tf_weights=default_weights)
         base_quality_score = (magnitude_score.pow(0.3) * intent_score.pow(0.5) * location_score.pow(0.2)).fillna(0.0)
-        # --- 2. [修改代码块] 构建双向奖惩机制和新的放大器 ---
+        # --- 2. 构建双向奖惩机制和新的放大器 ---
         panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         ambush_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_lower_shadow_quality")
-        # 2.1 主力伏击意图（双向奖惩）
         ambush_intent_score = get_adaptive_mtf_normalized_bipolar_score(ambush_raw, df.index, default_weights)
-        # 2.2 调制基础品质分
-        # 权重0.5表示Alpha对基础分的调节上限为±50%
         modulated_quality_score = base_quality_score * (1 + ambush_intent_score * 0.5).clip(0, 2)
-        # 2.3 恐慌承接放大器
+        # [修改代码块] 升级为智能放大器
         panic_absorption_score = get_adaptive_mtf_normalized_score((panic_raw * capitulation_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
-        context_amplifier = 1 + panic_absorption_score
+        # 放大效能与“调制后品质分”正相关
+        context_amplifier = 1 + (panic_absorption_score * modulated_quality_score).pow(0.5)
         # --- 3. 非线性合成 ---
         final_lower_shadow_quality = (modulated_quality_score * context_amplifier).clip(0, 1)
         # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
@@ -595,19 +593,17 @@ class BehavioralIntelligence:
                 print(f"      [行为探针] _diagnose_lower_shadow_quality @ {probe_date_str}")
                 print(f"        - 基础品质分: {base_quality_score.loc[probe_ts]:.4f} (幅度={magnitude_score.loc[probe_ts]:.2f}, 意图={intent_score.loc[probe_ts]:.2f}, 位置={location_score.loc[probe_ts]:.2f})")
                 print(f"        - 伏击意图(双向奖惩): {ambush_intent_score.loc[probe_ts]:.4f} (原始Alpha={ambush_raw.loc[probe_ts]:.2f}) -> 调制后品质分: {modulated_quality_score.loc[probe_ts]:.4f}")
-                print(f"        - 恐慌承接放大器: 恐慌={panic_raw.loc[probe_ts]:.2f}, 承接={capitulation_raw.loc[probe_ts]:.2f} -> 放大倍数={context_amplifier.loc[probe_ts]:.4f}")
+                print(f"        - 智能放大器: 恐慌承接度={panic_absorption_score.loc[probe_ts]:.4f} -> 放大倍数={context_amplifier.loc[probe_ts]:.4f}")
                 print(f"        - 最终下影线品质分: {final_lower_shadow_quality.loc[probe_ts]:.4f}")
         return final_lower_shadow_quality.astype(np.float32)
 
     def _calculate_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.4 · 伪装风险版】计算派发意图
-        - 核心重构: 修复了忽视“伪装派发”风险的认知盲点。引入“市场接受度放大器”，
-                      对于收盘强势（高接受度）的派发行为，其风险分将被放大，以反映其
-                      “成功伪装”所带来的更高危险等级。
+        【V1.5 · 数据净化版】计算派发意图
+        - 核心修复: 增加了对输入信号 `closing_price_deviation_score_D` 的强制归一化处理，
+                      解决了因上游数据污染导致“市场接受度放大器”逻辑崩溃的致命漏洞。
         - ... (其他注释保持不变)
         """
-        # [修改代码行] 增加对 closing_price_deviation_score_D 的依赖
         required_signals = [
             'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D',
             'profit_taking_flow_ratio_D', 'main_force_execution_alpha_D',
@@ -635,10 +631,11 @@ class BehavioralIntelligence:
             main_force_evidence.pow(0.15) *
             conviction_evidence.pow(0.15)
         ).fillna(0.0)
-        # --- [新增代码块] 市场接受度放大器 ---
+        # --- [修改代码块] 市场接受度放大器 (增加数据净化) ---
         market_acceptance_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_calculate_distribution_intent")
-        # 权重0.5表示，最强的伪装（收在最高点）能将风险放大50%
-        acceptance_amplifier = 1 + (market_acceptance_raw * 0.5)
+        # 数据净化：强制将收盘偏离度归一化到 [0, 1] 区间
+        market_acceptance_normalized = normalize_score(market_acceptance_raw, df.index, 55)
+        acceptance_amplifier = 1 + (market_acceptance_normalized * 0.5)
         distribution_intent_score = (base_distribution_intent * acceptance_amplifier).clip(0, 1)
         # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -652,7 +649,7 @@ class BehavioralIntelligence:
                 print(f"      [行为探针] _calculate_distribution_intent @ {probe_date_str}")
                 print(f"        - 过程证据(新): rally_distribution_pressure_D = {rally_pressure_raw.loc[probe_ts]:.2f} -> 归一化分 = {process_evidence.loc[probe_ts]:.4f}")
                 print(f"        - 基础派发意图分: {base_distribution_intent.loc[probe_ts]:.4f}")
-                print(f"        - 市场接受度放大器: {acceptance_amplifier.loc[probe_ts]:.4f} (收盘偏离度={market_acceptance_raw.loc[probe_ts]:.2f})")
+                print(f"        - 市场接受度放大器: {acceptance_amplifier.loc[probe_ts]:.4f} (收盘偏离度(原始)={market_acceptance_raw.loc[probe_ts]:.2f}, 净化后={market_acceptance_normalized.loc[probe_ts]:.4f})")
                 print(f"        - 最终派发意图分: {distribution_intent_score.loc[probe_ts]:.4f}")
         return distribution_intent_score.astype(np.float32)
 
