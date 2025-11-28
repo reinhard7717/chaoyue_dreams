@@ -555,9 +555,9 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V4.0.3 · 希格斯场分析法 - 信号存储与多时间维度归一化修复版】对“关系分”进行元分析，输出分数。
-        - 核心修复: 确保 `PROCESS_META_MAIN_FORCE_RALLY_INTENT` 及其他定制化计算的信号能够正确地被存储到 `atomic_states` 中。
-        - 【优化】将 `bipolar_displacement_strength` 和 `bipolar_momentum_strength` 的归一化方式改为多时间维度自适应归一化。
+        【V4.1 · 拆单吸筹调度版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 新增对 `PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY` 信号的调度，
+                     将其指向专属的 `_calculate_split_order_accumulation` 计算方法。
         """
         signal_name = config.get('name')
         df_index = df.index
@@ -574,12 +574,15 @@ class ProcessIntelligence:
             relationship_score = self._calculate_stealth_accumulation(df, config)
         elif signal_name == 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION':
             relationship_score = self._calculate_panic_washout_accumulation(df, config)
-        elif signal_name == 'PROCESS_META_DECEPTIVE_ACCUMULATION': #  增加对诡道吸筹信号的判断
-            relationship_score = self._calculate_deceptive_accumulation(df, config) #  调用专属计算方法
-        elif signal_name == 'PROCESS_META_UPTHRUST_WASHOUT': # 
-            relationship_score = self._calculate_upthrust_washout(df, config) # 
-        elif signal_name == 'PROCESS_META_ACCUMULATION_INFLECTION': # 
-            relationship_score = self._calculate_accumulation_inflection(df, config) # 
+        elif signal_name == 'PROCESS_META_DECEPTIVE_ACCUMULATION': 
+            relationship_score = self._calculate_deceptive_accumulation(df, config)
+        # [新增] 为拆单吸筹信号添加专属调度
+        elif signal_name == 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY':
+            relationship_score = self._calculate_split_order_accumulation(df, config)
+        elif signal_name == 'PROCESS_META_UPTHRUST_WASHOUT': 
+            relationship_score = self._calculate_upthrust_washout(df, config) 
+        elif signal_name == 'PROCESS_META_ACCUMULATION_INFLECTION': 
+            relationship_score = self._calculate_accumulation_inflection(df, config) 
         else:
             relationship_score = self._calculate_instantaneous_relationship(df, config)
         if relationship_score.empty:
@@ -590,7 +593,7 @@ class ProcessIntelligence:
         intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{signal_name}"
         self.strategy.atomic_states[intermediate_signal_name] = relationship_score.astype(np.float32)
         diagnosis_mode = config.get('diagnosis_mode', 'meta_analysis')
-        if signal_name in ['PROCESS_META_STEALTH_ACCUMULATION', 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 'PROCESS_META_DECEPTIVE_ACCUMULATION', 'PROCESS_META_UPTHRUST_WASHOUT', 'PROCESS_META_ACCUMULATION_INFLECTION']: # [代码修改]
+        if signal_name in ['PROCESS_META_STEALTH_ACCUMULATION', 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 'PROCESS_META_DECEPTIVE_ACCUMULATION', 'PROCESS_META_UPTHRUST_WASHOUT', 'PROCESS_META_ACCUMULATION_INFLECTION', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY']: # [代码修改] 新增信号到直接确认列表
             diagnosis_mode = 'direct_confirmation'
         if diagnosis_mode == 'direct_confirmation':
             meta_score = relationship_score
@@ -629,7 +632,7 @@ class ProcessIntelligence:
                     gate_is_open = df['close_D'] < ma_series
             meta_score = meta_score * gate_is_open.astype(float)
         signal_meta = self.score_type_map.get(signal_name, {})
-        scoring_mode = signal_meta.get('scoring_mode', 'bipolar')
+        scoring_mode = signal_meta.get('scoring_mode', 'unipolar')
         if scoring_mode == 'unipolar':
             meta_score = meta_score.clip(lower=0)
         meta_score = meta_score.clip(-1, 1).astype(np.float32)
@@ -1072,6 +1075,40 @@ class ProcessIntelligence:
         print(f"    -> [过程层] PROCESS_META_ACCUMULATION_INFLECTION 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
+    def _calculate_split_order_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0 · 实体化版】计算“拆单吸筹强度”的专属信号。
+        - 核心逻辑: 对底层的原始指标 `split_order_accumulation_intensity_D` 进行场景化的归一化处理。
+        - 场景约束: 仅在价格被抑制（下跌、横盘或微涨）的场景下，该信号才具有战术意义。
+        - 探针: 植入深度探针，展示原始值、场景掩码状态和最终归一化得分。
+        """
+        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (实体化版)...")
+        df_index = df.index
+        # 1. 获取核心原始数据
+        raw_intensity = self._get_safe_series(df, 'split_order_accumulation_intensity_D', 0.0, method_name="_calculate_split_order_accumulation")
+        # 2. 定义场景约束
+        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_split_order_accumulation")
+        scene_mask = pct_change <= 0.02 # 价格被抑制，允许微弱上涨
+        # 3. 归一化处理
+        # 该原始指标通常是0-100，我们将其归一化到0-1
+        normalized_score = (raw_intensity / 100).clip(0, 1)
+        # 4. 应用场景约束
+        final_score = normalized_score.where(scene_mask, 0.0).fillna(0.0)
+        # 5. 植入深度探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
+            for probe_date in probe_dates:
+                if probe_date in df_index:
+                    print(f"    -> [探针] --- PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY @ {probe_date.date()} ---")
+                    print(f"      - 原始数据 (split_order_accumulation_intensity_D): {raw_intensity.loc[probe_date]:.4f}")
+                    print(f"      - 场景约束 (涨幅 <= 2%): {scene_mask.loc[probe_date]} (当日涨幅: {pct_change.loc[probe_date]:.2%})")
+                    print(f"      - 归一化得分 (原始值/100): {normalized_score.loc[probe_date]:.4f}")
+                    print(f"      - 最终得分 (应用场景约束后): {final_score.loc[probe_date]:.4f}")
+                    print("    -> [探针] ----------------------------------------------------")
+        print(f"    -> [过程层] PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
+        return final_score.astype(np.float32)
 
 
 

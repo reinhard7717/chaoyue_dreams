@@ -509,6 +509,14 @@
             "comment": "【基础元分析-价量】保持不变，这是最基础的关系。"
           },
           {
+            "name": "PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "relationship_type": "custom",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 实体化】对底层的 `split_order_accumulation_intensity_D` 原始指标进行场景化归一，生成[0,1]区间的拆单吸筹强度分。"
+          },
+          {
             "name": "PROCESS_META_PF_REL_BULLISH_TURN",
             "type": "meta_analysis",
             "task_type": "base",
