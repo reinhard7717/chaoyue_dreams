@@ -144,7 +144,7 @@ class GeometricPatternService:
         【V2.34 · 核心诊断探针版】准备一个包含所有高级指标的、信息增强的DataFrame。
         - 核心修改: 移除此方法内的所有旧探针，将诊断焦点集中到下游。
         """
-        # 修改代码：移除了所有探针print语句
+        # 移除了所有探针print语句
         chip_metrics_qs = self.chip_metrics_model.objects.filter(stock=self.stock_instance).values()
         fund_flow_metrics_qs = self.fund_flow_metrics_model.objects.filter(stock=self.stock_instance).values()
         structural_metrics_qs = self.structural_metrics_model.objects.filter(stock=self.stock_instance).values()
@@ -184,7 +184,7 @@ class GeometricPatternService:
         - V2.54 核心修复: 修正了因方法重命名（_predict_flag_breakout_probability -> _find_and_evaluate_flags）
                          而遗漏更新的调用点，根除了由此引发的 AttributeError。
         """
-        # 修改代码：移除了所有探针print语句
+        # 移除了所有探针print语句
         df_daily = data_dfs.get('daily_data')
         if df_daily is None or df_daily.empty:
             return
@@ -222,7 +222,7 @@ class GeometricPatternService:
                          确保参照系校准后的序列不再被错误地二次归一化。
         """
         import math
-        # 修改代码：移除了所有探针print语句
+        # 移除了所有探针print语句
         if len(enriched_df) < 120:
             return
         if not self.platform_archetypes:
@@ -431,7 +431,7 @@ class GeometricPatternService:
             ofi = buy_vol - sell_vol
             return ofi, total_amount
         except KeyError as e:
-            # 修改代码：移除了探针print语句
+            # 移除了探针print语句
             return 0.0, 0.0
 
     def _calculate_and_save_trendline_matrix_and_events(self, df_daily: pd.DataFrame, data_dfs: dict, start_date_str: str = None):
@@ -441,7 +441,7 @@ class GeometricPatternService:
                          和滚动标准差(std)。这些核心统计量将作为下游“高斯归一化”引擎的
                          历史参照系，实现从分段线性到概率平滑的思维跃迁。
         """
-        # 修改代码：移除了所有探针print语句
+        # 移除了所有探针print语句
         df_daily = df_daily.sort_index(ascending=True)
         if 'enriched_df' not in data_dfs:
              data_dfs['enriched_df'] = self._prepare_enriched_dataframe(df_daily)
@@ -504,10 +504,10 @@ class GeometricPatternService:
                 # 删除指定日期之后的所有趋势线矩阵和事件记录
                 mtt_del_count, _ = self.mtt_model.objects.filter(stock=self.stock_instance, trade_date__gte=save_start_date).delete()
                 event_del_count, _ = self.event_model.objects.filter(stock=self.stock_instance, event_date__gte=save_start_date).delete()
-                # 修改代码：移除了探针print语句
+                # 移除了探针print语句
                 return pd.to_datetime(save_start_date)
             except (ValueError, TypeError):
-                # 修改代码：移除了探针print语句
+                # 移除了探针print语句
                 pass
         # 2. 标准增量逻辑：查找最新记录
         last_record = self.mtt_model.objects.filter(stock=self.stock_instance).order_by('-trade_date').first()
@@ -714,7 +714,7 @@ class GeometricPatternService:
         enriched_df = data_dfs.get('enriched_df')
         if enriched_df is None:
             return []
-        # 修改代码：移除了所有探针print语句
+        # 移除了所有探针print语句
         for period in self.fib_periods:
             lookback_days = period * 3
             start_date = current_date - pd.Timedelta(days=lookback_days)
@@ -752,7 +752,7 @@ class GeometricPatternService:
         - V2.52 升级: 在返回的最佳趋势线信息中，增加 `start_date` 和 `end_date`，
                      为下游的“趋势信念评分”计算提供必要的起止区间。
         """
-        # 修改代码：移除了所有探针print语句
+        # 移除了所有探针print语句
         if len(pivots) < 2: return None
         MAX_PIVOTS_TO_COMBINE = 20
         NUM_RECENT_PIVOTS = 10
@@ -941,7 +941,7 @@ class GeometricPatternService:
         """
         conviction_score = flag.get('conviction_score', 0.0)
         final_probability = conviction_score / 100.0
-        # 修改代码：移除了所有探针print语句
+        # 移除了所有探针print语句
         features = {
             'conviction_score': conviction_score,
             'retracement_depth': flag.get('retracement_depth'),
@@ -960,7 +960,7 @@ class GeometricPatternService:
         for archetype in self.flag_archetypes:
             timeframe = archetype.get('timeframe', 'D')
             archetype_name = archetype.get('name', 'UNKNOWN_FLAG')
-            # 修改代码：移除了所有探针print语句
+            # 移除了所有探针print语句
             df_source = None
             if timeframe == 'D':
                 df_source = enriched_df
@@ -1030,7 +1030,7 @@ class GeometricPatternService:
         ignition_min_vol_ratio = archetype.get('ignition_min_vol_ratio', 1.5)
         end_date = df.index[end_index_loc]
         minute_map = data_dfs.get("stock_minute_data_map", {})
-        # 修改代码：移除了所有探针print语句
+        # 移除了所有探针print语句
         best_pole = None
         max_conviction_score = -1.0
         for duration in range(min_dur, max_dur + 1):
@@ -1098,7 +1098,7 @@ class GeometricPatternService:
         max_retracement = archetype.get('flag_max_retracement', 0.618)
         vol_shrink_ratio = archetype.get('flag_vol_shrink_ratio', 0.7)
         max_buffers = archetype.get('flag_max_buffers', 2)
-        # 修改代码：移除了所有探针print语句
+        # 移除了所有探针print语句
         pole_rise = pole['high_price'] - pole['start_price']
         if pole_rise <= 0: return None
         best_flag = None
@@ -1150,7 +1150,7 @@ class GeometricPatternService:
         conviction_score = flag.get('conviction_score', 0.0)
         # V2.73 核心逻辑：信念即概率
         final_probability = conviction_score / 100.0
-        # 修改代码：移除了所有探针print语句
+        # 移除了所有探针print语句
         # V2.73 净化返回的特征字典，使其与“归一”哲学对齐
         features = {
             'conviction_score': conviction_score,
@@ -1205,7 +1205,7 @@ class GeometricPatternService:
         """
         if not records:
             return
-        # 修改代码：移除了所有探针print语句
+        # 移除了所有探针print语句
         # V2.56 NaN值净化器
         sanitized_records = [
             {key: (None if isinstance(value, float) and pd.isna(value) else value) for key, value in record.items()}

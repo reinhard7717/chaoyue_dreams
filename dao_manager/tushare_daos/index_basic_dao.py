@@ -477,8 +477,8 @@ class IndexBasicDAO(BaseDAO):
                     df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
                     df['index'] = index_info
                     df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
-                    # 修改代码：移除不正确的重命名操作
-                    model_cols = ['index', 'trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg', 'vol', 'amount'] # 修改代码：使用正确的模型字段名 'pct_chg'
+                    # 移除不正确的重命名操作
+                    model_cols = ['index', 'trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'change', 'pct_chg', 'vol', 'amount'] # 使用正确的模型字段名 'pct_chg'
                     df_final = df[[col for col in model_cols if col in df.columns]]
                     new_dicts = df_final.where(pd.notnull(df_final), None).to_dict('records')
                     index_daily_dicts.extend(new_dicts)

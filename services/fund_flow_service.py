@@ -509,7 +509,7 @@ class AdvancedFundFlowMetricsService:
         day_results = {}
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
         df_to_attribute = minute_data_for_day
-        # 修改代码：移除了所有与debug_mode和探针相关的print语句
+        # 移除了所有与debug_mode和探针相关的print语句
         for cost_type in cost_types:
             size, direction = cost_type.split('_')
             db_vol_key = f'{direction}_{size}_vol'

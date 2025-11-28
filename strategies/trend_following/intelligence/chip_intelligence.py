@@ -272,7 +272,7 @@ class ChipIntelligence:
           3. 喷管效率 (Nozzle Efficiency): 前方是否存在“真空区”以最高效地传导推力？
         - 非线性合成: 结构性推力 = 功率 * 品质 * 效率。任何一环的缺失都将导致推力瓦解，旨在识别真正由主力主导的、具备持续性的高质量趋势。
         """
-        # 修改代码：更新 required_signals 以匹配新的“大一统”信号
+        # 更新 required_signals 以匹配新的“大一统”信号
         required_signals = [
             'SCORE_CHIP_STRATEGIC_POSTURE', 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT',
             'main_force_conviction_index_D', 'vacuum_zone_magnitude_D'
@@ -282,7 +282,7 @@ class ChipIntelligence:
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         df_index = df.index
-        # 修改代码：使用新的“大一统”信号重构整体健康度计算
+        # 使用新的“大一统”信号重构整体健康度计算
         health_score = (
             (df['SCORE_CHIP_STRATEGIC_POSTURE'].add(1)/2) *
             (df['SCORE_CHIP_BATTLEFIELD_GEOGRAPHY'].add(1)/2) *
@@ -459,7 +459,7 @@ class ChipIntelligence:
           3. 主力回声: 存在主力资金逆势净流入的直接证据。
         - 非线性合成: 回声强度 = 声源 * 介质 * 主力回声。三者缺一不可。
         """
-        # 修改代码：将 main_force_net_inflow_rate_D 替换为 main_force_net_flow_calibrated_D
+        # 将 main_force_net_inflow_rate_D 替换为 main_force_net_flow_calibrated_D
         required_signals = ['SLOPE_5_close_D', 'main_force_net_flow_calibrated_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_absorption_echo"):
             return pd.Series(0.0, index=df.index)
@@ -472,7 +472,7 @@ class ChipIntelligence:
         # 2. 逆流介质 (基础背离)
         counter_flow_medium_score = divergence_scores.clip(lower=0)
         # 3. 主力回声 (主力逆势流入)
-        # 修改代码：将 main_force_net_inflow_rate_D 替换为 main_force_net_flow_calibrated_D
+        # 将 main_force_net_inflow_rate_D 替换为 main_force_net_flow_calibrated_D
         mf_inflow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_absorption_echo")
         main_force_echo_score = get_adaptive_mtf_normalized_score(mf_inflow, df_index, tf_weights) * (mf_inflow > 0) * (price_trend < 0)
         # 最终合成
@@ -489,7 +489,7 @@ class ChipIntelligence:
           3. 主力抽离: 存在主力资金顺势净流出的直接证据。
         - 非线性合成: 诡影风险 = 背景 * 诡影 * 主力抽离。三者缺一不可。
         """
-        # 修改代码：将 main_force_net_inflow_rate_D 替换为 main_force_net_flow_calibrated_D
+        # 将 main_force_net_inflow_rate_D 替换为 main_force_net_flow_calibrated_D
         required_signals = ['SLOPE_5_close_D', 'main_force_net_flow_calibrated_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_distribution_whisper"):
             return pd.Series(0.0, index=df.index)
@@ -502,7 +502,7 @@ class ChipIntelligence:
         # 2. 背离诡影 (基础背离)
         divergence_shadow_score = divergence_scores.clip(upper=0).abs()
         # 3. 主力抽离 (主力顺势流出)
-        # 修改代码：将 main_force_net_inflow_rate_D 替换为 main_force_net_flow_calibrated_D
+        # 将 main_force_net_inflow_rate_D 替换为 main_force_net_flow_calibrated_D
         mf_inflow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_distribution_whisper")
         main_force_retreat_score = get_adaptive_mtf_normalized_score(mf_inflow.abs(), df_index, tf_weights) * (mf_inflow < 0) * (price_trend > 0)
         # 最终合成

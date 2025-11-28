@@ -85,6 +85,19 @@ class CognitiveIntelligence:
                     print(f"    -> [DEBUG _get_playbook_score] 信号 '{signal_name}' 原始值: {score:.4f}")
         return score
 
+    def _validate_required_signals(self, df: pd.DataFrame, required_signals: List[str], method_name: str) -> bool:
+        """
+        【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
+        """
+        missing_signals = []
+        for signal in required_signals:
+            if signal not in df.columns and signal not in self.strategy.atomic_states:
+                missing_signals.append(signal)
+        if missing_signals:
+            print(f"    -> [认知情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
+            return False
+        return True
+
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V27.5 · 清理版】总指挥
@@ -135,12 +148,20 @@ class CognitiveIntelligence:
         - 清理: 移除了用于调试的“生产线探针”相关代码。
         """
         print("    -- [剧本推演] 主力打压吸筹 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 'pct_change_D', 'dip_absorption_power_D',
+            'PROCESS_META_STEALTH_ACCUMULATION', 'SCORE_CHIP_STRATEGIC_POSTURE', 'FUSION_BIPOLAR_MARKET_CONTRADICTION'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_suppressive_accumulation"):
+            return {'COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION': pd.Series(0.0, index=df.index)}
         capital_confrontation = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0))
         price_change_bipolar = normalize_to_bipolar(self._get_atomic_score(df, 'pct_change_D'), df.index, 21)
         price_falling_evidence = self._forge_dynamic_evidence(df, price_change_bipolar.clip(upper=0).abs())
         efficiency_evidence = self._forge_dynamic_evidence(df, normalize_score(self._get_atomic_score(df, 'dip_absorption_power_D'), df.index, 55))
         process_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_STEALTH_ACCUMULATION', 0.0).clip(lower=0))
-        chip_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(lower=0))
+        # 将 SCORE_CHIP_AXIOM_CONCENTRATION 替换为 SCORE_CHIP_STRATEGIC_POSTURE
+        chip_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(lower=0))
         market_contradiction_bullish = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0).clip(lower=0))
         evidence_scores = np.stack([
             capital_confrontation.values, price_falling_evidence.values, efficiency_evidence.values,
@@ -154,7 +175,6 @@ class CognitiveIntelligence:
         likelihood = pd.Series(likelihood_values, index=df.index)
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        # [代码修改开始] 移除了整个“生产线探针”的调试代码块
         return {'COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION': posterior_prob.astype(np.float32)}
 
     def _deduce_distribution_at_high(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
@@ -164,6 +184,16 @@ class CognitiveIntelligence:
         - 【V3.11 修复】接收并使用 df 参数，确保索引上下文统一。
         """
         print("    -- [剧本推演] 高位派发风险 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
+            'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT',
+            'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'PROCESS_META_PROFIT_VS_FLOW', 'SCORE_CHIP_STRATEGIC_POSTURE',
+            'FUSION_BIPOLAR_MARKET_CONTRADICTION', 'FUSION_BIPOLAR_UPPER_SHADOW_INTENT',
+            'SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 'dip_absorption_power_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_distribution_at_high"):
+            return {'COGNITIVE_RISK_DISTRIBUTION_AT_HIGH': pd.Series(0.0, index=df.index)}
         df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
@@ -177,11 +207,13 @@ class CognitiveIntelligence:
         price_overextension_risk = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs())
         low_upward_efficiency = self._forge_dynamic_evidence(df, (1 - self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5)).clip(0, 1))
         profit_vs_flow_bearish = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_PROFIT_VS_FLOW', 0.0).clip(upper=0).abs())
-        chip_dispersion_evidence = self._forge_dynamic_evidence(df, (1 - self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
+        # 将 SCORE_CHIP_AXIOM_CONCENTRATION 替换为 SCORE_CHIP_STRATEGIC_POSTURE 的负向表现
+        chip_dispersion_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(upper=0).abs())
         market_contradiction_bearish = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0).clip(upper=0).abs())
         upper_shadow_pressure = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0).clip(upper=0).abs())
         fund_flow_bearish_divergence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 0.0))
-        chip_bearish_divergence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_BEARISH_DIVERGENCE', 0.0))
+        # 将 SCORE_CHIP_BEARISH_DIVERGENCE 替换为 SCORE_CHIP_RISK_DISTRIBUTION_WHISPER
+        chip_bearish_divergence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 0.0))
         dip_absorption_power = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'dip_absorption_power_D', 0.0))
         dip_absorption_inverse = (1 - dip_absorption_power).clip(0, 1)
         evidence_scores = np.stack([
@@ -238,6 +270,19 @@ class CognitiveIntelligence:
         - 【V3.4 修复】接收并使用 df 参数，确保索引上下文统一。
         """
         print("    -- [剧本推演] 趋势衰竭风险 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
+            'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE', 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY',
+            'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 'PROCESS_META_WINNER_CONVICTION_DECAY',
+            'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 'SCORE_FUND_FLOW_BEARISH_DIVERGENCE',
+            'COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 'SCORE_CHIP_STRATEGIC_POSTURE',
+            'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 'COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION',
+            'FUSION_BIPOLAR_MARKET_CONTRADICTION', 'FUSION_BIPOLAR_UPPER_SHADOW_INTENT',
+            'COGNITIVE_RISK_CYCLICAL_TOP', 'CONTEXT_NEW_HIGH_STRENGTH', 'dip_absorption_power_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_trend_exhaustion_risk"):
+            return {'COGNITIVE_RISK_TREND_EXHAUSTION': pd.Series(0.0, index=df.index)}
         df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
@@ -256,8 +301,10 @@ class CognitiveIntelligence:
         capital_retreat_evidence = self._forge_dynamic_evidence(df, raw_capital_confrontation_score.clip(upper=0).abs())
         fund_flow_bearish_divergence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 0.0))
         retail_fomo_retreat_risk = self._forge_dynamic_evidence(df, self._get_playbook_score(df, 'COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 0.0), is_probability=True)
-        chip_dispersion_evidence = self._forge_dynamic_evidence(df, (1 - self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
-        chip_bearish_divergence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_BEARISH_DIVERGENCE', 0.0))
+        # 将 SCORE_CHIP_AXIOM_CONCENTRATION 替换为 SCORE_CHIP_STRATEGIC_POSTURE 的负向表现
+        chip_dispersion_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(upper=0).abs())
+        # 将 SCORE_CHIP_BEARISH_DIVERGENCE 替换为 SCORE_CHIP_RISK_DISTRIBUTION_WHISPER
+        chip_bearish_divergence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 0.0))
         long_term_profit_distribution_risk = self._forge_dynamic_evidence(df, self._get_playbook_score(df, 'COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION', 0.0), is_probability=True)
         raw_structural_trend_form_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         structural_deterioration = self._forge_dynamic_evidence(df, raw_structural_trend_form_score.clip(upper=0).abs())
@@ -305,6 +352,19 @@ class CognitiveIntelligence:
         - 核心升级: 将 `SCORE_CHIP_STRUCTURAL_CONSENSUS` 信号融入到“趋势先验概率” (COGNITIVE_PRIOR_TREND_PROB) 的计算中。
         - 【V1.8 修复】接收并使用 df 参数，确保索引上下文统一。
         """
+        # 增加信号校验
+        required_signals = [
+            'FUSION_BIPOLAR_MARKET_REGIME', 'FUSION_BIPOLAR_TREND_QUALITY', 'FUSION_BIPOLAR_TREND_STRUCTURE_SCORE',
+            'FUSION_BIPOLAR_FUND_FLOW_TREND', 'FUSION_BIPOLAR_CHIP_TREND', 'SCORE_CHIP_COHERENT_DRIVE',
+            'FUSION_BIPOLAR_MARKET_PRESSURE', 'CONTEXT_TREND_CONFIRMED'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_establish_prior_beliefs"):
+            # 如果关键先验信号缺失，返回一个中性的先验概率
+            default_prob = pd.Series(0.5, index=df.index)
+            return {
+                'COGNITIVE_PRIOR_TREND_PROB': default_prob,
+                'COGNITIVE_PRIOR_REVERSAL_PROB': default_prob
+            }
         states = {}
         df_index = df.index
         market_regime = self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_REGIME', 0.0)
@@ -312,7 +372,8 @@ class CognitiveIntelligence:
         trend_structure_score = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_STRUCTURE_SCORE', 0.0)
         fund_flow_trend = self._get_fused_score(df, 'FUSION_BIPOLAR_FUND_FLOW_TREND', 0.0)
         chip_trend = self._get_fused_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0)
-        structural_consensus = self._get_atomic_score(df, 'SCORE_CHIP_STRUCTURAL_CONSENSUS', 0.0)
+        # 将 SCORE_CHIP_STRUCTURAL_CONSENSUS 替换为 SCORE_CHIP_COHERENT_DRIVE
+        structural_consensus = self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0)
         market_regime_prob = (market_regime + 1) / 2
         trend_quality_prob = (trend_quality + 1) / 2
         trend_structure_prob = (trend_structure_score + 1) / 2
@@ -394,6 +455,15 @@ class CognitiveIntelligence:
         - 【V3.8 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 主力拉升抢筹 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 'pct_change_D', 'VPA_EFFICIENCY_D',
+            'PROCESS_META_MAIN_FORCE_RALLY_INTENT', 'PROCESS_META_WINNER_CONVICTION',
+            'SCORE_CHIP_STRATEGIC_POSTURE', 'SCORE_CHIP_COHERENT_DRIVE',
+            'SCORE_PATTERN_PULLBACK_CONFIRMATION', 'SCORE_PATTERN_DUOFANGPAO'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_chasing_accumulation"):
+            return {'COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION': pd.Series(0.0, index=df.index)}
         capital_confrontation = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0))
         price_change_bipolar = normalize_to_bipolar(self._get_atomic_score(df, 'pct_change_D'), df.index, 21)
         price_rising_evidence = self._forge_dynamic_evidence(df, price_change_bipolar.clip(lower=0))
@@ -401,8 +471,10 @@ class CognitiveIntelligence:
         rally_intent_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_RALLY_INTENT', 0.0).clip(lower=0))
         conviction_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0).clip(lower=0))
         process_evidence = (rally_intent_evidence * conviction_evidence).pow(0.5)
-        chip_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(lower=0))
-        structural_consensus_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRUCTURAL_CONSENSUS', 0.0))
+        # 将 SCORE_CHIP_AXIOM_CONCENTRATION 替换为 SCORE_CHIP_STRATEGIC_POSTURE
+        chip_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(lower=0))
+        # 将 SCORE_CHIP_STRUCTURAL_CONSENSUS 替换为 SCORE_CHIP_COHERENT_DRIVE
+        structural_consensus_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0))
         pullback_confirmation_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_PATTERN_PULLBACK_CONFIRMATION', 0.0))
         duofangpao_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_PATTERN_DUOFANGPAO', 0.0))
         evidence_scores = np.stack([
@@ -426,6 +498,13 @@ class CognitiveIntelligence:
         - 【V3.7 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 恐慌投降反转 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'FUSION_BIPOLAR_MARKET_PRESSURE', 'dip_absorption_power_D', 'VOL_MA_55_D', 'volume_D',
+            'PROCESS_META_LOSER_CAPITULATION', 'PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL', 'IS_WW1_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_capitulation_reversal"):
+            return {'COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL': pd.Series(0.0, index=df.index)}
         upward_pressure = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0).clip(lower=0))
         price_rebound_evidence = self._forge_dynamic_evidence(df, normalize_score(self._get_atomic_score(df, 'dip_absorption_power_D'), df.index, 55))
         vol_ma55 = self._get_atomic_score(df, 'VOL_MA_55_D', 1.0)
@@ -454,12 +533,20 @@ class CognitiveIntelligence:
         - 【V1.6 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 龙头苏醒 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 'breakout_quality_score_D', 'PROCESS_META_STOCK_SECTOR_SYNC',
+            'industry_strength_rank_D', 'IS_BAZHAN_D', 'SCORE_CHIP_COHERENT_DRIVE'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_leading_dragon_awakening"):
+            return {'COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING': pd.Series(0.0, index=df.index)}
         capital_confrontation = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0))
         breakout_quality = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'breakout_quality_score_D', 0.0))
         sector_sync = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_STOCK_SECTOR_SYNC', 0.0).clip(lower=0))
         relative_strength = self._forge_dynamic_evidence(df, normalize_score(self._get_atomic_score(df, 'industry_strength_rank_D', 0.5), df.index, 55))
         bazhan_mode = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'IS_BAZHAN_D', 0.0).astype(float))
-        structural_consensus_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRUCTURAL_CONSENSUS', 0.0))
+        # 将 SCORE_CHIP_STRUCTURAL_CONSENSUS 替换为 SCORE_CHIP_COHERENT_DRIVE
+        structural_consensus_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0))
         evidence_scores = np.stack([
             capital_confrontation.values, breakout_quality.values, sector_sync.values,
             relative_strength.values, bazhan_mode.values,
@@ -480,10 +567,19 @@ class CognitiveIntelligence:
         - 【V2.2 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 背离反转 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE', 'SCORE_FUND_FLOW_BEARISH_DIVERGENCE',
+            'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 'COGNITIVE_RISK_TREND_EXHAUSTION',
+            'FUSION_BIPOLAR_MARKET_CONTRADICTION', 'PROCESS_META_WINNER_CONVICTION_DECAY'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_divergence_reversal"):
+            return {'COGNITIVE_PLAYBOOK_DIVERGENCE_REVERSAL': pd.Series(0.0, index=df.index)}
         df_index = df.index
         price_momentum_divergence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE', 0.0))
         fund_flow_bearish_divergence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 0.0))
-        chip_bearish_divergence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_BEARISH_DIVERGENCE', 0.0))
+        # 将 SCORE_CHIP_BEARISH_DIVERGENCE 替换为 SCORE_CHIP_RISK_DISTRIBUTION_WHISPER
+        chip_bearish_divergence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 0.0))
         trend_exhaustion_risk = self._forge_dynamic_evidence(df, self._get_playbook_score(df, 'COGNITIVE_RISK_TREND_EXHAUSTION', 0.0), is_probability=True)
         raw_market_contradiction_score = self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0)
         market_contradiction_bearish = self._forge_dynamic_evidence(df, raw_market_contradiction_score.clip(upper=0).abs())
@@ -509,9 +605,17 @@ class CognitiveIntelligence:
         - 【V1.7 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 板块轮动先锋 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL', 'BIAS_144_D', 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY',
+            'PROCESS_META_HOT_SECTOR_COOLING'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_sector_rotation_vanguard"):
+            return {'COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD': pd.Series(0.0, index=df.index)}
         sector_flow = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL', 0.0).clip(lower=0))
         price_position = self._forge_dynamic_evidence(df, 1 - normalize_score(self._get_atomic_score(df, 'BIAS_144_D', 0.0), df.index, 144))
-        chip_cleanliness = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_CLEANLINESS', 0.0))
+        # 将 SCORE_CHIP_CLEANLINESS 替换为 SCORE_CHIP_BATTLEFIELD_GEOGRAPHY
+        chip_cleanliness = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0).clip(lower=0))
         hot_sector_cooling = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_HOT_SECTOR_COOLING', 0.0))
         evidence_scores = np.stack([sector_flow.values, price_position.values, chip_cleanliness.values, hot_sector_cooling.values], axis=0)
         evidence_weights = np.array([0.4, 0.2, 0.2, 0.2])
@@ -529,6 +633,12 @@ class CognitiveIntelligence:
         - 【V1.9 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 能量压缩爆发 (动态证据)...")
+        # 增加信号校验 (注意：SAMPLE_ENTROPY_* 是动态查找的，不加入校验)
+        required_signals = [
+            'BBW_21_2.0_D', 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 'pct_change_D', 'SCORE_BEHAVIOR_VOLUME_BURST'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_energy_compression_breakout"):
+            return {'COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION': pd.Series(0.0, index=df.index)}
         df_index = df.index
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         bbw = self._get_atomic_score(df, 'BBW_21_2.0_D', 0.1)
@@ -541,7 +651,7 @@ class CognitiveIntelligence:
             entropy = self._get_atomic_score(df, entropy_col, 1.0)
             orderliness_score = self._forge_dynamic_evidence(df, 1 - normalize_score(entropy, df_index, 144))
         else:
-            orderliness_score = pd.Series(0.5, index=df_index)
+            orderliness_score = pd.Series(0.5, index=df.index)
         pct_change_raw = self._get_atomic_score(df, 'pct_change_D', 0.0)
         price_burst_evidence = self._forge_dynamic_evidence(df, pct_change_raw.clip(lower=0), is_probability=False)
         volume_burst_raw = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0)
@@ -582,6 +692,14 @@ class CognitiveIntelligence:
         - 【V1.5 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 长期获利盘派发风险 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
+            'PROCESS_META_WINNER_CONVICTION_DECAY', 'SCORE_CHIP_STRATEGIC_POSTURE',
+            'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 'dip_absorption_power_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_long_term_profit_distribution_risk"):
+            return {'COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION': pd.Series(0.0, index=df.index)}
         df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
@@ -592,7 +710,8 @@ class CognitiveIntelligence:
         main_force_holding_strength = self._get_main_force_holding_strength(df)
         main_force_holding_inverse = self._forge_dynamic_evidence(df, 1 - main_force_holding_strength)
         long_term_profit_decay = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION_DECAY', 0.0))
-        chip_dispersion = self._forge_dynamic_evidence(df, (1 - self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
+        # 将 SCORE_CHIP_AXIOM_CONCENTRATION 替换为 SCORE_CHIP_STRATEGIC_POSTURE 的负向表现
+        chip_dispersion = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(upper=0).abs())
         capital_outflow = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs())
         dip_absorption_power = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'dip_absorption_power_D', 0.0))
         dip_absorption_inverse = (1 - dip_absorption_power).clip(0, 1)
@@ -618,6 +737,13 @@ class CognitiveIntelligence:
         - 【V1.5 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 市场方向不明风险 (动态证据)...")
+        # 增加信号校验 (注意：SAMPLE_ENTROPY_* 是动态查找的，不加入校验)
+        required_signals = [
+            'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
+            'FUSION_BIPOLAR_MARKET_REGIME', 'dip_absorption_power_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_market_uncertainty_risk"):
+            return {'COGNITIVE_RISK_MARKET_UNCERTAINTY': pd.Series(0.0, index=df.index)}
         df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
@@ -656,6 +782,14 @@ class CognitiveIntelligence:
         - 【V1.10 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 散户狂热主力撤退风险 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
+            'SCORE_FF_AXIOM_CONSENSUS', 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 'pct_change_D',
+            'SCORE_CHIP_STRATEGIC_POSTURE', 'dip_absorption_power_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_retail_fomo_retreat_risk"):
+            return {'COGNITIVE_RISK_RETAIL_FOMO_RETREAT': pd.Series(0.0, index=df.index)}
         df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
@@ -671,7 +805,8 @@ class CognitiveIntelligence:
         main_force_outflow = self._forge_dynamic_evidence(df, raw_mf_confrontation_score.clip(upper=0).abs())
         raw_price_rising_score = normalize_to_bipolar(self._get_atomic_score(df, 'pct_change_D'), df.index, 21)
         price_rising = self._forge_dynamic_evidence(df, raw_price_rising_score.clip(lower=0))
-        chip_dispersion = self._forge_dynamic_evidence(df, (1 - self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
+        # 将 SCORE_CHIP_AXIOM_CONCENTRATION 替换为 SCORE_CHIP_STRATEGIC_POSTURE 的负向表现
+        chip_dispersion = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(upper=0).abs())
         dip_absorption_power = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'dip_absorption_power_D', 0.0))
         dip_absorption_inverse = (1 - dip_absorption_power).clip(0, 1)
         evidence_scores = np.stack([
@@ -696,6 +831,14 @@ class CognitiveIntelligence:
         - 【V1.6 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 收割确认风险 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
+            'COGNITIVE_RISK_DISTRIBUTION_AT_HIGH', 'PROCESS_META_PROFIT_VS_FLOW',
+            'PROCESS_META_WINNER_CONVICTION_DECAY', 'dip_absorption_power_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_harvest_confirmation_risk"):
+            return {'COGNITIVE_RISK_HARVEST_CONFIRMATION': pd.Series(0.0, index=df.index)}
         df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
@@ -732,6 +875,17 @@ class CognitiveIntelligence:
         - 【V1.10 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 主力诱多派发风险 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
+            'pct_change_D', 'SCORE_MICRO_AXIOM_DECEPTION', 'FUSION_BIPOLAR_UPPER_SHADOW_INTENT',
+            'SCORE_CHIP_STRATEGIC_POSTURE', 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION',
+            'PROCESS_META_PROFIT_VS_FLOW', 'PROCESS_META_WINNER_CONVICTION_DECAY',
+            'COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT',
+            'COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION', 'dip_absorption_power_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_bull_trap_distribution_risk"):
+            return {'COGNITIVE_RISK_BULL_TRAP_DISTRIBUTION': pd.Series(0.0, index=df.index)}
         df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
@@ -746,7 +900,8 @@ class CognitiveIntelligence:
         micro_deception_bearish = self._forge_dynamic_evidence(df, raw_micro_deception_score.clip(upper=0).abs())
         raw_upper_shadow_intent_score = self._get_fused_score(df, 'FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0)
         upper_shadow_pressure = self._forge_dynamic_evidence(df, raw_upper_shadow_intent_score.clip(upper=0).abs())
-        chip_dispersion = self._forge_dynamic_evidence(df, (1 - self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
+        # 将 SCORE_CHIP_AXIOM_CONCENTRATION 替换为 SCORE_CHIP_STRATEGIC_POSTURE 的负向表现
+        chip_dispersion = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(upper=0).abs())
         raw_mf_confrontation_score = self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0)
         main_force_outflow = self._forge_dynamic_evidence(df, raw_mf_confrontation_score.clip(upper=0).abs())
         raw_profit_vs_flow_score = self._get_atomic_score(df, 'PROCESS_META_PROFIT_VS_FLOW', 0.0)
@@ -782,6 +937,14 @@ class CognitiveIntelligence:
         - 【V1.5 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 流动性陷阱风险 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
+            'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 'SCORE_BEHAVIOR_VOLUME_ATROPHY',
+            'SCORE_FOUNDATION_AXIOM_VOLATILITY', 'dip_absorption_power_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_liquidity_trap_risk"):
+            return {'COGNITIVE_RISK_LIQUIDITY_TRAP': pd.Series(0.0, index=df.index)}
         df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
@@ -816,6 +979,14 @@ class CognitiveIntelligence:
         - 【V1.5 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] T+0套利压力风险 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
+            'PROCESS_META_PROFIT_VS_FLOW', 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION',
+            'SCORE_MICRO_AXIOM_DECEPTION', 'dip_absorption_power_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_t0_arbitrage_pressure_risk"):
+            return {'COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE': pd.Series(0.0, index=df.index)}
         df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
@@ -850,6 +1021,14 @@ class CognitiveIntelligence:
         - 【V1.5 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 关键支撑破位风险 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
+            'FUSION_BIPOLAR_MARKET_PRESSURE', 'SCORE_STRUCT_AXIOM_STABILITY', 'SCORE_FOUNDATION_AXIOM_TREND',
+            'PROCESS_META_LOSER_CAPITULATION', 'dip_absorption_power_D', 'close_D', 'EMA_21_D', 'EMA_55_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_key_support_break_risk"):
+            return {'COGNITIVE_RISK_KEY_SUPPORT_BREAK': pd.Series(0.0, index=df.index)}
         df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
@@ -893,6 +1072,14 @@ class CognitiveIntelligence:
         - 【V1.6 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 高位结构瓦解风险 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
+            'COGNITIVE_RISK_DISTRIBUTION_AT_HIGH', 'COGNITIVE_RISK_RETAIL_FOMO_RETREAT',
+            'SCORE_CHIP_STRATEGIC_POSTURE', 'dip_absorption_power_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_high_level_structural_collapse_risk"):
+            return {'COGNITIVE_RISK_HIGH_LEVEL_STRUCTURAL_COLLAPSE': pd.Series(0.0, index=df.index)}
         df_index = df.index
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
@@ -905,7 +1092,8 @@ class CognitiveIntelligence:
         high_distribution_risk = self._forge_dynamic_evidence(df, self._get_playbook_score(df, 'COGNITIVE_RISK_DISTRIBUTION_AT_HIGH', 0.0), is_probability=True)
         structural_trend_deterioration = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0).clip(upper=0).abs())
         retail_fomo_retreat = self._forge_dynamic_evidence(df, self._get_playbook_score(df, 'COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 0.0), is_probability=True)
-        chip_dispersion = self._forge_dynamic_evidence(df, (1 - self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
+        # 将 SCORE_CHIP_AXIOM_CONCENTRATION 替换为 SCORE_CHIP_STRATEGIC_POSTURE 的负向表现
+        chip_dispersion = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(upper=0).abs())
         dip_absorption_power = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'dip_absorption_power_D', 0.0))
         dip_absorption_inverse = (1 - dip_absorption_power).clip(0, 1)
         evidence_scores = np.stack([
@@ -930,6 +1118,15 @@ class CognitiveIntelligence:
         - 【V1.3 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 隐秘筑底背离 (动态证据)...")
+        # 增加信号校验
+        required_signals = [
+            'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 'ACCEL_5_close_D', 'PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL',
+            'SCORE_BEHAVIOR_VOLUME_ATROPHY', 'SCORE_FF_AXIOM_CONSENSUS', 'PROCESS_META_POWER_TRANSFER',
+            'SCORE_CHIP_STRATEGIC_POSTURE', 'PROCESS_META_STEALTH_ACCUMULATION',
+            'PROCESS_META_COST_ADVANTAGE_TREND', 'PROCESS_META_LOSER_CAPITULATION', 'SCORE_CHIP_COHERENT_DRIVE'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_deduce_stealth_bottoming_divergence"):
+            return {'COGNITIVE_PLAYBOOK_STEALTH_BOTTOMING_DIVERGENCE': pd.Series(0.0, index=df.index)}
         df_index = df.index
         downward_momentum_decay = self._forge_dynamic_evidence(df, 1 - self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0))
         price_accel_positive = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'ACCEL_5_close_D', 0.0).clip(lower=0))
@@ -937,11 +1134,13 @@ class CognitiveIntelligence:
         volume_atrophy_strong = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0))
         fund_flow_consensus_positive = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(lower=0))
         power_transfer_positive = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0))
-        chip_concentration_positive = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(lower=0))
+        # 将 SCORE_CHIP_AXIOM_CONCENTRATION 替换为 SCORE_CHIP_STRATEGIC_POSTURE
+        chip_concentration_positive = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(lower=0))
         stealth_accumulation_process = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_STEALTH_ACCUMULATION', 0.0))
         cost_advantage_trend_positive = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_COST_ADVANTAGE_TREND', 0.0).clip(lower=0))
         loser_capitulation_process = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_LOSER_CAPITULATION', 0.0))
-        structural_consensus_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRUCTURAL_CONSENSUS', 0.0))
+        # 将 SCORE_CHIP_STRUCTURAL_CONSENSUS 替换为 SCORE_CHIP_COHERENT_DRIVE
+        structural_consensus_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0))
         evidence_scores = np.stack([
             downward_momentum_decay.values, price_accel_positive.values, behavior_bottom_reversal.values,
             volume_atrophy_strong.values, fund_flow_consensus_positive.values, power_transfer_positive.values,
@@ -994,8 +1193,16 @@ class CognitiveIntelligence:
         - 核心逻辑: 融合筹码集中度、资金流信念、主力控盘和成本优势趋势，评估主力当前对股票的持有信念。
         - 【V1.1 修复】接收并使用 df 参数，确保索引上下文统一。
         """
+        # 增加信号校验
+        required_signals = [
+            'SCORE_CHIP_STRATEGIC_POSTURE', 'SCORE_FF_AXIOM_CONVICTION',
+            'PROCESS_META_MAIN_FORCE_CONTROL', 'PROCESS_META_COST_ADVANTAGE_TREND'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_get_main_force_holding_strength"):
+            return pd.Series(0.0, index=df.index)
         df_index = df.index
-        chip_concentration = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(lower=0)
+        # 将 SCORE_CHIP_AXIOM_CONCENTRATION 替换为 SCORE_CHIP_STRATEGIC_POSTURE
+        chip_concentration = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(lower=0)
         fund_flow_conviction = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONVICTION', 0.0).clip(lower=0)
         main_force_control = self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_CONTROL', 0.0).clip(lower=0)
         cost_advantage_trend = self._get_atomic_score(df, 'PROCESS_META_COST_ADVANTAGE_TREND', 0.0).clip(lower=0)
