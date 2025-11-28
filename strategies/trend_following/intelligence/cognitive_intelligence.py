@@ -937,16 +937,16 @@ class CognitiveIntelligence:
 
     def _deduce_liquidity_trap_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 调用修复版】贝叶斯推演：“流动性陷阱”风险剧本
-        - 核心升级: 引入“趋势背景调制因子”。
-        - 【V1.5 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
+        【V1.6 · 基础层升维同步版】贝叶斯推演：“流动性陷阱”风险剧本
+        - 核心升级: 将对旧“波动”公理的依赖，替换为对新“市场张力”公理的依赖，
+                      以更精准地刻画能量压缩状态。
         """
         print("    -- [剧本推演] 流动性陷阱风险 (动态证据)...")
-        # 增加信号校验
+        # [修改代码块] 更新依赖信号，用“市场张力”替换旧的“波动率”
         required_signals = [
             'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
             'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 'SCORE_BEHAVIOR_VOLUME_ATROPHY',
-            'SCORE_FOUNDATION_AXIOM_VOLATILITY', 'dip_absorption_power_D'
+            'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 'dip_absorption_power_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_liquidity_trap_risk"):
             return {'COGNITIVE_RISK_LIQUIDITY_TRAP': pd.Series(0.0, index=df.index)}
@@ -959,12 +959,13 @@ class CognitiveIntelligence:
         is_limit_up_yesterday = self._get_safe_series(df, 'IS_LIMIT_UP_D', False, method_name="_deduce_liquidity_trap_risk").shift(1).fillna(False)
         capital_outflow = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs())
         volume_apathy = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0))
-        volatility_contraction = self._forge_dynamic_evidence(df, 1 - self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_VOLATILITY', 0.0).clip(lower=0))
+        # [修改代码块] 直接使用“市场张力”分作为能量压缩的证据
+        market_tension = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 0.0))
         dip_absorption_power = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'dip_absorption_power_D', 0.0))
         dip_absorption_inverse = (1 - dip_absorption_power).clip(0, 1)
         evidence_scores = np.stack([
             capital_outflow.values, volume_apathy.values,
-            volatility_contraction.values, dip_absorption_inverse.values
+            market_tension.values, dip_absorption_inverse.values
         ], axis=0)
         evidence_weights = np.array([0.25, 0.25, 0.20, 0.30])
         evidence_weights /= evidence_weights.sum()
@@ -1022,15 +1023,15 @@ class CognitiveIntelligence:
 
     def _deduce_key_support_break_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 调用修复版】贝叶斯推演：“关键支撑破位”风险剧本
-        - 核心升级: 引入“趋势背景调制因子”。
-        - 【V1.5 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
+        【V1.6 · 基础层升维同步版】贝叶斯推演：“关键支撑破位”风险剧本
+        - 核心升级: 将对旧“趋势”公理的依赖，替换为对新“市场体质”公理的依赖，
+                      以更全面地评估趋势的“羸弱”程度。
         """
         print("    -- [剧本推演] 关键支撑破位风险 (动态证据)...")
-        # 增加信号校验
+        # [修改代码块] 更新依赖信号，用“市场体质”替换旧的“趋势”
         required_signals = [
             'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
-            'FUSION_BIPOLAR_MARKET_PRESSURE', 'SCORE_STRUCT_AXIOM_STABILITY', 'SCORE_FOUNDATION_AXIOM_TREND',
+            'FUSION_BIPOLAR_MARKET_PRESSURE', 'SCORE_STRUCT_AXIOM_STABILITY', 'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION',
             'PROCESS_META_LOSER_CAPITULATION', 'dip_absorption_power_D', 'close_D', 'EMA_21_D', 'EMA_55_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_key_support_break_risk"):
@@ -1044,7 +1045,8 @@ class CognitiveIntelligence:
         is_limit_up_yesterday = self._get_safe_series(df, 'IS_LIMIT_UP_D', False, method_name="_deduce_key_support_break_risk").shift(1).fillna(False)
         downward_pressure = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0).clip(upper=0).abs())
         low_structural_stability = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_STABILITY', 0.0).clip(upper=0).abs())
-        weak_foundation_trend = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_TREND', 0.0).clip(upper=0).abs())
+        # [修改代码块] 使用“市场体质”的负向部分作为“羸弱”的证据
+        weak_market_constitution = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION', 0.0).clip(upper=0).abs())
         loser_capitulation = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_LOSER_CAPITULATION', 0.0))
         dip_absorption_power = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'dip_absorption_power_D', 0.0))
         dip_absorption_inverse = (1 - dip_absorption_power).clip(0, 1)
@@ -1057,7 +1059,7 @@ class CognitiveIntelligence:
         )
         price_above_ma_inverse = self._forge_dynamic_evidence(df, 1 - price_above_ma_score)
         evidence_scores = np.stack([
-            downward_pressure.values, low_structural_stability.values, weak_foundation_trend.values,
+            downward_pressure.values, low_structural_stability.values, weak_market_constitution.values,
             loser_capitulation.values, dip_absorption_inverse.values, price_above_ma_inverse.values
         ], axis=0)
         evidence_weights = np.array([0.20, 0.20, 0.15, 0.15, 0.15, 0.15])
