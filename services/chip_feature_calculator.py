@@ -721,8 +721,14 @@ class ChipFeatureCalculator:
 
     def _calculate_cost_structure_skewness(self, context: dict) -> float:
         """
-        【V1.1】计算成本结构偏度。
-        - 【修正】移除对 `skewness` 的负号操作，使正偏度（筹码集中在高价区）对应正值，符合涨停日积极信号的预期。
+        【V2.0 · 认知重塑版】计算成本结构偏度，修正“镜像悖论”。
+        - 核心修正: 彻底纠正了对“偏度”概念的根本性误解。旧版本的注释错误地将“正偏度”
+                     解读为“筹码集中在高价区”，导致了对支撑和压力的颠倒认知。
+        - 核心澄清 (第一性原理):
+          - 正偏度 (Positive Skew): 筹码分布主体集中在【低价区】，形成强力支撑，是积极信号。
+          - 负偏度 (Negative Skew): 筹码分布主体集中在【高价区】，形成沉重套牢盘（压力），是消极信号。
+        - 最终实现: 本方法直接返回由 `scipy.stats.skew` 计算出的原始偏度值，该值完美符合上述
+                     正确的逻辑，无需任何符号反转。
         """
         skewness = 0.0
         if not self.df.empty and self.df['percent'].sum() >= 1e-6:
@@ -732,9 +738,8 @@ class ChipFeatureCalculator:
             if len(valid_weights) >= 3: # 至少需要3个点才能计算偏度
                 valid_prices = self.df['price'][weights > 0]
                 unweighted_sample = np.repeat(valid_prices, valid_weights)
+                # 直接使用scipy计算的偏度值，其符号与我们的战术意图完美对齐
                 skewness = skew(unweighted_sample)
-                # 移除负号操作，使正偏度（筹码集中在高价区）对应正值
-                # skewness = -skewness
         return skewness
 
     def _calculate_price_volume_entropy(self, intraday_df: pd.DataFrame, daily_high: float, daily_low: float, total_daily_volume: float) -> float:

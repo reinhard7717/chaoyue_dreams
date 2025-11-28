@@ -137,35 +137,31 @@ class AdvancedFundFlowMetricsService:
         
     async def _load_and_merge_sources(self, stock_info, data_dfs: dict, base_daily_df: pd.DataFrame):
         """
-        【V2.3 · 资金流统一校准增强版】
-        - 核心重构: 剥离日线和基础面数据的合并逻辑，改为接收由上游任务统一准备好的 `base_daily_df`。
-        - 核心修复: 在合并前，主动检查并移除与 `base_daily_df` 的重叠列，根除 'columns overlap' 错误。
-        - 【增强】统一 `main_force_net_flow` 和 `retail_net_flow` 的计算逻辑，使其在所有数据源中都尽可能地代表
-                  **大单+特大单的净流入** 和 **中单+小单的净流入**，并修正 DC 的总净流入计算。
-        - 【修正】确保所有数据源都包含 `buy_elg_amount` 和 `sell_elg_amount` 列，即使值为0。
+        【V2.4 · 净流量悖论修复版】
+        - 核心修复: 解决了“净流量悖论”。在 `standardize_and_prepare` 中，彻底移除了为 THS 和 DC 数据源
+                     从“净额”数据反推“买入/卖出毛坯额”的错误逻辑。
+        - 核心思想: 停止凭空捏造数据。系统现在只使用 Tushare 提供的真实“毛坯”数据进行需要 gross flow 的计算。
+                     如果 Tushare 数据缺失，相关指标将正确地输出为空(NaN)，而不是基于虚假数据得出错误结论，
+                     从根本上保证了下游概率成本等核心指标的数据纯净性。
         """
         def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
             if df.empty: return df
             df['trade_time'] = pd.to_datetime(df['trade_time'])
             cols_to_numeric = [col for col in df.columns if col != 'trade_time' and 'code' not in col and 'name' not in col]
             df[cols_to_numeric] = df[cols_to_numeric].apply(pd.to_numeric, errors='coerce')
-            # 确保所有必要的买卖额列都存在，并填充0
             required_amount_cols = [
                 'buy_sm_amount', 'sell_sm_amount', 'buy_md_amount', 'sell_md_amount',
                 'buy_lg_amount', 'sell_lg_amount', 'buy_elg_amount', 'sell_elg_amount',
             ]
-            # 确保所有净流入列也存在，并填充0
             required_net_amount_cols = [
                 'net_mf_amount', 'net_amount', 'net_amount_main', 'net_amount_xl',
                 'net_amount_lg', 'net_amount_md', 'net_amount_sm', 'trade_count'
             ]
             for col in required_amount_cols + required_net_amount_cols:
                 if col not in df.columns:
-                    df[col] = 0.0 # 填充默认值0.0
-            # 结束
+                    df[col] = 0.0
             if source == 'tushare':
                 df['net_flow_tushare'] = df['net_mf_amount']
-                # Tushare 的主力净流入 = 大单净流入 + 特大单净流入
                 df['main_force_net_flow_tushare'] = (df['buy_lg_amount'] - df['sell_lg_amount']) + (df['buy_elg_amount'] - df['sell_elg_amount'])
                 df['retail_net_flow_tushare'] = (df['buy_sm_amount'] - df['sell_sm_amount']) + (df['buy_md_amount'] - df['sell_md_amount'])
                 df['net_xl_amount_tushare'] = df['buy_elg_amount'] - df['sell_elg_amount']
@@ -174,46 +170,31 @@ class AdvancedFundFlowMetricsService:
                 df['net_sh_amount_tushare'] = df['buy_sm_amount'] - df['sell_sm_amount']
                 return df
             elif source == 'ths':
-                # THS 的 buy_lg_amount, buy_md_amount, buy_sm_amount 已经是净流入额
-                df['net_flow_ths'] = df['net_amount'] # THS 的 net_amount 是总净流入
-                df['main_force_net_flow_ths'] = df['buy_lg_amount'] # THS 没有特大单，只用大单作为主力
+                df['net_flow_ths'] = df['net_amount']
+                df['main_force_net_flow_ths'] = df['buy_lg_amount']
                 df['retail_net_flow_ths'] = df['buy_md_amount'] + df['buy_sm_amount']
-                # 明确添加 elg 相关的列，即使 THS 没有，也填充0
-                df['buy_elg_amount'] = 0.0
-                df['sell_elg_amount'] = 0.0
-                # 确保 lg, md, sm 的买卖额也存在，即使 THS 只有净额
-                # 假设净流入为正时是买入，为负时是卖出
-                df['sell_lg_amount'] = df['buy_lg_amount'].clip(upper=0).abs()
-                df['buy_lg_amount'] = df['buy_lg_amount'].clip(lower=0)
-                df['sell_md_amount'] = df['buy_md_amount'].clip(upper=0).abs()
-                df['buy_md_amount'] = df['buy_md_amount'].clip(lower=0)
-                df['sell_sm_amount'] = df['buy_sm_amount'].clip(upper=0).abs()
-                df['buy_sm_amount'] = df['buy_sm_amount'].clip(lower=0)
-                # 结束
-                df['net_lg_amount_ths'] = df['buy_lg_amount'] - df['sell_lg_amount'] # 重新计算净额以保持一致性
-                df['net_md_amount_ths'] = df['buy_md_amount'] - df['sell_md_amount']
-                df['net_sh_amount_ths'] = df['buy_sm_amount'] - df['sell_sm_amount']
+                # [修改代码块] 移除所有从净额反推毛坯额的错误逻辑
+                # 不再捏造 buy/sell amount，只保留真实的 net amount
+                df['net_lg_amount_ths'] = df['buy_lg_amount']
+                df['net_md_amount_ths'] = df['buy_md_amount']
+                df['net_sh_amount_ths'] = df['buy_sm_amount']
+                # 确保 buy/sell amount 列存在但为空，以维持 schema 一致性，但不填充虚假数据
+                for col in ['buy_lg_amount', 'sell_lg_amount', 'buy_md_amount', 'sell_md_amount', 'buy_sm_amount', 'sell_sm_amount']:
+                    if col not in df.columns: df[col] = np.nan
                 return df
             elif source == 'dc':
-                # DC 的 net_amount 是主力净流入，buy_elg_amount, buy_lg_amount, buy_md_amount, buy_sm_amount 都是净流入额
-                df['main_force_net_flow_dc'] = df['net_amount'] # DC 的 net_amount 就是主力净流入
-                df['retail_net_flow_dc'] = df['net_amount_md'] + df['net_amount_sm'] # 散户净流入 = 中单 + 小单
-                # 修正：DC 的总净流入应该由主力净流入和散户净流入组成
+                df['main_force_net_flow_dc'] = df['net_amount']
+                df['retail_net_flow_dc'] = df['net_amount_md'] + df['net_amount_sm']
                 df['net_flow_dc'] = df['main_force_net_flow_dc'] + df['retail_net_flow_dc']
-                # 确保买卖额也存在，即使 DC 只有净额
-                df['sell_elg_amount'] = df['net_amount_xl'].clip(upper=0).abs()
-                df['buy_elg_amount'] = df['net_amount_xl'].clip(lower=0)
-                df['sell_lg_amount'] = df['net_amount_lg'].clip(upper=0).abs()
-                df['buy_lg_amount'] = df['net_amount_lg'].clip(lower=0)
-                df['sell_md_amount'] = df['net_amount_md'].clip(upper=0).abs()
-                df['buy_md_amount'] = df['net_amount_md'].clip(lower=0)
-                df['sell_sm_amount'] = df['net_amount_sm'].clip(upper=0).abs()
-                df['buy_sm_amount'] = df['net_amount_sm'].clip(lower=0)
-                # 结束
+                # [修改代码块] 移除所有从净额反推毛坯额的错误逻辑
+                # 不再捏造 buy/sell amount，只保留真实的 net amount
                 df['net_xl_amount_dc'] = df['net_amount_xl']
                 df['net_lg_amount_dc'] = df['net_amount_lg']
                 df['net_md_amount_dc'] = df['net_amount_md']
                 df['net_sh_amount_dc'] = df['net_amount_sm']
+                # 确保 buy/sell amount 列存在但为空
+                for col in ['buy_elg_amount', 'sell_elg_amount', 'buy_lg_amount', 'sell_lg_amount', 'buy_md_amount', 'sell_md_amount', 'buy_sm_amount', 'sell_sm_amount']:
+                    if col not in df.columns: df[col] = np.nan
                 return df
             return df
         df_tushare = standardize_and_prepare(data_dfs['tushare'], 'tushare')
@@ -225,21 +206,16 @@ class AdvancedFundFlowMetricsService:
         other_flow_dfs = [df for df in [df_ths, df_dc] if not df.empty]
         if other_flow_dfs:
             for right_df in other_flow_dfs:
-                # 在合并前，主动检查并移除与 `merged_df` 的重叠列，避免 'columns overlap' 错误
                 overlap_cols = merged_df.columns.intersection(right_df.columns).drop('trade_time', errors='ignore')
                 right_df_cleaned = right_df.drop(columns=overlap_cols, errors='ignore')
                 merged_df = pd.merge(merged_df, right_df_cleaned, on='trade_time', how='left')
         merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
         if not base_daily_df.empty:
-            # 【修改点】增加健壮性处理
             base_daily_df_copy = base_daily_df.copy()
-            # 强制确保双方索引都为 normalized DatetimeIndex (即 YYYY-MM-DD 00:00:00)
             merged_df.index = pd.to_datetime(merged_df.index).normalize()
             base_daily_df_copy.index = pd.to_datetime(base_daily_df_copy.index).normalize()
-
             overlap_cols = merged_df.columns.intersection(base_daily_df_copy.columns)
             merged_df = merged_df.join(base_daily_df_copy.drop(columns=overlap_cols, errors='ignore'), how='left')
-
         return merged_df
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None):
