@@ -255,13 +255,14 @@ class FoundationIntelligence:
 
     def _diagnose_context_trend_confirmed(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 参数简化版】诊断内部上下文信号：趋势确认分 (CONTEXT_TREND_CONFIRMED)
-        - 核心清理: 移除多余的 norm_window 参数。
+        【V1.4 · 探针植入版】诊断内部上下文信号：趋势确认分 (CONTEXT_TREND_CONFIRMED)
+        - 核心升级: 植入标准化的调试探针，以监控ADX、方向和BIAS健康度的融合过程。
         """
         print("    -> [基础层] 正在诊断“趋势确认”上下文...")
         required_signals = ['ADX_14_D', 'PDI_14_D', 'NDI_14_D', 'SLOPE_5_PDI_14_D', 'BIAS_55_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_context_trend_confirmed"):
             return {}
+        df_index = df.index
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -272,4 +273,16 @@ class FoundationIntelligence:
         direction_score = (pdi_gt_ndi * pdi_slope).pow(0.5)
         bias_health_score = 1 - get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BIAS_55_D', pd.Series(0.0, index=df.index), method_name="_diagnose_context_trend_confirmed").clip(lower=0), df.index, ascending=True, tf_weights=long_term_weights)
         trend_confirmed = (adx_score * direction_score * bias_health_score).pow(1/3).fillna(0.0)
+        # [新增] 调试探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [趋势确认探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - adx_score (强度): {adx_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - direction_score (方向): {direction_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - bias_health_score (健康度): {bias_health_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - final_trend_confirmed: {trend_confirmed.loc[probe_date_for_loop]:.4f}")
         return {'CONTEXT_TREND_CONFIRMED': trend_confirmed.astype(np.float32)}
