@@ -17,7 +17,7 @@ class ChipIntelligence:
         self.strategy = strategy_instance
         self.params = get_params_block(self.strategy, 'chip_intelligence_params', {})
         self.score_type_map = get_params_block(self.strategy, 'score_type_map', {})
-        # [新增] 注入双极归一化所需的敏感度参数
+        # 注入双极归一化所需的敏感度参数
         process_params = get_params_block(self.strategy, 'process_intelligence_params', {})
         self.bipolar_sensitivity = get_param_value(process_params.get('bipolar_sensitivity'), 1.0)
 

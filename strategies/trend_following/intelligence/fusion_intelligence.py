@@ -98,7 +98,6 @@ class FusionIntelligence:
         - 核心重构: 将对筹码层背离的引用从已废弃的单极性信号，切换为对核心双极性信号 `SCORE_CHIP_AXIOM_DIVERGENCE` 的动态拆分，
                     以适应筹码层“大一统”重构。
         """
-        print("  -- [融合层] 正在冶炼“市场矛盾”...")
         states = {}
         # 移除 'CHIP'，后续单独处理
         divergence_sources = [
@@ -133,7 +132,6 @@ class FusionIntelligence:
         【V1.2 · 上下文修复版】冶炼“市场政权” (Market Regime)
         - 【V1.2 修复】接收 df 参数并在调用 _get_atomic_score 时传递。
         """
-        print("  -- [融合层] 正在冶炼“市场政权”...")
         states = {}
         hurst_memory = self._get_atomic_score(df, 'SCORE_CYCLICAL_HURST_MEMORY', 0.0)
         inertia = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_INERTIA', 0.0)
@@ -154,7 +152,6 @@ class FusionIntelligence:
         【V1.3 · 上下文修复版】冶炼“市场压力” (Market Pressure)
         - 【V1.3 修复】接收 df 参数并在调用 _get_atomic_score 时传递，并使用 df.index 创建 Series。
         """
-        print("  -- [融合层] 正在冶炼“市场压力”...")
         states = {}
         df_index = df.index
         reversal_sources = [
@@ -191,7 +188,6 @@ class FusionIntelligence:
                     “诡道三策”（隐秘行动、震慑突袭、成本控制）新信号的引用，
                     完成情报体系的代际同步。
         """
-        print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
         df_index = df.index
         # ... (前半部分 get_atomic_score 保持不变) ...
@@ -275,7 +271,6 @@ class FusionIntelligence:
         - 核心修复: 将对已废弃的 `FUSION_BIPOLAR_UPPER_SHADOW_INTENT` 的依赖，
                     升级为对行为层更权威的 `SCORE_BEHAVIOR_DISTRIBUTION_INTENT` 信号的依赖。
         """
-        print("  -- [融合层] 正在冶炼“滞涨风险”...")
         states = {}
         df_index = df.index
         stagnation_evidence_raw = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.0)
@@ -308,7 +303,6 @@ class FusionIntelligence:
         - 核心修复: 将对废弃信号 `SCORE_MICRO_AXIOM_DECEPTION` 的依赖，替换为对
                     新信号 `SCORE_MICRO_STRATEGY_STEALTH_OPS` 的依赖，完成情报代际同步。
         """
-        print("  -- [融合层] 正在冶炼“资本对抗”...")
         states = {}
         flow_confrontation = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0)
         chip_transfer = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
@@ -326,7 +320,6 @@ class FusionIntelligence:
                       全面换装为正确的 `get_adaptive_mtf_normalized_bipolar_score` 函数，
                       确保“多维透镜”的战略意图得以正确执行。
         """
-        print("  -- [融合层] 正在冶炼“价格超买意图”...")
         states = {}
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -374,7 +367,6 @@ class FusionIntelligence:
                       全面换装为正确的 `get_adaptive_mtf_normalized_bipolar_score` 函数，
                       确保“变焦透镜”的战略意图得以正确执行。
         """
-        print("  -- [融合层] 正在冶炼“趋势结构分”...")
         states = {}
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -433,7 +425,6 @@ class FusionIntelligence:
         - 守方弱点: 聚合空头力量、派发压力与散户FOMO陷阱等风险因子，通过“木桶短板”逻辑识别最主要的威胁。
         - 诡道融合: 将“攻防力量差”与“价资背离”信号进行非线性融合，旨在穿透数据表象，揭示博弈格局与趋势的可持续性。
         """
-        print("  -- [融合层] 正在冶炼“资金趋势”(V2.0 · 诡道博弈版)...") # 更新打印信息
         states = {}
         df_index = df.index
         # 1. 获取核心原子信号
@@ -482,7 +473,6 @@ class FusionIntelligence:
           2. 动态修正项: 由“持股心态”、“结构性推力(动量)”和“价筹张力(背离)”共同构成，对静态健康度进行动态修正。
           3. 最终融合: 趋势分 = tanh(静态健康度 * 1.5 + 动态修正项 * 0.5)，旨在输出一个能反映筹码综合战局的终极信号。
         """
-        print("  -- [融合层] 正在冶炼“筹码趋势”(V3.0 · 大一统重构版)...")
         states = {}
         # 1. 获取全新的核心筹码信号
         strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
@@ -518,7 +508,6 @@ class FusionIntelligence:
         - 核心重构: 将判断筹码支撑环境的条件，从旧的多个原子公理升级为两大“大一统”战略信号，
                     使其对“吸筹末端”的判断更具战略深度。
         """
-        print("  -- [融合层] 正在冶炼“吸筹拐点信号”...")
         states = {}
         df_index = df.index
         inflection_score = pd.Series(0.0, index=df_index)
@@ -563,7 +552,6 @@ class FusionIntelligence:
                       “新主力利用老主力的卖盘进行权力交接”的信号。
         - 数学公式: 博弈吸筹分 = (隐秘行动分 * 派发意图分)^0.5 * 趋势质量分
         """
-        print("  -- [融合层] 正在冶炼“博弈吸筹”...")
         states = {}
         # 1. 获取矛盾双方的信号
         stealth_ops = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
@@ -586,7 +574,6 @@ class FusionIntelligence:
         - 融合逻辑: 微观信念 = f(瞬时意图, 意图趋势)。融合了“订单流失衡”和“微观价量背离”
                       两大核心微观信号，作为宏观趋势的“真实性检验器”或“灵魂拷问者”。
         """
-        print("  -- [融合层] 正在冶炼“微观信念”...")
         states = {}
         # 1. 获取核心微观信号
         micro_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0)

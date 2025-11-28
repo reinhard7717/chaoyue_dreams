@@ -823,19 +823,19 @@
             "comment": "资金流领域反转信号，由过程层生成。"
           },
           {
-            "name": "PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL",
+            "name": "PROCESS_META_MICRO_STRATEGY_REVERSAL",
             "type": "meta_analysis",
             "task_type": "base",
             "diagnosis_type": "domain_reversal",
-            "domain_name": "MICRO_BEHAVIOR",
-            "output_bottom_reversal_name": "PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL",
-            "output_top_reversal_name": "PROCESS_META_MICRO_BEHAVIOR_TOP_REVERSAL",
+            "domain_name": "MICRO_STRATEGY",
+            "output_bottom_reversal_name": "PROCESS_META_MICRO_STRATEGY_BOTTOM_REVERSAL",
+            "output_top_reversal_name": "PROCESS_META_MICRO_STRATEGY_TOP_REVERSAL",
             "axioms": [
-              {"name": "SCORE_MICRO_AXIOM_DECEPTION", "weight": 0.4},
-              {"name": "SCORE_MICRO_AXIOM_PROBE", "weight": 0.3},
-              {"name": "SCORE_MICRO_AXIOM_EFFICIENCY", "weight": 0.3}
+              {"name": "SCORE_MICRO_STRATEGY_STEALTH_OPS", "weight": 0.4},
+              {"name": "SCORE_MICRO_STRATEGY_SHOCK_AND_AWE", "weight": 0.3},
+              {"name": "SCORE_MICRO_STRATEGY_COST_CONTROL", "weight": 0.3}
             ],
-            "comment": "微观行为领域反转信号，由过程层生成。"
+            "comment": "【V1.0 · 诡道三策版】微观策略领域反转信号，基于新的三大微观策略公理进行诊断。"
           },
           {
             "name": "PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL",

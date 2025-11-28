@@ -89,6 +89,48 @@ class ProcessIntelligence:
             return pd.Series(default_value, index=df.index)
         return score_series
 
+    def _validate_required_signals(self, df: pd.DataFrame, required_signals: List[str], method_name: str) -> bool:
+        """
+        【V1.0 · 新增】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
+        - 核心职责: 作为“投料前校验”的安全阀，确保所有计算都有可靠的数据基础。
+        """
+        missing_signals = []
+        for signal in required_signals:
+            if signal not in df.columns and signal not in self.strategy.atomic_states:
+                missing_signals.append(signal)
+        if missing_signals:
+            print(f"    -> [过程情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
+            return False
+        return True
+
+    def _extract_and_validate_config_signals(self, df: pd.DataFrame, config: Dict, method_name: str) -> bool:
+        """
+        【V1.0 · 新增】蓝图审查官。解析诊断配置，提取所有信号依赖，并进行统一校验。
+        - 核心职责: 作为配置驱动逻辑的安全阀，确保“情报蓝图”中的所有“原料”都真实存在。
+        """
+        required_signals = []
+        # 提取元关系分析中的信号
+        if config.get('signal_A'):
+            required_signals.append(config['signal_A'])
+        if config.get('signal_B'):
+            required_signals.append(config['signal_B'])
+        # 提取赢家信念中的特殊信号
+        if config.get('antidote_signal'):
+            required_signals.append(config['antidote_signal'])
+        # 提取信号衰减分析中的信号
+        if config.get('source_signal'):
+            required_signals.append(config['source_signal'])
+        # 提取领域反转分析中的公理信号
+        if config.get('axioms'):
+            for axiom_config in config.get('axioms', []):
+                if axiom_config.get('name'):
+                    required_signals.append(axiom_config['name'])
+        # 如果没有需要校验的信号，则直接通过
+        if not required_signals:
+            return True
+        # 调用通用的校验器进行检查
+        return self._validate_required_signals(df, required_signals, method_name)
+
     def run_process_diagnostics(self, df: pd.DataFrame, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
         【V5.4 · 探针清理版】过程情报分析总指挥
@@ -110,7 +152,7 @@ class ProcessIntelligence:
                 power_transfer_score = self._calculate_power_transfer(df, diag_config)
                 all_process_states[diag_name] = power_transfer_score
                 self.strategy.atomic_states[diag_name] = power_transfer_score
-                # [新增] 为特殊调度的信号补上统一的最终战报发布
+                # 为特殊调度的信号补上统一的最终战报发布
                 print(f"    -> [过程层] {diag_name} 计算完成，最新分值: {power_transfer_score.iloc[-1]:.4f}")
                 continue
             score = self._run_meta_analysis(df, diag_config)
@@ -125,13 +167,15 @@ class ProcessIntelligence:
 
     def _run_meta_analysis(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 元分析调度中心】
-        - 核心职责: 作为所有非自定义元分析任务的中央调度器。
-        - 核心逻辑: 根据诊断配置中的 'diagnosis_type' 字段，将任务分派给具体的诊断方法。
-        - 修复: 解决了 'ProcessIntelligence' object has no attribute '_run_meta_analysis' 的 AttributeError。
+        【V1.1 · 蓝图审查版】元分析调度中心
+        - 核心升级: 在调度任何任务前，首先调用 `_extract_and_validate_config_signals`
+                      进行“蓝图审查”，确保配置文件中定义的所有依赖信号都真实存在。
         """
-        #  实现了元分析的调度逻辑
-        diagnosis_type = config.get('diagnosis_type', 'meta_relationship') # 默认为最常见的元关系分析
+        signal_name = config.get('name', '未知信号')
+        # “蓝图审查”协议，校验配置文件中声明的所有信号
+        if not self._extract_and_validate_config_signals(df, config, f"_run_meta_analysis (for {signal_name})"):
+            return {}
+        diagnosis_type = config.get('diagnosis_type', 'meta_relationship')
         if diagnosis_type == 'meta_relationship':
             return self._diagnose_meta_relationship(df, config)
         elif diagnosis_type == 'split_meta_relationship':
@@ -146,10 +190,18 @@ class ProcessIntelligence:
 
     def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.4 · 探针清理版】计算“权力转移”信号。
-        - 核心清理: 移除了方法内的调试探针逻辑，净化日志输出。
+        【V3.5 · 安全阀版】计算“权力转移”信号。
+        - 核心升级: 新增“投料前校验”安全阀，确保所有依赖数据存在后才开始计算。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_POWER_TRANSFER (V3.4 · 探针清理版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_POWER_TRANSFER (V3.5 · 安全阀版)...")
+        # “投料前校验”安全阀
+        required_signals = [
+            'net_sh_amount_calibrated_D', 'net_md_amount_calibrated_D', 'net_lg_amount_calibrated_D',
+            'net_xl_amount_calibrated_D', 'trade_count_D', 'main_force_ofi_D',
+            'wash_trade_intensity_D', 'pct_change_D', 'SCORE_CHIP_STRATEGIC_POSTURE'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_calculate_power_transfer"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
         net_sm_amount = self._get_safe_series(df, 'net_sh_amount_calibrated_D', 0.0, method_name="_calculate_power_transfer")
         net_md_amount = self._get_safe_series(df, 'net_md_amount_calibrated_D', 0.0, method_name="_calculate_power_transfer")
@@ -202,7 +254,6 @@ class ProcessIntelligence:
         effective_retail_flow = (net_sm_amount - sm_to_main_force) + (net_md_amount - md_to_main_force)
         power_transfer_raw = effective_main_force_flow.diff(1) - effective_retail_flow.diff(1)
         final_score = self._normalize_series(power_transfer_raw.fillna(0), df_index, bipolar=True)
-        # [删除] 移除了方法内的调试探针逻辑
         return final_score.astype(np.float32)
 
     def _calculate_deceptive_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -279,10 +330,18 @@ class ProcessIntelligence:
 
     def _calculate_cost_advantage_trend_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.2 · 指挥链静默版】计算成本优势趋势。
-        - 核心重构: 移除了此处的最终日志输出。战报发布权已上移至调度中心。
+        【V3.4 · 安全阀版】计算成本优势趋势。
+        - 核心升级: 新增“投料前校验”安全阀，确保所有依赖数据存在后才开始计算。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_COST_ADVANTAGE_TREND (V3.2 · 指挥链静默版)...") # 修改: 更新版本信息
+        print("    -> [过程层] 正在计算 PROCESS_META_COST_ADVANTAGE_TREND (V3.4 · 安全阀版)...")
+        # “投料前校验”安全阀
+        required_signals = [
+            'pct_change_D', 'main_force_cost_advantage_D', 'main_force_net_flow_calibrated_D',
+            'SCORE_CHIP_STRATEGIC_POSTURE', 'SCORE_MICRO_STRATEGY_STEALTH_OPS',
+            'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_VOLUME_ATROPHY'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_calculate_cost_advantage_trend_relationship"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
         std_window = self.std_window
         bipolar_sensitivity = self.bipolar_sensitivity
@@ -295,7 +354,7 @@ class ProcessIntelligence:
         CA_change = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage.diff(1).fillna(0), df_index, default_weights, bipolar_sensitivity)
         MF_flow = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_calculate_cost_advantage_trend_relationship"), df_index, default_weights, bipolar_sensitivity)
         Chip_posture = self.strategy.atomic_states.get('SCORE_CHIP_STRATEGIC_POSTURE', pd.Series(0.0, index=df_index))
-        Micro_decep = self.strategy.atomic_states.get('SCORE_MICRO_AXIOM_DECEPTION', pd.Series(0.0, index=df_index))
+        Micro_stealth = self.strategy.atomic_states.get('SCORE_MICRO_STRATEGY_STEALTH_OPS', pd.Series(0.0, index=df_index))
         Up_eff_unipolar = self.strategy.atomic_states.get('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', pd.Series(0.5, index=df_index))
         Up_eff_bipolar = (Up_eff_unipolar * 2 - 1).clip(-1, 1)
         Vol_apathy_unipolar = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_ATROPHY', pd.Series(0.5, index=df_index))
@@ -310,14 +369,14 @@ class ProcessIntelligence:
         Q2_confirm = (MF_flow_bearish + Chip_posture_bearish + Down_eff_bearish) / 3
         Q2_final = Q2_base * Q2_confirm * -1
         Q3_base = (P_change.clip(upper=0).abs() + CA_change.clip(lower=0)) / 2
-        Q3_confirm = (MF_flow.clip(lower=0) + Chip_posture.clip(lower=0) + Micro_decep.clip(lower=0) + Vol_apathy_bipolar.clip(lower=0)) / 4
+        Q3_confirm = (MF_flow.clip(lower=0) + Chip_posture.clip(lower=0) + Micro_stealth.clip(lower=0) + Vol_apathy_bipolar.clip(lower=0)) / 4
         Q3_final = Q3_base * Q3_confirm
         Q4_base = (P_change.clip(lower=0) + CA_change.clip(upper=0).abs()) / 2
         MF_flow_bearish_Q4 = MF_flow.clip(upper=0).abs()
         Chip_posture_bearish_Q4 = Chip_posture.clip(upper=0).abs()
-        Micro_decep_bearish_Q4 = Micro_decep.clip(upper=0).abs()
+        Micro_stealth_bearish_Q4 = Micro_stealth.clip(upper=0).abs()
         Up_eff_bearish_Q4 = Up_eff_bipolar.clip(upper=0).abs()
-        Q4_confirm = (MF_flow_bearish_Q4 + Chip_posture_bearish_Q4 + Micro_decep_bearish_Q4 + Up_eff_bearish_Q4) / 4
+        Q4_confirm = (MF_flow_bearish_Q4 + Chip_posture_bearish_Q4 + Micro_stealth_bearish_Q4 + Up_eff_bearish_Q4) / 4
         Q4_final = Q4_base * Q4_confirm * -1
         final_score = (Q1_final * 0.4 + Q2_final * 0.3 + Q3_final * 0.2 + Q4_final * 0.1)
         final_score = final_score.clip(-1, 1)
@@ -325,22 +384,31 @@ class ProcessIntelligence:
         self.strategy.atomic_states[f"_DEBUG_CA_change"] = CA_change
         self.strategy.atomic_states[f"_DEBUG_MF_flow"] = MF_flow
         self.strategy.atomic_states[f"_DEBUG_Chip_posture"] = Chip_posture
-        self.strategy.atomic_states[f"_DEBUG_Micro_decep"] = Micro_decep
+        self.strategy.atomic_states[f"_DEBUG_Micro_stealth"] = Micro_stealth
         self.strategy.atomic_states[f"_DEBUG_Up_eff_bipolar"] = Up_eff_bipolar
         self.strategy.atomic_states[f"_DEBUG_Vol_apathy_bipolar"] = Vol_apathy_bipolar
         self.strategy.atomic_states[f"_DEBUG_Q1_final"] = Q1_final
         self.strategy.atomic_states[f"_DEBUG_Q2_final"] = Q2_final
         self.strategy.atomic_states[f"_DEBUG_Q3_final"] = Q3_final
         self.strategy.atomic_states[f"_DEBUG_Q4_final"] = Q4_final
-        # [删除] 移除此处的战报发布
         return final_score.astype(np.float32)
 
     def _calculate_main_force_rally_intent(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.1 · 指挥链静默版】计算“主力拉升意图”的专属关系分数。
-        - 核心重构: 移除了此处的最终日志输出。战报发布权已上移至调度中心。
+        【V3.2 · 安全阀版】计算“主力拉升意图”的专属关系分数。
+        - 核心升级: 新增“投料前校验”安全阀，确保所有依赖数据存在后才开始计算。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (V3.1 · 指挥链静默版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (V3.2 · 安全阀版)...")
+        # “投料前校验”安全阀
+        required_signals = [
+            'pct_change_D', 'main_force_net_flow_calibrated_D', 'main_force_price_impact_ratio_D',
+            'upward_impulse_purity_D', 'volume_ratio_D', 'control_solidity_index_D',
+            'main_force_cost_advantage_D', 'SLOPE_5_winner_concentration_90pct_D',
+            'dominant_peak_solidity_D', 'active_buying_support_D', 'pressure_rejection_strength_D',
+            'profit_realization_quality_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_calculate_main_force_rally_intent"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -448,7 +516,7 @@ class ProcessIntelligence:
         df_index = df.index
         if signal_name == 'PROCESS_META_MAIN_FORCE_RALLY_INTENT':
             relationship_score = self._calculate_main_force_rally_intent(df, config)
-        # [新增] 补全对“主力紧迫度”信号的专属调度
+        # 补全对“主力紧迫度”信号的专属调度
         elif signal_name == 'PROCESS_META_MAIN_FORCE_URGENCY':
             relationship_score = self._calculate_main_force_urgency_relationship(df, config)
         elif signal_name == 'PROCESS_META_WINNER_CONVICTION' and 'antidote_signal' in config:
