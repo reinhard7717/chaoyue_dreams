@@ -202,21 +202,21 @@ class BehavioralIntelligence:
         - 核心新增: 正式实现 `SCORE_BEHAVIOR_ABSORPTION_STRENGTH` 信号。
         """
         required_signals = [
-            'pct_change_D', 'BIAS_55_D', 'volume_ratio_D', 'microstructure_efficiency_index_D',
-            'dip_absorption_power_D', 'vwap_control_strength_D', 'lower_shadow_absorption_strength_D',
-            'upper_shadow_selling_pressure_D', 'volume_D', 'rally_distribution_pressure_D',
-            'closing_price_deviation_score_D', 'intraday_posture_score_D', 'main_force_net_flow_calibrated_D',
-            'amount_D', 'BIAS_21_D', 'RSI_13_D', 'total_winner_rate_D',
-            'winner_stability_index_D', 'control_solidity_index_D', 'trend_vitality_index_D',
-            'upward_impulse_purity_D', 'vacuum_traversal_efficiency_D', 'support_validation_strength_D',
-            'impulse_quality_ratio_D', 'floating_chip_cleansing_efficiency_D',
-            'panic_selling_cascade_D', 'main_force_execution_alpha_D', 'covert_accumulation_signal_D', 'high_D',
-            'close_D', 'capitulation_absorption_index_D', 'chip_fatigue_index_D', 'loser_pain_index_D',
-            'buy_quote_exhaustion_rate_D', 'absorption_strength_index_D', 'distribution_pressure_index_D',
-            'main_force_conviction_index_D', 'dominant_peak_solidity_D', 'profit_taking_flow_ratio_D',
-            'active_selling_pressure_D' # [新增代码行] 为派发意图整合补充信号
+            'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
+            'volume_ratio_D', 'turnover_rate_f_D', 'main_force_net_flow_calibrated_D',
+            'retail_net_flow_calibrated_D', 'net_mf_amount_D', 'buy_elg_amount_D', 'buy_lg_amount_D',
+            'dip_absorption_power_D', 'lower_shadow_absorption_strength_D',
+            'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D',
+            'profit_taking_flow_ratio_D', 'main_force_execution_alpha_D',
+            'SLOPE_5_main_force_conviction_index_D', 'breakout_quality_score_D',
+            'SLOPE_5_breakout_quality_score_D', 'total_winner_rate_D', 'winner_stability_index_D',
+            'control_solidity_index_D', 'trend_vitality_index_D', 'BIAS_21_D', 'RSI_13_D',
+            'ACCEL_5_pct_change_D', 'closing_price_deviation_score_D', 'active_selling_pressure_D',
+            'chip_fatigue_index_D', 'main_force_ofi_D', 'retail_ofi_D', 'buy_quote_exhaustion_rate_D',
+            'sell_quote_exhaustion_rate_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_behavioral_axioms"):
+            print("    -> [行为情报引擎] 核心公理诊断失败，行为分析中止。")
             return {}
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -592,54 +592,56 @@ class BehavioralIntelligence:
 
     def _calculate_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.0 · 派发意图五维诊断版】计算上涨派发意图信号 (SCORE_BEHAVIOR_DISTRIBUTION_INTENT)。
-        - 核心整合: 本方法整合并取代了旧的 _calculate_distribution_pressure 和 _diagnose_upper_shadow_risk。
-        - 核心逻辑: 构建一个融合“过程”、“结果”、“主力”、“信念”、“结构”的五维证据链模型，
-                    对“拉高派发”这一核心战术意图进行深度、全面的量化诊断。
-        - 输出: [0, 1] 的单极性分数，分数越高代表主力派发意图越强烈、证据越确凿。
+        【V1.1 · 信号接口升级版】计算派发意图
+        - 核心升级: 将核心数据源从旧的 `distribution_pressure_index_D` 升级为新的、语义更强的 `rally_distribution_pressure_D`。
+        - ... (其他注释保持不变)
         """
+        # [修改代码行] 更新依赖信号列表
+        required_signals = [
+            'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D',
+            'profit_taking_flow_ratio_D', 'main_force_execution_alpha_D',
+            'SLOPE_5_main_force_conviction_index_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_calculate_distribution_intent"):
+            return pd.Series(0.0, index=df.index)
         # --- 探针初始化 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # --- 1. 获取五维度原始数据 ---
-        # 过程证据
-        process_evidence_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_calculate_distribution_intent")
-        # 结果证据
-        outcome_evidence_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_calculate_distribution_intent")
-        # 主力证据
-        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_distribution_intent")
-        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_calculate_distribution_intent").replace(0, 1e-9)
-        # 信念证据
-        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.5, method_name="_calculate_distribution_intent")
-        # 结构证据
-        structure_raw = self._get_safe_series(df, 'dominant_peak_solidity_D', 0.5, method_name="_calculate_distribution_intent")
-        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_distribution_intent")
-        # --- 2. 计算各维度得分 ---
-        process_score = get_adaptive_mtf_normalized_score(process_evidence_raw, df.index, ascending=True, tf_weights=tf_weights)
-        outcome_score = get_adaptive_mtf_normalized_score(outcome_evidence_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 主力证据：只考虑主力净流出的情况
-        intent_score = get_adaptive_mtf_normalized_score((main_force_flow / amount).clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
-        # 信念证据：信念指数越低，派发证据越强
-        conviction_score = (1 - get_adaptive_mtf_normalized_score(conviction_raw, df.index, ascending=True, tf_weights=tf_weights)).clip(0, 1)
-        # 结构证据：主峰稳固度越低，派发证据越强
-        structure_score = (1 - get_adaptive_mtf_normalized_score(structure_raw, df.index, ascending=True, tf_weights=tf_weights)).clip(0, 1)
-        # --- 3. 非线性合成与情景过滤 ---
-        # 仅在上涨日或冲高回落日计算
-        is_rising_context = (pct_change > -0.01).astype(float)
-        # 赋予主力意图和信念更高的权重
-        distribution_intent = (
-            (process_score.pow(0.2) * outcome_score.pow(0.2) * intent_score.pow(0.3) * conviction_score.pow(0.2) * structure_score.pow(0.1)) * is_rising_context
+        # --- [修改代码块] 使用新的信号作为“过程证据” ---
+        # 1. 过程证据: 拉高过程中的派发压力
+        rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_calculate_distribution_intent")
+        process_evidence = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 2. 结果证据: 上影线确认的卖压
+        upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_calculate_distribution_intent")
+        outcome_evidence = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 3. 资金证据: 获利盘兑现强度
+        profit_taking_raw = self._get_safe_series(df, 'profit_taking_flow_ratio_D', 0.0, method_name="_calculate_distribution_intent")
+        flow_evidence = get_adaptive_mtf_normalized_score(profit_taking_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 4. 主力证据: 主力执行高抛的能力
+        mf_alpha_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_calculate_distribution_intent")
+        mf_alpha_bearish = abs(mf_alpha_raw.clip(upper=0))
+        main_force_evidence = get_adaptive_mtf_normalized_score(mf_alpha_bearish, df.index, ascending=True, tf_weights=tf_weights)
+        # 5. 信念证据: 主力信念指数的衰减
+        conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_calculate_distribution_intent")
+        conviction_decay = abs(conviction_slope_raw.clip(upper=0))
+        conviction_evidence = get_adaptive_mtf_normalized_score(conviction_decay, df.index, ascending=True, tf_weights=tf_weights)
+        # --- 五维证据链融合 ---
+        distribution_intent_score = (
+            process_evidence.pow(0.3) *
+            outcome_evidence.pow(0.2) *
+            flow_evidence.pow(0.2) *
+            main_force_evidence.pow(0.15) *
+            conviction_evidence.pow(0.15)
         ).fillna(0.0)
         # --- 探针监测 ---
         if is_debug_day:
             print(f"      [行为探针] _calculate_distribution_intent @ {last_date_str}")
-            print(f"        - 原始值: 过程={process_evidence_raw.iloc[-1]:.2f}, 结果={outcome_evidence_raw.iloc[-1]:.2f}, 主力流={main_force_flow.iloc[-1]:.2f}, 信念={conviction_raw.iloc[-1]:.2f}, 结构={structure_raw.iloc[-1]:.2f}")
-            print(f"        - 归一化分: 过程={process_score.iloc[-1]:.4f}, 结果={outcome_score.iloc[-1]:.4f}, 主力={intent_score.iloc[-1]:.4f}, 信念={conviction_score.iloc[-1]:.4f}, 结构={structure_score.iloc[-1]:.4f}")
-            print(f"        - 最终派发意图分: {distribution_intent.iloc[-1]:.4f} (上涨环境: {is_rising_context.iloc[-1]})")
-        return distribution_intent.clip(0, 1).astype(np.float32)
+            print(f"        - 过程证据(新): rally_distribution_pressure_D = {rally_pressure_raw.iloc[-1]:.2f} -> 归一化分 = {process_evidence.iloc[-1]:.4f}")
+            print(f"        - 最终派发意图分: {distribution_intent_score.iloc[-1]:.4f}")
+        return distribution_intent_score.astype(np.float32)
 
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, lower_shadow_quality: pd.Series) -> pd.Series:
         """
@@ -774,43 +776,36 @@ class BehavioralIntelligence:
 
     def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.0 · 多维证据链版】计算下跌吸筹强度信号 (SCORE_BEHAVIOR_ABSORPTION_STRENGTH)。
-        - 核心逻辑: 构建一个融合“微观行为”、“资金流”、“筹码意图”的多维证据链模型，
-                    对“下跌吸筹”这一关键行为进行交叉验证，确保信号的可靠性。
-        - 证据链: 1. 微观承接强度; 2. 隐蔽吸筹信号; 3. 逢低吸筹力度; 4. 主力资金确认。
-        - 输出: [0, 1] 的单极性分数，分数越高代表下跌吸筹的证据越确凿。
+        【V1.1 · 信号接口升级版】计算下跌吸筹强度
+        - 核心升级: 将核心数据源从旧的 `absorption_strength_index_D` 升级为新的、语义更强的 `dip_absorption_power_D`。
+        - 逻辑增强: 融合 `lower_shadow_absorption_strength_D` 作为交叉验证，形成更稳健的评分。
         """
+        # [修改代码行] 更新依赖信号列表
+        required_signals = ['dip_absorption_power_D', 'lower_shadow_absorption_strength_D']
+        if not self._validate_required_signals(df, required_signals, "_calculate_absorption_strength"):
+            return pd.Series(0.0, index=df.index)
         # --- 探针初始化 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # --- 1. 获取各维度原始数据 ---
-        micro_evidence_raw = self._get_safe_series(df, 'absorption_strength_index_D', 0.0, method_name="_calculate_absorption_strength")
-        chip_evidence_raw = self._get_safe_series(df, 'covert_accumulation_signal_D', 0.0, method_name="_calculate_absorption_strength")
-        flow_evidence_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_calculate_absorption_strength")
-        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_absorption_strength")
-        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_calculate_absorption_strength").replace(0, 1e-9)
-        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_absorption_strength")
-        # --- 2. 计算各维度得分 ---
-        micro_score = get_adaptive_mtf_normalized_score(micro_evidence_raw, df.index, ascending=True, tf_weights=tf_weights)
-        chip_score = get_adaptive_mtf_normalized_score(chip_evidence_raw, df.index, ascending=True, tf_weights=tf_weights)
-        flow_score = get_adaptive_mtf_normalized_score(flow_evidence_raw, df.index, ascending=True, tf_weights=tf_weights)
-        main_force_confirm_score = get_adaptive_mtf_normalized_score((main_force_flow / amount).clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
-        # --- 3. 非线性合成与情景过滤 ---
-        # 仅在下跌或平盘日计算
-        is_falling_or_flat = (pct_change <= 0.005).astype(float)
-        absorption_strength = (
-            (micro_score * chip_score * flow_score * main_force_confirm_score).pow(1/4) * is_falling_or_flat
-        ).fillna(0.0)
+        # --- [修改代码块] 使用新的信号进行计算 ---
+        # 1. 主要证据：下探吸筹力量
+        dip_power_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_calculate_absorption_strength")
+        dip_power_score = get_adaptive_mtf_normalized_score(dip_power_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 2. 辅助证据：下影线承接强度
+        lower_shadow_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_calculate_absorption_strength")
+        lower_shadow_score = get_adaptive_mtf_normalized_score(lower_shadow_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 3. 融合
+        final_score = (dip_power_score * 0.7 + lower_shadow_score * 0.3).clip(0, 1)
         # --- 探针监测 ---
         if is_debug_day:
             print(f"      [行为探针] _calculate_absorption_strength @ {last_date_str}")
-            print(f"        - 原始值: 微观={micro_evidence_raw.iloc[-1]:.2f}, 筹码={chip_evidence_raw.iloc[-1]:.2f}, 资金={flow_evidence_raw.iloc[-1]:.2f}, 主力流={main_force_flow.iloc[-1]:.2f}")
-            print(f"        - 归一化分: 微观={micro_score.iloc[-1]:.4f}, 筹码={chip_score.iloc[-1]:.4f}, 资金={flow_score.iloc[-1]:.4f}, 主力确认={main_force_confirm_score.iloc[-1]:.4f}")
-            print(f"        - 最终吸筹强度分: {absorption_strength.iloc[-1]:.4f} (下跌或平盘日: {is_falling_or_flat.iloc[-1]})")
-        return absorption_strength.clip(0, 1).astype(np.float32)
+            print(f"        - 核心信号(新): dip_absorption_power_D = {dip_power_raw.iloc[-1]:.2f} -> 归一化分 = {dip_power_score.iloc[-1]:.4f}")
+            print(f"        - 辅助信号: lower_shadow_absorption_strength_D = {lower_shadow_raw.iloc[-1]:.2f} -> 归一化分 = {lower_shadow_score.iloc[-1]:.4f}")
+            print(f"        - 最终下跌吸筹强度分: {final_score.iloc[-1]:.4f}")
+        return final_score.astype(np.float32)
 
 
 

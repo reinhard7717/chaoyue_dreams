@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Any
-from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar, get_adaptive_mtf_normalized_score
 
 class MicroBehaviorEngine:
     """
