@@ -655,14 +655,6 @@
             "description": "【V1.0 · 势能转换】识别多日累积吸筹后，即将由量变到质变的拉升拐点。"
           },
           {
-            "name": "PROCESS_META_BREAKOUT_ACCELERATION",
-            "type": "meta_analysis",
-            "task_type": "base",
-            "relationship_type": "custom",
-            "scoring_mode": "unipolar",
-            "description": "【V1.0 · 破阵战矛】诊断主力在成功突破后，乘胜追击、加速抢筹的战术行为。"
-          },
-          {
             "name": "PROCESS_META_WINNER_CONVICTION",
             "type": "meta_analysis", "task_type": "base",
             "relationship_type": "divergence",
@@ -702,6 +694,14 @@
             "task_type": "base",
             "relationship_type": "custom",
             "description": "【V1.0】诊断主力控盘的强度和趋势，基于通达信公式中的“控盘”和“有庄控盘”逻辑。正分代表主力控盘强且趋势向上。"
+          },
+          {
+            "name": "PROCESS_META_BREAKOUT_ACCELERATION",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "relationship_type": "custom",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 破阵战矛】诊断主力在成功突破后，乘胜追击、加速抢筹的战术行为。"
           },
           {
             "name": "PROCESS_META_PROFIT_VS_FLOW",
