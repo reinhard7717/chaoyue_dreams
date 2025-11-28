@@ -740,12 +740,12 @@
             "output_bottom_reversal_name": "PROCESS_META_FOUNDATION_BOTTOM_REVERSAL",
             "output_top_reversal_name": "PROCESS_META_FOUNDATION_TOP_REVERSAL",
             "axioms": [
-              {"name": "SCORE_FOUNDATION_AXIOM_TREND", "weight": 0.4},
-              {"name": "SCORE_FOUNDATION_AXIOM_OSCILLATOR", "weight": 0.2},
-              {"name": "SCORE_FOUNDATION_AXIOM_FLOW", "weight": 0.3},
-              {"name": "SCORE_FOUNDATION_AXIOM_VOLATILITY", "weight": 0.1}
+              {"name": "SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION", "weight": 0.25},
+              {"name": "SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM", "weight": 0.25},
+              {"name": "SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE", "weight": 0.25},
+              {"name": "SCORE_FOUNDATION_AXIOM_MARKET_TENSION", "weight": 0.25}
             ],
-            "comment": "基础领域反转信号，由过程层生成。"
+            "comment": "【V2.0 · 升维同步版】基础领域反转信号。其依赖的公理已全面升级为“市场体质”、“情绪钟摆”、“流动性潮汐”和“市场张力”四大新公理。"
           },
           {
             "name": "PROCESS_META_STRUCTURE_BOTTOM_REVERSAL",
