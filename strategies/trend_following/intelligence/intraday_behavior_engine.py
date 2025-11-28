@@ -161,29 +161,46 @@ class IntradayBehaviorEngine:
 
     async def _diagnose_conviction_reversal(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.2 · 探针逻辑重构版】日内战报之三：诊断“信念反转”
-        - 核心重构: 重构探针逻辑，使其能正确识别当前处理的数据段是否覆盖了探针日期，
-                      从而在历史回溯时也能准确触发。
+        【V1.3 · 逻辑与探针重构版】日内战报之三：诊断“信念反转”
+        - 核心修复: 修复了因 main_force_execution_alpha 为负就将看涨证据完全归零的“一票否决”逻辑脆弱性。
+                      采用 tanh 函数将双极性 Alpha 柔性映射到 [0, 1] 区间，使模型更稳健。
+        - 核心重构: 重构探针逻辑，使其能正确识别当前处理的数据段是否覆盖了探针日期。
         """
-        daily_signals = self.strategy.df_indicators.iloc[-1]
+        # [修改代码行] 此方法现在需要从分钟数据中找到对应的日线数据
+        if df_minute.empty:
+            return {"SCORE_INTRADAY_CONVICTION_REVERSAL": 0.0}
+        current_date = df_minute.index[0].normalize()
+        if current_date not in self.strategy.df_indicators.index:
+            print(f"    -> [日内行为情报警告] _diagnose_conviction_reversal: 在日线数据中未找到日期 {current_date}，跳过计算。")
+            return {"SCORE_INTRADAY_CONVICTION_REVERSAL": 0.0}
+        daily_signals = self.strategy.df_indicators.loc[current_date]
         panic_score = daily_signals.get('panic_selling_cascade_D', 0.0)
         absorption_score = daily_signals.get('capitulation_absorption_index_D', 0.0)
-        mf_alpha_bullish = max(daily_signals.get('main_force_execution_alpha_D', 0.0), 0.0)
-        bullish_reversal_evidence = (panic_score * absorption_score * mf_alpha_bullish).pow(1/3)
+        # [修改代码块] 修复“一票否决”逻辑
+        mf_alpha_raw = daily_signals.get('main_force_execution_alpha_D', 0.0)
+        # 使用tanh进行柔性映射，k=2.0表示对alpha的正负较为敏感
+        bullish_alpha_score = (np.tanh(mf_alpha_raw * 2.0) + 1) / 2
+        bullish_reversal_evidence = (panic_score * absorption_score * bullish_alpha_score).pow(1/3)
         distribution_score = daily_signals.get('rally_distribution_pressure_D', 0.0)
-        conviction_decay = max(0, -daily_signals.get('main_force_conviction_index_D_slope_5d', 0.0))
-        mf_alpha_bearish = abs(min(daily_signals.get('main_force_execution_alpha_D', 0.0), 0.0))
+        # 尝试获取5日斜率，如果不存在，则使用1日斜率作为备用
+        conviction_slope_5d = daily_signals.get('SLOPE_5_main_force_conviction_index_D', None)
+        if pd.isna(conviction_slope_5d):
+             conviction_slope_1d = daily_signals.get('SLOPE_1_main_force_conviction_index_D', 0.0)
+             conviction_decay = max(0, -conviction_slope_1d)
+        else:
+             conviction_decay = max(0, -conviction_slope_5d)
+        mf_alpha_bearish = abs(min(mf_alpha_raw, 0.0))
         bearish_reversal_evidence = (distribution_score * conviction_decay * mf_alpha_bearish).pow(1/3)
         final_score = bullish_reversal_evidence - bearish_reversal_evidence
         # --- [修改代码块] 重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df_minute.empty:
-            processed_date_str = df_minute.index[0].strftime('%Y-%m-%d')
+        if is_debug_enabled and probe_dates:
+            processed_date_str = current_date.strftime('%Y-%m-%d')
             if processed_date_str in probe_dates:
                 print(f"      [日内行为探针] _diagnose_conviction_reversal @ {processed_date_str}")
-                print(f"        - 看涨证据: 恐慌={panic_score:.2f}, 承接={absorption_score:.2f}, 主力Alpha+={mf_alpha_bullish:.2f} -> 综合={bullish_reversal_evidence:.4f}")
+                print(f"        - 看涨证据: 恐慌={panic_score:.2f}, 承接={absorption_score:.2f}, 主力Alpha分(新)={bullish_alpha_score:.2f} (原始Alpha={mf_alpha_raw:.2f}) -> 综合={bullish_reversal_evidence:.4f}")
                 print(f"        - 看跌证据: 派发={distribution_score:.2f}, 信念衰减={conviction_decay:.2f}, 主力Alpha-={mf_alpha_bearish:.2f} -> 综合={bearish_reversal_evidence:.4f}")
                 print(f"        - 最终信念反转分: {final_score:.4f}")
         return {"SCORE_INTRADAY_CONVICTION_REVERSAL": np.clip(final_score, -1, 1)}

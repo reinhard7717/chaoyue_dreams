@@ -485,10 +485,11 @@ class BehavioralIntelligence:
 
     def _diagnose_stagnation_evidence(self, df: pd.DataFrame, upward_efficiency: pd.Series) -> pd.Series:
         """
-        【V3.4 · 探针逻辑重构版】诊断内部行为信号：滞涨证据
-        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
-                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
-                      完美适配历史区间调试。
+        【V3.5 · 空头伏击逻辑重构版】诊断内部行为信号：滞涨证据
+        - 核心重构: 修复了“空头伏击”逻辑中因收盘强势而完全忽略盘中派发风险的逻辑盲点。
+                      新逻辑将盘中派发压力（过程）与收盘溃败程度（结果）进行加权融合，
+                      使得诊断更加全面和符合博弈实际。
+        - ... (其他注释保持不变)
         """
         df_index = df.index
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -516,7 +517,10 @@ class BehavioralIntelligence:
         distribution_score = get_adaptive_mtf_normalized_score(distribution_pressure, df_index, ascending=True, tf_weights=default_weights)
         active_selling_score = get_adaptive_mtf_normalized_score(active_selling, df_index, ascending=True, tf_weights=default_weights)
         bullish_failure_score = (1 - closing_deviation).clip(0, 1)
-        bearish_ambush = (distribution_score * active_selling_score).pow(0.5) * bullish_failure_score
+        # [修改代码块] 重构空头伏击的合成逻辑
+        process_evidence = (distribution_score * active_selling_score).pow(0.5) # 过程证据：盘中抛压
+        outcome_evidence = bullish_failure_score # 结果证据：收盘溃败
+        bearish_ambush = (process_evidence * 0.7 + outcome_evidence * 0.3) # 加权融合
         micro_conflict_score = (bullish_exhaustion * bearish_ambush).pow(0.5)
         # 3. 构建“宏观风险放大器”
         profit_pressure_score = get_adaptive_mtf_normalized_score(winner_rate, df_index, ascending=True, tf_weights=default_weights)
@@ -538,7 +542,7 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_stagnation_evidence @ {probe_date_str}")
                 print(f"        - 多头衰竭分: {bullish_exhaustion.loc[probe_ts]:.4f}")
-                print(f"        - 空头伏击分 (新): {bearish_ambush.loc[probe_ts]:.4f} (派发分={distribution_score.loc[probe_ts]:.2f}, 主卖分={active_selling_score.loc[probe_ts]:.2f}, 溃败分={bullish_failure_score.loc[probe_ts]:.2f})")
+                print(f"        - 空头伏击分 (新): {bearish_ambush.loc[probe_ts]:.4f} (过程分={process_evidence.loc[probe_ts]:.2f}, 结果分={outcome_evidence.loc[probe_ts]:.2f})")
                 print(f"        - 微观冲突分: {micro_conflict_score.loc[probe_ts]:.4f}")
                 print(f"        - 宏观放大器: {macro_amplifier.loc[probe_ts]:.4f}")
                 print(f"        - 最终滞涨证据分: {final_stagnation_evidence.loc[probe_ts]:.4f}")

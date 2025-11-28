@@ -154,17 +154,20 @@ class MicroBehaviorEngine:
 
     def _diagnose_strategy_shock_and_awe(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.2 · 探针逻辑重构版】微观诡道二策：诊断“震慑突袭”
-        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
-                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
-                      完美适配历史区间调试。
+        【V1.3 · 数据净化增强版】微观诡道二策：诊断“震慑突袭”
+        - 核心修复: 增加了对输入信号 `closing_price_deviation_score_D` 的强制归一化处理。
+                      解决了因上游数据污染（如出现 > 1 的值）导致逻辑判断错误的致命漏洞。
+        - 核心重构: 探针逻辑适配历史回溯。
         """
         impact_raw = self._get_safe_series(df, 'ofi_price_impact_factor_D', 0.0, method_name="_diagnose_strategy_shock_and_awe")
         clearing_raw = self._get_safe_series(df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_strategy_shock_and_awe")
         outcome_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_diagnose_strategy_shock_and_awe")
+        # [新增代码行] 增加数据净化步骤，防止上游数据污染
+        outcome_normalized = normalize_score(outcome_raw, df.index, 55)
         impact_score = get_adaptive_mtf_normalized_score(impact_raw.abs(), df.index, ascending=True, tf_weights=tf_weights)
         clearing_score = get_adaptive_mtf_normalized_score(clearing_raw, df.index, ascending=True, tf_weights=tf_weights)
-        outcome_intent = (outcome_raw * 2 - 1).clip(-1, 1)
+        # [修改代码行] 使用净化后的数据进行计算
+        outcome_intent = (outcome_normalized * 2 - 1).clip(-1, 1)
         shock_magnitude = (impact_score * clearing_score).pow(0.5).fillna(0.0)
         shock_and_awe_score = (shock_magnitude * outcome_intent).clip(-1, 1)
         # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
@@ -177,8 +180,8 @@ class MicroBehaviorEngine:
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [微观行为探针] _diagnose_strategy_shock_and_awe @ {probe_date_str}")
-                print(f"        - 原始值: 冲击因子={impact_raw.loc[probe_ts]:.2f}, 清扫率={clearing_raw.loc[probe_ts]:.2f}, 收盘偏离={outcome_raw.loc[probe_ts]:.2f}")
-                print(f"        - 归一化与计算: 震慑强度={shock_magnitude.loc[probe_ts]:.4f}, 结果意图={outcome_intent.loc[probe_ts]:.4f}")
+                print(f"        - 原始值: 冲击因子={impact_raw.loc[probe_ts]:.2f}, 清扫率={clearing_raw.loc[probe_ts]:.2f}, 收盘偏离(原始)={outcome_raw.loc[probe_ts]:.2f}")
+                print(f"        - 归一化与计算: 震慑强度={shock_magnitude.loc[probe_ts]:.4f}, 结果意图(修正后)={outcome_intent.loc[probe_ts]:.4f} (净化后偏离值={outcome_normalized.loc[probe_ts]:.4f})")
                 print(f"        - 最终震慑突袭分: {shock_and_awe_score.loc[probe_ts]:.4f}")
         return shock_and_awe_score.astype(np.float32)
 
