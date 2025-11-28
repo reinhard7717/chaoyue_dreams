@@ -2,17 +2,24 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Any, Union
 from strategies.trend_following import utils
-from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, get_adaptive_mtf_normalized_score, bipolar_to_exclusive_unipolar
+from strategies.trend_following.utils import (
+    get_params_block, get_param_value, get_adaptive_mtf_normalized_score, 
+    get_adaptive_mtf_normalized_bipolar_score, is_limit_up
+)
 
 class ChipIntelligence:
-    def __init__(self, strategy_instance, dynamic_thresholds: Dict):
+    def __init__(self, strategy_instance):
         """
-        初始化筹码情报模块。
-        :param strategy_instance: 策略主实例的引用。
-        :param dynamic_thresholds: 动态阈值字典。
+        【V2.1 · 依赖注入版】
+        - 核心升级: 新增 self.bipolar_sensitivity 属性，从策略配置中读取归一化所需的敏感度参数。
+                     解决了在调用外部归一化工具时缺少依赖参数的问题。
         """
         self.strategy = strategy_instance
-        self.dynamic_thresholds = dynamic_thresholds
+        self.params = get_params_block(self.strategy, 'chip_intelligence_params', {})
+        self.score_type_map = get_params_block(self.strategy, 'score_type_map', {})
+        # [新增] 注入双极归一化所需的敏感度参数
+        process_params = get_params_block(self.strategy, 'process_intelligence_params', {})
+        self.bipolar_sensitivity = get_param_value(process_params.get('bipolar_sensitivity'), 1.0)
 
     def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
@@ -391,35 +398,40 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V4.0 · 双极灵魂版】诊断筹码同调驱动力
-        - 核心重构: 废弃单极模型，引入全新的双极引擎与非对称传动系统。
-        - 引擎双极化: `base_drive` 现在能完整传递正向（看涨）与负向（看跌）的原始情绪。
-        - 传动非对称化: 引入 `modulation_factor`。好的成本结构会放大乐观情绪，而坏的成本结构会加剧悲观情绪，更符合实战博弈。
-        - 输出双极化: 最终输出一个 [-1, 1] 的分数，能同时衡量“同调做多”与“同调做空”的强度。
+        【V4.1 · 依赖修复版】诊断筹码同调驱动力
+        - 核心修复: 修复了 'ChipIntelligence' object has no attribute '_normalize_series' 的致命错误。
+                     通过直接调用底层的 `get_adaptive_mtf_normalized_bipolar_score` 工具函数，
+                     并为其提供完备的参数，取代了错误的跨类方法调用。
         """
-        # 1. [修改] 引擎双极化 (Engine): 直接使用原始的、双极性的持股心态
+        # 1. 引擎双极化 (Engine): 直接使用原始的、双极性的持股心态
         base_drive = holder_sentiment_scores
-        # 2. [修改] 传动系统非对称化 (Asymmetric Transmission)
-        # 初始化调制因子为1（无影响）
+        # 2. 传动系统非对称化 (Asymmetric Transmission)
         modulation_factor = pd.Series(1.0, index=df.index)
-        # 当情绪为正时，好的成本结构（正值）会放大驱动力
         bullish_mask = base_drive > 0
         modulation_factor.loc[bullish_mask] = 1 + cost_structure_scores.loc[bullish_mask].clip(lower=0)
-        # 当情绪为负时，坏的成本结构（负值）会加剧（放大）负向驱动力
         bearish_mask = base_drive < 0
         modulation_factor.loc[bearish_mask] = 1 + cost_structure_scores.loc[bearish_mask].clip(upper=0).abs()
-        # 3. [修改] 非对称调制合成
+        # 3. 非对称调制合成
         coherent_drive_raw = base_drive * modulation_factor
-        # 4. [修改] 使用统一的双极归一化工具进行最终输出
-        final_score = self._normalize_series(coherent_drive_raw, df.index, bipolar=True)
-        # [修改] 升级探针
+        # 4. [修改] 使用正确的、从utils导入的工具函数进行归一化
+        # 首先，获取MTF权重配置
+        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
+        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # 然后，调用正确的工具函数
+        final_score = get_adaptive_mtf_normalized_bipolar_score(
+            series=coherent_drive_raw,
+            target_index=df.index,
+            tf_weights=tf_weights,
+            sensitivity=self.bipolar_sensitivity
+        )
+        # 升级探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
             probe_dates = [pd.to_datetime(d).tz_localize(df.index.tz if df.index.tz else None) for d in probe_dates_str]
             for probe_date in probe_dates:
                 if probe_date in df.index:
-                    print(f"    -> [探针] --- SCORE_CHIP_COHERENT_DRIVE (V4.0) @ {probe_date.date()} ---") # 修改: 更新版本信息
+                    print(f"    -> [探针] --- SCORE_CHIP_COHERENT_DRIVE (V4.1) @ {probe_date.date()} ---") # 修改: 更新版本信息
                     print(f"      --- 引擎 (Base Drive) ---")
                     print(f"        - 引擎得分 (原始holder_sentiment): {base_drive.loc[probe_date]:.4f}")
                     print(f"      --- 传动系统 (Transmission) ---")
