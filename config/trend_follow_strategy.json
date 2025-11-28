@@ -164,6 +164,7 @@
           "breakout_quality_score_D": [5, 8, 13, 21],
           "说明_micro_behavior_axioms": "--- 为微观行为公理提供支持 ---",
           "control_solidity_index_D": [5, 8],
+          "main_force_conviction_index_D": [5, 8, 13],
           "observed_large_order_size_avg_D": [5, 8],
           "main_force_vpoc_D": [5, 8, 13, 21],
           "说明_通达信指标": "--- 通达信指标的斜率 ---",
