@@ -272,13 +272,15 @@ class ProcessIntelligence:
         return final_score.astype(np.float32)
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.1 · 指挥权统一版】计算通用的瞬时关系分数。
+        - 核心重构: 移除了所有针对特定信号的硬编码 `if` 判断（如 COST_ADVANTAGE_TREND）。
+                     此方法现在是一个纯粹的、通用的关系计算引擎。
+        - 指挥权统一: 所有特殊信号的调度逻辑已完全上移至 `_diagnose_meta_relationship`，
+                       彻底解决了“重复指令”和“指挥链精神分裂”的BUG。
+        """
         signal_name = config.get('name')
-        if signal_name == 'PROCESS_META_MAIN_FORCE_URGENCY':
-            return self._calculate_main_force_urgency_relationship(df, config)
-        if signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND': # 增加对 PROCESS_META_COST_ADVANTAGE_TREND 的判断
-            return self._calculate_cost_advantage_trend_relationship(df, config) # 调用定制化方法
-        if signal_name == 'PROCESS_META_MAIN_FORCE_CONTROL': # 新增对 PROCESS_META_MAIN_FORCE_CONTROL 的判断
-            return self._calculate_main_force_control_relationship(df, config) # 调用定制化方法
+        # [删除] 移除所有针对特定信号的硬编码 if 判断
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         df_index = df.index
@@ -302,7 +304,6 @@ class ProcessIntelligence:
             return ta.percent_return(series, length=1).fillna(0)
         change_a = get_change_series(signal_a, config.get('change_type_A', 'pct'))
         change_b = get_change_series(signal_b, config.get('change_type_B', 'pct'))
-        # 获取MTF权重配置
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -483,16 +484,17 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V4.3 · 指挥链重组版】对“关系分”进行元分析，输出分数。
-        - 核心重构: 剥夺了所有下级 `_calculate_...` 方法的战报发布权，将最终的“计算完成”
-                     日志统一在此处发布。
-        - 战报真实性: 确保了日志中汇报的分数，是经过所有裁决（如 diagnosis_mode, scoring_mode）
-                       之后的最终分数，彻底解决了“幻影信号”BUG。
+        【V4.4 · 指挥权统一版】对“关系分”进行元分析，输出分数。
+        - 核心修复: 补全了对 `PROCESS_META_MAIN_FORCE_URGENCY` 信号的专属调度分支，
+                     确保所有定制化计算都由本调度中心统一指挥，完成了指挥权的最终统一。
         """
         signal_name = config.get('name')
         df_index = df.index
         if signal_name == 'PROCESS_META_MAIN_FORCE_RALLY_INTENT':
             relationship_score = self._calculate_main_force_rally_intent(df, config)
+        # [新增] 补全对“主力紧迫度”信号的专属调度
+        elif signal_name == 'PROCESS_META_MAIN_FORCE_URGENCY':
+            relationship_score = self._calculate_main_force_urgency_relationship(df, config)
         elif signal_name == 'PROCESS_META_WINNER_CONVICTION' and 'antidote_signal' in config:
             relationship_score = self._calculate_winner_conviction_relationship(df, config)
         elif signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND':
@@ -561,7 +563,6 @@ class ProcessIntelligence:
         if scoring_mode == 'unipolar':
             meta_score = meta_score.clip(lower=0)
         meta_score = meta_score.clip(-1, 1).astype(np.float32)
-        # [新增] 统一在此处发布最终战报，确保战报真实性
         print(f"    -> [过程层] {signal_name} 计算完成，最新分值: {meta_score.iloc[-1]:.4f}")
         return {signal_name: meta_score}
 
