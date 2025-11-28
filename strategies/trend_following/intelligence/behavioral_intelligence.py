@@ -837,19 +837,20 @@ class BehavioralIntelligence:
 
     def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, downward_resistance: pd.Series, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:
         """
-        【V1.0 · 战术确认版】诊断震荡洗盘确认信号
-        - 核心目标: 在行为层面区分“伪装派发”与“震荡洗盘”。
-        - 战术逻辑: 一次成功的洗盘 = 强大的防守反击能力 × 派发意图的缺席。
-        - 数学公式: 洗盘分 = (下跌抵抗 * 下跌吸筹)^0.5 * (1 - 派发意图)
+        【V1.1 · 确定性放大器版】诊断震荡洗盘确认信号
+        - 核心升级: 引入“确定性放大器”，将派发否定因子的计算从线性的 (1-x) 升级为
+                      非线性的 (1-x)²。这使得模型能够非线性地奖励“低派发意图”的确定性，
+                      并严厉惩罚不确定性，使其决策逻辑更符合真实世界的博弈。
+        - ... (其他注释保持不变)
         """
         # --- 1. 获取核心输入 ---
         # 输入信号已由主方法传入，无需再次获取
         # --- 2. 计算防守反击强度 ---
         defense_counter_attack_strength = (downward_resistance * absorption_strength).pow(0.5).fillna(0.0)
-        # --- 3. 计算派发意图的否定因子 ---
-        non_distribution_factor = (1 - distribution_intent).clip(0, 1)
+        # --- 3. [修改代码块] 计算非线性的“确定性放大器” ---
+        certainty_amplifier = (1 - distribution_intent).pow(2).clip(0, 1)
         # --- 4. 战术合成 ---
-        shakeout_confirmation_score = (defense_counter_attack_strength * non_distribution_factor).clip(0, 1)
+        shakeout_confirmation_score = (defense_counter_attack_strength * certainty_amplifier).clip(0, 1)
         # --- 探针监测 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -861,7 +862,7 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_shakeout_confirmation @ {probe_date_str}")
                 print(f"        - 防守反击强度: {defense_counter_attack_strength.loc[probe_ts]:.4f} (抵抗={downward_resistance.loc[probe_ts]:.2f}, 吸筹={absorption_strength.loc[probe_ts]:.2f})")
-                print(f"        - 派发否定因子: {non_distribution_factor.loc[probe_ts]:.4f} (派发意图={distribution_intent.loc[probe_ts]:.2f})")
+                print(f"        - 确定性放大器(新): {certainty_amplifier.loc[probe_ts]:.4f} (派发意图={distribution_intent.loc[probe_ts]:.2f})")
                 print(f"        - 最终洗盘确认分: {shakeout_confirmation_score.loc[probe_ts]:.4f}")
         return shakeout_confirmation_score.astype(np.float32)
 
