@@ -134,9 +134,11 @@ class MicroBehaviorEngine:
         # --- 探针初始化 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        is_probe_enabled = get_param_value(debug_params.get('enable_micro_behavior_probe'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
+        should_probe = is_debug_day and is_probe_enabled
         # --- 获取战术证据 ---
         pressure_raw = self._get_safe_series(df, 'large_order_pressure_D', 0.0, method_name="_diagnose_strategy_stealth_ops")
         accumulation_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_diagnose_strategy_stealth_ops")
@@ -146,7 +148,7 @@ class MicroBehaviorEngine:
         # --- 战术合成 ---
         stealth_ops_score = (pressure_score * accumulation_score).pow(0.5).fillna(0.0)
         # --- 探针监测 ---
-        if is_debug_day:
+        if should_probe:
             print(f"      [微观行为探针] _diagnose_strategy_stealth_ops @ {last_date_str}")
             print(f"        - 原始值: 大单压制={pressure_raw.iloc[-1]:.2f}, 隐蔽吸筹={accumulation_raw.iloc[-1]:.2f}")
             print(f"        - 归一化分: 压制分={pressure_score.iloc[-1]:.4f}, 吸筹分={accumulation_score.iloc[-1]:.4f}")

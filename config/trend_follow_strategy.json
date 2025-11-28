@@ -260,7 +260,9 @@
       "debug_params": {
         "enabled": { "value": true },
         "probe_dates": ["2025-11-26"],
-        "enable_behavioral_probe": false,
+        "enable_intraday_behavior_probe": true,
+        "enable_micro_behavior_probe": true,
+        "enable_behavioral_probe": true,
         "enable_pressure_transmutation_probe": false,
         "enable_liquidity_trap_probe": false,
         "enable_ff_distribution_resonance_probe": false,

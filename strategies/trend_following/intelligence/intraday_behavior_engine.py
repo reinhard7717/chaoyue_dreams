@@ -96,9 +96,11 @@ class IntradayBehaviorEngine:
         # --- 探针初始化 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        is_probe_enabled = get_param_value(debug_params.get('enable_intraday_behavior_probe'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = self.strategy.df_indicators.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
+        should_probe = is_debug_day and is_probe_enabled
         # --- 计算分钟级纯度因子 ---
         price_change = self._get_safe_series(df_minute, 'close').diff().fillna(0)
         amount = self._get_safe_series(df_minute, 'amount').replace(0, 1e-9)
@@ -127,7 +129,7 @@ class IntradayBehaviorEngine:
         avg_bearish_purity = np.average(bearish_minutes, weights=bearish_weights) if not bearish_minutes.empty and bearish_weights.sum() > 0 else 0
         final_score = (avg_bullish_purity - avg_bearish_purity)
         # --- 探针监测 ---
-        if is_debug_day:
+        if should_probe:
             print(f"      [日内行为探针] _diagnose_offensive_purity @ {last_date_str}")
             print(f"        - 日内平均多头进攻纯度: {avg_bullish_purity:.4f}")
             print(f"        - 日内平均空头进攻纯度: {avg_bearish_purity:.4f}")
