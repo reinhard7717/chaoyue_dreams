@@ -94,28 +94,26 @@ class FusionIntelligence:
 
     def _synthesize_market_contradiction(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 大一统同步版】冶炼“市场矛盾” (Market Contradiction)
-        - 核心重构: 将对筹码层背离的引用从已废弃的单极性信号，切换为对核心双极性信号 `SCORE_CHIP_AXIOM_DIVERGENCE` 的动态拆分，
-                    以适应筹码层“大一统”重构。
+        【V2.1 · 基础层升维同步版】冶炼“市场矛盾” (Market Contradiction)
+        - 核心清理: 移除了对基础层背离信号的依赖，因为新的基础公理体系不再输出
+                      独立的背离信号，其逻辑已内化到新公理中。
         """
+        print("  -- [融合层] 正在冶炼“市场矛盾”...")
         states = {}
-        # 移除 'CHIP'，后续单独处理
+        # [修改代码行] 移除 'FOUNDATION'，因为它不再提供独立的背离信号
         divergence_sources = [
-            'FOUNDATION', 'STRUCTURE', 'PATTERN', 'DYNAMIC_MECHANICS',
+            'STRUCTURE', 'PATTERN', 'DYNAMIC_MECHANICS',
             'FUND_FLOW', 'MICRO_BEHAVIOR'
         ]
         bullish_divergence_scores = []
         bearish_divergence_scores = []
         for source in divergence_sources:
-            # 逻辑不变，但源列表已更新
             bull_signal_name = f'SCORE_{source}_BULLISH_DIVERGENCE'
             bear_signal_name = f'SCORE_{source}_BEARISH_DIVERGENCE'
             bullish_divergence_scores.append(self._get_atomic_score(df, bull_signal_name, 0.0).values)
             bearish_divergence_scores.append(self._get_atomic_score(df, bear_signal_name, 0.0).values)
-        # 单独处理行为层和筹码层的背离
         bullish_divergence_scores.append(self._get_atomic_score(df, 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY', 0.0).values)
         bearish_divergence_scores.append(self._get_atomic_score(df, 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY', 0.0).values)
-        # 从核心双极性信号中拆分筹码背离
         chip_divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
         bullish_divergence_scores.append(chip_divergence.clip(lower=0).values)
         bearish_divergence_scores.append(chip_divergence.clip(upper=0).abs().values)
@@ -186,18 +184,18 @@ class FusionIntelligence:
 
     def _synthesize_trend_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.2 · 代际同步版】冶炼“趋势质量” (Trend Quality)
-        - 核心升级: 全面废弃对旧微观三公理（伪装、试探、效率）的依赖，切换为对
-                    “诡道三策”（隐秘行动、震慑突袭、成本控制）新信号的引用，
-                    完成情报体系的代际同步。
+        【V3.3 · 基础层升维同步版】冶炼“趋势质量” (Trend Quality)
+        - 核心升级: 将对旧基础四公理的依赖，全面切换为对“市场体质”、“情绪钟摆”、
+                      “流动性潮汐”、“市场张力”四大新公理的依赖，完成与基础层的代际同步。
         """
+        print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
         df_index = df.index
-        # ... (前半部分 get_atomic_score 保持不变) ...
-        foundation_trend = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_TREND', 0.0)
-        foundation_oscillator = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_OSCILLATOR', 0.0)
-        foundation_flow = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_FLOW', 0.0)
-        foundation_volatility = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_VOLATILITY', 0.0)
+        # [修改代码块] 全面换装为新的四大基础公理
+        foundation_constitution = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION', 0.0)
+        foundation_pendulum = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
+        foundation_tide = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0)
+        foundation_tension = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         structural_mtf_cohesion = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_MTF_COHESION', 0.0)
         structural_stability = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_STABILITY', 0.0)
@@ -212,7 +210,6 @@ class FusionIntelligence:
         chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         chip_battlefield_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0)
         chip_holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
-        # 引入新的“诡道三策”信号
         micro_stealth_ops = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
         micro_shock_awe = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_SHOCK_AND_AWE', 0.0)
         micro_cost_control = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_COST_CONTROL', 0.0)
@@ -231,10 +228,10 @@ class FusionIntelligence:
         breakout_readiness_score = normalize_to_bipolar(breakout_readiness_raw, df_index, window=55, sensitivity=20)
         trend_vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_synthesize_trend_quality")
         trend_vitality_score = normalize_to_bipolar(trend_vitality_raw, df_index, window=55, sensitivity=0.5)
-        # 更新组件和权重，用新信号替换旧信号
+        # [修改代码块] 更新组件和权重，用新的基础公理替换旧的
         components_and_weights = {
-            'foundation_trend': (foundation_trend, 0.08), 'foundation_oscillator': (foundation_oscillator, -0.02),
-            'foundation_flow': (foundation_flow, 0.03), 'foundation_volatility': (foundation_volatility, 0.02),
+            'foundation_constitution': (foundation_constitution, 0.08), 'foundation_pendulum': (foundation_pendulum, -0.02),
+            'foundation_tide': (foundation_tide, 0.03), 'foundation_tension': (foundation_tension, 0.02),
             'structural_trend_form': (structural_trend_form, 0.10), 'structural_mtf_cohesion': (structural_mtf_cohesion, 0.05),
             'structural_stability': (structural_stability, 0.05), 'dynamic_momentum': (dynamic_momentum, 0.08),
             'dynamic_inertia': (dynamic_inertia, 0.05), 'dynamic_stability': (dynamic_stability, 0.02),
@@ -244,9 +241,9 @@ class FusionIntelligence:
             'chip_strategic_posture': (chip_strategic_posture, 0.07),
             'chip_battlefield_geography': (chip_battlefield_geography, 0.05),
             'chip_holder_sentiment': (chip_holder_sentiment, 0.03),
-            'micro_stealth_ops': (micro_stealth_ops, 0.01), # 替换 'micro_deception'
-            'micro_shock_awe': (micro_shock_awe, 0.01), # 替换 'micro_probe'
-            'micro_cost_control': (micro_cost_control, 0.01), # 替换 'micro_efficiency'
+            'micro_stealth_ops': (micro_stealth_ops, 0.01),
+            'micro_shock_awe': (micro_shock_awe, 0.01),
+            'micro_cost_control': (micro_cost_control, 0.01),
             'behavior_upward_efficiency': (behavior_upward_efficiency, 0.02), 'behavior_downward_resistance': (behavior_downward_resistance, 0.02),
             'behavior_intraday_bull_control': (behavior_intraday_bull_control, 0.01), 'pattern_reversal': (pattern_reversal, 0.01),
             'pattern_breakout': (pattern_breakout, 0.02), 'main_force_on_peak_flow': (main_force_on_peak_flow, 0.01),
