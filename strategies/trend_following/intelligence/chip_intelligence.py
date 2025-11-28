@@ -111,7 +111,6 @@ class ChipIntelligence:
         【V6.2 · 探针清理版】诊断主力的综合战略态势 (大一统信号)
         - 核心清理: 移除了方法内的“真理探针”逻辑，净化日志输出。
         """
-        print("    -> [筹码层] 正在计算 SCORE_CHIP_STRATEGIC_POSTURE (V6.2 · 探针清理版)...")
         required_signals = [
             'cost_gini_coefficient_D', 'covert_accumulation_signal_D', 'peak_exchange_purity_D',
             'main_force_cost_advantage_D', 'control_solidity_index_D', 'SLOPE_5_main_force_conviction_index_D',

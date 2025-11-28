@@ -59,7 +59,9 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self, df: pd.DataFrame) -> Dict:
         """
-        【V424.4 · 认知层指挥链修复版】情报层总指挥官
+        【V424.5 · 探针指挥链修复版】情报层总指挥官
+        - 【V424.5 修复】在所有情报诊断的最后，明确调用 self.deploy_forensic_probes()，
+                      修复了法医探针系统从未被激活的重大遗漏。
         - 【V424.4 修复】捕获 cognitive_intel.synthesize_cognitive_scores 的返回值，并用其更新 self.strategy.playbook_states，
                       修复了认知剧本信号丢失的致命bug。
         """
@@ -87,10 +89,10 @@ class IntelligenceLayer:
         update_states(self.fusion_intel.run_fusion_diagnostics(df))
         # --- 阶段四：认知推演层 (Cognitive & Playbook Layer) ---
         self._ignite_relational_dynamics_engine()
-        # [代码修改开始] 捕获认知层返回的剧本信号，并更新到策略状态中
         final_playbook_states = self.cognitive_intel.synthesize_cognitive_scores(df)
         self.strategy.playbook_states.update(final_playbook_states)
-        # ... (探针代码省略)
+        # [新增代码行] 修复指挥链，在所有诊断完成后部署法医探针
+        self.deploy_forensic_probes()
         return self.strategy.atomic_states
 
     def deploy_forensic_probes(self):
