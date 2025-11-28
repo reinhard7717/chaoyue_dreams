@@ -252,38 +252,32 @@ class ProcessIntelligence:
 
     def _calculate_deceptive_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.2 · 真理探针版】计算“诡道吸筹”信号，由高频“隐蔽吸筹强度”驱动。
-        - 核心升级: 植入“真理探针”，详细打印价格抑制的场景条件，以及“战术-交割-结果”
-                     三大核心证据链的数值，用于诊断最终得分为零的根本原因。
+        【V2.3 · 风险否决版】计算“诡道吸筹”信号。
+        - 核心升维: 废弃简单的 `.clip(lower=0)`，引入“惩罚因子”模型。
+        - 风险否决权: 当上游的“结构优化”信号 (`SCORE_CHIP_COHERENT_DRIVE`) 为负时，
+                       将生成一个惩罚系数直接削弱最终得分，实现对负面证据的正确解读。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V2.2 · 真理探针版)...") # 修改: 更新版本信息
+        print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V2.3 · 风险否决版)...") # 修改: 更新版本信息
         df_index = df.index
-        # 1. 获取MTF权重配置 (用于场景约束)
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 2. [核心修改] 获取全新的证据链
-        # 核心战术证据 (高频)
         hidden_accumulation_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_calculate_deceptive_accumulation")
-        # 权力交割验证
         power_transfer_score = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
-        # [修改] 结构优化验证，使用新的同调驱动力信号
         coherent_drive_score = self.strategy.atomic_states.get('SCORE_CHIP_COHERENT_DRIVE', pd.Series(0.0, index=df_index))
-        # 场景约束
         price_trend_raw = self._get_safe_series(df, f'SLOPE_5_close_D', 0.0, method_name="_calculate_deceptive_accumulation")
-        # 3. 证据归一化
-        # hidden_accumulation_intensity_D 的范围是 0 到 100，我们将其映射到 0 到 1
         tactic_evidence = (hidden_accumulation_raw / 100).clip(0, 1)
         transfer_evidence = power_transfer_score.clip(lower=0)
-        improvement_evidence = coherent_drive_score.clip(lower=0) # [修改] 使用新的信号
         price_trend_norm = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df_index, default_weights, self.bipolar_sensitivity)
-        # 4. 定义场景约束掩码
-        price_suppression_mask = price_trend_norm <= 0.1 # 价格被抑制（横盘或缓跌）
-        # 5. 融合计算
-        # 几何平均确保所有证据都存在
-        final_score = (tactic_evidence * transfer_evidence * improvement_evidence).pow(1/3)
+        price_suppression_mask = price_trend_norm <= 0.1
+        # [修改] 引入惩罚因子模型
+        bullish_evidence = (tactic_evidence * transfer_evidence).pow(0.5)
+        # coherent_drive_score 是 [-1, 1] 的双极分数。 (1 + score) 将其映射到 [0, 2]。
+        # 我们只关心其惩罚作用，所以将其裁剪到 [0, 1] 区间。
+        # 当 coherent_drive 为 -1 时, 惩罚因子为 0; 为 0 时, 因子为 1; 为 1 时, 因子也为 1 (不奖励)。
+        penalty_factor = (1 + coherent_drive_score).clip(0, 1)
+        final_score = (bullish_evidence * penalty_factor)
         final_score = final_score.where(price_suppression_mask, 0.0).fillna(0.0)
-        # [新增] 植入真理探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -294,9 +288,10 @@ class ProcessIntelligence:
                     print(f"      --- 场景触发条件 ---")
                     print(f"        - 价格抑制 (price_suppression_mask): {price_suppression_mask.loc[probe_date]} (价格趋势分: {price_trend_norm.loc[probe_date]:.4f})")
                     print(f"      --- 核心证据链 ---")
-                    print(f"        - 核心战术 (Tactic Evidence): {tactic_evidence.loc[probe_date]:.4f} (源: hidden_accumulation_intensity_D / 100)")
-                    print(f"        - 权力交割 (Transfer Evidence): {transfer_evidence.loc[probe_date]:.4f} (源: PROCESS_META_POWER_TRANSFER)")
-                    print(f"        - 结构优化 (Improvement Evidence): {improvement_evidence.loc[probe_date]:.4f} (源: SCORE_CHIP_COHERENT_DRIVE)")
+                    print(f"        - 核心战术 (Tactic Evidence): {tactic_evidence.loc[probe_date]:.4f}")
+                    print(f"        - 权力交割 (Transfer Evidence): {transfer_evidence.loc[probe_date]:.4f}")
+                    # [修改] 更新探针，展示双极性输入和惩罚因子
+                    print(f"        - 结构优化 (Bipolar Input): {coherent_drive_score.loc[probe_date]:.4f} -> 惩罚因子: {penalty_factor.loc[probe_date]:.4f}")
                     print(f"      --- 最终裁决 ---")
                     print(f"        - 最终得分: {final_score.loc[probe_date]:.4f}")
                     print("    -> [探针] ----------------------------------------------------")
@@ -960,58 +955,51 @@ class ProcessIntelligence:
 
     def _calculate_upthrust_washout(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.3 · 大一统同步版】识别主力在拉升初期利用“高开低走”阴线进行的洗盘行为。
-        - 核心升级: 将用于检测真实性的筹码信号从旧的 `CONCENTRATION` 升级为 `SCORE_CHIP_STRATEGIC_POSTURE`。
+        【V1.4 · 风险对抗版】识别主力在拉升初期利用“高开低走”阴线进行的洗盘行为。
+        - 核心升维: 重构“洗盘真实性”评分，击穿单极壁垒。
+        - 风险对抗: 当“战略态势”信号为负时，其负值部分将被计入“看跌证据”，
+                     直接与“看涨证据”进行对抗，实现对负面情报的正确博弈。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_UPTHRUST_WASHOUT (诡道甄别版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_UPTHRUST_WASHOUT (V1.4 · 风险对抗版)...") # 修改: 更新版本信息
         df_index = df.index
-        # 1. 获取证据
-        # 环境证据
         trend_form_score = self.strategy.atomic_states.get('SCORE_STRUCT_AXIOM_TREND_FORM', pd.Series(0.0, index=df_index))
         bias_21 = self._get_safe_series(df, 'BIAS_21_D', 0.0, method_name="_calculate_upthrust_washout")
-        # 动作证据
         open_price = self._get_safe_series(df, 'open_D', 0.0, method_name="_calculate_upthrust_washout")
         close_price = self._get_safe_series(df, 'close_D', 0.0, method_name="_calculate_upthrust_washout")
         prev_close = close_price.shift(1)
         volume_burst = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_BURST', pd.Series(0.0, index=df_index))
-        # 内核证据
         power_transfer = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
         lower_shadow_strength = self.strategy.atomic_states.get('SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', pd.Series(0.0, index=df_index))
         concentration_slope = self._get_safe_series(df, f'SLOPE_1_winner_concentration_90pct_D', 0.0, method_name="_calculate_upthrust_washout")
-        # 引入新的大一统信号
         split_order_accumulation = self.strategy.atomic_states.get('PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', pd.Series(0.0, index=df_index))
         chip_strategic_posture = self.strategy.atomic_states.get('SCORE_CHIP_STRATEGIC_POSTURE', pd.Series(0.0, index=df_index))
-        # 2. 构建各维度评分
-        # 环境分: 趋势健康 ( > 0.2 ) 且未严重超买 ( bias < 0.2 )
         context_score = ((trend_form_score > 0.2) & (bias_21 < 0.2)).astype(float)
-        # 动作分: 高开/冲高回落 + 放量
         is_high_open_low_close = (open_price > prev_close) & (close_price < open_price)
         action_score = (is_high_open_low_close & (volume_burst > 0.3)).astype(float)
-        # 内核分: 有下影线 + 筹码未散 (移除power_transfer，因为它将在真实性评分中被更精细地使用)
         internals_score = (
             lower_shadow_strength * 0.7 +
             (concentration_slope > 0).astype(float) * 0.3
         ).clip(0, 1)
-        # 3. [核心修改] 构建洗盘真实性评分 (Washout Authenticity Score)
+        # [修改] 重构洗盘真实性评分
         bullish_evidence = (
-            split_order_accumulation * 0.5 +                 # 拆单吸筹是核心证据
-            power_transfer.clip(lower=0) * 0.3 +             # 权力转移为正向是加分项
-            chip_strategic_posture.clip(lower=0) * 0.2     # 积极的战略态势是结果确认
+            split_order_accumulation * 0.5 +
+            power_transfer.clip(lower=0) * 0.3 +
+            chip_strategic_posture.clip(lower=0) * 0.2 # 正向态势作为看涨证据
         ).clip(0, 1)
-        bearish_evidence = power_transfer.clip(upper=0).abs() # 权力大幅流失是唯一的核心风险信号
+        # 负向的权力和态势作为看跌证据
+        bearish_evidence = (
+            power_transfer.clip(upper=0).abs() * 0.5 +
+            chip_strategic_posture.clip(upper=0).abs() * 0.5 # 负向态势作为看跌证据
+        ).clip(0, 1)
         washout_authenticity_score = (bullish_evidence - bearish_evidence).clip(0, 1)
-        # 4. 融合计算
-        # 只有在满足动作条件时才计算分数
         final_score = (context_score * internals_score * washout_authenticity_score)
         final_score = final_score.where(action_score > 0, 0.0).fillna(0.0)
-        # 5. 存储调试信息
         self.strategy.atomic_states["_DEBUG_washout_context_score"] = context_score
         self.strategy.atomic_states["_DEBUG_washout_action_score"] = action_score
         self.strategy.atomic_states["_DEBUG_washout_internals_score"] = internals_score
         self.strategy.atomic_states["_DEBUG_washout_authenticity_score"] = washout_authenticity_score
         self.strategy.atomic_states["_DEBUG_washout_auth_bull_evidence"] = bullish_evidence
         self.strategy.atomic_states["_DEBUG_washout_auth_bear_evidence"] = bearish_evidence
-        #  探针输出逻辑
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -1019,16 +1007,16 @@ class ProcessIntelligence:
             for probe_date in probe_dates:
                 if probe_date in df_index:
                     print(f"    -> [探针] --- PROCESS_META_UPTHRUST_WASHOUT @ {probe_date.date()} ---")
-                    print(f"      - 环境分 (Context): {context_score.loc[probe_date]:.4f} (趋势形态: {trend_form_score.loc[probe_date]:.2f}, BIAS21: {bias_21.loc[probe_date]:.2f})")
-                    print(f"      - 动作分 (Action): {action_score.loc[probe_date]:.4f} (高开低走 & 放量)")
-                    print(f"      - 内核分 (Internals): {internals_score.loc[probe_date]:.4f} (下影线: {lower_shadow_strength.loc[probe_date]:.2f}, 筹码斜率>0: {(concentration_slope.loc[probe_date] > 0).astype(int)})")
+                    print(f"      - 环境分 (Context): {context_score.loc[probe_date]:.4f}")
+                    print(f"      - 动作分 (Action): {action_score.loc[probe_date]:.4f}")
+                    print(f"      - 内核分 (Internals): {internals_score.loc[probe_date]:.4f}")
                     print(f"      - 真实性评分 (Authenticity): {washout_authenticity_score.loc[probe_date]:.4f}")
                     print(f"        - 看涨证据 (Bullish Evidence): {bullish_evidence.loc[probe_date]:.4f}")
-                    print(f"          - 拆单吸筹强度 (权重 0.5): {split_order_accumulation.loc[probe_date]:.4f}")
-                    print(f"          - 权力转移(正向) (权重 0.3): {power_transfer.clip(lower=0).loc[probe_date]:.4f}")
-                    print(f"          - 战略态势(正向) (权重 0.2): {chip_strategic_posture.clip(lower=0).loc[probe_date]:.4f}") # 更新探针
+                    # [修改] 更新探针，展示双极性输入
+                    print(f"          - 战略态势(Bipolar Input): {chip_strategic_posture.loc[probe_date]:.4f} -> 正向贡献: {chip_strategic_posture.clip(lower=0).loc[probe_date]:.4f}")
                     print(f"        - 看跌证据 (Bearish Evidence): {bearish_evidence.loc[probe_date]:.4f}")
-                    print(f"          - 权力转移(负向绝对值): {power_transfer.clip(upper=0).abs().loc[probe_date]:.4f}")
+                    print(f"          - 权力转移(负向): {power_transfer.clip(upper=0).abs().loc[probe_date]:.4f}")
+                    print(f"          - 战略态势(负向): {chip_strategic_posture.clip(upper=0).abs().loc[probe_date]:.4f}")
                     print(f"      - 最终得分 (Final Score): {final_score.loc[probe_date]:.4f}")
                     print("    -> [探针] ----------------------------------------------------")
         print(f"    -> [过程层] PROCESS_META_UPTHRUST_WASHOUT 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
