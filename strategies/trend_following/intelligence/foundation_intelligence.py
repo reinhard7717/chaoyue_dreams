@@ -42,12 +42,12 @@ class FoundationIntelligence:
         if not get_param_value(p_conf.get('enabled'), True):
             print("基础情报引擎已在配置中禁用，跳过。")
             return {}
-        # [修改代码块] 调用全新的四大公理诊断方法
+        # 调用全新的四大公理诊断方法
         axiom_constitution = self._diagnose_axiom_market_constitution(df, p_conf)
         axiom_pendulum = self._diagnose_axiom_sentiment_pendulum(df)
         axiom_tide = self._diagnose_axiom_liquidity_tide(df)
         axiom_tension = self._diagnose_axiom_market_tension(df)
-        # [修改代码块] 更新状态字典的键名
+        # 更新状态字典的键名
         all_states['SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION'] = axiom_constitution
         all_states['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'] = axiom_pendulum
         all_states['SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE'] = axiom_tide
@@ -56,26 +56,52 @@ class FoundationIntelligence:
         all_states.update(context_trend_confirmed)
         return all_states
 
-    def _diagnose_context_trend_confirmed(self, df: pd.DataFrame, norm_window: int) -> Dict[str, pd.Series]:
+    def _diagnose_context_trend_confirmed(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 信号校验增强版】诊断内部上下文信号：趋势确认分 (CONTEXT_TREND_CONFIRMED)
-        - 核心逻辑: 融合趋势强度(ADX)、方向(PDI/NDI)和健康度(BIAS)，评估上升趋势的确认程度。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将所有组成信号的归一化方式改为多时间维度自适应归一化。
+        【V2.0 · 健康度重构版】诊断内部上下文信号：趋势确认分 (CONTEXT_TREND_CONFIRMED)
+        - 核心重构: 废弃了基于BIAS的、存在逻辑缺陷的“健康度”评估。
+        - 核心升级: 引入“突破质量分”和“趋势活力指数”重新定义趋势健康度，使其能够
+                      真正识别并奖励强势突破，而非惩罚。
         """
-        required_signals = ['ADX_14_D', 'PDI_14_D', 'NDI_14_D', 'SLOPE_5_PDI_14_D', 'BIAS_55_D']
+        print("    -> [基础层] 正在诊断“趋势确认”上下文...")
+        # 更新依赖信号，用突破质量和趋势活力替换BIAS
+        required_signals = [
+            'ADX_14_D', 'PDI_14_D', 'NDI_14_D', 'SLOPE_5_PDI_14_D',
+            'breakout_quality_score_D', 'trend_vitality_index_D'
+        ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_context_trend_confirmed"):
             return {}
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
+        df_index = df.index
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        long_term_weights = get_param_value(p_mtf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
+        # 1. 趋势强度 (ADX) - 逻辑不变
         adx_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'ADX_14_D', 0.0, method_name="_diagnose_context_trend_confirmed"), df.index, ascending=True, tf_weights=default_weights)
+        # 2. 趋势方向 (PDI/NDI) - 逻辑不变
         pdi_gt_ndi = (self._get_safe_series(df, 'PDI_14_D', 0, method_name="_diagnose_context_trend_confirmed") > self._get_safe_series(df, 'NDI_14_D', 0, method_name="_diagnose_context_trend_confirmed")).astype(float)
         pdi_slope = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'SLOPE_5_PDI_14_D', 0.0, method_name="_diagnose_context_trend_confirmed"), df.index, ascending=True, tf_weights=default_weights)
         direction_score = (pdi_gt_ndi * pdi_slope).pow(0.5)
-        bias_health_score = 1 - get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BIAS_55_D', pd.Series(0.0, index=df.index), method_name="_diagnose_context_trend_confirmed").clip(lower=0), df.index, ascending=True, tf_weights=long_term_weights)
-        trend_confirmed = (adx_score * direction_score * bias_health_score).pow(1/3).fillna(0.0)
+        # 重新定义趋势健康度
+        # 3. 趋势健康度 (质地) - 全新逻辑
+        breakout_quality = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name="_diagnose_context_trend_confirmed")
+        breakout_quality_score = get_adaptive_mtf_normalized_score(breakout_quality, df.index, ascending=True, tf_weights=default_weights)
+        trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_context_trend_confirmed")
+        trend_vitality_score = get_adaptive_mtf_normalized_score(trend_vitality, df.index, ascending=True, tf_weights=default_weights)
+        trend_health_score = (breakout_quality_score * trend_vitality_score).pow(0.5)
+        # 4. 最终融合
+        trend_confirmed = (adx_score * direction_score * trend_health_score).pow(1/3).fillna(0.0)
+        # 更新探针内容
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [趋势确认探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - adx_score (强度): {adx_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - direction_score (方向): {direction_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - trend_health_score (健康度): {trend_health_score.loc[probe_date_for_loop]:.4f} (突破质量: {breakout_quality_score.loc[probe_date_for_loop]:.4f}, 趋势活力: {trend_vitality_score.loc[probe_date_for_loop]:.4f})")
+                print(f"       - final_trend_confirmed: {trend_confirmed.loc[probe_date_for_loop]:.4f}")
         return {'CONTEXT_TREND_CONFIRMED': trend_confirmed.astype(np.float32)}
 
     def _diagnose_axiom_market_constitution(self, df: pd.DataFrame, params: dict) -> pd.Series:
