@@ -869,6 +869,7 @@ class ProcessIntelligence:
         # 7. 存储调试信息
         self.strategy.atomic_states["_DEBUG_accum_suppressive_score"] = suppressive_score
         self.strategy.atomic_states["_DEBUG_accum_consolidative_score"] = consolidative_score
+        # [修改] 修复战报誊写错误，确保汇报的是最终得分
         print(f"    -> [过程层] PROCESS_META_STEALTH_ACCUMULATION 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
@@ -1094,6 +1095,7 @@ class ProcessIntelligence:
                     print(f"      - 归一化得分 (原始值/100): {normalized_score.loc[probe_date]:.4f}")
                     print(f"      - 最终得分 (应用场景约束后): {final_score.loc[probe_date]:.4f}")
                     print("    -> [探针] ----------------------------------------------------")
+        # [修改] 修复战报誊写错误，确保汇报的是最终得分
         print(f"    -> [过程层] PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 

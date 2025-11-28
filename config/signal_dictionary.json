@@ -678,6 +678,14 @@
             "scoring_mode": "unipolar",
             "description": "【V1.0 · 势能转换】识别多日累积吸筹后，由“量变”到“质变”的拉升启动临界点。"
         },
+        "PROCESS_META_BREAKOUT_ACCELERATION": {
+            "cn_name": "【过程】突破加速抢筹",
+            "category": "过程层-机会",
+            "type": "process",
+            "score": 550,
+            "scoring_mode": "unipolar",
+            "description": "【V1.1 · 破阵战矛】诊断主力在成功突破关键平台后，乘胜追击、加速抢筹的高能战术场景。基于“突破前置、意图驱动、权力交割、形态确认”四维证据链。"
+        },
         "PROCESS_META_WINNER_CONVICTION": {
             "cn_name": "【过程】赢家信念",
             "type": "process",

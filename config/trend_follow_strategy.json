@@ -701,7 +701,7 @@
             "task_type": "base",
             "relationship_type": "custom",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 破阵战矛】诊断主力在成功突破后，乘胜追击、加速抢筹的战术行为。"
+            "description": "【V1.1 · 精准制导版】诊断主力在成功突破后，乘胜追击、加速抢筹的战术行为。"
           },
           {
             "name": "PROCESS_META_PROFIT_VS_FLOW",
