@@ -134,7 +134,7 @@ class ChipFeatureCalculator:
         # 确保它是 Asia/Shanghai aware
         if intraday_df.index.tz is None:
             # 如果意外是 naive，假定它是 UTC（因为DAO层应该输出UTC aware，但可能在某些操作后丢失时区信息）
-            df.index = df.index.tz_localize('UTC', ambiguous='infer').tz_convert(target_tz)
+            intraday_df.index = intraday_df.index.tz_localize('UTC', ambiguous='infer').tz_convert(target_tz) # 修改代码行：将错误的变量名 df 修正为 intraday_df
         else:
             # 如果已经是 aware，直接转换为目标时区
             intraday_df.index = intraday_df.index.tz_convert(target_tz)

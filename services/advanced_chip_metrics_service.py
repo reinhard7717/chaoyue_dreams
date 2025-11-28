@@ -248,10 +248,16 @@ class AdvancedChipMetricsService:
                         left=level5_df_renamed.sort_index().reset_index(),
                         right=realtime_df[['volume']].sort_index().reset_index(),
                         on='trade_time',
-                        direction='nearest'
+                        direction='backward' # 修改代码行：将 'nearest' 修改为 'backward'，防止前视偏差
                     )
                     if 'trade_time' in merged_realtime_df.columns:
                         merged_realtime_df.set_index('trade_time', inplace=True)
+                    # 新增代码块：计算增量成交量并替换累计成交量
+                    if 'volume' in merged_realtime_df.columns:
+                        # 'volume' 列是累计成交量，我们需要的是每个快照区间的增量成交量作为权重
+                        interval_volume = merged_realtime_df['volume'].diff().fillna(0)
+                        # 用计算出的增量成交量替换原始的累计成交量列，以供下游计算器正确使用
+                        merged_realtime_df['volume'] = interval_volume
                     context_for_calc['realtime_data'] = merged_realtime_df
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
