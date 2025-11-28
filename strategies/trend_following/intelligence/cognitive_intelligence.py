@@ -184,17 +184,17 @@ class CognitiveIntelligence:
 
     def _deduce_distribution_at_high(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.11 · 数据帧上下文修复版】贝叶斯推演：“高位派发”风险剧本
-        - 核心升级: 引入“趋势背景调制因子”，当趋势质量和结构形态良好时，降低风险证据的权重。
-        - 【V3.11 修复】接收并使用 df 参数，确保索引上下文统一。
+        【V3.12 · 依赖净化版】贝叶斯推演：“高位派发”风险剧本
+        - 核心修复: 将对已废弃的 `FUSION_BIPOLAR_UPPER_SHADOW_INTENT` 的依赖，
+                    升级为对行为层更权威的 `SCORE_BEHAVIOR_DISTRIBUTION_INTENT` 信号的依赖。
         """
         print("    -- [剧本推演] 高位派发风险 (动态证据)...")
-        # 增加信号校验
+        # [修改代码块] 更新信号校验列表
         required_signals = [
             'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
             'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT',
             'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'PROCESS_META_PROFIT_VS_FLOW', 'SCORE_CHIP_STRATEGIC_POSTURE',
-            'FUSION_BIPOLAR_MARKET_CONTRADICTION', 'FUSION_BIPOLAR_UPPER_SHADOW_INTENT',
+            'FUSION_BIPOLAR_MARKET_CONTRADICTION', 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT',
             'SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 'dip_absorption_power_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_distribution_at_high"):
@@ -212,12 +212,11 @@ class CognitiveIntelligence:
         price_overextension_risk = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs())
         low_upward_efficiency = self._forge_dynamic_evidence(df, (1 - self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5)).clip(0, 1))
         profit_vs_flow_bearish = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_PROFIT_VS_FLOW', 0.0).clip(upper=0).abs())
-        # 将 SCORE_CHIP_AXIOM_CONCENTRATION 替换为 SCORE_CHIP_STRATEGIC_POSTURE 的负向表现
         chip_dispersion_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(upper=0).abs())
         market_contradiction_bearish = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0).clip(upper=0).abs())
-        upper_shadow_pressure = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0).clip(upper=0).abs())
+        # [修改代码块] 替换为更权威的派发意图信号
+        distribution_intent_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0))
         fund_flow_bearish_divergence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 0.0))
-        # 将 SCORE_CHIP_BEARISH_DIVERGENCE 替换为 SCORE_CHIP_RISK_DISTRIBUTION_WHISPER
         chip_bearish_divergence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 0.0))
         dip_absorption_power = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'dip_absorption_power_D', 0.0))
         dip_absorption_inverse = (1 - dip_absorption_power).clip(0, 1)
@@ -228,7 +227,7 @@ class CognitiveIntelligence:
             profit_vs_flow_bearish.values,
             chip_dispersion_evidence.values,
             market_contradiction_bearish.values,
-            upper_shadow_pressure.values,
+            distribution_intent_evidence.values, # 使用新变量
             fund_flow_bearish_divergence.values,
             chip_bearish_divergence.values,
             dip_absorption_inverse.values,
@@ -256,7 +255,8 @@ class CognitiveIntelligence:
                 print(f"       - profit_vs_flow_bearish: {profit_vs_flow_bearish.loc[probe_date_for_loop]:.4f}")
                 print(f"       - chip_dispersion_evidence: {chip_dispersion_evidence.loc[probe_date_for_loop]:.4f}")
                 print(f"       - market_contradiction_bearish: {market_contradiction_bearish.loc[probe_date_for_loop]:.4f}")
-                print(f"       - upper_shadow_pressure: {upper_shadow_pressure.loc[probe_date_for_loop]:.4f}")
+                # [修改代码块] 更新探针日志
+                print(f"       - distribution_intent_evidence: {distribution_intent_evidence.loc[probe_date_for_loop]:.4f}")
                 print(f"       - fund_flow_bearish_divergence: {fund_flow_bearish_divergence.loc[probe_date_for_loop]:.4f}")
                 print(f"       - chip_bearish_divergence: {chip_bearish_divergence.loc[probe_date_for_loop]:.4f}")
                 print(f"       - dip_absorption_inverse: {dip_absorption_inverse.loc[probe_date_for_loop]:.4f}")

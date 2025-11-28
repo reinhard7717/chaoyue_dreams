@@ -949,12 +949,6 @@
             "type": "context",
             "description": "【V1.0 · 深度博弈版】融合行为层价格超买原始分、主力资金流、筹码结构、结构形态和微观效率，综合判断当前价格的超买是真风险（负分）还是强力进攻（正分）。"
         },
-        "FUSION_BIPOLAR_UPPER_SHADOW_INTENT": {
-            "cn_name": "【融合】上影线意图",
-            "category": "融合层-环境",
-            "type": "context",
-            "description": "【V1.0 · 深度博弈版】融合行为层上影线原始分、价格涨跌、主力资金流向、筹码集中度、微观欺骗和上涨效率，综合判断上影线是真抛压（负分）还是洗盘/试探（正分）。"
-        },
         "FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT": {
             "cn_name": "【融合】吸筹拐点信号",
             "category": "融合层-资金筹码",

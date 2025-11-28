@@ -271,25 +271,25 @@ class FusionIntelligence:
 
     def _synthesize_stagnation_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 大一统同步版】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
-        - 核心重构: 将“筹码分散风险”的来源从旧的 `CONCENTRATION` 信号，升级为更能体现主力意图的
-                    `SCORE_CHIP_STRATEGIC_POSTURE` 信号的负向表现。
+        【V2.1 · 依赖净化版】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
+        - 核心修复: 将对已废弃的 `FUSION_BIPOLAR_UPPER_SHADOW_INTENT` 的依赖，
+                    升级为对行为层更权威的 `SCORE_BEHAVIOR_DISTRIBUTION_INTENT` 信号的依赖。
         """
         print("  -- [融合层] 正在冶炼“滞涨风险”...")
         states = {}
         df_index = df.index
         stagnation_evidence_raw = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.0)
         price_overextension_risk = self._get_atomic_score(df, 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs()
-        upper_shadow_pressure_risk = self._get_atomic_score(df, 'FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0).clip(upper=0).abs()
+        # [修改代码块] 替换为更权威的派发意图信号
+        distribution_intent_risk = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
         fund_flow_bearish_risk = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(upper=0).abs()
-        # 使用新的“战略态势”信号的负值部分作为分散风险的衡量
         chip_dispersion_risk = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(upper=0).abs()
         profit_taking_supply_risk = normalize_score(self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_synthesize_stagnation_risk"), df_index, window=55, ascending=True).clip(0, 1)
         trend_confirmation_risk = (1 - self._get_atomic_score(df, 'CONTEXT_TREND_CONFIRMED', 0.0)).clip(0, 1)
         retail_fomo_risk = normalize_score(self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name="_synthesize_stagnation_risk"), df_index, window=55, ascending=True).clip(0, 1)
         is_price_stagnant_or_rising = (self._get_safe_series(df, 'pct_change_D', method_name="_synthesize_stagnation_risk") >= -0.005).astype(float)
         risk_components = [
-            stagnation_evidence_raw, price_overextension_risk, upper_shadow_pressure_risk,
+            stagnation_evidence_raw, price_overextension_risk, distribution_intent_risk,
             fund_flow_bearish_risk, chip_dispersion_risk, profit_taking_supply_risk,
             trend_confirmation_risk, retail_fomo_risk
         ]
