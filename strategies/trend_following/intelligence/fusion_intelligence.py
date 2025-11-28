@@ -304,54 +304,63 @@ class FusionIntelligence:
 
     def _synthesize_capital_confrontation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 大一统同步版】冶炼“资本对抗” (Capital Confrontation)
-        - 核心重构: 将“筹码转移”的评估，从旧的 `CONCENTRATION` 信号升级为更能体现博弈结果的
-                    `SCORE_CHIP_STRATEGIC_POSTURE` 信号。
+        【V2.1 · 代际同步版】冶炼“资本对抗” (Capital Confrontation)
+        - 核心修复: 将对废弃信号 `SCORE_MICRO_AXIOM_DECEPTION` 的依赖，替换为对
+                    新信号 `SCORE_MICRO_STRATEGY_STEALTH_OPS` 的依赖，完成情报代际同步。
         """
         print("  -- [融合层] 正在冶炼“资本对抗”...")
         states = {}
         flow_confrontation = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0)
-        # 使用新的“战略态势”信号作为筹码层对抗结果的代表
         chip_transfer = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
-        deception = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_DECEPTION', 0.0)
-        bipolar_confrontation = (flow_confrontation * 0.5 + chip_transfer * 0.3 + deception * 0.2).clip(-1, 1)
+        # [修改代码块] 替换为新的微观信号
+        stealth_ops = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
+        bipolar_confrontation = (flow_confrontation * 0.5 + chip_transfer * 0.3 + stealth_ops * 0.2).clip(-1, 1)
         states['FUSION_BIPOLAR_CAPITAL_CONFRONTATION'] = bipolar_confrontation.astype(np.float32)
         print(f"  -- [融合层] “资本对抗”冶炼完成，最新分值: {bipolar_confrontation.iloc[-1]:.4f}")
         return states
 
     def _synthesize_price_overextension_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 大一统同步版】冶炼“价格超买意图” (Price Overextension Intent)
-        - 核心重构: 将用于对冲超买风险的筹码信号从旧的 `CONCENTRATION` 升级为 `SCORE_CHIP_STRATEGIC_POSTURE`。
+        【V4.2 · 多维透镜版】冶炼“价格超买意图” (Price Overextension Intent)
+        - 核心升级: 废弃了对所有信号使用单一55日窗口归一化的僵化逻辑。引入“多时间维度透镜”，
+                      为不同周期的信号（RSI、BIAS、获利盘）配备专属的归一化权重配置
+                      （短期、中期、长期），实现了对超买风险的精准、自适应测量。
         """
         print("  -- [融合层] 正在冶炼“价格超买意图”...")
         states = {}
         df_index = df.index
-        norm_window = 55
+        # [修改代码块] 从配置中获取多维度的时间透镜（权重）
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        short_term_weights = get_param_value(p_mtf.get('short_term_weights'), {'weights': {3: 0.5, 5: 0.3, 8: 0.2}})
+        long_term_weights = get_param_value(p_mtf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
         overextension_raw_bipolar = (self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.5) * 2 - 1).clip(-1, 1)
         bias_raw = self._get_safe_series(df, 'BIAS_21_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        bias_score = normalize_to_bipolar(bias_raw, df_index, window=norm_window, sensitivity=0.05)
+        # [修改代码行] BIAS 使用默认（中期）透镜
+        bias_score = normalize_to_bipolar(bias_raw, df_index, tf_weights=default_weights, sensitivity=0.05)
         winner_rate_raw = self._get_safe_series(df, 'total_winner_rate_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        winner_rate_score = normalize_to_bipolar(winner_rate_raw, df_index, window=norm_window, sensitivity=0.1, default_value=-1.0)
+        # [修改代码行] 获利盘比例使用长期透镜
+        winner_rate_score = normalize_to_bipolar(winner_rate_raw, df_index, tf_weights=long_term_weights, sensitivity=0.1, default_value=-1.0)
         rsi_raw = self._get_safe_series(df, 'RSI_13_D', pd.Series(50.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        rsi_score = normalize_to_bipolar(rsi_raw, df_index, window=norm_window, sensitivity=10.0)
+        # [修改代码行] RSI 使用短期透镜
+        rsi_score = normalize_to_bipolar(rsi_raw, df_index, tf_weights=short_term_weights, sensitivity=10.0)
         core_overextension_sum = (
             overextension_raw_bipolar * 0.2 + bias_score * 0.2 +
             rsi_score * 0.15 + winner_rate_score * 0.15
         )
         fund_flow_consensus = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0)
-        # 使用新的“战略态势”信号
         chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
-        micro_efficiency = (self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_EFFICIENCY', 0.5) * 2 - 1).clip(-1, 1)
+        micro_cost_control = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_COST_CONTROL', 0.0)
         body_ratio_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        body_score = normalize_to_bipolar(body_ratio_raw, df_index, window=norm_window, sensitivity=0.2)
-        upper_shadow_ratio_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        upper_shadow_score = normalize_to_bipolar(upper_shadow_ratio_raw, df_index, window=norm_window, sensitivity=0.2) * -1
+        body_score = normalize_to_bipolar(body_ratio_raw, df_index, tf_weights=default_weights, sensitivity=0.2)
+        distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
+        distribution_intent_score = (distribution_intent * -1).clip(-1, 0)
         health_sum = (
-            fund_flow_consensus * 0.1 + chip_strategic_posture * 0.05 + # 替换信号
-            structural_trend_form * 0.05 + micro_efficiency * 0.03 +
-            body_score * 0.04 + upper_shadow_score * 0.03
+            fund_flow_consensus * 0.1 + chip_strategic_posture * 0.05 +
+            structural_trend_form * 0.05 + micro_cost_control * 0.03 +
+            body_score * 0.04 + distribution_intent_score * 0.03
         )
         final_overextension_intent = (core_overextension_sum - health_sum).clip(-1, 1)
         states['FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT'] = final_overextension_intent.astype(np.float32)

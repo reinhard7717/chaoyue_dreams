@@ -1137,6 +1137,9 @@
           "long_term_weights": {
             "description": "长周期权重，适用于需要更长历史上下文的指标。",
             "weights": { "21": 0.5, "55": 0.3, "89": 0.2 }
+          },
+          "short_term_weights": {
+              "weights": { "3": 0.5, "5": 0.3, "8": 0.2 }
           }
         },
         "signal_dynamics_params": {
