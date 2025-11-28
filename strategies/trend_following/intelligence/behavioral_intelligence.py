@@ -348,6 +348,7 @@ class BehavioralIntelligence:
         """
         # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
+        print(f"    -> [行为情报引擎调试] 调试参数: {debug_params}")
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         # is_probe_enabled = get_param_value(debug_params.get('enable_behavioral_probe'), False) # [修改代码行] 移除特定探针开关检查，统一探针逻辑
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
