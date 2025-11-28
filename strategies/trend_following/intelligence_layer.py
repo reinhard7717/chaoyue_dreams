@@ -40,7 +40,7 @@ class IntelligenceLayer:
         self.strategy.pattern_recognizer = KlinePatternRecognizer(params=self.kline_params)
         self.foundation_intel = FoundationIntelligence(self.strategy)
         self.structural_intel = StructuralIntelligence(self.strategy, {})
-        self.chip_intel = ChipIntelligence(self.strategy, {})
+        self.chip_intel = ChipIntelligence(self.strategy)
         self.behavioral_intel = BehavioralIntelligence(self.strategy)
         self.micro_behavior_engine = MicroBehaviorEngine(self.strategy)
         self.fund_flow_intel = FundFlowIntelligence(self.strategy)
