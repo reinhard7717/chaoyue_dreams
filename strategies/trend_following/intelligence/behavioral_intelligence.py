@@ -730,10 +730,10 @@ class BehavioralIntelligence:
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.3 · 驱动守门员版】计算高品质看涨量能爆发信号。
-        - 核心重构: 修复了负向资金流仍能产生高分的逻辑漏洞。将融合公式重构为
-                      `品质分 = 驱动分 * (幅度分 * 效率分 * 紧迫性分)^(1/3)`，
-                      赋予了“主力驱动”作为“守门员”的绝对权力，确保信号的纯粹性。
+        【V1.4 · 绝对裁决版】计算高品质看涨量能爆发信号。
+        - 核心重构: 修复了“守门员”因归一化逻辑而失职的漏洞。引入基于原始主力资金流的
+                      “绝对裁决”机制，确保只有在主力净流入为正时，驱动分才有效，
+                      彻底杜绝了主力流出日仍被判为“看涨爆发”的逻辑矛盾。
         - ... (其他注释保持不变)
         """
         # --- 1. 获取四维度原始数据 ---
@@ -745,13 +745,17 @@ class BehavioralIntelligence:
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_volume_burst_quality")
         # --- 2. 计算各维度得分 ---
         magnitude_score = get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=tf_weights)
-        flow_ratio = (main_force_flow / amount).clip(lower=0)
-        driver_score = get_adaptive_mtf_normalized_score(flow_ratio, df.index, ascending=True, tf_weights=tf_weights)
+        # [修改代码块] 实施“绝对裁决”
+        flow_ratio = main_force_flow / amount
+        # 归一化前先不clip，保留原始信息用于裁决
+        driver_score_normalized = get_adaptive_mtf_normalized_score(flow_ratio.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
+        # 绝对裁决：只有当原始主力资金流为正时，驱动分才有效
+        is_positive_flow = (main_force_flow > 0).astype(float)
+        driver_score = driver_score_normalized * is_positive_flow
         efficiency_score = get_adaptive_mtf_normalized_score(efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
         urgency_score = get_adaptive_mtf_normalized_score(urgency_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # --- 3. [修改代码块] 非线性合成与情景过滤 ---
+        # --- 3. 非线性合成与情景过滤 ---
         is_rising = (pct_change > 0).astype(float)
-        # 驱动分作为守门员，与其他三者的融合结果相乘
         other_factors_quality = (magnitude_score * efficiency_score * urgency_score).pow(1/3)
         volume_burst_quality = (driver_score * other_factors_quality * is_rising).fillna(0.0)
         # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
@@ -765,26 +769,38 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _calculate_volume_burst_quality @ {probe_date_str}")
                 print(f"        - 原始值: 量比={volume_ratio.loc[probe_ts]:.2f}, 主力流={main_force_flow.loc[probe_ts]:.2f}, 效率={efficiency_raw.loc[probe_ts]:.2f}, 紧迫性={urgency_raw.loc[probe_ts]:.2f}")
-                print(f"        - 归一化分: 幅度={magnitude_score.loc[probe_ts]:.4f}, 驱动(守门员)={driver_score.loc[probe_ts]:.4f}, 效率={efficiency_score.loc[probe_ts]:.4f}, 紧迫性={urgency_score.loc[probe_ts]:.4f}")
+                print(f"        - 归一化分: 幅度={magnitude_score.loc[probe_ts]:.4f}, 驱动(裁决后)={driver_score.loc[probe_ts]:.4f}, 效率={efficiency_score.loc[probe_ts]:.4f}, 紧迫性={urgency_score.loc[probe_ts]:.4f}")
                 print(f"        - 最终爆发品质分: {volume_burst_quality.loc[probe_ts]:.4f} (上涨日: {is_rising.loc[probe_ts]})")
         return volume_burst_quality.clip(0, 1).astype(np.float32)
 
     def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.3 · 探针逻辑重构版】计算下跌吸筹强度
-        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
-                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
-                      完美适配历史区间调试。
+        【V1.4 · 形态显著性版】计算下跌吸筹强度
+        - 核心重构: 修复了形态微小的下影线因相对排名高而被赋予过高权重的逻辑盲点。
+                      引入“形态显著性过滤器”，通过下影线长度占日内振幅的比例来调节其最终得分，
+                      确保模型的判断同时尊重相对强度和绝对形态意义。
         """
-        required_signals = ['dip_absorption_power_D', 'lower_shadow_absorption_strength_D']
+        # [修改代码行] 增加对 high, low, open, close 的依赖
+        required_signals = ['dip_absorption_power_D', 'lower_shadow_absorption_strength_D', 'high_D', 'low_D', 'open_D', 'close_D']
         if not self._validate_required_signals(df, required_signals, "_calculate_absorption_strength"):
             return pd.Series(0.0, index=df.index)
-        # --- 使用新的信号进行计算 ---
+        # --- [修改代码块] 引入“形态显著性过滤器” ---
+        # 1. 计算形态显著性因子
+        high = self._get_safe_series(df, 'high_D', method_name="_calculate_absorption_strength")
+        low = self._get_safe_series(df, 'low_D', method_name="_calculate_absorption_strength")
+        open_price = self._get_safe_series(df, 'open_D', method_name="_calculate_absorption_strength")
+        close_price = self._get_safe_series(df, 'close_D', method_name="_calculate_absorption_strength")
+        total_range = (high - low).replace(0, 1e-9)
+        lower_shadow_length = (np.minimum(open_price, close_price) - low).clip(lower=0)
+        significance_factor = (lower_shadow_length / total_range).clip(0, 1).fillna(0.0)
+        # 2. 正常计算各维度得分
         dip_power_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_calculate_absorption_strength")
         dip_power_score = get_adaptive_mtf_normalized_score(dip_power_raw, df.index, ascending=True, tf_weights=tf_weights)
         lower_shadow_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_calculate_absorption_strength")
-        lower_shadow_score = get_adaptive_mtf_normalized_score(lower_shadow_raw, df.index, ascending=True, tf_weights=tf_weights)
-        final_score = (dip_power_score * 0.7 + lower_shadow_score * 0.3).clip(0, 1)
+        lower_shadow_score_normalized = get_adaptive_mtf_normalized_score(lower_shadow_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 3. 使用显著性因子调节下影线得分并融合
+        lower_shadow_score_adjusted = lower_shadow_score_normalized * significance_factor
+        final_score = (dip_power_score * 0.7 + lower_shadow_score_adjusted * 0.3).clip(0, 1)
         # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -796,7 +812,8 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _calculate_absorption_strength @ {probe_date_str}")
                 print(f"        - 核心信号(新): dip_absorption_power_D = {dip_power_raw.loc[probe_ts]:.2f} -> 归一化分 = {dip_power_score.loc[probe_ts]:.4f}")
-                print(f"        - 辅助信号: lower_shadow_absorption_strength_D = {lower_shadow_raw.loc[probe_ts]:.2f} -> 归一化分 = {lower_shadow_score.loc[probe_ts]:.4f}")
+                print(f"        - 辅助信号: lower_shadow_absorption_strength_D = {lower_shadow_raw.loc[probe_ts]:.2f} -> 归一化分 = {lower_shadow_score_normalized.loc[probe_ts]:.4f}")
+                print(f"        - 形态显著性因子: {significance_factor.loc[probe_ts]:.4f} -> 修正后下影线分: {lower_shadow_score_adjusted.loc[probe_ts]:.4f}")
                 print(f"        - 最终下跌吸筹强度分: {final_score.loc[probe_ts]:.4f}")
         return final_score.astype(np.float32)
 
