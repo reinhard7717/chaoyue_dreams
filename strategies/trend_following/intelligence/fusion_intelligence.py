@@ -369,40 +369,51 @@ class FusionIntelligence:
 
     def _synthesize_trend_structure_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 上下文修复版】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
-        - 【V1.5 修复】接收 df 参数并在调用 _get_safe_series 时传递。
+        【V1.6 · 变焦透镜版】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
+        - 核心升级: 彻底废弃了对所有内部组件使用单一55日窗口归一化的僵化逻辑。引入“变焦透镜”，
+                      为均线排列（中期）、斜率（短期）、DMA（中期）等不同周期的结构信号，
+                      配备了专属的多时间维度归一化权重，实现了对趋势结构的高精度、多层次分析。
         """
         print("  -- [融合层] 正在冶炼“趋势结构分”...")
         states = {}
         df_index = df.index
-        norm_window = 55
+        # [修改代码块] 移除固定的 norm_window，从配置加载多维时间透镜
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        short_term_weights = get_param_value(p_mtf.get('short_term_weights'), {'weights': {3: 0.5, 5: 0.3, 8: 0.2}})
         ema5 = self._get_safe_series(df, 'EMA_5_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
         ema21 = self._get_safe_series(df, 'EMA_21_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
         if ema5.isnull().all() or ema21.isnull().all():
             alignment_score = pd.Series(0.0, index=df_index)
         else:
             raw_alignment = (ema5 - ema21) / (ema21.abs().replace(0, 1e-9))
-            alignment_score = normalize_to_bipolar(raw_alignment, df_index, window=norm_window, sensitivity=5.0)
+            # [修改代码行] 使用中期透镜
+            alignment_score = normalize_to_bipolar(raw_alignment, df_index, tf_weights=default_weights, sensitivity=5.0)
         slope_ema5 = self._get_safe_series(df, 'SLOPE_5_EMA_5_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
         slope_ema21 = self._get_safe_series(df, 'SLOPE_5_EMA_21_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
         if slope_ema5.isnull().all() or slope_ema21.isnull().all():
             slope_score = pd.Series(0.0, index=df_index)
         else:
-            norm_slope_ema5 = normalize_to_bipolar(slope_ema5, df_index, window=norm_window, sensitivity=0.005)
-            norm_slope_ema21 = normalize_to_bipolar(slope_ema21, df_index, window=norm_window, sensitivity=0.005)
+            # [修改代码行] 斜率是短期信号，使用短期透镜
+            norm_slope_ema5 = normalize_to_bipolar(slope_ema5, df_index, tf_weights=short_term_weights, sensitivity=0.005)
+            norm_slope_ema21 = normalize_to_bipolar(slope_ema21, df_index, tf_weights=short_term_weights, sensitivity=0.005)
             slope_score = (norm_slope_ema5 * 0.6 + norm_slope_ema21 * 0.4).clip(-1, 1)
         if ema5.isnull().all() or ema21.isnull().all():
             divergence_score = pd.Series(0.0, index=df_index)
         else:
             ma_bias_raw = (ema5 - ema21) / (ema21.abs().replace(0, 1e-9))
             ma_bias_slope_raw = ma_bias_raw.diff(1).fillna(0)
-            norm_ma_bias = normalize_to_bipolar(ma_bias_raw, df_index, window=norm_window, sensitivity=0.02)
-            norm_ma_bias_slope = normalize_to_bipolar(ma_bias_slope_raw, df_index, window=norm_window, sensitivity=0.001)
+            # [修改代码行] 发散是中期现象，使用中期透镜
+            norm_ma_bias = normalize_to_bipolar(ma_bias_raw, df_index, tf_weights=default_weights, sensitivity=0.02)
+            norm_ma_bias_slope = normalize_to_bipolar(ma_bias_slope_raw, df_index, tf_weights=default_weights, sensitivity=0.001)
             divergence_score = (norm_ma_bias * 0.7 + norm_ma_bias_slope * 0.3).clip(-1, 1)
         dma_raw = self._get_safe_series(df, 'DMA_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
-        dma_score = normalize_to_bipolar(dma_raw, df_index, window=norm_window)
+        # [修改代码行] DMA是中期指标，使用中期透镜
+        dma_score = normalize_to_bipolar(dma_raw, df_index, tf_weights=default_weights)
         zigzag_raw = self._get_safe_series(df, 'ZIG_5_5.0_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
-        zigzag_score = normalize_to_bipolar(zigzag_raw, df_index, window=norm_window, sensitivity=0.05)
+        # [修改代码行] Zigzag是中长期结构，使用中期透镜
+        zigzag_score = normalize_to_bipolar(zigzag_raw, df_index, tf_weights=default_weights, sensitivity=0.05)
         weights = np.array([0.3, 0.3, 0.15, 0.15, 0.1])
         components = [alignment_score, slope_score, divergence_score, dma_score, zigzag_score]
         aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
