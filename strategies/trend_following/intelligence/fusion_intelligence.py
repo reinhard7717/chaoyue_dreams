@@ -43,11 +43,11 @@ class FusionIntelligence:
 
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.5 · 时序修复版】融合情报分析总指挥
-        - 核心修复: 调整了内部方法的调用顺序。将 `_synthesize_chip_structural_potential` 的调用提前至 `_synthesize_chip_trend` 之前，
-                    解决了因计算时序错乱导致的 `FUSION_BIPOLAR_CHIP_STRUCTURAL_POTENTIAL` 信号缺失问题。
+        【V4.0 · 大一统同步版】融合情报分析总指挥
+        - 核心重构: 移除了对已废弃的 `_synthesize_chip_structural_potential` 方法的调用，
+                    因为其功能已被筹码层全新的 `SCORE_CHIP_BATTLEFIELD_GEOGRAPHY` 信号完全覆盖和超越。
         """
-        print("启动【V3.5 · 时序修复版】融合情报分析...")
+        print("启动【V4.0 · 大一统同步版】融合情报分析...") # 修改: 更新版本号
         all_fusion_states = {}
         regime_states = self._synthesize_market_regime(df)
         all_fusion_states.update(regime_states)
@@ -79,42 +79,43 @@ class FusionIntelligence:
         fund_flow_trend_states = self._synthesize_fund_flow_trend(df)
         all_fusion_states.update(fund_flow_trend_states)
         self.strategy.atomic_states.update(fund_flow_trend_states)
-        # [修改] 将 chip_potential 的计算提前到 chip_trend 之前
-        chip_potential_states = self._synthesize_chip_structural_potential(df)
-        all_fusion_states.update(chip_potential_states)
-        self.strategy.atomic_states.update(chip_potential_states)
         chip_trend_states = self._synthesize_chip_trend(df)
         all_fusion_states.update(chip_trend_states)
         self.strategy.atomic_states.update(chip_trend_states)
         accumulation_inflection_states = self._synthesize_accumulation_inflection(df)
         all_fusion_states.update(accumulation_inflection_states)
         self.strategy.atomic_states.update(accumulation_inflection_states)
-        print(f"【V3.5 · 时序修复版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
+        print(f"【V4.0 · 大一统同步版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。") # 修改: 更新版本号
         return all_fusion_states
 
     def _synthesize_market_contradiction(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 信号协议修复版】冶炼“市场矛盾” (Market Contradiction)
-        - 核心修复: 更新了对行为层背离信号的引用，从已废弃的 `SCORE_BEHAVIOR...DIVERGENCE` 切换到
-                    更高质量的 `SCORE_BEHAVIOR...DIVERGENCE_QUALITY`，以匹配上游情报引擎的命名协议变更。
+        【V2.0 · 大一统同步版】冶炼“市场矛盾” (Market Contradiction)
+        - 核心重构: 将对筹码层背离的引用从已废弃的单极性信号，切换为对核心双极性信号 `SCORE_CHIP_AXIOM_DIVERGENCE` 的动态拆分，
+                    以适应筹码层“大一统”重构。
         """
         print("  -- [融合层] 正在冶炼“市场矛盾”...")
         states = {}
+        # 移除 'CHIP'，后续单独处理
         divergence_sources = [
             'FOUNDATION', 'STRUCTURE', 'PATTERN', 'DYNAMIC_MECHANICS',
-            'CHIP', 'FUND_FLOW', 'MICRO_BEHAVIOR'
-            # [修改] 移除旧的 'BEHAVIOR' 源，因为它将被单独处理
+            'FUND_FLOW', 'MICRO_BEHAVIOR'
         ]
         bullish_divergence_scores = []
         bearish_divergence_scores = []
         for source in divergence_sources:
+            # 逻辑不变，但源列表已更新
             bull_signal_name = f'SCORE_{source}_BULLISH_DIVERGENCE'
             bear_signal_name = f'SCORE_{source}_BEARISH_DIVERGENCE'
             bullish_divergence_scores.append(self._get_atomic_score(df, bull_signal_name, 0.0).values)
             bearish_divergence_scores.append(self._get_atomic_score(df, bear_signal_name, 0.0).values)
-        # [修改] 单独添加更高质量的行为层背离信号
+        # 单独处理行为层和筹码层的背离
         bullish_divergence_scores.append(self._get_atomic_score(df, 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY', 0.0).values)
         bearish_divergence_scores.append(self._get_atomic_score(df, 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY', 0.0).values)
+        # 从核心双极性信号中拆分筹码背离
+        chip_divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
+        bullish_divergence_scores.append(chip_divergence.clip(lower=0).values)
+        bearish_divergence_scores.append(chip_divergence.clip(upper=0).abs().values)
         net_bullish_divergence = np.maximum.reduce(bullish_divergence_scores)
         net_bearish_divergence = np.maximum.reduce(bearish_divergence_scores)
         bipolar_contradiction = (pd.Series(net_bullish_divergence, index=df.index) -
@@ -181,8 +182,9 @@ class FusionIntelligence:
 
     def _synthesize_trend_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 上下文修复版】冶炼“趋势质量” (Trend Quality)
-        - 【V2.1 修复】接收 df 参数并在调用 _get_atomic_score 和 _get_safe_series 时传递。
+        【V3.0 · 大一统同步版】冶炼“趋势质量” (Trend Quality)
+        - 核心重构: 移除了对旧筹码公理的依赖，引入两大“大一统”战略信号 `SCORE_CHIP_STRATEGIC_POSTURE` 和
+                    `SCORE_CHIP_BATTLEFIELD_GEOGRAPHY`，并重新分配权重，以反映新信号更高的战略价值。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
@@ -202,10 +204,10 @@ class FusionIntelligence:
         fund_flow_consensus = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0)
         fund_flow_conviction = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONVICTION', 0.0)
         fund_flow_increment = self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0)
-        chip_concentration = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
-        chip_cost_structure = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_COST_STRUCTURE', 0.0)
+        # 引入新的大一统筹码信号
+        chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
+        chip_battlefield_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0)
         chip_holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
-        chip_peak_integrity = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_PEAK_INTEGRITY', 0.0)
         micro_deception = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_DECEPTION', 0.0)
         micro_probe = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_PROBE', 0.0)
         micro_efficiency = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_EFFICIENCY', 0.0)
@@ -224,6 +226,7 @@ class FusionIntelligence:
         breakout_readiness_score = normalize_to_bipolar(breakout_readiness_raw, df_index, window=55, sensitivity=20)
         trend_vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_synthesize_trend_quality")
         trend_vitality_score = normalize_to_bipolar(trend_vitality_raw, df_index, window=55, sensitivity=0.5)
+        # 更新组件和权重，用新信号替换旧信号
         components_and_weights = {
             'foundation_trend': (foundation_trend, 0.08), 'foundation_oscillator': (foundation_oscillator, -0.02),
             'foundation_flow': (foundation_flow, 0.03), 'foundation_volatility': (foundation_volatility, 0.02),
@@ -232,9 +235,11 @@ class FusionIntelligence:
             'dynamic_inertia': (dynamic_inertia, 0.05), 'dynamic_stability': (dynamic_stability, 0.02),
             'dynamic_energy': (dynamic_energy, 0.02), 'dynamic_ma_acceleration': (dynamic_ma_acceleration, 0.03),
             'fund_flow_consensus': (fund_flow_consensus, 0.03), 'fund_flow_conviction': (fund_flow_conviction, 0.03),
-            'fund_flow_increment': (fund_flow_increment, 0.03), 'chip_concentration': (chip_concentration, 0.03),
-            'chip_cost_structure': (chip_cost_structure, 0.03), 'chip_holder_sentiment': (chip_holder_sentiment, 0.03),
-            'chip_peak_integrity': (chip_peak_integrity, 0.03), 'micro_deception': (micro_deception, 0.01),
+            'fund_flow_increment': (fund_flow_increment, 0.03),
+            'chip_strategic_posture': (chip_strategic_posture, 0.07), # 新信号
+            'chip_battlefield_geography': (chip_battlefield_geography, 0.05), # 新信号
+            'chip_holder_sentiment': (chip_holder_sentiment, 0.03),
+            'micro_deception': (micro_deception, 0.01),
             'micro_probe': (micro_probe, 0.01), 'micro_efficiency': (micro_efficiency, 0.01),
             'behavior_upward_efficiency': (behavior_upward_efficiency, 0.02), 'behavior_downward_resistance': (behavior_downward_resistance, 0.02),
             'behavior_intraday_bull_control': (behavior_intraday_bull_control, 0.01), 'pattern_reversal': (pattern_reversal, 0.01),
@@ -256,8 +261,9 @@ class FusionIntelligence:
 
     def _synthesize_stagnation_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 上下文修复版】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
-        - 【V1.1 修复】接收 df 参数并在调用 _get_atomic_score 和 _get_safe_series 时传递。
+        【V2.0 · 大一统同步版】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
+        - 核心重构: 将“筹码分散风险”的来源从旧的 `CONCENTRATION` 信号，升级为更能体现主力意图的
+                    `SCORE_CHIP_STRATEGIC_POSTURE` 信号的负向表现。
         """
         print("  -- [融合层] 正在冶炼“滞涨风险”...")
         states = {}
@@ -266,7 +272,8 @@ class FusionIntelligence:
         price_overextension_risk = self._get_atomic_score(df, 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs()
         upper_shadow_pressure_risk = self._get_atomic_score(df, 'FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0).clip(upper=0).abs()
         fund_flow_bearish_risk = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(upper=0).abs()
-        chip_dispersion_risk = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(upper=0).abs()
+        # 使用新的“战略态势”信号的负值部分作为分散风险的衡量
+        chip_dispersion_risk = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(upper=0).abs()
         profit_taking_supply_risk = normalize_score(self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_synthesize_stagnation_risk"), df_index, window=55, ascending=True).clip(0, 1)
         trend_confirmation_risk = (1 - self._get_atomic_score(df, 'CONTEXT_TREND_CONFIRMED', 0.0)).clip(0, 1)
         retail_fomo_risk = normalize_score(self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name="_synthesize_stagnation_risk"), df_index, window=55, ascending=True).clip(0, 1)
@@ -287,13 +294,15 @@ class FusionIntelligence:
 
     def _synthesize_capital_confrontation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 上下文修复版】冶炼“资本对抗” (Capital Confrontation)
-        - 【V1.3 修复】接收 df 参数并在调用 _get_atomic_score 时传递。
+        【V2.0 · 大一统同步版】冶炼“资本对抗” (Capital Confrontation)
+        - 核心重构: 将“筹码转移”的评估，从旧的 `CONCENTRATION` 信号升级为更能体现博弈结果的
+                    `SCORE_CHIP_STRATEGIC_POSTURE` 信号。
         """
         print("  -- [融合层] 正在冶炼“资本对抗”...")
         states = {}
         flow_confrontation = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0)
-        chip_transfer = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
+        # 使用新的“战略态势”信号作为筹码层对抗结果的代表
+        chip_transfer = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         deception = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_DECEPTION', 0.0)
         bipolar_confrontation = (flow_confrontation * 0.5 + chip_transfer * 0.3 + deception * 0.2).clip(-1, 1)
         states['FUSION_BIPOLAR_CAPITAL_CONFRONTATION'] = bipolar_confrontation.astype(np.float32)
@@ -302,8 +311,8 @@ class FusionIntelligence:
 
     def _synthesize_price_overextension_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 上下文修复版】冶炼“价格超买意图” (Price Overextension Intent)
-        - 【V3.1 修复】接收 df 参数并在调用 _get_atomic_score 和 _get_safe_series 时传递。
+        【V4.0 · 大一统同步版】冶炼“价格超买意图” (Price Overextension Intent)
+        - 核心重构: 将用于对冲超买风险的筹码信号从旧的 `CONCENTRATION` 升级为 `SCORE_CHIP_STRATEGIC_POSTURE`。
         """
         print("  -- [融合层] 正在冶炼“价格超买意图”...")
         states = {}
@@ -321,7 +330,8 @@ class FusionIntelligence:
             rsi_score * 0.15 + winner_rate_score * 0.15
         )
         fund_flow_consensus = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0)
-        chip_concentration = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
+        # 使用新的“战略态势”信号
+        chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         micro_efficiency = (self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_EFFICIENCY', 0.5) * 2 - 1).clip(-1, 1)
         body_ratio_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
@@ -329,7 +339,7 @@ class FusionIntelligence:
         upper_shadow_ratio_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
         upper_shadow_score = normalize_to_bipolar(upper_shadow_ratio_raw, df_index, window=norm_window, sensitivity=0.2) * -1
         health_sum = (
-            fund_flow_consensus * 0.1 + chip_concentration * 0.05 +
+            fund_flow_consensus * 0.1 + chip_strategic_posture * 0.05 + # 替换信号
             structural_trend_form * 0.05 + micro_efficiency * 0.03 +
             body_score * 0.04 + upper_shadow_score * 0.03
         )
@@ -340,8 +350,8 @@ class FusionIntelligence:
 
     def _synthesize_upper_shadow_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 上下文修复版】冶炼“上影线意图” (Upper Shadow Intent)
-        - 【V2.1 修复】接收 df 参数并在调用 _get_atomic_score 和 _get_safe_series 时传递。
+        【V3.0 · 大一统同步版】冶炼“上影线意图” (Upper Shadow Intent)
+        - 核心重构: 将用于判断上影线背后筹码背景的信号从旧的 `CONCENTRATION` 升级为 `SCORE_CHIP_STRATEGIC_POSTURE`。
         """
         print("  -- [融合层] 正在冶炼“上影线意图” (深度博弈版)...")
         states = {}
@@ -350,7 +360,8 @@ class FusionIntelligence:
         upper_shadow_normalized = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW', 0.0)
         pct_change = self._get_safe_series(df, 'pct_change_D', pd.Series(0.0, index=df_index), method_name="_synthesize_upper_shadow_intent")
         main_force_flow = normalize_to_bipolar(self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_synthesize_upper_shadow_intent"), df_index, norm_window)
-        chip_concentration = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
+        # 使用新的“战略态势”信号
+        chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         micro_deception = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_DECEPTION', 0.0)
         upward_efficiency = (self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5) * 2 - 1).clip(-1, 1)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
@@ -359,14 +370,14 @@ class FusionIntelligence:
         is_down_day = (pct_change < 0).astype(float)
         is_flat_day = ((pct_change == 0) | (pct_change.abs() < 0.005)).astype(float)
         bullish_intent_components = [
-            main_force_flow.clip(lower=0), chip_concentration.clip(lower=0),
+            main_force_flow.clip(lower=0), chip_strategic_posture.clip(lower=0), # 替换信号
             micro_deception.clip(lower=0), upward_efficiency.clip(lower=0),
             structural_trend_form.clip(lower=0)
         ]
         bullish_weights = np.array([0.35, 0.25, 0.2, 0.1, 0.1])
         bullish_intent_score = sum(w * s for w, s in zip(bullish_weights, bullish_intent_components)).clip(0, 1)
         bearish_intent_components = [
-            main_force_flow.clip(upper=0).abs(), chip_concentration.clip(upper=0).abs(),
+            main_force_flow.clip(upper=0).abs(), chip_strategic_posture.clip(upper=0).abs(), # 替换信号
             micro_deception.clip(upper=0).abs(), (1 - upward_efficiency.clip(lower=0)),
             structural_trend_form.clip(upper=0).abs()
         ]
@@ -489,59 +500,38 @@ class FusionIntelligence:
 
     def _synthesize_chip_trend(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 势能与稳定性版】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
-        - 核心重构: 废弃V1.x的线性加权模型，引入基于“筹码结构势能与稳定性”的非线性数学模型。
-        - 结构基础: 通过几何平均融合“集中度、成本结构、主峰完整性、锁定度”，确保地基稳固。
-        - 上涨势能: 融合“结构势能”与“筹码干净度”，量化向上突破的潜力。
-        - 结构风险: 聚合“衰竭、派发、断层”等风险，通过“木桶短板”逻辑识别核心威胁。
-        - 动态演化: 将“净结构分”与“趋势动量”、“价筹背离”等动态因子进行非线性融合，旨在穿透静态结构，预判趋势的演化方向与可持续性。
+        【V3.0 · 大一统重构版】冶炼“筹码趋势” (FUSION_BIPOLAR_CHIP_TREND)
+        - 核心重构: 废弃旧的、基于冗余信号的线性模型。引入基于两大“大一统”信号的全新非线性融合模型。
+        - 核心逻辑:
+          1. 静态健康度: 由“战略态势”与“战场地形学”共同决定。有利的态势+有利的地形=健康的静态基础。
+          2. 动态修正项: 由“持股心态”、“结构性推力(动量)”和“价筹张力(背离)”共同构成，对静态健康度进行动态修正。
+          3. 最终融合: 趋势分 = tanh(静态健康度 * 1.5 + 动态修正项 * 0.5)，旨在输出一个能反映筹码综合战局的终极信号。
         """
-        print("  -- [融合层] 正在冶炼“筹码趋势”(V2.0 · 势能与稳定性版)...") # 更新打印信息
+        print("  -- [融合层] 正在冶炼“筹码趋势”(V3.0 · 大一统重构版)...")
         states = {}
-        df_index = df.index
-        norm_window = 55
-        # 1. 扩充数据获取范围
-        chip_concentration = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
-        chip_cost_structure = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_COST_STRUCTURE', 0.0)
-        chip_holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
-        chip_peak_integrity = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_PEAK_INTEGRITY', 0.0)
-        chip_divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
-        chip_cleanliness = self._get_atomic_score(df, 'SCORE_CHIP_CLEANLINESS', 0.0)
-        chip_lockdown_degree = self._get_atomic_score(df, 'SCORE_CHIP_LOCKDOWN_DEGREE', 0.0)
-        chip_trend_momentum = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_TREND_MOMENTUM', 0.0)
-        chip_potential = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_STRUCTURAL_POTENTIAL', 0.0)
-        # 获取风险和派发相关的原始指标
-        exhaustion_risk_raw = self._get_safe_series(df, 'exhaustion_risk_index_D', 0.0, method_name="_synthesize_chip_trend")
-        distribution_raw = self._get_safe_series(df, 'dispersal_by_distribution_D', 0.0, method_name="_synthesize_chip_trend")
-        fault_magnitude_raw = self._get_safe_series(df, 'chip_fault_magnitude_D', 0.0, method_name="_synthesize_chip_trend")
-        # 2. 风险指标归一化
-        exhaustion_risk_score = normalize_score(exhaustion_risk_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
-        distribution_risk_score = normalize_score(distribution_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
-        fault_risk_score = normalize_score(fault_magnitude_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
-        # 3. 核心数学逻辑 - 势能与稳定性模型
-        # 3.1 结构基础 (Structural Foundation) - 使用几何平均确保所有基石都稳固
-        structural_foundation = (
-            chip_concentration.clip(lower=0) *
-            chip_cost_structure.clip(lower=0) *
-            chip_peak_integrity.clip(lower=0) *
-            chip_lockdown_degree.clip(lower=0)
-        ).pow(0.25).fillna(0.0)
-        # 3.2 上涨势能 (Upward Potential Energy)
-        upward_potential = (chip_potential.clip(lower=0) * chip_cleanliness.clip(lower=0)).pow(0.5).fillna(0.0)
-        # 3.3 结构风险 (Structural Risk) - 木桶短板效应，取最大风险项
-        structural_risk = np.maximum.reduce([
-            exhaustion_risk_score,
-            distribution_risk_score,
-            fault_risk_score,
-            chip_holder_sentiment.clip(upper=0).abs() # 负向心态也是一种风险
-        ])
-        # 3.4 计算净结构分
-        net_structure_score = (structural_foundation * upward_potential - structural_risk).clip(-1, 1)
-        # 4. 非线性融合动态演化因子
+        # 1. 获取全新的核心筹码信号
+        strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
+        battlefield_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0)
+        holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
+        trend_momentum = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_TREND_MOMENTUM', 0.0)
+        divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
+        # 2. 核心数学逻辑 - 静态与动态融合
+        # 2.1 静态健康度 (Static Health)
+        # 只有当态势和地形都为正时，才认为是健康的。负向信号作为风险项。
+        static_health_base = (strategic_posture.clip(lower=0) * battlefield_geography.clip(lower=0)).pow(0.5)
+        static_risk = np.maximum(strategic_posture.clip(upper=0).abs(), battlefield_geography.clip(upper=0).abs())
+        static_health_score = (static_health_base - static_risk).clip(-1, 1)
+        # 2.2 动态修正项 (Dynamic Modulator)
+        # 融合心态、动量和背离
+        dynamic_modulator = (
+            holder_sentiment * 0.4 +
+            trend_momentum * 0.4 +
+            divergence * 0.2
+        ).clip(-1, 1)
+        # 3. 非线性融合
         chip_trend_score = np.tanh(
-            net_structure_score * 1.5 +       # 净结构分是核心
-            chip_trend_momentum * 0.5 +       # 动量提供加速度
-            chip_divergence * 0.2             # 背离作为诡道修正项
+            static_health_score * 1.5 +       # 静态健康度是核心
+            dynamic_modulator * 0.5           # 动态因子进行修正
         )
         states['FUSION_BIPOLAR_CHIP_TREND'] = chip_trend_score.astype(np.float32)
         print(f"  -- [融合层] “筹码趋势”冶炼完成，最新分值: {chip_trend_score.iloc[-1]:.4f}")
@@ -549,35 +539,40 @@ class FusionIntelligence:
 
     def _synthesize_accumulation_inflection(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 上下文修复版】冶炼“吸筹拐点信号” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
-        - 【V1.1 修复】接收 df 参数并在调用 _get_atomic_score 时传递。
+        【V2.0 · 大一统同步版】冶炼“吸筹拐点信号” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
+        - 核心重构: 将判断筹码支撑环境的条件，从旧的多个原子公理升级为两大“大一统”战略信号，
+                    使其对“吸筹末端”的判断更具战略深度。
         """
         print("  -- [融合层] 正在冶炼“吸筹拐点信号”...")
         states = {}
         df_index = df.index
         inflection_score = pd.Series(0.0, index=df_index)
         ff_inflection_intent = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0)
-        chip_concentration = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
-        chip_cost_structure = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_COST_STRUCTURE', 0.0)
-        chip_holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
-        chip_trend_momentum = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_TREND_MOMENTUM', 0.0)
+        # 引入新的大一统筹码信号
+        strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
+        battlefield_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0)
+        holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
+        trend_momentum = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_TREND_MOMENTUM', 0.0)
         p_conf_fusion_inflection = get_params_block(self.strategy, 'fusion_accumulation_inflection_params', {})
         ff_inflection_threshold = get_param_value(p_conf_fusion_inflection.get('ff_inflection_threshold'), 0.6)
-        chip_concentration_threshold = get_param_value(p_conf_fusion_inflection.get('chip_concentration_threshold'), 0.5)
-        chip_cost_structure_favorable_threshold = get_param_value(p_conf_fusion_inflection.get('chip_cost_structure_favorable_threshold'), 0.0)
-        chip_holder_sentiment_strong_threshold = get_param_value(p_conf_fusion_inflection.get('chip_holder_sentiment_strong_threshold'), 0.5)
-        chip_trend_momentum_positive_threshold = get_param_value(p_conf_fusion_inflection.get('chip_trend_momentum_positive_threshold'), 0.0)
+        # 更新阈值参数，适配新信号
+        strategic_posture_threshold = get_param_value(p_conf_fusion_inflection.get('strategic_posture_threshold'), 0.5)
+        battlefield_geography_favorable_threshold = get_param_value(p_conf_fusion_inflection.get('battlefield_geography_favorable_threshold'), 0.0)
+        holder_sentiment_strong_threshold = get_param_value(p_conf_fusion_inflection.get('holder_sentiment_strong_threshold'), 0.5)
+        trend_momentum_positive_threshold = get_param_value(p_conf_fusion_inflection.get('trend_momentum_positive_threshold'), 0.0)
         cond_ff_inflection_strong = (ff_inflection_intent > ff_inflection_threshold)
-        cond_chip_supportive = (chip_concentration > chip_concentration_threshold) & \
-                               (chip_cost_structure > chip_cost_structure_favorable_threshold) & \
-                               (chip_holder_sentiment > chip_holder_sentiment_strong_threshold) & \
-                               (chip_trend_momentum > chip_trend_momentum_positive_threshold)
+        # 重构筹码支撑条件
+        cond_chip_supportive = (strategic_posture > strategic_posture_threshold) & \
+                               (battlefield_geography > battlefield_geography_favorable_threshold) & \
+                               (holder_sentiment > holder_sentiment_strong_threshold) & \
+                               (trend_momentum > trend_momentum_positive_threshold)
         inflection_score.loc[cond_ff_inflection_strong] = ff_inflection_intent.loc[cond_ff_inflection_strong] * 0.6
+        # 更新加分项
         inflection_score.loc[cond_ff_inflection_strong & cond_chip_supportive] += \
-            (chip_concentration.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.1 +
-             chip_cost_structure.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.1 +
-             chip_holder_sentiment.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.1 +
-             chip_trend_momentum.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.1)
+            (strategic_posture.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.15 +
+             battlefield_geography.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.15 +
+             holder_sentiment.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.05 +
+             trend_momentum.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.05)
         inflection_score = inflection_score.clip(0, 1)
         tf_weights_fusion_inflection = get_param_value(p_conf_fusion_inflection.get('tf_fusion_weights'), {5: 0.6, 13: 0.3, 21: 0.1})
         inflection_score_normalized = get_adaptive_mtf_normalized_score(inflection_score, df_index, ascending=True, tf_weights=tf_weights_fusion_inflection).clip(0, 1)
@@ -585,59 +580,6 @@ class FusionIntelligence:
         print(f"  -- [融合层] “吸筹拐点信号”冶炼完成，最新分值: {inflection_score_normalized.iloc[-1]:.4f}")
         return states
 
-    def _synthesize_chip_structural_potential(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V2.0 · 弹性势能版】冶炼“筹码结构势能” (FUSION_BIPOLAR_CHIP_STRUCTURAL_POTENTIAL)
-        - 核心重构: 废弃V1.x的线性加权模型，引入基于物理学“弹性势能”思想的非线性数学模型。
-        - 势能三要素: 将势能解构为“结构锚固强度(k)”、“能量压缩状态(x)”和“方向偏置(Vector)”。
-        - 结构锚固强度: 通过几何平均融合主峰稳固度、控制力、获利盘稳定性，确保结构“刚度”。
-        - 能量压缩状态: 融合结构张力与突破就绪度，量化能量的积蓄程度。
-        - 非线性方程: 最终势能由 `tanh(锚固强度 * 压缩状态 * 方向偏置 * 催化因子)` 决定，旨在模拟真实博弈中势能的存储、方向与释放过程。
-        """
-        print("  -- [融合层] 正在冶炼“筹码结构势能”(V2.0 · 弹性势能版)...") #  更新打印信息
-        states = {}
-        df_index = df.index
-        norm_window = 55
-        #  1. 扩充数据获取，覆盖势能三要素+催化剂
-        # 原始输入
-        potential_score_raw = self._get_safe_series(df, 'structural_potential_score_D', 50.0, method_name="_synthesize_chip_structural_potential")
-        breakout_readiness_raw = self._get_safe_series(df, 'breakout_readiness_score_D', 50.0, method_name="_synthesize_chip_structural_potential")
-        tension_raw = self._get_safe_series(df, 'structural_tension_index_D', 0.0, method_name="_synthesize_chip_structural_potential")
-        vacuum_raw = self._get_safe_series(df, 'vacuum_zone_magnitude_D', 0.0, method_name="_synthesize_chip_structural_potential")
-        #  用于构建“结构锚固强度”的指标
-        solidity_raw = self._get_safe_series(df, 'dominant_peak_solidity_D', 0.5, method_name="_synthesize_chip_structural_potential")
-        control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.5, method_name="_synthesize_chip_structural_potential")
-        winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_synthesize_chip_structural_potential")
-        #  用于构建“催化因子”和“方向偏置”的指标
-        deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_synthesize_chip_structural_potential")
-        control_transfer_raw = self._get_safe_series(df, 'peak_control_transfer_D', 0.0, method_name="_synthesize_chip_structural_potential")
-        cost_advantage_raw = self._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name="_synthesize_chip_structural_potential")
-        #  2. 核心数学逻辑 - 弹性势能模型
-        #  2.1 计算“结构锚固强度 (Anchor Strength)” - k
-        solidity_score = normalize_score(solidity_raw, df_index, window=norm_window, ascending=True)
-        control_solidity_score = normalize_score(control_solidity_raw, df_index, window=norm_window, ascending=True)
-        winner_stability_score = normalize_score(winner_stability_raw, df_index, window=norm_window, ascending=True)
-        anchor_strength = (solidity_score * control_solidity_score * winner_stability_score).pow(1/3).fillna(0.0)
-        #  2.2 计算“能量压缩状态 (Compression State)” - x
-        tension_score = normalize_score(tension_raw.abs(), df_index, window=norm_window, ascending=True)
-        readiness_score = normalize_score(breakout_readiness_raw, df_index, window=norm_window, ascending=True)
-        compression_state = (tension_score * readiness_score).pow(0.5).fillna(0.0)
-        #  2.3 计算“方向偏置 (Directional Bias)” - Vector
-        vacuum_bias = normalize_to_bipolar(vacuum_raw, df_index, window=norm_window, sensitivity=0.5)
-        cost_advantage_bias = normalize_to_bipolar(cost_advantage_raw, df_index, window=norm_window, sensitivity=5.0)
-        directional_bias = (vacuum_bias * 0.6 + cost_advantage_bias * 0.4).clip(-1, 1)
-        #  2.4 计算“催化因子 (Catalyst Factor)”
-        deception_catalyst = normalize_to_bipolar(deception_raw, df_index, window=norm_window, sensitivity=20)
-        control_transfer_catalyst = normalize_to_bipolar(control_transfer_raw, df_index, window=norm_window, sensitivity=0.2)
-        catalyst_factor = (deception_catalyst * 0.5 + control_transfer_catalyst * 0.5).clip(-1, 1)
-        #  3. 非线性势能方程合成
-        # 基础势能 = 锚固强度 * 压缩状态
-        base_potential_magnitude = (anchor_strength * compression_state).clip(0, 1)
-        # 考虑方向和催化剂
-        structural_potential_score = np.tanh(
-            base_potential_magnitude * directional_bias * (1 + catalyst_factor.clip(lower=0) * 0.5) * 2.0
-        )
-        states['FUSION_BIPOLAR_CHIP_STRUCTURAL_POTENTIAL'] = structural_potential_score.astype(np.float32)
-        print(f"  -- [融合层] “筹码结构势能”冶炼完成，最新分值: {structural_potential_score.iloc[-1]:.4f}")
-        return states
+
+
 

@@ -867,78 +867,123 @@
             "type": "context",
             "description": "用于恐慌抛售战备计算的内部支柱分，衡量成交量的萎缩程度。"
         },
-        "说明_tactic_engine": "--- 战术引擎信号 (Tactic Engine) ---",
-        "说明_intraday_behavior_engine": "--- 日内行为引擎信号 (IntradayBehavior Engine) ---",
-        "说明_playbook_engine": "--- 剧本引擎信号 (Playbook Engine) ---",
         "说明_chip_intelligence": "--- 筹码层-内部信号 ---",
         "SCORE_CHIP_CLEANLINESS": {
-            "cn_name": "【筹码】筹码干净度",
+            "cn_name": "【筹码】筹码干净度(已废弃)",
             "category": "筹码层-原子",
             "type": "context",
-            "description": "【超级原子信号】量化筹码结构的“干净”程度，即上方套牢盘和短期获利盘的综合压力。分值越高，代表上方阻力越小，结构越干净。"
+            "description": "【V1.0 · 已废弃】该信号已被废弃，请使用更高维度的 `SCORE_CHIP_LAUNCHPAD_QUALITY`。旧版本仅静态评估上方套牢盘和短期获利盘压力，无法穿透主力“伪干净”的诱多陷阱。"
         },
         "SCORE_CHIP_LOCKDOWN_DEGREE": {
-            "cn_name": "【筹码】筹码锁定度",
+            "cn_name": "【筹码】筹码锁定度(已废弃)",
             "category": "筹码层-原子",
             "type": "context",
-            "description": "【超级原子信号】量化市场中总的不愿交易的筹码比例（盈利锁定+亏损锁定）。分值越高，代表筹码锁定越好，浮筹越少。"
+            "description": "【V1.0 · 已废弃】该信号已被废弃，请使用更具博弈思想的 `SCORE_CHIP_CONTROL_SOVEREIGNTY`。旧版本仅静态评估筹码的“静止”状态，无法区分是主力高度控盘还是市场无人问津。"
         },
-        "SCORE_CHIP_STRUCTURAL_CONSENSUS": {
-            "cn_name": "【筹码】结构共识分",
-            "category": "筹码层-原子",
+        "SCORE_CHIP_LAUNCHPAD_QUALITY": {
+            "cn_name": "【筹码】发射台品质(已废弃)",
+            "category": "筹码层-超级原子",
             "type": "context",
-            "description": "【超级原子信号】融合“成本结构”和“持股心态”两大公理的正面得分，量化“健康结构”与“坚定信念”之间的共振强度。分值越高，代表健康的筹码结构得到了市场参与者的高度认同，上涨的内在驱动力越强。"
+            "description": "【V2.0 · 已废弃】该信号已被废弃。其核心概念（结构完整性、真空区）已被统一整合进更全面的 `SCORE_CHIP_BATTLEFIELD_GEOGRAPHY` (战场地形学) 信号中，以消除结构评估的冗余。"
+        },
+        "SCORE_CHIP_DOMINION_FIELD_STRENGTH": {
+            "cn_name": "【筹码】主力统治场强度(已废弃)",
+            "category": "筹码层-超级原子",
+            "type": "context",
+            "description": "【V3.0 · 已废弃】该信号已被废弃。其核心概念（场核品质、场梯度）已被统一整合进更全面的 `SCORE_CHIP_STRATEGIC_POSTURE` (战略态势) 信号中，以消除主力意图评估的冗余。"
         },
         "SCORE_CHIP_AXIOM_CONCENTRATION": {
-            "cn_name": "【筹码公理】聚散动态",
+            "cn_name": "【筹码公理】战略集结度(已废弃)",
             "category": "筹码层-原子",
             "type": "context",
-            "description": "【筹码公理一】诊断筹码是趋向集中还是分散。正分代表集中，负分代表分散。"
+            "description": "【V5.0 · 已废弃】该信号已被废弃。其核心概念（集结水平、效率、战备状态）已被统一整合进更全面的 `SCORE_CHIP_STRATEGIC_POSTURE` (战略态势) 信号中，以消除主力意图评估的冗余。"
         },
         "SCORE_CHIP_AXIOM_COST_STRUCTURE": {
-            "cn_name": "【筹码公理】成本结构",
+            "cn_name": "【筹码公理】结构防御工事(已废弃)",
             "category": "筹码层-原子",
             "type": "context",
-            "description": "【筹码公理二】诊断成本结构是否健康。正分代表获利盘稳固、成本收敛，负分代表套牢盘压力大、成本发散。"
-        },
-        "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT": {
-            "cn_name": "【筹码公理】持股心态",
-            "category": "筹码层-原子",
-            "type": "context",
-            "description": "【筹码公理三】诊断市场整体持股心态。正分代表赢家惜售、输家躺平，负分代表信念动摇、恐慌抛售。"
+            "description": "【V5.0 · 已废弃】该信号已被废弃。其核心概念（地基、势能、维护）已被统一整合进更全面的 `SCORE_CHIP_BATTLEFIELD_GEOGRAPHY` (战场地形学) 信号中，以消除结构评估的冗余。"
         },
         "SCORE_CHIP_AXIOM_PEAK_INTEGRITY": {
-            "cn_name": "【筹码公理】筹码峰形态",
+            "cn_name": "【筹码公理】战略节点功能(已废弃)",
             "category": "筹码层-原子",
             "type": "context",
-            "description": "【筹码公理四】诊断主筹码峰的稳固性。正分代表筹码峰形成有效支撑，负分代表其构成压力。"
+            "description": "【V5.0 · 已废弃】该信号已被废弃。其对单一筹码峰的聚焦分析已被统一整合进更全面的 `SCORE_CHIP_BATTLEFIELD_GEOGRAPHY` (战场地形学) 信号中，以消除结构评估的冗余。"
+        },
+        "SCORE_CHIP_STRATEGIC_POSTURE": {
+            "cn_name": "【筹码】战略态势",
+            "category": "筹码层-超级原子",
+            "type": "context",
+            "description": "【V6.0 · 大一统信号】取代了旧的‘集结度’与‘统治场’。这是一个顶层战略信号，旨在评估主力当前的综合态势。它融合了‘阵型部署’、‘指挥官决心’和‘战场控制力’三大维度，输出一个[-1, 1]的双极性分数。正分代表主力处于积极的进攻态势，负分则代表消极的防守或撤退态势。"
+        },
+        "SCORE_CHIP_BATTLEFIELD_GEOGRAPHY": {
+            "cn_name": "【筹码】战场地形学",
+            "category": "筹码层-超级原子",
+            "type": "context",
+            "description": "【V6.0 · 大一统信号】取代了旧的‘结构防御工事’、‘节点功能’和‘发射台品质’。这是一个顶层结构信号，旨在评估当前成本结构地形的攻防属性。它融合了‘下方支撑强度’、‘上方阻力强度’和‘最小阻力路径’三大维度，输出一个[-1, 1]的双极性分数。正分代表地形有利于进攻（支撑强、阻力小），负分代表地形极为不利（支撑弱、压力大）。"
+        },
+        "SCORE_CHIP_STRUCTURAL_CONSENSUS": {
+            "cn_name": "【筹码】结构共识分(已废弃)",
+            "category": "筹码层-超级原子",
+            "type": "context",
+            "description": "【V2.0 · 已废弃】该信号已被废弃，请使用更精确的 `SCORE_CHIP_COHERENT_DRIVE`。旧版本采用对称共振模型，未能准确刻画“持股心态”（引擎）与“成本结构”（传动系统）之间的非对称关系。"
+        },
+        "SCORE_CHIP_CONTROL_SOVEREIGNTY": {
+            "cn_name": "【筹码】主力控盘权(已废弃)",
+            "category": "筹码层-超级原子",
+            "type": "context",
+            "description": "【V2.0 · 已废弃】该信号已被废弃，请使用更具战略深度的 `SCORE_CHIP_DOMINION_FIELD_STRENGTH`。旧版本是对各项指标的算术拼凑，无法回答控盘的“质量”与“代价”。"
+        },
+        "SCORE_CHIP_COHERENT_DRIVE": {
+            "cn_name": "【筹码】筹码同调驱动力",
+            "category": "筹码层-超级原子",
+            "type": "context",
+            "description": "【V3.0 · 非对称调制版】一个基于“引擎-传动”思想的终极信号，旨在量化筹码结构对上涨意愿的真实转化效率。它将“持股心态”视为提供上涨意愿的引擎，将“成本结构”视为决定能量损耗的传动系统。一个糟糕的结构会严重衰减强大的上涨意愿，反之则会放大。高分代表市场不仅想涨，而且其内部结构也有能力将这种意愿高效地转化为价格上涨。"
+        },
+        "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT": {
+            "cn_name": "【筹码公理】持仓信念韧性",
+            "category": "筹码层-原子",
+            "type": "context",
+            "description": "【V5.0 · 信念韧性版】筹码公理三。废弃了对静态‘默契’的评估，引入‘压力测试下的信念三体模型’，旨在测量信念能抵抗多大压力。它从三个维度进行非线性评估：1)信念内核(静态基础)；2)压力测试(动态验证)；3)情绪纯度(风险对冲)。旨在识别经历过考验的、高纯度的、真正坚固的持仓信念。"
         },
         "SCORE_CHIP_AXIOM_DIVERGENCE": {
-            "cn_name": "【筹码公理】筹码背离",
+            "cn_name": "【筹码公理】价筹张力",
             "category": "筹码层-原子",
             "type": "context",
-            "description": "【筹码公理五】诊断价格行为与筹码集中度之间的背离。正分代表看涨背离（如价跌筹码集中），负分代表看跌背离（如价涨筹码分散）。"
+            "description": "【V5.0 · 价筹张力版】筹码公理五。废弃了线性的差值计算，引入‘弹性势能模型’，将价筹背离视为一个积蓄能量的弹性系统。它不仅衡量价格与筹码趋势的‘分歧向量’，更通过分歧的‘持续性’与期间注入的‘能量(成交量)’来量化其中蕴含的‘张力强度’。旨在识别那些持续的、由巨量推动的、蕴含巨大反转势能的高质量背离。"
         },
         "SCORE_CHIP_AXIOM_TREND_MOMENTUM": {
-            "cn_name": "【筹码公理】筹码趋势动量",
+            "cn_name": "【筹码公理】结构性推力",
             "category": "筹码层-原子",
             "type": "context",
-            "description": "【V1.0】衡量整体筹码健康度（集中度、成本结构、持股心态融合）的变化速度和方向。正分代表筹码健康度加速改善，负分代表加速恶化。"
+            "description": "【V5.0 · 结构性推力版】筹码公理六。废弃了简单的‘速度计’模型，引入‘火箭推力三元模型’，旨在评估筹码趋势的质量、意图与可持续性。它从三个维度进行非线性评估：1)引擎功率(趋势的原始力量)；2)燃料品质(是否由主力信念驱动)；3)喷管效率(前方是否存在真空区)。旨在识别真正由主力主导的、具备持续性的高质量趋势。"
         },
-        "说明_ultimate_signals": "--- 终极信号层 (Ultimate Signals) ---",
-        "说明_chip_ultimate": "--- 筹码层-终极信号 (现为内部状态) ---",
         "SCORE_CHIP_BULLISH_DIVERGENCE": {
-            "cn_name": "【筹码】看涨背离",
-            "category": "内部计分-筹码",
-            "type": "dynamic",
-            "description": "【V1.0】基于筹码公理，诊断价格行为与筹码集中度之间的看涨背离。"
+            "cn_name": "【筹码】看涨背离(已废弃)",
+            "category": "筹码层-战术",
+            "type": "context",
+            "description": "【V5.0 · 已废弃】该信号已被废弃。因为它只是对‘价筹张力’的简单正向分流，是一种现象描述，而非战术定性。请使用更具战术意图的 `SCORE_CHIP_OPP_ABSORPTION_ECHO`。"
         },
         "SCORE_CHIP_BEARISH_DIVERGENCE": {
-            "cn_name": "【筹码】看跌背离",
-            "category": "内部计分-筹码",
-            "type": "risk",
-            "description": "【V1.0】基于筹码公理，诊断价格行为与筹码集中度之间的看跌背离。"
+            "cn_name": "【筹码】看跌背离(已废弃)",
+            "category": "筹码层-战术",
+            "type": "context",
+            "description": "【V5.0 · 已废弃】该信号已被废弃。因为它只是对‘价筹张力’的简单负向分流，是一种现象描述，而非战术定性。请使用更具战术意图的 `SCORE_CHIP_RISK_DISTRIBUTION_WHISPER`。"
         },
+        "SCORE_CHIP_OPP_ABSORPTION_ECHO": {
+            "cn_name": "【筹码】吸筹回声",
+            "category": "筹码层-战术",
+            "type": "context",
+            "description": "【V5.0 · 吸筹回声版】一个高级战术定性信号，旨在识别‘主力借市场恐慌进行逆势吸筹’这一关键战术事件。它通过非线性融合三大证据链进行判断：1)恐慌声源(价格下跌)；2)逆流介质(基础背离)；3)主力回声(主力资金逆势净流入)。高分代表一次高质量的、由主力主导的、极具博弈价值的看涨背离。"
+        },
+        "SCORE_CHIP_RISK_DISTRIBUTION_WHISPER": {
+            "cn_name": "【筹码】派发诡影",
+            "category": "筹码层-战术",
+            "type": "context",
+            "description": "【V5.0 · 派发诡影版】一个高级战术定性信号，旨在捕捉‘主力借市场狂热进行隐蔽派发’这一致命风险信号。它通过非线性融合三大证据链进行判断：1)狂热背景(价格上涨)；2)背离诡影(基础背离)；3)主力抽离(主力资金顺势净流出)。高分代表一次极度危险的、由主力主导的、预示顶部风险的看跌背离。"
+        },
+
+        "说明_ultimate_signals": "--- 终极信号层 (Ultimate Signals) ---",
         "说明_behavioral_ultimate": "--- 行为层-终极信号 (现为内部状态) ---",
         "RESONANCE_BULLISH_D": {
             "cn_name": "【行为】原始看涨共振",

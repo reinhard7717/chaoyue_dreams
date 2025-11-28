@@ -47,7 +47,7 @@ class BehavioralIntelligence:
         """
         all_behavioral_states = {}
         atomic_signals = self._diagnose_behavioral_axioms(df)
-        # [修改] 如果核心公理诊断失败，则提前返回，防止后续错误
+        # 如果核心公理诊断失败，则提前返回，防止后续错误
         if not atomic_signals:
             print("    -> [行为情报引擎] 核心公理诊断失败，行为分析中止。")
             return {}
@@ -59,7 +59,7 @@ class BehavioralIntelligence:
         context_new_high_strength = self._diagnose_context_new_high_strength(df)
         self.strategy.atomic_states.update(context_new_high_strength)
         all_behavioral_states.update(context_new_high_strength)
-        # [修改] 移除旧的、基于 bipolar_to_exclusive_unipolar 的背离处理逻辑
+        # 移除旧的、基于 bipolar_to_exclusive_unipolar 的背离处理逻辑
         for k, v in atomic_signals.items():
             if k not in df.columns:
                 df[k] = v
@@ -206,7 +206,7 @@ class BehavioralIntelligence:
             'upward_impulse_purity_D', 'vacuum_traversal_efficiency_D', 'support_validation_strength_D',
             'impulse_quality_ratio_D', 'floating_chip_cleansing_efficiency_D',
             'panic_selling_cascade_D', 'main_force_execution_alpha_D', 'covert_accumulation_signal_D', 'high_D',
-            # [修改] 为背离品质计算和卖盘枯竭重构补充信号
+            # 为背离品质计算和卖盘枯竭重构补充信号
             'close_D', 'capitulation_absorption_index_D', 'chip_fatigue_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_behavioral_axioms"):
@@ -223,7 +223,7 @@ class BehavioralIntelligence:
         main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_behavioral_axioms")
         amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_behavioral_axioms").replace(0, 1e-9)
         bias_21 = self._get_safe_series(df, 'BIAS_21_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        # [修改] 增加对 ACCEL_5_pct_change_D 的降级兼容处理
+        # 增加对 ACCEL_5_pct_change_D 的降级兼容处理
         if 'ACCEL_5_pct_change_D' in df.columns:
             price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', 0.0, method_name="_diagnose_behavioral_axioms")
         else:
@@ -304,7 +304,7 @@ class BehavioralIntelligence:
         # --- 量能信号 ---
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights).astype(np.float32)
-        # [修改] --- 开始重构背离信号 ---
+        # --- 开始重构背离信号 ---
         bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(df)
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
         states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'] = bearish_divergence_quality
@@ -312,7 +312,7 @@ class BehavioralIntelligence:
         is_rising = (pct_change > 0).astype(float)
         is_falling = (pct_change < 0).astype(float)
         states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = (is_rising * states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] * states['SCORE_BEHAVIOR_VOLUME_ATROPHY']).pow(1/3).astype(np.float32)
-        # [修改] --- 开始重构 SCORE_OPPORTUNITY_SELLING_EXHAUSTION ---
+        # --- 开始重构 SCORE_OPPORTUNITY_SELLING_EXHAUSTION ---
         capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
         selling_deceleration_score = (1 - get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)).clip(0, 1)
         capitulation_confirm_score = get_adaptive_mtf_normalized_score(capitulation_raw, df.index, ascending=True, tf_weights=default_weights)
@@ -491,7 +491,7 @@ class BehavioralIntelligence:
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         # 1. 数据准备
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_stagnation_evidence")
-        # [修改] 增加对 ACCEL_5_pct_change_D 的降级兼容处理
+        # 增加对 ACCEL_5_pct_change_D 的降级兼容处理
         if 'ACCEL_5_pct_change_D' in df.columns:
             price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', 0.0, method_name="_diagnose_stagnation_evidence")
         else:

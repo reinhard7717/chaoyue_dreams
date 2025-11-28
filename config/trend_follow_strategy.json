@@ -573,10 +573,10 @@
             "type": "strategy_sync",
             "task_type": "strategy",
             "relationship_type": "consensus",
-            "signal_A": "SCORE_CHIP_AXIOM_CONCENTRATION", "source_A": "atomic_states", "change_type_A": "diff",
+            "signal_A": "SCORE_CHIP_STRATEGIC_POSTURE", "source_A": "atomic_states", "change_type_A": "diff",
             "signal_B": "SCORE_BEHAVIOR_UPWARD_EFFICIENCY", "source_B": "atomic_states", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
-            "comment": "【逻辑修复】明确为'共识'关系。高分代表行为与筹码同步改善。修正了 signal_B 的名称。"
+            "comment": "【V2.0 · 大一统同步版】诊断'筹码战略态势'与'行为上涨效率'的同步过程。高分代表两者同步改善。"
           },
           {
             "name": "PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD",
@@ -805,12 +805,11 @@
             "output_bottom_reversal_name": "PROCESS_META_CHIP_BOTTOM_REVERSAL",
             "output_top_reversal_name": "PROCESS_META_CHIP_TOP_REVERSAL",
             "axioms": [
-              {"name": "SCORE_CHIP_AXIOM_CONCENTRATION", "weight": 0.3},
-              {"name": "SCORE_CHIP_AXIOM_COST_STRUCTURE", "weight": 0.3},
-              {"name": "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT", "weight": 0.2},
-              {"name": "SCORE_CHIP_AXIOM_PEAK_INTEGRITY", "weight": 0.2}
+              {"name": "SCORE_CHIP_STRATEGIC_POSTURE", "weight": 0.4},
+              {"name": "SCORE_CHIP_BATTLEFIELD_GEOGRAPHY", "weight": 0.4},
+              {"name": "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT", "weight": 0.2}
             ],
-            "comment": "筹码领域反转信号，由过程层生成。"
+            "comment": "【V2.0 · 大一统同步版】筹码领域反转信号。基于全新的两大统一信号和持股心态公理进行诊断。"
           },
           {
             "name": "PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL",
@@ -1214,12 +1213,12 @@
         }
       },
       "fusion_accumulation_inflection_params": {
-        "description": "【V1.0】吸筹拐点信号融合参数。",
+        "description": "【V2.0 · 大一统同步版】吸筹拐点信号融合参数。",
         "ff_inflection_threshold": 0.6,
-        "chip_concentration_threshold": 0.5,
-        "chip_cost_structure_favorable_threshold": 0.0,
-        "chip_holder_sentiment_strong_threshold": 0.5,
-        "chip_trend_momentum_positive_threshold": 0.0,
+        "strategic_posture_threshold": 0.5,
+        "battlefield_geography_favorable_threshold": 0.0,
+        "holder_sentiment_strong_threshold": 0.5,
+        "trend_momentum_positive_threshold": 0.0,
         "tf_fusion_weights": {
           "5": 0.6,
           "13": 0.3,

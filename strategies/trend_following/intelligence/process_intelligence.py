@@ -148,15 +148,10 @@ class ProcessIntelligence:
 
     def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.0 · 微观勘察版】计算“权力转移”信号，融合高频微观结构证据进行最终裁决。
-        - 核心思想: 宏观数据提供怀疑，微观数据提供实锤。将订单流失衡(OFI)、对倒强度等
-                     高保真信号作为最高权重的证据，用于最终判定中、小单的真实归属。
-        - 证据链:
-          1. 宏观推断 (权重 0.4): 基于日度资金流的反常行为（反人性买入、交易笔数）进行初步判断。
-          2. 微观确证 (权重 0.6): 基于Tick和Level5数据计算的主力OFI、对倒强度等直接证据进行最终确认。
-        - 输出: [-1, 1] 的双极性分数。正分代表权力从散户向主力转移，负分反之。
+        【V3.1 · 大一统同步版】计算“权力转移”信号，融合高频微观结构证据进行最终裁决。
+        - 核心升级: 将用于佐证中单归属的筹码信号，从旧的 `CONCENTRATION` 升级为更具战略意图的 `SCORE_CHIP_STRATEGIC_POSTURE`。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_POWER_TRANSFER (V3.0 · 微观勘察版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_POWER_TRANSFER (V3.1 · 大一统同步版)...") # 修改: 更新版本信息
         df_index = df.index
         # 1. 获取所有宏观与微观证据
         # 宏观资金流
@@ -180,8 +175,9 @@ class ProcessIntelligence:
             md_condition_mask = scene_mask & (net_md_amount > 0)
             if md_condition_mask.any():
                 absorption_evidence = self._normalize_series(net_md_amount, df_index)
-                chip_concentration_axiom = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(lower=0)
-                allegiance_score = (absorption_evidence * 0.6 + chip_concentration_axiom * 0.4).clip(0, 1)
+                # 使用新的“战略态势”信号进行佐证
+                chip_posture_axiom = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(lower=0)
+                allegiance_score = (absorption_evidence * 0.6 + chip_posture_axiom * 0.4).clip(0, 1)
                 allegiance_factor.loc[md_condition_mask] = allegiance_score.loc[md_condition_mask]
             sm_condition_mask = scene_mask & (net_sm_amount > 0)
             if sm_condition_mask.any():
@@ -216,7 +212,7 @@ class ProcessIntelligence:
             probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
             for probe_date in probe_dates:
                 if probe_date in df_index:
-                    print(f"    -> [探针] --- PROCESS_META_POWER_TRANSFER (V3.0) @ {probe_date.date()} ---")
+                    print(f"    -> [探针] --- PROCESS_META_POWER_TRANSFER (V3.1) @ {probe_date.date()} ---") # 修改: 更新版本信息
                     print(f"      - 场景条件 (跌/平/微涨): {scene_mask.loc[probe_date]}")
                     print(f"      --- 宏观推断 (权重 0.4) ---")
                     print(f"        - 中单归属因子: {allegiance_factor.loc[probe_date]:.4f}")
@@ -236,16 +232,10 @@ class ProcessIntelligence:
 
     def _calculate_deceptive_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0 · 利刃升级版】计算“诡道吸筹”信号，由高频“隐蔽吸筹强度”驱动。
-        - 核心升级: 废弃原先模糊的`deception_index`，直接采用高保真的`hidden_accumulation_intensity`作为核心战术证据。
-        - 核心逻辑: 构建一个由高频数据驱动的“战术-交割-结果”验证链：
-          1. 核心战术 (Tactic): 主力是否在执行“逢低/横盘吸筹”战术 (`hidden_accumulation_intensity`)。
-          2. 权力交割 (Transfer): 筹码是否真的从散户转移到了主力手中 (`PROCESS_META_POWER_TRANSFER`)。
-          3. 结构优化 (Improvement): 筹码结构是否因此变得更健康 (`SCORE_CHIP_STRUCTURAL_CONSENSUS`)。
-        - 数学模型: Final_Score = (Tactic * Transfer * Improvement)^(1/3)。
-        - 输出: [0, 1] 的单极性分数，分数越高，代表主力“诡道吸筹”的证据链越完整。
+        【V2.1 · 大一统同步版】计算“诡道吸筹”信号，由高频“隐蔽吸筹强度”驱动。
+        - 核心升级: 将结构优化验证信号从旧的 `STRUCTURAL_CONSENSUS` 更新为 `SCORE_CHIP_COHERENT_DRIVE`。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V2.0 · 利刃升级版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V2.1 · 大一统同步版)...") # 修改: 更新版本信息
         df_index = df.index
         # 1. 获取MTF权重配置 (用于场景约束)
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -256,15 +246,15 @@ class ProcessIntelligence:
         hidden_accumulation_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_calculate_deceptive_accumulation")
         # 权力交割验证
         power_transfer_score = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
-        # 结构优化验证
-        structural_consensus_score = self.strategy.atomic_states.get('SCORE_CHIP_STRUCTURAL_CONSENSUS', pd.Series(0.0, index=df_index))
+        # 结构优化验证，使用新的同调驱动力信号
+        coherent_drive_score = self.strategy.atomic_states.get('SCORE_CHIP_COHERENT_DRIVE', pd.Series(0.0, index=df_index))
         # 场景约束
         price_trend_raw = self._get_safe_series(df, f'SLOPE_5_close_D', 0.0, method_name="_calculate_deceptive_accumulation")
         # 3. 证据归一化
         # hidden_accumulation_intensity_D 的范围是 0 到 100，我们将其映射到 0 到 1
         tactic_evidence = (hidden_accumulation_raw / 100).clip(0, 1)
         transfer_evidence = power_transfer_score.clip(lower=0)
-        improvement_evidence = structural_consensus_score.clip(lower=0)
+        improvement_evidence = coherent_drive_score.clip(lower=0) # 使用新的信号
         price_trend_norm = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df_index, default_weights, self.bipolar_sensitivity)
         # 4. 定义场景约束掩码
         price_suppression_mask = price_trend_norm <= 0.1 # 价格被抑制（横盘或缓跌）
@@ -279,12 +269,12 @@ class ProcessIntelligence:
             probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
             for probe_date in probe_dates:
                 if probe_date in df_index:
-                    print(f"    -> [探针] --- PROCESS_META_DECEPTIVE_ACCUMULATION (V2.0) @ {probe_date.date()} ---")
+                    print(f"    -> [探针] --- PROCESS_META_DECEPTIVE_ACCUMULATION (V2.1) @ {probe_date.date()} ---") # 修改: 更新版本信息
                     print(f"      - 场景约束 (价格抑制): {price_suppression_mask.loc[probe_date]}")
                     print(f"      --- 证据链 ---")
                     print(f"        - 核心战术 (Tactic): {tactic_evidence.loc[probe_date]:.4f} (源: hidden_accumulation_intensity)")
                     print(f"        - 权力交割 (Transfer): {transfer_evidence.loc[probe_date]:.4f} (源: PROCESS_META_POWER_TRANSFER)")
-                    print(f"        - 结构优化 (Improvement): {improvement_evidence.loc[probe_date]:.4f} (源: SCORE_CHIP_STRUCTURAL_CONSENSUS)")
+                    print(f"        - 结构优化 (Improvement): {improvement_evidence.loc[probe_date]:.4f} (源: SCORE_CHIP_COHERENT_DRIVE)") # 修改: 更新探针源名称
                     print(f"      - 最终得分: {final_score.loc[probe_date]:.4f}")
                     print("    -> [探针] ----------------------------------------------------")
         print(f"    -> [过程层] PROCESS_META_DECEPTIVE_ACCUMULATION 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
@@ -338,6 +328,10 @@ class ProcessIntelligence:
         return relationship_score
 
     def _calculate_cost_advantage_trend_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V3.1 · 大一统同步版】计算成本优势趋势。
+        - 核心升级: 将确认项从旧的 `CONCENTRATION` 升级为 `SCORE_CHIP_STRATEGIC_POSTURE`。
+        """
         print("    -> [过程层] 正在计算 PROCESS_META_COST_ADVANTAGE_TREND (深度博弈四象限版)...")
         df_index = df.index
         std_window = self.std_window
@@ -351,37 +345,38 @@ class ProcessIntelligence:
         P_change = get_adaptive_mtf_normalized_bipolar_score(price_change, df_index, default_weights, bipolar_sensitivity)
         CA_change = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage.diff(1).fillna(0), df_index, default_weights, bipolar_sensitivity)
         MF_flow = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_calculate_cost_advantage_trend_relationship"), df_index, default_weights, bipolar_sensitivity)
-        Chip_conc = self.strategy.atomic_states.get('SCORE_CHIP_AXIOM_CONCENTRATION', pd.Series(0.0, index=df_index))
+        # 使用新的“战略态势”信号
+        Chip_posture = self.strategy.atomic_states.get('SCORE_CHIP_STRATEGIC_POSTURE', pd.Series(0.0, index=df_index))
         Micro_decep = self.strategy.atomic_states.get('SCORE_MICRO_AXIOM_DECEPTION', pd.Series(0.0, index=df_index))
         Up_eff_unipolar = self.strategy.atomic_states.get('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', pd.Series(0.5, index=df_index))
         Up_eff_bipolar = (Up_eff_unipolar * 2 - 1).clip(-1, 1)
         Vol_apathy_unipolar = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_ATROPHY', pd.Series(0.5, index=df_index))
         Vol_apathy_bipolar = (Vol_apathy_unipolar * 2 - 1).clip(-1, 1)
         Q1_base = (P_change.clip(lower=0) + CA_change.clip(lower=0)) / 2
-        Q1_confirm = (MF_flow.clip(lower=0) + Chip_conc.clip(lower=0) + Up_eff_bipolar.clip(lower=0)) / 3
+        Q1_confirm = (MF_flow.clip(lower=0) + Chip_posture.clip(lower=0) + Up_eff_bipolar.clip(lower=0)) / 3 # 替换信号
         Q1_final = Q1_base * Q1_confirm
         Q2_base = (P_change.clip(upper=0).abs() + CA_change.clip(upper=0).abs()) / 2
         MF_flow_bearish = MF_flow.clip(upper=0).abs()
-        Chip_conc_bearish = Chip_conc.clip(upper=0).abs()
+        Chip_posture_bearish = Chip_posture.clip(upper=0).abs() # 替换信号
         Down_eff_bearish = Up_eff_bipolar.clip(upper=0).abs()
-        Q2_confirm = (MF_flow_bearish + Chip_conc_bearish + Down_eff_bearish) / 3
+        Q2_confirm = (MF_flow_bearish + Chip_posture_bearish + Down_eff_bearish) / 3 # 替换信号
         Q2_final = Q2_base * Q2_confirm * -1
         Q3_base = (P_change.clip(upper=0).abs() + CA_change.clip(lower=0)) / 2
-        Q3_confirm = (MF_flow.clip(lower=0) + Chip_conc.clip(lower=0) + Micro_decep.clip(lower=0) + Vol_apathy_bipolar.clip(lower=0)) / 4
+        Q3_confirm = (MF_flow.clip(lower=0) + Chip_posture.clip(lower=0) + Micro_decep.clip(lower=0) + Vol_apathy_bipolar.clip(lower=0)) / 4 # 替换信号
         Q3_final = Q3_base * Q3_confirm
         Q4_base = (P_change.clip(lower=0) + CA_change.clip(upper=0).abs()) / 2
         MF_flow_bearish_Q4 = MF_flow.clip(upper=0).abs()
-        Chip_conc_bearish_Q4 = Chip_conc.clip(upper=0).abs()
+        Chip_posture_bearish_Q4 = Chip_posture.clip(upper=0).abs() # 替换信号
         Micro_decep_bearish_Q4 = Micro_decep.clip(upper=0).abs()
         Up_eff_bearish_Q4 = Up_eff_bipolar.clip(upper=0).abs()
-        Q4_confirm = (MF_flow_bearish_Q4 + Chip_conc_bearish_Q4 + Micro_decep_bearish_Q4 + Up_eff_bearish_Q4) / 4
+        Q4_confirm = (MF_flow_bearish_Q4 + Chip_posture_bearish_Q4 + Micro_decep_bearish_Q4 + Up_eff_bearish_Q4) / 4 # 替换信号
         Q4_final = Q4_base * Q4_confirm * -1
         final_score = (Q1_final * 0.4 + Q2_final * 0.3 + Q3_final * 0.2 + Q4_final * 0.1)
         final_score = final_score.clip(-1, 1)
         self.strategy.atomic_states[f"_DEBUG_P_change"] = P_change
         self.strategy.atomic_states[f"_DEBUG_CA_change"] = CA_change
         self.strategy.atomic_states[f"_DEBUG_MF_flow"] = MF_flow
-        self.strategy.atomic_states[f"_DEBUG_Chip_conc"] = Chip_conc
+        self.strategy.atomic_states[f"_DEBUG_Chip_posture"] = Chip_posture # 更新调试信号名称
         self.strategy.atomic_states[f"_DEBUG_Micro_decep"] = Micro_decep
         self.strategy.atomic_states[f"_DEBUG_Up_eff_bipolar"] = Up_eff_bipolar
         self.strategy.atomic_states[f"_DEBUG_Vol_apathy_bipolar"] = Vol_apathy_bipolar
@@ -905,17 +900,8 @@ class ProcessIntelligence:
 
     def _calculate_upthrust_washout(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.2 · 诡道甄别版】识别主力在拉升初期利用“高开低走”阴线进行的洗盘行为。
-        - 核心升级 (V1.2): 引入“洗盘真实性评分”，通过订单结构显微镜，精细化判定洗盘意图。
-                           该评分融合了“拆单吸筹强度”、“权力转移”和“筹码集中度趋势”，
-                           旨在精确区分“诡道洗盘吸筹”与“真实高位派发”的核心差异。
-        - 证据链:
-          1. 环境 (Context): 发生在趋势健康且未严重超买的拉升初期或中期。
-          2. 动作 (Action): 标准的高开/冲高回落阴线，并伴随放量。
-          3. 内核 (Internals): 盘中留下承接痕迹（长下影），且筹码结构未被破坏。
-          4. 真实性 (Authenticity): 资金“DNA检测”显示为吸筹而非派发。
-        - 数学模型: Final_Score = (Context_Score * Internals_Score) * Authenticity_Score。
-        - 输出: [0, 1] 的单极性分数，分数越高，代表“假阴线真洗盘”的可能性越大。
+        【V1.3 · 大一统同步版】识别主力在拉升初期利用“高开低走”阴线进行的洗盘行为。
+        - 核心升级: 将用于检测真实性的筹码信号从旧的 `CONCENTRATION` 升级为 `SCORE_CHIP_STRATEGIC_POSTURE`。
         """
         print("    -> [过程层] 正在计算 PROCESS_META_UPTHRUST_WASHOUT (诡道甄别版)...")
         df_index = df.index
@@ -932,9 +918,9 @@ class ProcessIntelligence:
         power_transfer = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
         lower_shadow_strength = self.strategy.atomic_states.get('SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', pd.Series(0.0, index=df_index))
         concentration_slope = self._get_safe_series(df, f'SLOPE_1_winner_concentration_90pct_D', 0.0, method_name="_calculate_upthrust_washout")
-        # 引入订单结构和筹码公理作为真实性检测的核心证据
+        # 引入新的大一统信号
         split_order_accumulation = self.strategy.atomic_states.get('PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', pd.Series(0.0, index=df_index))
-        chip_concentration_axiom = self.strategy.atomic_states.get('SCORE_CHIP_AXIOM_CONCENTRATION', pd.Series(0.0, index=df_index))
+        chip_strategic_posture = self.strategy.atomic_states.get('SCORE_CHIP_STRATEGIC_POSTURE', pd.Series(0.0, index=df_index))
         # 2. 构建各维度评分
         # 环境分: 趋势健康 ( > 0.2 ) 且未严重超买 ( bias < 0.2 )
         context_score = ((trend_form_score > 0.2) & (bias_21 < 0.2)).astype(float)
@@ -950,7 +936,7 @@ class ProcessIntelligence:
         bullish_evidence = (
             split_order_accumulation * 0.5 +                 # 拆单吸筹是核心证据
             power_transfer.clip(lower=0) * 0.3 +             # 权力转移为正向是加分项
-            chip_concentration_axiom.clip(lower=0) * 0.2     # 筹码集中是结果确认
+            chip_strategic_posture.clip(lower=0) * 0.2     # 积极的战略态势是结果确认
         ).clip(0, 1)
         bearish_evidence = power_transfer.clip(upper=0).abs() # 权力大幅流失是唯一的核心风险信号
         washout_authenticity_score = (bullish_evidence - bearish_evidence).clip(0, 1)
@@ -980,7 +966,7 @@ class ProcessIntelligence:
                     print(f"        - 看涨证据 (Bullish Evidence): {bullish_evidence.loc[probe_date]:.4f}")
                     print(f"          - 拆单吸筹强度 (权重 0.5): {split_order_accumulation.loc[probe_date]:.4f}")
                     print(f"          - 权力转移(正向) (权重 0.3): {power_transfer.clip(lower=0).loc[probe_date]:.4f}")
-                    print(f"          - 筹码集中公理(正向) (权重 0.2): {chip_concentration_axiom.clip(lower=0).loc[probe_date]:.4f}")
+                    print(f"          - 战略态势(正向) (权重 0.2): {chip_strategic_posture.clip(lower=0).loc[probe_date]:.4f}") # 更新探针
                     print(f"        - 看跌证据 (Bearish Evidence): {bearish_evidence.loc[probe_date]:.4f}")
                     print(f"          - 权力转移(负向绝对值): {power_transfer.clip(upper=0).abs().loc[probe_date]:.4f}")
                     print(f"      - 最终得分 (Final Score): {final_score.loc[probe_date]:.4f}")
