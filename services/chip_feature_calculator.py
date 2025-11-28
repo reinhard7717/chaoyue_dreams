@@ -937,18 +937,23 @@ class ChipFeatureCalculator:
 
     def _compute_legacy_game_theory_metrics(self, context: dict) -> dict:
         """
-        【V1.2 · 生产就绪版】计算在第四象限升级后保留的旧版博弈意图指标。
-        - 核心维护: 移除调试探针。
+        【V2.0 · 主力成本正本清源版】计算在第四象限升级后保留的旧版博弈意图指标。
+        - 核心修正: 彻底重构了 `main_force_cost_advantage` 的计算逻辑，解决了“将军的困境”悖论。
+                     废弃了原有的 (存量成本/增量成本) 的错误定义，回归第一性原理。
+        - 核心升级: 新的定义为 (收盘价 / 主导峰成本 - 1)，直接衡量主力核心持仓区的盈利状况，
+                     从根本上修正了对主力真实成本优势的错误评估。
         """
         results = {
             'main_force_cost_advantage': np.nan,
             'auction_intent_signal': np.nan,
             'auction_closing_position': np.nan,
         }
-        daily_vwap = context.get('daily_vwap')
-        weight_avg_cost = context.get('weight_avg_cost')
-        if pd.notna(daily_vwap) and pd.notna(weight_avg_cost) and weight_avg_cost > 0 and daily_vwap > 0:
-            results['main_force_cost_advantage'] = (weight_avg_cost / daily_vwap - 1) * 100
+        # [修改代码块] 重构 main_force_cost_advantage 的计算逻辑
+        close_price = context.get('close_price')
+        dominant_peak_cost = context.get('dominant_peak_cost')
+        if pd.notna(close_price) and pd.notna(dominant_peak_cost) and dominant_peak_cost > 0:
+            # 新逻辑：直接计算收盘价相对于主峰成本的利润率，这才是主力的真实成本优势
+            results['main_force_cost_advantage'] = (close_price / dominant_peak_cost - 1) * 100
         intraday_df = context.get('processed_intraday_df')
         if not intraday_df.empty:
             auction_data = intraday_df.iloc[0]
