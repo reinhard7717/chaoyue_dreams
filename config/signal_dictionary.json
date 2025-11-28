@@ -473,53 +473,29 @@
             "description": "-1代表波谷，+1代表波峰。"
         },
         "说明_foundation_layer": "--- 基础层 (Foundation) ---",
-        "SCORE_FOUNDATION_AXIOM_TREND": {
-            "cn_name": "【基础公理】趋势",
+        "SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION": {
+            "cn_name": "【基础公理】市场体质",
             "category": "基础层-原子",
             "type": "context",
-            "description": "【基础公理一】基于EMA和MACD，诊断市场是否存在结构化的趋势。正分代表健康的多头趋势，负分代表空头趋势。"
+            "description": "【V2.0 · 升维版】融合均线结构、换手率健康度和趋势信念，诊断市场的“体质”是强健（正分）还是羸弱（负分），旨在区分健康的上涨与虚胖的拉升。"
         },
-        "SCORE_FOUNDATION_AXIOM_OSCILLATOR": {
-            "cn_name": "【基础公理】摆动",
+        "SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM": {
+            "cn_name": "【基础公理】情绪钟摆",
             "category": "基础层-原子",
             "type": "context",
-            "description": "【基础公理二】基于RSI，诊断市场情绪的超买超卖状态。正分代表超买，负分代表超卖。"
+            "description": "【V2.0 · 升维版】融合RSI、散户恐慌指数与FOMO指数，诊断市场情绪钟摆所处的位置。正分代表贪婪/FOMO，负分代表恐慌/投降。"
         },
-        "SCORE_FOUNDATION_AXIOM_FLOW": {
-            "cn_name": "【基础公理】流体",
+        "SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE": {
+            "cn_name": "【基础公理】流动性潮汐",
             "category": "基础层-原子",
             "type": "context",
-            "description": "【基础公理三】基于CMF，诊断资金流的方向和强度。正分代表资金流入，负分代表资金流出。"
+            "description": "【V2.0 · 升维版】融合CMF、成交额趋势与换手率趋势，诊断市场整体的流动性是在“涨潮”（正分）还是在“退潮”（负分）。"
         },
-        "SCORE_FOUNDATION_AXIOM_VOLATILITY": {
-            "cn_name": "【基础公理】波动",
+        "SCORE_FOUNDATION_AXIOM_MARKET_TENSION": {
+            "cn_name": "【基础公理】市场张力",
             "category": "基础层-原子",
             "type": "context",
-            "description": "【基础公理四】基于BBW和ATR，诊断市场的波动性状态。正分代表波动收敛（稳定），负分代表波动放大（不稳定）。"
-        },
-        "SCORE_FOUNDATION_AXIOM_DIVERGENCE": {
-            "cn_name": "【基础公理】基础背离",
-            "category": "基础层-原子",
-            "type": "context",
-            "description": "【基础公理五】诊断价格趋势与摆动指标之间的背离。正分代表看涨背离（如价创新低RSI不创新低），负分代表看跌背离（如价创新高RSI不创新高）。"
-        },
-        "SCORE_TRENDING_REGIME": {
-            "cn_name": "【市场状态】趋势市得分",
-            "category": "基础层-环境",
-            "type": "context",
-            "description": "基于Hurst指数，量化市场的趋势性强度。"
-        },
-        "SCORE_FOUNDATION_BULLISH_DIVERGENCE": {
-            "cn_name": "【基础】看涨背离",
-            "category": "内部计分-基础",
-            "type": "dynamic",
-            "description": "【V1.0】基于基础公理，诊断价格趋势与摆动指标之间的看涨背离。"
-        },
-        "SCORE_FOUNDATION_BEARISH_DIVERGENCE": {
-            "cn_name": "【基础】看跌背离",
-            "category": "内部计分-基础",
-            "type": "risk",
-            "description": "【V1.0】基于基础公理，诊断价格趋势与摆动指标之间的看跌背离。"
+            "description": "【V2.0 · 升维版】融合BBW、均线压缩率与张力指数，诊断市场的“张力”状态。正分代表能量高度压缩、张力十足（如弹簧压紧），负分代表能量发散、结构松散。"
         },
         "说明_process_intelligence": "--- 过程层信号 (Process Intelligence) ---",
         "PROCESS_META_STOCK_SECTOR_SYNC": {
