@@ -606,10 +606,10 @@ class BehavioralIntelligence:
 
     def _calculate_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.5 · 数据净化版】计算派发意图
-        - 核心修复: 增加了对输入信号 `closing_price_deviation_score_D` 的强制归一化处理，
-                      解决了因上游数据污染导致“市场接受度放大器”逻辑崩溃的致命漏洞。
-        - ... (其他注释保持不变)
+        【V1.6 · 控盘识别版】计算派发意图
+        - 核心升级: 修复了“正Alpha派发被忽略”的致命认知盲点。引入“主力控盘能力调节器”，
+                      当派发行为伴随着正的“主力执行Alpha”时，最终的派发意图分将被放大，
+                      以反映这种“控盘式派发”的更高危险等级。
         """
         required_signals = [
             'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D',
@@ -638,13 +638,18 @@ class BehavioralIntelligence:
             main_force_evidence.pow(0.15) *
             conviction_evidence.pow(0.15)
         ).fillna(0.0)
-        # --- [修改代码块] 市场接受度放大器 (增加数据净化) ---
+        # --- 市场接受度放大器 (逻辑不变) ---
         market_acceptance_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_calculate_distribution_intent")
-        # 数据净化：强制将收盘偏离度归一化到 [0, 1] 区间
         market_acceptance_normalized = normalize_score(market_acceptance_raw, df.index, 55)
         acceptance_amplifier = 1 + (market_acceptance_normalized * 0.5)
-        distribution_intent_score = (base_distribution_intent * acceptance_amplifier).clip(0, 1)
-        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        # --- [新增代码块] 主力控盘能力调节器 ---
+        # Alpha为正，说明主力控盘能力强，派发行为更“从容”，风险更高
+        positive_alpha_score = get_adaptive_mtf_normalized_score(mf_alpha_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
+        # 权重0.5表示，最强的正Alpha能将风险再放大50%
+        control_modulator = 1 + (positive_alpha_score * 0.5)
+        # --- 最终合成 ---
+        distribution_intent_score = (base_distribution_intent * acceptance_amplifier * control_modulator).clip(0, 1)
+        # --- [修改代码块] 更新探针逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -657,6 +662,7 @@ class BehavioralIntelligence:
                 print(f"        - 过程证据(新): rally_distribution_pressure_D = {rally_pressure_raw.loc[probe_ts]:.2f} -> 归一化分 = {process_evidence.loc[probe_ts]:.4f}")
                 print(f"        - 基础派发意图分: {base_distribution_intent.loc[probe_ts]:.4f}")
                 print(f"        - 市场接受度放大器: {acceptance_amplifier.loc[probe_ts]:.4f} (收盘偏离度(原始)={market_acceptance_raw.loc[probe_ts]:.2f}, 净化后={market_acceptance_normalized.loc[probe_ts]:.4f})")
+                print(f"        - 控盘能力调节器(新): {control_modulator.loc[probe_ts]:.4f} (原始Alpha={mf_alpha_raw.loc[probe_ts]:.2f}, 正Alpha分={positive_alpha_score.loc[probe_ts]:.4f})")
                 print(f"        - 最终派发意图分: {distribution_intent_score.loc[probe_ts]:.4f}")
         return distribution_intent_score.astype(np.float32)
 

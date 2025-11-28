@@ -43,12 +43,17 @@ class FusionIntelligence:
 
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 大一统同步版】融合情报分析总指挥
-        - 核心重构: 移除了对已废弃的 `_synthesize_chip_structural_potential` 方法的调用，
-                    因为其功能已被筹码层全新的 `SCORE_CHIP_BATTLEFIELD_GEOGRAPHY` 信号完全覆盖和超越。
+        【V6.0 · 信念调节版】融合情报分析总指挥
+        - 核心升级: 新增并优先调用 `_synthesize_micro_conviction`，生成“微观信念”信号。
+                    该信号随后被 `_synthesize_trend_quality` 用作“真实性检验器”，
+                    实现了微观盘口对宏观趋势的最终认可或否决。
         """
-        print("启动【V4.0 · 大一统同步版】融合情报分析...") # 修改: 更新版本号
+        print("启动【V6.0 · 信念调节版】融合情报分析...")
         all_fusion_states = {}
+        # [新增代码块] 必须优先计算微观信念，为趋势质量提供调节器
+        micro_conviction_states = self._synthesize_micro_conviction(df)
+        all_fusion_states.update(micro_conviction_states)
+        self.strategy.atomic_states.update(micro_conviction_states)
         regime_states = self._synthesize_market_regime(df)
         all_fusion_states.update(regime_states)
         self.strategy.atomic_states.update(regime_states)
@@ -85,7 +90,10 @@ class FusionIntelligence:
         accumulation_inflection_states = self._synthesize_accumulation_inflection(df)
         all_fusion_states.update(accumulation_inflection_states)
         self.strategy.atomic_states.update(accumulation_inflection_states)
-        print(f"【V4.0 · 大一统同步版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。") # 修改: 更新版本号
+        contested_accumulation_states = self._synthesize_contested_accumulation(df)
+        all_fusion_states.update(contested_accumulation_states)
+        self.strategy.atomic_states.update(contested_accumulation_states)
+        print(f"【V6.0 · 信念调节版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
 
     def _synthesize_market_contradiction(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -182,13 +190,15 @@ class FusionIntelligence:
 
     def _synthesize_trend_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 大一统同步版】冶炼“趋势质量” (Trend Quality)
-        - 核心重构: 移除了对旧筹码公理的依赖，引入两大“大一统”战略信号 `SCORE_CHIP_STRATEGIC_POSTURE` 和
-                    `SCORE_CHIP_BATTLEFIELD_GEOGRAPHY`，并重新分配权重，以反映新信号更高的战略价值。
+        【V3.1 · 信念调节版】冶炼“趋势质量” (Trend Quality)
+        - 核心升级: 引入“微观信念调节器”。在融合多领域宏观信号后，利用全新的
+                    `FUSION_BIPOLAR_MICRO_CONVICTION` 信号进行最终的“真实性检验”，
+                    确保宏观趋势判断得到了微观盘口行为的真实支持。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
         df_index = df.index
+        # ... (前半部分大量的 get_atomic_score 和 components_and_weights 定义保持不变)
         foundation_trend = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_TREND', 0.0)
         foundation_oscillator = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_OSCILLATOR', 0.0)
         foundation_flow = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_FLOW', 0.0)
@@ -204,7 +214,6 @@ class FusionIntelligence:
         fund_flow_consensus = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0)
         fund_flow_conviction = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONVICTION', 0.0)
         fund_flow_increment = self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0)
-        # 引入新的大一统筹码信号
         chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         chip_battlefield_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0)
         chip_holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
@@ -226,7 +235,6 @@ class FusionIntelligence:
         breakout_readiness_score = normalize_to_bipolar(breakout_readiness_raw, df_index, window=55, sensitivity=20)
         trend_vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_synthesize_trend_quality")
         trend_vitality_score = normalize_to_bipolar(trend_vitality_raw, df_index, window=55, sensitivity=0.5)
-        # 更新组件和权重，用新信号替换旧信号
         components_and_weights = {
             'foundation_trend': (foundation_trend, 0.08), 'foundation_oscillator': (foundation_oscillator, -0.02),
             'foundation_flow': (foundation_flow, 0.03), 'foundation_volatility': (foundation_volatility, 0.02),
@@ -236,8 +244,8 @@ class FusionIntelligence:
             'dynamic_energy': (dynamic_energy, 0.02), 'dynamic_ma_acceleration': (dynamic_ma_acceleration, 0.03),
             'fund_flow_consensus': (fund_flow_consensus, 0.03), 'fund_flow_conviction': (fund_flow_conviction, 0.03),
             'fund_flow_increment': (fund_flow_increment, 0.03),
-            'chip_strategic_posture': (chip_strategic_posture, 0.07), # 新信号
-            'chip_battlefield_geography': (chip_battlefield_geography, 0.05), # 新信号
+            'chip_strategic_posture': (chip_strategic_posture, 0.07),
+            'chip_battlefield_geography': (chip_battlefield_geography, 0.05),
             'chip_holder_sentiment': (chip_holder_sentiment, 0.03),
             'micro_deception': (micro_deception, 0.01),
             'micro_probe': (micro_probe, 0.01), 'micro_efficiency': (micro_efficiency, 0.01),
@@ -255,8 +263,13 @@ class FusionIntelligence:
                 contribution = series * (weight / total_weight)
                 bipolar_quality += contribution
         bipolar_quality = bipolar_quality.clip(-1, 1)
-        states['FUSION_BIPOLAR_TREND_QUALITY'] = bipolar_quality.astype(np.float32)
-        print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {bipolar_quality.iloc[-1]:.4f}")
+        # --- [新增代码块] 微观信念调节器 ---
+        micro_conviction = self._get_atomic_score(df, 'FUSION_BIPOLAR_MICRO_CONVICTION', 0.0)
+        # 调节器：(1 + 微观信念 * 0.3)，可以将分数在 [0.7, 1.3] 区间调节
+        micro_conviction_regulator = (1 + micro_conviction * 0.3).clip(0.7, 1.3)
+        final_bipolar_quality = (bipolar_quality * micro_conviction_regulator).clip(-1, 1)
+        states['FUSION_BIPOLAR_TREND_QUALITY'] = final_bipolar_quality.astype(np.float32)
+        print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {final_bipolar_quality.iloc[-1]:.4f} (原始分: {bipolar_quality.iloc[-1]:.4f}, 微观调节器: {micro_conviction_regulator.iloc[-1]:.4f})")
         return states
 
     def _synthesize_stagnation_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -580,6 +593,49 @@ class FusionIntelligence:
         print(f"  -- [融合层] “吸筹拐点信号”冶炼完成，最新分值: {inflection_score_normalized.iloc[-1]:.4f}")
         return states
 
+    def _synthesize_contested_accumulation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 诡道博弈版】冶炼“博弈吸筹” (Contested Accumulation)
+        - 核心目标: 识别并量化“高位换手洗盘”这一高级战术形态。
+        - 博弈逻辑: 当微观层“隐秘吸筹”与行为层“派发意图”同时强烈时，这并非矛盾，而是
+                      “新主力利用老主力的卖盘进行权力交接”的信号。
+        - 数学公式: 博弈吸筹分 = (隐秘行动分 * 派发意图分)^0.5 * 趋势质量分
+        """
+        print("  -- [融合层] 正在冶炼“博弈吸筹”...")
+        states = {}
+        # 1. 获取矛盾双方的信号
+        stealth_ops = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
+        distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
+        # 2. 获取场景过滤器
+        trend_quality = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0).clip(lower=0)
+        # 3. 战术融合
+        # 只有当隐秘吸筹和派发意图同时存在时，信号才被激活
+        contested_evidence = (stealth_ops * distribution_intent).pow(0.5).fillna(0.0)
+        # 只有在健康的上升趋势中，这种换手才有积极意义
+        final_score = (contested_evidence * trend_quality).clip(0, 1)
+        states['FUSION_OPPORTUNITY_CONTESTED_ACCUMULATION'] = final_score.astype(np.float32)
+        print(f"  -- [融合层] “博弈吸筹”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
+        return states
 
+    def _synthesize_micro_conviction(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 战地直觉版】冶炼“微观信念” (Micro Conviction)
+        - 核心目标: 锻造一个能代表盘口最真实、最瞬时多空意图的终极微观信号。
+        - 融合逻辑: 微观信念 = f(瞬时意图, 意图趋势)。融合了“订单流失衡”和“微观价量背离”
+                      两大核心微观信号，作为宏观趋势的“真实性检验器”或“灵魂拷问者”。
+        """
+        print("  -- [融合层] 正在冶炼“微观信念”...")
+        states = {}
+        # 1. 获取核心微观信号
+        micro_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0)
+        micro_divergence = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_DIVERGENCE', 0.0)
+        # 2. 融合：瞬时意图为主，意图趋势为辅
+        micro_conviction_score = (
+            micro_intent * 0.7 +
+            micro_divergence * 0.3
+        ).clip(-1, 1)
+        states['FUSION_BIPOLAR_MICRO_CONVICTION'] = micro_conviction_score.astype(np.float32)
+        print(f"  -- [融合层] “微观信念”冶炼完成，最新分值: {micro_conviction_score.iloc[-1]:.4f}")
+        return states
 
 

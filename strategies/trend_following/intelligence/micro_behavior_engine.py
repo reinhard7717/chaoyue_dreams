@@ -124,10 +124,11 @@ class MicroBehaviorEngine:
 
     def _diagnose_strategy_stealth_ops(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.3 · 探针逻辑重构版】微观诡道一策：诊断“隐秘行动”
-        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
-                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
-                      完美适配历史区间调试。
+        【V1.5 · 纯粹版】微观诡道一策：诊断“隐秘行动”
+        - 核心还原: 撤销了 V1.4 的“冲突裁决”逻辑。根据对底层信号的深度审查，确认
+                      “隐秘吸筹”信号的独立价值。本方法恢复为纯粹的微观证据诊断器，
+                      忠实报告主力利用大单压制进行隐蔽吸筹的行为，不再受宏观行为信号干扰。
+                      跨层级信号的矛盾性将在 Fusion 层进行更高维度的战术融合。
         """
         # --- 获取战术证据 ---
         pressure_raw = self._get_safe_series(df, 'large_order_pressure_D', 0.0, method_name="_diagnose_strategy_stealth_ops")
@@ -137,7 +138,7 @@ class MicroBehaviorEngine:
         accumulation_score = get_adaptive_mtf_normalized_score(accumulation_raw, df.index, ascending=True, tf_weights=tf_weights)
         # --- 战术合成 ---
         stealth_ops_score = (pressure_score * accumulation_score).pow(0.5).fillna(0.0)
-        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        # --- [修改代码块] 探针逻辑恢复为只报告本层计算结果 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
