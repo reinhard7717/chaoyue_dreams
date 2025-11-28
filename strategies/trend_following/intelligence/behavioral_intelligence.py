@@ -3,7 +3,11 @@ import pandas as pd
 import numpy as np
 import pandas_ta as ta
 from typing import Dict, Tuple, Optional, List, Any
-from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar, get_adaptive_mtf_normalized_score
+from strategies.trend_following.utils import (
+    get_params_block, get_param_value, get_adaptive_mtf_normalized_score, 
+    get_adaptive_mtf_normalized_score, is_limit_up, get_adaptive_mtf_normalized_bipolar_score, 
+    normalize_score
+)
 
 class BehavioralIntelligence:
     """
@@ -211,7 +215,6 @@ class BehavioralIntelligence:
             'ACCEL_5_pct_change_D', 'closing_price_deviation_score_D', 'active_selling_pressure_D',
             'chip_fatigue_index_D', 'main_force_ofi_D', 'retail_ofi_D', 'buy_quote_exhaustion_rate_D',
             'sell_quote_exhaustion_rate_D',
-            # --- 以下为本次修复新增的依赖信号 ---
             'microstructure_efficiency_index_D', 'upward_impulse_purity_D', 'vacuum_traversal_efficiency_D',
             'support_validation_strength_D', 'impulse_quality_ratio_D', 'floating_chip_cleansing_efficiency_D',
             'panic_selling_cascade_D', 'capitulation_absorption_index_D', 'covert_accumulation_signal_D',
@@ -348,13 +351,10 @@ class BehavioralIntelligence:
         """
         # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
-        print(f"    -> [行为情报引擎调试] 调试参数: {debug_params}")
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        # is_probe_enabled = get_param_value(debug_params.get('enable_behavioral_probe'), False) # [修改代码行] 移除特定探针开关检查，统一探针逻辑
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # should_probe = is_debug_day and is_probe_enabled # [修改代码行] 移除特定探针开关检查，统一探针逻辑
         df_index = df.index
         vol = self._get_safe_series(df, 'volume_D', 0.0, method_name="_calculate_volume_atrophy")
         vol_ma5 = self._get_safe_series(df, 'VOL_MA_5_D', 0.0, method_name="_calculate_volume_atrophy")
@@ -389,7 +389,7 @@ class BehavioralIntelligence:
         context_modulator = (lockup_factor * exhaustion_factor * cleansing_factor).pow(1/3).fillna(0.0)
         high_quality_atrophy_score = (base_atrophy_score * context_modulator).pow(0.5)
         # --- [修改代码行] 更新探针监测条件 ---
-        if is_debug_day: # [修改代码行] 统一使用 is_debug_day 作为探针激活条件
+        if is_debug_day:
             print(f"      [行为探针] _calculate_volume_atrophy @ {last_date_str}")
             print(f"        - 基础萎缩分: {base_atrophy_score.iloc[-1]:.4f}")
             print(f"        - 环境调节器原始值: 锁定度={lockup_raw.iloc[-1]:.2f}, 枯竭度={exhaustion_raw.iloc[-1]:.2f}, 清洗度={cleansing_raw.iloc[-1]:.2f}")

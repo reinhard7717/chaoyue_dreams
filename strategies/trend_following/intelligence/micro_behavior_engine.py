@@ -1,8 +1,11 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Any
-from strategies.trend_following.utils import get_params_block, get_param_value, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar, get_adaptive_mtf_normalized_score
-
+from strategies.trend_following.utils import (
+    get_params_block, get_param_value, normalize_to_bipolar, 
+    get_adaptive_mtf_normalized_score, is_limit_up, get_adaptive_mtf_normalized_bipolar_score, 
+    normalize_score
+)
 class MicroBehaviorEngine:
     """
     【V2.0 · 三大公理重构版】
@@ -97,11 +100,9 @@ class MicroBehaviorEngine:
         # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        # is_probe_enabled = get_param_value(debug_params.get('enable_micro_behavior_probe'), False) # [修改代码行] 移除特定探针开关检查，统一探针逻辑
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # should_probe = is_debug_day and is_probe_enabled # [修改代码行] 移除特定探针开关检查，统一探针逻辑
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -112,7 +113,7 @@ class MicroBehaviorEngine:
         micro_intent_trend = get_adaptive_mtf_normalized_bipolar_score(micro_intent_trend_raw, df.index, default_weights)
         divergence_score = (micro_intent_trend - price_trend).clip(-1, 1)
         # --- [修改代码行] 更新探针监测条件 ---
-        if is_debug_day: # [修改代码行] 统一使用 is_debug_day 作为探针激活条件
+        if is_debug_day:
             print(f"      [微观行为探针] _diagnose_axiom_divergence @ {last_date_str}")
             print(f"        - 价格趋势 (归一化): {price_trend.iloc[-1]:.4f} (原始斜率: {price_trend_raw.iloc[-1]:.2f})")
             print(f"        - 微观意图趋势 (归一化): {micro_intent_trend.iloc[-1]:.4f} (原始意图: {micro_intent.iloc[-1]:.2f})")
@@ -156,11 +157,9 @@ class MicroBehaviorEngine:
         # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        # is_probe_enabled = get_param_value(debug_params.get('enable_micro_behavior_probe'), False) # [修改代码行] 移除特定探针开关检查，统一探针逻辑
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # should_probe = is_debug_day and is_probe_enabled # [修改代码行] 移除特定探针开关检查，统一探针逻辑
         impact_raw = self._get_safe_series(df, 'ofi_price_impact_factor_D', 0.0, method_name="_diagnose_strategy_shock_and_awe")
         clearing_raw = self._get_safe_series(df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_strategy_shock_and_awe")
         outcome_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_diagnose_strategy_shock_and_awe")
@@ -170,7 +169,7 @@ class MicroBehaviorEngine:
         shock_magnitude = (impact_score * clearing_score).pow(0.5).fillna(0.0)
         shock_and_awe_score = (shock_magnitude * outcome_intent).clip(-1, 1)
         # --- [修改代码行] 更新探针监测条件 ---
-        if is_debug_day: # [修改代码行] 统一使用 is_debug_day 作为探针激活条件
+        if is_debug_day:
             print(f"      [微观行为探针] _diagnose_strategy_shock_and_awe @ {last_date_str}")
             print(f"        - 原始值: 冲击因子={impact_raw.iloc[-1]:.2f}, 清扫率={clearing_raw.iloc[-1]:.2f}, 收盘偏离={outcome_raw.iloc[-1]:.2f}")
             print(f"        - 归一化与计算: 震慑强度={shock_magnitude.iloc[-1]:.4f}, 结果意图={outcome_intent.iloc[-1]:.4f}")
@@ -186,18 +185,16 @@ class MicroBehaviorEngine:
         # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        # is_probe_enabled = get_param_value(debug_params.get('enable_micro_behavior_probe'), False) # [修改代码行] 移除特定探针开关检查，统一探针逻辑
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # should_probe = is_debug_day and is_probe_enabled # [修改代码行] 移除特定探针开关检查，统一探针逻辑
         guidance_raw = self._get_safe_series(df, 'main_force_vwap_guidance_D', 0.0, method_name="_diagnose_strategy_cost_control")
         defense_raw = self._get_safe_series(df, 'mf_cost_zone_defense_intent_D', 0.0, method_name="_diagnose_strategy_cost_control")
         guidance_score = get_adaptive_mtf_normalized_bipolar_score(guidance_raw, df.index, tf_weights)
         defense_score = get_adaptive_mtf_normalized_bipolar_score(defense_raw, df.index, tf_weights)
         cost_control_score = (guidance_score * 0.6 + defense_score * 0.4).clip(-1, 1)
         # --- [修改代码行] 更新探针监测条件 ---
-        if is_debug_day: # [修改代码行] 统一使用 is_debug_day 作为探针激活条件
+        if is_debug_day:
             print(f"      [微观行为探针] _diagnose_strategy_cost_control @ {last_date_str}")
             print(f"        - 原始值: VWAP引导力={guidance_raw.iloc[-1]:.2f}, 成本区防守={defense_raw.iloc[-1]:.2f}")
             print(f"        - 归一化分: 引导分={guidance_score.iloc[-1]:.4f}, 防守分={defense_score.iloc[-1]:.4f}")

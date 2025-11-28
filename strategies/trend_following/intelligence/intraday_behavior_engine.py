@@ -5,7 +5,11 @@ import numpy as np
 import pandas_ta as ta
 from typing import Dict, Optional, Any
 # 导入 get_params_block 工具
-from strategies.trend_following.utils import get_params_block, normalize_to_bipolar, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar
+from strategies.trend_following.utils import (
+    get_params_block, get_param_value, normalize_to_bipolar, 
+    get_adaptive_mtf_normalized_score, is_limit_up, get_adaptive_mtf_normalized_bipolar_score, 
+    normalize_score
+)
 
 class IntradayBehaviorEngine:
     """
@@ -138,11 +142,9 @@ class IntradayBehaviorEngine:
         # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        # is_probe_enabled = get_param_value(debug_params.get('enable_intraday_behavior_probe'), False) # [修改代码行] 移除特定探针开关检查，统一探针逻辑
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = self.strategy.df_indicators.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # should_probe = is_debug_day and is_probe_enabled # [修改代码行] 移除特定探针开关检查，统一探针逻辑
         vwap = self._get_safe_series(df_minute, 'vwap').replace(0, np.nan).ffill()
         price_deviation = (self._get_safe_series(df_minute, 'close') - vwap) / vwap
         amount_ratio = self._get_safe_series(df_minute, 'amount') / self._get_safe_series(df_minute, 'amount').mean()
@@ -153,7 +155,7 @@ class IntradayBehaviorEngine:
         final_trend = consensus_trend.iloc[-1] if not consensus_trend.empty else 0
         final_score = (avg_strength * 0.5 + final_trend * 0.5)
         # --- [修改代码行] 更新探针监测条件 ---
-        if is_debug_day: # [修改代码行] 统一使用 is_debug_day 作为探针激活条件
+        if is_debug_day:
             print(f"      [日内行为探针] _diagnose_dominance_consensus @ {last_date_str}")
             print(f"        - 全天平均支配强度: {avg_strength:.4f}")
             print(f"        - 收盘共识趋势: {final_trend:.4f}")
@@ -170,11 +172,9 @@ class IntradayBehaviorEngine:
         # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        # is_probe_enabled = get_param_value(debug_params.get('enable_intraday_behavior_probe'), False) # [修改代码行] 移除特定探针开关检查，统一探针逻辑
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = self.strategy.df_indicators.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # should_probe = is_debug_day and is_probe_enabled # [修改代码行] 移除特定探针开关检查，统一探针逻辑
         panic_score = daily_signals.get('panic_selling_cascade_D', 0.0)
         absorption_score = daily_signals.get('capitulation_absorption_index_D', 0.0)
         mf_alpha_bullish = max(daily_signals.get('main_force_execution_alpha_D', 0.0), 0.0)
@@ -185,7 +185,7 @@ class IntradayBehaviorEngine:
         bearish_reversal_evidence = (distribution_score * conviction_decay * mf_alpha_bearish).pow(1/3)
         final_score = bullish_reversal_evidence - bearish_reversal_evidence
         # --- [修改代码行] 更新探针监测条件 ---
-        if is_debug_day: # [修改代码行] 统一使用 is_debug_day 作为探针激活条件
+        if is_debug_day:
             print(f"      [日内行为探针] _diagnose_conviction_reversal @ {last_date_str}")
             print(f"        - 看涨证据: 恐慌={panic_score:.2f}, 承接={absorption_score:.2f}, 主力Alpha+={mf_alpha_bullish:.2f} -> 综合={bullish_reversal_evidence:.4f}")
             print(f"        - 看跌证据: 派发={distribution_score:.2f}, 信念衰减={conviction_decay:.2f}, 主力Alpha-={mf_alpha_bearish:.2f} -> 综合={bearish_reversal_evidence:.4f}")
