@@ -77,7 +77,7 @@ class MicroBehaviorEngine:
         strategy_shock_and_awe = self._diagnose_strategy_shock_and_awe(df, default_weights)
         strategy_cost_control = self._diagnose_strategy_cost_control(df, default_weights)
         axiom_divergence = self._diagnose_axiom_divergence(df, 55) # norm_window 保持旧值
-        # --- [修改代码块] 更新输出的信号名称 ---
+        # --- 更新输出的信号名称 ---
         all_states['SCORE_MICRO_STRATEGY_STEALTH_OPS'] = strategy_stealth_ops
         all_states['SCORE_MICRO_STRATEGY_SHOCK_AND_AWE'] = strategy_shock_and_awe
         all_states['SCORE_MICRO_STRATEGY_COST_CONTROL'] = strategy_cost_control
@@ -107,7 +107,7 @@ class MicroBehaviorEngine:
         micro_intent_trend_raw = micro_intent.ewm(span=5, adjust=False).mean().diff().fillna(0)
         micro_intent_trend = get_adaptive_mtf_normalized_bipolar_score(micro_intent_trend_raw, df.index, default_weights)
         divergence_score = (micro_intent_trend - price_trend).clip(-1, 1)
-        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        # --- 彻底重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -138,7 +138,7 @@ class MicroBehaviorEngine:
         accumulation_score = get_adaptive_mtf_normalized_score(accumulation_raw, df.index, ascending=True, tf_weights=tf_weights)
         # --- 战术合成 ---
         stealth_ops_score = (pressure_score * accumulation_score).pow(0.5).fillna(0.0)
-        # --- [修改代码块] 探针逻辑恢复为只报告本层计算结果 ---
+        # --- 探针逻辑恢复为只报告本层计算结果 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -171,7 +171,7 @@ class MicroBehaviorEngine:
         outcome_intent = (outcome_normalized * 2 - 1).clip(-1, 1)
         shock_magnitude = (impact_score * clearing_score).pow(0.5).fillna(0.0)
         shock_and_awe_score = (shock_magnitude * outcome_intent).clip(-1, 1)
-        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        # --- 彻底重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -198,7 +198,7 @@ class MicroBehaviorEngine:
         guidance_score = get_adaptive_mtf_normalized_bipolar_score(guidance_raw, df.index, tf_weights)
         defense_score = get_adaptive_mtf_normalized_bipolar_score(defense_raw, df.index, tf_weights)
         cost_control_score = (guidance_score * 0.6 + defense_score * 0.4).clip(-1, 1)
-        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        # --- 彻底重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])

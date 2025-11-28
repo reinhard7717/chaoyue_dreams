@@ -149,11 +149,14 @@ class FusionIntelligence:
 
     def _synthesize_market_pressure(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 上下文修复版】冶炼“市场压力” (Market Pressure)
-        - 【V1.3 修复】接收 df 参数并在调用 _get_atomic_score 时传递，并使用 df.index 创建 Series。
+        【V1.4 · 情报名册同步版】冶炼“市场压力” (Market Pressure)
+        - 核心修复: 更新了内部的 `reversal_sources` 信号列表，将对已废弃的微观行为反转信号的依赖，
+                    同步为对过程层最新的“微观策略”反转信号的依赖，完成了情报链路的代际同步。
         """
+        print("  -- [融合层] 正在冶炼“市场压力”...")
         states = {}
         df_index = df.index
+        # 更新信号列表，用新的微观策略反转信号替换旧的微观行为反转信号
         reversal_sources = [
             'PROCESS_META_FOUNDATION_BOTTOM_REVERSAL', 'PROCESS_META_FOUNDATION_TOP_REVERSAL',
             'PROCESS_META_STRUCTURE_BOTTOM_REVERSAL', 'PROCESS_META_STRUCTURE_TOP_REVERSAL',
@@ -161,7 +164,7 @@ class FusionIntelligence:
             'PROCESS_META_DYNAMIC_MECHANICS_BOTTOM_REVERSAL', 'PROCESS_META_DYNAMIC_MECHANICS_TOP_REVERSAL',
             'PROCESS_META_CHIP_BOTTOM_REVERSAL', 'PROCESS_META_CHIP_TOP_REVERSAL',
             'PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL', 'PROCESS_META_FUND_FLOW_TOP_REVERSAL',
-            'PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL', 'PROCESS_META_MICRO_BEHAVIOR_TOP_REVERSAL',
+            'PROCESS_META_MICRO_STRATEGY_BOTTOM_REVERSAL', 'PROCESS_META_MICRO_STRATEGY_TOP_REVERSAL',
             'PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL', 'PROCESS_META_BEHAVIOR_TOP_REVERSAL'
         ]
         upward_pressure_scores = []
@@ -209,7 +212,7 @@ class FusionIntelligence:
         chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         chip_battlefield_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0)
         chip_holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
-        # [修改代码块] 引入新的“诡道三策”信号
+        # 引入新的“诡道三策”信号
         micro_stealth_ops = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
         micro_shock_awe = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_SHOCK_AND_AWE', 0.0)
         micro_cost_control = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_COST_CONTROL', 0.0)
@@ -228,7 +231,7 @@ class FusionIntelligence:
         breakout_readiness_score = normalize_to_bipolar(breakout_readiness_raw, df_index, window=55, sensitivity=20)
         trend_vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_synthesize_trend_quality")
         trend_vitality_score = normalize_to_bipolar(trend_vitality_raw, df_index, window=55, sensitivity=0.5)
-        # [修改代码块] 更新组件和权重，用新信号替换旧信号
+        # 更新组件和权重，用新信号替换旧信号
         components_and_weights = {
             'foundation_trend': (foundation_trend, 0.08), 'foundation_oscillator': (foundation_oscillator, -0.02),
             'foundation_flow': (foundation_flow, 0.03), 'foundation_volatility': (foundation_volatility, 0.02),
@@ -275,7 +278,7 @@ class FusionIntelligence:
         df_index = df.index
         stagnation_evidence_raw = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.0)
         price_overextension_risk = self._get_atomic_score(df, 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs()
-        # [修改代码块] 替换为更权威的派发意图信号
+        # 替换为更权威的派发意图信号
         distribution_intent_risk = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
         fund_flow_bearish_risk = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(upper=0).abs()
         chip_dispersion_risk = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(upper=0).abs()
@@ -306,7 +309,7 @@ class FusionIntelligence:
         states = {}
         flow_confrontation = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0)
         chip_transfer = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
-        # [修改代码块] 替换为新的微观信号
+        # 替换为新的微观信号
         stealth_ops = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
         bipolar_confrontation = (flow_confrontation * 0.5 + chip_transfer * 0.3 + stealth_ops * 0.2).clip(-1, 1)
         states['FUSION_BIPOLAR_CAPITAL_CONFRONTATION'] = bipolar_confrontation.astype(np.float32)

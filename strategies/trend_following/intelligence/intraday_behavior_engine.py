@@ -115,7 +115,7 @@ class IntradayBehaviorEngine:
         avg_bullish_purity = np.average(bullish_minutes, weights=bullish_weights) if not bullish_minutes.empty and bullish_weights.sum() > 0 else 0
         avg_bearish_purity = np.average(bearish_minutes, weights=bearish_weights) if not bearish_minutes.empty and bearish_weights.sum() > 0 else 0
         final_score = (avg_bullish_purity - avg_bearish_purity)
-        # --- [修改代码块] 重构探针逻辑以适配历史回溯 ---
+        # --- 重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -146,7 +146,7 @@ class IntradayBehaviorEngine:
         avg_strength = norm_dominance_strength.mean()
         final_trend = consensus_trend.iloc[-1] if not consensus_trend.empty else 0
         final_score = (avg_strength * 0.5 + final_trend * 0.5)
-        # --- [修改代码块] 重构探针逻辑以适配历史回溯 ---
+        # --- 重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -176,7 +176,7 @@ class IntradayBehaviorEngine:
         daily_signals = self.strategy.df_indicators.loc[current_date]
         panic_score = daily_signals.get('panic_selling_cascade_D', 0.0)
         absorption_score = daily_signals.get('capitulation_absorption_index_D', 0.0)
-        # [修改代码块] 修复“一票否决”逻辑
+        # 修复“一票否决”逻辑
         mf_alpha_raw = daily_signals.get('main_force_execution_alpha_D', 0.0)
         # 使用tanh进行柔性映射，k=2.0表示对alpha的正负较为敏感
         bullish_alpha_score = (np.tanh(mf_alpha_raw * 2.0) + 1) / 2
@@ -192,7 +192,7 @@ class IntradayBehaviorEngine:
         mf_alpha_bearish = abs(min(mf_alpha_raw, 0.0))
         bearish_reversal_evidence = (distribution_score * conviction_decay * mf_alpha_bearish).pow(1/3)
         final_score = bullish_reversal_evidence - bearish_reversal_evidence
-        # --- [修改代码块] 重构探针逻辑以适配历史回溯 ---
+        # --- 重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])

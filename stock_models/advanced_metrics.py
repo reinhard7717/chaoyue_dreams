@@ -745,7 +745,7 @@ class AdvancedStructuralMetrics_BJ(BaseAdvancedStructuralMetrics):
             models.Index(fields=['divergence_conviction_score']),
         ]
 
-# [修改代码块] 几何形态特征模型 - 平台
+# 几何形态特征模型 - 平台
 class BasePlatformFeature(models.Model):
     """
     【V2.51 · 信念评分版】
@@ -823,7 +823,7 @@ class PlatformFeature_BJ(BasePlatformFeature):
         verbose_name = '矩形平台特征-北京'
         verbose_name_plural = verbose_name
 
-# [修改代码块] 几何形态特征模型 - 趋势线
+# 几何形态特征模型 - 趋势线
 class BaseTrendlineFeature(models.Model):
     """
     【V2.0 · 微观博弈增强版】

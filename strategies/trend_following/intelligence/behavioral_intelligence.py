@@ -201,7 +201,7 @@ class BehavioralIntelligence:
                     解决了因校验失败导致整个方法静默退出、所有探针均不执行的根本性BUG。
         - ... (其他注释保持不变)
         """
-        # [修改代码块] 彻底更新信号校验列表，补上所有缺失的依赖
+        # 彻底更新信号校验列表，补上所有缺失的依赖
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
             'volume_ratio_D', 'turnover_rate_f_D', 'main_force_net_flow_calibrated_D',
@@ -390,7 +390,7 @@ class BehavioralIntelligence:
         cleansing_factor = get_adaptive_mtf_normalized_score(cleansing_raw, df.index, ascending=True, tf_weights=tf_weights)
         context_modulator = (lockup_factor * exhaustion_factor * cleansing_factor).pow(1/3).fillna(0.0)
         high_quality_atrophy_score = (base_atrophy_score * context_modulator).pow(0.5)
-        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        # --- 彻底重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -538,7 +538,7 @@ class BehavioralIntelligence:
         stagnation_evidence = micro_conflict_score * macro_amplifier
         is_rising_or_flat = (pct_change >= -0.005).astype(float)
         final_stagnation_evidence = (stagnation_evidence * is_rising_or_flat).clip(0, 1)
-        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        # --- 彻底重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -582,13 +582,13 @@ class BehavioralIntelligence:
         ambush_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         ambush_intent_score = get_adaptive_mtf_normalized_bipolar_score(ambush_raw, df.index, default_weights)
         modulated_quality_score = base_quality_score * (1 + ambush_intent_score * 0.5).clip(0, 2)
-        # [修改代码块] 升级为智能放大器
+        # 升级为智能放大器
         panic_absorption_score = get_adaptive_mtf_normalized_score((panic_raw * capitulation_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
         # 放大效能与“调制后品质分”正相关
         context_amplifier = 1 + (panic_absorption_score * modulated_quality_score).pow(0.5)
         # --- 3. 非线性合成 ---
         final_lower_shadow_quality = (modulated_quality_score * context_amplifier).clip(0, 1)
-        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        # --- 彻底重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -649,7 +649,7 @@ class BehavioralIntelligence:
         control_modulator = 1 + (positive_alpha_score * 0.5)
         # --- 最终合成 ---
         distribution_intent_score = (base_distribution_intent * acceptance_amplifier * control_modulator).clip(0, 1)
-        # --- [修改代码块] 更新探针逻辑 ---
+        # --- 更新探针逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -769,7 +769,7 @@ class BehavioralIntelligence:
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_volume_burst_quality")
         # --- 2. 计算各维度得分 ---
         magnitude_score = get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=tf_weights)
-        # [修改代码块] 实施“绝对裁决”
+        # 实施“绝对裁决”
         flow_ratio = main_force_flow / amount
         # 归一化前先不clip，保留原始信息用于裁决
         driver_score_normalized = get_adaptive_mtf_normalized_score(flow_ratio.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
@@ -782,7 +782,7 @@ class BehavioralIntelligence:
         is_rising = (pct_change > 0).astype(float)
         other_factors_quality = (magnitude_score * efficiency_score * urgency_score).pow(1/3)
         volume_burst_quality = (driver_score * other_factors_quality * is_rising).fillna(0.0)
-        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        # --- 彻底重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -808,7 +808,7 @@ class BehavioralIntelligence:
         required_signals = ['dip_absorption_power_D', 'lower_shadow_absorption_strength_D', 'high_D', 'low_D', 'open_D', 'close_D']
         if not self._validate_required_signals(df, required_signals, "_calculate_absorption_strength"):
             return pd.Series(0.0, index=df.index)
-        # --- [修改代码块] 引入“形态显著性过滤器” ---
+        # --- 引入“形态显著性过滤器” ---
         # 1. 计算形态显著性因子
         high = self._get_safe_series(df, 'high_D', method_name="_calculate_absorption_strength")
         low = self._get_safe_series(df, 'low_D', method_name="_calculate_absorption_strength")
@@ -825,7 +825,7 @@ class BehavioralIntelligence:
         # 3. 使用显著性因子调节下影线得分并融合
         lower_shadow_score_adjusted = lower_shadow_score_normalized * significance_factor
         final_score = (dip_power_score * 0.7 + lower_shadow_score_adjusted * 0.3).clip(0, 1)
-        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        # --- 彻底重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -853,7 +853,7 @@ class BehavioralIntelligence:
         # 输入信号已由主方法传入，无需再次获取
         # --- 2. 计算防守反击强度 ---
         defense_counter_attack_strength = (downward_resistance * absorption_strength).pow(0.5).fillna(0.0)
-        # --- 3. [修改代码块] 计算非线性的“确定性放大器” ---
+        # --- 3. 计算非线性的“确定性放大器” ---
         certainty_amplifier = (1 - distribution_intent).pow(2).clip(0, 1)
         # --- 4. 战术合成 ---
         shakeout_confirmation_score = (defense_counter_attack_strength * certainty_amplifier).clip(0, 1)
