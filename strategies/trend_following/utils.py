@@ -929,4 +929,3 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: p
 
 
 
-

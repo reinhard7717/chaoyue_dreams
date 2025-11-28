@@ -321,15 +321,13 @@ class FusionIntelligence:
 
     def _synthesize_price_overextension_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.2 · 多维透镜版】冶炼“价格超买意图” (Price Overextension Intent)
-        - 核心升级: 废弃了对所有信号使用单一55日窗口归一化的僵化逻辑。引入“多时间维度透镜”，
-                      为不同周期的信号（RSI、BIAS、获利盘）配备专属的归一化权重配置
-                      （短期、中期、长期），实现了对超买风险的精准、自适应测量。
+        【V4.3 · 指令修正版】冶炼“价格超买意图” (Price Overextension Intent)
+        - 核心修复: 修正了错误的函数调用，将多时间框架的双极性归一化指令正确地发送给
+                      新增的 `get_adaptive_mtf_normalized_bipolar_score` 引擎处理。
         """
         print("  -- [融合层] 正在冶炼“价格超买意图”...")
         states = {}
         df_index = df.index
-        # [修改代码块] 从配置中获取多维度的时间透镜（权重）
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -337,14 +335,14 @@ class FusionIntelligence:
         long_term_weights = get_param_value(p_mtf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
         overextension_raw_bipolar = (self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.5) * 2 - 1).clip(-1, 1)
         bias_raw = self._get_safe_series(df, 'BIAS_21_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        # [修改代码行] BIAS 使用默认（中期）透镜
-        bias_score = normalize_to_bipolar(bias_raw, df_index, tf_weights=default_weights, sensitivity=0.05)
+        # [修改代码行] 调用正确的MTF双极性归一化函数
+        bias_score = get_adaptive_mtf_normalized_bipolar_score(bias_raw, df_index, tf_weights=default_weights, sensitivity=0.05)
         winner_rate_raw = self._get_safe_series(df, 'total_winner_rate_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        # [修改代码行] 获利盘比例使用长期透镜
-        winner_rate_score = normalize_to_bipolar(winner_rate_raw, df_index, tf_weights=long_term_weights, sensitivity=0.1, default_value=-1.0)
+        # [修改代码行] 调用正确的MTF双极性归一化函数
+        winner_rate_score = get_adaptive_mtf_normalized_bipolar_score(winner_rate_raw, df_index, tf_weights=long_term_weights, sensitivity=0.1, default_value=-1.0)
         rsi_raw = self._get_safe_series(df, 'RSI_13_D', pd.Series(50.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        # [修改代码行] RSI 使用短期透镜
-        rsi_score = normalize_to_bipolar(rsi_raw, df_index, tf_weights=short_term_weights, sensitivity=10.0)
+        # [修改代码行] 调用正确的MTF双极性归一化函数
+        rsi_score = get_adaptive_mtf_normalized_bipolar_score(rsi_raw, df_index, tf_weights=short_term_weights, sensitivity=10.0)
         core_overextension_sum = (
             overextension_raw_bipolar * 0.2 + bias_score * 0.2 +
             rsi_score * 0.15 + winner_rate_score * 0.15
@@ -354,7 +352,8 @@ class FusionIntelligence:
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         micro_cost_control = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_COST_CONTROL', 0.0)
         body_ratio_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        body_score = normalize_to_bipolar(body_ratio_raw, df_index, tf_weights=default_weights, sensitivity=0.2)
+        # [修改代码行] 调用正确的MTF双极性归一化函数
+        body_score = get_adaptive_mtf_normalized_bipolar_score(body_ratio_raw, df_index, tf_weights=default_weights, sensitivity=0.2)
         distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
         distribution_intent_score = (distribution_intent * -1).clip(-1, 0)
         health_sum = (
@@ -369,15 +368,13 @@ class FusionIntelligence:
 
     def _synthesize_trend_structure_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.6 · 变焦透镜版】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
-        - 核心升级: 彻底废弃了对所有内部组件使用单一55日窗口归一化的僵化逻辑。引入“变焦透镜”，
-                      为均线排列（中期）、斜率（短期）、DMA（中期）等不同周期的结构信号，
-                      配备了专属的多时间维度归一化权重，实现了对趋势结构的高精度、多层次分析。
+        【V1.7 · 指令修正版】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
+        - 核心修复: 修正了错误的函数调用，将多时间框架的双极性归一化指令正确地发送给
+                      新增的 `get_adaptive_mtf_normalized_bipolar_score` 引擎处理。
         """
         print("  -- [融合层] 正在冶炼“趋势结构分”...")
         states = {}
         df_index = df.index
-        # [修改代码块] 移除固定的 norm_window，从配置加载多维时间透镜
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -388,32 +385,32 @@ class FusionIntelligence:
             alignment_score = pd.Series(0.0, index=df_index)
         else:
             raw_alignment = (ema5 - ema21) / (ema21.abs().replace(0, 1e-9))
-            # [修改代码行] 使用中期透镜
-            alignment_score = normalize_to_bipolar(raw_alignment, df_index, tf_weights=default_weights, sensitivity=5.0)
+            # [修改代码行] 调用正确的MTF双极性归一化函数
+            alignment_score = get_adaptive_mtf_normalized_bipolar_score(raw_alignment, df_index, tf_weights=default_weights, sensitivity=5.0)
         slope_ema5 = self._get_safe_series(df, 'SLOPE_5_EMA_5_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
         slope_ema21 = self._get_safe_series(df, 'SLOPE_5_EMA_21_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
         if slope_ema5.isnull().all() or slope_ema21.isnull().all():
             slope_score = pd.Series(0.0, index=df_index)
         else:
-            # [修改代码行] 斜率是短期信号，使用短期透镜
-            norm_slope_ema5 = normalize_to_bipolar(slope_ema5, df_index, tf_weights=short_term_weights, sensitivity=0.005)
-            norm_slope_ema21 = normalize_to_bipolar(slope_ema21, df_index, tf_weights=short_term_weights, sensitivity=0.005)
+            # [修改代码行] 调用正确的MTF双极性归一化函数
+            norm_slope_ema5 = get_adaptive_mtf_normalized_bipolar_score(slope_ema5, df_index, tf_weights=short_term_weights, sensitivity=0.005)
+            norm_slope_ema21 = get_adaptive_mtf_normalized_bipolar_score(slope_ema21, df_index, tf_weights=short_term_weights, sensitivity=0.005)
             slope_score = (norm_slope_ema5 * 0.6 + norm_slope_ema21 * 0.4).clip(-1, 1)
         if ema5.isnull().all() or ema21.isnull().all():
             divergence_score = pd.Series(0.0, index=df_index)
         else:
             ma_bias_raw = (ema5 - ema21) / (ema21.abs().replace(0, 1e-9))
             ma_bias_slope_raw = ma_bias_raw.diff(1).fillna(0)
-            # [修改代码行] 发散是中期现象，使用中期透镜
-            norm_ma_bias = normalize_to_bipolar(ma_bias_raw, df_index, tf_weights=default_weights, sensitivity=0.02)
-            norm_ma_bias_slope = normalize_to_bipolar(ma_bias_slope_raw, df_index, tf_weights=default_weights, sensitivity=0.001)
+            # [修改代码行] 调用正确的MTF双极性归一化函数
+            norm_ma_bias = get_adaptive_mtf_normalized_bipolar_score(ma_bias_raw, df_index, tf_weights=default_weights, sensitivity=0.02)
+            norm_ma_bias_slope = get_adaptive_mtf_normalized_bipolar_score(ma_bias_slope_raw, df_index, tf_weights=default_weights, sensitivity=0.001)
             divergence_score = (norm_ma_bias * 0.7 + norm_ma_bias_slope * 0.3).clip(-1, 1)
         dma_raw = self._get_safe_series(df, 'DMA_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
-        # [修改代码行] DMA是中期指标，使用中期透镜
-        dma_score = normalize_to_bipolar(dma_raw, df_index, tf_weights=default_weights)
+        # [修改代码行] 调用正确的MTF双极性归一化函数
+        dma_score = get_adaptive_mtf_normalized_bipolar_score(dma_raw, df_index, tf_weights=default_weights)
         zigzag_raw = self._get_safe_series(df, 'ZIG_5_5.0_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
-        # [修改代码行] Zigzag是中长期结构，使用中期透镜
-        zigzag_score = normalize_to_bipolar(zigzag_raw, df_index, tf_weights=default_weights, sensitivity=0.05)
+        # [修改代码行] 调用正确的MTF双极性归一化函数
+        zigzag_score = get_adaptive_mtf_normalized_bipolar_score(zigzag_raw, df_index, tf_weights=default_weights, sensitivity=0.05)
         weights = np.array([0.3, 0.3, 0.15, 0.15, 0.1])
         components = [alignment_score, slope_score, divergence_score, dma_score, zigzag_score]
         aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
