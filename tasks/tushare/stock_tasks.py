@@ -28,8 +28,6 @@ def save_stock_list_data(self, cache_manager: CacheManager):
         print(f"保存股票列表数据成功: {result}")
         result = await stock_basic_dao.save_company_info()
         print(f"保存公司信息数据成功: {result}")
-        result = await stock_basic_dao.save_hs_const()
-        print(f"保存沪深港通数据成功: {result}")
     async_to_sync(main)()
 
 

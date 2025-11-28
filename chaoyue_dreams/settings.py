@@ -550,7 +550,7 @@ CELERY_BEAT_SCHEDULE = {
     },
     '每天运行一次: 今日股票基本信息数据': {
         'task': 'tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_today_task',
-        'schedule': crontab(minute=25, hour=18, day_of_week='mon,tue,wed,thu,fri'),
+        'schedule': crontab(minute=30, hour=18, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
     '每天运行一次: 今日日K线数据': {
