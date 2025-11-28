@@ -65,7 +65,6 @@ class ChipFeatureCalculator:
         static_structure_metrics = self._compute_static_structure_metrics()
         all_metrics.update(static_structure_metrics)
         self.ctx.update(static_structure_metrics)
-        # 新增代码块：调用微观动力学引擎
         microstructure_dynamics_metrics = self._compute_microstructure_dynamics(self.ctx)
         all_metrics.update(microstructure_dynamics_metrics)
         self.ctx.update(microstructure_dynamics_metrics)
@@ -109,6 +108,10 @@ class ChipFeatureCalculator:
         microstructure_game_metrics = self._compute_microstructure_game_metrics(self.ctx)
         all_metrics.update(microstructure_game_metrics)
         self.ctx.update(microstructure_game_metrics)
+        # [新增代码块] 调用新增的战术归因引擎
+        tactical_intent_metrics = self._compute_tactical_intent_metrics(self.ctx)
+        all_metrics.update(tactical_intent_metrics)
+        self.ctx.update(tactical_intent_metrics)
         realtime_orderbook_metrics = self._compute_realtime_orderbook_metrics(self.ctx)
         all_metrics.update(realtime_orderbook_metrics)
         self.ctx.update(realtime_orderbook_metrics)
@@ -1096,6 +1099,37 @@ class ChipFeatureCalculator:
                 results['liquidity_slope'] = np.average(slopes, weights=snapshot_volumes.iloc[:len(slopes)])
         return results
 
+    def _compute_tactical_intent_metrics(self, context: dict) -> dict:
+        """
+        【V1.0 · 战术归因引擎】
+        - 核心职责: 锻造用于识别特定主力战术意图的高级指标。
+        - 核心新增: 新增 `suppressive_accumulation_intensity` (打压吸筹强度) 指标。
+                     该指标旨在通过融合微观的隐蔽买入证据和买盘质量，来识别主力在价格
+                     受抑制的宏观环境下进行的“打压吸筹”战术，从而解决“信号尺度悖论”。
+        """
+        results = {
+            'suppressive_accumulation_intensity': np.nan,
+        }
+        # 1. 获取宏观环境
+        close_price = context.get('close_price')
+        pre_close = context.get('pre_close')
+        if pd.isna(close_price) or pd.isna(pre_close) or pre_close <= 0:
+            return results
+        pct_change = (close_price / pre_close) - 1
+        # 2. 获取微观证据
+        covert_accumulation = context.get('covert_accumulation_signal', 0.0)
+        conviction_flow = context.get('conviction_flow_index', 0.0)
+        # 3. 战术归因与计算
+        # “打压吸筹”战术只在价格下跌或微涨时成立
+        suppression_mask = pct_change <= 0.01
+        if suppression_mask:
+            # 融合直接证据(隐蔽吸筹)和间接证据(信念流转)
+            # 使用 np.log1p 增强对信念流指数的敏感度
+            intensity_score = (covert_accumulation / 100) * np.log1p(np.clip(conviction_flow, 0, None))
+            results['suppressive_accumulation_intensity'] = np.clip(intensity_score * 100, 0, 100)
+        else:
+            results['suppressive_accumulation_intensity'] = 0.0
+        return results
 
 
 

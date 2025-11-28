@@ -94,6 +94,7 @@ class BaseAdvancedChipMetrics(models.Model):
         'pressure_validation_score': '压力验证分',
         'support_validation_score': '支撑验证分',
         'covert_accumulation_signal': '隐蔽吸筹信号',
+        'suppressive_accumulation_intensity': '打压吸筹强度',
     }
     # --- 第五象限: 生命体征 (Vital Signs) ---
     VITAL_SIGNS_METRICS = {
@@ -151,6 +152,7 @@ class BaseAdvancedChipMetrics(models.Model):
         'overall_t1_rating',
         'mf_cost_zone_defense_intent',
         'floating_chip_cleansing_efficiency',
+        'suppressive_accumulation_intensity',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in INTEGER_FIELDS:

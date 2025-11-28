@@ -258,26 +258,38 @@ class ProcessIntelligence:
 
     def _calculate_deceptive_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.6 · 探针清理版】计算“诡道吸筹”信号。
-        - 核心清理: 移除了方法内的调试探针逻辑，净化日志输出。
+        【V3.0 · 战术归因版】计算“诡道吸筹”信号。
+        - 核心重构: 彻底重构了信号的识别逻辑。现在，此信号的核心驱动力是我们新锻造的、
+                      基于微观证据的 `suppressive_accumulation_intensity_D` (打压吸筹强度) 指标。
+                      这使其能精准捕捉主力“打压吸筹”这一高阶战术，而不再被日线级别的“假发散”所迷惑。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V2.6 · 探针清理版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V3.0 · 战术归因版)...")
+        # [修改代码块] 更新依赖，引入新的核心驱动信号
+        required_signals = [
+            'suppressive_accumulation_intensity_D', 'PROCESS_META_POWER_TRANSFER',
+            'SCORE_CHIP_COHERENT_DRIVE', 'SLOPE_5_close_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_calculate_deceptive_accumulation"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        hidden_accumulation_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_calculate_deceptive_accumulation")
+        # [修改代码行] 使用新的“打压吸筹强度”作为核心战术证据
+        suppressive_accum_raw = self._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_calculate_deceptive_accumulation")
         power_transfer_score = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
         coherent_drive_score = self.strategy.atomic_states.get('SCORE_CHIP_COHERENT_DRIVE', pd.Series(0.0, index=df_index))
         price_trend_raw = self._get_safe_series(df, f'SLOPE_5_close_D', 0.0, method_name="_calculate_deceptive_accumulation")
-        tactic_evidence = (hidden_accumulation_raw / 100).clip(0, 1)
+        # [修改代码行] 归一化新的核心证据
+        tactic_evidence = (suppressive_accum_raw / 100).clip(0, 1)
         transfer_evidence = power_transfer_score.clip(lower=0)
         price_trend_norm = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df_index, default_weights, self.bipolar_sensitivity)
+        # 门控条件：价格趋势不能过强，否则不符合“诡道”
         gating_score = (1 - (price_trend_norm - 0.1) / 0.4).clip(0, 1)
         bullish_evidence = (tactic_evidence * transfer_evidence).pow(0.5)
+        # 惩罚项：如果筹码同调性差，则降低信号分值
         penalty_factor = (1 + coherent_drive_score).clip(0, 1)
         final_score = (bullish_evidence * penalty_factor * gating_score).fillna(0.0)
-        # [删除] 移除了方法内的调试探针逻辑
         return final_score.astype(np.float32)
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
