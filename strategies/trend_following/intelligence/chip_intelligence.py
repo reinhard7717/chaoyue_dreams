@@ -391,23 +391,27 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V3.1 · 真理探针版】诊断筹码同调驱动力
-        - 核心升级: 植入“真理探针”，详细打印“引擎”（持股心态）和“传动效率”（成本结构）
-                     两大核心部件的数值，用于诊断信号输出为零的根本原因。
+        【V4.0 · 双极灵魂版】诊断筹码同调驱动力
+        - 核心重构: 废弃单极模型，引入全新的双极引擎与非对称传动系统。
+        - 引擎双极化: `base_drive` 现在能完整传递正向（看涨）与负向（看跌）的原始情绪。
+        - 传动非对称化: 引入 `modulation_factor`。好的成本结构会放大乐观情绪，而坏的成本结构会加剧悲观情绪，更符合实战博弈。
+        - 输出双极化: 最终输出一个 [-1, 1] 的分数，能同时衡量“同调做多”与“同调做空”的强度。
         """
-        # 1. 基础驱动力 (Engine): 只关心正向的持股心态
-        base_drive = holder_sentiment_scores.clip(lower=0)
-        # 2. 传动效率系数 (Transmission Efficiency, η)
-        # 使用 tanh 函数将 [-1, 1] 的结构分映射为调制系数
-        # k=1.5, η 范围约为 [0.09, 1.91]
-        k = 1.5
-        transmission_efficiency = 1 + np.tanh(cost_structure_scores * k)
-        # 3. 非对称调制合成
-        coherent_drive = base_drive * transmission_efficiency
-        # 结果归一化到 [0, 1] 区间 (因为最大值可能超过1)
-        # 使用一个动态的上限进行归一化，例如过去252天的98分位
-        rolling_max = coherent_drive.rolling(window=252, min_periods=21).quantile(0.98).fillna(method='bfill').replace(0, 1)
-        final_score = (coherent_drive / rolling_max).clip(0, 1).fillna(0.0)
+        # 1. [修改] 引擎双极化 (Engine): 直接使用原始的、双极性的持股心态
+        base_drive = holder_sentiment_scores
+        # 2. [修改] 传动系统非对称化 (Asymmetric Transmission)
+        # 初始化调制因子为1（无影响）
+        modulation_factor = pd.Series(1.0, index=df.index)
+        # 当情绪为正时，好的成本结构（正值）会放大驱动力
+        bullish_mask = base_drive > 0
+        modulation_factor.loc[bullish_mask] = 1 + cost_structure_scores.loc[bullish_mask].clip(lower=0)
+        # 当情绪为负时，坏的成本结构（负值）会加剧（放大）负向驱动力
+        bearish_mask = base_drive < 0
+        modulation_factor.loc[bearish_mask] = 1 + cost_structure_scores.loc[bearish_mask].clip(upper=0).abs()
+        # 3. [修改] 非对称调制合成
+        coherent_drive_raw = base_drive * modulation_factor
+        # 4. [修改] 使用统一的双极归一化工具进行最终输出
+        final_score = self._normalize_series(coherent_drive_raw, df.index, bipolar=True)
         # [修改] 升级探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -415,17 +419,15 @@ class ChipIntelligence:
             probe_dates = [pd.to_datetime(d).tz_localize(df.index.tz if df.index.tz else None) for d in probe_dates_str]
             for probe_date in probe_dates:
                 if probe_date in df.index:
-                    print(f"    -> [探针] --- SCORE_CHIP_COHERENT_DRIVE @ {probe_date.date()} ---")
+                    print(f"    -> [探针] --- SCORE_CHIP_COHERENT_DRIVE (V4.0) @ {probe_date.date()} ---") # 修改: 更新版本信息
                     print(f"      --- 引擎 (Base Drive) ---")
-                    print(f"        - 原始输入 (holder_sentiment_scores): {holder_sentiment_scores.loc[probe_date]:.4f}")
-                    print(f"        - 引擎得分 (clip(lower=0)): {base_drive.loc[probe_date]:.4f}")
+                    print(f"        - 引擎得分 (原始holder_sentiment): {base_drive.loc[probe_date]:.4f}")
                     print(f"      --- 传动系统 (Transmission) ---")
                     print(f"        - 原始输入 (cost_structure_scores): {cost_structure_scores.loc[probe_date]:.4f}")
-                    print(f"        - 传动效率 (1 + tanh(input * 1.5)): {transmission_efficiency.loc[probe_date]:.4f}")
+                    print(f"        - 非对称调制因子 (modulation_factor): {modulation_factor.loc[probe_date]:.4f}")
                     print(f"      --- 最终裁决 ---")
-                    print(f"        - 原始驱动力 (引擎 * 传动): {coherent_drive.loc[probe_date]:.4f}")
-                    print(f"        - 动态归一化上限 (rolling_max): {rolling_max.loc[probe_date]:.4f}")
-                    print(f"        - 最终得分: {final_score.loc[probe_date]:.4f}")
+                    print(f"        - 原始驱动力 (引擎 * 调制因子): {coherent_drive_raw.loc[probe_date]:.4f}")
+                    print(f"        - 最终得分 (归一化后): {final_score.loc[probe_date]:.4f}")
                     print("    -> [探针] ----------------------------------------------------")
         return final_score.astype(np.float32)
 
