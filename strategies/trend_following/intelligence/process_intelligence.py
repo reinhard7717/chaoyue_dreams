@@ -508,15 +508,14 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V4.4 · 指挥权统一版】对“关系分”进行元分析，输出分数。
-        - 核心修复: 补全了对 `PROCESS_META_MAIN_FORCE_URGENCY` 信号的专属调度分支，
-                     确保所有定制化计算都由本调度中心统一指挥，完成了指挥权的最终统一。
+        【V4.5 · 职责扩充版】对“关系分”进行元分析，输出分数。
+        - 核心扩充: 正式接管“资金流吸筹拐点意图”的计算职责，为其新增专属调度分支，
+                     确保了情报架构的职责清晰与信息流的正确性。
         """
         signal_name = config.get('name')
         df_index = df.index
         if signal_name == 'PROCESS_META_MAIN_FORCE_RALLY_INTENT':
             relationship_score = self._calculate_main_force_rally_intent(df, config)
-        # 补全对“主力紧迫度”信号的专属调度
         elif signal_name == 'PROCESS_META_MAIN_FORCE_URGENCY':
             relationship_score = self._calculate_main_force_urgency_relationship(df, config)
         elif signal_name == 'PROCESS_META_WINNER_CONVICTION' and 'antidote_signal' in config:
@@ -539,6 +538,9 @@ class ProcessIntelligence:
             relationship_score = self._calculate_accumulation_inflection(df, config)
         elif signal_name == 'PROCESS_META_BREAKOUT_ACCELERATION':
             relationship_score = self._calculate_breakout_acceleration(df, config)
+        # [新增代码块] 为“资金流吸筹拐点意图”添加专属调度分支
+        elif signal_name == 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT':
+            relationship_score = self._calculate_fund_flow_accumulation_inflection(df, config)
         else:
             relationship_score = self._calculate_instantaneous_relationship(df, config)
         if relationship_score.empty:
@@ -547,7 +549,7 @@ class ProcessIntelligence:
         intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{signal_name}"
         self.strategy.atomic_states[intermediate_signal_name] = relationship_score.astype(np.float32)
         diagnosis_mode = config.get('diagnosis_mode', 'meta_analysis')
-        if signal_name in ['PROCESS_META_STEALTH_ACCUMULATION', 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 'PROCESS_META_DECEPTIVE_ACCUMULATION', 'PROCESS_META_UPTHRUST_WASHOUT', 'PROCESS_META_ACCUMULATION_INFLECTION', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 'PROCESS_META_BREAKOUT_ACCELERATION']:
+        if signal_name in ['PROCESS_META_STEALTH_ACCUMULATION', 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 'PROCESS_META_DECEPTIVE_ACCUMULATION', 'PROCESS_META_UPTHRUST_WASHOUT', 'PROCESS_META_ACCUMULATION_INFLECTION', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 'PROCESS_META_BREAKOUT_ACCELERATION', 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT']:
             diagnosis_mode = 'direct_confirmation'
         if diagnosis_mode == 'direct_confirmation':
             meta_score = relationship_score
@@ -936,6 +938,47 @@ class ProcessIntelligence:
         # [删除] 移除了方法内的调试探针逻辑
         return final_score.astype(np.float32)
 
+    def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0 · 过程层迁移版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
+        - 核心职责: 作为过程层的一个战术剧本，消费资金流原子公理和高频数据，推演拐点意图。
+        - 架构归正: 此方法从资金流层迁移至此，以保证职责单一和信息流的正确性。
+        """
+        print("    -> [过程层] 正在计算 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT (V1.0 · 迁移版)...")
+        required_signals = [
+            'SCORE_FF_AXIOM_FLOW_MOMENTUM', 'hidden_accumulation_intensity_D',
+            'main_force_net_flow_calibrated_D', 'buy_quote_exhaustion_rate_D', 'large_order_pressure_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_calculate_fund_flow_accumulation_inflection"):
+            return pd.Series(0.0, index=df.index)
+        df_index = df.index
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        tf_weights_inflection = get_param_value(p_mtf.get('short_term_weights'), {'weights': {3: 0.5, 5: 0.3, 8: 0.2}})
+        # 从原子状态库安全获取依赖信号
+        flow_momentum = self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0)
+        psai = self._get_atomic_score(df, 'hidden_accumulation_intensity_D', 0.0)
+        main_force_flow = self._get_atomic_score(df, 'main_force_net_flow_calibrated_D', 0.0)
+        buy_exhaustion_raw = self._get_atomic_score(df, 'buy_quote_exhaustion_rate_D', 0.0)
+        large_pressure_raw = self._get_atomic_score(df, 'large_order_pressure_D', 0.0)
+        # 从config中读取参数
+        psai_high_threshold = config.get('psai_high_threshold', 0.5)
+        mf_flow_positive_threshold = config.get('mf_flow_positive_threshold', 0.0)
+        buy_exhaustion_threshold = config.get('buy_exhaustion_threshold', 0.7)
+        large_pressure_low_threshold = config.get('large_pressure_low_threshold', 0.3)
+        buy_exhaustion_score = get_adaptive_mtf_normalized_score(buy_exhaustion_raw, df_index, ascending=True, tf_weights=tf_weights_inflection)
+        large_pressure_score = get_adaptive_mtf_normalized_score(large_pressure_raw, df_index, ascending=True, tf_weights=tf_weights_inflection)
+        cond_prelude_accumulation = (psai.rolling(window=5).mean() > psai_high_threshold)
+        cond_overt_attack = (
+            (main_force_flow > mf_flow_positive_threshold) &
+            (buy_exhaustion_score > buy_exhaustion_threshold) &
+            (large_pressure_score < large_pressure_low_threshold)
+        )
+        inflection_intent_mask = cond_prelude_accumulation & cond_overt_attack
+        inflection_intent_score = (flow_momentum.clip(lower=0) * 0.5 + buy_exhaustion_score * 0.5)
+        inflection_intent_score = inflection_intent_score.where(inflection_intent_mask, 0.0)
+        final_score = get_adaptive_mtf_normalized_score(inflection_intent_score, df_index, ascending=True, tf_weights=tf_weights_inflection).clip(0, 1)
+        return final_score.astype(np.float32)
 
 
 

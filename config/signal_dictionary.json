@@ -190,6 +190,12 @@
             "type": "context",
             "description": "【V5.0 · 结构性推力版】筹码公理六。废弃了简单的‘速度计’模型，引入‘火箭推力三元模型’，旨在评估筹码趋势的质量、意图与可持续性。它从三个维度进行非线性评估：1)引擎功率(趋势的原始力量)；2)燃料品质(是否由主力信念驱动)；3)喷管效率(前方是否存在真空区)。旨在识别真正由主力主导的、具备持续性的高质量趋势。"
         },
+        "SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL": {
+            "cn_name": "【筹码公理】筹码势能",
+            "category": "筹码层-原子",
+            "type": "context",
+            "description": "【V1.0 · 新增】衡量历史累积的吸筹势能。融合吸筹周期长度、质量深度与成本结构稳定性，高分代表主力根基深厚，具备长线大行情的潜力。"
+        },
         "SCORE_CHIP_OPP_ABSORPTION_ECHO": {
             "cn_name": "【筹码】吸筹回声",
             "category": "筹码层-战术",
@@ -204,46 +210,40 @@
         },
         "说明_fund_flow_layer": "--- 资金流层 (Fund Flow) ---",
         "SCORE_FF_AXIOM_CONSENSUS": {
-            "cn_name": "【资金流公理】共识与分歧",
+            "cn_name": "【资金流公理】战场控制权",
             "category": "资金流层-原子",
             "type": "context",
-            "description": "【资金流公理一】诊断“聪明钱”与“情绪钱”的博弈方向。正分代表共识吸筹（主力买、散户卖），负分代表共识派发（主力卖、散户买）。"
+            "description": "【V2.0 · 意图升维版】融合宏观资金流向、微观盘口压力与对倒强度，诊断主力对盘面的真实控制力。正分代表高效、高纯度的控盘，负分代表失控或虚假引导。"
         },
         "SCORE_FF_AXIOM_CONVICTION": {
-            "cn_name": "【资金流公理】信念与决心",
+            "cn_name": "【资金流公理】攻击性意图",
             "category": "资金流层-原子",
             "type": "context",
-            "description": "【资金流公理二】诊断主力资金行动的坚决程度。正分代表信念坚定（追高买入、T0套利少），负分代表信念动摇（成本优势减弱、T0套利多）。"
-        },
-        "SCORE_FF_AXIOM_INCREMENT": {
-            "cn_name": "【资金流公理】存量博弈",
-            "category": "资金流层-原子",
-            "type": "context",
-            "description": "【资金流公理三】诊断市场资金的增量变化。正分代表增量资金入场，负分代表存量资金消耗或流出。"
+            "description": "【V2.0 · 意图升维版】通过盘口消耗率与大单攻防行为，诊断资金是否愿意付出代价主动进攻。正分代表攻击意图明确且猛烈，负分代表意图保守或存在防守压力。"
         },
         "SCORE_FF_AXIOM_FLOW_MOMENTUM": {
-            "cn_name": "【资金流公理】资金流动量",
+            "cn_name": "【资金流公理】资金流纯度与动能",
             "category": "资金流层-原子",
             "type": "context",
-            "description": "【V1.0】衡量主力资金净流量的相对强度和趋势动量。正分代表资金流加速流入，负分代表资金流加速流出。"
+            "description": "【V2.0 · 意图升维版】融合资金流量、流量加速度、对倒强度与盘口流动性，诊断资金流的真实动能。正分代表纯净、高效的加速流入，负分代表流出或含有大量水分。"
         },
         "SCORE_FF_AXIOM_DIVERGENCE": {
-            "cn_name": "【资金流公理】资金背离",
+            "cn_name": "【资金流公理】价资张力",
             "category": "资金流层-原子",
             "type": "context",
-            "description": "【资金流公理四】诊断价格行为与资金流之间的背离。正分代表看涨背离（如价跌资金流入），负分代表看跌背离（如价涨资金流出）。"
+            "description": "【V2.0 · 意图升维版】基于弹性势能模型，融合分歧向量、持续性与能量注入，诊断价格与资金流之间积蓄的反转势能。正分代表看涨张力，负分代表看跌张力。"
         },
         "SCORE_FUND_FLOW_BULLISH_DIVERGENCE": {
             "cn_name": "【资金流】看涨背离",
             "category": "内部计分-资金流",
             "type": "dynamic",
-            "description": "【V1.0】基于资金流公理，诊断价格行为与资金流之间的看涨背离。"
+            "description": "【V2.0】由“价资张力”公理派生的看涨信号。"
         },
-        "SCORE_FUND_FLOW_BEARISH_DIVERGENCE": {
-            "cn_name": "【资金流】看跌背离",
-            "category": "内部计分-资金流",
-            "type": "risk",
-            "description": "【V1.0】基于资金流公理，诊断价格行为与资金流之间的看跌背离。"
+        "SCORE_FF_AXIOM_CAPITAL_SIGNATURE": {
+            "cn_name": "【资金流公理】资本属性",
+            "category": "资金流层-原子",
+            "type": "context",
+            "description": "【V1.0 · 新增】诊断驱动趋势的主力资金属性。正分代表趋势由追求长期价值的“耐心资本”（机构）主导，趋势更稳健；负分代表趋势由追逐短期热点的“敏捷资本”（游资）主导，趋势更激进，波动风险更高。"
         },
         "说明_structure_layer": "--- 结构层 (Structure) ---",
         "SCORE_STRUCT_AXIOM_TREND_FORM": {
@@ -473,6 +473,12 @@
             "description": "-1代表波谷，+1代表波峰。"
         },
         "说明_foundation_layer": "--- 基础层 (Foundation) ---",
+        "SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH": {
+            "cn_name": "【基础公理】相对强度",
+            "category": "基础层-原子",
+            "type": "context",
+            "description": "【V1.0 · 新增】衡量个股相对其板块与大盘的强弱。正分代表该股票是强于大势的“领涨龙头”，负分则代表其是弱于大势的“跟跌小兵”。"
+        },
         "SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION": {
             "cn_name": "【基础公理】市场体质",
             "category": "基础层-原子",

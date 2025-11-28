@@ -684,6 +684,18 @@
             "description": "【V1.1 · 精准制导版】诊断主力在成功突破后，乘胜追击、加速抢筹的战术行为。"
           },
           {
+            "name": "PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "relationship_type": "custom",
+            "scoring_mode": "unipolar",
+            "psai_high_threshold": 0.5,
+            "mf_flow_positive_threshold": 0.0,
+            "buy_exhaustion_threshold": 0.7,
+            "large_pressure_low_threshold": 0.3,
+            "description": "【V1.0 · 过程层迁移版】识别主力从隐蔽吸筹转向公开强攻的资金流拐点意图。"
+          },
+          {
             "name": "PROCESS_META_PROFIT_VS_FLOW",
             "type": "meta_analysis", "task_type": "base",
             "relationship_type": "divergence",

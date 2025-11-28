@@ -33,27 +33,31 @@ class FoundationIntelligence:
 
     def run_foundation_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V7.0 · 四大公理升维版】基础情报分析总指挥
-        - 核心升级: 全面废弃旧的基础公理，引入“市场体质”、“情绪钟摆”、“流动性潮汐”、“市场张力”
-                      四大全新公理，从更根本的维度刻画市场状态。
+        【V8.0 · 相对强度公理版】基础情报分析总指挥
+        - 核心新增: 引入第五大公理——“相对强度公理”，旨在衡量股票相对于其板块和大盘的
+                      强弱，为识别“真龙头”提供核心依据。
         """
+        print("启动【V8.0 · 相对强度公理版】基础情报分析...")
         all_states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             print("基础情报引擎已在配置中禁用，跳过。")
             return {}
-        # 调用全新的四大公理诊断方法
         axiom_constitution = self._diagnose_axiom_market_constitution(df, p_conf)
         axiom_pendulum = self._diagnose_axiom_sentiment_pendulum(df)
         axiom_tide = self._diagnose_axiom_liquidity_tide(df)
         axiom_tension = self._diagnose_axiom_market_tension(df)
-        # 更新状态字典的键名
+        # [新增代码行] 调用新增的相对强度公理诊断方法
+        axiom_relative_strength = self._diagnose_axiom_relative_strength(df)
         all_states['SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION'] = axiom_constitution
         all_states['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'] = axiom_pendulum
         all_states['SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE'] = axiom_tide
         all_states['SCORE_FOUNDATION_AXIOM_MARKET_TENSION'] = axiom_tension
+        # [新增代码行] 将新的公理分数添加到状态字典
+        all_states['SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH'] = axiom_relative_strength
         context_trend_confirmed = self._diagnose_context_trend_confirmed(df)
         all_states.update(context_trend_confirmed)
+        print(f"【V8.0 · 相对强度公理版】分析完成，生成 {len(all_states)} 个基础原子信号。")
         return all_states
 
     def _diagnose_context_trend_confirmed(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -278,3 +282,55 @@ class FoundationIntelligence:
                 print(f"       - tension_score: {tension_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_tension_score: {tension_final_score.loc[probe_date_for_loop]:.4f}")
         return tension_final_score.clip(0, 1).astype(np.float32)
+
+    def _diagnose_axiom_relative_strength(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 新增】基础公理五：诊断“相对强度”
+        - 核心逻辑: 融合价格和资金流的相对强度，评估股票在“空间”维度上的领涨或跟跌属性。
+        - A股特性: “强者恒强”。此模型旨在第一时间锁定板块和市场中的“领航舰”。
+        """
+        print("    -> [基础层] 正在诊断“相对强度”公理...")
+        required_signals = [
+            'pct_change_D', 'industry_pct_change_D', 'index_pct_change_D',
+            'main_force_net_flow_calibrated_D', 'industry_main_force_net_flow_avg_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_relative_strength"):
+            return pd.Series(0.0, index=df.index)
+        df_index = df.index
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 1. 相对价格强度 (Price RS)
+        stock_pct = self._get_safe_series(df, 'pct_change_D', 0.0)
+        industry_pct = self._get_safe_series(df, 'industry_pct_change_D', 0.0)
+        index_pct = self._get_safe_series(df, 'index_pct_change_D', 0.0)
+        # 计算超额收益，并对累积超额收益进行归一化
+        excess_return_vs_industry = (stock_pct - industry_pct).rolling(window=21).sum()
+        excess_return_vs_index = (stock_pct - index_pct).rolling(window=21).sum()
+        price_rs_score = (
+            get_adaptive_mtf_normalized_bipolar_score(excess_return_vs_industry, df_index, default_weights) * 0.6 +
+            get_adaptive_mtf_normalized_bipolar_score(excess_return_vs_index, df_index, default_weights) * 0.4
+        )
+        # 2. 相对资金强度 (Flow RS)
+        stock_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0)
+        industry_flow = self._get_safe_series(df, 'industry_main_force_net_flow_avg_D', 0.0)
+        excess_flow = (stock_flow - industry_flow).rolling(window=21).sum()
+        flow_rs_score = get_adaptive_mtf_normalized_bipolar_score(excess_flow, df_index, default_weights)
+        # 3. 融合
+        relative_strength_score = (price_rs_score * 0.7 + flow_rs_score * 0.3)
+        # [新增] 调试探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [相对强度探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - price_rs_score (价格): {price_rs_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - flow_rs_score (资金): {flow_rs_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - final_relative_strength_score: {relative_strength_score.loc[probe_date_for_loop]:.4f}")
+        return relative_strength_score.clip(-1, 1).astype(np.float32)
+
+
+
+

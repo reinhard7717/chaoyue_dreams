@@ -57,9 +57,11 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V14.1 · 探针清理版】筹码情报总指挥
-        - 核心清理: 移除了方法末尾的调试探针逻辑，净化日志输出。
+        【V15.0 · 筹码势能公理版】筹码情报总指挥
+        - 核心新增: 引入第六大公理——“筹码势能公理”，旨在衡量历史累积的吸筹深度与
+                      长期势能储备，为判断长线潜力提供战略依据。
         """
+        print("启动【V15.0 · 筹码势能公理版】筹码情报分析...")
         all_chip_states = {}
         periods = [5, 13, 21, 55]
         holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
@@ -75,13 +77,16 @@ class ChipIntelligence:
         df['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
         chip_trend_momentum_scores = self._diagnose_axiom_trend_momentum(df, periods)
         all_chip_states['SCORE_CHIP_AXIOM_TREND_MOMENTUM'] = chip_trend_momentum_scores
+        # [新增代码块] 调用新增的筹码势能公理诊断方法
+        historical_potential = self._diagnose_axiom_historical_potential(df)
+        all_chip_states['SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL'] = historical_potential
         absorption_echo = self._diagnose_absorption_echo(df, divergence_scores)
         all_chip_states['SCORE_CHIP_OPP_ABSORPTION_ECHO'] = absorption_echo
         distribution_whisper = self._diagnose_distribution_whisper(df, divergence_scores)
         all_chip_states['SCORE_CHIP_RISK_DISTRIBUTION_WHISPER'] = distribution_whisper
         coherent_drive = self._diagnose_structural_consensus(df, battlefield_geography, holder_sentiment_scores)
         all_chip_states['SCORE_CHIP_COHERENT_DRIVE'] = coherent_drive
-        # [删除] 移除了方法末尾的调试探针逻辑
+        print(f"【V15.0 · 筹码势能公理版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。")
         return all_chip_states
 
     def _run_integrity_probe(self, df: pd.DataFrame, required_signals: list, probe_name: str):
@@ -469,6 +474,55 @@ class ChipIntelligence:
         final_score = (fomo_backdrop_score * divergence_shadow_score * main_force_retreat_score).pow(1/3)
         return final_score.clip(0, 1).fillna(0.0).astype(np.float32)
 
+    def _diagnose_axiom_historical_potential(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 新增】筹码公理六：诊断“筹码势能”
+        - 核心逻辑: 融合长期吸筹的时长、质量与成本稳定性，评估主力根基的深厚程度。
+        - A股特性: “横有多长，竖有多高”。此模型旨在量化“横盘”期间积蓄的能量。
+        """
+        print("    -> [筹码层] 正在诊断“筹码势能”公理...")
+        required_signals = [
+            'PROCESS_META_STEALTH_ACCUMULATION', 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION',
+            'PROCESS_META_DECEPTIVE_ACCUMULATION', 'dominant_peak_solidity_D'
+        ]
+        # 校验依赖的过程信号是否存在于atomic_states
+        missing_signals = [s for s in required_signals if s not in self.strategy.atomic_states and s not in df.columns]
+        if missing_signals:
+            print(f"    -> [筹码情报校验] 方法 '_diagnose_axiom_historical_potential' 启动失败：缺少核心信号 {missing_signals}。")
+            return pd.Series(0.0, index=df.index)
+        df_index = df.index
+        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
+        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        long_window = 250 # 定义长周期窗口
+        # 组合多种吸筹过程信号
+        stealth_accum = self._get_safe_series(df, self.strategy.atomic_states, 'PROCESS_META_STEALTH_ACCUMULATION', 0.0)
+        panic_accum = self._get_safe_series(df, self.strategy.atomic_states, 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 0.0)
+        deceptive_accum = self._get_safe_series(df, self.strategy.atomic_states, 'PROCESS_META_DECEPTIVE_ACCUMULATION', 0.0)
+        daily_accumulation_strength = pd.concat([stealth_accum, panic_accum, deceptive_accum], axis=1).max(axis=1)
+        # 1. 吸筹周期长度 (Duration)
+        accumulation_days = (daily_accumulation_strength > 0.1).rolling(window=long_window, min_periods=21).sum()
+        duration_score = get_adaptive_mtf_normalized_score(accumulation_days, df_index, ascending=True, tf_weights=tf_weights)
+        # 2. 吸筹质量深度 (Quality)
+        accumulation_quality = daily_accumulation_strength.rolling(window=long_window, min_periods=21).mean()
+        quality_score = get_adaptive_mtf_normalized_score(accumulation_quality, df_index, ascending=True, tf_weights=tf_weights)
+        # 3. 成本结构稳定性 (Stability)
+        peak_solidity = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5)
+        stability_score = get_adaptive_mtf_normalized_score(peak_solidity, df_index, ascending=True, tf_weights=tf_weights)
+        # 4. 融合
+        potential_score = (duration_score * 0.4 + quality_score * 0.4 + stability_score * 0.2)
+        # [新增] 调试探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [筹码势能探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - duration_score (时长): {duration_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - quality_score (质量): {quality_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - stability_score (稳定): {stability_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - final_potential_score: {potential_score.loc[probe_date_for_loop]:.4f}")
+        return potential_score.clip(0, 1).astype(np.float32)
 
 
 
