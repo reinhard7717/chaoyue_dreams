@@ -665,7 +665,8 @@
             "task_type": "base",
             "relationship_type": "custom",
             "relative_strength_amplifier": 1.0,
-            "description": "【V3.0 · 相对强度增强版】诊断主力拉升意图。引入'相对强度'作为环境调节器，放大'真龙头'信号，抑制'跟风者'信号。"
+            "capital_signature_modulator_weight": 0.5,
+            "description": "【V4.0 · 资本属性调节版】诊断主力拉升意图。引入'相对强度'和'资本属性'作为双重调节器，区分'真龙头'与'跟风者'，并识别资金的真实属性。"
           },
           {
             "name": "PROCESS_META_COST_ADVANTAGE_TREND",

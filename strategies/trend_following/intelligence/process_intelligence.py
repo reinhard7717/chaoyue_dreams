@@ -395,23 +395,29 @@ class ProcessIntelligence:
 
     def _calculate_main_force_rally_intent(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.0 · 相对强度增强版】计算“主力拉升意图”的专属关系分数。
-        - 核心升级: 引入“相对强度”公理作为环境调节器，放大“真龙头”的拉升信号，抑制“跟风者”的无效信号。
+        【V4.0 · 资本属性调节版】计算“主力拉升意图”的专属关系分数。
+        - 核心升级: 引入“资本属性”公理作为第二个核心调节器。现在，拉升意图会根据其“领涨属性”（相对强度）
+                      和“资金属性”（机构/游资）进行双重加权，使其能精准识别由“耐心资本”主导的、
+                      具备龙头潜质的“真突破”。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (V3.0 · 相对强度增强版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (V4.0 · 资本属性调节版)...")
+        # [修改代码行] 新增对资本属性公理的依赖
         required_signals = [
             'pct_change_D', 'main_force_net_flow_calibrated_D', 'main_force_price_impact_ratio_D',
             'upward_impulse_purity_D', 'volume_ratio_D', 'control_solidity_index_D',
             'main_force_cost_advantage_D', 'SLOPE_5_winner_concentration_90pct_D',
             'dominant_peak_solidity_D', 'active_buying_support_D', 'pressure_rejection_strength_D',
-            'profit_realization_quality_D', 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH'
+            'profit_realization_quality_D', 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH',
+            'SCORE_FF_AXIOM_CAPITAL_SIGNATURE'
         ]
         if not self._validate_required_signals(df, required_signals, "_calculate_main_force_rally_intent"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
-        # [新增代码块] 获取新公理及配置参数
         relative_strength = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH', 0.0)
         rs_amplifier = config.get('relative_strength_amplifier', 0.0)
+        # [新增代码块] 获取资本属性公理及配置参数
+        capital_signature = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CAPITAL_SIGNATURE', 0.0)
+        cs_modulator_weight = config.get('capital_signature_modulator_weight', 0.0)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
@@ -462,9 +468,11 @@ class ProcessIntelligence:
         bearish_mask = (price_change_norm < 0) | (net_flow_norm < 0)
         bearish_score = (price_change_norm.clip(upper=0).abs() * 0.5 + net_flow_norm.clip(upper=0).abs() * 0.5).clip(0, 1) * -1
         base_rally_intent = bullish_intent.mask(bearish_mask, bearish_score)
-        # [修改代码块] 融合相对强度
         rs_modulator = (1 + relative_strength * rs_amplifier)
-        final_rally_intent = (base_rally_intent * rs_modulator).clip(-1, 1)
+        # [新增代码行] 构建资本属性调节器
+        capital_modulator = (1 + capital_signature * cs_modulator_weight)
+        # [修改代码行] 应用双重调节器
+        final_rally_intent = (base_rally_intent * rs_modulator * capital_modulator).clip(-1, 1)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day, (final_rally_intent + 0.35)).clip(-1, 1)
         self.strategy.atomic_states["_DEBUG_rally_aggressiveness"] = aggressiveness_score
         self.strategy.atomic_states["_DEBUG_rally_control"] = control_score
