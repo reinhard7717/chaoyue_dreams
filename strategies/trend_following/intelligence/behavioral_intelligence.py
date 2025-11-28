@@ -192,9 +192,14 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V30.0 · 信号健壮性与背离品质重构版】原子信号中心
-        - 核心修复: 增加了对核心信号 `ACCEL_5_pct_change_D` 的降级兼容处理。如果该信号缺失，将动态计算代理信号以确保引擎健壮性。
-        - 核心重构(价量背离): 废弃旧的、线性的价量背离信号。调用全新的 `_diagnose_divergence_quality` 方法，生成独立的、基于主力意图和关键位置确认的“牛市/熊市背离品质分”，为策略提供更高质量的转折信号。
+        【V32.2 · 超买与滞涨增强版】原子信号中心
+        - 核心增强(超买): 为“价格超买”信号引入“成交量确认因子”，亢奋若伴随天量，则风险加剧。
+        - 核心增强(滞涨): 重构“滞涨证据”中的“空头伏击”逻辑，引入“多头进攻失败”作为核心裁决证据。
+        - 核心整合: 将 `_diagnose_upper_shadow_risk` 的逻辑与 `SCORE_BEHAVIOR_DISTRIBUTION_PRESSURE`
+                    整合为全新的、更强大的 `SCORE_BEHAVIOR_DISTRIBUTION_INTENT` 信号，
+                    由新增的 `_calculate_distribution_intent` 方法负责计算，消除了逻辑冗余。
+        - 核心升级: 全面升级五大核心行为信号的计算逻辑，引入多维证据链和博弈环境评估。
+        - 核心新增: 正式实现 `SCORE_BEHAVIOR_ABSORPTION_STRENGTH` 信号。
         """
         required_signals = [
             'pct_change_D', 'BIAS_55_D', 'volume_ratio_D', 'microstructure_efficiency_index_D',
@@ -206,8 +211,10 @@ class BehavioralIntelligence:
             'upward_impulse_purity_D', 'vacuum_traversal_efficiency_D', 'support_validation_strength_D',
             'impulse_quality_ratio_D', 'floating_chip_cleansing_efficiency_D',
             'panic_selling_cascade_D', 'main_force_execution_alpha_D', 'covert_accumulation_signal_D', 'high_D',
-            # 为背离品质计算和卖盘枯竭重构补充信号
-            'close_D', 'capitulation_absorption_index_D', 'chip_fatigue_index_D'
+            'close_D', 'capitulation_absorption_index_D', 'chip_fatigue_index_D', 'loser_pain_index_D',
+            'buy_quote_exhaustion_rate_D', 'absorption_strength_index_D', 'distribution_pressure_index_D',
+            'main_force_conviction_index_D', 'dominant_peak_solidity_D', 'profit_taking_flow_ratio_D',
+            'active_selling_pressure_D' # [新增代码行] 为派发意图整合补充信号
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_behavioral_axioms"):
             return {}
@@ -223,7 +230,6 @@ class BehavioralIntelligence:
         main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_behavioral_axioms")
         amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_behavioral_axioms").replace(0, 1e-9)
         bias_21 = self._get_safe_series(df, 'BIAS_21_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        # 增加对 ACCEL_5_pct_change_D 的降级兼容处理
         if 'ACCEL_5_pct_change_D' in df.columns:
             price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', 0.0, method_name="_diagnose_behavioral_axioms")
         else:
@@ -268,7 +274,10 @@ class BehavioralIntelligence:
         norm_trend_vitality = get_adaptive_mtf_normalized_score(trend_vitality, df.index, ascending=True, tf_weights=long_term_weights)
         conviction_force = (norm_winner_stability * norm_control_solidity * norm_trend_vitality).pow(1/3).fillna(0.0)
         overextension_raw_score = (excitement_force - conviction_force).clip(lower=0)
-        states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = overextension_raw_score.astype(np.float32)
+        volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_behavioral_axioms")
+        volume_amplifier = (1 + get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=default_weights)).clip(lower=1)
+        final_overextension_score = (overextension_raw_score * volume_amplifier).clip(0, 1)
+        states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
         # --- 行为铁三角 ---
         base_efficiency_raw = self._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
         path_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_behavioral_axioms")
@@ -294,16 +303,17 @@ class BehavioralIntelligence:
         defensive_resilience_score = get_adaptive_mtf_normalized_score(defensive_resilience_raw, df.index, ascending=True, tf_weights=default_weights)
         intraday_bull_control_score = (strategic_position_score.pow(0.4) * offensive_capability_score.pow(0.3) * defensive_resilience_score.pow(0.3)).fillna(0.0)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
-        # --- 影线与战术信号 ---
+        # --- [修改代码块] 影线、战术与派发意图信号 ---
         lower_shadow_quality = self._diagnose_lower_shadow_quality(df)
-        upper_shadow_risk = self._diagnose_upper_shadow_risk(df)
+        distribution_intent = self._calculate_distribution_intent(df, default_weights) # [修改代码行] 调用新的派发意图计算方法
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
-        states['INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW'] = upper_shadow_risk
+        states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] = distribution_intent # [修改代码行] 存储新的派发意图信号
         states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] = self._diagnose_ambush_counterattack(df, lower_shadow_quality)
-        states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = self._diagnose_breakout_failure_risk(df, upper_shadow_risk)
-        # --- 量能信号 ---
-        states['SCORE_BEHAVIOR_VOLUME_BURST'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights)
-        states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights).astype(np.float32)
+        states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = self._diagnose_breakout_failure_risk(df, distribution_intent)
+        # --- 量能与博弈信号 ---
+        states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights)
+        states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights)
+        states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = self._calculate_absorption_strength(df, default_weights)
         # --- 开始重构背离信号 ---
         bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(df)
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
@@ -326,72 +336,67 @@ class BehavioralIntelligence:
         # --- 结束重构 ---
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = self._diagnose_stagnation_evidence(df, states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'])
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
-        distribution_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        states['SCORE_BEHAVIOR_DISTRIBUTION_PRESSURE'] = get_adaptive_mtf_normalized_score(distribution_pressure_raw, df.index, ascending=True, tf_weights=default_weights)
         return states
 
     def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.1 · 量能萎缩证据增强版】计算 SCORE_BEHAVIOR_VOLUME_ATROPHY 信号。
-        - 核心逻辑: 融合三种量能萎缩的强力证据，并引入成交量均线空头排列和萎缩持续性。
-          1. 量能一直低于ma_vol_21 (持续性萎缩)
-          2. ma_vol_5已经低于ma_vol_21 (结构性萎缩)
-          3. 当日量能 < ma_vol_5 < ma_vol_21 (冰点萎缩)
-          4. 成交量均线空头排列 (VOL_MA_5_D < VOL_MA_13_D < VOL_MA_21_D)
-        - 输出: [0, 1] 的单极性分数，分数越高代表量能萎缩越严重。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
+        【V2.0 · 高品质萎缩版】计算 SCORE_BEHAVIOR_VOLUME_ATROPHY 信号。
+        - 核心升级: 在V1.1“萎缩程度”模型基础上，引入“高质量萎缩环境调节器”，
+                    旨在区分良性的“缩量洗盘/惜售”与恶性的“无量阴跌”。
+        - 调节器三要素: 1. 获利盘锁定度; 2. 套牢盘枯竭度; 3. 浮筹清洗度。
+        - 输出: [0, 1] 的单极性分数，分数越高代表量能萎缩的“品质”越高。
         """
+        # --- 探针初始化 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        last_date_str = df.index[-1].strftime('%Y-%m-%d')
+        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
         df_index = df.index
-        # 获取必要的成交量均线数据
+        # --- 1. 计算基础萎缩程度 (逻辑同V1.1) ---
         vol = self._get_safe_series(df, 'volume_D', 0.0, method_name="_calculate_volume_atrophy")
         vol_ma5 = self._get_safe_series(df, 'VOL_MA_5_D', 0.0, method_name="_calculate_volume_atrophy")
-        vol_ma13 = self._get_safe_series(df, 'VOL_MA_13_D', 0.0, method_name="_calculate_volume_atrophy") # 新增13日均量
+        vol_ma13 = self._get_safe_series(df, 'VOL_MA_13_D', 0.0, method_name="_calculate_volume_atrophy")
         vol_ma21 = self._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name="_calculate_volume_atrophy")
-        # 确保数据存在，否则返回默认值
         if vol.isnull().all() or vol_ma5.isnull().all() or vol_ma13.isnull().all() or vol_ma21.isnull().all():
             print("    -> [行为情报引擎警告] 缺少成交量或成交量均线数据，无法计算 SCORE_BEHAVIOR_VOLUME_ATROPHY。")
             return pd.Series(0.0, index=df_index)
-        # 避免除以零
-        vol_ma5_safe = vol_ma5.replace(0, 1e-9)
-        vol_ma13_safe = vol_ma13.replace(0, 1e-9)
         vol_ma21_safe = vol_ma21.replace(0, 1e-9)
-        # 证据1: 量能一直低于ma_vol_21 (持续性萎缩)
-        # 使用 (1 - volume_D / VOL_MA_21_D) 衡量萎缩程度，比值越小，分数越高
         vol_below_ma21_raw = (1 - (vol / vol_ma21_safe)).clip(0, 1)
         vol_below_ma21_score = get_adaptive_mtf_normalized_score(vol_below_ma21_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # 证据2: ma_vol_5已经低于ma_vol_21 (结构性萎缩)
-        # 使用 (1 - VOL_MA_5_D / VOL_MA_21_D) 衡量萎缩程度
         vol_ma5_below_ma21_raw = (1 - (vol_ma5 / vol_ma21_safe)).clip(0, 1)
         vol_ma5_below_ma21_score = get_adaptive_mtf_normalized_score(vol_ma5_below_ma21_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # 证据3: 当日量能 < ma_vol_5 < ma_vol_21 (冰点萎缩)
-        # 这是一个布尔条件，直接转换为分数，并可以考虑其持续性
         is_ice_point_atrophy = ((vol < vol_ma5) & (vol_ma5 < vol_ma21)).astype(float)
-        # 冰点萎缩的持续性
         ice_point_atrophy_persistence = is_ice_point_atrophy.rolling(window=5, min_periods=1).sum() / 5
-        ice_point_atrophy_score = is_ice_point_atrophy * (0.5 + ice_point_atrophy_persistence * 0.5) # 持续越久，分数越高
-        # 证据4: 成交量均线空头排列 (VOL_MA_5_D < VOL_MA_13_D < VOL_MA_21_D)
-        # 这是一个结构性萎缩的强力证据
+        ice_point_atrophy_score = is_ice_point_atrophy * (0.5 + ice_point_atrophy_persistence * 0.5)
         is_ma_bearish_alignment = ((vol_ma5 < vol_ma13) & (vol_ma13 < vol_ma21)).astype(float)
-        # 均线空头排列的强度，可以根据均线之间的距离来衡量
         ma_bearish_alignment_strength_raw = (vol_ma21 - vol_ma5) / vol_ma21_safe.replace(0, np.nan)
         ma_bearish_alignment_score = get_adaptive_mtf_normalized_score(ma_bearish_alignment_strength_raw.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights)
-        # 融合布尔条件和强度
         ma_bearish_alignment_final_score = is_ma_bearish_alignment * ma_bearish_alignment_score
-        # 融合所有证据
-        # 赋予冰点萎缩和均线空头排列更高的权重，因为它代表了最强的萎缩信号
-        # 使用加权几何平均，确保所有证据都存在时分数才高
-        evidence_components = [
-            vol_below_ma21_score,
-            vol_ma5_below_ma21_score,
-            ice_point_atrophy_score, # 使用增强后的冰点萎缩分数
-            ma_bearish_alignment_final_score # 新增均线空头排列分数
-        ]
-        # 调整权重，冰点萎缩和均线空头排列权重更高
-        weights = np.array([0.2, 0.2, 0.3, 0.3]) # 调整权重
+        evidence_components = [vol_below_ma21_score, vol_ma5_below_ma21_score, ice_point_atrophy_score, ma_bearish_alignment_final_score]
+        weights = np.array([0.2, 0.2, 0.3, 0.3])
         aligned_evidence_components = [comp.reindex(df_index, fill_value=0.0) for comp in evidence_components]
-        safe_evidence_components = [comp + 1e-9 for comp in aligned_evidence_components] # 避免log(0)
-        volume_atrophy_score = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_evidence_components, weights)], axis=0), index=df_index)
-        return volume_atrophy_score.clip(0, 1)
+        safe_evidence_components = [comp + 1e-9 for comp in aligned_evidence_components]
+        base_atrophy_score = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_evidence_components, weights)], axis=0), index=df_index)
+        # --- 2. 构建高质量萎缩环境调节器 ---
+        lockup_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_calculate_volume_atrophy")
+        exhaustion_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_calculate_volume_atrophy")
+        cleansing_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_calculate_volume_atrophy")
+        lockup_factor = get_adaptive_mtf_normalized_score(lockup_raw, df.index, ascending=True, tf_weights=tf_weights)
+        exhaustion_factor = get_adaptive_mtf_normalized_score(exhaustion_raw, df.index, ascending=True, tf_weights=tf_weights)
+        cleansing_factor = get_adaptive_mtf_normalized_score(cleansing_raw, df.index, ascending=True, tf_weights=tf_weights)
+        context_modulator = (lockup_factor * exhaustion_factor * cleansing_factor).pow(1/3).fillna(0.0)
+        # --- 3. 融合基础分与环境调节器 ---
+        # 高品质萎缩 = sqrt(萎缩程度 * 环境质量)
+        high_quality_atrophy_score = (base_atrophy_score * context_modulator).pow(0.5)
+        # --- 探针监测 ---
+        if is_debug_day:
+            print(f"      [行为探针] _calculate_volume_atrophy @ {last_date_str}")
+            print(f"        - 基础萎缩分: {base_atrophy_score.iloc[-1]:.4f}")
+            print(f"        - 环境调节器原始值: 锁定度={lockup_raw.iloc[-1]:.2f}, 枯竭度={exhaustion_raw.iloc[-1]:.2f}, 清洗度={cleansing_raw.iloc[-1]:.2f}")
+            print(f"        - 环境调节器因子: 锁定={lockup_factor.iloc[-1]:.4f}, 枯竭={exhaustion_factor.iloc[-1]:.4f}, 清洗={cleansing_factor.iloc[-1]:.4f} -> 综合={context_modulator.iloc[-1]:.4f}")
+            print(f"        - 最终高品质萎缩分: {high_quality_atrophy_score.iloc[-1]:.4f}")
+        return high_quality_atrophy_score.clip(0, 1)
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -479,25 +484,28 @@ class BehavioralIntelligence:
 
     def _diagnose_stagnation_evidence(self, df: pd.DataFrame, upward_efficiency: pd.Series) -> pd.Series:
         """
-        【V3.1 · 鲁棒性修复与宏观共振版】诊断内部行为信号：滞涨证据
-        - 核心修复: 增加了对核心信号 `ACCEL_5_pct_change_D` 的降级兼容处理，确保在数据缺失情况下的核心逻辑健壮性。
-        - 核心重构: 在V2.0“多头衰竭 vs 空头伏击”模型基础上，嫁接一个“宏观风险放大器”，实现微观行为与宏观势能的风险共振。
-        - 微观增强: 在“多头衰竭”维度中，新增“筹码疲劳度”证据。
-        - 宏观放大: 引入“获利盘压力”和“趋势活力衰减”作为风险放大器，一波巨大上涨后的滞涨，其风险将被指数级放大。
+        【V3.2 · 空头伏击增强版】诊断内部行为信号：滞涨证据
+        - 核心升级: 重构“空头伏击”的定义，引入“多头进攻失败”作为核心裁决证据。
+                    一次成功的伏击 = 派发压力 × 主动卖压 × 多头溃败(收盘远离高点)。
+        - ... (其他注释保持不变)
         """
         df_index = df.index
+        # --- 探针初始化 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        last_date_str = df.index[-1].strftime('%Y-%m-%d')
+        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         # 1. 数据准备
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_stagnation_evidence")
-        # 增加对 ACCEL_5_pct_change_D 的降级兼容处理
         if 'ACCEL_5_pct_change_D' in df.columns:
             price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', 0.0, method_name="_diagnose_stagnation_evidence")
         else:
             print("    -> [行为情报兼容模式] _diagnose_stagnation_evidence: 未找到 'ACCEL_5_pct_change_D'，使用 'pct_change_D' 的5日差分作为代理。")
             price_accel = pct_change.diff(5).fillna(0.0)
-        upper_shadow = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_stagnation_evidence")
         closing_deviation = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_diagnose_stagnation_evidence")
         distribution_pressure = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_stagnation_evidence")
         active_selling = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name="_diagnose_stagnation_evidence")
@@ -505,81 +513,133 @@ class BehavioralIntelligence:
         winner_rate = self._get_safe_series(df, 'total_winner_rate_D', 50.0, method_name="_diagnose_stagnation_evidence")
         trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
         # 2. 计算“微观滞涨证据”
-        # 2.1 “多头衰竭 (Bullish Exhaustion)” - 增强版
+        # 2.1 “多头衰竭 (Bullish Exhaustion)” - 逻辑不变
         inefficiency_score = (1 - upward_efficiency).clip(0, 1)
         momentum_decay_score = get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
-        intraday_failure_score = get_adaptive_mtf_normalized_score(upper_shadow * (1 - closing_deviation), df_index, ascending=True, tf_weights=default_weights)
+        # [修改代码行] 此处不再需要 upper_shadow，因为其逻辑已被 closing_deviation 更好地覆盖
+        intraday_failure_score = (1 - closing_deviation).clip(0, 1)
         chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue, df_index, ascending=True, tf_weights=default_weights)
         bullish_exhaustion = (inefficiency_score * momentum_decay_score * intraday_failure_score * chip_fatigue_score).pow(1/4).fillna(0.0)
-        # 2.2 “空头伏击 (Bearish Ambush)”
+        # 2.2 “空头伏击 (Bearish Ambush)” - [修改代码块] 采用新逻辑
         distribution_score = get_adaptive_mtf_normalized_score(distribution_pressure, df_index, ascending=True, tf_weights=default_weights)
         active_selling_score = get_adaptive_mtf_normalized_score(active_selling, df_index, ascending=True, tf_weights=default_weights)
-        bearish_ambush = np.maximum(distribution_score, active_selling_score)
+        bullish_failure_score = (1 - closing_deviation).clip(0, 1) # 多头溃败证据
+        bearish_ambush = (distribution_score * active_selling_score).pow(0.5) * bullish_failure_score
         micro_conflict_score = (bullish_exhaustion * bearish_ambush).pow(0.5)
-        # 3. 构建“宏观风险放大器”
+        # 3. 构建“宏观风险放大器” - 逻辑不变
         profit_pressure_score = get_adaptive_mtf_normalized_score(winner_rate, df_index, ascending=True, tf_weights=default_weights)
         vitality_decay_raw = trend_vitality.diff(3).clip(upper=0).abs()
         vitality_decay_score = get_adaptive_mtf_normalized_score(vitality_decay_raw, df_index, ascending=True, tf_weights=default_weights)
         macro_amplifier = 1 + (profit_pressure_score * vitality_decay_score).pow(0.5)
-        # 4. 非线性合成最终证据
+        # 4. 非线性合成最终证据 - 逻辑不变
         stagnation_evidence = micro_conflict_score * macro_amplifier
         is_rising_or_flat = (pct_change >= -0.005).astype(float)
         final_stagnation_evidence = (stagnation_evidence * is_rising_or_flat).clip(0, 1)
+        # --- 探针监测 ---
+        if is_debug_day:
+            print(f"      [行为探针] _diagnose_stagnation_evidence @ {last_date_str}")
+            print(f"        - 多头衰竭分: {bullish_exhaustion.iloc[-1]:.4f}")
+            print(f"        - 空头伏击分 (新): {bearish_ambush.iloc[-1]:.4f} (派发分={distribution_score.iloc[-1]:.2f}, 主卖分={active_selling_score.iloc[-1]:.2f}, 溃败分={bullish_failure_score.iloc[-1]:.2f})")
+            print(f"        - 微观冲突分: {micro_conflict_score.iloc[-1]:.4f}")
+            print(f"        - 宏观放大器: {macro_amplifier.iloc[-1]:.4f}")
+            print(f"        - 最终滞涨证据分: {final_stagnation_evidence.iloc[-1]:.4f}")
         return final_stagnation_evidence.astype(np.float32)
 
     def _diagnose_lower_shadow_quality(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V2.0 · 反击品质版】诊断下影线承接品质
-        - 核心重构: 将单一的“承接强度”升级为“反击品质”三维诊断模型，旨在识别真实的、由主力主导的强势反击，过滤诱多陷阱。
-        - 1. 反击幅度 (Magnitude): 基础的下影线强度。
-        - 2. 主力意图 (Intent): 主力资金当天是否净流入？这是识别真伪的核心。
-        - 3. 战场位置 (Location): 反击是否发生在关键支撑位？
-        - 非线性合成: 品质分 = (幅度^0.3 * 意图^0.5 * 位置^0.2)，主力意图具备最高的权重和一票否决能力。
+        【V3.0 · 战术价值版】诊断下影线承接品质 (SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION)。
+        - 核心重构: 在V2.0“反击品质”三维模型基础上，引入“战术价值放大器”，
+                    旨在根据下影线所克服的“战场困难度”来评估其含金量。
+        - 放大器双要素: 1. 恐慌承接度 (是否吸收了恐慌盘); 2. 主力伏击意图 (主力是否展现了高超的低吸能力)。
+        - 非线性合成: 最终品质分 = K线自身品质 × (1 + 战术价值)，精准识别“力挽狂澜”式的关键下影线。
         """
+        # --- 探针初始化 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        last_date_str = df.index[-1].strftime('%Y-%m-%d')
+        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 1. 获取三维度原始数据
+        # --- 1. 计算基础K线品质分 (逻辑同V2.0) ---
         magnitude_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_lower_shadow_quality").replace(0, 1e-9)
         location_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_diagnose_lower_shadow_quality")
-        # 2. 计算各维度得分
         magnitude_score = get_adaptive_mtf_normalized_score(magnitude_raw, df.index, ascending=True, tf_weights=default_weights)
-        # 主力意图得分：只有主力净流入才算有效意图
         flow_ratio = main_force_flow / amount
         intent_score = get_adaptive_mtf_normalized_score(flow_ratio.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         location_score = get_adaptive_mtf_normalized_score(location_raw, df.index, ascending=True, tf_weights=default_weights)
-        # 3. 非线性合成
-        lower_shadow_quality_score = (magnitude_score.pow(0.3) * intent_score.pow(0.5) * location_score.pow(0.2)).fillna(0.0)
-        return lower_shadow_quality_score.astype(np.float32)
+        base_quality_score = (magnitude_score.pow(0.3) * intent_score.pow(0.5) * location_score.pow(0.2)).fillna(0.0)
+        # --- 2. 构建战术价值放大器 ---
+        panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_lower_shadow_quality")
+        capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_lower_shadow_quality")
+        ambush_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_lower_shadow_quality")
+        panic_absorption_score = get_adaptive_mtf_normalized_score((panic_raw * capitulation_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
+        ambush_intent_score = get_adaptive_mtf_normalized_score(ambush_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        context_amplifier = 1 + (panic_absorption_score * ambush_intent_score).pow(0.5)
+        # --- 3. 非线性合成 ---
+        final_lower_shadow_quality = (base_quality_score * context_amplifier).clip(0, 1)
+        # --- 探针监测 ---
+        if is_debug_day:
+            print(f"      [行为探针] _diagnose_lower_shadow_quality @ {last_date_str}")
+            print(f"        - 基础品质分: {base_quality_score.iloc[-1]:.4f} (幅度={magnitude_score.iloc[-1]:.2f}, 意图={intent_score.iloc[-1]:.2f}, 位置={location_score.iloc[-1]:.2f})")
+            print(f"        - 战术放大器原始值: 恐慌={panic_raw.iloc[-1]:.2f}, 投降承接={capitulation_raw.iloc[-1]:.2f}, 伏击Alpha={ambush_raw.iloc[-1]:.2f}")
+            print(f"        - 战术放大器因子: 恐慌承接度={panic_absorption_score.iloc[-1]:.4f}, 伏击意图={ambush_intent_score.iloc[-1]:.4f} -> 放大倍数={context_amplifier.iloc[-1]:.4f}")
+            print(f"        - 最终下影线品质分: {final_lower_shadow_quality.iloc[-1]:.4f}")
+        return final_lower_shadow_quality.astype(np.float32)
 
-    def _diagnose_upper_shadow_risk(self, df: pd.DataFrame) -> pd.Series:
+    def _calculate_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.0 · 派发风险版】诊断上影线派发风险
-        - 核心重构: 将单一的“上影线压力”升级为“派发风险”三维诊断模型，旨在识别真实的、由主力主导的拉高派发行为。
-        - 1. 压力强度 (Magnitude): 基础的上影线抛压强度。
-        - 2. 主力行为 (Behavior): 主力资金当天是否净流出？
-        - 3. 派发过程 (Process): 是否伴随了“拉高出货”的特征？
-        - 非线性合成: 风险分 = (强度^0.3 * 行为^0.4 * 过程^0.3)，精准锁定“天线杀”风险。
+        【V1.0 · 派发意图五维诊断版】计算上涨派发意图信号 (SCORE_BEHAVIOR_DISTRIBUTION_INTENT)。
+        - 核心整合: 本方法整合并取代了旧的 _calculate_distribution_pressure 和 _diagnose_upper_shadow_risk。
+        - 核心逻辑: 构建一个融合“过程”、“结果”、“主力”、“信念”、“结构”的五维证据链模型，
+                    对“拉高派发”这一核心战术意图进行深度、全面的量化诊断。
+        - 输出: [0, 1] 的单极性分数，分数越高代表主力派发意图越强烈、证据越确凿。
         """
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 1. 获取三维度原始数据
-        magnitude_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_upper_shadow_risk")
-        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_upper_shadow_risk")
-        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_upper_shadow_risk").replace(0, 1e-9)
-        process_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_upper_shadow_risk")
-        # 2. 计算各维度得分
-        magnitude_score = get_adaptive_mtf_normalized_score(magnitude_raw, df.index, ascending=True, tf_weights=default_weights)
-        # 主力行为得分：主力净流出额越大，得分越高
-        flow_ratio = main_force_flow / amount
-        behavior_score = get_adaptive_mtf_normalized_score(flow_ratio.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
-        process_score = get_adaptive_mtf_normalized_score(process_raw, df.index, ascending=True, tf_weights=default_weights)
-        # 3. 非线性合成
-        upper_shadow_risk_score = (magnitude_score.pow(0.3) * behavior_score.pow(0.4) * process_score.pow(0.3)).fillna(0.0)
-        return upper_shadow_risk_score.astype(np.float32)
+        # --- 探针初始化 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        last_date_str = df.index[-1].strftime('%Y-%m-%d')
+        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
+        # --- 1. 获取五维度原始数据 ---
+        # 过程证据
+        process_evidence_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_calculate_distribution_intent")
+        # 结果证据
+        outcome_evidence_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_calculate_distribution_intent")
+        # 主力证据
+        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_distribution_intent")
+        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_calculate_distribution_intent").replace(0, 1e-9)
+        # 信念证据
+        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.5, method_name="_calculate_distribution_intent")
+        # 结构证据
+        structure_raw = self._get_safe_series(df, 'dominant_peak_solidity_D', 0.5, method_name="_calculate_distribution_intent")
+        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_distribution_intent")
+        # --- 2. 计算各维度得分 ---
+        process_score = get_adaptive_mtf_normalized_score(process_evidence_raw, df.index, ascending=True, tf_weights=tf_weights)
+        outcome_score = get_adaptive_mtf_normalized_score(outcome_evidence_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 主力证据：只考虑主力净流出的情况
+        intent_score = get_adaptive_mtf_normalized_score((main_force_flow / amount).clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
+        # 信念证据：信念指数越低，派发证据越强
+        conviction_score = (1 - get_adaptive_mtf_normalized_score(conviction_raw, df.index, ascending=True, tf_weights=tf_weights)).clip(0, 1)
+        # 结构证据：主峰稳固度越低，派发证据越强
+        structure_score = (1 - get_adaptive_mtf_normalized_score(structure_raw, df.index, ascending=True, tf_weights=tf_weights)).clip(0, 1)
+        # --- 3. 非线性合成与情景过滤 ---
+        # 仅在上涨日或冲高回落日计算
+        is_rising_context = (pct_change > -0.01).astype(float)
+        # 赋予主力意图和信念更高的权重
+        distribution_intent = (
+            (process_score.pow(0.2) * outcome_score.pow(0.2) * intent_score.pow(0.3) * conviction_score.pow(0.2) * structure_score.pow(0.1)) * is_rising_context
+        ).fillna(0.0)
+        # --- 探针监测 ---
+        if is_debug_day:
+            print(f"      [行为探针] _calculate_distribution_intent @ {last_date_str}")
+            print(f"        - 原始值: 过程={process_evidence_raw.iloc[-1]:.2f}, 结果={outcome_evidence_raw.iloc[-1]:.2f}, 主力流={main_force_flow.iloc[-1]:.2f}, 信念={conviction_raw.iloc[-1]:.2f}, 结构={structure_raw.iloc[-1]:.2f}")
+            print(f"        - 归一化分: 过程={process_score.iloc[-1]:.4f}, 结果={outcome_score.iloc[-1]:.4f}, 主力={intent_score.iloc[-1]:.4f}, 信念={conviction_score.iloc[-1]:.4f}, 结构={structure_score.iloc[-1]:.4f}")
+            print(f"        - 最终派发意图分: {distribution_intent.iloc[-1]:.4f} (上涨环境: {is_rising_context.iloc[-1]})")
+        return distribution_intent.clip(0, 1).astype(np.float32)
 
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, lower_shadow_quality: pd.Series) -> pd.Series:
         """
@@ -608,13 +668,13 @@ class BehavioralIntelligence:
         ambush_counterattack_score = (morphology_score.pow(0.3) * panic_score.pow(0.2) * ambush_score.pow(0.4) * covert_ops_score.pow(0.1)).fillna(0.0)
         return ambush_counterattack_score.astype(np.float32)
 
-    def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, upper_shadow_risk: pd.Series) -> pd.Series:
+    def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series) -> pd.Series:
         """
-        【V1.0 · 牛市陷阱版】诊断突破失败级联风险
+        【V1.1 · 意图驱动版】诊断突破失败级联风险
         - 核心目标: 识别并量化“假突破”或“牛市陷阱”形态的风险，其核心是大量跟风盘在高位被套牢。
         - 风险要素:
           1. 突破尝试 (Attempt): 当天必须有向上突破近期高点的行为。
-          2. 快速溃败 (Collapse): 突破后快速回落，形成高风险上影线。
+          2. 快速溃败 (Collapse): 突破后快速回落，其核心证据由全新的“派发意图”信号提供。
           3. 高位换手 (Volume): 突破时成交量显著放大，意味着大量资金被套。
         - 非线性合成: 风险分 = 突破尝试(布尔) * (快速溃败^0.6 * 高位换手^0.4)，只有在突破失败时才激活。
         """
@@ -626,7 +686,7 @@ class BehavioralIntelligence:
         recent_high = high_price.rolling(window=21, min_periods=21).max().shift(1)
         is_breakout_attempt = (high_price > recent_high).astype(float)
         # 2. 获取其他风险要素
-        collapse_score = upper_shadow_risk # 直接使用传入的高风险上影线分数
+        collapse_score = distribution_intent # [修改代码行] 直接使用传入的、更强大的派发意图分数
         volume_raw = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_breakout_failure_risk")
         volume_score = get_adaptive_mtf_normalized_score(volume_raw, df.index, ascending=True, tf_weights=default_weights)
         # 3. 风险合成
@@ -667,7 +727,90 @@ class BehavioralIntelligence:
         bearish_divergence_quality = (bearish_morphology_evidence * overbought_location_evidence).pow(0.5).fillna(0.0)
         return bullish_divergence_quality.astype(np.float32), bearish_divergence_quality.astype(np.float32)
 
+    def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
+        """
+        【V1.0 · 品质驱动版】计算高品质看涨量能爆发信号 (SCORE_BEHAVIOR_VOLUME_BURST)。
+        - 核心逻辑: 融合“爆发幅度”、“主力驱动”、“执行效率”、“攻击紧迫性”四维证据，
+                    旨在识别由主力主导的、高效的、具备真实攻击意图的看涨量能爆发。
+        - 输出: [0, 1] 的单极性分数，分数越高代表看涨量能爆发的品质越高。
+        """
+        # --- 探针初始化 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        last_date_str = df.index[-1].strftime('%Y-%m-%d')
+        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
+        # --- 1. 获取四维度原始数据 ---
+        volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_calculate_volume_burst_quality")
+        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_volume_burst_quality")
+        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_calculate_volume_burst_quality").replace(0, 1e-9)
+        efficiency_raw = self._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name="_calculate_volume_burst_quality")
+        urgency_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_calculate_volume_burst_quality")
+        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_volume_burst_quality")
+        # --- 2. 计算各维度得分 ---
+        # 维度一：爆发幅度
+        magnitude_score = get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=tf_weights)
+        # 维度二：主力驱动 (只考虑主力净流入的情况)
+        flow_ratio = (main_force_flow / amount).clip(lower=0)
+        driver_score = get_adaptive_mtf_normalized_score(flow_ratio, df.index, ascending=True, tf_weights=tf_weights)
+        # 维度三：执行效率
+        efficiency_score = get_adaptive_mtf_normalized_score(efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 维度四：攻击紧迫性
+        urgency_score = get_adaptive_mtf_normalized_score(urgency_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # --- 3. 非线性合成与情景过滤 ---
+        # 仅在上涨日计算该信号
+        is_rising = (pct_change > 0).astype(float)
+        # 使用几何平均值融合四维度证据
+        volume_burst_quality = (
+            (magnitude_score * driver_score * efficiency_score * urgency_score).pow(1/4) * is_rising
+        ).fillna(0.0)
+        # --- 探针监测 ---
+        if is_debug_day:
+            print(f"      [行为探针] _calculate_volume_burst_quality @ {last_date_str}")
+            print(f"        - 原始值: 量比={volume_ratio.iloc[-1]:.2f}, 主力流={main_force_flow.iloc[-1]:.2f}, 效率={efficiency_raw.iloc[-1]:.2f}, 紧迫性={urgency_raw.iloc[-1]:.2f}")
+            print(f"        - 归一化分: 幅度={magnitude_score.iloc[-1]:.4f}, 驱动={driver_score.iloc[-1]:.4f}, 效率={efficiency_score.iloc[-1]:.4f}, 紧迫性={urgency_score.iloc[-1]:.4f}")
+            print(f"        - 最终爆发品质分: {volume_burst_quality.iloc[-1]:.4f} (上涨日: {is_rising.iloc[-1]})")
+        return volume_burst_quality.clip(0, 1).astype(np.float32)
 
+    def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
+        """
+        【V1.0 · 多维证据链版】计算下跌吸筹强度信号 (SCORE_BEHAVIOR_ABSORPTION_STRENGTH)。
+        - 核心逻辑: 构建一个融合“微观行为”、“资金流”、“筹码意图”的多维证据链模型，
+                    对“下跌吸筹”这一关键行为进行交叉验证，确保信号的可靠性。
+        - 证据链: 1. 微观承接强度; 2. 隐蔽吸筹信号; 3. 逢低吸筹力度; 4. 主力资金确认。
+        - 输出: [0, 1] 的单极性分数，分数越高代表下跌吸筹的证据越确凿。
+        """
+        # --- 探针初始化 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        last_date_str = df.index[-1].strftime('%Y-%m-%d')
+        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
+        # --- 1. 获取各维度原始数据 ---
+        micro_evidence_raw = self._get_safe_series(df, 'absorption_strength_index_D', 0.0, method_name="_calculate_absorption_strength")
+        chip_evidence_raw = self._get_safe_series(df, 'covert_accumulation_signal_D', 0.0, method_name="_calculate_absorption_strength")
+        flow_evidence_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_calculate_absorption_strength")
+        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_absorption_strength")
+        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_calculate_absorption_strength").replace(0, 1e-9)
+        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_absorption_strength")
+        # --- 2. 计算各维度得分 ---
+        micro_score = get_adaptive_mtf_normalized_score(micro_evidence_raw, df.index, ascending=True, tf_weights=tf_weights)
+        chip_score = get_adaptive_mtf_normalized_score(chip_evidence_raw, df.index, ascending=True, tf_weights=tf_weights)
+        flow_score = get_adaptive_mtf_normalized_score(flow_evidence_raw, df.index, ascending=True, tf_weights=tf_weights)
+        main_force_confirm_score = get_adaptive_mtf_normalized_score((main_force_flow / amount).clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
+        # --- 3. 非线性合成与情景过滤 ---
+        # 仅在下跌或平盘日计算
+        is_falling_or_flat = (pct_change <= 0.005).astype(float)
+        absorption_strength = (
+            (micro_score * chip_score * flow_score * main_force_confirm_score).pow(1/4) * is_falling_or_flat
+        ).fillna(0.0)
+        # --- 探针监测 ---
+        if is_debug_day:
+            print(f"      [行为探针] _calculate_absorption_strength @ {last_date_str}")
+            print(f"        - 原始值: 微观={micro_evidence_raw.iloc[-1]:.2f}, 筹码={chip_evidence_raw.iloc[-1]:.2f}, 资金={flow_evidence_raw.iloc[-1]:.2f}, 主力流={main_force_flow.iloc[-1]:.2f}")
+            print(f"        - 归一化分: 微观={micro_score.iloc[-1]:.4f}, 筹码={chip_score.iloc[-1]:.4f}, 资金={flow_score.iloc[-1]:.4f}, 主力确认={main_force_confirm_score.iloc[-1]:.4f}")
+            print(f"        - 最终吸筹强度分: {absorption_strength.iloc[-1]:.4f} (下跌或平盘日: {is_falling_or_flat.iloc[-1]})")
+        return absorption_strength.clip(0, 1).astype(np.float32)
 
 
 

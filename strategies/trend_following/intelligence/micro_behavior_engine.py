@@ -53,25 +53,32 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.5 · 纯粹原子版】微观行为诊断引擎总指挥
-        - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
-        - 核心职责: 只输出微观行为领域的原子公理信号和微观背离信号。
-        - 移除信号: SCORE_MICRO_BEHAVIOR_BULLISH_RESONANCE, SCORE_MICRO_BEHAVIOR_BEARISH_RESONANCE, BIPOLAR_MICRO_BEHAVIOR_DOMAIN_HEALTH, SCORE_MICRO_BEHAVIOR_BOTTOM_REVERSAL, SCORE_MICRO_BEHAVIOR_TOP_REVERSAL。
+        【V3.0 · 诡道三策版】微观行为诊断引擎总指挥
+        - 核心升级: 废弃旧的“伪装、试探、效率”三大公理，引入全新的“诡道三策”：
+                    1. 隐秘行动 (Stealth Ops): 直接捕捉主力“明修栈道，暗度陈仓”的吸筹行为。
+                    2. 震慑突袭 (Shock & Awe): 捕捉主力利用瞬间暴力行为测试或清洗市场的战术。
+                    3. 成本控制 (Cost Control): 评估主力引导市场预期和防守自身成本区的能力。
+        - 核心保留: 保留了有价值的“微观背离”公理。
         """
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 微观行为引擎在配置中被禁用，跳过分析。")
             return {}
         all_states = {}
-        norm_window = get_param_value(p_conf.get('norm_window'), 55)
-        axiom_deception = self._diagnose_axiom_deception(df, norm_window)
-        axiom_probe = self._diagnose_axiom_probe(df, norm_window)
-        axiom_efficiency = self._diagnose_axiom_efficiency(df, norm_window)
-        axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
+        # [修改代码行] 借用行为层的MTF权重配置
+        p_behavior_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_behavior_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # --- 调用全新的“诡道三策”和保留的“背离”公理 ---
+        strategy_stealth_ops = self._diagnose_strategy_stealth_ops(df, default_weights)
+        strategy_shock_and_awe = self._diagnose_strategy_shock_and_awe(df, default_weights)
+        strategy_cost_control = self._diagnose_strategy_cost_control(df, default_weights)
+        axiom_divergence = self._diagnose_axiom_divergence(df, 55) # norm_window 保持旧值
+        # --- [修改代码块] 更新输出的信号名称 ---
+        all_states['SCORE_MICRO_STRATEGY_STEALTH_OPS'] = strategy_stealth_ops
+        all_states['SCORE_MICRO_STRATEGY_SHOCK_AND_AWE'] = strategy_shock_and_awe
+        all_states['SCORE_MICRO_STRATEGY_COST_CONTROL'] = strategy_cost_control
         all_states['SCORE_MICRO_AXIOM_DIVERGENCE'] = axiom_divergence
-        all_states['SCORE_MICRO_AXIOM_DECEPTION'] = axiom_deception
-        all_states['SCORE_MICRO_AXIOM_PROBE'] = axiom_probe
-        all_states['SCORE_MICRO_AXIOM_EFFICIENCY'] = axiom_efficiency
         # 引入微观行为层面的看涨/看跌背离信号
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_MICRO_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
@@ -80,107 +87,136 @@ class MicroBehaviorEngine:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.3 · 信号校验增强版】微观行为公理四：诊断“微观背离”
-        - 核心修复: 将依赖信号 'active_buy_amount_D' 和 'active_sell_amount_D' 修正为实际存在的
-                      'active_buying_support_D' 和 'active_selling_pressure_D'。
-        - 核心逻辑: 诊断价格行为与微观订单流（如主动买卖盘）之间的背离。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将 `price_trend` 和 `order_flow_trend` 的归一化方式改为多时间维度自适应归一化。
+        【V2.0 · 意图趋势背离版】微观行为公理四：诊断“微观背离”
+        - 核心升级: 计算范式从“价格结果 vs 资金流量”升级为“价格趋势 vs 微观意图趋势”的深度博弈。
+        - 价格端: 使用5日EMA斜率替代单日涨跌幅，聚焦趋势。
+        - 意图端: 使用更高阶的 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT 的趋势，直指主力最原始的意图变化。
+        - 新逻辑: 微观背离分 = (微观意图趋势 - 价格趋势)，旨在捕捉价格表象与主力真实微观动作的背道而驰。
         """
-        required_signals = ['pct_change_D', 'active_buying_support_D', 'active_selling_pressure_D']
+        # [修改代码行] 更新依赖信号
+        required_signals = ['SLOPE_5_EMA_5_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
             return pd.Series(0.0, index=df.index)
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
+        # --- 探针初始化 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        last_date_str = df.index[-1].strftime('%Y-%m-%d')
+        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        price_trend = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_axiom_divergence"), df.index, default_weights)
-        active_buy_support = self._get_safe_series(df, 'active_buying_support_D', method_name="_diagnose_axiom_divergence")
-        active_sell_pressure = self._get_safe_series(df, 'active_selling_pressure_D', method_name="_diagnose_axiom_divergence")
-        active_buy_sell_diff = active_buy_support - active_sell_pressure
-        order_flow_trend = get_adaptive_mtf_normalized_bipolar_score(active_buy_sell_diff.diff(1), df.index, default_weights)
-        divergence_score = (order_flow_trend - price_trend).clip(-1, 1)
+        # --- 价格趋势 ---
+        price_trend_raw = self._get_safe_series(df, 'SLOPE_5_EMA_5_D', method_name="_diagnose_axiom_divergence")
+        price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df.index, default_weights)
+        # --- 微观意图趋势 ---
+        # 从原子状态库中获取更高阶的微观意图信号
+        micro_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0)
+        micro_intent_trend_raw = micro_intent.ewm(span=5, adjust=False).mean().diff().fillna(0)
+        micro_intent_trend = get_adaptive_mtf_normalized_bipolar_score(micro_intent_trend_raw, df.index, default_weights)
+        # --- 计算背离 ---
+        divergence_score = (micro_intent_trend - price_trend).clip(-1, 1)
+        # --- 探针监测 ---
+        if is_debug_day:
+            print(f"      [微观行为探针] _diagnose_axiom_divergence @ {last_date_str}")
+            print(f"        - 价格趋势 (归一化): {price_trend.iloc[-1]:.4f} (原始斜率: {price_trend_raw.iloc[-1]:.2f})")
+            print(f"        - 微观意图趋势 (归一化): {micro_intent_trend.iloc[-1]:.4f} (原始意图: {micro_intent.iloc[-1]:.2f})")
+            print(f"        - 最终微观背离分: {divergence_score.iloc[-1]:.4f}")
         return divergence_score.astype(np.float32)
 
-    def _diagnose_axiom_deception(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+    def _diagnose_strategy_stealth_ops(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.5 · 信号校验增强版】微观行为公理一：诊断“伪装与欺骗”
-        - 核心修复: 使用 _get_safe_series 方法安全获取所有依赖信号，防止因信号缺失而崩溃。
-        - 逻辑修正: 明确使用 'SLOPE_5_winner_concentration_90pct_D' 作为筹码集中度变化的证据。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将 `deception_score` 的归一化方式改为多时间维度自适应归一化。
+        【V1.0 · 隐秘行动版】微观诡道一策：诊断“隐秘行动”
+        - 核心逻辑: 替代旧的“伪装”公理，直接捕捉主力“明修栈道，暗度陈仓”的操盘战术。
+        - 战术证据: 1. 大单压制强度 (明修栈道); 2. 隐蔽吸筹强度 (暗度陈仓)。
+        - 输出: [0, 1] 的单极性分数，分数越高代表主力当天执行隐蔽吸筹战术的证据越确凿。
         """
-        required_signals = [
-            'main_force_net_flow_calibrated_D', 'SLOPE_5_winner_concentration_90pct_D',
-            'SLOPE_5_observed_large_order_size_avg_D', 'SLOPE_5_NMFNF_D'
-        ]
-        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_deception"):
-            return pd.Series(0.0, index=df.index)
-        main_force_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', method_name="_diagnose_axiom_deception")
-        main_force_outflow = -main_force_flow_raw.clip(upper=0)
-        chip_concentration_slope = self._get_safe_series(df, 'SLOPE_5_winner_concentration_90pct_D', method_name="_diagnose_axiom_deception")
-        chip_concentration_increase = chip_concentration_slope.clip(lower=0)
-        flow_vs_chip_deception = main_force_outflow * chip_concentration_increase
-        granularity_slope = self._get_safe_series(df, 'SLOPE_5_observed_large_order_size_avg_D', method_name="_diagnose_axiom_deception")
-        granularity_decrease = -granularity_slope.clip(upper=0)
-        control_leverage_slope = self._get_safe_series(df, 'SLOPE_5_NMFNF_D', method_name="_diagnose_axiom_deception")
-        control_increase = control_leverage_slope.clip(lower=0)
-        granularity_vs_control_deception = granularity_decrease * control_increase
-        raw_deception_score = flow_vs_chip_deception + granularity_vs_control_deception
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
-        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        deception_score = get_adaptive_mtf_normalized_bipolar_score(raw_deception_score, df.index, default_weights)
-        return deception_score.astype(np.float32)
+        # --- 探针初始化 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        last_date_str = df.index[-1].strftime('%Y-%m-%d')
+        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
+        # --- 获取战术证据 ---
+        pressure_raw = self._get_safe_series(df, 'large_order_pressure_D', 0.0, method_name="_diagnose_strategy_stealth_ops")
+        accumulation_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_diagnose_strategy_stealth_ops")
+        # --- 归一化证据 ---
+        pressure_score = get_adaptive_mtf_normalized_score(pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
+        accumulation_score = get_adaptive_mtf_normalized_score(accumulation_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # --- 战术合成 ---
+        stealth_ops_score = (pressure_score * accumulation_score).pow(0.5).fillna(0.0)
+        # --- 探针监测 ---
+        if is_debug_day:
+            print(f"      [微观行为探针] _diagnose_strategy_stealth_ops @ {last_date_str}")
+            print(f"        - 原始值: 大单压制={pressure_raw.iloc[-1]:.2f}, 隐蔽吸筹={accumulation_raw.iloc[-1]:.2f}")
+            print(f"        - 归一化分: 压制分={pressure_score.iloc[-1]:.4f}, 吸筹分={accumulation_score.iloc[-1]:.4f}")
+            print(f"        - 最终隐秘行动分: {stealth_ops_score.iloc[-1]:.4f}")
+        return stealth_ops_score.astype(np.float32)
 
-    def _diagnose_axiom_probe(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+    def _diagnose_strategy_shock_and_awe(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.3 · 信号校验增强版】微观行为公理二：诊断“试探与确认”
-        - 核心修复: 使用 _get_safe_series 方法安全获取所有依赖信号。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将 `probe_score` 的归一化方式改为多时间维度自适应归一化。
+        【V1.0 · 震慑突袭版】微观诡道二策：诊断“震慑突袭”
+        - 核心逻辑: 替代旧的“试探”公理，捕捉主力利用资金优势进行瞬间暴力行为以测试或清洗市场的战术。
+        - 战术证据: 1. 价格冲击强度 (暴力行为); 2. 盘口清扫率 (决心); 3. 收盘偏离度 (意图)。
+        - 输出: [-1, 1] 的双极性分数。正分代表看涨的震慑(如下探回升)，负分代表看跌的震慑(如上冲回落)。
         """
-        required_signals = ['high_D', 'low_D', 'open_D', 'close_D', 'main_force_net_flow_calibrated_D']
-        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_probe"):
-            return pd.Series(0.0, index=df.index)
-        total_range = (self._get_safe_series(df, 'high_D', method_name="_diagnose_axiom_probe") - self._get_safe_series(df, 'low_D', method_name="_diagnose_axiom_probe")).replace(0, np.nan)
-        upper_shadow_ratio = ((self._get_safe_series(df, 'high_D', method_name="_diagnose_axiom_probe") - np.maximum(self._get_safe_series(df, 'open_D', method_name="_diagnose_axiom_probe"), self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_probe"))) / total_range).fillna(0)
-        main_force_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', method_name="_diagnose_axiom_probe")
-        main_force_not_outflow = main_force_flow_raw.clip(lower=0)
-        probe_up_score = upper_shadow_ratio * main_force_not_outflow
-        lower_shadow_ratio = ((np.minimum(self._get_safe_series(df, 'open_D', method_name="_diagnose_axiom_probe"), self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_probe")) - self._get_safe_series(df, 'low_D', method_name="_diagnose_axiom_probe")) / total_range).fillna(0)
-        main_force_inflow = main_force_flow_raw.clip(lower=0)
-        probe_down_score = lower_shadow_ratio * main_force_inflow
-        breakout_high = (self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_probe") > self._get_safe_series(df, 'high_D', method_name="_diagnose_axiom_probe").rolling(21).max().shift(1)).astype(float)
-        main_force_not_inflow = -main_force_flow_raw.clip(upper=0)
-        fake_breakout_score = breakout_high * main_force_not_inflow
-        raw_probe_score = probe_up_score + probe_down_score - fake_breakout_score
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
-        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        probe_score = get_adaptive_mtf_normalized_bipolar_score(raw_probe_score, df.index, default_weights)
-        return probe_score.astype(np.float32)
+        # --- 探针初始化 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        last_date_str = df.index[-1].strftime('%Y-%m-%d')
+        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
+        # --- 获取战术证据 ---
+        impact_raw = self._get_safe_series(df, 'ofi_price_impact_factor_D', 0.0, method_name="_diagnose_strategy_shock_and_awe")
+        clearing_raw = self._get_safe_series(df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_strategy_shock_and_awe")
+        outcome_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_diagnose_strategy_shock_and_awe")
+        # --- 归一化证据 ---
+        # 冲击强度，绝对值越大越强
+        impact_score = get_adaptive_mtf_normalized_score(impact_raw.abs(), df.index, ascending=True, tf_weights=tf_weights)
+        # 清扫率，越高越强
+        clearing_score = get_adaptive_mtf_normalized_score(clearing_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 结果意图，双极性
+        outcome_intent = (outcome_raw * 2 - 1).clip(-1, 1)
+        # --- 战术合成 ---
+        # 震慑强度 = (冲击强度 * 清扫率)^0.5
+        shock_magnitude = (impact_score * clearing_score).pow(0.5).fillna(0.0)
+        # 最终得分 = 震慑强度 * 结果意图
+        shock_and_awe_score = (shock_magnitude * outcome_intent).clip(-1, 1)
+        # --- 探针监测 ---
+        if is_debug_day:
+            print(f"      [微观行为探针] _diagnose_strategy_shock_and_awe @ {last_date_str}")
+            print(f"        - 原始值: 冲击因子={impact_raw.iloc[-1]:.2f}, 清扫率={clearing_raw.iloc[-1]:.2f}, 收盘偏离={outcome_raw.iloc[-1]:.2f}")
+            print(f"        - 归一化与计算: 震慑强度={shock_magnitude.iloc[-1]:.4f}, 结果意图={outcome_intent.iloc[-1]:.4f}")
+            print(f"        - 最终震慑突袭分: {shock_and_awe_score.iloc[-1]:.4f}")
+        return shock_and_awe_score.astype(np.float32)
 
-    def _diagnose_axiom_efficiency(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+    def _diagnose_strategy_cost_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.3 · 信号校验增强版】微观行为公理三：诊断“成本与效率”
-        - 核心修复: 使用 _get_safe_series 方法安全获取所有依赖信号。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将 `efficiency_score` 的归一化方式改为多时间维度自适应归一化。
+        【V1.0 · 成本控制版】微观诡道三策：诊断“成本控制”
+        - 核心逻辑: 替代旧的“效率”公理，评估主力管理自身成本和引导市场预期的能力。
+        - 战术证据: 1. 主力VWAP引导力 (引导市场预期的能力); 2. 主力成本区攻防意图 (防守自身成本的意愿)。
+        - 输出: [-1, 1] 的双极性分数。正分代表主力控盘能力强，成本管理优秀；负分则相反。
         """
-        required_signals = ['amount_D', 'pct_change_D']
-        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_efficiency"):
-            return pd.Series(0.0, index=df.index)
-        amount_series = self._get_safe_series(df, 'amount_D', method_name="_diagnose_axiom_efficiency")
-        amount_ma = amount_series.rolling(norm_window).mean().replace(0, np.nan)
-        amount_input = (amount_series / amount_ma).fillna(1.0)
-        pct_change_series = self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_axiom_efficiency")
-        price_output = pct_change_series.abs() * 100
-        k = 0.1
-        raw_efficiency_score = np.sign(pct_change_series) * (price_output - k * amount_input)
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
-        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        efficiency_score = get_adaptive_mtf_normalized_bipolar_score(raw_efficiency_score, df.index, default_weights)
-        return efficiency_score.astype(np.float32)
+        # --- 探针初始化 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        last_date_str = df.index[-1].strftime('%Y-%m-%d')
+        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
+        # --- 获取战术证据 ---
+        guidance_raw = self._get_safe_series(df, 'main_force_vwap_guidance_D', 0.0, method_name="_diagnose_strategy_cost_control")
+        defense_raw = self._get_safe_series(df, 'mf_cost_zone_defense_intent_D', 0.0, method_name="_diagnose_strategy_cost_control")
+        # --- 归一化证据 (两者本身就是类双极性信号，可直接归一化) ---
+        guidance_score = get_adaptive_mtf_normalized_bipolar_score(guidance_raw, df.index, tf_weights)
+        defense_score = get_adaptive_mtf_normalized_bipolar_score(defense_raw, df.index, tf_weights)
+        # --- 战术合成 ---
+        cost_control_score = (guidance_score * 0.6 + defense_score * 0.4).clip(-1, 1)
+        # --- 探针监测 ---
+        if is_debug_day:
+            print(f"      [微观行为探针] _diagnose_strategy_cost_control @ {last_date_str}")
+            print(f"        - 原始值: VWAP引导力={guidance_raw.iloc[-1]:.2f}, 成本区防守={defense_raw.iloc[-1]:.2f}")
+            print(f"        - 归一化分: 引导分={guidance_score.iloc[-1]:.4f}, 防守分={defense_score.iloc[-1]:.4f}")
+            print(f"        - 最终成本控制分: {cost_control_score.iloc[-1]:.4f}")
+        return cost_control_score.astype(np.float32)
 
 
