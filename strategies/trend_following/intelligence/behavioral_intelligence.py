@@ -485,10 +485,10 @@ class BehavioralIntelligence:
 
     def _diagnose_stagnation_evidence(self, df: pd.DataFrame, upward_efficiency: pd.Series) -> pd.Series:
         """
-        【V3.5 · 空头伏击逻辑重构版】诊断内部行为信号：滞涨证据
-        - 核心重构: 修复了“空头伏击”逻辑中因收盘强势而完全忽略盘中派发风险的逻辑盲点。
-                      新逻辑将盘中派发压力（过程）与收盘溃败程度（结果）进行加权融合，
-                      使得诊断更加全面和符合博弈实际。
+        【V3.6 · 或门逻辑版】诊断内部行为信号：滞涨证据
+        - 核心重构: 修复了“微观冲突”计算中“与门”逻辑过于严苛的盲点。
+                      新逻辑采用 `max(多头衰竭, 空头伏击)`，将“与”门改为“或”门，
+                      确保只要任何一方出现极端风险，信号就能被准确捕捉。
         - ... (其他注释保持不变)
         """
         df_index = df.index
@@ -517,11 +517,11 @@ class BehavioralIntelligence:
         distribution_score = get_adaptive_mtf_normalized_score(distribution_pressure, df_index, ascending=True, tf_weights=default_weights)
         active_selling_score = get_adaptive_mtf_normalized_score(active_selling, df_index, ascending=True, tf_weights=default_weights)
         bullish_failure_score = (1 - closing_deviation).clip(0, 1)
-        # [修改代码块] 重构空头伏击的合成逻辑
-        process_evidence = (distribution_score * active_selling_score).pow(0.5) # 过程证据：盘中抛压
-        outcome_evidence = bullish_failure_score # 结果证据：收盘溃败
-        bearish_ambush = (process_evidence * 0.7 + outcome_evidence * 0.3) # 加权融合
-        micro_conflict_score = (bullish_exhaustion * bearish_ambush).pow(0.5)
+        process_evidence = (distribution_score * active_selling_score).pow(0.5)
+        outcome_evidence = bullish_failure_score
+        bearish_ambush = (process_evidence * 0.7 + outcome_evidence * 0.3)
+        # [修改代码行] 将“与门”逻辑改为“或门”逻辑
+        micro_conflict_score = np.maximum(bullish_exhaustion, bearish_ambush)
         # 3. 构建“宏观风险放大器”
         profit_pressure_score = get_adaptive_mtf_normalized_score(winner_rate, df_index, ascending=True, tf_weights=default_weights)
         vitality_decay_raw = trend_vitality.diff(3).clip(upper=0).abs()
@@ -543,7 +543,7 @@ class BehavioralIntelligence:
                 print(f"      [行为探针] _diagnose_stagnation_evidence @ {probe_date_str}")
                 print(f"        - 多头衰竭分: {bullish_exhaustion.loc[probe_ts]:.4f}")
                 print(f"        - 空头伏击分 (新): {bearish_ambush.loc[probe_ts]:.4f} (过程分={process_evidence.loc[probe_ts]:.2f}, 结果分={outcome_evidence.loc[probe_ts]:.2f})")
-                print(f"        - 微观冲突分: {micro_conflict_score.loc[probe_ts]:.4f}")
+                print(f"        - 微观冲突分(或门): {micro_conflict_score.loc[probe_ts]:.4f}")
                 print(f"        - 宏观放大器: {macro_amplifier.loc[probe_ts]:.4f}")
                 print(f"        - 最终滞涨证据分: {final_stagnation_evidence.loc[probe_ts]:.4f}")
         return final_stagnation_evidence.astype(np.float32)
@@ -730,10 +730,11 @@ class BehavioralIntelligence:
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.2 · 探针逻辑重构版】计算高品质看涨量能爆发信号 (SCORE_BEHAVIOR_VOLUME_BURST)。
-        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
-                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
-                      完美适配历史区间调试。
+        【V1.3 · 驱动守门员版】计算高品质看涨量能爆发信号。
+        - 核心重构: 修复了负向资金流仍能产生高分的逻辑漏洞。将融合公式重构为
+                      `品质分 = 驱动分 * (幅度分 * 效率分 * 紧迫性分)^(1/3)`，
+                      赋予了“主力驱动”作为“守门员”的绝对权力，确保信号的纯粹性。
+        - ... (其他注释保持不变)
         """
         # --- 1. 获取四维度原始数据 ---
         volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_calculate_volume_burst_quality")
@@ -748,11 +749,11 @@ class BehavioralIntelligence:
         driver_score = get_adaptive_mtf_normalized_score(flow_ratio, df.index, ascending=True, tf_weights=tf_weights)
         efficiency_score = get_adaptive_mtf_normalized_score(efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
         urgency_score = get_adaptive_mtf_normalized_score(urgency_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # --- 3. 非线性合成与情景过滤 ---
+        # --- 3. [修改代码块] 非线性合成与情景过滤 ---
         is_rising = (pct_change > 0).astype(float)
-        volume_burst_quality = (
-            (magnitude_score * driver_score * efficiency_score * urgency_score).pow(1/4) * is_rising
-        ).fillna(0.0)
+        # 驱动分作为守门员，与其他三者的融合结果相乘
+        other_factors_quality = (magnitude_score * efficiency_score * urgency_score).pow(1/3)
+        volume_burst_quality = (driver_score * other_factors_quality * is_rising).fillna(0.0)
         # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -764,7 +765,7 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _calculate_volume_burst_quality @ {probe_date_str}")
                 print(f"        - 原始值: 量比={volume_ratio.loc[probe_ts]:.2f}, 主力流={main_force_flow.loc[probe_ts]:.2f}, 效率={efficiency_raw.loc[probe_ts]:.2f}, 紧迫性={urgency_raw.loc[probe_ts]:.2f}")
-                print(f"        - 归一化分: 幅度={magnitude_score.loc[probe_ts]:.4f}, 驱动={driver_score.loc[probe_ts]:.4f}, 效率={efficiency_score.loc[probe_ts]:.4f}, 紧迫性={urgency_score.loc[probe_ts]:.4f}")
+                print(f"        - 归一化分: 幅度={magnitude_score.loc[probe_ts]:.4f}, 驱动(守门员)={driver_score.loc[probe_ts]:.4f}, 效率={efficiency_score.loc[probe_ts]:.4f}, 紧迫性={urgency_score.loc[probe_ts]:.4f}")
                 print(f"        - 最终爆发品质分: {volume_burst_quality.loc[probe_ts]:.4f} (上涨日: {is_rising.loc[probe_ts]})")
         return volume_burst_quality.clip(0, 1).astype(np.float32)
 
