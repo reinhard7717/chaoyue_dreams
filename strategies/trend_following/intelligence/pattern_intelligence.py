@@ -199,11 +199,7 @@ class PatternIntelligence:
             cond_A_volume = day_A_volume > day_A_max_vol_ma * 1.2
             cond_A_mf_flow = day_A_main_force_flow > 0
             cond_A_chip_conc = day_A_chip_conc_slope > 0
-            if is_relevant_a_day_for_probe:
-                print(f"       - A日条件: pct_change > 1% ({cond_A_pct_change}), volume > 1.2*MA_VOL ({cond_A_volume}), MF_Flow > 0 ({cond_A_mf_flow}), Chip_Conc_Slope > 0 ({cond_A_chip_conc})")
             if not (cond_A_pct_change and cond_A_volume and cond_A_mf_flow and cond_A_chip_conc):
-                if is_relevant_a_day_for_probe:
-                    print(f"       - A日条件: 放量上涨突破不满足，跳过此A日。")
                 continue
             for j in range(day_A_idx + 1, min(day_A_idx + n_pullback_max + 2, len(df_index))):
                 day_B_idx = j

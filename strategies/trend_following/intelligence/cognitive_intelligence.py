@@ -349,7 +349,6 @@ class CognitiveIntelligence:
     def _establish_prior_beliefs(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V1.8 · 数据帧上下文修复版】建立先验信念
-        - 核心升级: 将 `SCORE_CHIP_STRUCTURAL_CONSENSUS` 信号融入到“趋势先验概率” (COGNITIVE_PRIOR_TREND_PROB) 的计算中。
         - 【V1.8 修复】接收并使用 df 参数，确保索引上下文统一。
         """
         # 增加信号校验
@@ -372,7 +371,6 @@ class CognitiveIntelligence:
         trend_structure_score = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_STRUCTURE_SCORE', 0.0)
         fund_flow_trend = self._get_fused_score(df, 'FUSION_BIPOLAR_FUND_FLOW_TREND', 0.0)
         chip_trend = self._get_fused_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0)
-        # 将 SCORE_CHIP_STRUCTURAL_CONSENSUS 替换为 SCORE_CHIP_COHERENT_DRIVE
         structural_consensus = self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0)
         market_regime_prob = (market_regime + 1) / 2
         trend_quality_prob = (trend_quality + 1) / 2
@@ -451,7 +449,6 @@ class CognitiveIntelligence:
     def _deduce_chasing_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V3.8 · 调用修复版】贝叶斯推演：“主力拉升抢筹”剧本
-        - 核心升级: 引入 `SCORE_CHIP_STRUCTURAL_CONSENSUS` 作为强有力证据。
         - 【V3.8 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
         """
         print("    -- [剧本推演] 主力拉升抢筹 (动态证据)...")
@@ -473,7 +470,6 @@ class CognitiveIntelligence:
         process_evidence = (rally_intent_evidence * conviction_evidence).pow(0.5)
         # 将 SCORE_CHIP_AXIOM_CONCENTRATION 替换为 SCORE_CHIP_STRATEGIC_POSTURE
         chip_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(lower=0))
-        # 将 SCORE_CHIP_STRUCTURAL_CONSENSUS 替换为 SCORE_CHIP_COHERENT_DRIVE
         structural_consensus_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0))
         pullback_confirmation_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_PATTERN_PULLBACK_CONFIRMATION', 0.0))
         duofangpao_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_PATTERN_DUOFANGPAO', 0.0))
@@ -545,7 +541,6 @@ class CognitiveIntelligence:
         sector_sync = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_STOCK_SECTOR_SYNC', 0.0).clip(lower=0))
         relative_strength = self._forge_dynamic_evidence(df, normalize_score(self._get_atomic_score(df, 'industry_strength_rank_D', 0.5), df.index, 55))
         bazhan_mode = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'IS_BAZHAN_D', 0.0).astype(float))
-        # 将 SCORE_CHIP_STRUCTURAL_CONSENSUS 替换为 SCORE_CHIP_COHERENT_DRIVE
         structural_consensus_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0))
         evidence_scores = np.stack([
             capital_confrontation.values, breakout_quality.values, sector_sync.values,
@@ -1139,7 +1134,6 @@ class CognitiveIntelligence:
         stealth_accumulation_process = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_STEALTH_ACCUMULATION', 0.0))
         cost_advantage_trend_positive = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_COST_ADVANTAGE_TREND', 0.0).clip(lower=0))
         loser_capitulation_process = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_LOSER_CAPITULATION', 0.0))
-        # 将 SCORE_CHIP_STRUCTURAL_CONSENSUS 替换为 SCORE_CHIP_COHERENT_DRIVE
         structural_consensus_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0))
         evidence_scores = np.stack([
             downward_momentum_decay.values, price_accel_positive.values, behavior_bottom_reversal.values,
@@ -1172,7 +1166,7 @@ class CognitiveIntelligence:
         selling_pressure_decreasing = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SLOPE_5_active_selling_pressure_D', 0.0).clip(upper=0).abs())
         dip_absorption_power = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'dip_absorption_power_D', 0.0))
         buying_support_increasing = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SLOPE_5_active_buying_support_D', 0.0).clip(lower=0))
-        structural_consensus_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRUCTURAL_CONSENSUS', 0.0))
+        structural_consensus_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0))
         evidence_scores = np.stack([
             price_weak_or_stable_context.values, volume_atrophy_context.values, counterparty_exhaustion.values,
             selling_pressure_decreasing.values, dip_absorption_power.values, buying_support_increasing.values,
