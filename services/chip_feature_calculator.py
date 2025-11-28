@@ -571,11 +571,21 @@ class ChipFeatureCalculator:
 
     def _calculate_chip_structure_health_score(self, context: dict) -> dict:
         """
-        【V4.2 · 生产就绪版】
-        - 核心优化: 移除所有调试探针，代码恢复生产状态。
+        【V5.0 · 绝对真理版】
+        - 核心修复: 彻底解决了“健康分悖论”。针对 `main_force_cost_advantage` 等具有绝对意义的
+                     指标，废弃了原有的、只能反映相对历史排名的 `percentileofscore` 算法。
+        - 核心升级: 引入了基于 `tanh` 函数的“绝对真理”归一化方法 `_get_absolute_normalized_score`。
+                     该方法能将指标的绝对值（如成本优势为负则必然是坏事）正确地映射为分数，
+                     根除了因“相对主义”评估标准而产生的逻辑谬误。
         """
         results = {'chip_health_score': np.nan} # 默认值为NaN
-        # 1. 定义三维模型的组件和权重(方向)
+        # [新增代码块] 定义需要进行“绝对评估”的指标及其参数
+        ABSOLUTE_METRICS_CONFIG = {
+            'main_force_cost_advantage': {'neutral': 0.0, 'sensitivity': 0.1, 'asc': True},
+            'dominant_peak_profit_margin': {'neutral': 0.0, 'sensitivity': 0.05, 'asc': True},
+            'active_winner_profit_margin': {'neutral': 5.0, 'sensitivity': 0.1, 'asc': True},
+            'winner_conviction_index': {'neutral': 10.0, 'sensitivity': 0.02, 'asc': True},
+        }
         model_dimensions = {
             'structural_soundness': {
                 'components': {
@@ -598,33 +608,40 @@ class ChipFeatureCalculator:
                 }
             }
         }
-        # 2. 获取历史数据
         historical_df = context.get('historical_components')
         if historical_df is None or historical_df.empty:
             logger.debug(f"[{context.get('stock_code')}] [{context.get('trade_date')}] 健康分计算跳过，因缺少历史数据进行动态归一化。")
             return results
         dimension_scores = {}
-        # 3. 逐个维度计算得分
         for dim_name, dim_data in model_dimensions.items():
             component_scores = []
             for metric, weight in dim_data['components'].items():
                 current_value = context.get(metric)
-                if current_value is None or not pd.notna(current_value) or metric not in historical_df.columns:
-                    continue # 如果当前值或历史数据缺失，则安全跳过此子指标
-                historical_series = historical_df[metric].dropna()
-                if historical_series.empty:
+                if current_value is None or not pd.notna(current_value):
                     continue
-                percentile = percentileofscore(historical_series, current_value, kind='rank') / 100.0
-                normalized_score = percentile if weight > 0 else (1.0 - percentile)
+                # [修改代码块] 引入绝对真理评估分支
+                if metric in ABSOLUTE_METRICS_CONFIG:
+                    config = ABSOLUTE_METRICS_CONFIG[metric]
+                    normalized_score = self._get_absolute_normalized_score(
+                        value=current_value,
+                        neutral_point=config['neutral'],
+                        sensitivity=config['sensitivity'],
+                        ascending=config['asc']
+                    )
+                else: # 保留对其他指标的相对评估
+                    if metric not in historical_df.columns:
+                        continue
+                    historical_series = historical_df[metric].dropna()
+                    if historical_series.empty:
+                        continue
+                    percentile = percentileofscore(historical_series, current_value, kind='rank') / 100.0
+                    normalized_score = percentile if weight > 0 else (1.0 - percentile)
                 component_scores.append(normalized_score)
-            # 增强鲁棒性：如果维度有有效分数，则计算其平均分；否则赋予中性分
             if component_scores:
                 dimension_scores[dim_name] = np.mean(component_scores)
             else:
-                # 如果该维度的所有子指标都无法计算，则给予一个中性的0.5分（50分位），避免整个健康分失败
                 dimension_scores[dim_name] = 0.5
                 logger.debug(f"[{context.get('stock_code')}] [{context.get('trade_date')}] 健康分维度 '{dim_name}' 无法计算，赋予中性分0.5。")
-        # 4. 使用几何平均整合各维度得分
         if not dimension_scores:
             return results
         final_score_raw = 1.0
@@ -1149,6 +1166,23 @@ class ChipFeatureCalculator:
             results['suppressive_accumulation_intensity'] = 0.0
         return results
 
+    def _get_absolute_normalized_score(self, value: float, neutral_point: float, sensitivity: float, ascending: bool = True) -> float:
+        """
+        【V1.0 · 绝对真理映射】对具有绝对意义的指标进行非线性归一化。
+        - 核心思想: 使用 tanh 函数，将指标值根据其偏离“中性点”的程度，映射到 [0, 1] 区间。
+                     解决了 percentileofscore 只能进行相对历史排名，无法体现指标绝对好坏的问题。
+        - value: 当前指标值。
+        - neutral_point: 指标的中性值 (例如，成本优势为0)。
+        - sensitivity: 敏感度，调节 tanh 函数的陡峭程度。
+        - ascending: 指标是否值越大越好。
+        """
+        if not pd.notna(value):
+            return 0.5 # 对于缺失值，返回中性分
+        deviation = value - neutral_point
+        tanh_score = np.tanh(deviation * sensitivity) # 映射到 [-1, 1]
+        if not ascending:
+            tanh_score = -tanh_score
+        return (tanh_score + 1) / 2 # 映射到 [0, 1]
 
 
 
