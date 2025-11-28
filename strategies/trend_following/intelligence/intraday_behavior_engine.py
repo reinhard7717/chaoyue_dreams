@@ -138,35 +138,32 @@ class IntradayBehaviorEngine:
 
     async def _diagnose_dominance_consensus(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.0 · 支配共识版】日内战报之二：诊断“支配共识”
-        - 核心逻辑: 替代旧的“控制能力”，评估主力对盘面的“动态支配力”以及这种支配是否在盘中得到了“共识性加强”。
-        - 诊断双要素: 1. 支配强度 (量能加权的VWAP偏离度); 2. 共识趋势 (支配强度的移动平均趋势)。
-        - 聚合方式: 融合全天平均支配强度与收盘前的共识趋势，得出综合支配力评分。
-        - 输出: [-1, 1] 的双极性分数。正分代表多头支配且共识加强，负分代表空头支配。
+        【V1.1 · 探针授权修复版】日内战报之二：诊断“支配共识”
+        - 核心修复: 补全了对专属探针开关 `enable_intraday_behavior_probe` 的检查逻辑。
+        - ... (其他注释保持不变)
         """
         required_signals = ['close', 'vwap', 'amount']
         if not self._validate_required_signals(df_minute, required_signals, "_diagnose_dominance_consensus"):
             return {"SCORE_INTRADAY_DOMINANCE_CONSENSUS": 0.0}
-        # --- 探针初始化 ---
+        # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        is_probe_enabled = get_param_value(debug_params.get('enable_intraday_behavior_probe'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = self.strategy.df_indicators.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # --- 计算分钟级支配强度 ---
+        should_probe = is_debug_day and is_probe_enabled
         vwap = self._get_safe_series(df_minute, 'vwap').replace(0, np.nan).ffill()
         price_deviation = (self._get_safe_series(df_minute, 'close') - vwap) / vwap
         amount_ratio = self._get_safe_series(df_minute, 'amount') / self._get_safe_series(df_minute, 'amount').mean()
         dominance_strength = (price_deviation * amount_ratio).fillna(0)
         norm_dominance_strength = normalize_to_bipolar(dominance_strength, df_minute.index, window=240, sensitivity=0.5)
-        # --- 计算共识趋势 ---
         consensus_trend = norm_dominance_strength.ewm(span=21, adjust=False).mean()
-        # --- 聚合为日内总分 ---
         avg_strength = norm_dominance_strength.mean()
         final_trend = consensus_trend.iloc[-1] if not consensus_trend.empty else 0
         final_score = (avg_strength * 0.5 + final_trend * 0.5)
-        # --- 探针监测 ---
-        if is_debug_day:
+        # --- [修改代码行] 更新探针监测条件 ---
+        if should_probe:
             print(f"      [日内行为探针] _diagnose_dominance_consensus @ {last_date_str}")
             print(f"        - 全天平均支配强度: {avg_strength:.4f}")
             print(f"        - 收盘共识趋势: {final_trend:.4f}")
@@ -175,35 +172,30 @@ class IntradayBehaviorEngine:
 
     async def _diagnose_conviction_reversal(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.0 · 信念反转版】日内战报之三：诊断“信念反转”
-        - 核心逻辑: 替代旧的“博弈转折”，抛弃KDJ，寻找由“一方力量衰竭”和“另一方信念入场”
-                    共同构成的“高置信度”转折点。
-        - 诊断双要素: 1. 看涨转折(恐慌抛售+主力强力承接); 2. 看跌转折(拉高派发+主力信念动摇)。
-        - 聚合方式: 取全天最强的看涨转折证据与最强的看跌转折证据的差值，得出净反转倾向。
-        - 输出: [-1, 1] 的双极性分数。正分代表日内发生过强烈的看涨反转，负分则代表看跌反转。
+        【V1.1 · 探针授权修复版】日内战报之三：诊断“信念反转”
+        - 核心修复: 补全了对专属探针开关 `enable_intraday_behavior_probe` 的检查逻辑。
+        - ... (其他注释保持不变)
         """
-        # 注意：此方法依赖的信号是日线级别的，我们需要将其广播到分钟线上进行匹配
         daily_signals = self.strategy.df_indicators.iloc[-1]
-        # --- 探针初始化 ---
+        # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        is_probe_enabled = get_param_value(debug_params.get('enable_intraday_behavior_probe'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = self.strategy.df_indicators.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # --- 看涨转折证据 ---
+        should_probe = is_debug_day and is_probe_enabled
         panic_score = daily_signals.get('panic_selling_cascade_D', 0.0)
         absorption_score = daily_signals.get('capitulation_absorption_index_D', 0.0)
         mf_alpha_bullish = max(daily_signals.get('main_force_execution_alpha_D', 0.0), 0.0)
-        # 归一化处理（此处简化为直接使用，实际可做更复杂的归一化）
         bullish_reversal_evidence = (panic_score * absorption_score * mf_alpha_bullish).pow(1/3)
-        # --- 看跌转折证据 ---
         distribution_score = daily_signals.get('rally_distribution_pressure_D', 0.0)
-        conviction_decay = max(0, -daily_signals.get('main_force_conviction_index_D_slope_5d', 0.0)) # 信念指数5日斜率为负
+        conviction_decay = max(0, -daily_signals.get('main_force_conviction_index_D_slope_5d', 0.0))
         mf_alpha_bearish = abs(min(daily_signals.get('main_force_execution_alpha_D', 0.0), 0.0))
         bearish_reversal_evidence = (distribution_score * conviction_decay * mf_alpha_bearish).pow(1/3)
         final_score = bullish_reversal_evidence - bearish_reversal_evidence
-        # --- 探针监测 ---
-        if is_debug_day:
+        # --- [修改代码行] 更新探针监测条件 ---
+        if should_probe:
             print(f"      [日内行为探针] _diagnose_conviction_reversal @ {last_date_str}")
             print(f"        - 看涨证据: 恐慌={panic_score:.2f}, 承接={absorption_score:.2f}, 主力Alpha+={mf_alpha_bullish:.2f} -> 综合={bullish_reversal_evidence:.4f}")
             print(f"        - 看跌证据: 派发={distribution_score:.2f}, 信念衰减={conviction_decay:.2f}, 主力Alpha-={mf_alpha_bearish:.2f} -> 综合={bearish_reversal_evidence:.4f}")

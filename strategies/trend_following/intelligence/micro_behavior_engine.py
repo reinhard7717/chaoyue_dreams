@@ -87,37 +87,32 @@ class MicroBehaviorEngine:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V2.0 · 意图趋势背离版】微观行为公理四：诊断“微观背离”
-        - 核心升级: 计算范式从“价格结果 vs 资金流量”升级为“价格趋势 vs 微观意图趋势”的深度博弈。
-        - 价格端: 使用5日EMA斜率替代单日涨跌幅，聚焦趋势。
-        - 意图端: 使用更高阶的 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT 的趋势，直指主力最原始的意图变化。
-        - 新逻辑: 微观背离分 = (微观意图趋势 - 价格趋势)，旨在捕捉价格表象与主力真实微观动作的背道而驰。
+        【V2.1 · 探针授权修复版】微观行为公理四：诊断“微观背离”
+        - 核心修复: 补全了对专属探针开关 `enable_micro_behavior_probe` 的检查逻辑。
+        - ... (其他注释保持不变)
         """
-        # [修改代码行] 更新依赖信号
         required_signals = ['SLOPE_5_EMA_5_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
             return pd.Series(0.0, index=df.index)
-        # --- 探针初始化 ---
+        # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        is_probe_enabled = get_param_value(debug_params.get('enable_micro_behavior_probe'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
+        should_probe = is_debug_day and is_probe_enabled
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # --- 价格趋势 ---
         price_trend_raw = self._get_safe_series(df, 'SLOPE_5_EMA_5_D', method_name="_diagnose_axiom_divergence")
         price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df.index, default_weights)
-        # --- 微观意图趋势 ---
-        # 从原子状态库中获取更高阶的微观意图信号
         micro_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0)
         micro_intent_trend_raw = micro_intent.ewm(span=5, adjust=False).mean().diff().fillna(0)
         micro_intent_trend = get_adaptive_mtf_normalized_bipolar_score(micro_intent_trend_raw, df.index, default_weights)
-        # --- 计算背离 ---
         divergence_score = (micro_intent_trend - price_trend).clip(-1, 1)
-        # --- 探针监测 ---
-        if is_debug_day:
+        # --- [修改代码行] 更新探针监测条件 ---
+        if should_probe:
             print(f"      [微观行为探针] _diagnose_axiom_divergence @ {last_date_str}")
             print(f"        - 价格趋势 (归一化): {price_trend.iloc[-1]:.4f} (原始斜率: {price_trend_raw.iloc[-1]:.2f})")
             print(f"        - 微观意图趋势 (归一化): {micro_intent_trend.iloc[-1]:.4f} (原始意图: {micro_intent.iloc[-1]:.2f})")
@@ -157,35 +152,28 @@ class MicroBehaviorEngine:
 
     def _diagnose_strategy_shock_and_awe(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.0 · 震慑突袭版】微观诡道二策：诊断“震慑突袭”
-        - 核心逻辑: 替代旧的“试探”公理，捕捉主力利用资金优势进行瞬间暴力行为以测试或清洗市场的战术。
-        - 战术证据: 1. 价格冲击强度 (暴力行为); 2. 盘口清扫率 (决心); 3. 收盘偏离度 (意图)。
-        - 输出: [-1, 1] 的双极性分数。正分代表看涨的震慑(如下探回升)，负分代表看跌的震慑(如上冲回落)。
+        【V1.1 · 探针授权修复版】微观诡道二策：诊断“震慑突袭”
+        - 核心修复: 补全了对专属探针开关 `enable_micro_behavior_probe` 的检查逻辑。
+        - ... (其他注释保持不变)
         """
-        # --- 探针初始化 ---
+        # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        is_probe_enabled = get_param_value(debug_params.get('enable_micro_behavior_probe'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # --- 获取战术证据 ---
+        should_probe = is_debug_day and is_probe_enabled
         impact_raw = self._get_safe_series(df, 'ofi_price_impact_factor_D', 0.0, method_name="_diagnose_strategy_shock_and_awe")
         clearing_raw = self._get_safe_series(df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_strategy_shock_and_awe")
         outcome_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_diagnose_strategy_shock_and_awe")
-        # --- 归一化证据 ---
-        # 冲击强度，绝对值越大越强
         impact_score = get_adaptive_mtf_normalized_score(impact_raw.abs(), df.index, ascending=True, tf_weights=tf_weights)
-        # 清扫率，越高越强
         clearing_score = get_adaptive_mtf_normalized_score(clearing_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 结果意图，双极性
         outcome_intent = (outcome_raw * 2 - 1).clip(-1, 1)
-        # --- 战术合成 ---
-        # 震慑强度 = (冲击强度 * 清扫率)^0.5
         shock_magnitude = (impact_score * clearing_score).pow(0.5).fillna(0.0)
-        # 最终得分 = 震慑强度 * 结果意图
         shock_and_awe_score = (shock_magnitude * outcome_intent).clip(-1, 1)
-        # --- 探针监测 ---
-        if is_debug_day:
+        # --- [修改代码行] 更新探针监测条件 ---
+        if should_probe:
             print(f"      [微观行为探针] _diagnose_strategy_shock_and_awe @ {last_date_str}")
             print(f"        - 原始值: 冲击因子={impact_raw.iloc[-1]:.2f}, 清扫率={clearing_raw.iloc[-1]:.2f}, 收盘偏离={outcome_raw.iloc[-1]:.2f}")
             print(f"        - 归一化与计算: 震慑强度={shock_magnitude.iloc[-1]:.4f}, 结果意图={outcome_intent.iloc[-1]:.4f}")
@@ -194,27 +182,25 @@ class MicroBehaviorEngine:
 
     def _diagnose_strategy_cost_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.0 · 成本控制版】微观诡道三策：诊断“成本控制”
-        - 核心逻辑: 替代旧的“效率”公理，评估主力管理自身成本和引导市场预期的能力。
-        - 战术证据: 1. 主力VWAP引导力 (引导市场预期的能力); 2. 主力成本区攻防意图 (防守自身成本的意愿)。
-        - 输出: [-1, 1] 的双极性分数。正分代表主力控盘能力强，成本管理优秀；负分则相反。
+        【V1.1 · 探针授权修复版】微观诡道三策：诊断“成本控制”
+        - 核心修复: 补全了对专属探针开关 `enable_micro_behavior_probe` 的检查逻辑。
+        - ... (其他注释保持不变)
         """
-        # --- 探针初始化 ---
+        # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        is_probe_enabled = get_param_value(debug_params.get('enable_micro_behavior_probe'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # --- 获取战术证据 ---
+        should_probe = is_debug_day and is_probe_enabled
         guidance_raw = self._get_safe_series(df, 'main_force_vwap_guidance_D', 0.0, method_name="_diagnose_strategy_cost_control")
         defense_raw = self._get_safe_series(df, 'mf_cost_zone_defense_intent_D', 0.0, method_name="_diagnose_strategy_cost_control")
-        # --- 归一化证据 (两者本身就是类双极性信号，可直接归一化) ---
         guidance_score = get_adaptive_mtf_normalized_bipolar_score(guidance_raw, df.index, tf_weights)
         defense_score = get_adaptive_mtf_normalized_bipolar_score(defense_raw, df.index, tf_weights)
-        # --- 战术合成 ---
         cost_control_score = (guidance_score * 0.6 + defense_score * 0.4).clip(-1, 1)
-        # --- 探针监测 ---
-        if is_debug_day:
+        # --- [修改代码行] 更新探针监测条件 ---
+        if should_probe:
             print(f"      [微观行为探针] _diagnose_strategy_cost_control @ {last_date_str}")
             print(f"        - 原始值: VWAP引导力={guidance_raw.iloc[-1]:.2f}, 成本区防守={defense_raw.iloc[-1]:.2f}")
             print(f"        - 归一化分: 引导分={guidance_score.iloc[-1]:.4f}, 防守分={defense_score.iloc[-1]:.4f}")

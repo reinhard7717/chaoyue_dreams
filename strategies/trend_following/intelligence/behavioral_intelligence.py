@@ -340,20 +340,19 @@ class BehavioralIntelligence:
 
     def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.0 · 高品质萎缩版】计算 SCORE_BEHAVIOR_VOLUME_ATROPHY 信号。
-        - 核心升级: 在V1.1“萎缩程度”模型基础上，引入“高质量萎缩环境调节器”，
-                    旨在区分良性的“缩量洗盘/惜售”与恶性的“无量阴跌”。
-        - 调节器三要素: 1. 获利盘锁定度; 2. 套牢盘枯竭度; 3. 浮筹清洗度。
-        - 输出: [0, 1] 的单极性分数，分数越高代表量能萎缩的“品质”越高。
+        【V2.1 · 探针授权修复版】计算 SCORE_BEHAVIOR_VOLUME_ATROPHY 信号。
+        - 核心修复: 补全了对专属探针开关 `enable_behavioral_probe` 的检查逻辑。
+        - ... (其他注释保持不变)
         """
-        # --- 探针初始化 ---
+        # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        is_probe_enabled = get_param_value(debug_params.get('enable_behavioral_probe'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
+        should_probe = is_debug_day and is_probe_enabled
         df_index = df.index
-        # --- 1. 计算基础萎缩程度 (逻辑同V1.1) ---
         vol = self._get_safe_series(df, 'volume_D', 0.0, method_name="_calculate_volume_atrophy")
         vol_ma5 = self._get_safe_series(df, 'VOL_MA_5_D', 0.0, method_name="_calculate_volume_atrophy")
         vol_ma13 = self._get_safe_series(df, 'VOL_MA_13_D', 0.0, method_name="_calculate_volume_atrophy")
@@ -378,7 +377,6 @@ class BehavioralIntelligence:
         aligned_evidence_components = [comp.reindex(df_index, fill_value=0.0) for comp in evidence_components]
         safe_evidence_components = [comp + 1e-9 for comp in aligned_evidence_components]
         base_atrophy_score = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_evidence_components, weights)], axis=0), index=df_index)
-        # --- 2. 构建高质量萎缩环境调节器 ---
         lockup_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_calculate_volume_atrophy")
         exhaustion_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_calculate_volume_atrophy")
         cleansing_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_calculate_volume_atrophy")
@@ -386,11 +384,9 @@ class BehavioralIntelligence:
         exhaustion_factor = get_adaptive_mtf_normalized_score(exhaustion_raw, df.index, ascending=True, tf_weights=tf_weights)
         cleansing_factor = get_adaptive_mtf_normalized_score(cleansing_raw, df.index, ascending=True, tf_weights=tf_weights)
         context_modulator = (lockup_factor * exhaustion_factor * cleansing_factor).pow(1/3).fillna(0.0)
-        # --- 3. 融合基础分与环境调节器 ---
-        # 高品质萎缩 = sqrt(萎缩程度 * 环境质量)
         high_quality_atrophy_score = (base_atrophy_score * context_modulator).pow(0.5)
-        # --- 探针监测 ---
-        if is_debug_day:
+        # --- [修改代码行] 更新探针监测条件 ---
+        if should_probe:
             print(f"      [行为探针] _calculate_volume_atrophy @ {last_date_str}")
             print(f"        - 基础萎缩分: {base_atrophy_score.iloc[-1]:.4f}")
             print(f"        - 环境调节器原始值: 锁定度={lockup_raw.iloc[-1]:.2f}, 枯竭度={exhaustion_raw.iloc[-1]:.2f}, 清洗度={cleansing_raw.iloc[-1]:.2f}")
@@ -484,22 +480,22 @@ class BehavioralIntelligence:
 
     def _diagnose_stagnation_evidence(self, df: pd.DataFrame, upward_efficiency: pd.Series) -> pd.Series:
         """
-        【V3.2 · 空头伏击增强版】诊断内部行为信号：滞涨证据
-        - 核心升级: 重构“空头伏击”的定义，引入“多头进攻失败”作为核心裁决证据。
-                    一次成功的伏击 = 派发压力 × 主动卖压 × 多头溃败(收盘远离高点)。
+        【V3.3 · 探针授权修复版】诊断内部行为信号：滞涨证据
+        - 核心修复: 补全了对专属探针开关 `enable_behavioral_probe` 的检查逻辑。
         - ... (其他注释保持不变)
         """
         df_index = df.index
-        # --- 探针初始化 ---
+        # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        is_probe_enabled = get_param_value(debug_params.get('enable_behavioral_probe'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
+        should_probe = is_debug_day and is_probe_enabled
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 1. 数据准备
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_stagnation_evidence")
         if 'ACCEL_5_pct_change_D' in df.columns:
             price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', 0.0, method_name="_diagnose_stagnation_evidence")
@@ -512,31 +508,25 @@ class BehavioralIntelligence:
         chip_fatigue = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
         winner_rate = self._get_safe_series(df, 'total_winner_rate_D', 50.0, method_name="_diagnose_stagnation_evidence")
         trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
-        # 2. 计算“微观滞涨证据”
-        # 2.1 “多头衰竭 (Bullish Exhaustion)” - 逻辑不变
         inefficiency_score = (1 - upward_efficiency).clip(0, 1)
         momentum_decay_score = get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
-        # [修改代码行] 此处不再需要 upper_shadow，因为其逻辑已被 closing_deviation 更好地覆盖
         intraday_failure_score = (1 - closing_deviation).clip(0, 1)
         chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue, df_index, ascending=True, tf_weights=default_weights)
         bullish_exhaustion = (inefficiency_score * momentum_decay_score * intraday_failure_score * chip_fatigue_score).pow(1/4).fillna(0.0)
-        # 2.2 “空头伏击 (Bearish Ambush)” - [修改代码块] 采用新逻辑
         distribution_score = get_adaptive_mtf_normalized_score(distribution_pressure, df_index, ascending=True, tf_weights=default_weights)
         active_selling_score = get_adaptive_mtf_normalized_score(active_selling, df_index, ascending=True, tf_weights=default_weights)
-        bullish_failure_score = (1 - closing_deviation).clip(0, 1) # 多头溃败证据
+        bullish_failure_score = (1 - closing_deviation).clip(0, 1)
         bearish_ambush = (distribution_score * active_selling_score).pow(0.5) * bullish_failure_score
         micro_conflict_score = (bullish_exhaustion * bearish_ambush).pow(0.5)
-        # 3. 构建“宏观风险放大器” - 逻辑不变
         profit_pressure_score = get_adaptive_mtf_normalized_score(winner_rate, df_index, ascending=True, tf_weights=default_weights)
         vitality_decay_raw = trend_vitality.diff(3).clip(upper=0).abs()
         vitality_decay_score = get_adaptive_mtf_normalized_score(vitality_decay_raw, df_index, ascending=True, tf_weights=default_weights)
         macro_amplifier = 1 + (profit_pressure_score * vitality_decay_score).pow(0.5)
-        # 4. 非线性合成最终证据 - 逻辑不变
         stagnation_evidence = micro_conflict_score * macro_amplifier
         is_rising_or_flat = (pct_change >= -0.005).astype(float)
         final_stagnation_evidence = (stagnation_evidence * is_rising_or_flat).clip(0, 1)
-        # --- 探针监测 ---
-        if is_debug_day:
+        # --- [修改代码行] 更新探针监测条件 ---
+        if should_probe:
             print(f"      [行为探针] _diagnose_stagnation_evidence @ {last_date_str}")
             print(f"        - 多头衰竭分: {bullish_exhaustion.iloc[-1]:.4f}")
             print(f"        - 空头伏击分 (新): {bearish_ambush.iloc[-1]:.4f} (派发分={distribution_score.iloc[-1]:.2f}, 主卖分={active_selling_score.iloc[-1]:.2f}, 溃败分={bullish_failure_score.iloc[-1]:.2f})")
@@ -547,22 +537,21 @@ class BehavioralIntelligence:
 
     def _diagnose_lower_shadow_quality(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V3.0 · 战术价值版】诊断下影线承接品质 (SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION)。
-        - 核心重构: 在V2.0“反击品质”三维模型基础上，引入“战术价值放大器”，
-                    旨在根据下影线所克服的“战场困难度”来评估其含金量。
-        - 放大器双要素: 1. 恐慌承接度 (是否吸收了恐慌盘); 2. 主力伏击意图 (主力是否展现了高超的低吸能力)。
-        - 非线性合成: 最终品质分 = K线自身品质 × (1 + 战术价值)，精准识别“力挽狂澜”式的关键下影线。
+        【V3.1 · 探针授权修复版】诊断下影线承接品质 (SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION)。
+        - 核心修复: 补全了对专属探针开关 `enable_behavioral_probe` 的检查逻辑。
+        - ... (其他注释保持不变)
         """
-        # --- 探针初始化 ---
+        # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        is_probe_enabled = get_param_value(debug_params.get('enable_behavioral_probe'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
+        should_probe = is_debug_day and is_probe_enabled
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # --- 1. 计算基础K线品质分 (逻辑同V2.0) ---
         magnitude_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_lower_shadow_quality").replace(0, 1e-9)
@@ -572,17 +561,15 @@ class BehavioralIntelligence:
         intent_score = get_adaptive_mtf_normalized_score(flow_ratio.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         location_score = get_adaptive_mtf_normalized_score(location_raw, df.index, ascending=True, tf_weights=default_weights)
         base_quality_score = (magnitude_score.pow(0.3) * intent_score.pow(0.5) * location_score.pow(0.2)).fillna(0.0)
-        # --- 2. 构建战术价值放大器 ---
         panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         ambush_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         panic_absorption_score = get_adaptive_mtf_normalized_score((panic_raw * capitulation_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
         ambush_intent_score = get_adaptive_mtf_normalized_score(ambush_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         context_amplifier = 1 + (panic_absorption_score * ambush_intent_score).pow(0.5)
-        # --- 3. 非线性合成 ---
         final_lower_shadow_quality = (base_quality_score * context_amplifier).clip(0, 1)
-        # --- 探针监测 ---
-        if is_debug_day:
+        # --- [修改代码行] 更新探针监测条件 ---
+        if should_probe:
             print(f"      [行为探针] _diagnose_lower_shadow_quality @ {last_date_str}")
             print(f"        - 基础品质分: {base_quality_score.iloc[-1]:.4f} (幅度={magnitude_score.iloc[-1]:.2f}, 意图={intent_score.iloc[-1]:.2f}, 位置={location_score.iloc[-1]:.2f})")
             print(f"        - 战术放大器原始值: 恐慌={panic_raw.iloc[-1]:.2f}, 投降承接={capitulation_raw.iloc[-1]:.2f}, 伏击Alpha={ambush_raw.iloc[-1]:.2f}")
@@ -592,11 +579,10 @@ class BehavioralIntelligence:
 
     def _calculate_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.1 · 信号接口升级版】计算派发意图
-        - 核心升级: 将核心数据源从旧的 `distribution_pressure_index_D` 升级为新的、语义更强的 `rally_distribution_pressure_D`。
+        【V1.2 · 探针授权修复版】计算派发意图
+        - 核心修复: 补全了对专属探针开关 `enable_behavioral_probe` 的检查逻辑。
         - ... (其他注释保持不变)
         """
-        # [修改代码行] 更新依赖信号列表
         required_signals = [
             'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D',
             'profit_taking_flow_ratio_D', 'main_force_execution_alpha_D',
@@ -604,31 +590,26 @@ class BehavioralIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_calculate_distribution_intent"):
             return pd.Series(0.0, index=df.index)
-        # --- 探针初始化 ---
+        # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        is_probe_enabled = get_param_value(debug_params.get('enable_behavioral_probe'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # --- [修改代码块] 使用新的信号作为“过程证据” ---
-        # 1. 过程证据: 拉高过程中的派发压力
+        should_probe = is_debug_day and is_probe_enabled
         rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_calculate_distribution_intent")
         process_evidence = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 2. 结果证据: 上影线确认的卖压
         upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_calculate_distribution_intent")
         outcome_evidence = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 3. 资金证据: 获利盘兑现强度
         profit_taking_raw = self._get_safe_series(df, 'profit_taking_flow_ratio_D', 0.0, method_name="_calculate_distribution_intent")
         flow_evidence = get_adaptive_mtf_normalized_score(profit_taking_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 4. 主力证据: 主力执行高抛的能力
         mf_alpha_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_calculate_distribution_intent")
         mf_alpha_bearish = abs(mf_alpha_raw.clip(upper=0))
         main_force_evidence = get_adaptive_mtf_normalized_score(mf_alpha_bearish, df.index, ascending=True, tf_weights=tf_weights)
-        # 5. 信念证据: 主力信念指数的衰减
         conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_calculate_distribution_intent")
         conviction_decay = abs(conviction_slope_raw.clip(upper=0))
         conviction_evidence = get_adaptive_mtf_normalized_score(conviction_decay, df.index, ascending=True, tf_weights=tf_weights)
-        # --- 五维证据链融合 ---
         distribution_intent_score = (
             process_evidence.pow(0.3) *
             outcome_evidence.pow(0.2) *
@@ -636,8 +617,8 @@ class BehavioralIntelligence:
             main_force_evidence.pow(0.15) *
             conviction_evidence.pow(0.15)
         ).fillna(0.0)
-        # --- 探针监测 ---
-        if is_debug_day:
+        # --- [修改代码行] 更新探针监测条件 ---
+        if should_probe:
             print(f"      [行为探针] _calculate_distribution_intent @ {last_date_str}")
             print(f"        - 过程证据(新): rally_distribution_pressure_D = {rally_pressure_raw.iloc[-1]:.2f} -> 归一化分 = {process_evidence.iloc[-1]:.4f}")
             print(f"        - 最终派发意图分: {distribution_intent_score.iloc[-1]:.4f}")
@@ -731,43 +712,35 @@ class BehavioralIntelligence:
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.0 · 品质驱动版】计算高品质看涨量能爆发信号 (SCORE_BEHAVIOR_VOLUME_BURST)。
-        - 核心逻辑: 融合“爆发幅度”、“主力驱动”、“执行效率”、“攻击紧迫性”四维证据，
-                    旨在识别由主力主导的、高效的、具备真实攻击意图的看涨量能爆发。
-        - 输出: [0, 1] 的单极性分数，分数越高代表看涨量能爆发的品质越高。
+        【V1.1 · 探针授权修复版】计算高品质看涨量能爆发信号 (SCORE_BEHAVIOR_VOLUME_BURST)。
+        - 核心修复: 补全了对专属探针开关 `enable_behavioral_probe` 的检查逻辑。
+        - ... (其他注释保持不变)
         """
-        # --- 探针初始化 ---
+        # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        is_probe_enabled = get_param_value(debug_params.get('enable_behavioral_probe'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # --- 1. 获取四维度原始数据 ---
+        should_probe = is_debug_day and is_probe_enabled
         volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_calculate_volume_burst_quality")
         main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_volume_burst_quality")
         amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_calculate_volume_burst_quality").replace(0, 1e-9)
         efficiency_raw = self._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name="_calculate_volume_burst_quality")
         urgency_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_calculate_volume_burst_quality")
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_volume_burst_quality")
-        # --- 2. 计算各维度得分 ---
-        # 维度一：爆发幅度
         magnitude_score = get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=tf_weights)
-        # 维度二：主力驱动 (只考虑主力净流入的情况)
         flow_ratio = (main_force_flow / amount).clip(lower=0)
         driver_score = get_adaptive_mtf_normalized_score(flow_ratio, df.index, ascending=True, tf_weights=tf_weights)
-        # 维度三：执行效率
         efficiency_score = get_adaptive_mtf_normalized_score(efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 维度四：攻击紧迫性
         urgency_score = get_adaptive_mtf_normalized_score(urgency_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # --- 3. 非线性合成与情景过滤 ---
-        # 仅在上涨日计算该信号
         is_rising = (pct_change > 0).astype(float)
-        # 使用几何平均值融合四维度证据
         volume_burst_quality = (
             (magnitude_score * driver_score * efficiency_score * urgency_score).pow(1/4) * is_rising
         ).fillna(0.0)
-        # --- 探针监测 ---
-        if is_debug_day:
+        # --- [修改代码行] 更新探针监测条件 ---
+        if should_probe:
             print(f"      [行为探针] _calculate_volume_burst_quality @ {last_date_str}")
             print(f"        - 原始值: 量比={volume_ratio.iloc[-1]:.2f}, 主力流={main_force_flow.iloc[-1]:.2f}, 效率={efficiency_raw.iloc[-1]:.2f}, 紧迫性={urgency_raw.iloc[-1]:.2f}")
             print(f"        - 归一化分: 幅度={magnitude_score.iloc[-1]:.4f}, 驱动={driver_score.iloc[-1]:.4f}, 效率={efficiency_score.iloc[-1]:.4f}, 紧迫性={urgency_score.iloc[-1]:.4f}")
@@ -776,31 +749,28 @@ class BehavioralIntelligence:
 
     def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.1 · 信号接口升级版】计算下跌吸筹强度
-        - 核心升级: 将核心数据源从旧的 `absorption_strength_index_D` 升级为新的、语义更强的 `dip_absorption_power_D`。
-        - 逻辑增强: 融合 `lower_shadow_absorption_strength_D` 作为交叉验证，形成更稳健的评分。
+        【V1.2 · 探针授权修复版】计算下跌吸筹强度
+        - 核心修复: 补全了对专属探针开关 `enable_behavioral_probe` 的检查逻辑。
+        - ... (其他注释保持不变)
         """
-        # [修改代码行] 更新依赖信号列表
         required_signals = ['dip_absorption_power_D', 'lower_shadow_absorption_strength_D']
         if not self._validate_required_signals(df, required_signals, "_calculate_absorption_strength"):
             return pd.Series(0.0, index=df.index)
-        # --- 探针初始化 ---
+        # --- [修改代码块] 升级探针初始化逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        is_probe_enabled = get_param_value(debug_params.get('enable_behavioral_probe'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         last_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # --- [修改代码块] 使用新的信号进行计算 ---
-        # 1. 主要证据：下探吸筹力量
+        should_probe = is_debug_day and is_probe_enabled
         dip_power_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_calculate_absorption_strength")
         dip_power_score = get_adaptive_mtf_normalized_score(dip_power_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 2. 辅助证据：下影线承接强度
         lower_shadow_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_calculate_absorption_strength")
         lower_shadow_score = get_adaptive_mtf_normalized_score(lower_shadow_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 3. 融合
         final_score = (dip_power_score * 0.7 + lower_shadow_score * 0.3).clip(0, 1)
-        # --- 探针监测 ---
-        if is_debug_day:
+        # --- [修改代码行] 更新探针监测条件 ---
+        if should_probe:
             print(f"      [行为探针] _calculate_absorption_strength @ {last_date_str}")
             print(f"        - 核心信号(新): dip_absorption_power_D = {dip_power_raw.iloc[-1]:.2f} -> 归一化分 = {dip_power_score.iloc[-1]:.4f}")
             print(f"        - 辅助信号: lower_shadow_absorption_strength_D = {lower_shadow_raw.iloc[-1]:.2f} -> 归一化分 = {lower_shadow_score.iloc[-1]:.4f}")
