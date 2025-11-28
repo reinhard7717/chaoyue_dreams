@@ -485,17 +485,12 @@ class BehavioralIntelligence:
 
     def _diagnose_stagnation_evidence(self, df: pd.DataFrame, upward_efficiency: pd.Series) -> pd.Series:
         """
-        【V3.3 · 探针模型统一版】诊断内部行为信号：滞涨证据
-        - 核心升级: 探针激活逻辑与全局标准模型统一，仅依赖 `enabled` 和 `probe_dates`。
-        - ... (其他注释保持不变)
+        【V3.4 · 探针逻辑重构版】诊断内部行为信号：滞涨证据
+        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
+                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
+                      完美适配历史区间调试。
         """
         df_index = df.index
-        # --- [修改代码块] 统一探针初始化逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        last_date_str = df.index[-1].strftime('%Y-%m-%d')
-        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -532,28 +527,30 @@ class BehavioralIntelligence:
         stagnation_evidence = micro_conflict_score * macro_amplifier
         is_rising_or_flat = (pct_change >= -0.005).astype(float)
         final_stagnation_evidence = (stagnation_evidence * is_rising_or_flat).clip(0, 1)
-        # --- 探针监测 ---
-        if is_debug_day:
-            print(f"      [行为探针] _diagnose_stagnation_evidence @ {last_date_str}")
-            print(f"        - 多头衰竭分: {bullish_exhaustion.iloc[-1]:.4f}")
-            print(f"        - 空头伏击分 (新): {bearish_ambush.iloc[-1]:.4f} (派发分={distribution_score.iloc[-1]:.2f}, 主卖分={active_selling_score.iloc[-1]:.2f}, 溃败分={bullish_failure_score.iloc[-1]:.2f})")
-            print(f"        - 微观冲突分: {micro_conflict_score.iloc[-1]:.4f}")
-            print(f"        - 宏观放大器: {macro_amplifier.iloc[-1]:.4f}")
-            print(f"        - 最终滞涨证据分: {final_stagnation_evidence.iloc[-1]:.4f}")
+        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _diagnose_stagnation_evidence @ {probe_date_str}")
+                print(f"        - 多头衰竭分: {bullish_exhaustion.loc[probe_ts]:.4f}")
+                print(f"        - 空头伏击分 (新): {bearish_ambush.loc[probe_ts]:.4f} (派发分={distribution_score.loc[probe_ts]:.2f}, 主卖分={active_selling_score.loc[probe_ts]:.2f}, 溃败分={bullish_failure_score.loc[probe_ts]:.2f})")
+                print(f"        - 微观冲突分: {micro_conflict_score.loc[probe_ts]:.4f}")
+                print(f"        - 宏观放大器: {macro_amplifier.loc[probe_ts]:.4f}")
+                print(f"        - 最终滞涨证据分: {final_stagnation_evidence.loc[probe_ts]:.4f}")
         return final_stagnation_evidence.astype(np.float32)
 
     def _diagnose_lower_shadow_quality(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V3.1 · 探针模型统一版】诊断下影线承接品质 (SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION)。
-        - 核心升级: 探针激活逻辑与全局标准模型统一，仅依赖 `enabled` 和 `probe_dates`。
-        - ... (其他注释保持不变)
+        【V3.2 · 探针逻辑重构版】诊断下影线承接品质 (SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION)。
+        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
+                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
+                      完美适配历史区间调试。
         """
-        # --- [修改代码块] 统一探针初始化逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        last_date_str = df.index[-1].strftime('%Y-%m-%d')
-        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -576,20 +573,28 @@ class BehavioralIntelligence:
         context_amplifier = 1 + (panic_absorption_score * ambush_intent_score).pow(0.5)
         # --- 3. 非线性合成 ---
         final_lower_shadow_quality = (base_quality_score * context_amplifier).clip(0, 1)
-        # --- 探针监测 ---
-        if is_debug_day:
-            print(f"      [行为探针] _diagnose_lower_shadow_quality @ {last_date_str}")
-            print(f"        - 基础品质分: {base_quality_score.iloc[-1]:.4f} (幅度={magnitude_score.iloc[-1]:.2f}, 意图={intent_score.iloc[-1]:.2f}, 位置={location_score.iloc[-1]:.2f})")
-            print(f"        - 战术放大器原始值: 恐慌={panic_raw.iloc[-1]:.2f}, 投降承接={capitulation_raw.iloc[-1]:.2f}, 伏击Alpha={ambush_raw.iloc[-1]:.2f}")
-            print(f"        - 战术放大器因子: 恐慌承接度={panic_absorption_score.iloc[-1]:.4f}, 伏击意图={ambush_intent_score.iloc[-1]:.4f} -> 放大倍数={context_amplifier.iloc[-1]:.4f}")
-            print(f"        - 最终下影线品质分: {final_lower_shadow_quality.iloc[-1]:.4f}")
+        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _diagnose_lower_shadow_quality @ {probe_date_str}")
+                print(f"        - 基础品质分: {base_quality_score.loc[probe_ts]:.4f} (幅度={magnitude_score.loc[probe_ts]:.2f}, 意图={intent_score.loc[probe_ts]:.2f}, 位置={location_score.loc[probe_ts]:.2f})")
+                print(f"        - 战术放大器原始值: 恐慌={panic_raw.loc[probe_ts]:.2f}, 投降承接={capitulation_raw.loc[probe_ts]:.2f}, 伏击Alpha={ambush_raw.loc[probe_ts]:.2f}")
+                print(f"        - 战术放大器因子: 恐慌承接度={panic_absorption_score.loc[probe_ts]:.4f}, 伏击意图={ambush_intent_score.loc[probe_ts]:.4f} -> 放大倍数={context_amplifier.loc[probe_ts]:.4f}")
+                print(f"        - 最终下影线品质分: {final_lower_shadow_quality.loc[probe_ts]:.4f}")
         return final_lower_shadow_quality.astype(np.float32)
 
     def _calculate_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.2 · 探针模型统一版】计算派发意图
-        - 核心升级: 探针激活逻辑与全局标准模型统一，仅依赖 `enabled` 和 `probe_dates`。
-        - ... (其他注释保持不变)
+        【V1.3 · 探针逻辑重构版】计算派发意图
+        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
+                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
+                      完美适配历史区间调试。
         """
         required_signals = [
             'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D',
@@ -598,12 +603,6 @@ class BehavioralIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_calculate_distribution_intent"):
             return pd.Series(0.0, index=df.index)
-        # --- [修改代码块] 统一探针初始化逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        last_date_str = df.index[-1].strftime('%Y-%m-%d')
-        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
         # --- 使用新的信号作为“过程证据” ---
         rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_calculate_distribution_intent")
         process_evidence = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
@@ -625,11 +624,18 @@ class BehavioralIntelligence:
             main_force_evidence.pow(0.15) *
             conviction_evidence.pow(0.15)
         ).fillna(0.0)
-        # --- 探针监测 ---
-        if is_debug_day:
-            print(f"      [行为探针] _calculate_distribution_intent @ {last_date_str}")
-            print(f"        - 过程证据(新): rally_distribution_pressure_D = {rally_pressure_raw.iloc[-1]:.2f} -> 归一化分 = {process_evidence.iloc[-1]:.4f}")
-            print(f"        - 最终派发意图分: {distribution_intent_score.iloc[-1]:.4f}")
+        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _calculate_distribution_intent @ {probe_date_str}")
+                print(f"        - 过程证据(新): rally_distribution_pressure_D = {rally_pressure_raw.loc[probe_ts]:.2f} -> 归一化分 = {process_evidence.loc[probe_ts]:.4f}")
+                print(f"        - 最终派发意图分: {distribution_intent_score.loc[probe_ts]:.4f}")
         return distribution_intent_score.astype(np.float32)
 
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, lower_shadow_quality: pd.Series) -> pd.Series:
@@ -720,16 +726,11 @@ class BehavioralIntelligence:
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.1 · 探针模型统一版】计算高品质看涨量能爆发信号 (SCORE_BEHAVIOR_VOLUME_BURST)。
-        - 核心升级: 探针激活逻辑与全局标准模型统一，仅依赖 `enabled` 和 `probe_dates`。
-        - ... (其他注释保持不变)
+        【V1.2 · 探针逻辑重构版】计算高品质看涨量能爆发信号 (SCORE_BEHAVIOR_VOLUME_BURST)。
+        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
+                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
+                      完美适配历史区间调试。
         """
-        # --- [修改代码块] 统一探针初始化逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        last_date_str = df.index[-1].strftime('%Y-%m-%d')
-        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
         # --- 1. 获取四维度原始数据 ---
         volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_calculate_volume_burst_quality")
         main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_volume_burst_quality")
@@ -748,41 +749,50 @@ class BehavioralIntelligence:
         volume_burst_quality = (
             (magnitude_score * driver_score * efficiency_score * urgency_score).pow(1/4) * is_rising
         ).fillna(0.0)
-        # --- 探针监测 ---
-        if is_debug_day:
-            print(f"      [行为探针] _calculate_volume_burst_quality @ {last_date_str}")
-            print(f"        - 原始值: 量比={volume_ratio.iloc[-1]:.2f}, 主力流={main_force_flow.iloc[-1]:.2f}, 效率={efficiency_raw.iloc[-1]:.2f}, 紧迫性={urgency_raw.iloc[-1]:.2f}")
-            print(f"        - 归一化分: 幅度={magnitude_score.iloc[-1]:.4f}, 驱动={driver_score.iloc[-1]:.4f}, 效率={efficiency_score.iloc[-1]:.4f}, 紧迫性={urgency_score.iloc[-1]:.4f}")
-            print(f"        - 最终爆发品质分: {volume_burst_quality.iloc[-1]:.4f} (上涨日: {is_rising.iloc[-1]})")
+        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _calculate_volume_burst_quality @ {probe_date_str}")
+                print(f"        - 原始值: 量比={volume_ratio.loc[probe_ts]:.2f}, 主力流={main_force_flow.loc[probe_ts]:.2f}, 效率={efficiency_raw.loc[probe_ts]:.2f}, 紧迫性={urgency_raw.loc[probe_ts]:.2f}")
+                print(f"        - 归一化分: 幅度={magnitude_score.loc[probe_ts]:.4f}, 驱动={driver_score.loc[probe_ts]:.4f}, 效率={efficiency_score.loc[probe_ts]:.4f}, 紧迫性={urgency_score.loc[probe_ts]:.4f}")
+                print(f"        - 最终爆发品质分: {volume_burst_quality.loc[probe_ts]:.4f} (上涨日: {is_rising.loc[probe_ts]})")
         return volume_burst_quality.clip(0, 1).astype(np.float32)
 
     def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.2 · 探针模型统一版】计算下跌吸筹强度
-        - 核心升级: 探针激活逻辑与全局标准模型统一，仅依赖 `enabled` 和 `probe_dates`。
-        - ... (其他注释保持不变)
+        【V1.3 · 探针逻辑重构版】计算下跌吸筹强度
+        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
+                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
+                      完美适配历史区间调试。
         """
         required_signals = ['dip_absorption_power_D', 'lower_shadow_absorption_strength_D']
         if not self._validate_required_signals(df, required_signals, "_calculate_absorption_strength"):
             return pd.Series(0.0, index=df.index)
-        # --- [修改代码块] 统一探针初始化逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        last_date_str = df.index[-1].strftime('%Y-%m-%d')
-        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
         # --- 使用新的信号进行计算 ---
         dip_power_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_calculate_absorption_strength")
         dip_power_score = get_adaptive_mtf_normalized_score(dip_power_raw, df.index, ascending=True, tf_weights=tf_weights)
         lower_shadow_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_calculate_absorption_strength")
         lower_shadow_score = get_adaptive_mtf_normalized_score(lower_shadow_raw, df.index, ascending=True, tf_weights=tf_weights)
         final_score = (dip_power_score * 0.7 + lower_shadow_score * 0.3).clip(0, 1)
-        # --- 探针监测 ---
-        if is_debug_day:
-            print(f"      [行为探针] _calculate_absorption_strength @ {last_date_str}")
-            print(f"        - 核心信号(新): dip_absorption_power_D = {dip_power_raw.iloc[-1]:.2f} -> 归一化分 = {dip_power_score.iloc[-1]:.4f}")
-            print(f"        - 辅助信号: lower_shadow_absorption_strength_D = {lower_shadow_raw.iloc[-1]:.2f} -> 归一化分 = {lower_shadow_score.iloc[-1]:.4f}")
-            print(f"        - 最终下跌吸筹强度分: {final_score.iloc[-1]:.4f}")
+        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _calculate_absorption_strength @ {probe_date_str}")
+                print(f"        - 核心信号(新): dip_absorption_power_D = {dip_power_raw.loc[probe_ts]:.2f} -> 归一化分 = {dip_power_score.loc[probe_ts]:.4f}")
+                print(f"        - 辅助信号: lower_shadow_absorption_strength_D = {lower_shadow_raw.loc[probe_ts]:.2f} -> 归一化分 = {lower_shadow_score.loc[probe_ts]:.4f}")
+                print(f"        - 最终下跌吸筹强度分: {final_score.loc[probe_ts]:.4f}")
         return final_score.astype(np.float32)
 
 

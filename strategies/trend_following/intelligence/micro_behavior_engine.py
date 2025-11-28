@@ -90,19 +90,14 @@ class MicroBehaviorEngine:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V2.1 · 探针授权修复版】微观行为公理四：诊断“微观背离”
-        - 核心修复: 补全了对专属探针开关 `enable_micro_behavior_probe` 的检查逻辑。
-        - ... (其他注释保持不变)
+        【V2.2 · 探针逻辑重构版】微观行为公理四：诊断“微观背离”
+        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
+                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
+                      完美适配历史区间调试。
         """
         required_signals = ['SLOPE_5_EMA_5_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
             return pd.Series(0.0, index=df.index)
-        # --- [修改代码块] 升级探针初始化逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        last_date_str = df.index[-1].strftime('%Y-%m-%d')
-        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -112,26 +107,28 @@ class MicroBehaviorEngine:
         micro_intent_trend_raw = micro_intent.ewm(span=5, adjust=False).mean().diff().fillna(0)
         micro_intent_trend = get_adaptive_mtf_normalized_bipolar_score(micro_intent_trend_raw, df.index, default_weights)
         divergence_score = (micro_intent_trend - price_trend).clip(-1, 1)
-        # --- [修改代码行] 更新探针监测条件 ---
-        if is_debug_day:
-            print(f"      [微观行为探针] _diagnose_axiom_divergence @ {last_date_str}")
-            print(f"        - 价格趋势 (归一化): {price_trend.iloc[-1]:.4f} (原始斜率: {price_trend_raw.iloc[-1]:.2f})")
-            print(f"        - 微观意图趋势 (归一化): {micro_intent_trend.iloc[-1]:.4f} (原始意图: {micro_intent.iloc[-1]:.2f})")
-            print(f"        - 最终微观背离分: {divergence_score.iloc[-1]:.4f}")
+        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [微观行为探针] _diagnose_axiom_divergence @ {probe_date_str}")
+                print(f"        - 价格趋势 (归一化): {price_trend.loc[probe_ts]:.4f} (原始斜率: {price_trend_raw.loc[probe_ts]:.2f})")
+                print(f"        - 微观意图趋势 (归一化): {micro_intent_trend.loc[probe_ts]:.4f} (原始意图: {micro_intent.loc[probe_ts]:.2f})")
+                print(f"        - 最终微观背离分: {divergence_score.loc[probe_ts]:.4f}")
         return divergence_score.astype(np.float32)
 
     def _diagnose_strategy_stealth_ops(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.2 · 探针模型统一版】微观诡道一策：诊断“隐秘行动”
-        - 核心升级: 探针激活逻辑与全局标准模型统一，仅依赖 `enabled` 和 `probe_dates`。
-        - ... (其他注释保持不变)
+        【V1.3 · 探针逻辑重构版】微观诡道一策：诊断“隐秘行动”
+        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
+                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
+                      完美适配历史区间调试。
         """
-        # --- [修改代码块] 统一探针初始化逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        last_date_str = df.index[-1].strftime('%Y-%m-%d')
-        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
         # --- 获取战术证据 ---
         pressure_raw = self._get_safe_series(df, 'large_order_pressure_D', 0.0, method_name="_diagnose_strategy_stealth_ops")
         accumulation_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_diagnose_strategy_stealth_ops")
@@ -140,26 +137,28 @@ class MicroBehaviorEngine:
         accumulation_score = get_adaptive_mtf_normalized_score(accumulation_raw, df.index, ascending=True, tf_weights=tf_weights)
         # --- 战术合成 ---
         stealth_ops_score = (pressure_score * accumulation_score).pow(0.5).fillna(0.0)
-        # --- 探针监测 ---
-        if is_debug_day:
-            print(f"      [微观行为探针] _diagnose_strategy_stealth_ops @ {last_date_str}")
-            print(f"        - 原始值: 大单压制={pressure_raw.iloc[-1]:.2f}, 隐蔽吸筹={accumulation_raw.iloc[-1]:.2f}")
-            print(f"        - 归一化分: 压制分={pressure_score.iloc[-1]:.4f}, 吸筹分={accumulation_score.iloc[-1]:.4f}")
-            print(f"        - 最终隐秘行动分: {stealth_ops_score.iloc[-1]:.4f}")
+        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [微观行为探针] _diagnose_strategy_stealth_ops @ {probe_date_str}")
+                print(f"        - 原始值: 大单压制={pressure_raw.loc[probe_ts]:.2f}, 隐蔽吸筹={accumulation_raw.loc[probe_ts]:.2f}")
+                print(f"        - 归一化分: 压制分={pressure_score.loc[probe_ts]:.4f}, 吸筹分={accumulation_score.loc[probe_ts]:.4f}")
+                print(f"        - 最终隐秘行动分: {stealth_ops_score.loc[probe_ts]:.4f}")
         return stealth_ops_score.astype(np.float32)
 
     def _diagnose_strategy_shock_and_awe(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.1 · 探针授权修复版】微观诡道二策：诊断“震慑突袭”
-        - 核心修复: 补全了对专属探针开关 `enable_micro_behavior_probe` 的检查逻辑。
-        - ... (其他注释保持不变)
+        【V1.2 · 探针逻辑重构版】微观诡道二策：诊断“震慑突袭”
+        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
+                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
+                      完美适配历史区间调试。
         """
-        # --- [修改代码块] 升级探针初始化逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        last_date_str = df.index[-1].strftime('%Y-%m-%d')
-        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
         impact_raw = self._get_safe_series(df, 'ofi_price_impact_factor_D', 0.0, method_name="_diagnose_strategy_shock_and_awe")
         clearing_raw = self._get_safe_series(df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_strategy_shock_and_awe")
         outcome_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_diagnose_strategy_shock_and_awe")
@@ -168,37 +167,46 @@ class MicroBehaviorEngine:
         outcome_intent = (outcome_raw * 2 - 1).clip(-1, 1)
         shock_magnitude = (impact_score * clearing_score).pow(0.5).fillna(0.0)
         shock_and_awe_score = (shock_magnitude * outcome_intent).clip(-1, 1)
-        # --- [修改代码行] 更新探针监测条件 ---
-        if is_debug_day:
-            print(f"      [微观行为探针] _diagnose_strategy_shock_and_awe @ {last_date_str}")
-            print(f"        - 原始值: 冲击因子={impact_raw.iloc[-1]:.2f}, 清扫率={clearing_raw.iloc[-1]:.2f}, 收盘偏离={outcome_raw.iloc[-1]:.2f}")
-            print(f"        - 归一化与计算: 震慑强度={shock_magnitude.iloc[-1]:.4f}, 结果意图={outcome_intent.iloc[-1]:.4f}")
-            print(f"        - 最终震慑突袭分: {shock_and_awe_score.iloc[-1]:.4f}")
+        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [微观行为探针] _diagnose_strategy_shock_and_awe @ {probe_date_str}")
+                print(f"        - 原始值: 冲击因子={impact_raw.loc[probe_ts]:.2f}, 清扫率={clearing_raw.loc[probe_ts]:.2f}, 收盘偏离={outcome_raw.loc[probe_ts]:.2f}")
+                print(f"        - 归一化与计算: 震慑强度={shock_magnitude.loc[probe_ts]:.4f}, 结果意图={outcome_intent.loc[probe_ts]:.4f}")
+                print(f"        - 最终震慑突袭分: {shock_and_awe_score.loc[probe_ts]:.4f}")
         return shock_and_awe_score.astype(np.float32)
 
     def _diagnose_strategy_cost_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.1 · 探针授权修复版】微观诡道三策：诊断“成本控制”
-        - 核心修复: 补全了对专属探针开关 `enable_micro_behavior_probe` 的检查逻辑。
-        - ... (其他注释保持不变)
+        【V1.2 · 探针逻辑重构版】微观诡道三策：诊断“成本控制”
+        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
+                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
+                      完美适配历史区间调试。
         """
-        # --- [修改代码块] 升级探针初始化逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        last_date_str = df.index[-1].strftime('%Y-%m-%d')
-        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
         guidance_raw = self._get_safe_series(df, 'main_force_vwap_guidance_D', 0.0, method_name="_diagnose_strategy_cost_control")
         defense_raw = self._get_safe_series(df, 'mf_cost_zone_defense_intent_D', 0.0, method_name="_diagnose_strategy_cost_control")
         guidance_score = get_adaptive_mtf_normalized_bipolar_score(guidance_raw, df.index, tf_weights)
         defense_score = get_adaptive_mtf_normalized_bipolar_score(defense_raw, df.index, tf_weights)
         cost_control_score = (guidance_score * 0.6 + defense_score * 0.4).clip(-1, 1)
-        # --- [修改代码行] 更新探针监测条件 ---
-        if is_debug_day:
-            print(f"      [微观行为探针] _diagnose_strategy_cost_control @ {last_date_str}")
-            print(f"        - 原始值: VWAP引导力={guidance_raw.iloc[-1]:.2f}, 成本区防守={defense_raw.iloc[-1]:.2f}")
-            print(f"        - 归一化分: 引导分={guidance_score.iloc[-1]:.4f}, 防守分={defense_score.iloc[-1]:.4f}")
-            print(f"        - 最终成本控制分: {cost_control_score.iloc[-1]:.4f}")
+        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [微观行为探针] _diagnose_strategy_cost_control @ {probe_date_str}")
+                print(f"        - 原始值: VWAP引导力={guidance_raw.loc[probe_ts]:.2f}, 成本区防守={defense_raw.loc[probe_ts]:.2f}")
+                print(f"        - 归一化分: 引导分={guidance_score.loc[probe_ts]:.4f}, 防守分={defense_score.loc[probe_ts]:.4f}")
+                print(f"        - 最终成本控制分: {cost_control_score.loc[probe_ts]:.4f}")
         return cost_control_score.astype(np.float32)
 
 

@@ -88,20 +88,13 @@ class IntradayBehaviorEngine:
 
     async def _diagnose_offensive_purity(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.2 · 探针模型统一版】日内战报之一：诊断“进攻纯度”
-        - 核心升级: 探针激活逻辑与全局标准模型统一，仅依赖 `enabled` 和 `probe_dates`。
-        - ... (其他注释保持不变)
+        【V1.3 · 探针逻辑重构版】日内战报之一：诊断“进攻纯度”
+        - 核心重构: 重构探针逻辑，使其能正确识别当前处理的数据段是否覆盖了探针日期，
+                      从而在历史回溯时也能准确触发。
         """
         required_signals = ['close', 'amount', 'main_force_ofi', 'retail_ofi', 'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate']
         if not self._validate_required_signals(df_minute, required_signals, "_diagnose_offensive_purity"):
             return {"SCORE_INTRADAY_OFFENSIVE_PURITY": 0.0}
-        # --- [修改代码块] 统一探针初始化逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        last_date_str = self.strategy.df_indicators.index[-1].strftime('%Y-%m-%d')
-        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
-        # --- 计算分钟级纯度因子 ---
         price_change = self._get_safe_series(df_minute, 'close').diff().fillna(0)
         amount = self._get_safe_series(df_minute, 'amount').replace(0, 1e-9)
         efficiency = price_change / amount
@@ -122,29 +115,28 @@ class IntradayBehaviorEngine:
         avg_bullish_purity = np.average(bullish_minutes, weights=bullish_weights) if not bullish_minutes.empty and bullish_weights.sum() > 0 else 0
         avg_bearish_purity = np.average(bearish_minutes, weights=bearish_weights) if not bearish_minutes.empty and bearish_weights.sum() > 0 else 0
         final_score = (avg_bullish_purity - avg_bearish_purity)
-        # --- 探针监测 ---
-        if is_debug_day:
-            print(f"      [日内行为探针] _diagnose_offensive_purity @ {last_date_str}")
-            print(f"        - 日内平均多头进攻纯度: {avg_bullish_purity:.4f}")
-            print(f"        - 日内平均空头进攻纯度: {avg_bearish_purity:.4f}")
-            print(f"        - 最终进攻纯度分: {final_score:.4f}")
+        # --- [修改代码块] 重构探针逻辑以适配历史回溯 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df_minute.empty:
+            processed_date_str = df_minute.index[0].strftime('%Y-%m-%d')
+            if processed_date_str in probe_dates:
+                print(f"      [日内行为探针] _diagnose_offensive_purity @ {processed_date_str}")
+                print(f"        - 日内平均多头进攻纯度: {avg_bullish_purity:.4f}")
+                print(f"        - 日内平均空头进攻纯度: {avg_bearish_purity:.4f}")
+                print(f"        - 最终进攻纯度分: {final_score:.4f}")
         return {"SCORE_INTRADAY_OFFENSIVE_PURITY": final_score}
 
     async def _diagnose_dominance_consensus(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.1 · 探针授权修复版】日内战报之二：诊断“支配共识”
-        - 核心修复: 补全了对专属探针开关 `enable_intraday_behavior_probe` 的检查逻辑。
-        - ... (其他注释保持不变)
+        【V1.2 · 探针逻辑重构版】日内战报之二：诊断“支配共识”
+        - 核心重构: 重构探针逻辑，使其能正确识别当前处理的数据段是否覆盖了探针日期，
+                      从而在历史回溯时也能准确触发。
         """
         required_signals = ['close', 'vwap', 'amount']
         if not self._validate_required_signals(df_minute, required_signals, "_diagnose_dominance_consensus"):
             return {"SCORE_INTRADAY_DOMINANCE_CONSENSUS": 0.0}
-        # --- [修改代码块] 升级探针初始化逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        last_date_str = self.strategy.df_indicators.index[-1].strftime('%Y-%m-%d')
-        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
         vwap = self._get_safe_series(df_minute, 'vwap').replace(0, np.nan).ffill()
         price_deviation = (self._get_safe_series(df_minute, 'close') - vwap) / vwap
         amount_ratio = self._get_safe_series(df_minute, 'amount') / self._get_safe_series(df_minute, 'amount').mean()
@@ -154,27 +146,26 @@ class IntradayBehaviorEngine:
         avg_strength = norm_dominance_strength.mean()
         final_trend = consensus_trend.iloc[-1] if not consensus_trend.empty else 0
         final_score = (avg_strength * 0.5 + final_trend * 0.5)
-        # --- [修改代码行] 更新探针监测条件 ---
-        if is_debug_day:
-            print(f"      [日内行为探针] _diagnose_dominance_consensus @ {last_date_str}")
-            print(f"        - 全天平均支配强度: {avg_strength:.4f}")
-            print(f"        - 收盘共识趋势: {final_trend:.4f}")
-            print(f"        - 最终支配共识分: {final_score:.4f}")
+        # --- [修改代码块] 重构探针逻辑以适配历史回溯 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df_minute.empty:
+            processed_date_str = df_minute.index[0].strftime('%Y-%m-%d')
+            if processed_date_str in probe_dates:
+                print(f"      [日内行为探针] _diagnose_dominance_consensus @ {processed_date_str}")
+                print(f"        - 全天平均支配强度: {avg_strength:.4f}")
+                print(f"        - 收盘共识趋势: {final_trend:.4f}")
+                print(f"        - 最终支配共识分: {final_score:.4f}")
         return {"SCORE_INTRADAY_DOMINANCE_CONSENSUS": final_score}
 
     async def _diagnose_conviction_reversal(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.1 · 探针授权修复版】日内战报之三：诊断“信念反转”
-        - 核心修复: 补全了对专属探针开关 `enable_intraday_behavior_probe` 的检查逻辑。
-        - ... (其他注释保持不变)
+        【V1.2 · 探针逻辑重构版】日内战报之三：诊断“信念反转”
+        - 核心重构: 重构探针逻辑，使其能正确识别当前处理的数据段是否覆盖了探针日期，
+                      从而在历史回溯时也能准确触发。
         """
         daily_signals = self.strategy.df_indicators.iloc[-1]
-        # --- [修改代码块] 升级探针初始化逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        last_date_str = self.strategy.df_indicators.index[-1].strftime('%Y-%m-%d')
-        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
         panic_score = daily_signals.get('panic_selling_cascade_D', 0.0)
         absorption_score = daily_signals.get('capitulation_absorption_index_D', 0.0)
         mf_alpha_bullish = max(daily_signals.get('main_force_execution_alpha_D', 0.0), 0.0)
@@ -184,12 +175,17 @@ class IntradayBehaviorEngine:
         mf_alpha_bearish = abs(min(daily_signals.get('main_force_execution_alpha_D', 0.0), 0.0))
         bearish_reversal_evidence = (distribution_score * conviction_decay * mf_alpha_bearish).pow(1/3)
         final_score = bullish_reversal_evidence - bearish_reversal_evidence
-        # --- [修改代码行] 更新探针监测条件 ---
-        if is_debug_day:
-            print(f"      [日内行为探针] _diagnose_conviction_reversal @ {last_date_str}")
-            print(f"        - 看涨证据: 恐慌={panic_score:.2f}, 承接={absorption_score:.2f}, 主力Alpha+={mf_alpha_bullish:.2f} -> 综合={bullish_reversal_evidence:.4f}")
-            print(f"        - 看跌证据: 派发={distribution_score:.2f}, 信念衰减={conviction_decay:.2f}, 主力Alpha-={mf_alpha_bearish:.2f} -> 综合={bearish_reversal_evidence:.4f}")
-            print(f"        - 最终信念反转分: {final_score:.4f}")
+        # --- [修改代码块] 重构探针逻辑以适配历史回溯 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df_minute.empty:
+            processed_date_str = df_minute.index[0].strftime('%Y-%m-%d')
+            if processed_date_str in probe_dates:
+                print(f"      [日内行为探针] _diagnose_conviction_reversal @ {processed_date_str}")
+                print(f"        - 看涨证据: 恐慌={panic_score:.2f}, 承接={absorption_score:.2f}, 主力Alpha+={mf_alpha_bullish:.2f} -> 综合={bullish_reversal_evidence:.4f}")
+                print(f"        - 看跌证据: 派发={distribution_score:.2f}, 信念衰减={conviction_decay:.2f}, 主力Alpha-={mf_alpha_bearish:.2f} -> 综合={bearish_reversal_evidence:.4f}")
+                print(f"        - 最终信念反转分: {final_score:.4f}")
         return {"SCORE_INTRADAY_CONVICTION_REVERSAL": np.clip(final_score, -1, 1)}
 
 
