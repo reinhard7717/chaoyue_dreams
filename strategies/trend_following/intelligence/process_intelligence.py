@@ -91,13 +91,11 @@ class ProcessIntelligence:
 
     def run_process_diagnostics(self, df: pd.DataFrame, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
-        【V5.3 · 调度逻辑修复版】过程情报分析总指挥
-        - 核心修复 (V5.3): 移除了对 '_run_custom_analysis' 的错误调用。统一所有元分析任务
-                           入口至 '_run_meta_analysis'，解决了 AttributeError 并简化了调度逻辑。
-        - 核心修复 (V5.2): 增加了对 task_type_filter 参数的支持。
-        - 核心升级 (V5.1): 对 PROCESS_META_POWER_TRANSFER 的计算进行重构。
+        【V5.4 · 探针清理版】过程情报分析总指挥
+        - 核心清理: 更新了版本信息和日志输出，以反映探针清理后的状态。
+                     为特殊调度的信号 `PROCESS_META_POWER_TRANSFER` 补上了统一的最终战报发布。
         """
-        print("启动【V5.3 · 调度逻辑修复版】过程情报分析...") # 更新版本信息
+        print("启动【V5.4 · 探针清理版】过程情报分析...")
         all_process_states = {}
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
         diagnostics = get_param_value(p_conf.get('diagnostics'), [])
@@ -108,13 +106,13 @@ class ProcessIntelligence:
             diag_name = diag_config.get('name')
             if not diag_name:
                 continue
-            # 拦截并使用新方法计算权力转移
             if diag_name == 'PROCESS_META_POWER_TRANSFER':
                 power_transfer_score = self._calculate_power_transfer(df, diag_config)
                 all_process_states[diag_name] = power_transfer_score
                 self.strategy.atomic_states[diag_name] = power_transfer_score
-                continue # 计算完后跳过通用逻辑
-            # 移除了 'custom' 和 'meta' 的错误分支，统一由 _run_meta_analysis 处理
+                # [新增] 为特殊调度的信号补上统一的最终战报发布
+                print(f"    -> [过程层] {diag_name} 计算完成，最新分值: {power_transfer_score.iloc[-1]:.4f}")
+                continue
             score = self._run_meta_analysis(df, diag_config)
             if isinstance(score, pd.Series):
                 all_process_states[diag_name] = score
@@ -122,7 +120,7 @@ class ProcessIntelligence:
             elif isinstance(score, dict):
                 all_process_states.update(score)
                 self.strategy.atomic_states.update(score)
-        print(f"【V5.3 · 调度逻辑修复版】分析完成，生成 {len(all_process_states)} 个过程元信号。") # 更新版本信息
+        print(f"【V5.4 · 探针清理版】分析完成，生成 {len(all_process_states)} 个过程元信号。")
         return all_process_states
 
     def _run_meta_analysis(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
@@ -148,10 +146,10 @@ class ProcessIntelligence:
 
     def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.3 · 指挥链静默版】计算“权力转移”信号。
-        - 核心重构: 移除了此处的最终日志输出。战报发布权已上移至调度中心。
+        【V3.4 · 探针清理版】计算“权力转移”信号。
+        - 核心清理: 移除了方法内的调试探针逻辑，净化日志输出。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_POWER_TRANSFER (V3.3 · 指挥链静默版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_POWER_TRANSFER (V3.4 · 探针清理版)...")
         df_index = df.index
         net_sm_amount = self._get_safe_series(df, 'net_sh_amount_calibrated_D', 0.0, method_name="_calculate_power_transfer")
         net_md_amount = self._get_safe_series(df, 'net_md_amount_calibrated_D', 0.0, method_name="_calculate_power_transfer")
@@ -204,40 +202,15 @@ class ProcessIntelligence:
         effective_retail_flow = (net_sm_amount - sm_to_main_force) + (net_md_amount - md_to_main_force)
         power_transfer_raw = effective_main_force_flow.diff(1) - effective_retail_flow.diff(1)
         final_score = self._normalize_series(power_transfer_raw.fillna(0), df_index, bipolar=True)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
-            for probe_date in probe_dates:
-                if probe_date in df_index:
-                    print(f"    -> [探针] --- PROCESS_META_POWER_TRANSFER (V3.3) @ {probe_date.date()} ---")
-                    triggered_scenario = "打压/横盘" if suppression_mask.loc[probe_date] else "拉升" if rally_mask.loc[probe_date] else "无"
-                    print(f"      - 触发场景: {triggered_scenario} (涨幅: {pct_change.loc[probe_date]:.2%})")
-                    print(f"      --- 微观确证 (通用) ---")
-                    print(f"        - 主力OFI: {main_force_ofi.loc[probe_date]:.2f} -> OFI证据分: {ofi_evidence.loc[probe_date]:.4f}")
-                    print(f"        - 对倒强度: {wash_trade_intensity.loc[probe_date]:.4f} -> 对倒证据分: {wash_trade_evidence.loc[probe_date]:.4f}")
-                    print(f"        - 微观确证综合分: {micro_confirmation_factor.loc[probe_date]:.4f}")
-                    if triggered_scenario == "打压/横盘":
-                        print(f"      --- 场景一: 打压/横盘吸筹 ---")
-                        print(f"        - 宏观推断(中/小单): (计算细节略)")
-                    elif triggered_scenario == "拉升":
-                        print(f"      --- 场景二: 拉升换手 ---")
-                        print(f"        - 宏观证据(散户了结*主力追逐): (计算细节略)")
-                    print(f"      --- 最终裁决 ---")
-                    print(f"        - 最终归属因子 (Final Allegiance): {final_allegiance_factor.loc[probe_date]:.4f}")
-                    print(f"        - 划归主力的(中单/小单)金额: {md_to_main_force.loc[probe_date]:.2f} / {sm_to_main_force.loc[probe_date]:.2f}")
-                    print(f"      - 有效主力净额: {effective_main_force_flow.loc[probe_date]:.2f}")
-                    print(f"      - 有效散户净额: {effective_retail_flow.loc[probe_date]:.2f}")
-                    print(f"      - 最终权力转移分: {final_score.loc[probe_date]:.4f}")
-                    print("    -> [探针] ----------------------------------------------------")
+        # [删除] 移除了方法内的调试探针逻辑
         return final_score.astype(np.float32)
 
     def _calculate_deceptive_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.5 · 指挥链静默版】计算“诡道吸筹”信号。
-        - 核心重构: 移除了此处的最终日志输出。战报发布权已上移至调度中心。
+        【V2.6 · 探针清理版】计算“诡道吸筹”信号。
+        - 核心清理: 移除了方法内的调试探针逻辑，净化日志输出。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V2.5 · 指挥链静默版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V2.6 · 探针清理版)...")
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
@@ -253,22 +226,7 @@ class ProcessIntelligence:
         bullish_evidence = (tactic_evidence * transfer_evidence).pow(0.5)
         penalty_factor = (1 + coherent_drive_score).clip(0, 1)
         final_score = (bullish_evidence * penalty_factor * gating_score).fillna(0.0)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
-            for probe_date in probe_dates:
-                if probe_date in df_index:
-                    print(f"    -> [探针] --- PROCESS_META_DECEPTIVE_ACCUMULATION @ {probe_date.date()} ---")
-                    print(f"      --- 场景触发条件 (软门控) ---")
-                    print(f"        - 门控得分 (Gating Score): {gating_score.loc[probe_date]:.4f} (源于价格趋势分: {price_trend_norm.loc[probe_date]:.4f})")
-                    print(f"      --- 核心证据链 ---")
-                    print(f"        - 核心战术 (Tactic Evidence): {tactic_evidence.loc[probe_date]:.4f}")
-                    print(f"        - 权力交割 (Transfer Evidence): {transfer_evidence.loc[probe_date]:.4f}")
-                    print(f"        - 结构优化 (Bipolar Input): {coherent_drive_score.loc[probe_date]:.4f} -> 惩罚因子: {penalty_factor.loc[probe_date]:.4f}")
-                    print(f"      --- 最终裁决 ---")
-                    print(f"        - 最终得分: {final_score.loc[probe_date]:.4f}")
-                    print("    -> [探针] ----------------------------------------------------")
+        # [删除] 移除了方法内的调试探针逻辑
         return final_score.astype(np.float32)
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -730,11 +688,10 @@ class ProcessIntelligence:
 
     def _calculate_stealth_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.3 · 指挥链重组版】计算“隐蔽吸筹”的专属关系分数。
-        - 核心重构: 移除了此处的最终日志输出。战报发布权已上移至调度中心
-                     `_diagnose_meta_relationship`，以确保战报的绝对真实性。
+        【V3.4 · 探针清理版】计算“隐蔽吸筹”的专属关系分数。
+        - 核心清理: 移除了方法内的调试探针逻辑，净化日志输出。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_STEALTH_ACCUMULATION (V3.3 · 指挥链重组版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_STEALTH_ACCUMULATION (V3.4 · 探针清理版)...")
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
@@ -766,40 +723,17 @@ class ProcessIntelligence:
         consolidative_score = (evidence1_consolidative * evidence2_consolidative * evidence3_consolidative * evidence4_consolidative).pow(1/4)
         consolidative_score = consolidative_score.where(consolidative_mask, 0.0)
         final_score = pd.concat([suppressive_score, consolidative_score], axis=1).max(axis=1).fillna(0.0)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
-            for probe_date in probe_dates:
-                if probe_date in df_index:
-                    print(f"    -> [探针] --- PROCESS_META_STEALTH_ACCUMULATION @ {probe_date.date()} ---")
-                    print(f"      --- 场景一: 打压式吸筹 ---")
-                    print(f"        - 场景触发条件 (价格趋势 <= 0.1): {suppressive_mask.loc[probe_date]} (价格趋势分: {price_trend_norm.loc[probe_date]:.4f})")
-                    print(f"        - 证据1 (成交量萎缩): {evidence1_suppressive.loc[probe_date]:.4f}")
-                    print(f"        - 证据2 (权力转移): {evidence2_suppressive.loc[probe_date]:.4f}")
-                    print(f"        - 证据3 (筹码集中趋势): {evidence3_suppressive.loc[probe_date]:.4f}")
-                    print(f"        - 证据4 (成本优势): {evidence4_suppressive.loc[probe_date]:.4f}")
-                    print(f"        - 场景一得分: {suppressive_score.loc[probe_date]:.4f}")
-                    print(f"      --- 场景二: 横盘式吸筹 ---")
-                    print(f"        - 场景触发条件 (稳定性 > 0.2): {consolidative_mask.loc[probe_date]} (稳定性分: {stability_score.loc[probe_date]:.4f})")
-                    print(f"        - 证据1 (成交量萎缩): {evidence1_consolidative.loc[probe_date]:.4f}")
-                    print(f"        - 证据2 (权力转移): {evidence2_consolidative.loc[probe_date]:.4f}")
-                    print(f"        - 证据3 (筹码固化趋势): {evidence3_consolidative.loc[probe_date]:.4f}")
-                    print(f"        - 证据4 (拆单吸筹): {evidence4_consolidative.loc[probe_date]:.4f}")
-                    print(f"        - 场景二得分: {consolidative_score.loc[probe_date]:.4f}")
-                    print(f"      --- 最终裁决 ---")
-                    print(f"        - 最终得分 (max(场景一, 场景二)): {final_score.loc[probe_date]:.4f}")
-                    print("    -> [探针] ----------------------------------------------------")
+        # [删除] 移除了方法内的调试探针逻辑
         self.strategy.atomic_states["_DEBUG_accum_suppressive_score"] = suppressive_score
         self.strategy.atomic_states["_DEBUG_accum_consolidative_score"] = consolidative_score
         return final_score.astype(np.float32)
 
     def _calculate_panic_washout_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.3 · 指挥链静默版】计算“恐慌洗盘吸筹”的专属信号。
-        - 核心重构: 移除了此处的最终日志输出。战报发布权已上移至调度中心。
+        【V2.4 · 探针清理版】计算“恐慌洗盘吸筹”的专属信号。
+        - 核心清理: 移除了方法内的调试探针逻辑，净化日志输出。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (V2.3 · 指挥链静默版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (V2.4 · 探针清理版)...")
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
@@ -827,27 +761,7 @@ class ProcessIntelligence:
         washout_candidate_mask = is_significant_drop & is_volume_spike
         final_score = (panic_score * absorption_score * repair_score).pow(1/3)
         final_score = final_score.where(washout_candidate_mask, 0.0).fillna(0.0)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
-            for probe_date in probe_dates:
-                if probe_date in df_index:
-                    print(f"    -> [探针] --- PROCESS_META_PANIC_WASHOUT_ACCUMULATION @ {probe_date.date()} ---")
-                    print(f"      --- 场景触发条件 (Washout Candidate Mask) ---")
-                    print(f"        - 显著下跌或长下影 (is_significant_drop): {is_significant_drop.loc[probe_date]} (跌幅: {pct_change.loc[probe_date]:.2%}, 下影线强度: {lower_shadow_strength.loc[probe_date]:.4f})")
-                    print(f"        - 成交量爆发 (is_volume_spike): {is_volume_spike.loc[probe_date]} (成交量爆发分: {volume_burst.loc[probe_date]:.4f})")
-                    print(f"        - 最终掩码 (washout_candidate_mask): {washout_candidate_mask.loc[probe_date]}")
-                    print(f"      --- 三维核心分数 ---")
-                    print(f"        - 恐慌度 (Panic Score): {panic_score.loc[probe_date]:.4f}")
-                    print(f"          - 散户恐慌分: {retail_panic_norm.loc[probe_date]:.4f} | 输家痛苦分: {loser_pain_norm.loc[probe_date]:.4f}")
-                    print(f"        - 吸收度 (Absorption Score): {absorption_score.loc[probe_date]:.4f}")
-                    print(f"          - 权力转移分: {power_transfer_score.clip(lower=0).loc[probe_date]:.4f} | 下影线强度: {lower_shadow_strength.loc[probe_date]:.4f} | 主动买盘支撑分: {active_buying_support_norm.loc[probe_date]:.4f}")
-                    print(f"        - 修复度 (Repair Score): {repair_score.loc[probe_date]:.4f}")
-                    print(f"          - 筹码集中斜率分: {concentration_slope_norm.loc[probe_date]:.4f} | 成本优势斜率分: {cost_advantage_slope_norm.loc[probe_date]:.4f}")
-                    print(f"      --- 最终裁决 ---")
-                    print(f"        - 最终得分: {final_score.loc[probe_date]:.4f}")
-                    print("    -> [探针] ----------------------------------------------------")
+        # [删除] 移除了方法内的调试探针逻辑
         self.strategy.atomic_states["_DEBUG_washout_panic_score"] = panic_score
         self.strategy.atomic_states["_DEBUG_washout_absorption_score"] = absorption_score
         self.strategy.atomic_states["_DEBUG_washout_repair_score"] = repair_score
@@ -855,10 +769,10 @@ class ProcessIntelligence:
 
     def _calculate_upthrust_washout(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.5 · 指挥链静默版】识别主力在拉升初期利用“高开低走”阴线进行的洗盘行为。
-        - 核心重构: 移除了此处的最终日志输出。战报发布权已上移至调度中心。
+        【V1.6 · 探针清理版】识别主力在拉升初期利用“高开低走”阴线进行的洗盘行为。
+        - 核心清理: 移除了方法内的调试探针逻辑，净化日志输出。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_UPTHRUST_WASHOUT (V1.5 · 指挥链静默版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_UPTHRUST_WASHOUT (V1.6 · 探针清理版)...")
         df_index = df.index
         trend_form_score = self.strategy.atomic_states.get('SCORE_STRUCT_AXIOM_TREND_FORM', pd.Series(0.0, index=df_index))
         bias_21 = self._get_safe_series(df, 'BIAS_21_D', 0.0, method_name="_calculate_upthrust_washout")
@@ -896,24 +810,7 @@ class ProcessIntelligence:
         self.strategy.atomic_states["_DEBUG_washout_authenticity_score"] = washout_authenticity_score
         self.strategy.atomic_states["_DEBUG_washout_auth_bull_evidence"] = bullish_evidence
         self.strategy.atomic_states["_DEBUG_washout_auth_bear_evidence"] = bearish_evidence
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
-            for probe_date in probe_dates:
-                if probe_date in df_index:
-                    print(f"    -> [探针] --- PROCESS_META_UPTHRUST_WASHOUT @ {probe_date.date()} ---")
-                    print(f"      - 环境分 (Context): {context_score.loc[probe_date]:.4f}")
-                    print(f"      - 动作分 (Action): {action_score.loc[probe_date]:.4f}")
-                    print(f"      - 内核分 (Internals): {internals_score.loc[probe_date]:.4f}")
-                    print(f"      - 真实性评分 (Authenticity): {washout_authenticity_score.loc[probe_date]:.4f}")
-                    print(f"        - 看涨证据 (Bullish Evidence): {bullish_evidence.loc[probe_date]:.4f}")
-                    print(f"          - 战略态势(Bipolar Input): {chip_strategic_posture.loc[probe_date]:.4f} -> 正向贡献: {chip_strategic_posture.clip(lower=0).loc[probe_date]:.4f}")
-                    print(f"        - 看跌证据 (Bearish Evidence): {bearish_evidence.loc[probe_date]:.4f}")
-                    print(f"          - 权力转移(负向): {power_transfer.clip(upper=0).abs().loc[probe_date]:.4f}")
-                    print(f"          - 战略态势(负向): {chip_strategic_posture.clip(upper=0).abs().loc[probe_date]:.4f}")
-                    print(f"      - 最终得分 (Final Score): {final_score.loc[probe_date]:.4f}")
-                    print("    -> [探针] ----------------------------------------------------")
+        # [删除] 移除了方法内的调试探针逻辑
         return final_score.astype(np.float32)
 
     def _calculate_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -944,36 +841,25 @@ class ProcessIntelligence:
 
     def _calculate_split_order_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.3 · 指挥链静默版】计算“拆单吸筹强度”的专属信号。
-        - 核心重构: 移除了此处的最终日志输出。战报发布权已上移至调度中心。
+        【V1.4 · 探针清理版】计算“拆单吸筹强度”的专属信号。
+        - 核心清理: 移除了方法内的调试探针逻辑，净化日志输出。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (V1.3 · 指挥链静默版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (V1.4 · 探针清理版)...")
         df_index = df.index
         raw_intensity = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_calculate_split_order_accumulation")
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_split_order_accumulation")
         scene_mask = pct_change <= 0.02
         normalized_score = (raw_intensity / 100).clip(0, 1)
         final_score = normalized_score.where(scene_mask, 0.0).fillna(0.0)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
-            for probe_date in probe_dates:
-                if probe_date in df_index:
-                    print(f"    -> [探针] --- PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY @ {probe_date.date()} ---")
-                    print(f"      - 原始数据 (hidden_accumulation_intensity_D): {raw_intensity.loc[probe_date]:.4f}")
-                    print(f"      - 场景约束 (涨幅 <= 2%): {scene_mask.loc[probe_date]} (当日涨幅: {pct_change.loc[probe_date]:.2%})")
-                    print(f"      - 归一化得分 (原始值/100): {normalized_score.loc[probe_date]:.4f}")
-                    print(f"      - 最终得分 (应用场景约束后): {final_score.loc[probe_date]:.4f}")
-                    print("    -> [探针] ----------------------------------------------------")
+        # [删除] 移除了方法内的调试探针逻辑
         return final_score.astype(np.float32)
 
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.2 · 指挥链静默版】诊断“突破加速抢筹”战术。
-        - 核心重构: 移除了此处的最终日志输出。战报发布权已上移至调度中心。
+        【V1.3 · 探针清理版】诊断“突破加速抢筹”战术。
+        - 核心清理: 移除了方法内的调试探针逻辑，净化日志输出。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_BREAKOUT_ACCELERATION (V1.2 · 指挥链静默版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_BREAKOUT_ACCELERATION (V1.3 · 探针清理版)...")
         df_index = df.index
         breakout_signal = self.strategy.atomic_states.get('SCORE_PATTERN_AXIOM_BREAKOUT', pd.Series(0.0, index=df_index))
         rally_intent_signal_name = 'PROCESS_ATOMIC_REL_SCORE_PROCESS_META_MAIN_FORCE_RALLY_INTENT'
@@ -986,22 +872,7 @@ class ProcessIntelligence:
         confirmation_evidence = trend_form.clip(lower=0)
         final_score = (driver_evidence * transfer_evidence * confirmation_evidence).pow(1/3)
         final_score = final_score.where(breakout_trigger_mask, 0.0).fillna(0.0)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
-            for probe_date in probe_dates:
-                if probe_date in df_index:
-                    print(f"    -> [探针] --- PROCESS_META_BREAKOUT_ACCELERATION @ {probe_date.date()} ---")
-                    print(f"      --- 战术前置 (Trigger) ---")
-                    print(f"        - 近期突破事件: {breakout_trigger_mask.loc[probe_date]}")
-                    print(f"      --- 核心证据链 ---")
-                    print(f"        - 驱动证据 (原始主力拉升意图): {driver_evidence.loc[probe_date]:.4f}")
-                    print(f"        - 交割证据 (权力转移): {transfer_evidence.loc[probe_date]:.4f}")
-                    print(f"        - 确认证据 (趋势形态): {confirmation_evidence.loc[probe_date]:.4f}")
-                    print(f"      --- 最终裁决 ---")
-                    print(f"        - 最终得分: {final_score.loc[probe_date]:.4f}")
-                    print("    -> [探针] ----------------------------------------------------")
+        # [删除] 移除了方法内的调试探针逻辑
         return final_score.astype(np.float32)
 
 

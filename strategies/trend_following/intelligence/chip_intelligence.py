@@ -57,55 +57,31 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V14.0 · 大一统重构版】筹码情报总指挥
-        - 核心重构: 废弃概念重叠的旧信号，引入两大统一的战略级信号，形成权责分明的全新情报体系。
-        - 全新核心:
-          - `SCORE_CHIP_STRATEGIC_POSTURE`: (战略态势) 统一“集结”与“控制”，评估主力综合意图。
-          - `SCORE_CHIP_BATTLEFIELD_GEOGRAPHY`: (战场地形学) 统一所有“结构”评估，判断地形的攻防属性。
+        【V14.1 · 探针清理版】筹码情报总指挥
+        - 核心清理: 移除了方法末尾的调试探针逻辑，净化日志输出。
         """
         all_chip_states = {}
         periods = [5, 13, 21, 55]
-        # 步骤一: 诊断基础公理 (保留核心)
         holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
         divergence_scores = self._diagnose_axiom_divergence(df, periods)
         all_chip_states['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
         all_chip_states['SCORE_CHIP_AXIOM_DIVERGENCE'] = divergence_scores
-        # 步骤二: 诊断两大“大一统”战略信号
-        # 信号1: 战略态势 (全新)
         strategic_posture = self._diagnose_strategic_posture(df)
         all_chip_states['SCORE_CHIP_STRATEGIC_POSTURE'] = strategic_posture
-        # 信号2: 战场地形学 (全新)
         battlefield_geography = self._diagnose_battlefield_geography(df)
         all_chip_states['SCORE_CHIP_BATTLEFIELD_GEOGRAPHY'] = battlefield_geography
-        # 步骤三: 诊断基于新核心的衍生信号
-        # 信号3: 结构性推力 (依赖于新的地形学和态势)
         df['SCORE_CHIP_STRATEGIC_POSTURE'] = strategic_posture
         df['SCORE_CHIP_BATTLEFIELD_GEOGRAPHY'] = battlefield_geography
         df['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
-        # 注意: _diagnose_axiom_trend_momentum 需要同步修改其依赖
-        chip_trend_momentum_scores = self._diagnose_axiom_trend_momentum(df, periods) # 此方法也需重构
+        chip_trend_momentum_scores = self._diagnose_axiom_trend_momentum(df, periods)
         all_chip_states['SCORE_CHIP_AXIOM_TREND_MOMENTUM'] = chip_trend_momentum_scores
-        # 信号4: 战术背离信号 (不变)
         absorption_echo = self._diagnose_absorption_echo(df, divergence_scores)
         all_chip_states['SCORE_CHIP_OPP_ABSORPTION_ECHO'] = absorption_echo
         distribution_whisper = self._diagnose_distribution_whisper(df, divergence_scores)
         all_chip_states['SCORE_CHIP_RISK_DISTRIBUTION_WHISPER'] = distribution_whisper
-        # 信号5: 筹码同调驱动力 (依赖于新的地形学)
         coherent_drive = self._diagnose_structural_consensus(df, battlefield_geography, holder_sentiment_scores)
         all_chip_states['SCORE_CHIP_COHERENT_DRIVE'] = coherent_drive
-        # 调试探针逻辑 (维持不变)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"    -> [ChipIntelligence Debug] @ {probe_date_for_loop.date()}: Signals returned by ChipIntelligence:")
-                for k, v in all_chip_states.items():
-                    if isinstance(v, pd.Series) and probe_date_for_loop in v.index:
-                        print(f"       - {k}: {v.loc[probe_date_for_loop]:.4f}")
-                    else:
-                        print(f"       - {k}: {v}")
+        # [删除] 移除了方法末尾的调试探针逻辑
         return all_chip_states
 
     def _run_integrity_probe(self, df: pd.DataFrame, required_signals: list, probe_name: str):
@@ -132,11 +108,10 @@ class ChipIntelligence:
 
     def _diagnose_strategic_posture(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V6.1 · 真理探针版】诊断主力的综合战略态势 (大一统信号)
-        - 核心升级: 植入“真理探针”，详细打印三大支柱“阵型部署”、“指挥官决心”、“战场控制力”的
-                     构成细节和最终得分，用于诊断信号输出为零的根本原因。
+        【V6.2 · 探针清理版】诊断主力的综合战略态势 (大一统信号)
+        - 核心清理: 移除了方法内的“真理探针”逻辑，净化日志输出。
         """
-        print("    -> [筹码层] 正在计算 SCORE_CHIP_STRATEGIC_POSTURE (V6.1 · 真理探针版)...")
+        print("    -> [筹码层] 正在计算 SCORE_CHIP_STRATEGIC_POSTURE (V6.2 · 探针清理版)...")
         required_signals = [
             'cost_gini_coefficient_D', 'covert_accumulation_signal_D', 'peak_exchange_purity_D',
             'main_force_cost_advantage_D', 'control_solidity_index_D', 'SLOPE_5_main_force_conviction_index_D',
@@ -147,7 +122,6 @@ class ChipIntelligence:
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         df_index = df.index
-        # 维度一: 阵型部署
         concentration_level = 1 - self._get_safe_series(df, df, 'cost_gini_coefficient_D', 0.5)
         covert_accumulation = self._get_safe_series(df, df, 'covert_accumulation_signal_D', 0.0)
         peak_purity = self._get_safe_series(df, df, 'peak_exchange_purity_D', 0.0)
@@ -157,7 +131,6 @@ class ChipIntelligence:
             get_adaptive_mtf_normalized_bipolar_score(peak_purity, df_index, tf_weights).add(1)/2
         ).pow(0.5) * 2 - 1
         formation_deployment_score = (level_score.add(1)/2 * efficiency_score.add(1)/2).pow(0.5) * 2 - 1
-        # 维度二: 指挥官决心
         cost_advantage = self._get_safe_series(df, df, 'main_force_cost_advantage_D', 0.0)
         control_solidity = self._get_safe_series(df, df, 'control_solidity_index_D', 0.0)
         conviction_slope = self._get_safe_series(df, df, 'SLOPE_5_main_force_conviction_index_D', 0.0)
@@ -167,38 +140,17 @@ class ChipIntelligence:
         commanders_resolve_score = (
             (advantage_score.add(1)/2) * (solidity_score.add(1)/2) * (intent_score.clip(lower=-1, upper=1).add(1)/2)
         ).pow(1/3) * 2 - 1
-        # 维度三: 战场控制力
         cleansing_efficiency = self._get_safe_series(df, df, 'floating_chip_cleansing_efficiency_D', 0.0)
         peak_solidity = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5)
         cleansing_score = get_adaptive_mtf_normalized_bipolar_score(cleansing_efficiency, df_index, tf_weights)
         peak_solidity_score = get_adaptive_mtf_normalized_bipolar_score(peak_solidity, df_index, tf_weights)
         battlefield_control_score = (cleansing_score.add(1)/2 * peak_solidity_score.add(1)/2).pow(0.5) * 2 - 1
-        # 最终非线性加权合成
         final_score = (
             (commanders_resolve_score.add(1)/2).pow(0.5) *
             (formation_deployment_score.add(1)/2).pow(0.3) *
             (battlefield_control_score.add(1)/2).pow(0.2)
         ) * 2 - 1
-        # [新增] 植入真理探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
-            for probe_date in probe_dates:
-                if probe_date in df_index:
-                    print(f"    -> [探针] --- SCORE_CHIP_STRATEGIC_POSTURE @ {probe_date.date()} ---")
-                    print(f"      --- 支柱一: 阵型部署 (权重 0.3) ---")
-                    print(f"        - 构成: 集中度分({level_score.loc[probe_date]:.4f}), 效率分({efficiency_score.loc[probe_date]:.4f})")
-                    print(f"        - 支柱得分: {formation_deployment_score.loc[probe_date]:.4f}")
-                    print(f"      --- 支柱二: 指挥官决心 (权重 0.5) ---")
-                    print(f"        - 构成: 成本优势分({advantage_score.loc[probe_date]:.4f}), 控制稳固分({solidity_score.loc[probe_date]:.4f}), 增兵意图分({intent_score.loc[probe_date]:.4f})")
-                    print(f"        - 支柱得分: {commanders_resolve_score.loc[probe_date]:.4f}")
-                    print(f"      --- 支柱三: 战场控制力 (权重 0.2) ---")
-                    print(f"        - 构成: 浮筹清洗分({cleansing_score.loc[probe_date]:.4f}), 主峰稳固分({peak_solidity_score.loc[probe_date]:.4f})")
-                    print(f"        - 支柱得分: {battlefield_control_score.loc[probe_date]:.4f}")
-                    print(f"      --- 最终裁决 ---")
-                    print(f"        - 最终得分: {final_score.loc[probe_date]:.4f}")
-                    print("    -> [探针] ----------------------------------------------------")
+        # [删除] 移除了方法内的“真理探针”逻辑
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_battlefield_geography(self, df: pd.DataFrame) -> pd.Series:
@@ -398,12 +350,8 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V4.3 · 罗盘核心替换版】诊断筹码同调驱动力
-        - 核心修复: 发现并修复了“极性反转”的致命BUG。废弃了在特定场景下不可靠的
-                     `get_adaptive_mtf_normalized_bipolar_score` 工具。
-        - 罗盘核心替换: 采用数学上绝对可靠的 `np.tanh` 函数作为新的归一化核心。
-                         `tanh` 能完美地将任何实数映射到 [-1, 1] 区间，并绝对保证信号的
-                         正负极性不被改变，彻底解决了“叛变罗盘”的问题。
+        【V4.4 · 探针清理版】诊断筹码同调驱动力
+        - 核心清理: 移除了方法内的调试探针逻辑，净化日志输出。
         """
         base_drive = holder_sentiment_scores
         modulation_factor = pd.Series(1.0, index=df.index)
@@ -418,25 +366,8 @@ class ChipIntelligence:
         bearish_headwind_mask = bearish_mask & (cost_structure_scores > 0)
         modulation_factor.loc[bearish_headwind_mask] = (1 - cost_structure_scores.loc[bearish_headwind_mask]).clip(lower=0.1)
         coherent_drive_raw = base_drive * modulation_factor
-        # [修改] 使用 np.tanh 替换 get_adaptive_mtf_normalized_bipolar_score
-        # tanh 函数能确保负输入得到负输出，正输入得到正输出，完美修复极性反转BUG
-        final_score = np.tanh(coherent_drive_raw * (self.bipolar_sensitivity * 2)) # 乘以敏感度因子放大信号
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_dates = [pd.to_datetime(d).tz_localize(df.index.tz if df.index.tz else None) for d in probe_dates_str]
-            for probe_date in probe_dates:
-                if probe_date in df.index:
-                    print(f"    -> [探针] --- SCORE_CHIP_COHERENT_DRIVE (V4.3) @ {probe_date.date()} ---")
-                    print(f"      --- 引擎 (Base Drive) ---")
-                    print(f"        - 引擎得分 (原始holder_sentiment): {base_drive.loc[probe_date]:.4f}")
-                    print(f"      --- 传动系统 (Transmission) ---")
-                    print(f"        - 原始输入 (cost_structure_scores): {cost_structure_scores.loc[probe_date]:.4f}")
-                    print(f"        - 四象限调制因子 (modulation_factor): {modulation_factor.loc[probe_date]:.4f}")
-                    print(f"      --- 最终裁决 ---")
-                    print(f"        - 原始驱动力 (引擎 * 调制因子): {coherent_drive_raw.loc[probe_date]:.4f}")
-                    print(f"        - 最终得分 (tanh归一化后): {final_score.loc[probe_date]:.4f}") # 修改: 更新探针描述
-                    print("    -> [探针] ----------------------------------------------------")
+        final_score = np.tanh(coherent_drive_raw * (self.bipolar_sensitivity * 2))
+        # [删除] 移除了方法内的调试探针逻辑
         return final_score.astype(np.float32)
 
     def _diagnose_control_sovereignty(self, df: pd.DataFrame) -> pd.Series:
