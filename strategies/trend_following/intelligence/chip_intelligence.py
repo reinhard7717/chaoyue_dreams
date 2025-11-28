@@ -476,40 +476,35 @@ class ChipIntelligence:
 
     def _diagnose_axiom_historical_potential(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.0 · 新增】筹码公理六：诊断“筹码势能”
-        - 核心逻辑: 融合长期吸筹的时长、质量与成本稳定性，评估主力根基的深厚程度。
-        - A股特性: “横有多长，竖有多高”。此模型旨在量化“横盘”期间积蓄的能量。
+        【V1.1 · 依赖解耦重构版】筹码公理六：诊断“筹码势能”
+        - 核心重构: 彻底解除了对过程层信号的“越级依赖”，解决了因执行顺序问题导致的启动失败。
+        - 核心升级: 改造为直接消费底层的、已存在的原子信号（如主力净流入、集中度斜率等）的长期
+                      滚动状态，从根本上量化历史势能，确保了架构的纯粹性。
         """
-        print("    -> [筹码层] 正在诊断“筹码势能”公理...")
+        print("    -> [筹码层] 正在诊断“筹码势能”公理 (V1.1 · 依赖解耦版)...")
+        # [修改代码块] 更新依赖为已存在的原子/数据层信号
         required_signals = [
-            'PROCESS_META_STEALTH_ACCUMULATION', 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION',
-            'PROCESS_META_DECEPTIVE_ACCUMULATION', 'dominant_peak_solidity_D'
+            'main_force_net_flow_calibrated_D', 'SLOPE_55_winner_concentration_90pct_D',
+            'dominant_peak_solidity_D'
         ]
-        # 校验依赖的过程信号是否存在于atomic_states
-        missing_signals = [s for s in required_signals if s not in self.strategy.atomic_states and s not in df.columns]
-        if missing_signals:
-            print(f"    -> [筹码情报校验] 方法 '_diagnose_axiom_historical_potential' 启动失败：缺少核心信号 {missing_signals}。")
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_historical_potential"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
-        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {21: 0.5, 55: 0.3, 89: 0.2}) # 使用更长周期的权重
         long_window = 250 # 定义长周期窗口
-        # 组合多种吸筹过程信号
-        stealth_accum = self._get_safe_series(df, self.strategy.atomic_states, 'PROCESS_META_STEALTH_ACCUMULATION', 0.0)
-        panic_accum = self._get_safe_series(df, self.strategy.atomic_states, 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 0.0)
-        deceptive_accum = self._get_safe_series(df, self.strategy.atomic_states, 'PROCESS_META_DECEPTIVE_ACCUMULATION', 0.0)
-        daily_accumulation_strength = pd.concat([stealth_accum, panic_accum, deceptive_accum], axis=1).max(axis=1)
-        # 1. 吸筹周期长度 (Duration)
-        accumulation_days = (daily_accumulation_strength > 0.1).rolling(window=long_window, min_periods=21).sum()
-        duration_score = get_adaptive_mtf_normalized_score(accumulation_days, df_index, ascending=True, tf_weights=tf_weights)
-        # 2. 吸筹质量深度 (Quality)
-        accumulation_quality = daily_accumulation_strength.rolling(window=long_window, min_periods=21).mean()
-        quality_score = get_adaptive_mtf_normalized_score(accumulation_quality, df_index, ascending=True, tf_weights=tf_weights)
+        # 1. 长期资金注入深度 (Duration & Quality) - 使用主力净流入的长期累积值
+        mf_net_flow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0)
+        long_term_flow_accumulation = mf_net_flow.clip(lower=0).rolling(window=long_window, min_periods=55).sum()
+        flow_score = get_adaptive_mtf_normalized_score(long_term_flow_accumulation, df_index, ascending=True, tf_weights=tf_weights)
+        # 2. 长期筹码集中趋势 (Concentration Trend)
+        concentration_slope = self._get_safe_series(df, df, 'SLOPE_55_winner_concentration_90pct_D', 0.0)
+        concentration_score = get_adaptive_mtf_normalized_score(concentration_slope.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights)
         # 3. 成本结构稳定性 (Stability)
         peak_solidity = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5)
         stability_score = get_adaptive_mtf_normalized_score(peak_solidity, df_index, ascending=True, tf_weights=tf_weights)
         # 4. 融合
-        potential_score = (duration_score * 0.4 + quality_score * 0.4 + stability_score * 0.2)
+        potential_score = (flow_score * 0.5 + concentration_score * 0.3 + stability_score * 0.2)
         # [新增] 调试探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -518,8 +513,8 @@ class ChipIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df_index:
                 print(f"    -> [筹码势能探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - duration_score (时长): {duration_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - quality_score (质量): {quality_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - flow_score (长期资金): {flow_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - concentration_score (长期集中): {concentration_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - stability_score (稳定): {stability_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_potential_score: {potential_score.loc[probe_date_for_loop]:.4f}")
         return potential_score.clip(0, 1).astype(np.float32)

@@ -285,39 +285,25 @@ class FoundationIntelligence:
 
     def _diagnose_axiom_relative_strength(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.0 · 新增】基础公理五：诊断“相对强度”
-        - 核心逻辑: 融合价格和资金流的相对强度，评估股票在“空间”维度上的领涨或跟跌属性。
-        - A股特性: “强者恒强”。此模型旨在第一时间锁定板块和市场中的“领航舰”。
+        【V1.1 · 实战适配版】基础公理五：诊断“相对强度”
+        - 核心重构: 废弃对理想化但缺失的行业/指数涨跌幅信号的依赖。
+        - 核心升级: 改造为直接使用数据层提供的、更具实战意义的 `industry_strength_rank_D`
+                      （行业强度排名）作为核心判断依据，解决了因数据契约失效导致的启动失败问题。
         """
-        print("    -> [基础层] 正在诊断“相对强度”公理...")
+        print("    -> [基础层] 正在诊断“相对强度”公理 (V1.1 · 实战适配版)...")
+        # [修改代码块] 更新依赖信号为实际存在的核心代理信号
         required_signals = [
-            'pct_change_D', 'industry_pct_change_D', 'index_pct_change_D',
-            'main_force_net_flow_calibrated_D', 'industry_main_force_net_flow_avg_D'
+            'industry_strength_rank_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_relative_strength"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
-        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 1. 相对价格强度 (Price RS)
-        stock_pct = self._get_safe_series(df, 'pct_change_D', 0.0)
-        industry_pct = self._get_safe_series(df, 'industry_pct_change_D', 0.0)
-        index_pct = self._get_safe_series(df, 'index_pct_change_D', 0.0)
-        # 计算超额收益，并对累积超额收益进行归一化
-        excess_return_vs_industry = (stock_pct - industry_pct).rolling(window=21).sum()
-        excess_return_vs_index = (stock_pct - index_pct).rolling(window=21).sum()
-        price_rs_score = (
-            get_adaptive_mtf_normalized_bipolar_score(excess_return_vs_industry, df_index, default_weights) * 0.6 +
-            get_adaptive_mtf_normalized_bipolar_score(excess_return_vs_index, df_index, default_weights) * 0.4
-        )
-        # 2. 相对资金强度 (Flow RS)
-        stock_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0)
-        industry_flow = self._get_safe_series(df, 'industry_main_force_net_flow_avg_D', 0.0)
-        excess_flow = (stock_flow - industry_flow).rolling(window=21).sum()
-        flow_rs_score = get_adaptive_mtf_normalized_bipolar_score(excess_flow, df_index, default_weights)
-        # 3. 融合
-        relative_strength_score = (price_rs_score * 0.7 + flow_rs_score * 0.3)
+        # [修改代码块] 移除旧的、基于缺失信号的逻辑
+        # 1. 获取核心代理信号：行业强度排名
+        industry_rank = self._get_safe_series(df, 'industry_strength_rank_D', 0.5, method_name="_diagnose_axiom_relative_strength")
+        # 2. 将排名分（0到1）转换为双极性分数（-1到1）
+        # 排名大于0.5视为强于行业平均，小于0.5视为弱于行业平均
+        relative_strength_score = (industry_rank - 0.5) * 2
         # [新增] 调试探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -326,9 +312,9 @@ class FoundationIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df_index:
                 print(f"    -> [相对强度探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - price_rs_score (价格): {price_rs_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - flow_rs_score (资金): {flow_rs_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - final_relative_strength_score: {relative_strength_score.loc[probe_date_for_loop]:.4f}")
+                # [修改代码块] 更新探针输出
+                print(f"       - industry_strength_rank_D (原始排名): {industry_rank.loc[probe_date_for_loop]:.4f}")
+                print(f"       - final_relative_strength_score (转换后): {relative_strength_score.loc[probe_date_for_loop]:.4f}")
         return relative_strength_score.clip(-1, 1).astype(np.float32)
 
 

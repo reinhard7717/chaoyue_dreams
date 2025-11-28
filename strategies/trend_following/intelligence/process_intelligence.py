@@ -395,21 +395,23 @@ class ProcessIntelligence:
 
     def _calculate_main_force_rally_intent(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.2 · 安全阀版】计算“主力拉升意图”的专属关系分数。
-        - 核心升级: 新增“投料前校验”安全阀，确保所有依赖数据存在后才开始计算。
+        【V3.0 · 相对强度增强版】计算“主力拉升意图”的专属关系分数。
+        - 核心升级: 引入“相对强度”公理作为环境调节器，放大“真龙头”的拉升信号，抑制“跟风者”的无效信号。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (V3.2 · 安全阀版)...")
-        # “投料前校验”安全阀
+        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (V3.0 · 相对强度增强版)...")
         required_signals = [
             'pct_change_D', 'main_force_net_flow_calibrated_D', 'main_force_price_impact_ratio_D',
             'upward_impulse_purity_D', 'volume_ratio_D', 'control_solidity_index_D',
             'main_force_cost_advantage_D', 'SLOPE_5_winner_concentration_90pct_D',
             'dominant_peak_solidity_D', 'active_buying_support_D', 'pressure_rejection_strength_D',
-            'profit_realization_quality_D'
+            'profit_realization_quality_D', 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH'
         ]
         if not self._validate_required_signals(df, required_signals, "_calculate_main_force_rally_intent"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
+        # [新增代码块] 获取新公理及配置参数
+        relative_strength = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH', 0.0)
+        rs_amplifier = config.get('relative_strength_amplifier', 0.0)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
@@ -459,7 +461,10 @@ class ProcessIntelligence:
         bullish_intent = (aggressiveness_score * control_score * obstacle_clearance_score).pow(1/3)
         bearish_mask = (price_change_norm < 0) | (net_flow_norm < 0)
         bearish_score = (price_change_norm.clip(upper=0).abs() * 0.5 + net_flow_norm.clip(upper=0).abs() * 0.5).clip(0, 1) * -1
-        final_rally_intent = bullish_intent.mask(bearish_mask, bearish_score)
+        base_rally_intent = bullish_intent.mask(bearish_mask, bearish_score)
+        # [修改代码块] 融合相对强度
+        rs_modulator = (1 + relative_strength * rs_amplifier)
+        final_rally_intent = (base_rally_intent * rs_modulator).clip(-1, 1)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day, (final_rally_intent + 0.35)).clip(-1, 1)
         self.strategy.atomic_states["_DEBUG_rally_aggressiveness"] = aggressiveness_score
         self.strategy.atomic_states["_DEBUG_rally_control"] = control_score
@@ -751,14 +756,18 @@ class ProcessIntelligence:
 
     def _calculate_stealth_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.4 · 探针清理版】计算“隐蔽吸筹”的专属关系分数。
-        - 核心清理: 移除了方法内的调试探针逻辑，净化日志输出。
+        【V4.0 · 势能增强版】计算“隐蔽吸筹”的专属关系分数。
+        - 核心升级: 引入“筹码势能”公理作为背景过滤器和结果放大器，优先识别具备长期潜力的吸筹行为。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_STEALTH_ACCUMULATION (V3.4 · 探针清理版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_STEALTH_ACCUMULATION (V4.0 · 势能增强版)...")
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # [新增代码块] 获取新公理及配置参数
+        historical_potential = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0)
+        potential_gate = config.get('historical_potential_gate', 0.0)
+        potential_amplifier = config.get('historical_potential_amplifier', 0.0)
         price_trend_raw = self._get_safe_series(df, f'SLOPE_5_close_D', 0.0, method_name="_calculate_stealth_accumulation")
         stability_score = self.strategy.atomic_states.get('SCORE_DYN_AXIOM_STABILITY', pd.Series(0.0, index=df_index))
         volume_atrophy_score = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_ATROPHY', pd.Series(0.0, index=df_index))
@@ -785,19 +794,25 @@ class ProcessIntelligence:
         evidence4_consolidative = split_order_accumulation_score.clip(lower=0)
         consolidative_score = (evidence1_consolidative * evidence2_consolidative * evidence3_consolidative * evidence4_consolidative).pow(1/4)
         consolidative_score = consolidative_score.where(consolidative_mask, 0.0)
-        final_score = pd.concat([suppressive_score, consolidative_score], axis=1).max(axis=1).fillna(0.0)
-        # [删除] 移除了方法内的调试探针逻辑
+        base_score = pd.concat([suppressive_score, consolidative_score], axis=1).max(axis=1).fillna(0.0)
+        # [新增代码块] 融合筹码势能
+        potential_gate_mask = historical_potential > potential_gate
+        potential_modulator = (1 + historical_potential * potential_amplifier)
+        final_score = (base_score * potential_modulator).where(potential_gate_mask, 0.0)
         self.strategy.atomic_states["_DEBUG_accum_suppressive_score"] = suppressive_score
         self.strategy.atomic_states["_DEBUG_accum_consolidative_score"] = consolidative_score
-        return final_score.astype(np.float32)
+        return final_score.clip(0, 1).astype(np.float32)
 
     def _calculate_panic_washout_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.4 · 探针清理版】计算“恐慌洗盘吸筹”的专属信号。
-        - 核心清理: 移除了方法内的调试探针逻辑，净化日志输出。
+        【V3.0 · 势能增强版】计算“恐慌洗盘吸筹”的专属信号。
+        - 核心升级: 引入“筹码势能”公理作为强门控条件，确保此高风险战术只在主力根基深厚时被识别。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (V2.4 · 探针清理版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (V3.0 · 势能增强版)...")
         df_index = df.index
+        # [新增代码块] 获取新公理及配置参数
+        historical_potential = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0)
+        potential_gate = config.get('historical_potential_gate', 0.0)
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -822,9 +837,10 @@ class ProcessIntelligence:
         is_significant_drop = (pct_change < -0.03) | (lower_shadow_strength > 0.6)
         is_volume_spike = volume_burst > 0.5
         washout_candidate_mask = is_significant_drop & is_volume_spike
-        final_score = (panic_score * absorption_score * repair_score).pow(1/3)
-        final_score = final_score.where(washout_candidate_mask, 0.0).fillna(0.0)
-        # [删除] 移除了方法内的调试探针逻辑
+        base_score = (panic_score * absorption_score * repair_score).pow(1/3)
+        # [修改代码块] 融合筹码势能作为强门控
+        potential_gate_mask = historical_potential > potential_gate
+        final_score = base_score.where(washout_candidate_mask & potential_gate_mask, 0.0).fillna(0.0)
         self.strategy.atomic_states["_DEBUG_washout_panic_score"] = panic_score
         self.strategy.atomic_states["_DEBUG_washout_absorption_score"] = absorption_score
         self.strategy.atomic_states["_DEBUG_washout_repair_score"] = repair_score
@@ -919,11 +935,21 @@ class ProcessIntelligence:
 
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.3 · 探针清理版】诊断“突破加速抢筹”战术。
-        - 核心清理: 移除了方法内的调试探针逻辑，净化日志输出。
+        【V2.0 · 相对强度增强版】诊断“突破加速抢筹”战术。
+        - 核心升级: 引入“相对强度”公理作为环境调节器，放大“领军者”的突破信号，确认其龙头地位。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_BREAKOUT_ACCELERATION (V1.3 · 探针清理版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_BREAKOUT_ACCELERATION (V2.0 · 相对强度增强版)...")
+        # [新增代码行] 将新公理加入依赖校验
+        required_signals = [
+            'SCORE_PATTERN_AXIOM_BREAKOUT', 'PROCESS_ATOMIC_REL_SCORE_PROCESS_META_MAIN_FORCE_RALLY_INTENT',
+            'PROCESS_META_POWER_TRANSFER', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_calculate_breakout_acceleration"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
+        # [新增代码块] 获取新公理及配置参数
+        relative_strength = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH', 0.0)
+        rs_amplifier = config.get('relative_strength_amplifier', 0.0)
         breakout_signal = self.strategy.atomic_states.get('SCORE_PATTERN_AXIOM_BREAKOUT', pd.Series(0.0, index=df_index))
         rally_intent_signal_name = 'PROCESS_ATOMIC_REL_SCORE_PROCESS_META_MAIN_FORCE_RALLY_INTENT'
         rally_intent = self.strategy.atomic_states.get(rally_intent_signal_name, pd.Series(0.0, index=df_index))
@@ -933,9 +959,11 @@ class ProcessIntelligence:
         driver_evidence = rally_intent.clip(lower=0)
         transfer_evidence = power_transfer.clip(lower=0)
         confirmation_evidence = trend_form.clip(lower=0)
-        final_score = (driver_evidence * transfer_evidence * confirmation_evidence).pow(1/3)
+        base_score = (driver_evidence * transfer_evidence * confirmation_evidence).pow(1/3)
+        # [修改代码块] 融合相对强度
+        rs_modulator = (1 + relative_strength.clip(lower=0) * rs_amplifier)
+        final_score = (base_score * rs_modulator).clip(0, 1)
         final_score = final_score.where(breakout_trigger_mask, 0.0).fillna(0.0)
-        # [删除] 移除了方法内的调试探针逻辑
         return final_score.astype(np.float32)
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:

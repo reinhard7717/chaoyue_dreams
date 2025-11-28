@@ -119,9 +119,9 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V3.0 · 战场控制权版】资金流公理一：诊断“战场控制权”
-        - 核心逻辑: 融合宏观资金流向、微观盘口压力、压力有效性，并以对倒强度进行惩罚。
-        - A股特性: 真正的控盘是“四两拨千斤”，而非“大水漫灌”。此模型旨在识别高效、高纯度的控盘行为。
+        【V3.1 · NaN修复版】资金流公理一：诊断“战场控制权”
+        - 核心修复: 修正了 `micro_control_score` 的计算公式，通过对乘积因子取绝对值，
+                      避免了对负数开平方根而导致的NaN污染问题，确保了信号的健壮性。
         """
         print("    -> [资金流层] 正在诊断“战场控制权”公理...")
         required_signals = [
@@ -142,7 +142,8 @@ class FundFlowIntelligence:
         ofi_impact = self._get_safe_series(df, df, 'ofi_price_impact_factor_D', 0.0, method_name="_diagnose_axiom_consensus")
         imbalance_score = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance, df_index, tf_weights_ff)
         impact_score = get_adaptive_mtf_normalized_bipolar_score(ofi_impact, df_index, tf_weights_ff)
-        micro_control_score = (imbalance_score * impact_score).pow(0.5) * np.sign(imbalance_score)
+        # [修改代码行] 修正数学公式，先取绝对值再开方，避免NaN
+        micro_control_score = (imbalance_score.abs() * impact_score.abs()).pow(0.5) * np.sign(imbalance_score)
         # 3. 纯度过滤器 (惩罚项)
         wash_trade_intensity = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_consensus")
         purity_filter = 1 - get_adaptive_mtf_normalized_score(wash_trade_intensity, df_index, ascending=True, tf_weights=tf_weights_ff)

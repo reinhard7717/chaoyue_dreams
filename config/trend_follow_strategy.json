@@ -598,19 +598,23 @@
           },
           {
             "name": "PROCESS_META_STEALTH_ACCUMULATION",
-            "type": "meta_analysis", "task_type": "base",
-            "relationship_type": "divergence",
-            "signal_A": "pct_change_D", "source_A": "df", "change_type_A": "diff",
-            "signal_B": "dominant_peak_solidity_D", "source_B": "df", "change_type_B": "diff",
-            "signal_b_factor_k": 1.5,
-            "description": "【V2.0 换装】隐蔽吸筹。使用'主峰稳固度'替代旧的'90%集中度'，新逻辑为(主峰稳固度变化-价格变化)。"
+            "type": "meta_analysis",
+            "task_type": "base",
+            "relationship_type": "custom",
+            "scoring_mode": "unipolar",
+            "historical_potential_gate": 0.2,
+            "historical_potential_amplifier": 0.5,
+            "description": "【V4.0 · 势能增强版】诊断主力在横盘或缓跌中隐蔽吸筹的行为。引入'筹码势能'作为背景过滤器和结果放大器。"
           },
           {
             "name": "PROCESS_META_PANIC_WASHOUT_ACCUMULATION",
-            "type": "meta_analysis", "task_type": "base",
+            "type": "meta_analysis",
+            "task_type": "base",
             "relationship_type": "custom",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 黄金坑战术】诊断主力通过制造恐慌性下跌来清洗浮筹并借机吸筹的战术行为。正分代表一次成功的恐慌洗盘吸筹。"
+            "historical_potential_gate": 0.3,
+            "historical_potential_amplifier": 0.6,
+            "description": "【V2.0 · 势能增强版】诊断主力通过制造恐慌性下跌进行洗盘吸筹。引入'筹码势能'作为真实性检验的强门控条件。"
           },
           {
             "name": "PROCESS_META_DECEPTIVE_ACCUMULATION",
@@ -657,9 +661,11 @@
           },
           {
             "name": "PROCESS_META_MAIN_FORCE_RALLY_INTENT",
-            "type": "meta_analysis", "task_type": "base",
+            "type": "meta_analysis",
+            "task_type": "base",
             "relationship_type": "custom",
-            "description": "【V2.0 · 主力拉升意图重构版】诊断主力控盘拉升或抢筹拉升的综合意图。正分代表主力积极拉升，负分代表主力不积极或存在派发。"
+            "relative_strength_amplifier": 1.0,
+            "description": "【V3.0 · 相对强度增强版】诊断主力拉升意图。引入'相对强度'作为环境调节器，放大'真龙头'信号，抑制'跟风者'信号。"
           },
           {
             "name": "PROCESS_META_COST_ADVANTAGE_TREND",
@@ -681,7 +687,8 @@
             "task_type": "base",
             "relationship_type": "custom",
             "scoring_mode": "unipolar",
-            "description": "【V1.1 · 精准制导版】诊断主力在成功突破后，乘胜追击、加速抢筹的战术行为。"
+            "relative_strength_amplifier": 1.2,
+            "description": "【V2.0 · 相对强度增强版】诊断突破后的加速行为。引入'相对强度'放大'领军者'的突破信号。"
           },
           {
             "name": "PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT",
