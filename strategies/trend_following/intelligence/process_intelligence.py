@@ -321,23 +321,21 @@ class ProcessIntelligence:
 
     def _calculate_cost_advantage_trend_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.1 · 大一统同步版】计算成本优势趋势。
-        - 核心升级: 将确认项从旧的 `CONCENTRATION` 升级为 `SCORE_CHIP_STRATEGIC_POSTURE`。
+        【V3.2 · 指挥链静默版】计算成本优势趋势。
+        - 核心重构: 移除了此处的最终日志输出。战报发布权已上移至调度中心。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_COST_ADVANTAGE_TREND (深度博弈四象限版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_COST_ADVANTAGE_TREND (V3.2 · 指挥链静默版)...") # 修改: 更新版本信息
         df_index = df.index
         std_window = self.std_window
         bipolar_sensitivity = self.bipolar_sensitivity
         price_change = self._get_safe_series(df, 'pct_change_D', pd.Series(0.0, index=df_index), method_name="_calculate_cost_advantage_trend_relationship")
         main_force_cost_advantage = self._get_safe_series(df, 'main_force_cost_advantage_D', pd.Series(0.0, index=df_index), method_name="_calculate_cost_advantage_trend_relationship")
-        # 获取MTF权重配置
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         P_change = get_adaptive_mtf_normalized_bipolar_score(price_change, df_index, default_weights, bipolar_sensitivity)
         CA_change = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage.diff(1).fillna(0), df_index, default_weights, bipolar_sensitivity)
         MF_flow = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_calculate_cost_advantage_trend_relationship"), df_index, default_weights, bipolar_sensitivity)
-        # 使用新的“战略态势”信号
         Chip_posture = self.strategy.atomic_states.get('SCORE_CHIP_STRATEGIC_POSTURE', pd.Series(0.0, index=df_index))
         Micro_decep = self.strategy.atomic_states.get('SCORE_MICRO_AXIOM_DECEPTION', pd.Series(0.0, index=df_index))
         Up_eff_unipolar = self.strategy.atomic_states.get('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', pd.Series(0.5, index=df_index))
@@ -345,30 +343,30 @@ class ProcessIntelligence:
         Vol_apathy_unipolar = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_ATROPHY', pd.Series(0.5, index=df_index))
         Vol_apathy_bipolar = (Vol_apathy_unipolar * 2 - 1).clip(-1, 1)
         Q1_base = (P_change.clip(lower=0) + CA_change.clip(lower=0)) / 2
-        Q1_confirm = (MF_flow.clip(lower=0) + Chip_posture.clip(lower=0) + Up_eff_bipolar.clip(lower=0)) / 3 # 替换信号
+        Q1_confirm = (MF_flow.clip(lower=0) + Chip_posture.clip(lower=0) + Up_eff_bipolar.clip(lower=0)) / 3
         Q1_final = Q1_base * Q1_confirm
         Q2_base = (P_change.clip(upper=0).abs() + CA_change.clip(upper=0).abs()) / 2
         MF_flow_bearish = MF_flow.clip(upper=0).abs()
-        Chip_posture_bearish = Chip_posture.clip(upper=0).abs() # 替换信号
+        Chip_posture_bearish = Chip_posture.clip(upper=0).abs()
         Down_eff_bearish = Up_eff_bipolar.clip(upper=0).abs()
-        Q2_confirm = (MF_flow_bearish + Chip_posture_bearish + Down_eff_bearish) / 3 # 替换信号
+        Q2_confirm = (MF_flow_bearish + Chip_posture_bearish + Down_eff_bearish) / 3
         Q2_final = Q2_base * Q2_confirm * -1
         Q3_base = (P_change.clip(upper=0).abs() + CA_change.clip(lower=0)) / 2
-        Q3_confirm = (MF_flow.clip(lower=0) + Chip_posture.clip(lower=0) + Micro_decep.clip(lower=0) + Vol_apathy_bipolar.clip(lower=0)) / 4 # 替换信号
+        Q3_confirm = (MF_flow.clip(lower=0) + Chip_posture.clip(lower=0) + Micro_decep.clip(lower=0) + Vol_apathy_bipolar.clip(lower=0)) / 4
         Q3_final = Q3_base * Q3_confirm
         Q4_base = (P_change.clip(lower=0) + CA_change.clip(upper=0).abs()) / 2
         MF_flow_bearish_Q4 = MF_flow.clip(upper=0).abs()
-        Chip_posture_bearish_Q4 = Chip_posture.clip(upper=0).abs() # 替换信号
+        Chip_posture_bearish_Q4 = Chip_posture.clip(upper=0).abs()
         Micro_decep_bearish_Q4 = Micro_decep.clip(upper=0).abs()
         Up_eff_bearish_Q4 = Up_eff_bipolar.clip(upper=0).abs()
-        Q4_confirm = (MF_flow_bearish_Q4 + Chip_posture_bearish_Q4 + Micro_decep_bearish_Q4 + Up_eff_bearish_Q4) / 4 # 替换信号
+        Q4_confirm = (MF_flow_bearish_Q4 + Chip_posture_bearish_Q4 + Micro_decep_bearish_Q4 + Up_eff_bearish_Q4) / 4
         Q4_final = Q4_base * Q4_confirm * -1
         final_score = (Q1_final * 0.4 + Q2_final * 0.3 + Q3_final * 0.2 + Q4_final * 0.1)
         final_score = final_score.clip(-1, 1)
         self.strategy.atomic_states[f"_DEBUG_P_change"] = P_change
         self.strategy.atomic_states[f"_DEBUG_CA_change"] = CA_change
         self.strategy.atomic_states[f"_DEBUG_MF_flow"] = MF_flow
-        self.strategy.atomic_states[f"_DEBUG_Chip_posture"] = Chip_posture # 更新调试信号名称
+        self.strategy.atomic_states[f"_DEBUG_Chip_posture"] = Chip_posture
         self.strategy.atomic_states[f"_DEBUG_Micro_decep"] = Micro_decep
         self.strategy.atomic_states[f"_DEBUG_Up_eff_bipolar"] = Up_eff_bipolar
         self.strategy.atomic_states[f"_DEBUG_Vol_apathy_bipolar"] = Vol_apathy_bipolar
@@ -376,7 +374,7 @@ class ProcessIntelligence:
         self.strategy.atomic_states[f"_DEBUG_Q2_final"] = Q2_final
         self.strategy.atomic_states[f"_DEBUG_Q3_final"] = Q3_final
         self.strategy.atomic_states[f"_DEBUG_Q4_final"] = Q4_final
-        print(f"    -> [过程层] PROCESS_META_COST_ADVANTAGE_TREND 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
+        # [删除] 移除此处的战报发布
         return final_score.astype(np.float32)
 
     def _calculate_main_force_rally_intent(self, df: pd.DataFrame, config: Dict) -> pd.Series:
