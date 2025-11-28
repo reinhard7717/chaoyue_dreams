@@ -795,53 +795,41 @@ class ProcessIntelligence:
 
     def _calculate_stealth_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.1 · 真理探针版】计算“隐蔽吸筹”的专属关系分数。
-        - 核心升级: 植入“真理探针”，详细打印两个战术场景的触发条件及其所有核心证据链的数值，
-                     用于诊断最终得分为零的根本原因。
+        【V3.2 · 战报修正版】计算“隐蔽吸筹”的专属关系分数。
+        - 核心修复: 修正了最终日志输出，确保其汇报的是最终得分 final_score，解决了“幻影信号”BUG。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_STEALTH_ACCUMULATION (双战术场景建模版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_STEALTH_ACCUMULATION (V3.2 · 战报修正版)...") # 修改: 更新版本信息
         df_index = df.index
-        # 1. 获取MTF权重配置
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 2. 获取跨领域的原子信号和过程信号作为证据
-        # 价格与波动
         price_trend_raw = self._get_safe_series(df, f'SLOPE_5_close_D', 0.0, method_name="_calculate_stealth_accumulation")
         stability_score = self.strategy.atomic_states.get('SCORE_DYN_AXIOM_STABILITY', pd.Series(0.0, index=df_index))
-        # 成交量
         volume_atrophy_score = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_ATROPHY', pd.Series(0.0, index=df_index))
-        # 筹码
         concentration_trend_raw = self._get_safe_series(df, f'SLOPE_5_winner_concentration_90pct_D', 0.0, method_name="_calculate_stealth_accumulation")
         peak_solidity_trend_raw = self._get_safe_series(df, f'SLOPE_5_dominant_peak_solidity_D', 0.0, method_name="_calculate_stealth_accumulation")
         cost_advantage_raw = self._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name="_calculate_stealth_accumulation")
-        # 资金流
         power_transfer_score = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
         split_order_accumulation_score = self.strategy.atomic_states.get('PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', pd.Series(0.0, index=df_index))
-        # 3. 证据归一化
         price_trend_norm = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df_index, default_weights, self.bipolar_sensitivity)
         concentration_trend_norm = get_adaptive_mtf_normalized_bipolar_score(concentration_trend_raw, df_index, default_weights, self.bipolar_sensitivity)
         peak_solidity_trend_norm = get_adaptive_mtf_normalized_bipolar_score(peak_solidity_trend_raw, df_index, default_weights, self.bipolar_sensitivity)
         cost_advantage_norm = get_adaptive_mtf_normalized_bipolar_score(cost_advantage_raw, df_index, default_weights, self.bipolar_sensitivity)
-        # 4. 场景一: 打压式吸筹 (价格不涨 + 缩量 + 权力转移 + 筹码集中)
-        suppressive_mask = price_trend_norm <= 0.1 # 允许微弱上涨或下跌
+        suppressive_mask = price_trend_norm <= 0.1
         evidence1_suppressive = volume_atrophy_score.clip(lower=0)
         evidence2_suppressive = power_transfer_score.clip(lower=0)
         evidence3_suppressive = concentration_trend_norm.clip(lower=0)
         evidence4_suppressive = cost_advantage_norm.clip(lower=0)
         suppressive_score = (evidence1_suppressive * evidence2_suppressive * evidence3_suppressive * evidence4_suppressive).pow(1/4)
         suppressive_score = suppressive_score.where(suppressive_mask, 0.0)
-        # 5. 场景二: 横盘式吸筹 (低波 + 缩量 + 权力转移 + 筹码固化 + 拆单)
-        consolidative_mask = stability_score > 0.2 # 波动率较低
+        consolidative_mask = stability_score > 0.2
         evidence1_consolidative = volume_atrophy_score.clip(lower=0)
         evidence2_consolidative = power_transfer_score.clip(lower=0)
         evidence3_consolidative = peak_solidity_trend_norm.clip(lower=0)
         evidence4_consolidative = split_order_accumulation_score.clip(lower=0)
         consolidative_score = (evidence1_consolidative * evidence2_consolidative * evidence3_consolidative * evidence4_consolidative).pow(1/4)
         consolidative_score = consolidative_score.where(consolidative_mask, 0.0)
-        # 6. 融合两种战术得分，取最大值
         final_score = pd.concat([suppressive_score, consolidative_score], axis=1).max(axis=1).fillna(0.0)
-        # [新增] 植入真理探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -866,10 +854,9 @@ class ProcessIntelligence:
                     print(f"      --- 最终裁决 ---")
                     print(f"        - 最终得分 (max(场景一, 场景二)): {final_score.loc[probe_date]:.4f}")
                     print("    -> [探针] ----------------------------------------------------")
-        # 7. 存储调试信息
         self.strategy.atomic_states["_DEBUG_accum_suppressive_score"] = suppressive_score
         self.strategy.atomic_states["_DEBUG_accum_consolidative_score"] = consolidative_score
-        # [修改] 修复战报誊写错误，确保汇报的是最终得分
+        # [修改] 修复战报誊写错误，确保汇报的是最终得分 final_score
         print(f"    -> [过程层] PROCESS_META_STEALTH_ACCUMULATION 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
@@ -1062,26 +1049,17 @@ class ProcessIntelligence:
 
     def _calculate_split_order_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.1 · 情报源校准版】计算“拆单吸筹强度”的专属信号。
-        - 核心修复: 将依赖的数据源从不存在的 `split_order_accumulation_intensity_D` 校准为
-                     真实存在的 `hidden_accumulation_intensity_D`，解决了信号源头枯竭的问题。
-        - 核心逻辑: 对底层的原始指标 `hidden_accumulation_intensity_D` 进行场景化的归一化处理。
-        - 场景约束: 仅在价格被抑制（下跌、横盘或微涨）的场景下，该信号才具有战术意义。
-        - 探针: 植入深度探针，展示原始值、场景掩码状态和最终归一化得分。
+        【V1.2 · 战报修正版】计算“拆单吸筹强度”的专属信号。
+        - 核心修复: 修正了最终日志输出，确保其汇报的是应用场景约束后的 final_score，
+                     而不是中间值 normalized_score，解决了“幻影信号”BUG。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (V1.1 · 情报源校准版)...") # 修改: 更新版本信息
+        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (V1.2 · 战报修正版)...") # 修改: 更新版本信息
         df_index = df.index
-        # 1. [修改] 获取核心原始数据，校准信号名称
         raw_intensity = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_calculate_split_order_accumulation")
-        # 2. 定义场景约束
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_split_order_accumulation")
-        scene_mask = pct_change <= 0.02 # 价格被抑制，允许微弱上涨
-        # 3. 归一化处理
-        # 该原始指标通常是0-100，我们将其归一化到0-1
+        scene_mask = pct_change <= 0.02
         normalized_score = (raw_intensity / 100).clip(0, 1)
-        # 4. 应用场景约束
         final_score = normalized_score.where(scene_mask, 0.0).fillna(0.0)
-        # 5. 植入深度探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -1089,13 +1067,12 @@ class ProcessIntelligence:
             for probe_date in probe_dates:
                 if probe_date in df_index:
                     print(f"    -> [探针] --- PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY @ {probe_date.date()} ---")
-                    # [修改] 更新探针报告的数据源名称
                     print(f"      - 原始数据 (hidden_accumulation_intensity_D): {raw_intensity.loc[probe_date]:.4f}")
                     print(f"      - 场景约束 (涨幅 <= 2%): {scene_mask.loc[probe_date]} (当日涨幅: {pct_change.loc[probe_date]:.2%})")
                     print(f"      - 归一化得分 (原始值/100): {normalized_score.loc[probe_date]:.4f}")
                     print(f"      - 最终得分 (应用场景约束后): {final_score.loc[probe_date]:.4f}")
                     print("    -> [探针] ----------------------------------------------------")
-        # [修改] 修复战报誊写错误，确保汇报的是最终得分
+        # [修改] 修复战报誊写错误，确保汇报的是最终得分 final_score
         print(f"    -> [过程层] PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
