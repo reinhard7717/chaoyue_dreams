@@ -148,79 +148,99 @@ class ProcessIntelligence:
 
     def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.1 · 大一统同步版】计算“权力转移”信号，融合高频微观结构证据进行最终裁决。
-        - 核心升级: 将用于佐证中单归属的筹码信号，从旧的 `CONCENTRATION` 升级为更具战略意图的 `SCORE_CHIP_STRATEGIC_POSTURE`。
+        【V3.2 · 双场景博弈版】计算“权力转移”信号，能同时解读“打压吸筹”与“拉升换手”两大场景。
+        - 核心重构: 废弃单一场景模型，引入双场景并行计算，解决了在上涨日“失明”的重大缺陷。
+        - 场景一 (打压/横盘): 优化原逻辑，识别主力在弱势行情下的“反人性吸筹”。
+        - 场景二 (拉升): 新增逻辑，识别主力在强势行情下是“抢筹”、“换手”还是“派发”。
+        - 微观裁决: 无论何种场景，高保真的微观结构证据（OFI、对倒）都拥有最高的裁决权重。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_POWER_TRANSFER (V3.1 · 大一统同步版)...") # 修改: 更新版本信息
+        print("    -> [过程层] 正在计算 PROCESS_META_POWER_TRANSFER (V3.2 · 双场景博弈版)...") # 修改: 更新版本信息
         df_index = df.index
         # 1. 获取所有宏观与微观证据
-        # 宏观资金流
         net_sm_amount = self._get_safe_series(df, 'net_sh_amount_calibrated_D', 0.0, method_name="_calculate_power_transfer")
         net_md_amount = self._get_safe_series(df, 'net_md_amount_calibrated_D', 0.0, method_name="_calculate_power_transfer")
         net_lg_amount = self._get_safe_series(df, 'net_lg_amount_calibrated_D', 0.0, method_name="_calculate_power_transfer")
         net_elg_amount = self._get_safe_series(df, 'net_xl_amount_calibrated_D', 0.0, method_name="_calculate_power_transfer")
         trade_count = self._get_safe_series(df, 'trade_count_D', 0.0, method_name="_calculate_power_transfer")
-        # 微观结构证据
         main_force_ofi = self._get_safe_series(df, 'main_force_ofi_D', 0.0, method_name="_calculate_power_transfer")
         wash_trade_intensity = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_calculate_power_transfer")
-        # 2. 计算各层证据因子
-        allegiance_factor = pd.Series(0.0, index=df_index)
-        corroboration_factor = pd.Series(0.0, index=df_index)
-        micro_confirmation_factor = pd.Series(0.0, index=df_index)
-        # 核心场景: 股价下跌或横盘
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_power_transfer")
-        scene_mask = (pct_change <= 0.01) # 放宽到小幅上涨
-        if scene_mask.any():
-            # --- 宏观推断层 ---
-            md_condition_mask = scene_mask & (net_md_amount > 0)
+        # 2. 定义两大博弈场景
+        suppression_mask = (pct_change <= 0.01)
+        rally_mask = (pct_change > 0.01)
+        # 3. [核心修改] 统一计算微观确证因子 (所有场景通用)
+        ofi_evidence = self._normalize_series(main_force_ofi, df_index, bipolar=True) # OFI本身有方向
+        wash_trade_evidence = self._normalize_series(wash_trade_intensity, df_index, bipolar=False) # 对倒是无方向强度
+        # 微观确证分：OFI决定方向，对倒强度作为风险惩罚项（对倒越强，OFI可信度越低）
+        micro_confirmation_factor = (ofi_evidence * (1 - wash_trade_evidence)).clip(-1, 1)
+        # 4. 初始化最终归属因子
+        final_allegiance_factor = pd.Series(0.0, index=df_index)
+        # 5. 场景一: 打压/横盘吸筹
+        if suppression_mask.any():
+            allegiance_factor = pd.Series(0.0, index=df_index)
+            corroboration_factor = pd.Series(0.0, index=df_index)
+            md_condition_mask = suppression_mask & (net_md_amount > 0)
             if md_condition_mask.any():
                 absorption_evidence = self._normalize_series(net_md_amount, df_index)
-                # 使用新的“战略态势”信号进行佐证
                 chip_posture_axiom = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(lower=0)
                 allegiance_score = (absorption_evidence * 0.6 + chip_posture_axiom * 0.4).clip(0, 1)
                 allegiance_factor.loc[md_condition_mask] = allegiance_score.loc[md_condition_mask]
-            sm_condition_mask = scene_mask & (net_sm_amount > 0)
+            sm_condition_mask = suppression_mask & (net_sm_amount > 0)
             if sm_condition_mask.any():
                 sm_buy_evidence = self._normalize_series(net_sm_amount, df_index)
                 trade_count_roc = trade_count.pct_change(21).fillna(0)
                 trade_count_evidence = self._normalize_series(trade_count_roc, df_index)
                 corroboration_score = (sm_buy_evidence * 0.7 + trade_count_evidence * 0.3).clip(0, 1)
                 corroboration_factor.loc[sm_condition_mask] = corroboration_score.loc[sm_condition_mask]
-            # --- 微观确证层 ---
-            ofi_evidence = main_force_ofi.clip(lower=0)
-            wash_trade_evidence = self._normalize_series(wash_trade_intensity, df_index)
-            micro_score = (ofi_evidence * 0.7 + wash_trade_evidence * 0.3).clip(0, 1)
-            micro_confirmation_factor.loc[scene_mask] = micro_score.loc[scene_mask]
-        # 3. 三层证据融合，得到最终归属比例
-        final_allegiance_factor = (
-            allegiance_factor * 0.2 +           # 宏观中单证据
-            corroboration_factor * 0.2 +        # 宏观小单证据
-            micro_confirmation_factor * 0.6     # 微观确证 (最高权重)
-        ).clip(0, 1)
-        # 4. 重算“有效”主力与散户净额
+            
+            suppression_allegiance = (
+                allegiance_factor * 0.2 +
+                corroboration_factor * 0.2 +
+                micro_confirmation_factor.clip(lower=0) * 0.6 # 打压吸筹只关心正向的微观确认
+            ).clip(0, 1)
+            final_allegiance_factor.loc[suppression_mask] = suppression_allegiance.loc[suppression_mask]
+        # 6. 场景二: 拉升换手/派发
+        if rally_mask.any():
+            # 拉升日，如果中小单净流出（散户获利了结），而大单/超大单净流入（主力接盘），是权力转移的强烈信号
+            retail_profit_taking = self._normalize_series(net_sm_amount.clip(upper=0).abs() + net_md_amount.clip(upper=0).abs(), df_index)
+            main_force_chasing = self._normalize_series(net_lg_amount.clip(lower=0) + net_elg_amount.clip(lower=0), df_index)
+            
+            macro_evidence = (retail_profit_taking * main_force_chasing).pow(0.5)
+            
+            rally_allegiance = (
+                macro_evidence * 0.4 +
+                micro_confirmation_factor.clip(lower=0) * 0.6 # 拉升换手同样只关心正向的微观确认
+            ).clip(0, 1)
+            final_allegiance_factor.loc[rally_mask] = rally_allegiance.loc[rally_mask]
+        # 7. 重算“有效”主力与散户净额
         md_to_main_force = net_md_amount * final_allegiance_factor
-        sm_to_main_force = net_sm_amount * final_allegiance_factor # 小单也按同比例归属
+        sm_to_main_force = net_sm_amount * final_allegiance_factor
         effective_main_force_flow = net_lg_amount + net_elg_amount + md_to_main_force + sm_to_main_force
         effective_retail_flow = (net_sm_amount - sm_to_main_force) + (net_md_amount - md_to_main_force)
-        # 5. 计算最终的权力转移分数 (主力流量变化 - 散户流量变化)
+        # 8. 计算最终的权力转移分数
         power_transfer_raw = effective_main_force_flow.diff(1) - effective_retail_flow.diff(1)
         final_score = self._normalize_series(power_transfer_raw.fillna(0), df_index, bipolar=True)
-        # 6. 升级探针输出
+        # 9. 升级探针输出
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
             probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
             for probe_date in probe_dates:
                 if probe_date in df_index:
-                    print(f"    -> [探针] --- PROCESS_META_POWER_TRANSFER (V3.1) @ {probe_date.date()} ---") # 修改: 更新版本信息
-                    print(f"      - 场景条件 (跌/平/微涨): {scene_mask.loc[probe_date]}")
-                    print(f"      --- 宏观推断 (权重 0.4) ---")
-                    print(f"        - 中单归属因子: {allegiance_factor.loc[probe_date]:.4f}")
-                    print(f"        - 小单确证因子: {corroboration_factor.loc[probe_date]:.4f}")
-                    print(f"      --- 微观确证 (权重 0.6) ---")
-                    print(f"        - 主力OFI: {main_force_ofi.loc[probe_date]:.4f} -> 证据分: {ofi_evidence.loc[probe_date]:.4f}")
-                    print(f"        - 对倒强度: {wash_trade_intensity.loc[probe_date]:.4f} -> 证据分: {wash_trade_evidence.loc[probe_date]:.4f}")
+                    print(f"    -> [探针] --- PROCESS_META_POWER_TRANSFER (V3.2) @ {probe_date.date()} ---") # 修改: 更新版本信息
+                    triggered_scenario = "打压/横盘" if suppression_mask.loc[probe_date] else "拉升" if rally_mask.loc[probe_date] else "无"
+                    print(f"      - 触发场景: {triggered_scenario} (涨幅: {pct_change.loc[probe_date]:.2%})")
+                    print(f"      --- 微观确证 (通用) ---")
+                    print(f"        - 主力OFI: {main_force_ofi.loc[probe_date]:.2f} -> OFI证据分: {ofi_evidence.loc[probe_date]:.4f}")
+                    print(f"        - 对倒强度: {wash_trade_intensity.loc[probe_date]:.4f} -> 对倒证据分: {wash_trade_evidence.loc[probe_date]:.4f}")
                     print(f"        - 微观确证综合分: {micro_confirmation_factor.loc[probe_date]:.4f}")
+                    if triggered_scenario == "打压/横盘":
+                        print(f"      --- 场景一: 打压/横盘吸筹 ---")
+                        # 探针需要重新获取局部变量，这里仅作示意
+                        print(f"        - 宏观推断(中/小单): (计算细节略)")
+                    elif triggered_scenario == "拉升":
+                        print(f"      --- 场景二: 拉升换手 ---")
+                        print(f"        - 宏观证据(散户了结*主力追逐): (计算细节略)")
                     print(f"      --- 最终裁决 ---")
                     print(f"        - 最终归属因子 (Final Allegiance): {final_allegiance_factor.loc[probe_date]:.4f}")
                     print(f"        - 划归主力的(中单/小单)金额: {md_to_main_force.loc[probe_date]:.2f} / {sm_to_main_force.loc[probe_date]:.2f}")
@@ -232,10 +252,11 @@ class ProcessIntelligence:
 
     def _calculate_deceptive_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.1 · 大一统同步版】计算“诡道吸筹”信号，由高频“隐蔽吸筹强度”驱动。
-        - 核心升级: 将结构优化验证信号从旧的 `STRUCTURAL_CONSENSUS` 更新为 `SCORE_CHIP_COHERENT_DRIVE`。
+        【V2.2 · 真理探针版】计算“诡道吸筹”信号，由高频“隐蔽吸筹强度”驱动。
+        - 核心升级: 植入“真理探针”，详细打印价格抑制的场景条件，以及“战术-交割-结果”
+                     三大核心证据链的数值，用于诊断最终得分为零的根本原因。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V2.1 · 大一统同步版)...") # 修改: 更新版本信息
+        print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V2.2 · 真理探针版)...") # 修改: 更新版本信息
         df_index = df.index
         # 1. 获取MTF权重配置 (用于场景约束)
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -246,7 +267,7 @@ class ProcessIntelligence:
         hidden_accumulation_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_calculate_deceptive_accumulation")
         # 权力交割验证
         power_transfer_score = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
-        # 结构优化验证，使用新的同调驱动力信号
+        # [修改] 结构优化验证，使用新的同调驱动力信号
         coherent_drive_score = self.strategy.atomic_states.get('SCORE_CHIP_COHERENT_DRIVE', pd.Series(0.0, index=df_index))
         # 场景约束
         price_trend_raw = self._get_safe_series(df, f'SLOPE_5_close_D', 0.0, method_name="_calculate_deceptive_accumulation")
@@ -254,7 +275,7 @@ class ProcessIntelligence:
         # hidden_accumulation_intensity_D 的范围是 0 到 100，我们将其映射到 0 到 1
         tactic_evidence = (hidden_accumulation_raw / 100).clip(0, 1)
         transfer_evidence = power_transfer_score.clip(lower=0)
-        improvement_evidence = coherent_drive_score.clip(lower=0) # 使用新的信号
+        improvement_evidence = coherent_drive_score.clip(lower=0) # [修改] 使用新的信号
         price_trend_norm = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df_index, default_weights, self.bipolar_sensitivity)
         # 4. 定义场景约束掩码
         price_suppression_mask = price_trend_norm <= 0.1 # 价格被抑制（横盘或缓跌）
@@ -262,20 +283,22 @@ class ProcessIntelligence:
         # 几何平均确保所有证据都存在
         final_score = (tactic_evidence * transfer_evidence * improvement_evidence).pow(1/3)
         final_score = final_score.where(price_suppression_mask, 0.0).fillna(0.0)
-        # 6. 升级探针
+        # [新增] 植入真理探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
             probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
             for probe_date in probe_dates:
                 if probe_date in df_index:
-                    print(f"    -> [探针] --- PROCESS_META_DECEPTIVE_ACCUMULATION (V2.1) @ {probe_date.date()} ---") # 修改: 更新版本信息
-                    print(f"      - 场景约束 (价格抑制): {price_suppression_mask.loc[probe_date]}")
-                    print(f"      --- 证据链 ---")
-                    print(f"        - 核心战术 (Tactic): {tactic_evidence.loc[probe_date]:.4f} (源: hidden_accumulation_intensity)")
-                    print(f"        - 权力交割 (Transfer): {transfer_evidence.loc[probe_date]:.4f} (源: PROCESS_META_POWER_TRANSFER)")
-                    print(f"        - 结构优化 (Improvement): {improvement_evidence.loc[probe_date]:.4f} (源: SCORE_CHIP_COHERENT_DRIVE)") # 修改: 更新探针源名称
-                    print(f"      - 最终得分: {final_score.loc[probe_date]:.4f}")
+                    print(f"    -> [探针] --- PROCESS_META_DECEPTIVE_ACCUMULATION @ {probe_date.date()} ---")
+                    print(f"      --- 场景触发条件 ---")
+                    print(f"        - 价格抑制 (price_suppression_mask): {price_suppression_mask.loc[probe_date]} (价格趋势分: {price_trend_norm.loc[probe_date]:.4f})")
+                    print(f"      --- 核心证据链 ---")
+                    print(f"        - 核心战术 (Tactic Evidence): {tactic_evidence.loc[probe_date]:.4f} (源: hidden_accumulation_intensity_D / 100)")
+                    print(f"        - 权力交割 (Transfer Evidence): {transfer_evidence.loc[probe_date]:.4f} (源: PROCESS_META_POWER_TRANSFER)")
+                    print(f"        - 结构优化 (Improvement Evidence): {improvement_evidence.loc[probe_date]:.4f} (源: SCORE_CHIP_COHERENT_DRIVE)")
+                    print(f"      --- 最终裁决 ---")
+                    print(f"        - 最终得分: {final_score.loc[probe_date]:.4f}")
                     print("    -> [探针] ----------------------------------------------------")
         print(f"    -> [过程层] PROCESS_META_DECEPTIVE_ACCUMULATION 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
@@ -778,14 +801,9 @@ class ProcessIntelligence:
 
     def _calculate_stealth_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.0 · 双战术场景建模版】计算“隐蔽吸筹”的专属关系分数。
-        - 核心重构: 废弃简单的双变量背离模型，采用更符合A股实战的“双战术场景”建模。
-        - 核心逻辑: 将隐蔽吸筹行为分解为两种典型战术，并分别量化其强度：
-          1. 打压式吸筹 (Suppressive Accumulation): 在价格缓跌和成交量萎缩的掩护下，主力承接恐慌盘，实现筹码集中。
-          2. 横盘式吸筹 (Consolidative Accumulation): 在价格横盘和市场沉闷的表象下，主力通过消磨耐心，收集浮筹。
-        - 数学模型: Final_Score = max(Suppressive_Score, Consolidative_Score)。
-                     每个场景得分由其核心证据（如权力转移、筹码集中、成交量萎缩等）的几何平均值构成。
-        - 输出: [0, 1] 的单极性分数。分数越高，代表主力隐蔽吸筹的证据链越完整、意图越明确。
+        【V3.1 · 真理探针版】计算“隐蔽吸筹”的专属关系分数。
+        - 核心升级: 植入“真理探针”，详细打印两个战术场景的触发条件及其所有核心证据链的数值，
+                     用于诊断最终得分为零的根本原因。
         """
         print("    -> [过程层] 正在计算 PROCESS_META_STEALTH_ACCUMULATION (双战术场景建模版)...")
         df_index = df.index
@@ -829,6 +847,31 @@ class ProcessIntelligence:
         consolidative_score = consolidative_score.where(consolidative_mask, 0.0)
         # 6. 融合两种战术得分，取最大值
         final_score = pd.concat([suppressive_score, consolidative_score], axis=1).max(axis=1).fillna(0.0)
+        # [新增] 植入真理探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
+            for probe_date in probe_dates:
+                if probe_date in df_index:
+                    print(f"    -> [探针] --- PROCESS_META_STEALTH_ACCUMULATION @ {probe_date.date()} ---")
+                    print(f"      --- 场景一: 打压式吸筹 ---")
+                    print(f"        - 场景触发条件 (价格趋势 <= 0.1): {suppressive_mask.loc[probe_date]} (价格趋势分: {price_trend_norm.loc[probe_date]:.4f})")
+                    print(f"        - 证据1 (成交量萎缩): {evidence1_suppressive.loc[probe_date]:.4f}")
+                    print(f"        - 证据2 (权力转移): {evidence2_suppressive.loc[probe_date]:.4f}")
+                    print(f"        - 证据3 (筹码集中趋势): {evidence3_suppressive.loc[probe_date]:.4f}")
+                    print(f"        - 证据4 (成本优势): {evidence4_suppressive.loc[probe_date]:.4f}")
+                    print(f"        - 场景一得分: {suppressive_score.loc[probe_date]:.4f}")
+                    print(f"      --- 场景二: 横盘式吸筹 ---")
+                    print(f"        - 场景触发条件 (稳定性 > 0.2): {consolidative_mask.loc[probe_date]} (稳定性分: {stability_score.loc[probe_date]:.4f})")
+                    print(f"        - 证据1 (成交量萎缩): {evidence1_consolidative.loc[probe_date]:.4f}")
+                    print(f"        - 证据2 (权力转移): {evidence2_consolidative.loc[probe_date]:.4f}")
+                    print(f"        - 证据3 (筹码固化趋势): {evidence3_consolidative.loc[probe_date]:.4f}")
+                    print(f"        - 证据4 (拆单吸筹): {evidence4_consolidative.loc[probe_date]:.4f}")
+                    print(f"        - 场景二得分: {consolidative_score.loc[probe_date]:.4f}")
+                    print(f"      --- 最终裁决 ---")
+                    print(f"        - 最终得分 (max(场景一, 场景二)): {final_score.loc[probe_date]:.4f}")
+                    print("    -> [探针] ----------------------------------------------------")
         # 7. 存储调试信息
         self.strategy.atomic_states["_DEBUG_accum_suppressive_score"] = suppressive_score
         self.strategy.atomic_states["_DEBUG_accum_consolidative_score"] = consolidative_score
@@ -837,19 +880,11 @@ class ProcessIntelligence:
 
     def _calculate_panic_washout_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.1 · 依赖修复版】计算“恐慌洗盘吸筹”的专属信号。
-        - 核心修复 (V2.1): 移除了对不存在的 'SLOPE_1_main_force_cost_advantage_D' 指标的硬编码依赖。
-                           改为在方法内部直接计算 'main_force_cost_advantage_D' 的1日差分，以保证逻辑的健壮性和正确性。
-        - 核心升级: 深刻理解主力洗盘的欺骗性，不再依赖“主力资金净流入为正”这一理想化假设。
-        - 核心逻辑: 吸收度的判断从“绝对资金流入”转向“相对权力转移”和“行为足迹”。
-          1. 动作 (Action): 剧烈、放量的下跌K线。 (不变)
-          2. 效果 (Effect): 引发散户恐慌性抛售。 (不变)
-          3. 内核 (Core): 主力与散户行为呈高度背离（权力转移），并在盘中留下清晰的吸收足迹（长下影、主动买盘支撑）。
-          4. 结果 (Result): 筹码结构优化，且主力成本优势扩大。
-        - 数学模型: Final_Score = (Panic_Score * Absorption_Score * Repair_Score)^(1/3)。
-        - 输出: [0, 1] 的单极性分数，分数越高，代表主力“假摔真吸”的战术意图越明显。
+        【V2.2 · 真理探针版】计算“恐慌洗盘吸筹”的专属信号。
+        - 核心升级: 植入“真理探针”，详细打印洗盘K线的触发条件，以及“恐慌度”、“吸收度”、“修复度”
+                     三大核心支柱的所有构成要素，用于诊断最终得分为零的根本原因。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (依赖修复版)...") # 更新版本信息
+        print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (真理探针版)...") # 更新版本信息
         df_index = df.index
         # 1. 获取MTF权重配置
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -891,6 +926,28 @@ class ProcessIntelligence:
         # 6. 融合计算最终分数
         final_score = (panic_score * absorption_score * repair_score).pow(1/3)
         final_score = final_score.where(washout_candidate_mask, 0.0).fillna(0.0)
+        # [新增] 植入真理探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
+            for probe_date in probe_dates:
+                if probe_date in df_index:
+                    print(f"    -> [探针] --- PROCESS_META_PANIC_WASHOUT_ACCUMULATION @ {probe_date.date()} ---")
+                    print(f"      --- 场景触发条件 (Washout Candidate Mask) ---")
+                    print(f"        - 显著下跌或长下影 (is_significant_drop): {is_significant_drop.loc[probe_date]} (跌幅: {pct_change.loc[probe_date]:.2%}, 下影线强度: {lower_shadow_strength.loc[probe_date]:.4f})")
+                    print(f"        - 成交量爆发 (is_volume_spike): {is_volume_spike.loc[probe_date]} (成交量爆发分: {volume_burst.loc[probe_date]:.4f})")
+                    print(f"        - 最终掩码 (washout_candidate_mask): {washout_candidate_mask.loc[probe_date]}")
+                    print(f"      --- 三维核心分数 ---")
+                    print(f"        - 恐慌度 (Panic Score): {panic_score.loc[probe_date]:.4f}")
+                    print(f"          - 散户恐慌分: {retail_panic_norm.loc[probe_date]:.4f} | 输家痛苦分: {loser_pain_norm.loc[probe_date]:.4f}")
+                    print(f"        - 吸收度 (Absorption Score): {absorption_score.loc[probe_date]:.4f}")
+                    print(f"          - 权力转移分: {power_transfer_score.clip(lower=0).loc[probe_date]:.4f} | 下影线强度: {lower_shadow_strength.loc[probe_date]:.4f} | 主动买盘支撑分: {active_buying_support_norm.loc[probe_date]:.4f}")
+                    print(f"        - 修复度 (Repair Score): {repair_score.loc[probe_date]:.4f}")
+                    print(f"          - 筹码集中斜率分: {concentration_slope_norm.loc[probe_date]:.4f} | 成本优势斜率分: {cost_advantage_slope_norm.loc[probe_date]:.4f}")
+                    print(f"      --- 最终裁决 ---")
+                    print(f"        - 最终得分: {final_score.loc[probe_date]:.4f}")
+                    print("    -> [探针] ----------------------------------------------------")
         # 7. 存储调试信息
         self.strategy.atomic_states["_DEBUG_washout_panic_score"] = panic_score
         self.strategy.atomic_states["_DEBUG_washout_absorption_score"] = absorption_score
