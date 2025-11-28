@@ -553,7 +553,9 @@ class AdvancedStructuralMetricsService:
 
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """
-        【V1.0】从数据库加载并净化历史高级结构指标。
+        【V1.1 · 索引修复版】从数据库加载并净化历史高级结构指标。
+        - 核心修复: 修正了 `set_index` 的用法。旧用法会保留原始的 `trade_time` 列，导致下游 `reset_index` 操作时因列名冲突而失败。
+                     新用法确保 `trade_time` 列在被设置为索引后，从DataFrame的列中被正确移除。
         """
         @sync_to_async
         def get_data():
@@ -566,11 +568,14 @@ class AdvancedStructuralMetricsService:
             return pd.DataFrame.from_records(qs)
         df = await get_data()
         if not df.empty:
-            df = df.set_index(pd.to_datetime(df['trade_time']))
+            # 修改代码行：先将 'trade_time' 列转换为 datetime 类型
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            # 修改代码行：使用列名字符串作为参数，确保设置索引后该列被移除，解决下游 reset_index 冲突
+            df = df.set_index('trade_time')
             # 在数据源头进行类型净化，杜绝object类型污染
             for col in df.columns:
-                if col != 'trade_time':
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                # 'trade_time' 已成为索引，不再是列，因此无需在循环中进行特殊处理
+                df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
 
     def _calculate_value_area(self, vp: pd.Series, total_volume: float, vpoc_interval: pd.Interval) -> tuple:

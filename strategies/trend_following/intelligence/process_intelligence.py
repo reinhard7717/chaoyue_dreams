@@ -902,16 +902,23 @@ class ProcessIntelligence:
 
     def _calculate_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.1 · 指挥链静默版】识别多日累积吸筹后，即将由“量变”引发“质变”的拉升拐点。
-        - 核心重构: 移除了此处的最终日志输出。战报发布权已上移至调度中心。
+        【V2.0 · 全息证据版】识别多日累积吸筹后，即将由“量变”引发“质变”的拉升拐点。
+        - 核心升级: 彻底重构了“潜在势能”的计算逻辑。不再仅仅依赖于三种“已定性”的吸筹战术，
+                      而是融合了包括“拆单吸筹强度”、“权力转移”在内的五种“全息证据”，
+                      解决了因战术模板过于严苛而导致势能被低估的“大拐点悖论”，极大提升了信号的
+                      灵敏度和准确性。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_ACCUMULATION_INFLECTION (V1.1 · 指挥链静默版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_ACCUMULATION_INFLECTION (V2.0 · 全息证据版)...")
         df_index = df.index
         accumulation_window = config.get('accumulation_window', 21)
         stealth_accum = self.strategy.atomic_states.get('PROCESS_META_STEALTH_ACCUMULATION', pd.Series(0.0, index=df_index))
         deceptive_accum = self.strategy.atomic_states.get('PROCESS_META_DECEPTIVE_ACCUMULATION', pd.Series(0.0, index=df_index))
         panic_washout_accum = self.strategy.atomic_states.get('PROCESS_META_PANIC_WASHOUT_ACCUMULATION', pd.Series(0.0, index=df_index))
-        daily_accumulation_strength = pd.concat([stealth_accum, deceptive_accum, panic_washout_accum], axis=1).max(axis=1)
+        # [新增代码块] 引入更全面的“全息证据”
+        split_order_accum = self.strategy.atomic_states.get('PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', pd.Series(0.0, index=df_index))
+        power_transfer_accum = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index)).clip(lower=0)
+        # [修改代码行] 融合五大“全息证据”来计算每日的吸筹强度
+        daily_accumulation_strength = pd.concat([stealth_accum, deceptive_accum, panic_washout_accum, split_order_accum, power_transfer_accum], axis=1).max(axis=1)
         potential_energy_raw = daily_accumulation_strength.rolling(window=accumulation_window, min_periods=5).sum()
         potential_energy_score = normalize_score(potential_energy_raw, df_index, window=accumulation_window, ascending=True).clip(0, 1)
         price_slope_1d = self._get_safe_series(df, f'SLOPE_1_close_D', 0.0, method_name="_calculate_accumulation_inflection")
