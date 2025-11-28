@@ -125,14 +125,11 @@ class ChipIntelligence:
 
     def _diagnose_strategic_posture(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V6.0 · 战略态势版】诊断主力的综合战略态势 (大一统信号)
-        - 核心思想: 统一并取代旧的“战略集结度”和“主力统治场强度”，消除概念重叠。旨在评估主力当前处于“进攻”、“防守”还是“撤退”的综合态势。
-        - 诊断维度:
-          1. 阵型部署 (Formation Deployment): 兵力部署的密度与集结效率。
-          2. 指挥官决心 (Commander's Resolve): 主力的成本优势与增兵意图。
-          3. 战场控制力 (Battlefield Control): 对浮筹的清洗能力与对核心阵地的掌控。
-        - 非线性合成: 战略态势 = (决心^0.5 * 部署^0.3 * 控制^0.2)，赋予“决心”最高权重，因为主力的意图是决定性的。
+        【V6.1 · 真理探针版】诊断主力的综合战略态势 (大一统信号)
+        - 核心升级: 植入“真理探针”，详细打印三大支柱“阵型部署”、“指挥官决心”、“战场控制力”的
+                     构成细节和最终得分，用于诊断信号输出为零的根本原因。
         """
+        print("    -> [筹码层] 正在计算 SCORE_CHIP_STRATEGIC_POSTURE (V6.1 · 真理探针版)...") # 修改: 更新版本信息
         required_signals = [
             'cost_gini_coefficient_D', 'covert_accumulation_signal_D', 'peak_exchange_purity_D',
             'main_force_cost_advantage_D', 'control_solidity_index_D', 'SLOPE_5_main_force_conviction_index_D',
@@ -175,6 +172,26 @@ class ChipIntelligence:
             (formation_deployment_score.add(1)/2).pow(0.3) *
             (battlefield_control_score.add(1)/2).pow(0.2)
         ) * 2 - 1
+        # [新增] 植入真理探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
+            for probe_date in probe_dates:
+                if probe_date in df_index:
+                    print(f"    -> [探针] --- SCORE_CHIP_STRATEGIC_POSTURE @ {probe_date.date()} ---")
+                    print(f"      --- 支柱一: 阵型部署 (权重 0.3) ---")
+                    print(f"        - 构成: 集中度分({level_score.loc[probe_date]:.4f}), 效率分({efficiency_score.loc[probe_date]:.4f})")
+                    print(f"        - 支柱得分: {formation_deployment_score.loc[probe_date]:.4f}")
+                    print(f"      --- 支柱二: 指挥官决心 (权重 0.5) ---")
+                    print(f"        - 构成: 成本优势分({advantage_score.loc[probe_date]:.4f}), 控制稳固分({solidity_score.loc[probe_date]:.4f}), 增兵意图分({intent_score.loc[probe_date]:.4f})")
+                    print(f"        - 支柱得分: {commanders_resolve_score.loc[probe_date]:.4f}")
+                    print(f"      --- 支柱三: 战场控制力 (权重 0.2) ---")
+                    print(f"        - 构成: 浮筹清洗分({cleansing_score.loc[probe_date]:.4f}), 主峰稳固分({peak_solidity_score.loc[probe_date]:.4f})")
+                    print(f"        - 支柱得分: {battlefield_control_score.loc[probe_date]:.4f}")
+                    print(f"      --- 最终裁决 ---")
+                    print(f"        - 最终得分: {final_score.loc[probe_date]:.4f}")
+                    print("    -> [探针] ----------------------------------------------------")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_battlefield_geography(self, df: pd.DataFrame) -> pd.Series:
@@ -374,12 +391,9 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V3.0 · 非对称调制版】诊断筹码同调驱动力
-        - 核心重构: 废弃V2.0的对称共振模型，引入更符合博弈本质的“引擎-传动”非对称调制模型。
-        - 核心思想:
-          - 引擎 (Engine): “持股心态”是提供上涨意愿的基础驱动力。
-          - 传动系统 (Transmission): “成本结构”决定了心态驱动力能多大效率地传递到价格上，它扮演了一个调制系数的角色。
-        - 数学模型: 驱动力 = 基础驱动力(心态) * 传动效率(结构)。一个糟糕的结构会严重损耗强大的上涨意愿。
+        【V3.1 · 真理探针版】诊断筹码同调驱动力
+        - 核心升级: 植入“真理探针”，详细打印“引擎”（持股心态）和“传动效率”（成本结构）
+                     两大核心部件的数值，用于诊断信号输出为零的根本原因。
         """
         # 1. 基础驱动力 (Engine): 只关心正向的持股心态
         base_drive = holder_sentiment_scores.clip(lower=0)
@@ -394,19 +408,25 @@ class ChipIntelligence:
         # 使用一个动态的上限进行归一化，例如过去252天的98分位
         rolling_max = coherent_drive.rolling(window=252, min_periods=21).quantile(0.98).fillna(method='bfill').replace(0, 1)
         final_score = (coherent_drive / rolling_max).clip(0, 1).fillna(0.0)
-        # 4. 植入探针
+        # [修改] 升级探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date in df.index:
-                print(f"    -> [探针: _diagnose_structural_consensus_V3] @ {probe_date.date()}:")
-                print(f"       - 原料: holder_sentiment_scores: {holder_sentiment_scores.loc[probe_date]:.4f}")
-                print(f"       - 过程: base_drive (引擎): {base_drive.loc[probe_date]:.4f}")
-                print(f"       - 原料: cost_structure_scores: {cost_structure_scores.loc[probe_date]:.4f}")
-                print(f"       - 过程: transmission_efficiency (传动效率 η): {transmission_efficiency.loc[probe_date]:.4f}")
-                print(f"       - 结果: final coherent_drive_score: {final_score.loc[probe_date]:.4f}")
+            probe_dates = [pd.to_datetime(d).tz_localize(df.index.tz if df.index.tz else None) for d in probe_dates_str]
+            for probe_date in probe_dates:
+                if probe_date in df.index:
+                    print(f"    -> [探针] --- SCORE_CHIP_COHERENT_DRIVE @ {probe_date.date()} ---")
+                    print(f"      --- 引擎 (Base Drive) ---")
+                    print(f"        - 原始输入 (holder_sentiment_scores): {holder_sentiment_scores.loc[probe_date]:.4f}")
+                    print(f"        - 引擎得分 (clip(lower=0)): {base_drive.loc[probe_date]:.4f}")
+                    print(f"      --- 传动系统 (Transmission) ---")
+                    print(f"        - 原始输入 (cost_structure_scores): {cost_structure_scores.loc[probe_date]:.4f}")
+                    print(f"        - 传动效率 (1 + tanh(input * 1.5)): {transmission_efficiency.loc[probe_date]:.4f}")
+                    print(f"      --- 最终裁决 ---")
+                    print(f"        - 原始驱动力 (引擎 * 传动): {coherent_drive.loc[probe_date]:.4f}")
+                    print(f"        - 动态归一化上限 (rolling_max): {rolling_max.loc[probe_date]:.4f}")
+                    print(f"        - 最终得分: {final_score.loc[probe_date]:.4f}")
+                    print("    -> [探针] ----------------------------------------------------")
         return final_score.astype(np.float32)
 
     def _diagnose_control_sovereignty(self, df: pd.DataFrame) -> pd.Series:
