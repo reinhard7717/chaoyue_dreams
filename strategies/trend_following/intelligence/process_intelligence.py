@@ -252,12 +252,12 @@ class ProcessIntelligence:
 
     def _calculate_deceptive_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.3 · 风险否决版】计算“诡道吸筹”信号。
-        - 核心升维: 废弃简单的 `.clip(lower=0)`，引入“惩罚因子”模型。
-        - 风险否决权: 当上游的“结构优化”信号 (`SCORE_CHIP_COHERENT_DRIVE`) 为负时，
-                       将生成一个惩罚系数直接削弱最终得分，实现对负面证据的正确解读。
+        【V2.4 · 灵敏校准版】计算“诡道吸筹”信号。
+        - 核心校准: 废弃硬性的 `price_suppression_mask`，引入更智能的“软性门控” (`gating_score`) 机制。
+        - 战术灵敏度: 当价格趋势偏离最佳“抑制”场景时，信号不再被直接归零，而是被平滑地衰减。
+                       这使得模型能在更广泛的、非理想场景下，捕捉到战术机会的蛛丝马迹。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V2.3 · 风险否决版)...") # 修改: 更新版本信息
+        print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V2.4 · 灵敏校准版)...") # 修改: 更新版本信息
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
@@ -269,15 +269,14 @@ class ProcessIntelligence:
         tactic_evidence = (hidden_accumulation_raw / 100).clip(0, 1)
         transfer_evidence = power_transfer_score.clip(lower=0)
         price_trend_norm = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df_index, default_weights, self.bipolar_sensitivity)
-        price_suppression_mask = price_trend_norm <= 0.1
-        # [修改] 引入惩罚因子模型
+        # [修改] 引入软性门控机制
+        # 当价格趋势分 <= 0.1 时，门控得分为1.0 (完全匹配)
+        # 当价格趋势分从 0.1 上升到 0.5 时，门控得分线性衰减到 0
+        gating_score = (1 - (price_trend_norm - 0.1) / 0.4).clip(0, 1)
         bullish_evidence = (tactic_evidence * transfer_evidence).pow(0.5)
-        # coherent_drive_score 是 [-1, 1] 的双极分数。 (1 + score) 将其映射到 [0, 2]。
-        # 我们只关心其惩罚作用，所以将其裁剪到 [0, 1] 区间。
-        # 当 coherent_drive 为 -1 时, 惩罚因子为 0; 为 0 时, 因子为 1; 为 1 时, 因子也为 1 (不奖励)。
         penalty_factor = (1 + coherent_drive_score).clip(0, 1)
-        final_score = (bullish_evidence * penalty_factor)
-        final_score = final_score.where(price_suppression_mask, 0.0).fillna(0.0)
+        # [修改] 使用门控得分进行最终调制，而不是硬性掩码
+        final_score = (bullish_evidence * penalty_factor * gating_score).fillna(0.0)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -285,12 +284,11 @@ class ProcessIntelligence:
             for probe_date in probe_dates:
                 if probe_date in df_index:
                     print(f"    -> [探针] --- PROCESS_META_DECEPTIVE_ACCUMULATION @ {probe_date.date()} ---")
-                    print(f"      --- 场景触发条件 ---")
-                    print(f"        - 价格抑制 (price_suppression_mask): {price_suppression_mask.loc[probe_date]} (价格趋势分: {price_trend_norm.loc[probe_date]:.4f})")
+                    print(f"      --- 场景触发条件 (软门控) ---") # 修改: 更新探针描述
+                    print(f"        - 门控得分 (Gating Score): {gating_score.loc[probe_date]:.4f} (源于价格趋势分: {price_trend_norm.loc[probe_date]:.4f})")
                     print(f"      --- 核心证据链 ---")
                     print(f"        - 核心战术 (Tactic Evidence): {tactic_evidence.loc[probe_date]:.4f}")
                     print(f"        - 权力交割 (Transfer Evidence): {transfer_evidence.loc[probe_date]:.4f}")
-                    # [修改] 更新探针，展示双极性输入和惩罚因子
                     print(f"        - 结构优化 (Bipolar Input): {coherent_drive_score.loc[probe_date]:.4f} -> 惩罚因子: {penalty_factor.loc[probe_date]:.4f}")
                     print(f"      --- 最终裁决 ---")
                     print(f"        - 最终得分: {final_score.loc[probe_date]:.4f}")
@@ -550,9 +548,9 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V4.1 · 拆单吸筹调度版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 新增对 `PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY` 信号的调度，
-                     将其指向专属的 `_calculate_split_order_accumulation` 计算方法。
+        【V4.2 · 破阵战矛调度版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 新增对 `PROCESS_META_BREAKOUT_ACCELERATION` 信号的调度，
+                     将其指向专属的 `_calculate_breakout_acceleration` 计算方法。
         """
         signal_name = config.get('name')
         df_index = df.index
@@ -571,42 +569,40 @@ class ProcessIntelligence:
             relationship_score = self._calculate_panic_washout_accumulation(df, config)
         elif signal_name == 'PROCESS_META_DECEPTIVE_ACCUMULATION': 
             relationship_score = self._calculate_deceptive_accumulation(df, config)
-        # [新增] 为拆单吸筹信号添加专属调度
         elif signal_name == 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY':
             relationship_score = self._calculate_split_order_accumulation(df, config)
         elif signal_name == 'PROCESS_META_UPTHRUST_WASHOUT': 
             relationship_score = self._calculate_upthrust_washout(df, config) 
         elif signal_name == 'PROCESS_META_ACCUMULATION_INFLECTION': 
-            relationship_score = self._calculate_accumulation_inflection(df, config) 
+            relationship_score = self._calculate_accumulation_inflection(df, config)
+        # [新增] 为突破加速抢筹信号添加专属调度
+        elif signal_name == 'PROCESS_META_BREAKOUT_ACCELERATION':
+            relationship_score = self._calculate_breakout_acceleration(df, config)
         else:
             relationship_score = self._calculate_instantaneous_relationship(df, config)
         if relationship_score.empty:
             return {}
-        # 存储原始的关系分数到 atomic_states，使用其原始的 signal_name
         self.strategy.atomic_states[signal_name] = relationship_score.astype(np.float32)
-        # 存储中间信号，确保名称正确
         intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{signal_name}"
         self.strategy.atomic_states[intermediate_signal_name] = relationship_score.astype(np.float32)
         diagnosis_mode = config.get('diagnosis_mode', 'meta_analysis')
-        if signal_name in ['PROCESS_META_STEALTH_ACCUMULATION', 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 'PROCESS_META_DECEPTIVE_ACCUMULATION', 'PROCESS_META_UPTHRUST_WASHOUT', 'PROCESS_META_ACCUMULATION_INFLECTION', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY']: # [代码修改] 新增信号到直接确认列表
+        # [修改] 新增信号到直接确认列表
+        if signal_name in ['PROCESS_META_STEALTH_ACCUMULATION', 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 'PROCESS_META_DECEPTIVE_ACCUMULATION', 'PROCESS_META_UPTHRUST_WASHOUT', 'PROCESS_META_ACCUMULATION_INFLECTION', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 'PROCESS_META_BREAKOUT_ACCELERATION']:
             diagnosis_mode = 'direct_confirmation'
         if diagnosis_mode == 'direct_confirmation':
             meta_score = relationship_score
         else:
             relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
             relationship_momentum = relationship_displacement.diff(1).fillna(0)
-            # 获取MTF权重配置
             p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
             p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
             default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-            # 【优化】使用多时间维度自适应归一化
             bipolar_displacement_strength = get_adaptive_mtf_normalized_bipolar_score(
                 series=relationship_displacement,
                 target_index=df_index,
                 tf_weights=default_weights,
                 sensitivity=self.bipolar_sensitivity
             )
-            # 【优化】使用多时间维度自适应归一化
             bipolar_momentum_strength = get_adaptive_mtf_normalized_bipolar_score(
                 series=relationship_momentum,
                 target_index=df_index,
@@ -1101,6 +1097,54 @@ class ProcessIntelligence:
         print(f"    -> [过程层] PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
         return final_score.astype(np.float32)
 
+    def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0 · 破阵战矛版】诊断“突破加速抢筹”战术。
+        - 核心职责: 识别主力在成功突破关键平台后，乘胜追击、加速抢筹的高能战术场景。
+        - 战术逻辑: 基于“前置-驱动-交割-确认”四维证据链。
+          1. 前置 (Trigger): 近期必须发生过“突破”事件。
+          2. 驱动 (Driver): 上涨必须由“主力拉升意图”驱动。
+          3. 交割 (Transfer): 必须发生正向的“权力转移”。
+          4. 确认 (Confirmation): 整体“趋势形态”必须健康。
+        """
+        print("    -> [过程层] 正在计算 PROCESS_META_BREAKOUT_ACCELERATION (V1.0 · 破阵战矛版)...")
+        df_index = df.index
+        # 1. 获取四维证据
+        breakout_signal = self.strategy.atomic_states.get('SCORE_PATTERN_AXIOM_BREAKOUT', pd.Series(0.0, index=df_index))
+        rally_intent = self.strategy.atomic_states.get('PROCESS_META_MAIN_FORCE_RALLY_INTENT', pd.Series(0.0, index=df_index))
+        power_transfer = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
+        trend_form = self.strategy.atomic_states.get('SCORE_STRUCT_AXIOM_TREND_FORM', pd.Series(0.0, index=df_index))
+        # 2. 定义战术前置条件
+        # 检查过去3天内是否发生过突破（信号 > 0.5）
+        breakout_trigger_mask = breakout_signal.rolling(window=3, min_periods=1).max() > 0.5
+        # 3. 证据归一化 (只取正向证据)
+        driver_evidence = rally_intent.clip(lower=0)
+        transfer_evidence = power_transfer.clip(lower=0)
+        confirmation_evidence = trend_form.clip(lower=0)
+        # 4. 融合计算
+        # 几何平均确保所有证据都存在
+        final_score = (driver_evidence * transfer_evidence * confirmation_evidence).pow(1/3)
+        # 应用战术前置条件
+        final_score = final_score.where(breakout_trigger_mask, 0.0).fillna(0.0)
+        # 5. 植入探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_dates = [pd.to_datetime(d).tz_localize(df_index.tz if df_index.tz else None) for d in probe_dates_str]
+            for probe_date in probe_dates:
+                if probe_date in df_index:
+                    print(f"    -> [探针] --- PROCESS_META_BREAKOUT_ACCELERATION @ {probe_date.date()} ---")
+                    print(f"      --- 战术前置 (Trigger) ---")
+                    print(f"        - 近期突破事件: {breakout_trigger_mask.loc[probe_date]}")
+                    print(f"      --- 核心证据链 ---")
+                    print(f"        - 驱动证据 (主力拉升意图): {driver_evidence.loc[probe_date]:.4f}")
+                    print(f"        - 交割证据 (权力转移): {transfer_evidence.loc[probe_date]:.4f}")
+                    print(f"        - 确认证据 (趋势形态): {confirmation_evidence.loc[probe_date]:.4f}")
+                    print(f"      --- 最终裁决 ---")
+                    print(f"        - 最终得分: {final_score.loc[probe_date]:.4f}")
+                    print("    -> [探针] ----------------------------------------------------")
+        print(f"    -> [过程层] PROCESS_META_BREAKOUT_ACCELERATION 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
+        return final_score.astype(np.float32)
 
 
 

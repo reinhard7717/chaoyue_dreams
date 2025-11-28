@@ -271,14 +271,6 @@ class StructuralIntelligence:
                         is_bottom = False
             if is_bottom:
                 bottom_fractal_score.iloc[i] = 1.0 
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"    -> [底分型探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - 底分型分数 (SCORE_STRUCT_BOTTOM_FRACTAL): {bottom_fractal_score.loc[probe_date_for_loop]:.4f}")
         return bottom_fractal_score
 
 
