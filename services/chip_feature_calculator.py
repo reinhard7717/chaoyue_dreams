@@ -428,15 +428,23 @@ class ChipFeatureCalculator:
             results['structural_tension_index'] = tension
         leverage = (((self.df['price'] - close_price) / close_price) * self.df['percent']).sum()
         results['structural_leverage'] = leverage
-        # =================================================================
-        # 重构真空区大小的计算逻辑，增强其在边缘情况下的健壮性
-        # 使用主峰和次峰之间的距离来定义真空区，而不是寻找最低密度点
+        # [修改代码块] 修正真空区悖论：回归第一性原理，正确定义“真空”
+        # 核心思想: 只有当两个筹码峰相距足够远（大于阈值），才认为它们之间存在真空区。
+        #           否则，双峰密集区之间不存在真空，真空区量级为0。
         dominant_peak_cost = results.get('dominant_peak_cost')
         secondary_peak_cost = results.get('secondary_peak_cost')
+        peak_separation_threshold = 2.5 # 定义峰群分离度阈值（2.5个ATR）
         if pd.notna(dominant_peak_cost) and pd.notna(secondary_peak_cost) and atr_14d > 0:
-            vacuum_width = abs(dominant_peak_cost - secondary_peak_cost)
-            results['vacuum_zone_magnitude'] = vacuum_width / atr_14d
-        # =================================================================
+            vacuum_width_atr = abs(dominant_peak_cost - secondary_peak_cost) / atr_14d
+            # 只有当峰间距大于阈值时，才计算真空区量级
+            if vacuum_width_atr > peak_separation_threshold:
+                results['vacuum_zone_magnitude'] = vacuum_width_atr
+            else:
+                # 否则，双峰密集区不存在真空，量级为0
+                results['vacuum_zone_magnitude'] = 0.0
+        else:
+            # 如果只有一个峰或数据不足，则不存在真空区
+            results['vacuum_zone_magnitude'] = 0.0
         if pd.notna(results['dominant_peak_cost']):
             results['chip_fault_magnitude'] = (close_price - results['dominant_peak_cost']) / atr_14d
             fault_low, fault_high = sorted([results['dominant_peak_cost'], close_price])
