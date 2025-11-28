@@ -345,16 +345,11 @@ class BehavioralIntelligence:
 
     def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.1 · 探针授权修复版】计算 SCORE_BEHAVIOR_VOLUME_ATROPHY 信号。
-        - 核心修复: 补全了对专属探针开关 `enable_behavioral_probe` 的检查逻辑。
-        - ... (其他注释保持不变)
+        【V2.2 · 探针逻辑重构版】计算 SCORE_BEHAVIOR_VOLUME_ATROPHY 信号。
+        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
+                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
+                      完美适配历史区间调试。
         """
-        # --- [修改代码块] 升级探针初始化逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        last_date_str = df.index[-1].strftime('%Y-%m-%d')
-        is_debug_day = is_debug_enabled and (not probe_dates or last_date_str in probe_dates)
         df_index = df.index
         vol = self._get_safe_series(df, 'volume_D', 0.0, method_name="_calculate_volume_atrophy")
         vol_ma5 = self._get_safe_series(df, 'VOL_MA_5_D', 0.0, method_name="_calculate_volume_atrophy")
@@ -388,13 +383,20 @@ class BehavioralIntelligence:
         cleansing_factor = get_adaptive_mtf_normalized_score(cleansing_raw, df.index, ascending=True, tf_weights=tf_weights)
         context_modulator = (lockup_factor * exhaustion_factor * cleansing_factor).pow(1/3).fillna(0.0)
         high_quality_atrophy_score = (base_atrophy_score * context_modulator).pow(0.5)
-        # --- [修改代码行] 更新探针监测条件 ---
-        if is_debug_day:
-            print(f"      [行为探针] _calculate_volume_atrophy @ {last_date_str}")
-            print(f"        - 基础萎缩分: {base_atrophy_score.iloc[-1]:.4f}")
-            print(f"        - 环境调节器原始值: 锁定度={lockup_raw.iloc[-1]:.2f}, 枯竭度={exhaustion_raw.iloc[-1]:.2f}, 清洗度={cleansing_raw.iloc[-1]:.2f}")
-            print(f"        - 环境调节器因子: 锁定={lockup_factor.iloc[-1]:.4f}, 枯竭={exhaustion_factor.iloc[-1]:.4f}, 清洗={cleansing_factor.iloc[-1]:.4f} -> 综合={context_modulator.iloc[-1]:.4f}")
-            print(f"        - 最终高品质萎缩分: {high_quality_atrophy_score.iloc[-1]:.4f}")
+        # --- [修改代码块] 彻底重构探针逻辑以适配历史回溯 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _calculate_volume_atrophy @ {probe_date_str}")
+                print(f"        - 基础萎缩分: {base_atrophy_score.loc[probe_ts]:.4f}")
+                print(f"        - 环境调节器原始值: 锁定度={lockup_raw.loc[probe_ts]:.2f}, 枯竭度={exhaustion_raw.loc[probe_ts]:.2f}, 清洗度={cleansing_raw.loc[probe_ts]:.2f}")
+                print(f"        - 环境调节器因子: 锁定={lockup_factor.loc[probe_ts]:.4f}, 枯竭={exhaustion_factor.loc[probe_ts]:.4f}, 清洗={cleansing_factor.loc[probe_ts]:.4f} -> 综合={context_modulator.loc[probe_ts]:.4f}")
+                print(f"        - 最终高品质萎缩分: {high_quality_atrophy_score.loc[probe_ts]:.4f}")
         return high_quality_atrophy_score.clip(0, 1)
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
