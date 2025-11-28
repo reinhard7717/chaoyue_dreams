@@ -972,8 +972,10 @@ class ChipFeatureCalculator:
 
     def _compute_realtime_orderbook_metrics(self, context: dict) -> dict:
         """
-        【V2.4 · 探针清理版】
-        - 核心维护: 移除了所有用于诊断的探针代码，恢复生产状态。
+        【V3.0 · 因果链对齐版】
+        - 核心修复: 对齐上游传入的、已修复“时间旅行者悖论”的高频数据集。
+        - 核心升级: 计算“主力成本区攻防意图”的加权逻辑被修正。权重不再是错误的累计成交量快照差值，
+                     而是直接使用数据集中每一笔真实成交的成交量(`volume`)，确保了分析的逻辑正确性。
         """
         results = {
             'mf_cost_zone_defense_intent': np.nan,
@@ -1021,8 +1023,10 @@ class ChipFeatureCalculator:
                 total_weighted_ask_power += level_power.where(in_zone_mask, 0)
             total_power = total_weighted_bid_power + total_weighted_ask_power
             instant_intent = (total_weighted_bid_power - total_weighted_ask_power) / total_power.replace(0, np.nan)
+            # [修改代码块] 修正加权逻辑，使用真实的逐笔成交量作为权重
             if 'volume' in realtime_df.columns and not instant_intent.dropna().empty:
-                weights = realtime_df['volume'].diff().fillna(0).clip(lower=0)
+                # 权重直接是每笔成交的成交量（股数）
+                weights = realtime_df['volume'].fillna(0).clip(lower=0)
                 valid_intent = instant_intent.dropna()
                 valid_weights = weights.loc[valid_intent.index]
                 if valid_weights.sum() > 0:

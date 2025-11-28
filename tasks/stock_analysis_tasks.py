@@ -758,11 +758,12 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.14 · 审计逻辑优化版】
-    - 核心修复: 重构了数据完整性审计逻辑，废除了过于严苛的“逐日审计熔断”机制。
-                 旧机制会导致只要批次内有一天数据缺失，整个批次都会被跳过，造成计算提前中止。
-    - 核心优化: 采用更具韧性的宏观校验，仅当关键数据源在整个批次内完全为空时才跳过，
-                 将单日数据完整性的判断交由下游服务层处理，确保任务能最大限度地完成可计算部分。
+    【V34.15 · 时间旅行者悖论修复版】
+    - 核心修复: 此版本调用的下游服务 `chip_service._synthesize_and_forge_metrics` 已彻底重构高频分析数据的构建流程，解决了因果倒置的“时间旅行者悖论”。
+    - 核心升级: 废弃了使用`realtime_quote`快照数据来模拟区间成交量的错误做法。
+                 新的数据流以真实的逐笔成交(Tick)为主体，通过`merge_asof`向后匹配成交前一瞬间的
+                 Level-5盘口状态，构建了具备真实因果关系的高频数据集，从根本上提升了
+                 `mf_cost_zone_defense_intent`等高频指标的逻辑可靠性。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
