@@ -100,16 +100,18 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V27.5 · 清理版】总指挥
-        - 核心职责: 编排所有认知剧本的推演，并合成最终的剧本信号。
-        - 清理: 移除了用于调试的“总指挥探针”相关代码。
+        【V28.0 · 指挥链重构版】总指挥
+        - 核心重构: 彻底重构了剧本推演的执行顺序，将其改造为有序的、分批次的“依赖推演”流程。
+                      确保了有依赖关系的剧本总是在其依赖项计算完成之后才被执行，从根本上
+                      解决了因“指挥失序”导致的“循环依赖”崩溃问题。
         """
-        # [代码修改开始] 移除了探针相关的print语句
+        print("启动【V28.0 · 指挥链重构版】认知情报分析...")
         playbook_states = {}
         priors = self._establish_prior_beliefs(df)
         self.strategy.atomic_states.update(priors)
-        # --- 剧本计算与状态更新 ---
+        # --- [修改代码块] 重构为分批次的依赖推演流程 ---
         # 第1批：机会剧本 (通常无内部依赖)
+        print("    -> [认知层] 开始推演 第1批 (机会) 剧本...")
         playbook_states.update(self._deduce_suppressive_accumulation(df, priors))
         playbook_states.update(self._deduce_chasing_accumulation(df, priors))
         playbook_states.update(self._deduce_capitulation_reversal(df, priors))
@@ -118,7 +120,8 @@ class CognitiveIntelligence:
         playbook_states.update(self._deduce_energy_compression_breakout(df, priors))
         playbook_states.update(self._deduce_stealth_bottoming_divergence(df, priors))
         playbook_states.update(self._deduce_micro_absorption_divergence(df, priors))
-        # 第2批：无内部依赖的风险剧本
+        # 第2批：无内部依赖的基础风险剧本
+        print("    -> [认知层] 开始推演 第2批 (基础风险) 剧本...")
         playbook_states.update(self._deduce_distribution_at_high(df, priors))
         playbook_states.update(self._deduce_retail_fomo_retreat_risk(df, priors))
         playbook_states.update(self._deduce_long_term_profit_distribution_risk(df, priors))
@@ -128,18 +131,20 @@ class CognitiveIntelligence:
         playbook_states.update(self._deduce_key_support_break_risk(df, priors))
         # 在调用依赖剧本之前，将当前已生成的剧本更新到 self.strategy.playbook_states 以供 _get_playbook_score 使用
         self.strategy.playbook_states.update(playbook_states)
-        # 第3批：依赖第2批剧本的风险剧本
+        # 第3批：依赖第2批剧本的高级风险剧本
+        print("    -> [认知层] 开始推演 第3批 (高级风险) 剧本...")
         playbook_states.update(self._deduce_trend_exhaustion_risk(df, priors))
-        self.strategy.playbook_states.update(playbook_states)
+        self.strategy.playbook_states.update(playbook_states) # 每次更新，确保依赖链条完整
         playbook_states.update(self._deduce_harvest_confirmation_risk(df, priors))
         self.strategy.playbook_states.update(playbook_states)
         playbook_states.update(self._deduce_bull_trap_distribution_risk(df, priors))
         self.strategy.playbook_states.update(playbook_states)
         playbook_states.update(self._deduce_high_level_structural_collapse_risk(df, priors))
         self.strategy.playbook_states.update(playbook_states)
-        # 第4批：依赖第3批剧本的机会剧本
+        # 第4批：依赖第3批剧本的机会剧本 (如果有)
+        print("    -> [认知层] 开始推演 第4批 (依赖型机会) 剧本...")
         playbook_states.update(self._deduce_divergence_reversal(df, priors))
-        # [代码修改开始] 移除了整个“总指挥探针”的调试代码块
+        print("【V28.0 · 指挥链重构版】所有剧本推演完成。")
         return playbook_states
 
     def _deduce_suppressive_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
@@ -865,15 +870,15 @@ class CognitiveIntelligence:
 
     def _deduce_bull_trap_distribution_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.10 · 调用修复版】贝叶斯推演：“主力诱多派发”风险剧本
-        - 核心升级: 引入“趋势背景调制因子”。
-        - 【V1.10 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
+        【V1.11 · 情报同步版】贝叶斯推演：“主力诱多派发”风险剧本
+        - 核心修复: 将对废弃信号 `SCORE_MICRO_AXIOM_DECEPTION` 的依赖，替换为对
+                    新信号 `SCORE_MICRO_STRATEGY_SHOCK_AND_AWE` 的依赖，完成情报代际同步。
         """
         print("    -- [剧本推演] 主力诱多派发风险 (动态证据)...")
-        # 增加信号校验
+        # [修改代码块] 更新信号校验列表
         required_signals = [
             'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
-            'pct_change_D', 'SCORE_MICRO_AXIOM_DECEPTION', 'FUSION_BIPOLAR_UPPER_SHADOW_INTENT',
+            'pct_change_D', 'SCORE_MICRO_STRATEGY_SHOCK_AND_AWE', 'FUSION_BIPOLAR_UPPER_SHADOW_INTENT',
             'SCORE_CHIP_STRATEGIC_POSTURE', 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION',
             'PROCESS_META_PROFIT_VS_FLOW', 'PROCESS_META_WINNER_CONVICTION_DECAY',
             'COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT',
@@ -891,11 +896,10 @@ class CognitiveIntelligence:
         main_force_holding_strength = self._get_main_force_holding_strength(df)
         main_force_holding_inverse = self._forge_dynamic_evidence(df, 1 - main_force_holding_strength)
         price_rising = self._forge_dynamic_evidence(df, normalize_to_bipolar(self._get_atomic_score(df, 'pct_change_D'), df.index, 21).clip(lower=0))
-        raw_micro_deception_score = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_DECEPTION', 0.0)
-        micro_deception_bearish = self._forge_dynamic_evidence(df, raw_micro_deception_score.clip(upper=0).abs())
+        # [修改代码块] 替换为新的微观信号
+        micro_shock_awe_bearish = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_SHOCK_AND_AWE', 0.0).clip(upper=0).abs())
         raw_upper_shadow_intent_score = self._get_fused_score(df, 'FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0)
         upper_shadow_pressure = self._forge_dynamic_evidence(df, raw_upper_shadow_intent_score.clip(upper=0).abs())
-        # 将 SCORE_CHIP_AXIOM_CONCENTRATION 替换为 SCORE_CHIP_STRATEGIC_POSTURE 的负向表现
         chip_dispersion = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(upper=0).abs())
         raw_mf_confrontation_score = self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0)
         main_force_outflow = self._forge_dynamic_evidence(df, raw_mf_confrontation_score.clip(upper=0).abs())
@@ -909,7 +913,7 @@ class CognitiveIntelligence:
         dip_absorption_power = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'dip_absorption_power_D', 0.0))
         dip_absorption_inverse = (1 - dip_absorption_power).clip(0, 1)
         evidence_scores = np.stack([
-            price_rising.values, micro_deception_bearish.values, upper_shadow_pressure.values,
+            price_rising.values, micro_shock_awe_bearish.values, upper_shadow_pressure.values,
             chip_dispersion.values, main_force_outflow.values, profit_vs_flow_bearish.values,
             winner_conviction_decay.values, retail_fomo_retreat_risk.values, price_overextension_risk.values,
             long_term_profit_distribution_risk.values, dip_absorption_inverse.values, main_force_holding_inverse.values
@@ -969,16 +973,16 @@ class CognitiveIntelligence:
 
     def _deduce_t0_arbitrage_pressure_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 调用修复版】贝叶斯推演：“T+0套利压力”风险剧本
-        - 核心升级: 引入“趋势背景调制因子”。
-        - 【V1.5 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
+        【V1.6 · 情报同步版】贝叶斯推演：“T+0套利压力”风险剧本
+        - 核心修复: 将对废弃信号 `SCORE_MICRO_AXIOM_DECEPTION` 的依赖，替换为对
+                    新信号 `SCORE_MICRO_STRATEGY_SHOCK_AND_AWE` 的依赖，完成情报代际同步。
         """
         print("    -- [剧本推演] T+0套利压力风险 (动态证据)...")
-        # 增加信号校验
+        # [修改代码块] 更新信号校验列表
         required_signals = [
             'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
             'PROCESS_META_PROFIT_VS_FLOW', 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION',
-            'SCORE_MICRO_AXIOM_DECEPTION', 'dip_absorption_power_D'
+            'SCORE_MICRO_STRATEGY_SHOCK_AND_AWE', 'dip_absorption_power_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_t0_arbitrage_pressure_risk"):
             return {'COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE': pd.Series(0.0, index=df.index)}
@@ -991,12 +995,13 @@ class CognitiveIntelligence:
         is_limit_up_yesterday = self._get_safe_series(df, 'IS_LIMIT_UP_D', False, method_name="_deduce_t0_arbitrage_pressure_risk").shift(1).fillna(False)
         high_t0_efficiency = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_PROFIT_VS_FLOW', 0.0).clip(upper=0).abs())
         capital_outflow = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs())
-        micro_deception_bearish = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_DECEPTION', 0.0).clip(upper=0).abs())
+        # [修改代码块] 替换为新的微观信号
+        micro_shock_awe_bearish = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_SHOCK_AND_AWE', 0.0).clip(upper=0).abs())
         dip_absorption_power = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'dip_absorption_power_D', 0.0))
         dip_absorption_inverse = (1 - dip_absorption_power).clip(0, 1)
         evidence_scores = np.stack([
             high_t0_efficiency.values, capital_outflow.values,
-            micro_deception_bearish.values, dip_absorption_inverse.values
+            micro_shock_awe_bearish.values, dip_absorption_inverse.values
         ], axis=0)
         evidence_weights = np.array([0.25, 0.25, 0.20, 0.30])
         evidence_weights /= evidence_weights.sum()

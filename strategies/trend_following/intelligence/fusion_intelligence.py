@@ -43,14 +43,13 @@ class FusionIntelligence:
 
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 信念调节版】融合情报分析总指挥
-        - 核心升级: 新增并优先调用 `_synthesize_micro_conviction`，生成“微观信念”信号。
-                    该信号随后被 `_synthesize_trend_quality` 用作“真实性检验器”，
-                    实现了微观盘口对宏观趋势的最终认可或否决。
+        【V6.1 · 职责净化版】融合情报分析总指挥
+        - 核心升级: 移除了对已被废弃的 `_synthesize_upper_shadow_intent` 方法的调用，
+                    该方法的职责已由行为层的 `_calculate_distribution_intent` 更好地完成，
+                    此举净化了融合层的职责，避免了重复分析。
         """
-        print("启动【V6.0 · 信念调节版】融合情报分析...")
+        print("启动【V6.1 · 职责净化版】融合情报分析...")
         all_fusion_states = {}
-        # [新增代码块] 必须优先计算微观信念，为趋势质量提供调节器
         micro_conviction_states = self._synthesize_micro_conviction(df)
         all_fusion_states.update(micro_conviction_states)
         self.strategy.atomic_states.update(micro_conviction_states)
@@ -72,9 +71,6 @@ class FusionIntelligence:
         overextension_intent_states = self._synthesize_price_overextension_intent(df)
         all_fusion_states.update(overextension_intent_states)
         self.strategy.atomic_states.update(overextension_intent_states)
-        upper_shadow_intent_states = self._synthesize_upper_shadow_intent(df)
-        all_fusion_states.update(upper_shadow_intent_states)
-        self.strategy.atomic_states.update(upper_shadow_intent_states)
         stagnation_risk_states = self._synthesize_stagnation_risk(df)
         all_fusion_states.update(stagnation_risk_states)
         self.strategy.atomic_states.update(stagnation_risk_states)
@@ -93,7 +89,7 @@ class FusionIntelligence:
         contested_accumulation_states = self._synthesize_contested_accumulation(df)
         all_fusion_states.update(contested_accumulation_states)
         self.strategy.atomic_states.update(contested_accumulation_states)
-        print(f"【V6.0 · 信念调节版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
+        print(f"【V6.1 · 职责净化版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
 
     def _synthesize_market_contradiction(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -190,15 +186,15 @@ class FusionIntelligence:
 
     def _synthesize_trend_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 信念调节版】冶炼“趋势质量” (Trend Quality)
-        - 核心升级: 引入“微观信念调节器”。在融合多领域宏观信号后，利用全新的
-                    `FUSION_BIPOLAR_MICRO_CONVICTION` 信号进行最终的“真实性检验”，
-                    确保宏观趋势判断得到了微观盘口行为的真实支持。
+        【V3.2 · 代际同步版】冶炼“趋势质量” (Trend Quality)
+        - 核心升级: 全面废弃对旧微观三公理（伪装、试探、效率）的依赖，切换为对
+                    “诡道三策”（隐秘行动、震慑突袭、成本控制）新信号的引用，
+                    完成情报体系的代际同步。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
         df_index = df.index
-        # ... (前半部分大量的 get_atomic_score 和 components_and_weights 定义保持不变)
+        # ... (前半部分 get_atomic_score 保持不变) ...
         foundation_trend = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_TREND', 0.0)
         foundation_oscillator = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_OSCILLATOR', 0.0)
         foundation_flow = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_FLOW', 0.0)
@@ -217,9 +213,10 @@ class FusionIntelligence:
         chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         chip_battlefield_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0)
         chip_holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
-        micro_deception = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_DECEPTION', 0.0)
-        micro_probe = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_PROBE', 0.0)
-        micro_efficiency = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_EFFICIENCY', 0.0)
+        # [修改代码块] 引入新的“诡道三策”信号
+        micro_stealth_ops = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
+        micro_shock_awe = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_SHOCK_AND_AWE', 0.0)
+        micro_cost_control = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_COST_CONTROL', 0.0)
         behavior_upward_efficiency = self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0)
         behavior_downward_resistance = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE', 0.0)
         behavior_intraday_bull_control = self._get_atomic_score(df, 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 0.0)
@@ -235,6 +232,7 @@ class FusionIntelligence:
         breakout_readiness_score = normalize_to_bipolar(breakout_readiness_raw, df_index, window=55, sensitivity=20)
         trend_vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_synthesize_trend_quality")
         trend_vitality_score = normalize_to_bipolar(trend_vitality_raw, df_index, window=55, sensitivity=0.5)
+        # [修改代码块] 更新组件和权重，用新信号替换旧信号
         components_and_weights = {
             'foundation_trend': (foundation_trend, 0.08), 'foundation_oscillator': (foundation_oscillator, -0.02),
             'foundation_flow': (foundation_flow, 0.03), 'foundation_volatility': (foundation_volatility, 0.02),
@@ -247,8 +245,9 @@ class FusionIntelligence:
             'chip_strategic_posture': (chip_strategic_posture, 0.07),
             'chip_battlefield_geography': (chip_battlefield_geography, 0.05),
             'chip_holder_sentiment': (chip_holder_sentiment, 0.03),
-            'micro_deception': (micro_deception, 0.01),
-            'micro_probe': (micro_probe, 0.01), 'micro_efficiency': (micro_efficiency, 0.01),
+            'micro_stealth_ops': (micro_stealth_ops, 0.01), # 替换 'micro_deception'
+            'micro_shock_awe': (micro_shock_awe, 0.01), # 替换 'micro_probe'
+            'micro_cost_control': (micro_cost_control, 0.01), # 替换 'micro_efficiency'
             'behavior_upward_efficiency': (behavior_upward_efficiency, 0.02), 'behavior_downward_resistance': (behavior_downward_resistance, 0.02),
             'behavior_intraday_bull_control': (behavior_intraday_bull_control, 0.01), 'pattern_reversal': (pattern_reversal, 0.01),
             'pattern_breakout': (pattern_breakout, 0.02), 'main_force_on_peak_flow': (main_force_on_peak_flow, 0.01),
@@ -263,9 +262,7 @@ class FusionIntelligence:
                 contribution = series * (weight / total_weight)
                 bipolar_quality += contribution
         bipolar_quality = bipolar_quality.clip(-1, 1)
-        # --- [新增代码块] 微观信念调节器 ---
         micro_conviction = self._get_atomic_score(df, 'FUSION_BIPOLAR_MICRO_CONVICTION', 0.0)
-        # 调节器：(1 + 微观信念 * 0.3)，可以将分数在 [0.7, 1.3] 区间调节
         micro_conviction_regulator = (1 + micro_conviction * 0.3).clip(0.7, 1.3)
         final_bipolar_quality = (bipolar_quality * micro_conviction_regulator).clip(-1, 1)
         states['FUSION_BIPOLAR_TREND_QUALITY'] = final_bipolar_quality.astype(np.float32)
@@ -359,60 +356,6 @@ class FusionIntelligence:
         final_overextension_intent = (core_overextension_sum - health_sum).clip(-1, 1)
         states['FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT'] = final_overextension_intent.astype(np.float32)
         print(f"  -- [融合层] “价格超买意图”冶炼完成，最新分值: {final_overextension_intent.iloc[-1]:.4f}")
-        return states
-
-    def _synthesize_upper_shadow_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V3.0 · 大一统同步版】冶炼“上影线意图” (Upper Shadow Intent)
-        - 核心重构: 将用于判断上影线背后筹码背景的信号从旧的 `CONCENTRATION` 升级为 `SCORE_CHIP_STRATEGIC_POSTURE`。
-        """
-        print("  -- [融合层] 正在冶炼“上影线意图” (深度博弈版)...")
-        states = {}
-        df_index = df.index
-        norm_window = 55
-        upper_shadow_normalized = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW', 0.0)
-        pct_change = self._get_safe_series(df, 'pct_change_D', pd.Series(0.0, index=df_index), method_name="_synthesize_upper_shadow_intent")
-        main_force_flow = normalize_to_bipolar(self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_synthesize_upper_shadow_intent"), df_index, norm_window)
-        # 使用新的“战略态势”信号
-        chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
-        micro_deception = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_DECEPTION', 0.0)
-        upward_efficiency = (self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5) * 2 - 1).clip(-1, 1)
-        structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
-        volume_burst = (self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.5) * 2 - 1).clip(-1, 1)
-        is_up_day = (pct_change > 0).astype(float)
-        is_down_day = (pct_change < 0).astype(float)
-        is_flat_day = ((pct_change == 0) | (pct_change.abs() < 0.005)).astype(float)
-        bullish_intent_components = [
-            main_force_flow.clip(lower=0), chip_strategic_posture.clip(lower=0), # 替换信号
-            micro_deception.clip(lower=0), upward_efficiency.clip(lower=0),
-            structural_trend_form.clip(lower=0)
-        ]
-        bullish_weights = np.array([0.35, 0.25, 0.2, 0.1, 0.1])
-        bullish_intent_score = sum(w * s for w, s in zip(bullish_weights, bullish_intent_components)).clip(0, 1)
-        bearish_intent_components = [
-            main_force_flow.clip(upper=0).abs(), chip_strategic_posture.clip(upper=0).abs(), # 替换信号
-            micro_deception.clip(upper=0).abs(), (1 - upward_efficiency.clip(lower=0)),
-            structural_trend_form.clip(upper=0).abs()
-        ]
-        bearish_weights = np.array([0.35, 0.25, 0.2, 0.1, 0.1])
-        bearish_intent_score = sum(w * s for w, s in zip(bearish_weights, bearish_intent_components)).clip(0, 1)
-        net_intent_direction = (bullish_intent_score - bearish_intent_score).clip(-1, 1)
-        volume_conviction_multiplier = (volume_burst + 1) / 2
-        base_intent_score = upper_shadow_normalized * net_intent_direction * volume_conviction_multiplier
-        final_intent = pd.Series(0.0, index=df_index)
-        up_day_adjusted_intent = base_intent_score * (1 + base_intent_score.abs() * 0.5)
-        final_intent = final_intent.mask(is_up_day.astype(bool), up_day_adjusted_intent)
-        down_day_adjusted_intent = (
-            -upper_shadow_normalized * 0.8
-            - upper_shadow_normalized * bearish_intent_score * 0.5
-            + upper_shadow_normalized * bullish_intent_score * 0.2
-        ) * volume_conviction_multiplier
-        final_intent = final_intent.mask(is_down_day.astype(bool), down_day_adjusted_intent)
-        flat_day_adjusted_intent = base_intent_score * 0.5
-        final_intent = final_intent.mask(is_flat_day.astype(bool), flat_day_adjusted_intent)
-        final_intent = final_intent.clip(-1, 1)
-        states['FUSION_BIPOLAR_UPPER_SHADOW_INTENT'] = final_intent.astype(np.float32)
-        print(f"  -- [融合层] “上影线意图”冶炼完成，最新分值: {final_intent.iloc[-1]:.4f}")
         return states
 
     def _synthesize_trend_structure_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
