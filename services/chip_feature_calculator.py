@@ -231,6 +231,12 @@ class ChipFeatureCalculator:
         return results
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
+        """
+        【V1.1 · 战备状态修复版】
+        - 核心修复: 修正了 `breakout_readiness_score` 的计算公式。通过将双极性的 `intraday_posture_score`
+                     映射到 [0, 1] 区间，解决了因负分直接参与乘法而导致“战备分”被错误归零的
+                     “数学地雷”问题，使其能正确评估主力在压盘过程中的突破准备状态。
+        """
         results = {
             'strategic_phase_score': np.nan,
             'deception_index': np.nan,
@@ -257,7 +263,10 @@ class ChipFeatureCalculator:
         results['exhaustion_risk_index'] = np.log1p(fatigue) * np.log1p(loser_pain)
         price_momentum = (close_price - open_price) / atr if atr > 0 else 0
         results['deception_index'] = np.tanh(price_momentum) * (1 - np.tanh(impulse_quality / 100)) * 100
-        readiness = (potential / 100) * (posture / 100) * np.clip(1 - entropy_change, 0, 2)
+        # [修改代码块] 修正 breakout_readiness_score 的计算逻辑
+        # 将双极性的 posture 分数映射到 [0, 1] 区间
+        posture_unipolar = (posture + 100) / 200
+        readiness = (potential / 100) * posture_unipolar * np.clip(1 - entropy_change, 0, 2)
         results['breakout_readiness_score'] = np.clip(readiness * 100, 0, 100)
         markup_force = results['breakout_readiness_score'] * (1 + np.tanh(results['control_solidity_index'] / 100))
         distribution_force = results['exhaustion_risk_index'] * (1 + np.tanh(results['deception_index'] / 100))
