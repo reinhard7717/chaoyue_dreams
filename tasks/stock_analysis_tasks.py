@@ -758,11 +758,12 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.18 · 索引重建 & 探针加固版】
-    - 核心修复: 在 `chip_raw_df` 与 `fund_flow_metrics_df` 进行join操作前，强制将 `chip_raw_df` 的
-                 `trade_time` 列设为索引。此举解决了因 `pd.merge` 副作用导致索引丢失，从而引发
-                 join失败和后续 `KeyError` 的根本问题。
-    - 核心增强: 升级了诊断探针的逻辑，在访问数据前先检查目标日期是否存在于索引中，增强了探针的健壮性。
+    【V35.0 · 统一记忆总线版】
+    - 核心重构: 引入 `cross_chunk_memory_bus` 统一管理 `chip_service` 和 `fund_flow_service` 的跨区块记忆。
+                 解决了因记忆管理架构缺陷导致的“接力棒掉落”问题，确保了全量回测中时间序列指标
+                 （如 main_force_cumulative_cost）的计算连续性。
+    - 核心修复: 为 `fund_flow_service` 增加了缺失的记忆传递机制。
+    - 核心增强: 探针现在可以监控 `cross_chunk_memory_bus` 的状态，提供更深层次的诊断能力。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -872,7 +873,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 (historical_components_df.loc[valid_mask, 'cost_85pct'] - historical_components_df.loc[valid_mask, 'cost_15pct']) / historical_components_df.loc[valid_mask, 'weight_avg_cost']
         CHUNK_SIZE = 50
         all_final_metrics_to_save = pd.DataFrame()
-        cross_chunk_memory = {}
+        # [修改代码块] 建立统一记忆总线
+        cross_chunk_memory_bus = {
+            'chip_memory': {},
+            'fund_flow_memory': {}
+        }
         all_failures = []
         first_processing_day = dates_to_process.min().date()
         seed_date = await sync_to_async(TradeCalendar.get_trade_date_offset)(reference_date=first_processing_day, offset=-1)
@@ -894,12 +899,14 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     level5_data_map=seed_data_dfs.get("stock_level5_data_map"), 
                     minute_data_map=seed_data_dfs.get("stock_minute_data_map")
                 )
-                _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(
+                # [修改代码块] 播种资金流记忆
+                _, seed_ff_minute_map, _, cross_chunk_memory_bus['fund_flow_memory'] = fund_flow_service._synthesize_and_forge_metrics(
                     stock_code, seed_ff_raw_df, 
                     tick_data_map=seed_data_dfs.get("stock_tick_data_map"), 
                     level5_data_map=seed_data_dfs.get("stock_level5_data_map"), 
                     minute_data_map=seed_data_dfs.get("stock_minute_data_map"),
-                    realtime_data_map=seed_data_dfs.get("stock_realtime_data_map")
+                    realtime_data_map=seed_data_dfs.get("stock_realtime_data_map"),
+                    memory=cross_chunk_memory_bus['fund_flow_memory']
                 )
                 seed_ff_minute_map_for_chip_service = copy.deepcopy(seed_ff_minute_map)
                 seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "cyq_perf": seed_data_dfs["cyq_perf"]}
@@ -908,9 +915,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
                 )
                 seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max(), tick_data_map=seed_data_dfs["stock_tick_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
-                _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(
+                # [修改代码块] 播种筹码记忆
+                _, cross_chunk_memory_bus['chip_memory'], seed_failures = chip_service._synthesize_and_forge_metrics(
                     stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map_for_chip_service, 
-                    memory={}, historical_components=historical_components_df, debug_params=debug_params, 
+                    memory=cross_chunk_memory_bus['chip_memory'], historical_components=historical_components_df, debug_params=debug_params, 
                     tick_data_map=seed_data_dfs.get("stock_tick_data_map"),
                     realtime_data_map=seed_data_dfs.get("stock_realtime_data_map"),
                     level5_data_map=seed_data_dfs.get("stock_level5_data_map")
@@ -920,6 +928,13 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
+            # [修改代码块] 探针升级：监控记忆总线
+            if enable_probe:
+                is_target_date_in_chunk = pd.to_datetime(target_date_str) in chunk_dates if target_date_str else False
+                if is_target_date_in_chunk:
+                    print(f"\n[探针 M.1 - {stock_code} @ {target_date_str}] 区块开始，检查记忆总线...")
+                    chip_mem_cost = cross_chunk_memory_bus.get('chip_memory', {}).get('main_force_cumulative_cost')
+                    print(f"  - 传入的筹码记忆 (main_force_cumulative_cost): {chip_mem_cost}")
             data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_dates, cache_manager)
             tick_data_map = data_dfs.pop("stock_tick_data_map")
             level5_data_map = data_dfs.pop("stock_level5_data_map")
@@ -951,50 +966,28 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(
                 stock_info, fund_flow_raw_df.index, tick_data_map=tick_data_map, level5_data_map=level5_data_map, minute_data_map=minute_data_map
             )
-            fund_flow_metrics_df, fund_flow_attributed_minute_map, ff_failures = fund_flow_service._synthesize_and_forge_metrics(
-                stock_code, fund_flow_raw_df, tick_data_map=tick_data_map, level5_data_map=level5_data_map, minute_data_map=minute_data_map, realtime_data_map=realtime_data_map
+            # [修改代码块] 传递并更新资金流记忆
+            fund_flow_metrics_df, fund_flow_attributed_minute_map, ff_failures, cross_chunk_memory_bus['fund_flow_memory'] = fund_flow_service._synthesize_and_forge_metrics(
+                stock_code, fund_flow_raw_df, tick_data_map=tick_data_map, level5_data_map=level5_data_map, minute_data_map=minute_data_map, realtime_data_map=realtime_data_map, memory=cross_chunk_memory_bus['fund_flow_memory']
             )
             all_failures.extend(ff_failures)
-            is_target_date_in_chunk = pd.to_datetime(target_date_str) in chunk_dates if target_date_str else False
-            if enable_probe and is_target_date_in_chunk:
-                print(f"\n[探针 B.1 - {stock_code} @ {target_date_str}] 任务调度层数据交接...")
-                if not fund_flow_metrics_df.empty and 'avg_cost_main_buy' in fund_flow_metrics_df.columns:
-                    target_dt = pd.to_datetime(target_date_str)
-                    if target_dt in fund_flow_metrics_df.index:
-                        cost_val = fund_flow_metrics_df.loc[target_dt, 'avg_cost_main_buy']
-                        print(f"  - 资金流服务成功计算 avg_cost_main_buy: {cost_val}")
-                    else:
-                        print(f"  - 警告: 目标日期 {target_dt} 不在 fund_flow_metrics_df 的索引中！")
-                else:
-                    print("  - 警告: 资金流服务未能计算出 avg_cost_main_buy！")
             fund_flow_attributed_minute_map_for_chip_service = copy.deepcopy(fund_flow_attributed_minute_map)
             chip_data_dfs = {"cyq_chips": data_dfs["cyq_chips"], "cyq_perf": data_dfs["cyq_perf"]}
             chip_raw_df = chip_service._preprocess_and_merge_data(
                 stock_code, chip_data_dfs, base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
                 high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
             )
-            # [修改代码块] 核心修复：在join前重建DatetimeIndex
             if 'trade_time' in chip_raw_df.columns:
                 chip_raw_df.set_index('trade_time', inplace=True)
             if not fund_flow_metrics_df.empty:
                 chip_raw_df = chip_raw_df.join(fund_flow_metrics_df, how='left')
-            # [修改代码块] 探针加固
-            if enable_probe and is_target_date_in_chunk:
-                target_dt = pd.to_datetime(target_date_str)
-                if target_dt in chip_raw_df.index:
-                    if 'avg_cost_main_buy' in chip_raw_df.columns:
-                        cost_val_joined = chip_raw_df.loc[target_dt, 'avg_cost_main_buy']
-                        print(f"  - Join 操作后，在 chip_raw_df 中成功定位 avg_cost_main_buy: {cost_val_joined}")
-                    else:
-                        print("  - 致命错误: Join 操作后 chip_raw_df 中未找到 avg_cost_main_buy 列！")
-                else:
-                    print(f"  - 致命错误: 目标日期 {target_dt} 不在最终的 chip_raw_df 索引中！")
             minute_data_map_for_chip = await chip_service._load_minute_data_for_range(
                 stock_info, chunk_dates.min(), chunk_dates.max(), tick_data_map=tick_data_map, minute_data_map=minute_data_map
             )
-            chip_metrics_df, cross_chunk_memory, chunk_failures = chip_service._synthesize_and_forge_metrics(
+            # [修改代码块] 传递并更新筹码记忆
+            chip_metrics_df, cross_chunk_memory_bus['chip_memory'], chunk_failures = chip_service._synthesize_and_forge_metrics(
                 stock_info, chip_raw_df, minute_data_map_for_chip, fund_flow_attributed_minute_map_for_chip_service, 
-                memory=cross_chunk_memory, historical_components=historical_components_df, debug_params=debug_params, 
+                memory=cross_chunk_memory_bus['chip_memory'], historical_components=historical_components_df, debug_params=debug_params, 
                 tick_data_map=tick_data_map, realtime_data_map=realtime_data_map, level5_data_map=level5_data_map
             )
             all_failures.extend(chunk_failures)

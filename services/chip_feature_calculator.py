@@ -48,6 +48,12 @@ class ChipFeatureCalculator:
         self.ctx['processed_intraday_df'] = self.processed_intraday_df # 使用 self.ctx
 
     def calculate_all_metrics(self) -> dict:
+        """
+        【V12.4 · 指标注册修复版】
+        - 核心修复: 在调用 `_compute_intraday_dynamics_metrics` 后，补充了 `all_metrics.update()` 操作。
+                     此举解决了 `opening_gap_defense_strength` 等日内动态指标虽然被正确计算，
+                     但因未被注册到主指标字典中而被丢弃，最终导致无法保存到数据库的问题。
+        """
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
         if self.df.empty:
@@ -80,6 +86,7 @@ class ChipFeatureCalculator:
         else:
             self.ctx['cost_gini_coefficient_slope_1d'] = 0.0
         intraday_dynamics_metrics = self._compute_intraday_dynamics_metrics(self.ctx)
+        # [修改代码块] 补充注册日内动态指标
         all_metrics.update(intraday_dynamics_metrics)
         self.ctx.update(intraday_dynamics_metrics)
         legacy_intraday_metrics = self._compute_legacy_intraday_metrics(self.ctx)
@@ -108,7 +115,6 @@ class ChipFeatureCalculator:
         microstructure_game_metrics = self._compute_microstructure_game_metrics(self.ctx)
         all_metrics.update(microstructure_game_metrics)
         self.ctx.update(microstructure_game_metrics)
-        # [新增代码块] 调用新增的战术归因引擎
         tactical_intent_metrics = self._compute_tactical_intent_metrics(self.ctx)
         all_metrics.update(tactical_intent_metrics)
         self.ctx.update(tactical_intent_metrics)
