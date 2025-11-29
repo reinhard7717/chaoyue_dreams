@@ -569,11 +569,8 @@ class ChipFeatureCalculator:
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
         """
-        【V2.1 · 幽灵驱逐版】
-        - 核心修复: 在方法入口处增加了对日内数据的预处理，强制过滤掉9:30之前的所有数据（如集合竞价）。
-                     此举旨在驱逐因集合竞价的巨大成交量而产生的“数据幽灵”，确保 `peak_control_transfer`
-                     等指标的计算基准是纯净的连续交易数据，从而修复了下游指标的级联失败问题。
-        - 核心增强: 为 `opening_gap_defense_strength` 增加了默认值0.0，使其在无缺口时返回明确的中性信号。
+        【V2.2 · 探针植入版】
+        - 核心新增: 植入由 `debug_params` 控制的诊断探针，用于追踪 `opening_gap_defense_strength` 的计算链路。
         """
         from datetime import time
         results = {
@@ -584,13 +581,20 @@ class ChipFeatureCalculator:
             'active_buying_support': np.nan,
             'active_selling_pressure': np.nan,
         }
+        # [修改代码块] 植入探针 OGDS
+        debug_params = context.get('debug_params', {})
+        enable_probe = debug_params.get('enable_ogds_probe', False)
+        target_date_str = debug_params.get('target_date')
+        is_target_date = str(context.get('trade_date')) == target_date_str
+        stock_code = context.get('stock_code')
+        if enable_probe and is_target_date:
+            print(f"\n[探针 OGDS.1 - {stock_code} @ {context.get('trade_date')}] 进入计算器 _compute_intraday_dynamics_metrics...")
         intraday_df_raw = context.get('processed_intraday_df')
         if intraday_df_raw is None or intraday_df_raw.empty:
             return results
-        # [修改代码块] 新增数据净化步骤，驱逐9:30前的“集合竞价幽灵”
         intraday_df = intraday_df_raw[intraday_df_raw.index.time >= time(9, 30)].copy()
         if intraday_df.empty:
-            return results # 如果过滤后为空，则直接返回
+            return results
         close_price = context.get('close_price')
         vwap = context.get('daily_vwap')
         peak_low = context.get('peak_range_low')
@@ -613,19 +617,39 @@ class ChipFeatureCalculator:
                 results['impulse_quality_ratio'] = (avg_up_vol / avg_down_vol - 1) * 100
         open_price = context.get('open_price')
         pre_close = context.get('pre_close')
+        if enable_probe and is_target_date:
+            print(f"[探针 OGDS.2 - {stock_code} @ {context.get('trade_date')}] 检查缺口计算的原始输入...")
+            print(f"  - 当日开盘价 (open_price): {open_price}")
+            print(f"  - 前日收盘价 (pre_close): {pre_close}")
         if pd.notna(open_price) and pd.notna(pre_close) and pre_close > 0:
             gap_pct = (open_price / pre_close - 1) * 100
+            if enable_probe and is_target_date:
+                print(f"  - 计算出的缺口百分比 (gap_pct): {gap_pct:.2f}%")
             if abs(gap_pct) > 0.1:
-                # 注意：这里的 intraday_df 已经是净化过的，所以时间过滤是正确的
+                if enable_probe and is_target_date:
+                    print(f"  - 决策: 缺口 > 0.1%，进入防御强度计算逻辑。")
                 first_5_min_df = intraday_df[intraday_df.index.time <= time(9, 35)]
+                if enable_probe and is_target_date:
+                    print(f"  - 数据切片: 截取开盘后5分钟数据 (9:30-9:35)，共 {len(first_5_min_df)} 条记录。")
                 if not first_5_min_df.empty and first_5_min_df['vol_shares'].sum() > 0:
-                    vwap_5min = (first_5_min_df['minute_vwap'] * first_5_min_df['vol_shares']).sum() / first_5_min_df['vol_shares'].sum()
+                    sum_amount = (first_5_min_df['minute_vwap'] * first_5_min_df['vol_shares']).sum()
+                    sum_vol = first_5_min_df['vol_shares'].sum()
+                    vwap_5min = sum_amount / sum_vol
                     price_change_vs_open = (vwap_5min / open_price - 1) * 100 if open_price > 0 else 0
                     defense_strength = price_change_vs_open
                     results['opening_gap_defense_strength'] = np.clip(defense_strength * 50, -100, 100)
+                    if enable_probe and is_target_date:
+                        print(f"  - VWAP计算: 5分钟内总金额={sum_amount:.2f}, 总成交量={sum_vol:.0f}, 5分钟VWAP={vwap_5min:.3f}")
+                        print(f"  - 强度计算: (5分钟VWAP / 开盘价 - 1) = {price_change_vs_open:.2f}%")
+                        print(f"  - 最终结果: 裁剪后的防御强度评分为 {results['opening_gap_defense_strength']:.2f}")
+                elif enable_probe and is_target_date:
+                    print(f"  - 警告: 开盘5分钟内数据为空或无成交量，无法计算防御强度。")
             else:
-                # [修改代码块] 增强健壮性：无缺口时，防御强度为0，而非NaN
                 results['opening_gap_defense_strength'] = 0.0
+                if enable_probe and is_target_date:
+                    print(f"  - 决策: 缺口 <= 0.1%，无需计算，防御强度返回默认值 0.0。")
+        elif enable_probe and is_target_date:
+            print(f"  - 警告: open_price 或 pre_close 缺失，无法计算缺口。")
         if 'net_flow_rate' in intraday_df.columns:
             active_buy_df = intraday_df[intraday_df['net_flow_rate'] > 0]
             active_sell_df = intraday_df[intraday_df['net_flow_rate'] < 0]
