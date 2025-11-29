@@ -150,11 +150,9 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None, realtime_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V1.10 · 上下文重建版 & 探针植入】
-        - 核心修复: 彻底改变 `context_for_calc` 的构建方式，从基于硬编码白名单的创建，升级为直接复制
-                     包含所有上游数据的 `context_data`。此举确保了 `avg_cost_main_buy` 等关键跨服务
-                     数据能够被无损传递至下游计算器，解决了信息传递“最后一公里”的断裂问题。
-        - 核心新增: 植入由 `debug_params` 控制的全流程诊断探针，用于追踪 `main_force_cost_advantage` 的计算链路。
+        【V1.11 · 记忆补录修复版】
+        - 核心修复: 在构建传递给下一日的记忆字典 `next_prev_metrics` 时，补充了对 `main_force_cumulative_cost`
+                     的记录。此举修复了因遗漏导致累积成本状态无法跨区块传递，从而引发全量回测中“失忆”的根本问题。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -176,7 +174,6 @@ class AdvancedChipMetricsService:
         debug_params = debug_params if debug_params is not None else {}
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             date_obj = trade_date.date()
-            # [修改代码块] 植入探针 C
             enable_probe = debug_params.get('enable_mfca_probe', False)
             target_date_str = debug_params.get('target_date')
             is_target_date = str(date_obj) == target_date_str
@@ -203,10 +200,7 @@ class AdvancedChipMetricsService:
                 logger.warning(f"[{stock_code}] [{trade_date.date()}] 跳过筹码计算，{reason}")
                 failures_list.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': reason})
                 continue
-            # [修改代码块] 重建上下文构建逻辑，确保信息继承
-            # cyq_perf_keys = ['weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'prev_20d_close', 'open_qfq']
-            # context_for_calc = {key: context_data.get(key) for key in cyq_perf_keys} # 旧的、错误的方式
-            context_for_calc = context_data.copy() # 新的、正确的方式：继承所有上游传入的字段
+            context_for_calc = context_data.copy()
             daily_amount = pd.to_numeric(context_data.get('amount'), errors='coerce') * 1000
             daily_vol_shares = pd.to_numeric(context_data.get('vol'), errors='coerce') * 100
             if pd.notna(daily_amount) and pd.notna(daily_vol_shares) and daily_vol_shares > 0:
@@ -284,6 +278,7 @@ class AdvancedChipMetricsService:
                 today_metrics_for_hist = {k: [daily_metrics.get(k)] for k in hist_comp_cols}
                 today_df = pd.DataFrame(today_metrics_for_hist, index=[trade_date])
                 hist_comp_dict.update(today_df.to_dict('index'))
+            # [修改代码块] 构建下一日的记忆
             next_prev_metrics = {
                 'chip_distribution': chip_data_for_calc,
                 'close_price': context_data.get('close_qfq'),
@@ -295,6 +290,8 @@ class AdvancedChipMetricsService:
                 'atr_14d': context_data.get('atr_14d'),
             }
             if daily_metrics:
+                # 核心修复：确保将当日计算出的累积成本存入记忆
+                next_prev_metrics['main_force_cumulative_cost'] = daily_metrics.get('main_force_cumulative_cost')
                 next_prev_metrics.update(daily_metrics)
             else:
                 next_prev_metrics.update({
@@ -302,6 +299,7 @@ class AdvancedChipMetricsService:
                     'dominant_peak_cost': None, 'chip_fatigue_index': 0.0,
                     'cost_gini_coefficient': None, 'total_winner_rate': None,
                     'price_volume_entropy': None, 'strategic_phase_score': None,
+                    'main_force_cumulative_cost': prev_metrics.get('main_force_cumulative_cost'), # 如果当天计算失败，继承前一天的
                 })
             prev_metrics = next_prev_metrics
             if is_first_day_in_batch: is_first_day_in_batch = False

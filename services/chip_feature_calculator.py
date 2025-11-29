@@ -1022,15 +1022,17 @@ class ChipFeatureCalculator:
 
     def _compute_legacy_game_theory_metrics(self, context: dict) -> dict:
         """
-        【V2.2 · 探针植入版】
-        - 核心新增: 植入由 `debug_params` 控制的诊断探针，用于观察 `main_force_cost_advantage` 的完整计算过程。
+        【V2.3 · 记忆传递修复版】
+        - 核心修复: 将计算出的 `main_force_cumulative_cost` 添加到返回的指标字典中。
+                     此举是解决跨区块记忆丢失问题的关键一步，它确保了这个重要的状态值能够
+                     被上层服务捕获，并存入传递给下一个区块的记忆中。
         """
         results = {
             'main_force_cost_advantage': np.nan,
             'auction_intent_signal': np.nan,
             'auction_closing_position': np.nan,
+            'main_force_cumulative_cost': np.nan, # 新增返回字段
         }
-        # [修改代码块] 植入探针 D
         debug_params = context.get('debug_params', {})
         enable_probe = debug_params.get('enable_mfca_probe', False)
         target_date_str = debug_params.get('target_date')
@@ -1058,7 +1060,9 @@ class ChipFeatureCalculator:
             main_force_cumulative_cost = prev_cumulative_cost
         if enable_probe and is_target_date:
             print(f"  - EMA计算后的当日累积成本 (main_force_cumulative_cost): {main_force_cumulative_cost}")
+        # [修改代码块] 将累积成本存入 self.ctx 和返回字典
         self.ctx['main_force_cumulative_cost'] = main_force_cumulative_cost
+        results['main_force_cumulative_cost'] = main_force_cumulative_cost
         if pd.notna(close_price) and pd.notna(main_force_cumulative_cost) and main_force_cumulative_cost > 0:
             results['main_force_cost_advantage'] = (close_price / main_force_cumulative_cost - 1) * 100
             if enable_probe and is_target_date:
