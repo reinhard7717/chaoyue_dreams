@@ -992,42 +992,49 @@ class ChipFeatureCalculator:
 
     def _compute_legacy_game_theory_metrics(self, context: dict) -> dict:
         """
-        【V2.1 · 主力成本记忆版】
-        - 核心重构(Main Force Cost): 废弃将“主导峰成本”等同于“主力成本”的静态认知。引入EMA（指数移动平均）
-          算法，通过对每日主力买入成本（avg_cost_main_buy）进行跨日平滑，动态追踪主力的“累积成本线”。
-          这赋予了模型“记忆”，使其能更真实地评估主力在一个完整操盘周期中的成本优势。
+        【V2.2 · 探针植入版】
+        - 核心新增: 植入由 `debug_params` 控制的诊断探针，用于观察 `main_force_cost_advantage` 的完整计算过程。
         """
         results = {
             'main_force_cost_advantage': np.nan,
             'auction_intent_signal': np.nan,
             'auction_closing_position': np.nan,
         }
-        # [修改代码块] 重构 main_force_cost_advantage 的计算逻辑
+        # [修改代码块] 植入探针 D
+        debug_params = context.get('debug_params', {})
+        enable_probe = debug_params.get('enable_mfca_probe', False)
+        target_date_str = debug_params.get('target_date')
+        is_target_date = str(context.get('trade_date')) == target_date_str
+        stock_code = context.get('stock_code')
+        if enable_probe and is_target_date:
+            print(f"\n[探针 D.1 - {stock_code} @ {context.get('trade_date')}] 进入计算器 _compute_legacy_game_theory_metrics...")
         close_price = context.get('close_price')
-        # 1. 获取当日主力买入成本，这是计算累积成本的每日输入
         daily_main_force_buy_cost = context.get('avg_cost_main_buy')
-        # 2. 从上一日的指标中获取历史累积成本
+        if enable_probe and is_target_date:
+            print(f"  - 接收到的当日主力买入成本 (avg_cost_main_buy): {daily_main_force_buy_cost}")
         prev_metrics = context.get('prev_metrics', {})
         prev_cumulative_cost = prev_metrics.get('main_force_cumulative_cost')
+        if enable_probe and is_target_date:
+            print(f"  - 接收到的前一日累积成本 (prev_cumulative_cost): {prev_cumulative_cost}")
         main_force_cumulative_cost = np.nan
-        # 3. 使用EMA算法更新累积成本
         if pd.notna(daily_main_force_buy_cost):
             if pd.notna(prev_cumulative_cost):
-                # EMA平滑周期，55日代表一个中线主力的典型持仓周期
                 span = 55
                 alpha = 2 / (span + 1)
                 main_force_cumulative_cost = daily_main_force_buy_cost * alpha + prev_cumulative_cost * (1 - alpha)
             else:
-                # 如果没有历史成本，则以当日成本作为初始值
                 main_force_cumulative_cost = daily_main_force_buy_cost
         elif pd.notna(prev_cumulative_cost):
-            # 如果当日无主力买入，则继承前一日的成本
             main_force_cumulative_cost = prev_cumulative_cost
-        # 4. 将新的累积成本存入上下文，供其他指标（如mf_cost_zone_defense_intent）和下一日使用
+        if enable_probe and is_target_date:
+            print(f"  - EMA计算后的当日累积成本 (main_force_cumulative_cost): {main_force_cumulative_cost}")
         self.ctx['main_force_cumulative_cost'] = main_force_cumulative_cost
         if pd.notna(close_price) and pd.notna(main_force_cumulative_cost) and main_force_cumulative_cost > 0:
-            # 新逻辑：成本优势 = (收盘价 / 主力累积成本 - 1)
             results['main_force_cost_advantage'] = (close_price / main_force_cumulative_cost - 1) * 100
+            if enable_probe and is_target_date:
+                print(f"  - 计算成功! 收盘价: {close_price}, 最终主力成本优势: {results['main_force_cost_advantage']:.2f}%")
+        elif enable_probe and is_target_date:
+            print(f"  - 计算失败! 检查输入: close_price={close_price}, main_force_cumulative_cost={main_force_cumulative_cost}")
         intraday_df = context.get('processed_intraday_df')
         if not intraday_df.empty:
             auction_data = intraday_df.iloc[0]

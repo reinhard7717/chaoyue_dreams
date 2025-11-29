@@ -758,10 +758,8 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.16 · 信息壁垒击穿版】
-    - 核心修复: 解决了因服务间信息隔离导致的 `main_force_cost_advantage` 等指标计算失败的问题。
-                 在调用筹码服务前，将资金流服务的计算结果 `fund_flow_metrics_df` 与筹码服务的
-                 输入数据 `chip_raw_df` 进行合并，确保 `avg_cost_main_buy` 等关键上下文被正确传递。
+    【V34.17 · 探针植入版】
+    - 核心新增: 植入由 `debug_params` 控制的诊断探针，用于追踪 `main_force_cost_advantage` 的计算链路。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -782,6 +780,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         except json.JSONDecodeError:
             logger.error(f"解码策略配置文件 JSON 失败: {config_path}")
         debug_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
+        # [修改代码块] 植入探针 B 的开关
+        enable_probe = debug_params.get('enable_mfca_probe', False)
+        target_date_str = debug_params.get('target_date')
         fund_flow_service = AdvancedFundFlowMetricsService(debug_params=debug_params)
         chip_service = AdvancedChipMetricsService()
         stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, lookback_start_date, process_start_date, save_start_date = await _initialize_task_context_unified(
@@ -952,15 +953,29 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 stock_code, fund_flow_raw_df, tick_data_map=tick_data_map, level5_data_map=level5_data_map, minute_data_map=minute_data_map, realtime_data_map=realtime_data_map
             )
             all_failures.extend(ff_failures)
+            # [修改代码块] 植入探针 B
+            is_target_date_in_chunk = pd.to_datetime(target_date_str) in chunk_dates if target_date_str else False
+            if enable_probe and is_target_date_in_chunk:
+                print(f"\n[探针 B.1 - {stock_code} @ {target_date_str}] 任务调度层数据交接...")
+                if not fund_flow_metrics_df.empty and 'avg_cost_main_buy' in fund_flow_metrics_df.columns:
+                    cost_val = fund_flow_metrics_df.loc[pd.to_datetime(target_date_str), 'avg_cost_main_buy']
+                    print(f"  - 资金流服务成功计算 avg_cost_main_buy: {cost_val}")
+                else:
+                    print("  - 警告: 资金流服务未能计算出 avg_cost_main_buy！")
             fund_flow_attributed_minute_map_for_chip_service = copy.deepcopy(fund_flow_attributed_minute_map)
             chip_data_dfs = {"cyq_chips": data_dfs["cyq_chips"], "cyq_perf": data_dfs["cyq_perf"]}
             chip_raw_df = chip_service._preprocess_and_merge_data(
                 stock_code, chip_data_dfs, base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
                 high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
             )
-            # [修改代码块] 将资金流指标的计算结果合并到筹码服务的输入数据中
             if not fund_flow_metrics_df.empty:
                 chip_raw_df = chip_raw_df.join(fund_flow_metrics_df, how='left')
+            if enable_probe and is_target_date_in_chunk:
+                if 'avg_cost_main_buy' in chip_raw_df.columns:
+                    cost_val_joined = chip_raw_df.loc[pd.to_datetime(target_date_str), 'avg_cost_main_buy']
+                    print(f"  - Join 操作成功，chip_raw_df 中包含 avg_cost_main_buy: {cost_val_joined}")
+                else:
+                    print("  - 致命错误: Join 操作后 chip_raw_df 中未找到 avg_cost_main_buy！")
             minute_data_map_for_chip = await chip_service._load_minute_data_for_range(
                 stock_info, chunk_dates.min(), chunk_dates.max(), tick_data_map=tick_data_map, minute_data_map=minute_data_map
             )

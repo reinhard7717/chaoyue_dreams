@@ -150,11 +150,11 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None, realtime_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V1.9 · 因果重塑版】
-        - 核心重构(高频数据流): 彻底废弃了使用`realtime_quote`快照数据推算区间成交量的错误做法，解决了因果倒置的“时间旅行者悖论”。
-        - 核心升级: 建立新的数据合并范式，以真实的逐笔成交(Tick)为主体，通过`merge_asof`向后匹配成交前一瞬间的
-                     Level-5盘口状态。这构建了具备真实因果关系的高频数据集，从根本上提升了
-                     `mf_cost_zone_defense_intent`等高频指标的逻辑可靠性。
+        【V1.10 · 上下文重建版 & 探针植入】
+        - 核心修复: 彻底改变 `context_for_calc` 的构建方式，从基于硬编码白名单的创建，升级为直接复制
+                     包含所有上游数据的 `context_data`。此举确保了 `avg_cost_main_buy` 等关键跨服务
+                     数据能够被无损传递至下游计算器，解决了信息传递“最后一公里”的断裂问题。
+        - 核心新增: 植入由 `debug_params` 控制的全流程诊断探针，用于追踪 `main_force_cost_advantage` 的计算链路。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -176,6 +176,17 @@ class AdvancedChipMetricsService:
         debug_params = debug_params if debug_params is not None else {}
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             date_obj = trade_date.date()
+            # [修改代码块] 植入探针 C
+            enable_probe = debug_params.get('enable_mfca_probe', False)
+            target_date_str = debug_params.get('target_date')
+            is_target_date = str(date_obj) == target_date_str
+            if enable_probe and is_target_date:
+                print(f"\n[探针 C.1 - {stock_code} @ {date_obj}] 进入筹码服务 _synthesize_and_forge_metrics...")
+                print(f"  - 传入的 daily_full_df 的列: {daily_full_df.columns.tolist()}")
+                if 'avg_cost_main_buy' in daily_full_df.columns:
+                    print(f"  - 成功接收到 avg_cost_main_buy: {daily_full_df['avg_cost_main_buy'].iloc[0]}")
+                else:
+                    print("  - 警告: daily_full_df 中未找到 avg_cost_main_buy 列！")
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()
             if chip_data_for_calc.empty:
@@ -192,8 +203,10 @@ class AdvancedChipMetricsService:
                 logger.warning(f"[{stock_code}] [{trade_date.date()}] 跳过筹码计算，{reason}")
                 failures_list.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': reason})
                 continue
-            cyq_perf_keys = ['weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'prev_20d_close', 'open_qfq']
-            context_for_calc = {key: context_data.get(key) for key in cyq_perf_keys}
+            # [修改代码块] 重建上下文构建逻辑，确保信息继承
+            # cyq_perf_keys = ['weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'prev_20d_close', 'open_qfq']
+            # context_for_calc = {key: context_data.get(key) for key in cyq_perf_keys} # 旧的、错误的方式
+            context_for_calc = context_data.copy() # 新的、正确的方式：继承所有上游传入的字段
             daily_amount = pd.to_numeric(context_data.get('amount'), errors='coerce') * 1000
             daily_vol_shares = pd.to_numeric(context_data.get('vol'), errors='coerce') * 100
             if pd.notna(daily_amount) and pd.notna(daily_vol_shares) and daily_vol_shares > 0:
@@ -222,6 +235,12 @@ class AdvancedChipMetricsService:
                 'debug_params': debug_params,
                 'prev_metrics': prev_metrics,
             })
+            if enable_probe and is_target_date:
+                print(f"[探针 C.2 - {stock_code} @ {date_obj}] 准备传递给计算器的 context_for_calc...")
+                if 'avg_cost_main_buy' in context_for_calc:
+                    print(f"  - 成功包含 avg_cost_main_buy: {context_for_calc.get('avg_cost_main_buy')}")
+                else:
+                    print("  - 致命错误: context_for_calc 中仍未找到 avg_cost_main_buy！")
             historical_data_for_day = {k: v for k, v in hist_comp_dict.items() if k < trade_date}
             if historical_data_for_day:
                 context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
@@ -234,25 +253,20 @@ class AdvancedChipMetricsService:
             context_for_calc['intraday_data'] = enhanced_intraday_data
             context_for_calc['tick_data'] = tick_data_map.get(date_obj, pd.DataFrame()) if tick_data_map else pd.DataFrame()
             context_for_calc['level5_data'] = level5_data_map.get(date_obj, pd.DataFrame()) if level5_data_map else pd.DataFrame()
-            # [修改代码块] 开始重构高频数据流，建立正确的因果关系
             merged_realtime_df = pd.DataFrame()
             tick_df_day = tick_data_map.get(date_obj)
             level5_df_day = level5_data_map.get(date_obj)
             if tick_df_day is not None and not tick_df_day.empty and level5_df_day is not None and not level5_df_day.empty:
-                # 确保关键列存在
                 if all(col in tick_df_day.columns for col in ['price', 'volume']) and 'buy_price1' in level5_df_day.columns:
-                    # 1. 以逐笔数据(tick_df_day)为主体
                     tick_df_sorted = tick_df_day.sort_index()
-                    # 2. 匹配成交前一瞬间的盘口状态(level5_df_day)
                     merged_realtime_df = pd.merge_asof(
                         left=tick_df_sorted.reset_index(),
                         right=level5_df_day.reset_index(),
                         on='trade_time',
-                        direction='backward' # 核心：向后查找，确保是成交前的盘口
+                        direction='backward'
                     )
                     if 'trade_time' in merged_realtime_df.columns:
                         merged_realtime_df.set_index('trade_time', inplace=True)
-                    # 3. 重命名列以适配下游计算器
                     column_rename_map = {
                         **{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)},
                         **{f'buy_volume{i}': f'b{i}_v' for i in range(1, 6)},
@@ -260,9 +274,7 @@ class AdvancedChipMetricsService:
                         **{f'sell_volume{i}': f'a{i}_v' for i in range(1, 6)},
                     }
                     merged_realtime_df.rename(columns=column_rename_map, inplace=True)
-                    # 4. 此时的 'volume' 列是真实的逐笔成交量，无需再进行 diff() 计算
             context_for_calc['realtime_data'] = merged_realtime_df
-            # [修改代码块] 结束
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
             if daily_metrics:

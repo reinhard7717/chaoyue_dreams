@@ -320,16 +320,22 @@ class AdvancedFundFlowMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None, realtime_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V11.6 · 数据流简化版】
-        - 核心重构: 简化高频数据的传递链路。不再预合并level5和realtime数据，而是将原始的tick, level5, realtime数据帧直接传递给下游的_calculate_all_metrics_for_day方法。
+        【V11.7 · 探针植入版】
+        - 核心新增: 植入由 `debug_params` 控制的诊断探针，用于追踪 `main_force_cost_advantage` 的计算链路。
         """
         all_metrics_list = []
         attributed_minute_data_map = {}
         failures = []
         num_days = len(merged_df)
+        # [修改代码块] 植入探针 A 的开关
+        enable_probe = self.debug_params.get('enable_mfca_probe', False)
+        target_date_str = self.debug_params.get('target_date')
         for i, (trade_date, daily_data_series) in enumerate(merged_df.iterrows()):
             debug_mode = (i == num_days - 1)
             date_obj = trade_date.date()
+            is_target_date = str(date_obj) == target_date_str
+            if enable_probe and is_target_date:
+                print(f"\n[探针 A.1 - {stock_code} @ {date_obj}] 进入资金流服务 _synthesize_and_forge_metrics...")
             daily_amount = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
             daily_vol_shares = pd.to_numeric(daily_data_series.get('vol'), errors='coerce') * 100
             if pd.notna(daily_amount) and pd.notna(daily_vol_shares) and daily_vol_shares > 0:
@@ -349,6 +355,9 @@ class AdvancedFundFlowMetricsService:
                 realtime_data_for_day=realtime_data_map.get(date_obj),
                 debug_mode=debug_mode
             )
+            if enable_probe and is_target_date:
+                print(f"[探针 A.2 - {stock_code} @ {date_obj}] 资金流指标计算完成。")
+                print(f"  - 计算出的 avg_cost_main_buy: {day_metrics.get('avg_cost_main_buy')}")
             all_metrics_list.append(day_metrics)
             attributed_minute_data_map[date_obj] = attributed_minute_df.copy(deep=True)
         if not all_metrics_list:
