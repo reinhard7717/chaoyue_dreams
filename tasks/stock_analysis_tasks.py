@@ -758,10 +758,9 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V36.0 · 数据隔离修复版】
-    - 核心修复: 解决了因“数据交叉污染”导致部分指标（如 lower_shadow_absorption_strength）无法存入数据库的根本问题。
-                 在总调度任务中，对最终生成的包含所有指标的巨大DataFrame进行“精准切割”，
-                 确保每个服务的保存函数只接收属于自己模型的“纯净”数据，从而根除了数据在保存前被意外丢弃的风险。
+    【V37.0 · 分段审计探针版】
+    - 核心增强: 植入“分段审计探针”，用于诊断因数据源在特定日期分段内完全缺失而导致的计算中断问题。
+                 探针将明确报告当前处理的日期区块以及导致“审计熔断”的具体数据源，从而快速定位数据空洞。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -920,9 +919,12 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 )
             else:
                 logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
+        # 修改代码块：植入分段审计探针
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
+            # 新增代码行：[探针 T.1] 打印分块信息
+            print(f"[探针 T.1 - {stock_code}] 开始处理第 {i // CHUNK_SIZE + 1} 数据块, 日期范围: {chunk_dates.min().date()} to {chunk_dates.max().date()}, 共 {len(chunk_dates)} 天。")
             if enable_probe:
                 is_target_date_in_chunk = pd.to_datetime(target_date_str) in chunk_dates if target_date_str else False
                 if is_target_date_in_chunk:
@@ -936,6 +938,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             realtime_data_map = data_dfs.pop("stock_realtime_data_map")
             critical_sources = ["cyq_chips", "daily_data", "daily_basic", "cyq_perf", "fund_flow_tushare"]
             if any(data_dfs.get(src) is None or data_dfs.get(src).empty for src in critical_sources):
+                # 新增代码行：[探针 T.2] 打印熔断原因
+                for src in critical_sources:
+                    if data_dfs.get(src) is None or data_dfs.get(src).empty:
+                        print(f"[探针 T.2 - {stock_code}] 审计熔断！原因: 关键数据源 '{src}' 在日期范围 {chunk_dates.min().date()} to {chunk_dates.max().date()} 内完全为空。")
                 logger.warning(f"[{stock_code}] [审计熔断] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 因一个或多个关键数据源在整个批次内完全为空而被跳过。")
                 for src in critical_sources:
                     if data_dfs.get(src) is None or data_dfs.get(src).empty:
@@ -1002,16 +1008,12 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         if not all_final_metrics_to_save.empty:
             chunk_to_save = all_final_metrics_to_save[all_final_metrics_to_save.index.date >= save_start_date] if save_start_date else all_final_metrics_to_save
             if not chunk_to_save.empty:
-                # 修改代码块：数据隔离修复
-                # 1. 获取各自模型的字段列表
                 ff_model_fields = {f.name for f in FundFlowMetricsModel._meta.get_fields() if not f.is_relation}
                 chip_model_fields = {f.name for f in ChipMetricsModel._meta.get_fields() if not f.is_relation}
-                # 2. 根据字段列表“精准切割”DataFrame
                 ff_cols_to_keep = [col for col in chunk_to_save.columns if col in ff_model_fields]
                 chip_cols_to_keep = [col for col in chunk_to_save.columns if col in chip_model_fields]
                 ff_df_to_save = chunk_to_save[ff_cols_to_keep]
                 chip_df_to_save = chunk_to_save[chip_cols_to_keep]
-                # 3. 将纯净的DataFrame传递给各自的保存函数
                 ff_save_count = await fund_flow_service._prepare_and_save_data(stock_info, FundFlowMetricsModel, ff_df_to_save)
                 chip_save_count = await chip_service._prepare_and_save_data(stock_info, ChipMetricsModel, chip_df_to_save)
                 logger.info(f"[{stock_code}] 成功！深度融合计算完成。资金流指标保存 {ff_save_count} 条，筹码指标保存 {chip_save_count} 条。")
@@ -1073,9 +1075,10 @@ def precompute_geometric_patterns_for_stock(self, stock_code: str, start_date_st
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_incremental: bool = True):
     """
-    【总调度器 V3.6 · 日期传递终极修复版】
-    - V3.6 修复: 在创建责任链时，为适配器任务 `_trigger_geometric_patterns_computation` 显式传递 `start_date_str` 参数，
-                 确保日期范围过滤能够在整个工作流中正确传递，彻底解决计算历史数据的问题。
+    【总调度器 V3.7 · 日期逻辑探针版】
+    - 核心增强: 在 `get_group_start_date` 辅助函数中植入探针，用于打印计算起始日期的详细决策过程，
+                 包括各模型表的最新日期、最终同步日期以及与 `StockDailyBasic` 最新日期的比较结果，
+                 旨在排查因日期逻辑错误导致任务无法正确触发的问题。
     """
     try:
         from celery import chord, group, chain
@@ -1094,24 +1097,34 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
         structural_models = [
             AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_BJ
         ]
+        # 修改代码块：植入日期逻辑探针
         def get_group_start_date(models, group_name: str):
+            print(f"\n[探针 G.1 - {group_name}组] 开始确定计算起始日期...")
             all_latest_dates = []
             for model in models:
                 latest_metric = model.objects.order_by('-trade_time').first()
                 if latest_metric:
                     all_latest_dates.append(latest_metric.trade_time)
+                    print(f"  - 模型 {model.__name__} 最新日期: {latest_metric.trade_time}")
+                else:
+                    print(f"  - 模型 {model.__name__} 无数据。")
             if not all_latest_dates:
-                logger.info(f"【总调度-{group_name}组】未发现任何数据，将从创世日期开始。")
-                return '2025-05-01', False
+                genesis_date = '2025-05-01'
+                print(f"  -> [决策] {group_name}组未发现任何历史数据，将从创世日期 {genesis_date} 开始全量计算。")
+                return genesis_date, False
             sync_date = min(all_latest_dates)
+            print(f"  - 所有模型中最旧的同步日期 (sync_date): {sync_date}")
             latest_basic_data = StockDailyBasic.objects.order_by('-trade_time').first()
             if not latest_basic_data:
                 raise ValueError("StockDailyBasic 为空，无法确定数据范围。")
+            print(f"  - StockDailyBasic 最新日期: {latest_basic_data.trade_time}")
             start_date_obj = sync_date + timedelta(days=1)
             if start_date_obj > latest_basic_data.trade_time:
-                logger.info(f"【总调度-{group_name}组】所有指标已同步至 {sync_date}，无需更新。")
+                print(f"  -> [决策] 所有指标已同步至 {sync_date}，该日期已是或晚于最新基础数据日期，无需更新。")
                 return None, True
-            return start_date_obj.strftime('%Y-%m-%d'), True
+            final_start_date_str = start_date_obj.strftime('%Y-%m-%d')
+            print(f"  -> [决策] 确定增量计算起始日期为: {final_start_date_str}")
+            return final_start_date_str, True
         start_date_chip_ff, is_incremental_chip_ff = None, is_incremental
         start_date_structural, is_incremental_structural = None, is_incremental
         if start_date_str is None and is_incremental:
@@ -1122,6 +1135,7 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             start_date_structural = start_date_str
             is_incremental_chip_ff = is_incremental
             is_incremental_structural = is_incremental
+            print(f"[探针 G.0] 使用外部传入的起始日期: {start_date_str}, 增量模式: {is_incremental}")
         stock_codes = list(StockInfo.objects.filter(list_status='L').exclude(stock_code__endswith='.BJ').values_list('stock_code', flat=True))
         if not stock_codes:
             logger.warning("【总调度】在StockInfo中未找到任何符合条件的上市状态股票，任务终止。")
@@ -1138,7 +1152,6 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             structural_task = precompute_advanced_structural_metrics_for_stock.s(
                 stock_code=code, is_incremental=is_incremental_structural, start_date_str=start_date_structural
             )
-            # 为适配器任务显式传递 start_date_str
             trigger_task = _trigger_geometric_patterns_computation.s(stock_code=code, start_date_str=start_date_chip_ff)
             stock_chain = chain(
                 group(chip_ff_task, structural_task),
