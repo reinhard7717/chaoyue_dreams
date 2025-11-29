@@ -243,13 +243,11 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V1.2 · 诡道博弈重构版】
-        - 核心重构(Deception Index): 废弃原有的单向“价量背离”模型，引入“双极欺骗模型”。
-          通过分别计算“诱多得分”（上涨+派发）和“诱空得分”（下跌+吸筹），使指数能够同时揭示
-          “虚假的强势”与“虚假的弱势”，其正负号直接指示欺骗方向。
-        - 核心重构(Exhaustion Risk Index): 废弃原有的纯结构模型，引入“结构-动态双因子模型”。
-          将“筹码疲劳度”（结构因子）与新增的“价格伸展度”（动态因子）相乘，旨在捕捉A股市场中
-          “高换手 + 加速上涨”这一经典的顶部力竭信号。
+        【V1.3 · 依赖审计探针版】
+        - 核心新增: 植入名为 "GT" (Game Theoretic) 的多级诊断探针，用于解剖 `breakout_readiness_score`
+                     等高阶指标计算失败的根源。
+        - 核心功能(探针GT.2): 在计算前执行一次“依赖审计”，打印出所有上游依赖项的当前值，
+                             以精准定位导致计算“静默失败”的缺失原料。
         """
         results = {
             'strategic_phase_score': np.nan,
@@ -258,6 +256,14 @@ class ChipFeatureCalculator:
             'exhaustion_risk_index': np.nan,
             'breakout_readiness_score': np.nan,
         }
+        # [新增探针GT.1]
+        debug_params = context.get('debug_params', {})
+        enable_probe = debug_params.get('enable_mfca_probe', False)
+        target_date_str = debug_params.get('target_date')
+        is_target_date = str(context.get('trade_date')) == target_date_str
+        stock_code = context.get('stock_code')
+        if enable_probe and is_target_date:
+            print(f"\n[探针 GT.1 - {stock_code} @ {context.get('trade_date')}] 进入计算器 _compute_game_theoretic_metrics...")
         legacy_metrics = self._compute_legacy_game_theory_metrics(context)
         results.update(legacy_metrics)
         potential = context.get('structural_potential_score')
@@ -269,47 +275,56 @@ class ChipFeatureCalculator:
         loser_pain = context.get('loser_pain_index')
         close_price = context.get('close_price')
         open_price = context.get('open_price')
-        high_price = context.get('high_price') # 新增：获取最高价
-        low_5d = context.get('low_5d') # 新增：获取5日最低价
+        high_price = context.get('high_price')
+        low_5d = context.get('low_5d')
         atr = context.get('atr_14d')
-        # [修改代码块] 开始重构 deception_index 和 exhaustion_risk_index
-        # 依赖项检查
+        rally_distribution_pressure = context.get('rally_distribution_pressure')
+        suppressive_accumulation_intensity = context.get('suppressive_accumulation_intensity')
         required_vars = [
             potential, posture, entropy_change, gini, peak_transfer, fatigue, loser_pain,
             close_price, open_price, high_price, low_5d, atr,
-            context.get('rally_distribution_pressure'), context.get('suppressive_accumulation_intensity')
+            rally_distribution_pressure, suppressive_accumulation_intensity
         ]
-        if any(pd.isna(v) for v in required_vars) or atr <= 0:
+        required_vars_names = [
+            'potential', 'posture', 'entropy_change', 'gini', 'peak_transfer', 'fatigue', 'loser_pain',
+            'close_price', 'open_price', 'high_price', 'low_5d', 'atr',
+            'rally_distribution_pressure', 'suppressive_accumulation_intensity'
+        ]
+        # [新增探针GT.2] 依赖审计
+        if enable_probe and is_target_date:
+            print(f"[探针 GT.2 - {stock_code} @ {context.get('trade_date')}] 执行依赖审计...")
+            for name, var in zip(required_vars_names, required_vars):
+                print(f"  - 依赖项: {name:<35} | 值: {var}")
+        if any(pd.isna(v) for v in required_vars) or (pd.notna(atr) and atr <= 0):
+            if enable_probe and is_target_date:
+                print(f"[探针 GT.2 - {stock_code} @ {context.get('trade_date')}] 审计失败！发现缺失依赖项，计算中止。")
             return results
-        # --- 1. 重构 exhaustion_risk_index (衰竭风险指数) ---
-        # 动态因子：价格伸展度，衡量短期上涨加速度
+        # [新增探针GT.3]
+        if enable_probe and is_target_date:
+            print(f"[探针 GT.3 - {stock_code} @ {context.get('trade_date')}] 依赖审计通过，开始核心计算...")
         price_extension = (high_price - low_5d) / atr
         acceleration_factor = np.log1p(np.maximum(0, price_extension))
-        # 结构因子：筹码疲劳度
         fatigue_factor = np.log1p(fatigue)
-        # 新版衰竭风险 = 结构因子 * 动态因子
         results['exhaustion_risk_index'] = fatigue_factor * acceleration_factor
-        # --- 2. 重构 deception_index (欺骗指数) ---
         price_momentum = (close_price - open_price) / atr
         price_momentum_factor = np.tanh(price_momentum)
-        # 诱多得分 = 上涨动能 * 拉高派发压力
-        rally_distribution_pressure = context.get('rally_distribution_pressure', 0)
         lure_long_score = (price_momentum_factor if price_momentum > 0 else 0) * np.tanh(rally_distribution_pressure / 50)
-        # 诱空得分 = 下跌动能 * 打压吸筹强度
-        suppressive_accumulation = context.get('suppressive_accumulation_intensity', 0)
-        lure_short_score = (abs(price_momentum_factor) if price_momentum < 0 else 0) * np.tanh(suppressive_accumulation / 50)
-        # 新版欺骗指数 = 诱多得分 - 诱空得分
+        lure_short_score = (abs(price_momentum_factor) if price_momentum < 0 else 0) * np.tanh(suppressive_accumulation_intensity / 50)
         results['deception_index'] = (lure_long_score - lure_short_score) * 100
-        # --- 3. 沿用并连接后续计算 ---
         results['control_solidity_index'] = gini * peak_transfer
         posture_unipolar = (posture + 100) / 200
         readiness = (potential / 100) * posture_unipolar * np.clip(1 - entropy_change, 0, 2)
         results['breakout_readiness_score'] = np.clip(readiness * 100, 0, 100)
         markup_force = results['breakout_readiness_score'] * (1 + np.tanh(results['control_solidity_index'] / 100))
-        # 此处的 distribution_force 现在由新版的、更准确的 deception_index 和 exhaustion_risk_index 驱动
         distribution_force = results['exhaustion_risk_index'] * (1 + np.tanh(results['deception_index'] / 100 if results['deception_index'] > 0 else 0))
         phase_score = markup_force - distribution_force
         results['strategic_phase_score'] = np.tanh(phase_score / 50) * 100
+        # [新增探针GT.4]
+        if enable_probe and is_target_date:
+            print(f"[探针 GT.4 - {stock_code} @ {context.get('trade_date')}] 计算完成，检查最终输出...")
+            print(f"  - deception_index: {results['deception_index']}")
+            print(f"  - control_solidity_index: {results['control_solidity_index']}")
+            print(f"  - breakout_readiness_score: {results['breakout_readiness_score']}")
         return results
 
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
