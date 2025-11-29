@@ -163,9 +163,11 @@ class ChipFeatureCalculator:
 
     def _compute_cross_day_flow_metrics(self, context: dict) -> dict:
         """
-        【V1.1 · 微观动力学校准版】
-        - 核心升级: 引入 `buy_sweep_intensity` 对 `conviction_flow_index` 进行校准，使其更能反映主力追涨的决心和成本。
-        - 核心升级: 引入 `order_flow_imbalance` 修正 `constructive_turnover_ratio`，衡量换手过程中的真实买卖压力。
+        【V1.2 · 净胜结果重构版】
+        - 核心重构(Conviction Flow): 废弃原有的比率模型，引入“净信念流”模型。新公式 (G-D)/(G+D)
+          直接量化了买卖双方交锋后的“净胜结果”，解决了因分母过小导致指数失真的“比率谬误”。
+        - 核心重构(Constructive Turnover): 在原有“换手效率”基础上，乘以 (1 - 获利盘比例) 的“建设潜力因子”。
+          此举旨在区分底部区域的“成本抬升”与顶部区域的“获利盘内卷”，解决了“Churn悖论”。
         """
         results = {
             'peak_mass_transfer_rate': np.nan,
@@ -191,29 +193,32 @@ class ChipFeatureCalculator:
             if turnover_rate > 0:
                 results['peak_mass_transfer_rate'] = mass_change / (turnover_rate * 100)
         daily_vwap = context.get('daily_vwap')
-        buy_sweep_intensity = context.get('buy_sweep_intensity', 0) # 获取扫单强度
+        buy_sweep_intensity = context.get('buy_sweep_intensity', 0)
+        # [修改代码块] 重构 conviction_flow_index
         if pd.notna(daily_vwap) and 'main_force_net_vol' in intraday_df.columns:
             mf_net_vol = intraday_df['main_force_net_vol']
             gathering_vol = mf_net_vol[intraday_df['minute_vwap'] < daily_vwap].clip(lower=0).sum()
-            # 升级逻辑：用扫单强度加权追涨部分的成交量
             chasing_vol_raw = mf_net_vol[intraday_df['minute_vwap'] > daily_vwap].clip(lower=0).sum()
-            chasing_vol_conviction_weighted = chasing_vol_raw * (1 + buy_sweep_intensity)
-            gathering_vol_total_weighted = gathering_vol + chasing_vol_conviction_weighted
+            gathering_total_weighted = gathering_vol + (chasing_vol_raw * (1 + buy_sweep_intensity))
             dispersal_vol = -mf_net_vol[intraday_df['minute_vwap'] > daily_vwap].clip(upper=0).sum()
-            if gathering_vol_total_weighted > 0 and dispersal_vol > 0:
-                results['conviction_flow_index'] = np.log1p(gathering_vol_total_weighted) / np.log1p(dispersal_vol)
-            elif gathering_vol_total_weighted > 0:
-                results['conviction_flow_index'] = 10.0
+            total_battle_vol = gathering_total_weighted + dispersal_vol
+            if total_battle_vol > 0:
+                # 新逻辑：(买方力量 - 卖方力量) / 总力量，量化“净胜结果”
+                net_conviction_flow = (gathering_total_weighted - dispersal_vol) / total_battle_vol
+                results['conviction_flow_index'] = net_conviction_flow * 100
             else:
-                results['conviction_flow_index'] = 0.1
+                results['conviction_flow_index'] = 0.0
         today_winner_rate = context.get('total_winner_rate')
         prev_winner_rate = prev_metrics.get('total_winner_rate')
-        order_flow_imbalance = context.get('order_flow_imbalance', 0) # 获取OFI
+        order_flow_imbalance = context.get('order_flow_imbalance', 0)
+        # [修改代码块] 重构 constructive_turnover_ratio
         if pd.notna(today_winner_rate) and pd.notna(prev_winner_rate) and turnover_rate > 0:
             winner_rate_change = today_winner_rate - prev_winner_rate
-            # 升级逻辑：用OFI调整换手效率
-            constructive_ratio = winner_rate_change / (turnover_rate * 100)
-            results['constructive_turnover_ratio'] = constructive_ratio * (1 + np.tanh(order_flow_imbalance * 5))
+            raw_efficiency = winner_rate_change / (turnover_rate * 100)
+            # 引入“建设潜力因子”，即前一天的套牢盘比例
+            construction_potential = (100 - prev_winner_rate) / 100
+            # 新逻辑：潜力加权的换手效率
+            results['constructive_turnover_ratio'] = raw_efficiency * construction_potential
         today_entropy = context.get('price_volume_entropy')
         prev_entropy = prev_metrics.get('price_volume_entropy')
         if pd.notna(today_entropy) and pd.notna(prev_entropy):
@@ -232,10 +237,13 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V1.1 · 战备状态修复版】
-        - 核心修复: 修正了 `breakout_readiness_score` 的计算公式。通过将双极性的 `intraday_posture_score`
-                     映射到 [0, 1] 区间，解决了因负分直接参与乘法而导致“战备分”被错误归零的
-                     “数学地雷”问题，使其能正确评估主力在压盘过程中的突破准备状态。
+        【V1.2 · 诡道博弈重构版】
+        - 核心重构(Deception Index): 废弃原有的单向“价量背离”模型，引入“双极欺骗模型”。
+          通过分别计算“诱多得分”（上涨+派发）和“诱空得分”（下跌+吸筹），使指数能够同时揭示
+          “虚假的强势”与“虚假的弱势”，其正负号直接指示欺骗方向。
+        - 核心重构(Exhaustion Risk Index): 废弃原有的纯结构模型，引入“结构-动态双因子模型”。
+          将“筹码疲劳度”（结构因子）与新增的“价格伸展度”（动态因子）相乘，旨在捕捉A股市场中
+          “高换手 + 加速上涨”这一经典的顶部力竭信号。
         """
         results = {
             'strategic_phase_score': np.nan,
@@ -253,23 +261,47 @@ class ChipFeatureCalculator:
         peak_transfer = context.get('peak_control_transfer')
         fatigue = context.get('chip_fatigue_index')
         loser_pain = context.get('loser_pain_index')
-        impulse_quality = context.get('impulse_quality_ratio')
         close_price = context.get('close_price')
         open_price = context.get('open_price')
+        high_price = context.get('high_price') # 新增：获取最高价
+        low_5d = context.get('low_5d') # 新增：获取5日最低价
         atr = context.get('atr_14d')
-        if any(pd.isna(v) for v in [potential, posture, entropy_change, gini, peak_transfer, fatigue, loser_pain, impulse_quality, close_price, open_price, atr]):
+        # [修改代码块] 开始重构 deception_index 和 exhaustion_risk_index
+        # 依赖项检查
+        required_vars = [
+            potential, posture, entropy_change, gini, peak_transfer, fatigue, loser_pain,
+            close_price, open_price, high_price, low_5d, atr,
+            context.get('rally_distribution_pressure'), context.get('suppressive_accumulation_intensity')
+        ]
+        if any(pd.isna(v) for v in required_vars) or atr <= 0:
             return results
+        # --- 1. 重构 exhaustion_risk_index (衰竭风险指数) ---
+        # 动态因子：价格伸展度，衡量短期上涨加速度
+        price_extension = (high_price - low_5d) / atr
+        acceleration_factor = np.log1p(np.maximum(0, price_extension))
+        # 结构因子：筹码疲劳度
+        fatigue_factor = np.log1p(fatigue)
+        # 新版衰竭风险 = 结构因子 * 动态因子
+        results['exhaustion_risk_index'] = fatigue_factor * acceleration_factor
+        # --- 2. 重构 deception_index (欺骗指数) ---
+        price_momentum = (close_price - open_price) / atr
+        price_momentum_factor = np.tanh(price_momentum)
+        # 诱多得分 = 上涨动能 * 拉高派发压力
+        rally_distribution_pressure = context.get('rally_distribution_pressure', 0)
+        lure_long_score = (price_momentum_factor if price_momentum > 0 else 0) * np.tanh(rally_distribution_pressure / 50)
+        # 诱空得分 = 下跌动能 * 打压吸筹强度
+        suppressive_accumulation = context.get('suppressive_accumulation_intensity', 0)
+        lure_short_score = (abs(price_momentum_factor) if price_momentum < 0 else 0) * np.tanh(suppressive_accumulation / 50)
+        # 新版欺骗指数 = 诱多得分 - 诱空得分
+        results['deception_index'] = (lure_long_score - lure_short_score) * 100
+        # --- 3. 沿用并连接后续计算 ---
         results['control_solidity_index'] = gini * peak_transfer
-        results['exhaustion_risk_index'] = np.log1p(fatigue) * np.log1p(loser_pain)
-        price_momentum = (close_price - open_price) / atr if atr > 0 else 0
-        results['deception_index'] = np.tanh(price_momentum) * (1 - np.tanh(impulse_quality / 100)) * 100
-        # [修改代码块] 修正 breakout_readiness_score 的计算逻辑
-        # 将双极性的 posture 分数映射到 [0, 1] 区间
         posture_unipolar = (posture + 100) / 200
         readiness = (potential / 100) * posture_unipolar * np.clip(1 - entropy_change, 0, 2)
         results['breakout_readiness_score'] = np.clip(readiness * 100, 0, 100)
         markup_force = results['breakout_readiness_score'] * (1 + np.tanh(results['control_solidity_index'] / 100))
-        distribution_force = results['exhaustion_risk_index'] * (1 + np.tanh(results['deception_index'] / 100))
+        # 此处的 distribution_force 现在由新版的、更准确的 deception_index 和 exhaustion_risk_index 驱动
+        distribution_force = results['exhaustion_risk_index'] * (1 + np.tanh(results['deception_index'] / 100 if results['deception_index'] > 0 else 0))
         phase_score = markup_force - distribution_force
         results['strategic_phase_score'] = np.tanh(phase_score / 50) * 100
         return results
@@ -333,6 +365,15 @@ class ChipFeatureCalculator:
         return results
 
     def _compute_static_structure_metrics(self) -> dict:
+        """
+        【V11.2 · 心理学重构版】
+        - 核心重构(Winner Stability): 废弃线性利润模型，引入高斯函数来模拟“利润甜蜜区”。
+          新模型认为，过高（>50%）或过低的利润都会降低持股稳定性，只有在“甜蜜区”（如20%）附近，
+          获利盘的结构才最为稳固，更符合A股“兑现冲动”的博弈心理。
+        - 核心重构(Loser Pain): 废弃线性亏损模型，引入“对数增长+指数衰减”模型来模拟“峰值痛苦区”。
+          新模型认为，随着亏损加深，投资者的痛苦感（潜在抛压）会先快速上升，但在亏损巨大时
+          （如 > 50%）会因“心理麻木”或“彻底投降”而逐渐衰减，更符合A股散户的行为模式。
+        """
         from scipy.signal import find_peaks
         from scipy.stats import skew
         results = {
@@ -363,8 +404,6 @@ class ChipFeatureCalculator:
             return kurt
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
         results['structural_node_count'] = len(peaks)
-        # [修改代码块] 重构真空区计算逻辑，解决“隧道视野”问题
-        # 1. 初始化真空区量级为0
         results['vacuum_zone_magnitude'] = 0.0
         if len(peaks) > 0:
             peaks_df = pd.DataFrame({
@@ -372,7 +411,6 @@ class ChipFeatureCalculator:
                 'cost': self.df['price'].iloc[peaks].values, 'prominence': properties['prominences'],
                 'left_base': properties['left_bases'], 'right_base': properties['right_bases'],
             })
-            # 按 prominence（显著性）排序以确定主、次峰
             peaks_by_prominence = peaks_df.sort_values(by='prominence', ascending=False).reset_index(drop=True)
             main_peak = peaks_by_prominence.iloc[0]
             main_peak_cost = main_peak['cost']
@@ -386,13 +424,10 @@ class ChipFeatureCalculator:
                 results['secondary_peak_cost'] = secondary_peak['cost']
                 if main_peak_cost > 0:
                     results['peak_separation_ratio'] = abs(main_peak_cost - secondary_peak['cost']) / main_peak_cost * 100
-                # 2. 为真空区计算，按 cost（价格）排序
                 peaks_by_cost = peaks_df.sort_values(by='cost').reset_index(drop=True)
-                # 3. 计算所有相邻峰之间的距离，并找到最大值
                 if len(peaks_by_cost) > 1:
                     peak_separations_atr = (peaks_by_cost['cost'].diff() / atr_14d).dropna()
                     max_separation_atr = peak_separations_atr.max()
-                    # 4. 检查最大距离是否超过阈值
                     peak_separation_threshold = 2.5
                     if max_separation_atr > peak_separation_threshold:
                         results['vacuum_zone_magnitude'] = max_separation_atr
@@ -429,14 +464,29 @@ class ChipFeatureCalculator:
             winner_avg_cost = np.average(winners_df['price'], weights=winners_df['percent'])
             results['winner_profit_margin_avg'] = (close_price / winner_avg_cost - 1) * 100 if winner_avg_cost > 0 else np.nan
             gini_w = _calculate_gini_final(winners_df['price'], winners_df['percent'])
+            # [修改代码块] 重构 winner_stability_index
             if pd.notna(gini_w) and pd.notna(results['winner_profit_margin_avg']):
-                results['winner_stability_index'] = (1 - gini_w) * results['winner_profit_margin_avg']
+                profit_margin = results['winner_profit_margin_avg']
+                # 引入高斯函数模拟“利润甜蜜区”
+                mu = 20.0  # 最佳利润点 (20%)
+                sigma = 15.0 # 利润敏感度标准差 (15%)
+                gaussian_factor = np.exp(-((profit_margin - mu)**2) / (2 * sigma**2))
+                # 获利盘成本集中度 * 利润甜蜜区因子
+                results['winner_stability_index'] = (1 - gini_w) * gaussian_factor * 100
         if not losers_df.empty and losers_df['percent'].sum() > 0:
             loser_avg_cost = np.average(losers_df['price'], weights=losers_df['percent'])
             results['loser_loss_margin_avg'] = (close_price / loser_avg_cost - 1) * 100 if loser_avg_cost > 0 else np.nan
             gini_l = _calculate_gini_final(losers_df['price'], losers_df['percent'])
+            # [修改代码块] 重构 loser_pain_index
             if pd.notna(gini_l) and pd.notna(results['loser_loss_margin_avg']):
-                results['loser_pain_index'] = (1 - gini_l) * abs(results['loser_loss_margin_avg'])
+                loss_margin = abs(results['loser_loss_margin_avg'])
+                # 引入“对数增长 + 指数衰减”模型模拟“峰值痛苦区”和“投降效应”
+                # 对数部分模拟痛苦的非线性增长
+                log_pain = np.log1p(loss_margin)
+                # 指数衰减部分模拟亏损过大后的“心理麻木”
+                capitulation_decay = np.exp(-0.02 * loss_margin)
+                # 套牢盘成本集中度 * 峰值痛苦因子
+                results['loser_pain_index'] = (1 - gini_l) * log_pain * capitulation_decay * 100
         if pd.notna(winner_avg_cost) and pd.notna(loser_avg_cost) and close_price > 0:
             tension = (abs(winner_avg_cost - loser_avg_cost) / close_price) * \
                       np.log1p((results['total_winner_rate'] / 100) * (results['total_loser_rate'] / 100))
@@ -932,11 +982,10 @@ class ChipFeatureCalculator:
 
     def _compute_legacy_game_theory_metrics(self, context: dict) -> dict:
         """
-        【V2.0 · 主力成本正本清源版】计算在第四象限升级后保留的旧版博弈意图指标。
-        - 核心修正: 彻底重构了 `main_force_cost_advantage` 的计算逻辑，解决了“将军的困境”悖论。
-                     废弃了原有的 (存量成本/增量成本) 的错误定义，回归第一性原理。
-        - 核心升级: 新的定义为 (收盘价 / 主导峰成本 - 1)，直接衡量主力核心持仓区的盈利状况，
-                     从根本上修正了对主力真实成本优势的错误评估。
+        【V2.1 · 主力成本记忆版】
+        - 核心重构(Main Force Cost): 废弃将“主导峰成本”等同于“主力成本”的静态认知。引入EMA（指数移动平均）
+          算法，通过对每日主力买入成本（avg_cost_main_buy）进行跨日平滑，动态追踪主力的“累积成本线”。
+          这赋予了模型“记忆”，使其能更真实地评估主力在一个完整操盘周期中的成本优势。
         """
         results = {
             'main_force_cost_advantage': np.nan,
@@ -945,10 +994,30 @@ class ChipFeatureCalculator:
         }
         # [修改代码块] 重构 main_force_cost_advantage 的计算逻辑
         close_price = context.get('close_price')
-        dominant_peak_cost = context.get('dominant_peak_cost')
-        if pd.notna(close_price) and pd.notna(dominant_peak_cost) and dominant_peak_cost > 0:
-            # 新逻辑：直接计算收盘价相对于主峰成本的利润率，这才是主力的真实成本优势
-            results['main_force_cost_advantage'] = (close_price / dominant_peak_cost - 1) * 100
+        # 1. 获取当日主力买入成本，这是计算累积成本的每日输入
+        daily_main_force_buy_cost = context.get('avg_cost_main_buy')
+        # 2. 从上一日的指标中获取历史累积成本
+        prev_metrics = context.get('prev_metrics', {})
+        prev_cumulative_cost = prev_metrics.get('main_force_cumulative_cost')
+        main_force_cumulative_cost = np.nan
+        # 3. 使用EMA算法更新累积成本
+        if pd.notna(daily_main_force_buy_cost):
+            if pd.notna(prev_cumulative_cost):
+                # EMA平滑周期，55日代表一个中线主力的典型持仓周期
+                span = 55
+                alpha = 2 / (span + 1)
+                main_force_cumulative_cost = daily_main_force_buy_cost * alpha + prev_cumulative_cost * (1 - alpha)
+            else:
+                # 如果没有历史成本，则以当日成本作为初始值
+                main_force_cumulative_cost = daily_main_force_buy_cost
+        elif pd.notna(prev_cumulative_cost):
+            # 如果当日无主力买入，则继承前一日的成本
+            main_force_cumulative_cost = prev_cumulative_cost
+        # 4. 将新的累积成本存入上下文，供其他指标（如mf_cost_zone_defense_intent）和下一日使用
+        self.ctx['main_force_cumulative_cost'] = main_force_cumulative_cost
+        if pd.notna(close_price) and pd.notna(main_force_cumulative_cost) and main_force_cumulative_cost > 0:
+            # 新逻辑：成本优势 = (收盘价 / 主力累积成本 - 1)
+            results['main_force_cost_advantage'] = (close_price / main_force_cumulative_cost - 1) * 100
         intraday_df = context.get('processed_intraday_df')
         if not intraday_df.empty:
             auction_data = intraday_df.iloc[0]
@@ -967,10 +1036,10 @@ class ChipFeatureCalculator:
 
     def _compute_realtime_orderbook_metrics(self, context: dict) -> dict:
         """
-        【V3.0 · 因果链对齐版】
-        - 核心修复: 对齐上游传入的、已修复“时间旅行者悖论”的高频数据集。
-        - 核心升级: 计算“主力成本区攻防意图”的加权逻辑被修正。权重不再是错误的累计成交量快照差值，
-                     而是直接使用数据集中每一笔真实成交的成交量(`volume`)，确保了分析的逻辑正确性。
+        【V3.1 · 守正出奇版】
+        - 核心升级: 防守区域的定义从静态的“主导峰成本”切换为动态追踪的“主力累积成本”。
+          此举解决了“守错战壕”的根本性问题，让模型能够在主力的真实生命线上观察其护盘意图，
+          从而能更准确地区分是“战略性防守”还是“诱多式抵抗”。
         """
         results = {
             'mf_cost_zone_defense_intent': np.nan,
@@ -987,11 +1056,13 @@ class ChipFeatureCalculator:
         for col in numeric_cols:
             if col in realtime_df.columns:
                 realtime_df[col] = pd.to_numeric(realtime_df[col], errors='coerce')
-        dominant_peak_cost = context.get('dominant_peak_cost')
+        # [修改代码块] 使用动态追踪的“主力累积成本”作为防守区域中心
+        # dominant_peak_cost = context.get('dominant_peak_cost') # 旧的、错误的中心
+        main_force_cost = context.get('main_force_cumulative_cost') # 新的、更真实的中心
         atr = context.get('atr_14d')
-        if pd.notna(dominant_peak_cost) and pd.notna(atr) and atr > 0:
-            cost_zone_low = dominant_peak_cost - 0.5 * atr
-            cost_zone_high = dominant_peak_cost + 0.5 * atr
+        if pd.notna(main_force_cost) and pd.notna(atr) and atr > 0:
+            cost_zone_low = main_force_cost - 0.5 * atr
+            cost_zone_high = main_force_cost + 0.5 * atr
             def _gaussian_weight(price_series, center, sigma):
                 if sigma > 0:
                     return np.exp(-((price_series - center)**2) / (2 * sigma**2))
@@ -1006,21 +1077,19 @@ class ChipFeatureCalculator:
                 price_series = realtime_df[p_col]
                 vol_series = realtime_df[v_col]
                 in_zone_mask = (price_series >= cost_zone_low) & (price_series <= cost_zone_high)
-                gravity_weight = _gaussian_weight(price_series, center=dominant_peak_cost, sigma=0.5 * atr)
+                gravity_weight = _gaussian_weight(price_series, center=main_force_cost, sigma=0.5 * atr)
                 level_power = price_series * vol_series * gravity_weight
                 total_weighted_bid_power += level_power.where(in_zone_mask, 0)
             for p_col, v_col in zip(ask_prices_cols, ask_vols_cols):
                 price_series = realtime_df[p_col]
                 vol_series = realtime_df[v_col]
                 in_zone_mask = (price_series >= cost_zone_low) & (price_series <= cost_zone_high)
-                gravity_weight = _gaussian_weight(price_series, center=dominant_peak_cost, sigma=0.5 * atr)
+                gravity_weight = _gaussian_weight(price_series, center=main_force_cost, sigma=0.5 * atr)
                 level_power = price_series * vol_series * gravity_weight
                 total_weighted_ask_power += level_power.where(in_zone_mask, 0)
             total_power = total_weighted_bid_power + total_weighted_ask_power
             instant_intent = (total_weighted_bid_power - total_weighted_ask_power) / total_power.replace(0, np.nan)
-            # [修改代码块] 修正加权逻辑，使用真实的逐笔成交量作为权重
             if 'volume' in realtime_df.columns and not instant_intent.dropna().empty:
-                # 权重直接是每笔成交的成交量（股数）
                 weights = realtime_df['volume'].fillna(0).clip(lower=0)
                 valid_intent = instant_intent.dropna()
                 valid_weights = weights.loc[valid_intent.index]
@@ -1168,7 +1237,8 @@ class ChipFeatureCalculator:
         conviction_flow = context.get('conviction_flow_index', 0.0)
         # 3. 战术归因与计算
         # “打压吸筹”战术只在价格下跌或微涨时成立
-        suppression_mask = pct_change <= 0.01
+        # [修改代码块] 将触发条件从允许微涨(<= 0.01)收紧为平盘或下跌(<= 0)，使其更符合“打压”的定义
+        suppression_mask = pct_change <= 0
         if suppression_mask:
             # 融合直接证据(隐蔽吸筹)和间接证据(信念流转)
             # 使用 np.log1p 增强对信念流指数的敏感度

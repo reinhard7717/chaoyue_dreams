@@ -381,7 +381,10 @@ class AdvancedChipMetricsService:
                 if source_series.isnull().all():
                     continue
                 for p in UNIFIED_PERIODS:
-                    calc_window = 2 if p == 1 else p
+                    # [修改代码块] 简化计算窗口的逻辑，与资金流服务保持统一
+                    # 原逻辑: calc_window = 2 if p == 1 else p
+                    # 新逻辑: max(2, p) 效果完全相同，但更简洁、健壮
+                    calc_window = max(2, p)
                     slope_col_name = f'{col}_slope_{p}d'
                     slope_series = ta.slope(close=source_series, length=calc_window)
                     derivatives_df[slope_col_name] = slope_series
