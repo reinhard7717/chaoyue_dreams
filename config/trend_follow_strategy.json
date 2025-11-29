@@ -262,8 +262,8 @@
         "enabled": { "value": true },
         "probe_dates": ["2025-11-26"],
         "enable_mfca_probe": true,
-        "enable_ogds_probe": true,
-        "enable_gt_probe": true,
+        "enable_ogds_probe": false,
+        "enable_gt_probe": false,
         "target_date": "2025-11-28"
       },
       "strategy_info": {
