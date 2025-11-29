@@ -243,11 +243,11 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V1.3 · 依赖审计探针版】
-        - 核心新增: 植入名为 "GT" (Game Theoretic) 的多级诊断探针，用于解剖 `breakout_readiness_score`
-                     等高阶指标计算失败的根源。
-        - 核心功能(探针GT.2): 在计算前执行一次“依赖审计”，打印出所有上游依赖项的当前值，
-                             以精准定位导致计算“静默失败”的缺失原料。
+        【V1.3 · 神经探针植入版】
+        - 核心新增: 植入由 `enable_gt_probe` 控制的“神经探针”，用于解剖博弈论指标的依赖链。
+                     探针将详细打印所有前置依赖项的值，并明确报告是否因依赖项缺失而“短路”计算，
+                     从而精准定位导致指标为空的根本原因。
+        - 核心增强: 为 `peak_control_transfer` 等易失败的依赖项增加了安全的默认值，提升代码鲁棒性。
         """
         results = {
             'strategic_phase_score': np.nan,
@@ -256,9 +256,9 @@ class ChipFeatureCalculator:
             'exhaustion_risk_index': np.nan,
             'breakout_readiness_score': np.nan,
         }
-        # [新增探针GT.1]
+        # [修改代码块] 植入探针 GT
         debug_params = context.get('debug_params', {})
-        enable_probe = debug_params.get('enable_mfca_probe', False)
+        enable_probe = debug_params.get('enable_gt_probe', False)
         target_date_str = debug_params.get('target_date')
         is_target_date = str(context.get('trade_date')) == target_date_str
         stock_code = context.get('stock_code')
@@ -270,7 +270,8 @@ class ChipFeatureCalculator:
         posture = context.get('intraday_posture_score')
         entropy_change = context.get('structural_entropy_change')
         gini = context.get('cost_gini_coefficient')
-        peak_transfer = context.get('peak_control_transfer')
+        # [修改代码块] 增加默认值，增强鲁棒性
+        peak_transfer = context.get('peak_control_transfer', 0.0)
         fatigue = context.get('chip_fatigue_index')
         loser_pain = context.get('loser_pain_index')
         close_price = context.get('close_price')
@@ -278,30 +279,25 @@ class ChipFeatureCalculator:
         high_price = context.get('high_price')
         low_5d = context.get('low_5d')
         atr = context.get('atr_14d')
-        rally_distribution_pressure = context.get('rally_distribution_pressure')
-        suppressive_accumulation_intensity = context.get('suppressive_accumulation_intensity')
-        required_vars = [
-            potential, posture, entropy_change, gini, peak_transfer, fatigue, loser_pain,
-            close_price, open_price, high_price, low_5d, atr,
-            rally_distribution_pressure, suppressive_accumulation_intensity
-        ]
-        required_vars_names = [
-            'potential', 'posture', 'entropy_change', 'gini', 'peak_transfer', 'fatigue', 'loser_pain',
-            'close_price', 'open_price', 'high_price', 'low_5d', 'atr',
-            'rally_distribution_pressure', 'suppressive_accumulation_intensity'
-        ]
-        # [新增探针GT.2] 依赖审计
+        rally_distribution_pressure = context.get('rally_distribution_pressure', 0.0)
+        suppressive_accumulation = context.get('suppressive_accumulation_intensity', 0.0)
+        required_vars_map = {
+            'potential': potential, 'posture': posture, 'entropy_change': entropy_change,
+            'gini': gini, 'peak_transfer': peak_transfer, 'fatigue': fatigue,
+            'loser_pain': loser_pain, 'close_price': close_price, 'open_price': open_price,
+            'high_price': high_price, 'low_5d': low_5d, 'atr': atr,
+            'rally_distribution_pressure': rally_distribution_pressure,
+            'suppressive_accumulation': suppressive_accumulation
+        }
+        required_vars = list(required_vars_map.values())
+        is_short_circuit = any(pd.isna(v) for v in required_vars) or (pd.notna(atr) and atr <= 0)
         if enable_probe and is_target_date:
-            print(f"[探针 GT.2 - {stock_code} @ {context.get('trade_date')}] 执行依赖审计...")
-            for name, var in zip(required_vars_names, required_vars):
-                print(f"  - 依赖项: {name:<35} | 值: {var}")
-        if any(pd.isna(v) for v in required_vars) or (pd.notna(atr) and atr <= 0):
-            if enable_probe and is_target_date:
-                print(f"[探针 GT.2 - {stock_code} @ {context.get('trade_date')}] 审计失败！发现缺失依赖项，计算中止。")
+            print(f"[探针 GT.2 - {stock_code} @ {context.get('trade_date')}] 检查所有前置依赖项...")
+            for name, value in required_vars_map.items():
+                print(f"  - {name}: {value}")
+            print(f"  - 决策: 是否短路计算？ -> {is_short_circuit}")
+        if is_short_circuit:
             return results
-        # [新增探针GT.3]
-        if enable_probe and is_target_date:
-            print(f"[探针 GT.3 - {stock_code} @ {context.get('trade_date')}] 依赖审计通过，开始核心计算...")
         price_extension = (high_price - low_5d) / atr
         acceleration_factor = np.log1p(np.maximum(0, price_extension))
         fatigue_factor = np.log1p(fatigue)
@@ -309,7 +305,7 @@ class ChipFeatureCalculator:
         price_momentum = (close_price - open_price) / atr
         price_momentum_factor = np.tanh(price_momentum)
         lure_long_score = (price_momentum_factor if price_momentum > 0 else 0) * np.tanh(rally_distribution_pressure / 50)
-        lure_short_score = (abs(price_momentum_factor) if price_momentum < 0 else 0) * np.tanh(suppressive_accumulation_intensity / 50)
+        lure_short_score = (abs(price_momentum_factor) if price_momentum < 0 else 0) * np.tanh(suppressive_accumulation / 50)
         results['deception_index'] = (lure_long_score - lure_short_score) * 100
         results['control_solidity_index'] = gini * peak_transfer
         posture_unipolar = (posture + 100) / 200
@@ -319,12 +315,11 @@ class ChipFeatureCalculator:
         distribution_force = results['exhaustion_risk_index'] * (1 + np.tanh(results['deception_index'] / 100 if results['deception_index'] > 0 else 0))
         phase_score = markup_force - distribution_force
         results['strategic_phase_score'] = np.tanh(phase_score / 50) * 100
-        # [新增探针GT.4]
         if enable_probe and is_target_date:
-            print(f"[探针 GT.4 - {stock_code} @ {context.get('trade_date')}] 计算完成，检查最终输出...")
-            print(f"  - deception_index: {results['deception_index']}")
-            print(f"  - control_solidity_index: {results['control_solidity_index']}")
-            print(f"  - breakout_readiness_score: {results['breakout_readiness_score']}")
+            print(f"[探针 GT.3 - {stock_code} @ {context.get('trade_date')}] 计算完成。")
+            print(f"  - control_solidity_index: {results['control_solidity_index']:.2f}")
+            print(f"  - deception_index: {results['deception_index']:.2f}")
+            print(f"  - breakout_readiness_score: {results['breakout_readiness_score']:.2f}")
         return results
 
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
