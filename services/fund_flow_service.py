@@ -761,16 +761,13 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V33.0 · 诡道博弈重构版】
-        - 核心重构: 全面重写 `closing_auction_ambush` 和 `lower_shadow_absorption_strength` 的计算逻辑，
-                     深度融合高频Tick和Level5数据，特别是引入订单流失衡(OFI)作为核心判据，
-                     旨在从微观结构层面洞察主力在关键时刻的真实博弈意图。
-        - 核心增强: 植入由配置文件 `debug_params` 控制的诊断探针，可针对特定日期输出详细的中间计算过程。
+        【V33.1 · 精度修正版】
+        - 核心修复: 解决了因 Decimal 与 float 类型直接比较时可能出现的精度问题，该问题是导致 `lower_shadow_absorption_strength` 在某些情况下意外为空的根本原因。
+                     通过在比较前将 `body_low` 和 `body_high` 显式转换为 float 类型，确保了筛选条件的可靠性。
         """
         from scipy.signal import find_peaks
         from datetime import time
         import numpy as np
-        # 新增代码行：植入诊断探针
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
         if enable_probe and is_target_date:
@@ -934,22 +931,19 @@ class AdvancedFundFlowMetricsService:
                 mf_power = opening_battle_df['main_force_net_vol'].sum() * opening_battle_df['minute_vwap'].mean() / battle_amount
                 results['opening_battle_result'] = np.sign(price_gain) * np.sqrt(abs(price_gain)) * (1 + mf_power) * 100
         if pd.notna(day_open) and pd.notna(day_close) and pd.notna(day_high) and pd.notna(day_low) and 'high' in intraday_data.columns and 'low' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
-            body_high, body_low = max(day_open, day_close), min(day_open, day_close)
+            # 修改代码块：在比较前进行类型转换，解决精度问题
+            body_high, body_low = float(max(day_open, day_close)), float(min(day_open, day_close))
             upper_shadow_df = intraday_data[intraday_data['high'] > body_high]
             if not upper_shadow_df.empty and upper_shadow_df['vol_shares'].sum() > 0:
                 mf_sell_in_shadow = abs(upper_shadow_df[upper_shadow_df['main_force_net_vol'] < 0]['main_force_net_vol'].sum())
                 results['upper_shadow_selling_pressure'] = (mf_sell_in_shadow / upper_shadow_df['vol_shares'].sum())
-            # 修改代码块：重构下影线承接强度 (lower_shadow_absorption_strength)
             lower_shadow_df = intraday_data[intraday_data['low'] < body_low]
             day_range = day_high - day_low
             if not lower_shadow_df.empty and lower_shadow_df['vol_shares'].sum() > 0 and day_range > 0:
                 shadow_volume = lower_shadow_df['vol_shares'].sum()
                 mf_net_in_shadow = lower_shadow_df['main_force_net_vol'].sum()
-                # 1. 资金流成分：主力在下影线区域的净流入强度，使用tanh归一化
                 FlowComponent = np.tanh(mf_net_in_shadow / shadow_volume)
-                # 2. 价格反弹成分：下影线长度占日内总振幅的比例，衡量反弹力度
                 RecoveryComponent = (body_low - day_low) / day_range
-                # 3. 微观结构成分：主力在下影线价格区间的订单流失衡(OFI)
                 OFI_Component = 0.0
                 if not hf_analysis_df.empty:
                     hf_shadow_zone = hf_analysis_df[hf_analysis_df['price'] < body_low]
@@ -958,14 +952,15 @@ class AdvancedFundFlowMetricsService:
                         total_abs_ofi_day = hf_analysis_df['ofi'].abs().sum()
                         if total_abs_ofi_day > 0:
                             OFI_Component = mf_ofi_in_shadow / total_abs_ofi_day
-                # 最终裁决：三维证据加权融合
                 results['lower_shadow_absorption_strength'] = (0.5 * FlowComponent + 0.3 * RecoveryComponent + 0.2 * OFI_Component) * 100
                 if enable_probe and is_target_date:
                     print(f"  [探针] lower_shadow_absorption_strength 计算:")
-                    print(f"    - body_low: {body_low:.2f}, day_low: {day_low:.2f}, day_high: {day_high:.2f}, day_range: {day_range:.2f}")
-                    print(f"    - shadow_volume: {shadow_volume:,.0f}, mf_net_in_shadow: {mf_net_in_shadow:,.0f}")
-                    print(f"    - FlowComponent: {FlowComponent:.4f}, RecoveryComponent: {RecoveryComponent:.4f}, OFI_Component: {OFI_Component:.4f}")
-                    print(f"    -> Final Score: {results['lower_shadow_absorption_strength']:.2f}")
+                    print(f"    - body_low (float): {body_low:.4f}, day_low: {day_low:.2f}, day_high: {day_high:.2f}, day_range: {day_range:.2f}")
+                    print(f"    - lower_shadow_df is empty: {lower_shadow_df.empty}")
+                    if not lower_shadow_df.empty:
+                        print(f"    - shadow_volume: {shadow_volume:,.0f}, mf_net_in_shadow: {mf_net_in_shadow:,.0f}")
+                        print(f"    - FlowComponent: {FlowComponent:.4f}, RecoveryComponent: {RecoveryComponent:.4f}, OFI_Component: {OFI_Component:.4f}")
+                        print(f"    -> Final Score: {results['lower_shadow_absorption_strength']:.2f}")
             else:
                 results['lower_shadow_absorption_strength'] = np.nan
         continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
@@ -1102,17 +1097,13 @@ class AdvancedFundFlowMetricsService:
                 value_dev_factor = np.tanh((day_close - daily_vwap) / atr)
                 force_balance_factor = intraday_data['main_force_net_vol'].sum() / daily_total_volume if daily_total_volume > 0 else 0
                 results['closing_price_deviation_score'] = (0.5 * range_pos_factor + 0.3 * value_dev_factor + 0.2 * force_balance_factor) * 100
-            # 修改代码块：重构收盘伏击强度 (closing_auction_ambush)
             auction_df = intraday_data[intraday_data.index.time >= time(14, 57)]
             if not auction_df.empty and not continuous_trading_df.empty and pd.notna(atr) and atr > 0:
                 pre_auction_close = continuous_trading_df['close'].iloc[-1]
                 auction_vol = auction_df['vol_shares'].sum()
                 avg_minute_vol = continuous_trading_df['vol_shares'].mean()
-                # 1. 价格冲击力：收盘价相对盘中最后一分钟的跳动幅度，用ATR标准化
                 PriceImpact = (day_close - pre_auction_close) / atr if pd.notna(pre_auction_close) else 0.0
-                # 2. 量能异常度：竞价成交量相对日内平均成交量的放大程度
                 VolumeAnomaly = np.log1p((auction_vol / 3) / avg_minute_vol) if avg_minute_vol > 0 else 0.0
-                # 3. 主力意图：竞价期间的主力OFI，反映最真实的攻击意图
                 ForceIntent = 0.0
                 mf_ofi_auction = 0.0
                 total_abs_ofi_day = 0.0
@@ -1123,7 +1114,6 @@ class AdvancedFundFlowMetricsService:
                         total_abs_ofi_day = hf_analysis_df['ofi'].abs().sum()
                         if total_abs_ofi_day > 0:
                             ForceIntent = mf_ofi_auction / total_abs_ofi_day
-                # 最终裁决：三位一体打击力评估
                 results['closing_auction_ambush'] = PriceImpact * VolumeAnomaly * (1 + ForceIntent) * 100
                 if enable_probe and is_target_date:
                     print(f"  [探针] closing_auction_ambush 计算:")
