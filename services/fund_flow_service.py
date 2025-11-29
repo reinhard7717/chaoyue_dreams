@@ -294,6 +294,11 @@ class AdvancedFundFlowMetricsService:
         return intraday_data_map
 
     def _calculate_all_metrics_for_day(self, stock_code: str, daily_data_series: pd.Series, intraday_data: pd.DataFrame, attributed_minute_df: pd.DataFrame, probabilistic_costs_dict: dict, tick_data_for_day: pd.DataFrame, level5_data_for_day: pd.DataFrame, realtime_data_for_day: pd.DataFrame, debug_mode: bool = False) -> tuple[dict, None]:
+        """
+        【V1.1 · 记忆注入版】
+        - 核心修正: 在调用行为指标计算引擎前，将包含 `prev_metrics` 的完整 `daily_data_series` 传递下去，
+                     确保时间序列指标（如CMF斜率）能够获取到前一日的状态。
+        """
         day_metrics = {}
         daily_derived_metrics = self._calculate_daily_derived_metrics(daily_data_series, debug_mode=debug_mode)
         day_metrics.update(daily_derived_metrics)
@@ -304,6 +309,7 @@ class AdvancedFundFlowMetricsService:
         aggregate_pvwap_costs_df = self._calculate_aggregate_pvwap_costs(prob_costs_df_for_agg, daily_df_for_agg, debug_mode=debug_mode)
         if not aggregate_pvwap_costs_df.empty:
             day_metrics.update(aggregate_pvwap_costs_df.iloc[0].to_dict())
+        # [修改代码块] 此处的 daily_data_series 已经包含了从上游传入的 prev_metrics
         updated_daily_data_series = pd.Series({**daily_data_series.to_dict(), **day_metrics}, name=daily_data_series.name)
         main_force_net_flow_calibrated = daily_derived_metrics.get('main_force_net_flow_calibrated')
         behavioral_metrics = self._compute_all_behavioral_metrics(
@@ -318,16 +324,18 @@ class AdvancedFundFlowMetricsService:
         day_metrics['trade_time'] = daily_data_series.name
         return day_metrics, None
 
-    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None, realtime_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
+    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None, realtime_data_map: dict = None, memory: dict = None) -> tuple[pd.DataFrame, dict, list, dict]:
         """
-        【V11.7 · 探针植入版】
-        - 核心新增: 植入由 `debug_params` 控制的诊断探针，用于追踪 `main_force_cost_advantage` 的计算链路。
+        【V12.0 · 记忆总线兼容版】
+        - 核心升级: 新增 `memory` 参数和第四个返回值 `prev_metrics`，以完全兼容“统一记忆总线”架构。
+        - 核心实现: 实现了完整的跨区块记忆加载、更新与返回逻辑，确保时间序列指标（如CMF）在全量回测中的计算连续性。
         """
         all_metrics_list = []
         attributed_minute_data_map = {}
         failures = []
+        # [修改代码块] 初始化记忆
+        prev_metrics = memory.copy() if memory is not None else {}
         num_days = len(merged_df)
-        # [修改代码块] 植入探针 A 的开关
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
         target_date_str = self.debug_params.get('target_date')
         for i, (trade_date, daily_data_series) in enumerate(merged_df.iterrows()):
@@ -346,10 +354,12 @@ class AdvancedFundFlowMetricsService:
             if intraday_data is None or intraday_data.empty:
                 failures.append({'stock_code': stock_code, 'trade_date': str(date_obj), 'reason': '当日分钟线/逐笔聚合数据缺失'})
                 continue
-            attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data, daily_data_series)
-            probabilistic_costs_dict, attributed_minute_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series, debug_mode=debug_mode)
+            # [修改代码块] 将 prev_metrics 注入到 daily_data_series 中，供下游使用
+            daily_data_series_with_mem = pd.concat([daily_data_series, pd.Series(prev_metrics, name=daily_data_series.name)])
+            attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data, daily_data_series_with_mem)
+            probabilistic_costs_dict, attributed_minute_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series_with_mem, debug_mode=debug_mode)
             day_metrics, _ = self._calculate_all_metrics_for_day(
-                stock_code, daily_data_series, intraday_data, attributed_minute_df, probabilistic_costs_dict,
+                stock_code, daily_data_series_with_mem, intraday_data, attributed_minute_df, probabilistic_costs_dict,
                 tick_data_for_day=tick_data_map.get(date_obj),
                 level5_data_for_day=level5_data_map.get(date_obj),
                 realtime_data_for_day=realtime_data_map.get(date_obj),
@@ -360,11 +370,17 @@ class AdvancedFundFlowMetricsService:
                 print(f"  - 计算出的 avg_cost_main_buy: {day_metrics.get('avg_cost_main_buy')}")
             all_metrics_list.append(day_metrics)
             attributed_minute_data_map[date_obj] = attributed_minute_df.copy(deep=True)
+            # [修改代码块] 更新并传递记忆
+            next_prev_metrics = {
+                'holistic_cmf': day_metrics.get('holistic_cmf'),
+                'main_force_cmf': day_metrics.get('main_force_cmf'),
+            }
+            prev_metrics = next_prev_metrics
         if not all_metrics_list:
-            return pd.DataFrame(), {}, failures
+            return pd.DataFrame(), {}, failures, prev_metrics
         final_metrics_df = pd.DataFrame(all_metrics_list)
         final_metrics_df.set_index('trade_time', inplace=True)
-        return final_metrics_df, attributed_minute_data_map, failures
+        return final_metrics_df, attributed_minute_data_map, failures, prev_metrics
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series, debug_mode: bool = False) -> dict:
         results = {}
