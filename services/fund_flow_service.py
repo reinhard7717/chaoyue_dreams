@@ -383,6 +383,11 @@ class AdvancedFundFlowMetricsService:
         return final_metrics_df, attributed_minute_data_map, failures, prev_metrics
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series, debug_mode: bool = False) -> dict:
+        """
+        【V2.1 · 信念指数逻辑迁移版】
+        - 核心重构: 移除了旧的 `main_force_conviction_index` 计算逻辑。
+                     新的动态信念指数依赖高频和分钟级数据，其计算已迁移至 `_compute_all_behavioral_metrics` 核心引擎中。
+        """
         results = {}
         WAN = 10000.0
         def get_calibrated_value(target_col_name: str):
@@ -457,16 +462,8 @@ class AdvancedFundFlowMetricsService:
             results['main_force_activity_ratio'] = np.nan
             results['main_force_buy_rate_consensus'] = np.nan
             results['main_force_flow_directionality'] = np.nan
-        try:
-            def get_directionality(buy_c, sell_c):
-                b = np.nan_to_num(pd.to_numeric(daily_data_series.get(buy_c), errors='coerce'))
-                s = np.nan_to_num(pd.to_numeric(daily_data_series.get(sell_c), errors='coerce'))
-                return (b - s) / (b + s) if (b + s) > 0 else 0.0
-            xl_directionality = get_directionality('buy_elg_amount', 'sell_elg_amount')
-            lg_directionality = get_directionality('buy_lg_amount', 'sell_lg_amount')
-            results['main_force_conviction_index'] = ((xl_directionality + lg_directionality) / 2.0) * (1.0 - abs(xl_directionality - lg_directionality)) * 100
-        except Exception:
-            results['main_force_conviction_index'] = np.nan
+        # 修改代码块：移除旧的信念指数计算逻辑，它将被新的动态信念指数在 `_compute_all_behavioral_metrics` 中取代
+        results['main_force_conviction_index'] = np.nan
         try:
             mf_flow_calibrated = results.get('main_force_net_flow_calibrated')
             retail_flow_calibrated = results.get('retail_net_flow_calibrated')
@@ -761,14 +758,16 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V34.0 · 诡道博弈升级版】
-        - 核心升级: 重构 `rally_distribution_pressure` 和 `dip_absorption_power` 指标，引入微观结构(OFI)和成本博弈分析，
-                     使其能识别“边拉边派”和“战略吸筹”等高级主力行为，提升指标的博弈洞察力。
-        - 核心增强: 为新重构的指标逻辑植入独立的诊断探针，便于精确调试和验证。
+        【V35.0 · 动态信念重构版】
+        - 核心重构: 废弃原有的日线级 `main_force_conviction_index`，引入基于高频博弈的“动态主力信念指数”全新算法，
+                     从攻击性、成本容忍度、韧性三个维度深度刻画主力信念。
+        - 核心修复: 修正了 `dip_absorption_power` 中 `VolumeDominance` 组件因数据源口径不一导致的计算错误。
+        - 核心增强: 为新的动态信念指数植入专属诊断探针。
         """
         from scipy.signal import find_peaks
         from datetime import time
         import numpy as np
+        import pandas_ta as ta
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
         if enable_probe and is_target_date:
@@ -819,6 +818,31 @@ class AdvancedFundFlowMetricsService:
                 hf_analysis_df = merged_hf
                 results['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
                 results['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
+        # 修改代码块：重构动态主力信念指数 (dynamic_main_force_conviction_index)
+        if not hf_analysis_df.empty:
+            # 1. 攻击性 (Aggressiveness): 主力累积OFI的日内趋势斜率
+            mf_ofi_cumsum = hf_analysis_df['main_force_ofi'].cumsum().fillna(0)
+            aggressiveness_score = ta.slope(mf_ofi_cumsum, length=len(mf_ofi_cumsum)).iloc[-1] if len(mf_ofi_cumsum) > 1 else 0
+            aggressiveness_component = np.tanh(aggressiveness_score / 1000) if pd.notna(aggressiveness_score) else 0.0
+            # 2. 成本容忍度 (Cost Tolerance)
+            avg_cost_main_buy = daily_data.get('avg_cost_main_buy')
+            avg_cost_main_sell = daily_data.get('avg_cost_main_sell')
+            cost_tolerance_component = 0.0
+            if pd.notna(avg_cost_main_buy) and pd.notna(avg_cost_main_sell) and avg_cost_main_sell > 0:
+                cost_tolerance_component = (avg_cost_main_buy / avg_cost_main_sell) - 1
+            # 3. 韧性 (Resilience)
+            market_pressure_zone = hf_analysis_df['ofi'] < 0
+            mf_resilience_ofi = hf_analysis_df.loc[market_pressure_zone, 'main_force_ofi'].clip(lower=0).sum()
+            total_mf_positive_ofi = hf_analysis_df['main_force_ofi'].clip(lower=0).sum()
+            resilience_component = mf_resilience_ofi / total_mf_positive_ofi if total_mf_positive_ofi > 0 else 0.0
+            # 最终裁决：三维信念融合
+            results['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
+            if enable_probe and is_target_date:
+                print(f"  [探针] main_force_conviction_index (动态信念) 计算:")
+                print(f"    - Aggressiveness (OFI Slope): {aggressiveness_component:.4f}, Cost Tolerance (Buy/Sell Cost): {cost_tolerance_component:.4f}, Resilience (Absorption): {resilience_component:.4f}")
+                print(f"    -> Final Score: {results['main_force_conviction_index']:.2f}")
+        else:
+            results['main_force_conviction_index'] = np.nan
         if not hf_analysis_df.empty:
             large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
             if not large_orders_df.empty:
@@ -966,55 +990,44 @@ class AdvancedFundFlowMetricsService:
             peaks, _ = find_peaks(continuous_trading_df['minute_vwap'].values)
             troughs, _ = find_peaks(-continuous_trading_df['minute_vwap'].values)
             turning_points = sorted(list(set(np.concatenate(([0], troughs, peaks, [len(continuous_trading_df)-1])))))
-            # 修改代码块：重构 dip_absorption_power 和 rally_distribution_pressure
-            # 初始化新指标
             results['dip_absorption_power'] = np.nan
             results['rally_distribution_pressure'] = np.nan
             if not hf_analysis_df.empty and pd.notna(daily_vwap):
-                # 1. 重构 dip_absorption_power (战略吸筹力度)
                 absorption_zone_hf = hf_analysis_df[hf_analysis_df['price'] < daily_vwap]
                 if not absorption_zone_hf.empty:
-                    # 1.1 主动攻击证据 (Offensive OFI)
                     offensive_ofi = absorption_zone_hf['main_force_ofi'].clip(lower=0).sum()
                     total_abs_ofi_day = hf_analysis_df['ofi'].abs().sum()
                     OffensiveOFI_Component = offensive_ofi / total_abs_ofi_day if total_abs_ofi_day > 0 else 0.0
-                    # 1.2 成本博弈优势 (Cost Game Advantage)
                     mf_buy_cost_in_dip = (absorption_zone_hf['price'] * absorption_zone_hf['main_force_ofi'].clip(lower=0)).sum() / offensive_ofi if offensive_ofi > 0 else np.nan
                     CostAdvantage_Component = (daily_vwap - mf_buy_cost_in_dip) / atr if pd.notna(mf_buy_cost_in_dip) and pd.notna(atr) and atr > 0 else 0.0
-                    # 1.3 吸筹量能占比 (Volume Dominance)
+                    # 修改代码块：修复 dip_absorption_power 的 VolumeDominance 计算
                     total_mf_buy_vol_day = intraday_data['main_force_buy_vol'].sum()
-                    mf_buy_vol_in_dip = (absorption_zone_hf['volume'] * (absorption_zone_hf['main_force_ofi'] > 0)).sum()
+                    # 使用分钟级归因数据重新计算分子，确保口径统一
+                    mf_buy_vol_in_dip = intraday_data[intraday_data['minute_vwap'] < daily_vwap]['main_force_buy_vol'].sum()
                     VolumeDominance_Component = mf_buy_vol_in_dip / total_mf_buy_vol_day if total_mf_buy_vol_day > 0 else 0.0
-                    # 最终裁决：战略吸筹力度
                     results['dip_absorption_power'] = (0.5 * OffensiveOFI_Component + 0.3 * CostAdvantage_Component + 0.2 * VolumeDominance_Component) * 100
                     if enable_probe and is_target_date:
                         print(f"  [探针] dip_absorption_power (战略吸筹) 计算:")
-                        print(f"    - OffensiveOFI: {OffensiveOFI_Component:.4f}, CostAdvantage: {CostAdvantage_Component:.4f}, VolumeDominance: {VolumeDominance_Component:.4f}")
+                        print(f"    - OffensiveOFI: {OffensiveOFI_Component:.4f}, CostAdvantage: {CostAdvantage_Component:.4f}, VolumeDominance (已修复): {VolumeDominance_Component:.4f}")
                         print(f"    -> Final Score: {results['dip_absorption_power']:.2f}")
-                # 2. 重构 rally_distribution_pressure (诡道派发压力)
                 total_rally_price_change = 0
                 total_deceptive_pressure = 0
                 for i in range(len(turning_points) - 1):
                     start_idx, end_idx = turning_points[i], turning_points[i+1]
                     window_df = continuous_trading_df.iloc[start_idx:end_idx+1]
                     if window_df.empty or len(window_df) < 2: continue
-                    # 识别拉升波段
                     if window_df['minute_vwap'].iloc[-1] > window_df['minute_vwap'].iloc[0]:
                         start_time, end_time = window_df.index[0], window_df.index[-1]
                         rally_hf_df = hf_analysis_df[(hf_analysis_df.index >= start_time) & (hf_analysis_df.index <= end_time)]
                         if not rally_hf_df.empty:
                             price_change_in_rally = window_df['minute_vwap'].iloc[-1] - window_df['minute_vwap'].iloc[0]
                             total_rally_price_change += price_change_in_rally
-                            # 2.1 微观结构背离 (OFI Divergence)
                             mf_ofi_in_rally = rally_hf_df['main_force_ofi'].sum()
                             OFI_Divergence = -mf_ofi_in_rally / rally_hf_df['ofi'].abs().sum() if rally_hf_df['ofi'].abs().sum() > 0 else 0
-                            # 2.2 成本优势衰减 (T+0效率)
                             mf_t0_eff = daily_data.get('main_force_t0_efficiency', 0)
                             CostDecay_Component = np.tanh(mf_t0_eff) if pd.notna(mf_t0_eff) else 0
-                            # 2.3 派发效率 (Distribution Efficiency)
                             mf_net_sell_vol_in_rally = abs(intraday_data.loc[start_time:end_time, 'main_force_net_vol'].clip(upper=0).sum())
                             DistributionEfficiency = (mf_net_sell_vol_in_rally / daily_total_volume) / (price_change_in_rally / atr) if price_change_in_rally > 0 and pd.notna(atr) and atr > 0 else 0
-                            # 融合计算当前波段的诡道压力，并用价格变动加权
                             deceptive_pressure_score = (0.5 * OFI_Divergence + 0.3 * CostDecay_Component + 0.2 * DistributionEfficiency)
                             total_deceptive_pressure += deceptive_pressure_score * price_change_in_rally
                 if total_rally_price_change > 0:
@@ -1023,7 +1036,7 @@ class AdvancedFundFlowMetricsService:
                         print(f"  [探针] rally_distribution_pressure (诡道派发) 计算:")
                         print(f"    - Weighted Avg Deceptive Pressure: {total_deceptive_pressure / total_rally_price_change:.4f}")
                         print(f"    -> Final Score: {results['rally_distribution_pressure']:.2f}")
-            else: # Fallback for data without OFI
+            else: 
                 if pd.notna(daily_vwap):
                     absorption_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < daily_vwap]
                     if not absorption_zone_df.empty and 'main_force_net_vol' in absorption_zone_df.columns and 'vol_shares' in absorption_zone_df.columns and 'minute_vwap' in absorption_zone_df.columns:
