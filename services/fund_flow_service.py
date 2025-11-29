@@ -670,7 +670,6 @@ class AdvancedFundFlowMetricsService:
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         records_to_save_df = final_df
         stock_code = stock_info.stock_code
-        # 新增代码行：植入终极诊断探针
         is_target_date_in_df = False
         if self.debug_params and self.debug_params.get('target_date'):
             target_date = pd.to_datetime(self.debug_params['target_date']).date()
@@ -688,25 +687,28 @@ class AdvancedFundFlowMetricsService:
                 records_to_save_df[col] = records_to_save_df[col].replace([np.inf, -np.inf], np.nan)
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
-        # 新增代码行：探针逻辑
-        if enable_probe and is_target_date_in_df:
-            print(f"\n[探针 S.1 - {stock_code} @ {self.debug_params['target_date']}] 进入 `_prepare_and_save_data` 保存前检查...")
-            incoming_cols = set(records_to_save_df.columns)
-            model_fields_set = set(model_fields)
-            dropped_cols = incoming_cols - model_fields_set
-            print(f"  - 传入DataFrame的列数: {len(incoming_cols)}")
-            print(f"  - 模型定义的字段数: {len(model_fields_set)}")
-            if 'lower_shadow_absorption_strength' in incoming_cols:
-                print("  - [关键检查] 'lower_shadow_absorption_strength' 存在于传入数据中。")
-            else:
-                print("  - [关键警告] 'lower_shadow_absorption_strength' 在传入数据中已丢失！")
-            if 'lower_shadow_absorption_strength' in model_fields_set:
-                print("  - [关键检查] 'lower_shadow_absorption_strength' 存在于模型字段中。")
-            else:
-                print("  - [关键警告] 'lower_shadow_absorption_strength' 未在模型字段中找到！")
-            if dropped_cols:
-                print(f"  - [!!!] 即将被丢弃的列 ({len(dropped_cols)}): {sorted(list(dropped_cols))}")
         df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
+        # 修改代码块：升级探针，精确定位丢失的字段
+        if enable_probe and is_target_date_in_df:
+            print(f"\n[探针 S.1 - {stock_code} @ {self.debug_params['target_date']}] 进入 `_prepare_and_save_data` 保存前最终诊断...")
+            filtered_cols_set = set(df_filtered.columns)
+            model_fields_set = set(model_fields)
+            print(f"  - 准备保存的DataFrame列数: {len(filtered_cols_set)}")
+            print(f"  - 模型定义的字段数 (不含关系): {len(model_fields_set)}")
+            if 'lower_shadow_absorption_strength' in filtered_cols_set:
+                # 新增探针：打印目标字段的实际值
+                target_row = df_filtered.loc[df_filtered.index.date == target_date]
+                if not target_row.empty:
+                    target_value = target_row['lower_shadow_absorption_strength'].iloc[0]
+                    print(f"  - [关键检查] 'lower_shadow_absorption_strength' 存在于待保存数据中，值为: {target_value}")
+            else:
+                print("  - [关键警告] 'lower_shadow_absorption_strength' 在待保存数据中已丢失！")
+            # 新增探针：通过集合运算找出丢失的字段
+            missing_fields = model_fields_set - filtered_cols_set - {'trade_time', 'id', 'stock_id'} # 排除非数据字段
+            if missing_fields:
+                print(f"  - [!!!] 根本原因定位：模型中定义但数据中缺失的字段为: {missing_fields}")
+            else:
+                print("  - [检查通过] 数据列与模型字段匹配。")
         records_list = df_filtered.to_dict('records')
         @sync_to_async(thread_sensitive=True)
         def save_atomically(model, stock_obj, records_to_process):
