@@ -877,14 +877,6 @@ class ChipFeatureCalculator:
             total_vol_up = up_swing_df['vol_shares'].sum()
             if total_vol_up > 0:
                 results['upward_impulse_purity'] = (total_price_change_up / context.get('pre_close', 1)) / (total_vol_up / total_vol) * 100
-        open_price = context.get('open_price')
-        pre_close = context.get('pre_close')
-        low_price = context.get('low_price')
-        if pd.notna(open_price) and pd.notna(pre_close) and pd.notna(low_price):
-            gap = open_price - pre_close
-            if abs(gap) > 0.01: # 存在缺口
-                strength = (low_price - pre_close) / gap if gap > 0 else (open_price - low_price) / abs(gap)
-                results['opening_gap_defense_strength'] = np.clip(strength, -1, 1) * 100
         decline_df = intraday_df[price_change < -0.01 * context.get('pre_close', 1)] # 价格显著下跌的分钟
         if not decline_df.empty:
             capitulation_vol = decline_df['vol_shares'].sum()

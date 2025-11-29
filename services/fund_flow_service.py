@@ -633,7 +633,7 @@ class AdvancedFundFlowMetricsService:
             if source_series.isnull().all():
                 continue
             for p in UNIFIED_PERIODS:
-                calc_window = max(2, p) if p > 1 else 2
+                calc_window = max(2, p)
                 slope_col_name = f'{col}_slope_{p}d'
                 slope_series = ta.slope(close=source_series.astype(float), length=calc_window)
                 derivatives_df[slope_col_name] = slope_series
