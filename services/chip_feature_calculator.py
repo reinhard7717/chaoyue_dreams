@@ -568,7 +568,14 @@ class ChipFeatureCalculator:
         return final_score
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
-        from datetime import time # 新增代码：导入 time 对象用于时间比较
+        """
+        【V2.1 · 幽灵驱逐版】
+        - 核心修复: 在方法入口处增加了对日内数据的预处理，强制过滤掉9:30之前的所有数据（如集合竞价）。
+                     此举旨在驱逐因集合竞价的巨大成交量而产生的“数据幽灵”，确保 `peak_control_transfer`
+                     等指标的计算基准是纯净的连续交易数据，从而修复了下游指标的级联失败问题。
+        - 核心增强: 为 `opening_gap_defense_strength` 增加了默认值0.0，使其在无缺口时返回明确的中性信号。
+        """
+        from datetime import time
         results = {
             'intraday_posture_score': np.nan,
             'peak_control_transfer': np.nan,
@@ -577,9 +584,13 @@ class ChipFeatureCalculator:
             'active_buying_support': np.nan,
             'active_selling_pressure': np.nan,
         }
-        intraday_df = context.get('processed_intraday_df')
-        if intraday_df is None or intraday_df.empty:
+        intraday_df_raw = context.get('processed_intraday_df')
+        if intraday_df_raw is None or intraday_df_raw.empty:
             return results
+        # [修改代码块] 新增数据净化步骤，驱逐9:30前的“集合竞价幽灵”
+        intraday_df = intraday_df_raw[intraday_df_raw.index.time >= time(9, 30)].copy()
+        if intraday_df.empty:
+            return results # 如果过滤后为空，则直接返回
         close_price = context.get('close_price')
         vwap = context.get('daily_vwap')
         peak_low = context.get('peak_range_low')
@@ -600,22 +611,21 @@ class ChipFeatureCalculator:
             avg_down_vol = down_moves['vol_shares'].mean()
             if avg_down_vol > 0:
                 results['impulse_quality_ratio'] = (avg_up_vol / avg_down_vol - 1) * 100
-        auction_data = intraday_df.iloc[0]
         open_price = context.get('open_price')
         pre_close = context.get('pre_close')
         if pd.notna(open_price) and pd.notna(pre_close) and pre_close > 0:
             gap_pct = (open_price / pre_close - 1) * 100
             if abs(gap_pct) > 0.1:
-                # =================================================================
-                # 修正时间过滤逻辑，使用 DatetimeIndex 进行比较
-                # 原始错误逻辑: first_5_min_df = intraday_df[(intraday_df['time_marker'] > '09:30:00') & (intraday_df['time_marker'] <= '09:35:00')]
-                first_5_min_df = intraday_df[(intraday_df.index.time > time(9, 30)) & (intraday_df.index.time <= time(9, 35))]
-                # =================================================================
+                # 注意：这里的 intraday_df 已经是净化过的，所以时间过滤是正确的
+                first_5_min_df = intraday_df[intraday_df.index.time <= time(9, 35)]
                 if not first_5_min_df.empty and first_5_min_df['vol_shares'].sum() > 0:
                     vwap_5min = (first_5_min_df['minute_vwap'] * first_5_min_df['vol_shares']).sum() / first_5_min_df['vol_shares'].sum()
                     price_change_vs_open = (vwap_5min / open_price - 1) * 100 if open_price > 0 else 0
                     defense_strength = price_change_vs_open
                     results['opening_gap_defense_strength'] = np.clip(defense_strength * 50, -100, 100)
+            else:
+                # [修改代码块] 增强健壮性：无缺口时，防御强度为0，而非NaN
+                results['opening_gap_defense_strength'] = 0.0
         if 'net_flow_rate' in intraday_df.columns:
             active_buy_df = intraday_df[intraday_df['net_flow_rate'] > 0]
             active_sell_df = intraday_df[intraday_df['net_flow_rate'] < 0]

@@ -758,12 +758,10 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.15 · 时间旅行者悖论修复版】
-    - 核心修复: 此版本调用的下游服务 `chip_service._synthesize_and_forge_metrics` 已彻底重构高频分析数据的构建流程，解决了因果倒置的“时间旅行者悖论”。
-    - 核心升级: 废弃了使用`realtime_quote`快照数据来模拟区间成交量的错误做法。
-                 新的数据流以真实的逐笔成交(Tick)为主体，通过`merge_asof`向后匹配成交前一瞬间的
-                 Level-5盘口状态，构建了具备真实因果关系的高频数据集，从根本上提升了
-                 `mf_cost_zone_defense_intent`等高频指标的逻辑可靠性。
+    【V34.16 · 信息壁垒击穿版】
+    - 核心修复: 解决了因服务间信息隔离导致的 `main_force_cost_advantage` 等指标计算失败的问题。
+                 在调用筹码服务前，将资金流服务的计算结果 `fund_flow_metrics_df` 与筹码服务的
+                 输入数据 `chip_raw_df` 进行合并，确保 `avg_cost_main_buy` 等关键上下文被正确传递。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -924,11 +922,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             level5_data_map = data_dfs.pop("stock_level5_data_map")
             minute_data_map = data_dfs.pop("stock_minute_data_map")
             realtime_data_map = data_dfs.pop("stock_realtime_data_map")
-            # 采用更合理的宏观校验，替换原有的逐日审计
             critical_sources = ["cyq_chips", "daily_data", "daily_basic", "cyq_perf", "fund_flow_tushare"]
             if any(data_dfs.get(src) is None or data_dfs.get(src).empty for src in critical_sources):
                 logger.warning(f"[{stock_code}] [审计熔断] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 因一个或多个关键数据源在整个批次内完全为空而被跳过。")
-                # 记录下具体是哪个数据源为空
                 for src in critical_sources:
                     if data_dfs.get(src) is None or data_dfs.get(src).empty:
                         all_failures.append({
@@ -938,7 +934,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                             'missing_source': src
                         })
                 continue
-            # 删除代码行：移除旧的、过于严苛的逐日审计逻辑
             daily_df = data_dfs["daily_data"].set_index(pd.to_datetime(data_dfs["daily_data"]['trade_time'])).drop(columns='trade_time')
             daily_basic_df = data_dfs["daily_basic"].set_index(pd.to_datetime(data_dfs["daily_basic"]['trade_time'])).drop(columns='trade_time')
             overlap_cols = daily_df.columns.intersection(daily_basic_df.columns)
@@ -963,6 +958,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 stock_code, chip_data_dfs, base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
                 high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
             )
+            # [修改代码块] 将资金流指标的计算结果合并到筹码服务的输入数据中
+            if not fund_flow_metrics_df.empty:
+                chip_raw_df = chip_raw_df.join(fund_flow_metrics_df, how='left')
             minute_data_map_for_chip = await chip_service._load_minute_data_for_range(
                 stock_info, chunk_dates.min(), chunk_dates.max(), tick_data_map=tick_data_map, minute_data_map=minute_data_map
             )
