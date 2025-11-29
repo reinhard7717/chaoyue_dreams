@@ -944,13 +944,16 @@ class ChipFeatureCalculator:
 
     def _compute_legacy_intraday_metrics(self, context: dict) -> dict:
         """
-        【V1.0 · 兼容性补丁】计算在第二象限升级后保留的旧版日内动态指标。
+        【V1.1 · 重构清理版】
+        - 核心修复: 移除了 `opening_gap_defense_strength` 的初始化。该指标的计算逻辑已完全迁移至
+                     `_compute_intraday_dynamics_metrics` 方法。此举旨在根除因重构不彻底导致的
+                     “幽灵覆盖”问题，即此处的 np.nan 值覆盖了新方法中正确计算出的结果。
         """
         results = {
             'active_selling_pressure': np.nan,
             'active_buying_support': np.nan,
             'upward_impulse_purity': np.nan,
-            'opening_gap_defense_strength': np.nan,
+            # 'opening_gap_defense_strength': np.nan, # [修改代码行] 移除此幽灵指标
             'capitulation_absorption_index': np.nan,
         }
         intraday_df = context.get('processed_intraday_df')
@@ -966,8 +969,10 @@ class ChipFeatureCalculator:
             total_price_change_up = (up_swing_df['minute_vwap'] - up_swing_df['minute_vwap'].shift(1).fillna(up_swing_df['minute_vwap'])).sum()
             total_vol_up = up_swing_df['vol_shares'].sum()
             if total_vol_up > 0:
-                results['upward_impulse_purity'] = (total_price_change_up / context.get('pre_close', 1)) / (total_vol_up / total_vol) * 100
-        decline_df = intraday_df[price_change < -0.01 * context.get('pre_close', 1)] # 价格显著下跌的分钟
+                pre_close_val = context.get('pre_close', 1)
+                if pre_close_val == 0: pre_close_val = 1 # 避免除以零
+                results['upward_impulse_purity'] = (total_price_change_up / pre_close_val) / (total_vol_up / total_vol) * 100
+        decline_df = intraday_df[price_change < -0.01 * context.get('pre_close', 1)]
         if not decline_df.empty:
             capitulation_vol = decline_df['vol_shares'].sum()
             if capitulation_vol > 0:
