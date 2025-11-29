@@ -758,8 +758,11 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.17 · 探针植入版】
-    - 核心新增: 植入由 `debug_params` 控制的诊断探针，用于追踪 `main_force_cost_advantage` 的计算链路。
+    【V34.18 · 索引重建 & 探针加固版】
+    - 核心修复: 在 `chip_raw_df` 与 `fund_flow_metrics_df` 进行join操作前，强制将 `chip_raw_df` 的
+                 `trade_time` 列设为索引。此举解决了因 `pd.merge` 副作用导致索引丢失，从而引发
+                 join失败和后续 `KeyError` 的根本问题。
+    - 核心增强: 升级了诊断探针的逻辑，在访问数据前先检查目标日期是否存在于索引中，增强了探针的健壮性。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -780,7 +783,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         except json.JSONDecodeError:
             logger.error(f"解码策略配置文件 JSON 失败: {config_path}")
         debug_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
-        # [修改代码块] 植入探针 B 的开关
         enable_probe = debug_params.get('enable_mfca_probe', False)
         target_date_str = debug_params.get('target_date')
         fund_flow_service = AdvancedFundFlowMetricsService(debug_params=debug_params)
@@ -876,7 +878,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         seed_date = await sync_to_async(TradeCalendar.get_trade_date_offset)(reference_date=first_processing_day, offset=-1)
         if seed_date:
             seed_chunk_dates = pd.DatetimeIndex([pd.to_datetime(seed_date)])
-            seed_data_dfs = await _load_all_sources_unified(stock_info, DailyModel, seed_chunk_dates, cache_manager) # 传入 cache_manager
+            seed_data_dfs = await _load_all_sources_unified(stock_info, DailyModel, seed_chunk_dates, cache_manager)
             if not seed_data_dfs["daily_data"].empty and not seed_data_dfs["daily_basic"].empty:
                 seed_daily_df = seed_data_dfs["daily_data"].set_index(pd.to_datetime(seed_data_dfs["daily_data"]['trade_time'])).drop(columns='trade_time')
                 seed_daily_basic_df = seed_data_dfs["daily_basic"].set_index(pd.to_datetime(seed_data_dfs["daily_basic"]['trade_time'])).drop(columns='trade_time')
@@ -918,7 +920,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
-            data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_dates, cache_manager) # 传入 cache_manager
+            data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_dates, cache_manager)
             tick_data_map = data_dfs.pop("stock_tick_data_map")
             level5_data_map = data_dfs.pop("stock_level5_data_map")
             minute_data_map = data_dfs.pop("stock_minute_data_map")
@@ -953,13 +955,16 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 stock_code, fund_flow_raw_df, tick_data_map=tick_data_map, level5_data_map=level5_data_map, minute_data_map=minute_data_map, realtime_data_map=realtime_data_map
             )
             all_failures.extend(ff_failures)
-            # [修改代码块] 植入探针 B
             is_target_date_in_chunk = pd.to_datetime(target_date_str) in chunk_dates if target_date_str else False
             if enable_probe and is_target_date_in_chunk:
                 print(f"\n[探针 B.1 - {stock_code} @ {target_date_str}] 任务调度层数据交接...")
                 if not fund_flow_metrics_df.empty and 'avg_cost_main_buy' in fund_flow_metrics_df.columns:
-                    cost_val = fund_flow_metrics_df.loc[pd.to_datetime(target_date_str), 'avg_cost_main_buy']
-                    print(f"  - 资金流服务成功计算 avg_cost_main_buy: {cost_val}")
+                    target_dt = pd.to_datetime(target_date_str)
+                    if target_dt in fund_flow_metrics_df.index:
+                        cost_val = fund_flow_metrics_df.loc[target_dt, 'avg_cost_main_buy']
+                        print(f"  - 资金流服务成功计算 avg_cost_main_buy: {cost_val}")
+                    else:
+                        print(f"  - 警告: 目标日期 {target_dt} 不在 fund_flow_metrics_df 的索引中！")
                 else:
                     print("  - 警告: 资金流服务未能计算出 avg_cost_main_buy！")
             fund_flow_attributed_minute_map_for_chip_service = copy.deepcopy(fund_flow_attributed_minute_map)
@@ -968,14 +973,22 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 stock_code, chip_data_dfs, base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
                 high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
             )
+            # [修改代码块] 核心修复：在join前重建DatetimeIndex
+            if 'trade_time' in chip_raw_df.columns:
+                chip_raw_df.set_index('trade_time', inplace=True)
             if not fund_flow_metrics_df.empty:
                 chip_raw_df = chip_raw_df.join(fund_flow_metrics_df, how='left')
+            # [修改代码块] 探针加固
             if enable_probe and is_target_date_in_chunk:
-                if 'avg_cost_main_buy' in chip_raw_df.columns:
-                    cost_val_joined = chip_raw_df.loc[pd.to_datetime(target_date_str), 'avg_cost_main_buy']
-                    print(f"  - Join 操作成功，chip_raw_df 中包含 avg_cost_main_buy: {cost_val_joined}")
+                target_dt = pd.to_datetime(target_date_str)
+                if target_dt in chip_raw_df.index:
+                    if 'avg_cost_main_buy' in chip_raw_df.columns:
+                        cost_val_joined = chip_raw_df.loc[target_dt, 'avg_cost_main_buy']
+                        print(f"  - Join 操作后，在 chip_raw_df 中成功定位 avg_cost_main_buy: {cost_val_joined}")
+                    else:
+                        print("  - 致命错误: Join 操作后 chip_raw_df 中未找到 avg_cost_main_buy 列！")
                 else:
-                    print("  - 致命错误: Join 操作后 chip_raw_df 中未找到 avg_cost_main_buy！")
+                    print(f"  - 致命错误: 目标日期 {target_dt} 不在最终的 chip_raw_df 索引中！")
             minute_data_map_for_chip = await chip_service._load_minute_data_for_range(
                 stock_info, chunk_dates.min(), chunk_dates.max(), tick_data_map=tick_data_map, minute_data_map=minute_data_map
             )
@@ -999,7 +1012,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             ff_derivatives = fund_flow_service._calculate_derivatives(stock_code, full_sequence_for_derivatives)
             chip_derivatives = chip_service._calculate_derivatives(full_sequence_for_derivatives)
             chunk_final_df = full_sequence_for_derivatives.join([ff_derivatives, chip_derivatives])
-            all_final_metrics_to_save = pd.concat([all_final_metrics_to_save, chunk_final_df[chunk_final_df.index.date >= save_start_date]]) # 确保只保存 save_start_date 及之后的数据
+            all_final_metrics_to_save = pd.concat([all_final_metrics_to_save, chunk_final_df[chunk_final_df.index.date >= save_start_date]])
             context_df = full_sequence_for_derivatives
         if not all_final_metrics_to_save.empty:
             if save_start_date:
