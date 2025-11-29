@@ -1053,10 +1053,12 @@ class ChipFeatureCalculator:
 
     def _compute_realtime_orderbook_metrics(self, context: dict) -> dict:
         """
-        【V3.1 · 守正出奇版】
-        - 核心升级: 防守区域的定义从静态的“主导峰成本”切换为动态追踪的“主力累积成本”。
-          此举解决了“守错战壕”的根本性问题，让模型能够在主力的真实生命线上观察其护盘意图，
-          从而能更准确地区分是“战略性防守”还是“诱多式抵抗”。
+        【V3.2 · 索引对齐修复版】
+        - 核心修复: 解决了因高频数据中存在重复时间戳索引，导致在使用 `.loc` 过滤权重时引发的“形状不匹配”
+                     TypeError。
+        - 核心思想: 废弃基于索引的过滤，改为创建统一的布尔掩码 `valid_mask`。通过将此掩码同时应用于
+                     `instant_intent` 和 `weights`，确保了最终用于加权平均的两个序列长度绝对一致，
+                     从根本上修复了“错位的舞伴”问题。
         """
         results = {
             'mf_cost_zone_defense_intent': np.nan,
@@ -1073,9 +1075,7 @@ class ChipFeatureCalculator:
         for col in numeric_cols:
             if col in realtime_df.columns:
                 realtime_df[col] = pd.to_numeric(realtime_df[col], errors='coerce')
-        # [修改代码块] 使用动态追踪的“主力累积成本”作为防守区域中心
-        # dominant_peak_cost = context.get('dominant_peak_cost') # 旧的、错误的中心
-        main_force_cost = context.get('main_force_cumulative_cost') # 新的、更真实的中心
+        main_force_cost = context.get('main_force_cumulative_cost')
         atr = context.get('atr_14d')
         if pd.notna(main_force_cost) and pd.notna(atr) and atr > 0:
             cost_zone_low = main_force_cost - 0.5 * atr
@@ -1106,13 +1106,16 @@ class ChipFeatureCalculator:
                 total_weighted_ask_power += level_power.where(in_zone_mask, 0)
             total_power = total_weighted_bid_power + total_weighted_ask_power
             instant_intent = (total_weighted_bid_power - total_weighted_ask_power) / total_power.replace(0, np.nan)
-            if 'volume' in realtime_df.columns and not instant_intent.dropna().empty:
+            if 'volume' in realtime_df.columns:
                 weights = realtime_df['volume'].fillna(0).clip(lower=0)
-                valid_intent = instant_intent.dropna()
-                valid_weights = weights.loc[valid_intent.index]
-                if valid_weights.sum() > 0:
-                    weighted_intent = np.average(valid_intent, weights=valid_weights)
-                    results['mf_cost_zone_defense_intent'] = np.clip(weighted_intent * 100, -100, 100)
+                # [修改代码块] 使用布尔掩码进行过滤，确保长度一致
+                valid_mask = instant_intent.notna()
+                if valid_mask.any():
+                    valid_intent = instant_intent[valid_mask]
+                    valid_weights = weights[valid_mask]
+                    if valid_weights.sum() > 0:
+                        weighted_intent = np.average(valid_intent, weights=valid_weights)
+                        results['mf_cost_zone_defense_intent'] = np.clip(weighted_intent * 100, -100, 100)
         intraday_df = context.get('processed_intraday_df')
         total_daily_volume = context.get('daily_turnover_volume')
         if intraday_df is None or intraday_df.empty or pd.isna(atr) or atr <= 0 or pd.isna(total_daily_volume) or total_daily_volume <= 0:
