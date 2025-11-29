@@ -363,13 +363,18 @@ class ChipFeatureCalculator:
             return kurt
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
         results['structural_node_count'] = len(peaks)
+        # [修改代码块] 重构真空区计算逻辑，解决“隧道视野”问题
+        # 1. 初始化真空区量级为0
+        results['vacuum_zone_magnitude'] = 0.0
         if len(peaks) > 0:
             peaks_df = pd.DataFrame({
                 'peak_index': peaks, 'volume': self.df['percent'].iloc[peaks].values,
                 'cost': self.df['price'].iloc[peaks].values, 'prominence': properties['prominences'],
                 'left_base': properties['left_bases'], 'right_base': properties['right_bases'],
-            }).sort_values(by='prominence', ascending=False).reset_index(drop=True)
-            main_peak = peaks_df.iloc[0]
+            })
+            # 按 prominence（显著性）排序以确定主、次峰
+            peaks_by_prominence = peaks_df.sort_values(by='prominence', ascending=False).reset_index(drop=True)
+            main_peak = peaks_by_prominence.iloc[0]
             main_peak_cost = main_peak['cost']
             results['dominant_peak_cost'] = main_peak_cost
             results['dominant_peak_volume_ratio'] = main_peak['volume']
@@ -377,10 +382,20 @@ class ChipFeatureCalculator:
             if not peak_region_df.empty and peak_region_df['percent'].sum() > 0:
                 results['primary_peak_kurtosis'] = _calculate_weighted_kurtosis(peak_region_df['price'], peak_region_df['percent'])
             if len(peaks) > 1:
-                secondary_peak = peaks_df.iloc[1]
+                secondary_peak = peaks_by_prominence.iloc[1]
                 results['secondary_peak_cost'] = secondary_peak['cost']
                 if main_peak_cost > 0:
                     results['peak_separation_ratio'] = abs(main_peak_cost - secondary_peak['cost']) / main_peak_cost * 100
+                # 2. 为真空区计算，按 cost（价格）排序
+                peaks_by_cost = peaks_df.sort_values(by='cost').reset_index(drop=True)
+                # 3. 计算所有相邻峰之间的距离，并找到最大值
+                if len(peaks_by_cost) > 1:
+                    peak_separations_atr = (peaks_by_cost['cost'].diff() / atr_14d).dropna()
+                    max_separation_atr = peak_separations_atr.max()
+                    # 4. 检查最大距离是否超过阈值
+                    peak_separation_threshold = 2.5
+                    if max_separation_atr > peak_separation_threshold:
+                        results['vacuum_zone_magnitude'] = max_separation_atr
         else:
             main_peak_idx = self.df['percent'].idxmax()
             results['dominant_peak_cost'] = self.df.loc[main_peak_idx, 'price']
@@ -407,8 +422,8 @@ class ChipFeatureCalculator:
             results['dominant_peak_solidity'] = results['cost_gini_coefficient'] * (results['dominant_peak_volume_ratio'] / 100) * 100
         winners_df = self.df[self.df['price'] < close_price]
         losers_df = self.df[self.df['price'] > close_price]
-        results['total_winner_rate'] = winners_df['percent'].sum()
-        results['total_loser_rate'] = losers_df['percent'].sum()
+        results['total_winner_rate'] = self.ctx.get('total_winner_rate')
+        results['total_loser_rate'] = 100.0 - results['total_winner_rate'] if pd.notna(results['total_winner_rate']) else np.nan
         winner_avg_cost, loser_avg_cost = np.nan, np.nan
         if not winners_df.empty and winners_df['percent'].sum() > 0:
             winner_avg_cost = np.average(winners_df['price'], weights=winners_df['percent'])
@@ -428,23 +443,6 @@ class ChipFeatureCalculator:
             results['structural_tension_index'] = tension
         leverage = (((self.df['price'] - close_price) / close_price) * self.df['percent']).sum()
         results['structural_leverage'] = leverage
-        # [修改代码块] 修正真空区悖论：回归第一性原理，正确定义“真空”
-        # 核心思想: 只有当两个筹码峰相距足够远（大于阈值），才认为它们之间存在真空区。
-        #           否则，双峰密集区之间不存在真空，真空区量级为0。
-        dominant_peak_cost = results.get('dominant_peak_cost')
-        secondary_peak_cost = results.get('secondary_peak_cost')
-        peak_separation_threshold = 2.5 # 定义峰群分离度阈值（2.5个ATR）
-        if pd.notna(dominant_peak_cost) and pd.notna(secondary_peak_cost) and atr_14d > 0:
-            vacuum_width_atr = abs(dominant_peak_cost - secondary_peak_cost) / atr_14d
-            # 只有当峰间距大于阈值时，才计算真空区量级
-            if vacuum_width_atr > peak_separation_threshold:
-                results['vacuum_zone_magnitude'] = vacuum_width_atr
-            else:
-                # 否则，双峰密集区不存在真空，量级为0
-                results['vacuum_zone_magnitude'] = 0.0
-        else:
-            # 如果只有一个峰或数据不足，则不存在真空区
-            results['vacuum_zone_magnitude'] = 0.0
         if pd.notna(results['dominant_peak_cost']):
             results['chip_fault_magnitude'] = (close_price - results['dominant_peak_cost']) / atr_14d
             fault_low, fault_high = sorted([results['dominant_peak_cost'], close_price])
