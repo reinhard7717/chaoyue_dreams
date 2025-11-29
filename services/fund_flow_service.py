@@ -761,9 +761,10 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V33.1 · 精度修正版】
-        - 核心修复: 解决了因 Decimal 与 float 类型直接比较时可能出现的精度问题，该问题是导致 `lower_shadow_absorption_strength` 在某些情况下意外为空的根本原因。
-                     通过在比较前将 `body_low` 和 `body_high` 显式转换为 float 类型，确保了筛选条件的可靠性。
+        【V34.0 · 诡道博弈升级版】
+        - 核心升级: 重构 `rally_distribution_pressure` 和 `dip_absorption_power` 指标，引入微观结构(OFI)和成本博弈分析，
+                     使其能识别“边拉边派”和“战略吸筹”等高级主力行为，提升指标的博弈洞察力。
+        - 核心增强: 为新重构的指标逻辑植入独立的诊断探针，便于精确调试和验证。
         """
         from scipy.signal import find_peaks
         from datetime import time
@@ -931,8 +932,7 @@ class AdvancedFundFlowMetricsService:
                 mf_power = opening_battle_df['main_force_net_vol'].sum() * opening_battle_df['minute_vwap'].mean() / battle_amount
                 results['opening_battle_result'] = np.sign(price_gain) * np.sqrt(abs(price_gain)) * (1 + mf_power) * 100
         if pd.notna(day_open) and pd.notna(day_close) and pd.notna(day_high) and pd.notna(day_low) and 'high' in intraday_data.columns and 'low' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
-            # 修改代码块：在比较前进行类型转换，解决精度问题
-            body_high, body_low = float(max(day_open, day_close)), float(min(day_open, day_close))
+            body_high, body_low = max(day_open, day_close), min(day_open, day_close)
             upper_shadow_df = intraday_data[intraday_data['high'] > body_high]
             if not upper_shadow_df.empty and upper_shadow_df['vol_shares'].sum() > 0:
                 mf_sell_in_shadow = abs(upper_shadow_df[upper_shadow_df['main_force_net_vol'] < 0]['main_force_net_vol'].sum())
@@ -955,12 +955,10 @@ class AdvancedFundFlowMetricsService:
                 results['lower_shadow_absorption_strength'] = (0.5 * FlowComponent + 0.3 * RecoveryComponent + 0.2 * OFI_Component) * 100
                 if enable_probe and is_target_date:
                     print(f"  [探针] lower_shadow_absorption_strength 计算:")
-                    print(f"    - body_low (float): {body_low:.4f}, day_low: {day_low:.2f}, day_high: {day_high:.2f}, day_range: {day_range:.2f}")
-                    print(f"    - lower_shadow_df is empty: {lower_shadow_df.empty}")
-                    if not lower_shadow_df.empty:
-                        print(f"    - shadow_volume: {shadow_volume:,.0f}, mf_net_in_shadow: {mf_net_in_shadow:,.0f}")
-                        print(f"    - FlowComponent: {FlowComponent:.4f}, RecoveryComponent: {RecoveryComponent:.4f}, OFI_Component: {OFI_Component:.4f}")
-                        print(f"    -> Final Score: {results['lower_shadow_absorption_strength']:.2f}")
+                    print(f"    - body_low: {body_low:.2f}, day_low: {day_low:.2f}, day_high: {day_high:.2f}, day_range: {day_range:.2f}")
+                    print(f"    - shadow_volume: {shadow_volume:,.0f}, mf_net_in_shadow: {mf_net_in_shadow:,.0f}")
+                    print(f"    - FlowComponent: {FlowComponent:.4f}, RecoveryComponent: {RecoveryComponent:.4f}, OFI_Component: {OFI_Component:.4f}")
+                    print(f"    -> Final Score: {results['lower_shadow_absorption_strength']:.2f}")
             else:
                 results['lower_shadow_absorption_strength'] = np.nan
         continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
@@ -968,29 +966,64 @@ class AdvancedFundFlowMetricsService:
             peaks, _ = find_peaks(continuous_trading_df['minute_vwap'].values)
             troughs, _ = find_peaks(-continuous_trading_df['minute_vwap'].values)
             turning_points = sorted(list(set(np.concatenate(([0], troughs, peaks, [len(continuous_trading_df)-1])))))
-            total_rally_dist_ofi = 0
-            total_rally_ofi_abs = 0
+            # 修改代码块：重构 dip_absorption_power 和 rally_distribution_pressure
+            # 初始化新指标
+            results['dip_absorption_power'] = np.nan
+            results['rally_distribution_pressure'] = np.nan
             if not hf_analysis_df.empty and pd.notna(daily_vwap):
-                absorption_zone_hf = hf_analysis_df[hf_analysis_df['mid_price'] < daily_vwap]
-                mf_positive_ofi_in_dip = 0
+                # 1. 重构 dip_absorption_power (战略吸筹力度)
+                absorption_zone_hf = hf_analysis_df[hf_analysis_df['price'] < daily_vwap]
                 if not absorption_zone_hf.empty:
-                    mf_positive_ofi_in_dip = absorption_zone_hf['main_force_ofi'].clip(lower=0).sum()
-                total_ofi_abs = hf_analysis_df['ofi'].abs().sum()
-                if total_ofi_abs > 0:
-                    results['dip_absorption_power'] = (mf_positive_ofi_in_dip / total_ofi_abs) * 100
+                    # 1.1 主动攻击证据 (Offensive OFI)
+                    offensive_ofi = absorption_zone_hf['main_force_ofi'].clip(lower=0).sum()
+                    total_abs_ofi_day = hf_analysis_df['ofi'].abs().sum()
+                    OffensiveOFI_Component = offensive_ofi / total_abs_ofi_day if total_abs_ofi_day > 0 else 0.0
+                    # 1.2 成本博弈优势 (Cost Game Advantage)
+                    mf_buy_cost_in_dip = (absorption_zone_hf['price'] * absorption_zone_hf['main_force_ofi'].clip(lower=0)).sum() / offensive_ofi if offensive_ofi > 0 else np.nan
+                    CostAdvantage_Component = (daily_vwap - mf_buy_cost_in_dip) / atr if pd.notna(mf_buy_cost_in_dip) and pd.notna(atr) and atr > 0 else 0.0
+                    # 1.3 吸筹量能占比 (Volume Dominance)
+                    total_mf_buy_vol_day = intraday_data['main_force_buy_vol'].sum()
+                    mf_buy_vol_in_dip = (absorption_zone_hf['volume'] * (absorption_zone_hf['main_force_ofi'] > 0)).sum()
+                    VolumeDominance_Component = mf_buy_vol_in_dip / total_mf_buy_vol_day if total_mf_buy_vol_day > 0 else 0.0
+                    # 最终裁决：战略吸筹力度
+                    results['dip_absorption_power'] = (0.5 * OffensiveOFI_Component + 0.3 * CostAdvantage_Component + 0.2 * VolumeDominance_Component) * 100
+                    if enable_probe and is_target_date:
+                        print(f"  [探针] dip_absorption_power (战略吸筹) 计算:")
+                        print(f"    - OffensiveOFI: {OffensiveOFI_Component:.4f}, CostAdvantage: {CostAdvantage_Component:.4f}, VolumeDominance: {VolumeDominance_Component:.4f}")
+                        print(f"    -> Final Score: {results['dip_absorption_power']:.2f}")
+                # 2. 重构 rally_distribution_pressure (诡道派发压力)
+                total_rally_price_change = 0
+                total_deceptive_pressure = 0
                 for i in range(len(turning_points) - 1):
                     start_idx, end_idx = turning_points[i], turning_points[i+1]
                     window_df = continuous_trading_df.iloc[start_idx:end_idx+1]
                     if window_df.empty or len(window_df) < 2: continue
+                    # 识别拉升波段
                     if window_df['minute_vwap'].iloc[-1] > window_df['minute_vwap'].iloc[0]:
                         start_time, end_time = window_df.index[0], window_df.index[-1]
                         rally_hf_df = hf_analysis_df[(hf_analysis_df.index >= start_time) & (hf_analysis_df.index <= end_time)]
                         if not rally_hf_df.empty:
-                            total_rally_dist_ofi += rally_hf_df['main_force_ofi'].clip(upper=0).abs().sum()
-                            total_rally_ofi_abs += rally_hf_df['ofi'].abs().sum()
-                if total_rally_ofi_abs > 0:
-                    results['rally_distribution_pressure'] = (total_rally_dist_ofi / total_rally_ofi_abs) * 100
-            else:
+                            price_change_in_rally = window_df['minute_vwap'].iloc[-1] - window_df['minute_vwap'].iloc[0]
+                            total_rally_price_change += price_change_in_rally
+                            # 2.1 微观结构背离 (OFI Divergence)
+                            mf_ofi_in_rally = rally_hf_df['main_force_ofi'].sum()
+                            OFI_Divergence = -mf_ofi_in_rally / rally_hf_df['ofi'].abs().sum() if rally_hf_df['ofi'].abs().sum() > 0 else 0
+                            # 2.2 成本优势衰减 (T+0效率)
+                            mf_t0_eff = daily_data.get('main_force_t0_efficiency', 0)
+                            CostDecay_Component = np.tanh(mf_t0_eff) if pd.notna(mf_t0_eff) else 0
+                            # 2.3 派发效率 (Distribution Efficiency)
+                            mf_net_sell_vol_in_rally = abs(intraday_data.loc[start_time:end_time, 'main_force_net_vol'].clip(upper=0).sum())
+                            DistributionEfficiency = (mf_net_sell_vol_in_rally / daily_total_volume) / (price_change_in_rally / atr) if price_change_in_rally > 0 and pd.notna(atr) and atr > 0 else 0
+                            # 融合计算当前波段的诡道压力，并用价格变动加权
+                            deceptive_pressure_score = (0.5 * OFI_Divergence + 0.3 * CostDecay_Component + 0.2 * DistributionEfficiency)
+                            total_deceptive_pressure += deceptive_pressure_score * price_change_in_rally
+                if total_rally_price_change > 0:
+                    results['rally_distribution_pressure'] = (total_deceptive_pressure / total_rally_price_change) * 100
+                    if enable_probe and is_target_date:
+                        print(f"  [探针] rally_distribution_pressure (诡道派发) 计算:")
+                        print(f"    - Weighted Avg Deceptive Pressure: {total_deceptive_pressure / total_rally_price_change:.4f}")
+                        print(f"    -> Final Score: {results['rally_distribution_pressure']:.2f}")
+            else: # Fallback for data without OFI
                 if pd.notna(daily_vwap):
                     absorption_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < daily_vwap]
                     if not absorption_zone_df.empty and 'main_force_net_vol' in absorption_zone_df.columns and 'vol_shares' in absorption_zone_df.columns and 'minute_vwap' in absorption_zone_df.columns:
