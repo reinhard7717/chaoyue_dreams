@@ -150,8 +150,11 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None, debug_params: dict = None, tick_data_map: dict = None, realtime_data_map: dict = None, level5_data_map: dict = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V1.8 · 生产就绪版】
-        - 核心维护: 移除了所有用于调试和溯源的探针代码，恢复生产环境的静默运行模式。
+        【V1.9 · 因果重塑版】
+        - 核心重构(高频数据流): 彻底废弃了使用`realtime_quote`快照数据推算区间成交量的错误做法，解决了因果倒置的“时间旅行者悖论”。
+        - 核心升级: 建立新的数据合并范式，以真实的逐笔成交(Tick)为主体，通过`merge_asof`向后匹配成交前一瞬间的
+                     Level-5盘口状态。这构建了具备真实因果关系的高频数据集，从根本上提升了
+                     `mf_cost_zone_defense_intent`等高频指标的逻辑可靠性。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -231,34 +234,35 @@ class AdvancedChipMetricsService:
             context_for_calc['intraday_data'] = enhanced_intraday_data
             context_for_calc['tick_data'] = tick_data_map.get(date_obj, pd.DataFrame()) if tick_data_map else pd.DataFrame()
             context_for_calc['level5_data'] = level5_data_map.get(date_obj, pd.DataFrame()) if level5_data_map else pd.DataFrame()
-            context_for_calc['realtime_data'] = pd.DataFrame()
-            if level5_data_map and date_obj in level5_data_map and realtime_data_map and date_obj in realtime_data_map:
-                level5_df = level5_data_map[date_obj]
-                realtime_df = realtime_data_map[date_obj]
-                if not level5_df.empty and not realtime_df.empty and 'volume' in realtime_df.columns:
-                    level5_df_renamed = level5_df.copy()
+            # [修改代码块] 开始重构高频数据流，建立正确的因果关系
+            merged_realtime_df = pd.DataFrame()
+            tick_df_day = tick_data_map.get(date_obj)
+            level5_df_day = level5_data_map.get(date_obj)
+            if tick_df_day is not None and not tick_df_day.empty and level5_df_day is not None and not level5_df_day.empty:
+                # 确保关键列存在
+                if all(col in tick_df_day.columns for col in ['price', 'volume']) and 'buy_price1' in level5_df_day.columns:
+                    # 1. 以逐笔数据(tick_df_day)为主体
+                    tick_df_sorted = tick_df_day.sort_index()
+                    # 2. 匹配成交前一瞬间的盘口状态(level5_df_day)
+                    merged_realtime_df = pd.merge_asof(
+                        left=tick_df_sorted.reset_index(),
+                        right=level5_df_day.reset_index(),
+                        on='trade_time',
+                        direction='backward' # 核心：向后查找，确保是成交前的盘口
+                    )
+                    if 'trade_time' in merged_realtime_df.columns:
+                        merged_realtime_df.set_index('trade_time', inplace=True)
+                    # 3. 重命名列以适配下游计算器
                     column_rename_map = {
                         **{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)},
                         **{f'buy_volume{i}': f'b{i}_v' for i in range(1, 6)},
                         **{f'sell_price{i}': f'a{i}_p' for i in range(1, 6)},
                         **{f'sell_volume{i}': f'a{i}_v' for i in range(1, 6)},
                     }
-                    level5_df_renamed.rename(columns=column_rename_map, inplace=True)
-                    merged_realtime_df = pd.merge_asof(
-                        left=level5_df_renamed.sort_index().reset_index(),
-                        right=realtime_df[['volume']].sort_index().reset_index(),
-                        on='trade_time',
-                        direction='backward' # 修改代码行：将 'nearest' 修改为 'backward'，防止前视偏差
-                    )
-                    if 'trade_time' in merged_realtime_df.columns:
-                        merged_realtime_df.set_index('trade_time', inplace=True)
-                    # 新增代码块：计算增量成交量并替换累计成交量
-                    if 'volume' in merged_realtime_df.columns:
-                        # 'volume' 列是累计成交量，我们需要的是每个快照区间的增量成交量作为权重
-                        interval_volume = merged_realtime_df['volume'].diff().fillna(0)
-                        # 用计算出的增量成交量替换原始的累计成交量列，以供下游计算器正确使用
-                        merged_realtime_df['volume'] = interval_volume
-                    context_for_calc['realtime_data'] = merged_realtime_df
+                    merged_realtime_df.rename(columns=column_rename_map, inplace=True)
+                    # 4. 此时的 'volume' 列是真实的逐笔成交量，无需再进行 diff() 计算
+            context_for_calc['realtime_data'] = merged_realtime_df
+            # [修改代码块] 结束
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
             if daily_metrics:
@@ -367,31 +371,35 @@ class AdvancedChipMetricsService:
         return df
 
     def _calculate_derivatives(self, consensus_df: pd.DataFrame) -> pd.DataFrame:
-        """【V2.2 · 导数定律统一版】修正加速度计算窗口，与资金流服务保持一致。"""
+        """
+        【V2.3 · 动态尺度重构版】
+        - 核心重构(加速度): 废弃固定的2日加速度窗口，引入与斜率周期p动态关联的加速度窗口(accel_window = max(2, p // 4))。
+        - 核心思想: 解决了“望远镜与显微镜悖论”。现在，对长期趋势（如55日斜率）的加速度评估，是在一个更长、
+                     更合理的尺度（13日）上进行，有效过滤短期噪声，使“加速度”指标能真正揭示趋势的系统性拐点。
+        """
         derivatives_df = pd.DataFrame(index=consensus_df.index)
         import pandas_ta as ta
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedChipMetrics.SLOPE_ACCEL_EXCLUSIONS
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedChipMetrics.CORE_METRICS.keys())
         UNIFIED_PERIODS = BaseAdvancedChipMetrics.UNIFIED_PERIODS
-        # 为加速度定义一个独立的、符合数学定义的短窗口
-        ACCEL_WINDOW = 2
+        # [修改代码块] 废弃固定的加速度窗口
+        # ACCEL_WINDOW = 2
         for col in CORE_METRICS_TO_DERIVE:
             if col in consensus_df.columns and col not in SLOPE_ACCEL_EXCLUSIONS and col not in BaseAdvancedChipMetrics.BOOLEAN_FIELDS:
                 source_series = pd.to_numeric(consensus_df[col], errors='coerce')
                 if source_series.isnull().all():
                     continue
                 for p in UNIFIED_PERIODS:
-                    # [修改代码块] 简化计算窗口的逻辑，与资金流服务保持统一
-                    # 原逻辑: calc_window = 2 if p == 1 else p
-                    # 新逻辑: max(2, p) 效果完全相同，但更简洁、健壮
                     calc_window = max(2, p)
                     slope_col_name = f'{col}_slope_{p}d'
                     slope_series = ta.slope(close=source_series, length=calc_window)
                     derivatives_df[slope_col_name] = slope_series
                     if slope_series is not None and not slope_series.empty:
                         accel_col_name = f'{col}_accel_{p}d'
-                        # 强制为加速度计算使用独立的短窗口 ACCEL_WINDOW
-                        derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=ACCEL_WINDOW)
+                        # [修改代码块] 引入与斜率周期p动态关联的加速度窗口
+                        # 新逻辑：加速度的观察尺度应与速度的观察尺度相匹配
+                        accel_window = max(2, p // 4)
+                        derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=accel_window)
         return derivatives_df
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
