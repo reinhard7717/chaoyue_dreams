@@ -758,12 +758,10 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V35.0 · 统一记忆总线版】
-    - 核心重构: 引入 `cross_chunk_memory_bus` 统一管理 `chip_service` 和 `fund_flow_service` 的跨区块记忆。
-                 解决了因记忆管理架构缺陷导致的“接力棒掉落”问题，确保了全量回测中时间序列指标
-                 （如 main_force_cumulative_cost）的计算连续性。
-    - 核心修复: 为 `fund_flow_service` 增加了缺失的记忆传递机制。
-    - 核心增强: 探针现在可以监控 `cross_chunk_memory_bus` 的状态，提供更深层次的诊断能力。
+    【V36.0 · 数据隔离修复版】
+    - 核心修复: 解决了因“数据交叉污染”导致部分指标（如 lower_shadow_absorption_strength）无法存入数据库的根本问题。
+                 在总调度任务中，对最终生成的包含所有指标的巨大DataFrame进行“精准切割”，
+                 确保每个服务的保存函数只接收属于自己模型的“纯净”数据，从而根除了数据在保存前被意外丢弃的风险。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -873,7 +871,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 (historical_components_df.loc[valid_mask, 'cost_85pct'] - historical_components_df.loc[valid_mask, 'cost_15pct']) / historical_components_df.loc[valid_mask, 'weight_avg_cost']
         CHUNK_SIZE = 50
         all_final_metrics_to_save = pd.DataFrame()
-        # [修改代码块] 建立统一记忆总线
         cross_chunk_memory_bus = {
             'chip_memory': {},
             'fund_flow_memory': {}
@@ -899,7 +896,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     level5_data_map=seed_data_dfs.get("stock_level5_data_map"), 
                     minute_data_map=seed_data_dfs.get("stock_minute_data_map")
                 )
-                # [修改代码块] 播种资金流记忆
                 _, seed_ff_minute_map, _, cross_chunk_memory_bus['fund_flow_memory'] = fund_flow_service._synthesize_and_forge_metrics(
                     stock_code, seed_ff_raw_df, 
                     tick_data_map=seed_data_dfs.get("stock_tick_data_map"), 
@@ -915,7 +911,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
                 )
                 seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max(), tick_data_map=seed_data_dfs["stock_tick_data_map"], minute_data_map=seed_data_dfs["stock_minute_data_map"])
-                # [修改代码块] 播种筹码记忆
                 _, cross_chunk_memory_bus['chip_memory'], seed_failures = chip_service._synthesize_and_forge_metrics(
                     stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map_for_chip_service, 
                     memory=cross_chunk_memory_bus['chip_memory'], historical_components=historical_components_df, debug_params=debug_params, 
@@ -928,7 +923,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
-            # [修改代码块] 探针升级：监控记忆总线
             if enable_probe:
                 is_target_date_in_chunk = pd.to_datetime(target_date_str) in chunk_dates if target_date_str else False
                 if is_target_date_in_chunk:
@@ -966,7 +960,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(
                 stock_info, fund_flow_raw_df.index, tick_data_map=tick_data_map, level5_data_map=level5_data_map, minute_data_map=minute_data_map
             )
-            # [修改代码块] 传递并更新资金流记忆
             fund_flow_metrics_df, fund_flow_attributed_minute_map, ff_failures, cross_chunk_memory_bus['fund_flow_memory'] = fund_flow_service._synthesize_and_forge_metrics(
                 stock_code, fund_flow_raw_df, tick_data_map=tick_data_map, level5_data_map=level5_data_map, minute_data_map=minute_data_map, realtime_data_map=realtime_data_map, memory=cross_chunk_memory_bus['fund_flow_memory']
             )
@@ -984,7 +977,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             minute_data_map_for_chip = await chip_service._load_minute_data_for_range(
                 stock_info, chunk_dates.min(), chunk_dates.max(), tick_data_map=tick_data_map, minute_data_map=minute_data_map
             )
-            # [修改代码块] 传递并更新筹码记忆
             chip_metrics_df, cross_chunk_memory_bus['chip_memory'], chunk_failures = chip_service._synthesize_and_forge_metrics(
                 stock_info, chip_raw_df, minute_data_map_for_chip, fund_flow_attributed_minute_map_for_chip_service, 
                 memory=cross_chunk_memory_bus['chip_memory'], historical_components=historical_components_df, debug_params=debug_params, 
@@ -1008,13 +1000,20 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             all_final_metrics_to_save = pd.concat([all_final_metrics_to_save, chunk_final_df[chunk_final_df.index.date >= save_start_date]])
             context_df = full_sequence_for_derivatives
         if not all_final_metrics_to_save.empty:
-            if save_start_date:
-                chunk_to_save = all_final_metrics_to_save[all_final_metrics_to_save.index.date >= save_start_date]
-            else:
-                chunk_to_save = all_final_metrics_to_save
+            chunk_to_save = all_final_metrics_to_save[all_final_metrics_to_save.index.date >= save_start_date] if save_start_date else all_final_metrics_to_save
             if not chunk_to_save.empty:
-                ff_save_count = await fund_flow_service._prepare_and_save_data(stock_info, FundFlowMetricsModel, chunk_to_save)
-                chip_save_count = await chip_service._prepare_and_save_data(stock_info, ChipMetricsModel, chunk_to_save)
+                # 修改代码块：数据隔离修复
+                # 1. 获取各自模型的字段列表
+                ff_model_fields = {f.name for f in FundFlowMetricsModel._meta.get_fields() if not f.is_relation}
+                chip_model_fields = {f.name for f in ChipMetricsModel._meta.get_fields() if not f.is_relation}
+                # 2. 根据字段列表“精准切割”DataFrame
+                ff_cols_to_keep = [col for col in chunk_to_save.columns if col in ff_model_fields]
+                chip_cols_to_keep = [col for col in chunk_to_save.columns if col in chip_model_fields]
+                ff_df_to_save = chunk_to_save[ff_cols_to_keep]
+                chip_df_to_save = chunk_to_save[chip_cols_to_keep]
+                # 3. 将纯净的DataFrame传递给各自的保存函数
+                ff_save_count = await fund_flow_service._prepare_and_save_data(stock_info, FundFlowMetricsModel, ff_df_to_save)
+                chip_save_count = await chip_service._prepare_and_save_data(stock_info, ChipMetricsModel, chip_df_to_save)
                 logger.info(f"[{stock_code}] 成功！深度融合计算完成。资金流指标保存 {ff_save_count} 条，筹码指标保存 {chip_save_count} 条。")
                 return {"status": "success", "fund_flow_days": ff_save_count, "chip_days": chip_save_count, "failures": all_failures}
             else:
