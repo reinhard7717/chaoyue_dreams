@@ -758,11 +758,12 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V35.0 · 动态信念重构版】
-        - 核心重构: 废弃原有的日线级 `main_force_conviction_index`，引入基于高频博弈的“动态主力信念指数”全新算法，
-                     从攻击性、成本容忍度、韧性三个维度深度刻画主力信念。
+        【V36.0 · 信念路径分析版】
+        - 核心重构: 对“动态主力信念指数”的`Aggressiveness`（攻击性）组件进行算法升级，从简单的“全天斜率”
+                     进化为“路径质量分析”，通过趋势质量（与时间的相关性）和收盘强度（类似Stochastic指标）
+                     来更精确地刻画主力资金攻击过程的纪律性与控盘能力。
         - 核心修复: 修正了 `dip_absorption_power` 中 `VolumeDominance` 组件因数据源口径不一导致的计算错误。
-        - 核心增强: 为新的动态信念指数植入专属诊断探针。
+        - 核心增强: 升级动态信念指数的探针，以反映新的子项计算。
         """
         from scipy.signal import find_peaks
         from datetime import time
@@ -818,12 +819,21 @@ class AdvancedFundFlowMetricsService:
                 hf_analysis_df = merged_hf
                 results['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
                 results['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
-        # 修改代码块：重构动态主力信念指数 (dynamic_main_force_conviction_index)
         if not hf_analysis_df.empty:
-            # 1. 攻击性 (Aggressiveness): 主力累积OFI的日内趋势斜率
+            # 修改代码块：重构动态主力信念指数 (dynamic_main_force_conviction_index) 的 Aggressiveness 组件
             mf_ofi_cumsum = hf_analysis_df['main_force_ofi'].cumsum().fillna(0)
-            aggressiveness_score = ta.slope(mf_ofi_cumsum, length=len(mf_ofi_cumsum)).iloc[-1] if len(mf_ofi_cumsum) > 1 else 0
-            aggressiveness_component = np.tanh(aggressiveness_score / 1000) if pd.notna(aggressiveness_score) else 0.0
+            aggressiveness_component = 0.0
+            if not mf_ofi_cumsum.empty and mf_ofi_cumsum.nunique() > 1:
+                # 1. 攻击性 - 子项1: 趋势质量 (Trend Quality)
+                time_index = np.arange(len(mf_ofi_cumsum))
+                trend_quality = np.corrcoef(time_index, mf_ofi_cumsum)[0, 1]
+                trend_quality = np.nan_to_num(trend_quality)
+                # 2. 攻击性 - 子项2: 收盘强度 (Closing Strength)
+                ofi_min, ofi_max = mf_ofi_cumsum.min(), mf_ofi_cumsum.max()
+                closing_strength = (mf_ofi_cumsum.iloc[-1] - ofi_min) / (ofi_max - ofi_min) if (ofi_max - ofi_min) > 0 else 0.0
+                closing_strength = np.nan_to_num(closing_strength)
+                # 融合计算攻击性
+                aggressiveness_component = trend_quality * closing_strength
             # 2. 成本容忍度 (Cost Tolerance)
             avg_cost_main_buy = daily_data.get('avg_cost_main_buy')
             avg_cost_main_sell = daily_data.get('avg_cost_main_sell')
@@ -839,7 +849,9 @@ class AdvancedFundFlowMetricsService:
             results['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
             if enable_probe and is_target_date:
                 print(f"  [探针] main_force_conviction_index (动态信念) 计算:")
-                print(f"    - Aggressiveness (OFI Slope): {aggressiveness_component:.4f}, Cost Tolerance (Buy/Sell Cost): {cost_tolerance_component:.4f}, Resilience (Absorption): {resilience_component:.4f}")
+                # 升级探针
+                print(f"    - Aggressiveness (TrendQuality * ClosingStrength): {aggressiveness_component:.4f} = ({trend_quality:.4f} * {closing_strength:.4f})")
+                print(f"    - Cost Tolerance (Buy/Sell Cost): {cost_tolerance_component:.4f}, Resilience (Absorption): {resilience_component:.4f}")
                 print(f"    -> Final Score: {results['main_force_conviction_index']:.2f}")
         else:
             results['main_force_conviction_index'] = np.nan
@@ -1000,9 +1012,7 @@ class AdvancedFundFlowMetricsService:
                     OffensiveOFI_Component = offensive_ofi / total_abs_ofi_day if total_abs_ofi_day > 0 else 0.0
                     mf_buy_cost_in_dip = (absorption_zone_hf['price'] * absorption_zone_hf['main_force_ofi'].clip(lower=0)).sum() / offensive_ofi if offensive_ofi > 0 else np.nan
                     CostAdvantage_Component = (daily_vwap - mf_buy_cost_in_dip) / atr if pd.notna(mf_buy_cost_in_dip) and pd.notna(atr) and atr > 0 else 0.0
-                    # 修改代码块：修复 dip_absorption_power 的 VolumeDominance 计算
                     total_mf_buy_vol_day = intraday_data['main_force_buy_vol'].sum()
-                    # 使用分钟级归因数据重新计算分子，确保口径统一
                     mf_buy_vol_in_dip = intraday_data[intraday_data['minute_vwap'] < daily_vwap]['main_force_buy_vol'].sum()
                     VolumeDominance_Component = mf_buy_vol_in_dip / total_mf_buy_vol_day if total_mf_buy_vol_day > 0 else 0.0
                     results['dip_absorption_power'] = (0.5 * OffensiveOFI_Component + 0.3 * CostAdvantage_Component + 0.2 * VolumeDominance_Component) * 100
