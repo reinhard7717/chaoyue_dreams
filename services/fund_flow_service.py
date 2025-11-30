@@ -1162,8 +1162,11 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_reversal_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V47.0 · 模块化重构版】
-        新增方法: 计算V型反转力度指标。
+        【V47.6 · 反转力度稳健重构版】
+        - 核心重构: 将 reversal_power_index 的计算范式从脆弱的“乘法模型”升级为稳健的“加权加法模型”。
+        - 重构原因: 发现原公式中的 Exhaustion (衰竭) 组件在强趋势行情中经常失效为0，导致整个指标评判逻辑出现偏差。
+        - 核心实现: 废弃不可靠的 Exhaustion 组件，聚焦于“价格收复”和“主力反击”两大核心要素，
+                     采用 0.6 * PriceRecovery + 0.4 * CounterAttack 的加权求和方式，使指标更稳定、更可靠。
         """
         import numpy as np
         metrics = {}
@@ -1179,24 +1182,20 @@ class AdvancedFundFlowMetricsService:
                 if 0 < turn_point_idx < len(intraday_data) - 1:
                     if not hf_analysis_df.empty:
                         turn_point_time = intraday_data.index[turn_point_idx]
-                        initial_phase_hf = hf_analysis_df[hf_analysis_df.index < turn_point_time]
                         reversal_phase_hf = hf_analysis_df[hf_analysis_df.index >= turn_point_time]
-                        if not initial_phase_hf.empty and not reversal_phase_hf.empty:
+                        if not reversal_phase_hf.empty:
                             turn_point_price = intraday_data.iloc[turn_point_idx]['low'] if is_v_shape else intraday_data.iloc[turn_point_idx]['high']
                             PriceRecovery_Component = abs(day_close - turn_point_price) / day_range
-                            initial_ofi = initial_phase_hf['main_force_ofi']
-                            initial_price_change = initial_phase_hf['mid_price_change']
-                            Exhaustion_Component = 0.0
-                            if initial_ofi.var() > 0 and initial_price_change.var() > 0:
-                                corr = initial_ofi.corr(initial_price_change)
-                                Exhaustion_Component = np.tanh(1 - abs(corr)) if pd.notna(corr) else 0.0
+                            # 修改代码块：移除 Exhaustion_Component 的计算
                             reversal_ofi = reversal_phase_hf['main_force_ofi']
                             CounterAttack_Component = np.tanh(reversal_ofi.sum() / daily_total_volume)
-                            power_score = PriceRecovery_Component * (1 + Exhaustion_Component) * CounterAttack_Component
+                            # 修改代码块：采用新的加权加法模型
+                            power_score = (0.6 * PriceRecovery_Component + 0.4 * CounterAttack_Component)
                             metrics['reversal_power_index'] = power_score * 100
                             if enable_probe and is_target_date:
                                 print(f"  [探针] reversal_power_index (高频-V型反转) 计算:")
-                                print(f"    - PriceRecovery: {PriceRecovery_Component:.4f}, Exhaustion: {Exhaustion_Component:.4f}, CounterAttack: {CounterAttack_Component:.4f}")
+                                # 修改代码块：更新探针输出
+                                print(f"    - PriceRecovery: {PriceRecovery_Component:.4f} (权重 0.6), CounterAttack: {CounterAttack_Component:.4f} (权重 0.4)")
                                 print(f"    -> Final Score: {metrics['reversal_power_index']:.2f}")
                     else:
                         initial_phase = intraday_data.iloc[:turn_point_idx]
@@ -1208,6 +1207,7 @@ class AdvancedFundFlowMetricsService:
                             vol_shift = np.log1p(vol_reversal / vol_initial)
                             reversal_mf_net_vol = reversal_phase['main_force_net_vol'].sum()
                             reversal_conviction = reversal_mf_net_vol / vol_reversal if vol_reversal > 0 else 0
+                            # 保持分钟级数据的乘法逻辑，因为它更依赖于成交量 shift
                             power_score = price_recovery * vol_shift * reversal_conviction
                             metrics['reversal_power_index'] = power_score if is_v_shape else -power_score
         return metrics
