@@ -742,9 +742,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V54.1 · 笔误修正版】
-        - 核心修复: 根据Traceback提示，修复了一个因笔误导致的方法名调用错误 (AttributeError)。
-                     将对 _calculate_hidden_accumulation_intensity 的调用更正为 _calculate_hidden_accumulation_metrics。
+        【V56.0 · 流动性交换穿透版】
+        - 核心升级: 引入 B-系列 (Behavioral Engine) 探针，监控引擎的输入数据健康度和计算过程。
+        - 核心集成: 向 _calculate_liquidity_swap_metrics 传递高频数据，激活其高精度计算路径。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -781,10 +781,10 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_panic_cascade_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_cmf_metrics(intraday_data, is_target_date, enable_probe))
         results.update(self._calculate_vpoc_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_liquidity_swap_metrics(intraday_data))
+        # 修改代码行：向 _calculate_liquidity_swap_metrics 传递新参数
+        results.update(self._calculate_liquidity_swap_metrics(intraday_data, hf_analysis_df, is_target_date, enable_probe))
         results.update(self._calculate_closing_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_retail_sentiment_metrics(intraday_data, hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
-        # 修改代码行：修复因笔误导致的方法名调用错误 (AttributeError)
         results.update(self._calculate_hidden_accumulation_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_execution_alpha_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_flow_efficiency_metrics(hf_analysis_df, intraday_data, common_data, is_target_date, enable_probe))
@@ -1538,18 +1538,35 @@ class AdvancedFundFlowMetricsService:
                             metrics['mf_vpoc_premium'] = (mf_vpoc / global_vpoc_price - 1) * 100
         return metrics
 
-    def _calculate_liquidity_swap_metrics(self, intraday_data: pd.DataFrame) -> dict:
+    def _calculate_liquidity_swap_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V47.0 · 模块化重构版】
-        新增方法: 计算主力与散户流动性交换指标。
+        【V56.0 · 流动性交换穿透版】
+        - 核心升级: 废弃基于分钟成交量的滚动相关性，引入基于逐笔OFI的直接相关性计算，实现对主力与散户盘中博弈意图的精确量化。
+        - 升级原因: 分钟级数据会平滑掉瞬时的筹码交换行为。逐笔OFI能捕捉到最纯粹的、瞬时的“意图对冲”。
+        - 核心实现:
+          - 高频路径: 直接计算全天 main_force_ofi 与 retail_ofi 序列的相关系数。
+          - 降级路径: 保留原有的基于分钟净成交量的滚动相关性计算。
         """
         metrics = {}
-        if 'main_force_net_vol' in intraday_data.columns and 'retail_net_vol' in intraday_data.columns:
-            mf_net_series = intraday_data['main_force_net_vol']
-            retail_net_series = intraday_data['retail_net_vol']
-            if mf_net_series.var() != 0 and retail_net_series.var() != 0 and len(mf_net_series) > 1:
-                rolling_corr = mf_net_series.rolling(window=30).corr(retail_net_series)
-                metrics['mf_retail_liquidity_swap_corr'] = rolling_corr.mean()
+        if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns and 'retail_ofi' in hf_analysis_df.columns:
+            # 高频路径
+            mf_ofi_series = hf_analysis_df['main_force_ofi']
+            retail_ofi_series = hf_analysis_df['retail_ofi']
+            if mf_ofi_series.var() > 0 and retail_ofi_series.var() > 0:
+                correlation = mf_ofi_series.corr(retail_ofi_series)
+                metrics['mf_retail_liquidity_swap_corr'] = correlation
+                if enable_probe and is_target_date:
+                    print(f"  [探针] mf_retail_liquidity_swap_corr (高频-流动性交换) 计算:")
+                    print(f"    - 核心变量: Corr(main_force_ofi, retail_ofi)")
+                    print(f"    -> 最终得分 (相关系数): {correlation:.4f}")
+        else:
+            # 降级路径
+            if 'main_force_net_vol' in intraday_data.columns and 'retail_net_vol' in intraday_data.columns:
+                mf_net_series = intraday_data['main_force_net_vol']
+                retail_net_series = intraday_data['retail_net_vol']
+                if mf_net_series.var() != 0 and retail_net_series.var() != 0 and len(mf_net_series) > 1:
+                    rolling_corr = mf_net_series.rolling(window=30).corr(retail_net_series)
+                    metrics['mf_retail_liquidity_swap_corr'] = rolling_corr.mean()
         return metrics
 
     def _calculate_retail_sentiment_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
