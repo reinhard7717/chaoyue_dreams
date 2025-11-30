@@ -357,11 +357,9 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
     if not TickModel:
         logger.error(f"[{stock_code}] 无法找到对应的Tick模型，清洗任务终止。")
         return
-
     try:
         local_tz = timezone.get_default_timezone()
         current_date = datetime.datetime.strptime(trade_date_str, '%Y-%m-%d').date()
-
         if not TradeCalendar.is_trade_date(check_date=current_date):
             start_dt = datetime.datetime.combine(current_date, datetime.time.min, tzinfo=local_tz)
             end_dt = datetime.datetime.combine(current_date, datetime.time.max, tzinfo=local_tz)
@@ -374,12 +372,10 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
             if deleted_count > 0:
                 logger.info(f"[{stock_code}] {trade_date_str} 非交易日，清理了 {deleted_count} 条异常Tick数据。")
             return
-
         prev_trade_date = TradeCalendar.get_latest_trade_date(reference_date=current_date)
         if not prev_trade_date:
             logger.info(f"[{stock_code}] 在 {trade_date_str} 找不到上一个交易日，无法进行数据比对。")
             return
-
         def get_ticks_for_date(trade_date):
             start_dt = datetime.datetime.combine(trade_date, datetime.time.min, tzinfo=local_tz)
             end_dt = datetime.datetime.combine(trade_date, datetime.time.max, tzinfo=local_tz)
@@ -388,21 +384,17 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
                 trade_time__range=(start_dt, end_dt)
             ).values('id', 'trade_time', 'price', 'volume', 'amount', 'type')
             return pd.DataFrame.from_records(qs)
-
         current_day_df = get_ticks_for_date(current_date)
         prev_day_df = get_ticks_for_date(prev_trade_date)
-
         if current_day_df.empty or prev_day_df.empty:
             logger.info(f"[{stock_code}] 在 {trade_date_str} 或其上一交易日数据为空，无法清理。")
             return
-
         for df in [current_day_df, prev_day_df]:
             df['trade_time'] = df['trade_time'].dt.tz_localize(None).dt.tz_localize(local_tz)
             df['time_of_day'] = df['trade_time'].dt.time
             df['price'] = df['price'].astype(float)
             df['volume'] = df['volume'].astype(int)
             df['amount'] = df['amount'].astype(float)
-
         merge_columns = ['time_of_day', 'price', 'volume', 'amount', 'type']
         merged_df = pd.merge(
             current_day_df,
@@ -410,14 +402,10 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
             on=merge_columns,
             how='inner'
         )
-
         ids_to_delete = merged_df['id'].tolist()
-
         if ids_to_delete:
             deleted_count, _ = TickModel.objects.filter(id__in=ids_to_delete).delete()
             logger.info(f"[{stock_code}] 在 {trade_date_str} 清理了 {deleted_count} 条与上一交易日重复的Tick数据。")
-        else:
-            logger.info(f"[{stock_code}] 在 {trade_date_str} 没有发现与上一交易日重复的Tick数据。")
 
     except Exception as e:
         logger.error(f"[{stock_code}] 在 {trade_date_str} 清洗Tick数据时发生错误: {e}", exc_info=True)
