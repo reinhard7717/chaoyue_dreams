@@ -400,7 +400,7 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
         # 新增代码块结束
 
         if minute_df.empty or tick_df.empty:
-            logger.info(f"[{stock_code}] 在 {trade_date_str} 没有足够的分钟线或Tick数据进行清理。")
+            # logger.info(f"[{stock_code}] 在 {trade_date_str} 没有足够的分钟线或Tick数据进行清理。")
             return
 
         # 4. 数据预处理和合并
