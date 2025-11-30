@@ -745,11 +745,11 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V40.0 · 散户诱捕重构版】
-        - 核心重构: 废弃原有的 `FollowerFrenzy` (散户狂热度) 算法，引入基于高频数据的“散户诱捕评分”
-                     (Retail Entrapment Score)全新算法。从追高代价、成交激增、攻击性买盘三个维度，
-                     深度量化散户在上涨波段中被“诱捕”的程度。
-        - 核心增强: 为新的散户诱捕评分植入专属诊断探针。
+        【V41.0 · 盘口诚实度量化版】
+        - 核心重构: 强化 `imbalance_effectiveness` (盘口失衡有效性) 的计算逻辑。通过计算加权盘口失衡序列
+                     与未来市场成交量差额序列的皮尔逊相关系数，来量化盘口挂单的“诚实度”或“欺诈性”。
+        - 核心增强: 为 `imbalance_effectiveness` 植入专属诊断探针，揭示盘口语言的可信度。
+        - 核心修复: 统一了该计算块内的异常处理逻辑，确保所有相关指标在无法计算时都被赋为NaN。
         """
         from scipy.signal import find_peaks
         from datetime import time
@@ -896,6 +896,7 @@ class AdvancedFundFlowMetricsService:
                     results['wash_trade_intensity'] = (wash_trade_vol / daily_total_volume) * 100
             except Exception:
                 results['wash_trade_intensity'] = np.nan
+            # 修改代码块：重构盘口指标计算逻辑，并植入探针
             try:
                 df_book = hf_analysis_df.copy()
                 weighted_buy_vol = pd.Series(0, index=df_book.index); weighted_sell_vol = pd.Series(0, index=df_book.index)
@@ -910,10 +911,20 @@ class AdvancedFundFlowMetricsService:
                 if time_diffs.sum() > 0:
                     results['order_book_imbalance'] = np.average(df_book['imbalance'].dropna(), weights=time_diffs[df_book['imbalance'].notna()]) * 100
                     results['order_book_liquidity_supply'] = np.average(df_book['liquidity_supply_ratio'].dropna(), weights=time_diffs[df_book['liquidity_supply_ratio'].notna()])
-                if 'market_vol_delta' in df_book.columns and df_book['imbalance'].var() > 0 and df_book['market_vol_delta'].var() > 0:
-                    results['imbalance_effectiveness'] = df_book['imbalance'].corr(df_book['market_vol_delta'])
+                # 核心逻辑：计算盘口失衡有效性
+                if 'market_vol_delta' in df_book.columns and df_book['imbalance'].var() > 1e-9 and df_book['market_vol_delta'].var() > 1e-9:
+                    correlation_value = df_book['imbalance'].corr(df_book['market_vol_delta'])
+                    results['imbalance_effectiveness'] = correlation_value
+                    if enable_probe and is_target_date:
+                        print(f"  [探针] imbalance_effectiveness (盘口诚实度) 计算:")
+                        print(f"    - Imbalance vs MarketVolDelta Corr: {correlation_value:.4f}")
+                        print(f"    -> Final Score: {results['imbalance_effectiveness']:.2f}")
+                else:
+                    results['imbalance_effectiveness'] = np.nan
             except Exception:
-                results['order_book_imbalance'] = np.nan; results['order_book_liquidity_supply'] = np.nan; results['imbalance_effectiveness'] = np.nan
+                results['order_book_imbalance'] = np.nan
+                results['order_book_liquidity_supply'] = np.nan
+                results['imbalance_effectiveness'] = np.nan
             try:
                 df_static = hf_analysis_df.copy()
                 large_order_threshold_value = 500000
@@ -1023,13 +1034,12 @@ class AdvancedFundFlowMetricsService:
                         print(f"    -> Final Score: {results['dip_absorption_power']:.2f}")
                 total_rally_price_change = 0
                 total_deceptive_pressure = 0
-                # 修改代码块：为 FollowerFrenzy 计算准备全天基准值
                 daily_retail_trades = hf_analysis_df[hf_analysis_df['amount'] < 50000]
                 daily_avg_retail_buy_vol_per_min = 0
                 if not daily_retail_trades.empty:
                     daily_retail_buy_vol = daily_retail_trades[daily_retail_trades['type'] == 'B']['volume'].sum()
                     if daily_retail_buy_vol > 0:
-                        daily_avg_retail_buy_vol_per_min = daily_retail_buy_vol / 240 # 240分钟
+                        daily_avg_retail_buy_vol_per_min = daily_retail_buy_vol / 240
                 for i in range(len(turning_points) - 1):
                     start_idx, end_idx = turning_points[i], turning_points[i+1]
                     window_df = continuous_trading_df.iloc[start_idx:end_idx+1]
@@ -1045,22 +1055,18 @@ class AdvancedFundFlowMetricsService:
                             mf_sell_vol_in_rally = abs(intraday_data.loc[start_time:end_time, 'main_force_sell_vol'].sum())
                             total_vol_in_rally = intraday_data.loc[start_time:end_time, 'vol_shares'].sum()
                             distribution_dominance = mf_sell_vol_in_rally / total_vol_in_rally if total_vol_in_rally > 0 else 0.0
-                            # 修改代码块：重构 FollowerFrenzy (散户狂热度)
                             follower_frenzy = 0.0
                             retail_hf_in_rally = rally_hf_df[rally_hf_df['amount'] < 50000]
                             if not retail_hf_in_rally.empty:
-                                # 1. 追高代价 (Cost Component)
                                 retail_buy_trades_in_rally = retail_hf_in_rally[retail_hf_in_rally['type'] == 'B']
                                 total_retail_buy_vol_in_rally = retail_buy_trades_in_rally['volume'].sum()
                                 cost_component = 0.0
                                 if total_retail_buy_vol_in_rally > 0 and price_change_in_rally > 0:
                                     retail_buy_vwap = (retail_buy_trades_in_rally['price'] * retail_buy_trades_in_rally['volume']).sum() / total_retail_buy_vol_in_rally
                                     cost_component = (retail_buy_vwap - window_df['minute_vwap'].iloc[0]) / price_change_in_rally
-                                # 2. 成交激增 (Volume Spike Component)
                                 rally_duration_mins = (end_time - start_time).total_seconds() / 60
                                 avg_retail_buy_vol_in_rally = total_retail_buy_vol_in_rally / rally_duration_mins if rally_duration_mins > 0 else 0
                                 volume_spike_component = np.log1p(avg_retail_buy_vol_in_rally / daily_avg_retail_buy_vol_per_min) if daily_avg_retail_buy_vol_per_min > 0 else 0.0
-                                # 3. 攻击性买盘 (Aggression Component)
                                 aggressive_buy_mask = retail_buy_trades_in_rally['price'] >= retail_buy_trades_in_rally['sell_price1']
                                 aggressive_buy_vol = retail_buy_trades_in_rally[aggressive_buy_mask]['volume'].sum()
                                 aggression_component = aggressive_buy_vol / total_retail_buy_vol_in_rally if total_retail_buy_vol_in_rally > 0 else 0.0
@@ -1073,7 +1079,6 @@ class AdvancedFundFlowMetricsService:
                     if enable_probe and is_target_date:
                         print(f"  [探针] rally_distribution_pressure (诡道派发) 计算:")
                         print(f"    - Weighted Avg Deceptive Artistry: {weighted_avg_pressure:.4f}")
-                        # 新增探针：为 FollowerFrenzy 添加详细诊断
                         print(f"      - [Frenzy Details] Cost: {cost_component:.2f}, VolSpike: {volume_spike_component:.2f}, Aggression: {aggression_component:.2f} -> FrenzyScore: {follower_frenzy:.2f}")
                         print(f"    -> Final Score: {results['rally_distribution_pressure']:.2f}")
             else: 

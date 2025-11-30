@@ -346,6 +346,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'sell_quote_exhaustion_rate': '卖方报价消耗率(%)',
         # 新增代码行：添加OFI价格冲击因子
         'ofi_price_impact_factor': 'OFI价格冲击因子',
+        'imbalance_effectiveness': '盘口失衡有效性',
     }
     OUTCOME_ASSESSMENT_METRICS = {
         'volatility_asymmetry_index': '波动不对称指数',
@@ -376,7 +377,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'large_order_pressure', 'large_order_support', 'order_book_liquidity_supply',
         'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
-        'ofi_price_impact_factor',
+        'ofi_price_impact_factor', 'imbalance_effectiveness'
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -398,7 +399,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'large_order_pressure', 'large_order_support', 'order_book_liquidity_supply',
         'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
-        'ofi_price_impact_factor',
+        'ofi_price_impact_factor', 'imbalance_effectiveness'
     ]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:
