@@ -2215,6 +2215,11 @@ class AdvancedFundFlowMetricsService:
         return metrics
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
+        """
+        【V51.0 · 终审穿透版】
+        - 核心升级: 彻底重构 S.1 探针，废弃其存在逻辑悖论的条件输出，改为强制性的、无条件的“偏执”诊断报告。
+                     新的探针将强制打印出缺失和多余的字段集，无论其是否为空，从而终结一切悬念。
+        """
         records_to_save_df = final_df
         stock_code = stock_info.stock_code
         is_target_date_in_df = False
@@ -2231,39 +2236,41 @@ class AdvancedFundFlowMetricsService:
         decimal_fields = [f.name for f in MetricsModel._meta.get_fields() if isinstance(f, DecimalField)]
         for col in decimal_fields:
             if col in records_to_save_df.columns:
-                records_to_save_df[col] = pd.to_numeric(records_to_save_df[col], errors='coerce')
-                records_to_save_df[col] = records_to_save_df[col].replace([np.inf, -np.inf], np.nan)
+                # 使用 .loc 避免 SettingWithCopyWarning
+                records_to_save_df.loc[:, col] = pd.to_numeric(records_to_save_df[col], errors='coerce')
+                records_to_save_df.loc[:, col] = records_to_save_df[col].replace([np.inf, -np.inf], np.nan)
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
-        # 修改代码块：修复探针逻辑，先检查，后过滤
-        # 1. 首先从原始的、未经过滤的DataFrame中获取列名集合用于诊断
-        incoming_df_cols = set(records_to_save_df.columns)
-        # 2. 然后，再创建用于实际保存的、过滤后的DataFrame
-        df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
+        # 修改代码块：彻底重构探针S.1，采用“偏执”诊断模式
         if enable_probe and is_target_date_in_df:
-            print(f"\n{'='*20} [探针 S.1 - 保存前终审 @ {target_date}] {'='*20}")
+            print(f"\n{'='*20} [探针 S.1 · 终审穿透版 @ {target_date}] {'='*20}")
+            incoming_df_cols = set(records_to_save_df.columns)
             model_fields_set = set(model_fields)
-            print(f"  - 准备保存的DataFrame列数: {len(df_filtered.columns)}")
+            # 1. 报告双方的原始数量
+            print(f"  - 待保存DataFrame的列数: {len(incoming_df_cols)}")
             print(f"  - 模型定义的字段数 (不含关系): {len(model_fields_set)}")
-            # 3. 使用原始列名集合进行准确的比较
-            missing_in_df = model_fields_set - incoming_df_cols - {'id', 'stock_id', 'trade_time'}
+            # 2. 无条件计算并打印差异
+            missing_in_df = model_fields_set - incoming_df_cols
             extra_in_df = incoming_df_cols - model_fields_set
+            print(f"  - [诊断] 模型中定义但DataFrame中缺失的字段: {missing_in_df or '无'}")
+            print(f"  - [诊断] DataFrame中存在但模型中未定义的字段: {extra_in_df or '无'}")
+            # 3. 给出最终的、无歧义的裁决
             if not missing_in_df and not extra_in_df:
-                print("  - [检查通过] 数据列与模型字段完美匹配。")
+                print("  - [裁决通过] 数据列与模型字段完美匹配。")
             else:
-                if missing_in_df:
-                    print(f"  - [!!!] 根本原因定位：模型中定义但DataFrame中缺失的字段为: {missing_in_df}")
-                if extra_in_df:
-                    print(f"  - [!!!] 警告：DataFrame中存在但模型中未定义的字段为: {extra_in_df}")
+                print("  - [裁决失败] 数据列与模型字段不匹配，请检查上述诊断信息！")
+            # 过滤操作放在探针之后，确保探针检查的是最原始的数据
+            df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
             target_row = df_filtered.loc[df_filtered.index.date == target_date]
             if not target_row.empty:
                 print("  - 目标日期最终待保存数据行预览:")
-                preview_cols = ['main_force_conviction_index', 'dip_absorption_power', 'rally_distribution_pressure', 'hidden_accumulation_intensity', 'lower_shadow_absorption_strength']
-                # 确保预览的列存在于DataFrame中
+                preview_cols = ['main_force_conviction_index', 'dip_absorption_power', 'rally_distribution_pressure', 'hidden_accumulation_intensity', 'wash_trade_intensity']
                 existing_preview_cols = [col for col in preview_cols if col in target_row.columns]
                 print(target_row[existing_preview_cols].to_string())
             else:
                 print("  - [!!!] 警告: 在最终待保存的DataFrame中未找到目标日期行！")
+        else:
+            df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
         records_list = df_filtered.to_dict('records')
         @sync_to_async(thread_sensitive=True)
         def save_atomically(model, stock_obj, records_to_process):
