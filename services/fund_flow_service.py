@@ -220,10 +220,8 @@ class AdvancedFundFlowMetricsService:
 
     def _prepare_behavioral_data(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None) -> tuple:
         """
-        【V47.0 · 模块化重构版】
-        新增方法: 行为指标计算的数据准备官。
-        - 职责: 封装所有前置数据准备工作，包括合并高频数据、计算OFI、计算盘口不平衡度等。
-        - 输出: 返回一个包含所有基础衍生列的 hf_analysis_df 和其他通用日线变量。
+        【V47.2 · 遗漏逻辑补全版】
+        - 核心修复: 补全在V47.0重构中遗漏的 retail_ofi 和 order_book_liquidity_supply 的前置数据准备逻辑。
         """
         import numpy as np
         daily_total_volume = daily_data.get('vol', 0) * 100
@@ -253,7 +251,11 @@ class AdvancedFundFlowMetricsService:
                 sell_pressure = np.where(merged_hf['mid_price'] <= merged_hf['prev_mid_price'], merged_hf['sell_volume1'].shift(1), 0)
                 merged_hf['ofi'] = buy_pressure - sell_pressure
                 is_main_force_trade = merged_hf['amount'] > 200000
+                # 修改代码行：新增 is_retail_trade 的定义
+                is_retail_trade = merged_hf['amount'] < 50000
                 merged_hf['main_force_ofi'] = np.where(is_main_force_trade, merged_hf['ofi'], 0)
+                # 修改代码行：新增 retail_ofi 列的计算
+                merged_hf['retail_ofi'] = np.where(is_retail_trade, merged_hf['ofi'], 0)
                 merged_hf['mid_price_change'] = merged_hf['mid_price'].diff()
                 if 'volume_realtime' in merged_hf.columns and 'snapshot_time' in merged_hf.columns:
                     snapshot_changed_mask = merged_hf['snapshot_time'] != merged_hf['snapshot_time'].shift(1)
@@ -261,15 +263,27 @@ class AdvancedFundFlowMetricsService:
                     merged_hf['market_vol_delta'] = np.where(snapshot_changed_mask, volume_delta, 0)
                 merged_hf['prev_a1_p'] = merged_hf['sell_price1'].shift(1)
                 merged_hf['prev_b1_p'] = merged_hf['buy_price1'].shift(1)
+                # 修改代码行：新增 prev_a1_v 和 prev_b1_v 的计算，为 exhaustion_rate 做准备
+                merged_hf['prev_a1_v'] = merged_hf['sell_volume1'].shift(1)
+                merged_hf['prev_b1_v'] = merged_hf['buy_volume1'].shift(1)
                 try:
                     weighted_buy_vol = pd.Series(0, index=merged_hf.index); weighted_sell_vol = pd.Series(0, index=merged_hf.index)
+                    # 修改代码行：新增 total_buy_value 和 total_sell_value 的初始化
+                    total_buy_value = pd.Series(0, index=merged_hf.index); total_sell_value = pd.Series(0, index=merged_hf.index)
                     for i in range(1, 6):
                         weight = 1 / i
                         weighted_buy_vol += merged_hf[f'buy_volume{i}'] * weight
                         weighted_sell_vol += merged_hf[f'sell_volume{i}'] * weight
+                        # 修改代码行：新增 total_buy_value 和 total_sell_value 的计算
+                        total_buy_value += merged_hf[f'buy_volume{i}'] * merged_hf[f'buy_price{i}']
+                        total_sell_value += merged_hf[f'sell_volume{i}'] * merged_hf[f'sell_price{i}']
                     merged_hf['imbalance'] = (weighted_buy_vol - weighted_sell_vol) / (weighted_buy_vol + weighted_sell_vol).replace(0, np.nan)
+                    # 修改代码行：新增 liquidity_supply_ratio 列的计算
+                    merged_hf['liquidity_supply_ratio'] = total_buy_value / total_sell_value.replace(0, np.nan)
                 except Exception:
                     merged_hf['imbalance'] = np.nan
+                    # 修改代码行：新增异常情况下的默认值
+                    merged_hf['liquidity_supply_ratio'] = np.nan
                 hf_analysis_df = merged_hf
         common_data = {
             'daily_total_volume': daily_total_volume, 'daily_total_amount': daily_total_amount,
@@ -753,14 +767,17 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_core_hf_metrics(self, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V47.0 · 模块化重构版】
-        新增方法: 计算所有仅依赖高频数据的核心指标。
+        【V47.2 · 遗漏逻辑补全版】
+        - 核心修复: 补全在V47.0重构中遗漏的 retail_ofi, order_book_liquidity_supply, large_order_pressure/support,
+                     以及 buy/sell_quote_exhaustion_rate 指标的完整计算逻辑。
         """
         import numpy as np
         metrics = {}
         atr = common_data['atr']
         daily_total_volume = common_data['daily_total_volume']
         metrics['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
+        # 修改代码行：新增 retail_ofi 的计算
+        metrics['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
         mf_ofi_cumsum = hf_analysis_df['main_force_ofi'].cumsum().fillna(0)
         aggressiveness_component = 0.0
         if not mf_ofi_cumsum.empty and mf_ofi_cumsum.nunique() > 1:
@@ -868,6 +885,8 @@ class AdvancedFundFlowMetricsService:
             time_diffs = hf_analysis_df.index.to_series().diff().dt.total_seconds().fillna(0)
             if time_diffs.sum() > 0:
                 metrics['order_book_imbalance'] = np.average(hf_analysis_df['imbalance'].dropna(), weights=time_diffs[hf_analysis_df['imbalance'].notna()]) * 100
+                # 修改代码行：新增 order_book_liquidity_supply 的计算
+                metrics['order_book_liquidity_supply'] = np.average(hf_analysis_df['liquidity_supply_ratio'].dropna(), weights=time_diffs[hf_analysis_df['liquidity_supply_ratio'].notna()])
             if 'market_vol_delta' in hf_analysis_df.columns and hf_analysis_df['imbalance'].var() > 1e-9 and hf_analysis_df['market_vol_delta'].var() > 1e-9:
                 correlation_value = hf_analysis_df['imbalance'].corr(hf_analysis_df['market_vol_delta'])
                 metrics['imbalance_effectiveness'] = correlation_value
@@ -876,7 +895,39 @@ class AdvancedFundFlowMetricsService:
                     print(f"    - Imbalance vs MarketVolDelta Corr: {correlation_value:.4f}")
                     print(f"    -> Final Score: {metrics['imbalance_effectiveness']:.2f}")
         except Exception:
-            pass # 已经在 prepare 中处理，这里是计算指标
+            pass
+        # 修改代码行：新增 large_order_pressure/support 的计算逻辑块
+        try:
+            df_static = hf_analysis_df.copy()
+            large_order_threshold_value = 500000
+            pressure_mask = (df_static['sell_volume1'] * df_static['sell_price1'] > large_order_threshold_value) | (df_static['sell_volume2'] * df_static['sell_price2'] > large_order_threshold_value)
+            support_mask = (df_static['buy_volume1'] * df_static['buy_price1'] > large_order_threshold_value) | (df_static['buy_volume2'] * df_static['buy_price2'] > large_order_threshold_value)
+            time_diffs = df_static.index.to_series().diff().dt.total_seconds().fillna(0)
+            pressure_strength = 0; support_strength = 0
+            if 'market_vol_delta' in df_static.columns:
+                market_activity = df_static['market_vol_delta'].rolling(window=20, min_periods=1).mean().replace(0, np.nan)
+                activity_factor = 1 / np.log1p(market_activity)
+                pressure_strength = (time_diffs * activity_factor)[pressure_mask].sum()
+                support_strength = (time_diffs * activity_factor)[support_mask].sum()
+            else:
+                pressure_strength = time_diffs[pressure_mask].sum(); support_strength = time_diffs[support_mask].sum()
+            total_trading_seconds = (df_static.index.max() - df_static.index.min()).total_seconds()
+            if total_trading_seconds > 0:
+                metrics['large_order_pressure'] = (pressure_strength / total_trading_seconds) * 100
+                metrics['large_order_support'] = (support_strength / total_trading_seconds) * 100
+        except Exception:
+            metrics['large_order_pressure'] = np.nan; metrics['large_order_support'] = np.nan
+        # 修改代码行：新增 buy/sell_quote_exhaustion_rate 的计算逻辑块
+        try:
+            buy_exhaustion_mask = hf_analysis_df['sell_price1'] > hf_analysis_df['prev_a1_p']
+            buy_exhausted_vol = hf_analysis_df.loc[buy_exhaustion_mask, 'prev_a1_v'].sum()
+            sell_exhaustion_mask = hf_analysis_df['buy_price1'] < hf_analysis_df['prev_b1_p']
+            sell_exhausted_vol = hf_analysis_df.loc[sell_exhaustion_mask, 'prev_b1_v'].sum()
+            if daily_total_volume > 0:
+                metrics['buy_quote_exhaustion_rate'] = (buy_exhausted_vol / daily_total_volume) * 100
+                metrics['sell_quote_exhaustion_rate'] = (sell_exhausted_vol / daily_total_volume) * 100
+        except Exception:
+            metrics['buy_quote_exhaustion_rate'] = np.nan; metrics['sell_quote_exhaustion_rate'] = np.nan
         mf_ofi_series = hf_analysis_df['main_force_ofi']
         price_change_series = hf_analysis_df['mid_price_change']
         if mf_ofi_series.var() > 0 and price_change_series.var() > 0:
