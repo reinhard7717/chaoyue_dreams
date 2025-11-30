@@ -742,9 +742,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V52.0 · VWAP引力穿透版】
+        【V53.0 · VPOC穿透版】
         - 核心升级: 引入 B-系列 (Behavioral Engine) 探针，监控引擎的输入数据健康度和计算过程。
-        - 核心集成: 调用新增的 _calculate_vwap_control_metrics 方法。
+        - 核心集成: 向 _calculate_vpoc_metrics 传递高频数据，激活其高精度计算路径。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -773,7 +773,6 @@ class AdvancedFundFlowMetricsService:
         if not hf_analysis_df.empty:
             results.update(self._calculate_core_hf_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_vwap_related_metrics(intraday_data, common_data))
-        # 新增代码行：调用新的VWAP控制力计算方法
         results.update(self._calculate_vwap_control_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_opening_battle_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_shadow_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
@@ -781,7 +780,8 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_reversal_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_panic_cascade_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_cmf_metrics(intraday_data, is_target_date, enable_probe))
-        results.update(self._calculate_vpoc_metrics(intraday_data, common_data))
+        # 修改代码行：向 _calculate_vpoc_metrics 传递 hf_analysis_df
+        results.update(self._calculate_vpoc_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_liquidity_swap_metrics(intraday_data))
         results.update(self._calculate_closing_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_retail_sentiment_metrics(intraday_data, hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
@@ -1465,35 +1465,77 @@ class AdvancedFundFlowMetricsService:
                 metrics['cmf_divergence_score'] = (main_force_cmf_value - holistic_cmf_value) * 100
         return metrics
 
-    def _calculate_vpoc_metrics(self, intraday_data: pd.DataFrame, common_data: dict) -> dict:
+    def _calculate_vpoc_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V47.0 · 模块化重构版】
-        新增方法: 计算成交量分布(Volume Profile)相关指标。
+        【V53.0 · VPOC穿透版】
+        - 核心升级: 废弃基于分钟VWAP的VPOC估算，引入基于逐笔成交数据的高精度计算，实现对主力核心成本区的精确打击。
+        - 升级原因: 分钟级VWAP会平滑掉价格细节，导致VPOC失真。逐笔成交数据能构建真实的、高保真的成交量分布。
+        - 核心实现:
+          - 高频路径: 直接利用逐笔成交的 price 和 volume，构建高分辨率的Volume Profile，分别计算全市场和主力的VPOC。
+          - 降级路径: 保留原有的基于分钟VWAP的估算逻辑作为备用。
         """
         import pandas as pd
         import numpy as np
         metrics = {}
         daily_total_amount = common_data['daily_total_amount']
-        if 'main_force_net_vol' in intraday_data.columns and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns:
-            vp_global = intraday_data.groupby(pd.cut(intraday_data['minute_vwap'], bins=30, duplicates='drop'))['vol_shares'].sum()
-            global_vpoc_price = np.nan
-            if not vp_global.empty:
-                vpoc_interval = vp_global.idxmax()
-                global_vpoc_price = vpoc_interval.mid
-                peak_zone_df = intraday_data[(intraday_data['minute_vwap'] >= vpoc_interval.left) & (intraday_data['minute_vwap'] < vpoc_interval.right)]
-                if not peak_zone_df.empty:
-                    mf_net_vol_on_peak = peak_zone_df['main_force_net_vol'].sum()
+        def _calculate_vpoc_from_ticks(df: pd.DataFrame, volume_col: str, price_col: str, bins: int = 50) -> tuple[float, pd.Interval]:
+            if df.empty or df[price_col].nunique() < 2:
+                return np.nan, None
+            price_bins = pd.cut(df[price_col], bins=bins, duplicates='drop')
+            vol_profile = df.groupby(price_bins)[volume_col].sum()
+            if vol_profile.empty:
+                return np.nan, None
+            vpoc_interval = vol_profile.idxmax()
+            return vpoc_interval.mid, vpoc_interval
+        if not hf_analysis_df.empty:
+            # 高频路径
+            global_vpoc_price, global_vpoc_interval = _calculate_vpoc_from_ticks(hf_analysis_df, 'volume', 'price')
+            mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000]
+            mf_vpoc, _ = _calculate_vpoc_from_ticks(mf_trades, 'volume', 'price')
+            metrics['main_force_vpoc'] = mf_vpoc
+            if pd.notna(global_vpoc_price) and global_vpoc_price > 0 and pd.notna(mf_vpoc):
+                metrics['mf_vpoc_premium'] = (mf_vpoc / global_vpoc_price - 1) * 100
+            if global_vpoc_interval is not None:
+                peak_zone_mf_trades = mf_trades[
+                    (mf_trades['price'] >= global_vpoc_interval.left) &
+                    (mf_trades['price'] < global_vpoc_interval.right)
+                ]
+                if not peak_zone_mf_trades.empty:
+                    net_amount_on_peak = np.where(
+                        peak_zone_mf_trades['type'] == 'B',
+                        peak_zone_mf_trades['amount'],
+                        -peak_zone_mf_trades['amount']
+                    ).sum()
                     if daily_total_amount > 0:
-                        normalized_mf_on_peak_flow = np.tanh((mf_net_vol_on_peak * global_vpoc_price) / daily_total_amount)
-                        metrics['main_force_on_peak_flow'] = normalized_mf_on_peak_flow
-            mf_net_buy_df = intraday_data[intraday_data['main_force_net_vol'] > 0]
-            if not mf_net_buy_df.empty:
-                vp_mf = mf_net_buy_df.groupby(pd.cut(mf_net_buy_df['minute_vwap'], bins=30, duplicates='drop'))['main_force_net_vol'].sum()
-                if not vp_mf.empty:
-                    mf_vpoc = vp_mf.idxmax().mid
-                    metrics['main_force_vpoc'] = mf_vpoc
-                    if pd.notna(global_vpoc_price) and global_vpoc_price > 0 and pd.notna(mf_vpoc):
-                        metrics['mf_vpoc_premium'] = (mf_vpoc / global_vpoc_price - 1) * 100
+                        metrics['main_force_on_peak_flow'] = np.tanh(net_amount_on_peak / daily_total_amount)
+            if enable_probe and is_target_date:
+                print(f"  [探针] main_force_vpoc (高频-VPOC穿透) 计算:")
+                print(f"    - 全局VPOC价格: {global_vpoc_price:.2f}")
+                print(f"    - 主力VPOC价格: {mf_vpoc:.2f}")
+                print(f"    -> 主力VPOC溢价: {metrics.get('mf_vpoc_premium', np.nan):.2f}%")
+                print(f"    - 主峰区主力净成交额: {net_amount_on_peak:,.0f}元 -> 归一化流量: {metrics.get('main_force_on_peak_flow', np.nan):.4f}")
+        else:
+            # 降级路径
+            if 'main_force_net_vol' in intraday_data.columns and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns:
+                vp_global = intraday_data.groupby(pd.cut(intraday_data['minute_vwap'], bins=30, duplicates='drop'))['vol_shares'].sum()
+                global_vpoc_price = np.nan
+                if not vp_global.empty:
+                    vpoc_interval = vp_global.idxmax()
+                    global_vpoc_price = vpoc_interval.mid
+                    peak_zone_df = intraday_data[(intraday_data['minute_vwap'] >= vpoc_interval.left) & (intraday_data['minute_vwap'] < vpoc_interval.right)]
+                    if not peak_zone_df.empty:
+                        mf_net_vol_on_peak = peak_zone_df['main_force_net_vol'].sum()
+                        if daily_total_amount > 0:
+                            normalized_mf_on_peak_flow = np.tanh((mf_net_vol_on_peak * global_vpoc_price) / daily_total_amount)
+                            metrics['main_force_on_peak_flow'] = normalized_mf_on_peak_flow
+                mf_net_buy_df = intraday_data[intraday_data['main_force_net_vol'] > 0]
+                if not mf_net_buy_df.empty:
+                    vp_mf = mf_net_buy_df.groupby(pd.cut(mf_net_buy_df['minute_vwap'], bins=30, duplicates='drop'))['main_force_net_vol'].sum()
+                    if not vp_mf.empty:
+                        mf_vpoc = vp_mf.idxmax().mid
+                        metrics['main_force_vpoc'] = mf_vpoc
+                        if pd.notna(global_vpoc_price) and global_vpoc_price > 0 and pd.notna(mf_vpoc):
+                            metrics['mf_vpoc_premium'] = (mf_vpoc / global_vpoc_price - 1) * 100
         return metrics
 
     def _calculate_liquidity_swap_metrics(self, intraday_data: pd.DataFrame) -> dict:
