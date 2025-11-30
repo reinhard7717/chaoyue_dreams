@@ -384,9 +384,9 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series, debug_mode: bool = False) -> dict:
         """
-        【V2.4 · 流向性占位符移除版】
+        【V2.5 · 流向性占位符终极移除版】
         - 核心修复: 彻底移除了 `main_force_flow_directionality` 的 `np.nan` 占位符赋值。该指标的计算逻辑
-                     已完全迁移至 `_compute_all_behavioral_metrics` 核心引擎中。
+                     已完全迁移至 `_compute_all_behavioral_metrics` 核心引擎中，此处不再需要。
         """
         results = {}
         WAN = 10000.0
@@ -445,7 +445,7 @@ class AdvancedFundFlowMetricsService:
             results['mf_retail_battle_intensity'] = np.nan
         results['main_force_activity_ratio'] = np.nan
         results['main_force_buy_rate_consensus'] = np.nan
-        # 修改代码块：移除对 main_force_flow_directionality 的占位符赋值
+        # 修改代码块：移除对 main_force_flow_directionality 的占位符赋值，其计算已移至高频引擎
         results['main_force_conviction_index'] = np.nan
         try:
             mf_flow_calibrated = results.get('main_force_net_flow_calibrated')
@@ -728,13 +728,15 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V43.0 · 流向性修复重构版】
-        - 核心重构: 重新实现 `main_force_flow_directionality` (主力资金流向性) 指标。新算法基于高频数据中
-                     识别出的主力总买入与总卖出成交量，计算净成交量占总成交量的比例，更纯粹地反映主力的
-                     真实买卖方向性。
-        - 核心修复: 补全了因先前重构而意外遗漏的 `main_force_flow_directionality` 计算逻辑，解决了
-                     模型字段与待保存数据列数量不匹配的BUG。
-        - 核心增强: 为新的主力资金流向性指标植入专属诊断探针。
+        【V44.0 · 权力结构重塑版】
+        - 核心重构: 全面升级 POWER_STRUCTURE_METRICS 中的核心指标，利用高频数据重塑其计算逻辑。
+        - 核心升级:
+          1. `main_force_conviction_index`: 融合OFI、成本容忍度、韧性三大维度，量化主力信念。
+          2. `main_force_price_impact_ratio`: 基于逐笔滑点分析，精确衡量主力对价格的冲击成本。
+          3. `main_force_posture_index`: 全新指标，通过识别进攻性/被动性成交，刻画主力操盘姿态。
+          4. `main_force_activity_ratio`: 基于高频成交额，精确计算主力在市场中的参与度。
+          5. `main_force_flow_directionality`: 基于高频买卖量，更纯粹地反映主力意图的方向性。
+        - 核心增强: 为所有新升级的指标植入专属诊断探针，便于深度分析与调试。
         """
         from scipy.signal import find_peaks
         from datetime import time
@@ -790,7 +792,7 @@ class AdvancedFundFlowMetricsService:
                 hf_analysis_df = merged_hf
                 results['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
                 results['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
-        if not hf_analysis_df.empty:
+        if not hf_analysis_df.empty: # 新增代码块：重构 main_force_conviction_index
             mf_ofi_cumsum = hf_analysis_df['main_force_ofi'].cumsum().fillna(0)
             aggressiveness_component = 0.0
             if not mf_ofi_cumsum.empty and mf_ofi_cumsum.nunique() > 1:
@@ -812,13 +814,13 @@ class AdvancedFundFlowMetricsService:
             resilience_component = mf_resilience_ofi / total_mf_positive_ofi if total_mf_positive_ofi > 0 else 0.0
             results['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
             if enable_probe and is_target_date:
-                print(f"  [探针] main_force_conviction_index (动态信念) 计算:")
+                print(f"  [探针] main_force_conviction_index (主力信念) 计算:")
                 print(f"    - Aggressiveness (TrendQuality * ClosingStrength): {aggressiveness_component:.4f} = ({trend_quality:.4f} * {closing_strength:.4f})")
                 print(f"    - Cost Tolerance (Buy/Sell Cost): {cost_tolerance_component:.4f}, Resilience (Absorption): {resilience_component:.4f}")
                 print(f"    -> Final Score: {results['main_force_conviction_index']:.2f}")
         else:
             results['main_force_conviction_index'] = np.nan
-        if not hf_analysis_df.empty:
+        if not hf_analysis_df.empty: # 新增代码块：重构 main_force_price_impact_ratio
             mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
             if not mf_trades.empty and 'prev_mid_price' in mf_trades.columns:
                 buy_trades_mask = mf_trades['type'] == 'B'
@@ -833,7 +835,7 @@ class AdvancedFundFlowMetricsService:
                     if pd.notna(atr) and atr > 0:
                         results['main_force_price_impact_ratio'] = (weighted_avg_slippage / atr) * 100
                         if enable_probe and is_target_date:
-                            print(f"  [探针] main_force_price_impact_ratio (执行滑点) 计算:")
+                            print(f"  [探针] main_force_price_impact_ratio (价格冲击) 计算:")
                             print(f"    - 主力总成交量: {total_mf_vol:,.0f}, 平均滑点: {weighted_avg_slippage:.4f}元, ATR: {atr:.2f}")
                             print(f"    -> Final Score (滑点/ATR %): {results['main_force_price_impact_ratio']:.2f}")
                     else:
@@ -842,7 +844,7 @@ class AdvancedFundFlowMetricsService:
                     results['main_force_price_impact_ratio'] = 0.0
             else:
                 results['main_force_price_impact_ratio'] = np.nan
-            if not mf_trades.empty:
+            if not mf_trades.empty: # 新增代码块：实现 main_force_posture_index, main_force_activity_ratio, main_force_flow_directionality
                 total_mf_volume = mf_trades['volume'].sum()
                 if total_mf_volume > 0:
                     offensive_buy_mask = (mf_trades['type'] == 'B') & (mf_trades['price'] >= mf_trades['sell_price1'])
@@ -855,7 +857,6 @@ class AdvancedFundFlowMetricsService:
                         print(f"  [探针] main_force_posture_index (主力姿态) 计算:")
                         print(f"    - 主力总成交: {total_mf_volume:,.0f}, 进攻性成交: {offensive_volume:,.0f}, 被动性成交: {passive_volume:,.0f}")
                         print(f"    -> Final Score: {results['main_force_posture_index']:.2f}")
-                    # 新增代码块：重构 main_force_flow_directionality
                     mf_buy_vol = mf_trades.loc[buy_trades_mask, 'volume'].sum()
                     mf_sell_vol = mf_trades.loc[sell_trades_mask, 'volume'].sum()
                     mf_total_activity_vol = mf_buy_vol + mf_sell_vol
