@@ -742,9 +742,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V57.0 · CMF穿透版】
+        【V59.0 · 收盘强度穿透版】
         - 核心升级: 引入 B-系列 (Behavioral Engine) 探针，监控引擎的输入数据健康度和计算过程。
-        - 核心集成: 向 _calculate_cmf_metrics 传递高频数据，激活其高精度计算路径。
+        - 核心集成: 调用新增的 _calculate_closing_strength_metrics 方法，激活高精度的收盘强度指数计算。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -779,7 +779,6 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_dip_rally_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_reversal_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_panic_cascade_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        # 修改代码行：向 _calculate_cmf_metrics 传递新参数
         results.update(self._calculate_cmf_metrics(intraday_data, hf_analysis_df, is_target_date, enable_probe))
         results.update(self._calculate_vpoc_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_liquidity_swap_metrics(intraday_data, hf_analysis_df, is_target_date, enable_probe))
@@ -790,6 +789,8 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_flow_efficiency_metrics(hf_analysis_df, intraday_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_wash_trade_metrics(hf_analysis_df, is_target_date, enable_probe))
         results.update(self._calculate_misc_minute_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
+        # 修改代码行：调用新增的 _calculate_closing_strength_metrics 方法
+        results.update(self._calculate_closing_strength_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_misc_daily_metrics(daily_data, main_force_net_flow_calibrated))
         return results
 
@@ -1798,20 +1799,15 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_misc_minute_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V58.0 · 波动率穿透版】
+        【V59.0 · 收盘强度穿透版】
         - 核心升级: 为 volatility_asymmetry_index 引入高频计算路径，从“分钟K线速度对比”升维为“微观趋势下的真实波动率对比”。
-        - 升级原因: 分钟K线忽略了分钟内的真实波动路径。逐笔计算能精确捕捉上涨和下跌过程中的波动特征差异。
-        - 核心实现:
-          - 高频路径: 分别计算微观上涨和下跌阶段的已实现波动率，通过其对数比值构建不对称指数。
-          - 降级路径: 保留原有的基于分钟K线速度的计算。
+        - 核心重构: 移除 closing_price_deviation_score 的计算逻辑，其已被独立的 _calculate_closing_strength_metrics 方法取代和升维。
         """
         from datetime import time
         import numpy as np
         import pandas as pd
         metrics = {}
         day_open, day_close = common_data['day_open'], common_data['day_close']
-        day_high, day_low = common_data['day_high'], common_data['day_low']
-        daily_vwap = common_data['daily_vwap']
         atr = common_data['atr']
         daily_total_volume = common_data['daily_total_volume']
         if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns:
@@ -1840,7 +1836,6 @@ class AdvancedFundFlowMetricsService:
                     print(f"    - 逆向OFI总量: {discordant_ofi:,.0f}")
                     print(f"    - (同向 - 逆向) / 总绝对量 = ({concordant_ofi:,.0f} - {discordant_ofi:,.0f}) / {total_abs_mf_ofi:,.0f}")
                     print(f"    -> 最终得分: {metrics['trend_conviction_ratio']:.2f}")
-            # 修改代码块：为 volatility_asymmetry_index 增加高频计算路径
             df['log_return'] = np.log(df['mid_price'] / df['mid_price'].shift(1)).fillna(0)
             vol_up = df.loc[is_uptrend, 'log_return'].std()
             vol_down = df.loc[is_downtrend, 'log_return'].std()
@@ -1868,13 +1863,6 @@ class AdvancedFundFlowMetricsService:
                     avg_down_speed = down_price_change / len(down_minutes) if len(down_minutes) > 0 else 0
                     if avg_up_speed > 0 and avg_down_speed > 0:
                         metrics['volatility_asymmetry_index'] = np.log(avg_up_speed / avg_down_speed)
-        if pd.notna(day_high) and pd.notna(day_low) and pd.notna(day_close) and pd.notna(daily_vwap) and pd.notna(atr) and atr > 0 and daily_total_volume > 0:
-            day_range = day_high - day_low
-            if day_range > 0:
-                range_pos_factor = ((day_close - day_low) / day_range) * 2 - 1
-                value_dev_factor = np.tanh((day_close - daily_vwap) / atr)
-                force_balance_factor = intraday_data['main_force_net_vol'].sum() / daily_total_volume if 'main_force_net_vol' in intraday_data.columns else 0.0
-                metrics['closing_price_deviation_score'] = (0.5 * range_pos_factor + 0.3 * value_dev_factor + 0.2 * force_balance_factor) * 100
         if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns and 'mid_price_change' in hf_analysis_df.columns:
             mf_ofi_series = hf_analysis_df['main_force_ofi']
             price_change_series = hf_analysis_df['mid_price_change']
@@ -2380,6 +2368,47 @@ class AdvancedFundFlowMetricsService:
             print(f"    - 识别出的总对倒量: {wash_volume:,.0f}")
             print(f"    - 主力总成交量: {total_mf_volume:,.0f}")
             print(f"    -> 最终得分: {metrics['wash_trade_intensity']:.4f}%")
+        return metrics
+
+    def _calculate_closing_strength_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+        """
+        【V59.0 · 收盘强度穿透版】
+        - 核心升级: 新增独立方法，并将原 closing_price_deviation_score 升维为 closing_strength_index。
+        - 升级原因: 原指标的力量因子基于分钟成交量，无法体现主力意图的演化过程。
+        - 核心实现:
+          - 高频路径: 引入基于“主力累积OFI最终值 / 主力全天绝对OFI总和”的“累积意图因子”，穿透收盘价的形成过程。
+          - 降级路径: 保留原有的基于分钟净成交量的计算逻辑。
+        """
+        import numpy as np
+        metrics = {}
+        day_high, day_low, day_close = common_data['day_high'], common_data['day_low'], common_data['day_close']
+        daily_vwap, atr = common_data['daily_vwap'], common_data['atr']
+        if not all(pd.notna(v) for v in [day_high, day_low, day_close, daily_vwap, atr]) or atr == 0:
+            return metrics
+        day_range = day_high - day_low
+        if day_range <= 0:
+            return metrics
+        range_pos_factor = ((day_close - day_low) / day_range) * 2 - 1
+        value_dev_factor = np.tanh((day_close - daily_vwap) / atr)
+        force_factor = 0.0
+        if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns:
+            # 高频路径
+            total_abs_mf_ofi = hf_analysis_df['main_force_ofi'].abs().sum()
+            if total_abs_mf_ofi > 0:
+                final_cumulative_mf_ofi = hf_analysis_df['main_force_ofi'].sum()
+                force_factor = final_cumulative_mf_ofi / total_abs_mf_ofi
+        else:
+            # 降级路径
+            daily_total_volume = common_data.get('daily_total_volume', 0)
+            if 'main_force_net_vol' in intraday_data.columns and daily_total_volume > 0:
+                force_factor = intraday_data['main_force_net_vol'].sum() / daily_total_volume
+        metrics['closing_strength_index'] = (0.5 * range_pos_factor + 0.3 * value_dev_factor + 0.2 * force_factor) * 100
+        if enable_probe and is_target_date:
+            print(f"  [探针] closing_strength_index (高频-收盘强度) 计算:")
+            print(f"    - 位置因子 (Range Pos): {range_pos_factor:.4f}")
+            print(f"    - 价值因子 (Value Dev): {value_dev_factor:.4f}")
+            print(f"    - 力量因子 (Force): {force_factor:.4f}")
+            print(f"    -> 最终得分: {metrics['closing_strength_index']:.2f}")
         return metrics
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
