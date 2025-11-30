@@ -18,6 +18,8 @@ from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from users.models import FavoriteStock
 from utils.cache_manager import CacheManager
 from stock_models.stock_basic import StockInfo
+from utils.model_helpers import get_stock_tick_data_model_by_code, get_minute_data_model_by_code_and_timelevel
+
 
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_RealTime'
@@ -324,4 +326,116 @@ def save_stocks_minute_data_realtime_task(batch_size: int = 300, time_level: str
     logger.info(f"任务结束: save_stocks_realtime_min_data_task (调度器模式) - 共分派 {total_dispatched_batches} 个批量任务")
     return {"status": "success", "dispatched_batches": total_dispatched_batches}
 
+
+#  ================ 清理错误的tick数据任务 ================
+@celery_app.task(queue="SaveData_RealTime_Quote")
+def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
+    """
+    根据单只股票的1分钟K线数据，清理其对应的Tick数据中的价格异常点。
+    Args:
+        stock_code (str): 股票代码.
+        trade_date_str (str): 交易日期字符串, 格式 'YYYY-MM-DD'.
+    """
+    print(f"开始清理股票 {stock_code} 在 {trade_date_str} 的Tick数据...")
+    # 1. 获取对应的模型
+    TickModel = get_stock_tick_data_model_by_code(stock_code)
+    MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_code, '1')
+    if not TickModel or not MinuteModel:
+        print(f"错误: 无法为 {stock_code} 找到Tick或1分钟K线模型。")
+        return
+    # 2. 准备时间范围
+    try:
+        trade_date = datetime.datetime.strptime(trade_date_str, '%Y-%m-%d').date()
+    except ValueError:
+        print(f"错误: 日期格式不正确 {trade_date_str}。应为 'YYYY-MM-DD'。")
+        return
+    # 定义北京时间范围 (用于查询Tick数据)
+    start_dt_bjt = datetime.datetime.combine(trade_date, datetime.time.min)
+    end_dt_bjt = datetime.datetime.combine(trade_date, datetime.time.max)
+    # 定义UTC时间范围 (用于查询1分钟K线数据)
+    start_dt_utc = start_dt_bjt - datetime.timedelta(hours=8)
+    end_dt_utc = end_dt_bjt - datetime.timedelta(hours=8)
+    # 3. 获取数据
+    try:
+        # 获取1分钟K线数据
+        minute_data = list(MinuteModel.objects.filter(
+            stock_id=stock_code,
+            trade_time__range=(start_dt_utc, end_dt_utc)
+        ).values('trade_time', 'high', 'low'))
+        # 获取Tick数据
+        tick_data = list(TickModel.objects.filter(
+            stock_id=stock_code,
+            trade_time__range=(start_dt_bjt, end_dt_bjt)
+        ).values('id', 'trade_time', 'price'))
+        if not minute_data or not tick_data:
+            print(f"信息: {stock_code} 在 {trade_date_str} 的1分钟K线或Tick数据为空，无需清理。")
+            return
+    except Exception as e:
+        print(f"错误: 查询 {stock_code} 数据时发生异常: {e}")
+        return
+    # 4. 数据处理与比对
+    # 将1分钟K线数据存入字典以便快速查找，key为UTC时间
+    kline_map = {item['trade_time']: {'high': item['high'], 'low': item['low']} for item in minute_data}
+    ids_to_delete = []
+    for tick in tick_data:
+        # tick['trade_time'] 是北京时间 (naive)
+        # 找到对应的1分钟K线时间戳（北京时间）
+        kline_start_bjt = tick['trade_time'].replace(second=0, microsecond=0)
+        # 转换为UTC时间以匹配kline_map的key
+        kline_start_utc = kline_start_bjt - datetime.timedelta(hours=8)
+        kline_bar = kline_map.get(kline_start_utc)
+        if kline_bar:
+            # 找到了对应的1分钟K线
+            tick_price = float(tick['price'])
+            kline_high = float(kline_bar['high'])
+            kline_low = float(kline_bar['low'])
+            if not (kline_low <= tick_price <= kline_high):
+                ids_to_delete.append(tick['id'])
+                print(f"调试: 发现异常Tick! ID: {tick['id']}, 时间: {tick['trade_time']}, 价格: {tick_price}。 "
+                      f"对应K线时间(UTC): {kline_start_utc}, 范围: [{kline_low}, {kline_high}]")
+    # 5. 执行删除
+    if ids_to_delete:
+        print(f"准备为 {stock_code} 删除 {len(ids_to_delete)} 条异常Tick数据...")
+        try:
+            deleted_count, _ = TickModel.objects.filter(id__in=ids_to_delete).delete()
+            print(f"成功为 {stock_code} 删除了 {deleted_count} 条异常Tick数据。")
+        except Exception as e:
+            print(f"错误: 删除 {stock_code} 的Tick数据时发生异常: {e}")
+    else:
+        print(f"{stock_code} 在 {trade_date_str} 的所有Tick数据均在1分钟K线价格范围内，无需清理。")
+
+@celery_app.task(name='tasks.tushare.stock_realtime_tasks.dispatch_clean_tick_data_task', queue='celery')
+def dispatch_clean_tick_data_task():
+    """
+    【调度器任务】
+    分发清理Tick数据的任务。该任务由Celery Beat每日调度。
+    """
+    # 默认清理当天的tick数据
+    trade_date = datetime.date.today()
+    trade_date_str = trade_date.strftime('%Y-%m-%d')
+    print(f"--- 开始分派 {trade_date_str} 的Tick数据清理任务 ---")
+    # 1. 获取所有需要处理的股票列表
+    stock_codes = list(StockInfo.objects.filter(list_status='L').values_list('stock_code', flat=True))
+    if not stock_codes:
+        print("警告: 未能获取到股票列表，Tick数据清理任务分派结束。")
+        return
+    # 2. 为每只股票分派清理任务
+    dispatched_count = 0
+    failed_dispatch_count = 0
+    for stock_code in stock_codes:
+        try:
+            clean_tick_data_for_stock.s(stock_code, trade_date_str).set(queue="SaveData_RealTime_Quote").apply_async()
+            dispatched_count += 1
+        except Exception as e:
+            failed_dispatch_count += 1
+            print(f"错误: 分派 {stock_code} 的Tick数据清理任务失败: {e}")
+    print(f"--- Tick数据清理任务分派完成 ---")
+    print(f"成功分派: {dispatched_count} 个任务")
+    print(f"分派失败: {failed_dispatch_count} 个任务")
+    return {
+        "status": "success",
+        "trade_date": trade_date_str,
+        "dispatched_tasks": dispatched_count,
+        "failed_tasks": failed_dispatch_count
+    }
 
