@@ -384,9 +384,9 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series, debug_mode: bool = False) -> dict:
         """
-        【V2.1 · 信念指数逻辑迁移版】
-        - 核心重构: 移除了旧的 `main_force_conviction_index` 计算逻辑。
-                     新的动态信念指数依赖高频和分钟级数据，其计算已迁移至 `_compute_all_behavioral_metrics` 核心引擎中。
+        【V2.2 · 价格冲击比率逻辑迁移版】
+        - 核心重构: 移除了旧的、基于日线数据的 `main_force_price_impact_ratio` 计算逻辑。
+                     新的、基于高频滑点的算法已迁移至 `_compute_all_behavioral_metrics` 核心引擎中。
         """
         results = {}
         WAN = 10000.0
@@ -462,7 +462,6 @@ class AdvancedFundFlowMetricsService:
             results['main_force_activity_ratio'] = np.nan
             results['main_force_buy_rate_consensus'] = np.nan
             results['main_force_flow_directionality'] = np.nan
-        # 移除旧的信念指数计算逻辑，它将被新的动态信念指数在 `_compute_all_behavioral_metrics` 中取代
         results['main_force_conviction_index'] = np.nan
         try:
             mf_flow_calibrated = results.get('main_force_net_flow_calibrated')
@@ -481,20 +480,8 @@ class AdvancedFundFlowMetricsService:
                 results['retail_flow_dominance_index'] = np.nan
         except Exception:
             results['retail_flow_dominance_index'] = np.nan
-        try:
-            pct_change = pd.to_numeric(daily_data_series.get('pct_change'), errors='coerce')
-            mf_flow_calibrated = results.get('main_force_net_flow_calibrated')
-            if pd.notna(pct_change) and pd.notna(mf_flow_calibrated) and turnover_amount_yuan > 0:
-                mf_flow_yuan = mf_flow_calibrated * WAN
-                standardized_mf_flow = mf_flow_yuan / turnover_amount_yuan
-                if abs(standardized_mf_flow) > 1e-6:
-                    results['main_force_price_impact_ratio'] = (pct_change / 100) / standardized_mf_flow
-                else:
-                    results['main_force_price_impact_ratio'] = 0.0 if pct_change == 0 else np.inf * np.sign(pct_change)
-            else:
-                results['main_force_price_impact_ratio'] = np.nan
-        except Exception:
-            results['main_force_price_impact_ratio'] = np.nan
+        # 修改代码块：移除旧的 main_force_price_impact_ratio 计算逻辑
+        results['main_force_price_impact_ratio'] = np.nan
         return results
 
     def _calculate_probabilistic_costs(self, stock_code: str, minute_data_for_day: pd.DataFrame, daily_data: pd.Series, debug_mode: bool = False) -> tuple[dict, pd.DataFrame]:
@@ -758,11 +745,11 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V37.0 · 隐蔽吸筹重构版】
-        - 核心重构: 废弃原有的基于分钟K线的 `hidden_accumulation_intensity` 算法，引入基于高频数据的
-                     “隐蔽吸筹强度”(Stealth Absorption Intensity)全新算法。从被动吸收成交、价格冲击抑制、
-                     流动性供给承诺三个维度，深度刻画主力在不惊动市场的情况下“静默吸筹”的能力。
-        - 核心增强: 为新的隐蔽吸筹强度指标植入专属诊断探针。
+        【V38.0 · 执行滑点重构版】
+        - 核心重构: 废弃原有的日线级 `main_force_price_impact_ratio`，引入基于高频数据的“主力执行滑点”
+                     (Main Force Execution Slippage)全新算法。通过量化主力每一笔大额交易相对于当时公允价的
+                     滑点成本，来衡量其操盘手法的精湛与隐蔽程度。
+        - 核心增强: 为新的执行滑点指标植入专属诊断探针。
         """
         from scipy.signal import find_peaks
         from datetime import time
@@ -847,6 +834,30 @@ class AdvancedFundFlowMetricsService:
         else:
             results['main_force_conviction_index'] = np.nan
         if not hf_analysis_df.empty:
+            # 修改代码块：新增 main_force_price_impact_ratio (主力执行滑点) 计算逻辑
+            mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
+            if not mf_trades.empty and 'prev_mid_price' in mf_trades.columns:
+                buy_trades = mf_trades['type'] == 'B'
+                sell_trades = mf_trades['type'] == 'S'
+                mf_trades['slippage'] = np.nan
+                mf_trades.loc[buy_trades, 'slippage'] = mf_trades['price'] - mf_trades['prev_mid_price']
+                mf_trades.loc[sell_trades, 'slippage'] = mf_trades['prev_mid_price'] - mf_trades['price']
+                mf_trades['slippage'] = mf_trades['slippage'].clip(lower=0) # 理论上滑点>=0，处理异常数据
+                total_mf_vol = mf_trades['volume'].sum()
+                if total_mf_vol > 0:
+                    weighted_avg_slippage = (mf_trades['slippage'] * mf_trades['volume']).sum() / total_mf_vol
+                    if pd.notna(atr) and atr > 0:
+                        results['main_force_price_impact_ratio'] = (weighted_avg_slippage / atr) * 100
+                        if enable_probe and is_target_date:
+                            print(f"  [探针] main_force_price_impact_ratio (执行滑点) 计算:")
+                            print(f"    - 主力总成交量: {total_mf_vol:,.0f}, 平均滑点: {weighted_avg_slippage:.4f}元, ATR: {atr:.2f}")
+                            print(f"    -> Final Score (滑点/ATR %): {results['main_force_price_impact_ratio']:.2f}")
+                    else:
+                        results['main_force_price_impact_ratio'] = np.nan
+                else:
+                    results['main_force_price_impact_ratio'] = 0.0
+            else:
+                results['main_force_price_impact_ratio'] = np.nan
             large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
             if not large_orders_df.empty:
                 results['observed_large_order_size_avg'] = large_orders_df['amount'].mean()
@@ -1221,7 +1232,6 @@ class AdvancedFundFlowMetricsService:
                             if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
                                 discount = (cost_mf_buy - cost_panic) / cost_mf_buy
                                 results['retail_panic_surrender_index'] = discount * (panic_vol / total_retail_sell_vol) * 100
-        # 重构 hidden_accumulation_intensity (隐蔽吸筹强度)
         if not hf_analysis_df.empty and pd.notna(daily_vwap):
             absorption_zone = hf_analysis_df[hf_analysis_df['mid_price'] < daily_vwap].copy()
             if not absorption_zone.empty:
