@@ -478,9 +478,13 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series, debug_mode: bool = False) -> dict:
         """
-        【V2.5 · 流向性占位符终极移除版】
-        - 核心修复: 彻底移除了 `main_force_flow_directionality` 的 `np.nan` 占位符赋值。该指标的计算逻辑
-                     已完全迁移至 `_compute_all_behavioral_metrics` 核心引擎中，此处不再需要。
+        【V49.0 · 架构净化版】
+        - 核心重构: 彻底移除为高频指标设置 np.nan 占位符的“反模式”，让方法回归单一职责。
+        - 重构原因: 探针 V48.9 证明了问题根源不在于具体指标的计算，而在于数据组装流程的架构缺陷。
+                     不完整的占位符列表导致了最终字段的缺失。
+        - 核心实现:
+          - 删除所有为 main_force_activity_ratio, main_force_conviction_index 等高频指标预设的 np.nan 占位符。
+          - 此方法现在只计算并返回真正能从日线数据中派生的指标。
         """
         results = {}
         WAN = 10000.0
@@ -537,10 +541,7 @@ class AdvancedFundFlowMetricsService:
                 results['mf_retail_battle_intensity'] = np.nan
         except Exception:
             results['mf_retail_battle_intensity'] = np.nan
-        results['main_force_activity_ratio'] = np.nan
-        results['main_force_buy_rate_consensus'] = np.nan
-        # 修改代码块：移除对 main_force_flow_directionality 的占位符赋值，其计算已移至高频引擎
-        results['main_force_conviction_index'] = np.nan
+        # 修改代码块：移除所有为高频指标设置的 np.nan 占位符
         try:
             mf_flow_calibrated = results.get('main_force_net_flow_calibrated')
             retail_flow_calibrated = results.get('retail_net_flow_calibrated')
@@ -558,7 +559,6 @@ class AdvancedFundFlowMetricsService:
                 results['retail_flow_dominance_index'] = np.nan
         except Exception:
             results['retail_flow_dominance_index'] = np.nan
-        results['main_force_price_impact_ratio'] = np.nan
         return results
 
     def _calculate_probabilistic_costs(self, stock_code: str, minute_data_for_day: pd.DataFrame, daily_data: pd.Series, debug_mode: bool = False) -> tuple[dict, pd.DataFrame]:
