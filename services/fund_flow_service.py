@@ -218,6 +218,66 @@ class AdvancedFundFlowMetricsService:
             merged_df = merged_df.join(base_daily_df_copy.drop(columns=overlap_cols, errors='ignore'), how='left')
         return merged_df
 
+    def _prepare_behavioral_data(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None) -> tuple:
+        """
+        【V47.0 · 模块化重构版】
+        新增方法: 行为指标计算的数据准备官。
+        - 职责: 封装所有前置数据准备工作，包括合并高频数据、计算OFI、计算盘口不平衡度等。
+        - 输出: 返回一个包含所有基础衍生列的 hf_analysis_df 和其他通用日线变量。
+        """
+        import numpy as np
+        daily_total_volume = daily_data.get('vol', 0) * 100
+        daily_total_amount = pd.to_numeric(daily_data.get('amount', 0), errors='coerce') * 1000
+        daily_vwap = daily_total_amount / daily_total_volume if daily_total_volume > 0 else np.nan
+        atr = daily_data.get('atr_14d')
+        day_open, day_close = daily_data.get('open_qfq'), daily_data.get('close_qfq')
+        day_high, day_low = daily_data.get('high_qfq'), daily_data.get('low_qfq')
+        hf_analysis_df = pd.DataFrame()
+        if tick_data is not None and not tick_data.empty and level5_data is not None and not level5_data.empty:
+            merged_hf = pd.merge_asof(
+                tick_data.sort_index(), level5_data.sort_index(),
+                left_index=True, right_index=True, direction='backward'
+            ).dropna(subset=['buy_price1', 'sell_price1', 'amount', 'volume'])
+            if realtime_data is not None and not realtime_data.empty and not merged_hf.empty:
+                realtime_prepped = realtime_data[['volume']].copy()
+                realtime_prepped['snapshot_time'] = realtime_prepped.index
+                merged_hf = pd.merge_asof(
+                    merged_hf, realtime_prepped, left_index=True, right_index=True,
+                    direction='backward', suffixes=('_tick', '_realtime')
+                )
+            if not merged_hf.empty:
+                merged_hf.rename(columns={'volume_tick': 'volume'}, inplace=True)
+                merged_hf['mid_price'] = (merged_hf['buy_price1'] + merged_hf['sell_price1']) / 2
+                merged_hf['prev_mid_price'] = merged_hf['mid_price'].shift(1)
+                buy_pressure = np.where(merged_hf['mid_price'] >= merged_hf['prev_mid_price'], merged_hf['buy_volume1'].shift(1), 0)
+                sell_pressure = np.where(merged_hf['mid_price'] <= merged_hf['prev_mid_price'], merged_hf['sell_volume1'].shift(1), 0)
+                merged_hf['ofi'] = buy_pressure - sell_pressure
+                is_main_force_trade = merged_hf['amount'] > 200000
+                merged_hf['main_force_ofi'] = np.where(is_main_force_trade, merged_hf['ofi'], 0)
+                merged_hf['mid_price_change'] = merged_hf['mid_price'].diff()
+                if 'volume_realtime' in merged_hf.columns and 'snapshot_time' in merged_hf.columns:
+                    snapshot_changed_mask = merged_hf['snapshot_time'] != merged_hf['snapshot_time'].shift(1)
+                    volume_delta = merged_hf['volume_realtime'].diff().fillna(0)
+                    merged_hf['market_vol_delta'] = np.where(snapshot_changed_mask, volume_delta, 0)
+                merged_hf['prev_a1_p'] = merged_hf['sell_price1'].shift(1)
+                merged_hf['prev_b1_p'] = merged_hf['buy_price1'].shift(1)
+                try:
+                    weighted_buy_vol = pd.Series(0, index=merged_hf.index); weighted_sell_vol = pd.Series(0, index=merged_hf.index)
+                    for i in range(1, 6):
+                        weight = 1 / i
+                        weighted_buy_vol += merged_hf[f'buy_volume{i}'] * weight
+                        weighted_sell_vol += merged_hf[f'sell_volume{i}'] * weight
+                    merged_hf['imbalance'] = (weighted_buy_vol - weighted_sell_vol) / (weighted_buy_vol + weighted_sell_vol).replace(0, np.nan)
+                except Exception:
+                    merged_hf['imbalance'] = np.nan
+                hf_analysis_df = merged_hf
+        common_data = {
+            'daily_total_volume': daily_total_volume, 'daily_total_amount': daily_total_amount,
+            'daily_vwap': daily_vwap, 'atr': atr, 'day_open': day_open, 'day_close': day_close,
+            'day_high': day_high, 'day_low': day_low
+        }
+        return hf_analysis_df, common_data
+
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None):
         """
         【V1.14 · 日内数据回退增强版】不再查询数据库，仅处理由上游任务传入的日内数据maps。
@@ -659,18 +719,11 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V46.0 · 诡道博弈深化版】
-        - 核心升级: 对 closing_auction_ambush, reversal_power_index, hidden_accumulation_intensity 进行高频重塑。
-        - `closing_auction_ambush`: 从度量“价量异常”升级为度量“最终成交与盘口伪装的背离度”，更精准捕捉“伏击”意图。
-        - `reversal_power_index`: 从宏观形态识别升级为微观层面度量转折点附近的“旧力衰竭”与“新力反攻”，洞察反转的真实动力。
-        - `hidden_accumulation_intensity`: 精炼其核心组件，将被动承接的衡量基准从“全天成交”聚焦到“VWAP下方卖盘”，大幅提升其对关键区域吸筹效率的刻画精度。
-        - 核心架构: 继续沿用并扩展“高频优先，分钟降级”的双层计算逻辑，并为所有新路径植入诊断探针。
-        - V45.1 修复: 修正了 'imbalance' 列未正确添加到主hf_analysis_df中，导致后续计算 pre_closing_posturing 时出现KeyError的问题。
+        【V47.0 · 模块化重构版】
+        重构为总指挥官方法。
+        - 职责: 协调数据准备和各个指标模块的计算，最后汇总结果。
+        - 结构: 调用 _prepare_behavioral_data 获取物料，然后顺序调用各 _calculate_... 方法。
         """
-        from scipy.signal import find_peaks
-        from datetime import time
-        import numpy as np
-        import pandas_ta as ta
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
         if enable_probe and is_target_date:
@@ -678,249 +731,167 @@ class AdvancedFundFlowMetricsService:
         results = {}
         if intraday_data.empty:
             return results
-        daily_total_volume = daily_data.get('vol', 0) * 100
-        daily_total_amount = pd.to_numeric(daily_data.get('amount', 0), errors='coerce') * 1000
-        daily_vwap = daily_total_amount / daily_total_volume if daily_total_volume > 0 else np.nan
-        atr = daily_data.get('atr_14d')
-        day_open, day_close = daily_data.get('open_qfq'), daily_data.get('close_qfq')
-        day_high, day_low = daily_data.get('high_qfq'), daily_data.get('low_qfq')
-        pre_close = daily_data.get('pre_close_qfq')
-        hf_analysis_df = pd.DataFrame()
-        if tick_data is not None and not tick_data.empty and level5_data is not None and not level5_data.empty:
-            merged_hf = pd.merge_asof(
-                tick_data.sort_index(), level5_data.sort_index(),
-                left_index=True, right_index=True, direction='backward'
-            ).dropna(subset=['buy_price1', 'sell_price1', 'amount', 'volume'])
-            if realtime_data is not None and not realtime_data.empty and not merged_hf.empty:
-                realtime_prepped = realtime_data[['volume']].copy()
-                realtime_prepped['snapshot_time'] = realtime_prepped.index
-                merged_hf = pd.merge_asof(
-                    merged_hf,
-                    realtime_prepped,
-                    left_index=True,
-                    right_index=True,
-                    direction='backward',
-                    suffixes=('_tick', '_realtime')
+        hf_analysis_df, common_data = self._prepare_behavioral_data(
+            intraday_data, daily_data, tick_data, level5_data, realtime_data
+        )
+        if not hf_analysis_df.empty:
+            results.update(self._calculate_core_hf_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
+        results.update(self._calculate_vwap_related_metrics(intraday_data, common_data))
+        results.update(self._calculate_opening_battle_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
+        results.update(self._calculate_shadow_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
+        results.update(self._calculate_dip_rally_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
+        results.update(self._calculate_reversal_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
+        results.update(self._calculate_cmf_metrics(intraday_data))
+        results.update(self._calculate_vpoc_metrics(intraday_data, common_data))
+        results.update(self._calculate_liquidity_swap_metrics(intraday_data))
+        results.update(self._calculate_closing_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
+        results.update(self._calculate_retail_sentiment_metrics(intraday_data, daily_data, common_data))
+        results.update(self._calculate_hidden_accumulation_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
+        results.update(self._calculate_misc_minute_metrics(intraday_data, common_data))
+        results.update(self._calculate_misc_daily_metrics(daily_data, main_force_net_flow_calibrated))
+        return results
+
+    def _calculate_core_hf_metrics(self, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+        """
+        【V47.0 · 模块化重构版】
+        新增方法: 计算所有仅依赖高频数据的核心指标。
+        """
+        import numpy as np
+        metrics = {}
+        atr = common_data['atr']
+        daily_total_volume = common_data['daily_total_volume']
+        metrics['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
+        mf_ofi_cumsum = hf_analysis_df['main_force_ofi'].cumsum().fillna(0)
+        aggressiveness_component = 0.0
+        if not mf_ofi_cumsum.empty and mf_ofi_cumsum.nunique() > 1:
+            time_index = np.arange(len(mf_ofi_cumsum))
+            trend_quality = np.corrcoef(time_index, mf_ofi_cumsum)[0, 1]
+            trend_quality = np.nan_to_num(trend_quality)
+            ofi_min, ofi_max = mf_ofi_cumsum.min(), mf_ofi_cumsum.max()
+            closing_strength = (mf_ofi_cumsum.iloc[-1] - ofi_min) / (ofi_max - ofi_min) if (ofi_max - ofi_min) > 0 else 0.0
+            closing_strength = np.nan_to_num(closing_strength)
+            aggressiveness_component = trend_quality * closing_strength
+        avg_cost_main_buy = daily_data.get('avg_cost_main_buy')
+        avg_cost_main_sell = daily_data.get('avg_cost_main_sell')
+        cost_tolerance_component = 0.0
+        if pd.notna(avg_cost_main_buy) and pd.notna(avg_cost_main_sell) and avg_cost_main_sell > 0:
+            cost_tolerance_component = (avg_cost_main_buy / avg_cost_main_sell) - 1
+        market_pressure_zone = hf_analysis_df['ofi'] < 0
+        mf_resilience_ofi = hf_analysis_df.loc[market_pressure_zone, 'main_force_ofi'].clip(lower=0).sum()
+        total_mf_positive_ofi = hf_analysis_df['main_force_ofi'].clip(lower=0).sum()
+        resilience_component = mf_resilience_ofi / total_mf_positive_ofi if total_mf_positive_ofi > 0 else 0.0
+        metrics['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
+        if enable_probe and is_target_date:
+            print(f"  [探针] main_force_conviction_index (主力信念) 计算:")
+            print(f"    - Aggressiveness (TrendQuality * ClosingStrength): {aggressiveness_component:.4f} = ({trend_quality:.4f} * {closing_strength:.4f})")
+            print(f"    - Cost Tolerance (Buy/Sell Cost): {cost_tolerance_component:.4f}, Resilience (Absorption): {resilience_component:.4f}")
+            print(f"    -> Final Score: {metrics['main_force_conviction_index']:.2f}")
+        mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
+        if not mf_trades.empty and 'prev_mid_price' in mf_trades.columns:
+            buy_trades_mask = mf_trades['type'] == 'B'
+            sell_trades_mask = mf_trades['type'] == 'S'
+            mf_trades['slippage'] = np.nan
+            mf_trades.loc[buy_trades_mask, 'slippage'] = (mf_trades.loc[buy_trades_mask, 'price'] - mf_trades.loc[buy_trades_mask, 'prev_mid_price']).values
+            mf_trades.loc[sell_trades_mask, 'slippage'] = (mf_trades.loc[sell_trades_mask, 'prev_mid_price'] - mf_trades.loc[sell_trades_mask, 'price']).values
+            mf_trades['slippage'] = mf_trades['slippage'].clip(lower=0)
+            total_mf_vol = mf_trades['volume'].sum()
+            if total_mf_vol > 0:
+                weighted_avg_slippage = (mf_trades['slippage'] * mf_trades['volume']).sum() / total_mf_vol
+                if pd.notna(atr) and atr > 0:
+                    metrics['main_force_price_impact_ratio'] = (weighted_avg_slippage / atr) * 100
+                    if enable_probe and is_target_date:
+                        print(f"  [探针] main_force_price_impact_ratio (价格冲击) 计算:")
+                        print(f"    - 主力总成交量: {total_mf_vol:,.0f}, 平均滑点: {weighted_avg_slippage:.4f}元, ATR: {atr:.2f}")
+                        print(f"    -> Final Score (滑点/ATR %): {metrics['main_force_price_impact_ratio']:.2f}")
+            if total_mf_vol > 0:
+                offensive_buy_mask = (mf_trades['type'] == 'B') & (mf_trades['price'] >= mf_trades['sell_price1'])
+                offensive_sell_mask = (mf_trades['type'] == 'S') & (mf_trades['price'] <= mf_trades['buy_price1'])
+                offensive_volume = mf_trades[offensive_buy_mask | offensive_sell_mask]['volume'].sum()
+                passive_volume = total_mf_vol - offensive_volume
+                metrics['main_force_posture_index'] = ((offensive_volume - passive_volume) / total_mf_vol) * 100
+                metrics['main_force_activity_ratio'] = (total_mf_vol / daily_total_volume) * 100 if daily_total_volume > 0 else np.nan
+                if enable_probe and is_target_date:
+                    print(f"  [探针] main_force_posture_index (主力姿态) 计算:")
+                    print(f"    - 主力总成交: {total_mf_vol:,.0f}, 进攻性成交: {offensive_volume:,.0f}, 被动性成交: {passive_volume:,.0f}")
+                    print(f"    -> Final Score: {metrics['main_force_posture_index']:.2f}")
+                    print(f"  [探针] main_force_activity_ratio (主力参与度) 计算:")
+                    print(f"    - 主力总成交: {total_mf_vol:,.0f}, 当日总成交: {daily_total_volume:,.0f}")
+                    print(f"    -> Final Score: {metrics['main_force_activity_ratio']:.2f}")
+                mf_buy_vol = mf_trades.loc[buy_trades_mask, 'volume'].sum()
+                mf_sell_vol = mf_trades.loc[sell_trades_mask, 'volume'].sum()
+                mf_total_activity_vol = mf_buy_vol + mf_sell_vol
+                if mf_total_activity_vol > 0:
+                    mf_net_vol = mf_buy_vol - mf_sell_vol
+                    metrics['main_force_flow_directionality'] = (mf_net_vol / mf_total_activity_vol) * 100
+                    if enable_probe and is_target_date:
+                        print(f"  [探针] main_force_flow_directionality (主力流向性) 计算:")
+                        print(f"    - 主力买入量: {mf_buy_vol:,.0f}, 主力卖出量: {mf_sell_vol:,.0f}, 主力总活动量: {mf_total_activity_vol:,.0f}")
+                        print(f"    -> Final Score: {metrics['main_force_flow_directionality']:.2f}")
+        large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
+        if not large_orders_df.empty:
+            metrics['observed_large_order_size_avg'] = large_orders_df['amount'].mean()
+        up_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] > 0]
+        down_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] < 0]
+        if not up_ticks.empty and not down_ticks.empty and up_ticks['mid_price_change'].sum() > 0 and down_ticks['mid_price_change'].abs().sum() > 0:
+            vol_per_tick_up = up_ticks['volume'].sum() / (up_ticks['mid_price_change'].sum() * 100)
+            vol_per_tick_down = down_ticks['volume'].sum() / (down_ticks['mid_price_change'].abs().sum() * 100)
+            if vol_per_tick_down > 1e-6:
+                asymmetry_ratio = vol_per_tick_up / vol_per_tick_down
+                metrics['micro_price_impact_asymmetry'] = np.log1p(asymmetry_ratio) if asymmetry_ratio > 0 else np.nan
+        ask_clearing_mask = (hf_analysis_df['type'] == 'B') & (hf_analysis_df['price'] == hf_analysis_df['prev_a1_p'])
+        ask_clearing_vol = hf_analysis_df.loc[ask_clearing_mask, 'volume'].sum()
+        bid_clearing_mask = (hf_analysis_df['type'] == 'S') & (hf_analysis_df['price'] == hf_analysis_df['prev_b1_p'])
+        bid_clearing_vol = hf_analysis_df.loc[bid_clearing_mask, 'volume'].sum()
+        total_cleared_vol = ask_clearing_vol + bid_clearing_vol
+        if daily_total_volume > 0:
+            metrics['order_book_clearing_rate'] = (total_cleared_vol / daily_total_volume) * 100
+        try:
+            wash_trade_vol = 0
+            if 'market_vol_delta' in hf_analysis_df.columns:
+                df_wash = hf_analysis_df[['type', 'volume', 'price', 'market_vol_delta']].copy()
+                df_wash['direction'] = df_wash['type'].map({'B': 1, 'S': -1}).fillna(0)
+                df_wash['prev_direction'] = df_wash['direction'].shift(1)
+                df_wash['prev_volume'] = df_wash['volume'].shift(1)
+                df_wash['price_change_ratio'] = df_wash['price'].pct_change().abs()
+                wash_mask = (
+                    (df_wash['direction'] * df_wash['prev_direction'] == -1) &
+                    (np.abs(df_wash['volume'] - df_wash['prev_volume']) / df_wash['prev_volume'] < 0.2) &
+                    (df_wash['price_change_ratio'] < 0.001) &
+                    (df_wash['market_vol_delta'] > df_wash['volume'] * 2)
                 )
-            if not merged_hf.empty:
-                merged_hf.rename(columns={'volume_tick': 'volume'}, inplace=True)
-                merged_hf['mid_price'] = (merged_hf['buy_price1'] + merged_hf['sell_price1']) / 2
-                merged_hf['prev_mid_price'] = merged_hf['mid_price'].shift(1)
-                buy_pressure = np.where(merged_hf['mid_price'] >= merged_hf['prev_mid_price'], merged_hf['buy_volume1'].shift(1), 0)
-                sell_pressure = np.where(merged_hf['mid_price'] <= merged_hf['prev_mid_price'], merged_hf['sell_volume1'].shift(1), 0)
-                merged_hf['ofi'] = buy_pressure - sell_pressure
-                is_main_force_trade = merged_hf['amount'] > 200000
-                is_retail_trade = merged_hf['amount'] < 50000
-                merged_hf['main_force_ofi'] = np.where(is_main_force_trade, merged_hf['ofi'], 0)
-                merged_hf['retail_ofi'] = np.where(is_retail_trade, merged_hf['ofi'], 0)
-                merged_hf['mid_price_change'] = merged_hf['mid_price'].diff()
-                if 'volume_realtime' in merged_hf.columns and 'snapshot_time' in merged_hf.columns:
-                    snapshot_changed_mask = merged_hf['snapshot_time'] != merged_hf['snapshot_time'].shift(1)
-                    volume_delta = merged_hf['volume_realtime'].diff().fillna(0)
-                    merged_hf['market_vol_delta'] = np.where(snapshot_changed_mask, volume_delta, 0)
-                hf_analysis_df = merged_hf
-                results['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
-                results['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
-        if not hf_analysis_df.empty:
-            mf_ofi_cumsum = hf_analysis_df['main_force_ofi'].cumsum().fillna(0)
-            aggressiveness_component = 0.0
-            if not mf_ofi_cumsum.empty and mf_ofi_cumsum.nunique() > 1:
-                time_index = np.arange(len(mf_ofi_cumsum))
-                trend_quality = np.corrcoef(time_index, mf_ofi_cumsum)[0, 1]
-                trend_quality = np.nan_to_num(trend_quality)
-                ofi_min, ofi_max = mf_ofi_cumsum.min(), mf_ofi_cumsum.max()
-                closing_strength = (mf_ofi_cumsum.iloc[-1] - ofi_min) / (ofi_max - ofi_min) if (ofi_max - ofi_min) > 0 else 0.0
-                closing_strength = np.nan_to_num(closing_strength)
-                aggressiveness_component = trend_quality * closing_strength
-            avg_cost_main_buy = daily_data.get('avg_cost_main_buy')
-            avg_cost_main_sell = daily_data.get('avg_cost_main_sell')
-            cost_tolerance_component = 0.0
-            if pd.notna(avg_cost_main_buy) and pd.notna(avg_cost_main_sell) and avg_cost_main_sell > 0:
-                cost_tolerance_component = (avg_cost_main_buy / avg_cost_main_sell) - 1
-            market_pressure_zone = hf_analysis_df['ofi'] < 0
-            mf_resilience_ofi = hf_analysis_df.loc[market_pressure_zone, 'main_force_ofi'].clip(lower=0).sum()
-            total_mf_positive_ofi = hf_analysis_df['main_force_ofi'].clip(lower=0).sum()
-            resilience_component = mf_resilience_ofi / total_mf_positive_ofi if total_mf_positive_ofi > 0 else 0.0
-            results['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
-            if enable_probe and is_target_date:
-                print(f"  [探针] main_force_conviction_index (主力信念) 计算:")
-                print(f"    - Aggressiveness (TrendQuality * ClosingStrength): {aggressiveness_component:.4f} = ({trend_quality:.4f} * {closing_strength:.4f})")
-                print(f"    - Cost Tolerance (Buy/Sell Cost): {cost_tolerance_component:.4f}, Resilience (Absorption): {resilience_component:.4f}")
-                print(f"    -> Final Score: {results['main_force_conviction_index']:.2f}")
-        else:
-            results['main_force_conviction_index'] = np.nan
-        if not hf_analysis_df.empty:
-            mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
-            if not mf_trades.empty and 'prev_mid_price' in mf_trades.columns:
-                buy_trades_mask = mf_trades['type'] == 'B'
-                sell_trades_mask = mf_trades['type'] == 'S'
-                mf_trades['slippage'] = np.nan
-                mf_trades.loc[buy_trades_mask, 'slippage'] = (mf_trades.loc[buy_trades_mask, 'price'] - mf_trades.loc[buy_trades_mask, 'prev_mid_price']).values
-                mf_trades.loc[sell_trades_mask, 'slippage'] = (mf_trades.loc[sell_trades_mask, 'prev_mid_price'] - mf_trades.loc[sell_trades_mask, 'price']).values
-                mf_trades['slippage'] = mf_trades['slippage'].clip(lower=0)
-                total_mf_vol = mf_trades['volume'].sum()
-                if total_mf_vol > 0:
-                    weighted_avg_slippage = (mf_trades['slippage'] * mf_trades['volume']).sum() / total_mf_vol
-                    if pd.notna(atr) and atr > 0:
-                        results['main_force_price_impact_ratio'] = (weighted_avg_slippage / atr) * 100
-                        if enable_probe and is_target_date:
-                            print(f"  [探针] main_force_price_impact_ratio (价格冲击) 计算:")
-                            print(f"    - 主力总成交量: {total_mf_vol:,.0f}, 平均滑点: {weighted_avg_slippage:.4f}元, ATR: {atr:.2f}")
-                            print(f"    -> Final Score (滑点/ATR %): {results['main_force_price_impact_ratio']:.2f}")
-                    else:
-                        results['main_force_price_impact_ratio'] = np.nan
-                else:
-                    results['main_force_price_impact_ratio'] = 0.0
-            else:
-                results['main_force_price_impact_ratio'] = np.nan
-            if not mf_trades.empty:
-                total_mf_volume = mf_trades['volume'].sum()
-                if total_mf_volume > 0:
-                    offensive_buy_mask = (mf_trades['type'] == 'B') & (mf_trades['price'] >= mf_trades['sell_price1'])
-                    offensive_sell_mask = (mf_trades['type'] == 'S') & (mf_trades['price'] <= mf_trades['buy_price1'])
-                    offensive_volume = mf_trades[offensive_buy_mask | offensive_sell_mask]['volume'].sum()
-                    passive_volume = total_mf_volume - offensive_volume
-                    results['main_force_posture_index'] = ((offensive_volume - passive_volume) / total_mf_volume) * 100
-                    results['main_force_activity_ratio'] = (total_mf_volume / daily_total_volume) * 100 if daily_total_volume > 0 else np.nan
-                    if enable_probe and is_target_date:
-                        print(f"  [探针] main_force_posture_index (主力姿态) 计算:")
-                        print(f"    - 主力总成交: {total_mf_volume:,.0f}, 进攻性成交: {offensive_volume:,.0f}, 被动性成交: {passive_volume:,.0f}")
-                        print(f"    -> Final Score: {results['main_force_posture_index']:.2f}")
-                        print(f"  [探针] main_force_activity_ratio (主力参与度) 计算:")
-                        print(f"    - 主力总成交: {total_mf_volume:,.0f}, 当日总成交: {daily_total_volume:,.0f}")
-                        print(f"    -> Final Score: {results['main_force_activity_ratio']:.2f}")
-                    mf_buy_vol = mf_trades.loc[buy_trades_mask, 'volume'].sum()
-                    mf_sell_vol = mf_trades.loc[sell_trades_mask, 'volume'].sum()
-                    mf_total_activity_vol = mf_buy_vol + mf_sell_vol
-                    if mf_total_activity_vol > 0:
-                        mf_net_vol = mf_buy_vol - mf_sell_vol
-                        results['main_force_flow_directionality'] = (mf_net_vol / mf_total_activity_vol) * 100
-                        if enable_probe and is_target_date:
-                            print(f"  [探针] main_force_flow_directionality (主力流向性) 计算:")
-                            print(f"    - 主力买入量: {mf_buy_vol:,.0f}, 主力卖出量: {mf_sell_vol:,.0f}, 主力总活动量: {mf_total_activity_vol:,.0f}")
-                            print(f"    -> Final Score: {results['main_force_flow_directionality']:.2f}")
-                    else:
-                        results['main_force_flow_directionality'] = np.nan
-                else:
-                    results['main_force_posture_index'] = np.nan
-                    results['main_force_activity_ratio'] = 0.0
-                    results['main_force_flow_directionality'] = np.nan
-            else:
-                results['main_force_posture_index'] = np.nan
-                results['main_force_activity_ratio'] = 0.0
-                results['main_force_flow_directionality'] = np.nan
-            large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
-            if not large_orders_df.empty:
-                results['observed_large_order_size_avg'] = large_orders_df['amount'].mean()
-            up_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] > 0]
-            down_ticks = hf_analysis_df[hf_analysis_df['mid_price_change'] < 0]
-            if not up_ticks.empty and not down_ticks.empty and up_ticks['mid_price_change'].sum() > 0 and down_ticks['mid_price_change'].abs().sum() > 0:
-                vol_per_tick_up = up_ticks['volume'].sum() / (up_ticks['mid_price_change'].sum() * 100)
-                vol_per_tick_down = down_ticks['volume'].sum() / (down_ticks['mid_price_change'].abs().sum() * 100)
-                if vol_per_tick_down > 1e-6:
-                    asymmetry_ratio = vol_per_tick_up / vol_per_tick_down
-                    results['micro_price_impact_asymmetry'] = np.log1p(asymmetry_ratio) if asymmetry_ratio > 0 else np.nan
-            hf_analysis_df['prev_a1_p'] = hf_analysis_df['sell_price1'].shift(1)
-            hf_analysis_df['prev_b1_p'] = hf_analysis_df['buy_price1'].shift(1)
-            ask_clearing_mask = (hf_analysis_df['type'] == 'B') & (hf_analysis_df['price'] == hf_analysis_df['prev_a1_p'])
-            ask_clearing_vol = hf_analysis_df.loc[ask_clearing_mask, 'volume'].sum()
-            bid_clearing_mask = (hf_analysis_df['type'] == 'S') & (hf_analysis_df['price'] == hf_analysis_df['prev_b1_p'])
-            bid_clearing_vol = hf_analysis_df.loc[bid_clearing_mask, 'volume'].sum()
-            total_cleared_vol = ask_clearing_vol + bid_clearing_vol
+                wash_trade_vol = df_wash.loc[wash_mask, 'market_vol_delta'].sum()
             if daily_total_volume > 0:
-                results['order_book_clearing_rate'] = (total_cleared_vol / daily_total_volume) * 100
-            try:
-                wash_trade_vol = 0
-                if 'market_vol_delta' in hf_analysis_df.columns:
-                    df_wash = hf_analysis_df[['type', 'volume', 'price', 'market_vol_delta']].copy()
-                    df_wash['direction'] = df_wash['type'].map({'B': 1, 'S': -1}).fillna(0)
-                    df_wash['prev_direction'] = df_wash['direction'].shift(1)
-                    df_wash['prev_volume'] = df_wash['volume'].shift(1)
-                    df_wash['price_change_ratio'] = df_wash['price'].pct_change().abs()
-                    wash_mask = (
-                        (df_wash['direction'] * df_wash['prev_direction'] == -1) &
-                        (np.abs(df_wash['volume'] - df_wash['prev_volume']) / df_wash['prev_volume'] < 0.2) &
-                        (df_wash['price_change_ratio'] < 0.001) &
-                        (df_wash['market_vol_delta'] > df_wash['volume'] * 2)
-                    )
-                    wash_trade_vol = df_wash.loc[wash_mask, 'market_vol_delta'].sum()
-                if daily_total_volume > 0:
-                    results['wash_trade_intensity'] = (wash_trade_vol / daily_total_volume) * 100
-            except Exception:
-                results['wash_trade_intensity'] = np.nan
-            try:
-                weighted_buy_vol = pd.Series(0, index=hf_analysis_df.index); weighted_sell_vol = pd.Series(0, index=hf_analysis_df.index)
-                total_buy_value = pd.Series(0, index=hf_analysis_df.index); total_sell_value = pd.Series(0, index=hf_analysis_df.index)
-                for i in range(1, 6):
-                    weight = 1 / i
-                    weighted_buy_vol += hf_analysis_df[f'buy_volume{i}'] * weight; weighted_sell_vol += hf_analysis_df[f'sell_volume{i}'] * weight
-                    total_buy_value += hf_analysis_df[f'buy_volume{i}'] * hf_analysis_df[f'buy_price{i}']; total_sell_value += hf_analysis_df[f'sell_volume{i}'] * hf_analysis_df[f'sell_price{i}']
-                hf_analysis_df['imbalance'] = (weighted_buy_vol - weighted_sell_vol) / (weighted_buy_vol + weighted_sell_vol).replace(0, np.nan)
-                hf_analysis_df['liquidity_supply_ratio'] = total_buy_value / total_sell_value.replace(0, np.nan)
-                time_diffs = hf_analysis_df.index.to_series().diff().dt.total_seconds().fillna(0)
-                if time_diffs.sum() > 0:
-                    results['order_book_imbalance'] = np.average(hf_analysis_df['imbalance'].dropna(), weights=time_diffs[hf_analysis_df['imbalance'].notna()]) * 100
-                    results['order_book_liquidity_supply'] = np.average(hf_analysis_df['liquidity_supply_ratio'].dropna(), weights=time_diffs[hf_analysis_df['liquidity_supply_ratio'].notna()])
-                if 'market_vol_delta' in hf_analysis_df.columns and hf_analysis_df['imbalance'].var() > 1e-9 and hf_analysis_df['market_vol_delta'].var() > 1e-9:
-                    correlation_value = hf_analysis_df['imbalance'].corr(hf_analysis_df['market_vol_delta'])
-                    results['imbalance_effectiveness'] = correlation_value
-                    if enable_probe and is_target_date:
-                        print(f"  [探针] imbalance_effectiveness (盘口诚实度) 计算:")
-                        print(f"    - Imbalance vs MarketVolDelta Corr: {correlation_value:.4f}")
-                        print(f"    -> Final Score: {results['imbalance_effectiveness']:.2f}")
-                else:
-                    results['imbalance_effectiveness'] = np.nan
-            except Exception:
-                results['order_book_imbalance'] = np.nan
-                results['order_book_liquidity_supply'] = np.nan
-                results['imbalance_effectiveness'] = np.nan
-            try:
-                df_static = hf_analysis_df.copy()
-                large_order_threshold_value = 500000
-                pressure_mask = (df_static['sell_volume1'] * df_static['sell_price1'] > large_order_threshold_value) | (df_static['sell_volume2'] * df_static['sell_price2'] > large_order_threshold_value)
-                support_mask = (df_static['buy_volume1'] * df_static['buy_price1'] > large_order_threshold_value) | (df_static['buy_volume2'] * df_static['buy_price2'] > large_order_threshold_value)
-                time_diffs = df_static.index.to_series().diff().dt.total_seconds().fillna(0)
-                pressure_strength = 0; support_strength = 0
-                if 'market_vol_delta' in df_static.columns:
-                    market_activity = df_static['market_vol_delta'].rolling(window=20, min_periods=1).mean().replace(0, np.nan)
-                    activity_factor = 1 / np.log1p(market_activity)
-                    pressure_strength = (time_diffs * activity_factor)[pressure_mask].sum()
-                    support_strength = (time_diffs * activity_factor)[support_mask].sum()
-                else:
-                    pressure_strength = time_diffs[pressure_mask].sum(); support_strength = time_diffs[support_mask].sum()
-                total_trading_seconds = (df_static.index.max() - df_static.index.min()).total_seconds()
-                if total_trading_seconds > 0:
-                    results['large_order_pressure'] = (pressure_strength / total_trading_seconds) * 100
-                    results['large_order_support'] = (support_strength / total_trading_seconds) * 100
-            except Exception:
-                results['large_order_pressure'] = np.nan; results['large_order_support'] = np.nan
-            try:
-                df_exhaust = hf_analysis_df.copy()
-                df_exhaust['prev_a1_v'] = df_exhaust['sell_volume1'].shift(1)
-                df_exhaust['prev_b1_v'] = df_exhaust['buy_volume1'].shift(1)
-                buy_exhaustion_mask = df_exhaust['sell_price1'] > df_exhaust['prev_a1_p']
-                buy_exhausted_vol = df_exhaust.loc[buy_exhaustion_mask, 'prev_a1_v'].sum()
-                sell_exhaustion_mask = df_exhaust['buy_price1'] < df_exhaust['prev_b1_p']
-                sell_exhausted_vol = df_exhaust.loc[sell_exhaustion_mask, 'prev_b1_v'].sum()
-                if daily_total_volume > 0:
-                    results['buy_quote_exhaustion_rate'] = (buy_exhausted_vol / daily_total_volume) * 100
-                    results['sell_quote_exhaustion_rate'] = (sell_exhausted_vol / daily_total_volume) * 100
-            except Exception:
-                results['buy_quote_exhaustion_rate'] = np.nan; results['sell_quote_exhaustion_rate'] = np.nan
-        if pd.notna(daily_vwap) and daily_total_volume > 0 and pd.notna(atr) and atr > 0 and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
-            price_deviation_value = (intraday_data['minute_vwap'] - daily_vwap) * intraday_data['vol_shares']
-            results['vwap_control_strength'] = price_deviation_value.sum() / (atr * daily_total_volume)
-            price_dev_series = intraday_data['minute_vwap'] - daily_vwap
-            mf_net_flow_series = intraday_data['main_force_net_vol']
-            if price_dev_series.var() != 0 and mf_net_flow_series.var() != 0 and len(price_dev_series) > 1:
-                correlation = price_dev_series.corr(mf_net_flow_series)
-                results['main_force_vwap_guidance'] = correlation if pd.notna(correlation) else np.nan
-            position_vs_vwap = np.sign(intraday_data['minute_vwap'] - daily_vwap)
-            crossings = position_vs_vwap.diff().ne(0)
-            results['vwap_crossing_intensity'] = intraday_data.loc[crossings, 'vol_shares'].sum() / daily_total_volume
-            twap = intraday_data['minute_vwap'].mean()
-            if pd.notna(twap) and twap > 0:
-                results['vwap_structure_skew'] = (daily_vwap - twap) / twap * 100
+                metrics['wash_trade_intensity'] = (wash_trade_vol / daily_total_volume) * 100
+        except Exception:
+            metrics['wash_trade_intensity'] = np.nan
+        try:
+            time_diffs = hf_analysis_df.index.to_series().diff().dt.total_seconds().fillna(0)
+            if time_diffs.sum() > 0:
+                metrics['order_book_imbalance'] = np.average(hf_analysis_df['imbalance'].dropna(), weights=time_diffs[hf_analysis_df['imbalance'].notna()]) * 100
+            if 'market_vol_delta' in hf_analysis_df.columns and hf_analysis_df['imbalance'].var() > 1e-9 and hf_analysis_df['market_vol_delta'].var() > 1e-9:
+                correlation_value = hf_analysis_df['imbalance'].corr(hf_analysis_df['market_vol_delta'])
+                metrics['imbalance_effectiveness'] = correlation_value
+                if enable_probe and is_target_date:
+                    print(f"  [探针] imbalance_effectiveness (盘口诚实度) 计算:")
+                    print(f"    - Imbalance vs MarketVolDelta Corr: {correlation_value:.4f}")
+                    print(f"    -> Final Score: {metrics['imbalance_effectiveness']:.2f}")
+        except Exception:
+            pass # 已经在 prepare 中处理，这里是计算指标
+        mf_ofi_series = hf_analysis_df['main_force_ofi']
+        price_change_series = hf_analysis_df['mid_price_change']
+        if mf_ofi_series.var() > 0 and price_change_series.var() > 0:
+            metrics['ofi_price_impact_factor'] = mf_ofi_series.corr(price_change_series)
+        return metrics
+
+    def _calculate_opening_battle_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+        """
+        【V47.0 · 模块化重构版】
+        新增方法: 计算开盘战役结果指标。
+        """
+        from datetime import time
+        import numpy as np
+        metrics = {}
+        atr = common_data['atr']
         opening_battle_df = intraday_data[(intraday_data.index.time >= time(9, 30)) & (intraday_data.index.time <= time(9, 45))]
         if not opening_battle_df.empty and len(opening_battle_df) > 1 and pd.notna(atr) and atr > 0:
             if not hf_analysis_df.empty:
@@ -930,18 +901,29 @@ class AdvancedFundFlowMetricsService:
                     mf_ofi_opening = opening_hf_df['main_force_ofi'].sum()
                     total_abs_ofi_opening = opening_hf_df['ofi'].abs().sum()
                     mf_ofi_dominance = mf_ofi_opening / total_abs_ofi_opening if total_abs_ofi_opening > 0 else 0
-                    results['opening_battle_result'] = price_gain_hf * (1 + mf_ofi_dominance) * 100
+                    metrics['opening_battle_result'] = price_gain_hf * (1 + mf_ofi_dominance) * 100
                     if enable_probe and is_target_date:
                         print(f"  [探针] opening_battle_result (高频-开盘战役) 计算:")
                         print(f"    - Price Gain (norm by ATR): {price_gain_hf:.4f}, MF OFI Dominance: {mf_ofi_dominance:.4f}")
-                        print(f"    -> Final Score: {results['opening_battle_result']:.2f}")
+                        print(f"    -> Final Score: {metrics['opening_battle_result']:.2f}")
             else:
                 if 'close' in opening_battle_df.columns and 'open' in opening_battle_df.columns and 'vol_shares' in opening_battle_df.columns and 'minute_vwap' in opening_battle_df.columns and 'main_force_net_vol' in opening_battle_df.columns:
                     price_gain = (opening_battle_df['close'].iloc[-1] - opening_battle_df['open'].iloc[0]) / atr
                     battle_amount = (opening_battle_df['vol_shares'] * opening_battle_df['minute_vwap']).sum()
                     if battle_amount > 0:
                         mf_power = opening_battle_df['main_force_net_vol'].sum() * opening_battle_df['minute_vwap'].mean() / battle_amount
-                        results['opening_battle_result'] = np.sign(price_gain) * np.sqrt(abs(price_gain)) * (1 + mf_power) * 100
+                        metrics['opening_battle_result'] = np.sign(price_gain) * np.sqrt(abs(price_gain)) * (1 + mf_power) * 100
+        return metrics
+
+    def _calculate_shadow_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+        """
+        【V47.0 · 模块化重构版】
+        新增方法: 计算上下影线相关指标。
+        """
+        import numpy as np
+        metrics = {}
+        day_open, day_close = common_data['day_open'], common_data['day_close']
+        day_high, day_low = common_data['day_high'], common_data['day_low']
         if pd.notna(day_open) and pd.notna(day_close) and pd.notna(day_high) and pd.notna(day_low):
             body_high, body_low = max(day_open, day_close), min(day_open, day_close)
             day_range = day_high - day_low
@@ -959,32 +941,42 @@ class AdvancedFundFlowMetricsService:
                         mf_ofi_in_shadow = hf_shadow_zone['main_force_ofi'].sum()
                         total_abs_ofi_day = hf_analysis_df['ofi'].abs().sum()
                         OFI_Component = mf_ofi_in_shadow / total_abs_ofi_day if total_abs_ofi_day > 0 else 0.0
-                        results['lower_shadow_absorption_strength'] = (0.5 * FlowComponent + 0.3 * RecoveryComponent + 0.2 * OFI_Component) * 100
+                        metrics['lower_shadow_absorption_strength'] = (0.5 * FlowComponent + 0.3 * RecoveryComponent + 0.2 * OFI_Component) * 100
                         if enable_probe and is_target_date:
                             print(f"  [探针] lower_shadow_absorption_strength (高频-下影线) 计算:")
                             print(f"    - body_low: {body_low:.2f}, day_low: {day_low:.2f}, day_range: {day_range:.2f}")
                             print(f"    - HF FlowComponent (from net vol): {FlowComponent:.4f}, RecoveryComponent: {RecoveryComponent:.4f}, OFI_Component: {OFI_Component:.4f}")
-                            print(f"    -> Final Score: {results['lower_shadow_absorption_strength']:.2f}")
+                            print(f"    -> Final Score: {metrics['lower_shadow_absorption_strength']:.2f}")
                 else:
                     lower_shadow_df = intraday_data[intraday_data['low'] < body_low]
                     if not lower_shadow_df.empty and 'vol_shares' in lower_shadow_df.columns and 'main_force_net_vol' in lower_shadow_df.columns and lower_shadow_df['vol_shares'].sum() > 0:
                         shadow_volume = lower_shadow_df['vol_shares'].sum()
                         mf_net_in_shadow = lower_shadow_df['main_force_net_vol'].sum()
                         FlowComponent = np.tanh(mf_net_in_shadow / shadow_volume)
-                        results['lower_shadow_absorption_strength'] = (0.7 * FlowComponent + 0.3 * RecoveryComponent) * 100
-            else:
-                results['lower_shadow_absorption_strength'] = np.nan
+                        metrics['lower_shadow_absorption_strength'] = (0.7 * FlowComponent + 0.3 * RecoveryComponent) * 100
             upper_shadow_df = intraday_data[intraday_data['high'] > body_high]
             if not upper_shadow_df.empty and 'vol_shares' in upper_shadow_df.columns and 'main_force_net_vol' in upper_shadow_df.columns and upper_shadow_df['vol_shares'].sum() > 0:
                 mf_sell_in_shadow = abs(upper_shadow_df[upper_shadow_df['main_force_net_vol'] < 0]['main_force_net_vol'].sum())
-                results['upper_shadow_selling_pressure'] = (mf_sell_in_shadow / upper_shadow_df['vol_shares'].sum())
+                metrics['upper_shadow_selling_pressure'] = (mf_sell_in_shadow / upper_shadow_df['vol_shares'].sum())
+        return metrics
+
+    def _calculate_dip_rally_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+        """
+        【V47.0 · 模块化重构版】
+        新增方法: 计算逢低吸筹与拉高派发相关指标。
+        """
+        from scipy.signal import find_peaks
+        from datetime import time
+        import numpy as np
+        metrics = {}
+        daily_vwap = common_data['daily_vwap']
+        atr = common_data['atr']
+        daily_total_volume = common_data['daily_total_volume']
         continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
         if not continuous_trading_df.empty and 'minute_vwap' in continuous_trading_df.columns:
             peaks, _ = find_peaks(continuous_trading_df['minute_vwap'].values)
             troughs, _ = find_peaks(-continuous_trading_df['minute_vwap'].values)
             turning_points = sorted(list(set(np.concatenate(([0], troughs, peaks, [len(continuous_trading_df)-1])))))
-            results['dip_absorption_power'] = np.nan
-            results['rally_distribution_pressure'] = np.nan
             if not hf_analysis_df.empty and pd.notna(daily_vwap):
                 absorption_zone_hf = hf_analysis_df[hf_analysis_df['price'] < daily_vwap]
                 if not absorption_zone_hf.empty:
@@ -997,11 +989,11 @@ class AdvancedFundFlowMetricsService:
                     total_mf_buy_vol_day_hf = mf_trades_hf[mf_trades_hf['type'] == 'B']['volume'].sum()
                     mf_buy_vol_in_dip_hf = mf_trades_hf[(mf_trades_hf['type'] == 'B') & (mf_trades_hf['price'] < daily_vwap)]['volume'].sum()
                     VolumeDominance_Component = mf_buy_vol_in_dip_hf / total_mf_buy_vol_day_hf if total_mf_buy_vol_day_hf > 0 else 0.0
-                    results['dip_absorption_power'] = (0.5 * OffensiveOFI_Component + 0.3 * CostAdvantage_Component + 0.2 * VolumeDominance_Component) * 100
+                    metrics['dip_absorption_power'] = (0.5 * OffensiveOFI_Component + 0.3 * CostAdvantage_Component + 0.2 * VolumeDominance_Component) * 100
                     if enable_probe and is_target_date:
                         print(f"  [探针] dip_absorption_power (高频-战略吸筹) 计算:")
                         print(f"    - OffensiveOFI: {OffensiveOFI_Component:.4f}, CostAdvantage: {CostAdvantage_Component:.4f}, VolumeDominance (HF): {VolumeDominance_Component:.4f}")
-                        print(f"    -> Final Score: {results['dip_absorption_power']:.2f}")
+                        print(f"    -> Final Score: {metrics['dip_absorption_power']:.2f}")
                 total_rally_price_change = 0
                 total_deceptive_pressure = 0
                 daily_retail_trades = hf_analysis_df[hf_analysis_df['amount'] < 50000]
@@ -1046,12 +1038,12 @@ class AdvancedFundFlowMetricsService:
                             total_deceptive_pressure += deceptive_pressure_score * price_change_in_rally
                 if total_rally_price_change > 0:
                     weighted_avg_pressure = total_deceptive_pressure / total_rally_price_change
-                    results['rally_distribution_pressure'] = weighted_avg_pressure * 100
+                    metrics['rally_distribution_pressure'] = weighted_avg_pressure * 100
                     if enable_probe and is_target_date:
                         print(f"  [探针] rally_distribution_pressure (高频-诡道派发) 计算:")
                         print(f"    - Weighted Avg Deceptive Artistry: {weighted_avg_pressure:.4f}")
                         print(f"      - [Components] BaitEff: {bait_efficiency:.2f}, DistDom(HF): {distribution_dominance:.2f}, Frenzy: {follower_frenzy:.2f}")
-                        print(f"    -> Final Score: {results['rally_distribution_pressure']:.2f}")
+                        print(f"    -> Final Score: {metrics['rally_distribution_pressure']:.2f}")
             else:
                 if pd.notna(daily_vwap):
                     absorption_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < daily_vwap]
@@ -1063,7 +1055,7 @@ class AdvancedFundFlowMetricsService:
                                 absorption_cost = (mf_absorption_df['minute_vwap'] * mf_absorption_df['main_force_net_vol']).sum() / absorption_vol
                                 cost_deviation = (daily_vwap - absorption_cost) / atr
                                 if daily_total_volume > 0:
-                                    results['dip_absorption_power'] = (absorption_vol / daily_total_volume) * cost_deviation * 100
+                                    metrics['dip_absorption_power'] = (absorption_vol / daily_total_volume) * cost_deviation * 100
                 rally_dist_vol, total_rally_vol = 0, 0
                 for i in range(len(turning_points) - 1):
                     start_idx, end_idx = turning_points[i], turning_points[i+1]
@@ -1076,20 +1068,27 @@ class AdvancedFundFlowMetricsService:
                         if mf_net_vol < 0:
                             rally_dist_vol += abs(mf_net_vol)
                 if total_rally_vol > 0:
-                    results['rally_distribution_pressure'] = (rally_dist_vol / total_rally_vol) * 100
-        if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns and 'mid_price_change' in hf_analysis_df.columns:
-            mf_ofi_series = hf_analysis_df['main_force_ofi']
-            price_change_series = hf_analysis_df['mid_price_change']
-            if mf_ofi_series.var() > 0 and price_change_series.var() > 0:
-                results['ofi_price_impact_factor'] = mf_ofi_series.corr(price_change_series)
-        # --- 升级指标: reversal_power_index (V型反转力度) ---
+                    metrics['rally_distribution_pressure'] = (rally_dist_vol / total_rally_vol) * 100
+        return metrics
+
+    def _calculate_reversal_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+        """
+        【V47.0 · 模块化重构版】
+        新增方法: 计算V型反转力度指标。
+        """
+        import numpy as np
+        metrics = {}
+        day_open, day_close = common_data['day_open'], common_data['day_close']
+        day_high, day_low = common_data['day_high'], common_data['day_low']
+        atr = common_data['atr']
+        daily_total_volume = common_data['daily_total_volume']
         if len(intraday_data) >= 10 and pd.notna(day_open) and pd.notna(day_close) and pd.notna(day_high) and pd.notna(day_low) and pd.notna(atr) and atr > 0 and daily_total_volume > 0:
             day_range = day_high - day_low
             if day_range > 0:
                 is_v_shape = (day_close - day_open) > 0
                 turn_point_idx = np.argmin(intraday_data['low'].values) if is_v_shape else np.argmax(intraday_data['high'].values)
                 if 0 < turn_point_idx < len(intraday_data) - 1:
-                    if not hf_analysis_df.empty: # [高频路径]
+                    if not hf_analysis_df.empty:
                         turn_point_time = intraday_data.index[turn_point_idx]
                         initial_phase_hf = hf_analysis_df[hf_analysis_df.index < turn_point_time]
                         reversal_phase_hf = hf_analysis_df[hf_analysis_df.index >= turn_point_time]
@@ -1105,12 +1104,12 @@ class AdvancedFundFlowMetricsService:
                             reversal_ofi = reversal_phase_hf['main_force_ofi']
                             CounterAttack_Component = np.tanh(reversal_ofi.sum() / daily_total_volume)
                             power_score = PriceRecovery_Component * (1 + Exhaustion_Component) * CounterAttack_Component
-                            results['reversal_power_index'] = power_score * 100
+                            metrics['reversal_power_index'] = power_score * 100
                             if enable_probe and is_target_date:
                                 print(f"  [探针] reversal_power_index (高频-V型反转) 计算:")
                                 print(f"    - PriceRecovery: {PriceRecovery_Component:.4f}, Exhaustion: {Exhaustion_Component:.4f}, CounterAttack: {CounterAttack_Component:.4f}")
-                                print(f"    -> Final Score: {results['reversal_power_index']:.2f}")
-                    else: # [分钟降级路径]
+                                print(f"    -> Final Score: {metrics['reversal_power_index']:.2f}")
+                    else:
                         initial_phase = intraday_data.iloc[:turn_point_idx]
                         reversal_phase = intraday_data.iloc[turn_point_idx:]
                         vol_initial, vol_reversal = initial_phase['vol_shares'].sum(), reversal_phase['vol_shares'].sum()
@@ -1121,11 +1120,139 @@ class AdvancedFundFlowMetricsService:
                             reversal_mf_net_vol = reversal_phase['main_force_net_vol'].sum()
                             reversal_conviction = reversal_mf_net_vol / vol_reversal if vol_reversal > 0 else 0
                             power_score = price_recovery * vol_shift * reversal_conviction
-                            results['reversal_power_index'] = power_score if is_v_shape else -power_score
-        if 'main_force_buy_vol' in intraday_data.columns and 'main_force_sell_vol' in intraday_data.columns and mf_activity_ratio > 0:
-            mf_activity_ratio = (intraday_data['main_force_buy_vol'].sum() + intraday_data['main_force_sell_vol'].sum()) / daily_total_volume
-            price_outcome = (day_close - day_open) / atr
-            results['trend_conviction_ratio'] = price_outcome / mf_activity_ratio
+                            metrics['reversal_power_index'] = power_score if is_v_shape else -power_score
+        return metrics
+
+    def _calculate_closing_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+        """
+        【V47.0 · 模块化重构版】
+        新增方法: 计算收盘相关的战术指标。
+        """
+        from datetime import time
+        import numpy as np
+        metrics = {}
+        day_close = common_data['day_close']
+        daily_vwap = common_data['daily_vwap']
+        atr = common_data['atr']
+        continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
+        if not continuous_trading_df.empty and pd.notna(atr) and atr > 0:
+            auction_df = intraday_data[intraday_data.index.time >= time(14, 57)]
+            if not auction_df.empty:
+                avg_minute_vol = continuous_trading_df['vol_shares'].mean()
+                auction_vol = auction_df['vol_shares'].sum()
+                VolumeAnomaly = np.log1p((auction_vol / 3) / avg_minute_vol) if avg_minute_vol > 0 else 0.0
+                if not hf_analysis_df.empty:
+                    pre_auction_snapshot = hf_analysis_df[hf_analysis_df.index < time(14, 57)].iloc[-1]
+                    pre_auction_mid = pre_auction_snapshot['mid_price']
+                    pre_auction_imbalance = pre_auction_snapshot['imbalance']
+                    PriceDeviation = (day_close - pre_auction_mid) / atr if pd.notna(pre_auction_mid) else 0.0
+                    Deception = -np.sign(PriceDeviation) * pre_auction_imbalance if pd.notna(pre_auction_imbalance) else 0.0
+                    metrics['closing_auction_ambush'] = PriceDeviation * VolumeAnomaly * (1 + Deception) * 100
+                    if enable_probe and is_target_date:
+                        print(f"  [探针] closing_auction_ambush (高频-竞价伏击) 计算:")
+                        print(f"    - pre_auction_mid: {pre_auction_mid:.2f}, day_close: {day_close:.2f}, atr: {atr:.2f}")
+                        print(f"    - PriceDeviation: {PriceDeviation:.4f}, VolumeAnomaly: {VolumeAnomaly:.4f}, Deception: {Deception:.4f}")
+                        print(f"    -> Final Score: {metrics['closing_auction_ambush']:.2f}")
+                else:
+                    pre_auction_close = continuous_trading_df['close'].iloc[-1]
+                    PriceImpact = (day_close - pre_auction_close) / atr if pd.notna(pre_auction_close) else 0.0
+                    metrics['closing_auction_ambush'] = PriceImpact * VolumeAnomaly * 100
+            posturing_df = continuous_trading_df[continuous_trading_df.index.time >= time(14, 30)]
+            if pd.notna(daily_vwap) and not posturing_df.empty:
+                if not hf_analysis_df.empty:
+                    posturing_hf_df = hf_analysis_df[hf_analysis_df.index.time >= time(14, 30)]
+                    if not posturing_hf_df.empty:
+                        time_diffs = posturing_hf_df.index.to_series().diff().dt.total_seconds().fillna(0)
+                        if time_diffs.sum() > 0:
+                            avg_imbalance = np.average(posturing_hf_df['imbalance'].dropna(), weights=time_diffs[posturing_hf_df['imbalance'].notna()])
+                            avg_spread = (posturing_hf_df['sell_price1'] - posturing_hf_df['buy_price1']).mean()
+                            normalized_imbalance = avg_imbalance * (avg_spread / atr) if pd.notna(avg_spread) and avg_spread > 0 else 0
+                            metrics['pre_closing_posturing'] = normalized_imbalance * 100
+                            if enable_probe and is_target_date:
+                                print(f"  [探针] pre_closing_posturing (高频-收盘姿态) 计算:")
+                                print(f"    - Avg Imbalance: {avg_imbalance:.4f}, Avg Spread: {avg_spread:.4f}, ATR: {atr:.2f}")
+                                print(f"    -> Final Score: {metrics['pre_closing_posturing']:.2f}")
+                else:
+                    if 'vol_shares' in posturing_df.columns and 'minute_vwap' in posturing_df.columns and 'main_force_net_vol' in posturing_df.columns:
+                        posturing_vwap = (posturing_df['vol_shares'] * posturing_df['minute_vwap']).sum() / posturing_df['vol_shares'].sum()
+                        price_posture = (posturing_vwap - daily_vwap) / atr
+                        posturing_amount = (posturing_df['vol_shares'] * posturing_df['minute_vwap']).sum()
+                        if posturing_amount > 0:
+                            force_posture = (posturing_df['main_force_net_vol'].sum() * posturing_vwap) / posturing_amount
+                            metrics['pre_closing_posturing'] = (0.6 * price_posture + 0.4 * force_posture) * 100
+        return metrics
+
+    def _calculate_hidden_accumulation_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+        """
+        【V47.0 · 模块化重构版】
+        新增方法: 计算隐蔽吸筹强度指标。
+        """
+        import numpy as np
+        metrics = {}
+        daily_vwap = common_data['daily_vwap']
+        if not hf_analysis_df.empty and pd.notna(daily_vwap):
+            absorption_zone = hf_analysis_df[hf_analysis_df['mid_price'] < daily_vwap].copy()
+            if not absorption_zone.empty:
+                passive_absorption_mask = (absorption_zone['type'] == 'S') & (absorption_zone['price'] <= absorption_zone['prev_b1_p'])
+                passive_absorption_vol = absorption_zone.loc[passive_absorption_mask, 'volume'].sum()
+                total_vol_below_vwap = absorption_zone['volume'].sum()
+                passive_absorption_component = passive_absorption_vol / total_vol_below_vwap if total_vol_below_vwap > 0 else 0.0
+                impact_suppression_component = 0.0
+                if not absorption_zone.empty and absorption_zone['main_force_ofi'].var() > 0 and absorption_zone['mid_price_change'].var() > 0:
+                    correlation = absorption_zone['main_force_ofi'].corr(absorption_zone['mid_price_change'])
+                    impact_suppression_component = -np.tanh(correlation) if pd.notna(correlation) else 0.0
+                total_book_depth = absorption_zone[[f'{d}_volume{i}' for d in ['buy', 'sell'] for i in range(1, 6)]].sum(axis=1)
+                bid_depth_ratio = absorption_zone['buy_volume1'] / total_book_depth.replace(0, np.nan)
+                liquidity_commitment_component = bid_depth_ratio.mean() if not bid_depth_ratio.empty else 0.0
+                metrics['hidden_accumulation_intensity'] = (0.5 * passive_absorption_component + 0.3 * impact_suppression_component + 0.2 * liquidity_commitment_component) * 100
+                if enable_probe and is_target_date:
+                    print(f"  [探针] hidden_accumulation_intensity (高频-隐蔽吸筹) 计算:")
+                    print(f"    - PassiveAbsorption (Efficiency): {passive_absorption_component:.4f}, ImpactSuppression: {impact_suppression_component:.4f}, LiquidityCommitment: {liquidity_commitment_component:.4f}")
+                    print(f"    -> Final Score: {metrics['hidden_accumulation_intensity']:.2f}")
+        else:
+            dip_or_flat_df = intraday_data[intraday_data['close'] <= intraday_data['open']]
+            if not dip_or_flat_df.empty:
+                total_vol_dip = dip_or_flat_df['vol_shares'].sum()
+                if total_vol_dip > 0 and 'main_force_net_vol' in dip_or_flat_df.columns:
+                    mf_net_buy_on_dip = dip_or_flat_df['main_force_net_vol'].clip(lower=0).sum()
+                    metrics['hidden_accumulation_intensity'] = (mf_net_buy_on_dip / total_vol_dip) * 100
+        return metrics
+
+    def _calculate_vwap_related_metrics(self, intraday_data: pd.DataFrame, common_data: dict) -> dict:
+        """
+        【V47.0 · 模块化重构版】
+        新增方法: 计算与VWAP相关的指标。
+        """
+        import numpy as np
+        import pandas as pd
+        metrics = {}
+        daily_vwap = common_data['daily_vwap']
+        daily_total_volume = common_data['daily_total_volume']
+        atr = common_data['atr']
+        if pd.notna(daily_vwap) and daily_total_volume > 0 and pd.notna(atr) and atr > 0 and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
+            price_deviation_value = (intraday_data['minute_vwap'] - daily_vwap) * intraday_data['vol_shares']
+            metrics['vwap_control_strength'] = price_deviation_value.sum() / (atr * daily_total_volume)
+            price_dev_series = intraday_data['minute_vwap'] - daily_vwap
+            mf_net_flow_series = intraday_data['main_force_net_vol']
+            if price_dev_series.var() != 0 and mf_net_flow_series.var() != 0 and len(price_dev_series) > 1:
+                correlation = price_dev_series.corr(mf_net_flow_series)
+                metrics['main_force_vwap_guidance'] = correlation if pd.notna(correlation) else np.nan
+            position_vs_vwap = np.sign(intraday_data['minute_vwap'] - daily_vwap)
+            crossings = position_vs_vwap.diff().ne(0)
+            metrics['vwap_crossing_intensity'] = intraday_data.loc[crossings, 'vol_shares'].sum() / daily_total_volume
+            twap = intraday_data['minute_vwap'].mean()
+            if pd.notna(twap) and twap > 0:
+                metrics['vwap_structure_skew'] = (daily_vwap - twap) / twap * 100
+        return metrics
+
+    def _calculate_cmf_metrics(self, intraday_data: pd.DataFrame) -> dict:
+        """
+        【V47.0 · 模块化重构版】
+        新增方法: 计算Chaikin Money Flow (CMF)相关指标。
+        """
+        import pandas as pd
+        import numpy as np
+        metrics = {}
         if 'minute_vwap' in intraday_data.columns and 'high' in intraday_data.columns and 'low' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
             df_cmf = intraday_data.copy()
             cols_to_process = ['high', 'low', 'minute_vwap']
@@ -1137,12 +1264,24 @@ class AdvancedFundFlowMetricsService:
                 mfm = ((df_cmf['minute_vwap'] - df_cmf['low']) - (df_cmf['high'] - df_cmf['minute_vwap'])) / price_range_cmf.replace(0, np.nan)
                 mfm.fillna(0, inplace=True)
                 if df_cmf['vol_shares'].sum() > 0:
-                    results['holistic_cmf'] = (mfm * df_cmf['vol_shares']).sum() / df_cmf['vol_shares'].sum()
+                    metrics['holistic_cmf'] = (mfm * df_cmf['vol_shares']).sum() / df_cmf['vol_shares'].sum()
                 if df_cmf['main_force_net_vol'].abs().sum() > 0:
-                    results['main_force_cmf'] = (mfm * df_cmf['main_force_net_vol']).sum() / df_cmf['main_force_net_vol'].abs().sum()
-                results['cmf_divergence_score'] = results.get('main_force_cmf', np.nan) - results.get('holistic_cmf', np.nan)
-        if 'main_force_net_vol' in intraday_data.columns and pd.notna(day_close) and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns:
+                    metrics['main_force_cmf'] = (mfm * df_cmf['main_force_net_vol']).sum() / df_cmf['main_force_net_vol'].abs().sum()
+                metrics['cmf_divergence_score'] = metrics.get('main_force_cmf', np.nan) - metrics.get('holistic_cmf', np.nan)
+        return metrics
+
+    def _calculate_vpoc_metrics(self, intraday_data: pd.DataFrame, common_data: dict) -> dict:
+        """
+        【V47.0 · 模块化重构版】
+        新增方法: 计算成交量分布(Volume Profile)相关指标。
+        """
+        import pandas as pd
+        import numpy as np
+        metrics = {}
+        daily_total_amount = common_data['daily_total_amount']
+        if 'main_force_net_vol' in intraday_data.columns and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns:
             vp_global = intraday_data.groupby(pd.cut(intraday_data['minute_vwap'], bins=30, duplicates='drop'))['vol_shares'].sum()
+            global_vpoc_price = np.nan
             if not vp_global.empty:
                 vpoc_interval = vp_global.idxmax()
                 global_vpoc_price = vpoc_interval.mid
@@ -1151,98 +1290,42 @@ class AdvancedFundFlowMetricsService:
                     mf_net_vol_on_peak = peak_zone_df['main_force_net_vol'].sum()
                     if daily_total_amount > 0:
                         normalized_mf_on_peak_flow = np.tanh((mf_net_vol_on_peak * global_vpoc_price) / daily_total_amount)
-                        results['main_force_on_peak_flow'] = normalized_mf_on_peak_flow
+                        metrics['main_force_on_peak_flow'] = normalized_mf_on_peak_flow
             mf_net_buy_df = intraday_data[intraday_data['main_force_net_vol'] > 0]
             if not mf_net_buy_df.empty:
                 vp_mf = mf_net_buy_df.groupby(pd.cut(mf_net_buy_df['minute_vwap'], bins=30, duplicates='drop'))['main_force_net_vol'].sum()
                 if not vp_mf.empty:
                     mf_vpoc = vp_mf.idxmax().mid
-                    results['main_force_vpoc'] = mf_vpoc
+                    metrics['main_force_vpoc'] = mf_vpoc
                     if pd.notna(global_vpoc_price) and global_vpoc_price > 0 and pd.notna(mf_vpoc):
-                        results['mf_vpoc_premium'] = (mf_vpoc / global_vpoc_price - 1) * 100
+                        metrics['mf_vpoc_premium'] = (mf_vpoc / global_vpoc_price - 1) * 100
+        return metrics
+
+    def _calculate_liquidity_swap_metrics(self, intraday_data: pd.DataFrame) -> dict:
+        """
+        【V47.0 · 模块化重构版】
+        新增方法: 计算主力与散户流动性交换指标。
+        """
+        metrics = {}
         if 'main_force_net_vol' in intraday_data.columns and 'retail_net_vol' in intraday_data.columns:
             mf_net_series = intraday_data['main_force_net_vol']
             retail_net_series = intraday_data['retail_net_vol']
             if mf_net_series.var() != 0 and retail_net_series.var() != 0 and len(mf_net_series) > 1:
                 rolling_corr = mf_net_series.rolling(window=30).corr(retail_net_series)
-                results['mf_retail_liquidity_swap_corr'] = rolling_corr.mean()
-        if pd.notna(daily_vwap) and daily_total_volume > 0 and pd.notna(atr) and atr > 0 and not continuous_trading_df.empty and 'close' in continuous_trading_df.columns and 'open' in continuous_trading_df.columns and 'vol_shares' in continuous_trading_df.columns and 'minute_vwap' in continuous_trading_df.columns and 'main_force_net_vol' in continuous_trading_df.columns:
-            up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
-            down_minutes = continuous_trading_df[continuous_trading_df['close'] < continuous_trading_df['open']]
-            if not up_minutes.empty and not down_minutes.empty:
-                up_price_change = (up_minutes['close'] - up_minutes['open']).sum()
-                down_price_change = (down_minutes['open'] - down_minutes['close']).sum()
-                avg_up_speed = up_price_change / len(up_minutes) if len(up_minutes) > 0 else 0
-                avg_down_speed = down_price_change / len(down_minutes) if len(down_minutes) > 0 else 0
-                if avg_up_speed > 0 and avg_down_speed > 0:
-                    results['volatility_asymmetry_index'] = np.log(avg_up_speed / avg_down_speed)
-            day_range = day_high - day_low
-            if day_range > 0:
-                range_pos_factor = ((day_close - day_low) / day_range) * 2 - 1
-                value_dev_factor = np.tanh((day_close - daily_vwap) / atr)
-                force_balance_factor = intraday_data['main_force_net_vol'].sum() / daily_total_volume if daily_total_volume > 0 else 0
-                results['closing_price_deviation_score'] = (0.5 * range_pos_factor + 0.3 * value_dev_factor + 0.2 * force_balance_factor) * 100
-            # --- 升级指标: closing_auction_ambush (尾盘集合竞价伏击) ---
-            auction_df = intraday_data[intraday_data.index.time >= time(14, 57)]
-            if not auction_df.empty and not continuous_trading_df.empty and pd.notna(atr) and atr > 0:
-                avg_minute_vol = continuous_trading_df['vol_shares'].mean()
-                auction_vol = auction_df['vol_shares'].sum()
-                VolumeAnomaly = np.log1p((auction_vol / 3) / avg_minute_vol) if avg_minute_vol > 0 else 0.0
-                if not hf_analysis_df.empty: # [高频路径]
-                    pre_auction_snapshot = hf_analysis_df[hf_analysis_df.index < time(14, 57)].iloc[-1]
-                    pre_auction_mid = pre_auction_snapshot['mid_price']
-                    pre_auction_imbalance = pre_auction_snapshot['imbalance']
-                    PriceDeviation = (day_close - pre_auction_mid) / atr if pd.notna(pre_auction_mid) else 0.0
-                    Deception = -np.sign(PriceDeviation) * pre_auction_imbalance if pd.notna(pre_auction_imbalance) else 0.0
-                    results['closing_auction_ambush'] = PriceDeviation * VolumeAnomaly * (1 + Deception) * 100
-                    if enable_probe and is_target_date:
-                        print(f"  [探针] closing_auction_ambush (高频-竞价伏击) 计算:")
-                        print(f"    - pre_auction_mid: {pre_auction_mid:.2f}, day_close: {day_close:.2f}, atr: {atr:.2f}")
-                        print(f"    - PriceDeviation: {PriceDeviation:.4f}, VolumeAnomaly: {VolumeAnomaly:.4f}, Deception: {Deception:.4f}")
-                        print(f"    -> Final Score: {results['closing_auction_ambush']:.2f}")
-                else: # [分钟降级路径]
-                    pre_auction_close = continuous_trading_df['close'].iloc[-1]
-                    PriceImpact = (day_close - pre_auction_close) / atr if pd.notna(pre_auction_close) else 0.0
-                    results['closing_auction_ambush'] = PriceImpact * VolumeAnomaly * 100
-            else:
-                results['closing_auction_ambush'] = np.nan
-            panic_vol, total_panic_vol = 0, 0
-            for i in range(len(turning_points) - 1):
-                start_idx, end_idx = turning_points[i], turning_points[i+1]
-                window_df = continuous_trading_df.iloc[start_idx:end_idx+1]
-                if window_df.empty or len(window_df) < 2 or 'minute_vwap' not in window_df.columns or 'main_force_net_vol' not in window_df.columns or 'vol_shares' not in window_df.columns:
-                    continue
-                mf_net_vol = window_df['main_force_net_vol'].sum()
-                window_vol = window_df['vol_shares'].sum()
-                if window_df['minute_vwap'].iloc[-1] <= window_df['minute_vwap'].iloc[0]:
-                    total_panic_vol += window_vol
-                    if mf_net_vol < 0:
-                        panic_vol += abs(mf_net_vol)
-            if total_panic_vol > 0:
-                results['panic_selling_cascade'] = (panic_vol / total_panic_vol) * 100
-            posturing_df = continuous_trading_df[continuous_trading_df.index.time >= time(14, 30)]
-            if pd.notna(daily_vwap) and atr > 0 and not posturing_df.empty:
-                if not hf_analysis_df.empty:
-                    posturing_hf_df = hf_analysis_df[hf_analysis_df.index.time >= time(14, 30)]
-                    if not posturing_hf_df.empty:
-                        time_diffs = posturing_hf_df.index.to_series().diff().dt.total_seconds().fillna(0)
-                        if time_diffs.sum() > 0:
-                            avg_imbalance = np.average(posturing_hf_df['imbalance'].dropna(), weights=time_diffs[posturing_hf_df['imbalance'].notna()])
-                            avg_spread = (posturing_hf_df['sell_price1'] - posturing_hf_df['buy_price1']).mean()
-                            normalized_imbalance = avg_imbalance * (avg_spread / atr) if pd.notna(avg_spread) and avg_spread > 0 else 0
-                            results['pre_closing_posturing'] = normalized_imbalance * 100
-                            if enable_probe and is_target_date:
-                                print(f"  [探针] pre_closing_posturing (高频-收盘姿态) 计算:")
-                                print(f"    - Avg Imbalance: {avg_imbalance:.4f}, Avg Spread: {avg_spread:.4f}, ATR: {atr:.2f}")
-                                print(f"    -> Final Score: {results['pre_closing_posturing']:.2f}")
-                else:
-                    if 'vol_shares' in posturing_df.columns and 'minute_vwap' in posturing_df.columns and 'main_force_net_vol' in posturing_df.columns:
-                        posturing_vwap = (posturing_df['vol_shares'] * posturing_df['minute_vwap']).sum() / posturing_df['vol_shares'].sum()
-                        price_posture = (posturing_vwap - daily_vwap) / atr
-                        posturing_amount = (posturing_df['vol_shares'] * posturing_df['minute_vwap']).sum()
-                        if posturing_amount > 0:
-                            force_posture = (posturing_df['main_force_net_vol'].sum() * posturing_vwap) / posturing_amount
-                            results['pre_closing_posturing'] = (0.6 * price_posture + 0.4 * force_posture) * 100
+                metrics['mf_retail_liquidity_swap_corr'] = rolling_corr.mean()
+        return metrics
+
+    def _calculate_retail_sentiment_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, common_data: dict) -> dict:
+        """
+        【V47.0 · 模块化重构版】
+        新增方法: 计算散户情绪指标(FOMO/Panic)。
+        """
+        from datetime import time
+        import pandas as pd
+        metrics = {}
+        day_high, day_low = common_data['day_high'], common_data['day_low']
+        continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
+        if pd.notna(day_high) and pd.notna(day_low):
             day_range = day_high - day_low
             if day_range > 0:
                 fomo_zone_threshold = day_low + 0.75 * day_range
@@ -1257,7 +1340,7 @@ class AdvancedFundFlowMetricsService:
                             cost_mf_sell = daily_data.get('avg_cost_main_sell')
                             if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
                                 premium = (cost_fomo / cost_mf_sell - 1)
-                                results['retail_fomo_premium_index'] = premium * (fomo_vol / total_retail_buy_vol) * 100
+                                metrics['retail_fomo_premium_index'] = premium * (fomo_vol / total_retail_buy_vol) * 100
                 panic_zone_threshold = day_low + 0.25 * day_range
                 panic_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < panic_zone_threshold]
                 if not panic_zone_df.empty and 'retail_net_vol' in panic_zone_df.columns and 'retail_sell_vol' in continuous_trading_df.columns and 'minute_vwap' in panic_zone_df.columns:
@@ -1270,46 +1353,83 @@ class AdvancedFundFlowMetricsService:
                             cost_mf_buy = daily_data.get('avg_cost_main_buy')
                             if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
                                 discount = (cost_mf_buy - cost_panic) / cost_mf_buy
-                                results['retail_panic_surrender_index'] = discount * (panic_vol / total_retail_sell_vol) * 100
-        # --- 升级指标: hidden_accumulation_intensity (隐蔽吸筹强度) ---
-        if not hf_analysis_df.empty and pd.notna(daily_vwap): # [高频路径]
-            absorption_zone = hf_analysis_df[hf_analysis_df['mid_price'] < daily_vwap].copy()
-            if not absorption_zone.empty:
-                passive_absorption_mask = (absorption_zone['type'] == 'S') & (absorption_zone['price'] <= absorption_zone['prev_b1_p'])
-                passive_absorption_vol = absorption_zone.loc[passive_absorption_mask, 'volume'].sum()
-                total_vol_below_vwap = absorption_zone['volume'].sum()
-                passive_absorption_component = passive_absorption_vol / total_vol_below_vwap if total_vol_below_vwap > 0 else 0.0
-                impact_suppression_component = 0.0
-                if not absorption_zone.empty and absorption_zone['main_force_ofi'].var() > 0 and absorption_zone['mid_price_change'].var() > 0:
-                    correlation = absorption_zone['main_force_ofi'].corr(absorption_zone['mid_price_change'])
-                    impact_suppression_component = -np.tanh(correlation) if pd.notna(correlation) else 0.0
-                total_book_depth = absorption_zone[[f'{d}_volume{i}' for d in ['buy', 'sell'] for i in range(1, 6)]].sum(axis=1)
-                bid_depth_ratio = absorption_zone['buy_volume1'] / total_book_depth.replace(0, np.nan)
-                liquidity_commitment_component = bid_depth_ratio.mean() if not bid_depth_ratio.empty else 0.0
-                results['hidden_accumulation_intensity'] = (0.5 * passive_absorption_component + 0.3 * impact_suppression_component + 0.2 * liquidity_commitment_component) * 100
-                if enable_probe and is_target_date:
-                    print(f"  [探针] hidden_accumulation_intensity (高频-隐蔽吸筹) 计算:")
-                    print(f"    - PassiveAbsorption (Efficiency): {passive_absorption_component:.4f}, ImpactSuppression: {impact_suppression_component:.4f}, LiquidityCommitment: {liquidity_commitment_component:.4f}")
-                    print(f"    -> Final Score: {results['hidden_accumulation_intensity']:.2f}")
-            else:
-                results['hidden_accumulation_intensity'] = 0.0
-        else: # [分钟降级路径]
-            dip_or_flat_df = intraday_data[intraday_data['close'] <= intraday_data['open']]
-            if not dip_or_flat_df.empty:
-                total_vol_dip = dip_or_flat_df['vol_shares'].sum()
-                if total_vol_dip > 0 and 'main_force_net_vol' in dip_or_flat_df.columns:
-                    mf_net_buy_on_dip = dip_or_flat_df['main_force_net_vol'].clip(lower=0).sum()
-                    results['hidden_accumulation_intensity'] = (mf_net_buy_on_dip / total_vol_dip) * 100
-            else:
-                results['hidden_accumulation_intensity'] = 0.0
-        if not intraday_data.empty and 'main_force_net_vol' in intraday_data.columns and 'close' in intraday_data.columns:
+                                metrics['retail_panic_surrender_index'] = discount * (panic_vol / total_retail_sell_vol) * 100
+        return metrics
+
+    def _calculate_misc_minute_metrics(self, intraday_data: pd.DataFrame, common_data: dict) -> dict:
+        """
+        【V47.0 · 模块化重构版】
+        新增方法: 计算其他基于分钟线的杂项指标。
+        """
+        from datetime import time
+        from scipy.signal import find_peaks
+        import numpy as np
+        import pandas as pd
+        metrics = {}
+        day_open, day_close = common_data['day_open'], common_data['day_close']
+        day_high, day_low = common_data['day_high'], common_data['day_low']
+        daily_vwap = common_data['daily_vwap']
+        atr = common_data['atr']
+        daily_total_volume = common_data['daily_total_volume']
+        if 'main_force_buy_vol' in intraday_data.columns and 'main_force_sell_vol' in intraday_data.columns and pd.notna(atr) and atr > 0:
+            mf_activity_ratio = (intraday_data['main_force_buy_vol'].sum() + intraday_data['main_force_sell_vol'].sum()) / daily_total_volume if daily_total_volume > 0 else 0.0
+            if mf_activity_ratio > 0:
+                price_outcome = (day_close - day_open) / atr
+                metrics['trend_conviction_ratio'] = price_outcome / mf_activity_ratio
+        continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
+        if not continuous_trading_df.empty and 'close' in continuous_trading_df.columns and 'open' in continuous_trading_df.columns:
+            up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
+            down_minutes = continuous_trading_df[continuous_trading_df['close'] < continuous_trading_df['open']]
+            if not up_minutes.empty and not down_minutes.empty:
+                up_price_change = (up_minutes['close'] - up_minutes['open']).sum()
+                down_price_change = (down_minutes['open'] - down_minutes['close']).sum()
+                avg_up_speed = up_price_change / len(up_minutes) if len(up_minutes) > 0 else 0
+                avg_down_speed = down_price_change / len(down_minutes) if len(down_minutes) > 0 else 0
+                if avg_up_speed > 0 and avg_down_speed > 0:
+                    metrics['volatility_asymmetry_index'] = np.log(avg_up_speed / avg_down_speed)
+        if pd.notna(day_high) and pd.notna(day_low) and pd.notna(day_close) and pd.notna(daily_vwap) and pd.notna(atr) and atr > 0 and daily_total_volume > 0:
+            day_range = day_high - day_low
+            if day_range > 0:
+                range_pos_factor = ((day_close - day_low) / day_range) * 2 - 1
+                value_dev_factor = np.tanh((day_close - daily_vwap) / atr)
+                force_balance_factor = intraday_data['main_force_net_vol'].sum() / daily_total_volume if 'main_force_net_vol' in intraday_data.columns else 0.0
+                metrics['closing_price_deviation_score'] = (0.5 * range_pos_factor + 0.3 * value_dev_factor + 0.2 * force_balance_factor) * 100
+        if not continuous_trading_df.empty and 'minute_vwap' in continuous_trading_df.columns:
+            peaks, _ = find_peaks(continuous_trading_df['minute_vwap'].values)
+            troughs, _ = find_peaks(-continuous_trading_df['minute_vwap'].values)
+            turning_points = sorted(list(set(np.concatenate(([0], troughs, peaks, [len(continuous_trading_df)-1])))))
+            panic_vol, total_panic_vol = 0, 0
+            for i in range(len(turning_points) - 1):
+                start_idx, end_idx = turning_points[i], turning_points[i+1]
+                window_df = continuous_trading_df.iloc[start_idx:end_idx+1]
+                if window_df.empty or len(window_df) < 2 or 'minute_vwap' not in window_df.columns or 'main_force_net_vol' not in window_df.columns or 'vol_shares' not in window_df.columns:
+                    continue
+                mf_net_vol = window_df['main_force_net_vol'].sum()
+                window_vol = window_df['vol_shares'].sum()
+                if window_df['minute_vwap'].iloc[-1] <= window_df['minute_vwap'].iloc[0]:
+                    total_panic_vol += window_vol
+                    if mf_net_vol < 0:
+                        panic_vol += abs(mf_net_vol)
+            if total_panic_vol > 0:
+                metrics['panic_selling_cascade'] = (panic_vol / total_panic_vol) * 100
+        if 'main_force_net_vol' in intraday_data.columns and 'close' in intraday_data.columns:
             intraday_data['price_change'] = intraday_data['close'].diff()
             if pd.notna(atr) and atr > 0:
                 intraday_data['price_change_norm'] = intraday_data['price_change'] / atr
                 mf_net_vol_series = intraday_data['main_force_net_vol']
                 price_change_norm_series = intraday_data['price_change_norm']
                 if mf_net_vol_series.var() > 0 and price_change_norm_series.var() > 0:
-                    results['microstructure_efficiency_index'] = mf_net_vol_series.corr(price_change_norm_series)
+                    metrics['microstructure_efficiency_index'] = mf_net_vol_series.corr(price_change_norm_series)
+        return metrics
+
+    def _calculate_misc_daily_metrics(self, daily_data: pd.Series, main_force_net_flow_calibrated: float) -> dict:
+        """
+        【V47.0 · 模块化重构版】
+        新增方法: 计算主要基于日线数据的杂项指标。
+        """
+        import pandas as pd
+        import numpy as np
+        metrics = {}
         WAN = 10000.0
         try:
             pct_change = pd.to_numeric(daily_data.get('pct_change'), errors='coerce')
@@ -1319,17 +1439,17 @@ class AdvancedFundFlowMetricsService:
                 flow_input = mf_flow_yuan / circ_mv_yuan
                 if abs(flow_input) > 1e-9:
                     efficiency = (pct_change / 100) / flow_input
-                    results['flow_efficiency_index'] = np.sign(efficiency) * np.log1p(abs(efficiency))
+                    metrics['flow_efficiency_index'] = np.sign(efficiency) * np.log1p(abs(efficiency))
         except Exception:
-            results['flow_efficiency_index'] = np.nan
+            metrics['flow_efficiency_index'] = np.nan
         try:
             trade_count = pd.to_numeric(daily_data.get('trade_count'), errors='coerce')
             turnover_amount_yuan = pd.to_numeric(daily_data.get('amount'), errors='coerce') * 1000
             if pd.notna(trade_count) and trade_count > 0 and pd.notna(turnover_amount_yuan) and turnover_amount_yuan > 0:
-                results['inferred_active_order_size'] = turnover_amount_yuan / trade_count
+                metrics['inferred_active_order_size'] = turnover_amount_yuan / trade_count
         except Exception:
-            results['inferred_active_order_size'] = np.nan
-        return results
+            metrics['inferred_active_order_size'] = np.nan
+        return metrics
 
     def _calculate_intraday_attribution_weights(self, intraday_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
         """
