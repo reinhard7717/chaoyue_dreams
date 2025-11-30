@@ -1046,23 +1046,13 @@ class ChipFeatureCalculator:
             'main_force_cost_advantage': np.nan,
             'auction_intent_signal': np.nan,
             'auction_closing_position': np.nan,
-            'main_force_cumulative_cost': np.nan, # 新增返回字段
+            'main_force_cumulative_cost': np.nan,
         }
-        debug_params = context.get('debug_params', {})
-        enable_probe = debug_params.get('enable_mfca_probe', False)
-        target_date_str = debug_params.get('target_date')
-        is_target_date = str(context.get('trade_date')) == target_date_str
-        stock_code = context.get('stock_code')
-        if enable_probe and is_target_date:
-            print(f"\n[探针 D.1 - {stock_code} @ {context.get('trade_date')}] 进入计算器 _compute_legacy_game_theory_metrics...")
+        # 修改代码行：移除了所有与 enable_mfca_probe 相关的探针代码
         close_price = context.get('close_price')
         daily_main_force_buy_cost = context.get('avg_cost_main_buy')
-        if enable_probe and is_target_date:
-            print(f"  - 接收到的当日主力买入成本 (avg_cost_main_buy): {daily_main_force_buy_cost}")
         prev_metrics = context.get('prev_metrics', {})
         prev_cumulative_cost = prev_metrics.get('main_force_cumulative_cost')
-        if enable_probe and is_target_date:
-            print(f"  - 接收到的前一日累积成本 (prev_cumulative_cost): {prev_cumulative_cost}")
         main_force_cumulative_cost = np.nan
         if pd.notna(daily_main_force_buy_cost):
             if pd.notna(prev_cumulative_cost):
@@ -1073,17 +1063,10 @@ class ChipFeatureCalculator:
                 main_force_cumulative_cost = daily_main_force_buy_cost
         elif pd.notna(prev_cumulative_cost):
             main_force_cumulative_cost = prev_cumulative_cost
-        if enable_probe and is_target_date:
-            print(f"  - EMA计算后的当日累积成本 (main_force_cumulative_cost): {main_force_cumulative_cost}")
-        # [修改代码块] 将累积成本存入 self.ctx 和返回字典
         self.ctx['main_force_cumulative_cost'] = main_force_cumulative_cost
         results['main_force_cumulative_cost'] = main_force_cumulative_cost
         if pd.notna(close_price) and pd.notna(main_force_cumulative_cost) and main_force_cumulative_cost > 0:
             results['main_force_cost_advantage'] = (close_price / main_force_cumulative_cost - 1) * 100
-            if enable_probe and is_target_date:
-                print(f"  - 计算成功! 收盘价: {close_price}, 最终主力成本优势: {results['main_force_cost_advantage']:.2f}%")
-        elif enable_probe and is_target_date:
-            print(f"  - 计算失败! 检查输入: close_price={close_price}, main_force_cumulative_cost={main_force_cumulative_cost}")
         intraday_df = context.get('processed_intraday_df')
         if not intraday_df.empty:
             auction_data = intraday_df.iloc[0]

@@ -174,16 +174,7 @@ class AdvancedChipMetricsService:
         debug_params = debug_params if debug_params is not None else {}
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             date_obj = trade_date.date()
-            enable_probe = debug_params.get('enable_mfca_probe', False)
-            target_date_str = debug_params.get('target_date')
-            is_target_date = str(date_obj) == target_date_str
-            if enable_probe and is_target_date:
-                print(f"\n[探针 C.1 - {stock_code} @ {date_obj}] 进入筹码服务 _synthesize_and_forge_metrics...")
-                print(f"  - 传入的 daily_full_df 的列: {daily_full_df.columns.tolist()}")
-                if 'avg_cost_main_buy' in daily_full_df.columns:
-                    print(f"  - 成功接收到 avg_cost_main_buy: {daily_full_df['avg_cost_main_buy'].iloc[0]}")
-                else:
-                    print("  - 警告: daily_full_df 中未找到 avg_cost_main_buy 列！")
+            # 修改代码行：移除了所有与 enable_mfca_probe 相关的探针代码
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()
             if chip_data_for_calc.empty:
@@ -229,12 +220,7 @@ class AdvancedChipMetricsService:
                 'debug_params': debug_params,
                 'prev_metrics': prev_metrics,
             })
-            if enable_probe and is_target_date:
-                print(f"[探针 C.2 - {stock_code} @ {date_obj}] 准备传递给计算器的 context_for_calc...")
-                if 'avg_cost_main_buy' in context_for_calc:
-                    print(f"  - 成功包含 avg_cost_main_buy: {context_for_calc.get('avg_cost_main_buy')}")
-                else:
-                    print("  - 致命错误: context_for_calc 中仍未找到 avg_cost_main_buy！")
+            # 修改代码行：移除了所有与 enable_mfca_probe 相关的探针代码
             historical_data_for_day = {k: v for k, v in hist_comp_dict.items() if k < trade_date}
             if historical_data_for_day:
                 context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
@@ -278,7 +264,6 @@ class AdvancedChipMetricsService:
                 today_metrics_for_hist = {k: [daily_metrics.get(k)] for k in hist_comp_cols}
                 today_df = pd.DataFrame(today_metrics_for_hist, index=[trade_date])
                 hist_comp_dict.update(today_df.to_dict('index'))
-            # [修改代码块] 构建下一日的记忆
             next_prev_metrics = {
                 'chip_distribution': chip_data_for_calc,
                 'close_price': context_data.get('close_qfq'),
@@ -290,7 +275,6 @@ class AdvancedChipMetricsService:
                 'atr_14d': context_data.get('atr_14d'),
             }
             if daily_metrics:
-                # 核心修复：确保将当日计算出的累积成本存入记忆
                 next_prev_metrics['main_force_cumulative_cost'] = daily_metrics.get('main_force_cumulative_cost')
                 next_prev_metrics.update(daily_metrics)
             else:
@@ -299,7 +283,7 @@ class AdvancedChipMetricsService:
                     'dominant_peak_cost': None, 'chip_fatigue_index': 0.0,
                     'cost_gini_coefficient': None, 'total_winner_rate': None,
                     'price_volume_entropy': None, 'strategic_phase_score': None,
-                    'main_force_cumulative_cost': prev_metrics.get('main_force_cumulative_cost'), # 如果当天计算失败，继承前一天的
+                    'main_force_cumulative_cost': prev_metrics.get('main_force_cumulative_cost'),
                 })
             prev_metrics = next_prev_metrics
             if is_first_day_in_batch: is_first_day_in_batch = False

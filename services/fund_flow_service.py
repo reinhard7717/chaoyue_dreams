@@ -462,7 +462,7 @@ class AdvancedFundFlowMetricsService:
             results['main_force_activity_ratio'] = np.nan
             results['main_force_buy_rate_consensus'] = np.nan
             results['main_force_flow_directionality'] = np.nan
-        # 修改代码块：移除旧的信念指数计算逻辑，它将被新的动态信念指数在 `_compute_all_behavioral_metrics` 中取代
+        # 移除旧的信念指数计算逻辑，它将被新的动态信念指数在 `_compute_all_behavioral_metrics` 中取代
         results['main_force_conviction_index'] = np.nan
         try:
             mf_flow_calibrated = results.get('main_force_net_flow_calibrated')
@@ -685,7 +685,7 @@ class AdvancedFundFlowMetricsService:
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
         df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
-        # 修改代码块：升级探针，精确定位丢失的字段
+        # 升级探针，精确定位丢失的字段
         if enable_probe and is_target_date_in_df:
             print(f"\n[探针 S.1 - {stock_code} @ {self.debug_params['target_date']}] 进入 `_prepare_and_save_data` 保存前最终诊断...")
             filtered_cols_set = set(df_filtered.columns)
@@ -758,12 +758,11 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V36.0 · 信念路径分析版】
-        - 核心重构: 对“动态主力信念指数”的`Aggressiveness`（攻击性）组件进行算法升级，从简单的“全天斜率”
-                     进化为“路径质量分析”，通过趋势质量（与时间的相关性）和收盘强度（类似Stochastic指标）
-                     来更精确地刻画主力资金攻击过程的纪律性与控盘能力。
-        - 核心修复: 修正了 `dip_absorption_power` 中 `VolumeDominance` 组件因数据源口径不一导致的计算错误。
-        - 核心增强: 升级动态信念指数的探针，以反映新的子项计算。
+        【V37.0 · 隐蔽吸筹重构版】
+        - 核心重构: 废弃原有的基于分钟K线的 `hidden_accumulation_intensity` 算法，引入基于高频数据的
+                     “隐蔽吸筹强度”(Stealth Absorption Intensity)全新算法。从被动吸收成交、价格冲击抑制、
+                     流动性供给承诺三个维度，深度刻画主力在不惊动市场的情况下“静默吸筹”的能力。
+        - 核心增强: 为新的隐蔽吸筹强度指标植入专属诊断探针。
         """
         from scipy.signal import find_peaks
         from datetime import time
@@ -820,36 +819,28 @@ class AdvancedFundFlowMetricsService:
                 results['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
                 results['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
         if not hf_analysis_df.empty:
-            # 修改代码块：重构动态主力信念指数 (dynamic_main_force_conviction_index) 的 Aggressiveness 组件
             mf_ofi_cumsum = hf_analysis_df['main_force_ofi'].cumsum().fillna(0)
             aggressiveness_component = 0.0
             if not mf_ofi_cumsum.empty and mf_ofi_cumsum.nunique() > 1:
-                # 1. 攻击性 - 子项1: 趋势质量 (Trend Quality)
                 time_index = np.arange(len(mf_ofi_cumsum))
                 trend_quality = np.corrcoef(time_index, mf_ofi_cumsum)[0, 1]
                 trend_quality = np.nan_to_num(trend_quality)
-                # 2. 攻击性 - 子项2: 收盘强度 (Closing Strength)
                 ofi_min, ofi_max = mf_ofi_cumsum.min(), mf_ofi_cumsum.max()
                 closing_strength = (mf_ofi_cumsum.iloc[-1] - ofi_min) / (ofi_max - ofi_min) if (ofi_max - ofi_min) > 0 else 0.0
                 closing_strength = np.nan_to_num(closing_strength)
-                # 融合计算攻击性
                 aggressiveness_component = trend_quality * closing_strength
-            # 2. 成本容忍度 (Cost Tolerance)
             avg_cost_main_buy = daily_data.get('avg_cost_main_buy')
             avg_cost_main_sell = daily_data.get('avg_cost_main_sell')
             cost_tolerance_component = 0.0
             if pd.notna(avg_cost_main_buy) and pd.notna(avg_cost_main_sell) and avg_cost_main_sell > 0:
                 cost_tolerance_component = (avg_cost_main_buy / avg_cost_main_sell) - 1
-            # 3. 韧性 (Resilience)
             market_pressure_zone = hf_analysis_df['ofi'] < 0
             mf_resilience_ofi = hf_analysis_df.loc[market_pressure_zone, 'main_force_ofi'].clip(lower=0).sum()
             total_mf_positive_ofi = hf_analysis_df['main_force_ofi'].clip(lower=0).sum()
             resilience_component = mf_resilience_ofi / total_mf_positive_ofi if total_mf_positive_ofi > 0 else 0.0
-            # 最终裁决：三维信念融合
             results['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
             if enable_probe and is_target_date:
                 print(f"  [探针] main_force_conviction_index (动态信念) 计算:")
-                # 升级探针
                 print(f"    - Aggressiveness (TrendQuality * ClosingStrength): {aggressiveness_component:.4f} = ({trend_quality:.4f} * {closing_strength:.4f})")
                 print(f"    - Cost Tolerance (Buy/Sell Cost): {cost_tolerance_component:.4f}, Resilience (Absorption): {resilience_component:.4f}")
                 print(f"    -> Final Score: {results['main_force_conviction_index']:.2f}")
@@ -1230,13 +1221,41 @@ class AdvancedFundFlowMetricsService:
                             if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
                                 discount = (cost_mf_buy - cost_panic) / cost_mf_buy
                                 results['retail_panic_surrender_index'] = discount * (panic_vol / total_retail_sell_vol) * 100
-        if not intraday_data.empty and 'main_force_net_vol' in intraday_data.columns and 'open' in intraday_data.columns and 'close' in intraday_data.columns:
+        # 重构 hidden_accumulation_intensity (隐蔽吸筹强度)
+        if not hf_analysis_df.empty and pd.notna(daily_vwap):
+            absorption_zone = hf_analysis_df[hf_analysis_df['mid_price'] < daily_vwap].copy()
+            if not absorption_zone.empty:
+                # 1. 被动吸收成交 (Passive Absorption Volume)
+                passive_absorption_mask = (absorption_zone['type'] == 'S') & (absorption_zone['price'] <= absorption_zone['prev_b1_p'])
+                passive_absorption_vol = absorption_zone.loc[passive_absorption_mask, 'volume'].sum()
+                passive_absorption_component = passive_absorption_vol / daily_total_volume if daily_total_volume > 0 else 0.0
+                # 2. 价格冲击抑制 (Price Impact Suppression)
+                impact_suppression_component = 0.0
+                if not absorption_zone.empty and absorption_zone['main_force_ofi'].var() > 0 and absorption_zone['mid_price_change'].var() > 0:
+                    # 负相关性意味着OFI增加时价格反而下跌或不变，是极强的抑制信号
+                    correlation = absorption_zone['main_force_ofi'].corr(absorption_zone['mid_price_change'])
+                    impact_suppression_component = -np.tanh(correlation) if pd.notna(correlation) else 0.0
+                # 3. 流动性供给承诺 (Liquidity Provision Commitment)
+                total_book_depth = absorption_zone[[f'{d}_volume{i}' for d in ['buy', 'sell'] for i in range(1, 6)]].sum(axis=1)
+                bid_depth_ratio = absorption_zone['buy_volume1'] / total_book_depth.replace(0, np.nan)
+                liquidity_commitment_component = bid_depth_ratio.mean() if not bid_depth_ratio.empty else 0.0
+                # 最终裁决
+                results['hidden_accumulation_intensity'] = (0.5 * passive_absorption_component + 0.3 * impact_suppression_component + 0.2 * liquidity_commitment_component) * 100
+                if enable_probe and is_target_date:
+                    print(f"  [探针] hidden_accumulation_intensity (隐蔽吸筹) 计算:")
+                    print(f"    - PassiveAbsorption: {passive_absorption_component:.4f}, ImpactSuppression: {impact_suppression_component:.4f}, LiquidityCommitment: {liquidity_commitment_component:.4f}")
+                    print(f"    -> Final Score: {results['hidden_accumulation_intensity']:.2f}")
+            else:
+                results['hidden_accumulation_intensity'] = 0.0
+        else: # Fallback to old logic if no hf_data
             dip_or_flat_df = intraday_data[intraday_data['close'] <= intraday_data['open']]
             if not dip_or_flat_df.empty:
                 total_vol_dip = dip_or_flat_df['vol_shares'].sum()
                 if total_vol_dip > 0:
                     mf_net_buy_on_dip = dip_or_flat_df['main_force_net_vol'].clip(lower=0).sum()
                     results['hidden_accumulation_intensity'] = (mf_net_buy_on_dip / total_vol_dip) * 100
+            else:
+                results['hidden_accumulation_intensity'] = 0.0
         if not intraday_data.empty and 'main_force_net_vol' in intraday_data.columns and 'close' in intraday_data.columns:
             intraday_data['price_change'] = intraday_data['close'].diff()
             if pd.notna(atr) and atr > 0:

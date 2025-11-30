@@ -861,7 +861,7 @@ class AdvancedStructuralMetricsService:
         @sync_to_async(thread_sensitive=True)
         def save_atomically(model, stock_obj, df_to_save):
             processed_count = 0
-            # 修改代码块：使用 reset_index() 来安全地将索引转换为列进行迭代
+            # 使用 reset_index() 来安全地将索引转换为列进行迭代
             for record_data in df_to_save.reset_index().to_dict('records'):
                 trade_time = record_data.pop('trade_time').date()
                 defaults_data = {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in record_data.items()}

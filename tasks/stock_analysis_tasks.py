@@ -919,7 +919,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 )
             else:
                 logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
-        # 修改代码块：植入分段审计探针
+        # 植入分段审计探针
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
@@ -1097,7 +1097,7 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
         structural_models = [
             AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_BJ
         ]
-        # 修改代码块：植入日期逻辑探针
+        # 植入日期逻辑探针
         def get_group_start_date(models, group_name: str):
             print(f"\n[探针 G.1 - {group_name}组] 开始确定计算起始日期...")
             all_latest_dates = []
