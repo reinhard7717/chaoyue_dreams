@@ -356,12 +356,10 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
         local_tz = timezone.get_default_timezone()
         current_date = datetime.datetime.strptime(trade_date_str, '%Y-%m-%d').date()
 
-        # 新增代码块开始: 检查是否为交易日，如果不是，则删除当天所有数据
         if not TradeCalendar.is_trade_date(check_date=current_date):
             start_dt = datetime.datetime.combine(current_date, datetime.time.min, tzinfo=local_tz)
             end_dt = datetime.datetime.combine(current_date, datetime.time.max, tzinfo=local_tz)
             
-            # 直接删除该非交易日的所有tick记录
             deleted_count, _ = TickModel.objects.filter(
                 stock_id=stock_code,
                 trade_time__range=(start_dt, end_dt)
@@ -369,16 +367,13 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
             
             if deleted_count > 0:
                 logger.info(f"[{stock_code}] {trade_date_str} 非交易日，清理了 {deleted_count} 条异常Tick数据。")
-            return # 任务完成
-        # 新增代码块结束
+            return
 
-        # 1. 获取上一个交易日
         prev_trade_date = TradeCalendar.get_latest_trade_date(reference_date=current_date)
         if not prev_trade_date:
             logger.info(f"[{stock_code}] 在 {trade_date_str} 找不到上一个交易日，无法进行数据比对。")
             return
 
-        # 2. 获取T日和T-1日的数据
         def get_ticks_for_date(trade_date):
             start_dt = datetime.datetime.combine(trade_date, datetime.time.min, tzinfo=local_tz)
             end_dt = datetime.datetime.combine(trade_date, datetime.time.max, tzinfo=local_tz)
@@ -395,16 +390,13 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
             logger.info(f"[{stock_code}] 在 {trade_date_str} 或其上一交易日数据为空，无法清理。")
             return
 
-        # 3. 统一时区并创建比对键
         for df in [current_day_df, prev_day_df]:
             df['trade_time'] = df['trade_time'].dt.tz_localize(None).dt.tz_localize(local_tz)
             df['time_of_day'] = df['trade_time'].dt.time
-            # 确保比对字段类型一致
             df['price'] = df['price'].astype(float)
             df['volume'] = df['volume'].astype(int)
             df['amount'] = df['amount'].astype(float)
 
-        # 4. 合并数据以查找重复项
         merge_columns = ['time_of_day', 'price', 'volume', 'amount', 'type']
         merged_df = pd.merge(
             current_day_df,
@@ -413,16 +405,12 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
             how='inner'
         )
 
-        # 5. 获取待删除的ID列表
         ids_to_delete = merged_df['id'].tolist()
 
-        # 6. 执行批量删除
         if ids_to_delete:
             deleted_count, _ = TickModel.objects.filter(id__in=ids_to_delete).delete()
-            # 修改代码行: 移除特定股票探针，改为通用日志
             logger.info(f"[{stock_code}] 在 {trade_date_str} 清理了 {deleted_count} 条与上一交易日重复的Tick数据。")
         else:
-            # 修改代码行: 移除特定股票探针，改为通用日志
             logger.info(f"[{stock_code}] 在 {trade_date_str} 没有发现与上一交易日重复的Tick数据。")
 
     except Exception as e:
@@ -438,7 +426,6 @@ def dispatch_tick_data_cleaning_task(start_date_str: str, end_date_str: str = No
         end_date_str (str, optional): 需要清理的结束交易日期 'YYYY-MM-DD'。
                                       如果为None，则默认为当天。
     """
-    # 1. 解析并生成日期范围
     try:
         start_date = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').date()
         if end_date_str:
@@ -456,19 +443,14 @@ def dispatch_tick_data_cleaning_task(start_date_str: str, end_date_str: str = No
         return {"status": "error", "message": "日期格式错误"}
 
     logger.info(f"--- 开始为日期范围 {start_date_str} 至 {end_date.strftime('%Y-%m-%d')} 分派Tick数据清理任务 ---")
-    print(f"调试信息: --- 开始为日期范围 {start_date_str} 至 {end_date.strftime('%Y-%m-%d')} 分派Tick数据清理任务 ---")
     
-    # 2. 获取所有上市状态的股票代码
     stock_codes = list(StockInfo.objects.filter(list_status='L').values_list('stock_code', flat=True))
     
     total_dispatched_count = 0
-    # 3. 遍历日期和股票，分派任务
     for process_date in dates_to_process:
         date_str = process_date.strftime('%Y-%m-%d')
-        print(f"调试信息: 正在为日期 {date_str} 分派任务...")
         for stock_code in stock_codes:
-            # 为每只股票和每个日期分派一个独立的清洗任务
-            clean_tick_data_for_stock.s(stock_code, date_str).set(queue="SaveData_RealTime_Quote").apply_async()
+            clean_tick_data_for_stock.s(stock_code, date_str).set(queue="data_cleaning").apply_async()
             total_dispatched_count += 1
             
     logger.info(f"--- Tick数据清理任务分派完成，共为 {len(dates_to_process)} 天、{len(stock_codes)} 只股票分派了 {total_dispatched_count} 个任务。 ---")
