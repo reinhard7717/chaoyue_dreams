@@ -7,6 +7,7 @@ from asgiref.sync import sync_to_async # 异步转换工具
 from celery import chain
 import logging
 import datetime
+from datetime import timedelta
 from typing import List, Dict, Any # 引入 List, Dict, Any
 import pandas as pd # 新增代码行: 引入pandas库，用于高效处理数据
 from django.utils import timezone # 新增代码行: 引入Django的时区工具，用于处理时间
@@ -373,7 +374,6 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
         tick_df = pd.DataFrame.from_records(tick_qs)
 
         if minute_df.empty or tick_df.empty:
-            print(f"调试信息: [{stock_code}] 在 {trade_date_str} 没有足够的分钟线或Tick数据进行清理。")
             logger.info(f"[{stock_code}] 在 {trade_date_str} 没有足够的分钟线或Tick数据进行清理。")
             return
 
@@ -411,36 +411,54 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
         print(f"调试信息: [{stock_code}] 在 {trade_date_str} 清洗Tick数据时发生错误: {e}")
 
 @celery_app.task(name='tasks.tushare.stock_realtime_tasks.dispatch_tick_data_cleaning_task', queue='celery')
-def dispatch_tick_data_cleaning_task(trade_date_str: str = None):
+def dispatch_tick_data_cleaning_task(start_date_str: str, end_date_str: str = None):
     """
-    【新增-调度器】
-    分发清理指定日期Tick数据的任务到任务队列。
+    【修改-调度器】
+    分发清理指定日期范围内Tick数据的任务到任务队列。
     Args:
-        trade_date_str (str, optional): 需要清理的交易日期 'YYYY-MM-DD'。
-                                        如果为None，则默认为当天。
+        start_date_str (str): 需要清理的起始交易日期 'YYYY-MM-DD'。
+        end_date_str (str, optional): 需要清理的结束交易日期 'YYYY-MM-DD'。
+                                      如果为None，则默认为当天。
     """
-    if trade_date_str is None:
-        # 如果未提供日期，则默认为当前日期（北京时间）
-        trade_date_str = datetime.datetime.now(timezone.get_default_timezone()).strftime('%Y-%m-%d')
+    # 1. 解析并生成日期范围
+    try:
+        start_date = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        if end_date_str:
+            end_date = datetime.datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        else:
+            end_date = datetime.datetime.now(timezone.get_default_timezone()).date()
+        
+        dates_to_process = []
+        current_date = start_date
+        while current_date <= end_date:
+            dates_to_process.append(current_date)
+            current_date += timedelta(days=1)
+    except ValueError:
+        logger.error(f"日期格式错误。应为 'YYYY-MM-DD'。收到的 start_date: '{start_date_str}', end_date: '{end_date_str}'")
+        return {"status": "error", "message": "日期格式错误"}
+
+    logger.info(f"--- 开始为日期范围 {start_date_str} 至 {end_date.strftime('%Y-%m-%d')} 分派Tick数据清理任务 ---")
+    print(f"调试信息: --- 开始为日期范围 {start_date_str} 至 {end_date.strftime('%Y-%m-%d')} 分派Tick数据清理任务 ---")
     
-    logger.info(f"--- 开始为日期 {trade_date_str} 分派Tick数据清理任务 ---")
-    print(f"调试信息: --- 开始为日期 {trade_date_str} 分派Tick数据清理任务 ---")
-    
-    # 获取所有上市状态的股票代码
+    # 2. 获取所有上市状态的股票代码
     stock_codes = list(StockInfo.objects.filter(list_status='L').values_list('stock_code', flat=True))
     
-    dispatched_count = 0
-    for stock_code in stock_codes:
-        # 为每只股票分派一个独立的清洗任务
-        clean_tick_data_for_stock.s(stock_code, trade_date_str).set(queue="SaveData_RealTime_Quote").apply_async()
-        dispatched_count += 1
-        
-    logger.info(f"--- Tick数据清理任务分派完成，共为 {dispatched_count} 只股票分派了任务。 ---")
-    print(f"调试信息: --- Tick数据清理任务分派完成，共为 {dispatched_count} 只股票分派了任务。 ---")
+    total_dispatched_count = 0
+    # 3. 遍历日期和股票，分派任务
+    for process_date in dates_to_process:
+        date_str = process_date.strftime('%Y-%m-%d')
+        print(f"调试信息: 正在为日期 {date_str} 分派任务...")
+        for stock_code in stock_codes:
+            # 为每只股票和每个日期分派一个独立的清洗任务
+            clean_tick_data_for_stock.s(stock_code, date_str).set(queue="data_cleaning").apply_async()
+            total_dispatched_count += 1
+            
+    logger.info(f"--- Tick数据清理任务分派完成，共为 {len(dates_to_process)} 天、{len(stock_codes)} 只股票分派了 {total_dispatched_count} 个任务。 ---")
+    print(f"调试信息: --- Tick数据清理任务分派完成，共分派了 {total_dispatched_count} 个任务。 ---")
     return {
         "status": "success",
-        "trade_date": trade_date_str,
-        "dispatched_tasks": dispatched_count
+        "date_range": f"{start_date_str} to {end_date.strftime('%Y-%m-%d')}",
+        "dispatched_tasks": total_dispatched_count
     }
 
 
