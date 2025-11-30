@@ -2039,13 +2039,13 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_execution_alpha_metrics(self, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V49.2 · 执行力穿透版】(新增方法)
-        - 核心升级: 新增方法，致力于穿透式分析主力执行力，将 main_force_execution_alpha 的计算高频化。
-        - 升级原因: 原基于分钟归因的成本估算无法捕捉主力在微观层面的真实交易能力。
+        【V49.3 · T+0价差穿透版】
+        - 核心BUG修复: 修复因V49.2重构遗漏导致的 main_force_t0_spread_ratio 字段计算逻辑缺失的致命BUG。
+        - 核心升级: 对 main_force_t0_spread_ratio 进行高频化升维，使用真实的逐笔成交VWAP进行计算。
+        - 升级原因: 统一执行力相关指标的计算精度，并根除 60 vs 61 问题。
         - 核心实现:
-          - 高频路径: 直接从逐笔数据中计算主力大单的真实买卖VWAP，并与市场VWAP对比，用ATR归一化，得出精准的执行Alpha。
-          - 降级路径: 回退至使用上游传入的、基于分钟数据归因的估算成本进行计算。
-          - 探针植入: 新增探针，用于监控高频路径下真实主力VWAP的计算过程。
+          - 在高频和降级路径中，分别加入 main_force_t0_spread_ratio 的计算逻辑。
+          - 更新探针以展示T+0价差的计算过程。
         """
         import numpy as np
         import pandas as pd
@@ -2053,18 +2053,20 @@ class AdvancedFundFlowMetricsService:
             'main_force_buy_execution_alpha': np.nan,
             'main_force_sell_execution_alpha': np.nan,
             'main_force_execution_alpha': np.nan,
-            'main_force_t0_efficiency': np.nan
+            'main_force_t0_efficiency': np.nan,
+            'main_force_t0_spread_ratio': np.nan, # 新增代码行：初始化被遗漏的指标
         }
         daily_vwap = common_data['daily_vwap']
         atr = common_data['atr']
         if pd.isna(daily_vwap) or pd.isna(atr) or atr <= 0:
             return metrics
         buy_alpha, sell_alpha = np.nan, np.nan
+        actual_mf_buy_vwap, actual_mf_sell_vwap = np.nan, np.nan
+        avg_cost_main_buy, avg_cost_main_sell = np.nan, np.nan
         if not hf_analysis_df.empty:
             mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
             mf_buy_trades = mf_trades[mf_trades['type'] == 'B']
             mf_sell_trades = mf_trades[mf_trades['type'] == 'S']
-            actual_mf_buy_vwap, actual_mf_sell_vwap = np.nan, np.nan
             if not mf_buy_trades.empty and mf_buy_trades['volume'].sum() > 0:
                 actual_mf_buy_vwap = (mf_buy_trades['price'] * mf_buy_trades['volume']).sum() / mf_buy_trades['volume'].sum()
                 buy_alpha = (daily_vwap - actual_mf_buy_vwap) / atr
@@ -2073,11 +2075,10 @@ class AdvancedFundFlowMetricsService:
                 actual_mf_sell_vwap = (mf_sell_trades['price'] * mf_sell_trades['volume']).sum() / mf_sell_trades['volume'].sum()
                 sell_alpha = (actual_mf_sell_vwap - daily_vwap) / atr
                 metrics['main_force_sell_execution_alpha'] = sell_alpha
-            if enable_probe and is_target_date:
-                print(f"  [探针] main_force_execution_alpha (高频-执行力) 计算:")
-                print(f"    - 市场VWAP: {daily_vwap:.4f}, ATR: {atr:.4f}")
-                print(f"    - 真实主力买入VWAP: {actual_mf_buy_vwap:.4f} -> Buy Alpha: {buy_alpha:.4f}")
-                print(f"    - 真实主力卖出VWAP: {actual_mf_sell_vwap:.4f} -> Sell Alpha: {sell_alpha:.4f}")
+            # 修改代码块：在高频路径下计算T+0价差
+            if pd.notna(actual_mf_sell_vwap) and pd.notna(actual_mf_buy_vwap) and daily_vwap > 0:
+                t0_spread = (actual_mf_sell_vwap - actual_mf_buy_vwap) / daily_vwap
+                metrics['main_force_t0_spread_ratio'] = t0_spread * 100
         else:
             # 降级路径
             avg_cost_main_buy = daily_data.get('avg_cost_main_buy')
@@ -2088,10 +2089,26 @@ class AdvancedFundFlowMetricsService:
             if pd.notna(avg_cost_main_sell):
                 sell_alpha = (avg_cost_main_sell - daily_vwap) / atr
                 metrics['main_force_sell_execution_alpha'] = sell_alpha
+            # 修改代码块：在降级路径下计算T+0价差
+            if pd.notna(avg_cost_main_sell) and pd.notna(avg_cost_main_buy) and daily_vwap > 0:
+                t0_spread = (avg_cost_main_sell - avg_cost_main_buy) / daily_vwap
+                metrics['main_force_t0_spread_ratio'] = t0_spread * 100
+        # 探针
+        if enable_probe and is_target_date:
+            print(f"  [探针] main_force_execution_alpha & T0_spread (执行力与价差) 计算:")
+            print(f"    - 市场VWAP: {daily_vwap:.4f}, ATR: {atr:.4f}")
+            if not hf_analysis_df.empty:
+                print(f"    - (高频)真实主力买入VWAP: {actual_mf_buy_vwap:.4f} -> Buy Alpha: {buy_alpha:.4f}")
+                print(f"    - (高频)真实主力卖出VWAP: {actual_mf_sell_vwap:.4f} -> Sell Alpha: {sell_alpha:.4f}")
+                print(f"    - (高频)T+0价差: {metrics.get('main_force_t0_spread_ratio'):.4f}%")
+            else:
+                print(f"    - (降级)归因主力买入成本: {avg_cost_main_buy:.4f} -> Buy Alpha: {buy_alpha:.4f}")
+                print(f"    - (降级)归因主力卖出成本: {avg_cost_main_sell:.4f} -> Sell Alpha: {sell_alpha:.4f}")
+                print(f"    - (降级)T+0价差: {metrics.get('main_force_t0_spread_ratio'):.4f}%")
         # 综合计算
         if pd.notna(buy_alpha) and pd.notna(sell_alpha):
             metrics['main_force_execution_alpha'] = (buy_alpha + sell_alpha) / 2
-            t0_spread_norm = (sell_alpha - (-buy_alpha)) # (SellVWAP - DVWAP)/ATR - (BuyVWAP - DVWAP)/ATR
+            t0_spread_norm = (sell_alpha - (-buy_alpha))
             if pd.notna(sell_alpha) and sell_alpha != 0:
                 metrics['main_force_t0_efficiency'] = t0_spread_norm / sell_alpha
         elif pd.notna(sell_alpha):
