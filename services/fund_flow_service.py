@@ -1464,17 +1464,15 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_retail_sentiment_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V48.6 · 指标硬化版】
-        - 核心升级: 修复因条件逻辑漏洞导致的 retail_fomo/panic_index 字段在特定行情下（如无FOMO或恐慌事件）缺失的问题。
-        - 升级原因: 探针 S.1 发现最终DataFrame列数与模型字段数仍有差异，定位到根因是指标的条件性创建。
+        【V48.7 · 健壮性修复版】
+        - 核心升级: 修复在分钟级降级逻辑中，因笔误使用错误的列名 'net_vol' 替代 'retail_net_vol' 导致的 KeyError。
+        - 升级原因: 线上任务在无高频数据的场景下执行降级逻辑时发生崩溃。
         - 核心实现:
-          - 在方法入口处，将指标用 np.nan 进行预初始化。
-          - 这确保了无论计算条件是否满足，返回的字典中都必然包含这些键，保证了数据结构的稳定性。
+          - 统一在降级逻辑中对散户净成交量的引用为 'retail_net_vol'。
         """
         from datetime import time
         import pandas as pd
         import numpy as np
-        # 修改代码行：预初始化指标字典，确保字段始终存在
         metrics = {
             'retail_fomo_premium_index': np.nan,
             'retail_panic_surrender_index': np.nan
@@ -1588,10 +1586,12 @@ class AdvancedFundFlowMetricsService:
                     if not panic_zone_df.empty and 'retail_net_vol' in panic_zone_df.columns and 'retail_sell_vol' in continuous_trading_df.columns and 'minute_vwap' in panic_zone_df.columns:
                         panic_retail_df = panic_zone_df[panic_zone_df['retail_net_vol'] < 0]
                         if not panic_retail_df.empty:
-                            panic_vol = abs(panic_retail_df['net_vol'].sum())
+                            # 修改代码行：修复笔误，使用 'retail_net_vol'
+                            panic_vol = abs(panic_retail_df['retail_net_vol'].sum())
                             total_retail_sell_vol = continuous_trading_df[continuous_trading_df['retail_sell_vol'] > 0]['retail_sell_vol'].sum()
                             if panic_vol > 0 and total_retail_sell_vol > 0:
-                                cost_panic = (panic_retail_df['minute_vwap'] * abs(panic_retail_df['net_vol'])).sum() / panic_vol
+                                # 修改代码行：修复笔误，使用 'retail_net_vol'
+                                cost_panic = (panic_retail_df['minute_vwap'] * abs(panic_retail_df['retail_net_vol'])).sum() / panic_vol
                                 cost_mf_buy = daily_data.get('avg_cost_main_buy')
                                 if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
                                     discount = (cost_mf_buy - cost_panic) / cost_mf_buy
