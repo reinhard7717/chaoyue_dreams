@@ -634,75 +634,6 @@ class AdvancedFundFlowMetricsService:
                     derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=ACCEL_WINDOW)
         return derivatives_df
 
-    async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
-        records_to_save_df = final_df
-        stock_code = stock_info.stock_code
-        is_target_date_in_df = False
-        if self.debug_params and self.debug_params.get('target_date'):
-            target_date = pd.to_datetime(self.debug_params['target_date']).date()
-            if target_date in records_to_save_df.index.date:
-                is_target_date_in_df = True
-        enable_probe = self.debug_params.get('enable_mfca_probe', False)
-        if records_to_save_df.empty:
-            return 0
-        from django.db.models import DecimalField
-        from decimal import Decimal, ROUND_HALF_UP
-        decimal_fields = [f.name for f in MetricsModel._meta.get_fields() if isinstance(f, DecimalField)]
-        for col in decimal_fields:
-            if col in records_to_save_df.columns:
-                records_to_save_df[col] = pd.to_numeric(records_to_save_df[col], errors='coerce')
-                records_to_save_df[col] = records_to_save_df[col].replace([np.inf, -np.inf], np.nan)
-        records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
-        df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
-        # 升级探针，精确定位丢失的字段
-        if enable_probe and is_target_date_in_df:
-            print(f"\n[探针 S.1 - {stock_code} @ {self.debug_params['target_date']}] 进入 `_prepare_and_save_data` 保存前最终诊断...")
-            filtered_cols_set = set(df_filtered.columns)
-            model_fields_set = set(model_fields)
-            print(f"  - 准备保存的DataFrame列数: {len(filtered_cols_set)}")
-            print(f"  - 模型定义的字段数 (不含关系): {len(model_fields_set)}")
-            if 'lower_shadow_absorption_strength' in filtered_cols_set:
-                # 新增探针：打印目标字段的实际值
-                target_row = df_filtered.loc[df_filtered.index.date == target_date]
-                if not target_row.empty:
-                    target_value = target_row['lower_shadow_absorption_strength'].iloc[0]
-                    print(f"  - [关键检查] 'lower_shadow_absorption_strength' 存在于待保存数据中，值为: {target_value}")
-            else:
-                print("  - [关键警告] 'lower_shadow_absorption_strength' 在待保存数据中已丢失！")
-            # 新增探针：通过集合运算找出丢失的字段
-            missing_fields = model_fields_set - filtered_cols_set - {'trade_time', 'id', 'stock_id'} # 排除非数据字段
-            if missing_fields:
-                print(f"  - [!!!] 根本原因定位：模型中定义但数据中缺失的字段为: {missing_fields}")
-            else:
-                print("  - [检查通过] 数据列与模型字段匹配。")
-        records_list = df_filtered.to_dict('records')
-        @sync_to_async(thread_sensitive=True)
-        def save_atomically(model, stock_obj, records_to_process):
-            processed_count = 0
-            for i, record_data in enumerate(records_to_process):
-                trade_time = record_data.pop('trade_time').date()
-                defaults_data = {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in record_data.items()}
-                for key, value in defaults_data.items():
-                    if key in decimal_fields and pd.notna(value):
-                        defaults_data[key] = Decimal(str(value)).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
-                try:
-                    obj, created = model.objects.update_or_create(
-                        stock=stock_obj,
-                        trade_time=trade_time,
-                        defaults=defaults_data
-                    )
-                    processed_count += 1
-                except Exception as e:
-                    logger.error(f"[{stock_obj.stock_code}] [资金流保存失败] 日期: {trade_time}, 错误: {e}")
-            return processed_count
-        records_for_atomic_save = []
-        for record_date, record_data in zip(df_filtered.index, records_list):
-            record_data['trade_time'] = record_date
-            records_for_atomic_save.append(record_data)
-        processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
-        return processed_count
-
     def _calculate_advanced_behavioral_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: dict) -> pd.DataFrame:
         """
         【V28.0 · 行为计算核心整合版】
@@ -728,7 +659,7 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V44.0 · 权力结构重塑版】
+        【V44.1 · 逻辑完备性修复版】
         - 核心重构: 全面升级 POWER_STRUCTURE_METRICS 中的核心指标，利用高频数据重塑其计算逻辑。
         - 核心升级:
           1. `main_force_conviction_index`: 融合OFI、成本容忍度、韧性三大维度，量化主力信念。
@@ -736,6 +667,7 @@ class AdvancedFundFlowMetricsService:
           3. `main_force_posture_index`: 全新指标，通过识别进攻性/被动性成交，刻画主力操盘姿态。
           4. `main_force_activity_ratio`: 基于高频成交额，精确计算主力在市场中的参与度。
           5. `main_force_flow_directionality`: 基于高频买卖量，更纯粹地反映主力意图的方向性。
+        - 核心修复: 补全了当不存在主力交易时 (`mf_trades` 为空) 的 `else` 分支，确保 `main_force_flow_directionality` 指标在所有逻辑路径下都被赋值，解决了列数不匹配的BUG。
         - 核心增强: 为所有新升级的指标植入专属诊断探针，便于深度分析与调试。
         """
         from scipy.signal import find_peaks
@@ -792,7 +724,7 @@ class AdvancedFundFlowMetricsService:
                 hf_analysis_df = merged_hf
                 results['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
                 results['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
-        if not hf_analysis_df.empty: # 新增代码块：重构 main_force_conviction_index
+        if not hf_analysis_df.empty:
             mf_ofi_cumsum = hf_analysis_df['main_force_ofi'].cumsum().fillna(0)
             aggressiveness_component = 0.0
             if not mf_ofi_cumsum.empty and mf_ofi_cumsum.nunique() > 1:
@@ -820,7 +752,7 @@ class AdvancedFundFlowMetricsService:
                 print(f"    -> Final Score: {results['main_force_conviction_index']:.2f}")
         else:
             results['main_force_conviction_index'] = np.nan
-        if not hf_analysis_df.empty: # 新增代码块：重构 main_force_price_impact_ratio
+        if not hf_analysis_df.empty:
             mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
             if not mf_trades.empty and 'prev_mid_price' in mf_trades.columns:
                 buy_trades_mask = mf_trades['type'] == 'B'
@@ -844,7 +776,7 @@ class AdvancedFundFlowMetricsService:
                     results['main_force_price_impact_ratio'] = 0.0
             else:
                 results['main_force_price_impact_ratio'] = np.nan
-            if not mf_trades.empty: # 新增代码块：实现 main_force_posture_index, main_force_activity_ratio, main_force_flow_directionality
+            if not mf_trades.empty:
                 total_mf_volume = mf_trades['volume'].sum()
                 if total_mf_volume > 0:
                     offensive_buy_mask = (mf_trades['type'] == 'B') & (mf_trades['price'] >= mf_trades['sell_price1'])
@@ -876,7 +808,7 @@ class AdvancedFundFlowMetricsService:
             else:
                 results['main_force_posture_index'] = np.nan
                 results['main_force_activity_ratio'] = 0.0
-                results['main_force_flow_directionality'] = np.nan
+                results['main_force_flow_directionality'] = np.nan # 修改代码行：补全此处的else分支，确保指标被赋值
             large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
             if not large_orders_df.empty:
                 results['observed_large_order_size_avg'] = large_orders_df['amount'].mean()
@@ -1623,6 +1555,77 @@ class AdvancedFundFlowMetricsService:
         results['sell_quote_exhaustion_rate'] = (sell_exhausted_vol / daily_total_volume) * 100
         return results
 
+    async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
+        records_to_save_df = final_df
+        stock_code = stock_info.stock_code
+        is_target_date_in_df = False
+        if self.debug_params and self.debug_params.get('target_date'):
+            target_date = pd.to_datetime(self.debug_params['target_date']).date()
+            if target_date in records_to_save_df.index.date:
+                is_target_date_in_df = True
+        enable_probe = self.debug_params.get('enable_mfca_probe', False)
+        if records_to_save_df.empty:
+            return 0
+        from django.db.models import DecimalField
+        from decimal import Decimal, ROUND_HALF_UP
+        decimal_fields = [f.name for f in MetricsModel._meta.get_fields() if isinstance(f, DecimalField)]
+        for col in decimal_fields:
+            if col in records_to_save_df.columns:
+                records_to_save_df[col] = pd.to_numeric(records_to_save_df[col], errors='coerce')
+                records_to_save_df[col] = records_to_save_df[col].replace([np.inf, -np.inf], np.nan)
+        records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
+        df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
+        if enable_probe and is_target_date_in_df: # 修改代码块：升级探针，精确定位丢失的字段
+            print(f"\n[探针 S.1 - {stock_code} @ {self.debug_params['target_date']}] 进入 `_prepare_and_save_data` 保存前最终诊断...")
+            filtered_cols_set = set(df_filtered.columns)
+            model_fields_set = set(model_fields)
+            print(f"  - 准备保存的DataFrame列数: {len(filtered_cols_set)}")
+            print(f"  - 模型定义的字段数 (不含关系): {len(model_fields_set)}")
+            # 使用集合运算精确查找差异
+            missing_in_df = model_fields_set - filtered_cols_set - {'id', 'stock_id', 'trade_time'}
+            extra_in_df = filtered_cols_set - model_fields_set
+            if not missing_in_df and not extra_in_df:
+                print("  - [检查通过] 数据列与模型字段完美匹配。")
+            else:
+                if missing_in_df:
+                    print(f"  - [!!!] 根本原因定位：模型中定义但DataFrame中缺失的字段为: {missing_in_df}")
+                if extra_in_df:
+                    print(f"  - [!!!] 警告：DataFrame中存在但模型中未定义的字段为: {extra_in_df}")
+            # 保留对特定字段值的检查
+            if 'lower_shadow_absorption_strength' in filtered_cols_set:
+                target_row = df_filtered.loc[df_filtered.index.date == target_date]
+                if not target_row.empty:
+                    target_value = target_row['lower_shadow_absorption_strength'].iloc[0]
+                    print(f"  - [关键检查] 'lower_shadow_absorption_strength' 存在于待保存数据中，值为: {target_value}")
+            else:
+                print("  - [关键警告] 'lower_shadow_absorption_strength' 在待保存数据中已丢失！")
+        records_list = df_filtered.to_dict('records')
+        @sync_to_async(thread_sensitive=True)
+        def save_atomically(model, stock_obj, records_to_process):
+            processed_count = 0
+            for i, record_data in enumerate(records_to_process):
+                trade_time = record_data.pop('trade_time').date()
+                defaults_data = {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in record_data.items()}
+                for key, value in defaults_data.items():
+                    if key in decimal_fields and pd.notna(value):
+                        defaults_data[key] = Decimal(str(value)).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
+                try:
+                    obj, created = model.objects.update_or_create(
+                        stock=stock_obj,
+                        trade_time=trade_time,
+                        defaults=defaults_data
+                    )
+                    processed_count += 1
+                except Exception as e:
+                    logger.error(f"[{stock_obj.stock_code}] [资金流保存失败] 日期: {trade_time}, 错误: {e}")
+            return processed_count
+        records_for_atomic_save = []
+        for record_date, record_data in zip(df_filtered.index, records_list):
+            record_data['trade_time'] = record_date
+            records_for_atomic_save.append(record_data)
+        processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
+        return processed_count
 
 
 
