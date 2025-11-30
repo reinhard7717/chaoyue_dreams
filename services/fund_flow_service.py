@@ -1004,8 +1004,12 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_shadow_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V47.0 · 模块化重构版】
-        新增方法: 计算上下影线相关指标。
+        【V48.1 · 影线博弈对称版】
+        - 核心升级: 对 upper_shadow_selling_pressure 指标进行高频化重构，使其与 lower_shadow_absorption_strength 形成逻辑对称。
+        - 升级原因: 原有分钟级上影线指标过于简单，无法揭示“拉高出货”等复杂博弈行为。
+        - 核心实现:
+          - 高频路径: 引入与下影线指标对称的“派发流量”、“价格拒绝”、“盘口压制(OFI)”三组件模型。
+          - 降级路径: 保留原分钟级逻辑作为无高频数据时的备用方案。
         """
         import numpy as np
         metrics = {}
@@ -1041,10 +1045,32 @@ class AdvancedFundFlowMetricsService:
                         mf_net_in_shadow = lower_shadow_df['main_force_net_vol'].sum()
                         FlowComponent = np.tanh(mf_net_in_shadow / shadow_volume)
                         metrics['lower_shadow_absorption_strength'] = (0.7 * FlowComponent + 0.3 * RecoveryComponent) * 100
-            upper_shadow_df = intraday_data[intraday_data['high'] > body_high]
-            if not upper_shadow_df.empty and 'vol_shares' in upper_shadow_df.columns and 'main_force_net_vol' in upper_shadow_df.columns and upper_shadow_df['vol_shares'].sum() > 0:
-                mf_sell_in_shadow = abs(upper_shadow_df[upper_shadow_df['main_force_net_vol'] < 0]['main_force_net_vol'].sum())
-                metrics['upper_shadow_selling_pressure'] = (mf_sell_in_shadow / upper_shadow_df['vol_shares'].sum())
+            # 修改代码块：为上影线新增高频计算路径
+            if day_high > body_high and day_range > 0:
+                RejectionComponent = (day_high - body_high) / day_range
+                if not hf_analysis_df.empty:
+                    hf_shadow_zone = hf_analysis_df[hf_analysis_df['price'] > body_high]
+                    if not hf_shadow_zone.empty:
+                        mf_trades_in_shadow = hf_shadow_zone[hf_shadow_zone['amount'] > 200000]
+                        mf_buy_vol_in_shadow = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'B']['volume'].sum()
+                        mf_sell_vol_in_shadow = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'S']['volume'].sum()
+                        mf_net_vol_in_shadow = mf_buy_vol_in_shadow - mf_sell_vol_in_shadow
+                        total_vol_in_shadow = hf_shadow_zone['volume'].sum()
+                        FlowComponent = np.tanh(-mf_net_vol_in_shadow / total_vol_in_shadow) if total_vol_in_shadow > 0 else 0.0
+                        mf_ofi_in_shadow = hf_shadow_zone['main_force_ofi'].sum()
+                        total_abs_ofi_day = hf_analysis_df['ofi'].abs().sum()
+                        OFI_Component = -mf_ofi_in_shadow / total_abs_ofi_day if total_abs_ofi_day > 0 else 0.0
+                        metrics['upper_shadow_selling_pressure'] = (0.5 * FlowComponent + 0.3 * RejectionComponent + 0.2 * OFI_Component) * 100
+                        if enable_probe and is_target_date:
+                            print(f"  [探针] upper_shadow_selling_pressure (高频-上影线) 计算:")
+                            print(f"    - body_high: {body_high:.2f}, day_high: {day_high:.2f}, day_range: {day_range:.2f}")
+                            print(f"    - HF FlowComponent (from net vol): {FlowComponent:.4f}, RejectionComponent: {RejectionComponent:.4f}, OFI_Component: {OFI_Component:.4f}")
+                            print(f"    -> Final Score: {metrics['upper_shadow_selling_pressure']:.2f}")
+                else:
+                    upper_shadow_df = intraday_data[intraday_data['high'] > body_high]
+                    if not upper_shadow_df.empty and 'vol_shares' in upper_shadow_df.columns and 'main_force_net_vol' in upper_shadow_df.columns and upper_shadow_df['vol_shares'].sum() > 0:
+                        mf_sell_in_shadow = abs(upper_shadow_df[upper_shadow_df['main_force_net_vol'] < 0]['main_force_net_vol'].sum())
+                        metrics['upper_shadow_selling_pressure'] = (mf_sell_in_shadow / upper_shadow_df['vol_shares'].sum())
         return metrics
 
     def _calculate_dip_rally_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
