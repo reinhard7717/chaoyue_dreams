@@ -745,11 +745,11 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V38.1 · 重复索引修复版】
-        - 核心修复: 解决了在高频数据中存在重复时间戳索引时，使用`.loc`进行切片赋值导致的
-                     `ValueError: cannot reindex on an axis with duplicate labels` 致命错误。
-                     通过在赋值操作右侧使用 `.values` 提取裸Numpy数组，强制Pandas执行位置赋值而非索引对齐，
-                     从而完美兼容高频数据的真实时间戳结构。
+        【V39.0 · 诡道派发重构版】
+        - 核心重构: 废弃原有的 `rally_distribution_pressure` 算法，引入基于高频数据的“诡道派发艺术”
+                     (Deceptive Distribution Artistry)全新算法。从诱多效率、派发强度、散户狂热度三个维度，
+                     深度量化主力“设局诱捕”的成本、战果与效果，衡量其操盘艺术。
+        - 核心增强: 为新的诡道派发指标植入专属诊断探针。
         """
         from scipy.signal import find_peaks
         from datetime import time
@@ -839,11 +839,9 @@ class AdvancedFundFlowMetricsService:
                 buy_trades = mf_trades['type'] == 'B'
                 sell_trades = mf_trades['type'] == 'S'
                 mf_trades['slippage'] = np.nan
-                # 修改代码块：修复因高频数据时间戳重复导致的 reindex 错误
-                # 修正：通过 .values 提取裸数组，绕过索引对齐，直接按位置赋值
                 mf_trades.loc[buy_trades, 'slippage'] = (mf_trades.loc[buy_trades, 'price'] - mf_trades.loc[buy_trades, 'prev_mid_price']).values
                 mf_trades.loc[sell_trades, 'slippage'] = (mf_trades.loc[sell_trades, 'prev_mid_price'] - mf_trades.loc[sell_trades, 'price']).values
-                mf_trades['slippage'] = mf_trades['slippage'].clip(lower=0) # 理论上滑点>=0，处理异常数据
+                mf_trades['slippage'] = mf_trades['slippage'].clip(lower=0)
                 total_mf_vol = mf_trades['volume'].sum()
                 if total_mf_vol > 0:
                     weighted_avg_slippage = (mf_trades['slippage'] * mf_trades['volume']).sum() / total_mf_vol
@@ -1023,6 +1021,7 @@ class AdvancedFundFlowMetricsService:
                         print(f"  [探针] dip_absorption_power (战略吸筹) 计算:")
                         print(f"    - OffensiveOFI: {OffensiveOFI_Component:.4f}, CostAdvantage: {CostAdvantage_Component:.4f}, VolumeDominance (已修复): {VolumeDominance_Component:.4f}")
                         print(f"    -> Final Score: {results['dip_absorption_power']:.2f}")
+                # 修改代码块：重构 rally_distribution_pressure (诡道派发)
                 total_rally_price_change = 0
                 total_deceptive_pressure = 0
                 for i in range(len(turning_points) - 1):
@@ -1035,19 +1034,26 @@ class AdvancedFundFlowMetricsService:
                         if not rally_hf_df.empty:
                             price_change_in_rally = window_df['minute_vwap'].iloc[-1] - window_df['minute_vwap'].iloc[0]
                             total_rally_price_change += price_change_in_rally
-                            mf_ofi_in_rally = rally_hf_df['main_force_ofi'].sum()
-                            OFI_Divergence = -mf_ofi_in_rally / rally_hf_df['ofi'].abs().sum() if rally_hf_df['ofi'].abs().sum() > 0 else 0
-                            mf_t0_eff = daily_data.get('main_force_t0_efficiency', 0)
-                            CostDecay_Component = np.tanh(mf_t0_eff) if pd.notna(mf_t0_eff) else 0
-                            mf_net_sell_vol_in_rally = abs(intraday_data.loc[start_time:end_time, 'main_force_net_vol'].clip(upper=0).sum())
-                            DistributionEfficiency = (mf_net_sell_vol_in_rally / daily_total_volume) / (price_change_in_rally / atr) if price_change_in_rally > 0 and pd.notna(atr) and atr > 0 else 0
-                            deceptive_pressure_score = (0.5 * OFI_Divergence + 0.3 * CostDecay_Component + 0.2 * DistributionEfficiency)
+                            # 1. 诱多效率 (Bait Efficiency)
+                            bait_cost = (rally_hf_df['main_force_ofi'] * rally_hf_df['mid_price']).sum()
+                            bait_efficiency = 1 - np.tanh(bait_cost / (price_change_in_rally * daily_total_volume * 0.1)) if price_change_in_rally > 0 else 0.5
+                            # 2. 派发强度 (Distribution Dominance)
+                            mf_sell_vol_in_rally = abs(intraday_data.loc[start_time:end_time, 'main_force_sell_vol'].sum())
+                            total_vol_in_rally = intraday_data.loc[start_time:end_time, 'vol_shares'].sum()
+                            distribution_dominance = mf_sell_vol_in_rally / total_vol_in_rally if total_vol_in_rally > 0 else 0.0
+                            # 3. 散户狂热度 (Follower Frenzy)
+                            retail_net_ofi_in_rally = rally_hf_df['retail_ofi'].sum()
+                            total_abs_retail_ofi_day = hf_analysis_df['retail_ofi'].abs().sum()
+                            follower_frenzy = np.tanh(retail_net_ofi_in_rally / total_abs_retail_ofi_day) if total_abs_retail_ofi_day > 0 else 0.0
+                            # 最终裁决
+                            deceptive_pressure_score = bait_efficiency * distribution_dominance * follower_frenzy
                             total_deceptive_pressure += deceptive_pressure_score * price_change_in_rally
                 if total_rally_price_change > 0:
-                    results['rally_distribution_pressure'] = (total_deceptive_pressure / total_rally_price_change) * 100
+                    weighted_avg_pressure = total_deceptive_pressure / total_rally_price_change
+                    results['rally_distribution_pressure'] = weighted_avg_pressure * 100
                     if enable_probe and is_target_date:
                         print(f"  [探针] rally_distribution_pressure (诡道派发) 计算:")
-                        print(f"    - Weighted Avg Deceptive Pressure: {total_deceptive_pressure / total_rally_price_change:.4f}")
+                        print(f"    - Weighted Avg Deceptive Artistry: {weighted_avg_pressure:.4f}")
                         print(f"    -> Final Score: {results['rally_distribution_pressure']:.2f}")
             else: 
                 if pd.notna(daily_vwap):
