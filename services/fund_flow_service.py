@@ -753,7 +753,7 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V48.2 · 散户FOMO解构版】
+        【V48.9 · CMF诊断探针版】
         - 核心升级: 引入 B-系列 (Behavioral Engine) 探针，监控引擎的输入数据健康度和计算过程。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
@@ -788,11 +788,11 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_dip_rally_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_reversal_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_panic_cascade_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_cmf_metrics(intraday_data))
+        # 修改代码行：将 is_target_date 和 enable_probe 探针信号传递给 CMF 计算方法
+        results.update(self._calculate_cmf_metrics(intraday_data, is_target_date, enable_probe))
         results.update(self._calculate_vpoc_metrics(intraday_data, common_data))
         results.update(self._calculate_liquidity_swap_metrics(intraday_data))
         results.update(self._calculate_closing_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        # 修改代码行：将 hf_analysis_df 作为参数传递
         results.update(self._calculate_retail_sentiment_metrics(intraday_data, hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_hidden_accumulation_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_misc_minute_metrics(intraday_data, common_data))
@@ -1369,16 +1369,18 @@ class AdvancedFundFlowMetricsService:
                 metrics['vwap_structure_skew'] = (daily_vwap - twap) / twap * 100
         return metrics
 
-    def _calculate_cmf_metrics(self, intraday_data: pd.DataFrame) -> dict:
+    def _calculate_cmf_metrics(self, intraday_data: pd.DataFrame, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V48.5 · CMF修复版】
-        - 核心升级: 修复 V48.4 版本中因重构意外删除 holistic_cmf 和 cmf_divergence_score 计算逻辑的回归BUG。
-        - 升级原因: 探针 S.1 发现最终保存的DataFrame缺失字段，导致数据-模型不匹配。
+        【V48.9 · CMF诊断探针版】
+        - 核心升级: 移除 V48.8 的防御性硬化编码，转而植入诊断探针，以定位 cmf_divergence_score 缺失的根本原因。
+        - 升级原因: 遵循指令，采用主动诊断而非被动防御的策略来解决 60 vs 61 的数据完整性问题。
         - 核心实现:
-          - 恢复 holistic_cmf (全局CMF) 的计算，它反映市场整体资金流向。
-          - 恢复 cmf_divergence_score (CMF背离度) 的计算，用于量化主力与市场的行为差异。
+          - 恢复 metrics 字典的按需创建模式。
+          - 新增一个探针，在目标调试日期打印 CMF 指标的中间值，并明确报告背离度指标的计算条件是否满足。
         """
         import numpy as np
+        import pandas as pd
+        # 修改代码块：移除指标硬化逻辑，恢复为按需创建
         metrics = {}
         if 'high' in intraday_data.columns and 'low' in intraday_data.columns and 'close' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
             high_low_range = intraday_data['high'] - intraday_data['low']
@@ -1389,20 +1391,15 @@ class AdvancedFundFlowMetricsService:
             )
             cmf_period = 20
             vol_sum = intraday_data['vol_shares'].rolling(window=cmf_period, min_periods=1).sum()
-            # 1. 计算 main_force_cmf (主力CMF)
             mfv_main_force = money_flow_multiplier * intraday_data['main_force_net_vol']
             mfv_sum_main_force = mfv_main_force.rolling(window=cmf_period, min_periods=1).sum()
             main_force_cmf_series = mfv_sum_main_force / vol_sum
-            # 修改代码块：恢复 holistic_cmf 和 cmf_divergence_score 的计算
-            # 2. 计算 holistic_cmf (全局CMF)
             mfv_holistic = money_flow_multiplier * intraday_data['vol_shares']
             mfv_sum_holistic = mfv_holistic.rolling(window=cmf_period, min_periods=1).sum()
             holistic_cmf_series = mfv_sum_holistic / vol_sum
-            # 3. 计算 main_force_flow_axiom_index (公理化CMF)
             axiom_mfv = intraday_data['main_force_net_vol'] * abs(money_flow_multiplier)
             axiom_mfv_sum = axiom_mfv.rolling(window=cmf_period, min_periods=1).sum()
             main_force_axiom_index_series = axiom_mfv_sum / vol_sum
-            # 提取所有指标的最终值
             main_force_cmf_value = main_force_cmf_series.replace([np.inf, -np.inf], np.nan).ffill().iloc[-1] if not main_force_cmf_series.empty else None
             holistic_cmf_value = holistic_cmf_series.replace([np.inf, -np.inf], np.nan).ffill().iloc[-1] if not holistic_cmf_series.empty else None
             axiom_index_value = main_force_axiom_index_series.replace([np.inf, -np.inf], np.nan).ffill().iloc[-1] if not main_force_axiom_index_series.empty else None
@@ -1412,7 +1409,15 @@ class AdvancedFundFlowMetricsService:
                 metrics['holistic_cmf'] = holistic_cmf_value
             if pd.notna(axiom_index_value):
                 metrics['main_force_flow_axiom_index'] = axiom_index_value
-            # 4. 计算 cmf_divergence_score (CMF背离度)
+            # 修改代码块：新增 CMF 背离度计算的诊断探针
+            if enable_probe and is_target_date:
+                print(f"  [探针] cmf_divergence_score (CMF背离度) 计算前置检查:")
+                print(f"    - main_force_cmf_value: {main_force_cmf_value}")
+                print(f"    - holistic_cmf_value: {holistic_cmf_value}")
+                condition_met = pd.notna(main_force_cmf_value) and pd.notna(holistic_cmf_value)
+                print(f"    - 计算条件 (两者均非NaN): {'满足' if condition_met else '不满足'}")
+                if not condition_met:
+                    print("    -> [诊断结论] 因上游指标存在NaN，cmf_divergence_score 将不会被计算。")
             if pd.notna(main_force_cmf_value) and pd.notna(holistic_cmf_value):
                 metrics['cmf_divergence_score'] = (main_force_cmf_value - holistic_cmf_value) * 100
         return metrics
