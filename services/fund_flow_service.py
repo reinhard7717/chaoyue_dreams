@@ -742,9 +742,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V50.0 · 流量效率穿透版】
+        【V50.1 · 对倒穿透版】
         - 核心升级: 引入 B-系列 (Behavioral Engine) 探针，监控引擎的输入数据健康度和计算过程。
-        - 核心集成: 调用新增的 _calculate_flow_efficiency_metrics 方法。
+        - 核心集成: 调用新增的 _calculate_wash_trade_metrics 方法，完成最后一个指标的计算。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -785,8 +785,9 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_retail_sentiment_metrics(intraday_data, hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_hidden_accumulation_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_execution_alpha_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
-        # 新增代码行：调用新的流量效率计算方法
         results.update(self._calculate_flow_efficiency_metrics(hf_analysis_df, intraday_data, common_data, is_target_date, enable_probe))
+        # 新增代码行：调用对倒强度计算方法
+        results.update(self._calculate_wash_trade_metrics(hf_analysis_df, is_target_date, enable_probe))
         results.update(self._calculate_misc_minute_metrics(intraday_data, common_data))
         results.update(self._calculate_misc_daily_metrics(daily_data, main_force_net_flow_calibrated))
         return results
@@ -2154,6 +2155,63 @@ class AdvancedFundFlowMetricsService:
             metrics['main_force_execution_alpha'] = sell_alpha
         elif pd.notna(buy_alpha):
             metrics['main_force_execution_alpha'] = buy_alpha
+        return metrics
+
+    def _calculate_wash_trade_metrics(self, hf_analysis_df: pd.DataFrame, is_target_date: bool, enable_probe: bool) -> dict:
+        """
+        【V50.1 · 对倒穿透版】(新增方法)
+        - 核心目标: 实现 wash_trade_intensity 指标的计算，填补最后一个“幽灵字段”，彻底解决 60 vs 61 问题。
+        - 升级原因: 对倒是主力核心操盘诡计，量化其强度对理解主力意图至关重要。
+        - 核心算法:
+          - 高频路径: 利用 pd.merge_asof 在逐笔成交数据中寻找时间、价格高度匹配的主力级反向订单对，
+                     将其成交量计为对倒量，最终计算其占主力总成交量的比例。
+          - 降级路径: 分钟级数据信息损失严重，无法有效识别对倒，返回 NaN。
+        """
+        import numpy as np
+        import pandas as pd
+        metrics = {'wash_trade_intensity': np.nan}
+        if hf_analysis_df.empty:
+            return metrics
+        # 1. 筛选主力交易
+        mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
+        if mf_trades.empty:
+            return metrics
+        total_mf_volume = mf_trades['volume'].sum()
+        if total_mf_volume == 0:
+            return metrics
+        # 2. 分离买卖盘
+        mf_buys = mf_trades[mf_trades['type'] == 'B'].sort_index()
+        mf_sells = mf_trades[mf_trades['type'] == 'S'].sort_index()
+        if mf_buys.empty or mf_sells.empty:
+            return metrics
+        # 3. 使用 merge_asof 寻找时间上接近的反向交易
+        # 为每一笔买单，在3秒内寻找最近的一笔卖单
+        matched_trades = pd.merge_asof(
+            mf_buys.reset_index(),
+            mf_sells.reset_index(),
+            on='trade_time',
+            direction='nearest',
+            tolerance=pd.Timedelta('3s'),
+            suffixes=('_buy', '_sell')
+        ).dropna()
+        if matched_trades.empty:
+            return metrics
+        # 4. 筛选价格上高度匹配的交易对
+        # 价格差异小于万分之五
+        matched_trades['price_diff_ratio'] = (matched_trades['price_sell'] - matched_trades['price_buy']).abs() / matched_trades['price_buy']
+        wash_pairs = matched_trades[matched_trades['price_diff_ratio'] < 0.0005]
+        if wash_pairs.empty:
+            return metrics
+        # 5. 计算对倒量
+        # 取两个匹配交易中较小的成交量作为对倒量
+        wash_volume = np.minimum(wash_pairs['volume_buy'], wash_pairs['volume_sell']).sum()
+        # 6. 计算对倒强度
+        metrics['wash_trade_intensity'] = (wash_volume / total_mf_volume) * 100
+        if enable_probe and is_target_date:
+            print(f"  [探针] wash_trade_intensity (高频-对倒穿透) 计算:")
+            print(f"    - 识别出的总对倒量: {wash_volume:,.0f}")
+            print(f"    - 主力总成交量: {total_mf_volume:,.0f}")
+            print(f"    -> 最终得分: {metrics['wash_trade_intensity']:.4f}%")
         return metrics
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
