@@ -384,9 +384,9 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series, debug_mode: bool = False) -> dict:
         """
-        【V2.2 · 价格冲击比率逻辑迁移版】
-        - 核心重构: 移除了旧的、基于日线数据的 `main_force_price_impact_ratio` 计算逻辑。
-                     新的、基于高频滑点的算法已迁移至 `_compute_all_behavioral_metrics` 核心引擎中。
+        【V2.3 · 主力活跃度逻辑迁移版】
+        - 核心重构: 移除了旧的、基于日线数据的 `main_force_activity_ratio` 和 `main_force_flow_directionality` 计算逻辑。
+                     这些指标的新版本已迁移至 `_compute_all_behavioral_metrics` 核心引擎中，将基于高频数据进行更精确的计算。
         """
         results = {}
         WAN = 10000.0
@@ -443,25 +443,10 @@ class AdvancedFundFlowMetricsService:
                 results['mf_retail_battle_intensity'] = np.nan
         except Exception:
             results['mf_retail_battle_intensity'] = np.nan
-        try:
-            mf_buy_yuan = np.nansum([pd.to_numeric(daily_data_series.get('buy_lg_amount'), errors='coerce'), pd.to_numeric(daily_data_series.get('buy_elg_amount'), errors='coerce')]) * WAN
-            mf_sell_yuan = np.nansum([pd.to_numeric(daily_data_series.get('sell_lg_amount'), errors='coerce'), pd.to_numeric(daily_data_series.get('sell_elg_amount'), errors='coerce')]) * WAN
-            mf_total_activity_yuan = mf_buy_yuan + mf_sell_yuan
-            if turnover_amount_yuan > 0:
-                results['main_force_activity_ratio'] = (mf_total_activity_yuan / turnover_amount_yuan) * 100
-                results['main_force_buy_rate_consensus'] = (mf_buy_yuan / turnover_amount_yuan) * 100
-            else:
-                results['main_force_activity_ratio'] = np.nan
-                results['main_force_buy_rate_consensus'] = np.nan
-            mf_net_calibrated = results.get('main_force_net_flow_calibrated')
-            if mf_total_activity_yuan > 0 and pd.notna(mf_net_calibrated):
-                results['main_force_flow_directionality'] = (mf_net_calibrated * WAN / mf_total_activity_yuan) * 100
-            else:
-                results['main_force_flow_directionality'] = np.nan
-        except Exception:
-            results['main_force_activity_ratio'] = np.nan
-            results['main_force_buy_rate_consensus'] = np.nan
-            results['main_force_flow_directionality'] = np.nan
+        # 修改代码块：移除旧的 main_force_activity_ratio 和 main_force_flow_directionality 计算逻辑
+        results['main_force_activity_ratio'] = np.nan
+        results['main_force_buy_rate_consensus'] = np.nan
+        results['main_force_flow_directionality'] = np.nan
         results['main_force_conviction_index'] = np.nan
         try:
             mf_flow_calibrated = results.get('main_force_net_flow_calibrated')
@@ -480,7 +465,6 @@ class AdvancedFundFlowMetricsService:
                 results['retail_flow_dominance_index'] = np.nan
         except Exception:
             results['retail_flow_dominance_index'] = np.nan
-        # 修改代码块：移除旧的 main_force_price_impact_ratio 计算逻辑
         results['main_force_price_impact_ratio'] = np.nan
         return results
 
@@ -745,11 +729,11 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V41.0 · 盘口诚实度量化版】
-        - 核心重构: 强化 `imbalance_effectiveness` (盘口失衡有效性) 的计算逻辑。通过计算加权盘口失衡序列
-                     与未来市场成交量差额序列的皮尔逊相关系数，来量化盘口挂单的“诚实度”或“欺诈性”。
-        - 核心增强: 为 `imbalance_effectiveness` 植入专属诊断探针，揭示盘口语言的可信度。
-        - 核心修复: 统一了该计算块内的异常处理逻辑，确保所有相关指标在无法计算时都被赋为NaN。
+        【V42.0 · 主力姿态量化版】
+        - 核心重构: 废弃原有的 `main_force_activity_ratio` 算法，引入基于高频数据的“主力姿态指数”
+                     (Main Force Posture Index)全新算法。通过区分主力的“进攻性成交”与“被动性成交”，
+                     深度量化主力在当日是扮演价格驱动者（造势）还是流动性提供者（控盘）。
+        - 核心增强: 为新的主力姿态指数植入专属诊断探针。
         """
         from scipy.signal import find_peaks
         from datetime import time
@@ -857,6 +841,29 @@ class AdvancedFundFlowMetricsService:
                     results['main_force_price_impact_ratio'] = 0.0
             else:
                 results['main_force_price_impact_ratio'] = np.nan
+            # 新增代码块：重构 main_force_activity_ratio 为 main_force_posture_index
+            if not mf_trades.empty:
+                total_mf_volume = mf_trades['volume'].sum()
+                if total_mf_volume > 0:
+                    # 定义进攻性行为
+                    offensive_buy_mask = (mf_trades['type'] == 'B') & (mf_trades['price'] >= mf_trades['sell_price1'])
+                    offensive_sell_mask = (mf_trades['type'] == 'S') & (mf_trades['price'] <= mf_trades['buy_price1'])
+                    offensive_volume = mf_trades[offensive_buy_mask | offensive_sell_mask]['volume'].sum()
+                    # 计算姿态指数
+                    passive_volume = total_mf_volume - offensive_volume
+                    results['main_force_posture_index'] = ((offensive_volume - passive_volume) / total_mf_volume) * 100
+                    # 保持旧字段的兼容性，但赋予新含义：总参与度
+                    results['main_force_activity_ratio'] = (total_mf_volume / daily_total_volume) * 100 if daily_total_volume > 0 else np.nan
+                    if enable_probe and is_target_date:
+                        print(f"  [探针] main_force_posture_index (主力姿态) 计算:")
+                        print(f"    - 主力总成交: {total_mf_volume:,.0f}, 进攻性成交: {offensive_volume:,.0f}, 被动性成交: {passive_volume:,.0f}")
+                        print(f"    -> Final Score: {results['main_force_posture_index']:.2f}")
+                else:
+                    results['main_force_posture_index'] = np.nan
+                    results['main_force_activity_ratio'] = 0.0
+            else:
+                results['main_force_posture_index'] = np.nan
+                results['main_force_activity_ratio'] = 0.0
             large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
             if not large_orders_df.empty:
                 results['observed_large_order_size_avg'] = large_orders_df['amount'].mean()
@@ -896,7 +903,6 @@ class AdvancedFundFlowMetricsService:
                     results['wash_trade_intensity'] = (wash_trade_vol / daily_total_volume) * 100
             except Exception:
                 results['wash_trade_intensity'] = np.nan
-            # 修改代码块：重构盘口指标计算逻辑，并植入探针
             try:
                 df_book = hf_analysis_df.copy()
                 weighted_buy_vol = pd.Series(0, index=df_book.index); weighted_sell_vol = pd.Series(0, index=df_book.index)
@@ -911,7 +917,6 @@ class AdvancedFundFlowMetricsService:
                 if time_diffs.sum() > 0:
                     results['order_book_imbalance'] = np.average(df_book['imbalance'].dropna(), weights=time_diffs[df_book['imbalance'].notna()]) * 100
                     results['order_book_liquidity_supply'] = np.average(df_book['liquidity_supply_ratio'].dropna(), weights=time_diffs[df_book['liquidity_supply_ratio'].notna()])
-                # 核心逻辑：计算盘口失衡有效性
                 if 'market_vol_delta' in df_book.columns and df_book['imbalance'].var() > 1e-9 and df_book['market_vol_delta'].var() > 1e-9:
                     correlation_value = df_book['imbalance'].corr(df_book['market_vol_delta'])
                     results['imbalance_effectiveness'] = correlation_value

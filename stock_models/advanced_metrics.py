@@ -294,9 +294,12 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'net_sh_amount_calibrated': '校准后-小单净流入(万元)',
         'flow_credibility_index': '资金流可信度指数(0-100)',
         'mf_retail_battle_intensity': '主力散户博弈烈度(%)',
-        'main_force_activity_ratio': '主力活跃度(%)',
+        # 修改代码行：更新注释以反映其新含义
+        'main_force_activity_ratio': '主力参与度(%)',
         'main_force_flow_directionality': '主力资金流向性(%)',
         'main_force_conviction_index': '主力信念指数',
+        # 新增代码行：添加新的主力姿态指数
+        'main_force_posture_index': '主力姿态指数',
         'observed_large_order_size_avg': '观测大单平均规模(元)',
         'retail_flow_dominance_index': '散户流动性主导指数',
         'main_force_price_impact_ratio': '主力价格冲击比率',
@@ -377,7 +380,9 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'large_order_pressure', 'large_order_support', 'order_book_liquidity_supply',
         'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
-        'ofi_price_impact_factor', 'imbalance_effectiveness'
+        'ofi_price_impact_factor', 'imbalance_effectiveness',
+        # 新增代码行：添加新的主力姿态指数
+        'main_force_posture_index',
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -399,7 +404,9 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'large_order_pressure', 'large_order_support', 'order_book_liquidity_supply',
         'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
-        'ofi_price_impact_factor', 'imbalance_effectiveness'
+        'ofi_price_impact_factor', 'imbalance_effectiveness',
+        # 新增代码行：添加新的主力姿态指数
+        'main_force_posture_index',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:
