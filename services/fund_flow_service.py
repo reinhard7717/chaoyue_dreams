@@ -1414,16 +1414,14 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_cmf_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V57.0 · CMF穿透版】
-        - 核心升级: 废弃基于分钟K线的CMF计算，引入基于“逐笔成交价”和“动态滚动价格区间”的高保真算法。
-        - 升级原因: 分钟K线的收盘价极易被操纵，导致CMF失真。逐笔计算能穿透伪装，反映每笔成交最真实的买卖压力。
-        - 核心实现:
-          - 高频路径: 为每笔tick计算其在动态窗口内的资金流乘数，再进行成交量加权平均，得到高保真CMF。
-          - 降级路径: 保留原有的基于分钟K线的经典CMF算法。
+        【V57.1 · CMF内核修正版】
+        - 核心修复: 修复了因引用不存在的 `main_force_volume` 字段而导致的 `KeyError`。
+        - 升级原因: hf_analysis_df 中不存在逐笔主力成交量字段。
+        - 核心实现: 使用逻辑上更严谨、且数据中实际存在的 `main_force_ofi.abs()` 作为计算主力高保真CMF的成交量权重。
         """
         import numpy as np
         metrics = {}
-        if not hf_analysis_df.empty and 'price' in hf_analysis_df.columns:
+        if not hf_analysis_df.empty and 'price' in hf_analysis_df.columns and 'main_force_ofi' in hf_analysis_df.columns:
             # 高频路径
             df = hf_analysis_df.copy()
             window = 120  # 使用120个tick的滚动窗口，大致模拟1分钟
@@ -1442,8 +1440,10 @@ class AdvancedFundFlowMetricsService:
             if total_volume > 0:
                 metrics['holistic_cmf'] = money_flow_volume.sum() / total_volume
             # 主力CMF
-            mf_money_flow_volume = money_flow_multiplier * df['main_force_volume']
-            total_mf_volume = df['main_force_volume'].sum()
+            # 修改代码行：使用 main_force_ofi.abs() 作为主力成交量权重
+            mf_money_flow_volume = money_flow_multiplier * df['main_force_ofi'].abs()
+            # 修改代码行：使用 main_force_ofi.abs() 的总和作为总主力成交量
+            total_mf_volume = df['main_force_ofi'].abs().sum()
             if total_mf_volume > 0:
                 metrics['main_force_cmf'] = mf_money_flow_volume.sum() / total_mf_volume
             if enable_probe and is_target_date:
