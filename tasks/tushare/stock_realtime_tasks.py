@@ -27,17 +27,23 @@ from stock_models.stock_basic import StockInfo
 from stock_models.index import TradeCalendar
 from utils.model_helpers import get_stock_tick_data_model_by_code
 
-
-
-
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveData_RealTime'
 STOCKS_SAVE_API_DATA_QUEUE = 'SaveData_RealTime'
 logger = logging.getLogger('tasks')
 
 def is_trading_time():
+    """
+    【修改】检查当前时间是否为A股的交易时间。
+    该函数现在会同时检查日期和时间。
+    """
     now = datetime.datetime.now()
-    # 交易日判断略，假设已是交易日
+    
+    # 新增代码行: 首先检查当天是否为交易日
+    if not TradeCalendar.is_trade_date(check_date=now.date()):
+        return False # 如果不是交易日，则直接返回False
+
+    # 如果是交易日，再继续判断时间是否在交易时段内
     if now.hour in [9, 10, 11, 13, 14, 15]:
         if now.hour == 11 and now.minute >= 31:
             return False
