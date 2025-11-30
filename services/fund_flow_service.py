@@ -742,9 +742,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V50.1 · 对倒穿透版】
+        【V52.0 · VWAP引力穿透版】
         - 核心升级: 引入 B-系列 (Behavioral Engine) 探针，监控引擎的输入数据健康度和计算过程。
-        - 核心集成: 调用新增的 _calculate_wash_trade_metrics 方法，完成最后一个指标的计算。
+        - 核心集成: 调用新增的 _calculate_vwap_control_metrics 方法。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -773,6 +773,8 @@ class AdvancedFundFlowMetricsService:
         if not hf_analysis_df.empty:
             results.update(self._calculate_core_hf_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_vwap_related_metrics(intraday_data, common_data))
+        # 新增代码行：调用新的VWAP控制力计算方法
+        results.update(self._calculate_vwap_control_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_opening_battle_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_shadow_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_dip_rally_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
@@ -786,7 +788,6 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_hidden_accumulation_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_execution_alpha_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_flow_efficiency_metrics(hf_analysis_df, intraday_data, common_data, is_target_date, enable_probe))
-        # 新增代码行：调用对倒强度计算方法
         results.update(self._calculate_wash_trade_metrics(hf_analysis_df, is_target_date, enable_probe))
         results.update(self._calculate_misc_minute_metrics(intraday_data, common_data))
         results.update(self._calculate_misc_daily_metrics(daily_data, main_force_net_flow_calibrated))
@@ -1337,8 +1338,9 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_vwap_related_metrics(self, intraday_data: pd.DataFrame, common_data: dict) -> dict:
         """
-        【V47.0 · 模块化重构版】
-        新增方法: 计算与VWAP相关的指标。
+        【V52.0 · VWAP引力穿透版】
+        - 核心重构: 移除了 vwap_control_strength 的计算逻辑，其功能已被新的、基于微观结构的高频化方法
+                     _calculate_vwap_control_metrics 接管。
         """
         import numpy as np
         import pandas as pd
@@ -1347,8 +1349,7 @@ class AdvancedFundFlowMetricsService:
         daily_total_volume = common_data['daily_total_volume']
         atr = common_data['atr']
         if pd.notna(daily_vwap) and daily_total_volume > 0 and pd.notna(atr) and atr > 0 and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
-            price_deviation_value = (intraday_data['minute_vwap'] - daily_vwap) * intraday_data['vol_shares']
-            metrics['vwap_control_strength'] = price_deviation_value.sum() / (atr * daily_total_volume)
+            # 修改代码块：移除 vwap_control_strength 的计算逻辑
             price_dev_series = intraday_data['minute_vwap'] - daily_vwap
             mf_net_flow_series = intraday_data['main_force_net_vol']
             if price_dev_series.var() != 0 and mf_net_flow_series.var() != 0 and len(price_dev_series) > 1:
@@ -1360,6 +1361,55 @@ class AdvancedFundFlowMetricsService:
             twap = intraday_data['minute_vwap'].mean()
             if pd.notna(twap) and twap > 0:
                 metrics['vwap_structure_skew'] = (daily_vwap - twap) / twap * 100
+        return metrics
+
+    def _calculate_vwap_control_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+        """
+        【V52.0 · VWAP引力穿透版】(新增方法)
+        - 核心升级: 将 vwap_control_strength 从衡量“偏离结果”的宏观指标，升维为衡量“锚定过程”的微观指标。
+        - 升级原因: 洞察主力维持VWAP稳定的核心操盘能力，而不是简单评估价格偏离度。
+        - 核心实现:
+          - 高频路径: 定义“VWAP引力区”，精确计算主力OFI对市场OFI的吸收率，并以成交量占比加权。
+          - 降级路径: 沿用原有的、基于分钟线偏离度的宏观算法作为备用。
+        """
+        import numpy as np
+        import pandas as pd
+        metrics = {'vwap_control_strength': np.nan}
+        daily_vwap = common_data['daily_vwap']
+        daily_total_volume = common_data['daily_total_volume']
+        atr = common_data['atr']
+        if pd.isna(daily_vwap) or pd.isna(daily_total_volume) or daily_total_volume <= 0 or pd.isna(atr) or atr <= 0:
+            return metrics
+        if not hf_analysis_df.empty and 'ofi' in hf_analysis_df.columns and 'main_force_ofi' in hf_analysis_df.columns:
+            # 高频路径：计算VWAP引力
+            gravity_band = 0.1 * atr
+            upper_bound = daily_vwap + gravity_band
+            lower_bound = daily_vwap - gravity_band
+            zone_hf_df = hf_analysis_df[(hf_analysis_df['price'] >= lower_bound) & (hf_analysis_df['price'] <= upper_bound)]
+            if not zone_hf_df.empty:
+                market_pressure_ofi = zone_hf_df['ofi'].sum()
+                mf_counter_ofi = zone_hf_df['main_force_ofi'].sum()
+                # 核心逻辑：当主力OFI与市场OFI反向时，计算吸收量
+                absorbed_ofi = 0
+                if np.sign(market_pressure_ofi) * np.sign(mf_counter_ofi) < 0:
+                    absorbed_ofi = min(abs(market_pressure_ofi), abs(mf_counter_ofi))
+                absorption_ratio = absorbed_ofi / abs(market_pressure_ofi) if market_pressure_ofi != 0 else 0.0
+                volume_in_zone = zone_hf_df['volume'].sum()
+                volume_significance = volume_in_zone / daily_total_volume
+                metrics['vwap_control_strength'] = absorption_ratio * volume_significance * 100
+                if enable_probe and is_target_date:
+                    print(f"  [探针] vwap_control_strength (高频-VWAP引力) 计算:")
+                    print(f"    - VWAP引力区: [{lower_bound:.2f}, {upper_bound:.2f}] (VWAP: {daily_vwap:.2f} ± {gravity_band:.2f})")
+                    print(f"    - 区内市场OFI: {market_pressure_ofi:,.0f}, 区内主力OFI: {mf_counter_ofi:,.0f}")
+                    print(f"    - OFI吸收率: {absorption_ratio:.4f}, 成交量权重: {volume_significance:.4f}")
+                    print(f"    -> 最终得分: {metrics['vwap_control_strength']:.4f}")
+        else:
+            # 降级路径：沿用原有的基于分钟线偏离度的算法
+            if 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns:
+                price_deviation_value = (intraday_data['minute_vwap'] - daily_vwap) * intraday_data['vol_shares']
+                # 注意：原公式是负相关的，偏离越大，控制力越弱。我们取负值使其与其他指标方向一致（越高越好）
+                # 但为了保持指标原始含义（偏离度），我们暂时不取负值。
+                metrics['vwap_control_strength'] = price_deviation_value.sum() / (atr * daily_total_volume)
         return metrics
 
     def _calculate_cmf_metrics(self, intraday_data: pd.DataFrame, is_target_date: bool, enable_probe: bool) -> dict:
@@ -2216,9 +2266,9 @@ class AdvancedFundFlowMetricsService:
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
-        【V51.0 · 终审穿透版】
-        - 核心升级: 彻底重构 S.1 探针，废弃其存在逻辑悖论的条件输出，改为强制性的、无条件的“偏执”诊断报告。
-                     新的探针将强制打印出缺失和多余的字段集，无论其是否为空，从而终结一切悬念。
+        【V51.1 · 终局修正版】
+        - 核心修复: 修正了 V51.0 探针诊断逻辑中，未将 DataFrame 的索引（即 trade_time）纳入比较范围的根本性缺陷。
+                     通过将索引名加入待比较的列集合，彻底解决了持续数个版本的“60 vs 61”悬案。
         """
         records_to_save_df = final_df
         stock_code = stock_info.stock_code
@@ -2236,30 +2286,25 @@ class AdvancedFundFlowMetricsService:
         decimal_fields = [f.name for f in MetricsModel._meta.get_fields() if isinstance(f, DecimalField)]
         for col in decimal_fields:
             if col in records_to_save_df.columns:
-                # 使用 .loc 避免 SettingWithCopyWarning
                 records_to_save_df.loc[:, col] = pd.to_numeric(records_to_save_df[col], errors='coerce')
                 records_to_save_df.loc[:, col] = records_to_save_df[col].replace([np.inf, -np.inf], np.nan)
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
-        # 修改代码块：彻底重构探针S.1，采用“偏执”诊断模式
         if enable_probe and is_target_date_in_df:
             print(f"\n{'='*20} [探针 S.1 · 终审穿透版 @ {target_date}] {'='*20}")
-            incoming_df_cols = set(records_to_save_df.columns)
+            # 修改代码行：将DataFrame的索引名加入待比较的列集合中，完成终局修正
+            incoming_df_cols = set(records_to_save_df.columns) | {records_to_save_df.index.name}
             model_fields_set = set(model_fields)
-            # 1. 报告双方的原始数量
-            print(f"  - 待保存DataFrame的列数: {len(incoming_df_cols)}")
+            print(f"  - 待保存DataFrame的列数 (含索引): {len(incoming_df_cols)}")
             print(f"  - 模型定义的字段数 (不含关系): {len(model_fields_set)}")
-            # 2. 无条件计算并打印差异
             missing_in_df = model_fields_set - incoming_df_cols
             extra_in_df = incoming_df_cols - model_fields_set
             print(f"  - [诊断] 模型中定义但DataFrame中缺失的字段: {missing_in_df or '无'}")
             print(f"  - [诊断] DataFrame中存在但模型中未定义的字段: {extra_in_df or '无'}")
-            # 3. 给出最终的、无歧义的裁决
             if not missing_in_df and not extra_in_df:
                 print("  - [裁决通过] 数据列与模型字段完美匹配。")
             else:
                 print("  - [裁决失败] 数据列与模型字段不匹配，请检查上述诊断信息！")
-            # 过滤操作放在探针之后，确保探针检查的是最原始的数据
             df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
             target_row = df_filtered.loc[df_filtered.index.date == target_date]
             if not target_row.empty:
