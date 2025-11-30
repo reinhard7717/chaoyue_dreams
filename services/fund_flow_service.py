@@ -659,7 +659,7 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V44.1 · 逻辑完备性修复版】
+        【V44.1 · 探针补完版】
         - 核心重构: 全面升级 POWER_STRUCTURE_METRICS 中的核心指标，利用高频数据重塑其计算逻辑。
         - 核心升级:
           1. `main_force_conviction_index`: 融合OFI、成本容忍度、韧性三大维度，量化主力信念。
@@ -667,8 +667,8 @@ class AdvancedFundFlowMetricsService:
           3. `main_force_posture_index`: 全新指标，通过识别进攻性/被动性成交，刻画主力操盘姿态。
           4. `main_force_activity_ratio`: 基于高频成交额，精确计算主力在市场中的参与度。
           5. `main_force_flow_directionality`: 基于高频买卖量，更纯粹地反映主力意图的方向性。
-        - 核心修复: 补全了当不存在主力交易时 (`mf_trades` 为空) 的 `else` 分支，确保 `main_force_flow_directionality` 指标在所有逻辑路径下都被赋值，解决了列数不匹配的BUG。
         - 核心增强: 为所有新升级的指标植入专属诊断探针，便于深度分析与调试。
+        - V44.1 修正: 补全 `main_force_activity_ratio` 的探针输出。
         """
         from scipy.signal import find_peaks
         from datetime import time
@@ -789,6 +789,9 @@ class AdvancedFundFlowMetricsService:
                         print(f"  [探针] main_force_posture_index (主力姿态) 计算:")
                         print(f"    - 主力总成交: {total_mf_volume:,.0f}, 进攻性成交: {offensive_volume:,.0f}, 被动性成交: {passive_volume:,.0f}")
                         print(f"    -> Final Score: {results['main_force_posture_index']:.2f}")
+                        print(f"  [探针] main_force_activity_ratio (主力参与度) 计算:") # 新增代码行：为 activity_ratio 添加探针
+                        print(f"    - 主力总成交: {total_mf_volume:,.0f}, 当日总成交: {daily_total_volume:,.0f}") # 新增代码行
+                        print(f"    -> Final Score: {results['main_force_activity_ratio']:.2f}") # 新增代码行
                     mf_buy_vol = mf_trades.loc[buy_trades_mask, 'volume'].sum()
                     mf_sell_vol = mf_trades.loc[sell_trades_mask, 'volume'].sum()
                     mf_total_activity_vol = mf_buy_vol + mf_sell_vol
