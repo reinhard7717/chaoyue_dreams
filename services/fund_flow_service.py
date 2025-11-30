@@ -1773,12 +1773,12 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_misc_minute_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V54.0 · 趋势同向性穿透版】
-        - 核心升级: 为 trend_conviction_ratio 指标引入高频计算路径，从宏观“投入产出比”升维为微观“趋势同向性”。
-        - 升级原因: 废弃模糊的日度结果对比，转而精确量化主力行为与盘中微观趋势的实时同步程度。
+        【V55.0 · 微观效率穿透版】
+        - 核心升级: 为 microstructure_efficiency_index 指标引入高频计算路径，从“分钟成交量-价格”相关性，升维为“逐笔OFI-价格”相关性。
+        - 升级原因: 废弃粗糙的分钟级数据，转而衡量最纯粹的“主力意图(OFI)”与“即时价格变动”的关联度，精确评估主力对价格的微观影响力。
         - 核心实现:
-          - 高频路径: 计算主力OFI与价格短期EMA趋势的同向性，得出主力是趋势“驱动者”还是“干扰者”的纯粹评分。
-          - 降级路径: 保留原有的基于日线结果的宏观计算逻辑。
+          - 高频路径: 直接计算 main_force_ofi 与 mid_price_change 的相关系数。
+          - 降级路径: 保留原有的基于分钟净成交量的相关性计算。
         """
         from datetime import time
         import numpy as np
@@ -1789,10 +1789,7 @@ class AdvancedFundFlowMetricsService:
         daily_vwap = common_data['daily_vwap']
         atr = common_data['atr']
         daily_total_volume = common_data['daily_total_volume']
-        # 修改代码块：为 trend_conviction_ratio 增加高频计算路径
         if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns:
-            # 高频路径：计算趋势同向性
-            # 假设平均每5分钟有60个tick，计算一个大致等效于5分钟EMA的span
             ema_span = 60
             df = hf_analysis_df.copy()
             df['mid_price_ema'] = df['mid_price'].ewm(span=ema_span, adjust=False).mean()
@@ -1819,7 +1816,6 @@ class AdvancedFundFlowMetricsService:
                     print(f"    - (同向 - 逆向) / 总绝对量 = ({concordant_ofi:,.0f} - {discordant_ofi:,.0f}) / {total_abs_mf_ofi:,.0f}")
                     print(f"    -> 最终得分: {metrics['trend_conviction_ratio']:.2f}")
         else:
-            # 降级路径：沿用原宏观逻辑
             if 'main_force_buy_vol' in intraday_data.columns and 'main_force_sell_vol' in intraday_data.columns and pd.notna(atr) and atr > 0:
                 mf_activity_ratio = (intraday_data['main_force_buy_vol'].sum() + intraday_data['main_force_sell_vol'].sum()) / daily_total_volume if daily_total_volume > 0 else 0.0
                 if mf_activity_ratio > 0:
@@ -1843,14 +1839,28 @@ class AdvancedFundFlowMetricsService:
                 value_dev_factor = np.tanh((day_close - daily_vwap) / atr)
                 force_balance_factor = intraday_data['main_force_net_vol'].sum() / daily_total_volume if 'main_force_net_vol' in intraday_data.columns else 0.0
                 metrics['closing_price_deviation_score'] = (0.5 * range_pos_factor + 0.3 * value_dev_factor + 0.2 * force_balance_factor) * 100
-        if 'main_force_net_vol' in intraday_data.columns and 'close' in intraday_data.columns:
-            intraday_data['price_change'] = intraday_data['close'].diff()
-            if pd.notna(atr) and atr > 0:
-                intraday_data['price_change_norm'] = intraday_data['price_change'] / atr
-                mf_net_vol_series = intraday_data['main_force_net_vol']
-                price_change_norm_series = intraday_data['price_change_norm']
-                if mf_net_vol_series.var() > 0 and price_change_norm_series.var() > 0:
-                    metrics['microstructure_efficiency_index'] = mf_net_vol_series.corr(price_change_norm_series)
+        # 修改代码块：为 microstructure_efficiency_index 增加高频计算路径
+        if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns and 'mid_price_change' in hf_analysis_df.columns:
+            # 高频路径
+            mf_ofi_series = hf_analysis_df['main_force_ofi']
+            price_change_series = hf_analysis_df['mid_price_change']
+            if mf_ofi_series.var() > 0 and price_change_series.var() > 0:
+                correlation = mf_ofi_series.corr(price_change_series)
+                metrics['microstructure_efficiency_index'] = correlation
+                if enable_probe and is_target_date:
+                    print(f"  [探针] microstructure_efficiency_index (高频-微观效率) 计算:")
+                    print(f"    - 核心变量: Corr(main_force_ofi, mid_price_change)")
+                    print(f"    -> 最终得分 (相关系数): {correlation:.4f}")
+        else:
+            # 降级路径
+            if 'main_force_net_vol' in intraday_data.columns and 'close' in intraday_data.columns:
+                intraday_data['price_change'] = intraday_data['close'].diff()
+                if pd.notna(atr) and atr > 0:
+                    intraday_data['price_change_norm'] = intraday_data['price_change'] / atr
+                    mf_net_vol_series = intraday_data['main_force_net_vol']
+                    price_change_norm_series = intraday_data['price_change_norm']
+                    if mf_net_vol_series.var() > 0 and price_change_norm_series.var() > 0:
+                        metrics['microstructure_efficiency_index'] = mf_net_vol_series.corr(price_change_norm_series)
         return metrics
 
     def _calculate_misc_daily_metrics(self, daily_data: pd.Series, main_force_net_flow_calibrated: float) -> dict:
