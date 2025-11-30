@@ -1537,6 +1537,55 @@ class AdvancedFundFlowMetricsService:
                     metrics['panic_selling_cascade'] = (panic_vol / total_panic_vol) * 100
         return metrics
 
+    def _calculate_misc_minute_metrics(self, intraday_data: pd.DataFrame, common_data: dict) -> dict:
+        """
+        【V48.0 · 恐慌微观解构版】
+        - 核心重构: 移除旧的 panic_selling_cascade 计算逻辑，其功能已由新的 _calculate_panic_cascade_metrics 方法接管。
+        """
+        from datetime import time
+        from scipy.signal import find_peaks
+        import numpy as np
+        import pandas as pd
+        metrics = {}
+        day_open, day_close = common_data['day_open'], common_data['day_close']
+        day_high, day_low = common_data['day_high'], common_data['day_low']
+        daily_vwap = common_data['daily_vwap']
+        atr = common_data['atr']
+        daily_total_volume = common_data['daily_total_volume']
+        if 'main_force_buy_vol' in intraday_data.columns and 'main_force_sell_vol' in intraday_data.columns and pd.notna(atr) and atr > 0:
+            mf_activity_ratio = (intraday_data['main_force_buy_vol'].sum() + intraday_data['main_force_sell_vol'].sum()) / daily_total_volume if daily_total_volume > 0 else 0.0
+            if mf_activity_ratio > 0:
+                price_outcome = (day_close - day_open) / atr
+                metrics['trend_conviction_ratio'] = price_outcome / mf_activity_ratio
+        continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
+        if not continuous_trading_df.empty and 'close' in continuous_trading_df.columns and 'open' in continuous_trading_df.columns:
+            up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
+            down_minutes = continuous_trading_df[continuous_trading_df['close'] < continuous_trading_df['open']]
+            if not up_minutes.empty and not down_minutes.empty:
+                up_price_change = (up_minutes['close'] - up_minutes['open']).sum()
+                down_price_change = (down_minutes['open'] - down_minutes['close']).sum()
+                avg_up_speed = up_price_change / len(up_minutes) if len(up_minutes) > 0 else 0
+                avg_down_speed = down_price_change / len(down_minutes) if len(down_minutes) > 0 else 0
+                if avg_up_speed > 0 and avg_down_speed > 0:
+                    metrics['volatility_asymmetry_index'] = np.log(avg_up_speed / avg_down_speed)
+        if pd.notna(day_high) and pd.notna(day_low) and pd.notna(day_close) and pd.notna(daily_vwap) and pd.notna(atr) and atr > 0 and daily_total_volume > 0:
+            day_range = day_high - day_low
+            if day_range > 0:
+                range_pos_factor = ((day_close - day_low) / day_range) * 2 - 1
+                value_dev_factor = np.tanh((day_close - daily_vwap) / atr)
+                force_balance_factor = intraday_data['main_force_net_vol'].sum() / daily_total_volume if 'main_force_net_vol' in intraday_data.columns else 0.0
+                metrics['closing_price_deviation_score'] = (0.5 * range_pos_factor + 0.3 * value_dev_factor + 0.2 * force_balance_factor) * 100
+        # 修改代码块：移除整个 panic_selling_cascade 的计算逻辑
+        if 'main_force_net_vol' in intraday_data.columns and 'close' in intraday_data.columns:
+            intraday_data['price_change'] = intraday_data['close'].diff()
+            if pd.notna(atr) and atr > 0:
+                intraday_data['price_change_norm'] = intraday_data['price_change'] / atr
+                mf_net_vol_series = intraday_data['main_force_net_vol']
+                price_change_norm_series = intraday_data['price_change_norm']
+                if mf_net_vol_series.var() > 0 and price_change_norm_series.var() > 0:
+                    metrics['microstructure_efficiency_index'] = mf_net_vol_series.corr(price_change_norm_series)
+        return metrics
+
     def _calculate_misc_daily_metrics(self, daily_data: pd.Series, main_force_net_flow_calibrated: float) -> dict:
         """
         【V47.0 · 模块化重构版】
