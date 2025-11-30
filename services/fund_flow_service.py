@@ -1441,14 +1441,14 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_retail_sentiment_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V48.2 · 散户FOMO解构版】
-        - 核心升级: 重构 retail_fomo_premium_index，从静态“高价区”分析升级为动态“FOMO事件”捕捉。
-        - 升级原因: 原有分钟级指标无法捕捉由“突破新高”引爆的散户情绪狂热点。
+        【V48.3 · 散户恐慌解构版】
+        - 核心升级: 对 retail_panic_surrender_index 进行高频化重构，使其与 retail_fomo_premium_index 形成逻辑对称。
+        - 升级原因: 原有分钟级恐慌指标使用静态价格区间，无法精准捕捉由“破位新低”引发的恐慌抛售事件。
         - 核心实现:
-          - 高频路径: 动态识别价格创日内新高的“FOMO事件”，并综合评估三大要素：
-            1. 成本溢价 (CostPremium): 散户追高成本相比主力卖出成本的溢价程度。
-            2. 买入 агрессия (Aggression): 散户主动性买单（吃掉卖一）的成交量占比。
-            3. 成交异动 (VolumeSpike): FOMO事件期间散户买入成交的异常放量程度。
+          - 高频路径: 动态识别价格创日内新低的“恐慌事件”，并综合评估三大要素：
+            1. 成本折价 (CostDiscount): 散户恐慌卖出价相比主力买入成本的折价程度。
+            2. 卖出 агрессия (Aggression): 散户主动性卖单（砸向买一）的成交量占比。
+            3. 成交异动 (VolumeSpike): 恐慌事件期间散户卖出成交的异常放量程度。
           - 降级路径: 保留原分钟级逻辑作为无高频数据时的备用方案。
         """
         from datetime import time
@@ -1458,6 +1458,7 @@ class AdvancedFundFlowMetricsService:
         day_high, day_low = common_data['day_high'], common_data['day_low']
         atr = common_data['atr']
         if not hf_analysis_df.empty and pd.notna(atr) and atr > 0:
+            # --- FOMO Index Calculation ---
             total_weighted_fomo_score = 0
             total_fomo_volume = 0
             max_fomo_event_info = {'score': -1}
@@ -1497,11 +1498,54 @@ class AdvancedFundFlowMetricsService:
                     if max_fomo_event_info['score'] > -1:
                         print(f"      - [最强FOMO事件分解] Premium: {max_fomo_event_info['premium']:.2f}, Aggression: {max_fomo_event_info['aggression']:.2f}, Spike: {max_fomo_event_info['spike']:.2f}")
                     print(f"    -> Final Score: {metrics['retail_fomo_premium_index']:.2f}")
+            # --- Panic Index Calculation (Symmetrical Logic) ---
+            # 修改代码块：新增对称的恐慌指数高频计算逻辑
+            total_weighted_panic_score = 0
+            total_panic_volume = 0
+            max_panic_event_info = {'score': -1}
+            hf_analysis_df['is_new_low'] = hf_analysis_df['price'] < hf_analysis_df['price'].cummin().shift(1).fillna(float('inf'))
+            panic_events = hf_analysis_df['is_new_low'].ne(hf_analysis_df['is_new_low'].shift()).cumsum()
+            panic_zones = hf_analysis_df[hf_analysis_df['is_new_low']]
+            daily_retail_sell_vol = hf_analysis_df[(hf_analysis_df['amount'] < 50000) & (hf_analysis_df['type'] == 'S')]['volume'].sum()
+            avg_retail_sell_rate = daily_retail_sell_vol / (4 * 3600) if daily_retail_sell_vol > 0 else 0
+            for _, event_df in panic_zones.groupby(panic_events):
+                if event_df.empty: continue
+                retail_sell_trades = event_df[(event_df['amount'] < 50000) & (event_df['type'] == 'S')]
+                if retail_sell_trades.empty: continue
+                panic_vol_in_event = retail_sell_trades['volume'].sum()
+                cost_panic = (retail_sell_trades['price'] * retail_sell_trades['volume']).sum() / panic_vol_in_event
+                cost_mf_buy = daily_data.get('avg_cost_main_buy')
+                if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
+                    cost_discount_component = (cost_mf_buy - cost_panic) / atr
+                    aggressive_sell_mask = retail_sell_trades['price'] <= retail_sell_trades['buy_price1']
+                    aggression_component = retail_sell_trades[aggressive_sell_mask]['volume'].sum() / panic_vol_in_event
+                    duration_seconds = (event_df.index.max() - event_df.index.min()).total_seconds() + 1
+                    event_sell_rate = panic_vol_in_event / duration_seconds
+                    volume_spike_component = np.log1p(event_sell_rate / avg_retail_sell_rate) if avg_retail_sell_rate > 0 else 0
+                    event_panic_score = cost_discount_component * aggression_component * volume_spike_component
+                    total_weighted_panic_score += event_panic_score * panic_vol_in_event
+                    total_panic_volume += panic_vol_in_event
+                    if event_panic_score > max_panic_event_info['score']:
+                        max_panic_event_info = {
+                            'score': event_panic_score, 'discount': cost_discount_component,
+                            'aggression': aggression_component, 'spike': volume_spike_component
+                        }
+            if total_panic_volume > 0:
+                weighted_avg_panic_score = total_weighted_panic_score / total_panic_volume
+                metrics['retail_panic_surrender_index'] = weighted_avg_panic_score * 100
+                if enable_probe and is_target_date:
+                    print(f"  [探针] retail_panic_surrender_index (高频-散户恐慌) 计算:")
+                    print(f"    - Weighted Avg Panic Score: {weighted_avg_panic_score:.4f}")
+                    if max_panic_event_info['score'] > -1:
+                        print(f"      - [最强恐慌事件分解] Discount: {max_panic_event_info['discount']:.2f}, Aggression: {max_panic_event_info['aggression']:.2f}, Spike: {max_panic_event_info['spike']:.2f}")
+                    print(f"    -> Final Score: {metrics['retail_panic_surrender_index']:.2f}")
         else:
+            # --- Fallback Logic for both metrics ---
             continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
             if pd.notna(day_high) and pd.notna(day_low):
                 day_range = day_high - day_low
                 if day_range > 0:
+                    # FOMO Fallback
                     fomo_zone_threshold = day_low + 0.75 * day_range
                     fomo_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] > fomo_zone_threshold]
                     if not fomo_zone_df.empty and 'retail_net_vol' in fomo_zone_df.columns and 'retail_buy_vol' in continuous_trading_df.columns and 'minute_vwap' in fomo_zone_df.columns:
@@ -1515,23 +1559,20 @@ class AdvancedFundFlowMetricsService:
                                 if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
                                     premium = (cost_fomo / cost_mf_sell - 1)
                                     metrics['retail_fomo_premium_index'] = premium * (fomo_vol / total_retail_buy_vol) * 100
-        continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
-        if pd.notna(day_high) and pd.notna(day_low):
-            day_range = day_high - day_low
-            if day_range > 0:
-                panic_zone_threshold = day_low + 0.25 * day_range
-                panic_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < panic_zone_threshold]
-                if not panic_zone_df.empty and 'retail_net_vol' in panic_zone_df.columns and 'retail_sell_vol' in continuous_trading_df.columns and 'minute_vwap' in panic_zone_df.columns:
-                    panic_retail_df = panic_zone_df[panic_zone_df['retail_net_vol'] < 0]
-                    if not panic_retail_df.empty:
-                        panic_vol = abs(panic_retail_df['retail_net_vol'].sum())
-                        total_retail_sell_vol = continuous_trading_df[continuous_trading_df['retail_sell_vol'] > 0]['retail_sell_vol'].sum()
-                        if panic_vol > 0 and total_retail_sell_vol > 0:
-                            cost_panic = (panic_retail_df['minute_vwap'] * abs(panic_retail_df['retail_net_vol'])).sum() / panic_vol
-                            cost_mf_buy = daily_data.get('avg_cost_main_buy')
-                            if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
-                                discount = (cost_mf_buy - cost_panic) / cost_mf_buy
-                                metrics['retail_panic_surrender_index'] = discount * (panic_vol / total_retail_sell_vol) * 100
+                    # Panic Fallback
+                    panic_zone_threshold = day_low + 0.25 * day_range
+                    panic_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < panic_zone_threshold]
+                    if not panic_zone_df.empty and 'retail_net_vol' in panic_zone_df.columns and 'retail_sell_vol' in continuous_trading_df.columns and 'minute_vwap' in panic_zone_df.columns:
+                        panic_retail_df = panic_zone_df[panic_zone_df['retail_net_vol'] < 0]
+                        if not panic_retail_df.empty:
+                            panic_vol = abs(panic_retail_df['retail_net_vol'].sum())
+                            total_retail_sell_vol = continuous_trading_df[continuous_trading_df['retail_sell_vol'] > 0]['retail_sell_vol'].sum()
+                            if panic_vol > 0 and total_retail_sell_vol > 0:
+                                cost_panic = (panic_retail_df['minute_vwap'] * abs(panic_retail_df['retail_net_vol'])).sum() / panic_vol
+                                cost_mf_buy = daily_data.get('avg_cost_main_buy')
+                                if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
+                                    discount = (cost_mf_buy - cost_panic) / cost_mf_buy
+                                    metrics['retail_panic_surrender_index'] = discount * (panic_vol / total_retail_sell_vol) * 100
         return metrics
 
     def _calculate_panic_cascade_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
