@@ -742,9 +742,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V53.0 · VPOC穿透版】
+        【V54.0 · 趋势同向性穿透版】
         - 核心升级: 引入 B-系列 (Behavioral Engine) 探针，监控引擎的输入数据健康度和计算过程。
-        - 核心集成: 向 _calculate_vpoc_metrics 传递高频数据，激活其高精度计算路径。
+        - 核心集成: 向 _calculate_misc_minute_metrics 传递高频数据，激活其高精度计算路径。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -780,16 +780,16 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_reversal_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_panic_cascade_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_cmf_metrics(intraday_data, is_target_date, enable_probe))
-        # 修改代码行：向 _calculate_vpoc_metrics 传递 hf_analysis_df
         results.update(self._calculate_vpoc_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_liquidity_swap_metrics(intraday_data))
         results.update(self._calculate_closing_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_retail_sentiment_metrics(intraday_data, hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_hidden_accumulation_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
+        results.update(self._calculate_hidden_accumulation_intensity(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_execution_alpha_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_flow_efficiency_metrics(hf_analysis_df, intraday_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_wash_trade_metrics(hf_analysis_df, is_target_date, enable_probe))
-        results.update(self._calculate_misc_minute_metrics(intraday_data, common_data))
+        # 修改代码行：向 _calculate_misc_minute_metrics 传递新参数
+        results.update(self._calculate_misc_minute_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_misc_daily_metrics(daily_data, main_force_net_flow_calibrated))
         return results
 
@@ -1771,13 +1771,16 @@ class AdvancedFundFlowMetricsService:
                     metrics['panic_selling_cascade'] = (panic_vol / total_panic_vol) * 100
         return metrics
 
-    def _calculate_misc_minute_metrics(self, intraday_data: pd.DataFrame, common_data: dict) -> dict:
+    def _calculate_misc_minute_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V48.0 · 恐慌微观解构版】
-        - 核心重构: 移除旧的 panic_selling_cascade 计算逻辑，其功能已由新的 _calculate_panic_cascade_metrics 方法接管。
+        【V54.0 · 趋势同向性穿透版】
+        - 核心升级: 为 trend_conviction_ratio 指标引入高频计算路径，从宏观“投入产出比”升维为微观“趋势同向性”。
+        - 升级原因: 废弃模糊的日度结果对比，转而精确量化主力行为与盘中微观趋势的实时同步程度。
+        - 核心实现:
+          - 高频路径: 计算主力OFI与价格短期EMA趋势的同向性，得出主力是趋势“驱动者”还是“干扰者”的纯粹评分。
+          - 降级路径: 保留原有的基于日线结果的宏观计算逻辑。
         """
         from datetime import time
-        from scipy.signal import find_peaks
         import numpy as np
         import pandas as pd
         metrics = {}
@@ -1786,11 +1789,42 @@ class AdvancedFundFlowMetricsService:
         daily_vwap = common_data['daily_vwap']
         atr = common_data['atr']
         daily_total_volume = common_data['daily_total_volume']
-        if 'main_force_buy_vol' in intraday_data.columns and 'main_force_sell_vol' in intraday_data.columns and pd.notna(atr) and atr > 0:
-            mf_activity_ratio = (intraday_data['main_force_buy_vol'].sum() + intraday_data['main_force_sell_vol'].sum()) / daily_total_volume if daily_total_volume > 0 else 0.0
-            if mf_activity_ratio > 0:
-                price_outcome = (day_close - day_open) / atr
-                metrics['trend_conviction_ratio'] = price_outcome / mf_activity_ratio
+        # 修改代码块：为 trend_conviction_ratio 增加高频计算路径
+        if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns:
+            # 高频路径：计算趋势同向性
+            # 假设平均每5分钟有60个tick，计算一个大致等效于5分钟EMA的span
+            ema_span = 60
+            df = hf_analysis_df.copy()
+            df['mid_price_ema'] = df['mid_price'].ewm(span=ema_span, adjust=False).mean()
+            is_uptrend = df['mid_price'] > df['mid_price_ema']
+            is_downtrend = df['mid_price'] < df['mid_price_ema']
+            mf_ofi = df['main_force_ofi']
+            concordant_ofi = (
+                mf_ofi[is_uptrend].clip(lower=0).sum() +
+                mf_ofi[is_downtrend].clip(upper=0).abs().sum()
+            )
+            discordant_ofi = (
+                mf_ofi[is_uptrend].clip(upper=0).abs().sum() +
+                mf_ofi[is_downtrend].clip(lower=0).sum()
+            )
+            total_abs_mf_ofi = mf_ofi.abs().sum()
+            if total_abs_mf_ofi > 0:
+                conviction_score = (concordant_ofi - discordant_ofi) / total_abs_mf_ofi
+                metrics['trend_conviction_ratio'] = conviction_score * 100
+                if enable_probe and is_target_date:
+                    print(f"  [探针] trend_conviction_ratio (高频-趋势同向性) 计算:")
+                    print(f"    - 微观趋势判断基准: {ema_span}-tick EMA of mid_price")
+                    print(f"    - 同向OFI总量: {concordant_ofi:,.0f}")
+                    print(f"    - 逆向OFI总量: {discordant_ofi:,.0f}")
+                    print(f"    - (同向 - 逆向) / 总绝对量 = ({concordant_ofi:,.0f} - {discordant_ofi:,.0f}) / {total_abs_mf_ofi:,.0f}")
+                    print(f"    -> 最终得分: {metrics['trend_conviction_ratio']:.2f}")
+        else:
+            # 降级路径：沿用原宏观逻辑
+            if 'main_force_buy_vol' in intraday_data.columns and 'main_force_sell_vol' in intraday_data.columns and pd.notna(atr) and atr > 0:
+                mf_activity_ratio = (intraday_data['main_force_buy_vol'].sum() + intraday_data['main_force_sell_vol'].sum()) / daily_total_volume if daily_total_volume > 0 else 0.0
+                if mf_activity_ratio > 0:
+                    price_outcome = (day_close - day_open) / atr
+                    metrics['trend_conviction_ratio'] = price_outcome / mf_activity_ratio
         continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
         if not continuous_trading_df.empty and 'close' in continuous_trading_df.columns and 'open' in continuous_trading_df.columns:
             up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
@@ -1809,7 +1843,6 @@ class AdvancedFundFlowMetricsService:
                 value_dev_factor = np.tanh((day_close - daily_vwap) / atr)
                 force_balance_factor = intraday_data['main_force_net_vol'].sum() / daily_total_volume if 'main_force_net_vol' in intraday_data.columns else 0.0
                 metrics['closing_price_deviation_score'] = (0.5 * range_pos_factor + 0.3 * value_dev_factor + 0.2 * force_balance_factor) * 100
-        # 修改代码块：移除整个 panic_selling_cascade 的计算逻辑
         if 'main_force_net_vol' in intraday_data.columns and 'close' in intraday_data.columns:
             intraday_data['price_change'] = intraday_data['close'].diff()
             if pd.notna(atr) and atr > 0:
