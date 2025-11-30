@@ -1371,43 +1371,50 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_cmf_metrics(self, intraday_data: pd.DataFrame) -> dict:
         """
-        【V48.4 · CMF公理版】
-        - 核心升级: 新增 main_force_flow_axiom_index (主力资金流公理指数)，作为经典CMF的“第一性原理”升级版。
-        - 升级原因: 经典CMF使用收盘价位置来“估计”资金流向，而我们拥有真实的逐笔数据，无需估计。
+        【V48.5 · CMF修复版】
+        - 核心升级: 修复 V48.4 版本中因重构意外删除 holistic_cmf 和 cmf_divergence_score 计算逻辑的回归BUG。
+        - 升级原因: 探针 S.1 发现最终保存的DataFrame缺失字段，导致数据-模型不匹配。
         - 核心实现:
-          - 新指标融合了“经典CMF的价格博弈强度”和“高频数据的真实主力净流向”。
-          - 公式: Axiom_MFV = 主力净成交量 * abs(经典CMF价格乘数)
-          - 结果: 新指标比传统CMF更灵敏、更真实地反映主力意图。
+          - 恢复 holistic_cmf (全局CMF) 的计算，它反映市场整体资金流向。
+          - 恢复 cmf_divergence_score (CMF背离度) 的计算，用于量化主力与市场的行为差异。
         """
         import numpy as np
         metrics = {}
         if 'high' in intraday_data.columns and 'low' in intraday_data.columns and 'close' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
             high_low_range = intraday_data['high'] - intraday_data['low']
-            # 使用 np.where 避免除以零
             money_flow_multiplier = np.where(
                 high_low_range > 0,
                 ((intraday_data['close'] - intraday_data['low']) - (intraday_data['high'] - intraday_data['close'])) / high_low_range,
                 0
             )
-            # 1. 计算经典的 main_force_cmf
-            money_flow_volume = money_flow_multiplier * intraday_data['main_force_net_vol']
             cmf_period = 20
-            mfv_sum = money_flow_volume.rolling(window=cmf_period, min_periods=1).sum()
             vol_sum = intraday_data['vol_shares'].rolling(window=cmf_period, min_periods=1).sum()
-            main_force_cmf = mfv_sum / vol_sum
-            if not main_force_cmf.empty:
-                metrics['main_force_cmf'] = main_force_cmf.iloc[-1]
-            # 2. 计算新增的 main_force_flow_axiom_index
-            # 修改代码块：新增公理化CMF的计算逻辑
+            # 1. 计算 main_force_cmf (主力CMF)
+            mfv_main_force = money_flow_multiplier * intraday_data['main_force_net_vol']
+            mfv_sum_main_force = mfv_main_force.rolling(window=cmf_period, min_periods=1).sum()
+            main_force_cmf_series = mfv_sum_main_force / vol_sum
+            # 修改代码块：恢复 holistic_cmf 和 cmf_divergence_score 的计算
+            # 2. 计算 holistic_cmf (全局CMF)
+            mfv_holistic = money_flow_multiplier * intraday_data['vol_shares']
+            mfv_sum_holistic = mfv_holistic.rolling(window=cmf_period, min_periods=1).sum()
+            holistic_cmf_series = mfv_sum_holistic / vol_sum
+            # 3. 计算 main_force_flow_axiom_index (公理化CMF)
             axiom_mfv = intraday_data['main_force_net_vol'] * abs(money_flow_multiplier)
             axiom_mfv_sum = axiom_mfv.rolling(window=cmf_period, min_periods=1).sum()
-            # vol_sum 已在上面计算，可复用
-            main_force_axiom_index = axiom_mfv_sum / vol_sum
-            if not main_force_axiom_index.empty:
-                # 过滤掉可能由 vol_sum 为0导致的 inf 或 nan
-                final_axiom_value = main_force_axiom_index.replace([np.inf, -np.inf], np.nan).ffill().iloc[-1]
-                if pd.notna(final_axiom_value):
-                    metrics['main_force_flow_axiom_index'] = final_axiom_value
+            main_force_axiom_index_series = axiom_mfv_sum / vol_sum
+            # 提取所有指标的最终值
+            main_force_cmf_value = main_force_cmf_series.replace([np.inf, -np.inf], np.nan).ffill().iloc[-1] if not main_force_cmf_series.empty else None
+            holistic_cmf_value = holistic_cmf_series.replace([np.inf, -np.inf], np.nan).ffill().iloc[-1] if not holistic_cmf_series.empty else None
+            axiom_index_value = main_force_axiom_index_series.replace([np.inf, -np.inf], np.nan).ffill().iloc[-1] if not main_force_axiom_index_series.empty else None
+            if pd.notna(main_force_cmf_value):
+                metrics['main_force_cmf'] = main_force_cmf_value
+            if pd.notna(holistic_cmf_value):
+                metrics['holistic_cmf'] = holistic_cmf_value
+            if pd.notna(axiom_index_value):
+                metrics['main_force_flow_axiom_index'] = axiom_index_value
+            # 4. 计算 cmf_divergence_score (CMF背离度)
+            if pd.notna(main_force_cmf_value) and pd.notna(holistic_cmf_value):
+                metrics['cmf_divergence_score'] = (main_force_cmf_value - holistic_cmf_value) * 100
         return metrics
 
     def _calculate_vpoc_metrics(self, intraday_data: pd.DataFrame, common_data: dict) -> dict:
