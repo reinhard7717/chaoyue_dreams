@@ -140,7 +140,6 @@ class TradeCalendar(models.Model):
         ).order_by('-cal_date').first()
         # 如果找到了交易日，则返回其日历日期，否则返回None
         if trade_day:
-            print(f"调试: 找到最近交易日: {trade_day.cal_date}")
             return trade_day.cal_date
         else:
             print("调试: 未找到符合条件的交易日")
