@@ -450,11 +450,10 @@ def dispatch_tick_data_cleaning_task(start_date_str: str, end_date_str: str = No
         print(f"调试信息: 正在为日期 {date_str} 分派任务...")
         for stock_code in stock_codes:
             # 为每只股票和每个日期分派一个独立的清洗任务
-            clean_tick_data_for_stock.s(stock_code, date_str).set(queue="data_cleaning").apply_async()
+            clean_tick_data_for_stock.s(stock_code, date_str).set(queue="SaveData_RealTime_Quote").apply_async()
             total_dispatched_count += 1
             
     logger.info(f"--- Tick数据清理任务分派完成，共为 {len(dates_to_process)} 天、{len(stock_codes)} 只股票分派了 {total_dispatched_count} 个任务。 ---")
-    print(f"调试信息: --- Tick数据清理任务分派完成，共分派了 {total_dispatched_count} 个任务。 ---")
     return {
         "status": "success",
         "date_range": f"{start_date_str} to {end_date.strftime('%Y-%m-%d')}",
