@@ -742,9 +742,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V54.0 · 趋势同向性穿透版】
-        - 核心升级: 引入 B-系列 (Behavioral Engine) 探针，监控引擎的输入数据健康度和计算过程。
-        - 核心集成: 向 _calculate_misc_minute_metrics 传递高频数据，激活其高精度计算路径。
+        【V54.1 · 笔误修正版】
+        - 核心修复: 根据Traceback提示，修复了一个因笔误导致的方法名调用错误 (AttributeError)。
+                     将对 _calculate_hidden_accumulation_intensity 的调用更正为 _calculate_hidden_accumulation_metrics。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -784,11 +784,11 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_liquidity_swap_metrics(intraday_data))
         results.update(self._calculate_closing_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_retail_sentiment_metrics(intraday_data, hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_hidden_accumulation_intensity(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
+        # 修改代码行：修复因笔误导致的方法名调用错误 (AttributeError)
+        results.update(self._calculate_hidden_accumulation_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_execution_alpha_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_flow_efficiency_metrics(hf_analysis_df, intraday_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_wash_trade_metrics(hf_analysis_df, is_target_date, enable_probe))
-        # 修改代码行：向 _calculate_misc_minute_metrics 传递新参数
         results.update(self._calculate_misc_minute_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_misc_daily_metrics(daily_data, main_force_net_flow_calibrated))
         return results
