@@ -342,41 +342,41 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
         stock_code (str): 股票代码。
         trade_date_str (str): 交易日期字符串，格式 'YYYY-MM-DD'。
     """
-    print(f"调试信息: 开始为股票 {stock_code} 在日期 {trade_date_str} 执行Tick数据清洗任务。")
     # 1. 根据股票代码获取对应的Tick和1分钟线数据模型
     TickModel = get_stock_tick_data_model_by_code(stock_code)
     MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_code, '1')
     if not TickModel or not MinuteModel:
         logger.error(f"[{stock_code}] 无法找到对应的Tick或1分钟线模型，清洗任务终止。")
         return
-
     try:
         # 2. 确定查询的日期范围 (基于北京时间)
         # Django配置了时区后，ORM会自动处理UTC与本地时间的转换
         local_tz = timezone.get_default_timezone()  # 获取settings中配置的默认时区，应为 'Asia/Shanghai'
         trade_date = datetime.datetime.strptime(trade_date_str, '%Y-%m-%d').date()
-        # 修改代码行: 使用 tzinfo 参数创建时区感知的 datetime 对象，以兼容 zoneinfo
+        # 使用 tzinfo 参数创建时区感知的 datetime 对象，以兼容 zoneinfo
         start_dt_local = datetime.datetime.combine(trade_date, datetime.time.min, tzinfo=local_tz)
-        # 修改代码行: 使用 tzinfo 参数创建时区感知的 datetime 对象，以兼容 zoneinfo
+        # 使用 tzinfo 参数创建时区感知的 datetime 对象，以兼容 zoneinfo
         end_dt_local = datetime.datetime.combine(trade_date, datetime.time.max, tzinfo=local_tz)
-
         # 3. 从数据库获取数据并转换为Pandas DataFrame
         minute_qs = MinuteModel.objects.filter(
             stock_id=stock_code,
             trade_time__range=(start_dt_local, end_dt_local)
         ).values('trade_time', 'low', 'high')
         minute_df = pd.DataFrame.from_records(minute_qs)
-
         tick_qs = TickModel.objects.filter(
             stock_id=stock_code,
             trade_time__range=(start_dt_local, end_dt_local)
         ).values('id', 'trade_time', 'price')
         tick_df = pd.DataFrame.from_records(tick_qs)
-
+        # 新增代码块开始: 为 600475.SH 加入数据探针
+        if stock_code == '600475.SH':
+            print(f"探针[{stock_code}]: 在 {trade_date_str} 发现 {len(minute_df)} 条分钟K线数据。")
+            print(f"探针[{stock_code}]: 在 {trade_date_str} 发现 {len(tick_df)} 条Tick数据。")
+        # 新增代码块结束
         if minute_df.empty or tick_df.empty:
-            logger.info(f"[{stock_code}] 在 {trade_date_str} 没有足够的分钟线或Tick数据进行清理。")
+            if stock_code == '600475.SH':
+                logger.info(f"[{stock_code}] 在 {trade_date_str} 没有足够的分钟线或Tick数据进行清理。")
             return
-
         # 4. 数据预处理和合并
         # 将价格字段转为浮点数以便比较
         tick_df['price'] = tick_df['price'].astype(float)
@@ -392,20 +392,15 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
         )
         # 丢弃没有对应分钟线数据的tick记录 (例如非交易时段的tick)
         merged_df.dropna(subset=['low', 'high'], inplace=True)
-
         # 5. 筛选出价格异常的Tick数据
         outlier_mask = (merged_df['price'] < merged_df['low']) | (merged_df['price'] > merged_df['high'])
         ids_to_delete = merged_df.loc[outlier_mask, 'id'].tolist()
-
         # 6. 执行批量删除
         if ids_to_delete:
             deleted_count, _ = TickModel.objects.filter(id__in=ids_to_delete).delete()
-            print(f"调试信息: [{stock_code}] 在 {trade_date_str} 清理了 {deleted_count} 条异常Tick数据。")
             logger.info(f"[{stock_code}] 在 {trade_date_str} 清理了 {deleted_count} 条异常Tick数据。")
         else:
-            print(f"调试信息: [{stock_code}] 在 {trade_date_str} 没有发现需要清理的异常Tick数据。")
             logger.info(f"[{stock_code}] 在 {trade_date_str} 没有发现异常Tick数据。")
-
     except Exception as e:
         logger.error(f"[{stock_code}] 在 {trade_date_str} 清洗Tick数据时发生错误: {e}", exc_info=True)
         print(f"调试信息: [{stock_code}] 在 {trade_date_str} 清洗Tick数据时发生错误: {e}")
