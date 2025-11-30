@@ -801,8 +801,12 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_core_hf_metrics(self, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V47.5 · 诊断驾驶舱升级版】
-        - 核心升级: 丰富 B.3-系列探针，增加对上游数据的回溯打印。
+        【V47.7 · 信念标尺归一版】
+        - 核心精炼: 对 main_force_conviction_index 的 Cost Tolerance 组件进行ATR归一化。
+        - 精炼原因: 原有的成本差异百分比缺乏统一标尺，在不同价格、不同波动的股票间可比性差。
+        - 核心实现: 将成本容忍度公式从 (买成本/卖成本)-1 修改为 (买成本-卖成本)/ATR，
+                     使其度量的是“主力愿意承受相当于当日平均波幅百分之多少的成本差异”，
+                     从而让信念指数的评估体系更加稳健和科学。
         """
         import numpy as np
         metrics = {}
@@ -822,20 +826,21 @@ class AdvancedFundFlowMetricsService:
             aggressiveness_component = trend_quality * closing_strength
         avg_cost_main_buy = daily_data.get('avg_cost_main_buy')
         avg_cost_main_sell = daily_data.get('avg_cost_main_sell')
+        # 修改代码块：引入ATR对成本容忍度进行归一化
         cost_tolerance_component = 0.0
-        if pd.notna(avg_cost_main_buy) and pd.notna(avg_cost_main_sell) and avg_cost_main_sell > 0:
-            cost_tolerance_component = (avg_cost_main_buy / avg_cost_main_sell) - 1
+        if pd.notna(avg_cost_main_buy) and pd.notna(avg_cost_main_sell) and pd.notna(atr) and atr > 0:
+            cost_tolerance_component = (avg_cost_main_buy - avg_cost_main_sell) / atr
         market_pressure_zone = hf_analysis_df['ofi'] < 0
         mf_resilience_ofi = hf_analysis_df.loc[market_pressure_zone, 'main_force_ofi'].clip(lower=0).sum()
         total_mf_positive_ofi = hf_analysis_df['main_force_ofi'].clip(lower=0).sum()
         resilience_component = mf_resilience_ofi / total_mf_positive_ofi if total_mf_positive_ofi > 0 else 0.0
         metrics['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
         if enable_probe and is_target_date:
-            # 修改代码行：升级 B.3.1 探针
             print(f"\n--- [探针 B.3.1] main_force_conviction_index (主力信念) ---")
-            print(f"    - 上游输入 avg_cost_main_buy: {avg_cost_main_buy}, avg_cost_main_sell: {avg_cost_main_sell}")
+            # 修改代码行：更新探针输出，增加atr并标明Cost Tolerance已归一化
+            print(f"    - 上游输入 avg_cost_main_buy: {avg_cost_main_buy:.4f}, avg_cost_main_sell: {avg_cost_main_sell:.4f}, atr: {atr:.4f}")
             print(f"    - 组件 Aggressiveness: {aggressiveness_component:.4f} = (TrendQuality {trend_quality:.4f} * ClosingStrength {closing_strength:.4f})")
-            print(f"    - 组件 Cost Tolerance: {cost_tolerance_component:.4f}, 组件 Resilience: {resilience_component:.4f}")
+            print(f"    - 组件 Cost Tolerance (norm by ATR): {cost_tolerance_component:.4f}, 组件 Resilience: {resilience_component:.4f}")
             print(f"    -> 最终得分: {metrics['main_force_conviction_index']:.2f}")
         mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
         if not mf_trades.empty and 'prev_mid_price' in mf_trades.columns:
