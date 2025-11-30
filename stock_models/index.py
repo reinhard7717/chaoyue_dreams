@@ -125,8 +125,6 @@ class TradeCalendar(models.Model):
         # 如果未提供参考日期，则使用当前服务器日期
         if reference_date is None:
             reference_date = timezone.now().date()
-        # 调试信息：打印输入的参数
-        print(f"调试: get_latest_trade_date - 参考日期: {reference_date}, 交易所: {exchange}")
         # 查询数据库
         # 筛选条件：
         # 1. 交易所匹配
