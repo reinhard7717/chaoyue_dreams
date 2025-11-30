@@ -2,24 +2,17 @@
 # 版本: V2.1 - 装饰器重构版
 
 import asyncio
-import time
-import pytz
 from datetime import date, datetime, timedelta
 from django.utils import timezone
 import logging
-from decimal import Decimal
 from collections import defaultdict
 from asgiref.sync import sync_to_async
 from asgiref.sync import async_to_sync
-from celery import Celery
 from celery import group, chain, chord
-from django.db.models import Min, Max
 from utils.task_helpers import with_cache_manager
 from strategies.trend_following.utils import normalize_score
 from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code, get_advanced_chip_metrics_model_by_code, get_advanced_fund_flow_metrics_model_by_code
 from tqdm import tqdm
-from services.performance_analysis_service import PerformanceAnalysisService
-from services.fund_flow_service import AdvancedFundFlowMetricsService
 import numpy as np
 import pandas as pd
 import pandas_ta as ta
@@ -30,16 +23,11 @@ from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from stock_models.advanced_metrics import (
     AdvancedChipMetrics_SH, AdvancedChipMetrics_SZ, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ,
-    AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_BJ,
-    AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_BJ,
-    PlatformFeature_SH, PlatformFeature_SZ, PlatformFeature_CY, PlatformFeature_KC, PlatformFeature_BJ,
-    TrendlineFeature_SH, TrendlineFeature_SZ, TrendlineFeature_CY, TrendlineFeature_KC, TrendlineFeature_BJ
 )
 from stock_models.index import TradeCalendar
 from services.contextual_analysis_service import ContextualAnalysisService
-from services.chip_feature_calculator import ChipFeatureCalculator
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import StockDailyBasic, StockCyqPerf, StockCyqPerf
+from stock_models.time_trade import StockDailyBasic
 from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
 from utils.cache_manager import CacheManager
 
@@ -1766,257 +1754,140 @@ def run_top_n_performance_analysis(
 
 
 # =================================================================
-# =================== 3. 性能复盘任务 (V2.0 MapReduce 架构) ==================
+# =================== 4. 数据维护任务 ==================
 # =================================================================
-
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.aggregate_performance_results', queue='celery')
-@with_cache_manager
-def aggregate_performance_results(self, results: list, *, cache_manager: CacheManager):
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.archive_historical_trade_data', queue='data_maintenance')
+def archive_historical_trade_data(self, days_to_keep: int = 450):
     """
-    【V2.1 序列化修复版 - Reduce 任务】
-    - 核心修复: 修正了数据持久化到Redis的逻辑。不再传递预先序列化的JSON字符串，
-                而是传递原始的Python对象(List[Dict])，由CacheManager统一负责序列化。
-    - 收益: 解决了因“双重序列化”导致数据无法存入Redis的根本性问题。
+    归档含有 'trade_time' 字段的表的历史数据。
+    - 保留最近 `days_to_keep` 个交易日的数据。
+    - 将此之前的数据导出为独立的 SQL 文件。
+    - 使用 xz -9 进行最高级别压缩。
+    - 成功归档后从数据库中删除对应数据。
     """
-    logger.info("====== [全局性能分析 V2.1 - Reduce] 聚合任务启动 ======")
-    # ... (步骤 1 到 6 的聚合与计算逻辑完全不变) ...
-    logger.info(f"已收到来自 {len(results)} 个 Map 任务的结果，开始聚合...")
-    all_stats = [item for sublist in results if sublist for item in sublist]
-    if not all_stats:
-        logger.warning("[全局分析] 未能从任何股票中收集到有效的信号统计数据，无法生成报告。")
-        return {"status": "finished", "reason": "no data to aggregate"}
-    df = pd.DataFrame(all_stats)
-    df['weighted_max_profit'] = df['avg_max_profit_pct'] * df['triggers']
-    df['weighted_max_drawdown'] = df['avg_max_drawdown_pct'] * df['triggers']
-    df['weighted_exit_days'] = df['avg_exit_days'] * df['triggers']
-    agg_df = df.groupby(['signal_name', 'cn_name', 'type']).agg(
-        triggers=('triggers', 'sum'),
-        successes=('successes', 'sum'),
-        total_weighted_profit=('weighted_max_profit', 'sum'),
-        total_weighted_drawdown=('weighted_max_drawdown', 'sum'),
-        total_weighted_days=('weighted_exit_days', 'sum')
-    ).reset_index()
-    agg_df['win_rate_pct'] = (agg_df['successes'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
-    agg_df['avg_max_profit_pct'] = (agg_df['total_weighted_profit'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
-    agg_df['avg_max_drawdown_pct'] = (agg_df['total_weighted_drawdown'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
-    agg_df['avg_exit_days'] = (agg_df['total_weighted_days'] / agg_df['triggers']).where(agg_df['triggers'] > 0, 0)
-    report_df_for_log = agg_df.sort_values(
-        by=['win_rate_pct', 'triggers'], 
-        ascending=[False, False]
-    )
-    final_columns = [
-        'cn_name', 'type', 'triggers', 'successes', 
-        'win_rate_pct', 'avg_max_profit_pct', 'avg_max_drawdown_pct', 'avg_exit_days'
-    ]
-    report_df_for_log = report_df_for_log[final_columns]
-    # --- 步骤 7: 打印到日志 ---
-    logger.info("\n\n" + "="*35 + " [全市场信号性能终极报告] " + "="*35)
-    report_df_for_print = report_df_for_log.copy()
-    report_df_for_print.columns = ['信号名称', '类型', '总触发', '总成功', '胜率(%)', '平均最大涨幅(%)', '平均最大回撤(%)', '平均退出天数']
-    report_df_for_print['胜率(%)'] = report_df_for_print['胜率(%)'].apply(lambda x: f"{x:.2%}")
-    report_df_for_print['平均最大涨幅(%)'] = report_df_for_print['平均最大涨幅(%)'].apply(lambda x: f"{x:.2f}")
-    report_df_for_print['平均最大回撤(%)'] = report_df_for_print['平均最大回撤(%)'].apply(lambda x: f"{x:.2f}")
-    report_df_for_print['平均退出天数'] = report_df_for_print['平均退出天数'].apply(lambda x: f"{x:.1f}")
-    with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 150):
-        print(report_df_for_print.to_string(index=False))
-    logger.info("=" * 95 + "\n")
-    # 8. 将最终报告转换为Python原生对象(List[Dict])，再进行持久化
-    #    我们使用未被格式化用于打印的 report_df_for_log，以保留原始的数值类型。
-    report_data = report_df_for_log.to_dict(orient='records')
-    cache_key = "strategy:performance_report:global_v2"
-    # 将 report_data (一个Python列表) 传递给 cache_manager，让它处理序列化
-    async_to_sync(cache_manager.set)(cache_key, report_data, timeout=60 * 60 * 24 * 7) # 缓存7天
-    logger.info(f"终极报告已成功持久化到Redis缓存。Key: '{cache_key}'")
-    logger.info("====== [全局性能分析 V2.1 - Reduce] 聚合任务完成 ======")
-    return {"status": "success", "aggregated_signals": len(report_df_for_log), "cache_key": cache_key}
-
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_atomic_signals_for_stock', queue='calculate_strategy')
-@with_cache_manager
-def analyze_atomic_signals_for_stock(self, stock_code: str, *, cache_manager: CacheManager):
-    """
-    【V1.0 新增 - Map 任务】分析单只股票的所有原子信号性能。
-    这个任务是计算密集型的，会被大量并行执行。
-    """
-    logger.info(f"  -> [原子信号 Map] 开始分析股票: {stock_code}")
+    import os
+    import subprocess
+    from datetime import timedelta
+    from django.conf import settings
+    from django.apps import apps
+    from django.db.models import Min
+    logger.info(f"====== [历史数据归档任务] 启动，保留最近 {days_to_keep} 个交易日的数据 ======")
+    # 1. 计算截止日期
     try:
-        # 假设 PerformanceAnalysisService 有一个方法可以处理单只股票
-        performance_service = PerformanceAnalysisService(cache_manager)
-        # 这个新方法需要您在 PerformanceAnalysisService 中实现，其逻辑是
-        # 从 analyze_all_atomic_signals 中提取处理单只股票的部分。
-        stock_results = async_to_sync(performance_service.analyze_atomic_signals_for_single_stock)(stock_code)
-        logger.info(f"  -- [原子信号 Map] 完成分析: {stock_code}，发现 {len(stock_results)} 个有效信号。")
-        return stock_results
+        # 获取最近 days_to_keep 个交易日
+        latest_trade_dates = TradeCalendar.get_latest_n_trade_dates(n=days_to_keep)
+        if not latest_trade_dates or len(latest_trade_dates) < days_to_keep:
+            logger.error(f"无法获取足够的交易日历数据 ({len(latest_trade_dates)}/{days_to_keep})，任务终止。")
+            return {"status": "failed", "reason": "Insufficient trade calendar data."}
+        # 保留数据的起始日期是第450个交易日，所以归档日期是这个日期之前的所有日期
+        cutoff_date = latest_trade_dates[-1]
+        logger.info(f"数据保留的起始日期为: {cutoff_date}。此日期之前的数据将被归档。")
+        print(f"调试信息: 数据归档截止日期 (不含当天): {cutoff_date}")
     except Exception as e:
-        logger.error(f"  !! [原子信号 Map] 分析股票 {stock_code} 时出错: {e}", exc_info=True)
-        return [] # 出错时返回空列表，不影响主流程
-
-# [核心新增] 2. 原子信号分析的 REDUCE 任务
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.aggregate_atomic_signal_results', queue='celery')
-@with_cache_manager
-def aggregate_atomic_signal_results(self, results: list, *, cache_manager: CacheManager):
-    """
-    【V1.2 同步写入修复版 - Reduce 任务】
-    - 核心修复: 移除了对同步ORM方法不必要的、且错误的 sync_to_async 包装，
-                确保数据库写入操作被真正执行。
-    """
-    logger.info("====== [原子信号分析 V1.2 - Reduce] 聚合任务启动 ======")
-    try:
-        # 1. 聚合计算逻辑
-        all_stats = [item for sublist in results if sublist for item in sublist]
-        if not all_stats:
-            logger.warning("[原子信号 Reduce] 未能从任何股票中收集到有效的原子信号统计数据。")
-            return {"status": "finished", "reason": "no atomic data to aggregate"}
-        df = pd.DataFrame(all_stats)
-        agg_df = df.groupby(['signal_name', 'cn_name', 'type']).agg(
-            total_triggers=('triggers', 'sum'),
-            total_successes=('successes', 'sum'),
-            weighted_profit=('weighted_max_profit', 'sum'),
-            weighted_drawdown=('weighted_max_drawdown', 'sum'),
-            weighted_days=('weighted_exit_days', 'sum')
-        ).reset_index()
-        agg_df['win_rate_pct'] = (agg_df['total_successes'] / agg_df['total_triggers']).where(agg_df['total_triggers'] > 0, 0)
-        agg_df['avg_max_profit_pct'] = (agg_df['weighted_profit'] / agg_df['total_triggers']).where(agg_df['total_triggers'] > 0, 0)
-        agg_df['avg_max_drawdown_pct'] = (agg_df['weighted_drawdown'] / agg_df['total_triggers']).where(agg_df['total_triggers'] > 0, 0)
-        agg_df['avg_exit_days'] = (agg_df['weighted_days'] / agg_df['total_triggers']).where(agg_df['total_triggers'] > 0, 0)
-        logger.info(f"[原子信号 Reduce] 成功聚合了 {len(agg_df)} 个独特的原子信号。")
-        # 2. 数据库持久化逻辑
-        records_to_update = []
-        records_to_create = []
-        existing_records = {
-            p.signal_name: p for p in AtomicSignalPerformance.objects.all()
-        }
-        for _, row in agg_df.iterrows():
-            signal_name = row['signal_name']
-            if signal_name in existing_records:
-                record = existing_records[signal_name]
-                record.signal_cn_name = row['cn_name']
-                record.signal_type = row['type']
-                record.total_triggers = row['total_triggers']
-                record.successes = row['total_successes']
-                record.win_rate_pct = row['win_rate_pct']
-                record.avg_max_profit_pct = row['avg_max_profit_pct']
-                record.avg_max_drawdown_pct = row['avg_max_drawdown_pct']
-                record.avg_exit_days = row['avg_exit_days']
-                records_to_update.append(record)
-            else:
-                records_to_create.append(AtomicSignalPerformance(
-                    signal_name=row['signal_name'],
-                    signal_cn_name=row['cn_name'],
-                    signal_type=row['type'],
-                    total_triggers=row['total_triggers'],
-                    successes=row['total_successes'],
-                    win_rate_pct=row['win_rate_pct'],
-                    avg_max_profit_pct=row['avg_max_profit_pct'],
-                    avg_max_drawdown_pct=row['avg_max_drawdown_pct'],
-                    avg_exit_days=row['avg_exit_days'],
-                ))
-        # 在同步任务中，直接调用同步的ORM方法。
-        #           之前的 sync_to_async(...) 调用只创建了协程但未执行。
-        if records_to_create:
-            print(f"调试信息: [原子信号 Reduce] 准备创建 {len(records_to_create)} 条记录...")
-            AtomicSignalPerformance.objects.bulk_create(records_to_create)
-            logger.info(f"[原子信号 Reduce] 成功创建 {len(records_to_create)} 条新的信号性能记录。")
-        if records_to_update:
-            print(f"调试信息: [原子信号 Reduce] 准备更新 {len(records_to_update)} 条记录...")
-            AtomicSignalPerformance.objects.bulk_update(
-                records_to_update, 
-                ['signal_cn_name', 'signal_type', 'total_triggers', 'successes', 'win_rate_pct', 
-                 'avg_max_profit_pct', 'avg_max_drawdown_pct', 'avg_exit_days', 'last_analyzed']
-            )
-            logger.info(f"[原子信号 Reduce] 成功更新 {len(records_to_update)} 条已有的信号性能记录。")
-        logger.info("====== [原子信号分析 V1.2 - Reduce] 聚合任务完成 ======")
-        return {"status": "success", "created": len(records_to_create), "updated": len(records_to_update)}
-    except Exception as e:
-        logger.error(f"[原子信号 Reduce] 聚合任务执行时发生严重错误: {e}", exc_info=True)
-        return {"status": "error", "reason": str(e)}
-
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.analyze_performance_from_db', queue='calculate_strategy')
-@with_cache_manager
-def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date: str, *, cache_manager: CacheManager):
-    """
-    【V1.2 - 安静的Map任务】
-    作为MapReduce中的Map阶段，此任务只负责计算并返回原始数据，不打印任何报告。
-    - 移除了所有格式化和打印报告的逻辑，以避免在并行执行时产生大量日志噪音。
-    """
-    async def main():
-        # 1. 初始化性能分析服务
-        service = PerformanceAnalysisService(cache_manager)
-        # 2. 调用服务执行分析，并获取原始结果
-        raw_results = await service.run_analysis_for_stock(
-            stock_code=stock_code,
-            start_date=start_date,
-            end_date=end_date
-        )
-        return raw_results
-    try:
-        result = async_to_sync(main)()
-        if result:
-            logger.info(f"[Map] {stock_code} 分析完成，发现 {len(result)} 条信号统计。")
-        else:
-            logger.info(f"[Map] {stock_code} 分析完成，无有效信号。")
-        return result
-    except Exception as e:
-        logger.error(f"[Map] 在执行DB直读性能分析任务 for {stock_code} 时发生严重错误: {e}", exc_info=True)
-        # 返回空列表，确保整个chord工作流不会因单个任务失败而中断
-        return []
-
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.run_global_performance_analysis', queue='celery')
-@with_cache_manager
-def run_global_performance_analysis(self, stock_list: list = None, start_date: str = None, end_date: str = None, *, cache_manager: CacheManager):
-    """
-    【V3.2 全并行架构版】
-    """
-    logger.info("="*80)
-    logger.info(f"--- [全局性能分析 V3.2 - 全并行架构总指挥启动] ---")
-    logger.info(f"  - 分析时段: {start_date or '默认'} to {end_date or '默认'}")
-    logger.info("="*80)
-    try:
-        codes_to_run = stock_list
-        if not codes_to_run:
-            logger.info("未提供股票列表，将自动获取全市场股票进行复盘...")
-            stock_basic_dao = StockBasicInfoDao(cache_manager)
-            fav_codes, non_fav_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(stock_basic_dao)
-            codes_to_run = fav_codes + non_fav_codes
-        if not codes_to_run:
-            logger.error("无法获取股票列表，任务终止。")
-            return {"status": "error", "reason": "Failed to get stock list."}
-        total_stocks = len(codes_to_run)
-        logger.info(f"侦测到 {total_stocks} 个作战目标，准备下达联合作战指令...")
-        # --- 作战指令一: 启动【最终信号】分析兵团 (MapReduce) ---
-        logger.info("\n--- [指令 1/2] 正在向【最终信号分析兵团】派发 MapReduce 任务...")
-        map_tasks_final = [
-            analyze_performance_from_db.s(
-                stock_code=code,
-                start_date=start_date,
-                end_date=end_date
-            ).set(queue='calculate_strategy') for code in codes_to_run
-        ]
-        reduce_task_final = aggregate_performance_results.s().set(queue='celery')
-        workflow_final = chord(header=group(map_tasks_final), body=reduce_task_final)
-        workflow_final.apply_async()
-        logger.info(f"-> 指令已下达！{total_stocks} 个【最终信号】分析子任务已派发。")
-        # 使用新的 MapReduce 架构来派发原子信号分析任务
-        # --- 作战指令二: 启动【原子信号】分析特遣队 (MapReduce) ---
-        logger.info("\n--- [指令 2/2] 正在向【原子信号分析特遣队】派发 MapReduce 任务...")
-        map_tasks_atomic = [
-            analyze_atomic_signals_for_stock.s(
-                stock_code=code
-            ).set(queue='calculate_strategy') for code in codes_to_run
-        ]
-        reduce_task_atomic = aggregate_atomic_signal_results.s().set(queue='celery')
-        workflow_atomic = chord(header=group(map_tasks_atomic), body=reduce_task_atomic)
-        workflow_atomic.apply_async()
-        logger.info(f"-> 指令已下达！{total_stocks} 个【原子信号】分析子任务已派发，将并行运行。")
-        logger.info("\n" + "="*80)
-        logger.info(f"--- [全局性能分析 V3.2 - 所有作战指令已下达] ---")
-        return {"status": "all_workflows_dispatched", "total_stocks": total_stocks}
-    except Exception as e:
-        logger.error(f"在派发全局性能分析任务时发生严重错误: {e}", exc_info=True)
-        return {"status": "error", "reason": str(e)}
-
-
-
-
-
+        logger.error(f"计算归档截止日期时出错: {e}", exc_info=True)
+        return {"status": "failed", "reason": "Error calculating cutoff date."}
+    # 2. 准备归档目录和数据库配置
+    archive_dir = os.path.join(settings.BASE_DIR, 'db_archives')
+    os.makedirs(archive_dir, exist_ok=True)
+    logger.info(f"归档文件将保存至: {archive_dir}")
+    db_config = settings.DATABASES['default']
+    db_user = db_config['USER']
+    db_password = db_config['PASSWORD']
+    db_host = db_config['HOST']
+    db_port = str(db_config.get('PORT', 3306))
+    db_name = db_config['NAME']
+    # 3. 动态查找所有带 'trade_time' 字段的模型
+    target_models = []
+    all_models = apps.get_models()
+    for model in all_models:
+        # 检查模型是否有 'trade_time' 字段，并且不是抽象模型
+        if hasattr(model, '_meta') and not model._meta.abstract and 'trade_time' in [f.name for f in model._meta.get_fields()]:
+            # 排除没有数据的模型
+            if model.objects.exists():
+                target_models.append(model)
+    if not target_models:
+        logger.info("未找到任何含有 'trade_time' 字段且有数据的表，任务结束。")
+        return {"status": "skipped", "reason": "No target tables found."}
+    logger.info(f"发现 {len(target_models)} 个目标模型需要处理。")
+    print(f"调试信息: 待处理的模型列表: {[m._meta.db_table for m in target_models]}")
+    # 4. 遍历模型，执行归档和删除
+    success_count = 0
+    failure_count = 0
+    for model in target_models:
+        table_name = model._meta.db_table
+        logger.info(f"--- 开始处理表: {table_name} ---")
+        try:
+            # 检查是否有需要归档的数据
+            min_date_obj = model.objects.filter(trade_time__lt=cutoff_date).aggregate(min_date=Min('trade_time'))
+            min_date = min_date_obj.get('min_date')
+            if not min_date:
+                logger.info(f"表 {table_name} 中没有早于 {cutoff_date} 的数据，跳过。")
+                continue
+            # 格式化日期
+            min_date_str = min_date.strftime('%Y%m%d')
+            cutoff_date_str_for_file = (cutoff_date - timedelta(days=1)).strftime('%Y%m%d')
+            # 构建文件名和命令
+            archive_filename = f"{table_name}_{min_date_str}_to_{cutoff_date_str_for_file}.sql.xz"
+            archive_filepath = os.path.join(archive_dir, archive_filename)
+            where_clause = f"trade_time < '{cutoff_date.strftime('%Y-%m-%d')}'"
+            # mysqldump 命令
+            dump_cmd = [
+                'mysqldump',
+                f'--user={db_user}',
+                f'--password={db_password}',
+                f'--host={db_host}',
+                f'--port={db_port}',
+                '--single-transaction',
+                '--skip-lock-tables',
+                '--quick',
+                db_name,
+                table_name,
+                f'--where={where_clause}'
+            ]
+            # xz 压缩命令
+            compress_cmd = ['xz', '-9', '-c']
+            logger.info(f"正在导出并压缩表 {table_name} 的数据...")
+            print(f"调试信息: 导出命令 (密码已隐藏): mysqldump --user={db_user} ... --where=\"{where_clause}\"")
+            with open(archive_filepath, 'wb') as f_out:
+                # 使用管道连接 mysqldump 和 xz
+                dump_process = subprocess.Popen(dump_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                compress_process = subprocess.Popen(compress_cmd, stdin=dump_process.stdout, stdout=f_out, stderr=subprocess.PIPE)
+                # 等待 mysqldump 完成，并关闭其 stdout
+                dump_process.stdout.close()
+                # 获取 stderr 输出
+                dump_stderr = dump_process.stderr.read().decode('utf-8')
+                compress_stderr = compress_process.stderr.read().decode('utf-8')
+                # 等待压缩进程完成
+                compress_process.wait()
+                dump_process.wait()
+                if dump_process.returncode != 0:
+                    logger.error(f"导出表 {table_name} 时 mysqldump 失败。返回码: {dump_process.returncode}。错误: {dump_stderr}")
+                    os.remove(archive_filepath) # 删除不完整的文件
+                    failure_count += 1
+                    continue
+                if compress_process.returncode != 0:
+                    logger.error(f"压缩表 {table_name} 的导出文件时 xz 失败。返回码: {compress_process.returncode}。错误: {compress_stderr}")
+                    os.remove(archive_filepath) # 删除不完整的文件
+                    failure_count += 1
+                    continue
+            # 验证文件
+            if not os.path.exists(archive_filepath) or os.path.getsize(archive_filepath) == 0:
+                logger.error(f"归档文件 {archive_filepath} 创建失败或为空。")
+                failure_count += 1
+                continue
+            logger.info(f"成功归档数据到: {archive_filepath}")
+            # 删除数据
+            logger.info(f"准备从表 {table_name} 中删除早于 {cutoff_date} 的数据...")
+            with transaction.atomic():
+                deleted_count, _ = model.objects.filter(trade_time__lt=cutoff_date).delete()
+                logger.info(f"成功从表 {table_name} 中删除了 {deleted_count} 条历史记录。")
+            success_count += 1
+        except Exception as e:
+            logger.error(f"处理表 {table_name} 时发生意外错误: {e}", exc_info=True)
+            failure_count += 1
+            continue
+    logger.info("====== [历史数据归档任务] 完成 ======")
+    logger.info(f"成功处理: {success_count} 个表, 失败: {failure_count} 个表。")
+    return {"status": "completed", "success": success_count, "failed": failure_count}
 
 
