@@ -742,9 +742,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V49.2 · 执行力穿透版】
+        【V50.0 · 流量效率穿透版】
         - 核心升级: 引入 B-系列 (Behavioral Engine) 探针，监控引擎的输入数据健康度和计算过程。
-        - 核心集成: 调用新增的 _calculate_execution_alpha_metrics 方法。
+        - 核心集成: 调用新增的 _calculate_flow_efficiency_metrics 方法。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -784,8 +784,9 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_closing_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_retail_sentiment_metrics(intraday_data, hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_hidden_accumulation_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        # 新增代码行：调用新的执行力Alpha计算方法
         results.update(self._calculate_execution_alpha_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
+        # 新增代码行：调用新的流量效率计算方法
+        results.update(self._calculate_flow_efficiency_metrics(hf_analysis_df, intraday_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_misc_minute_metrics(intraday_data, common_data))
         results.update(self._calculate_misc_daily_metrics(daily_data, main_force_net_flow_calibrated))
         return results
@@ -1728,24 +1729,15 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_misc_daily_metrics(self, daily_data: pd.Series, main_force_net_flow_calibrated: float) -> dict:
         """
-        【V47.0 · 模块化重构版】
-        新增方法: 计算主要基于日线数据的杂项指标。
+        【V50.0 · 流量效率穿透版】
+        - 核心重构: 移除了旧的、基于日线宏观数据的 flow_efficiency_index 计算逻辑，
+                     其功能已被新的、基于微观结构的高频化方法 _calculate_flow_efficiency_metrics 接管。
         """
         import pandas as pd
         import numpy as np
         metrics = {}
         WAN = 10000.0
-        try:
-            pct_change = pd.to_numeric(daily_data.get('pct_change'), errors='coerce')
-            circ_mv_yuan = pd.to_numeric(daily_data.get('circ_mv'), errors='coerce') * WAN
-            if pd.notna(circ_mv_yuan) and circ_mv_yuan > 0 and pd.notna(main_force_net_flow_calibrated) and pd.notna(pct_change):
-                mf_flow_yuan = main_force_net_flow_calibrated * WAN
-                flow_input = mf_flow_yuan / circ_mv_yuan
-                if abs(flow_input) > 1e-9:
-                    efficiency = (pct_change / 100) / flow_input
-                    metrics['flow_efficiency_index'] = np.sign(efficiency) * np.log1p(abs(efficiency))
-        except Exception:
-            metrics['flow_efficiency_index'] = np.nan
+        # 修改代码块：移除整个 flow_efficiency_index 的计算逻辑
         try:
             trade_count = pd.to_numeric(daily_data.get('trade_count'), errors='coerce')
             turnover_amount_yuan = pd.to_numeric(daily_data.get('amount'), errors='coerce') * 1000
@@ -1753,6 +1745,53 @@ class AdvancedFundFlowMetricsService:
                 metrics['inferred_active_order_size'] = turnover_amount_yuan / trade_count
         except Exception:
             metrics['inferred_active_order_size'] = np.nan
+        return metrics
+
+    def _calculate_flow_efficiency_metrics(self, hf_analysis_df: pd.DataFrame, intraday_data: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+        """
+        【V50.0 · 流量效率穿透版】(新增方法)
+        - 核心升级: 新增方法，将 flow_efficiency_index 从宏观日线指标升维为微观结构效率指标。
+        - 升级原因: 废弃将日内所有资金流模糊地与日终涨跌幅关联的粗糙算法，转而精确衡量“单位资金意图”对“即时价格”的撬动能力。
+        - 核心实现:
+          - 高频路径: 计算“单位主力OFI”引发的“中间价变动”的成交量加权平均值，并进行归一化，得到纯粹的效率系数。
+          - 降级路径: 使用分钟级“主力净成交量”和“价格变动”作为替代进行估算。
+        """
+        import numpy as np
+        import pandas as pd
+        metrics = {'flow_efficiency_index': np.nan}
+        atr = common_data.get('atr')
+        daily_total_volume = common_data.get('daily_total_volume')
+        if pd.isna(atr) or atr <= 0 or pd.isna(daily_total_volume) or daily_total_volume <= 0:
+            return metrics
+        efficiency_coeff = np.nan
+        if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns and 'mid_price_change' in hf_analysis_df.columns:
+            # 高频路径
+            df = hf_analysis_df[hf_analysis_df['main_force_ofi'] != 0].copy()
+            if not df.empty:
+                df['price_change_per_ofi'] = df['mid_price_change'] / df['main_force_ofi']
+                weights = df['main_force_ofi'].abs()
+                if weights.sum() > 0:
+                    efficiency_coeff = np.average(df['price_change_per_ofi'], weights=weights)
+                    # 归一化：将系数转换为可比的指数
+                    # 含义：当日主力平均每单位OFI撬动的价格变化，与当日平均每单位成交量对应的价格波幅(ATR)的比值
+                    metrics['flow_efficiency_index'] = (efficiency_coeff * daily_total_volume) / atr
+                    if enable_probe and is_target_date:
+                        print(f"  [探针] flow_efficiency_index (高频-流量效率) 计算:")
+                        print(f"    - 核心效率系数 (每单位OFI撬动的价格): {efficiency_coeff:.8f}")
+                        print(f"    - (系数 * 总成交量) / ATR = ({efficiency_coeff:.8f} * {daily_total_volume:,.0f}) / {atr:.4f}")
+                        print(f"    -> 最终得分: {metrics['flow_efficiency_index']:.4f}")
+        else:
+            # 降级路径
+            if 'main_force_net_vol' in intraday_data.columns and 'close' in intraday_data.columns:
+                df = intraday_data.copy()
+                df['price_change'] = df['close'].diff()
+                df = df[df['main_force_net_vol'] != 0].dropna(subset=['price_change'])
+                if not df.empty:
+                    df['price_change_per_vol'] = df['price_change'] / df['main_force_net_vol']
+                    weights = df['main_force_net_vol'].abs()
+                    if weights.sum() > 0:
+                        efficiency_coeff = np.average(df['price_change_per_vol'], weights=weights)
+                        metrics['flow_efficiency_index'] = (efficiency_coeff * daily_total_volume) / atr
         return metrics
 
     def _calculate_intraday_attribution_weights(self, intraday_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
