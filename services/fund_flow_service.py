@@ -602,10 +602,12 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame, debug_mode: bool = False) -> pd.DataFrame:
         """
-        【V2.1 · 最终修复版】
+        【V49.2 · 执行力穿透版】
         - 核心修复: 修正了此前版本中，已计算的聚合成本（avg_cost_main_buy/sell）未被包含在返回结果中的致命缺陷。
                      现在，这些关键的中间成本被正确地添加到返回的DataFrame中，从而打通了整个计算链路的“最后一公里”，
                      确保下游指标（如retail_fomo_premium_index）能够获取到它们所依赖的数据。
+        - 核心重构: 移除了 main_force_execution_alpha 和 main_force_t0_efficiency 的计算逻辑，
+                     将其职责转移至新的 _calculate_execution_alpha_metrics 方法，实现单一职责原则。
         """
         if pvwap_df.empty or daily_df.empty:
             return pd.DataFrame()
@@ -625,13 +627,10 @@ class AdvancedFundFlowMetricsService:
         temp_df['avg_cost_main_sell'] = weighted_average_cost(['avg_cost_lg_sell', 'avg_cost_elg_sell'], ['sell_lg_vol', 'sell_elg_vol'])
         temp_df['avg_cost_retail_buy'] = weighted_average_cost(['avg_cost_sm_buy', 'avg_cost_md_buy'], ['buy_sm_vol', 'buy_md_vol'])
         temp_df['avg_cost_retail_sell'] = weighted_average_cost(['avg_cost_sm_sell', 'avg_cost_md_sell'], ['sell_sm_vol', 'sell_md_vol'])
-        
-        # 【最终修复】将计算出的聚合成本添加到返回结果中
         result_agg_df['avg_cost_main_buy'] = temp_df['avg_cost_main_buy']
         result_agg_df['avg_cost_main_sell'] = temp_df['avg_cost_main_sell']
         result_agg_df['avg_cost_retail_buy'] = temp_df['avg_cost_retail_buy']
         result_agg_df['avg_cost_retail_sell'] = temp_df['avg_cost_retail_sell']
-
         temp_df['daily_vwap'] = daily_df['daily_vwap']
         temp_df['atr_14d'] = daily_df['atr_14d']
         try:
@@ -644,17 +643,7 @@ class AdvancedFundFlowMetricsService:
             result_agg_df['retail_cost_beta'] = beta * 100
         except Exception:
             result_agg_df['retail_cost_beta'] = np.nan
-        try:
-            t0_spread = (temp_df['avg_cost_main_sell'] - temp_df['avg_cost_main_buy']) / temp_df['daily_vwap']
-            result_agg_df['main_force_t0_spread_ratio'] = t0_spread * 100
-            execution_alpha = (temp_df['avg_cost_main_sell'] - temp_df['daily_vwap']) / temp_df['atr_14d']
-            result_agg_df['main_force_execution_alpha'] = execution_alpha
-            efficiency = t0_spread / execution_alpha.replace(0, np.nan)
-            result_agg_df['main_force_t0_efficiency'] = efficiency
-        except Exception:
-            result_agg_df['main_force_t0_spread_ratio'] = np.nan
-            result_agg_df['main_force_execution_alpha'] = np.nan
-            result_agg_df['main_force_t0_efficiency'] = np.nan
+        # 修改代码块：移除 main_force_t0_spread_ratio, main_force_execution_alpha, main_force_t0_efficiency 的计算逻辑
         try:
             mf_cost_premium = (temp_df['avg_cost_main_buy'] / temp_df['daily_vwap'] - 1)
             retail_cost_discount = (1 - temp_df['avg_cost_retail_sell'] / temp_df['daily_vwap'])
@@ -753,8 +742,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V48.9 · CMF诊断探针版】
+        【V49.2 · 执行力穿透版】
         - 核心升级: 引入 B-系列 (Behavioral Engine) 探针，监控引擎的输入数据健康度和计算过程。
+        - 核心集成: 调用新增的 _calculate_execution_alpha_metrics 方法。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -788,13 +778,14 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_dip_rally_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_reversal_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_panic_cascade_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        # 修改代码行：将 is_target_date 和 enable_probe 探针信号传递给 CMF 计算方法
         results.update(self._calculate_cmf_metrics(intraday_data, is_target_date, enable_probe))
         results.update(self._calculate_vpoc_metrics(intraday_data, common_data))
         results.update(self._calculate_liquidity_swap_metrics(intraday_data))
         results.update(self._calculate_closing_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_retail_sentiment_metrics(intraday_data, hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_hidden_accumulation_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
+        # 新增代码行：调用新的执行力Alpha计算方法
+        results.update(self._calculate_execution_alpha_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_misc_minute_metrics(intraday_data, common_data))
         results.update(self._calculate_misc_daily_metrics(daily_data, main_force_net_flow_calibrated))
         return results
@@ -2046,6 +2037,69 @@ class AdvancedFundFlowMetricsService:
         results['sell_quote_exhaustion_rate'] = (sell_exhausted_vol / daily_total_volume) * 100
         return results
 
+    def _calculate_execution_alpha_metrics(self, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+        """
+        【V49.2 · 执行力穿透版】(新增方法)
+        - 核心升级: 新增方法，致力于穿透式分析主力执行力，将 main_force_execution_alpha 的计算高频化。
+        - 升级原因: 原基于分钟归因的成本估算无法捕捉主力在微观层面的真实交易能力。
+        - 核心实现:
+          - 高频路径: 直接从逐笔数据中计算主力大单的真实买卖VWAP，并与市场VWAP对比，用ATR归一化，得出精准的执行Alpha。
+          - 降级路径: 回退至使用上游传入的、基于分钟数据归因的估算成本进行计算。
+          - 探针植入: 新增探针，用于监控高频路径下真实主力VWAP的计算过程。
+        """
+        import numpy as np
+        import pandas as pd
+        metrics = {
+            'main_force_buy_execution_alpha': np.nan,
+            'main_force_sell_execution_alpha': np.nan,
+            'main_force_execution_alpha': np.nan,
+            'main_force_t0_efficiency': np.nan
+        }
+        daily_vwap = common_data['daily_vwap']
+        atr = common_data['atr']
+        if pd.isna(daily_vwap) or pd.isna(atr) or atr <= 0:
+            return metrics
+        buy_alpha, sell_alpha = np.nan, np.nan
+        if not hf_analysis_df.empty:
+            mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
+            mf_buy_trades = mf_trades[mf_trades['type'] == 'B']
+            mf_sell_trades = mf_trades[mf_trades['type'] == 'S']
+            actual_mf_buy_vwap, actual_mf_sell_vwap = np.nan, np.nan
+            if not mf_buy_trades.empty and mf_buy_trades['volume'].sum() > 0:
+                actual_mf_buy_vwap = (mf_buy_trades['price'] * mf_buy_trades['volume']).sum() / mf_buy_trades['volume'].sum()
+                buy_alpha = (daily_vwap - actual_mf_buy_vwap) / atr
+                metrics['main_force_buy_execution_alpha'] = buy_alpha
+            if not mf_sell_trades.empty and mf_sell_trades['volume'].sum() > 0:
+                actual_mf_sell_vwap = (mf_sell_trades['price'] * mf_sell_trades['volume']).sum() / mf_sell_trades['volume'].sum()
+                sell_alpha = (actual_mf_sell_vwap - daily_vwap) / atr
+                metrics['main_force_sell_execution_alpha'] = sell_alpha
+            if enable_probe and is_target_date:
+                print(f"  [探针] main_force_execution_alpha (高频-执行力) 计算:")
+                print(f"    - 市场VWAP: {daily_vwap:.4f}, ATR: {atr:.4f}")
+                print(f"    - 真实主力买入VWAP: {actual_mf_buy_vwap:.4f} -> Buy Alpha: {buy_alpha:.4f}")
+                print(f"    - 真实主力卖出VWAP: {actual_mf_sell_vwap:.4f} -> Sell Alpha: {sell_alpha:.4f}")
+        else:
+            # 降级路径
+            avg_cost_main_buy = daily_data.get('avg_cost_main_buy')
+            avg_cost_main_sell = daily_data.get('avg_cost_main_sell')
+            if pd.notna(avg_cost_main_buy):
+                buy_alpha = (daily_vwap - avg_cost_main_buy) / atr
+                metrics['main_force_buy_execution_alpha'] = buy_alpha
+            if pd.notna(avg_cost_main_sell):
+                sell_alpha = (avg_cost_main_sell - daily_vwap) / atr
+                metrics['main_force_sell_execution_alpha'] = sell_alpha
+        # 综合计算
+        if pd.notna(buy_alpha) and pd.notna(sell_alpha):
+            metrics['main_force_execution_alpha'] = (buy_alpha + sell_alpha) / 2
+            t0_spread_norm = (sell_alpha - (-buy_alpha)) # (SellVWAP - DVWAP)/ATR - (BuyVWAP - DVWAP)/ATR
+            if pd.notna(sell_alpha) and sell_alpha != 0:
+                metrics['main_force_t0_efficiency'] = t0_spread_norm / sell_alpha
+        elif pd.notna(sell_alpha):
+            metrics['main_force_execution_alpha'] = sell_alpha
+        elif pd.notna(buy_alpha):
+            metrics['main_force_execution_alpha'] = buy_alpha
+        return metrics
+
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         records_to_save_df = final_df
         stock_code = stock_info.stock_code
@@ -2067,16 +2121,19 @@ class AdvancedFundFlowMetricsService:
                 records_to_save_df[col] = records_to_save_df[col].replace([np.inf, -np.inf], np.nan)
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
+        # 修改代码块：修复探针逻辑，先检查，后过滤
+        # 1. 首先从原始的、未经过滤的DataFrame中获取列名集合用于诊断
+        incoming_df_cols = set(records_to_save_df.columns)
+        # 2. 然后，再创建用于实际保存的、过滤后的DataFrame
         df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
-        # 修改代码行：升级【S.1 - 保存前终审探针】
         if enable_probe and is_target_date_in_df:
             print(f"\n{'='*20} [探针 S.1 - 保存前终审 @ {target_date}] {'='*20}")
-            filtered_cols_set = set(df_filtered.columns)
             model_fields_set = set(model_fields)
-            print(f"  - 准备保存的DataFrame列数: {len(filtered_cols_set)}")
+            print(f"  - 准备保存的DataFrame列数: {len(df_filtered.columns)}")
             print(f"  - 模型定义的字段数 (不含关系): {len(model_fields_set)}")
-            missing_in_df = model_fields_set - filtered_cols_set - {'id', 'stock_id', 'trade_time'}
-            extra_in_df = filtered_cols_set - model_fields_set
+            # 3. 使用原始列名集合进行准确的比较
+            missing_in_df = model_fields_set - incoming_df_cols - {'id', 'stock_id', 'trade_time'}
+            extra_in_df = incoming_df_cols - model_fields_set
             if not missing_in_df and not extra_in_df:
                 print("  - [检查通过] 数据列与模型字段完美匹配。")
             else:
@@ -2088,7 +2145,9 @@ class AdvancedFundFlowMetricsService:
             if not target_row.empty:
                 print("  - 目标日期最终待保存数据行预览:")
                 preview_cols = ['main_force_conviction_index', 'dip_absorption_power', 'rally_distribution_pressure', 'hidden_accumulation_intensity', 'lower_shadow_absorption_strength']
-                print(target_row[preview_cols].to_string())
+                # 确保预览的列存在于DataFrame中
+                existing_preview_cols = [col for col in preview_cols if col in target_row.columns]
+                print(target_row[existing_preview_cols].to_string())
             else:
                 print("  - [!!!] 警告: 在最终待保存的DataFrame中未找到目标日期行！")
         records_list = df_filtered.to_dict('records')
