@@ -745,11 +745,11 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V39.0 · 诡道派发重构版】
-        - 核心重构: 废弃原有的 `rally_distribution_pressure` 算法，引入基于高频数据的“诡道派发艺术”
-                     (Deceptive Distribution Artistry)全新算法。从诱多效率、派发强度、散户狂热度三个维度，
-                     深度量化主力“设局诱捕”的成本、战果与效果，衡量其操盘艺术。
-        - 核心增强: 为新的诡道派发指标植入专属诊断探针。
+        【V40.0 · 散户诱捕重构版】
+        - 核心重构: 废弃原有的 `FollowerFrenzy` (散户狂热度) 算法，引入基于高频数据的“散户诱捕评分”
+                     (Retail Entrapment Score)全新算法。从追高代价、成交激增、攻击性买盘三个维度，
+                     深度量化散户在上涨波段中被“诱捕”的程度。
+        - 核心增强: 为新的散户诱捕评分植入专属诊断探针。
         """
         from scipy.signal import find_peaks
         from datetime import time
@@ -1021,9 +1021,15 @@ class AdvancedFundFlowMetricsService:
                         print(f"  [探针] dip_absorption_power (战略吸筹) 计算:")
                         print(f"    - OffensiveOFI: {OffensiveOFI_Component:.4f}, CostAdvantage: {CostAdvantage_Component:.4f}, VolumeDominance (已修复): {VolumeDominance_Component:.4f}")
                         print(f"    -> Final Score: {results['dip_absorption_power']:.2f}")
-                # 修改代码块：重构 rally_distribution_pressure (诡道派发)
                 total_rally_price_change = 0
                 total_deceptive_pressure = 0
+                # 修改代码块：为 FollowerFrenzy 计算准备全天基准值
+                daily_retail_trades = hf_analysis_df[hf_analysis_df['amount'] < 50000]
+                daily_avg_retail_buy_vol_per_min = 0
+                if not daily_retail_trades.empty:
+                    daily_retail_buy_vol = daily_retail_trades[daily_retail_trades['type'] == 'B']['volume'].sum()
+                    if daily_retail_buy_vol > 0:
+                        daily_avg_retail_buy_vol_per_min = daily_retail_buy_vol / 240 # 240分钟
                 for i in range(len(turning_points) - 1):
                     start_idx, end_idx = turning_points[i], turning_points[i+1]
                     window_df = continuous_trading_df.iloc[start_idx:end_idx+1]
@@ -1034,18 +1040,31 @@ class AdvancedFundFlowMetricsService:
                         if not rally_hf_df.empty:
                             price_change_in_rally = window_df['minute_vwap'].iloc[-1] - window_df['minute_vwap'].iloc[0]
                             total_rally_price_change += price_change_in_rally
-                            # 1. 诱多效率 (Bait Efficiency)
                             bait_cost = (rally_hf_df['main_force_ofi'] * rally_hf_df['mid_price']).sum()
                             bait_efficiency = 1 - np.tanh(bait_cost / (price_change_in_rally * daily_total_volume * 0.1)) if price_change_in_rally > 0 else 0.5
-                            # 2. 派发强度 (Distribution Dominance)
                             mf_sell_vol_in_rally = abs(intraday_data.loc[start_time:end_time, 'main_force_sell_vol'].sum())
                             total_vol_in_rally = intraday_data.loc[start_time:end_time, 'vol_shares'].sum()
                             distribution_dominance = mf_sell_vol_in_rally / total_vol_in_rally if total_vol_in_rally > 0 else 0.0
-                            # 3. 散户狂热度 (Follower Frenzy)
-                            retail_net_ofi_in_rally = rally_hf_df['retail_ofi'].sum()
-                            total_abs_retail_ofi_day = hf_analysis_df['retail_ofi'].abs().sum()
-                            follower_frenzy = np.tanh(retail_net_ofi_in_rally / total_abs_retail_ofi_day) if total_abs_retail_ofi_day > 0 else 0.0
-                            # 最终裁决
+                            # 修改代码块：重构 FollowerFrenzy (散户狂热度)
+                            follower_frenzy = 0.0
+                            retail_hf_in_rally = rally_hf_df[rally_hf_df['amount'] < 50000]
+                            if not retail_hf_in_rally.empty:
+                                # 1. 追高代价 (Cost Component)
+                                retail_buy_trades_in_rally = retail_hf_in_rally[retail_hf_in_rally['type'] == 'B']
+                                total_retail_buy_vol_in_rally = retail_buy_trades_in_rally['volume'].sum()
+                                cost_component = 0.0
+                                if total_retail_buy_vol_in_rally > 0 and price_change_in_rally > 0:
+                                    retail_buy_vwap = (retail_buy_trades_in_rally['price'] * retail_buy_trades_in_rally['volume']).sum() / total_retail_buy_vol_in_rally
+                                    cost_component = (retail_buy_vwap - window_df['minute_vwap'].iloc[0]) / price_change_in_rally
+                                # 2. 成交激增 (Volume Spike Component)
+                                rally_duration_mins = (end_time - start_time).total_seconds() / 60
+                                avg_retail_buy_vol_in_rally = total_retail_buy_vol_in_rally / rally_duration_mins if rally_duration_mins > 0 else 0
+                                volume_spike_component = np.log1p(avg_retail_buy_vol_in_rally / daily_avg_retail_buy_vol_per_min) if daily_avg_retail_buy_vol_per_min > 0 else 0.0
+                                # 3. 攻击性买盘 (Aggression Component)
+                                aggressive_buy_mask = retail_buy_trades_in_rally['price'] >= retail_buy_trades_in_rally['sell_price1']
+                                aggressive_buy_vol = retail_buy_trades_in_rally[aggressive_buy_mask]['volume'].sum()
+                                aggression_component = aggressive_buy_vol / total_retail_buy_vol_in_rally if total_retail_buy_vol_in_rally > 0 else 0.0
+                                follower_frenzy = cost_component * volume_spike_component * (1 + aggression_component)
                             deceptive_pressure_score = bait_efficiency * distribution_dominance * follower_frenzy
                             total_deceptive_pressure += deceptive_pressure_score * price_change_in_rally
                 if total_rally_price_change > 0:
@@ -1054,6 +1073,8 @@ class AdvancedFundFlowMetricsService:
                     if enable_probe and is_target_date:
                         print(f"  [探针] rally_distribution_pressure (诡道派发) 计算:")
                         print(f"    - Weighted Avg Deceptive Artistry: {weighted_avg_pressure:.4f}")
+                        # 新增探针：为 FollowerFrenzy 添加详细诊断
+                        print(f"      - [Frenzy Details] Cost: {cost_component:.2f}, VolSpike: {volume_spike_component:.2f}, Aggression: {aggression_component:.2f} -> FrenzyScore: {follower_frenzy:.2f}")
                         print(f"    -> Final Score: {results['rally_distribution_pressure']:.2f}")
             else: 
                 if pd.notna(daily_vwap):
