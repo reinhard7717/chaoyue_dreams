@@ -1439,32 +1439,87 @@ class AdvancedFundFlowMetricsService:
                 metrics['mf_retail_liquidity_swap_corr'] = rolling_corr.mean()
         return metrics
 
-    def _calculate_retail_sentiment_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, common_data: dict) -> dict:
+    def _calculate_retail_sentiment_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V47.0 · 模块化重构版】
-        新增方法: 计算散户情绪指标(FOMO/Panic)。
+        【V48.2 · 散户FOMO解构版】
+        - 核心升级: 重构 retail_fomo_premium_index，从静态“高价区”分析升级为动态“FOMO事件”捕捉。
+        - 升级原因: 原有分钟级指标无法捕捉由“突破新高”引爆的散户情绪狂热点。
+        - 核心实现:
+          - 高频路径: 动态识别价格创日内新高的“FOMO事件”，并综合评估三大要素：
+            1. 成本溢价 (CostPremium): 散户追高成本相比主力卖出成本的溢价程度。
+            2. 买入 агрессия (Aggression): 散户主动性买单（吃掉卖一）的成交量占比。
+            3. 成交异动 (VolumeSpike): FOMO事件期间散户买入成交的异常放量程度。
+          - 降级路径: 保留原分钟级逻辑作为无高频数据时的备用方案。
         """
         from datetime import time
         import pandas as pd
+        import numpy as np
         metrics = {}
         day_high, day_low = common_data['day_high'], common_data['day_low']
+        atr = common_data['atr']
+        if not hf_analysis_df.empty and pd.notna(atr) and atr > 0:
+            total_weighted_fomo_score = 0
+            total_fomo_volume = 0
+            max_fomo_event_info = {'score': -1}
+            hf_analysis_df['is_new_high'] = hf_analysis_df['price'] > hf_analysis_df['price'].cummax().shift(1).fillna(0)
+            fomo_events = hf_analysis_df['is_new_high'].ne(hf_analysis_df['is_new_high'].shift()).cumsum()
+            fomo_zones = hf_analysis_df[hf_analysis_df['is_new_high']]
+            daily_retail_buy_vol = hf_analysis_df[(hf_analysis_df['amount'] < 50000) & (hf_analysis_df['type'] == 'B')]['volume'].sum()
+            avg_retail_buy_rate = daily_retail_buy_vol / (4 * 3600) if daily_retail_buy_vol > 0 else 0
+            for _, event_df in fomo_zones.groupby(fomo_events):
+                if event_df.empty: continue
+                retail_buy_trades = event_df[(event_df['amount'] < 50000) & (event_df['type'] == 'B')]
+                if retail_buy_trades.empty: continue
+                fomo_vol_in_event = retail_buy_trades['volume'].sum()
+                cost_fomo = (retail_buy_trades['price'] * retail_buy_trades['volume']).sum() / fomo_vol_in_event
+                cost_mf_sell = daily_data.get('avg_cost_main_sell')
+                if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
+                    cost_premium_component = (cost_fomo - cost_mf_sell) / atr
+                    aggressive_buy_mask = retail_buy_trades['price'] >= retail_buy_trades['sell_price1']
+                    aggression_component = retail_buy_trades[aggressive_buy_mask]['volume'].sum() / fomo_vol_in_event
+                    duration_seconds = (event_df.index.max() - event_df.index.min()).total_seconds() + 1
+                    event_buy_rate = fomo_vol_in_event / duration_seconds
+                    volume_spike_component = np.log1p(event_buy_rate / avg_retail_buy_rate) if avg_retail_buy_rate > 0 else 0
+                    event_fomo_score = cost_premium_component * aggression_component * volume_spike_component
+                    total_weighted_fomo_score += event_fomo_score * fomo_vol_in_event
+                    total_fomo_volume += fomo_vol_in_event
+                    if event_fomo_score > max_fomo_event_info['score']:
+                        max_fomo_event_info = {
+                            'score': event_fomo_score, 'premium': cost_premium_component,
+                            'aggression': aggression_component, 'spike': volume_spike_component
+                        }
+            if total_fomo_volume > 0:
+                weighted_avg_fomo_score = total_weighted_fomo_score / total_fomo_volume
+                metrics['retail_fomo_premium_index'] = weighted_avg_fomo_score * 100
+                if enable_probe and is_target_date:
+                    print(f"  [探针] retail_fomo_premium_index (高频-散户FOMO) 计算:")
+                    print(f"    - Weighted Avg FOMO Score: {weighted_avg_fomo_score:.4f}")
+                    if max_fomo_event_info['score'] > -1:
+                        print(f"      - [最强FOMO事件分解] Premium: {max_fomo_event_info['premium']:.2f}, Aggression: {max_fomo_event_info['aggression']:.2f}, Spike: {max_fomo_event_info['spike']:.2f}")
+                    print(f"    -> Final Score: {metrics['retail_fomo_premium_index']:.2f}")
+        else:
+            continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
+            if pd.notna(day_high) and pd.notna(day_low):
+                day_range = day_high - day_low
+                if day_range > 0:
+                    fomo_zone_threshold = day_low + 0.75 * day_range
+                    fomo_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] > fomo_zone_threshold]
+                    if not fomo_zone_df.empty and 'retail_net_vol' in fomo_zone_df.columns and 'retail_buy_vol' in continuous_trading_df.columns and 'minute_vwap' in fomo_zone_df.columns:
+                        fomo_retail_df = fomo_zone_df[fomo_zone_df['retail_net_vol'] > 0]
+                        if not fomo_retail_df.empty:
+                            fomo_vol = fomo_retail_df['retail_net_vol'].sum()
+                            total_retail_buy_vol = continuous_trading_df[continuous_trading_df['retail_buy_vol'] > 0]['retail_buy_vol'].sum()
+                            if fomo_vol > 0 and total_retail_buy_vol > 0:
+                                cost_fomo = (fomo_retail_df['minute_vwap'] * fomo_retail_df['retail_net_vol']).sum() / fomo_vol
+                                cost_mf_sell = daily_data.get('avg_cost_main_sell')
+                                if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
+                                    premium = (cost_fomo / cost_mf_sell - 1)
+                                    metrics['retail_fomo_premium_index'] = premium * (fomo_vol / total_retail_buy_vol) * 100
+        # 散户恐慌投降指数的逻辑保持不变，但放在同一个方法内
         continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
         if pd.notna(day_high) and pd.notna(day_low):
             day_range = day_high - day_low
             if day_range > 0:
-                fomo_zone_threshold = day_low + 0.75 * day_range
-                fomo_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] > fomo_zone_threshold]
-                if not fomo_zone_df.empty and 'retail_net_vol' in fomo_zone_df.columns and 'retail_buy_vol' in continuous_trading_df.columns and 'minute_vwap' in fomo_zone_df.columns:
-                    fomo_retail_df = fomo_zone_df[fomo_zone_df['retail_net_vol'] > 0]
-                    if not fomo_retail_df.empty:
-                        fomo_vol = fomo_retail_df['retail_net_vol'].sum()
-                        total_retail_buy_vol = continuous_trading_df[continuous_trading_df['retail_buy_vol'] > 0]['retail_buy_vol'].sum()
-                        if fomo_vol > 0 and total_retail_buy_vol > 0:
-                            cost_fomo = (fomo_retail_df['minute_vwap'] * fomo_retail_df['retail_net_vol']).sum() / fomo_vol
-                            cost_mf_sell = daily_data.get('avg_cost_main_sell')
-                            if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
-                                premium = (cost_fomo / cost_mf_sell - 1)
-                                metrics['retail_fomo_premium_index'] = premium * (fomo_vol / total_retail_buy_vol) * 100
                 panic_zone_threshold = day_low + 0.25 * day_range
                 panic_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < panic_zone_threshold]
                 if not panic_zone_df.empty and 'retail_net_vol' in panic_zone_df.columns and 'retail_sell_vol' in continuous_trading_df.columns and 'minute_vwap' in panic_zone_df.columns:
