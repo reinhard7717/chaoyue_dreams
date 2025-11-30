@@ -1125,8 +1125,9 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_closing_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V47.0 · 模块化重构版】
-        新增方法: 计算收盘相关的战术指标。
+        【V47.1 · 类型修复版】
+        - 核心修复: 修正了在筛选14:57之前的高频数据时，因直接比较 DatetimeIndex 与 time 对象导致的 TypeError。
+                     通过使用 .index.time 访问器，确保比较的是两个同为时间类型的对象。
         """
         from datetime import time
         import numpy as np
@@ -1142,17 +1143,20 @@ class AdvancedFundFlowMetricsService:
                 auction_vol = auction_df['vol_shares'].sum()
                 VolumeAnomaly = np.log1p((auction_vol / 3) / avg_minute_vol) if avg_minute_vol > 0 else 0.0
                 if not hf_analysis_df.empty:
-                    pre_auction_snapshot = hf_analysis_df[hf_analysis_df.index < time(14, 57)].iloc[-1]
-                    pre_auction_mid = pre_auction_snapshot['mid_price']
-                    pre_auction_imbalance = pre_auction_snapshot['imbalance']
-                    PriceDeviation = (day_close - pre_auction_mid) / atr if pd.notna(pre_auction_mid) else 0.0
-                    Deception = -np.sign(PriceDeviation) * pre_auction_imbalance if pd.notna(pre_auction_imbalance) else 0.0
-                    metrics['closing_auction_ambush'] = PriceDeviation * VolumeAnomaly * (1 + Deception) * 100
-                    if enable_probe and is_target_date:
-                        print(f"  [探针] closing_auction_ambush (高频-竞价伏击) 计算:")
-                        print(f"    - pre_auction_mid: {pre_auction_mid:.2f}, day_close: {day_close:.2f}, atr: {atr:.2f}")
-                        print(f"    - PriceDeviation: {PriceDeviation:.4f}, VolumeAnomaly: {VolumeAnomaly:.4f}, Deception: {Deception:.4f}")
-                        print(f"    -> Final Score: {metrics['closing_auction_ambush']:.2f}")
+                    # 修改代码行：使用 .index.time 提取时间部分进行比较，修复TypeError
+                    pre_auction_df = hf_analysis_df[hf_analysis_df.index.time < time(14, 57)]
+                    if not pre_auction_df.empty:
+                        pre_auction_snapshot = pre_auction_df.iloc[-1]
+                        pre_auction_mid = pre_auction_snapshot['mid_price']
+                        pre_auction_imbalance = pre_auction_snapshot['imbalance']
+                        PriceDeviation = (day_close - pre_auction_mid) / atr if pd.notna(pre_auction_mid) else 0.0
+                        Deception = -np.sign(PriceDeviation) * pre_auction_imbalance if pd.notna(pre_auction_imbalance) else 0.0
+                        metrics['closing_auction_ambush'] = PriceDeviation * VolumeAnomaly * (1 + Deception) * 100
+                        if enable_probe and is_target_date:
+                            print(f"  [探针] closing_auction_ambush (高频-竞价伏击) 计算:")
+                            print(f"    - pre_auction_mid: {pre_auction_mid:.2f}, day_close: {day_close:.2f}, atr: {atr:.2f}")
+                            print(f"    - PriceDeviation: {PriceDeviation:.4f}, VolumeAnomaly: {VolumeAnomaly:.4f}, Deception: {Deception:.4f}")
+                            print(f"    -> Final Score: {metrics['closing_auction_ambush']:.2f}")
                 else:
                     pre_auction_close = continuous_trading_df['close'].iloc[-1]
                     PriceImpact = (day_close - pre_auction_close) / atr if pd.notna(pre_auction_close) else 0.0
