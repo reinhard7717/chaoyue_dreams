@@ -1,5 +1,6 @@
 # tasks/tushare/stock_realtime_tasks.py
 # tasks/tushare/stock_realtime_tasks.py
+# tasks/tushare/stock_realtime_tasks.py
 import asyncio
 from collections import defaultdict
 from asgiref.sync import async_to_sync
@@ -7,11 +8,12 @@ from asgiref.sync import sync_to_async # 异步转换工具
 from celery import chain
 import logging
 import datetime
-from datetime import timedelta
+from datetime import timedelta # 引入timedelta用于日期迭代
 from typing import List, Dict, Any # 引入 List, Dict, Any
-import pandas as pd # 新增代码行: 引入pandas库，用于高效处理数据
-from django.utils import timezone # 新增代码行: 引入Django的时区工具，用于处理时间
+import pandas as pd # 引入pandas库，用于高效处理数据
+from django.utils import timezone # 引入Django的时区工具，用于处理时间
 from chaoyue_dreams.celery import app as celery_app
+# from celery import chain # 不再需要 chain # 不再需要 chain，除非有后续步骤
 from dashboard.tasks import send_update_to_user_task_celery
 from utils.task_helpers import with_cache_manager
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
@@ -21,8 +23,10 @@ from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from users.models import FavoriteStock
 from utils.cache_manager import CacheManager
 from stock_models.stock_basic import StockInfo
-# 新增代码行: 引入模型辅助函数，用于根据股票代码动态获取数据模型
-from utils.model_helpers import get_stock_tick_data_model_by_code, get_minute_data_model_by_code_and_timelevel
+# 修改代码行: 引入交易日历模型，并移除不再使用的分钟线模型辅助函数
+from stock_models.index import TradeCalendar
+from utils.model_helpers import get_stock_tick_data_model_by_code
+
 
 
 
@@ -336,100 +340,81 @@ def save_stocks_minute_data_realtime_task(batch_size: int = 300, time_level: str
 @celery_app.task(queue='SaveData_RealTime_Quote')
 def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
     """
-    【修改】根据分钟K线的价格范围，清理单只股票在指定日期的异常Tick数据。
-    这是一个工作任务，由调度器分发。
+    【重构】通过与上一交易日对比，清理重复的Tick数据。
+    如果某条Tick数据与上一交易日同一时间点的数据完全一致，则删除。
     Args:
         stock_code (str): 股票代码。
         trade_date_str (str): 交易日期字符串，格式 'YYYY-MM-DD'。
     """
-    # 1. 根据股票代码获取对应的Tick和1分钟线数据模型
     TickModel = get_stock_tick_data_model_by_code(stock_code)
-    MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_code, '1')
-    if not TickModel or not MinuteModel:
-        logger.error(f"[{stock_code}] 无法找到对应的Tick或1分钟线模型，清洗任务终止。")
+    if not TickModel:
+        logger.error(f"[{stock_code}] 无法找到对应的Tick模型，清洗任务终止。")
         return
 
     try:
-        # 2. 确定查询的日期范围 (基于北京时间)
         local_tz = timezone.get_default_timezone()
-        trade_date = datetime.datetime.strptime(trade_date_str, '%Y-%m-%d').date()
-        start_dt_local = datetime.datetime.combine(trade_date, datetime.time.min, tzinfo=local_tz)
-        end_dt_local = datetime.datetime.combine(trade_date, datetime.time.max, tzinfo=local_tz)
+        current_date = datetime.datetime.strptime(trade_date_str, '%Y-%m-%d').date()
 
-        # 3. 从数据库获取数据并转换为Pandas DataFrame
-        minute_qs = MinuteModel.objects.filter(
-            stock_id=stock_code,
-            trade_time__range=(start_dt_local, end_dt_local)
-        ).values('trade_time', 'low', 'high')
-        minute_df = pd.DataFrame.from_records(minute_qs)
-
-        tick_qs = TickModel.objects.filter(
-            stock_id=stock_code,
-            trade_time__range=(start_dt_local, end_dt_local)
-        ).values('id', 'trade_time', 'price')
-        tick_df = pd.DataFrame.from_records(tick_qs)
-
-        # 新增代码块开始: 为 600475.SH 加入 09:30 精确探针
-        if stock_code == '600475.SH':
-            # 构造北京时间 09:30 的时间点
-            target_time_930 = datetime.datetime.combine(trade_date, datetime.time(9, 30), tzinfo=local_tz)
-            
-            # 查找 09:30 的分钟K线数据
-            minute_bar_930 = minute_df[minute_df['trade_time'] == target_time_930]
-            
-            if not minute_bar_930.empty:
-                high_930 = minute_bar_930.iloc[0]['high']
-                low_930 = minute_bar_930.iloc[0]['low']
-                
-                # 筛选出 09:30:00 到 09:30:59 之间的所有Tick数据
-                start_of_minute = target_time_930
-                end_of_minute = start_of_minute + timedelta(minutes=1)
-                ticks_in_minute_930 = tick_df[
-                    (tick_df['trade_time'] >= start_of_minute) & (tick_df['trade_time'] < end_of_minute)
-                ]
-                
-                # 输出探针信息
-                print(f"探针[600475.SH] 日期: {trade_date_str} 时间: 09:30")
-                print(f"  - 分钟K线范围: High={high_930}, Low={low_930}")
-                
-                if not ticks_in_minute_930.empty:
-                    tick_prices = ticks_in_minute_930['price'].astype(float).tolist()
-                    print(f"  - Tick价格列表: {tick_prices}")
-                else:
-                    print("  - Tick价格列表: 该分钟内无Tick数据")
-        # 新增代码块结束
-
-        if minute_df.empty or tick_df.empty:
-            # logger.info(f"[{stock_code}] 在 {trade_date_str} 没有足够的分钟线或Tick数据进行清理。")
+        # 1. 获取上一个交易日
+        prev_trade_date = TradeCalendar.get_latest_trade_date(reference_date=current_date)
+        if not prev_trade_date:
+            if stock_code == '600475.SH':
+                logger.info(f"[{stock_code}] 在 {trade_date_str} 找不到上一个交易日，无法进行数据比对。")
             return
 
-        # 4. 数据预处理和合并
-        tick_df['price'] = tick_df['price'].astype(float)
-        minute_df['minute_key'] = minute_df['trade_time'].dt.floor('T')
-        tick_df['minute_key'] = tick_df['trade_time'].dt.floor('T')
-        merged_df = pd.merge(
-            tick_df,
-            minute_df[['minute_key', 'low', 'high']],
-            on='minute_key',
-            how='left'
-        )
-        merged_df.dropna(subset=['low', 'high'], inplace=True)
+        # 2. 获取T日和T-1日的数据
+        def get_ticks_for_date(trade_date):
+            start_dt = datetime.datetime.combine(trade_date, datetime.time.min, tzinfo=local_tz)
+            end_dt = datetime.datetime.combine(trade_date, datetime.time.max, tzinfo=local_tz)
+            qs = TickModel.objects.filter(
+                stock_id=stock_code,
+                trade_time__range=(start_dt, end_dt)
+            ).values('id', 'trade_time', 'price', 'volume', 'amount', 'type')
+            return pd.DataFrame.from_records(qs)
 
-        # 5. 筛选出价格异常的Tick数据
-        outlier_mask = (merged_df['price'] < merged_df['low']) | (merged_df['price'] > merged_df['high'])
-        ids_to_delete = merged_df.loc[outlier_mask, 'id'].tolist()
+        current_day_df = get_ticks_for_date(current_date)
+        prev_day_df = get_ticks_for_date(prev_trade_date)
+
+        if current_day_df.empty or prev_day_df.empty:
+            if stock_code == '600475.SH':
+                logger.info(f"[{stock_code}] 在 {trade_date_str} 或其上一交易日数据为空，无法清理。")
+            return
+
+        # 3. 统一时区并创建比对键
+        for df in [current_day_df, prev_day_df]:
+            df['trade_time'] = df['trade_time'].dt.tz_localize(None).dt.tz_localize(local_tz)
+            df['time_of_day'] = df['trade_time'].dt.time
+            # 确保比对字段类型一致
+            df['price'] = df['price'].astype(float)
+            df['volume'] = df['volume'].astype(int)
+            df['amount'] = df['amount'].astype(float)
+
+        # 4. 合并数据以查找重复项
+        # 定义用于匹配的列
+        merge_columns = ['time_of_day', 'price', 'volume', 'amount', 'type']
+        # 使用内连接找到完全匹配的行
+        # 我们只需要T-1日的数据作为参照，所以只选择匹配列
+        merged_df = pd.merge(
+            current_day_df,
+            prev_day_df[merge_columns],
+            on=merge_columns,
+            how='inner'
+        )
+
+        # 5. 获取待删除的ID列表
+        ids_to_delete = merged_df['id'].tolist()
 
         # 6. 执行批量删除
         if ids_to_delete:
             deleted_count, _ = TickModel.objects.filter(id__in=ids_to_delete).delete()
-            logger.info(f"[{stock_code}] 在 {trade_date_str} 清理了 {deleted_count} 条异常Tick数据。")
+            if stock_code == '600475.SH':
+                logger.info(f"[{stock_code}] 在 {trade_date_str} 清理了 {deleted_count} 条与上一交易日重复的Tick数据。")
         else:
             if stock_code == '600475.SH':
-                logger.info(f"[{stock_code}] 在 {trade_date_str} 没有发现异常Tick数据。")
+                logger.info(f"[{stock_code}] 在 {trade_date_str} 没有发现与上一交易日重复的Tick数据。")
 
     except Exception as e:
         logger.error(f"[{stock_code}] 在 {trade_date_str} 清洗Tick数据时发生错误: {e}", exc_info=True)
-
 
 @celery_app.task(name='tasks.tushare.stock_realtime_tasks.dispatch_tick_data_cleaning_task', queue='celery')
 def dispatch_tick_data_cleaning_task(start_date_str: str, end_date_str: str = None):
