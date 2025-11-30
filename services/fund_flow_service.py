@@ -753,7 +753,7 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V48.0 · 恐慌微观解构版】
+        【V48.2 · 散户FOMO解构版】
         - 核心升级: 引入 B-系列 (Behavioral Engine) 探针，监控引擎的输入数据健康度和计算过程。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
@@ -787,13 +787,13 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_shadow_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_dip_rally_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_reversal_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        # 新增代码行：调用新的恐慌级联指标计算方法
         results.update(self._calculate_panic_cascade_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_cmf_metrics(intraday_data))
         results.update(self._calculate_vpoc_metrics(intraday_data, common_data))
         results.update(self._calculate_liquidity_swap_metrics(intraday_data))
         results.update(self._calculate_closing_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_retail_sentiment_metrics(intraday_data, daily_data, common_data))
+        # 修改代码行：补全缺失的 is_target_date 和 enable_probe 参数
+        results.update(self._calculate_retail_sentiment_metrics(intraday_data, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_hidden_accumulation_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_misc_minute_metrics(intraday_data, common_data))
         results.update(self._calculate_misc_daily_metrics(daily_data, main_force_net_flow_calibrated))
