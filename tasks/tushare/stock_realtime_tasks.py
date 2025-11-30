@@ -354,8 +354,10 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
         # Django配置了时区后，ORM会自动处理UTC与本地时间的转换
         local_tz = timezone.get_default_timezone()  # 获取settings中配置的默认时区，应为 'Asia/Shanghai'
         trade_date = datetime.datetime.strptime(trade_date_str, '%Y-%m-%d').date()
-        start_dt_local = local_tz.localize(datetime.datetime.combine(trade_date, datetime.time.min))
-        end_dt_local = local_tz.localize(datetime.datetime.combine(trade_date, datetime.time.max))
+        # 修改代码行: 使用 tzinfo 参数创建时区感知的 datetime 对象，以兼容 zoneinfo
+        start_dt_local = datetime.datetime.combine(trade_date, datetime.time.min, tzinfo=local_tz)
+        # 修改代码行: 使用 tzinfo 参数创建时区感知的 datetime 对象，以兼容 zoneinfo
+        end_dt_local = datetime.datetime.combine(trade_date, datetime.time.max, tzinfo=local_tz)
 
         # 3. 从数据库获取数据并转换为Pandas DataFrame
         minute_qs = MinuteModel.objects.filter(
