@@ -1798,12 +1798,12 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_misc_minute_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V55.0 · 微观效率穿透版】
-        - 核心升级: 为 microstructure_efficiency_index 指标引入高频计算路径，从“分钟成交量-价格”相关性，升维为“逐笔OFI-价格”相关性。
-        - 升级原因: 废弃粗糙的分钟级数据，转而衡量最纯粹的“主力意图(OFI)”与“即时价格变动”的关联度，精确评估主力对价格的微观影响力。
+        【V58.0 · 波动率穿透版】
+        - 核心升级: 为 volatility_asymmetry_index 引入高频计算路径，从“分钟K线速度对比”升维为“微观趋势下的真实波动率对比”。
+        - 升级原因: 分钟K线忽略了分钟内的真实波动路径。逐笔计算能精确捕捉上涨和下跌过程中的波动特征差异。
         - 核心实现:
-          - 高频路径: 直接计算 main_force_ofi 与 mid_price_change 的相关系数。
-          - 降级路径: 保留原有的基于分钟净成交量的相关性计算。
+          - 高频路径: 分别计算微观上涨和下跌阶段的已实现波动率，通过其对数比值构建不对称指数。
+          - 降级路径: 保留原有的基于分钟K线速度的计算。
         """
         from datetime import time
         import numpy as np
@@ -1840,23 +1840,34 @@ class AdvancedFundFlowMetricsService:
                     print(f"    - 逆向OFI总量: {discordant_ofi:,.0f}")
                     print(f"    - (同向 - 逆向) / 总绝对量 = ({concordant_ofi:,.0f} - {discordant_ofi:,.0f}) / {total_abs_mf_ofi:,.0f}")
                     print(f"    -> 最终得分: {metrics['trend_conviction_ratio']:.2f}")
+            # 修改代码块：为 volatility_asymmetry_index 增加高频计算路径
+            df['log_return'] = np.log(df['mid_price'] / df['mid_price'].shift(1)).fillna(0)
+            vol_up = df.loc[is_uptrend, 'log_return'].std()
+            vol_down = df.loc[is_downtrend, 'log_return'].std()
+            if pd.notna(vol_up) and pd.notna(vol_down) and vol_up > 0 and vol_down > 0:
+                metrics['volatility_asymmetry_index'] = np.log(vol_up / vol_down)
+                if enable_probe and is_target_date:
+                    print(f"  [探针] volatility_asymmetry_index (高频-波动率不对称) 计算:")
+                    print(f"    - 上涨阶段波动率 (vol_up): {vol_up:.6f}")
+                    print(f"    - 下跌阶段波动率 (vol_down): {vol_down:.6f}")
+                    print(f"    -> 最终得分 (log(up/down)): {metrics['volatility_asymmetry_index']:.4f}")
         else:
             if 'main_force_buy_vol' in intraday_data.columns and 'main_force_sell_vol' in intraday_data.columns and pd.notna(atr) and atr > 0:
                 mf_activity_ratio = (intraday_data['main_force_buy_vol'].sum() + intraday_data['main_force_sell_vol'].sum()) / daily_total_volume if daily_total_volume > 0 else 0.0
                 if mf_activity_ratio > 0:
                     price_outcome = (day_close - day_open) / atr
                     metrics['trend_conviction_ratio'] = price_outcome / mf_activity_ratio
-        continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
-        if not continuous_trading_df.empty and 'close' in continuous_trading_df.columns and 'open' in continuous_trading_df.columns:
-            up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
-            down_minutes = continuous_trading_df[continuous_trading_df['close'] < continuous_trading_df['open']]
-            if not up_minutes.empty and not down_minutes.empty:
-                up_price_change = (up_minutes['close'] - up_minutes['open']).sum()
-                down_price_change = (down_minutes['open'] - down_minutes['close']).sum()
-                avg_up_speed = up_price_change / len(up_minutes) if len(up_minutes) > 0 else 0
-                avg_down_speed = down_price_change / len(down_minutes) if len(down_minutes) > 0 else 0
-                if avg_up_speed > 0 and avg_down_speed > 0:
-                    metrics['volatility_asymmetry_index'] = np.log(avg_up_speed / avg_down_speed)
+            continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
+            if not continuous_trading_df.empty and 'close' in continuous_trading_df.columns and 'open' in continuous_trading_df.columns:
+                up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
+                down_minutes = continuous_trading_df[continuous_trading_df['close'] < continuous_trading_df['open']]
+                if not up_minutes.empty and not down_minutes.empty:
+                    up_price_change = (up_minutes['close'] - up_minutes['open']).sum()
+                    down_price_change = (down_minutes['open'] - down_minutes['close']).sum()
+                    avg_up_speed = up_price_change / len(up_minutes) if len(up_minutes) > 0 else 0
+                    avg_down_speed = down_price_change / len(down_minutes) if len(down_minutes) > 0 else 0
+                    if avg_up_speed > 0 and avg_down_speed > 0:
+                        metrics['volatility_asymmetry_index'] = np.log(avg_up_speed / avg_down_speed)
         if pd.notna(day_high) and pd.notna(day_low) and pd.notna(day_close) and pd.notna(daily_vwap) and pd.notna(atr) and atr > 0 and daily_total_volume > 0:
             day_range = day_high - day_low
             if day_range > 0:
@@ -1864,9 +1875,7 @@ class AdvancedFundFlowMetricsService:
                 value_dev_factor = np.tanh((day_close - daily_vwap) / atr)
                 force_balance_factor = intraday_data['main_force_net_vol'].sum() / daily_total_volume if 'main_force_net_vol' in intraday_data.columns else 0.0
                 metrics['closing_price_deviation_score'] = (0.5 * range_pos_factor + 0.3 * value_dev_factor + 0.2 * force_balance_factor) * 100
-        # 修改代码块：为 microstructure_efficiency_index 增加高频计算路径
         if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns and 'mid_price_change' in hf_analysis_df.columns:
-            # 高频路径
             mf_ofi_series = hf_analysis_df['main_force_ofi']
             price_change_series = hf_analysis_df['mid_price_change']
             if mf_ofi_series.var() > 0 and price_change_series.var() > 0:
@@ -1877,7 +1886,6 @@ class AdvancedFundFlowMetricsService:
                     print(f"    - 核心变量: Corr(main_force_ofi, mid_price_change)")
                     print(f"    -> 最终得分 (相关系数): {correlation:.4f}")
         else:
-            # 降级路径
             if 'main_force_net_vol' in intraday_data.columns and 'close' in intraday_data.columns:
                 intraday_data['price_change'] = intraday_data['close'].diff()
                 if pd.notna(atr) and atr > 0:
