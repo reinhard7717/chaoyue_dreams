@@ -792,8 +792,8 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_vpoc_metrics(intraday_data, common_data))
         results.update(self._calculate_liquidity_swap_metrics(intraday_data))
         results.update(self._calculate_closing_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        # 修改代码行：补全缺失的 is_target_date 和 enable_probe 参数
-        results.update(self._calculate_retail_sentiment_metrics(intraday_data, daily_data, common_data, is_target_date, enable_probe))
+        # 修改代码行：将 hf_analysis_df 作为参数传递
+        results.update(self._calculate_retail_sentiment_metrics(intraday_data, hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_hidden_accumulation_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_misc_minute_metrics(intraday_data, common_data))
         results.update(self._calculate_misc_daily_metrics(daily_data, main_force_net_flow_calibrated))
@@ -1439,7 +1439,7 @@ class AdvancedFundFlowMetricsService:
                 metrics['mf_retail_liquidity_swap_corr'] = rolling_corr.mean()
         return metrics
 
-    def _calculate_retail_sentiment_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_retail_sentiment_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
         【V48.2 · 散户FOMO解构版】
         - 核心升级: 重构 retail_fomo_premium_index，从静态“高价区”分析升级为动态“FOMO事件”捕捉。
@@ -1515,7 +1515,6 @@ class AdvancedFundFlowMetricsService:
                                 if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
                                     premium = (cost_fomo / cost_mf_sell - 1)
                                     metrics['retail_fomo_premium_index'] = premium * (fomo_vol / total_retail_buy_vol) * 100
-        # 散户恐慌投降指数的逻辑保持不变，但放在同一个方法内
         continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
         if pd.notna(day_high) and pd.notna(day_low):
             day_range = day_high - day_low
