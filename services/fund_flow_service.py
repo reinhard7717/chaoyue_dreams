@@ -1371,27 +1371,43 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_cmf_metrics(self, intraday_data: pd.DataFrame) -> dict:
         """
-        【V47.0 · 模块化重构版】
-        新增方法: 计算Chaikin Money Flow (CMF)相关指标。
+        【V48.4 · CMF公理版】
+        - 核心升级: 新增 main_force_flow_axiom_index (主力资金流公理指数)，作为经典CMF的“第一性原理”升级版。
+        - 升级原因: 经典CMF使用收盘价位置来“估计”资金流向，而我们拥有真实的逐笔数据，无需估计。
+        - 核心实现:
+          - 新指标融合了“经典CMF的价格博弈强度”和“高频数据的真实主力净流向”。
+          - 公式: Axiom_MFV = 主力净成交量 * abs(经典CMF价格乘数)
+          - 结果: 新指标比传统CMF更灵敏、更真实地反映主力意图。
         """
-        import pandas as pd
         import numpy as np
         metrics = {}
-        if 'minute_vwap' in intraday_data.columns and 'high' in intraday_data.columns and 'low' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
-            df_cmf = intraday_data.copy()
-            cols_to_process = ['high', 'low', 'minute_vwap']
-            for col in cols_to_process:
-                df_cmf[col] = pd.to_numeric(df_cmf[col], errors='coerce')
-            df_cmf.dropna(subset=cols_to_process, inplace=True)
-            if not df_cmf.empty:
-                price_range_cmf = df_cmf['high'] - df_cmf['low']
-                mfm = ((df_cmf['minute_vwap'] - df_cmf['low']) - (df_cmf['high'] - df_cmf['minute_vwap'])) / price_range_cmf.replace(0, np.nan)
-                mfm.fillna(0, inplace=True)
-                if df_cmf['vol_shares'].sum() > 0:
-                    metrics['holistic_cmf'] = (mfm * df_cmf['vol_shares']).sum() / df_cmf['vol_shares'].sum()
-                if df_cmf['main_force_net_vol'].abs().sum() > 0:
-                    metrics['main_force_cmf'] = (mfm * df_cmf['main_force_net_vol']).sum() / df_cmf['main_force_net_vol'].abs().sum()
-                metrics['cmf_divergence_score'] = metrics.get('main_force_cmf', np.nan) - metrics.get('holistic_cmf', np.nan)
+        if 'high' in intraday_data.columns and 'low' in intraday_data.columns and 'close' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
+            high_low_range = intraday_data['high'] - intraday_data['low']
+            # 使用 np.where 避免除以零
+            money_flow_multiplier = np.where(
+                high_low_range > 0,
+                ((intraday_data['close'] - intraday_data['low']) - (intraday_data['high'] - intraday_data['close'])) / high_low_range,
+                0
+            )
+            # 1. 计算经典的 main_force_cmf
+            money_flow_volume = money_flow_multiplier * intraday_data['main_force_net_vol']
+            cmf_period = 20
+            mfv_sum = money_flow_volume.rolling(window=cmf_period, min_periods=1).sum()
+            vol_sum = intraday_data['vol_shares'].rolling(window=cmf_period, min_periods=1).sum()
+            main_force_cmf = mfv_sum / vol_sum
+            if not main_force_cmf.empty:
+                metrics['main_force_cmf'] = main_force_cmf.iloc[-1]
+            # 2. 计算新增的 main_force_flow_axiom_index
+            # 修改代码块：新增公理化CMF的计算逻辑
+            axiom_mfv = intraday_data['main_force_net_vol'] * abs(money_flow_multiplier)
+            axiom_mfv_sum = axiom_mfv.rolling(window=cmf_period, min_periods=1).sum()
+            # vol_sum 已在上面计算，可复用
+            main_force_axiom_index = axiom_mfv_sum / vol_sum
+            if not main_force_axiom_index.empty:
+                # 过滤掉可能由 vol_sum 为0导致的 inf 或 nan
+                final_axiom_value = main_force_axiom_index.replace([np.inf, -np.inf], np.nan).ffill().iloc[-1]
+                if pd.notna(final_axiom_value):
+                    metrics['main_force_flow_axiom_index'] = final_axiom_value
         return metrics
 
     def _calculate_vpoc_metrics(self, intraday_data: pd.DataFrame, common_data: dict) -> dict:
