@@ -340,8 +340,9 @@ def save_stocks_minute_data_realtime_task(batch_size: int = 300, time_level: str
 @celery_app.task(queue='SaveData_RealTime_Quote')
 def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
     """
-    【重构】通过与上一交易日对比，清理重复的Tick数据。
-    如果某条Tick数据与上一交易日同一时间点的数据完全一致，则删除。
+    【重构】清理Tick数据。
+    1. 删除所有非交易日的Tick数据。
+    2. 通过与上一交易日对比，清理重复的Tick数据。
     Args:
         stock_code (str): 股票代码。
         trade_date_str (str): 交易日期字符串，格式 'YYYY-MM-DD'。
@@ -355,11 +356,26 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
         local_tz = timezone.get_default_timezone()
         current_date = datetime.datetime.strptime(trade_date_str, '%Y-%m-%d').date()
 
+        # 新增代码块开始: 检查是否为交易日，如果不是，则删除当天所有数据
+        if not TradeCalendar.is_trade_date(check_date=current_date):
+            start_dt = datetime.datetime.combine(current_date, datetime.time.min, tzinfo=local_tz)
+            end_dt = datetime.datetime.combine(current_date, datetime.time.max, tzinfo=local_tz)
+            
+            # 直接删除该非交易日的所有tick记录
+            deleted_count, _ = TickModel.objects.filter(
+                stock_id=stock_code,
+                trade_time__range=(start_dt, end_dt)
+            ).delete()
+            
+            if deleted_count > 0:
+                logger.info(f"[{stock_code}] {trade_date_str} 非交易日，清理了 {deleted_count} 条异常Tick数据。")
+            return # 任务完成
+        # 新增代码块结束
+
         # 1. 获取上一个交易日
         prev_trade_date = TradeCalendar.get_latest_trade_date(reference_date=current_date)
         if not prev_trade_date:
-            if stock_code == '600475.SH':
-                logger.info(f"[{stock_code}] 在 {trade_date_str} 找不到上一个交易日，无法进行数据比对。")
+            logger.info(f"[{stock_code}] 在 {trade_date_str} 找不到上一个交易日，无法进行数据比对。")
             return
 
         # 2. 获取T日和T-1日的数据
@@ -376,8 +392,7 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
         prev_day_df = get_ticks_for_date(prev_trade_date)
 
         if current_day_df.empty or prev_day_df.empty:
-            if stock_code == '600475.SH':
-                logger.info(f"[{stock_code}] 在 {trade_date_str} 或其上一交易日数据为空，无法清理。")
+            logger.info(f"[{stock_code}] 在 {trade_date_str} 或其上一交易日数据为空，无法清理。")
             return
 
         # 3. 统一时区并创建比对键
@@ -390,10 +405,7 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
             df['amount'] = df['amount'].astype(float)
 
         # 4. 合并数据以查找重复项
-        # 定义用于匹配的列
         merge_columns = ['time_of_day', 'price', 'volume', 'amount', 'type']
-        # 使用内连接找到完全匹配的行
-        # 我们只需要T-1日的数据作为参照，所以只选择匹配列
         merged_df = pd.merge(
             current_day_df,
             prev_day_df[merge_columns],
@@ -407,11 +419,11 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
         # 6. 执行批量删除
         if ids_to_delete:
             deleted_count, _ = TickModel.objects.filter(id__in=ids_to_delete).delete()
-            if stock_code == '600475.SH':
-                logger.info(f"[{stock_code}] 在 {trade_date_str} 清理了 {deleted_count} 条与上一交易日重复的Tick数据。")
+            # 修改代码行: 移除特定股票探针，改为通用日志
+            logger.info(f"[{stock_code}] 在 {trade_date_str} 清理了 {deleted_count} 条与上一交易日重复的Tick数据。")
         else:
-            if stock_code == '600475.SH':
-                logger.info(f"[{stock_code}] 在 {trade_date_str} 没有发现与上一交易日重复的Tick数据。")
+            # 修改代码行: 移除特定股票探针，改为通用日志
+            logger.info(f"[{stock_code}] 在 {trade_date_str} 没有发现与上一交易日重复的Tick数据。")
 
     except Exception as e:
         logger.error(f"[{stock_code}] 在 {trade_date_str} 清洗Tick数据时发生错误: {e}", exc_info=True)
