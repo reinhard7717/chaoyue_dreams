@@ -424,7 +424,8 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
             deleted_count, _ = TickModel.objects.filter(id__in=ids_to_delete).delete()
             logger.info(f"[{stock_code}] 在 {trade_date_str} 清理了 {deleted_count} 条异常Tick数据。")
         else:
-            logger.info(f"[{stock_code}] 在 {trade_date_str} 没有发现异常Tick数据。")
+            if stock_code == '600475.SH':
+                logger.info(f"[{stock_code}] 在 {trade_date_str} 没有发现异常Tick数据。")
 
     except Exception as e:
         logger.error(f"[{stock_code}] 在 {trade_date_str} 清洗Tick数据时发生错误: {e}", exc_info=True)
