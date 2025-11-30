@@ -745,11 +745,11 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V38.0 · 执行滑点重构版】
-        - 核心重构: 废弃原有的日线级 `main_force_price_impact_ratio`，引入基于高频数据的“主力执行滑点”
-                     (Main Force Execution Slippage)全新算法。通过量化主力每一笔大额交易相对于当时公允价的
-                     滑点成本，来衡量其操盘手法的精湛与隐蔽程度。
-        - 核心增强: 为新的执行滑点指标植入专属诊断探针。
+        【V38.1 · 重复索引修复版】
+        - 核心修复: 解决了在高频数据中存在重复时间戳索引时，使用`.loc`进行切片赋值导致的
+                     `ValueError: cannot reindex on an axis with duplicate labels` 致命错误。
+                     通过在赋值操作右侧使用 `.values` 提取裸Numpy数组，强制Pandas执行位置赋值而非索引对齐，
+                     从而完美兼容高频数据的真实时间戳结构。
         """
         from scipy.signal import find_peaks
         from datetime import time
@@ -834,14 +834,15 @@ class AdvancedFundFlowMetricsService:
         else:
             results['main_force_conviction_index'] = np.nan
         if not hf_analysis_df.empty:
-            # 修改代码块：新增 main_force_price_impact_ratio (主力执行滑点) 计算逻辑
             mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
             if not mf_trades.empty and 'prev_mid_price' in mf_trades.columns:
                 buy_trades = mf_trades['type'] == 'B'
                 sell_trades = mf_trades['type'] == 'S'
                 mf_trades['slippage'] = np.nan
-                mf_trades.loc[buy_trades, 'slippage'] = mf_trades['price'] - mf_trades['prev_mid_price']
-                mf_trades.loc[sell_trades, 'slippage'] = mf_trades['prev_mid_price'] - mf_trades['price']
+                # 修改代码块：修复因高频数据时间戳重复导致的 reindex 错误
+                # 修正：通过 .values 提取裸数组，绕过索引对齐，直接按位置赋值
+                mf_trades.loc[buy_trades, 'slippage'] = (mf_trades.loc[buy_trades, 'price'] - mf_trades.loc[buy_trades, 'prev_mid_price']).values
+                mf_trades.loc[sell_trades, 'slippage'] = (mf_trades.loc[sell_trades, 'prev_mid_price'] - mf_trades.loc[sell_trades, 'price']).values
                 mf_trades['slippage'] = mf_trades['slippage'].clip(lower=0) # 理论上滑点>=0，处理异常数据
                 total_mf_vol = mf_trades['volume'].sum()
                 if total_mf_vol > 0:
@@ -1235,21 +1236,16 @@ class AdvancedFundFlowMetricsService:
         if not hf_analysis_df.empty and pd.notna(daily_vwap):
             absorption_zone = hf_analysis_df[hf_analysis_df['mid_price'] < daily_vwap].copy()
             if not absorption_zone.empty:
-                # 1. 被动吸收成交 (Passive Absorption Volume)
                 passive_absorption_mask = (absorption_zone['type'] == 'S') & (absorption_zone['price'] <= absorption_zone['prev_b1_p'])
                 passive_absorption_vol = absorption_zone.loc[passive_absorption_mask, 'volume'].sum()
                 passive_absorption_component = passive_absorption_vol / daily_total_volume if daily_total_volume > 0 else 0.0
-                # 2. 价格冲击抑制 (Price Impact Suppression)
                 impact_suppression_component = 0.0
                 if not absorption_zone.empty and absorption_zone['main_force_ofi'].var() > 0 and absorption_zone['mid_price_change'].var() > 0:
-                    # 负相关性意味着OFI增加时价格反而下跌或不变，是极强的抑制信号
                     correlation = absorption_zone['main_force_ofi'].corr(absorption_zone['mid_price_change'])
                     impact_suppression_component = -np.tanh(correlation) if pd.notna(correlation) else 0.0
-                # 3. 流动性供给承诺 (Liquidity Provision Commitment)
                 total_book_depth = absorption_zone[[f'{d}_volume{i}' for d in ['buy', 'sell'] for i in range(1, 6)]].sum(axis=1)
                 bid_depth_ratio = absorption_zone['buy_volume1'] / total_book_depth.replace(0, np.nan)
                 liquidity_commitment_component = bid_depth_ratio.mean() if not bid_depth_ratio.empty else 0.0
-                # 最终裁决
                 results['hidden_accumulation_intensity'] = (0.5 * passive_absorption_component + 0.3 * impact_suppression_component + 0.2 * liquidity_commitment_component) * 100
                 if enable_probe and is_target_date:
                     print(f"  [探针] hidden_accumulation_intensity (隐蔽吸筹) 计算:")
@@ -1257,7 +1253,7 @@ class AdvancedFundFlowMetricsService:
                     print(f"    -> Final Score: {results['hidden_accumulation_intensity']:.2f}")
             else:
                 results['hidden_accumulation_intensity'] = 0.0
-        else: # Fallback to old logic if no hf_data
+        else: 
             dip_or_flat_df = intraday_data[intraday_data['close'] <= intraday_data['open']]
             if not dip_or_flat_df.empty:
                 total_vol_dip = dip_or_flat_df['vol_shares'].sum()
