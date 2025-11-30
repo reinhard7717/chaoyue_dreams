@@ -456,7 +456,7 @@ def dispatch_tick_data_cleaning_task(start_date_str: str, end_date_str: str = No
     for process_date in dates_to_process:
         date_str = process_date.strftime('%Y-%m-%d')
         for stock_code in stock_codes:
-            clean_tick_data_for_stock.s(stock_code, date_str).set(queue="data_cleaning").apply_async()
+            clean_tick_data_for_stock.s(stock_code, date_str).set(queue="SaveData_RealTime_Quote").apply_async()
             total_dispatched_count += 1
             
     logger.info(f"--- Tick数据清理任务分派完成，共为 {len(dates_to_process)} 天、{len(stock_codes)} 只股票分派了 {total_dispatched_count} 个任务。 ---")
