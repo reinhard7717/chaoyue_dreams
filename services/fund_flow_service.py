@@ -1013,8 +1013,10 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_dip_rally_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V47.0 · 模块化重构版】
-        新增方法: 计算逢低吸筹与拉高派发相关指标。
+        【V47.3 · 诡道派发精炼版】
+        - 核心优化: 精炼了 rally_distribution_pressure 指标中 BaitEff (诱饵效率) 的计算逻辑。
+        - 优化思路: 将其成本归一化的分母从“基于全天成交量的粗略估算”修改为“当前拉升期间的实际总成交量”，
+                     使得效率评估更精准、更局域化，能更好地捕捉“四两拨千斤”式的派发行为。
         """
         from scipy.signal import find_peaks
         from datetime import time
@@ -1064,10 +1066,11 @@ class AdvancedFundFlowMetricsService:
                             price_change_in_rally = window_df['minute_vwap'].iloc[-1] - window_df['minute_vwap'].iloc[0]
                             total_rally_price_change += price_change_in_rally
                             bait_cost = (rally_hf_df['main_force_ofi'] * rally_hf_df['mid_price']).sum()
-                            bait_efficiency = 1 - np.tanh(bait_cost / (price_change_in_rally * daily_total_volume * 0.1)) if price_change_in_rally > 0 else 0.5
+                            # 修改代码行：优化 bait_efficiency 的计算逻辑
+                            total_vol_in_rally_hf = rally_hf_df['volume'].sum()
+                            bait_efficiency = 1 - np.tanh(bait_cost / (price_change_in_rally * total_vol_in_rally_hf)) if price_change_in_rally > 0 and total_vol_in_rally_hf > 0 else 0.5
                             mf_trades_in_rally = rally_hf_df[rally_hf_df['amount'] > 200000]
                             mf_sell_vol_in_rally_hf = mf_trades_in_rally[mf_trades_in_rally['type'] == 'S']['volume'].sum()
-                            total_vol_in_rally_hf = rally_hf_df['volume'].sum()
                             distribution_dominance = mf_sell_vol_in_rally_hf / total_vol_in_rally_hf if total_vol_in_rally_hf > 0 else 0.0
                             follower_frenzy = 0.0
                             retail_hf_in_rally = rally_hf_df[rally_hf_df['amount'] < 50000]
