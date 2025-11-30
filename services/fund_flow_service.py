@@ -1464,20 +1464,21 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_retail_sentiment_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V48.3 · 散户恐慌解构版】
-        - 核心升级: 对 retail_panic_surrender_index 进行高频化重构，使其与 retail_fomo_premium_index 形成逻辑对称。
-        - 升级原因: 原有分钟级恐慌指标使用静态价格区间，无法精准捕捉由“破位新低”引发的恐慌抛售事件。
+        【V48.6 · 指标硬化版】
+        - 核心升级: 修复因条件逻辑漏洞导致的 retail_fomo/panic_index 字段在特定行情下（如无FOMO或恐慌事件）缺失的问题。
+        - 升级原因: 探针 S.1 发现最终DataFrame列数与模型字段数仍有差异，定位到根因是指标的条件性创建。
         - 核心实现:
-          - 高频路径: 动态识别价格创日内新低的“恐慌事件”，并综合评估三大要素：
-            1. 成本折价 (CostDiscount): 散户恐慌卖出价相比主力买入成本的折价程度。
-            2. 卖出 агрессия (Aggression): 散户主动性卖单（砸向买一）的成交量占比。
-            3. 成交异动 (VolumeSpike): 恐慌事件期间散户卖出成交的异常放量程度。
-          - 降级路径: 保留原分钟级逻辑作为无高频数据时的备用方案。
+          - 在方法入口处，将指标用 np.nan 进行预初始化。
+          - 这确保了无论计算条件是否满足，返回的字典中都必然包含这些键，保证了数据结构的稳定性。
         """
         from datetime import time
         import pandas as pd
         import numpy as np
-        metrics = {}
+        # 修改代码行：预初始化指标字典，确保字段始终存在
+        metrics = {
+            'retail_fomo_premium_index': np.nan,
+            'retail_panic_surrender_index': np.nan
+        }
         day_high, day_low = common_data['day_high'], common_data['day_low']
         atr = common_data['atr']
         if not hf_analysis_df.empty and pd.notna(atr) and atr > 0:
@@ -1522,7 +1523,6 @@ class AdvancedFundFlowMetricsService:
                         print(f"      - [最强FOMO事件分解] Premium: {max_fomo_event_info['premium']:.2f}, Aggression: {max_fomo_event_info['aggression']:.2f}, Spike: {max_fomo_event_info['spike']:.2f}")
                     print(f"    -> Final Score: {metrics['retail_fomo_premium_index']:.2f}")
             # --- Panic Index Calculation (Symmetrical Logic) ---
-            # 修改代码块：新增对称的恐慌指数高频计算逻辑
             total_weighted_panic_score = 0
             total_panic_volume = 0
             max_panic_event_info = {'score': -1}
@@ -1588,10 +1588,10 @@ class AdvancedFundFlowMetricsService:
                     if not panic_zone_df.empty and 'retail_net_vol' in panic_zone_df.columns and 'retail_sell_vol' in continuous_trading_df.columns and 'minute_vwap' in panic_zone_df.columns:
                         panic_retail_df = panic_zone_df[panic_zone_df['retail_net_vol'] < 0]
                         if not panic_retail_df.empty:
-                            panic_vol = abs(panic_retail_df['retail_net_vol'].sum())
+                            panic_vol = abs(panic_retail_df['net_vol'].sum())
                             total_retail_sell_vol = continuous_trading_df[continuous_trading_df['retail_sell_vol'] > 0]['retail_sell_vol'].sum()
                             if panic_vol > 0 and total_retail_sell_vol > 0:
-                                cost_panic = (panic_retail_df['minute_vwap'] * abs(panic_retail_df['retail_net_vol'])).sum() / panic_vol
+                                cost_panic = (panic_retail_df['minute_vwap'] * abs(panic_retail_df['net_vol'])).sum() / panic_vol
                                 cost_mf_buy = daily_data.get('avg_cost_main_buy')
                                 if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
                                     discount = (cost_mf_buy - cost_panic) / cost_mf_buy
