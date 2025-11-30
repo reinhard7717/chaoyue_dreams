@@ -753,12 +753,11 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V47.5 · 诊断驾驶舱升级版】
+        【V48.0 · 恐慌微观解构版】
         - 核心升级: 引入 B-系列 (Behavioral Engine) 探针，监控引擎的输入数据健康度和计算过程。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
-        # 修改代码行：升级【B.1 - 引擎入口探针】
         if enable_probe and is_target_date:
             print(f"\n{'='*20} [探针 B.1 - 引擎入口 @ {daily_data.name.date()}] {'='*20}")
             print("  - 进入 `_compute_all_behavioral_metrics` 行为指标计算引擎...")
@@ -768,7 +767,6 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df, common_data = self._prepare_behavioral_data(
             intraday_data, daily_data, tick_data, level5_data, realtime_data
         )
-        # 修改代码行：新增【B.2 - 引擎输入审计探针】
         if enable_probe and is_target_date:
             print(f"\n{'='*20} [探针 B.2 - 引擎输入审计 @ {daily_data.name.date()}] {'='*20}")
             print("  - 通用日线数据 (common_data):")
@@ -789,6 +787,8 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_shadow_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_dip_rally_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_reversal_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
+        # 新增代码行：调用新的恐慌级联指标计算方法
+        results.update(self._calculate_panic_cascade_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_cmf_metrics(intraday_data))
         results.update(self._calculate_vpoc_metrics(intraday_data, common_data))
         results.update(self._calculate_liquidity_swap_metrics(intraday_data))
@@ -1454,70 +1454,87 @@ class AdvancedFundFlowMetricsService:
                                 metrics['retail_panic_surrender_index'] = discount * (panic_vol / total_retail_sell_vol) * 100
         return metrics
 
-    def _calculate_misc_minute_metrics(self, intraday_data: pd.DataFrame, common_data: dict) -> dict:
+    def _calculate_panic_cascade_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V47.0 · 模块化重构版】
-        新增方法: 计算其他基于分钟线的杂项指标。
+        【V48.0 · 恐慌微观解构版】
+        - 核心升级: 重构 panic_selling_cascade 指标，从分钟级主力行为升级为高频微观结构解构。
+        - 升级原因: 原有分钟级指标无法捕捉恐慌的本质——流动性真空与散户情绪崩溃的共振。
+        - 核心实现:
+          - 高频路径: 在下跌波段中，综合评估三个核心要素：
+            1. 流动性真空 (LiquidityVacuum): 通过买卖盘深度比量化。
+            2. 散户投降 (RetailCapitulation): 通过散户主动性卖出量占比量化。
+            3. 价格冲击 (PriceImpact): 通过ATR标准化的价格跌幅量化。
+          - 降级路径: 若无高频数据，则回退至原有的分钟级主力净卖出占比逻辑。
         """
-        from datetime import time
         from scipy.signal import find_peaks
+        from datetime import time
         import numpy as np
-        import pandas as pd
         metrics = {}
-        day_open, day_close = common_data['day_open'], common_data['day_close']
-        day_high, day_low = common_data['day_high'], common_data['day_low']
-        daily_vwap = common_data['daily_vwap']
         atr = common_data['atr']
-        daily_total_volume = common_data['daily_total_volume']
-        if 'main_force_buy_vol' in intraday_data.columns and 'main_force_sell_vol' in intraday_data.columns and pd.notna(atr) and atr > 0:
-            mf_activity_ratio = (intraday_data['main_force_buy_vol'].sum() + intraday_data['main_force_sell_vol'].sum()) / daily_total_volume if daily_total_volume > 0 else 0.0
-            if mf_activity_ratio > 0:
-                price_outcome = (day_close - day_open) / atr
-                metrics['trend_conviction_ratio'] = price_outcome / mf_activity_ratio
         continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
-        if not continuous_trading_df.empty and 'close' in continuous_trading_df.columns and 'open' in continuous_trading_df.columns:
-            up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
-            down_minutes = continuous_trading_df[continuous_trading_df['close'] < continuous_trading_df['open']]
-            if not up_minutes.empty and not down_minutes.empty:
-                up_price_change = (up_minutes['close'] - up_minutes['open']).sum()
-                down_price_change = (down_minutes['open'] - down_minutes['close']).sum()
-                avg_up_speed = up_price_change / len(up_minutes) if len(up_minutes) > 0 else 0
-                avg_down_speed = down_price_change / len(down_minutes) if len(down_minutes) > 0 else 0
-                if avg_up_speed > 0 and avg_down_speed > 0:
-                    metrics['volatility_asymmetry_index'] = np.log(avg_up_speed / avg_down_speed)
-        if pd.notna(day_high) and pd.notna(day_low) and pd.notna(day_close) and pd.notna(daily_vwap) and pd.notna(atr) and atr > 0 and daily_total_volume > 0:
-            day_range = day_high - day_low
-            if day_range > 0:
-                range_pos_factor = ((day_close - day_low) / day_range) * 2 - 1
-                value_dev_factor = np.tanh((day_close - daily_vwap) / atr)
-                force_balance_factor = intraday_data['main_force_net_vol'].sum() / daily_total_volume if 'main_force_net_vol' in intraday_data.columns else 0.0
-                metrics['closing_price_deviation_score'] = (0.5 * range_pos_factor + 0.3 * value_dev_factor + 0.2 * force_balance_factor) * 100
-        if not continuous_trading_df.empty and 'minute_vwap' in continuous_trading_df.columns:
+        if not continuous_trading_df.empty and 'minute_vwap' in continuous_trading_df.columns and pd.notna(atr) and atr > 0:
             peaks, _ = find_peaks(continuous_trading_df['minute_vwap'].values)
             troughs, _ = find_peaks(-continuous_trading_df['minute_vwap'].values)
             turning_points = sorted(list(set(np.concatenate(([0], troughs, peaks, [len(continuous_trading_df)-1])))))
-            panic_vol, total_panic_vol = 0, 0
-            for i in range(len(turning_points) - 1):
-                start_idx, end_idx = turning_points[i], turning_points[i+1]
-                window_df = continuous_trading_df.iloc[start_idx:end_idx+1]
-                if window_df.empty or len(window_df) < 2 or 'minute_vwap' not in window_df.columns or 'main_force_net_vol' not in window_df.columns or 'vol_shares' not in window_df.columns:
-                    continue
-                mf_net_vol = window_df['main_force_net_vol'].sum()
-                window_vol = window_df['vol_shares'].sum()
-                if window_df['minute_vwap'].iloc[-1] <= window_df['minute_vwap'].iloc[0]:
-                    total_panic_vol += window_vol
-                    if mf_net_vol < 0:
-                        panic_vol += abs(mf_net_vol)
-            if total_panic_vol > 0:
-                metrics['panic_selling_cascade'] = (panic_vol / total_panic_vol) * 100
-        if 'main_force_net_vol' in intraday_data.columns and 'close' in intraday_data.columns:
-            intraday_data['price_change'] = intraday_data['close'].diff()
-            if pd.notna(atr) and atr > 0:
-                intraday_data['price_change_norm'] = intraday_data['price_change'] / atr
-                mf_net_vol_series = intraday_data['main_force_net_vol']
-                price_change_norm_series = intraday_data['price_change_norm']
-                if mf_net_vol_series.var() > 0 and price_change_norm_series.var() > 0:
-                    metrics['microstructure_efficiency_index'] = mf_net_vol_series.corr(price_change_norm_series)
+            if not hf_analysis_df.empty:
+                total_weighted_panic_score = 0
+                total_price_drop = 0
+                max_panic_leg_info = {'score': -1}
+                for i in range(len(turning_points) - 1):
+                    start_idx, end_idx = turning_points[i], turning_points[i+1]
+                    window_df = continuous_trading_df.iloc[start_idx:end_idx+1]
+                    if window_df.empty or len(window_df) < 2: continue
+                    if window_df['minute_vwap'].iloc[-1] < window_df['minute_vwap'].iloc[0]:
+                        start_time, end_time = window_df.index[0], window_df.index[-1]
+                        panic_hf_df = hf_analysis_df[(hf_analysis_df.index >= start_time) & (hf_analysis_df.index <= end_time)]
+                        if not panic_hf_df.empty:
+                            price_drop_in_leg = window_df['minute_vwap'].iloc[0] - window_df['minute_vwap'].iloc[-1]
+                            total_price_drop += price_drop_in_leg
+                            price_impact_component = price_drop_in_leg / atr
+                            ask_depth = panic_hf_df[[f'sell_volume{i}' for i in range(1, 6)]].sum(axis=1).mean()
+                            bid_depth = panic_hf_df[[f'buy_volume{i}' for i in range(1, 6)]].sum(axis=1).mean()
+                            liquidity_vacuum_component = np.tanh(np.log1p(ask_depth / bid_depth)) if bid_depth > 0 else 1.0
+                            retail_trades_in_leg = panic_hf_df[panic_hf_df['amount'] < 50000]
+                            retail_sell_trades = retail_trades_in_leg[retail_trades_in_leg['type'] == 'S']
+                            total_retail_sell_vol = retail_sell_trades['volume'].sum()
+                            if total_retail_sell_vol > 0:
+                                aggressive_sell_mask = retail_sell_trades['price'] <= retail_sell_trades['buy_price1']
+                                aggressive_retail_sell_vol = retail_sell_trades[aggressive_sell_mask]['volume'].sum()
+                                retail_capitulation_component = aggressive_retail_sell_vol / total_retail_sell_vol
+                            else:
+                                retail_capitulation_component = 0.0
+                            leg_panic_score = price_impact_component * liquidity_vacuum_component * retail_capitulation_component
+                            total_weighted_panic_score += leg_panic_score * price_drop_in_leg
+                            if leg_panic_score > max_panic_leg_info['score']:
+                                max_panic_leg_info = {
+                                    'score': leg_panic_score,
+                                    'impact': price_impact_component,
+                                    'vacuum': liquidity_vacuum_component,
+                                    'capitulation': retail_capitulation_component
+                                }
+                if total_price_drop > 0:
+                    weighted_avg_panic_score = total_weighted_panic_score / total_price_drop
+                    metrics['panic_selling_cascade'] = weighted_avg_panic_score * 100
+                    if enable_probe and is_target_date:
+                        print(f"  [探针] panic_selling_cascade (高频-恐慌级联) 计算:")
+                        print(f"    - Weighted Avg Panic Score: {weighted_avg_panic_score:.4f}")
+                        if max_panic_leg_info['score'] > -1:
+                            print(f"      - [最恐慌波段分解] Impact: {max_panic_leg_info['impact']:.2f}, Vacuum: {max_panic_leg_info['vacuum']:.2f}, Capitulation: {max_panic_leg_info['capitulation']:.2f}")
+                        print(f"    -> Final Score: {metrics['panic_selling_cascade']:.2f}")
+            else:
+                panic_vol, total_panic_vol = 0, 0
+                for i in range(len(turning_points) - 1):
+                    start_idx, end_idx = turning_points[i], turning_points[i+1]
+                    window_df = continuous_trading_df.iloc[start_idx:end_idx+1]
+                    if window_df.empty or len(window_df) < 2 or 'minute_vwap' not in window_df.columns or 'main_force_net_vol' not in window_df.columns or 'vol_shares' not in window_df.columns:
+                        continue
+                    if window_df['minute_vwap'].iloc[-1] <= window_df['minute_vwap'].iloc[0]:
+                        total_panic_vol += window_df['vol_shares'].sum()
+                        mf_net_vol = window_df['main_force_net_vol'].sum()
+                        if mf_net_vol < 0:
+                            panic_vol += abs(mf_net_vol)
+                if total_panic_vol > 0:
+                    metrics['panic_selling_cascade'] = (panic_vol / total_panic_vol) * 100
         return metrics
 
     def _calculate_misc_daily_metrics(self, daily_data: pd.Series, main_force_net_flow_calibrated: float) -> dict:
