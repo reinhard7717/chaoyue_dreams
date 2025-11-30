@@ -400,14 +400,12 @@ class AdvancedFundFlowMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None, realtime_data_map: dict = None, memory: dict = None) -> tuple[pd.DataFrame, dict, list, dict]:
         """
-        【V12.0 · 记忆总线兼容版】
-        - 核心升级: 新增 `memory` 参数和第四个返回值 `prev_metrics`，以完全兼容“统一记忆总线”架构。
-        - 核心实现: 实现了完整的跨区块记忆加载、更新与返回逻辑，确保时间序列指标（如CMF）在全量回测中的计算连续性。
+        【V12.1 · 诊断驾驶舱升级版】
+        - 核心升级: 引入 A-系列 (Aggregation Service) 探针，监控服务层的数据流转和关键上游计算节点。
         """
         all_metrics_list = []
         attributed_minute_data_map = {}
         failures = []
-        # [修改代码块] 初始化记忆
         prev_metrics = memory.copy() if memory is not None else {}
         num_days = len(merged_df)
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -416,8 +414,12 @@ class AdvancedFundFlowMetricsService:
             debug_mode = (i == num_days - 1)
             date_obj = trade_date.date()
             is_target_date = str(date_obj) == target_date_str
+            # 修改代码行：升级【A.1 - 服务入口探针】
             if enable_probe and is_target_date:
-                print(f"\n[探针 A.1 - {stock_code} @ {date_obj}] 进入资金流服务 _synthesize_and_forge_metrics...")
+                print(f"\n{'='*20} [探针 A.1 - 服务入口 @ {date_obj}] {'='*20}")
+                print(f"  - 传入的日线级数据 (daily_data_series):")
+                print(daily_data_series.to_string())
+                print(f"  - 传入的记忆体 (prev_metrics): {prev_metrics}")
             daily_amount = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
             daily_vol_shares = pd.to_numeric(daily_data_series.get('vol'), errors='coerce') * 100
             if pd.notna(daily_amount) and pd.notna(daily_vol_shares) and daily_vol_shares > 0:
@@ -428,10 +430,24 @@ class AdvancedFundFlowMetricsService:
             if intraday_data is None or intraday_data.empty:
                 failures.append({'stock_code': stock_code, 'trade_date': str(date_obj), 'reason': '当日分钟线/逐笔聚合数据缺失'})
                 continue
-            # [修改代码块] 将 prev_metrics 注入到 daily_data_series 中，供下游使用
             daily_data_series_with_mem = pd.concat([daily_data_series, pd.Series(prev_metrics, name=daily_data_series.name)])
             attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data, daily_data_series_with_mem)
+            # 修改代码行：新增【A.2 - 归因权重探针】
+            if enable_probe and is_target_date:
+                print(f"\n{'='*20} [探针 A.2 - 归因权重审计 @ {date_obj}] {'='*20}")
+                print("  - 归因权重DataFrame统计信息 (.describe()):")
+                weight_cols = [c for c in attribution_weights_df.columns if 'weight' in c]
+                print(attribution_weights_df[weight_cols].describe().to_string())
             probabilistic_costs_dict, attributed_minute_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series_with_mem, debug_mode=debug_mode)
+            # 修改代码行：新增【A.3 - 概率成本探针】
+            if enable_probe and is_target_date:
+                print(f"\n{'='*20} [探针 A.3 - 概率成本审计 @ {date_obj}] {'='*20}")
+                print("  - 计算出的概率成本字典:")
+                print(probabilistic_costs_dict)
+            # 修改代码行：新增【A.4 - 引擎调用探针】
+            if enable_probe and is_target_date:
+                print(f"\n{'='*20} [探针 A.4 - 引擎调用 @ {date_obj}] {'='*20}")
+                print("  - 即将调用 _calculate_all_metrics_for_day 核心行为指标计算引擎...")
             day_metrics, _ = self._calculate_all_metrics_for_day(
                 stock_code, daily_data_series_with_mem, intraday_data, attributed_minute_df, probabilistic_costs_dict,
                 tick_data_for_day=tick_data_map.get(date_obj),
@@ -439,12 +455,16 @@ class AdvancedFundFlowMetricsService:
                 realtime_data_for_day=realtime_data_map.get(date_obj),
                 debug_mode=debug_mode
             )
+            # 修改代码行：升级【A.5 - 服务出口探针】
             if enable_probe and is_target_date:
-                print(f"[探针 A.2 - {stock_code} @ {date_obj}] 资金流指标计算完成。")
-                print(f"  - 计算出的 avg_cost_main_buy: {day_metrics.get('avg_cost_main_buy')}")
+                print(f"\n{'='*20} [探针 A.5 - 服务出口 @ {date_obj}] {'='*20}")
+                print(f"  - 资金流指标计算完成。最终日度指标字典 (day_metrics) 预览:")
+                # 打印部分关键指标以供快速检查
+                preview_keys = ['main_force_net_flow_calibrated', 'avg_cost_main_buy', 'main_force_conviction_index', 'dip_absorption_power', 'rally_distribution_pressure']
+                preview_dict = {k: day_metrics.get(k) for k in preview_keys if k in day_metrics}
+                print(preview_dict)
             all_metrics_list.append(day_metrics)
             attributed_minute_data_map[date_obj] = attributed_minute_df.copy(deep=True)
-            # [修改代码块] 更新并传递记忆
             next_prev_metrics = {
                 'holistic_cmf': day_metrics.get('holistic_cmf'),
                 'main_force_cmf': day_metrics.get('main_force_cmf'),
@@ -733,21 +753,35 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V47.0 · 模块化重构版】
-        重构为总指挥官方法。
-        - 职责: 协调数据准备和各个指标模块的计算，最后汇总结果。
-        - 结构: 调用 _prepare_behavioral_data 获取物料，然后顺序调用各 _calculate_... 方法。
+        【V47.5 · 诊断驾驶舱升级版】
+        - 核心升级: 引入 B-系列 (Behavioral Engine) 探针，监控引擎的输入数据健康度和计算过程。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
+        # 修改代码行：升级【B.1 - 引擎入口探针】
         if enable_probe and is_target_date:
-            print(f"\n[探针 - {daily_data.name.date()}] 进入 `_compute_all_behavioral_metrics` 行为指标计算引擎...")
+            print(f"\n{'='*20} [探针 B.1 - 引擎入口 @ {daily_data.name.date()}] {'='*20}")
+            print("  - 进入 `_compute_all_behavioral_metrics` 行为指标计算引擎...")
         results = {}
         if intraday_data.empty:
             return results
         hf_analysis_df, common_data = self._prepare_behavioral_data(
             intraday_data, daily_data, tick_data, level5_data, realtime_data
         )
+        # 修改代码行：新增【B.2 - 引擎输入审计探针】
+        if enable_probe and is_target_date:
+            print(f"\n{'='*20} [探针 B.2 - 引擎输入审计 @ {daily_data.name.date()}] {'='*20}")
+            print("  - 通用日线数据 (common_data):")
+            print(f"    {common_data}")
+            if not hf_analysis_df.empty:
+                print("  - 高频分析DataFrame (hf_analysis_df) 健康检查:")
+                print(f"    - Shape: {hf_analysis_df.shape}")
+                print(f"    - 关键列 'ofi' 的空值数量: {hf_analysis_df['ofi'].isnull().sum()}")
+                print(f"    - 关键列 'main_force_ofi' 的空值数量: {hf_analysis_df['main_force_ofi'].isnull().sum()}")
+                print("    - 数据预览 (head):")
+                print(hf_analysis_df[['mid_price', 'ofi', 'main_force_ofi', 'imbalance']].head(3).to_string())
+            else:
+                print("  - [!!!] 关键警告: 高频分析DataFrame (hf_analysis_df) 为空！所有高频指标将无法计算。")
         if not hf_analysis_df.empty:
             results.update(self._calculate_core_hf_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_vwap_related_metrics(intraday_data, common_data))
@@ -767,16 +801,14 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_core_hf_metrics(self, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V47.2 · 遗漏逻辑补全版】
-        - 核心修复: 补全在V47.0重构中遗漏的 retail_ofi, order_book_liquidity_supply, large_order_pressure/support,
-                     以及 buy/sell_quote_exhaustion_rate 指标的完整计算逻辑。
+        【V47.5 · 诊断驾驶舱升级版】
+        - 核心升级: 丰富 B.3-系列探针，增加对上游数据的回溯打印。
         """
         import numpy as np
         metrics = {}
         atr = common_data['atr']
         daily_total_volume = common_data['daily_total_volume']
         metrics['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
-        # 修改代码行：新增 retail_ofi 的计算
         metrics['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
         mf_ofi_cumsum = hf_analysis_df['main_force_ofi'].cumsum().fillna(0)
         aggressiveness_component = 0.0
@@ -799,10 +831,12 @@ class AdvancedFundFlowMetricsService:
         resilience_component = mf_resilience_ofi / total_mf_positive_ofi if total_mf_positive_ofi > 0 else 0.0
         metrics['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
         if enable_probe and is_target_date:
-            print(f"  [探针] main_force_conviction_index (主力信念) 计算:")
-            print(f"    - Aggressiveness (TrendQuality * ClosingStrength): {aggressiveness_component:.4f} = ({trend_quality:.4f} * {closing_strength:.4f})")
-            print(f"    - Cost Tolerance (Buy/Sell Cost): {cost_tolerance_component:.4f}, Resilience (Absorption): {resilience_component:.4f}")
-            print(f"    -> Final Score: {metrics['main_force_conviction_index']:.2f}")
+            # 修改代码行：升级 B.3.1 探针
+            print(f"\n--- [探针 B.3.1] main_force_conviction_index (主力信念) ---")
+            print(f"    - 上游输入 avg_cost_main_buy: {avg_cost_main_buy}, avg_cost_main_sell: {avg_cost_main_sell}")
+            print(f"    - 组件 Aggressiveness: {aggressiveness_component:.4f} = (TrendQuality {trend_quality:.4f} * ClosingStrength {closing_strength:.4f})")
+            print(f"    - 组件 Cost Tolerance: {cost_tolerance_component:.4f}, 组件 Resilience: {resilience_component:.4f}")
+            print(f"    -> 最终得分: {metrics['main_force_conviction_index']:.2f}")
         mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
         if not mf_trades.empty and 'prev_mid_price' in mf_trades.columns:
             buy_trades_mask = mf_trades['type'] == 'B'
@@ -817,9 +851,9 @@ class AdvancedFundFlowMetricsService:
                 if pd.notna(atr) and atr > 0:
                     metrics['main_force_price_impact_ratio'] = (weighted_avg_slippage / atr) * 100
                     if enable_probe and is_target_date:
-                        print(f"  [探针] main_force_price_impact_ratio (价格冲击) 计算:")
+                        print(f"\n--- [探针 B.3.2] main_force_price_impact_ratio (价格冲击) ---")
                         print(f"    - 主力总成交量: {total_mf_vol:,.0f}, 平均滑点: {weighted_avg_slippage:.4f}元, ATR: {atr:.2f}")
-                        print(f"    -> Final Score (滑点/ATR %): {metrics['main_force_price_impact_ratio']:.2f}")
+                        print(f"    -> 最终得分 (滑点/ATR %): {metrics['main_force_price_impact_ratio']:.2f}")
             if total_mf_vol > 0:
                 offensive_buy_mask = (mf_trades['type'] == 'B') & (mf_trades['price'] >= mf_trades['sell_price1'])
                 offensive_sell_mask = (mf_trades['type'] == 'S') & (mf_trades['price'] <= mf_trades['buy_price1'])
@@ -828,12 +862,12 @@ class AdvancedFundFlowMetricsService:
                 metrics['main_force_posture_index'] = ((offensive_volume - passive_volume) / total_mf_vol) * 100
                 metrics['main_force_activity_ratio'] = (total_mf_vol / daily_total_volume) * 100 if daily_total_volume > 0 else np.nan
                 if enable_probe and is_target_date:
-                    print(f"  [探针] main_force_posture_index (主力姿态) 计算:")
+                    print(f"\n--- [探针 B.3.3] main_force_posture_index (主力姿态) ---")
                     print(f"    - 主力总成交: {total_mf_vol:,.0f}, 进攻性成交: {offensive_volume:,.0f}, 被动性成交: {passive_volume:,.0f}")
-                    print(f"    -> Final Score: {metrics['main_force_posture_index']:.2f}")
-                    print(f"  [探针] main_force_activity_ratio (主力参与度) 计算:")
+                    print(f"    -> 最终得分: {metrics['main_force_posture_index']:.2f}")
+                    print(f"\n--- [探针 B.3.4] main_force_activity_ratio (主力参与度) ---")
                     print(f"    - 主力总成交: {total_mf_vol:,.0f}, 当日总成交: {daily_total_volume:,.0f}")
-                    print(f"    -> Final Score: {metrics['main_force_activity_ratio']:.2f}")
+                    print(f"    -> 最终得分: {metrics['main_force_activity_ratio']:.2f}")
                 mf_buy_vol = mf_trades.loc[buy_trades_mask, 'volume'].sum()
                 mf_sell_vol = mf_trades.loc[sell_trades_mask, 'volume'].sum()
                 mf_total_activity_vol = mf_buy_vol + mf_sell_vol
@@ -841,9 +875,9 @@ class AdvancedFundFlowMetricsService:
                     mf_net_vol = mf_buy_vol - mf_sell_vol
                     metrics['main_force_flow_directionality'] = (mf_net_vol / mf_total_activity_vol) * 100
                     if enable_probe and is_target_date:
-                        print(f"  [探针] main_force_flow_directionality (主力流向性) 计算:")
+                        print(f"\n--- [探针 B.3.5] main_force_flow_directionality (主力流向性) ---")
                         print(f"    - 主力买入量: {mf_buy_vol:,.0f}, 主力卖出量: {mf_sell_vol:,.0f}, 主力总活动量: {mf_total_activity_vol:,.0f}")
-                        print(f"    -> Final Score: {metrics['main_force_flow_directionality']:.2f}")
+                        print(f"    -> 最终得分: {metrics['main_force_flow_directionality']:.2f}")
         large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
         if not large_orders_df.empty:
             metrics['observed_large_order_size_avg'] = large_orders_df['amount'].mean()
@@ -885,18 +919,16 @@ class AdvancedFundFlowMetricsService:
             time_diffs = hf_analysis_df.index.to_series().diff().dt.total_seconds().fillna(0)
             if time_diffs.sum() > 0:
                 metrics['order_book_imbalance'] = np.average(hf_analysis_df['imbalance'].dropna(), weights=time_diffs[hf_analysis_df['imbalance'].notna()]) * 100
-                # 修改代码行：新增 order_book_liquidity_supply 的计算
                 metrics['order_book_liquidity_supply'] = np.average(hf_analysis_df['liquidity_supply_ratio'].dropna(), weights=time_diffs[hf_analysis_df['liquidity_supply_ratio'].notna()])
             if 'market_vol_delta' in hf_analysis_df.columns and hf_analysis_df['imbalance'].var() > 1e-9 and hf_analysis_df['market_vol_delta'].var() > 1e-9:
                 correlation_value = hf_analysis_df['imbalance'].corr(hf_analysis_df['market_vol_delta'])
                 metrics['imbalance_effectiveness'] = correlation_value
                 if enable_probe and is_target_date:
-                    print(f"  [探针] imbalance_effectiveness (盘口诚实度) 计算:")
+                    print(f"\n--- [探针 B.3.6] imbalance_effectiveness (盘口诚实度) ---")
                     print(f"    - Imbalance vs MarketVolDelta Corr: {correlation_value:.4f}")
-                    print(f"    -> Final Score: {metrics['imbalance_effectiveness']:.2f}")
+                    print(f"    -> 最终得分: {metrics['imbalance_effectiveness']:.2f}")
         except Exception:
             pass
-        # 修改代码行：新增 large_order_pressure/support 的计算逻辑块
         try:
             df_static = hf_analysis_df.copy()
             large_order_threshold_value = 500000
@@ -917,7 +949,6 @@ class AdvancedFundFlowMetricsService:
                 metrics['large_order_support'] = (support_strength / total_trading_seconds) * 100
         except Exception:
             metrics['large_order_pressure'] = np.nan; metrics['large_order_support'] = np.nan
-        # 修改代码行：新增 buy/sell_quote_exhaustion_rate 的计算逻辑块
         try:
             buy_exhaustion_mask = hf_analysis_df['sell_price1'] > hf_analysis_df['prev_a1_p']
             buy_exhausted_vol = hf_analysis_df.loc[buy_exhaustion_mask, 'prev_a1_v'].sum()
@@ -1013,10 +1044,11 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_dip_rally_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V47.3 · 诡道派发精炼版】
-        - 核心优化: 精炼了 rally_distribution_pressure 指标中 BaitEff (诱饵效率) 的计算逻辑。
-        - 优化思路: 将其成本归一化的分母从“基于全天成交量的粗略估算”修改为“当前拉升期间的实际总成交量”，
-                     使得效率评估更精准、更局域化，能更好地捕捉“四两拨千斤”式的派发行为。
+        【V47.4 · 操盘技艺升维版】
+        - 核心升级: 对 rally_distribution_pressure 指标进行逻辑升维，用更鲁棒的“操盘技艺”组件替代原有的“诱饵效率”。
+        - 升级原因: 发现原基于OFI的“诱饵效率”会被高明的“假买真卖”手法干扰，导致指标失灵。
+        - 核心实现: 新的 artistry_component 直接基于主力在拉升期间的“净成交量”进行评判，
+                     能更准确地奖励“边拉边撤”的高明派发行为，而不会被虚假的盘口意图迷惑。
         """
         from scipy.signal import find_peaks
         from datetime import time
@@ -1065,12 +1097,13 @@ class AdvancedFundFlowMetricsService:
                         if not rally_hf_df.empty:
                             price_change_in_rally = window_df['minute_vwap'].iloc[-1] - window_df['minute_vwap'].iloc[0]
                             total_rally_price_change += price_change_in_rally
-                            bait_cost = (rally_hf_df['main_force_ofi'] * rally_hf_df['mid_price']).sum()
-                            # 修改代码行：优化 bait_efficiency 的计算逻辑
                             total_vol_in_rally_hf = rally_hf_df['volume'].sum()
-                            bait_efficiency = 1 - np.tanh(bait_cost / (price_change_in_rally * total_vol_in_rally_hf)) if price_change_in_rally > 0 and total_vol_in_rally_hf > 0 else 0.5
                             mf_trades_in_rally = rally_hf_df[rally_hf_df['amount'] > 200000]
+                            # 修改代码块：废弃 bait_efficiency，引入 artistry_component
+                            mf_buy_vol_in_rally_hf = mf_trades_in_rally[mf_trades_in_rally['type'] == 'B']['volume'].sum()
                             mf_sell_vol_in_rally_hf = mf_trades_in_rally[mf_trades_in_rally['type'] == 'S']['volume'].sum()
+                            mf_net_vol_in_rally = mf_buy_vol_in_rally_hf - mf_sell_vol_in_rally_hf
+                            artistry_component = (1 + np.tanh(-mf_net_vol_in_rally / total_vol_in_rally_hf)) if total_vol_in_rally_hf > 0 else 1.0
                             distribution_dominance = mf_sell_vol_in_rally_hf / total_vol_in_rally_hf if total_vol_in_rally_hf > 0 else 0.0
                             follower_frenzy = 0.0
                             retail_hf_in_rally = rally_hf_df[rally_hf_df['amount'] < 50000]
@@ -1088,7 +1121,8 @@ class AdvancedFundFlowMetricsService:
                                 aggressive_buy_vol = retail_buy_trades_in_rally[aggressive_buy_mask]['volume'].sum()
                                 aggression_component = aggressive_buy_vol / total_retail_buy_vol_in_rally if total_retail_buy_vol_in_rally > 0 else 0.0
                                 follower_frenzy = cost_component * volume_spike_component * (1 + aggression_component)
-                            deceptive_pressure_score = bait_efficiency * distribution_dominance * follower_frenzy
+                            # 修改代码行：使用新的 artistry_component
+                            deceptive_pressure_score = artistry_component * distribution_dominance * follower_frenzy
                             total_deceptive_pressure += deceptive_pressure_score * price_change_in_rally
                 if total_rally_price_change > 0:
                     weighted_avg_pressure = total_deceptive_pressure / total_rally_price_change
@@ -1096,7 +1130,8 @@ class AdvancedFundFlowMetricsService:
                     if enable_probe and is_target_date:
                         print(f"  [探针] rally_distribution_pressure (高频-诡道派发) 计算:")
                         print(f"    - Weighted Avg Deceptive Artistry: {weighted_avg_pressure:.4f}")
-                        print(f"      - [Components] BaitEff: {bait_efficiency:.2f}, DistDom(HF): {distribution_dominance:.2f}, Frenzy: {follower_frenzy:.2f}")
+                        # 修改代码行：更新探针输出
+                        print(f"      - [Components] Artistry(NetVol): {artistry_component:.2f}, DistDom(GrossSell): {distribution_dominance:.2f}, Frenzy: {follower_frenzy:.2f}")
                         print(f"    -> Final Score: {metrics['rally_distribution_pressure']:.2f}")
             else:
                 if pd.notna(daily_vwap):
@@ -1795,6 +1830,7 @@ class AdvancedFundFlowMetricsService:
         records_to_save_df = final_df
         stock_code = stock_info.stock_code
         is_target_date_in_df = False
+        target_date = None
         if self.debug_params and self.debug_params.get('target_date'):
             target_date = pd.to_datetime(self.debug_params['target_date']).date()
             if target_date in records_to_save_df.index.date:
@@ -1812,13 +1848,13 @@ class AdvancedFundFlowMetricsService:
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
         df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
+        # 修改代码行：升级【S.1 - 保存前终审探针】
         if enable_probe and is_target_date_in_df:
-            print(f"\n[探针 S.1 - {stock_code} @ {self.debug_params['target_date']}] 进入 `_prepare_and_save_data` 保存前最终诊断...")
+            print(f"\n{'='*20} [探针 S.1 - 保存前终审 @ {target_date}] {'='*20}")
             filtered_cols_set = set(df_filtered.columns)
             model_fields_set = set(model_fields)
             print(f"  - 准备保存的DataFrame列数: {len(filtered_cols_set)}")
             print(f"  - 模型定义的字段数 (不含关系): {len(model_fields_set)}")
-            # 使用集合运算精确查找差异
             missing_in_df = model_fields_set - filtered_cols_set - {'id', 'stock_id', 'trade_time'}
             extra_in_df = filtered_cols_set - model_fields_set
             if not missing_in_df and not extra_in_df:
@@ -1828,14 +1864,13 @@ class AdvancedFundFlowMetricsService:
                     print(f"  - [!!!] 根本原因定位：模型中定义但DataFrame中缺失的字段为: {missing_in_df}")
                 if extra_in_df:
                     print(f"  - [!!!] 警告：DataFrame中存在但模型中未定义的字段为: {extra_in_df}")
-            # 保留对特定字段值的检查
-            if 'lower_shadow_absorption_strength' in filtered_cols_set:
-                target_row = df_filtered.loc[df_filtered.index.date == target_date]
-                if not target_row.empty:
-                    target_value = target_row['lower_shadow_absorption_strength'].iloc[0]
-                    print(f"  - [关键检查] 'lower_shadow_absorption_strength' 存在于待保存数据中，值为: {target_value}")
+            target_row = df_filtered.loc[df_filtered.index.date == target_date]
+            if not target_row.empty:
+                print("  - 目标日期最终待保存数据行预览:")
+                preview_cols = ['main_force_conviction_index', 'dip_absorption_power', 'rally_distribution_pressure', 'hidden_accumulation_intensity', 'lower_shadow_absorption_strength']
+                print(target_row[preview_cols].to_string())
             else:
-                print("  - [关键警告] 'lower_shadow_absorption_strength' 在待保存数据中已丢失！")
+                print("  - [!!!] 警告: 在最终待保存的DataFrame中未找到目标日期行！")
         records_list = df_filtered.to_dict('records')
         @sync_to_async(thread_sensitive=True)
         def save_atomically(model, stock_obj, records_to_process):

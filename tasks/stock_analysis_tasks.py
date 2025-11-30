@@ -746,9 +746,8 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V37.0 · 分段审计探针版】
-    - 核心增强: 植入“分段审计探针”，用于诊断因数据源在特定日期分段内完全缺失而导致的计算中断问题。
-                 探针将明确报告当前处理的日期区块以及导致“审计熔断”的具体数据源，从而快速定位数据空洞。
+    【V37.1 · 诊断驾驶舱升级版】
+    - 核心升级: 引入 M-系列 (Main Task) 探针，监控任务入口、原始数据加载和对服务的调用。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -771,6 +770,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         debug_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
         enable_probe = debug_params.get('enable_mfca_probe', False)
         target_date_str = debug_params.get('target_date')
+        # 修改代码行：新增【M.0 - 任务入口探针】
+        if enable_probe and target_date_str:
+            print(f"\n{'='*20} [探针 M.0 - 任务入口] {'='*20}")
+            print(f"  - 股票代码: {stock_code}, 目标日期: {target_date_str}")
+            print(f"  - 调试参数: {debug_params}")
         fund_flow_service = AdvancedFundFlowMetricsService(debug_params=debug_params)
         chip_service = AdvancedChipMetricsService()
         stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, lookback_start_date, process_start_date, save_start_date = await _initialize_task_context_unified(
@@ -907,26 +911,32 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 )
             else:
                 logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
-        # 植入分段审计探针
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
-            # 新增代码行：[探针 T.1] 打印分块信息
             print(f"[探针 T.1 - {stock_code}] 开始处理第 {i // CHUNK_SIZE + 1} 数据块, 日期范围: {chunk_dates.min().date()} to {chunk_dates.max().date()}, 共 {len(chunk_dates)} 天。")
-            if enable_probe:
-                is_target_date_in_chunk = pd.to_datetime(target_date_str) in chunk_dates if target_date_str else False
-                if is_target_date_in_chunk:
-                    print(f"\n[探针 M.1 - {stock_code} @ {target_date_str}] 区块开始，检查记忆总线...")
-                    chip_mem_cost = cross_chunk_memory_bus.get('chip_memory', {}).get('main_force_cumulative_cost')
-                    print(f"  - 传入的筹码记忆 (main_force_cumulative_cost): {chip_mem_cost}")
             data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_dates, cache_manager)
+            # 修改代码行：新增【M.2 - 原始数据审计探针】
+            if enable_probe and target_date_str:
+                target_date_obj = pd.to_datetime(target_date_str).date()
+                if target_date_obj in [d.date() for d in chunk_dates]:
+                    print(f"\n{'='*20} [探针 M.2 - 原始数据审计 @ {target_date_str}] {'='*20}")
+                    for name, data_map in [
+                        ("Tick", data_dfs.get("stock_tick_data_map")),
+                        ("Level5", data_dfs.get("stock_level5_data_map")),
+                        ("Minute", data_dfs.get("stock_minute_data_map")),
+                        ("Realtime", data_dfs.get("stock_realtime_data_map"))
+                    ]:
+                        if data_map and target_date_obj in data_map:
+                            print(f"  - [检查通过] {name} 数据已加载, Shape: {data_map[target_date_obj].shape}")
+                        else:
+                            print(f"  - [!!!] 关键警告: {name} 数据在目标日期缺失！")
             tick_data_map = data_dfs.pop("stock_tick_data_map")
             level5_data_map = data_dfs.pop("stock_level5_data_map")
             minute_data_map = data_dfs.pop("stock_minute_data_map")
             realtime_data_map = data_dfs.pop("stock_realtime_data_map")
             critical_sources = ["cyq_chips", "daily_data", "daily_basic", "cyq_perf", "fund_flow_tushare"]
             if any(data_dfs.get(src) is None or data_dfs.get(src).empty for src in critical_sources):
-                # 新增代码行：[探针 T.2] 打印熔断原因
                 for src in critical_sources:
                     if data_dfs.get(src) is None or data_dfs.get(src).empty:
                         print(f"[探针 T.2 - {stock_code}] 审计熔断！原因: 关键数据源 '{src}' 在日期范围 {chunk_dates.min().date()} to {chunk_dates.max().date()} 内完全为空。")
@@ -940,6 +950,16 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                             'missing_source': src
                         })
                 continue
+            # 修改代码行：新增【M.3 - 服务调用探针】
+            if enable_probe:
+                is_target_date_in_chunk = pd.to_datetime(target_date_str) in chunk_dates if target_date_str else False
+                if is_target_date_in_chunk:
+                    print(f"\n{'='*20} [探针 M.3 - 服务调用 @ {target_date_str}] {'='*20}")
+                    chip_mem_cost = cross_chunk_memory_bus.get('chip_memory', {}).get('main_force_cumulative_cost')
+                    ff_mem_cmf = cross_chunk_memory_bus.get('fund_flow_memory', {}).get('main_force_cmf')
+                    print(f"  - 即将调用 FundFlow Service...")
+                    print(f"  - 传入的资金流记忆 (main_force_cmf): {ff_mem_cmf}")
+                    print(f"  - 传入的筹码记忆 (main_force_cumulative_cost): {chip_mem_cost}")
             daily_df = data_dfs["daily_data"].set_index(pd.to_datetime(data_dfs["daily_data"]['trade_time'])).drop(columns='trade_time')
             daily_basic_df = data_dfs["daily_basic"].set_index(pd.to_datetime(data_dfs["daily_basic"]['trade_time'])).drop(columns='trade_time')
             overlap_cols = daily_df.columns.intersection(daily_basic_df.columns)
