@@ -808,7 +808,7 @@ class AdvancedFundFlowMetricsService:
             else:
                 results['main_force_posture_index'] = np.nan
                 results['main_force_activity_ratio'] = 0.0
-                results['main_force_flow_directionality'] = np.nan # 修改代码行：补全此处的else分支，确保指标被赋值
+                results['main_force_flow_directionality'] = np.nan
             large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
             if not large_orders_df.empty:
                 results['observed_large_order_size_avg'] = large_orders_df['amount'].mean()
@@ -1576,7 +1576,7 @@ class AdvancedFundFlowMetricsService:
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
         df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
-        if enable_probe and is_target_date_in_df: # 修改代码块：升级探针，精确定位丢失的字段
+        if enable_probe and is_target_date_in_df:
             print(f"\n[探针 S.1 - {stock_code} @ {self.debug_params['target_date']}] 进入 `_prepare_and_save_data` 保存前最终诊断...")
             filtered_cols_set = set(df_filtered.columns)
             model_fields_set = set(model_fields)
