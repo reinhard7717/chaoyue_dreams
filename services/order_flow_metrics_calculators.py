@@ -13,28 +13,25 @@ class OrderFlowMetricsCalculators:
     def calculate_order_flow_metrics(context: dict) -> dict:
         """
         计算所有与订单流相关的指标。
-        【V36.4 · 防御性修正】
-        - 核心修复: 初始化 results 字典，包含所有应返回的键，并赋予默认值 np.nan。
-                     这可以防止因计算条件不满足导致的静默失败，从而避免下游的 KeyError。
+        【V37.9 · 博弈内核归一】
+        - 核心重构: 移除了 `absorption_strength_index` 和 `distribution_pressure_index` 的冗余计算。
+                     这两个指标的计算权责已统一收归于 `StructuralMetricsCalculators`。
         """
         tick_df = context.get('tick_df')
         group = context.get('group')
         total_volume_safe = context['total_volume_safe']
-        # 修改代码块：预定义并初始化所有指标，确保返回结果的结构稳定性
+        # 修改代码块：移除冗余指标的初始化
         results = {
             'order_flow_imbalance_score': np.nan,
             'buy_sweep_intensity': np.nan,
             'sell_sweep_intensity': np.nan,
             'vpin_score': np.nan,
-            'absorption_strength_index': np.nan,
-            'distribution_pressure_index': np.nan,
         }
         if tick_df is None or tick_df.empty or total_volume_safe == 0:
             return results
-        # 分别调用子计算，它们会用实际计算值覆盖已初始化的 np.nan
         results.update(OrderFlowMetricsCalculators._calculate_ofi_and_sweep_metrics(tick_df, total_volume_safe))
         results.update(OrderFlowMetricsCalculators._calculate_vpin_score(tick_df, total_volume_safe))
-        results.update(OrderFlowMetricsCalculators._calculate_absorption_and_distribution(group, tick_df))
+        # 修改代码块：删除对冗余计算方法的调用
         return results
 
     @staticmethod
@@ -86,37 +83,6 @@ class OrderFlowMetricsCalculators:
             vpin = np.sum(imbalances_abs) / (num_buckets * bucket_size)
             return {'vpin_score': vpin}
         return {}
-
-    @staticmethod
-    def _calculate_absorption_and_distribution(group: pd.DataFrame, tick_df: pd.DataFrame) -> dict:
-        """计算下跌中的吸收强度和上涨中的派发压力。"""
-        metrics = {}
-        group['price_change'] = group['close'].diff().fillna(0)
-        # 找到所有下跌的分钟
-        falling_minutes = group[group['price_change'] < 0].index
-        # 找到所有上涨的分钟
-        rising_minutes = group[group['price_change'] > 0].index
-        # 筛选出在这些分钟内发生的tick
-        ticks_in_falling_minutes = tick_df[tick_df.index.floor('T').isin(falling_minutes)]
-        ticks_in_rising_minutes = tick_df[tick_df.index.floor('T').isin(rising_minutes)]
-        # 计算吸收强度
-        if not ticks_in_falling_minutes.empty:
-            # 将 'side' 修正为 'type'
-            absorption_buy = ticks_in_falling_minutes[ticks_in_falling_minutes['type'] == 'B']['volume'].sum()
-            # 将 'side' 修正为 'type'
-            absorption_sell = ticks_in_falling_minutes[ticks_in_falling_minutes['type'] == 'S']['volume'].sum()
-            if absorption_sell > 0:
-                metrics['absorption_strength_index'] = absorption_buy / absorption_sell
-        # 计算派发压力
-        if not ticks_in_rising_minutes.empty:
-            # 将 'side' 修正为 'type'
-            distribution_sell = ticks_in_rising_minutes[ticks_in_rising_minutes['type'] == 'S']['volume'].sum()
-            # 将 'side' 修正为 'type'
-            distribution_buy = ticks_in_rising_minutes[ticks_in_rising_minutes['type'] == 'B']['volume'].sum()
-            if distribution_buy > 0:
-                metrics['distribution_pressure_index'] = distribution_sell / distribution_buy
-        return metrics
-
 
 
 

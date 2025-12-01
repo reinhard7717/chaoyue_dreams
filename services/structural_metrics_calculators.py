@@ -239,11 +239,10 @@ class StructuralMetricsCalculators:
     def calculate_game_efficiency_metrics(context: dict) -> dict:
         """
         计算博弈效率相关指标。
-        【V37.5 · 博弈对称重构】
-        - 核心重构: 将 `upward_thrust_efficacy` 彻底重构为 `upward_distribution_efficacy`。
-                     新指标采用与下行指标完全对称的 `(卖出量 / 买入量)` 力量比率模型，
-                     用于衡量上涨过程中的派发压力，取代了原先难以解读的混合维度效率值，
-                     使整个博弈效率指标组在逻辑上达到完美对称。
+        【V37.9 · 博弈内核归一】
+        - 核心重构: 将此方法确立为 `distribution_pressure_index` 和 `absorption_strength_index` 的唯一计算源。
+                     废弃了在其他模块中的冗余、宽泛计算，并正式将当前严谨的计算逻辑（基于价量同向分钟）
+                     的结果赋予最终指标名，实现全系统在博弈效率评估上的逻辑统一和架构纯粹。
         """
         group = context['group']
         tick_df = context.get('tick_df')
@@ -259,34 +258,37 @@ class StructuralMetricsCalculators:
         group['vol_buy'] = tick_df[tick_df['type'] == 'B']['volume'].resample('T').sum()
         group['vol_sell'] = tick_df[tick_df['type'] == 'S']['volume'].resample('T').sum()
         group.fillna(0, inplace=True)
-        # 1. 上行派发效能 (Upward Distribution Efficacy) - V37.5 重构
+        # 1. 上涨派发压力指数 (Distribution Pressure Index) - V37.9 内核归一
         up_minutes = group[(group['price_change'] > 0) & (group['vol_buy'] > group['vol_sell'])]
         if not up_minutes.empty:
-            # 修改代码块：重构为对称的力量比率计算
             distribution_vol = up_minutes['vol_sell'].sum()
             driving_vol = up_minutes['vol_buy'].sum()
             if driving_vol > 0:
-                efficacy = distribution_vol / driving_vol
-                results['upward_distribution_efficacy'] = efficacy
+                pressure_index = distribution_vol / driving_vol
+                # 修改代码行：将结果赋予统一后的正式指标名
+                results['distribution_pressure_index'] = pressure_index
                 if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] upward_distribution_efficacy (高频) ---")
+                    # 修改代码行：更新探针日志的指标名称
+                    print(f"--- [探针 ASM.{trade_date_str}] distribution_pressure_index (高频) ---")
                     print(f"    - 原料: 上涨中的主动卖量(派发)={distribution_vol:,.0f}, 上涨中的主动买量(驱动)={driving_vol:,.0f}")
                     print(f"    - 计算: {distribution_vol:,.0f} / {driving_vol:,.0f}")
-                    print(f"    -> 结果: {efficacy:.4f}")
-        # 2. 下行吸收效率 (Downward Absorption Efficacy)
+                    print(f"    -> 结果: {pressure_index:.4f}")
+        # 2. 下跌吸筹强度指数 (Absorption Strength Index) - V37.9 内核归一
         down_minutes = group[(group['price_change'] < 0) & (group['vol_sell'] > group['vol_buy'])]
         down_minutes_ticks = tick_df[tick_df.index.floor('T').isin(down_minutes.index)]
         if not down_minutes_ticks.empty:
             absorption_vol = down_minutes_ticks[down_minutes_ticks['type'] == 'B']['volume'].sum()
             driving_vol = down_minutes_ticks[down_minutes_ticks['type'] == 'S']['volume'].sum()
             if driving_vol > 0:
-                absorption_ratio = absorption_vol / driving_vol
-                results['downward_absorption_efficacy'] = absorption_ratio
+                strength_index = absorption_vol / driving_vol
+                # 修改代码行：将结果赋予统一后的正式指标名
+                results['absorption_strength_index'] = strength_index
                 if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] downward_absorption_efficacy (高频) ---")
+                    # 修改代码行：更新探针日志的指标名称
+                    print(f"--- [探针 ASM.{trade_date_str}] absorption_strength_index (高频) ---")
                     print(f"    - 原料: 下跌中的主动买量(抵抗)={absorption_vol:,.0f}, 下跌中的主动卖量(驱动)={driving_vol:,.0f}")
                     print(f"    - 计算: {absorption_vol:,.0f} / {driving_vol:,.0f}")
-                    print(f"    -> 结果: {absorption_ratio:.4f}")
+                    print(f"    -> 结果: {strength_index:.4f}")
         return results
 
     @staticmethod

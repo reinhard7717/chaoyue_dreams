@@ -559,9 +559,6 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'cost_dispersion_index': '成本离散指数(ATR)',
     }
     GAME_EFFICIENCY_METRICS = {
-        # 修改代码行：将上涨推力效能重构为上行派发效能，以实现与下行指标的逻辑对称
-        'upward_distribution_efficacy': '上行派发效能',
-        'downward_absorption_efficacy': '下跌吸收效能',
         'net_vpa_score': '净量价效能得分',
         'divergence_conviction_score': '背离信念得分',
         'volatility_skew_index': '波动率偏度指数',
@@ -610,7 +607,6 @@ class BaseAdvancedStructuralMetrics(models.Model):
     SLOPE_ACCEL_EXCLUSIONS = [
         'auction_impact_score',
         'dynamic_reversal_strength',
-        # 新增代码行：将新指标加入排除列表
         'reversal_conviction_rate',
         'high_level_consolidation_volume',
         'opening_period_thrust',
@@ -626,8 +622,6 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'volume_profile_entropy',
         'intraday_pnl_imbalance',
         'cost_dispersion_index',
-        'upward_distribution_efficacy',
-        'downward_absorption_efficacy',
         'net_vpa_score',
         'divergence_conviction_score',
         'volatility_skew_index',
