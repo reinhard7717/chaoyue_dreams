@@ -779,10 +779,10 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V64.0 · 特征工程一体化】
-        - 核心重构: 调整数据处理流程。首先调用净化的 `_prepare_behavioral_data` 获取原始数据，
-                     然后将原始数据送入新的 `_engineer_hf_features` 中心进行一体化特征工程，
-                     最后将工程化的结果分发给下游的各个计算仓室。
+        【V65.0 · 计算上下文封装】
+        - 核心重构: 创建一个名为 `context` 的统一计算上下文（字典），将所有共享数据封装其中。
+        - 简化调用: 重构对所有下游计算方法的调用，将原来一长串的参数列表替换为传递单一的 `context` 对象，
+                     彻底消除参数钻孔，提升代码的可读性、可维护性和扩展性。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -792,7 +792,6 @@ class AdvancedFundFlowMetricsService:
         results = {}
         if intraday_data.empty:
             return results
-        # 修改代码块：执行新的一体化数据准备与特征工程流程
         raw_hf_df, common_data = self._prepare_behavioral_data(
             intraday_data, daily_data, tick_data, level5_data, realtime_data
         )
@@ -810,39 +809,58 @@ class AdvancedFundFlowMetricsService:
                 print(hf_analysis_df[['mid_price', 'ofi', 'main_force_ofi', 'imbalance']].head(3).to_string())
             else:
                 print("  - [!!!] 关键警告: 高频分析DataFrame (hf_analysis_df) 为空！所有高频指标将无法计算。")
-        hf_mf_buy_vwap = hf_features['hf_mf_buy_vwap']
-        hf_mf_sell_vwap = hf_features['hf_mf_sell_vwap']
+        # 新增代码块：创建统一的计算上下文
+        context = {
+            'intraday_data': intraday_data,
+            'daily_data': daily_data,
+            'hf_analysis_df': hf_analysis_df,
+            'common_data': common_data,
+            'hf_features': hf_features,
+            'main_force_net_flow_calibrated': main_force_net_flow_calibrated,
+            'debug': {
+                'is_target_date': is_target_date,
+                'enable_probe': enable_probe,
+            }
+        }
         if not hf_analysis_df.empty:
-            results.update(self._calculate_main_force_profile_metrics(hf_analysis_df, common_data, is_target_date, enable_probe, hf_mf_buy_vwap, hf_mf_sell_vwap, hf_features))
-            results.update(self._calculate_ofi_based_metrics(hf_analysis_df, is_target_date, enable_probe))
-            results.update(self._calculate_order_book_metrics(hf_analysis_df, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_vwap_related_metrics(intraday_data, common_data))
-        results.update(self._calculate_vwap_control_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_opening_battle_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_shadow_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe, hf_features))
-        results.update(self._calculate_dip_rally_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe, hf_features))
-        results.update(self._calculate_reversal_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_panic_cascade_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_cmf_metrics(intraday_data, hf_analysis_df, is_target_date, enable_probe))
-        results.update(self._calculate_vpoc_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe, hf_features))
-        results.update(self._calculate_liquidity_swap_metrics(intraday_data, hf_analysis_df, is_target_date, enable_probe))
-        results.update(self._calculate_closing_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_retail_sentiment_metrics(intraday_data, hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_hidden_accumulation_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_execution_alpha_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe, hf_mf_buy_vwap, hf_mf_sell_vwap))
-        results.update(self._calculate_flow_efficiency_metrics(hf_analysis_df, intraday_data, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_wash_trade_metrics(hf_analysis_df, is_target_date, enable_probe, hf_features))
-        results.update(self._calculate_misc_minute_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_closing_strength_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_misc_daily_metrics(daily_data, main_force_net_flow_calibrated))
+            # 修改代码块：使用 context 对象进行调用
+            results.update(self._calculate_main_force_profile_metrics(context))
+            results.update(self._calculate_ofi_based_metrics(context))
+            results.update(self._calculate_order_book_metrics(context))
+        results.update(self._calculate_vwap_related_metrics(context))
+        results.update(self._calculate_vwap_control_metrics(context))
+        results.update(self._calculate_opening_battle_metrics(context))
+        results.update(self._calculate_shadow_metrics(context))
+        results.update(self._calculate_dip_rally_metrics(context))
+        results.update(self._calculate_reversal_metrics(context))
+        results.update(self._calculate_panic_cascade_metrics(context))
+        results.update(self._calculate_cmf_metrics(context))
+        results.update(self._calculate_vpoc_metrics(context))
+        results.update(self._calculate_liquidity_swap_metrics(context))
+        results.update(self._calculate_closing_metrics(context))
+        results.update(self._calculate_retail_sentiment_metrics(context))
+        results.update(self._calculate_hidden_accumulation_metrics(context))
+        results.update(self._calculate_execution_alpha_metrics(context))
+        results.update(self._calculate_flow_efficiency_metrics(context))
+        results.update(self._calculate_wash_trade_metrics(context))
+        results.update(self._calculate_misc_minute_metrics(context))
+        results.update(self._calculate_closing_strength_metrics(context))
+        results.update(self._calculate_misc_daily_metrics(context))
         return results
 
-    def _calculate_main_force_profile_metrics(self, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool, hf_mf_buy_vwap: float, hf_mf_sell_vwap: float, hf_features: dict) -> dict:
+    def _calculate_main_force_profile_metrics(self, context: dict) -> dict:
         """
-        【V63.0 · 引擎仓室化】(新增方法)
-        - 核心职责: 专门负责计算主力画像五大核心指标：conviction, slippage, posture, activity, directionality。
-                     此方法从原 `_calculate_core_hf_metrics` 中剥离，实现了单一职责。
+        【V65.0 · 计算上下文封装】
+        - 核心重构: 方法签名简化为只接收 `context` 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        hf_analysis_df = context['hf_analysis_df']
+        common_data = context['common_data']
+        hf_features = context['hf_features']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
+        hf_mf_buy_vwap = hf_features['hf_mf_buy_vwap']
+        hf_mf_sell_vwap = hf_features['hf_mf_sell_vwap']
         import numpy as np
         metrics = {}
         atr = common_data['atr']
@@ -912,12 +930,15 @@ class AdvancedFundFlowMetricsService:
                         print(f"    -> 最终得分: {metrics['main_force_flow_directionality']:.2f}")
         return metrics
 
-    def _calculate_ofi_based_metrics(self, hf_analysis_df: pd.DataFrame, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_ofi_based_metrics(self, context: dict) -> dict:
         """
-        【V63.0 · 引擎仓室化】(新增方法)
-        - 核心职责: 专门负责计算基于订单流失衡(OFI)的核心指标：main_force_ofi, retail_ofi, microstructure_efficiency_index。
-                     此方法从原 `_calculate_core_hf_metrics` 中剥离，实现了单一职责。
+        【V65.0 · 计算上下文封装】
+        - 核心重构: 方法签名简化为只接收 `context` 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        hf_analysis_df = context['hf_analysis_df']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         metrics = {}
         metrics['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
         metrics['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
@@ -932,12 +953,16 @@ class AdvancedFundFlowMetricsService:
                 print(f"    -> 最终得分 (相关系数): {correlation:.4f}")
         return metrics
 
-    def _calculate_order_book_metrics(self, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_order_book_metrics(self, context: dict) -> dict:
         """
-        【V63.0 · 引擎仓室化】(新增方法)
-        - 核心职责: 专门负责计算所有与盘口状态相关的微观结构指标，如盘口失衡、流动性供给、报价消耗率等。
-                     此方法从原 `_calculate_core_hf_metrics` 中剥离，实现了单一职责。
+        【V65.0 · 计算上下文封装】
+        - 核心重构: 方法签名简化为只接收 `context` 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        hf_analysis_df = context['hf_analysis_df']
+        common_data = context['common_data']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         import numpy as np
         metrics = {}
         daily_total_volume = common_data['daily_total_volume']
@@ -1899,17 +1924,17 @@ class AdvancedFundFlowMetricsService:
         # 修改代码块：移除整个 microstructure_efficiency_index 的计算逻辑
         return metrics
 
-    def _calculate_misc_daily_metrics(self, daily_data: pd.Series, main_force_net_flow_calibrated: float) -> dict:
+    def _calculate_misc_daily_metrics(self, context: dict) -> dict:
         """
-        【V50.0 · 流量效率穿透版】
-        - 核心重构: 移除了旧的、基于日线宏观数据的 flow_efficiency_index 计算逻辑，
-                     其功能已被新的、基于微观结构的高频化方法 _calculate_flow_efficiency_metrics 接管。
+        【V65.0 · 计算上下文封装】
+        - 核心重构: 方法签名简化为只接收 `context` 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        daily_data = context['daily_data']
         import pandas as pd
         import numpy as np
         metrics = {}
         WAN = 10000.0
-        # 修改代码块：移除整个 flow_efficiency_index 的计算逻辑
         try:
             trade_count = pd.to_numeric(daily_data.get('trade_count'), errors='coerce')
             turnover_amount_yuan = pd.to_numeric(daily_data.get('amount'), errors='coerce') * 1000
@@ -2248,12 +2273,20 @@ class AdvancedFundFlowMetricsService:
         results['sell_quote_exhaustion_rate'] = (sell_exhausted_vol / daily_total_volume) * 100
         return results
 
-    def _calculate_execution_alpha_metrics(self, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool, hf_mf_buy_vwap: float, hf_mf_sell_vwap: float) -> dict:
+    def _calculate_execution_alpha_metrics(self, context: dict) -> dict:
         """
-        【V61.0 · 信念内核高频化】
-        - 核心重构: 移除内部对主力买卖VWAP的重复计算，转而接收由上游 `_compute_all_behavioral_metrics` 
-                     统一计算并传入的高频VWAP值，确保数据源的单一性和计算效率。
+        【V65.0 · 计算上下文封装】
+        - 核心重构: 方法签名简化为只接收 `context` 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        hf_analysis_df = context['hf_analysis_df']
+        daily_data = context['daily_data']
+        common_data = context['common_data']
+        hf_features = context['hf_features']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
+        hf_mf_buy_vwap = hf_features['hf_mf_buy_vwap']
+        hf_mf_sell_vwap = hf_features['hf_mf_sell_vwap']
         import numpy as np
         import pandas as pd
         metrics = {
@@ -2268,11 +2301,9 @@ class AdvancedFundFlowMetricsService:
         if pd.isna(daily_vwap) or pd.isna(atr) or atr <= 0:
             return metrics
         buy_alpha, sell_alpha = np.nan, np.nan
-        # 修改代码块：直接使用传入的高频VWAP，移除本地计算
         actual_mf_buy_vwap, actual_mf_sell_vwap = hf_mf_buy_vwap, hf_mf_sell_vwap
         avg_cost_main_buy, avg_cost_main_sell = np.nan, np.nan
         if not hf_analysis_df.empty:
-            # 高频路径
             if pd.notna(actual_mf_buy_vwap):
                 buy_alpha = (daily_vwap - actual_mf_buy_vwap) / atr
                 metrics['main_force_buy_execution_alpha'] = buy_alpha
@@ -2283,7 +2314,6 @@ class AdvancedFundFlowMetricsService:
                 t0_spread = (actual_mf_sell_vwap - actual_mf_buy_vwap) / daily_vwap
                 metrics['main_force_t0_spread_ratio'] = t0_spread * 100
         else:
-            # 降级路径
             avg_cost_main_buy = daily_data.get('avg_cost_main_buy')
             avg_cost_main_sell = daily_data.get('avg_cost_main_sell')
             if pd.notna(avg_cost_main_buy):
