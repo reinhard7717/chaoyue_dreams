@@ -13,15 +13,25 @@ class OrderFlowMetricsCalculators:
     def calculate_order_flow_metrics(context: dict) -> dict:
         """
         计算所有与订单流相关的指标。
-        这是一个总调度方法，会调用内部的私有方法来计算各个具体指标。
+        【V36.4 · 防御性修正】
+        - 核心修复: 初始化 results 字典，包含所有应返回的键，并赋予默认值 np.nan。
+                     这可以防止因计算条件不满足导致的静默失败，从而避免下游的 KeyError。
         """
         tick_df = context.get('tick_df')
         group = context.get('group')
         total_volume_safe = context['total_volume_safe']
-        results = {}
+        # 修改代码块：预定义并初始化所有指标，确保返回结果的结构稳定性
+        results = {
+            'order_flow_imbalance_score': np.nan,
+            'buy_sweep_intensity': np.nan,
+            'sell_sweep_intensity': np.nan,
+            'vpin_score': np.nan,
+            'absorption_strength_index': np.nan,
+            'distribution_pressure_index': np.nan,
+        }
         if tick_df is None or tick_df.empty or total_volume_safe == 0:
             return results
-        # 分别计算各个订单流指标
+        # 分别调用子计算，它们会用实际计算值覆盖已初始化的 np.nan
         results.update(OrderFlowMetricsCalculators._calculate_ofi_and_sweep_metrics(tick_df, total_volume_safe))
         results.update(OrderFlowMetricsCalculators._calculate_vpin_score(tick_df, total_volume_safe))
         results.update(OrderFlowMetricsCalculators._calculate_absorption_and_distribution(group, tick_df))
