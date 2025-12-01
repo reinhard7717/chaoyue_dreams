@@ -594,6 +594,41 @@ class AdvancedStructuralMetricsService:
                 metrics['post_gap_momentum_30min'] = (close_after_30_min / today_open) - 1
         return metrics
 
+    def _calculate_atr_interaction_metrics(self, group: pd.DataFrame, atr_5: float, atr_14: float, atr_50: float) -> dict:
+        """
+        【V30.13 · 新增辅助函数】
+        计算日内价格行为与日线ATR之间的交互指标。
+        :param group: 日内分钟数据DataFrame。
+        :param atr_5: 5日ATR。
+        :param atr_14: 14日ATR。
+        :param atr_50: 50日ATR。
+        :return: 包含ATR交互指标的字典。
+        """
+        metrics = {
+            'intraday_range_vs_atr14': np.nan,
+            'close_vwap_deviation_normalized': np.nan,
+            'volatility_expansion_ratio': np.nan,
+        }
+        if group.empty:
+            return metrics
+        # 1. 日内振幅 vs ATR14
+        day_high = group['high'].max()
+        day_low = group['low'].min()
+        intraday_range = day_high - day_low
+        if pd.notna(atr_14) and atr_14 > 0:
+            metrics['intraday_range_vs_atr14'] = intraday_range / atr_14
+        # 2. 收盘价与VWAP的偏离度 (ATR标准化)
+        day_close = group['close'].iloc[-1]
+        total_volume = group['vol'].sum()
+        total_amount = group['amount'].sum()
+        vwap = total_amount / total_volume if total_volume > 0 else day_close
+        if pd.notna(atr_14) and atr_14 > 0:
+            metrics['close_vwap_deviation_normalized'] = (day_close - vwap) / atr_14
+        # 3. 短期与长期波动率扩张比
+        if pd.notna(atr_5) and pd.notna(atr_50) and atr_50 > 0:
+            metrics['volatility_expansion_ratio'] = atr_5 / atr_50
+        return metrics
+
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
         【V19.7 · 索引健壮性修复版】
