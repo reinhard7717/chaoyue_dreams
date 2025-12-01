@@ -259,12 +259,12 @@ class AdvancedStructuralMetricsService:
 
     def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict, tick_df_for_day: pd.DataFrame = None, level5_df_for_day: pd.DataFrame = None, realtime_df_for_day: pd.DataFrame = None) -> dict:
         """
-        【V19.3 · 职责集中重构版】
-        - 核心重构: 剥离所有基于Tick数据的指标计算逻辑（active_volume_price_efficiency等），将其移至 _calculate_microstructure_metrics。
-        - 核心目标: 此方法现在专注于基于分钟线和日线数据的结构指标计算，职责更清晰。
+        【V22.0 · 能量密度穿透】
+        - 核心重构: 剥离能量密度指标组的计算逻辑至全新的 `_calculate_energy_density_metrics` 静态方法中，
+                     实现高频数据优先的穿透计算，并在此处统一调用。
         """
         results = {}
-        # 初始化所有指标，包括新的高频指标
+        # 初始化所有指标
         results['auction_impact_score'] = np.nan
         results['price_shock_factor'] = np.nan
         results['volatility_expansion_ratio'] = np.nan
@@ -288,20 +288,20 @@ class AdvancedStructuralMetricsService:
             daily_series_for_day.get('low_qfq'), daily_series_for_day.get('close_qfq'),
             daily_series_for_day.get('pre_close_qfq')
         )
-        # --- 1. 能量密度与战场动力学 ---
-        if pd.notna(atr_14) and atr_14 > 0:
-            turnover_rate = pd.to_numeric(daily_series_for_day.get('turnover_rate_f'), errors='coerce')
-            if pd.notna(turnover_rate):
-                results['intraday_energy_density'] = np.log1p(turnover_rate) / atr_14
-        # 修正：intraday_thrust_purity 现在只使用分钟线数据计算，不再依赖旧的 is_hf_data
-        thrust_vector = (group['close'] - group['open']) * group['vol']
-        absolute_energy = abs(group['close'] - group['open']) * group['vol']
-        total_energy = absolute_energy.sum()
-        if total_energy > 0:
-            results['intraday_thrust_purity'] = thrust_vector.sum() / total_energy
-        results['volume_burstiness_index'] = self._calculate_gini(group['vol'].values)
-        if all(pd.notna(v) for v in [day_open_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
-            results['auction_impact_score'] = (day_open_qfq - pre_close_qfq) / atr_14
+        # 新增代码块：创建计算上下文
+        context = {
+            'group': group,
+            'continuous_group': continuous_group,
+            'daily_series_for_day': daily_series_for_day,
+            'atr_14': atr_14,
+            'tick_df': tick_df_for_day,
+            'level5_df': level5_df_for_day,
+            'total_volume_safe': total_volume_safe,
+            'day_open_qfq': day_open_qfq,
+            'pre_close_qfq': pre_close_qfq,
+        }
+        # --- 1. 能量密度与战场动力学 (调用新方法) ---
+        results.update(self._calculate_energy_density_metrics(context))
         low_idx = group['low'].idxmin()
         if low_idx > 0 and low_idx < len(group) - 1:
             falling_phase = group.iloc[:low_idx+1]
@@ -500,7 +500,6 @@ class AdvancedStructuralMetricsService:
                 if avg_vol_ends > 0:
                     results['volume_structure_skew'] = avg_vol_mid / avg_vol_ends
         # --- 7. 微观结构动力学 (Microstructure Dynamics) ---
-        # 调用重构后的微观结构计算中心
         microstructure_metrics = self._calculate_microstructure_metrics(
             tick_df=tick_df_for_day,
             level5_df=level5_df_for_day,
@@ -607,8 +606,13 @@ class AdvancedStructuralMetricsService:
         vah = vp_sorted_by_price.index[high_idx].right
         return vah, val
 
-    def _calculate_gini(self, array: np.ndarray) -> float:
-        """计算基尼系数"""
+    @staticmethod
+    def _calculate_gini(array: np.ndarray) -> float:
+        """
+        【V22.0 · 计算内核静态化】
+        - 核心重构: 转换为静态方法，以便被其他静态计算函数调用。
+        计算基尼系数
+        """
         if array is None or len(array) < 2 or np.sum(array) == 0:
             return 0.0
         sorted_array = np.sort(array)
@@ -844,6 +848,84 @@ class AdvancedStructuralMetricsService:
                         slopes.append(slope)
             if slopes and snapshot_volumes.sum() > 0:
                 results['liquidity_slope'] = np.average(slopes, weights=snapshot_volumes.iloc[:len(slopes)])
+        return results
+
+    @staticmethod
+    def _calculate_energy_density_metrics(context: dict) -> dict:
+        """
+        【V22.0 · 能量密度穿透】(新增方法)
+        - 核心职责: 统一计算能量密度指标组，实现三大核心指标的高频穿透升级。
+        - 升级策略: 对推力纯度、成交量爆裂度、开盘缺口强度采用“高频优先，分钟降级”策略。
+        """
+        # 从上下文中解构所需数据
+        group = context['group']
+        daily_series_for_day = context['daily_series_for_day']
+        atr_14 = context['atr_14']
+        tick_df = context.get('tick_df')
+        level5_df = context.get('level5_df')
+        day_open_qfq = context['day_open_qfq']
+        pre_close_qfq = context['pre_close_qfq']
+        results = {
+            'intraday_energy_density': np.nan,
+            'intraday_thrust_purity': np.nan,
+            'volume_burstiness_index': np.nan,
+            'auction_impact_score': np.nan,
+        }
+        trade_date_str = group['trade_time'].iloc[0].strftime('%Y-%m-%d')
+        # 1. intraday_energy_density (日内能量密度) - 维持原逻辑
+        if pd.notna(atr_14) and atr_14 > 0:
+            turnover_rate = pd.to_numeric(daily_series_for_day.get('turnover_rate_f'), errors='coerce')
+            if pd.notna(turnover_rate):
+                results['intraday_energy_density'] = np.log1p(turnover_rate) / atr_14
+        # 2. intraday_thrust_purity (日内推力纯度) - 高频穿透升级
+        if tick_df is not None and not tick_df.empty and 'type' in tick_df.columns:
+            print(f"  [探针 ASM.{trade_date_str}] intraday_thrust_purity: 使用高频Tick数据计算。")
+            total_volume = tick_df['volume'].sum()
+            if total_volume > 0:
+                active_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
+                active_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
+                results['intraday_thrust_purity'] = (active_buy_vol - active_sell_vol) / total_volume
+        else:
+            print(f"  [探针 ASM.{trade_date_str}] intraday_thrust_purity: [降级] 使用分钟线数据计算。")
+            thrust_vector = (group['close'] - group['open']) * group['vol']
+            absolute_energy = abs(group['close'] - group['open']) * group['vol']
+            total_energy = absolute_energy.sum()
+            if total_energy > 0:
+                results['intraday_thrust_purity'] = thrust_vector.sum() / total_energy
+        # 3. volume_burstiness_index (成交量爆裂度指数) - 高频穿透升级
+        if tick_df is not None and not tick_df.empty:
+            print(f"  [探针 ASM.{trade_date_str}] volume_burstiness_index: 使用高频Tick数据计算。")
+            results['volume_burstiness_index'] = AdvancedStructuralMetricsService._calculate_gini(tick_df['volume'].values)
+        else:
+            print(f"  [探针 ASM.{trade_date_str}] volume_burstiness_index: [降级] 使用分钟线数据计算。")
+            results['volume_burstiness_index'] = AdvancedStructuralMetricsService._calculate_gini(group['vol'].values)
+        # 4. auction_impact_score (开盘缺口强度) - 高频穿透升级
+        if all(pd.notna(v) for v in [day_open_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
+            gap_magnitude = (day_open_qfq - pre_close_qfq) / atr_14
+            if tick_df is not None and not tick_df.empty and level5_df is not None and not level5_df.empty:
+                print(f"  [探针 ASM.{trade_date_str}] auction_impact_score: 使用高频OFI数据进行验证。")
+                opening_ticks = tick_df[tick_df.index.time < time(9, 35)]
+                opening_level5 = level5_df[level5_df.index.time < time(9, 35)]
+                if not opening_ticks.empty and not opening_level5.empty:
+                    # 简单OFI计算逻辑
+                    merged_hf = pd.merge_asof(opening_ticks.sort_index(), opening_level5.sort_index(), on='trade_time', direction='backward')
+                    merged_hf['mid_price'] = (merged_hf['buy_price1'] + merged_hf['sell_price1']) / 2
+                    merged_hf['prev_mid_price'] = merged_hf['mid_price'].shift(1)
+                    buy_pressure = np.where(merged_hf['mid_price'] >= merged_hf['prev_mid_price'], merged_hf['buy_volume1'].shift(1), 0)
+                    sell_pressure = np.where(merged_hf['mid_price'] <= merged_hf['prev_mid_price'], merged_hf['sell_volume1'].shift(1), 0)
+                    merged_hf['ofi'] = buy_pressure - sell_pressure
+                    opening_ofi = merged_hf['ofi'].sum()
+                    opening_volume = merged_hf['volume'].sum()
+                    if opening_volume > 0:
+                        conviction_factor = np.tanh(opening_ofi / opening_volume)
+                        results['auction_impact_score'] = gap_magnitude * (1 + conviction_factor)
+                    else:
+                        results['auction_impact_score'] = gap_magnitude
+                else:
+                    results['auction_impact_score'] = gap_magnitude
+            else:
+                print(f"  [探针 ASM.{trade_date_str}] auction_impact_score: [降级] 仅计算缺口大小。")
+                results['auction_impact_score'] = gap_magnitude
         return results
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
