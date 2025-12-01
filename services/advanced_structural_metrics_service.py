@@ -706,10 +706,8 @@ class AdvancedStructuralMetricsService:
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
-        【V19.7 · 索引健壮性修复版】
-        - 核心修复: 修复了因错误地使用 CORE_METRICS 筛选待保存列而导致所有衍生指标（斜率、加速度）被丢弃的严重BUG。
-        - 核心逻辑: 改为直接从模型元数据 `MetricsModel._meta.get_fields()` 获取所有已定义的字段名进行筛选。
-        - 核心优化: 统一并简化了保存逻辑，使用 `reset_index()` 来安全地处理 `trade_time`，避免冲突。
+        【V30.21 · 持久化类型修复】
+        - 核心修复: 移除了在保存数据时对 trade_time 字段多余的 .date() 调用，因为上游传入的值已是 date 类型。
         """
         if final_df.empty:
             return 0
@@ -721,7 +719,8 @@ class AdvancedStructuralMetricsService:
             processed_count = 0
             # 使用 reset_index() 来安全地将索引转换为列进行迭代
             for record_data in df_to_save.reset_index().to_dict('records'):
-                trade_time = record_data.pop('trade_time').date()
+                # 修改代码行：移除多余的 .date() 调用，因为值已是 date 对象
+                trade_time = record_data.pop('trade_time')
                 defaults_data = {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in record_data.items()}
                 try:
                     obj, created = model.objects.update_or_create(
