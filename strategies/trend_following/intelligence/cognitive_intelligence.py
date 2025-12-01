@@ -942,7 +942,7 @@ class CognitiveIntelligence:
                       以更精准地刻画能量压缩状态。
         """
         print("    -- [剧本推演] 流动性陷阱风险 (动态证据)...")
-        # [修改代码块] 更新依赖信号，用“市场张力”替换旧的“波动率”
+        # 更新依赖信号，用“市场张力”替换旧的“波动率”
         required_signals = [
             'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
             'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 'SCORE_BEHAVIOR_VOLUME_ATROPHY',
@@ -959,7 +959,7 @@ class CognitiveIntelligence:
         is_limit_up_yesterday = self._get_safe_series(df, 'IS_LIMIT_UP_D', False, method_name="_deduce_liquidity_trap_risk").shift(1).fillna(False)
         capital_outflow = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs())
         volume_apathy = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0))
-        # [修改代码块] 直接使用“市场张力”分作为能量压缩的证据
+        # 直接使用“市场张力”分作为能量压缩的证据
         market_tension = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 0.0))
         dip_absorption_power = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'dip_absorption_power_D', 0.0))
         dip_absorption_inverse = (1 - dip_absorption_power).clip(0, 1)
@@ -1028,7 +1028,7 @@ class CognitiveIntelligence:
                       以更全面地评估趋势的“羸弱”程度。
         """
         print("    -- [剧本推演] 关键支撑破位风险 (动态证据)...")
-        # [修改代码块] 更新依赖信号，用“市场体质”替换旧的“趋势”
+        # 更新依赖信号，用“市场体质”替换旧的“趋势”
         required_signals = [
             'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
             'FUSION_BIPOLAR_MARKET_PRESSURE', 'SCORE_STRUCT_AXIOM_STABILITY', 'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION',
@@ -1045,7 +1045,7 @@ class CognitiveIntelligence:
         is_limit_up_yesterday = self._get_safe_series(df, 'IS_LIMIT_UP_D', False, method_name="_deduce_key_support_break_risk").shift(1).fillna(False)
         downward_pressure = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0).clip(upper=0).abs())
         low_structural_stability = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_STABILITY', 0.0).clip(upper=0).abs())
-        # [修改代码块] 使用“市场体质”的负向部分作为“羸弱”的证据
+        # 使用“市场体质”的负向部分作为“羸弱”的证据
         weak_market_constitution = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION', 0.0).clip(upper=0).abs())
         loser_capitulation = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_LOSER_CAPITULATION', 0.0))
         dip_absorption_power = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'dip_absorption_power_D', 0.0))

@@ -376,7 +376,7 @@ class AdvancedChipMetricsService:
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedChipMetrics.SLOPE_ACCEL_EXCLUSIONS
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedChipMetrics.CORE_METRICS.keys())
         UNIFIED_PERIODS = BaseAdvancedChipMetrics.UNIFIED_PERIODS
-        # [修改代码块] 废弃固定的加速度窗口
+        # 废弃固定的加速度窗口
         # ACCEL_WINDOW = 2
         for col in CORE_METRICS_TO_DERIVE:
             if col in consensus_df.columns and col not in SLOPE_ACCEL_EXCLUSIONS and col not in BaseAdvancedChipMetrics.BOOLEAN_FIELDS:
@@ -390,7 +390,7 @@ class AdvancedChipMetricsService:
                     derivatives_df[slope_col_name] = slope_series
                     if slope_series is not None and not slope_series.empty:
                         accel_col_name = f'{col}_accel_{p}d'
-                        # [修改代码块] 引入与斜率周期p动态关联的加速度窗口
+                        # 引入与斜率周期p动态关联的加速度窗口
                         # 新逻辑：加速度的观察尺度应与速度的观察尺度相匹配
                         accel_window = max(2, p // 4)
                         derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=accel_window)

@@ -264,7 +264,7 @@ class ProcessIntelligence:
                       这使其能精准捕捉主力“打压吸筹”这一高阶战术，而不再被日线级别的“假发散”所迷惑。
         """
         print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V3.0 · 战术归因版)...")
-        # [修改代码块] 更新依赖，引入新的核心驱动信号
+        # 更新依赖，引入新的核心驱动信号
         required_signals = [
             'suppressive_accumulation_intensity_D', 'PROCESS_META_POWER_TRANSFER',
             'SCORE_CHIP_COHERENT_DRIVE', 'SLOPE_5_close_D'
@@ -858,7 +858,7 @@ class ProcessIntelligence:
         is_volume_spike = volume_burst > 0.5
         washout_candidate_mask = is_significant_drop & is_volume_spike
         base_score = (panic_score * absorption_score * repair_score).pow(1/3)
-        # [修改代码块] 融合筹码势能作为强门控
+        # 融合筹码势能作为强门控
         potential_gate_mask = historical_potential > potential_gate
         final_score = base_score.where(washout_candidate_mask & potential_gate_mask, 0.0).fillna(0.0)
         self.strategy.atomic_states["_DEBUG_washout_panic_score"] = panic_score
@@ -987,7 +987,7 @@ class ProcessIntelligence:
         transfer_evidence = power_transfer.clip(lower=0)
         confirmation_evidence = trend_form.clip(lower=0)
         base_score = (driver_evidence * transfer_evidence * confirmation_evidence).pow(1/3)
-        # [修改代码块] 融合相对强度
+        # 融合相对强度
         rs_modulator = (1 + relative_strength.clip(lower=0) * rs_amplifier)
         final_score = (base_score * rs_modulator).clip(0, 1)
         final_score = final_score.where(breakout_trigger_mask, 0.0).fillna(0.0)
@@ -1011,7 +1011,7 @@ class ProcessIntelligence:
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         tf_weights_inflection = get_param_value(p_mtf.get('short_term_weights'), {'weights': {3: 0.5, 5: 0.3, 8: 0.2}})
-        # [修改代码块] 修正数据源，从 df 获取原子原料，从 atomic_states 获取情报产物
+        # 修正数据源，从 df 获取原子原料，从 atomic_states 获取情报产物
         flow_momentum = self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0)
         psai = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_calculate_fund_flow_accumulation_inflection")
         main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_fund_flow_accumulation_inflection")

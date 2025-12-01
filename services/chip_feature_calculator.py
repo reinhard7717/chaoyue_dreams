@@ -86,7 +86,7 @@ class ChipFeatureCalculator:
         else:
             self.ctx['cost_gini_coefficient_slope_1d'] = 0.0
         intraday_dynamics_metrics = self._compute_intraday_dynamics_metrics(self.ctx)
-        # [修改代码块] 补充注册日内动态指标
+        # 补充注册日内动态指标
         all_metrics.update(intraday_dynamics_metrics)
         self.ctx.update(intraday_dynamics_metrics)
         legacy_intraday_metrics = self._compute_legacy_intraday_metrics(self.ctx)
@@ -200,7 +200,7 @@ class ChipFeatureCalculator:
                 results['peak_mass_transfer_rate'] = mass_change / (turnover_rate * 100)
         daily_vwap = context.get('daily_vwap')
         buy_sweep_intensity = context.get('buy_sweep_intensity', 0)
-        # [修改代码块] 重构 conviction_flow_index
+        # 重构 conviction_flow_index
         if pd.notna(daily_vwap) and 'main_force_net_vol' in intraday_df.columns:
             mf_net_vol = intraday_df['main_force_net_vol']
             gathering_vol = mf_net_vol[intraday_df['minute_vwap'] < daily_vwap].clip(lower=0).sum()
@@ -217,7 +217,7 @@ class ChipFeatureCalculator:
         today_winner_rate = context.get('total_winner_rate')
         prev_winner_rate = prev_metrics.get('total_winner_rate')
         order_flow_imbalance = context.get('order_flow_imbalance', 0)
-        # [修改代码块] 重构 constructive_turnover_ratio
+        # 重构 constructive_turnover_ratio
         if pd.notna(today_winner_rate) and pd.notna(prev_winner_rate) and turnover_rate > 0:
             winner_rate_change = today_winner_rate - prev_winner_rate
             raw_efficiency = winner_rate_change / (turnover_rate * 100)
@@ -256,7 +256,7 @@ class ChipFeatureCalculator:
             'exhaustion_risk_index': np.nan,
             'breakout_readiness_score': np.nan,
         }
-        # [修改代码块] 植入探针 GT
+        # 植入探针 GT
         debug_params = context.get('debug_params', {})
         enable_probe = debug_params.get('enable_gt_probe', False)
         target_date_str = debug_params.get('target_date')
@@ -270,7 +270,7 @@ class ChipFeatureCalculator:
         posture = context.get('intraday_posture_score')
         entropy_change = context.get('structural_entropy_change')
         gini = context.get('cost_gini_coefficient')
-        # [修改代码块] 增加默认值，增强鲁棒性
+        # 增加默认值，增强鲁棒性
         peak_transfer = context.get('peak_control_transfer', 0.0)
         fatigue = context.get('chip_fatigue_index')
         loser_pain = context.get('loser_pain_index')
@@ -347,7 +347,7 @@ class ChipFeatureCalculator:
         prev_phase_score = prev_metrics.get('strategic_phase_score')
         if any(pd.isna(v) for v in [phase_score, posture_score, control_solidity, readiness_score, exhaustion_risk]):
             return results
-        # [修改代码块] 废除几何平均，引入“加权内阁”模型
+        # 废除几何平均，引入“加权内阁”模型
         # --- 2. 信号置信度评分 (Signal Conviction Score) ---
         # 衡量战略、战术、控盘三者的一致性
         s1 = phase_score / 100  # 战略
@@ -480,7 +480,7 @@ class ChipFeatureCalculator:
             winner_avg_cost = np.average(winners_df['price'], weights=winners_df['percent'])
             results['winner_profit_margin_avg'] = (close_price / winner_avg_cost - 1) * 100 if winner_avg_cost > 0 else np.nan
             gini_w = _calculate_gini_final(winners_df['price'], winners_df['percent'])
-            # [修改代码块] 重构 winner_stability_index
+            # 重构 winner_stability_index
             if pd.notna(gini_w) and pd.notna(results['winner_profit_margin_avg']):
                 profit_margin = results['winner_profit_margin_avg']
                 # 引入高斯函数模拟“利润甜蜜区”
@@ -493,7 +493,7 @@ class ChipFeatureCalculator:
             loser_avg_cost = np.average(losers_df['price'], weights=losers_df['percent'])
             results['loser_loss_margin_avg'] = (close_price / loser_avg_cost - 1) * 100 if loser_avg_cost > 0 else np.nan
             gini_l = _calculate_gini_final(losers_df['price'], losers_df['percent'])
-            # [修改代码块] 重构 loser_pain_index
+            # 重构 loser_pain_index
             if pd.notna(gini_l) and pd.notna(results['loser_loss_margin_avg']):
                 loss_margin = abs(results['loser_loss_margin_avg'])
                 # 引入“对数增长 + 指数衰减”模型模拟“峰值痛苦区”和“投降效应”
@@ -597,7 +597,7 @@ class ChipFeatureCalculator:
             'active_buying_support': np.nan,
             'active_selling_pressure': np.nan,
         }
-        # [修改代码块] 植入探针 OGDS
+        # 植入探针 OGDS
         debug_params = context.get('debug_params', {})
         enable_probe = debug_params.get('enable_ogds_probe', False)
         target_date_str = debug_params.get('target_date')
@@ -725,7 +725,7 @@ class ChipFeatureCalculator:
                 current_value = context.get(metric)
                 if current_value is None or not pd.notna(current_value):
                     continue
-                # [修改代码块] 引入绝对真理评估分支
+                # 引入绝对真理评估分支
                 if metric in ABSOLUTE_METRICS_CONFIG:
                     config = ABSOLUTE_METRICS_CONFIG[metric]
                     normalized_score = self._get_absolute_normalized_score(
@@ -1140,7 +1140,7 @@ class ChipFeatureCalculator:
             instant_intent = (total_weighted_bid_power - total_weighted_ask_power) / total_power.replace(0, np.nan)
             if 'volume' in realtime_df.columns:
                 weights = realtime_df['volume'].fillna(0).clip(lower=0)
-                # [修改代码块] 使用布尔掩码进行过滤，确保长度一致
+                # 使用布尔掩码进行过滤，确保长度一致
                 valid_mask = instant_intent.notna()
                 if valid_mask.any():
                     valid_intent = instant_intent[valid_mask]
@@ -1289,7 +1289,7 @@ class ChipFeatureCalculator:
         conviction_flow = context.get('conviction_flow_index', 0.0)
         # 3. 战术归因与计算
         # “打压吸筹”战术只在价格下跌或微涨时成立
-        # [修改代码块] 将触发条件从允许微涨(<= 0.01)收紧为平盘或下跌(<= 0)，使其更符合“打压”的定义
+        # 将触发条件从允许微涨(<= 0.01)收紧为平盘或下跌(<= 0)，使其更符合“打压”的定义
         suppression_mask = pct_change <= 0
         if suppression_mask:
             # 融合直接证据(隐蔽吸筹)和间接证据(信念流转)

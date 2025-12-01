@@ -347,35 +347,37 @@ class ChipIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V5.3 · 冲突放大版】筹码公理五：诊断“价筹张力”
-        - 核心升级: 引入“冲突放大器”。当价格趋势与筹码动量方向相反时，对分歧向量进行加权放大。
-                      这使得模型能够精准识别并加权最危险的“反向冲突”式背离，显著提升风险预警的灵敏度。
+        【V5.4 · 稳定放大版】筹码公理五：诊断“价筹张力”
+        - 核心架构升级: 修复“放大溢出”问题。将放大逻辑从“输入放大”重构为“输出加权”。
+                          首先基于原始分歧计算出基础分，再对基础分进行冲突放大，
+                          从而在保留强调效果的同时，根除了二次放大和信号饱和问题。
         """
-        print("    -> [筹码层] 正在诊断“价筹张力”公理 (V5.3 · 冲突放大版)...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“价筹张力”公理 (V5.4 · 稳定放大版)...") # [修改代码行]
         required_signals = ['winner_loser_momentum_D', 'SLOPE_5_close_D', 'volume_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        conflict_bonus = get_param_value(p_conf.get('divergence_conflict_bonus'), 0.5) # [修改代码行] 获取放大系数
+        conflict_bonus = get_param_value(p_conf.get('divergence_conflict_bonus'), 0.5)
         df_index = df.index
         chip_momentum = self._get_safe_series(df, df, 'winner_loser_momentum_D', 0.0, method_name="_diagnose_axiom_divergence")
         price_trend = self._get_safe_series(df, df, 'SLOPE_5_close_D', 0.0, method_name="_diagnose_axiom_divergence")
         norm_chip_momentum = get_adaptive_mtf_normalized_bipolar_score(chip_momentum, df_index, tf_weights)
         norm_price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend, df_index, tf_weights)
         disagreement_vector = norm_chip_momentum - norm_price_trend
-        # [修改代码块] 引入冲突放大器逻辑
-        conflict_mask = (np.sign(norm_chip_momentum) * np.sign(norm_price_trend) < 0)
-        conflict_amplifier = pd.Series(1.0, index=df_index)
-        conflict_amplifier.loc[conflict_mask] = 1.0 + conflict_bonus
-        amplified_disagreement_vector = disagreement_vector * conflict_amplifier
-        persistence = amplified_disagreement_vector.rolling(window=13, min_periods=5).std().fillna(0) # [修改代码行]
+        # 将放大逻辑后置，先用原始向量计算基础分
+        persistence = disagreement_vector.rolling(window=13, min_periods=5).std().fillna(0)
         norm_persistence = get_adaptive_mtf_normalized_score(persistence, df_index, tf_weights=tf_weights)
         volume = self._get_safe_series(df, df, 'volume_D', 0.0, method_name="_diagnose_axiom_divergence")
         norm_volume = get_adaptive_mtf_normalized_score(volume, df_index, tf_weights=tf_weights)
-        energy_injection = norm_volume * amplified_disagreement_vector.abs() # [修改代码行]
+        energy_injection = norm_volume * disagreement_vector.abs()
         tension_magnitude = (norm_persistence * energy_injection).pow(0.5)
-        final_score = amplified_disagreement_vector * (1 + tension_magnitude * 1.5) # [修改代码行]
+        base_final_score = disagreement_vector * (1 + tension_magnitude * 1.5)
+        # 计算冲突放大器并应用在基础分上
+        conflict_mask = (np.sign(norm_chip_momentum) * np.sign(norm_price_trend) < 0)
+        conflict_amplifier = pd.Series(1.0, index=df_index)
+        conflict_amplifier.loc[conflict_mask] = 1.0 + conflict_bonus
+        final_score = base_final_score * conflict_amplifier
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -386,14 +388,15 @@ class ChipIntelligence:
                 print(f"       - 维度1: 分歧向量 (Disagreement Vector)")
                 print(f"         - 原料: chip_momentum: {chip_momentum.loc[probe_date]:.4f}, price_trend: {price_trend.loc[probe_date]:.4f}")
                 print(f"         - 过程: norm_chip_momentum: {norm_chip_momentum.loc[probe_date]:.4f}, norm_price_trend: {norm_price_trend.loc[probe_date]:.4f}")
-                # [修改代码块] 更新探针输出以反映冲突放大逻辑
-                print(f"         - 过程: disagreement_base: {disagreement_vector.loc[probe_date]:.4f}, conflict_amplifier: {conflict_amplifier.loc[probe_date]:.4f}")
-                print(f"         - 结果: disagreement_vector (amplified): {amplified_disagreement_vector.loc[probe_date]:.4f}")
+                print(f"         - 结果: disagreement_vector: {disagreement_vector.loc[probe_date]:.4f}")
                 print(f"       - 维度2: 张力强度 (Tension Magnitude)")
                 print(f"         - 原料: volume: {volume.loc[probe_date]:.0f}")
                 print(f"         - 过程: persistence: {persistence.loc[probe_date]:.4f}, energy_injection: {energy_injection.loc[probe_date]:.4f}")
                 print(f"         - 结果: tension_magnitude: {tension_magnitude.loc[probe_date]:.4f}")
-                print(f"       - 最终融合结果: final_score: {final_score.loc[probe_date]:.4f}")
+                # 更新探针输出以反映新的后置加权逻辑
+                print(f"       - 最终融合 (后置加权):")
+                print(f"         - 过程: base_final_score: {base_final_score.loc[probe_date]:.4f}, conflict_amplifier: {conflict_amplifier.loc[probe_date]:.4f}")
+                print(f"         - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
@@ -588,7 +591,7 @@ class ChipIntelligence:
         is_consolidating = self._get_safe_series(df, df, 'is_consolidating_D')
         norm_bias_risk = (bias / 0.3).clip(-1, 1)
         context_score = (geography * 0.6 - norm_bias_risk * 0.4) * (1 + is_consolidating * 0.2)
-        # [修改代码块] 最终融合：从几何平均升级为加权算术平均
+        # 最终融合：从几何平均升级为加权算术平均
         weights = {'intent': 0.4, 'quality': 0.4, 'context': 0.2}
         final_score = (
             intent_score.clip(-1, 1) * weights['intent'] +
@@ -615,7 +618,7 @@ class ChipIntelligence:
                 print(f"         - 原料: geography (injected): {geography.loc[probe_date]:.4f}, bias55: {bias.loc[probe_date]:.4f}, is_consolidating: {is_consolidating.loc[probe_date]}")
                 print(f"         - 过程: norm_bias_risk: {norm_bias_risk.loc[probe_date]:.4f}")
                 print(f"         - 结果: context_score: {context_score.loc[probe_date]:.4f}")
-                # [修改代码块] 更新探针输出以反映新的加权算术平均融合
+                # 更新探针输出以反映新的加权算术平均融合
                 print(f"       - 最终融合 (加权算术平均):")
                 print(f"         - 贡献: Intent({weights['intent']}): {intent_score.clip(-1, 1).loc[probe_date] * weights['intent']:.4f}, Quality({weights['quality']}): {quality_score.clip(-1, 1).loc[probe_date] * weights['quality']:.4f}, Context({weights['context']}): {context_score.clip(-1, 1).loc[probe_date] * weights['context']:.4f}")
                 print(f"         - 结果: final_score: {final_score.loc[probe_date]:.4f}")

@@ -191,7 +191,7 @@ class FusionIntelligence:
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
         df_index = df.index
-        # [修改代码块] 全面换装为新的四大基础公理
+        # 全面换装为新的四大基础公理
         foundation_constitution = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION', 0.0)
         foundation_pendulum = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
         foundation_tide = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0)
@@ -228,7 +228,7 @@ class FusionIntelligence:
         breakout_readiness_score = normalize_to_bipolar(breakout_readiness_raw, df_index, window=55, sensitivity=20)
         trend_vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_synthesize_trend_quality")
         trend_vitality_score = normalize_to_bipolar(trend_vitality_raw, df_index, window=55, sensitivity=0.5)
-        # [修改代码块] 更新组件和权重，用新的基础公理替换旧的
+        # 更新组件和权重，用新的基础公理替换旧的
         components_and_weights = {
             'foundation_constitution': (foundation_constitution, 0.08), 'foundation_pendulum': (foundation_pendulum, -0.02),
             'foundation_tide': (foundation_tide, 0.03), 'foundation_tension': (foundation_tension, 0.02),

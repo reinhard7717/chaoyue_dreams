@@ -578,7 +578,7 @@ class BehavioralIntelligence:
         panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         ambush_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_lower_shadow_quality")
-        # [修改的代码行] 使用专属的双极性校准函数直接处理主力Alpha
+        # 使用专属的双极性校准函数直接处理主力Alpha
         ambush_intent_score = self._get_calibrated_adaptive_mtf_bipolar_score(ambush_raw, default_weights)
         modulated_quality_score = base_quality_score * (1 + ambush_intent_score * 0.5).clip(0, 2)
         panic_absorption_score = get_adaptive_mtf_normalized_score((panic_raw * capitulation_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
@@ -639,7 +639,7 @@ class BehavioralIntelligence:
         market_acceptance_normalized = normalize_score(market_acceptance_raw, df.index, 55)
         acceptance_amplifier = 1 + (market_acceptance_normalized * 0.5)
         # --- 主力控盘能力调节器 ---
-        # [修改的代码行] 使用校准后的归一化函数处理正Alpha
+        # 使用校准后的归一化函数处理正Alpha
         positive_alpha_score = self._get_calibrated_adaptive_mtf_score(mf_alpha_raw.clip(lower=0), tf_weights)
         control_modulator = 1 + (positive_alpha_score * 0.5)
         # --- 最终合成 ---
@@ -657,7 +657,7 @@ class BehavioralIntelligence:
                 print(f"        - 过程证据(新): rally_distribution_pressure_D = {rally_pressure_raw.loc[probe_ts]:.2f} -> 归一化分 = {process_evidence.loc[probe_ts]:.4f}")
                 print(f"        - 基础派发意图分: {base_distribution_intent.loc[probe_ts]:.4f}")
                 print(f"        - 市场接受度放大器: {acceptance_amplifier.loc[probe_ts]:.4f} (收盘偏离度(原始)={market_acceptance_raw.loc[probe_ts]:.2f}, 净化后={market_acceptance_normalized.loc[probe_ts]:.4f})")
-                # [修改的代码行] 更新探针，明确展示校准后的逻辑
+                # 更新探针，明确展示校准后的逻辑
                 print(f"        - 控盘能力调节器(校准后): {control_modulator.loc[probe_ts]:.4f} (原始Alpha={mf_alpha_raw.loc[probe_ts]:.2f}, 正Alpha分={positive_alpha_score.loc[probe_ts]:.4f})")
                 print(f"        - 最终派发意图分: {distribution_intent_score.loc[probe_ts]:.4f}")
         return distribution_intent_score.astype(np.float32)
@@ -900,7 +900,7 @@ class BehavioralIntelligence:
         execution_score = self._get_calibrated_adaptive_mtf_score(execution_raw.clip(lower=0), default_weights)
         covert_ops_score = self._get_calibrated_adaptive_mtf_score(covert_ops_raw, default_weights)
         context_score = get_adaptive_mtf_normalized_score(context_raw, df.index, ascending=True, tf_weights=default_weights)
-        # 3. [修改的代码行] 升级为加权算术平均融合，避免零值污染
+        # 3. 升级为加权算术平均融合，避免零值污染
         offensive_absorption_intent = (
             morphology_score * 0.20 +
             execution_score * 0.35 +
@@ -987,13 +987,13 @@ class BehavioralIntelligence:
           2. 从原始Series中提取出值接近于零的索引。
           3. 使用.loc索引器，将归一化结果中对应索引位置的值强制覆写为0.0。
         """
-        # [修改的代码行] 1. 对完整的、未经修改的Series进行归一化
+        # 1. 对完整的、未经修改的Series进行归一化
         normalized_series = get_adaptive_mtf_normalized_score(
             series, series.index, ascending=True, tf_weights=tf_weights
         )
-        # [修改的代码行] 2. 从原始Series中获取值接近于零的索引
+        # 2. 从原始Series中获取值接近于零的索引
         zero_indices = series.index[series.abs() < tolerance]
-        # [修改的代码行] 3. 如果存在这样的索引，则使用.loc将归一化结果中对应位置的值强制覆写为0.0
+        # 3. 如果存在这样的索引，则使用.loc将归一化结果中对应位置的值强制覆写为0.0
         if not zero_indices.empty:
             normalized_series.loc[zero_indices] = 0.0
         return normalized_series
@@ -1003,13 +1003,13 @@ class BehavioralIntelligence:
         【V3.0 · Index-Loc 终极修复版】校准后的自适应MTF双极性归一化分数
         - 核心修复: 采用“先完整归一化，再根据索引.loc精准覆写”的策略，修复双极性信号的“零值归一化悖论”。
         """
-        # [修改的代码行] 1. 对完整的Series进行双极性归一化
+        # 1. 对完整的Series进行双极性归一化
         normalized_series = get_adaptive_mtf_normalized_bipolar_score(
             series, series.index, tf_weights
         )
-        # [修改的代码行] 2. 从原始Series中获取值接近于零的索引
+        # 2. 从原始Series中获取值接近于零的索引
         zero_indices = series.index[series.abs() < tolerance]
-        # [修改的代码行] 3. 如果存在这样的索引，则使用.loc将归一化结果中对应位置的值强制覆写为0.0
+        # 3. 如果存在这样的索引，则使用.loc将归一化结果中对应位置的值强制覆写为0.0
         if not zero_indices.empty:
             normalized_series.loc[zero_indices] = 0.0
         return normalized_series

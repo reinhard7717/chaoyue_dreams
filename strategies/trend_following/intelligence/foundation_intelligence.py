@@ -291,14 +291,14 @@ class FoundationIntelligence:
                       （行业强度排名）作为核心判断依据，解决了因数据契约失效导致的启动失败问题。
         """
         print("    -> [基础层] 正在诊断“相对强度”公理 (V1.1 · 实战适配版)...")
-        # [修改代码块] 更新依赖信号为实际存在的核心代理信号
+        # 更新依赖信号为实际存在的核心代理信号
         required_signals = [
             'industry_strength_rank_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_relative_strength"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
-        # [修改代码块] 移除旧的、基于缺失信号的逻辑
+        # 移除旧的、基于缺失信号的逻辑
         # 1. 获取核心代理信号：行业强度排名
         industry_rank = self._get_safe_series(df, 'industry_strength_rank_D', 0.5, method_name="_diagnose_axiom_relative_strength")
         # 2. 将排名分（0到1）转换为双极性分数（-1到1）
@@ -312,7 +312,7 @@ class FoundationIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df_index:
                 print(f"    -> [相对强度探针] @ {probe_date_for_loop.date()}:")
-                # [修改代码块] 更新探针输出
+                # 更新探针输出
                 print(f"       - industry_strength_rank_D (原始排名): {industry_rank.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_relative_strength_score (转换后): {relative_strength_score.loc[probe_date_for_loop]:.4f}")
         return relative_strength_score.clip(-1, 1).astype(np.float32)

@@ -173,7 +173,7 @@ class AdvancedFundFlowMetricsService:
                 df['net_flow_ths'] = df['net_amount']
                 df['main_force_net_flow_ths'] = df['buy_lg_amount']
                 df['retail_net_flow_ths'] = df['buy_md_amount'] + df['buy_sm_amount']
-                # [修改代码块] 移除所有从净额反推毛坯额的错误逻辑
+                # 移除所有从净额反推毛坯额的错误逻辑
                 # 不再捏造 buy/sell amount，只保留真实的 net amount
                 df['net_lg_amount_ths'] = df['buy_lg_amount']
                 df['net_md_amount_ths'] = df['buy_md_amount']
@@ -186,7 +186,7 @@ class AdvancedFundFlowMetricsService:
                 df['main_force_net_flow_dc'] = df['net_amount']
                 df['retail_net_flow_dc'] = df['net_amount_md'] + df['net_amount_sm']
                 df['net_flow_dc'] = df['main_force_net_flow_dc'] + df['retail_net_flow_dc']
-                # [修改代码块] 移除所有从净额反推毛坯额的错误逻辑
+                # 移除所有从净额反推毛坯额的错误逻辑
                 # 不再捏造 buy/sell amount，只保留真实的 net amount
                 df['net_xl_amount_dc'] = df['net_amount_xl']
                 df['net_lg_amount_dc'] = df['net_amount_lg']
@@ -420,7 +420,7 @@ class AdvancedFundFlowMetricsService:
         aggregate_pvwap_costs_df = self._calculate_aggregate_pvwap_costs(prob_costs_df_for_agg, daily_df_for_agg, debug_mode=debug_mode)
         if not aggregate_pvwap_costs_df.empty:
             day_metrics.update(aggregate_pvwap_costs_df.iloc[0].to_dict())
-        # [修改代码块] 此处的 daily_data_series 已经包含了从上游传入的 prev_metrics
+        # 此处的 daily_data_series 已经包含了从上游传入的 prev_metrics
         updated_daily_data_series = pd.Series({**daily_data_series.to_dict(), **day_metrics}, name=daily_data_series.name)
         main_force_net_flow_calibrated = daily_derived_metrics.get('main_force_net_flow_calibrated')
         behavioral_metrics = self._compute_all_behavioral_metrics(
