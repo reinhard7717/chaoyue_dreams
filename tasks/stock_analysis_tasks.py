@@ -527,12 +527,16 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex, cache_manager: CacheManager):
     """
-    【V2.32 · 探针清理版】
-    - 核心维护: 移除了所有用于链路追踪的探针print语句。
+    【V53.0 · 源头备粮】
+    - 核心修正: 在数据加载总枢纽中，对 Level-5 盘口数据进行预处理，新增了计算订单流失衡(OFI)
+                 的逻辑，并将其作为 `ofi` 列附加到 `stock_level5_data` DataFrame 中。
+                 此举确保了下游指标（如 `midday_consolidation_level`）能够获取到必要的输入数据，
+                 从根本上解决了因缺少预处理而导致的指标计算失效问题。
     """
     import pytz
     from utils.model_helpers import (
         get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code,
+        get_cyq_chips_model_by_code
     )
     from stock_models.time_trade import StockDailyBasic, StockCyqPerf
     from django.utils import timezone
@@ -600,6 +604,19 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     data_dfs["stock_level5_data"] = pd.concat(level5_data_df_list) if level5_data_df_list else pd.DataFrame()
     data_dfs["stock_minute_data"] = pd.concat(minute_data_df_list) if minute_data_df_list else pd.DataFrame()
     data_dfs["stock_realtime_data"] = pd.concat(realtime_data_df_list) if realtime_data_df_list else pd.DataFrame()
+    # 新增代码块：在源头预处理Level-5数据，计算OFI
+    if not data_dfs["stock_level5_data"].empty and len(data_dfs["stock_level5_data"]) > 1:
+        level5_df = data_dfs["stock_level5_data"].sort_values('trade_time').reset_index(drop=True)
+        df_prev = level5_df.shift(1)
+        delta_buy_price = level5_df['buy_price1'] - df_prev['buy_price1']
+        delta_sell_price = level5_df['sell_price1'] - df_prev['sell_price1']
+        ofi_static = np.where((delta_buy_price == 0) & (delta_sell_price == 0), level5_df['buy_volume1'] - df_prev['buy_volume1'], 0)
+        ofi_dynamic = np.where(delta_buy_price > 0, df_prev['buy_volume1'], 0)
+        ofi_dynamic = np.where(delta_buy_price < 0, -level5_df['buy_volume1'], ofi_dynamic)
+        ofi_dynamic = np.where(delta_sell_price > 0, ofi_dynamic + level5_df['sell_volume1'], ofi_dynamic)
+        ofi_dynamic = np.where(delta_sell_price < 0, ofi_dynamic - df_prev['sell_volume1'], ofi_dynamic)
+        level5_df['ofi'] = ofi_static + ofi_dynamic
+        data_dfs["stock_level5_data"] = level5_df
     non_numeric_whitelist = ['stock_id', 'stock_code', 'trade_time', 'trade_date', 'type']
     for name, df in data_dfs.items():
         if isinstance(df, pd.DataFrame) and not df.empty and "_map" not in name:
