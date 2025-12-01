@@ -1028,12 +1028,12 @@ class AdvancedFundFlowMetricsService:
             metrics['buy_quote_exhaustion_rate'] = np.nan; metrics['sell_quote_exhaustion_rate'] = np.nan
         return metrics
 
-    def _calculate_opening_battle_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_opening_battle_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
@@ -1066,12 +1066,12 @@ class AdvancedFundFlowMetricsService:
                         metrics['opening_battle_result'] = np.sign(price_gain) * np.sqrt(abs(price_gain)) * (1 + mf_power) * 100
         return metrics
 
-    def _calculate_shadow_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_shadow_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
@@ -1141,12 +1141,12 @@ class AdvancedFundFlowMetricsService:
                         metrics['upper_shadow_selling_pressure'] = (mf_sell_in_shadow / upper_shadow_df['vol_shares'].sum())
         return metrics
 
-    def _calculate_dip_rally_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_dip_rally_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
@@ -1260,12 +1260,12 @@ class AdvancedFundFlowMetricsService:
                     metrics['rally_distribution_pressure'] = (rally_dist_vol / total_rally_vol) * 100
         return metrics
 
-    def _calculate_reversal_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_reversal_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
@@ -1311,12 +1311,12 @@ class AdvancedFundFlowMetricsService:
                             metrics['reversal_power_index'] = power_score if is_v_shape else -power_score
         return metrics
 
-    def _calculate_closing_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_closing_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
@@ -1378,12 +1378,12 @@ class AdvancedFundFlowMetricsService:
                             metrics['pre_closing_posturing'] = (0.6 * price_posture + 0.4 * force_posture) * 100
         return metrics
 
-    def _calculate_hidden_accumulation_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_hidden_accumulation_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
@@ -1448,12 +1448,12 @@ class AdvancedFundFlowMetricsService:
                 metrics['vwap_structure_skew'] = (daily_vwap - twap) / twap * 100
         return metrics
 
-    def _calculate_vwap_control_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_vwap_control_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
@@ -1494,12 +1494,12 @@ class AdvancedFundFlowMetricsService:
                 metrics['vwap_control_strength'] = price_deviation_value.sum() / (atr * daily_total_volume)
         return metrics
 
-    def _calculate_cmf_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_cmf_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         is_target_date = context['debug']['is_target_date']
@@ -1551,12 +1551,12 @@ class AdvancedFundFlowMetricsService:
             metrics['cmf_divergence_score'] = (metrics['main_force_cmf'] - metrics['holistic_cmf']) * 100
         return metrics
 
-    def _calculate_vpoc_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_vpoc_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
@@ -1625,12 +1625,12 @@ class AdvancedFundFlowMetricsService:
                             metrics['mf_vpoc_premium'] = (mf_vpoc / global_vpoc_price - 1) * 100
         return metrics
 
-    def _calculate_liquidity_swap_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_liquidity_swap_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         is_target_date = context['debug']['is_target_date']
@@ -1655,12 +1655,12 @@ class AdvancedFundFlowMetricsService:
                     metrics['mf_retail_liquidity_swap_corr'] = rolling_corr.mean()
         return metrics
 
-    def _calculate_retail_sentiment_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_retail_sentiment_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         daily_data = context['daily_data']
@@ -1788,12 +1788,12 @@ class AdvancedFundFlowMetricsService:
                                     metrics['retail_panic_surrender_index'] = discount * (panic_vol / total_retail_sell_vol) * 100
         return metrics
 
-    def _calculate_panic_cascade_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_panic_cascade_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
@@ -1870,12 +1870,12 @@ class AdvancedFundFlowMetricsService:
                     metrics['panic_selling_cascade'] = (panic_vol / total_panic_vol) * 100
         return metrics
 
-    def _calculate_misc_minute_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_misc_minute_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
@@ -1963,12 +1963,12 @@ class AdvancedFundFlowMetricsService:
             metrics['inferred_active_order_size'] = np.nan
         return metrics
 
-    def _calculate_flow_efficiency_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_flow_efficiency_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         hf_analysis_df = context['hf_analysis_df']
         intraday_data = context['intraday_data']
         common_data = context['common_data']
@@ -2104,102 +2104,6 @@ class AdvancedFundFlowMetricsService:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
 
-    def _calculate_microstructure_signals(self, stock_code: str, daily_intraday_df: pd.DataFrame, daily_level5_df: pd.DataFrame, daily_total_volume: float) -> dict:
-        """
-        【V2.0 · 微观结构情报引擎版】
-        - 核心重构: 全面升级为基于Tick和Level5数据的高级博弈指标计算中心。
-        - 核心引入: 实现了更精确的订单流失衡(OFI)计算，并区分主力与散户OFI。
-        - 核心增强: 优化了对倒强度、盘口失衡的计算逻辑，引入时间加权和价格惩罚项。
-        - 核心输出: 锻造出'main_force_ofi', 'retail_ofi', 'wash_trade_intensity'等高保真微观博弈指标。
-        """
-        results = {
-            'wash_trade_intensity': np.nan,
-            'order_book_imbalance': np.nan,
-            'large_order_pressure': np.nan,
-            'large_order_support': np.nan,
-            'main_force_ofi': np.nan,
-            'retail_ofi': np.nan,
-        }
-        if daily_intraday_df is None or daily_intraday_df.empty:
-            daily_intraday_df = pd.DataFrame()
-        if daily_level5_df is None or daily_level5_df.empty:
-            daily_level5_df = pd.DataFrame()
-        if daily_intraday_df.empty or daily_level5_df.empty or daily_total_volume <= 0:
-            return results
-        # --- 数据预处理 ---
-        tick_df = daily_intraday_df.copy()
-        level5_df = daily_level5_df.copy()
-        for col in ['price', 'volume', 'amount']:
-            if col in tick_df.columns:
-                tick_df[col] = pd.to_numeric(tick_df[col], errors='coerce')
-        for i in range(1, 6):
-            for prefix in ['buy_price', 'buy_volume', 'sell_price', 'sell_volume']:
-                col_name = f'{prefix}{i}'
-                if col_name in level5_df.columns:
-                    level5_df[col_name] = pd.to_numeric(level5_df[col_name], errors='coerce')
-        # --- 1. 订单流失衡 (OFI) ---
-        # 引入更精确的OFI计算逻辑
-        merged_df = pd.merge_asof(tick_df.sort_index(), level5_df.sort_index(), left_index=True, right_index=True, direction='backward').dropna()
-        if not merged_df.empty and 'buy_price1' in merged_df.columns and 'sell_price1' in merged_df.columns:
-            merged_df['mid_price'] = (merged_df['buy_price1'] + merged_df['sell_price1']) / 2
-            merged_df['prev_mid_price'] = merged_df['mid_price'].shift(1)
-            # 计算OFI
-            buy_pressure = np.where(merged_df['mid_price'] >= merged_df['prev_mid_price'], merged_df['buy_volume1'].shift(1), 0)
-            sell_pressure = np.where(merged_df['mid_price'] <= merged_df['prev_mid_price'], merged_df['sell_volume1'].shift(1), 0)
-            merged_df['ofi'] = buy_pressure - sell_pressure
-            # 按交易金额区分主力与散户
-            is_main_force_trade = merged_df['amount'] > 200000  # 阈值：20万元
-            main_force_ofi_series = merged_df.loc[is_main_force_trade, 'ofi']
-            retail_ofi_series = merged_df.loc[~is_main_force_trade, 'ofi']
-            # 对OFI进行归一化处理，使其具有可比性
-            total_ofi_range = merged_df['ofi'].abs().sum()
-            if total_ofi_range > 0:
-                results['main_force_ofi'] = main_force_ofi_series.sum() / total_ofi_range
-                results['retail_ofi'] = retail_ofi_series.sum() / total_ofi_range
-        # --- 2. 对倒强度 (Wash Trade Intensity) ---
-        # 引入价格变动作为惩罚项
-        if 'type' in tick_df.columns:
-            tick_df['direction'] = tick_df['type'].map({'B': 1, 'S': -1, 'M': 0})
-            tick_df['reversal'] = (tick_df['direction'] * tick_df['direction'].shift(1)) < 0
-            tick_df['price_change_abs'] = tick_df['price'].diff().abs().fillna(0)
-            # 价格变化越小，对倒嫌疑越大
-            price_penalty = np.exp(-tick_df['price_change_abs'] * 100)
-            wash_trade_vol = tick_df[tick_df['reversal']]['volume'] * price_penalty[tick_df['reversal']]
-            results['wash_trade_intensity'] = wash_trade_vol.sum() / (daily_total_volume / 100) if daily_total_volume > 0 else np.nan
-        # --- 3. 盘口失衡度 (Order Book Imbalance) ---
-        # 引入时间加权
-        if not level5_df.empty and 'buy_volume1' in level5_df.columns:
-            level5_df['buy_vol_total'] = level5_df[[f'buy_volume{i}' for i in range(1, 6)]].sum(axis=1)
-            level5_df['sell_vol_total'] = level5_df[[f'sell_volume{i}' for i in range(1, 6)]].sum(axis=1)
-            total_book_vol = level5_df['buy_vol_total'] + level5_df['sell_vol_total']
-            level5_df['imbalance'] = (level5_df['buy_vol_total'] - level5_df['sell_vol_total']) / total_book_vol.replace(0, np.nan)
-            level5_df.dropna(subset=['imbalance'], inplace=True)
-            if not level5_df.empty:
-                time_diffs = level5_df.index.to_series().diff().dt.total_seconds().fillna(0)
-                if time_diffs.sum() > 0:
-                    results['order_book_imbalance'] = np.average(level5_df['imbalance'], weights=time_diffs) * 100
-        # --- 4. 大单压制与支撑强度 (保留原逻辑) ---
-        large_order_threshold_value = 500000
-        pressure_strength = 0
-        support_strength = 0
-        if not level5_df.empty and 'sell_price1' in level5_df.columns:
-            time_diffs_seconds = level5_df.index.to_series().diff().dt.total_seconds().values
-            for i in range(1, len(level5_df)):
-                row = level5_df.iloc[i]
-                duration = time_diffs_seconds[i]
-                for p, v in [('sell_price1', 'sell_volume1'), ('sell_price2', 'sell_volume2')]:
-                    if pd.notna(row[p]) and pd.notna(row[v]) and row[p] * row[v] * 100 > large_order_threshold_value:
-                        pressure_strength += row[v] * 100 * duration
-                for p, v in [('buy_price1', 'buy_volume1'), ('buy_price2', 'buy_volume2')]:
-                    if pd.notna(row[p]) and pd.notna(row[v]) and row[p] * row[v] * 100 > large_order_threshold_value:
-                        support_strength += row[v] * 100 * duration
-            if daily_total_volume > 0:
-                total_seconds = 4 * 60 * 60 # 交易总秒数
-                results['large_order_pressure'] = pressure_strength / (daily_total_volume * total_seconds) * 100
-                results['large_order_support'] = support_strength / (daily_total_volume * total_seconds) * 100
-        # 移除所有调试性质的print探针
-        return results
-
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
         """【V1.15 · 数据完整性修复版 - 辅助列添加 - 智能列名识别】从预加载的DataFrame构建按日分组的数据。
         - 核心职责: 确保传入的DataFrame保持 `trade_time` 作为 `DatetimeIndex`，并正确处理时区，添加 `amount_yuan`, `vol_shares`, `minute_vwap`, `vol_weight` 等辅助列。
@@ -2239,56 +2143,6 @@ class AdvancedFundFlowMetricsService:
         current_day_total_vol = df['vol_shares'].sum()
         df['vol_weight'] = df['vol_shares'] / current_day_total_vol if current_day_total_vol > 0 else 0
         return df
-
-    def _calculate_realtime_orderbook_signals(self, level5_df: pd.DataFrame, daily_total_volume: float) -> dict:
-        """
-        【V1.1 · 命名统一修复版】计算基于五档盘口快照的资金意图指标。
-        - 核心修复: 将输入参数从 `realtime_df` 修正为 `level5_df`，以反映正确的数据源。
-        - 核心修复: 将内部所有列名引用（如 'b1_p', 'a1_v'）更新为与 Django 模型
-                     `BaseStockLevel5Data` 一致的名称（如 'buy_price1', 'sell_volume1'），
-                     彻底解决 `KeyError`。
-        """
-        results = {
-            'order_book_liquidity_supply': np.nan,
-            'buy_quote_exhaustion_rate': np.nan,
-            'sell_quote_exhaustion_rate': np.nan,
-        }
-        if level5_df is None or level5_df.empty or daily_total_volume <= 0:
-            return results
-        # --- 1. 盘口流动性供给 ---
-        bid_supply = pd.Series(0, index=level5_df.index, dtype=float)
-        ask_supply = pd.Series(0, index=level5_df.index, dtype=float)
-        for i in range(1, 6):
-            # 更新列名为Django模型定义的名称
-            bid_price_col = f'buy_price{i}'
-            bid_vol_col = f'buy_volume{i}'
-            ask_price_col = f'sell_price{i}'
-            ask_vol_col = f'sell_volume{i}'
-            if all(c in level5_df.columns for c in [bid_price_col, bid_vol_col, ask_price_col, ask_vol_col]):
-                bid_supply += level5_df[bid_price_col] * level5_df[bid_vol_col] * 100
-                ask_supply += level5_df[ask_price_col] * level5_df[ask_vol_col] * 100
-        time_diffs = level5_df.index.to_series().diff().dt.total_seconds().fillna(0)
-        if time_diffs.sum() > 0:
-            avg_bid_supply = np.average(bid_supply, weights=time_diffs)
-            avg_ask_supply = np.average(ask_supply, weights=time_diffs)
-            if avg_ask_supply > 0:
-                results['order_book_liquidity_supply'] = avg_bid_supply / avg_ask_supply
-        # --- 2. 报价消耗率 ---
-        df = level5_df.copy()
-        # 更新列名为Django模型定义的名称
-        df['prev_a1_p'] = df['sell_price1'].shift(1)
-        df['prev_b1_p'] = df['buy_price1'].shift(1)
-        df['prev_a1_v'] = df['sell_volume1'].shift(1)
-        df['prev_b1_v'] = df['buy_volume1'].shift(1)
-        # 买方消耗：当前卖一价 > 上一刻卖一价，意味着上一刻的卖一盘被击穿
-        buy_exhaustion_mask = df['sell_price1'] > df['prev_a1_p']
-        buy_exhausted_vol = (df.loc[buy_exhaustion_mask, 'prev_a1_v'] * 100).sum()
-        # 卖方消耗：当前买一价 < 上一刻买一价，意味着上一刻的买一盘被击穿
-        sell_exhaustion_mask = df['buy_price1'] < df['prev_b1_p']
-        sell_exhausted_vol = (df.loc[sell_exhaustion_mask, 'prev_b1_v'] * 100).sum()
-        results['buy_quote_exhaustion_rate'] = (buy_exhausted_vol / daily_total_volume) * 100
-        results['sell_quote_exhaustion_rate'] = (sell_exhausted_vol / daily_total_volume) * 100
-        return results
 
     @staticmethod
     def _calculate_execution_alpha_metrics(context: dict) -> dict:
@@ -2364,12 +2218,12 @@ class AdvancedFundFlowMetricsService:
             metrics['main_force_execution_alpha'] = buy_alpha
         return metrics
 
-    def _calculate_wash_trade_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_wash_trade_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         hf_analysis_df = context['hf_analysis_df']
         hf_features = context['hf_features']
         is_target_date = context['debug']['is_target_date']
@@ -2410,12 +2264,12 @@ class AdvancedFundFlowMetricsService:
             print(f"    -> 最终得分: {metrics['wash_trade_intensity']:.4f}%")
         return metrics
 
-    def _calculate_closing_strength_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_closing_strength_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.1 · 内核静态化补丁】
+        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
@@ -2450,73 +2304,6 @@ class AdvancedFundFlowMetricsService:
             print(f"    - 力量因子 (Force): {force_factor:.4f}")
             print(f"    -> 最终得分: {metrics['closing_strength_index']:.2f}")
         return metrics
-
-    def _get_hf_mf_vwaps(self, hf_analysis_df: pd.DataFrame) -> tuple[float, float]:
-        """
-        【V61.0 · 信念内核高频化】(新增辅助方法)
-        - 核心职责: 从高频分析DataFrame中，精确计算主力交易的买入/卖出VWAP。
-        """
-        import numpy as np
-        import pandas as pd
-        if hf_analysis_df is None or hf_analysis_df.empty:
-            return np.nan, np.nan
-        mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
-        mf_buy_trades = mf_trades[mf_trades['type'] == 'B']
-        mf_sell_trades = mf_trades[mf_trades['type'] == 'S']
-        actual_mf_buy_vwap = np.nan
-        if not mf_buy_trades.empty and mf_buy_trades['volume'].sum() > 0:
-            actual_mf_buy_vwap = (mf_buy_trades['price'] * mf_buy_trades['volume']).sum() / mf_buy_trades['volume'].sum()
-        actual_mf_sell_vwap = np.nan
-        if not mf_sell_trades.empty and mf_sell_trades['volume'].sum() > 0:
-            actual_mf_sell_vwap = (mf_sell_trades['price'] * mf_sell_trades['volume']).sum() / mf_sell_trades['volume'].sum()
-        return actual_mf_buy_vwap, actual_mf_sell_vwap
-
-    def _precompute_hf_features(self, hf_analysis_df: pd.DataFrame, daily_total_volume: float) -> dict:
-        """
-        【V62.1 · 预处理内核扩展】(功能增强)
-        - 核心升级: 将主力买卖VWAP的计算逻辑完全整合进此方法，使其成为一个统一的预处理内核。
-                     现在，该方法一次性返回所有共用特征及高频VWAP。
-        """
-        import numpy as np
-        features = {
-            'mf_trades': pd.DataFrame(),
-            'buy_trades_mask': pd.Series(dtype=bool),
-            'sell_trades_mask': pd.Series(dtype=bool),
-            'total_mf_vol': 0.0,
-            'mf_buy_vol': 0.0,
-            'mf_sell_vol': 0.0,
-            'offensive_volume': 0.0,
-            'passive_volume': 0.0,
-            'hf_mf_buy_vwap': np.nan,
-            'hf_mf_sell_vwap': np.nan,
-        }
-        if hf_analysis_df is None or hf_analysis_df.empty:
-            return features
-        mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
-        if mf_trades.empty:
-            return features
-        features['mf_trades'] = mf_trades
-        buy_trades_mask = mf_trades['type'] == 'B'
-        sell_trades_mask = mf_trades['type'] == 'S'
-        features['buy_trades_mask'] = buy_trades_mask
-        features['sell_trades_mask'] = sell_trades_mask
-        total_mf_vol = mf_trades['volume'].sum()
-        features['total_mf_vol'] = total_mf_vol
-        mf_buy_trades = mf_trades[buy_trades_mask]
-        mf_sell_trades = mf_trades[sell_trades_mask]
-        if not mf_buy_trades.empty and mf_buy_trades['volume'].sum() > 0:
-            features['hf_mf_buy_vwap'] = (mf_buy_trades['price'] * mf_buy_trades['volume']).sum() / mf_buy_trades['volume'].sum()
-        if not mf_sell_trades.empty and mf_sell_trades['volume'].sum() > 0:
-            features['hf_mf_sell_vwap'] = (mf_sell_trades['price'] * mf_sell_trades['volume']).sum() / mf_sell_trades['volume'].sum()
-        if total_mf_vol > 0:
-            features['mf_buy_vol'] = mf_buy_trades['volume'].sum()
-            features['mf_sell_vol'] = mf_sell_trades['volume'].sum()
-            offensive_buy_mask = (buy_trades_mask) & (mf_trades['price'] >= mf_trades['sell_price1'])
-            offensive_sell_mask = (sell_trades_mask) & (mf_trades['price'] <= mf_trades['buy_price1'])
-            offensive_volume = mf_trades[offensive_buy_mask | offensive_sell_mask]['volume'].sum()
-            features['offensive_volume'] = offensive_volume
-            features['passive_volume'] = total_mf_vol - offensive_volume
-        return features
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
