@@ -13,11 +13,10 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V40.1 · 动能回溯】
-        - 核心重构: 修正 `intraday_thrust_purity` 的计算逻辑。当原始 `price_change` 为0时，
-                     通过与前一笔成交价作比较 (`price_t - price_{t-1}`)，主动回溯计算出
-                     真实的微观价格变动。此举旨在打破数据源在价格未跳变时的“惰性盲区”，
-                     精准捕捉在关键价位上的持续攻击意图，使动能度量更加真实。
+        【V41.0 · 动能同源】
+        - 核心重构: 秉持“动能同源”原则，将 `opening_period_thrust` 指标的计算逻辑，
+                     从原始的 B/S 盘意图推断，全面升级为与 `intraday_thrust_purity`
+                     一致的“动能回溯”方法。确保了体系内所有“推力”度量衡的一致性与高精度。
         """
         group = context['group']
         daily_series_for_day = context['daily_series_for_day']
@@ -51,9 +50,7 @@ class StructuralMetricsCalculators:
         if tick_df is not None and not tick_df.empty:
             total_volume = tick_df['volume'].sum()
             if total_volume > 0:
-                # 修改代码块：引入“动能回溯”逻辑
                 if 'price_change' in tick_df.columns and not tick_df['price_change'].isnull().all():
-                    # 当原始price_change为0时，通过与上一笔tick比较来回溯动能
                     self_calculated_change = tick_df['price'].diff().fillna(0)
                     zero_change_mask = tick_df['price_change'] == 0
                     effective_price_change = np.where(zero_change_mask, self_calculated_change, tick_df['price_change'])
@@ -236,19 +233,35 @@ class StructuralMetricsCalculators:
                 print(f"    - 节点 (确证因子): sign({day_close_qfq:.2f} - {high_level_threshold:.2f}) = {confirmation_factor:.0f}")
                 print(f"    - 计算: {volume_ratio:.4f} * {confirmation_factor:.0f}")
                 print(f"    -> 结果: {results['high_level_consolidation_volume']:.4f}")
-        if tick_df is not None and not tick_df.empty and 'type' in tick_df.columns:
+        if tick_df is not None and not tick_df.empty: # 重构 opening_period_thrust 计算逻辑
             opening_ticks = tick_df.between_time('09:30:00', '09:59:59')
             if not opening_ticks.empty:
                 opening_total_vol = opening_ticks['volume'].sum()
                 if opening_total_vol > 0:
-                    opening_buy_vol = opening_ticks[opening_ticks['type'] == 'B']['volume'].sum()
-                    opening_sell_vol = opening_ticks[opening_ticks['type'] == 'S']['volume'].sum()
-                    results['opening_period_thrust'] = (opening_buy_vol - opening_sell_vol) / opening_total_vol
-                    if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] opening_period_thrust (高频) ---")
-                        print(f"    - 原料: 开盘买量={opening_buy_vol:,.0f}, 开盘卖量={opening_sell_vol:,.0f}, 开盘总量={opening_total_vol:,.0f}")
-                        print(f"    - 计算: ({opening_buy_vol:,.0f} - {opening_sell_vol:,.0f}) / {opening_total_vol:,.0f}")
-                        print(f"    -> 结果: {results['opening_period_thrust']:.4f}")
+                    # 优先使用基于 price_change 的精确动能计算
+                    if 'price_change' in opening_ticks.columns and not opening_ticks['price_change'].isnull().all():
+                        self_calculated_change = opening_ticks['price'].diff().fillna(0)
+                        zero_change_mask = opening_ticks['price_change'] == 0
+                        effective_price_change = np.where(zero_change_mask, self_calculated_change, opening_ticks['price_change'])
+                        net_opening_thrust_volume = (opening_ticks['volume'] * np.sign(effective_price_change)).sum()
+                        results['opening_period_thrust'] = net_opening_thrust_volume / opening_total_vol
+                        if enable_probe and is_target_date:
+                            recalculated_count = zero_change_mask.sum()
+                            print(f"--- [探针 ASM.{trade_date_str}] opening_period_thrust (高频-动能回溯) ---")
+                            print(f"    - 节点 (动能回溯): {recalculated_count}/{len(opening_ticks)} 笔成交触发了价格变动回溯计算。")
+                            print(f"    - 原料: 开盘期净推力成交量={net_opening_thrust_volume:,.0f}, 开盘期总量={opening_total_vol:,.0f}")
+                            print(f"    - 计算: {net_opening_thrust_volume:,.0f} / {opening_total_vol:,.0f}")
+                            print(f"    -> 结果: {results['opening_period_thrust']:.4f}")
+                    # 回退到基于 B/S 盘的传统计算
+                    elif 'type' in opening_ticks.columns:
+                        opening_buy_vol = opening_ticks[opening_ticks['type'] == 'B']['volume'].sum()
+                        opening_sell_vol = opening_ticks[opening_ticks['type'] == 'S']['volume'].sum()
+                        results['opening_period_thrust'] = (opening_buy_vol - opening_sell_vol) / opening_total_vol
+                        if enable_probe and is_target_date:
+                            print(f"--- [探针 ASM.{trade_date_str}] opening_period_thrust (高频-基于B/S盘) ---")
+                            print(f"    - 原料: 开盘买量={opening_buy_vol:,.0f}, 开盘卖量={opening_sell_vol:,.0f}, 开盘总量={opening_total_vol:,.0f}")
+                            print(f"    - 计算: ({opening_buy_vol:,.0f} - {opening_sell_vol:,.0f}) / {opening_total_vol:,.0f}")
+                            print(f"    -> 结果: {results['opening_period_thrust']:.4f}")
         return results
 
     @staticmethod
@@ -297,10 +310,10 @@ class StructuralMetricsCalculators:
     def calculate_game_efficiency_metrics(context: dict) -> dict:
         """
         计算博弈效率相关指标。
-        【V37.9 · 博弈内核归一】
-        - 核心重构: 将此方法确立为 `distribution_pressure_index` 和 `absorption_strength_index` 的唯一计算源。
-                     废弃了在其他模块中的冗余、宽泛计算，并正式将当前严谨的计算逻辑（基于价量同向分钟）
-                     的结果赋予最终指标名，实现全系统在博弈效率评估上的逻辑统一和架构纯粹。
+        【V42.0 · 动能归一】
+        - 核心升级: 将 `distribution_pressure_index` 和 `absorption_strength_index` 的计算内核，
+                     从 B/S 盘意图推断，全面升级为基于“动能回溯”的真实动能度量。
+                     这使得指标能更精准地量化上涨中的真实派发压力和下跌中的真实吸筹强度。
         """
         group = context['group']
         tick_df = context.get('tick_df')
@@ -311,42 +324,59 @@ class StructuralMetricsCalculators:
         results = {}
         if tick_df is None or tick_df.empty or group.empty:
             return results
-        # 准备分钟级数据
-        group['price_change'] = group['close'].diff()
-        group['vol_buy'] = tick_df[tick_df['type'] == 'B']['volume'].resample('T').sum()
-        group['vol_sell'] = tick_df[tick_df['type'] == 'S']['volume'].resample('T').sum()
-        group.fillna(0, inplace=True)
-        # 1. 上涨派发压力指数 (Distribution Pressure Index) - V37.9 内核归一
-        up_minutes = group[(group['price_change'] > 0) & (group['vol_buy'] > group['vol_sell'])]
-        if not up_minutes.empty:
-            distribution_vol = up_minutes['vol_sell'].sum()
-            driving_vol = up_minutes['vol_buy'].sum()
-            if driving_vol > 0:
-                pressure_index = distribution_vol / driving_vol
-                # 修改代码行：将结果赋予统一后的正式指标名
-                results['distribution_pressure_index'] = pressure_index
-                if enable_probe and is_target_date:
-                    # 修改代码行：更新探针日志的指标名称
-                    print(f"--- [探针 ASM.{trade_date_str}] distribution_pressure_index (高频) ---")
-                    print(f"    - 原料: 上涨中的主动卖量(派发)={distribution_vol:,.0f}, 上涨中的主动买量(驱动)={driving_vol:,.0f}")
-                    print(f"    - 计算: {distribution_vol:,.0f} / {driving_vol:,.0f}")
-                    print(f"    -> 结果: {pressure_index:.4f}")
-        # 2. 下跌吸筹强度指数 (Absorption Strength Index) - V37.9 内核归一
-        down_minutes = group[(group['price_change'] < 0) & (group['vol_sell'] > group['vol_buy'])]
-        down_minutes_ticks = tick_df[tick_df.index.floor('T').isin(down_minutes.index)]
-        if not down_minutes_ticks.empty:
-            absorption_vol = down_minutes_ticks[down_minutes_ticks['type'] == 'B']['volume'].sum()
-            driving_vol = down_minutes_ticks[down_minutes_ticks['type'] == 'S']['volume'].sum()
-            if driving_vol > 0:
-                strength_index = absorption_vol / driving_vol
-                # 修改代码行：将结果赋予统一后的正式指标名
-                results['absorption_strength_index'] = strength_index
-                if enable_probe and is_target_date:
-                    # 修改代码行：更新探针日志的指标名称
-                    print(f"--- [探针 ASM.{trade_date_str}] absorption_strength_index (高频) ---")
-                    print(f"    - 原料: 下跌中的主动买量(抵抗)={absorption_vol:,.0f}, 下跌中的主动卖量(驱动)={driving_vol:,.0f}")
-                    print(f"    - 计算: {absorption_vol:,.0f} / {driving_vol:,.0f}")
-                    print(f"    -> 结果: {strength_index:.4f}")
+        # 全面升级为基于“动能回溯”的计算逻辑
+        # 准备分钟级和Tick级数据
+        group['price_change_minute'] = group['close'].diff()
+        if 'price_change' in tick_df.columns and not tick_df['price_change'].isnull().all():
+            self_calculated_change = tick_df['price'].diff().fillna(0)
+            zero_change_mask = tick_df['price_change'] == 0
+            tick_df['effective_price_change'] = np.where(zero_change_mask, self_calculated_change, tick_df['price_change'])
+            tick_df['thrust_direction'] = np.sign(tick_df['effective_price_change'])
+            # 1. 上涨派发压力指数 (Distribution Pressure Index)
+            up_minutes_index = group[group['price_change_minute'] > 0].index
+            up_minutes_ticks = tick_df[tick_df.index.floor('T').isin(up_minutes_index)]
+            if not up_minutes_ticks.empty:
+                downward_thrust_vol = up_minutes_ticks[up_minutes_ticks['thrust_direction'] < 0]['volume'].sum()
+                upward_thrust_vol = up_minutes_ticks[up_minutes_ticks['thrust_direction'] > 0]['volume'].sum()
+                if upward_thrust_vol > 0:
+                    pressure_index = downward_thrust_vol / upward_thrust_vol
+                    results['distribution_pressure_index'] = pressure_index
+                    if enable_probe and is_target_date:
+                        print(f"--- [探针 ASM.{trade_date_str}] distribution_pressure_index (高频-动能归一) ---")
+                        print(f"    - 原料: 上涨分钟内的向下动能成交量(真实派发)={downward_thrust_vol:,.0f}, 向上动能成交量(真实驱动)={upward_thrust_vol:,.0f}")
+                        print(f"    - 计算: {downward_thrust_vol:,.0f} / {upward_thrust_vol:,.0f}")
+                        print(f"    -> 结果: {pressure_index:.4f}")
+            # 2. 下跌吸筹强度指数 (Absorption Strength Index)
+            down_minutes_index = group[group['price_change_minute'] < 0].index
+            down_minutes_ticks = tick_df[tick_df.index.floor('T').isin(down_minutes_index)]
+            if not down_minutes_ticks.empty:
+                upward_thrust_vol = down_minutes_ticks[down_minutes_ticks['thrust_direction'] > 0]['volume'].sum()
+                downward_thrust_vol = down_minutes_ticks[down_minutes_ticks['thrust_direction'] < 0]['volume'].sum()
+                if downward_thrust_vol > 0:
+                    strength_index = upward_thrust_vol / downward_thrust_vol
+                    results['absorption_strength_index'] = strength_index
+                    if enable_probe and is_target_date:
+                        print(f"--- [探针 ASM.{trade_date_str}] absorption_strength_index (高频-动能归一) ---")
+                        print(f"    - 原料: 下跌分钟内的向上动能成交量(真实抵抗)={upward_thrust_vol:,.0f}, 向下动能成交量(真实驱动)={downward_thrust_vol:,.0f}")
+                        print(f"    - 计算: {upward_thrust_vol:,.0f} / {downward_thrust_vol:,.0f}")
+                        print(f"    -> 结果: {strength_index:.4f}")
+        else: # 回退到旧的B/S盘逻辑
+            group['vol_buy'] = tick_df[tick_df['type'] == 'B']['volume'].resample('T').sum()
+            group['vol_sell'] = tick_df[tick_df['type'] == 'S']['volume'].resample('T').sum()
+            group.fillna(0, inplace=True)
+            up_minutes = group[(group['price_change_minute'] > 0) & (group['vol_buy'] > group['vol_sell'])]
+            if not up_minutes.empty:
+                distribution_vol = up_minutes['vol_sell'].sum()
+                driving_vol = up_minutes['vol_buy'].sum()
+                if driving_vol > 0:
+                    results['distribution_pressure_index'] = distribution_vol / driving_vol
+            down_minutes = group[(group['price_change_minute'] < 0) & (group['vol_sell'] > group['vol_buy'])]
+            down_minutes_ticks = tick_df[tick_df.index.floor('T').isin(down_minutes.index)]
+            if not down_minutes_ticks.empty:
+                absorption_vol = down_minutes_ticks[down_minutes_ticks['type'] == 'B']['volume'].sum()
+                driving_vol = down_minutes_ticks[down_minutes_ticks['type'] == 'S']['volume'].sum()
+                if driving_vol > 0:
+                    results['absorption_strength_index'] = absorption_vol / driving_vol
         return results
 
     @staticmethod

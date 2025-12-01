@@ -217,7 +217,7 @@ class AdvancedStructuralMetricsService:
             level5_df_for_day = data_for_day.get('level5')
             realtime_df_for_day = data_for_day.get('realtime')
             continuous_group = self._create_continuous_minute_data(canonical_minute_df)
-            # 修改代码块：构建 debug_info 并使用正确的参数签名进行调用
+            # 构建 debug_info 并使用正确的参数签名进行调用
             target_date_str = self.debug_params.get('target_date')
             is_target_date = target_date_str == trade_date.strftime('%Y-%m-%d')
             debug_info = {
@@ -371,7 +371,7 @@ class AdvancedStructuralMetricsService:
                      则将衍生因子列直接置为NaN，从而避免KeyError，大幅提升计算流程的健壮性。
         """
         df = metrics_df.copy().sort_index()
-        # 修改代码块：为每个衍生因子的计算增加源列存在性检查
+        # 为每个衍生因子的计算增加源列存在性检查
         # 核心意愿演化
         if 'intraday_thrust_purity' in df.columns:
             df['thrust_purity_ma5'] = df['intraday_thrust_purity'].rolling(window=5, min_periods=1).mean()
@@ -414,7 +414,7 @@ class AdvancedStructuralMetricsService:
         existing_transaction_cols = [col for col in transaction_cols if col in continuous_group.columns]
         continuous_group[existing_transaction_cols] = continuous_group[existing_transaction_cols].fillna(0)
         continuous_group['minute_vwap'] = (continuous_group['amount'] / continuous_group['vol']).where(continuous_group['vol'] > 0, np.nan)
-        # 修改代码块：移除 reset_index 和 rename，保持 DatetimeIndex
+        # 移除 reset_index 和 rename，保持 DatetimeIndex
         return continuous_group
 
     def _calculate_trend_metrics(self, price_series: pd.Series) -> tuple[float, float]:

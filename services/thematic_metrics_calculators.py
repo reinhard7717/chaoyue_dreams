@@ -126,14 +126,14 @@ class ThematicMetricsCalculators:
                             b1_v, a1_v = last_snapshot.get('buy_volume1', 0), last_snapshot.get('sell_volume1', 0)
                             if (b1_v + a1_v) > 0:
                                 pre_auction_tension = (b1_v - a1_v) / (b1_v + a1_v)
-                        # 修改代码行：使用 exp 函数替换 (1 + tension) 因子，消除奇点
+                        # 使用 exp 函数替换 (1 + tension) 因子，消除奇点
                         tension_factor = np.exp(pre_auction_tension)
                         results['auction_showdown_score'] = auction_price_change * np.log1p(volume_surprise_factor) * tension_factor
                         if enable_probe and is_target_date:
                             print(f"--- [探针 ASM.{trade_date_str}] auction_showdown_score (高频) ---")
                             print(f"    - 维度1 (价变): 收盘价={day_close_qfq:.2f}, 竞价前价={close_before_auction:.2f} -> {auction_price_change:.2f}%")
                             print(f"    - 维度2 (量能意外): 竞价成交={auction_volume:,.0f}, 前30min均量={avg_vol_pre_auction:,.0f} -> {volume_surprise_factor:.2f}倍")
-                            # 修改代码行：更新探针日志以反映新的张力因子模型
+                            # 更新探针日志以反映新的张力因子模型
                             print(f"    - 维度3 (盘口张力): 竞价前买一量={last_snapshot.get('buy_volume1', 0) if last_snapshot is not None else 0:,.0f}, 卖一量={last_snapshot.get('sell_volume1', 0) if last_snapshot is not None else 0:,.0f} -> {pre_auction_tension:.4f}")
                             print(f"    - 节点 (张力因子): exp({pre_auction_tension:.4f}) = {tension_factor:.4f}")
                             print(f"    - 计算: {auction_price_change:.2f} * log1p({volume_surprise_factor:.2f}) * {tension_factor:.4f}")

@@ -124,65 +124,40 @@ class MicrostructureDynamicsCalculators:
     @staticmethod
     def _calculate_hf_mechanics(context: dict) -> dict:
         """
-        【V30.19 · 微观内核索引访问修复】
-        - 核心修复: 修正了因 trade_time 已被设为索引而导致的KeyError。
-        - 解决方案: 修改 iterrows() 循环以直接捕获索引作为时间戳，而非在行数据中查找列。
+        【V42.0 · 动能归一】
+        - 核心升级: `active_volume_price_efficiency` 的计算基石，从 B/S 盘净量升级为基于
+                     “动能回溯”的真实净推力成交量。
+        - 核心重构: 彻底移除本方法内对 `absorption_strength_index` 和 `distribution_pressure_index`
+                     的冗余计算，这两个指标的计算权责已唯一归属于 `StructuralMetricsCalculators`。
         """
         tick_df = context.get('tick_df')
-        group = context.get('group')
         daily_series_for_day = context.get('daily_series_for_day')
         atr_14 = context.get('atr_14')
-        debug_info = context.get('debug', {})
-        is_target_date = debug_info.get('is_target_date', False)
-        enable_probe = debug_info.get('enable_probe', False)
-        trade_date_str = debug_info.get('trade_date_str', 'N/A')
         results = {
             'active_volume_price_efficiency': np.nan,
-            'absorption_strength_index': np.nan,
-            'distribution_pressure_index': np.nan,
+            # 移除冗余指标的初始化
         }
-        if tick_df is None or tick_df.empty or group is None or group.empty:
+        if tick_df is None or tick_df.empty:
             return results
-        total_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
-        total_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
-        total_volume = total_buy_vol + total_sell_vol + tick_df[tick_df['type'] == 'M']['volume'].sum()
+        total_volume = tick_df['volume'].sum()
         day_open_qfq = daily_series_for_day.get('open_qfq')
         day_close_qfq = daily_series_for_day.get('close_qfq')
-        net_active_volume = total_buy_vol - total_sell_vol
         price_change_in_atr = (day_close_qfq - day_open_qfq) / atr_14 if pd.notna(atr_14) and atr_14 > 0 else 0
-        if net_active_volume != 0 and total_volume > 0:
-            results['active_volume_price_efficiency'] = price_change_in_atr / (net_active_volume / total_volume)
-        tick_df.index = tick_df.index.tz_convert('Asia/Shanghai')
-        down_minutes_df = group[group['close'] < group['open']]
-        up_minutes_df = group[group['close'] > group['open']]
-        if not down_minutes_df.empty:
-            active_buy_on_dip, active_sell_on_dip = 0, 0
-            # 直接从iterrows()的索引中获取minute_start
-            for minute_start, minute_row in down_minutes_df.iterrows():
-                minute_end = minute_start + pd.Timedelta(minutes=1)
-                ticks_in_minute = tick_df[(tick_df.index >= minute_start) & (tick_df.index < minute_end)]
-                active_buy_on_dip += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
-                active_sell_on_dip += ticks_in_minute[ticks_in_minute['type'] == 'S']['volume'].sum()
-            if active_sell_on_dip > 0:
-                results['absorption_strength_index'] = active_buy_on_dip / active_sell_on_dip
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] absorption_strength_index ---")
-                    print(f"    - 原料: 下跌分钟内主动买量={active_buy_on_dip:,.0f}, 下跌分钟内主动卖量={active_sell_on_dip:,.0f}")
-                    print(f"    -> 结果: {results['absorption_strength_index']:.4f}")
-        if not up_minutes_df.empty:
-            active_sell_on_rally, active_buy_on_rally = 0, 0
-            # 直接从iterrows()的索引中获取minute_start
-            for minute_start, minute_row in up_minutes_df.iterrows():
-                minute_end = minute_start + pd.Timedelta(minutes=1)
-                ticks_in_minute = tick_df[(tick_df.index >= minute_start) & (tick_df.index < minute_end)]
-                active_sell_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'S']['volume'].sum()
-                active_buy_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
-            if active_buy_on_rally > 0:
-                results['distribution_pressure_index'] = active_sell_on_rally / active_buy_on_rally
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] distribution_pressure_index ---")
-                    print(f"    - 原料: 上涨分钟内主动卖量={active_sell_on_rally:,.0f}, 上涨分钟内主动买量={active_buy_on_rally:,.0f}")
-                    print(f"    -> 结果: {results['distribution_pressure_index']:.4f}")
+        # 使用“动能回溯”逻辑计算净推力
+        net_thrust_volume = 0
+        if total_volume > 0:
+            if 'price_change' in tick_df.columns and not tick_df['price_change'].isnull().all():
+                self_calculated_change = tick_df['price'].diff().fillna(0)
+                zero_change_mask = tick_df['price_change'] == 0
+                effective_price_change = np.where(zero_change_mask, self_calculated_change, tick_df['price_change'])
+                net_thrust_volume = (tick_df['volume'] * np.sign(effective_price_change)).sum()
+            else: # 回退逻辑
+                total_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
+                total_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
+                net_thrust_volume = total_buy_vol - total_sell_vol
+        if net_thrust_volume != 0 and total_volume > 0:
+            results['active_volume_price_efficiency'] = price_change_in_atr / (net_thrust_volume / total_volume)
+        # 彻底移除 absorption_strength_index 和 distribution_pressure_index 的冗余计算
         return results
 
     @staticmethod

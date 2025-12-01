@@ -84,7 +84,7 @@ class StockRealtimeDAO(BaseDAO):
         if all_ticks_df.empty:
             logger.warning("所有逐笔数据都无法映射到有效的分表模型，无数据可保存。")
             return False, "所有逐笔数据都无法映射到有效的分表模型。"
-        # 修改代码行：在最终列定义中加入 price_change
+        # 在最终列定义中加入 price_change
         final_cols = ['stock', 'trade_time', 'price', 'price_change', 'volume', 'amount', 'type']
         db_payload_df = all_ticks_df[final_cols + ['model_class']]
         try:
@@ -92,7 +92,7 @@ class StockRealtimeDAO(BaseDAO):
             for model_class, group_df in db_payload_df.groupby('model_class'):
                 payload_for_model = group_df[final_cols].to_dict('records')
                 if payload_for_model:
-                    # 修改代码行：更新唯一键约束，防止重复记录（如果价格变动也作为唯一性判断依据的话）
+                    # 更新唯一键约束，防止重复记录（如果价格变动也作为唯一性判断依据的话）
                     # 考虑到同一秒可能有多笔同价同量但价格变动不同的成交，这里保持原有约束，price_change仅作记录
                     db_tasks.append(self._save_all_to_db_native_upsert(model_class, payload_for_model, ['stock', 'trade_time', 'price', 'volume']))
             tasks = db_tasks
@@ -131,7 +131,7 @@ class StockRealtimeDAO(BaseDAO):
                     df['VOLUME'] = pd.to_numeric(df['VOLUME'], errors='coerce')
                     df['AMOUNT'] = pd.to_numeric(df['AMOUNT'], errors='coerce')
                     initial_rows = len(df)
-                    df.dropna(subset=['trade_time', 'PRICE', 'CHANGE', 'VOLUME', 'AMOUNT'], inplace=True) # 修改代码行：增加CHANGE到dropna判断
+                    df.dropna(subset=['trade_time', 'PRICE', 'CHANGE', 'VOLUME', 'AMOUNT'], inplace=True) # 增加CHANGE到dropna判断
                     if len(df) < initial_rows:
                         print(f"      -> [探针] {code}: 清理了 {initial_rows - len(df)} 条包含NaN的记录。")
                     if df.empty:
@@ -139,11 +139,11 @@ class StockRealtimeDAO(BaseDAO):
                         return code, None
                     df['VOLUME'] = (df['VOLUME'] * 100).astype(int)
                     df['TYPE'] = df['TYPE'].map(type_mapping).fillna('M')
-                    # 修改代码行：重命名列时增加 price_change
+                    # 重命名列时增加 price_change
                     df.rename(columns={'PRICE': 'price', 'CHANGE': 'price_change', 'VOLUME': 'volume', 'AMOUNT': 'amount', 'TYPE': 'type'}, inplace=True)
                     df.set_index('trade_time', inplace=True)
                     print(f"      -> [探针] {code}: 数据处理完成，最终有效数据 {len(df)} 条。")
-                    # 修改代码行：返回的数据中包含 price_change
+                    # 返回的数据中包含 price_change
                     return code, df[['price', 'price_change', 'volume', 'amount', 'type']]
                 except Exception as e:
                     if attempt < max_retries:
@@ -196,7 +196,7 @@ class StockRealtimeDAO(BaseDAO):
                 trade_time__gte=start_dt_aware,
                 trade_time__lt=end_dt_aware
             ).order_by('trade_time').values(
-                # 修改代码行：增加 price_change 字段到查询列表
+                # 增加 price_change 字段到查询列表
                 'trade_time', 'price', 'price_change', 'volume', 'amount', 'type'
             )
             ticks_list = await sync_to_async(list)(query)
