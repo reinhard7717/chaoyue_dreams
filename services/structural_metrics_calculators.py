@@ -267,10 +267,9 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_control_metrics(context: dict) -> dict:
         """
-        【V47.1 · 动能归正】
-        - 核心修正: 在计算开盘期与尾盘期的推力纯度时，强制对截取的时间片段Tick数据重新计算价格变动
-                     (price.diff())，修复了因数据切片导致动能方向判断错误归零的问题，确保动能计算的
-                     鲁棒性和准确性。
+        【V48.0 · 拨乱反正】
+        - 探针升级: 升级 `closing_conviction_score` 的探针，使其明确打印出所引用的VPOC值，
+                     增强调试的透明度，确保计算逻辑的每一个环节都清晰可追溯。
         - 核心重构: 对该方法内所有指标进行全面逻辑升级，优先使用高频数据，旨在穿透常规量价表象，洞察A股市场中的“诡道”博弈。
         - 升级详情:
           - `cost_dispersion_index`: 升级为高精度“成交量加权价格标准差”。
@@ -378,7 +377,6 @@ class StructuralMetricsCalculators:
             if tick_df is not None:
                 open_ticks = tick_df[tick_df.index.time < time(9, 45)]
                 if not open_ticks.empty and open_ticks['volume'].sum() > 0:
-                    # 修改代码行：自行计算价格变动以确保动能方向的准确性
                     price_diff = open_ticks['price'].diff().fillna(0)
                     net_thrust_vol = (open_ticks['volume'] * np.sign(price_diff)).sum()
                     thrust_purity = net_thrust_vol / open_ticks['volume'].sum()
@@ -414,7 +412,6 @@ class StructuralMetricsCalculators:
             if tick_df is not None:
                 tail_ticks = tick_df[tick_df.index.time >= time(14, 30)]
                 if not tail_ticks.empty and tail_ticks['volume'].sum() > 0:
-                    # 修改代码行：自行计算价格变动以确保动能方向的准确性
                     price_diff = tail_ticks['price'].diff().fillna(0)
                     net_thrust_vol = (tail_ticks['volume'] * np.sign(price_diff)).sum()
                     tail_thrust_purity = net_thrust_vol / tail_ticks['volume'].sum()
@@ -428,7 +425,7 @@ class StructuralMetricsCalculators:
                 print(f"    - 计算: {accel_ratio:.2f} * {tail_thrust_purity:.4f}")
                 print(f"    -> 结果: {results.get('tail_volume_acceleration', np.nan):.4f}")
             # 收盘信念得分 (closing_conviction_score)
-            vpoc = context.get('_today_vpoc', day_close_qfq) # 从market_profile计算中获取
+            vpoc = context.get('_today_vpoc', day_close_qfq)
             if pd.notna(vpoc):
                 deviation_magnitude = (day_close_qfq - vpoc) / atr_14
                 tail_force_factor = np.log1p(accel_ratio)
@@ -436,7 +433,9 @@ class StructuralMetricsCalculators:
                 results['closing_conviction_score'] = deviation_magnitude * tail_force_factor * conviction_purity
                 if enable_probe and is_target_date:
                     print(f"--- [探针 ASM.{trade_date_str}] closing_conviction_score (控盘) ---")
-                    print(f"    - 原料: VPOC偏离={deviation_magnitude:.4f}, 尾盘力量因子={tail_force_factor:.4f}, 信念纯度={conviction_purity:.4f}")
+                    # 修改代码行：升级探针，明确打印VPOC值
+                    print(f"    - 原料: 收盘价={day_close_qfq:.2f}, VPOC={vpoc:.2f}, ATR={atr_14:.4f}")
+                    print(f"    - 节点: VPOC偏离={deviation_magnitude:.4f}, 尾盘力量因子={tail_force_factor:.4f}, 信念纯度={conviction_purity:.4f}")
                     print(f"    - 计算: {deviation_magnitude:.4f} * {tail_force_factor:.4f} * {conviction_purity:.4f}")
                     print(f"    -> 结果: {results.get('closing_conviction_score', np.nan):.4f}")
         return results

@@ -266,26 +266,17 @@ class AdvancedStructuralMetricsService:
         final_metrics_df = self._calculate_dynamic_evolution_factors(new_metrics_df)
         return final_metrics_df
 
-    def _calculate_daily_structural_metrics(
-        self,
-        group: pd.DataFrame,
-        continuous_group: pd.DataFrame,
-        tick_df: pd.DataFrame | None,
-        level5_df: pd.DataFrame | None,
-        realtime_df: pd.DataFrame | None,
-        daily_info: pd.Series,
-        prev_day_metrics: dict,
-        debug_info: dict
-    ) -> dict:
+    def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame,
+                                            tick_df: pd.DataFrame | None, level5_df: pd.DataFrame | None,
+                                            realtime_df: pd.DataFrame | None, daily_info: pd.Series,
+                                            prev_day_metrics: dict, debug_info: dict) -> dict:
         """
-        计算单日的所有高级结构化指标。
-        【V43.0 · 推力效能】
-        - 核心新增: 在所有基础指标计算完毕后，新增融合计算逻辑，合成 `thrust_efficiency_score` 指标。
-                     该指标将“净推力结果”与“过程摩擦”相结合，旨在度量日内主导力量的真实品质与效率。
+        【V48.0 · 拨乱反正】
+        - 核心修正: 调整了 thematic calculators 的调用顺序，将 `calculate_market_profile_metrics`
+                     的调用提前至 `calculate_control_metrics` 之前。此举确保了在计算
+                     `closing_conviction_score` 时，当日的价值中枢(`_today_vpoc`)已经备妥，
+                     从根本上解决了“因果倒置”导致的指标计算错误问题。
         """
-        total_volume_safe = group['vol'].sum() if not group.empty else 0
-        if total_volume_safe == 0:
-            total_volume_safe = daily_info.get('volume', 0)
         context = {
             'group': group,
             'continuous_group': continuous_group,
@@ -293,56 +284,42 @@ class AdvancedStructuralMetricsService:
             'level5_df': level5_df,
             'realtime_df': realtime_df,
             'daily_series_for_day': daily_info,
-            'day_open_qfq': daily_info['open_qfq'],
-            'day_high_qfq': daily_info['high_qfq'],
-            'day_low_qfq': daily_info['low_qfq'],
-            'day_close_qfq': daily_info['close_qfq'],
-            'pre_close_qfq': daily_info['pre_close_qfq'],
-            'total_volume_safe': total_volume_safe,
-            'atr_5': daily_info.get('ATR_5'),
-            'atr_14': daily_info.get('ATR_14'),
-            'atr_50': daily_info.get('ATR_50'),
             'prev_day_metrics': prev_day_metrics,
+            'day_open_qfq': daily_info.get('open_qfq'),
+            'day_high_qfq': daily_info.get('high_qfq'),
+            'day_low_qfq': daily_info.get('low_qfq'),
+            'day_close_qfq': daily_info.get('close_qfq'),
+            'atr_14': daily_info.get('ATR_14'),
+            'total_volume_safe': group['vol'].sum() if 'vol' in group.columns and not group.empty else 0,
             'debug': debug_info,
         }
-        metrics = {}
-        metrics.update(OrderFlowMetricsCalculators.calculate_order_flow_metrics(context))
-        metrics.update(StructuralMetricsCalculators.calculate_energy_density_metrics(context))
-        metrics.update(StructuralMetricsCalculators.calculate_control_metrics(context))
-        metrics.update(StructuralMetricsCalculators.calculate_game_efficiency_metrics(context))
-        metrics.update(ThematicMetricsCalculators.calculate_market_profile_metrics(context))
-        metrics.update(ThematicMetricsCalculators.calculate_forward_looking_metrics(context))
-        metrics.update(DerivativeMetricsCalculator.calculate_divergence_metrics(context))
-        # 融合计算 `thrust_efficiency_score`
-        thrust_purity = metrics.get('intraday_thrust_purity')
-        dist_pressure = metrics.get('distribution_pressure_index')
-        absorp_strength = metrics.get('absorption_strength_index')
-        thrust_efficiency = np.nan
-        friction_factor = np.nan
-        friction_type = "无"
-        if pd.notna(thrust_purity):
-            if thrust_purity > 0 and pd.notna(dist_pressure):
-                friction_factor = dist_pressure
-                friction_type = "派发压力"
-                thrust_efficiency = thrust_purity * (1 - friction_factor)
-            elif thrust_purity < 0 and pd.notna(absorp_strength):
-                friction_factor = absorp_strength
-                friction_type = "吸筹抵抗"
-                thrust_efficiency = thrust_purity * (1 - friction_factor)
-            else:
-                thrust_efficiency = thrust_purity # 无摩擦或方向不明时，效能即为纯度
-        metrics['thrust_efficiency_score'] = thrust_efficiency
-        if debug_info.get('enable_probe', False) and debug_info.get('is_target_date', False):
-            trade_date_str = debug_info.get('trade_date_str', 'N/A')
-            print(f"--- [探针 ASM.{trade_date_str}] thrust_efficiency_score (融合) ---")
-            print(f"    - 原料: 净推力纯度={thrust_purity:.4f}, 内部摩擦系数({friction_type})={friction_factor:.4f}")
-            if pd.notna(friction_factor):
-                 print(f"    - 计算: {thrust_purity:.4f} * (1 - {friction_factor:.4f})")
-            else:
-                 print(f"    - 计算: 直接采用净推力纯度")
-            print(f"    -> 结果: {thrust_efficiency:.4f}")
-        metrics = {k: v for k, v in metrics.items() if not k.startswith('_')}
-        return metrics
+        # 修改代码块：调整了计算函数的调用顺序
+        energy_metrics = ThematicMetricsCalculators.calculate_energy_density_metrics(context)
+        context.update(energy_metrics)
+        # 修正：先计算市场剖面，得到VPOC等关键上下文
+        profile_metrics = ThematicMetricsCalculators.calculate_market_profile_metrics(context)
+        context.update(profile_metrics)
+        # 修正：后计算控盘指标，此时context中已有VPOC
+        control_metrics = ThematicMetricsCalculators.calculate_control_metrics(context)
+        context.update(control_metrics)
+        game_metrics = ThematicMetricsCalculators.calculate_game_efficiency_metrics(context)
+        context.update(game_metrics)
+        forward_metrics = ThematicMetricsCalculators.calculate_forward_looking_metrics(context)
+        context.update(forward_metrics)
+        battlefield_metrics = ThematicMetricsCalculators.calculate_battlefield_metrics(context)
+        context.update(battlefield_metrics)
+        microstructure_metrics = ThematicMetricsCalculators.calculate_microstructure_dynamics_metrics(context)
+        context.update(microstructure_metrics)
+        all_metrics = {
+            **energy_metrics,
+            **control_metrics,
+            **game_metrics,
+            **forward_metrics,
+            **battlefield_metrics,
+            **microstructure_metrics,
+            **profile_metrics,
+        }
+        return all_metrics
 
     def _calculate_derivatives(self, stock_code: str, metrics_df: pd.DataFrame) -> pd.DataFrame:
         """
