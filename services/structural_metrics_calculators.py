@@ -267,18 +267,20 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_control_metrics(context: dict) -> dict:
         """
-        【V52.0 · 动能归一】
+        【V54.0 · 动能归一 · 圆满】
+        - 核心修正: 将 `tail_thrust_purity` 的计算逻辑，从一个简化的旧版本，全面升级为
+                     系统标准的“动能回溯”算法。此举完成了对所有“推力”相关指标计算逻辑的
+                     统一，确保了从开盘到收盘的动能度量标准完全一致，使“动能归一”的原则
+                     得以圆满实现。
         - 核心修正: 统一了 `opening_volume_impulse` 指标内部的“推力纯度”计算逻辑。
                      将其从一个简化的旧版本，全面升级为系统标准的“动能回溯”算法，
                      与 `opening_period_thrust` 等指标的计算方式完全看齐，
                      根除了“动能不同源”的逻辑瑕疵，确保了度量衡的一致性。
-        - 探针升级: 升级 `closing_conviction_score` 的探针，使其明确打印出所引用的VPOC值，
-                     增强调试的透明度，确保计算逻辑的每一个环节都清晰可追溯。
         """
         group = context['group']
         continuous_group = context['continuous_group']
         tick_df = context.get('tick_df')
-        level5_df = context.get('level5')
+        level5_df = context.get('level5_df')
         daily_info = context['daily_series_for_day']
         day_open_qfq = context['day_open_qfq']
         day_close_qfq = context['day_close_qfq']
@@ -360,7 +362,6 @@ class StructuralMetricsCalculators:
             avg_min_vol = total_volume_safe / 240
             vol_impulse_ratio = (open_vol / 15) / avg_min_vol if avg_min_vol > 0 else 1.0
             thrust_purity = np.nan
-            # 修改代码块：全面升级为标准的“动能回溯”算法
             if tick_df is not None:
                 open_ticks = tick_df[tick_df.index.time < time(9, 45)]
                 if not open_ticks.empty and open_ticks['volume'].sum() > 0:
@@ -387,11 +388,13 @@ class StructuralMetricsCalculators:
         if not mid_period_df.empty:
             mid_vol_ratio = mid_period_df['vol'].sum() / total_volume_safe
             ofi_factor = 0.0
-            if level5_df is not None:
+            if level5_df is not None and not level5_df.empty and 'ofi' in level5_df.columns:
                 mid_l5 = level5_df[(level5_df.index.time >= time(10, 30)) & (level5_df.index.time < time(14, 30))]
-                if not mid_l5.empty and 'ofi' in mid_l5.columns:
-                    abs_ofi_per_vol = mid_l5['ofi'].abs().sum() / mid_period_df['vol'].sum() if mid_period_df['vol'].sum() > 0 else 0
-                    ofi_factor = np.log1p(abs_ofi_per_vol)
+                if not mid_l5.empty:
+                    mid_vol = mid_period_df['vol'].sum()
+                    if mid_vol > 0:
+                        abs_ofi_per_vol = mid_l5['ofi'].abs().sum() / mid_vol
+                        ofi_factor = np.log1p(abs_ofi_per_vol)
             results['midday_consolidation_level'] = (1 - mid_vol_ratio) * (1 + ofi_factor)
             if enable_probe and is_target_date:
                 print(f"--- [探针 ASM.{trade_date_str}] midday_consolidation_level (控盘) ---")
@@ -401,18 +404,27 @@ class StructuralMetricsCalculators:
         if not tail_period_df.empty and not mid_period_df.empty and mid_period_df['vol'].mean() > 0:
             accel_ratio = tail_period_df['vol'].mean() / mid_period_df['vol'].mean()
             tail_thrust_purity = np.nan
+            # 修改代码块：全面升级为标准的“动能回溯”算法
             if tick_df is not None:
                 tail_ticks = tick_df[tick_df.index.time >= time(14, 30)]
                 if not tail_ticks.empty and tail_ticks['volume'].sum() > 0:
-                    price_diff = tail_ticks['price'].diff().fillna(0)
-                    net_thrust_vol = (tail_ticks['volume'] * np.sign(price_diff)).sum()
-                    tail_thrust_purity = net_thrust_vol / tail_ticks['volume'].sum()
+                    tail_total_vol = tail_ticks['volume'].sum()
+                    if 'price_change' in tail_ticks.columns and not tail_ticks['price_change'].isnull().all():
+                        self_calculated_change = tail_ticks['price'].diff().fillna(0)
+                        zero_change_mask = tail_ticks['price_change'] == 0
+                        effective_price_change = np.where(zero_change_mask, self_calculated_change, tail_ticks['price_change'])
+                        net_thrust_vol = (tail_ticks['volume'] * np.sign(effective_price_change)).sum()
+                        tail_thrust_purity = net_thrust_vol / tail_total_vol
+                    elif 'type' in tail_ticks.columns:
+                        buy_vol = tail_ticks[tail_ticks['type'] == 'B']['volume'].sum()
+                        sell_vol = tail_ticks[tail_ticks['type'] == 'S']['volume'].sum()
+                        tail_thrust_purity = (buy_vol - sell_vol) / tail_total_vol
             if pd.notna(tail_thrust_purity):
                 results['tail_volume_acceleration'] = accel_ratio * tail_thrust_purity
             else:
                 results['tail_volume_acceleration'] = accel_ratio * np.sign(tail_period_df['close'].iloc[-1] - tail_period_df['open'].iloc[0])
             if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] tail_volume_acceleration (控盘) ---")
+                print(f"--- [探针 ASM.{trade_date_str}] tail_volume_acceleration (控盘-动能归一) ---")
                 print(f"    - 原料: 尾盘/盘中成交均值比={accel_ratio:.2f}, 尾盘推力纯度={tail_thrust_purity:.4f}")
                 print(f"    - 计算: {accel_ratio:.2f} * {tail_thrust_purity:.4f}")
                 print(f"    -> 结果: {results.get('tail_volume_acceleration', np.nan):.4f}")
