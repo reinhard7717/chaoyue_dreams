@@ -533,8 +533,9 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'volume_burstiness_index': '成交量爆裂度指数',
         'auction_impact_score': '开盘缺口强度',
         'dynamic_reversal_strength': '动态反转强度',
-        # 新增代码行：新增反转信念比率，与反转强度构成维度互补
         'reversal_conviction_rate': '反转信念比率',
+        # 新增代码行：新增反转收复率，衡量反转的战略成果
+        'reversal_recovery_rate': '反转收复率',
         'high_level_consolidation_volume': '高位整固成交量占比',
         'opening_period_thrust': '开盘期推力',
     }
@@ -608,6 +609,8 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'auction_impact_score',
         'dynamic_reversal_strength',
         'reversal_conviction_rate',
+        # 新增代码行：将新指标加入排除列表
+        'reversal_recovery_rate',
         'high_level_consolidation_volume',
         'opening_period_thrust',
         'trend_efficiency_ratio',
