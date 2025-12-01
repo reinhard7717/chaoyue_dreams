@@ -264,8 +264,8 @@ class AdvancedStructuralMetricsService:
     ) -> dict:
         """
         计算单日的所有高级结构化指标。
-        【V36.2 · 完整性调用修正】
-        - 核心修复: 补全对 `StructuralMetricsCalculators` 中所有计算方法的调用，确保指标计算的完整性。
+        【V36.3 · 契约兼容修正】
+        - 核心修复: 在 context 字典中增加 'daily_series_for_day' 键，以兼容仍在使用旧数据契约的计算器。
         """
         total_volume_safe = group['vol'].sum() if not group.empty else 0
         if total_volume_safe == 0:
@@ -276,6 +276,7 @@ class AdvancedStructuralMetricsService:
             'tick_df': tick_df,
             'level5_df': level5_df,
             'realtime_df': realtime_df,
+            'daily_series_for_day': daily_info, # 新增代码行：为旧版计算器提供兼容性支持
             'day_open_qfq': daily_info['open_qfq'],
             'day_high_qfq': daily_info['high_qfq'],
             'day_low_qfq': daily_info['low_qfq'],
@@ -291,7 +292,6 @@ class AdvancedStructuralMetricsService:
         metrics = {}
         # 依次调用各个指标计算器模块
         metrics.update(OrderFlowMetricsCalculators.calculate_order_flow_metrics(context))
-        # 修改代码块：补全对 StructuralMetricsCalculators 所有方法的调用
         metrics.update(StructuralMetricsCalculators.calculate_energy_density_metrics(context))
         metrics.update(StructuralMetricsCalculators.calculate_control_metrics(context))
         metrics.update(StructuralMetricsCalculators.calculate_game_efficiency_metrics(context))
