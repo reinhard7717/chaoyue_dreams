@@ -347,12 +347,12 @@ class ChipIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V5.4 · 稳定放大版】筹码公理五：诊断“价筹张力”
-        - 核心架构升级: 修复“放大溢出”问题。将放大逻辑从“输入放大”重构为“输出加权”。
-                          首先基于原始分歧计算出基础分，再对基础分进行冲突放大，
-                          从而在保留强调效果的同时，根除了二次放大和信号饱和问题。
+        【V5.5 · 渐进放大版】筹码公理五：诊断“价筹张力”
+        - 核心数学升级: 修复“硬削顶”问题。采用`tanh(arctanh(score) * amplifier)`的渐进放大模型。
+                          该模型能在不丢失信号粒度的情况下，非线性地增强冲突信号的强度，
+                          使其在逼近极限值的同时永不溢出，实现完美的动态放大。
         """
-        print("    -> [筹码层] 正在诊断“价筹张力”公理 (V5.4 · 稳定放大版)...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“价筹张力”公理 (V5.5 · 渐进放大版)...") # [修改代码行]
         required_signals = ['winner_loser_momentum_D', 'SLOPE_5_close_D', 'volume_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
             return pd.Series(0.0, index=df.index)
@@ -365,7 +365,6 @@ class ChipIntelligence:
         norm_chip_momentum = get_adaptive_mtf_normalized_bipolar_score(chip_momentum, df_index, tf_weights)
         norm_price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend, df_index, tf_weights)
         disagreement_vector = norm_chip_momentum - norm_price_trend
-        # 将放大逻辑后置，先用原始向量计算基础分
         persistence = disagreement_vector.rolling(window=13, min_periods=5).std().fillna(0)
         norm_persistence = get_adaptive_mtf_normalized_score(persistence, df_index, tf_weights=tf_weights)
         volume = self._get_safe_series(df, df, 'volume_D', 0.0, method_name="_diagnose_axiom_divergence")
@@ -373,11 +372,14 @@ class ChipIntelligence:
         energy_injection = norm_volume * disagreement_vector.abs()
         tension_magnitude = (norm_persistence * energy_injection).pow(0.5)
         base_final_score = disagreement_vector * (1 + tension_magnitude * 1.5)
-        # 计算冲突放大器并应用在基础分上
+        # [修改代码块] 采用渐进放大模型
         conflict_mask = (np.sign(norm_chip_momentum) * np.sign(norm_price_trend) < 0)
         conflict_amplifier = pd.Series(1.0, index=df_index)
         conflict_amplifier.loc[conflict_mask] = 1.0 + conflict_bonus
-        final_score = base_final_score * conflict_amplifier
+        # 为避免arctanh在-1/1处无定义，进行微小收缩，确保数值稳定性
+        safe_base_score = base_final_score.clip(-0.999, 0.999)
+        # 解压 -> 放大 -> 压缩
+        final_score = np.tanh(np.arctanh(safe_base_score) * conflict_amplifier)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -393,9 +395,10 @@ class ChipIntelligence:
                 print(f"         - 原料: volume: {volume.loc[probe_date]:.0f}")
                 print(f"         - 过程: persistence: {persistence.loc[probe_date]:.4f}, energy_injection: {energy_injection.loc[probe_date]:.4f}")
                 print(f"         - 结果: tension_magnitude: {tension_magnitude.loc[probe_date]:.4f}")
-                # 更新探针输出以反映新的后置加权逻辑
-                print(f"       - 最终融合 (后置加权):")
+                # [修改代码块] 更新探针输出以反映新的渐进放大逻辑
+                print(f"       - 最终融合 (渐进放大):")
                 print(f"         - 过程: base_final_score: {base_final_score.loc[probe_date]:.4f}, conflict_amplifier: {conflict_amplifier.loc[probe_date]:.4f}")
+                print(f"         - 过程: uncompressed_score: {np.arctanh(safe_base_score).loc[probe_date]:.4f}, amplified_uncompressed: {np.arctanh(safe_base_score).loc[probe_date] * conflict_amplifier.loc[probe_date]:.4f}")
                 print(f"         - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 

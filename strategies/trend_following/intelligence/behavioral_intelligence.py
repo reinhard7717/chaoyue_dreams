@@ -980,38 +980,38 @@ class BehavioralIntelligence:
 
     def _get_calibrated_adaptive_mtf_score(self, series: pd.Series, tf_weights: Dict, tolerance: float = 1e-6) -> pd.Series:
         """
-        【V4.0 · Index-Loc 终极修复版】校准后的自适应MTF归一化分数
-        - 核心修复: 采用“先完整归一化，再根据索引.loc精准覆写”的策略，彻底根除“零值归一化悖论”。
+        【V5.0 · NumPy Values 终极修复版】校准后的自适应MTF归一化分数
+        - 核心修复: 通过直接操作底层的NumPy .values 数组，彻底绕过Pandas索引对齐问题，
+                      从根本上根除“零值归一化悖论”。
         - 校准逻辑:
-          1. 对完整的Series进行标准归一化，保证正确的历史上下文。
-          2. 从原始Series中提取出值接近于零的索引。
-          3. 使用.loc索引器，将归一化结果中对应索引位置的值强制覆写为0.0。
+          1. 对完整的Series进行标准归一化。
+          2. 根据原始Series的值创建一个布尔NumPy掩码。
+          3. 使用该掩码直接修改归一化结果的.values数组，将对应位置强制覆写为0.0。
         """
-        # 1. 对完整的、未经修改的Series进行归一化
+        # [修改的代码行] 1. 对完整的、未经修改的Series进行归一化
         normalized_series = get_adaptive_mtf_normalized_score(
             series, series.index, ascending=True, tf_weights=tf_weights
         )
-        # 2. 从原始Series中获取值接近于零的索引
-        zero_indices = series.index[series.abs() < tolerance]
-        # 3. 如果存在这样的索引，则使用.loc将归一化结果中对应位置的值强制覆写为0.0
-        if not zero_indices.empty:
-            normalized_series.loc[zero_indices] = 0.0
+        # [修改的代码行] 2. 根据原始Series的值创建一个布尔NumPy掩码
+        is_near_zero_mask = (series.abs() < tolerance).values
+        # [修改的代码行] 3. 直接在归一化结果的.values数组上应用掩码，强制将对应位置设为0.0
+        #    这是一个in-place操作，直接修改了normalized_series的底层数据
+        normalized_series.values[is_near_zero_mask] = 0.0
         return normalized_series
 
     def _get_calibrated_adaptive_mtf_bipolar_score(self, series: pd.Series, tf_weights: Dict, tolerance: float = 1e-6) -> pd.Series:
         """
-        【V3.0 · Index-Loc 终极修复版】校准后的自适应MTF双极性归一化分数
-        - 核心修复: 采用“先完整归一化，再根据索引.loc精准覆写”的策略，修复双极性信号的“零值归一化悖论”。
+        【V4.0 · NumPy Values 终极修复版】校准后的自适应MTF双极性归一化分数
+        - 核心修复: 通过直接操作底层的NumPy .values 数组，修复双极性信号的“零值归一化悖论”。
         """
-        # 1. 对完整的Series进行双极性归一化
+        # [修改的代码行] 1. 对完整的Series进行双极性归一化
         normalized_series = get_adaptive_mtf_normalized_bipolar_score(
             series, series.index, tf_weights
         )
-        # 2. 从原始Series中获取值接近于零的索引
-        zero_indices = series.index[series.abs() < tolerance]
-        # 3. 如果存在这样的索引，则使用.loc将归一化结果中对应位置的值强制覆写为0.0
-        if not zero_indices.empty:
-            normalized_series.loc[zero_indices] = 0.0
+        # [修改的代码行] 2. 根据原始Series的值创建一个布尔NumPy掩码
+        is_near_zero_mask = (series.abs() < tolerance).values
+        # [修改的代码行] 3. 直接在归一化结果的.values数组上应用掩码，强制将对应位置设为0.0
+        normalized_series.values[is_near_zero_mask] = 0.0
         return normalized_series
 
 
