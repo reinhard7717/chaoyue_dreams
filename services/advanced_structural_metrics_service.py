@@ -549,8 +549,10 @@ class AdvancedStructuralMetricsService:
 
     def _calculate_continuous_data_metrics(self, continuous_group: pd.DataFrame) -> dict:
         """
-        【V30.11 · 新增辅助函数】
+        【V30.12 · 索引健壮性修复】
         分析跨交易日的连续数据，主要用于衡量隔夜跳空缺口及其后续影响。
+        - 核心修复: 增加对DataFrame索引类型的判断。当索引为RangeIndex而非预期的DatetimeIndex时，
+                    从'trade_time'列获取日期信息，以避免AttributeError。
         :param continuous_group: 由前一日后半段和当日前半段拼接的分钟数据DataFrame。
         :return: 包含跳空回报率和缺口后动量的字典。
         """
@@ -561,7 +563,14 @@ class AdvancedStructuralMetricsService:
         if continuous_group is None or continuous_group.empty or len(continuous_group) < 2:
             return metrics
         # 1. 识别两个交易日
-        trade_dates = continuous_group.index.date
+        # 修改代码行：增加索引类型检查，使其更健壮
+        if isinstance(continuous_group.index, pd.DatetimeIndex):
+            trade_dates = continuous_group.index.date
+        elif 'trade_time' in continuous_group.columns:
+            trade_dates = pd.to_datetime(continuous_group['trade_time']).dt.date
+        else:
+            # 如果既没有时间戳索引，也没有trade_time列，则无法继续
+            return metrics
         unique_dates = np.unique(trade_dates)
         if len(unique_dates) != 2:
             # 数据不符合跨日连续数据的定义
