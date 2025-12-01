@@ -257,57 +257,84 @@ class AdvancedStructuralMetricsService:
         tick_df: pd.DataFrame = None, level5_df: pd.DataFrame = None, realtime_df: pd.DataFrame = None
     ) -> dict:
         """
-        【V30.7 · 内部接口对齐修复】
+        【V30.15 · 计算内核调用修复】
         - 核心修复: 修正了此方法期望'trade_time'为列，而上游传入的DataFrame已将其作为索引导致的KeyError。
-        - 解决方案: 修改日期获取逻辑，直接从DataFrame的索引(group.index)中提取日期。
+        - 核心修复: 新增对外部计算内核的调用，修复因重构导致的指标计算逻辑缺失。
         """
         if group is None or group.empty:
             return {}
-        # 修改代码行：从索引获取日期，而不是从列
-        trade_date_str = group.index[0].strftime('%Y-%m-%d')
+        trade_date_obj = group.index[0].date()
+        trade_date_str = trade_date_obj.strftime('%Y-%m-%d')
         metrics = {}
         # 1. 基础统计指标
         metrics['mean_price'] = group['close'].mean()
         metrics['median_price'] = group['close'].median()
         metrics['std_price'] = group['close'].std()
-        metrics['total_volume'] = group['vol'].sum()
-        metrics['total_amount'] = group['amount'].sum()
+        total_volume = group['vol'].sum()
+        total_amount = group['amount'].sum()
+        metrics['total_volume'] = total_volume
+        metrics['total_amount'] = total_amount
         # 2. VWAP (Volume Weighted Average Price)
-        total_volume = metrics['total_volume']
-        total_amount = metrics['total_amount']
         metrics['vwap'] = total_amount / total_volume if total_volume > 0 else group['close'].iloc[-1]
         # 3. 波动率指标
         log_returns = np.log(group['close'] / group['close'].shift(1)).dropna()
         metrics['volatility_realized'] = log_returns.std() * np.sqrt(240)  # 年化波动率
-        # 4. 交易活跃度指标
-        metrics['turnover_rate_minute_mean'] = (group['amount'] / daily_series.get('circ_mv', np.nan)).mean()
-        metrics['volume_concentration_top5'] = group['vol'].nlargest(5).sum() / total_volume if total_volume > 0 else 0
-        # 5. 趋势与反转指标
+        # 4. 趋势与反转指标
         price_trend_strength, price_trend_quality = self._calculate_trend_metrics(group['close'])
         metrics['price_trend_strength'] = price_trend_strength
         metrics['price_trend_quality'] = price_trend_quality
-        # 6. 均值回归特性
+        # 5. 均值回归特性
         metrics['mean_reversion_speed'] = self._calculate_mean_reversion_speed(group['close'])
-        # 7. 市场深度与订单流 (需要Level5或Tick数据)
-        if level5_df is not None and not level5_df.empty:
-            depth_metrics = self._calculate_market_depth_metrics(level5_df)
-            metrics.update(depth_metrics)
-        if tick_df is not None and not tick_df.empty:
-            flow_metrics = self._calculate_order_flow_metrics(tick_df)
-            metrics.update(flow_metrics)
-        # 8. 价值区分析 (TPO/MP)
+        # 6. 价值区分析 (TPO/MP)
         tpo_metrics = self._calculate_tpo_metrics(group)
         metrics.update(tpo_metrics)
-        # 9. 连续数据分析
+        # 7. 连续数据分析
         if continuous_group is not None and not continuous_group.empty:
             continuous_metrics = self._calculate_continuous_data_metrics(continuous_group)
             metrics.update(continuous_metrics)
-        # 10. 与ATR的交互
+        # 8. 与ATR的交互
         atr_interaction_metrics = self._calculate_atr_interaction_metrics(group, atr_5, atr_14, atr_50)
         metrics.update(atr_interaction_metrics)
-        # 11. 与前一日指标的交互
+        # 9. 与前一日指标的交互
         prev_day_interaction_metrics = self._calculate_prev_day_interaction_metrics(group, prev_day_metrics)
         metrics.update(prev_day_interaction_metrics)
+        # 新增代码块：构建上下文并调用外部计算内核
+        # 10. 调用外部计算内核
+        target_date_str = self.debug_params.get('target_date')
+        is_target_date = target_date_str == trade_date_str if target_date_str else False
+        context = {
+            'group': group,
+            'continuous_group': continuous_group,
+            'daily_series_for_day': daily_series,
+            'day_open_qfq': daily_series.get('open_qfq'),
+            'day_high_qfq': daily_series.get('high_qfq'),
+            'day_low_qfq': daily_series.get('low_qfq'),
+            'day_close_qfq': daily_series.get('close_qfq'),
+            'pre_close_qfq': daily_series.get('pre_close_qfq'),
+            'atr_5': atr_5,
+            'atr_14': atr_14,
+            'atr_50': atr_50,
+            'total_volume_safe': total_volume if total_volume > 0 else 1,
+            'prev_day_metrics': prev_day_metrics,
+            'tick_df': tick_df,
+            'level5_df': level5_df,
+            'realtime_df': realtime_df,
+            'debug': {
+                'enable_probe': self.debug_params.get('enable_asm_probe', False),
+                'is_target_date': is_target_date,
+                'trade_date_str': trade_date_str,
+            }
+        }
+        # 调用能量密度与战场动力学计算内核
+        metrics.update(StructuralMetricsCalculators.calculate_energy_density_metrics(context))
+        metrics.update(StructuralMetricsCalculators.calculate_control_metrics(context))
+        metrics.update(StructuralMetricsCalculators.calculate_game_efficiency_metrics(context))
+        # 调用微观动力学计算内核
+        metrics.update(MicrostructureDynamicsCalculators.calculate_all(context))
+        # 调用主题指标计算内核
+        metrics.update(ThematicMetricsCalculators.calculate_market_profile_metrics(context))
+        metrics.update(ThematicMetricsCalculators.calculate_forward_looking_metrics(context))
+        metrics.update(ThematicMetricsCalculators.calculate_battlefield_metrics(context))
         return metrics
 
     def _calculate_derivatives(self, stock_code: str, metrics_df: pd.DataFrame) -> pd.DataFrame:
