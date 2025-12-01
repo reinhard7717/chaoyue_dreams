@@ -280,8 +280,8 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
 # 资金高级指标模型
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V33.3 · OFI冲击因子版】
-    - 核心新增: 引入 `ofi_price_impact_factor` 字段，用于量化主力订单流对价格的微观冲击效率。
+    【V60.0 · 正名计划】
+    - 核心修正: 将 closing_price_deviation_score 字段正名为 closing_strength_index，以匹配其升维后的逻辑内涵。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     POWER_STRUCTURE_METRICS = {
@@ -294,10 +294,10 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'net_sh_amount_calibrated': '校准后-小单净流入(万元)',
         'flow_credibility_index': '资金流可信度指数(0-100)',
         'mf_retail_battle_intensity': '主力散户博弈烈度(%)',
-        'main_force_activity_ratio': '主力参与度(%)', # 修改代码行：更新注释以反映其新含义
+        'main_force_activity_ratio': '主力参与度(%)',
         'main_force_flow_directionality': '主力资金流向性(%)',
         'main_force_conviction_index': '主力信念指数',
-        'main_force_posture_index': '主力姿态指数', # 新增代码行：添加新的主力姿态指数
+        'main_force_posture_index': '主力姿态指数',
         'observed_large_order_size_avg': '观测大单平均规模(元)',
         'retail_flow_dominance_index': '散户流动性主导指数',
         'main_force_price_impact_ratio': '主力价格冲击比率',
@@ -315,9 +315,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'main_force_t0_efficiency': '主力T+0效率(%)',
         'vwap_structure_skew': 'VWAP结构偏离度',
         'flow_efficiency_index': '资金效率指数',
-        # 新增代码行：微观价格冲击不对称性
         'micro_price_impact_asymmetry': '微观价格冲击不对称性',
-        # 新增代码行：盘口清扫率
         'order_book_clearing_rate': '盘口清扫率(%)',
         'vwap_control_strength': 'VWAP控制强度',
         'main_force_vwap_guidance': '主力VWAP引导力',
@@ -345,13 +343,13 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'order_book_liquidity_supply': '盘口流动性供给(买/卖比)',
         'buy_quote_exhaustion_rate': '买方报价消耗率(%)',
         'sell_quote_exhaustion_rate': '卖方报价消耗率(%)',
-        # 新增代码行：添加OFI价格冲击因子
         'ofi_price_impact_factor': 'OFI价格冲击因子',
         'imbalance_effectiveness': '盘口失衡有效性',
     }
     OUTCOME_ASSESSMENT_METRICS = {
         'volatility_asymmetry_index': '波动不对称指数',
-        'closing_price_deviation_score': '收盘价偏离度得分',
+        # 修改代码行：将字段名和注释更新为新的名称
+        'closing_strength_index': '收盘强度指数',
     }
     CORE_METRICS = {
         **POWER_STRUCTURE_METRICS,
@@ -366,7 +364,8 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'pre_closing_posturing', 'closing_auction_ambush', 'main_force_execution_alpha',
         'retail_panic_surrender_index', 'retail_fomo_premium_index', 'main_force_t0_efficiency',
         'vwap_structure_skew', 'flow_efficiency_index',
-        'volatility_asymmetry_index', 'closing_price_deviation_score',
+        # 修改代码行：更新为新的字段名
+        'volatility_asymmetry_index', 'closing_strength_index',
         'vwap_control_strength', 'main_force_vwap_guidance', 'vwap_crossing_intensity',
         'upper_shadow_selling_pressure', 'lower_shadow_absorption_strength',
         'trend_conviction_ratio', 'reversal_power_index',
@@ -379,7 +378,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
         'ofi_price_impact_factor', 'imbalance_effectiveness',
-        'main_force_posture_index', # 新增代码行：添加新的主力姿态指数
+        'main_force_posture_index',
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -390,7 +389,8 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'main_force_execution_alpha', 'retail_panic_surrender_index',
         'retail_fomo_premium_index', 'main_force_t0_efficiency',
         'vwap_structure_skew', 'flow_efficiency_index',
-        'volatility_asymmetry_index', 'closing_price_deviation_score',
+        # 修改代码行：更新为新的字段名
+        'volatility_asymmetry_index', 'closing_strength_index',
         'vwap_control_strength', 'main_force_vwap_guidance', 'vwap_crossing_intensity',
         'upper_shadow_selling_pressure', 'lower_shadow_absorption_strength',
         'trend_conviction_ratio', 'reversal_power_index',
@@ -402,7 +402,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
         'ofi_price_impact_factor', 'imbalance_effectiveness',
-        'main_force_posture_index', # 新增代码行：添加新的主力姿态指数
+        'main_force_posture_index',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:
