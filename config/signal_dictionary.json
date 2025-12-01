@@ -8,6 +8,21 @@
             "type": "context",
             "description": "【V2.0 · 动能质量版】重构上涨动能的定义，不再是简单的涨幅大小，而是引入“动能质量”非线性模型。最终动能 = 幅度 × 质量(内部强度×路径效率×主力确认) × 可持续性(乖离率惩罚)。该模型旨在过滤掉高位放量、主力派发的“诱多式”虚假动能，并识别出真正由主力主导的、结构健康的、具备持续性的高质量上涨。高分代表一次健康且可持续的上涨，低分则代表上涨质量低下或存在陷阱。"
         },
+        "SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT": {
+            "score": 350,
+            "scoring_mode": "unipolar",
+            "type": "opportunity",
+            "context_role": "bottom_opportunity",
+            "description": "【诡道博弈】进攻性承接意图，是强烈的底部反转或中继洗盘结束信号，给予较高加分。"
+        },
+        "SCORE_BEHAVIOR_DECEPTION_INDEX": {
+            "score": 200,
+            "penalty_weight": 200,
+            "scoring_mode": "bipolar",
+            "type": "context",
+            "context_role": "neutral",
+            "description": "【诡道博弈】博弈欺骗指数。正分（压价吸筹）加分，负分（拉高出货）扣分。"
+        },
         "SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM": {
             "cn_name": "【行为】价格下跌动能",
             "category": "行为层-原子",

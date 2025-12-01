@@ -167,41 +167,40 @@ class BehavioralIntelligence:
 
     def _calculate_behavioral_day_quality(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.2 · 信号校验增强版】行为K线质量分计算引擎
-        - 核心修改: 调用从 utils.py 导入的公共归一化工具。
+        【V1.3 · 意图解读重构版】行为K线质量分计算引擎
+        - 核心修改: 废弃了基础的K线形态指标，全面转向使用更能反映主力意图和过程质量的微观结构信号。
         - 核心修复: 增加对所有依赖数据的存在性检查。
         """
+        # 更新依赖信号列表，使用新一代的意图解读型信号
         required_signals = [
-            'closing_strength_index_D', 'real_body_vs_range_ratio_D', 'shadow_dominance_D',
-            'VPA_EFFICIENCY_D', 'vwap_control_strength_D', 'intraday_trend_purity_D'
+            'intraday_posture_score_D', 'microstructure_efficiency_index_D', 'impulse_quality_ratio_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_calculate_behavioral_day_quality"):
             return pd.Series(0.0, index=df.index)
-        print("开始执行【V1.0 · 纯净版】行为K线质量分计算...")
-        outcome_core = (self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_calculate_behavioral_day_quality") * 2 - 1).clip(-1, 1)
-        body_dominance = self._get_safe_series(df, 'real_body_vs_range_ratio_D', 0.0, method_name="_calculate_behavioral_day_quality")
-        shadow_dominance = self._get_safe_series(df, 'shadow_dominance_D', 0.0, method_name="_calculate_behavioral_day_quality")
-        pillar1_outcome_score = (outcome_core * 0.7 + outcome_core * body_dominance * 0.1 + shadow_dominance * 0.2).clip(-1, 1)
-        vpa_eff_bipolar = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'VPA_EFFICIENCY_D', pd.Series(0.0, index=df.index), method_name="_calculate_behavioral_day_quality"), df.index)
-        vwap_ctrl_bipolar = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'vwap_control_strength_D', pd.Series(0.0, index=df.index), method_name="_calculate_behavioral_day_quality"), df.index)
-        trend_purity_bipolar = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'intraday_trend_purity_D', pd.Series(0.0, index=df.index), method_name="_calculate_behavioral_day_quality"), df.index)
-        bullish_execution = (((vpa_eff_bipolar + 1)/2) * ((vwap_ctrl_bipolar + 1)/2) * ((trend_purity_bipolar + 1)/2)).pow(1/3)
-        pillar2_execution_score = (bullish_execution * 2 - 1).clip(-1, 1)
+        print("开始执行【V1.3 · 意图解读重构版】行为K线质量分计算...")
+        # 结果评估：使用“日内姿态分”作为对全天博弈结果的评估，它比单纯的收盘位置更全面
+        outcome_score = self._get_safe_series(df, 'intraday_posture_score_D', 0.0, method_name="_calculate_behavioral_day_quality").clip(-1, 1)
+        # 过程质量评估：融合“微观结构效率”和“脉冲质量”，评估日内走势的含金量
+        micro_efficiency = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'microstructure_efficiency_index_D', pd.Series(0.0, index=df.index), method_name="_calculate_behavioral_day_quality"), df.index)
+        impulse_quality = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'impulse_quality_ratio_D', pd.Series(0.0, index=df.index), method_name="_calculate_behavioral_day_quality"), df.index)
+        # 将过程质量分转化为[-1, 1]的双极性分数
+        process_quality_score = ((micro_efficiency * impulse_quality).pow(0.5) * 2 - 1).clip(-1, 1)
+        # 最终质量分 = 结果 * 40% + 过程 * 60%
         day_quality_score = (
-            pillar1_outcome_score * 0.4 +
-            pillar2_execution_score * 0.6
+            outcome_score * 0.4 +
+            process_quality_score * 0.6
         ).clip(-1, 1)
-        print("【纯净版行为K线质量分】计算完成。")
+        print("【意图解读重构版行为K线质量分】计算完成。")
         return day_quality_score.astype(np.float32)
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V33.1 · 情报链修复版】原子信号中心
+        【V33.2 · 诡道博弈增强版】原子信号中心
         - 核心修复: 彻底更新了 `required_signals` 列表，补全了所有下游子诊断方法新增的信号依赖。
                     解决了因校验失败导致整个方法静默退出、所有探针均不执行的根本性BUG。
-        - ... (其他注释保持不变)
+        - 核心升级: 新增对“进攻性承接意图”和“博弈欺骗指数”两大诡道博弈信号的诊断，提升对主力真实意图的洞察力。
         """
-        # 彻底更新信号校验列表，补上所有缺失的依赖
+        # 彻底更新信号校验列表，补上所有缺失的依赖，包括新增方法所需的信号
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
             'volume_ratio_D', 'turnover_rate_f_D', 'main_force_net_flow_calibrated_D',
@@ -218,7 +217,9 @@ class BehavioralIntelligence:
             'microstructure_efficiency_index_D', 'upward_impulse_purity_D', 'vacuum_traversal_efficiency_D',
             'support_validation_strength_D', 'impulse_quality_ratio_D', 'floating_chip_cleansing_efficiency_D',
             'panic_selling_cascade_D', 'capitulation_absorption_index_D', 'covert_accumulation_signal_D',
-            'VOL_MA_5_D', 'VOL_MA_13_D', 'VOL_MA_21_D', 'loser_pain_index_D'
+            'VOL_MA_5_D', 'VOL_MA_13_D', 'VOL_MA_21_D', 'loser_pain_index_D',
+            # [新增代码行] 为新增的诡道博弈信号补充依赖
+            'deception_index_D', 'wash_trade_intensity_D', 'closing_auction_ambush_D', 'mf_retail_battle_intensity_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_behavioral_axioms"):
             print("    -> [行为情报引擎] 核心公理诊断失败，行为分析中止。")
@@ -348,6 +349,9 @@ class BehavioralIntelligence:
         # --- 结束重构 ---
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = self._diagnose_stagnation_evidence(df, states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'])
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
+        # [新增代码行] 调用新增的诡道博弈信号诊断
+        states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = self._diagnose_offensive_absorption_intent(df)
+        states['SCORE_BEHAVIOR_DECEPTION_INDEX'] = self._diagnose_deception_index(df)
         return states
 
     def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -466,19 +470,20 @@ class BehavioralIntelligence:
 
     def _diagnose_microstructure_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 信号校验增强版】微观结构意图诊断引擎
-        - 核心职责: 融合订单流失衡(OFI)与扫单强度，生成一个全新的原子信号 `SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT`，
-                    用于捕捉最细微的主力攻击或撤退意图。
-        - 数学思想: OFI反映了挂单册上的力量变化，扫单强度反映了直接吃单的决心。两者结合，可以区分是“温和吸筹”还是“暴力抢筹”。
+        【V1.3 · 主力意图聚焦版】微观结构意图诊断引擎
+        - 核心升级: 将通用的订单流失衡(OFI)替换为“主力订单流失衡(main_force_ofi_D)”，
+                    从而更精准地聚焦于市场主导力量的真实意图，排除散户噪音。
         """
-        required_signals = ['order_book_imbalance_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D']
+        # 将依赖信号从通用OFI升级为主力OFI
+        required_signals = ['main_force_ofi_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_microstructure_intent"):
             return {}
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        ofi_raw = self._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name="_diagnose_microstructure_intent")
+        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 获取主力OFI原始数据
+        ofi_raw = self._get_safe_series(df, 'main_force_ofi_D', 0.0, method_name="_diagnose_microstructure_intent")
         buy_sweep_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_microstructure_intent")
         sell_sweep_raw = self._get_safe_series(df, 'sell_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_microstructure_intent")
         ofi_score = get_adaptive_mtf_normalized_bipolar_score(ofi_raw, df.index, default_weights)
@@ -799,17 +804,17 @@ class BehavioralIntelligence:
 
     def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.4 · 形态显著性版】计算下跌吸筹强度
-        - 核心重构: 修复了形态微小的下影线因相对排名高而被赋予过高权重的逻辑盲点。
-                      引入“形态显著性过滤器”，通过下影线长度占日内振幅的比例来调节其最终得分，
-                      确保模型的判断同时尊重相对强度和绝对形态意义。
+        【V1.5 · 三维诊断版】计算下跌吸筹强度
+        - 核心重构: 升级为“事件-位置-形态”三维诊断模型，全面提升信号的可靠性和战术价值。
+                      - 事件: 引入“投降承接指数”，聚焦于最具反转意义的恐慌盘吸收事件。
+                      - 位置: 引入“支撑验证强度”，评估承接是否发生在关键战略位置。
+                      - 形态: 保留“形态显著性”修正的下影线，作为最终的K线确认。
         """
-        # 增加对 high, low, open, close 的依赖
-        required_signals = ['dip_absorption_power_D', 'lower_shadow_absorption_strength_D', 'high_D', 'low_D', 'open_D', 'close_D']
+        # 更新依赖信号，引入投降承接和支撑验证
+        required_signals = ['capitulation_absorption_index_D', 'support_validation_strength_D', 'lower_shadow_absorption_strength_D', 'high_D', 'low_D', 'open_D', 'close_D']
         if not self._validate_required_signals(df, required_signals, "_calculate_absorption_strength"):
             return pd.Series(0.0, index=df.index)
-        # --- 引入“形态显著性过滤器” ---
-        # 1. 计算形态显著性因子
+        # --- 形态显著性过滤器 (逻辑不变) ---
         high = self._get_safe_series(df, 'high_D', method_name="_calculate_absorption_strength")
         low = self._get_safe_series(df, 'low_D', method_name="_calculate_absorption_strength")
         open_price = self._get_safe_series(df, 'open_D', method_name="_calculate_absorption_strength")
@@ -817,15 +822,20 @@ class BehavioralIntelligence:
         total_range = (high - low).replace(0, 1e-9)
         lower_shadow_length = (np.minimum(open_price, close_price) - low).clip(lower=0)
         significance_factor = (lower_shadow_length / total_range).clip(0, 1).fillna(0.0)
-        # 2. 正常计算各维度得分
-        dip_power_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_calculate_absorption_strength")
-        dip_power_score = get_adaptive_mtf_normalized_score(dip_power_raw, df.index, ascending=True, tf_weights=tf_weights)
-        lower_shadow_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_calculate_absorption_strength")
-        lower_shadow_score_normalized = get_adaptive_mtf_normalized_score(lower_shadow_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 3. 使用显著性因子调节下影线得分并融合
-        lower_shadow_score_adjusted = lower_shadow_score_normalized * significance_factor
-        final_score = (dip_power_score * 0.7 + lower_shadow_score_adjusted * 0.3).clip(0, 1)
-        # --- 彻底重构探针逻辑以适配历史回溯 ---
+        # --- 计算三维得分 ---
+        # 1. 事件驱动分
+        event_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_calculate_absorption_strength")
+        event_score = get_adaptive_mtf_normalized_score(event_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 2. 位置确认分
+        location_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_calculate_absorption_strength")
+        location_score = get_adaptive_mtf_normalized_score(location_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 3. 形态确认分
+        morphology_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_calculate_absorption_strength")
+        morphology_score_normalized = get_adaptive_mtf_normalized_score(morphology_raw, df.index, ascending=True, tf_weights=tf_weights)
+        morphology_score_adjusted = morphology_score_normalized * significance_factor
+        # 最终融合，赋予事件和位置更高权重
+        final_score = (event_score * 0.4 + location_score * 0.4 + morphology_score_adjusted * 0.2).clip(0, 1)
+        # --- 探针逻辑更新 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -835,28 +845,34 @@ class BehavioralIntelligence:
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _calculate_absorption_strength @ {probe_date_str}")
-                print(f"        - 核心信号(新): dip_absorption_power_D = {dip_power_raw.loc[probe_ts]:.2f} -> 归一化分 = {dip_power_score.loc[probe_ts]:.4f}")
-                print(f"        - 辅助信号: lower_shadow_absorption_strength_D = {lower_shadow_raw.loc[probe_ts]:.2f} -> 归一化分 = {lower_shadow_score_normalized.loc[probe_ts]:.4f}")
-                print(f"        - 形态显著性因子: {significance_factor.loc[probe_ts]:.4f} -> 修正后下影线分: {lower_shadow_score_adjusted.loc[probe_ts]:.4f}")
+                # 更新探针输出
+                print(f"        - 事件分 (投降承接): {event_score.loc[probe_ts]:.4f} (原始值: {event_raw.loc[probe_ts]:.2f})")
+                print(f"        - 位置分 (支撑验证): {location_score.loc[probe_ts]:.4f} (原始值: {location_raw.loc[probe_ts]:.2f})")
+                print(f"        - 形态分 (下影线): {morphology_score_adjusted.loc[probe_ts]:.4f} (修正前: {morphology_score_normalized.loc[probe_ts]:.4f}, 显著性: {significance_factor.loc[probe_ts]:.4f})")
                 print(f"        - 最终下跌吸筹强度分: {final_score.loc[probe_ts]:.4f}")
         return final_score.astype(np.float32)
 
     def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, downward_resistance: pd.Series, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:
         """
-        【V1.1 · 确定性放大器版】诊断震荡洗盘确认信号
-        - 核心升级: 引入“确定性放大器”，将派发否定因子的计算从线性的 (1-x) 升级为
-                      非线性的 (1-x)²。这使得模型能够非线性地奖励“低派发意图”的确定性，
-                      并严厉惩罚不确定性，使其决策逻辑更符合真实世界的博弈。
-        - ... (其他注释保持不变)
+        【V1.2 · 结果验证版】诊断震荡洗盘确认信号
+        - 核心升级: 引入“浮筹清洗效率”作为对洗盘“结果”的验证。
+                      模型升级为“过程(防守反击) + 意图(无派发) + 结果(清洗效率)”的三维确认模型，
+                      确保信号只在真正成功的洗盘后发出。
         """
         # --- 1. 获取核心输入 ---
-        # 输入信号已由主方法传入，无需再次获取
-        # --- 2. 计算防守反击强度 ---
+        # [新增代码行] 获取浮筹清洗效率
+        cleansing_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_shakeout_confirmation")
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        cleansing_efficiency_score = get_adaptive_mtf_normalized_score(cleansing_raw, df.index, ascending=True, tf_weights=default_weights)
+        # --- 2. 计算防守反击强度 (逻辑不变) ---
         defense_counter_attack_strength = (downward_resistance * absorption_strength).pow(0.5).fillna(0.0)
-        # --- 3. 计算非线性的“确定性放大器” ---
+        # --- 3. 计算非线性的“确定性放大器” (逻辑不变) ---
         certainty_amplifier = (1 - distribution_intent).pow(2).clip(0, 1)
-        # --- 4. 战术合成 ---
-        shakeout_confirmation_score = (defense_counter_attack_strength * certainty_amplifier).clip(0, 1)
+        # --- 4. 战术合成 (三维融合) ---
+        # 引入清洗效率作为第三个核心确认维度
+        shakeout_confirmation_score = (defense_counter_attack_strength * certainty_amplifier * cleansing_efficiency_score).pow(1/3).clip(0, 1)
         # --- 探针监测 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -868,10 +884,130 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_shakeout_confirmation @ {probe_date_str}")
                 print(f"        - 防守反击强度: {defense_counter_attack_strength.loc[probe_ts]:.4f} (抵抗={downward_resistance.loc[probe_ts]:.2f}, 吸筹={absorption_strength.loc[probe_ts]:.2f})")
-                print(f"        - 确定性放大器(新): {certainty_amplifier.loc[probe_ts]:.4f} (派发意图={distribution_intent.loc[probe_ts]:.2f})")
+                print(f"        - 确定性放大器: {certainty_amplifier.loc[probe_ts]:.4f} (派发意图={distribution_intent.loc[probe_ts]:.2f})")
+                # 在探针中增加新维度的输出
+                print(f"        - 清洗效率分(新): {cleansing_efficiency_score.loc[probe_ts]:.4f} (原始值={cleansing_raw.loc[probe_ts]:.2f})")
                 print(f"        - 最终洗盘确认分: {shakeout_confirmation_score.loc[probe_ts]:.4f}")
         return shakeout_confirmation_score.astype(np.float32)
 
+    def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 新增 · 诡道博弈】诊断进攻性承接意图
+        - 核心目标: 区分被动护盘与主动伏击式吸筹。
+        - 战术四维评估:
+          1. 承接形态 (Morphology): 是否有高质量的下影线作为战术结果。
+          2. 战术执行 (Execution): 主力是否展现出高超的低吸能力 (正Alpha)。
+          3. 隐蔽行动 (Covert Ops): 是否有证据表明主力在隐蔽吸筹。
+          4. 战场环境 (Context): 是否成功利用了市场恐慌情绪。
+        """
+        # [新增代码行] 获取多时间框架归一化参数
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 1. 获取四维评估的原始数据
+        # [新增代码行] 形态: 直接使用更高阶的下影线品质分
+        morphology_score = self._get_atomic_score(df, 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', 0.0)
+        # [新增代码行] 执行: 主力执行Alpha，正值代表低吸能力强
+        execution_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
+        # [新增代码行] 隐蔽: 隐蔽吸筹信号
+        covert_ops_raw = self._get_safe_series(df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
+        # [新增代码行] 环境: 恐慌抛售级联
+        context_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
+        # 2. 归一化各维度证据
+        # [新增代码行] 只对正Alpha（低吸）进行归一化，作为进攻性证据
+        execution_score = get_adaptive_mtf_normalized_score(execution_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        # [新增代码行] 归一化隐蔽吸筹强度
+        covert_ops_score = get_adaptive_mtf_normalized_score(covert_ops_raw, df.index, ascending=True, tf_weights=default_weights)
+        # [新增代码行] 归一化恐慌环境
+        context_score = get_adaptive_mtf_normalized_score(context_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 3. 非线性战术合成
+        # [新增代码行] 使用加权几何平均，赋予"执行"和"隐蔽"更高权重，因为它们最能体现主动意图
+        offensive_absorption_intent = (
+            morphology_score.pow(0.2) *
+            execution_score.pow(0.3) *
+            covert_ops_score.pow(0.3) *
+            context_score.pow(0.2)
+        ).fillna(0.0)
+        # --- 探针监测 ---
+        # [新增代码行] 增加详细的探针逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _diagnose_offensive_absorption_intent @ {probe_date_str}")
+                print(f"        - 形态分 (下影线品质): {morphology_score.loc[probe_ts]:.4f}")
+                print(f"        - 执行分 (正Alpha): {execution_score.loc[probe_ts]:.4f} (原始值: {execution_raw.loc[probe_ts]:.2f})")
+                print(f"        - 隐蔽分 (隐蔽吸筹): {covert_ops_score.loc[probe_ts]:.4f} (原始值: {covert_ops_raw.loc[probe_ts]:.2f})")
+                print(f"        - 环境分 (恐慌级联): {context_score.loc[probe_ts]:.4f} (原始值: {context_raw.loc[probe_ts]:.2f})")
+                print(f"        - 最终进攻性承接意图分: {offensive_absorption_intent.loc[probe_ts]:.4f}")
+        return offensive_absorption_intent.clip(0, 1).astype(np.float32)
+
+    def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 新增 · 诡道博弈】诊断博弈欺骗指数
+        - 核心目标: 量化主力的欺骗性操盘行为，识别“压价吸筹”与“拉高出货”。
+        - 双极性模型:
+          - 看涨欺骗 (正分): 融合“弱势表象”、“欺骗行为”与“主力真实净流入”的证据。
+          - 看跌欺骗 (负分): 融合“强势表象”、“欺骗行为”与“主力真实净流出”的证据。
+          - 尾盘偷袭: 将集合竞价的伏击信号作为最终调节器，增强信号的战术价值。
+        """
+        # [新增代码行] 获取多时间框架归一化参数
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 1. 获取原始数据
+        # [新增代码行] 基础欺骗指数
+        base_deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_deception_index")
+        # [新增代码行] 对倒交易强度
+        wash_trade_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_deception_index")
+        # [新增代码行] 收盘强弱
+        closing_strength = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_deception_index")
+        # [新增代码行] 主力净流入
+        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_deception_index")
+        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_deception_index").replace(0, 1e-9)
+        # [新增代码行] 尾盘偷袭
+        closing_ambush_raw = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, method_name="_diagnose_deception_index")
+        # 2. 归一化和计算组件
+        # [新增代码行] 欺骗行为证据 = 基础欺骗 + 对倒强度
+        deception_evidence_score = get_adaptive_mtf_normalized_score((base_deception_raw + wash_trade_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
+        # [新增代码行] 主力资金流向（双极性）
+        flow_ratio = main_force_flow / amount
+        flow_direction_score = get_adaptive_mtf_normalized_bipolar_score(flow_ratio, df.index, default_weights)
+        # 3. 计算看涨/看跌欺骗
+        # [新增代码行] 看涨欺骗 = 弱势表象 * 欺骗行为 * 主力净流入
+        bullish_deception_score = (1 - closing_strength) * deception_evidence_score * flow_direction_score.clip(lower=0)
+        # [新增代码行] 看跌欺骗 = 强势表象 * 欺骗行为 * 主力净流出
+        bearish_deception_score = closing_strength * deception_evidence_score * flow_direction_score.clip(upper=0).abs()
+        # 4. 合成基础欺骗指数并融合尾盘偷袭
+        # [新增代码行] 基础欺骗指数
+        base_deception_index = (bullish_deception_score - bearish_deception_score).clip(-1, 1)
+        # [新增代码行] 归一化尾盘偷袭信号
+        closing_ambush_score = get_adaptive_mtf_normalized_bipolar_score(closing_ambush_raw, df.index, default_weights)
+        # [新增代码行] 最终融合，尾盘偷袭作为强确认信号
+        final_deception_index = (base_deception_index * 0.7 + closing_ambush_score * 0.3).clip(-1, 1)
+        # --- 探针监测 ---
+        # [新增代码行] 增加详细的探针逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _diagnose_deception_index @ {probe_date_str}")
+                print(f"        - 欺骗证据分: {deception_evidence_score.loc[probe_ts]:.4f} (基础欺骗={base_deception_raw.loc[probe_ts]:.2f}, 对倒={wash_trade_raw.loc[probe_ts]:.2f})")
+                print(f"        - 主力流向分: {flow_direction_score.loc[probe_ts]:.4f} (原始流比率={flow_ratio.loc[probe_ts]:.4f})")
+                print(f"        - 看涨欺骗分: {bullish_deception_score.loc[probe_ts]:.4f} (收盘弱势={1 - closing_strength.loc[probe_ts]:.2f})")
+                print(f"        - 看跌欺骗分: {bearish_deception_score.loc[probe_ts]:.4f} (收盘强势={closing_strength.loc[probe_ts]:.2f})")
+                print(f"        - 基础欺骗指数: {base_deception_index.loc[probe_ts]:.4f}")
+                print(f"        - 尾盘偷袭分: {closing_ambush_score.loc[probe_ts]:.4f} (原始值={closing_ambush_raw.loc[probe_ts]:.2f})")
+                print(f"        - 最终博弈欺骗指数: {final_deception_index.loc[probe_ts]:.4f}")
+        return final_deception_index.astype(np.float32)
 
 
 
