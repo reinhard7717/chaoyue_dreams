@@ -742,9 +742,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V62.2 · 预处理全面注入】
-        - 核心升级: 将 `hf_features` 预处理字典作为依赖，注入到更多下游高频计算方法中，
-                     确保预处理的成果（如 `mf_trades`）被全面利用，消除冗余计算。
+        【V63.0 · 引擎仓室化】
+        - 核心重构: 废弃对巨无霸方法 `_calculate_core_hf_metrics` 的调用。
+        - 流程再造: 转而调用三个全新的、职责单一的独立方法，使引擎的调用逻辑更加清晰和模块化。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -774,13 +774,14 @@ class AdvancedFundFlowMetricsService:
         hf_mf_buy_vwap = hf_features['hf_mf_buy_vwap']
         hf_mf_sell_vwap = hf_features['hf_mf_sell_vwap']
         if not hf_analysis_df.empty:
-            results.update(self._calculate_core_hf_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe, hf_mf_buy_vwap, hf_mf_sell_vwap, hf_features))
+            # 修改代码块：调用三个新的独立方法
+            results.update(self._calculate_main_force_profile_metrics(hf_analysis_df, common_data, is_target_date, enable_probe, hf_mf_buy_vwap, hf_mf_sell_vwap, hf_features))
+            results.update(self._calculate_ofi_based_metrics(hf_analysis_df, is_target_date, enable_probe))
+            results.update(self._calculate_order_book_metrics(hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_vwap_related_metrics(intraday_data, common_data))
         results.update(self._calculate_vwap_control_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_opening_battle_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        # 修改代码行：注入 hf_features
         results.update(self._calculate_shadow_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe, hf_features))
-        # 修改代码行：注入 hf_features
         results.update(self._calculate_dip_rally_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe, hf_features))
         results.update(self._calculate_reversal_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_panic_cascade_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
@@ -798,21 +799,18 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_misc_daily_metrics(daily_data, main_force_net_flow_calibrated))
         return results
 
-    def _calculate_core_hf_metrics(self, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool, hf_mf_buy_vwap: float, hf_mf_sell_vwap: float, hf_features: dict) -> dict:
+    def _calculate_main_force_profile_metrics(self, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool, hf_mf_buy_vwap: float, hf_mf_sell_vwap: float, hf_features: dict) -> dict:
         """
-        【V62.0 · 高频特征预处理】
-        - 核心重构: 移除方法内部所有重复性的特征计算（如主力交易过滤、成交量统计等）。
-        - 依赖注入: 转而从上游传入的 `hf_features` 预处理字典中直接提取所需数据，
-                     使方法职责更单一，代码更简洁、高效。
+        【V63.0 · 引擎仓室化】(新增方法)
+        - 核心职责: 专门负责计算主力画像五大核心指标：conviction, slippage, posture, activity, directionality。
+                     此方法从原 `_calculate_core_hf_metrics` 中剥离，实现了单一职责。
         """
         import numpy as np
         metrics = {}
         atr = common_data['atr']
         daily_total_volume = common_data['daily_total_volume']
-        metrics['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
-        metrics['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
         mf_ofi_cumsum = hf_analysis_df['main_force_ofi'].cumsum().fillna(0)
-        aggressiveness_component = 0.0
+        aggressiveness_component, trend_quality, closing_strength = 0.0, 0.0, 0.0
         if not mf_ofi_cumsum.empty and mf_ofi_cumsum.nunique() > 1:
             time_index = np.arange(len(mf_ofi_cumsum))
             trend_quality = np.corrcoef(time_index, mf_ofi_cumsum)[0, 1]
@@ -835,7 +833,6 @@ class AdvancedFundFlowMetricsService:
             print(f"    - 组件 Aggressiveness: {aggressiveness_component:.4f} = (TrendQuality {trend_quality:.4f} * ClosingStrength {closing_strength:.4f})")
             print(f"    - 组件 Cost Tolerance (norm by ATR): {cost_tolerance_component:.4f}, 组件 Resilience: {resilience_component:.4f}")
             print(f"    -> 最终得分: {metrics['main_force_conviction_index']:.2f}")
-        # 修改代码块：移除本地计算，直接从预处理特征中提取
         mf_trades = hf_features['mf_trades']
         total_mf_vol = hf_features['total_mf_vol']
         if not mf_trades.empty and 'prev_mid_price' in mf_trades.columns:
@@ -875,6 +872,37 @@ class AdvancedFundFlowMetricsService:
                         print(f"\n--- [探针 B.3.5] main_force_flow_directionality (主力流向性) ---")
                         print(f"    - 主力买入量: {mf_buy_vol:,.0f}, 主力卖出量: {mf_sell_vol:,.0f}, 主力总活动量: {mf_total_activity_vol:,.0f}")
                         print(f"    -> 最终得分: {metrics['main_force_flow_directionality']:.2f}")
+        return metrics
+
+    def _calculate_ofi_based_metrics(self, hf_analysis_df: pd.DataFrame, is_target_date: bool, enable_probe: bool) -> dict:
+        """
+        【V63.0 · 引擎仓室化】(新增方法)
+        - 核心职责: 专门负责计算基于订单流失衡(OFI)的核心指标：main_force_ofi, retail_ofi, microstructure_efficiency_index。
+                     此方法从原 `_calculate_core_hf_metrics` 中剥离，实现了单一职责。
+        """
+        metrics = {}
+        metrics['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
+        metrics['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
+        mf_ofi_series = hf_analysis_df['main_force_ofi']
+        price_change_series = hf_analysis_df['mid_price_change']
+        if mf_ofi_series.var() > 0 and price_change_series.var() > 0:
+            correlation = mf_ofi_series.corr(price_change_series)
+            metrics['microstructure_efficiency_index'] = correlation
+            if enable_probe and is_target_date:
+                print(f"  [探针] microstructure_efficiency_index (高频-微观效率) 计算:")
+                print(f"    - 核心变量: Corr(main_force_ofi, mid_price_change)")
+                print(f"    -> 最终得分 (相关系数): {correlation:.4f}")
+        return metrics
+
+    def _calculate_order_book_metrics(self, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+        """
+        【V63.0 · 引擎仓室化】(新增方法)
+        - 核心职责: 专门负责计算所有与盘口状态相关的微观结构指标，如盘口失衡、流动性供给、报价消耗率等。
+                     此方法从原 `_calculate_core_hf_metrics` 中剥离，实现了单一职责。
+        """
+        import numpy as np
+        metrics = {}
+        daily_total_volume = common_data['daily_total_volume']
         large_orders_df = hf_analysis_df[hf_analysis_df['amount'] > 200000]
         if not large_orders_df.empty:
             metrics['observed_large_order_size_avg'] = large_orders_df['amount'].mean()
@@ -893,25 +921,6 @@ class AdvancedFundFlowMetricsService:
         total_cleared_vol = ask_clearing_vol + bid_clearing_vol
         if daily_total_volume > 0:
             metrics['order_book_clearing_rate'] = (total_cleared_vol / daily_total_volume) * 100
-        try:
-            wash_trade_vol = 0
-            if 'market_vol_delta' in hf_analysis_df.columns:
-                df_wash = hf_analysis_df[['type', 'volume', 'price', 'market_vol_delta']].copy()
-                df_wash['direction'] = df_wash['type'].map({'B': 1, 'S': -1}).fillna(0)
-                df_wash['prev_direction'] = df_wash['direction'].shift(1)
-                df_wash['prev_volume'] = df_wash['volume'].shift(1)
-                df_wash['price_change_ratio'] = df_wash['price'].pct_change().abs()
-                wash_mask = (
-                    (df_wash['direction'] * df_wash['prev_direction'] == -1) &
-                    (np.abs(df_wash['volume'] - df_wash['prev_volume']) / df_wash['prev_volume'] < 0.2) &
-                    (df_wash['price_change_ratio'] < 0.001) &
-                    (df_wash['market_vol_delta'] > df_wash['volume'] * 2)
-                )
-                wash_trade_vol = df_wash.loc[wash_mask, 'market_vol_delta'].sum()
-            if daily_total_volume > 0:
-                metrics['wash_trade_intensity'] = (wash_trade_vol / daily_total_volume) * 100
-        except Exception:
-            metrics['wash_trade_intensity'] = np.nan
         try:
             time_diffs = hf_analysis_df.index.to_series().diff().dt.total_seconds().fillna(0)
             if time_diffs.sum() > 0:
@@ -956,15 +965,6 @@ class AdvancedFundFlowMetricsService:
                 metrics['sell_quote_exhaustion_rate'] = (sell_exhausted_vol / daily_total_volume) * 100
         except Exception:
             metrics['buy_quote_exhaustion_rate'] = np.nan; metrics['sell_quote_exhaustion_rate'] = np.nan
-        mf_ofi_series = hf_analysis_df['main_force_ofi']
-        price_change_series = hf_analysis_df['mid_price_change']
-        if mf_ofi_series.var() > 0 and price_change_series.var() > 0:
-            correlation = mf_ofi_series.corr(price_change_series)
-            metrics['microstructure_efficiency_index'] = correlation
-            if enable_probe and is_target_date:
-                print(f"  [探针] microstructure_efficiency_index (高频-微观效率) 计算:")
-                print(f"    - 核心变量: Corr(main_force_ofi, mid_price_change)")
-                print(f"    -> 最终得分 (相关系数): {correlation:.4f}")
         return metrics
 
     def _calculate_opening_battle_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
