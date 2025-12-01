@@ -13,12 +13,11 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V38.3 · 突破动能修正】
-        - 核心重构: 为 `dynamic_reversal_strength` 引入战局意识。算法将根据“反转收复率”
-                     动态切换成交量评价模型：
-                     1. 当收复率 > 1 (突破性反转)，采用“成交量确认模型”，奖励放量突破。
-                     2. 当收复率 <= 1 (抵抗性反弹)，沿用“成交量效率模型”，奖励缩量反弹。
-                     此举解决了此前错误惩罚“放量真突破”的战略性缺陷。
+        【V38.4 · 信念加权强度】
+        - 核心重构: `dynamic_reversal_strength` 的最终计算引入“信念权重”。
+                     最终强度 = (成功反转的平均强度) * (反转信念比率)。
+                     此举旨在区分“百战百胜”的持续强势与“偶有闪光”的偶然强势，
+                     使指标能更准确地评估反转力量的综合实力与可靠性。
         """
         group = context['group']
         daily_series_for_day = context['daily_series_for_day']
@@ -145,12 +144,11 @@ class StructuralMetricsCalculators:
                                         price_momentum = (vwap_rebound / vwap_fall - 1)
                                         fall_magnitude = group.iloc[prev_peak_pos]['high'] - group.iloc[trough_pos]['low']
                                         rebound_magnitude = group.iloc[peak_pos]['high'] - group.iloc[trough_pos]['low']
-                                        # 修改代码块：引入基于战局的动态成交量因子
                                         recovery_rate = rebound_magnitude / fall_magnitude if fall_magnitude > 0 else 0
-                                        if recovery_rate > 1: # 突破性反转
-                                            volume_factor = np.log1p(vol_rebound / vol_fall) # 确认因子
-                                        else: # 抵抗性反弹
-                                            volume_factor = vol_fall / vol_rebound # 效率因子
+                                        if recovery_rate > 1:
+                                            volume_factor = np.log1p(vol_rebound / vol_fall)
+                                        else:
+                                            volume_factor = vol_fall / vol_rebound
                                         momentum = (price_momentum * volume_factor) * 100
                                         reversal_details.append({
                                             "momentum": momentum,
@@ -161,6 +159,7 @@ class StructuralMetricsCalculators:
                     successful_reversals = [r for r in reversal_details if r['momentum'] > 0]
                     total_attempts = len(reversal_details)
                     successful_attempts = len(successful_reversals)
+                    conviction_rate = 0.0 # 修改代码行：初始化信念率
                     if total_attempts > 0:
                         conviction_rate = successful_attempts / total_attempts
                         results['reversal_conviction_rate'] = conviction_rate
@@ -172,7 +171,10 @@ class StructuralMetricsCalculators:
                             print(f"    -> 结果: {conviction_rate:.4f}")
                     if successful_reversals:
                         successful_momentums = [r['momentum'] for r in successful_reversals]
-                        results['dynamic_reversal_strength'] = np.mean(successful_momentums)
+                        raw_strength = np.mean(successful_momentums) # 修改代码行：先计算原始强度
+                        # 修改代码块：引入信念权重，计算最终强度
+                        final_strength = raw_strength * conviction_rate
+                        results['dynamic_reversal_strength'] = final_strength
                         recovery_ratios = [
                             r['rebound_magnitude'] / r['fall_magnitude']
                             for r in successful_reversals if r['fall_magnitude'] > 0
@@ -186,12 +188,13 @@ class StructuralMetricsCalculators:
                                 print(f"    - 计算: mean of recovery ratios")
                                 print(f"    -> 结果: {results['reversal_recovery_rate']:.4f}")
                         if enable_probe and is_target_date:
+                            # 修改代码块：重构探针日志以反映信念加权过程
                             print(f"--- [探针 ASM.{trade_date_str}] dynamic_reversal_strength (分钟) ---")
-                            print(f"    - 前置: 使用 {prominence_source} 显著性阈值 = {dynamic_prominence:.4f}")
-                            print(f"    - 原料: 识别出 {total_attempts} 次反转尝试, 其中 {successful_attempts} 次成功")
-                            print(f"    - 节点 (突破动能): {[f'{m:.2f}' for m in successful_momentums]}")
-                            print(f"    - 计算: mean of successful reversals")
-                            print(f"    -> 结果: {results['dynamic_reversal_strength']:.4f}")
+                            print(f"    - 前置: 识别出 {total_attempts} 次尝试, {successful_attempts} 次成功")
+                            print(f"    - 节点1 (原始平均强度): mean({[f'{m:.2f}' for m in successful_momentums]}) = {raw_strength:.4f}")
+                            print(f"    - 节点2 (信念权重): {conviction_rate:.4f}")
+                            print(f"    - 计算 (信念加权): {raw_strength:.4f} * {conviction_rate:.4f}")
+                            print(f"    -> 结果: {final_strength:.4f}")
         except ImportError:
             pass
         price_range = day_high_qfq - day_low_qfq
