@@ -183,30 +183,55 @@ class AdvancedStructuralMetricsService:
 
     async def _forge_advanced_structural_metrics(self, intraday_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
-        【V30.2 · 架构解耦对齐修复】
-        - 核心修复: 修复了因服务层与任务层数据加载职责解耦不彻底导致的 AttributeError。
-        - 解决方案: 移除服务层内对已废弃的 self.data_loader 的调用，改为直接使用由上游任务预加载并传入的 intraday_map 中的高频数据。
+        【V30.6 · 数据源融合修正】
+        - 核心修复: 修复了因架构重构导致的数据融合逻辑缺失，该缺失导致在某些情况下传入的分钟数据缺少'vol'列。
+        - 解决方案: 在服务层内部重建数据源融合逻辑，优先使用高保真的Tick数据通过resample生成标准分钟数据，否则回退到预计算的分钟数据，确保下游计算总能获得格式统一的输入。
         """
         new_metrics_data = []
         prev_day_metrics = {}
-        # 重构循环和数据获取逻辑
         for trade_date, data_for_day in intraday_map.items():
             daily_series_for_day = daily_df_with_atr.loc[trade_date]
             atr_5 = daily_series_for_day.get('ATR_5', np.nan)
             atr_14 = daily_series_for_day.get('ATR_14', np.nan)
             atr_50 = daily_series_for_day.get('ATR_50', np.nan)
-            # 从预加载的数据字典中获取数据，而不是重新加载
-            minute_df_for_day = data_for_day.get('minute')
+            
+            # --- 新增代码块：数据源融合与标准化 ---
+            canonical_minute_df = None
             tick_df_for_day = data_for_day.get('tick')
+            minute_df_for_day = data_for_day.get('minute')
+
+            if tick_df_for_day is not None and not tick_df_for_day.empty:
+                # 优先级1：使用Tick数据生成分钟线
+                resampled_df = tick_df_for_day.resample('1min').agg(
+                    open=('price', 'first'),
+                    high=('price', 'max'),
+                    low=('price', 'min'),
+                    close=('price', 'last'),
+                    vol=('volume', 'sum'),
+                    amount=('amount', 'sum')
+                ).dropna(how='all')
+                if not resampled_df.empty:
+                    canonical_minute_df = resampled_df
+            
+            if canonical_minute_df is None and minute_df_for_day is not None and not minute_df_for_day.empty:
+                # 优先级2：使用预计算的分钟线
+                # 确保列名统一，以防万一
+                if 'volume' in minute_df_for_day.columns and 'vol' not in minute_df_for_day.columns:
+                    minute_df_for_day.rename(columns={'volume': 'vol'}, inplace=True)
+                canonical_minute_df = minute_df_for_day
+
+            if canonical_minute_df is None or canonical_minute_df.empty:
+                logger.warning(f"[{stock_code}] 在日期 {trade_date} 缺少可用的分钟级或Tick级数据，跳过当日计算。")
+                continue
+            # --- 融合逻辑结束 ---
+
             level5_df_for_day = data_for_day.get('level5')
             realtime_df_for_day = data_for_day.get('realtime')
-            # 检查分钟数据是否存在，这是计算的基础
-            if minute_df_for_day is None or minute_df_for_day.empty:
-                logger.warning(f"[{stock_code}] 在日期 {trade_date} 缺少分钟级数据，跳过当日计算。")
-                continue
-            continuous_group = self._create_continuous_minute_data(minute_df_for_day)
+            
+            # 修改代码行：使用融合后的标准分钟数据
+            continuous_group = self._create_continuous_minute_data(canonical_minute_df)
             day_metric_dict = self._calculate_daily_structural_metrics(
-                minute_df_for_day, continuous_group, daily_series_for_day, atr_5, atr_14, atr_50, prev_day_metrics,
+                canonical_minute_df, continuous_group, daily_series_for_day, atr_5, atr_14, atr_50, prev_day_metrics,
                 tick_df_for_day, level5_df_for_day, realtime_df_for_day
             )
             day_metric_dict['trade_date'] = trade_date
