@@ -12,27 +12,58 @@ class ThematicMetricsCalculators:
     """
     @staticmethod
     def calculate_market_profile_metrics(context: dict) -> dict:
-        """计算市场剖面相关指标 (VPOC, 价值区等)"""
+        """
+        【V34.0 · 剖面结构穿透】
+        - 核心升级: 利用高频Tick数据构建超高分辨率的成交量剖面，从而获得更精确的VPOC、共识强度和剖面熵。
+        - 兼容策略: 价值区(VAH/VAL)相关指标暂时沿用分钟数据剖面计算，以保证下游指标链稳定。
+        """
         group = context['group']
         continuous_group = context['continuous_group']
+        tick_df = context.get('tick_df')
         day_close_qfq = context['day_close_qfq']
         atr_14 = context['atr_14']
         prev_day_metrics = context['prev_day_metrics']
+        debug_info = context.get('debug', {})
+        is_target_date = debug_info.get('is_target_date', False)
+        enable_probe = debug_info.get('enable_probe', False)
+        trade_date_str = debug_info.get('trade_date_str', 'N/A')
         results = {}
-        vp = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20, duplicates='drop'))['vol'].sum()
-        vpoc_interval = vp.idxmax() if not vp.empty else np.nan
-        today_vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else day_close_qfq
-        vpoc_volume_ratio = vp.max() / continuous_group['vol'].sum() if not vp.empty and continuous_group['vol'].sum() > 0 else 0
-        if pd.notna(atr_14) and atr_14 > 0:
+        today_vpoc = np.nan
+        # 新增代码块：高频剖面计算路径
+        if tick_df is not None and not tick_df.empty and tick_df['volume'].sum() > 0:
+            vp_hf = tick_df.groupby('price')['volume'].sum()
+            if not vp_hf.empty:
+                today_vpoc = vp_hf.idxmax()
+                total_volume = tick_df['volume'].sum()
+                results['vpoc_consensus_strength'] = vp_hf.max() / total_volume
+                vp_prob = vp_hf[vp_hf > 0] / total_volume
+                entropy = -np.sum(vp_prob * np.log2(vp_prob))
+                max_entropy = np.log2(len(vp_prob))
+                results['volume_profile_entropy'] = entropy / max_entropy if max_entropy > 0 else 0.0
+                if enable_probe and is_target_date:
+                    print(f"--- [探针 ASM.{trade_date_str}] market_profile (高频) ---")
+                    print(f"    - 原料: {len(tick_df)} 笔Tick数据")
+                    print(f"    - 节点: 高精度VPOC={today_vpoc:.2f}, VPOC成交量占比={results['vpoc_consensus_strength']:.2%}")
+                    print(f"    -> 结果 (剖面熵): {results.get('volume_profile_entropy', np.nan):.4f}")
+        # 分钟降级/兼容路径
+        if continuous_group['vol'].sum() > 0:
+            vp_minute = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20, duplicates='drop'))['vol'].sum()
+            if pd.isna(today_vpoc) and not vp_minute.empty: # 仅在HF路径未计算出VPOC时执行
+                vpoc_interval = vp_minute.idxmax()
+                today_vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else day_close_qfq
+                results['vpoc_consensus_strength'] = vp_minute.max() / continuous_group['vol'].sum()
+            # 价值区(VAH/VAL)指标暂时统一使用分钟数据计算
+            vpoc_interval_for_va = vp_minute.idxmax() if not vp_minute.empty else np.nan
+            today_vah, today_val = ThematicMetricsCalculators._calculate_value_area(vp_minute, continuous_group['vol'].sum(), vpoc_interval_for_va)
+        else: # 如果连分钟数据都没有成交量
+            today_vah, today_val = np.nan, np.nan
+        if pd.notna(atr_14) and atr_14 > 0 and pd.notna(today_vpoc):
             deviation_magnitude = (day_close_qfq - today_vpoc) / atr_14
             results['vpoc_deviation_magnitude'] = deviation_magnitude
-            results['vpoc_consensus_strength'] = vpoc_volume_ratio
-            # 修改代码行：将 group['trade_time'].dt.time 替换为 group.index.time
             tail_period_df = group[group.index.time >= time(14, 45)]
             if not tail_period_df.empty and not continuous_group.empty and continuous_group['vol'].mean() > 0:
                 tail_force_factor = np.log1p(tail_period_df['vol'].mean() / continuous_group['vol'].mean())
                 results['closing_conviction_score'] = deviation_magnitude * tail_force_factor
-        today_vah, today_val = ThematicMetricsCalculators._calculate_value_area(vp, continuous_group['vol'].sum(), vpoc_interval)
         prev_vpoc, prev_atr = prev_day_metrics.get('vpoc'), prev_day_metrics.get('atr_14d')
         if all(pd.notna(v) for v in [today_vpoc, prev_vpoc, prev_atr]) and prev_atr > 0:
             results['value_area_migration'] = (today_vpoc - prev_vpoc) / prev_atr
