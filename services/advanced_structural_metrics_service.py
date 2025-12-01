@@ -10,7 +10,6 @@ from stock_models.stock_basic import StockInfo
 from stock_models.advanced_metrics import BaseAdvancedStructuralMetrics
 from services.structural_metrics_calculators import StructuralMetricsCalculators
 from services.microstructure_dynamics_calculators import MicrostructureDynamicsCalculators
-from services.order_flow_metrics_calculators import OrderFlowMetricsCalculators
 from services.derivative_metrics_calculators import DerivativeMetricsCalculator
 from services.thematic_metrics_calculators import ThematicMetricsCalculators
 from utils.model_helpers import (
@@ -249,7 +248,7 @@ class AdvancedStructuralMetricsService:
             day_metric_dict['trade_time'] = trade_date
             day_metric_dict['stock_code'] = stock_code
             new_metrics_data.append(day_metric_dict)
-            # 修改代码块：在传递给下一日的上下文中增加 volume
+            # 在传递给下一日的上下文中增加 volume
             prev_day_metrics = {
                 'vpoc': day_metric_dict.get('_today_vpoc'),
                 'vah': day_metric_dict.get('_today_vah'),
@@ -298,7 +297,7 @@ class AdvancedStructuralMetricsService:
             'total_volume_safe': group['vol'].sum() if 'vol' in group.columns and not group.empty else 0,
             'debug': debug_info,
         }
-        # 修改代码块：修正了所有计算函数的调用，使其“宗门归位”
+        # 修正了所有计算函数的调用，使其“宗门归位”
         # 1. 基础层：计算最底层的能量、微观动力学和订单流指标
         energy_metrics = StructuralMetricsCalculators.calculate_energy_density_metrics(context)
         context.update(energy_metrics)

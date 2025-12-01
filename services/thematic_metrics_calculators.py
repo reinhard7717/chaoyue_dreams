@@ -38,7 +38,6 @@ class ThematicMetricsCalculators:
             if not vp_hf.empty:
                 today_vpoc = vp_hf.idxmax()
                 total_volume = tick_df['volume'].sum()
-                results['vpoc_consensus_strength'] = vp_hf.max() / total_volume
                 vp_prob = vp_hf[vp_hf > 0] / total_volume
                 entropy = -np.sum(vp_prob * np.log2(vp_prob))
                 max_entropy = np.log2(len(vp_prob))
@@ -53,14 +52,12 @@ class ThematicMetricsCalculators:
             if pd.isna(today_vpoc) and not vp_minute.empty:
                 vpoc_interval = vp_minute.idxmax()
                 today_vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else day_close_qfq
-                results['vpoc_consensus_strength'] = vp_minute.max() / continuous_group['vol'].sum()
             vpoc_interval_for_va = vp_minute.idxmax() if not vp_minute.empty else np.nan
             today_vah, today_val = ThematicMetricsCalculators._calculate_value_area(vp_minute, continuous_group['vol'].sum(), vpoc_interval_for_va)
         else:
             today_vah, today_val = np.nan, np.nan
         if pd.notna(atr_14) and atr_14 > 0 and pd.notna(today_vpoc):
             deviation_magnitude = (day_close_qfq - today_vpoc) / atr_14
-            results['vpoc_deviation_magnitude'] = deviation_magnitude
             tail_period_df = group[group.index.time >= time(14, 45)]
             if not tail_period_df.empty and not continuous_group.empty and continuous_group['vol'].mean() > 0:
                 tail_force_factor = np.log1p(tail_period_df['vol'].mean() / continuous_group['vol'].mean())
