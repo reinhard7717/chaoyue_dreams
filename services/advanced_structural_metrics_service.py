@@ -10,6 +10,8 @@ from stock_models.stock_basic import StockInfo
 from stock_models.advanced_metrics import BaseAdvancedStructuralMetrics
 from services.structural_metrics_calculators import StructuralMetricsCalculators
 from services.microstructure_dynamics_calculators import MicrostructureDynamicsCalculators
+from services.order_flow_metrics_calculators import OrderFlowMetricsCalculators
+from services.derivative_metrics_calculators import DerivativeMetricsCalculator
 from services.thematic_metrics_calculators import ThematicMetricsCalculators
 from utils.model_helpers import (
     get_advanced_structural_metrics_model_by_code,
@@ -242,89 +244,53 @@ class AdvancedStructuralMetricsService:
         return final_metrics_df
 
     def _calculate_daily_structural_metrics(
-        self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series: pd.Series,
-        atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict,
-        tick_df: pd.DataFrame = None, level5_df: pd.DataFrame = None, realtime_df: pd.DataFrame = None
+        self,
+        group: pd.DataFrame,
+        continuous_group: pd.DataFrame,
+        tick_df: pd.DataFrame | None,
+        level5_df: pd.DataFrame | None,
+        daily_info: pd.Series,
+        prev_day_metrics: dict,
+        debug_info: dict
     ) -> dict:
         """
-        【V30.15 · 计算内核调用修复】
-        - 核心修复: 修正了此方法期望'trade_time'为列，而上游传入的DataFrame已将其作为索引导致的KeyError。
-        - 核心修复: 新增对外部计算内核的调用，修复因重构导致的指标计算逻辑缺失。
+        计算单日的所有高级结构化指标。
+        【V36.0 · 动能背离】
+        - 新增: 调用 DerivativeMetricsCalculator 来计算背离指标。
         """
-        if group is None or group.empty:
-            return {}
-        trade_date_obj = group.index[0].date()
-        trade_date_str = trade_date_obj.strftime('%Y-%m-%d')
-        metrics = {}
-        # 1. 基础统计指标
-        metrics['mean_price'] = group['close'].mean()
-        metrics['median_price'] = group['close'].median()
-        metrics['std_price'] = group['close'].std()
-        total_volume = group['vol'].sum()
-        total_amount = group['amount'].sum()
-        metrics['total_volume'] = total_volume
-        metrics['total_amount'] = total_amount
-        # 2. VWAP (Volume Weighted Average Price)
-        metrics['vwap'] = total_amount / total_volume if total_volume > 0 else group['close'].iloc[-1]
-        # 3. 波动率指标
-        log_returns = np.log(group['close'] / group['close'].shift(1)).dropna()
-        metrics['volatility_realized'] = log_returns.std() * np.sqrt(240)  # 年化波动率
-        # 4. 趋势与反转指标
-        price_trend_strength, price_trend_quality = self._calculate_trend_metrics(group['close'])
-        metrics['price_trend_strength'] = price_trend_strength
-        metrics['price_trend_quality'] = price_trend_quality
-        # 5. 均值回归特性
-        metrics['mean_reversion_speed'] = self._calculate_mean_reversion_speed(group['close'])
-        # 6. 价值区分析 (TPO/MP)
-        tpo_metrics = self._calculate_tpo_metrics(group)
-        metrics.update(tpo_metrics)
-        # 7. 连续数据分析
-        if continuous_group is not None and not continuous_group.empty:
-            continuous_metrics = self._calculate_continuous_data_metrics(continuous_group)
-            metrics.update(continuous_metrics)
-        # 8. 与ATR的交互
-        atr_interaction_metrics = self._calculate_atr_interaction_metrics(group, atr_5, atr_14, atr_50)
-        metrics.update(atr_interaction_metrics)
-        # 9. 与前一日指标的交互
-        prev_day_interaction_metrics = self._calculate_prev_day_interaction_metrics(group, prev_day_metrics)
-        metrics.update(prev_day_interaction_metrics)
-        # 新增代码块：构建上下文并调用外部计算内核
-        # 10. 调用外部计算内核
-        target_date_str = self.debug_params.get('target_date')
-        is_target_date = target_date_str == trade_date_str if target_date_str else False
+        # 准备一个统一的上下文（Context）字典，传递给各个计算器
+        # 这样做可以避免重复传递大量参数，使代码更整洁
+        total_volume_safe = group['vol'].sum() if not group.empty else 0
+        if total_volume_safe == 0:
+            total_volume_safe = daily_info.get('volume', 0)
         context = {
             'group': group,
             'continuous_group': continuous_group,
-            'daily_series_for_day': daily_series,
-            'day_open_qfq': daily_series.get('open_qfq'),
-            'day_high_qfq': daily_series.get('high_qfq'),
-            'day_low_qfq': daily_series.get('low_qfq'),
-            'day_close_qfq': daily_series.get('close_qfq'),
-            'pre_close_qfq': daily_series.get('pre_close_qfq'),
-            'atr_5': atr_5,
-            'atr_14': atr_14,
-            'atr_50': atr_50,
-            'total_volume_safe': total_volume if total_volume > 0 else 1,
-            'prev_day_metrics': prev_day_metrics,
             'tick_df': tick_df,
             'level5_df': level5_df,
-            'realtime_df': realtime_df,
-            'debug': {
-                'enable_probe': self.debug_params.get('enable_asm_probe', False),
-                'is_target_date': is_target_date,
-                'trade_date_str': trade_date_str,
-            }
+            'day_open_qfq': daily_info['open_qfq'],
+            'day_high_qfq': daily_info['high_qfq'],
+            'day_low_qfq': daily_info['low_qfq'],
+            'day_close_qfq': daily_info['close_qfq'],
+            'pre_close_qfq': daily_info['pre_close_qfq'],
+            'total_volume_safe': total_volume_safe,
+            'atr_5': daily_info.get('atr_5d'),
+            'atr_14': daily_info.get('atr_14d'),
+            'atr_50': daily_info.get('atr_50d'),
+            'prev_day_metrics': prev_day_metrics,
+            'debug': debug_info,
         }
-        # 调用能量密度与战场动力学计算内核
-        metrics.update(StructuralMetricsCalculators.calculate_energy_density_metrics(context))
+        # 初始化指标字典
+        metrics = {}
+        # 依次调用各个指标计算器模块
+        # 每个模块负责计算一组相关的指标
+        metrics.update(OrderFlowMetricsCalculators.calculate_order_flow_metrics(context))
         metrics.update(StructuralMetricsCalculators.calculate_control_metrics(context))
-        metrics.update(StructuralMetricsCalculators.calculate_game_efficiency_metrics(context))
-        # 调用微观动力学计算内核
-        metrics.update(MicrostructureDynamicsCalculators.calculate_all(context))
-        # 调用主题指标计算内核
         metrics.update(ThematicMetricsCalculators.calculate_market_profile_metrics(context))
         metrics.update(ThematicMetricsCalculators.calculate_forward_looking_metrics(context))
-        metrics.update(ThematicMetricsCalculators.calculate_battlefield_metrics(context))
+        metrics.update(DerivativeMetricsCalculator.calculate_divergence_metrics(context))
+        # 清理内部指标（以下划线开头的键）
+        metrics = {k: v for k, v in metrics.items() if not k.startswith('_')}
         return metrics
 
     def _calculate_derivatives(self, stock_code: str, metrics_df: pd.DataFrame) -> pd.DataFrame:
