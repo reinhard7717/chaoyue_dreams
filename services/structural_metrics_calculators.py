@@ -13,11 +13,11 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V37.8 · 反转信念解耦】
-        - 核心新增: 引入新指标 `reversal_conviction_rate` (反转信念比率)。
-                     该指标专门用于量化反转尝试的成功率 (成功次数 / 总次数)，
-                     与 `dynamic_reversal_strength` (衡量成功反转的平均强度) 形成互补。
-                     此举将反转的“强度”与“成功率”两个维度解耦，提供了更全面的博弈图景。
+        【V38.0 · 自适应波峰修正】
+        - 核心重构: 修正了 `dynamic_reversal_strength` 的根基——波峰识别逻辑。
+                     将 `find_peaks` 的 `prominence` 参数从固定的绝对值(0.01)，升级为
+                     基于当日ATR的动态相对值 (e.g., ATR的5%)。这使得反转点的识别
+                     能自适应不同股价和波动率的股票，极大提升了指标的信噪比和普适性。
         """
         group = context['group']
         daily_series_for_day = context['daily_series_for_day']
@@ -39,7 +39,7 @@ class StructuralMetricsCalculators:
             'volume_burstiness_index': np.nan,
             'auction_impact_score': np.nan,
             'dynamic_reversal_strength': np.nan,
-            'reversal_conviction_rate': np.nan, # 新增代码行：初始化新指标
+            'reversal_conviction_rate': np.nan,
             'high_level_consolidation_volume': np.nan,
             'opening_period_thrust': np.nan,
         }
@@ -107,8 +107,15 @@ class StructuralMetricsCalculators:
                 results['auction_impact_score'] = gap_magnitude
         try:
             from scipy.signal import find_peaks
-            peaks, _ = find_peaks(group['high'], distance=5, prominence=0.01)
-            troughs, _ = find_peaks(-group['low'], distance=5, prominence=0.01)
+            # 修改代码块：引入基于ATR的动态显著性阈值
+            prominence_source = "静态回退"
+            if pd.notna(atr_14) and atr_14 > 0:
+                dynamic_prominence = atr_14 * 0.05  # 定义为ATR的5%
+                prominence_source = f"动态ATR({atr_14:.2f}*5%)"
+            else:
+                dynamic_prominence = 0.01 # 回退到静态值
+            peaks, _ = find_peaks(group['high'], distance=5, prominence=dynamic_prominence)
+            troughs, _ = find_peaks(-group['low'], distance=5, prominence=dynamic_prominence)
             if len(troughs) > 0 and len(peaks) > 0:
                 reversal_momentums = []
                 all_extrema = sorted(np.concatenate([peaks, troughs]))
@@ -136,7 +143,6 @@ class StructuralMetricsCalculators:
                                         reversal_momentums.append(momentum)
                 if reversal_momentums:
                     successful_reversals = [m for m in reversal_momentums if m > 0]
-                    # 新增代码块：计算并存储反转信念比率
                     total_attempts = len(reversal_momentums)
                     successful_attempts = len(successful_reversals)
                     if total_attempts > 0:
@@ -144,6 +150,8 @@ class StructuralMetricsCalculators:
                         results['reversal_conviction_rate'] = conviction_rate
                         if enable_probe and is_target_date:
                             print(f"--- [探针 ASM.{trade_date_str}] reversal_conviction_rate (分钟) ---")
+                            # 修改代码行：在探针中报告使用的显著性阈值
+                            print(f"    - 前置: 使用 {prominence_source} 显著性阈值 = {dynamic_prominence:.4f}")
                             print(f"    - 原料: 成功次数={successful_attempts}, 总尝试次数={total_attempts}")
                             print(f"    - 计算: {successful_attempts} / {total_attempts}")
                             print(f"    -> 结果: {conviction_rate:.4f}")
@@ -151,6 +159,8 @@ class StructuralMetricsCalculators:
                         results['dynamic_reversal_strength'] = np.mean(successful_reversals)
                         if enable_probe and is_target_date:
                             print(f"--- [探针 ASM.{trade_date_str}] dynamic_reversal_strength (分钟) ---")
+                            # 修改代码行：在探针中报告使用的显著性阈值
+                            print(f"    - 前置: 使用 {prominence_source} 显著性阈值 = {dynamic_prominence:.4f}")
                             print(f"    - 原料: 识别出 {total_attempts} 次反转尝试, 其中 {successful_attempts} 次成功")
                             print(f"    - 节点 (成功反转的动能): {[f'{m:.2f}' for m in successful_reversals]}")
                             print(f"    - 计算: mean of successful reversals")
