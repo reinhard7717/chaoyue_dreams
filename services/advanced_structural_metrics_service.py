@@ -358,6 +358,33 @@ class AdvancedStructuralMetricsService:
         df['vpin_roc3'] = df['vpin_score'].pct_change(periods=3)
         return df
 
+    def _create_continuous_minute_data(self, group: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V30.3 · 辅助函数回归修复】
+        - 核心职责: (新增) 创建一个连续的、无间断的分钟级DataFrame，用于需要连续时间序列的计算。
+        - 实现逻辑: 1. 生成标准的240分钟交易时间索引。
+                     2. 使用该索引重新索引当日数据。
+                     3. 使用前向填充(ffill)补全午休等造成的空白期。
+                     4. 计算填充后的分钟VWAP。
+        """
+        if group is None or group.empty:
+            return pd.DataFrame()
+        trade_date = group['trade_time'].iloc[0].date()
+        # 创建标准的上午和下午交易时段分钟级时间索引
+        morning_session = pd.to_datetime(pd.date_range(start=f'{trade_date} 09:31:00', end=f'{trade_date} 12:00:00', freq='1min'))
+        afternoon_session = pd.to_datetime(pd.date_range(start=f'{trade_date} 13:01:00', end=f'{trade_date} 15:00:00', freq='1min'))
+        full_day_index = morning_session.union(afternoon_session)
+        # 确保原始数据的 trade_time 是 datetime 类型并设为索引
+        group['trade_time'] = pd.to_datetime(group['trade_time'])
+        group_with_index = group.set_index('trade_time')
+        # 重新索引并前向填充
+        continuous_group = group_with_index.reindex(full_day_index).ffill()
+        # 重新计算填充后的分钟VWAP
+        continuous_group['minute_vwap'] = (continuous_group['amount'] / continuous_group['vol']).where(continuous_group['vol'] > 0, np.nan)
+        continuous_group.reset_index(inplace=True)
+        continuous_group.rename(columns={'index': 'trade_time'}, inplace=True)
+        return continuous_group
+
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
         【V19.7 · 索引健壮性修复版】
