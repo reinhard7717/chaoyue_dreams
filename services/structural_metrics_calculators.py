@@ -241,10 +241,11 @@ class StructuralMetricsCalculators:
     def calculate_game_efficiency_metrics(context: dict) -> dict:
         """
         计算博弈效率相关指标。
-        【V36.9 · 对称归因修正】
-        - 核心修复: 对 `downward_absorption_efficacy` 应用与上行指标对称的归因逻辑。
-                     现在只统计价格下跌且主动卖盘力量大于主动买盘力量的分钟，
-                     确保指标衡量的是在空方主导的真实下行压力中的吸收强度。
+        【V37.5 · 博弈对称重构】
+        - 核心重构: 将 `upward_thrust_efficacy` 彻底重构为 `upward_distribution_efficacy`。
+                     新指标采用与下行指标完全对称的 `(卖出量 / 买入量)` 力量比率模型，
+                     用于衡量上涨过程中的派发压力，取代了原先难以解读的混合维度效率值，
+                     使整个博弈效率指标组在逻辑上达到完美对称。
         """
         group = context['group']
         tick_df = context.get('tick_df')
@@ -260,21 +261,21 @@ class StructuralMetricsCalculators:
         group['vol_buy'] = tick_df[tick_df['type'] == 'B']['volume'].resample('T').sum()
         group['vol_sell'] = tick_df[tick_df['type'] == 'S']['volume'].resample('T').sum()
         group.fillna(0, inplace=True)
-        # 1. 上行冲击效率 (Upward Thrust Efficacy) - V36.8 已修正
+        # 1. 上行派发效能 (Upward Distribution Efficacy) - V37.5 重构
         up_minutes = group[(group['price_change'] > 0) & (group['vol_buy'] > group['vol_sell'])]
         if not up_minutes.empty:
-            total_price_increase = up_minutes['price_change'].sum()
-            total_buy_vol_in_up_minutes = up_minutes['vol_buy'].sum()
-            if total_buy_vol_in_up_minutes > 0:
-                efficacy = (total_price_increase / total_buy_vol_in_up_minutes) * 10000
-                results['upward_thrust_efficacy'] = efficacy
+            # 修改代码块：重构为对称的力量比率计算
+            distribution_vol = up_minutes['vol_sell'].sum()
+            driving_vol = up_minutes['vol_buy'].sum()
+            if driving_vol > 0:
+                efficacy = distribution_vol / driving_vol
+                results['upward_distribution_efficacy'] = efficacy
                 if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] upward_thrust_efficacy (高频) ---")
-                    print(f"    - 原料: 主动买盘驱动的价格上涨总和={total_price_increase:.4f}, 主动买盘总成交量={total_buy_vol_in_up_minutes:,.0f}")
-                    print(f"    - 计算: ({total_price_increase:.4f} / {total_buy_vol_in_up_minutes:,.0f}) * 10000")
+                    print(f"--- [探针 ASM.{trade_date_str}] upward_distribution_efficacy (高频) ---")
+                    print(f"    - 原料: 上涨中的主动卖量(派发)={distribution_vol:,.0f}, 上涨中的主动买量(驱动)={driving_vol:,.0f}")
+                    print(f"    - 计算: {distribution_vol:,.0f} / {driving_vol:,.0f}")
                     print(f"    -> 结果: {efficacy:.4f}")
         # 2. 下行吸收效率 (Downward Absorption Efficacy)
-        # 修改代码行：增加 vol_sell > vol_buy 的筛选条件，进行对称的精确归因
         down_minutes = group[(group['price_change'] < 0) & (group['vol_sell'] > group['vol_buy'])]
         down_minutes_ticks = tick_df[tick_df.index.floor('T').isin(down_minutes.index)]
         if not down_minutes_ticks.empty:
