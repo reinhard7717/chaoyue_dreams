@@ -1030,11 +1030,17 @@ class AdvancedFundFlowMetricsService:
             metrics['buy_quote_exhaustion_rate'] = np.nan; metrics['sell_quote_exhaustion_rate'] = np.nan
         return metrics
 
-    def _calculate_opening_battle_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_opening_battle_metrics(self, context: dict) -> dict:
         """
-        【V47.0 · 模块化重构版】
-        新增方法: 计算开盘战役结果指标。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        intraday_data = context['intraday_data']
+        hf_analysis_df = context['hf_analysis_df']
+        common_data = context['common_data']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         from datetime import time
         import numpy as np
         metrics = {}
@@ -1062,12 +1068,18 @@ class AdvancedFundFlowMetricsService:
                         metrics['opening_battle_result'] = np.sign(price_gain) * np.sqrt(abs(price_gain)) * (1 + mf_power) * 100
         return metrics
 
-    def _calculate_shadow_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool, hf_features: dict) -> dict:
+    def _calculate_shadow_metrics(self, context: dict) -> dict:
         """
-        【V62.2 · 预处理全面注入】
-        - 核心重构: 移除内部对主力交易的重复过滤，转而直接使用上游传入的 `hf_features['mf_trades']`
-                     并在此基础上筛选出位于影线区的主力交易，提升计算效率。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        intraday_data = context['intraday_data']
+        hf_analysis_df = context['hf_analysis_df']
+        common_data = context['common_data']
+        hf_features = context['hf_features']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         import numpy as np
         metrics = {}
         day_open, day_close = common_data['day_open'], common_data['day_close']
@@ -1080,7 +1092,6 @@ class AdvancedFundFlowMetricsService:
                 if not hf_analysis_df.empty:
                     hf_shadow_zone = hf_analysis_df[hf_analysis_df['price'] < body_low]
                     if not hf_shadow_zone.empty:
-                        # 修改代码块：使用预处理的 mf_trades 进行筛选
                         mf_trades = hf_features['mf_trades']
                         mf_trades_in_shadow = mf_trades.loc[mf_trades.index.intersection(hf_shadow_zone.index)]
                         mf_buy_vol_in_shadow = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'B']['volume'].sum()
@@ -1109,7 +1120,6 @@ class AdvancedFundFlowMetricsService:
                 if not hf_analysis_df.empty:
                     hf_shadow_zone = hf_analysis_df[hf_analysis_df['price'] > body_high]
                     if not hf_shadow_zone.empty:
-                        # 修改代码块：使用预处理的 mf_trades 进行筛选
                         mf_trades = hf_features['mf_trades']
                         mf_trades_in_shadow = mf_trades.loc[mf_trades.index.intersection(hf_shadow_zone.index)]
                         mf_buy_vol_in_shadow = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'B']['volume'].sum()
@@ -1133,12 +1143,18 @@ class AdvancedFundFlowMetricsService:
                         metrics['upper_shadow_selling_pressure'] = (mf_sell_in_shadow / upper_shadow_df['vol_shares'].sum())
         return metrics
 
-    def _calculate_dip_rally_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool, hf_features: dict) -> dict:
+    def _calculate_dip_rally_metrics(self, context: dict) -> dict:
         """
-        【V62.2 · 预处理全面注入】
-        - 核心重构: 移除内部对主力交易的重复过滤，转而直接使用上游传入的 `hf_features['mf_trades']`
-                     进行后续的区域筛选和计算，提升效率。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        intraday_data = context['intraday_data']
+        hf_analysis_df = context['hf_analysis_df']
+        common_data = context['common_data']
+        hf_features = context['hf_features']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         from scipy.signal import find_peaks
         from datetime import time
         import numpy as np
@@ -1159,7 +1175,6 @@ class AdvancedFundFlowMetricsService:
                     OffensiveOFI_Component = offensive_ofi / total_abs_ofi_day if total_abs_ofi_day > 0 else 0.0
                     mf_buy_cost_in_dip = (absorption_zone_hf['price'] * absorption_zone_hf['main_force_ofi'].clip(lower=0)).sum() / offensive_ofi if offensive_ofi > 0 else np.nan
                     CostAdvantage_Component = (daily_vwap - mf_buy_cost_in_dip) / atr if pd.notna(mf_buy_cost_in_dip) and pd.notna(atr) and atr > 0 else 0.0
-                    # 修改代码块：直接使用预处理的 mf_trades
                     mf_trades_hf = hf_features['mf_trades']
                     total_mf_buy_vol_day_hf = mf_trades_hf[mf_trades_hf['type'] == 'B']['volume'].sum()
                     mf_buy_vol_in_dip_hf = mf_trades_hf[(mf_trades_hf['type'] == 'B') & (mf_trades_hf['price'] < daily_vwap)]['volume'].sum()
@@ -1188,7 +1203,6 @@ class AdvancedFundFlowMetricsService:
                             price_change_in_rally = window_df['minute_vwap'].iloc[-1] - window_df['minute_vwap'].iloc[0]
                             total_rally_price_change += price_change_in_rally
                             total_vol_in_rally_hf = rally_hf_df['volume'].sum()
-                            # 修改代码块：使用预处理的 mf_trades 进行筛选
                             mf_trades_in_rally = mf_trades_hf.loc[mf_trades_hf.index.intersection(rally_hf_df.index)]
                             mf_buy_vol_in_rally_hf = mf_trades_in_rally[mf_trades_in_rally['type'] == 'B']['volume'].sum()
                             mf_sell_vol_in_rally_hf = mf_trades_in_rally[mf_trades_in_rally['type'] == 'S']['volume'].sum()
@@ -1248,14 +1262,17 @@ class AdvancedFundFlowMetricsService:
                     metrics['rally_distribution_pressure'] = (rally_dist_vol / total_rally_vol) * 100
         return metrics
 
-    def _calculate_reversal_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_reversal_metrics(self, context: dict) -> dict:
         """
-        【V47.6 · 反转力度稳健重构版】
-        - 核心重构: 将 reversal_power_index 的计算范式从脆弱的“乘法模型”升级为稳健的“加权加法模型”。
-        - 重构原因: 发现原公式中的 Exhaustion (衰竭) 组件在强趋势行情中经常失效为0，导致整个指标评判逻辑出现偏差。
-        - 核心实现: 废弃不可靠的 Exhaustion 组件，聚焦于“价格收复”和“主力反击”两大核心要素，
-                     采用 0.6 * PriceRecovery + 0.4 * CounterAttack 的加权求和方式，使指标更稳定、更可靠。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        intraday_data = context['intraday_data']
+        hf_analysis_df = context['hf_analysis_df']
+        common_data = context['common_data']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         import numpy as np
         metrics = {}
         day_open, day_close = common_data['day_open'], common_data['day_close']
@@ -1274,15 +1291,12 @@ class AdvancedFundFlowMetricsService:
                         if not reversal_phase_hf.empty:
                             turn_point_price = intraday_data.iloc[turn_point_idx]['low'] if is_v_shape else intraday_data.iloc[turn_point_idx]['high']
                             PriceRecovery_Component = abs(day_close - turn_point_price) / day_range
-                            # 修改代码块：移除 Exhaustion_Component 的计算
                             reversal_ofi = reversal_phase_hf['main_force_ofi']
                             CounterAttack_Component = np.tanh(reversal_ofi.sum() / daily_total_volume)
-                            # 修改代码块：采用新的加权加法模型
                             power_score = (0.6 * PriceRecovery_Component + 0.4 * CounterAttack_Component)
                             metrics['reversal_power_index'] = power_score * 100
                             if enable_probe and is_target_date:
                                 print(f"  [探针] reversal_power_index (高频-V型反转) 计算:")
-                                # 修改代码块：更新探针输出
                                 print(f"    - PriceRecovery: {PriceRecovery_Component:.4f} (权重 0.6), CounterAttack: {CounterAttack_Component:.4f} (权重 0.4)")
                                 print(f"    -> Final Score: {metrics['reversal_power_index']:.2f}")
                     else:
@@ -1295,17 +1309,21 @@ class AdvancedFundFlowMetricsService:
                             vol_shift = np.log1p(vol_reversal / vol_initial)
                             reversal_mf_net_vol = reversal_phase['main_force_net_vol'].sum()
                             reversal_conviction = reversal_mf_net_vol / vol_reversal if vol_reversal > 0 else 0
-                            # 保持分钟级数据的乘法逻辑，因为它更依赖于成交量 shift
                             power_score = price_recovery * vol_shift * reversal_conviction
                             metrics['reversal_power_index'] = power_score if is_v_shape else -power_score
         return metrics
 
-    def _calculate_closing_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_closing_metrics(self, context: dict) -> dict:
         """
-        【V47.1 · 类型修复版】
-        - 核心修复: 修正了在筛选14:57之前的高频数据时，因直接比较 DatetimeIndex 与 time 对象导致的 TypeError。
-                     通过使用 .index.time 访问器，确保比较的是两个同为时间类型的对象。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        intraday_data = context['intraday_data']
+        hf_analysis_df = context['hf_analysis_df']
+        common_data = context['common_data']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         from datetime import time
         import numpy as np
         metrics = {}
@@ -1320,7 +1338,6 @@ class AdvancedFundFlowMetricsService:
                 auction_vol = auction_df['vol_shares'].sum()
                 VolumeAnomaly = np.log1p((auction_vol / 3) / avg_minute_vol) if avg_minute_vol > 0 else 0.0
                 if not hf_analysis_df.empty:
-                    # 使用 .index.time 提取时间部分进行比较，修复TypeError
                     pre_auction_df = hf_analysis_df[hf_analysis_df.index.time < time(14, 57)]
                     if not pre_auction_df.empty:
                         pre_auction_snapshot = pre_auction_df.iloc[-1]
@@ -1363,11 +1380,17 @@ class AdvancedFundFlowMetricsService:
                             metrics['pre_closing_posturing'] = (0.6 * price_posture + 0.4 * force_posture) * 100
         return metrics
 
-    def _calculate_hidden_accumulation_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_hidden_accumulation_metrics(self, context: dict) -> dict:
         """
-        【V47.0 · 模块化重构版】
-        新增方法: 计算隐蔽吸筹强度指标。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        intraday_data = context['intraday_data']
+        hf_analysis_df = context['hf_analysis_df']
+        common_data = context['common_data']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         import numpy as np
         metrics = {}
         daily_vwap = common_data['daily_vwap']
@@ -1399,12 +1422,14 @@ class AdvancedFundFlowMetricsService:
                     metrics['hidden_accumulation_intensity'] = (mf_net_buy_on_dip / total_vol_dip) * 100
         return metrics
 
-    def _calculate_vwap_related_metrics(self, intraday_data: pd.DataFrame, common_data: dict) -> dict:
+    def _calculate_vwap_related_metrics(self, context: dict) -> dict:
         """
-        【V52.0 · VWAP引力穿透版】
-        - 核心重构: 移除了 vwap_control_strength 的计算逻辑，其功能已被新的、基于微观结构的高频化方法
-                     _calculate_vwap_control_metrics 接管。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        intraday_data = context['intraday_data']
+        common_data = context['common_data']
         import numpy as np
         import pandas as pd
         metrics = {}
@@ -1412,7 +1437,6 @@ class AdvancedFundFlowMetricsService:
         daily_total_volume = common_data['daily_total_volume']
         atr = common_data['atr']
         if pd.notna(daily_vwap) and daily_total_volume > 0 and pd.notna(atr) and atr > 0 and 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns and 'main_force_net_vol' in intraday_data.columns:
-            # 修改代码块：移除 vwap_control_strength 的计算逻辑
             price_dev_series = intraday_data['minute_vwap'] - daily_vwap
             mf_net_flow_series = intraday_data['main_force_net_vol']
             if price_dev_series.var() != 0 and mf_net_flow_series.var() != 0 and len(price_dev_series) > 1:
@@ -1426,15 +1450,17 @@ class AdvancedFundFlowMetricsService:
                 metrics['vwap_structure_skew'] = (daily_vwap - twap) / twap * 100
         return metrics
 
-    def _calculate_vwap_control_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_vwap_control_metrics(self, context: dict) -> dict:
         """
-        【V52.0 · VWAP引力穿透版】(新增方法)
-        - 核心升级: 将 vwap_control_strength 从衡量“偏离结果”的宏观指标，升维为衡量“锚定过程”的微观指标。
-        - 升级原因: 洞察主力维持VWAP稳定的核心操盘能力，而不是简单评估价格偏离度。
-        - 核心实现:
-          - 高频路径: 定义“VWAP引力区”，精确计算主力OFI对市场OFI的吸收率，并以成交量占比加权。
-          - 降级路径: 沿用原有的、基于分钟线偏离度的宏观算法作为备用。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        intraday_data = context['intraday_data']
+        hf_analysis_df = context['hf_analysis_df']
+        common_data = context['common_data']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         import numpy as np
         import pandas as pd
         metrics = {'vwap_control_strength': np.nan}
@@ -1444,7 +1470,6 @@ class AdvancedFundFlowMetricsService:
         if pd.isna(daily_vwap) or pd.isna(daily_total_volume) or daily_total_volume <= 0 or pd.isna(atr) or atr <= 0:
             return metrics
         if not hf_analysis_df.empty and 'ofi' in hf_analysis_df.columns and 'main_force_ofi' in hf_analysis_df.columns:
-            # 高频路径：计算VWAP引力
             gravity_band = 0.1 * atr
             upper_bound = daily_vwap + gravity_band
             lower_bound = daily_vwap - gravity_band
@@ -1452,7 +1477,6 @@ class AdvancedFundFlowMetricsService:
             if not zone_hf_df.empty:
                 market_pressure_ofi = zone_hf_df['ofi'].sum()
                 mf_counter_ofi = zone_hf_df['main_force_ofi'].sum()
-                # 核心逻辑：当主力OFI与市场OFI反向时，计算吸收量
                 absorbed_ofi = 0
                 if np.sign(market_pressure_ofi) * np.sign(mf_counter_ofi) < 0:
                     absorbed_ofi = min(abs(market_pressure_ofi), abs(mf_counter_ofi))
@@ -1467,45 +1491,39 @@ class AdvancedFundFlowMetricsService:
                     print(f"    - OFI吸收率: {absorption_ratio:.4f}, 成交量权重: {volume_significance:.4f}")
                     print(f"    -> 最终得分: {metrics['vwap_control_strength']:.4f}")
         else:
-            # 降级路径：沿用原有的基于分钟线偏离度的算法
             if 'minute_vwap' in intraday_data.columns and 'vol_shares' in intraday_data.columns:
                 price_deviation_value = (intraday_data['minute_vwap'] - daily_vwap) * intraday_data['vol_shares']
-                # 注意：原公式是负相关的，偏离越大，控制力越弱。我们取负值使其与其他指标方向一致（越高越好）
-                # 但为了保持指标原始含义（偏离度），我们暂时不取负值。
                 metrics['vwap_control_strength'] = price_deviation_value.sum() / (atr * daily_total_volume)
         return metrics
 
-    def _calculate_cmf_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_cmf_metrics(self, context: dict) -> dict:
         """
-        【V57.1 · CMF内核修正版】
-        - 核心修复: 修复了因引用不存在的 `main_force_volume` 字段而导致的 `KeyError`。
-        - 升级原因: hf_analysis_df 中不存在逐笔主力成交量字段。
-        - 核心实现: 使用逻辑上更严谨、且数据中实际存在的 `main_force_ofi.abs()` 作为计算主力高保真CMF的成交量权重。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        intraday_data = context['intraday_data']
+        hf_analysis_df = context['hf_analysis_df']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         import numpy as np
         metrics = {}
         if not hf_analysis_df.empty and 'price' in hf_analysis_df.columns and 'main_force_ofi' in hf_analysis_df.columns:
-            # 高频路径
             df = hf_analysis_df.copy()
-            window = 120  # 使用120个tick的滚动窗口，大致模拟1分钟
+            window = 120
             rolling_high = df['price'].rolling(window=window, min_periods=2).max()
             rolling_low = df['price'].rolling(window=window, min_periods=2).min()
             price_range = rolling_high - rolling_low
-            # 使用 np.where 避免除以零
             money_flow_multiplier = np.where(
                 price_range > 0,
                 ((df['price'] - rolling_low) - (rolling_high - df['price'])) / price_range,
                 0
             )
-            # 全市场CMF
             money_flow_volume = money_flow_multiplier * df['volume']
             total_volume = df['volume'].sum()
             if total_volume > 0:
                 metrics['holistic_cmf'] = money_flow_volume.sum() / total_volume
-            # 主力CMF
-            # 使用 main_force_ofi.abs() 作为主力成交量权重
             mf_money_flow_volume = money_flow_multiplier * df['main_force_ofi'].abs()
-            # 使用 main_force_ofi.abs() 的总和作为总主力成交量
             total_mf_volume = df['main_force_ofi'].abs().sum()
             if total_mf_volume > 0:
                 metrics['main_force_cmf'] = mf_money_flow_volume.sum() / total_mf_volume
@@ -1514,7 +1532,6 @@ class AdvancedFundFlowMetricsService:
                 print(f"    - 全市场高保真CMF: {metrics.get('holistic_cmf', np.nan):.4f}")
                 print(f"    - 主力高保真CMF: {metrics.get('main_force_cmf', np.nan):.4f}")
         else:
-            # 降级路径
             if 'high' in intraday_data.columns and 'low' in intraday_data.columns and 'close' in intraday_data.columns and 'vol_shares' in intraday_data.columns:
                 price_range = intraday_data['high'] - intraday_data['low']
                 mfm = ((intraday_data['close'] - intraday_data['low']) - (intraday_data['high'] - intraday_data['close'])) / price_range
@@ -1536,12 +1553,18 @@ class AdvancedFundFlowMetricsService:
             metrics['cmf_divergence_score'] = (metrics['main_force_cmf'] - metrics['holistic_cmf']) * 100
         return metrics
 
-    def _calculate_vpoc_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool, hf_features: dict) -> dict:
+    def _calculate_vpoc_metrics(self, context: dict) -> dict:
         """
-        【V62.1 · 预处理内核扩展】
-        - 核心重构: 移除内部对主力交易的过滤操作，转而从注入的 `hf_features` 字典中
-                     直接获取预处理好的 `mf_trades` DataFrame。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        intraday_data = context['intraday_data']
+        hf_analysis_df = context['hf_analysis_df']
+        common_data = context['common_data']
+        hf_features = context['hf_features']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         import pandas as pd
         import numpy as np
         metrics = {}
@@ -1557,7 +1580,6 @@ class AdvancedFundFlowMetricsService:
             return vpoc_interval.mid, vpoc_interval
         if not hf_analysis_df.empty:
             global_vpoc_price, global_vpoc_interval = _calculate_vpoc_from_ticks(hf_analysis_df, 'volume', 'price')
-            # 修改代码行：直接使用预处理的 mf_trades
             mf_trades = hf_features['mf_trades']
             mf_vpoc, _ = _calculate_vpoc_from_ticks(mf_trades, 'volume', 'price')
             metrics['main_force_vpoc'] = mf_vpoc
@@ -1605,18 +1627,18 @@ class AdvancedFundFlowMetricsService:
                             metrics['mf_vpoc_premium'] = (mf_vpoc / global_vpoc_price - 1) * 100
         return metrics
 
-    def _calculate_liquidity_swap_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_liquidity_swap_metrics(self, context: dict) -> dict:
         """
-        【V56.0 · 流动性交换穿透版】
-        - 核心升级: 废弃基于分钟成交量的滚动相关性，引入基于逐笔OFI的直接相关性计算，实现对主力与散户盘中博弈意图的精确量化。
-        - 升级原因: 分钟级数据会平滑掉瞬时的筹码交换行为。逐笔OFI能捕捉到最纯粹的、瞬时的“意图对冲”。
-        - 核心实现:
-          - 高频路径: 直接计算全天 main_force_ofi 与 retail_ofi 序列的相关系数。
-          - 降级路径: 保留原有的基于分钟净成交量的滚动相关性计算。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        intraday_data = context['intraday_data']
+        hf_analysis_df = context['hf_analysis_df']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         metrics = {}
         if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns and 'retail_ofi' in hf_analysis_df.columns:
-            # 高频路径
             mf_ofi_series = hf_analysis_df['main_force_ofi']
             retail_ofi_series = hf_analysis_df['retail_ofi']
             if mf_ofi_series.var() > 0 and retail_ofi_series.var() > 0:
@@ -1627,7 +1649,6 @@ class AdvancedFundFlowMetricsService:
                     print(f"    - 核心变量: Corr(main_force_ofi, retail_ofi)")
                     print(f"    -> 最终得分 (相关系数): {correlation:.4f}")
         else:
-            # 降级路径
             if 'main_force_net_vol' in intraday_data.columns and 'retail_net_vol' in intraday_data.columns:
                 mf_net_series = intraday_data['main_force_net_vol']
                 retail_net_series = intraday_data['retail_net_vol']
@@ -1636,14 +1657,18 @@ class AdvancedFundFlowMetricsService:
                     metrics['mf_retail_liquidity_swap_corr'] = rolling_corr.mean()
         return metrics
 
-    def _calculate_retail_sentiment_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_retail_sentiment_metrics(self, context: dict) -> dict:
         """
-        【V48.7 · 健壮性修复版】
-        - 核心升级: 修复在分钟级降级逻辑中，因笔误使用错误的列名 'net_vol' 替代 'retail_net_vol' 导致的 KeyError。
-        - 升级原因: 线上任务在无高频数据的场景下执行降级逻辑时发生崩溃。
-        - 核心实现:
-          - 统一在降级逻辑中对散户净成交量的引用为 'retail_net_vol'。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        intraday_data = context['intraday_data']
+        hf_analysis_df = context['hf_analysis_df']
+        daily_data = context['daily_data']
+        common_data = context['common_data']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         from datetime import time
         import pandas as pd
         import numpy as np
@@ -1654,7 +1679,6 @@ class AdvancedFundFlowMetricsService:
         day_high, day_low = common_data['day_high'], common_data['day_low']
         atr = common_data['atr']
         if not hf_analysis_df.empty and pd.notna(atr) and atr > 0:
-            # --- FOMO Index Calculation ---
             total_weighted_fomo_score = 0
             total_fomo_volume = 0
             max_fomo_event_info = {'score': -1}
@@ -1694,7 +1718,6 @@ class AdvancedFundFlowMetricsService:
                     if max_fomo_event_info['score'] > -1:
                         print(f"      - [最强FOMO事件分解] Premium: {max_fomo_event_info['premium']:.2f}, Aggression: {max_fomo_event_info['aggression']:.2f}, Spike: {max_fomo_event_info['spike']:.2f}")
                     print(f"    -> Final Score: {metrics['retail_fomo_premium_index']:.2f}")
-            # --- Panic Index Calculation (Symmetrical Logic) ---
             total_weighted_panic_score = 0
             total_panic_volume = 0
             max_panic_event_info = {'score': -1}
@@ -1735,12 +1758,10 @@ class AdvancedFundFlowMetricsService:
                         print(f"      - [最强恐慌事件分解] Discount: {max_panic_event_info['discount']:.2f}, Aggression: {max_panic_event_info['aggression']:.2f}, Spike: {max_panic_event_info['spike']:.2f}")
                     print(f"    -> Final Score: {metrics['retail_panic_surrender_index']:.2f}")
         else:
-            # --- Fallback Logic for both metrics ---
             continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
             if pd.notna(day_high) and pd.notna(day_low):
                 day_range = day_high - day_low
                 if day_range > 0:
-                    # FOMO Fallback
                     fomo_zone_threshold = day_low + 0.75 * day_range
                     fomo_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] > fomo_zone_threshold]
                     if not fomo_zone_df.empty and 'retail_net_vol' in fomo_zone_df.columns and 'retail_buy_vol' in continuous_trading_df.columns and 'minute_vwap' in fomo_zone_df.columns:
@@ -1754,17 +1775,14 @@ class AdvancedFundFlowMetricsService:
                                 if pd.notna(cost_mf_sell) and cost_mf_sell > 0:
                                     premium = (cost_fomo / cost_mf_sell - 1)
                                     metrics['retail_fomo_premium_index'] = premium * (fomo_vol / total_retail_buy_vol) * 100
-                    # Panic Fallback
                     panic_zone_threshold = day_low + 0.25 * day_range
                     panic_zone_df = continuous_trading_df[continuous_trading_df['minute_vwap'] < panic_zone_threshold]
                     if not panic_zone_df.empty and 'retail_net_vol' in panic_zone_df.columns and 'retail_sell_vol' in continuous_trading_df.columns and 'minute_vwap' in panic_zone_df.columns:
                         panic_retail_df = panic_zone_df[panic_zone_df['retail_net_vol'] < 0]
                         if not panic_retail_df.empty:
-                            # 修复笔误，使用 'retail_net_vol'
                             panic_vol = abs(panic_retail_df['retail_net_vol'].sum())
                             total_retail_sell_vol = continuous_trading_df[continuous_trading_df['retail_sell_vol'] > 0]['retail_sell_vol'].sum()
                             if panic_vol > 0 and total_retail_sell_vol > 0:
-                                # 修复笔误，使用 'retail_net_vol'
                                 cost_panic = (panic_retail_df['minute_vwap'] * abs(panic_retail_df['retail_net_vol'])).sum() / panic_vol
                                 cost_mf_buy = daily_data.get('avg_cost_main_buy')
                                 if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
@@ -1772,18 +1790,17 @@ class AdvancedFundFlowMetricsService:
                                     metrics['retail_panic_surrender_index'] = discount * (panic_vol / total_retail_sell_vol) * 100
         return metrics
 
-    def _calculate_panic_cascade_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_panic_cascade_metrics(self, context: dict) -> dict:
         """
-        【V48.0 · 恐慌微观解构版】
-        - 核心升级: 重构 panic_selling_cascade 指标，从分钟级主力行为升级为高频微观结构解构。
-        - 升级原因: 原有分钟级指标无法捕捉恐慌的本质——流动性真空与散户情绪崩溃的共振。
-        - 核心实现:
-          - 高频路径: 在下跌波段中，综合评估三个核心要素：
-            1. 流动性真空 (LiquidityVacuum): 通过买卖盘深度比量化。
-            2. 散户投降 (RetailCapitulation): 通过散户主动性卖出量占比量化。
-            3. 价格冲击 (PriceImpact): 通过ATR标准化的价格跌幅量化。
-          - 降级路径: 若无高频数据，则回退至原有的分钟级主力净卖出占比逻辑。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        intraday_data = context['intraday_data']
+        hf_analysis_df = context['hf_analysis_df']
+        common_data = context['common_data']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         from scipy.signal import find_peaks
         from datetime import time
         import numpy as np
@@ -1855,12 +1872,17 @@ class AdvancedFundFlowMetricsService:
                     metrics['panic_selling_cascade'] = (panic_vol / total_panic_vol) * 100
         return metrics
 
-    def _calculate_misc_minute_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_misc_minute_metrics(self, context: dict) -> dict:
         """
-        【V60.0 · 正名计划】
-        - 核心精简: 移除 microstructure_efficiency_index 的计算逻辑，因其与 ofi_price_impact_factor 功能完全重复，统一保留后者。
-        - 核心正名: 将 trend_conviction_ratio 正名为 trend_alignment_index，使其更精确地反映“主力意图与微观趋势的同向性”这一核心逻辑。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        intraday_data = context['intraday_data']
+        hf_analysis_df = context['hf_analysis_df']
+        common_data = context['common_data']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         from datetime import time
         import numpy as np
         import pandas as pd
@@ -1921,7 +1943,6 @@ class AdvancedFundFlowMetricsService:
                     avg_down_speed = down_price_change / len(down_minutes) if len(down_minutes) > 0 else 0
                     if avg_up_speed > 0 and avg_down_speed > 0:
                         metrics['volatility_asymmetry_index'] = np.log(avg_up_speed / avg_down_speed)
-        # 修改代码块：移除整个 microstructure_efficiency_index 的计算逻辑
         return metrics
 
     def _calculate_misc_daily_metrics(self, context: dict) -> dict:
@@ -1944,15 +1965,17 @@ class AdvancedFundFlowMetricsService:
             metrics['inferred_active_order_size'] = np.nan
         return metrics
 
-    def _calculate_flow_efficiency_metrics(self, hf_analysis_df: pd.DataFrame, intraday_data: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_flow_efficiency_metrics(self, context: dict) -> dict:
         """
-        【V50.0 · 流量效率穿透版】(新增方法)
-        - 核心升级: 新增方法，将 flow_efficiency_index 从宏观日线指标升维为微观结构效率指标。
-        - 升级原因: 废弃将日内所有资金流模糊地与日终涨跌幅关联的粗糙算法，转而精确衡量“单位资金意图”对“即时价格”的撬动能力。
-        - 核心实现:
-          - 高频路径: 计算“单位主力OFI”引发的“中间价变动”的成交量加权平均值，并进行归一化，得到纯粹的效率系数。
-          - 降级路径: 使用分钟级“主力净成交量”和“价格变动”作为替代进行估算。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        hf_analysis_df = context['hf_analysis_df']
+        intraday_data = context['intraday_data']
+        common_data = context['common_data']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         import numpy as np
         import pandas as pd
         metrics = {'flow_efficiency_index': np.nan}
@@ -1962,15 +1985,12 @@ class AdvancedFundFlowMetricsService:
             return metrics
         efficiency_coeff = np.nan
         if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns and 'mid_price_change' in hf_analysis_df.columns:
-            # 高频路径
             df = hf_analysis_df[hf_analysis_df['main_force_ofi'] != 0].copy()
             if not df.empty:
                 df['price_change_per_ofi'] = df['mid_price_change'] / df['main_force_ofi']
                 weights = df['main_force_ofi'].abs()
                 if weights.sum() > 0:
                     efficiency_coeff = np.average(df['price_change_per_ofi'], weights=weights)
-                    # 归一化：将系数转换为可比的指数
-                    # 含义：当日主力平均每单位OFI撬动的价格变化，与当日平均每单位成交量对应的价格波幅(ATR)的比值
                     metrics['flow_efficiency_index'] = (efficiency_coeff * daily_total_volume) / atr
                     if enable_probe and is_target_date:
                         print(f"  [探针] flow_efficiency_index (高频-流量效率) 计算:")
@@ -1978,7 +1998,6 @@ class AdvancedFundFlowMetricsService:
                         print(f"    - (系数 * 总成交量) / ATR = ({efficiency_coeff:.8f} * {daily_total_volume:,.0f}) / {atr:.4f}")
                         print(f"    -> 最终得分: {metrics['flow_efficiency_index']:.4f}")
         else:
-            # 降级路径
             if 'main_force_net_vol' in intraday_data.columns and 'close' in intraday_data.columns:
                 df = intraday_data.copy()
                 df['price_change'] = df['close'].diff()
@@ -2347,18 +2366,21 @@ class AdvancedFundFlowMetricsService:
             metrics['main_force_execution_alpha'] = buy_alpha
         return metrics
 
-    def _calculate_wash_trade_metrics(self, hf_analysis_df: pd.DataFrame, is_target_date: bool, enable_probe: bool, hf_features: dict) -> dict:
+    def _calculate_wash_trade_metrics(self, context: dict) -> dict:
         """
-        【V62.1 · 预处理内核扩展】
-        - 核心重构: 移除内部对主力交易的筛选和成交量总计，转而从注入的 `hf_features` 字典中
-                     直接获取 `mf_trades` 和 `total_mf_volume`。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        hf_analysis_df = context['hf_analysis_df']
+        hf_features = context['hf_features']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         import numpy as np
         import pandas as pd
         metrics = {'wash_trade_intensity': np.nan}
         if hf_analysis_df.empty:
             return metrics
-        # 修改代码块：直接使用预处理的特征
         mf_trades = hf_features['mf_trades']
         total_mf_volume = hf_features['total_mf_vol']
         if mf_trades.empty or total_mf_volume == 0:
@@ -2390,15 +2412,17 @@ class AdvancedFundFlowMetricsService:
             print(f"    -> 最终得分: {metrics['wash_trade_intensity']:.4f}%")
         return metrics
 
-    def _calculate_closing_strength_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_closing_strength_metrics(self, context: dict) -> dict:
         """
-        【V59.0 · 收盘强度穿透版】
-        - 核心升级: 新增独立方法，并将原 closing_price_deviation_score 升维为 closing_strength_index。
-        - 升级原因: 原指标的力量因子基于分钟成交量，无法体现主力意图的演化过程。
-        - 核心实现:
-          - 高频路径: 引入基于“主力累积OFI最终值 / 主力全天绝对OFI总和”的“累积意图因子”，穿透收盘价的形成过程。
-          - 降级路径: 保留原有的基于分钟净成交量的计算逻辑。
+        【V65.1 · 上下文全面应用】
+        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
         """
+        # 新增代码块：从 context 解构所需变量
+        intraday_data = context['intraday_data']
+        hf_analysis_df = context['hf_analysis_df']
+        common_data = context['common_data']
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         import numpy as np
         metrics = {}
         day_high, day_low, day_close = common_data['day_high'], common_data['day_low'], common_data['day_close']
@@ -2412,13 +2436,11 @@ class AdvancedFundFlowMetricsService:
         value_dev_factor = np.tanh((day_close - daily_vwap) / atr)
         force_factor = 0.0
         if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns:
-            # 高频路径
             total_abs_mf_ofi = hf_analysis_df['main_force_ofi'].abs().sum()
             if total_abs_mf_ofi > 0:
                 final_cumulative_mf_ofi = hf_analysis_df['main_force_ofi'].sum()
                 force_factor = final_cumulative_mf_ofi / total_abs_mf_ofi
         else:
-            # 降级路径
             daily_total_volume = common_data.get('daily_total_volume', 0)
             if 'main_force_net_vol' in intraday_data.columns and daily_total_volume > 0:
                 force_factor = intraday_data['main_force_net_vol'].sum() / daily_total_volume
