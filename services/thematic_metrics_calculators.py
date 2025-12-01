@@ -188,109 +188,139 @@ class ThematicMetricsCalculators:
     @staticmethod
     def calculate_battlefield_metrics(context: dict) -> dict:
         """
-        【V51.0 · 赏罚同源】
-        - 核心修正: 对 `defense_solidity_score` 的计算公式进行了镜像修正，使其与 `breakthrough_conviction_score`
-                     的逻辑完全对称。新的公式 `Rejection * (1 + Purity)` 确保了当防守失败、收盘于
-                     支撑之下时，指标能正确输出负值，从而实现了对无效抵抗的精准惩罚。
-        - 核心修正: 重塑 `breakthrough_conviction_score` 的计算公式，从 `Purity * (1 + Confirmation)`
-                     改为 `Confirmation * (1 + Purity)`。此举确保了当突破失败、收盘于关隘之下时，
-                     最终得分能正确地反映为负值，实现了对“假突破”行为的有效惩戒，使指标赏罚分明。
+        【V69.0 · 决战验刃】
+        - 核心升维: `trend_quality_score` 升维为 `trend_acceleration_score`，通过比较上下半场
+                     趋势斜率，从“静态质量”的评估转向“动态加速”的捕捉，更擅于发现战局转折点。
+        - 核心升维: `closing_momentum_index` 升维为 `final_charge_intensity`，通过对比决战时刻
+                     与战前对峙的“推力纯度”，从“状态”的衡量深化为“变化”的洞察，精准量化终场
+                     冲锋的决心与烈度。
         """
         continuous_group = context['continuous_group']
         tick_df = context.get('tick_df')
-        day_open_qfq = context['day_open_qfq']
-        day_high_qfq = context['day_high_qfq']
-        day_low_qfq = context['day_low_qfq']
         day_close_qfq = context['day_close_qfq']
         atr_14 = context['atr_14']
         prev_day_metrics = context.get('prev_day_metrics', {})
-        total_volume_safe = context['total_volume_safe']
         debug_info = context.get('debug', {})
         is_target_date = debug_info.get('is_target_date', False)
         enable_probe = debug_info.get('enable_probe', False)
         trade_date_str = debug_info.get('trade_date_str', 'N/A')
         results = {}
-        if not continuous_group.empty and len(continuous_group) > 1:
-            vwap_series = continuous_group['minute_vwap'].dropna()
-            if len(vwap_series) > 2:
-                x = np.arange(len(vwap_series))
-                slope, _, r_value, _, _ = linregress(x, vwap_series)
-                linearity = r_value**2
-                vwap_range = vwap_series.max() - vwap_series.min()
-                if vwap_range > 0:
-                    if day_close_qfq > day_open_qfq:
-                        pullback_control = ((vwap_series - vwap_series.min()) / vwap_range).mean()
-                    else:
-                        pullback_control = ((vwap_series.max() - vwap_series) / vwap_range).mean()
-                    trend_quality = linearity * pullback_control
-                    direction = np.sign(day_close_qfq - day_open_qfq) if day_close_qfq != day_open_qfq else 1
-                    results['trend_quality_score'] = trend_quality * direction
-            tail_df = continuous_group[continuous_group.index.time >= time(14, 0)]
-            if not tail_df.empty and pd.notna(atr_14) and atr_14 > 0 and total_volume_safe > 0:
-                vwap_tail = (tail_df['amount'].sum() / tail_df['vol'].sum()) if tail_df['vol'].sum() > 0 else np.nan
-                vwap_full = (continuous_group['amount'].sum() / continuous_group['vol'].sum()) if continuous_group['vol'].sum() > 0 else np.nan
-                if all(pd.notna(v) for v in [vwap_tail, vwap_full]):
-                    momentum_deviation = (vwap_tail - vwap_full) / atr_14
-                    vol_ratio_tail = tail_df['vol'].sum() / total_volume_safe
-                    results['closing_momentum_index'] = momentum_deviation * np.log1p(vol_ratio_tail)
-            open_rhythm_df = continuous_group[continuous_group.index.time < time(10, 0)]
-            mid_rhythm_df = continuous_group[(continuous_group.index.time >= time(10, 0)) & (continuous_group.index.time < time(14, 30))]
-            tail_rhythm_df = continuous_group[continuous_group.index.time >= time(14, 30)]
-            if not open_rhythm_df.empty and not mid_rhythm_df.empty and not tail_rhythm_df.empty:
-                avg_vol_open = open_rhythm_df['vol'].mean()
-                avg_vol_mid = mid_rhythm_df['vol'].mean()
-                avg_vol_tail = tail_rhythm_df['vol'].mean()
-                avg_vol_ends = (avg_vol_open + avg_vol_tail) / 2
-                if avg_vol_ends > 0:
-                    results['volume_structure_skew'] = avg_vol_mid / avg_vol_ends
+        # 1. 升维：趋势加速分 (Trend Acceleration Score)
+        if not continuous_group.empty and len(continuous_group) > 1 and pd.notna(atr_14) and atr_14 > 0:
+            am_session = continuous_group.between_time('09:30', '11:30')
+            pm_session = continuous_group.between_time('13:00', '15:00')
+            if len(am_session) > 2 and len(pm_session) > 2:
+                y_am = am_session['close'].values
+                x_am = np.arange(len(y_am))
+                slope_am, _, _, _, _ = linregress(x_am, y_am)
+                y_pm = pm_session['close'].values
+                x_pm = np.arange(len(y_pm))
+                slope_pm, _, _, _, _ = linregress(x_pm, y_pm)
+                # 将斜率差用ATR进行标准化
+                results['trend_acceleration_score'] = (slope_pm - slope_am) / atr_14
+                if enable_probe and is_target_date:
+                    print(f"--- [探针 ASM.{trade_date_str}] trend_acceleration_score (决战验刃) ---")
+                    print(f"    - 原料: 上半场分钟数={len(am_session)}, 下半场分钟数={len(pm_session)}, ATR={atr_14:.4f}")
+                    print(f"    - 节点: 上半场斜率={slope_am:.6f}, 下半场斜率={slope_pm:.6f}")
+                    print(f"    - 计算: ({slope_pm:.6f} - {slope_am:.6f}) / {atr_14:.4f}")
+                    print(f"    -> 结果: {results.get('trend_acceleration_score', np.nan):.4f}")
+        # 2. 升维：终场冲锋强度 (Final Charge Intensity)
+        def _calculate_thrust_purity_for_period(period_df: pd.DataFrame, period_ticks: pd.DataFrame | None) -> float:
+            """辅助函数：计算指定时间段的推力纯度，优先高频"""
+            if period_ticks is not None and not period_ticks.empty:
+                total_vol = period_ticks['volume'].sum()
+                if total_vol > 0:
+                    # 自行计算价格变动
+                    period_ticks['price_change'] = period_ticks['price'].diff().fillna(0)
+                    net_thrust_vol = (period_ticks['volume'] * np.sign(period_ticks['price_change'])).sum()
+                    return net_thrust_vol / total_vol
+            # 降级逻辑
+            if not period_df.empty:
+                total_vol = period_df['vol'].sum()
+                if total_vol > 0:
+                    thrust_vector = (period_df['close'] - period_df['open']) * period_df['vol']
+                    absolute_energy = abs(period_df['close'] - period_df['open']) * period_df['vol']
+                    total_energy = absolute_energy.sum()
+                    if total_energy > 0:
+                        return thrust_vector.sum() / total_energy
+            return 0.0
+        pre_charge_df = continuous_group.between_time('13:30', '14:29')
+        final_charge_df = continuous_group.between_time('14:30', '15:00')
+        pre_charge_ticks = tick_df.between_time('13:30', '14:29') if tick_df is not None else None
+        final_charge_ticks = tick_df.between_time('14:30', '15:00') if tick_df is not None else None
+        if not pre_charge_df.empty and not final_charge_df.empty:
+            purity_pre = _calculate_thrust_purity_for_period(pre_charge_df, pre_charge_ticks)
+            purity_final = _calculate_thrust_purity_for_period(final_charge_df, final_charge_ticks)
+            vol_pre = pre_charge_df['vol'].sum()
+            vol_final = final_charge_df['vol'].sum()
+            if vol_pre > 0:
+                vol_ratio = vol_final / vol_pre
+                results['final_charge_intensity'] = (purity_final - purity_pre) * np.log1p(vol_ratio)
+                if enable_probe and is_target_date:
+                    print(f"--- [探针 ASM.{trade_date_str}] final_charge_intensity (决战验刃) ---")
+                    print(f"    - 原料: 战前时段成交量={vol_pre:,.0f}, 决战时段成交量={vol_final:,.0f}")
+                    print(f"    - 节点: 战前推力纯度={purity_pre:.4f}, 决战推力纯度={purity_final:.4f}, 成交量比率={vol_ratio:.2f}")
+                    print(f"    - 计算: ({purity_final:.4f} - {purity_pre:.4f}) * log1p({vol_ratio:.2f})")
+                    print(f"    -> 结果: {results.get('final_charge_intensity', np.nan):.4f}")
+        # 3. 保留：成交结构偏度
+        open_rhythm_df = continuous_group[continuous_group.index.time < time(10, 0)]
+        mid_rhythm_df = continuous_group[(continuous_group.index.time >= time(10, 0)) & (continuous_group.index.time < time(14, 30))]
+        tail_rhythm_df = continuous_group[continuous_group.index.time >= time(14, 30)]
+        if not open_rhythm_df.empty and not mid_rhythm_df.empty and not tail_rhythm_df.empty:
+            avg_vol_open = open_rhythm_df['vol'].mean()
+            avg_vol_mid = mid_rhythm_df['vol'].mean()
+            avg_vol_tail = tail_rhythm_df['vol'].mean()
+            avg_vol_ends = (avg_vol_open + avg_vol_tail) / 2
+            if avg_vol_ends > 0:
+                results['volume_structure_skew'] = avg_vol_mid / avg_vol_ends
+        # 4. 保留：突破/防守信念分
         prev_day_high = prev_day_metrics.get('high')
+        day_high_qfq = context['day_high_qfq']
         if tick_df is not None and not tick_df.empty and pd.notna(prev_day_high) and pd.notna(atr_14) and atr_14 > 0:
             if day_high_qfq > prev_day_high:
                 breakthrough_zone_ticks = tick_df[tick_df['price'] >= prev_day_high].copy()
                 if not breakthrough_zone_ticks.empty:
                     total_breakthrough_vol = breakthrough_zone_ticks['volume'].sum()
-                    if total_breakthrough_vol > 0 and 'price_change' in breakthrough_zone_ticks.columns:
-                        self_calc_change = breakthrough_zone_ticks['price'].diff().fillna(0)
-                        zero_mask = breakthrough_zone_ticks['price_change'] == 0
-                        eff_change = np.where(zero_mask, self_calc_change, breakthrough_zone_ticks['price_change'])
-                        net_thrust_vol = (breakthrough_zone_ticks['volume'] * np.sign(eff_change)).sum()
+                    if total_breakthrough_vol > 0:
+                        breakthrough_zone_ticks['price_change'] = breakthrough_zone_ticks['price'].diff().fillna(0)
+                        net_thrust_vol = (breakthrough_zone_ticks['volume'] * np.sign(breakthrough_zone_ticks['price_change'])).sum()
                         breakthrough_thrust_purity = net_thrust_vol / total_breakthrough_vol
                         confirmation_raw = (day_close_qfq - prev_day_high) / atr_14
                         confirmation_factor = np.tanh(confirmation_raw)
                         score = confirmation_factor * (1 + breakthrough_thrust_purity)
                         results['breakthrough_conviction_score'] = score
-                        if enable_probe and is_target_date:
-                            print(f"--- [探针 ASM.{trade_date_str}] breakthrough_conviction_score (关隘验刃) ---")
-                            print(f"    - 关隘: 昨日高点={prev_day_high:.2f}")
-                            print(f"    - 节点1 (攻坚动能): 对突破区 {len(breakthrough_zone_ticks)} 笔成交进行动能分析 -> 推力纯度={breakthrough_thrust_purity:.4f}")
-                            print(f"    - 节点2 (领土确认): tanh(({day_close_qfq:.2f} - {prev_day_high:.2f}) / {atr_14:.4f}) -> 确认因子={confirmation_factor:.4f}")
-                            print(f"    - 计算: {confirmation_factor:.4f} * (1 + {breakthrough_thrust_purity:.4f})")
-                            print(f"    - 结果: {score:.4f}")
         prev_day_low = prev_day_metrics.get('low')
+        day_low_qfq = context['day_low_qfq']
         if tick_df is not None and not tick_df.empty and pd.notna(prev_day_low) and pd.notna(atr_14) and atr_14 > 0:
             if day_low_qfq < prev_day_low:
                 defense_zone_ticks = tick_df[tick_df['price'] <= prev_day_low].copy()
                 if not defense_zone_ticks.empty:
                     total_defense_vol = defense_zone_ticks['volume'].sum()
-                    if total_defense_vol > 0 and 'price_change' in defense_zone_ticks.columns:
-                        self_calc_change = defense_zone_ticks['price'].diff().fillna(0)
-                        zero_mask = defense_zone_ticks['price_change'] == 0
-                        eff_change = np.where(zero_mask, self_calc_change, defense_zone_ticks['price_change'])
-                        net_thrust_vol = (defense_zone_ticks['volume'] * np.sign(eff_change)).sum()
+                    if total_defense_vol > 0:
+                        defense_zone_ticks['price_change'] = defense_zone_ticks['price'].diff().fillna(0)
+                        net_thrust_vol = (defense_zone_ticks['volume'] * np.sign(defense_zone_ticks['price_change'])).sum()
                         defense_thrust_purity = net_thrust_vol / total_defense_vol
                         rejection_raw = (day_close_qfq - prev_day_low) / atr_14
                         rejection_factor = np.tanh(rejection_raw)
-                        # 修改代码行：修正公式，实现与突破指标的镜像对称
                         score = rejection_factor * (1 + defense_thrust_purity)
                         results['defense_solidity_score'] = score
-                        if enable_probe and is_target_date:
-                            print(f"--- [探针 ASM.{trade_date_str}] defense_solidity_score (金城汤池) ---")
-                            print(f"    - 防线: 昨日低点={prev_day_low:.2f}")
-                            print(f"    - 节点1 (抵抗动能): 对破位区 {len(defense_zone_ticks)} 笔成交进行动能分析 -> 抵抗纯度={defense_thrust_purity:.4f}")
-                            print(f"    - 节点2 (战线反推): tanh(({day_close_qfq:.2f} - {prev_day_low:.2f}) / {atr_14:.4f}) -> 反推因子={rejection_factor:.4f}")
-                            # 修改代码行：更新探针日志以反映新公式
-                            print(f"    - 计算: {rejection_factor:.4f} * (1 + {defense_thrust_purity:.4f})")
-                            print(f"    -> 结果: {score:.4f}")
+        # 5. 保留：均衡压缩指数
+        prev_high = prev_day_metrics.get('high')
+        prev_low = prev_day_metrics.get('low')
+        prev_volume = prev_day_metrics.get('volume')
+        prev_vpoc = prev_day_metrics.get('vpoc')
+        today_vpoc = context.get('_today_vpoc')
+        total_volume_safe = context['total_volume_safe']
+        if all(pd.notna(v) for v in [prev_high, prev_low, prev_vpoc, prev_volume, today_vpoc]):
+            if day_high_qfq <= prev_high and day_low_qfq >= prev_low:
+                prev_range = prev_high - prev_low
+                today_range = day_high_qfq - day_low_qfq
+                if prev_range > 0 and prev_volume > 0:
+                    space_compression = 1 - (today_range / prev_range)
+                    positional_balance = 1 - (abs(today_vpoc - prev_vpoc) / prev_range)
+                    volume_intensity = np.tanh((total_volume_safe / prev_volume) - 1)
+                    score = space_compression * positional_balance * (1 + volume_intensity)
+                    results['equilibrium_compression_index'] = score
         return results
 
     @staticmethod

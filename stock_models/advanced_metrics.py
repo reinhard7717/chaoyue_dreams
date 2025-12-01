@@ -521,10 +521,11 @@ class AdvancedFundFlowMetrics_BJ(BaseAdvancedFundFlowMetrics):
 # 结构与行为高级指标模型
 class BaseAdvancedStructuralMetrics(models.Model):
     """
-    【V67.0 · 冲击验真】
-    - 核心升维: 将 `price_shock_factor` 升维为 `shock_conviction_score` (冲击置信度)。
-                 新指标不再只看结果，而是结合“路径效率”与“推力纯度”，对价格冲击的
-                 “质量”与“可持续性”进行深度验真。
+    【V69.0 · 决战验刃】
+    - 核心升维: 将 `trend_quality_score` 升维为 `trend_acceleration_score`，通过比较上下半场
+                 趋势斜率，精准捕捉战局的“加速”与“转折”。
+    - 核心升维: 将 `closing_momentum_index` 升维为 `final_charge_intensity`，通过对比决战
+                 时刻与战前对峙的“推力纯度”，深度量化终场冲锋的决心与烈度。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     ENERGY_DENSITY_METRICS = {
@@ -566,15 +567,15 @@ class BaseAdvancedStructuralMetrics(models.Model):
     DERIVATIVE_METRICS = {
         'price_thrust_divergence': '价格动能背离',
     }
-    # 修改代码块：重铸 FORWARD_LOOKING_METRICS 指标
     FORWARD_LOOKING_METRICS = {
         'volatility_expansion_ratio': '波动率扩张比',
         'shock_conviction_score': '冲击置信度',
         'auction_showdown_score': '收盘竞价摊牌分',
     }
+    # 修改代码块：重铸 ADVANCED_BATTLEFIELD_METRICS 指标
     ADVANCED_BATTLEFIELD_METRICS = {
-        'trend_quality_score': '趋势质量分',
-        'closing_momentum_index': '收盘动能指数',
+        'trend_acceleration_score': '趋势加速分',
+        'final_charge_intensity': '终场冲锋强度',
         'volume_structure_skew': '成交结构偏度',
         'breakthrough_conviction_score': '突破信念分',
         'defense_solidity_score': '防守稳固度',
@@ -632,10 +633,10 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'value_area_overlap_pct',
         'closing_acceptance_type',
         'volatility_expansion_ratio',
-        'shock_conviction_score', # 修改代码行
+        'shock_conviction_score',
         'auction_showdown_score',
-        'trend_quality_score',
-        'closing_momentum_index',
+        'trend_acceleration_score', # 修改代码行
+        'final_charge_intensity', # 修改代码行
         'volume_structure_skew',
         'active_volume_price_efficiency',
         'breakthrough_cost_index',
