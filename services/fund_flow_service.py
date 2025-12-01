@@ -742,10 +742,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V62.1 · 预处理内核扩展】
-        - 核心重构: 移除对 `_get_hf_mf_vwaps` 的调用，其功能已被 `_precompute_hf_features` 吸收。
-                     现在只需调用一次预处理内核，即可获取所有高频特征和VWAP。
-        - 依赖注入扩展: 将 `hf_features` 注入到 `_calculate_wash_trade_metrics` 和 `_calculate_vpoc_metrics`。
+        【V62.2 · 预处理全面注入】
+        - 核心升级: 将 `hf_features` 预处理字典作为依赖，注入到更多下游高频计算方法中，
+                     确保预处理的成果（如 `mf_trades`）被全面利用，消除冗余计算。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -771,7 +770,6 @@ class AdvancedFundFlowMetricsService:
                 print(hf_analysis_df[['mid_price', 'ofi', 'main_force_ofi', 'imbalance']].head(3).to_string())
             else:
                 print("  - [!!!] 关键警告: 高频分析DataFrame (hf_analysis_df) 为空！所有高频指标将无法计算。")
-        # 修改代码块：调用统一的预处理内核，并移除对 _get_hf_mf_vwaps 的调用
         hf_features = self._precompute_hf_features(hf_analysis_df, common_data.get('daily_total_volume', 0))
         hf_mf_buy_vwap = hf_features['hf_mf_buy_vwap']
         hf_mf_sell_vwap = hf_features['hf_mf_sell_vwap']
@@ -780,12 +778,13 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_vwap_related_metrics(intraday_data, common_data))
         results.update(self._calculate_vwap_control_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_opening_battle_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_shadow_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_dip_rally_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
+        # 修改代码行：注入 hf_features
+        results.update(self._calculate_shadow_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe, hf_features))
+        # 修改代码行：注入 hf_features
+        results.update(self._calculate_dip_rally_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe, hf_features))
         results.update(self._calculate_reversal_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_panic_cascade_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_cmf_metrics(intraday_data, hf_analysis_df, is_target_date, enable_probe))
-        # 修改代码行：注入 hf_features
         results.update(self._calculate_vpoc_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe, hf_features))
         results.update(self._calculate_liquidity_swap_metrics(intraday_data, hf_analysis_df, is_target_date, enable_probe))
         results.update(self._calculate_closing_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
@@ -793,7 +792,6 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_hidden_accumulation_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_execution_alpha_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe, hf_mf_buy_vwap, hf_mf_sell_vwap))
         results.update(self._calculate_flow_efficiency_metrics(hf_analysis_df, intraday_data, common_data, is_target_date, enable_probe))
-        # 修改代码行：注入 hf_features
         results.update(self._calculate_wash_trade_metrics(hf_analysis_df, is_target_date, enable_probe, hf_features))
         results.update(self._calculate_misc_minute_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_closing_strength_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
@@ -1001,14 +999,11 @@ class AdvancedFundFlowMetricsService:
                         metrics['opening_battle_result'] = np.sign(price_gain) * np.sqrt(abs(price_gain)) * (1 + mf_power) * 100
         return metrics
 
-    def _calculate_shadow_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_shadow_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool, hf_features: dict) -> dict:
         """
-        【V48.1 · 影线博弈对称版】
-        - 核心升级: 对 upper_shadow_selling_pressure 指标进行高频化重构，使其与 lower_shadow_absorption_strength 形成逻辑对称。
-        - 升级原因: 原有分钟级上影线指标过于简单，无法揭示“拉高出货”等复杂博弈行为。
-        - 核心实现:
-          - 高频路径: 引入与下影线指标对称的“派发流量”、“价格拒绝”、“盘口压制(OFI)”三组件模型。
-          - 降级路径: 保留原分钟级逻辑作为无高频数据时的备用方案。
+        【V62.2 · 预处理全面注入】
+        - 核心重构: 移除内部对主力交易的重复过滤，转而直接使用上游传入的 `hf_features['mf_trades']`
+                     并在此基础上筛选出位于影线区的主力交易，提升计算效率。
         """
         import numpy as np
         metrics = {}
@@ -1022,7 +1017,9 @@ class AdvancedFundFlowMetricsService:
                 if not hf_analysis_df.empty:
                     hf_shadow_zone = hf_analysis_df[hf_analysis_df['price'] < body_low]
                     if not hf_shadow_zone.empty:
-                        mf_trades_in_shadow = hf_shadow_zone[hf_shadow_zone['amount'] > 200000]
+                        # 修改代码块：使用预处理的 mf_trades 进行筛选
+                        mf_trades = hf_features['mf_trades']
+                        mf_trades_in_shadow = mf_trades.loc[mf_trades.index.intersection(hf_shadow_zone.index)]
                         mf_buy_vol_in_shadow = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'B']['volume'].sum()
                         mf_sell_vol_in_shadow = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'S']['volume'].sum()
                         mf_net_vol_in_shadow = mf_buy_vol_in_shadow - mf_sell_vol_in_shadow
@@ -1044,13 +1041,14 @@ class AdvancedFundFlowMetricsService:
                         mf_net_in_shadow = lower_shadow_df['main_force_net_vol'].sum()
                         FlowComponent = np.tanh(mf_net_in_shadow / shadow_volume)
                         metrics['lower_shadow_absorption_strength'] = (0.7 * FlowComponent + 0.3 * RecoveryComponent) * 100
-            # 修改代码块：为上影线新增高频计算路径
             if day_high > body_high and day_range > 0:
                 RejectionComponent = (day_high - body_high) / day_range
                 if not hf_analysis_df.empty:
                     hf_shadow_zone = hf_analysis_df[hf_analysis_df['price'] > body_high]
                     if not hf_shadow_zone.empty:
-                        mf_trades_in_shadow = hf_shadow_zone[hf_shadow_zone['amount'] > 200000]
+                        # 修改代码块：使用预处理的 mf_trades 进行筛选
+                        mf_trades = hf_features['mf_trades']
+                        mf_trades_in_shadow = mf_trades.loc[mf_trades.index.intersection(hf_shadow_zone.index)]
                         mf_buy_vol_in_shadow = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'B']['volume'].sum()
                         mf_sell_vol_in_shadow = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'S']['volume'].sum()
                         mf_net_vol_in_shadow = mf_buy_vol_in_shadow - mf_sell_vol_in_shadow
@@ -1072,13 +1070,11 @@ class AdvancedFundFlowMetricsService:
                         metrics['upper_shadow_selling_pressure'] = (mf_sell_in_shadow / upper_shadow_df['vol_shares'].sum())
         return metrics
 
-    def _calculate_dip_rally_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_dip_rally_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool, hf_features: dict) -> dict:
         """
-        【V47.4 · 操盘技艺升维版】
-        - 核心升级: 对 rally_distribution_pressure 指标进行逻辑升维，用更鲁棒的“操盘技艺”组件替代原有的“诱饵效率”。
-        - 升级原因: 发现原基于OFI的“诱饵效率”会被高明的“假买真卖”手法干扰，导致指标失灵。
-        - 核心实现: 新的 artistry_component 直接基于主力在拉升期间的“净成交量”进行评判，
-                     能更准确地奖励“边拉边撤”的高明派发行为，而不会被虚假的盘口意图迷惑。
+        【V62.2 · 预处理全面注入】
+        - 核心重构: 移除内部对主力交易的重复过滤，转而直接使用上游传入的 `hf_features['mf_trades']`
+                     进行后续的区域筛选和计算，提升效率。
         """
         from scipy.signal import find_peaks
         from datetime import time
@@ -1100,7 +1096,8 @@ class AdvancedFundFlowMetricsService:
                     OffensiveOFI_Component = offensive_ofi / total_abs_ofi_day if total_abs_ofi_day > 0 else 0.0
                     mf_buy_cost_in_dip = (absorption_zone_hf['price'] * absorption_zone_hf['main_force_ofi'].clip(lower=0)).sum() / offensive_ofi if offensive_ofi > 0 else np.nan
                     CostAdvantage_Component = (daily_vwap - mf_buy_cost_in_dip) / atr if pd.notna(mf_buy_cost_in_dip) and pd.notna(atr) and atr > 0 else 0.0
-                    mf_trades_hf = hf_analysis_df[hf_analysis_df['amount'] > 200000]
+                    # 修改代码块：直接使用预处理的 mf_trades
+                    mf_trades_hf = hf_features['mf_trades']
                     total_mf_buy_vol_day_hf = mf_trades_hf[mf_trades_hf['type'] == 'B']['volume'].sum()
                     mf_buy_vol_in_dip_hf = mf_trades_hf[(mf_trades_hf['type'] == 'B') & (mf_trades_hf['price'] < daily_vwap)]['volume'].sum()
                     VolumeDominance_Component = mf_buy_vol_in_dip_hf / total_mf_buy_vol_day_hf if total_mf_buy_vol_day_hf > 0 else 0.0
@@ -1128,8 +1125,8 @@ class AdvancedFundFlowMetricsService:
                             price_change_in_rally = window_df['minute_vwap'].iloc[-1] - window_df['minute_vwap'].iloc[0]
                             total_rally_price_change += price_change_in_rally
                             total_vol_in_rally_hf = rally_hf_df['volume'].sum()
-                            mf_trades_in_rally = rally_hf_df[rally_hf_df['amount'] > 200000]
-                            # 修改代码块：废弃 bait_efficiency，引入 artistry_component
+                            # 修改代码块：使用预处理的 mf_trades 进行筛选
+                            mf_trades_in_rally = mf_trades_hf.loc[mf_trades_hf.index.intersection(rally_hf_df.index)]
                             mf_buy_vol_in_rally_hf = mf_trades_in_rally[mf_trades_in_rally['type'] == 'B']['volume'].sum()
                             mf_sell_vol_in_rally_hf = mf_trades_in_rally[mf_trades_in_rally['type'] == 'S']['volume'].sum()
                             mf_net_vol_in_rally = mf_buy_vol_in_rally_hf - mf_sell_vol_in_rally_hf
@@ -1151,7 +1148,6 @@ class AdvancedFundFlowMetricsService:
                                 aggressive_buy_vol = retail_buy_trades_in_rally[aggressive_buy_mask]['volume'].sum()
                                 aggression_component = aggressive_buy_vol / total_retail_buy_vol_in_rally if total_retail_buy_vol_in_rally > 0 else 0.0
                                 follower_frenzy = cost_component * volume_spike_component * (1 + aggression_component)
-                            # 使用新的 artistry_component
                             deceptive_pressure_score = artistry_component * distribution_dominance * follower_frenzy
                             total_deceptive_pressure += deceptive_pressure_score * price_change_in_rally
                 if total_rally_price_change > 0:
@@ -1160,7 +1156,6 @@ class AdvancedFundFlowMetricsService:
                     if enable_probe and is_target_date:
                         print(f"  [探针] rally_distribution_pressure (高频-诡道派发) 计算:")
                         print(f"    - Weighted Avg Deceptive Artistry: {weighted_avg_pressure:.4f}")
-                        # 更新探针输出
                         print(f"      - [Components] Artistry(NetVol): {artistry_component:.2f}, DistDom(GrossSell): {distribution_dominance:.2f}, Frenzy: {follower_frenzy:.2f}")
                         print(f"    -> Final Score: {metrics['rally_distribution_pressure']:.2f}")
             else:
