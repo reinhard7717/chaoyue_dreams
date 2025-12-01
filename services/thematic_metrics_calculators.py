@@ -86,7 +86,10 @@ class ThematicMetricsCalculators:
 
     @staticmethod
     def calculate_battlefield_metrics(context: dict) -> dict:
-        """计算战场分析仪指标"""
+        """
+        【V31.0 · 索引访问模式统一】
+        - 核心修复: 将所有时间过滤从按列访问 `df['trade_time'].dt.time` 统一为按索引访问 `df.index.time`。
+        """
         continuous_group = context['continuous_group']
         day_open_qfq = context['day_open_qfq']
         day_close_qfq = context['day_close_qfq']
@@ -108,7 +111,8 @@ class ThematicMetricsCalculators:
                     trend_quality = linearity * pullback_control
                     direction = np.sign(day_close_qfq - day_open_qfq) if day_close_qfq != day_open_qfq else 1
                     results['trend_quality_score'] = trend_quality * direction
-            tail_df = continuous_group[continuous_group['trade_time'].dt.time >= time(14, 0)]
+            # 修改代码行：统一为索引访问
+            tail_df = continuous_group[continuous_group.index.time >= time(14, 0)]
             if not tail_df.empty and pd.notna(atr_14) and atr_14 > 0 and total_volume_safe > 0:
                 vwap_tail = (tail_df['amount'].sum() / tail_df['vol'].sum()) if tail_df['vol'].sum() > 0 else np.nan
                 vwap_full = (continuous_group['amount'].sum() / continuous_group['vol'].sum()) if continuous_group['vol'].sum() > 0 else np.nan
@@ -116,9 +120,12 @@ class ThematicMetricsCalculators:
                     momentum_deviation = (vwap_tail - vwap_full) / atr_14
                     vol_ratio_tail = tail_df['vol'].sum() / total_volume_safe
                     results['closing_momentum_index'] = momentum_deviation * np.log1p(vol_ratio_tail)
-            open_rhythm_df = continuous_group[continuous_group['trade_time'].dt.time < time(10, 0)]
-            mid_rhythm_df = continuous_group[(continuous_group['trade_time'].dt.time >= time(10, 0)) & (continuous_group['trade_time'].dt.time < time(14, 30))]
-            tail_rhythm_df = continuous_group[continuous_group['trade_time'].dt.time >= time(14, 30)]
+            # 修改代码行：统一为索引访问
+            open_rhythm_df = continuous_group[continuous_group.index.time < time(10, 0)]
+            # 修改代码行：统一为索引访问
+            mid_rhythm_df = continuous_group[(continuous_group.index.time >= time(10, 0)) & (continuous_group.index.time < time(14, 30))]
+            # 修改代码行：统一为索引访问
+            tail_rhythm_df = continuous_group[continuous_group.index.time >= time(14, 30)]
             if not open_rhythm_df.empty and not mid_rhythm_df.empty and not tail_rhythm_df.empty:
                 avg_vol_open = open_rhythm_df['vol'].mean()
                 avg_vol_mid = mid_rhythm_df['vol'].mean()

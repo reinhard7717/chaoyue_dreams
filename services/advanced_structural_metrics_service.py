@@ -406,11 +406,9 @@ class AdvancedStructuralMetricsService:
 
     def _create_continuous_minute_data(self, group: pd.DataFrame) -> pd.DataFrame:
         """
-        【V30.5 · 数据填充逻辑修正】
-        - 核心修复: 修正了因错误地对'vol'和'amount'等事件数据使用前向填充(ffill)导致的逻辑错误和KeyError。
-        - 实现逻辑: 1. reindex后，对不同性质的列采用不同填充策略。
-                     2. 价格等'状态'列使用 .ffill()。
-                     3. 成交量/额等'事件'列使用 .fillna(0)。
+        【V31.0 · 索引访问模式统一】
+        - 核心修复: 移除了方法末尾的 reset_index() 和 rename()，确保返回的DataFrame保持DatetimeIndex。
+                     这是实现全系统索引访问模式统一的源头修复。
         """
         if group is None or group.empty:
             return pd.DataFrame()
@@ -418,21 +416,15 @@ class AdvancedStructuralMetricsService:
         morning_session = pd.to_datetime(pd.date_range(start=f'{trade_date} 09:31:00', end=f'{trade_date} 12:00:00', freq='1min'))
         afternoon_session = pd.to_datetime(pd.date_range(start=f'{trade_date} 13:01:00', end=f'{trade_date} 15:00:00', freq='1min'))
         full_day_index = morning_session.union(afternoon_session).tz_localize('Asia/Shanghai')
-        # 步骤1: 重新索引以创建包含NaN的完整时间序列
         continuous_group = group.reindex(full_day_index)
-        # 步骤2: 对价格相关的“状态”列进行前向填充
         price_cols = ['open', 'high', 'low', 'close']
         existing_price_cols = [col for col in price_cols if col in continuous_group.columns]
         continuous_group[existing_price_cols] = continuous_group[existing_price_cols].ffill()
-        # 步骤3: 对成交量/额相关的“事件”列填充0
         transaction_cols = ['vol', 'amount']
         existing_transaction_cols = [col for col in transaction_cols if col in continuous_group.columns]
         continuous_group[existing_transaction_cols] = continuous_group[existing_transaction_cols].fillna(0)
-        # 步骤4: 安全地计算分钟VWAP
         continuous_group['minute_vwap'] = (continuous_group['amount'] / continuous_group['vol']).where(continuous_group['vol'] > 0, np.nan)
-        # 步骤5: 恢复'trade_time'为列
-        continuous_group.reset_index(inplace=True)
-        continuous_group.rename(columns={'index': 'trade_time'}, inplace=True)
+        # 修改代码块：移除 reset_index 和 rename，保持 DatetimeIndex
         return continuous_group
 
     def _calculate_trend_metrics(self, price_series: pd.Series) -> tuple[float, float]:

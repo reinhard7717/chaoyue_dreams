@@ -193,9 +193,8 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_control_metrics(context: dict) -> dict:
         """
-        【V30.17 · 索引访问模式修复】
-        - 核心升级: 为 `mean_reversion_frequency` 指标实现高频穿透，精确捕捉价格穿越实时VWAP的次数。
-        - 核心修复: 将所有对 'trade_time' 列的访问改为对 DataFrame 索引的访问，解决KeyError。
+        【V32.0 · 成本离散度穿透】
+        - 核心升级: 为 `cost_dispersion_index` 指标实现高频穿透，基于逐笔成交价精确度量真实交易成本的离散程度。
         """
         group = context['group']
         continuous_group = context['continuous_group']
@@ -261,7 +260,6 @@ class StructuralMetricsCalculators:
                     print(f"    - 原料: 日内净位移={net_displacement:.4f}, 分钟总路径={total_path:.4f}")
                     print(f"    - 计算: {net_displacement:.4f} / {total_path:.4f}")
                     print(f"    -> 结果: {results['trend_efficiency_ratio']:.4f}")
-        # 为 mean_reversion_frequency 增加高频计算逻辑
         if tick_df is not None and not tick_df.empty:
             tick_df['cum_amount'] = (tick_df['price'] * tick_df['volume']).cumsum()
             tick_df['cum_volume'] = tick_df['volume'].cumsum()
@@ -281,11 +279,8 @@ class StructuralMetricsCalculators:
             if enable_probe and is_target_date:
                 print(f"--- [探针 ASM.{trade_date_str}] mean_reversion_frequency (分钟降级) ---")
                 print(f"    -> 结果: {results['mean_reversion_frequency']:.4f}")
-        # 修改代码行：将 group['trade_time'].dt.time 替换为 group.index.time
         opening_df_rhythm = group[group.index.time < time(10, 0)]
-        # 修改代码行：将 group['trade_time'].dt.time 替换为 group.index.time
         midday_df_rhythm = group[(group.index.time >= time(10, 0)) & (group.index.time < time(14, 30))]
-        # 修改代码行：将 group['trade_time'].dt.time 替换为 group.index.time
         tail_df_rhythm = group[group.index.time >= time(14, 30)]
         avg_vol_opening = opening_df_rhythm['vol'].mean() if not opening_df_rhythm.empty else 0
         avg_vol_midday = midday_df_rhythm['vol'].mean() if not midday_df_rhythm.empty else 0
@@ -296,12 +291,10 @@ class StructuralMetricsCalculators:
         avg_vol_active = (opening_df_rhythm['vol'].sum() + tail_df_rhythm['vol'].sum()) / (len(opening_df_rhythm) + len(tail_df_rhythm)) if (len(opening_df_rhythm) + len(tail_df_rhythm)) > 0 else 0
         if avg_vol_midday > 0 and avg_vol_active > 0:
             results['midday_consolidation_level'] = avg_vol_midday / avg_vol_active
-        # 修改代码行：将 group['trade_time'].dt.time 替换为 group.index.time
         pre_tail_df = group[(group.index.time >= time(13, 0)) & (group.index.time < time(14, 30))]
         avg_vol_pre_tail = pre_tail_df['vol'].mean() if not pre_tail_df.empty else 0
         if avg_vol_tail > 0 and avg_vol_pre_tail > 0:
             results['tail_volume_acceleration'] = avg_vol_tail / avg_vol_pre_tail
-        daily_vwap = group['amount'].sum() / group['vol'].sum() if group['vol'].sum() > 0 else day_close_qfq
         if group['vol'].sum() > 0:
             vp_proxy = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20, duplicates='drop'))['vol'].sum()
             vp_prob = vp_proxy[vp_proxy > 0] / group['vol'].sum()
@@ -313,9 +306,28 @@ class StructuralMetricsCalculators:
             losers_vol = continuous_group[continuous_group['minute_vwap'] > day_close_qfq]['vol'].sum()
             if (winners_vol + losers_vol) > 0:
                 results['intraday_pnl_imbalance'] = (winners_vol - losers_vol) / (winners_vol + losers_vol)
-            if pd.notna(atr_14) and atr_14 > 0:
+        # 修改代码块：为 cost_dispersion_index 增加高频计算逻辑
+        if tick_df is not None and not tick_df.empty:
+            total_tick_volume = tick_df['volume'].sum()
+            if total_tick_volume > 0 and pd.notna(atr_14) and atr_14 > 0:
+                daily_vwap = (tick_df['price'] * tick_df['volume']).sum() / total_tick_volume
+                weighted_variance = ((tick_df['price'] - daily_vwap)**2 * tick_df['volume']).sum() / total_tick_volume
+                weighted_std_dev = np.sqrt(weighted_variance)
+                results['cost_dispersion_index'] = weighted_std_dev / atr_14
+                if enable_probe and is_target_date:
+                    print(f"--- [探针 ASM.{trade_date_str}] cost_dispersion_index (高频) ---")
+                    print(f"    - 原料: 总成交量={total_tick_volume:,.0f}, 日内VWAP={daily_vwap:.4f}, ATR={atr_14:.4f}")
+                    print(f"    - 节点: 加权方差={weighted_variance:.6f}, 加权标准差={weighted_std_dev:.4f}")
+                    print(f"    - 计算: {weighted_std_dev:.4f} / {atr_14:.4f}")
+                    print(f"    -> 结果: {results['cost_dispersion_index']:.4f}")
+        else:
+            if group['vol'].sum() > 0 and pd.notna(atr_14) and atr_14 > 0:
+                daily_vwap = group['amount'].sum() / group['vol'].sum()
                 weighted_variance = ((continuous_group['minute_vwap'] - daily_vwap)**2 * continuous_group['vol']).sum() / group['vol'].sum()
                 results['cost_dispersion_index'] = np.sqrt(weighted_variance) / atr_14
+                if enable_probe and is_target_date:
+                    print(f"--- [探针 ASM.{trade_date_str}] cost_dispersion_index (分钟降级) ---")
+                    print(f"    -> 结果: {results.get('cost_dispersion_index', np.nan):.4f}")
         return results
 
     @staticmethod
