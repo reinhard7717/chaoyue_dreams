@@ -418,6 +418,37 @@ class AdvancedStructuralMetricsService:
         continuous_group.rename(columns={'index': 'trade_time'}, inplace=True)
         return continuous_group
 
+    def _calculate_trend_metrics(self, price_series: pd.Series) -> tuple[float, float]:
+        """
+        【V30.8 · 新增辅助函数】
+        通过线性回归计算价格序列的趋势强度和趋势质量。
+        - 趋势强度: 回归线的斜率。
+        - 趋势质量: 回归的R平方值。
+        :param price_series: 分钟收盘价序列。
+        :return: (趋势强度, 趋势质量) 的元组。
+        """
+        # 检查输入数据是否有效，至少需要两个点才能拟合一条直线
+        cleaned_series = price_series.dropna()
+        if len(cleaned_series) < 2:
+            return 0.0, 0.0
+        # 如果所有价格都相同，则没有趋势，但趋势质量是完美的（一条平线）
+        if cleaned_series.nunique() == 1:
+            return 0.0, 1.0
+        y = cleaned_series.values
+        x = np.arange(len(y))
+        # 使用numpy的polyfit进行1次多项式拟合（即线性回归）
+        slope, intercept = np.polyfit(x, y, 1)
+        # 计算R平方值来评估拟合优度（趋势质量）
+        predicted_y = slope * x + intercept
+        residuals = y - predicted_y
+        ss_res = np.sum(residuals**2)  # 残差平方和
+        ss_tot = np.sum((y - np.mean(y))**2)  #总体平方和
+        if ss_tot == 0:
+            # 避免除以零，这种情况在nunique检查中已处理，但作为双重保险
+            return 0.0, 1.0
+        r_squared = 1 - (ss_res / ss_tot)
+        return slope, r_squared
+
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
         【V19.7 · 索引健壮性修复版】
