@@ -9,6 +9,7 @@ from asgiref.sync import sync_to_async
 from stock_models.stock_basic import StockInfo
 from stock_models.advanced_metrics import BaseAdvancedStructuralMetrics
 from services.structural_metrics_calculators import StructuralMetricsCalculators
+from services.microstructure_dynamics_calculators import MicrostructureDynamicsCalculators
 from utils.model_helpers import (
     get_advanced_structural_metrics_model_by_code,
     get_daily_data_model_by_code,
@@ -265,8 +266,9 @@ class AdvancedStructuralMetricsService:
 
     def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict, tick_df_for_day: pd.DataFrame = None, level5_df_for_day: pd.DataFrame = None, realtime_df_for_day: pd.DataFrame = None) -> dict:
         """
-        【V26.0 · 战场动力学穿透】
-        - 核心重构: 移除已迁移至计算内核的三个能量密度指标的旧有分钟级计算逻辑。
+        【V27.0 · 微观动力学内核】
+        - 核心重构: 剥离微观动力学指标计算逻辑至全新的 MicrostructureDynamicsCalculators 内核。
+                     此服务类已完全瘦身为纯粹的流程编排器。
         """
         results = {}
         results['auction_impact_score'] = np.nan
@@ -302,6 +304,7 @@ class AdvancedStructuralMetricsService:
             'atr_14': atr_14,
             'tick_df': tick_df_for_day,
             'level5_df': level5_df_for_day,
+            'realtime_df': realtime_df_for_day,
             'total_volume_safe': total_volume_safe,
             'day_open_qfq': day_open_qfq,
             'day_high_qfq': day_high_qfq,
@@ -402,16 +405,8 @@ class AdvancedStructuralMetricsService:
                 if avg_vol_ends > 0:
                     results['volume_structure_skew'] = avg_vol_mid / avg_vol_ends
         # --- 7. 微观结构动力学 (Microstructure Dynamics) ---
-        microstructure_metrics = self._calculate_microstructure_metrics(
-            tick_df=tick_df_for_day,
-            level5_df=level5_df_for_day,
-            realtime_df=realtime_df_for_day,
-            minute_df=continuous_group,
-            total_volume=total_volume_safe,
-            group=group,
-            daily_series_for_day=daily_series_for_day,
-            atr_14=atr_14
-        )
+        # 修改代码行：调用外部微观动力学内核
+        microstructure_metrics = MicrostructureDynamicsCalculators.calculate_all(context)
         results.update(microstructure_metrics)
         results['_today_vpoc'] = today_vpoc
         results['_today_vah'] = today_vah
@@ -507,236 +502,6 @@ class AdvancedStructuralMetricsService:
         val = vp_sorted_by_price.index[low_idx].left
         vah = vp_sorted_by_price.index[high_idx].right
         return vah, val
-
-    def _calculate_microstructure_metrics(self, tick_df: pd.DataFrame, level5_df: pd.DataFrame, realtime_df: pd.DataFrame, minute_df: pd.DataFrame, total_volume: float, group: pd.DataFrame, daily_series_for_day: pd.Series, atr_14: float) -> dict:
-        """
-        【V21.9 · 全函数类型净化版】
-        - 核心修复: 修复了 `liquidity_authenticity_score` 计算中 `Decimal` 与 `float` 的除法 `TypeError`。
-        - 核心强化: 主动审查并修复了 `market_impact_cost` 计算循环中所有潜在的 `Decimal` 与 `float` 混合运算 `TypeError`，
-                    通过在计算前进行显式的 `float()` 类型转换，确保了整个函数的数值计算类型安全。
-        """
-        from scipy.stats import norm, linregress
-        results = {
-            'order_flow_imbalance_score': np.nan,
-            'buy_sweep_intensity': np.nan,
-            'sell_sweep_intensity': np.nan,
-            'vpin_score': np.nan,
-            'vwap_mean_reversion_corr': np.nan,
-            'active_volume_price_efficiency': np.nan,
-            'absorption_strength_index': np.nan,
-            'distribution_pressure_index': np.nan,
-            'market_impact_cost': np.nan,
-            'liquidity_slope': np.nan,
-            'liquidity_authenticity_score': np.nan,
-        }
-        column_rename_map = {
-            **{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)},
-            **{f'buy_volume{i}': f'b{i}_v' for i in range(1, 6)},
-            **{f'sell_price{i}': f'a{i}_p' for i in range(1, 6)},
-            **{f'sell_volume{i}': f'a{i}_v' for i in range(1, 6)},
-        }
-        if tick_df is None or tick_df.empty or total_volume == 0:
-            return results
-        # --- 意图与执行交叉验证：流动性真实性评分 ---
-        if level5_df is not None and not level5_df.empty:
-            level5_df_renamed = level5_df.copy()
-            level5_df_renamed.rename(columns=column_rename_map, inplace=True)
-            tick_df_sorted = tick_df.sort_index()
-            level5_df_sorted = level5_df_renamed.sort_index()
-            level5_cols = list(column_rename_map.values())
-            merged_before = pd.merge_asof(tick_df_sorted, level5_df_sorted, on='trade_time', direction='backward')
-            rename_map_pre = {col: f"{col}_pre" for col in level5_cols if col in merged_before.columns}
-            merged_before.rename(columns=rename_map_pre, inplace=True)
-            merged_after = pd.merge_asof(tick_df_sorted, level5_df_sorted, on='trade_time', direction='forward')
-            rename_map_post = {col: f"{col}_post" for col in level5_cols if col in merged_after.columns}
-            merged_after.rename(columns=rename_map_post, inplace=True)
-            merged_full = pd.DataFrame()
-            if not merged_before.empty and not merged_after.empty:
-                merged_before.set_index('trade_time', inplace=True)
-                merged_after.set_index('trade_time', inplace=True)
-                post_cols = list(rename_map_post.values())
-                cols_to_join = [col for col in post_cols if col in merged_after.columns]
-                merged_full = merged_before.join(merged_after[cols_to_join])
-            if not merged_full.empty:
-                required_join_cols = ['a1_v_pre', 'b1_v_pre', 'a1_p_post', 'a1_p_pre', 'a1_v_post', 'b1_p_post', 'b1_p_pre', 'b1_v_post']
-                if not all(col in merged_full.columns for col in required_join_cols):
-                    # 移除调试信息
-                    pass
-                else:
-                    merged_full.dropna(subset=required_join_cols, inplace=True)
-                    if not merged_full.empty:
-                        merged_full['is_buy_impact'] = (merged_full['type'] == 'B') & (merged_full['volume'] > 0.3 * merged_full['a1_v_pre'])
-                        merged_full['is_sell_impact'] = (merged_full['type'] == 'S') & (merged_full['volume'] > 0.3 * merged_full['b1_v_pre'])
-                        impact_ticks = merged_full[merged_full['is_buy_impact'] | merged_full['is_sell_impact']].copy()
-                        scores = []
-                        if not impact_ticks.empty:
-                            buy_impacts = impact_ticks[impact_ticks['is_buy_impact']]
-                            deception_mask_buy = (buy_impacts['a1_p_post'] == buy_impacts['a1_p_pre']) & (buy_impacts['a1_v_post'] >= 0.8 * buy_impacts['a1_v_pre'])
-                            deception_scores = -buy_impacts.loc[deception_mask_buy, 'amount']
-                            scores.append(deception_scores)
-                            sell_impacts = impact_ticks[impact_ticks['is_sell_impact']]
-                            support_mask_sell = (sell_impacts['b1_p_post'] == sell_impacts['b1_p_pre']) & (sell_impacts['b1_v_post'] >= 0.8 * sell_impacts['b1_v_pre'])
-                            support_scores = sell_impacts.loc[support_mask_sell, 'amount']
-                            scores.append(support_scores)
-                            all_scores = pd.concat(scores)
-                            if not all_scores.empty and all_scores.abs().sum() > 0:
-                                total_day_amount = daily_series_for_day.get('amount', 0)
-                                if total_day_amount > 0:
-                                    # 将 all_scores.sum() 也转换为 float
-                                    results['liquidity_authenticity_score'] = float(all_scores.sum()) / float(total_day_amount)
-        # 1. VWAP均值回归相关性
-        if minute_df is not None and not minute_df.empty and 'minute_vwap' in minute_df.columns and len(minute_df) > 1:
-            daily_vwap = (minute_df['amount'].sum() / minute_df['vol'].sum()) if minute_df['vol'].sum() > 0 else np.nan
-            if pd.notna(daily_vwap):
-                deviation = minute_df['minute_vwap'] - daily_vwap
-                results['vwap_mean_reversion_corr'] = deviation.autocorr(lag=1)
-        # 2. 订单流失衡 (OFI)
-        if level5_df is not None and not level5_df.empty and len(level5_df) > 1:
-            df = level5_df[['buy_price1', 'buy_volume1', 'sell_price1', 'sell_volume1']].copy()
-            df_prev = df.shift(1)
-            delta_buy_price = df['buy_price1'] - df_prev['buy_price1']
-            delta_sell_price = df['sell_price1'] - df_prev['sell_price1']
-            ofi_static = np.where((delta_buy_price == 0) & (delta_sell_price == 0), df['buy_volume1'] - df_prev['buy_volume1'], 0)
-            ofi_dynamic = np.where(delta_buy_price > 0, df_prev['buy_volume1'], 0)
-            ofi_dynamic = np.where(delta_buy_price < 0, -df['buy_volume1'], ofi_dynamic)
-            ofi_dynamic = np.where(delta_sell_price > 0, ofi_dynamic + df['sell_volume1'], ofi_dynamic)
-            ofi_dynamic = np.where(delta_sell_price < 0, ofi_dynamic - df_prev['sell_volume1'], ofi_dynamic)
-            ofi_series = ofi_static + ofi_dynamic
-            if ofi_series.size > 0:
-                results['order_flow_imbalance_score'] = np.nansum(ofi_series) / total_volume
-        # 3. 扫单强度 (Sweep Intensity)
-        buy_sweep_vol = 0
-        sell_sweep_vol = 0
-        min_sweep_len = 3
-        tick_df['block'] = (tick_df['type'] != tick_df['type'].shift()).cumsum()
-        tick_df['block_size'] = tick_df.groupby('block')['type'].transform('size')
-        sweep_candidates = tick_df[(tick_df['block_size'] >= min_sweep_len) & (tick_df['type'].isin(['B', 'S']))]
-        if not sweep_candidates.empty:
-            for block_id, group_sweep in sweep_candidates.groupby('block'):
-                trade_type = group_sweep['type'].iloc[0]
-                prices = group_sweep['price']
-                if trade_type == 'B' and prices.is_monotonic_increasing:
-                    buy_sweep_vol += group_sweep['volume'].sum()
-                elif trade_type == 'S' and prices.is_monotonic_decreasing:
-                    sell_sweep_vol += group_sweep['volume'].sum()
-        total_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
-        total_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
-        if total_buy_vol > 0: results['buy_sweep_intensity'] = buy_sweep_vol / total_buy_vol
-        if total_sell_vol > 0: results['sell_sweep_intensity'] = sell_sweep_vol / total_sell_vol
-        # 4. VPIN
-        vpin_bucket_size = total_volume / 50
-        vpin_window = 10
-        if vpin_bucket_size > 0:
-            tick_df['buy_vol'] = np.where(tick_df['type'] == 'B', tick_df['volume'], 0)
-            tick_df['sell_vol'] = np.where(tick_df['type'] == 'S', tick_df['volume'], 0)
-            tick_df['cum_vol'] = tick_df['volume'].cumsum()
-            tick_df['bucket'] = (tick_df['cum_vol'] // vpin_bucket_size).astype(int)
-            bucket_imbalance = tick_df.groupby('bucket').agg(buy_vol=('buy_vol', 'sum'), sell_vol=('sell_vol', 'sum'))
-            bucket_imbalance['imbalance'] = bucket_imbalance['buy_vol'] - bucket_imbalance['sell_vol']
-            if len(bucket_imbalance) > vpin_window:
-                imbalance_std = bucket_imbalance['imbalance'].rolling(window=vpin_window).std().bfill()
-                abs_imbalance = bucket_imbalance['imbalance'].abs()
-                sigma_imbalance = imbalance_std.replace(0, np.nan)
-                z_score = abs_imbalance / sigma_imbalance
-                vpin_series = z_score.apply(lambda z: norm.cdf(z) if pd.notna(z) else np.nan)
-                results['vpin_score'] = vpin_series.mean()
-        # 5. 高频力学指标 (原位于 _calculate_daily_structural_metrics)
-        day_open_qfq = daily_series_for_day.get('open_qfq')
-        day_close_qfq = daily_series_for_day.get('close_qfq')
-        net_active_volume = total_buy_vol - total_sell_vol
-        price_change_in_atr = (day_close_qfq - day_open_qfq) / atr_14 if pd.notna(atr_14) and atr_14 > 0 else 0
-        if net_active_volume != 0 and total_volume > 0:
-            results['active_volume_price_efficiency'] = price_change_in_atr / (net_active_volume / total_volume)
-        tick_df.index = tick_df.index.tz_convert('Asia/Shanghai')
-        down_minutes_df = group[group['close'] < group['open']]
-        up_minutes_df = group[group['close'] > group['open']]
-        if not down_minutes_df.empty:
-            active_buy_on_dip = 0
-            active_sell_on_dip = 0
-            for _, minute_row in down_minutes_df.iterrows():
-                minute_start = minute_row['trade_time']
-                minute_end = minute_start + pd.Timedelta(minutes=1)
-                ticks_in_minute = tick_df[(tick_df.index >= minute_start) & (tick_df.index < minute_end)]
-                active_buy_on_dip += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
-                active_sell_on_dip += ticks_in_minute[ticks_in_minute['type'] == 'S']['volume'].sum()
-            if active_sell_on_dip > 0:
-                results['absorption_strength_index'] = active_buy_on_dip / active_sell_on_dip
-        if not up_minutes_df.empty:
-            active_sell_on_rally = 0
-            active_buy_on_rally = 0
-            for _, minute_row in up_minutes_df.iterrows():
-                minute_start = minute_row['trade_time']
-                minute_end = minute_start + pd.Timedelta(minutes=1)
-                ticks_in_minute = tick_df[(tick_df.index >= minute_start) & (tick_df.index < minute_end)]
-                active_sell_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'S']['volume'].sum()
-                active_buy_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
-            if active_buy_on_rally > 0:
-                results['distribution_pressure_index'] = active_sell_on_rally / active_buy_on_rally
-        # --- 实时盘口结构指标 ---
-        if realtime_df is not None and not realtime_df.empty and level5_df is not None and not level5_df.empty:
-            level5_df_processed = level5_df.copy()
-            level5_df_processed.rename(columns=column_rename_map, inplace=True)
-            numeric_cols = list(column_rename_map.values())
-            for col in numeric_cols:
-                if col in level5_df_processed.columns:
-                    level5_df_processed[col] = pd.to_numeric(level5_df_processed[col], errors='coerce')
-            combined_df = realtime_df.join(level5_df_processed)
-            required_calc_cols = ['volume', 'b1_p', 'a1_p'] + numeric_cols
-            if not all(col in combined_df.columns for col in required_calc_cols):
-                return results
-            combined_df.dropna(subset=required_calc_cols, inplace=True)
-            if combined_df.empty:
-                return results
-            snapshot_volumes = combined_df['volume'].diff().fillna(0).clip(lower=0)
-            # 1. 市场冲击成本 (Market Impact Cost)
-            total_amount = daily_series_for_day.get('amount', 0)
-            if not pd.notna(total_amount) or total_amount <= 0:
-                # 移除调试探针
-                pass
-            if total_amount > 0:
-                standard_amount = float(total_amount) * 0.001
-                impact_costs = []
-                for idx, row in combined_df.iterrows():
-                    amount_to_fill = standard_amount
-                    filled_amount = 0
-                    filled_volume = 0
-                    for i in range(1, 6):
-                        price = row[f'a{i}_p']
-                        vol = row[f'a{i}_v'] * 100
-                        # 预防性修复：将 price 转换为 float
-                        value = float(price) * vol
-                        if amount_to_fill > value:
-                            filled_amount += value
-                            filled_volume += vol
-                            amount_to_fill -= value
-                        else:
-                            # 预防性修复：将 price 转换为 float
-                            filled_volume += amount_to_fill / float(price)
-                            filled_amount += amount_to_fill
-                            break
-                    if filled_volume > 0:
-                        exec_price = filled_amount / filled_volume
-                        mid_price = (row['b1_p'] + row['a1_p']) / 2
-                        if mid_price > 0:
-                            # 预防性修复：将 mid_price 转换为 float
-                            impact_costs.append((exec_price / float(mid_price) - 1) * 100)
-                if impact_costs and snapshot_volumes.sum() > 0:
-                    results['market_impact_cost'] = np.average(impact_costs, weights=snapshot_volumes.iloc[:len(impact_costs)])
-            # 2. 盘口深度斜率 (Liquidity Slope)
-            slopes = []
-            for idx, row in combined_df.iterrows():
-                mid_price = (row['b1_p'] + row['a1_p']) / 2
-                if mid_price > 0:
-                    # 预防性修复：将价格转换为 float 以便 scipy 处理
-                    mid_price_float = float(mid_price)
-                    ask_points_x = [(float(row[f'a{i}_p']) - mid_price_float) / mid_price_float for i in range(1, 6)]
-                    ask_points_y = np.cumsum([row[f'a{i}_v'] * 100 for i in range(1, 6)])
-                    if len(ask_points_x) > 1 and np.std(ask_points_x) > 0:
-                        slope, _, _, _, _ = linregress(ask_points_x, ask_points_y)
-                        slopes.append(slope)
-            if slopes and snapshot_volumes.sum() > 0:
-                results['liquidity_slope'] = np.average(slopes, weights=snapshot_volumes.iloc[:len(slopes)])
-        return results
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
