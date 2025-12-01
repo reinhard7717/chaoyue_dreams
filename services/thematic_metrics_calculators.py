@@ -13,7 +13,10 @@ class ThematicMetricsCalculators:
     @staticmethod
     def calculate_market_profile_metrics(context: dict) -> dict:
         """
-        【V46.0 · 潜龙在渊】
+        【V59.0 · 涤净尘埃】
+        - 核心修正: 修正了探针日志中的一个 `KeyError`。移除了对已废弃指标 `vpoc_consensus_strength`
+                     的引用，改为在探针内即时计算并显示VPOC点的真实成交量占比，彻底清除了
+                     废弃指标的最后残留，确保了代码的健壮性和逻辑一致性。
         - 核心新增: 新增战略级指标 `equilibrium_compression_index` (均衡压缩指数)。
                      该指标专门用于量化“内含日”(Inside Day)的能量压缩程度，通过综合评估
                      空间、位置与力量三个维度，旨在识别重大突破前的“潜龙在渊”状态。
@@ -21,10 +24,10 @@ class ThematicMetricsCalculators:
         group = context['group']
         continuous_group = context['continuous_group']
         tick_df = context.get('tick_df')
-        day_high_qfq = context['day_high_qfq'] # 新增
-        day_low_qfq = context['day_low_qfq'] # 新增
+        day_high_qfq = context['day_high_qfq']
+        day_low_qfq = context['day_low_qfq']
         day_close_qfq = context['day_close_qfq']
-        total_volume_safe = context['total_volume_safe'] # 新增
+        total_volume_safe = context['total_volume_safe']
         atr_14 = context['atr_14']
         prev_day_metrics = context['prev_day_metrics']
         debug_info = context.get('debug', {})
@@ -43,25 +46,26 @@ class ThematicMetricsCalculators:
                 max_entropy = np.log2(len(vp_prob))
                 results['volume_profile_entropy'] = entropy / max_entropy if max_entropy > 0 else 0.0
                 if enable_probe and is_target_date:
+                    # 修改代码行：移除对废弃指标的引用，改为即时计算
+                    vpoc_vol_pct = vp_hf.loc[today_vpoc] / total_volume if total_volume > 0 else 0
                     print(f"--- [探针 ASM.{trade_date_str}] market_profile (高频) ---")
                     print(f"    - 原料: {len(tick_df)} 笔Tick数据")
-                    print(f"    - 节点: 高精度VPOC={today_vpoc:.2f}, VPOC成交量占比={results['vpoc_consensus_strength']:.2%}")
+                    print(f"    - 节点: 高精度VPOC={today_vpoc:.2f}, VPOC成交量占比={vpoc_vol_pct:.2%}")
                     print(f"    -> 结果 (剖面熵): {results.get('volume_profile_entropy', np.nan):.4f}")
         if continuous_group['vol'].sum() > 0:
-            vp_minute = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20, duplicates='drop'))['vol'].sum()
+            # 使用pd.cut进行分箱，处理非唯一边界问题
+            try:
+                bins = pd.cut(continuous_group['close'], bins=20, duplicates='drop')
+                vp_minute = continuous_group.groupby(bins)['vol'].sum()
+            except ValueError: # 如果价格范围太小无法分箱
+                vp_minute = continuous_group.groupby('close')['vol'].sum()
             if pd.isna(today_vpoc) and not vp_minute.empty:
                 vpoc_interval = vp_minute.idxmax()
-                today_vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else day_close_qfq
+                today_vpoc = vpoc_interval.mid if hasattr(vpoc_interval, 'mid') else vpoc_interval
             vpoc_interval_for_va = vp_minute.idxmax() if not vp_minute.empty else np.nan
             today_vah, today_val = ThematicMetricsCalculators._calculate_value_area(vp_minute, continuous_group['vol'].sum(), vpoc_interval_for_va)
         else:
             today_vah, today_val = np.nan, np.nan
-        if pd.notna(atr_14) and atr_14 > 0 and pd.notna(today_vpoc):
-            deviation_magnitude = (day_close_qfq - today_vpoc) / atr_14
-            tail_period_df = group[group.index.time >= time(14, 45)]
-            if not tail_period_df.empty and not continuous_group.empty and continuous_group['vol'].mean() > 0:
-                tail_force_factor = np.log1p(tail_period_df['vol'].mean() / continuous_group['vol'].mean())
-                results['closing_conviction_score'] = deviation_magnitude * tail_force_factor
         prev_vpoc, prev_atr = prev_day_metrics.get('vpoc'), prev_day_metrics.get('atr_14d')
         if all(pd.notna(v) for v in [today_vpoc, prev_vpoc, prev_atr]) and prev_atr > 0:
             results['value_area_migration'] = (today_vpoc - prev_vpoc) / prev_atr
@@ -75,12 +79,11 @@ class ThematicMetricsCalculators:
             elif day_close_qfq < today_val: results['closing_acceptance_type'] = -2
             elif day_close_qfq < today_vpoc: results['closing_acceptance_type'] = -1
             else: results['closing_acceptance_type'] = 0
-        # 新增代码块：计算 `equilibrium_compression_index`
         prev_high = prev_day_metrics.get('high')
         prev_low = prev_day_metrics.get('low')
         prev_volume = prev_day_metrics.get('volume')
         if all(pd.notna(v) for v in [prev_high, prev_low, prev_vpoc, prev_volume, today_vpoc]):
-            if day_high_qfq <= prev_high and day_low_qfq >= prev_low: # 判断是否为内含日
+            if day_high_qfq <= prev_high and day_low_qfq >= prev_low:
                 prev_range = prev_high - prev_low
                 today_range = day_high_qfq - day_low_qfq
                 if prev_range > 0 and prev_volume > 0:
