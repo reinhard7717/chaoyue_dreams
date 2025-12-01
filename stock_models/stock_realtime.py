@@ -1,5 +1,6 @@
 # stock_models/stock_realtime.py
 from django.db import models
+from decimal import Decimal
 from django.utils.translation import gettext_lazy as _
 from stock_models.stock_basic import StockInfo
 
@@ -152,6 +153,7 @@ class BaseStockTickData(models.Model):
     trade_time = models.DateTimeField(verbose_name='交易时间')
     price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='成交价')
     volume = models.IntegerField(verbose_name='成交量(手)')
+    price_change = models.DecimalField(max_digits=10, decimal_places=3, verbose_name=_('价格变动'), null=True, default=Decimal('0.00'))
     amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name='成交额(元)')
     type = models.CharField(max_length=1, verbose_name='类型', help_text="买盘'B'/卖盘'S'/中性'M'")
     class Meta:

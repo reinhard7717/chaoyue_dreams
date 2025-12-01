@@ -13,11 +13,11 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V38.4 · 信念加权强度】
-        - 核心重构: `dynamic_reversal_strength` 的最终计算引入“信念权重”。
-                     最终强度 = (成功反转的平均强度) * (反转信念比率)。
-                     此举旨在区分“百战百胜”的持续强势与“偶有闪光”的偶然强势，
-                     使指标能更准确地评估反转力量的综合实力与可靠性。
+        【V39.0 · 惩罚性信念修正】
+        - 核心重构: 彻底升级 `reversal_conviction_rate` 的计算范式，从简单的“成功次数比”，
+                     进化为“动能净比率”：(总成功动能) / (总成功动能 + |总失败动能|)。
+                     此举为失败赋予了惩罚性权重，失败越惨烈，信念得分越低，从而更精准地
+                     衡量市场的真实控制力与多头韧性。
         """
         group = context['group']
         daily_series_for_day = context['daily_series_for_day']
@@ -156,25 +156,30 @@ class StructuralMetricsCalculators:
                                             "rebound_magnitude": rebound_magnitude
                                         })
                 if reversal_details:
-                    successful_reversals = [r for r in reversal_details if r['momentum'] > 0]
-                    total_attempts = len(reversal_details)
-                    successful_attempts = len(successful_reversals)
-                    conviction_rate = 0.0 # 修改代码行：初始化信念率
-                    if total_attempts > 0:
-                        conviction_rate = successful_attempts / total_attempts
-                        results['reversal_conviction_rate'] = conviction_rate
-                        if enable_probe and is_target_date:
-                            print(f"--- [探针 ASM.{trade_date_str}] reversal_conviction_rate (分钟) ---")
-                            print(f"    - 前置: 使用 {prominence_source} 显著性阈值 = {dynamic_prominence:.4f}")
-                            print(f"    - 原料: 成功次数={successful_attempts}, 总尝试次数={total_attempts}")
-                            print(f"    - 计算: {successful_attempts} / {total_attempts}")
-                            print(f"    -> 结果: {conviction_rate:.4f}")
-                    if successful_reversals:
-                        successful_momentums = [r['momentum'] for r in successful_reversals]
-                        raw_strength = np.mean(successful_momentums) # 修改代码行：先计算原始强度
-                        # 修改代码块：引入信念权重，计算最终强度
+                    # 修改代码块：从次数统计升级为动能统计
+                    positive_momentums = [r['momentum'] for r in reversal_details if r['momentum'] > 0]
+                    negative_momentums = [r['momentum'] for r in reversal_details if r['momentum'] <= 0]
+                    sum_positive_momentum = np.sum(positive_momentums)
+                    sum_abs_negative_momentum = np.sum(np.abs(negative_momentums))
+                    total_abs_momentum = sum_positive_momentum + sum_abs_negative_momentum
+                    conviction_rate = 0.0
+                    if total_abs_momentum > 0:
+                        conviction_rate = sum_positive_momentum / total_abs_momentum
+                    results['reversal_conviction_rate'] = conviction_rate
+                    if enable_probe and is_target_date:
+                        # 修改代码块：重构信念比率的探针日志
+                        print(f"--- [探针 ASM.{trade_date_str}] reversal_conviction_rate (分钟) ---")
+                        print(f"    - 前置: 使用 {prominence_source} 显著性阈值 = {dynamic_prominence:.4f}")
+                        print(f"    - 原料: 成功动能列表({len(positive_momentums)}次), 失败动能列表({len(negative_momentums)}次)")
+                        print(f"    - 节点1 (总成功动能): sum({[f'{m:.2f}' for m in positive_momentums]}) = {sum_positive_momentum:.4f}")
+                        print(f"    - 节点2 (总失败惩罚): sum(abs({[f'{m:.2f}' for m in negative_momentums]})) = {sum_abs_negative_momentum:.4f}")
+                        print(f"    - 计算 (动能净比率): {sum_positive_momentum:.4f} / ({sum_positive_momentum:.4f} + {sum_abs_negative_momentum:.4f})")
+                        print(f"    -> 结果: {conviction_rate:.4f}")
+                    if positive_momentums:
+                        raw_strength = np.mean(positive_momentums)
                         final_strength = raw_strength * conviction_rate
                         results['dynamic_reversal_strength'] = final_strength
+                        successful_reversals = [r for r in reversal_details if r['momentum'] > 0]
                         recovery_ratios = [
                             r['rebound_magnitude'] / r['fall_magnitude']
                             for r in successful_reversals if r['fall_magnitude'] > 0
@@ -188,10 +193,9 @@ class StructuralMetricsCalculators:
                                 print(f"    - 计算: mean of recovery ratios")
                                 print(f"    -> 结果: {results['reversal_recovery_rate']:.4f}")
                         if enable_probe and is_target_date:
-                            # 修改代码块：重构探针日志以反映信念加权过程
                             print(f"--- [探针 ASM.{trade_date_str}] dynamic_reversal_strength (分钟) ---")
-                            print(f"    - 前置: 识别出 {total_attempts} 次尝试, {successful_attempts} 次成功")
-                            print(f"    - 节点1 (原始平均强度): mean({[f'{m:.2f}' for m in successful_momentums]}) = {raw_strength:.4f}")
+                            print(f"    - 前置: 识别出 {len(reversal_details)} 次尝试, {len(positive_momentums)} 次成功")
+                            print(f"    - 节点1 (原始平均强度): mean({[f'{m:.2f}' for m in positive_momentums]}) = {raw_strength:.4f}")
                             print(f"    - 节点2 (信念权重): {conviction_rate:.4f}")
                             print(f"    - 计算 (信念加权): {raw_strength:.4f} * {conviction_rate:.4f}")
                             print(f"    -> 结果: {final_strength:.4f}")
