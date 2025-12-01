@@ -521,10 +521,11 @@ class AdvancedFundFlowMetrics_BJ(BaseAdvancedFundFlowMetrics):
 # 结构与行为高级指标模型
 class BaseAdvancedStructuralMetrics(models.Model):
     """
-    【V19.0 · 微观结构动力学版】
-    - 核心新增: 引入 `MICROSTRUCTURE_DYNAMICS_METRICS` 指标组，利用Tick和Level5数据深度量化订单流、交易行为和市场脆弱性。
-    - 核心新增: 引入 `order_flow_imbalance_score`, `buy_sweep_intensity`, `sell_sweep_intensity`, `vpin_score`, `vwap_mean_reversion_corr` 五大微观结构指标。
-    - 核心优化: 更新指标分组与衍生计算排除列表，以集成新指标。
+    【V61.0 · 博弈精研】
+    - 核心重构: 对 `GAME_EFFICIENCY_METRICS` 指标组进行升维，废弃冗余指标，引入更能体现
+                 “博弈效率”的新指标，如 `thrust_efficiency_score`。
+    - 核心修正: 将 `price_thrust_divergence` 从博弈效率组中移出，归入新增的 `DERIVATIVE_METRICS`
+                 衍生指标组，使其宗门归位，名实相符。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     ENERGY_DENSITY_METRICS = {
@@ -534,7 +535,6 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'auction_impact_score': '开盘缺口强度',
         'dynamic_reversal_strength': '动态反转强度',
         'reversal_conviction_rate': '反转信念比率',
-        # 新增代码行：新增反转收复率，衡量反转的战略成果
         'reversal_recovery_rate': '反转收复率',
         'high_level_consolidation_volume': '高位整固成交量占比',
         'opening_period_thrust': '开盘期推力',
@@ -557,14 +557,17 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'intraday_pnl_imbalance': '日内盈亏失衡度',
         'cost_dispersion_index': '成本离散指数(ATR)',
     }
+    # 修改代码块：重构 GAME_EFFICIENCY_METRICS
     GAME_EFFICIENCY_METRICS = {
-        'net_vpa_score': '净量价效能得分',
-        'divergence_conviction_score': '背离信念得分',
         'volatility_skew_index': '波动率偏度指数',
         'active_volume_price_efficiency': '主动成交量价格效率',
         'absorption_strength_index': '下跌吸筹强度指数',
         'distribution_pressure_index': '上涨派发压力指数',
-        'thrust_efficiency_score': '推力效能分', # 新增代码行：新增推力效能分
+        'thrust_efficiency_score': '推力效能分',
+    }
+    # 新增代码块：创建 DERIVATIVE_METRICS 组
+    DERIVATIVE_METRICS = {
+        'price_thrust_divergence': '价格动能背离',
     }
     FORWARD_LOOKING_METRICS = {
         'volatility_expansion_ratio': '波动率扩张比',
@@ -577,9 +580,8 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'volume_structure_skew': '成交结构偏度',
         'breakthrough_conviction_score': '突破信念分',
         'defense_solidity_score': '防守稳固度',
-        'equilibrium_compression_index': '均衡压缩指数', # 新增代码行：新增均衡压缩指数
+        'equilibrium_compression_index': '均衡压缩指数',
     }
-    # 定义微观结构动力学指标
     MICROSTRUCTURE_DYNAMICS_METRICS = {
         'order_flow_imbalance_score': '订单流失衡分数',
         'buy_sweep_intensity': '买方扫单强度',
@@ -599,14 +601,16 @@ class BaseAdvancedStructuralMetrics(models.Model):
         **ENERGY_DENSITY_METRICS,
         **CONTROL_METRICS,
         **GAME_EFFICIENCY_METRICS,
+        **DERIVATIVE_METRICS, # 新增代码行
         **FORWARD_LOOKING_METRICS,
         **ADVANCED_BATTLEFIELD_METRICS,
         **MICROSTRUCTURE_DYNAMICS_METRICS,
         **AUXILIARY_METRICS,
-        **DYNAMIC_EVOLUTION_FACTORS, # 新增代码行：加入动态演化因子
+        **DYNAMIC_EVOLUTION_FACTORS,
     }
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     BOOLEAN_FIELDS = []
+    # 修改代码块：同步更新排除列表
     SLOPE_ACCEL_EXCLUSIONS = [
         'auction_impact_score',
         'dynamic_reversal_strength',
@@ -624,8 +628,7 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'volume_profile_entropy',
         'intraday_pnl_imbalance',
         'cost_dispersion_index',
-        'net_vpa_score',
-        'divergence_conviction_score',
+        'price_thrust_divergence', # 新增代码行
         'volatility_skew_index',
         'value_area_migration',
         'value_area_overlap_pct',
@@ -653,7 +656,7 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'vpin_roc3',
         'breakthrough_conviction_score',
         'defense_solidity_score',
-        'equilibrium_compression_index', # 新增代码行：将事件驱动的均衡压缩指数加入排除列表
+        'equilibrium_compression_index',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in BOOLEAN_FIELDS:
@@ -685,8 +688,7 @@ class AdvancedStructuralMetrics_SH(BaseAdvancedStructuralMetrics):
         unique_together = ('stock', 'trade_time')
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['intraday_energy_density']),
-            models.Index(fields=['divergence_conviction_score']),
+            models.Index(fields=['intraday_energy_density'])
         ]
 
 class AdvancedStructuralMetrics_SZ(BaseAdvancedStructuralMetrics):
@@ -705,8 +707,7 @@ class AdvancedStructuralMetrics_SZ(BaseAdvancedStructuralMetrics):
         unique_together = ('stock', 'trade_time')
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['intraday_energy_density']),
-            models.Index(fields=['divergence_conviction_score']),
+            models.Index(fields=['intraday_energy_density'])
         ]
 
 class AdvancedStructuralMetrics_CY(BaseAdvancedStructuralMetrics):
@@ -725,8 +726,7 @@ class AdvancedStructuralMetrics_CY(BaseAdvancedStructuralMetrics):
         unique_together = ('stock', 'trade_time')
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['intraday_energy_density']),
-            models.Index(fields=['divergence_conviction_score']),
+            models.Index(fields=['intraday_energy_density'])
         ]
 
 class AdvancedStructuralMetrics_KC(BaseAdvancedStructuralMetrics):
@@ -745,8 +745,7 @@ class AdvancedStructuralMetrics_KC(BaseAdvancedStructuralMetrics):
         unique_together = ('stock', 'trade_time')
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['intraday_energy_density']),
-            models.Index(fields=['divergence_conviction_score']),
+            models.Index(fields=['intraday_energy_density'])
         ]
 
 class AdvancedStructuralMetrics_BJ(BaseAdvancedStructuralMetrics):
@@ -765,8 +764,7 @@ class AdvancedStructuralMetrics_BJ(BaseAdvancedStructuralMetrics):
         unique_together = ('stock', 'trade_time')
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['intraday_energy_density']),
-            models.Index(fields=['divergence_conviction_score']),
+            models.Index(fields=['intraday_energy_density'])
         ]
 
 # 几何形态特征模型 - 平台

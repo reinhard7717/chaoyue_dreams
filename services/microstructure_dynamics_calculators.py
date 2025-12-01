@@ -124,40 +124,47 @@ class MicrostructureDynamicsCalculators:
     @staticmethod
     def _calculate_hf_mechanics(context: dict) -> dict:
         """
-        【V42.0 · 动能归一】
-        - 核心升级: `active_volume_price_efficiency` 的计算基石，从 B/S 盘净量升级为基于
-                     “动能回溯”的真实净推力成交量。
-        - 核心重构: 彻底移除本方法内对 `absorption_strength_index` 和 `distribution_pressure_index`
-                     的冗余计算，这两个指标的计算权责已唯一归属于 `StructuralMetricsCalculators`。
+        【V61.0 · 博弈精研】
+        - `active_volume_price_efficiency` 升维: 逻辑彻底重构。不再计算静态的“终局”比值，
+                     而是通过计算日内“累计推力”与“累计价格位移”两条曲线的相关系数，
+                     来动态追溯推力的“过程有效性”，洞察主力资金的控盘合力。
         """
         tick_df = context.get('tick_df')
-        daily_series_for_day = context.get('daily_series_for_day')
-        atr_14 = context.get('atr_14')
+        debug_info = context.get('debug', {})
+        is_target_date = debug_info.get('is_target_date', False)
+        enable_probe = debug_info.get('enable_probe', False)
+        trade_date_str = debug_info.get('trade_date_str', 'N/A')
         results = {
             'active_volume_price_efficiency': np.nan,
-            # 移除冗余指标的初始化
         }
-        if tick_df is None or tick_df.empty:
+        if tick_df is None or tick_df.empty or len(tick_df) < 2:
             return results
-        total_volume = tick_df['volume'].sum()
-        day_open_qfq = daily_series_for_day.get('open_qfq')
-        day_close_qfq = daily_series_for_day.get('close_qfq')
-        price_change_in_atr = (day_close_qfq - day_open_qfq) / atr_14 if pd.notna(atr_14) and atr_14 > 0 else 0
-        # 使用“动能回溯”逻辑计算净推力
-        net_thrust_volume = 0
-        if total_volume > 0:
-            if 'price_change' in tick_df.columns and not tick_df['price_change'].isnull().all():
-                self_calculated_change = tick_df['price'].diff().fillna(0)
-                zero_change_mask = tick_df['price_change'] == 0
-                effective_price_change = np.where(zero_change_mask, self_calculated_change, tick_df['price_change'])
-                net_thrust_volume = (tick_df['volume'] * np.sign(effective_price_change)).sum()
-            else: # 回退逻辑
-                total_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
-                total_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
-                net_thrust_volume = total_buy_vol - total_sell_vol
-        if net_thrust_volume != 0 and total_volume > 0:
-            results['active_volume_price_efficiency'] = price_change_in_atr / (net_thrust_volume / total_volume)
-        # 彻底移除 absorption_strength_index 和 distribution_pressure_index 的冗余计算
+        # 升维：计算累计推力与累计价格位移的相关性
+        # 1. 计算每笔tick的有效推力
+        if 'price_change' in tick_df.columns and not tick_df['price_change'].isnull().all():
+            self_calculated_change = tick_df['price'].diff().fillna(0)
+            zero_change_mask = tick_df['price_change'] == 0
+            effective_price_change = np.where(zero_change_mask, self_calculated_change, tick_df['price_change'])
+            net_thrust_volume = tick_df['volume'] * np.sign(effective_price_change)
+        else: # 回退逻辑
+            buy_vol = np.where(tick_df['type'] == 'B', tick_df['volume'], 0)
+            sell_vol = np.where(tick_df['type'] == 'S', -tick_df['volume'], 0)
+            net_thrust_volume = buy_vol + sell_vol
+        # 2. 构建两条累计曲线
+        tick_df['cum_thrust'] = net_thrust_volume.cumsum()
+        first_price = tick_df['price'].iloc[0]
+        tick_df['cum_price_change'] = tick_df['price'] - first_price
+        # 3. 按分钟重采样以进行相关性分析（避免tick级别噪声过大）
+        resampled_df = tick_df[['cum_thrust', 'cum_price_change']].resample('1min').last().dropna()
+        if len(resampled_df) > 2:
+            correlation = resampled_df['cum_thrust'].corr(resampled_df['cum_price_change'])
+            results['active_volume_price_efficiency'] = correlation
+            if enable_probe and is_target_date:
+                print(f"--- [探针 ASM.{trade_date_str}] active_volume_price_efficiency (博弈) ---")
+                print(f"    - 模式: 过程追溯 (高频)")
+                print(f"    - 原料: {len(resampled_df)}个分钟采样点上的“累计推力”与“累计价格位移”序列")
+                print(f"    - 计算: corr(cum_thrust, cum_price_change)")
+                print(f"    -> 结果: {results.get('active_volume_price_efficiency', np.nan):.4f}")
         return results
 
     @staticmethod

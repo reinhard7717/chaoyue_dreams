@@ -473,74 +473,77 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_game_efficiency_metrics(context: dict) -> dict:
         """
-        计算博弈效率相关指标。
-        【V42.0 · 动能归一】
-        - 核心升级: 将 `distribution_pressure_index` 和 `absorption_strength_index` 的计算内核，
-                     从 B/S 盘意图推断，全面升级为基于“动能回溯”的真实动能度量。
-                     这使得指标能更精准地量化上涨中的真实派发压力和下跌中的真实吸筹强度。
+        【V61.0 · 博弈精研】
+        - 核心升级: 全面升维博弈效率指标，引入 `volatility_skew_index` 和 `thrust_efficiency_score`，
+                     以更高维度洞察市场效率与情绪偏向。
+        - `volatility_skew_index` 新增: 计算上涨与下跌分钟的已实现波动率之比，量化情绪非对称性。
+        - `thrust_efficiency_score` 新增: 结合价格变动与推力纯度，衡量“破局”效率。
+        - 逻辑保留: `absorption_strength_index` 和 `distribution_pressure_index` 已是最终形态，予以保留。
         """
         group = context['group']
         tick_df = context.get('tick_df')
+        day_open_qfq = context['day_open_qfq']
+        day_close_qfq = context['day_close_qfq']
+        atr_14 = context['atr_14']
+        intraday_thrust_purity = context.get('intraday_thrust_purity')
         debug_info = context.get('debug', {})
         is_target_date = debug_info.get('is_target_date', False)
         enable_probe = debug_info.get('enable_probe', False)
         trade_date_str = debug_info.get('trade_date_str', 'N/A')
         results = {}
-        if tick_df is None or tick_df.empty or group.empty:
+        if group.empty:
             return results
-        # 全面升级为基于“动能回溯”的计算逻辑
-        # 准备分钟级和Tick级数据
+        # 1. 新增：波动率偏度指数 (Volatility Skew Index)
+        minute_returns = group['close'].pct_change().dropna()
+        if len(minute_returns) > 1:
+            positive_returns = minute_returns[minute_returns > 0]
+            negative_returns = minute_returns[minute_returns < 0]
+            vol_up = positive_returns.std()
+            vol_down = negative_returns.std()
+            if pd.notna(vol_up) and pd.notna(vol_down) and vol_up > 0 and vol_down > 0:
+                results['volatility_skew_index'] = np.log(vol_up / vol_down)
+                if enable_probe and is_target_date:
+                    print(f"--- [探针 ASM.{trade_date_str}] volatility_skew_index (博弈) ---")
+                    print(f"    - 原料: 上涨分钟数={len(positive_returns)}, 下跌分钟数={len(negative_returns)}")
+                    print(f"    - 节点: 上行波动率={vol_up:.6f}, 下行波动率={vol_down:.6f}")
+                    print(f"    - 计算: log({vol_up:.6f} / {vol_down:.6f})")
+                    print(f"    -> 结果: {results.get('volatility_skew_index', np.nan):.4f}")
+        # 2. 新增：推力效能分 (Thrust Efficiency Score)
+        if all(pd.notna(v) for v in [day_close_qfq, day_open_qfq, atr_14, intraday_thrust_purity]) and atr_14 > 0:
+            price_change_in_atr = (day_close_qfq - day_open_qfq) / atr_14
+            # 分母 (1 - abs(purity)) 奖赏高纯度推力, 增加epsilon避免除零
+            effort_factor = 1 - abs(intraday_thrust_purity) + 1e-9
+            results['thrust_efficiency_score'] = price_change_in_atr / effort_factor
+            if enable_probe and is_target_date:
+                print(f"--- [探针 ASM.{trade_date_str}] thrust_efficiency_score (博弈) ---")
+                print(f"    - 原料: 价格变动(ATR)={price_change_in_atr:.4f}, 推力纯度={intraday_thrust_purity:.4f}")
+                print(f"    - 节点 (内耗因子): 1 - |{intraday_thrust_purity:.4f}| = {effort_factor:.4f}")
+                print(f"    - 计算: {price_change_in_atr:.4f} / {effort_factor:.4f}")
+                print(f"    -> 结果: {results.get('thrust_efficiency_score', np.nan):.4f}")
+        if tick_df is None or tick_df.empty:
+            return results
         group['price_change_minute'] = group['close'].diff()
         if 'price_change' in tick_df.columns and not tick_df['price_change'].isnull().all():
             self_calculated_change = tick_df['price'].diff().fillna(0)
             zero_change_mask = tick_df['price_change'] == 0
             tick_df['effective_price_change'] = np.where(zero_change_mask, self_calculated_change, tick_df['price_change'])
             tick_df['thrust_direction'] = np.sign(tick_df['effective_price_change'])
-            # 1. 上涨派发压力指数 (Distribution Pressure Index)
+            # 3. 保留：上涨派发压力指数 (Distribution Pressure Index)
             up_minutes_index = group[group['price_change_minute'] > 0].index
             up_minutes_ticks = tick_df[tick_df.index.floor('T').isin(up_minutes_index)]
             if not up_minutes_ticks.empty:
                 downward_thrust_vol = up_minutes_ticks[up_minutes_ticks['thrust_direction'] < 0]['volume'].sum()
                 upward_thrust_vol = up_minutes_ticks[up_minutes_ticks['thrust_direction'] > 0]['volume'].sum()
                 if upward_thrust_vol > 0:
-                    pressure_index = downward_thrust_vol / upward_thrust_vol
-                    results['distribution_pressure_index'] = pressure_index
-                    if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] distribution_pressure_index (高频-动能归一) ---")
-                        print(f"    - 原料: 上涨分钟内的向下动能成交量(真实派发)={downward_thrust_vol:,.0f}, 向上动能成交量(真实驱动)={upward_thrust_vol:,.0f}")
-                        print(f"    - 计算: {downward_thrust_vol:,.0f} / {upward_thrust_vol:,.0f}")
-                        print(f"    -> 结果: {pressure_index:.4f}")
-            # 2. 下跌吸筹强度指数 (Absorption Strength Index)
+                    results['distribution_pressure_index'] = downward_thrust_vol / upward_thrust_vol
+            # 4. 保留：下跌吸筹强度指数 (Absorption Strength Index)
             down_minutes_index = group[group['price_change_minute'] < 0].index
             down_minutes_ticks = tick_df[tick_df.index.floor('T').isin(down_minutes_index)]
             if not down_minutes_ticks.empty:
                 upward_thrust_vol = down_minutes_ticks[down_minutes_ticks['thrust_direction'] > 0]['volume'].sum()
                 downward_thrust_vol = down_minutes_ticks[down_minutes_ticks['thrust_direction'] < 0]['volume'].sum()
                 if downward_thrust_vol > 0:
-                    strength_index = upward_thrust_vol / downward_thrust_vol
-                    results['absorption_strength_index'] = strength_index
-                    if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] absorption_strength_index (高频-动能归一) ---")
-                        print(f"    - 原料: 下跌分钟内的向上动能成交量(真实抵抗)={upward_thrust_vol:,.0f}, 向下动能成交量(真实驱动)={downward_thrust_vol:,.0f}")
-                        print(f"    - 计算: {upward_thrust_vol:,.0f} / {downward_thrust_vol:,.0f}")
-                        print(f"    -> 结果: {strength_index:.4f}")
-        else: # 回退到旧的B/S盘逻辑
-            group['vol_buy'] = tick_df[tick_df['type'] == 'B']['volume'].resample('T').sum()
-            group['vol_sell'] = tick_df[tick_df['type'] == 'S']['volume'].resample('T').sum()
-            group.fillna(0, inplace=True)
-            up_minutes = group[(group['price_change_minute'] > 0) & (group['vol_buy'] > group['vol_sell'])]
-            if not up_minutes.empty:
-                distribution_vol = up_minutes['vol_sell'].sum()
-                driving_vol = up_minutes['vol_buy'].sum()
-                if driving_vol > 0:
-                    results['distribution_pressure_index'] = distribution_vol / driving_vol
-            down_minutes = group[(group['price_change_minute'] < 0) & (group['vol_sell'] > group['vol_buy'])]
-            down_minutes_ticks = tick_df[tick_df.index.floor('T').isin(down_minutes.index)]
-            if not down_minutes_ticks.empty:
-                absorption_vol = down_minutes_ticks[down_minutes_ticks['type'] == 'B']['volume'].sum()
-                driving_vol = down_minutes_ticks[down_minutes_ticks['type'] == 'S']['volume'].sum()
-                if driving_vol > 0:
-                    results['absorption_strength_index'] = absorption_vol / driving_vol
+                    results['absorption_strength_index'] = upward_thrust_vol / downward_thrust_vol
         return results
 
     @staticmethod
