@@ -541,15 +541,15 @@ class ChipIntelligence:
 
     def _diagnose_tactical_exchange(self, df: pd.DataFrame, battlefield_geography: pd.Series) -> pd.Series:
         """
-        【V1.3 · 数据流重构版】诊断战术换手博弈的质量与意图
-        - 核心重构: 遵循显式数据流模式，将上游信号`battlefield_geography`作为参数直接注入，
-                      彻底解决因依赖共享DataFrame状态而导致的信号缺失问题。
+        【V1.4 · 稳健组合版】诊断战术换手博弈的质量与意图
+        - 核心架构升级: 修复“脆弱链条”悖论。将最终融合模型从几何平均升级为加权算术平均，
+                          避免单一维度的极端负分过度拉低整体评分，使信号更稳健、更均衡地反映多维度博弈。
         """
-        print("    -> [筹码层] 正在诊断“战术换手博弈 (V1.3 · 数据流重构版)”...")
+        print("    -> [筹码层] 正在诊断“战术换手博弈 (V1.4 · 稳健组合版)”...") # [修改代码行]
         required_signals = [
             'main_force_net_flow_calibrated_D', 'retail_net_flow_calibrated_D', 'turnover_rate_f_D',
             'peak_control_transfer_D', 'floating_chip_cleansing_efficiency_D', 'capitulation_absorption_index_D',
-            'profit_realization_quality_D', 'BIAS_55_D', 'is_consolidating_D', # 移除了'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY'
+            'profit_realization_quality_D', 'BIAS_55_D', 'is_consolidating_D',
             'upward_impulse_purity_D', 'SLOPE_1_close_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_tactical_exchange"):
@@ -577,17 +577,18 @@ class ChipIntelligence:
         bearish_quality = get_adaptive_mtf_normalized_score(profit_quality, df_index, tf_weights)
         quality_score = bullish_quality - bearish_quality
         # 维度3: 换手环境 (Exchange Context)
-        geography = battlefield_geography # 直接使用传入的参数
+        geography = battlefield_geography
         bias = self._get_safe_series(df, df, 'BIAS_55_D')
         is_consolidating = self._get_safe_series(df, df, 'is_consolidating_D')
         norm_bias_risk = (bias / 0.3).clip(-1, 1)
         context_score = (geography * 0.6 - norm_bias_risk * 0.4) * (1 + is_consolidating * 0.2)
-        # 最终融合
+        # [修改代码块] 最终融合：从几何平均升级为加权算术平均
+        weights = {'intent': 0.4, 'quality': 0.4, 'context': 0.2}
         final_score = (
-            (intent_score.clip(-1, 1).add(1)/2) *
-            (quality_score.clip(-1, 1).add(1)/2) *
-            (context_score.clip(-1, 1).add(1)/2)
-        ).pow(1/3) * 2 - 1
+            intent_score.clip(-1, 1) * weights['intent'] +
+            quality_score.clip(-1, 1) * weights['quality'] +
+            context_score.clip(-1, 1) * weights['context']
+        )
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -605,11 +606,13 @@ class ChipIntelligence:
                 print(f"         - 过程: bullish_quality (dynamic): {bullish_quality.loc[probe_date]:.4f}, bearish_quality: {bearish_quality.loc[probe_date]:.4f}")
                 print(f"         - 结果: quality_score: {quality_score.loc[probe_date]:.4f}")
                 print(f"       - 维度3: 换手环境 (Context)")
-                # 更新探针输出，明确geography是注入的
                 print(f"         - 原料: geography (injected): {geography.loc[probe_date]:.4f}, bias55: {bias.loc[probe_date]:.4f}, is_consolidating: {is_consolidating.loc[probe_date]}")
                 print(f"         - 过程: norm_bias_risk: {norm_bias_risk.loc[probe_date]:.4f}")
                 print(f"         - 结果: context_score: {context_score.loc[probe_date]:.4f}")
-                print(f"       - 最终融合结果: final_score: {final_score.loc[probe_date]:.4f}")
+                # [修改代码块] 更新探针输出以反映新的加权算术平均融合
+                print(f"       - 最终融合 (加权算术平均):")
+                print(f"         - 贡献: Intent({weights['intent']}): {intent_score.clip(-1, 1).loc[probe_date] * weights['intent']:.4f}, Quality({weights['quality']}): {quality_score.clip(-1, 1).loc[probe_date] * weights['quality']:.4f}, Context({weights['context']}): {context_score.clip(-1, 1).loc[probe_date] * weights['context']:.4f}")
+                print(f"         - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
 
