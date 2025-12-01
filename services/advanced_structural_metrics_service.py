@@ -25,9 +25,14 @@ class AdvancedStructuralMetricsService:
                 利用分钟级数据，为日线级别锻造高保真的微观结构DNA指标。
     - 架构模式: 借鉴 AdvancedFundFlowMetricsService 的成功经验，实现业务逻辑与任务调度的完全解耦。
     """
-    def __init__(self):
-        """初始化服务，设定回溯期等基础参数"""
-        self.max_lookback_days = 300 # 为计算衍生指标所需的最大历史回溯天数
+    def __init__(self, debug_params: dict = None):
+        """
+        【V22.1 · 诊断驾驶舱】
+        - 核心升级: 接收并存储 debug_params，为探针的精确触发提供支持。
+        初始化服务，设定回溯期等基础参数
+        """
+        self.max_lookback_days = 300 # 为计算衍生指标所需的最大回溯天数
+        self.debug_params = debug_params if debug_params is not None else {} # 修改代码行：接收并存储调试参数
 
     async def run_precomputation(self, stock_info: StockInfo, dates_to_process: pd.DatetimeIndex, daily_df_with_atr: pd.DataFrame, intraday_data_map: dict):
         """
@@ -259,12 +264,10 @@ class AdvancedStructuralMetricsService:
 
     def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict, tick_df_for_day: pd.DataFrame = None, level5_df_for_day: pd.DataFrame = None, realtime_df_for_day: pd.DataFrame = None) -> dict:
         """
-        【V22.0 · 能量密度穿透】
-        - 核心重构: 剥离能量密度指标组的计算逻辑至全新的 `_calculate_energy_density_metrics` 静态方法中，
-                     实现高频数据优先的穿透计算，并在此处统一调用。
+        【V22.1 · 诊断驾驶舱】
+        - 核心升级: 在 context 中加入调试标志，以控制下游探针的触发。
         """
         results = {}
-        # 初始化所有指标
         results['auction_impact_score'] = np.nan
         results['price_shock_factor'] = np.nan
         results['volatility_expansion_ratio'] = np.nan
@@ -288,7 +291,10 @@ class AdvancedStructuralMetricsService:
             daily_series_for_day.get('low_qfq'), daily_series_for_day.get('close_qfq'),
             daily_series_for_day.get('pre_close_qfq')
         )
-        # 新增代码块：创建计算上下文
+        # 新增代码块：计算并传递调试标志
+        trade_date_str = group['trade_time'].iloc[0].strftime('%Y-%m-%d')
+        is_target_date = trade_date_str == self.debug_params.get('target_date')
+        enable_probe = self.debug_params.get('enable_asm_probe', False) # 使用独立的 asm 探针开关
         context = {
             'group': group,
             'continuous_group': continuous_group,
@@ -299,6 +305,11 @@ class AdvancedStructuralMetricsService:
             'total_volume_safe': total_volume_safe,
             'day_open_qfq': day_open_qfq,
             'pre_close_qfq': pre_close_qfq,
+            'debug': { # 新增代码块：将调试标志封装到 context 中
+                'is_target_date': is_target_date,
+                'enable_probe': enable_probe,
+                'trade_date_str': trade_date_str,
+            }
         }
         # --- 1. 能量密度与战场动力学 (调用新方法) ---
         results.update(self._calculate_energy_density_metrics(context))
@@ -853,9 +864,8 @@ class AdvancedStructuralMetricsService:
     @staticmethod
     def _calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V22.0 · 能量密度穿透】(新增方法)
-        - 核心职责: 统一计算能量密度指标组，实现三大核心指标的高频穿透升级。
-        - 升级策略: 对推力纯度、成交量爆裂度、开盘缺口强度采用“高频优先，分钟降级”策略。
+        【V22.1 · 诊断驾驶舱】
+        - 核心升级: 全面植入精细化探针，仅在目标日期输出原料、计算节点和结果，用于深度调试。
         """
         # 从上下文中解构所需数据
         group = context['group']
@@ -865,13 +875,17 @@ class AdvancedStructuralMetricsService:
         level5_df = context.get('level5_df')
         day_open_qfq = context['day_open_qfq']
         pre_close_qfq = context['pre_close_qfq']
+        # 新增代码块：解构调试标志
+        debug_info = context.get('debug', {})
+        is_target_date = debug_info.get('is_target_date', False)
+        enable_probe = debug_info.get('enable_probe', False)
+        trade_date_str = debug_info.get('trade_date_str', 'N/A')
         results = {
             'intraday_energy_density': np.nan,
             'intraday_thrust_purity': np.nan,
             'volume_burstiness_index': np.nan,
             'auction_impact_score': np.nan,
         }
-        trade_date_str = group['trade_time'].iloc[0].strftime('%Y-%m-%d')
         # 1. intraday_energy_density (日内能量密度) - 维持原逻辑
         if pd.notna(atr_14) and atr_14 > 0:
             turnover_rate = pd.to_numeric(daily_series_for_day.get('turnover_rate_f'), errors='coerce')
@@ -879,35 +893,47 @@ class AdvancedStructuralMetricsService:
                 results['intraday_energy_density'] = np.log1p(turnover_rate) / atr_14
         # 2. intraday_thrust_purity (日内推力纯度) - 高频穿透升级
         if tick_df is not None and not tick_df.empty and 'type' in tick_df.columns:
-            print(f"  [探针 ASM.{trade_date_str}] intraday_thrust_purity: 使用高频Tick数据计算。")
             total_volume = tick_df['volume'].sum()
             if total_volume > 0:
                 active_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
                 active_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
                 results['intraday_thrust_purity'] = (active_buy_vol - active_sell_vol) / total_volume
+                if enable_probe and is_target_date:
+                    print(f"--- [探针 ASM.{trade_date_str}] intraday_thrust_purity (高频) ---")
+                    print(f"    - 原料: 总成交量={total_volume:,.0f}, 主动买量={active_buy_vol:,.0f}, 主动卖量={active_sell_vol:,.0f}")
+                    print(f"    - 计算: ({active_buy_vol:,.0f} - {active_sell_vol:,.0f}) / {total_volume:,.0f}")
+                    print(f"    -> 结果: {results['intraday_thrust_purity']:.4f}")
         else:
-            print(f"  [探针 ASM.{trade_date_str}] intraday_thrust_purity: [降级] 使用分钟线数据计算。")
             thrust_vector = (group['close'] - group['open']) * group['vol']
             absolute_energy = abs(group['close'] - group['open']) * group['vol']
             total_energy = absolute_energy.sum()
             if total_energy > 0:
                 results['intraday_thrust_purity'] = thrust_vector.sum() / total_energy
+                if enable_probe and is_target_date:
+                    print(f"--- [探针 ASM.{trade_date_str}] intraday_thrust_purity (分钟降级) ---")
+                    print(f"    - 原料: 推力向量和={thrust_vector.sum():,.2f}, 绝对能量和={total_energy:,.2f}")
+                    print(f"    - 计算: {thrust_vector.sum():,.2f} / {total_energy:,.2f}")
+                    print(f"    -> 结果: {results['intraday_thrust_purity']:.4f}")
         # 3. volume_burstiness_index (成交量爆裂度指数) - 高频穿透升级
         if tick_df is not None and not tick_df.empty:
-            print(f"  [探针 ASM.{trade_date_str}] volume_burstiness_index: 使用高频Tick数据计算。")
             results['volume_burstiness_index'] = AdvancedStructuralMetricsService._calculate_gini(tick_df['volume'].values)
+            if enable_probe and is_target_date:
+                print(f"--- [探针 ASM.{trade_date_str}] volume_burstiness_index (高频) ---")
+                print(f"    - 原料: {len(tick_df)} 笔逐笔成交量序列")
+                print(f"    -> 结果: {results['volume_burstiness_index']:.4f}")
         else:
-            print(f"  [探针 ASM.{trade_date_str}] volume_burstiness_index: [降级] 使用分钟线数据计算。")
             results['volume_burstiness_index'] = AdvancedStructuralMetricsService._calculate_gini(group['vol'].values)
+            if enable_probe and is_target_date:
+                print(f"--- [探针 ASM.{trade_date_str}] volume_burstiness_index (分钟降级) ---")
+                print(f"    - 原料: {len(group)} 根分钟线成交量序列")
+                print(f"    -> 结果: {results['volume_burstiness_index']:.4f}")
         # 4. auction_impact_score (开盘缺口强度) - 高频穿透升级
         if all(pd.notna(v) for v in [day_open_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
             gap_magnitude = (day_open_qfq - pre_close_qfq) / atr_14
             if tick_df is not None and not tick_df.empty and level5_df is not None and not level5_df.empty:
-                print(f"  [探针 ASM.{trade_date_str}] auction_impact_score: 使用高频OFI数据进行验证。")
                 opening_ticks = tick_df[tick_df.index.time < time(9, 35)]
                 opening_level5 = level5_df[level5_df.index.time < time(9, 35)]
                 if not opening_ticks.empty and not opening_level5.empty:
-                    # 简单OFI计算逻辑
                     merged_hf = pd.merge_asof(opening_ticks.sort_index(), opening_level5.sort_index(), on='trade_time', direction='backward')
                     merged_hf['mid_price'] = (merged_hf['buy_price1'] + merged_hf['sell_price1']) / 2
                     merged_hf['prev_mid_price'] = merged_hf['mid_price'].shift(1)
@@ -919,13 +945,25 @@ class AdvancedStructuralMetricsService:
                     if opening_volume > 0:
                         conviction_factor = np.tanh(opening_ofi / opening_volume)
                         results['auction_impact_score'] = gap_magnitude * (1 + conviction_factor)
+                        if enable_probe and is_target_date:
+                            print(f"--- [探针 ASM.{trade_date_str}] auction_impact_score (高频) ---")
+                            print(f"    - 原料: 开盘价={day_open_qfq:.2f}, 昨收={pre_close_qfq:.2f}, ATR={atr_14:.4f}")
+                            print(f"    - 节点1 (缺口): ({day_open_qfq:.2f} - {pre_close_qfq:.2f}) / {atr_14:.4f} = {gap_magnitude:.4f}")
+                            print(f"    - 原料2: 开盘5分钟OFI={opening_ofi:,.0f}, 成交量={opening_volume:,.0f}")
+                            print(f"    - 节点2 (信念): tanh({opening_ofi:,.0f} / {opening_volume:,.0f}) = {conviction_factor:.4f}")
+                            print(f"    - 计算: {gap_magnitude:.4f} * (1 + {conviction_factor:.4f})")
+                            print(f"    -> 结果: {results['auction_impact_score']:.4f}")
                     else:
                         results['auction_impact_score'] = gap_magnitude
                 else:
                     results['auction_impact_score'] = gap_magnitude
             else:
-                print(f"  [探针 ASM.{trade_date_str}] auction_impact_score: [降级] 仅计算缺口大小。")
                 results['auction_impact_score'] = gap_magnitude
+                if enable_probe and is_target_date:
+                    print(f"--- [探针 ASM.{trade_date_str}] auction_impact_score (分钟降级) ---")
+                    print(f"    - 原料: 开盘价={day_open_qfq:.2f}, 昨收={pre_close_qfq:.2f}, ATR={atr_14:.4f}")
+                    print(f"    - 计算: ({day_open_qfq:.2f} - {pre_close_qfq:.2f}) / {atr_14:.4f}")
+                    print(f"    -> 结果: {results['auction_impact_score']:.4f}")
         return results
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):

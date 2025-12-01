@@ -673,8 +673,8 @@ def summarize_computation_failures(results):
 @with_cache_manager
 def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V4.2 · 探针清理版】为单只股票预计算高级结构与行为指标的Celery任务。
-    - 核心维护: 移除了所有用于调试的print语句。
+    【V22.1 · 诊断驾驶舱】为单只股票预计算高级结构与行为指标的Celery任务。
+    - 核心升级: 加载策略配置文件，并将 debug_params 传递给服务层，以实现探针的精确触发。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.advanced_structural_metrics_service import AdvancedStructuralMetricsService
@@ -682,7 +682,20 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
         from utils.model_helpers import get_daily_data_model_by_code
         from datetime import timedelta
         import pandas_ta as ta
-        structural_service = AdvancedStructuralMetricsService()
+        # 新增代码块：加载配置文件以获取调试参数
+        import json
+        import os
+        from django.conf import settings
+        config_path = os.path.join(settings.BASE_DIR, 'config', 'trend_follow_strategy.json')
+        strategy_config = {}
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                strategy_config = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass # 在结构指标任务中，即使配置失败也不中断，仅影响调试探针
+        debug_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
+        # 修改代码块：在服务初始化时传入调试参数
+        structural_service = AdvancedStructuralMetricsService(debug_params=debug_params)
         stock_info, MetricsModel, _, last_metric_date, fetch_start_date = await structural_service._initialize_context(
             stock_code, incremental_flag, start_date_override
         )
