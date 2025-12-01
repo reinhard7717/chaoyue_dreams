@@ -13,11 +13,12 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V38.2 · 反转收复率】
-        - 核心新增: 引入新指标 `reversal_recovery_rate` (反转收复率)，用于量化
-                     成功反转对前一波下跌的收复程度 (反弹幅度 / 下跌幅度)。
-                     此举将反转评估从“过程效率”提升至“战略成果”层面，完成了
-                     从信念、效率到最终战果的全维度量化。
+        【V38.3 · 突破动能修正】
+        - 核心重构: 为 `dynamic_reversal_strength` 引入战局意识。算法将根据“反转收复率”
+                     动态切换成交量评价模型：
+                     1. 当收复率 > 1 (突破性反转)，采用“成交量确认模型”，奖励放量突破。
+                     2. 当收复率 <= 1 (抵抗性反弹)，沿用“成交量效率模型”，奖励缩量反弹。
+                     此举解决了此前错误惩罚“放量真突破”的战略性缺陷。
         """
         group = context['group']
         daily_series_for_day = context['daily_series_for_day']
@@ -40,7 +41,7 @@ class StructuralMetricsCalculators:
             'auction_impact_score': np.nan,
             'dynamic_reversal_strength': np.nan,
             'reversal_conviction_rate': np.nan,
-            'reversal_recovery_rate': np.nan, # 新增代码行：初始化新指标
+            'reversal_recovery_rate': np.nan,
             'high_level_consolidation_volume': np.nan,
             'opening_period_thrust': np.nan,
         }
@@ -117,7 +118,7 @@ class StructuralMetricsCalculators:
             peaks, _ = find_peaks(group['high'], distance=5, prominence=dynamic_prominence)
             troughs, _ = find_peaks(-group['low'], distance=5, prominence=dynamic_prominence)
             if len(troughs) > 0 and len(peaks) > 0:
-                reversal_details = [] # 修改代码行：存储更丰富的反转细节
+                reversal_details = []
                 all_extrema = sorted(np.concatenate([peaks, troughs]))
                 first_trough_idx = -1
                 for i, extremum_pos in enumerate(all_extrema):
@@ -142,11 +143,15 @@ class StructuralMetricsCalculators:
                                     vwap_rebound = rebounding_phase['amount'].sum() / vol_rebound
                                     if vwap_fall > 0:
                                         price_momentum = (vwap_rebound / vwap_fall - 1)
-                                        volume_efficiency = vol_fall / vol_rebound
-                                        momentum = (price_momentum * volume_efficiency) * 100
-                                        # 新增代码块：计算下跌和反弹的绝对幅度
                                         fall_magnitude = group.iloc[prev_peak_pos]['high'] - group.iloc[trough_pos]['low']
                                         rebound_magnitude = group.iloc[peak_pos]['high'] - group.iloc[trough_pos]['low']
+                                        # 修改代码块：引入基于战局的动态成交量因子
+                                        recovery_rate = rebound_magnitude / fall_magnitude if fall_magnitude > 0 else 0
+                                        if recovery_rate > 1: # 突破性反转
+                                            volume_factor = np.log1p(vol_rebound / vol_fall) # 确认因子
+                                        else: # 抵抗性反弹
+                                            volume_factor = vol_fall / vol_rebound # 效率因子
+                                        momentum = (price_momentum * volume_factor) * 100
                                         reversal_details.append({
                                             "momentum": momentum,
                                             "fall_magnitude": fall_magnitude,
@@ -168,7 +173,6 @@ class StructuralMetricsCalculators:
                     if successful_reversals:
                         successful_momentums = [r['momentum'] for r in successful_reversals]
                         results['dynamic_reversal_strength'] = np.mean(successful_momentums)
-                        # 新增代码块：计算并存储反转收复率
                         recovery_ratios = [
                             r['rebound_magnitude'] / r['fall_magnitude']
                             for r in successful_reversals if r['fall_magnitude'] > 0
@@ -185,7 +189,7 @@ class StructuralMetricsCalculators:
                             print(f"--- [探针 ASM.{trade_date_str}] dynamic_reversal_strength (分钟) ---")
                             print(f"    - 前置: 使用 {prominence_source} 显著性阈值 = {dynamic_prominence:.4f}")
                             print(f"    - 原料: 识别出 {total_attempts} 次反转尝试, 其中 {successful_attempts} 次成功")
-                            print(f"    - 节点 (量价效率动能): {[f'{m:.2f}' for m in successful_momentums]}")
+                            print(f"    - 节点 (突破动能): {[f'{m:.2f}' for m in successful_momentums]}")
                             print(f"    - 计算: mean of successful reversals")
                             print(f"    -> 结果: {results['dynamic_reversal_strength']:.4f}")
         except ImportError:
