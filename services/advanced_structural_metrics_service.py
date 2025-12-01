@@ -271,7 +271,10 @@ class AdvancedStructuralMetricsService:
                                             realtime_df: pd.DataFrame | None, daily_info: pd.Series,
                                             prev_day_metrics: dict, debug_info: dict) -> dict:
         """
-        【V48.0 · 拨乱反正】
+        【V48.1 · 正本清源】
+        - 核心修正: 将错误的 `calculate_energy_density_metrics` 方法调用更正为正确的
+                     `calculate_high_frequency_metrics`。修复了因方法名错误导致的 `AttributeError`，
+                     使程序能够正确调用计算高频与能量密度指标的函数。
         - 核心修正: 调整了 thematic calculators 的调用顺序，将 `calculate_market_profile_metrics`
                      的调用提前至 `calculate_control_metrics` 之前。此举确保了在计算
                      `closing_conviction_score` 时，当日的价值中枢(`_today_vpoc`)已经备妥，
@@ -293,13 +296,11 @@ class AdvancedStructuralMetricsService:
             'total_volume_safe': group['vol'].sum() if 'vol' in group.columns and not group.empty else 0,
             'debug': debug_info,
         }
-        # 修改代码块：调整了计算函数的调用顺序
-        energy_metrics = ThematicMetricsCalculators.calculate_energy_density_metrics(context)
+        # 修改代码行：修正了错误的函数名
+        energy_metrics = ThematicMetricsCalculators.calculate_high_frequency_metrics(context)
         context.update(energy_metrics)
-        # 修正：先计算市场剖面，得到VPOC等关键上下文
         profile_metrics = ThematicMetricsCalculators.calculate_market_profile_metrics(context)
         context.update(profile_metrics)
-        # 修正：后计算控盘指标，此时context中已有VPOC
         control_metrics = ThematicMetricsCalculators.calculate_control_metrics(context)
         context.update(control_metrics)
         game_metrics = ThematicMetricsCalculators.calculate_game_efficiency_metrics(context)
