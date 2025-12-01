@@ -121,7 +121,7 @@ class StockRealtimeDAO(BaseDAO):
             initial_delay = 5
             for attempt in range(max_retries + 1):
                 try:
-                    df = await sync_to_async(self.ts.realtime_tick)(ts_code=code, src='sina')
+                    df = await sync_to_async(self.ts.realtime_tick)(ts_code=code, src='tx')
                     if df is None or df.empty:
                         print(f"    -> [探针] Tushare接口为 {code} 返回了空数据。")
                         return code, None
