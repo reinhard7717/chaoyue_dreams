@@ -178,7 +178,7 @@ class StructuralMetricsCalculators:
                         print(f"    - 计算: ({opening_buy_vol:,.0f} - {opening_sell_vol:,.0f}) / {opening_total_vol:,.0f}")
                         print(f"    -> 结果: {results['opening_period_thrust']:.4f}")
         else:
-            # 修改代码行：将 group['trade_time'].dt.time 替换为 group.index.time
+            # 将 group['trade_time'].dt.time 替换为 group.index.time
             opening_period_df = group[group.index.time < time(9, 59, 59)]
             if not opening_period_df.empty:
                 opening_thrust_vector = (opening_period_df['close'] - opening_period_df['open']) * opening_period_df['vol']
@@ -236,8 +236,10 @@ class StructuralMetricsCalculators:
     def calculate_game_efficiency_metrics(context: dict) -> dict:
         """
         计算博弈效率相关指标。
-        【V36.7 · 探针释义修正】
-        - 核心修复: 修正 `downward_absorption_efficacy` 在探针日志中的文字描述，将分母从错误的“被动卖量”更正为“主动卖量”，确保释义的准确性。
+        【V36.8 · 功效归因修正】
+        - 核心修复: 修正 `upward_thrust_efficacy` 的归因逻辑。
+                     现在只统计价格上涨且主动买盘力量大于主动卖盘力量的分钟，
+                     确保指标衡量的是由买方主导的真实上行效率。
         """
         group = context['group']
         tick_df = context.get('tick_df')
@@ -253,7 +255,8 @@ class StructuralMetricsCalculators:
         group['vol_buy'] = tick_df[tick_df['type'] == 'B']['volume'].resample('T').sum()
         group['vol_sell'] = tick_df[tick_df['type'] == 'S']['volume'].resample('T').sum()
         group.fillna(0, inplace=True)
-        up_minutes = group[group['price_change'] > 0]
+        # 修改代码行：增加 vol_buy > vol_sell 的筛选条件，进行精确归因
+        up_minutes = group[(group['price_change'] > 0) & (group['vol_buy'] > group['vol_sell'])]
         if not up_minutes.empty:
             total_price_increase = up_minutes['price_change'].sum()
             total_buy_vol_in_up_minutes = up_minutes['vol_buy'].sum()
@@ -276,7 +279,6 @@ class StructuralMetricsCalculators:
                 results['downward_absorption_efficacy'] = absorption_ratio
                 if enable_probe and is_target_date:
                     print(f"--- [探针 ASM.{trade_date_str}] downward_absorption_efficacy (高频) ---")
-                    # 修改代码行：修正日志描述，明确驱动力是“主动卖量”
                     print(f"    - 原料: 下跌中的主动买量(抵抗)={absorption_vol:,.0f}, 下跌中的主动卖量(驱动)={driving_vol:,.0f}")
                     print(f"    - 计算: {absorption_vol:,.0f} / {driving_vol:,.0f}")
                     print(f"    -> 结果: {absorption_ratio:.4f}")

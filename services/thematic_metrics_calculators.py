@@ -107,7 +107,7 @@ class ThematicMetricsCalculators:
         results = {}
         auction_period_df = group[group.index.time >= time(14, 57)]
         if not auction_period_df.empty and not continuous_group.empty:
-            # 修改代码行：使用 .index.time 进行有效的同类型比较
+            # 使用 .index.time 进行有效的同类型比较
             close_before_auction_series = continuous_group.loc[continuous_group.index.time < time(14, 57, 0)]['close']
             if not close_before_auction_series.empty:
                 close_before_auction = close_before_auction_series.iloc[-1]
@@ -118,7 +118,7 @@ class ThematicMetricsCalculators:
                         avg_vol_pre_auction = pre_auction_period_df['vol'].mean() if not pre_auction_period_df.empty else 0
                         auction_volume = auction_period_df['vol'].sum()
                         volume_surprise_factor = auction_volume / avg_vol_pre_auction if avg_vol_pre_auction > 0 else 1.0
-                        # 修改代码行：使用 .index.time 进行有效的同类型比较
+                        # 使用 .index.time 进行有效的同类型比较
                         last_snapshot_series = level5_df.loc[level5_df.index.time < time(14, 57, 0)]
                         last_snapshot = last_snapshot_series.iloc[-1] if not last_snapshot_series.empty else None
                         pre_auction_tension = 0
@@ -178,7 +178,7 @@ class ThematicMetricsCalculators:
                     trend_quality = linearity * pullback_control
                     direction = np.sign(day_close_qfq - day_open_qfq) if day_close_qfq != day_open_qfq else 1
                     results['trend_quality_score'] = trend_quality * direction
-            # 修改代码行：统一为索引访问
+            # 统一为索引访问
             tail_df = continuous_group[continuous_group.index.time >= time(14, 0)]
             if not tail_df.empty and pd.notna(atr_14) and atr_14 > 0 and total_volume_safe > 0:
                 vwap_tail = (tail_df['amount'].sum() / tail_df['vol'].sum()) if tail_df['vol'].sum() > 0 else np.nan
@@ -187,11 +187,11 @@ class ThematicMetricsCalculators:
                     momentum_deviation = (vwap_tail - vwap_full) / atr_14
                     vol_ratio_tail = tail_df['vol'].sum() / total_volume_safe
                     results['closing_momentum_index'] = momentum_deviation * np.log1p(vol_ratio_tail)
-            # 修改代码行：统一为索引访问
+            # 统一为索引访问
             open_rhythm_df = continuous_group[continuous_group.index.time < time(10, 0)]
-            # 修改代码行：统一为索引访问
+            # 统一为索引访问
             mid_rhythm_df = continuous_group[(continuous_group.index.time >= time(10, 0)) & (continuous_group.index.time < time(14, 30))]
-            # 修改代码行：统一为索引访问
+            # 统一为索引访问
             tail_rhythm_df = continuous_group[continuous_group.index.time >= time(14, 30)]
             if not open_rhythm_df.empty and not mid_rhythm_df.empty and not tail_rhythm_df.empty:
                 avg_vol_open = open_rhythm_df['vol'].mean()

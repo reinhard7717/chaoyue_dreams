@@ -157,7 +157,7 @@ class MicrostructureDynamicsCalculators:
         up_minutes_df = group[group['close'] > group['open']]
         if not down_minutes_df.empty:
             active_buy_on_dip, active_sell_on_dip = 0, 0
-            # 修改代码行：直接从iterrows()的索引中获取minute_start
+            # 直接从iterrows()的索引中获取minute_start
             for minute_start, minute_row in down_minutes_df.iterrows():
                 minute_end = minute_start + pd.Timedelta(minutes=1)
                 ticks_in_minute = tick_df[(tick_df.index >= minute_start) & (tick_df.index < minute_end)]
@@ -171,7 +171,7 @@ class MicrostructureDynamicsCalculators:
                     print(f"    -> 结果: {results['absorption_strength_index']:.4f}")
         if not up_minutes_df.empty:
             active_sell_on_rally, active_buy_on_rally = 0, 0
-            # 修改代码行：直接从iterrows()的索引中获取minute_start
+            # 直接从iterrows()的索引中获取minute_start
             for minute_start, minute_row in up_minutes_df.iterrows():
                 minute_end = minute_start + pd.Timedelta(minutes=1)
                 ticks_in_minute = tick_df[(tick_df.index >= minute_start) & (tick_df.index < minute_end)]

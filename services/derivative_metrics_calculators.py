@@ -31,15 +31,15 @@ class DerivativeMetricsCalculator:
         if am_ticks.empty or pm_ticks.empty or am_group.empty or pm_group.empty:
             return results
         # 1. 计算上下半场的主动买盘强度 (Thrust Purity)
-        # 修改代码行：将 'side' 修正为 'type'
+        # 将 'side' 修正为 'type'
         am_buy_vol = am_ticks[am_ticks['type'] == 'B']['volume'].sum()
-        # 修改代码行：将 'side' 修正为 'type'
+        # 将 'side' 修正为 'type'
         am_sell_vol = am_ticks[am_ticks['type'] == 'S']['volume'].sum()
         am_total_vol = am_buy_vol + am_sell_vol
         am_thrust = (am_buy_vol - am_sell_vol) / am_total_vol if am_total_vol > 0 else 0
-        # 修改代码行：将 'side' 修正为 'type'
+        # 将 'side' 修正为 'type'
         pm_buy_vol = pm_ticks[pm_ticks['type'] == 'B']['volume'].sum()
-        # 修改代码行：将 'side' 修正为 'type'
+        # 将 'side' 修正为 'type'
         pm_sell_vol = pm_ticks[pm_ticks['type'] == 'S']['volume'].sum()
         pm_total_vol = pm_buy_vol + pm_sell_vol
         pm_thrust = (pm_buy_vol - pm_sell_vol) / pm_total_vol if pm_total_vol > 0 else 0

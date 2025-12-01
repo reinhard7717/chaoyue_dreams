@@ -547,7 +547,7 @@ class AdvancedStructuralMetricsService:
         if continuous_group is None or continuous_group.empty or len(continuous_group) < 2:
             return metrics
         # 1. 识别两个交易日
-        # 修改代码行：增加索引类型检查，使其更健壮
+        # 增加索引类型检查，使其更健壮
         if isinstance(continuous_group.index, pd.DatetimeIndex):
             trade_dates = continuous_group.index.date
         elif 'trade_time' in continuous_group.columns:
@@ -686,7 +686,7 @@ class AdvancedStructuralMetricsService:
             processed_count = 0
             # 使用 reset_index() 来安全地将索引转换为列进行迭代
             for record_data in df_to_save.reset_index().to_dict('records'):
-                # 修改代码行：移除多余的 .date() 调用，因为值已是 date 对象
+                # 移除多余的 .date() 调用，因为值已是 date 对象
                 trade_time = record_data.pop('trade_time')
                 defaults_data = {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in record_data.items()}
                 try:
