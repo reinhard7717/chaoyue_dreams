@@ -170,9 +170,11 @@ class MicrostructureDynamicsCalculators:
     @staticmethod
     def _calculate_liquidity_metrics(context: dict) -> dict:
         """
-        【V27.2 · 权重对齐修复】
-        - 核心修复: 修复了因数值列表与权重列表长度不匹配导致的 np.average TypeError。
-        - 解决方案: 在循环内同步构建数值列表和其对应的权重列表，确保二者长度和顺序严格一致。
+        【V70.0 · 流动性验真】
+        - 核心升维: 彻底重构 `liquidity_authenticity_score`。不再依赖静态盘口形态，而是
+                     引入“流动性承诺-兑现”动态追踪模型。通过识别盘口异常大额挂单，并追踪
+                     其在价格压力下的最终结局（真实成交或提前撤单），深度量化挂单的“诚意”，
+                     从而辨别“铁壁”与“幻象”。
         """
         tick_df = context.get('tick_df')
         level5_df = context.get('level5_df')
@@ -187,12 +189,12 @@ class MicrostructureDynamicsCalculators:
             'liquidity_slope': np.nan,
             'liquidity_authenticity_score': np.nan,
         }
-        if tick_df is None or tick_df.empty or level5_df is None or level5_df.empty:
+        if tick_df is None or tick_df.empty or level5_df is None or level5_df.empty or len(level5_df) < 2:
             return results
+        # --- 保留 market_impact_cost 和 liquidity_slope 的计算逻辑 ---
         column_rename_map = {**{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)}, **{f'buy_volume{i}': f'b{i}_v' for i in range(1, 6)}, **{f'sell_price{i}': f'a{i}_p' for i in range(1, 6)}, **{f'sell_volume{i}': f'a{i}_v' for i in range(1, 6)}}
         level5_df_renamed = level5_df.copy().rename(columns=column_rename_map)
         if realtime_df is not None and not realtime_df.empty:
-            # 重构数据合并与循环逻辑，确保权重对齐
             snapshot_df = pd.merge_asof(realtime_df.sort_index(), level5_df_renamed.sort_index(), on='trade_time', direction='backward')
             snapshot_df['snapshot_volume'] = snapshot_df['volume'].diff().fillna(0).clip(lower=0)
             total_amount = daily_series_for_day.get('amount', 0)
@@ -202,9 +204,7 @@ class MicrostructureDynamicsCalculators:
                 slopes, weights_for_slopes = [], []
                 for _, row in snapshot_df.iterrows():
                     snapshot_volume = row['snapshot_volume']
-                    if snapshot_volume <= 0:
-                        continue
-                    # 冲击成本计算
+                    if snapshot_volume <= 0: continue
                     amount_to_fill, filled_amount, filled_volume = standard_amount, 0, 0
                     for i in range(1, 6):
                         price, vol = row.get(f'a{i}_p'), row.get(f'a{i}_v', 0) * 100
@@ -220,7 +220,6 @@ class MicrostructureDynamicsCalculators:
                             cost = ((filled_amount / filled_volume) / float(mid_price) - 1) * 100
                             impact_costs.append(cost)
                             weights_for_costs.append(snapshot_volume)
-                    # 斜率计算
                     mid_price = (row.get('b1_p', 0) + row.get('a1_p', 0)) / 2
                     if mid_price > 0:
                         ask_x = [(float(row.get(f'a{i}_p', mid_price)) - mid_price) / mid_price for i in range(1, 6)]
@@ -233,6 +232,69 @@ class MicrostructureDynamicsCalculators:
                     results['market_impact_cost'] = np.average(impact_costs, weights=weights_for_costs)
                 if slopes and sum(weights_for_slopes) > 0:
                     results['liquidity_slope'] = np.average(slopes, weights=weights_for_slopes)
+        # --- 新增 `liquidity_authenticity_score` 的升维计算逻辑 ---
+        df = level5_df[['buy_price1', 'buy_volume1', 'sell_price1', 'sell_volume1']].copy()
+        df['prev_b1_v'] = df['buy_volume1'].shift(1)
+        df['prev_a1_v'] = df['sell_volume1'].shift(1)
+        # 1. 定义“大单”阈值
+        b1_vol_mean, b1_vol_std = df['buy_volume1'].mean(), df['buy_volume1'].std()
+        a1_vol_mean, a1_vol_std = df['sell_volume1'].mean(), df['sell_volume1'].std()
+        buy_commitment_threshold = b1_vol_mean + 2 * b1_vol_std
+        sell_commitment_threshold = a1_vol_mean + 2 * a1_vol_std
+        # 2. 识别“承诺”与“结局”
+        fulfillments = 0
+        defaults = 0
+        # 识别买方承诺（大额买单出现）
+        buy_commitments = df[(df['buy_volume1'] > buy_commitment_threshold) & (df['buy_volume1'] > df['prev_b1_v'] * 2)]
+        for idx, commit in buy_commitments.iterrows():
+            # 追踪此承诺
+            future_snapshots = df.loc[idx:].iloc[1:21] # 观察未来20个快照（约1分钟）
+            if future_snapshots.empty: continue
+            commit_price = commit['buy_price1']
+            # 压力测试：卖一价是否接近承诺价
+            pressure_snapshots = future_snapshots[future_snapshots['sell_price1'] <= commit_price + 0.02]
+            if not pressure_snapshots.empty:
+                first_pressure_point = pressure_snapshots.iloc[0]
+                # 结局判断：是成交了还是撤单了？
+                if first_pressure_point['buy_volume1'] < commit['buy_volume1'] * 0.5:
+                    defaults += 1 # 大单在压力下消失，视为违约
+                else:
+                    # 检查是否有真实成交
+                    related_ticks = tick_df.loc[idx:first_pressure_point.name]
+                    if not related_ticks.empty and (related_ticks['price'] == commit_price).any():
+                        fulfillments += 1 # 有成交，视为兑现
+        # 识别卖方承诺（大额卖单出现）
+        sell_commitments = df[(df['sell_volume1'] > sell_commitment_threshold) & (df['sell_volume1'] > df['prev_a1_v'] * 2)]
+        for idx, commit in sell_commitments.iterrows():
+            future_snapshots = df.loc[idx:].iloc[1:21]
+            if future_snapshots.empty: continue
+            commit_price = commit['sell_price1']
+            pressure_snapshots = future_snapshots[future_snapshots['buy_price1'] >= commit_price - 0.02]
+            if not pressure_snapshots.empty:
+                first_pressure_point = pressure_snapshots.iloc[0]
+                if first_pressure_point['sell_volume1'] < commit['sell_volume1'] * 0.5:
+                    defaults += 1
+                else:
+                    related_ticks = tick_df.loc[idx:first_pressure_point.name]
+                    if not related_ticks.empty and (related_ticks['price'] == commit_price).any():
+                        fulfillments += 1
+        # 3. 计算最终得分
+        total_events = fulfillments + defaults
+        if total_events > 0:
+            results['liquidity_authenticity_score'] = fulfillments / total_events
+        else:
+            results['liquidity_authenticity_score'] = 0.5 # 无事件发生，给予中性分
+        if enable_probe and is_target_date:
+            print(f"--- [探针 ASM.{trade_date_str}] liquidity_authenticity_score (流动性验真) ---")
+            print(f"    - 原料: {len(level5_df)}个Level-5快照")
+            print(f"    - 节点: 买方大单阈值={buy_commitment_threshold:,.0f}, 卖方大单阈值={sell_commitment_threshold:,.0f}")
+            print(f"    - 节点: 识别到买方承诺{len(buy_commitments)}次, 卖方承诺{len(sell_commitments)}次")
+            print(f"    - 节点: 承诺兑现(成交)次数={fulfillments}, 承诺违约(撤单)次数={defaults}")
+            if total_events > 0:
+                print(f"    - 计算: {fulfillments} / ({fulfillments} + {defaults})")
+            else:
+                print(f"    - 计算: 无大型挂单博弈事件，返回中性分")
+            print(f"    -> 结果: {results['liquidity_authenticity_score']:.4f}")
         return results
 
     @staticmethod
