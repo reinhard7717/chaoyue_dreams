@@ -51,7 +51,7 @@ class IntradayBehaviorEngine:
         if df_minute is None or df_minute.empty:
             return None
         df_enriched = df_minute.copy()
-        # [修改代码行] 移除不再需要的KDJ计算
+        # 移除不再需要的KDJ计算
         # VWAP (为公理二：支配共识服务)
         df_enriched = await self.calculator.calculate_vwap(df_enriched)
         return df_enriched
@@ -73,7 +73,7 @@ class IntradayBehaviorEngine:
                 "SCORE_INTRADAY_DOMINANCE_CONSENSUS": 0.0,
                 "SCORE_INTRADAY_CONVICTION_REVERSAL": 0.0,
             }
-        # [修改代码行] 并行执行三大新战报的诊断
+        # 并行执行三大新战报的诊断
         tasks = [
             self._diagnose_offensive_purity(df_enriched),
             self._diagnose_dominance_consensus(df_enriched),
@@ -166,7 +166,7 @@ class IntradayBehaviorEngine:
                       采用 tanh 函数将双极性 Alpha 柔性映射到 [0, 1] 区间，使模型更稳健。
         - 核心重构: 重构探针逻辑，使其能正确识别当前处理的数据段是否覆盖了探针日期。
         """
-        # [修改代码行] 此方法现在需要从分钟数据中找到对应的日线数据
+        # 此方法现在需要从分钟数据中找到对应的日线数据
         if df_minute.empty:
             return {"SCORE_INTRADAY_CONVICTION_REVERSAL": 0.0}
         current_date = df_minute.index[0].normalize()

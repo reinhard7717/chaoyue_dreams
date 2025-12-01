@@ -685,7 +685,7 @@ class ChipFeatureCalculator:
                      根除了因“相对主义”评估标准而产生的逻辑谬误。
         """
         results = {'chip_health_score': np.nan} # 默认值为NaN
-        # [新增代码块] 定义需要进行“绝对评估”的指标及其参数
+        # 定义需要进行“绝对评估”的指标及其参数
         ABSOLUTE_METRICS_CONFIG = {
             'main_force_cost_advantage': {'neutral': 0.0, 'sensitivity': 0.1, 'asc': True},
             'dominant_peak_profit_margin': {'neutral': 0.0, 'sensitivity': 0.05, 'asc': True},
@@ -963,7 +963,7 @@ class ChipFeatureCalculator:
             'active_selling_pressure': np.nan,
             'active_buying_support': np.nan,
             'upward_impulse_purity': np.nan,
-            # 'opening_gap_defense_strength': np.nan, # [修改代码行] 移除此幽灵指标
+            # 'opening_gap_defense_strength': np.nan, # 移除此幽灵指标
             'capitulation_absorption_index': np.nan,
         }
         intraday_df = context.get('processed_intraday_df')

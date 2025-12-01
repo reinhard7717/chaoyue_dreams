@@ -138,7 +138,7 @@ class PatternIntelligence:
             'large_order_support_D', 'hidden_accumulation_intensity_D', 'dip_absorption_power_D',
             'upper_shadow_selling_pressure_D', 'lower_shadow_absorption_strength_D', 'winner_stability_index_D',
             'control_solidity_index_D', 'main_force_ofi_D', 'retail_ofi_D', 'wash_trade_intensity_D',
-            'closing_price_deviation_score_D'
+            'closing_strength_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_pullback_confirmation"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -169,7 +169,7 @@ class PatternIntelligence:
         main_force_ofi_D = self._get_safe_series(df, 'main_force_ofi_D', method_name="_diagnose_axiom_pullback_confirmation")
         retail_ofi_D = self._get_safe_series(df, 'retail_ofi_D', method_name="_diagnose_axiom_pullback_confirmation")
         wash_trade_intensity_D = self._get_safe_series(df, 'wash_trade_intensity_D', method_name="_diagnose_axiom_pullback_confirmation")
-        closing_conviction_score_D = self._get_safe_series(df, 'closing_price_deviation_score_D', method_name="_diagnose_axiom_pullback_confirmation")
+        closing_conviction_score_D = self._get_safe_series(df, 'closing_strength_index_D', method_name="_diagnose_axiom_pullback_confirmation")
         max_vol_ma = pd.concat([vol_ma5_D, vol_ma21_D], axis=1).max(axis=1)
         effective_volume_D = volume_D * (1 - wash_trade_intensity_D.fillna(0).clip(0, 1))
         debug_params = get_params_block(self.strategy, 'debug_params', {})

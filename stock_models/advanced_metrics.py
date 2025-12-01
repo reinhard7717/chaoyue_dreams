@@ -897,7 +897,7 @@ class TrendlineFeature_BJ(BaseTrendlineFeature):
         verbose_name = '趋势线特征-北京'
         verbose_name_plural = verbose_name
 
-# [新增代码块] 多时间维度趋势线每日快照模型
+# 多时间维度趋势线每日快照模型
 class BaseMultiTimeframeTrendline(models.Model):
     """
     【V2.52 · 趋势信念版】
@@ -953,7 +953,7 @@ class MultiTimeframeTrendline_BJ(BaseMultiTimeframeTrendline):
         db_table = 'stock_trendline_matrix_bj'
         verbose_name = '趋势线矩阵-北京'
 
-# [新增代码块] 趋势线动态事件模型
+# 趋势线动态事件模型
 class BaseTrendlineEvent(models.Model):
     """
     【V2.2 · 启示录版】

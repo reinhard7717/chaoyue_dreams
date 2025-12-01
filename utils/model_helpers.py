@@ -233,7 +233,7 @@ def get_advanced_structural_metrics_model_by_code(stock_code: str):
         print(f"未识别的股票代码: {stock_code}，默认使用SZ主板高级结构指标表")
         return AdvancedStructuralMetrics_SZ
 
-# [新增代码块] 在文件末尾添加新的辅助函数
+# 在文件末尾添加新的辅助函数
 def get_platform_feature_model_by_code(stock_code: str) -> Optional[Type[models.Model]]:
     """
     【V1.0】根据股票代码返回对应的矩形平台特征数据表Model
@@ -270,7 +270,7 @@ def get_trendline_feature_model_by_code(stock_code: str) -> Optional[Type[models
         print(f"未识别的股票代码: {stock_code}，趋势线特征默认使用SZ主板表")
         return TrendlineFeature_SZ
 
-# [新增代码块] 在文件末尾添加新的模型辅助函数
+# 在文件末尾添加新的模型辅助函数
 def get_multi_timeframe_trendline_model_by_code(stock_code: str) -> Optional[Type[models.Model]]:
     """
     【V2.1】根据股票代码返回对应的趋势线矩阵数据表Model

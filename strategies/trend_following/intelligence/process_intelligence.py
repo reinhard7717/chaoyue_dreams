@@ -275,12 +275,12 @@ class ProcessIntelligence:
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # [修改代码行] 使用新的“打压吸筹强度”作为核心战术证据
+        # 使用新的“打压吸筹强度”作为核心战术证据
         suppressive_accum_raw = self._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_calculate_deceptive_accumulation")
         power_transfer_score = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
         coherent_drive_score = self.strategy.atomic_states.get('SCORE_CHIP_COHERENT_DRIVE', pd.Series(0.0, index=df_index))
         price_trend_raw = self._get_safe_series(df, f'SLOPE_5_close_D', 0.0, method_name="_calculate_deceptive_accumulation")
-        # [修改代码行] 归一化新的核心证据
+        # 归一化新的核心证据
         tactic_evidence = (suppressive_accum_raw / 100).clip(0, 1)
         transfer_evidence = power_transfer_score.clip(lower=0)
         price_trend_norm = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df_index, default_weights, self.bipolar_sensitivity)
@@ -413,7 +413,7 @@ class ProcessIntelligence:
                       具备龙头潜质的“真突破”。
         """
         print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (V4.0 · 资本属性调节版)...")
-        # [修改代码行] 新增对资本属性公理的依赖
+        # 新增对资本属性公理的依赖
         required_signals = [
             'pct_change_D', 'main_force_net_flow_calibrated_D', 'main_force_price_impact_ratio_D',
             'upward_impulse_purity_D', 'volume_ratio_D', 'control_solidity_index_D',
@@ -427,7 +427,7 @@ class ProcessIntelligence:
         df_index = df.index
         relative_strength = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH', 0.0)
         rs_amplifier = config.get('relative_strength_amplifier', 0.0)
-        # [新增代码块] 获取资本属性公理及配置参数
+        # 获取资本属性公理及配置参数
         capital_signature = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CAPITAL_SIGNATURE', 0.0)
         cs_modulator_weight = config.get('capital_signature_modulator_weight', 0.0)
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
@@ -483,7 +483,7 @@ class ProcessIntelligence:
         rs_modulator = (1 + relative_strength * rs_amplifier)
         # [新增代码行] 构建资本属性调节器
         capital_modulator = (1 + capital_signature * cs_modulator_weight)
-        # [修改代码行] 应用双重调节器
+        # 应用双重调节器
         final_rally_intent = (base_rally_intent * rs_modulator * capital_modulator).clip(-1, 1)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day, (final_rally_intent + 0.35)).clip(-1, 1)
         self.strategy.atomic_states["_DEBUG_rally_aggressiveness"] = aggressiveness_score
@@ -563,7 +563,7 @@ class ProcessIntelligence:
             relationship_score = self._calculate_accumulation_inflection(df, config)
         elif signal_name == 'PROCESS_META_BREAKOUT_ACCELERATION':
             relationship_score = self._calculate_breakout_acceleration(df, config)
-        # [新增代码块] 为“资金流吸筹拐点意图”添加专属调度分支
+        # 为“资金流吸筹拐点意图”添加专属调度分支
         elif signal_name == 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT':
             relationship_score = self._calculate_fund_flow_accumulation_inflection(df, config)
         else:
@@ -784,7 +784,7 @@ class ProcessIntelligence:
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # [新增代码块] 获取新公理及配置参数
+        # 获取新公理及配置参数
         historical_potential = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0)
         potential_gate = config.get('historical_potential_gate', 0.0)
         potential_amplifier = config.get('historical_potential_amplifier', 0.0)
@@ -815,7 +815,7 @@ class ProcessIntelligence:
         consolidative_score = (evidence1_consolidative * evidence2_consolidative * evidence3_consolidative * evidence4_consolidative).pow(1/4)
         consolidative_score = consolidative_score.where(consolidative_mask, 0.0)
         base_score = pd.concat([suppressive_score, consolidative_score], axis=1).max(axis=1).fillna(0.0)
-        # [新增代码块] 融合筹码势能
+        # 融合筹码势能
         potential_gate_mask = historical_potential > potential_gate
         potential_modulator = (1 + historical_potential * potential_amplifier)
         final_score = (base_score * potential_modulator).where(potential_gate_mask, 0.0)
@@ -830,7 +830,7 @@ class ProcessIntelligence:
         """
         print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (V3.0 · 势能增强版)...")
         df_index = df.index
-        # [新增代码块] 获取新公理及配置参数
+        # 获取新公理及配置参数
         historical_potential = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0)
         potential_gate = config.get('historical_potential_gate', 0.0)
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -926,16 +926,16 @@ class ProcessIntelligence:
         stealth_accum = self.strategy.atomic_states.get('PROCESS_META_STEALTH_ACCUMULATION', pd.Series(0.0, index=df_index))
         deceptive_accum = self.strategy.atomic_states.get('PROCESS_META_DECEPTIVE_ACCUMULATION', pd.Series(0.0, index=df_index))
         panic_washout_accum = self.strategy.atomic_states.get('PROCESS_META_PANIC_WASHOUT_ACCUMULATION', pd.Series(0.0, index=df_index))
-        # [新增代码块] 引入更全面的“全息证据”
+        # 引入更全面的“全息证据”
         split_order_accum = self.strategy.atomic_states.get('PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', pd.Series(0.0, index=df_index))
         power_transfer_accum = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index)).clip(lower=0)
-        # [修改代码行] 融合五大“全息证据”来计算每日的吸筹强度
+        # 融合五大“全息证据”来计算每日的吸筹强度
         daily_accumulation_strength = pd.concat([stealth_accum, deceptive_accum, panic_washout_accum, split_order_accum, power_transfer_accum], axis=1).max(axis=1)
         potential_energy_raw = daily_accumulation_strength.rolling(window=accumulation_window, min_periods=5).sum()
         potential_energy_score = normalize_score(potential_energy_raw, df_index, window=accumulation_window, ascending=True).clip(0, 1)
         price_slope_1d = self._get_safe_series(df, f'SLOPE_1_close_D', 0.0, method_name="_calculate_accumulation_inflection")
         volume_burst = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_BURST', pd.Series(0.0, index=df_index))
-        closing_position = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.0, method_name="_calculate_accumulation_inflection")
+        closing_position = self._get_safe_series(df, 'closing_strength_index_D', 0.0, method_name="_calculate_accumulation_inflection")
         price_trigger = (price_slope_1d > 0).astype(float)
         volume_trigger = (volume_burst > 0.1).astype(float)
         kline_trigger = ((closing_position / 100).clip(0, 1))
@@ -974,7 +974,7 @@ class ProcessIntelligence:
         if not self._validate_required_signals(df, required_signals, "_calculate_breakout_acceleration"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
-        # [新增代码块] 获取新公理及配置参数
+        # 获取新公理及配置参数
         relative_strength = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH', 0.0)
         rs_amplifier = config.get('relative_strength_amplifier', 0.0)
         breakout_signal = self.strategy.atomic_states.get('SCORE_PATTERN_AXIOM_BREAKOUT', pd.Series(0.0, index=df_index))

@@ -172,13 +172,13 @@ class BehavioralIntelligence:
         - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         required_signals = [
-            'closing_price_deviation_score_D', 'real_body_vs_range_ratio_D', 'shadow_dominance_D',
+            'closing_strength_index_D', 'real_body_vs_range_ratio_D', 'shadow_dominance_D',
             'VPA_EFFICIENCY_D', 'vwap_control_strength_D', 'intraday_trend_purity_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_calculate_behavioral_day_quality"):
             return pd.Series(0.0, index=df.index)
         print("开始执行【V1.0 · 纯净版】行为K线质量分计算...")
-        outcome_core = (self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_calculate_behavioral_day_quality") * 2 - 1).clip(-1, 1)
+        outcome_core = (self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_calculate_behavioral_day_quality") * 2 - 1).clip(-1, 1)
         body_dominance = self._get_safe_series(df, 'real_body_vs_range_ratio_D', 0.0, method_name="_calculate_behavioral_day_quality")
         shadow_dominance = self._get_safe_series(df, 'shadow_dominance_D', 0.0, method_name="_calculate_behavioral_day_quality")
         pillar1_outcome_score = (outcome_core * 0.7 + outcome_core * body_dominance * 0.1 + shadow_dominance * 0.2).clip(-1, 1)
@@ -212,7 +212,7 @@ class BehavioralIntelligence:
             'SLOPE_5_main_force_conviction_index_D', 'breakout_quality_score_D',
             'SLOPE_5_breakout_quality_score_D', 'total_winner_rate_D', 'winner_stability_index_D',
             'control_solidity_index_D', 'trend_vitality_index_D', 'BIAS_21_D', 'RSI_13_D',
-            'ACCEL_5_pct_change_D', 'closing_price_deviation_score_D', 'active_selling_pressure_D',
+            'ACCEL_5_pct_change_D', 'closing_strength_index_D', 'active_selling_pressure_D',
             'chip_fatigue_index_D', 'main_force_ofi_D', 'retail_ofi_D', 'buy_quote_exhaustion_rate_D',
             'sell_quote_exhaustion_rate_D',
             'microstructure_efficiency_index_D', 'upward_impulse_purity_D', 'vacuum_traversal_efficiency_D',
@@ -230,7 +230,7 @@ class BehavioralIntelligence:
         long_term_weights = get_param_value(p_conf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
         # --- 基础信号计算 ---
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        closing_deviation = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_diagnose_behavioral_axioms")
+        closing_deviation = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_behavioral_axioms")
         intraday_posture = self._get_safe_series(df, 'intraday_posture_score_D', 0.0, method_name="_diagnose_behavioral_axioms")
         main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_behavioral_axioms")
         amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_behavioral_axioms").replace(0, 1e-9)
@@ -319,7 +319,7 @@ class BehavioralIntelligence:
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights)
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights)
         states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = self._calculate_absorption_strength(df, default_weights)
-        # [新增代码块] 调用新增的洗盘确认诊断
+        # 调用新增的洗盘确认诊断
         states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] = self._diagnose_shakeout_confirmation(
             df,
             states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'],
@@ -436,7 +436,7 @@ class BehavioralIntelligence:
         """
         states = {}
         df = self.strategy.df_indicators
-        # [新增代码块] 战前情报校验
+        # 战前情报校验
         required_signals = ['VPA_EFFICIENCY_D', 'vwap_control_strength_D']
         if not self._validate_required_signals(df, required_signals, "_resolve_pressure_absorption_dynamics"):
             return {
@@ -509,7 +509,7 @@ class BehavioralIntelligence:
         else:
             print("    -> [行为情报兼容模式] _diagnose_stagnation_evidence: 未找到 'ACCEL_5_pct_change_D'，使用 'pct_change_D' 的5日差分作为代理。")
             price_accel = pct_change.diff(5).fillna(0.0)
-        closing_deviation = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_diagnose_stagnation_evidence")
+        closing_deviation = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_stagnation_evidence")
         distribution_pressure = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_stagnation_evidence")
         active_selling = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name="_diagnose_stagnation_evidence")
         chip_fatigue = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
@@ -527,7 +527,7 @@ class BehavioralIntelligence:
         process_evidence = (distribution_score * active_selling_score).pow(0.5)
         outcome_evidence = bullish_failure_score
         bearish_ambush = (process_evidence * 0.7 + outcome_evidence * 0.3)
-        # [修改代码行] 将“与门”逻辑改为“或门”逻辑
+        # 将“与门”逻辑改为“或门”逻辑
         micro_conflict_score = np.maximum(bullish_exhaustion, bearish_ambush)
         # 3. 构建“宏观风险放大器”
         profit_pressure_score = get_adaptive_mtf_normalized_score(winner_rate, df_index, ascending=True, tf_weights=default_weights)
@@ -614,7 +614,7 @@ class BehavioralIntelligence:
         required_signals = [
             'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D',
             'profit_taking_flow_ratio_D', 'main_force_execution_alpha_D',
-            'SLOPE_5_main_force_conviction_index_D', 'closing_price_deviation_score_D'
+            'SLOPE_5_main_force_conviction_index_D', 'closing_strength_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_calculate_distribution_intent"):
             return pd.Series(0.0, index=df.index)
@@ -639,10 +639,10 @@ class BehavioralIntelligence:
             conviction_evidence.pow(0.15)
         ).fillna(0.0)
         # --- 市场接受度放大器 (逻辑不变) ---
-        market_acceptance_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_calculate_distribution_intent")
+        market_acceptance_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_calculate_distribution_intent")
         market_acceptance_normalized = normalize_score(market_acceptance_raw, df.index, 55)
         acceptance_amplifier = 1 + (market_acceptance_normalized * 0.5)
-        # --- [新增代码块] 主力控盘能力调节器 ---
+        # --- 主力控盘能力调节器 ---
         # Alpha为正，说明主力控盘能力强，派发行为更“从容”，风险更高
         positive_alpha_score = get_adaptive_mtf_normalized_score(mf_alpha_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
         # 权重0.5表示，最强的正Alpha能将风险再放大50%
@@ -711,7 +711,7 @@ class BehavioralIntelligence:
         recent_high = high_price.rolling(window=21, min_periods=21).max().shift(1)
         is_breakout_attempt = (high_price > recent_high).astype(float)
         # 2. 获取其他风险要素
-        collapse_score = distribution_intent # [修改代码行] 直接使用传入的、更强大的派发意图分数
+        collapse_score = distribution_intent # 直接使用传入的、更强大的派发意图分数
         volume_raw = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_breakout_failure_risk")
         volume_score = get_adaptive_mtf_normalized_score(volume_raw, df.index, ascending=True, tf_weights=default_weights)
         # 3. 风险合成
@@ -804,7 +804,7 @@ class BehavioralIntelligence:
                       引入“形态显著性过滤器”，通过下影线长度占日内振幅的比例来调节其最终得分，
                       确保模型的判断同时尊重相对强度和绝对形态意义。
         """
-        # [修改代码行] 增加对 high, low, open, close 的依赖
+        # 增加对 high, low, open, close 的依赖
         required_signals = ['dip_absorption_power_D', 'lower_shadow_absorption_strength_D', 'high_D', 'low_D', 'open_D', 'close_D']
         if not self._validate_required_signals(df, required_signals, "_calculate_absorption_strength"):
             return pd.Series(0.0, index=df.index)

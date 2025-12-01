@@ -68,7 +68,7 @@ class MicroBehaviorEngine:
             print("-> [指挥覆盖探针] 微观行为引擎在配置中被禁用，跳过分析。")
             return {}
         all_states = {}
-        # [修改代码行] 借用行为层的MTF权重配置
+        # 借用行为层的MTF权重配置
         p_behavior_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_behavior_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -156,18 +156,18 @@ class MicroBehaviorEngine:
     def _diagnose_strategy_shock_and_awe(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
         【V1.3 · 数据净化增强版】微观诡道二策：诊断“震慑突袭”
-        - 核心修复: 增加了对输入信号 `closing_price_deviation_score_D` 的强制归一化处理。
+        - 核心修复: 增加了对输入信号 `closing_strength_index_D` 的强制归一化处理。
                       解决了因上游数据污染（如出现 > 1 的值）导致逻辑判断错误的致命漏洞。
         - 核心重构: 探针逻辑适配历史回溯。
         """
         impact_raw = self._get_safe_series(df, 'ofi_price_impact_factor_D', 0.0, method_name="_diagnose_strategy_shock_and_awe")
         clearing_raw = self._get_safe_series(df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_strategy_shock_and_awe")
-        outcome_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_diagnose_strategy_shock_and_awe")
+        outcome_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_strategy_shock_and_awe")
         # [新增代码行] 增加数据净化步骤，防止上游数据污染
         outcome_normalized = normalize_score(outcome_raw, df.index, 55)
         impact_score = get_adaptive_mtf_normalized_score(impact_raw.abs(), df.index, ascending=True, tf_weights=tf_weights)
         clearing_score = get_adaptive_mtf_normalized_score(clearing_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # [修改代码行] 使用净化后的数据进行计算
+        # 使用净化后的数据进行计算
         outcome_intent = (outcome_normalized * 2 - 1).clip(-1, 1)
         shock_magnitude = (impact_score * clearing_score).pow(0.5).fillna(0.0)
         shock_and_awe_score = (shock_magnitude * outcome_intent).clip(-1, 1)

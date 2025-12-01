@@ -100,7 +100,7 @@ class FusionIntelligence:
         """
         print("  -- [融合层] 正在冶炼“市场矛盾”...")
         states = {}
-        # [修改代码行] 移除 'FOUNDATION'，因为它不再提供独立的背离信号
+        # 移除 'FOUNDATION'，因为它不再提供独立的背离信号
         divergence_sources = [
             'STRUCTURE', 'PATTERN', 'DYNAMIC_MECHANICS',
             'FUND_FLOW', 'MICRO_BEHAVIOR'
@@ -329,13 +329,13 @@ class FusionIntelligence:
         long_term_weights = get_param_value(p_mtf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
         overextension_raw_bipolar = (self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.5) * 2 - 1).clip(-1, 1)
         bias_raw = self._get_safe_series(df, 'BIAS_21_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        # [修改代码行] 换用正确的多时间框架归一化函数
+        # 换用正确的多时间框架归一化函数
         bias_score = get_adaptive_mtf_normalized_bipolar_score(bias_raw, df_index, tf_weights=default_weights, sensitivity=0.05)
         winner_rate_raw = self._get_safe_series(df, 'total_winner_rate_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        # [修改代码行] 换用正确的多时间框架归一化函数
+        # 换用正确的多时间框架归一化函数
         winner_rate_score = get_adaptive_mtf_normalized_bipolar_score(winner_rate_raw, df_index, tf_weights=long_term_weights, sensitivity=0.1)
         rsi_raw = self._get_safe_series(df, 'RSI_13_D', pd.Series(50.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        # [修改代码行] 换用正确的多时间框架归一化函数
+        # 换用正确的多时间框架归一化函数
         rsi_score = get_adaptive_mtf_normalized_bipolar_score(rsi_raw, df_index, tf_weights=short_term_weights, sensitivity=10.0)
         core_overextension_sum = (
             overextension_raw_bipolar * 0.2 + bias_score * 0.2 +
@@ -345,8 +345,8 @@ class FusionIntelligence:
         chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         micro_cost_control = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_COST_CONTROL', 0.0)
-        body_ratio_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        # [修改代码行] 换用正确的多时间框架归一化函数
+        body_ratio_raw = self._get_safe_series(df, 'closing_strength_index_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
+        # 换用正确的多时间框架归一化函数
         body_score = get_adaptive_mtf_normalized_bipolar_score(body_ratio_raw, df_index, tf_weights=default_weights, sensitivity=0.2)
         distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
         distribution_intent_score = (distribution_intent * -1).clip(-1, 0)
@@ -379,14 +379,14 @@ class FusionIntelligence:
             alignment_score = pd.Series(0.0, index=df_index)
         else:
             raw_alignment = (ema5 - ema21) / (ema21.abs().replace(0, 1e-9))
-            # [修改代码行] 换用正确的多时间框架归一化函数
+            # 换用正确的多时间框架归一化函数
             alignment_score = get_adaptive_mtf_normalized_bipolar_score(raw_alignment, df_index, tf_weights=default_weights, sensitivity=5.0)
         slope_ema5 = self._get_safe_series(df, 'SLOPE_5_EMA_5_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
         slope_ema21 = self._get_safe_series(df, 'SLOPE_5_EMA_21_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
         if slope_ema5.isnull().all() or slope_ema21.isnull().all():
             slope_score = pd.Series(0.0, index=df_index)
         else:
-            # [修改代码行] 换用正确的多时间框架归一化函数
+            # 换用正确的多时间框架归一化函数
             norm_slope_ema5 = get_adaptive_mtf_normalized_bipolar_score(slope_ema5, df_index, tf_weights=short_term_weights, sensitivity=0.005)
             norm_slope_ema21 = get_adaptive_mtf_normalized_bipolar_score(slope_ema21, df_index, tf_weights=short_term_weights, sensitivity=0.005)
             slope_score = (norm_slope_ema5 * 0.6 + norm_slope_ema21 * 0.4).clip(-1, 1)
@@ -395,15 +395,15 @@ class FusionIntelligence:
         else:
             ma_bias_raw = (ema5 - ema21) / (ema21.abs().replace(0, 1e-9))
             ma_bias_slope_raw = ma_bias_raw.diff(1).fillna(0)
-            # [修改代码行] 换用正确的多时间框架归一化函数
+            # 换用正确的多时间框架归一化函数
             norm_ma_bias = get_adaptive_mtf_normalized_bipolar_score(ma_bias_raw, df_index, tf_weights=default_weights, sensitivity=0.02)
             norm_ma_bias_slope = get_adaptive_mtf_normalized_bipolar_score(ma_bias_slope_raw, df_index, tf_weights=default_weights, sensitivity=0.001)
             divergence_score = (norm_ma_bias * 0.7 + norm_ma_bias_slope * 0.3).clip(-1, 1)
         dma_raw = self._get_safe_series(df, 'DMA_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
-        # [修改代码行] 换用正确的多时间框架归一化函数
+        # 换用正确的多时间框架归一化函数
         dma_score = get_adaptive_mtf_normalized_bipolar_score(dma_raw, df_index, tf_weights=default_weights)
         zigzag_raw = self._get_safe_series(df, 'ZIG_5_5.0_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
-        # [修改代码行] 换用正确的多时间框架归一化函数
+        # 换用正确的多时间框架归一化函数
         zigzag_score = get_adaptive_mtf_normalized_bipolar_score(zigzag_raw, df_index, tf_weights=default_weights, sensitivity=0.05)
         weights = np.array([0.3, 0.3, 0.15, 0.15, 0.1])
         components = [alignment_score, slope_score, divergence_score, dma_score, zigzag_score]

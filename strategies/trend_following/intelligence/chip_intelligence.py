@@ -77,7 +77,7 @@ class ChipIntelligence:
         df['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
         chip_trend_momentum_scores = self._diagnose_axiom_trend_momentum(df, periods)
         all_chip_states['SCORE_CHIP_AXIOM_TREND_MOMENTUM'] = chip_trend_momentum_scores
-        # [新增代码块] 调用新增的筹码势能公理诊断方法
+        # 调用新增的筹码势能公理诊断方法
         historical_potential = self._diagnose_axiom_historical_potential(df)
         all_chip_states['SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL'] = historical_potential
         absorption_echo = self._diagnose_absorption_echo(df, divergence_scores)
@@ -155,7 +155,7 @@ class ChipIntelligence:
             (formation_deployment_score.add(1)/2).pow(0.3) *
             (battlefield_control_score.add(1)/2).pow(0.2)
         ) * 2 - 1
-        # [新增代码块] 植入标准化探针
+        # 植入标准化探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -210,7 +210,7 @@ class ChipIntelligence:
         path_score = (magnitude_score * efficiency_score).pow(0.5)
         base_score = support_strength_score * (1 - resistance_strength_score)
         final_score = np.sign(base_score) * (base_score.abs() * path_score).pow(0.5)
-        # [新增代码块] 植入标准化探针
+        # 植入标准化探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -262,7 +262,7 @@ class ChipIntelligence:
         impurity_score = (fomo_score * profit_taking_score).pow(0.5)
         conviction_base = ((belief_core_score.add(1)/2) * (pressure_test_score.add(1)/2)).pow(0.5)
         final_score = (conviction_base * (1 - impurity_score)) * 2 - 1
-        # [新增代码块] 植入标准化探针
+        # 植入标准化探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -316,7 +316,7 @@ class ChipIntelligence:
             (fuel_quality_score.add(1)/2) *
             (nozzle_efficiency_score.add(1)/2)
         ).pow(1/3) * 2 - 1
-        # [新增代码块] 植入标准化探针
+        # 植入标准化探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -357,7 +357,7 @@ class ChipIntelligence:
         energy_injection = norm_volume * disagreement_vector.abs()
         tension_magnitude = (norm_persistence * energy_injection).pow(0.5)
         final_score = disagreement_vector * (1 + tension_magnitude * 1.5) # 1.5是放大系数
-        # [新增代码块] 植入标准化探针
+        # 植入标准化探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -396,7 +396,7 @@ class ChipIntelligence:
         modulation_factor.loc[bearish_headwind_mask] = (1 - cost_structure_scores.loc[bearish_headwind_mask]).clip(lower=0.1)
         coherent_drive_raw = base_drive * modulation_factor
         final_score = np.tanh(coherent_drive_raw * (self.bipolar_sensitivity * 2))
-        # [新增代码块] 植入标准化探针
+        # 植入标准化探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -429,7 +429,7 @@ class ChipIntelligence:
         mf_inflow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_absorption_echo")
         main_force_echo_score = get_adaptive_mtf_normalized_score(mf_inflow, df_index, tf_weights) * (mf_inflow > 0) * (price_trend < 0)
         final_score = (panic_source_score * counter_flow_medium_score * main_force_echo_score).pow(1/3)
-        # [新增代码块] 植入标准化探针
+        # 植入标准化探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -467,7 +467,7 @@ class ChipIntelligence:
         mf_inflow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_distribution_whisper")
         main_force_retreat_score = get_adaptive_mtf_normalized_score(mf_inflow.abs(), df_index, tf_weights) * (mf_inflow < 0) * (price_trend > 0)
         final_score = (fomo_backdrop_score * divergence_shadow_score * main_force_retreat_score).pow(1/3)
-        # [新增代码块] 植入标准化探针
+        # 植入标准化探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -514,7 +514,7 @@ class ChipIntelligence:
         concentration_score_unipolar = (concentration_score_bipolar + 1) / 2
         peak_solidity = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5)
         stability_score = get_adaptive_mtf_normalized_score(peak_solidity, df_index, ascending=True, tf_weights=tf_weights)
-        # [修改代码行] 使用映射后的单极性分数进行融合
+        # 使用映射后的单极性分数进行融合
         potential_score = (flow_score * 0.5 + concentration_score_unipolar * 0.3 + stability_score * 0.2)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])

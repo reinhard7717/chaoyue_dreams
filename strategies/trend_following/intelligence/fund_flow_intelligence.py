@@ -142,7 +142,7 @@ class FundFlowIntelligence:
         ofi_impact = self._get_safe_series(df, df, 'ofi_price_impact_factor_D', 0.0, method_name="_diagnose_axiom_consensus")
         imbalance_score = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance, df_index, tf_weights_ff)
         impact_score = get_adaptive_mtf_normalized_bipolar_score(ofi_impact, df_index, tf_weights_ff)
-        # [修改代码行] 修正数学公式，先取绝对值再开方，避免NaN
+        # 修正数学公式，先取绝对值再开方，避免NaN
         micro_control_score = (imbalance_score.abs() * impact_score.abs()).pow(0.5) * np.sign(imbalance_score)
         # 3. 纯度过滤器 (惩罚项)
         wash_trade_intensity = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_consensus")
