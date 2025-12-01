@@ -365,18 +365,33 @@ class AdvancedStructuralMetricsService:
 
     def _calculate_dynamic_evolution_factors(self, metrics_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V30.0 · 动态演化因子】
-        - 核心职责: 计算核心结构指标的时间序列衍生因子，捕捉其动态演化趋势。
+        【V37.10 · 动态因子健壮性修正】
+        - 核心修复: 为所有动态演化因子的计算增加防御性检查。在尝试计算滚动平均或变化率之前，
+                     首先验证其依赖的源数据列是否存在。如果源列因缺少高频数据等原因未能生成，
+                     则将衍生因子列直接置为NaN，从而避免KeyError，大幅提升计算流程的健壮性。
         """
         df = metrics_df.copy().sort_index()
+        # 修改代码块：为每个衍生因子的计算增加源列存在性检查
         # 核心意愿演化
-        df['thrust_purity_ma5'] = df['intraday_thrust_purity'].rolling(window=5, min_periods=1).mean()
+        if 'intraday_thrust_purity' in df.columns:
+            df['thrust_purity_ma5'] = df['intraday_thrust_purity'].rolling(window=5, min_periods=1).mean()
+        else:
+            df['thrust_purity_ma5'] = np.nan
         # 吸筹行为演化
-        df['absorption_strength_ma5'] = df['absorption_strength_index'].rolling(window=5, min_periods=1).mean()
+        if 'absorption_strength_index' in df.columns:
+            df['absorption_strength_ma5'] = df['absorption_strength_index'].rolling(window=5, min_periods=1).mean()
+        else:
+            df['absorption_strength_ma5'] = np.nan
         # 情绪激进度演化
-        df['sweep_intensity_ma5'] = df['buy_sweep_intensity'].rolling(window=5, min_periods=1).mean()
+        if 'buy_sweep_intensity' in df.columns:
+            df['sweep_intensity_ma5'] = df['buy_sweep_intensity'].rolling(window=5, min_periods=1).mean()
+        else:
+            df['sweep_intensity_ma5'] = np.nan
         # 流动性风险演化
-        df['vpin_roc3'] = df['vpin_score'].pct_change(periods=3)
+        if 'vpin_score' in df.columns:
+            df['vpin_roc3'] = df['vpin_score'].pct_change(periods=3)
+        else:
+            df['vpin_roc3'] = np.nan
         return df
 
     def _create_continuous_minute_data(self, group: pd.DataFrame) -> pd.DataFrame:
