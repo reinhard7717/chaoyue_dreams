@@ -13,12 +13,11 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V40.0 · 动力透镜】
-        - 核心重构: `intraday_thrust_purity` 指标的计算逻辑升级。
-                     当tick数据包含 `price_change` 字段时，优先采用基于物理事实的动量公式：
-                     Σ(成交量 * sign(价格变动)) / Σ(总成交量)。
-                     这使其从一个基于“意图推断”(B/S盘)的指标，进化为一个基于“事实结果”的
-                     精准动能度量衡，能更真实地反映市场合力方向。
+        【V40.1 · 动能回溯】
+        - 核心重构: 修正 `intraday_thrust_purity` 的计算逻辑。当原始 `price_change` 为0时，
+                     通过与前一笔成交价作比较 (`price_t - price_{t-1}`)，主动回溯计算出
+                     真实的微观价格变动。此举旨在打破数据源在价格未跳变时的“惰性盲区”，
+                     精准捕捉在关键价位上的持续攻击意图，使动能度量更加真实。
         """
         group = context['group']
         daily_series_for_day = context['daily_series_for_day']
@@ -49,19 +48,24 @@ class StructuralMetricsCalculators:
             turnover_rate = pd.to_numeric(daily_series_for_day.get('turnover_rate_f'), errors='coerce')
             if pd.notna(turnover_rate):
                 results['intraday_energy_density'] = np.log1p(turnover_rate) / atr_14
-        if tick_df is not None and not tick_df.empty: # 修改代码块：重构 intraday_thrust_purity 计算逻辑
+        if tick_df is not None and not tick_df.empty:
             total_volume = tick_df['volume'].sum()
             if total_volume > 0:
-                # 优先使用基于 price_change 的精确动能计算
+                # 修改代码块：引入“动能回溯”逻辑
                 if 'price_change' in tick_df.columns and not tick_df['price_change'].isnull().all():
-                    net_thrust_volume = (tick_df['volume'] * np.sign(tick_df['price_change'])).sum()
+                    # 当原始price_change为0时，通过与上一笔tick比较来回溯动能
+                    self_calculated_change = tick_df['price'].diff().fillna(0)
+                    zero_change_mask = tick_df['price_change'] == 0
+                    effective_price_change = np.where(zero_change_mask, self_calculated_change, tick_df['price_change'])
+                    net_thrust_volume = (tick_df['volume'] * np.sign(effective_price_change)).sum()
                     results['intraday_thrust_purity'] = net_thrust_volume / total_volume
                     if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] intraday_thrust_purity (高频-基于价格变动) ---")
-                        print(f"    - 原料: 净推力成交量={net_thrust_volume:,.0f}, 总成交量={total_volume:,.0f}")
+                        recalculated_count = zero_change_mask.sum()
+                        print(f"--- [探针 ASM.{trade_date_str}] intraday_thrust_purity (高频-动能回溯) ---")
+                        print(f"    - 节点 (动能回溯): {recalculated_count}/{len(tick_df)} 笔成交触发了价格变动回溯计算。")
+                        print(f"    - 原料: 有效净推力成交量={net_thrust_volume:,.0f}, 总成交量={total_volume:,.0f}")
                         print(f"    - 计算: {net_thrust_volume:,.0f} / {total_volume:,.0f}")
                         print(f"    -> 结果: {results['intraday_thrust_purity']:.4f}")
-                # 回退到基于 B/S 盘的传统计算
                 elif 'type' in tick_df.columns:
                     active_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
                     active_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
