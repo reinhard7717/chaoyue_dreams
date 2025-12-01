@@ -124,9 +124,9 @@ class MicrostructureDynamicsCalculators:
     @staticmethod
     def _calculate_hf_mechanics(context: dict) -> dict:
         """
-        【V27.1 · 兼容性修复】
-        - 核心修复: 修复了 pandas.DataFrame.between_time 方法因 include_end 参数不兼容导致的 TypeError。
-        - 解决方案: 采用更健壮的布尔索引方式 `(df.index >= start) & (df.index < end)` 来替代 between_time，确保版本兼容性。
+        【V30.19 · 微观内核索引访问修复】
+        - 核心修复: 修正了因 trade_time 已被设为索引而导致的KeyError。
+        - 解决方案: 修改 iterrows() 循环以直接捕获索引作为时间戳，而非在行数据中查找列。
         """
         tick_df = context.get('tick_df')
         group = context.get('group')
@@ -157,9 +157,8 @@ class MicrostructureDynamicsCalculators:
         up_minutes_df = group[group['close'] > group['open']]
         if not down_minutes_df.empty:
             active_buy_on_dip, active_sell_on_dip = 0, 0
-            for _, minute_row in down_minutes_df.iterrows():
-                # 使用布尔索引替代 between_time，修复TypeError
-                minute_start = minute_row['trade_time']
+            # 修改代码行：直接从iterrows()的索引中获取minute_start
+            for minute_start, minute_row in down_minutes_df.iterrows():
                 minute_end = minute_start + pd.Timedelta(minutes=1)
                 ticks_in_minute = tick_df[(tick_df.index >= minute_start) & (tick_df.index < minute_end)]
                 active_buy_on_dip += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
@@ -172,9 +171,8 @@ class MicrostructureDynamicsCalculators:
                     print(f"    -> 结果: {results['absorption_strength_index']:.4f}")
         if not up_minutes_df.empty:
             active_sell_on_rally, active_buy_on_rally = 0, 0
-            for _, minute_row in up_minutes_df.iterrows():
-                # 使用布尔索引替代 between_time，修复TypeError
-                minute_start = minute_row['trade_time']
+            # 修改代码行：直接从iterrows()的索引中获取minute_start
+            for minute_start, minute_row in up_minutes_df.iterrows():
                 minute_end = minute_start + pd.Timedelta(minutes=1)
                 ticks_in_minute = tick_df[(tick_df.index >= minute_start) & (tick_df.index < minute_end)]
                 active_sell_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'S']['volume'].sum()
