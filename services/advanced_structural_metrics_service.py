@@ -185,17 +185,14 @@ class AdvancedStructuralMetricsService:
 
     async def _forge_advanced_structural_metrics(self, intraday_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
-        【V30.20 · 持久化链路修复】
-        - 核心修复: 将日期列的命名从 'trade_date' 统一为 'trade_time'，与数据库模型对齐。
-        - 核心修复: 移除了方法末尾的 reset_index()，确保DataFrame在处理流程中保持正确的DatetimeIndex。
+        【V36.1 · 接口契约修正】
+        - 核心修复: 修正了对 `_calculate_daily_structural_metrics` 的调用，使其与更新后的函数签名完全匹配。
+        - 核心修复: 动态构建并传递 `debug_info` 字典，确保探针系统正常工作。
         """
         new_metrics_data = []
         prev_day_metrics = {}
         for trade_date, data_for_day in intraday_map.items():
             daily_series_for_day = daily_df_with_atr.loc[trade_date]
-            atr_5 = daily_series_for_day.get('ATR_5', np.nan)
-            atr_14 = daily_series_for_day.get('ATR_14', np.nan)
-            atr_50 = daily_series_for_day.get('ATR_50', np.nan)
             canonical_minute_df = None
             tick_df_for_day = data_for_day.get('tick')
             minute_df_for_day = data_for_day.get('minute')
@@ -220,11 +217,24 @@ class AdvancedStructuralMetricsService:
             level5_df_for_day = data_for_day.get('level5')
             realtime_df_for_day = data_for_day.get('realtime')
             continuous_group = self._create_continuous_minute_data(canonical_minute_df)
+            # 修改代码块：构建 debug_info 并使用正确的参数签名进行调用
+            target_date_str = self.debug_params.get('target_date')
+            is_target_date = target_date_str == trade_date.strftime('%Y-%m-%d')
+            debug_info = {
+                'is_target_date': is_target_date,
+                'enable_probe': self.debug_params.get('enable_asm_probe', False),
+                'trade_date_str': trade_date.strftime('%Y-%m-%d')
+            }
             day_metric_dict = self._calculate_daily_structural_metrics(
-                canonical_minute_df, continuous_group, daily_series_for_day, atr_5, atr_14, atr_50, prev_day_metrics,
-                tick_df_for_day, level5_df_for_day, realtime_df_for_day
+                group=canonical_minute_df,
+                continuous_group=continuous_group,
+                tick_df=tick_df_for_day,
+                level5_df=level5_df_for_day,
+                realtime_df=realtime_df_for_day,
+                daily_info=daily_series_for_day,
+                prev_day_metrics=prev_day_metrics,
+                debug_info=debug_info
             )
-            # 修改代码行：统一命名为 'trade_time'
             day_metric_dict['trade_time'] = trade_date
             day_metric_dict['stock_code'] = stock_code
             new_metrics_data.append(day_metric_dict)
@@ -232,15 +242,13 @@ class AdvancedStructuralMetricsService:
                 'vpoc': day_metric_dict.get('_today_vpoc'),
                 'vah': day_metric_dict.get('_today_vah'),
                 'val': day_metric_dict.get('_today_val'),
-                'atr_14d': atr_14,
+                'atr_14d': daily_series_for_day.get('ATR_14'),
             }
         if not new_metrics_data:
             return pd.DataFrame()
         new_metrics_df = pd.DataFrame(new_metrics_data)
-        # 修改代码行：使用 'trade_time' 作为索引
         new_metrics_df.set_index('trade_time', inplace=True)
         final_metrics_df = self._calculate_dynamic_evolution_factors(new_metrics_df)
-        # 修改代码行：移除此处的 reset_index，保持DatetimeIndex状态
         return final_metrics_df
 
     def _calculate_daily_structural_metrics(
@@ -249,17 +257,16 @@ class AdvancedStructuralMetricsService:
         continuous_group: pd.DataFrame,
         tick_df: pd.DataFrame | None,
         level5_df: pd.DataFrame | None,
+        realtime_df: pd.DataFrame | None, # 新增代码行：接收实时快照数据
         daily_info: pd.Series,
         prev_day_metrics: dict,
         debug_info: dict
     ) -> dict:
         """
         计算单日的所有高级结构化指标。
-        【V36.0 · 动能背离】
-        - 新增: 调用 DerivativeMetricsCalculator 来计算背离指标。
+        【V36.1 · 接口契约修正】
+        - 核心修复: 更新函数签名以接收 `realtime_df`，并将其加入 context，完善接口契约。
         """
-        # 准备一个统一的上下文（Context）字典，传递给各个计算器
-        # 这样做可以避免重复传递大量参数，使代码更整洁
         total_volume_safe = group['vol'].sum() if not group.empty else 0
         if total_volume_safe == 0:
             total_volume_safe = daily_info.get('volume', 0)
@@ -268,28 +275,28 @@ class AdvancedStructuralMetricsService:
             'continuous_group': continuous_group,
             'tick_df': tick_df,
             'level5_df': level5_df,
+            'realtime_df': realtime_df, # 新增代码行：将实时快照数据添加到上下文中
             'day_open_qfq': daily_info['open_qfq'],
             'day_high_qfq': daily_info['high_qfq'],
             'day_low_qfq': daily_info['low_qfq'],
             'day_close_qfq': daily_info['close_qfq'],
             'pre_close_qfq': daily_info['pre_close_qfq'],
             'total_volume_safe': total_volume_safe,
-            'atr_5': daily_info.get('atr_5d'),
-            'atr_14': daily_info.get('atr_14d'),
-            'atr_50': daily_info.get('atr_50d'),
+            'atr_5': daily_info.get('ATR_5'), # 修改代码行：从 daily_info 中获取ATR
+            'atr_14': daily_info.get('ATR_14'), # 修改代码行：从 daily_info 中获取ATR
+            'atr_50': daily_info.get('ATR_50'), # 修改代码行：从 daily_info 中获取ATR
             'prev_day_metrics': prev_day_metrics,
             'debug': debug_info,
         }
-        # 初始化指标字典
         metrics = {}
         # 依次调用各个指标计算器模块
-        # 每个模块负责计算一组相关的指标
         metrics.update(OrderFlowMetricsCalculators.calculate_order_flow_metrics(context))
         metrics.update(StructuralMetricsCalculators.calculate_control_metrics(context))
         metrics.update(ThematicMetricsCalculators.calculate_market_profile_metrics(context))
         metrics.update(ThematicMetricsCalculators.calculate_forward_looking_metrics(context))
+        # 导入语句移动到文件顶部，此处仅为逻辑展示
+        from .derivative_metrics_calculators import DerivativeMetricsCalculator
         metrics.update(DerivativeMetricsCalculator.calculate_divergence_metrics(context))
-        # 清理内部指标（以下划线开头的键）
         metrics = {k: v for k, v in metrics.items() if not k.startswith('_')}
         return metrics
 
