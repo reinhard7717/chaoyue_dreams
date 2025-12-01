@@ -84,9 +84,14 @@ class ThematicMetricsCalculators:
 
     @staticmethod
     def calculate_forward_looking_metrics(context: dict) -> dict:
-        """计算前瞻性与收盘博弈指标"""
+        """
+        【V35.0 · 收盘博弈穿透】
+        - 核心升级: 重构 `auction_showdown_score` 指标，引入“量能意外”和“盘口张力”两大高频变量，
+                     深度刻画收盘竞价的博弈心理与主力意图。
+        """
         group = context['group']
         continuous_group = context['continuous_group']
+        level5_df = context.get('level5_df')
         day_open_qfq = context['day_open_qfq']
         day_high_qfq = context['day_high_qfq']
         day_low_qfq = context['day_low_qfq']
@@ -95,17 +100,45 @@ class ThematicMetricsCalculators:
         atr_5 = context['atr_5']
         atr_14 = context['atr_14']
         atr_50 = context['atr_50']
+        debug_info = context.get('debug', {})
+        is_target_date = debug_info.get('is_target_date', False)
+        enable_probe = debug_info.get('enable_probe', False)
+        trade_date_str = debug_info.get('trade_date_str', 'N/A')
         results = {}
-        # 修改代码行：将 group['trade_time'].dt.time 替换为 group.index.time
         auction_period_df = group[group.index.time >= time(14, 57)]
         if not auction_period_df.empty and not continuous_group.empty:
-            close_before_auction = continuous_group['close'].iloc[-1]
+            close_before_auction = continuous_group.loc[continuous_group.index < time(14, 57, 0)]['close'].iloc[-1]
             if pd.notna(close_before_auction) and close_before_auction > 0:
                 auction_price_change = (day_close_qfq / close_before_auction - 1) * 100
-                avg_vol_minute_continuous = continuous_group['vol'].mean()
-                if avg_vol_minute_continuous > 0:
-                    auction_volume_multiple = (auction_period_df['vol'].sum() / 3) / avg_vol_minute_continuous
-                    results['auction_showdown_score'] = auction_price_change * np.log1p(auction_volume_multiple)
+                # 新增代码块：高频路径
+                if level5_df is not None and not level5_df.empty:
+                    pre_auction_period_df = group[(group.index.time >= time(14, 27)) & (group.index.time < time(14, 57))]
+                    avg_vol_pre_auction = pre_auction_period_df['vol'].mean() if not pre_auction_period_df.empty else 0
+                    auction_volume = auction_period_df['vol'].sum()
+                    volume_surprise_factor = auction_volume / avg_vol_pre_auction if avg_vol_pre_auction > 0 else 1.0
+                    last_snapshot = level5_df.loc[level5_df.index < time(14, 57, 0)].iloc[-1] if not level5_df.loc[level5_df.index < time(14, 57, 0)].empty else None
+                    pre_auction_tension = 0
+                    if last_snapshot is not None:
+                        b1_v, a1_v = last_snapshot.get('buy_volume1', 0), last_snapshot.get('sell_volume1', 0)
+                        if (b1_v + a1_v) > 0:
+                            pre_auction_tension = (b1_v - a1_v) / (b1_v + a1_v)
+                    results['auction_showdown_score'] = auction_price_change * np.log1p(volume_surprise_factor) * (1 + pre_auction_tension)
+                    if enable_probe and is_target_date:
+                        print(f"--- [探针 ASM.{trade_date_str}] auction_showdown_score (高频) ---")
+                        print(f"    - 维度1 (价变): 收盘价={day_close_qfq:.2f}, 竞价前价={close_before_auction:.2f} -> {auction_price_change:.2f}%")
+                        print(f"    - 维度2 (量能意外): 竞价成交={auction_volume:,.0f}, 前30min均量={avg_vol_pre_auction:,.0f} -> {volume_surprise_factor:.2f}倍")
+                        print(f"    - 维度3 (盘口张力): 竞价前买一量={last_snapshot.get('buy_volume1', 0):,.0f}, 卖一量={last_snapshot.get('sell_volume1', 0):,.0f} -> {pre_auction_tension:.4f}")
+                        print(f"    - 计算: {auction_price_change:.2f} * log1p({volume_surprise_factor:.2f}) * (1 + {pre_auction_tension:.4f})")
+                        print(f"    -> 结果: {results['auction_showdown_score']:.4f}")
+                # 分钟降级路径
+                else:
+                    avg_vol_minute_continuous = continuous_group['vol'].mean()
+                    if avg_vol_minute_continuous > 0:
+                        auction_volume_multiple = (auction_period_df['vol'].sum() / 3) / avg_vol_minute_continuous
+                        results['auction_showdown_score'] = auction_price_change * np.log1p(auction_volume_multiple)
+                        if enable_probe and is_target_date:
+                            print(f"--- [探针 ASM.{trade_date_str}] auction_showdown_score (分钟降级) ---")
+                            print(f"    -> 结果: {results['auction_showdown_score']:.4f}")
         if all(pd.notna(v) for v in [day_high_qfq, day_low_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
             true_range = max(day_high_qfq, pre_close_qfq) - min(day_low_qfq, pre_close_qfq)
             shock = true_range / atr_14
