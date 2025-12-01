@@ -13,14 +13,12 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V55.0 · 动量调和】
+        【V62.0 · 战果量化】
+        - 核心升维: 重构 `high_level_consolidation_volume` 的“确证因子”，将刚性的 `np.sign()`
+                     升级为基于 `tanh((收盘价 - 阈值) / ATR)` 的平滑函数。此举将对高位博弈
+                     成败的评判从“非黑即白”升维至可量化“战果”的连续谱，使指标更精妙圆融。
         - 核心修正: 调和了 `dynamic_reversal_strength` 中动量惩罚因子的计算方式。
-                     将不稳定的线性比率 `vol_fall / vol_rebound` 替换为其对数形式
-                     `np.log1p(vol_fall / vol_rebound)`，以对数函数的平滑特性
-                     抑制极端惩罚值的产生，确保了整个动量计算体系的稳定与和谐。
-        - 核心重构: 秉持“动能同源”原则，将 `opening_period_thrust` 指标的计算逻辑，
-                     从原始的 B/S 盘意图推断，全面升级为与 `intraday_thrust_purity`
-                     一致的“动能回溯”方法。确保了体系内所有“推力”度量衡的一致性与高精度。
+        - 核心重构: 秉持“动能同源”原则，统一 `opening_period_thrust` 的计算逻辑。
         """
         group = context['group']
         daily_series_for_day = context['daily_series_for_day']
@@ -71,11 +69,6 @@ class StructuralMetricsCalculators:
                     active_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
                     active_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
                     results['intraday_thrust_purity'] = (active_buy_vol - active_sell_vol) / total_volume
-                    if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] intraday_thrust_purity (高频-基于B/S盘) ---")
-                        print(f"    - 原料: 总成交量={total_volume:,.0f}, 主动买量={active_buy_vol:,.0f}, 主动卖量={active_sell_vol:,.0f}")
-                        print(f"    - 计算: ({active_buy_vol:,.0f} - {active_sell_vol:,.0f}) / {total_volume:,.0f}")
-                        print(f"    -> 结果: {results['intraday_thrust_purity']:.4f}")
         else:
             thrust_vector = (group['close'] - group['open']) * group['vol']
             absolute_energy = abs(group['close'] - group['open']) * group['vol']
@@ -162,11 +155,9 @@ class StructuralMetricsCalculators:
                                         fall_magnitude = group.iloc[prev_peak_pos]['high'] - group.iloc[trough_pos]['low']
                                         rebound_magnitude = group.iloc[peak_pos]['high'] - group.iloc[trough_pos]['low']
                                         recovery_rate = rebound_magnitude / fall_magnitude if fall_magnitude > 0 else 0
-                                        # 使用对数调和不稳定的惩罚因子
                                         if recovery_rate > 1:
                                             volume_factor = np.log1p(vol_rebound / vol_fall)
                                         else:
-                                            # 使用对数调和，避免因 vol_rebound 过小导致惩罚因子爆炸
                                             volume_factor = np.log1p(vol_fall / vol_rebound)
                                         momentum = (price_momentum * volume_factor) * 100
                                         reversal_details.append({
@@ -184,14 +175,6 @@ class StructuralMetricsCalculators:
                     if total_abs_momentum > 0:
                         conviction_rate = sum_positive_momentum / total_abs_momentum
                     results['reversal_conviction_rate'] = conviction_rate
-                    if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] reversal_conviction_rate (分钟) ---")
-                        print(f"    - 前置: 使用 {prominence_source} 显著性阈值 = {dynamic_prominence:.4f}")
-                        print(f"    - 原料: 成功动能列表({len(positive_momentums)}次), 失败动能列表({len(negative_momentums)}次)")
-                        print(f"    - 节点1 (总成功动能): sum({[f'{m:.2f}' for m in positive_momentums]}) = {sum_positive_momentum:.4f}")
-                        print(f"    - 节点2 (总失败惩罚): sum(abs({[f'{m:.2f}' for m in negative_momentums]})) = {sum_abs_negative_momentum:.4f}")
-                        print(f"    - 计算 (动能净比率): {sum_positive_momentum:.4f} / ({sum_positive_momentum:.4f} + {sum_abs_negative_momentum:.4f})")
-                        print(f"    -> 结果: {conviction_rate:.4f}")
                     if positive_momentums:
                         raw_strength = np.mean(positive_momentums)
                         final_strength = raw_strength * conviction_rate
@@ -203,23 +186,11 @@ class StructuralMetricsCalculators:
                         ]
                         if recovery_ratios:
                             results['reversal_recovery_rate'] = np.mean(recovery_ratios)
-                            if enable_probe and is_target_date:
-                                print(f"--- [探针 ASM.{trade_date_str}] reversal_recovery_rate (分钟) ---")
-                                print(f"    - 原料: {len(recovery_ratios)} 次成功反转的收复率")
-                                print(f"    - 节点 (收复率序列): {[f'{r:.2f}' for r in recovery_ratios]}")
-                                print(f"    - 计算: mean of recovery ratios")
-                                print(f"    -> 结果: {results['reversal_recovery_rate']:.4f}")
-                        if enable_probe and is_target_date:
-                            print(f"--- [探针 ASM.{trade_date_str}] dynamic_reversal_strength (分钟) ---")
-                            print(f"    - 前置: 识别出 {len(reversal_details)} 次尝试, {len(positive_momentums)} 次成功")
-                            print(f"    - 节点1 (原始平均强度): mean({[f'{m:.2f}' for m in positive_momentums]}) = {raw_strength:.4f}")
-                            print(f"    - 节点2 (信念权重): {conviction_rate:.4f}")
-                            print(f"    - 计算 (信念加权): {raw_strength:.4f} * {conviction_rate:.4f}")
-                            print(f"    -> 结果: {final_strength:.4f}")
         except ImportError:
             pass
         price_range = day_high_qfq - day_low_qfq
-        if price_range > 0:
+        # 修改代码块：升维 high_level_consolidation_volume 的计算逻辑
+        if price_range > 0 and pd.notna(atr_14) and atr_14 > 0:
             high_level_threshold = day_high_qfq - 0.25 * price_range
             volume_ratio = 0.0
             if tick_df is not None and not tick_df.empty:
@@ -231,13 +202,17 @@ class StructuralMetricsCalculators:
                 total_volume = group['vol'].sum()
                 if total_volume > 0:
                     volume_ratio = group[group['high'] >= high_level_threshold]['vol'].sum() / total_volume
-            confirmation_factor = np.sign(day_close_qfq - high_level_threshold)
+            # 升维确证因子：从 sign() 升级为 tanh(ATR标准化距离)
+            distance_from_threshold = day_close_qfq - high_level_threshold
+            normalized_distance = distance_from_threshold / atr_14
+            confirmation_factor = np.tanh(normalized_distance)
             results['high_level_consolidation_volume'] = volume_ratio * confirmation_factor
             if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] high_level_consolidation_volume (高频) ---")
-                print(f"    - 原料: 高位阈值={high_level_threshold:.2f}, 收盘价={day_close_qfq:.2f}, 高位成交量占比={volume_ratio:.4f}")
-                print(f"    - 节点 (确证因子): sign({day_close_qfq:.2f} - {high_level_threshold:.2f}) = {confirmation_factor:.0f}")
-                print(f"    - 计算: {volume_ratio:.4f} * {confirmation_factor:.0f}")
+                print(f"--- [探针 ASM.{trade_date_str}] high_level_consolidation_volume (战果量化) ---")
+                print(f"    - 原料: 高位阈值={high_level_threshold:.2f}, 收盘价={day_close_qfq:.2f}, 高位成交量占比={volume_ratio:.4f}, ATR={atr_14:.4f}")
+                print(f"    - 节点1 (战果): ({day_close_qfq:.2f} - {high_level_threshold:.2f}) / {atr_14:.4f} = {normalized_distance:.4f}")
+                print(f"    - 节点2 (确证因子): tanh({normalized_distance:.4f}) = {confirmation_factor:.4f}")
+                print(f"    - 计算: {volume_ratio:.4f} * {confirmation_factor:.4f}")
                 print(f"    -> 结果: {results['high_level_consolidation_volume']:.4f}")
         if tick_df is not None and not tick_df.empty:
             opening_ticks = tick_df.between_time('09:30:00', '09:59:59')
@@ -250,22 +225,10 @@ class StructuralMetricsCalculators:
                         effective_price_change = np.where(zero_change_mask, self_calculated_change, opening_ticks['price_change'])
                         net_opening_thrust_volume = (opening_ticks['volume'] * np.sign(effective_price_change)).sum()
                         results['opening_period_thrust'] = net_opening_thrust_volume / opening_total_vol
-                        if enable_probe and is_target_date:
-                            recalculated_count = zero_change_mask.sum()
-                            print(f"--- [探针 ASM.{trade_date_str}] opening_period_thrust (高频-动能回溯) ---")
-                            print(f"    - 节点 (动能回溯): {recalculated_count}/{len(opening_ticks)} 笔成交触发了价格变动回溯计算。")
-                            print(f"    - 原料: 开盘期净推力成交量={net_opening_thrust_volume:,.0f}, 开盘期总量={opening_total_vol:,.0f}")
-                            print(f"    - 计算: {net_opening_thrust_volume:,.0f} / {opening_total_vol:,.0f}")
-                            print(f"    -> 结果: {results['opening_period_thrust']:.4f}")
                     elif 'type' in opening_ticks.columns:
                         opening_buy_vol = opening_ticks[opening_ticks['type'] == 'B']['volume'].sum()
                         opening_sell_vol = opening_ticks[opening_ticks['type'] == 'S']['volume'].sum()
                         results['opening_period_thrust'] = (opening_buy_vol - opening_sell_vol) / opening_total_vol
-                        if enable_probe and is_target_date:
-                            print(f"--- [探针 ASM.{trade_date_str}] opening_period_thrust (高频-基于B/S盘) ---")
-                            print(f"    - 原料: 开盘买量={opening_buy_vol:,.0f}, 开盘卖量={opening_sell_vol:,.0f}, 开盘总量={opening_total_vol:,.0f}")
-                            print(f"    - 计算: ({opening_buy_vol:,.0f} - {opening_sell_vol:,.0f}) / {opening_total_vol:,.0f}")
-                            print(f"    -> 结果: {results['opening_period_thrust']:.4f}")
         return results
 
     @staticmethod
