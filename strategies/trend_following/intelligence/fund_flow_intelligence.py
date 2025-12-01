@@ -126,7 +126,7 @@ class FundFlowIntelligence:
         print("    -> [资金流层] 正在诊断“战场控制权”公理...")
         required_signals = [
             'main_force_net_flow_calibrated_D', 'retail_net_flow_calibrated_D',
-            'order_book_imbalance_D', 'ofi_price_impact_factor_D', 'wash_trade_intensity_D'
+            'order_book_imbalance_D', 'microstructure_efficiency_index_D', 'wash_trade_intensity_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_consensus"):
             return pd.Series(0.0, index=df.index)
@@ -139,7 +139,7 @@ class FundFlowIntelligence:
         flow_consensus_score = get_adaptive_mtf_normalized_bipolar_score(main_force_flow - retail_flow, df_index, tf_weights_ff)
         # 2. 微观盘口控制力
         order_book_imbalance = self._get_safe_series(df, df, 'order_book_imbalance_D', 0.0, method_name="_diagnose_axiom_consensus")
-        ofi_impact = self._get_safe_series(df, df, 'ofi_price_impact_factor_D', 0.0, method_name="_diagnose_axiom_consensus")
+        ofi_impact = self._get_safe_series(df, df, 'microstructure_efficiency_index_D', 0.0, method_name="_diagnose_axiom_consensus")
         imbalance_score = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance, df_index, tf_weights_ff)
         impact_score = get_adaptive_mtf_normalized_bipolar_score(ofi_impact, df_index, tf_weights_ff)
         # 修正数学公式，先取绝对值再开方，避免NaN

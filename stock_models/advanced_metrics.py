@@ -280,8 +280,8 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
 # 资金高级指标模型
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V60.0 · 正名计划】
-    - 核心精简: 移除 microstructure_efficiency_index 字段，因其与 ofi_price_impact_factor 功能完全重复，统一保留后者。
+    【V60.2 · 正名计划】
+    - 核心正名: 将 main_force_price_impact_ratio 正名为 main_force_slippage_index，以使用更精确的行业术语。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     POWER_STRUCTURE_METRICS = {
@@ -300,7 +300,8 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'main_force_posture_index': '主力姿态指数',
         'observed_large_order_size_avg': '观测大单平均规模(元)',
         'retail_flow_dominance_index': '散户流动性主导指数',
-        'main_force_price_impact_ratio': '主力价格冲击比率',
+        # 修改代码行：更新指标名称和注释
+        'main_force_slippage_index': '主力滑点指数(%)',
     }
     TACTICAL_LOG_METRICS = {
         'dip_absorption_power': '逢低吸筹力度',
@@ -334,7 +335,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'mf_retail_liquidity_swap_corr': '主力散户流动性交换相关性',
         'main_force_ofi': '主力订单流失衡',
         'retail_ofi': '散户订单流失衡',
-        # 修改代码行：移除冗余指标
+        'microstructure_efficiency_index': '微观结构效率指数',
         'hidden_accumulation_intensity': '隐蔽吸筹强度',
         'wash_trade_intensity': '主力对倒强度',
         'order_book_imbalance': '五档盘口失衡度',
@@ -343,7 +344,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'order_book_liquidity_supply': '盘口流动性供给(买/卖比)',
         'buy_quote_exhaustion_rate': '买方报价消耗率(%)',
         'sell_quote_exhaustion_rate': '卖方报价消耗率(%)',
-        'ofi_price_impact_factor': 'OFI价格冲击因子',
         'imbalance_effectiveness': '盘口失衡有效性',
     }
     OUTCOME_ASSESSMENT_METRICS = {
@@ -358,7 +358,8 @@ class BaseAdvancedFundFlowMetrics(models.Model):
     SLOPE_ACCEL_EXCLUSIONS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
         'main_force_flow_directionality', 'main_force_conviction_index',
-        'retail_flow_dominance_index', 'main_force_price_impact_ratio', 'dip_absorption_power',
+        # 修改代码行：更新为新的字段名
+        'retail_flow_dominance_index', 'main_force_slippage_index', 'dip_absorption_power',
         'rally_distribution_pressure', 'panic_selling_cascade', 'opening_battle_result',
         'pre_closing_posturing', 'closing_auction_ambush', 'main_force_execution_alpha',
         'retail_panic_surrender_index', 'retail_fomo_premium_index', 'main_force_t0_efficiency',
@@ -370,19 +371,19 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
         'main_force_vpoc', 'mf_vpoc_premium',
         'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
-        # 修改代码行：移除冗余指标
-        'main_force_ofi', 'retail_ofi',
+        'main_force_ofi', 'retail_ofi', 'microstructure_efficiency_index',
         'hidden_accumulation_intensity', 'wash_trade_intensity', 'order_book_imbalance',
         'large_order_pressure', 'large_order_support', 'order_book_liquidity_supply',
         'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
-        'ofi_price_impact_factor', 'imbalance_effectiveness',
+        'imbalance_effectiveness',
         'main_force_posture_index',
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
         'main_force_flow_directionality', 'main_force_conviction_index',
-        'retail_flow_dominance_index', 'main_force_price_impact_ratio',
+        # 修改代码行：更新为新的字段名
+        'retail_flow_dominance_index', 'main_force_slippage_index',
         'dip_absorption_power', 'rally_distribution_pressure', 'panic_selling_cascade',
         'opening_battle_result', 'pre_closing_posturing', 'closing_auction_ambush',
         'main_force_execution_alpha', 'retail_panic_surrender_index',
@@ -394,13 +395,12 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'trend_alignment_index', 'reversal_power_index',
         'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
         'mf_vpoc_premium', 'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
-        # 修改代码行：移除冗余指标
-        'main_force_ofi', 'retail_ofi',
+        'main_force_ofi', 'retail_ofi', 'microstructure_efficiency_index',
         'hidden_accumulation_intensity', 'wash_trade_intensity', 'order_book_imbalance',
         'large_order_pressure', 'large_order_support', 'order_book_liquidity_supply',
         'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
-        'ofi_price_impact_factor', 'imbalance_effectiveness',
+        'imbalance_effectiveness',
         'main_force_posture_index',
     ]
     for name, verbose in CORE_METRICS.items():

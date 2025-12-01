@@ -415,7 +415,7 @@ class ProcessIntelligence:
         print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (V4.0 · 资本属性调节版)...")
         # 新增对资本属性公理的依赖
         required_signals = [
-            'pct_change_D', 'main_force_net_flow_calibrated_D', 'main_force_price_impact_ratio_D',
+            'pct_change_D', 'main_force_net_flow_calibrated_D', 'main_force_slippage_index_D',
             'upward_impulse_purity_D', 'volume_ratio_D', 'control_solidity_index_D',
             'main_force_cost_advantage_D', 'SLOPE_5_winner_concentration_90pct_D',
             'dominant_peak_solidity_D', 'active_buying_support_D', 'pressure_rejection_strength_D',
@@ -436,7 +436,7 @@ class ProcessIntelligence:
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         price_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_main_force_rally_intent")
         main_force_net_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_main_force_rally_intent")
-        price_impact_ratio = self._get_safe_series(df, 'main_force_price_impact_ratio_D', 0.0, method_name="_calculate_main_force_rally_intent")
+        price_impact_ratio = self._get_safe_series(df, 'main_force_slippage_index_D', 0.0, method_name="_calculate_main_force_rally_intent")
         upward_impulse_purity = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_calculate_main_force_rally_intent")
         volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_calculate_main_force_rally_intent")
         control_solidity = self._get_safe_series(df, 'control_solidity_index_D', 0.0, method_name="_calculate_main_force_rally_intent")

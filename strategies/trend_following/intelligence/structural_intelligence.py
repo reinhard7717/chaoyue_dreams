@@ -145,11 +145,11 @@ class StructuralIntelligence:
         【V5.1 · 新指标适配版】结构公理三：诊断“结构韧性与微观流动性”
         - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
         - 核心升级: 将稳定性的评估深入到微观层面，引入流动性指标来验证宏观结构的真实支撑力。
-        - 核心证据 (微观): `flow_credibility_index`和`main_force_price_impact_ratio`评估稳定性的“微观基础”。
+        - 核心证据 (微观): `flow_credibility_index`和`main_force_slippage_index`评估稳定性的“微观基础”。
         - 核心证据 (韧性): `support_validation_strength`作为结构在压力测试下的直接表现。
         """
         required_signals = [
-            'flow_credibility_index_D', 'main_force_price_impact_ratio_D', 'support_validation_strength_D', # 替换旧指标
+            'flow_credibility_index_D', 'main_force_slippage_index_D', 'support_validation_strength_D', # 替换旧指标
             'dominant_peak_solidity_D', 'close_D' # 替换旧指标
         ]
         long_term_ma_periods = [55, 144]
@@ -175,8 +175,8 @@ class StructuralIntelligence:
         # --- 3. 微观流动性 (Micro-Liquidity) ---
         # 使用 flow_credibility_index_D 替换 liquidity_authenticity_score_D
         liquidity_auth_raw = self._get_safe_series(df, 'flow_credibility_index_D', 0.5, method_name="_diagnose_axiom_stability")
-        # 使用 main_force_price_impact_ratio_D 替换 market_impact_cost_D
-        market_impact_raw = self._get_safe_series(df, 'main_force_price_impact_ratio_D', 0.1, method_name="_diagnose_axiom_stability")
+        # 使用 main_force_slippage_index_D 替换 market_impact_cost_D
+        market_impact_raw = self._get_safe_series(df, 'main_force_slippage_index_D', 0.1, method_name="_diagnose_axiom_stability")
         liquidity_auth_score = get_adaptive_mtf_normalized_score(liquidity_auth_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
         market_impact_score = get_adaptive_mtf_normalized_score(market_impact_raw, df_index, ascending=False, tf_weights=tf_weights_struct) # 冲击成本越低越好
         micro_liquidity_score = (liquidity_auth_score * 0.6 + market_impact_score * 0.4).clip(0, 1)

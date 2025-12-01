@@ -742,9 +742,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V59.0 · 收盘强度穿透版】
-        - 核心升级: 引入 B-系列 (Behavioral Engine) 探针，监控引擎的输入数据健康度和计算过程。
-        - 核心集成: 调用新增的 _calculate_closing_strength_metrics 方法，激活高精度的收盘强度指数计算。
+        【V61.0 · 信念内核高频化】
+        - 核心升级: 引入 `_get_hf_mf_vwaps` 辅助方法，预先计算高保真主力VWAP，并将其注入下游计算引擎，
+                     确保 `main_force_conviction_index` 等核心指标使用最高精度的数据源。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -770,8 +770,13 @@ class AdvancedFundFlowMetricsService:
                 print(hf_analysis_df[['mid_price', 'ofi', 'main_force_ofi', 'imbalance']].head(3).to_string())
             else:
                 print("  - [!!!] 关键警告: 高频分析DataFrame (hf_analysis_df) 为空！所有高频指标将无法计算。")
+        # 新增代码块：预计算高频主力VWAP
+        hf_mf_buy_vwap, hf_mf_sell_vwap = np.nan, np.nan
         if not hf_analysis_df.empty:
-            results.update(self._calculate_core_hf_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
+            hf_mf_buy_vwap, hf_mf_sell_vwap = self._get_hf_mf_vwaps(hf_analysis_df)
+        if not hf_analysis_df.empty:
+            # 修改代码行：传入高频VWAP
+            results.update(self._calculate_core_hf_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe, hf_mf_buy_vwap, hf_mf_sell_vwap))
         results.update(self._calculate_vwap_related_metrics(intraday_data, common_data))
         results.update(self._calculate_vwap_control_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_opening_battle_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
@@ -785,23 +790,21 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_closing_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_retail_sentiment_metrics(intraday_data, hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_hidden_accumulation_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        results.update(self._calculate_execution_alpha_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
+        # 修改代码行：传入高频VWAP
+        results.update(self._calculate_execution_alpha_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe, hf_mf_buy_vwap, hf_mf_sell_vwap))
         results.update(self._calculate_flow_efficiency_metrics(hf_analysis_df, intraday_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_wash_trade_metrics(hf_analysis_df, is_target_date, enable_probe))
         results.update(self._calculate_misc_minute_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        # 修改代码行：调用新增的 _calculate_closing_strength_metrics 方法
         results.update(self._calculate_closing_strength_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_misc_daily_metrics(daily_data, main_force_net_flow_calibrated))
         return results
 
-    def _calculate_core_hf_metrics(self, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_core_hf_metrics(self, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool, hf_mf_buy_vwap: float, hf_mf_sell_vwap: float) -> dict:
         """
-        【V47.7 · 信念标尺归一版】
-        - 核心精炼: 对 main_force_conviction_index 的 Cost Tolerance 组件进行ATR归一化。
-        - 精炼原因: 原有的成本差异百分比缺乏统一标尺，在不同价格、不同波动的股票间可比性差。
-        - 核心实现: 将成本容忍度公式从 (买成本/卖成本)-1 修改为 (买成本-卖成本)/ATR，
-                     使其度量的是“主力愿意承受相当于当日平均波幅百分之多少的成本差异”，
-                     从而让信念指数的评估体系更加稳健和科学。
+        【V61.0 · 信念内核高频化】
+        - 核心升级: 彻底改造 `main_force_conviction_index` 的成本容忍度组件，废弃基于概率归因的成本，
+                     转而使用由上游传入的、基于逐笔成交数据计算的真实主力买卖VWAP，
+                     实现信念指数内核的完全高频化。
         """
         import numpy as np
         metrics = {}
@@ -819,12 +822,10 @@ class AdvancedFundFlowMetricsService:
             closing_strength = (mf_ofi_cumsum.iloc[-1] - ofi_min) / (ofi_max - ofi_min) if (ofi_max - ofi_min) > 0 else 0.0
             closing_strength = np.nan_to_num(closing_strength)
             aggressiveness_component = trend_quality * closing_strength
-        avg_cost_main_buy = daily_data.get('avg_cost_main_buy')
-        avg_cost_main_sell = daily_data.get('avg_cost_main_sell')
-        # 修改代码块：引入ATR对成本容忍度进行归一化
+        # 修改代码块：废弃概率成本，使用高频真实成本
         cost_tolerance_component = 0.0
-        if pd.notna(avg_cost_main_buy) and pd.notna(avg_cost_main_sell) and pd.notna(atr) and atr > 0:
-            cost_tolerance_component = (avg_cost_main_buy - avg_cost_main_sell) / atr
+        if pd.notna(hf_mf_buy_vwap) and pd.notna(hf_mf_sell_vwap) and pd.notna(atr) and atr > 0:
+            cost_tolerance_component = (hf_mf_buy_vwap - hf_mf_sell_vwap) / atr
         market_pressure_zone = hf_analysis_df['ofi'] < 0
         mf_resilience_ofi = hf_analysis_df.loc[market_pressure_zone, 'main_force_ofi'].clip(lower=0).sum()
         total_mf_positive_ofi = hf_analysis_df['main_force_ofi'].clip(lower=0).sum()
@@ -832,8 +833,8 @@ class AdvancedFundFlowMetricsService:
         metrics['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
         if enable_probe and is_target_date:
             print(f"\n--- [探针 B.3.1] main_force_conviction_index (主力信念) ---")
-            # 修改代码行：更新探针输出，增加atr并标明Cost Tolerance已归一化
-            print(f"    - 上游输入 avg_cost_main_buy: {avg_cost_main_buy:.4f}, avg_cost_main_sell: {avg_cost_main_sell:.4f}, atr: {atr:.4f}")
+            # 修改代码行：更新探针，明确指出使用的是高频成本
+            print(f"    - 上游输入 (HF-VWAP) avg_cost_main_buy: {hf_mf_buy_vwap:.4f}, avg_cost_main_sell: {hf_mf_sell_vwap:.4f}, atr: {atr:.4f}")
             print(f"    - 组件 Aggressiveness: {aggressiveness_component:.4f} = (TrendQuality {trend_quality:.4f} * ClosingStrength {closing_strength:.4f})")
             print(f"    - 组件 Cost Tolerance (norm by ATR): {cost_tolerance_component:.4f}, 组件 Resilience: {resilience_component:.4f}")
             print(f"    -> 最终得分: {metrics['main_force_conviction_index']:.2f}")
@@ -849,11 +850,11 @@ class AdvancedFundFlowMetricsService:
             if total_mf_vol > 0:
                 weighted_avg_slippage = (mf_trades['slippage'] * mf_trades['volume']).sum() / total_mf_vol
                 if pd.notna(atr) and atr > 0:
-                    metrics['main_force_price_impact_ratio'] = (weighted_avg_slippage / atr) * 100
+                    metrics['main_force_slippage_index'] = (weighted_avg_slippage / atr) * 100
                     if enable_probe and is_target_date:
-                        print(f"\n--- [探针 B.3.2] main_force_price_impact_ratio (价格冲击) ---")
+                        print(f"\n--- [探针 B.3.2] main_force_slippage_index (主力滑点) ---")
                         print(f"    - 主力总成交量: {total_mf_vol:,.0f}, 平均滑点: {weighted_avg_slippage:.4f}元, ATR: {atr:.2f}")
-                        print(f"    -> 最终得分 (滑点/ATR %): {metrics['main_force_price_impact_ratio']:.2f}")
+                        print(f"    -> 最终得分 (滑点/ATR %): {metrics['main_force_slippage_index']:.2f}")
             if total_mf_vol > 0:
                 offensive_buy_mask = (mf_trades['type'] == 'B') & (mf_trades['price'] >= mf_trades['sell_price1'])
                 offensive_sell_mask = (mf_trades['type'] == 'S') & (mf_trades['price'] <= mf_trades['buy_price1'])
@@ -962,7 +963,12 @@ class AdvancedFundFlowMetricsService:
         mf_ofi_series = hf_analysis_df['main_force_ofi']
         price_change_series = hf_analysis_df['mid_price_change']
         if mf_ofi_series.var() > 0 and price_change_series.var() > 0:
-            metrics['ofi_price_impact_factor'] = mf_ofi_series.corr(price_change_series)
+            correlation = mf_ofi_series.corr(price_change_series)
+            metrics['microstructure_efficiency_index'] = correlation
+            if enable_probe and is_target_date:
+                print(f"  [探针] microstructure_efficiency_index (高频-微观效率) 计算:")
+                print(f"    - 核心变量: Corr(main_force_ofi, mid_price_change)")
+                print(f"    -> 最终得分 (相关系数): {correlation:.4f}")
         return metrics
 
     def _calculate_opening_battle_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
@@ -2215,15 +2221,11 @@ class AdvancedFundFlowMetricsService:
         results['sell_quote_exhaustion_rate'] = (sell_exhausted_vol / daily_total_volume) * 100
         return results
 
-    def _calculate_execution_alpha_metrics(self, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
+    def _calculate_execution_alpha_metrics(self, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool, hf_mf_buy_vwap: float, hf_mf_sell_vwap: float) -> dict:
         """
-        【V49.3 · T+0价差穿透版】
-        - 核心BUG修复: 修复因V49.2重构遗漏导致的 main_force_t0_spread_ratio 字段计算逻辑缺失的致命BUG。
-        - 核心升级: 对 main_force_t0_spread_ratio 进行高频化升维，使用真实的逐笔成交VWAP进行计算。
-        - 升级原因: 统一执行力相关指标的计算精度，并根除 60 vs 61 问题。
-        - 核心实现:
-          - 在高频和降级路径中，分别加入 main_force_t0_spread_ratio 的计算逻辑。
-          - 更新探针以展示T+0价差的计算过程。
+        【V61.0 · 信念内核高频化】
+        - 核心重构: 移除内部对主力买卖VWAP的重复计算，转而接收由上游 `_compute_all_behavioral_metrics` 
+                     统一计算并传入的高频VWAP值，确保数据源的单一性和计算效率。
         """
         import numpy as np
         import pandas as pd
@@ -2232,28 +2234,24 @@ class AdvancedFundFlowMetricsService:
             'main_force_sell_execution_alpha': np.nan,
             'main_force_execution_alpha': np.nan,
             'main_force_t0_efficiency': np.nan,
-            'main_force_t0_spread_ratio': np.nan, # 新增代码行：初始化被遗漏的指标
+            'main_force_t0_spread_ratio': np.nan,
         }
         daily_vwap = common_data['daily_vwap']
         atr = common_data['atr']
         if pd.isna(daily_vwap) or pd.isna(atr) or atr <= 0:
             return metrics
         buy_alpha, sell_alpha = np.nan, np.nan
-        actual_mf_buy_vwap, actual_mf_sell_vwap = np.nan, np.nan
+        # 修改代码块：直接使用传入的高频VWAP，移除本地计算
+        actual_mf_buy_vwap, actual_mf_sell_vwap = hf_mf_buy_vwap, hf_mf_sell_vwap
         avg_cost_main_buy, avg_cost_main_sell = np.nan, np.nan
         if not hf_analysis_df.empty:
-            mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
-            mf_buy_trades = mf_trades[mf_trades['type'] == 'B']
-            mf_sell_trades = mf_trades[mf_trades['type'] == 'S']
-            if not mf_buy_trades.empty and mf_buy_trades['volume'].sum() > 0:
-                actual_mf_buy_vwap = (mf_buy_trades['price'] * mf_buy_trades['volume']).sum() / mf_buy_trades['volume'].sum()
+            # 高频路径
+            if pd.notna(actual_mf_buy_vwap):
                 buy_alpha = (daily_vwap - actual_mf_buy_vwap) / atr
                 metrics['main_force_buy_execution_alpha'] = buy_alpha
-            if not mf_sell_trades.empty and mf_sell_trades['volume'].sum() > 0:
-                actual_mf_sell_vwap = (mf_sell_trades['price'] * mf_sell_trades['volume']).sum() / mf_sell_trades['volume'].sum()
+            if pd.notna(actual_mf_sell_vwap):
                 sell_alpha = (actual_mf_sell_vwap - daily_vwap) / atr
                 metrics['main_force_sell_execution_alpha'] = sell_alpha
-            # 修改代码块：在高频路径下计算T+0价差
             if pd.notna(actual_mf_sell_vwap) and pd.notna(actual_mf_buy_vwap) and daily_vwap > 0:
                 t0_spread = (actual_mf_sell_vwap - actual_mf_buy_vwap) / daily_vwap
                 metrics['main_force_t0_spread_ratio'] = t0_spread * 100
@@ -2267,11 +2265,9 @@ class AdvancedFundFlowMetricsService:
             if pd.notna(avg_cost_main_sell):
                 sell_alpha = (avg_cost_main_sell - daily_vwap) / atr
                 metrics['main_force_sell_execution_alpha'] = sell_alpha
-            # 修改代码块：在降级路径下计算T+0价差
             if pd.notna(avg_cost_main_sell) and pd.notna(avg_cost_main_buy) and daily_vwap > 0:
                 t0_spread = (avg_cost_main_sell - avg_cost_main_buy) / daily_vwap
                 metrics['main_force_t0_spread_ratio'] = t0_spread * 100
-        # 探针
         if enable_probe and is_target_date:
             print(f"  [探针] main_force_execution_alpha & T0_spread (执行力与价差) 计算:")
             print(f"    - 市场VWAP: {daily_vwap:.4f}, ATR: {atr:.4f}")
@@ -2283,7 +2279,6 @@ class AdvancedFundFlowMetricsService:
                 print(f"    - (降级)归因主力买入成本: {avg_cost_main_buy:.4f} -> Buy Alpha: {buy_alpha:.4f}")
                 print(f"    - (降级)归因主力卖出成本: {avg_cost_main_sell:.4f} -> Sell Alpha: {sell_alpha:.4f}")
                 print(f"    - (降级)T+0价差: {metrics.get('main_force_t0_spread_ratio'):.4f}%")
-        # 综合计算
         if pd.notna(buy_alpha) and pd.notna(sell_alpha):
             metrics['main_force_execution_alpha'] = (buy_alpha + sell_alpha) / 2
             t0_spread_norm = (sell_alpha - (-buy_alpha))
@@ -2392,6 +2387,26 @@ class AdvancedFundFlowMetricsService:
             print(f"    - 力量因子 (Force): {force_factor:.4f}")
             print(f"    -> 最终得分: {metrics['closing_strength_index']:.2f}")
         return metrics
+
+    def _get_hf_mf_vwaps(self, hf_analysis_df: pd.DataFrame) -> tuple[float, float]:
+        """
+        【V61.0 · 信念内核高频化】(新增辅助方法)
+        - 核心职责: 从高频分析DataFrame中，精确计算主力交易的买入/卖出VWAP。
+        """
+        import numpy as np
+        import pandas as pd
+        if hf_analysis_df is None or hf_analysis_df.empty:
+            return np.nan, np.nan
+        mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
+        mf_buy_trades = mf_trades[mf_trades['type'] == 'B']
+        mf_sell_trades = mf_trades[mf_trades['type'] == 'S']
+        actual_mf_buy_vwap = np.nan
+        if not mf_buy_trades.empty and mf_buy_trades['volume'].sum() > 0:
+            actual_mf_buy_vwap = (mf_buy_trades['price'] * mf_buy_trades['volume']).sum() / mf_buy_trades['volume'].sum()
+        actual_mf_sell_vwap = np.nan
+        if not mf_sell_trades.empty and mf_sell_trades['volume'].sum() > 0:
+            actual_mf_sell_vwap = (mf_sell_trades['price'] * mf_sell_trades['volume']).sum() / mf_sell_trades['volume'].sum()
+        return actual_mf_buy_vwap, actual_mf_sell_vwap
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """

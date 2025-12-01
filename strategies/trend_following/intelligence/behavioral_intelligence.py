@@ -215,7 +215,7 @@ class BehavioralIntelligence:
             'ACCEL_5_pct_change_D', 'closing_strength_index_D', 'active_selling_pressure_D',
             'chip_fatigue_index_D', 'main_force_ofi_D', 'retail_ofi_D', 'buy_quote_exhaustion_rate_D',
             'sell_quote_exhaustion_rate_D',
-            'ofi_price_impact_factor_D', 'upward_impulse_purity_D', 'vacuum_traversal_efficiency_D',
+            'microstructure_efficiency_index_D', 'upward_impulse_purity_D', 'vacuum_traversal_efficiency_D',
             'support_validation_strength_D', 'impulse_quality_ratio_D', 'floating_chip_cleansing_efficiency_D',
             'panic_selling_cascade_D', 'capitulation_absorption_index_D', 'covert_accumulation_signal_D',
             'VOL_MA_5_D', 'VOL_MA_13_D', 'VOL_MA_21_D', 'loser_pain_index_D'
@@ -284,7 +284,7 @@ class BehavioralIntelligence:
         final_overextension_score = (overextension_raw_score * volume_amplifier).clip(0, 1)
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
         # --- 行为铁三角 ---
-        base_efficiency_raw = self._get_safe_series(df, 'ofi_price_impact_factor_D', 0.0, method_name="_diagnose_behavioral_axioms")
+        base_efficiency_raw = self._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
         path_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_behavioral_axioms")
         structural_confirm_raw = self._get_safe_series(df, 'vacuum_traversal_efficiency_D', 0.0, method_name="_diagnose_behavioral_axioms")
         base_efficiency_score = get_adaptive_mtf_normalized_score(base_efficiency_raw, df.index, ascending=True, tf_weights=default_weights)
@@ -764,7 +764,7 @@ class BehavioralIntelligence:
         volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_calculate_volume_burst_quality")
         main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_volume_burst_quality")
         amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_calculate_volume_burst_quality").replace(0, 1e-9)
-        efficiency_raw = self._get_safe_series(df, 'ofi_price_impact_factor_D', 0.0, method_name="_calculate_volume_burst_quality")
+        efficiency_raw = self._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name="_calculate_volume_burst_quality")
         urgency_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_calculate_volume_burst_quality")
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_volume_burst_quality")
         # --- 2. 计算各维度得分 ---
