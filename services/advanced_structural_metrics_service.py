@@ -257,15 +257,15 @@ class AdvancedStructuralMetricsService:
         continuous_group: pd.DataFrame,
         tick_df: pd.DataFrame | None,
         level5_df: pd.DataFrame | None,
-        realtime_df: pd.DataFrame | None, # 新增代码行：接收实时快照数据
+        realtime_df: pd.DataFrame | None,
         daily_info: pd.Series,
         prev_day_metrics: dict,
         debug_info: dict
     ) -> dict:
         """
         计算单日的所有高级结构化指标。
-        【V36.1 · 接口契约修正】
-        - 核心修复: 更新函数签名以接收 `realtime_df`，并将其加入 context，完善接口契约。
+        【V36.2 · 完整性调用修正】
+        - 核心修复: 补全对 `StructuralMetricsCalculators` 中所有计算方法的调用，确保指标计算的完整性。
         """
         total_volume_safe = group['vol'].sum() if not group.empty else 0
         if total_volume_safe == 0:
@@ -275,26 +275,28 @@ class AdvancedStructuralMetricsService:
             'continuous_group': continuous_group,
             'tick_df': tick_df,
             'level5_df': level5_df,
-            'realtime_df': realtime_df, # 新增代码行：将实时快照数据添加到上下文中
+            'realtime_df': realtime_df,
             'day_open_qfq': daily_info['open_qfq'],
             'day_high_qfq': daily_info['high_qfq'],
             'day_low_qfq': daily_info['low_qfq'],
             'day_close_qfq': daily_info['close_qfq'],
             'pre_close_qfq': daily_info['pre_close_qfq'],
             'total_volume_safe': total_volume_safe,
-            'atr_5': daily_info.get('ATR_5'), # 修改代码行：从 daily_info 中获取ATR
-            'atr_14': daily_info.get('ATR_14'), # 修改代码行：从 daily_info 中获取ATR
-            'atr_50': daily_info.get('ATR_50'), # 修改代码行：从 daily_info 中获取ATR
+            'atr_5': daily_info.get('ATR_5'),
+            'atr_14': daily_info.get('ATR_14'),
+            'atr_50': daily_info.get('ATR_50'),
             'prev_day_metrics': prev_day_metrics,
             'debug': debug_info,
         }
         metrics = {}
         # 依次调用各个指标计算器模块
         metrics.update(OrderFlowMetricsCalculators.calculate_order_flow_metrics(context))
+        # 修改代码块：补全对 StructuralMetricsCalculators 所有方法的调用
+        metrics.update(StructuralMetricsCalculators.calculate_energy_density_metrics(context))
         metrics.update(StructuralMetricsCalculators.calculate_control_metrics(context))
+        metrics.update(StructuralMetricsCalculators.calculate_game_efficiency_metrics(context))
         metrics.update(ThematicMetricsCalculators.calculate_market_profile_metrics(context))
         metrics.update(ThematicMetricsCalculators.calculate_forward_looking_metrics(context))
-        # 导入语句移动到文件顶部，此处仅为逻辑展示
         from .derivative_metrics_calculators import DerivativeMetricsCalculator
         metrics.update(DerivativeMetricsCalculator.calculate_divergence_metrics(context))
         metrics = {k: v for k, v in metrics.items() if not k.startswith('_')}

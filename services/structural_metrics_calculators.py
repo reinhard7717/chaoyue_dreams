@@ -193,48 +193,38 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_control_metrics(context: dict) -> dict:
         """
-        【V36.0 · 动能背离 · 重构版】
-        - 核心重构: 剥离了所有订单流相关指标到 `OrderFlowMetricsCalculators`，本方法专注于计算宏观控制与节奏指标。
+        【V36.2 · 完整性调用修正】
+        - 核心重构: 移除了 `intraday_thrust_purity` 的冗余计算，该指标的计算职责已明确归于 `calculate_energy_density_metrics`。
         """
         group = context['group']
         tick_df = context.get('tick_df')
         day_close_qfq = context['day_close_qfq']
-        day_high_qfq = context['day_high_qfq']
-        day_low_qfq = context['day_low_qfq']
         total_volume_safe = context['total_volume_safe']
         atr_14 = context['atr_14']
         results = {}
         if total_volume_safe == 0:
             return results
-        # 1. 日内推力纯度 (Intraday Thrust Purity)
-        if tick_df is not None and not tick_df.empty:
-            active_buy_vol = tick_df[tick_df['side'] == 'B']['volume'].sum()
-            active_sell_vol = tick_df[tick_df['side'] == 'S']['volume'].sum()
-            results['intraday_thrust_purity'] = (active_buy_vol - active_sell_vol) / total_volume_safe
-            # 2. 成交量脉冲指数 (Volume Burstiness Index)
-            tick_vols = tick_df['volume']
-            if len(tick_vols) > 1:
-                results['volume_burstiness_index'] = tick_vols.std() / tick_vols.mean()
-            # 3. 趋势效率 (Trend Efficiency Ratio)
+        # 1. 趋势效率 (Trend Efficiency Ratio) - (原第3点，逻辑上移)
+        if not group.empty:
             net_displacement = abs(day_close_qfq - group['open'].iloc[0])
             total_path = group['high'].max() - group['low'].min()
             if total_path > 0:
                 results['trend_efficiency_ratio'] = net_displacement / total_path
-        # 4. 均值回归频率 (Mean Reversion Frequency)
+        # 2. 均值回归频率 (Mean Reversion Frequency)
         if not group.empty:
             vwap = (group['amount'] * 10000).cumsum() / group['vol'].cumsum()
             price_cross_vwap = np.sum(np.diff(np.sign(group['close'] - vwap)) != 0)
             trading_hours = (group.index[-1] - group.index[0]).total_seconds() / 3600
             if trading_hours > 0:
                 results['mean_reversion_frequency'] = price_cross_vwap / trading_hours
-        # 5. 日内盈亏失衡度 (Intraday PNL Imbalance)
+        # 3. 日内盈亏失衡度 (Intraday PNL Imbalance)
         if tick_df is not None and not tick_df.empty:
             winning_vol = tick_df[tick_df['price'] < day_close_qfq]['volume'].sum()
             losing_vol = tick_df[tick_df['price'] > day_close_qfq]['volume'].sum()
             traded_vol = winning_vol + losing_vol
             if traded_vol > 0:
                 results['intraday_pnl_imbalance'] = (winning_vol - losing_vol) / traded_vol
-        # 6. 成本离散度指数 (Cost Dispersion Index)
+        # 4. 成本离散度指数 (Cost Dispersion Index)
         if not group.empty and pd.notna(atr_14) and atr_14 > 0:
             day_vwap = (group['amount'].sum() * 10000) / group['vol'].sum()
             weighted_variance = ((group['close'] - day_vwap) ** 2 * group['vol']).sum() / group['vol'].sum()
