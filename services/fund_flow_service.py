@@ -220,8 +220,9 @@ class AdvancedFundFlowMetricsService:
 
     def _prepare_behavioral_data(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None) -> tuple:
         """
-        【V47.2 · 遗漏逻辑补全版】
-        - 核心修复: 补全在V47.0重构中遗漏的 retail_ofi 和 order_book_liquidity_supply 的前置数据准备逻辑。
+        【V64.0 · 特征工程一体化】
+        - 核心重构: 净化此方法的职责。移除所有特征衍生计算（如OFI, imbalance等），
+                     使其回归到只负责合并原始高频数据源的单一职责，为下游统一的特征工程中心提供纯净的输入。
         """
         import numpy as np
         daily_total_volume = daily_data.get('vol', 0) * 100
@@ -230,7 +231,7 @@ class AdvancedFundFlowMetricsService:
         atr = daily_data.get('atr_14d')
         day_open, day_close = daily_data.get('open_qfq'), daily_data.get('close_qfq')
         day_high, day_low = daily_data.get('high_qfq'), daily_data.get('low_qfq')
-        hf_analysis_df = pd.DataFrame()
+        raw_hf_df = pd.DataFrame()
         if tick_data is not None and not tick_data.empty and level5_data is not None and not level5_data.empty:
             merged_hf = pd.merge_asof(
                 tick_data.sort_index(), level5_data.sort_index(),
@@ -245,52 +246,88 @@ class AdvancedFundFlowMetricsService:
                 )
             if not merged_hf.empty:
                 merged_hf.rename(columns={'volume_tick': 'volume'}, inplace=True)
-                merged_hf['mid_price'] = (merged_hf['buy_price1'] + merged_hf['sell_price1']) / 2
-                merged_hf['prev_mid_price'] = merged_hf['mid_price'].shift(1)
-                buy_pressure = np.where(merged_hf['mid_price'] >= merged_hf['prev_mid_price'], merged_hf['buy_volume1'].shift(1), 0)
-                sell_pressure = np.where(merged_hf['mid_price'] <= merged_hf['prev_mid_price'], merged_hf['sell_volume1'].shift(1), 0)
-                merged_hf['ofi'] = buy_pressure - sell_pressure
-                is_main_force_trade = merged_hf['amount'] > 200000
-                # 新增 is_retail_trade 的定义
-                is_retail_trade = merged_hf['amount'] < 50000
-                merged_hf['main_force_ofi'] = np.where(is_main_force_trade, merged_hf['ofi'], 0)
-                # 新增 retail_ofi 列的计算
-                merged_hf['retail_ofi'] = np.where(is_retail_trade, merged_hf['ofi'], 0)
-                merged_hf['mid_price_change'] = merged_hf['mid_price'].diff()
-                if 'volume_realtime' in merged_hf.columns and 'snapshot_time' in merged_hf.columns:
-                    snapshot_changed_mask = merged_hf['snapshot_time'] != merged_hf['snapshot_time'].shift(1)
-                    volume_delta = merged_hf['volume_realtime'].diff().fillna(0)
-                    merged_hf['market_vol_delta'] = np.where(snapshot_changed_mask, volume_delta, 0)
-                merged_hf['prev_a1_p'] = merged_hf['sell_price1'].shift(1)
-                merged_hf['prev_b1_p'] = merged_hf['buy_price1'].shift(1)
-                # 新增 prev_a1_v 和 prev_b1_v 的计算，为 exhaustion_rate 做准备
-                merged_hf['prev_a1_v'] = merged_hf['sell_volume1'].shift(1)
-                merged_hf['prev_b1_v'] = merged_hf['buy_volume1'].shift(1)
-                try:
-                    weighted_buy_vol = pd.Series(0, index=merged_hf.index); weighted_sell_vol = pd.Series(0, index=merged_hf.index)
-                    # 新增 total_buy_value 和 total_sell_value 的初始化
-                    total_buy_value = pd.Series(0, index=merged_hf.index); total_sell_value = pd.Series(0, index=merged_hf.index)
-                    for i in range(1, 6):
-                        weight = 1 / i
-                        weighted_buy_vol += merged_hf[f'buy_volume{i}'] * weight
-                        weighted_sell_vol += merged_hf[f'sell_volume{i}'] * weight
-                        # 新增 total_buy_value 和 total_sell_value 的计算
-                        total_buy_value += merged_hf[f'buy_volume{i}'] * merged_hf[f'buy_price{i}']
-                        total_sell_value += merged_hf[f'sell_volume{i}'] * merged_hf[f'sell_price{i}']
-                    merged_hf['imbalance'] = (weighted_buy_vol - weighted_sell_vol) / (weighted_buy_vol + weighted_sell_vol).replace(0, np.nan)
-                    # 新增 liquidity_supply_ratio 列的计算
-                    merged_hf['liquidity_supply_ratio'] = total_buy_value / total_sell_value.replace(0, np.nan)
-                except Exception:
-                    merged_hf['imbalance'] = np.nan
-                    # 新增异常情况下的默认值
-                    merged_hf['liquidity_supply_ratio'] = np.nan
-                hf_analysis_df = merged_hf
+                raw_hf_df = merged_hf
         common_data = {
             'daily_total_volume': daily_total_volume, 'daily_total_amount': daily_total_amount,
             'daily_vwap': daily_vwap, 'atr': atr, 'day_open': day_open, 'day_close': day_close,
             'day_high': day_high, 'day_low': day_low
         }
-        return hf_analysis_df, common_data
+        return raw_hf_df, common_data
+
+    def _engineer_hf_features(self, raw_hf_df: pd.DataFrame, daily_total_volume: float) -> tuple[pd.DataFrame, dict]:
+        """
+        【V64.0 · 特征工程一体化】(新增方法, 原 `_precompute_hf_features` 升维)
+        - 核心升维: 此方法是新架构下的高频特征工程中心。它接收纯净的原始高频DataFrame，
+                     并负责计算所有的衍生特征（OFI, imbalance, 主力交易集, VWAP等），
+                     最终返回一个包含所有特征的 `hf_analysis_df` 和一个包含聚合值的 `hf_features` 字典。
+        """
+        import numpy as np
+        features = {
+            'mf_trades': pd.DataFrame(), 'buy_trades_mask': pd.Series(dtype=bool),
+            'sell_trades_mask': pd.Series(dtype=bool), 'total_mf_vol': 0.0,
+            'mf_buy_vol': 0.0, 'mf_sell_vol': 0.0, 'offensive_volume': 0.0,
+            'passive_volume': 0.0, 'hf_mf_buy_vwap': np.nan, 'hf_mf_sell_vwap': np.nan,
+        }
+        if raw_hf_df is None or raw_hf_df.empty:
+            return pd.DataFrame(), features
+        hf_analysis_df = raw_hf_df.copy()
+        hf_analysis_df['mid_price'] = (hf_analysis_df['buy_price1'] + hf_analysis_df['sell_price1']) / 2
+        hf_analysis_df['prev_mid_price'] = hf_analysis_df['mid_price'].shift(1)
+        buy_pressure = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
+        sell_pressure = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
+        hf_analysis_df['ofi'] = buy_pressure - sell_pressure
+        is_main_force_trade = hf_analysis_df['amount'] > 200000
+        is_retail_trade = hf_analysis_df['amount'] < 50000
+        hf_analysis_df['main_force_ofi'] = np.where(is_main_force_trade, hf_analysis_df['ofi'], 0)
+        hf_analysis_df['retail_ofi'] = np.where(is_retail_trade, hf_analysis_df['ofi'], 0)
+        hf_analysis_df['mid_price_change'] = hf_analysis_df['mid_price'].diff()
+        if 'volume_realtime' in hf_analysis_df.columns and 'snapshot_time' in hf_analysis_df.columns:
+            snapshot_changed_mask = hf_analysis_df['snapshot_time'] != hf_analysis_df['snapshot_time'].shift(1)
+            volume_delta = hf_analysis_df['volume_realtime'].diff().fillna(0)
+            hf_analysis_df['market_vol_delta'] = np.where(snapshot_changed_mask, volume_delta, 0)
+        hf_analysis_df['prev_a1_p'] = hf_analysis_df['sell_price1'].shift(1)
+        hf_analysis_df['prev_b1_p'] = hf_analysis_df['buy_price1'].shift(1)
+        hf_analysis_df['prev_a1_v'] = hf_analysis_df['sell_volume1'].shift(1)
+        hf_analysis_df['prev_b1_v'] = hf_analysis_df['buy_volume1'].shift(1)
+        try:
+            weighted_buy_vol = pd.Series(0, index=hf_analysis_df.index); weighted_sell_vol = pd.Series(0, index=hf_analysis_df.index)
+            total_buy_value = pd.Series(0, index=hf_analysis_df.index); total_sell_value = pd.Series(0, index=hf_analysis_df.index)
+            for i in range(1, 6):
+                weight = 1 / i
+                weighted_buy_vol += hf_analysis_df[f'buy_volume{i}'] * weight
+                weighted_sell_vol += hf_analysis_df[f'sell_volume{i}'] * weight
+                total_buy_value += hf_analysis_df[f'buy_volume{i}'] * hf_analysis_df[f'buy_price{i}']
+                total_sell_value += hf_analysis_df[f'sell_volume{i}'] * hf_analysis_df[f'sell_price{i}']
+            hf_analysis_df['imbalance'] = (weighted_buy_vol - weighted_sell_vol) / (weighted_buy_vol + weighted_sell_vol).replace(0, np.nan)
+            hf_analysis_df['liquidity_supply_ratio'] = total_buy_value / total_sell_value.replace(0, np.nan)
+        except Exception:
+            hf_analysis_df['imbalance'] = np.nan
+            hf_analysis_df['liquidity_supply_ratio'] = np.nan
+        mf_trades = hf_analysis_df[is_main_force_trade].copy()
+        if mf_trades.empty:
+            return hf_analysis_df, features
+        features['mf_trades'] = mf_trades
+        buy_trades_mask = mf_trades['type'] == 'B'
+        sell_trades_mask = mf_trades['type'] == 'S'
+        features['buy_trades_mask'] = buy_trades_mask
+        features['sell_trades_mask'] = sell_trades_mask
+        total_mf_vol = mf_trades['volume'].sum()
+        features['total_mf_vol'] = total_mf_vol
+        mf_buy_trades = mf_trades[buy_trades_mask]
+        mf_sell_trades = mf_trades[sell_trades_mask]
+        if not mf_buy_trades.empty and mf_buy_trades['volume'].sum() > 0:
+            features['hf_mf_buy_vwap'] = (mf_buy_trades['price'] * mf_buy_trades['volume']).sum() / mf_buy_trades['volume'].sum()
+        if not mf_sell_trades.empty and mf_sell_trades['volume'].sum() > 0:
+            features['hf_mf_sell_vwap'] = (mf_sell_trades['price'] * mf_sell_trades['volume']).sum() / mf_sell_trades['volume'].sum()
+        if total_mf_vol > 0:
+            features['mf_buy_vol'] = mf_buy_trades['volume'].sum()
+            features['mf_sell_vol'] = mf_sell_trades['volume'].sum()
+            offensive_buy_mask = (buy_trades_mask) & (mf_trades['price'] >= mf_trades['sell_price1'])
+            offensive_sell_mask = (sell_trades_mask) & (mf_trades['price'] <= mf_trades['buy_price1'])
+            offensive_volume = mf_trades[offensive_buy_mask | offensive_sell_mask]['volume'].sum()
+            features['offensive_volume'] = offensive_volume
+            features['passive_volume'] = total_mf_vol - offensive_volume
+        return hf_analysis_df, features
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True, tick_data_map: dict = None, level5_data_map: dict = None, minute_data_map: dict = None):
         """
@@ -742,9 +779,10 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V63.0 · 引擎仓室化】
-        - 核心重构: 废弃对巨无霸方法 `_calculate_core_hf_metrics` 的调用。
-        - 流程再造: 转而调用三个全新的、职责单一的独立方法，使引擎的调用逻辑更加清晰和模块化。
+        【V64.0 · 特征工程一体化】
+        - 核心重构: 调整数据处理流程。首先调用净化的 `_prepare_behavioral_data` 获取原始数据，
+                     然后将原始数据送入新的 `_engineer_hf_features` 中心进行一体化特征工程，
+                     最后将工程化的结果分发给下游的各个计算仓室。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -754,9 +792,11 @@ class AdvancedFundFlowMetricsService:
         results = {}
         if intraday_data.empty:
             return results
-        hf_analysis_df, common_data = self._prepare_behavioral_data(
+        # 修改代码块：执行新的一体化数据准备与特征工程流程
+        raw_hf_df, common_data = self._prepare_behavioral_data(
             intraday_data, daily_data, tick_data, level5_data, realtime_data
         )
+        hf_analysis_df, hf_features = self._engineer_hf_features(raw_hf_df, common_data.get('daily_total_volume', 0))
         if enable_probe and is_target_date:
             print(f"\n{'='*20} [探针 B.2 - 引擎输入审计 @ {daily_data.name.date()}] {'='*20}")
             print("  - 通用日线数据 (common_data):")
@@ -770,11 +810,9 @@ class AdvancedFundFlowMetricsService:
                 print(hf_analysis_df[['mid_price', 'ofi', 'main_force_ofi', 'imbalance']].head(3).to_string())
             else:
                 print("  - [!!!] 关键警告: 高频分析DataFrame (hf_analysis_df) 为空！所有高频指标将无法计算。")
-        hf_features = self._precompute_hf_features(hf_analysis_df, common_data.get('daily_total_volume', 0))
         hf_mf_buy_vwap = hf_features['hf_mf_buy_vwap']
         hf_mf_sell_vwap = hf_features['hf_mf_sell_vwap']
         if not hf_analysis_df.empty:
-            # 修改代码块：调用三个新的独立方法
             results.update(self._calculate_main_force_profile_metrics(hf_analysis_df, common_data, is_target_date, enable_probe, hf_mf_buy_vwap, hf_mf_sell_vwap, hf_features))
             results.update(self._calculate_ofi_based_metrics(hf_analysis_df, is_target_date, enable_probe))
             results.update(self._calculate_order_book_metrics(hf_analysis_df, common_data, is_target_date, enable_probe))
