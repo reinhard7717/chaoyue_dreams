@@ -193,8 +193,8 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_control_metrics(context: dict) -> dict:
         """
-        【V32.0 · 成本离散度穿透】
-        - 核心升级: 为 `cost_dispersion_index` 指标实现高频穿透，基于逐笔成交价精确度量真实交易成本的离散程度。
+        【V33.0 · 盈亏失衡度穿透】
+        - 核心升级: 为 `intraday_pnl_imbalance` 指标实现高频穿透，基于逐笔成交价精确计算日终的真实盈亏盘分布。
         """
         group = context['group']
         continuous_group = context['continuous_group']
@@ -302,11 +302,27 @@ class StructuralMetricsCalculators:
                 entropy = -np.sum(vp_prob * np.log2(vp_prob))
                 max_entropy = np.log2(len(vp_prob))
                 results['volume_profile_entropy'] = entropy / max_entropy if max_entropy > 0 else 0.0
-            winners_vol = continuous_group[continuous_group['minute_vwap'] < day_close_qfq]['vol'].sum()
-            losers_vol = continuous_group[continuous_group['minute_vwap'] > day_close_qfq]['vol'].sum()
-            if (winners_vol + losers_vol) > 0:
-                results['intraday_pnl_imbalance'] = (winners_vol - losers_vol) / (winners_vol + losers_vol)
-        # 修改代码块：为 cost_dispersion_index 增加高频计算逻辑
+        # 修改代码块：为 intraday_pnl_imbalance 增加高频计算逻辑
+        if tick_df is not None and not tick_df.empty:
+            winners_vol = tick_df[tick_df['price'] < day_close_qfq]['volume'].sum()
+            losers_vol = tick_df[tick_df['price'] > day_close_qfq]['volume'].sum()
+            total_pnl_vol = winners_vol + losers_vol
+            if total_pnl_vol > 0:
+                results['intraday_pnl_imbalance'] = (winners_vol - losers_vol) / total_pnl_vol
+                if enable_probe and is_target_date:
+                    print(f"--- [探针 ASM.{trade_date_str}] intraday_pnl_imbalance (高频) ---")
+                    print(f"    - 原料: 收盘价={day_close_qfq:.2f}, 盈利成交量={winners_vol:,.0f}, 亏损成交量={losers_vol:,.0f}")
+                    print(f"    - 计算: ({winners_vol:,.0f} - {losers_vol:,.0f}) / {total_pnl_vol:,.0f}")
+                    print(f"    -> 结果: {results['intraday_pnl_imbalance']:.4f}")
+        else:
+            if group['vol'].sum() > 0:
+                winners_vol = continuous_group[continuous_group['minute_vwap'] < day_close_qfq]['vol'].sum()
+                losers_vol = continuous_group[continuous_group['minute_vwap'] > day_close_qfq]['vol'].sum()
+                if (winners_vol + losers_vol) > 0:
+                    results['intraday_pnl_imbalance'] = (winners_vol - losers_vol) / (winners_vol + losers_vol)
+                    if enable_probe and is_target_date:
+                        print(f"--- [探针 ASM.{trade_date_str}] intraday_pnl_imbalance (分钟降级) ---")
+                        print(f"    -> 结果: {results.get('intraday_pnl_imbalance', np.nan):.4f}")
         if tick_df is not None and not tick_df.empty:
             total_tick_volume = tick_df['volume'].sum()
             if total_tick_volume > 0 and pd.notna(atr_14) and atr_14 > 0:
