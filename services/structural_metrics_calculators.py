@@ -179,7 +179,7 @@ class StructuralMetricsCalculators:
                     print(f"    - 原料: 日内净位移={net_displacement:.4f}, 分钟总路径={total_path:.4f}")
                     print(f"    - 计算: {net_displacement:.4f} / {total_path:.4f}")
                     print(f"    -> 结果: {results['trend_efficiency_ratio']:.4f}")
-        # 修改代码块：为 mean_reversion_frequency 增加高频计算逻辑
+        # 为 mean_reversion_frequency 增加高频计算逻辑
         if tick_df is not None and not tick_df.empty:
             tick_df['cum_amount'] = (tick_df['price'] * tick_df['volume']).cumsum()
             tick_df['cum_volume'] = tick_df['volume'].cumsum()
@@ -323,7 +323,7 @@ class StructuralMetricsCalculators:
                             except IndexError: continue
                 if bullish_strengths: results['divergence_conviction_score'] = max(bullish_strengths)
                 elif bearish_strengths: results['divergence_conviction_score'] = min(bearish_strengths)
-        # 修改代码块：为 volatility_skew_index 增加高频计算逻辑
+        # 为 volatility_skew_index 增加高频计算逻辑
         if tick_df is not None and not tick_df.empty:
             tick_returns = tick_df['price'].pct_change().fillna(0)
             weights = tick_df['volume']

@@ -694,7 +694,7 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
         except (FileNotFoundError, json.JSONDecodeError):
             pass # 在结构指标任务中，即使配置失败也不中断，仅影响调试探针
         debug_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
-        # 修改代码块：在服务初始化时传入调试参数
+        # 在服务初始化时传入调试参数
         structural_service = AdvancedStructuralMetricsService(debug_params=debug_params)
         stock_info, MetricsModel, _, last_metric_date, fetch_start_date = await structural_service._initialize_context(
             stock_code, incremental_flag, start_date_override

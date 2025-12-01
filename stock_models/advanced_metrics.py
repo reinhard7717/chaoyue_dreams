@@ -412,7 +412,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         # 假设的索引列表，你需要根据你的实际代码进行修改
         indexes = [
             models.Index(fields=['main_force_conviction_index']),
-            # 修改代码行：将旧字段名更新为新字段名
+            # 将旧字段名更新为新字段名
             models.Index(fields=['main_force_slippage_index']),
             models.Index(fields=['dip_absorption_power']),
             models.Index(fields=['rally_distribution_pressure']),

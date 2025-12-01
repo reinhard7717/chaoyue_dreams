@@ -578,7 +578,7 @@ class AdvancedFundFlowMetricsService:
                 results['mf_retail_battle_intensity'] = np.nan
         except Exception:
             results['mf_retail_battle_intensity'] = np.nan
-        # 修改代码块：移除所有为高频指标设置的 np.nan 占位符
+        # 移除所有为高频指标设置的 np.nan 占位符
         try:
             mf_flow_calibrated = results.get('main_force_net_flow_calibrated')
             retail_flow_calibrated = results.get('retail_net_flow_calibrated')
@@ -680,7 +680,7 @@ class AdvancedFundFlowMetricsService:
             result_agg_df['retail_cost_beta'] = beta * 100
         except Exception:
             result_agg_df['retail_cost_beta'] = np.nan
-        # 修改代码块：移除 main_force_t0_spread_ratio, main_force_execution_alpha, main_force_t0_efficiency 的计算逻辑
+        # 移除 main_force_t0_spread_ratio, main_force_execution_alpha, main_force_t0_efficiency 的计算逻辑
         try:
             mf_cost_premium = (temp_df['avg_cost_main_buy'] / temp_df['daily_vwap'] - 1)
             retail_cost_discount = (1 - temp_df['avg_cost_retail_sell'] / temp_df['daily_vwap'])
@@ -821,7 +821,7 @@ class AdvancedFundFlowMetricsService:
             }
         }
         if not hf_analysis_df.empty:
-            # 修改代码块：使用类名调用静态方法
+            # 使用类名调用静态方法
             results.update(AdvancedFundFlowMetricsService._calculate_main_force_profile_metrics(context))
             results.update(AdvancedFundFlowMetricsService._calculate_ofi_based_metrics(context))
             results.update(AdvancedFundFlowMetricsService._calculate_order_book_metrics(context))

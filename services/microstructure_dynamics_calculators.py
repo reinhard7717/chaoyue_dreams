@@ -158,7 +158,7 @@ class MicrostructureDynamicsCalculators:
         if not down_minutes_df.empty:
             active_buy_on_dip, active_sell_on_dip = 0, 0
             for _, minute_row in down_minutes_df.iterrows():
-                # 修改代码行：使用布尔索引替代 between_time，修复TypeError
+                # 使用布尔索引替代 between_time，修复TypeError
                 minute_start = minute_row['trade_time']
                 minute_end = minute_start + pd.Timedelta(minutes=1)
                 ticks_in_minute = tick_df[(tick_df.index >= minute_start) & (tick_df.index < minute_end)]
@@ -173,7 +173,7 @@ class MicrostructureDynamicsCalculators:
         if not up_minutes_df.empty:
             active_sell_on_rally, active_buy_on_rally = 0, 0
             for _, minute_row in up_minutes_df.iterrows():
-                # 修改代码行：使用布尔索引替代 between_time，修复TypeError
+                # 使用布尔索引替代 between_time，修复TypeError
                 minute_start = minute_row['trade_time']
                 minute_end = minute_start + pd.Timedelta(minutes=1)
                 ticks_in_minute = tick_df[(tick_df.index >= minute_start) & (tick_df.index < minute_end)]
@@ -212,7 +212,7 @@ class MicrostructureDynamicsCalculators:
         column_rename_map = {**{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)}, **{f'buy_volume{i}': f'b{i}_v' for i in range(1, 6)}, **{f'sell_price{i}': f'a{i}_p' for i in range(1, 6)}, **{f'sell_volume{i}': f'a{i}_v' for i in range(1, 6)}}
         level5_df_renamed = level5_df.copy().rename(columns=column_rename_map)
         if realtime_df is not None and not realtime_df.empty:
-            # 修改代码块：重构数据合并与循环逻辑，确保权重对齐
+            # 重构数据合并与循环逻辑，确保权重对齐
             snapshot_df = pd.merge_asof(realtime_df.sort_index(), level5_df_renamed.sort_index(), on='trade_time', direction='backward')
             snapshot_df['snapshot_volume'] = snapshot_df['volume'].diff().fillna(0).clip(lower=0)
             total_amount = daily_series_for_day.get('amount', 0)

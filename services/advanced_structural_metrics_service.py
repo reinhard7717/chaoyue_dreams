@@ -35,7 +35,7 @@ class AdvancedStructuralMetricsService:
         初始化服务，设定回溯期等基础参数
         """
         self.max_lookback_days = 300 # 为计算衍生指标所需的最大回溯天数
-        self.debug_params = debug_params if debug_params is not None else {} # 修改代码行：接收并存储调试参数
+        self.debug_params = debug_params if debug_params is not None else {} # 接收并存储调试参数
 
     async def run_precomputation(self, stock_info: StockInfo, dates_to_process: pd.DatetimeIndex, daily_df_with_atr: pd.DataFrame, intraday_data_map: dict):
         """
@@ -189,7 +189,7 @@ class AdvancedStructuralMetricsService:
         """
         new_metrics_data = []
         prev_day_metrics = {}
-        # 修改代码块：重构循环和数据获取逻辑
+        # 重构循环和数据获取逻辑
         for trade_date, data_for_day in intraday_map.items():
             daily_series_for_day = daily_df_with_atr.loc[trade_date]
             atr_5 = daily_series_for_day.get('ATR_5', np.nan)
@@ -360,25 +360,22 @@ class AdvancedStructuralMetricsService:
 
     def _create_continuous_minute_data(self, group: pd.DataFrame) -> pd.DataFrame:
         """
-        【V30.3 · 辅助函数回归修复】
-        - 核心职责: (新增) 创建一个连续的、无间断的分钟级DataFrame，用于需要连续时间序列的计算。
-        - 实现逻辑: 1. 生成标准的240分钟交易时间索引。
-                     2. 使用该索引重新索引当日数据。
-                     3. 使用前向填充(ffill)补全午休等造成的空白期。
-                     4. 计算填充后的分钟VWAP。
+        【V30.4 · 索引对齐修复】
+        - 核心修复: 修正了因上游数据已将'trade_time'设为索引，而此方法仍按列访问导致的KeyError。
+        - 实现逻辑: 1. 直接从DataFrame的索引(group.index)获取日期。
+                     2. 移除方法内部冗余的set_index操作。
         """
         if group is None or group.empty:
             return pd.DataFrame()
-        trade_date = group['trade_time'].iloc[0].date()
+        # 从索引获取日期，而不是从列
+        trade_date = group.index[0].date()
         # 创建标准的上午和下午交易时段分钟级时间索引
         morning_session = pd.to_datetime(pd.date_range(start=f'{trade_date} 09:31:00', end=f'{trade_date} 12:00:00', freq='1min'))
         afternoon_session = pd.to_datetime(pd.date_range(start=f'{trade_date} 13:01:00', end=f'{trade_date} 15:00:00', freq='1min'))
-        full_day_index = morning_session.union(afternoon_session)
-        # 确保原始数据的 trade_time 是 datetime 类型并设为索引
-        group['trade_time'] = pd.to_datetime(group['trade_time'])
-        group_with_index = group.set_index('trade_time')
-        # 重新索引并前向填充
-        continuous_group = group_with_index.reindex(full_day_index).ffill()
+        full_day_index = morning_session.union(afternoon_session).tz_localize('Asia/Shanghai')
+        # 移除冗余的set_index操作，因为group的索引已经是trade_time
+        # 直接使用传入的group进行重新索引和前向填充
+        continuous_group = group.reindex(full_day_index).ffill()
         # 重新计算填充后的分钟VWAP
         continuous_group['minute_vwap'] = (continuous_group['amount'] / continuous_group['vol']).where(continuous_group['vol'] > 0, np.nan)
         continuous_group.reset_index(inplace=True)
