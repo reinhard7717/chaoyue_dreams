@@ -140,7 +140,7 @@ class ChipFeatureCalculator:
         # 确保它是 Asia/Shanghai aware
         if intraday_df.index.tz is None:
             # 如果意外是 naive，假定它是 UTC（因为DAO层应该输出UTC aware，但可能在某些操作后丢失时区信息）
-            intraday_df.index = intraday_df.index.tz_localize('UTC', ambiguous='infer').tz_convert(target_tz) # 修改代码行：将错误的变量名 df 修正为 intraday_df
+            intraday_df.index = intraday_df.index.tz_localize('UTC', ambiguous='infer').tz_convert(target_tz) # 将错误的变量名 df 修正为 intraday_df
         else:
             # 如果已经是 aware，直接转换为目标时区
             intraday_df.index = intraday_df.index.tz_convert(target_tz)
@@ -912,7 +912,7 @@ class ChipFeatureCalculator:
                         results['support_validation_score'] = (active_buy_support / total_vol_support) * 100
         order_flow_imbalance = context.get('order_flow_imbalance', 0)
         price_momentum = (context.get('close_price', 0) - context.get('open_price', 0)) / context.get('atr_14d', 1)
-        # 修改代码行：收紧“隐蔽”的定义，要求价格动能为负或零
+        # 收紧“隐蔽”的定义，要求价格动能为负或零
         if price_momentum <= 0:
             results['covert_accumulation_signal'] = np.clip(order_flow_imbalance * 100, 0, 100)
         else:
@@ -1048,7 +1048,7 @@ class ChipFeatureCalculator:
             'auction_closing_position': np.nan,
             'main_force_cumulative_cost': np.nan,
         }
-        # 修改代码行：移除了所有与 enable_mfca_probe 相关的探针代码
+        # 移除了所有与 enable_mfca_probe 相关的探针代码
         close_price = context.get('close_price')
         daily_main_force_buy_cost = context.get('avg_cost_main_buy')
         prev_metrics = context.get('prev_metrics', {})

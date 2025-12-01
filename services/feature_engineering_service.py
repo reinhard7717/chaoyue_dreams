@@ -678,7 +678,7 @@ class FeatureEngineeringService:
         df = all_dfs[timeframe]
         df_index = df.index
         # 定义所有需要的原始筹码相关列
-        # 修改代码行：更新必需列的列表，以匹配V33.0版本的新指标体系
+        # 更新必需列的列表，以匹配V33.0版本的新指标体系
         required_cols = [
             # 维度一: 筹码集中度与结构优化
             'winner_concentration_90pct_D', 'loser_concentration_90pct_D', # 替代 short/long_term_concentration

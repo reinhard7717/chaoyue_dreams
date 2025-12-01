@@ -251,10 +251,10 @@ class AdvancedFundFlowMetricsService:
                 sell_pressure = np.where(merged_hf['mid_price'] <= merged_hf['prev_mid_price'], merged_hf['sell_volume1'].shift(1), 0)
                 merged_hf['ofi'] = buy_pressure - sell_pressure
                 is_main_force_trade = merged_hf['amount'] > 200000
-                # 修改代码行：新增 is_retail_trade 的定义
+                # 新增 is_retail_trade 的定义
                 is_retail_trade = merged_hf['amount'] < 50000
                 merged_hf['main_force_ofi'] = np.where(is_main_force_trade, merged_hf['ofi'], 0)
-                # 修改代码行：新增 retail_ofi 列的计算
+                # 新增 retail_ofi 列的计算
                 merged_hf['retail_ofi'] = np.where(is_retail_trade, merged_hf['ofi'], 0)
                 merged_hf['mid_price_change'] = merged_hf['mid_price'].diff()
                 if 'volume_realtime' in merged_hf.columns and 'snapshot_time' in merged_hf.columns:
@@ -263,26 +263,26 @@ class AdvancedFundFlowMetricsService:
                     merged_hf['market_vol_delta'] = np.where(snapshot_changed_mask, volume_delta, 0)
                 merged_hf['prev_a1_p'] = merged_hf['sell_price1'].shift(1)
                 merged_hf['prev_b1_p'] = merged_hf['buy_price1'].shift(1)
-                # 修改代码行：新增 prev_a1_v 和 prev_b1_v 的计算，为 exhaustion_rate 做准备
+                # 新增 prev_a1_v 和 prev_b1_v 的计算，为 exhaustion_rate 做准备
                 merged_hf['prev_a1_v'] = merged_hf['sell_volume1'].shift(1)
                 merged_hf['prev_b1_v'] = merged_hf['buy_volume1'].shift(1)
                 try:
                     weighted_buy_vol = pd.Series(0, index=merged_hf.index); weighted_sell_vol = pd.Series(0, index=merged_hf.index)
-                    # 修改代码行：新增 total_buy_value 和 total_sell_value 的初始化
+                    # 新增 total_buy_value 和 total_sell_value 的初始化
                     total_buy_value = pd.Series(0, index=merged_hf.index); total_sell_value = pd.Series(0, index=merged_hf.index)
                     for i in range(1, 6):
                         weight = 1 / i
                         weighted_buy_vol += merged_hf[f'buy_volume{i}'] * weight
                         weighted_sell_vol += merged_hf[f'sell_volume{i}'] * weight
-                        # 修改代码行：新增 total_buy_value 和 total_sell_value 的计算
+                        # 新增 total_buy_value 和 total_sell_value 的计算
                         total_buy_value += merged_hf[f'buy_volume{i}'] * merged_hf[f'buy_price{i}']
                         total_sell_value += merged_hf[f'sell_volume{i}'] * merged_hf[f'sell_price{i}']
                     merged_hf['imbalance'] = (weighted_buy_vol - weighted_sell_vol) / (weighted_buy_vol + weighted_sell_vol).replace(0, np.nan)
-                    # 修改代码行：新增 liquidity_supply_ratio 列的计算
+                    # 新增 liquidity_supply_ratio 列的计算
                     merged_hf['liquidity_supply_ratio'] = total_buy_value / total_sell_value.replace(0, np.nan)
                 except Exception:
                     merged_hf['imbalance'] = np.nan
-                    # 修改代码行：新增异常情况下的默认值
+                    # 新增异常情况下的默认值
                     merged_hf['liquidity_supply_ratio'] = np.nan
                 hf_analysis_df = merged_hf
         common_data = {
@@ -414,7 +414,7 @@ class AdvancedFundFlowMetricsService:
             debug_mode = (i == num_days - 1)
             date_obj = trade_date.date()
             is_target_date = str(date_obj) == target_date_str
-            # 修改代码行：升级【A.1 - 服务入口探针】
+            # 升级【A.1 - 服务入口探针】
             if enable_probe and is_target_date:
                 print(f"\n{'='*20} [探针 A.1 - 服务入口 @ {date_obj}] {'='*20}")
                 print(f"  - 传入的日线级数据 (daily_data_series):")
@@ -432,19 +432,19 @@ class AdvancedFundFlowMetricsService:
                 continue
             daily_data_series_with_mem = pd.concat([daily_data_series, pd.Series(prev_metrics, name=daily_data_series.name)])
             attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data, daily_data_series_with_mem)
-            # 修改代码行：新增【A.2 - 归因权重探针】
+            # 新增【A.2 - 归因权重探针】
             if enable_probe and is_target_date:
                 print(f"\n{'='*20} [探针 A.2 - 归因权重审计 @ {date_obj}] {'='*20}")
                 print("  - 归因权重DataFrame统计信息 (.describe()):")
                 weight_cols = [c for c in attribution_weights_df.columns if 'weight' in c]
                 print(attribution_weights_df[weight_cols].describe().to_string())
             probabilistic_costs_dict, attributed_minute_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series_with_mem, debug_mode=debug_mode)
-            # 修改代码行：新增【A.3 - 概率成本探针】
+            # 新增【A.3 - 概率成本探针】
             if enable_probe and is_target_date:
                 print(f"\n{'='*20} [探针 A.3 - 概率成本审计 @ {date_obj}] {'='*20}")
                 print("  - 计算出的概率成本字典:")
                 print(probabilistic_costs_dict)
-            # 修改代码行：新增【A.4 - 引擎调用探针】
+            # 新增【A.4 - 引擎调用探针】
             if enable_probe and is_target_date:
                 print(f"\n{'='*20} [探针 A.4 - 引擎调用 @ {date_obj}] {'='*20}")
                 print("  - 即将调用 _calculate_all_metrics_for_day 核心行为指标计算引擎...")
@@ -455,7 +455,7 @@ class AdvancedFundFlowMetricsService:
                 realtime_data_for_day=realtime_data_map.get(date_obj),
                 debug_mode=debug_mode
             )
-            # 修改代码行：升级【A.5 - 服务出口探针】
+            # 升级【A.5 - 服务出口探针】
             if enable_probe and is_target_date:
                 print(f"\n{'='*20} [探针 A.5 - 服务出口 @ {date_obj}] {'='*20}")
                 print(f"  - 资金流指标计算完成。最终日度指标字典 (day_metrics) 预览:")
@@ -742,9 +742,10 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V61.0 · 信念内核高频化】
-        - 核心升级: 引入 `_get_hf_mf_vwaps` 辅助方法，预先计算高保真主力VWAP，并将其注入下游计算引擎，
-                     确保 `main_force_conviction_index` 等核心指标使用最高精度的数据源。
+        【V62.0 · 高频特征预处理】
+        - 核心升级: 引入 `_precompute_hf_features` 方法，对高频数据进行一次性特征预处理，
+                     并将结果字典 `hf_features` 通过依赖注入的方式传递给下游计算引擎，
+                     消除重复计算，提升代码效率和可维护性。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -770,13 +771,14 @@ class AdvancedFundFlowMetricsService:
                 print(hf_analysis_df[['mid_price', 'ofi', 'main_force_ofi', 'imbalance']].head(3).to_string())
             else:
                 print("  - [!!!] 关键警告: 高频分析DataFrame (hf_analysis_df) 为空！所有高频指标将无法计算。")
-        # 新增代码块：预计算高频主力VWAP
         hf_mf_buy_vwap, hf_mf_sell_vwap = np.nan, np.nan
         if not hf_analysis_df.empty:
             hf_mf_buy_vwap, hf_mf_sell_vwap = self._get_hf_mf_vwaps(hf_analysis_df)
+        # 新增代码块：执行高频特征预处理
+        hf_features = self._precompute_hf_features(hf_analysis_df, common_data.get('daily_total_volume', 0))
         if not hf_analysis_df.empty:
-            # 修改代码行：传入高频VWAP
-            results.update(self._calculate_core_hf_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe, hf_mf_buy_vwap, hf_mf_sell_vwap))
+            # 修改代码行：传入预处理后的特征字典
+            results.update(self._calculate_core_hf_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe, hf_mf_buy_vwap, hf_mf_sell_vwap, hf_features))
         results.update(self._calculate_vwap_related_metrics(intraday_data, common_data))
         results.update(self._calculate_vwap_control_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_opening_battle_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
@@ -790,7 +792,6 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_closing_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
         results.update(self._calculate_retail_sentiment_metrics(intraday_data, hf_analysis_df, daily_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_hidden_accumulation_metrics(intraday_data, hf_analysis_df, common_data, is_target_date, enable_probe))
-        # 修改代码行：传入高频VWAP
         results.update(self._calculate_execution_alpha_metrics(hf_analysis_df, daily_data, common_data, is_target_date, enable_probe, hf_mf_buy_vwap, hf_mf_sell_vwap))
         results.update(self._calculate_flow_efficiency_metrics(hf_analysis_df, intraday_data, common_data, is_target_date, enable_probe))
         results.update(self._calculate_wash_trade_metrics(hf_analysis_df, is_target_date, enable_probe))
@@ -799,12 +800,12 @@ class AdvancedFundFlowMetricsService:
         results.update(self._calculate_misc_daily_metrics(daily_data, main_force_net_flow_calibrated))
         return results
 
-    def _calculate_core_hf_metrics(self, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool, hf_mf_buy_vwap: float, hf_mf_sell_vwap: float) -> dict:
+    def _calculate_core_hf_metrics(self, hf_analysis_df: pd.DataFrame, daily_data: pd.Series, common_data: dict, is_target_date: bool, enable_probe: bool, hf_mf_buy_vwap: float, hf_mf_sell_vwap: float, hf_features: dict) -> dict:
         """
-        【V61.0 · 信念内核高频化】
-        - 核心升级: 彻底改造 `main_force_conviction_index` 的成本容忍度组件，废弃基于概率归因的成本，
-                     转而使用由上游传入的、基于逐笔成交数据计算的真实主力买卖VWAP，
-                     实现信念指数内核的完全高频化。
+        【V62.0 · 高频特征预处理】
+        - 核心重构: 移除方法内部所有重复性的特征计算（如主力交易过滤、成交量统计等）。
+        - 依赖注入: 转而从上游传入的 `hf_features` 预处理字典中直接提取所需数据，
+                     使方法职责更单一，代码更简洁、高效。
         """
         import numpy as np
         metrics = {}
@@ -822,7 +823,6 @@ class AdvancedFundFlowMetricsService:
             closing_strength = (mf_ofi_cumsum.iloc[-1] - ofi_min) / (ofi_max - ofi_min) if (ofi_max - ofi_min) > 0 else 0.0
             closing_strength = np.nan_to_num(closing_strength)
             aggressiveness_component = trend_quality * closing_strength
-        # 修改代码块：废弃概率成本，使用高频真实成本
         cost_tolerance_component = 0.0
         if pd.notna(hf_mf_buy_vwap) and pd.notna(hf_mf_sell_vwap) and pd.notna(atr) and atr > 0:
             cost_tolerance_component = (hf_mf_buy_vwap - hf_mf_sell_vwap) / atr
@@ -833,20 +833,20 @@ class AdvancedFundFlowMetricsService:
         metrics['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
         if enable_probe and is_target_date:
             print(f"\n--- [探针 B.3.1] main_force_conviction_index (主力信念) ---")
-            # 修改代码行：更新探针，明确指出使用的是高频成本
             print(f"    - 上游输入 (HF-VWAP) avg_cost_main_buy: {hf_mf_buy_vwap:.4f}, avg_cost_main_sell: {hf_mf_sell_vwap:.4f}, atr: {atr:.4f}")
             print(f"    - 组件 Aggressiveness: {aggressiveness_component:.4f} = (TrendQuality {trend_quality:.4f} * ClosingStrength {closing_strength:.4f})")
             print(f"    - 组件 Cost Tolerance (norm by ATR): {cost_tolerance_component:.4f}, 组件 Resilience: {resilience_component:.4f}")
             print(f"    -> 最终得分: {metrics['main_force_conviction_index']:.2f}")
-        mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
+        # 修改代码块：移除本地计算，直接从预处理特征中提取
+        mf_trades = hf_features['mf_trades']
+        total_mf_vol = hf_features['total_mf_vol']
         if not mf_trades.empty and 'prev_mid_price' in mf_trades.columns:
-            buy_trades_mask = mf_trades['type'] == 'B'
-            sell_trades_mask = mf_trades['type'] == 'S'
+            buy_trades_mask = hf_features['buy_trades_mask']
+            sell_trades_mask = hf_features['sell_trades_mask']
             mf_trades['slippage'] = np.nan
             mf_trades.loc[buy_trades_mask, 'slippage'] = (mf_trades.loc[buy_trades_mask, 'price'] - mf_trades.loc[buy_trades_mask, 'prev_mid_price']).values
             mf_trades.loc[sell_trades_mask, 'slippage'] = (mf_trades.loc[sell_trades_mask, 'prev_mid_price'] - mf_trades.loc[sell_trades_mask, 'price']).values
             mf_trades['slippage'] = mf_trades['slippage'].clip(lower=0)
-            total_mf_vol = mf_trades['volume'].sum()
             if total_mf_vol > 0:
                 weighted_avg_slippage = (mf_trades['slippage'] * mf_trades['volume']).sum() / total_mf_vol
                 if pd.notna(atr) and atr > 0:
@@ -856,10 +856,8 @@ class AdvancedFundFlowMetricsService:
                         print(f"    - 主力总成交量: {total_mf_vol:,.0f}, 平均滑点: {weighted_avg_slippage:.4f}元, ATR: {atr:.2f}")
                         print(f"    -> 最终得分 (滑点/ATR %): {metrics['main_force_slippage_index']:.2f}")
             if total_mf_vol > 0:
-                offensive_buy_mask = (mf_trades['type'] == 'B') & (mf_trades['price'] >= mf_trades['sell_price1'])
-                offensive_sell_mask = (mf_trades['type'] == 'S') & (mf_trades['price'] <= mf_trades['buy_price1'])
-                offensive_volume = mf_trades[offensive_buy_mask | offensive_sell_mask]['volume'].sum()
-                passive_volume = total_mf_vol - offensive_volume
+                offensive_volume = hf_features['offensive_volume']
+                passive_volume = hf_features['passive_volume']
                 metrics['main_force_posture_index'] = ((offensive_volume - passive_volume) / total_mf_vol) * 100
                 metrics['main_force_activity_ratio'] = (total_mf_vol / daily_total_volume) * 100 if daily_total_volume > 0 else np.nan
                 if enable_probe and is_target_date:
@@ -869,8 +867,8 @@ class AdvancedFundFlowMetricsService:
                     print(f"\n--- [探针 B.3.4] main_force_activity_ratio (主力参与度) ---")
                     print(f"    - 主力总成交: {total_mf_vol:,.0f}, 当日总成交: {daily_total_volume:,.0f}")
                     print(f"    -> 最终得分: {metrics['main_force_activity_ratio']:.2f}")
-                mf_buy_vol = mf_trades.loc[buy_trades_mask, 'volume'].sum()
-                mf_sell_vol = mf_trades.loc[sell_trades_mask, 'volume'].sum()
+                mf_buy_vol = hf_features['mf_buy_vol']
+                mf_sell_vol = hf_features['mf_sell_vol']
                 mf_total_activity_vol = mf_buy_vol + mf_sell_vol
                 if mf_total_activity_vol > 0:
                     mf_net_vol = mf_buy_vol - mf_sell_vol
@@ -1153,7 +1151,7 @@ class AdvancedFundFlowMetricsService:
                                 aggressive_buy_vol = retail_buy_trades_in_rally[aggressive_buy_mask]['volume'].sum()
                                 aggression_component = aggressive_buy_vol / total_retail_buy_vol_in_rally if total_retail_buy_vol_in_rally > 0 else 0.0
                                 follower_frenzy = cost_component * volume_spike_component * (1 + aggression_component)
-                            # 修改代码行：使用新的 artistry_component
+                            # 使用新的 artistry_component
                             deceptive_pressure_score = artistry_component * distribution_dominance * follower_frenzy
                             total_deceptive_pressure += deceptive_pressure_score * price_change_in_rally
                 if total_rally_price_change > 0:
@@ -1162,7 +1160,7 @@ class AdvancedFundFlowMetricsService:
                     if enable_probe and is_target_date:
                         print(f"  [探针] rally_distribution_pressure (高频-诡道派发) 计算:")
                         print(f"    - Weighted Avg Deceptive Artistry: {weighted_avg_pressure:.4f}")
-                        # 修改代码行：更新探针输出
+                        # 更新探针输出
                         print(f"      - [Components] Artistry(NetVol): {artistry_component:.2f}, DistDom(GrossSell): {distribution_dominance:.2f}, Frenzy: {follower_frenzy:.2f}")
                         print(f"    -> Final Score: {metrics['rally_distribution_pressure']:.2f}")
             else:
@@ -1264,7 +1262,7 @@ class AdvancedFundFlowMetricsService:
                 auction_vol = auction_df['vol_shares'].sum()
                 VolumeAnomaly = np.log1p((auction_vol / 3) / avg_minute_vol) if avg_minute_vol > 0 else 0.0
                 if not hf_analysis_df.empty:
-                    # 修改代码行：使用 .index.time 提取时间部分进行比较，修复TypeError
+                    # 使用 .index.time 提取时间部分进行比较，修复TypeError
                     pre_auction_df = hf_analysis_df[hf_analysis_df.index.time < time(14, 57)]
                     if not pre_auction_df.empty:
                         pre_auction_snapshot = pre_auction_df.iloc[-1]
@@ -1447,9 +1445,9 @@ class AdvancedFundFlowMetricsService:
             if total_volume > 0:
                 metrics['holistic_cmf'] = money_flow_volume.sum() / total_volume
             # 主力CMF
-            # 修改代码行：使用 main_force_ofi.abs() 作为主力成交量权重
+            # 使用 main_force_ofi.abs() 作为主力成交量权重
             mf_money_flow_volume = money_flow_multiplier * df['main_force_ofi'].abs()
-            # 修改代码行：使用 main_force_ofi.abs() 的总和作为总主力成交量
+            # 使用 main_force_ofi.abs() 的总和作为总主力成交量
             total_mf_volume = df['main_force_ofi'].abs().sum()
             if total_mf_volume > 0:
                 metrics['main_force_cmf'] = mf_money_flow_volume.sum() / total_mf_volume
@@ -1708,11 +1706,11 @@ class AdvancedFundFlowMetricsService:
                     if not panic_zone_df.empty and 'retail_net_vol' in panic_zone_df.columns and 'retail_sell_vol' in continuous_trading_df.columns and 'minute_vwap' in panic_zone_df.columns:
                         panic_retail_df = panic_zone_df[panic_zone_df['retail_net_vol'] < 0]
                         if not panic_retail_df.empty:
-                            # 修改代码行：修复笔误，使用 'retail_net_vol'
+                            # 修复笔误，使用 'retail_net_vol'
                             panic_vol = abs(panic_retail_df['retail_net_vol'].sum())
                             total_retail_sell_vol = continuous_trading_df[continuous_trading_df['retail_sell_vol'] > 0]['retail_sell_vol'].sum()
                             if panic_vol > 0 and total_retail_sell_vol > 0:
-                                # 修改代码行：修复笔误，使用 'retail_net_vol'
+                                # 修复笔误，使用 'retail_net_vol'
                                 cost_panic = (panic_retail_df['minute_vwap'] * abs(panic_retail_df['retail_net_vol'])).sum() / panic_vol
                                 cost_mf_buy = daily_data.get('avg_cost_main_buy')
                                 if pd.notna(cost_mf_buy) and cost_mf_buy > 0:
@@ -2408,6 +2406,45 @@ class AdvancedFundFlowMetricsService:
             actual_mf_sell_vwap = (mf_sell_trades['price'] * mf_sell_trades['volume']).sum() / mf_sell_trades['volume'].sum()
         return actual_mf_buy_vwap, actual_mf_sell_vwap
 
+    def _precompute_hf_features(self, hf_analysis_df: pd.DataFrame, daily_total_volume: float) -> dict:
+        """
+        【V62.0 · 高频特征预处理】(新增辅助方法)
+        - 核心职责: 对高频分析DataFrame进行一次性扫描，预先计算出所有下游指标共用的核心特征，
+                     并打包成字典返回，以消除重复计算，提升效率和代码可维护性。
+        """
+        import numpy as np
+        features = {
+            'mf_trades': pd.DataFrame(),
+            'buy_trades_mask': pd.Series(dtype=bool),
+            'sell_trades_mask': pd.Series(dtype=bool),
+            'total_mf_vol': 0.0,
+            'mf_buy_vol': 0.0,
+            'mf_sell_vol': 0.0,
+            'offensive_volume': 0.0,
+            'passive_volume': 0.0,
+        }
+        if hf_analysis_df is None or hf_analysis_df.empty:
+            return features
+        mf_trades = hf_analysis_df[hf_analysis_df['amount'] > 200000].copy()
+        if mf_trades.empty:
+            return features
+        features['mf_trades'] = mf_trades
+        buy_trades_mask = mf_trades['type'] == 'B'
+        sell_trades_mask = mf_trades['type'] == 'S'
+        features['buy_trades_mask'] = buy_trades_mask
+        features['sell_trades_mask'] = sell_trades_mask
+        total_mf_vol = mf_trades['volume'].sum()
+        features['total_mf_vol'] = total_mf_vol
+        if total_mf_vol > 0:
+            features['mf_buy_vol'] = mf_trades.loc[buy_trades_mask, 'volume'].sum()
+            features['mf_sell_vol'] = mf_trades.loc[sell_trades_mask, 'volume'].sum()
+            offensive_buy_mask = (buy_trades_mask) & (mf_trades['price'] >= mf_trades['sell_price1'])
+            offensive_sell_mask = (sell_trades_mask) & (mf_trades['price'] <= mf_trades['buy_price1'])
+            offensive_volume = mf_trades[offensive_buy_mask | offensive_sell_mask]['volume'].sum()
+            features['offensive_volume'] = offensive_volume
+            features['passive_volume'] = total_mf_vol - offensive_volume
+        return features
+
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
         【V51.1 · 终局修正版】
@@ -2436,7 +2473,7 @@ class AdvancedFundFlowMetricsService:
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
         if enable_probe and is_target_date_in_df:
             print(f"\n{'='*20} [探针 S.1 · 终审穿透版 @ {target_date}] {'='*20}")
-            # 修改代码行：将DataFrame的索引名加入待比较的列集合中，完成终局修正
+            # 将DataFrame的索引名加入待比较的列集合中，完成终局修正
             incoming_df_cols = set(records_to_save_df.columns) | {records_to_save_df.index.name}
             model_fields_set = set(model_fields)
             print(f"  - 待保存DataFrame的列数 (含索引): {len(incoming_df_cols)}")

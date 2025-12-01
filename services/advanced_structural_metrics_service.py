@@ -253,7 +253,7 @@ class AdvancedStructuralMetricsService:
         if not daily_metrics:
             return pd.DataFrame()
         result_df = pd.DataFrame(daily_metrics)
-        # 修改代码行：确保 'trade_time' 列在设置索引后被移除
+        # 确保 'trade_time' 列在设置索引后被移除
         result_df['trade_time'] = pd.to_datetime(result_df['trade_time'])
         return result_df.set_index('trade_time')
 
@@ -568,9 +568,9 @@ class AdvancedStructuralMetricsService:
             return pd.DataFrame.from_records(qs)
         df = await get_data()
         if not df.empty:
-            # 修改代码行：先将 'trade_time' 列转换为 datetime 类型
+            # 先将 'trade_time' 列转换为 datetime 类型
             df['trade_time'] = pd.to_datetime(df['trade_time'])
-            # 修改代码行：使用列名字符串作为参数，确保设置索引后该列被移除，解决下游 reset_index 冲突
+            # 使用列名字符串作为参数，确保设置索引后该列被移除，解决下游 reset_index 冲突
             df = df.set_index('trade_time')
             # 在数据源头进行类型净化，杜绝object类型污染
             for col in df.columns:

@@ -770,7 +770,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         debug_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
         enable_probe = debug_params.get('enable_mfca_probe', False)
         target_date_str = debug_params.get('target_date')
-        # 修改代码行：新增【M.0 - 任务入口探针】
+        # 新增【M.0 - 任务入口探针】
         if enable_probe and target_date_str:
             print(f"\n{'='*20} [探针 M.0 - 任务入口] {'='*20}")
             print(f"  - 股票代码: {stock_code}, 目标日期: {target_date_str}")
@@ -916,7 +916,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             if chunk_dates.empty: continue
             print(f"[探针 T.1 - {stock_code}] 开始处理第 {i // CHUNK_SIZE + 1} 数据块, 日期范围: {chunk_dates.min().date()} to {chunk_dates.max().date()}, 共 {len(chunk_dates)} 天。")
             data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_dates, cache_manager)
-            # 修改代码行：新增【M.2 - 原始数据审计探针】
+            # 新增【M.2 - 原始数据审计探针】
             if enable_probe and target_date_str:
                 target_date_obj = pd.to_datetime(target_date_str).date()
                 if target_date_obj in [d.date() for d in chunk_dates]:
@@ -950,7 +950,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                             'missing_source': src
                         })
                 continue
-            # 修改代码行：新增【M.3 - 服务调用探针】
+            # 新增【M.3 - 服务调用探针】
             if enable_probe:
                 is_target_date_in_chunk = pd.to_datetime(target_date_str) in chunk_dates if target_date_str else False
                 if is_target_date_in_chunk:

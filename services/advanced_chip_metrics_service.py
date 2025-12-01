@@ -174,7 +174,7 @@ class AdvancedChipMetricsService:
         debug_params = debug_params if debug_params is not None else {}
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             date_obj = trade_date.date()
-            # 修改代码行：移除了所有与 enable_mfca_probe 相关的探针代码
+            # 移除了所有与 enable_mfca_probe 相关的探针代码
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()
             if chip_data_for_calc.empty:
@@ -220,7 +220,7 @@ class AdvancedChipMetricsService:
                 'debug_params': debug_params,
                 'prev_metrics': prev_metrics,
             })
-            # 修改代码行：移除了所有与 enable_mfca_probe 相关的探针代码
+            # 移除了所有与 enable_mfca_probe 相关的探针代码
             historical_data_for_day = {k: v for k, v in hist_comp_dict.items() if k < trade_date}
             if historical_data_for_day:
                 context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
