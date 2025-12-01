@@ -267,7 +267,10 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_control_metrics(context: dict) -> dict:
         """
-        【V47.0 · 洞察诡道】
+        【V47.1 · 动能归正】
+        - 核心修正: 在计算开盘期与尾盘期的推力纯度时，强制对截取的时间片段Tick数据重新计算价格变动
+                     (price.diff())，修复了因数据切片导致动能方向判断错误归零的问题，确保动能计算的
+                     鲁棒性和准确性。
         - 核心重构: 对该方法内所有指标进行全面逻辑升级，优先使用高频数据，旨在穿透常规量价表象，洞察A股市场中的“诡道”博弈。
         - 升级详情:
           - `cost_dispersion_index`: 升级为高精度“成交量加权价格标准差”。
@@ -375,7 +378,9 @@ class StructuralMetricsCalculators:
             if tick_df is not None:
                 open_ticks = tick_df[tick_df.index.time < time(9, 45)]
                 if not open_ticks.empty and open_ticks['volume'].sum() > 0:
-                    net_thrust_vol = (open_ticks['volume'] * np.sign(open_ticks['price_change'])).sum()
+                    # 修改代码行：自行计算价格变动以确保动能方向的准确性
+                    price_diff = open_ticks['price'].diff().fillna(0)
+                    net_thrust_vol = (open_ticks['volume'] * np.sign(price_diff)).sum()
                     thrust_purity = net_thrust_vol / open_ticks['volume'].sum()
             if pd.notna(thrust_purity):
                 results['opening_volume_impulse'] = vol_impulse_ratio * thrust_purity
@@ -409,7 +414,9 @@ class StructuralMetricsCalculators:
             if tick_df is not None:
                 tail_ticks = tick_df[tick_df.index.time >= time(14, 30)]
                 if not tail_ticks.empty and tail_ticks['volume'].sum() > 0:
-                    net_thrust_vol = (tail_ticks['volume'] * np.sign(tail_ticks['price_change'])).sum()
+                    # 修改代码行：自行计算价格变动以确保动能方向的准确性
+                    price_diff = tail_ticks['price'].diff().fillna(0)
+                    net_thrust_vol = (tail_ticks['volume'] * np.sign(price_diff)).sum()
                     tail_thrust_purity = net_thrust_vol / tail_ticks['volume'].sum()
             if pd.notna(tail_thrust_purity):
                 results['tail_volume_acceleration'] = accel_ratio * tail_thrust_purity
