@@ -11,6 +11,8 @@ class DerivativeMetricsCalculator:
     def calculate_divergence_metrics(context: dict) -> dict:
         """
         计算各类背离指标，核心是 `price_thrust_divergence`。
+        【V36.6 · 术语统一修正 II】
+        - 核心修复: 将所有对 'side' 列的访问修正为 'type'，与系统数据标准完全对齐。
         """
         tick_df = context.get('tick_df')
         group = context.get('group')
@@ -29,12 +31,16 @@ class DerivativeMetricsCalculator:
         if am_ticks.empty or pm_ticks.empty or am_group.empty or pm_group.empty:
             return results
         # 1. 计算上下半场的主动买盘强度 (Thrust Purity)
-        am_buy_vol = am_ticks[am_ticks['side'] == 'B']['volume'].sum()
-        am_sell_vol = am_ticks[am_ticks['side'] == 'S']['volume'].sum()
+        # 修改代码行：将 'side' 修正为 'type'
+        am_buy_vol = am_ticks[am_ticks['type'] == 'B']['volume'].sum()
+        # 修改代码行：将 'side' 修正为 'type'
+        am_sell_vol = am_ticks[am_ticks['type'] == 'S']['volume'].sum()
         am_total_vol = am_buy_vol + am_sell_vol
         am_thrust = (am_buy_vol - am_sell_vol) / am_total_vol if am_total_vol > 0 else 0
-        pm_buy_vol = pm_ticks[pm_ticks['side'] == 'B']['volume'].sum()
-        pm_sell_vol = pm_ticks[pm_ticks['side'] == 'S']['volume'].sum()
+        # 修改代码行：将 'side' 修正为 'type'
+        pm_buy_vol = pm_ticks[pm_ticks['type'] == 'B']['volume'].sum()
+        # 修改代码行：将 'side' 修正为 'type'
+        pm_sell_vol = pm_ticks[pm_ticks['type'] == 'S']['volume'].sum()
         pm_total_vol = pm_buy_vol + pm_sell_vol
         pm_thrust = (pm_buy_vol - pm_sell_vol) / pm_total_vol if pm_total_vol > 0 else 0
         # 2. 获取上下半场的价格高点
@@ -58,4 +64,7 @@ class DerivativeMetricsCalculator:
         else:
             results['price_thrust_divergence'] = 0.0 # 无背离则为0
         return results
+
+
+
 
