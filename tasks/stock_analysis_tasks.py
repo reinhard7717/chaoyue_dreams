@@ -682,7 +682,7 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
         from utils.model_helpers import get_daily_data_model_by_code
         from datetime import timedelta
         import pandas_ta as ta
-        # 新增代码块：加载配置文件以获取调试参数
+        # 加载配置文件以获取调试参数
         import json
         import os
         from django.conf import settings

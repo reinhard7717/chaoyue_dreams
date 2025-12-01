@@ -29,7 +29,7 @@ class ThematicMetricsCalculators:
         trade_date_str = debug_info.get('trade_date_str', 'N/A')
         results = {}
         today_vpoc = np.nan
-        # 新增代码块：高频剖面计算路径
+        # 高频剖面计算路径
         if tick_df is not None and not tick_df.empty and tick_df['volume'].sum() > 0:
             vp_hf = tick_df.groupby('price')['volume'].sum()
             if not vp_hf.empty:

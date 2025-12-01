@@ -264,8 +264,9 @@ class AdvancedStructuralMetricsService:
     ) -> dict:
         """
         计算单日的所有高级结构化指标。
-        【V36.3 · 契约兼容修正】
-        - 核心修复: 在 context 字典中增加 'daily_series_for_day' 键，以兼容仍在使用旧数据契约的计算器。
+        【V43.0 · 推力效能】
+        - 核心新增: 在所有基础指标计算完毕后，新增融合计算逻辑，合成 `thrust_efficiency_score` 指标。
+                     该指标将“净推力结果”与“过程摩擦”相结合，旨在度量日内主导力量的真实品质与效率。
         """
         total_volume_safe = group['vol'].sum() if not group.empty else 0
         if total_volume_safe == 0:
@@ -276,7 +277,7 @@ class AdvancedStructuralMetricsService:
             'tick_df': tick_df,
             'level5_df': level5_df,
             'realtime_df': realtime_df,
-            'daily_series_for_day': daily_info, # 新增代码行：为旧版计算器提供兼容性支持
+            'daily_series_for_day': daily_info,
             'day_open_qfq': daily_info['open_qfq'],
             'day_high_qfq': daily_info['high_qfq'],
             'day_low_qfq': daily_info['low_qfq'],
@@ -290,15 +291,41 @@ class AdvancedStructuralMetricsService:
             'debug': debug_info,
         }
         metrics = {}
-        # 依次调用各个指标计算器模块
         metrics.update(OrderFlowMetricsCalculators.calculate_order_flow_metrics(context))
         metrics.update(StructuralMetricsCalculators.calculate_energy_density_metrics(context))
         metrics.update(StructuralMetricsCalculators.calculate_control_metrics(context))
         metrics.update(StructuralMetricsCalculators.calculate_game_efficiency_metrics(context))
         metrics.update(ThematicMetricsCalculators.calculate_market_profile_metrics(context))
         metrics.update(ThematicMetricsCalculators.calculate_forward_looking_metrics(context))
-        from .derivative_metrics_calculators import DerivativeMetricsCalculator
         metrics.update(DerivativeMetricsCalculator.calculate_divergence_metrics(context))
+        # 融合计算 `thrust_efficiency_score`
+        thrust_purity = metrics.get('intraday_thrust_purity')
+        dist_pressure = metrics.get('distribution_pressure_index')
+        absorp_strength = metrics.get('absorption_strength_index')
+        thrust_efficiency = np.nan
+        friction_factor = np.nan
+        friction_type = "无"
+        if pd.notna(thrust_purity):
+            if thrust_purity > 0 and pd.notna(dist_pressure):
+                friction_factor = dist_pressure
+                friction_type = "派发压力"
+                thrust_efficiency = thrust_purity * (1 - friction_factor)
+            elif thrust_purity < 0 and pd.notna(absorp_strength):
+                friction_factor = absorp_strength
+                friction_type = "吸筹抵抗"
+                thrust_efficiency = thrust_purity * (1 - friction_factor)
+            else:
+                thrust_efficiency = thrust_purity # 无摩擦或方向不明时，效能即为纯度
+        metrics['thrust_efficiency_score'] = thrust_efficiency
+        if debug_info.get('enable_probe', False) and debug_info.get('is_target_date', False):
+            trade_date_str = debug_info.get('trade_date_str', 'N/A')
+            print(f"--- [探针 ASM.{trade_date_str}] thrust_efficiency_score (融合) ---")
+            print(f"    - 原料: 净推力纯度={thrust_purity:.4f}, 内部摩擦系数({friction_type})={friction_factor:.4f}")
+            if pd.notna(friction_factor):
+                 print(f"    - 计算: {thrust_purity:.4f} * (1 - {friction_factor:.4f})")
+            else:
+                 print(f"    - 计算: 直接采用净推力纯度")
+            print(f"    -> 结果: {thrust_efficiency:.4f}")
         metrics = {k: v for k, v in metrics.items() if not k.startswith('_')}
         return metrics
 
