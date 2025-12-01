@@ -557,9 +557,10 @@ class BehavioralIntelligence:
 
     def _diagnose_lower_shadow_quality(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V3.6 · 双极性校准版】诊断下影线承接品质。
-        - 核心修复: 使用专属的 `_get_calibrated_adaptive_mtf_bipolar_score` 对主力执行Alpha进行归一化，
-                      代码更简洁，并彻底修复了“归一化悖论”BUG。
+        【V4.0 · 工具正名版】诊断下影线承接品质。
+        - 核心修复: 废弃所有无效的校准函数，为 主力Alpha 信号选用正确的、基于偏离度的
+                      `get_adaptive_mtf_normalized_bipolar_score` 归一化工具，
+                      从根本上解决了“零值归一化悖论”。
         """
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
@@ -578,8 +579,8 @@ class BehavioralIntelligence:
         panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         ambush_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_lower_shadow_quality")
-        # 使用专属的双极性校准函数直接处理主力Alpha
-        ambush_intent_score = self._get_calibrated_adaptive_mtf_bipolar_score(ambush_raw, default_weights)
+        # [修改的代码行] 直接使用正确的、基于偏离度的双极性归一化工具
+        ambush_intent_score = get_adaptive_mtf_normalized_bipolar_score(ambush_raw, df.index, default_weights)
         modulated_quality_score = base_quality_score * (1 + ambush_intent_score * 0.5).clip(0, 2)
         panic_absorption_score = get_adaptive_mtf_normalized_score((panic_raw * capitulation_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
         context_amplifier = 1 + (panic_absorption_score * modulated_quality_score).pow(0.5)
@@ -596,16 +597,17 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_lower_shadow_quality @ {probe_date_str}")
                 print(f"        - 基础品质分: {base_quality_score.loc[probe_ts]:.4f} (幅度={magnitude_score.loc[probe_ts]:.2f}, 意图={intent_score.loc[probe_ts]:.2f}, 位置={location_score.loc[probe_ts]:.2f})")
-                print(f"        - 伏击意图(校准后): {ambush_intent_score.loc[probe_ts]:.4f} (原始Alpha={ambush_raw.loc[probe_ts]:.2f}) -> 调制后品质分: {modulated_quality_score.loc[probe_ts]:.4f}")
+                # [修改的代码行] 更新探针日志的注释，强调方法论的修正
+                print(f"        - 伏击意图(工具正名后): {ambush_intent_score.loc[probe_ts]:.4f} (原始Alpha={ambush_raw.loc[probe_ts]:.2f}) -> 调制后品质分: {modulated_quality_score.loc[probe_ts]:.4f}")
                 print(f"        - 智能放大器: 恐慌承接度={panic_absorption_score.loc[probe_ts]:.4f} -> 放大倍数={context_amplifier.loc[probe_ts]:.4f}")
                 print(f"        - 最终下影线品质分: {final_lower_shadow_quality.loc[probe_ts]:.4f}")
         return final_lower_shadow_quality.astype(np.float32)
 
     def _calculate_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.7 · 零值校准版】计算派发意图
-        - 核心修复: 使用 `_get_calibrated_adaptive_mtf_score` 对正向主力Alpha进行归一化，
-                      修复了0 Alpha被错误解读为强控盘能力，从而不当放大派发风险的BUG。
+        【V2.0 · 工具正名版】计算派发意图
+        - 核心修复: 为 主力Alpha 信号选用正确的、基于偏离度的归一化工具，
+                      从根本上解决了0 Alpha被错误解读为强控盘能力的BUG。
         """
         required_signals = [
             'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D',
@@ -639,8 +641,8 @@ class BehavioralIntelligence:
         market_acceptance_normalized = normalize_score(market_acceptance_raw, df.index, 55)
         acceptance_amplifier = 1 + (market_acceptance_normalized * 0.5)
         # --- 主力控盘能力调节器 ---
-        # 使用校准后的归一化函数处理正Alpha
-        positive_alpha_score = self._get_calibrated_adaptive_mtf_score(mf_alpha_raw.clip(lower=0), tf_weights)
+        # [修改的代码行] 使用正确的双极性归一化工具，然后clip提取正向部分
+        positive_alpha_score = get_adaptive_mtf_normalized_bipolar_score(mf_alpha_raw, df.index, tf_weights).clip(lower=0)
         control_modulator = 1 + (positive_alpha_score * 0.5)
         # --- 最终合成 ---
         distribution_intent_score = (base_distribution_intent * acceptance_amplifier * control_modulator).clip(0, 1)
@@ -657,8 +659,8 @@ class BehavioralIntelligence:
                 print(f"        - 过程证据(新): rally_distribution_pressure_D = {rally_pressure_raw.loc[probe_ts]:.2f} -> 归一化分 = {process_evidence.loc[probe_ts]:.4f}")
                 print(f"        - 基础派发意图分: {base_distribution_intent.loc[probe_ts]:.4f}")
                 print(f"        - 市场接受度放大器: {acceptance_amplifier.loc[probe_ts]:.4f} (收盘偏离度(原始)={market_acceptance_raw.loc[probe_ts]:.2f}, 净化后={market_acceptance_normalized.loc[probe_ts]:.4f})")
-                # 更新探针，明确展示校准后的逻辑
-                print(f"        - 控盘能力调节器(校准后): {control_modulator.loc[probe_ts]:.4f} (原始Alpha={mf_alpha_raw.loc[probe_ts]:.2f}, 正Alpha分={positive_alpha_score.loc[probe_ts]:.4f})")
+                # [修改的代码行] 更新探针日志的注释
+                print(f"        - 控盘能力调节器(工具正名后): {control_modulator.loc[probe_ts]:.4f} (原始Alpha={mf_alpha_raw.loc[probe_ts]:.2f}, 正Alpha分={positive_alpha_score.loc[probe_ts]:.4f})")
                 print(f"        - 最终派发意图分: {distribution_intent_score.loc[probe_ts]:.4f}")
         return distribution_intent_score.astype(np.float32)
 
@@ -883,10 +885,10 @@ class BehavioralIntelligence:
 
     def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series) -> pd.Series:
         """
-        【V1.3 · 鲁棒融合版】诊断进攻性承接意图
-        - 核心修复: 将融合算法从几何平均升级为加权算术平均，避免了“零值污染”问题，
-                      使得信号在部分证据缺失时依然能提供有效评估，逻辑更具鲁棒性。
-        - 核心修复: 全面采用校准后的归一化函数，确保0值输入得到0分输出。
+        【V2.0 · 工具正名版】诊断进攻性承接意图
+        - 核心修复: 为所有具备“中性零点”的输入信号（主力Alpha、隐蔽吸筹）选用正确的、
+                      基于偏离度的归一化工具，彻底修复“归一化悖论”。
+        - 融合算法: 维持加权算术平均，以保证信号的鲁棒性。
         """
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
@@ -897,10 +899,12 @@ class BehavioralIntelligence:
         covert_ops_raw = self._get_safe_series(df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
         context_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
         # 2. 归一化各维度证据
-        execution_score = self._get_calibrated_adaptive_mtf_score(execution_raw.clip(lower=0), default_weights)
-        covert_ops_score = self._get_calibrated_adaptive_mtf_score(covert_ops_raw, default_weights)
+        # [修改的代码行] 为主力Alpha选用正确的归一化工具
+        execution_score = get_adaptive_mtf_normalized_bipolar_score(execution_raw, df.index, default_weights).clip(lower=0)
+        # [修改的代码行] 为隐蔽吸筹选用正确的归一化工具
+        covert_ops_score = get_adaptive_mtf_normalized_bipolar_score(covert_ops_raw, df.index, default_weights).clip(lower=0)
         context_score = get_adaptive_mtf_normalized_score(context_raw, df.index, ascending=True, tf_weights=default_weights)
-        # 3. 升级为加权算术平均融合，避免零值污染
+        # 3. 加权算术平均融合
         offensive_absorption_intent = (
             morphology_score * 0.20 +
             execution_score * 0.35 +
@@ -918,8 +922,9 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_offensive_absorption_intent @ {probe_date_str}")
                 print(f"        - 形态分 (下影线品质): {morphology_score.loc[probe_ts]:.4f}")
-                print(f"        - 执行分 (正Alpha-校准后): {execution_score.loc[probe_ts]:.4f} (原始值: {execution_raw.loc[probe_ts]:.2f})")
-                print(f"        - 隐蔽分 (隐蔽吸筹-校准后): {covert_ops_score.loc[probe_ts]:.4f} (原始值: {covert_ops_raw.loc[probe_ts]:.2f})")
+                # [修改的代码行] 更新探针日志的注释
+                print(f"        - 执行分 (正Alpha-工具正名后): {execution_score.loc[probe_ts]:.4f} (原始值: {execution_raw.loc[probe_ts]:.2f})")
+                print(f"        - 隐蔽分 (隐蔽吸筹-工具正名后): {covert_ops_score.loc[probe_ts]:.4f} (原始值: {covert_ops_raw.loc[probe_ts]:.2f})")
                 print(f"        - 环境分 (恐慌级联): {context_score.loc[probe_ts]:.4f} (原始值: {context_raw.loc[probe_ts]:.2f})")
                 print(f"        - 最终进攻性承接意图分: {offensive_absorption_intent.loc[probe_ts]:.4f}")
         return offensive_absorption_intent.clip(0, 1).astype(np.float32)
@@ -977,42 +982,4 @@ class BehavioralIntelligence:
                 print(f"        - 尾盘偷袭分: {closing_ambush_score.loc[probe_ts]:.4f} (原始值={closing_ambush_raw.loc[probe_ts]:.2f})")
                 print(f"        - 最终博弈欺骗指数: {final_deception_index.loc[probe_ts]:.4f}")
         return final_deception_index.astype(np.float32)
-
-    def _get_calibrated_adaptive_mtf_score(self, series: pd.Series, tf_weights: Dict, tolerance: float = 1e-6) -> pd.Series:
-        """
-        【V5.0 · NumPy Values 终极修复版】校准后的自适应MTF归一化分数
-        - 核心修复: 通过直接操作底层的NumPy .values 数组，彻底绕过Pandas索引对齐问题，
-                      从根本上根除“零值归一化悖论”。
-        - 校准逻辑:
-          1. 对完整的Series进行标准归一化。
-          2. 根据原始Series的值创建一个布尔NumPy掩码。
-          3. 使用该掩码直接修改归一化结果的.values数组，将对应位置强制覆写为0.0。
-        """
-        # [修改的代码行] 1. 对完整的、未经修改的Series进行归一化
-        normalized_series = get_adaptive_mtf_normalized_score(
-            series, series.index, ascending=True, tf_weights=tf_weights
-        )
-        # [修改的代码行] 2. 根据原始Series的值创建一个布尔NumPy掩码
-        is_near_zero_mask = (series.abs() < tolerance).values
-        # [修改的代码行] 3. 直接在归一化结果的.values数组上应用掩码，强制将对应位置设为0.0
-        #    这是一个in-place操作，直接修改了normalized_series的底层数据
-        normalized_series.values[is_near_zero_mask] = 0.0
-        return normalized_series
-
-    def _get_calibrated_adaptive_mtf_bipolar_score(self, series: pd.Series, tf_weights: Dict, tolerance: float = 1e-6) -> pd.Series:
-        """
-        【V4.0 · NumPy Values 终极修复版】校准后的自适应MTF双极性归一化分数
-        - 核心修复: 通过直接操作底层的NumPy .values 数组，修复双极性信号的“零值归一化悖论”。
-        """
-        # [修改的代码行] 1. 对完整的Series进行双极性归一化
-        normalized_series = get_adaptive_mtf_normalized_bipolar_score(
-            series, series.index, tf_weights
-        )
-        # [修改的代码行] 2. 根据原始Series的值创建一个布尔NumPy掩码
-        is_near_zero_mask = (series.abs() < tolerance).values
-        # [修改的代码行] 3. 直接在归一化结果的.values数组上应用掩码，强制将对应位置设为0.0
-        normalized_series.values[is_near_zero_mask] = 0.0
-        return normalized_series
-
-
 

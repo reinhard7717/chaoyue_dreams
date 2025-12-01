@@ -437,25 +437,32 @@ class ChipIntelligence:
                 print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.astype(np.float32)
 
-    def _diagnose_absorption_echo(self, df: pd.DataFrame, divergence_scores: pd.Series) -> pd.Series:
+    def _diagnose_absorption_echo(self, df: pd.DataFrame, divergence_score: pd.Series) -> pd.Series:
         """
-        【V5.1 · 探针植入版】诊断看涨背离的战术意图
-        - 核心升级: 植入标准化的“真理探针”，输出所有原始数据、关键计算过程及最终结果。
+        【V1.1 · 状态门控版】诊断“吸筹回声”信号
+        - 核心逻辑升级: 引入“状态门控”。只有在价格下跌的“恐慌”背景下，才允许激活吸筹回声的计算。
+                          这确保了信号的逻辑纯粹性，使其严格符合“恐慌中吸筹”的战术剧本。
         """
-        print("    -> [筹码层] 正在诊断“吸筹回声”...")
-        required_signals = ['SLOPE_5_close_D', 'main_force_net_flow_calibrated_D']
+        print("    -> [筹码层] 正在诊断“吸筹回声” (V1.1 · 状态门控版)...") # [修改代码行]
+        required_signals = ['SLOPE_1_close_D', 'main_force_net_flow_calibrated_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_absorption_echo"):
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         df_index = df.index
-        price_trend = self._get_safe_series(df, df, 'SLOPE_5_close_D', 0.0, method_name="_diagnose_absorption_echo")
-        panic_source_score = get_adaptive_mtf_normalized_score(price_trend.abs(), df_index, tf_weights) * (price_trend < 0)
-        counter_flow_medium_score = divergence_scores.clip(lower=0)
-        mf_inflow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_absorption_echo")
-        main_force_echo_score = get_adaptive_mtf_normalized_score(mf_inflow, df_index, tf_weights) * (mf_inflow > 0) * (price_trend < 0)
-        final_score = (panic_source_score * counter_flow_medium_score * main_force_echo_score).pow(1/3)
-        # 植入标准化探针
+        price_trend = self._get_safe_series(df, df, 'SLOPE_1_close_D', 0.0)
+        # [修改代码块] 引入状态门控
+        is_panic_context = price_trend < 0
+        # 要素1: 恐慌声源 (Panic Source)
+        norm_price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend, df_index, tf_weights)
+        panic_source_score = (1 - norm_price_trend.add(1)/2).clip(0, 1)
+        # 要素2: 逆流介质 (Counter Flow Medium)
+        counter_flow_medium_score = divergence_score.clip(0, 1)
+        # 要素3: 主力回声 (Main Force Echo)
+        mf_inflow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0)
+        main_force_echo_score = get_adaptive_mtf_normalized_score(mf_inflow, df_index, tf_weights)
+        # 融合：三大要素必须共振，且必须在恐慌背景下
+        final_score = (panic_source_score * counter_flow_medium_score * main_force_echo_score) * is_panic_context
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -463,11 +470,13 @@ class ChipIntelligence:
             probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
             if probe_date in df.index:
                 print(f"    -> [吸筹回声探针] @ {probe_date.date()}:")
+                # [修改代码行] 更新探针输出以反映门控状态
+                print(f"       - 状态门控: is_panic_context (price_trend < 0): {is_panic_context.loc[probe_date]}")
                 print(f"       - 要素1: 恐慌声源 (Panic Source)")
                 print(f"         - 原料: price_trend: {price_trend.loc[probe_date]:.4f}")
                 print(f"         - 结果: panic_source_score: {panic_source_score.loc[probe_date]:.4f}")
                 print(f"       - 要素2: 逆流介质 (Counter Flow Medium)")
-                print(f"         - 原料: divergence_score: {divergence_scores.loc[probe_date]:.4f}")
+                print(f"         - 原料: divergence_score: {divergence_score.loc[probe_date]:.4f}")
                 print(f"         - 结果: counter_flow_medium_score: {counter_flow_medium_score.loc[probe_date]:.4f}")
                 print(f"       - 要素3: 主力回声 (Main Force Echo)")
                 print(f"         - 原料: mf_inflow: {mf_inflow.loc[probe_date]:.2f}")
@@ -475,25 +484,32 @@ class ChipIntelligence:
                 print(f"       - 最终融合结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(0, 1).fillna(0.0).astype(np.float32)
 
-    def _diagnose_distribution_whisper(self, df: pd.DataFrame, divergence_scores: pd.Series) -> pd.Series:
+    def _diagnose_distribution_whisper(self, df: pd.DataFrame, divergence_score: pd.Series) -> pd.Series:
         """
-        【V5.1 · 探针植入版】诊断看跌背离的战术意图
-        - 核心升级: 植入标准化的“真理探针”，输出所有原始数据、关键计算过程及最终结果。
+        【V1.1 · 状态门控版】诊断“派发诡影”信号
+        - 核心逻辑升级: 引入“状态门控”。只有在价格上涨的“狂热”背景下，才允许激活派发诡影的计算。
+                          这确保了信号的逻辑纯粹性，使其严格符合“狂热中派发”的战术剧本。
         """
-        print("    -> [筹码层] 正在诊断“派发诡影”...")
-        required_signals = ['SLOPE_5_close_D', 'main_force_net_flow_calibrated_D']
+        print("    -> [筹码层] 正在诊断“派发诡影” (V1.1 · 状态门控版)...") # [修改代码行]
+        required_signals = ['SLOPE_1_close_D', 'main_force_net_flow_calibrated_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_distribution_whisper"):
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         df_index = df.index
-        price_trend = self._get_safe_series(df, df, 'SLOPE_5_close_D', 0.0, method_name="_diagnose_distribution_whisper")
-        fomo_backdrop_score = get_adaptive_mtf_normalized_score(price_trend.abs(), df_index, tf_weights) * (price_trend > 0)
-        divergence_shadow_score = divergence_scores.clip(upper=0).abs()
-        mf_inflow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_distribution_whisper")
-        main_force_retreat_score = get_adaptive_mtf_normalized_score(mf_inflow.abs(), df_index, tf_weights) * (mf_inflow < 0) * (price_trend > 0)
-        final_score = (fomo_backdrop_score * divergence_shadow_score * main_force_retreat_score).pow(1/3)
-        # 植入标准化探针
+        price_trend = self._get_safe_series(df, df, 'SLOPE_1_close_D', 0.0)
+        # [修改代码块] 引入状态门控
+        is_fomo_context = price_trend > 0
+        # 要素1: 狂热背景 (FOMO Backdrop)
+        norm_price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend, df_index, tf_weights)
+        fomo_backdrop_score = (norm_price_trend.add(1)/2).clip(0, 1)
+        # 要素2: 背离诡影 (Divergence Shadow)
+        divergence_shadow_score = divergence_score.abs().clip(0, 1)
+        # 要素3: 主力抽离 (Main Force Retreat)
+        mf_inflow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0)
+        main_force_retreat_score = get_adaptive_mtf_normalized_score(mf_inflow, df_index, ascending=False, tf_weights=tf_weights)
+        # 融合：三大要素必须共振，且必须在狂热背景下
+        final_score = (fomo_backdrop_score * divergence_shadow_score * main_force_retreat_score) * is_fomo_context
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -501,11 +517,13 @@ class ChipIntelligence:
             probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
             if probe_date in df.index:
                 print(f"    -> [派发诡影探针] @ {probe_date.date()}:")
+                # [修改代码行] 更新探针输出以反映门控状态
+                print(f"       - 状态门控: is_fomo_context (price_trend > 0): {is_fomo_context.loc[probe_date]}")
                 print(f"       - 要素1: 狂热背景 (FOMO Backdrop)")
                 print(f"         - 原料: price_trend: {price_trend.loc[probe_date]:.4f}")
                 print(f"         - 结果: fomo_backdrop_score: {fomo_backdrop_score.loc[probe_date]:.4f}")
                 print(f"       - 要素2: 背离诡影 (Divergence Shadow)")
-                print(f"         - 原料: divergence_score: {divergence_scores.loc[probe_date]:.4f}")
+                print(f"         - 原料: divergence_score: {divergence_score.loc[probe_date]:.4f}")
                 print(f"         - 结果: divergence_shadow_score: {divergence_shadow_score.loc[probe_date]:.4f}")
                 print(f"       - 要素3: 主力抽离 (Main Force Retreat)")
                 print(f"         - 原料: mf_inflow: {mf_inflow.loc[probe_date]:.2f}")
