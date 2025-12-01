@@ -547,6 +547,44 @@ class AdvancedStructuralMetricsService:
             '_today_val': val,
         }
 
+    def _calculate_continuous_data_metrics(self, continuous_group: pd.DataFrame) -> dict:
+        """
+        【V30.11 · 新增辅助函数】
+        分析跨交易日的连续数据，主要用于衡量隔夜跳空缺口及其后续影响。
+        :param continuous_group: 由前一日后半段和当日前半段拼接的分钟数据DataFrame。
+        :return: 包含跳空回报率和缺口后动量的字典。
+        """
+        metrics = {
+            'gap_return': np.nan,
+            'post_gap_momentum_30min': np.nan,
+        }
+        if continuous_group is None or continuous_group.empty or len(continuous_group) < 2:
+            return metrics
+        # 1. 识别两个交易日
+        trade_dates = continuous_group.index.date
+        unique_dates = np.unique(trade_dates)
+        if len(unique_dates) != 2:
+            # 数据不符合跨日连续数据的定义
+            return metrics
+        # 2. 拆分数据并获取关键价格
+        prev_day_data = continuous_group[trade_dates == unique_dates[0]]
+        today_data = continuous_group[trade_dates == unique_dates[1]]
+        if prev_day_data.empty or today_data.empty:
+            return metrics
+        prev_close = prev_day_data['close'].iloc[-1]
+        today_open = today_data['open'].iloc[0]
+        # 3. 计算跳空回报率
+        if prev_close > 0:
+            metrics['gap_return'] = (today_open / prev_close) - 1
+        # 4. 计算缺口后30分钟动量
+        if today_open > 0:
+            # 截取今日开盘后30分钟的数据
+            first_30_min_data = today_data.head(30)
+            if not first_30_min_data.empty:
+                close_after_30_min = first_30_min_data['close'].iloc[-1]
+                metrics['post_gap_momentum_30min'] = (close_after_30_min / today_open) - 1
+        return metrics
+
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
         【V19.7 · 索引健壮性修复版】
