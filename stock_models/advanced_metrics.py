@@ -532,8 +532,9 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'intraday_thrust_purity': '日内推力纯度',
         'volume_burstiness_index': '成交量爆裂度指数',
         'auction_impact_score': '开盘缺口强度',
-        # 修改代码行：将静态的反转动能升级为动态反转强度
         'dynamic_reversal_strength': '动态反转强度',
+        # 新增代码行：新增反转信念比率，与反转强度构成维度互补
+        'reversal_conviction_rate': '反转信念比率',
         'high_level_consolidation_volume': '高位整固成交量占比',
         'opening_period_thrust': '开盘期推力',
     }
@@ -608,8 +609,9 @@ class BaseAdvancedStructuralMetrics(models.Model):
     BOOLEAN_FIELDS = []
     SLOPE_ACCEL_EXCLUSIONS = [
         'auction_impact_score',
-        # 修改代码行：同步更新排除列表中的指标名称
         'dynamic_reversal_strength',
+        # 新增代码行：将新指标加入排除列表
+        'reversal_conviction_rate',
         'high_level_consolidation_volume',
         'opening_period_thrust',
         'trend_efficiency_ratio',

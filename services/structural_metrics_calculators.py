@@ -13,10 +13,11 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V37.7 · 纯粹反转修正】
-        - 核心修复: 修正 `dynamic_reversal_strength` 的计算逻辑，只对动能为正的“成功反转”求平均。
-                     此举剔除了“失败反弹”（动能为负）对信号的噪声污染，使指标更纯粹地
-                     衡量多头有效反击的平均力量，避免了强弱信号的相互抵消。
+        【V37.8 · 反转信念解耦】
+        - 核心新增: 引入新指标 `reversal_conviction_rate` (反转信念比率)。
+                     该指标专门用于量化反转尝试的成功率 (成功次数 / 总次数)，
+                     与 `dynamic_reversal_strength` (衡量成功反转的平均强度) 形成互补。
+                     此举将反转的“强度”与“成功率”两个维度解耦，提供了更全面的博弈图景。
         """
         group = context['group']
         daily_series_for_day = context['daily_series_for_day']
@@ -38,6 +39,7 @@ class StructuralMetricsCalculators:
             'volume_burstiness_index': np.nan,
             'auction_impact_score': np.nan,
             'dynamic_reversal_strength': np.nan,
+            'reversal_conviction_rate': np.nan, # 新增代码行：初始化新指标
             'high_level_consolidation_volume': np.nan,
             'opening_period_thrust': np.nan,
         }
@@ -132,14 +134,24 @@ class StructuralMetricsCalculators:
                                     if vwap_fall > 0:
                                         momentum = (vwap_rebound / vwap_fall - 1) * 100
                                         reversal_momentums.append(momentum)
-                # 修改代码块：只对成功的反转（动能为正）求平均
                 if reversal_momentums:
                     successful_reversals = [m for m in reversal_momentums if m > 0]
+                    # 新增代码块：计算并存储反转信念比率
+                    total_attempts = len(reversal_momentums)
+                    successful_attempts = len(successful_reversals)
+                    if total_attempts > 0:
+                        conviction_rate = successful_attempts / total_attempts
+                        results['reversal_conviction_rate'] = conviction_rate
+                        if enable_probe and is_target_date:
+                            print(f"--- [探针 ASM.{trade_date_str}] reversal_conviction_rate (分钟) ---")
+                            print(f"    - 原料: 成功次数={successful_attempts}, 总尝试次数={total_attempts}")
+                            print(f"    - 计算: {successful_attempts} / {total_attempts}")
+                            print(f"    -> 结果: {conviction_rate:.4f}")
                     if successful_reversals:
                         results['dynamic_reversal_strength'] = np.mean(successful_reversals)
                         if enable_probe and is_target_date:
                             print(f"--- [探针 ASM.{trade_date_str}] dynamic_reversal_strength (分钟) ---")
-                            print(f"    - 原料: 识别出 {len(reversal_momentums)} 次反转尝试, 其中 {len(successful_reversals)} 次成功")
+                            print(f"    - 原料: 识别出 {total_attempts} 次反转尝试, 其中 {successful_attempts} 次成功")
                             print(f"    - 节点 (成功反转的动能): {[f'{m:.2f}' for m in successful_reversals]}")
                             print(f"    - 计算: mean of successful reversals")
                             print(f"    -> 结果: {results['dynamic_reversal_strength']:.4f}")
