@@ -181,89 +181,43 @@ class AdvancedStructuralMetricsService:
                     intraday_data_map.update({date: group_df for date, group_df in minute_df_fallback.groupby('date')})
         return intraday_data_map
 
-    async def _forge_advanced_structural_metrics(self, intraday_data_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
+    async def _forge_advanced_structural_metrics(self, intraday_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
-        【V19.3 · 索引修复版】
-        - 核心修正: 修复了 set_index 未能正确移除原始 'trade_time' 列，导致下游 reset_index 操作失败的BUG。
-        - 核心逻辑: 采用更标准的 `set_index('trade_time')` 写法，确保索引设置的原子性和正确性。
-        - 兼容性修复: 增加成交量列名智能识别逻辑，兼容 'vol' 和 'volume' 两种列名，并统一重命名为 'vol'，以根治 KeyError。
+        【V30.0 · 动态演化因子】
+        - 核心升级: 在所有基础指标计算完成后，调用新方法 `_calculate_dynamic_evolution_factors` 来生成时序演化指标。
         """
-        if not intraday_data_map:
-            return pd.DataFrame()
-        daily_metrics = []
-        all_dates = sorted(intraday_data_map.keys())
-        daily_df = daily_df_with_atr
-        from stock_models.time_trade import StockDailyBasic
-        daily_basic_qs = StockDailyBasic.objects.filter(
-            stock__stock_code=stock_code,
-            trade_time__gte=min(all_dates),
-            trade_time__lte=max(all_dates)
-        ).values('trade_time', 'turnover_rate_f').order_by('trade_time')
-        daily_basic_df = pd.DataFrame.from_records(await sync_to_async(list)(daily_basic_qs))
-        if not daily_basic_df.empty:
-            daily_basic_df['trade_time'] = pd.to_datetime(daily_basic_df['trade_time']).dt.date
-            daily_basic_df = daily_basic_df.set_index('trade_time')
-            daily_df = daily_df.join(daily_basic_df, how='left')
-        atr_5 = daily_df['ATR_5']
-        atr_14 = daily_df['ATR_14']
-        atr_50 = daily_df['ATR_50']
+        new_metrics_data = []
         prev_day_metrics = {}
-        for date, data_bundle in intraday_data_map.items():
-            group = data_bundle.get('minute')
-            tick_df_for_day = data_bundle.get('tick')
-            level5_df_for_day = data_bundle.get('level5')
-            realtime_df_for_day = data_bundle.get('realtime')
-            if group is None or group.empty or len(group) < 10:
-                logger.warning(f"[{stock_code}] [{date}] 跳过结构指标计算，分钟级数据不足。")
-                continue
-            group.reset_index(inplace=True)
-            volume_col_name = None
-            if 'volume' in group.columns:
-                volume_col_name = 'volume'
-            elif 'vol' in group.columns:
-                volume_col_name = 'vol'
-            if volume_col_name and volume_col_name != 'vol':
-                group.rename(columns={volume_col_name: 'vol'}, inplace=True)
-            elif not volume_col_name:
-                logger.error(f"[{stock_code}] [{date}] 分钟数据中缺少成交量列 ('volume' 或 'vol')，跳过当天计算。列: {group.columns.tolist()}")
-                continue
-            try:
-                daily_series_for_day = daily_df.loc[date]
-                atr_5_for_day = atr_5.get(date)
-                atr_14_for_day = atr_14.get(date)
-                atr_50_for_day = atr_50.get(date)
-            except KeyError:
-                logger.warning(f"[{stock_code}] [{date}] 无法找到对应的日线数据或ATR，跳过当天计算。")
-                continue
-            group = group.sort_values(by='trade_time').reset_index(drop=True)
-            continuous_mask = group['trade_time'].dt.time < time(14, 57, 0)
-            continuous_group = group[continuous_mask].copy()
-            if continuous_group.empty: continue
-            continuous_group['amount'] = pd.to_numeric(continuous_group['amount'], errors='coerce')
-            continuous_group['vol'] = pd.to_numeric(continuous_group['vol'], errors='coerce')
-            continuous_group['minute_vwap'] = continuous_group['amount'] / continuous_group['vol'].replace(0, np.nan)
-            continuous_group['minute_vwap'].fillna(method='ffill', inplace=True)
-            continuous_group['minute_vwap'].fillna(group['open'].iloc[0], inplace=True)
+        for trade_date, group in intraday_map.items():
+            daily_series_for_day = daily_df_with_atr.loc[daily_df_with_atr['trade_date'] == trade_date].iloc[0]
+            atr_5 = daily_series_for_day.get('atr_5d', np.nan)
+            atr_14 = daily_series_for_day.get('atr_14d', np.nan)
+            atr_50 = daily_series_for_day.get('atr_50d', np.nan)
+            tick_df_for_day = await self.data_loader.get_tick_data_for_day(stock_code, trade_date)
+            level5_df_for_day = await self.data_loader.get_level5_data_for_day(stock_code, trade_date)
+            realtime_df_for_day = await self.data_loader.get_realtime_data_for_day(stock_code, trade_date)
+            continuous_group = self._create_continuous_minute_data(group)
             day_metric_dict = self._calculate_daily_structural_metrics(
-                group, continuous_group, daily_series_for_day, atr_5_for_day, atr_14_for_day, atr_50_for_day, prev_day_metrics,
-                tick_df_for_day=tick_df_for_day,
-                level5_df_for_day=level5_df_for_day,
-                realtime_df_for_day=realtime_df_for_day
+                group, continuous_group, daily_series_for_day, atr_5, atr_14, atr_50, prev_day_metrics,
+                tick_df_for_day, level5_df_for_day, realtime_df_for_day
             )
-            day_metric_dict['trade_time'] = date
+            day_metric_dict['trade_date'] = trade_date
+            day_metric_dict['stock_code'] = stock_code
+            new_metrics_data.append(day_metric_dict)
             prev_day_metrics = {
-                'vpoc': day_metric_dict.pop('_today_vpoc', np.nan),
-                'vah': day_metric_dict.pop('_today_vah', np.nan),
-                'val': day_metric_dict.pop('_today_val', np.nan),
-                'atr_14d': atr_14_for_day
+                'vpoc': day_metric_dict.get('_today_vpoc'),
+                'vah': day_metric_dict.get('_today_vah'),
+                'val': day_metric_dict.get('_today_val'),
+                'atr_14d': atr_14,
             }
-            daily_metrics.append(day_metric_dict)
-        if not daily_metrics:
+        if not new_metrics_data:
             return pd.DataFrame()
-        result_df = pd.DataFrame(daily_metrics)
-        # 确保 'trade_time' 列在设置索引后被移除
-        result_df['trade_time'] = pd.to_datetime(result_df['trade_time'])
-        return result_df.set_index('trade_time')
+        new_metrics_df = pd.DataFrame(new_metrics_data)
+        new_metrics_df.set_index('trade_date', inplace=True)
+        # 修改代码行：调用新的动态演化因子计算方法
+        final_metrics_df = self._calculate_dynamic_evolution_factors(new_metrics_df)
+        final_metrics_df.reset_index(inplace=True)
+        return final_metrics_df
 
     def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict, tick_df_for_day: pd.DataFrame = None, level5_df_for_day: pd.DataFrame = None, realtime_df_for_day: pd.DataFrame = None) -> dict:
         """
@@ -379,6 +333,22 @@ class AdvancedStructuralMetricsService:
             for col in df.columns:
                 # 'trade_time' 已成为索引，不再是列，因此无需在循环中进行特殊处理
                 df[col] = pd.to_numeric(df[col], errors='coerce')
+        return df
+
+    def _calculate_dynamic_evolution_factors(self, metrics_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V30.0 · 动态演化因子】
+        - 核心职责: 计算核心结构指标的时间序列衍生因子，捕捉其动态演化趋势。
+        """
+        df = metrics_df.copy().sort_index()
+        # 核心意愿演化
+        df['thrust_purity_ma5'] = df['intraday_thrust_purity'].rolling(window=5, min_periods=1).mean()
+        # 吸筹行为演化
+        df['absorption_strength_ma5'] = df['absorption_strength_index'].rolling(window=5, min_periods=1).mean()
+        # 情绪激进度演化
+        df['sweep_intensity_ma5'] = df['buy_sweep_intensity'].rolling(window=5, min_periods=1).mean()
+        # 流动性风险演化
+        df['vpin_roc3'] = df['vpin_score'].pct_change(periods=3)
         return df
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
