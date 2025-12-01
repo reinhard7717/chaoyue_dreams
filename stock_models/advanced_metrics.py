@@ -281,7 +281,7 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
     【V60.0 · 正名计划】
-    - 核心修正: 将 closing_price_deviation_score 字段正名为 closing_strength_index，以匹配其升维后的逻辑内涵。
+    - 核心正名: 将 trend_conviction_ratio 正名为 trend_alignment_index，以匹配其升维后的逻辑内涵。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     POWER_STRUCTURE_METRICS = {
@@ -322,7 +322,8 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'vwap_crossing_intensity': 'VWAP穿越烈度',
         'upper_shadow_selling_pressure': '上影线抛压强度',
         'lower_shadow_absorption_strength': '下影线承接强度',
-        'trend_conviction_ratio': '趋势信念比',
+        # 修改代码行：更新指标名称和注释
+        'trend_alignment_index': '趋势同向指数',
         'reversal_power_index': '反转力量指数',
         'holistic_cmf': '全局CMF',
         'main_force_cmf': '主力CMF',
@@ -348,7 +349,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
     }
     OUTCOME_ASSESSMENT_METRICS = {
         'volatility_asymmetry_index': '波动不对称指数',
-        # 修改代码行：将字段名和注释更新为新的名称
         'closing_strength_index': '收盘强度指数',
     }
     CORE_METRICS = {
@@ -364,11 +364,11 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'pre_closing_posturing', 'closing_auction_ambush', 'main_force_execution_alpha',
         'retail_panic_surrender_index', 'retail_fomo_premium_index', 'main_force_t0_efficiency',
         'vwap_structure_skew', 'flow_efficiency_index',
-        # 修改代码行：更新为新的字段名
         'volatility_asymmetry_index', 'closing_strength_index',
         'vwap_control_strength', 'main_force_vwap_guidance', 'vwap_crossing_intensity',
         'upper_shadow_selling_pressure', 'lower_shadow_absorption_strength',
-        'trend_conviction_ratio', 'reversal_power_index',
+        # 修改代码行：更新为新的字段名
+        'trend_alignment_index', 'reversal_power_index',
         'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
         'main_force_vpoc', 'mf_vpoc_premium',
         'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
@@ -389,11 +389,11 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'main_force_execution_alpha', 'retail_panic_surrender_index',
         'retail_fomo_premium_index', 'main_force_t0_efficiency',
         'vwap_structure_skew', 'flow_efficiency_index',
-        # 修改代码行：更新为新的字段名
         'volatility_asymmetry_index', 'closing_strength_index',
         'vwap_control_strength', 'main_force_vwap_guidance', 'vwap_crossing_intensity',
         'upper_shadow_selling_pressure', 'lower_shadow_absorption_strength',
-        'trend_conviction_ratio', 'reversal_power_index',
+        # 修改代码行：更新为新的字段名
+        'trend_alignment_index', 'reversal_power_index',
         'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
         'mf_vpoc_premium', 'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
         'main_force_ofi', 'retail_ofi', 'microstructure_efficiency_index',

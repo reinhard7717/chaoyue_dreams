@@ -116,7 +116,7 @@ class FoundationIntelligence:
         """
         print("    -> [基础层] 正在诊断“市场体质”公理...")
         required_signals = [
-            'MACDh_13_34_8_D', 'SLOPE_5_DMA_D', 'turnover_rate_f_D', 'trend_conviction_ratio_D'
+            'MACDh_13_34_8_D', 'SLOPE_5_DMA_D', 'turnover_rate_f_D', 'trend_alignment_index_D'
         ]
         ma_periods = [5, 13, 21, 55]
         required_signals.extend([f'EMA_{p}_D' for p in ma_periods])
@@ -144,7 +144,7 @@ class FoundationIntelligence:
         turnover_rate = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         turnover_health_score = get_adaptive_mtf_normalized_score(turnover_rate, df_index, ascending=False, tf_weights=default_weights)
         # 3. 趋势信念 (意志力)
-        trend_conviction = self._get_safe_series(df, 'trend_conviction_ratio_D', 0.0, method_name="_diagnose_axiom_market_constitution")
+        trend_conviction = self._get_safe_series(df, 'trend_alignment_index_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         conviction_score = get_adaptive_mtf_normalized_score(trend_conviction, df_index, ascending=True, tf_weights=default_weights)
         # 4. 融合
         # 当趋势向上时，用健康度和信念进行加权；当趋势向下时，主要由趋势本身决定

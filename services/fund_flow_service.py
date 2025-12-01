@@ -1799,8 +1799,8 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_misc_minute_metrics(self, intraday_data: pd.DataFrame, hf_analysis_df: pd.DataFrame, common_data: dict, is_target_date: bool, enable_probe: bool) -> dict:
         """
-        【V59.0 · 收盘强度穿透版】
-        - 核心升级: 为 volatility_asymmetry_index 引入高频计算路径，从“分钟K线速度对比”升维为“微观趋势下的真实波动率对比”。
+        【V60.0 · 正名计划】
+        - 核心正名: 将 trend_conviction_ratio 正名为 trend_alignment_index，使其更精确地反映“主力意图与微观趋势的同向性”这一核心逻辑。
         - 核心重构: 移除 closing_price_deviation_score 的计算逻辑，其已被独立的 _calculate_closing_strength_metrics 方法取代和升维。
         """
         from datetime import time
@@ -1827,15 +1827,18 @@ class AdvancedFundFlowMetricsService:
             )
             total_abs_mf_ofi = mf_ofi.abs().sum()
             if total_abs_mf_ofi > 0:
-                conviction_score = (concordant_ofi - discordant_ofi) / total_abs_mf_ofi
-                metrics['trend_conviction_ratio'] = conviction_score * 100
+                alignment_score = (concordant_ofi - discordant_ofi) / total_abs_mf_ofi
+                # 修改代码行：更新指标名称
+                metrics['trend_alignment_index'] = alignment_score * 100
                 if enable_probe and is_target_date:
-                    print(f"  [探针] trend_conviction_ratio (高频-趋势同向性) 计算:")
+                    # 修改代码行：更新探针名称
+                    print(f"  [探针] trend_alignment_index (高频-趋势同向性) 计算:")
                     print(f"    - 微观趋势判断基准: {ema_span}-tick EMA of mid_price")
                     print(f"    - 同向OFI总量: {concordant_ofi:,.0f}")
                     print(f"    - 逆向OFI总量: {discordant_ofi:,.0f}")
                     print(f"    - (同向 - 逆向) / 总绝对量 = ({concordant_ofi:,.0f} - {discordant_ofi:,.0f}) / {total_abs_mf_ofi:,.0f}")
-                    print(f"    -> 最终得分: {metrics['trend_conviction_ratio']:.2f}")
+                    # 修改代码行：更新探针输出的指标名称
+                    print(f"    -> 最终得分: {metrics['trend_alignment_index']:.2f}")
             df['log_return'] = np.log(df['mid_price'] / df['mid_price'].shift(1)).fillna(0)
             vol_up = df.loc[is_uptrend, 'log_return'].std()
             vol_down = df.loc[is_downtrend, 'log_return'].std()
@@ -1851,7 +1854,8 @@ class AdvancedFundFlowMetricsService:
                 mf_activity_ratio = (intraday_data['main_force_buy_vol'].sum() + intraday_data['main_force_sell_vol'].sum()) / daily_total_volume if daily_total_volume > 0 else 0.0
                 if mf_activity_ratio > 0:
                     price_outcome = (day_close - day_open) / atr
-                    metrics['trend_conviction_ratio'] = price_outcome / mf_activity_ratio
+                    # 修改代码行：更新降级路径的指标名称
+                    metrics['trend_alignment_index'] = price_outcome / mf_activity_ratio
             continuous_trading_df = intraday_data[intraday_data.index.time < time(14, 57)].copy()
             if not continuous_trading_df.empty and 'close' in continuous_trading_df.columns and 'open' in continuous_trading_df.columns:
                 up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
