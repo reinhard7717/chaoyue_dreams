@@ -13,11 +13,12 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V39.0 · 惩罚性信念修正】
-        - 核心重构: 彻底升级 `reversal_conviction_rate` 的计算范式，从简单的“成功次数比”，
-                     进化为“动能净比率”：(总成功动能) / (总成功动能 + |总失败动能|)。
-                     此举为失败赋予了惩罚性权重，失败越惨烈，信念得分越低，从而更精准地
-                     衡量市场的真实控制力与多头韧性。
+        【V40.0 · 动力透镜】
+        - 核心重构: `intraday_thrust_purity` 指标的计算逻辑升级。
+                     当tick数据包含 `price_change` 字段时，优先采用基于物理事实的动量公式：
+                     Σ(成交量 * sign(价格变动)) / Σ(总成交量)。
+                     这使其从一个基于“意图推断”(B/S盘)的指标，进化为一个基于“事实结果”的
+                     精准动能度量衡，能更真实地反映市场合力方向。
         """
         group = context['group']
         daily_series_for_day = context['daily_series_for_day']
@@ -48,17 +49,28 @@ class StructuralMetricsCalculators:
             turnover_rate = pd.to_numeric(daily_series_for_day.get('turnover_rate_f'), errors='coerce')
             if pd.notna(turnover_rate):
                 results['intraday_energy_density'] = np.log1p(turnover_rate) / atr_14
-        if tick_df is not None and not tick_df.empty and 'type' in tick_df.columns:
+        if tick_df is not None and not tick_df.empty: # 修改代码块：重构 intraday_thrust_purity 计算逻辑
             total_volume = tick_df['volume'].sum()
             if total_volume > 0:
-                active_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
-                active_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
-                results['intraday_thrust_purity'] = (active_buy_vol - active_sell_vol) / total_volume
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] intraday_thrust_purity (高频) ---")
-                    print(f"    - 原料: 总成交量={total_volume:,.0f}, 主动买量={active_buy_vol:,.0f}, 主动卖量={active_sell_vol:,.0f}")
-                    print(f"    - 计算: ({active_buy_vol:,.0f} - {active_sell_vol:,.0f}) / {total_volume:,.0f}")
-                    print(f"    -> 结果: {results['intraday_thrust_purity']:.4f}")
+                # 优先使用基于 price_change 的精确动能计算
+                if 'price_change' in tick_df.columns and not tick_df['price_change'].isnull().all():
+                    net_thrust_volume = (tick_df['volume'] * np.sign(tick_df['price_change'])).sum()
+                    results['intraday_thrust_purity'] = net_thrust_volume / total_volume
+                    if enable_probe and is_target_date:
+                        print(f"--- [探针 ASM.{trade_date_str}] intraday_thrust_purity (高频-基于价格变动) ---")
+                        print(f"    - 原料: 净推力成交量={net_thrust_volume:,.0f}, 总成交量={total_volume:,.0f}")
+                        print(f"    - 计算: {net_thrust_volume:,.0f} / {total_volume:,.0f}")
+                        print(f"    -> 结果: {results['intraday_thrust_purity']:.4f}")
+                # 回退到基于 B/S 盘的传统计算
+                elif 'type' in tick_df.columns:
+                    active_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
+                    active_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
+                    results['intraday_thrust_purity'] = (active_buy_vol - active_sell_vol) / total_volume
+                    if enable_probe and is_target_date:
+                        print(f"--- [探针 ASM.{trade_date_str}] intraday_thrust_purity (高频-基于B/S盘) ---")
+                        print(f"    - 原料: 总成交量={total_volume:,.0f}, 主动买量={active_buy_vol:,.0f}, 主动卖量={active_sell_vol:,.0f}")
+                        print(f"    - 计算: ({active_buy_vol:,.0f} - {active_sell_vol:,.0f}) / {total_volume:,.0f}")
+                        print(f"    -> 结果: {results['intraday_thrust_purity']:.4f}")
         else:
             thrust_vector = (group['close'] - group['open']) * group['vol']
             absolute_energy = abs(group['close'] - group['open']) * group['vol']
@@ -156,7 +168,6 @@ class StructuralMetricsCalculators:
                                             "rebound_magnitude": rebound_magnitude
                                         })
                 if reversal_details:
-                    # 修改代码块：从次数统计升级为动能统计
                     positive_momentums = [r['momentum'] for r in reversal_details if r['momentum'] > 0]
                     negative_momentums = [r['momentum'] for r in reversal_details if r['momentum'] <= 0]
                     sum_positive_momentum = np.sum(positive_momentums)
@@ -167,7 +178,6 @@ class StructuralMetricsCalculators:
                         conviction_rate = sum_positive_momentum / total_abs_momentum
                     results['reversal_conviction_rate'] = conviction_rate
                     if enable_probe and is_target_date:
-                        # 修改代码块：重构信念比率的探针日志
                         print(f"--- [探针 ASM.{trade_date_str}] reversal_conviction_rate (分钟) ---")
                         print(f"    - 前置: 使用 {prominence_source} 显著性阈值 = {dynamic_prominence:.4f}")
                         print(f"    - 原料: 成功动能列表({len(positive_momentums)}次), 失败动能列表({len(negative_momentums)}次)")
