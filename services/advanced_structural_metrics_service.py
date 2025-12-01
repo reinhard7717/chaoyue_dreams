@@ -183,24 +183,30 @@ class AdvancedStructuralMetricsService:
 
     async def _forge_advanced_structural_metrics(self, intraday_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
-        【V30.1 · 联动修复】
-        - 核心修复: 修复了因 'trade_date' 成为索引后，仍按列名访问导致的 KeyError。
-        - 解决方案: 将 .loc[df['col']==val] 的方式修改为更高效、正确的 .loc[index_val] 方式。
+        【V30.2 · 架构解耦对齐修复】
+        - 核心修复: 修复了因服务层与任务层数据加载职责解耦不彻底导致的 AttributeError。
+        - 解决方案: 移除服务层内对已废弃的 self.data_loader 的调用，改为直接使用由上游任务预加载并传入的 intraday_map 中的高频数据。
         """
         new_metrics_data = []
         prev_day_metrics = {}
-        for trade_date, group in intraday_map.items():
-            # 修改代码行：使用索引直接定位，修复KeyError
+        # 修改代码块：重构循环和数据获取逻辑
+        for trade_date, data_for_day in intraday_map.items():
             daily_series_for_day = daily_df_with_atr.loc[trade_date]
-            atr_5 = daily_series_for_day.get('atr_5d', np.nan)
-            atr_14 = daily_series_for_day.get('atr_14d', np.nan)
-            atr_50 = daily_series_for_day.get('atr_50d', np.nan)
-            tick_df_for_day = await self.data_loader.get_tick_data_for_day(stock_code, trade_date)
-            level5_df_for_day = await self.data_loader.get_level5_data_for_day(stock_code, trade_date)
-            realtime_df_for_day = await self.data_loader.get_realtime_data_for_day(stock_code, trade_date)
-            continuous_group = self._create_continuous_minute_data(group)
+            atr_5 = daily_series_for_day.get('ATR_5', np.nan)
+            atr_14 = daily_series_for_day.get('ATR_14', np.nan)
+            atr_50 = daily_series_for_day.get('ATR_50', np.nan)
+            # 从预加载的数据字典中获取数据，而不是重新加载
+            minute_df_for_day = data_for_day.get('minute')
+            tick_df_for_day = data_for_day.get('tick')
+            level5_df_for_day = data_for_day.get('level5')
+            realtime_df_for_day = data_for_day.get('realtime')
+            # 检查分钟数据是否存在，这是计算的基础
+            if minute_df_for_day is None or minute_df_for_day.empty:
+                logger.warning(f"[{stock_code}] 在日期 {trade_date} 缺少分钟级数据，跳过当日计算。")
+                continue
+            continuous_group = self._create_continuous_minute_data(minute_df_for_day)
             day_metric_dict = self._calculate_daily_structural_metrics(
-                group, continuous_group, daily_series_for_day, atr_5, atr_14, atr_50, prev_day_metrics,
+                minute_df_for_day, continuous_group, daily_series_for_day, atr_5, atr_14, atr_50, prev_day_metrics,
                 tick_df_for_day, level5_df_for_day, realtime_df_for_day
             )
             day_metric_dict['trade_date'] = trade_date
