@@ -13,7 +13,11 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V41.0 · 动能同源】
+        【V55.0 · 动量调和】
+        - 核心修正: 调和了 `dynamic_reversal_strength` 中动量惩罚因子的计算方式。
+                     将不稳定的线性比率 `vol_fall / vol_rebound` 替换为其对数形式
+                     `np.log1p(vol_fall / vol_rebound)`，以对数函数的平滑特性
+                     抑制极端惩罚值的产生，确保了整个动量计算体系的稳定与和谐。
         - 核心重构: 秉持“动能同源”原则，将 `opening_period_thrust` 指标的计算逻辑，
                      从原始的 B/S 盘意图推断，全面升级为与 `intraday_thrust_purity`
                      一致的“动能回溯”方法。确保了体系内所有“推力”度量衡的一致性与高精度。
@@ -158,10 +162,12 @@ class StructuralMetricsCalculators:
                                         fall_magnitude = group.iloc[prev_peak_pos]['high'] - group.iloc[trough_pos]['low']
                                         rebound_magnitude = group.iloc[peak_pos]['high'] - group.iloc[trough_pos]['low']
                                         recovery_rate = rebound_magnitude / fall_magnitude if fall_magnitude > 0 else 0
+                                        # 修改代码块：使用对数调和不稳定的惩罚因子
                                         if recovery_rate > 1:
                                             volume_factor = np.log1p(vol_rebound / vol_fall)
                                         else:
-                                            volume_factor = vol_fall / vol_rebound
+                                            # 使用对数调和，避免因 vol_rebound 过小导致惩罚因子爆炸
+                                            volume_factor = np.log1p(vol_fall / vol_rebound)
                                         momentum = (price_momentum * volume_factor) * 100
                                         reversal_details.append({
                                             "momentum": momentum,
@@ -233,12 +239,11 @@ class StructuralMetricsCalculators:
                 print(f"    - 节点 (确证因子): sign({day_close_qfq:.2f} - {high_level_threshold:.2f}) = {confirmation_factor:.0f}")
                 print(f"    - 计算: {volume_ratio:.4f} * {confirmation_factor:.0f}")
                 print(f"    -> 结果: {results['high_level_consolidation_volume']:.4f}")
-        if tick_df is not None and not tick_df.empty: # 重构 opening_period_thrust 计算逻辑
+        if tick_df is not None and not tick_df.empty:
             opening_ticks = tick_df.between_time('09:30:00', '09:59:59')
             if not opening_ticks.empty:
                 opening_total_vol = opening_ticks['volume'].sum()
                 if opening_total_vol > 0:
-                    # 优先使用基于 price_change 的精确动能计算
                     if 'price_change' in opening_ticks.columns and not opening_ticks['price_change'].isnull().all():
                         self_calculated_change = opening_ticks['price'].diff().fillna(0)
                         zero_change_mask = opening_ticks['price_change'] == 0
@@ -252,7 +257,6 @@ class StructuralMetricsCalculators:
                             print(f"    - 原料: 开盘期净推力成交量={net_opening_thrust_volume:,.0f}, 开盘期总量={opening_total_vol:,.0f}")
                             print(f"    - 计算: {net_opening_thrust_volume:,.0f} / {opening_total_vol:,.0f}")
                             print(f"    -> 结果: {results['opening_period_thrust']:.4f}")
-                    # 回退到基于 B/S 盘的传统计算
                     elif 'type' in opening_ticks.columns:
                         opening_buy_vol = opening_ticks[opening_ticks['type'] == 'B']['volume'].sum()
                         opening_sell_vol = opening_ticks[opening_ticks['type'] == 'S']['volume'].sum()
