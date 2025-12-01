@@ -189,7 +189,11 @@ class MicrostructureDynamicsCalculators:
 
     @staticmethod
     def _calculate_liquidity_metrics(context: dict) -> dict:
-        """计算流动性相关指标 (冲击成本、斜率、真实性)"""
+        """
+        【V27.2 · 权重对齐修复】
+        - 核心修复: 修复了因数值列表与权重列表长度不匹配导致的 np.average TypeError。
+        - 解决方案: 在循环内同步构建数值列表和其对应的权重列表，确保二者长度和顺序严格一致。
+        """
         tick_df = context.get('tick_df')
         level5_df = context.get('level5_df')
         realtime_df = context.get('realtime_df')
@@ -207,15 +211,20 @@ class MicrostructureDynamicsCalculators:
             return results
         column_rename_map = {**{f'buy_price{i}': f'b{i}_p' for i in range(1, 6)}, **{f'buy_volume{i}': f'b{i}_v' for i in range(1, 6)}, **{f'sell_price{i}': f'a{i}_p' for i in range(1, 6)}, **{f'sell_volume{i}': f'a{i}_v' for i in range(1, 6)}}
         level5_df_renamed = level5_df.copy().rename(columns=column_rename_map)
-        merged_full = pd.merge_asof(tick_df.sort_index(), level5_df_renamed.sort_index(), on='trade_time', direction='backward')
         if realtime_df is not None and not realtime_df.empty:
-            snapshot_volumes = realtime_df['volume'].diff().fillna(0).clip(lower=0)
+            # 修改代码块：重构数据合并与循环逻辑，确保权重对齐
+            snapshot_df = pd.merge_asof(realtime_df.sort_index(), level5_df_renamed.sort_index(), on='trade_time', direction='backward')
+            snapshot_df['snapshot_volume'] = snapshot_df['volume'].diff().fillna(0).clip(lower=0)
             total_amount = daily_series_for_day.get('amount', 0)
             if total_amount > 0:
                 standard_amount = float(total_amount) * 0.001
-                impact_costs, slopes = [], []
-                for idx, row in merged_full.iterrows():
-                    # 冲击成本
+                impact_costs, weights_for_costs = [], []
+                slopes, weights_for_slopes = [], []
+                for _, row in snapshot_df.iterrows():
+                    snapshot_volume = row['snapshot_volume']
+                    if snapshot_volume <= 0:
+                        continue
+                    # 冲击成本计算
                     amount_to_fill, filled_amount, filled_volume = standard_amount, 0, 0
                     for i in range(1, 6):
                         price, vol = row.get(f'a{i}_p'), row.get(f'a{i}_v', 0) * 100
@@ -227,17 +236,23 @@ class MicrostructureDynamicsCalculators:
                             filled_volume += amount_to_fill / float(price); filled_amount += amount_to_fill; break
                     if filled_volume > 0:
                         mid_price = (row.get('b1_p', 0) + row.get('a1_p', 0)) / 2
-                        if mid_price > 0: impact_costs.append(((filled_amount / filled_volume) / float(mid_price) - 1) * 100)
-                    # 斜率
+                        if mid_price > 0:
+                            cost = ((filled_amount / filled_volume) / float(mid_price) - 1) * 100
+                            impact_costs.append(cost)
+                            weights_for_costs.append(snapshot_volume)
+                    # 斜率计算
                     mid_price = (row.get('b1_p', 0) + row.get('a1_p', 0)) / 2
                     if mid_price > 0:
                         ask_x = [(float(row.get(f'a{i}_p', mid_price)) - mid_price) / mid_price for i in range(1, 6)]
                         ask_y = np.cumsum([row.get(f'a{i}_v', 0) * 100 for i in range(1, 6)])
-                        if np.std(ask_x) > 0: slopes.append(linregress(ask_x, ask_y).slope)
-                if impact_costs and snapshot_volumes.sum() > 0:
-                    results['market_impact_cost'] = np.average(impact_costs, weights=snapshot_volumes.iloc[:len(impact_costs)])
-                if slopes and snapshot_volumes.sum() > 0:
-                    results['liquidity_slope'] = np.average(slopes, weights=snapshot_volumes.iloc[:len(slopes)])
+                        if np.std(ask_x) > 0:
+                            slope = linregress(ask_x, ask_y).slope
+                            slopes.append(slope)
+                            weights_for_slopes.append(snapshot_volume)
+                if impact_costs and sum(weights_for_costs) > 0:
+                    results['market_impact_cost'] = np.average(impact_costs, weights=weights_for_costs)
+                if slopes and sum(weights_for_slopes) > 0:
+                    results['liquidity_slope'] = np.average(slopes, weights=weights_for_slopes)
         return results
 
     @staticmethod
