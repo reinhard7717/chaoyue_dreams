@@ -271,15 +271,13 @@ class AdvancedStructuralMetricsService:
                                             realtime_df: pd.DataFrame | None, daily_info: pd.Series,
                                             prev_day_metrics: dict, debug_info: dict) -> dict:
         """
-        【V48.2 · 万法归宗】
-        - 核心修正: 彻底移除对不存在的 `calculate_high_frequency_metrics` 方法的调用。
-                     认识到所有高频及能量密度指标均由 `calculate_microstructure_dynamics_metrics`
-                     统一计算，故将其调用次序提前，确保其产出（如推力纯度）能在后续计算中被
-                     正确使用。此举从根本上修复了 `AttributeError` 并理顺了数据依赖。
-        - 核心修正: 调整了 thematic calculators 的调用顺序，将 `calculate_market_profile_metrics`
-                     的调用提前至 `calculate_control_metrics` 之前。此举确保了在计算
-                     `closing_conviction_score` 时，当日的价值中枢(`_today_vpoc`)已经备妥，
-                     从根本上解决了“因果倒置”导致的指标计算错误问题。
+        【V49.0 · 宗门归位】
+        - 核心修正: 彻底修复了因调用错误的计算器类而导致的 `AttributeError`。现在，每个指标
+                     计算函数都从其正确的“宗门”（即对应的Calculator类）中调用，确保了整个
+                     计算流程的正确性和模块化。
+        - 核心重构: 重新梳理并确立了正确的计算顺序，确保了指标间的依赖关系得到满足。
+                     例如，先计算基础的能量和微观动力学指标，再计算依赖其输出的市场剖面和
+                     控盘指标，保证了数据流的逻辑自洽。
         """
         context = {
             'group': group,
@@ -293,34 +291,44 @@ class AdvancedStructuralMetricsService:
             'day_high_qfq': daily_info.get('high_qfq'),
             'day_low_qfq': daily_info.get('low_qfq'),
             'day_close_qfq': daily_info.get('close_qfq'),
+            'pre_close_qfq': daily_info.get('pre_close_qfq'),
+            'atr_5': daily_info.get('ATR_5'),
             'atr_14': daily_info.get('ATR_14'),
+            'atr_50': daily_info.get('ATR_50'),
             'total_volume_safe': group['vol'].sum() if 'vol' in group.columns and not group.empty else 0,
             'debug': debug_info,
         }
-        # 修改代码块：修正了计算函数的调用逻辑和顺序
-        # 修正1：先计算所有微观结构指标，此法门是高频、能量密度指标的真正“宗门”
-        microstructure_metrics = ThematicMetricsCalculators.calculate_microstructure_dynamics_metrics(context)
+        # 修改代码块：修正了所有计算函数的调用，使其“宗门归位”
+        # 1. 基础层：计算最底层的能量、微观动力学和订单流指标
+        energy_metrics = StructuralMetricsCalculators.calculate_energy_density_metrics(context)
+        context.update(energy_metrics)
+        microstructure_metrics = MicrostructureDynamicsCalculators.calculate_all(context)
         context.update(microstructure_metrics)
-        # 修正2：然后计算市场剖面，得到VPOC
+        # 2. 结构层：计算市场剖面、控盘、博弈效率等核心结构指标
         profile_metrics = ThematicMetricsCalculators.calculate_market_profile_metrics(context)
         context.update(profile_metrics)
-        # 修正3：最后计算依赖前两者输出的控盘指标等
-        control_metrics = ThematicMetricsCalculators.calculate_control_metrics(context)
+        control_metrics = StructuralMetricsCalculators.calculate_control_metrics(context)
         context.update(control_metrics)
-        game_metrics = ThematicMetricsCalculators.calculate_game_efficiency_metrics(context)
+        game_metrics = StructuralMetricsCalculators.calculate_game_efficiency_metrics(context)
         context.update(game_metrics)
+        # 3. 策略层：计算前瞻性、战场博弈等策略意图指标
         forward_metrics = ThematicMetricsCalculators.calculate_forward_looking_metrics(context)
         context.update(forward_metrics)
         battlefield_metrics = ThematicMetricsCalculators.calculate_battlefield_metrics(context)
         context.update(battlefield_metrics)
-        # 修正4：整合所有指标时，使用正确的 `microstructure_metrics` 字典
+        # 4. 衍生层：计算背离等衍生指标
+        derivative_metrics = DerivativeMetricsCalculator.calculate_divergence_metrics(context)
+        context.update(derivative_metrics)
+        # 5. 整合所有宗门的计算结果
         all_metrics = {
+            **energy_metrics,
             **microstructure_metrics,
+            **profile_metrics,
             **control_metrics,
             **game_metrics,
             **forward_metrics,
             **battlefield_metrics,
-            **profile_metrics,
+            **derivative_metrics,
         }
         return all_metrics
 
