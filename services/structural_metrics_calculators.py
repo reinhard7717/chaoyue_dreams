@@ -13,11 +13,10 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V37.6 · 动态反转重构】
-        - 核心重构: 将 `rebound_momentum` 升级为 `dynamic_reversal_strength`。
-                     新指标不再依赖于单一的日内绝对最低点，而是识别所有显著的局部低点，
-                     计算每一次反弹的强度，并取其平均值。这使其能更真实地反映
-                     日内多次博弈的过程，捕捉W型底等复杂形态中的多头抵抗强度。
+        【V37.7 · 纯粹反转修正】
+        - 核心修复: 修正 `dynamic_reversal_strength` 的计算逻辑，只对动能为正的“成功反转”求平均。
+                     此举剔除了“失败反弹”（动能为负）对信号的噪声污染，使指标更纯粹地
+                     衡量多头有效反击的平均力量，避免了强弱信号的相互抵消。
         """
         group = context['group']
         daily_series_for_day = context['daily_series_for_day']
@@ -38,7 +37,7 @@ class StructuralMetricsCalculators:
             'intraday_thrust_purity': np.nan,
             'volume_burstiness_index': np.nan,
             'auction_impact_score': np.nan,
-            'dynamic_reversal_strength': np.nan, # 修改代码行：重命名指标
+            'dynamic_reversal_strength': np.nan,
             'high_level_consolidation_volume': np.nan,
             'opening_period_thrust': np.nan,
         }
@@ -104,29 +103,23 @@ class StructuralMetricsCalculators:
                     results['auction_impact_score'] = gap_magnitude
             else:
                 results['auction_impact_score'] = gap_magnitude
-        # 新增代码块：重构反转动能为动态反转强度
         try:
             from scipy.signal import find_peaks
-            # 使用分钟线寻找显著的波峰和波谷
             peaks, _ = find_peaks(group['high'], distance=5, prominence=0.01)
             troughs, _ = find_peaks(-group['low'], distance=5, prominence=0.01)
             if len(troughs) > 0 and len(peaks) > 0:
                 reversal_momentums = []
-                # 确保波谷和波峰交替出现，并以波谷开始
                 all_extrema = sorted(np.concatenate([peaks, troughs]))
-                # 找到第一个波谷
                 first_trough_idx = -1
                 for i, extremum_pos in enumerate(all_extrema):
                     if extremum_pos in troughs:
                         first_trough_idx = i
                         break
                 if first_trough_idx != -1:
-                    # 从第一个波谷开始，寻找 "谷-峰" 对
                     for i in range(first_trough_idx, len(all_extrema) - 1):
                         if all_extrema[i] in troughs and all_extrema[i+1] in peaks:
                             trough_pos = all_extrema[i]
                             peak_pos = all_extrema[i+1]
-                            # 找到此波谷之前的波峰，作为下跌段的起点
                             prev_peak_candidates = peaks[peaks < trough_pos]
                             if len(prev_peak_candidates) > 0:
                                 prev_peak_pos = prev_peak_candidates[-1]
@@ -139,18 +132,19 @@ class StructuralMetricsCalculators:
                                     if vwap_fall > 0:
                                         momentum = (vwap_rebound / vwap_fall - 1) * 100
                                         reversal_momentums.append(momentum)
+                # 修改代码块：只对成功的反转（动能为正）求平均
                 if reversal_momentums:
-                    results['dynamic_reversal_strength'] = np.mean(reversal_momentums)
-                    if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] dynamic_reversal_strength (分钟) ---")
-                        print(f"    - 原料: 识别出 {len(reversal_momentums)} 次有效反转")
-                        print(f"    - 节点 (各次动能): {[f'{m:.2f}' for m in reversal_momentums]}")
-                        print(f"    - 计算: mean of reversals")
-                        print(f"    -> 结果: {results['dynamic_reversal_strength']:.4f}")
+                    successful_reversals = [m for m in reversal_momentums if m > 0]
+                    if successful_reversals:
+                        results['dynamic_reversal_strength'] = np.mean(successful_reversals)
+                        if enable_probe and is_target_date:
+                            print(f"--- [探针 ASM.{trade_date_str}] dynamic_reversal_strength (分钟) ---")
+                            print(f"    - 原料: 识别出 {len(reversal_momentums)} 次反转尝试, 其中 {len(successful_reversals)} 次成功")
+                            print(f"    - 节点 (成功反转的动能): {[f'{m:.2f}' for m in successful_reversals]}")
+                            print(f"    - 计算: mean of successful reversals")
+                            print(f"    -> 结果: {results['dynamic_reversal_strength']:.4f}")
         except ImportError:
-            # SciPy 不可用时的降级逻辑 (可选)
             pass
-        # high_level_consolidation_volume (高位整固成交量占比)
         price_range = day_high_qfq - day_low_qfq
         if price_range > 0:
             high_level_threshold = day_high_qfq - 0.25 * price_range
@@ -172,7 +166,6 @@ class StructuralMetricsCalculators:
                 print(f"    - 节点 (确证因子): sign({day_close_qfq:.2f} - {high_level_threshold:.2f}) = {confirmation_factor:.0f}")
                 print(f"    - 计算: {volume_ratio:.4f} * {confirmation_factor:.0f}")
                 print(f"    -> 结果: {results['high_level_consolidation_volume']:.4f}")
-        # opening_period_thrust (开盘期推力)
         if tick_df is not None and not tick_df.empty and 'type' in tick_df.columns:
             opening_ticks = tick_df.between_time('09:30:00', '09:59:59')
             if not opening_ticks.empty:
