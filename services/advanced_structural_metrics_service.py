@@ -10,6 +10,7 @@ from stock_models.stock_basic import StockInfo
 from stock_models.advanced_metrics import BaseAdvancedStructuralMetrics
 from services.structural_metrics_calculators import StructuralMetricsCalculators
 from services.microstructure_dynamics_calculators import MicrostructureDynamicsCalculators
+from services.thematic_metrics_calculators import ThematicMetricsCalculators
 from utils.model_helpers import (
     get_advanced_structural_metrics_model_by_code,
     get_daily_data_model_by_code,
@@ -266,25 +267,11 @@ class AdvancedStructuralMetricsService:
 
     def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict, tick_df_for_day: pd.DataFrame = None, level5_df_for_day: pd.DataFrame = None, realtime_df_for_day: pd.DataFrame = None) -> dict:
         """
-        【V27.0 · 微观动力学内核】
-        - 核心重构: 剥离微观动力学指标计算逻辑至全新的 MicrostructureDynamicsCalculators 内核。
-                     此服务类已完全瘦身为纯粹的流程编排器。
+        【V28.0 · 主题内核归一】
+        - 核心重构: 迁移所有剩余的计算逻辑至 ThematicMetricsCalculators。
+                     此方法已达到其最终形态：一个纯粹的、由内核调用组成的流程编排器。
         """
         results = {}
-        results['auction_impact_score'] = np.nan
-        results['price_shock_factor'] = np.nan
-        results['volatility_expansion_ratio'] = np.nan
-        results['trend_quality_score'] = np.nan
-        results['closing_momentum_index'] = np.nan
-        results['volume_structure_skew'] = np.nan
-        results['active_volume_price_efficiency'] = np.nan
-        results['absorption_strength_index'] = np.nan
-        results['distribution_pressure_index'] = np.nan
-        results['order_flow_imbalance_score'] = np.nan
-        results['buy_sweep_intensity'] = np.nan
-        results['sell_sweep_intensity'] = np.nan
-        results['vpin_score'] = np.nan
-        results['vwap_mean_reversion_corr'] = np.nan
         group['amount'] = pd.to_numeric(group['amount'], errors='coerce')
         group['vol'] = pd.to_numeric(group['vol'], errors='coerce')
         total_volume = group['vol'].sum()
@@ -301,15 +288,14 @@ class AdvancedStructuralMetricsService:
             'group': group,
             'continuous_group': continuous_group,
             'daily_series_for_day': daily_series_for_day,
-            'atr_14': atr_14,
+            'atr_5': atr_5, 'atr_14': atr_14, 'atr_50': atr_50,
+            'prev_day_metrics': prev_day_metrics,
             'tick_df': tick_df_for_day,
             'level5_df': level5_df_for_day,
             'realtime_df': realtime_df_for_day,
             'total_volume_safe': total_volume_safe,
-            'day_open_qfq': day_open_qfq,
-            'day_high_qfq': day_high_qfq,
-            'day_low_qfq': day_low_qfq,
-            'day_close_qfq': day_close_qfq,
+            'day_open_qfq': day_open_qfq, 'day_high_qfq': day_high_qfq,
+            'day_low_qfq': day_low_qfq, 'day_close_qfq': day_close_qfq,
             'pre_close_qfq': pre_close_qfq,
             'debug': {
                 'is_target_date': is_target_date,
@@ -321,96 +307,17 @@ class AdvancedStructuralMetricsService:
         results.update(StructuralMetricsCalculators.calculate_energy_density_metrics(context))
         # --- 2. 趋势、节律与代理筹码 ---
         results.update(StructuralMetricsCalculators.calculate_control_metrics(context))
-        # --- 3. VPOC、价值区与博弈效率 ---
-        vp = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20, duplicates='drop'))['vol'].sum()
-        vpoc_interval = vp.idxmax() if not vp.empty else np.nan
-        today_vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else day_close_qfq
-        vpoc_volume_ratio = vp.max() / continuous_group['vol'].sum() if not vp.empty and continuous_group['vol'].sum() > 0 else 0
-        if pd.notna(atr_14) and atr_14 > 0:
-            deviation_magnitude = (day_close_qfq - today_vpoc) / atr_14
-            results['vpoc_deviation_magnitude'] = deviation_magnitude
-            results['vpoc_consensus_strength'] = vpoc_volume_ratio
-            tail_period_df = group[group['trade_time'].dt.time >= time(14, 45)]
-            if not tail_period_df.empty and not continuous_group.empty and continuous_group['vol'].mean() > 0:
-                tail_force_factor = np.log1p(tail_period_df['vol'].mean() / continuous_group['vol'].mean())
-                results['closing_conviction_score'] = deviation_magnitude * tail_force_factor
-        today_vah, today_val = self._calculate_value_area(vp, continuous_group['vol'].sum(), vpoc_interval)
-        prev_vpoc, prev_atr = prev_day_metrics.get('vpoc'), prev_day_metrics.get('atr_14d')
-        if all(pd.notna(v) for v in [today_vpoc, prev_vpoc, prev_atr]) and prev_atr > 0:
-            results['value_area_migration'] = (today_vpoc - prev_vpoc) / prev_atr
-        prev_vah, prev_val = prev_day_metrics.get('vah'), prev_day_metrics.get('val')
-        if all(pd.notna(v) for v in [today_vah, today_val, prev_vah, prev_val]) and (today_vah - today_val) > 0:
-            overlap_width = max(0, min(today_vah, prev_vah) - max(today_val, prev_val))
-            results['value_area_overlap_pct'] = (overlap_width / (today_vah - today_val)) * 100
-        if all(pd.notna(v) for v in [day_close_qfq, today_vpoc, today_vah, today_val]):
-            if day_close_qfq > today_vah: results['closing_acceptance_type'] = 2
-            elif day_close_qfq > today_vpoc: results['closing_acceptance_type'] = 1
-            elif day_close_qfq < today_val: results['closing_acceptance_type'] = -2
-            elif day_close_qfq < today_vpoc: results['closing_acceptance_type'] = -1
-            else: results['closing_acceptance_type'] = 0
-        # --- 4. 博弈效能 ---
+        # --- 3. 博弈效能 ---
         results.update(StructuralMetricsCalculators.calculate_game_efficiency_metrics(context))
-        # --- 5. 前瞻性与收盘博弈分析 ---
-        auction_period_df = group[group['trade_time'].dt.time >= time(14, 57)]
-        if not auction_period_df.empty and not continuous_group.empty:
-            close_before_auction = continuous_group['close'].iloc[-1]
-            if pd.notna(close_before_auction) and close_before_auction > 0:
-                auction_price_change = (day_close_qfq / close_before_auction - 1) * 100
-                avg_vol_minute_continuous = continuous_group['vol'].mean()
-                if avg_vol_minute_continuous > 0:
-                    auction_volume_multiple = (auction_period_df['vol'].sum() / 3) / avg_vol_minute_continuous
-                    results['auction_showdown_score'] = auction_price_change * np.log1p(auction_volume_multiple)
-        if all(pd.notna(v) for v in [day_high_qfq, day_low_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
-            true_range = max(day_high_qfq, pre_close_qfq) - min(day_low_qfq, pre_close_qfq)
-            shock = true_range / atr_14
-            direction = np.sign(day_close_qfq - day_open_qfq) if day_close_qfq != day_open_qfq else 1
-            results['price_shock_factor'] = shock * direction
-        if all(pd.notna(v) for v in [atr_5, atr_50]) and atr_50 > 0:
-            results['volatility_expansion_ratio'] = atr_5 / atr_50
-        # --- 6. V18.0 战场分析仪指标 ---
-        if not continuous_group.empty and len(continuous_group) > 1:
-            from scipy.stats import linregress
-            vwap_series = continuous_group['minute_vwap'].dropna()
-            if len(vwap_series) > 2:
-                x = np.arange(len(vwap_series))
-                slope, intercept, r_value, p_value, std_err = linregress(x, vwap_series)
-                linearity = r_value**2
-                vwap_max = vwap_series.max()
-                vwap_min = vwap_series.min()
-                vwap_range = vwap_max - vwap_min
-                if vwap_range > 0:
-                    if day_close_qfq > day_open_qfq:
-                        pullback_control = ((vwap_series - vwap_min) / vwap_range).mean()
-                    else:
-                        pullback_control = ((vwap_max - vwap_series) / vwap_range).mean()
-                    trend_quality = linearity * pullback_control
-                    direction = np.sign(day_close_qfq - day_open_qfq) if day_close_qfq != day_open_qfq else 1
-                    results['trend_quality_score'] = trend_quality * direction
-            tail_df = continuous_group[continuous_group['trade_time'].dt.time >= time(14, 0)]
-            if not tail_df.empty and pd.notna(atr_14) and atr_14 > 0 and total_volume_safe > 0:
-                vwap_tail = (tail_df['amount'].sum() / tail_df['vol'].sum()) if tail_df['vol'].sum() > 0 else np.nan
-                vwap_full = (continuous_group['amount'].sum() / continuous_group['vol'].sum()) if continuous_group['vol'].sum() > 0 else np.nan
-                if all(pd.notna(v) for v in [vwap_tail, vwap_full]):
-                    momentum_deviation = (vwap_tail - vwap_full) / atr_14
-                    vol_ratio_tail = tail_df['vol'].sum() / total_volume_safe
-                    results['closing_momentum_index'] = momentum_deviation * np.log1p(vol_ratio_tail)
-            open_rhythm_df = continuous_group[continuous_group['trade_time'].dt.time < time(10, 0)]
-            mid_rhythm_df = continuous_group[(continuous_group['trade_time'].dt.time >= time(10, 0)) & (continuous_group['trade_time'].dt.time < time(14, 30))]
-            tail_rhythm_df = continuous_group[continuous_group['trade_time'].dt.time >= time(14, 30)]
-            if not open_rhythm_df.empty and not mid_rhythm_df.empty and not tail_rhythm_df.empty:
-                avg_vol_open = open_rhythm_df['vol'].mean()
-                avg_vol_mid = mid_rhythm_df['vol'].mean()
-                avg_vol_tail = tail_rhythm_df['vol'].mean()
-                avg_vol_ends = (avg_vol_open + avg_vol_tail) / 2
-                if avg_vol_ends > 0:
-                    results['volume_structure_skew'] = avg_vol_mid / avg_vol_ends
-        # --- 7. 微观结构动力学 (Microstructure Dynamics) ---
-        # 修改代码行：调用外部微观动力学内核
-        microstructure_metrics = MicrostructureDynamicsCalculators.calculate_all(context)
-        results.update(microstructure_metrics)
-        results['_today_vpoc'] = today_vpoc
-        results['_today_vah'] = today_vah
-        results['_today_val'] = today_val
+        # --- 4. 微观结构动力学 ---
+        results.update(MicrostructureDynamicsCalculators.calculate_all(context))
+        # --- 5. 市场剖面与价值区 ---
+        market_profile_results = ThematicMetricsCalculators.calculate_market_profile_metrics(context)
+        results.update(market_profile_results)
+        # --- 6. 前瞻性与收盘博弈 ---
+        results.update(ThematicMetricsCalculators.calculate_forward_looking_metrics(context))
+        # --- 7. 战场分析仪 ---
+        results.update(ThematicMetricsCalculators.calculate_battlefield_metrics(context))
         return results
 
     def _calculate_derivatives(self, stock_code: str, metrics_df: pd.DataFrame) -> pd.DataFrame:
@@ -473,35 +380,6 @@ class AdvancedStructuralMetricsService:
                 # 'trade_time' 已成为索引，不再是列，因此无需在循环中进行特殊处理
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
-
-    def _calculate_value_area(self, vp: pd.Series, total_volume: float, vpoc_interval: pd.Interval) -> tuple:
-        """
-        【V2.3 · 优化】计算日内价值区域 (VAH/VAL)
-        - 优化点: 确保 VAH/VAL 边界的精确性。
-        """
-        if vp.empty or total_volume == 0 or pd.isna(vpoc_interval):
-            return np.nan, np.nan
-        value_area_target_volume = total_volume * 0.7
-        vp_sorted_by_price = vp.sort_index()
-        try:
-            poc_idx = vp_sorted_by_price.index.get_loc(vpoc_interval)
-        except KeyError:
-            return np.nan, np.nan
-        current_volume = vp_sorted_by_price.iloc[poc_idx]
-        low_idx, high_idx = poc_idx, poc_idx
-        while current_volume < value_area_target_volume and (low_idx > 0 or high_idx < len(vp_sorted_by_price) - 1):
-            vol_above = vp_sorted_by_price.iloc[high_idx + 1] if high_idx < len(vp_sorted_by_price) - 1 else -1
-            vol_below = vp_sorted_by_price.iloc[low_idx - 1] if low_idx > 0 else -1
-            if vol_above > vol_below:
-                high_idx += 1
-                current_volume += vol_above
-            else:
-                low_idx -= 1
-                current_volume += vol_below
-        # 确保边界是价格区间的精确边界
-        val = vp_sorted_by_price.index[low_idx].left
-        vah = vp_sorted_by_price.index[high_idx].right
-        return vah, val
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
