@@ -1426,19 +1426,39 @@
           "synergy_force_weight": 0.3
         }
       },
-      "intraday_behavior_engine_params": {
+      "intraday_battle_report_params": {
         "enabled": true,
-        "description": "【V1.0】日内行为引擎，用于分钟级数据的深度战术分析。",
-        "trix_params": { "enabled": true, "period": 13, "signal_period": 8 },
-        "kdj_params": { "enabled": true, "period": 13, "signal_period": 5, "smooth_k_period": 3 },
-        "squeeze_params": { "enabled": true, "bb_period": 21, "kc_period": 21, "atr_period": 13 },
-        "donchian_params": { "enabled": true, "period": 21 },
-        "eom_params": { "enabled": true, "period": 13 },
-        "meta_analysis_params": {
-          "meta_window": 13,
-          "norm_window": 55,
-          "trend_weight": 0.6,
-          "accel_weight": 0.4
+        "description": "【V2.0 · 战局推演版】日内行为引擎，用于分钟级数据的深度战术分析。从“战报总结”升维至“战局推演”。",
+        "probe_params": {
+            "enabled": true,
+            "description": "日内战局推演探针总开关"
+        },
+        "opening_gambit": {
+            "enabled": true,
+            "duration_minutes": 30,
+            "vwap_weight": 0.4,
+            "volume_weight": 0.3,
+            "price_trend_weight": 0.3
+        },
+        "closing_ambush": {
+            "enabled": true,
+            "duration_minutes": 60,
+            "vwap_weight": 0.4,
+            "volume_weight": 0.2,
+            "price_trend_weight": 0.4
+        },
+        "resilience_absorption": {
+            "enabled": true,
+            "drawdown_threshold": -0.015,
+            "recovery_speed_weight": 0.5,
+            "recovery_volume_weight": 0.5
+        },
+        "battle_tempo": {
+            "enabled": true,
+            "impulse_std_dev_multiplier": 2.0,
+            "impulse_volume_multiplier": 2.0,
+            "bull_impulse_weight": 0.6,
+            "bear_impulse_weight": 0.4
         }
       },
       "tactic_engine_params": {
