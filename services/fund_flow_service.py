@@ -779,10 +779,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V65.0 · 计算上下文封装】
-        - 核心重构: 创建一个名为 `context` 的统一计算上下文（字典），将所有共享数据封装其中。
-        - 简化调用: 重构对所有下游计算方法的调用，将原来一长串的参数列表替换为传递单一的 `context` 对象，
-                     彻底消除参数钻孔，提升代码的可读性、可维护性和扩展性。
+        【V66.0 · 计算内核静态化】
+        - 核心重构: 将对所有下游计算方法的调用修改为类静态方法调用 (`AdvancedFundFlowMetricsService._calculate...`)，
+                     在逻辑上分离流程编排与具体计算，为后续物理分离计算内核做准备。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -809,7 +808,6 @@ class AdvancedFundFlowMetricsService:
                 print(hf_analysis_df[['mid_price', 'ofi', 'main_force_ofi', 'imbalance']].head(3).to_string())
             else:
                 print("  - [!!!] 关键警告: 高频分析DataFrame (hf_analysis_df) 为空！所有高频指标将无法计算。")
-        # 新增代码块：创建统一的计算上下文
         context = {
             'intraday_data': intraday_data,
             'daily_data': daily_data,
@@ -823,37 +821,37 @@ class AdvancedFundFlowMetricsService:
             }
         }
         if not hf_analysis_df.empty:
-            # 修改代码块：使用 context 对象进行调用
-            results.update(self._calculate_main_force_profile_metrics(context))
-            results.update(self._calculate_ofi_based_metrics(context))
-            results.update(self._calculate_order_book_metrics(context))
-        results.update(self._calculate_vwap_related_metrics(context))
-        results.update(self._calculate_vwap_control_metrics(context))
-        results.update(self._calculate_opening_battle_metrics(context))
-        results.update(self._calculate_shadow_metrics(context))
-        results.update(self._calculate_dip_rally_metrics(context))
-        results.update(self._calculate_reversal_metrics(context))
-        results.update(self._calculate_panic_cascade_metrics(context))
-        results.update(self._calculate_cmf_metrics(context))
-        results.update(self._calculate_vpoc_metrics(context))
-        results.update(self._calculate_liquidity_swap_metrics(context))
-        results.update(self._calculate_closing_metrics(context))
-        results.update(self._calculate_retail_sentiment_metrics(context))
-        results.update(self._calculate_hidden_accumulation_metrics(context))
-        results.update(self._calculate_execution_alpha_metrics(context))
-        results.update(self._calculate_flow_efficiency_metrics(context))
-        results.update(self._calculate_wash_trade_metrics(context))
-        results.update(self._calculate_misc_minute_metrics(context))
-        results.update(self._calculate_closing_strength_metrics(context))
-        results.update(self._calculate_misc_daily_metrics(context))
+            # 修改代码块：使用类名调用静态方法
+            results.update(AdvancedFundFlowMetricsService._calculate_main_force_profile_metrics(context))
+            results.update(AdvancedFundFlowMetricsService._calculate_ofi_based_metrics(context))
+            results.update(AdvancedFundFlowMetricsService._calculate_order_book_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_vwap_related_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_vwap_control_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_opening_battle_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_shadow_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_dip_rally_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_reversal_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_panic_cascade_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_cmf_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_vpoc_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_liquidity_swap_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_closing_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_retail_sentiment_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_hidden_accumulation_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_execution_alpha_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_flow_efficiency_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_wash_trade_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_misc_minute_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_closing_strength_metrics(context))
+        results.update(AdvancedFundFlowMetricsService._calculate_misc_daily_metrics(context))
         return results
 
-    def _calculate_main_force_profile_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_main_force_profile_metrics(context: dict) -> dict:
         """
-        【V65.0 · 计算上下文封装】
-        - 核心重构: 方法签名简化为只接收 `context` 对象，并从内部解构所需数据。
+        【V66.0 · 计算内核静态化】
+        - 核心重构: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         hf_features = context['hf_features']
@@ -930,12 +928,12 @@ class AdvancedFundFlowMetricsService:
                         print(f"    -> 最终得分: {metrics['main_force_flow_directionality']:.2f}")
         return metrics
 
-    def _calculate_ofi_based_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_ofi_based_metrics(context: dict) -> dict:
         """
-        【V65.0 · 计算上下文封装】
-        - 核心重构: 方法签名简化为只接收 `context` 对象，并从内部解构所需数据。
+        【V66.0 · 计算内核静态化】
+        - 核心重构: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         hf_analysis_df = context['hf_analysis_df']
         is_target_date = context['debug']['is_target_date']
         enable_probe = context['debug']['enable_probe']
@@ -953,12 +951,12 @@ class AdvancedFundFlowMetricsService:
                 print(f"    -> 最终得分 (相关系数): {correlation:.4f}")
         return metrics
 
-    def _calculate_order_book_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_order_book_metrics(context: dict) -> dict:
         """
-        【V65.0 · 计算上下文封装】
-        - 核心重构: 方法签名简化为只接收 `context` 对象，并从内部解构所需数据。
+        【V66.0 · 计算内核静态化】
+        - 核心重构: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         is_target_date = context['debug']['is_target_date']
@@ -1422,12 +1420,12 @@ class AdvancedFundFlowMetricsService:
                     metrics['hidden_accumulation_intensity'] = (mf_net_buy_on_dip / total_vol_dip) * 100
         return metrics
 
-    def _calculate_vwap_related_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_vwap_related_metrics(context: dict) -> dict:
         """
-        【V65.1 · 上下文全面应用】
-        - 核心修复: 将方法签名修改为接收单一的 context 对象，并从内部解构所需数据。
+        【V66.0 · 计算内核静态化】
+        - 核心重构: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         intraday_data = context['intraday_data']
         common_data = context['common_data']
         import numpy as np
@@ -1945,12 +1943,12 @@ class AdvancedFundFlowMetricsService:
                         metrics['volatility_asymmetry_index'] = np.log(avg_up_speed / avg_down_speed)
         return metrics
 
-    def _calculate_misc_daily_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_misc_daily_metrics(context: dict) -> dict:
         """
-        【V65.0 · 计算上下文封装】
-        - 核心重构: 方法签名简化为只接收 `context` 对象，并从内部解构所需数据。
+        【V66.0 · 计算内核静态化】
+        - 核心重构: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         daily_data = context['daily_data']
         import pandas as pd
         import numpy as np
@@ -2292,12 +2290,12 @@ class AdvancedFundFlowMetricsService:
         results['sell_quote_exhaustion_rate'] = (sell_exhausted_vol / daily_total_volume) * 100
         return results
 
-    def _calculate_execution_alpha_metrics(self, context: dict) -> dict:
+    @staticmethod
+    def _calculate_execution_alpha_metrics(context: dict) -> dict:
         """
-        【V65.0 · 计算上下文封装】
-        - 核心重构: 方法签名简化为只接收 `context` 对象，并从内部解构所需数据。
+        【V66.0 · 计算内核静态化】
+        - 核心重构: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
         """
-        # 新增代码块：从 context 解构所需变量
         hf_analysis_df = context['hf_analysis_df']
         daily_data = context['daily_data']
         common_data = context['common_data']
