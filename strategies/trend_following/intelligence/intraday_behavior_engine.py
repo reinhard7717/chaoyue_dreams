@@ -13,9 +13,9 @@ from strategies.trend_following.utils import (
 
 class IntradayBehaviorEngine:
     """
-    【V2.0 · 三大公理重构版】
-    - 核心升级: 废弃旧的复杂指标和诊断模型，引入基于日内博弈本质的“攻击、控制、转折”三大公理。
-                使引擎更轻量、更聚焦、逻辑更清晰。
+    【V3.0 · 日内叙事三部曲版】
+    - 核心升级: 在“日内战报”基础上，引入基于日内博弈叙事的“战术弧线”、“竞价意图”、“修复质量”三大新公理。
+                旨在穿透全天战果的表象，捕捉主力资金在日内的完整战术剧本，为T+1决策提供更深层次的博弈洞察。
     """
     def __init__(self, strategy_instance):
         """初始化时加载专属配置，并获取指标计算器的引用"""
@@ -58,36 +58,33 @@ class IntradayBehaviorEngine:
 
     async def run_intraday_diagnostics(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V4.0 · 战局推演版】日内诊断总指挥
+        【V4.0 · 日内叙事三部曲版】日内诊断总指挥
         - 核心流程:
           1. 准备分钟级核心数据 (VWAP)。
-          2. 并行诊断“进攻纯度”、“支配共识”、“信念反转”三大战报，以及新增的“开盘博弈”、“尾盘奇袭”、“韧性承接”、“攻防节奏”四大战局信号。
-          3. 返回所有信号的最终值，为日线级分析提供过程性解释。
+          2. 并行诊断“进攻纯度”、“支配共识”、“信念反转”三大经典战报。
+          3. [新增] 并行诊断“战术弧线”、“竞价意图”、“修复质量”三大叙事信号。
+          4. 返回所有信号的最终值，为日线级分析提供更全面的过程性解释。
         """
-        # [代码修改] 更新版本号和描述
-        print("启动【V4.0 · 战局推演版】日内行为诊断...")
+        print("启动【V4.0 · 日内叙事三部曲版】日内行为诊断...") # [代码修改] 更新版本号和描述
         df_enriched = await self._prepare_intraday_indicators(df_minute)
         if df_enriched is None or df_enriched.empty:
             print("分钟数据为空，无法进行日内行为诊断。")
-            # [代码修改] 增加新的信号到默认返回字典
             return {
                 "SCORE_INTRADAY_OFFENSIVE_PURITY": 0.0,
                 "SCORE_INTRADAY_DOMINANCE_CONSENSUS": 0.0,
                 "SCORE_INTRADAY_CONVICTION_REVERSAL": 0.0,
-                "SCORE_INTRADAY_OPENING_GAMBIT": 0.0,
-                "SCORE_INTRADAY_CLOSING_AMBUSH": 0.0,
-                "SCORE_INTRADAY_RESILIENCE_ABSORPTION": 0.0,
-                "SCORE_INTRADAY_BATTLE_TEMPO": 0.0,
+                "SCORE_INTRADAY_TACTICAL_ARC": 0.0, # [代码新增]
+                "SCORE_INTRADAY_AUCTION_INTENT": 0.0, # [代码新增]
+                "SCORE_INTRADAY_RECOVERY_QUALITY": 0.0, # [代码新增]
             }
-        # [代码修改] 并行执行所有战报和战局的诊断
+        # [代码修改] 并行执行所有新旧诊断任务
         tasks = [
             self._diagnose_offensive_purity(df_enriched),
             self._diagnose_dominance_consensus(df_enriched),
             self._diagnose_conviction_reversal(df_enriched),
-            self._diagnose_opening_gambit(df_enriched),
-            self._diagnose_closing_ambush(df_enriched),
-            self._diagnose_resilience_absorption(df_enriched),
-            self._diagnose_battle_tempo(df_enriched),
+            self._diagnose_tactical_arc(df_enriched),
+            self._diagnose_auction_intent(df_enriched),
+            self._diagnose_recovery_quality(df_enriched),
         ]
         results = await asyncio.gather(*tasks)
         final_scores = {}
@@ -171,7 +168,10 @@ class IntradayBehaviorEngine:
 
     async def _diagnose_conviction_reversal(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.3 · 逻辑与探针重构版】日内战报之三：诊断“信念反转”
+        【V1.4 · 信号引用修正版】日内战报之三：诊断“信念反转”
+        - 核心修正: 修正了信念衰减计算中的信号引用错误。当5日斜率信号不存在时，
+                      不再尝试获取一个不存在的1日斜率信号，而是明确地将衰减度置为0，
+                      使代码逻辑更健壮、意图更清晰。
         - 核心修复: 修复了因 main_force_execution_alpha 为负就将看涨证据完全归零的“一票否决”逻辑脆弱性。
                       采用 tanh 函数将双极性 Alpha 柔性映射到 [0, 1] 区间，使模型更稳健。
         - 核心重构: 重构探针逻辑，使其能正确识别当前处理的数据段是否覆盖了探针日期。
@@ -190,17 +190,19 @@ class IntradayBehaviorEngine:
         mf_alpha_raw = daily_signals.get('main_force_execution_alpha_D', 0.0)
         # 使用tanh进行柔性映射，k=2.0表示对alpha的正负较为敏感
         bullish_alpha_score = (np.tanh(mf_alpha_raw * 2.0) + 1) / 2
-        bullish_reversal_evidence = (panic_score * absorption_score * bullish_alpha_score).pow(1/3)
+        bullish_reversal_evidence = (panic_score * absorption_score * bullish_alpha_score)**(1/3) # [代码修改] 使用 **(1/3) 代替 .pow()
         distribution_score = daily_signals.get('rally_distribution_pressure_D', 0.0)
-        # 尝试获取5日斜率，如果不存在，则使用1日斜率作为备用
+        # [代码修改开始] 修正信念衰减的计算逻辑
         conviction_slope_5d = daily_signals.get('SLOPE_5_main_force_conviction_index_D', None)
+        conviction_decay_source = "5D_SLOPE" # [代码新增] 用于探针
         if pd.isna(conviction_slope_5d):
-             conviction_slope_1d = daily_signals.get('SLOPE_1_main_force_conviction_index_D', 0.0)
-             conviction_decay = max(0, -conviction_slope_1d)
+             conviction_decay = 0.0 # [代码修改] 当5日斜率无效时，明确将衰减设为0
+             conviction_decay_source = "FALLBACK_ZERO" # [代码新增] 用于探针
         else:
-             conviction_decay = max(0, -conviction_slope_5d)
+             conviction_decay = max(0, -conviction_slope_5d) # [代码修改] 正常计算
+        # [代码修改结束]
         mf_alpha_bearish = abs(min(mf_alpha_raw, 0.0))
-        bearish_reversal_evidence = (distribution_score * conviction_decay * mf_alpha_bearish).pow(1/3)
+        bearish_reversal_evidence = (distribution_score * conviction_decay * mf_alpha_bearish)**(1/3) # [代码修改] 使用 **(1/3) 代替 .pow()
         final_score = bullish_reversal_evidence - bearish_reversal_evidence
         # --- 重构探针逻辑以适配历史回溯 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -211,166 +213,127 @@ class IntradayBehaviorEngine:
             if processed_date_str in probe_dates:
                 print(f"      [日内行为探针] _diagnose_conviction_reversal @ {processed_date_str}")
                 print(f"        - 看涨证据: 恐慌={panic_score:.2f}, 承接={absorption_score:.2f}, 主力Alpha分(新)={bullish_alpha_score:.2f} (原始Alpha={mf_alpha_raw:.2f}) -> 综合={bullish_reversal_evidence:.4f}")
-                print(f"        - 看跌证据: 派发={distribution_score:.2f}, 信念衰减={conviction_decay:.2f}, 主力Alpha-={mf_alpha_bearish:.2f} -> 综合={bearish_reversal_evidence:.4f}")
+                # [代码修改] 更新探针输出，明确衰减来源
+                print(f"        - 看跌证据: 派发={distribution_score:.2f}, 信念衰减={conviction_decay:.2f} (来源: {conviction_decay_source}), 主力Alpha-={mf_alpha_bearish:.2f} -> 综合={bearish_reversal_evidence:.4f}")
                 print(f"        - 最终信念反转分: {final_score:.4f}")
         return {"SCORE_INTRADAY_CONVICTION_REVERSAL": np.clip(final_score, -1, 1)}
 
-    async def _diagnose_opening_gambit(self, df_minute: pd.DataFrame) -> Dict[str, float]:
+    async def _diagnose_tactical_arc(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.0 · 新增】日内战局之一：诊断“开盘博弈”
+        【V1.0 · 新增】日内叙事之一：诊断“战术弧线”
+        - 核心逻辑: 对比上下午的“支配强度”，判断力量消长。
         """
-        params = get_params_block(self.strategy, 'intraday_battle_report_params.opening_gambit', {})
-        if not get_param_value(params.get('enabled'), False):
-            return {"SCORE_INTRADAY_OPENING_GAMBIT": 0.0}
-        duration = get_param_value(params.get('duration_minutes'), 30)
-        opening_df = df_minute.between_time('09:30', (pd.to_datetime('09:30') + pd.Timedelta(minutes=duration)).strftime('%H:%M'))
-        if opening_df.empty or len(opening_df) < 5:
-            return {"SCORE_INTRADAY_OPENING_GAMBIT": 0.0}
-        # 1. 价格趋势分
-        price_trend_score = (opening_df['close'].iloc[-1] / opening_df['close'].iloc[0] - 1) * 100
-        norm_price_trend = normalize_to_bipolar(pd.Series(price_trend_score), window=1, sensitivity=2.0).iloc[0]
-        # 2. VWAP控制分
-        vwap_control_score = (opening_df['close'] - opening_df['vwap']) / opening_df['vwap']
-        avg_vwap_control = vwap_control_score.mean()
-        norm_vwap_control = normalize_to_bipolar(pd.Series(avg_vwap_control), window=1, sensitivity=0.01).iloc[0]
-        # 3. 成交量强度分
-        volume_strength = opening_df['amount'].sum() / df_minute['amount'].sum()
-        norm_volume = normalize_to_bipolar(pd.Series(volume_strength), window=1, sensitivity=0.2).iloc[0]
-        # 融合
-        w_price = get_param_value(params.get('price_trend_weight'), 0.3)
-        w_vwap = get_param_value(params.get('vwap_weight'), 0.4)
-        w_vol = get_param_value(params.get('volume_weight'), 0.3)
-        final_score = norm_price_trend * w_price + norm_vwap_control * w_vwap + norm_volume * w_vol
-        # --- 探针 ---
-        probe_params = get_params_block(self.strategy, 'intraday_battle_report_params.probe_params', {})
+        required_signals = ['close', 'vwap', 'amount']
+        if not self._validate_required_signals(df_minute, required_signals, "_diagnose_tactical_arc"):
+            return {"SCORE_INTRADAY_TACTICAL_ARC": 0.0}
+        vwap = self._get_safe_series(df_minute, 'vwap').replace(0, np.nan).ffill()
+        price_deviation = (self._get_safe_series(df_minute, 'close') - vwap) / vwap
+        dominance_strength = (price_deviation * self._get_safe_series(df_minute, 'amount')).fillna(0)
+        # A股市场，通常13:00之后为下午盘
+        am_dominance = dominance_strength[df_minute.index.hour < 13]
+        pm_dominance = dominance_strength[df_minute.index.hour >= 13]
+        am_avg_dominance = am_dominance.mean() if not am_dominance.empty else 0
+        pm_avg_dominance = pm_dominance.mean() if not pm_dominance.empty else 0
+        # 计算原始分，代表力量的净变化方向
+        raw_score = pm_avg_dominance - am_avg_dominance
+        # 归一化处理
+        total_abs_dominance = dominance_strength.abs().mean()
+        final_score = raw_score / (total_abs_dominance + 1e-9)
+        final_score = np.tanh(final_score) # 使用tanh平滑到[-1, 1]
+        # --- 探针监测 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(probe_params.get('enabled'), False) and get_param_value(debug_params.get('enabled'), False)
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if is_debug_enabled and probe_dates and not df_minute.empty:
             processed_date_str = df_minute.index[0].strftime('%Y-%m-%d')
             if processed_date_str in probe_dates:
-                print(f"      [日内战局探针] _diagnose_opening_gambit @ {processed_date_str}")
-                print(f"        - 价格趋势分: {norm_price_trend:.4f}, VWAP控制分: {norm_vwap_control:.4f}, 成交量强度分: {norm_volume:.4f}")
-                print(f"        - 最终开盘博弈分: {final_score:.4f}")
-        return {"SCORE_INTRADAY_OPENING_GAMBIT": np.clip(final_score, -1, 1)}
+                print(f"      [日内行为探针] _diagnose_tactical_arc @ {processed_date_str}")
+                print(f"        - 上午平均支配强度: {am_avg_dominance:.2f}")
+                print(f"        - 下午平均支配强度: {pm_avg_dominance:.2f}")
+                print(f"        - 原始分 (PM - AM): {raw_score:.2f}")
+                print(f"        - 最终战术弧线分: {final_score:.4f}")
+        return {"SCORE_INTRADAY_TACTICAL_ARC": final_score}
 
-    async def _diagnose_closing_ambush(self, df_minute: pd.DataFrame) -> Dict[str, float]:
+    async def _diagnose_auction_intent(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.0 · 新增】日内战局之二：诊断“尾盘奇袭”
+        【V1.0 · 新增】日内叙事之二：诊断“竞价意图”
+        - 核心逻辑: 融合开盘博弈与收盘偷袭的日线级信号。
         """
-        params = get_params_block(self.strategy, 'intraday_battle_report_params.closing_ambush', {})
-        if not get_param_value(params.get('enabled'), False):
-            return {"SCORE_INTRADAY_CLOSING_AMBUSH": 0.0}
-        duration = get_param_value(params.get('duration_minutes'), 60)
-        closing_df = df_minute.between_time((pd.to_datetime('15:00') - pd.Timedelta(minutes=duration)).strftime('%H:%M'), '15:00')
-        if closing_df.empty or len(closing_df) < 5:
-            return {"SCORE_INTRADAY_CLOSING_AMBUSH": 0.0}
-        # 1. 价格趋势分 (与日内高点的关系)
-        price_trend_score = (closing_df['close'].iloc[-1] - closing_df['close'].iloc[0]) / (df_minute['high'].max() - df_minute['low'].min() + 1e-9)
-        norm_price_trend = normalize_to_bipolar(pd.Series(price_trend_score), window=1, sensitivity=0.5).iloc[0]
-        # 2. VWAP控制分
-        vwap_control_score = (closing_df['close'] - closing_df['vwap']) / closing_df['vwap']
-        avg_vwap_control = vwap_control_score.mean()
-        norm_vwap_control = normalize_to_bipolar(pd.Series(avg_vwap_control), window=1, sensitivity=0.01).iloc[0]
-        # 3. 成交量强度分
-        volume_strength = closing_df['amount'].sum() / df_minute['amount'].sum()
-        norm_volume = normalize_to_bipolar(pd.Series(volume_strength), window=1, sensitivity=0.2).iloc[0]
-        # 融合
-        w_price = get_param_value(params.get('price_trend_weight'), 0.4)
-        w_vwap = get_param_value(params.get('vwap_weight'), 0.4)
-        w_vol = get_param_value(params.get('volume_weight'), 0.2)
-        final_score = norm_price_trend * w_price + norm_vwap_control * w_vwap + norm_volume * w_vol
-        # --- 探针 ---
-        probe_params = get_params_block(self.strategy, 'intraday_battle_report_params.probe_params', {})
+        if df_minute.empty:
+            return {"SCORE_INTRADAY_AUCTION_INTENT": 0.0}
+        current_date = df_minute.index[0].normalize()
+        if current_date not in self.strategy.df_indicators.index:
+            print(f"    -> [日内行为情报警告] _diagnose_auction_intent: 在日线数据中未找到日期 {current_date}，跳过计算。")
+            return {"SCORE_INTRADAY_AUCTION_INTENT": 0.0}
+        daily_signals = self.strategy.df_indicators.loc[current_date]
+        # 从日线数据中获取开盘和收盘的博弈信号
+        opening_intent = daily_signals.get('opening_battle_result_D', 0.0)
+        closing_intent = daily_signals.get('closing_auction_ambush_D', 0.0)
+        # 从配置中获取权重
+        params = get_params_block(self.strategy, 'intraday_narrative_engine_params', {})
+        weights = get_param_value(params.get('auction_intent_weights'), {'opening': 0.4, 'closing': 0.6})
+        # 加权融合
+        final_score = (opening_intent * weights.get('opening', 0.4) +
+                       closing_intent * weights.get('closing', 0.6))
+        # --- 探针监测 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(probe_params.get('enabled'), False) and get_param_value(debug_params.get('enabled'), False)
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df_minute.empty:
-            processed_date_str = df_minute.index[0].strftime('%Y-%m-%d')
+        if is_debug_enabled and probe_dates:
+            processed_date_str = current_date.strftime('%Y-%m-%d')
             if processed_date_str in probe_dates:
-                print(f"      [日内战局探针] _diagnose_closing_ambush @ {processed_date_str}")
-                print(f"        - 价格趋势分: {norm_price_trend:.4f}, VWAP控制分: {norm_vwap_control:.4f}, 成交量强度分: {norm_volume:.4f}")
-                print(f"        - 最终尾盘奇袭分: {final_score:.4f}")
-        return {"SCORE_INTRADAY_CLOSING_AMBUSH": np.clip(final_score, -1, 1)}
+                print(f"      [日内行为探针] _diagnose_auction_intent @ {processed_date_str}")
+                print(f"        - 开盘博弈结果分: {opening_intent:.4f}")
+                print(f"        - 收盘竞价偷袭分: {closing_intent:.4f}")
+                print(f"        - 最终竞价意图分: {final_score:.4f}")
+        return {"SCORE_INTRADAY_AUCTION_INTENT": np.clip(final_score, -1, 1)}
 
-    async def _diagnose_resilience_absorption(self, df_minute: pd.DataFrame) -> Dict[str, float]:
+    async def _diagnose_recovery_quality(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V1.0 · 新增】日内战局之三：诊断“韧性承接”
+        【V1.0 · 新增】日内叙事之三：诊断“修复质量”
+        - 核心逻辑: 从幅度、阵地、能量三个维度评估V型反转的含金量。
         """
-        params = get_params_block(self.strategy, 'intraday_battle_report_params.resilience_absorption', {})
-        if not get_param_value(params.get('enabled'), False):
-            return {"SCORE_INTRADAY_RESILIENCE_ABSORPTION": 0.0}
-        drawdown_threshold = get_param_value(params.get('drawdown_threshold'), -0.015)
-        df_minute['cummax_close'] = df_minute['close'].cummax()
-        df_minute['drawdown'] = (df_minute['close'] - df_minute['cummax_close']) / df_minute['cummax_close']
-        dips = df_minute[df_minute['drawdown'] < drawdown_threshold]
-        if dips.empty:
-            return {"SCORE_INTRADAY_RESILIENCE_ABSORPTION": 1.0} # 没有显著回调本身就是一种强势
-        total_recovery_score = 0
-        for dip_time, dip_row in dips.iterrows():
-            recovery_df = df_minute.loc[dip_time:]
-            if recovery_df.empty: continue
-            final_price = df_minute['close'].iloc[-1]
-            recovery_magnitude = (final_price - dip_row['close']) / dip_row['close']
-            # 1. 恢复速度分
-            recovery_speed_score = recovery_magnitude / len(recovery_df) if len(recovery_df) > 0 else 0
-            # 2. 恢复量能分
-            recovery_volume_score = recovery_df['amount'].mean() / df_minute['amount'].mean()
-            w_speed = get_param_value(params.get('recovery_speed_weight'), 0.5)
-            w_vol = get_param_value(params.get('recovery_volume_weight'), 0.5)
-            dip_score = recovery_speed_score * w_speed + recovery_volume_score * w_vol
-            total_recovery_score += dip_score
-        avg_recovery_score = total_recovery_score / len(dips) if len(dips) > 0 else 0
-        final_score = normalize_score(pd.Series(avg_recovery_score), window=1, clip_min=0, clip_max=1).iloc[0]
-        # --- 探针 ---
-        probe_params = get_params_block(self.strategy, 'intraday_battle_report_params.probe_params', {})
+        if df_minute.empty or 'vwap' not in df_minute.columns:
+            return {"SCORE_INTRADAY_RECOVERY_QUALITY": 0.0}
+        # 获取当日OHLC和VWAP
+        daily_open = df_minute['open'].iloc[0]
+        daily_high = df_minute['high'].max()
+        daily_low = df_minute['low'].min()
+        daily_close = df_minute['close'].iloc[-1]
+        daily_vwap = df_minute['vwap'].iloc[-1]
+        # 从配置中获取参数
+        params = get_params_block(self.strategy, 'intraday_narrative_engine_params', {})
+        gate_threshold = get_param_value(params.get('recovery_gate_threshold_pct'), {'value': 0.04}).get('value')
+        weights = get_param_value(params.get('recovery_quality_weights'), {'magnitude': 0.4, 'vwap_reclaim': 0.4, 'volume_confirm': 0.2})
+        # 门控条件：当日必须有足够的振幅才进行评估
+        day_range = daily_high - daily_low
+        if day_range / daily_open < gate_threshold:
+            return {"SCORE_INTRADAY_RECOVERY_QUALITY": 0.0}
+        # 1. 修复幅度分 (0-1)
+        magnitude_score = (daily_close - daily_low) / (day_range + 1e-9)
+        # 2. 阵地收复分 (0或1)
+        vwap_reclaim_score = 1.0 if daily_close > daily_vwap else 0.0
+        # 3. 能量确认分
+        am_volume = df_minute['volume'][df_minute.index.hour < 13].sum()
+        pm_volume = df_minute['volume'][df_minute.index.hour >= 13].sum()
+        # 修复通常发生在下午，如果下午成交量显著大于上午，说明修复有能量支持
+        volume_confirm_score = normalize_score(pm_volume / (am_volume + 1e-9), 0.8, 1.5) # 0.8倍是中性，1.5倍以上是强力
+        # 加权融合
+        final_score = (magnitude_score * weights.get('magnitude', 0.4) +
+                       vwap_reclaim_score * weights.get('vwap_reclaim', 0.4) +
+                       volume_confirm_score * weights.get('volume_confirm', 0.2))
+        # --- 探针监测 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(probe_params.get('enabled'), False) and get_param_value(debug_params.get('enabled'), False)
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df_minute.empty:
+        if is_debug_enabled and probe_dates:
             processed_date_str = df_minute.index[0].strftime('%Y-%m-%d')
             if processed_date_str in probe_dates:
-                print(f"      [日内战局探针] _diagnose_resilience_absorption @ {processed_date_str}")
-                print(f"        - 识别到 {len(dips)} 个显著回调点")
-                print(f"        - 平均恢复得分: {avg_recovery_score:.4f}")
-                print(f"        - 最终韧性承接分: {final_score:.4f}")
-        return {"SCORE_INTRADAY_RESILIENCE_ABSORPTION": final_score}
+                print(f"      [日内行为探针] _diagnose_recovery_quality @ {processed_date_str}")
+                print(f"        - 修复幅度分: {magnitude_score:.4f}")
+                print(f"        - VWAP收复分: {vwap_reclaim_score:.4f}")
+                print(f"        - 成交量确认分: {volume_confirm_score:.4f} (PM Vol: {pm_volume}, AM Vol: {am_volume})")
+                print(f"        - 最终修复质量分: {final_score:.4f}")
+        return {"SCORE_INTRADAY_RECOVERY_QUALITY": np.clip(final_score, 0, 1)}
 
-    async def _diagnose_battle_tempo(self, df_minute: pd.DataFrame) -> Dict[str, float]:
-        """
-        【V1.0 · 新增】日内战局之四：诊断“攻防节奏”
-        """
-        params = get_params_block(self.strategy, 'intraday_battle_report_params.battle_tempo', {})
-        if not get_param_value(params.get('enabled'), False):
-            return {"SCORE_INTRADAY_BATTLE_TEMPO": 0.0}
-        df_minute['price_change'] = df_minute['close'].diff().fillna(0)
-        price_change_std = df_minute['price_change'].std()
-        volume_mean = df_minute['amount'].mean()
-        std_multiplier = get_param_value(params.get('impulse_std_dev_multiplier'), 2.0)
-        vol_multiplier = get_param_value(params.get('impulse_volume_multiplier'), 2.0)
-        bull_impulse_mask = (df_minute['price_change'] > price_change_std * std_multiplier) & (df_minute['amount'] > volume_mean * vol_multiplier)
-        bear_impulse_mask = (df_minute['price_change'] < -price_change_std * std_multiplier) & (df_minute['amount'] > volume_mean * vol_multiplier)
-        bull_impulse_power = (df_minute.loc[bull_impulse_mask, 'price_change'] * df_minute.loc[bull_impulse_mask, 'amount']).sum()
-        bear_impulse_power = (df_minute.loc[bear_impulse_mask, 'price_change'].abs() * df_minute.loc[bear_impulse_mask, 'amount']).sum()
-        total_amount = df_minute['amount'].sum()
-        if total_amount == 0:
-            return {"SCORE_INTRADAY_BATTLE_TEMPO": 0.0}
-        w_bull = get_param_value(params.get('bull_impulse_weight'), 0.6)
-        w_bear = get_param_value(params.get('bear_impulse_weight'), 0.4)
-        net_impulse_power = (bull_impulse_power * w_bull - bear_impulse_power * w_bear) / total_amount
-        final_score = normalize_to_bipolar(pd.Series(net_impulse_power), window=1, sensitivity=0.05).iloc[0]
-        # --- 探针 ---
-        probe_params = get_params_block(self.strategy, 'intraday_battle_report_params.probe_params', {})
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(probe_params.get('enabled'), False) and get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df_minute.empty:
-            processed_date_str = df_minute.index[0].strftime('%Y-%m-%d')
-            if processed_date_str in probe_dates:
-                print(f"      [日内战局探针] _diagnose_battle_tempo @ {processed_date_str}")
-                print(f"        - 多头脉冲分钟数: {bull_impulse_mask.sum()}, 总能量: {bull_impulse_power:.2f}")
-                print(f"        - 空头脉冲分钟数: {bear_impulse_mask.sum()}, 总能量: {bear_impulse_power:.2f}")
-                print(f"        - 归一化后净脉冲能量: {net_impulse_power:.4f}")
-                print(f"        - 最终攻防节奏分: {final_score:.4f}")
-        return {"SCORE_INTRADAY_BATTLE_TEMPO": np.clip(final_score, -1, 1)}
 

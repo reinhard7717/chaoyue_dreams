@@ -1426,39 +1426,38 @@
           "synergy_force_weight": 0.3
         }
       },
-      "intraday_battle_report_params": {
+      "intraday_behavior_engine_params": {
         "enabled": true,
-        "description": "【V2.0 · 战局推演版】日内行为引擎，用于分钟级数据的深度战术分析。从“战报总结”升维至“战局推演”。",
-        "probe_params": {
-            "enabled": true,
-            "description": "日内战局推演探针总开关"
+        "description": "【V1.0】日内行为引擎，用于分钟级数据的深度战术分析。",
+        "trix_params": { "enabled": true, "period": 13, "signal_period": 8 },
+        "kdj_params": { "enabled": true, "period": 13, "signal_period": 5, "smooth_k_period": 3 },
+        "squeeze_params": { "enabled": true, "bb_period": 21, "kc_period": 21, "atr_period": 13 },
+        "donchian_params": { "enabled": true, "period": 21 },
+        "eom_params": { "enabled": true, "period": 13 },
+        "meta_analysis_params": {
+          "meta_window": 13,
+          "norm_window": 55,
+          "trend_weight": 0.6,
+          "accel_weight": 0.4
+        }
+      },
+      "intraday_narrative_engine_params": {
+        "enabled": true,
+        "description": "【V1.0】日内叙事引擎，用于分钟级数据的深度战术叙事分析。",
+        "auction_intent_weights": {
+          "description": "竞价意图信号中，开盘和收盘意图的融合权重。",
+          "opening": 0.4,
+          "closing": 0.6
         },
-        "opening_gambit": {
-            "enabled": true,
-            "duration_minutes": 30,
-            "vwap_weight": 0.4,
-            "volume_weight": 0.3,
-            "price_trend_weight": 0.3
+        "recovery_quality_weights": {
+          "description": "修复质量信号中，三大维度的融合权重。",
+          "magnitude": 0.4,
+          "vwap_reclaim": 0.4,
+          "volume_confirm": 0.2
         },
-        "closing_ambush": {
-            "enabled": true,
-            "duration_minutes": 60,
-            "vwap_weight": 0.4,
-            "volume_weight": 0.2,
-            "price_trend_weight": 0.4
-        },
-        "resilience_absorption": {
-            "enabled": true,
-            "drawdown_threshold": -0.015,
-            "recovery_speed_weight": 0.5,
-            "recovery_volume_weight": 0.5
-        },
-        "battle_tempo": {
-            "enabled": true,
-            "impulse_std_dev_multiplier": 2.0,
-            "impulse_volume_multiplier": 2.0,
-            "bull_impulse_weight": 0.6,
-            "bear_impulse_weight": 0.4
+        "recovery_gate_threshold_pct": {
+            "description": "触发修复质量计算的最低日内振幅阈值（占开盘价百分比）。",
+            "value": 0.04
         }
       },
       "tactic_engine_params": {
