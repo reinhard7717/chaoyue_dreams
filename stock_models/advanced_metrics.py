@@ -521,11 +521,10 @@ class AdvancedFundFlowMetrics_BJ(BaseAdvancedFundFlowMetrics):
 # 结构与行为高级指标模型
 class BaseAdvancedStructuralMetrics(models.Model):
     """
-    【V61.0 · 博弈精研】
-    - 核心重构: 对 `GAME_EFFICIENCY_METRICS` 指标组进行升维，废弃冗余指标，引入更能体现
-                 “博弈效率”的新指标，如 `thrust_efficiency_score`。
-    - 核心修正: 将 `price_thrust_divergence` 从博弈效率组中移出，归入新增的 `DERIVATIVE_METRICS`
-                 衍生指标组，使其宗门归位，名实相符。
+    【V63.0 · 劲力合一】
+    - 核心重构: 在数据模型层面，将 `CONTROL_METRICS` 中的“脉冲”、“沉寂”、“加速”等指标
+                 重铸为“效率”与“引力”指标，使其“法身”与“心法”完全统一，承载“劲力合一”的新内涵。
+    - 戒律同步: 同步更新 `SLOPE_ACCEL_EXCLUSIONS` 列表，确保新指标名实相符。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     ENERGY_DENSITY_METRICS = {
@@ -545,19 +544,19 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'sweep_intensity_ma5': '扫单强度5日均线',
         'vpin_roc3': 'VPIN3日变化率',
     }
+    # 修改代码块：重铸 CONTROL_METRICS 指标
     CONTROL_METRICS = {
         'trend_efficiency_ratio': '趋势效率比',
         'pullback_depth_ratio': '回撤深度比',
         'mean_reversion_frequency': '均值回归频率(每小时)',
-        'opening_volume_impulse': '开盘成交脉冲',
-        'midday_consolidation_level': '盘中沉寂水平',
-        'tail_volume_acceleration': '尾盘成交加速',
+        'opening_impulse_efficiency': '开盘脉冲效率', # 修改代码行
+        'midday_narrow_range_gravity': '盘中窄幅引力', # 修改代码行
+        'tail_acceleration_efficiency': '尾盘加速效率', # 修改代码行
         'closing_conviction_score': '收盘信念得分',
         'volume_profile_entropy': '成交剖面熵',
         'intraday_pnl_imbalance': '日内盈亏失衡度',
         'cost_dispersion_index': '成本离散指数(ATR)',
     }
-    # 修改代码块：重构 GAME_EFFICIENCY_METRICS
     GAME_EFFICIENCY_METRICS = {
         'volatility_skew_index': '波动率偏度指数',
         'active_volume_price_efficiency': '主动成交量价格效率',
@@ -565,7 +564,6 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'distribution_pressure_index': '上涨派发压力指数',
         'thrust_efficiency_score': '推力效能分',
     }
-    # 新增代码块：创建 DERIVATIVE_METRICS 组
     DERIVATIVE_METRICS = {
         'price_thrust_divergence': '价格动能背离',
     }
@@ -601,7 +599,7 @@ class BaseAdvancedStructuralMetrics(models.Model):
         **ENERGY_DENSITY_METRICS,
         **CONTROL_METRICS,
         **GAME_EFFICIENCY_METRICS,
-        **DERIVATIVE_METRICS, # 新增代码行
+        **DERIVATIVE_METRICS,
         **FORWARD_LOOKING_METRICS,
         **ADVANCED_BATTLEFIELD_METRICS,
         **MICROSTRUCTURE_DYNAMICS_METRICS,
@@ -621,14 +619,14 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'trend_efficiency_ratio',
         'pullback_depth_ratio',
         'mean_reversion_frequency',
-        'opening_volume_impulse',
-        'midday_consolidation_level',
-        'tail_volume_acceleration',
+        'opening_impulse_efficiency', # 修改代码行
+        'midday_narrow_range_gravity', # 修改代码行
+        'tail_acceleration_efficiency', # 修改代码行
         'closing_conviction_score',
         'volume_profile_entropy',
         'intraday_pnl_imbalance',
         'cost_dispersion_index',
-        'price_thrust_divergence', # 新增代码行
+        'price_thrust_divergence',
         'volatility_skew_index',
         'value_area_migration',
         'value_area_overlap_pct',

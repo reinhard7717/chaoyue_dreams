@@ -234,17 +234,16 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_control_metrics(context: dict) -> dict:
         """
-        【V58.0 · 诡道归元】
-        - BUG修复: 在 `mean_reversion_frequency` 的高频计算中，为 `continuous_group` 的索引明确命名，根除 `merge_asof` 的 `KeyError`。
-        - `trend_efficiency_ratio` 升级: 引入“推力纯度”作为信念权重，奖赏量价合一的“真趋势”。
-        - `pullback_depth_ratio` 升级: 重构为区分“上涨”与“下跌”分钟的量价相关性分析，精准刻画“缩量回调”等健康趋势模式。
-        - `mean_reversion_frequency` 修正: 逻辑正本清源，精确计算价格穿越VWAP的“频率”，而非“幅度”。
-        - 探针完备: 为所有核心升级指标配备了详尽的调试探针。
+        【V63.0 · 劲力合一】
+        - 核心升维: 全面重构“脉冲”、“加速”与“沉寂”三大指标，从度量“力”的大小与方向，
+                     升维至度量“劲”的效率与效果，更深层次地洞察控盘行为的性价比与真实意图。
+        - `opening_impulse_efficiency` 新增: 衡量开盘期“单位成交量撬动的价格变动”，即“四两拨千斤”的效率。
+        - `midday_narrow_range_gravity` 新增: 直接计算盘中相对活跃时段的波动率收缩度，精准刻画“沉寂蓄势”。
+        - `tail_acceleration_efficiency` 新增: 衡量尾盘加速的真实“性价比”，辨别“高效偷袭”与“力竭冲高”。
         """
         group = context['group']
         continuous_group = context['continuous_group']
         tick_df = context.get('tick_df')
-        level5_df = context.get('level5_df')
         daily_info = context['daily_series_for_day']
         day_open_qfq = context['day_open_qfq']
         day_close_qfq = context['day_close_qfq']
@@ -268,66 +267,29 @@ class StructuralMetricsCalculators:
             variance = np.average((group['close'] - weighted_price_mean)**2, weights=group['vol'])
             dispersion_raw = np.sqrt(variance)
             results['cost_dispersion_index'] = dispersion_raw / atr_14
-        if enable_probe and is_target_date:
-            print(f"--- [探针 ASM.{trade_date_str}] cost_dispersion_index (控盘) ---")
-            print(f"    - 原料: {'Tick' if tick_df is not None else '分钟'}数据, ATR={atr_14:.4f}")
-            print(f"    - 节点 (成交加权价格标准差): {dispersion_raw:.4f}")
-            print(f"    - 计算: {dispersion_raw:.4f} / {atr_14:.4f}")
-            print(f"    -> 结果: {results.get('cost_dispersion_index', np.nan):.4f}")
         first_half = continuous_group[continuous_group.index.time < time(11, 30)]
         second_half = continuous_group[continuous_group.index.time >= time(13, 0)]
         if not first_half.empty and not second_half.empty and first_half['vol'].sum() > 0 and second_half['vol'].sum() > 0:
             vwap_first = (first_half['amount'].sum() / first_half['vol'].sum())
             vwap_second = (second_half['amount'].sum() / second_half['vol'].sum())
             results['intraday_pnl_imbalance'] = (vwap_second - vwap_first) / atr_14
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] intraday_pnl_imbalance (控盘) ---")
-                print(f"    - 原料: 上半场VWAP={vwap_first:.3f}, 下半场VWAP={vwap_second:.3f}, ATR={atr_14:.4f}")
-                print(f"    - 计算: ({vwap_second:.3f} - {vwap_first:.3f}) / {atr_14:.4f}")
-                print(f"    -> 结果: {results.get('intraday_pnl_imbalance', np.nan):.4f}")
-        # 修改代码块：修正 mean_reversion_frequency 的计算逻辑并修复BUG
         if 'minute_vwap' in continuous_group.columns and not continuous_group['minute_vwap'].isnull().all():
             if tick_df is not None and not tick_df.empty:
-                # 高频模式：精确计算穿越次数
-                # BUG修复：为 continuous_group 的索引明确命名，以避免 merge_asof 的 KeyError
                 continuous_group.index.name = 'trade_time'
                 merged_df = pd.merge_asof(tick_df.sort_index(), continuous_group[['minute_vwap']].sort_index(), on='trade_time', direction='backward')
                 merged_df['position'] = np.sign(merged_df['price'] - merged_df['minute_vwap'])
                 crossings = (merged_df['position'].diff().abs() == 2).sum()
                 results['mean_reversion_frequency'] = (crossings / len(tick_df)) * 1000 if len(tick_df) > 0 else 0
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] mean_reversion_frequency (控盘-VWAP引力) ---")
-                    print(f"    - 模式: 高频 (Tick-level)")
-                    print(f"    - 原料: {len(tick_df)}笔Tick, 分钟VWAP序列")
-                    print(f"    - 节点 (穿越次数): {crossings} 次")
-                    print(f"    - 计算 (归一化): ({crossings} / {len(tick_df)}) * 1000")
-                    print(f"    -> 结果: {results.get('mean_reversion_frequency', np.nan):.4f}")
             else:
-                # 降级模式：使用分钟线收盘价估算
                 position = np.sign(continuous_group['close'] - continuous_group['minute_vwap'])
                 crossings = (position.diff().abs() == 2).sum()
                 results['mean_reversion_frequency'] = (crossings / len(continuous_group)) * 100 if len(continuous_group) > 0 else 0
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] mean_reversion_frequency (控盘-VWAP引力) ---")
-                    print(f"    - 模式: 降级 (Minute-level)")
-                    print(f"    - 原料: {len(continuous_group)}条分钟线, 分钟VWAP序列")
-                    print(f"    - 节点 (穿越次数): {crossings} 次")
-                    print(f"    - 计算 (归一化): ({crossings} / {len(continuous_group)}) * 100")
-                    print(f"    -> 结果: {results.get('mean_reversion_frequency', np.nan):.4f}")
-        # 修改代码块：升级 trend_efficiency_ratio 的计算逻辑
         price_change = day_close_qfq - day_open_qfq
         sum_abs_minute_change = (continuous_group['high'] - continuous_group['low']).sum()
         if sum_abs_minute_change > 0:
             er_raw = abs(price_change) / sum_abs_minute_change
             thrust_purity = context.get('intraday_thrust_purity', 0)
             results['trend_efficiency_ratio'] = er_raw * (1 + thrust_purity) * np.sign(price_change)
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] trend_efficiency_ratio (控盘) ---")
-                print(f"    - 原料: 价格净变动={price_change:.2f}, 累计振幅={sum_abs_minute_change:.2f}, 推力纯度={thrust_purity:.4f}")
-                print(f"    - 节点 (原始效率): {er_raw:.4f}")
-                print(f"    - 计算 (信念加权): {er_raw:.4f} * (1 + {thrust_purity:.4f}) * {np.sign(price_change):.0f}")
-                print(f"    -> 结果: {results.get('trend_efficiency_ratio', np.nan):.4f}")
-        # 修改代码块：升级 pullback_depth_ratio 的计算逻辑
         minute_return = continuous_group['close'].pct_change().fillna(0)
         minute_volume = continuous_group['vol']
         advancing_mask = continuous_group['close'] > continuous_group['open']
@@ -339,60 +301,48 @@ class StructuralMetricsCalculators:
             corr_dec = corr_dec if pd.notna(corr_dec) else 0
             trend_direction = np.sign(day_close_qfq - day_open_qfq) if (day_close_qfq != day_open_qfq) else 1
             results['pullback_depth_ratio'] = (corr_adv - corr_dec) * trend_direction
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] pullback_depth_ratio (控盘-量价相关性) ---")
-                print(f"    - 原料: 上涨分钟数={advancing_mask.sum()}, 下跌分钟数={declining_mask.sum()}, 日内趋势方向={trend_direction:.0f}")
-                print(f"    - 节点1 (上涨相关性): {corr_adv:.4f}")
-                print(f"    - 节点2 (下跌相关性): {corr_dec:.4f}")
-                print(f"    - 计算: ({corr_adv:.4f} - {corr_dec:.4f}) * {trend_direction:.0f}")
-                print(f"    -> 结果: {results.get('pullback_depth_ratio', np.nan):.4f}")
-        open_period_df = continuous_group[continuous_group.index.time < time(9, 45)]
-        mid_period_df = continuous_group[(continuous_group.index.time >= time(10, 30)) & (continuous_group.index.time < time(14, 30))]
-        tail_period_df = continuous_group[continuous_group.index.time >= time(14, 30)]
-        if not open_period_df.empty:
-            open_vol = open_period_df['vol'].sum()
-            avg_min_vol = total_volume_safe / 240
-            vol_impulse_ratio = (open_vol / 15) / avg_min_vol if avg_min_vol > 0 else 1.0
-            thrust_purity = np.nan
-            if tick_df is not None:
-                open_ticks = tick_df[tick_df.index.time < time(9, 45)]
-                if not open_ticks.empty and open_ticks['volume'].sum() > 0:
-                    open_total_vol = open_ticks['volume'].sum()
-                    if 'price_change' in open_ticks.columns and not open_ticks['price_change'].isnull().all():
-                        self_calculated_change = open_ticks['price'].diff().fillna(0)
-                        zero_change_mask = open_ticks['price_change'] == 0
-                        effective_price_change = np.where(zero_change_mask, self_calculated_change, open_ticks['price_change'])
-                        net_thrust_vol = (open_ticks['volume'] * np.sign(effective_price_change)).sum()
-                        thrust_purity = net_thrust_vol / open_total_vol
-                    elif 'type' in open_ticks.columns:
-                        buy_vol = open_ticks[open_ticks['type'] == 'B']['volume'].sum()
-                        sell_vol = open_ticks[open_ticks['type'] == 'S']['volume'].sum()
-                        thrust_purity = (buy_vol - sell_vol) / open_total_vol
-            if pd.notna(thrust_purity):
-                results['opening_volume_impulse'] = vol_impulse_ratio * thrust_purity
-            else:
-                results['opening_volume_impulse'] = vol_impulse_ratio * np.sign(open_period_df['close'].iloc[-1] - open_period_df['open'].iloc[0])
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] opening_volume_impulse (控盘-动能归一) ---")
-                print(f"    - 原料: 开盘15分钟成交均值/全天均值={vol_impulse_ratio:.2f}, 开盘期推力纯度={thrust_purity:.4f}")
-                print(f"    - 计算: {vol_impulse_ratio:.2f} * {thrust_purity:.4f}")
-                print(f"    -> 结果: {results.get('opening_volume_impulse', np.nan):.4f}")
-        if not mid_period_df.empty:
-            mid_vol_ratio = mid_period_df['vol'].sum() / total_volume_safe
-            ofi_factor = 0.0
-            if level5_df is not None and not level5_df.empty and 'ofi' in level5_df.columns:
-                mid_l5 = level5_df[(level5_df.index.time >= time(10, 30)) & (level5_df.index.time < time(14, 30))]
-                if not mid_l5.empty:
-                    mid_vol = mid_period_df['vol'].sum()
-                    if mid_vol > 0:
-                        abs_ofi_per_vol = mid_l5['ofi'].abs().sum() / mid_vol
-                        ofi_factor = np.log1p(abs_ofi_per_vol)
-            results['midday_consolidation_level'] = (1 - mid_vol_ratio) * (1 + ofi_factor)
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] midday_consolidation_level (控盘) ---")
-                print(f"    - 原料: 盘中成交量占比={mid_vol_ratio:.4f}, 盘中OFI因子={ofi_factor:.4f}")
-                print(f"    - 计算: (1 - {mid_vol_ratio:.4f}) * (1 + {ofi_factor:.4f})")
-                print(f"    -> 结果: {results.get('midday_consolidation_level', np.nan):.4f}")
+        # 划分日内三个核心时段
+        open_period_df = continuous_group.between_time('09:30', '10:00')
+        mid_period_df = continuous_group.between_time('10:01', '14:29')
+        tail_period_df = continuous_group.between_time('14:30', '15:00')
+        # 修改代码块：升维为 opening_impulse_efficiency
+        if not open_period_df.empty and total_volume_safe > 0:
+            open_vol_ratio = open_period_df['vol'].sum() / total_volume_safe
+            if open_vol_ratio > 0:
+                open_price_change = open_period_df['close'].iloc[-1] - open_period_df['open'].iloc[0]
+                price_change_norm = open_price_change / atr_14
+                results['opening_impulse_efficiency'] = price_change_norm / open_vol_ratio
+                if enable_probe and is_target_date:
+                    print(f"--- [探针 ASM.{trade_date_str}] opening_impulse_efficiency (控盘-劲力合一) ---")
+                    print(f"    - 原料: 开盘期价格变动={open_price_change:.2f}, 成交量占比={open_vol_ratio:.4f}, ATR={atr_14:.4f}")
+                    print(f"    - 节点 (标准化价格变动): {open_price_change:.2f} / {atr_14:.4f} = {price_change_norm:.4f}")
+                    print(f"    - 计算 (效率): {price_change_norm:.4f} / {open_vol_ratio:.4f}")
+                    print(f"    -> 结果: {results.get('opening_impulse_efficiency', np.nan):.4f}")
+        # 修改代码块：升维为 midday_narrow_range_gravity
+        if not mid_period_df.empty and not open_period_df.empty and not tail_period_df.empty:
+            volatility_mid = mid_period_df['close'].pct_change().std()
+            active_period_df = pd.concat([open_period_df, tail_period_df])
+            volatility_active = active_period_df['close'].pct_change().std()
+            if pd.notna(volatility_mid) and pd.notna(volatility_active) and volatility_active > 0:
+                results['midday_narrow_range_gravity'] = 1 - (volatility_mid / volatility_active)
+                if enable_probe and is_target_date:
+                    print(f"--- [探针 ASM.{trade_date_str}] midday_narrow_range_gravity (控盘-劲力合一) ---")
+                    print(f"    - 原料: 盘中波动率={volatility_mid:.6f}, 活跃时段波动率={volatility_active:.6f}")
+                    print(f"    - 计算 (引力): 1 - ({volatility_mid:.6f} / {volatility_active:.6f})")
+                    print(f"    -> 结果: {results.get('midday_narrow_range_gravity', np.nan):.4f}")
+        # 修改代码块：升维为 tail_acceleration_efficiency
+        if not tail_period_df.empty and total_volume_safe > 0:
+            tail_vol_ratio = tail_period_df['vol'].sum() / total_volume_safe
+            if tail_vol_ratio > 0:
+                tail_price_change = tail_period_df['close'].iloc[-1] - tail_period_df['open'].iloc[0]
+                price_change_norm = tail_price_change / atr_14
+                results['tail_acceleration_efficiency'] = price_change_norm / tail_vol_ratio
+                if enable_probe and is_target_date:
+                    print(f"--- [探针 ASM.{trade_date_str}] tail_acceleration_efficiency (控盘-劲力合一) ---")
+                    print(f"    - 原料: 尾盘期价格变动={tail_price_change:.2f}, 成交量占比={tail_vol_ratio:.4f}, ATR={atr_14:.4f}")
+                    print(f"    - 节点 (标准化价格变动): {tail_price_change:.2f} / {atr_14:.4f} = {price_change_norm:.4f}")
+                    print(f"    - 计算 (效率): {price_change_norm:.4f} / {tail_vol_ratio:.4f}")
+                    print(f"    -> 结果: {results.get('tail_acceleration_efficiency', np.nan):.4f}")
         if not tail_period_df.empty and not mid_period_df.empty and mid_period_df['vol'].mean() > 0:
             accel_ratio = tail_period_df['vol'].mean() / mid_period_df['vol'].mean()
             tail_thrust_purity = np.nan
@@ -410,27 +360,12 @@ class StructuralMetricsCalculators:
                         buy_vol = tail_ticks[tail_ticks['type'] == 'B']['volume'].sum()
                         sell_vol = tail_ticks[tail_ticks['type'] == 'S']['volume'].sum()
                         tail_thrust_purity = (buy_vol - sell_vol) / tail_total_vol
-            if pd.notna(tail_thrust_purity):
-                results['tail_volume_acceleration'] = accel_ratio * tail_thrust_purity
-            else:
-                results['tail_volume_acceleration'] = accel_ratio * np.sign(tail_period_df['close'].iloc[-1] - tail_period_df['open'].iloc[0])
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] tail_volume_acceleration (控盘-动能归一) ---")
-                print(f"    - 原料: 尾盘/盘中成交均值比={accel_ratio:.2f}, 尾盘推力纯度={tail_thrust_purity:.4f}")
-                print(f"    - 计算: {accel_ratio:.2f} * {tail_thrust_purity:.4f}")
-                print(f"    -> 结果: {results.get('tail_volume_acceleration', np.nan):.4f}")
             vpoc = context.get('_today_vpoc', np.nan)
             if pd.notna(vpoc):
                 deviation_magnitude = (day_close_qfq - vpoc) / atr_14
                 tail_force_factor = np.log1p(accel_ratio)
                 conviction_purity = tail_thrust_purity if pd.notna(tail_thrust_purity) else np.sign(day_close_qfq - vpoc)
                 results['closing_conviction_score'] = deviation_magnitude * tail_force_factor * conviction_purity
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] closing_conviction_score (控盘) ---")
-                    print(f"    - 原料: 收盘价={day_close_qfq:.2f}, VPOC={vpoc:.2f}, ATR={atr_14:.4f}")
-                    print(f"    - 节点: VPOC偏离={deviation_magnitude:.4f}, 尾盘力量因子={tail_force_factor:.4f}, 信念纯度={conviction_purity:.4f}")
-                    print(f"    - 计算: {deviation_magnitude:.4f} * {tail_force_factor:.4f} * {conviction_purity:.4f}")
-                    print(f"    -> 结果: {results.get('closing_conviction_score', np.nan):.4f}")
         return results
 
     @staticmethod
