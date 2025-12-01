@@ -57,11 +57,12 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V16.1 · 数据流重构版】筹码情报总指挥
-        - 核心重构: 调整内部调用流程，将上游信号作为参数显式传递给下游方法，
-                      确保数据流的纯净与一致性，根除“幽灵数据”问题。
+        【V16.2 · 数据流闭环版】筹码情报总指挥
+        - 核心修复: 将显式数据流模式应用到所有存在内部依赖的方法调用上，
+                      确保`_diagnose_tactical_exchange`也能接收到正确的上游信号，
+                      形成完整、健壮的数据流闭环。
         """
-        print("启动【V16.1 · 数据流重构版】筹码情报分析...") # [修改代码行]
+        print("启动【V16.2 · 数据流闭环版】筹码情报分析...")
         all_chip_states = {}
         periods = [5, 13, 21, 55]
         holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
@@ -72,11 +73,6 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_STRATEGIC_POSTURE'] = strategic_posture
         battlefield_geography = self._diagnose_battlefield_geography(df)
         all_chip_states['SCORE_CHIP_BATTLEFIELD_GEOGRAPHY'] = battlefield_geography
-        # [修改代码行] 移除对df的在位修改，这些信号已由all_chip_states管理
-        # df['SCORE_CHIP_STRATEGIC_POSTURE'] = strategic_posture
-        # df['SCORE_CHIP_BATTLEFIELD_GEOGRAPHY'] = battlefield_geography
-        # df['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
-        # [修改代码行] 将上游信号作为参数显式传递
         chip_trend_momentum_scores = self._diagnose_axiom_trend_momentum(df, periods, strategic_posture, battlefield_geography, holder_sentiment_scores)
         all_chip_states['SCORE_CHIP_AXIOM_TREND_MOMENTUM'] = chip_trend_momentum_scores
         historical_potential = self._diagnose_axiom_historical_potential(df)
@@ -87,9 +83,9 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_RISK_DISTRIBUTION_WHISPER'] = distribution_whisper
         coherent_drive = self._diagnose_structural_consensus(df, battlefield_geography, holder_sentiment_scores)
         all_chip_states['SCORE_CHIP_COHERENT_DRIVE'] = coherent_drive
-        tactical_exchange = self._diagnose_tactical_exchange(df)
+        tactical_exchange = self._diagnose_tactical_exchange(df, battlefield_geography) # 显式传入battlefield_geography
         all_chip_states['SCORE_CHIP_TACTICAL_EXCHANGE'] = tactical_exchange
-        print(f"【V16.1 · 数据流重构版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。") # [修改代码行]
+        print(f"【V16.2 · 数据流闭环版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。")
         return all_chip_states
 
     def _run_integrity_probe(self, df: pd.DataFrame, required_signals: list, probe_name: str):
@@ -246,7 +242,7 @@ class ChipIntelligence:
         - 核心修复: 修正“反向惩罚”悖论。将`fomo_score`的归一化参数`ascending`从`False`改回`True`，
                       恢复“FOMO情绪越高，不纯度越高”的正确逻辑。
         """
-        print("    -> [筹码层] 正在诊断“持仓信念”公理 (V5.4 · 逻辑正向版)...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“持仓信念”公理 (V5.4 · 逻辑正向版)...")
         required_signals = [
             'winner_stability_index_D', 'loser_pain_index_D', 'dip_absorption_power_D',
             'mf_cost_zone_defense_intent_D', 'retail_fomo_premium_index_D',
@@ -300,16 +296,16 @@ class ChipIntelligence:
         - 核心重构: 采用显式数据流模式。不再从共享DataFrame读取上游信号，而是通过函数参数直接注入，
                       从根本上解决了因数据更新时序问题导致的“幽灵数据”和计算错误，确保了数据流的绝对一致性。
         """
-        print("    -> [筹码层] 正在诊断“结构性推力”公理 (V5.2 · 数据流重构版)...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“结构性推力”公理 (V5.2 · 数据流重构版)...")
         required_signals = [
-            'main_force_conviction_index_D', 'vacuum_zone_magnitude_D' # [修改代码行] 移除了三个上游信号
+            'main_force_conviction_index_D', 'vacuum_zone_magnitude_D' # 移除了三个上游信号
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_momentum"):
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         df_index = df.index
-        health_score = ( # [修改代码行] 直接使用传入的Series参数
+        health_score = ( # 直接使用传入的Series参数
             (strategic_posture.add(1)/2) *
             (battlefield_geography.add(1)/2) *
             (holder_sentiment.add(1)/2)
@@ -336,7 +332,7 @@ class ChipIntelligence:
             if probe_date in df.index:
                 print(f"    -> [结构性推力探针] @ {probe_date.date()}:")
                 print(f"       - 维度1: 引擎功率 (Engine Power)")
-                # [修改代码行] 更新探针，明确打印传入的依赖信号值
+                # 更新探针，明确打印传入的依赖信号值
                 print(f"         - 原料 (上游信号): posture: {strategic_posture.loc[probe_date]:.4f}, geography: {battlefield_geography.loc[probe_date]:.4f}, sentiment: {holder_sentiment.loc[probe_date]:.4f}")
                 print(f"         - 原料 (计算过程): health_score: {health_score.loc[probe_date]:.4f}, slope: {slope.loc[probe_date]:.4f}, accel: {accel.loc[probe_date]:.4f}")
                 print(f"         - 结果: engine_power_score: {engine_power_score.loc[probe_date]:.4f}")
@@ -356,18 +352,18 @@ class ChipIntelligence:
                       这使得背离诊断从“价格趋势 vs 集中度趋势”升级为“价格趋势 vs 筹码动量”，更直指博弈核心。
         - 核心升级: 植入标准化的“真理探针”，输出所有原始数据、关键计算过程及最终结果。
         """
-        print("    -> [筹码层] 正在诊断“价筹张力”公理 (V5.2 · 信号换代版)...") # [修改代码行]
-        required_signals = ['winner_loser_momentum_D', 'SLOPE_5_close_D', 'volume_D'] # [修改代码行]
+        print("    -> [筹码层] 正在诊断“价筹张力”公理 (V5.2 · 信号换代版)...")
+        required_signals = ['winner_loser_momentum_D', 'SLOPE_5_close_D', 'volume_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         df_index = df.index
-        chip_momentum = self._get_safe_series(df, df, 'winner_loser_momentum_D', 0.0, method_name="_diagnose_axiom_divergence") # [修改代码行]
+        chip_momentum = self._get_safe_series(df, df, 'winner_loser_momentum_D', 0.0, method_name="_diagnose_axiom_divergence")
         price_trend = self._get_safe_series(df, df, 'SLOPE_5_close_D', 0.0, method_name="_diagnose_axiom_divergence")
-        norm_chip_momentum = get_adaptive_mtf_normalized_bipolar_score(chip_momentum, df_index, tf_weights) # [修改代码行]
+        norm_chip_momentum = get_adaptive_mtf_normalized_bipolar_score(chip_momentum, df_index, tf_weights)
         norm_price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend, df_index, tf_weights)
-        disagreement_vector = norm_chip_momentum - norm_price_trend # [修改代码行]
+        disagreement_vector = norm_chip_momentum - norm_price_trend
         persistence = disagreement_vector.rolling(window=13, min_periods=5).std().fillna(0)
         norm_persistence = get_adaptive_mtf_normalized_score(persistence, df_index, tf_weights=tf_weights)
         volume = self._get_safe_series(df, df, 'volume_D', 0.0, method_name="_diagnose_axiom_divergence")
@@ -511,9 +507,9 @@ class ChipIntelligence:
         - 核心升级: 将评估长期筹码趋势的`SLOPE_55_winner_concentration_90pct_D`替换为更综合、更稳健的`chip_health_score_D`。
                       这使得对长期势能的评估从单一的“集中趋势”升级为对“结构健康度”的全面诊断。
         """
-        print("    -> [筹码层] 正在诊断“筹码势能”公理 (V1.4 · 信号换代版)...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“筹码势能”公理 (V1.4 · 信号换代版)...")
         required_signals = [
-            'main_force_net_flow_calibrated_D', 'chip_health_score_D', # [修改代码行]
+            'main_force_net_flow_calibrated_D', 'chip_health_score_D',
             'dominant_peak_solidity_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_historical_potential"):
@@ -525,8 +521,8 @@ class ChipIntelligence:
         mf_net_flow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0)
         long_term_flow_accumulation = mf_net_flow.clip(lower=0).rolling(window=long_window, min_periods=55).sum()
         flow_score = get_adaptive_mtf_normalized_score(long_term_flow_accumulation, df_index, ascending=True, tf_weights=tf_weights)
-        chip_health = self._get_safe_series(df, df, 'chip_health_score_D', 0.0) # [修改代码行]
-        concentration_score_unipolar = get_adaptive_mtf_normalized_score(chip_health, df_index, ascending=True, tf_weights=tf_weights) # [修改代码行]
+        chip_health = self._get_safe_series(df, df, 'chip_health_score_D', 0.0)
+        concentration_score_unipolar = get_adaptive_mtf_normalized_score(chip_health, df_index, ascending=True, tf_weights=tf_weights)
         peak_solidity = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5)
         stability_score = get_adaptive_mtf_normalized_score(peak_solidity, df_index, ascending=True, tf_weights=tf_weights)
         potential_score = (flow_score * 0.5 + concentration_score_unipolar * 0.3 + stability_score * 0.2)
@@ -543,17 +539,17 @@ class ChipIntelligence:
                 print(f"       - 结果: final_potential_score: {potential_score.loc[probe_date_for_loop]:.4f}")
         return potential_score.clip(0, 1).astype(np.float32)
 
-    def _diagnose_tactical_exchange(self, df: pd.DataFrame) -> pd.Series:
+    def _diagnose_tactical_exchange(self, df: pd.DataFrame, battlefield_geography: pd.Series) -> pd.Series:
         """
-        【V1.2 · 零值门控版】诊断战术换手博弈的质量与意图
-        - 核心修复: 解决“幻觉质量分”悖论。引入“零值门控”，在归一化后强制将原始信号为0的得分置为0，
-                      确保“无行为则无得分”，根除因归一化机制产生的幻觉信号。
+        【V1.3 · 数据流重构版】诊断战术换手博弈的质量与意图
+        - 核心重构: 遵循显式数据流模式，将上游信号`battlefield_geography`作为参数直接注入，
+                      彻底解决因依赖共享DataFrame状态而导致的信号缺失问题。
         """
-        print("    -> [筹码层] 正在诊断“战术换手博弈 (V1.2 · 零值门控版)”...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“战术换手博弈 (V1.3 · 数据流重构版)”...")
         required_signals = [
             'main_force_net_flow_calibrated_D', 'retail_net_flow_calibrated_D', 'turnover_rate_f_D',
             'peak_control_transfer_D', 'floating_chip_cleansing_efficiency_D', 'capitulation_absorption_index_D',
-            'profit_realization_quality_D', 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 'BIAS_55_D', 'is_consolidating_D',
+            'profit_realization_quality_D', 'BIAS_55_D', 'is_consolidating_D', # 移除了'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY'
             'upward_impulse_purity_D', 'SLOPE_1_close_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_tactical_exchange"):
@@ -575,14 +571,13 @@ class ChipIntelligence:
         absorption_idx = self._get_safe_series(df, df, 'capitulation_absorption_index_D')
         impulse_purity = self._get_safe_series(df, df, 'upward_impulse_purity_D')
         profit_quality = self._get_safe_series(df, df, 'profit_realization_quality_D')
-        # [修改代码块] 引入零值门控
         norm_absorption = get_adaptive_mtf_normalized_score(absorption_idx, df_index, tf_weights).where(absorption_idx != 0, 0)
         norm_impulse_purity = get_adaptive_mtf_normalized_score(impulse_purity, df_index, tf_weights).where(impulse_purity != 0, 0)
         bullish_quality = pd.Series(np.where(is_up_day, norm_impulse_purity, norm_absorption), index=df_index)
         bearish_quality = get_adaptive_mtf_normalized_score(profit_quality, df_index, tf_weights)
         quality_score = bullish_quality - bearish_quality
         # 维度3: 换手环境 (Exchange Context)
-        geography = self._get_safe_series(df, df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY')
+        geography = battlefield_geography # 直接使用传入的参数
         bias = self._get_safe_series(df, df, 'BIAS_55_D')
         is_consolidating = self._get_safe_series(df, df, 'is_consolidating_D')
         norm_bias_risk = (bias / 0.3).clip(-1, 1)
@@ -606,12 +601,12 @@ class ChipIntelligence:
                 print(f"         - 结果: intent_score: {intent_score.loc[probe_date]:.4f}")
                 print(f"       - 维度2: 换手质量 (Quality)")
                 print(f"         - 原料: absorption: {absorption_idx.loc[probe_date]:.4f}, impulse_purity: {impulse_purity.loc[probe_date]:.4f}, profit_taking: {profit_quality.loc[probe_date]:.4f}, is_up_day: {is_up_day.loc[probe_date]}")
-                # 更新探针输出以反映零值门控
                 print(f"         - 过程: norm_absorption(gated): {norm_absorption.loc[probe_date]:.4f}, norm_impulse_purity(gated): {norm_impulse_purity.loc[probe_date]:.4f}")
                 print(f"         - 过程: bullish_quality (dynamic): {bullish_quality.loc[probe_date]:.4f}, bearish_quality: {bearish_quality.loc[probe_date]:.4f}")
                 print(f"         - 结果: quality_score: {quality_score.loc[probe_date]:.4f}")
                 print(f"       - 维度3: 换手环境 (Context)")
-                print(f"         - 原料: geography: {geography.loc[probe_date]:.4f}, bias55: {bias.loc[probe_date]:.4f}, is_consolidating: {is_consolidating.loc[probe_date]}")
+                # 更新探针输出，明确geography是注入的
+                print(f"         - 原料: geography (injected): {geography.loc[probe_date]:.4f}, bias55: {bias.loc[probe_date]:.4f}, is_consolidating: {is_consolidating.loc[probe_date]}")
                 print(f"         - 过程: norm_bias_risk: {norm_bias_risk.loc[probe_date]:.4f}")
                 print(f"         - 结果: context_score: {context_score.loc[probe_date]:.4f}")
                 print(f"       - 最终融合结果: final_score: {final_score.loc[probe_date]:.4f}")
