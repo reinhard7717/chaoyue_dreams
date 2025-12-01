@@ -449,6 +449,39 @@ class AdvancedStructuralMetricsService:
         r_squared = 1 - (ss_res / ss_tot)
         return slope, r_squared
 
+    def _calculate_mean_reversion_speed(self, price_series: pd.Series) -> float:
+        """
+        【V30.9 · 新增辅助函数】
+        估算价格序列的均值回归速度。
+        基于Ornstein-Uhlenbeck过程的离散化模型，通过回归价格变化与滞后价格来计算。
+        :param price_series: 分钟收盘价序列。
+        :return: 均值回归速度。正值表示存在均值回归，值越大速度越快。
+        """
+        # 清理数据并确保有足够的数据点进行回归
+        cleaned_series = price_series.dropna()
+        if len(cleaned_series) < 2:
+            return 0.0
+        # 计算价格变化 ΔP(t)
+        price_changes = cleaned_series.diff().dropna()
+        # 获取滞后价格 P(t-1)
+        lagged_prices = cleaned_series.shift(1).dropna()
+        # 确保两者对齐
+        if len(price_changes) != len(lagged_prices):
+            # 在diff和shift之后，长度应该是一样的，但为了健壮性再做一次对齐
+            common_index = price_changes.index.intersection(lagged_prices.index)
+            price_changes = price_changes.loc[common_index]
+            lagged_prices = lagged_prices.loc[common_index]
+        if len(price_changes) < 2:
+            return 0.0
+        # 对 ΔP(t) = α + β * P(t-1) + ε 进行线性回归
+        # y 是价格变化, x 是滞后价格
+        y = price_changes.values
+        x = lagged_prices.values
+        # 使用numpy的polyfit进行线性回归，得到斜率β
+        slope, _ = np.polyfit(x, y, 1)
+        # 均值回归速度定义为 -slope
+        return -slope
+
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
         【V19.7 · 索引健壮性修复版】
