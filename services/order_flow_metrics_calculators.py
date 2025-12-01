@@ -41,8 +41,10 @@ class OrderFlowMetricsCalculators:
     def _calculate_ofi_and_sweep_metrics(tick_df: pd.DataFrame, total_volume: float) -> dict:
         """计算订单流失衡(OFI)和扫单强度相关指标。"""
         metrics = {}
-        active_buy_vol = tick_df[tick_df['side'] == 'B']['volume'].sum()
-        active_sell_vol = tick_df[tick_df['side'] == 'S']['volume'].sum()
+        # 修改代码行：将 'side' 修正为 'type'，与上游数据标准对齐
+        active_buy_vol = tick_df[tick_df['type'] == 'B']['volume'].sum()
+        # 修改代码行：将 'side' 修正为 'type'，与上游数据标准对齐
+        active_sell_vol = tick_df[tick_df['type'] == 'S']['volume'].sum()
         # 累计订单流失衡
         ofi = active_buy_vol - active_sell_vol
         metrics['order_flow_imbalance_score'] = ofi / total_volume
@@ -50,8 +52,10 @@ class OrderFlowMetricsCalculators:
         # 假设扫单定义为单笔成交量大于当日平均单笔成交量的5倍
         avg_tick_vol = tick_df['volume'].mean()
         sweep_threshold = avg_tick_vol * 5
-        buy_sweeps = tick_df[(tick_df['side'] == 'B') & (tick_df['volume'] > sweep_threshold)]
-        sell_sweeps = tick_df[(tick_df['side'] == 'S') & (tick_df['volume'] > sweep_threshold)]
+        # 修改代码行：将 'side' 修正为 'type'
+        buy_sweeps = tick_df[(tick_df['type'] == 'B') & (tick_df['volume'] > sweep_threshold)]
+        # 修改代码行：将 'side' 修正为 'type'
+        sell_sweeps = tick_df[(tick_df['type'] == 'S') & (tick_df['volume'] > sweep_threshold)]
         buy_sweep_vol = buy_sweeps['volume'].sum()
         sell_sweep_vol = sell_sweeps['volume'].sum()
         if active_buy_vol > 0:
@@ -65,8 +69,8 @@ class OrderFlowMetricsCalculators:
         """计算VPIN（Volume-Synchronized Probability of Informed Trading）指标。"""
         num_buckets = 50
         bucket_size = total_volume / num_buckets
-        tick_df['signed_volume'] = tick_df['volume'] * np.where(tick_df['side'] == 'B', 1, -1)
-        
+        # 修改代码行：将 'side' 修正为 'type'
+        tick_df['signed_volume'] = tick_df['volume'] * np.where(tick_df['type'] == 'B', 1, -1)
         imbalances = []
         current_bucket_vol = 0
         bucket_ofi = 0
@@ -77,7 +81,6 @@ class OrderFlowMetricsCalculators:
                 imbalances.append(bucket_ofi)
                 current_bucket_vol = 0
                 bucket_ofi = 0
-        
         if imbalances:
             imbalances_abs = np.abs(imbalances)
             vpin = np.sum(imbalances_abs) / (num_buckets * bucket_size)
@@ -89,28 +92,35 @@ class OrderFlowMetricsCalculators:
         """计算下跌中的吸收强度和上涨中的派发压力。"""
         metrics = {}
         group['price_change'] = group['close'].diff().fillna(0)
-        
         # 找到所有下跌的分钟
         falling_minutes = group[group['price_change'] < 0].index
         # 找到所有上涨的分钟
         rising_minutes = group[group['price_change'] > 0].index
-        
         # 筛选出在这些分钟内发生的tick
         ticks_in_falling_minutes = tick_df[tick_df.index.floor('T').isin(falling_minutes)]
         ticks_in_rising_minutes = tick_df[tick_df.index.floor('T').isin(rising_minutes)]
-        
         # 计算吸收强度
         if not ticks_in_falling_minutes.empty:
-            absorption_buy = ticks_in_falling_minutes[ticks_in_falling_minutes['side'] == 'B']['volume'].sum()
-            absorption_sell = ticks_in_falling_minutes[ticks_in_falling_minutes['side'] == 'S']['volume'].sum()
+            # 修改代码行：将 'side' 修正为 'type'
+            absorption_buy = ticks_in_falling_minutes[ticks_in_falling_minutes['type'] == 'B']['volume'].sum()
+            # 修改代码行：将 'side' 修正为 'type'
+            absorption_sell = ticks_in_falling_minutes[ticks_in_falling_minutes['type'] == 'S']['volume'].sum()
             if absorption_sell > 0:
                 metrics['absorption_strength_index'] = absorption_buy / absorption_sell
-
         # 计算派发压力
         if not ticks_in_rising_minutes.empty:
-            distribution_sell = ticks_in_rising_minutes[ticks_in_rising_minutes['side'] == 'S']['volume'].sum()
-            distribution_buy = ticks_in_rising_minutes[ticks_in_rising_minutes['side'] == 'B']['volume'].sum()
+            # 修改代码行：将 'side' 修正为 'type'
+            distribution_sell = ticks_in_rising_minutes[ticks_in_rising_minutes['type'] == 'S']['volume'].sum()
+            # 修改代码行：将 'side' 修正为 'type'
+            distribution_buy = ticks_in_rising_minutes[ticks_in_rising_minutes['type'] == 'B']['volume'].sum()
             if distribution_buy > 0:
                 metrics['distribution_pressure_index'] = distribution_sell / distribution_buy
-                
         return metrics
+
+
+
+
+
+
+
+
