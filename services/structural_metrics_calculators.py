@@ -13,11 +13,10 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V37.2 · 整固确证修正】
-        - 核心修复: 为 `high_level_consolidation_volume` 引入“收盘确证”机制。
-                     指标值现在会乘以一个确证因子 `sign(收盘价 - 高位阈值)`。
-                     这使其能够区分成功的整固(正值)与失败的派发/牛市陷阱(负值)，
-                     极大地提升了指标的实战价值。
+        【V37.3 · 信念同调修正】
+        - 核心修复: 修正 `auction_impact_score` 的计算逻辑，使其能正确处理低开的情况。
+                     通过引入 `np.sign(gap_magnitude)` 对信念因子进行“同调”，
+                     确保了无论是高开还是低开，后续的订单流都能正确地放大或缩小初始冲击的得分。
         """
         group = context['group']
         daily_series_for_day = context['daily_series_for_day']
@@ -96,14 +95,18 @@ class StructuralMetricsCalculators:
                     opening_volume = merged_hf['volume'].sum()
                     if opening_volume > 0:
                         conviction_factor = np.tanh(opening_ofi / opening_volume)
-                        results['auction_impact_score'] = gap_magnitude * (1 + conviction_factor)
+                        # 修改代码行：引入缺口方向对信念因子进行同调
+                        results['auction_impact_score'] = gap_magnitude * (1 + conviction_factor * np.sign(gap_magnitude))
                         if enable_probe and is_target_date:
                             print(f"--- [探针 ASM.{trade_date_str}] auction_impact_score (高频) ---")
                             print(f"    - 原料: 开盘价={day_open_qfq:.2f}, 昨收={pre_close_qfq:.2f}, ATR={atr_14:.4f}")
                             print(f"    - 节点1 (缺口): ({day_open_qfq:.2f} - {pre_close_qfq:.2f}) / {atr_14:.4f} = {gap_magnitude:.4f}")
                             print(f"    - 原料2: 开盘5分钟OFI={opening_ofi:,.0f}, 成交量={opening_volume:,.0f}")
+                            # 修改代码行：更新探针日志以反映新的计算逻辑
                             print(f"    - 节点2 (信念): tanh({opening_ofi:,.0f} / {opening_volume:,.0f}) = {conviction_factor:.4f}")
-                            print(f"    - 计算: {gap_magnitude:.4f} * (1 + {conviction_factor:.4f})")
+                            aligned_conviction = conviction_factor * np.sign(gap_magnitude)
+                            print(f"    - 节点3 (同调信念): {conviction_factor:.4f} * sign({gap_magnitude:.4f}) = {aligned_conviction:.4f}")
+                            print(f"    - 计算: {gap_magnitude:.4f} * (1 + {aligned_conviction:.4f})")
                             print(f"    -> 结果: {results['auction_impact_score']:.4f}")
                     else:
                         results['auction_impact_score'] = gap_magnitude
@@ -158,12 +161,10 @@ class StructuralMetricsCalculators:
                 total_volume = group['vol'].sum()
                 if total_volume > 0:
                     volume_ratio = group[group['high'] >= high_level_threshold]['vol'].sum() / total_volume
-            # 新增代码行：引入“收盘确证”因子
             confirmation_factor = np.sign(day_close_qfq - high_level_threshold)
             results['high_level_consolidation_volume'] = volume_ratio * confirmation_factor
             if enable_probe and is_target_date:
                 print(f"--- [探针 ASM.{trade_date_str}] high_level_consolidation_volume (高频) ---")
-                # 修改代码行：更新探针日志以反映新的计算逻辑
                 print(f"    - 原料: 高位阈值={high_level_threshold:.2f}, 收盘价={day_close_qfq:.2f}, 高位成交量占比={volume_ratio:.4f}")
                 print(f"    - 节点 (确证因子): sign({day_close_qfq:.2f} - {high_level_threshold:.2f}) = {confirmation_factor:.0f}")
                 print(f"    - 计算: {volume_ratio:.4f} * {confirmation_factor:.0f}")
