@@ -521,11 +521,10 @@ class AdvancedFundFlowMetrics_BJ(BaseAdvancedFundFlowMetrics):
 # 结构与行为高级指标模型
 class BaseAdvancedStructuralMetrics(models.Model):
     """
-    【V65.0 · 博弈穿透】
-    - 核心升维: 对 `GAME_EFFICIENCY_METRICS` 进行终极升维。不再仅看反向成交量，而是引入
-                 “冲击成本”概念，量化突破与防御所需付出的真实代价 (`breakthrough/defense_cost_index`)。
-    - 核心重构: 将“波动率偏度”升级为“趋势不对称指数”，从度量“幅度”提升至度量“路径效率”，
-                 更精准刻画多空趋势的顺畅度。
+    【V67.0 · 冲击验真】
+    - 核心升维: 将 `price_shock_factor` 升维为 `shock_conviction_score` (冲击置信度)。
+                 新指标不再只看结果，而是结合“路径效率”与“推力纯度”，对价格冲击的
+                 “质量”与“可持续性”进行深度验真。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     ENERGY_DENSITY_METRICS = {
@@ -557,7 +556,6 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'intraday_pnl_imbalance': '日内盈亏失衡度',
         'cost_dispersion_index': '成本离散指数(ATR)',
     }
-    # 修改代码块：重铸 GAME_EFFICIENCY_METRICS 指标
     GAME_EFFICIENCY_METRICS = {
         'trend_asymmetry_index': '趋势不对称指数',
         'active_volume_price_efficiency': '主动成交量价格效率',
@@ -568,9 +566,10 @@ class BaseAdvancedStructuralMetrics(models.Model):
     DERIVATIVE_METRICS = {
         'price_thrust_divergence': '价格动能背离',
     }
+    # 修改代码块：重铸 FORWARD_LOOKING_METRICS 指标
     FORWARD_LOOKING_METRICS = {
         'volatility_expansion_ratio': '波动率扩张比',
-        'price_shock_factor': '价格冲击因子(ATR标准化)',
+        'shock_conviction_score': '冲击置信度',
         'auction_showdown_score': '收盘竞价摊牌分',
     }
     ADVANCED_BATTLEFIELD_METRICS = {
@@ -628,19 +627,19 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'intraday_pnl_imbalance',
         'cost_dispersion_index',
         'price_thrust_divergence',
-        'trend_asymmetry_index', # 修改代码行
+        'trend_asymmetry_index',
         'value_area_migration',
         'value_area_overlap_pct',
         'closing_acceptance_type',
         'volatility_expansion_ratio',
-        'price_shock_factor',
+        'shock_conviction_score', # 修改代码行
         'auction_showdown_score',
         'trend_quality_score',
         'closing_momentum_index',
         'volume_structure_skew',
         'active_volume_price_efficiency',
-        'breakthrough_cost_index', # 修改代码行
-        'defense_cost_index', # 修改代码行
+        'breakthrough_cost_index',
+        'defense_cost_index',
         'order_flow_imbalance_score',
         'buy_sweep_intensity',
         'sell_sweep_intensity',

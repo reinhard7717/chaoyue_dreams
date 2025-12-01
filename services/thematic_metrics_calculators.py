@@ -108,11 +108,10 @@ class ThematicMetricsCalculators:
     @staticmethod
     def calculate_forward_looking_metrics(context: dict) -> dict:
         """
-        【V37.4 · 张力奇点修正】
-        - 核心修复: 修正了 `auction_showdown_score` 中盘口张力因子的数学模型。
-                     使用 `np.exp(pre_auction_tension)` 替代了原有的 `(1 + pre_auction_tension)`，
-                     解决了当卖压巨大(张力->-1)时指标值被强制归零的逻辑“奇点”问题，
-                     确保指标在极端压力下依然能做出有效评判。
+        【V67.0 · 冲击验真】
+        - 核心升维: 将 `price_shock_factor` 彻底重构为 `shock_conviction_score` (冲击置信度)。
+                     新指标通过融合“基础冲击幅度”、“日内路径效率”与“推力纯度”三大维度，
+                     旨在量化价格冲击的“质量”与“可持续性”，从而实现对未来走势更精准的前瞻。
         """
         group = context['group']
         continuous_group = context['continuous_group']
@@ -125,6 +124,7 @@ class ThematicMetricsCalculators:
         atr_5 = context['atr_5']
         atr_14 = context['atr_14']
         atr_50 = context['atr_50']
+        intraday_thrust_purity = context.get('intraday_thrust_purity', 0.0) # 获取推力纯度
         debug_info = context.get('debug', {})
         is_target_date = debug_info.get('is_target_date', False)
         enable_probe = debug_info.get('enable_probe', False)
@@ -149,31 +149,38 @@ class ThematicMetricsCalculators:
                             b1_v, a1_v = last_snapshot.get('buy_volume1', 0), last_snapshot.get('sell_volume1', 0)
                             if (b1_v + a1_v) > 0:
                                 pre_auction_tension = (b1_v - a1_v) / (b1_v + a1_v)
-                        # 使用 exp 函数替换 (1 + tension) 因子，消除奇点
                         tension_factor = np.exp(pre_auction_tension)
                         results['auction_showdown_score'] = auction_price_change * np.log1p(volume_surprise_factor) * tension_factor
-                        if enable_probe and is_target_date:
-                            print(f"--- [探针 ASM.{trade_date_str}] auction_showdown_score (高频) ---")
-                            print(f"    - 维度1 (价变): 收盘价={day_close_qfq:.2f}, 竞价前价={close_before_auction:.2f} -> {auction_price_change:.2f}%")
-                            print(f"    - 维度2 (量能意外): 竞价成交={auction_volume:,.0f}, 前30min均量={avg_vol_pre_auction:,.0f} -> {volume_surprise_factor:.2f}倍")
-                            # 更新探针日志以反映新的张力因子模型
-                            print(f"    - 维度3 (盘口张力): 竞价前买一量={last_snapshot.get('buy_volume1', 0) if last_snapshot is not None else 0:,.0f}, 卖一量={last_snapshot.get('sell_volume1', 0) if last_snapshot is not None else 0:,.0f} -> {pre_auction_tension:.4f}")
-                            print(f"    - 节点 (张力因子): exp({pre_auction_tension:.4f}) = {tension_factor:.4f}")
-                            print(f"    - 计算: {auction_price_change:.2f} * log1p({volume_surprise_factor:.2f}) * {tension_factor:.4f}")
-                            print(f"    -> 结果: {results['auction_showdown_score']:.4f}")
                     else:
                         avg_vol_minute_continuous = continuous_group['vol'].mean()
                         if avg_vol_minute_continuous > 0:
                             auction_volume_multiple = (auction_period_df['vol'].sum() / 3) / avg_vol_minute_continuous
                             results['auction_showdown_score'] = auction_price_change * np.log1p(auction_volume_multiple)
-                            if enable_probe and is_target_date:
-                                print(f"--- [探针 ASM.{trade_date_str}] auction_showdown_score (分钟降级) ---")
-                                print(f"    -> 结果: {results['auction_showdown_score']:.4f}")
-        if all(pd.notna(v) for v in [day_high_qfq, day_low_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
-            true_range = max(day_high_qfq, pre_close_qfq) - min(day_low_qfq, pre_close_qfq)
-            shock = true_range / atr_14
-            direction = np.sign(day_close_qfq - day_open_qfq) if day_close_qfq != day_open_qfq else 1
-            results['price_shock_factor'] = shock * direction
+        # 修改代码块：升维为 shock_conviction_score
+        if all(pd.notna(v) for v in [day_high_qfq, day_low_qfq, day_open_qfq, day_close_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
+            # 1. 基础冲击：量化冲击的原始幅度
+            base_shock = (day_close_qfq - pre_close_qfq) / atr_14
+            # 2. 信念因子：融合路径效率与推力纯度
+            intraday_range = day_high_qfq - day_low_qfq
+            if intraday_range > 0:
+                path_efficiency_factor = (day_close_qfq - day_open_qfq) / intraday_range
+            else:
+                path_efficiency_factor = np.sign(day_close_qfq - day_open_qfq) if day_close_qfq != day_open_qfq else 0
+            # 推力纯度因子直接使用
+            thrust_purity_factor = intraday_thrust_purity if pd.notna(intraday_thrust_purity) else 0
+            # 融合两大信念因子
+            conviction_weight = (path_efficiency_factor + thrust_purity_factor)
+            # 3. 最终得分：基础冲击 * 信念权重
+            results['shock_conviction_score'] = base_shock * conviction_weight
+            if enable_probe and is_target_date:
+                print(f"--- [探针 ASM.{trade_date_str}] shock_conviction_score (冲击验真) ---")
+                print(f"    - 原料: C={day_close_qfq:.2f}, O={day_open_qfq:.2f}, H={day_high_qfq:.2f}, L={day_low_qfq:.2f}, PC={pre_close_qfq:.2f}, ATR={atr_14:.4f}")
+                print(f"    - 节点1 (基础冲击): ({day_close_qfq:.2f} - {pre_close_qfq:.2f}) / {atr_14:.4f} = {base_shock:.4f}")
+                print(f"    - 节点2 (路径效率): ({day_close_qfq:.2f} - {day_open_qfq:.2f}) / {intraday_range:.2f} = {path_efficiency_factor:.4f}")
+                print(f"    - 节点3 (推力纯度): {thrust_purity_factor:.4f}")
+                print(f"    - 节点4 (信念权重): {path_efficiency_factor:.4f} + {thrust_purity_factor:.4f} = {conviction_weight:.4f}")
+                print(f"    - 计算: {base_shock:.4f} * {conviction_weight:.4f}")
+                print(f"    -> 结果: {results['shock_conviction_score']:.4f}")
         if all(pd.notna(v) for v in [atr_5, atr_50]) and atr_50 > 0:
             results['volatility_expansion_ratio'] = atr_5 / atr_50
         return results
