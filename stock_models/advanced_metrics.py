@@ -281,7 +281,7 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
     【V60.0 · 正名计划】
-    - 核心正名: 将 trend_conviction_ratio 正名为 trend_alignment_index，以匹配其升维后的逻辑内涵。
+    - 核心精简: 移除 microstructure_efficiency_index 字段，因其与 ofi_price_impact_factor 功能完全重复，统一保留后者。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     POWER_STRUCTURE_METRICS = {
@@ -322,7 +322,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'vwap_crossing_intensity': 'VWAP穿越烈度',
         'upper_shadow_selling_pressure': '上影线抛压强度',
         'lower_shadow_absorption_strength': '下影线承接强度',
-        # 修改代码行：更新指标名称和注释
         'trend_alignment_index': '趋势同向指数',
         'reversal_power_index': '反转力量指数',
         'holistic_cmf': '全局CMF',
@@ -335,7 +334,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'mf_retail_liquidity_swap_corr': '主力散户流动性交换相关性',
         'main_force_ofi': '主力订单流失衡',
         'retail_ofi': '散户订单流失衡',
-        'microstructure_efficiency_index': '微观结构效率指数',
+        # 修改代码行：移除冗余指标
         'hidden_accumulation_intensity': '隐蔽吸筹强度',
         'wash_trade_intensity': '主力对倒强度',
         'order_book_imbalance': '五档盘口失衡度',
@@ -367,12 +366,12 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'volatility_asymmetry_index', 'closing_strength_index',
         'vwap_control_strength', 'main_force_vwap_guidance', 'vwap_crossing_intensity',
         'upper_shadow_selling_pressure', 'lower_shadow_absorption_strength',
-        # 修改代码行：更新为新的字段名
         'trend_alignment_index', 'reversal_power_index',
         'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
         'main_force_vpoc', 'mf_vpoc_premium',
         'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
-        'main_force_ofi', 'retail_ofi', 'microstructure_efficiency_index',
+        # 修改代码行：移除冗余指标
+        'main_force_ofi', 'retail_ofi',
         'hidden_accumulation_intensity', 'wash_trade_intensity', 'order_book_imbalance',
         'large_order_pressure', 'large_order_support', 'order_book_liquidity_supply',
         'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
@@ -392,11 +391,11 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'volatility_asymmetry_index', 'closing_strength_index',
         'vwap_control_strength', 'main_force_vwap_guidance', 'vwap_crossing_intensity',
         'upper_shadow_selling_pressure', 'lower_shadow_absorption_strength',
-        # 修改代码行：更新为新的字段名
         'trend_alignment_index', 'reversal_power_index',
         'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
         'mf_vpoc_premium', 'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
-        'main_force_ofi', 'retail_ofi', 'microstructure_efficiency_index',
+        # 修改代码行：移除冗余指标
+        'main_force_ofi', 'retail_ofi',
         'hidden_accumulation_intensity', 'wash_trade_intensity', 'order_book_imbalance',
         'large_order_pressure', 'large_order_support', 'order_book_liquidity_supply',
         'buy_quote_exhaustion_rate', 'sell_quote_exhaustion_rate',
