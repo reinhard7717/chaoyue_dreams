@@ -112,8 +112,8 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_control_metrics(context: dict) -> dict:
         """
-        【V23.0 · 控制力穿透】
-        - 核心职责: 统一计算控制力指标组，实现两大核心指标的高频穿透升级。
+        【V29.0 · 节律与偏度穿透】
+        - 核心升级: 为 `mean_reversion_frequency` 指标实现高频穿透，精确捕捉价格穿越实时VWAP的次数。
         """
         group = context['group']
         continuous_group = context['continuous_group']
@@ -179,9 +179,26 @@ class StructuralMetricsCalculators:
                     print(f"    - 原料: 日内净位移={net_displacement:.4f}, 分钟总路径={total_path:.4f}")
                     print(f"    - 计算: {net_displacement:.4f} / {total_path:.4f}")
                     print(f"    -> 结果: {results['trend_efficiency_ratio']:.4f}")
-        vwap_ma20 = continuous_group['minute_vwap'].rolling(window=20, min_periods=1).mean()
-        position = np.sign(continuous_group['minute_vwap'] - vwap_ma20)
-        results['mean_reversion_frequency'] = position.diff().ne(0).sum() / 4.0
+        # 修改代码块：为 mean_reversion_frequency 增加高频计算逻辑
+        if tick_df is not None and not tick_df.empty:
+            tick_df['cum_amount'] = (tick_df['price'] * tick_df['volume']).cumsum()
+            tick_df['cum_volume'] = tick_df['volume'].cumsum()
+            tick_df['realtime_vwap'] = tick_df['cum_amount'] / tick_df['cum_volume']
+            position = np.sign(tick_df['price'] - tick_df['realtime_vwap'])
+            crossings = position.diff().ne(0).sum()
+            results['mean_reversion_frequency'] = crossings / 4.0
+            if enable_probe and is_target_date:
+                print(f"--- [探针 ASM.{trade_date_str}] mean_reversion_frequency (高频) ---")
+                print(f"    - 原料: 价格与实时VWAP交叉次数={crossings}")
+                print(f"    - 计算: {crossings} / 4.0 (小时)")
+                print(f"    -> 结果: {results['mean_reversion_frequency']:.4f}")
+        else:
+            vwap_ma20 = continuous_group['minute_vwap'].rolling(window=20, min_periods=1).mean()
+            position = np.sign(continuous_group['minute_vwap'] - vwap_ma20)
+            results['mean_reversion_frequency'] = position.diff().ne(0).sum() / 4.0
+            if enable_probe and is_target_date:
+                print(f"--- [探针 ASM.{trade_date_str}] mean_reversion_frequency (分钟降级) ---")
+                print(f"    -> 结果: {results['mean_reversion_frequency']:.4f}")
         opening_df_rhythm = group[group['trade_time'].dt.time < time(10, 0)]
         midday_df_rhythm = group[(group['trade_time'].dt.time >= time(10, 0)) & (group['trade_time'].dt.time < time(14, 30))]
         tail_df_rhythm = group[group['trade_time'].dt.time >= time(14, 30)]
@@ -218,8 +235,8 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_game_efficiency_metrics(context: dict) -> dict:
         """
-        【V24.0 · 博弈效能穿透】
-        - 核心职责: 统一计算博弈效能指标组，实现两大核心指标的高频穿透升级。
+        【V29.0 · 节律与偏度穿透】
+        - 核心升级: 为 `volatility_skew_index` 指标实现高频穿透，基于tick收益率精确度量日内波动情绪的偏向。
         """
         group = context['group']
         continuous_group = context['continuous_group']
@@ -306,6 +323,23 @@ class StructuralMetricsCalculators:
                             except IndexError: continue
                 if bullish_strengths: results['divergence_conviction_score'] = max(bullish_strengths)
                 elif bearish_strengths: results['divergence_conviction_score'] = min(bearish_strengths)
+        # 修改代码块：为 volatility_skew_index 增加高频计算逻辑
+        if tick_df is not None and not tick_df.empty:
+            tick_returns = tick_df['price'].pct_change().fillna(0)
+            weights = tick_df['volume']
+            if weights.sum() > 0:
+                weighted_mean = np.average(tick_returns, weights=weights)
+                weighted_var = np.average((tick_returns - weighted_mean)**2, weights=weights)
+                if weighted_var > 0:
+                    weighted_std = np.sqrt(weighted_var)
+                    weighted_skew = np.average(((tick_returns - weighted_mean) / weighted_std)**3, weights=weights)
+                    results['volatility_skew_index'] = weighted_skew
+                    if enable_probe and is_target_date:
+                        print(f"--- [探针 ASM.{trade_date_str}] volatility_skew_index (高频) ---")
+                        print(f"    - 原料: {len(tick_returns)} 笔高频收益率, 总成交量={weights.sum():,.0f}")
+                        print(f"    - 节点: 加权均值={weighted_mean:.6f}, 加权标准差={weighted_std:.6f}")
+                        print(f"    -> 结果: {results['volatility_skew_index']:.4f}")
+        else:
             returns = continuous_group['minute_vwap'].pct_change().fillna(0)
             weights = continuous_group['vol']
             if weights.sum() > 0:
@@ -314,6 +348,9 @@ class StructuralMetricsCalculators:
                 if weighted_var > 0:
                     weighted_std = np.sqrt(weighted_var)
                     results['volatility_skew_index'] = np.average(((returns - weighted_mean) / weighted_std)**3, weights=weights)
+                    if enable_probe and is_target_date:
+                        print(f"--- [探针 ASM.{trade_date_str}] volatility_skew_index (分钟降级) ---")
+                        print(f"    -> 结果: {results['volatility_skew_index']:.4f}")
         return results
 
     @staticmethod
