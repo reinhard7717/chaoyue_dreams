@@ -251,60 +251,64 @@ class AdvancedStructuralMetricsService:
         final_metrics_df.reset_index(inplace=True)
         return final_metrics_df
 
-    def _calculate_daily_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict, tick_df_for_day: pd.DataFrame = None, level5_df_for_day: pd.DataFrame = None, realtime_df_for_day: pd.DataFrame = None) -> dict:
+    def _calculate_daily_structural_metrics(
+        self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series: pd.Series,
+        atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict,
+        tick_df: pd.DataFrame = None, level5_df: pd.DataFrame = None, realtime_df: pd.DataFrame = None
+    ) -> dict:
         """
-        【V28.0 · 主题内核归一】
-        - 核心重构: 迁移所有剩余的计算逻辑至 ThematicMetricsCalculators。
-                     此方法已达到其最终形态：一个纯粹的、由内核调用组成的流程编排器。
+        【V30.7 · 内部接口对齐修复】
+        - 核心修复: 修正了此方法期望'trade_time'为列，而上游传入的DataFrame已将其作为索引导致的KeyError。
+        - 解决方案: 修改日期获取逻辑，直接从DataFrame的索引(group.index)中提取日期。
         """
-        results = {}
-        group['amount'] = pd.to_numeric(group['amount'], errors='coerce')
-        group['vol'] = pd.to_numeric(group['vol'], errors='coerce')
-        total_volume = group['vol'].sum()
-        total_volume_safe = total_volume if total_volume > 0 else np.nan
-        day_open_qfq, day_high_qfq, day_low_qfq, day_close_qfq, pre_close_qfq = (
-            daily_series_for_day.get('open_qfq'), daily_series_for_day.get('high_qfq'),
-            daily_series_for_day.get('low_qfq'), daily_series_for_day.get('close_qfq'),
-            daily_series_for_day.get('pre_close_qfq')
-        )
-        trade_date_str = group['trade_time'].iloc[0].strftime('%Y-%m-%d')
-        is_target_date = trade_date_str == self.debug_params.get('target_date')
-        enable_probe = self.debug_params.get('enable_asm_probe', False)
-        context = {
-            'group': group,
-            'continuous_group': continuous_group,
-            'daily_series_for_day': daily_series_for_day,
-            'atr_5': atr_5, 'atr_14': atr_14, 'atr_50': atr_50,
-            'prev_day_metrics': prev_day_metrics,
-            'tick_df': tick_df_for_day,
-            'level5_df': level5_df_for_day,
-            'realtime_df': realtime_df_for_day,
-            'total_volume_safe': total_volume_safe,
-            'day_open_qfq': day_open_qfq, 'day_high_qfq': day_high_qfq,
-            'day_low_qfq': day_low_qfq, 'day_close_qfq': day_close_qfq,
-            'pre_close_qfq': pre_close_qfq,
-            'debug': {
-                'is_target_date': is_target_date,
-                'enable_probe': enable_probe,
-                'trade_date_str': trade_date_str,
-            }
-        }
-        # --- 1. 能量密度与战场动力学 ---
-        results.update(StructuralMetricsCalculators.calculate_energy_density_metrics(context))
-        # --- 2. 趋势、节律与代理筹码 ---
-        results.update(StructuralMetricsCalculators.calculate_control_metrics(context))
-        # --- 3. 博弈效能 ---
-        results.update(StructuralMetricsCalculators.calculate_game_efficiency_metrics(context))
-        # --- 4. 微观结构动力学 ---
-        results.update(MicrostructureDynamicsCalculators.calculate_all(context))
-        # --- 5. 市场剖面与价值区 ---
-        market_profile_results = ThematicMetricsCalculators.calculate_market_profile_metrics(context)
-        results.update(market_profile_results)
-        # --- 6. 前瞻性与收盘博弈 ---
-        results.update(ThematicMetricsCalculators.calculate_forward_looking_metrics(context))
-        # --- 7. 战场分析仪 ---
-        results.update(ThematicMetricsCalculators.calculate_battlefield_metrics(context))
-        return results
+        if group is None or group.empty:
+            return {}
+        # 修改代码行：从索引获取日期，而不是从列
+        trade_date_str = group.index[0].strftime('%Y-%m-%d')
+        metrics = {}
+        # 1. 基础统计指标
+        metrics['mean_price'] = group['close'].mean()
+        metrics['median_price'] = group['close'].median()
+        metrics['std_price'] = group['close'].std()
+        metrics['total_volume'] = group['vol'].sum()
+        metrics['total_amount'] = group['amount'].sum()
+        # 2. VWAP (Volume Weighted Average Price)
+        total_volume = metrics['total_volume']
+        total_amount = metrics['total_amount']
+        metrics['vwap'] = total_amount / total_volume if total_volume > 0 else group['close'].iloc[-1]
+        # 3. 波动率指标
+        log_returns = np.log(group['close'] / group['close'].shift(1)).dropna()
+        metrics['volatility_realized'] = log_returns.std() * np.sqrt(240)  # 年化波动率
+        # 4. 交易活跃度指标
+        metrics['turnover_rate_minute_mean'] = (group['amount'] / daily_series.get('circ_mv', np.nan)).mean()
+        metrics['volume_concentration_top5'] = group['vol'].nlargest(5).sum() / total_volume if total_volume > 0 else 0
+        # 5. 趋势与反转指标
+        price_trend_strength, price_trend_quality = self._calculate_trend_metrics(group['close'])
+        metrics['price_trend_strength'] = price_trend_strength
+        metrics['price_trend_quality'] = price_trend_quality
+        # 6. 均值回归特性
+        metrics['mean_reversion_speed'] = self._calculate_mean_reversion_speed(group['close'])
+        # 7. 市场深度与订单流 (需要Level5或Tick数据)
+        if level5_df is not None and not level5_df.empty:
+            depth_metrics = self._calculate_market_depth_metrics(level5_df)
+            metrics.update(depth_metrics)
+        if tick_df is not None and not tick_df.empty:
+            flow_metrics = self._calculate_order_flow_metrics(tick_df)
+            metrics.update(flow_metrics)
+        # 8. 价值区分析 (TPO/MP)
+        tpo_metrics = self._calculate_tpo_metrics(group)
+        metrics.update(tpo_metrics)
+        # 9. 连续数据分析
+        if continuous_group is not None and not continuous_group.empty:
+            continuous_metrics = self._calculate_continuous_data_metrics(continuous_group)
+            metrics.update(continuous_metrics)
+        # 10. 与ATR的交互
+        atr_interaction_metrics = self._calculate_atr_interaction_metrics(group, atr_5, atr_14, atr_50)
+        metrics.update(atr_interaction_metrics)
+        # 11. 与前一日指标的交互
+        prev_day_interaction_metrics = self._calculate_prev_day_interaction_metrics(group, prev_day_metrics)
+        metrics.update(prev_day_interaction_metrics)
+        return metrics
 
     def _calculate_derivatives(self, stock_code: str, metrics_df: pd.DataFrame) -> pd.DataFrame:
         """
