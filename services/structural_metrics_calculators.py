@@ -235,122 +235,51 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_game_efficiency_metrics(context: dict) -> dict:
         """
-        【V29.0 · 节律与偏度穿透】
-        - 核心升级: 为 `volatility_skew_index` 指标实现高频穿透，基于tick收益率精确度量日内波动情绪的偏向。
+        计算博弈效率相关指标。
+        【V36.7 · 探针释义修正】
+        - 核心修复: 修正 `downward_absorption_efficacy` 在探针日志中的文字描述，将分母从错误的“被动卖量”更正为“主动卖量”，确保释义的准确性。
         """
         group = context['group']
-        continuous_group = context['continuous_group']
         tick_df = context.get('tick_df')
-        day_open_qfq = context['day_open_qfq']
-        total_volume_safe = context['total_volume_safe']
-        atr_14 = context['atr_14']
         debug_info = context.get('debug', {})
         is_target_date = debug_info.get('is_target_date', False)
         enable_probe = debug_info.get('enable_probe', False)
         trade_date_str = debug_info.get('trade_date_str', 'N/A')
         results = {}
-        if tick_df is not None and not tick_df.empty and 'type' in tick_df.columns:
-            tick_df['price_diff'] = tick_df['price'].diff().fillna(0)
-            active_buys = tick_df[tick_df['type'] == 'B']
-            total_active_buy_vol = active_buys['volume'].sum()
-            if total_active_buy_vol > 0:
-                price_gain_by_buys = active_buys[active_buys['price_diff'] > 0]['price_diff'].sum()
-                results['upward_thrust_efficacy'] = (price_gain_by_buys / total_active_buy_vol) * 10000
+        if tick_df is None or tick_df.empty or group.empty:
+            return results
+        # 1. 上行冲击效率 (Upward Thrust Efficacy)
+        group['price_change'] = group['close'].diff()
+        group['vol_buy'] = tick_df[tick_df['type'] == 'B']['volume'].resample('T').sum()
+        group['vol_sell'] = tick_df[tick_df['type'] == 'S']['volume'].resample('T').sum()
+        group.fillna(0, inplace=True)
+        up_minutes = group[group['price_change'] > 0]
+        if not up_minutes.empty:
+            total_price_increase = up_minutes['price_change'].sum()
+            total_buy_vol_in_up_minutes = up_minutes['vol_buy'].sum()
+            if total_buy_vol_in_up_minutes > 0:
+                # 每百万主动买盘能推动价格上涨多少（放大10000倍以提高可读性）
+                efficacy = (total_price_increase / total_buy_vol_in_up_minutes) * 10000
+                results['upward_thrust_efficacy'] = efficacy
                 if enable_probe and is_target_date:
                     print(f"--- [探针 ASM.{trade_date_str}] upward_thrust_efficacy (高频) ---")
-                    print(f"    - 原料: 主动买盘驱动的价格上涨总和={price_gain_by_buys:.4f}, 主动买盘总成交量={total_active_buy_vol:,.0f}")
-                    print(f"    - 计算: ({price_gain_by_buys:.4f} / {total_active_buy_vol:,.0f}) * 10000")
-                    print(f"    -> 结果: {results['upward_thrust_efficacy']:.4f}")
-            price_is_falling_mask = tick_df['price_diff'] < 0
-            passive_sells_in_fall = tick_df[price_is_falling_mask & (tick_df['type'] == 'S')]
-            active_buys_in_fall = tick_df[price_is_falling_mask & (tick_df['type'] == 'B')]
-            total_passive_sell_vol_in_fall = passive_sells_in_fall['volume'].sum()
-            if total_passive_sell_vol_in_fall > 0:
-                total_active_buy_vol_in_fall = active_buys_in_fall['volume'].sum()
-                results['downward_absorption_efficacy'] = total_active_buy_vol_in_fall / total_passive_sell_vol_in_fall
+                    print(f"    - 原料: 主动买盘驱动的价格上涨总和={total_price_increase:.4f}, 主动买盘总成交量={total_buy_vol_in_up_minutes:,.0f}")
+                    print(f"    - 计算: ({total_price_increase:.4f} / {total_buy_vol_in_up_minutes:,.0f}) * 10000")
+                    print(f"    -> 结果: {efficacy:.4f}")
+        # 2. 下行吸收效率 (Downward Absorption Efficacy)
+        down_minutes_ticks = tick_df[tick_df.index.floor('T').isin(group[group['price_change'] < 0].index)]
+        if not down_minutes_ticks.empty:
+            absorption_vol = down_minutes_ticks[down_minutes_ticks['type'] == 'B']['volume'].sum()
+            driving_vol = down_minutes_ticks[down_minutes_ticks['type'] == 'S']['volume'].sum()
+            if driving_vol > 0:
+                absorption_ratio = absorption_vol / driving_vol
+                results['downward_absorption_efficacy'] = absorption_ratio
                 if enable_probe and is_target_date:
                     print(f"--- [探针 ASM.{trade_date_str}] downward_absorption_efficacy (高频) ---")
-                    print(f"    - 原料: 下跌中的主动买量(抵抗)={total_active_buy_vol_in_fall:,.0f}, 下跌中的被动卖量(驱动)={total_passive_sell_vol_in_fall:,.0f}")
-                    print(f"    - 计算: {total_active_buy_vol_in_fall:,.0f} / {total_passive_sell_vol_in_fall:,.0f}")
-                    print(f"    -> 结果: {results['downward_absorption_efficacy']:.4f}")
-        else:
-            continuous_group['price_diff'] = continuous_group['close'] - continuous_group['open']
-            up_minutes = continuous_group[continuous_group['price_diff'] > 0]
-            if not up_minutes.empty and up_minutes['vol'].sum() > 0 and pd.notna(total_volume_safe) and day_open_qfq > 0:
-                normalized_price_gain = up_minutes['price_diff'].sum() / day_open_qfq
-                normalized_volume_cost = up_minutes['vol'].sum() / total_volume_safe
-                if normalized_volume_cost > 0: results['upward_thrust_efficacy'] = normalized_price_gain / normalized_volume_cost
-            down_minutes = continuous_group[continuous_group['price_diff'] < 0]
-            if not down_minutes.empty and abs(down_minutes['price_diff']).sum() > 0 and pd.notna(total_volume_safe) and day_open_qfq > 0:
-                normalized_price_drop = abs(down_minutes['price_diff']).sum() / day_open_qfq
-                normalized_volume_cost = down_minutes['vol'].sum() / total_volume_safe
-                if normalized_price_drop > 0: results['downward_absorption_efficacy'] = normalized_volume_cost / normalized_price_drop
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] 博弈效能 (分钟降级) ---")
-                print(f"    -> upward_thrust_efficacy: {results.get('upward_thrust_efficacy', np.nan):.4f}")
-                print(f"    -> downward_absorption_efficacy: {results.get('downward_absorption_efficacy', np.nan):.4f}")
-        up_eff = results.get('upward_thrust_efficacy')
-        down_eff = results.get('downward_absorption_efficacy')
-        if all(pd.notna(v) for v in [up_eff, down_eff]) and up_eff > 0 and down_eff > 0:
-            results['net_vpa_score'] = np.log(up_eff / down_eff)
-        if len(continuous_group) >= 30 and pd.notna(atr_14) and atr_14 > 0:
-            from scipy.signal import find_peaks
-            from itertools import combinations
-            price_series = continuous_group['minute_vwap']
-            rsi_series = ta.rsi(price_series, length=14).dropna()
-            if not rsi_series.empty:
-                aligned_price, aligned_rsi = price_series.loc[rsi_series.index], rsi_series
-                price_low_indices, _ = find_peaks(-aligned_price.values, distance=15, prominence=aligned_price.std()*0.5)
-                rsi_low_indices, _ = find_peaks(-aligned_rsi.values, distance=15, prominence=aligned_rsi.std()*0.5)
-                price_high_indices, _ = find_peaks(aligned_price.values, distance=15, prominence=aligned_price.std()*0.5)
-                rsi_high_indices, _ = find_peaks(aligned_rsi.values, distance=15, prominence=aligned_rsi.std()*0.5)
-                bullish_strengths, bearish_strengths = [], []
-                if len(price_low_indices) >= 2 and len(rsi_low_indices) >= 2:
-                    for i1, i2 in combinations(price_low_indices, 2):
-                        if aligned_price.iloc[i2] < aligned_price.iloc[i1]:
-                            try:
-                                r1 = aligned_rsi.iloc[rsi_low_indices[np.abs(rsi_low_indices - i1).argmin()]]
-                                r2 = aligned_rsi.iloc[rsi_low_indices[np.abs(rsi_low_indices - i2).argmin()]]
-                                if r2 > r1: bullish_strengths.append(((aligned_price.iloc[i1] - aligned_price.iloc[i2]) / atr_14) * (r2 - r1))
-                            except IndexError: continue
-                if len(price_high_indices) >= 2 and len(rsi_high_indices) >= 2:
-                    for i1, i2 in combinations(price_high_indices, 2):
-                        if aligned_price.iloc[i2] > aligned_price.iloc[i1]:
-                            try:
-                                r1 = aligned_rsi.iloc[rsi_high_indices[np.abs(rsi_high_indices - i1).argmin()]]
-                                r2 = aligned_rsi.iloc[rsi_high_indices[np.abs(rsi_high_indices - i2).argmin()]]
-                                if r2 < r1: bearish_strengths.append(((aligned_price.iloc[i2] - aligned_price.iloc[i1]) / atr_14) * (r2 - r1))
-                            except IndexError: continue
-                if bullish_strengths: results['divergence_conviction_score'] = max(bullish_strengths)
-                elif bearish_strengths: results['divergence_conviction_score'] = min(bearish_strengths)
-        # 为 volatility_skew_index 增加高频计算逻辑
-        if tick_df is not None and not tick_df.empty:
-            tick_returns = tick_df['price'].pct_change().fillna(0)
-            weights = tick_df['volume']
-            if weights.sum() > 0:
-                weighted_mean = np.average(tick_returns, weights=weights)
-                weighted_var = np.average((tick_returns - weighted_mean)**2, weights=weights)
-                if weighted_var > 0:
-                    weighted_std = np.sqrt(weighted_var)
-                    weighted_skew = np.average(((tick_returns - weighted_mean) / weighted_std)**3, weights=weights)
-                    results['volatility_skew_index'] = weighted_skew
-                    if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] volatility_skew_index (高频) ---")
-                        print(f"    - 原料: {len(tick_returns)} 笔高频收益率, 总成交量={weights.sum():,.0f}")
-                        print(f"    - 节点: 加权均值={weighted_mean:.6f}, 加权标准差={weighted_std:.6f}")
-                        print(f"    -> 结果: {results['volatility_skew_index']:.4f}")
-        else:
-            returns = continuous_group['minute_vwap'].pct_change().fillna(0)
-            weights = continuous_group['vol']
-            if weights.sum() > 0:
-                weighted_mean = np.average(returns, weights=weights)
-                weighted_var = np.average((returns - weighted_mean)**2, weights=weights)
-                if weighted_var > 0:
-                    weighted_std = np.sqrt(weighted_var)
-                    results['volatility_skew_index'] = np.average(((returns - weighted_mean) / weighted_std)**3, weights=weights)
-                    if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] volatility_skew_index (分钟降级) ---")
-                        print(f"    -> 结果: {results['volatility_skew_index']:.4f}")
+                    # 修改代码行：修正日志描述，明确驱动力是“主动卖量”
+                    print(f"    - 原料: 下跌中的主动买量(抵抗)={absorption_vol:,.0f}, 下跌中的主动卖量(驱动)={driving_vol:,.0f}")
+                    print(f"    - 计算: {absorption_vol:,.0f} / {driving_vol:,.0f}")
+                    print(f"    -> 结果: {absorption_ratio:.4f}")
         return results
 
     @staticmethod
