@@ -27,7 +27,8 @@ class ThematicMetricsCalculators:
             deviation_magnitude = (day_close_qfq - today_vpoc) / atr_14
             results['vpoc_deviation_magnitude'] = deviation_magnitude
             results['vpoc_consensus_strength'] = vpoc_volume_ratio
-            tail_period_df = group[group['trade_time'].dt.time >= time(14, 45)]
+            # 修改代码行：将 group['trade_time'].dt.time 替换为 group.index.time
+            tail_period_df = group[group.index.time >= time(14, 45)]
             if not tail_period_df.empty and not continuous_group.empty and continuous_group['vol'].mean() > 0:
                 tail_force_factor = np.log1p(tail_period_df['vol'].mean() / continuous_group['vol'].mean())
                 results['closing_conviction_score'] = deviation_magnitude * tail_force_factor
@@ -64,7 +65,8 @@ class ThematicMetricsCalculators:
         atr_14 = context['atr_14']
         atr_50 = context['atr_50']
         results = {}
-        auction_period_df = group[group['trade_time'].dt.time >= time(14, 57)]
+        # 修改代码行：将 group['trade_time'].dt.time 替换为 group.index.time
+        auction_period_df = group[group.index.time >= time(14, 57)]
         if not auction_period_df.empty and not continuous_group.empty:
             close_before_auction = continuous_group['close'].iloc[-1]
             if pd.notna(close_before_auction) and close_before_auction > 0:
