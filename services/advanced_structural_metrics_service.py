@@ -629,6 +629,64 @@ class AdvancedStructuralMetricsService:
             metrics['volatility_expansion_ratio'] = atr_5 / atr_50
         return metrics
 
+    def _calculate_prev_day_interaction_metrics(self, group: pd.DataFrame, prev_day_metrics: dict) -> dict:
+        """
+        【V30.14 · 新增辅助函数】
+        计算当日市场行为与前一日关键结构位（如价值区）的交互指标。
+        :param group: 日内分钟数据DataFrame。
+        :param prev_day_metrics: 包含前一日VPOC, VAH, VAL, ATR的字典。
+        :return: 包含交互指标的字典。
+        """
+        metrics = {
+            'value_area_migration': np.nan,
+            'value_area_overlap_pct': np.nan,
+            'closing_acceptance_type': np.nan,
+            'opening_position_vs_prev_va': np.nan,
+        }
+        if group.empty or not prev_day_metrics:
+            return metrics
+        # 1. 获取当日和前一日的关键指标
+        today_tpo = self._calculate_tpo_metrics(group)
+        today_vpoc = today_tpo.get('_today_vpoc')
+        today_vah = today_tpo.get('_today_vah')
+        today_val = today_tpo.get('_today_val')
+        day_close = group['close'].iloc[-1]
+        day_open = group['open'].iloc[0]
+        prev_vpoc = prev_day_metrics.get('vpoc')
+        prev_vah = prev_day_metrics.get('vah')
+        prev_val = prev_day_metrics.get('val')
+        prev_atr = prev_day_metrics.get('atr_14d')
+        # 2. 计算价值区迁移 (Value Area Migration)
+        if all(pd.notna(v) for v in [today_vpoc, prev_vpoc, prev_atr]) and prev_atr > 0:
+            metrics['value_area_migration'] = (today_vpoc - prev_vpoc) / prev_atr
+        # 3. 计算价值区重叠度 (Value Area Overlap)
+        if all(pd.notna(v) for v in [today_vah, today_val, prev_vah, prev_val]):
+            today_va_height = today_vah - today_val
+            if today_va_height > 0:
+                overlap_width = max(0, min(today_vah, prev_vah) - max(today_val, prev_val))
+                metrics['value_area_overlap_pct'] = (overlap_width / today_va_height) * 100
+        # 4. 计算收盘接受度类型 (Closing Acceptance Type)
+        if all(pd.notna(v) for v in [day_close, today_vpoc, today_vah, today_val]):
+            if day_close > today_vah:
+                metrics['closing_acceptance_type'] = 2  # 强势接受于价值区之上
+            elif day_close > today_vpoc:
+                metrics['closing_acceptance_type'] = 1  # 接受于价值区上半区
+            elif day_close < today_val:
+                metrics['closing_acceptance_type'] = -2 # 强势拒绝于价值区之下
+            elif day_close < today_vpoc:
+                metrics['closing_acceptance_type'] = -1 # 接受于价值区下半区
+            else:
+                metrics['closing_acceptance_type'] = 0  # 接受于VPOC
+        # 5. 计算开盘位置 vs 前日价值区
+        if all(pd.notna(v) for v in [day_open, prev_vah, prev_val]):
+            if day_open > prev_vah:
+                metrics['opening_position_vs_prev_va'] = 2 # 开在价值区之上
+            elif day_open > prev_val:
+                metrics['opening_position_vs_prev_va'] = 1 # 开在价值区之内
+            else:
+                metrics['opening_position_vs_prev_va'] = -1 # 开在价值区之下
+        return metrics
+
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
         【V19.7 · 索引健壮性修复版】
