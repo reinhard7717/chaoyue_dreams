@@ -536,6 +536,12 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'high_level_consolidation_volume': '高位整固成交量占比',
         'opening_period_thrust': '开盘期推力',
     }
+    DYNAMIC_EVOLUTION_FACTORS = {
+        'thrust_purity_ma5': '推力纯度5日均线',
+        'absorption_strength_ma5': '吸筹强度5日均线',
+        'sweep_intensity_ma5': '扫单强度5日均线',
+        'vpin_roc3': 'VPIN3日变化率',
+    }
     CONTROL_METRICS = {
         'trend_efficiency_ratio': '趋势效率比',
         'pullback_depth_ratio': '回撤深度比',
@@ -592,8 +598,9 @@ class BaseAdvancedStructuralMetrics(models.Model):
         **GAME_EFFICIENCY_METRICS,
         **FORWARD_LOOKING_METRICS,
         **ADVANCED_BATTLEFIELD_METRICS,
-        **MICROSTRUCTURE_DYNAMICS_METRICS, # 加入新的指标组
+        **MICROSTRUCTURE_DYNAMICS_METRICS,
         **AUXILIARY_METRICS,
+        **DYNAMIC_EVOLUTION_FACTORS, # 新增代码行：加入动态演化因子
     }
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     BOOLEAN_FIELDS = []
@@ -631,7 +638,6 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'active_volume_price_efficiency',
         'absorption_strength_index',
         'distribution_pressure_index',
-        # 将新指标加入排除列表
         'order_flow_imbalance_score',
         'buy_sweep_intensity',
         'sell_sweep_intensity',
@@ -640,6 +646,11 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'market_impact_cost',
         'liquidity_slope',
         'liquidity_authenticity_score',
+        # 新增代码块：将动态演化因子加入排除列表
+        'thrust_purity_ma5',
+        'absorption_strength_ma5',
+        'sweep_intensity_ma5',
+        'vpin_roc3',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in BOOLEAN_FIELDS:

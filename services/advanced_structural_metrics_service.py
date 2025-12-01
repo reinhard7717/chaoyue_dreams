@@ -183,13 +183,15 @@ class AdvancedStructuralMetricsService:
 
     async def _forge_advanced_structural_metrics(self, intraday_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
-        【V30.0 · 动态演化因子】
-        - 核心升级: 在所有基础指标计算完成后，调用新方法 `_calculate_dynamic_evolution_factors` 来生成时序演化指标。
+        【V30.1 · 联动修复】
+        - 核心修复: 修复了因 'trade_date' 成为索引后，仍按列名访问导致的 KeyError。
+        - 解决方案: 将 .loc[df['col']==val] 的方式修改为更高效、正确的 .loc[index_val] 方式。
         """
         new_metrics_data = []
         prev_day_metrics = {}
         for trade_date, group in intraday_map.items():
-            daily_series_for_day = daily_df_with_atr.loc[daily_df_with_atr['trade_date'] == trade_date].iloc[0]
+            # 修改代码行：使用索引直接定位，修复KeyError
+            daily_series_for_day = daily_df_with_atr.loc[trade_date]
             atr_5 = daily_series_for_day.get('atr_5d', np.nan)
             atr_14 = daily_series_for_day.get('atr_14d', np.nan)
             atr_50 = daily_series_for_day.get('atr_50d', np.nan)
@@ -214,7 +216,6 @@ class AdvancedStructuralMetricsService:
             return pd.DataFrame()
         new_metrics_df = pd.DataFrame(new_metrics_data)
         new_metrics_df.set_index('trade_date', inplace=True)
-        # 修改代码行：调用新的动态演化因子计算方法
         final_metrics_df = self._calculate_dynamic_evolution_factors(new_metrics_df)
         final_metrics_df.reset_index(inplace=True)
         return final_metrics_df
