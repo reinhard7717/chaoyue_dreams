@@ -181,7 +181,10 @@ class ThematicMetricsCalculators:
     @staticmethod
     def calculate_battlefield_metrics(context: dict) -> dict:
         """
-        【V45.0 · 金城汤池】
+        【V50.0 · 赏罚分明】
+        - 核心修正: 重塑 `breakthrough_conviction_score` 的计算公式，从 `Purity * (1 + Confirmation)`
+                     改为 `Confirmation * (1 + Purity)`。此举确保了当突破失败、收盘于关隘之下时，
+                     最终得分能正确地反映为负值，实现了对“假突破”行为的有效惩戒，使指标赏罚分明。
         - 核心新增: 新增战略级指标 `defense_solidity_score` (防守稳固度)，作为 `breakthrough_conviction_score`
                      的镜像。该指标通过检验价格跌破昨日低点后的抵抗动能品质与最终收盘的反推力度，
                      旨在精准量化“诱空”行为和市场底部的坚实程度。
@@ -190,7 +193,7 @@ class ThematicMetricsCalculators:
         tick_df = context.get('tick_df')
         day_open_qfq = context['day_open_qfq']
         day_high_qfq = context['day_high_qfq']
-        day_low_qfq = context['day_low_qfq'] # 新增
+        day_low_qfq = context['day_low_qfq']
         day_close_qfq = context['day_close_qfq']
         atr_14 = context['atr_14']
         prev_day_metrics = context.get('prev_day_metrics', {})
@@ -247,16 +250,17 @@ class ThematicMetricsCalculators:
                         breakthrough_thrust_purity = net_thrust_vol / total_breakthrough_vol
                         confirmation_raw = (day_close_qfq - prev_day_high) / atr_14
                         confirmation_factor = np.tanh(confirmation_raw)
-                        score = breakthrough_thrust_purity * (1 + confirmation_factor)
+                        # 修改代码行：修正公式，实现赏罚分明
+                        score = confirmation_factor * (1 + breakthrough_thrust_purity)
                         results['breakthrough_conviction_score'] = score
                         if enable_probe and is_target_date:
                             print(f"--- [探针 ASM.{trade_date_str}] breakthrough_conviction_score (关隘验刃) ---")
                             print(f"    - 关隘: 昨日高点={prev_day_high:.2f}")
                             print(f"    - 节点1 (攻坚动能): 对突破区 {len(breakthrough_zone_ticks)} 笔成交进行动能分析 -> 推力纯度={breakthrough_thrust_purity:.4f}")
                             print(f"    - 节点2 (领土确认): tanh(({day_close_qfq:.2f} - {prev_day_high:.2f}) / {atr_14:.4f}) -> 确认因子={confirmation_factor:.4f}")
-                            print(f"    - 计算: {breakthrough_thrust_purity:.4f} * (1 + {confirmation_factor:.4f})")
+                            # 修改代码行：更新探针日志以反映新公式
+                            print(f"    - 计算: {confirmation_factor:.4f} * (1 + {breakthrough_thrust_purity:.4f})")
                             print(f"    -> 结果: {score:.4f}")
-        # 新增代码块：计算 `defense_solidity_score`
         prev_day_low = prev_day_metrics.get('low')
         if tick_df is not None and not tick_df.empty and pd.notna(prev_day_low) and pd.notna(atr_14) and atr_14 > 0:
             if day_low_qfq < prev_day_low:
@@ -264,16 +268,13 @@ class ThematicMetricsCalculators:
                 if not defense_zone_ticks.empty:
                     total_defense_vol = defense_zone_ticks['volume'].sum()
                     if total_defense_vol > 0 and 'price_change' in defense_zone_ticks.columns:
-                        # 对防守区数据应用“动能回溯”
                         self_calc_change = defense_zone_ticks['price'].diff().fillna(0)
                         zero_mask = defense_zone_ticks['price_change'] == 0
                         eff_change = np.where(zero_mask, self_calc_change, defense_zone_ticks['price_change'])
                         net_thrust_vol = (defense_zone_ticks['volume'] * np.sign(eff_change)).sum()
                         defense_thrust_purity = net_thrust_vol / total_defense_vol
-                        # 计算战线反推因子
                         rejection_raw = (day_close_qfq - prev_day_low) / atr_14
                         rejection_factor = np.tanh(rejection_raw)
-                        # 合成最终得分
                         score = defense_thrust_purity * (1 + rejection_factor)
                         results['defense_solidity_score'] = score
                         if enable_probe and is_target_date:
