@@ -13,10 +13,11 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V37.1 · 动能纯化修正】
-        - 核心修复: 移除了 `rebound_momentum` 计算中引入严重时间偏误的“反弹量占比”因子。
-                     修正后的指标 `(vwap_rebound / vwap_fall - 1) * 100` 更纯粹地衡量了
-                     从日内低点反弹的真实动能，消除了低点出现时间对结果的干扰。
+        【V37.2 · 整固确证修正】
+        - 核心修复: 为 `high_level_consolidation_volume` 引入“收盘确证”机制。
+                     指标值现在会乘以一个确证因子 `sign(收盘价 - 高位阈值)`。
+                     这使其能够区分成功的整固(正值)与失败的派发/牛市陷阱(负值)，
+                     极大地提升了指标的实战价值。
         """
         group = context['group']
         daily_series_for_day = context['daily_series_for_day']
@@ -26,6 +27,7 @@ class StructuralMetricsCalculators:
         day_open_qfq = context['day_open_qfq']
         day_high_qfq = context['day_high_qfq']
         day_low_qfq = context['day_low_qfq']
+        day_close_qfq = context['day_close_qfq']
         pre_close_qfq = context['pre_close_qfq']
         debug_info = context.get('debug', {})
         is_target_date = debug_info.get('is_target_date', False)
@@ -123,13 +125,10 @@ class StructuralMetricsCalculators:
                 vwap_fall = (falling_ticks['price'] * falling_ticks['volume']).sum() / falling_ticks['volume'].sum()
                 vwap_rebound = (rebounding_ticks['price'] * rebounding_ticks['volume']).sum() / rebounding_ticks['volume'].sum()
                 if vwap_fall > 0:
-                    # 修改代码行：移除引入时间偏误的 rebounding_vol_ratio 因子
                     results['rebound_momentum'] = (vwap_rebound / vwap_fall - 1) * 100
                     if enable_probe and is_target_date:
                         print(f"--- [探针 ASM.{trade_date_str}] rebound_momentum (高频) ---")
-                        # 修改代码行：更新探针日志，不再显示“反弹量占比”
                         print(f"    - 原料: 转折点={low_price_time.time()}, 下跌VWAP={vwap_fall:.4f}, 反弹VWAP={vwap_rebound:.4f}")
-                        # 修改代码行：更新计算过程的日志说明
                         print(f"    - 计算: ({vwap_rebound:.4f} / {vwap_fall:.4f} - 1) * 100")
                         print(f"    -> 结果: {results['rebound_momentum']:.4f}")
         else:
@@ -141,7 +140,6 @@ class StructuralMetricsCalculators:
                 vwap_fall = (falling_phase['amount']).sum() / falling_phase['vol'].sum() if falling_phase['vol'].sum() > 0 else np.nan
                 vwap_rebound = (rebounding_phase['amount']).sum() / rebounding_phase['vol'].sum() if rebounding_phase['vol'].sum() > 0 else np.nan
                 if pd.notna(vwap_fall) and pd.notna(vwap_rebound) and vwap_fall > 0:
-                    # 修改代码行：移除引入时间偏误的成交量占比因子
                     results['rebound_momentum'] = (vwap_rebound / vwap_fall - 1) * 100
                     if enable_probe and is_target_date:
                         print(f"--- [探针 ASM.{trade_date_str}] rebound_momentum (分钟降级) ---")
@@ -150,22 +148,26 @@ class StructuralMetricsCalculators:
         price_range = day_high_qfq - day_low_qfq
         if price_range > 0:
             high_level_threshold = day_high_qfq - 0.25 * price_range
+            volume_ratio = 0.0
             if tick_df is not None and not tick_df.empty:
                 high_vol = tick_df[tick_df['price'] >= high_level_threshold]['volume'].sum()
                 total_vol = tick_df['volume'].sum()
                 if total_vol > 0:
-                    results['high_level_consolidation_volume'] = high_vol / total_vol
-                    if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] high_level_consolidation_volume (高频) ---")
-                        print(f"    - 原料: 高位阈值={high_level_threshold:.2f}, 高位成交量={high_vol:,.0f}, 总量={total_vol:,.0f}")
-                        print(f"    -> 结果: {results['high_level_consolidation_volume']:.4f}")
+                    volume_ratio = high_vol / total_vol
             else:
                 total_volume = group['vol'].sum()
                 if total_volume > 0:
-                    results['high_level_consolidation_volume'] = group[group['high'] >= high_level_threshold]['vol'].sum() / total_volume
-                    if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] high_level_consolidation_volume (分钟降级) ---")
-                        print(f"    -> 结果: {results['high_level_consolidation_volume']:.4f}")
+                    volume_ratio = group[group['high'] >= high_level_threshold]['vol'].sum() / total_volume
+            # 新增代码行：引入“收盘确证”因子
+            confirmation_factor = np.sign(day_close_qfq - high_level_threshold)
+            results['high_level_consolidation_volume'] = volume_ratio * confirmation_factor
+            if enable_probe and is_target_date:
+                print(f"--- [探针 ASM.{trade_date_str}] high_level_consolidation_volume (高频) ---")
+                # 修改代码行：更新探针日志以反映新的计算逻辑
+                print(f"    - 原料: 高位阈值={high_level_threshold:.2f}, 收盘价={day_close_qfq:.2f}, 高位成交量占比={volume_ratio:.4f}")
+                print(f"    - 节点 (确证因子): sign({day_close_qfq:.2f} - {high_level_threshold:.2f}) = {confirmation_factor:.0f}")
+                print(f"    - 计算: {volume_ratio:.4f} * {confirmation_factor:.0f}")
+                print(f"    -> 结果: {results['high_level_consolidation_volume']:.4f}")
         # opening_period_thrust (开盘期推力)
         if tick_df is not None and not tick_df.empty and 'type' in tick_df.columns:
             opening_ticks = tick_df.between_time('09:30:00', '09:59:59')
