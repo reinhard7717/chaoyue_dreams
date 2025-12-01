@@ -1498,13 +1498,13 @@
       },
       "fused_risk_scoring": {
         "enabled": true,
-        "说明": "【V1.2 · 融合信号适配版】风险元融合模块的配置，用于合成顶层风险分。",
+        "说明": "【V2.0 · 大一统信号适配版】风险元融合模块的配置。全面适配重构后的新一代原子、战术及认知信号，废弃所有旧信号引用。",
         "risk_categories": {
           "behavioral_risk": {
             "PROCESS_META_BEHAVIOR_TOP_REVERSAL": { "weight": 1.2 },
             "FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT": { "weight": 1.0, "comment": "融合层价格超买意图的负向部分代表风险" },
-            "FUSION_BIPOLAR_UPPER_SHADOW_INTENT": { "weight": 1.0, "comment": "融合层上影线意图的负向部分代表风险" },
-            "SCORE_RISK_LIQUIDITY_DRAIN": { "weight": 1.0 }
+            "SCORE_BEHAVIOR_DISTRIBUTION_INTENT": { "weight": 1.5, "comment": "[信号替换] 替换旧的上影线意图，这是新一代的终极派发信号" },
+            "SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE": { "weight": -1.0, "comment": "[信号替换] 替换旧的流动性枯竭信号。流动性潮汐的负分代表退潮风险" }
           },
           "fund_flow_risk": {
             "PROCESS_META_FUND_FLOW_TOP_REVERSAL": { "weight": 1.2 },
@@ -1514,8 +1514,8 @@
           },
           "chip_risk": {
             "PROCESS_META_CHIP_TOP_REVERSAL": { "weight": 1.2 },
-            "SCORE_CHIP_BEARISH_DIVERGENCE": { "weight": 1.0 },
-            "SCORE_CHIP_AXIOM_CONCENTRATION": { "weight": -1.0, "comment": "筹码集中度低（负值）代表风险" },
+            "SCORE_CHIP_RISK_DISTRIBUTION_WHISPER": { "weight": 1.5, "comment": "[信号替换] 使用更精准的'派发诡影'战术信号替换旧的看跌背离" },
+            "SCORE_CHIP_STRATEGIC_POSTURE": { "weight": -1.0, "comment": "[信号替换] 替换旧的集中度。战略态势的负分代表主力处于消极或撤退态势" },
             "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT": { "weight": -1.0, "comment": "持股心态差（负值）代表风险" }
           },
           "dynamic_mechanics_risk": {
@@ -1532,16 +1532,12 @@
           },
           "foundation_risk": {
             "PROCESS_META_FOUNDATION_TOP_REVERSAL": { "weight": 1.2 },
-            "SCORE_FOUNDATION_BEARISH_DIVERGENCE": { "weight": 1.0 },
-            "SCORE_FOUNDATION_AXIOM_TREND": { "weight": -1.0, "comment": "趋势差（负值）代表风险" },
-            "SCORE_FOUNDATION_AXIOM_OSCILLATOR": { "weight": 1.0, "comment": "摆动指标超买（正值）代表风险" }
+            "SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION": { "weight": -1.0, "comment": "[信号替换] 替换旧的趋势公理。市场体质的负分代表羸弱" },
+            "SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM": { "weight": 1.0, "comment": "[信号替换] 替换旧的摆动公理。情绪钟摆的正分代表贪婪/FOMO风险" }
           },
           "cognitive_risk": {
-            "说明": "【V3.0 · 双极性信号适配版】将所有认知层风险的裁决权统一上交给新的终极顶部风险信号。",
-            "COGNITIVE_RISK_COMPREHENSIVE_TOP": { "weight": 2.5 },
-            "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": { "weight": 1.0 },
-            "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": { "weight": 1.2 },
-            "COGNITIVE_SCORE_TRUE_RETREAT_RISK": { "weight": 1.8 }
+            "说明": "【V4.0 · 认知统一裁决版】将所有认知层风险的裁决权统一上交给唯一的、权威的顶层认知风险分。",
+            "COGNITIVE_BEARISH_SCORE": { "weight": 2.5, "comment": "[信号统一] 使用唯一的认知看跌总分，替换所有旧的、分散的认知风险信号" }
           },
           "cyclical_risk": {
             "COGNITIVE_RISK_CYCLICAL_TOP": { "weight": 1.0, "description": "周期顶风险，当市场处于强周期的波峰时，此风险会显著提高。" }

@@ -57,11 +57,11 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V15.0 · 筹码势能公理版】筹码情报总指挥
-        - 核心新增: 引入第六大公理——“筹码势能公理”，旨在衡量历史累积的吸筹深度与
-                      长期势能储备，为判断长线潜力提供战略依据。
+        【V16.0 · 战术换手版】筹码情报总指挥
+        - 核心新增: 引入全新的超级原子信号“战术换手博弈”，旨在从博弈视角深度解析
+                      筹码交换过程的质量与意图，识别“空中加油”与“高位派发”。
         """
-        print("启动【V15.0 · 筹码势能公理版】筹码情报分析...")
+        print("启动【V16.0 · 战术换手版】筹码情报分析...") # [修改代码行]
         all_chip_states = {}
         periods = [5, 13, 21, 55]
         holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
@@ -77,7 +77,6 @@ class ChipIntelligence:
         df['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
         chip_trend_momentum_scores = self._diagnose_axiom_trend_momentum(df, periods)
         all_chip_states['SCORE_CHIP_AXIOM_TREND_MOMENTUM'] = chip_trend_momentum_scores
-        # 调用新增的筹码势能公理诊断方法
         historical_potential = self._diagnose_axiom_historical_potential(df)
         all_chip_states['SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL'] = historical_potential
         absorption_echo = self._diagnose_absorption_echo(df, divergence_scores)
@@ -86,7 +85,9 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_RISK_DISTRIBUTION_WHISPER'] = distribution_whisper
         coherent_drive = self._diagnose_structural_consensus(df, battlefield_geography, holder_sentiment_scores)
         all_chip_states['SCORE_CHIP_COHERENT_DRIVE'] = coherent_drive
-        print(f"【V15.0 · 筹码势能公理版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。")
+        tactical_exchange = self._diagnose_tactical_exchange(df) # [修改代码行] 新增调用
+        all_chip_states['SCORE_CHIP_TACTICAL_EXCHANGE'] = tactical_exchange # [修改代码行] 新增调用
+        print(f"【V16.0 · 战术换手版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。") # [修改代码行]
         return all_chip_states
 
     def _run_integrity_probe(self, df: pd.DataFrame, required_signals: list, probe_name: str):
@@ -113,14 +114,18 @@ class ChipIntelligence:
 
     def _diagnose_strategic_posture(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V6.3 · 探针植入版】诊断主力的综合战略态势 (大一统信号)
+        【V6.4 · 诡道增强版】诊断主力的综合战略态势 (大一统信号)
+        - 核心升级: 在“指挥官决心”维度中，引入“博弈欺骗指数”作为第四大融合因子，
+                      旨在识别并量化主力在部署战略态势时所采用的欺骗战术，
+                      从而更精准地评估其真实意图的强度与决心。
         - 核心升级: 植入标准化的“真理探针”，输出所有原始数据、关键计算过程及最终结果。
         """
-        print("    -> [筹码层] 正在诊断“战略态势”...")
+        print("    -> [筹码层] 正在诊断“战略态势 (V6.4 · 诡道增强版)”...")
         required_signals = [
             'cost_gini_coefficient_D', 'covert_accumulation_signal_D', 'peak_exchange_purity_D',
             'main_force_cost_advantage_D', 'control_solidity_index_D', 'SLOPE_5_main_force_conviction_index_D',
-            'floating_chip_cleansing_efficiency_D', 'dominant_peak_solidity_D'
+            'floating_chip_cleansing_efficiency_D', 'dominant_peak_solidity_D',
+            'deception_index_D' # [修改代码行] 新增依赖信号
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_strategic_posture"):
             return pd.Series(0.0, index=df.index)
@@ -139,12 +144,15 @@ class ChipIntelligence:
         cost_advantage = self._get_safe_series(df, df, 'main_force_cost_advantage_D', 0.0)
         control_solidity = self._get_safe_series(df, df, 'control_solidity_index_D', 0.0)
         conviction_slope = self._get_safe_series(df, df, 'SLOPE_5_main_force_conviction_index_D', 0.0)
+        deception_index = self._get_safe_series(df, df, 'deception_index_D', 0.0) # [修改代码行] 获取欺骗指数
         advantage_score = get_adaptive_mtf_normalized_bipolar_score(cost_advantage, df_index, tf_weights)
         solidity_score = get_adaptive_mtf_normalized_bipolar_score(control_solidity, df_index, tf_weights)
         intent_score = get_adaptive_mtf_normalized_bipolar_score(conviction_slope, df_index, tf_weights)
-        commanders_resolve_score = (
-            (advantage_score.add(1)/2) * (solidity_score.add(1)/2) * (intent_score.clip(lower=-1, upper=1).add(1)/2)
-        ).pow(1/3) * 2 - 1
+        deception_score = get_adaptive_mtf_normalized_bipolar_score(deception_index, df_index, tf_weights) # [修改代码行] 归一化欺骗指数
+        commanders_resolve_score = ( # [修改代码行] 将欺骗指数得分融合进指挥官决心
+            (advantage_score.add(1)/2) * (solidity_score.add(1)/2) *
+            (intent_score.clip(lower=-1, upper=1).add(1)/2) * (deception_score.add(1)/2)
+        ).pow(1/4) * 2 - 1
         cleansing_efficiency = self._get_safe_series(df, df, 'floating_chip_cleansing_efficiency_D', 0.0)
         peak_solidity = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5)
         cleansing_score = get_adaptive_mtf_normalized_bipolar_score(cleansing_efficiency, df_index, tf_weights)
@@ -155,7 +163,6 @@ class ChipIntelligence:
             (formation_deployment_score.add(1)/2).pow(0.3) *
             (battlefield_control_score.add(1)/2).pow(0.2)
         ) * 2 - 1
-        # 植入标准化探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -168,8 +175,9 @@ class ChipIntelligence:
                 print(f"         - 过程: level_score: {level_score.loc[probe_date]:.4f}, efficiency_score: {efficiency_score.loc[probe_date]:.4f}")
                 print(f"         - 结果: formation_deployment_score: {formation_deployment_score.loc[probe_date]:.4f}")
                 print(f"       - 维度2: 指挥官决心 (Commander's Resolve)")
-                print(f"         - 原料: cost_adv: {cost_advantage.loc[probe_date]:.4f}, ctrl_solidity: {control_solidity.loc[probe_date]:.4f}, conviction_slope: {conviction_slope.loc[probe_date]:.4f}")
-                print(f"         - 过程: advantage_score: {advantage_score.loc[probe_date]:.4f}, solidity_score: {solidity_score.loc[probe_date]:.4f}, intent_score: {intent_score.loc[probe_date]:.4f}")
+                # [修改代码行] 更新探针输出
+                print(f"         - 原料: cost_adv: {cost_advantage.loc[probe_date]:.4f}, ctrl_solidity: {control_solidity.loc[probe_date]:.4f}, conviction_slope: {conviction_slope.loc[probe_date]:.4f}, deception_idx: {deception_index.loc[probe_date]:.4f}")
+                print(f"         - 过程: advantage_score: {advantage_score.loc[probe_date]:.4f}, solidity_score: {solidity_score.loc[probe_date]:.4f}, intent_score: {intent_score.loc[probe_date]:.4f}, deception_score: {deception_score.loc[probe_date]:.4f}")
                 print(f"         - 结果: commanders_resolve_score: {commanders_resolve_score.loc[probe_date]:.4f}")
                 print(f"       - 维度3: 战场控制 (Battlefield Control)")
                 print(f"         - 原料: cleansing_eff: {cleansing_efficiency.loc[probe_date]:.4f}, peak_solidity: {peak_solidity.loc[probe_date]:.4f}")
@@ -232,13 +240,16 @@ class ChipIntelligence:
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V5.1 · 探针植入版】筹码公理三：诊断“持仓信念韧性”
+        【V5.2 · 信号换代版】筹码公理三：诊断“持仓信念韧性”
+        - 核心升级: 将“情绪纯度”维度中的`profit_taking_flow_ratio_D`替换为更高维的`profit_realization_quality_D`，
+                      从评估“兑现占比”升级为评估“兑现质量”，更精准地识别风险。
         - 核心升级: 植入标准化的“真理探针”，输出所有原始数据、关键计算过程及最终结果。
         """
-        print("    -> [筹码层] 正在诊断“持仓信念”公理...")
+        print("    -> [筹码层] 正在诊断“持仓信念”公理 (V5.2 · 信号换代版)...") # [修改代码行]
         required_signals = [
             'winner_stability_index_D', 'loser_pain_index_D', 'dip_absorption_power_D',
-            'mf_cost_zone_defense_intent_D', 'retail_fomo_premium_index_D', 'profit_taking_flow_ratio_D'
+            'mf_cost_zone_defense_intent_D', 'retail_fomo_premium_index_D',
+            'profit_realization_quality_D' # [修改代码行] 替换旧信号
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_holder_sentiment"):
             return pd.Series(0.0, index=df.index)
@@ -256,13 +267,12 @@ class ChipIntelligence:
         defense_score = get_adaptive_mtf_normalized_bipolar_score(defense_intent, df_index, tf_weights)
         pressure_test_score = (absorption_score.add(1)/2 * defense_score.add(1)/2).pow(0.5) * 2 - 1
         fomo_index = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        profit_taking = self._get_safe_series(df, df, 'profit_taking_flow_ratio_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        fomo_score = get_adaptive_mtf_normalized_score(fomo_index, df_index, ascending=True, tf_weights=tf_weights) # 单极性
-        profit_taking_score = get_adaptive_mtf_normalized_score(profit_taking, df_index, ascending=True, tf_weights=tf_weights) # 单极性
+        profit_taking_quality = self._get_safe_series(df, df, 'profit_realization_quality_D', 0.0, method_name="_diagnose_axiom_holder_sentiment") # [修改代码行]
+        fomo_score = get_adaptive_mtf_normalized_score(fomo_index, df_index, ascending=True, tf_weights=tf_weights)
+        profit_taking_score = get_adaptive_mtf_normalized_score(profit_taking_quality, df_index, ascending=True, tf_weights=tf_weights) # [修改代码行]
         impurity_score = (fomo_score * profit_taking_score).pow(0.5)
         conviction_base = ((belief_core_score.add(1)/2) * (pressure_test_score.add(1)/2)).pow(0.5)
         final_score = (conviction_base * (1 - impurity_score)) * 2 - 1
-        # 植入标准化探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -277,7 +287,8 @@ class ChipIntelligence:
                 print(f"         - 原料: absorption_power: {absorption_power.loc[probe_date]:.4f}, defense_intent: {defense_intent.loc[probe_date]:.4f}")
                 print(f"         - 结果: pressure_test_score: {pressure_test_score.loc[probe_date]:.4f}")
                 print(f"       - 维度3: 情绪纯度 (Impurity)")
-                print(f"         - 原料: fomo_index: {fomo_index.loc[probe_date]:.4f}, profit_taking: {profit_taking.loc[probe_date]:.4f}")
+                # [修改代码行] 更新探针输出
+                print(f"         - 原料: fomo_index: {fomo_index.loc[probe_date]:.4f}, profit_taking_quality: {profit_taking_quality.loc[probe_date]:.4f}")
                 print(f"         - 结果: impurity_score: {impurity_score.loc[probe_date]:.4f}")
                 print(f"       - 最终融合结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
@@ -338,26 +349,30 @@ class ChipIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V5.1 · 探针植入版】筹码公理五：诊断“价筹张力”
+        【V5.2 · 信号换代版】筹码公理五：诊断“价筹张力”
+        - 核心升级: 将代表筹码趋势的信号从`SLOPE_5_winner_concentration_90pct_D`替换为更动态、更直接的`winner_loser_momentum_D`。
+                      这使得背离诊断从“价格趋势 vs 集中度趋势”升级为“价格趋势 vs 筹码动量”，更直指博弈核心。
         - 核心升级: 植入标准化的“真理探针”，输出所有原始数据、关键计算过程及最终结果。
         """
-        print("    -> [筹码层] 正在诊断“价筹张力”公理...")
+        print("    -> [筹码层] 正在诊断“价筹张力”公理 (V5.2 · 信号换代版)...") # [修改代码行]
+        required_signals = ['winner_loser_momentum_D', 'SLOPE_5_close_D', 'volume_D'] # [修改代码行]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
+            return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         df_index = df.index
-        concentration_trend = self._get_safe_series(df, df, 'SLOPE_5_winner_concentration_90pct_D', 0.0, method_name="_diagnose_axiom_divergence")
+        chip_momentum = self._get_safe_series(df, df, 'winner_loser_momentum_D', 0.0, method_name="_diagnose_axiom_divergence") # [修改代码行]
         price_trend = self._get_safe_series(df, df, 'SLOPE_5_close_D', 0.0, method_name="_diagnose_axiom_divergence")
-        norm_concentration_trend = get_adaptive_mtf_normalized_bipolar_score(concentration_trend, df_index, tf_weights)
+        norm_chip_momentum = get_adaptive_mtf_normalized_bipolar_score(chip_momentum, df_index, tf_weights) # [修改代码行]
         norm_price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend, df_index, tf_weights)
-        disagreement_vector = norm_concentration_trend - norm_price_trend
+        disagreement_vector = norm_chip_momentum - norm_price_trend # [修改代码行]
         persistence = disagreement_vector.rolling(window=13, min_periods=5).std().fillna(0)
         norm_persistence = get_adaptive_mtf_normalized_score(persistence, df_index, tf_weights=tf_weights)
         volume = self._get_safe_series(df, df, 'volume_D', 0.0, method_name="_diagnose_axiom_divergence")
         norm_volume = get_adaptive_mtf_normalized_score(volume, df_index, tf_weights=tf_weights)
         energy_injection = norm_volume * disagreement_vector.abs()
         tension_magnitude = (norm_persistence * energy_injection).pow(0.5)
-        final_score = disagreement_vector * (1 + tension_magnitude * 1.5) # 1.5是放大系数
-        # 植入标准化探针
+        final_score = disagreement_vector * (1 + tension_magnitude * 1.5)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -366,8 +381,9 @@ class ChipIntelligence:
             if probe_date in df.index:
                 print(f"    -> [价筹张力探针] @ {probe_date.date()}:")
                 print(f"       - 维度1: 分歧向量 (Disagreement Vector)")
-                print(f"         - 原料: conc_trend: {concentration_trend.loc[probe_date]:.4f}, price_trend: {price_trend.loc[probe_date]:.4f}")
-                print(f"         - 过程: norm_conc_trend: {norm_concentration_trend.loc[probe_date]:.4f}, norm_price_trend: {norm_price_trend.loc[probe_date]:.4f}")
+                # [修改代码行] 更新探针输出
+                print(f"         - 原料: chip_momentum: {chip_momentum.loc[probe_date]:.4f}, price_trend: {price_trend.loc[probe_date]:.4f}")
+                print(f"         - 过程: norm_chip_momentum: {norm_chip_momentum.loc[probe_date]:.4f}, norm_price_trend: {norm_price_trend.loc[probe_date]:.4f}")
                 print(f"         - 结果: disagreement_vector: {disagreement_vector.loc[probe_date]:.4f}")
                 print(f"       - 维度2: 张力强度 (Tension Magnitude)")
                 print(f"         - 原料: volume: {volume.loc[probe_date]:.0f}")
@@ -489,32 +505,28 @@ class ChipIntelligence:
 
     def _diagnose_axiom_historical_potential(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.3 · 幻觉修复版】筹码公理六：诊断“筹码势能”
-        - 核心修复: 修正了“长期筹码集中趋势”的计算逻辑。改用双极性归一化来处理集中度斜率，
-                      确保筹码的长期发散趋势（负斜率）能够正确地产生惩罚效应，从而拉低最终势能分。
-                      此修复彻底解决了因错误处理负值而导致的“强盛幻觉”悖论。
+        【V1.4 · 信号换代版】筹码公理六：诊断“筹码势能”
+        - 核心升级: 将评估长期筹码趋势的`SLOPE_55_winner_concentration_90pct_D`替换为更综合、更稳健的`chip_health_score_D`。
+                      这使得对长期势能的评估从单一的“集中趋势”升级为对“结构健康度”的全面诊断。
         """
-        print("    -> [筹码层] 正在诊断“筹码势能”公理 (V1.3 · 幻觉修复版)...")
+        print("    -> [筹码层] 正在诊断“筹码势能”公理 (V1.4 · 信号换代版)...") # [修改代码行]
         required_signals = [
-            'main_force_net_flow_calibrated_D', 'SLOPE_55_winner_concentration_90pct_D',
+            'main_force_net_flow_calibrated_D', 'chip_health_score_D', # [修改代码行]
             'dominant_peak_solidity_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_historical_potential"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
-        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {21: 0.5, 55: 0.3, 89: 0.2}) # 使用更长周期的权重
-        long_window = 250 # 定义长周期窗口
+        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {21: 0.5, 55: 0.3, 89: 0.2})
+        long_window = 250
         mf_net_flow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0)
         long_term_flow_accumulation = mf_net_flow.clip(lower=0).rolling(window=long_window, min_periods=55).sum()
         flow_score = get_adaptive_mtf_normalized_score(long_term_flow_accumulation, df_index, ascending=True, tf_weights=tf_weights)
-        # [修改代码块] 使用双极性归一化处理斜率，并进行映射
-        concentration_slope = self._get_safe_series(df, df, 'SLOPE_55_winner_concentration_90pct_D', 0.0)
-        concentration_score_bipolar = get_adaptive_mtf_normalized_bipolar_score(concentration_slope, df_index, tf_weights=tf_weights)
-        concentration_score_unipolar = (concentration_score_bipolar + 1) / 2
+        chip_health = self._get_safe_series(df, df, 'chip_health_score_D', 0.0) # [修改代码行]
+        concentration_score_unipolar = get_adaptive_mtf_normalized_score(chip_health, df_index, ascending=True, tf_weights=tf_weights) # [修改代码行]
         peak_solidity = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5)
         stability_score = get_adaptive_mtf_normalized_score(peak_solidity, df_index, ascending=True, tf_weights=tf_weights)
-        # 使用映射后的单极性分数进行融合
         potential_score = (flow_score * 0.5 + concentration_score_unipolar * 0.3 + stability_score * 0.2)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -523,12 +535,80 @@ class ChipIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df_index:
                 print(f"    -> [筹码势能探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - 原料: long_term_flow_accum: {long_term_flow_accumulation.loc[probe_date_for_loop]:.2f}, conc_slope_55d: {concentration_slope.loc[probe_date_for_loop]:.4f}, peak_solidity: {peak_solidity.loc[probe_date_for_loop]:.4f}")
-                # [修改代码块] 更新探针输出以反映新的计算过程
-                print(f"       - 过程: flow_score: {flow_score.loc[probe_date_for_loop]:.4f}, concentration_score_bipolar: {concentration_score_bipolar.loc[probe_date_for_loop]:.4f}, stability_score: {stability_score.loc[probe_date_for_loop]:.4f}")
+                # [修改代码行] 更新探针输出
+                print(f"       - 原料: long_term_flow_accum: {long_term_flow_accumulation.loc[probe_date_for_loop]:.2f}, chip_health_score: {chip_health.loc[probe_date_for_loop]:.4f}, peak_solidity: {peak_solidity.loc[probe_date_for_loop]:.4f}")
+                print(f"       - 过程: flow_score: {flow_score.loc[probe_date_for_loop]:.4f}, concentration_score_unipolar: {concentration_score_unipolar.loc[probe_date_for_loop]:.4f}, stability_score: {stability_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 结果: final_potential_score: {potential_score.loc[probe_date_for_loop]:.4f}")
         return potential_score.clip(0, 1).astype(np.float32)
 
+    def _diagnose_tactical_exchange(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 新增】诊断战术换手博弈的质量与意图 (超级原子信号)
+        旨在穿透成交量表象，从博弈视角解析换手过程，区分“空中加油”与“高位派发”。
+        """
+        print("    -> [筹码层] 正在诊断“战术换手博弈”...")
+        required_signals = [
+            'main_force_net_flow_calibrated_D', 'retail_net_flow_calibrated_D', 'turnover_rate_f_D',
+            'peak_control_transfer_D', 'floating_chip_cleansing_efficiency_D', 'capitulation_absorption_index_D',
+            'profit_realization_quality_D', 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 'BIAS_55_D', 'is_consolidating_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_tactical_exchange"):
+            return pd.Series(0.0, index=df.index)
+        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
+        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        df_index = df.index
+        # 维度1: 换手意图 (Exchange Intent)
+        power_transfer = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D') - self._get_safe_series(df, df, 'retail_net_flow_calibrated_D')
+        turnover = self._get_safe_series(df, df, 'turnover_rate_f_D')
+        control_transfer = self._get_safe_series(df, df, 'peak_control_transfer_D')
+        norm_power_transfer = get_adaptive_mtf_normalized_bipolar_score(power_transfer, df_index, tf_weights)
+        norm_turnover = get_adaptive_mtf_normalized_score(turnover, df_index, tf_weights)
+        norm_control_transfer = get_adaptive_mtf_normalized_bipolar_score(control_transfer, df_index, tf_weights)
+        intent_score = (norm_power_transfer * 0.6 + ((norm_turnover - 0.5) * 2) * 0.2 + norm_control_transfer * 0.2)
+        # 维度2: 换手质量 (Exchange Quality)
+        cleansing_eff = self._get_safe_series(df, df, 'floating_chip_cleansing_efficiency_D')
+        absorption_idx = self._get_safe_series(df, df, 'capitulation_absorption_index_D')
+        profit_quality = self._get_safe_series(df, df, 'profit_realization_quality_D')
+        norm_cleansing = get_adaptive_mtf_normalized_score(cleansing_eff, df_index, tf_weights)
+        norm_absorption = get_adaptive_mtf_normalized_score(absorption_idx, df_index, tf_weights)
+        norm_profit_taking = get_adaptive_mtf_normalized_score(profit_quality, df_index, tf_weights)
+        bullish_quality = (norm_cleansing * norm_absorption).pow(0.5)
+        bearish_quality = norm_profit_taking
+        quality_score = bullish_quality - bearish_quality
+        # 维度3: 换手环境 (Exchange Context)
+        geography = self._get_safe_series(df, df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY')
+        bias = self._get_safe_series(df, df, 'BIAS_55_D')
+        is_consolidating = self._get_safe_series(df, df, 'is_consolidating_D')
+        norm_bias_risk = (bias / 0.3).clip(-1, 1) # 超过30%的乖离率视为极高风险/机会
+        context_score = (geography * 0.6 - norm_bias_risk * 0.4) * (1 + is_consolidating * 0.2)
+        # 最终融合
+        final_score = (
+            (intent_score.clip(-1, 1).add(1)/2) *
+            (quality_score.clip(-1, 1).add(1)/2) *
+            (context_score.clip(-1, 1).add(1)/2)
+        ).pow(1/3) * 2 - 1
+        # 探针监测
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
+            if probe_date in df.index:
+                print(f"    -> [战术换手博弈探针] @ {probe_date.date()}:")
+                print(f"       - 维度1: 换手意图 (Intent)")
+                print(f"         - 原料: power_transfer: {power_transfer.loc[probe_date]:.2f}, turnover: {turnover.loc[probe_date]:.4f}, control_transfer: {control_transfer.loc[probe_date]:.4f}")
+                print(f"         - 过程: norm_power: {norm_power_transfer.loc[probe_date]:.4f}, norm_turnover: {norm_turnover.loc[probe_date]:.4f}, norm_control: {norm_control_transfer.loc[probe_date]:.4f}")
+                print(f"         - 结果: intent_score: {intent_score.loc[probe_date]:.4f}")
+                print(f"       - 维度2: 换手质量 (Quality)")
+                print(f"         - 原料: cleansing: {cleansing_eff.loc[probe_date]:.4f}, absorption: {absorption_idx.loc[probe_date]:.4f}, profit_taking: {profit_quality.loc[probe_date]:.4f}")
+                print(f"         - 过程: bullish_quality: {bullish_quality.loc[probe_date]:.4f}, bearish_quality: {bearish_quality.loc[probe_date]:.4f}")
+                print(f"         - 结果: quality_score: {quality_score.loc[probe_date]:.4f}")
+                print(f"       - 维度3: 换手环境 (Context)")
+                print(f"         - 原料: geography: {geography.loc[probe_date]:.4f}, bias55: {bias.loc[probe_date]:.4f}, is_consolidating: {is_consolidating.loc[probe_date]}")
+                print(f"         - 过程: norm_bias_risk: {norm_bias_risk.loc[probe_date]:.4f}")
+                print(f"         - 结果: context_score: {context_score.loc[probe_date]:.4f}")
+                print(f"       - 最终融合结果: final_score: {final_score.loc[probe_date]:.4f}")
+        return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
 
 
