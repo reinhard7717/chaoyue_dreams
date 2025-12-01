@@ -236,10 +236,10 @@ class StructuralMetricsCalculators:
     def calculate_game_efficiency_metrics(context: dict) -> dict:
         """
         计算博弈效率相关指标。
-        【V36.8 · 功效归因修正】
-        - 核心修复: 修正 `upward_thrust_efficacy` 的归因逻辑。
-                     现在只统计价格上涨且主动买盘力量大于主动卖盘力量的分钟，
-                     确保指标衡量的是由买方主导的真实上行效率。
+        【V36.9 · 对称归因修正】
+        - 核心修复: 对 `downward_absorption_efficacy` 应用与上行指标对称的归因逻辑。
+                     现在只统计价格下跌且主动卖盘力量大于主动买盘力量的分钟，
+                     确保指标衡量的是在空方主导的真实下行压力中的吸收强度。
         """
         group = context['group']
         tick_df = context.get('tick_df')
@@ -250,18 +250,17 @@ class StructuralMetricsCalculators:
         results = {}
         if tick_df is None or tick_df.empty or group.empty:
             return results
-        # 1. 上行冲击效率 (Upward Thrust Efficacy)
+        # 准备分钟级数据
         group['price_change'] = group['close'].diff()
         group['vol_buy'] = tick_df[tick_df['type'] == 'B']['volume'].resample('T').sum()
         group['vol_sell'] = tick_df[tick_df['type'] == 'S']['volume'].resample('T').sum()
         group.fillna(0, inplace=True)
-        # 修改代码行：增加 vol_buy > vol_sell 的筛选条件，进行精确归因
+        # 1. 上行冲击效率 (Upward Thrust Efficacy) - V36.8 已修正
         up_minutes = group[(group['price_change'] > 0) & (group['vol_buy'] > group['vol_sell'])]
         if not up_minutes.empty:
             total_price_increase = up_minutes['price_change'].sum()
             total_buy_vol_in_up_minutes = up_minutes['vol_buy'].sum()
             if total_buy_vol_in_up_minutes > 0:
-                # 每百万主动买盘能推动价格上涨多少（放大10000倍以提高可读性）
                 efficacy = (total_price_increase / total_buy_vol_in_up_minutes) * 10000
                 results['upward_thrust_efficacy'] = efficacy
                 if enable_probe and is_target_date:
@@ -270,7 +269,9 @@ class StructuralMetricsCalculators:
                     print(f"    - 计算: ({total_price_increase:.4f} / {total_buy_vol_in_up_minutes:,.0f}) * 10000")
                     print(f"    -> 结果: {efficacy:.4f}")
         # 2. 下行吸收效率 (Downward Absorption Efficacy)
-        down_minutes_ticks = tick_df[tick_df.index.floor('T').isin(group[group['price_change'] < 0].index)]
+        # 修改代码行：增加 vol_sell > vol_buy 的筛选条件，进行对称的精确归因
+        down_minutes = group[(group['price_change'] < 0) & (group['vol_sell'] > group['vol_buy'])]
+        down_minutes_ticks = tick_df[tick_df.index.floor('T').isin(down_minutes.index)]
         if not down_minutes_ticks.empty:
             absorption_vol = down_minutes_ticks[down_minutes_ticks['type'] == 'B']['volume'].sum()
             driving_vol = down_minutes_ticks[down_minutes_ticks['type'] == 'S']['volume'].sum()
