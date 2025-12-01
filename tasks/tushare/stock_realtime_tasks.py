@@ -174,9 +174,16 @@ def save_real_tick_data_single(stock_code: str, cache_manager=None):
             # 接收DAO返回的 success 和 message
             success, message = await stock_realtime_dao.save_realtime_tick_in_bulk([stock_code], trade_date)
             if not success:
-                # 在调试信息和异常中包含从DAO返回的详细 message
-                print(f"股票 {stock_code} 的真实逐笔数据保存失败: {message}。触发 Celery 重试。")
-                raise Exception(f"股票 {stock_code} 的真实逐笔数据保存失败: {message}")
+                # 修改代码开始: 增加对“无数据”情况的判断，避免不必要的重试
+                # 检查是否是因为没有获取到数据，这种情况（例如，股票暂时无成交）不应视为需要重试的严重错误
+                if "未能获取到任何股票的实时逐笔数据" in message:
+                    logger.warning(f"股票 {stock_code} 未获取到实时逐笔数据，可能当前无成交。任务正常结束。消息: {message}")
+                    # 不再抛出异常，让任务成功结束
+                else:
+                    # 对于其他类型的失败，仍然抛出异常以触发Celery重试
+                    print(f"股票 {stock_code} 的真实逐笔数据保存失败: {message}。触发 Celery 重试。")
+                    raise Exception(f"股票 {stock_code} 的真实逐笔数据保存失败: {message}")
+                # 修改代码结束
         async_to_sync(main)()
     except Exception as e:
         logger.error(f"处理 {stock_code} 的真实逐笔(Tick)数据任务时发生未预期异常: {e}", exc_info=False)

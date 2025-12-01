@@ -185,13 +185,12 @@ class AdvancedStructuralMetricsService:
 
     async def _forge_advanced_structural_metrics(self, intraday_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
-        【V44.0 · 关隘验刃】
-        - 核心升级: 在构建传递给下一日的 `prev_day_metrics` 上下文时，增加 `high` 字段，
-                     为 `breakthrough_conviction_score` 的计算提供必要的“关隘”位置信息。
+        【V45.0 · 金城汤池】
+        - 核心升级: 在构建传递给下一日的 `prev_day_metrics` 上下文时，增加 `low` 字段，
+                     为 `defense_solidity_score` 的计算提供必要的“防线”位置信息。
         """
         new_metrics_data = []
         prev_day_metrics = {}
-        # 为了让第一天就能获取到前一天的高点，我们需要预先查询
         if intraday_map:
             first_date = min(intraday_map.keys())
             prev_date = first_date - pd.Timedelta(days=1)
@@ -199,7 +198,7 @@ class AdvancedStructuralMetricsService:
                  prev_day_series = daily_df_with_atr.loc[prev_date]
                  prev_day_metrics = {
                     'high': prev_day_series.get('high_qfq'),
-                    # 可以预加载更多历史指标，但目前仅需 high
+                    'low': prev_day_series.get('low_qfq'), # 新增此行
                  }
         for trade_date, data_for_day in sorted(intraday_map.items()):
             if trade_date not in daily_df_with_atr.index:
@@ -249,13 +248,14 @@ class AdvancedStructuralMetricsService:
             day_metric_dict['trade_time'] = trade_date
             day_metric_dict['stock_code'] = stock_code
             new_metrics_data.append(day_metric_dict)
-            # 修改代码块：在传递给下一日的上下文中增加 high
+            # 修改代码块：在传递给下一日的上下文中增加 low
             prev_day_metrics = {
                 'vpoc': day_metric_dict.get('_today_vpoc'),
                 'vah': day_metric_dict.get('_today_vah'),
                 'val': day_metric_dict.get('_today_val'),
                 'atr_14d': daily_series_for_day.get('ATR_14'),
-                'high': daily_series_for_day.get('high_qfq'), # 新增此行
+                'high': daily_series_for_day.get('high_qfq'),
+                'low': daily_series_for_day.get('low_qfq'), # 新增此行
             }
         if not new_metrics_data:
             return pd.DataFrame()
