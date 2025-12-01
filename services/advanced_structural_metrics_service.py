@@ -482,6 +482,71 @@ class AdvancedStructuralMetricsService:
         # 均值回归速度定义为 -slope
         return -slope
 
+    def _calculate_tpo_metrics(self, group: pd.DataFrame) -> dict:
+        """
+        【V30.10 · 新增辅助函数】
+        基于日内分钟数据计算市场轮廓（TPO/Market Profile）的核心指标。
+        - VPOC (Volume Point of Control): 成交量最大的价格点。
+        - Value Area (VA): 包含当日70%成交量的价格区域。
+        :param group: 包含'close'和'vol'列的日内分钟数据DataFrame。
+        :return: 包含VPOC, VAH, VAL的字典。
+        """
+        if group.empty or 'vol' not in group.columns or group['vol'].sum() == 0:
+            return {
+                '_today_vpoc': np.nan,
+                '_today_vah': np.nan,
+                '_today_val': np.nan,
+            }
+        # 1. 构建成交量分布图
+        volume_profile = group.groupby('close')['vol'].sum().sort_index()
+        if volume_profile.empty:
+            return {
+                '_today_vpoc': np.nan,
+                '_today_vah': np.nan,
+                '_today_val': np.nan,
+            }
+        # 2. 确定VPOC
+        vpoc = volume_profile.idxmax()
+        # 3. 计算价值区 (VAH, VAL)
+        total_volume = volume_profile.sum()
+        value_area_target_volume = total_volume * 0.7
+        # 初始化搜索范围
+        value_area_prices = [vpoc]
+        current_volume_in_area = volume_profile.loc[vpoc]
+        # 获取VPOC上下方的价格索引
+        prices_below_vpoc = volume_profile.index[volume_profile.index < vpoc]
+        prices_above_vpoc = volume_profile.index[volume_profile.index > vpoc]
+        # 双指针，从紧邻VPOC的价格开始
+        below_ptr = len(prices_below_vpoc) - 1
+        above_ptr = 0
+        while current_volume_in_area < value_area_target_volume:
+            vol_below = 0
+            if below_ptr >= 0:
+                price_below = prices_below_vpoc[below_ptr]
+                vol_below = volume_profile.loc[price_below]
+            vol_above = 0
+            if above_ptr < len(prices_above_vpoc):
+                price_above = prices_above_vpoc[above_ptr]
+                vol_above = volume_profile.loc[price_above]
+            if vol_below == 0 and vol_above == 0:
+                break # 没有更多价格可以添加
+            # 贪心策略：总是添加下一个成交量更大的价格点
+            if vol_above > vol_below:
+                value_area_prices.append(price_above)
+                current_volume_in_area += vol_above
+                above_ptr += 1
+            else:
+                value_area_prices.append(price_below)
+                current_volume_in_area += vol_below
+                below_ptr -= 1
+        vah = max(value_area_prices)
+        val = min(value_area_prices)
+        return {
+            '_today_vpoc': vpoc,
+            '_today_vah': vah,
+            '_today_val': val,
+        }
+
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
         【V19.7 · 索引健壮性修复版】
