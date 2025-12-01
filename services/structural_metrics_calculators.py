@@ -13,10 +13,11 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V37.3 · 信念同调修正】
-        - 核心修复: 修正 `auction_impact_score` 的计算逻辑，使其能正确处理低开的情况。
-                     通过引入 `np.sign(gap_magnitude)` 对信念因子进行“同调”，
-                     确保了无论是高开还是低开，后续的订单流都能正确地放大或缩小初始冲击的得分。
+        【V37.6 · 动态反转重构】
+        - 核心重构: 将 `rebound_momentum` 升级为 `dynamic_reversal_strength`。
+                     新指标不再依赖于单一的日内绝对最低点，而是识别所有显著的局部低点，
+                     计算每一次反弹的强度，并取其平均值。这使其能更真实地反映
+                     日内多次博弈的过程，捕捉W型底等复杂形态中的多头抵抗强度。
         """
         group = context['group']
         daily_series_for_day = context['daily_series_for_day']
@@ -37,7 +38,7 @@ class StructuralMetricsCalculators:
             'intraday_thrust_purity': np.nan,
             'volume_burstiness_index': np.nan,
             'auction_impact_score': np.nan,
-            'rebound_momentum': np.nan,
+            'dynamic_reversal_strength': np.nan, # 修改代码行：重命名指标
             'high_level_consolidation_volume': np.nan,
             'opening_period_thrust': np.nan,
         }
@@ -62,11 +63,6 @@ class StructuralMetricsCalculators:
             total_energy = absolute_energy.sum()
             if total_energy > 0:
                 results['intraday_thrust_purity'] = thrust_vector.sum() / total_energy
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] intraday_thrust_purity (分钟降级) ---")
-                    print(f"    - 原料: 推力向量和={thrust_vector.sum():,.2f}, 绝对能量和={total_energy:,.2f}")
-                    print(f"    - 计算: {thrust_vector.sum():,.2f} / {total_energy:,.2f}")
-                    print(f"    -> 结果: {results['intraday_thrust_purity']:.4f}")
         if tick_df is not None and not tick_df.empty:
             results['volume_burstiness_index'] = StructuralMetricsCalculators.calculate_gini(tick_df['volume'].values)
             if enable_probe and is_target_date:
@@ -75,10 +71,6 @@ class StructuralMetricsCalculators:
                 print(f"    -> 结果: {results['volume_burstiness_index']:.4f}")
         else:
             results['volume_burstiness_index'] = StructuralMetricsCalculators.calculate_gini(group['vol'].values)
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] volume_burstiness_index (分钟降级) ---")
-                print(f"    - 原料: {len(group)} 根分钟线成交量序列")
-                print(f"    -> 结果: {results['volume_burstiness_index']:.4f}")
         if all(pd.notna(v) for v in [day_open_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
             gap_magnitude = (day_open_qfq - pre_close_qfq) / atr_14
             if tick_df is not None and not tick_df.empty and level5_df is not None and not level5_df.empty:
@@ -95,14 +87,12 @@ class StructuralMetricsCalculators:
                     opening_volume = merged_hf['volume'].sum()
                     if opening_volume > 0:
                         conviction_factor = np.tanh(opening_ofi / opening_volume)
-                        # 修改代码行：引入缺口方向对信念因子进行同调
                         results['auction_impact_score'] = gap_magnitude * (1 + conviction_factor * np.sign(gap_magnitude))
                         if enable_probe and is_target_date:
                             print(f"--- [探针 ASM.{trade_date_str}] auction_impact_score (高频) ---")
                             print(f"    - 原料: 开盘价={day_open_qfq:.2f}, 昨收={pre_close_qfq:.2f}, ATR={atr_14:.4f}")
                             print(f"    - 节点1 (缺口): ({day_open_qfq:.2f} - {pre_close_qfq:.2f}) / {atr_14:.4f} = {gap_magnitude:.4f}")
                             print(f"    - 原料2: 开盘5分钟OFI={opening_ofi:,.0f}, 成交量={opening_volume:,.0f}")
-                            # 修改代码行：更新探针日志以反映新的计算逻辑
                             print(f"    - 节点2 (信念): tanh({opening_ofi:,.0f} / {opening_volume:,.0f}) = {conviction_factor:.4f}")
                             aligned_conviction = conviction_factor * np.sign(gap_magnitude)
                             print(f"    - 节点3 (同调信念): {conviction_factor:.4f} * sign({gap_magnitude:.4f}) = {aligned_conviction:.4f}")
@@ -114,39 +104,52 @@ class StructuralMetricsCalculators:
                     results['auction_impact_score'] = gap_magnitude
             else:
                 results['auction_impact_score'] = gap_magnitude
-                if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] auction_impact_score (分钟降级) ---")
-                    print(f"    - 原料: 开盘价={day_open_qfq:.2f}, 昨收={pre_close_qfq:.2f}, ATR={atr_14:.4f}")
-                    print(f"    - 计算: ({day_open_qfq:.2f} - {pre_close_qfq:.2f}) / {atr_14:.4f}")
-                    print(f"    -> 结果: {results['auction_impact_score']:.4f}")
-        # rebound_momentum (反转动能)
-        if tick_df is not None and not tick_df.empty:
-            low_price_time = tick_df['price'].idxmin()
-            falling_ticks = tick_df.loc[:low_price_time]
-            rebounding_ticks = tick_df.loc[low_price_time:]
-            if not falling_ticks.empty and not rebounding_ticks.empty and falling_ticks['volume'].sum() > 0 and rebounding_ticks['volume'].sum() > 0:
-                vwap_fall = (falling_ticks['price'] * falling_ticks['volume']).sum() / falling_ticks['volume'].sum()
-                vwap_rebound = (rebounding_ticks['price'] * rebounding_ticks['volume']).sum() / rebounding_ticks['volume'].sum()
-                if vwap_fall > 0:
-                    results['rebound_momentum'] = (vwap_rebound / vwap_fall - 1) * 100
+        # 新增代码块：重构反转动能为动态反转强度
+        try:
+            from scipy.signal import find_peaks
+            # 使用分钟线寻找显著的波峰和波谷
+            peaks, _ = find_peaks(group['high'], distance=5, prominence=0.01)
+            troughs, _ = find_peaks(-group['low'], distance=5, prominence=0.01)
+            if len(troughs) > 0 and len(peaks) > 0:
+                reversal_momentums = []
+                # 确保波谷和波峰交替出现，并以波谷开始
+                all_extrema = sorted(np.concatenate([peaks, troughs]))
+                # 找到第一个波谷
+                first_trough_idx = -1
+                for i, extremum_pos in enumerate(all_extrema):
+                    if extremum_pos in troughs:
+                        first_trough_idx = i
+                        break
+                if first_trough_idx != -1:
+                    # 从第一个波谷开始，寻找 "谷-峰" 对
+                    for i in range(first_trough_idx, len(all_extrema) - 1):
+                        if all_extrema[i] in troughs and all_extrema[i+1] in peaks:
+                            trough_pos = all_extrema[i]
+                            peak_pos = all_extrema[i+1]
+                            # 找到此波谷之前的波峰，作为下跌段的起点
+                            prev_peak_candidates = peaks[peaks < trough_pos]
+                            if len(prev_peak_candidates) > 0:
+                                prev_peak_pos = prev_peak_candidates[-1]
+                                falling_phase = group.iloc[prev_peak_pos:trough_pos+1]
+                                rebounding_phase = group.iloc[trough_pos:peak_pos+1]
+                                if not falling_phase.empty and not rebounding_phase.empty and \
+                                   falling_phase['vol'].sum() > 0 and rebounding_phase['vol'].sum() > 0:
+                                    vwap_fall = falling_phase['amount'].sum() / falling_phase['vol'].sum()
+                                    vwap_rebound = rebounding_phase['amount'].sum() / rebounding_phase['vol'].sum()
+                                    if vwap_fall > 0:
+                                        momentum = (vwap_rebound / vwap_fall - 1) * 100
+                                        reversal_momentums.append(momentum)
+                if reversal_momentums:
+                    results['dynamic_reversal_strength'] = np.mean(reversal_momentums)
                     if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] rebound_momentum (高频) ---")
-                        print(f"    - 原料: 转折点={low_price_time.time()}, 下跌VWAP={vwap_fall:.4f}, 反弹VWAP={vwap_rebound:.4f}")
-                        print(f"    - 计算: ({vwap_rebound:.4f} / {vwap_fall:.4f} - 1) * 100")
-                        print(f"    -> 结果: {results['rebound_momentum']:.4f}")
-        else:
-            low_timestamp = group['low'].idxmin()
-            low_pos = group.index.get_loc(low_timestamp)
-            if low_pos > 0 and low_pos < len(group) - 1:
-                falling_phase = group.iloc[:low_pos+1]
-                rebounding_phase = group.iloc[low_pos+1:]
-                vwap_fall = (falling_phase['amount']).sum() / falling_phase['vol'].sum() if falling_phase['vol'].sum() > 0 else np.nan
-                vwap_rebound = (rebounding_phase['amount']).sum() / rebounding_phase['vol'].sum() if rebounding_phase['vol'].sum() > 0 else np.nan
-                if pd.notna(vwap_fall) and pd.notna(vwap_rebound) and vwap_fall > 0:
-                    results['rebound_momentum'] = (vwap_rebound / vwap_fall - 1) * 100
-                    if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] rebound_momentum (分钟降级) ---")
-                        print(f"    -> 结果: {results['rebound_momentum']:.4f}")
+                        print(f"--- [探针 ASM.{trade_date_str}] dynamic_reversal_strength (分钟) ---")
+                        print(f"    - 原料: 识别出 {len(reversal_momentums)} 次有效反转")
+                        print(f"    - 节点 (各次动能): {[f'{m:.2f}' for m in reversal_momentums]}")
+                        print(f"    - 计算: mean of reversals")
+                        print(f"    -> 结果: {results['dynamic_reversal_strength']:.4f}")
+        except ImportError:
+            # SciPy 不可用时的降级逻辑 (可选)
+            pass
         # high_level_consolidation_volume (高位整固成交量占比)
         price_range = day_high_qfq - day_low_qfq
         if price_range > 0:
@@ -182,16 +185,6 @@ class StructuralMetricsCalculators:
                         print(f"--- [探针 ASM.{trade_date_str}] opening_period_thrust (高频) ---")
                         print(f"    - 原料: 开盘买量={opening_buy_vol:,.0f}, 开盘卖量={opening_sell_vol:,.0f}, 开盘总量={opening_total_vol:,.0f}")
                         print(f"    - 计算: ({opening_buy_vol:,.0f} - {opening_sell_vol:,.0f}) / {opening_total_vol:,.0f}")
-                        print(f"    -> 结果: {results['opening_period_thrust']:.4f}")
-        else:
-            opening_period_df = group[group.index.time < time(9, 59, 59)]
-            if not opening_period_df.empty:
-                opening_thrust_vector = (opening_period_df['close'] - opening_period_df['open']) * opening_period_df['vol']
-                opening_absolute_energy = abs(opening_period_df['close'] - opening_period_df['open']) * opening_period_df['vol']
-                if opening_absolute_energy.sum() > 0:
-                    results['opening_period_thrust'] = opening_thrust_vector.sum() / opening_absolute_energy.sum()
-                    if enable_probe and is_target_date:
-                        print(f"--- [探针 ASM.{trade_date_str}] opening_period_thrust (分钟降级) ---")
                         print(f"    -> 结果: {results['opening_period_thrust']:.4f}")
         return results
 

@@ -532,7 +532,8 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'intraday_thrust_purity': '日内推力纯度',
         'volume_burstiness_index': '成交量爆裂度指数',
         'auction_impact_score': '开盘缺口强度',
-        'rebound_momentum': '反转动能',
+        # 修改代码行：将静态的反转动能升级为动态反转强度
+        'dynamic_reversal_strength': '动态反转强度',
         'high_level_consolidation_volume': '高位整固成交量占比',
         'opening_period_thrust': '开盘期推力',
     }
@@ -607,7 +608,8 @@ class BaseAdvancedStructuralMetrics(models.Model):
     BOOLEAN_FIELDS = []
     SLOPE_ACCEL_EXCLUSIONS = [
         'auction_impact_score',
-        'rebound_momentum',
+        # 修改代码行：同步更新排除列表中的指标名称
+        'dynamic_reversal_strength',
         'high_level_consolidation_volume',
         'opening_period_thrust',
         'trend_efficiency_ratio',
@@ -622,7 +624,6 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'volume_profile_entropy',
         'intraday_pnl_imbalance',
         'cost_dispersion_index',
-        # 修改代码行：同步更新排除列表中的指标名称
         'upward_distribution_efficacy',
         'downward_absorption_efficacy',
         'net_vpa_score',
@@ -648,7 +649,6 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'market_impact_cost',
         'liquidity_slope',
         'liquidity_authenticity_score',
-        # 新增代码块：将动态演化因子加入排除列表
         'thrust_purity_ma5',
         'absorption_strength_ma5',
         'sweep_intensity_ma5',
