@@ -183,9 +183,9 @@ class AdvancedStructuralMetricsService:
 
     async def _forge_advanced_structural_metrics(self, intraday_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
-        【V30.6 · 数据源融合修正】
-        - 核心修复: 修复了因架构重构导致的数据融合逻辑缺失，该缺失导致在某些情况下传入的分钟数据缺少'vol'列。
-        - 解决方案: 在服务层内部重建数据源融合逻辑，优先使用高保真的Tick数据通过resample生成标准分钟数据，否则回退到预计算的分钟数据，确保下游计算总能获得格式统一的输入。
+        【V30.20 · 持久化链路修复】
+        - 核心修复: 将日期列的命名从 'trade_date' 统一为 'trade_time'，与数据库模型对齐。
+        - 核心修复: 移除了方法末尾的 reset_index()，确保DataFrame在处理流程中保持正确的DatetimeIndex。
         """
         new_metrics_data = []
         prev_day_metrics = {}
@@ -194,14 +194,10 @@ class AdvancedStructuralMetricsService:
             atr_5 = daily_series_for_day.get('ATR_5', np.nan)
             atr_14 = daily_series_for_day.get('ATR_14', np.nan)
             atr_50 = daily_series_for_day.get('ATR_50', np.nan)
-            
-            # --- 新增代码块：数据源融合与标准化 ---
             canonical_minute_df = None
             tick_df_for_day = data_for_day.get('tick')
             minute_df_for_day = data_for_day.get('minute')
-
             if tick_df_for_day is not None and not tick_df_for_day.empty:
-                # 优先级1：使用Tick数据生成分钟线
                 resampled_df = tick_df_for_day.resample('1min').agg(
                     open=('price', 'first'),
                     high=('price', 'max'),
@@ -212,29 +208,22 @@ class AdvancedStructuralMetricsService:
                 ).dropna(how='all')
                 if not resampled_df.empty:
                     canonical_minute_df = resampled_df
-            
             if canonical_minute_df is None and minute_df_for_day is not None and not minute_df_for_day.empty:
-                # 优先级2：使用预计算的分钟线
-                # 确保列名统一，以防万一
                 if 'volume' in minute_df_for_day.columns and 'vol' not in minute_df_for_day.columns:
                     minute_df_for_day.rename(columns={'volume': 'vol'}, inplace=True)
                 canonical_minute_df = minute_df_for_day
-
             if canonical_minute_df is None or canonical_minute_df.empty:
                 logger.warning(f"[{stock_code}] 在日期 {trade_date} 缺少可用的分钟级或Tick级数据，跳过当日计算。")
                 continue
-            # --- 融合逻辑结束 ---
-
             level5_df_for_day = data_for_day.get('level5')
             realtime_df_for_day = data_for_day.get('realtime')
-            
-            # 修改代码行：使用融合后的标准分钟数据
             continuous_group = self._create_continuous_minute_data(canonical_minute_df)
             day_metric_dict = self._calculate_daily_structural_metrics(
                 canonical_minute_df, continuous_group, daily_series_for_day, atr_5, atr_14, atr_50, prev_day_metrics,
                 tick_df_for_day, level5_df_for_day, realtime_df_for_day
             )
-            day_metric_dict['trade_date'] = trade_date
+            # 修改代码行：统一命名为 'trade_time'
+            day_metric_dict['trade_time'] = trade_date
             day_metric_dict['stock_code'] = stock_code
             new_metrics_data.append(day_metric_dict)
             prev_day_metrics = {
@@ -246,9 +235,10 @@ class AdvancedStructuralMetricsService:
         if not new_metrics_data:
             return pd.DataFrame()
         new_metrics_df = pd.DataFrame(new_metrics_data)
-        new_metrics_df.set_index('trade_date', inplace=True)
+        # 修改代码行：使用 'trade_time' 作为索引
+        new_metrics_df.set_index('trade_time', inplace=True)
         final_metrics_df = self._calculate_dynamic_evolution_factors(new_metrics_df)
-        final_metrics_df.reset_index(inplace=True)
+        # 修改代码行：移除此处的 reset_index，保持DatetimeIndex状态
         return final_metrics_df
 
     def _calculate_daily_structural_metrics(
