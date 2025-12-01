@@ -85,8 +85,8 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_RISK_DISTRIBUTION_WHISPER'] = distribution_whisper
         coherent_drive = self._diagnose_structural_consensus(df, battlefield_geography, holder_sentiment_scores)
         all_chip_states['SCORE_CHIP_COHERENT_DRIVE'] = coherent_drive
-        tactical_exchange = self._diagnose_tactical_exchange(df) # [修改代码行] 新增调用
-        all_chip_states['SCORE_CHIP_TACTICAL_EXCHANGE'] = tactical_exchange # [修改代码行] 新增调用
+        tactical_exchange = self._diagnose_tactical_exchange(df) # 新增调用
+        all_chip_states['SCORE_CHIP_TACTICAL_EXCHANGE'] = tactical_exchange # 新增调用
         print(f"【V16.0 · 战术换手版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。") # [修改代码行]
         return all_chip_states
 
@@ -125,7 +125,7 @@ class ChipIntelligence:
             'cost_gini_coefficient_D', 'covert_accumulation_signal_D', 'peak_exchange_purity_D',
             'main_force_cost_advantage_D', 'control_solidity_index_D', 'SLOPE_5_main_force_conviction_index_D',
             'floating_chip_cleansing_efficiency_D', 'dominant_peak_solidity_D',
-            'deception_index_D' # [修改代码行] 新增依赖信号
+            'deception_index_D' # 新增依赖信号
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_strategic_posture"):
             return pd.Series(0.0, index=df.index)
@@ -144,12 +144,12 @@ class ChipIntelligence:
         cost_advantage = self._get_safe_series(df, df, 'main_force_cost_advantage_D', 0.0)
         control_solidity = self._get_safe_series(df, df, 'control_solidity_index_D', 0.0)
         conviction_slope = self._get_safe_series(df, df, 'SLOPE_5_main_force_conviction_index_D', 0.0)
-        deception_index = self._get_safe_series(df, df, 'deception_index_D', 0.0) # [修改代码行] 获取欺骗指数
+        deception_index = self._get_safe_series(df, df, 'deception_index_D', 0.0) # 获取欺骗指数
         advantage_score = get_adaptive_mtf_normalized_bipolar_score(cost_advantage, df_index, tf_weights)
         solidity_score = get_adaptive_mtf_normalized_bipolar_score(control_solidity, df_index, tf_weights)
         intent_score = get_adaptive_mtf_normalized_bipolar_score(conviction_slope, df_index, tf_weights)
-        deception_score = get_adaptive_mtf_normalized_bipolar_score(deception_index, df_index, tf_weights) # [修改代码行] 归一化欺骗指数
-        commanders_resolve_score = ( # [修改代码行] 将欺骗指数得分融合进指挥官决心
+        deception_score = get_adaptive_mtf_normalized_bipolar_score(deception_index, df_index, tf_weights) # 归一化欺骗指数
+        commanders_resolve_score = ( # 将欺骗指数得分融合进指挥官决心
             (advantage_score.add(1)/2) * (solidity_score.add(1)/2) *
             (intent_score.clip(lower=-1, upper=1).add(1)/2) * (deception_score.add(1)/2)
         ).pow(1/4) * 2 - 1
@@ -175,7 +175,7 @@ class ChipIntelligence:
                 print(f"         - 过程: level_score: {level_score.loc[probe_date]:.4f}, efficiency_score: {efficiency_score.loc[probe_date]:.4f}")
                 print(f"         - 结果: formation_deployment_score: {formation_deployment_score.loc[probe_date]:.4f}")
                 print(f"       - 维度2: 指挥官决心 (Commander's Resolve)")
-                # [修改代码行] 更新探针输出
+                # 更新探针输出
                 print(f"         - 原料: cost_adv: {cost_advantage.loc[probe_date]:.4f}, ctrl_solidity: {control_solidity.loc[probe_date]:.4f}, conviction_slope: {conviction_slope.loc[probe_date]:.4f}, deception_idx: {deception_index.loc[probe_date]:.4f}")
                 print(f"         - 过程: advantage_score: {advantage_score.loc[probe_date]:.4f}, solidity_score: {solidity_score.loc[probe_date]:.4f}, intent_score: {intent_score.loc[probe_date]:.4f}, deception_score: {deception_score.loc[probe_date]:.4f}")
                 print(f"         - 结果: commanders_resolve_score: {commanders_resolve_score.loc[probe_date]:.4f}")
@@ -240,11 +240,11 @@ class ChipIntelligence:
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V5.3 · 悖论修复版】筹码公理三：诊断“持仓信念韧性”
-        - 核心修复: 修正“无贪婪不纯”悖论。将`fomo_score`的归一化参数`ascending`从`True`改为`False`，
-                      确保只有在高FOMO情绪下才会产生高的“不纯度”惩罚，使模型逻辑与博弈现实完全对齐。
+        【V5.4 · 逻辑正向版】筹码公理三：诊断“持仓信念韧性”
+        - 核心修复: 修正“反向惩罚”悖论。将`fomo_score`的归一化参数`ascending`从`False`改回`True`，
+                      恢复“FOMO情绪越高，不纯度越高”的正确逻辑。
         """
-        print("    -> [筹码层] 正在诊断“持仓信念”公理 (V5.3 · 悖论修复版)...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“持仓信念”公理 (V5.4 · 逻辑正向版)...") # [修改代码行]
         required_signals = [
             'winner_stability_index_D', 'loser_pain_index_D', 'dip_absorption_power_D',
             'mf_cost_zone_defense_intent_D', 'retail_fomo_premium_index_D',
@@ -267,7 +267,7 @@ class ChipIntelligence:
         pressure_test_score = (absorption_score.add(1)/2 * defense_score.add(1)/2).pow(0.5) * 2 - 1
         fomo_index = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         profit_taking_quality = self._get_safe_series(df, df, 'profit_realization_quality_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        fomo_score = get_adaptive_mtf_normalized_score(fomo_index, df_index, ascending=False, tf_weights=tf_weights) # [修改代码行] ascending=False
+        fomo_score = get_adaptive_mtf_normalized_score(fomo_index, df_index, ascending=True, tf_weights=tf_weights) # ascending=True
         profit_taking_score = get_adaptive_mtf_normalized_score(profit_taking_quality, df_index, ascending=True, tf_weights=tf_weights)
         impurity_score = (fomo_score * profit_taking_score).pow(0.5)
         conviction_base = ((belief_core_score.add(1)/2) * (pressure_test_score.add(1)/2)).pow(0.5)
@@ -287,7 +287,6 @@ class ChipIntelligence:
                 print(f"         - 结果: pressure_test_score: {pressure_test_score.loc[probe_date]:.4f}")
                 print(f"       - 维度3: 情绪纯度 (Impurity)")
                 print(f"         - 原料: fomo_index: {fomo_index.loc[probe_date]:.4f}, profit_taking_quality: {profit_taking_quality.loc[probe_date]:.4f}")
-                # [修改代码行] 新增fomo_score的探针输出
                 print(f"         - 过程: fomo_score (corrected): {fomo_score.loc[probe_date]:.4f}, profit_taking_score: {profit_taking_score.loc[probe_date]:.4f}")
                 print(f"         - 结果: impurity_score: {impurity_score.loc[probe_date]:.4f}")
                 print(f"       - 最终融合结果: final_score: {final_score.loc[probe_date]:.4f}")
@@ -381,7 +380,7 @@ class ChipIntelligence:
             if probe_date in df.index:
                 print(f"    -> [价筹张力探针] @ {probe_date.date()}:")
                 print(f"       - 维度1: 分歧向量 (Disagreement Vector)")
-                # [修改代码行] 更新探针输出
+                # 更新探针输出
                 print(f"         - 原料: chip_momentum: {chip_momentum.loc[probe_date]:.4f}, price_trend: {price_trend.loc[probe_date]:.4f}")
                 print(f"         - 过程: norm_chip_momentum: {norm_chip_momentum.loc[probe_date]:.4f}, norm_price_trend: {norm_price_trend.loc[probe_date]:.4f}")
                 print(f"         - 结果: disagreement_vector: {disagreement_vector.loc[probe_date]:.4f}")
@@ -535,7 +534,7 @@ class ChipIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df_index:
                 print(f"    -> [筹码势能探针] @ {probe_date_for_loop.date()}:")
-                # [修改代码行] 更新探针输出
+                # 更新探针输出
                 print(f"       - 原料: long_term_flow_accum: {long_term_flow_accumulation.loc[probe_date_for_loop]:.2f}, chip_health_score: {chip_health.loc[probe_date_for_loop]:.4f}, peak_solidity: {peak_solidity.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 过程: flow_score: {flow_score.loc[probe_date_for_loop]:.4f}, concentration_score_unipolar: {concentration_score_unipolar.loc[probe_date_for_loop]:.4f}, stability_score: {stability_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 结果: final_potential_score: {potential_score.loc[probe_date_for_loop]:.4f}")
@@ -543,16 +542,16 @@ class ChipIntelligence:
 
     def _diagnose_tactical_exchange(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.1 · 动态质量评估版】诊断战术换手博弈的质量与意图
-        - 核心修复: 解决“上涨惩罚”悖论。引入`upward_impulse_purity_D`，并根据价格趋势动态切换质量评估模型。
-                      上涨时评估“脉冲纯度”，下跌时评估“恐慌吸收”，使质量判断更符合博弈上下文。
+        【V1.2 · 零值门控版】诊断战术换手博弈的质量与意图
+        - 核心修复: 解决“幻觉质量分”悖论。引入“零值门控”，在归一化后强制将原始信号为0的得分置为0，
+                      确保“无行为则无得分”，根除因归一化机制产生的幻觉信号。
         """
-        print("    -> [筹码层] 正在诊断“战术换手博弈 (V1.1 · 动态质量评估版)”...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“战术换手博弈 (V1.2 · 零值门控版)”...") # [修改代码行]
         required_signals = [
             'main_force_net_flow_calibrated_D', 'retail_net_flow_calibrated_D', 'turnover_rate_f_D',
             'peak_control_transfer_D', 'floating_chip_cleansing_efficiency_D', 'capitulation_absorption_index_D',
             'profit_realization_quality_D', 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 'BIAS_55_D', 'is_consolidating_D',
-            'upward_impulse_purity_D', 'SLOPE_1_close_D' # [修改代码行] 新增依赖信号
+            'upward_impulse_purity_D', 'SLOPE_1_close_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_tactical_exchange"):
             return pd.Series(0.0, index=df.index)
@@ -567,15 +566,15 @@ class ChipIntelligence:
         norm_turnover = get_adaptive_mtf_normalized_score(turnover, df_index, tf_weights)
         norm_control_transfer = get_adaptive_mtf_normalized_bipolar_score(control_transfer, df_index, tf_weights)
         intent_score = (norm_power_transfer * 0.6 + ((norm_turnover - 0.5) * 2) * 0.2 + norm_control_transfer * 0.2)
-        # 维度2: 换手质量 (Exchange Quality) - 动态评估
-        price_trend = self._get_safe_series(df, df, 'SLOPE_1_close_D', 0.0) # [修改代码行] 使用短期价格趋势判断
+        # 维度2: 换手质量 (Exchange Quality) - 零值门控
+        price_trend = self._get_safe_series(df, df, 'SLOPE_1_close_D', 0.0)
         is_up_day = price_trend > 0
         absorption_idx = self._get_safe_series(df, df, 'capitulation_absorption_index_D')
         impulse_purity = self._get_safe_series(df, df, 'upward_impulse_purity_D')
         profit_quality = self._get_safe_series(df, df, 'profit_realization_quality_D')
-        norm_absorption = get_adaptive_mtf_normalized_score(absorption_idx, df_index, tf_weights)
-        norm_impulse_purity = get_adaptive_mtf_normalized_score(impulse_purity, df_index, tf_weights)
-        # [修改代码行] 根据价格趋势动态选择看涨质量指标
+        # [修改代码块] 引入零值门控
+        norm_absorption = get_adaptive_mtf_normalized_score(absorption_idx, df_index, tf_weights).where(absorption_idx != 0, 0)
+        norm_impulse_purity = get_adaptive_mtf_normalized_score(impulse_purity, df_index, tf_weights).where(impulse_purity != 0, 0)
         bullish_quality = pd.Series(np.where(is_up_day, norm_impulse_purity, norm_absorption), index=df_index)
         bearish_quality = get_adaptive_mtf_normalized_score(profit_quality, df_index, tf_weights)
         quality_score = bullish_quality - bearish_quality
@@ -603,8 +602,9 @@ class ChipIntelligence:
                 print(f"         - 过程: norm_power: {norm_power_transfer.loc[probe_date]:.4f}, norm_turnover: {norm_turnover.loc[probe_date]:.4f}, norm_control: {norm_control_transfer.loc[probe_date]:.4f}")
                 print(f"         - 结果: intent_score: {intent_score.loc[probe_date]:.4f}")
                 print(f"       - 维度2: 换手质量 (Quality)")
-                # [修改代码行] 更新探针输出以反映动态逻辑
                 print(f"         - 原料: absorption: {absorption_idx.loc[probe_date]:.4f}, impulse_purity: {impulse_purity.loc[probe_date]:.4f}, profit_taking: {profit_quality.loc[probe_date]:.4f}, is_up_day: {is_up_day.loc[probe_date]}")
+                # 更新探针输出以反映零值门控
+                print(f"         - 过程: norm_absorption(gated): {norm_absorption.loc[probe_date]:.4f}, norm_impulse_purity(gated): {norm_impulse_purity.loc[probe_date]:.4f}")
                 print(f"         - 过程: bullish_quality (dynamic): {bullish_quality.loc[probe_date]:.4f}, bearish_quality: {bearish_quality.loc[probe_date]:.4f}")
                 print(f"         - 结果: quality_score: {quality_score.loc[probe_date]:.4f}")
                 print(f"       - 维度3: 换手环境 (Context)")
