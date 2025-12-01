@@ -521,10 +521,11 @@ class AdvancedFundFlowMetrics_BJ(BaseAdvancedFundFlowMetrics):
 # 结构与行为高级指标模型
 class BaseAdvancedStructuralMetrics(models.Model):
     """
-    【V63.0 · 劲力合一】
-    - 核心重构: 在数据模型层面，将 `CONTROL_METRICS` 中的“脉冲”、“沉寂”、“加速”等指标
-                 重铸为“效率”与“引力”指标，使其“法身”与“心法”完全统一，承载“劲力合一”的新内涵。
-    - 戒律同步: 同步更新 `SLOPE_ACCEL_EXCLUSIONS` 列表，确保新指标名实相符。
+    【V65.0 · 博弈穿透】
+    - 核心升维: 对 `GAME_EFFICIENCY_METRICS` 进行终极升维。不再仅看反向成交量，而是引入
+                 “冲击成本”概念，量化突破与防御所需付出的真实代价 (`breakthrough/defense_cost_index`)。
+    - 核心重构: 将“波动率偏度”升级为“趋势不对称指数”，从度量“幅度”提升至度量“路径效率”，
+                 更精准刻画多空趋势的顺畅度。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     ENERGY_DENSITY_METRICS = {
@@ -544,24 +545,24 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'sweep_intensity_ma5': '扫单强度5日均线',
         'vpin_roc3': 'VPIN3日变化率',
     }
-    # 修改代码块：重铸 CONTROL_METRICS 指标
     CONTROL_METRICS = {
         'trend_efficiency_ratio': '趋势效率比',
         'pullback_depth_ratio': '回撤深度比',
         'mean_reversion_frequency': '均值回归频率(每小时)',
-        'opening_impulse_efficiency': '开盘脉冲效率', # 修改代码行
-        'midday_narrow_range_gravity': '盘中窄幅引力', # 修改代码行
-        'tail_acceleration_efficiency': '尾盘加速效率', # 修改代码行
+        'opening_impulse_efficiency': '开盘脉冲效率',
+        'midday_narrow_range_gravity': '盘中窄幅引力',
+        'tail_acceleration_efficiency': '尾盘加速效率',
         'closing_conviction_score': '收盘信念得分',
         'volume_profile_entropy': '成交剖面熵',
         'intraday_pnl_imbalance': '日内盈亏失衡度',
         'cost_dispersion_index': '成本离散指数(ATR)',
     }
+    # 修改代码块：重铸 GAME_EFFICIENCY_METRICS 指标
     GAME_EFFICIENCY_METRICS = {
-        'volatility_skew_index': '波动率偏度指数',
+        'trend_asymmetry_index': '趋势不对称指数',
         'active_volume_price_efficiency': '主动成交量价格效率',
-        'absorption_strength_index': '下跌吸筹强度指数',
-        'distribution_pressure_index': '上涨派发压力指数',
+        'breakthrough_cost_index': '突破成本指数',
+        'defense_cost_index': '防御成本指数',
         'thrust_efficiency_score': '推力效能分',
     }
     DERIVATIVE_METRICS = {
@@ -619,15 +620,15 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'trend_efficiency_ratio',
         'pullback_depth_ratio',
         'mean_reversion_frequency',
-        'opening_impulse_efficiency', # 修改代码行
-        'midday_narrow_range_gravity', # 修改代码行
-        'tail_acceleration_efficiency', # 修改代码行
+        'opening_impulse_efficiency',
+        'midday_narrow_range_gravity',
+        'tail_acceleration_efficiency',
         'closing_conviction_score',
         'volume_profile_entropy',
         'intraday_pnl_imbalance',
         'cost_dispersion_index',
         'price_thrust_divergence',
-        'volatility_skew_index',
+        'trend_asymmetry_index', # 修改代码行
         'value_area_migration',
         'value_area_overlap_pct',
         'closing_acceptance_type',
@@ -638,8 +639,8 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'closing_momentum_index',
         'volume_structure_skew',
         'active_volume_price_efficiency',
-        'absorption_strength_index',
-        'distribution_pressure_index',
+        'breakthrough_cost_index', # 修改代码行
+        'defense_cost_index', # 修改代码行
         'order_flow_imbalance_score',
         'buy_sweep_intensity',
         'sell_sweep_intensity',

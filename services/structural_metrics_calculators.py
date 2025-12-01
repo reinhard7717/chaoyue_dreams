@@ -371,12 +371,12 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_game_efficiency_metrics(context: dict) -> dict:
         """
-        【V61.0 · 博弈精研】
-        - 核心升级: 全面升维博弈效率指标，引入 `volatility_skew_index` 和 `thrust_efficiency_score`，
-                     以更高维度洞察市场效率与情绪偏向。
-        - `volatility_skew_index` 新增: 计算上涨与下跌分钟的已实现波动率之比，量化情绪非对称性。
-        - `thrust_efficiency_score` 新增: 结合价格变动与推力纯度，衡量“破局”效率。
-        - 逻辑保留: `absorption_strength_index` 和 `distribution_pressure_index` 已是最终形态，予以保留。
+        【V65.0 · 博弈穿透】
+        - 核心升维: 全面重构博弈效率指标，引入“冲击成本”和“路径效率”概念。
+        - `breakthrough/defense_cost_index` 新增: 基于高频Tick，精确计算多空双方在推动价格时
+                     付出的平均“滑点成本”，量化突破与防御的真实代价。
+        - `trend_asymmetry_index` 新增: 比较上涨与下跌分钟的“趋势效率”，从“幅度”不对称性
+                     的度量，升维至“路径”顺畅度的不对称性分析。
         """
         group = context['group']
         tick_df = context.get('tick_df')
@@ -391,57 +391,59 @@ class StructuralMetricsCalculators:
         results = {}
         if group.empty:
             return results
-        # 1. 新增：波动率偏度指数 (Volatility Skew Index)
-        minute_returns = group['close'].pct_change().dropna()
-        if len(minute_returns) > 1:
-            positive_returns = minute_returns[minute_returns > 0]
-            negative_returns = minute_returns[minute_returns < 0]
-            vol_up = positive_returns.std()
-            vol_down = negative_returns.std()
-            if pd.notna(vol_up) and pd.notna(vol_down) and vol_up > 0 and vol_down > 0:
-                results['volatility_skew_index'] = np.log(vol_up / vol_down)
+        # 1. 升维：趋势不对称指数 (Trend Asymmetry Index) - 分钟级
+        up_minutes = group[group['close'] > group['open']]
+        down_minutes = group[group['close'] < group['open']]
+        if not up_minutes.empty and not down_minutes.empty:
+            up_path = (up_minutes['high'] - up_minutes['low']).sum()
+            up_net_change = (up_minutes['close'] - up_minutes['open']).sum()
+            down_path = (down_minutes['high'] - down_minutes['low']).sum()
+            down_net_change = abs(down_minutes['close'] - down_minutes['open']).sum()
+            eff_up = up_net_change / up_path if up_path > 0 else 0
+            eff_down = down_net_change / down_path if down_path > 0 else 0
+            if eff_up > 0 and eff_down > 0:
+                results['trend_asymmetry_index'] = np.log(eff_up / eff_down)
                 if enable_probe and is_target_date:
-                    print(f"--- [探针 ASM.{trade_date_str}] volatility_skew_index (博弈) ---")
-                    print(f"    - 原料: 上涨分钟数={len(positive_returns)}, 下跌分钟数={len(negative_returns)}")
-                    print(f"    - 节点: 上行波动率={vol_up:.6f}, 下行波动率={vol_down:.6f}")
-                    print(f"    - 计算: log({vol_up:.6f} / {vol_down:.6f})")
-                    print(f"    -> 结果: {results.get('volatility_skew_index', np.nan):.4f}")
-        # 2. 新增：推力效能分 (Thrust Efficiency Score)
+                    print(f"--- [探针 ASM.{trade_date_str}] trend_asymmetry_index (博弈) ---")
+                    print(f"    - 原料: 上涨分钟数={len(up_minutes)}, 下跌分钟数={len(down_minutes)}")
+                    print(f"    - 节点: 上涨效率={eff_up:.4f}, 下跌效率={eff_down:.4f}")
+                    print(f"    - 计算: log({eff_up:.4f} / {eff_down:.4f})")
+                    print(f"    -> 结果: {results.get('trend_asymmetry_index', np.nan):.4f}")
+        # 2. 保留：推力效能分 (Thrust Efficiency Score)
         if all(pd.notna(v) for v in [day_close_qfq, day_open_qfq, atr_14, intraday_thrust_purity]) and atr_14 > 0:
             price_change_in_atr = (day_close_qfq - day_open_qfq) / atr_14
-            # 分母 (1 - abs(purity)) 奖赏高纯度推力, 增加epsilon避免除零
             effort_factor = 1 - abs(intraday_thrust_purity) + 1e-9
             results['thrust_efficiency_score'] = price_change_in_atr / effort_factor
-            if enable_probe and is_target_date:
-                print(f"--- [探针 ASM.{trade_date_str}] thrust_efficiency_score (博弈) ---")
-                print(f"    - 原料: 价格变动(ATR)={price_change_in_atr:.4f}, 推力纯度={intraday_thrust_purity:.4f}")
-                print(f"    - 节点 (内耗因子): 1 - |{intraday_thrust_purity:.4f}| = {effort_factor:.4f}")
-                print(f"    - 计算: {price_change_in_atr:.4f} / {effort_factor:.4f}")
-                print(f"    -> 结果: {results.get('thrust_efficiency_score', np.nan):.4f}")
-        if tick_df is None or tick_df.empty:
-            return results
-        group['price_change_minute'] = group['close'].diff()
-        if 'price_change' in tick_df.columns and not tick_df['price_change'].isnull().all():
-            self_calculated_change = tick_df['price'].diff().fillna(0)
-            zero_change_mask = tick_df['price_change'] == 0
-            tick_df['effective_price_change'] = np.where(zero_change_mask, self_calculated_change, tick_df['price_change'])
-            tick_df['thrust_direction'] = np.sign(tick_df['effective_price_change'])
-            # 3. 保留：上涨派发压力指数 (Distribution Pressure Index)
-            up_minutes_index = group[group['price_change_minute'] > 0].index
-            up_minutes_ticks = tick_df[tick_df.index.floor('T').isin(up_minutes_index)]
-            if not up_minutes_ticks.empty:
-                downward_thrust_vol = up_minutes_ticks[up_minutes_ticks['thrust_direction'] < 0]['volume'].sum()
-                upward_thrust_vol = up_minutes_ticks[up_minutes_ticks['thrust_direction'] > 0]['volume'].sum()
-                if upward_thrust_vol > 0:
-                    results['distribution_pressure_index'] = downward_thrust_vol / upward_thrust_vol
-            # 4. 保留：下跌吸筹强度指数 (Absorption Strength Index)
-            down_minutes_index = group[group['price_change_minute'] < 0].index
-            down_minutes_ticks = tick_df[tick_df.index.floor('T').isin(down_minutes_index)]
-            if not down_minutes_ticks.empty:
-                upward_thrust_vol = down_minutes_ticks[down_minutes_ticks['thrust_direction'] > 0]['volume'].sum()
-                downward_thrust_vol = down_minutes_ticks[down_minutes_ticks['thrust_direction'] < 0]['volume'].sum()
-                if downward_thrust_vol > 0:
-                    results['absorption_strength_index'] = upward_thrust_vol / downward_thrust_vol
+        # 3. 升维：突破/防御成本指数 (Breakthrough/Defense Cost Index) - 高频
+        if tick_df is not None and not tick_df.empty and len(tick_df) > 1 and pd.notna(atr_14) and atr_14 > 0:
+            tick_df['prev_price'] = tick_df['price'].shift(1)
+            tick_df['price_diff'] = tick_df['price'] - tick_df['prev_price']
+            # 突破成本 (多方)
+            up_thrust_ticks = tick_df[tick_df['price_diff'] > 0]
+            if not up_thrust_ticks.empty:
+                total_up_vol = up_thrust_ticks['volume'].sum()
+                if total_up_vol > 0:
+                    weighted_avg_slippage_up = np.average(up_thrust_ticks['price_diff'], weights=up_thrust_ticks['volume'])
+                    results['breakthrough_cost_index'] = weighted_avg_slippage_up / atr_14
+                    if enable_probe and is_target_date:
+                        print(f"--- [探针 ASM.{trade_date_str}] breakthrough_cost_index (博弈) ---")
+                        print(f"    - 原料: {len(up_thrust_ticks)}笔上涨Tick, 总成交量={total_up_vol:,.0f}, ATR={atr_14:.4f}")
+                        print(f"    - 节点 (成交量加权平均滑点): {weighted_avg_slippage_up:.6f}")
+                        print(f"    - 计算: {weighted_avg_slippage_up:.6f} / {atr_14:.4f}")
+                        print(f"    -> 结果: {results.get('breakthrough_cost_index', np.nan):.4f}")
+            # 防御成本 (空方)
+            down_thrust_ticks = tick_df[tick_df['price_diff'] < 0]
+            if not down_thrust_ticks.empty:
+                total_down_vol = down_thrust_ticks['volume'].sum()
+                if total_down_vol > 0:
+                    weighted_avg_slippage_down = np.average(abs(down_thrust_ticks['price_diff']), weights=down_thrust_ticks['volume'])
+                    results['defense_cost_index'] = weighted_avg_slippage_down / atr_14
+                    if enable_probe and is_target_date:
+                        print(f"--- [探针 ASM.{trade_date_str}] defense_cost_index (博弈) ---")
+                        print(f"    - 原料: {len(down_thrust_ticks)}笔下跌Tick, 总成交量={total_down_vol:,.0f}, ATR={atr_14:.4f}")
+                        print(f"    - 节点 (成交量加权平均滑点): {weighted_avg_slippage_down:.6f}")
+                        print(f"    - 计算: {weighted_avg_slippage_down:.6f} / {atr_14:.4f}")
+                        print(f"    -> 结果: {results.get('defense_cost_index', np.nan):.4f}")
         return results
 
     @staticmethod
