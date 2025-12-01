@@ -280,8 +280,8 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
 # 资金高级指标模型
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V60.2 · 正名计划】
-    - 核心正名: 将 main_force_price_impact_ratio 正名为 main_force_slippage_index，以使用更精确的行业术语。
+    【V60.2 · 正名计划 (修正)】
+    - 核心修正: 在 Meta.indexes 中更新字段引用，完成 main_force_slippage_index 的重命名。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     POWER_STRUCTURE_METRICS = {
@@ -300,7 +300,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'main_force_posture_index': '主力姿态指数',
         'observed_large_order_size_avg': '观测大单平均规模(元)',
         'retail_flow_dominance_index': '散户流动性主导指数',
-        # 修改代码行：更新指标名称和注释
         'main_force_slippage_index': '主力滑点指数(%)',
     }
     TACTICAL_LOG_METRICS = {
@@ -358,7 +357,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
     SLOPE_ACCEL_EXCLUSIONS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
         'main_force_flow_directionality', 'main_force_conviction_index',
-        # 修改代码行：更新为新的字段名
         'retail_flow_dominance_index', 'main_force_slippage_index', 'dip_absorption_power',
         'rally_distribution_pressure', 'panic_selling_cascade', 'opening_battle_result',
         'pre_closing_posturing', 'closing_auction_ambush', 'main_force_execution_alpha',
@@ -382,7 +380,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
         'main_force_flow_directionality', 'main_force_conviction_index',
-        # 修改代码行：更新为新的字段名
         'retail_flow_dominance_index', 'main_force_slippage_index',
         'dip_absorption_power', 'rally_distribution_pressure', 'panic_selling_cascade',
         'opening_battle_result', 'pre_closing_posturing', 'closing_auction_ambush',
@@ -412,6 +409,14 @@ class BaseAdvancedFundFlowMetrics(models.Model):
     class Meta:
         abstract = True
         ordering = ['-trade_time']
+        # 假设的索引列表，你需要根据你的实际代码进行修改
+        indexes = [
+            models.Index(fields=['main_force_conviction_index']),
+            # 修改代码行：将旧字段名更新为新字段名
+            models.Index(fields=['main_force_slippage_index']),
+            models.Index(fields=['dip_absorption_power']),
+            models.Index(fields=['rally_distribution_pressure']),
+        ]
 
 class AdvancedFundFlowMetrics_SH(BaseAdvancedFundFlowMetrics):
     stock = models.ForeignKey(
@@ -429,7 +434,7 @@ class AdvancedFundFlowMetrics_SH(BaseAdvancedFundFlowMetrics):
         unique_together = ('stock', 'trade_time')
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['main_force_price_impact_ratio']),
+            models.Index(fields=['main_force_slippage_index']),
             models.Index(fields=['mf_retail_battle_intensity']),
         ]
 
@@ -449,7 +454,7 @@ class AdvancedFundFlowMetrics_SZ(BaseAdvancedFundFlowMetrics):
         unique_together = ('stock', 'trade_time')
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['main_force_price_impact_ratio']),
+            models.Index(fields=['main_force_slippage_index']),
             models.Index(fields=['mf_retail_battle_intensity']),
         ]
 
@@ -469,7 +474,7 @@ class AdvancedFundFlowMetrics_CY(BaseAdvancedFundFlowMetrics):
         unique_together = ('stock', 'trade_time')
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['main_force_price_impact_ratio']),
+            models.Index(fields=['main_force_slippage_index']),
             models.Index(fields=['mf_retail_battle_intensity']),
         ]
 
@@ -489,7 +494,7 @@ class AdvancedFundFlowMetrics_KC(BaseAdvancedFundFlowMetrics):
         unique_together = ('stock', 'trade_time')
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['main_force_price_impact_ratio']),
+            models.Index(fields=['main_force_slippage_index']),
             models.Index(fields=['mf_retail_battle_intensity']),
         ]
 
@@ -509,7 +514,7 @@ class AdvancedFundFlowMetrics_BJ(BaseAdvancedFundFlowMetrics):
         unique_together = ('stock', 'trade_time')
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['main_force_price_impact_ratio']),
+            models.Index(fields=['main_force_slippage_index']),
             models.Index(fields=['mf_retail_battle_intensity']),
         ]
 
