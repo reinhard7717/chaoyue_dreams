@@ -347,30 +347,35 @@ class ChipIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V5.2 · 信号换代版】筹码公理五：诊断“价筹张力”
-        - 核心升级: 将代表筹码趋势的信号从`SLOPE_5_winner_concentration_90pct_D`替换为更动态、更直接的`winner_loser_momentum_D`。
-                      这使得背离诊断从“价格趋势 vs 集中度趋势”升级为“价格趋势 vs 筹码动量”，更直指博弈核心。
-        - 核心升级: 植入标准化的“真理探针”，输出所有原始数据、关键计算过程及最终结果。
+        【V5.3 · 冲突放大版】筹码公理五：诊断“价筹张力”
+        - 核心升级: 引入“冲突放大器”。当价格趋势与筹码动量方向相反时，对分歧向量进行加权放大。
+                      这使得模型能够精准识别并加权最危险的“反向冲突”式背离，显著提升风险预警的灵敏度。
         """
-        print("    -> [筹码层] 正在诊断“价筹张力”公理 (V5.2 · 信号换代版)...")
+        print("    -> [筹码层] 正在诊断“价筹张力”公理 (V5.3 · 冲突放大版)...") # [修改代码行]
         required_signals = ['winner_loser_momentum_D', 'SLOPE_5_close_D', 'volume_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        conflict_bonus = get_param_value(p_conf.get('divergence_conflict_bonus'), 0.5) # [修改代码行] 获取放大系数
         df_index = df.index
         chip_momentum = self._get_safe_series(df, df, 'winner_loser_momentum_D', 0.0, method_name="_diagnose_axiom_divergence")
         price_trend = self._get_safe_series(df, df, 'SLOPE_5_close_D', 0.0, method_name="_diagnose_axiom_divergence")
         norm_chip_momentum = get_adaptive_mtf_normalized_bipolar_score(chip_momentum, df_index, tf_weights)
         norm_price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend, df_index, tf_weights)
         disagreement_vector = norm_chip_momentum - norm_price_trend
-        persistence = disagreement_vector.rolling(window=13, min_periods=5).std().fillna(0)
+        # [修改代码块] 引入冲突放大器逻辑
+        conflict_mask = (np.sign(norm_chip_momentum) * np.sign(norm_price_trend) < 0)
+        conflict_amplifier = pd.Series(1.0, index=df_index)
+        conflict_amplifier.loc[conflict_mask] = 1.0 + conflict_bonus
+        amplified_disagreement_vector = disagreement_vector * conflict_amplifier
+        persistence = amplified_disagreement_vector.rolling(window=13, min_periods=5).std().fillna(0) # [修改代码行]
         norm_persistence = get_adaptive_mtf_normalized_score(persistence, df_index, tf_weights=tf_weights)
         volume = self._get_safe_series(df, df, 'volume_D', 0.0, method_name="_diagnose_axiom_divergence")
         norm_volume = get_adaptive_mtf_normalized_score(volume, df_index, tf_weights=tf_weights)
-        energy_injection = norm_volume * disagreement_vector.abs()
+        energy_injection = norm_volume * amplified_disagreement_vector.abs() # [修改代码行]
         tension_magnitude = (norm_persistence * energy_injection).pow(0.5)
-        final_score = disagreement_vector * (1 + tension_magnitude * 1.5)
+        final_score = amplified_disagreement_vector * (1 + tension_magnitude * 1.5) # [修改代码行]
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -379,10 +384,11 @@ class ChipIntelligence:
             if probe_date in df.index:
                 print(f"    -> [价筹张力探针] @ {probe_date.date()}:")
                 print(f"       - 维度1: 分歧向量 (Disagreement Vector)")
-                # 更新探针输出
                 print(f"         - 原料: chip_momentum: {chip_momentum.loc[probe_date]:.4f}, price_trend: {price_trend.loc[probe_date]:.4f}")
                 print(f"         - 过程: norm_chip_momentum: {norm_chip_momentum.loc[probe_date]:.4f}, norm_price_trend: {norm_price_trend.loc[probe_date]:.4f}")
-                print(f"         - 结果: disagreement_vector: {disagreement_vector.loc[probe_date]:.4f}")
+                # [修改代码块] 更新探针输出以反映冲突放大逻辑
+                print(f"         - 过程: disagreement_base: {disagreement_vector.loc[probe_date]:.4f}, conflict_amplifier: {conflict_amplifier.loc[probe_date]:.4f}")
+                print(f"         - 结果: disagreement_vector (amplified): {amplified_disagreement_vector.loc[probe_date]:.4f}")
                 print(f"       - 维度2: 张力强度 (Tension Magnitude)")
                 print(f"         - 原料: volume: {volume.loc[probe_date]:.0f}")
                 print(f"         - 过程: persistence: {persistence.loc[probe_date]:.4f}, energy_injection: {energy_injection.loc[probe_date]:.4f}")

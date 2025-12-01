@@ -980,36 +980,39 @@ class BehavioralIntelligence:
 
     def _get_calibrated_adaptive_mtf_score(self, series: pd.Series, tf_weights: Dict, tolerance: float = 1e-6) -> pd.Series:
         """
-        【V3.0 · Where-Mask 终极修复版】校准后的自适应MTF归一化分数
-        - 核心修复: 采用“先完整归一化，再用.where()安全替换”的策略，彻底根除“零值归一化悖论”。
+        【V4.0 · Index-Loc 终极修复版】校准后的自适应MTF归一化分数
+        - 核心修复: 采用“先完整归一化，再根据索引.loc精准覆写”的策略，彻底根除“零值归一化悖论”。
         - 校准逻辑:
-          1. 对完整的、未经修改的Series进行标准的排名归一化，以保证正确的历史上下文。
-          2. 使用.where()方法，根据原始值是否接近于零，将归一化结果中对应位置的值安全地替换为0.0。
+          1. 对完整的Series进行标准归一化，保证正确的历史上下文。
+          2. 从原始Series中提取出值接近于零的索引。
+          3. 使用.loc索引器，将归一化结果中对应索引位置的值强制覆写为0.0。
         """
         # [修改的代码行] 1. 对完整的、未经修改的Series进行归一化
         normalized_series = get_adaptive_mtf_normalized_score(
             series, series.index, ascending=True, tf_weights=tf_weights
         )
-        # [修改的代码行] 2. 创建一个布尔掩码，标记原始数据中不接近零的位置
-        is_not_near_zero = series.abs() > tolerance
-        # [修改的代码行] 3. 使用.where()进行安全替换：在不接近零的位置保留归一化值，否则替换为0.0
-        calibrated_series = normalized_series.where(is_not_near_zero, 0.0)
-        return calibrated_series
+        # [修改的代码行] 2. 从原始Series中获取值接近于零的索引
+        zero_indices = series.index[series.abs() < tolerance]
+        # [修改的代码行] 3. 如果存在这样的索引，则使用.loc将归一化结果中对应位置的值强制覆写为0.0
+        if not zero_indices.empty:
+            normalized_series.loc[zero_indices] = 0.0
+        return normalized_series
 
     def _get_calibrated_adaptive_mtf_bipolar_score(self, series: pd.Series, tf_weights: Dict, tolerance: float = 1e-6) -> pd.Series:
         """
-        【V2.0 · Where-Mask 终极修复版】校准后的自适应MTF双极性归一化分数
-        - 核心修复: 采用“先完整归一化，再用.where()安全替换”的策略，修复双极性信号的“零值归一化悖论”。
+        【V3.0 · Index-Loc 终极修复版】校准后的自适应MTF双极性归一化分数
+        - 核心修复: 采用“先完整归一化，再根据索引.loc精准覆写”的策略，修复双极性信号的“零值归一化悖论”。
         """
         # [修改的代码行] 1. 对完整的Series进行双极性归一化
         normalized_series = get_adaptive_mtf_normalized_bipolar_score(
             series, series.index, tf_weights
         )
-        # [修改的代码行] 2. 创建一个布尔掩码，标记原始数据中不接近零的位置
-        is_not_near_zero = series.abs() > tolerance
-        # [修改的代码行] 3. 使用.where()进行安全替换
-        calibrated_series = normalized_series.where(is_not_near_zero, 0.0)
-        return calibrated_series
+        # [修改的代码行] 2. 从原始Series中获取值接近于零的索引
+        zero_indices = series.index[series.abs() < tolerance]
+        # [修改的代码行] 3. 如果存在这样的索引，则使用.loc将归一化结果中对应位置的值强制覆写为0.0
+        if not zero_indices.empty:
+            normalized_series.loc[zero_indices] = 0.0
+        return normalized_series
 
 
 
