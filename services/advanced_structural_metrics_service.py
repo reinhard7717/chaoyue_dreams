@@ -271,10 +271,11 @@ class AdvancedStructuralMetricsService:
                                             realtime_df: pd.DataFrame | None, daily_info: pd.Series,
                                             prev_day_metrics: dict, debug_info: dict) -> dict:
         """
-        【V48.1 · 正本清源】
-        - 核心修正: 将错误的 `calculate_energy_density_metrics` 方法调用更正为正确的
-                     `calculate_high_frequency_metrics`。修复了因方法名错误导致的 `AttributeError`，
-                     使程序能够正确调用计算高频与能量密度指标的函数。
+        【V48.2 · 万法归宗】
+        - 核心修正: 彻底移除对不存在的 `calculate_high_frequency_metrics` 方法的调用。
+                     认识到所有高频及能量密度指标均由 `calculate_microstructure_dynamics_metrics`
+                     统一计算，故将其调用次序提前，确保其产出（如推力纯度）能在后续计算中被
+                     正确使用。此举从根本上修复了 `AttributeError` 并理顺了数据依赖。
         - 核心修正: 调整了 thematic calculators 的调用顺序，将 `calculate_market_profile_metrics`
                      的调用提前至 `calculate_control_metrics` 之前。此举确保了在计算
                      `closing_conviction_score` 时，当日的价值中枢(`_today_vpoc`)已经备妥，
@@ -296,11 +297,14 @@ class AdvancedStructuralMetricsService:
             'total_volume_safe': group['vol'].sum() if 'vol' in group.columns and not group.empty else 0,
             'debug': debug_info,
         }
-        # 修改代码行：修正了错误的函数名
-        energy_metrics = ThematicMetricsCalculators.calculate_high_frequency_metrics(context)
-        context.update(energy_metrics)
+        # 修改代码块：修正了计算函数的调用逻辑和顺序
+        # 修正1：先计算所有微观结构指标，此法门是高频、能量密度指标的真正“宗门”
+        microstructure_metrics = ThematicMetricsCalculators.calculate_microstructure_dynamics_metrics(context)
+        context.update(microstructure_metrics)
+        # 修正2：然后计算市场剖面，得到VPOC
         profile_metrics = ThematicMetricsCalculators.calculate_market_profile_metrics(context)
         context.update(profile_metrics)
+        # 修正3：最后计算依赖前两者输出的控盘指标等
         control_metrics = ThematicMetricsCalculators.calculate_control_metrics(context)
         context.update(control_metrics)
         game_metrics = ThematicMetricsCalculators.calculate_game_efficiency_metrics(context)
@@ -309,15 +313,13 @@ class AdvancedStructuralMetricsService:
         context.update(forward_metrics)
         battlefield_metrics = ThematicMetricsCalculators.calculate_battlefield_metrics(context)
         context.update(battlefield_metrics)
-        microstructure_metrics = ThematicMetricsCalculators.calculate_microstructure_dynamics_metrics(context)
-        context.update(microstructure_metrics)
+        # 修正4：整合所有指标时，使用正确的 `microstructure_metrics` 字典
         all_metrics = {
-            **energy_metrics,
+            **microstructure_metrics,
             **control_metrics,
             **game_metrics,
             **forward_metrics,
             **battlefield_metrics,
-            **microstructure_metrics,
             **profile_metrics,
         }
         return all_metrics
