@@ -85,9 +85,11 @@ class ThematicMetricsCalculators:
     @staticmethod
     def calculate_forward_looking_metrics(context: dict) -> dict:
         """
-        【V35.1 · 收盘博弈穿透 · 修正版】
-        - 核心修复: 修正了因 `DatetimeIndex` 与 `time` 对象直接比较而导致的 TypeError。
-                     将所有时间过滤操作统一为使用 `.index.time` 访问器，确保比较维度的正确性。
+        【V37.4 · 张力奇点修正】
+        - 核心修复: 修正了 `auction_showdown_score` 中盘口张力因子的数学模型。
+                     使用 `np.exp(pre_auction_tension)` 替代了原有的 `(1 + pre_auction_tension)`，
+                     解决了当卖压巨大(张力->-1)时指标值被强制归零的逻辑“奇点”问题，
+                     确保指标在极端压力下依然能做出有效评判。
         """
         group = context['group']
         continuous_group = context['continuous_group']
@@ -107,7 +109,6 @@ class ThematicMetricsCalculators:
         results = {}
         auction_period_df = group[group.index.time >= time(14, 57)]
         if not auction_period_df.empty and not continuous_group.empty:
-            # 使用 .index.time 进行有效的同类型比较
             close_before_auction_series = continuous_group.loc[continuous_group.index.time < time(14, 57, 0)]['close']
             if not close_before_auction_series.empty:
                 close_before_auction = close_before_auction_series.iloc[-1]
@@ -118,7 +119,6 @@ class ThematicMetricsCalculators:
                         avg_vol_pre_auction = pre_auction_period_df['vol'].mean() if not pre_auction_period_df.empty else 0
                         auction_volume = auction_period_df['vol'].sum()
                         volume_surprise_factor = auction_volume / avg_vol_pre_auction if avg_vol_pre_auction > 0 else 1.0
-                        # 使用 .index.time 进行有效的同类型比较
                         last_snapshot_series = level5_df.loc[level5_df.index.time < time(14, 57, 0)]
                         last_snapshot = last_snapshot_series.iloc[-1] if not last_snapshot_series.empty else None
                         pre_auction_tension = 0
@@ -126,13 +126,17 @@ class ThematicMetricsCalculators:
                             b1_v, a1_v = last_snapshot.get('buy_volume1', 0), last_snapshot.get('sell_volume1', 0)
                             if (b1_v + a1_v) > 0:
                                 pre_auction_tension = (b1_v - a1_v) / (b1_v + a1_v)
-                        results['auction_showdown_score'] = auction_price_change * np.log1p(volume_surprise_factor) * (1 + pre_auction_tension)
+                        # 修改代码行：使用 exp 函数替换 (1 + tension) 因子，消除奇点
+                        tension_factor = np.exp(pre_auction_tension)
+                        results['auction_showdown_score'] = auction_price_change * np.log1p(volume_surprise_factor) * tension_factor
                         if enable_probe and is_target_date:
                             print(f"--- [探针 ASM.{trade_date_str}] auction_showdown_score (高频) ---")
                             print(f"    - 维度1 (价变): 收盘价={day_close_qfq:.2f}, 竞价前价={close_before_auction:.2f} -> {auction_price_change:.2f}%")
                             print(f"    - 维度2 (量能意外): 竞价成交={auction_volume:,.0f}, 前30min均量={avg_vol_pre_auction:,.0f} -> {volume_surprise_factor:.2f}倍")
+                            # 修改代码行：更新探针日志以反映新的张力因子模型
                             print(f"    - 维度3 (盘口张力): 竞价前买一量={last_snapshot.get('buy_volume1', 0) if last_snapshot is not None else 0:,.0f}, 卖一量={last_snapshot.get('sell_volume1', 0) if last_snapshot is not None else 0:,.0f} -> {pre_auction_tension:.4f}")
-                            print(f"    - 计算: {auction_price_change:.2f} * log1p({volume_surprise_factor:.2f}) * (1 + {pre_auction_tension:.4f})")
+                            print(f"    - 节点 (张力因子): exp({pre_auction_tension:.4f}) = {tension_factor:.4f}")
+                            print(f"    - 计算: {auction_price_change:.2f} * log1p({volume_surprise_factor:.2f}) * {tension_factor:.4f}")
                             print(f"    -> 结果: {results['auction_showdown_score']:.4f}")
                     else:
                         avg_vol_minute_continuous = continuous_group['vol'].mean()
