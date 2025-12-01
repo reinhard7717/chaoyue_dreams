@@ -578,7 +578,8 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'closing_momentum_index': '收盘动能指数',
         'volume_structure_skew': '成交结构偏度',
         'breakthrough_conviction_score': '突破信念分',
-        'defense_solidity_score': '防守稳固度', # 新增代码行：新增防守稳固度
+        'defense_solidity_score': '防守稳固度',
+        'equilibrium_compression_index': '均衡压缩指数', # 新增代码行：新增均衡压缩指数
     }
     # 定义微观结构动力学指标
     MICROSTRUCTURE_DYNAMICS_METRICS = {
@@ -655,7 +656,8 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'sweep_intensity_ma5',
         'vpin_roc3',
         'breakthrough_conviction_score',
-        'defense_solidity_score', # 新增代码行：将事件驱动的防守稳固度加入排除列表
+        'defense_solidity_score',
+        'equilibrium_compression_index', # 新增代码行：将事件驱动的均衡压缩指数加入排除列表
     ]
     for name, verbose in CORE_METRICS.items():
         if name in BOOLEAN_FIELDS:

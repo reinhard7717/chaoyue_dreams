@@ -13,14 +13,18 @@ class ThematicMetricsCalculators:
     @staticmethod
     def calculate_market_profile_metrics(context: dict) -> dict:
         """
-        【V34.0 · 剖面结构穿透】
-        - 核心升级: 利用高频Tick数据构建超高分辨率的成交量剖面，从而获得更精确的VPOC、共识强度和剖面熵。
-        - 兼容策略: 价值区(VAH/VAL)相关指标暂时沿用分钟数据剖面计算，以保证下游指标链稳定。
+        【V46.0 · 潜龙在渊】
+        - 核心新增: 新增战略级指标 `equilibrium_compression_index` (均衡压缩指数)。
+                     该指标专门用于量化“内含日”(Inside Day)的能量压缩程度，通过综合评估
+                     空间、位置与力量三个维度，旨在识别重大突破前的“潜龙在渊”状态。
         """
         group = context['group']
         continuous_group = context['continuous_group']
         tick_df = context.get('tick_df')
+        day_high_qfq = context['day_high_qfq'] # 新增
+        day_low_qfq = context['day_low_qfq'] # 新增
         day_close_qfq = context['day_close_qfq']
+        total_volume_safe = context['total_volume_safe'] # 新增
         atr_14 = context['atr_14']
         prev_day_metrics = context['prev_day_metrics']
         debug_info = context.get('debug', {})
@@ -29,7 +33,6 @@ class ThematicMetricsCalculators:
         trade_date_str = debug_info.get('trade_date_str', 'N/A')
         results = {}
         today_vpoc = np.nan
-        # 高频剖面计算路径
         if tick_df is not None and not tick_df.empty and tick_df['volume'].sum() > 0:
             vp_hf = tick_df.groupby('price')['volume'].sum()
             if not vp_hf.empty:
@@ -45,17 +48,15 @@ class ThematicMetricsCalculators:
                     print(f"    - 原料: {len(tick_df)} 笔Tick数据")
                     print(f"    - 节点: 高精度VPOC={today_vpoc:.2f}, VPOC成交量占比={results['vpoc_consensus_strength']:.2%}")
                     print(f"    -> 结果 (剖面熵): {results.get('volume_profile_entropy', np.nan):.4f}")
-        # 分钟降级/兼容路径
         if continuous_group['vol'].sum() > 0:
             vp_minute = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20, duplicates='drop'))['vol'].sum()
-            if pd.isna(today_vpoc) and not vp_minute.empty: # 仅在HF路径未计算出VPOC时执行
+            if pd.isna(today_vpoc) and not vp_minute.empty:
                 vpoc_interval = vp_minute.idxmax()
                 today_vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else day_close_qfq
                 results['vpoc_consensus_strength'] = vp_minute.max() / continuous_group['vol'].sum()
-            # 价值区(VAH/VAL)指标暂时统一使用分钟数据计算
             vpoc_interval_for_va = vp_minute.idxmax() if not vp_minute.empty else np.nan
             today_vah, today_val = ThematicMetricsCalculators._calculate_value_area(vp_minute, continuous_group['vol'].sum(), vpoc_interval_for_va)
-        else: # 如果连分钟数据都没有成交量
+        else:
             today_vah, today_val = np.nan, np.nan
         if pd.notna(atr_14) and atr_14 > 0 and pd.notna(today_vpoc):
             deviation_magnitude = (day_close_qfq - today_vpoc) / atr_14
@@ -77,6 +78,28 @@ class ThematicMetricsCalculators:
             elif day_close_qfq < today_val: results['closing_acceptance_type'] = -2
             elif day_close_qfq < today_vpoc: results['closing_acceptance_type'] = -1
             else: results['closing_acceptance_type'] = 0
+        # 新增代码块：计算 `equilibrium_compression_index`
+        prev_high = prev_day_metrics.get('high')
+        prev_low = prev_day_metrics.get('low')
+        prev_volume = prev_day_metrics.get('volume')
+        if all(pd.notna(v) for v in [prev_high, prev_low, prev_vpoc, prev_volume, today_vpoc]):
+            if day_high_qfq <= prev_high and day_low_qfq >= prev_low: # 判断是否为内含日
+                prev_range = prev_high - prev_low
+                today_range = day_high_qfq - day_low_qfq
+                if prev_range > 0 and prev_volume > 0:
+                    space_compression = 1 - (today_range / prev_range)
+                    positional_balance = 1 - (abs(today_vpoc - prev_vpoc) / prev_range)
+                    volume_intensity = np.tanh((total_volume_safe / prev_volume) - 1)
+                    score = space_compression * positional_balance * (1 + volume_intensity)
+                    results['equilibrium_compression_index'] = score
+                    if enable_probe and is_target_date:
+                        print(f"--- [探针 ASM.{trade_date_str}] equilibrium_compression_index (潜龙在渊) ---")
+                        print(f"    - 前置: 内含日确认 (今日 {day_low_qfq:.2f}-{day_high_qfq:.2f} vs 昨日 {prev_low:.2f}-{prev_high:.2f})")
+                        print(f"    - 维度1 (空间压缩): 1 - ({today_range:.2f} / {prev_range:.2f}) = {space_compression:.4f}")
+                        print(f"    - 维度2 (位置均衡): 1 - (|{today_vpoc:.2f} - {prev_vpoc:.2f}| / {prev_range:.2f}) = {positional_balance:.4f}")
+                        print(f"    - 维度3 (力量胶着): tanh({total_volume_safe:,.0f} / {prev_volume:,.0f} - 1) = {volume_intensity:.4f}")
+                        print(f"    - 计算: {space_compression:.4f} * {positional_balance:.4f} * (1 + {volume_intensity:.4f})")
+                        print(f"    -> 结果: {score:.4f}")
         results['_today_vpoc'] = today_vpoc
         results['_today_vah'] = today_vah
         results['_today_val'] = today_val
