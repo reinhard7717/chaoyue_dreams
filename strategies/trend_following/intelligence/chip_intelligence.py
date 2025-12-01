@@ -57,11 +57,11 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V16.0 · 战术换手版】筹码情报总指挥
-        - 核心新增: 引入全新的超级原子信号“战术换手博弈”，旨在从博弈视角深度解析
-                      筹码交换过程的质量与意图，识别“空中加油”与“高位派发”。
+        【V16.1 · 数据流重构版】筹码情报总指挥
+        - 核心重构: 调整内部调用流程，将上游信号作为参数显式传递给下游方法，
+                      确保数据流的纯净与一致性，根除“幽灵数据”问题。
         """
-        print("启动【V16.0 · 战术换手版】筹码情报分析...") # [修改代码行]
+        print("启动【V16.1 · 数据流重构版】筹码情报分析...") # [修改代码行]
         all_chip_states = {}
         periods = [5, 13, 21, 55]
         holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
@@ -72,10 +72,12 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_STRATEGIC_POSTURE'] = strategic_posture
         battlefield_geography = self._diagnose_battlefield_geography(df)
         all_chip_states['SCORE_CHIP_BATTLEFIELD_GEOGRAPHY'] = battlefield_geography
-        df['SCORE_CHIP_STRATEGIC_POSTURE'] = strategic_posture
-        df['SCORE_CHIP_BATTLEFIELD_GEOGRAPHY'] = battlefield_geography
-        df['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
-        chip_trend_momentum_scores = self._diagnose_axiom_trend_momentum(df, periods)
+        # [修改代码行] 移除对df的在位修改，这些信号已由all_chip_states管理
+        # df['SCORE_CHIP_STRATEGIC_POSTURE'] = strategic_posture
+        # df['SCORE_CHIP_BATTLEFIELD_GEOGRAPHY'] = battlefield_geography
+        # df['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
+        # [修改代码行] 将上游信号作为参数显式传递
+        chip_trend_momentum_scores = self._diagnose_axiom_trend_momentum(df, periods, strategic_posture, battlefield_geography, holder_sentiment_scores)
         all_chip_states['SCORE_CHIP_AXIOM_TREND_MOMENTUM'] = chip_trend_momentum_scores
         historical_potential = self._diagnose_axiom_historical_potential(df)
         all_chip_states['SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL'] = historical_potential
@@ -85,9 +87,9 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_RISK_DISTRIBUTION_WHISPER'] = distribution_whisper
         coherent_drive = self._diagnose_structural_consensus(df, battlefield_geography, holder_sentiment_scores)
         all_chip_states['SCORE_CHIP_COHERENT_DRIVE'] = coherent_drive
-        tactical_exchange = self._diagnose_tactical_exchange(df) # 新增调用
-        all_chip_states['SCORE_CHIP_TACTICAL_EXCHANGE'] = tactical_exchange # 新增调用
-        print(f"【V16.0 · 战术换手版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。") # [修改代码行]
+        tactical_exchange = self._diagnose_tactical_exchange(df)
+        all_chip_states['SCORE_CHIP_TACTICAL_EXCHANGE'] = tactical_exchange
+        print(f"【V16.1 · 数据流重构版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。") # [修改代码行]
         return all_chip_states
 
     def _run_integrity_probe(self, df: pd.DataFrame, required_signals: list, probe_name: str):
@@ -292,25 +294,25 @@ class ChipIntelligence:
                 print(f"       - 最终融合结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
-    def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list) -> pd.Series:
+    def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list, strategic_posture: pd.Series, battlefield_geography: pd.Series, holder_sentiment: pd.Series) -> pd.Series:
         """
-        【V5.1 · 探针植入版】筹码公理六：诊断“结构性推力”
-        - 核心升级: 植入标准化的“真理探针”，输出所有原始数据、关键计算过程及最终结果。
+        【V5.2 · 数据流重构版】筹码公理六：诊断“结构性推力”
+        - 核心重构: 采用显式数据流模式。不再从共享DataFrame读取上游信号，而是通过函数参数直接注入，
+                      从根本上解决了因数据更新时序问题导致的“幽灵数据”和计算错误，确保了数据流的绝对一致性。
         """
-        print("    -> [筹码层] 正在诊断“结构性推力”公理...")
+        print("    -> [筹码层] 正在诊断“结构性推力”公理 (V5.2 · 数据流重构版)...") # [修改代码行]
         required_signals = [
-            'SCORE_CHIP_STRATEGIC_POSTURE', 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT',
-            'main_force_conviction_index_D', 'vacuum_zone_magnitude_D'
+            'main_force_conviction_index_D', 'vacuum_zone_magnitude_D' # [修改代码行] 移除了三个上游信号
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_momentum"):
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         df_index = df.index
-        health_score = (
-            (df['SCORE_CHIP_STRATEGIC_POSTURE'].add(1)/2) *
-            (df['SCORE_CHIP_BATTLEFIELD_GEOGRAPHY'].add(1)/2) *
-            (df['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'].add(1)/2)
+        health_score = ( # [修改代码行] 直接使用传入的Series参数
+            (strategic_posture.add(1)/2) *
+            (battlefield_geography.add(1)/2) *
+            (holder_sentiment.add(1)/2)
         ).pow(1/3)
         slope = health_score.diff(1).fillna(0)
         accel = slope.diff(1).fillna(0)
@@ -326,7 +328,6 @@ class ChipIntelligence:
             (fuel_quality_score.add(1)/2) *
             (nozzle_efficiency_score.add(1)/2)
         ).pow(1/3) * 2 - 1
-        # 植入标准化探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -335,7 +336,9 @@ class ChipIntelligence:
             if probe_date in df.index:
                 print(f"    -> [结构性推力探针] @ {probe_date.date()}:")
                 print(f"       - 维度1: 引擎功率 (Engine Power)")
-                print(f"         - 原料: health_score: {health_score.loc[probe_date]:.4f}, slope: {slope.loc[probe_date]:.4f}, accel: {accel.loc[probe_date]:.4f}")
+                # [修改代码行] 更新探针，明确打印传入的依赖信号值
+                print(f"         - 原料 (上游信号): posture: {strategic_posture.loc[probe_date]:.4f}, geography: {battlefield_geography.loc[probe_date]:.4f}, sentiment: {holder_sentiment.loc[probe_date]:.4f}")
+                print(f"         - 原料 (计算过程): health_score: {health_score.loc[probe_date]:.4f}, slope: {slope.loc[probe_date]:.4f}, accel: {accel.loc[probe_date]:.4f}")
                 print(f"         - 结果: engine_power_score: {engine_power_score.loc[probe_date]:.4f}")
                 print(f"       - 维度2: 燃料品质 (Fuel Quality)")
                 print(f"         - 原料: conviction_index: {conviction.loc[probe_date]:.4f}")
