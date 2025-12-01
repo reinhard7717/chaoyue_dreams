@@ -271,12 +271,11 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_control_metrics(context: dict) -> dict:
         """
-        【V57.0 · 诡道精研】
-        - 核心原则: 全面贯彻“高频数据优先，分钟数据降级”的设计原则，提升指标精度与博弈洞察力。
+        【V58.0 · 诡道归元】
+        - BUG修复: 在 `mean_reversion_frequency` 的高频计算中，为 `continuous_group` 的索引明确命名，根除 `merge_asof` 的 `KeyError`。
         - `trend_efficiency_ratio` 升级: 引入“推力纯度”作为信念权重，奖赏量价合一的“真趋势”。
         - `pullback_depth_ratio` 升级: 重构为区分“上涨”与“下跌”分钟的量价相关性分析，精准刻画“缩量回调”等健康趋势模式。
         - `mean_reversion_frequency` 修正: 逻辑正本清源，精确计算价格穿越VWAP的“频率”，而非“幅度”。
-        - 法脉精简: 废弃 `vpoc_deviation_magnitude` 和 `vpoc_consensus_strength`，消除功能冗余。
         - 探针完备: 为所有核心升级指标配备了详尽的调试探针。
         """
         group = context['group']
@@ -323,14 +322,15 @@ class StructuralMetricsCalculators:
                 print(f"    - 原料: 上半场VWAP={vwap_first:.3f}, 下半场VWAP={vwap_second:.3f}, ATR={atr_14:.4f}")
                 print(f"    - 计算: ({vwap_second:.3f} - {vwap_first:.3f}) / {atr_14:.4f}")
                 print(f"    -> 结果: {results.get('intraday_pnl_imbalance', np.nan):.4f}")
-        # 修正 mean_reversion_frequency 的计算逻辑
+        # 修改代码块：修正 mean_reversion_frequency 的计算逻辑并修复BUG
         if 'minute_vwap' in continuous_group.columns and not continuous_group['minute_vwap'].isnull().all():
             if tick_df is not None and not tick_df.empty:
                 # 高频模式：精确计算穿越次数
+                # BUG修复：为 continuous_group 的索引明确命名，以避免 merge_asof 的 KeyError
+                continuous_group.index.name = 'trade_time'
                 merged_df = pd.merge_asof(tick_df.sort_index(), continuous_group[['minute_vwap']].sort_index(), on='trade_time', direction='backward')
                 merged_df['position'] = np.sign(merged_df['price'] - merged_df['minute_vwap'])
                 crossings = (merged_df['position'].diff().abs() == 2).sum()
-                # 归一化处理，乘以1000使数值更易读
                 results['mean_reversion_frequency'] = (crossings / len(tick_df)) * 1000 if len(tick_df) > 0 else 0
                 if enable_probe and is_target_date:
                     print(f"--- [探针 ASM.{trade_date_str}] mean_reversion_frequency (控盘-VWAP引力) ---")
@@ -351,13 +351,12 @@ class StructuralMetricsCalculators:
                     print(f"    - 节点 (穿越次数): {crossings} 次")
                     print(f"    - 计算 (归一化): ({crossings} / {len(continuous_group)}) * 100")
                     print(f"    -> 结果: {results.get('mean_reversion_frequency', np.nan):.4f}")
-        # 升级 trend_efficiency_ratio 的计算逻辑
+        # 修改代码块：升级 trend_efficiency_ratio 的计算逻辑
         price_change = day_close_qfq - day_open_qfq
         sum_abs_minute_change = (continuous_group['high'] - continuous_group['low']).sum()
         if sum_abs_minute_change > 0:
             er_raw = abs(price_change) / sum_abs_minute_change
             thrust_purity = context.get('intraday_thrust_purity', 0)
-            # 引入推力纯度作为信念权重, (1 + purity) 使得purity为负时起惩罚作用
             results['trend_efficiency_ratio'] = er_raw * (1 + thrust_purity) * np.sign(price_change)
             if enable_probe and is_target_date:
                 print(f"--- [探针 ASM.{trade_date_str}] trend_efficiency_ratio (控盘) ---")
@@ -365,7 +364,7 @@ class StructuralMetricsCalculators:
                 print(f"    - 节点 (原始效率): {er_raw:.4f}")
                 print(f"    - 计算 (信念加权): {er_raw:.4f} * (1 + {thrust_purity:.4f}) * {np.sign(price_change):.0f}")
                 print(f"    -> 结果: {results.get('trend_efficiency_ratio', np.nan):.4f}")
-        # 升级 pullback_depth_ratio 的计算逻辑
+        # 修改代码块：升级 pullback_depth_ratio 的计算逻辑
         minute_return = continuous_group['close'].pct_change().fillna(0)
         minute_volume = continuous_group['vol']
         advancing_mask = continuous_group['close'] > continuous_group['open']
@@ -376,7 +375,6 @@ class StructuralMetricsCalculators:
             corr_adv = corr_adv if pd.notna(corr_adv) else 0
             corr_dec = corr_dec if pd.notna(corr_dec) else 0
             trend_direction = np.sign(day_close_qfq - day_open_qfq) if (day_close_qfq != day_open_qfq) else 1
-            # 健康趋势的特征是上涨放量(corr_adv > 0), 下跌缩量(corr_dec < 0), 故二者之差越大越好
             results['pullback_depth_ratio'] = (corr_adv - corr_dec) * trend_direction
             if enable_probe and is_target_date:
                 print(f"--- [探针 ASM.{trade_date_str}] pullback_depth_ratio (控盘-量价相关性) ---")
