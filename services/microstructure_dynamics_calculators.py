@@ -123,7 +123,11 @@ class MicrostructureDynamicsCalculators:
 
     @staticmethod
     def _calculate_hf_mechanics(context: dict) -> dict:
-        """计算高频力学指标 (主动量价效率、吸筹/派发强度)"""
+        """
+        【V27.1 · 兼容性修复】
+        - 核心修复: 修复了 pandas.DataFrame.between_time 方法因 include_end 参数不兼容导致的 TypeError。
+        - 解决方案: 采用更健壮的布尔索引方式 `(df.index >= start) & (df.index < end)` 来替代 between_time，确保版本兼容性。
+        """
         tick_df = context.get('tick_df')
         group = context.get('group')
         daily_series_for_day = context.get('daily_series_for_day')
@@ -154,7 +158,10 @@ class MicrostructureDynamicsCalculators:
         if not down_minutes_df.empty:
             active_buy_on_dip, active_sell_on_dip = 0, 0
             for _, minute_row in down_minutes_df.iterrows():
-                ticks_in_minute = tick_df.between_time(minute_row['trade_time'].time(), (minute_row['trade_time'] + pd.Timedelta(minutes=1)).time(), include_end=False)
+                # 修改代码行：使用布尔索引替代 between_time，修复TypeError
+                minute_start = minute_row['trade_time']
+                minute_end = minute_start + pd.Timedelta(minutes=1)
+                ticks_in_minute = tick_df[(tick_df.index >= minute_start) & (tick_df.index < minute_end)]
                 active_buy_on_dip += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
                 active_sell_on_dip += ticks_in_minute[ticks_in_minute['type'] == 'S']['volume'].sum()
             if active_sell_on_dip > 0:
@@ -166,7 +173,10 @@ class MicrostructureDynamicsCalculators:
         if not up_minutes_df.empty:
             active_sell_on_rally, active_buy_on_rally = 0, 0
             for _, minute_row in up_minutes_df.iterrows():
-                ticks_in_minute = tick_df.between_time(minute_row['trade_time'].time(), (minute_row['trade_time'] + pd.Timedelta(minutes=1)).time(), include_end=False)
+                # 修改代码行：使用布尔索引替代 between_time，修复TypeError
+                minute_start = minute_row['trade_time']
+                minute_end = minute_start + pd.Timedelta(minutes=1)
+                ticks_in_minute = tick_df[(tick_df.index >= minute_start) & (tick_df.index < minute_end)]
                 active_sell_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'S']['volume'].sum()
                 active_buy_on_rally += ticks_in_minute[ticks_in_minute['type'] == 'B']['volume'].sum()
             if active_buy_on_rally > 0:
