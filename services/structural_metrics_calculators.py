@@ -13,9 +13,10 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_energy_density_metrics(context: dict) -> dict:
         """
-        【V30.16 · 索引类型转换修复】
+        【V30.17 · 索引访问模式修复】
         - 核心升级: 完成对本指标组剩余三个指标(反转动能、高位整固、开盘推力)的高频穿透升级。
         - 核心修复: 修正了在分钟数据回退逻辑中，因idxmin()返回Timestamp而iloc需要整数位置导致的TypeError。
+        - 核心修复: 将所有对 'trade_time' 列的访问改为对 DataFrame 索引的访问，解决KeyError。
         """
         group = context['group']
         daily_series_for_day = context['daily_series_for_day']
@@ -130,11 +131,8 @@ class StructuralMetricsCalculators:
                         print(f"    - 计算: ({vwap_rebound:.4f} / {vwap_fall:.4f} - 1) * {rebounding_vol_ratio:.4f} * 100")
                         print(f"    -> 结果: {results['rebound_momentum']:.4f}")
         else:
-            # 修改代码行：idxmin()返回的是索引标签(Timestamp)，不能直接用于整数比较和.iloc切片
             low_timestamp = group['low'].idxmin()
-            # 新增代码行：使用get_loc()将Timestamp索引转换为整数位置
             low_pos = group.index.get_loc(low_timestamp)
-            # 修改代码行：使用整数位置进行条件判断和切片
             if low_pos > 0 and low_pos < len(group) - 1:
                 falling_phase = group.iloc[:low_pos+1]
                 rebounding_phase = group.iloc[low_pos+1:]
@@ -180,7 +178,8 @@ class StructuralMetricsCalculators:
                         print(f"    - 计算: ({opening_buy_vol:,.0f} - {opening_sell_vol:,.0f}) / {opening_total_vol:,.0f}")
                         print(f"    -> 结果: {results['opening_period_thrust']:.4f}")
         else:
-            opening_period_df = group[group['trade_time'].dt.time < time(9, 59, 59)]
+            # 修改代码行：将 group['trade_time'].dt.time 替换为 group.index.time
+            opening_period_df = group[group.index.time < time(9, 59, 59)]
             if not opening_period_df.empty:
                 opening_thrust_vector = (opening_period_df['close'] - opening_period_df['open']) * opening_period_df['vol']
                 opening_absolute_energy = abs(opening_period_df['close'] - opening_period_df['open']) * opening_period_df['vol']
@@ -194,8 +193,9 @@ class StructuralMetricsCalculators:
     @staticmethod
     def calculate_control_metrics(context: dict) -> dict:
         """
-        【V29.0 · 节律与偏度穿透】
+        【V30.17 · 索引访问模式修复】
         - 核心升级: 为 `mean_reversion_frequency` 指标实现高频穿透，精确捕捉价格穿越实时VWAP的次数。
+        - 核心修复: 将所有对 'trade_time' 列的访问改为对 DataFrame 索引的访问，解决KeyError。
         """
         group = context['group']
         continuous_group = context['continuous_group']
@@ -281,9 +281,12 @@ class StructuralMetricsCalculators:
             if enable_probe and is_target_date:
                 print(f"--- [探针 ASM.{trade_date_str}] mean_reversion_frequency (分钟降级) ---")
                 print(f"    -> 结果: {results['mean_reversion_frequency']:.4f}")
-        opening_df_rhythm = group[group['trade_time'].dt.time < time(10, 0)]
-        midday_df_rhythm = group[(group['trade_time'].dt.time >= time(10, 0)) & (group['trade_time'].dt.time < time(14, 30))]
-        tail_df_rhythm = group[group['trade_time'].dt.time >= time(14, 30)]
+        # 修改代码行：将 group['trade_time'].dt.time 替换为 group.index.time
+        opening_df_rhythm = group[group.index.time < time(10, 0)]
+        # 修改代码行：将 group['trade_time'].dt.time 替换为 group.index.time
+        midday_df_rhythm = group[(group.index.time >= time(10, 0)) & (group.index.time < time(14, 30))]
+        # 修改代码行：将 group['trade_time'].dt.time 替换为 group.index.time
+        tail_df_rhythm = group[group.index.time >= time(14, 30)]
         avg_vol_opening = opening_df_rhythm['vol'].mean() if not opening_df_rhythm.empty else 0
         avg_vol_midday = midday_df_rhythm['vol'].mean() if not midday_df_rhythm.empty else 0
         avg_vol_tail = tail_df_rhythm['vol'].mean() if not tail_df_rhythm.empty else 0
@@ -293,7 +296,8 @@ class StructuralMetricsCalculators:
         avg_vol_active = (opening_df_rhythm['vol'].sum() + tail_df_rhythm['vol'].sum()) / (len(opening_df_rhythm) + len(tail_df_rhythm)) if (len(opening_df_rhythm) + len(tail_df_rhythm)) > 0 else 0
         if avg_vol_midday > 0 and avg_vol_active > 0:
             results['midday_consolidation_level'] = avg_vol_midday / avg_vol_active
-        pre_tail_df = group[(group['trade_time'].dt.time >= time(13, 0)) & (group['trade_time'].dt.time < time(14, 30))]
+        # 修改代码行：将 group['trade_time'].dt.time 替换为 group.index.time
+        pre_tail_df = group[(group.index.time >= time(13, 0)) & (group.index.time < time(14, 30))]
         avg_vol_pre_tail = pre_tail_df['vol'].mean() if not pre_tail_df.empty else 0
         if avg_vol_tail > 0 and avg_vol_pre_tail > 0:
             results['tail_volume_acceleration'] = avg_vol_tail / avg_vol_pre_tail
