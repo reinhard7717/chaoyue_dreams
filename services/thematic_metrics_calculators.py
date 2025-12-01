@@ -158,14 +158,23 @@ class ThematicMetricsCalculators:
     @staticmethod
     def calculate_battlefield_metrics(context: dict) -> dict:
         """
-        【V31.0 · 索引访问模式统一】
-        - 核心修复: 将所有时间过滤从按列访问 `df['trade_time'].dt.time` 统一为按索引访问 `df.index.time`。
+        【V44.0 · 关隘验刃】
+        - 核心新增: 新增战略级指标 `breakthrough_conviction_score` (突破信念分)。
+                     该指标通过检验价格突破昨日高点这一关键“关隘”时的动能品质，以及收盘时对
+                     新领土的控制程度，来判断一次突破的真实有效性，旨在区分“有效突破”与“假突破”。
         """
         continuous_group = context['continuous_group']
+        tick_df = context.get('tick_df') # 新增
         day_open_qfq = context['day_open_qfq']
+        day_high_qfq = context['day_high_qfq'] # 新增
         day_close_qfq = context['day_close_qfq']
         atr_14 = context['atr_14']
+        prev_day_metrics = context.get('prev_day_metrics', {}) # 新增
         total_volume_safe = context['total_volume_safe']
+        debug_info = context.get('debug', {}) # 新增
+        is_target_date = debug_info.get('is_target_date', False) # 新增
+        enable_probe = debug_info.get('enable_probe', False) # 新增
+        trade_date_str = debug_info.get('trade_date_str', 'N/A') # 新增
         results = {}
         if not continuous_group.empty and len(continuous_group) > 1:
             vwap_series = continuous_group['minute_vwap'].dropna()
@@ -182,7 +191,6 @@ class ThematicMetricsCalculators:
                     trend_quality = linearity * pullback_control
                     direction = np.sign(day_close_qfq - day_open_qfq) if day_close_qfq != day_open_qfq else 1
                     results['trend_quality_score'] = trend_quality * direction
-            # 统一为索引访问
             tail_df = continuous_group[continuous_group.index.time >= time(14, 0)]
             if not tail_df.empty and pd.notna(atr_14) and atr_14 > 0 and total_volume_safe > 0:
                 vwap_tail = (tail_df['amount'].sum() / tail_df['vol'].sum()) if tail_df['vol'].sum() > 0 else np.nan
@@ -191,11 +199,8 @@ class ThematicMetricsCalculators:
                     momentum_deviation = (vwap_tail - vwap_full) / atr_14
                     vol_ratio_tail = tail_df['vol'].sum() / total_volume_safe
                     results['closing_momentum_index'] = momentum_deviation * np.log1p(vol_ratio_tail)
-            # 统一为索引访问
             open_rhythm_df = continuous_group[continuous_group.index.time < time(10, 0)]
-            # 统一为索引访问
             mid_rhythm_df = continuous_group[(continuous_group.index.time >= time(10, 0)) & (continuous_group.index.time < time(14, 30))]
-            # 统一为索引访问
             tail_rhythm_df = continuous_group[continuous_group.index.time >= time(14, 30)]
             if not open_rhythm_df.empty and not mid_rhythm_df.empty and not tail_rhythm_df.empty:
                 avg_vol_open = open_rhythm_df['vol'].mean()
@@ -204,6 +209,33 @@ class ThematicMetricsCalculators:
                 avg_vol_ends = (avg_vol_open + avg_vol_tail) / 2
                 if avg_vol_ends > 0:
                     results['volume_structure_skew'] = avg_vol_mid / avg_vol_ends
+        # 新增代码块：计算 `breakthrough_conviction_score`
+        prev_day_high = prev_day_metrics.get('high')
+        if tick_df is not None and not tick_df.empty and pd.notna(prev_day_high) and pd.notna(atr_14) and atr_14 > 0:
+            if day_high_qfq > prev_day_high:
+                breakthrough_zone_ticks = tick_df[tick_df['price'] >= prev_day_high].copy()
+                if not breakthrough_zone_ticks.empty:
+                    total_breakthrough_vol = breakthrough_zone_ticks['volume'].sum()
+                    if total_breakthrough_vol > 0 and 'price_change' in breakthrough_zone_ticks.columns:
+                        # 对突破区数据应用“动能回溯”
+                        self_calc_change = breakthrough_zone_ticks['price'].diff().fillna(0)
+                        zero_mask = breakthrough_zone_ticks['price_change'] == 0
+                        eff_change = np.where(zero_mask, self_calc_change, breakthrough_zone_ticks['price_change'])
+                        net_thrust_vol = (breakthrough_zone_ticks['volume'] * np.sign(eff_change)).sum()
+                        breakthrough_thrust_purity = net_thrust_vol / total_breakthrough_vol
+                        # 计算收盘确认因子
+                        confirmation_raw = (day_close_qfq - prev_day_high) / atr_14
+                        confirmation_factor = np.tanh(confirmation_raw)
+                        # 合成最终得分
+                        score = breakthrough_thrust_purity * (1 + confirmation_factor)
+                        results['breakthrough_conviction_score'] = score
+                        if enable_probe and is_target_date:
+                            print(f"--- [探针 ASM.{trade_date_str}] breakthrough_conviction_score (关隘验刃) ---")
+                            print(f"    - 关隘: 昨日高点={prev_day_high:.2f}")
+                            print(f"    - 节点1 (攻坚动能): 对突破区 {len(breakthrough_zone_ticks)} 笔成交进行动能分析 -> 推力纯度={breakthrough_thrust_purity:.4f}")
+                            print(f"    - 节点2 (领土确认): tanh(({day_close_qfq:.2f} - {prev_day_high:.2f}) / {atr_14:.4f}) -> 确认因子={confirmation_factor:.4f}")
+                            print(f"    - 计算: {breakthrough_thrust_purity:.4f} * (1 + {confirmation_factor:.4f})")
+                            print(f"    -> 结果: {score:.4f}")
         return results
 
     @staticmethod

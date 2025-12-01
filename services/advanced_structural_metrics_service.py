@@ -185,13 +185,25 @@ class AdvancedStructuralMetricsService:
 
     async def _forge_advanced_structural_metrics(self, intraday_map: dict, stock_code: str, daily_df_with_atr: pd.DataFrame) -> pd.DataFrame:
         """
-        【V36.1 · 接口契约修正】
-        - 核心修复: 修正了对 `_calculate_daily_structural_metrics` 的调用，使其与更新后的函数签名完全匹配。
-        - 核心修复: 动态构建并传递 `debug_info` 字典，确保探针系统正常工作。
+        【V44.0 · 关隘验刃】
+        - 核心升级: 在构建传递给下一日的 `prev_day_metrics` 上下文时，增加 `high` 字段，
+                     为 `breakthrough_conviction_score` 的计算提供必要的“关隘”位置信息。
         """
         new_metrics_data = []
         prev_day_metrics = {}
-        for trade_date, data_for_day in intraday_map.items():
+        # 为了让第一天就能获取到前一天的高点，我们需要预先查询
+        if intraday_map:
+            first_date = min(intraday_map.keys())
+            prev_date = first_date - pd.Timedelta(days=1)
+            if prev_date in daily_df_with_atr.index:
+                 prev_day_series = daily_df_with_atr.loc[prev_date]
+                 prev_day_metrics = {
+                    'high': prev_day_series.get('high_qfq'),
+                    # 可以预加载更多历史指标，但目前仅需 high
+                 }
+        for trade_date, data_for_day in sorted(intraday_map.items()):
+            if trade_date not in daily_df_with_atr.index:
+                continue
             daily_series_for_day = daily_df_with_atr.loc[trade_date]
             canonical_minute_df = None
             tick_df_for_day = data_for_day.get('tick')
@@ -217,7 +229,6 @@ class AdvancedStructuralMetricsService:
             level5_df_for_day = data_for_day.get('level5')
             realtime_df_for_day = data_for_day.get('realtime')
             continuous_group = self._create_continuous_minute_data(canonical_minute_df)
-            # 构建 debug_info 并使用正确的参数签名进行调用
             target_date_str = self.debug_params.get('target_date')
             is_target_date = target_date_str == trade_date.strftime('%Y-%m-%d')
             debug_info = {
@@ -238,11 +249,13 @@ class AdvancedStructuralMetricsService:
             day_metric_dict['trade_time'] = trade_date
             day_metric_dict['stock_code'] = stock_code
             new_metrics_data.append(day_metric_dict)
+            # 修改代码块：在传递给下一日的上下文中增加 high
             prev_day_metrics = {
                 'vpoc': day_metric_dict.get('_today_vpoc'),
                 'vah': day_metric_dict.get('_today_vah'),
                 'val': day_metric_dict.get('_today_val'),
                 'atr_14d': daily_series_for_day.get('ATR_14'),
+                'high': daily_series_for_day.get('high_qfq'), # 新增此行
             }
         if not new_metrics_data:
             return pd.DataFrame()

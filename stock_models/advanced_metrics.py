@@ -566,6 +566,7 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'active_volume_price_efficiency': '主动成交量价格效率',
         'absorption_strength_index': '下跌吸筹强度指数',
         'distribution_pressure_index': '上涨派发压力指数',
+        'thrust_efficiency_score': '推力效能分', # 新增代码行：新增推力效能分
     }
     FORWARD_LOOKING_METRICS = {
         'volatility_expansion_ratio': '波动率扩张比',
@@ -576,6 +577,7 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'trend_quality_score': '趋势质量分',
         'closing_momentum_index': '收盘动能指数',
         'volume_structure_skew': '成交结构偏度',
+        'breakthrough_conviction_score': '突破信念分', # 新增代码行：新增突破信念分
     }
     # 定义微观结构动力学指标
     MICROSTRUCTURE_DYNAMICS_METRICS = {
@@ -609,7 +611,6 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'auction_impact_score',
         'dynamic_reversal_strength',
         'reversal_conviction_rate',
-        # 新增代码行：将新指标加入排除列表
         'reversal_recovery_rate',
         'high_level_consolidation_volume',
         'opening_period_thrust',
@@ -652,6 +653,7 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'absorption_strength_ma5',
         'sweep_intensity_ma5',
         'vpin_roc3',
+        'breakthrough_conviction_score', # 新增代码行：将事件驱动的突破信念分加入排除列表
     ]
     for name, verbose in CORE_METRICS.items():
         if name in BOOLEAN_FIELDS:
