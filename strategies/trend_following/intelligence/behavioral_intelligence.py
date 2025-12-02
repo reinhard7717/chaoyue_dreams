@@ -557,17 +557,16 @@ class BehavioralIntelligence:
 
     def _diagnose_lower_shadow_quality(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V8.0 · 噪声过滤版】诊断下影线承接品质。
-        - 核心修复: 在归一化前，调用 `_apply_neutral_zone_filter` 对原始Alpha信号进行
-                      噪声过滤，将微小值强制归零，彻底解决“零值归一化悖论”的根源问题。
+        【V9.0 · 主动中性版】诊断下影线承接品质。
+        - 核心升级: 引入“主动中性”调制器。当伏击意图为0时，不再是无影响(x1.0)，
+                      而是施加轻微惩罚(x0.95)，以体现“缺乏确认”这一负面信息。
         """
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 从配置中读取噪声过滤阈值
         p_thresholds = get_param_value(p_conf.get('neutral_zone_thresholds'), {})
         ambush_threshold = get_param_value(p_thresholds.get('main_force_execution_alpha_D'), 0.0)
-        # --- 1. 计算基础K线品质分 (维持鲁棒的算术平均) ---
+        # --- 1. 计算基础K线品质分 (逻辑不变) ---
         magnitude_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_lower_shadow_quality").replace(0, 1e-9)
@@ -581,11 +580,11 @@ class BehavioralIntelligence:
         panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         ambush_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_lower_shadow_quality")
-        # 在归一化前进行噪声过滤
         ambush_raw_filtered = self._apply_neutral_zone_filter(ambush_raw, ambush_threshold)
-        # 使用过滤后的纯净信号进行归一化
         ambush_intent_score = get_adaptive_mtf_normalized_bipolar_score(ambush_raw_filtered, df.index, default_weights)
-        modulated_quality_score = base_quality_score * (1 + ambush_intent_score * 0.5).clip(0, 2)
+        # [修改的代码行] 升级为“主动中性”调制器
+        active_neutral_modulator = (0.95 + ambush_intent_score * 0.55).clip(0, 2)
+        modulated_quality_score = base_quality_score * active_neutral_modulator
         panic_absorption_score = get_adaptive_mtf_normalized_score((panic_raw * capitulation_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
         context_amplifier = 1 + (panic_absorption_score * modulated_quality_score).pow(0.5)
         # --- 3. 非线性合成 ---
@@ -601,16 +600,17 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_lower_shadow_quality @ {probe_date_str}")
                 print(f"        - 基础品质分: {base_quality_score.loc[probe_ts]:.4f} (幅度={magnitude_score.loc[probe_ts]:.2f}, 意图={intent_score.loc[probe_ts]:.2f}, 位置={location_score.loc[probe_ts]:.2f})")
-                # 升级探针日志，显示过滤前后的值，并使用更高精度
-                print(f"        - 伏击意图(噪声过滤后): {ambush_intent_score.loc[probe_ts]:.4f} (原始Alpha={ambush_raw.loc[probe_ts]:.6f}, 过滤后={ambush_raw_filtered.loc[probe_ts]:.2f}) -> 调制后品质分: {modulated_quality_score.loc[probe_ts]:.4f}")
+                # [修改的代码行] 更新探针日志以反映新逻辑
+                print(f"        - 伏击意图(主动中性): {ambush_intent_score.loc[probe_ts]:.4f} (原始Alpha={ambush_raw.loc[probe_ts]:.6f}) -> 调制乘数={active_neutral_modulator.loc[probe_ts]:.4f} -> 调制后品质分: {modulated_quality_score.loc[probe_ts]:.4f}")
                 print(f"        - 智能放大器: 恐慌承接度={panic_absorption_score.loc[probe_ts]:.4f} -> 放大倍数={context_amplifier.loc[probe_ts]:.4f}")
                 print(f"        - 最终下影线品质分: {final_lower_shadow_quality.loc[probe_ts]:.4f}")
         return final_lower_shadow_quality.astype(np.float32)
 
     def _calculate_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.4 · 噪声过滤版】计算派发意图
-        - 核心修复: 在归一化前对主力Alpha信号进行噪声过滤。
+        【V2.5 · 主动中性版】计算派发意图
+        - 核心升级: 引入“主动中性”调节器。当无主动控盘行为(正Alpha为0)时，
+                      施加轻微惩罚，而不是无影响。
         """
         required_signals = [
             'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D',
@@ -622,7 +622,7 @@ class BehavioralIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_thresholds = get_param_value(p_conf.get('neutral_zone_thresholds'), {})
         alpha_threshold = get_param_value(p_thresholds.get('main_force_execution_alpha_D'), 0.0)
-        # --- 五维证据链融合 (维持鲁棒的算术平均) ---
+        # --- 五维证据链融合 (逻辑不变) ---
         rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_calculate_distribution_intent")
         process_evidence = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
         upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_calculate_distribution_intent")
@@ -631,7 +631,6 @@ class BehavioralIntelligence:
         flow_evidence = get_adaptive_mtf_normalized_score(profit_taking_raw, df.index, ascending=True, tf_weights=tf_weights)
         mf_alpha_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_calculate_distribution_intent")
         mf_alpha_filtered = self._apply_neutral_zone_filter(mf_alpha_raw, alpha_threshold)
-        # 使用过滤后的信号
         mf_alpha_bearish = abs(mf_alpha_filtered.clip(upper=0))
         main_force_evidence = get_adaptive_mtf_normalized_score(mf_alpha_bearish, df.index, ascending=True, tf_weights=tf_weights)
         conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_calculate_distribution_intent")
@@ -644,14 +643,14 @@ class BehavioralIntelligence:
             main_force_evidence * 0.15 +
             conviction_evidence * 0.15
         ).fillna(0.0)
-        # --- 市场接受度放大器 ---
+        # --- 市场接受度放大器 (逻辑不变) ---
         market_acceptance_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_calculate_distribution_intent")
         market_acceptance_normalized = normalize_score(market_acceptance_raw, df.index, 55)
         acceptance_amplifier = 1 + (market_acceptance_normalized * 0.5)
         # --- 主力控盘能力调节器 ---
-        # 使用过滤后的信号
         positive_alpha_score = get_adaptive_mtf_normalized_bipolar_score(mf_alpha_filtered, df.index, tf_weights).clip(lower=0)
-        control_modulator = 1 + (positive_alpha_score * 0.5)
+        # [修改的代码行] 升级为“主动中性”调节器
+        control_modulator = 0.95 + (positive_alpha_score * 0.55)
         # --- 最终合成 ---
         distribution_intent_score = (base_distribution_intent * acceptance_amplifier * control_modulator).clip(0, 1)
         # --- 更新探针逻辑 ---
@@ -667,8 +666,8 @@ class BehavioralIntelligence:
                 print(f"        - 过程证据(新): rally_distribution_pressure_D = {rally_pressure_raw.loc[probe_ts]:.2f} -> 归一化分 = {process_evidence.loc[probe_ts]:.4f}")
                 print(f"        - 基础派发意图分: {base_distribution_intent.loc[probe_ts]:.4f}")
                 print(f"        - 市场接受度放大器: {acceptance_amplifier.loc[probe_ts]:.4f} (收盘偏离度(原始)={market_acceptance_raw.loc[probe_ts]:.2f}, 净化后={market_acceptance_normalized.loc[probe_ts]:.4f})")
-                # 升级探针日志
-                print(f"        - 控盘能力调节器(噪声过滤后): {control_modulator.loc[probe_ts]:.4f} (原始Alpha={mf_alpha_raw.loc[probe_ts]:.6f}, 正Alpha分={positive_alpha_score.loc[probe_ts]:.4f})")
+                # [修改的代码行] 更新探针日志以反映新逻辑
+                print(f"        - 控盘能力调节器(主动中性): {control_modulator.loc[probe_ts]:.4f} (原始Alpha={mf_alpha_raw.loc[probe_ts]:.6f}, 正Alpha分={positive_alpha_score.loc[probe_ts]:.4f})")
                 print(f"        - 最终派发意图分: {distribution_intent_score.loc[probe_ts]:.4f}")
         return distribution_intent_score.astype(np.float32)
 
