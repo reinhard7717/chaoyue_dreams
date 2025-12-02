@@ -280,8 +280,9 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
 # 资金高级指标模型
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V60.2 · 正名计划 (修正)】
-    - 核心修正: 在 Meta.indexes 中更新字段引用，完成 main_force_slippage_index 的重命名。
+    【V61.0 · 情境行为融合版】
+    - 核心升维: 引入“情境行为融合”指标体系，将资金“行为”（如派发、吸筹）与筹码“情境”（如主峰位置）在数据层直接融合，根除“情境与行为分裂”的架构问题。
+    - 核心新增: 增加 `distribution_at_peak_intensity`, `absorption_at_peak_intensity`, `breakthrough_of_peak_quality`, `defense_of_peak_quality` 四大核心情境行为指标。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     POWER_STRUCTURE_METRICS = {
@@ -349,10 +350,18 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'volatility_asymmetry_index': '波动不对称指数',
         'closing_strength_index': '收盘强度指数',
     }
+    # [新增代码块] 新增情境行为融合指标
+    CONTEXTUAL_ACTION_METRICS = {
+        'distribution_at_peak_intensity': '主峰区派发烈度',
+        'absorption_at_peak_intensity': '主峰区吸筹烈度',
+        'breakthrough_of_peak_quality': '突破主峰质量',
+        'defense_of_peak_quality': '防守主峰质量',
+    }
     CORE_METRICS = {
         **POWER_STRUCTURE_METRICS,
         **TACTICAL_LOG_METRICS,
         **OUTCOME_ASSESSMENT_METRICS,
+        **CONTEXTUAL_ACTION_METRICS, # [修改的代码行] 整合新指标
     }
     SLOPE_ACCEL_EXCLUSIONS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -376,6 +385,11 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
         'imbalance_effectiveness',
         'main_force_posture_index',
+        # [新增代码块] 将新指标添加到排除列表
+        'distribution_at_peak_intensity',
+        'absorption_at_peak_intensity',
+        'breakthrough_of_peak_quality',
+        'defense_of_peak_quality',
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -399,20 +413,22 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
         'imbalance_effectiveness',
         'main_force_posture_index',
+        # [新增代码块] 将新指标添加到浮点数字段列表
+        'distribution_at_peak_intensity',
+        'absorption_at_peak_intensity',
+        'breakthrough_of_peak_quality',
+        'defense_of_peak_quality',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:
             vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
         else:
             vars()[name] = models.DecimalField(max_digits=22, decimal_places=6, verbose_name=verbose, null=True, blank=True)
-
     class Meta:
         abstract = True
         ordering = ['-trade_time']
-        # 假设的索引列表，你需要根据你的实际代码进行修改
         indexes = [
             models.Index(fields=['main_force_conviction_index']),
-            # 将旧字段名更新为新字段名
             models.Index(fields=['main_force_slippage_index']),
             models.Index(fields=['dip_absorption_power']),
             models.Index(fields=['rally_distribution_pressure']),

@@ -779,9 +779,8 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V66.0 · 计算内核静态化】
-        - 核心重构: 将对所有下游计算方法的调用修改为类静态方法调用 (`AdvancedFundFlowMetricsService._calculate...`)，
-                     在逻辑上分离流程编排与具体计算，为后续物理分离计算内核做准备。
+        【V67.0 · 情境融合版】
+        - 核心升级: 调用新增的 `_calculate_contextual_action_metrics` 静态方法，正式将筹码“情境”与资金“行为”在计算层融合，生成新一代情境行为指标。
         """
         is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -821,7 +820,6 @@ class AdvancedFundFlowMetricsService:
             }
         }
         if not hf_analysis_df.empty:
-            # 使用类名调用静态方法
             results.update(AdvancedFundFlowMetricsService._calculate_main_force_profile_metrics(context))
             results.update(AdvancedFundFlowMetricsService._calculate_ofi_based_metrics(context))
             results.update(AdvancedFundFlowMetricsService._calculate_order_book_metrics(context))
@@ -844,6 +842,8 @@ class AdvancedFundFlowMetricsService:
         results.update(AdvancedFundFlowMetricsService._calculate_misc_minute_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_closing_strength_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_misc_daily_metrics(context))
+        # [新增的代码行] 调用新的情境行为指标计算内核
+        results.update(AdvancedFundFlowMetricsService._calculate_contextual_action_metrics(context))
         return results
 
     @staticmethod
@@ -2384,6 +2384,97 @@ class AdvancedFundFlowMetricsService:
         processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
         return processed_count
 
+    @staticmethod
+    def _calculate_contextual_action_metrics(context: dict) -> dict:
+        """
+        【V1.0 · 新增】情境行为融合指标计算内核
+        - 核心职责: 计算所有原生融合了“筹码情境”与“资金行为”的新一代指标。
+        """
+        hf_analysis_df = context['hf_analysis_df']
+        daily_data = context['daily_data']
+        common_data = context['common_data']
+        hf_features = context['hf_features']
+        metrics = {
+            'distribution_at_peak_intensity': np.nan,
+            'absorption_at_peak_intensity': np.nan,
+            'breakthrough_of_peak_quality': np.nan,
+            'defense_of_peak_quality': np.nan,
+        }
+        # 1. 数据校验与战区定义
+        dominant_peak_cost = daily_data.get('dominant_peak_cost')
+        atr = common_data.get('atr')
+        if hf_analysis_df.empty or pd.isna(dominant_peak_cost) or pd.isna(atr) or atr <= 0:
+            return metrics
+        peak_zone_radius = 0.5 * atr
+        peak_upper_bound = dominant_peak_cost + peak_zone_radius
+        peak_lower_bound = dominant_peak_cost - peak_zone_radius
+        # 2. 隔离战区内的行为
+        peak_zone_hf_df = hf_analysis_df[
+            (hf_analysis_df['price'] >= peak_lower_bound) & (hf_analysis_df['price'] <= peak_upper_bound)
+        ]
+        if peak_zone_hf_df.empty:
+            return metrics
+        # 3. 计算各项情境行为指标
+        # 3.1 主峰区派发烈度 (distribution_at_peak_intensity)
+        mf_trades_in_zone = hf_features['mf_trades'].loc[hf_features['mf_trades'].index.intersection(peak_zone_hf_df.index)]
+        if not mf_trades_in_zone.empty:
+            mf_sell_trades_in_zone = mf_trades_in_zone[mf_trades_in_zone['type'] == 'S']
+            total_mf_sell_vol_day = hf_features['mf_sell_vol']
+            if not mf_sell_trades_in_zone.empty and total_mf_sell_vol_day > 0:
+                # 证据1: 战术专注度 (主力日内卖出量有多少集中在主峰区)
+                focus_component = mf_sell_trades_in_zone['volume'].sum() / total_mf_sell_vol_day
+                # 证据2: 意图纯度 (在主峰区的OFI有多坚决地为负)
+                mf_ofi_in_zone = peak_zone_hf_df['main_force_ofi']
+                intent_purity_component = mf_ofi_in_zone.clip(upper=0).abs().sum() / mf_ofi_in_zone.abs().sum() if mf_ofi_in_zone.abs().sum() > 0 else 0
+                # 证据3: 战术成果 (派发价格是否显著高于收盘价)
+                mf_sell_vwap_in_zone = (mf_sell_trades_in_zone['price'] * mf_sell_trades_in_zone['volume']).sum() / mf_sell_trades_in_zone['volume'].sum()
+                outcome_component = np.tanh((mf_sell_vwap_in_zone - common_data['day_close']) / atr)
+                metrics['distribution_at_peak_intensity'] = (
+                    (focus_component + 1e-9)**0.4 *
+                    (intent_purity_component + 1e-9)**0.4 *
+                    (outcome_component.clip(0, 1) + 1e-9)**0.2
+                ) * 100
+        # 3.2 主峰区吸筹烈度 (absorption_at_peak_intensity)
+        if not mf_trades_in_zone.empty:
+            mf_buy_trades_in_zone = mf_trades_in_zone[mf_trades_in_zone['type'] == 'B']
+            total_mf_buy_vol_day = hf_features['mf_buy_vol']
+            if not mf_buy_trades_in_zone.empty and total_mf_buy_vol_day > 0:
+                focus_component = mf_buy_trades_in_zone['volume'].sum() / total_mf_buy_vol_day
+                mf_ofi_in_zone = peak_zone_hf_df['main_force_ofi']
+                intent_purity_component = mf_ofi_in_zone.clip(lower=0).sum() / mf_ofi_in_zone.abs().sum() if mf_ofi_in_zone.abs().sum() > 0 else 0
+                mf_buy_vwap_in_zone = (mf_buy_trades_in_zone['price'] * mf_buy_trades_in_zone['volume']).sum() / mf_buy_trades_in_zone['volume'].sum()
+                outcome_component = np.tanh((common_data['day_close'] - mf_buy_vwap_in_zone) / atr)
+                metrics['absorption_at_peak_intensity'] = (
+                    (focus_component + 1e-9)**0.4 *
+                    (intent_purity_component + 1e-9)**0.4 *
+                    (outcome_component.clip(0, 1) + 1e-9)**0.2
+                ) * 100
+        # 3.3 突破主峰质量 (breakthrough_of_peak_quality)
+        if common_data['day_high'] > peak_upper_bound:
+            breakthrough_hf_df = hf_analysis_df[hf_analysis_df['price'] > peak_upper_bound]
+            if not breakthrough_hf_df.empty:
+                magnitude_component = (common_data['day_high'] - peak_upper_bound) / atr
+                mf_ofi_in_breakthrough = breakthrough_hf_df['main_force_ofi']
+                conviction_component = mf_ofi_in_breakthrough.clip(lower=0).sum() / mf_ofi_in_breakthrough.abs().sum() if mf_ofi_in_breakthrough.abs().sum() > 0 else 0
+                volume_in_breakthrough = breakthrough_hf_df['volume'].sum()
+                efficiency_component = 1 - np.tanh(volume_in_breakthrough / common_data['daily_total_volume']) if common_data['daily_total_volume'] > 0 else 0
+                metrics['breakthrough_of_peak_quality'] = (
+                    (magnitude_component.clip(0, 1) + 1e-9)**0.3 *
+                    (conviction_component + 1e-9)**0.5 *
+                    (efficiency_component + 1e-9)**0.2
+                ) * 100
+        # 3.4 防守主峰质量 (defense_of_peak_quality)
+        if common_data['day_low'] < peak_lower_bound:
+            defense_hf_df = hf_analysis_df[hf_analysis_df['price'] < peak_lower_bound]
+            if not defense_hf_df.empty:
+                resilience_component = (common_data['day_close'] - common_data['day_low']) / atr
+                mf_ofi_in_defense = defense_hf_df['main_force_ofi']
+                counter_attack_component = mf_ofi_in_defense.clip(lower=0).sum() / mf_ofi_in_defense.abs().sum() if mf_ofi_in_defense.abs().sum() > 0 else 0
+                metrics['defense_of_peak_quality'] = (
+                    (resilience_component.clip(0, 1) + 1e-9)**0.4 *
+                    (counter_attack_component + 1e-9)**0.6
+                ) * 100
+        return metrics
 
 
 
