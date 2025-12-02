@@ -49,10 +49,9 @@ class ChipFeatureCalculator:
 
     def calculate_all_metrics(self) -> dict:
         """
-        【V12.4 · 指标注册修复版】
-        - 核心修复: 在调用 `_compute_intraday_dynamics_metrics` 后，补充了 `all_metrics.update()` 操作。
-                     此举解决了 `opening_gap_defense_strength` 等日内动态指标虽然被正确计算，
-                     但因未被注册到主指标字典中而被丢弃，最终导致无法保存到数据库的问题。
+        【V12.5 · 情境融合版】
+        - 核心升维: 新增对 `_compute_contextual_action_metrics` 的调用，正式将“情境行为融合”指标的计算职责
+                     纳入筹码服务，解决了跨服务的数据依赖问题。
         """
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
@@ -86,7 +85,6 @@ class ChipFeatureCalculator:
         else:
             self.ctx['cost_gini_coefficient_slope_1d'] = 0.0
         intraday_dynamics_metrics = self._compute_intraday_dynamics_metrics(self.ctx)
-        # 补充注册日内动态指标
         all_metrics.update(intraday_dynamics_metrics)
         self.ctx.update(intraday_dynamics_metrics)
         legacy_intraday_metrics = self._compute_legacy_intraday_metrics(self.ctx)
@@ -121,6 +119,10 @@ class ChipFeatureCalculator:
         realtime_orderbook_metrics = self._compute_realtime_orderbook_metrics(self.ctx)
         all_metrics.update(realtime_orderbook_metrics)
         self.ctx.update(realtime_orderbook_metrics)
+        # [新增的代码块] 调用情境行为指标计算
+        contextual_action_metrics = self._compute_contextual_action_metrics(self.ctx)
+        all_metrics.update(contextual_action_metrics)
+        self.ctx.update(contextual_action_metrics)
         health_score_info = self._calculate_chip_structure_health_score(self.ctx)
         all_metrics.update(health_score_info)
         all_metrics.pop('peak_range_low', None)
@@ -1318,8 +1320,146 @@ class ChipFeatureCalculator:
             tanh_score = -tanh_score
         return (tanh_score + 1) / 2 # 映射到 [0, 1]
 
+    def _prepare_behavioral_data_for_chips(self, context: dict) -> tuple:
+        """
+        【V1.0 · 新增】高频数据准备器。
+        - 核心职责: 从上下文中提取日线数据和原始高频数据(tick, level5, realtime)，
+                     准备并返回高频计算所需的通用数据字典和合并后的原始高频DataFrame。
+        """
+        import numpy as np
+        daily_total_volume = context.get('daily_turnover_volume', 0)
+        daily_total_amount = pd.to_numeric(context.get('amount'), errors='coerce') * 1000 if 'amount' in context else 0
+        daily_vwap = daily_total_amount / daily_total_volume if daily_total_volume > 0 else np.nan
+        atr = context.get('atr_14d')
+        day_open, day_close = context.get('open_price'), context.get('close_price')
+        day_high, day_low = context.get('high_price'), context.get('low_price')
+        tick_data = context.get('tick_data')
+        level5_data = context.get('level5_data')
+        realtime_data = context.get('realtime_data')
+        raw_hf_df = pd.DataFrame()
+        if tick_data is not None and not tick_data.empty and level5_data is not None and not level5_data.empty:
+            merged_hf = pd.merge_asof(
+                tick_data.sort_index(), level5_data.sort_index(),
+                left_index=True, right_index=True, direction='backward'
+            ).dropna(subset=['buy_price1', 'sell_price1', 'amount', 'volume'])
+            if realtime_data is not None and not realtime_data.empty and not merged_hf.empty:
+                realtime_prepped = realtime_data[['volume']].copy()
+                realtime_prepped['snapshot_time'] = realtime_prepped.index
+                merged_hf = pd.merge_asof(
+                    merged_hf, realtime_prepped, left_index=True, right_index=True,
+                    direction='backward', suffixes=('_tick', '_realtime')
+                )
+            if not merged_hf.empty:
+                merged_hf.rename(columns={'volume_tick': 'volume'}, inplace=True)
+                raw_hf_df = merged_hf
+        common_data = {
+            'daily_total_volume': daily_total_volume, 'daily_total_amount': daily_total_amount,
+            'daily_vwap': daily_vwap, 'atr': atr, 'day_open': day_open, 'day_close': day_close,
+            'day_high': day_high, 'day_low': day_low
+        }
+        return raw_hf_df, common_data
 
+    def _engineer_hf_features_for_chips(self, raw_hf_df: pd.DataFrame, daily_total_volume: float) -> tuple[pd.DataFrame, dict]:
+        """
+        【V1.0 · 新增】高频特征工程中心。
+        - 核心职责: 接收纯净的原始高频DataFrame，计算所有衍生特征（OFI, imbalance, 主力交易集等），
+                     返回一个包含所有特征的 `hf_analysis_df` 和一个包含聚合值的 `hf_features` 字典。
+        """
+        import numpy as np
+        features = {
+            'mf_trades': pd.DataFrame(), 'buy_trades_mask': pd.Series(dtype=bool),
+            'sell_trades_mask': pd.Series(dtype=bool), 'total_mf_vol': 0.0,
+            'mf_buy_vol': 0.0, 'mf_sell_vol': 0.0, 'offensive_volume': 0.0,
+            'passive_volume': 0.0, 'hf_mf_buy_vwap': np.nan, 'hf_mf_sell_vwap': np.nan,
+        }
+        if raw_hf_df is None or raw_hf_df.empty:
+            return pd.DataFrame(), features
+        hf_analysis_df = raw_hf_df.copy()
+        hf_analysis_df['mid_price'] = (hf_analysis_df['buy_price1'] + hf_analysis_df['sell_price1']) / 2
+        hf_analysis_df['prev_mid_price'] = hf_analysis_df['mid_price'].shift(1)
+        buy_pressure = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
+        sell_pressure = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
+        hf_analysis_df['ofi'] = buy_pressure - sell_pressure
+        is_main_force_trade = hf_analysis_df['amount'] > 200000
+        hf_analysis_df['main_force_ofi'] = np.where(is_main_force_trade, hf_analysis_df['ofi'], 0)
+        mf_trades = hf_analysis_df[is_main_force_trade].copy()
+        if mf_trades.empty:
+            return hf_analysis_df, features
+        features['mf_trades'] = mf_trades
+        buy_trades_mask = mf_trades['type'] == 'B'
+        sell_trades_mask = mf_trades['type'] == 'S'
+        features['buy_trades_mask'] = buy_trades_mask
+        features['sell_trades_mask'] = sell_trades_mask
+        total_mf_vol = mf_trades['volume'].sum()
+        features['total_mf_vol'] = total_mf_vol
+        if total_mf_vol > 0:
+            features['mf_buy_vol'] = mf_trades[buy_trades_mask]['volume'].sum()
+            features['mf_sell_vol'] = mf_trades[sell_trades_mask]['volume'].sum()
+        return hf_analysis_df, features
 
+    def _compute_contextual_action_metrics(self, context: dict) -> dict:
+        """
+        【V1.0 · 新增】情境行为融合指标计算内核。
+        - 核心职责: 融合筹码情境(主峰成本)与高频资金行为，计算在关键位置的攻防指标。
+        """
+        metrics = {
+            'distribution_at_peak_intensity': np.nan,
+            'absorption_at_peak_intensity': np.nan,
+            'breakthrough_of_peak_quality': np.nan,
+            'defense_of_peak_quality': np.nan,
+        }
+        raw_hf_df, common_data = self._prepare_behavioral_data_for_chips(context)
+        hf_analysis_df, hf_features = self._engineer_hf_features_for_chips(raw_hf_df, common_data.get('daily_total_volume', 0))
+        dominant_peak_cost = context.get('dominant_peak_cost')
+        atr = common_data.get('atr')
+        if hf_analysis_df.empty or pd.isna(dominant_peak_cost) or pd.isna(atr) or atr <= 0:
+            return metrics
+        peak_zone_radius = 0.5 * atr
+        peak_upper_bound = dominant_peak_cost + peak_zone_radius
+        peak_lower_bound = dominant_peak_cost - peak_zone_radius
+        peak_zone_hf_df = hf_analysis_df[
+            (hf_analysis_df['price'] >= peak_lower_bound) & (hf_analysis_df['price'] <= peak_upper_bound)
+        ]
+        if peak_zone_hf_df.empty:
+            return metrics
+        mf_trades_in_zone = hf_features['mf_trades'].loc[hf_features['mf_trades'].index.intersection(peak_zone_hf_df.index)]
+        if not mf_trades_in_zone.empty:
+            mf_sell_trades_in_zone = mf_trades_in_zone[mf_trades_in_zone['type'] == 'S']
+            total_mf_sell_vol_day = hf_features['mf_sell_vol']
+            if not mf_sell_trades_in_zone.empty and total_mf_sell_vol_day > 0:
+                focus_component = mf_sell_trades_in_zone['volume'].sum() / total_mf_sell_vol_day
+                mf_ofi_in_zone = peak_zone_hf_df['main_force_ofi']
+                intent_purity_component = mf_ofi_in_zone.clip(upper=0).abs().sum() / mf_ofi_in_zone.abs().sum() if mf_ofi_in_zone.abs().sum() > 0 else 0
+                mf_sell_vwap_in_zone = (mf_sell_trades_in_zone['price'] * mf_sell_trades_in_zone['volume']).sum() / mf_sell_trades_in_zone['volume'].sum()
+                outcome_component = np.tanh((mf_sell_vwap_in_zone - common_data['day_close']) / atr)
+                metrics['distribution_at_peak_intensity'] = ((focus_component + 1e-9)**0.4 * (intent_purity_component + 1e-9)**0.4 * (outcome_component.clip(0, 1) + 1e-9)**0.2) * 100
+        if not mf_trades_in_zone.empty:
+            mf_buy_trades_in_zone = mf_trades_in_zone[mf_trades_in_zone['type'] == 'B']
+            total_mf_buy_vol_day = hf_features['mf_buy_vol']
+            if not mf_buy_trades_in_zone.empty and total_mf_buy_vol_day > 0:
+                focus_component = mf_buy_trades_in_zone['volume'].sum() / total_mf_buy_vol_day
+                mf_ofi_in_zone = peak_zone_hf_df['main_force_ofi']
+                intent_purity_component = mf_ofi_in_zone.clip(lower=0).sum() / mf_ofi_in_zone.abs().sum() if mf_ofi_in_zone.abs().sum() > 0 else 0
+                mf_buy_vwap_in_zone = (mf_buy_trades_in_zone['price'] * mf_buy_trades_in_zone['volume']).sum() / mf_buy_trades_in_zone['volume'].sum()
+                outcome_component = np.tanh((common_data['day_close'] - mf_buy_vwap_in_zone) / atr)
+                metrics['absorption_at_peak_intensity'] = ((focus_component + 1e-9)**0.4 * (intent_purity_component + 1e-9)**0.4 * (outcome_component.clip(0, 1) + 1e-9)**0.2) * 100
+        if common_data['day_high'] > peak_upper_bound:
+            breakthrough_hf_df = hf_analysis_df[hf_analysis_df['price'] > peak_upper_bound]
+            if not breakthrough_hf_df.empty:
+                magnitude_component = (common_data['day_high'] - peak_upper_bound) / atr
+                mf_ofi_in_breakthrough = breakthrough_hf_df['main_force_ofi']
+                conviction_component = mf_ofi_in_breakthrough.clip(lower=0).sum() / mf_ofi_in_breakthrough.abs().sum() if mf_ofi_in_breakthrough.abs().sum() > 0 else 0
+                volume_in_breakthrough = breakthrough_hf_df['volume'].sum()
+                efficiency_component = 1 - np.tanh(volume_in_breakthrough / common_data['daily_total_volume']) if common_data['daily_total_volume'] > 0 else 0
+                metrics['breakthrough_of_peak_quality'] = ((magnitude_component.clip(0, 1) + 1e-9)**0.3 * (conviction_component + 1e-9)**0.5 * (efficiency_component + 1e-9)**0.2) * 100
+        if common_data['day_low'] < peak_lower_bound:
+            defense_hf_df = hf_analysis_df[hf_analysis_df['price'] < peak_lower_bound]
+            if not defense_hf_df.empty:
+                resilience_component = (common_data['day_close'] - common_data['day_low']) / atr
+                mf_ofi_in_defense = defense_hf_df['main_force_ofi']
+                counter_attack_component = mf_ofi_in_defense.clip(lower=0).sum() / mf_ofi_in_defense.abs().sum() if mf_ofi_in_defense.abs().sum() > 0 else 0
+                metrics['defense_of_peak_quality'] = ((resilience_component.clip(0, 1) + 1e-9)**0.4 * (counter_attack_component + 1e-9)**0.6) * 100
+        return metrics
 
 
 

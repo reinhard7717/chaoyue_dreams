@@ -7,11 +7,10 @@ import pandas as pd
 # 筹码高级指标模型
 class BaseAdvancedChipMetrics(models.Model):
     """
-    【V33.0 · 结构动力学重构版】
-    - 核心重构: 第一象限(静态结构)指标体系全面升级，引入基于物理学、信息熵和多峰系统动力学的新一代指标。
-    - 核心新增: 引入 `structural_node_count`, `primary_peak_kurtosis`, `cost_gini_coefficient`, `structural_tension_index`, `structural_leverage`, `vacuum_zone_magnitude`, `winner_stability_index` 等核心结构指标。
-    - 核心废弃: 移除 `dynamic_pressure_index`, `effective_winner_rate` 等被新体系替代或冗余的旧指标，大幅精简模型。
-    - 核心优化: 更新衍生计算排除列表，以匹配新的指标体系。
+    【V33.1 · 情境融合版】
+    - 核心升维: 从资金流模型中移入“情境行为融合”指标体系，将资金“行为”（如派发、吸筹）与筹码“情境”（如主峰位置）
+                 在筹码服务层直接融合，解决了因计算时序依赖导致的数据缺失问题。
+    - 核心新增: 新增 `distribution_at_peak_intensity`, `absorption_at_peak_intensity`, `breakthrough_of_peak_quality`, `defense_of_peak_quality` 四大核心情境行为指标。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     # --- 第一象限: 静态结构 (Static Structure) ---
@@ -103,12 +102,20 @@ class BaseAdvancedChipMetrics(models.Model):
         'trend_vitality_index': '趋势生命力指数',
         'overall_t1_rating': 'T+1综合评级(-100~100)',
     }
+    # [新增代码块] 新增情境行为融合指标
+    CONTEXTUAL_ACTION_METRICS = {
+        'distribution_at_peak_intensity': '主峰区派发烈度',
+        'absorption_at_peak_intensity': '主峰区吸筹烈度',
+        'breakthrough_of_peak_quality': '突破主峰质量',
+        'defense_of_peak_quality': '防守主峰质量',
+    }
     CORE_METRICS = {
         **STATIC_STRUCTURE_METRICS,
         **INTRADAY_DYNAMICS_METRICS,
         **CROSS_DAY_FLOW_METRICS,
         **GAME_THEORY_METRICS,
         **VITAL_SIGNS_METRICS,
+        **CONTEXTUAL_ACTION_METRICS, # [修改的代码行] 整合新指标
     }
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     INTEGER_FIELDS = ['peak_volume', 'pressure_above_volume', 'support_below_volume']
@@ -153,6 +160,11 @@ class BaseAdvancedChipMetrics(models.Model):
         'mf_cost_zone_defense_intent',
         'floating_chip_cleansing_efficiency',
         'suppressive_accumulation_intensity',
+        # [新增代码块] 将新指标添加到排除列表
+        'distribution_at_peak_intensity',
+        'absorption_at_peak_intensity',
+        'breakthrough_of_peak_quality',
+        'defense_of_peak_quality',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in INTEGER_FIELDS:
@@ -280,9 +292,9 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
 # 资金高级指标模型
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V61.0 · 情境行为融合版】
-    - 核心升维: 引入“情境行为融合”指标体系，将资金“行为”（如派发、吸筹）与筹码“情境”（如主峰位置）在数据层直接融合，根除“情境与行为分裂”的架构问题。
-    - 核心新增: 增加 `distribution_at_peak_intensity`, `absorption_at_peak_intensity`, `breakthrough_of_peak_quality`, `defense_of_peak_quality` 四大核心情境行为指标。
+    【V61.1 · 职责净化版】
+    - 核心重构: 移除了与筹码情境强耦合的“情境行为融合”指标体系，将其职责完全转移至筹码指标模型，
+                 解决了因计算时序依赖导致的数据缺失问题，使本模型职责更聚焦于纯粹的资金流分析。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     POWER_STRUCTURE_METRICS = {
@@ -350,18 +362,11 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'volatility_asymmetry_index': '波动不对称指数',
         'closing_strength_index': '收盘强度指数',
     }
-    # [新增代码块] 新增情境行为融合指标
-    CONTEXTUAL_ACTION_METRICS = {
-        'distribution_at_peak_intensity': '主峰区派发烈度',
-        'absorption_at_peak_intensity': '主峰区吸筹烈度',
-        'breakthrough_of_peak_quality': '突破主峰质量',
-        'defense_of_peak_quality': '防守主峰质量',
-    }
     CORE_METRICS = {
         **POWER_STRUCTURE_METRICS,
         **TACTICAL_LOG_METRICS,
         **OUTCOME_ASSESSMENT_METRICS,
-        **CONTEXTUAL_ACTION_METRICS, # [修改的代码行] 整合新指标
+        # [修改的代码行] 移除 CONTEXTUAL_ACTION_METRICS
     }
     SLOPE_ACCEL_EXCLUSIONS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -385,11 +390,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
         'imbalance_effectiveness',
         'main_force_posture_index',
-        # [新增代码块] 将新指标添加到排除列表
-        'distribution_at_peak_intensity',
-        'absorption_at_peak_intensity',
-        'breakthrough_of_peak_quality',
-        'defense_of_peak_quality',
+        # [修改的代码块] 移除相关指标
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -413,11 +414,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
         'imbalance_effectiveness',
         'main_force_posture_index',
-        # [新增代码块] 将新指标添加到浮点数字段列表
-        'distribution_at_peak_intensity',
-        'absorption_at_peak_intensity',
-        'breakthrough_of_peak_quality',
-        'defense_of_peak_quality',
+        # [修改的代码块] 移除相关指标
     ]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:

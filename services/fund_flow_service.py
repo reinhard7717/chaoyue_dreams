@@ -779,10 +779,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V67.1 · 探针逻辑标准化】
-        - 核心重构: 废弃对 `target_date` 的依赖，统一所有探针的触发逻辑为标准的“三级门控”（总开关、模块开关、日期列表），确保系统行为的一致性和可预测性。
+        【V67.2 · 职责净化版】
+        - 核心重构: 移除了对 `_calculate_contextual_action_metrics` 的调用，该指标的计算职责已正式移交至筹码服务层。
         """
-        # [修改的代码块] 重构探针触发决策逻辑
         debug_enabled = self.debug_params.get('enabled', {}).get('value', False)
         probe_dates = self.debug_params.get('probe_dates', [])
         enable_mfca_probe = self.debug_params.get('enable_mfca_probe', False)
@@ -818,7 +817,7 @@ class AdvancedFundFlowMetricsService:
             'hf_features': hf_features,
             'main_force_net_flow_calibrated': main_force_net_flow_calibrated,
             'debug': {
-                'should_probe': should_probe, # [修改的代码行] 传递标准化的探针触发标志
+                'should_probe': should_probe,
             }
         }
         if not hf_analysis_df.empty:
@@ -844,7 +843,6 @@ class AdvancedFundFlowMetricsService:
         results.update(AdvancedFundFlowMetricsService._calculate_misc_minute_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_closing_strength_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_misc_daily_metrics(context))
-        results.update(AdvancedFundFlowMetricsService._calculate_contextual_action_metrics(context))
         return results
 
     @staticmethod
@@ -2374,111 +2372,6 @@ class AdvancedFundFlowMetricsService:
             records_for_atomic_save.append(record_data)
         processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
         return processed_count
-
-    @staticmethod
-    def _calculate_contextual_action_metrics(context: dict) -> dict:
-        """
-        【V1.3 · 标准化探针版】情境行为融合指标计算内核
-        - 核心重构: 移除内部探针决策逻辑，改为直接消费由上游引擎传入的标准化 `should_probe` 标志，
-                     确保探针行为与系统完全同步。
-        """
-        hf_analysis_df = context['hf_analysis_df']
-        daily_data = context['daily_data']
-        common_data = context['common_data']
-        hf_features = context['hf_features']
-        # [修改的代码块] 直接从 context 获取标准化的探针触发标志
-        should_probe = context['debug']['should_probe']
-        probe_data = {}
-        metrics = {
-            'distribution_at_peak_intensity': np.nan,
-            'absorption_at_peak_intensity': np.nan,
-            'breakthrough_of_peak_quality': np.nan,
-            'defense_of_peak_quality': np.nan,
-        }
-        dominant_peak_cost = daily_data.get('dominant_peak_cost')
-        atr = common_data.get('atr')
-        if hf_analysis_df.empty or pd.isna(dominant_peak_cost) or pd.isna(atr) or atr <= 0:
-            return metrics
-        peak_zone_radius = 0.5 * atr
-        peak_upper_bound = dominant_peak_cost + peak_zone_radius
-        peak_lower_bound = dominant_peak_cost - peak_zone_radius
-        if should_probe:
-            print(f"\n{'='*20} [探针 C.1 - 情境行为内核 @ {daily_data.name.date()}] {'='*20}")
-            print(f"  - 核心情境: 主峰成本={dominant_peak_cost:.2f}, ATR={atr:.2f}")
-            print(f"  - 主峰战区定义: [{peak_lower_bound:.2f} - {peak_upper_bound:.2f}]")
-        peak_zone_hf_df = hf_analysis_df[
-            (hf_analysis_df['price'] >= peak_lower_bound) & (hf_analysis_df['price'] <= peak_upper_bound)
-        ]
-        if peak_zone_hf_df.empty:
-            return metrics
-        mf_trades_in_zone = hf_features['mf_trades'].loc[hf_features['mf_trades'].index.intersection(peak_zone_hf_df.index)]
-        if not mf_trades_in_zone.empty:
-            mf_sell_trades_in_zone = mf_trades_in_zone[mf_trades_in_zone['type'] == 'S']
-            total_mf_sell_vol_day = hf_features['mf_sell_vol']
-            if not mf_sell_trades_in_zone.empty and total_mf_sell_vol_day > 0:
-                focus_component = mf_sell_trades_in_zone['volume'].sum() / total_mf_sell_vol_day
-                mf_ofi_in_zone = peak_zone_hf_df['main_force_ofi']
-                intent_purity_component = mf_ofi_in_zone.clip(upper=0).abs().sum() / mf_ofi_in_zone.abs().sum() if mf_ofi_in_zone.abs().sum() > 0 else 0
-                mf_sell_vwap_in_zone = (mf_sell_trades_in_zone['price'] * mf_sell_trades_in_zone['volume']).sum() / mf_sell_trades_in_zone['volume'].sum()
-                outcome_component = np.tanh((mf_sell_vwap_in_zone - common_data['day_close']) / atr)
-                metrics['distribution_at_peak_intensity'] = ((focus_component + 1e-9)**0.4 * (intent_purity_component + 1e-9)**0.4 * (outcome_component.clip(0, 1) + 1e-9)**0.2) * 100
-                probe_data['distribution'] = {'focus': focus_component, 'purity': intent_purity_component, 'outcome': outcome_component}
-        if not mf_trades_in_zone.empty:
-            mf_buy_trades_in_zone = mf_trades_in_zone[mf_trades_in_zone['type'] == 'B']
-            total_mf_buy_vol_day = hf_features['mf_buy_vol']
-            if not mf_buy_trades_in_zone.empty and total_mf_buy_vol_day > 0:
-                focus_component = mf_buy_trades_in_zone['volume'].sum() / total_mf_buy_vol_day
-                mf_ofi_in_zone = peak_zone_hf_df['main_force_ofi']
-                intent_purity_component = mf_ofi_in_zone.clip(lower=0).sum() / mf_ofi_in_zone.abs().sum() if mf_ofi_in_zone.abs().sum() > 0 else 0
-                mf_buy_vwap_in_zone = (mf_buy_trades_in_zone['price'] * mf_buy_trades_in_zone['volume']).sum() / mf_buy_trades_in_zone['volume'].sum()
-                outcome_component = np.tanh((common_data['day_close'] - mf_buy_vwap_in_zone) / atr)
-                metrics['absorption_at_peak_intensity'] = ((focus_component + 1e-9)**0.4 * (intent_purity_component + 1e-9)**0.4 * (outcome_component.clip(0, 1) + 1e-9)**0.2) * 100
-                probe_data['absorption'] = {'focus': focus_component, 'purity': intent_purity_component, 'outcome': outcome_component}
-        if common_data['day_high'] > peak_upper_bound:
-            breakthrough_hf_df = hf_analysis_df[hf_analysis_df['price'] > peak_upper_bound]
-            if not breakthrough_hf_df.empty:
-                magnitude_component = (common_data['day_high'] - peak_upper_bound) / atr
-                mf_ofi_in_breakthrough = breakthrough_hf_df['main_force_ofi']
-                conviction_component = mf_ofi_in_breakthrough.clip(lower=0).sum() / mf_ofi_in_breakthrough.abs().sum() if mf_ofi_in_breakthrough.abs().sum() > 0 else 0
-                volume_in_breakthrough = breakthrough_hf_df['volume'].sum()
-                efficiency_component = 1 - np.tanh(volume_in_breakthrough / common_data['daily_total_volume']) if common_data['daily_total_volume'] > 0 else 0
-                metrics['breakthrough_of_peak_quality'] = ((magnitude_component.clip(0, 1) + 1e-9)**0.3 * (conviction_component + 1e-9)**0.5 * (efficiency_component + 1e-9)**0.2) * 100
-                probe_data['breakthrough'] = {'magnitude': magnitude_component, 'conviction': conviction_component, 'efficiency': efficiency_component}
-        if common_data['day_low'] < peak_lower_bound:
-            defense_hf_df = hf_analysis_df[hf_analysis_df['price'] < peak_lower_bound]
-            if not defense_hf_df.empty:
-                resilience_component = (common_data['day_close'] - common_data['day_low']) / atr
-                mf_ofi_in_defense = defense_hf_df['main_force_ofi']
-                counter_attack_component = mf_ofi_in_defense.clip(lower=0).sum() / mf_ofi_in_defense.abs().sum() if mf_ofi_in_defense.abs().sum() > 0 else 0
-                metrics['defense_of_peak_quality'] = ((resilience_component.clip(0, 1) + 1e-9)**0.4 * (counter_attack_component + 1e-9)**0.6) * 100
-                probe_data['defense'] = {'resilience': resilience_component, 'counter_attack': counter_attack_component}
-        if should_probe:
-            print("  - 指标计算详情:")
-            dist_data = probe_data.get('distribution')
-            print(f"    - 主峰区派发烈度: {metrics['distribution_at_peak_intensity']:.4f}")
-            if dist_data:
-                print(f"      - 构成: 专注度={dist_data['focus']:.2f}, 意图纯度={dist_data['purity']:.2f}, 战术成果={dist_data['outcome']:.2f}")
-            else:
-                print("      - (未计算: 无相关主力卖出或条件不满足)")
-            abs_data = probe_data.get('absorption')
-            print(f"    - 主峰区吸筹烈度: {metrics['absorption_at_peak_intensity']:.4f}")
-            if abs_data:
-                print(f"      - 构成: 专注度={abs_data['focus']:.2f}, 意图纯度={abs_data['purity']:.2f}, 战术成果={abs_data['outcome']:.2f}")
-            else:
-                print("      - (未计算: 无相关主力买入或条件不满足)")
-            brk_data = probe_data.get('breakthrough')
-            print(f"    - 突破主峰质量: {metrics['breakthrough_of_peak_quality']:.4f}")
-            if brk_data:
-                print(f"      - 构成: 幅度={brk_data['magnitude']:.2f}, 信念={brk_data['conviction']:.2f}, 效率={brk_data['efficiency']:.2f}")
-            else:
-                print("      - (未计算: 当日未发生向上突破)")
-            def_data = probe_data.get('defense')
-            print(f"    - 防守主峰质量: {metrics['defense_of_peak_quality']:.4f}")
-            if def_data:
-                print(f"      - 构成: 韧性={def_data['resilience']:.2f}, 反击={def_data['counter_attack']:.2f}")
-            else:
-                print("      - (未计算: 当日未发生向下破位)")
-        return metrics
 
 
 
