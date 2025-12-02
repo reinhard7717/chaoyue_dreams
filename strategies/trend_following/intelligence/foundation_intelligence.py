@@ -43,7 +43,6 @@ class FoundationIntelligence:
         if not get_param_value(p_conf.get('enabled'), True):
             print("基础情报引擎已在配置中禁用，跳过。")
             return {}
-        # 修改: 将df作为参数传递给_calculate_environmental_modulator
         environmental_modulator = self._calculate_environmental_modulator(df, p_conf)
         axiom_constitution = self._diagnose_axiom_market_constitution(df, p_conf)
         axiom_pendulum = self._diagnose_axiom_sentiment_pendulum(df)
@@ -61,7 +60,7 @@ class FoundationIntelligence:
             axiom_relative_strength,
             axiom_tide,
             axiom_pendulum,
-            tension,
+            axiom_tension, # 修改: 修正变量名，从 tension -> axiom_tension
             environmental_modulator
         )
         all_states['SCORE_FOUNDATION_STRATEGIC_POSTURE'] = strategic_posture
