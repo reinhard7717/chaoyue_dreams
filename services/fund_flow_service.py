@@ -2220,12 +2220,15 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_micro_dynamics_metrics(context: dict) -> dict:
         """
-        【V65.1 · 穿透式诊断版】微观动力学指标计算内核
-        - 核心增强: 对探针进行“手术刀”级别的增强，为每个指标提供独立的、包含“原料->过程->结果”
-                     完整链路的诊断报告，极大地提升了调试复杂微观博弈场景时的效率和确定性。
+        【V68.1 · 摩擦系数终版】
+        - 核心修正: 重构 `asymmetric_friction_index` 的计算逻辑，将不稳定的“比率的平均值” (`mean of ratios`)
+                     修正为稳健的“总和的比率” (`ratio of sums`)。通过先聚合总价差和总净主动成交量再相除，
+                     彻底解决了因单笔成交量为零导致弹性计算失败并返回NaN的根本问题。
         """
         hf_analysis_df = context['hf_analysis_df']
         should_probe = context['debug']['should_probe']
+        import numpy as np
+        import pandas as pd
         metrics = {
             'micro_impact_elasticity': np.nan,
             'price_reversion_velocity': np.nan,
@@ -2233,10 +2236,8 @@ class AdvancedFundFlowMetricsService:
         }
         if hf_analysis_df.empty or 'mid_price_delta' not in hf_analysis_df.columns:
             return metrics
-        # 准备探针所需的数据
         if should_probe:
             print(f"\n{'='*20} [探针 B.3.x - 微观动力学穿透诊断] {'='*20}")
-        # 1. 微观冲击弹性 (Micro Impact Elasticity)
         elasticity_series = hf_analysis_df['mid_price_delta'] / hf_analysis_df['net_active_volume'].replace(0, np.nan)
         weights_vol = hf_analysis_df['volume']
         valid_elasticity = elasticity_series.dropna()
@@ -2244,17 +2245,7 @@ class AdvancedFundFlowMetricsService:
             metrics['micro_impact_elasticity'] = np.average(valid_elasticity, weights=weights_vol[elasticity_series.notna()])
         if should_probe:
             print("\n--- [1. 微观冲击弹性] ---")
-            print("  - 原料数据 (前5条):")
-            probe_df_elasticity = hf_analysis_df[['mid_price_delta', 'net_active_volume']].copy()
-            probe_df_elasticity['instant_elasticity'] = elasticity_series
-            print(probe_df_elasticity.head().to_string())
-            print("  - 关键计算节点 (瞬时弹性序列统计):")
-            if not valid_elasticity.empty:
-                print(valid_elasticity.describe().to_string())
-            else:
-                print("    (无有效瞬时弹性值)")
             print(f"  - 结果: {metrics['micro_impact_elasticity']:.6f}")
-        # 2. 价格回归速度 (Price Reversion Velocity)
         hf_analysis_df['next_mid_price_delta'] = hf_analysis_df['mid_price_delta'].shift(-1)
         reversion_df = hf_analysis_df.dropna(subset=['mid_price_delta', 'next_mid_price_delta'])
         if not reversion_df.empty and reversion_df['mid_price_delta'].var() > 0 and reversion_df['next_mid_price_delta'].var() > 0:
@@ -2265,31 +2256,30 @@ class AdvancedFundFlowMetricsService:
                 metrics['price_reversion_velocity'] = np.average(reversion_signal, weights=weights_rev) * 100
             if should_probe:
                 print("\n--- [2. 价格回归速度] ---")
-                print("  - 原料数据 (前5条):")
-                probe_df_reversion = reversion_df[['mid_price_delta', 'next_mid_price_delta']].copy()
-                probe_df_reversion['reversion_signal(1=revert)'] = reversion_signal
-                print(probe_df_reversion.head().to_string())
-                print("  - 关键计算节点 (回归信号分布):")
-                print(reversion_signal.value_counts().to_string())
                 print(f"  - 结果: {metrics['price_reversion_velocity']:.2f}")
-        # 3. 非对称摩擦系数 (Asymmetric Friction Index)
         up_moves = hf_analysis_df[hf_analysis_df['mid_price_delta'] > 0]
         down_moves = hf_analysis_df[hf_analysis_df['mid_price_delta'] < 0]
+        up_elasticity, down_elasticity, friction_ratio = np.nan, np.nan, np.nan
         if not up_moves.empty and not down_moves.empty:
-            up_elasticity = (up_moves['mid_price_delta'] / up_moves['net_active_volume'].replace(0, np.nan)).mean()
-            down_elasticity = (down_moves['mid_price_delta'] / down_moves['net_active_volume'].replace(0, np.nan)).mean()
+            # [修改的代码块] 修正为“总和的比率”，增强数值稳定性
+            up_net_vol_sum = up_moves['net_active_volume'].sum()
+            down_net_vol_sum = down_moves['net_active_volume'].sum()
+            up_elasticity = up_moves['mid_price_delta'].sum() / up_net_vol_sum if up_net_vol_sum != 0 else np.nan
+            down_elasticity = down_moves['mid_price_delta'].sum() / down_net_vol_sum if down_net_vol_sum != 0 else np.nan
             if pd.notna(up_elasticity) and pd.notna(down_elasticity) and down_elasticity != 0:
                 friction_ratio = up_elasticity / abs(down_elasticity)
                 metrics['asymmetric_friction_index'] = np.log(friction_ratio) if friction_ratio > 0 else np.nan
-            if should_probe:
-                print("\n--- [3. 非对称摩擦系数] ---")
-                print(f"  - 原料数据: 上涨笔数={len(up_moves)}, 下跌笔数={len(down_moves)}")
-                print(f"  - 关键计算节点:")
-                print(f"    - 上行平均弹性 (Upward Elasticity): {up_elasticity:.6f}")
-                print(f"    - 下行平均弹性 (Downward Elasticity): {down_elasticity:.6f}")
-                if 'friction_ratio' in locals():
-                    print(f"    - 摩擦比率 (Ratio = Up / |Down|): {friction_ratio:.4f}")
-                print(f"  - 结果 (log(Ratio)): {metrics['asymmetric_friction_index']:.4f}")
+        if should_probe:
+            print("\n--- [3. 非对称摩擦系数] ---")
+            print(f"  - 原料数据: 上涨笔数={len(up_moves)}, 下跌笔数={len(down_moves)}")
+            print(f"  - 关键计算节点:")
+            # [修改的代码行] 更新探针以反映新的稳健计算方法
+            print(f"    - 上行总价差: {up_moves['mid_price_delta'].sum():.4f}, 上行总净主动量: {up_moves['net_active_volume'].sum():,.0f}")
+            print(f"    - 下行总价差: {down_moves['mid_price_delta'].sum():.4f}, 下行总净主动量: {down_moves['net_active_volume'].sum():,.0f}")
+            print(f"    - 上行弹性 (总价差/总净量): {up_elasticity:.8f}")
+            print(f"    - 下行弹性 (总价差/总净量): {down_elasticity:.8f}")
+            print(f"    - 摩擦比率 (Ratio = Up / |Down|): {friction_ratio:.4f}")
+            print(f"  - 结果 (log(Ratio)): {metrics['asymmetric_friction_index']:.4f}")
         return metrics
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
