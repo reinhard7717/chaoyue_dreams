@@ -125,28 +125,34 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V2.2 · 几何形态增强版】结构公理一：诊断“趋势形态”
+        【V2.3 · 属性错误修复版】结构公理一：诊断“趋势形态”
         - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
         - 核心升级: 废弃了旧版对“能量”的评估，更纯粹地聚焦于趋势的“几何形态品质”。
         - 核心证据: 融合均线排列的“有序度”、均线簇的“角度”以及均线本身的“斜率”。
-        - 核心修复: 修复了硬编码EMA周期的BUG，改为从配置文件读取。
+        - 核心修复: 修复了因直接访问 `self.strategy.slope_params` 导致的 `AttributeError`。改为通过 `get_params_block` 安全地获取斜率配置。
         """
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        # --- 修改代码开始 ---
-        # 从配置文件读取EMA周期，修复硬编码BUG
         ema_periods = get_param_value(p_conf_struct.get('trend_form_ema_periods'), [5, 13, 21, 55])
         required_signals = [
-            'MA_POTENTIAL_ORDERLINESS_SCORE_D', 'ATAN_ANGLE_EMA_55_D', # 新增几何指标
+            'MA_POTENTIAL_ORDERLINESS_SCORE_D', 'ATAN_ANGLE_EMA_55_D',
             'close_D', 'pct_change_D'
         ]
-        # --- 修改代码结束 ---
         required_signals.extend([f'EMA_{p}_D' for p in ema_periods])
-        # 动态检查所需斜率是否存在
+        # --- 修改代码开始 ---
+        # 安全地获取斜率配置，修复 AttributeError
+        feature_eng_params = get_params_block(self.strategy, 'feature_engineering_params', {})
+        slope_params = get_params_block(feature_eng_params, 'slope_params', {})
+        series_to_slope_config = slope_params.get('series_to_slope', {})
+        # 动态且安全地检查所需斜率是否存在
+        slope_cols_to_use = []
         for p in ema_periods:
-            # 假设斜率周期为5，实际应根据配置动态生成，此处为简化
             slope_col = f'SLOPE_5_EMA_{p}_D'
-            if slope_col in self.strategy.slope_params['series_to_slope']:
-                 required_signals.append(slope_col)
+            base_col = f'EMA_{p}_D'
+            # 检查 EMA_{p}_D 是否在斜率计算的配置中，并且周期5是否被计算
+            if base_col in series_to_slope_config and 5 in series_to_slope_config.get(base_col, []):
+                required_signals.append(slope_col)
+                slope_cols_to_use.append(slope_col)
+        # --- 修改代码结束 ---
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_form"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
@@ -161,9 +167,11 @@ class StructuralIntelligence:
             bull_alignment_raw += (ema_i > ema_i_plus_1).astype(float) * alignment_weights[i]
         alignment_score = bull_alignment_raw / sum(alignment_weights)
         # 维度2: 斜率 (Slope)
-        slope_scores = [get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, f'SLOPE_5_EMA_{p}_D', 0.0, method_name="_diagnose_axiom_trend_form"), df_index, tf_weights_struct).values for p in ema_periods if f'SLOPE_5_EMA_{p}_D' in df.columns]
-        avg_slope_score = pd.Series(np.mean(slope_scores, axis=0), index=df_index)
         # --- 修改代码开始 ---
+        # 使用经过验证存在的斜率列进行计算
+        slope_scores = [get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, col, 0.0, method_name="_diagnose_axiom_trend_form"), df_index, tf_weights_struct).values for col in slope_cols_to_use]
+        # --- 修改代码结束 ---
+        avg_slope_score = pd.Series(np.mean(slope_scores, axis=0) if slope_scores else 0.0, index=df_index)
         # 维度3: 有序度 (Orderliness)
         orderliness_raw = self._get_safe_series(df, 'MA_POTENTIAL_ORDERLINESS_SCORE_D', 0.0, method_name="_diagnose_axiom_trend_form")
         orderliness_score = get_adaptive_mtf_normalized_score(orderliness_raw, df_index, ascending=True, tf_weights=tf_weights_struct)
@@ -195,7 +203,6 @@ class StructuralIntelligence:
             print(f"      - 计算: 有序度分={orderliness_score.iloc[-1]:.2f}, 角度分={angle_score.iloc[-1]:.2f}")
             print(f"      - 融合: 看涨形态分={bullish_form_score.iloc[-1]:.2f}, 看跌形态分={bearish_form_score.iloc[-1]:.2f}, 趋势方向={trend_direction.iloc[-1]:.0f}")
         return final_score
-        # --- 修改代码结束 ---
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
