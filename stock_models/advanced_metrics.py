@@ -102,7 +102,7 @@ class BaseAdvancedChipMetrics(models.Model):
         'trend_vitality_index': '趋势生命力指数',
         'overall_t1_rating': 'T+1综合评级(-100~100)',
     }
-    # [新增代码块] 新增情境行为融合指标
+    # [新增的代码块] 新增情境行为融合指标
     CONTEXTUAL_ACTION_METRICS = {
         'distribution_at_peak_intensity': '主峰区派发烈度',
         'absorption_at_peak_intensity': '主峰区吸筹烈度',
@@ -160,7 +160,7 @@ class BaseAdvancedChipMetrics(models.Model):
         'mf_cost_zone_defense_intent',
         'floating_chip_cleansing_efficiency',
         'suppressive_accumulation_intensity',
-        # [新增代码块] 将新指标添加到排除列表
+        # [新增的代码块] 将新指标添加到排除列表
         'distribution_at_peak_intensity',
         'absorption_at_peak_intensity',
         'breakthrough_of_peak_quality',
