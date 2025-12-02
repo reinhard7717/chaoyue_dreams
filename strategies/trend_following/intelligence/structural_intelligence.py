@@ -382,50 +382,49 @@ class StructuralIntelligence:
 
     def _diagnose_strategic_posture(self, axiom_trend_form: pd.Series, axiom_mtf_cohesion: pd.Series, axiom_stability: pd.Series) -> pd.Series:
         """
-        【V2.1 · 杠杆强化版】诊断顶层“战略态势”
-        - 核心升级: 将“结构杠杆”指标整合进“矛（进攻）分”的计算中，使其能同时评估进攻的“意愿”、“健康度”和“效率”。
+        【V2.2 · 协同信念版】诊断顶层“战略态势”
+        - 核心升级: 废弃旧的惩罚性“门控”融合，升级为“协同信念”模型。坚固的“盾”会放大“矛”的得分，脆弱的“盾”则会削弱“矛”的得分，更真实地模拟战略协同。
         - 核心逻辑:
           - 矛 (进攻): 融合了趋势形态（意愿）、宏观健康度（可持续性）和结构杠杆（效率）。
           - 盾 (防御): 直接由纯粹的结构稳定性公理决定。
         - 输出: 一个综合了进攻与防御的顶层战略分数。
         """
-        # --- 新增代码开始 ---
-        # 增加对杠杆信号的依赖
         required_signals = ['structural_leverage_D']
         if not self._validate_required_signals(self.strategy.df_indicators, required_signals, "_diagnose_strategic_posture"):
-            # 如果信号不存在，可以返回一个中性或错误状态
             return pd.Series(0.0, index=axiom_trend_form.index)
         df_index = axiom_trend_form.index
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('long_term_stability', {13: 0.2, 21: 0.3, 55: 0.4, 89: 0.1})
-        # 在此计算杠杆分
         leverage_raw = self._get_safe_series(self.strategy.df_indicators, 'structural_leverage_D', 0.0, method_name="_diagnose_strategic_posture")
         leverage_score = get_adaptive_mtf_normalized_score(leverage_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # --- 新增代码结束 ---
         # --- 1. 矛 (Offense) ---
-        # --- 修改代码开始 ---
         # 权重: 趋势形态(0.4), 宏观健康度(0.4), 结构杠杆(0.2)
         offense_score = (
             axiom_trend_form.clip(lower=0) * 0.4 +
             axiom_mtf_cohesion.clip(lower=0) * 0.4 +
             leverage_score * 0.2
         ).clip(0, 1)
-        # --- 修改代码结束 ---
         # --- 2. 盾 (Defense) ---
         # 防御强度直接来自于纯粹的稳定性公理（需要从[-1, 1]映射回[0, 1]）
         defense_strength = ((axiom_stability + 1) / 2).clip(0, 1)
-        # --- 3. 融合 ---
-        # 战略态势 = 进攻分 * 防御强度 (防御弱时，进攻的风险调整)
-        strategic_posture = offense_score * defense_strength
+        # --- 3. 协同信念融合 ---
+        # --- 修改代码开始 ---
+        # 废弃旧的乘法门控： strategic_posture = offense_score * defense_strength
+        # 引入新的协同信念模型
+        conviction_factor = 0.5 # “盾”对“矛”的影响系数
+        defense_modifier = (defense_strength - 0.5) * conviction_factor
+        strategic_posture = (offense_score * (1 + defense_modifier)).clip(0, 1)
         final_score = strategic_posture.astype(np.float32)
+        # --- 修改代码结束 ---
         if self.is_probe_date:
             today_score = final_score.iloc[-1]
             print(f"    [探针] 结构战略态势 (SCORE_STRUCT_STRATEGIC_POSTURE): {today_score:.4f}")
-            # --- 修改代码开始 ---
             print(f"      - 原料: 趋势形态分={axiom_trend_form.iloc[-1]:.2f}, 宏观健康度分={axiom_mtf_cohesion.iloc[-1]:.2f}, 结构稳定性分={axiom_stability.iloc[-1]:.2f}")
             print(f"      - 新增原料: 杠杆(原始)={leverage_raw.iloc[-1]:.2f} -> 杠杆分={leverage_score.iloc[-1]:.2f}")
             print(f"      - 计算: 矛(进攻)分={offense_score.iloc[-1]:.2f}, 盾(防御)强度={defense_strength.iloc[-1]:.2f}")
-            # --- 修改代码结束 ---
+            # --- 新增代码开始 ---
+            print(f"      - 协同融合: 防御调节器={defense_modifier.iloc[-1]:.2f} -> 最终态势 = 矛分 * (1 + 调节器)")
+            # --- 新增代码结束 ---
         return final_score
 
