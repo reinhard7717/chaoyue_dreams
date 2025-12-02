@@ -1266,6 +1266,16 @@
       "foundation_ultimate_params": {
         "enabled": true,
         "description": "【V6.0 · 四大公理版】定义了基于“趋势、摆动、流体、波动”四大基础公理的引擎参数。",
+        "environmental_modulator_params": {
+          "enabled": true,
+          "description": "【V1.0 · 新增】环境共振调节器，用于根据市场/板块/主题环境调整顶层信号。",
+          "bonus_factor": 0.25,
+          "weights": {
+            "market_proxy": 0.3,
+            "sector_strength": 0.4,
+            "theme_hotness": 0.3
+          }
+        },
         "harmony_inflection_params": {
           "description": "【V1.0 · 新增】和谐拐点信号参数，用于对顶层战略态势进行二阶求导。",
           "velocity_period": 3,

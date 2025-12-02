@@ -33,16 +33,19 @@ class FoundationIntelligence:
 
     def run_foundation_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V10.0 · 和谐拐点版】基础情报分析总指挥
-        - 核心新增: 引入终极机会信号 SCORE_FOUNDATION_HARMONY_INFLECTION，通过对顶层
-                      战略态势进行二阶求导，捕捉趋势启动的拐点。
+        【V11.0 · 环境共振版】基础情报分析总指挥
+        - 核心新增: 引入“环境共振调节器”，将个股信号与市场/板块/主题环境耦合，
+                      实现对顶层信号的宏观上下文校准。
         """
-        print("启动【V10.0 · 和谐拐点版】基础情报分析...") # 修改: 更新版本号和描述
+        print("启动【V11.0 · 环境共振版】基础情报分析...") # 修改: 更新版本号和描述
         all_states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             print("基础情报引擎已在配置中禁用，跳过。")
             return {}
+        # 新增: 步骤一，计算环境调节器
+        environmental_modulator = self._calculate_environmental_modulator(p_conf)
+        # 步骤二，计算五大公理
         axiom_constitution = self._diagnose_axiom_market_constitution(df, p_conf)
         axiom_pendulum = self._diagnose_axiom_sentiment_pendulum(df)
         axiom_tide = self._diagnose_axiom_liquidity_tide(df)
@@ -53,22 +56,23 @@ class FoundationIntelligence:
         all_states['SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE'] = axiom_tide
         all_states['SCORE_FOUNDATION_AXIOM_MARKET_TENSION'] = axiom_tension
         all_states['SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH'] = axiom_relative_strength
+        # 步骤三，合成顶层信号，并应用调节器
         strategic_posture = self._synthesize_strategic_posture(
             p_conf,
             axiom_constitution,
             axiom_relative_strength,
             axiom_tide,
             axiom_pendulum,
-            axiom_tension
+            axiom_tension,
+            environmental_modulator # 修改: 传入调节器
         )
         all_states['SCORE_FOUNDATION_STRATEGIC_POSTURE'] = strategic_posture
-        # 新增: 调用和谐拐点诊断方法
-        harmony_inflection = self._diagnose_harmony_inflection(p_conf, strategic_posture)
+        # 步骤四，诊断拐点信号，并应用调节器
+        harmony_inflection = self._diagnose_harmony_inflection(p_conf, strategic_posture, environmental_modulator) # 修改: 传入调节器
         all_states['SCORE_FOUNDATION_HARMONY_INFLECTION'] = harmony_inflection
         context_trend_confirmed = self._diagnose_context_trend_confirmed(df)
         all_states.update(context_trend_confirmed)
-        # 修改: 更新日志输出
-        print(f"【V10.0 · 和谐拐点版】分析完成，生成 {len(all_states)} 个基础信号 (含1个顶层及1个拐点信号)。")
+        print(f"【V11.0 · 环境共振版】分析完成，生成 {len(all_states)} 个基础信号 (含1个顶层及1个拐点信号)。") # 修改: 更新版本号
         return all_states
 
     def _diagnose_context_trend_confirmed(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -357,30 +361,28 @@ class FoundationIntelligence:
                 print(f"       - final_relative_strength_score (融合后): {relative_strength_score.loc[probe_date_for_loop]:.4f}")
         return relative_strength_score.clip(-1, 1).astype(np.float32)
 
-    def _diagnose_harmony_inflection(self, params: dict, strategic_posture: pd.Series) -> pd.Series:
+    def _diagnose_harmony_inflection(self, params: dict, strategic_posture: pd.Series, modulator: pd.Series) -> pd.Series: # 修改: 接收调节器
         """
-        【V1.0 · 新增】诊断“和谐拐点”
-        - 核心逻辑: 对“战略态势”进行二阶求导，捕捉其加速改善的瞬间。
+        【V2.0 · 环境共振版】诊断“和谐拐点”
+        - 核心逻辑: 对“战略态势”进行二阶求导，并应用环境共振调节器。
         """
         print("    -> [基础层] 正在诊断“和谐拐点”机会信号...")
         p_conf = params.get('harmony_inflection_params', {})
         velocity_period = p_conf.get('velocity_period', 3)
         acceleration_period = p_conf.get('acceleration_period', 2)
         df_index = strategic_posture.index
-        # 1. 计算速度 (一阶导数)
         velocity = strategic_posture.diff(periods=1).rolling(window=velocity_period, min_periods=1).mean()
-        # 2. 计算加速度 (二阶导数)
         acceleration = velocity.diff(periods=1).rolling(window=acceleration_period, min_periods=1).mean()
-        # 3. 归一化
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         short_term_weights = get_param_value(p_mtf.get('short_term_weights'), {'weights': {3: 0.5, 5: 0.3, 8: 0.2}})
         velocity_norm = get_adaptive_mtf_normalized_score(velocity.fillna(0), df_index, ascending=True, tf_weights=short_term_weights)
         acceleration_norm = get_adaptive_mtf_normalized_score(acceleration.fillna(0), df_index, ascending=True, tf_weights=short_term_weights)
-        # 4. 应用“双正”门控逻辑并融合
         gate = (velocity_norm > 0) & (acceleration_norm > 0)
-        inflection_score = ((velocity_norm * acceleration_norm).pow(0.5) * gate).fillna(0.0)
-        # 探针
+        raw_inflection_score = ((velocity_norm * acceleration_norm).pow(0.5) * gate).fillna(0.0) # 修改: 变量重命名为 raw_
+        # 新增: 应用环境调节器
+        inflection_score = raw_inflection_score * modulator
+        # 修改: 更新探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -392,8 +394,59 @@ class FoundationIntelligence:
                 print(f"       - 速度 (原始): {velocity.loc[probe_date_for_loop]:.4f}, (归一化): {velocity_norm.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 加速度 (原始): {acceleration.loc[probe_date_for_loop]:.4f}, (归一化): {acceleration_norm.loc[probe_date_for_loop]:.4f}")
                 print(f"       - '双正'门控是否开启: {gate.loc[probe_date_for_loop]}")
+                print(f"       - 原始和谐拐点分: {raw_inflection_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - 环境调节器: {modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 最终和谐拐点分: {inflection_score.loc[probe_date_for_loop]:.4f}")
         return inflection_score.clip(0, 1).astype(np.float32)
+
+    def _calculate_environmental_modulator(self, params: dict) -> pd.Series:
+        """
+        【V1.0 · 新增】计算“环境共振调节器”
+        - 核心逻辑: 融合市场趋势代理、板块强度、主题热度，生成一个[0.75, 1.25]区间的调节器。
+        """
+        print("    -> [基础层] 正在计算“环境共振调节器”...")
+        p_conf = params.get('environmental_modulator_params', {})
+        if not p_conf.get('enabled', True):
+            return pd.Series(1.0, index=self.strategy.df.index)
+        required_signals = ['SLOPE_55_close_D', 'industry_strength_rank_D', 'THEME_HOTNESS_SCORE_D']
+        if not self._validate_required_signals(self.strategy.df, required_signals, "_calculate_environmental_modulator"):
+            return pd.Series(1.0, index=self.strategy.df.index)
+        df_index = self.strategy.df.index
+        weights = p_conf.get('weights', {})
+        w_mkt = weights.get('market_proxy', 0.3)
+        w_sec = weights.get('sector_strength', 0.4)
+        w_thm = weights.get('theme_hotness', 0.3)
+        bonus_factor = p_conf.get('bonus_factor', 0.25)
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 1. 市场趋势代理 (长周期收盘价斜率)
+        market_proxy_raw = self._get_safe_series(self.strategy.df, 'SLOPE_55_close_D', 0.0, "_calculate_environmental_modulator")
+        market_proxy_score = get_adaptive_mtf_normalized_bipolar_score(market_proxy_raw, df_index, default_weights)
+        # 2. 板块强度 (行业排名)
+        sector_strength_raw = self._get_safe_series(self.strategy.df, 'industry_strength_rank_D', 0.5, "_calculate_environmental_modulator")
+        sector_strength_score = (sector_strength_raw - 0.5) * 2
+        # 3. 主题热度
+        theme_hotness_raw = self._get_safe_series(self.strategy.df, 'THEME_HOTNESS_SCORE_D', 0.0, "_calculate_environmental_modulator")
+        theme_hotness_score = get_adaptive_mtf_normalized_score(theme_hotness_raw, df_index, ascending=True, tf_weights=default_weights)
+        # 4. 融合环境总分
+        env_score = (market_proxy_score * w_mkt + sector_strength_score * w_sec + theme_hotness_score * w_thm).clip(-1, 1)
+        # 5. 生成调节器
+        modulator = 1.0 + (env_score * bonus_factor)
+        # 探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [环境调节器探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - 市场代理分: {market_proxy_score.loc[probe_date_for_loop]:.4f} (贡献: {market_proxy_score.loc[probe_date_for_loop] * w_mkt:.4f})")
+                print(f"       - 板块强度分: {sector_strength_score.loc[probe_date_for_loop]:.4f} (贡献: {sector_strength_score.loc[probe_date_for_loop] * w_sec:.4f})")
+                print(f"       - 主题热度分: {theme_hotness_score.loc[probe_date_for_loop]:.4f} (贡献: {theme_hotness_score.loc[probe_date_for_loop] * w_thm:.4f})")
+                print(f"       - 环境总分: {env_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - 最终调节器: {modulator.loc[probe_date_for_loop]:.4f}")
+        return modulator.astype(np.float32)
 
     def _synthesize_strategic_posture(
         self,
@@ -402,11 +455,12 @@ class FoundationIntelligence:
         relative_strength: pd.Series,
         liquidity: pd.Series,
         sentiment: pd.Series,
-        tension: pd.Series
+        tension: pd.Series,
+        modulator: pd.Series # 修改: 接收调节器
     ) -> pd.Series:
         """
-        【V1.0 · 新增】顶层融合：合成“基础层战略态势”
-        - 核心逻辑: 对五大基础公理进行加权融合，形成统一的顶层判断。
+        【V2.0 · 环境共振版】顶层融合：合成“基础层战略态势”
+        - 核心逻辑: 对五大公理进行加权融合，并应用环境共振调节器。
         """
         print("    -> [基础层] 正在合成“战略态势”顶层信号...")
         weights = params.get('strategic_posture_weights', {
@@ -418,14 +472,16 @@ class FoundationIntelligence:
         w_l = weights.get("liquidity", 0.20)
         w_s = weights.get("sentiment", 0.15)
         w_t = weights.get("tension", 0.10)
-        strategic_posture = (
+        raw_strategic_posture = ( # 修改: 变量重命名为 raw_
             constitution * w_c +
             relative_strength * w_rs +
             liquidity * w_l +
             sentiment * w_s +
             tension * w_t
         )
-        # 探针
+        # 新增: 应用环境调节器
+        strategic_posture = raw_strategic_posture * modulator
+        # 修改: 更新探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -439,6 +495,8 @@ class FoundationIntelligence:
                 print(f"       - 流动性贡献: {liquidity.loc[probe_date_for_loop]:.4f} * {w_l} = {liquidity.loc[probe_date_for_loop] * w_l:.4f}")
                 print(f"       - 情绪贡献: {sentiment.loc[probe_date_for_loop]:.4f} * {w_s} = {sentiment.loc[probe_date_for_loop] * w_s:.4f}")
                 print(f"       - 张力贡献: {tension.loc[probe_date_for_loop]:.4f} * {w_t} = {tension.loc[probe_date_for_loop] * w_t:.4f}")
+                print(f"       - 原始战略态势分: {raw_strategic_posture.loc[probe_date_for_loop]:.4f}")
+                print(f"       - 环境调节器: {modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 最终战略态势分: {strategic_posture.loc[probe_date_for_loop]:.4f}")
         return strategic_posture.clip(-1, 1).astype(np.float32)
 
