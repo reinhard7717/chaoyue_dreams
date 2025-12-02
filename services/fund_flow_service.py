@@ -861,15 +861,13 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_main_force_profile_metrics(context: dict) -> dict:
         """
-        【V69.0 · 韧性升维版】
-        - 核心升维: 对 `main_force_conviction_index` 的“韧性”(Resilience)组件进行概念升维。
-        - 新定义: 将定义“市场承压区”的条件从 `ofi < 0` (订单流意图) 升级为 `mid_price_delta < 0` (实际价格下跌)。
-        - 优势: 使“韧性”的衡量标准从“对抗抛售意图”进化为“对抗实际下跌”，更能体现主力资金在真实逆境中的托底决心。
+        【V69.0 · 韧性升维版】(生产环境清洁版)
+        - 核心逻辑: `main_force_conviction_index` 的“韧性”组件基于 `mid_price_delta < 0` (实际价格下跌) 计算，
+                     以更精确地衡量主力在真实逆境中的托底决心。
         """
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         hf_features = context['hf_features']
-        should_probe = context['debug']['should_probe']
         hf_mf_buy_vwap = hf_features['hf_mf_buy_vwap']
         hf_mf_sell_vwap = hf_features['hf_mf_sell_vwap']
         import numpy as np
@@ -889,19 +887,11 @@ class AdvancedFundFlowMetricsService:
         cost_tolerance_component = 0.0
         if pd.notna(hf_mf_buy_vwap) and pd.notna(hf_mf_sell_vwap) and pd.notna(atr) and atr > 0:
             cost_tolerance_component = (hf_mf_buy_vwap - hf_mf_sell_vwap) / atr
-        # [核心升维] 将韧性的触发条件从订单流(OFI)升级为价格结果(mid_price_delta)
         price_pressure_zone = hf_analysis_df['mid_price_delta'] < 0
         mf_resilience_ofi = hf_analysis_df.loc[price_pressure_zone, 'main_force_ofi'].clip(lower=0).sum()
         total_mf_positive_ofi = hf_analysis_df['main_force_ofi'].clip(lower=0).sum()
         resilience_component = mf_resilience_ofi / total_mf_positive_ofi if total_mf_positive_ofi > 0 else 0.0
         metrics['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
-        if should_probe:
-            print(f"\n--- [探针 B.3.1] main_force_conviction_index (主力信念) ---")
-            print(f"    - 上游输入 (HF-VWAP) avg_cost_main_buy: {hf_mf_buy_vwap:.4f}, avg_cost_main_sell: {hf_mf_sell_vwap:.4f}, atr: {atr:.4f}")
-            print(f"    - 组件 Aggressiveness: {aggressiveness_component:.4f} = (TrendQuality {trend_quality:.4f} * ClosingStrength {closing_strength:.4f})")
-            # [修改的代码行] 更新探针日志以反映新的计算逻辑
-            print(f"    - 组件 Cost Tolerance (norm by ATR): {cost_tolerance_component:.4f}, 组件 Resilience (基于价格下跌): {resilience_component:.4f}")
-            print(f"    -> 最终得分: {metrics['main_force_conviction_index']:.2f}")
         mf_trades = hf_features['mf_trades']
         total_mf_vol = hf_features['total_mf_vol']
         if not mf_trades.empty and 'prev_mid_price' in mf_trades.columns:
@@ -915,32 +905,17 @@ class AdvancedFundFlowMetricsService:
                 weighted_avg_slippage = (mf_trades['slippage'] * mf_trades['volume']).sum() / total_mf_vol
                 if pd.notna(atr) and atr > 0:
                     metrics['main_force_slippage_index'] = (weighted_avg_slippage / atr) * 100
-                    if should_probe:
-                        print(f"\n--- [探针 B.3.2] main_force_slippage_index (主力滑点) ---")
-                        print(f"    - 主力总成交量: {total_mf_vol:,.0f}, 平均滑点: {weighted_avg_slippage:.4f}元, ATR: {atr:.2f}")
-                        print(f"    -> 最终得分 (滑点/ATR %): {metrics['main_force_slippage_index']:.2f}")
             if total_mf_vol > 0:
                 offensive_volume = hf_features['offensive_volume']
                 passive_volume = hf_features['passive_volume']
                 metrics['main_force_posture_index'] = ((offensive_volume - passive_volume) / total_mf_vol) * 100
                 metrics['main_force_activity_ratio'] = (total_mf_vol / daily_total_volume) * 100 if daily_total_volume > 0 else np.nan
-                if should_probe:
-                    print(f"\n--- [探针 B.3.3] main_force_posture_index (主力姿态) ---")
-                    print(f"    - 主力总成交: {total_mf_vol:,.0f}, 进攻性成交: {offensive_volume:,.0f}, 被动性成交: {passive_volume:,.0f}")
-                    print(f"    -> 最终得分: {metrics['main_force_posture_index']:.2f}")
-                    print(f"\n--- [探针 B.3.4] main_force_activity_ratio (主力参与度) ---")
-                    print(f"    - 主力总成交: {total_mf_vol:,.0f}, 当日总成交: {daily_total_volume:,.0f}")
-                    print(f"    -> 最终得分: {metrics['main_force_activity_ratio']:.2f}")
                 mf_buy_vol = hf_features['mf_buy_vol']
                 mf_sell_vol = hf_features['mf_sell_vol']
                 mf_total_activity_vol = mf_buy_vol + mf_sell_vol
                 if mf_total_activity_vol > 0:
                     mf_net_vol = mf_buy_vol - mf_sell_vol
                     metrics['main_force_flow_directionality'] = (mf_net_vol / mf_total_activity_vol) * 100
-                    if should_probe:
-                        print(f"\n--- [探针 B.3.5] main_force_flow_directionality (主力流向性) ---")
-                        print(f"    - 主力买入量: {mf_buy_vol:,.0f}, 主力卖出量: {mf_sell_vol:,.0f}, 主力总活动量: {mf_total_activity_vol:,.0f}")
-                        print(f"    -> 最终得分: {metrics['main_force_flow_directionality']:.2f}")
         return metrics
 
     @staticmethod
