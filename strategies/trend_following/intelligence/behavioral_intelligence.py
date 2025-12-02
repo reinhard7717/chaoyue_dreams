@@ -195,10 +195,9 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V33.3 · 信号链修复版】原子信号中心
-        - 核心修复: 修复了 `_diagnose_offensive_absorption_intent` 的调用逻辑，
-                    通过直接传递 `lower_shadow_quality` 参数，解决了信号链断裂的BUG。
-        - 核心升级: 新增对“进攻性承接意图”和“博弈欺骗指数”两大诡道博弈信号的诊断，提升对主力真实意图的洞察力。
+        【V33.4 · 跨信号制衡版】原子信号中心
+        - 核心重构: 调整内部执行顺序，优先计算“滞涨证据分”，并将其作为“否决权”参数
+                      传递给“下影线品质”的诊断，解决了机会信号与风险信号的逻辑冲突。
         """
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
@@ -307,8 +306,12 @@ class BehavioralIntelligence:
         defensive_resilience_score = get_adaptive_mtf_normalized_score(defensive_resilience_raw, df.index, ascending=True, tf_weights=default_weights)
         intraday_bull_control_score = (strategic_position_score.pow(0.4) * offensive_capability_score.pow(0.3) * defensive_resilience_score.pow(0.3)).fillna(0.0)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
+        # [新增代码行] 优先计算滞涨证据，为其他信号提供“否决权”
+        stagnation_evidence = self._diagnose_stagnation_evidence(df, states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'])
+        states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence
         # --- 影线、战术与派发意图信号 ---
-        lower_shadow_quality = self._diagnose_lower_shadow_quality(df)
+        # [修改的代码行] 将滞涨证据作为参数传入
+        lower_shadow_quality = self._diagnose_lower_shadow_quality(df, stagnation_evidence)
         distribution_intent = self._calculate_distribution_intent(df, default_weights)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
         states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] = distribution_intent
@@ -342,7 +345,6 @@ class BehavioralIntelligence:
             capitulation_confirm_score.pow(0.2)
         ).fillna(0.0)
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * selling_exhaustion_score).astype(np.float32)
-        states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = self._diagnose_stagnation_evidence(df, states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'])
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
         # 将计算好的 lower_shadow_quality 直接作为参数传递，修复信号链
         states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = self._diagnose_offensive_absorption_intent(df, lower_shadow_quality)
@@ -555,11 +557,11 @@ class BehavioralIntelligence:
                 print(f"        - 最终滞涨证据分: {final_stagnation_evidence.loc[probe_ts]:.4f}")
         return final_stagnation_evidence.astype(np.float32)
 
-    def _diagnose_lower_shadow_quality(self, df: pd.DataFrame) -> pd.Series:
+    def _diagnose_lower_shadow_quality(self, df: pd.DataFrame, stagnation_evidence: pd.Series) -> pd.Series:
         """
-        【V9.0 · 主动中性版】诊断下影线承接品质。
-        - 核心升级: 引入“主动中性”调制器。当伏击意图为0时，不再是无影响(x1.0)，
-                      而是施加轻微惩罚(x0.95)，以体现“缺乏确认”这一负面信息。
+        【V10.0 · 跨信号制衡版】诊断下影线承接品质。
+        - 核心升级: 引入“滞涨压制器”。接收外部计算的“滞涨证据分”作为否决权参数，
+                      在最终输出前对下影线品质进行压制，解决了信号间的逻辑冲突。
         """
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
@@ -576,19 +578,21 @@ class BehavioralIntelligence:
         intent_score = get_adaptive_mtf_normalized_score(flow_ratio.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         location_score = get_adaptive_mtf_normalized_score(location_raw, df.index, ascending=True, tf_weights=default_weights)
         base_quality_score = (magnitude_score * 0.3 + intent_score * 0.5 + location_score * 0.2).fillna(0.0)
-        # --- 2. 构建双向奖惩机制和新的放大器 ---
+        # --- 2. 构建双向奖惩机制和新的放大器 (逻辑不变) ---
         panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         ambush_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         ambush_raw_filtered = self._apply_neutral_zone_filter(ambush_raw, ambush_threshold)
         ambush_intent_score = get_adaptive_mtf_normalized_bipolar_score(ambush_raw_filtered, df.index, default_weights)
-        # [修改的代码行] 升级为“主动中性”调制器
         active_neutral_modulator = (0.95 + ambush_intent_score * 0.55).clip(0, 2)
         modulated_quality_score = base_quality_score * active_neutral_modulator
         panic_absorption_score = get_adaptive_mtf_normalized_score((panic_raw * capitulation_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
         context_amplifier = 1 + (panic_absorption_score * modulated_quality_score).pow(0.5)
         # --- 3. 非线性合成 ---
-        final_lower_shadow_quality = (modulated_quality_score * context_amplifier).clip(0, 1)
+        provisional_final_quality = (modulated_quality_score * context_amplifier).clip(0, 1)
+        # [新增代码行] 引入滞涨压制器
+        stagnation_suppressor = (1 - stagnation_evidence).clip(0, 1)
+        final_lower_shadow_quality = provisional_final_quality * stagnation_suppressor
         # --- 探针监测 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -600,10 +604,11 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_lower_shadow_quality @ {probe_date_str}")
                 print(f"        - 基础品质分: {base_quality_score.loc[probe_ts]:.4f} (幅度={magnitude_score.loc[probe_ts]:.2f}, 意图={intent_score.loc[probe_ts]:.2f}, 位置={location_score.loc[probe_ts]:.2f})")
-                # [修改的代码行] 更新探针日志以反映新逻辑
                 print(f"        - 伏击意图(主动中性): {ambush_intent_score.loc[probe_ts]:.4f} (原始Alpha={ambush_raw.loc[probe_ts]:.6f}) -> 调制乘数={active_neutral_modulator.loc[probe_ts]:.4f} -> 调制后品质分: {modulated_quality_score.loc[probe_ts]:.4f}")
                 print(f"        - 智能放大器: 恐慌承接度={panic_absorption_score.loc[probe_ts]:.4f} -> 放大倍数={context_amplifier.loc[probe_ts]:.4f}")
-                print(f"        - 最终下影线品质分: {final_lower_shadow_quality.loc[probe_ts]:.4f}")
+                # [修改的代码行] 更新探针日志以反映新逻辑
+                print(f"        - 滞涨压制器: {stagnation_suppressor.loc[probe_ts]:.4f} (滞涨证据分={stagnation_evidence.loc[probe_ts]:.4f}) -> 压制前品质分: {provisional_final_quality.loc[probe_ts]:.4f}")
+                print(f"        - 最终下影线品质分(压制后): {final_lower_shadow_quality.loc[probe_ts]:.4f}")
         return final_lower_shadow_quality.astype(np.float32)
 
     def _calculate_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
