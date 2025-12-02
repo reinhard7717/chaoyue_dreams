@@ -256,10 +256,10 @@ class AdvancedFundFlowMetricsService:
 
     def _engineer_hf_features(self, raw_hf_df: pd.DataFrame, daily_total_volume: float) -> tuple[pd.DataFrame, dict]:
         """
-        【V64.0 · 特征工程一体化】(新增方法, 原 `_precompute_hf_features` 升维)
-        - 核心升维: 此方法是新架构下的高频特征工程中心。它接收纯净的原始高频DataFrame，
-                     并负责计算所有的衍生特征（OFI, imbalance, 主力交易集, VWAP等），
-                     最终返回一个包含所有特征的 `hf_analysis_df` 和一个包含聚合值的 `hf_features` 字典。
+        【V64.1 · 主动流修复版】
+        - 核心修正: 补全了计算 `net_active_volume` (净主动成交量) 的关键逻辑。通过对比逐笔成交价与盘口买一卖一价，
+                     精确识别并计算了主动买入和主动卖出成交量，从而生成了下游微观动力学指标
+                     (`micro_impact_elasticity` 等) 所必需的核心输入数据，根除了导致这些指标为空的“原料缺失”问题。
         """
         import numpy as np
         features = {
@@ -273,6 +273,7 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df = raw_hf_df.copy()
         hf_analysis_df['mid_price'] = (hf_analysis_df['buy_price1'] + hf_analysis_df['sell_price1']) / 2
         hf_analysis_df['prev_mid_price'] = hf_analysis_df['mid_price'].shift(1)
+        hf_analysis_df['mid_price_delta'] = hf_analysis_df['mid_price'].diff() # 确保 mid_price_delta 存在
         buy_pressure = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
         sell_pressure = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
         hf_analysis_df['ofi'] = buy_pressure - sell_pressure
@@ -289,6 +290,16 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df['prev_b1_p'] = hf_analysis_df['buy_price1'].shift(1)
         hf_analysis_df['prev_a1_v'] = hf_analysis_df['sell_volume1'].shift(1)
         hf_analysis_df['prev_b1_v'] = hf_analysis_df['buy_volume1'].shift(1)
+        # [核心修正] 新增计算 `net_active_volume` 的逻辑模块
+        active_buy_mask = hf_analysis_df['price'] >= hf_analysis_df['sell_price1']
+        active_sell_mask = hf_analysis_df['price'] <= hf_analysis_df['buy_price1']
+        active_buy_volume = hf_analysis_df.loc[active_buy_mask, 'volume']
+        active_sell_volume = hf_analysis_df.loc[active_sell_mask, 'volume']
+        # 创建一个与索引对齐的0序列，然后填充主动成交量
+        net_active_volume_series = pd.Series(0.0, index=hf_analysis_df.index)
+        net_active_volume_series.loc[active_buy_mask] = active_buy_volume
+        net_active_volume_series.loc[active_sell_mask] = -active_sell_volume
+        hf_analysis_df['net_active_volume'] = net_active_volume_series
         try:
             weighted_buy_vol = pd.Series(0, index=hf_analysis_df.index); weighted_sell_vol = pd.Series(0, index=hf_analysis_df.index)
             total_buy_value = pd.Series(0, index=hf_analysis_df.index); total_sell_value = pd.Series(0, index=hf_analysis_df.index)
@@ -1066,15 +1077,12 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_shadow_metrics(context: dict) -> dict:
         """
-        【V67.4 · 对数压缩终版】
-        - 核心修正: 在归一化效率比之后，引入 `np.log1p` 对数压缩层。此举旨在“驯服”因关键时刻与全天平均效率的巨大
-                     量级差异而产生的极端比率值，彻底解决 `tanh` 函数饱和问题，使指标得分具有细腻且可靠的区分度。
+        【V67.4 · 对数压缩终版】(生产环境清洁版)
+        - 核心逻辑: 采用“价值效率”维度，并引入 `np.log1p` 对数压缩层，彻底解决归一化和数值饱和问题。
         """
-        intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         hf_features = context['hf_features']
-        should_probe = context['debug']['should_probe']
         import numpy as np
         metrics = {}
         day_open, day_close = common_data['day_open'], common_data['day_close']
@@ -1095,25 +1103,11 @@ class AdvancedFundFlowMetricsService:
                         mf_buy_amount = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'B']['amount'].sum()
                         mf_sell_amount = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'S']['amount'].sum()
                         mf_net_buy_amount_10k = (mf_buy_amount - mf_sell_amount) / 10000
-                        absorption_efficiency, normalized_strength, compressed_strength = np.nan, np.nan, np.nan
                         if mf_net_buy_amount_10k > 0 and market_value_efficiency > 0:
                             absorption_efficiency = price_recovery_norm / mf_net_buy_amount_10k
                             normalized_strength = absorption_efficiency / market_value_efficiency
-                            # [核心升维] 引入对数压缩层，解决饱和问题
                             compressed_strength = np.log1p(normalized_strength)
                             metrics['lower_shadow_absorption_strength'] = np.tanh(compressed_strength) * 100
-                        if should_probe:
-                            print("\n--- [探针] lower_shadow_absorption_strength (下影线承接) ---")
-                            print("  - 原料数据:")
-                            print(f"    - 标准化价格收复 (Price Recovery / ATR): {price_recovery_norm:.4f}")
-                            print(f"    - 主力净买入金额 (万元): {mf_net_buy_amount_10k:.2f}")
-                            print(f"    - 市场价值效率 (ATRs/万元): {market_value_efficiency:.6f}")
-                            print("  - 关键计算节点:")
-                            print(f"    - 主力承接效率 (ATRs/万元): {absorption_efficiency:.6f}")
-                            print(f"    - 归一化强度 (主力效率/市场效率): {normalized_strength:.4f}")
-                            # [修改的代码行] 在探针中增加对数压缩步骤的输出
-                            print(f"    - 对数压缩后强度 (log1p): {compressed_strength:.4f}")
-                            print(f"  - 结果: {metrics.get('lower_shadow_absorption_strength', np.nan):.2f}")
             if day_high > body_high:
                 price_rejection_norm = (day_high - body_high) / atr
                 if not hf_analysis_df.empty:
@@ -1123,41 +1117,23 @@ class AdvancedFundFlowMetricsService:
                         mf_buy_amount = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'B']['amount'].sum()
                         mf_sell_amount = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'S']['amount'].sum()
                         mf_net_sell_amount_10k = (mf_sell_amount - mf_buy_amount) / 10000
-                        rejection_efficiency, normalized_pressure, compressed_pressure = np.nan, np.nan, np.nan
                         if mf_net_sell_amount_10k > 0 and market_value_efficiency > 0:
                             rejection_efficiency = price_rejection_norm / mf_net_sell_amount_10k
                             normalized_pressure = rejection_efficiency / market_value_efficiency
-                            # [核心升维] 引入对数压缩层，解决饱和问题
                             compressed_pressure = np.log1p(normalized_pressure)
                             metrics['upper_shadow_selling_pressure'] = np.tanh(compressed_pressure) * 100
-                        if should_probe:
-                            print("\n--- [探针] upper_shadow_selling_pressure (上影线抛压) ---")
-                            print("  - 原料数据:")
-                            print(f"    - 标准化价格回落 (Price Rejection / ATR): {price_rejection_norm:.4f}")
-                            print(f"    - 主力净卖出金额 (万元): {mf_net_sell_amount_10k:.2f}")
-                            print(f"    - 市场价值效率 (ATRs/万元): {market_value_efficiency:.6f}")
-                            print("  - 关键计算节点:")
-                            print(f"    - 主力打压效率 (ATRs/万元): {rejection_efficiency:.6f}")
-                            print(f"    - 归一化压力 (主力效率/市场效率): {normalized_pressure:.4f}")
-                            # [修改的代码行] 在探针中增加对数压缩步骤的输出
-                            print(f"    - 对数压缩后压力 (log1p): {compressed_pressure:.4f}")
-                            print(f"  - 结果: {metrics.get('upper_shadow_selling_pressure', np.nan):.2f}")
         return metrics
 
     @staticmethod
     def _calculate_dip_rally_metrics(context: dict) -> dict:
         """
-        【V67.3 · 价值效率终极版】
-        - 核心重构: `rally_distribution_pressure` 升级为衡量“价值维度”的诡道派发。
-        - 新基准: 引入 `market_price_cost` (市场价格成本)，衡量市场平均推动1个ATR所需的资金（万元）。
-        - 新效率: “诡道派发系数”被重新定义为：价格每被拉升1个ATR，主力就成功净派发了多少“万元”的筹码。
-                   这个系数将与市场平均成本进行比较，从而得到一个稳定、可比且深刻的博弈指标。
+        【V67.3 · 价值效率终极版】(生产环境清洁版)
+        - 核心逻辑: `rally_distribution_pressure` 采用“先聚合再求比”的稳健算法，并统一到“价值效率”维度进行归一化。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         hf_features = context['hf_features']
-        should_probe = context['debug']['should_probe']
         from scipy.signal import find_peaks
         from datetime import time
         import numpy as np
@@ -1177,30 +1153,17 @@ class AdvancedFundFlowMetricsService:
                     mf_net_buy_vol = absorption_zone_hf['main_force_ofi'].clip(lower=0).sum()
                     price_drop_vs_vwap = (daily_vwap - absorption_zone_hf['price']).clip(lower=0)
                     price_weighted_effort = (price_drop_vs_vwap * absorption_zone_hf['volume']).sum()
-                    absorption_efficiency = np.nan
                     if price_weighted_effort > 0:
                         absorption_efficiency = mf_net_buy_vol / price_weighted_effort
                         metrics['dip_absorption_power'] = np.tanh(absorption_efficiency * atr) * 100
-                    if should_probe:
-                        print("\n--- [探针] dip_absorption_power (逢低吸筹) ---")
-                        print("  - 原料数据:")
-                        print(f"    - 主力净买入OFI (VWAP下方): {mf_net_buy_vol:,.0f}")
-                        print(f"    - 价格加权努力度 (Price-Weighted Effort): {price_weighted_effort:,.2f}")
-                        print(f"    - ATR: {atr:.4f}")
-                        print("  - 关键计算节点:")
-                        print(f"    - 吸收效率系数 (OFI / Effort): {absorption_efficiency:.6f}")
-                        print(f"  - 结果: {metrics.get('dip_absorption_power', np.nan):.2f}")
-                # [核心升维] 采用价值效率计算诡道派发
                 total_mf_net_sell_amount_in_rallies = 0
                 total_rally_price_change_norm = 0
-                rally_count = 0
                 mf_trades = hf_features['mf_trades']
                 for i in range(len(turning_points) - 1):
                     start_idx, end_idx = turning_points[i], turning_points[i+1]
                     window_df = continuous_trading_df.iloc[start_idx:end_idx+1]
                     if window_df.empty or len(window_df) < 2: continue
                     if window_df['minute_vwap'].iloc[-1] > window_df['minute_vwap'].iloc[0]:
-                        rally_count += 1
                         start_time, end_time = window_df.index[0], window_df.index[-1]
                         mf_trades_in_rally = mf_trades[(mf_trades.index >= start_time) & (mf_trades.index <= end_time)]
                         if not mf_trades_in_rally.empty:
@@ -1209,25 +1172,13 @@ class AdvancedFundFlowMetricsService:
                             total_mf_net_sell_amount_in_rallies += (mf_sell_amount - mf_buy_amount)
                             price_change_in_rally = window_df['minute_vwap'].iloc[-1] - window_df['minute_vwap'].iloc[0]
                             total_rally_price_change_norm += (price_change_in_rally / atr)
-                deception_coeff, normalized_pressure = np.nan, np.nan
                 day_range = day_high - day_low
-                if total_rally_price_change_norm > 0 and day_range > 0:
+                if total_rally_price_change_norm > 0 and day_range > 0 and daily_total_amount > 0:
                     deception_coeff = (total_mf_net_sell_amount_in_rallies / 10000) / total_rally_price_change_norm
                     market_price_cost = (daily_total_amount / 10000) / (day_range / atr)
                     if market_price_cost > 0:
                         normalized_pressure = deception_coeff / market_price_cost
                         metrics['rally_distribution_pressure'] = np.tanh(normalized_pressure) * 100
-                if should_probe:
-                    print("\n--- [探针] rally_distribution_pressure (拉高派发) ---")
-                    print("  - 原料数据:")
-                    print(f"    - 识别出的拉升波段数量: {rally_count}")
-                    print(f"    - 拉升期总主力净派发金额 (万元): {total_mf_net_sell_amount_in_rallies / 10000:.2f}")
-                    print(f"    - 总标准化拉升价差 (ATRs): {total_rally_price_change_norm:.4f}")
-                    print(f"    - 市场价格成本 (万元/ATR): {market_price_cost:.2f}" if 'market_price_cost' in locals() else "(未计算)")
-                    print("  - 关键计算节点:")
-                    print(f"    - 诡道派发系数 (万元/ATR): {deception_coeff:.2f}")
-                    print(f"    - 归一化压力 (主力派发效率/市场成本): {normalized_pressure:.4f}")
-                    print(f"  - 结果: {metrics.get('rally_distribution_pressure', np.nan):.2f}")
         return metrics
 
     @staticmethod
