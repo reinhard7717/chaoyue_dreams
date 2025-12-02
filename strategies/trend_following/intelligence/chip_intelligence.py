@@ -57,12 +57,12 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V16.2 · 数据流闭环版】筹码情报总指挥
-        - 核心修复: 将显式数据流模式应用到所有存在内部依赖的方法调用上，
-                      确保`_diagnose_tactical_exchange`也能接收到正确的上游信号，
-                      形成完整、健壮的数据流闭环。
+        【V17.0 · 天人合一版】筹码情报总指挥
+        - 核心升维: 新增对“战略战术和谐度”的诊断。通过调用 `_diagnose_strategic_tactical_harmony` 方法，
+                      模型现在能够评估主力的长期战略意图与当日战术执行之间的协同性，
+                      从而在更高维度上对趋势的健康度与风险进行裁决。
         """
-        print("启动【V16.2 · 数据流闭环版】筹码情报分析...")
+        print("启动【V17.0 · 天人合一版】筹码情报分析...") # [修改代码行]
         all_chip_states = {}
         periods = [5, 13, 21, 55]
         holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
@@ -83,9 +83,12 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_RISK_DISTRIBUTION_WHISPER'] = distribution_whisper
         coherent_drive = self._diagnose_structural_consensus(df, battlefield_geography, holder_sentiment_scores)
         all_chip_states['SCORE_CHIP_COHERENT_DRIVE'] = coherent_drive
-        tactical_exchange = self._diagnose_tactical_exchange(df, battlefield_geography) # 显式传入battlefield_geography
+        tactical_exchange = self._diagnose_tactical_exchange(df, battlefield_geography)
         all_chip_states['SCORE_CHIP_TACTICAL_EXCHANGE'] = tactical_exchange
-        print(f"【V16.2 · 数据流闭环版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。")
+        # [新增代码块] 调用新增的和谐度诊断方法
+        strategic_tactical_harmony = self._diagnose_strategic_tactical_harmony(df, strategic_posture, tactical_exchange)
+        all_chip_states['SCORE_CHIP_STRATEGIC_TACTICAL_HARMONY'] = strategic_tactical_harmony
+        print(f"【V17.0 · 天人合一版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。") # [修改代码行]
         return all_chip_states
 
     def _run_integrity_probe(self, df: pd.DataFrame, required_signals: list, probe_name: str):
@@ -708,6 +711,35 @@ class ChipIntelligence:
                 print(f"         - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
+    def _diagnose_strategic_tactical_harmony(self, df: pd.DataFrame, strategic_posture: pd.Series, tactical_exchange: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 天人合一版】诊断战略与战术的和谐度
+        - 核心算法: 融合主力的长期战略意图(strategic_posture)与当日战术执行(tactical_exchange)。
+                      1. 计算以战略为重的“基础意图分”。
+                      2. 计算衡量两者一致性的“和谐因子”。
+                      3. 最终得分 = 基础意图分 × 和谐因子，以此量化两者之间的协同或冲突。
+        """
+        print("    -> [筹码层] 正在诊断“战略战术和谐度 (V1.0 · 天人合一版)”...")
+        df_index = df.index
+        # 1. 基础意图分 (战略权重更高)
+        base_intent_score = strategic_posture * 0.6 + tactical_exchange * 0.4
+        # 2. 和谐因子 (1:完全和谐, 0:完全冲突)
+        harmony_factor = (1 - abs(strategic_posture - tactical_exchange) / 2).clip(lower=0)
+        # 3. 最终裁决
+        final_score = base_intent_score * harmony_factor
+        # 植入标准化探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date in df.index:
+                print(f"    -> [战略战术和谐度探针] @ {probe_date.date()}:")
+                print(f"       - 原料: strategic_posture: {strategic_posture.loc[probe_date]:.4f}, tactical_exchange: {tactical_exchange.loc[probe_date]:.4f}")
+                print(f"       - 过程: base_intent_score: {base_intent_score.loc[probe_date]:.4f}")
+                print(f"       - 过程: harmony_factor: {harmony_factor.loc[probe_date]:.4f}")
+                print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
+        return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
 
 
