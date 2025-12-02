@@ -861,8 +861,10 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_main_force_profile_metrics(context: dict) -> dict:
         """
-        【V66.1 · 探针标准化】
-        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
+        【V69.0 · 韧性升维版】
+        - 核心升维: 对 `main_force_conviction_index` 的“韧性”(Resilience)组件进行概念升维。
+        - 新定义: 将定义“市场承压区”的条件从 `ofi < 0` (订单流意图) 升级为 `mid_price_delta < 0` (实际价格下跌)。
+        - 优势: 使“韧性”的衡量标准从“对抗抛售意图”进化为“对抗实际下跌”，更能体现主力资金在真实逆境中的托底决心。
         """
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
@@ -887,8 +889,9 @@ class AdvancedFundFlowMetricsService:
         cost_tolerance_component = 0.0
         if pd.notna(hf_mf_buy_vwap) and pd.notna(hf_mf_sell_vwap) and pd.notna(atr) and atr > 0:
             cost_tolerance_component = (hf_mf_buy_vwap - hf_mf_sell_vwap) / atr
-        market_pressure_zone = hf_analysis_df['ofi'] < 0
-        mf_resilience_ofi = hf_analysis_df.loc[market_pressure_zone, 'main_force_ofi'].clip(lower=0).sum()
+        # [核心升维] 将韧性的触发条件从订单流(OFI)升级为价格结果(mid_price_delta)
+        price_pressure_zone = hf_analysis_df['mid_price_delta'] < 0
+        mf_resilience_ofi = hf_analysis_df.loc[price_pressure_zone, 'main_force_ofi'].clip(lower=0).sum()
         total_mf_positive_ofi = hf_analysis_df['main_force_ofi'].clip(lower=0).sum()
         resilience_component = mf_resilience_ofi / total_mf_positive_ofi if total_mf_positive_ofi > 0 else 0.0
         metrics['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
@@ -896,7 +899,8 @@ class AdvancedFundFlowMetricsService:
             print(f"\n--- [探针 B.3.1] main_force_conviction_index (主力信念) ---")
             print(f"    - 上游输入 (HF-VWAP) avg_cost_main_buy: {hf_mf_buy_vwap:.4f}, avg_cost_main_sell: {hf_mf_sell_vwap:.4f}, atr: {atr:.4f}")
             print(f"    - 组件 Aggressiveness: {aggressiveness_component:.4f} = (TrendQuality {trend_quality:.4f} * ClosingStrength {closing_strength:.4f})")
-            print(f"    - 组件 Cost Tolerance (norm by ATR): {cost_tolerance_component:.4f}, 组件 Resilience: {resilience_component:.4f}")
+            # [修改的代码行] 更新探针日志以反映新的计算逻辑
+            print(f"    - 组件 Cost Tolerance (norm by ATR): {cost_tolerance_component:.4f}, 组件 Resilience (基于价格下跌): {resilience_component:.4f}")
             print(f"    -> 最终得分: {metrics['main_force_conviction_index']:.2f}")
         mf_trades = hf_features['mf_trades']
         total_mf_vol = hf_features['total_mf_vol']
@@ -2220,15 +2224,11 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_micro_dynamics_metrics(context: dict) -> dict:
         """
-        【V68.2 · 阻力升维终版】
-        - 核心升维: 废弃有符号的、易受“诡道”行为干扰的“弹性”概念，转向更本质、更稳健的“阻力”概念。
-        - 新定义:
-          - 上行/下行阻力 = abs(总净主动成交量) / abs(总价差)。该值永远为正，真实反映改变价格的“成本”。
-        - 最终修正: `asymmetric_friction_index` 被重新定义为两种“阻力”的对数比，使其在任何市场场景下都具有
-                     数学鲁棒性和清晰的金融博弈解释，彻底解决了NaN问题。
+        【V68.2 · 阻力升维终版】(生产环境清洁版)
+        - 核心逻辑: 废弃“弹性”概念，转向更本质的“阻力”概念 (abs(总净主动量) / abs(总价差))，
+                     确保 `asymmetric_friction_index` 在任何市场场景下都具有数学鲁棒性。
         """
         hf_analysis_df = context['hf_analysis_df']
-        should_probe = context['debug']['should_probe']
         import numpy as np
         import pandas as pd
         metrics = {
@@ -2238,16 +2238,11 @@ class AdvancedFundFlowMetricsService:
         }
         if hf_analysis_df.empty or 'mid_price_delta' not in hf_analysis_df.columns:
             return metrics
-        if should_probe:
-            print(f"\n{'='*20} [探针 B.3.x - 微观动力学穿透诊断] {'='*20}")
         elasticity_series = hf_analysis_df['mid_price_delta'] / hf_analysis_df['net_active_volume'].replace(0, np.nan)
         weights_vol = hf_analysis_df['volume']
         valid_elasticity = elasticity_series.dropna()
         if not valid_elasticity.empty and weights_vol.sum() > 0:
             metrics['micro_impact_elasticity'] = np.average(valid_elasticity, weights=weights_vol[elasticity_series.notna()])
-        if should_probe:
-            print("\n--- [1. 微观冲击弹性] ---")
-            print(f"  - 结果: {metrics['micro_impact_elasticity']:.6f}")
         hf_analysis_df['next_mid_price_delta'] = hf_analysis_df['mid_price_delta'].shift(-1)
         reversion_df = hf_analysis_df.dropna(subset=['mid_price_delta', 'next_mid_price_delta'])
         if not reversion_df.empty and reversion_df['mid_price_delta'].var() > 0 and reversion_df['next_mid_price_delta'].var() > 0:
@@ -2256,14 +2251,9 @@ class AdvancedFundFlowMetricsService:
             weights_rev = reversion_df['volume']
             if weights_rev.sum() > 0:
                 metrics['price_reversion_velocity'] = np.average(reversion_signal, weights=weights_rev) * 100
-            if should_probe:
-                print("\n--- [2. 价格回归速度] ---")
-                print(f"  - 结果: {metrics['price_reversion_velocity']:.2f}")
         up_moves = hf_analysis_df[hf_analysis_df['mid_price_delta'] > 0]
         down_moves = hf_analysis_df[hf_analysis_df['mid_price_delta'] < 0]
-        upward_resistance, downward_resistance, friction_ratio = np.nan, np.nan, np.nan
         if not up_moves.empty and not down_moves.empty:
-            # [核心升维] 采用“阻力”概念，确保计算的鲁棒性
             up_price_delta_sum = up_moves['mid_price_delta'].sum()
             up_net_vol_abs_sum = abs(up_moves['net_active_volume'].sum())
             down_price_delta_abs_sum = abs(down_moves['mid_price_delta'].sum())
@@ -2273,16 +2263,6 @@ class AdvancedFundFlowMetricsService:
             if pd.notna(upward_resistance) and pd.notna(downward_resistance) and downward_resistance > 0:
                 friction_ratio = upward_resistance / downward_resistance
                 metrics['asymmetric_friction_index'] = np.log(friction_ratio) if friction_ratio > 0 else np.nan
-        if should_probe:
-            print("\n--- [3. 非对称摩擦系数] ---")
-            print(f"  - 原料数据: 上涨笔数={len(up_moves)}, 下跌笔数={len(down_moves)}")
-            print(f"  - 关键计算节点:")
-            print(f"    - 上行总价差: {up_moves['mid_price_delta'].sum():.4f}, 上行总净主动量(绝对值): {abs(up_moves['net_active_volume'].sum()):,.0f}")
-            print(f"    - 下行总价差(绝对值): {abs(down_moves['mid_price_delta'].sum()):.4f}, 下行总净主动量(绝对值): {abs(down_moves['net_active_volume'].sum()):,.0f}")
-            print(f"    - 上行阻力 (Abs_Vol / Price_Delta): {upward_resistance:,.2f}")
-            print(f"    - 下行阻力 (Abs_Vol / Price_Delta): {downward_resistance:,.2f}")
-            print(f"    - 摩擦比率 (Ratio = Up_Resistance / Down_Resistance): {friction_ratio:.4f}")
-            print(f"  - 结果 (log(Ratio)): {metrics['asymmetric_friction_index']:.4f}")
         return metrics
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
