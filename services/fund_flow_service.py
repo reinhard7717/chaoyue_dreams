@@ -779,12 +779,15 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V67.0 · 情境融合版】
-        - 核心升级: 调用新增的 `_calculate_contextual_action_metrics` 静态方法，正式将筹码“情境”与资金“行为”在计算层融合，生成新一代情境行为指标。
+        【V67.1 · 探针逻辑标准化】
+        - 核心重构: 废弃对 `target_date` 的依赖，统一所有探针的触发逻辑为标准的“三级门控”（总开关、模块开关、日期列表），确保系统行为的一致性和可预测性。
         """
-        is_target_date = str(daily_data.name.date()) == self.debug_params.get('target_date')
-        enable_probe = self.debug_params.get('enable_mfca_probe', False)
-        if enable_probe and is_target_date:
+        # [修改的代码块] 重构探针触发决策逻辑
+        debug_enabled = self.debug_params.get('enabled', {}).get('value', False)
+        probe_dates = self.debug_params.get('probe_dates', [])
+        enable_mfca_probe = self.debug_params.get('enable_mfca_probe', False)
+        should_probe = debug_enabled and enable_mfca_probe and str(daily_data.name.date()) in probe_dates
+        if should_probe:
             print(f"\n{'='*20} [探针 B.1 - 引擎入口 @ {daily_data.name.date()}] {'='*20}")
             print("  - 进入 `_compute_all_behavioral_metrics` 行为指标计算引擎...")
         results = {}
@@ -794,7 +797,7 @@ class AdvancedFundFlowMetricsService:
             intraday_data, daily_data, tick_data, level5_data, realtime_data
         )
         hf_analysis_df, hf_features = self._engineer_hf_features(raw_hf_df, common_data.get('daily_total_volume', 0))
-        if enable_probe and is_target_date:
+        if should_probe:
             print(f"\n{'='*20} [探针 B.2 - 引擎输入审计 @ {daily_data.name.date()}] {'='*20}")
             print("  - 通用日线数据 (common_data):")
             print(f"    {common_data}")
@@ -815,8 +818,7 @@ class AdvancedFundFlowMetricsService:
             'hf_features': hf_features,
             'main_force_net_flow_calibrated': main_force_net_flow_calibrated,
             'debug': {
-                'is_target_date': is_target_date,
-                'enable_probe': enable_probe,
+                'should_probe': should_probe, # [修改的代码行] 传递标准化的探针触发标志
             }
         }
         if not hf_analysis_df.empty:
@@ -842,7 +844,6 @@ class AdvancedFundFlowMetricsService:
         results.update(AdvancedFundFlowMetricsService._calculate_misc_minute_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_closing_strength_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_misc_daily_metrics(context))
-        # [新增的代码行] 调用新的情境行为指标计算内核
         results.update(AdvancedFundFlowMetricsService._calculate_contextual_action_metrics(context))
         return results
 
@@ -2399,17 +2400,16 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_contextual_action_metrics(context: dict) -> dict:
         """
-        【V1.2 · 仪表盘探针版】情境行为融合指标计算内核
-        - 核心升级: 重构 C.1 探针为“仪表盘”模式。现在它会分项报告每个指标的最终得分，
-                     并完整展示构成该得分的所有中间组件值（如专注度、意图纯度等），
-                     极大提升了模型的可解释性和调试效率。
+        【V1.3 · 标准化探针版】情境行为融合指标计算内核
+        - 核心重构: 移除内部探针决策逻辑，改为直接消费由上游引擎传入的标准化 `should_probe` 标志，
+                     确保探针行为与系统完全同步。
         """
         hf_analysis_df = context['hf_analysis_df']
         daily_data = context['daily_data']
         common_data = context['common_data']
         hf_features = context['hf_features']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        # [修改的代码块] 直接从 context 获取标准化的探针触发标志
+        should_probe = context['debug']['should_probe']
         probe_data = {}
         metrics = {
             'distribution_at_peak_intensity': np.nan,
@@ -2424,7 +2424,7 @@ class AdvancedFundFlowMetricsService:
         peak_zone_radius = 0.5 * atr
         peak_upper_bound = dominant_peak_cost + peak_zone_radius
         peak_lower_bound = dominant_peak_cost - peak_zone_radius
-        if enable_probe and is_target_date:
+        if should_probe:
             print(f"\n{'='*20} [探针 C.1 - 情境行为内核 @ {daily_data.name.date()}] {'='*20}")
             print(f"  - 核心情境: 主峰成本={dominant_peak_cost:.2f}, ATR={atr:.2f}")
             print(f"  - 主峰战区定义: [{peak_lower_bound:.2f} - {peak_upper_bound:.2f}]")
@@ -2474,8 +2474,7 @@ class AdvancedFundFlowMetricsService:
                 counter_attack_component = mf_ofi_in_defense.clip(lower=0).sum() / mf_ofi_in_defense.abs().sum() if mf_ofi_in_defense.abs().sum() > 0 else 0
                 metrics['defense_of_peak_quality'] = ((resilience_component.clip(0, 1) + 1e-9)**0.4 * (counter_attack_component + 1e-9)**0.6) * 100
                 probe_data['defense'] = {'resilience': resilience_component, 'counter_attack': counter_attack_component}
-        # [修改的代码块] 全新的仪表盘化探针输出逻辑
-        if enable_probe and is_target_date:
+        if should_probe:
             print("  - 指标计算详情:")
             dist_data = probe_data.get('distribution')
             print(f"    - 主峰区派发烈度: {metrics['distribution_at_peak_intensity']:.4f}")
