@@ -33,9 +33,9 @@ class DynamicMechanicsEngine:
 
     def run_dynamic_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V7.1 · 校准张力版】动态力学引擎总指挥
-        - 核心升级: 捕获并融合各公理诊断方法返回的“校准张力”分，生成一个新的顶层内部信号
-                      `INTERNAL_DYN_MTF_CALIBRATION_TENSION_D`。
+        【V7.2 · 大统一力场版】动态力学引擎总指挥
+        - 核心升级: 在所有公理计算完毕后，调用 `_synthesize_grand_unification_score` 方法，
+                      生成顶层的“大统一力场”信号 `SCORE_DYN_GRAND_UNIFICATION`。
         """
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -48,24 +48,27 @@ class DynamicMechanicsEngine:
         if is_probe_day:
             print(f"\n--- [力学情报探针] 激活 | 日期: {current_date_str} ---")
         all_dynamic_states = {}
-        # --- 修改：捕获张力分 ---
         axiom_momentum, momentum_tension = self._diagnose_axiom_momentum(df, is_probe_day, current_date_str)
         axiom_inertia, inertia_tension = self._diagnose_axiom_inertia(df, is_probe_day, current_date_str)
         axiom_stability, stability_tension = self._diagnose_axiom_stability(df, is_probe_day, current_date_str)
         axiom_energy, energy_tension = self._diagnose_axiom_energy(df, is_probe_day, current_date_str)
         axiom_ma_dynamics = self._diagnose_axiom_ma_dynamics(df)
         axiom_divergence = self._diagnose_axiom_divergence(df, axiom_momentum, axiom_inertia)
-        # --- 新增：融合张力分 ---
         all_tensions = [momentum_tension, inertia_tension, stability_tension, energy_tension]
         fused_tension_score = pd.concat(all_tensions, axis=1).mean(axis=1)
         all_dynamic_states['INTERNAL_DYN_MTF_CALIBRATION_TENSION_D'] = fused_tension_score.astype(np.float32)
-        # --- 修改结束 ---
         all_dynamic_states['SCORE_DYN_AXIOM_DIVERGENCE'] = axiom_divergence
         all_dynamic_states['SCORE_DYN_AXIOM_MOMENTUM'] = axiom_momentum
         all_dynamic_states['SCORE_DYN_AXIOM_INERTIA'] = axiom_inertia
         all_dynamic_states['SCORE_DYN_AXIOM_STABILITY'] = axiom_stability
         all_dynamic_states['SCORE_DYN_AXIOM_ENERGY'] = axiom_energy
         all_dynamic_states['SCORE_DYN_AXIOM_MA_ACCELERATION'] = axiom_ma_dynamics
+        # --- 新增：调用大统一合成器 ---
+        grand_unification_score = self._synthesize_grand_unification_score(
+            axiom_momentum, axiom_inertia, axiom_stability, axiom_energy
+        )
+        all_dynamic_states['SCORE_DYN_GRAND_UNIFICATION'] = grand_unification_score
+        # --- 新增结束 ---
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
@@ -283,6 +286,36 @@ class DynamicMechanicsEngine:
         acceleration_score = get_adaptive_mtf_normalized_bipolar_score(acceleration_raw, df_index, default_weights)
         ma_dynamics_score = (velocity_score * 0.6 + acceleration_score * 0.4).clip(-1, 1)
         return ma_dynamics_score.astype(np.float32)
+
+    def _synthesize_grand_unification_score(self, momentum: pd.Series, inertia: pd.Series, stability: pd.Series, energy: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 矛与盾】大统一力场合成器
+        - 核心逻辑: 基于“矛与盾”博弈模型，进行非线性融合，输出系统总合力。
+                    矛 (进攻力量) = 动量 + 能量
+                    盾 (结构完整性) = 惯性 + 稳定性
+                    最终得分 = sign(矛) * sqrt(abs(矛 * 盾))
+        """
+        p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
+        unification_params = get_param_value(p_conf_dyn.get('grand_unification_params'), {})
+        offensive_weights = get_param_value(unification_params.get('offensive_force_weights'), {'momentum': 0.6, 'energy': 0.4})
+        structural_weights = get_param_value(unification_params.get('structural_integrity_weights'), {'inertia': 0.6, 'stability': 0.4})
+        # 1. 计算进攻力量“矛”
+        offensive_force = (
+            momentum * offensive_weights.get('momentum', 0.6) +
+            energy * offensive_weights.get('energy', 0.4)
+        ).clip(-1, 1)
+        # 2. 计算结构完整性“盾”
+        structural_integrity = (
+            inertia * structural_weights.get('inertia', 0.6) +
+            stability * structural_weights.get('stability', 0.4)
+        ).clip(-1, 1)
+        # 3. 非线性融合
+        # 使用 .values 可以确保 sign, sqrt, abs 操作在numpy层面高效执行
+        product = offensive_force.values * structural_integrity.values
+        grand_unification_score_raw = np.sign(offensive_force.values) * np.sqrt(np.abs(product))
+        # 将numpy数组转换回带索引的pandas Series
+        grand_unification_score = pd.Series(grand_unification_score_raw, index=momentum.index).fillna(0)
+        return grand_unification_score.astype(np.float32)
 
     def _get_mtf_calibrated_z_score(self, raw_series: pd.Series, p_conf_dyn: Dict) -> (pd.Series, pd.Series):
         """

@@ -1246,6 +1246,19 @@
           "description": "【能量公理】能量品质核心要素（资金可信度、主力流向性）的融合权重。",
           "credibility": 0.5,
           "directionality": 0.5
+        },
+        "grand_unification_params": {
+          "description": "【V1.0 · 矛与盾】大统一力场融合参数，用于计算顶层战略信号。",
+          "offensive_force_weights": {
+            "description": "进攻力量“矛”的融合权重。",
+            "momentum": 0.6,
+            "energy": 0.4
+          },
+          "structural_integrity_weights": {
+            "description": "结构完整性“盾”的融合权重。",
+            "inertia": 0.6,
+            "stability": 0.4
+          }
         }
       },
       "foundation_ultimate_params": {
