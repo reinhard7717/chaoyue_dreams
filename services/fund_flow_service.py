@@ -1953,14 +1953,15 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_flow_efficiency_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · 探针最终标准化版】
+        - 核心修复: 修正了因遗漏改造而导致的 `KeyError: 'is_target_date'` 致命错误。
+        - 核心重构: 彻底废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志，完成探针系统的最终标准化。
         """
         hf_analysis_df = context['hf_analysis_df']
         intraday_data = context['intraday_data']
         common_data = context['common_data']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        # [修改的代码块] 移除错误的探针变量获取，使用标准化的 `should_probe`
+        should_probe = context['debug']['should_probe']
         import numpy as np
         import pandas as pd
         metrics = {'flow_efficiency_index': np.nan}
@@ -1977,7 +1978,8 @@ class AdvancedFundFlowMetricsService:
                 if weights.sum() > 0:
                     efficiency_coeff = np.average(df['price_change_per_ofi'], weights=weights)
                     metrics['flow_efficiency_index'] = (efficiency_coeff * daily_total_volume) / atr
-                    if enable_probe and is_target_date:
+                    # [修改的代码行] 使用标准化的 `should_probe` 控制探针
+                    if should_probe:
                         print(f"  [探针] flow_efficiency_index (高频-流量效率) 计算:")
                         print(f"    - 核心效率系数 (每单位OFI撬动的价格): {efficiency_coeff:.8f}")
                         print(f"    - (系数 * 总成交量) / ATR = ({efficiency_coeff:.8f} * {daily_total_volume:,.0f}) / {atr:.4f}")
