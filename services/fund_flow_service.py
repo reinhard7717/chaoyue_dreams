@@ -1066,12 +1066,9 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_shadow_metrics(context: dict) -> dict:
         """
-        【V67.3 · 价值效率终极版】
-        - 核心重构: 彻底废弃基于OFI/成交量的物理单位效率，转向基于“价值”的效率维度，根除所有归一化和数值稳定性问题。
-        - 新基准: 引入 `market_value_efficiency` (市场价值效率)，衡量市场平均每万元成交额能撬动的ATR波动，作为统一的博弈效率基准。
-        - 新效率:
-          - `lower_shadow_absorption_strength`: 衡量主力在下影线区每净投入1万元，成功收复了多少ATR的价格失地。
-          - `upper_shadow_selling_pressure`: 衡量主力在上影线区每净卖出1万元，成功打压了多少ATR的价格。
+        【V67.4 · 对数压缩终版】
+        - 核心修正: 在归一化效率比之后，引入 `np.log1p` 对数压缩层。此举旨在“驯服”因关键时刻与全天平均效率的巨大
+                     量级差异而产生的极端比率值，彻底解决 `tanh` 函数饱和问题，使指标得分具有细腻且可靠的区分度。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
@@ -1087,7 +1084,6 @@ class AdvancedFundFlowMetricsService:
         if pd.notna(day_open) and pd.notna(day_close) and pd.notna(day_high) and pd.notna(day_low) and pd.notna(atr) and atr > 0 and daily_total_amount > 0:
             day_range = day_high - day_low
             if day_range <= 0: return metrics
-            # [核心升维] 计算市场价值效率基准 (单位: ATRs per 10k Yuan)
             market_value_efficiency = (day_range / atr) / (daily_total_amount / 10000)
             body_high, body_low = max(day_open, day_close), min(day_open, day_close)
             if day_low < body_low:
@@ -1099,11 +1095,13 @@ class AdvancedFundFlowMetricsService:
                         mf_buy_amount = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'B']['amount'].sum()
                         mf_sell_amount = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'S']['amount'].sum()
                         mf_net_buy_amount_10k = (mf_buy_amount - mf_sell_amount) / 10000
-                        absorption_efficiency, normalized_strength = np.nan, np.nan
-                        if mf_net_buy_amount_10k > 0:
+                        absorption_efficiency, normalized_strength, compressed_strength = np.nan, np.nan, np.nan
+                        if mf_net_buy_amount_10k > 0 and market_value_efficiency > 0:
                             absorption_efficiency = price_recovery_norm / mf_net_buy_amount_10k
                             normalized_strength = absorption_efficiency / market_value_efficiency
-                            metrics['lower_shadow_absorption_strength'] = np.tanh(normalized_strength) * 100
+                            # [核心升维] 引入对数压缩层，解决饱和问题
+                            compressed_strength = np.log1p(normalized_strength)
+                            metrics['lower_shadow_absorption_strength'] = np.tanh(compressed_strength) * 100
                         if should_probe:
                             print("\n--- [探针] lower_shadow_absorption_strength (下影线承接) ---")
                             print("  - 原料数据:")
@@ -1113,6 +1111,8 @@ class AdvancedFundFlowMetricsService:
                             print("  - 关键计算节点:")
                             print(f"    - 主力承接效率 (ATRs/万元): {absorption_efficiency:.6f}")
                             print(f"    - 归一化强度 (主力效率/市场效率): {normalized_strength:.4f}")
+                            # [修改的代码行] 在探针中增加对数压缩步骤的输出
+                            print(f"    - 对数压缩后强度 (log1p): {compressed_strength:.4f}")
                             print(f"  - 结果: {metrics.get('lower_shadow_absorption_strength', np.nan):.2f}")
             if day_high > body_high:
                 price_rejection_norm = (day_high - body_high) / atr
@@ -1123,11 +1123,13 @@ class AdvancedFundFlowMetricsService:
                         mf_buy_amount = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'B']['amount'].sum()
                         mf_sell_amount = mf_trades_in_shadow[mf_trades_in_shadow['type'] == 'S']['amount'].sum()
                         mf_net_sell_amount_10k = (mf_sell_amount - mf_buy_amount) / 10000
-                        rejection_efficiency, normalized_pressure = np.nan, np.nan
-                        if mf_net_sell_amount_10k > 0:
+                        rejection_efficiency, normalized_pressure, compressed_pressure = np.nan, np.nan, np.nan
+                        if mf_net_sell_amount_10k > 0 and market_value_efficiency > 0:
                             rejection_efficiency = price_rejection_norm / mf_net_sell_amount_10k
                             normalized_pressure = rejection_efficiency / market_value_efficiency
-                            metrics['upper_shadow_selling_pressure'] = np.tanh(normalized_pressure) * 100
+                            # [核心升维] 引入对数压缩层，解决饱和问题
+                            compressed_pressure = np.log1p(normalized_pressure)
+                            metrics['upper_shadow_selling_pressure'] = np.tanh(compressed_pressure) * 100
                         if should_probe:
                             print("\n--- [探针] upper_shadow_selling_pressure (上影线抛压) ---")
                             print("  - 原料数据:")
@@ -1137,6 +1139,8 @@ class AdvancedFundFlowMetricsService:
                             print("  - 关键计算节点:")
                             print(f"    - 主力打压效率 (ATRs/万元): {rejection_efficiency:.6f}")
                             print(f"    - 归一化压力 (主力效率/市场效率): {normalized_pressure:.4f}")
+                            # [修改的代码行] 在探针中增加对数压缩步骤的输出
+                            print(f"    - 对数压缩后压力 (log1p): {compressed_pressure:.4f}")
                             print(f"  - 结果: {metrics.get('upper_shadow_selling_pressure', np.nan):.2f}")
         return metrics
 
