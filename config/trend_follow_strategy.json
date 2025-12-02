@@ -1234,7 +1234,7 @@
       },
       "fund_flow_ultimate_params": {
         "enabled": true,
-        "description": "【V8.0 · 向量合成版】定义了资金流公理及顶层“战略态势”融合参数。",
+        "description": "【V9.0 · 拐点洞察版】定义了资金流公理及顶层“战略态势”与“和谐拐点”的融合参数。",
         "norm_window": 55,
         "conviction_modulator_weights": {
           "description": "【V1.0】信念质量调节器权重，用于调制“攻击性意图”公理。",

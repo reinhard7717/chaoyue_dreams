@@ -47,16 +47,16 @@ class FundFlowIntelligence:
 
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V28.0 · 向量合成版】资金流情报分析总指挥
-        - 核心升级: 引入“向量合成”融合模型。在“矛”与“盾”的内部融合中，增加“不谐和惩罚”机制。
-        - 融合模型: 当构成“矛”（攻击意图与动能）或“盾”（控制权与健康度）的内部信号方向不一致时，
-                      其合成后的分数将被削弱。此举旨在奖励内部信号的“共振”，惩罚“矛盾”，从而提升顶层信号的可靠性。
+        【V29.0 · 拐点洞察版】资金流情报分析总指挥
+        - 核心升级: 新增终极机会信号 SCORE_FF_HARMONY_INFLECTION (资金流和谐拐点)。
+        - 信号原理: 基于微积分思想，对顶层“战略态势”信号进行二阶求导。只有当态势的“速度”与“加速度”
+                      同时为正时，才确认为一次高置信度的V型反转拐点。旨在捕捉趋势“破晓”的关键瞬间。
         """
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 资金流情报引擎在配置中被禁用，跳过分析。")
             return {}
-        print("启动【V28.0 · 向量合成版】资金流情报分析...") # 修改: 更新版本号和名称
+        print("启动【V29.0 · 拐点洞察版】资金流情报分析...") # 修改: 更新版本号和名称
         all_states = {}
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         # --- 1. 计算所有原子公理 ---
@@ -70,31 +70,34 @@ class FundFlowIntelligence:
             capital_signature_score=axiom_capital_signature,
             flow_health_score=axiom_flow_structure_health
         )
-        # --- 2. 升级：战略态势的向量合成 ---
+        # --- 2. 战略态势的向量合成 ---
         fusion_weights = get_param_value(p_conf.get('posture_fusion_weights'), {})
-        penalty_factor = get_param_value(p_conf.get('dissonance_penalty_factor'), 0.25) # 新增: 获取惩罚因子
+        penalty_factor = get_param_value(p_conf.get('dissonance_penalty_factor'), 0.25)
         attack_weights = fusion_weights.get('attack_group', {})
         structure_weights = fusion_weights.get('structure_group', {})
         context_weights = fusion_weights.get('context_group', {})
-        # 矛 (Attack) 的向量合成
         attack_base = (axiom_conviction * attack_weights.get('conviction', 0.6) +
                        axiom_flow_momentum * attack_weights.get('flow_momentum', 0.4))
-        attack_dissonance = abs(axiom_conviction - axiom_flow_momentum) / 2 # 归一化到 [0, 1]
+        attack_dissonance = abs(axiom_conviction - axiom_flow_momentum) / 2
         attack_score = attack_base * (1 - attack_dissonance * penalty_factor)
-        # 盾 (Structure) 的向量合成
         structure_base = (axiom_consensus * structure_weights.get('consensus', 0.6) +
                           axiom_flow_structure_health * structure_weights.get('flow_health', 0.4))
-        structure_dissonance = abs(axiom_consensus - axiom_flow_structure_health) / 2 # 归一化到 [0, 1]
+        structure_dissonance = abs(axiom_consensus - axiom_flow_structure_health) / 2
         structure_score = structure_base * (1 - structure_dissonance * penalty_factor)
-        # 环境调节器 (不变)
         context_modulator = (1 +
                              axiom_capital_signature * context_weights.get('capital_signature', 0.1) +
                              axiom_divergence * context_weights.get('divergence', 0.1)
                              ).clip(0.5, 1.5)
-        # 核心融合公式 (不变)
         posture_core = attack_score * (1 + structure_score) / 2
         strategic_posture_score = (posture_core * context_modulator).clip(-1, 1)
-        # --- 3. 状态赋值 ---
+        # --- 3. 新增：和谐拐点计算 ---
+        posture_velocity = strategic_posture_score.diff().fillna(0)
+        posture_acceleration = posture_velocity.diff().fillna(0)
+        norm_velocity = get_adaptive_mtf_normalized_score(posture_velocity, df.index, ascending=True, tf_weights={3:1.0})
+        norm_acceleration = get_adaptive_mtf_normalized_score(posture_acceleration, df.index, ascending=True, tf_weights={3:1.0})
+        # 核心裁决：速度和加速度必须同时为正
+        harmony_inflection_score = (norm_velocity.clip(lower=0) * norm_acceleration.clip(lower=0)).pow(0.5)
+        # --- 4. 状态赋值 ---
         all_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_FF_AXIOM_CONSENSUS'] = axiom_consensus
         all_states['SCORE_FF_AXIOM_CONVICTION'] = axiom_conviction
@@ -102,10 +105,11 @@ class FundFlowIntelligence:
         all_states['SCORE_FF_AXIOM_CAPITAL_SIGNATURE'] = axiom_capital_signature
         all_states['SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH'] = axiom_flow_structure_health
         all_states['SCORE_FF_STRATEGIC_POSTURE'] = strategic_posture_score.astype(np.float32)
+        all_states['SCORE_FF_HARMONY_INFLECTION'] = harmony_inflection_score.astype(np.float32) # 新增: 和谐拐点机会信号
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
-        # --- 4. 探针输出 ---
+        # --- 5. 探针输出 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -117,7 +121,13 @@ class FundFlowIntelligence:
                 print(f"       - [盾] base: {structure_base.loc[probe_date_for_loop]:.4f}, dissonance: {structure_dissonance.loc[probe_date_for_loop]:.4f} -> vector_synthesized: {structure_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - [环境] context_modulator: {context_modulator.loc[probe_date_for_loop]:.4f} (属性:{axiom_capital_signature.loc[probe_date_for_loop]:.2f}, 张力:{axiom_divergence.loc[probe_date_for_loop]:.2f})")
                 print(f"       - [结果] final_strategic_posture: {strategic_posture_score.loc[probe_date_for_loop]:.4f}")
-        print(f"【V28.0 · 向量合成版】分析完成，生成 {len(all_states)} 个资金流原子及融合信号。") # 修改: 更新日志
+                # 新增：和谐拐点探针
+                print(f"    -> [资金流和谐拐点探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - [原料] posture_score: {strategic_posture_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - [计算节点] velocity: {posture_velocity.loc[probe_date_for_loop]:.4f} -> norm: {norm_velocity.loc[probe_date_for_loop]:.4f}")
+                print(f"       - [计算节点] acceleration: {posture_acceleration.loc[probe_date_for_loop]:.4f} -> norm: {norm_acceleration.loc[probe_date_for_loop]:.4f}")
+                print(f"       - [结果] final_inflection_score: {harmony_inflection_score.loc[probe_date_for_loop]:.4f}")
+        print(f"【V29.0 · 拐点洞察版】分析完成，生成 {len(all_states)} 个资金流原子及融合信号。") # 修改: 更新日志
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
