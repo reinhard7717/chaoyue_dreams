@@ -558,16 +558,17 @@ class BehavioralIntelligence:
 
     def _diagnose_lower_shadow_quality(self, df: pd.DataFrame, stagnation_evidence: pd.Series) -> pd.Series:
         """
-        【V10.0 · 跨信号制衡版】诊断下影线承接品质。
-        - 核心升级: 引入“滞涨压制器”。接收外部计算的“滞涨证据分”作为否决权参数，
-                      在最终输出前对下影线品质进行压制，解决了信号间的逻辑冲突。
+        【V11.0 · 关键证据否决权版】诊断下影线承接品质。
+        - 核心重构 (基础分): 废弃加权算术平均，采用加权几何平均。这确保了当最关键的
+                            “意图分”为零时，整个基础品质分被一票否决，直接归零。
+        - 核心重构 (放大器): 简化为“门控放大器”，由“恐慌承接度”直接控制，逻辑更清晰。
         """
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         p_thresholds = get_param_value(p_conf.get('neutral_zone_thresholds'), {})
         ambush_threshold = get_param_value(p_thresholds.get('main_force_execution_alpha_D'), 0.0)
-        # --- 1. 计算基础K线品质分 (逻辑不变) ---
+        # --- 1. 计算基础K线品质分 ---
         magnitude_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_lower_shadow_quality").replace(0, 1e-9)
@@ -576,8 +577,13 @@ class BehavioralIntelligence:
         flow_ratio = main_force_flow / amount
         intent_score = get_adaptive_mtf_normalized_score(flow_ratio.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         location_score = get_adaptive_mtf_normalized_score(location_raw, df.index, ascending=True, tf_weights=default_weights)
-        base_quality_score = (magnitude_score * 0.3 + intent_score * 0.5 + location_score * 0.2).fillna(0.0)
-        # --- 2. 构建双向奖惩机制和新的放大器 (逻辑不变) ---
+        # [修改的代码行] 升级为加权几何平均，实现“一票否决”
+        base_quality_score = (
+            (magnitude_score + 1e-9).pow(0.3) *
+            (intent_score + 1e-9).pow(0.5) *
+            (location_score + 1e-9).pow(0.2)
+        ).fillna(0.0)
+        # --- 2. 构建双向奖惩机制和新的放大器 ---
         panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         ambush_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_lower_shadow_quality")
@@ -586,10 +592,10 @@ class BehavioralIntelligence:
         active_neutral_modulator = (0.95 + ambush_intent_score * 0.55).clip(0, 2)
         modulated_quality_score = base_quality_score * active_neutral_modulator
         panic_absorption_score = get_adaptive_mtf_normalized_score((panic_raw * capitulation_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
-        context_amplifier = 1 + (panic_absorption_score * modulated_quality_score).pow(0.5)
+        # [修改的代码行] 简化为“门控放大器”
+        context_amplifier = 1 + panic_absorption_score
         # --- 3. 非线性合成 ---
         provisional_final_quality = (modulated_quality_score * context_amplifier).clip(0, 1)
-        # [新增代码行] 引入滞涨压制器
         stagnation_suppressor = (1 - stagnation_evidence).clip(0, 1)
         final_lower_shadow_quality = provisional_final_quality * stagnation_suppressor
         # --- 探针监测 ---
@@ -602,10 +608,11 @@ class BehavioralIntelligence:
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_lower_shadow_quality @ {probe_date_str}")
-                print(f"        - 基础品质分: {base_quality_score.loc[probe_ts]:.4f} (幅度={magnitude_score.loc[probe_ts]:.2f}, 意图={intent_score.loc[probe_ts]:.2f}, 位置={location_score.loc[probe_ts]:.2f})")
+                # [修改的代码行] 更新探针以反映几何平均模型
+                print(f"        - 基础品质分(几何平均): {base_quality_score.loc[probe_ts]:.4f} (幅度={magnitude_score.loc[probe_ts]:.2f}, 意图={intent_score.loc[probe_ts]:.2f}, 位置={location_score.loc[probe_ts]:.2f})")
                 print(f"        - 伏击意图(主动中性): {ambush_intent_score.loc[probe_ts]:.4f} (原始Alpha={ambush_raw.loc[probe_ts]:.6f}) -> 调制乘数={active_neutral_modulator.loc[probe_ts]:.4f} -> 调制后品质分: {modulated_quality_score.loc[probe_ts]:.4f}")
-                print(f"        - 智能放大器: 恐慌承接度={panic_absorption_score.loc[probe_ts]:.4f} -> 放大倍数={context_amplifier.loc[probe_ts]:.4f}")
-                # [修改的代码行] 更新探针日志以反映新逻辑
+                # [修改的代码行] 更新探针以反映门控放大器
+                print(f"        - 门控放大器(新): 恐慌承接度={panic_absorption_score.loc[probe_ts]:.4f} -> 放大倍数={context_amplifier.loc[probe_ts]:.4f}")
                 print(f"        - 滞涨压制器: {stagnation_suppressor.loc[probe_ts]:.4f} (滞涨证据分={stagnation_evidence.loc[probe_ts]:.4f}) -> 压制前品质分: {provisional_final_quality.loc[probe_ts]:.4f}")
                 print(f"        - 最终下影线品质分(压制后): {final_lower_shadow_quality.loc[probe_ts]:.4f}")
         return final_lower_shadow_quality.astype(np.float32)
