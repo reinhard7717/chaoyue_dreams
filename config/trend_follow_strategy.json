@@ -1204,7 +1204,7 @@
       },
       "dynamic_mechanics_params": {
         "enabled": true,
-        "description": "【V5.1 · 均线动态增强版】定义了基于“动量、惯性、稳定性、能量、均线动态”五大力学公理的引擎参数。",
+        "description": "【V6.0 · 诡道博弈增强版】引入“品质”和“意图”对力学信号进行深度调制，旨在穿透物理表象，洞察博弈本质。",
         "norm_window": 55,
         "description_axiom_weights": "融合五大力学公理时的权重。",
         "axiom_weights": {
@@ -1213,6 +1213,29 @@
           "stability": 0.2,
           "energy": 0.15,
           "ma_acceleration": 0.15
+        },
+        "momentum_quality_weights": {
+          "description": "【动量公理】动量品质三要素（上涨纯度、主力信念、趋势活力）的融合权重。",
+          "purity": 0.4,
+          "conviction": 0.4,
+          "vitality": 0.2
+        },
+        "inertia_structural_weights": {
+          "description": "【惯性公理】结构加固双要素（均线排列、结构杠杆）在惯性计算中的权重。",
+          "base_inertia": 0.7,
+          "structural_reinforcement": 0.3
+        },
+        "stability_potential_weights": {
+          "description": "【稳定性公理】势能三要素（均线张力、结构张力、突破准备度）的融合权重。",
+          "ma_tension": 0.4,
+          "structural_tension": 0.4,
+          "breakout_readiness": 0.2
+        },
+        "energy_quality_weights": {
+          "description": "【能量公理】能量品质三要素（资金可信度、主力流向性、对倒惩罚）的融合权重。",
+          "credibility": 0.4,
+          "directionality": 0.4,
+          "wash_trade_penalty": 0.2
         }
       },
       "foundation_ultimate_params": {
