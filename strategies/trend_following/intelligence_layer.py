@@ -69,35 +69,31 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self, df: pd.DataFrame) -> Dict:
         """
-        【V425.0 · 日内引擎激活版】情报层总指挥官
-        - 核心激活: 在指挥链中正式加入对日内行为引擎的调用，激活所有日内战报、叙事及诡道信号的生成。
+        【V426.0 · 日内引擎重构激活版】情报层总指挥官
+        - 核心重构: 彻底改变日内引擎的调用方式。不再依赖不存在的分钟线数据，
+                      而是直接将日线DataFrame传递给重构后的日内引擎，
+                      使其能够基于预计算的日线级日内信号进行合成与解读。
         """
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
         self.strategy.playbook_states = {}
         self.strategy.exit_triggers = pd.DataFrame(index=df.index)
         def update_states(new_states: Dict):
+            # [代码修改] 简化update_states，因为所有引擎现在都应返回Series字典
             if isinstance(new_states, dict):
-                for key, value in new_states.items():
-                    if isinstance(value, float):
-                        series = pd.Series(np.nan, index=df.index)
-                        if not df.empty:
-                            current_date = df.index[-1]
-                            series.loc[current_date] = value
-                        self.strategy.atomic_states[key] = series
-                    else:
-                        self.strategy.atomic_states[key] = value
+                self.strategy.atomic_states.update(new_states)
         # --- 阶段一：基础原子情报层 (Foundation & Atomic Layer) ---
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         update_states(self.behavioral_intel.run_behavioral_analysis_command(df))
         update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
-        if hasattr(self.strategy, 'df_minute') and self.strategy.df_minute is not None and not self.strategy.df_minute.empty:
-            # [代码修改] 移除此处的 'import asyncio'，因为它已在文件顶部导入
-            try:
-                intraday_results = asyncio.run(self.intraday_behavior_engine.run_intraday_diagnostics(self.strategy.df_minute))
-                update_states(intraday_results)
-            except Exception as e:
-                print(f"    -> [情报层错误] 调用日内行为引擎失败: {e}")
+        # [代码修改开始] 重构日内引擎的调用逻辑
+        try:
+            # 直接调用日内引擎，并传递日线DataFrame
+            intraday_results = self.intraday_behavior_engine.run_intraday_diagnostics(df)
+            update_states(intraday_results)
+        except Exception as e:
+            print(f"    -> [情报层错误] 调用日内行为引擎失败: {e}")
+        # [代码修改结束]
         update_states(self.foundation_intel.run_foundation_analysis_command(df))
         chip_states_from_intel = self.chip_intel.run_chip_intelligence_command(df)
         update_states(chip_states_from_intel)
