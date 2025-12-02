@@ -89,9 +89,9 @@ class IntradayBehaviorEngine:
             self._diagnose_tactical_arc(df_enriched),
             self._diagnose_auction_intent(df_enriched),
             self._diagnose_recovery_quality(df_enriched),
-            self._diagnose_ambush_and_flank(df_enriched), # [代码新增]
-            self._diagnose_final_assault(df_enriched), # [代码新增]
-            self._diagnose_vwap_battlefield(df_enriched), # [代码新增]
+            self._diagnose_ambush_and_flank(df_enriched), # [代码新增] 调用新增的“伏击与侧翼”诊断方法
+            self._diagnose_final_assault(df_enriched), # [代码新增] 调用新增的“终末强袭”诊断方法
+            self._diagnose_vwap_battlefield(df_enriched), # [代码新增] 调用新增的“VWAP攻防”诊断方法
         ]
         results = await asyncio.gather(*tasks)
         final_scores = {}
