@@ -201,29 +201,27 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V5.3 · MTF重构版】结构公理三：诊断“结构稳定性”
+        【V5.4 · 纯粹防御重构版】结构公理三：诊断“结构稳定性”
         - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
-        - 核心升级: 在原有三大支柱基础上，引入“结构杠杆”作为第四维度，评估结构效率。
-        - 核心证据 (微观): `flow_credibility_index`和`main_force_slippage_index`评估稳定性的“微观基础”。
+        - 核心升级: 移除了进攻性的“结构杠杆”指标，回归“纯粹防御”本质。现在完全由宏观支撑、结构韧性、微观流动性三大支柱构成。
         - 核心证据 (韧性): `support_validation_strength`作为结构在压力测试下的直接表现。
-        - 核心证据 (杠杆): `structural_leverage_D`评估结构对能量的转化效率。
         - 【优化】使用专属的 `long_term_stability` MTF权重进行归一化。
         """
+        # --- 修改代码开始 ---
+        # 移除 structural_leverage_D
         required_signals = [
             'flow_credibility_index_D', 'main_force_slippage_index_D', 'support_validation_strength_D',
-            'dominant_peak_solidity_D', 'close_D',
-            'structural_leverage_D'
+            'dominant_peak_solidity_D', 'close_D'
         ]
+        # --- 修改代码结束 ---
         long_term_ma_periods = [55, 144]
         required_signals.extend([f'MA_{p}_D' for p in long_term_ma_periods])
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_stability"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        # --- 修改代码开始 ---
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('long_term_stability', {13: 0.2, 21: 0.3, 55: 0.4, 89: 0.1})
-        # --- 修改代码结束 ---
         # --- 1. 宏观支撑 (Macro Support) ---
         foundation_support_scores = []
         for p in long_term_ma_periods:
@@ -242,23 +240,24 @@ class StructuralIntelligence:
         liquidity_auth_score = get_adaptive_mtf_normalized_score(liquidity_auth_raw, df_index, ascending=True, tf_weights=tf_weights)
         market_impact_score = get_adaptive_mtf_normalized_score(market_impact_raw, df_index, ascending=False, tf_weights=tf_weights)
         micro_liquidity_score = (liquidity_auth_score * 0.6 + market_impact_score * 0.4).clip(0, 1)
-        # --- 4. 结构杠杆 (Structural Leverage) ---
-        leverage_raw = self._get_safe_series(df, 'structural_leverage_D', 0.0, method_name="_diagnose_axiom_stability")
-        leverage_score = get_adaptive_mtf_normalized_score(leverage_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # --- 融合 ---
+        # --- 4. 融合 ---
+        # --- 修改代码开始 ---
+        # 移除杠杆分，重新分配权重: 宏观支撑(0.4), 韧性(0.4), 流动性(0.2)
         stability_score = (
-            macro_support_score * 0.3 +
-            resilience_score * 0.3 +
-            micro_liquidity_score * 0.2 +
-            leverage_score * 0.2
+            macro_support_score * 0.4 +
+            resilience_score * 0.4 +
+            micro_liquidity_score * 0.2
         ).clip(0, 1)
+        # --- 修改代码结束 ---
         final_score = (stability_score * 2 - 1).astype(np.float32)
         if self.is_probe_date:
             today_score = final_score.iloc[-1]
             print(f"    [探针] 结构稳定性公理 (SCORE_STRUCT_AXIOM_STABILITY): {today_score:.4f}")
             print(f"      - MTF权重: long_term_stability")
-            print(f"      - 原料: 支撑强度(原始)={pullback_depth_raw.iloc[-1]:.2f}, 杠杆(原始)={leverage_raw.iloc[-1]:.2f}")
-            print(f"      - 计算: 宏观支撑分={macro_support_score.iloc[-1]:.2f}, 韧性分={resilience_score.iloc[-1]:.2f}, 流动性分={micro_liquidity_score.iloc[-1]:.2f}, 杠杆分={leverage_score.iloc[-1]:.2f}")
+            # --- 修改代码开始 ---
+            print(f"      - 原料: 支撑强度(原始)={pullback_depth_raw.iloc[-1]:.2f}, 流动性(原始)={liquidity_auth_raw.iloc[-1]:.2f}")
+            print(f"      - 计算: 宏观支撑分={macro_support_score.iloc[-1]:.2f}, 韧性分={resilience_score.iloc[-1]:.2f}, 流动性分={micro_liquidity_score.iloc[-1]:.2f}")
+            # --- 修改代码结束 ---
         return final_score
 
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, daily_trend_form_score: pd.Series) -> pd.Series:
@@ -383,25 +382,50 @@ class StructuralIntelligence:
 
     def _diagnose_strategic_posture(self, axiom_trend_form: pd.Series, axiom_mtf_cohesion: pd.Series, axiom_stability: pd.Series) -> pd.Series:
         """
-        【V1.0 · 新增】诊断顶层“结构战略态势”超级信号
-        - 核心逻辑: 基于“矛与盾”博弈模型，对结构层的原子公理进行非线性战略融合。
-        - 矛 (进攻力量): 融合“趋势形态”与“多周期协同”，代表结构的进攻潜力。
-        - 盾 (防御基础): 基于“结构稳定性”，代表结构的防御强度。
-        - 融合公式: sign(矛) * sqrt(abs(矛 * 盾))
+        【V2.1 · 杠杆强化版】诊断顶层“战略态势”
+        - 核心升级: 将“结构杠杆”指标整合进“矛（进攻）分”的计算中，使其能同时评估进攻的“意愿”、“健康度”和“效率”。
+        - 核心逻辑:
+          - 矛 (进攻): 融合了趋势形态（意愿）、宏观健康度（可持续性）和结构杠杆（效率）。
+          - 盾 (防御): 直接由纯粹的结构稳定性公理决定。
+        - 输出: 一个综合了进攻与防御的顶层战略分数。
         """
-        # --- 1. 计算“矛” (Spear) - 进攻力量 ---
-        # 权重: 趋势形态(0.6), 多周期协同(0.4)
-        spear_score = (axiom_trend_form * 0.6 + axiom_mtf_cohesion * 0.4).clip(-1, 1)
-        # --- 2. 计算“盾” (Shield) - 防御强度 ---
-        # 将双极性的稳定性分数 [-1, 1] 映射为单极性的防御强度 [0, 1]
-        shield_strength = (axiom_stability + 1) / 2
-        # --- 3. 非线性融合 ---
-        final_score_raw = np.sign(spear_score) * np.sqrt(np.abs(spear_score) * shield_strength)
-        final_score = final_score_raw.fillna(0).clip(-1, 1).astype(np.float32)
+        # --- 新增代码开始 ---
+        # 增加对杠杆信号的依赖
+        required_signals = ['structural_leverage_D']
+        if not self._validate_required_signals(self.strategy.df_indicators, required_signals, "_diagnose_strategic_posture"):
+            # 如果信号不存在，可以返回一个中性或错误状态
+            return pd.Series(0.0, index=axiom_trend_form.index)
+        df_index = axiom_trend_form.index
+        p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
+        tf_weights = mtf_weights_conf.get('long_term_stability', {13: 0.2, 21: 0.3, 55: 0.4, 89: 0.1})
+        # 在此计算杠杆分
+        leverage_raw = self._get_safe_series(self.strategy.df_indicators, 'structural_leverage_D', 0.0, method_name="_diagnose_strategic_posture")
+        leverage_score = get_adaptive_mtf_normalized_score(leverage_raw, df_index, ascending=True, tf_weights=tf_weights)
+        # --- 新增代码结束 ---
+        # --- 1. 矛 (Offense) ---
+        # --- 修改代码开始 ---
+        # 权重: 趋势形态(0.4), 宏观健康度(0.4), 结构杠杆(0.2)
+        offense_score = (
+            axiom_trend_form.clip(lower=0) * 0.4 +
+            axiom_mtf_cohesion.clip(lower=0) * 0.4 +
+            leverage_score * 0.2
+        ).clip(0, 1)
+        # --- 修改代码结束 ---
+        # --- 2. 盾 (Defense) ---
+        # 防御强度直接来自于纯粹的稳定性公理（需要从[-1, 1]映射回[0, 1]）
+        defense_strength = ((axiom_stability + 1) / 2).clip(0, 1)
+        # --- 3. 融合 ---
+        # 战略态势 = 进攻分 * 防御强度 (防御弱时，进攻的风险调整)
+        strategic_posture = offense_score * defense_strength
+        final_score = strategic_posture.astype(np.float32)
         if self.is_probe_date:
             today_score = final_score.iloc[-1]
             print(f"    [探针] 结构战略态势 (SCORE_STRUCT_STRATEGIC_POSTURE): {today_score:.4f}")
-            print(f"      - 原料: 趋势形态分={axiom_trend_form.iloc[-1]:.2f}, 多周期协同分={axiom_mtf_cohesion.iloc[-1]:.2f}, 结构稳定性分={axiom_stability.iloc[-1]:.2f}")
-            print(f"      - 计算: 矛(进攻)分={spear_score.iloc[-1]:.2f}, 盾(防御)强度={shield_strength.iloc[-1]:.2f}")
+            # --- 修改代码开始 ---
+            print(f"      - 原料: 趋势形态分={axiom_trend_form.iloc[-1]:.2f}, 宏观健康度分={axiom_mtf_cohesion.iloc[-1]:.2f}, 结构稳定性分={axiom_stability.iloc[-1]:.2f}")
+            print(f"      - 新增原料: 杠杆(原始)={leverage_raw.iloc[-1]:.2f} -> 杠杆分={leverage_score.iloc[-1]:.2f}")
+            print(f"      - 计算: 矛(进攻)分={offense_score.iloc[-1]:.2f}, 盾(防御)强度={defense_strength.iloc[-1]:.2f}")
+            # --- 修改代码结束 ---
         return final_score
 
