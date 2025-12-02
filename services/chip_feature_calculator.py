@@ -1399,8 +1399,10 @@ class ChipFeatureCalculator:
 
     def _compute_contextual_action_metrics(self, context: dict) -> dict:
         """
-        【V1.0 · 新增】情境行为融合指标计算内核。
-        - 核心职责: 融合筹码情境(主峰成本)与高频资金行为，计算在关键位置的攻防指标。
+        【V1.2 · 诊断探针植入版】情境行为融合指标计算内核。
+        - 核心增强: 植入 C.1 诊断探针，用于穿透主峰区攻防指标的计算链路。探针将详细打印
+                     核心情境（主峰成本、ATR）、战区定义、以及各项指标（派发、吸筹、突破、防守）
+                     的构成组件和最终得分，为调试提供完整的决策路径。
         """
         metrics = {
             'distribution_at_peak_intensity': np.nan,
@@ -1410,13 +1412,28 @@ class ChipFeatureCalculator:
         }
         raw_hf_df, common_data = self._prepare_behavioral_data_for_chips(context)
         hf_analysis_df, hf_features = self._engineer_hf_features_for_chips(raw_hf_df, common_data.get('daily_total_volume', 0))
+        # [新增的代码块] 植入完整的探针逻辑
+        debug_params = context.get('debug_params', {})
+        enable_probe = debug_params.get('enable_mfca_probe', False)
+        target_date_str = debug_params.get('target_date')
+        trade_date = context.get('trade_date')
+        is_target_date = str(trade_date) == target_date_str
+        should_probe = enable_probe and is_target_date
+        probe_data = {}
         dominant_peak_cost = context.get('dominant_peak_cost')
         atr = common_data.get('atr')
+        if should_probe:
+            print(f"\n{'='*20} [探针 C.1 - 情境行为内核 @ {trade_date}] {'='*20}")
+            print(f"  - 核心情境: 主峰成本={dominant_peak_cost}, ATR={atr}")
         if hf_analysis_df.empty or pd.isna(dominant_peak_cost) or pd.isna(atr) or atr <= 0:
+            if should_probe:
+                print(f"  - [!!!] 决策: 因核心情境数据缺失或无效，提前退出计算。")
             return metrics
         peak_zone_radius = 0.5 * atr
         peak_upper_bound = dominant_peak_cost + peak_zone_radius
         peak_lower_bound = dominant_peak_cost - peak_zone_radius
+        if should_probe:
+            print(f"  - 主峰战区定义: [{peak_lower_bound:.2f} - {peak_upper_bound:.2f}]")
         peak_zone_hf_df = hf_analysis_df[
             (hf_analysis_df['price'] >= peak_lower_bound) & (hf_analysis_df['price'] <= peak_upper_bound)
         ]
@@ -1432,7 +1449,8 @@ class ChipFeatureCalculator:
                 intent_purity_component = mf_ofi_in_zone.clip(upper=0).abs().sum() / mf_ofi_in_zone.abs().sum() if mf_ofi_in_zone.abs().sum() > 0 else 0
                 mf_sell_vwap_in_zone = (mf_sell_trades_in_zone['price'] * mf_sell_trades_in_zone['volume']).sum() / mf_sell_trades_in_zone['volume'].sum()
                 outcome_component = np.tanh((mf_sell_vwap_in_zone - common_data['day_close']) / atr)
-                metrics['distribution_at_peak_intensity'] = ((focus_component + 1e-9)**0.4 * (intent_purity_component + 1e-9)**0.4 * (outcome_component.clip(0, 1) + 1e-9)**0.2) * 100
+                metrics['distribution_at_peak_intensity'] = ((focus_component + 1e-9)**0.4 * (intent_purity_component + 1e-9)**0.4 * (np.clip(outcome_component, 0, 1) + 1e-9)**0.2) * 100
+                probe_data['distribution'] = {'focus': focus_component, 'purity': intent_purity_component, 'outcome': outcome_component}
         if not mf_trades_in_zone.empty:
             mf_buy_trades_in_zone = mf_trades_in_zone[mf_trades_in_zone['type'] == 'B']
             total_mf_buy_vol_day = hf_features['mf_buy_vol']
@@ -1442,7 +1460,8 @@ class ChipFeatureCalculator:
                 intent_purity_component = mf_ofi_in_zone.clip(lower=0).sum() / mf_ofi_in_zone.abs().sum() if mf_ofi_in_zone.abs().sum() > 0 else 0
                 mf_buy_vwap_in_zone = (mf_buy_trades_in_zone['price'] * mf_buy_trades_in_zone['volume']).sum() / mf_buy_trades_in_zone['volume'].sum()
                 outcome_component = np.tanh((common_data['day_close'] - mf_buy_vwap_in_zone) / atr)
-                metrics['absorption_at_peak_intensity'] = ((focus_component + 1e-9)**0.4 * (intent_purity_component + 1e-9)**0.4 * (outcome_component.clip(0, 1) + 1e-9)**0.2) * 100
+                metrics['absorption_at_peak_intensity'] = ((focus_component + 1e-9)**0.4 * (intent_purity_component + 1e-9)**0.4 * (np.clip(outcome_component, 0, 1) + 1e-9)**0.2) * 100
+                probe_data['absorption'] = {'focus': focus_component, 'purity': intent_purity_component, 'outcome': outcome_component}
         if common_data['day_high'] > peak_upper_bound:
             breakthrough_hf_df = hf_analysis_df[hf_analysis_df['price'] > peak_upper_bound]
             if not breakthrough_hf_df.empty:
@@ -1451,14 +1470,42 @@ class ChipFeatureCalculator:
                 conviction_component = mf_ofi_in_breakthrough.clip(lower=0).sum() / mf_ofi_in_breakthrough.abs().sum() if mf_ofi_in_breakthrough.abs().sum() > 0 else 0
                 volume_in_breakthrough = breakthrough_hf_df['volume'].sum()
                 efficiency_component = 1 - np.tanh(volume_in_breakthrough / common_data['daily_total_volume']) if common_data['daily_total_volume'] > 0 else 0
-                metrics['breakthrough_of_peak_quality'] = ((magnitude_component.clip(0, 1) + 1e-9)**0.3 * (conviction_component + 1e-9)**0.5 * (efficiency_component + 1e-9)**0.2) * 100
+                metrics['breakthrough_of_peak_quality'] = ((np.clip(magnitude_component, 0, 1) + 1e-9)**0.3 * (conviction_component + 1e-9)**0.5 * (efficiency_component + 1e-9)**0.2) * 100
+                probe_data['breakthrough'] = {'magnitude': magnitude_component, 'conviction': conviction_component, 'efficiency': efficiency_component}
         if common_data['day_low'] < peak_lower_bound:
             defense_hf_df = hf_analysis_df[hf_analysis_df['price'] < peak_lower_bound]
             if not defense_hf_df.empty:
                 resilience_component = (common_data['day_close'] - common_data['day_low']) / atr
                 mf_ofi_in_defense = defense_hf_df['main_force_ofi']
                 counter_attack_component = mf_ofi_in_defense.clip(lower=0).sum() / mf_ofi_in_defense.abs().sum() if mf_ofi_in_defense.abs().sum() > 0 else 0
-                metrics['defense_of_peak_quality'] = ((resilience_component.clip(0, 1) + 1e-9)**0.4 * (counter_attack_component + 1e-9)**0.6) * 100
+                metrics['defense_of_peak_quality'] = ((np.clip(resilience_component, 0, 1) + 1e-9)**0.4 * (counter_attack_component + 1e-9)**0.6) * 100
+                probe_data['defense'] = {'resilience': resilience_component, 'counter_attack': counter_attack_component}
+        if should_probe:
+            print("  - 指标计算详情:")
+            dist_data = probe_data.get('distribution')
+            print(f"    - 主峰区派发烈度: {metrics['distribution_at_peak_intensity']:.4f}")
+            if dist_data:
+                print(f"      - 构成: 专注度={dist_data['focus']:.2f}, 意图纯度={dist_data['purity']:.2f}, 战术成果={dist_data['outcome']:.2f}")
+            else:
+                print("      - (未计算: 无相关主力卖出或条件不满足)")
+            abs_data = probe_data.get('absorption')
+            print(f"    - 主峰区吸筹烈度: {metrics['absorption_at_peak_intensity']:.4f}")
+            if abs_data:
+                print(f"      - 构成: 专注度={abs_data['focus']:.2f}, 意图纯度={abs_data['purity']:.2f}, 战术成果={abs_data['outcome']:.2f}")
+            else:
+                print("      - (未计算: 无相关主力买入或条件不满足)")
+            brk_data = probe_data.get('breakthrough')
+            print(f"    - 突破主峰质量: {metrics['breakthrough_of_peak_quality']:.4f}")
+            if brk_data:
+                print(f"      - 构成: 幅度={brk_data['magnitude']:.2f}, 信念={brk_data['conviction']:.2f}, 效率={brk_data['efficiency']:.2f}")
+            else:
+                print("      - (未计算: 当日未发生向上突破)")
+            def_data = probe_data.get('defense')
+            print(f"    - 防守主峰质量: {metrics['defense_of_peak_quality']:.4f}")
+            if def_data:
+                print(f"      - 构成: 韧性={def_data['resilience']:.2f}, 反击={def_data['counter_attack']:.2f}")
+            else:
+                print("      - (未计算: 当日未发生向下破位)")
         return metrics
 
 
