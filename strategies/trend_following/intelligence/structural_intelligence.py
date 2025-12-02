@@ -46,11 +46,9 @@ class StructuralIntelligence:
 
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.4 · 情境感知版】结构情报分析总指挥
-        - 核心升级: 引入“战场环境”公理，并基于此生成最终的“情境战略态势”，实现“天人合一”的决策。
-        - 核心新增: 引入“结构张力”公理，作为势能压缩的先行指标。
-        - 核心新增: 引入“二次启动”战术剧本识别，从公理组合中识别高阶意图。
-        - 核心职责: 输出所有结构层信号，包括原子公理、内部态势、情境态势、动量和剧本。
+        【V5.6 · 平台感知版】结构情报分析总指挥
+        - 核心升级: 新增“平台基石”公理，用于识别静态结构品质，并将其融入“战略态势”的防御维度。
+        - 核心新增: 引入“龙头潜力”裁决者，在“个体强环境弱”的矛盾情境中，识别“真龙头”机会。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -68,10 +66,12 @@ class StructuralIntelligence:
         axiom_divergence = self._diagnose_axiom_divergence(df)
         bottom_fractal_score = self._diagnose_bottom_fractal(df, n=5, min_depth_ratio=0.001)
         axiom_tension = self._diagnose_axiom_tension(df)
+        axiom_environment = self._diagnose_axiom_environment(df)
         # --- 新增代码开始 ---
-        axiom_environment = self._diagnose_axiom_environment(df) # 新增：诊断战场环境
-        all_states['SCORE_STRUCT_AXIOM_ENVIRONMENT'] = axiom_environment
+        platform_foundation = self._diagnose_platform_foundation(df) # 新增：诊断平台基石
+        all_states['SCORE_STRUCT_PLATFORM_FOUNDATION'] = platform_foundation
         # --- 新增代码结束 ---
+        all_states['SCORE_STRUCT_AXIOM_ENVIRONMENT'] = axiom_environment
         all_states['SCORE_STRUCT_AXIOM_TENSION'] = axiom_tension
         all_states['SCORE_STRUCT_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_STRUCT_AXIOM_TREND_FORM'] = axiom_trend_form
@@ -82,24 +82,23 @@ class StructuralIntelligence:
         all_states['SCORE_STRUCTURE_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         all_states['SCORE_STRUCT_BOTTOM_FRACTAL'] = bottom_fractal_score
         # --- 步骤二: 诊断内部战略态势 ---
+        # --- 修改代码开始 ---
         strategic_posture = self._diagnose_strategic_posture(
-            axiom_trend_form, axiom_mtf_cohesion, axiom_stability, axiom_tension
+            axiom_trend_form, axiom_mtf_cohesion, axiom_stability, axiom_tension, platform_foundation
         )
+        # --- 修改代码结束 ---
         all_states['SCORE_STRUCT_STRATEGIC_POSTURE'] = strategic_posture
-        # --- 新增代码开始 ---
         # --- 步骤三: 融合战场环境，生成最终情境态势 ---
-        env_factor = 0.5 # 环境对内部态势的影响系数
+        env_factor = 0.5
         env_modifier = (axiom_environment - 0.5) * env_factor
         contextual_posture = (strategic_posture * (1 + env_modifier)).clip(0, 1)
         all_states['SCORE_STRUCT_CONTEXTUAL_POSTURE'] = contextual_posture.astype(np.float32)
         if self.is_probe_date:
             print(f"    [探针] 情境战略态势 (SCORE_STRUCT_CONTEXTUAL_POSTURE): {contextual_posture.iloc[-1]:.4f}")
             print(f"      - 融合: 内部态势分={strategic_posture.iloc[-1]:.2f}, 环境调节器={env_modifier.iloc[-1]:.2f} -> 最终态势 = 内部态势 * (1 + 调节器)")
-        # --- 新增代码结束 ---
         # --- 步骤四: 基于情境态势，诊断动量与剧本 ---
-        # --- 修改代码开始 ---
         momentum_window = 5
-        posture_slope_raw = ta.slope(contextual_posture, length=momentum_window) # 基于情境态势计算动量
+        posture_slope_raw = ta.slope(contextual_posture, length=momentum_window)
         posture_slope_raw.fillna(0, inplace=True)
         mtf_weights_conf = get_param_value(p_conf.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -110,10 +109,14 @@ class StructuralIntelligence:
             print(f"    [探针] 结构动量(势) (SCORE_STRUCT_MOMENTUM): {today_score:.4f}")
             print(f"      - 原料: 情境战略态势5日斜率(原始)={posture_slope_raw.iloc[-1]:.4f}")
         playbook_secondary_launch = self._diagnose_playbook_secondary_launch(
-            df, axiom_stability, contextual_posture, structural_momentum # 使用情境态势进行剧本判断
+            df, axiom_stability, contextual_posture, structural_momentum
         )
         all_states['SCORE_STRUCT_PLAYBOOK_SECONDARY_LAUNCH'] = playbook_secondary_launch
-        # --- 修改代码结束 ---
+        # --- 步骤五: 终极裁决 - 龙头潜力 ---
+        leadership_potential = self._diagnose_leadership_potential(
+            strategic_posture, axiom_environment, structural_momentum, axiom_tension
+        )
+        all_states['SCORE_STRUCT_LEADERSHIP_POTENTIAL'] = leadership_potential
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame) -> pd.Series:
@@ -410,13 +413,13 @@ class StructuralIntelligence:
         # --- 新增代码结束 ---
         return bottom_fractal_score
 
-    def _diagnose_strategic_posture(self, axiom_trend_form: pd.Series, axiom_mtf_cohesion: pd.Series, axiom_stability: pd.Series, axiom_tension: pd.Series) -> pd.Series:
+    def _diagnose_strategic_posture(self, axiom_trend_form: pd.Series, axiom_mtf_cohesion: pd.Series, axiom_stability: pd.Series, axiom_tension: pd.Series, platform_foundation: pd.Series) -> pd.Series:
         """
-        【V2.3 · 张力催化版】诊断顶层“战略态势”
-        - 核心升级: 将“结构张力”作为“进攻催化剂”整合进“矛”的计算中，旨在放大从高势能状态发起的突破的战略价值。
+        【V2.4 · 绝对防御版】诊断顶层“战略态势”
+        - 核心升级: 融合“动态防御”（结构稳定性）与“静态防御”（平台基石），锻造出更全面的“绝对防御之盾”。
         - 核心逻辑:
           - 矛 (进攻): (趋势形态 + 宏观健康度 + 结构杠杆) * (1 + 张力催化)
-          - 盾 (防御): 直接由纯粹的结构稳定性公理决定。
+          - 盾 (防御): 动态防御 * 0.6 + 静态防御 * 0.4
         - 输出: 一个综合了进攻与防御的顶层战略分数。
         """
         required_signals = ['structural_leverage_D']
@@ -429,21 +432,23 @@ class StructuralIntelligence:
         leverage_raw = self._get_safe_series(self.strategy.df_indicators, 'structural_leverage_D', 0.0, method_name="_diagnose_strategic_posture")
         leverage_score = get_adaptive_mtf_normalized_score(leverage_raw, df_index, ascending=True, tf_weights=tf_weights)
         # --- 1. 矛 (Offense) ---
-        # 1a. 基础进攻分
         base_offense_score = (
             axiom_trend_form.clip(lower=0) * 0.4 +
             axiom_mtf_cohesion.clip(lower=0) * 0.4 +
             leverage_score * 0.2
         ).clip(0, 1)
-        # --- 修改代码开始 ---
-        # 1b. 张力催化
-        tension_catalyst_factor = 0.5 # 张力对进攻的催化系数
+        tension_catalyst_factor = 0.5
         tension_amplifier = 1 + (axiom_tension * tension_catalyst_factor)
-        # 1c. 最终进攻分
         offense_score = (base_offense_score * tension_amplifier).clip(0, 1)
-        # --- 修改代码结束 ---
         # --- 2. 盾 (Defense) ---
-        defense_strength = ((axiom_stability + 1) / 2).clip(0, 1)
+        # --- 修改代码开始 ---
+        # 2a. 动态防御 (来自结构稳定性公理)
+        dynamic_defense = ((axiom_stability + 1) / 2).clip(0, 1)
+        # 2b. 静态防御 (来自平台基石公理)
+        static_defense = platform_foundation
+        # 2c. 融合锻造绝对防御之盾
+        defense_strength = (dynamic_defense * 0.6 + static_defense * 0.4).clip(0, 1)
+        # --- 修改代码结束 ---
         # --- 3. 协同信念融合 ---
         conviction_factor = 0.5
         defense_modifier = (defense_strength - 0.5) * conviction_factor
@@ -452,12 +457,12 @@ class StructuralIntelligence:
         if self.is_probe_date:
             today_score = final_score.iloc[-1]
             print(f"    [探针] 结构战略态势 (SCORE_STRUCT_STRATEGIC_POSTURE): {today_score:.4f}")
-            # --- 修改代码开始 ---
             print(f"      - 原料: 趋势形态分={axiom_trend_form.iloc[-1]:.2f}, 宏观健康度分={axiom_mtf_cohesion.iloc[-1]:.2f}, 结构稳定性分={axiom_stability.iloc[-1]:.2f}")
             print(f"      - 新增原料: 杠杆(原始)={leverage_raw.iloc[-1]:.2f} -> 杠杆分={leverage_score.iloc[-1]:.2f}")
             print(f"      - 新增原料: 结构张力分={axiom_tension.iloc[-1]:.2f}")
             print(f"      - 计算: 基础矛分={base_offense_score.iloc[-1]:.2f}, 张力放大器={tension_amplifier.iloc[-1]:.2f} -> 最终矛分={offense_score.iloc[-1]:.2f}")
-            print(f"      - 计算: 盾(防御)强度={defense_strength.iloc[-1]:.2f}")
+            # --- 修改代码开始 ---
+            print(f"      - 计算: 动态盾={dynamic_defense.iloc[-1]:.2f}, 静态盾(平台)={static_defense.iloc[-1]:.2f} -> 最终盾强度={defense_strength.iloc[-1]:.2f}")
             print(f"      - 协同融合: 防御调节器={defense_modifier.iloc[-1]:.2f} -> 最终态势 = 最终矛分 * (1 + 调节器)")
             # --- 修改代码结束 ---
         return final_score
@@ -583,7 +588,87 @@ class StructuralIntelligence:
             print(f"      - 人和: 主题热度(原始)={theme_hotness_raw.iloc[-1]:.2f} -> 分数={theme_hotness_score.iloc[-1]:.2f}")
         return final_score
 
+    def _diagnose_leadership_potential(self, strategic_posture: pd.Series, axiom_environment: pd.Series, structural_momentum: pd.Series, axiom_tension: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 逆势王者版】裁决“龙头潜力”
+        - 核心逻辑: 在“个体强，环境弱”的特定情境下，通过寻找额外证据（动能、张力），
+                      来判断标的是“真龙头”还是“补跌陷阱”。
+        """
+        # --- 1. 定义情境激活条件 ---
+        posture_threshold = 0.7  # 个体态势足够强的阈值
+        env_threshold = 0.4      # 环境足够弱的阈值
+        is_conflict_zone = (strategic_posture > posture_threshold) & (axiom_environment < env_threshold)
+        # --- 2. 融合裁决证据 ---
+        # 证据权重: 动量(0.6), 张力(0.4)
+        leadership_evidence_score = (
+            structural_momentum.clip(lower=0) * 0.6 +
+            axiom_tension * 0.4
+        ).clip(0, 1)
+        # --- 3. 输出最终裁决 ---
+        # 只有在矛盾区域内，才输出龙头潜力的证据分
+        final_score = (leadership_evidence_score * is_conflict_zone).astype(np.float32)
+        if self.is_probe_date:
+            today_score = final_score.iloc[-1]
+            if is_conflict_zone.iloc[-1]:
+                print(f"    [探针] 龙头潜力 (SCORE_STRUCT_LEADERSHIP_POTENTIAL): {today_score:.4f}")
+                print(f"      - 裁决: [激活] 内部态势({strategic_posture.iloc[-1]:.2f}) > {posture_threshold} 且 环境({axiom_environment.iloc[-1]:.2f}) < {env_threshold}")
+                print(f"      - 证据: 结构动量分={structural_momentum.iloc[-1]:.2f}, 结构张力分={axiom_tension.iloc[-1]:.2f}")
+            else:
+                print(f"    [探针] 龙头潜力 (SCORE_STRUCT_LEADERSHIP_POTENTIAL): 0.0000")
+                print(f"      - 裁决: [未激活] 未满足“个体强，环境弱”的矛盾情境。")
+        return final_score
 
+    def _diagnose_platform_foundation(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 静态结构版】结构公理八：诊断“平台基石”
+        - 核心逻辑: 识别并量化平台整理区的结构品质。
+        - 核心维度: 融合形态稳固(BBW)、供应枯竭(成交量)和主力介入意图。
+        """
+        required_signals = ['BBW_21_2.0_D', 'VOL_MA_5_D', 'VOL_MA_55_D', 'hidden_accumulation_intensity_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_platform_foundation"):
+            return pd.Series(0.0, index=df.index)
+        df_index = df.index
+        p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
+        tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # --- 1. 计算各维度分数 ---
+        # 1a. 价格稳定度
+        price_stability_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 1.0, method_name="_diagnose_platform_foundation")
+        price_stability_score = get_adaptive_mtf_normalized_score(price_stability_raw, df_index, ascending=False, tf_weights=tf_weights)
+        # 1b. 供应枯竭度
+        vol_ma_short = self._get_safe_series(df, 'VOL_MA_5_D', 1.0, method_name="_diagnose_platform_foundation")
+        vol_ma_long = self._get_safe_series(df, 'VOL_MA_55_D', 1.0, method_name="_diagnose_platform_foundation")
+        supply_exhaustion_raw = vol_ma_short / vol_ma_long
+        supply_exhaustion_score = get_adaptive_mtf_normalized_score(supply_exhaustion_raw, df_index, ascending=False, tf_weights=tf_weights)
+        # 1c. 主力吸筹意图
+        accumulation_intent_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_diagnose_platform_foundation")
+        accumulation_intent_score = get_adaptive_mtf_normalized_score(accumulation_intent_raw.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights)
+        # --- 2. 识别平台期并融合 ---
+        # 平台期条件：BBW处于历史较低水平(前40%) 且 供应枯竭度较高(前40%)
+        is_in_platform_state = (price_stability_score > 0.6) & (supply_exhaustion_score > 0.6)
+        # 计算平台期内的品质分
+        platform_quality_score = (
+            price_stability_score * 0.3 +
+            supply_exhaustion_score * 0.4 +
+            accumulation_intent_score * 0.3
+        ).clip(0, 1)
+        # --- 3. 引入时长门控 ---
+        min_duration = 5
+        # 计算连续处于平台状态的天数
+        platform_duration = is_in_platform_state.ne(is_in_platform_state.shift()).cumsum()
+        duration_counts = platform_duration.groupby(platform_duration).transform('size')
+        # 只有当处于平台状态且持续时间足够长时，分数才有效
+        is_valid_platform = is_in_platform_state & (duration_counts >= min_duration)
+        final_score = (platform_quality_score * is_valid_platform).astype(np.float32)
+        if self.is_probe_date:
+            today_score = final_score.iloc[-1]
+            print(f"    [探针] 平台基石公理 (SCORE_STRUCT_PLATFORM_FOUNDATION): {today_score:.4f}")
+            if is_valid_platform.iloc[-1]:
+                print(f"      - 状态: [有效平台] 持续天数={duration_counts.iloc[-1]}")
+                print(f"      - 品质: 稳定度分={price_stability_score.iloc[-1]:.2f}, 枯竭度分={supply_exhaustion_score.iloc[-1]:.2f}, 吸筹意图分={accumulation_intent_score.iloc[-1]:.2f}")
+            else:
+                print(f"      - 状态: [无效平台] 持续天数={duration_counts.iloc[-1] if is_in_platform_state.iloc[-1] else 0}, 未满足最少{min_duration}天要求。")
+        return final_score
 
 
 
