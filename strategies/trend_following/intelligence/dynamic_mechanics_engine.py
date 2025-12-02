@@ -185,8 +185,10 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int, is_probe_day: bool, current_date_str: str) -> pd.Series:
         """
-        【V3.0 · 诡道博弈版】力学公理三：诊断“势能稳定性”
-        - 核心重构: 引入“势能指数”来调制原始波动率，区分“压缩的弹簧”与“一潭死水”。
+        【V3.1 · 逻辑修正版】力学公理三：诊断“势能稳定性”
+        - 核心重构: 根据探针反馈，修正了原始稳定性分数的计算逻辑。之前高波动被错误地识别为高稳定。
+                      新逻辑：1. 计算一个标准的波动率得分（越高越不稳定）。 2. 稳定性 = 1 - 波动率得分。
+                      这确保了稳定性与波动率的负相关关系，使其更符合金融直觉。
         - 新增: 增加探针，用于监测关键计算节点。
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
@@ -201,12 +203,17 @@ class DynamicMechanicsEngine:
         p_conf_bhv = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_bhv.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 1. 计算原始稳定性 (波动率的倒数)
+        # --- 修改：修正稳定性计算逻辑 ---
+        # 1. 计算原始波动率
         bbw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0)
         atr_pct = self._get_safe_series(df, 'ATR_14_D', 0.0) / self._get_safe_series(df, 'close_D', 1e-9).replace(0, np.nan)
         raw_volatility = (bbw + atr_pct).fillna(0)
-        raw_stability_score = get_adaptive_mtf_normalized_score(raw_volatility, df.index, False, default_weights)
-        # 2. 计算势能指数
+        # 2. 计算波动率得分 [0, 1]，越高代表波动越大
+        volatility_level_score = get_adaptive_mtf_normalized_score(raw_volatility, df.index, ascending=True, tf_weights=default_weights)
+        # 3. 计算原始稳定性得分 [0, 1]，越高代表越稳定 (与波动率得分反向)
+        raw_stability_score = 1 - volatility_level_score
+        # --- 修改结束 ---
+        # 4. 计算势能指数
         ma_tension_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'MA_POTENTIAL_TENSION_INDEX_D', 0.5), df.index, True, default_weights)
         structural_tension_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'structural_tension_index_D', 0.5), df.index, True, default_weights)
         readiness_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'breakout_readiness_score_D', 0.5), df.index, True, default_weights)
@@ -215,7 +222,7 @@ class DynamicMechanicsEngine:
             structural_tension_score * potential_weights.get('structural_tension', 0.4) +
             readiness_score * potential_weights.get('breakout_readiness', 0.2)
         ).clip(0, 1)
-        # 3. 最终势能稳定性分
+        # 5. 最终势能稳定性分
         # 逻辑: (稳定性*2-1) 将 [0,1] 的稳定性映射到 [-1,1]。高稳定(1)得+1，低稳定(0)得-1。再乘以势能，实现调制。
         final_stability_score = ((raw_stability_score * 2 - 1) * potential_energy_score).clip(-1, 1)
         if is_probe_day:
@@ -224,6 +231,7 @@ class DynamicMechanicsEngine:
                 "势能-均线张力": self._get_safe_series(df, 'MA_POTENTIAL_TENSION_INDEX_D').iloc[-1],
                 "势能-结构张力": self._get_safe_series(df, 'structural_tension_index_D').iloc[-1],
                 "势能-准备度": self._get_safe_series(df, 'breakout_readiness_score_D').iloc[-1],
+                "节点-波动率分(新)": volatility_level_score.iloc[-1],
                 "节点-原始稳定分": raw_stability_score.iloc[-1],
                 "节点-势能指数": potential_energy_score.iloc[-1],
                 "结果-最终稳定分": final_stability_score.iloc[-1]
