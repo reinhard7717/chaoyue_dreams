@@ -33,9 +33,9 @@ class DynamicMechanicsEngine:
 
     def run_dynamic_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V7.2 · 大统一力场版】动态力学引擎总指挥
-        - 核心升级: 在所有公理计算完毕后，调用 `_synthesize_grand_unification_score` 方法，
-                      生成顶层的“大统一力场”信号 `SCORE_DYN_GRAND_UNIFICATION`。
+        【V7.3 · 探针增强版】动态力学引擎总指挥
+        - 核心升级: 为“大统一力场”增加专属探针输出，使其内部的“矛”与“盾”的计算过程透明化，
+                      便于持续监控和验证模型的顶层裁决逻辑。
         """
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -63,11 +63,25 @@ class DynamicMechanicsEngine:
         all_dynamic_states['SCORE_DYN_AXIOM_STABILITY'] = axiom_stability
         all_dynamic_states['SCORE_DYN_AXIOM_ENERGY'] = axiom_energy
         all_dynamic_states['SCORE_DYN_AXIOM_MA_ACCELERATION'] = axiom_ma_dynamics
-        # --- 新增：调用大统一合成器 ---
         grand_unification_score = self._synthesize_grand_unification_score(
             axiom_momentum, axiom_inertia, axiom_stability, axiom_energy
         )
         all_dynamic_states['SCORE_DYN_GRAND_UNIFICATION'] = grand_unification_score
+        # --- 新增：大统一力场专属探针 ---
+        if is_probe_day:
+            unification_params = get_param_value(p_conf.get('grand_unification_params'), {})
+            offensive_weights = get_param_value(unification_params.get('offensive_force_weights'), {'momentum': 0.6, 'energy': 0.4})
+            structural_weights = get_param_value(unification_params.get('structural_integrity_weights'), {'inertia': 0.6, 'stability': 0.4})
+            offensive_force = (axiom_momentum * offensive_weights.get('momentum', 0.6) + axiom_energy * offensive_weights.get('energy', 0.4)).clip(-1, 1)
+            structural_integrity = (axiom_inertia * structural_weights.get('inertia', 0.6) + axiom_stability * structural_weights.get('stability', 0.4)).clip(-1, 1)
+            last_values = {
+                "输入-动量分": axiom_momentum.iloc[-1], "输入-惯性分": axiom_inertia.iloc[-1],
+                "输入-稳定分": axiom_stability.iloc[-1], "输入-能量分": axiom_energy.iloc[-1],
+                "节点-进攻力量(矛)": offensive_force.iloc[-1],
+                "节点-结构完整(盾)": structural_integrity.iloc[-1],
+                "结果-大统一力场分": grand_unification_score.iloc[-1]
+            }
+            print(f"  > 大统一力场探针: { {k: round(v, 4) if isinstance(v, (int, float)) else v for k, v in last_values.items()} }")
         # --- 新增结束 ---
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
