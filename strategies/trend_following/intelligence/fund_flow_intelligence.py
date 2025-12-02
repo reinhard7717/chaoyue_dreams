@@ -62,13 +62,13 @@ class FundFlowIntelligence:
         axiom_conviction = self._diagnose_axiom_conviction(df, norm_window)
         axiom_flow_momentum = self._diagnose_axiom_flow_momentum(df, norm_window)
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
-        # [新增代码行] 调用新增的资本属性公理诊断方法
+        # 调用新增的资本属性公理诊断方法
         axiom_capital_signature = self._diagnose_axiom_capital_signature(df, norm_window)
         all_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_FF_AXIOM_CONSENSUS'] = axiom_consensus
         all_states['SCORE_FF_AXIOM_CONVICTION'] = axiom_conviction
         all_states['SCORE_FF_AXIOM_FLOW_MOMENTUM'] = axiom_flow_momentum
-        # [新增代码行] 将新的公理分数添加到状态字典
+        # 将新的公理分数添加到状态字典
         all_states['SCORE_FF_AXIOM_CAPITAL_SIGNATURE'] = axiom_capital_signature
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)

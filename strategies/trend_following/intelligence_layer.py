@@ -91,7 +91,7 @@ class IntelligenceLayer:
         self._ignite_relational_dynamics_engine()
         final_playbook_states = self.cognitive_intel.synthesize_cognitive_scores(df)
         self.strategy.playbook_states.update(final_playbook_states)
-        # [新增代码行] 修复指挥链，在所有诊断完成后部署法医探针
+        # 修复指挥链，在所有诊断完成后部署法医探针
         self.deploy_forensic_probes()
         return self.strategy.atomic_states
 

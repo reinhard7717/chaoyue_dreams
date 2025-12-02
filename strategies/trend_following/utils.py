@@ -859,44 +859,47 @@ def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series) -> Tuple[pd.Series, 
 
 def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index, ascending: bool = True, tf_weights: Dict = None) -> pd.Series:
     """
-    【V1.0】多时间框架(MTF)自适应归一化引擎
-    - 核心职责: 将一个原始指标序列，通过在多个时间窗口上进行百分位排名归一化，并加权融合，
-                  最终产出一个综合了多周期动态的、在[0, 1]区间的标准分数。
-    - 依赖: normalize_score
+    【V2.0 · 绝对零点校准版】多时间框架(MTF)自适应归一化引擎
+    - 核心修复: 新增“绝对零点校准”逻辑。在完成所有排名归一化计算后，强制将原始输入为0的位置
+                  的最终得分也设为0，从根本上解决“零值归一化悖论”。
     """
     if tf_weights is None:
         tf_weights = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}}
-    # 兼容两种配置格式: {'weights': {...}} 或直接 {...}
     if 'weights' in tf_weights and isinstance(tf_weights['weights'], dict):
         valid_weights = {k: v for k, v in tf_weights['weights'].items() if isinstance(v, (int, float))}
     else:
         valid_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
     if not valid_weights or series is None or series.empty:
         return pd.Series(0.5, index=target_index, dtype=np.float32)
-        
     final_score = pd.Series(0.0, index=target_index, dtype=np.float32)
     total_weight = sum(valid_weights.values())
     if total_weight <= 0:
         return pd.Series(0.5, index=target_index, dtype=np.float32)
-        
     for period_str, weight in valid_weights.items():
         try:
             period = int(period_str)
-            # 调用基础的单周期归一化工具
             period_score = normalize_score(series, target_index, window=period, ascending=ascending)
             final_score += period_score * (weight / total_weight)
         except (ValueError, TypeError) as e:
             print(f"警告: 在 get_adaptive_mtf_normalized_score 中跳过无效的周期配置: '{period_str}'. 错误: {e}")
             continue
-            
-    return final_score.clip(0, 1)
+    final_score = final_score.clip(0, 1)
+    # 绝对零点校准：确保输入为0时，输出也为0
+    # 重新对齐原始series以确保掩码的索引一致性
+    aligned_series = series.reindex(target_index)
+    is_near_zero_mask = (aligned_series.abs() < 1e-6).values
+    # 确保掩码长度与得分序列长度一致，防止广播错误
+    if len(is_near_zero_mask) == len(final_score):
+        final_score.values[is_near_zero_mask] = 0.0
+    else:
+        print(f"警告: 在 get_adaptive_mtf_normalized_score 中，校准掩码与最终得分序列长度不匹配，校准跳过。")
+    return final_score
 
 def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: pd.Index, tf_weights: Dict = None, sensitivity: float = 1.0) -> pd.Series:
     """
-    【V1.0】多时间框架(MTF)自适应双极性归一化引擎
-    - 核心职责: 将一个原始指标序列，通过在多个时间窗口上进行Z-score和tanh归一化，并加权融合，
-                  最终产出一个综合了多周期动态的、在[-1, 1]区间的标准分数。
-    - 依赖: normalize_to_bipolar
+    【V2.0 · 绝对零点校准版】多时间框架(MTF)自适应双极性归一化引擎
+    - 核心修复: 新增“绝对零点校准”逻辑。在完成所有Z-score归一化计算后，强制将原始输入为0的位置
+                  的最终得分也设为0，从根本上解决“零值归一化悖论”。
     """
     if tf_weights is None:
         tf_weights = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}}
@@ -913,14 +916,21 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: p
     for period_str, weight in valid_weights.items():
         try:
             period = int(period_str)
-            # 调用基础的双极性归一化工具
             period_score = normalize_to_bipolar(series, target_index, window=period, sensitivity=sensitivity)
             final_score += period_score * (weight / total_weight)
         except (ValueError, TypeError) as e:
             print(f"警告: 在 get_adaptive_mtf_normalized_bipolar_score 中跳过无效的周期配置: '{period_str}'. 错误: {e}")
             continue
-            
-    return final_score.clip(-1, 1)
+    final_score = final_score.clip(-1, 1)
+    # 绝对零点校准：确保输入为0时，输出也为0
+    aligned_series = series.reindex(target_index)
+    is_near_zero_mask = (aligned_series.abs() < 1e-6).values
+    # 确保掩码长度与得分序列长度一致
+    if len(is_near_zero_mask) == len(final_score):
+        final_score.values[is_near_zero_mask] = 0.0
+    else:
+        print(f"警告: 在 get_adaptive_mtf_normalized_bipolar_score 中，校准掩码与最终得分序列长度不匹配，校准跳过。")
+    return final_score
 
 
 

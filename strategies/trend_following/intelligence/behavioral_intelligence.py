@@ -5,7 +5,7 @@ import pandas_ta as ta
 from typing import Dict, Tuple, Optional, List, Any
 from strategies.trend_following.utils import (
     get_params_block, get_param_value, get_adaptive_mtf_normalized_score, 
-    get_adaptive_mtf_normalized_score, is_limit_up, get_adaptive_mtf_normalized_bipolar_score, 
+    is_limit_up, get_adaptive_mtf_normalized_bipolar_score, 
     normalize_score
 )
 
@@ -853,7 +853,7 @@ class BehavioralIntelligence:
                       确保信号只在真正成功的洗盘后发出。
         """
         # --- 1. 获取核心输入 ---
-        # [新增代码行] 获取浮筹清洗效率
+        # 获取浮筹清洗效率
         cleansing_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_shakeout_confirmation")
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
@@ -952,7 +952,7 @@ class BehavioralIntelligence:
         deception_evidence_score = get_adaptive_mtf_normalized_score((base_deception_raw + wash_trade_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
         flow_ratio = main_force_flow / amount
         flow_direction_score = get_adaptive_mtf_normalized_bipolar_score(flow_ratio, df.index, default_weights)
-        # [新增代码行] 对收盘强弱度进行净化，得到[0,1]区间的相对强势度
+        # 对收盘强弱度进行净化，得到[0,1]区间的相对强势度
         normalized_strength = normalize_score(closing_strength_raw, df.index, 55)
         # 3. 计算看涨/看跌欺骗
         # 看涨欺骗 = 弱势表象 * 欺骗行为 * 主力净流入

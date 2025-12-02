@@ -47,13 +47,13 @@ class FoundationIntelligence:
         axiom_pendulum = self._diagnose_axiom_sentiment_pendulum(df)
         axiom_tide = self._diagnose_axiom_liquidity_tide(df)
         axiom_tension = self._diagnose_axiom_market_tension(df)
-        # [新增代码行] 调用新增的相对强度公理诊断方法
+        # 调用新增的相对强度公理诊断方法
         axiom_relative_strength = self._diagnose_axiom_relative_strength(df)
         all_states['SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION'] = axiom_constitution
         all_states['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'] = axiom_pendulum
         all_states['SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE'] = axiom_tide
         all_states['SCORE_FOUNDATION_AXIOM_MARKET_TENSION'] = axiom_tension
-        # [新增代码行] 将新的公理分数添加到状态字典
+        # 将新的公理分数添加到状态字典
         all_states['SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH'] = axiom_relative_strength
         context_trend_confirmed = self._diagnose_context_trend_confirmed(df)
         all_states.update(context_trend_confirmed)

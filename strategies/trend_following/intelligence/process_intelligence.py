@@ -481,7 +481,7 @@ class ProcessIntelligence:
         bearish_score = (price_change_norm.clip(upper=0).abs() * 0.5 + net_flow_norm.clip(upper=0).abs() * 0.5).clip(0, 1) * -1
         base_rally_intent = bullish_intent.mask(bearish_mask, bearish_score)
         rs_modulator = (1 + relative_strength * rs_amplifier)
-        # [新增代码行] 构建资本属性调节器
+        # 构建资本属性调节器
         capital_modulator = (1 + capital_signature * cs_modulator_weight)
         # 应用双重调节器
         final_rally_intent = (base_rally_intent * rs_modulator * capital_modulator).clip(-1, 1)
@@ -966,7 +966,7 @@ class ProcessIntelligence:
         - 核心升级: 引入“相对强度”公理作为环境调节器，放大“领军者”的突破信号，确认其龙头地位。
         """
         print("    -> [过程层] 正在计算 PROCESS_META_BREAKOUT_ACCELERATION (V2.0 · 相对强度增强版)...")
-        # [新增代码行] 将新公理加入依赖校验
+        # 将新公理加入依赖校验
         required_signals = [
             'SCORE_PATTERN_AXIOM_BREAKOUT', 'PROCESS_ATOMIC_REL_SCORE_PROCESS_META_MAIN_FORCE_RALLY_INTENT',
             'PROCESS_META_POWER_TRANSFER', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH'

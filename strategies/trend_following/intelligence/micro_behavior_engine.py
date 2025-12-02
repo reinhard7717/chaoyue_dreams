@@ -163,7 +163,7 @@ class MicroBehaviorEngine:
         impact_raw = self._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name="_diagnose_strategy_shock_and_awe")
         clearing_raw = self._get_safe_series(df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_strategy_shock_and_awe")
         outcome_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_strategy_shock_and_awe")
-        # [新增代码行] 增加数据净化步骤，防止上游数据污染
+        # 增加数据净化步骤，防止上游数据污染
         outcome_normalized = normalize_score(outcome_raw, df.index, 55)
         impact_score = get_adaptive_mtf_normalized_score(impact_raw.abs(), df.index, ascending=True, tf_weights=tf_weights)
         clearing_score = get_adaptive_mtf_normalized_score(clearing_raw, df.index, ascending=True, tf_weights=tf_weights)
