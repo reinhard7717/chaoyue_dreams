@@ -292,9 +292,10 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
 # 资金高级指标模型
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V61.1 · 职责净化版】
-    - 核心重构: 移除了与筹码情境强耦合的“情境行为融合”指标体系，将其职责完全转移至筹码指标模型，
-                 解决了因计算时序依赖导致的数据缺失问题，使本模型职责更聚焦于纯粹的资金流分析。
+    【V62.0 · 微观动力学注入版】
+    - 核心升维: 注入基于“相邻价格变动”的微观动力学分析，新增 `micro_impact_elasticity`,
+                 `price_reversion_velocity`, `asymmetric_friction_index` 三大指标，
+                 旨在从最细微的价量关系中洞察市场冲击成本、价格操纵迹象和多空力量的非对称摩擦。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     POWER_STRUCTURE_METRICS = {
@@ -362,11 +363,17 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'volatility_asymmetry_index': '波动不对称指数',
         'closing_strength_index': '收盘强度指数',
     }
+    # [新增的代码块] 新增微观动力学指标
+    MICRO_DYNAMICS_METRICS = {
+        'micro_impact_elasticity': '微观冲击弹性',
+        'price_reversion_velocity': '价格回归速度',
+        'asymmetric_friction_index': '非对称摩擦系数',
+    }
     CORE_METRICS = {
         **POWER_STRUCTURE_METRICS,
         **TACTICAL_LOG_METRICS,
         **OUTCOME_ASSESSMENT_METRICS,
-        # [修改的代码行] 移除 CONTEXTUAL_ACTION_METRICS
+        **MICRO_DYNAMICS_METRICS, # [修改的代码行] 整合新指标
     }
     SLOPE_ACCEL_EXCLUSIONS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -390,7 +397,10 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
         'imbalance_effectiveness',
         'main_force_posture_index',
-        # [修改的代码块] 移除相关指标
+        # [新增的代码块] 将新指标添加到排除列表
+        'micro_impact_elasticity',
+        'price_reversion_velocity',
+        'asymmetric_friction_index',
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -414,7 +424,10 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'observed_large_order_size_avg', 'micro_price_impact_asymmetry', 'order_book_clearing_rate',
         'imbalance_effectiveness',
         'main_force_posture_index',
-        # [修改的代码块] 移除相关指标
+        # [新增的代码块] 将新指标添加到浮点数字段列表
+        'micro_impact_elasticity',
+        'price_reversion_velocity',
+        'asymmetric_friction_index',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:

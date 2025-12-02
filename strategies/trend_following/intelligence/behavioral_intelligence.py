@@ -499,10 +499,11 @@ class BehavioralIntelligence:
 
     def _diagnose_stagnation_evidence(self, df: pd.DataFrame, upward_efficiency: pd.Series) -> pd.Series:
         """
-        【V3.7 · 谐波融合版】诊断内部行为信号：滞涨证据
-        - 核心重构: 废弃了简单相乘的“宏观放大器”，该模型易导致信号饱和。
-                      引入“谐波融合模型”（加权平均），将“微观冲突分”与新构建的
-                      “宏观风险分”进行加权融合，确保信号的模拟特性和稳定性。
+        【V3.8 · 冲突共振版】诊断内部行为信号：滞涨证据
+        - 核心重构: 废弃用于计算“微观冲突分”的 `np.maximum` (或门)逻辑。
+                      引入“冲突共振模型” `((A+B)/2 * (1-|A-B|))`，确保冲突的诊断
+                      必须依赖于“多头衰竭”与“空头伏击”两大对立力量的共同存在与均衡，
+                      彻底解决了“证据分离谬误”。
         """
         df_index = df.index
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -521,7 +522,7 @@ class BehavioralIntelligence:
         chip_fatigue = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
         winner_rate = self._get_safe_series(df, 'total_winner_rate_D', 50.0, method_name="_diagnose_stagnation_evidence")
         trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
-        # 2. 计算“微观冲突分” (逻辑不变)
+        # 2. 计算“微观冲突分” (升级为冲突共振模型)
         inefficiency_score = (1 - upward_efficiency).clip(0, 1)
         momentum_decay_score = get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
         intraday_failure_score = (1 - closing_deviation).clip(0, 1)
@@ -533,13 +534,16 @@ class BehavioralIntelligence:
         process_evidence = (distribution_score * active_selling_score).pow(0.5)
         outcome_evidence = bullish_failure_score
         bearish_ambush = (process_evidence * 0.7 + outcome_evidence * 0.3)
-        micro_conflict_score = np.maximum(bullish_exhaustion, bearish_ambush)
-        # 3. 构建“宏观风险分”
+        # [修改的代码行] 升级为“冲突共振模型”
+        total_energy = (bullish_exhaustion + bearish_ambush) / 2
+        balance_factor = 1 - (bullish_exhaustion - bearish_ambush).abs()
+        micro_conflict_score = (total_energy * balance_factor).fillna(0.0)
+        # 3. 构建“宏观风险分” (逻辑不变)
         profit_pressure_score = get_adaptive_mtf_normalized_score(winner_rate, df_index, ascending=True, tf_weights=default_weights)
         vitality_decay_raw = trend_vitality.diff(3).clip(upper=0).abs()
         vitality_decay_score = get_adaptive_mtf_normalized_score(vitality_decay_raw, df_index, ascending=True, tf_weights=default_weights)
         macro_risk_score = (profit_pressure_score * vitality_decay_score).pow(0.5)
-        # 4. 谐波融合
+        # 4. 谐波融合 (逻辑不变)
         stagnation_evidence = (micro_conflict_score * 0.6 + macro_risk_score * 0.4)
         is_rising_or_flat = (pct_change >= -0.005).astype(float)
         final_stagnation_evidence = (stagnation_evidence * is_rising_or_flat).clip(0, 1)
@@ -555,8 +559,8 @@ class BehavioralIntelligence:
                 print(f"      [行为探针] _diagnose_stagnation_evidence @ {probe_date_str}")
                 print(f"        - 多头衰竭分: {bullish_exhaustion.loc[probe_ts]:.4f}")
                 print(f"        - 空头伏击分 (新): {bearish_ambush.loc[probe_ts]:.4f} (过程分={process_evidence.loc[probe_ts]:.2f}, 结果分={outcome_evidence.loc[probe_ts]:.2f})")
-                print(f"        - 微观冲突分(或门): {micro_conflict_score.loc[probe_ts]:.4f}")
-                # [修改的代码行] 更新探针以反映新的融合模型
+                # [修改的代码行] 更新探针以反映新的冲突模型
+                print(f"        - 微观冲突分(共振模型): {micro_conflict_score.loc[probe_ts]:.4f} (总能量={total_energy.loc[probe_ts]:.2f}, 均衡度={balance_factor.loc[probe_ts]:.2f})")
                 print(f"        - 宏观风险分(谐波): {macro_risk_score.loc[probe_ts]:.4f} (获利盘压力={profit_pressure_score.loc[probe_ts]:.2f}, 活力衰减={vitality_decay_score.loc[probe_ts]:.2f})")
                 print(f"        - 最终滞涨证据分(融合后): {final_stagnation_evidence.loc[probe_ts]:.4f}")
         return final_stagnation_evidence.astype(np.float32)
