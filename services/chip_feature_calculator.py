@@ -1363,9 +1363,10 @@ class ChipFeatureCalculator:
 
     def _engineer_hf_features_for_chips(self, raw_hf_df: pd.DataFrame, daily_total_volume: float) -> tuple[pd.DataFrame, dict]:
         """
-        【V1.0 · 新增】高频特征工程中心。
-        - 核心职责: 接收纯净的原始高频DataFrame，计算所有衍生特征（OFI, imbalance, 主力交易集等），
-                     返回一个包含所有特征的 `hf_analysis_df` 和一个包含聚合值的 `hf_features` 字典。
+        【V12.6 · 依赖补全修复版】
+        - 核心修复: 补全了 `mid_price_delta` 列的计算逻辑。此前的版本遗漏了这一关键步骤，
+                     导致下游 `_compute_contextual_action_metrics` 方法在尝试访问该列时
+                     因 `KeyError` 而崩溃。
         """
         import numpy as np
         features = {
@@ -1379,6 +1380,7 @@ class ChipFeatureCalculator:
         hf_analysis_df = raw_hf_df.copy()
         hf_analysis_df['mid_price'] = (hf_analysis_df['buy_price1'] + hf_analysis_df['sell_price1']) / 2
         hf_analysis_df['prev_mid_price'] = hf_analysis_df['mid_price'].shift(1)
+        hf_analysis_df['mid_price_delta'] = hf_analysis_df['mid_price'].diff() # [修改的代码行] 补全 mid_price_delta 的计算
         buy_pressure = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
         sell_pressure = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
         hf_analysis_df['ofi'] = buy_pressure - sell_pressure
