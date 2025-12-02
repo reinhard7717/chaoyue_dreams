@@ -251,12 +251,10 @@ class MicroBehaviorEngine:
 
     def _diagnose_harmony_inflection(self, strategic_intent: pd.Series) -> pd.Series:
         """
-        【V1.0 · 新增】微观和谐拐点诊断器
+        【V1.1 · 探针回溯版】微观和谐拐点诊断器
         - 核心逻辑: 基于微积分思想，对顶层战略意图信号进行二阶求导，捕捉其动态拐点。
-                      - 速度 (Velocity): 战略意图的一阶导数（变化量）。
-                      - 加速度 (Acceleration): 战略意图的二阶导数（变化的加速度）。
-        - 触发条件: 只有当速度和加速度同时为正时，才输出一个正的拐点分数。
-        - 分数计算: (速度 * 加速度) ^ 0.5，并进行归一化，体现拐点的强度。
+        - 核心升级: 优化探针逻辑，使其在打印当日信息时，能自动回溯并展示前两日的关键数据，
+                      从而完整地呈现“速度”与“加速度”的计算过程，极大提升了可调试性。
         """
         # 计算速度（一阶导数）
         velocity = strategic_intent.diff().fillna(0)
@@ -266,12 +264,12 @@ class MicroBehaviorEngine:
         bullish_inflection_mask = (velocity > 0) & (acceleration > 0)
         # 计算拐点强度
         inflection_strength = (velocity * acceleration).pow(0.5)
-        # 应用掩码，并归一化
+        # 应用掩码
         harmony_inflection_score = np.where(bullish_inflection_mask, inflection_strength, 0)
         harmony_inflection_score = pd.Series(harmony_inflection_score, index=strategic_intent.index)
         # 使用 normalize_score 进行最终的归一化，使其在历史数据中具有可比性
         final_score = normalize_score(harmony_inflection_score, harmony_inflection_score.index, 55)
-        # --- 探针逻辑 ---
+        # --- 探针逻辑升级 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -281,7 +279,15 @@ class MicroBehaviorEngine:
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [微观行为探针] _diagnose_harmony_inflection @ {probe_date_str}")
-                print(f"        - 输入信号: 战略意图={strategic_intent.loc[probe_ts]:.4f}")
+                # 新增代码: 增加回溯逻辑，获取前两日的数据
+                try:
+                    loc = strategic_intent.index.get_loc(probe_ts)
+                    prev_intent_1 = strategic_intent.iloc[loc - 1] if loc > 0 else np.nan
+                    prev_intent_2 = strategic_intent.iloc[loc - 2] if loc > 1 else np.nan
+                    print(f"        - 历史意图: T-2日={prev_intent_2:.4f}, T-1日={prev_intent_1:.4f}")
+                except (IndexError, KeyError):
+                    print("        - 历史意图: 数据不足，无法回溯。")
+                print(f"        - 输入信号: T日战略意图={strategic_intent.loc[probe_ts]:.4f}")
                 print(f"        - 动态计算: 速度={velocity.loc[probe_ts]:.4f}, 加速度={acceleration.loc[probe_ts]:.4f}")
                 print(f"        - 拐点成立条件 (速度>0 & 加速度>0): {bullish_inflection_mask.loc[probe_ts]}")
                 print(f"        - 最终和谐拐点分 (归一化后): {final_score.loc[probe_ts]:.4f}")
