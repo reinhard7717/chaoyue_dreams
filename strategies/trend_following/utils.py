@@ -859,12 +859,13 @@ def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series) -> Tuple[pd.Series, 
 
 def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index, ascending: bool = True, tf_weights: Dict = None) -> pd.Series:
     """
-    【V3.0 · 绝对零点溯源版】多时间框架(MTF)自适应归一化引擎
-    - 核心修复: 内部调用全新的 `calibrated_normalize_score`，将“绝对零点”规则内置于
-                  每个时间周期的归一化计算中，从源头根除“零值归一化悖论”。
+    【V1.0 · 纯粹版】多时间框架(MTF)自适应归一化引擎 (恢复)
+    - 核心修改: 移除所有内部校准逻辑，恢复其作为纯粹“相对归一化”工具的职责。
+                  “绝对零点”校准由调用方根据业务需求在外部执行。
     """
     if tf_weights is None:
         tf_weights = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}}
+    # 兼容两种配置格式: {'weights': {...}} 或直接 {...}
     if 'weights' in tf_weights and isinstance(tf_weights['weights'], dict):
         valid_weights = {k: v for k, v in tf_weights['weights'].items() if isinstance(v, (int, float))}
     else:
@@ -878,8 +879,8 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index,
     for period_str, weight in valid_weights.items():
         try:
             period = int(period_str)
-            # [修改的代码行] 调用带有绝对零点校准的基础工具
-            period_score = calibrated_normalize_score(series, target_index, window=period, ascending=ascending)
+            # [修改的代码行] 调用基础的单周期归一化工具
+            period_score = normalize_score(series, target_index, window=period, ascending=ascending)
             final_score += period_score * (weight / total_weight)
         except (ValueError, TypeError) as e:
             print(f"警告: 在 get_adaptive_mtf_normalized_score 中跳过无效的周期配置: '{period_str}'. 错误: {e}")
@@ -888,9 +889,8 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index,
 
 def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: pd.Index, tf_weights: Dict = None, sensitivity: float = 1.0) -> pd.Series:
     """
-    【V3.0 · 绝对零点溯源版】多时间框架(MTF)自适应双极性归一化引擎
-    - 核心修复: 内部调用全新的 `calibrated_normalize_to_bipolar`，将“绝对零点”规则内置于
-                  每个时间周期的归一化计算中，从源头根除“零值归一化悖论”。
+    【V1.0 · 纯粹版】多时间框架(MTF)自适应双极性归一化引擎 (恢复)
+    - 核心修改: 移除所有内部校准逻辑，恢复其作为纯粹“相对归一化”工具的职责。
     """
     if tf_weights is None:
         tf_weights = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}}
@@ -907,45 +907,13 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: p
     for period_str, weight in valid_weights.items():
         try:
             period = int(period_str)
-            # [修改的代码行] 调用带有绝对零点校准的基础工具
-            period_score = calibrated_normalize_to_bipolar(series, target_index, window=period, sensitivity=sensitivity)
+            # [修改的代码行] 调用基础的双极性归一化工具
+            period_score = normalize_to_bipolar(series, target_index, window=period, sensitivity=sensitivity)
             final_score += period_score * (weight / total_weight)
         except (ValueError, TypeError) as e:
             print(f"警告: 在 get_adaptive_mtf_normalized_bipolar_score 中跳过无效的周期配置: '{period_str}'. 错误: {e}")
             continue
     return final_score.clip(-1, 1)
-
-def calibrated_normalize_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value=0.5, tolerance: float = 1e-6) -> pd.Series:
-    """
-    【V1.0 · 新增】带有绝对零点校准的通用归一化引擎。
-    - 核心职责: 在标准排名归一化后，强制将原始输入为零的位置的得分校准为中性值0.5。
-    """
-    # 1. 执行标准的相对排名归一化
-    relative_score = normalize_score(series, target_index, window, ascending, default_value)
-    # 2. 绝对零点校准
-    aligned_series = series.reindex(target_index)
-    is_near_zero_mask = (aligned_series.abs() < tolerance).values
-    if len(is_near_zero_mask) == len(relative_score):
-        relative_score.values[is_near_zero_mask] = 0.5 # 对于[0,1]的排名分，中性值是0.5
-    else:
-        print(f"警告: 在 calibrated_normalize_score 中，校准掩码与得分序列长度不匹配，校准跳过。")
-    return relative_score
-
-def calibrated_normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0, tolerance: float = 1e-6) -> pd.Series:
-    """
-    【V1.0 · 新增】带有绝对零点校准的双极性归一化引擎。
-    - 核心职责: 在标准Z-score归一化后，强制将原始输入为零的位置的得分校准为中性值0.0。
-    """
-    # 1. 执行标准的相对偏离度归一化
-    relative_score = normalize_to_bipolar(series, target_index, window, sensitivity, default_value)
-    # 2. 绝对零点校准
-    aligned_series = series.reindex(target_index)
-    is_near_zero_mask = (aligned_series.abs() < tolerance).values
-    if len(is_near_zero_mask) == len(relative_score):
-        relative_score.values[is_near_zero_mask] = 0.0 # 对于[-1,1]的偏离度分，中性值是0.0
-    else:
-        print(f"警告: 在 calibrated_normalize_to_bipolar 中，校准掩码与得分序列长度不匹配，校准跳过。")
-    return relative_score
 
 
 

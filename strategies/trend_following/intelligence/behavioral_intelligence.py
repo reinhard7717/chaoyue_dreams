@@ -557,14 +557,14 @@ class BehavioralIntelligence:
 
     def _diagnose_lower_shadow_quality(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V5.0 · 鲁棒融合版】诊断下影线承接品质。
-        - 核心修复: 将基础品质分的融合算法从几何平均升级为加权算术平均，
-                      解决了因某一维度（如意图）为零导致整个品质分归零的“零值污染”问题。
+        【V6.0 · 现场校准版】诊断下影线承接品质。
+        - 核心修复: 在完成相对归一化后，调用本地的 `_apply_absolute_zero_calibration`
+                      进行强制“绝对零点”校准，从根本上解决了“零值归一化悖论”。
         """
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # --- 1. 计算基础K线品质分 ---
+        # --- 1. 计算基础K线品质分 (维持鲁棒的算术平均) ---
         magnitude_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_lower_shadow_quality").replace(0, 1e-9)
@@ -573,13 +573,15 @@ class BehavioralIntelligence:
         flow_ratio = main_force_flow / amount
         intent_score = get_adaptive_mtf_normalized_score(flow_ratio.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         location_score = get_adaptive_mtf_normalized_score(location_raw, df.index, ascending=True, tf_weights=default_weights)
-        # [修改的代码行] 从几何平均升级为加权算术平均，避免零值污染
         base_quality_score = (magnitude_score * 0.3 + intent_score * 0.5 + location_score * 0.2).fillna(0.0)
-        # --- 2. 构建双向奖惩机制和新的放大器 (逻辑不变) ---
+        # --- 2. 构建双向奖惩机制和新的放大器 ---
         panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_lower_shadow_quality")
         ambush_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_lower_shadow_quality")
-        ambush_intent_score = get_adaptive_mtf_normalized_bipolar_score(ambush_raw, df.index, default_weights)
+        # [修改的代码行] 先进行相对归一化
+        ambush_intent_score_relative = get_adaptive_mtf_normalized_bipolar_score(ambush_raw, df.index, default_weights)
+        # [新增代码行] 再进行绝对零点校准
+        ambush_intent_score = self._apply_absolute_zero_calibration(ambush_intent_score_relative, ambush_raw, neutral_value=0.0)
         modulated_quality_score = base_quality_score * (1 + ambush_intent_score * 0.5).clip(0, 2)
         panic_absorption_score = get_adaptive_mtf_normalized_score((panic_raw * capitulation_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
         context_amplifier = 1 + (panic_absorption_score * modulated_quality_score).pow(0.5)
@@ -596,16 +598,15 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_lower_shadow_quality @ {probe_date_str}")
                 print(f"        - 基础品质分: {base_quality_score.loc[probe_ts]:.4f} (幅度={magnitude_score.loc[probe_ts]:.2f}, 意图={intent_score.loc[probe_ts]:.2f}, 位置={location_score.loc[probe_ts]:.2f})")
-                print(f"        - 伏击意图(工具正名后): {ambush_intent_score.loc[probe_ts]:.4f} (原始Alpha={ambush_raw.loc[probe_ts]:.2f}) -> 调制后品质分: {modulated_quality_score.loc[probe_ts]:.4f}")
+                print(f"        - 伏击意图(现场校准后): {ambush_intent_score.loc[probe_ts]:.4f} (原始Alpha={ambush_raw.loc[probe_ts]:.2f}) -> 调制后品质分: {modulated_quality_score.loc[probe_ts]:.4f}")
                 print(f"        - 智能放大器: 恐慌承接度={panic_absorption_score.loc[probe_ts]:.4f} -> 放大倍数={context_amplifier.loc[probe_ts]:.4f}")
                 print(f"        - 最终下影线品质分: {final_lower_shadow_quality.loc[probe_ts]:.4f}")
         return final_lower_shadow_quality.astype(np.float32)
 
     def _calculate_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.1 · 鲁棒融合版】计算派发意图
-        - 核心修复: 将基础派发意图的融合算法从几何平均升级为加权算术平均，
-                      解决了因某一维度证据为零导致整个意图归零的“零值污染”问题。
+        【V2.2 · 现场校准版】计算派发意图
+        - 核心修复: 在完成相对归一化后，调用本地校准器强制执行“绝对零点”规则。
         """
         required_signals = [
             'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D',
@@ -614,7 +615,7 @@ class BehavioralIntelligence:
         ]
         if not self._validate_required_signals(df, required_signals, "_calculate_distribution_intent"):
             return pd.Series(0.0, index=df.index)
-        # --- 五维证据链融合 ---
+        # --- 五维证据链融合 (维持鲁棒的算术平均) ---
         rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_calculate_distribution_intent")
         process_evidence = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
         upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_calculate_distribution_intent")
@@ -627,7 +628,6 @@ class BehavioralIntelligence:
         conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_calculate_distribution_intent")
         conviction_decay = abs(conviction_slope_raw.clip(upper=0))
         conviction_evidence = get_adaptive_mtf_normalized_score(conviction_decay, df.index, ascending=True, tf_weights=tf_weights)
-        # [修改的代码行] 从几何平均升级为加权算术平均
         base_distribution_intent = (
             process_evidence * 0.30 +
             outcome_evidence * 0.20 +
@@ -635,12 +635,15 @@ class BehavioralIntelligence:
             main_force_evidence * 0.15 +
             conviction_evidence * 0.15
         ).fillna(0.0)
-        # --- 市场接受度放大器 (逻辑不变) ---
+        # --- 市场接受度放大器 ---
         market_acceptance_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_calculate_distribution_intent")
         market_acceptance_normalized = normalize_score(market_acceptance_raw, df.index, 55)
         acceptance_amplifier = 1 + (market_acceptance_normalized * 0.5)
-        # --- 主力控盘能力调节器 (逻辑不变) ---
-        positive_alpha_score = get_adaptive_mtf_normalized_bipolar_score(mf_alpha_raw, df.index, tf_weights).clip(lower=0)
+        # --- 主力控盘能力调节器 ---
+        # [修改的代码行] 先进行相对归一化
+        positive_alpha_score_relative = get_adaptive_mtf_normalized_bipolar_score(mf_alpha_raw, df.index, tf_weights).clip(lower=0)
+        # [新增代码行] 再进行绝对零点校准
+        positive_alpha_score = self._apply_absolute_zero_calibration(positive_alpha_score_relative, mf_alpha_raw, neutral_value=0.0)
         control_modulator = 1 + (positive_alpha_score * 0.5)
         # --- 最终合成 ---
         distribution_intent_score = (base_distribution_intent * acceptance_amplifier * control_modulator).clip(0, 1)
@@ -657,7 +660,7 @@ class BehavioralIntelligence:
                 print(f"        - 过程证据(新): rally_distribution_pressure_D = {rally_pressure_raw.loc[probe_ts]:.2f} -> 归一化分 = {process_evidence.loc[probe_ts]:.4f}")
                 print(f"        - 基础派发意图分: {base_distribution_intent.loc[probe_ts]:.4f}")
                 print(f"        - 市场接受度放大器: {acceptance_amplifier.loc[probe_ts]:.4f} (收盘偏离度(原始)={market_acceptance_raw.loc[probe_ts]:.2f}, 净化后={market_acceptance_normalized.loc[probe_ts]:.4f})")
-                print(f"        - 控盘能力调节器(工具正名后): {control_modulator.loc[probe_ts]:.4f} (原始Alpha={mf_alpha_raw.loc[probe_ts]:.2f}, 正Alpha分={positive_alpha_score.loc[probe_ts]:.4f})")
+                print(f"        - 控盘能力调节器(现场校准后): {control_modulator.loc[probe_ts]:.4f} (原始Alpha={mf_alpha_raw.loc[probe_ts]:.2f}, 正Alpha分={positive_alpha_score.loc[probe_ts]:.4f})")
                 print(f"        - 最终派发意图分: {distribution_intent_score.loc[probe_ts]:.4f}")
         return distribution_intent_score.astype(np.float32)
 
@@ -882,10 +885,8 @@ class BehavioralIntelligence:
 
     def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series) -> pd.Series:
         """
-        【V2.0 · 工具正名版】诊断进攻性承接意图
-        - 核心修复: 为所有具备“中性零点”的输入信号（主力Alpha、隐蔽吸筹）选用正确的、
-                      基于偏离度的归一化工具，彻底修复“归一化悖论”。
-        - 融合算法: 维持加权算术平均，以保证信号的鲁棒性。
+        【V2.1 · 现场校准版】诊断进攻性承接意图
+        - 核心修复: 对所有具备“中性零点”的输入信号，在归一化后立即进行强制“绝对零点”校准。
         """
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
@@ -896,10 +897,12 @@ class BehavioralIntelligence:
         covert_ops_raw = self._get_safe_series(df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
         context_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
         # 2. 归一化各维度证据
-        # [修改的代码行] 为主力Alpha选用正确的归一化工具
-        execution_score = get_adaptive_mtf_normalized_bipolar_score(execution_raw, df.index, default_weights).clip(lower=0)
-        # [修改的代码行] 为隐蔽吸筹选用正确的归一化工具
-        covert_ops_score = get_adaptive_mtf_normalized_bipolar_score(covert_ops_raw, df.index, default_weights).clip(lower=0)
+        # [修改的代码行] 执行分：先相对归一化，再绝对校准
+        execution_score_relative = get_adaptive_mtf_normalized_bipolar_score(execution_raw, df.index, default_weights).clip(lower=0)
+        execution_score = self._apply_absolute_zero_calibration(execution_score_relative, execution_raw, neutral_value=0.0)
+        # [修改的代码行] 隐蔽分：先相对归一化，再绝对校准
+        covert_ops_score_relative = get_adaptive_mtf_normalized_bipolar_score(covert_ops_raw, df.index, default_weights).clip(lower=0)
+        covert_ops_score = self._apply_absolute_zero_calibration(covert_ops_score_relative, covert_ops_raw, neutral_value=0.0)
         context_score = get_adaptive_mtf_normalized_score(context_raw, df.index, ascending=True, tf_weights=default_weights)
         # 3. 加权算术平均融合
         offensive_absorption_intent = (
@@ -919,9 +922,8 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_offensive_absorption_intent @ {probe_date_str}")
                 print(f"        - 形态分 (下影线品质): {morphology_score.loc[probe_ts]:.4f}")
-                # [修改的代码行] 更新探针日志的注释
-                print(f"        - 执行分 (正Alpha-工具正名后): {execution_score.loc[probe_ts]:.4f} (原始值: {execution_raw.loc[probe_ts]:.2f})")
-                print(f"        - 隐蔽分 (隐蔽吸筹-工具正名后): {covert_ops_score.loc[probe_ts]:.4f} (原始值: {covert_ops_raw.loc[probe_ts]:.2f})")
+                print(f"        - 执行分 (正Alpha-现场校准后): {execution_score.loc[probe_ts]:.4f} (原始值: {execution_raw.loc[probe_ts]:.2f})")
+                print(f"        - 隐蔽分 (隐蔽吸筹-现场校准后): {covert_ops_score.loc[probe_ts]:.4f} (原始值: {covert_ops_raw.loc[probe_ts]:.2f})")
                 print(f"        - 环境分 (恐慌级联): {context_score.loc[probe_ts]:.4f} (原始值: {context_raw.loc[probe_ts]:.2f})")
                 print(f"        - 最终进攻性承接意图分: {offensive_absorption_intent.loc[probe_ts]:.4f}")
         return offensive_absorption_intent.clip(0, 1).astype(np.float32)
@@ -979,4 +981,32 @@ class BehavioralIntelligence:
                 print(f"        - 尾盘偷袭分: {closing_ambush_score.loc[probe_ts]:.4f} (原始值={closing_ambush_raw.loc[probe_ts]:.2f})")
                 print(f"        - 最终博弈欺骗指数: {final_deception_index.loc[probe_ts]:.4f}")
         return final_deception_index.astype(np.float32)
+
+    def _apply_absolute_zero_calibration(self, normalized_score: pd.Series, original_series: pd.Series, neutral_value: float = 0.0, tolerance: float = 1e-6) -> pd.Series:
+        """
+        【V1.0 · 新增】绝对零点校准器 (终极修复方案)
+        - 核心职责: 在相对归一化完成后，强制执行“绝对零点”规则。
+        - 实现方式: 通过直接操作NumPy .values数组，彻底避免Pandas索引对齐问题。
+        """
+        # 确保原始数据与得分序列的索引对齐，以进行正确的掩码创建
+        aligned_original = original_series.reindex(normalized_score.index)
+        # 根据原始数据创建布尔掩码
+        is_near_zero_mask = (aligned_original.abs() < tolerance).values
+        # 为防止意外的广播错误，进行长度校验
+        if len(is_near_zero_mask) == len(normalized_score.values):
+            # 直接在归一化分数的.values数组上应用掩码，强制归零
+            normalized_score.values[is_near_zero_mask] = neutral_value
+        else:
+            print(f"    -> [校准器警告] 掩码与目标序列长度不匹配，跳过绝对零点校准。")
+        return normalized_score
+
+
+
+
+
+
+
+
+
+
 
