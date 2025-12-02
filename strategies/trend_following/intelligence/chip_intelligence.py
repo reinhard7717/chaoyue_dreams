@@ -57,12 +57,11 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V17.0 · 天人合一版】筹码情报总指挥
-        - 核心升维: 新增对“战略战术和谐度”的诊断。通过调用 `_diagnose_strategic_tactical_harmony` 方法，
-                      模型现在能够评估主力的长期战略意图与当日战术执行之间的协同性，
-                      从而在更高维度上对趋势的健康度与风险进行裁决。
+        【V18.0 · 破晓版】筹码情报总指挥
+        - 核心升维: 新增对“和谐拐点”的诊断。在生成“战略战术和谐度”后，立即对其进行二阶求导分析，
+                      旨在捕捉其从冲突转向协同的关键反转点，为模型提供预判战局“破晓”时刻的能力。
         """
-        print("启动【V17.0 · 天人合一版】筹码情报分析...") # [修改代码行]
+        print("启动【V18.0 · 破晓版】筹码情报分析...") # [修改代码行]
         all_chip_states = {}
         periods = [5, 13, 21, 55]
         holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
@@ -85,10 +84,12 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_COHERENT_DRIVE'] = coherent_drive
         tactical_exchange = self._diagnose_tactical_exchange(df, battlefield_geography)
         all_chip_states['SCORE_CHIP_TACTICAL_EXCHANGE'] = tactical_exchange
-        # [新增代码块] 调用新增的和谐度诊断方法
         strategic_tactical_harmony = self._diagnose_strategic_tactical_harmony(df, strategic_posture, tactical_exchange)
         all_chip_states['SCORE_CHIP_STRATEGIC_TACTICAL_HARMONY'] = strategic_tactical_harmony
-        print(f"【V17.0 · 天人合一版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。") # [修改代码行]
+        # [新增代码块] 调用新增的和谐拐点诊断方法
+        harmony_inflection = self._diagnose_harmony_inflection(df, strategic_tactical_harmony)
+        all_chip_states['SCORE_CHIP_HARMONY_INFLECTION'] = harmony_inflection
+        print(f"【V18.0 · 破晓版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。") # [修改代码行]
         return all_chip_states
 
     def _run_integrity_probe(self, df: pd.DataFrame, required_signals: list, probe_name: str):
@@ -741,6 +742,42 @@ class ChipIntelligence:
                 print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
+    def _diagnose_harmony_inflection(self, df: pd.DataFrame, harmony_score: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 破晓版】诊断和谐度的反转拐点
+        - 核心算法: 对“战略战术和谐度”进行二阶求导，寻找其从负值区V型反转的临界点。
+                      1. 计算速度(一阶导)和加速度(二阶导)。
+                      2. 融合速度和加速度，得到“反转动能”。
+                      3. 引入“位置惩罚因子”，确保信号只在和谐度处于低位时最强。
+                      4. 最终得分 = 反转动能 × 位置惩罚因子。
+        """
+        print("    -> [筹码层] 正在诊断“和谐拐点 (V1.0 · 破晓版)”...")
+        df_index = df.index
+        # 1. 计算速度与加速度
+        harmony_velocity = harmony_score.diff(1).fillna(0)
+        harmony_acceleration = harmony_velocity.diff(1).fillna(0)
+        # 2. 归一化并计算“反转动能” (只取正向部分)
+        norm_velocity = get_adaptive_mtf_normalized_score(harmony_velocity, df_index).clip(lower=0)
+        norm_acceleration = get_adaptive_mtf_normalized_score(harmony_acceleration, df_index).clip(lower=0)
+        reversal_momentum = (norm_velocity * norm_acceleration).pow(0.5)
+        # 3. 计算“位置惩罚因子” (和谐度越低，因子越接近1)
+        position_factor = (1 - harmony_score.clip(lower=0, upper=1))
+        # 4. 最终融合
+        final_score = reversal_momentum * position_factor
+        # 植入标准化探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date in df.index:
+                print(f"    -> [和谐拐点探针] @ {probe_date.date()}:")
+                print(f"       - 原料: harmony_score: {harmony_score.loc[probe_date]:.4f}")
+                print(f"       - 过程: velocity: {harmony_velocity.loc[probe_date]:.4f}, acceleration: {harmony_acceleration.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_velocity(>=0): {norm_velocity.loc[probe_date]:.4f}, norm_acceleration(>=0): {norm_acceleration.loc[probe_date]:.4f}")
+                print(f"       - 过程: reversal_momentum: {reversal_momentum.loc[probe_date]:.4f}, position_factor: {position_factor.loc[probe_date]:.4f}")
+                print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
+        return final_score.clip(0, 1).fillna(0.0).astype(np.float32)
 
 
 
