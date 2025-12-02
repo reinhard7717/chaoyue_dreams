@@ -263,31 +263,42 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, daily_trend_form_score: pd.Series) -> pd.Series:
         """
-        【V2.3 · MTF重构版】结构公理二：诊断“多周期协同与微观意图”
+        【V2.7 · 自适应通道风险版】结构公理二：诊断“宏观趋势健康度”
         - 核心增强: 增加了前置信号校验，确保所有依赖数据存在后才执行计算。
-        - 核心升级: 引入微观结构指标，对宏观的多周期共振信号进行“意图验真”。
-        - 核心证据 (意图): `order_book_imbalance`和`buy_quote_exhaustion_rate`被用作“测谎仪”，验证共振背后的真实攻击意图。
-        - 【优化】使用专属的MTF权重配置进行归一化。
+        - 核心升级: 使用布林带百分比(BBP)替代BIAS作为核心风险标尺，解决了BIAS静态、不自适应的根本缺陷。模型现在能更好地区分“健康的趋势”与“高风险的极端行情”。
+        - 核心修复: 修复了逻辑上的不对称性。模型现在能同时识别上升趋势中的“过热”风险和下降趋势中的“超跌”状态（趋势衰竭信号），并对两者进行对称的降权处理。
+        - 核心融合: 继续采用“和谐度”模型，将经过风险调整后的“宏观健康度分”与“微观意图分”进行加权融合。
         """
+        short_periods = [5, 13, 21]
+        long_periods = [55, 89, 144]
         required_signals = [
-            'order_book_imbalance_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D', 'close_D'
+            'order_book_imbalance_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D',
+            'close_D', 'BBP_21_2.0_D' # 替换 BIAS_55_D
         ]
-        ma_periods_w = [5, 13, 21, 55]
-        required_signals.extend([f'EMA_{p}_W' for p in ma_periods_w])
+        required_signals.extend([f'EMA_{p}_D' for p in short_periods])
+        required_signals.extend([f'EMA_{p}_D' for p in long_periods])
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_mtf_cohesion"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        # --- 修改代码开始 ---
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # --- 1. 宏观趋势健康度 (Macro Trend Health) ---
+        # 1a. 伪多周期排列分 (Pseudo-MTF Alignment)
+        fastest_short_ma = self._get_safe_series(df, f'EMA_{min(short_periods)}_D', method_name="_diagnose_axiom_mtf_cohesion")
+        slowest_long_ma = self._get_safe_series(df, f'EMA_{max(long_periods)}_D', method_name="_diagnose_axiom_mtf_cohesion")
+        alignment_score = (fastest_short_ma > slowest_long_ma).astype(float)
+        # --- 修改代码开始 ---
+        # 1b. 自适应风险感知：基于布林带的 过热惩罚 与 超跌缓和
+        bbp_raw = self._get_safe_series(df, 'BBP_21_2.0_D', 0.5, method_name="_diagnose_axiom_mtf_cohesion")
+        # 过热惩罚：当价格进入布林带上轨的最后5%区间(BBP>0.95)时开始惩罚，突破上轨越多惩罚越大
+        overheat_penalty = ((bbp_raw - 0.95).clip(lower=0) / 0.2).clip(upper=1.0) # 在BBP=1.15时惩罚达到最大
+        # 超跌缓和：当价格进入布林带下轨的最初5%区间(BBP<0.05)时开始缓和，突破下轨越多缓和越大
+        oversold_mitigation = (((0.05 - bbp_raw)).clip(lower=0) / 0.2).clip(upper=1.0) # 在BBP=-0.15时缓和达到最大
+        # 1c. 风险调整后的宏观分
+        bullish_macro_health = alignment_score * (1 - overheat_penalty)
+        bearish_macro_health = (1 - alignment_score) * (1 - oversold_mitigation)
         # --- 修改代码结束 ---
-        # --- 1. 宏观共振 (Macro Cohesion) ---
-        bull_alignment_w_raw = pd.Series(0.0, index=df_index)
-        for i in range(len(ma_periods_w) - 1):
-            bull_alignment_w_raw += (self._get_safe_series(df, f'EMA_{ma_periods_w[i]}_W', method_name="_diagnose_axiom_mtf_cohesion") > self._get_safe_series(df, f'EMA_{ma_periods_w[i+1]}_W', method_name="_diagnose_axiom_mtf_cohesion")).astype(float)
-        bull_alignment_w_score = bull_alignment_w_raw / (len(ma_periods_w) - 1)
-        macro_cohesion_score = (daily_trend_form_score.clip(lower=0) * bull_alignment_w_score).clip(0, 1)
         # --- 2. 微观意图 (Micro Intent) ---
         ofi_raw = self._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
         buy_sweep_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
@@ -298,18 +309,24 @@ class StructuralIntelligence:
         bullish_intent = (ofi_score.clip(lower=0) * 0.5 + buy_sweep_score * 0.5)
         bearish_intent = (ofi_score.clip(upper=0).abs() * 0.5 + sell_sweep_score * 0.5)
         micro_intent_score = (bullish_intent - bearish_intent).clip(-1, 1)
-        # --- 3. 融合 ---
-        cohesion_score = macro_cohesion_score * micro_intent_score.clip(lower=0)
-        bearish_cohesion = ((1 - daily_trend_form_score.clip(lower=0)) * (1 - bull_alignment_w_score)).clip(0, 1)
-        final_score_raw = cohesion_score - (bearish_cohesion * micro_intent_score.clip(upper=0).abs())
+        # --- 3. 和谐度融合 ---
+        # 权重: 宏观(0.7), 微观(0.3)
+        bullish_harmony = bullish_macro_health * 0.7 + micro_intent_score.clip(lower=0) * 0.3
+        bearish_harmony = bearish_macro_health * 0.7 + micro_intent_score.clip(upper=0).abs() * 0.3
+        final_score_raw = bullish_harmony - bearish_harmony
         final_score = final_score_raw.clip(-1, 1).astype(np.float32)
         if self.is_probe_date:
             today_score = final_score.iloc[-1]
-            print(f"    [探针] 多周期协同公理 (SCORE_STRUCT_AXIOM_MTF_COHESION): {today_score:.4f}")
-            print(f"      - MTF权重: default")
-            print(f"      - 宏观原料: 日线趋势形态分={daily_trend_form_score.iloc[-1]:.2f}, 周线排列分={bull_alignment_w_score.iloc[-1]:.2f}")
-            print(f"      - 微观原料: OFI(原始)={ofi_raw.iloc[-1]:.2f}, 买盘消耗(原始)={buy_sweep_raw.iloc[-1]:.2f}, 卖盘消耗(原始)={sell_sweep_raw.iloc[-1]:.2f}")
-            print(f"      - 计算节点: 宏观共振分={macro_cohesion_score.iloc[-1]:.2f}, 微观意图分={micro_intent_score.iloc[-1]:.2f}")
+            print(f"    [探针] 宏观趋势健康度公理 (SCORE_STRUCT_AXIOM_MTF_COHESION): {today_score:.4f}")
+            print(f"      - MTF权重: default (for micro)")
+            # --- 修改代码开始 ---
+            print(f"      - 宏观原料: 排列分={alignment_score.iloc[-1]:.2f}, BBP_21(原始)={bbp_raw.iloc[-1]:.2f}")
+            print(f"      - 宏观计算: 过热惩罚={overheat_penalty.iloc[-1]:.2f}, 超跌缓和={oversold_mitigation.iloc[-1]:.2f}")
+            print(f"      - 宏观计算: 看涨健康度分={bullish_macro_health.iloc[-1]:.2f}, 看跌健康度分={bearish_macro_health.iloc[-1]:.2f}")
+            # --- 修改代码结束 ---
+            print(f"      - 微观原料: OFI(原始)={ofi_raw.iloc[-1]:.2f}, 买盘消耗(原始)={buy_sweep_raw.iloc[-1]:.2f}")
+            print(f"      - 微观计算: 微观意图分={micro_intent_score.iloc[-1]:.2f}")
+            print(f"      - 和谐度融合: (宏观健康度*0.7 + 微观意图*0.3)")
         return final_score
 
     def _diagnose_bottom_fractal(self, df: pd.DataFrame, n: int = 5, min_depth_ratio: float = 0.001) -> pd.Series:
