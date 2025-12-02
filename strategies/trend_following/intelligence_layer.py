@@ -3,9 +3,10 @@
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
+import asyncio # [代码修改] 移动asyncio导入到顶部
 from typing import Dict
 from .structural_defense_layer import StructuralDefenseLayer
-# --- 从新目录导入所有情报模块 ---
+# --- [代码修改开始] 将所有情报模块和工具函数的导入整合到文件顶部 ---
 from .intelligence.foundation_intelligence import FoundationIntelligence
 from .intelligence.structural_intelligence import StructuralIntelligence
 from .intelligence.chip_intelligence import ChipIntelligence
@@ -15,12 +16,18 @@ from .intelligence.micro_behavior_engine import MicroBehaviorEngine
 from .intelligence.fund_flow_intelligence import FundFlowIntelligence
 from .intelligence.dynamic_mechanics_engine import DynamicMechanicsEngine
 from .intelligence.cyclical_intelligence import CyclicalIntelligence
-from strategies.kline_pattern_recognizer import KlinePatternRecognizer
 from .intelligence.pattern_intelligence import PatternIntelligence
 from .intelligence.process_intelligence import ProcessIntelligence
 from .intelligence.predictive_intelligence import PredictiveIntelligence
 from .intelligence.fusion_intelligence import FusionIntelligence
-from strategies.trend_following.utils import get_params_block, get_params_block, get_param_value, calculate_context_scores, normalize_score, normalize_to_bipolar, _calculate_gaia_bedrock_support, _calculate_historical_low_support, get_unified_score
+from .intelligence.intraday_behavior_engine import IntradayBehaviorEngine
+from strategies.kline_pattern_recognizer import KlinePatternRecognizer
+from strategies.trend_following.utils import (
+    get_params_block, get_param_value, calculate_context_scores, 
+    normalize_score, normalize_to_bipolar, _calculate_gaia_bedrock_support, 
+    _calculate_historical_low_support, get_unified_score
+)
+from .forensic_probes import ForensicProbes
 
 class IntelligenceLayer:
     """
@@ -33,35 +40,21 @@ class IntelligenceLayer:
 
     def __init__(self, strategy_instance):
         """
-        【V407.2 · 探针调度器修复版】
-        - 核心修复: 补上了对主探针调度器 ForensicProbes 的导入，解决了 NameError 启动错误。
+        【V407.3 · 导入净化版】
+        - 核心修复: 将所有模块的导入语句移至文件顶部，遵循Python最佳实践，
+                      彻底解决因作用域问题导致的 UnboundLocalError。
         """
         self.strategy = strategy_instance
+        # [代码修改开始] 移除所有在此方法内部的import语句
+        # 现在所有依赖都在文件顶部导入，可以直接使用
         self.kline_params = get_params_block(self.strategy, 'kline_pattern_params')
         self.strategy.pattern_recognizer = KlinePatternRecognizer(params=self.kline_params)
-        # --- 从新目录导入所有情报模块 ---
-        from .intelligence.foundation_intelligence import FoundationIntelligence
-        from .intelligence.structural_intelligence import StructuralIntelligence
-        from .intelligence.chip_intelligence import ChipIntelligence
-        from .intelligence.behavioral_intelligence import BehavioralIntelligence
-        from .intelligence.cognitive_intelligence import CognitiveIntelligence
-        from .intelligence.micro_behavior_engine import MicroBehaviorEngine
-        from .intelligence.fund_flow_intelligence import FundFlowIntelligence
-        from .intelligence.dynamic_mechanics_engine import DynamicMechanicsEngine
-        from .intelligence.cyclical_intelligence import CyclicalIntelligence
-        from strategies.kline_pattern_recognizer import KlinePatternRecognizer
-        from .intelligence.pattern_intelligence import PatternIntelligence
-        from .intelligence.process_intelligence import ProcessIntelligence
-        from .intelligence.predictive_intelligence import PredictiveIntelligence
-        from .intelligence.fusion_intelligence import FusionIntelligence
-        from .intelligence.intraday_behavior_engine import IntradayBehaviorEngine # [代码新增] 导入日内行为引擎
-        from strategies.trend_following.utils import get_params_block, calculate_holographic_dynamics, get_param_value, calculate_context_scores, normalize_score, normalize_to_bipolar, _calculate_gaia_bedrock_support, _calculate_historical_low_support, get_unified_score
         self.foundation_intel = FoundationIntelligence(self.strategy)
         self.structural_intel = StructuralIntelligence(self.strategy, {})
         self.chip_intel = ChipIntelligence(self.strategy)
         self.behavioral_intel = BehavioralIntelligence(self.strategy)
         self.micro_behavior_engine = MicroBehaviorEngine(self.strategy)
-        self.intraday_behavior_engine = IntradayBehaviorEngine(self.strategy) # [代码新增] 实例化日内行为引擎
+        self.intraday_behavior_engine = IntradayBehaviorEngine(self.strategy)
         self.fund_flow_intel = FundFlowIntelligence(self.strategy)
         self.mechanics_engine = DynamicMechanicsEngine(self.strategy)
         self.pattern_intel = PatternIntelligence(strategy_instance)
@@ -71,10 +64,8 @@ class IntelligenceLayer:
         self.cognitive_intel = CognitiveIntelligence(self.strategy)
         self.structural_defense_layer = StructuralDefenseLayer(self.strategy)
         self.predictive_intel = PredictiveIntelligence(self.strategy)
-        # 导入主探针调度器
-        from .forensic_probes import ForensicProbes
-        # ForensicProbes 现在会内部加载和管理所有专业探针模块
         self.probes = ForensicProbes(self)
+        # [代码修改结束]
 
     def run_all_diagnostics(self, df: pd.DataFrame) -> Dict:
         """
@@ -87,33 +78,26 @@ class IntelligenceLayer:
         self.strategy.exit_triggers = pd.DataFrame(index=df.index)
         def update_states(new_states: Dict):
             if isinstance(new_states, dict):
-                # [代码修改开始] 将日内信号转换为可用于日线数据合并的Series
                 for key, value in new_states.items():
                     if isinstance(value, float):
-                        # 将单个浮点数值转换为一个与日线数据对齐的Series，其值仅在当前日期有效
                         series = pd.Series(np.nan, index=df.index)
                         if not df.empty:
-                            # 假设策略当前处理的日期是df的最后一个日期
                             current_date = df.index[-1]
                             series.loc[current_date] = value
                         self.strategy.atomic_states[key] = series
                     else:
                         self.strategy.atomic_states[key] = value
-                # [代码修改结束]
         # --- 阶段一：基础原子情报层 (Foundation & Atomic Layer) ---
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         update_states(self.behavioral_intel.run_behavioral_analysis_command(df))
         update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
-        # [代码新增开始] 激活日内行为引擎
         if hasattr(self.strategy, 'df_minute') and self.strategy.df_minute is not None and not self.strategy.df_minute.empty:
-            import asyncio
+            # [代码修改] 移除此处的 'import asyncio'，因为它已在文件顶部导入
             try:
-                # 由于此方法是同步的，我们使用asyncio.run来执行异步的日内诊断
                 intraday_results = asyncio.run(self.intraday_behavior_engine.run_intraday_diagnostics(self.strategy.df_minute))
                 update_states(intraday_results)
             except Exception as e:
                 print(f"    -> [情报层错误] 调用日内行为引擎失败: {e}")
-        # [代码新增结束]
         update_states(self.foundation_intel.run_foundation_analysis_command(df))
         chip_states_from_intel = self.chip_intel.run_chip_intelligence_command(df)
         update_states(chip_states_from_intel)
