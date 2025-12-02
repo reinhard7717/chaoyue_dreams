@@ -850,14 +850,13 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_main_force_profile_metrics(context: dict) -> dict:
         """
-        【V66.0 · 计算内核静态化】
-        - 核心重构: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.1 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         hf_features = context['hf_features']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         hf_mf_buy_vwap = hf_features['hf_mf_buy_vwap']
         hf_mf_sell_vwap = hf_features['hf_mf_sell_vwap']
         import numpy as np
@@ -882,7 +881,7 @@ class AdvancedFundFlowMetricsService:
         total_mf_positive_ofi = hf_analysis_df['main_force_ofi'].clip(lower=0).sum()
         resilience_component = mf_resilience_ofi / total_mf_positive_ofi if total_mf_positive_ofi > 0 else 0.0
         metrics['main_force_conviction_index'] = (0.4 * aggressiveness_component + 0.4 * cost_tolerance_component + 0.2 * resilience_component) * 100
-        if enable_probe and is_target_date:
+        if should_probe:
             print(f"\n--- [探针 B.3.1] main_force_conviction_index (主力信念) ---")
             print(f"    - 上游输入 (HF-VWAP) avg_cost_main_buy: {hf_mf_buy_vwap:.4f}, avg_cost_main_sell: {hf_mf_sell_vwap:.4f}, atr: {atr:.4f}")
             print(f"    - 组件 Aggressiveness: {aggressiveness_component:.4f} = (TrendQuality {trend_quality:.4f} * ClosingStrength {closing_strength:.4f})")
@@ -901,7 +900,7 @@ class AdvancedFundFlowMetricsService:
                 weighted_avg_slippage = (mf_trades['slippage'] * mf_trades['volume']).sum() / total_mf_vol
                 if pd.notna(atr) and atr > 0:
                     metrics['main_force_slippage_index'] = (weighted_avg_slippage / atr) * 100
-                    if enable_probe and is_target_date:
+                    if should_probe:
                         print(f"\n--- [探针 B.3.2] main_force_slippage_index (主力滑点) ---")
                         print(f"    - 主力总成交量: {total_mf_vol:,.0f}, 平均滑点: {weighted_avg_slippage:.4f}元, ATR: {atr:.2f}")
                         print(f"    -> 最终得分 (滑点/ATR %): {metrics['main_force_slippage_index']:.2f}")
@@ -910,7 +909,7 @@ class AdvancedFundFlowMetricsService:
                 passive_volume = hf_features['passive_volume']
                 metrics['main_force_posture_index'] = ((offensive_volume - passive_volume) / total_mf_vol) * 100
                 metrics['main_force_activity_ratio'] = (total_mf_vol / daily_total_volume) * 100 if daily_total_volume > 0 else np.nan
-                if enable_probe and is_target_date:
+                if should_probe:
                     print(f"\n--- [探针 B.3.3] main_force_posture_index (主力姿态) ---")
                     print(f"    - 主力总成交: {total_mf_vol:,.0f}, 进攻性成交: {offensive_volume:,.0f}, 被动性成交: {passive_volume:,.0f}")
                     print(f"    -> 最终得分: {metrics['main_force_posture_index']:.2f}")
@@ -923,7 +922,7 @@ class AdvancedFundFlowMetricsService:
                 if mf_total_activity_vol > 0:
                     mf_net_vol = mf_buy_vol - mf_sell_vol
                     metrics['main_force_flow_directionality'] = (mf_net_vol / mf_total_activity_vol) * 100
-                    if enable_probe and is_target_date:
+                    if should_probe:
                         print(f"\n--- [探针 B.3.5] main_force_flow_directionality (主力流向性) ---")
                         print(f"    - 主力买入量: {mf_buy_vol:,.0f}, 主力卖出量: {mf_sell_vol:,.0f}, 主力总活动量: {mf_total_activity_vol:,.0f}")
                         print(f"    -> 最终得分: {metrics['main_force_flow_directionality']:.2f}")
@@ -932,12 +931,11 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_ofi_based_metrics(context: dict) -> dict:
         """
-        【V66.0 · 计算内核静态化】
-        - 核心重构: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.1 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         hf_analysis_df = context['hf_analysis_df']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         metrics = {}
         metrics['main_force_ofi'] = hf_analysis_df['main_force_ofi'].sum()
         metrics['retail_ofi'] = hf_analysis_df['retail_ofi'].sum()
@@ -946,7 +944,7 @@ class AdvancedFundFlowMetricsService:
         if mf_ofi_series.var() > 0 and price_change_series.var() > 0:
             correlation = mf_ofi_series.corr(price_change_series)
             metrics['microstructure_efficiency_index'] = correlation
-            if enable_probe and is_target_date:
+            if should_probe:
                 print(f"  [探针] microstructure_efficiency_index (高频-微观效率) 计算:")
                 print(f"    - 核心变量: Corr(main_force_ofi, mid_price_change)")
                 print(f"    -> 最终得分 (相关系数): {correlation:.4f}")
@@ -955,13 +953,12 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_order_book_metrics(context: dict) -> dict:
         """
-        【V66.0 · 计算内核静态化】
-        - 核心重构: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.1 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         import numpy as np
         metrics = {}
         daily_total_volume = common_data['daily_total_volume']
@@ -991,7 +988,7 @@ class AdvancedFundFlowMetricsService:
             if 'market_vol_delta' in hf_analysis_df.columns and hf_analysis_df['imbalance'].var() > 1e-9 and hf_analysis_df['market_vol_delta'].var() > 1e-9:
                 correlation_value = hf_analysis_df['imbalance'].corr(hf_analysis_df['market_vol_delta'])
                 metrics['imbalance_effectiveness'] = correlation_value
-                if enable_probe and is_target_date:
+                if should_probe:
                     print(f"\n--- [探针 B.3.6] imbalance_effectiveness (盘口诚实度) ---")
                     print(f"    - Imbalance vs MarketVolDelta Corr: {correlation_value:.4f}")
                     print(f"    -> 最终得分: {metrics['imbalance_effectiveness']:.2f}")
@@ -1032,14 +1029,13 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_opening_battle_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         from datetime import time
         import numpy as np
         metrics = {}
@@ -1054,7 +1050,7 @@ class AdvancedFundFlowMetricsService:
                     total_abs_ofi_opening = opening_hf_df['ofi'].abs().sum()
                     mf_ofi_dominance = mf_ofi_opening / total_abs_ofi_opening if total_abs_ofi_opening > 0 else 0
                     metrics['opening_battle_result'] = price_gain_hf * (1 + mf_ofi_dominance) * 100
-                    if enable_probe and is_target_date:
+                    if should_probe:
                         print(f"  [探针] opening_battle_result (高频-开盘战役) 计算:")
                         print(f"    - Price Gain (norm by ATR): {price_gain_hf:.4f}, MF OFI Dominance: {mf_ofi_dominance:.4f}")
                         print(f"    -> Final Score: {metrics['opening_battle_result']:.2f}")
@@ -1070,15 +1066,14 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_shadow_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         hf_features = context['hf_features']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         import numpy as np
         metrics = {}
         day_open, day_close = common_data['day_open'], common_data['day_close']
@@ -1102,7 +1097,7 @@ class AdvancedFundFlowMetricsService:
                         total_abs_ofi_day = hf_analysis_df['ofi'].abs().sum()
                         OFI_Component = mf_ofi_in_shadow / total_abs_ofi_day if total_abs_ofi_day > 0 else 0.0
                         metrics['lower_shadow_absorption_strength'] = (0.5 * FlowComponent + 0.3 * RecoveryComponent + 0.2 * OFI_Component) * 100
-                        if enable_probe and is_target_date:
+                        if should_probe:
                             print(f"  [探针] lower_shadow_absorption_strength (高频-下影线) 计算:")
                             print(f"    - body_low: {body_low:.2f}, day_low: {day_low:.2f}, day_range: {day_range:.2f}")
                             print(f"    - HF FlowComponent (from net vol): {FlowComponent:.4f}, RecoveryComponent: {RecoveryComponent:.4f}, OFI_Component: {OFI_Component:.4f}")
@@ -1130,7 +1125,7 @@ class AdvancedFundFlowMetricsService:
                         total_abs_ofi_day = hf_analysis_df['ofi'].abs().sum()
                         OFI_Component = -mf_ofi_in_shadow / total_abs_ofi_day if total_abs_ofi_day > 0 else 0.0
                         metrics['upper_shadow_selling_pressure'] = (0.5 * FlowComponent + 0.3 * RejectionComponent + 0.2 * OFI_Component) * 100
-                        if enable_probe and is_target_date:
+                        if should_probe:
                             print(f"  [探针] upper_shadow_selling_pressure (高频-上影线) 计算:")
                             print(f"    - body_high: {body_high:.2f}, day_high: {day_high:.2f}, day_range: {day_range:.2f}")
                             print(f"    - HF FlowComponent (from net vol): {FlowComponent:.4f}, RejectionComponent: {RejectionComponent:.4f}, OFI_Component: {OFI_Component:.4f}")
@@ -1145,15 +1140,14 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_dip_rally_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         hf_features = context['hf_features']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         from scipy.signal import find_peaks
         from datetime import time
         import numpy as np
@@ -1179,7 +1173,7 @@ class AdvancedFundFlowMetricsService:
                     mf_buy_vol_in_dip_hf = mf_trades_hf[(mf_trades_hf['type'] == 'B') & (mf_trades_hf['price'] < daily_vwap)]['volume'].sum()
                     VolumeDominance_Component = mf_buy_vol_in_dip_hf / total_mf_buy_vol_day_hf if total_mf_buy_vol_day_hf > 0 else 0.0
                     metrics['dip_absorption_power'] = (0.5 * OffensiveOFI_Component + 0.3 * CostAdvantage_Component + 0.2 * VolumeDominance_Component) * 100
-                    if enable_probe and is_target_date:
+                    if should_probe:
                         print(f"  [探针] dip_absorption_power (高频-战略吸筹) 计算:")
                         print(f"    - OffensiveOFI: {OffensiveOFI_Component:.4f}, CostAdvantage: {CostAdvantage_Component:.4f}, VolumeDominance (HF): {VolumeDominance_Component:.4f}")
                         print(f"    -> Final Score: {metrics['dip_absorption_power']:.2f}")
@@ -1229,7 +1223,7 @@ class AdvancedFundFlowMetricsService:
                 if total_rally_price_change > 0:
                     weighted_avg_pressure = total_deceptive_pressure / total_rally_price_change
                     metrics['rally_distribution_pressure'] = weighted_avg_pressure * 100
-                    if enable_probe and is_target_date:
+                    if should_probe:
                         print(f"  [探针] rally_distribution_pressure (高频-诡道派发) 计算:")
                         print(f"    - Weighted Avg Deceptive Artistry: {weighted_avg_pressure:.4f}")
                         print(f"      - [Components] Artistry(NetVol): {artistry_component:.2f}, DistDom(GrossSell): {distribution_dominance:.2f}, Frenzy: {follower_frenzy:.2f}")
@@ -1264,14 +1258,13 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_reversal_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         import numpy as np
         metrics = {}
         day_open, day_close = common_data['day_open'], common_data['day_close']
@@ -1294,7 +1287,7 @@ class AdvancedFundFlowMetricsService:
                             CounterAttack_Component = np.tanh(reversal_ofi.sum() / daily_total_volume)
                             power_score = (0.6 * PriceRecovery_Component + 0.4 * CounterAttack_Component)
                             metrics['reversal_power_index'] = power_score * 100
-                            if enable_probe and is_target_date:
+                            if should_probe:
                                 print(f"  [探针] reversal_power_index (高频-V型反转) 计算:")
                                 print(f"    - PriceRecovery: {PriceRecovery_Component:.4f} (权重 0.6), CounterAttack: {CounterAttack_Component:.4f} (权重 0.4)")
                                 print(f"    -> Final Score: {metrics['reversal_power_index']:.2f}")
@@ -1315,14 +1308,13 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_closing_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         from datetime import time
         import numpy as np
         metrics = {}
@@ -1345,7 +1337,7 @@ class AdvancedFundFlowMetricsService:
                         PriceDeviation = (day_close - pre_auction_mid) / atr if pd.notna(pre_auction_mid) else 0.0
                         Deception = -np.sign(PriceDeviation) * pre_auction_imbalance if pd.notna(pre_auction_imbalance) else 0.0
                         metrics['closing_auction_ambush'] = PriceDeviation * VolumeAnomaly * (1 + Deception) * 100
-                        if enable_probe and is_target_date:
+                        if should_probe:
                             print(f"  [探针] closing_auction_ambush (高频-竞价伏击) 计算:")
                             print(f"    - pre_auction_mid: {pre_auction_mid:.2f}, day_close: {day_close:.2f}, atr: {atr:.2f}")
                             print(f"    - PriceDeviation: {PriceDeviation:.4f}, VolumeAnomaly: {VolumeAnomaly:.4f}, Deception: {Deception:.4f}")
@@ -1365,7 +1357,7 @@ class AdvancedFundFlowMetricsService:
                             avg_spread = (posturing_hf_df['sell_price1'] - posturing_hf_df['buy_price1']).mean()
                             normalized_imbalance = avg_imbalance * (avg_spread / atr) if pd.notna(avg_spread) and avg_spread > 0 else 0
                             metrics['pre_closing_posturing'] = normalized_imbalance * 100
-                            if enable_probe and is_target_date:
+                            if should_probe:
                                 print(f"  [探针] pre_closing_posturing (高频-收盘姿态) 计算:")
                                 print(f"    - Avg Imbalance: {avg_imbalance:.4f}, Avg Spread: {avg_spread:.4f}, ATR: {atr:.2f}")
                                 print(f"    -> Final Score: {metrics['pre_closing_posturing']:.2f}")
@@ -1382,14 +1374,13 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_hidden_accumulation_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         import numpy as np
         metrics = {}
         daily_vwap = common_data['daily_vwap']
@@ -1408,7 +1399,7 @@ class AdvancedFundFlowMetricsService:
                 bid_depth_ratio = absorption_zone['buy_volume1'] / total_book_depth.replace(0, np.nan)
                 liquidity_commitment_component = bid_depth_ratio.mean() if not bid_depth_ratio.empty else 0.0
                 metrics['hidden_accumulation_intensity'] = (0.5 * passive_absorption_component + 0.3 * impact_suppression_component + 0.2 * liquidity_commitment_component) * 100
-                if enable_probe and is_target_date:
+                if should_probe:
                     print(f"  [探针] hidden_accumulation_intensity (高频-隐蔽吸筹) 计算:")
                     print(f"    - PassiveAbsorption (Efficiency): {passive_absorption_component:.4f}, ImpactSuppression: {impact_suppression_component:.4f}, LiquidityCommitment: {liquidity_commitment_component:.4f}")
                     print(f"    -> Final Score: {metrics['hidden_accumulation_intensity']:.2f}")
@@ -1452,14 +1443,13 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_vwap_control_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         import numpy as np
         import pandas as pd
         metrics = {'vwap_control_strength': np.nan}
@@ -1483,7 +1473,7 @@ class AdvancedFundFlowMetricsService:
                 volume_in_zone = zone_hf_df['volume'].sum()
                 volume_significance = volume_in_zone / daily_total_volume
                 metrics['vwap_control_strength'] = absorption_ratio * volume_significance * 100
-                if enable_probe and is_target_date:
+                if should_probe:
                     print(f"  [探针] vwap_control_strength (高频-VWAP引力) 计算:")
                     print(f"    - VWAP引力区: [{lower_bound:.2f}, {upper_bound:.2f}] (VWAP: {daily_vwap:.2f} ± {gravity_band:.2f})")
                     print(f"    - 区内市场OFI: {market_pressure_ofi:,.0f}, 区内主力OFI: {mf_counter_ofi:,.0f}")
@@ -1498,13 +1488,12 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_cmf_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         import numpy as np
         metrics = {}
         if not hf_analysis_df.empty and 'price' in hf_analysis_df.columns and 'main_force_ofi' in hf_analysis_df.columns:
@@ -1526,7 +1515,7 @@ class AdvancedFundFlowMetricsService:
             total_mf_volume = df['main_force_ofi'].abs().sum()
             if total_mf_volume > 0:
                 metrics['main_force_cmf'] = mf_money_flow_volume.sum() / total_mf_volume
-            if enable_probe and is_target_date:
+            if should_probe:
                 print(f"  [探针] CMF (高频-CMF穿透) 计算:")
                 print(f"    - 全市场高保真CMF: {metrics.get('holistic_cmf', np.nan):.4f}")
                 print(f"    - 主力高保真CMF: {metrics.get('main_force_cmf', np.nan):.4f}")
@@ -1544,7 +1533,7 @@ class AdvancedFundFlowMetricsService:
                     if mf_vol.sum() > 0:
                         metrics['main_force_cmf'] = mf_mfv.sum() / mf_vol.sum()
         if 'main_force_cmf' in metrics and 'holistic_cmf' in metrics and pd.notna(metrics['main_force_cmf']) and pd.notna(metrics['holistic_cmf']):
-            if enable_probe and is_target_date:
+            if should_probe:
                 print(f"  [探针] cmf_divergence_score (CMF背离度) 计算前置检查:")
                 print(f"    - main_force_cmf_value: {metrics['main_force_cmf']}")
                 print(f"    - holistic_cmf_value: {metrics['holistic_cmf']}")
@@ -1555,15 +1544,14 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_vpoc_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
         hf_features = context['hf_features']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         import pandas as pd
         import numpy as np
         metrics = {}
@@ -1597,7 +1585,7 @@ class AdvancedFundFlowMetricsService:
                     ).sum()
                     if daily_total_amount > 0:
                         metrics['main_force_on_peak_flow'] = np.tanh(net_amount_on_peak / daily_total_amount)
-            if enable_probe and is_target_date:
+            if should_probe:
                 print(f"  [探针] main_force_vpoc (高频-VPOC穿透) 计算:")
                 print(f"    - 全局VPOC价格: {global_vpoc_price:.2f}")
                 print(f"    - 主力VPOC价格: {mf_vpoc:.2f}")
@@ -1629,13 +1617,12 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_liquidity_swap_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         metrics = {}
         if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns and 'retail_ofi' in hf_analysis_df.columns:
             mf_ofi_series = hf_analysis_df['main_force_ofi']
@@ -1643,7 +1630,7 @@ class AdvancedFundFlowMetricsService:
             if mf_ofi_series.var() > 0 and retail_ofi_series.var() > 0:
                 correlation = mf_ofi_series.corr(retail_ofi_series)
                 metrics['mf_retail_liquidity_swap_corr'] = correlation
-                if enable_probe and is_target_date:
+                if should_probe:
                     print(f"  [探针] mf_retail_liquidity_swap_corr (高频-流动性交换) 计算:")
                     print(f"    - 核心变量: Corr(main_force_ofi, retail_ofi)")
                     print(f"    -> 最终得分 (相关系数): {correlation:.4f}")
@@ -1659,16 +1646,14 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_retail_sentiment_metrics(context: dict) -> dict:
         """
-        【V66.2 · Groupby修正版】
-        - 核心修复: 彻底修复了因高频数据索引重复导致的 `ValueError: cannot reindex on an axis with duplicate labels` 致命错误。
-        - 核心重构: 遵循Pandas最佳实践，将错误的“先过滤，后分组”逻辑，重构为正确的“先分组，后过滤”模式，从根本上解决了索引与分组器错位的问题。
+        【V66.3 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         daily_data = context['daily_data']
         common_data = context['common_data']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         from datetime import time
         import pandas as pd
         import numpy as np
@@ -1684,10 +1669,8 @@ class AdvancedFundFlowMetricsService:
             max_fomo_event_info = {'score': -1}
             hf_analysis_df['is_new_high'] = hf_analysis_df['price'] > hf_analysis_df['price'].cummax().shift(1).fillna(0)
             fomo_events = hf_analysis_df['is_new_high'].ne(hf_analysis_df['is_new_high'].shift()).cumsum()
-            # [修改的代码行] 移除错误的 fomo_zones 创建
             daily_retail_buy_vol = hf_analysis_df[(hf_analysis_df['amount'] < 50000) & (hf_analysis_df['type'] == 'B')]['volume'].sum()
             avg_retail_buy_rate = daily_retail_buy_vol / (4 * 3600) if daily_retail_buy_vol > 0 else 0
-            # [修改的代码行] 重构循环为“先分组，后过滤”
             for _, event_df in hf_analysis_df.groupby(fomo_events):
                 if not event_df['is_new_high'].all():
                     continue
@@ -1715,7 +1698,7 @@ class AdvancedFundFlowMetricsService:
             if total_fomo_volume > 0:
                 weighted_avg_fomo_score = total_weighted_fomo_score / total_fomo_volume
                 metrics['retail_fomo_premium_index'] = weighted_avg_fomo_score * 100
-                if enable_probe and is_target_date:
+                if should_probe:
                     print(f"  [探针] retail_fomo_premium_index (高频-散户FOMO) 计算:")
                     print(f"    - Weighted Avg FOMO Score: {weighted_avg_fomo_score:.4f}")
                     if max_fomo_event_info['score'] > -1:
@@ -1726,10 +1709,8 @@ class AdvancedFundFlowMetricsService:
             max_panic_event_info = {'score': -1}
             hf_analysis_df['is_new_low'] = hf_analysis_df['price'] < hf_analysis_df['price'].cummin().shift(1).fillna(float('inf'))
             panic_events = hf_analysis_df['is_new_low'].ne(hf_analysis_df['is_new_low'].shift()).cumsum()
-            # [修改的代码行] 移除错误的 panic_zones 创建
             daily_retail_sell_vol = hf_analysis_df[(hf_analysis_df['amount'] < 50000) & (hf_analysis_df['type'] == 'S')]['volume'].sum()
             avg_retail_sell_rate = daily_retail_sell_vol / (4 * 3600) if daily_retail_sell_vol > 0 else 0
-            # [修改的代码行] 重构循环为“先分组，后过滤”
             for _, event_df in hf_analysis_df.groupby(panic_events):
                 if not event_df['is_new_low'].all():
                     continue
@@ -1757,7 +1738,7 @@ class AdvancedFundFlowMetricsService:
             if total_panic_volume > 0:
                 weighted_avg_panic_score = total_weighted_panic_score / total_panic_volume
                 metrics['retail_panic_surrender_index'] = weighted_avg_panic_score * 100
-                if enable_probe and is_target_date:
+                if should_probe:
                     print(f"  [探针] retail_panic_surrender_index (高频-散户恐慌) 计算:")
                     print(f"    - Weighted Avg Panic Score: {weighted_avg_panic_score:.4f}")
                     if max_panic_event_info['score'] > -1:
@@ -1799,14 +1780,13 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_panic_cascade_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         from scipy.signal import find_peaks
         from datetime import time
         import numpy as np
@@ -1856,7 +1836,7 @@ class AdvancedFundFlowMetricsService:
                 if total_price_drop > 0:
                     weighted_avg_panic_score = total_weighted_panic_score / total_price_drop
                     metrics['panic_selling_cascade'] = weighted_avg_panic_score * 100
-                    if enable_probe and is_target_date:
+                    if should_probe:
                         print(f"  [探针] panic_selling_cascade (高频-恐慌级联) 计算:")
                         print(f"    - Weighted Avg Panic Score: {weighted_avg_panic_score:.4f}")
                         if max_panic_leg_info['score'] > -1:
@@ -1881,14 +1861,13 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_misc_minute_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         from datetime import time
         import numpy as np
         import pandas as pd
@@ -1915,7 +1894,7 @@ class AdvancedFundFlowMetricsService:
             if total_abs_mf_ofi > 0:
                 alignment_score = (concordant_ofi - discordant_ofi) / total_abs_mf_ofi
                 metrics['trend_alignment_index'] = alignment_score * 100
-                if enable_probe and is_target_date:
+                if should_probe:
                     print(f"  [探针] trend_alignment_index (高频-趋势同向性) 计算:")
                     print(f"    - 微观趋势判断基准: {ema_span}-tick EMA of mid_price")
                     print(f"    - 同向OFI总量: {concordant_ofi:,.0f}")
@@ -1927,7 +1906,7 @@ class AdvancedFundFlowMetricsService:
             vol_down = df.loc[is_downtrend, 'log_return'].std()
             if pd.notna(vol_up) and pd.notna(vol_down) and vol_up > 0 and vol_down > 0:
                 metrics['volatility_asymmetry_index'] = np.log(vol_up / vol_down)
-                if enable_probe and is_target_date:
+                if should_probe:
                     print(f"  [探针] volatility_asymmetry_index (高频-波动率不对称) 计算:")
                     print(f"    - 上涨阶段波动率 (vol_up): {vol_up:.6f}")
                     print(f"    - 下跌阶段波动率 (vol_down): {vol_down:.6f}")
@@ -2155,15 +2134,14 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_execution_alpha_metrics(context: dict) -> dict:
         """
-        【V66.0 · 计算内核静态化】
-        - 核心重构: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.1 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         hf_analysis_df = context['hf_analysis_df']
         daily_data = context['daily_data']
         common_data = context['common_data']
         hf_features = context['hf_features']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         hf_mf_buy_vwap = hf_features['hf_mf_buy_vwap']
         hf_mf_sell_vwap = hf_features['hf_mf_sell_vwap']
         import numpy as np
@@ -2204,7 +2182,7 @@ class AdvancedFundFlowMetricsService:
             if pd.notna(avg_cost_main_sell) and pd.notna(avg_cost_main_buy) and daily_vwap > 0:
                 t0_spread = (avg_cost_main_sell - avg_cost_main_buy) / daily_vwap
                 metrics['main_force_t0_spread_ratio'] = t0_spread * 100
-        if enable_probe and is_target_date:
+        if should_probe:
             print(f"  [探针] main_force_execution_alpha & T0_spread (执行力与价差) 计算:")
             print(f"    - 市场VWAP: {daily_vwap:.4f}, ATR: {atr:.4f}")
             if not hf_analysis_df.empty:
@@ -2229,13 +2207,12 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_wash_trade_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         hf_analysis_df = context['hf_analysis_df']
         hf_features = context['hf_features']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         import numpy as np
         import pandas as pd
         metrics = {'wash_trade_intensity': np.nan}
@@ -2265,7 +2242,7 @@ class AdvancedFundFlowMetricsService:
             return metrics
         wash_volume = np.minimum(wash_pairs['volume_buy'], wash_pairs['volume_sell']).sum()
         metrics['wash_trade_intensity'] = (wash_volume / total_mf_volume) * 100
-        if enable_probe and is_target_date:
+        if should_probe:
             print(f"  [探针] wash_trade_intensity (高频-对倒穿透) 计算:")
             print(f"    - 识别出的总对倒量: {wash_volume:,.0f}")
             print(f"    - 主力总成交量: {total_mf_volume:,.0f}")
@@ -2275,14 +2252,13 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_closing_strength_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · 探针标准化】
+        - 核心重构: 废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
         common_data = context['common_data']
-        is_target_date = context['debug']['is_target_date']
-        enable_probe = context['debug']['enable_probe']
+        should_probe = context['debug']['should_probe']
         import numpy as np
         metrics = {}
         day_high, day_low, day_close = common_data['day_high'], common_data['day_low'], common_data['day_close']
@@ -2305,7 +2281,7 @@ class AdvancedFundFlowMetricsService:
             if 'main_force_net_vol' in intraday_data.columns and daily_total_volume > 0:
                 force_factor = intraday_data['main_force_net_vol'].sum() / daily_total_volume
         metrics['closing_strength_index'] = (0.5 * range_pos_factor + 0.3 * value_dev_factor + 0.2 * force_factor) * 100
-        if enable_probe and is_target_date:
+        if should_probe:
             print(f"  [探针] closing_strength_index (高频-收盘强度) 计算:")
             print(f"    - 位置因子 (Range Pos): {range_pos_factor:.4f}")
             print(f"    - 价值因子 (Value Dev): {value_dev_factor:.4f}")
