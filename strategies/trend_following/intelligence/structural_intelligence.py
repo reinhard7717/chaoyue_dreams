@@ -46,10 +46,9 @@ class StructuralIntelligence:
 
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V7.1 · 指挥链修复版】结构情报分析总指挥
-        - 核心修复: 修正了因代码执行顺序错误导致的 `UnboundLocalError`。
-                      将“结构动量”的计算提前至“龙头潜力”判断之前，确保所有依赖项都已就绪。
-        - 逻辑优化: 动量计算现在基于“基础情境态势”，使其更能反映趋势的原始动能，不受“加冕”逻辑的干扰。
+        【V8.0 · 荣耀代价版】结构情报分析总指挥
+        - 核心升级: 引入“荣耀的代价”协议。当“龙头潜力”激活时，其分值将作为“豁免系数”，
+                      部分抵消环境惩罚，而非简单叠加奖励。最终得分同时体现逆势的荣耀与代价。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -90,53 +89,52 @@ class StructuralIntelligence:
             axiom_trend_form, axiom_mtf_cohesion, axiom_stability, axiom_tension, platform_quality, breakout_readiness
         )
         all_states['SCORE_STRUCT_STRATEGIC_POSTURE'] = strategic_posture
-        # --- 步骤三: 融合战场环境，生成基础情境态势 ---
+        # --- 步骤三: 生成原始环境调节器 ---
         env_factor = 0.5
         env_modifier = (axiom_environment - 0.5) * env_factor
-        contextual_posture_base = (strategic_posture * (1 + env_modifier)).clip(0, 1)
-        # --- 修改代码开始 ---
-        # --- 步骤四: 基于“基础”情境态势，诊断原始动量 --- (从步骤六提前)
+        # --- 步骤四: 基于“基础”情境态势，诊断原始动量 ---
+        # 暂时使用原始调节器计算基础态势和动量，供龙头潜力判断
+        contextual_posture_base_for_momentum = (strategic_posture * (1 + env_modifier)).clip(0, 1)
         momentum_window = 5
-        # 使用 contextual_posture_base 计算原始动量，逻辑更纯粹
-        posture_slope_raw = ta.slope(contextual_posture_base, length=momentum_window)
+        posture_slope_raw = ta.slope(contextual_posture_base_for_momentum, length=momentum_window)
         posture_slope_raw.fillna(0, inplace=True)
         mtf_weights_conf = get_param_value(p_conf.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         structural_momentum = get_adaptive_mtf_normalized_bipolar_score(posture_slope_raw, df.index, tf_weights)
-        all_states['SCORE_STRUCT_MOMENTUM'] = structural_momentum.astype(np.float32)
-        if self.is_probe_date:
-            # 动量探针暂时移到后面，因为它可能被加冕逻辑影响后的最终态势斜率所更新（如果需要的话）
-            pass
-        # --- 步骤五: 龙头潜力裁决 (现在可以安全调用) ---
+        # --- 步骤五: 龙头潜力裁决 ---
         leadership_potential = self._diagnose_leadership_potential(
             strategic_posture, axiom_environment, structural_momentum, axiom_tension
         )
         all_states['SCORE_STRUCT_LEADERSHIP_POTENTIAL'] = leadership_potential
-        # --- 步骤六: “神笔”干预 -> 逆势加冕 ---
-        coronation_factor = get_param_value(p_conf.get('coronation_factor'), 0.5)
-        coronation_premium = leadership_potential * coronation_factor
-        contextual_posture = (contextual_posture_base + coronation_premium).clip(0, 1)
+        # --- 修改代码开始 ---
+        # --- 步骤六: “荣耀的代价” -> 计算最终情境态势 ---
+        waiver_coefficient = leadership_potential
+        effective_env_modifier = env_modifier * (1 - waiver_coefficient)
+        contextual_posture = (strategic_posture * (1 + effective_env_modifier)).clip(0, 1)
         all_states['SCORE_STRUCT_CONTEXTUAL_POSTURE'] = contextual_posture.astype(np.float32)
         if self.is_probe_date:
             print(f"    [探针] 情境战略态势 (SCORE_STRUCT_CONTEXTUAL_POSTURE): {contextual_posture.iloc[-1]:.4f}")
-            print(f"      - 融合: 内部态势分={strategic_posture.iloc[-1]:.2f}, 环境调节器={env_modifier.iloc[-1]:.2f} -> 基础态势={contextual_posture_base.iloc[-1]:.2f}")
-            if coronation_premium.iloc[-1] > 0:
-                print(f"      - 神笔干预: [逆势加冕] 龙头潜力({leadership_potential.iloc[-1]:.2f}) * 因子({coronation_factor:.2f}) -> 加冕溢价={coronation_premium.iloc[-1]:.2f}")
-        # 重新计算最终动量并输出探针
+            if waiver_coefficient.iloc[-1] > 0:
+                print(f"      - 神笔干预: [荣耀的代价] 触发！龙头潜力({leadership_potential.iloc[-1]:.2f})作为豁免系数")
+                print(f"      - 计算: 原始调节器({env_modifier.iloc[-1]:.2f}) * (1 - {waiver_coefficient.iloc[-1]:.2f}) -> 有效调节器={effective_env_modifier.iloc[-1]:.2f}")
+                print(f"      - 融合: 内部态势({strategic_posture.iloc[-1]:.2f}) * (1 + 有效调节器) -> 最终态势")
+            else:
+                print(f"      - 融合: 内部态势分={strategic_posture.iloc[-1]:.2f}, 环境调节器={env_modifier.iloc[-1]:.2f} -> 最终态势 = 内部态势 * (1 + 调节器)")
+        # --- 步骤七: 基于最终情境态势，更新动量 ---
         final_posture_slope_raw = ta.slope(contextual_posture, length=momentum_window)
         final_posture_slope_raw.fillna(0, inplace=True)
         final_structural_momentum = get_adaptive_mtf_normalized_bipolar_score(final_posture_slope_raw, df.index, tf_weights)
-        all_states['SCORE_STRUCT_MOMENTUM'] = final_structural_momentum.astype(np.float32) # 更新为最终动量
+        all_states['SCORE_STRUCT_MOMENTUM'] = final_structural_momentum.astype(np.float32)
         if self.is_probe_date:
             today_score = final_structural_momentum.iloc[-1]
             print(f"    [探针] 结构动量(势) (SCORE_STRUCT_MOMENTUM): {today_score:.4f}")
             print(f"      - 原料: (最终)情境战略态势5日斜率(原始)={final_posture_slope_raw.iloc[-1]:.4f}")
-        # --- 步骤七: 诊断剧本 ---
+        # --- 步骤八: 诊断剧本 ---
         playbook_secondary_launch = self._diagnose_playbook_secondary_launch(
             df, axiom_stability, contextual_posture, final_structural_momentum
         )
         all_states['SCORE_STRUCT_PLAYBOOK_SECONDARY_LAUNCH'] = playbook_secondary_launch
-        # --- 步骤八: 终极裁决 ---
+        # --- 步骤九: 终极裁决 ---
         final_judgment = self._diagnose_final_judgment(
             contextual_posture, defense_strength, final_structural_momentum
         )
