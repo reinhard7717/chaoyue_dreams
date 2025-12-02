@@ -187,10 +187,10 @@ class PatternIntelligence:
 
     def _diagnose_axiom_pullback_confirmation(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V9.0 · 诡道博弈增强版】形态公理四：诊断“回踩确认二次启动”形态
+        【V9.1 · 变量修复版】形态公理四：诊断“回踩确认二次启动”形态
         - 核心升级: 引入“健康洗盘分数”模型，对回踩阶段进行多维度博弈行为评估。
         - 新增功能: 实现受`probe_dates`控制的精密探针，用于调试和验证。
-        - 逻辑修正: 修复了原デバッグ代码中仅在探针日执行计算的BUG。
+        - 核心修复: 修复了因遗漏定义回踩期数据切片而导致的 `NameError`。
         """
         # region 1. 数据与参数准备
         required_signals = [
@@ -234,7 +234,7 @@ class PatternIntelligence:
         closing_conviction_score_D = self._get_safe_series(df, 'closing_strength_index_D', method_name="_diagnose_axiom_pullback_confirmation")
         # 预计算，减少循环内重复计算
         max_vol_ma = pd.concat([vol_ma5_D, vol_ma21_D], axis=1).max(axis=1)
-        effective_volume_D = volume_D * (1 - wash_trade_intensity_D.fillna(0).clip(0, 1)) # 新增代码行: 计算有效量
+        effective_volume_D = volume_D * (1 - wash_trade_intensity_D.fillna(0).clip(0, 1)) 
         # 探针设置
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -274,7 +274,7 @@ class PatternIntelligence:
                 if day_B_idx <= day_A_idx:
                     continue
                 current_B_date = df_index[day_B_idx]
-                is_probing_this_b_day = (probe_target_date is not None and current_B_date == probe_target_date) # 修改代码行: 探针激活判断
+                is_probing_this_b_day = (probe_target_date is not None and current_B_date == probe_target_date) 
                 # B点特征提取
                 day_B_pct_change = pct_change_D.iloc[day_B_idx]
                 day_B_volume = volume_D.iloc[day_B_idx]
@@ -290,7 +290,7 @@ class PatternIntelligence:
                 cond_B_mf_flow = day_B_main_force_flow > 0
                 cond_B_chip_conc = day_B_chip_conc_slope > 0
                 cond_B_mf_leverage = day_B_mf_control_leverage > 0
-                if is_probing_this_b_day: # 新增代码块: 探针输出
+                if is_probing_this_b_day: 
                     print(f"\n[探针] 正在为 {current_B_date.date()} 诊断“回踩确认二次启动”形态...")
                     print(f"  -> 候选A点: {current_A_date.date()}")
                     print(f"     - A点条件: pct_change > 1% ({cond_A_pct_change}), volume > 1.2*MA_VOL ({cond_A_volume}), MF_Flow > 0 ({cond_A_mf_flow}), Chip_Conc_Slope > 0 ({cond_A_chip_conc})")
@@ -317,6 +317,16 @@ class PatternIntelligence:
                 pullback_effective_volume = effective_volume_D.iloc[pullback_slice_start:pullback_slice_end] 
                 pullback_max_vol_ma = max_vol_ma.iloc[pullback_slice_start:pullback_slice_end]
                 pullback_pct_change = pct_change_D.iloc[pullback_slice_start:pullback_slice_end]
+                # region 新增代码块: 补全缺失的回调期数据切片定义
+                pullback_main_force_ofi = main_force_ofi_D.iloc[pullback_slice_start:pullback_slice_end]
+                pullback_retail_ofi = retail_ofi_D.iloc[pullback_slice_start:pullback_slice_end]
+                pullback_hidden_accumulation = hidden_accumulation_intensity_D.iloc[pullback_slice_start:pullback_slice_end]
+                pullback_large_order_support = large_order_support_D.iloc[pullback_slice_start:pullback_slice_end]
+                pullback_large_order_pressure = large_order_pressure_D.iloc[pullback_slice_start:pullback_slice_end]
+                pullback_lower_shadow_absorption = lower_shadow_absorption_strength_D.iloc[pullback_slice_start:pullback_slice_end]
+                pullback_upper_shadow_selling_pressure = upper_shadow_selling_pressure_D.iloc[pullback_slice_start:pullback_slice_end]
+                pullback_closing_conviction_score = closing_conviction_score_D.iloc[pullback_slice_start:pullback_slice_end]
+                # endregion
                 # 核心否决条件：是否存在放量下跌
                 no_bearish_volume_breakout = ~((pullback_pct_change < 0) & (pullback_effective_volume > pullback_max_vol_ma)).any()
                 if is_probing_this_b_day:
