@@ -45,10 +45,10 @@ class StructuralIntelligence:
 
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.1 · MTF重构版】结构情报分析总指挥
+        【V5.2 · 势能觉醒版】结构情报分析总指挥
         - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
         - 核心职责: 输出结构领域的原子公理信号、结构背离信号，并新增顶层“战略态势”超级信号。
-        - 移除信号: SCORE_STRUCTURE_BULLISH_RESONANCE, SCORE_STRUCTURE_BEARISH_RESONANCE, BIPOLAR_STRUCTURAL_DOMAIN_HEALTH, SCORE_STRUCTURE_BOTTOM_REVERSAL, SCORE_STRUCTURE_TOP_REVERSAL。
+        - 核心新增: 引入终极维度“结构动量”，通过计算“战略态势”自身的变化率，将结构分析从“状态”提升至“势”的层面。
         - 【新增】调用 `_diagnose_bottom_fractal` 方法，将底分型信号添加到 `all_states` 中。
         - 【新增】调用 `_diagnose_strategic_posture` 方法，生成顶层战略信号。
         - 【优化】移除了过时的 `norm_window` 参数。
@@ -63,13 +63,10 @@ class StructuralIntelligence:
         if self.is_probe_date:
             print(f"\n--- [结构情报探针] @ {current_date_str} ---")
         # --- 步骤一: 诊断三大公理 ---
-        # --- 修改代码开始 ---
-        # 移除 norm_window 参数传递
         axiom_trend_form = self._diagnose_axiom_trend_form(df)
         axiom_mtf_cohesion = self._diagnose_axiom_mtf_cohesion(df, axiom_trend_form)
         axiom_stability = self._diagnose_axiom_stability(df)
         axiom_divergence = self._diagnose_axiom_divergence(df)
-        # --- 修改代码结束 ---
         all_states['SCORE_STRUCT_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_STRUCT_AXIOM_TREND_FORM'] = axiom_trend_form
         all_states['SCORE_STRUCT_AXIOM_MTF_COHESION'] = axiom_mtf_cohesion
@@ -84,6 +81,20 @@ class StructuralIntelligence:
             axiom_trend_form, axiom_mtf_cohesion, axiom_stability
         )
         all_states['SCORE_STRUCT_STRATEGIC_POSTURE'] = strategic_posture
+        # --- 新增代码开始 ---
+        # --- 步骤三: 诊断终极维度 - 结构动量 ---
+        momentum_window = 5
+        posture_slope_raw = ta.slope(strategic_posture, length=momentum_window)
+        posture_slope_raw.fillna(0, inplace=True)
+        mtf_weights_conf = get_param_value(p_conf.get('mtf_normalization_weights'), {})
+        tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        structural_momentum = get_adaptive_mtf_normalized_bipolar_score(posture_slope_raw, df.index, tf_weights)
+        all_states['SCORE_STRUCT_MOMENTUM'] = structural_momentum.astype(np.float32)
+        if self.is_probe_date:
+            today_score = structural_momentum.iloc[-1]
+            print(f"    [探针] 结构动量(势) (SCORE_STRUCT_MOMENTUM): {today_score:.4f}")
+            print(f"      - 原料: 战略态势5日斜率(原始)={posture_slope_raw.iloc[-1]:.4f}")
+        # --- 新增代码结束 ---
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame) -> pd.Series:
