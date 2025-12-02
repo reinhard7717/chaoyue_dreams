@@ -820,9 +820,10 @@ class BehavioralIntelligence:
 
     def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict, lower_shadow_quality: pd.Series) -> pd.Series:
         """
-        【V3.2 · 信号依赖注入版】计算下跌过程中的广义吸筹强度
-        - 核心架构优化: 不再独立计算“形态分”，而是直接消费由 `_diagnose_lower_shadow_quality`
-                        计算出的权威分数，确保了模型内部逻辑的绝对一致性。
+        【V3.3 · 几何平均终局版】计算下跌过程中的广义吸筹强度
+        - 核心重构: 废弃加权算术平均，采用加权几何平均。这确保了“事件”、“位置”、“形态”
+                      三大核心证据中任何一个为零，最终吸筹强度分都会被一票否决，
+                      达成了整个行为情报引擎在融合哲学上的最终统一。
         """
         required_signals = [
             'capitulation_absorption_index_D', 'support_validation_strength_D',
@@ -837,13 +838,12 @@ class BehavioralIntelligence:
         location_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_calculate_absorption_strength")
         location_score = get_adaptive_mtf_normalized_score(location_raw, df.index, ascending=True, tf_weights=tf_weights)
         # 3. 形态证据 (下影线品质)
-        # [修改的代码行] 废弃独立计算，直接使用注入的权威信号
         morphology_score = lower_shadow_quality
-        # 4. 证据融合 (算术平均)
+        # 4. 证据融合 (升级为几何平均)
         absorption_strength = (
-            event_score * 0.3 +
-            location_score * 0.4 +
-            morphology_score * 0.3
+            (event_score + 1e-9).pow(0.3) *
+            (location_score + 1e-9).pow(0.4) *
+            (morphology_score + 1e-9).pow(0.3)
         ).fillna(0.0)
         # --- 探针监测 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -857,9 +857,9 @@ class BehavioralIntelligence:
                 print(f"      [行为探针] _calculate_absorption_strength @ {probe_date_str}")
                 print(f"        - 事件分 (投降承接): {event_score.loc[probe_ts]:.4f} (原始值: {event_raw.loc[probe_ts]:.2f})")
                 print(f"        - 位置分 (支撑验证): {location_score.loc[probe_ts]:.4f} (原始值: {location_raw.loc[probe_ts]:.2f})")
-                # [修改的代码行] 更新探针，反映新的信号源
                 print(f"        - 形态分 (下影线-权威注入): {morphology_score.loc[probe_ts]:.4f}")
-                print(f"        - 最终下跌吸筹强度分: {absorption_strength.loc[probe_ts]:.4f}")
+                # [修改的代码行] 更新探针，反映新的融合模型
+                print(f"        - 最终下跌吸筹强度分(几何平均): {absorption_strength.loc[probe_ts]:.4f}")
         return absorption_strength.astype(np.float32)
 
     def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, downward_resistance: pd.Series, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:
