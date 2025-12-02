@@ -1465,6 +1465,35 @@
             "value": 0.04
         }
       },
+      "intraday_gambit_engine_params": {
+        "enabled": true,
+        "description": "【V1.0 · 新增】日内诡道引擎，用于分钟级数据的深度主力博弈意图分析。",
+        "final_assault_params": {
+          "description": "【终末强袭】信号参数",
+          "start_time": "14:30",
+          "fusion_weights": {
+            "assault_strength": 0.5,
+            "assault_accel": 0.2,
+            "closing_auction": 0.3
+          }
+        },
+        "ambush_flank_params": {
+          "description": "【伏击与侧翼】信号参数",
+          "min_dip_to_open_pct": 0.03,
+          "fusion_weights": {
+            "panic_evidence": 0.2,
+            "absorption_power": 0.4,
+            "recovery_strength": 0.4
+          }
+        },
+        "vwap_battlefield_params": {
+          "description": "【VWAP攻防】信号参数",
+          "fusion_weights": {
+            "net_battle_score": 0.6,
+            "control_strength": 0.4
+          }
+        }
+      },
       "tactic_engine_params": {
         "enabled": true,
         "description": "【V1.2 · 阿瑞斯之怒版】战术引擎的专属参数块，用于关系元分析。",

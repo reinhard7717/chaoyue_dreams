@@ -13,9 +13,9 @@ from strategies.trend_following.utils import (
 
 class IntradayBehaviorEngine:
     """
-    【V3.0 · 日内叙事三部曲版】
-    - 核心升级: 在“日内战报”基础上，引入基于日内博弈叙事的“战术弧线”、“竞价意图”、“修复质量”三大新公理。
-                旨在穿透全天战果的表象，捕捉主力资金在日内的完整战术剧本，为T+1决策提供更深层次的博弈洞察。
+    【V4.0 · 日内诡道引擎版】
+    - 核心升级: 在“日内叙事”基础上，引入基于主力诡道博弈的“伏击与侧翼”、“终末强袭”、“VWAP攻防”三大全新公理。
+                旨在穿透全天战果的表象，深度解读主力资金在日内的完整战术剧本，为T+1决策提供更高维度的博弈洞察。
     """
     def __init__(self, strategy_instance):
         """初始化时加载专属配置，并获取指标计算器的引用"""
@@ -58,14 +58,15 @@ class IntradayBehaviorEngine:
 
     async def run_intraday_diagnostics(self, df_minute: pd.DataFrame) -> Dict[str, float]:
         """
-        【V4.0 · 日内叙事三部曲版】日内诊断总指挥
+        【V4.0 · 日内诡道引擎版】日内诊断总指挥
         - 核心流程:
           1. 准备分钟级核心数据 (VWAP)。
           2. 并行诊断“进攻纯度”、“支配共识”、“信念反转”三大经典战报。
-          3. [新增] 并行诊断“战术弧线”、“竞价意图”、“修复质量”三大叙事信号。
-          4. 返回所有信号的最终值，为日线级分析提供更全面的过程性解释。
+          3. 并行诊断“战术弧线”、“竞价意图”、“修复质量”三大叙事信号。
+          4. [新增] 并行诊断“伏击与侧翼”、“终末强袭”、“VWAP攻防”三大诡道信号。
+          5. 返回所有信号的最终值，为日线级分析提供更全面的过程性解释。
         """
-        print("启动【V4.0 · 日内叙事三部曲版】日内行为诊断...") # [代码修改] 更新版本号和描述
+        print("启动【V4.0 · 日内诡道引擎版】日内行为诊断...") # [代码修改] 更新版本号和描述
         df_enriched = await self._prepare_intraday_indicators(df_minute)
         if df_enriched is None or df_enriched.empty:
             print("分钟数据为空，无法进行日内行为诊断。")
@@ -73,9 +74,12 @@ class IntradayBehaviorEngine:
                 "SCORE_INTRADAY_OFFENSIVE_PURITY": 0.0,
                 "SCORE_INTRADAY_DOMINANCE_CONSENSUS": 0.0,
                 "SCORE_INTRADAY_CONVICTION_REVERSAL": 0.0,
-                "SCORE_INTRADAY_TACTICAL_ARC": 0.0, # [代码新增]
-                "SCORE_INTRADAY_AUCTION_INTENT": 0.0, # [代码新增]
-                "SCORE_INTRADAY_RECOVERY_QUALITY": 0.0, # [代码新增]
+                "SCORE_INTRADAY_TACTICAL_ARC": 0.0,
+                "SCORE_INTRADAY_AUCTION_INTENT": 0.0,
+                "SCORE_INTRADAY_RECOVERY_QUALITY": 0.0,
+                "SCORE_INTRADAY_AMBUSH_AND_FLANK": 0.0, # [代码新增]
+                "SCORE_INTRADAY_FINAL_ASSAULT": 0.0, # [代码新增]
+                "SCORE_INTRADAY_VWAP_BATTLEFIELD": 0.0, # [代码新增]
             }
         # [代码修改] 并行执行所有新旧诊断任务
         tasks = [
@@ -85,6 +89,9 @@ class IntradayBehaviorEngine:
             self._diagnose_tactical_arc(df_enriched),
             self._diagnose_auction_intent(df_enriched),
             self._diagnose_recovery_quality(df_enriched),
+            self._diagnose_ambush_and_flank(df_enriched), # [代码新增]
+            self._diagnose_final_assault(df_enriched), # [代码新增]
+            self._diagnose_vwap_battlefield(df_enriched), # [代码新增]
         ]
         results = await asyncio.gather(*tasks)
         final_scores = {}
@@ -335,5 +342,144 @@ class IntradayBehaviorEngine:
                 print(f"        - 成交量确认分: {volume_confirm_score:.4f} (PM Vol: {pm_volume}, AM Vol: {am_volume})")
                 print(f"        - 最终修复质量分: {final_score:.4f}")
         return {"SCORE_INTRADAY_RECOVERY_QUALITY": np.clip(final_score, 0, 1)}
+
+    async def _diagnose_ambush_and_flank(self, df_minute: pd.DataFrame) -> Dict[str, float]:
+        """
+        【V1.0 · 新增】日内诡道之一：诊断“伏击与侧翼”
+        - 核心逻辑: 识别主力利用日内恐慌进行战术洗盘并吸收筹码的剧本。
+        """
+        if df_minute.empty:
+            return {"SCORE_INTRADAY_AMBUSH_AND_FLANK": 0.0}
+        current_date = df_minute.index[0].normalize()
+        if current_date not in self.strategy.df_indicators.index:
+            return {"SCORE_INTRADAY_AMBUSH_AND_FLANK": 0.0}
+        daily_signals = self.strategy.df_indicators.loc[current_date]
+        params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('ambush_flank_params', {})
+        weights = params.get('fusion_weights', {'panic_evidence': 0.2, 'absorption_power': 0.4, 'recovery_strength': 0.4})
+        min_dip_pct = params.get('min_dip_to_open_pct', 0.03)
+        # 门控条件：必须有足够深度的下探
+        daily_open = daily_signals.get('open_D', 0)
+        daily_low = daily_signals.get('low_D', 0)
+        if daily_open == 0 or ((daily_open - daily_low) / daily_open) < min_dip_pct:
+            return {"SCORE_INTRADAY_AMBUSH_AND_FLANK": 0.0}
+        # 1. 恐慌证据 (Panic Evidence)
+        panic_evidence = daily_signals.get('panic_selling_cascade_D', 0.0)
+        # 2. 主力吸收 (Absorption Power)
+        absorption_power = daily_signals.get('dip_absorption_power_D', 0.0)
+        # 3. 反攻质量 (Recovery Strength)
+        recovery_strength = daily_signals.get('closing_strength_index_D', 0.0)
+        # 融合三大证据链
+        final_score = (panic_evidence ** weights.get('panic_evidence', 0.2) *
+                       absorption_power ** weights.get('absorption_power', 0.4) *
+                       recovery_strength ** weights.get('recovery_strength', 0.4))
+        # --- 探针监测 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            processed_date_str = current_date.strftime('%Y-%m-%d')
+            if processed_date_str in probe_dates:
+                print(f"      [日内诡道探针] _diagnose_ambush_and_flank @ {processed_date_str}")
+                print(f"        - 恐慌证据分: {panic_evidence:.4f}")
+                print(f"        - 主力吸收分: {absorption_power:.4f}")
+                print(f"        - 反攻质量分: {recovery_strength:.4f}")
+                print(f"        - 最终伏击与侧翼分: {final_score:.4f}")
+        return {"SCORE_INTRADAY_AMBUSH_AND_FLANK": np.clip(final_score, 0, 1)}
+
+    async def _diagnose_final_assault(self, df_minute: pd.DataFrame) -> Dict[str, float]:
+        """
+        【V1.0 · 新增】日内诡道之二：诊断“终末强袭”
+        - 核心逻辑: 捕捉主力在尾盘（含集合竞价）的真实攻击或撤退意图。
+        """
+        required_signals = ['close', 'vwap', 'amount']
+        if not self._validate_required_signals(df_minute, required_signals, "_diagnose_final_assault"):
+            return {"SCORE_INTRADAY_FINAL_ASSAULT": 0.0}
+        current_date = df_minute.index[0].normalize()
+        if current_date not in self.strategy.df_indicators.index:
+            return {"SCORE_INTRADAY_FINAL_ASSAULT": 0.0}
+        daily_signals = self.strategy.df_indicators.loc[current_date]
+        params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('final_assault_params', {})
+        weights = params.get('fusion_weights', {'assault_strength': 0.5, 'assault_accel': 0.2, 'closing_auction': 0.3})
+        start_time = params.get('start_time', "14:30")
+        # 1. 尾盘攻击强度 (Assault Strength)
+        final_period_df = df_minute.between_time(start_time, '15:00')
+        if final_period_df.empty:
+            return {"SCORE_INTRADAY_FINAL_ASSAULT": 0.0}
+        vwap = self._get_safe_series(final_period_df, 'vwap').replace(0, np.nan).ffill()
+        price_deviation = (self._get_safe_series(final_period_df, 'close') - vwap) / vwap
+        dominance_strength = (price_deviation * self._get_safe_series(final_period_df, 'amount')).fillna(0)
+        assault_strength = dominance_strength.mean()
+        norm_assault_strength = np.tanh(assault_strength / (dominance_strength.abs().mean() + 1e-9))
+        # 2. 攻击加速度 (Assault Acceleration)
+        strength_trend = dominance_strength.ewm(span=5).mean().diff().mean()
+        norm_assault_accel = np.tanh(strength_trend / (dominance_strength.abs().diff().mean() + 1e-9))
+        # 3. 收盘竞价意图 (Closing Auction)
+        closing_auction_intent = daily_signals.get('closing_auction_ambush_D', 0.0)
+        # 融合
+        final_score = (norm_assault_strength * weights.get('assault_strength', 0.5) +
+                       norm_assault_accel * weights.get('assault_accel', 0.2) +
+                       closing_auction_intent * weights.get('closing_auction', 0.3))
+        # --- 探针监测 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            processed_date_str = current_date.strftime('%Y-%m-%d')
+            if processed_date_str in probe_dates:
+                print(f"      [日内诡道探针] _diagnose_final_assault @ {processed_date_str}")
+                print(f"        - 尾盘攻击强度分: {norm_assault_strength:.4f} (原始均值: {assault_strength:.2f})")
+                print(f"        - 尾盘攻击加速分: {norm_assault_accel:.4f} (原始趋势: {strength_trend:.2f})")
+                print(f"        - 收盘竞价意图分: {closing_auction_intent:.4f}")
+                print(f"        - 最终终末强袭分: {final_score:.4f}")
+        return {"SCORE_INTRADAY_FINAL_ASSAULT": np.clip(final_score, -1, 1)}
+
+    async def _diagnose_vwap_battlefield(self, df_minute: pd.DataFrame) -> Dict[str, float]:
+        """
+        【V1.0 · 新增】日内诡道之三：诊断“VWAP攻防”
+        - 核心逻辑: 将VWAP视为多空战场，量化支撑与压制的力量对比。
+        """
+        required_signals = ['close', 'low', 'high', 'vwap', 'volume']
+        if not self._validate_required_signals(df_minute, required_signals, "_diagnose_vwap_battlefield"):
+            return {"SCORE_INTRADAY_VWAP_BATTLEFIELD": 0.0}
+        current_date = df_minute.index[0].normalize()
+        if current_date not in self.strategy.df_indicators.index:
+            return {"SCORE_INTRADAY_VWAP_BATTLEFIELD": 0.0}
+        daily_signals = self.strategy.df_indicators.loc[current_date]
+        params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('vwap_battlefield_params', {})
+        weights = params.get('fusion_weights', {'net_battle_score': 0.6, 'control_strength': 0.4})
+        df = df_minute.copy()
+        df['vwap'] = df['vwap'].replace(0, np.nan).ffill()
+        df = df.dropna(subset=['vwap'])
+        if df.empty:
+            return {"SCORE_INTRADAY_VWAP_BATTLEFIELD": 0.0}
+        # 1. 计算支撑与压制
+        # 支撑测试：K线的最低价触及或低于VWAP，但收盘价高于VWAP
+        support_tests = df[(df['low'] <= df['vwap']) & (df['close'] > df['vwap'])]
+        # 压制测试：K线的最高价触及或高于VWAP，但收盘价低于VWAP
+        suppression_tests = df[(df['high'] >= df['vwap']) & (df['close'] < df['vwap'])]
+        # 用成交量加权计算得分
+        support_score = support_tests['volume'].sum()
+        suppression_score = suppression_tests['volume'].sum()
+        total_battle_volume = support_score + suppression_score + 1e-9
+        net_battle_score = (support_score - suppression_score) / total_battle_volume
+        # 2. 融合日线级控制信号
+        control_strength = daily_signals.get('vwap_control_strength_D', 0.0)
+        # 融合
+        final_score = (net_battle_score * weights.get('net_battle_score', 0.6) +
+                       control_strength * weights.get('control_strength', 0.4))
+        # --- 探针监测 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            processed_date_str = current_date.strftime('%Y-%m-%d')
+            if processed_date_str in probe_dates:
+                print(f"      [日内诡道探针] _diagnose_vwap_battlefield @ {processed_date_str}")
+                print(f"        - VWAP支撑总量: {support_score:.2f}")
+                print(f"        - VWAP压制总量: {suppression_score:.2f}")
+                print(f"        - 净战斗分: {net_battle_score:.4f}")
+                print(f"        - 日线级控制强度分: {control_strength:.4f}")
+                print(f"        - 最终VWAP攻防分: {final_score:.4f}")
+        return {"SCORE_INTRADAY_VWAP_BATTLEFIELD": np.clip(final_score, -1, 1)}
 
 
