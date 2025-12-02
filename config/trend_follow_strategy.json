@@ -1377,9 +1377,7 @@
       },
       "structural_ultimate_params": {
         "enabled": true,
-        "description": "【V4.0 · 矛与盾融合版】定义了基于“趋势形态、多周期协同、结构稳定性”三大核心公理的新结构引擎参数。",
-        "norm_window": 55,
-        "description_axiom_weights": "融合三大结构公理时的权重。",
+        "description": "【V5.0 · MTF权重分层版】定义了基于“趋势形态、多周期协同、结构稳定性”三大核心公理的新结构引擎参数。",
         "axiom_weights": {
           "trend_form": 0.5,
           "mtf_cohesion": 0.3,
@@ -1398,7 +1396,13 @@
           "ema": 0.6,
           "ma": 0.4
         },
-        "comment_trend_form_velocity_fusion_weights": "【趋势形态公理】EMA和MA速度分数的融合权重。"
+        "comment_trend_form_velocity_fusion_weights": "【趋势形态公理】EMA和MA速度分数的融合权重。",
+        "mtf_normalization_weights": {
+            "description": "【V1.0 · 新增】为结构层不同类型的信号定义多时间框架(MTF)归一化权重。",
+            "default": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 },
+            "long_term_stability": { "13": 0.2, "21": 0.3, "55": 0.4, "89": 0.1 },
+            "short_term_geometry": { "5": 0.5, "8": 0.3, "13": 0.2 }
+        }
       },
       "cognitive_intelligence_params": {
         "enabled": true,
