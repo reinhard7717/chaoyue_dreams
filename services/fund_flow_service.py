@@ -1066,9 +1066,9 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_shadow_metrics(context: dict) -> dict:
         """
-        【V67.1 · 穿透式诊断版】
-        - 核心增强: 为上下影线指标配备了独立的、包含“原料->过程->结果”完整链路的诊断探针，
-                     实现了对价格极端区域攻防效率的穿透式诊断。
+        【V67.2 · 归一化修正版】
+        - 核心修正: 修复了上下影线指标中归一化因子被错误设置为其倒数 `(daily_total_volume / atr)` 的严重缺陷。
+                     现已修正为 `(atr / daily_total_volume)`，确保指标的计算结果不会饱和，并能在不同股票和时间上进行有意义的比较。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
@@ -1080,6 +1080,7 @@ class AdvancedFundFlowMetricsService:
         day_open, day_close = common_data['day_open'], common_data['day_close']
         day_high, day_low = common_data['day_high'], common_data['day_low']
         atr = common_data.get('atr', 0)
+        daily_total_volume = common_data.get('daily_total_volume', 0)
         if pd.notna(day_open) and pd.notna(day_close) and pd.notna(day_high) and pd.notna(day_low) and pd.notna(atr) and atr > 0:
             body_high, body_low = max(day_open, day_close), min(day_open, day_close)
             if day_low < body_low:
@@ -1089,27 +1090,31 @@ class AdvancedFundFlowMetricsService:
                     if not hf_shadow_zone.empty:
                         mf_net_buy_ofi = hf_shadow_zone['main_force_ofi'].clip(lower=0).sum()
                         recovery_efficiency, normalized_strength = np.nan, np.nan
-                        if mf_net_buy_ofi > 0:
+                        # [修改的代码块] 修正归一化因子
+                        market_avg_efficiency = atr / daily_total_volume if daily_total_volume > 0 else 0
+                        if mf_net_buy_ofi > 0 and market_avg_efficiency > 0:
                             recovery_efficiency = price_recovery / mf_net_buy_ofi
-                            normalized_strength = recovery_efficiency * (common_data['daily_total_volume'] / atr)
+                            normalized_strength = recovery_efficiency / market_avg_efficiency
                             metrics['lower_shadow_absorption_strength'] = np.tanh(normalized_strength) * 100
                         if should_probe:
                             print("\n--- [探针] lower_shadow_absorption_strength (下影线承接) ---")
                             print("  - 原料数据:")
                             print(f"    - 价格收复幅度 (Price Recovery): {price_recovery:.4f}")
                             print(f"    - 主力净买入OFI (Effort): {mf_net_buy_ofi:,.0f}")
-                            print(f"    - 归一化因子 (Vol/ATR): {common_data['daily_total_volume'] / atr:,.2f}")
+                            # [修改的代码行] 更新探针，显示正确的归一化因子
+                            print(f"    - 市场平均效率 (ATR/Vol): {market_avg_efficiency:.8f}")
                             print("  - 关键计算节点:")
                             print(f"    - 收复效率系数 (Recovery / Effort): {recovery_efficiency:.8f}")
-                            print(f"    - 归一化强度: {normalized_strength:.4f}")
+                            print(f"    - 归一化强度 (效率/市场平均效率): {normalized_strength:.4f}")
                             print(f"  - 结果: {metrics.get('lower_shadow_absorption_strength', np.nan):.2f}")
                 else: # 降级逻辑
                     lower_shadow_df = intraday_data[intraday_data['low'] < body_low]
                     if not lower_shadow_df.empty and 'main_force_net_vol' in lower_shadow_df.columns:
                         mf_net_buy_vol = lower_shadow_df['main_force_net_vol'].clip(lower=0).sum()
-                        if mf_net_buy_vol > 0:
+                        market_avg_efficiency = atr / daily_total_volume if daily_total_volume > 0 else 0
+                        if mf_net_buy_vol > 0 and market_avg_efficiency > 0:
                             recovery_efficiency = price_recovery / mf_net_buy_vol
-                            normalized_strength = recovery_efficiency * (common_data['daily_total_volume'] / atr)
+                            normalized_strength = recovery_efficiency / market_avg_efficiency
                             metrics['lower_shadow_absorption_strength'] = np.tanh(normalized_strength) * 100
             if day_high > body_high:
                 price_rejection = day_high - body_high
@@ -1118,36 +1123,41 @@ class AdvancedFundFlowMetricsService:
                     if not hf_shadow_zone.empty:
                         mf_net_sell_ofi = -hf_shadow_zone['main_force_ofi'].clip(upper=0).sum()
                         rejection_efficiency, normalized_pressure = np.nan, np.nan
-                        if mf_net_sell_ofi > 0:
+                        # [修改的代码块] 修正归一化因子
+                        market_avg_efficiency = atr / daily_total_volume if daily_total_volume > 0 else 0
+                        if mf_net_sell_ofi > 0 and market_avg_efficiency > 0:
                             rejection_efficiency = price_rejection / mf_net_sell_ofi
-                            normalized_pressure = rejection_efficiency * (common_data['daily_total_volume'] / atr)
+                            normalized_pressure = rejection_efficiency / market_avg_efficiency
                             metrics['upper_shadow_selling_pressure'] = np.tanh(normalized_pressure) * 100
                         if should_probe:
                             print("\n--- [探针] upper_shadow_selling_pressure (上影线抛压) ---")
                             print("  - 原料数据:")
                             print(f"    - 价格回落幅度 (Price Rejection): {price_rejection:.4f}")
                             print(f"    - 主力净卖出OFI (Effort): {mf_net_sell_ofi:,.0f}")
-                            print(f"    - 归一化因子 (Vol/ATR): {common_data['daily_total_volume'] / atr:,.2f}")
+                            # [修改的代码行] 更新探针，显示正确的归一化因子
+                            print(f"    - 市场平均效率 (ATR/Vol): {market_avg_efficiency:.8f}")
                             print("  - 关键计算节点:")
                             print(f"    - 打压效率系数 (Rejection / Effort): {rejection_efficiency:.8f}")
-                            print(f"    - 归一化压力: {normalized_pressure:.4f}")
+                            print(f"    - 归一化压力 (效率/市场平均效率): {normalized_pressure:.4f}")
                             print(f"  - 结果: {metrics.get('upper_shadow_selling_pressure', np.nan):.2f}")
                 else: # 降级逻辑
                     upper_shadow_df = intraday_data[intraday_data['high'] > body_high]
                     if not upper_shadow_df.empty and 'main_force_net_vol' in upper_shadow_df.columns:
                         mf_net_sell_vol = -upper_shadow_df['main_force_net_vol'].clip(upper=0).sum()
-                        if mf_net_sell_vol > 0:
+                        market_avg_efficiency = atr / daily_total_volume if daily_total_volume > 0 else 0
+                        if mf_net_sell_vol > 0 and market_avg_efficiency > 0:
                             rejection_efficiency = price_rejection / mf_net_sell_vol
-                            normalized_pressure = rejection_efficiency * (common_data['daily_total_volume'] / atr)
+                            normalized_pressure = rejection_efficiency / market_avg_efficiency
                             metrics['upper_shadow_selling_pressure'] = np.tanh(normalized_pressure) * 100
         return metrics
 
     @staticmethod
     def _calculate_dip_rally_metrics(context: dict) -> dict:
         """
-        【V67.1 · 穿透式诊断版】
-        - 核心增强: 为吸筹和派发指标配备了独立的、包含“原料->过程->结果”完整链路的诊断探针，
-                     实现了对主力吸筹与派发效率的穿透式诊断。
+        【V67.2 · 稳定性与归一化双重修正版】
+        - 核心修正 (稳定性): 重构 `rally_distribution_pressure` 的计算逻辑，采用“先聚合，再求比”的稳健方法，
+                           在循环内分别累加总净卖出量和总价差，最后进行一次性除法，彻底解决了因除以微小价差导致的数值爆炸问题。
+        - 核心修正 (归一化): 应用与影线指标相同的归一化因子修正，确保指标的合理性与可比性。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
@@ -1185,7 +1195,8 @@ class AdvancedFundFlowMetricsService:
                         print("  - 关键计算节点:")
                         print(f"    - 吸收效率系数 (OFI / Effort): {absorption_efficiency:.6f}")
                         print(f"  - 结果: {metrics.get('dip_absorption_power', np.nan):.2f}")
-                total_weighted_deception = 0
+                # [修改的代码块] 采用先聚合再求比的稳健算法
+                total_mf_net_sell_in_rallies = 0
                 total_rally_price_change = 0
                 rally_count = 0
                 for i in range(len(turning_points) - 1):
@@ -1199,24 +1210,24 @@ class AdvancedFundFlowMetricsService:
                         if not rally_hf_df.empty:
                             price_change_in_rally = window_df['minute_vwap'].iloc[-1] - window_df['minute_vwap'].iloc[0]
                             mf_net_sell_vol_in_rally = -rally_hf_df['main_force_ofi'].clip(upper=0).sum()
-                            if price_change_in_rally > 0:
-                                deception_ratio = mf_net_sell_vol_in_rally / price_change_in_rally
-                                total_weighted_deception += deception_ratio * price_change_in_rally
-                                total_rally_price_change += price_change_in_rally
-                avg_deception_ratio = np.nan
+                            total_mf_net_sell_in_rallies += mf_net_sell_vol_in_rally
+                            total_rally_price_change += price_change_in_rally
+                robust_deception_ratio = np.nan
                 if total_rally_price_change > 0:
-                    avg_deception_ratio = total_weighted_deception / total_rally_price_change
-                    norm_factor = daily_total_volume / atr
-                    metrics['rally_distribution_pressure'] = np.tanh(avg_deception_ratio / norm_factor) * 100 if norm_factor > 0 else np.nan
+                    robust_deception_ratio = total_mf_net_sell_in_rallies / total_rally_price_change
+                    market_avg_efficiency = atr / daily_total_volume if daily_total_volume > 0 else 0
+                    if market_avg_efficiency > 0:
+                        normalized_pressure = robust_deception_ratio / (1 / market_avg_efficiency) # 诡道系数单位是 股/元，市场效率单位是 元/股
+                        metrics['rally_distribution_pressure'] = np.tanh(normalized_pressure) * 100
                 if should_probe:
                     print("\n--- [探针] rally_distribution_pressure (拉高派发) ---")
                     print("  - 原料数据:")
                     print(f"    - 识别出的拉升波段数量: {rally_count}")
-                    print(f"    - 总加权诡道值: {total_weighted_deception:,.2f}")
+                    print(f"    - 拉升期总主力净卖出OFI: {total_mf_net_sell_in_rallies:,.2f}")
                     print(f"    - 总拉升价差: {total_rally_price_change:.4f}")
-                    print(f"    - 归一化因子 (Vol/ATR): {norm_factor:,.2f}" if 'norm_factor' in locals() else "(未计算)")
+                    print(f"    - 市场平均效率 (ATR/Vol): {market_avg_efficiency:.8f}" if 'market_avg_efficiency' in locals() else "(未计算)")
                     print("  - 关键计算节点:")
-                    print(f"    - 平均诡道系数 (净卖出量/价格涨幅): {avg_deception_ratio:.2f}")
+                    print(f"    - 稳健诡道系数 (总卖出/总价差): {robust_deception_ratio:.2f}")
                     print(f"  - 结果: {metrics.get('rally_distribution_pressure', np.nan):.2f}")
             else: # 降级逻辑（分钟线）
                 if pd.notna(daily_vwap):
@@ -1230,7 +1241,7 @@ class AdvancedFundFlowMetricsService:
                             if price_weighted_effort > 0:
                                 absorption_efficiency = absorption_vol / price_weighted_effort
                                 metrics['dip_absorption_power'] = np.tanh(absorption_efficiency * atr) * 100
-                total_weighted_deception = 0
+                total_mf_net_sell_in_rallies = 0
                 total_rally_price_change = 0
                 for i in range(len(turning_points) - 1):
                     start_idx, end_idx = turning_points[i], turning_points[i+1]
@@ -1240,14 +1251,14 @@ class AdvancedFundFlowMetricsService:
                     if window_df['minute_vwap'].iloc[-1] > window_df['minute_vwap'].iloc[0]:
                         price_change_in_rally = window_df['minute_vwap'].iloc[-1] - window_df['minute_vwap'].iloc[0]
                         mf_net_sell_vol = -window_df['main_force_net_vol'].clip(upper=0).sum()
-                        if price_change_in_rally > 0:
-                            deception_ratio = mf_net_sell_vol / price_change_in_rally
-                            total_weighted_deception += deception_ratio * price_change_in_rally
-                            total_rally_price_change += price_change_in_rally
+                        total_mf_net_sell_in_rallies += mf_net_sell_vol
+                        total_rally_price_change += price_change_in_rally
                 if total_rally_price_change > 0:
-                    avg_deception_ratio = total_weighted_deception / total_rally_price_change
-                    norm_factor = daily_total_volume / atr
-                    metrics['rally_distribution_pressure'] = np.tanh(avg_deception_ratio / norm_factor) * 100 if norm_factor > 0 else np.nan
+                    robust_deception_ratio = total_mf_net_sell_in_rallies / total_rally_price_change
+                    market_avg_efficiency = atr / daily_total_volume if daily_total_volume > 0 else 0
+                    if market_avg_efficiency > 0:
+                        normalized_pressure = robust_deception_ratio / (1 / market_avg_efficiency)
+                        metrics['rally_distribution_pressure'] = np.tanh(normalized_pressure) * 100
         return metrics
 
     @staticmethod
