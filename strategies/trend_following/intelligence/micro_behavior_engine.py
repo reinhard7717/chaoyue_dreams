@@ -248,26 +248,28 @@ class MicroBehaviorEngine:
 
     def _synthesize_strategic_intent(self, stealth_ops: pd.Series, shock_awe: pd.Series, cost_control: pd.Series, divergence: pd.Series) -> pd.Series:
         """
-        【V1.0 · 新增】微观战略意图合成器
-        - 核心逻辑: 构建“攻防意图融合模型”，将微观战术信号整合成一个顶层战略意图分。
-                      - 进攻力量: 隐秘行动 + 震慑突袭 (正分部分)
-                      - 控制力量: 成本控制
-                      - 风险因子: 微观背离
-        - 融合公式: (进攻力量 * 0.4 + 控制力量 * 0.4 + 风险因子 * 0.2)
+        【V2.0 · 控制力门控版】微观战略意图合成器
+        - 核心重构: 从简单的加法模型升级为“控制力门控”非线性模型。
+                      1. 使用`cost_control`（成本控制）构建一个[0, 1]区间的“控制力门控”调节器。
+                      2. 用此门控调节`offensive_force`（进攻力量），得到一个经过可行性审核的“门控后进攻力量”。
+                      3. 让“门控后进攻力量”与`divergence`（微观背离）进行最终的加权博弈。
+        - 融合公式: (门控后进攻力量 * 0.7 + 微观背离 * 0.3)
         """
-        # 提取进攻信号
+        # 1. 计算进攻力量
         offensive_force = (stealth_ops + shock_awe.clip(lower=0)) / 2
-        # 控制力量即成本控制信号
-        control_force = cost_control
-        # 风险因子即背离信号
+        # 2. 构建“控制力门控”调节器
+        # 将[-1, 1]的cost_control分映射到[0, 1]的门控调节器
+        # 控制力越强(越接近1)，门控越开放(越接近1)；控制力越弱(越接近-1)，门控越关闭(越接近0)
+        control_gate = (cost_control + 1) / 2 # 修改代码
+        # 3. 计算经过门控审核的进攻力量
+        gated_offensive_force = offensive_force * control_gate # 修改代码
+        # 4. 最终博弈：让门控后的进攻力量与风险因子（背离）进行加权融合
         risk_factor = divergence
-        # 加权融合
         strategic_intent_score = (
-            offensive_force * 0.4 +
-            control_force * 0.4 +
-            risk_factor * 0.2
+            gated_offensive_force * 0.7 + # 修改代码
+            risk_factor * 0.3             # 修改代码
         ).clip(-1, 1)
-        # --- 探针逻辑 ---
+        # --- 探针逻辑升级以匹配新模型 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -277,9 +279,9 @@ class MicroBehaviorEngine:
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [微观行为探针] _synthesize_strategic_intent @ {probe_date_str}")
-                print(f"        - 输入信号: 隐秘行动={stealth_ops.loc[probe_ts]:.4f}, 震慑突袭={shock_awe.loc[probe_ts]:.4f}, 成本控制={cost_control.loc[probe_ts]:.4f}, 微观背离={divergence.loc[probe_ts]:.4f}")
-                print(f"        - 计算节点: 进攻力量={offensive_force.loc[probe_ts]:.4f}, 控制力量={control_force.loc[probe_ts]:.4f}, 风险因子={risk_factor.loc[probe_ts]:.4f}")
-                print(f"        - 最终战略意图分: {strategic_intent_score.loc[probe_ts]:.4f}")
+                print(f"        - 输入信号: 进攻力量={offensive_force.loc[probe_ts]:.4f}, 成本控制={cost_control.loc[probe_ts]:.4f}, 微观背离={risk_factor.loc[probe_ts]:.4f}")
+                print(f"        - 门控计算: 控制力门控={(control_gate.loc[probe_ts]):.4f}, 门控后进攻力量={gated_offensive_force.loc[probe_ts]:.4f}")
+                print(f"        - 最终战略意图分 (0.7*门控后进攻 + 0.3*背离): {strategic_intent_score.loc[probe_ts]:.4f}")
         return strategic_intent_score.astype(np.float32)
 
 
