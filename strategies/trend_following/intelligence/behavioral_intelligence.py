@@ -499,17 +499,16 @@ class BehavioralIntelligence:
 
     def _diagnose_stagnation_evidence(self, df: pd.DataFrame, upward_efficiency: pd.Series) -> pd.Series:
         """
-        【V3.8 · 冲突共振版】诊断内部行为信号：滞涨证据
-        - 核心重构: 废弃用于计算“微观冲突分”的 `np.maximum` (或门)逻辑。
-                      引入“冲突共振模型” `((A+B)/2 * (1-|A-B|))`，确保冲突的诊断
-                      必须依赖于“多头衰竭”与“空头伏击”两大对立力量的共同存在与均衡，
-                      彻底解决了“证据分离谬误”。
+        【V3.9 · 全局语义统一版】诊断内部行为信号：滞涨证据
+        - 核心重构: 对 `distribution_pressure` 应用 `.clip(lower=0)` 进行语义净化，
+                      确保其业务语义在整个行为情报引擎中保持绝对一致。这块最后的拼图
+                      使我们的模型在哲学、逻辑和语义三个层面达到了完全的和谐统一。
         """
         df_index = df.index
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 1. 数据准备 (逻辑不变)
+        # 1. 数据准备
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_stagnation_evidence")
         if 'ACCEL_5_pct_change_D' in df.columns:
             price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', 0.0, method_name="_diagnose_stagnation_evidence")
@@ -517,12 +516,13 @@ class BehavioralIntelligence:
             print("    -> [行为情报兼容模式] _diagnose_stagnation_evidence: 未找到 'ACCEL_5_pct_change_D'，使用 'pct_change_D' 的5日差分作为代理。")
             price_accel = pct_change.diff(5).fillna(0.0)
         closing_deviation = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_stagnation_evidence")
-        distribution_pressure = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_stagnation_evidence")
+        # [修改的代码行] 对原始信号进行语义净化，实现全局统一
+        distribution_pressure = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_stagnation_evidence").clip(lower=0)
         active_selling = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name="_diagnose_stagnation_evidence")
         chip_fatigue = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
         winner_rate = self._get_safe_series(df, 'total_winner_rate_D', 50.0, method_name="_diagnose_stagnation_evidence")
         trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
-        # 2. 计算“微观冲突分” (升级为冲突共振模型)
+        # 2. 计算“微观冲突分”
         inefficiency_score = (1 - upward_efficiency).clip(0, 1)
         momentum_decay_score = get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
         intraday_failure_score = (1 - closing_deviation).clip(0, 1)
@@ -534,20 +534,19 @@ class BehavioralIntelligence:
         process_evidence = (distribution_score * active_selling_score).pow(0.5)
         outcome_evidence = bullish_failure_score
         bearish_ambush = (process_evidence * 0.7 + outcome_evidence * 0.3)
-        # [修改的代码行] 升级为“冲突共振模型”
         total_energy = (bullish_exhaustion + bearish_ambush) / 2
         balance_factor = 1 - (bullish_exhaustion - bearish_ambush).abs()
         micro_conflict_score = (total_energy * balance_factor).fillna(0.0)
-        # 3. 构建“宏观风险分” (逻辑不变)
+        # 3. 构建“宏观风险分”
         profit_pressure_score = get_adaptive_mtf_normalized_score(winner_rate, df_index, ascending=True, tf_weights=default_weights)
         vitality_decay_raw = trend_vitality.diff(3).clip(upper=0).abs()
         vitality_decay_score = get_adaptive_mtf_normalized_score(vitality_decay_raw, df_index, ascending=True, tf_weights=default_weights)
         macro_risk_score = (profit_pressure_score * vitality_decay_score).pow(0.5)
-        # 4. 谐波融合 (逻辑不变)
+        # 4. 谐波融合
         stagnation_evidence = (micro_conflict_score * 0.6 + macro_risk_score * 0.4)
         is_rising_or_flat = (pct_change >= -0.005).astype(float)
         final_stagnation_evidence = (stagnation_evidence * is_rising_or_flat).clip(0, 1)
-        # --- 探针逻辑重构 ---
+        # --- 探针逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -559,7 +558,6 @@ class BehavioralIntelligence:
                 print(f"      [行为探针] _diagnose_stagnation_evidence @ {probe_date_str}")
                 print(f"        - 多头衰竭分: {bullish_exhaustion.loc[probe_ts]:.4f}")
                 print(f"        - 空头伏击分 (新): {bearish_ambush.loc[probe_ts]:.4f} (过程分={process_evidence.loc[probe_ts]:.2f}, 结果分={outcome_evidence.loc[probe_ts]:.2f})")
-                # [修改的代码行] 更新探针以反映新的冲突模型
                 print(f"        - 微观冲突分(共振模型): {micro_conflict_score.loc[probe_ts]:.4f} (总能量={total_energy.loc[probe_ts]:.2f}, 均衡度={balance_factor.loc[probe_ts]:.2f})")
                 print(f"        - 宏观风险分(谐波): {macro_risk_score.loc[probe_ts]:.4f} (获利盘压力={profit_pressure_score.loc[probe_ts]:.2f}, 活力衰减={vitality_decay_score.loc[probe_ts]:.2f})")
                 print(f"        - 最终滞涨证据分(融合后): {final_stagnation_evidence.loc[probe_ts]:.4f}")
