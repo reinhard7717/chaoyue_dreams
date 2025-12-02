@@ -1234,20 +1234,30 @@
       },
       "fund_flow_ultimate_params": {
         "enabled": true,
-        "description": "【V6.1 · 信念质量调制版】定义了基于“共识、信念、动能、张力、属性、健康度”六大资金流公理的引擎参数。",
+        "description": "【V7.0 · 战略态势融合版】定义了资金流公理及顶层“战略态势”融合参数。",
         "norm_window": 55,
-        "description_axiom_weights": "融合六大资金流公理时的权重。",
-        "axiom_weights": {
-          "consensus": 0.25,
-          "conviction": 0.2,
-          "flow_momentum": 0.2,
-          "capital_signature": 0.15,
-          "flow_structure_health": 0.2
-        },
         "conviction_modulator_weights": {
-          "description": "【V1.0 新增】信念质量调节器权重，用于调制“攻击性意图”公理。",
+          "description": "【V1.0】信念质量调节器权重，用于调制“攻击性意图”公理。",
           "capital_signature": 0.2,
           "flow_health": 0.3
+        },
+        "posture_fusion_weights": {
+          "description": "【V1.0 新增】顶层战略态势“矛与盾”融合模型权重。",
+          "attack_group": {
+            "description": "攻击力量 (矛)",
+            "conviction": 0.6,
+            "flow_momentum": 0.4
+          },
+          "structure_group": {
+            "description": "结构基础 (盾)",
+            "consensus": 0.6,
+            "flow_health": 0.4
+          },
+          "context_group": {
+            "description": "环境调节器",
+            "capital_signature": 0.1,
+            "divergence": 0.1
+          }
         }
       },
       "fusion_accumulation_inflection_params": {
