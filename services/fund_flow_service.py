@@ -2307,9 +2307,9 @@ class AdvancedFundFlowMetricsService:
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
-        【V51.1 · 终局修正版】
-        - 核心修复: 修正了 V51.0 探针诊断逻辑中，未将 DataFrame 的索引（即 trade_time）纳入比较范围的根本性缺陷。
-                     通过将索引名加入待比较的列集合，彻底解决了持续数个版本的“60 vs 61”悬案。
+        【V51.2 · S系列终审探针植入版】
+        - 核心增强: 植入 S.1 终审探针，在数据保存的最后关卡，通过对比“待保存数据的列”与“模型定义的字段”，
+                     彻底穿透“数据-模型不同步”问题，为新指标无法入库提供决定性证据。
         """
         records_to_save_df = final_df
         stock_code = stock_info.stock_code
@@ -2317,7 +2317,7 @@ class AdvancedFundFlowMetricsService:
         target_date = None
         if self.debug_params and self.debug_params.get('target_date'):
             target_date = pd.to_datetime(self.debug_params['target_date']).date()
-            if target_date in records_to_save_df.index.date:
+            if not records_to_save_df.empty and target_date in records_to_save_df.index.date:
                 is_target_date_in_df = True
         enable_probe = self.debug_params.get('enable_mfca_probe', False)
         if records_to_save_df.empty:
@@ -2331,26 +2331,31 @@ class AdvancedFundFlowMetricsService:
                 records_to_save_df.loc[:, col] = records_to_save_df[col].replace([np.inf, -np.inf], np.nan)
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
+        # [修改的代码块] 升级原有的探针为 S.1 终审探针
         if enable_probe and is_target_date_in_df:
-            print(f"\n{'='*20} [探针 S.1 · 终审穿透版 @ {target_date}] {'='*20}")
-            # 将DataFrame的索引名加入待比较的列集合中，完成终局修正
+            print(f"\n{'='*20} [探针 S.1 · 终审穿透 @ {target_date}] {'='*20}")
             incoming_df_cols = set(records_to_save_df.columns) | {records_to_save_df.index.name}
             model_fields_set = set(model_fields)
-            print(f"  - 待保存DataFrame的列数 (含索引): {len(incoming_df_cols)}")
-            print(f"  - 模型定义的字段数 (不含关系): {len(model_fields_set)}")
+            print(f"  - [输入] 待保存DataFrame的全部列名 (共 {len(incoming_df_cols)} 个):")
+            print(f"    {sorted(list(incoming_df_cols))}")
+            print(f"  - [规则] 数据库模型 '{MetricsModel.__name__}' 定义的全部字段 (共 {len(model_fields_set)} 个):")
+            print(f"    {sorted(list(model_fields_set))}")
             missing_in_df = model_fields_set - incoming_df_cols
             extra_in_df = incoming_df_cols - model_fields_set
-            print(f"  - [诊断] 模型中定义但DataFrame中缺失的字段: {missing_in_df or '无'}")
-            print(f"  - [诊断] DataFrame中存在但模型中未定义的字段: {extra_in_df or '无'}")
-            if not missing_in_df and not extra_in_df:
+            print(f"  - [诊断] 因模型中未定义而被丢弃的列: {sorted(list(extra_in_df)) or '无'}")
+            print(f"  - [诊断] 模型中定义但数据中缺失的列: {sorted(list(missing_in_df)) or '无'}")
+            if not extra_in_df:
                 print("  - [裁决通过] 数据列与模型字段完美匹配。")
             else:
-                print("  - [裁决失败] 数据列与模型字段不匹配，请检查上述诊断信息！")
+                print("  - [裁决失败] 发现“数据-模型不同步”，部分数据将被丢弃！请检查模型定义或重启应用！")
             df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
             target_row = df_filtered.loc[df_filtered.index.date == target_date]
             if not target_row.empty:
-                print("  - 目标日期最终待保存数据行预览:")
-                preview_cols = ['main_force_conviction_index', 'dip_absorption_power', 'rally_distribution_pressure', 'hidden_accumulation_intensity', 'wash_trade_intensity']
+                print("  - 目标日期最终待保存数据行预览 (过滤后):")
+                preview_cols = [
+                    'main_force_conviction_index', 'distribution_at_peak_intensity',
+                    'absorption_at_peak_intensity', 'breakthrough_of_peak_quality', 'defense_of_peak_quality'
+                ]
                 existing_preview_cols = [col for col in preview_cols if col in target_row.columns]
                 print(target_row[existing_preview_cols].to_string())
             else:
@@ -2387,13 +2392,17 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_contextual_action_metrics(context: dict) -> dict:
         """
-        【V1.0 · 新增】情境行为融合指标计算内核
-        - 核心职责: 计算所有原生融合了“筹码情境”与“资金行为”的新一代指标。
+        【V1.1 · C系列探针植入版】情境行为融合指标计算内核
+        - 核心增强: 在方法出口植入 C.1 探针，用于在目标日期打印最终计算出的四个核心指标值，
+                     以验证计算逻辑是否成功执行。
         """
         hf_analysis_df = context['hf_analysis_df']
         daily_data = context['daily_data']
         common_data = context['common_data']
         hf_features = context['hf_features']
+        # [新增代码块] 探针初始化
+        is_target_date = context['debug']['is_target_date']
+        enable_probe = context['debug']['enable_probe']
         metrics = {
             'distribution_at_peak_intensity': np.nan,
             'absorption_at_peak_intensity': np.nan,
@@ -2421,12 +2430,9 @@ class AdvancedFundFlowMetricsService:
             mf_sell_trades_in_zone = mf_trades_in_zone[mf_trades_in_zone['type'] == 'S']
             total_mf_sell_vol_day = hf_features['mf_sell_vol']
             if not mf_sell_trades_in_zone.empty and total_mf_sell_vol_day > 0:
-                # 证据1: 战术专注度 (主力日内卖出量有多少集中在主峰区)
                 focus_component = mf_sell_trades_in_zone['volume'].sum() / total_mf_sell_vol_day
-                # 证据2: 意图纯度 (在主峰区的OFI有多坚决地为负)
                 mf_ofi_in_zone = peak_zone_hf_df['main_force_ofi']
                 intent_purity_component = mf_ofi_in_zone.clip(upper=0).abs().sum() / mf_ofi_in_zone.abs().sum() if mf_ofi_in_zone.abs().sum() > 0 else 0
-                # 证据3: 战术成果 (派发价格是否显著高于收盘价)
                 mf_sell_vwap_in_zone = (mf_sell_trades_in_zone['price'] * mf_sell_trades_in_zone['volume']).sum() / mf_sell_trades_in_zone['volume'].sum()
                 outcome_component = np.tanh((mf_sell_vwap_in_zone - common_data['day_close']) / atr)
                 metrics['distribution_at_peak_intensity'] = (
@@ -2474,6 +2480,12 @@ class AdvancedFundFlowMetricsService:
                     (resilience_component.clip(0, 1) + 1e-9)**0.4 *
                     (counter_attack_component + 1e-9)**0.6
                 ) * 100
+        # [新增代码块] C.1 探针 - 验证计算结果
+        if enable_probe and is_target_date:
+            print(f"\n{'='*20} [探针 C.1 - 计算内核出口 @ {daily_data.name.date()}] {'='*20}")
+            print("  - 情境行为指标计算完成。最终计算结果:")
+            for key, value in metrics.items():
+                print(f"    - {key}: {value:.4f}")
         return metrics
 
 
