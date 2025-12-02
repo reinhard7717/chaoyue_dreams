@@ -1403,29 +1403,27 @@ class ChipFeatureCalculator:
 
     def _compute_contextual_action_metrics(self, context: dict) -> dict:
         """
-        【V12.5 · 完美防守版】情境行为融合指标计算内核。
-        - 核心职责: 围绕“主峰成本”这一核心筹码概念，评估主力的情境博弈行为。
-        - 核心升维: 对 `defense_of_peak_quality` 进行概念升维。当股价未跌破主峰战区时，
-                     不再返回NaN，而是赋予满分100，将其定义为“完美防守”。
+        【V12.7 · 零强度原则版】
+        - 核心升维: 引入“零强度”原则。当股价未进入特定区域（如未跌破主峰区）时，
+                     相关的行为强度指标（如吸筹烈度）不再返回NaN，而是返回0.0，
+                     代表该行为“零发生”，从而消除信息黑洞，使指标体系在逻辑上彻底完备。
+        - 核心修复: 修正了“主峰区派发烈度”中对战术成果的计算逻辑。
         """
-        # [新增的代码块] 开始
+        # [修改的代码块] 将默认值从 np.nan 修改为 0.0
         metrics = {
-            'distribution_at_peak_intensity': np.nan,
-            'absorption_at_peak_intensity': np.nan,
+            'distribution_at_peak_intensity': 0.0,
+            'absorption_at_peak_intensity': 0.0,
             'breakthrough_of_peak_quality': np.nan,
             'defense_of_peak_quality': np.nan,
         }
-        # 步骤1: 调用内部辅助方法准备高频数据
         raw_hf_df, common_data = self._prepare_behavioral_data_for_chips(context)
         hf_analysis_df, hf_features = self._engineer_hf_features_for_chips(raw_hf_df, common_data.get('daily_total_volume', 0))
-        # 步骤2: 植入探针和核心计算逻辑
         debug_params = context.get('debug_params', {})
         enable_probe = debug_params.get('enable_mfca_probe', False)
         target_date_str = debug_params.get('target_date')
         trade_date = context.get('trade_date')
         is_target_date = str(trade_date) == target_date_str
         should_probe = enable_probe and is_target_date
-        # 使用筹码计算器内部的 'dominant_peak_cost'
         dominant_peak_cost = context.get('dominant_peak_cost')
         atr = common_data.get('atr')
         if hf_analysis_df.empty or pd.isna(dominant_peak_cost) or pd.isna(atr) or atr <= 0:
@@ -1445,7 +1443,8 @@ class ChipFeatureCalculator:
             intent_component = intent_numerator / intent_denominator if intent_denominator > 0 else 0
             price_start = above_peak_zone_df['price'].iloc[0]
             price_end = above_peak_zone_df['price'].iloc[-1]
-            outcome_component = np.tanh((price_start - price_end) / atr) # 修正：派发成果是价格下跌
+            # [修改的代码行] 修正派发成果的计算逻辑，价格下跌为正成果
+            outcome_component = np.tanh((price_start - price_end) / atr)
             metrics['distribution_at_peak_intensity'] = (focus_component * intent_component * (1 + outcome_component)) * 100
         # 2. 计算主峰区吸筹烈度
         if not below_peak_zone_df.empty:
@@ -1488,9 +1487,22 @@ class ChipFeatureCalculator:
             print(f"  - 核心情境: 主峰成本={dominant_peak_cost:.2f}, ATR={atr}")
             print(f"  - 主峰战区定义: [{peak_zone_lower:.2f} - {peak_zone_upper:.2f}]")
             print(f"  - 指标计算详情:")
+            # [修改的代码块] 升级探针输出
             print(f"    - 主峰区派发烈度: {metrics.get('distribution_at_peak_intensity', np.nan):.4f}")
+            if not above_peak_zone_df.empty:
+                print(f"      - (已触发计算)")
+            else:
+                print(f"      - (价格未进入上方区域，强度为0)")
             print(f"    - 主峰区吸筹烈度: {metrics.get('absorption_at_peak_intensity', np.nan):.4f}")
+            if not below_peak_zone_df.empty:
+                print(f"      - (已触发计算)")
+            else:
+                print(f"      - (价格未进入下方区域，强度为0)")
             print(f"    - 突破主峰质量: {metrics.get('breakthrough_of_peak_quality', np.nan):.4f}")
+            if not breakthrough_event_df.empty:
+                 print(f"      - (已触发计算)")
+            else:
+                 print(f"      - (未发生向上突破)")
             if day_low >= peak_zone_lower:
                 print(f"    - 防守主峰质量: {metrics.get('defense_of_peak_quality', np.nan):.4f}")
                 print(f"      - (未发生向下破位，视为完美防守)")
@@ -1498,7 +1510,6 @@ class ChipFeatureCalculator:
                 print(f"    - 防守主峰质量: {metrics.get('defense_of_peak_quality', np.nan):.4f}")
                 print(f"      - (已发生向下破位，评估修复质量)")
         return metrics
-        # [新增的代码块] 结束
 
 
 
