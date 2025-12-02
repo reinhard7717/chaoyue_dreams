@@ -203,22 +203,13 @@ def optimize_df_memory(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
 
 def normalize_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value=0.5) -> pd.Series:
     """
-    【V1.1 · 赫尔墨斯之翼注释升级版】通用归一化引擎 (万物标尺)
-    - 战略意义: 作为系统中最基础的“标尺”，负责将任意一个指标的数值，转化为在[0, 1]区间内、具有历史相对意义的分数。
-                它是系统进行跨指标比较和融合的基石。
-    - 核心逻辑: 使用滚动窗口的百分比排名 (rank(pct=True)) 来实现归一化。
-    - :param series: 原始数据序列。
-    - :param target_index: 目标DataFrame的索引，用于确保输出对齐。
-    - :param window: 滚动窗口，定义了“近期历史”的范围。
-    - :param ascending: True表示值越大分数越高，False反之。
-    - :param default_value: 默认填充值。
-    - :return: 在[0, 1]区间归一化的pd.Series。
+    【V2.0 · 溯源校准版】通用归一化引擎 (万物标尺)
+    - 核心修复: 新增“绝对零点校准”逻辑。在完成排名归一化后，强制将原始输入为零的位置
+                  的最终得分校准为中性值0.5，从源头根除“零值归一化悖论”。
     """
     if series is None or series.isnull().all() or series.empty:
         return pd.Series(default_value, index=target_index, dtype=np.float32)
-    # 确保series的索引与目标索引对齐，避免后续操作因索引不匹配产生问题
     series = series.reindex(target_index)
-    # min_periods确保在窗口数据不足时也能计算，增加了早期数据的可用性
     min_periods = max(1, int(window * 0.2))
     rank = series.rolling(
         window=window, 
@@ -227,8 +218,14 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
         pct=True, 
         ascending=ascending
     )
-    # 再次使用reindex确保最终输出的索引是完整的，并填充可能因滚动产生的NaN
-    return rank.reindex(target_index).fillna(default_value).astype(np.float32)
+    rank = rank.reindex(target_index).fillna(default_value)
+    # [新增代码行] 绝对零点溯源校准
+    is_near_zero_mask = (series.abs() < 1e-6).values
+    if len(is_near_zero_mask) == len(rank):
+        rank.values[is_near_zero_mask] = 0.5 # 对于[0,1]的排名分，中性值是0.5
+    else:
+        print(f"警告: 在 normalize_score 中，校准掩码与得分序列长度不匹配，校准跳过。")
+    return rank.astype(np.float32)
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
@@ -347,18 +344,11 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
 
 def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
     """
-    【V2.2 · 赫尔墨斯之翼注释升级版】双极归一化引擎 (力学罗盘)
-    - 战略意义: 用于将一个指标的变化率或原始值，转化为一个同时蕴含【方向】和【强度】的标准化分数。
-                它是构建“速度 vs 加速度”、“推力 vs 阻力”等力学分析模型的核心工具。
-                +1 代表极强的正向偏离，-1 代表极强的负向偏离，0 代表符合近期常态。
-    - 核心逻辑: 采用滚动Z-score并使用tanh函数进行平滑压缩，完美适用于四象限分析。
-    - :param sensitivity: 敏感度因子。值越小，Z-score的绝对值越大，得分越快地趋近于±1。
-                            战术上，调小此参数可放大微小变化的信号强度，用于捕捉早期拐点。
-                            【V2.2 修正】默认敏感度从1.0调整为2.0，以减少微小波动被过度放大到极端值。
-    - :return: 归一化到(-1, 1)区间的pd.Series。
+    【V3.0 · 溯源校准版】双极归一化引擎 (力学罗盘)
+    - 核心修复: 新增“绝对零点校准”逻辑。在完成Z-score归一化后，强制将原始输入为零的位置
+                  的最终得分校准为中性值0.0，从源头根除“零值归一化悖论”。
     """
-    # 默认敏感度从1.0调整为2.0
-    if sensitivity == 1.0: # 仅当使用默认值时才修改
+    if sensitivity == 1.0:
         sensitivity = 2.0
     if series is None or series.isnull().all() or series.empty:
         return pd.Series(default_value, index=target_index, dtype=np.float32)
@@ -366,13 +356,17 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int,
     min_periods = max(1, int(window * 0.2))
     rolling_mean = series.rolling(window=window, min_periods=min_periods).mean()
     rolling_std = series.rolling(window=window, min_periods=min_periods).std()
-    # 避免除以零。如果窗口内值无波动，标准差为0，Z-score应为0（无偏离）。
     rolling_std = rolling_std.replace(0, np.nan)
-    # 计算Z-score，sensitivity作为分母，调节敏感度
     z_score = (series - rolling_mean) / (rolling_std * sensitivity)
-    # 使用tanh函数进行平滑压缩到(-1, 1)，相比clip，tanh能保留更多的中间值信息
     bipolar_score = np.tanh(z_score)
-    return bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
+    bipolar_score = bipolar_score.reindex(target_index).fillna(default_value)
+    # [新增代码行] 绝对零点溯源校准
+    is_near_zero_mask = (series.abs() < 1e-6).values
+    if len(is_near_zero_mask) == len(bipolar_score):
+        bipolar_score.values[is_near_zero_mask] = 0.0 # 对于[-1,1]的偏离度分，中性值是0.0
+    else:
+        print(f"警告: 在 normalize_to_bipolar 中，校准掩码与得分序列长度不匹配，校准跳过。")
+    return bipolar_score.astype(np.float32)
 
 def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window: int) -> Tuple[pd.Series, pd.Series]:
     """
