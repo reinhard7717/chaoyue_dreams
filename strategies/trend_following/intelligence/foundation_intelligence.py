@@ -33,11 +33,11 @@ class FoundationIntelligence:
 
     def run_foundation_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V8.0 · 相对强度公理版】基础情报分析总指挥
-        - 核心新增: 引入第五大公理——“相对强度公理”，旨在衡量股票相对于其板块和大盘的
-                      强弱，为识别“真龙头”提供核心依据。
+        【V9.0 · 战略态势版】基础情报分析总指挥
+        - 核心新增: 引入顶层融合信号 SCORE_FOUNDATION_STRATEGIC_POSTURE，对五大公理进行
+                      加权融合，输出最终的战略判断。
         """
-        print("启动【V8.0 · 相对强度公理版】基础情报分析...")
+        print("启动【V9.0 · 战略态势版】基础情报分析...") # 修改: 更新版本号和描述
         all_states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -47,17 +47,26 @@ class FoundationIntelligence:
         axiom_pendulum = self._diagnose_axiom_sentiment_pendulum(df)
         axiom_tide = self._diagnose_axiom_liquidity_tide(df)
         axiom_tension = self._diagnose_axiom_market_tension(df)
-        # 调用新增的相对强度公理诊断方法
         axiom_relative_strength = self._diagnose_axiom_relative_strength(df)
         all_states['SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION'] = axiom_constitution
         all_states['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'] = axiom_pendulum
         all_states['SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE'] = axiom_tide
         all_states['SCORE_FOUNDATION_AXIOM_MARKET_TENSION'] = axiom_tension
-        # 将新的公理分数添加到状态字典
         all_states['SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH'] = axiom_relative_strength
+        # 新增: 调用顶层融合方法
+        strategic_posture = self._synthesize_strategic_posture(
+            p_conf,
+            axiom_constitution,
+            axiom_relative_strength,
+            axiom_tide,
+            axiom_pendulum,
+            axiom_tension
+        )
+        all_states['SCORE_FOUNDATION_STRATEGIC_POSTURE'] = strategic_posture
         context_trend_confirmed = self._diagnose_context_trend_confirmed(df)
         all_states.update(context_trend_confirmed)
-        print(f"【V8.0 · 相对强度公理版】分析完成，生成 {len(all_states)} 个基础原子信号。")
+        # 修改: 更新日志输出
+        print(f"【V9.0 · 战略态势版】分析完成，生成 {len(all_states)} 个基础信号 (含1个顶层信号)。")
         return all_states
 
     def _diagnose_context_trend_confirmed(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -346,6 +355,52 @@ class FoundationIntelligence:
                 print(f"       - final_relative_strength_score (融合后): {relative_strength_score.loc[probe_date_for_loop]:.4f}")
         return relative_strength_score.clip(-1, 1).astype(np.float32)
 
+    def _synthesize_strategic_posture(
+        self,
+        params: dict,
+        constitution: pd.Series,
+        relative_strength: pd.Series,
+        liquidity: pd.Series,
+        sentiment: pd.Series,
+        tension: pd.Series
+    ) -> pd.Series:
+        """
+        【V1.0 · 新增】顶层融合：合成“基础层战略态势”
+        - 核心逻辑: 对五大基础公理进行加权融合，形成统一的顶层判断。
+        """
+        print("    -> [基础层] 正在合成“战略态势”顶层信号...")
+        weights = params.get('strategic_posture_weights', {
+            "constitution": 0.30, "relative_strength": 0.25, "liquidity": 0.20,
+            "sentiment": 0.15, "tension": 0.10
+        })
+        w_c = weights.get("constitution", 0.30)
+        w_rs = weights.get("relative_strength", 0.25)
+        w_l = weights.get("liquidity", 0.20)
+        w_s = weights.get("sentiment", 0.15)
+        w_t = weights.get("tension", 0.10)
+        strategic_posture = (
+            constitution * w_c +
+            relative_strength * w_rs +
+            liquidity * w_l +
+            sentiment * w_s +
+            tension * w_t
+        )
+        # 探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            df_index = constitution.index
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [战略态势探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - 体质贡献: {constitution.loc[probe_date_for_loop]:.4f} * {w_c} = {constitution.loc[probe_date_for_loop] * w_c:.4f}")
+                print(f"       - 强度贡献: {relative_strength.loc[probe_date_for_loop]:.4f} * {w_rs} = {relative_strength.loc[probe_date_for_loop] * w_rs:.4f}")
+                print(f"       - 流动性贡献: {liquidity.loc[probe_date_for_loop]:.4f} * {w_l} = {liquidity.loc[probe_date_for_loop] * w_l:.4f}")
+                print(f"       - 情绪贡献: {sentiment.loc[probe_date_for_loop]:.4f} * {w_s} = {sentiment.loc[probe_date_for_loop] * w_s:.4f}")
+                print(f"       - 张力贡献: {tension.loc[probe_date_for_loop]:.4f} * {w_t} = {tension.loc[probe_date_for_loop] * w_t:.4f}")
+                print(f"       - 最终战略态势分: {strategic_posture.loc[probe_date_for_loop]:.4f}")
+        return strategic_posture.clip(-1, 1).astype(np.float32)
 
 
 

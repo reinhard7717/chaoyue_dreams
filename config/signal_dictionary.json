@@ -573,6 +573,12 @@
             "description": "-1代表波谷，+1代表波峰。"
         },
         "说明_foundation_layer": "--- 基础层 (Foundation) ---",
+        "SCORE_FOUNDATION_STRATEGIC_POSTURE": {
+            "cn_name": "【基础】战略态势",
+            "category": "基础层-超级原子",
+            "type": "context",
+            "description": "【V1.0 · 新增】基础情报引擎的顶层裁决信号。它基于A股博弈特性，对五大基础公理（市场体质、相对强度、流动性潮汐、情绪钟摆、市场张力）进行加权非线性融合。旨在穿透所有基础表象，输出一个对当前市场根基健康度与稳定性的最终战略判断。正分代表基础稳固、态势健康；负分代表根基动摇、风险积聚。"
+        },
         "SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH": {
             "cn_name": "【基础公理】相对强度",
             "category": "基础层-原子",

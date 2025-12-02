@@ -1266,7 +1266,14 @@
       "foundation_ultimate_params": {
         "enabled": true,
         "description": "【V6.0 · 四大公理版】定义了基于“趋势、摆动、流体、波动”四大基础公理的引擎参数。",
-        "norm_window": 55,
+        "strategic_posture_weights": {
+          "description": "【V1.0 · 新增】顶层战略态势融合权重，用于合成五大基础公理。",
+          "constitution": 0.30,
+          "relative_strength": 0.25,
+          "liquidity": 0.20,
+          "sentiment": 0.15,
+          "tension": 0.10
+        },
         "description_axiom_weights": "融合四大基础公理时的权重。",
         "axiom_weights": {
           "trend": 0.4,
