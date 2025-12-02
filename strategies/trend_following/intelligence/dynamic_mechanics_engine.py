@@ -86,8 +86,9 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, norm_window: int, is_probe_day: bool, current_date_str: str) -> pd.Series:
         """
-        【V2.0 · 诡道博弈版】力学公理一：诊断“动量品质”
-        - 核心重构: 引入“动量品质调节器”，融合上涨纯度、主力信念和趋势活力，对原始动量进行调制。
+        【V2.1 · 融合归一版】力学公理一：诊断“动量品质”
+        - 核心重构: 升级品质调节器的计算逻辑为“先融合，后归一”。先将各品质因子的原始值加权融合成一个“综合品质原始分”，
+                      然后再对该综合分进行整体归一化。此举旨在保留各因子间的相对量级信息，使调节器更具物理意义。
         - 新增: 增加探针，用于监测关键计算节点。
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {}) # 获取力学引擎参数
@@ -107,24 +108,30 @@ class DynamicMechanicsEngine:
         roc_score = get_adaptive_mtf_normalized_bipolar_score(roc, df.index, default_weights)
         macd_h_score = get_adaptive_mtf_normalized_bipolar_score(macd_h, df.index, default_weights)
         raw_momentum_score = (roc_score * 0.6 + macd_h_score * 0.4).clip(-1, 1)
+        # --- 修改：采用“先融合，后归一” ---
         # 2. 计算动量品质调节器 [0, 1]
-        purity_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'upward_impulse_purity_D', 0.5), df.index, True, default_weights)
-        conviction_score = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'main_force_conviction_index_D', 0.0), df.index, default_weights).clip(0, 1) # 只取正向信念
-        vitality_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'trend_vitality_index_D', 0.5), df.index, True, default_weights)
-        momentum_quality_modulator = (
-            purity_score * quality_weights.get('purity', 0.4) +
-            conviction_score * quality_weights.get('conviction', 0.4) +
-            vitality_score * quality_weights.get('vitality', 0.2)
-        ).clip(0, 1)
+        raw_purity = self._get_safe_series(df, 'upward_impulse_purity_D', 0.5)
+        raw_conviction = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0)
+        raw_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.5)
+        # 2.1 先将原始值加权融合
+        composite_quality_raw = (
+            raw_purity * quality_weights.get('purity', 0.4) +
+            raw_conviction.clip(0) * quality_weights.get('conviction', 0.4) + # 只取正向信念
+            raw_vitality * quality_weights.get('vitality', 0.2)
+        )
+        # 2.2 再对融合后的综合分进行归一化
+        momentum_quality_modulator = get_adaptive_mtf_normalized_score(composite_quality_raw, df.index, True, default_weights).clip(0, 1)
+        # --- 修改结束 ---
         # 3. 最终动量品质分
         final_momentum_score = (raw_momentum_score * momentum_quality_modulator).clip(-1, 1)
         if is_probe_day:
             last_values = {
                 "原料-ROC": roc.iloc[-1], "原料-MACDh": macd_h.iloc[-1],
-                "品质-纯度": self._get_safe_series(df, 'upward_impulse_purity_D').iloc[-1],
-                "品质-信念": self._get_safe_series(df, 'main_force_conviction_index_D').iloc[-1],
-                "品质-活力": self._get_safe_series(df, 'trend_vitality_index_D').iloc[-1],
+                "品质-纯度": raw_purity.iloc[-1],
+                "品质-信念": raw_conviction.iloc[-1],
+                "品质-活力": raw_vitality.iloc[-1],
                 "节点-原始动量分": raw_momentum_score.iloc[-1],
+                "节点-品质综合分(原始)": composite_quality_raw.iloc[-1],
                 "节点-品质调节器": momentum_quality_modulator.iloc[-1],
                 "结果-最终动量分": final_momentum_score.iloc[-1]
             }
@@ -133,8 +140,9 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_inertia(self, df: pd.DataFrame, norm_window: int, is_probe_day: bool, current_date_str: str) -> pd.Series:
         """
-        【V3.0 · 诡道博弈版】力学公理二：诊断“结构化惯性”
-        - 核心重构: 引入“结构加固”因子，与基础惯性进行加权融合，评估趋势的结构支撑度。
+        【V3.1 · 融合归一版】力学公理二：诊断“结构化惯性”
+        - 核心重构: 升级结构加固分的计算逻辑为“先融合，后归一”。先将均线排列和结构杠杆的原始值加权融合成一个
+                      “综合结构加固原始分”，再对该综合分进行整体归一化，以保留二者间的相对量级。
         - 新增: 增加探针，用于监测关键计算节点。
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
@@ -162,10 +170,15 @@ class DynamicMechanicsEngine:
         ma_velocity = get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_VELOCITY_{ma_col_base}_{timeframe_key}', 0.0), df.index, True, default_weights)
         ma_acceleration = get_adaptive_mtf_normalized_score(self._get_safe_series(df, f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}', 0.0), df.index, True, default_weights)
         base_inertia_quality = (adx_strength * 0.3 + hurst_quality * 0.3 + fractal_smoothness * 0.1 + ma_velocity * 0.15 + ma_acceleration * 0.15).clip(0, 1)
+        # --- 修改：采用“先融合，后归一” ---
         # 2. 计算结构加固分
-        alignment_score = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'trend_alignment_index_D', 0.0), df.index, default_weights)
-        leverage_score = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'structural_leverage_D', 0.0), df.index, default_weights)
-        structural_reinforcement_score = (alignment_score * 0.5 + leverage_score * 0.5).clip(-1, 1)
+        raw_alignment = self._get_safe_series(df, 'trend_alignment_index_D', 0.0)
+        raw_leverage = self._get_safe_series(df, 'structural_leverage_D', 0.0)
+        # 2.1 先将原始值加权融合
+        composite_reinforcement_raw = (raw_alignment * 0.5 + raw_leverage * 0.5)
+        # 2.2 再对融合后的综合分进行归一化
+        structural_reinforcement_score = get_adaptive_mtf_normalized_bipolar_score(composite_reinforcement_raw, df.index, default_weights).clip(-1, 1)
+        # --- 修改结束 ---
         # 3. 融合惯性品质与方向
         total_inertia_quality = (base_inertia_quality * inertia_weights.get('base_inertia', 0.7) + structural_reinforcement_score.clip(0, 1) * inertia_weights.get('structural_reinforcement', 0.3)).clip(0, 1)
         adx_direction = (self._get_safe_series(df, 'PDI_14_D', 0) > self._get_safe_series(df, 'NDI_14_D', 0)).astype(float) * 2 - 1
@@ -173,9 +186,10 @@ class DynamicMechanicsEngine:
         if is_probe_day:
             last_values = {
                 "原料-ADX": self._get_safe_series(df, 'ADX_14_D').iloc[-1], "原料-Hurst": hurst.iloc[-1],
-                "结构-排列": self._get_safe_series(df, 'trend_alignment_index_D').iloc[-1],
-                "结构-杠杆": self._get_safe_series(df, 'structural_leverage_D').iloc[-1],
+                "结构-排列": raw_alignment.iloc[-1],
+                "结构-杠杆": raw_leverage.iloc[-1],
                 "节点-基础惯性品质": base_inertia_quality.iloc[-1],
+                "节点-结构加固分(原始)": composite_reinforcement_raw.iloc[-1],
                 "节点-结构加固分": structural_reinforcement_score.iloc[-1],
                 "节点-总惯性品质": total_inertia_quality.iloc[-1],
                 "结果-最终惯性分": final_inertia_score.iloc[-1]
