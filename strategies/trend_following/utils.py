@@ -210,10 +210,10 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
     if series is None or series.isnull().all() or series.empty:
         return pd.Series(default_value, index=target_index, dtype=np.float32)
     series = series.reindex(target_index)
-    # [新增代码行] 零值隔离：将接近0的值替换为NaN，以便在滚动计算中被忽略
+    # 零值隔离：将接近0的值替换为NaN，以便在滚动计算中被忽略
     series_isolated = series.where(series.abs() >= 1e-6)
     min_periods = max(1, int(window * 0.2))
-    # [修改的代码行] 在隔离了零值的序列上进行计算
+    # 在隔离了零值的序列上进行计算
     rank = series_isolated.rolling(
         window=window, 
         min_periods=min_periods
@@ -221,7 +221,7 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
         pct=True, 
         ascending=ascending
     )
-    # [修改的代码行] 使用reindex确保索引完整，并将因隔离产生的NaN填充回中性值0.5
+    # 使用reindex确保索引完整，并将因隔离产生的NaN填充回中性值0.5
     return rank.reindex(target_index).fillna(default_value).astype(np.float32)
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
@@ -350,17 +350,17 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int,
     if series is None or series.isnull().all() or series.empty:
         return pd.Series(default_value, index=target_index, dtype=np.float32)
     series = series.reindex(target_index)
-    # [新增代码行] 零值隔离：将接近0的值替换为NaN
+    # 零值隔离：将接近0的值替换为NaN
     series_isolated = series.where(series.abs() >= 1e-6)
     min_periods = max(1, int(window * 0.2))
-    # [修改的代码行] 在隔离了零值的序列上进行计算
+    # 在隔离了零值的序列上进行计算
     rolling_mean = series_isolated.rolling(window=window, min_periods=min_periods).mean()
     rolling_std = series_isolated.rolling(window=window, min_periods=min_periods).std()
     rolling_std = rolling_std.replace(0, np.nan)
-    # [修改的代码行] 使用隔离后的序列进行Z-score计算
+    # 使用隔离后的序列进行Z-score计算
     z_score = (series_isolated - rolling_mean) / (rolling_std * sensitivity)
     bipolar_score = np.tanh(z_score)
-    # [修改的代码行] 使用reindex确保索引完整，并将因隔离产生的NaN填充回中性值0.0
+    # 使用reindex确保索引完整，并将因隔离产生的NaN填充回中性值0.0
     return bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
 
 def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window: int) -> Tuple[pd.Series, pd.Series]:
@@ -868,7 +868,7 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index,
     for period_str, weight in valid_weights.items():
         try:
             period = int(period_str)
-            # [修改的代码行] 调用基础的单周期归一化工具
+            # 调用基础的单周期归一化工具
             period_score = normalize_score(series, target_index, window=period, ascending=ascending)
             final_score += period_score * (weight / total_weight)
         except (ValueError, TypeError) as e:
@@ -896,7 +896,7 @@ def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: p
     for period_str, weight in valid_weights.items():
         try:
             period = int(period_str)
-            # [修改的代码行] 调用基础的双极性归一化工具
+            # 调用基础的双极性归一化工具
             period_score = normalize_to_bipolar(series, target_index, window=period, sensitivity=sensitivity)
             final_score += period_score * (weight / total_weight)
         except (ValueError, TypeError) as e:

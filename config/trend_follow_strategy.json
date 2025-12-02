@@ -1154,6 +1154,11 @@
       "behavioral_dynamics_params": {
         "enabled": true,
         "description": "【V24.0 · 四大公理版】行为情报引擎参数。聚焦于价、量、时、空四大行为公理。",
+        "neutral_zone_thresholds": {
+          "description": "【V1.0】中性死区阈值。绝对值低于此阈值的信号值将被视作0，以过滤噪声。",
+          "main_force_execution_alpha_D": 0.001,
+          "covert_accumulation_signal_D": 0.001
+        },
         "mtf_normalization_params": {
           "description": "【V1.0】多时间框架(MTF)自适应归一化引擎的权重配置。",
           "default_weights": {
