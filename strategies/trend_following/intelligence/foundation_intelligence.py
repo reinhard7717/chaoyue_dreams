@@ -110,13 +110,15 @@ class FoundationIntelligence:
 
     def _diagnose_axiom_market_constitution(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V2.0 · 升维版】基础公理一：诊断“市场体质”
-        - 核心逻辑: 融合均线结构、换手率健康度和趋势信念，评估市场“体质”。
-        - A股特性: 健康的上涨（体质强）应是结构稳固、换手温和、信念坚定的，区别于高换手的“亢奋式”虚胖拉升。
+        【V3.0 · 韧性诊断版】基础公理一：诊断“市场体质”
+        - 核心逻辑: 融合均线结构(骨架)、换手健康度(新陈代谢)、趋势信念(意志力)以及新增的“下跌承接力(免疫韧性)”。
+        - A股特性: 健康的上涨不仅结构稳固、换手温和，更应具备强大的下跌抵抗能力。此升级旨在识别这种“抗揍”的健康体质。
         """
-        print("    -> [基础层] 正在诊断“市场体质”公理...")
+        print("    -> [基础层] 正在诊断“市场体质”公理 (V3.0 · 韧性诊断版)...") # 修改: 更新版本号和描述
+        # 修改: 新增 dip_absorption_power_D 作为韧性指标
         required_signals = [
-            'MACDh_13_34_8_D', 'SLOPE_5_DMA_D', 'turnover_rate_f_D', 'trend_alignment_index_D'
+            'MACDh_13_34_8_D', 'SLOPE_5_DMA_D', 'turnover_rate_f_D', 'trend_alignment_index_D',
+            'dip_absorption_power_D'
         ]
         ma_periods = [5, 13, 21, 55]
         required_signals.extend([f'EMA_{p}_D' for p in ma_periods])
@@ -127,7 +129,7 @@ class FoundationIntelligence:
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 1. 均线结构分 (骨架)
+        # 1. 均线结构分 (骨架) - 逻辑不变
         macd_h = self._get_safe_series(df, 'MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         macd_score = get_adaptive_mtf_normalized_bipolar_score(macd_h, df_index, default_weights)
         fusion_weights = params.get('ma_health_fusion_weights', {'alignment': 0.5, 'slope': 0.5})
@@ -140,19 +142,21 @@ class FoundationIntelligence:
         dma_slope_score = get_adaptive_mtf_normalized_bipolar_score(dma_slope, df_index, default_weights)
         structure_score = (alignment_bipolar * fusion_weights.get('alignment', 0.5) + avg_slope_bipolar * fusion_weights.get('slope', 0.5)).clip(-1, 1)
         base_trend_score = (macd_score * 0.3 + structure_score * 0.5 + dma_slope_score * 0.2).clip(-1, 1)
-        # 2. 换手率健康度 (新陈代谢) - 换手率越低越健康，故 ascending=False
+        # 2. 换手率健康度 (新陈代谢) - 逻辑不变
         turnover_rate = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         turnover_health_score = get_adaptive_mtf_normalized_score(turnover_rate, df_index, ascending=False, tf_weights=default_weights)
-        # 3. 趋势信念 (意志力)
+        # 3. 趋势信念 (意志力) - 逻辑不变
         trend_conviction = self._get_safe_series(df, 'trend_alignment_index_D', 0.0, method_name="_diagnose_axiom_market_constitution")
         conviction_score = get_adaptive_mtf_normalized_score(trend_conviction, df_index, ascending=True, tf_weights=default_weights)
-        # 4. 融合
-        # 当趋势向上时，用健康度和信念进行加权；当趋势向下时，主要由趋势本身决定
-        health_modulator = (turnover_health_score * 0.6 + conviction_score * 0.4).clip(0, 1)
+        # 新增: 4. 免疫韧性 (下跌承接力)
+        resilience = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_axiom_market_constitution")
+        resilience_score = get_adaptive_mtf_normalized_score(resilience, df_index, ascending=True, tf_weights=default_weights)
+        # 5. 融合 - 修改: 在健康度调节器中加入韧性评分
+        health_modulator = (turnover_health_score * 0.4 + conviction_score * 0.3 + resilience_score * 0.3).clip(0, 1)
         constitution_score = base_trend_score.copy()
         bullish_mask = base_trend_score > 0
         constitution_score[bullish_mask] = (base_trend_score[bullish_mask] * health_modulator[bullish_mask]).pow(0.5)
-        # [新增] 调试探针
+        # 修改: 更新调试探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -163,35 +167,44 @@ class FoundationIntelligence:
                 print(f"       - base_trend_score: {base_trend_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - turnover_health_score: {turnover_health_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - conviction_score: {conviction_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - resilience_score (新增): {resilience_score.loc[probe_date_for_loop]:.4f} (原始值: {resilience.loc[probe_date_for_loop]:.2f})")
                 print(f"       - health_modulator: {health_modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_constitution_score: {constitution_score.loc[probe_date_for_loop]:.4f}")
         return constitution_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_sentiment_pendulum(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V2.0 · 升维版】基础公理二：诊断“市场情绪钟摆”
-        - 核心逻辑: 融合RSI、散户恐慌指数与FOMO指数，诊断市场情绪的两极状态。
-        - A股特性: 直接利用刻画散户恐慌与FOMO的指标，比单纯的RSI超买超卖更具实战意义。
+        【V3.0 · 诡道甄别版】基础公理二：诊断“市场情绪钟摆”
+        - 核心逻辑: 融合RSI、散户恐慌/FOMO指数，并引入“博弈欺骗指数”作为核心调节器。
+        - A股特性: 情绪常常是陷阱。此升级旨在利用欺骗指数来甄别情绪的真实性，过滤主力诱多或诱空行为。
         """
-        print("    -> [基础层] 正在诊断“情绪钟摆”公理...")
-        required_signals = ['RSI_13_D', 'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D']
+        print("    -> [基础层] 正在诊断“情绪钟摆”公理 (V3.0 · 诡道甄别版)...") # 修改: 更新版本号和描述
+        # 修改: 新增 deception_index_D 作为诡道调节器
+        required_signals = ['RSI_13_D', 'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D', 'deception_index_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_sentiment_pendulum"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 1. RSI作为基础位置
+        # 1. RSI作为基础位置 - 逻辑不变
         rsi = self._get_safe_series(df, 'RSI_13_D', 50.0, method_name="_diagnose_axiom_sentiment_pendulum")
         rsi_score = get_adaptive_mtf_normalized_bipolar_score(rsi - 50.0, df_index, default_weights, sensitivity=10.0)
-        # 2. 恐慌与FOMO作为两极的加强器
+        # 2. 恐慌与FOMO作为两极的加强器 - 逻辑不变
         panic_index = self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
         panic_score = get_adaptive_mtf_normalized_score(panic_index, df_index, ascending=True, tf_weights=default_weights)
         fomo_index = self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
         fomo_score = get_adaptive_mtf_normalized_score(fomo_index, df_index, ascending=True, tf_weights=default_weights)
-        # 3. 融合
-        pendulum_score = rsi_score + (fomo_score * 0.5) - (panic_score * 0.5)
-        # [新增] 调试探针
+        # 3. 融合基础情绪分
+        base_pendulum_score = (rsi_score + (fomo_score * 0.5) - (panic_score * 0.5)).clip(-1, 1)
+        # 新增: 4. 诡道调节器 (欺骗指数)
+        # deception_index < 0 代表拉高出货(诱多)，应惩罚看涨情绪；> 0 代表压价吸筹(诱空)，应惩罚看跌情绪
+        deception_index = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_axiom_sentiment_pendulum")
+        # 当基础分与欺骗指数同向时，无惩罚(系数为1)；反向时，施加惩罚
+        reality_check_modulator = 1 - (base_pendulum_score * deception_index.clip(-1, 1) < 0) * np.abs(deception_index.clip(-1, 1)) * 0.5
+        # 5. 最终融合
+        pendulum_score = base_pendulum_score * reality_check_modulator
+        # 修改: 更新调试探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -202,35 +215,46 @@ class FoundationIntelligence:
                 print(f"       - rsi_score: {rsi_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - panic_score: {panic_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - fomo_score: {fomo_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - base_pendulum_score: {base_pendulum_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - deception_index (原始值): {deception_index.loc[probe_date_for_loop]:.4f}")
+                print(f"       - reality_check_modulator (诡道调节器): {reality_check_modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_pendulum_score: {pendulum_score.loc[probe_date_for_loop]:.4f}")
         return pendulum_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_liquidity_tide(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V2.0 · 升维版】基础公理三：诊断“流动性潮汐”
-        - 核心逻辑: 融合CMF(方向)、成交额趋势(能量)与换手率趋势(活跃度)。
-        - A股特性: 真实的上涨需要“水涨船高”，即资金流入需要伴随市场关注度和活跃度的同步提升。
+        【V3.0 · 品质过滤版】基础公理三：诊断“流动性潮汐”
+        - 核心逻辑: 融合CMF(方向)、成交额趋势(能量)与换手率趋势(活跃度)，并引入“对倒强度”作为品质过滤器。
+        - A股特性: 成交量可以作假。此升级旨在通过惩罚对倒行为，还原真实的流动性状态。
         """
-        print("    -> [基础层] 正在诊断“流动性潮汐”公理...")
-        required_signals = ['CMF_21_D', 'SLOPE_5_amount_D', 'SLOPE_5_turnover_rate_f_D']
+        print("    -> [基础层] 正在诊断“流动性潮汐”公理 (V3.0 · 品质过滤版)...") # 修改: 更新版本号和描述
+        # 修改: 新增 wash_trade_intensity_D 作为品质过滤器
+        required_signals = ['CMF_21_D', 'SLOPE_5_amount_D', 'SLOPE_5_turnover_rate_f_D', 'wash_trade_intensity_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_liquidity_tide"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 1. 潮汐方向 (CMF)
+        # 1. 潮汐方向 (CMF) - 逻辑不变
         cmf = self._get_safe_series(df, 'CMF_21_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         direction_score = get_adaptive_mtf_normalized_bipolar_score(cmf, df_index, default_weights, sensitivity=0.5)
-        # 2. 潮汐能量 (成交额趋势)
+        # 2. 潮汐能量 (成交额趋势) - 逻辑不变
         amount_slope = self._get_safe_series(df, 'SLOPE_5_amount_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         energy_score = get_adaptive_mtf_normalized_bipolar_score(amount_slope, df_index, default_weights)
-        # 3. 潮汐活跃度 (换手率趋势)
+        # 3. 潮汐活跃度 (换手率趋势) - 逻辑不变
         turnover_slope = self._get_safe_series(df, 'SLOPE_5_turnover_rate_f_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
         activity_score = get_adaptive_mtf_normalized_bipolar_score(turnover_slope, df_index, default_weights)
-        # 4. 融合
-        tide_score = (direction_score * 0.5 + energy_score * 0.3 + activity_score * 0.2)
-        # [新增] 调试探针
+        # 4. 融合基础流动性分
+        base_tide_score = (direction_score * 0.5 + energy_score * 0.3 + activity_score * 0.2)
+        # 新增: 5. 流动性品质调节器 (对倒强度)
+        wash_trade = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_liquidity_tide")
+        # 对倒强度越高，品质越差，惩罚越大
+        wash_trade_penalty = get_adaptive_mtf_normalized_score(wash_trade, df_index, ascending=True, tf_weights=default_weights)
+        quality_modulator = (1 - wash_trade_penalty * 0.75).clip(0, 1) # 最多惩罚75%
+        # 6. 最终融合
+        tide_score = base_tide_score * quality_modulator
+        # 修改: 更新调试探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -241,35 +265,44 @@ class FoundationIntelligence:
                 print(f"       - direction_score (CMF): {direction_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - energy_score (Amount Slope): {energy_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - activity_score (Turnover Slope): {activity_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - base_tide_score: {base_tide_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - wash_trade_penalty (对倒惩罚): {wash_trade_penalty.loc[probe_date_for_loop]:.4f} (原始值: {wash_trade.loc[probe_date_for_loop]:.2f})")
+                print(f"       - quality_modulator (品质调节器): {quality_modulator.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_tide_score: {tide_score.loc[probe_date_for_loop]:.4f}")
         return tide_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_market_tension(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V2.0 · 升维版】基础公理四：诊断“市场张力”
-        - 核心逻辑: 融合BBW(收敛度)、均线压缩率和均线张力指数，评估市场能量的压缩状态。
-        - A股特性: 暴风雨前的宁静。高张力状态（正分）往往是下一轮大级别行情的前兆。
+        【V3.0 · 意图方向版】基础公理四：诊断“市场张力”
+        - 核心逻辑: 在融合BBW、均线压缩率等张力指标的基础上，引入“主力姿态指数”作为方向调节器。
+        - A股特性: 盘整末端的方向选择，关键看主力意图。此升级旨在为“张力”赋予方向，预判突破概率。
         """
-        print("    -> [基础层] 正在诊断“市场张力”公理...")
-        required_signals = ['BBW_21_2.0_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'MA_POTENTIAL_TENSION_INDEX_D']
+        print("    -> [基础层] 正在诊断“市场张力”公理 (V3.0 · 意图方向版)...") # 修改: 更新版本号和描述
+        # 修改: 新增 main_force_posture_index_D 作为方向调节器
+        required_signals = ['BBW_21_2.0_D', 'MA_POTENTIAL_COMPRESSION_RATE_D', 'MA_POTENTIAL_TENSION_INDEX_D', 'main_force_posture_index_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_market_tension"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 1. 波动收敛度 (BBW越小，分数越高)
+        # 1. 波动收敛度 (BBW越小，分数越高) - 逻辑不变
         bbw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name="_diagnose_axiom_market_tension")
         squeeze_score = get_adaptive_mtf_normalized_score(bbw, df_index, ascending=False, tf_weights=default_weights)
-        # 2. 均线压缩率
+        # 2. 均线压缩率 - 逻辑不变
         compression_rate = self._get_safe_series(df, 'MA_POTENTIAL_COMPRESSION_RATE_D', 0.0, method_name="_diagnose_axiom_market_tension")
         compression_score = get_adaptive_mtf_normalized_score(compression_rate, df_index, ascending=True, tf_weights=default_weights)
-        # 3. 均线张力
+        # 3. 均线张力 - 逻辑不变
         tension_index = self._get_safe_series(df, 'MA_POTENTIAL_TENSION_INDEX_D', 0.0, method_name="_diagnose_axiom_market_tension")
         tension_score = get_adaptive_mtf_normalized_score(tension_index, df_index, ascending=True, tf_weights=default_weights)
-        # 4. 融合 (高张力是正分)
-        tension_final_score = (squeeze_score * 0.4 + compression_score * 0.3 + tension_score * 0.3)
-        # [新增] 调试探针
+        # 4. 融合为无方向的张力强度分
+        unipolar_tension_score = (squeeze_score * 0.4 + compression_score * 0.3 + tension_score * 0.3).clip(0, 1)
+        # 新增: 5. 主力意图作为方向调节器
+        main_force_posture = self._get_safe_series(df, 'main_force_posture_index_D', 0.0, method_name="_diagnose_axiom_market_tension")
+        directional_bias = get_adaptive_mtf_normalized_bipolar_score(main_force_posture, df_index, default_weights)
+        # 6. 最终融合: 张力强度 * 意图方向
+        tension_final_score = unipolar_tension_score * directional_bias
+        # 修改: 更新调试探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -277,34 +310,37 @@ class FoundationIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df_index:
                 print(f"    -> [市场张力探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - squeeze_score (BBW): {squeeze_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - compression_score: {compression_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - tension_score: {tension_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - final_tension_score: {tension_final_score.loc[probe_date_for_loop]:.4f}")
-        return tension_final_score.clip(0, 1).astype(np.float32)
+                print(f"       - unipolar_tension_score (张力强度): {unipolar_tension_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - directional_bias (主力意图): {directional_bias.loc[probe_date_for_loop]:.4f} (原始值: {main_force_posture.loc[probe_date_for_loop]:.2f})")
+                print(f"       - final_tension_score (最终得分): {tension_final_score.loc[probe_date_for_loop]:.4f}")
+        return tension_final_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_relative_strength(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.1 · 实战适配版】基础公理五：诊断“相对强度”
-        - 核心重构: 废弃对理想化但缺失的行业/指数涨跌幅信号的依赖。
-        - 核心升级: 改造为直接使用数据层提供的、更具实战意义的 `industry_strength_rank_D`
-                      （行业强度排名）作为核心判断依据，解决了因数据契约失效导致的启动失败问题。
+        【V2.0 · 动量增强版】基础公理五：诊断“相对强度”
+        - 核心逻辑: 融合个股在行业内的“强度排名(状态)”与“排名变化趋势(动量)”。
+        - A股特性: 市场的焦点是动态变化的。此升级旨在捕捉从强到更强的“领涨龙头”，而非仅仅是静态的“强者”。
         """
-        print("    -> [基础层] 正在诊断“相对强度”公理 (V1.1 · 实战适配版)...")
-        # 更新依赖信号为实际存在的核心代理信号
+        print("    -> [基础层] 正在诊断“相对强度”公理 (V2.0 · 动量增强版)...") # 修改: 更新版本号和描述
+        # 修改: 新增 industry_rank_slope_D 用于动量评估
         required_signals = [
-            'industry_strength_rank_D'
+            'industry_strength_rank_D', 'industry_rank_slope_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_relative_strength"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
-        # 移除旧的、基于缺失信号的逻辑
-        # 1. 获取核心代理信号：行业强度排名
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # 1. 强度状态分 (当前排名)
         industry_rank = self._get_safe_series(df, 'industry_strength_rank_D', 0.5, method_name="_diagnose_axiom_relative_strength")
-        # 2. 将排名分（0到1）转换为双极性分数（-1到1）
-        # 排名大于0.5视为强于行业平均，小于0.5视为弱于行业平均
-        relative_strength_score = (industry_rank - 0.5) * 2
-        # [新增] 调试探针
+        state_score = (industry_rank - 0.5) * 2
+        # 新增: 2. 强度动量分 (排名变化趋势)
+        rank_slope = self._get_safe_series(df, 'industry_rank_slope_D', 0.0, method_name="_diagnose_axiom_relative_strength")
+        momentum_score = get_adaptive_mtf_normalized_bipolar_score(rank_slope, df_index, default_weights)
+        # 3. 融合: 状态与动量加权
+        relative_strength_score = (state_score * 0.6 + momentum_score * 0.4)
+        # 修改: 更新调试探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -312,9 +348,9 @@ class FoundationIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df_index:
                 print(f"    -> [相对强度探针] @ {probe_date_for_loop.date()}:")
-                # 更新探针输出
-                print(f"       - industry_strength_rank_D (原始排名): {industry_rank.loc[probe_date_for_loop]:.4f}")
-                print(f"       - final_relative_strength_score (转换后): {relative_strength_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - state_score (静态排名分): {state_score.loc[probe_date_for_loop]:.4f} (原始排名: {industry_rank.loc[probe_date_for_loop]:.2f})")
+                print(f"       - momentum_score (排名动量分): {momentum_score.loc[probe_date_for_loop]:.4f} (原始斜率: {rank_slope.loc[probe_date_for_loop]:.4f})")
+                print(f"       - final_relative_strength_score (融合后): {relative_strength_score.loc[probe_date_for_loop]:.4f}")
         return relative_strength_score.clip(-1, 1).astype(np.float32)
 
 
