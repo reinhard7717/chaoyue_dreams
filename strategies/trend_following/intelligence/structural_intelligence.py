@@ -46,15 +46,11 @@ class StructuralIntelligence:
 
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.3 · 张力与剧本版】结构情报分析总指挥
-        - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
-        - 核心职责: 输出结构领域的原子公理信号、结构背离信号，并新增顶层“战略态势”超级信号。
-        - 核心新增: 引入终极维度“结构动量”，将结构分析从“状态”提升至“势”的层面。
+        【V5.4 · 情境感知版】结构情报分析总指挥
+        - 核心升级: 引入“战场环境”公理，并基于此生成最终的“情境战略态势”，实现“天人合一”的决策。
         - 核心新增: 引入“结构张力”公理，作为势能压缩的先行指标。
         - 核心新增: 引入“二次启动”战术剧本识别，从公理组合中识别高阶意图。
-        - 【新增】调用 `_diagnose_bottom_fractal` 方法，将底分型信号添加到 `all_states` 中。
-        - 【新增】调用 `_diagnose_strategic_posture` 方法，生成顶层战略信号。
-        - 【优化】移除了过时的 `norm_window` 参数。
+        - 核心职责: 输出所有结构层信号，包括原子公理、内部态势、情境态势、动量和剧本。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -72,6 +68,10 @@ class StructuralIntelligence:
         axiom_divergence = self._diagnose_axiom_divergence(df)
         bottom_fractal_score = self._diagnose_bottom_fractal(df, n=5, min_depth_ratio=0.001)
         axiom_tension = self._diagnose_axiom_tension(df)
+        # --- 新增代码开始 ---
+        axiom_environment = self._diagnose_axiom_environment(df) # 新增：诊断战场环境
+        all_states['SCORE_STRUCT_AXIOM_ENVIRONMENT'] = axiom_environment
+        # --- 新增代码结束 ---
         all_states['SCORE_STRUCT_AXIOM_TENSION'] = axiom_tension
         all_states['SCORE_STRUCT_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_STRUCT_AXIOM_TREND_FORM'] = axiom_trend_form
@@ -81,16 +81,25 @@ class StructuralIntelligence:
         all_states['SCORE_STRUCTURE_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_STRUCTURE_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         all_states['SCORE_STRUCT_BOTTOM_FRACTAL'] = bottom_fractal_score
-        # --- 步骤二: 诊断顶层战略态势 ---
-        # --- 修改代码开始 ---
+        # --- 步骤二: 诊断内部战略态势 ---
         strategic_posture = self._diagnose_strategic_posture(
             axiom_trend_form, axiom_mtf_cohesion, axiom_stability, axiom_tension
         )
-        # --- 修改代码结束 ---
         all_states['SCORE_STRUCT_STRATEGIC_POSTURE'] = strategic_posture
-        # --- 步骤三: 诊断终极维度 - 结构动量 ---
+        # --- 新增代码开始 ---
+        # --- 步骤三: 融合战场环境，生成最终情境态势 ---
+        env_factor = 0.5 # 环境对内部态势的影响系数
+        env_modifier = (axiom_environment - 0.5) * env_factor
+        contextual_posture = (strategic_posture * (1 + env_modifier)).clip(0, 1)
+        all_states['SCORE_STRUCT_CONTEXTUAL_POSTURE'] = contextual_posture.astype(np.float32)
+        if self.is_probe_date:
+            print(f"    [探针] 情境战略态势 (SCORE_STRUCT_CONTEXTUAL_POSTURE): {contextual_posture.iloc[-1]:.4f}")
+            print(f"      - 融合: 内部态势分={strategic_posture.iloc[-1]:.2f}, 环境调节器={env_modifier.iloc[-1]:.2f} -> 最终态势 = 内部态势 * (1 + 调节器)")
+        # --- 新增代码结束 ---
+        # --- 步骤四: 基于情境态势，诊断动量与剧本 ---
+        # --- 修改代码开始 ---
         momentum_window = 5
-        posture_slope_raw = ta.slope(strategic_posture, length=momentum_window)
+        posture_slope_raw = ta.slope(contextual_posture, length=momentum_window) # 基于情境态势计算动量
         posture_slope_raw.fillna(0, inplace=True)
         mtf_weights_conf = get_param_value(p_conf.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -99,12 +108,12 @@ class StructuralIntelligence:
         if self.is_probe_date:
             today_score = structural_momentum.iloc[-1]
             print(f"    [探针] 结构动量(势) (SCORE_STRUCT_MOMENTUM): {today_score:.4f}")
-            print(f"      - 原料: 战略态势5日斜率(原始)={posture_slope_raw.iloc[-1]:.4f}")
-        # --- 步骤四: 诊断战术剧本 ---
+            print(f"      - 原料: 情境战略态势5日斜率(原始)={posture_slope_raw.iloc[-1]:.4f}")
         playbook_secondary_launch = self._diagnose_playbook_secondary_launch(
-            df, axiom_stability, strategic_posture, structural_momentum
+            df, axiom_stability, contextual_posture, structural_momentum # 使用情境态势进行剧本判断
         )
         all_states['SCORE_STRUCT_PLAYBOOK_SECONDARY_LAUNCH'] = playbook_secondary_launch
+        # --- 修改代码结束 ---
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame) -> pd.Series:
@@ -541,6 +550,38 @@ class StructuralIntelligence:
             print(f"    [探针] 结构剧本-二次启动 (SCORE_STRUCT_PLAYBOOK_SECONDARY_LAUNCH): 0.0000")
         return playbook_score
 
+    def _diagnose_axiom_environment(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 审时度势版】结构公理七：诊断“战场环境”
+        - 核心逻辑: 评估个股所处的外部宏观环境，融合板块强度与主题热度。
+        """
+        required_signals = ['industry_strength_rank_D', 'THEME_HOTNESS_SCORE_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_environment"):
+            return pd.Series(0.5, index=df.index) # 环境未知时返回中性分
+        df_index = df.index
+        p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
+        tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # --- 1. 地利 (Sector Strength) ---
+        sector_rank_raw = self._get_safe_series(df, 'industry_strength_rank_D', 0.5, method_name="_diagnose_axiom_environment")
+        # 排名越小越好，因此 ascending=False
+        sector_strength_score = get_adaptive_mtf_normalized_score(sector_rank_raw, df_index, ascending=False, tf_weights=tf_weights)
+        # --- 2. 人和 (Thematic Resonance) ---
+        theme_hotness_raw = self._get_safe_series(df, 'THEME_HOTNESS_SCORE_D', 0.5, method_name="_diagnose_axiom_environment")
+        theme_hotness_score = get_adaptive_mtf_normalized_score(theme_hotness_raw, df_index, ascending=True, tf_weights=tf_weights)
+        # --- 3. 融合 ---
+        # 权重: 板块(0.6), 主题(0.4)
+        environment_score = (
+            sector_strength_score * 0.6 +
+            theme_hotness_score * 0.4
+        ).clip(0, 1)
+        final_score = environment_score.astype(np.float32)
+        if self.is_probe_date:
+            today_score = final_score.iloc[-1]
+            print(f"    [探针] 战场环境公理 (SCORE_STRUCT_AXIOM_ENVIRONMENT): {today_score:.4f}")
+            print(f"      - 地利: 板块排名(原始)={sector_rank_raw.iloc[-1]:.2f} -> 分数={sector_strength_score.iloc[-1]:.2f}")
+            print(f"      - 人和: 主题热度(原始)={theme_hotness_raw.iloc[-1]:.2f} -> 分数={theme_hotness_score.iloc[-1]:.2f}")
+        return final_score
 
 
 
