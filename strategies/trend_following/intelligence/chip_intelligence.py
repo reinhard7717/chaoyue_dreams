@@ -257,17 +257,15 @@ class ChipIntelligence:
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V6.0 · 极限压力测试版】筹码公理三：诊断“持仓信念韧性”
-        - 核心升级: 在“压力测试”维度中，引入“恐慌盘吸收指数”作为第三大核心证据，
-                      旨在评估信念在极端恐慌抛售下的真实韧性，使信号更能反映“真金火炼”后的持仓意愿。
-        - 核心修复: 修正“反向惩罚”悖论。将`fomo_score`的归一化参数`ascending`从`False`改回`True`，
-                      恢复“FOMO情绪越高，不纯度越高”的正确逻辑。
+        【V6.1 · 奖励机制版】筹码公理三：诊断“持仓信念韧性”
+        - 核心升级: 将“恐慌盘吸收”的融合方式从“加权平均”升级为“奖励因子”。基础压力测试分由常规承接与防守构成，
+                      只有当出现高质量的恐慌盘吸收时，才给予额外奖励。这更符合其“事件驱动”的本质，避免了在无恐慌日惩罚分数的问题。
         """
-        print("    -> [筹码层] 正在诊断“持仓信念”公理 (V6.0 · 极限压力测试版)...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“持仓信念”公理 (V6.1 · 奖励机制版)...") # [修改代码行]
         required_signals = [
             'winner_stability_index_D', 'loser_pain_index_D', 'dip_absorption_power_D',
             'mf_cost_zone_defense_intent_D', 'retail_fomo_premium_index_D',
-            'profit_realization_quality_D', 'capitulation_absorption_index_D' # [修改代码行] 新增依赖
+            'profit_realization_quality_D', 'capitulation_absorption_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_holder_sentiment"):
             return pd.Series(0.0, index=df.index)
@@ -281,19 +279,21 @@ class ChipIntelligence:
         belief_core_score = (stability_score.add(1)/2 * pain_score.add(1)/2).pow(0.5) * 2 - 1
         absorption_power = self._get_safe_series(df, df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         defense_intent = self._get_safe_series(df, df, 'mf_cost_zone_defense_intent_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        capitulation_absorption = self._get_safe_series(df, df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment") # [修改代码行] 获取新信号
+        capitulation_absorption = self._get_safe_series(df, df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         absorption_score = get_adaptive_mtf_normalized_bipolar_score(absorption_power, df_index, tf_weights)
         defense_score = get_adaptive_mtf_normalized_bipolar_score(defense_intent, df_index, tf_weights)
-        capitulation_score = get_adaptive_mtf_normalized_score(capitulation_absorption, df_index, tf_weights) # [修改代码行] 归一化新信号
-        # [修改代码块] 将恐慌盘吸收能力融合进压力测试，采用加权算术平均，突出极限测试的重要性
-        base_pressure_score = (absorption_score.add(1)/2 * defense_score.add(1)/2).pow(0.5)
-        pressure_test_score = (base_pressure_score * 0.7 + capitulation_score * 0.3) * 2 - 1
+        capitulation_score = get_adaptive_mtf_normalized_score(capitulation_absorption, df_index, tf_weights)
+        # [修改代码块] 升级为奖励机制
+        base_pressure_score = ((absorption_score.add(1)/2 * defense_score.add(1)/2).pow(0.5) * 2 - 1)
+        # 只有当恐慌吸收发生时，才给予奖励，奖励幅度由吸收质量决定
+        capitulation_bonus = capitulation_score * 0.3 # 恐慌吸收的最大奖励为30%
+        pressure_test_score = base_pressure_score * (1 + capitulation_bonus)
         fomo_index = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         profit_taking_quality = self._get_safe_series(df, df, 'profit_realization_quality_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         fomo_score = get_adaptive_mtf_normalized_score(fomo_index, df_index, ascending=True, tf_weights=tf_weights)
         profit_taking_score = get_adaptive_mtf_normalized_score(profit_taking_quality, df_index, ascending=True, tf_weights=tf_weights)
         impurity_score = (fomo_score * profit_taking_score).pow(0.5)
-        conviction_base = ((belief_core_score.add(1)/2) * (pressure_test_score.add(1)/2)).pow(0.5)
+        conviction_base = ((belief_core_score.add(1)/2) * (pressure_test_score.clip(-1, 1).add(1)/2)).pow(0.5)
         final_score = (conviction_base * (1 - impurity_score)) * 2 - 1
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -308,8 +308,8 @@ class ChipIntelligence:
                 print(f"       - 维度2: 压力测试 (Pressure Test)")
                 # [修改代码块] 更新探针输出
                 print(f"         - 原料: absorption_power: {absorption_power.loc[probe_date]:.4f}, defense_intent: {defense_intent.loc[probe_date]:.4f}, capitulation_absorption: {capitulation_absorption.loc[probe_date]:.4f}")
-                print(f"         - 过程: base_pressure_score: {base_pressure_score.loc[probe_date]:.4f}, capitulation_score: {capitulation_score.loc[probe_date]:.4f}")
-                print(f"         - 结果: pressure_test_score: {pressure_test_score.loc[probe_date]:.4f}")
+                print(f"         - 过程: base_pressure_score: {base_pressure_score.loc[probe_date]:.4f}, capitulation_bonus: {capitulation_bonus.loc[probe_date]:.4f}")
+                print(f"         - 结果: pressure_test_score (with bonus): {pressure_test_score.loc[probe_date]:.4f}")
                 print(f"       - 维度3: 情绪纯度 (Impurity)")
                 print(f"         - 原料: fomo_index: {fomo_index.loc[probe_date]:.4f}, profit_taking_quality: {profit_taking_quality.loc[probe_date]:.4f}")
                 print(f"         - 过程: fomo_score (corrected): {fomo_score.loc[probe_date]:.4f}, profit_taking_score: {profit_taking_score.loc[probe_date]:.4f}")
@@ -319,16 +319,14 @@ class ChipIntelligence:
 
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list, strategic_posture: pd.Series, battlefield_geography: pd.Series, holder_sentiment: pd.Series) -> pd.Series:
         """
-        【V6.0 · 燃料纯度增强版】筹码公理六：诊断“结构性推力”
-        - 核心架构升级: 在“燃料品质”维度中，引入“上涨脉冲纯度”作为核心评估因子，
-                          与“主力信念”进行融合。旨在确保趋势的“燃料”不仅信念坚定，而且品质纯粹、高效，
-                          能有效过滤掉由“对倒”等行为驱动的低质量趋势。
-        - 核心架构升级: 修复“战略惯性”悖论。将“引擎功率”的评估模型从纯动态升级为“状态-动态”融合模型。
-                          新模型同时评估健康度的绝对水平（状态）和变化趋势（动态），使信号更全面、更稳健。
+        【V6.1 · 协同奖励版】筹码公理六：诊断“结构性推力”
+        - 核心架构升级: 在“燃料品质”维度中，引入“协同奖励”机制。当且仅当“主力信念”和“上涨纯度”
+                          同时为正时，才触发一个额外的奖励因子，以非线性地放大“高品质燃料”的得分，
+                          使其在众多趋势中脱颖而出。
         """
-        print("    -> [筹码层] 正在诊断“结构性推力”公理 (V6.0 · 燃料纯度增强版)...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“结构性推力”公理 (V6.1 · 协同奖励版)...") # [修改代码行]
         required_signals = [
-            'main_force_conviction_index_D', 'vacuum_zone_magnitude_D', 'upward_impulse_purity_D' # [修改代码行] 新增依赖
+            'main_force_conviction_index_D', 'vacuum_zone_magnitude_D', 'upward_impulse_purity_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_momentum"):
             return pd.Series(0.0, index=df.index)
@@ -349,16 +347,19 @@ class ChipIntelligence:
         static_weight, dynamic_weight = 0.5, 0.5
         engine_power_score = static_engine_power * static_weight + dynamic_engine_power * dynamic_weight
         conviction = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
-        impulse_purity = self._get_safe_series(df, df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_axiom_trend_momentum") # [修改代码行] 获取新信号
+        impulse_purity = self._get_safe_series(df, df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
         conviction_score = get_adaptive_mtf_normalized_bipolar_score(conviction, df_index, tf_weights)
-        purity_score = get_adaptive_mtf_normalized_bipolar_score(impulse_purity, df_index, tf_weights) # [修改代码行] 归一化新信号
-        # [修改代码块] 融合信念与纯度，共同定义燃料品质
-        fuel_quality_score = ((conviction_score.add(1)/2) * (purity_score.add(1)/2)).pow(0.5) * 2 - 1
+        purity_score = get_adaptive_mtf_normalized_bipolar_score(impulse_purity, df_index, tf_weights)
+        # [修改代码块] 引入协同奖励机制
+        base_fuel_quality = ((conviction_score.add(1)/2) * (purity_score.add(1)/2)).pow(0.5) * 2 - 1
+        # 当信念和纯度都为正时，计算协同奖励
+        synergy_bonus = (conviction_score.clip(lower=0) * purity_score.clip(lower=0)).pow(0.5) * 0.25 # 最大奖励25%
+        fuel_quality_score = base_fuel_quality + synergy_bonus
         vacuum = self._get_safe_series(df, df, 'vacuum_zone_magnitude_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
         nozzle_efficiency_score = get_adaptive_mtf_normalized_bipolar_score(vacuum, df_index, tf_weights)
         final_score = (
             (engine_power_score.add(1)/2) *
-            (fuel_quality_score.add(1)/2) *
+            (fuel_quality_score.clip(-1, 1).add(1)/2) *
             (nozzle_efficiency_score.add(1)/2)
         ).pow(1/3) * 2 - 1
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -377,7 +378,8 @@ class ChipIntelligence:
                 # [修改代码块] 更新探针输出
                 print(f"         - 原料: conviction_index: {conviction.loc[probe_date]:.4f}, impulse_purity: {impulse_purity.loc[probe_date]:.4f}")
                 print(f"         - 过程: conviction_score: {conviction_score.loc[probe_date]:.4f}, purity_score: {purity_score.loc[probe_date]:.4f}")
-                print(f"         - 结果: fuel_quality_score: {fuel_quality_score.loc[probe_date]:.4f}")
+                print(f"         - 过程: base_fuel_quality: {base_fuel_quality.loc[probe_date]:.4f}, synergy_bonus: {synergy_bonus.loc[probe_date]:.4f}")
+                print(f"         - 结果: fuel_quality_score (with bonus): {fuel_quality_score.loc[probe_date]:.4f}")
                 print(f"       - 维度3: 喷管效率 (Nozzle Efficiency)")
                 print(f"         - 原料: vacuum_magnitude: {vacuum.loc[probe_date]:.4f}")
                 print(f"         - 结果: nozzle_efficiency_score: {nozzle_efficiency_score.loc[probe_date]:.4f}")
@@ -386,15 +388,13 @@ class ChipIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V6.0 · 主力共谋验证版】筹码公理五：诊断“价筹张力”
-        - 核心数学升级: 引入“主力共谋验证”因子。通过计算“价筹分歧向量”与“主力资金流变化”的
-                          短期相关性，来验证背离是否由主力资金主导。若主力行为与背离方向一致，
-                          则大幅增强信号强度，反之则视为普通背离。
-        - 核心数学升级: 修复“硬削顶”问题。采用`tanh(arctanh(score) * amplifier)`的渐进放大模型。
-                          该模型能在不丢失信号粒度的情况下，非线性地增强冲突信号的强度。
+        【V6.1 · 主力意图验证版】筹码公理五：诊断“价筹张力”
+        - 核心数学升级: 将“主力共谋”验证从相关性分析升级为更稳健的“主力意图验证”模型。
+                          该模型直接评估1)主力资金流向是否与背离方向一致(同谋), 2)主力资金流强度是否足够大(兵力)。
+                          只有当两者都满足时，才确认为一次高置信度的“战术性背离”，并给予显著加成。
         """
-        print("    -> [筹码层] 正在诊断“价筹张力”公理 (V6.0 · 主力共谋验证版)...") # [修改代码行]
-        required_signals = ['winner_loser_momentum_D', 'SLOPE_5_close_D', 'volume_D', 'main_force_net_flow_calibrated_D'] # [修改代码行] 新增依赖
+        print("    -> [筹码层] 正在诊断“价筹张力”公理 (V6.1 · 主力意图验证版)...") # [修改代码行]
+        required_signals = ['winner_loser_momentum_D', 'SLOPE_5_close_D', 'volume_D', 'main_force_net_flow_calibrated_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
@@ -412,14 +412,16 @@ class ChipIntelligence:
         norm_volume = get_adaptive_mtf_normalized_score(volume, df_index, tf_weights=tf_weights)
         energy_injection = norm_volume * disagreement_vector.abs()
         tension_magnitude = (norm_persistence * energy_injection).pow(0.5)
-        # [新增代码块] 计算主力共谋验证因子
+        # [修改代码块] 升级为“主力意图验证”模型
         mf_flow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0)
-        mf_flow_change = mf_flow.diff(1).fillna(0)
-        # 如果分歧向量为正（筹码强于价格，看涨背离），我们希望看到主力资金流入（mf_flow_change为正）
-        # 相关性越高，共谋证据越强
-        conviction_corr = disagreement_vector.rolling(window=8, min_periods=3).corr(mf_flow_change).fillna(0)
-        # 将相关性转化为一个放大因子，只取正相关部分作为增强
-        conviction_factor = (1 + conviction_corr.clip(lower=0) * 0.5) # 最大放大1.25倍
+        # 1. 方向同谋验证
+        is_conspiracy = np.sign(disagreement_vector) * np.sign(mf_flow) > 0
+        # 2. 兵力强度验证
+        norm_mf_flow_strength = get_adaptive_mtf_normalized_score(mf_flow.abs(), df_index, tf_weights)
+        # 意图验证得分 = 方向一致 * 兵力强度
+        conviction_score = is_conspiracy * norm_mf_flow_strength
+        # 将意图验证得分转化为放大因子
+        conviction_factor = 1.0 + conviction_score * 0.5 # 最大放大1.5倍
         base_final_score = disagreement_vector * (1 + tension_magnitude * 1.5) * conviction_factor
         conflict_mask = (np.sign(norm_chip_momentum) * np.sign(norm_price_trend) < 0)
         conflict_amplifier = pd.Series(1.0, index=df_index)
@@ -442,10 +444,10 @@ class ChipIntelligence:
                 print(f"         - 过程: persistence: {persistence.loc[probe_date]:.4f}, energy_injection: {energy_injection.loc[probe_date]:.4f}")
                 print(f"         - 结果: tension_magnitude: {tension_magnitude.loc[probe_date]:.4f}")
                 # [修改代码块] 更新探针输出
-                print(f"       - 维度3: 主力共谋验证 (Main Force Conviction)")
-                print(f"         - 原料: mf_flow_change: {mf_flow_change.loc[probe_date]:.2f}")
-                print(f"         - 过程: conviction_corr: {conviction_corr.loc[probe_date]:.4f}")
-                print(f"         - 结果: conviction_factor: {conviction_factor.loc[probe_date]:.4f}")
+                print(f"       - 维度3: 主力意图验证 (Main Force Intent)")
+                print(f"         - 原料: mf_flow: {mf_flow.loc[probe_date]:.2f}")
+                print(f"         - 过程: is_conspiracy: {is_conspiracy.loc[probe_date]}, norm_mf_flow_strength: {norm_mf_flow_strength.loc[probe_date]:.4f}")
+                print(f"         - 过程: conviction_score: {conviction_score.loc[probe_date]:.4f}, conviction_factor: {conviction_factor.loc[probe_date]:.4f}")
                 print(f"       - 最终融合 (渐进放大):")
                 print(f"         - 过程: base_final_score (with conviction): {base_final_score.loc[probe_date]:.4f}, conflict_amplifier: {conflict_amplifier.loc[probe_date]:.4f}")
                 print(f"         - 过程: uncompressed_score: {np.arctanh(safe_base_score).loc[probe_date]:.4f}, amplified_uncompressed: {np.arctanh(safe_base_score).loc[probe_date] * conflict_amplifier.loc[probe_date]:.4f}")
@@ -621,18 +623,17 @@ class ChipIntelligence:
 
     def _diagnose_tactical_exchange(self, df: pd.DataFrame, battlefield_geography: pd.Series) -> pd.Series:
         """
-        【V2.0 · 诡道意图识别版】诊断战术换手博弈的质量与意图
-        - 核心架构升级: 在“换手意图”维度中，深度融合“博弈欺骗指数”，旨在识别主力在换手过程中
-                          采用的“打压吸筹”等诡道战术，从而更精准地穿透表象，洞察其真实战略意图。
-        - 核心架构升级: 修复“脆弱链条”悖论。将最终融合模型从几何平均升级为加权算术平均，
-                          避免单一维度的极端负分过度拉低整体评分，使信号更稳健、更均衡地反映多维度博弈。
+        【V2.1 · 诡道仲裁版】诊断战术换手博弈的质量与意图
+        - 核心架构升级: 将“诡道欺骗指数”的角色从“加权项”提升为“逻辑仲裁者”。当模型识别出强烈的
+                          “打压吸筹”式欺骗行为时，将启动一套独立的仲裁逻辑，以欺骗指数为核心，
+                          对常规的“权力转移”信号进行修正甚至覆盖，从而揭示隐藏在表象之下的真实意图。
         """
-        print("    -> [筹码层] 正在诊断“战术换手博弈 (V2.0 · 诡道意图识别版)”...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“战术换手博弈 (V2.1 · 诡道仲裁版)”...") # [修改代码行]
         required_signals = [
             'main_force_net_flow_calibrated_D', 'retail_net_flow_calibrated_D', 'turnover_rate_f_D',
             'peak_control_transfer_D', 'floating_chip_cleansing_efficiency_D', 'capitulation_absorption_index_D',
             'profit_realization_quality_D', 'BIAS_55_D', 'is_consolidating_D',
-            'upward_impulse_purity_D', 'SLOPE_1_close_D', 'deception_index_D' # [修改代码行] 新增依赖
+            'upward_impulse_purity_D', 'SLOPE_1_close_D', 'deception_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_tactical_exchange"):
             return pd.Series(0.0, index=df.index)
@@ -643,19 +644,25 @@ class ChipIntelligence:
         power_transfer = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D') - self._get_safe_series(df, df, 'retail_net_flow_calibrated_D')
         turnover = self._get_safe_series(df, df, 'turnover_rate_f_D')
         control_transfer = self._get_safe_series(df, df, 'peak_control_transfer_D')
-        deception_index = self._get_safe_series(df, df, 'deception_index_D') # [修改代码行] 获取新信号
+        deception_index = self._get_safe_series(df, df, 'deception_index_D')
         norm_power_transfer = get_adaptive_mtf_normalized_bipolar_score(power_transfer, df_index, tf_weights)
         norm_turnover = get_adaptive_mtf_normalized_score(turnover, df_index, tf_weights)
         norm_control_transfer = get_adaptive_mtf_normalized_bipolar_score(control_transfer, df_index, tf_weights)
-        norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_index, df_index, tf_weights) # [修改代码行] 归一化新信号
-        # [修改代码块] 重新分配权重，引入诡道欺骗指数
-        intent_weights = {'power': 0.5, 'deception': 0.25, 'control': 0.15, 'turnover': 0.1}
-        intent_score = (
-            norm_power_transfer * intent_weights['power'] +
-            norm_deception * intent_weights['deception'] +
-            norm_control_transfer * intent_weights['control'] +
-            ((norm_turnover - 0.5) * 2) * intent_weights['turnover']
+        norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_index, df_index, tf_weights)
+        # [修改代码块] 升级为诡道仲裁逻辑
+        base_intent_score = (
+            norm_power_transfer * 0.6 +
+            norm_control_transfer * 0.3 +
+            ((norm_turnover - 0.5) * 2) * 0.1
         )
+        # 仲裁逻辑：当诡道指数为正（打压吸筹）且超过一定阈值时，它将强力修正基础意图分
+        deception_threshold = 0.3
+        is_deceptive_mask = norm_deception > deception_threshold
+        # 仲裁权重：诡道指数越高，其话语权越大
+        arbitration_weight = (norm_deception - deception_threshold) / (1 - deception_threshold)
+        # 最终意图分 = (1 - 仲裁权重) * 基础分 + 仲裁权重 * 诡道分
+        intent_score = base_intent_score.where(~is_deceptive_mask,
+                                               base_intent_score * (1 - arbitration_weight) + norm_deception * arbitration_weight)
         # 维度2: 换手质量 (Exchange Quality) - 零值门控
         price_trend = self._get_safe_series(df, df, 'SLOPE_1_close_D', 0.0)
         is_up_day = price_trend > 0
@@ -688,9 +695,11 @@ class ChipIntelligence:
                 print(f"    -> [战术换手博弈探针] @ {probe_date.date()}:")
                 print(f"       - 维度1: 换手意图 (Intent)")
                 # [修改代码块] 更新探针输出
-                print(f"         - 原料: power_transfer: {power_transfer.loc[probe_date]:.2f}, turnover: {turnover.loc[probe_date]:.4f}, control_transfer: {control_transfer.loc[probe_date]:.4f}, deception_idx: {deception_index.loc[probe_date]:.4f}")
-                print(f"         - 过程: norm_power: {norm_power_transfer.loc[probe_date]:.4f}, norm_turnover: {norm_turnover.loc[probe_date]:.4f}, norm_control: {norm_control_transfer.loc[probe_date]:.4f}, norm_deception: {norm_deception.loc[probe_date]:.4f}")
-                print(f"         - 结果: intent_score: {intent_score.loc[probe_date]:.4f}")
+                print(f"         - 原料: power_transfer: {power_transfer.loc[probe_date]:.2f}, control_transfer: {control_transfer.loc[probe_date]:.4f}, deception_idx: {deception_index.loc[probe_date]:.4f}")
+                print(f"         - 过程: base_intent_score: {base_intent_score.loc[probe_date]:.4f}, norm_deception: {norm_deception.loc[probe_date]:.4f}")
+                if is_deceptive_mask.loc[probe_date]:
+                    print(f"         - 过程(诡道仲裁激活): arbitration_weight: {arbitration_weight.loc[probe_date]:.4f}")
+                print(f"         - 结果: intent_score (arbitrated): {intent_score.loc[probe_date]:.4f}")
                 print(f"       - 维度2: 换手质量 (Quality)")
                 print(f"         - 原料: absorption: {absorption_idx.loc[probe_date]:.4f}, impulse_purity: {impulse_purity.loc[probe_date]:.4f}, profit_taking: {profit_quality.loc[probe_date]:.4f}, is_up_day: {is_up_day.loc[probe_date]}")
                 print(f"         - 过程: norm_absorption(gated): {norm_absorption.loc[probe_date]:.4f}, norm_impulse_purity(gated): {norm_impulse_purity.loc[probe_date]:.4f}")
