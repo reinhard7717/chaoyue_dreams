@@ -1204,11 +1204,12 @@
       },
       "dynamic_mechanics_params": {
         "enabled": true,
-        "description": "【V7.1 · Tanh映射版】Z-Score校准方法全面升级，采用tanh函数进行平滑非线性映射。此举旨在优雅处理标准差为零的“信息真空”情况，并为信号提供更鲁棒的、具备统计意义的标度，解决了极端值和尺度失衡问题。",
+        "description": "【V7.2 · MTF校准版】引入“多时间框架(MTF) Z-Score校准”机制。通过加权融合多个时间窗口(21,55,89,144)的Z-Score，并使用tanh函数平滑映射，为信号提供一个既灵敏又稳定的、具备全息统计意义的标度。",
         "norm_window": 55,
         "calibrated_norm_params": {
-          "description": "【Z-Score校准】用于“先融合，后归一”步骤的参数。",
-          "window": 144,
+          "description": "【MTF Z-Score校准】用于“先融合，后归一”步骤的多时间框架Z-Score校准参数。",
+          "z_windows": [21, 55, 89, 144],
+          "z_weights": { "21": 0.4, "55": 0.3, "89": 0.2, "144": 0.1 },
           "sensitivity": 2.0
         },
         "description_axiom_weights": "融合五大力学公理时的权重。",

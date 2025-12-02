@@ -33,33 +33,29 @@ class DynamicMechanicsEngine:
 
     def run_dynamic_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.1 · 上下文修复版】动态力学引擎总指挥
-        - 【修复】修复了 'TrendFollowStrategy' object has no attribute 'current_date' 的错误。
-                  将当前日期的获取方式从 self.strategy.current_date 改为从传入的 df.index[-1] 获取，
-                  解除了对策略主类属性的依赖，使引擎更加健壮。
-        - 新增：获取探针日期，并将其作为上下文传递给各公理诊断方法。
+        【V7.0 · MTF校准版】动态力学引擎总指挥
+        - 核心升级: 移除已废弃的 norm_window 参数，所有校准逻辑由各公理方法内部通过
+                      calibrated_norm_params 控制，实现完全的“多时间框架校准”。
         """
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 动态力学引擎在配置中被禁用，跳过分析。")
             return {}
-        # --- 新增：获取探针配置 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
-        # --- 从df的索引中获取当前日期，而不是从strategy对象 ---
         current_date_str = df.index[-1].strftime('%Y-%m-%d')
         is_probe_day = current_date_str in probe_dates
         if is_probe_day:
             print(f"\n--- [力学情报探针] 激活 | 日期: {current_date_str} ---")
         all_dynamic_states = {}
-        norm_window = get_param_value(p_conf.get('norm_window'), 55)
-        # --- 向下传递探针上下文 ---
-        axiom_momentum = self._diagnose_axiom_momentum(df, norm_window, is_probe_day, current_date_str)
-        axiom_inertia = self._diagnose_axiom_inertia(df, norm_window, is_probe_day, current_date_str)
-        axiom_stability = self._diagnose_axiom_stability(df, norm_window, is_probe_day, current_date_str)
-        axiom_energy = self._diagnose_axiom_energy(df, norm_window, is_probe_day, current_date_str)
-        axiom_ma_dynamics = self._diagnose_axiom_ma_dynamics(df, norm_window) # 此方法暂不升级，保持原样
-        axiom_divergence = self._diagnose_axiom_divergence(df, norm_window, axiom_momentum, axiom_inertia) # 接收计算好的公理
+        # --- 修改：移除废弃的 norm_window，并更新所有方法调用 ---
+        axiom_momentum = self._diagnose_axiom_momentum(df, is_probe_day, current_date_str)
+        axiom_inertia = self._diagnose_axiom_inertia(df, is_probe_day, current_date_str)
+        axiom_stability = self._diagnose_axiom_stability(df, is_probe_day, current_date_str)
+        axiom_energy = self._diagnose_axiom_energy(df, is_probe_day, current_date_str)
+        axiom_ma_dynamics = self._diagnose_axiom_ma_dynamics(df)
+        axiom_divergence = self._diagnose_axiom_divergence(df, axiom_momentum, axiom_inertia)
+        # --- 修改结束 ---
         all_dynamic_states['SCORE_DYN_AXIOM_DIVERGENCE'] = axiom_divergence
         all_dynamic_states['SCORE_DYN_AXIOM_MOMENTUM'] = axiom_momentum
         all_dynamic_states['SCORE_DYN_AXIOM_INERTIA'] = axiom_inertia
@@ -71,28 +67,23 @@ class DynamicMechanicsEngine:
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return all_dynamic_states
 
-    def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int, momentum_score: pd.Series, inertia_score: pd.Series) -> pd.Series:
+    def _diagnose_axiom_divergence(self, df: pd.DataFrame, momentum_score: pd.Series, inertia_score: pd.Series) -> pd.Series:
         """
-        【V1.2 · 性能优化版】力学公理五：诊断“力学背离”
-        - 核心逻辑: 诊断价格动量与惯性之间的背离。
-        - 【修改】直接接收已计算好的 momentum_score 和 inertia_score，避免重复计算。
+        【V1.3 · 参数清理版】力学公理五：诊断“力学背离”
+        - 【修改】移除方法签名中未使用的 norm_window 参数。
         """
-        # 【优化】力学背离本身就是一种关系，其归一化应该基于其自身的动态，而不是简单地使用单一窗口。
-        # 这里直接使用计算出的双极性分数，不再进行额外的 normalize_to_bipolar，因为 momentum_score 和 inertia_score 已经是双极性。
         divergence_score = (inertia_score - momentum_score).clip(-1, 1)
         return divergence_score.astype(np.float32)
 
-    def _diagnose_axiom_momentum(self, df: pd.DataFrame, norm_window: int, is_probe_day: bool, current_date_str: str) -> pd.Series:
+    def _diagnose_axiom_momentum(self, df: pd.DataFrame, is_probe_day: bool, current_date_str: str) -> pd.Series:
         """
-        【V3.1 · Tanh映射版】力学公理一：诊断“动量品质”
-        - 核心重构: 引入tanh函数对Z-Score进行平滑映射，取代原有的clip逻辑。
-                      同时，显式处理标准差为0的情况，将其Z-Score置为0（中性），避免NaN崩溃。
+        【V3.2 · MTF校准版】力学公理一：诊断“动量品质”
+        - 核心重构: 校准逻辑全面升级，调用新的 _get_mtf_calibrated_z_score 辅助函数，
+                      实现对“综合品质原始分”的多时间框架校准。
+        - 【修改】移除方法签名中未使用的 norm_window 参数。
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         quality_weights = get_param_value(p_conf_dyn.get('momentum_quality_weights'), {'purity': 0.4, 'conviction': 0.4, 'vitality': 0.2})
-        norm_params = get_param_value(p_conf_dyn.get('calibrated_norm_params'), {'window': 144, 'sensitivity': 2.0})
-        z_window = norm_params.get('window', 144)
-        z_sens = norm_params.get('sensitivity', 2.0)
         required_signals = [
             'ROC_12_D', 'MACDh_13_34_8_D',
             'upward_impulse_purity_D', 'main_force_conviction_index_D', 'trend_vitality_index_D'
@@ -115,13 +106,9 @@ class DynamicMechanicsEngine:
             raw_conviction * quality_weights.get('conviction', 0.4) +
             raw_vitality * quality_weights.get('vitality', 0.2)
         )
-        # --- 修改：使用更鲁棒的Z-Score计算和Tanh映射 ---
-        mean = composite_quality_raw.rolling(window=z_window, min_periods=z_window//2).mean()
-        std = composite_quality_raw.rolling(window=z_window, min_periods=z_window//2).std()
-        z_score = pd.Series(0.0, index=composite_quality_raw.index)
-        valid_std_mask = std > 1e-9
-        z_score[valid_std_mask] = (composite_quality_raw[valid_std_mask] - mean[valid_std_mask]) / (std[valid_std_mask] * z_sens)
-        momentum_quality_modulator = (np.tanh(z_score.fillna(0)) + 1) / 2
+        # --- 修改：调用新的MTF Z-Score校准函数 ---
+        z_score = self._get_mtf_calibrated_z_score(composite_quality_raw, p_conf_dyn)
+        momentum_quality_modulator = (np.tanh(z_score) + 1) / 2
         # --- 修改结束 ---
         final_momentum_score = (raw_momentum_score * momentum_quality_modulator).clip(-1, 1)
         if is_probe_day:
@@ -135,17 +122,15 @@ class DynamicMechanicsEngine:
             print(f"  > 动量品质探针: { {k: round(v, 4) if isinstance(v, (int, float)) else v for k, v in last_values.items()} }")
         return final_momentum_score.astype(np.float32)
 
-    def _diagnose_axiom_inertia(self, df: pd.DataFrame, norm_window: int, is_probe_day: bool, current_date_str: str) -> pd.Series:
+    def _diagnose_axiom_inertia(self, df: pd.DataFrame, is_probe_day: bool, current_date_str: str) -> pd.Series:
         """
-        【V3.3 · Tanh映射版】力学公理二：诊断“结构化惯性”
-        - 核心重构: 引入tanh函数对Z-Score进行平滑映射，取代原有的clip逻辑。
-                      同时，显式处理标准差为0的情况，将其Z-Score置为0（中性），避免NaN崩溃。
+        【V3.4 · MTF校准版】力学公理二：诊断“结构化惯性”
+        - 核心重构: 校准逻辑全面升级，调用新的 _get_mtf_calibrated_z_score 辅助函数，
+                      实现对“综合结构加固原始分”的多时间框架校准。
+        - 【修改】移除方法签名中未使用的 norm_window 参数。
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         inertia_weights = get_param_value(p_conf_dyn.get('inertia_structural_weights'), {'base_inertia': 0.7, 'structural_reinforcement': 0.3})
-        norm_params = get_param_value(p_conf_dyn.get('calibrated_norm_params'), {'window': 144, 'sensitivity': 2.0})
-        z_window = norm_params.get('window', 144)
-        z_sens = norm_params.get('sensitivity', 2.0)
         ma_col_base = 'EMA_55'
         timeframe_key = 'D'
         hurst_col = next((col for col in df.columns if col.startswith('hurst_')), 'hurst_144d_D')
@@ -171,13 +156,9 @@ class DynamicMechanicsEngine:
         raw_alignment = self._get_safe_series(df, 'trend_alignment_index_D', 0.0)
         raw_leverage = self._get_safe_series(df, 'structural_leverage_D', 0.0)
         composite_reinforcement_raw = (raw_alignment * 0.5 + raw_leverage * 0.5)
-        # --- 修改：使用更鲁棒的Z-Score计算和Tanh映射 ---
-        mean = composite_reinforcement_raw.rolling(window=z_window, min_periods=z_window//2).mean()
-        std = composite_reinforcement_raw.rolling(window=z_window, min_periods=z_window//2).std()
-        z_score = pd.Series(0.0, index=composite_reinforcement_raw.index)
-        valid_std_mask = std > 1e-9
-        z_score[valid_std_mask] = (composite_reinforcement_raw[valid_std_mask] - mean[valid_std_mask]) / (std[valid_std_mask] * z_sens)
-        structural_reinforcement_score = np.tanh(z_score.fillna(0))
+        # --- 修改：调用新的MTF Z-Score校准函数 ---
+        z_score = self._get_mtf_calibrated_z_score(composite_reinforcement_raw, p_conf_dyn)
+        structural_reinforcement_score = np.tanh(z_score)
         # --- 修改结束 ---
         total_inertia_quality = (base_inertia_quality * inertia_weights.get('base_inertia', 0.7) + structural_reinforcement_score.clip(0, 1) * inertia_weights.get('structural_reinforcement', 0.3)).clip(0, 1)
         adx_direction = (self._get_safe_series(df, 'PDI_14_D', 0) > self._get_safe_series(df, 'NDI_14_D', 0)).astype(float) * 2 - 1
@@ -193,17 +174,15 @@ class DynamicMechanicsEngine:
             print(f"  > 结构化惯性探针: { {k: round(v, 4) if isinstance(v, (int, float)) else v for k, v in last_values.items()} }")
         return final_inertia_score.astype(np.float32)
 
-    def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int, is_probe_day: bool, current_date_str: str) -> pd.Series:
+    def _diagnose_axiom_stability(self, df: pd.DataFrame, is_probe_day: bool, current_date_str: str) -> pd.Series:
         """
-        【V3.3 · Tanh映射版】力学公理三：诊断“势能稳定性”
-        - 核心重构: 引入tanh函数对Z-Score进行平滑映射，取代原有的clip逻辑。
-                      同时，显式处理标准差为0的情况，将其Z-Score置为0（中性），避免NaN崩溃。
+        【V3.4 · MTF校准版】力学公理三：诊断“势能稳定性”
+        - 核心重构: 校准逻辑全面升级，调用新的 _get_mtf_calibrated_z_score 辅助函数，
+                      实现对“综合势能原始分”的多时间框架校准。
+        - 【修改】移除方法签名中未使用的 norm_window 参数。
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         potential_weights = get_param_value(p_conf_dyn.get('stability_potential_weights'), {'ma_tension': 0.4, 'structural_tension': 0.4, 'breakout_readiness': 0.2})
-        norm_params = get_param_value(p_conf_dyn.get('calibrated_norm_params'), {'window': 144, 'sensitivity': 2.0})
-        z_window = norm_params.get('window', 144)
-        z_sens = norm_params.get('sensitivity', 2.0)
         required_signals = [
             'BBW_21_2.0_D', 'ATR_14_D', 'close_D',
             'MA_POTENTIAL_TENSION_INDEX_D', 'structural_tension_index_D', 'breakout_readiness_score_D'
@@ -226,13 +205,9 @@ class DynamicMechanicsEngine:
             raw_structural_tension * potential_weights.get('structural_tension', 0.4) +
             raw_readiness * potential_weights.get('breakout_readiness', 0.2)
         )
-        # --- 修改：使用更鲁棒的Z-Score计算和Tanh映射 ---
-        mean = composite_potential_raw.rolling(window=z_window, min_periods=z_window//2).mean()
-        std = composite_potential_raw.rolling(window=z_window, min_periods=z_window//2).std()
-        z_score = pd.Series(0.0, index=composite_potential_raw.index)
-        valid_std_mask = std > 1e-9
-        z_score[valid_std_mask] = (composite_potential_raw[valid_std_mask] - mean[valid_std_mask]) / (std[valid_std_mask] * z_sens)
-        potential_energy_score = (np.tanh(z_score.fillna(0)) + 1) / 2
+        # --- 修改：调用新的MTF Z-Score校准函数 ---
+        z_score = self._get_mtf_calibrated_z_score(composite_potential_raw, p_conf_dyn)
+        potential_energy_score = (np.tanh(z_score) + 1) / 2
         # --- 修改结束 ---
         final_stability_score = ((raw_stability_score * 2 - 1) * potential_energy_score).clip(-1, 1)
         if is_probe_day:
@@ -246,17 +221,15 @@ class DynamicMechanicsEngine:
             print(f"  > 势能稳定性探针: { {k: round(v, 4) if isinstance(v, (int, float)) else v for k, v in last_values.items()} }")
         return final_stability_score.astype(np.float32)
 
-    def _diagnose_axiom_energy(self, df: pd.DataFrame, norm_window: int, is_probe_day: bool, current_date_str: str) -> pd.Series:
+    def _diagnose_axiom_energy(self, df: pd.DataFrame, is_probe_day: bool, current_date_str: str) -> pd.Series:
         """
-        【V2.3 · Tanh映射版】力学公理四：诊断“能量真实性”
-        - 核心重构: 引入tanh函数对Z-Score进行平滑映射，取代原有的clip逻辑。
-                      同时，显式处理标准差为0的情况，将其Z-Score置为0（中性），避免NaN崩溃。
+        【V2.4 · MTF校准版】力学公理四：诊断“能量真实性”
+        - 核心重构: 校准逻辑全面升级，调用新的 _get_mtf_calibrated_z_score 辅助函数，
+                      实现对“综合能量品质原始分”的多时间框架校准。
+        - 【修改】移除方法签名中未使用的 norm_window 参数。
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         quality_weights = get_param_value(p_conf_dyn.get('energy_quality_weights'), {'credibility': 0.5, 'directionality': 0.5})
-        norm_params = get_param_value(p_conf_dyn.get('calibrated_norm_params'), {'window': 144, 'sensitivity': 2.0})
-        z_window = norm_params.get('window', 144)
-        z_sens = norm_params.get('sensitivity', 2.0)
         required_signals = [
             'VPA_EFFICIENCY_D', 'CMF_21_D',
             'flow_credibility_index_D', 'main_force_flow_directionality_D', 'wash_trade_intensity_D'
@@ -278,13 +251,9 @@ class DynamicMechanicsEngine:
             raw_credibility * quality_weights.get('credibility', 0.5) +
             raw_directionality * quality_weights.get('directionality', 0.5)
         )
-        # --- 修改：使用更鲁棒的Z-Score计算和Tanh映射 ---
-        mean = composite_quality_raw.rolling(window=z_window, min_periods=z_window//2).mean()
-        std = composite_quality_raw.rolling(window=z_window, min_periods=z_window//2).std()
-        z_score = pd.Series(0.0, index=composite_quality_raw.index)
-        valid_std_mask = std > 1e-9
-        z_score[valid_std_mask] = (composite_quality_raw[valid_std_mask] - mean[valid_std_mask]) / (std[valid_std_mask] * z_sens)
-        base_quality_score = (np.tanh(z_score.fillna(0)) + 1) / 2
+        # --- 修改：调用新的MTF Z-Score校准函数 ---
+        z_score = self._get_mtf_calibrated_z_score(composite_quality_raw, p_conf_dyn)
+        base_quality_score = (np.tanh(z_score) + 1) / 2
         # --- 修改结束 ---
         wash_trade_penalty_factor = 1 - get_adaptive_mtf_normalized_score(raw_wash_trade, df.index, True, default_weights).clip(0, 1)
         energy_quality_modulator = (base_quality_score * wash_trade_penalty_factor).clip(0, 1)
@@ -300,13 +269,10 @@ class DynamicMechanicsEngine:
             print(f"  > 能量真实性探针: { {k: round(v, 4) if isinstance(v, (int, float)) else v for k, v in last_values.items()} }")
         return final_energy_score.astype(np.float32)
 
-    def _diagnose_axiom_ma_dynamics(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+    def _diagnose_axiom_ma_dynamics(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.4 · 信号校验增强版】力学公理六：诊断“均线动态”
-        - 核心逻辑: 融合均线的速度和加速度，评估趋势的内在变化。
-        - 【修复】修正了引用均线速度和加速度列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将 `velocity_score` 和 `acceleration_score` 的归一化方式改为多时间维度自适应归一化。
+        【V1.5 · 参数清理版】力学公理六：诊断“均线动态”
+        - 【修改】移除方法签名中未使用的 norm_window 参数。
         """
         ma_col_base = 'EMA_55'
         timeframe_key = 'D'
@@ -318,11 +284,41 @@ class DynamicMechanicsEngine:
         df_index = df.index
         velocity_raw = self._get_safe_series(df, velocity_col, 0.0, method_name="_diagnose_axiom_ma_dynamics")
         acceleration_raw = self._get_safe_series(df, acceleration_col, 0.0, method_name="_diagnose_axiom_ma_dynamics")
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {}) # 借用行为层的MTF权重配置
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         velocity_score = get_adaptive_mtf_normalized_bipolar_score(velocity_raw, df_index, default_weights)
         acceleration_score = get_adaptive_mtf_normalized_bipolar_score(acceleration_raw, df_index, default_weights)
         ma_dynamics_score = (velocity_score * 0.6 + acceleration_score * 0.4).clip(-1, 1)
         return ma_dynamics_score.astype(np.float32)
+
+    def _get_mtf_calibrated_z_score(self, raw_series: pd.Series, p_conf_dyn: Dict) -> pd.Series:
+        """
+        【V1.0 · MTF校准核心】内部辅助方法，计算多时间框架(MTF)加权融合的Z-Score。
+        - 遍历配置中定义的所有时间窗口，分别计算Z-Score。
+        - 对各Z-Score根据配置的权重进行加权平均。
+        - 优雅处理标准差为0的情况，将其Z-Score视为0（中性）。
+        """
+        norm_params = get_param_value(p_conf_dyn.get('calibrated_norm_params'), {})
+        z_windows = norm_params.get('z_windows', [21, 55, 89, 144])
+        z_weights = norm_params.get('z_weights', {"21": 0.4, "55": 0.3, "89": 0.2, "144": 0.1})
+        z_sens = norm_params.get('sensitivity', 2.0)
+        weighted_z_scores = pd.Series(0.0, index=raw_series.index)
+        total_weight = 0.0
+        for window in z_windows:
+            weight = z_weights.get(str(window), 0)
+            if weight == 0:
+                continue
+            mean = raw_series.rolling(window=window, min_periods=window // 2).mean()
+            std = raw_series.rolling(window=window, min_periods=window // 2).std()
+            z_score = pd.Series(0.0, index=raw_series.index)
+            valid_std_mask = std > 1e-9
+            z_score[valid_std_mask] = (raw_series[valid_std_mask] - mean[valid_std_mask]) / (std[valid_std_mask] * z_sens)
+            weighted_z_scores += z_score.fillna(0) * weight
+            total_weight += weight
+        if total_weight > 0:
+            final_z_score = weighted_z_scores / total_weight
+        else:
+            final_z_score = pd.Series(0.0, index=raw_series.index)
+        return final_z_score
 
