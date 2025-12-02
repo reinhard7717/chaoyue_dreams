@@ -790,9 +790,18 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V71.0 · 终极生产版】
-        - 核心职责: 统一调度所有行为指标计算内核，是高频分析的中央处理器。
+        【V72.0 · 情境内核集成版】
+        - 核心集成: 新增对 `_calculate_peak_battle_metrics` 的调用，引入基于主峰成本的情境博弈分析。
+        - 核心修正: 调整了调用顺序，确保 `_calculate_vpoc_metrics` 在 `_calculate_peak_battle_metrics` 之前执行，
+                     并将其结果（特别是 main_force_vpoc）更新到 context 中，以满足下游的数据依赖。
         """
+        debug_enabled = self.debug_params.get('enabled', {}).get('value', False)
+        probe_dates = self.debug_params.get('probe_dates', [])
+        enable_mfca_probe = self.debug_params.get('enable_mfca_probe', False)
+        should_probe = debug_enabled and enable_mfca_probe and str(daily_data.name.date()) in probe_dates
+        if should_probe:
+            print(f"\n{'='*20} [探针 B.1 - 引擎入口 @ {daily_data.name.date()}] {'='*20}")
+            print("  - 进入 `_compute_all_behavioral_metrics` 行为指标计算引擎...")
         results = {}
         if intraday_data.empty:
             return results
@@ -800,7 +809,19 @@ class AdvancedFundFlowMetricsService:
             intraday_data, daily_data, tick_data, level5_data, realtime_data
         )
         hf_analysis_df, hf_features = self._engineer_hf_features(raw_hf_df, common_data.get('daily_total_volume', 0))
-        # 移除所有探针逻辑
+        if should_probe:
+            print(f"\n{'='*20} [探针 B.2 - 引擎输入审计 @ {daily_data.name.date()}] {'='*20}")
+            print("  - 通用日线数据 (common_data):")
+            print(f"    {common_data}")
+            if not hf_analysis_df.empty:
+                print("  - 高频分析DataFrame (hf_analysis_df) 健康检查:")
+                print(f"    - Shape: {hf_analysis_df.shape}")
+                print(f"    - 关键列 'ofi' 的空值数量: {hf_analysis_df['ofi'].isnull().sum()}")
+                print(f"    - 关键列 'main_force_ofi' 的空值数量: {hf_analysis_df['main_force_ofi'].isnull().sum()}")
+                print("    - 数据预览 (head):")
+                print(hf_analysis_df[['mid_price', 'ofi', 'main_force_ofi', 'imbalance']].head(3).to_string())
+            else:
+                print("  - [!!!] 关键警告: 高频分析DataFrame (hf_analysis_df) 为空！所有高频指标将无法计算。")
         context = {
             'intraday_data': intraday_data,
             'daily_data': daily_data,
@@ -809,7 +830,7 @@ class AdvancedFundFlowMetricsService:
             'hf_features': hf_features,
             'main_force_net_flow_calibrated': main_force_net_flow_calibrated,
             'debug': {
-                'should_probe': False, # 在生产环境中硬编码为False
+                'should_probe': should_probe,
             }
         }
         if not hf_analysis_df.empty:
@@ -825,7 +846,14 @@ class AdvancedFundFlowMetricsService:
         results.update(AdvancedFundFlowMetricsService._calculate_reversal_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_panic_cascade_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_cmf_metrics(context))
-        results.update(AdvancedFundFlowMetricsService._calculate_vpoc_metrics(context))
+        # 解决数据依赖，并集成新的情境行为内核
+        # 步骤1: 先计算VPOC指标，因为它提供了下游依赖的 main_force_vpoc
+        vpoc_metrics = AdvancedFundFlowMetricsService._calculate_vpoc_metrics(context)
+        results.update(vpoc_metrics)
+        # 步骤2: 将新计算的VPOC指标更新到context中，供下游使用
+        context['daily_data'] = pd.concat([context['daily_data'], pd.Series(vpoc_metrics)])
+        # 步骤3: 调用新的情境行为内核
+        results.update(AdvancedFundFlowMetricsService._calculate_peak_battle_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_liquidity_swap_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_closing_metrics(context))
         results.update(AdvancedFundFlowMetricsService._calculate_retail_sentiment_metrics(context))
@@ -1722,7 +1750,7 @@ class AdvancedFundFlowMetricsService:
         hf_analysis_df = context['hf_analysis_df']
         intraday_data = context['intraday_data']
         common_data = context['common_data']
-        # [修改的代码块] 移除错误的探针变量获取，使用标准化的 `should_probe`
+        # 移除错误的探针变量获取，使用标准化的 `should_probe`
         should_probe = context['debug']['should_probe']
         import numpy as np
         import pandas as pd
@@ -2067,6 +2095,103 @@ class AdvancedFundFlowMetricsService:
                 metrics['asymmetric_friction_index'] = np.log(friction_ratio) if friction_ratio > 0 else np.nan
         return metrics
 
+    @staticmethod
+    def _calculate_peak_battle_metrics(context: dict) -> dict:
+        """
+        【V72.0 · 完美防守版】
+        - 核心新增: 创建全新的情境行为计算内核，专注于评估围绕“主峰成本”的博弈行为。
+        - 核心升维: 对 `defense_of_peak_quality` 进行概念升维。当股价未跌破主峰战区时，
+                     不再返回NaN，而是赋予满分100，将其定义为“完美防守”，因为它代表了最强的多头实力。
+        """
+        hf_analysis_df = context['hf_analysis_df']
+        common_data = context['common_data']
+        daily_data = context['daily_data']
+        should_probe = context['debug']['should_probe']
+        import numpy as np
+        import pandas as pd
+        metrics = {
+            'distribution_at_peak_intensity': np.nan,
+            'absorption_at_peak_intensity': np.nan,
+            'breakthrough_of_peak_quality': np.nan,
+            'defense_of_peak_quality': np.nan,
+        }
+        main_force_vpoc = daily_data.get('main_force_vpoc')
+        atr = common_data.get('atr')
+        if hf_analysis_df.empty or pd.isna(main_force_vpoc) or pd.isna(atr) or atr <= 0:
+            return metrics
+        peak_battle_zone_radius = 0.5 * atr
+        peak_zone_upper = main_force_vpoc + peak_battle_zone_radius
+        peak_zone_lower = main_force_vpoc - peak_battle_zone_radius
+        above_peak_zone_df = hf_analysis_df[hf_analysis_df['price'] > peak_zone_upper]
+        below_peak_zone_df = hf_analysis_df[hf_analysis_df['price'] < peak_zone_lower]
+        # 1. 计算主峰区派发烈度
+        if not above_peak_zone_df.empty:
+            focus_numerator = above_peak_zone_df['main_force_ofi'].abs().sum()
+            focus_denominator = hf_analysis_df['main_force_ofi'].abs().sum()
+            focus_component = focus_numerator / focus_denominator if focus_denominator > 0 else 0
+            intent_numerator = above_peak_zone_df['main_force_ofi'].clip(upper=0).abs().sum()
+            intent_denominator = above_peak_zone_df['main_force_ofi'].abs().sum()
+            intent_component = intent_numerator / intent_denominator if intent_denominator > 0 else 0
+            price_start = above_peak_zone_df['price'].iloc[0]
+            price_end = above_peak_zone_df['price'].iloc[-1]
+            outcome_component = np.tanh((price_end - price_start) / atr)
+            metrics['distribution_at_peak_intensity'] = (focus_component * intent_component * (1 - outcome_component)) * 100
+        # 2. 计算主峰区吸筹烈度
+        if not below_peak_zone_df.empty:
+            focus_numerator = below_peak_zone_df['main_force_ofi'].abs().sum()
+            focus_denominator = hf_analysis_df['main_force_ofi'].abs().sum()
+            focus_component = focus_numerator / focus_denominator if focus_denominator > 0 else 0
+            intent_numerator = below_peak_zone_df['main_force_ofi'].clip(lower=0).sum()
+            intent_denominator = below_peak_zone_df['main_force_ofi'].abs().sum()
+            intent_component = intent_numerator / intent_denominator if intent_denominator > 0 else 0
+            price_start = below_peak_zone_df['price'].iloc[0]
+            price_end = below_peak_zone_df['price'].iloc[-1]
+            outcome_component = np.tanh((price_end - price_start) / atr)
+            metrics['absorption_at_peak_intensity'] = (focus_component * intent_component * (1 + outcome_component)) * 100
+        # 3. 计算突破主峰质量
+        breakthrough_event_df = hf_analysis_df[hf_analysis_df['price'] > peak_zone_upper]
+        if not breakthrough_event_df.empty:
+            magnitude_component = (breakthrough_event_df['price'].max() - peak_zone_upper) / atr
+            conviction_numerator = breakthrough_event_df['main_force_ofi'].clip(lower=0).sum()
+            conviction_denominator = breakthrough_event_df['main_force_ofi'].abs().sum()
+            conviction_component = conviction_numerator / conviction_denominator if conviction_denominator > 0 else 0
+            efficiency_numerator = breakthrough_event_df['mid_price_delta'].sum()
+            efficiency_denominator = breakthrough_event_df['main_force_ofi'].clip(lower=0).sum()
+            efficiency_component = np.tanh(efficiency_numerator / (efficiency_denominator * 1e-6)) if efficiency_denominator > 0 else 0
+            metrics['breakthrough_of_peak_quality'] = (magnitude_component * conviction_component * efficiency_component) * 100
+        # 4. 计算防守主峰质量
+        day_low = common_data.get('day_low')
+        day_close = common_data.get('day_close')
+        # [核心升维] 检查是否发生向下破位
+        if day_low >= peak_zone_lower:
+            # 未发生破位，视为完美防守
+            metrics['defense_of_peak_quality'] = 100.0
+        else:
+            # 发生破位，评估修复质量
+            recovery_df = hf_analysis_df[hf_analysis_df['price'] < peak_zone_lower]
+            if not recovery_df.empty and pd.notna(day_close):
+                recovery_magnitude = (day_close - day_low) / atr
+                recovery_conviction_num = recovery_df['main_force_ofi'].clip(lower=0).sum()
+                recovery_conviction_den = recovery_df['main_force_ofi'].abs().sum()
+                recovery_conviction = recovery_conviction_num / recovery_conviction_den if recovery_conviction_den > 0 else 0
+                metrics['defense_of_peak_quality'] = (recovery_magnitude * recovery_conviction) * 100
+        if should_probe:
+            print(f"\n{'='*20} [探针 C.1 - 情境行为内核 @ {str(daily_data.name.date())}] {'='*20}")
+            print(f"  - 核心情境: 主峰成本={main_force_vpoc:.2f}, ATR={atr}")
+            print(f"  - 主峰战区定义: [{peak_zone_lower:.2f} - {peak_zone_upper:.2f}]")
+            print(f"  - 指标计算详情:")
+            print(f"    - 主峰区派发烈度: {metrics.get('distribution_at_peak_intensity', np.nan):.4f}")
+            print(f"    - 主峰区吸筹烈度: {metrics.get('absorption_at_peak_intensity', np.nan):.4f}")
+            print(f"    - 突破主峰质量: {metrics.get('breakthrough_of_peak_quality', np.nan):.4f}")
+            # [修改的代码行] 更新探针以反映新的“完美防守”逻辑
+            if day_low >= peak_zone_lower:
+                print(f"    - 防守主峰质量: {metrics.get('defense_of_peak_quality', np.nan):.4f}")
+                print(f"      - (未发生向下破位，视为完美防守)")
+            else:
+                print(f"    - 防守主峰质量: {metrics.get('defense_of_peak_quality', np.nan):.4f}")
+                print(f"      - (已发生向下破位，评估修复质量)")
+        return metrics
+
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
         【V51.2 · S系列终审探针植入版】
@@ -2093,7 +2218,7 @@ class AdvancedFundFlowMetricsService:
                 records_to_save_df.loc[:, col] = records_to_save_df[col].replace([np.inf, -np.inf], np.nan)
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
-        # [修改的代码块] 升级原有的探针为 S.1 终审探针
+        # 升级原有的探针为 S.1 终审探针
         if enable_probe and is_target_date_in_df:
             print(f"\n{'='*20} [探针 S.1 · 终审穿透 @ {target_date}] {'='*20}")
             incoming_df_cols = set(records_to_save_df.columns) | {records_to_save_df.index.name}
