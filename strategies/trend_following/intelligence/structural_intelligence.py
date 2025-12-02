@@ -46,9 +46,10 @@ class StructuralIntelligence:
 
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.6 · 平台感知版】结构情报分析总指挥
-        - 核心升级: 新增“平台基石”公理，用于识别静态结构品质，并将其融入“战略态势”的防御维度。
-        - 核心新增: 引入“龙头潜力”裁决者，在“个体强环境弱”的矛盾情境中，识别“真龙头”机会。
+        【V5.7 · 终极裁决版】结构情报分析总指挥
+        - 核心升级: 引入“终极裁决”层，对“力竭滞涨陷阱”等高风险模式行使一票否决权。
+        - 核心新增: 新增“平台基石”公理，并将其融入“战略态势”的防御维度。
+        - 核心新增: 引入“龙头潜力”裁决者，识别“真龙头”机会。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -67,10 +68,8 @@ class StructuralIntelligence:
         bottom_fractal_score = self._diagnose_bottom_fractal(df, n=5, min_depth_ratio=0.001)
         axiom_tension = self._diagnose_axiom_tension(df)
         axiom_environment = self._diagnose_axiom_environment(df)
-        # --- 新增代码开始 ---
-        platform_foundation = self._diagnose_platform_foundation(df) # 新增：诊断平台基石
+        platform_foundation = self._diagnose_platform_foundation(df)
         all_states['SCORE_STRUCT_PLATFORM_FOUNDATION'] = platform_foundation
-        # --- 新增代码结束 ---
         all_states['SCORE_STRUCT_AXIOM_ENVIRONMENT'] = axiom_environment
         all_states['SCORE_STRUCT_AXIOM_TENSION'] = axiom_tension
         all_states['SCORE_STRUCT_AXIOM_DIVERGENCE'] = axiom_divergence
@@ -83,7 +82,7 @@ class StructuralIntelligence:
         all_states['SCORE_STRUCT_BOTTOM_FRACTAL'] = bottom_fractal_score
         # --- 步骤二: 诊断内部战略态势 ---
         # --- 修改代码开始 ---
-        strategic_posture = self._diagnose_strategic_posture(
+        strategic_posture, defense_strength = self._diagnose_strategic_posture(
             axiom_trend_form, axiom_mtf_cohesion, axiom_stability, axiom_tension, platform_foundation
         )
         # --- 修改代码结束 ---
@@ -112,11 +111,18 @@ class StructuralIntelligence:
             df, axiom_stability, contextual_posture, structural_momentum
         )
         all_states['SCORE_STRUCT_PLAYBOOK_SECONDARY_LAUNCH'] = playbook_secondary_launch
-        # --- 步骤五: 终极裁决 - 龙头潜力 ---
+        # --- 步骤五: 龙头潜力裁决 ---
         leadership_potential = self._diagnose_leadership_potential(
             strategic_posture, axiom_environment, structural_momentum, axiom_tension
         )
         all_states['SCORE_STRUCT_LEADERSHIP_POTENTIAL'] = leadership_potential
+        # --- 新增代码开始 ---
+        # --- 步骤六: 终极裁决 ---
+        final_judgment = self._diagnose_final_judgment(
+            contextual_posture, defense_strength, structural_momentum
+        )
+        all_states['SCORE_STRUCT_FINAL_JUDGMENT'] = final_judgment
+        # --- 新增代码结束 ---
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame) -> pd.Series:
@@ -413,25 +419,26 @@ class StructuralIntelligence:
         # --- 新增代码结束 ---
         return bottom_fractal_score
 
-    def _diagnose_strategic_posture(self, axiom_trend_form: pd.Series, axiom_mtf_cohesion: pd.Series, axiom_stability: pd.Series, axiom_tension: pd.Series, platform_foundation: pd.Series) -> pd.Series:
+    def _diagnose_strategic_posture(self, axiom_trend_form: pd.Series, axiom_mtf_cohesion: pd.Series, axiom_stability: pd.Series, axiom_tension: pd.Series, platform_foundation: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
-        【V2.4 · 绝对防御版】诊断顶层“战略态势”
-        - 核心升级: 融合“动态防御”（结构稳定性）与“静态防御”（平台基石），锻造出更全面的“绝对防御之盾”。
+        【V2.5 · 防御解耦版】诊断顶层“战略态势”
+        - 核心升级: 将最终的防御强度(defense_strength)解耦并返回，供更高层的“终极裁决”模块使用。
         - 核心逻辑:
           - 矛 (进攻): (趋势形态 + 宏观健康度 + 结构杠杆) * (1 + 张力催化)
           - 盾 (防御): 动态防御 * 0.6 + 静态防御 * 0.4
-        - 输出: 一个综合了进攻与防御的顶层战略分数。
+        - 输出: (战略态势分数, 最终防御强度)
         """
         required_signals = ['structural_leverage_D']
         if not self._validate_required_signals(self.strategy.df_indicators, required_signals, "_diagnose_strategic_posture"):
-            return pd.Series(0.0, index=axiom_trend_form.index)
+            # --- 修改代码开始 ---
+            return pd.Series(0.0, index=axiom_trend_form.index), pd.Series(0.5, index=axiom_trend_form.index)
+            # --- 修改代码结束 ---
         df_index = axiom_trend_form.index
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('long_term_stability', {13: 0.2, 21: 0.3, 55: 0.4, 89: 0.1})
         leverage_raw = self._get_safe_series(self.strategy.df_indicators, 'structural_leverage_D', 0.0, method_name="_diagnose_strategic_posture")
         leverage_score = get_adaptive_mtf_normalized_score(leverage_raw, df_index, ascending=True, tf_weights=tf_weights)
-        # --- 1. 矛 (Offense) ---
         base_offense_score = (
             axiom_trend_form.clip(lower=0) * 0.4 +
             axiom_mtf_cohesion.clip(lower=0) * 0.4 +
@@ -440,16 +447,9 @@ class StructuralIntelligence:
         tension_catalyst_factor = 0.5
         tension_amplifier = 1 + (axiom_tension * tension_catalyst_factor)
         offense_score = (base_offense_score * tension_amplifier).clip(0, 1)
-        # --- 2. 盾 (Defense) ---
-        # --- 修改代码开始 ---
-        # 2a. 动态防御 (来自结构稳定性公理)
         dynamic_defense = ((axiom_stability + 1) / 2).clip(0, 1)
-        # 2b. 静态防御 (来自平台基石公理)
         static_defense = platform_foundation
-        # 2c. 融合锻造绝对防御之盾
         defense_strength = (dynamic_defense * 0.6 + static_defense * 0.4).clip(0, 1)
-        # --- 修改代码结束 ---
-        # --- 3. 协同信念融合 ---
         conviction_factor = 0.5
         defense_modifier = (defense_strength - 0.5) * conviction_factor
         strategic_posture = (offense_score * (1 + defense_modifier)).clip(0, 1)
@@ -461,11 +461,11 @@ class StructuralIntelligence:
             print(f"      - 新增原料: 杠杆(原始)={leverage_raw.iloc[-1]:.2f} -> 杠杆分={leverage_score.iloc[-1]:.2f}")
             print(f"      - 新增原料: 结构张力分={axiom_tension.iloc[-1]:.2f}")
             print(f"      - 计算: 基础矛分={base_offense_score.iloc[-1]:.2f}, 张力放大器={tension_amplifier.iloc[-1]:.2f} -> 最终矛分={offense_score.iloc[-1]:.2f}")
-            # --- 修改代码开始 ---
             print(f"      - 计算: 动态盾={dynamic_defense.iloc[-1]:.2f}, 静态盾(平台)={static_defense.iloc[-1]:.2f} -> 最终盾强度={defense_strength.iloc[-1]:.2f}")
             print(f"      - 协同融合: 防御调节器={defense_modifier.iloc[-1]:.2f} -> 最终态势 = 最终矛分 * (1 + 调节器)")
-            # --- 修改代码结束 ---
-        return final_score
+        # --- 修改代码开始 ---
+        return final_score, defense_strength
+        # --- 修改代码结束 ---
 
     def _diagnose_axiom_tension(self, df: pd.DataFrame) -> pd.Series:
         """
@@ -670,6 +670,40 @@ class StructuralIntelligence:
                 print(f"      - 状态: [无效平台] 持续天数={duration_counts.iloc[-1] if is_in_platform_state.iloc[-1] else 0}, 未满足最少{min_duration}天要求。")
         return final_score
 
+    def _diagnose_final_judgment(self, contextual_posture: pd.Series, defense_strength: pd.Series, structural_momentum: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 总司令版】执行终极裁决
+        - 核心逻辑: 识别并否决高风险的“力竭滞涨陷阱”模式。
+        - 否决模式: 高态势分 + 弱防御 + 低动量
+        """
+        # --- 1. 识别“力竭滞涨陷阱” (Stagnation Trap) ---
+        # 1a. 触发条件: 表面上的进攻机会
+        is_trap_candidate = contextual_posture > 0.6
+        # 1b. 否决证据: 防御脆弱且动能衰竭
+        is_defense_weak = defense_strength < 0.4
+        is_momentum_stalled = structural_momentum < 0.1
+        is_veto_triggered = is_trap_candidate & is_defense_weak & is_momentum_stalled
+        # --- 2. 计算否决惩罚 ---
+        # 惩罚力度与防御脆弱程度和动能停滞程度相关
+        defense_weakness = (0.4 - defense_strength).clip(lower=0) / 0.4
+        momentum_weakness = (0.1 - structural_momentum).clip(lower=0) / 0.1
+        # 惩罚基数，这是一个超参数，决定了否决的力度
+        veto_penalty_base = 1.2
+        veto_penalty = (defense_weakness * 0.6 + momentum_weakness * 0.4) * veto_penalty_base
+        # 只在触发时施加惩罚
+        final_penalty = veto_penalty * is_veto_triggered
+        # --- 3. 做出最终裁决 ---
+        final_judgment_score = (contextual_posture - final_penalty).clip(-1, 1)
+        final_score = final_judgment_score.astype(np.float32)
+        if self.is_probe_date:
+            today_score = final_score.iloc[-1]
+            print(f"    [探针] 终极裁决 (SCORE_STRUCT_FINAL_JUDGMENT): {today_score:.4f}")
+            if is_veto_triggered.iloc[-1]:
+                print(f"      - 裁决: [力竭陷阱-否决] 触发！高态势({contextual_posture.iloc[-1]:.2f}) + 弱防御({defense_strength.iloc[-1]:.2f}) + 低动量({structural_momentum.iloc[-1]:.2f})")
+                print(f"      - 计算: 防御脆弱度={defense_weakness.iloc[-1]:.2f}, 动能脆弱度={momentum_weakness.iloc[-1]:.2f} -> 最终惩罚={final_penalty.iloc[-1]:.2f}")
+            else:
+                print(f"      - 裁决: [通过] 未识别到致命风险综合征。")
+        return final_score
 
 
 
