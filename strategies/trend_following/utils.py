@@ -203,29 +203,26 @@ def optimize_df_memory(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
 
 def normalize_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value=0.5) -> pd.Series:
     """
-    【V2.0 · 溯源校准版】通用归一化引擎 (万物标尺)
-    - 核心修复: 新增“绝对零点校准”逻辑。在完成排名归一化后，强制将原始输入为零的位置
-                  的最终得分校准为中性值0.5，从源头根除“零值归一化悖论”。
+    【V2.1 · 零值隔离版】通用归一化引擎 (万物标尺)
+    - 核心修复: 采用“零值隔离”策略。在滚动计算前，将零值替换为NaN，使其不参与排名计算。
+                  计算完成后，再将NaN的结果填充为中性值0.5，从源头根除“零值归一化悖论”。
     """
     if series is None or series.isnull().all() or series.empty:
         return pd.Series(default_value, index=target_index, dtype=np.float32)
     series = series.reindex(target_index)
+    # [新增代码行] 零值隔离：将接近0的值替换为NaN，以便在滚动计算中被忽略
+    series_isolated = series.where(series.abs() >= 1e-6)
     min_periods = max(1, int(window * 0.2))
-    rank = series.rolling(
+    # [修改的代码行] 在隔离了零值的序列上进行计算
+    rank = series_isolated.rolling(
         window=window, 
         min_periods=min_periods
     ).rank(
         pct=True, 
         ascending=ascending
     )
-    rank = rank.reindex(target_index).fillna(default_value)
-    # [新增代码行] 绝对零点溯源校准
-    is_near_zero_mask = (series.abs() < 1e-6).values
-    if len(is_near_zero_mask) == len(rank):
-        rank.values[is_near_zero_mask] = 0.5 # 对于[0,1]的排名分，中性值是0.5
-    else:
-        print(f"警告: 在 normalize_score 中，校准掩码与得分序列长度不匹配，校准跳过。")
-    return rank.astype(np.float32)
+    # [修改的代码行] 使用reindex确保索引完整，并将因隔离产生的NaN填充回中性值0.5
+    return rank.reindex(target_index).fillna(default_value).astype(np.float32)
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
@@ -344,29 +341,27 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
 
 def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
     """
-    【V3.0 · 溯源校准版】双极归一化引擎 (力学罗盘)
-    - 核心修复: 新增“绝对零点校准”逻辑。在完成Z-score归一化后，强制将原始输入为零的位置
-                  的最终得分校准为中性值0.0，从源头根除“零值归一化悖论”。
+    【V3.1 · 零值隔离版】双极归一化引擎 (力学罗盘)
+    - 核心修复: 采用“零值隔离”策略。在滚动计算前，将零值替换为NaN，使其不参与均值和标准差的计算。
+                  计算完成后，再将NaN的结果填充为中性值0.0，从源头根除“零值归一化悖论”。
     """
     if sensitivity == 1.0:
         sensitivity = 2.0
     if series is None or series.isnull().all() or series.empty:
         return pd.Series(default_value, index=target_index, dtype=np.float32)
     series = series.reindex(target_index)
+    # [新增代码行] 零值隔离：将接近0的值替换为NaN
+    series_isolated = series.where(series.abs() >= 1e-6)
     min_periods = max(1, int(window * 0.2))
-    rolling_mean = series.rolling(window=window, min_periods=min_periods).mean()
-    rolling_std = series.rolling(window=window, min_periods=min_periods).std()
+    # [修改的代码行] 在隔离了零值的序列上进行计算
+    rolling_mean = series_isolated.rolling(window=window, min_periods=min_periods).mean()
+    rolling_std = series_isolated.rolling(window=window, min_periods=min_periods).std()
     rolling_std = rolling_std.replace(0, np.nan)
-    z_score = (series - rolling_mean) / (rolling_std * sensitivity)
+    # [修改的代码行] 使用隔离后的序列进行Z-score计算
+    z_score = (series_isolated - rolling_mean) / (rolling_std * sensitivity)
     bipolar_score = np.tanh(z_score)
-    bipolar_score = bipolar_score.reindex(target_index).fillna(default_value)
-    # [新增代码行] 绝对零点溯源校准
-    is_near_zero_mask = (series.abs() < 1e-6).values
-    if len(is_near_zero_mask) == len(bipolar_score):
-        bipolar_score.values[is_near_zero_mask] = 0.0 # 对于[-1,1]的偏离度分，中性值是0.0
-    else:
-        print(f"警告: 在 normalize_to_bipolar 中，校准掩码与得分序列长度不匹配，校准跳过。")
-    return bipolar_score.astype(np.float32)
+    # [修改的代码行] 使用reindex确保索引完整，并将因隔离产生的NaN填充回中性值0.0
+    return bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
 
 def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window: int) -> Tuple[pd.Series, pd.Series]:
     """
