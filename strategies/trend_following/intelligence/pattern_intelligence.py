@@ -376,10 +376,10 @@ class PatternIntelligence:
 
     def _diagnose_axiom_duofangpao(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.3 · 逻辑修正版】形态公理五：诊断“多方炮”形态
+        【V1.4 · 战术升级版】形态公理五：诊断“多方炮”形态
         - 核心逻辑: 识别经典的“多方炮”K线组合。
         - 信号输出: 在形态的第三根K线日输出1.0；否则输出0.0。
-        - 核心修复: 根据探针反馈，修正K2的缩量判断逻辑，使其与K1的成交量进行比较，更符合形态本质。
+        - 核心修复: 根据探针反馈，升级K3的放量判断逻辑，采用“相对优势(>K2量能)”与“绝对强度(>MA5量能)”的双重确认，以适应更多实战场景。
         - 新增功能: 加入受`probe_dates`控制的精密探针。
         """
         required_signals = ['open_D', 'close_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_5_D']
@@ -421,12 +421,12 @@ class PatternIntelligence:
             if is_probing_this_day:
                 print(f"  - K1 ({df_index[i-2].date()}) 条件判断:")
                 print(f"    - 原料: close={k1_close:.2f}, open={k1_open:.2f}, volume={k1_volume:.0f}, vol_ma5={k1_vol_ma5:.0f}")
-                print(f"    - 判断: 是阳线 ({cond1_price}), 且放量 ({cond1_volume})")
+                print(f"    - 判断: 是阳线 ({cond1_price}), 且放量 (>1.2*MA5) ({cond1_volume})")
             if not (cond1_price and cond1_volume):
                 if is_probing_this_day: print("    - 结论: K1不满足，跳过。")
                 continue
             # 条件2: K2是缩量、小实体且被K1包含
-            cond2_volume = k2_volume < k1_volume # 修改代码行: 修正缩量判断逻辑，K2量能需小于K1
+            cond2_volume = k2_volume < k1_volume 
             k2_body_ratio = abs(k2_close - k2_open) / (k2_high - k2_low + 1e-9) if (k2_high - k2_low) > 0 else 0
             cond2_body_small = k2_body_ratio < 0.5 
             cond2_within_k1_range = k2_low >= k1_low and k2_high <= k1_high 
@@ -437,14 +437,17 @@ class PatternIntelligence:
             if not (cond2_volume and cond2_body_small and cond2_within_k1_range):
                 if is_probing_this_day: print("    - 结论: K2不满足，跳过。")
                 continue
-            # 条件3: K3是放量阳线且收盘价高于K1
+            # 条件3: K3是阳线，收盘价高于K1，且成交量双重确认
             cond3_price = k3_close > k3_open 
-            cond3_volume = k3_volume > k3_vol_ma5 * 1.2 
+            cond3_volume_relative = k3_volume > k2_volume # 修改代码行: 新增相对优势确认
+            cond3_volume_absolute = k3_volume > k3_vol_ma5 # 修改代码行: 修正绝对强度确认为 > MA5
+            cond3_volume = cond3_volume_relative and cond3_volume_absolute # 修改代码行: K3放量为双重确认
             cond3_close_higher_than_k1 = k3_close > k1_close 
             if is_probing_this_day:
                 print(f"  - K3 ({current_date.date()}) 条件判断:")
-                print(f"    - 原料: close={k3_close:.2f}, open={k3_open:.2f}, volume={k3_volume:.0f}, vol_ma5={k3_vol_ma5:.0f}")
-                print(f"    - 判断: 是阳线 ({cond3_price}), 且放量 ({cond3_volume}), 收盘价高于K1 ({cond3_close_higher_than_k1})")
+                print(f"    - 原料: close={k3_close:.2f}, open={k3_open:.2f}, k3_volume={k3_volume:.0f}, k2_volume={k2_volume:.0f}, vol_ma5={k3_vol_ma5:.0f}")
+                print(f"    - 判断: 是阳线 ({cond3_price}), 收盘价高于K1 ({cond3_close_higher_than_k1})")
+                print(f"    - 放量双重确认: 相对优势(k3_vol>k2_vol)({cond3_volume_relative}) AND 绝对强度(k3_vol>vol_ma5)({cond3_volume_absolute}) -> {cond3_volume}")
             if cond3_price and cond3_volume and cond3_close_higher_than_k1:
                 duofangpao_score.iloc[i] = 1.0
                 if is_probing_this_day: print("  -> [结论] 成功匹配！")
