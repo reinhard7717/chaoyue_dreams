@@ -141,13 +141,9 @@ class FeatureEngineeringService:
 
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.0 · 物理洞察重铸版】元特征计算车间
+        【V3.1 · 熵指标增强版】元特征计算车间
         - 核心升级: 废弃旧的简单指标，引入分形维度、样本熵、波动率不稳定性等一系列能够深度刻画市场混沌、分形与信息熵的“元特征”。
-        - 解决方案: 所有计算周期均由配置文件中的 'meta_feature_params' 驱动，实现完全的参数化。
-        - 新增指标:
-          - FRACTAL_DIMENSION: 市场复杂度，衡量价格曲线的“粗糙度”，值越高越无序。
-          - SAMPLE_ENTROPY: 市场可预测性，衡量价格序列的“信息熵”，值越低越有序。
-          - VOLATILITY_INSTABILITY_INDEX: 波动率稳定性，衡量波动率自身的波动，是状态切换的前兆。
+        - 新增优化: 直接集成预计算的、更高级的 `price_volume_entropy_D` 指标，作为对市场信息复杂度的核心度量。
         """
         timeframe = 'D'
         if timeframe not in all_dfs:
@@ -243,18 +239,23 @@ class FeatureEngineeringService:
         atr_col = f'ATR_14{suffix}' # 依赖于ATR
         if atr_col in df.columns and vi_col not in df.columns:
             df[vi_col] = df[atr_col].rolling(window=vi_window).std()
+        # --- 5. 新增：集成价格成交量熵 (市场信息复杂度) --- # 新增代码块
+        pve_col_source = f'price_volume_entropy{suffix}' # 新增代码行
+        pve_col_target = f'PRICE_VOLUME_ENTROPY{suffix}' # 新增代码行
+        if pve_col_source in df.columns and pve_col_target not in df.columns: # 新增代码行
+            df[pve_col_target] = df[pve_col_source] # 新增代码行
+            logger.info("已成功集成预计算的'价格成交量熵'指标。") # 新增代码行
         all_dfs[timeframe] = df
         return all_dfs
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.5 · 通达信模式与AAA指标独立化版】高级模式识别信号生产线
-        - 核心升级: 集成通达信公式中的“霸占”和“WW1”模式，增强对主力吸筹和底部反转的识别能力。
-        - 【修改】AAA 指标计算已独立为 `calculate_aaa_indicator` 方法，本方法不再计算。
-        - 核心修复: 彻底摆脱对外部复合指标(如 breakout_quality_score)的依赖，解决流程依赖倒置问题。
-        - 解决方案: 直接集成并使用我们最先进的“均线系统势能分析”三大核心指标（张力、有序性、压缩速率），
-                      将模式识别的逻辑从简单的形态判断，升维到对市场“状态”与“势能”的综合评估，更直指A股博弈本质。
-        - 逻辑强化: 细化了盘整、吸筹、突破、派发等模式的判断条件，引入更多高级筹码、资金流和VPA效率指标进行多因子共振确认。
+        【V3.6 · 战略意图升级版】高级模式识别信号生产线
+        - 核心升级: 全面引入新一代的结构、博弈和风险指标，将市场状态的识别精度从战术层面提升至战略层面。
+                      - 盘整识别: 引入“结构张力指数”，要求筹码结构内部应力低。
+                      - 吸筹识别: 引入“浮筹清洗效率”，验证主力吸筹的质量。
+                      - 突破识别: 引入“突破就绪分”，作为突破信号的强确认。
+                      - 派发识别: 引入“衰竭风险指数”，预警趋势顶部的系统性风险。
         """
         timeframe = 'D'
         if timeframe not in all_dfs:
@@ -265,17 +266,21 @@ class FeatureEngineeringService:
             'high_D', 'low_D', 'close_D', 'volume_D', 'pct_change_D', 'VOL_MA_21_D', 'BBW_21_2.0_D', 'ATR_14_D', 'ADX_14_D',
             'open_D', 'amount_D',
             'chip_health_score_D',
-            'hidden_accumulation_intensity_D',   # 修改: 使用 hidden_accumulation_intensity_D 替代 suppressive_accumulation_intensity_D
-            'rally_distribution_pressure_D',     # 修改: 使用 rally_distribution_pressure_D 替代 rally_distribution_intensity_D
-            'winner_stability_index_D',          # 修改: 使用 winner_stability_index_D 替代 winner_conviction_index_D
+            'hidden_accumulation_intensity_D',
+            'rally_distribution_pressure_D',
+            'winner_stability_index_D',
             'cost_structure_skewness_D',
-            'dominant_peak_solidity_D',          # 修改: 使用 dominant_peak_solidity_D 替代 structural_resilience_index_D
+            'dominant_peak_solidity_D',
             'main_force_net_flow_calibrated_D', 'main_force_execution_alpha_D', 'dip_absorption_power_D',
             'main_force_on_peak_flow_D', 'flow_efficiency_index_D', 'main_force_flow_directionality_D',
             'MA_POTENTIAL_TENSION_INDEX_D',
             'MA_POTENTIAL_ORDERLINESS_SCORE_D',
             'MA_POTENTIAL_COMPRESSION_RATE_D',
-            'VPA_EFFICIENCY_D'
+            'VPA_EFFICIENCY_D',
+            'structural_tension_index_D',          # 新增代码行: 引入结构张力指数
+            'floating_chip_cleansing_efficiency_D',# 新增代码行: 引入浮筹清洗效率
+            'breakout_readiness_score_D',          # 新增代码行: 引入突破就绪分
+            'exhaustion_risk_index_D'              # 新增代码行: 引入衰竭风险指数
         ]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
@@ -286,14 +291,18 @@ class FeatureEngineeringService:
         # --- 2. 【战场状态定义】: 基于“状态+势能”的多因子共振 ---
         cond_high_tension = df['MA_POTENTIAL_TENSION_INDEX_D'] < df['MA_POTENTIAL_TENSION_INDEX_D'].rolling(60).quantile(0.20)
         cond_low_orderliness = df['MA_POTENTIAL_ORDERLINESS_SCORE_D'].abs() < 0.5
-        # 使用 dominant_peak_solidity_D 替代 structural_resilience_index_D
-        cond_struct_healthy = (df['chip_health_score_D'] > 50) & (df['dominant_peak_solidity_D'] > 0.5) # 稳固度是0-1，使用0.5作为阈值
+        cond_struct_healthy = (df['chip_health_score_D'] > 50) & (df['dominant_peak_solidity_D'] > 0.5)
         cond_low_volatility = df['BBW_21_2.0_D'] < df['BBW_21_2.0_D'].rolling(60).quantile(0.25)
         cond_weak_trend = df['ADX_14_D'] < 25
-        df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = cond_high_tension & cond_low_orderliness & cond_struct_healthy & cond_low_volatility & cond_weak_trend
+        # 新增代码行: 引入结构张力条件，要求筹码结构内部稳定、无应力
+        cond_low_structural_tension = df['structural_tension_index_D'] < df['structural_tension_index_D'].rolling(60).quantile(0.30)
+        # 修改代码行: 在盘整条件中加入对低结构张力的要求
+        df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = cond_high_tension & cond_low_orderliness & cond_struct_healthy & cond_low_volatility & cond_weak_trend & cond_low_structural_tension
         cond_compressing = df['MA_POTENTIAL_COMPRESSION_RATE_D'] < 0
-        # 使用 hidden_accumulation_intensity_D 替代 suppressive_accumulation_intensity_D
-        cond_main_force_accum = (df['hidden_accumulation_intensity_D'] > 0) | (df['dip_absorption_power_D'] > 0.5)
+        # 新增代码行: 引入浮筹清洗效率作为吸筹的佐证
+        cond_chip_cleansing = df['floating_chip_cleansing_efficiency_D'] > 0.5
+        # 修改代码行: 将浮筹清洗效率加入主力吸筹的判断条件
+        cond_main_force_accum = (df['hidden_accumulation_intensity_D'] > 0) | (df['dip_absorption_power_D'] > 0.5) | cond_chip_cleansing
         cond_peak_flow_positive = df['main_force_on_peak_flow_D'].rolling(3).mean() > 0
         cond_vpa_efficient_accum = df['VPA_EFFICIENCY_D'] > df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.5)
         df['IS_ACCUMULATION_D'] = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] & cond_compressing & (cond_main_force_accum | cond_peak_flow_positive) & cond_vpa_efficient_accum
@@ -305,17 +314,20 @@ class FeatureEngineeringService:
         cond_price_volume_confirm = (df['pct_change_D'] > 0.01) & \
                                     (df['volume_D'] > df['VOL_MA_21_D'] * 1.2) & \
                                     (df['VPA_EFFICIENCY_D'] > df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.9))
-        df['IS_BREAKOUT_D'] = cond_was_consolidating & cond_orderliness_turn_up & cond_main_force_ignition & cond_price_volume_confirm
-        # 使用 rally_distribution_pressure_D 替代 rally_distribution_intensity_D
+        # 新增代码行: 引入突破就绪分作为强确认条件
+        cond_breakout_ready = df['breakout_readiness_score_D'] > 60 # 突破就绪分通常是0-100
+        # 修改代码行: 在突破条件中加入对突破就绪分的验证
+        df['IS_BREAKOUT_D'] = cond_was_consolidating & cond_orderliness_turn_up & cond_main_force_ignition & cond_price_volume_confirm & cond_breakout_ready
         cond_rally_dist = (df['pct_change_D'] > 0) & (df['rally_distribution_pressure_D'] > 0.5)
         cond_main_force_outflow = (df['main_force_net_flow_calibrated_D'].rolling(3).sum() < 0) & \
                                   (df['main_force_flow_directionality_D'] < -0.3)
-        # 使用 winner_stability_index_D 替代 winner_conviction_index_D
         cond_winner_conviction_drop = df['winner_stability_index_D'].diff() < 0
-        # 使用 dominant_peak_solidity_D 替代 structural_resilience_index_D
         cond_resilience_drop = df['dominant_peak_solidity_D'].diff() < 0
         cond_vpa_inefficient_dist = (df['pct_change_D'] > 0) & (df['VPA_EFFICIENCY_D'] < df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.2))
-        df['IS_DISTRIBUTION_D'] = cond_rally_dist | (cond_main_force_outflow & cond_winner_conviction_drop & cond_resilience_drop & cond_vpa_inefficient_dist)
+        # 新增代码行: 引入衰竭风险指数作为派发的强预警信号
+        cond_exhaustion_risk = df['exhaustion_risk_index_D'] > 70 # 衰竭风险指数通常是0-100
+        # 修改代码行: 将衰竭风险加入派发的核心判断逻辑
+        df['IS_DISTRIBUTION_D'] = cond_rally_dist | (cond_main_force_outflow & cond_winner_conviction_drop & cond_resilience_drop & cond_vpa_inefficient_dist) | cond_exhaustion_risk
         # --- 3. 【通达信模式集成】 ---
         if 'amount_D' in df.columns:
             ema_amount_5 = df['amount_D'].ewm(span=5, adjust=False).mean()
@@ -348,7 +360,7 @@ class FeatureEngineeringService:
             if col in df.columns:
                 df[col] = df[col].fillna(False).astype(bool)
         all_dfs[timeframe] = df
-        logger.info("高级模式识别引擎(V3.5 通达信模式与AAA指标独立化版)分析完成。")
+        logger.info("高级模式识别引擎(V3.6 战略意图升级版)分析完成。")
         return all_dfs
 
     async def calculate_aaa_indicator(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
@@ -379,70 +391,6 @@ class FeatureEngineeringService:
         df['AAA_D'] = aaa_series.fillna(0)
         all_dfs[timeframe] = df
         logger.info("AAA 指标计算完成。")
-        return all_dfs
-
-    async def calculate_ma_convergence(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
-        """
-        【V2.1 · 均线势能命名优化版】均线系统势能分析引擎
-        - 核心优化: 确保输出的均线势能指标列名具有明确的前缀，避免出现 'None_' 导致的数据引用问题。
-        """
-        if not params.get('enabled', False):
-            return all_dfs
-        for conv_config in params.get('configs', []):
-            periods = conv_config.get('periods', [])
-            if not periods:
-                continue
-            # 确保 output_prefix 有一个默认值，例如 'MA_POTENTIAL'
-            output_prefix = conv_config.get('output_column_prefix', 'MA_POTENTIAL')
-            for timeframe in conv_config.get('apply_on', []):
-                if timeframe not in all_dfs or all_dfs[timeframe].empty:
-                    continue
-                df = all_dfs[timeframe]
-                # 1. 【军火库点验】: 确认计算所需的核心数据
-                ma_cols = [f"EMA_{p}_{timeframe}" for p in periods]
-                # ATR周期通常与均线簇中的中位数或平均周期相关，这里我们硬编码一个常用的14
-                atr_col = f"ATR_14_{timeframe}" 
-                required_cols = ma_cols + [atr_col]
-                missing_cols = [col for col in required_cols if col not in df.columns]
-                if missing_cols:
-                    logger.warning(f"均线系统势能分析失败({output_prefix}_{timeframe})：缺少核心数据列 {missing_cols}")
-                    continue
-                try:
-                    ma_df = df[ma_cols]
-                    # 2. 【计算势能大小】: 均线张力指数 (MA_TENSION_INDEX)
-                    ma_range = ma_df.max(axis=1) - ma_df.min(axis=1)
-                    atr = df[atr_col].replace(0, np.nan)
-                    tension_index = ma_range / atr
-                    tension_col_name = f"{output_prefix}_TENSION_INDEX_{timeframe}"
-                    df[tension_col_name] = tension_index.fillna(0)
-                    # 3. 【计算势能方向】: 均线有序性评分 (MA_ORDERLINESS_SCORE)
-                    periods_series = pd.Series(periods)
-                    # 创建一个DataFrame，其中每一行都是均线周期列表，用于与ma_df进行逐行排名比较
-                    periods_repeated_df = pd.DataFrame([periods_series.values] * len(df), index=df.index, columns=ma_df.columns)
-                    # 计算两组数据的等级。使用 'average' 方法处理并列排名。
-                    rank_x = periods_repeated_df.rank(axis=1, method='average')
-                    rank_y = ma_df.rank(axis=1, method='average')
-                    # 计算Spearman相关性
-                    # Spearman rho = 1 - 6 * sum(d^2) / (n * (n^2 - 1))
-                    d_sq = (rank_x - rank_y).pow(2).sum(axis=1)
-                    n = len(periods)
-                    # 处理 n <= 1 的情况，避免除以零或产生无意义的结果
-                    if n <= 1:
-                        spearman_corr = pd.Series(np.nan, index=df.index)
-                    else:
-                        spearman_corr = 1 - (6 * d_sq) / (n * (n**2 - 1))
-                    orderliness_col_name = f"{output_prefix}_ORDERLINESS_SCORE_{timeframe}"
-                    df[orderliness_col_name] = spearman_corr.fillna(0)
-                    # 4. 【计算势能变化率】: 均线压缩速率 (MA_COMPRESSION_RATE)
-                    # 使用5日线性回归斜率来衡量压缩速率，负值表示正在压缩
-                    compression_rate = df.ta.linreg(close=df[tension_col_name], length=5, slope=True)
-                    compression_col_name = f"{output_prefix}_COMPRESSION_RATE_{timeframe}"
-                    # ta.linreg 可能返回DataFrame，确保取其Series
-                    if isinstance(compression_rate, pd.DataFrame):
-                        compression_rate = compression_rate.iloc[:, 0]
-                    df[compression_col_name] = compression_rate.fillna(0)
-                except Exception as e:
-                    logger.error(f"计算均线系统势能时发生错误({output_prefix}_{timeframe}): {e}", exc_info=True)
         return all_dfs
 
     async def calculate_consolidation_period(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
@@ -599,9 +547,9 @@ class FeatureEngineeringService:
 
     async def calculate_breakout_quality(self, all_dfs: Dict, params: dict, calculator) -> Dict:
         """
-        【V3.1 · 后门封堵版】突破质量分计算专用通道
-        - 核心修复: 封堵了命名协议的后门。在合并由外部计算器生成的、不带后缀的 'breakout_quality_score' 后，
-                      立即将其重命名为 'breakout_quality_score_D'，确保数据流的绝对标准化。
+        【V3.2 · 接口契约修复版】突破质量分计算专用通道
+        - 核心修复: 协同 IndicatorCalculator V2.5 修复了接口契约。本方法现在能正确接收不带后缀的
+                      'breakout_quality_score'，并执行重命名与填充，确保数据流的绝对标准化和健壮性。
         """
         if not params.get('enabled', False):
             return all_dfs
@@ -665,9 +613,9 @@ class FeatureEngineeringService:
 
     async def calculate_och(self, all_dfs: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
         """
-        【V3.0 · 筹码全息健康度版】计算整体筹码健康度 (Overall Chip Health, OCH)。
-        - 核心逻辑: 综合筹码集中度与结构优化、成本与盈亏结构动态、持股心态与交易行为、主力控盘与意图四大维度，
-                    利用多项原始筹码数据，通过标准化和加权融合，形成一个全面、精确、直指本质的筹码健康度指标。
+        【V3.1 · 结构动力学升级版】计算整体筹码健康度 (Overall Chip Health, OCH)。
+        - 核心升级: 维度一“筹码集中度与结构优化”的计算逻辑重构，引入 cost_gini_coefficient 和 primary_peak_kurtosis 两个核心指标，
+                    替代旧的 winner/loser_concentration 指标，实现对筹码结构更精准、更深刻的量化评估。
         - 目的: 在数据层提前计算一个综合的筹码健康度指标，供后续斜率计算和情报层使用。
         - 数据源: 直接从 df 中获取原始筹码相关列。
         """
@@ -680,26 +628,27 @@ class FeatureEngineeringService:
         # 定义所有需要的原始筹码相关列
         # 更新必需列的列表，以匹配V33.0版本的新指标体系
         required_cols = [
-            # 维度一: 筹码集中度与结构优化
-            'winner_concentration_90pct_D', 'loser_concentration_90pct_D', # 替代 short/long_term_concentration
+            # 维度一: 筹码集中度与结构优化 (已更新)
+            'cost_gini_coefficient_D',        # 修改代码行: 新增，替代 winner/loser_concentration
+            'primary_peak_kurtosis_D',        # 修改代码行: 新增，增强主峰质量评估
             'dominant_peak_solidity_D', 'dominant_peak_volume_ratio_D',
             'chip_fault_blockage_ratio_D',
             # 维度二: 成本与盈亏结构动态
             'total_winner_rate_D', 'total_loser_rate_D',
             'winner_profit_margin_avg_D', 'loser_loss_margin_avg_D',
-            'cost_structure_skewness_D',      # 新增: 替代 cost_divergence_normalized_D
+            'cost_structure_skewness_D',
             'main_force_cost_advantage_D',
-            'profit_taking_flow_ratio_D',     # 新增: 替代 imminent_profit_taking_supply_D
-            'loser_pain_index_D',             # 新增: 替代 loser_capitulation_pressure_index_D
+            'profit_taking_flow_ratio_D',
+            'loser_pain_index_D',
             # 维度三: 持股心态与交易行为
-            'winner_stability_index_D',       # 新增: 替代 winner_conviction_index_D 和 locked_profit_rate_D
+            'winner_stability_index_D',
             'chip_fatigue_index_D',
-            'capitulation_flow_ratio_D',      # 新增: 用于替代 locked_loss_rate_D
+            'capitulation_flow_ratio_D',
             'capitulation_absorption_index_D',
             'active_buying_support_D', 'active_selling_pressure_D',
-            'mf_retail_battle_intensity_D',   # 新增: 替代 active_zone_combat_intensity_D
+            'mf_retail_battle_intensity_D',
             # 维度四: 主力控盘与意图
-            'control_solidity_index_D',       # 新增: 替代 main_force_control_leverage_D
+            'control_solidity_index_D',
             'main_force_on_peak_flow_D',
             'main_force_flow_directionality_D', 'main_force_execution_alpha_D',
             'main_force_conviction_index_D', 'mf_vpoc_premium_D', 'vwap_control_strength_D',
@@ -712,27 +661,25 @@ class FeatureEngineeringService:
                 return pd.Series(default_val, index=df_index)
             return df[col_name].fillna(default_val)
         # --- 1. 筹码集中度与结构优化 (Concentration & Structure Optimization Score) ---
-        # 使用 winner_concentration_90pct_D 和 loser_concentration_90pct_D 替代 short/long_term_concentration
-        st_concentration = _get_safe_series_local('winner_concentration_90pct_D', 50.0) / 100 # 归一化到 0-1, 使用获利盘集中度替代短期集中度
-        lt_concentration = _get_safe_series_local('loser_concentration_90pct_D', 50.0) / 100 # 归一化到 0-1, 使用套牢盘集中度替代长期集中度
-        winner_concentration = _get_safe_series_local('winner_concentration_90pct_D', 50.0) / 100
-        loser_concentration = _get_safe_series_local('loser_concentration_90pct_D', 50.0) / 100
+        # 修改代码块：V3.1 升级: 使用基尼系数和峰态系数替代旧的集中度指标，评估更精准
+        cost_gini = _get_safe_series_local('cost_gini_coefficient_D', 0.5) # 0-1, 越小越集中
+        peak_kurtosis = _get_safe_series_local('primary_peak_kurtosis_D', 3.0) # 越大越尖锐
         peak_solidity = _get_safe_series_local('dominant_peak_solidity_D', 0.5) # 0-1
         peak_volume_ratio = _get_safe_series_local('dominant_peak_volume_ratio_D', 0.5) # 0-1
         chip_fault = _get_safe_series_local('chip_fault_blockage_ratio_D', 0.0) # 0-1，越低越好
-        # 集中度健康度：短期和长期集中度加权，反映整体集中水平
-        concentration_health = (st_concentration * 0.6 + lt_concentration * 0.4)
-        # 筹码峰质量：稳固度与量能的乘积，强调共振
-        peak_quality = peak_solidity * peak_volume_ratio
-        # 获利/亏损盘结构：亏损盘集中度高且获利盘集中度低，视为健康（底部特征）
-        pl_structure_bias = (loser_concentration - winner_concentration).clip(-1, 1) # 映射到 -1到1
+        # 集中度健康度：基尼系数越低，代表成本越集中，健康度越高
+        concentration_health = (1 - cost_gini).clip(0, 1)
+        # 筹码峰质量：稳固度、量能占比、以及峰的尖锐度（峰态）三者结合
+        # 使用滚动百分位排名对峰态系数进行归一化，使其成为一个稳定的[0,1]因子
+        normalized_kurtosis = peak_kurtosis.rolling(window=120, min_periods=20).rank(pct=True).fillna(0.5)
+        peak_quality = (peak_solidity * peak_volume_ratio * normalized_kurtosis).clip(0, 1)
         # 堵塞惩罚：堵塞比率越高，惩罚越大
         blockage_penalty = (1 - chip_fault)
         # 集中度与结构优化融合 (映射到 0-1)
+        # 重新分配权重，突出集中度(基尼系数)和峰质量的核心地位
         concentration_score = (
-            concentration_health * 0.4 +
-            peak_quality * 0.3 +
-            (pl_structure_bias + 1) / 2 * 0.2 + # 将 -1到1 映射到 0到1
+            concentration_health * 0.5 +
+            peak_quality * 0.4 +
             blockage_penalty * 0.1
         ).clip(0, 1)
         # --- 2. 成本与盈亏结构动态 (Cost & P/L Structure Dynamics Score) ---

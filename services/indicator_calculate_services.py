@@ -1171,8 +1171,9 @@ class IndicatorCalculator:
             return None
     async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【V2.4 · 生产就绪版】计算突破质量分。
-        - 核心修改: 移除了调试用的print语句，将错误信息统一由日志系统处理。
+        【V2.5 · 接口契约修复版】计算突破质量分。
+        - 核心修复: 遵循“纯净计算”原则，返回不带任何后缀的列名 'breakout_quality_score'，
+                      将命名标准化的责任完全交由上游编排器处理。
         """
         if df_daily is None or df_daily.empty:
             return None
@@ -1186,9 +1187,8 @@ class IndicatorCalculator:
                     'total_winner_rate', 'dominant_peak_solidity', 'VPA_EFFICIENCY'
                 ]
                 missing_cols = [col for col in required_cols if col not in df.columns]
-                # 将调试信息print替换为标准的日志警告
                 if missing_cols:
-                    logger.warning(f"计算突破质量分(V2.4)失败，缺少必要列: {missing_cols}。")
+                    logger.warning(f"计算突破质量分(V2.5)失败，缺少必要列: {missing_cols}。")
                     return None
                 # 维度一：能量输入 (0-1分)
                 volume_ratio = df['volume'] / df['VOL_MA_21'].replace(0, np.nan)
@@ -1213,10 +1213,11 @@ class IndicatorCalculator:
                     score_chips * weights['chips'] +
                     score_efficiency * weights['efficiency']
                 ).clip(0, 1)
-                return pd.DataFrame({'breakout_quality_score_D': quality_score})
+                # 修改代码行: 返回纯净的列名，不带后缀
+                return pd.DataFrame({'breakout_quality_score': quality_score})
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
-            logger.error(f"计算突破质量分(V2.4)时发生错误: {e}", exc_info=True)
+            logger.error(f"计算突破质量分(V2.5)时发生错误: {e}", exc_info=True)
             return None
 
 
