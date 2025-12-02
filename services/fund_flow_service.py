@@ -2220,10 +2220,12 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_micro_dynamics_metrics(context: dict) -> dict:
         """
-        【V68.1 · 摩擦系数终版】
-        - 核心修正: 重构 `asymmetric_friction_index` 的计算逻辑，将不稳定的“比率的平均值” (`mean of ratios`)
-                     修正为稳健的“总和的比率” (`ratio of sums`)。通过先聚合总价差和总净主动成交量再相除，
-                     彻底解决了因单笔成交量为零导致弹性计算失败并返回NaN的根本问题。
+        【V68.2 · 阻力升维终版】
+        - 核心升维: 废弃有符号的、易受“诡道”行为干扰的“弹性”概念，转向更本质、更稳健的“阻力”概念。
+        - 新定义:
+          - 上行/下行阻力 = abs(总净主动成交量) / abs(总价差)。该值永远为正，真实反映改变价格的“成本”。
+        - 最终修正: `asymmetric_friction_index` 被重新定义为两种“阻力”的对数比，使其在任何市场场景下都具有
+                     数学鲁棒性和清晰的金融博弈解释，彻底解决了NaN问题。
         """
         hf_analysis_df = context['hf_analysis_df']
         should_probe = context['debug']['should_probe']
@@ -2259,26 +2261,27 @@ class AdvancedFundFlowMetricsService:
                 print(f"  - 结果: {metrics['price_reversion_velocity']:.2f}")
         up_moves = hf_analysis_df[hf_analysis_df['mid_price_delta'] > 0]
         down_moves = hf_analysis_df[hf_analysis_df['mid_price_delta'] < 0]
-        up_elasticity, down_elasticity, friction_ratio = np.nan, np.nan, np.nan
+        upward_resistance, downward_resistance, friction_ratio = np.nan, np.nan, np.nan
         if not up_moves.empty and not down_moves.empty:
-            # [修改的代码块] 修正为“总和的比率”，增强数值稳定性
-            up_net_vol_sum = up_moves['net_active_volume'].sum()
-            down_net_vol_sum = down_moves['net_active_volume'].sum()
-            up_elasticity = up_moves['mid_price_delta'].sum() / up_net_vol_sum if up_net_vol_sum != 0 else np.nan
-            down_elasticity = down_moves['mid_price_delta'].sum() / down_net_vol_sum if down_net_vol_sum != 0 else np.nan
-            if pd.notna(up_elasticity) and pd.notna(down_elasticity) and down_elasticity != 0:
-                friction_ratio = up_elasticity / abs(down_elasticity)
+            # [核心升维] 采用“阻力”概念，确保计算的鲁棒性
+            up_price_delta_sum = up_moves['mid_price_delta'].sum()
+            up_net_vol_abs_sum = abs(up_moves['net_active_volume'].sum())
+            down_price_delta_abs_sum = abs(down_moves['mid_price_delta'].sum())
+            down_net_vol_abs_sum = abs(down_moves['net_active_volume'].sum())
+            upward_resistance = up_net_vol_abs_sum / up_price_delta_sum if up_price_delta_sum > 0 else np.nan
+            downward_resistance = down_net_vol_abs_sum / down_price_delta_abs_sum if down_price_delta_abs_sum > 0 else np.nan
+            if pd.notna(upward_resistance) and pd.notna(downward_resistance) and downward_resistance > 0:
+                friction_ratio = upward_resistance / downward_resistance
                 metrics['asymmetric_friction_index'] = np.log(friction_ratio) if friction_ratio > 0 else np.nan
         if should_probe:
             print("\n--- [3. 非对称摩擦系数] ---")
             print(f"  - 原料数据: 上涨笔数={len(up_moves)}, 下跌笔数={len(down_moves)}")
             print(f"  - 关键计算节点:")
-            # [修改的代码行] 更新探针以反映新的稳健计算方法
-            print(f"    - 上行总价差: {up_moves['mid_price_delta'].sum():.4f}, 上行总净主动量: {up_moves['net_active_volume'].sum():,.0f}")
-            print(f"    - 下行总价差: {down_moves['mid_price_delta'].sum():.4f}, 下行总净主动量: {down_moves['net_active_volume'].sum():,.0f}")
-            print(f"    - 上行弹性 (总价差/总净量): {up_elasticity:.8f}")
-            print(f"    - 下行弹性 (总价差/总净量): {down_elasticity:.8f}")
-            print(f"    - 摩擦比率 (Ratio = Up / |Down|): {friction_ratio:.4f}")
+            print(f"    - 上行总价差: {up_moves['mid_price_delta'].sum():.4f}, 上行总净主动量(绝对值): {abs(up_moves['net_active_volume'].sum()):,.0f}")
+            print(f"    - 下行总价差(绝对值): {abs(down_moves['mid_price_delta'].sum()):.4f}, 下行总净主动量(绝对值): {abs(down_moves['net_active_volume'].sum()):,.0f}")
+            print(f"    - 上行阻力 (Abs_Vol / Price_Delta): {upward_resistance:,.2f}")
+            print(f"    - 下行阻力 (Abs_Vol / Price_Delta): {downward_resistance:,.2f}")
+            print(f"    - 摩擦比率 (Ratio = Up_Resistance / Down_Resistance): {friction_ratio:.4f}")
             print(f"  - 结果 (log(Ratio)): {metrics['asymmetric_friction_index']:.4f}")
         return metrics
 
