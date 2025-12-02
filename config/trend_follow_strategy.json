@@ -1234,7 +1234,7 @@
       },
       "fund_flow_ultimate_params": {
         "enabled": true,
-        "description": "【V6.0 · 结构健康度版】定义了基于“共识、信念、动能、张力、属性、健康度”六大资金流公理的引擎参数。",
+        "description": "【V6.1 · 信念质量调制版】定义了基于“共识、信念、动能、张力、属性、健康度”六大资金流公理的引擎参数。",
         "norm_window": 55,
         "description_axiom_weights": "融合六大资金流公理时的权重。",
         "axiom_weights": {
@@ -1243,6 +1243,11 @@
           "flow_momentum": 0.2,
           "capital_signature": 0.15,
           "flow_structure_health": 0.2
+        },
+        "conviction_modulator_weights": {
+          "description": "【V1.0 新增】信念质量调节器权重，用于调制“攻击性意图”公理。",
+          "capital_signature": 0.2,
+          "flow_health": 0.3
         }
       },
       "fusion_accumulation_inflection_params": {

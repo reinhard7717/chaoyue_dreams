@@ -47,34 +47,42 @@ class FundFlowIntelligence:
 
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V25.0 · 结构健康度公理版】资金流情报分析总指挥
-        - 核心新增: 引入第六大公理——“资金流结构健康度公理”，旨在评估资金流模式的稳定性与可持续性，
-                      为策略提供对趋势“质量”的深层洞察。
-        - 核心优化: 精炼了“资本属性公理”中对耐心资本稳定性的识别逻辑。
+        【V26.0 · 信念质量调制版】资金流情报分析总指挥
+        - 核心升级: 引入“公理间非线性调制”机制。使用“资本属性”与“结构健康度”公理的结果，
+                      对“攻击性意图”公理进行质量调节，旨在量化“信念的质量”，区分高含金量的攻击行为。
         """
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 资金流情报引擎在配置中被禁用，跳过分析。")
             return {}
-        print("启动【V25.0 · 结构健康度公理版】资金流情报分析...") # 修改: 更新版本号和名称
+        print("启动【V26.0 · 信念质量调制版】资金流情报分析...") # 修改: 更新版本号和名称
         all_states = {}
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
+        # --- 顺序调整开始 ---
+        # 1. 先计算作为调节器输入的公理
+        axiom_capital_signature = self._diagnose_axiom_capital_signature(df, norm_window)
+        axiom_flow_structure_health = self._diagnose_axiom_flow_structure_health(df, norm_window)
+        # 2. 基础公理
         axiom_consensus = self._diagnose_axiom_consensus(df, norm_window)
-        axiom_conviction = self._diagnose_axiom_conviction(df, norm_window)
         axiom_flow_momentum = self._diagnose_axiom_flow_momentum(df, norm_window)
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
-        axiom_capital_signature = self._diagnose_axiom_capital_signature(df, norm_window)
-        axiom_flow_structure_health = self._diagnose_axiom_flow_structure_health(df, norm_window) # 新增: 调用新增的结构健康度公理诊断方法
+        # 3. 计算被调制的公理，并传入调节器
+        axiom_conviction = self._diagnose_axiom_conviction(
+            df, norm_window,
+            capital_signature_score=axiom_capital_signature,
+            flow_health_score=axiom_flow_structure_health
+        )
+        # --- 顺序调整结束 ---
         all_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_FF_AXIOM_CONSENSUS'] = axiom_consensus
         all_states['SCORE_FF_AXIOM_CONVICTION'] = axiom_conviction
         all_states['SCORE_FF_AXIOM_FLOW_MOMENTUM'] = axiom_flow_momentum
         all_states['SCORE_FF_AXIOM_CAPITAL_SIGNATURE'] = axiom_capital_signature
-        all_states['SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH'] = axiom_flow_structure_health # 新增: 将新的公理分数添加到状态字典
+        all_states['SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH'] = axiom_flow_structure_health
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
-        print(f"【V25.0 · 结构健康度公理版】分析完成，生成 {len(all_states)} 个资金流原子信号。") # 修改: 更新版本号和名称
+        print(f"【V26.0 · 信念质量调制版】分析完成，生成 {len(all_states)} 个资金流原子信号。") # 修改: 更新版本号和名称
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -164,11 +172,12 @@ class FundFlowIntelligence:
                 print(f"       - final_control_score: {battlefield_control_score.loc[probe_date_for_loop]:.4f}")
         return battlefield_control_score.clip(-1, 1).astype(np.float32)
 
-    def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+    def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int, capital_signature_score: pd.Series, flow_health_score: pd.Series) -> pd.Series:
         """
-        【V3.0 · 攻击性意图版】资金流公理二：诊断“攻击性意图”
-        - 核心逻辑: 融合“闪电战”意图（盘口消耗率）与“阵地战”决心（大单攻防），评估资金的主动攻击意愿。
-        - A股特性: 真正的信念不是口头上的，而是用真金白银砸出来的。此模型旨在量化这种“砸盘”的力度。
+        【V4.0 · 信念质量调制版】资金流公理二：诊断“攻击性意图”
+        - 核心逻辑: 融合“闪电战”意图与“阵地战”决心，评估资金的主动攻击意愿。
+        - V4.0 升级: 引入“信念质量调节器”，使用“资本属性”和“资金流结构健康度”对原始攻击意图进行非线性调制。
+                      旨在放大由“耐心资本”在“健康结构”上发起的攻击，抑制“敏捷资本”在“脆弱结构”上的攻击。
         """
         print("    -> [资金流层] 正在诊断“攻击性意图”公理...")
         required_signals = [
@@ -191,12 +200,19 @@ class FundFlowIntelligence:
         # 3. 辅助证据 (成本优势)
         cost_advantage = self._get_safe_series(df, df, 'main_force_cost_advantage_D', 0.0, method_name="_diagnose_axiom_conviction")
         cost_advantage_score = get_adaptive_mtf_normalized_bipolar_score(cost_advantage, df_index, tf_weights_ff)
-        # 4. 融合
+        # 4. 融合，得到原始意图分
         aggressive_intent_score = (
             blitz_intent_score * 0.6 +
             trench_warfare_score * 0.3 +
             cost_advantage_score * 0.1
         )
+        # 5. 新增：信念质量调节器
+        modulator_weights = get_param_value(p_conf_ff.get('conviction_modulator_weights'), {'capital_signature': 0.2, 'flow_health': 0.3})
+        quality_modulator = (1 +
+                             capital_signature_score * modulator_weights.get('capital_signature', 0.2) +
+                             flow_health_score * modulator_weights.get('flow_health', 0.3)
+                             ).clip(0.5, 1.5)
+        final_modulated_score = aggressive_intent_score * quality_modulator
         # [新增] 调试探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -208,8 +224,10 @@ class FundFlowIntelligence:
                 print(f"       - blitz_intent_score (闪电战): {blitz_intent_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - trench_warfare_score (阵地战): {trench_warfare_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - cost_advantage_score (成本): {cost_advantage_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - final_intent_score: {aggressive_intent_score.loc[probe_date_for_loop]:.4f}")
-        return aggressive_intent_score.clip(-1, 1).astype(np.float32)
+                print(f"       - [计算节点] raw_intent_score: {aggressive_intent_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - [计算节点] quality_modulator: {quality_modulator.loc[probe_date_for_loop]:.4f} (资本属性分: {capital_signature_score.loc[probe_date_for_loop]:.2f}, 结构健康度分: {flow_health_score.loc[probe_date_for_loop]:.2f})")
+                print(f"       - [结果] final_modulated_score: {final_modulated_score.loc[probe_date_for_loop]:.4f}")
+        return final_modulated_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_flow_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
