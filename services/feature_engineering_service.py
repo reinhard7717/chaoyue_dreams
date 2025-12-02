@@ -395,12 +395,13 @@ class FeatureEngineeringService:
 
     async def calculate_consolidation_period(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V1.0 新增】根据多因子共振识别盘整期。
-        - 核心职责: 从 indicator_calculate_services.py 移入，作为特征工程的一部分。
+        【V2.0 · 意图识别升级版】根据多因子共振识别盘整期。
+        - 核心升级: 判定逻辑从单一的“几何形态”升级为“几何形态 或 主力意图”的双重标准。
+                      即使K线形态不完美，只要筹码高度锁定且主力展现出强控盘意图，也将其识别为盘整构筑期。
         """
         if not params.get('enabled', False):
             return all_dfs
-        timeframe = 'D' # 此特征通常在日线计算
+        timeframe = 'D'
         if timeframe not in all_dfs or all_dfs[timeframe].empty:
             return all_dfs
         df = all_dfs[timeframe]
@@ -411,7 +412,12 @@ class FeatureEngineeringService:
         bbw_col = f"BBW_{boll_period}_{float(boll_std)}_{timeframe}"
         roc_col = f"ROC_{roc_period}_{timeframe}"
         vol_ma_col = f"VOL_MA_{vol_ma_period}_{timeframe}"
-        required_cols = [bbw_col, roc_col, vol_ma_col, f'high_{timeframe}', f'low_{timeframe}', f'volume_{timeframe}']
+        # --- 修改代码开始 ---
+        required_cols = [
+            bbw_col, roc_col, vol_ma_col, f'high_{timeframe}', f'low_{timeframe}', f'volume_{timeframe}',
+            'dominant_peak_solidity_D', 'control_solidity_index_D' # 新增：引入主力意图证据
+        ]
+        # --- 修改代码结束 ---
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
             logger.warning(f"盘整期计算跳过，依赖的列 '{', '.join(missing)}' 不存在。")
@@ -421,10 +427,20 @@ class FeatureEngineeringService:
         min_expanding_periods = boll_period * 2
         dynamic_bbw_threshold = df[bbw_col].expanding(min_periods=min_expanding_periods).quantile(bbw_quantile).bfill()
         df[f'dynamic_bbw_threshold_{timeframe}'] = dynamic_bbw_threshold
+        # --- 修改代码开始 ---
+        # 条件1: 经典几何形态构筑
         cond_volatility = df[bbw_col] < df[f'dynamic_bbw_threshold_{timeframe}']
         cond_trend = df[roc_col].abs() < roc_threshold
         cond_volume = df[f'volume_{timeframe}'] < df[vol_ma_col]
-        is_consolidating = cond_volatility & cond_trend & cond_volume
+        is_classic_consolidation = cond_volatility & cond_trend & cond_volume
+        # 条件2: 主力意图构筑 (即使形态不完美)
+        # 证据：筹码高度锁定 且 主力强力控盘
+        cond_chips_locked = df['dominant_peak_solidity_D'] > 0.7
+        cond_main_force_control = df['control_solidity_index_D'] > 0.6
+        is_intent_based_consolidation = cond_chips_locked & cond_main_force_control
+        # 最终判定：满足任一条件即可
+        is_consolidating = is_classic_consolidation | is_intent_based_consolidation
+        # --- 修改代码结束 ---
         df[f'is_consolidating_{timeframe}'] = is_consolidating
         if is_consolidating.any():
             consolidation_blocks = (is_consolidating != is_consolidating.shift()).cumsum()
