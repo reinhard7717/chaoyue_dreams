@@ -351,14 +351,6 @@ class PatternIntelligence:
             cond3_close_higher_than_k1 = k3_close > k1_close 
             if cond3_price and cond3_volume and cond3_close_higher_than_k1:
                 duofangpao_score.iloc[i] = 1.0
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"    -> [多方炮探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - SCORE_PATTERN_DUOFANGPAO: {duofangpao_score.loc[probe_date_for_loop]:.4f}")
         return duofangpao_score.astype(np.float32)
 
 

@@ -86,10 +86,10 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, norm_window: int, is_probe_day: bool, current_date_str: str) -> pd.Series:
         """
-        【V2.1 · 融合归一版】力学公理一：诊断“动量品质”
-        - 核心重构: 升级品质调节器的计算逻辑为“先融合，后归一”。先将各品质因子的原始值加权融合成一个“综合品质原始分”，
-                      然后再对该综合分进行整体归一化。此举旨在保留各因子间的相对量级信息，使调节器更具物理意义。
-        - 新增: 增加探针，用于监测关键计算节点。
+        【V2.2 · 负值惩罚版】力学公理一：诊断“动量品质”
+        - 核心重构: 根据探针反馈，修正品质调节器的核心逻辑。移除对“主力信念”的 .clip(0) 操作，
+                      允许负的信念值参与融合计算，从而对整体品质分形成“惩罚”效应。
+                      这使得模型能更敏锐地识别主力信念动摇下的虚假动能。
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {}) # 获取力学引擎参数
         quality_weights = get_param_value(p_conf_dyn.get('momentum_quality_weights'), {'purity': 0.4, 'conviction': 0.4, 'vitality': 0.2})
@@ -108,7 +108,6 @@ class DynamicMechanicsEngine:
         roc_score = get_adaptive_mtf_normalized_bipolar_score(roc, df.index, default_weights)
         macd_h_score = get_adaptive_mtf_normalized_bipolar_score(macd_h, df.index, default_weights)
         raw_momentum_score = (roc_score * 0.6 + macd_h_score * 0.4).clip(-1, 1)
-        # --- 修改：采用“先融合，后归一” ---
         # 2. 计算动量品质调节器 [0, 1]
         raw_purity = self._get_safe_series(df, 'upward_impulse_purity_D', 0.5)
         raw_conviction = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0)
@@ -116,12 +115,13 @@ class DynamicMechanicsEngine:
         # 2.1 先将原始值加权融合
         composite_quality_raw = (
             raw_purity * quality_weights.get('purity', 0.4) +
-            raw_conviction.clip(0) * quality_weights.get('conviction', 0.4) + # 只取正向信念
+            # --- 修改：移除 .clip(0)，让负信念参与计算以形成惩罚 ---
+            raw_conviction * quality_weights.get('conviction', 0.4) +
+            # --- 修改结束 ---
             raw_vitality * quality_weights.get('vitality', 0.2)
         )
         # 2.2 再对融合后的综合分进行归一化
         momentum_quality_modulator = get_adaptive_mtf_normalized_score(composite_quality_raw, df.index, True, default_weights).clip(0, 1)
-        # --- 修改结束 ---
         # 3. 最终动量品质分
         final_momentum_score = (raw_momentum_score * momentum_quality_modulator).clip(-1, 1)
         if is_probe_day:
@@ -255,12 +255,13 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_energy(self, df: pd.DataFrame, norm_window: int, is_probe_day: bool, current_date_str: str) -> pd.Series:
         """
-        【V2.0 · 诡道博弈版】力学公理四：诊断“能量真实性”
-        - 核心重构: 引入“能量品质调节器”，融合资金可信度、主力流向性和对倒强度，对原始能量进行调制。
-        - 新增: 增加探针，用于监测关键计算节点。
+        【V2.1 · 融合归一版】力学公理四：诊断“能量真实性”
+        - 核心重构: 与其他公理统一，升级为“先融合，后归一”模式。先融合“资金可信度”和“主力流向性”的原始值，
+                      计算出“综合能量品质原始分”，再对其进行归一化。最后，将“对倒强度”作为独立的惩罚因子，
+                      对归一化后的品质分进行惩罚，逻辑更清晰，结果更可靠。
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
-        quality_weights = get_param_value(p_conf_dyn.get('energy_quality_weights'), {'credibility': 0.4, 'directionality': 0.4, 'wash_trade_penalty': 0.2})
+        quality_weights = get_param_value(p_conf_dyn.get('energy_quality_weights'), {'credibility': 0.5, 'directionality': 0.5}) # 调整权重
         required_signals = [
             'VPA_EFFICIENCY_D', 'CMF_21_D',
             'flow_credibility_index_D', 'main_force_flow_directionality_D', 'wash_trade_intensity_D'
@@ -276,24 +277,34 @@ class DynamicMechanicsEngine:
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         cmf_bipolar = get_adaptive_mtf_normalized_bipolar_score(cmf, df.index, default_weights)
         raw_energy_score = (vpa_bipolar * 0.5 + cmf_bipolar * 0.5).clip(-1, 1)
+        # --- 修改：采用“先融合，后归一”并分离惩罚因子 ---
         # 2. 计算能量品质调节器
-        credibility_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'flow_credibility_index_D', 0.5), df.index, True, default_weights)
-        directionality_score = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'main_force_flow_directionality_D', 0.5), df.index, True, default_weights)
-        wash_trade_penalty = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'wash_trade_intensity_D', 0.0), df.index, True, default_weights)
-        energy_quality_modulator = (
-            credibility_score * quality_weights.get('credibility', 0.4) +
-            directionality_score * quality_weights.get('directionality', 0.4) +
-            (1 - wash_trade_penalty) * quality_weights.get('wash_trade_penalty', 0.2)
-        ).clip(0, 1)
+        raw_credibility = self._get_safe_series(df, 'flow_credibility_index_D', 0.5)
+        raw_directionality = self._get_safe_series(df, 'main_force_flow_directionality_D', 0.5)
+        raw_wash_trade = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0)
+        # 2.1 先融合核心品质因子的原始值
+        composite_quality_raw = (
+            raw_credibility * quality_weights.get('credibility', 0.5) +
+            raw_directionality * quality_weights.get('directionality', 0.5)
+        )
+        # 2.2 对融合后的综合分进行归一化，得到基础品质分
+        base_quality_score = get_adaptive_mtf_normalized_score(composite_quality_raw, df.index, True, default_weights)
+        # 2.3 计算独立的惩罚因子
+        wash_trade_penalty_factor = 1 - get_adaptive_mtf_normalized_score(raw_wash_trade, df.index, True, default_weights).clip(0, 1)
+        # 2.4 最终调节器 = 基础品质分 * 惩罚因子
+        energy_quality_modulator = (base_quality_score * wash_trade_penalty_factor).clip(0, 1)
+        # --- 修改结束 ---
         # 3. 最终能量真实性分
         final_energy_score = (raw_energy_score * energy_quality_modulator).clip(-1, 1)
         if is_probe_day:
             last_values = {
                 "原料-VPA": vpa.iloc[-1], "原料-CMF": cmf.iloc[-1],
-                "品质-可信度": self._get_safe_series(df, 'flow_credibility_index_D').iloc[-1],
-                "品质-流向性": self._get_safe_series(df, 'main_force_flow_directionality_D').iloc[-1],
-                "品质-对倒": self._get_safe_series(df, 'wash_trade_intensity_D').iloc[-1],
+                "品质-可信度": raw_credibility.iloc[-1],
+                "品质-流向性": raw_directionality.iloc[-1],
+                "品质-对倒": raw_wash_trade.iloc[-1],
                 "节点-原始能量分": raw_energy_score.iloc[-1],
+                "节点-品质综合分(原始)": composite_quality_raw.iloc[-1],
+                "节点-惩罚因子": wash_trade_penalty_factor.iloc[-1],
                 "节点-品质调节器": energy_quality_modulator.iloc[-1],
                 "结果-最终能量分": final_energy_score.iloc[-1]
             }
