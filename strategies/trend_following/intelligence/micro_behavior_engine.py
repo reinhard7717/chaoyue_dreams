@@ -56,12 +56,10 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 诡道三策版】微观行为诊断引擎总指挥
-        - 核心升级: 废弃旧的“伪装、试探、效率”三大公理，引入全新的“诡道三策”：
-                    1. 隐秘行动 (Stealth Ops): 直接捕捉主力“明修栈道，暗度陈仓”的吸筹行为。
-                    2. 震慑突袭 (Shock & Awe): 捕捉主力利用瞬间暴力行为测试或清洗市场的战术。
-                    3. 成本控制 (Cost Control): 评估主力引导市场预期和防守自身成本区的能力。
-        - 核心保留: 保留了有价值的“微观背离”公理。
+        【V3.1 · 战略意图升维版】微观行为诊断引擎总指挥
+        - 核心升级: 在原有四大诊断信号的基础上，新增调用`_synthesize_strategic_intent`方法，
+                    生成一个全新的顶层裁决信号 `SCORE_MICRO_STRATEGIC_INTENT`，
+                    实现从战术诊断到战略意图的升维。
         """
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -72,16 +70,24 @@ class MicroBehaviorEngine:
         p_behavior_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_behavior_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # --- 调用全新的“诡道三策”和保留的“背离”公理 ---
+        # --- 调用“诡道三策”和“背离”公理 ---
         strategy_stealth_ops = self._diagnose_strategy_stealth_ops(df, default_weights)
         strategy_shock_and_awe = self._diagnose_strategy_shock_and_awe(df, default_weights)
         strategy_cost_control = self._diagnose_strategy_cost_control(df, default_weights)
-        axiom_divergence = self._diagnose_axiom_divergence(df, 55) # norm_window 保持旧值
+        axiom_divergence = self._diagnose_axiom_divergence(df, 55)
         # --- 更新输出的信号名称 ---
         all_states['SCORE_MICRO_STRATEGY_STEALTH_OPS'] = strategy_stealth_ops
         all_states['SCORE_MICRO_STRATEGY_SHOCK_AND_AWE'] = strategy_shock_and_awe
         all_states['SCORE_MICRO_STRATEGY_COST_CONTROL'] = strategy_cost_control
         all_states['SCORE_MICRO_AXIOM_DIVERGENCE'] = axiom_divergence
+        # --- 新增：调用战略意图合成器 ---
+        strategic_intent = self._synthesize_strategic_intent( # 新增代码
+            stealth_ops=strategy_stealth_ops,
+            shock_awe=strategy_shock_and_awe,
+            cost_control=strategy_cost_control,
+            divergence=axiom_divergence
+        )
+        all_states['SCORE_MICRO_STRATEGIC_INTENT'] = strategic_intent # 新增代码
         # 引入微观行为层面的看涨/看跌背离信号
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_MICRO_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
@@ -239,5 +245,42 @@ class MicroBehaviorEngine:
                 print(f"        - 计算节点: 基础意图分={base_intent_score.loc[probe_ts]:.4f}")
                 print(f"        - 最终成本控制分 (0.7*意图 + 0.3*稳固度): {cost_control_score.loc[probe_ts]:.4f}")
         return cost_control_score.astype(np.float32)
+
+    def _synthesize_strategic_intent(self, stealth_ops: pd.Series, shock_awe: pd.Series, cost_control: pd.Series, divergence: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 新增】微观战略意图合成器
+        - 核心逻辑: 构建“攻防意图融合模型”，将微观战术信号整合成一个顶层战略意图分。
+                      - 进攻力量: 隐秘行动 + 震慑突袭 (正分部分)
+                      - 控制力量: 成本控制
+                      - 风险因子: 微观背离
+        - 融合公式: (进攻力量 * 0.4 + 控制力量 * 0.4 + 风险因子 * 0.2)
+        """
+        # 提取进攻信号
+        offensive_force = (stealth_ops + shock_awe.clip(lower=0)) / 2
+        # 控制力量即成本控制信号
+        control_force = cost_control
+        # 风险因子即背离信号
+        risk_factor = divergence
+        # 加权融合
+        strategic_intent_score = (
+            offensive_force * 0.4 +
+            control_force * 0.4 +
+            risk_factor * 0.2
+        ).clip(-1, 1)
+        # --- 探针逻辑 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(stealth_ops.index.tz if stealth_ops.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in stealth_ops.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [微观行为探针] _synthesize_strategic_intent @ {probe_date_str}")
+                print(f"        - 输入信号: 隐秘行动={stealth_ops.loc[probe_ts]:.4f}, 震慑突袭={shock_awe.loc[probe_ts]:.4f}, 成本控制={cost_control.loc[probe_ts]:.4f}, 微观背离={divergence.loc[probe_ts]:.4f}")
+                print(f"        - 计算节点: 进攻力量={offensive_force.loc[probe_ts]:.4f}, 控制力量={control_force.loc[probe_ts]:.4f}, 风险因子={risk_factor.loc[probe_ts]:.4f}")
+                print(f"        - 最终战略意图分: {strategic_intent_score.loc[probe_ts]:.4f}")
+        return strategic_intent_score.astype(np.float32)
+
 
 
