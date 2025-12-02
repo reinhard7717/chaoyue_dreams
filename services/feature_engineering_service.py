@@ -412,12 +412,10 @@ class FeatureEngineeringService:
         bbw_col = f"BBW_{boll_period}_{float(boll_std)}_{timeframe}"
         roc_col = f"ROC_{roc_period}_{timeframe}"
         vol_ma_col = f"VOL_MA_{vol_ma_period}_{timeframe}"
-        # --- 修改代码开始 ---
         required_cols = [
             bbw_col, roc_col, vol_ma_col, f'high_{timeframe}', f'low_{timeframe}', f'volume_{timeframe}',
             'dominant_peak_solidity_D', 'control_solidity_index_D' # 新增：引入主力意图证据
         ]
-        # --- 修改代码结束 ---
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
             logger.warning(f"盘整期计算跳过，依赖的列 '{', '.join(missing)}' 不存在。")
@@ -427,7 +425,6 @@ class FeatureEngineeringService:
         min_expanding_periods = boll_period * 2
         dynamic_bbw_threshold = df[bbw_col].expanding(min_periods=min_expanding_periods).quantile(bbw_quantile).bfill()
         df[f'dynamic_bbw_threshold_{timeframe}'] = dynamic_bbw_threshold
-        # --- 修改代码开始 ---
         # 条件1: 经典几何形态构筑
         cond_volatility = df[bbw_col] < df[f'dynamic_bbw_threshold_{timeframe}']
         cond_trend = df[roc_col].abs() < roc_threshold
@@ -440,7 +437,6 @@ class FeatureEngineeringService:
         is_intent_based_consolidation = cond_chips_locked & cond_main_force_control
         # 最终判定：满足任一条件即可
         is_consolidating = is_classic_consolidation | is_intent_based_consolidation
-        # --- 修改代码结束 ---
         df[f'is_consolidating_{timeframe}'] = is_consolidating
         if is_consolidating.any():
             consolidation_blocks = (is_consolidating != is_consolidating.shift()).cumsum()

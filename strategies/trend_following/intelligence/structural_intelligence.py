@@ -138,10 +138,8 @@ class StructuralIntelligence:
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
             return pd.Series(0.0, index=df.index)
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        # --- 修改代码开始 ---
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # --- 修改代码结束 ---
         price_trend_raw = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_axiom_divergence")
         price_trend_score = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df.index, tf_weights)
         ema_short_long_diff = self._get_safe_series(df, 'EMA_5_D', 0.0, method_name="_diagnose_axiom_divergence") - self._get_safe_series(df, 'EMA_55_D', 0.0, method_name="_diagnose_axiom_divergence")
@@ -187,10 +185,8 @@ class StructuralIntelligence:
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_form"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
-        # --- 修改代码开始 ---
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
         tf_weights = mtf_weights_conf.get('short_term_geometry', {5: 0.5, 8: 0.3, 13: 0.2})
-        # --- 修改代码结束 ---
         # 维度1: 排列 (Alignment)
         bull_alignment_raw = pd.Series(0.0, index=df_index)
         alignment_weights = np.linspace(0.5, 0.2, len(ema_periods) - 1)
@@ -248,13 +244,11 @@ class StructuralIntelligence:
         - 核心证据 (韧性): `support_validation_strength`作为结构在压力测试下的直接表现。
         - 【优化】使用专属的 `long_term_stability` MTF权重进行归一化。
         """
-        # --- 修改代码开始 ---
         # 移除 structural_leverage_D
         required_signals = [
             'flow_credibility_index_D', 'main_force_slippage_index_D', 'support_validation_strength_D',
             'dominant_peak_solidity_D', 'close_D'
         ]
-        # --- 修改代码结束 ---
         long_term_ma_periods = [55, 144]
         required_signals.extend([f'MA_{p}_D' for p in long_term_ma_periods])
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_stability"):
@@ -282,24 +276,20 @@ class StructuralIntelligence:
         market_impact_score = get_adaptive_mtf_normalized_score(market_impact_raw, df_index, ascending=False, tf_weights=tf_weights)
         micro_liquidity_score = (liquidity_auth_score * 0.6 + market_impact_score * 0.4).clip(0, 1)
         # --- 4. 融合 ---
-        # --- 修改代码开始 ---
         # 移除杠杆分，重新分配权重: 宏观支撑(0.4), 韧性(0.4), 流动性(0.2)
         stability_score = (
             macro_support_score * 0.4 +
             resilience_score * 0.4 +
             micro_liquidity_score * 0.2
         ).clip(0, 1)
-        # --- 修改代码结束 ---
         final_score = (stability_score * 2 - 1).astype(np.float32)
         if self.is_probe_date:
             today_score = final_score.iloc[-1]
             print(f"    [探针] 结构稳定性公理 (SCORE_STRUCT_AXIOM_STABILITY): {today_score:.4f}")
             print(f"      - MTF权重: long_term_stability")
-            # --- 修改代码开始 ---
             print(f"      - 原料: 支撑强度(原始)={pullback_depth_raw.iloc[-1]:.2f}, 流动性(原始)={liquidity_auth_raw.iloc[-1]:.2f}")
             print(f"      - 计算: 宏观支撑分={macro_support_score.iloc[-1]:.2f}, 韧性分={resilience_score.iloc[-1]:.2f}, 流动性分={micro_liquidity_score.iloc[-1]:.2f}")
-            # --- 修改代码结束 ---
-        return final_score
+            return final_score
 
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, daily_trend_form_score: pd.Series) -> pd.Series:
         """
@@ -328,7 +318,6 @@ class StructuralIntelligence:
         fastest_short_ma = self._get_safe_series(df, f'EMA_{min(short_periods)}_D', method_name="_diagnose_axiom_mtf_cohesion")
         slowest_long_ma = self._get_safe_series(df, f'EMA_{max(long_periods)}_D', method_name="_diagnose_axiom_mtf_cohesion")
         alignment_score = (fastest_short_ma > slowest_long_ma).astype(float)
-        # --- 修改代码开始 ---
         # 1b. 自适应风险感知：基于布林带的 过热惩罚 与 超跌缓和
         bbp_raw = self._get_safe_series(df, 'BBP_21_2.0_D', 0.5, method_name="_diagnose_axiom_mtf_cohesion")
         # 过热惩罚：当价格进入布林带上轨的最后5%区间(BBP>0.95)时开始惩罚，突破上轨越多惩罚越大
@@ -338,7 +327,6 @@ class StructuralIntelligence:
         # 1c. 风险调整后的宏观分
         bullish_macro_health = alignment_score * (1 - overheat_penalty)
         bearish_macro_health = (1 - alignment_score) * (1 - oversold_mitigation)
-        # --- 修改代码结束 ---
         # --- 2. 微观意图 (Micro Intent) ---
         ofi_raw = self._get_safe_series(df, 'order_book_imbalance_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
         buy_sweep_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_axiom_mtf_cohesion")
@@ -359,11 +347,9 @@ class StructuralIntelligence:
             today_score = final_score.iloc[-1]
             print(f"    [探针] 宏观趋势健康度公理 (SCORE_STRUCT_AXIOM_MTF_COHESION): {today_score:.4f}")
             print(f"      - MTF权重: default (for micro)")
-            # --- 修改代码开始 ---
             print(f"      - 宏观原料: 排列分={alignment_score.iloc[-1]:.2f}, BBP_21(原始)={bbp_raw.iloc[-1]:.2f}")
             print(f"      - 宏观计算: 过热惩罚={overheat_penalty.iloc[-1]:.2f}, 超跌缓和={oversold_mitigation.iloc[-1]:.2f}")
             print(f"      - 宏观计算: 看涨健康度分={bullish_macro_health.iloc[-1]:.2f}, 看跌健康度分={bearish_macro_health.iloc[-1]:.2f}")
-            # --- 修改代码结束 ---
             print(f"      - 微观原料: OFI(原始)={ofi_raw.iloc[-1]:.2f}, 买盘消耗(原始)={buy_sweep_raw.iloc[-1]:.2f}")
             print(f"      - 微观计算: 微观意图分={micro_intent_score.iloc[-1]:.2f}")
             print(f"      - 和谐度融合: (宏观健康度*0.7 + 微观意图*0.3)")
@@ -432,9 +418,7 @@ class StructuralIntelligence:
         """
         required_signals = ['structural_leverage_D']
         if not self._validate_required_signals(self.strategy.df_indicators, required_signals, "_diagnose_strategic_posture"):
-            # --- 修改代码开始 ---
-            return pd.Series(0.0, index=axiom_trend_form.index), pd.Series(0.5, index=axiom_trend_form.index)
-            # --- 修改代码结束 ---
+                return pd.Series(0.0, index=axiom_trend_form.index), pd.Series(0.5, index=axiom_trend_form.index)
         df_index = axiom_trend_form.index
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
@@ -465,9 +449,7 @@ class StructuralIntelligence:
             print(f"      - 计算: 基础矛分={base_offense_score.iloc[-1]:.2f}, 张力放大器={tension_amplifier.iloc[-1]:.2f} -> 最终矛分={offense_score.iloc[-1]:.2f}")
             print(f"      - 计算: 动态盾={dynamic_defense.iloc[-1]:.2f}, 静态盾(平台)={static_defense.iloc[-1]:.2f} -> 最终盾强度={defense_strength.iloc[-1]:.2f}")
             print(f"      - 协同融合: 防御调节器={defense_modifier.iloc[-1]:.2f} -> 最终态势 = 最终矛分 * (1 + 调节器)")
-        # --- 修改代码开始 ---
         return final_score, defense_strength
-        # --- 修改代码结束 ---
 
     def _diagnose_axiom_tension(self, df: pd.DataFrame) -> pd.Series:
         """
@@ -740,49 +722,42 @@ class StructuralIntelligence:
 
     def _diagnose_breakout_readiness(self, df: pd.DataFrame, axiom_tension: pd.Series) -> pd.Series:
         """
-        【V1.0 · 过程监理版】诊断“突破准备度”
-        - 核心逻辑: 在横盘整理期间，实时评估突破准备工作的质量。
+        【V2.0 · 无条件监理版】诊断“突破准备度”
+        - 核心升级: 废除对`is_consolidating_D`的依赖，使其成为一个无条件的、连续性的质量评估信号。
         - 评估维度: 供应枯竭度 + 主力控盘度 + 势能积蓄度
         """
         required_signals = [
-            'is_consolidating_D',
             'counterparty_exhaustion_index_D', 'turnover_rate_f_D',
             'control_solidity_index_D', 'mf_cost_zone_defense_intent_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_breakout_readiness"):
             return pd.Series(0.0, index=df.index)
-        # --- 1. 激活条件 ---
-        is_consolidating = self._get_safe_series(df, 'is_consolidating_D', 0.0, method_name="_diagnose_breakout_readiness").astype(bool)
-        # --- 2. 评估三大维度 ---
-        # 2a. 供应枯竭度
+        # --- 1. 评估三大维度 (无条件执行) ---
+        # 1a. 供应枯竭度
         supply_exhaustion_score = (
             get_adaptive_mtf_normalized_score(df['counterparty_exhaustion_index_D'], df.index, ascending=True) * 0.7 +
             get_adaptive_mtf_normalized_score(df['turnover_rate_f_D'], df.index, ascending=False) * 0.3
         )
-        # 2b. 主力控盘度
+        # 1b. 主力控盘度
         main_force_control_score = (
             get_adaptive_mtf_normalized_score(df['control_solidity_index_D'], df.index, ascending=True) * 0.5 +
             get_adaptive_mtf_normalized_score(df['mf_cost_zone_defense_intent_D'], df.index, ascending=True) * 0.5
         )
-        # 2c. 势能积蓄度 (直接复用结构张力公理)
+        # 1c. 势能积蓄度 (直接复用结构张力公理)
         energy_accumulation_score = axiom_tension
-        # --- 3. 融合输出 ---
+        # --- 2. 融合输出 (无条件执行) ---
         # 权重: 主力(0.4), 供应(0.4), 势能(0.2)
         readiness_score = (
             main_force_control_score * 0.4 +
             supply_exhaustion_score * 0.4 +
             energy_accumulation_score * 0.2
         ).clip(0, 1)
-        # 只有在横盘整理时，分数才有效
-        final_score = (readiness_score * is_consolidating).astype(np.float32)
+        # 废除 is_consolidating 开关，直接输出连续性分数
+        final_score = readiness_score.astype(np.float32)
         if self.is_probe_date:
             today_score = final_score.iloc[-1]
             print(f"    [探针] 突破准备度 (SCORE_STRUCT_BREAKOUT_READINESS): {today_score:.4f}")
-            if is_consolidating.iloc[-1]:
-                print(f"      - 状态: [正在构筑] 识别到横盘整理。")
-                print(f"      - 质量评估: 供应枯竭度={supply_exhaustion_score.iloc[-1]:.2f}, 主力控盘度={main_force_control_score.iloc[-1]:.2f}, 势能积蓄度={energy_accumulation_score.iloc[-1]:.2f}")
-            else:
-                print(f"      - 状态: [未构筑] 未识别到横盘整理。")
+            print(f"      - 质量评估: 供应枯竭度={supply_exhaustion_score.iloc[-1]:.2f}, 主力控盘度={main_force_control_score.iloc[-1]:.2f}, 势能积蓄度={energy_accumulation_score.iloc[-1]:.2f}")
         return final_score
 
 
