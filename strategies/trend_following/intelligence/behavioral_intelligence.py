@@ -318,7 +318,7 @@ class BehavioralIntelligence:
         states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = self._diagnose_breakout_failure_risk(df, distribution_intent)
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights)
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights)
-        states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = self._calculate_absorption_strength(df, default_weights)
+        states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = self._calculate_absorption_strength(df, default_weights, lower_shadow_quality)
         states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] = self._diagnose_shakeout_confirmation(
             df,
             states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'],
@@ -818,40 +818,34 @@ class BehavioralIntelligence:
                 print(f"        - 最终爆发品质分: {volume_burst_quality.loc[probe_ts]:.4f} (上涨日: {is_rising.loc[probe_ts]})")
         return volume_burst_quality.clip(0, 1).astype(np.float32)
 
-    def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
+    def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict, lower_shadow_quality: pd.Series) -> pd.Series:
         """
-        【V1.5 · 三维诊断版】计算下跌吸筹强度
-        - 核心重构: 升级为“事件-位置-形态”三维诊断模型，全面提升信号的可靠性和战术价值。
-                      - 事件: 引入“投降承接指数”，聚焦于最具反转意义的恐慌盘吸收事件。
-                      - 位置: 引入“支撑验证强度”，评估承接是否发生在关键战略位置。
-                      - 形态: 保留“形态显著性”修正的下影线，作为最终的K线确认。
+        【V3.2 · 信号依赖注入版】计算下跌过程中的广义吸筹强度
+        - 核心架构优化: 不再独立计算“形态分”，而是直接消费由 `_diagnose_lower_shadow_quality`
+                        计算出的权威分数，确保了模型内部逻辑的绝对一致性。
         """
-        # 更新依赖信号，引入投降承接和支撑验证
-        required_signals = ['capitulation_absorption_index_D', 'support_validation_strength_D', 'lower_shadow_absorption_strength_D', 'high_D', 'low_D', 'open_D', 'close_D']
+        required_signals = [
+            'capitulation_absorption_index_D', 'support_validation_strength_D',
+            'lower_shadow_absorption_strength_D', 'pct_change_D'
+        ]
         if not self._validate_required_signals(df, required_signals, "_calculate_absorption_strength"):
             return pd.Series(0.0, index=df.index)
-        # --- 形态显著性过滤器 (逻辑不变) ---
-        high = self._get_safe_series(df, 'high_D', method_name="_calculate_absorption_strength")
-        low = self._get_safe_series(df, 'low_D', method_name="_calculate_absorption_strength")
-        open_price = self._get_safe_series(df, 'open_D', method_name="_calculate_absorption_strength")
-        close_price = self._get_safe_series(df, 'close_D', method_name="_calculate_absorption_strength")
-        total_range = (high - low).replace(0, 1e-9)
-        lower_shadow_length = (np.minimum(open_price, close_price) - low).clip(lower=0)
-        significance_factor = (lower_shadow_length / total_range).clip(0, 1).fillna(0.0)
-        # --- 计算三维得分 ---
-        # 1. 事件驱动分
+        # 1. 事件驱动证据 (投降承接)
         event_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_calculate_absorption_strength")
         event_score = get_adaptive_mtf_normalized_score(event_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 2. 位置确认分
+        # 2. 位置证据 (关键支撑验证)
         location_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_calculate_absorption_strength")
         location_score = get_adaptive_mtf_normalized_score(location_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 3. 形态确认分
-        morphology_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_calculate_absorption_strength")
-        morphology_score_normalized = get_adaptive_mtf_normalized_score(morphology_raw, df.index, ascending=True, tf_weights=tf_weights)
-        morphology_score_adjusted = morphology_score_normalized * significance_factor
-        # 最终融合，赋予事件和位置更高权重
-        final_score = (event_score * 0.4 + location_score * 0.4 + morphology_score_adjusted * 0.2).clip(0, 1)
-        # --- 探针逻辑更新 ---
+        # 3. 形态证据 (下影线品质)
+        # [修改的代码行] 废弃独立计算，直接使用注入的权威信号
+        morphology_score = lower_shadow_quality
+        # 4. 证据融合 (算术平均)
+        absorption_strength = (
+            event_score * 0.3 +
+            location_score * 0.4 +
+            morphology_score * 0.3
+        ).fillna(0.0)
+        # --- 探针监测 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -861,12 +855,12 @@ class BehavioralIntelligence:
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _calculate_absorption_strength @ {probe_date_str}")
-                # 更新探针输出
                 print(f"        - 事件分 (投降承接): {event_score.loc[probe_ts]:.4f} (原始值: {event_raw.loc[probe_ts]:.2f})")
                 print(f"        - 位置分 (支撑验证): {location_score.loc[probe_ts]:.4f} (原始值: {location_raw.loc[probe_ts]:.2f})")
-                print(f"        - 形态分 (下影线): {morphology_score_adjusted.loc[probe_ts]:.4f} (修正前: {morphology_score_normalized.loc[probe_ts]:.4f}, 显著性: {significance_factor.loc[probe_ts]:.4f})")
-                print(f"        - 最终下跌吸筹强度分: {final_score.loc[probe_ts]:.4f}")
-        return final_score.astype(np.float32)
+                # [修改的代码行] 更新探针，反映新的信号源
+                print(f"        - 形态分 (下影线-权威注入): {morphology_score.loc[probe_ts]:.4f}")
+                print(f"        - 最终下跌吸筹强度分: {absorption_strength.loc[probe_ts]:.4f}")
+        return absorption_strength.astype(np.float32)
 
     def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, downward_resistance: pd.Series, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:
         """
