@@ -1204,7 +1204,7 @@
       },
       "dynamic_mechanics_params": {
         "enabled": true,
-        "description": "【V7.0 · Z-Score校准版】引入基于长期标准差的Z-Score校准方法，取代传统的Min-Max归一化，旨在保留跨公理信号的相对强度，解决“尺度失衡”问题。",
+        "description": "【V7.1 · Tanh映射版】Z-Score校准方法全面升级，采用tanh函数进行平滑非线性映射。此举旨在优雅处理标准差为零的“信息真空”情况，并为信号提供更鲁棒的、具备统计意义的标度，解决了极端值和尺度失衡问题。",
         "norm_window": 55,
         "calibrated_norm_params": {
           "description": "【Z-Score校准】用于“先融合，后归一”步骤的参数。",

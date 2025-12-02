@@ -84,9 +84,9 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, norm_window: int, is_probe_day: bool, current_date_str: str) -> pd.Series:
         """
-        【V3.0 · Z-Score校准版】力学公理一：诊断“动量品质”
-        - 核心重构: 采用Z-Score对“综合品质原始分”进行校准，以保留跨公理的相对强度信息。
-                      Z-Score = (value - mean) / (std * sensitivity)
+        【V3.1 · Tanh映射版】力学公理一：诊断“动量品质”
+        - 核心重构: 引入tanh函数对Z-Score进行平滑映射，取代原有的clip逻辑。
+                      同时，显式处理标准差为0的情况，将其Z-Score置为0（中性），避免NaN崩溃。
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         quality_weights = get_param_value(p_conf_dyn.get('momentum_quality_weights'), {'purity': 0.4, 'conviction': 0.4, 'vitality': 0.2})
@@ -115,11 +115,14 @@ class DynamicMechanicsEngine:
             raw_conviction * quality_weights.get('conviction', 0.4) +
             raw_vitality * quality_weights.get('vitality', 0.2)
         )
-        # --- 使用Z-Score校准 ---
+        # --- 修改：使用更鲁棒的Z-Score计算和Tanh映射 ---
         mean = composite_quality_raw.rolling(window=z_window, min_periods=z_window//2).mean()
-        std = composite_quality_raw.rolling(window=z_window, min_periods=z_window//2).std().replace(0, np.nan)
-        z_score = (composite_quality_raw - mean) / (std * z_sens)
-        momentum_quality_modulator = z_score.fillna(0).clip(0, 1) # 品质调节器只取正向贡献
+        std = composite_quality_raw.rolling(window=z_window, min_periods=z_window//2).std()
+        z_score = pd.Series(0.0, index=composite_quality_raw.index)
+        valid_std_mask = std > 1e-9
+        z_score[valid_std_mask] = (composite_quality_raw[valid_std_mask] - mean[valid_std_mask]) / (std[valid_std_mask] * z_sens)
+        momentum_quality_modulator = (np.tanh(z_score.fillna(0)) + 1) / 2
+        # --- 修改结束 ---
         final_momentum_score = (raw_momentum_score * momentum_quality_modulator).clip(-1, 1)
         if is_probe_day:
             last_values = {
@@ -134,8 +137,9 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_inertia(self, df: pd.DataFrame, norm_window: int, is_probe_day: bool, current_date_str: str) -> pd.Series:
         """
-        【V3.2 · Z-Score校准版】力学公理二：诊断“结构化惯性”
-        - 核心重构: 采用Z-Score对“综合结构加固原始分”进行校准，以保留跨公理的相对强度信息。
+        【V3.3 · Tanh映射版】力学公理二：诊断“结构化惯性”
+        - 核心重构: 引入tanh函数对Z-Score进行平滑映射，取代原有的clip逻辑。
+                      同时，显式处理标准差为0的情况，将其Z-Score置为0（中性），避免NaN崩溃。
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         inertia_weights = get_param_value(p_conf_dyn.get('inertia_structural_weights'), {'base_inertia': 0.7, 'structural_reinforcement': 0.3})
@@ -167,11 +171,14 @@ class DynamicMechanicsEngine:
         raw_alignment = self._get_safe_series(df, 'trend_alignment_index_D', 0.0)
         raw_leverage = self._get_safe_series(df, 'structural_leverage_D', 0.0)
         composite_reinforcement_raw = (raw_alignment * 0.5 + raw_leverage * 0.5)
-        # --- 使用Z-Score校准 ---
+        # --- 修改：使用更鲁棒的Z-Score计算和Tanh映射 ---
         mean = composite_reinforcement_raw.rolling(window=z_window, min_periods=z_window//2).mean()
-        std = composite_reinforcement_raw.rolling(window=z_window, min_periods=z_window//2).std().replace(0, np.nan)
-        z_score = (composite_reinforcement_raw - mean) / (std * z_sens)
-        structural_reinforcement_score = z_score.fillna(0).clip(-1, 1)
+        std = composite_reinforcement_raw.rolling(window=z_window, min_periods=z_window//2).std()
+        z_score = pd.Series(0.0, index=composite_reinforcement_raw.index)
+        valid_std_mask = std > 1e-9
+        z_score[valid_std_mask] = (composite_reinforcement_raw[valid_std_mask] - mean[valid_std_mask]) / (std[valid_std_mask] * z_sens)
+        structural_reinforcement_score = np.tanh(z_score.fillna(0))
+        # --- 修改结束 ---
         total_inertia_quality = (base_inertia_quality * inertia_weights.get('base_inertia', 0.7) + structural_reinforcement_score.clip(0, 1) * inertia_weights.get('structural_reinforcement', 0.3)).clip(0, 1)
         adx_direction = (self._get_safe_series(df, 'PDI_14_D', 0) > self._get_safe_series(df, 'NDI_14_D', 0)).astype(float) * 2 - 1
         final_inertia_score = (total_inertia_quality * adx_direction).clip(-1, 1)
@@ -188,8 +195,9 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int, is_probe_day: bool, current_date_str: str) -> pd.Series:
         """
-        【V3.2 · Z-Score校准版】力学公理三：诊断“势能稳定性”
-        - 核心重构: 采用Z-Score对“综合势能原始分”进行校准，以保留跨公理的相对强度信息。
+        【V3.3 · Tanh映射版】力学公理三：诊断“势能稳定性”
+        - 核心重构: 引入tanh函数对Z-Score进行平滑映射，取代原有的clip逻辑。
+                      同时，显式处理标准差为0的情况，将其Z-Score置为0（中性），避免NaN崩溃。
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         potential_weights = get_param_value(p_conf_dyn.get('stability_potential_weights'), {'ma_tension': 0.4, 'structural_tension': 0.4, 'breakout_readiness': 0.2})
@@ -218,11 +226,14 @@ class DynamicMechanicsEngine:
             raw_structural_tension * potential_weights.get('structural_tension', 0.4) +
             raw_readiness * potential_weights.get('breakout_readiness', 0.2)
         )
-        # --- 使用Z-Score校准 ---
+        # --- 修改：使用更鲁棒的Z-Score计算和Tanh映射 ---
         mean = composite_potential_raw.rolling(window=z_window, min_periods=z_window//2).mean()
-        std = composite_potential_raw.rolling(window=z_window, min_periods=z_window//2).std().replace(0, np.nan)
-        z_score = (composite_potential_raw - mean) / (std * z_sens)
-        potential_energy_score = z_score.fillna(0).clip(0, 1) # 势能只取正向贡献
+        std = composite_potential_raw.rolling(window=z_window, min_periods=z_window//2).std()
+        z_score = pd.Series(0.0, index=composite_potential_raw.index)
+        valid_std_mask = std > 1e-9
+        z_score[valid_std_mask] = (composite_potential_raw[valid_std_mask] - mean[valid_std_mask]) / (std[valid_std_mask] * z_sens)
+        potential_energy_score = (np.tanh(z_score.fillna(0)) + 1) / 2
+        # --- 修改结束 ---
         final_stability_score = ((raw_stability_score * 2 - 1) * potential_energy_score).clip(-1, 1)
         if is_probe_day:
             last_values = {
@@ -237,8 +248,9 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_energy(self, df: pd.DataFrame, norm_window: int, is_probe_day: bool, current_date_str: str) -> pd.Series:
         """
-        【V2.2 · Z-Score校准版】力学公理四：诊断“能量真实性”
-        - 核心重构: 采用Z-Score对“综合能量品质原始分”进行校准，以保留跨公理的相对强度信息。
+        【V2.3 · Tanh映射版】力学公理四：诊断“能量真实性”
+        - 核心重构: 引入tanh函数对Z-Score进行平滑映射，取代原有的clip逻辑。
+                      同时，显式处理标准差为0的情况，将其Z-Score置为0（中性），避免NaN崩溃。
         """
         p_conf_dyn = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         quality_weights = get_param_value(p_conf_dyn.get('energy_quality_weights'), {'credibility': 0.5, 'directionality': 0.5})
@@ -266,11 +278,14 @@ class DynamicMechanicsEngine:
             raw_credibility * quality_weights.get('credibility', 0.5) +
             raw_directionality * quality_weights.get('directionality', 0.5)
         )
-        # --- 使用Z-Score校准 ---
+        # --- 修改：使用更鲁棒的Z-Score计算和Tanh映射 ---
         mean = composite_quality_raw.rolling(window=z_window, min_periods=z_window//2).mean()
-        std = composite_quality_raw.rolling(window=z_window, min_periods=z_window//2).std().replace(0, np.nan)
-        z_score = (composite_quality_raw - mean) / (std * z_sens)
-        base_quality_score = z_score.fillna(0).clip(0, 1) # 品质分只取正向贡献
+        std = composite_quality_raw.rolling(window=z_window, min_periods=z_window//2).std()
+        z_score = pd.Series(0.0, index=composite_quality_raw.index)
+        valid_std_mask = std > 1e-9
+        z_score[valid_std_mask] = (composite_quality_raw[valid_std_mask] - mean[valid_std_mask]) / (std[valid_std_mask] * z_sens)
+        base_quality_score = (np.tanh(z_score.fillna(0)) + 1) / 2
+        # --- 修改结束 ---
         wash_trade_penalty_factor = 1 - get_adaptive_mtf_normalized_score(raw_wash_trade, df.index, True, default_weights).clip(0, 1)
         energy_quality_modulator = (base_quality_score * wash_trade_penalty_factor).clip(0, 1)
         final_energy_score = (raw_energy_score * energy_quality_modulator).clip(-1, 1)
