@@ -1658,8 +1658,9 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_retail_sentiment_metrics(context: dict) -> dict:
         """
-        【V66.1 · 内核静态化补丁】
-        - 核心修复: 添加 @staticmethod 装饰器，移除 self 参数，将其转换为无状态的静态方法。
+        【V66.2 · Groupby修正版】
+        - 核心修复: 彻底修复了因高频数据索引重复导致的 `ValueError: cannot reindex on an axis with duplicate labels` 致命错误。
+        - 核心重构: 遵循Pandas最佳实践，将错误的“先过滤，后分组”逻辑，重构为正确的“先分组，后过滤”模式，从根本上解决了索引与分组器错位的问题。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
@@ -1682,10 +1683,13 @@ class AdvancedFundFlowMetricsService:
             max_fomo_event_info = {'score': -1}
             hf_analysis_df['is_new_high'] = hf_analysis_df['price'] > hf_analysis_df['price'].cummax().shift(1).fillna(0)
             fomo_events = hf_analysis_df['is_new_high'].ne(hf_analysis_df['is_new_high'].shift()).cumsum()
-            fomo_zones = hf_analysis_df[hf_analysis_df['is_new_high']]
+            # [修改的代码行] 移除错误的 fomo_zones 创建
             daily_retail_buy_vol = hf_analysis_df[(hf_analysis_df['amount'] < 50000) & (hf_analysis_df['type'] == 'B')]['volume'].sum()
             avg_retail_buy_rate = daily_retail_buy_vol / (4 * 3600) if daily_retail_buy_vol > 0 else 0
-            for _, event_df in fomo_zones.groupby(fomo_events):
+            # [修改的代码行] 重构循环为“先分组，后过滤”
+            for _, event_df in hf_analysis_df.groupby(fomo_events):
+                if not event_df['is_new_high'].all():
+                    continue
                 if event_df.empty: continue
                 retail_buy_trades = event_df[(event_df['amount'] < 50000) & (event_df['type'] == 'B')]
                 if retail_buy_trades.empty: continue
@@ -1721,10 +1725,13 @@ class AdvancedFundFlowMetricsService:
             max_panic_event_info = {'score': -1}
             hf_analysis_df['is_new_low'] = hf_analysis_df['price'] < hf_analysis_df['price'].cummin().shift(1).fillna(float('inf'))
             panic_events = hf_analysis_df['is_new_low'].ne(hf_analysis_df['is_new_low'].shift()).cumsum()
-            panic_zones = hf_analysis_df[hf_analysis_df['is_new_low']]
+            # [修改的代码行] 移除错误的 panic_zones 创建
             daily_retail_sell_vol = hf_analysis_df[(hf_analysis_df['amount'] < 50000) & (hf_analysis_df['type'] == 'S')]['volume'].sum()
             avg_retail_sell_rate = daily_retail_sell_vol / (4 * 3600) if daily_retail_sell_vol > 0 else 0
-            for _, event_df in panic_zones.groupby(panic_events):
+            # [修改的代码行] 重构循环为“先分组，后过滤”
+            for _, event_df in hf_analysis_df.groupby(panic_events):
+                if not event_df['is_new_low'].all():
+                    continue
                 if event_df.empty: continue
                 retail_sell_trades = event_df[(event_df['amount'] < 50000) & (event_df['type'] == 'S')]
                 if retail_sell_trades.empty: continue
