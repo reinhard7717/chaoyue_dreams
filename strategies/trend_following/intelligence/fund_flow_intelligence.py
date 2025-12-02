@@ -47,16 +47,16 @@ class FundFlowIntelligence:
 
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V27.0 · 战略态势融合版】资金流情报分析总指挥
-        - 核心升级: 新增顶层融合信号 SCORE_FF_STRATEGIC_POSTURE (资金流战略态势)。
-        - 融合模型: 采用“矛与盾”非线性融合模型，将六大原子公理融合成一个顶层裁决信号，
-                      旨在奖励和谐共振，惩罚内在矛盾，一锤定音地判断当前资金流的总体战略意图。
+        【V28.0 · 向量合成版】资金流情报分析总指挥
+        - 核心升级: 引入“向量合成”融合模型。在“矛”与“盾”的内部融合中，增加“不谐和惩罚”机制。
+        - 融合模型: 当构成“矛”（攻击意图与动能）或“盾”（控制权与健康度）的内部信号方向不一致时，
+                      其合成后的分数将被削弱。此举旨在奖励内部信号的“共振”，惩罚“矛盾”，从而提升顶层信号的可靠性。
         """
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 资金流情报引擎在配置中被禁用，跳过分析。")
             return {}
-        print("启动【V27.0 · 战略态势融合版】资金流情报分析...") # 修改: 更新版本号和名称
+        print("启动【V28.0 · 向量合成版】资金流情报分析...") # 修改: 更新版本号和名称
         all_states = {}
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         # --- 1. 计算所有原子公理 ---
@@ -70,20 +70,28 @@ class FundFlowIntelligence:
             capital_signature_score=axiom_capital_signature,
             flow_health_score=axiom_flow_structure_health
         )
-        # --- 2. 新增：战略态势融合 ---
+        # --- 2. 升级：战略态势的向量合成 ---
         fusion_weights = get_param_value(p_conf.get('posture_fusion_weights'), {})
+        penalty_factor = get_param_value(p_conf.get('dissonance_penalty_factor'), 0.25) # 新增: 获取惩罚因子
         attack_weights = fusion_weights.get('attack_group', {})
         structure_weights = fusion_weights.get('structure_group', {})
         context_weights = fusion_weights.get('context_group', {})
-        attack_score = (axiom_conviction * attack_weights.get('conviction', 0.6) +
-                        axiom_flow_momentum * attack_weights.get('flow_momentum', 0.4))
-        structure_score = (axiom_consensus * structure_weights.get('consensus', 0.6) +
-                           axiom_flow_structure_health * structure_weights.get('flow_health', 0.4))
+        # 矛 (Attack) 的向量合成
+        attack_base = (axiom_conviction * attack_weights.get('conviction', 0.6) +
+                       axiom_flow_momentum * attack_weights.get('flow_momentum', 0.4))
+        attack_dissonance = abs(axiom_conviction - axiom_flow_momentum) / 2 # 归一化到 [0, 1]
+        attack_score = attack_base * (1 - attack_dissonance * penalty_factor)
+        # 盾 (Structure) 的向量合成
+        structure_base = (axiom_consensus * structure_weights.get('consensus', 0.6) +
+                          axiom_flow_structure_health * structure_weights.get('flow_health', 0.4))
+        structure_dissonance = abs(axiom_consensus - axiom_flow_structure_health) / 2 # 归一化到 [0, 1]
+        structure_score = structure_base * (1 - structure_dissonance * penalty_factor)
+        # 环境调节器 (不变)
         context_modulator = (1 +
                              axiom_capital_signature * context_weights.get('capital_signature', 0.1) +
                              axiom_divergence * context_weights.get('divergence', 0.1)
                              ).clip(0.5, 1.5)
-        # 核心融合公式：攻击力量 * 结构基础修正因子 * 环境调节器
+        # 核心融合公式 (不变)
         posture_core = attack_score * (1 + structure_score) / 2
         strategic_posture_score = (posture_core * context_modulator).clip(-1, 1)
         # --- 3. 状态赋值 ---
@@ -93,7 +101,7 @@ class FundFlowIntelligence:
         all_states['SCORE_FF_AXIOM_FLOW_MOMENTUM'] = axiom_flow_momentum
         all_states['SCORE_FF_AXIOM_CAPITAL_SIGNATURE'] = axiom_capital_signature
         all_states['SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH'] = axiom_flow_structure_health
-        all_states['SCORE_FF_STRATEGIC_POSTURE'] = strategic_posture_score.astype(np.float32) # 新增: 顶层战略态势分
+        all_states['SCORE_FF_STRATEGIC_POSTURE'] = strategic_posture_score.astype(np.float32)
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
@@ -105,11 +113,11 @@ class FundFlowIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df.index:
                 print(f"    -> [资金流战略态势探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - [矛] attack_score: {attack_score.loc[probe_date_for_loop]:.4f} (意图:{axiom_conviction.loc[probe_date_for_loop]:.2f}, 动能:{axiom_flow_momentum.loc[probe_date_for_loop]:.2f})")
-                print(f"       - [盾] structure_score: {structure_score.loc[probe_date_for_loop]:.4f} (控制权:{axiom_consensus.loc[probe_date_for_loop]:.2f}, 健康度:{axiom_flow_structure_health.loc[probe_date_for_loop]:.2f})")
+                print(f"       - [矛] base: {attack_base.loc[probe_date_for_loop]:.4f}, dissonance: {attack_dissonance.loc[probe_date_for_loop]:.4f} -> vector_synthesized: {attack_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - [盾] base: {structure_base.loc[probe_date_for_loop]:.4f}, dissonance: {structure_dissonance.loc[probe_date_for_loop]:.4f} -> vector_synthesized: {structure_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - [环境] context_modulator: {context_modulator.loc[probe_date_for_loop]:.4f} (属性:{axiom_capital_signature.loc[probe_date_for_loop]:.2f}, 张力:{axiom_divergence.loc[probe_date_for_loop]:.2f})")
                 print(f"       - [结果] final_strategic_posture: {strategic_posture_score.loc[probe_date_for_loop]:.4f}")
-        print(f"【V27.0 · 战略态势融合版】分析完成，生成 {len(all_states)} 个资金流原子及融合信号。") # 修改: 更新日志
+        print(f"【V28.0 · 向量合成版】分析完成，生成 {len(all_states)} 个资金流原子及融合信号。") # 修改: 更新日志
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
