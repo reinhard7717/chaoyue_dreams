@@ -1393,14 +1393,12 @@ class AdvancedFundFlowMetricsService:
     @staticmethod
     def _calculate_cmf_metrics(context: dict) -> dict:
         """
-        【V70.0 · 背离放大器终版】
-        - 核心升维: 为 `cmf_divergence_score` 引入“背离放大器” (Divergence Amplifier)。
-        - 新定义: 当主力CMF与市场CMF异号时，激活放大器（乘以系数2），以加权突显最危险的“方向背离”信号。
-        - 优势: 使指标从“差值计算器”进化为“冲突探测器”，能更敏锐地捕捉市场核心矛盾。
+        【V70.0 · 背离放大器终版】(生产环境清洁版)
+        - 核心逻辑: 引入“背离放大器”，当主力CMF与市场CMF异号时，加权突显最关键的“方向背离”信号，
+                     使指标能更敏锐地捕捉市场核心矛盾。
         """
         intraday_data = context['intraday_data']
         hf_analysis_df = context['hf_analysis_df']
-        should_probe = context['debug']['should_probe']
         import numpy as np
         import pandas as pd
         metrics = {}
@@ -1423,10 +1421,6 @@ class AdvancedFundFlowMetricsService:
             total_mf_volume = df['main_force_ofi'].abs().sum()
             if total_mf_volume > 0:
                 metrics['main_force_cmf'] = mf_money_flow_volume.sum() / total_mf_volume
-            if should_probe:
-                print(f"  [探针] CMF (高频-CMF穿透) 计算:")
-                print(f"    - 全市场高保真CMF: {metrics.get('holistic_cmf', np.nan):.4f}")
-                print(f"    - 主力高保真CMF: {metrics.get('main_force_cmf', np.nan):.4f}")
         else:
             if 'high' in intraday_data.columns and 'low' in intraday_data.columns and 'close' in intraday_data.columns and 'vol_shares' in intraday_data.columns:
                 price_range = intraday_data['high'] - intraday_data['low']
@@ -1444,14 +1438,8 @@ class AdvancedFundFlowMetricsService:
         holistic_cmf_value = metrics.get('holistic_cmf')
         if pd.notna(main_force_cmf_value) and pd.notna(holistic_cmf_value):
             base_divergence = main_force_cmf_value - holistic_cmf_value
-            # [核心升维] 引入背离放大器
             divergence_amplifier = 2.0 if np.sign(main_force_cmf_value) * np.sign(holistic_cmf_value) < 0 else 1.0
             metrics['cmf_divergence_score'] = base_divergence * divergence_amplifier * 100
-            if should_probe:
-                print(f"  [探针] cmf_divergence_score (CMF背离度) 计算:")
-                print(f"    - 主力CMF: {main_force_cmf_value:.4f}, 市场CMF: {holistic_cmf_value:.4f}")
-                print(f"    - 基础差值: {base_divergence:.4f}, 背离放大器: x{divergence_amplifier:.1f}")
-                print(f"    -> 最终得分: {metrics['cmf_divergence_score']:.2f}")
         return metrics
 
     @staticmethod
