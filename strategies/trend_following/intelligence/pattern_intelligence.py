@@ -376,13 +376,15 @@ class PatternIntelligence:
 
     def _diagnose_axiom_duofangpao(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.4 · 战术升级版】形态公理五：诊断“多方炮”形态
+        【V1.5 · 双轨战术版】形态公理五：诊断“多方炮”形态
         - 核心逻辑: 识别经典的“多方炮”K线组合。
         - 信号输出: 在形态的第三根K线日输出1.0；否则输出0.0。
-        - 核心修复: 根据探针反馈，升级K3的放量判断逻辑，采用“相对优势(>K2量能)”与“绝对强度(>MA5量能)”的双重确认，以适应更多实战场景。
+        - 核心升级: 引入“双轨战术”框架。K3的有效性可通过两条路径确认：
+          1. 【炮火攻击型】: 传统意义的放量上涨 (k3_vol > k2_vol AND k3_vol > ma5)。
+          2. 【控盘突破型】: 供应枯竭后的缩量上涨 (k3_vol < k2_vol AND 收盘强度 > 0.7)。
         - 新增功能: 加入受`probe_dates`控制的精密探针。
         """
-        required_signals = ['open_D', 'close_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_5_D']
+        required_signals = ['open_D', 'close_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_5_D', 'closing_strength_index_D'] # 修改代码行: 新增 closing_strength_index_D
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_duofangpao"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
@@ -393,6 +395,7 @@ class PatternIntelligence:
         low_D = self._get_safe_series(df, 'low_D', method_name="_diagnose_axiom_duofangpao")
         volume_D = self._get_safe_series(df, 'volume_D', method_name="_diagnose_axiom_duofangpao")
         vol_ma5_D = self._get_safe_series(df, 'VOL_MA_5_D', method_name="_diagnose_axiom_duofangpao")
+        closing_strength_index_D = self._get_safe_series(df, 'closing_strength_index_D', method_name="_diagnose_axiom_duofangpao") # 新增代码行: 获取收盘强度指数
         # region 探针设置
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -415,6 +418,7 @@ class PatternIntelligence:
             # K3 (i)
             k3_open, k3_close, k3_high, k3_low, k3_volume = open_D.iloc[i], close_D.iloc[i], high_D.iloc[i], low_D.iloc[i], volume_D.iloc[i]
             k3_vol_ma5 = vol_ma5_D.iloc[i]
+            k3_closing_strength = closing_strength_index_D.iloc[i]
             # 条件1: K1是放量阳线
             cond1_price = k1_close > k1_open 
             cond1_volume = k1_volume > k1_vol_ma5 * 1.2 
@@ -437,18 +441,23 @@ class PatternIntelligence:
             if not (cond2_volume and cond2_body_small and cond2_within_k1_range):
                 if is_probing_this_day: print("    - 结论: K2不满足，跳过。")
                 continue
-            # 条件3: K3是阳线，收盘价高于K1，且成交量双重确认
+            # 条件3: K3是阳线，收盘价高于K1，且满足双轨战术之一
             cond3_price = k3_close > k3_open 
-            cond3_volume_relative = k3_volume > k2_volume # 修改代码行: 新增相对优势确认
-            cond3_volume_absolute = k3_volume > k3_vol_ma5 # 修改代码行: 修正绝对强度确认为 > MA5
-            cond3_volume = cond3_volume_relative and cond3_volume_absolute # 修改代码行: K3放量为双重确认
             cond3_close_higher_than_k1 = k3_close > k1_close 
+            # 轨道一：炮火攻击型
+            cond3_artillery_attack = (k3_volume > k2_volume) and (k3_volume > k3_vol_ma5)
+            # 轨道二：控盘突破型
+            cond3_stealth_advance = (k3_volume < k2_volume) and (k3_closing_strength > 0.7)
+            cond3_volume_ok = cond3_artillery_attack or cond3_stealth_advance # 修改代码行: K3量能满足任一轨道即可
             if is_probing_this_day:
                 print(f"  - K3 ({current_date.date()}) 条件判断:")
-                print(f"    - 原料: close={k3_close:.2f}, open={k3_open:.2f}, k3_volume={k3_volume:.0f}, k2_volume={k2_volume:.0f}, vol_ma5={k3_vol_ma5:.0f}")
-                print(f"    - 判断: 是阳线 ({cond3_price}), 收盘价高于K1 ({cond3_close_higher_than_k1})")
-                print(f"    - 放量双重确认: 相对优势(k3_vol>k2_vol)({cond3_volume_relative}) AND 绝对强度(k3_vol>vol_ma5)({cond3_volume_absolute}) -> {cond3_volume}")
-            if cond3_price and cond3_volume and cond3_close_higher_than_k1:
+                print(f"    - 原料: close={k3_close:.2f}, open={k3_open:.2f}, k3_volume={k3_volume:.0f}, k2_volume={k2_volume:.0f}, vol_ma5={k3_vol_ma5:.0f}, closing_strength={k3_closing_strength:.2f}")
+                print(f"    - 价格判断: 是阳线 ({cond3_price}), 收盘价高于K1 ({cond3_close_higher_than_k1})")
+                print(f"    - 量能双轨战术判断:")
+                print(f"      - 轨道1 (炮火攻击): (k3_vol>k2_vol)({k3_volume > k2_volume}) AND (k3_vol>vol_ma5)({k3_volume > k3_vol_ma5}) -> {cond3_artillery_attack}")
+                print(f"      - 轨道2 (控盘突破): (k3_vol<k2_vol)({k3_volume < k2_volume}) AND (closing_strength>0.7)({k3_closing_strength > 0.7}) -> {cond3_stealth_advance}")
+                print(f"    - 最终量能条件: {cond3_volume_ok}")
+            if cond3_price and cond3_close_higher_than_k1 and cond3_volume_ok:
                 duofangpao_score.iloc[i] = 1.0
                 if is_probing_this_day: print("  -> [结论] 成功匹配！")
         return duofangpao_score.astype(np.float32)
