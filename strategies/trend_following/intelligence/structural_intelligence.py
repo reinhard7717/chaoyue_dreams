@@ -46,8 +46,8 @@ class StructuralIntelligence:
 
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.9 · 准备度感知版】结构情报分析总指挥
-        - 核心升级: 引入“突破准备度”信号，用于实时追踪平台构筑过程的质量，弥补“平台基石”的认知延迟。
+        【V6.0 · 情报链重铸版】结构情报分析总指挥
+        - 核心升级: 重铸情报调用链，将“突破准备度”整合进“战略态势”的“静态盾”计算中，彻底解决认知延迟问题。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -67,6 +67,11 @@ class StructuralIntelligence:
         axiom_tension = self._diagnose_axiom_tension(df)
         axiom_environment = self._diagnose_axiom_environment(df)
         platform_quality, dynamic_high, dynamic_low, vpoc = self._diagnose_platform_foundation(df)
+        # --- 修改代码开始 ---
+        # 步骤1.5: 诊断突破准备度，作为战略态势的前置输入
+        breakout_readiness = self._diagnose_breakout_readiness(df, axiom_tension)
+        all_states['SCORE_STRUCT_BREAKOUT_READINESS'] = breakout_readiness
+        # --- 修改代码结束 ---
         all_states['SCORE_STRUCT_PLATFORM_FOUNDATION'] = platform_quality
         all_states['STRUCT_PLATFORM_DYNAMIC_HIGH'] = dynamic_high
         all_states['STRUCT_PLATFORM_DYNAMIC_LOW'] = dynamic_low
@@ -82,9 +87,11 @@ class StructuralIntelligence:
         all_states['SCORE_STRUCTURE_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         all_states['SCORE_STRUCT_BOTTOM_FRACTAL'] = bottom_fractal_score
         # --- 步骤二: 诊断内部战略态势 ---
+        # --- 修改代码开始 ---
         strategic_posture, defense_strength = self._diagnose_strategic_posture(
-            axiom_trend_form, axiom_mtf_cohesion, axiom_stability, axiom_tension, platform_quality
+            axiom_trend_form, axiom_mtf_cohesion, axiom_stability, axiom_tension, platform_quality, breakout_readiness
         )
+        # --- 修改代码结束 ---
         all_states['SCORE_STRUCT_STRATEGIC_POSTURE'] = strategic_posture
         # --- 步骤三: 融合战场环境，生成最终情境态势 ---
         env_factor = 0.5
@@ -120,11 +127,6 @@ class StructuralIntelligence:
             contextual_posture, defense_strength, structural_momentum
         )
         all_states['SCORE_STRUCT_FINAL_JUDGMENT'] = final_judgment
-        # --- 新增代码开始 ---
-        # --- 步骤七: 诊断突破准备度 ---
-        breakout_readiness = self._diagnose_breakout_readiness(df, axiom_tension)
-        all_states['SCORE_STRUCT_BREAKOUT_READINESS'] = breakout_readiness
-        # --- 新增代码结束 ---
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame) -> pd.Series:
@@ -407,18 +409,19 @@ class StructuralIntelligence:
         # --- 新增代码结束 ---
         return bottom_fractal_score
 
-    def _diagnose_strategic_posture(self, axiom_trend_form: pd.Series, axiom_mtf_cohesion: pd.Series, axiom_stability: pd.Series, axiom_tension: pd.Series, platform_foundation: pd.Series) -> Tuple[pd.Series, pd.Series]:
+    def _diagnose_strategic_posture(self, axiom_trend_form: pd.Series, axiom_mtf_cohesion: pd.Series, axiom_stability: pd.Series, axiom_tension: pd.Series, platform_foundation: pd.Series, breakout_readiness: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
-        【V2.5 · 防御解耦版】诊断顶层“战略态势”
-        - 核心升级: 将最终的防御强度(defense_strength)解耦并返回，供更高层的“终极裁决”模块使用。
+        【V3.0 · 双通道防御版】诊断顶层“战略态势”
+        - 核心升级: 重铸“静态盾”的定义，使其成为“平台基石品质”与“突破准备度”的双通道最大值。
+                      这使得模型能提前感知到正在高质量构筑中的防御工事，解决了“平台基石”的认知延迟问题。
         - 核心逻辑:
           - 矛 (进攻): (趋势形态 + 宏观健康度 + 结构杠杆) * (1 + 张力催化)
-          - 盾 (防御): 动态防御 * 0.6 + 静态防御 * 0.4
+          - 盾 (防御): 动态防御 * 0.6 + Max(平台品质, 突破准备度) * 0.4
         - 输出: (战略态势分数, 最终防御强度)
         """
         required_signals = ['structural_leverage_D']
         if not self._validate_required_signals(self.strategy.df_indicators, required_signals, "_diagnose_strategic_posture"):
-                return pd.Series(0.0, index=axiom_trend_form.index), pd.Series(0.5, index=axiom_trend_form.index)
+            return pd.Series(0.0, index=axiom_trend_form.index), pd.Series(0.5, index=axiom_trend_form.index)
         df_index = axiom_trend_form.index
         p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
         mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
@@ -434,7 +437,10 @@ class StructuralIntelligence:
         tension_amplifier = 1 + (axiom_tension * tension_catalyst_factor)
         offense_score = (base_offense_score * tension_amplifier).clip(0, 1)
         dynamic_defense = ((axiom_stability + 1) / 2).clip(0, 1)
-        static_defense = platform_foundation
+        # --- 修改代码开始 ---
+        # 静态盾现在是“认证工程师”和“首席质量官”报告中的最大值
+        static_defense = pd.concat([platform_foundation, breakout_readiness], axis=1).max(axis=1)
+        # --- 修改代码结束 ---
         defense_strength = (dynamic_defense * 0.6 + static_defense * 0.4).clip(0, 1)
         conviction_factor = 0.5
         defense_modifier = (defense_strength - 0.5) * conviction_factor
@@ -447,7 +453,9 @@ class StructuralIntelligence:
             print(f"      - 新增原料: 杠杆(原始)={leverage_raw.iloc[-1]:.2f} -> 杠杆分={leverage_score.iloc[-1]:.2f}")
             print(f"      - 新增原料: 结构张力分={axiom_tension.iloc[-1]:.2f}")
             print(f"      - 计算: 基础矛分={base_offense_score.iloc[-1]:.2f}, 张力放大器={tension_amplifier.iloc[-1]:.2f} -> 最终矛分={offense_score.iloc[-1]:.2f}")
-            print(f"      - 计算: 动态盾={dynamic_defense.iloc[-1]:.2f}, 静态盾(平台)={static_defense.iloc[-1]:.2f} -> 最终盾强度={defense_strength.iloc[-1]:.2f}")
+            # --- 修改代码开始 ---
+            print(f"      - 计算: 动态盾={dynamic_defense.iloc[-1]:.2f}, 静态盾(平台品质={platform_foundation.iloc[-1]:.2f}, 准备度={breakout_readiness.iloc[-1]:.2f}) -> 最终盾强度={defense_strength.iloc[-1]:.2f}")
+            # --- 修改代码结束 ---
             print(f"      - 协同融合: 防御调节器={defense_modifier.iloc[-1]:.2f} -> 最终态势 = 最终矛分 * (1 + 调节器)")
         return final_score, defense_strength
 
