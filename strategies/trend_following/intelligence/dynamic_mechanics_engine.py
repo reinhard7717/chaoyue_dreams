@@ -33,7 +33,10 @@ class DynamicMechanicsEngine:
 
     def run_dynamic_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 诡道博弈增强版】动态力学引擎总指挥
+        【V6.1 · 上下文修复版】动态力学引擎总指挥
+        - 【修复】修复了 'TrendFollowStrategy' object has no attribute 'current_date' 的错误。
+                  将当前日期的获取方式从 self.strategy.current_date 改为从传入的 df.index[-1] 获取，
+                  解除了对策略主类属性的依赖，使引擎更加健壮。
         - 新增：获取探针日期，并将其作为上下文传递给各公理诊断方法。
         """
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
@@ -43,11 +46,12 @@ class DynamicMechanicsEngine:
         # --- 新增：获取探针配置 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
-        current_date_str = self.strategy.current_date.strftime('%Y-%m-%d')
+        # --- 修改：从df的索引中获取当前日期，而不是从strategy对象 ---
+        current_date_str = df.index[-1].strftime('%Y-%m-%d')
+        # --- 修改结束 ---
         is_probe_day = current_date_str in probe_dates
         if is_probe_day:
             print(f"\n--- [力学情报探针] 激活 | 日期: {current_date_str} ---")
-        # --- 修改结束 ---
         all_dynamic_states = {}
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         # --- 修改：向下传递探针上下文 ---
