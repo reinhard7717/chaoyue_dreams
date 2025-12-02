@@ -628,11 +628,10 @@ class BehavioralIntelligence:
 
     def _calculate_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.6 · 证据共振版】计算派发意图
-        - 核心重构: 废弃加权算术平均，采用加权几何平均构建“证据共振模型”。
-                      这确保了派发意图的诊断必须依赖于“过程、结果、资金流、主力行为、
-                      主力信念”五大维度证据的共同确认，任何单一维度的缺失都将导致
-                      信号被否决，达成了整个引擎在融合哲学上的最终统一。
+        【V2.7 · 语义净化版】计算派发意图
+        - 核心修复: 对 `rally_distribution_pressure_D` 应用 `.clip(lower=0)` 进行语义净化，
+                      确保只有正值的“派发压力”才能被视为有效证据，彻底解决了因负值
+                      导致归一化结果与业务逻辑相悖的“语义错配谬误”。
         """
         required_signals = [
             'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D',
@@ -644,8 +643,9 @@ class BehavioralIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_thresholds = get_param_value(p_conf.get('neutral_zone_thresholds'), {})
         alpha_threshold = get_param_value(p_thresholds.get('main_force_execution_alpha_D'), 0.0)
-        # --- 五维证据链归一化 (逻辑不变) ---
-        rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_calculate_distribution_intent")
+        # --- 五维证据链归一化 ---
+        # [修改的代码行] 对原始信号进行语义净化
+        rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_calculate_distribution_intent").clip(lower=0)
         process_evidence = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
         upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_calculate_distribution_intent")
         outcome_evidence = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
@@ -658,7 +658,6 @@ class BehavioralIntelligence:
         conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_calculate_distribution_intent")
         conviction_decay = abs(conviction_slope_raw.clip(upper=0))
         conviction_evidence = get_adaptive_mtf_normalized_score(conviction_decay, df.index, ascending=True, tf_weights=tf_weights)
-        # [修改的代码行] 升级为加权几何平均，构建“证据共振模型”
         base_distribution_intent = (
             (process_evidence + 1e-9).pow(0.30) *
             (outcome_evidence + 1e-9).pow(0.20) *
@@ -685,8 +684,8 @@ class BehavioralIntelligence:
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _calculate_distribution_intent @ {probe_date_str}")
-                print(f"        - 过程证据(新): rally_distribution_pressure_D = {rally_pressure_raw.loc[probe_ts]:.2f} -> 归一化分 = {process_evidence.loc[probe_ts]:.4f}")
-                # [修改的代码行] 更新探针日志以反映新模型
+                # [修改的代码行] 更新探针以反映净化后的值
+                print(f"        - 过程证据(新): rally_distribution_pressure_D(净化后) = {rally_pressure_raw.loc[probe_ts]:.2f} -> 归一化分 = {process_evidence.loc[probe_ts]:.4f}")
                 print(f"        - 基础派发意图分(几何平均): {base_distribution_intent.loc[probe_ts]:.4f}")
                 print(f"        - 市场接受度放大器: {acceptance_amplifier.loc[probe_ts]:.4f} (收盘偏离度(原始)={market_acceptance_raw.loc[probe_ts]:.2f}, 净化后={market_acceptance_normalized.loc[probe_ts]:.4f})")
                 print(f"        - 控盘能力调节器(主动中性): {control_modulator.loc[probe_ts]:.4f} (原始Alpha={mf_alpha_raw.loc[probe_ts]:.6f}, 正Alpha分={positive_alpha_score.loc[probe_ts]:.4f})")
@@ -956,19 +955,18 @@ class BehavioralIntelligence:
 
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.1 · 净化裁决版】诊断博弈欺骗指数
-        - 核心修复: 修复了因直接使用原始 `closing_strength_index_D` 而导致计算结果为负数的BUG。
-                      引入 `normalize_score` 对收盘强弱度进行净化，确保“强势”与“弱势”的评估基于
-                      历史相对位置，使计算逻辑更严谨。
-        - 核心目标: 量化主力的欺骗性操盘行为，识别“压价吸筹”与“拉高出货”。
+        【V1.2 · 语义净化版】诊断博弈欺骗指数
+        - 核心修复: 对 `deception_index_D` 应用 `.clip(lower=0)` 进行语义净化，
+                      确保只有正值的“欺骗指数”才能被视为有效证据，彻底解决了因负值
+                      导致融合计算不合逻辑的“语义错配谬误”。
         """
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         # 1. 获取原始数据
-        base_deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_deception_index")
+        # [修改的代码行] 对原始信号进行语义净化
+        base_deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_deception_index").clip(lower=0)
         wash_trade_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_deception_index")
-        # 获取原始的收盘强弱度，不再直接使用
         closing_strength_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_deception_index")
         main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_deception_index")
         amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_deception_index").replace(0, 1e-9)
@@ -977,12 +975,9 @@ class BehavioralIntelligence:
         deception_evidence_score = get_adaptive_mtf_normalized_score((base_deception_raw + wash_trade_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
         flow_ratio = main_force_flow / amount
         flow_direction_score = get_adaptive_mtf_normalized_bipolar_score(flow_ratio, df.index, default_weights)
-        # 对收盘强弱度进行净化，得到[0,1]区间的相对强势度
         normalized_strength = normalize_score(closing_strength_raw, df.index, 55)
         # 3. 计算看涨/看跌欺骗
-        # 看涨欺骗 = 弱势表象 * 欺骗行为 * 主力净流入
         bullish_deception_score = (1 - normalized_strength) * deception_evidence_score * flow_direction_score.clip(lower=0)
-        # 看跌欺骗 = 强势表象 * 欺骗行为 * 主力净流出
         bearish_deception_score = normalized_strength * deception_evidence_score * flow_direction_score.clip(upper=0).abs()
         # 4. 合成基础欺骗指数并融合尾盘偷袭
         base_deception_index = (bullish_deception_score - bearish_deception_score).clip(-1, 1)
@@ -998,9 +993,9 @@ class BehavioralIntelligence:
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_deception_index @ {probe_date_str}")
-                print(f"        - 欺骗证据分: {deception_evidence_score.loc[probe_ts]:.4f} (基础欺骗={base_deception_raw.loc[probe_ts]:.2f}, 对倒={wash_trade_raw.loc[probe_ts]:.2f})")
+                # [修改的代码行] 更新探针以反映净化后的值
+                print(f"        - 欺骗证据分: {deception_evidence_score.loc[probe_ts]:.4f} (基础欺骗(净化后)={base_deception_raw.loc[probe_ts]:.2f}, 对倒={wash_trade_raw.loc[probe_ts]:.2f})")
                 print(f"        - 主力流向分: {flow_direction_score.loc[probe_ts]:.4f} (原始流比率={flow_ratio.loc[probe_ts]:.4f})")
-                # 更新探针输出，展示净化前后的值
                 print(f"        - 看涨欺骗分: {bullish_deception_score.loc[probe_ts]:.4f} (收盘弱势={1 - normalized_strength.loc[probe_ts]:.2f}, 原始强弱={closing_strength_raw.loc[probe_ts]:.2f})")
                 print(f"        - 看跌欺骗分: {bearish_deception_score.loc[probe_ts]:.4f} (收盘强势={normalized_strength.loc[probe_ts]:.2f})")
                 print(f"        - 基础欺骗指数: {base_deception_index.loc[probe_ts]:.4f}")
