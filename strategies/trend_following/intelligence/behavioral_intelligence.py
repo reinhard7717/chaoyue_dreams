@@ -624,9 +624,11 @@ class BehavioralIntelligence:
 
     def _calculate_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.5 · 主动中性版】计算派发意图
-        - 核心升级: 引入“主动中性”调节器。当无主动控盘行为(正Alpha为0)时，
-                      施加轻微惩罚，而不是无影响。
+        【V2.6 · 证据共振版】计算派发意图
+        - 核心重构: 废弃加权算术平均，采用加权几何平均构建“证据共振模型”。
+                      这确保了派发意图的诊断必须依赖于“过程、结果、资金流、主力行为、
+                      主力信念”五大维度证据的共同确认，任何单一维度的缺失都将导致
+                      信号被否决，达成了整个引擎在融合哲学上的最终统一。
         """
         required_signals = [
             'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D',
@@ -638,7 +640,7 @@ class BehavioralIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_thresholds = get_param_value(p_conf.get('neutral_zone_thresholds'), {})
         alpha_threshold = get_param_value(p_thresholds.get('main_force_execution_alpha_D'), 0.0)
-        # --- 五维证据链融合 (逻辑不变) ---
+        # --- 五维证据链归一化 (逻辑不变) ---
         rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_calculate_distribution_intent")
         process_evidence = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
         upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_calculate_distribution_intent")
@@ -652,20 +654,20 @@ class BehavioralIntelligence:
         conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_calculate_distribution_intent")
         conviction_decay = abs(conviction_slope_raw.clip(upper=0))
         conviction_evidence = get_adaptive_mtf_normalized_score(conviction_decay, df.index, ascending=True, tf_weights=tf_weights)
+        # [修改的代码行] 升级为加权几何平均，构建“证据共振模型”
         base_distribution_intent = (
-            process_evidence * 0.30 +
-            outcome_evidence * 0.20 +
-            flow_evidence * 0.20 +
-            main_force_evidence * 0.15 +
-            conviction_evidence * 0.15
+            (process_evidence + 1e-9).pow(0.30) *
+            (outcome_evidence + 1e-9).pow(0.20) *
+            (flow_evidence + 1e-9).pow(0.20) *
+            (main_force_evidence + 1e-9).pow(0.15) *
+            (conviction_evidence + 1e-9).pow(0.15)
         ).fillna(0.0)
         # --- 市场接受度放大器 (逻辑不变) ---
         market_acceptance_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_calculate_distribution_intent")
         market_acceptance_normalized = normalize_score(market_acceptance_raw, df.index, 55)
         acceptance_amplifier = 1 + (market_acceptance_normalized * 0.5)
-        # --- 主力控盘能力调节器 ---
+        # --- 主力控盘能力调节器 (逻辑不变) ---
         positive_alpha_score = get_adaptive_mtf_normalized_bipolar_score(mf_alpha_filtered, df.index, tf_weights).clip(lower=0)
-        # [修改的代码行] 升级为“主动中性”调节器
         control_modulator = 0.95 + (positive_alpha_score * 0.55)
         # --- 最终合成 ---
         distribution_intent_score = (base_distribution_intent * acceptance_amplifier * control_modulator).clip(0, 1)
@@ -680,9 +682,9 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _calculate_distribution_intent @ {probe_date_str}")
                 print(f"        - 过程证据(新): rally_distribution_pressure_D = {rally_pressure_raw.loc[probe_ts]:.2f} -> 归一化分 = {process_evidence.loc[probe_ts]:.4f}")
-                print(f"        - 基础派发意图分: {base_distribution_intent.loc[probe_ts]:.4f}")
+                # [修改的代码行] 更新探针日志以反映新模型
+                print(f"        - 基础派发意图分(几何平均): {base_distribution_intent.loc[probe_ts]:.4f}")
                 print(f"        - 市场接受度放大器: {acceptance_amplifier.loc[probe_ts]:.4f} (收盘偏离度(原始)={market_acceptance_raw.loc[probe_ts]:.2f}, 净化后={market_acceptance_normalized.loc[probe_ts]:.4f})")
-                # [修改的代码行] 更新探针日志以反映新逻辑
                 print(f"        - 控盘能力调节器(主动中性): {control_modulator.loc[probe_ts]:.4f} (原始Alpha={mf_alpha_raw.loc[probe_ts]:.6f}, 正Alpha分={positive_alpha_score.loc[probe_ts]:.4f})")
                 print(f"        - 最终派发意图分: {distribution_intent_score.loc[probe_ts]:.4f}")
         return distribution_intent_score.astype(np.float32)
