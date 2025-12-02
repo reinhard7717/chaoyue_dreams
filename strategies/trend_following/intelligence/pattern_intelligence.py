@@ -376,10 +376,10 @@ class PatternIntelligence:
 
     def _diagnose_axiom_duofangpao(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.2 · 探针增强版】形态公理五：诊断“多方炮”形态
+        【V1.3 · 逻辑修正版】形态公理五：诊断“多方炮”形态
         - 核心逻辑: 识别经典的“多方炮”K线组合。
         - 信号输出: 在形态的第三根K线日输出1.0；否则输出0.0。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
+        - 核心修复: 根据探针反馈，修正K2的缩量判断逻辑，使其与K1的成交量进行比较，更符合形态本质。
         - 新增功能: 加入受`probe_dates`控制的精密探针。
         """
         required_signals = ['open_D', 'close_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_5_D']
@@ -393,7 +393,7 @@ class PatternIntelligence:
         low_D = self._get_safe_series(df, 'low_D', method_name="_diagnose_axiom_duofangpao")
         volume_D = self._get_safe_series(df, 'volume_D', method_name="_diagnose_axiom_duofangpao")
         vol_ma5_D = self._get_safe_series(df, 'VOL_MA_5_D', method_name="_diagnose_axiom_duofangpao")
-        # region 新增代码块: 探针设置
+        # region 探针设置
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         probe_dates = []
@@ -401,7 +401,7 @@ class PatternIntelligence:
             probe_dates = [pd.to_datetime(d).tz_localize(df.index.tz) if df.index.tz else pd.to_datetime(d) for d in probe_dates_str]
         # endregion
         for i in range(2, len(df_index)): 
-            # region 新增代码块: 探针判断
+            # region 探针判断
             current_date = df_index[i]
             is_probing_this_day = current_date in probe_dates
             if is_probing_this_day:
@@ -412,7 +412,6 @@ class PatternIntelligence:
             k1_vol_ma5 = vol_ma5_D.iloc[i-2]
             # K2 (i-1)
             k2_open, k2_close, k2_high, k2_low, k2_volume = open_D.iloc[i-1], close_D.iloc[i-1], high_D.iloc[i-1], low_D.iloc[i-1], volume_D.iloc[i-1]
-            k2_vol_ma5 = vol_ma5_D.iloc[i-1]
             # K3 (i)
             k3_open, k3_close, k3_high, k3_low, k3_volume = open_D.iloc[i], close_D.iloc[i], high_D.iloc[i], low_D.iloc[i], volume_D.iloc[i]
             k3_vol_ma5 = vol_ma5_D.iloc[i]
@@ -427,14 +426,14 @@ class PatternIntelligence:
                 if is_probing_this_day: print("    - 结论: K1不满足，跳过。")
                 continue
             # 条件2: K2是缩量、小实体且被K1包含
-            cond2_volume = k2_volume < k2_vol_ma5 * 0.8 
+            cond2_volume = k2_volume < k1_volume # 修改代码行: 修正缩量判断逻辑，K2量能需小于K1
             k2_body_ratio = abs(k2_close - k2_open) / (k2_high - k2_low + 1e-9) if (k2_high - k2_low) > 0 else 0
             cond2_body_small = k2_body_ratio < 0.5 
             cond2_within_k1_range = k2_low >= k1_low and k2_high <= k1_high 
             if is_probing_this_day:
                 print(f"  - K2 ({df_index[i-1].date()}) 条件判断:")
-                print(f"    - 原料: low={k2_low:.2f}, high={k2_high:.2f}, volume={k2_volume:.0f}, vol_ma5={k2_vol_ma5:.0f}, body_ratio={k2_body_ratio:.2f}")
-                print(f"    - 判断: 缩量 ({cond2_volume}), 小实体 ({cond2_body_small}), 在K1范围内 ({cond2_within_k1_range})")
+                print(f"    - 原料: low={k2_low:.2f}, high={k2_high:.2f}, k2_volume={k2_volume:.0f}, k1_volume={k1_volume:.0f}, body_ratio={k2_body_ratio:.2f}")
+                print(f"    - 判断: 缩量(k2_vol < k1_vol) ({cond2_volume}), 小实体 ({cond2_body_small}), 在K1范围内 ({cond2_within_k1_range})")
             if not (cond2_volume and cond2_body_small and cond2_within_k1_range):
                 if is_probing_this_day: print("    - 结论: K2不满足，跳过。")
                 continue
