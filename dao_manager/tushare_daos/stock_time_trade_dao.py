@@ -450,7 +450,7 @@ class StockTimeTradeDAO(BaseDAO):
             logger.error(f"获取当日1分钟K线时发生异常 for {stock_code} on {trade_date}: {e}", exc_info=True)
             return None
     @with_rate_limit(name='api_stk_mins') # 添加速率限制装饰器
-    async def save_minute_time_trade_history_by_stock_codes(self, stock_codes: List[str], start_date_str: str="2020-01-01 00:00:00", end_date_str: str="", *, limiter) -> None: # 修改：增加limiter参数
+    async def save_minute_time_trade_history_by_stock_codes(self, stock_codes: List[str], start_date_str: str="2020-01-01 00:00:00", end_date_str: str="", *, limiter) -> None: # 增加limiter参数
         """
         【V5.1 速率限制版】保存股票的历史分钟级交易数据
         - 核心优化:

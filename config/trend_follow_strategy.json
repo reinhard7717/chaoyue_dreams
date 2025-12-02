@@ -1204,8 +1204,13 @@
       },
       "dynamic_mechanics_params": {
         "enabled": true,
-        "description": "【V6.0 · 诡道博弈增强版】引入“品质”和“意图”对力学信号进行深度调制，旨在穿透物理表象，洞察博弈本质。",
+        "description": "【V7.0 · Z-Score校准版】引入基于长期标准差的Z-Score校准方法，取代传统的Min-Max归一化，旨在保留跨公理信号的相对强度，解决“尺度失衡”问题。",
         "norm_window": 55,
+        "calibrated_norm_params": {
+          "description": "【Z-Score校准】用于“先融合，后归一”步骤的参数。",
+          "window": 144,
+          "sensitivity": 2.0
+        },
         "description_axiom_weights": "融合五大力学公理时的权重。",
         "axiom_weights": {
           "momentum": 0.25,
@@ -1232,10 +1237,9 @@
           "breakout_readiness": 0.2
         },
         "energy_quality_weights": {
-          "description": "【能量公理】能量品质三要素（资金可信度、主力流向性、对倒惩罚）的融合权重。",
-          "credibility": 0.4,
-          "directionality": 0.4,
-          "wash_trade_penalty": 0.2
+          "description": "【能量公理】能量品质核心要素（资金可信度、主力流向性）的融合权重。",
+          "credibility": 0.5,
+          "directionality": 0.5
         }
       },
       "foundation_ultimate_params": {
