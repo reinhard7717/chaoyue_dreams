@@ -292,29 +292,36 @@ class ChipIntelligence:
 
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list, strategic_posture: pd.Series, battlefield_geography: pd.Series, holder_sentiment: pd.Series) -> pd.Series:
         """
-        【V5.2 · 数据流重构版】筹码公理六：诊断“结构性推力”
-        - 核心重构: 采用显式数据流模式。不再从共享DataFrame读取上游信号，而是通过函数参数直接注入，
-                      从根本上解决了因数据更新时序问题导致的“幽灵数据”和计算错误，确保了数据流的绝对一致性。
+        【V5.3 · 惯性感知版】筹码公理六：诊断“结构性推力”
+        - 核心架构升级: 修复“战略惯性”悖论。将“引擎功率”的评估模型从纯动态升级为“状态-动态”融合模型。
+                          新模型同时评估健康度的绝对水平（状态）和变化趋势（动态），使信号更全面、更稳健。
         """
-        print("    -> [筹码层] 正在诊断“结构性推力”公理 (V5.2 · 数据流重构版)...")
+        print("    -> [筹码层] 正在诊断“结构性推力”公理 (V5.3 · 惯性感知版)...") # [修改代码行]
         required_signals = [
-            'main_force_conviction_index_D', 'vacuum_zone_magnitude_D' # 移除了三个上游信号
+            'main_force_conviction_index_D', 'vacuum_zone_magnitude_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_momentum"):
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         df_index = df.index
-        health_score = ( # 直接使用传入的Series参数
+        health_score = (
             (strategic_posture.add(1)/2) *
             (battlefield_geography.add(1)/2) *
             (holder_sentiment.add(1)/2)
         ).pow(1/3)
+        # [修改代码块] 引擎功率计算升级为“状态-动态”融合模型
+        # 1. 动态分量 (Dynamic Component) - 评估“变化”
         slope = health_score.diff(1).fillna(0)
         accel = slope.diff(1).fillna(0)
         norm_slope = get_adaptive_mtf_normalized_bipolar_score(slope, df_index, tf_weights)
         norm_accel = get_adaptive_mtf_normalized_bipolar_score(accel, df_index, tf_weights)
-        engine_power_score = (norm_slope.add(1)/2 * norm_accel.clip(lower=-1, upper=1).add(1)/2).pow(0.5) * 2 - 1
+        dynamic_engine_power = (norm_slope.add(1)/2 * norm_accel.clip(lower=-1, upper=1).add(1)/2).pow(0.5) * 2 - 1
+        # 2. 静态分量 (Static Component) - 评估“状态”
+        static_engine_power = (health_score - 0.5) * 2
+        # 3. 融合
+        static_weight, dynamic_weight = 0.5, 0.5
+        engine_power_score = static_engine_power * static_weight + dynamic_engine_power * dynamic_weight
         conviction = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
         fuel_quality_score = get_adaptive_mtf_normalized_bipolar_score(conviction, df_index, tf_weights)
         vacuum = self._get_safe_series(df, df, 'vacuum_zone_magnitude_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
@@ -332,9 +339,10 @@ class ChipIntelligence:
             if probe_date in df.index:
                 print(f"    -> [结构性推力探针] @ {probe_date.date()}:")
                 print(f"       - 维度1: 引擎功率 (Engine Power)")
-                # 更新探针，明确打印传入的依赖信号值
                 print(f"         - 原料 (上游信号): posture: {strategic_posture.loc[probe_date]:.4f}, geography: {battlefield_geography.loc[probe_date]:.4f}, sentiment: {holder_sentiment.loc[probe_date]:.4f}")
                 print(f"         - 原料 (计算过程): health_score: {health_score.loc[probe_date]:.4f}, slope: {slope.loc[probe_date]:.4f}, accel: {accel.loc[probe_date]:.4f}")
+                # [修改代码块] 更新探针以反映新的融合逻辑
+                print(f"         - 过程 (融合): static_power: {static_engine_power.loc[probe_date]:.4f}, dynamic_power: {dynamic_engine_power.loc[probe_date]:.4f}")
                 print(f"         - 结果: engine_power_score: {engine_power_score.loc[probe_date]:.4f}")
                 print(f"       - 维度2: 燃料品质 (Fuel Quality)")
                 print(f"         - 原料: conviction_index: {conviction.loc[probe_date]:.4f}")
