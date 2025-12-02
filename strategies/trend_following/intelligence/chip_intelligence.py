@@ -319,12 +319,12 @@ class ChipIntelligence:
 
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list, strategic_posture: pd.Series, battlefield_geography: pd.Series, holder_sentiment: pd.Series) -> pd.Series:
         """
-        【V6.1 · 协同奖励版】筹码公理六：诊断“结构性推力”
-        - 核心架构升级: 在“燃料品质”维度中，引入“协同奖励”机制。当且仅当“主力信念”和“上涨纯度”
-                          同时为正时，才触发一个额外的奖励因子，以非线性地放大“高品质燃料”的得分，
-                          使其在众多趋势中脱颖而出。
+        【V6.2 · 最终裁定 · 韧性引擎版】筹码公理六：诊断“结构性推力”
+        - 核心裁定: 将“引擎功率”的基础健康分(health_score)计算模型从“几何平均”升级为“加权算术平均”。
+                      此举旨在修复几何平均过于严苛的“一票否决”特性，使引擎健康度的评估更具韧性，
+                      能够更均衡地反映多维度战况，避免因单一情绪指标的短期失真而导致战略误判。
         """
-        print("    -> [筹码层] 正在诊断“结构性推力”公理 (V6.1 · 协同奖励版)...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“结构性推力”公理 (V6.2 · 韧性引擎版)...") # [修改代码行]
         required_signals = [
             'main_force_conviction_index_D', 'vacuum_zone_magnitude_D', 'upward_impulse_purity_D'
         ]
@@ -333,27 +333,27 @@ class ChipIntelligence:
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         df_index = df.index
+        # [修改代码块] 升级为加权算术平均，提高鲁棒性
+        health_weights = {'posture': 0.4, 'geography': 0.4, 'sentiment': 0.2}
         health_score = (
-            (strategic_posture.add(1)/2) *
-            (battlefield_geography.add(1)/2) *
-            (holder_sentiment.add(1)/2)
-        ).pow(1/3)
+            strategic_posture * health_weights['posture'] +
+            battlefield_geography * health_weights['geography'] +
+            holder_sentiment * health_weights['sentiment']
+        )
         slope = health_score.diff(1).fillna(0)
         accel = slope.diff(1).fillna(0)
         norm_slope = get_adaptive_mtf_normalized_bipolar_score(slope, df_index, tf_weights)
         norm_accel = get_adaptive_mtf_normalized_bipolar_score(accel, df_index, tf_weights)
         dynamic_engine_power = (norm_slope.add(1)/2 * norm_accel.clip(lower=-1, upper=1).add(1)/2).pow(0.5) * 2 - 1
-        static_engine_power = (health_score - 0.5) * 2
+        static_engine_power = health_score # 算术平均结果本身就在[-1, 1]区间，无需再转换
         static_weight, dynamic_weight = 0.5, 0.5
         engine_power_score = static_engine_power * static_weight + dynamic_engine_power * dynamic_weight
         conviction = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
         impulse_purity = self._get_safe_series(df, df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
         conviction_score = get_adaptive_mtf_normalized_bipolar_score(conviction, df_index, tf_weights)
         purity_score = get_adaptive_mtf_normalized_bipolar_score(impulse_purity, df_index, tf_weights)
-        # [修改代码块] 引入协同奖励机制
         base_fuel_quality = ((conviction_score.add(1)/2) * (purity_score.add(1)/2)).pow(0.5) * 2 - 1
-        # 当信念和纯度都为正时，计算协同奖励
-        synergy_bonus = (conviction_score.clip(lower=0) * purity_score.clip(lower=0)).pow(0.5) * 0.25 # 最大奖励25%
+        synergy_bonus = (conviction_score.clip(lower=0) * purity_score.clip(lower=0)).pow(0.5) * 0.25
         fuel_quality_score = base_fuel_quality + synergy_bonus
         vacuum = self._get_safe_series(df, df, 'vacuum_zone_magnitude_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
         nozzle_efficiency_score = get_adaptive_mtf_normalized_bipolar_score(vacuum, df_index, tf_weights)
@@ -371,11 +371,11 @@ class ChipIntelligence:
                 print(f"    -> [结构性推力探针] @ {probe_date.date()}:")
                 print(f"       - 维度1: 引擎功率 (Engine Power)")
                 print(f"         - 原料 (上游信号): posture: {strategic_posture.loc[probe_date]:.4f}, geography: {battlefield_geography.loc[probe_date]:.4f}, sentiment: {holder_sentiment.loc[probe_date]:.4f}")
-                print(f"         - 原料 (计算过程): health_score: {health_score.loc[probe_date]:.4f}, slope: {slope.loc[probe_date]:.4f}, accel: {accel.loc[probe_date]:.4f}")
+                # [修改代码块] 更新探针输出
+                print(f"         - 原料 (计算过程): health_score (arithmetic): {health_score.loc[probe_date]:.4f}, slope: {slope.loc[probe_date]:.4f}, accel: {accel.loc[probe_date]:.4f}")
                 print(f"         - 过程 (融合): static_power: {static_engine_power.loc[probe_date]:.4f}, dynamic_power: {dynamic_engine_power.loc[probe_date]:.4f}")
                 print(f"         - 结果: engine_power_score: {engine_power_score.loc[probe_date]:.4f}")
                 print(f"       - 维度2: 燃料品质 (Fuel Quality)")
-                # [修改代码块] 更新探针输出
                 print(f"         - 原料: conviction_index: {conviction.loc[probe_date]:.4f}, impulse_purity: {impulse_purity.loc[probe_date]:.4f}")
                 print(f"         - 过程: conviction_score: {conviction_score.loc[probe_date]:.4f}, purity_score: {purity_score.loc[probe_date]:.4f}")
                 print(f"         - 过程: base_fuel_quality: {base_fuel_quality.loc[probe_date]:.4f}, synergy_bonus: {synergy_bonus.loc[probe_date]:.4f}")
@@ -623,12 +623,12 @@ class ChipIntelligence:
 
     def _diagnose_tactical_exchange(self, df: pd.DataFrame, battlefield_geography: pd.Series) -> pd.Series:
         """
-        【V2.1 · 诡道仲裁版】诊断战术换手博弈的质量与意图
-        - 核心架构升级: 将“诡道欺骗指数”的角色从“加权项”提升为“逻辑仲裁者”。当模型识别出强烈的
-                          “打压吸筹”式欺骗行为时，将启动一套独立的仲裁逻辑，以欺骗指数为核心，
-                          对常规的“权力转移”信号进行修正甚至覆盖，从而揭示隐藏在表象之下的真实意图。
+        【V2.2 · 最终裁定 · 连续仲裁版】诊断战术换手博弈的质量与意图
+        - 核心裁定: 将“诡道仲裁”模型从“硬阈值触发”升级为“连续非线性仲裁”。废除硬阈值，
+                      仲裁的“话语权”由“诡道欺骗指数”的强度连续地、非线性地决定。这使得模型能更平滑、
+                      更真实地融合常规意图与诡道意图，做出大师级的精妙裁决。
         """
-        print("    -> [筹码层] 正在诊断“战术换手博弈 (V2.1 · 诡道仲裁版)”...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“战术换手博弈 (V2.2 · 连续仲裁版)”...") # [修改代码行]
         required_signals = [
             'main_force_net_flow_calibrated_D', 'retail_net_flow_calibrated_D', 'turnover_rate_f_D',
             'peak_control_transfer_D', 'floating_chip_cleansing_efficiency_D', 'capitulation_absorption_index_D',
@@ -649,20 +649,15 @@ class ChipIntelligence:
         norm_turnover = get_adaptive_mtf_normalized_score(turnover, df_index, tf_weights)
         norm_control_transfer = get_adaptive_mtf_normalized_bipolar_score(control_transfer, df_index, tf_weights)
         norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_index, df_index, tf_weights)
-        # [修改代码块] 升级为诡道仲裁逻辑
+        # [修改代码块] 升级为连续非线性仲裁逻辑
         base_intent_score = (
-            norm_power_transfer * 0.6 +
-            norm_control_transfer * 0.3 +
-            ((norm_turnover - 0.5) * 2) * 0.1
+            norm_power_transfer * 0.7 +
+            norm_control_transfer * 0.3
         )
-        # 仲裁逻辑：当诡道指数为正（打压吸筹）且超过一定阈值时，它将强力修正基础意图分
-        deception_threshold = 0.3
-        is_deceptive_mask = norm_deception > deception_threshold
-        # 仲裁权重：诡道指数越高，其话语权越大
-        arbitration_weight = (norm_deception - deception_threshold) / (1 - deception_threshold)
+        # 仲裁权重由诡道指数的绝对强度非线性决定（平方使其对强信号更敏感）
+        arbitration_weight = norm_deception.abs().pow(2)
         # 最终意图分 = (1 - 仲裁权重) * 基础分 + 仲裁权重 * 诡道分
-        intent_score = base_intent_score.where(~is_deceptive_mask,
-                                               base_intent_score * (1 - arbitration_weight) + norm_deception * arbitration_weight)
+        intent_score = base_intent_score * (1 - arbitration_weight) + norm_deception * arbitration_weight
         # 维度2: 换手质量 (Exchange Quality) - 零值门控
         price_trend = self._get_safe_series(df, df, 'SLOPE_1_close_D', 0.0)
         is_up_day = price_trend > 0
@@ -697,8 +692,7 @@ class ChipIntelligence:
                 # [修改代码块] 更新探针输出
                 print(f"         - 原料: power_transfer: {power_transfer.loc[probe_date]:.2f}, control_transfer: {control_transfer.loc[probe_date]:.4f}, deception_idx: {deception_index.loc[probe_date]:.4f}")
                 print(f"         - 过程: base_intent_score: {base_intent_score.loc[probe_date]:.4f}, norm_deception: {norm_deception.loc[probe_date]:.4f}")
-                if is_deceptive_mask.loc[probe_date]:
-                    print(f"         - 过程(诡道仲裁激活): arbitration_weight: {arbitration_weight.loc[probe_date]:.4f}")
+                print(f"         - 过程(连续仲裁): arbitration_weight: {arbitration_weight.loc[probe_date]:.4f}")
                 print(f"         - 结果: intent_score (arbitrated): {intent_score.loc[probe_date]:.4f}")
                 print(f"       - 维度2: 换手质量 (Quality)")
                 print(f"         - 原料: absorption: {absorption_idx.loc[probe_date]:.4f}, impulse_purity: {impulse_purity.loc[probe_date]:.4f}, profit_taking: {profit_quality.loc[probe_date]:.4f}, is_up_day: {is_up_day.loc[probe_date]}")
