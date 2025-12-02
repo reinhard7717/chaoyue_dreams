@@ -71,10 +71,8 @@ class StructuralIntelligence:
         axiom_stability = self._diagnose_axiom_stability(df)
         axiom_divergence = self._diagnose_axiom_divergence(df)
         bottom_fractal_score = self._diagnose_bottom_fractal(df, n=5, min_depth_ratio=0.001)
-        # --- 新增代码开始 ---
-        axiom_tension = self._diagnose_axiom_tension(df) # 新增：诊断结构张力
+        axiom_tension = self._diagnose_axiom_tension(df)
         all_states['SCORE_STRUCT_AXIOM_TENSION'] = axiom_tension
-        # --- 新增代码结束 ---
         all_states['SCORE_STRUCT_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_STRUCT_AXIOM_TREND_FORM'] = axiom_trend_form
         all_states['SCORE_STRUCT_AXIOM_MTF_COHESION'] = axiom_mtf_cohesion
@@ -84,9 +82,11 @@ class StructuralIntelligence:
         all_states['SCORE_STRUCTURE_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         all_states['SCORE_STRUCT_BOTTOM_FRACTAL'] = bottom_fractal_score
         # --- 步骤二: 诊断顶层战略态势 ---
+        # --- 修改代码开始 ---
         strategic_posture = self._diagnose_strategic_posture(
-            axiom_trend_form, axiom_mtf_cohesion, axiom_stability
+            axiom_trend_form, axiom_mtf_cohesion, axiom_stability, axiom_tension
         )
+        # --- 修改代码结束 ---
         all_states['SCORE_STRUCT_STRATEGIC_POSTURE'] = strategic_posture
         # --- 步骤三: 诊断终极维度 - 结构动量 ---
         momentum_window = 5
@@ -100,13 +100,11 @@ class StructuralIntelligence:
             today_score = structural_momentum.iloc[-1]
             print(f"    [探针] 结构动量(势) (SCORE_STRUCT_MOMENTUM): {today_score:.4f}")
             print(f"      - 原料: 战略态势5日斜率(原始)={posture_slope_raw.iloc[-1]:.4f}")
-        # --- 新增代码开始 ---
         # --- 步骤四: 诊断战术剧本 ---
         playbook_secondary_launch = self._diagnose_playbook_secondary_launch(
             df, axiom_stability, strategic_posture, structural_momentum
         )
         all_states['SCORE_STRUCT_PLAYBOOK_SECONDARY_LAUNCH'] = playbook_secondary_launch
-        # --- 新增代码结束 ---
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame) -> pd.Series:
@@ -403,12 +401,12 @@ class StructuralIntelligence:
         # --- 新增代码结束 ---
         return bottom_fractal_score
 
-    def _diagnose_strategic_posture(self, axiom_trend_form: pd.Series, axiom_mtf_cohesion: pd.Series, axiom_stability: pd.Series) -> pd.Series:
+    def _diagnose_strategic_posture(self, axiom_trend_form: pd.Series, axiom_mtf_cohesion: pd.Series, axiom_stability: pd.Series, axiom_tension: pd.Series) -> pd.Series:
         """
-        【V2.2 · 协同信念版】诊断顶层“战略态势”
-        - 核心升级: 废弃旧的惩罚性“门控”融合，升级为“协同信念”模型。坚固的“盾”会放大“矛”的得分，脆弱的“盾”则会削弱“矛”的得分，更真实地模拟战略协同。
+        【V2.3 · 张力催化版】诊断顶层“战略态势”
+        - 核心升级: 将“结构张力”作为“进攻催化剂”整合进“矛”的计算中，旨在放大从高势能状态发起的突破的战略价值。
         - 核心逻辑:
-          - 矛 (进攻): 融合了趋势形态（意愿）、宏观健康度（可持续性）和结构杠杆（效率）。
+          - 矛 (进攻): (趋势形态 + 宏观健康度 + 结构杠杆) * (1 + 张力催化)
           - 盾 (防御): 直接由纯粹的结构稳定性公理决定。
         - 输出: 一个综合了进攻与防御的顶层战略分数。
         """
@@ -422,33 +420,37 @@ class StructuralIntelligence:
         leverage_raw = self._get_safe_series(self.strategy.df_indicators, 'structural_leverage_D', 0.0, method_name="_diagnose_strategic_posture")
         leverage_score = get_adaptive_mtf_normalized_score(leverage_raw, df_index, ascending=True, tf_weights=tf_weights)
         # --- 1. 矛 (Offense) ---
-        # 权重: 趋势形态(0.4), 宏观健康度(0.4), 结构杠杆(0.2)
-        offense_score = (
+        # 1a. 基础进攻分
+        base_offense_score = (
             axiom_trend_form.clip(lower=0) * 0.4 +
             axiom_mtf_cohesion.clip(lower=0) * 0.4 +
             leverage_score * 0.2
         ).clip(0, 1)
+        # --- 修改代码开始 ---
+        # 1b. 张力催化
+        tension_catalyst_factor = 0.5 # 张力对进攻的催化系数
+        tension_amplifier = 1 + (axiom_tension * tension_catalyst_factor)
+        # 1c. 最终进攻分
+        offense_score = (base_offense_score * tension_amplifier).clip(0, 1)
+        # --- 修改代码结束 ---
         # --- 2. 盾 (Defense) ---
-        # 防御强度直接来自于纯粹的稳定性公理（需要从[-1, 1]映射回[0, 1]）
         defense_strength = ((axiom_stability + 1) / 2).clip(0, 1)
         # --- 3. 协同信念融合 ---
-        # --- 修改代码开始 ---
-        # 废弃旧的乘法门控： strategic_posture = offense_score * defense_strength
-        # 引入新的协同信念模型
-        conviction_factor = 0.5 # “盾”对“矛”的影响系数
+        conviction_factor = 0.5
         defense_modifier = (defense_strength - 0.5) * conviction_factor
         strategic_posture = (offense_score * (1 + defense_modifier)).clip(0, 1)
         final_score = strategic_posture.astype(np.float32)
-        # --- 修改代码结束 ---
         if self.is_probe_date:
             today_score = final_score.iloc[-1]
             print(f"    [探针] 结构战略态势 (SCORE_STRUCT_STRATEGIC_POSTURE): {today_score:.4f}")
+            # --- 修改代码开始 ---
             print(f"      - 原料: 趋势形态分={axiom_trend_form.iloc[-1]:.2f}, 宏观健康度分={axiom_mtf_cohesion.iloc[-1]:.2f}, 结构稳定性分={axiom_stability.iloc[-1]:.2f}")
             print(f"      - 新增原料: 杠杆(原始)={leverage_raw.iloc[-1]:.2f} -> 杠杆分={leverage_score.iloc[-1]:.2f}")
-            print(f"      - 计算: 矛(进攻)分={offense_score.iloc[-1]:.2f}, 盾(防御)强度={defense_strength.iloc[-1]:.2f}")
-            # --- 新增代码开始 ---
-            print(f"      - 协同融合: 防御调节器={defense_modifier.iloc[-1]:.2f} -> 最终态势 = 矛分 * (1 + 调节器)")
-            # --- 新增代码结束 ---
+            print(f"      - 新增原料: 结构张力分={axiom_tension.iloc[-1]:.2f}")
+            print(f"      - 计算: 基础矛分={base_offense_score.iloc[-1]:.2f}, 张力放大器={tension_amplifier.iloc[-1]:.2f} -> 最终矛分={offense_score.iloc[-1]:.2f}")
+            print(f"      - 计算: 盾(防御)强度={defense_strength.iloc[-1]:.2f}")
+            print(f"      - 协同融合: 防御调节器={defense_modifier.iloc[-1]:.2f} -> 最终态势 = 最终矛分 * (1 + 调节器)")
+            # --- 修改代码结束 ---
         return final_score
 
     def _diagnose_axiom_tension(self, df: pd.DataFrame) -> pd.Series:
