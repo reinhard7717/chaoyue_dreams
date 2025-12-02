@@ -46,10 +46,12 @@ class StructuralIntelligence:
 
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.2 · 势能觉醒版】结构情报分析总指挥
+        【V5.3 · 张力与剧本版】结构情报分析总指挥
         - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
         - 核心职责: 输出结构领域的原子公理信号、结构背离信号，并新增顶层“战略态势”超级信号。
-        - 核心新增: 引入终极维度“结构动量”，通过计算“战略态势”自身的变化率，将结构分析从“状态”提升至“势”的层面。
+        - 核心新增: 引入终极维度“结构动量”，将结构分析从“状态”提升至“势”的层面。
+        - 核心新增: 引入“结构张力”公理，作为势能压缩的先行指标。
+        - 核心新增: 引入“二次启动”战术剧本识别，从公理组合中识别高阶意图。
         - 【新增】调用 `_diagnose_bottom_fractal` 方法，将底分型信号添加到 `all_states` 中。
         - 【新增】调用 `_diagnose_strategic_posture` 方法，生成顶层战略信号。
         - 【优化】移除了过时的 `norm_window` 参数。
@@ -63,11 +65,16 @@ class StructuralIntelligence:
         self.is_probe_date = current_date_str in self.probe_dates
         if self.is_probe_date:
             print(f"\n--- [结构情报探针] @ {current_date_str} ---")
-        # --- 步骤一: 诊断三大公理 ---
+        # --- 步骤一: 诊断原子公理 ---
         axiom_trend_form = self._diagnose_axiom_trend_form(df)
         axiom_mtf_cohesion = self._diagnose_axiom_mtf_cohesion(df, axiom_trend_form)
         axiom_stability = self._diagnose_axiom_stability(df)
         axiom_divergence = self._diagnose_axiom_divergence(df)
+        bottom_fractal_score = self._diagnose_bottom_fractal(df, n=5, min_depth_ratio=0.001)
+        # --- 新增代码开始 ---
+        axiom_tension = self._diagnose_axiom_tension(df) # 新增：诊断结构张力
+        all_states['SCORE_STRUCT_AXIOM_TENSION'] = axiom_tension
+        # --- 新增代码结束 ---
         all_states['SCORE_STRUCT_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_STRUCT_AXIOM_TREND_FORM'] = axiom_trend_form
         all_states['SCORE_STRUCT_AXIOM_MTF_COHESION'] = axiom_mtf_cohesion
@@ -75,14 +82,12 @@ class StructuralIntelligence:
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_STRUCTURE_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_STRUCTURE_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
-        bottom_fractal_score = self._diagnose_bottom_fractal(df, n=5, min_depth_ratio=0.001)
         all_states['SCORE_STRUCT_BOTTOM_FRACTAL'] = bottom_fractal_score
         # --- 步骤二: 诊断顶层战略态势 ---
         strategic_posture = self._diagnose_strategic_posture(
             axiom_trend_form, axiom_mtf_cohesion, axiom_stability
         )
         all_states['SCORE_STRUCT_STRATEGIC_POSTURE'] = strategic_posture
-        # --- 新增代码开始 ---
         # --- 步骤三: 诊断终极维度 - 结构动量 ---
         momentum_window = 5
         posture_slope_raw = ta.slope(strategic_posture, length=momentum_window)
@@ -95,6 +100,12 @@ class StructuralIntelligence:
             today_score = structural_momentum.iloc[-1]
             print(f"    [探针] 结构动量(势) (SCORE_STRUCT_MOMENTUM): {today_score:.4f}")
             print(f"      - 原料: 战略态势5日斜率(原始)={posture_slope_raw.iloc[-1]:.4f}")
+        # --- 新增代码开始 ---
+        # --- 步骤四: 诊断战术剧本 ---
+        playbook_secondary_launch = self._diagnose_playbook_secondary_launch(
+            df, axiom_stability, strategic_posture, structural_momentum
+        )
+        all_states['SCORE_STRUCT_PLAYBOOK_SECONDARY_LAUNCH'] = playbook_secondary_launch
         # --- 新增代码结束 ---
         return all_states
 
@@ -439,4 +450,105 @@ class StructuralIntelligence:
             print(f"      - 协同融合: 防御调节器={defense_modifier.iloc[-1]:.2f} -> 最终态势 = 矛分 * (1 + 调节器)")
             # --- 新增代码结束 ---
         return final_score
+
+    def _diagnose_axiom_tension(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 势能压缩版】结构公理六：诊断“结构张力”
+        - 核心逻辑: 量化系统内部能量的压缩程度，作为潜在状态突变的先行指标。
+        - 核心维度: 融合价格空间压缩(BBW)、均线结构压缩(EMA标准差)和量能压缩(成交量均线比)。
+        """
+        ema_periods = [5, 13, 21, 34]
+        required_signals = ['BBW_21_2.0_D', 'VOL_MA_5_D', 'VOL_MA_55_D']
+        required_signals.extend([f'EMA_{p}_D' for p in ema_periods])
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_tension"):
+            return pd.Series(0.0, index=df.index)
+        df_index = df.index
+        p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
+        tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # --- 1. 价格空间压缩 ---
+        price_compression_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 1.0, method_name="_diagnose_axiom_tension")
+        price_compression_score = get_adaptive_mtf_normalized_score(price_compression_raw, df_index, ascending=False, tf_weights=tf_weights)
+        # --- 2. 均线结构压缩 ---
+        ema_cluster = df[[f'EMA_{p}_D' for p in ema_periods]]
+        structure_compression_raw = ema_cluster.std(axis=1) / df['close_D'] # 标准差归一化，避免股价本身大小的影响
+        structure_compression_score = get_adaptive_mtf_normalized_score(structure_compression_raw, df_index, ascending=False, tf_weights=tf_weights)
+        # --- 3. 量能压缩 ---
+        vol_ma_short = self._get_safe_series(df, 'VOL_MA_5_D', 1.0, method_name="_diagnose_axiom_tension")
+        vol_ma_long = self._get_safe_series(df, 'VOL_MA_55_D', 1.0, method_name="_diagnose_axiom_tension")
+        volume_compression_raw = vol_ma_short / vol_ma_long
+        volume_compression_score = get_adaptive_mtf_normalized_score(volume_compression_raw, df_index, ascending=False, tf_weights=tf_weights)
+        # --- 4. 融合 ---
+        # 权重: 价格(0.4), 结构(0.4), 量能(0.2)
+        tension_score = (
+            price_compression_score * 0.4 +
+            structure_compression_score * 0.4 +
+            volume_compression_score * 0.2
+        ).clip(0, 1)
+        final_score = tension_score.astype(np.float32)
+        if self.is_probe_date:
+            today_score = final_score.iloc[-1]
+            print(f"    [探针] 结构张力公理 (SCORE_STRUCT_AXIOM_TENSION): {today_score:.4f}")
+            print(f"      - 价格压缩: BBW(原始)={price_compression_raw.iloc[-1]:.3f} -> 分数={price_compression_score.iloc[-1]:.2f}")
+            print(f"      - 结构压缩: EMA标准差(原始)={structure_compression_raw.iloc[-1]:.4f} -> 分数={structure_compression_score.iloc[-1]:.2f}")
+            print(f"      - 量能压缩: 均量比(原始)={volume_compression_raw.iloc[-1]:.3f} -> 分数={volume_compression_score.iloc[-1]:.2f}")
+        return final_score
+
+    def _diagnose_playbook_secondary_launch(self, df: pd.DataFrame, axiom_stability: pd.Series, strategic_posture: pd.Series, structural_momentum: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 战术剧本识别】识别“暴力洗盘后二次启动”剧本
+        - 核心逻辑: 在时间序列上匹配一个完整的战术行为模式。
+        - 剧本序列: [前期稳定蓄势] -> [短暂暴力洗盘+主力吸筹] -> [当日强势启动]
+        """
+        required_signals = ['capitulation_absorption_index_D', 'close_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_playbook_secondary_launch"):
+            return pd.Series(0.0, index=df.index)
+        playbook_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        absorption_signal = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_playbook_secondary_launch")
+        # 为了效率，我们只在最近的K天内寻找模式
+        lookback_days = 60
+        start_index = max(10, len(df) - lookback_days) # 至少需要10天历史数据
+        for i in range(start_index, len(df)):
+            # --- 条件3: 当日强势启动 ---
+            is_launch_day = strategic_posture.iloc[i] > 0.6 and structural_momentum.iloc[i] > 0.6
+            if not is_launch_day:
+                continue
+            # --- 回溯寻找洗盘和蓄势阶段 ---
+            washout_found = False
+            # 洗盘窗口: 启动日前1-3天
+            for j in range(max(0, i - 3), i):
+                # --- 条件2: 暴力洗盘 + 主力吸筹 ---
+                price_dropped = df['close_D'].iloc[j] < df['close_D'].iloc[j-1]
+                strong_absorption = absorption_signal.iloc[j] > 0.7
+                if price_dropped and strong_absorption:
+                    # --- 条件1: 前期稳定蓄势 ---
+                    # 蓄势窗口: 洗盘日前5天
+                    accumulation_period_end = j - 1
+                    accumulation_period_start = max(0, accumulation_period_end - 5)
+                    if accumulation_period_start < accumulation_period_end:
+                        avg_stability = axiom_stability.iloc[accumulation_period_start:accumulation_period_end].mean()
+                        if avg_stability > 0.2:
+                            washout_found = True
+                            break # 找到符合条件的洗盘日，即可停止内层循环
+            if washout_found:
+                playbook_score.iloc[i] = 1.0
+        if self.is_probe_date and playbook_score.iloc[-1] > 0:
+            print(f"    [探针] 结构剧本-二次启动 (SCORE_STRUCT_PLAYBOOK_SECONDARY_LAUNCH): {playbook_score.iloc[-1]:.4f}")
+            print(f"      - 剧本确认: [蓄势]->[洗盘吸筹]->[启动] 模式在今日识别成功!")
+        elif self.is_probe_date:
+            print(f"    [探针] 结构剧本-二次启动 (SCORE_STRUCT_PLAYBOOK_SECONDARY_LAUNCH): 0.0000")
+        return playbook_score
+
+
+
+
+
+
+
+
+
+
+
+
+
 
