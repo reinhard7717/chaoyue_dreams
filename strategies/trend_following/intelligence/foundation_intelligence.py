@@ -37,15 +37,14 @@ class FoundationIntelligence:
         - 核心新增: 引入“环境共振调节器”，将个股信号与市场/板块/主题环境耦合，
                       实现对顶层信号的宏观上下文校准。
         """
-        print("启动【V11.0 · 环境共振版】基础情报分析...") # 修改: 更新版本号和描述
+        print("启动【V11.0 · 环境共振版】基础情报分析...")
         all_states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             print("基础情报引擎已在配置中禁用，跳过。")
             return {}
-        # 新增: 步骤一，计算环境调节器
-        environmental_modulator = self._calculate_environmental_modulator(p_conf)
-        # 步骤二，计算五大公理
+        # 修改: 将df作为参数传递给_calculate_environmental_modulator
+        environmental_modulator = self._calculate_environmental_modulator(df, p_conf)
         axiom_constitution = self._diagnose_axiom_market_constitution(df, p_conf)
         axiom_pendulum = self._diagnose_axiom_sentiment_pendulum(df)
         axiom_tide = self._diagnose_axiom_liquidity_tide(df)
@@ -56,23 +55,21 @@ class FoundationIntelligence:
         all_states['SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE'] = axiom_tide
         all_states['SCORE_FOUNDATION_AXIOM_MARKET_TENSION'] = axiom_tension
         all_states['SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH'] = axiom_relative_strength
-        # 步骤三，合成顶层信号，并应用调节器
         strategic_posture = self._synthesize_strategic_posture(
             p_conf,
             axiom_constitution,
             axiom_relative_strength,
             axiom_tide,
             axiom_pendulum,
-            axiom_tension,
-            environmental_modulator # 修改: 传入调节器
+            tension,
+            environmental_modulator
         )
         all_states['SCORE_FOUNDATION_STRATEGIC_POSTURE'] = strategic_posture
-        # 步骤四，诊断拐点信号，并应用调节器
-        harmony_inflection = self._diagnose_harmony_inflection(p_conf, strategic_posture, environmental_modulator) # 修改: 传入调节器
+        harmony_inflection = self._diagnose_harmony_inflection(p_conf, strategic_posture, environmental_modulator)
         all_states['SCORE_FOUNDATION_HARMONY_INFLECTION'] = harmony_inflection
         context_trend_confirmed = self._diagnose_context_trend_confirmed(df)
         all_states.update(context_trend_confirmed)
-        print(f"【V11.0 · 环境共振版】分析完成，生成 {len(all_states)} 个基础信号 (含1个顶层及1个拐点信号)。") # 修改: 更新版本号
+        print(f"【V11.0 · 环境共振版】分析完成，生成 {len(all_states)} 个基础信号 (含1个顶层及1个拐点信号)。")
         return all_states
 
     def _diagnose_context_trend_confirmed(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -399,19 +396,22 @@ class FoundationIntelligence:
                 print(f"       - 最终和谐拐点分: {inflection_score.loc[probe_date_for_loop]:.4f}")
         return inflection_score.clip(0, 1).astype(np.float32)
 
-    def _calculate_environmental_modulator(self, params: dict) -> pd.Series:
+    def _calculate_environmental_modulator(self, df: pd.DataFrame, params: dict) -> pd.Series: # 修改: 增加df参数
         """
         【V1.0 · 新增】计算“环境共振调节器”
         - 核心逻辑: 融合市场趋势代理、板块强度、主题热度，生成一个[0.75, 1.25]区间的调节器。
         """
         print("    -> [基础层] 正在计算“环境共振调节器”...")
         p_conf = params.get('environmental_modulator_params', {})
+        # 修改: 使用传入的df的index
         if not p_conf.get('enabled', True):
-            return pd.Series(1.0, index=self.strategy.df.index)
+            return pd.Series(1.0, index=df.index)
         required_signals = ['SLOPE_55_close_D', 'industry_strength_rank_D', 'THEME_HOTNESS_SCORE_D']
-        if not self._validate_required_signals(self.strategy.df, required_signals, "_calculate_environmental_modulator"):
-            return pd.Series(1.0, index=self.strategy.df.index)
-        df_index = self.strategy.df.index
+        # 修改: 使用传入的df进行校验
+        if not self._validate_required_signals(df, required_signals, "_calculate_environmental_modulator"):
+            return pd.Series(1.0, index=df.index)
+        # 修改: 使用传入的df的index
+        df_index = df.index
         weights = p_conf.get('weights', {})
         w_mkt = weights.get('market_proxy', 0.3)
         w_sec = weights.get('sector_strength', 0.4)
@@ -420,20 +420,17 @@ class FoundationIntelligence:
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 1. 市场趋势代理 (长周期收盘价斜率)
-        market_proxy_raw = self._get_safe_series(self.strategy.df, 'SLOPE_55_close_D', 0.0, "_calculate_environmental_modulator")
+        # 修改: 从传入的df中获取Series
+        market_proxy_raw = self._get_safe_series(df, 'SLOPE_55_close_D', 0.0, "_calculate_environmental_modulator")
         market_proxy_score = get_adaptive_mtf_normalized_bipolar_score(market_proxy_raw, df_index, default_weights)
-        # 2. 板块强度 (行业排名)
-        sector_strength_raw = self._get_safe_series(self.strategy.df, 'industry_strength_rank_D', 0.5, "_calculate_environmental_modulator")
+        # 修改: 从传入的df中获取Series
+        sector_strength_raw = self._get_safe_series(df, 'industry_strength_rank_D', 0.5, "_calculate_environmental_modulator")
         sector_strength_score = (sector_strength_raw - 0.5) * 2
-        # 3. 主题热度
-        theme_hotness_raw = self._get_safe_series(self.strategy.df, 'THEME_HOTNESS_SCORE_D', 0.0, "_calculate_environmental_modulator")
+        # 修改: 从传入的df中获取Series
+        theme_hotness_raw = self._get_safe_series(df, 'THEME_HOTNESS_SCORE_D', 0.0, "_calculate_environmental_modulator")
         theme_hotness_score = get_adaptive_mtf_normalized_score(theme_hotness_raw, df_index, ascending=True, tf_weights=default_weights)
-        # 4. 融合环境总分
         env_score = (market_proxy_score * w_mkt + sector_strength_score * w_sec + theme_hotness_score * w_thm).clip(-1, 1)
-        # 5. 生成调节器
         modulator = 1.0 + (env_score * bonus_factor)
-        # 探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
