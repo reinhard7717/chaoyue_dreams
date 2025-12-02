@@ -839,14 +839,15 @@
             "task_type": "base",
             "diagnosis_type": "domain_reversal",
             "domain_name": "FUND_FLOW",
-            "output_bottom_reversal_name": "PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL",
+            "output_bottom_reversal_name": "PROCESS_META_FUND_FLOW_BOTTOM_REversal",
             "output_top_reversal_name": "PROCESS_META_FUND_FLOW_TOP_REVERSAL",
             "axioms": [
-              {"name": "SCORE_FF_AXIOM_CONSENSUS", "weight": 0.5},
-              {"name": "SCORE_FF_AXIOM_CONVICTION", "weight": 0.3},
-              {"name": "SCORE_FF_AXIOM_FLOW_MOMENTUM", "weight": 0.2}
+              {"name": "SCORE_FF_AXIOM_CONSENSUS", "weight": 0.4},
+              {"name": "SCORE_FF_AXIOM_CONVICTION", "weight": 0.2},
+              {"name": "SCORE_FF_AXIOM_FLOW_MOMENTUM", "weight": 0.2},
+              {"name": "SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH", "weight": 0.2}
             ],
-            "comment": "资金流领域反转信号，由过程层生成。"
+            "comment": "【V2.0 · 健康度增强版】资金流领域反转信号。新增“资金流结构健康度”作为诊断依据，提升反转信号的可靠性。"
           },
           {
             "name": "PROCESS_META_MICRO_STRATEGY_REVERSAL",
@@ -1233,13 +1234,15 @@
       },
       "fund_flow_ultimate_params": {
         "enabled": true,
-        "description": "【V5.1 · 资金流动量版】定义了基于“共识、信念、资金流动量”三大资金流公理的引擎参数。",
+        "description": "【V6.0 · 结构健康度版】定义了基于“共识、信念、动能、张力、属性、健康度”六大资金流公理的引擎参数。",
         "norm_window": 55,
-        "description_axiom_weights": "融合三大资金流公理时的权重。",
+        "description_axiom_weights": "融合六大资金流公理时的权重。",
         "axiom_weights": {
-          "consensus": 0.4,
-          "conviction": 0.3,
-          "flow_momentum": 0.3
+          "consensus": 0.25,
+          "conviction": 0.2,
+          "flow_momentum": 0.2,
+          "capital_signature": 0.15,
+          "flow_structure_health": 0.2
         }
       },
       "fusion_accumulation_inflection_params": {

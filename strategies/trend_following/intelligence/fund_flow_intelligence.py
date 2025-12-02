@@ -47,33 +47,34 @@ class FundFlowIntelligence:
 
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V24.0 · 资本属性公理版】资金流情报分析总指挥
-        - 核心新增: 引入第五大公理——“资本属性公理”，旨在识别驱动趋势的资金是“耐心资本”（机构）
-                      还是“敏捷资本”（游资），为策略提供全新的决策维度。
+        【V25.0 · 结构健康度公理版】资金流情报分析总指挥
+        - 核心新增: 引入第六大公理——“资金流结构健康度公理”，旨在评估资金流模式的稳定性与可持续性，
+                      为策略提供对趋势“质量”的深层洞察。
+        - 核心优化: 精炼了“资本属性公理”中对耐心资本稳定性的识别逻辑。
         """
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 资金流情报引擎在配置中被禁用，跳过分析。")
             return {}
-        print("启动【V24.0 · 资本属性公理版】资金流情报分析...")
+        print("启动【V25.0 · 结构健康度公理版】资金流情报分析...") # 修改: 更新版本号和名称
         all_states = {}
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         axiom_consensus = self._diagnose_axiom_consensus(df, norm_window)
         axiom_conviction = self._diagnose_axiom_conviction(df, norm_window)
         axiom_flow_momentum = self._diagnose_axiom_flow_momentum(df, norm_window)
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
-        # 调用新增的资本属性公理诊断方法
         axiom_capital_signature = self._diagnose_axiom_capital_signature(df, norm_window)
+        axiom_flow_structure_health = self._diagnose_axiom_flow_structure_health(df, norm_window) # 新增: 调用新增的结构健康度公理诊断方法
         all_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_FF_AXIOM_CONSENSUS'] = axiom_consensus
         all_states['SCORE_FF_AXIOM_CONVICTION'] = axiom_conviction
         all_states['SCORE_FF_AXIOM_FLOW_MOMENTUM'] = axiom_flow_momentum
-        # 将新的公理分数添加到状态字典
         all_states['SCORE_FF_AXIOM_CAPITAL_SIGNATURE'] = axiom_capital_signature
+        all_states['SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH'] = axiom_flow_structure_health # 新增: 将新的公理分数添加到状态字典
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
-        print(f"【V24.0 · 资本属性公理版】分析完成，生成 {len(all_states)} 个资金流原子信号。")
+        print(f"【V25.0 · 结构健康度公理版】分析完成，生成 {len(all_states)} 个资金流原子信号。") # 修改: 更新版本号和名称
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -256,9 +257,10 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_capital_signature(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.0 · 新增】资金流公理五：诊断“资本属性”
+        【V1.1 · 逻辑精炼版】资金流公理五：诊断“资本属性”
         - 核心逻辑: 通过分析资金流的行为模式，区分趋势是由“耐心资本”（机构）还是“敏捷资本”（游资）主导。
         - A股特性: 机构建仓如“温水煮青蛙”，游资点火如“烈火烹油”，两者后续走势预期截然不同。
+        - V1.1 优化: 修正了“耐心资本”画像中对资金平稳度的计算，从衡量“波动率的变化”升级为直接衡量“波动率的大小”，更精准地刻画其稳定性。
         """
         print("    -> [资金流层] 正在诊断“资本属性”公理...")
         required_signals = [
@@ -271,22 +273,23 @@ class FundFlowIntelligence:
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # 1. “耐心资本”（机构）画像
-        institutional_flow = self._get_safe_series(df, df, 'net_lg_amount_calibrated_D', 0.0) + self._get_safe_series(df, df, 'net_xl_amount_calibrated_D', 0.0)
+        institutional_flow = self._get_safe_series(df, df, 'net_lg_amount_calibrated_D', 0.0, method_name="_diagnose_axiom_capital_signature") + self._get_safe_series(df, df, 'net_xl_amount_calibrated_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         # 证据一：持续稳定的净流入
         flow_consistency = institutional_flow.rolling(window=21).mean()
-        # 证据二：流入过程的波动率低
-        flow_steadiness = 1 - institutional_flow.rolling(window=21).std().pct_change().fillna(0).abs()
+        # 证据二：流入过程的波动率低 (V1.1 修正)
+        flow_volatility = institutional_flow.rolling(window=21).std().fillna(0) # 新增: 直接计算资金流的波动率
+        flow_steadiness = 1 - get_adaptive_mtf_normalized_score(flow_volatility, df_index, ascending=True, tf_weights=tf_weights_ff) # 修改: 对波动率本身进行归一化，低波动=高平稳度
         patient_capital_score = (
             get_adaptive_mtf_normalized_score(flow_consistency, df_index, ascending=True, tf_weights=tf_weights_ff) * 0.7 +
-            get_adaptive_mtf_normalized_score(flow_steadiness, df_index, ascending=True, tf_weights=tf_weights_ff) * 0.3
+            flow_steadiness * 0.3 # 修改: 使用新的平稳度得分
         ).clip(0, 1)
         # 2. “敏捷资本”（游资）画像
         # 证据一：高频盘口冲击力
-        ofi = self._get_safe_series(df, df, 'main_force_ofi_D', 0.0)
+        ofi = self._get_safe_series(df, df, 'main_force_ofi_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         # 证据二：成交笔数爆发
-        trade_count = self._get_safe_series(df, df, 'trade_count_D', 0.0)
+        trade_count = self._get_safe_series(df, df, 'trade_count_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         # 证据三：与题材热度高度相关
-        theme_hotness = self._get_safe_series(df, df, 'THEME_HOTNESS_SCORE_D', 0.0)
+        theme_hotness = self._get_safe_series(df, df, 'THEME_HOTNESS_SCORE_D', 0.0, method_name="_diagnose_axiom_capital_signature")
         agile_capital_score = (
             get_adaptive_mtf_normalized_score(ofi.abs(), df_index, ascending=True, tf_weights=tf_weights_ff) * 0.4 +
             get_adaptive_mtf_normalized_score(trade_count, df_index, ascending=True, tf_weights=tf_weights_ff) * 0.3 +
@@ -294,7 +297,7 @@ class FundFlowIntelligence:
         ).clip(0, 1)
         # 3. 融合
         capital_signature_score = patient_capital_score - agile_capital_score
-        # [新增] 调试探针
+        # 新增：调试探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -302,10 +305,62 @@ class FundFlowIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df_index:
                 print(f"    -> [资本属性探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - patient_capital_score (耐心资本): {patient_capital_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - agile_capital_score (敏捷资本): {agile_capital_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - final_signature_score: {capital_signature_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - [原料] institutional_flow: {institutional_flow.loc[probe_date_for_loop]:.2f}, ofi: {ofi.loc[probe_date_for_loop]:.2f}, trade_count: {trade_count.loc[probe_date_for_loop]:.2f}, theme_hotness: {theme_hotness.loc[probe_date_for_loop]:.2f}")
+                print(f"       - [计算节点] flow_consistency (raw): {flow_consistency.loc[probe_date_for_loop]:.4f}, flow_steadiness: {flow_steadiness.loc[probe_date_for_loop]:.4f}") # 新增: 增加关键计算节点输出
+                print(f"       - [计算节点] patient_capital_score (耐心资本): {patient_capital_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - [计算节点] agile_capital_score (敏捷资本): {agile_capital_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - [结果] final_signature_score: {capital_signature_score.loc[probe_date_for_loop]:.4f}")
         return capital_signature_score.clip(-1, 1).astype(np.float32)
 
-
+    def _diagnose_axiom_flow_structure_health(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+        """
+        【V1.0 · 新增】资金流公理六：诊断“资金流结构健康度”
+        - 核心逻辑: 融合流量的平稳度、效率、成本凝聚力与结构风险，评估资金流模式的可持续性。
+        - A股特性: 旨在区分“一日游”式的脉冲行情与具备坚实基础的、可持续的趋势。
+        """
+        print("    -> [资金流层] 正在诊断“资金流结构健康度”公理...")
+        required_signals = [
+            'main_force_net_flow_calibrated_D', 'ATR_14_D',
+            'main_force_vpoc_D', 'close_D', 'structural_leverage_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_flow_structure_health"):
+            return pd.Series(0.0, index=df.index)
+        df_index = df.index
+        p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # 1. 流量平稳度 (Flow Steadiness)
+        net_flow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
+        flow_volatility = net_flow.rolling(window=21).std().fillna(0)
+        norm_flow_steadiness = 1 - get_adaptive_mtf_normalized_score(flow_volatility, df_index, ascending=True, tf_weights=tf_weights_ff)
+        # 2. 流量效率 (Flow Efficiency)
+        price_volatility = self._get_safe_series(df, df, 'ATR_14_D', 1.0, method_name="_diagnose_axiom_flow_structure_health").replace(0, 1e-9)
+        flow_efficiency_raw = net_flow.rolling(window=21).mean() / price_volatility.rolling(window=21).mean()
+        norm_flow_efficiency = get_adaptive_mtf_normalized_bipolar_score(flow_efficiency_raw, df_index, tf_weights_ff)
+        # 3. 成本凝聚力 (Cost Cohesion)
+        vpoc = self._get_safe_series(df, df, 'main_force_vpoc_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
+        close = self._get_safe_series(df, df, 'close_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
+        cost_divergence = ((close - vpoc) / close).abs().fillna(0)
+        norm_cost_cohesion = 1 - get_adaptive_mtf_normalized_score(cost_divergence, df_index, ascending=True, tf_weights=tf_weights_ff)
+        # 4. 结构风险过滤器 (Structural Risk Filter)
+        structural_leverage = self._get_safe_series(df, df, 'structural_leverage_D', 0.0, method_name="_diagnose_axiom_flow_structure_health")
+        risk_filter = 1 - get_adaptive_mtf_normalized_score(structural_leverage, df_index, ascending=True, tf_weights=tf_weights_ff)
+        # 5. 融合
+        health_core = (norm_flow_steadiness * 0.4 + norm_cost_cohesion * 0.6)
+        # 使用 np.sign(norm_flow_efficiency) 确保当资金为净流出时，健康度指标也呈负向贡献
+        flow_structure_health_score = (norm_flow_efficiency * 0.5 + health_core * np.sign(norm_flow_efficiency) * 0.5) * risk_filter
+        # 调试探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [资金流结构健康度探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - [原料] net_flow: {net_flow.loc[probe_date_for_loop]:.2f}, ATR: {price_volatility.loc[probe_date_for_loop]:.2f}, vpoc: {vpoc.loc[probe_date_for_loop]:.2f}, leverage: {structural_leverage.loc[probe_date_for_loop]:.2f}")
+                print(f"       - [计算节点] norm_flow_steadiness: {norm_flow_steadiness.loc[probe_date_for_loop]:.4f}")
+                print(f"       - [计算节点] norm_flow_efficiency: {norm_flow_efficiency.loc[probe_date_for_loop]:.4f}")
+                print(f"       - [计算节点] norm_cost_cohesion: {norm_cost_cohesion.loc[probe_date_for_loop]:.4f}")
+                print(f"       - [计算节点] risk_filter: {risk_filter.loc[probe_date_for_loop]:.4f}")
+                print(f"       - [结果] final_health_score: {flow_structure_health_score.loc[probe_date_for_loop]:.4f}")
+        return flow_structure_health_score.clip(-1, 1).astype(np.float32)
 
