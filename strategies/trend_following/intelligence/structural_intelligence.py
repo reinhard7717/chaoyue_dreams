@@ -46,10 +46,8 @@ class StructuralIntelligence:
 
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.7 · 终极裁决版】结构情报分析总指挥
-        - 核心升级: 引入“终极裁决”层，对“力竭滞涨陷阱”等高风险模式行使一票否决权。
-        - 核心新增: 新增“平台基石”公理，并将其融入“战略态势”的防御维度。
-        - 核心新增: 引入“龙头潜力”裁决者，识别“真龙头”机会。
+        【V5.8 · 战场勘探版】结构情报分析总指挥
+        - 核心升级: “平台基石”公理升级为战场勘探器，输出动态的平台边界和VPOC。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -68,8 +66,13 @@ class StructuralIntelligence:
         bottom_fractal_score = self._diagnose_bottom_fractal(df, n=5, min_depth_ratio=0.001)
         axiom_tension = self._diagnose_axiom_tension(df)
         axiom_environment = self._diagnose_axiom_environment(df)
-        platform_foundation = self._diagnose_platform_foundation(df)
-        all_states['SCORE_STRUCT_PLATFORM_FOUNDATION'] = platform_foundation
+        # --- 修改代码开始 ---
+        platform_quality, dynamic_high, dynamic_low, vpoc = self._diagnose_platform_foundation(df)
+        all_states['SCORE_STRUCT_PLATFORM_FOUNDATION'] = platform_quality
+        all_states['STRUCT_PLATFORM_DYNAMIC_HIGH'] = dynamic_high
+        all_states['STRUCT_PLATFORM_DYNAMIC_LOW'] = dynamic_low
+        all_states['STRUCT_PLATFORM_VPOC'] = vpoc
+        # --- 修改代码结束 ---
         all_states['SCORE_STRUCT_AXIOM_ENVIRONMENT'] = axiom_environment
         all_states['SCORE_STRUCT_AXIOM_TENSION'] = axiom_tension
         all_states['SCORE_STRUCT_AXIOM_DIVERGENCE'] = axiom_divergence
@@ -83,7 +86,7 @@ class StructuralIntelligence:
         # --- 步骤二: 诊断内部战略态势 ---
         # --- 修改代码开始 ---
         strategic_posture, defense_strength = self._diagnose_strategic_posture(
-            axiom_trend_form, axiom_mtf_cohesion, axiom_stability, axiom_tension, platform_foundation
+            axiom_trend_form, axiom_mtf_cohesion, axiom_stability, axiom_tension, platform_quality
         )
         # --- 修改代码结束 ---
         all_states['SCORE_STRUCT_STRATEGIC_POSTURE'] = strategic_posture
@@ -116,13 +119,11 @@ class StructuralIntelligence:
             strategic_posture, axiom_environment, structural_momentum, axiom_tension
         )
         all_states['SCORE_STRUCT_LEADERSHIP_POTENTIAL'] = leadership_potential
-        # --- 新增代码开始 ---
         # --- 步骤六: 终极裁决 ---
         final_judgment = self._diagnose_final_judgment(
             contextual_posture, defense_strength, structural_momentum
         )
         all_states['SCORE_STRUCT_FINAL_JUDGMENT'] = final_judgment
-        # --- 新增代码结束 ---
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame) -> pd.Series:
@@ -618,57 +619,88 @@ class StructuralIntelligence:
                 print(f"      - 裁决: [未激活] 未满足“个体强，环境弱”的矛盾情境。")
         return final_score
 
-    def _diagnose_platform_foundation(self, df: pd.DataFrame) -> pd.Series:
+    def _diagnose_platform_foundation(self, df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
         """
-        【V1.0 · 静态结构版】结构公理八：诊断“平台基石”
-        - 核心逻辑: 识别并量化平台整理区的结构品质。
-        - 核心维度: 融合形态稳固(BBW)、供应枯竭(成交量)和主力介入意图。
+        【V3.0 · 法医鉴定版】对平台进行法医级鉴定并勘探其战场边界
+        - 核心逻辑: 从“结构形态”、“筹码状态”、“主力行为”、“市场情绪”四大维度，
+                      对平台进行全方位品质鉴定，并输出基于主力意图的动态边界。
+        - 输出: (品质分, 动态高点, 动态低点, VPOC)
         """
-        required_signals = ['BBW_21_2.0_D', 'VOL_MA_5_D', 'VOL_MA_55_D', 'hidden_accumulation_intensity_D']
+        required_signals = [
+            'BBW_21_2.0_D', 'VOL_MA_5_D', 'VOL_MA_55_D', 'high_D', 'low_D', 'close_D', 'volume_D', 'open_D',
+            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'PRICE_VOLUME_ENTROPY_D', # 结构形态
+            'dominant_peak_solidity_D', 'peak_separation_ratio_D', 'chip_fatigue_index_D', # 筹码状态
+            'main_force_vpoc_D', 'mf_cost_zone_defense_intent_D', 'control_solidity_index_D', # 主力行为
+            'counterparty_exhaustion_index_D', 'retail_panic_surrender_index_D', 'turnover_rate_f_D' # 市场情绪
+        ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_platform_foundation"):
-            return pd.Series(0.0, index=df.index)
-        df_index = df.index
-        p_conf_struct = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        mtf_weights_conf = get_param_value(p_conf_struct.get('mtf_normalization_weights'), {})
-        tf_weights = mtf_weights_conf.get('default', {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # --- 1. 计算各维度分数 ---
-        # 1a. 价格稳定度
-        price_stability_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 1.0, method_name="_diagnose_platform_foundation")
-        price_stability_score = get_adaptive_mtf_normalized_score(price_stability_raw, df_index, ascending=False, tf_weights=tf_weights)
-        # 1b. 供应枯竭度
-        vol_ma_short = self._get_safe_series(df, 'VOL_MA_5_D', 1.0, method_name="_diagnose_platform_foundation")
-        vol_ma_long = self._get_safe_series(df, 'VOL_MA_55_D', 1.0, method_name="_diagnose_platform_foundation")
-        supply_exhaustion_raw = vol_ma_short / vol_ma_long
-        supply_exhaustion_score = get_adaptive_mtf_normalized_score(supply_exhaustion_raw, df_index, ascending=False, tf_weights=tf_weights)
-        # 1c. 主力吸筹意图
-        accumulation_intent_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_diagnose_platform_foundation")
-        accumulation_intent_score = get_adaptive_mtf_normalized_score(accumulation_intent_raw.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights)
-        # --- 2. 识别平台期并融合 ---
-        # 平台期条件：BBW处于历史较低水平(前40%) 且 供应枯竭度较高(前40%)
+            nan_series = pd.Series(np.nan, index=df.index)
+            return pd.Series(0.0, index=df.index), nan_series, nan_series, nan_series
+        # --- 步骤一: 识别平台状态 ---
+        price_stability_score = get_adaptive_mtf_normalized_score(df['BBW_21_2.0_D'], df.index, ascending=False)
+        supply_exhaustion_score = get_adaptive_mtf_normalized_score(df['VOL_MA_5_D'] / df['VOL_MA_55_D'], df.index, ascending=False)
         is_in_platform_state = (price_stability_score > 0.6) & (supply_exhaustion_score > 0.6)
-        # 计算平台期内的品质分
-        platform_quality_score = (
-            price_stability_score * 0.3 +
-            supply_exhaustion_score * 0.4 +
-            accumulation_intent_score * 0.3
-        ).clip(0, 1)
-        # --- 3. 引入时长门控 ---
         min_duration = 5
-        # 计算连续处于平台状态的天数
-        platform_duration = is_in_platform_state.ne(is_in_platform_state.shift()).cumsum()
-        duration_counts = platform_duration.groupby(platform_duration).transform('size')
-        # 只有当处于平台状态且持续时间足够长时，分数才有效
-        is_valid_platform = is_in_platform_state & (duration_counts >= min_duration)
-        final_score = (platform_quality_score * is_valid_platform).astype(np.float32)
+        platform_group = is_in_platform_state.ne(is_in_platform_state.shift()).cumsum()
+        duration_counts = platform_group.groupby(platform_group).transform('size')
+        is_valid_platform_day = is_in_platform_state & (duration_counts >= min_duration)
+        # --- 步骤二: 对有效平台进行法医级鉴定 ---
+        platform_quality = pd.Series(0.0, index=df.index, dtype=np.float32)
+        dynamic_high = pd.Series(np.nan, index=df.index, dtype=np.float32)
+        dynamic_low = pd.Series(np.nan, index=df.index, dtype=np.float32)
+        vpoc = pd.Series(np.nan, index=df.index, dtype=np.float32)
+        # --- 新增代码开始 ---
+        # 预计算所有维度的分数
+        s_structure = (
+            get_adaptive_mtf_normalized_score(df['VOLATILITY_INSTABILITY_INDEX_21d_D'], df.index, ascending=False) * 0.5 +
+            get_adaptive_mtf_normalized_score(df['PRICE_VOLUME_ENTROPY_D'], df.index, ascending=False) * 0.5
+        )
+        s_chips = (
+            get_adaptive_mtf_normalized_score(df['dominant_peak_solidity_D'], df.index, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(df['peak_separation_ratio_D'], df.index, ascending=True) * 0.3 +
+            get_adaptive_mtf_normalized_score(df['chip_fatigue_index_D'], df.index, ascending=False) * 0.2 # 疲劳指数低代表筹码稳定
+        )
+        s_main_force = (
+            get_adaptive_mtf_normalized_score(df['mf_cost_zone_defense_intent_D'], df.index, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(df['control_solidity_index_D'], df.index, ascending=True) * 0.5
+        )
+        s_sentiment = (
+            get_adaptive_mtf_normalized_score(df['counterparty_exhaustion_index_D'], df.index, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(df['retail_panic_surrender_index_D'], df.index, ascending=True) * 0.3 +
+            get_adaptive_mtf_normalized_score(df['turnover_rate_f_D'], df.index, ascending=False) * 0.2
+        )
+        # 最终品质分权重: 主力(0.4), 筹码(0.3), 情绪(0.2), 形态(0.1)
+        final_quality_score = (s_main_force * 0.4 + s_chips * 0.3 + s_sentiment * 0.2 + s_structure * 0.1).clip(0, 1)
+        # --- 新增代码结束 ---
+        for group_id in platform_group[is_valid_platform_day].unique():
+            platform_indices = platform_group[platform_group == group_id].index
+            platform_df = df.loc[platform_indices]
+            # 使用最可靠的信号定义边界
+            current_vpoc = platform_df['main_force_vpoc_D'].iloc[-1]
+            # 简化的边界，未来可引入更复杂的试探性K线逻辑
+            platform_range = (platform_df['high_D'].max() - platform_df['low_D'].min())
+            current_dyn_high = current_vpoc + platform_range / 2
+            current_dyn_low = current_vpoc - platform_range / 2
+            # 将计算结果填充回整个平台期
+            platform_quality.loc[platform_indices] = final_quality_score.loc[platform_indices]
+            dynamic_high.loc[platform_indices] = current_dyn_high
+            dynamic_low.loc[platform_indices] = current_dyn_low
+            vpoc.loc[platform_indices] = current_vpoc
+        dynamic_high.ffill(inplace=True)
+        dynamic_low.ffill(inplace=True)
+        vpoc.ffill(inplace=True)
         if self.is_probe_date:
-            today_score = final_score.iloc[-1]
-            print(f"    [探针] 平台基石公理 (SCORE_STRUCT_PLATFORM_FOUNDATION): {today_score:.4f}")
-            if is_valid_platform.iloc[-1]:
+            today_score = platform_quality.iloc[-1]
+            print(f"    [探针] 平台基石品质 (SCORE_STRUCT_PLATFORM_FOUNDATION): {today_score:.4f}")
+            if is_valid_platform_day.iloc[-1]:
                 print(f"      - 状态: [有效平台] 持续天数={duration_counts.iloc[-1]}")
-                print(f"      - 品质: 稳定度分={price_stability_score.iloc[-1]:.2f}, 枯竭度分={supply_exhaustion_score.iloc[-1]:.2f}, 吸筹意图分={accumulation_intent_score.iloc[-1]:.2f}")
+                # --- 新增代码开始 ---
+                print(f"      - 法医鉴定: 形态分={s_structure.iloc[-1]:.2f}, 筹码分={s_chips.iloc[-1]:.2f}, 主力分={s_main_force.iloc[-1]:.2f}, 情绪分={s_sentiment.iloc[-1]:.2f}")
+                # --- 新增代码结束 ---
+                print(f"      - 勘探边界: 高点={dynamic_high.iloc[-1]:.2f}, VPOC={vpoc.iloc[-1]:.2f}, 低点={dynamic_low.iloc[-1]:.2f}")
             else:
                 print(f"      - 状态: [无效平台] 持续天数={duration_counts.iloc[-1] if is_in_platform_state.iloc[-1] else 0}, 未满足最少{min_duration}天要求。")
-        return final_score
+        return platform_quality, dynamic_high, dynamic_low, vpoc
 
     def _diagnose_final_judgment(self, contextual_posture: pd.Series, defense_strength: pd.Series, structural_momentum: pd.Series) -> pd.Series:
         """
