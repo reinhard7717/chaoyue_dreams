@@ -46,8 +46,9 @@ class StructuralIntelligence:
 
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 情报链重铸版】结构情报分析总指挥
-        - 核心升级: 重铸情报调用链，将“突破准备度”整合进“战略态势”的“静态盾”计算中，彻底解决认知延迟问题。
+        【V7.0 · 逆势加冕版】结构情报分析总指挥
+        - 核心升级: 引入“神笔”裁决。当“龙头潜力”被激活时，触发“逆势加冕”协议，
+                      将恶劣环境的惩罚转化为对逆势王者的溢价奖励，重构最终的“情境战略态势”。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -67,11 +68,8 @@ class StructuralIntelligence:
         axiom_tension = self._diagnose_axiom_tension(df)
         axiom_environment = self._diagnose_axiom_environment(df)
         platform_quality, dynamic_high, dynamic_low, vpoc = self._diagnose_platform_foundation(df)
-        # --- 修改代码开始 ---
-        # 步骤1.5: 诊断突破准备度，作为战略态势的前置输入
         breakout_readiness = self._diagnose_breakout_readiness(df, axiom_tension)
         all_states['SCORE_STRUCT_BREAKOUT_READINESS'] = breakout_readiness
-        # --- 修改代码结束 ---
         all_states['SCORE_STRUCT_PLATFORM_FOUNDATION'] = platform_quality
         all_states['STRUCT_PLATFORM_DYNAMIC_HIGH'] = dynamic_high
         all_states['STRUCT_PLATFORM_DYNAMIC_LOW'] = dynamic_low
@@ -87,21 +85,32 @@ class StructuralIntelligence:
         all_states['SCORE_STRUCTURE_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         all_states['SCORE_STRUCT_BOTTOM_FRACTAL'] = bottom_fractal_score
         # --- 步骤二: 诊断内部战略态势 ---
-        # --- 修改代码开始 ---
         strategic_posture, defense_strength = self._diagnose_strategic_posture(
             axiom_trend_form, axiom_mtf_cohesion, axiom_stability, axiom_tension, platform_quality, breakout_readiness
         )
-        # --- 修改代码结束 ---
         all_states['SCORE_STRUCT_STRATEGIC_POSTURE'] = strategic_posture
-        # --- 步骤三: 融合战场环境，生成最终情境态势 ---
+        # --- 步骤三: 融合战场环境，生成基础情境态势 ---
         env_factor = 0.5
         env_modifier = (axiom_environment - 0.5) * env_factor
-        contextual_posture = (strategic_posture * (1 + env_modifier)).clip(0, 1)
+        contextual_posture_base = (strategic_posture * (1 + env_modifier)).clip(0, 1)
+        # --- 步骤四: 龙头潜力裁决 (提前，作为“神笔”的依据) ---
+        leadership_potential = self._diagnose_leadership_potential(
+            strategic_posture, axiom_environment, structural_momentum, axiom_tension
+        )
+        all_states['SCORE_STRUCT_LEADERSHIP_POTENTIAL'] = leadership_potential
+        # --- 修改代码开始 ---
+        # --- 步骤五: “神笔”干预 -> 逆势加冕 ---
+        coronation_factor = get_param_value(p_conf.get('coronation_factor'), 0.5)
+        coronation_premium = leadership_potential * coronation_factor
+        contextual_posture = (contextual_posture_base + coronation_premium).clip(0, 1)
         all_states['SCORE_STRUCT_CONTEXTUAL_POSTURE'] = contextual_posture.astype(np.float32)
         if self.is_probe_date:
             print(f"    [探针] 情境战略态势 (SCORE_STRUCT_CONTEXTUAL_POSTURE): {contextual_posture.iloc[-1]:.4f}")
-            print(f"      - 融合: 内部态势分={strategic_posture.iloc[-1]:.2f}, 环境调节器={env_modifier.iloc[-1]:.2f} -> 最终态势 = 内部态势 * (1 + 调节器)")
-        # --- 步骤四: 基于情境态势，诊断动量与剧本 ---
+            print(f"      - 融合: 内部态势分={strategic_posture.iloc[-1]:.2f}, 环境调节器={env_modifier.iloc[-1]:.2f} -> 基础态势={contextual_posture_base.iloc[-1]:.2f}")
+            if coronation_premium.iloc[-1] > 0:
+                print(f"      - 神笔干预: [逆势加冕] 龙头潜力({leadership_potential.iloc[-1]:.2f}) * 因子({coronation_factor:.2f}) -> 加冕溢价={coronation_premium.iloc[-1]:.2f}")
+        # --- 修改代码结束 ---
+        # --- 步骤六: 基于最终情境态势，诊断动量与剧本 ---
         momentum_window = 5
         posture_slope_raw = ta.slope(contextual_posture, length=momentum_window)
         posture_slope_raw.fillna(0, inplace=True)
@@ -117,12 +126,7 @@ class StructuralIntelligence:
             df, axiom_stability, contextual_posture, structural_momentum
         )
         all_states['SCORE_STRUCT_PLAYBOOK_SECONDARY_LAUNCH'] = playbook_secondary_launch
-        # --- 步骤五: 龙头潜力裁决 ---
-        leadership_potential = self._diagnose_leadership_potential(
-            strategic_posture, axiom_environment, structural_momentum, axiom_tension
-        )
-        all_states['SCORE_STRUCT_LEADERSHIP_POTENTIAL'] = leadership_potential
-        # --- 步骤六: 终极裁决 ---
+        # --- 步骤七: 终极裁决 ---
         final_judgment = self._diagnose_final_judgment(
             contextual_posture, defense_strength, structural_momentum
         )
