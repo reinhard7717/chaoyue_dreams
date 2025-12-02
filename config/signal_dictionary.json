@@ -511,6 +511,12 @@
             "type": "risk",
             "description": "【V1.0】基于力学公理，诊断价格动量与惯性之间的看跌背离。"
         },
+        "INTERNAL_DYN_MTF_CALIBRATION_TENSION_D": {
+            "cn_name": "【内部】力学校准张力",
+            "category": "力学层-内部",
+            "type": "internal",
+            "description": "【V1.0 · MTF校准张力】一个高阶内部信号，量化各力学公理在多时间框架下的“共振”与“背离”程度。它通过计算短期Z-Score组与长期Z-Score组的强度差值得出。正分代表短期信号强于长期，趋势在加速或酝酿看涨反转（共振）；负分代表短期信号弱于长期，是趋势衰竭或顶背离的预警信号。"
+        },
         "说明_cyclical_layer": "--- 周期层 (Cyclical) ---",
         "SCORE_CYCLICAL_FFT_TREND_REGIME": {
             "cn_name": "【周期】FFT趋势政权",

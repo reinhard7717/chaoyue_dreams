@@ -1208,9 +1208,14 @@
         "norm_window": 55,
         "calibrated_norm_params": {
           "description": "【MTF Z-Score校准】用于“先融合，后归一”步骤的多时间框架Z-Score校准参数。",
-          "z_windows": [21, 55, 89, 144],
-          "z_weights": { "21": 0.4, "55": 0.3, "89": 0.2, "144": 0.1 },
-          "sensitivity": 2.0
+          "z_windows": [5, 13, 21, 55, 89, 144],
+          "z_weights": { "5": 0.3, "13": 0.25, "21": 0.2, "55": 0.15, "89": 0.05, "144": 0.05 },
+          "sensitivity": 2.0,
+          "tension_windows": {
+            "description": "【校准张力】用于计算短期Z-Score与长期Z-Score差异的分组。",
+            "short_term": [5, 13, 21],
+            "long_term": [55, 89, 144]
+          }
         },
         "description_axiom_weights": "融合五大力学公理时的权重。",
         "axiom_weights": {
