@@ -744,26 +744,26 @@ class ChipIntelligence:
 
     def _diagnose_harmony_inflection(self, df: pd.DataFrame, harmony_score: pd.Series) -> pd.Series:
         """
-        【V1.0 · 破晓版】诊断和谐度的反转拐点
-        - 核心算法: 对“战略战术和谐度”进行二阶求导，寻找其从负值区V型反转的临界点。
-                      1. 计算速度(一阶导)和加速度(二阶导)。
-                      2. 融合速度和加速度，得到“反转动能”。
-                      3. 引入“位置惩罚因子”，确保信号只在和谐度处于低位时最强。
-                      4. 最终得分 = 反转动能 × 位置惩罚因子。
+        【V1.1 · 神笔版】诊断和谐度的反转拐点
+        - 核心裁定: 引入“双正天条”。通过增加一道 `(velocity > 0) & (acceleration > 0)` 的逻辑门，
+                      确保只有当和谐度的原始速度和加速度同时为正时，才计算拐点分数。
+                      此举彻底修复了因归一化导致的逻辑漏洞，使信号只在最真实的“破晓”时刻触发。
         """
-        print("    -> [筹码层] 正在诊断“和谐拐点 (V1.0 · 破晓版)”...")
+        print("    -> [筹码层] 正在诊断“和谐拐点 (V1.1 · 神笔版)”...") # [修改代码行]
         df_index = df.index
-        # 1. 计算速度与加速度
+        # 1. 计算原始速度与加速度
         harmony_velocity = harmony_score.diff(1).fillna(0)
         harmony_acceleration = harmony_velocity.diff(1).fillna(0)
-        # 2. 归一化并计算“反转动能” (只取正向部分)
-        norm_velocity = get_adaptive_mtf_normalized_score(harmony_velocity, df_index).clip(lower=0)
-        norm_acceleration = get_adaptive_mtf_normalized_score(harmony_acceleration, df_index).clip(lower=0)
+        # [修改代码块] 引入“双正天条”逻辑门
+        is_inflection_gate = (harmony_velocity > 0) & (harmony_acceleration > 0)
+        # 2. 归一化并计算“反转动能”
+        norm_velocity = get_adaptive_mtf_normalized_score(harmony_velocity, df_index)
+        norm_acceleration = get_adaptive_mtf_normalized_score(harmony_acceleration, df_index)
         reversal_momentum = (norm_velocity * norm_acceleration).pow(0.5)
         # 3. 计算“位置惩罚因子” (和谐度越低，因子越接近1)
         position_factor = (1 - harmony_score.clip(lower=0, upper=1))
-        # 4. 最终融合
-        final_score = reversal_momentum * position_factor
+        # 4. 最终融合，并应用“天条”门控
+        final_score = reversal_momentum * position_factor * is_inflection_gate
         # 植入标准化探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -774,9 +774,11 @@ class ChipIntelligence:
                 print(f"    -> [和谐拐点探针] @ {probe_date.date()}:")
                 print(f"       - 原料: harmony_score: {harmony_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: velocity: {harmony_velocity.loc[probe_date]:.4f}, acceleration: {harmony_acceleration.loc[probe_date]:.4f}")
-                print(f"       - 过程: norm_velocity(>=0): {norm_velocity.loc[probe_date]:.4f}, norm_acceleration(>=0): {norm_acceleration.loc[probe_date]:.4f}")
+                # [修改代码块] 更新探针输出
+                print(f"       - 裁决(神笔之门): is_inflection_gate (v>0 & a>0): {is_inflection_gate.loc[probe_date]}")
+                print(f"       - 过程: norm_velocity: {norm_velocity.loc[probe_date]:.4f}, norm_acceleration: {norm_acceleration.loc[probe_date]:.4f}")
                 print(f"       - 过程: reversal_momentum: {reversal_momentum.loc[probe_date]:.4f}, position_factor: {position_factor.loc[probe_date]:.4f}")
-                print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
+                print(f"       - 结果: final_score (gated): {final_score.loc[probe_date]:.4f}")
         return final_score.clip(0, 1).fillna(0.0).astype(np.float32)
 
 
