@@ -33,11 +33,11 @@ class FoundationIntelligence:
 
     def run_foundation_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V9.0 · 战略态势版】基础情报分析总指挥
-        - 核心新增: 引入顶层融合信号 SCORE_FOUNDATION_STRATEGIC_POSTURE，对五大公理进行
-                      加权融合，输出最终的战略判断。
+        【V10.0 · 和谐拐点版】基础情报分析总指挥
+        - 核心新增: 引入终极机会信号 SCORE_FOUNDATION_HARMONY_INFLECTION，通过对顶层
+                      战略态势进行二阶求导，捕捉趋势启动的拐点。
         """
-        print("启动【V9.0 · 战略态势版】基础情报分析...") # 修改: 更新版本号和描述
+        print("启动【V10.0 · 和谐拐点版】基础情报分析...") # 修改: 更新版本号和描述
         all_states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -53,7 +53,6 @@ class FoundationIntelligence:
         all_states['SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE'] = axiom_tide
         all_states['SCORE_FOUNDATION_AXIOM_MARKET_TENSION'] = axiom_tension
         all_states['SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH'] = axiom_relative_strength
-        # 新增: 调用顶层融合方法
         strategic_posture = self._synthesize_strategic_posture(
             p_conf,
             axiom_constitution,
@@ -63,10 +62,13 @@ class FoundationIntelligence:
             axiom_tension
         )
         all_states['SCORE_FOUNDATION_STRATEGIC_POSTURE'] = strategic_posture
+        # 新增: 调用和谐拐点诊断方法
+        harmony_inflection = self._diagnose_harmony_inflection(p_conf, strategic_posture)
+        all_states['SCORE_FOUNDATION_HARMONY_INFLECTION'] = harmony_inflection
         context_trend_confirmed = self._diagnose_context_trend_confirmed(df)
         all_states.update(context_trend_confirmed)
         # 修改: 更新日志输出
-        print(f"【V9.0 · 战略态势版】分析完成，生成 {len(all_states)} 个基础信号 (含1个顶层信号)。")
+        print(f"【V10.0 · 和谐拐点版】分析完成，生成 {len(all_states)} 个基础信号 (含1个顶层及1个拐点信号)。")
         return all_states
 
     def _diagnose_context_trend_confirmed(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -354,6 +356,44 @@ class FoundationIntelligence:
                 print(f"       - momentum_score (排名动量分): {momentum_score.loc[probe_date_for_loop]:.4f} (原始斜率: {rank_slope.loc[probe_date_for_loop]:.4f})")
                 print(f"       - final_relative_strength_score (融合后): {relative_strength_score.loc[probe_date_for_loop]:.4f}")
         return relative_strength_score.clip(-1, 1).astype(np.float32)
+
+    def _diagnose_harmony_inflection(self, params: dict, strategic_posture: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 新增】诊断“和谐拐点”
+        - 核心逻辑: 对“战略态势”进行二阶求导，捕捉其加速改善的瞬间。
+        """
+        print("    -> [基础层] 正在诊断“和谐拐点”机会信号...")
+        p_conf = params.get('harmony_inflection_params', {})
+        velocity_period = p_conf.get('velocity_period', 3)
+        acceleration_period = p_conf.get('acceleration_period', 2)
+        df_index = strategic_posture.index
+        # 1. 计算速度 (一阶导数)
+        velocity = strategic_posture.diff(periods=1).rolling(window=velocity_period, min_periods=1).mean()
+        # 2. 计算加速度 (二阶导数)
+        acceleration = velocity.diff(periods=1).rolling(window=acceleration_period, min_periods=1).mean()
+        # 3. 归一化
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        short_term_weights = get_param_value(p_mtf.get('short_term_weights'), {'weights': {3: 0.5, 5: 0.3, 8: 0.2}})
+        velocity_norm = get_adaptive_mtf_normalized_score(velocity.fillna(0), df_index, ascending=True, tf_weights=short_term_weights)
+        acceleration_norm = get_adaptive_mtf_normalized_score(acceleration.fillna(0), df_index, ascending=True, tf_weights=short_term_weights)
+        # 4. 应用“双正”门控逻辑并融合
+        gate = (velocity_norm > 0) & (acceleration_norm > 0)
+        inflection_score = ((velocity_norm * acceleration_norm).pow(0.5) * gate).fillna(0.0)
+        # 探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [和谐拐点探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - 战略态势分: {strategic_posture.loc[probe_date_for_loop]:.4f}")
+                print(f"       - 速度 (原始): {velocity.loc[probe_date_for_loop]:.4f}, (归一化): {velocity_norm.loc[probe_date_for_loop]:.4f}")
+                print(f"       - 加速度 (原始): {acceleration.loc[probe_date_for_loop]:.4f}, (归一化): {acceleration_norm.loc[probe_date_for_loop]:.4f}")
+                print(f"       - '双正'门控是否开启: {gate.loc[probe_date_for_loop]}")
+                print(f"       - 最终和谐拐点分: {inflection_score.loc[probe_date_for_loop]:.4f}")
+        return inflection_score.clip(0, 1).astype(np.float32)
 
     def _synthesize_strategic_posture(
         self,

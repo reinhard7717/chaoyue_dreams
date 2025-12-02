@@ -573,6 +573,12 @@
             "description": "-1代表波谷，+1代表波峰。"
         },
         "说明_foundation_layer": "--- 基础层 (Foundation) ---",
+        "SCORE_FOUNDATION_HARMONY_INFLECTION": {
+            "cn_name": "【基础】和谐拐点",
+            "category": "基础层-机会",
+            "type": "opportunity",
+            "description": "【V1.0 · 新增】基础情报的终极机会信号，旨在捕捉趋势“破晓”的瞬间。基于微积分思想，对顶层的“基础战略态势”信号进行二阶求导。只有当态势的“速度”（一阶导数）与“加速度”（二阶导数）同时为正时，才被确认为一次真实的V型反转拐点。高分代表基础层面的内部矛盾正在加速化解，是新一轮攻势即将启动的高置信度预警。"
+        },
         "SCORE_FOUNDATION_STRATEGIC_POSTURE": {
             "cn_name": "【基础】战略态势",
             "category": "基础层-超级原子",
