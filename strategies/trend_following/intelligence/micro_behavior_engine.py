@@ -56,10 +56,10 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 战略意图升维版】微观行为诊断引擎总指挥
-        - 核心升级: 在原有四大诊断信号的基础上，新增调用`_synthesize_strategic_intent`方法，
-                    生成一个全新的顶层裁决信号 `SCORE_MICRO_STRATEGIC_INTENT`，
-                    实现从战术诊断到战略意图的升维。
+        【V3.2 · 和谐拐点升维版】微观行为诊断引擎总指挥
+        - 核心升级: 在生成顶层“战略意图”信号后，进一步调用`_diagnose_harmony_inflection`方法，
+                    生成终极机会信号 `SCORE_MICRO_HARMONY_INFLECTION`，
+                    实现从“诊断”到“预见”的终极升维。
         """
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -75,19 +75,22 @@ class MicroBehaviorEngine:
         strategy_shock_and_awe = self._diagnose_strategy_shock_and_awe(df, default_weights)
         strategy_cost_control = self._diagnose_strategy_cost_control(df, default_weights)
         axiom_divergence = self._diagnose_axiom_divergence(df, 55)
-        # --- 更新输出的信号名称 ---
+        # --- 更新原子/战术信号状态 ---
         all_states['SCORE_MICRO_STRATEGY_STEALTH_OPS'] = strategy_stealth_ops
         all_states['SCORE_MICRO_STRATEGY_SHOCK_AND_AWE'] = strategy_shock_and_awe
         all_states['SCORE_MICRO_STRATEGY_COST_CONTROL'] = strategy_cost_control
         all_states['SCORE_MICRO_AXIOM_DIVERGENCE'] = axiom_divergence
-        # --- 新增：调用战略意图合成器 ---
-        strategic_intent = self._synthesize_strategic_intent( # 新增代码
+        # --- 调用战略意图合成器 ---
+        strategic_intent = self._synthesize_strategic_intent(
             stealth_ops=strategy_stealth_ops,
             shock_awe=strategy_shock_and_awe,
             cost_control=strategy_cost_control,
             divergence=axiom_divergence
         )
-        all_states['SCORE_MICRO_STRATEGIC_INTENT'] = strategic_intent # 新增代码
+        all_states['SCORE_MICRO_STRATEGIC_INTENT'] = strategic_intent
+        # --- 新增：调用和谐拐点诊断器，生成终极机会信号 ---
+        harmony_inflection = self._diagnose_harmony_inflection(strategic_intent) # 新增代码
+        all_states['SCORE_MICRO_HARMONY_INFLECTION'] = harmony_inflection # 新增代码
         # 引入微观行为层面的看涨/看跌背离信号
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_MICRO_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
@@ -245,6 +248,44 @@ class MicroBehaviorEngine:
                 print(f"        - 计算节点: 基础意图分={base_intent_score.loc[probe_ts]:.4f}")
                 print(f"        - 最终成本控制分 (0.7*意图 + 0.3*稳固度): {cost_control_score.loc[probe_ts]:.4f}")
         return cost_control_score.astype(np.float32)
+
+    def _diagnose_harmony_inflection(self, strategic_intent: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 新增】微观和谐拐点诊断器
+        - 核心逻辑: 基于微积分思想，对顶层战略意图信号进行二阶求导，捕捉其动态拐点。
+                      - 速度 (Velocity): 战略意图的一阶导数（变化量）。
+                      - 加速度 (Acceleration): 战略意图的二阶导数（变化的加速度）。
+        - 触发条件: 只有当速度和加速度同时为正时，才输出一个正的拐点分数。
+        - 分数计算: (速度 * 加速度) ^ 0.5，并进行归一化，体现拐点的强度。
+        """
+        # 计算速度（一阶导数）
+        velocity = strategic_intent.diff().fillna(0)
+        # 计算加速度（二阶导数）
+        acceleration = velocity.diff().fillna(0)
+        # 应用“破晓”逻辑：只有当速度和加速度都为正时，拐点才成立
+        bullish_inflection_mask = (velocity > 0) & (acceleration > 0)
+        # 计算拐点强度
+        inflection_strength = (velocity * acceleration).pow(0.5)
+        # 应用掩码，并归一化
+        harmony_inflection_score = np.where(bullish_inflection_mask, inflection_strength, 0)
+        harmony_inflection_score = pd.Series(harmony_inflection_score, index=strategic_intent.index)
+        # 使用 normalize_score 进行最终的归一化，使其在历史数据中具有可比性
+        final_score = normalize_score(harmony_inflection_score, harmony_inflection_score.index, 55)
+        # --- 探针逻辑 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(strategic_intent.index.tz if strategic_intent.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in strategic_intent.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [微观行为探针] _diagnose_harmony_inflection @ {probe_date_str}")
+                print(f"        - 输入信号: 战略意图={strategic_intent.loc[probe_ts]:.4f}")
+                print(f"        - 动态计算: 速度={velocity.loc[probe_ts]:.4f}, 加速度={acceleration.loc[probe_ts]:.4f}")
+                print(f"        - 拐点成立条件 (速度>0 & 加速度>0): {bullish_inflection_mask.loc[probe_ts]}")
+                print(f"        - 最终和谐拐点分 (归一化后): {final_score.loc[probe_ts]:.4f}")
+        return final_score.astype(np.float32)
 
     def _synthesize_strategic_intent(self, stealth_ops: pd.Series, shock_awe: pd.Series, cost_control: pd.Series, divergence: pd.Series) -> pd.Series:
         """
