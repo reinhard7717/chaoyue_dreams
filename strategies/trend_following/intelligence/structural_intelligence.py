@@ -46,8 +46,8 @@ class StructuralIntelligence:
 
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.8 · 战场勘探版】结构情报分析总指挥
-        - 核心升级: “平台基石”公理升级为战场勘探器，输出动态的平台边界和VPOC。
+        【V5.9 · 准备度感知版】结构情报分析总指挥
+        - 核心升级: 引入“突破准备度”信号，用于实时追踪平台构筑过程的质量，弥补“平台基石”的认知延迟。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -66,13 +66,11 @@ class StructuralIntelligence:
         bottom_fractal_score = self._diagnose_bottom_fractal(df, n=5, min_depth_ratio=0.001)
         axiom_tension = self._diagnose_axiom_tension(df)
         axiom_environment = self._diagnose_axiom_environment(df)
-        # --- 修改代码开始 ---
         platform_quality, dynamic_high, dynamic_low, vpoc = self._diagnose_platform_foundation(df)
         all_states['SCORE_STRUCT_PLATFORM_FOUNDATION'] = platform_quality
         all_states['STRUCT_PLATFORM_DYNAMIC_HIGH'] = dynamic_high
         all_states['STRUCT_PLATFORM_DYNAMIC_LOW'] = dynamic_low
         all_states['STRUCT_PLATFORM_VPOC'] = vpoc
-        # --- 修改代码结束 ---
         all_states['SCORE_STRUCT_AXIOM_ENVIRONMENT'] = axiom_environment
         all_states['SCORE_STRUCT_AXIOM_TENSION'] = axiom_tension
         all_states['SCORE_STRUCT_AXIOM_DIVERGENCE'] = axiom_divergence
@@ -84,11 +82,9 @@ class StructuralIntelligence:
         all_states['SCORE_STRUCTURE_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         all_states['SCORE_STRUCT_BOTTOM_FRACTAL'] = bottom_fractal_score
         # --- 步骤二: 诊断内部战略态势 ---
-        # --- 修改代码开始 ---
         strategic_posture, defense_strength = self._diagnose_strategic_posture(
             axiom_trend_form, axiom_mtf_cohesion, axiom_stability, axiom_tension, platform_quality
         )
-        # --- 修改代码结束 ---
         all_states['SCORE_STRUCT_STRATEGIC_POSTURE'] = strategic_posture
         # --- 步骤三: 融合战场环境，生成最终情境态势 ---
         env_factor = 0.5
@@ -124,6 +120,11 @@ class StructuralIntelligence:
             contextual_posture, defense_strength, structural_momentum
         )
         all_states['SCORE_STRUCT_FINAL_JUDGMENT'] = final_judgment
+        # --- 新增代码开始 ---
+        # --- 步骤七: 诊断突破准备度 ---
+        breakout_readiness = self._diagnose_breakout_readiness(df, axiom_tension)
+        all_states['SCORE_STRUCT_BREAKOUT_READINESS'] = breakout_readiness
+        # --- 新增代码结束 ---
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame) -> pd.Series:
@@ -737,6 +738,52 @@ class StructuralIntelligence:
                 print(f"      - 裁决: [通过] 未识别到致命风险综合征。")
         return final_score
 
+    def _diagnose_breakout_readiness(self, df: pd.DataFrame, axiom_tension: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 过程监理版】诊断“突破准备度”
+        - 核心逻辑: 在横盘整理期间，实时评估突破准备工作的质量。
+        - 评估维度: 供应枯竭度 + 主力控盘度 + 势能积蓄度
+        """
+        required_signals = [
+            'is_consolidating_D',
+            'counterparty_exhaustion_index_D', 'turnover_rate_f_D',
+            'control_solidity_index_D', 'mf_cost_zone_defense_intent_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_breakout_readiness"):
+            return pd.Series(0.0, index=df.index)
+        # --- 1. 激活条件 ---
+        is_consolidating = self._get_safe_series(df, 'is_consolidating_D', 0.0, method_name="_diagnose_breakout_readiness").astype(bool)
+        # --- 2. 评估三大维度 ---
+        # 2a. 供应枯竭度
+        supply_exhaustion_score = (
+            get_adaptive_mtf_normalized_score(df['counterparty_exhaustion_index_D'], df.index, ascending=True) * 0.7 +
+            get_adaptive_mtf_normalized_score(df['turnover_rate_f_D'], df.index, ascending=False) * 0.3
+        )
+        # 2b. 主力控盘度
+        main_force_control_score = (
+            get_adaptive_mtf_normalized_score(df['control_solidity_index_D'], df.index, ascending=True) * 0.5 +
+            get_adaptive_mtf_normalized_score(df['mf_cost_zone_defense_intent_D'], df.index, ascending=True) * 0.5
+        )
+        # 2c. 势能积蓄度 (直接复用结构张力公理)
+        energy_accumulation_score = axiom_tension
+        # --- 3. 融合输出 ---
+        # 权重: 主力(0.4), 供应(0.4), 势能(0.2)
+        readiness_score = (
+            main_force_control_score * 0.4 +
+            supply_exhaustion_score * 0.4 +
+            energy_accumulation_score * 0.2
+        ).clip(0, 1)
+        # 只有在横盘整理时，分数才有效
+        final_score = (readiness_score * is_consolidating).astype(np.float32)
+        if self.is_probe_date:
+            today_score = final_score.iloc[-1]
+            print(f"    [探针] 突破准备度 (SCORE_STRUCT_BREAKOUT_READINESS): {today_score:.4f}")
+            if is_consolidating.iloc[-1]:
+                print(f"      - 状态: [正在构筑] 识别到横盘整理。")
+                print(f"      - 质量评估: 供应枯竭度={supply_exhaustion_score.iloc[-1]:.2f}, 主力控盘度={main_force_control_score.iloc[-1]:.2f}, 势能积蓄度={energy_accumulation_score.iloc[-1]:.2f}")
+            else:
+                print(f"      - 状态: [未构筑] 未识别到横盘整理。")
+        return final_score
 
 
 
