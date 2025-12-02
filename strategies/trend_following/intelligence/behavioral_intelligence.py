@@ -903,8 +903,10 @@ class BehavioralIntelligence:
 
     def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series) -> pd.Series:
         """
-        【V2.3 · 噪声过滤版】诊断进攻性承接意图
-        - 核心修复: 对所有具备“中性零点”的输入信号，在归一化前进行噪声过滤。
+        【V3.4 · 全证据链几何平均版】诊断进攻性承接意图
+        - 核心重构: 废弃加权算术平均，采用加权几何平均。这确保了四大核心证据
+                      (形态、执行、隐蔽、环境)中任何一个为零，最终意图分都会被
+                      一票否决，彻底解决了“上下文覆盖行为”的逻辑谬误。
         """
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
@@ -912,23 +914,23 @@ class BehavioralIntelligence:
         p_thresholds = get_param_value(p_conf.get('neutral_zone_thresholds'), {})
         execution_threshold = get_param_value(p_thresholds.get('main_force_execution_alpha_D'), 0.0)
         covert_ops_threshold = get_param_value(p_thresholds.get('covert_accumulation_signal_D'), 0.0)
-        # 1. 获取四维评估的原始数据
+        # 1. 获取四维评估的原始数据 (逻辑不变)
         morphology_score = lower_shadow_quality
         execution_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
         covert_ops_raw = self._get_safe_series(df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
         context_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
-        # 2. 归一化各维度证据
+        # 2. 归一化各维度证据 (逻辑不变)
         execution_raw_filtered = self._apply_neutral_zone_filter(execution_raw, execution_threshold)
         execution_score = get_adaptive_mtf_normalized_bipolar_score(execution_raw_filtered, df.index, default_weights).clip(lower=0)
         covert_ops_raw_filtered = self._apply_neutral_zone_filter(covert_ops_raw, covert_ops_threshold)
         covert_ops_score = get_adaptive_mtf_normalized_bipolar_score(covert_ops_raw_filtered, df.index, default_weights).clip(lower=0)
         context_score = get_adaptive_mtf_normalized_score(context_raw, df.index, ascending=True, tf_weights=default_weights)
-        # 3. 加权算术平均融合
+        # 3. 升级为加权几何平均融合
         offensive_absorption_intent = (
-            morphology_score * 0.20 +
-            execution_score * 0.35 +
-            covert_ops_score * 0.25 +
-            context_score * 0.20
+            (morphology_score + 1e-9).pow(0.20) *
+            (execution_score + 1e-9).pow(0.35) *
+            (covert_ops_score + 1e-9).pow(0.25) *
+            (context_score + 1e-9).pow(0.20)
         ).fillna(0.0)
         # --- 探针监测 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -941,11 +943,11 @@ class BehavioralIntelligence:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_offensive_absorption_intent @ {probe_date_str}")
                 print(f"        - 形态分 (下影线品质): {morphology_score.loc[probe_ts]:.4f}")
-                # 升级探针日志
                 print(f"        - 执行分 (正Alpha-噪声过滤后): {execution_score.loc[probe_ts]:.4f} (原始值: {execution_raw.loc[probe_ts]:.6f})")
                 print(f"        - 隐蔽分 (隐蔽吸筹-噪声过滤后): {covert_ops_score.loc[probe_ts]:.4f} (原始值: {covert_ops_raw.loc[probe_ts]:.6f})")
                 print(f"        - 环境分 (恐慌级联): {context_score.loc[probe_ts]:.4f} (原始值: {context_raw.loc[probe_ts]:.2f})")
-                print(f"        - 最终进攻性承接意图分: {offensive_absorption_intent.loc[probe_ts]:.4f}")
+                # [修改的代码行] 更新探针以反映几何平均模型
+                print(f"        - 最终进攻性承接意图分(几何平均): {offensive_absorption_intent.loc[probe_ts]:.4f}")
         return offensive_absorption_intent.clip(0, 1).astype(np.float32)
 
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
