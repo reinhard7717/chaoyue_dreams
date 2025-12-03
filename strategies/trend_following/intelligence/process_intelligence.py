@@ -1200,19 +1200,20 @@ class ProcessIntelligence:
 
     def _calculate_split_order_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.1 · 拉升兼容版】计算“拆单吸筹强度”的专属信号。
+        【V2.2 · 战果验证版】计算“拆单吸筹强度”的专属信号。
         - 核心升级: 废除基于固定涨跌幅的硬编码门控，引入两个核心的“软调节器”：
                       1. 价格压制因子: 基于价格趋势平滑地惩罚上涨行为，契合“隐蔽”逻辑。
                       2. 战术环境因子: 融合“势能稳定性”与“欺骗指数”，增强在关键战术
                          环境下（如盘整、打压）的信号权重，实现从“状态过滤”到“意图识别”的跃升。
         - 核心优化: 引入“拉升品质调节器”（基于上涨脉冲纯度），当价格上涨为高质量拉升时，
                       动态减弱价格压制惩罚，使模型能够兼容“边拉边吸”战术。
+        - 核心升维: 引入“权力转移”信号作为“战果验证”的真实性调节器，对初步分数进行最终裁决，
+                      实现过程层信号的内部交叉验证。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (V2.1 · 拉升兼容版)...")
-        # [修改] 增加新的信号依赖
+        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (V2.2 · 战果验证版)...")
         required_signals = [
             'hidden_accumulation_intensity_D', 'SLOPE_5_close_D', 'deception_index_D',
-            'upward_impulse_purity_D'
+            'upward_impulse_purity_D', 'PROCESS_META_POWER_TRANSFER'
         ]
         if not self._validate_required_signals(df, required_signals, "_calculate_split_order_accumulation"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -1221,36 +1222,134 @@ class ProcessIntelligence:
         price_trend_raw = self._get_safe_series(df, 'SLOPE_5_close_D', 0.0, method_name="_calculate_split_order_accumulation")
         deception_index = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_calculate_split_order_accumulation")
         stability_score = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', 0.0)
-        # [新增] 引入拉升品质调节器
         upward_purity = self._normalize_series(self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_calculate_split_order_accumulation"), df_index, bipolar=False)
+        # [新增] 引入战果验证信号
+        power_transfer_score = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
         # 基础强度归一化
         normalized_score = (raw_intensity / 100).clip(0, 1)
-        # [修改] 价格压制因子：引入拉升品质调节，兼容“边拉边吸”
+        # 价格压制因子：引入拉升品质调节，兼容“边拉边吸”
         price_trend_norm = self._normalize_series(price_trend_raw, df_index, bipolar=True)
         price_suppression_factor = (1 - price_trend_norm.clip(lower=0) * (1 - upward_purity)).clip(0, 1)
         # 战术环境因子：在稳定结构或存在打压欺骗行为时，信号更可信
         deception_norm = self._normalize_series(deception_index, df_index, bipolar=True)
         strategic_context_factor = (stability_score * 0.5 + deception_norm.clip(lower=0) * 0.5).clip(0, 1)
-        # 融合三者，得到最终分数
-        final_score = (normalized_score * price_suppression_factor * strategic_context_factor).pow(1/3).fillna(0.0)
+        # 计算初步分数
+        preliminary_score = (normalized_score * price_suppression_factor * strategic_context_factor).pow(1/3).fillna(0.0)
+        # [新增] 战果验证：使用权力转移信号作为真实性调节器
+        authenticity_modulator = (1 + power_transfer_score.clip(lower=0)).clip(0, 2) # 正向转移时放大
+        final_score = (preliminary_score * authenticity_modulator).clip(0, 1)
         # 探针逻辑
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [拆单吸筹强度探针 (拉升兼容版)] ---")
+            print("\n--- [拆单吸筹强度探针 (战果验证版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
             print(f"    - 原始强度值: {raw_intensity.iloc[last_date_index]:.4f}")
             print(f"    - 价格趋势(归一化): {price_trend_norm.iloc[last_date_index]:.4f}")
-            print(f"    - 上涨脉冲纯度: {upward_purity.iloc[last_date_index]:.4f}")
-            print(f"    - 势能稳定性: {stability_score.iloc[last_date_index]:.4f}")
-            print(f"    - 欺骗指数(归一化): {deception_norm.iloc[last_date_index]:.4f}")
+            print(f"    - 权力转移分: {power_transfer_score.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
-            print(f"    - 基础强度分: {normalized_score.iloc[last_date_index]:.4f}")
-            print(f"    - 价格压制因子(已兼容拉升): {price_suppression_factor.iloc[last_date_index]:.4f}")
-            print(f"    - 战术环境因子: {strategic_context_factor.iloc[last_date_index]:.4f}")
+            print(f"    - 初步分数(融合前): {preliminary_score.iloc[last_date_index]:.4f}")
+            print(f"    - 真实性调节器(战果验证): {authenticity_modulator.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
             print(f"    - 拆单吸筹强度最终分: {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        return final_score.astype(np.float32)
+
+    def _calculate_price_volume_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V3.1 · 高效惜售版】计算价量关系的专属分数。
+        - 核心升级: 在“价跌量缩”情境中，引入“散户恐慌投降指数”作为新的“恐慌证据”。
+                      将原有的品质裁决升级为融合了“缩量品质”与“恐慌证据”的“意图裁决”，
+                      使模型能够精准识别并量化“恐慌抛售后的卖盘枯竭”这一核心底部反转逻辑。
+        - 核心优化: 在“价涨量缩”情境中，引入“上涨脉冲纯度”作为衡量拉升效率的第三维证据，
+                      以更精准地捕捉“高控盘下的高效惜售拉升”这一极强看涨信号。
+        """
+        print("    -> [过程层] 正在计算 PROCESS_META_PV_REL_BULLISH_TURN (V3.1 · 高效惜售版)...")
+        # [修改] 增加新的信号依赖
+        required_signals = [
+            'close_D', 'volume_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
+            'suppressive_accumulation_intensity_D', 'retail_panic_surrender_index_D',
+            'upward_impulse_purity_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_calculate_price_volume_relationship"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        df_index = df.index
+        price = self._get_safe_series(df, 'close_D', method_name="_calculate_price_volume_relationship")
+        volume = self._get_safe_series(df, 'volume_D', method_name="_calculate_price_volume_relationship")
+        # 获取上下文裁决信号
+        main_force_conviction = self._normalize_series(self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=True)
+        wash_trade_penalty = self._normalize_series(self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=False)
+        volume_atrophy_quality = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0)
+        chip_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
+        suppressive_accum = self._normalize_series(self._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=False)
+        panic_evidence = self._normalize_series(self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=False)
+        # [新增] 引入拉升效率证据
+        upward_purity = self._normalize_series(self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=False)
+        # 计算基础动量
+        p_mom = self._normalize_series(price.pct_change().fillna(0), df_index, bipolar=True)
+        v_mom = self._normalize_series(volume.pct_change().fillna(0), df_index, bipolar=True)
+        # 初始化最终分数为0
+        final_score = pd.Series(0.0, index=df_index)
+        # 情境一: 价涨量增 (放量上涨) -> 甄别品质
+        mask1 = (p_mom > 0) & (v_mom > 0)
+        if mask1.any():
+            quality_factor = (main_force_conviction.clip(lower=0) * (1 - wash_trade_penalty)).pow(0.5)
+            score1 = (p_mom * v_mom).pow(0.5) * quality_factor
+            final_score.loc[mask1] = score1.loc[mask1]
+        # 情境二: 价涨量缩 (缩量上涨) -> 甄别意图 (惜售/高控盘/高效)
+        mask2 = (p_mom > 0) & (v_mom <= 0)
+        if mask2.any():
+            # [修改] 升级为三维意图因子
+            intent_factor = (volume_atrophy_quality * chip_posture.clip(lower=0) * upward_purity).pow(1/3)
+            score2 = (p_mom - v_mom) / 2 * intent_factor
+            final_score.loc[mask2] = score2.loc[mask2]
+        # 情境三: 价跌量增 (放量下跌) -> 甄别意图 (恐慌/吸筹)
+        mask3 = (p_mom <= 0) & (v_mom > 0)
+        if mask3.any():
+            base_score3 = -((p_mom.abs() * v_mom).pow(0.5))
+            score3 = base_score3 * (1 - suppressive_accum)
+            final_score.loc[mask3] = score3.loc[mask3]
+        # 情境四: 价跌量缩 (缩量下跌) -> 甄别品质 (枯竭/阴跌)
+        mask4 = (p_mom <= 0) & (v_mom <= 0)
+        if mask4.any():
+            base_score4 = (v_mom.abs() - p_mom.abs()) / 2
+            intent_factor_4 = (volume_atrophy_quality * 0.5 + panic_evidence * 0.5).clip(0, 1)
+            score4 = base_score4 * intent_factor_4
+            final_score.loc[mask4] = score4.loc[mask4]
+        final_score = final_score.clip(-1, 1)
+        # 探针逻辑
+        probe_dates = self.probe_dates
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print("\n--- [价量关系探针 (高效惜售版)] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 价格动量(P_mom): {p_mom.iloc[last_date_index]:.4f}")
+            print(f"    - 成交量动量(V_mom): {v_mom.iloc[last_date_index]:.4f}")
+            print("  [情境判断]:")
+            active_mask = "无"
+            score_component = 0.0
+            if mask1.iloc[last_date_index]: 
+                active_mask = "价涨量增"
+                print(f"    - 品质因子(信念*(1-对倒)): {quality_factor.iloc[last_date_index]:.4f}")
+                score_component = final_score.loc[df.index[last_date_index]]
+            elif mask2.iloc[last_date_index]: 
+                active_mask = "价涨量缩"
+                print(f"    - 意图因子(缩量*筹码*效率): {intent_factor.iloc[last_date_index]:.4f}")
+                score_component = final_score.loc[df.index[last_date_index]]
+            elif mask3.iloc[last_date_index]: 
+                active_mask = "价跌量增"
+                print(f"    - 吸筹修正因子(1-打压吸筹): {(1 - suppressive_accum).iloc[last_date_index]:.4f}")
+                score_component = final_score.loc[df.index[last_date_index]]
+            elif mask4.iloc[last_date_index]: 
+                active_mask = "价跌量缩"
+                print(f"    - 意图因子(缩量品质+恐慌): {intent_factor_4.iloc[last_date_index]:.4f}")
+                score_component = score4.loc[df.index[last_date_index]]
+            print(f"    - 激活情境: {active_mask}")
+            print(f"    - 该情境得分: {score_component:.4f}")
+            print("  [最终结果]:")
+            print(f"    - 价量关系最终分: {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         return final_score.astype(np.float32)
 
@@ -1369,96 +1468,5 @@ class ProcessIntelligence:
             print("--- [探针结束] ---\n")
         return final_score.astype(np.float32)
 
-    def _calculate_price_volume_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V3.0 · 恐慌枯竭版】计算价量关系的专属分数。
-        - 核心升级: 在“价跌量缩”情境中，引入“散户恐慌投降指数”作为新的“恐慌证据”。
-                      将原有的品质裁决升级为融合了“缩量品质”与“恐慌证据”的“意图裁决”，
-                      使模型能够精准识别并量化“恐慌抛售后的卖盘枯竭”这一核心底部反转逻辑。
-        """
-        print("    -> [过程层] 正在计算 PROCESS_META_PV_REL_BULLISH_TURN (V3.0 · 恐慌枯竭版)...")
-        # [修改] 增加新的信号依赖
-        required_signals = [
-            'close_D', 'volume_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
-            'suppressive_accumulation_intensity_D', 'retail_panic_surrender_index_D'
-        ]
-        if not self._validate_required_signals(df, required_signals, "_calculate_price_volume_relationship"):
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        df_index = df.index
-        price = self._get_safe_series(df, 'close_D', method_name="_calculate_price_volume_relationship")
-        volume = self._get_safe_series(df, 'volume_D', method_name="_calculate_price_volume_relationship")
-        # 获取上下文裁决信号
-        main_force_conviction = self._normalize_series(self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=True)
-        wash_trade_penalty = self._normalize_series(self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=False)
-        volume_atrophy_quality = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0)
-        chip_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
-        suppressive_accum = self._normalize_series(self._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=False)
-        # [新增] 引入恐慌证据
-        panic_evidence = self._normalize_series(self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=False)
-        # 计算基础动量
-        p_mom = self._normalize_series(price.pct_change().fillna(0), df_index, bipolar=True)
-        v_mom = self._normalize_series(volume.pct_change().fillna(0), df_index, bipolar=True)
-        # 初始化最终分数为0
-        final_score = pd.Series(0.0, index=df_index)
-        # 情境一: 价涨量增 (放量上涨) -> 甄别品质
-        mask1 = (p_mom > 0) & (v_mom > 0)
-        if mask1.any():
-            quality_factor = (main_force_conviction.clip(lower=0) * (1 - wash_trade_penalty)).pow(0.5)
-            score1 = (p_mom * v_mom).pow(0.5) * quality_factor
-            final_score.loc[mask1] = score1.loc[mask1]
-        # 情境二: 价涨量缩 (缩量上涨) -> 甄别意图 (惜售/高控盘)
-        mask2 = (p_mom > 0) & (v_mom <= 0)
-        if mask2.any():
-            intent_factor = (volume_atrophy_quality * chip_posture.clip(lower=0)).pow(0.5)
-            score2 = (p_mom - v_mom) / 2 * intent_factor
-            final_score.loc[mask2] = score2.loc[mask2]
-        # 情境三: 价跌量增 (放量下跌) -> 甄别意图 (恐慌/吸筹)
-        mask3 = (p_mom <= 0) & (v_mom > 0)
-        if mask3.any():
-            base_score3 = -((p_mom.abs() * v_mom).pow(0.5))
-            score3 = base_score3 * (1 - suppressive_accum)
-            final_score.loc[mask3] = score3.loc[mask3]
-        # 情境四: 价跌量缩 (缩量下跌) -> 甄别品质 (枯竭/阴跌)
-        mask4 = (p_mom <= 0) & (v_mom <= 0)
-        if mask4.any():
-            base_score4 = (v_mom.abs() - p_mom.abs()) / 2
-            # [修改] 升级为融合了恐慌证据的意图因子
-            intent_factor_4 = (volume_atrophy_quality * 0.5 + panic_evidence * 0.5).clip(0, 1)
-            score4 = base_score4 * intent_factor_4
-            final_score.loc[mask4] = score4.loc[mask4]
-        final_score = final_score.clip(-1, 1)
-        # 探针逻辑
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [价量关系探针 (恐慌枯竭版)] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 价格动量(P_mom): {p_mom.iloc[last_date_index]:.4f}")
-            print(f"    - 成交量动量(V_mom): {v_mom.iloc[last_date_index]:.4f}")
-            print(f"    - 高品质缩量分: {volume_atrophy_quality.iloc[last_date_index]:.4f}")
-            print(f"    - 散户恐慌证据: {panic_evidence.iloc[last_date_index]:.4f}")
-            print("  [情境判断]:")
-            active_mask = "无"
-            score_component = 0.0
-            if mask1.iloc[last_date_index]: 
-                active_mask = "价涨量增"
-                score_component = final_score.loc[df.index[last_date_index]]
-            elif mask2.iloc[last_date_index]: 
-                active_mask = "价涨量缩"
-                score_component = final_score.loc[df.index[last_date_index]]
-            elif mask3.iloc[last_date_index]: 
-                active_mask = "价跌量增"
-                score_component = final_score.loc[df.index[last_date_index]]
-            elif mask4.iloc[last_date_index]: 
-                active_mask = "价跌量缩"
-                print(f"    - 意图因子(缩量品质+恐慌): {intent_factor_4.iloc[last_date_index]:.4f}")
-                score_component = score4.loc[df.index[last_date_index]]
-            print(f"    - 激活情境: {active_mask}")
-            print(f"    - 该情境得分: {score_component:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 价量关系最终分: {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
-        return final_score.astype(np.float32)
 
 
