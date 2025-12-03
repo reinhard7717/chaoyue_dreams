@@ -1264,12 +1264,13 @@ class ProcessIntelligence:
 
     def _calculate_price_volume_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.7 · 容错共振版】计算价量关系的专属分数。
-        - 核心升级: 废除脆弱的乘法协同模型，引入基于标准差的“和谐度”计算。新的`协同效应奖金`
-                      等于`(1 - 三维证据分数的标准差)`，该模型奖励“步调一致”，惩罚“内部分歧”，
-                      且具备高容错性，不再因单一维度的微弱瑕疵而导致协同效应的完全失效。
+        【V3.8 · 和弦共振版】计算价量关系的专属分数。
+        - 核心升级: 废除基于“标准差”的和谐度模型，改为采用基于“极差”(1 - (max - min))的全新算法。
+                      新算法能精准识别并惩罚信号间的方向性矛盾，只奖励真正的“意志协同”，
+                      从根本上修复了旧模型的逻辑缺陷。
+        - 代码优化: 重构代码结构，将所有四种情境的中间因子计算前置，使逻辑更清晰，并实现探针的全场景诊断输出。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PV_REL_BULLISH_TURN (V3.7 · 容错共振版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_PV_REL_BULLISH_TURN (V3.8 · 和弦共振版)...")
         required_signals = [
             'close_D', 'volume_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
             'suppressive_accumulation_intensity_D', 'retail_panic_surrender_index_D',
@@ -1295,40 +1296,45 @@ class ProcessIntelligence:
             reversal_confirmation_flow.clip(lower=0) * 0.4 +
             reversal_confirmation_psyche.clip(lower=0) * 0.2
         ).clip(0, 1)
+        # [修改] 升级为基于极差的和弦共振模型
         resonance_components = pd.concat([reversal_confirmation_shape, reversal_confirmation_flow, reversal_confirmation_psyche], axis=1)
-        harmony_degree = (1 - resonance_components.std(axis=1)).clip(0, 1)
+        component_max = resonance_components.max(axis=1)
+        component_min = resonance_components.min(axis=1)
+        harmony_degree = (1 - (component_max - component_min)).clip(0, 1)
         synergy_bonus = harmony_degree
         resonance_confirmation_factor = (base_resonance_score * (1 + synergy_bonus)).clip(0, 1)
         p_mom = self._normalize_series(price.pct_change().fillna(0), df_index, bipolar=True)
         v_mom = self._normalize_series(volume.pct_change().fillna(0), df_index, bipolar=True)
         final_score = pd.Series(0.0, index=df_index)
+        # [修改] 优化代码结构，前置所有情境的因子计算
+        # 情境1: 价涨量增
+        quality_factor = (self._normalize_series(main_force_conviction, df_index, bipolar=True).clip(lower=0) * (1 - wash_trade_penalty)).pow(0.5)
+        score1 = (p_mom * v_mom).pow(0.5) * quality_factor
+        # 情境2: 价涨量缩
+        intent_factor = (volume_atrophy_quality * chip_posture.clip(lower=0) * upward_purity).pow(1/3)
+        score2 = (p_mom - v_mom) / 2 * intent_factor
+        # 情境3: 价跌量增
+        base_score3 = -((p_mom.abs() * v_mom).pow(0.5))
+        score3 = base_score3 * (1 - suppressive_accum)
+        # 情境4: 价跌量缩
+        recent_panic_context = panic_evidence.rolling(window=3, min_periods=1).max()
+        exhaustion_degree = (1 + v_mom.clip(upper=0)).clip(0, 1)
+        narrative_factor_4 = (recent_panic_context * exhaustion_degree).clip(0, 1)
+        base_score4 = (v_mom.abs() - p_mom.abs()) / 2
+        score4 = base_score4 * narrative_factor_4 * (1 + resonance_confirmation_factor)
+        # 根据掩码应用分数
         mask1 = (p_mom > 0) & (v_mom > 0)
-        if mask1.any():
-            quality_factor = (self._normalize_series(main_force_conviction, df_index, bipolar=True).clip(lower=0) * (1 - wash_trade_penalty)).pow(0.5)
-            score1 = (p_mom * v_mom).pow(0.5) * quality_factor
-            final_score.loc[mask1] = score1.loc[mask1]
         mask2 = (p_mom > 0) & (v_mom <= 0)
-        if mask2.any():
-            intent_factor = (volume_atrophy_quality * chip_posture.clip(lower=0) * upward_purity).pow(1/3)
-            score2 = (p_mom - v_mom) / 2 * intent_factor
-            final_score.loc[mask2] = score2.loc[mask2]
         mask3 = (p_mom <= 0) & (v_mom > 0)
-        if mask3.any():
-            base_score3 = -((p_mom.abs() * v_mom).pow(0.5))
-            score3 = base_score3 * (1 - suppressive_accum)
-            final_score.loc[mask3] = score3.loc[mask3]
         mask4 = (p_mom <= 0) & (v_mom <= 0)
-        if mask4.any():
-            recent_panic_context = panic_evidence.rolling(window=3, min_periods=1).max()
-            exhaustion_degree = (1 + v_mom.clip(upper=0)).clip(0, 1)
-            narrative_factor_4 = (recent_panic_context * exhaustion_degree).clip(0, 1)
-            base_score4 = (v_mom.abs() - p_mom.abs()) / 2
-            score4 = base_score4 * narrative_factor_4 * (1 + resonance_confirmation_factor)
-            final_score.loc[mask4] = score4.loc[mask4]
+        if mask1.any(): final_score.loc[mask1] = score1.loc[mask1]
+        if mask2.any(): final_score.loc[mask2] = score2.loc[mask2]
+        if mask3.any(): final_score.loc[mask3] = score3.loc[mask3]
+        if mask4.any(): final_score.loc[mask4] = score4.loc[mask4]
         final_score = final_score.clip(-1, 1)
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [价量关系探针 (容错共振版)] ---")
+            print("\n--- [价量关系探针 (和弦共振版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
@@ -1339,19 +1345,22 @@ class ProcessIntelligence:
             score_component = 0.0
             if mask1.iloc[last_date_index]:
                 active_mask = "价涨量增"
-                score_component = final_score.loc[df.index[last_date_index]]
+                print(f"    - 品质因子: {quality_factor.iloc[last_date_index]:.4f}")
+                score_component = score1.iloc[last_date_index]
             elif mask2.iloc[last_date_index]:
                 active_mask = "价涨量缩"
-                score_component = final_score.loc[df.index[last_date_index]]
+                print(f"    - 意图因子: {intent_factor.iloc[last_date_index]:.4f}")
+                score_component = score2.iloc[last_date_index]
             elif mask3.iloc[last_date_index]:
                 active_mask = "价跌量增"
-                score_component = final_score.loc[df.index[last_date_index]]
+                print(f"    - 吸筹修正因子: {(1 - suppressive_accum).iloc[last_date_index]:.4f}")
+                score_component = score3.iloc[last_date_index]
             elif mask4.iloc[last_date_index]:
                 active_mask = "价跌量缩"
                 print(f"    - 基础共振分: {base_resonance_score.iloc[last_date_index]:.4f}")
-                print(f"    - 和谐度(1-std): {harmony_degree.iloc[last_date_index]:.4f}")
+                print(f"    - 和谐度(1-极差): {harmony_degree.iloc[last_date_index]:.4f}")
                 print(f"    - 最终共振因子: {resonance_confirmation_factor.iloc[last_date_index]:.4f}")
-                score_component = final_score.loc[df.index[last_date_index]]
+                score_component = score4.iloc[last_date_index]
             print(f"    - 激活情境: {active_mask}")
             print(f"    - 该情境得分: {score_component:.4f}")
             print("  [最终结果]:")
