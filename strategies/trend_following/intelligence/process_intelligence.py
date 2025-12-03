@@ -1202,12 +1202,12 @@ class ProcessIntelligence:
 
     def _calculate_split_order_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.0 · 战术动能版】计算“拆单吸筹强度”的专属信号。
-        - 核心升级: 为实现“知行合一”，在评估“战术执行质量”(`初步分数`)的基础上，新增了对其自身
-                      趋势的度量，即“战术动能分”。通过将战术的“当前状态”与“改善趋势”融合，
-                      构建了一个更具前瞻性的“动态初步分”，从而奖赏那些战术执行持续进步的行为。
+        【V3.1 · 质效校准版】计算“拆单吸筹强度”的专属信号。
+        - 核心升级: 引入“效率基准线”(efficiency_baseline)概念。在计算“质效调节指数”前，
+                      先对“全息验证综合分”进行校准。这使得任何低于基准线的战果（即使为正）
+                      都会被视为负向贡献，从而受到惩罚性抑制，为模型注入了赏罚分明的“主帅”逻辑。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (V3.0 · 战术动能版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (V3.1 · 质效校准版)...")
         required_signals = [
             'hidden_accumulation_intensity_D', 'SLOPE_5_close_D', 'deception_index_D',
             'upward_impulse_purity_D', 'PROCESS_META_POWER_TRANSFER',
@@ -1216,6 +1216,7 @@ class ProcessIntelligence:
         if not self._validate_required_signals(df, required_signals, "_calculate_split_order_accumulation"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
+        efficiency_baseline = config.get('efficiency_baseline', 0.15)
         raw_intensity = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_calculate_split_order_accumulation")
         price_trend_raw = self._get_safe_series(df, 'SLOPE_5_close_D', 0.0, method_name="_calculate_split_order_accumulation")
         deception_index = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_calculate_split_order_accumulation")
@@ -1229,7 +1230,6 @@ class ProcessIntelligence:
         deception_norm = self._normalize_series(deception_index, df_index, bipolar=True)
         strategic_context_factor = (potential_outcome * 0.5 + deception_norm.clip(lower=0) * 0.5).clip(0, 1)
         preliminary_score = (normalized_score * price_suppression_factor * strategic_context_factor).pow(1/3).fillna(0.0)
-        # [新增] 引入战术动能维度
         tactical_momentum_score = self._normalize_series(preliminary_score.diff(1).fillna(0), df_index, bipolar=False)
         dynamic_preliminary_score = (preliminary_score * 0.7 + tactical_momentum_score * 0.3).clip(0, 1)
         stability_score = potential_outcome
@@ -1245,20 +1245,20 @@ class ProcessIntelligence:
         potential_trend = self._normalize_series(potential_outcome.diff(3).fillna(0), df_index, bipolar=True)
         holographic_trend_score = (flow_trend * w_f + structure_trend * w_s + potential_trend * w_p)
         holographic_validation_score = (holographic_state_score * 0.6 + holographic_trend_score * 0.4).clip(-1, 1)
-        quality_efficiency_modulator = (1 - holographic_validation_score).clip(0.1, 2.0)
-        # [修改] 使用动态初步分作为基数
+        # [修改] 引入效率基准线，校准战果认知
+        calibrated_holographic_score = holographic_validation_score - efficiency_baseline
+        quality_efficiency_modulator = (1 - calibrated_holographic_score).clip(0.1, 2.0)
         final_score = dynamic_preliminary_score.pow(quality_efficiency_modulator).clip(0, 1)
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [拆单吸筹强度探针 (战术动能版)] ---")
+            print("\n--- [拆单吸筹强度探针 (质效校准版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
-            print(f"    - 初步分数(状态): {preliminary_score.iloc[last_date_index]:.4f}")
-            print(f"    - 战术动能分(趋势): {tactical_momentum_score.iloc[last_date_index]:.4f}")
+            print(f"    - 动态初步分(战术): {dynamic_preliminary_score.iloc[last_date_index]:.4f}")
+            print(f"    - 全息验证综合分(战果): {holographic_validation_score.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
-            print(f"    - 动态初步分(融合后): {dynamic_preliminary_score.iloc[last_date_index]:.4f}")
-            print(f"    - 全息验证综合分: {holographic_validation_score.iloc[last_date_index]:.4f}")
+            print(f"    - 校准后全息分(减基准线): {calibrated_holographic_score.iloc[last_date_index]:.4f}")
             print(f"    - 质效调节指数: {quality_efficiency_modulator.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
             print(f"    - 拆单吸筹强度最终分: {final_score.iloc[last_date_index]:.4f}")
