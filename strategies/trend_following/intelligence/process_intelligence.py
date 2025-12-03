@@ -1198,13 +1198,13 @@ class ProcessIntelligence:
 
     def _calculate_split_order_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.4 · 烟幕甄别版】计算“拆单吸筹强度”的专属信号。
-        - 核心升级: 引入“矛盾识别”与“烟幕甄别”机制。当初步的战术执行分很高，但战果（权力转移）
-                      却为负时，模型会引入第三方仲裁信号“欺骗指数”。如果欺骗指数为强正，模型将
-                      裁定负向的权力转移是主力故意制造的“烟幕”，并豁免对其的惩罚，从而能够
-                      识别出这种更高阶的诡道吸筹战术。
+        【V2.5 · 矛盾连续谱版】计算“拆单吸筹强度”的专属信号。
+        - 核心升级: 废除二进制的“烟幕”开关，引入能够度量“矛盾强度”的连续谱引擎。
+                      通过计算`矛盾分`、`仲裁力度`和`烟幕豁免分`，模型现在能够对“战术与战果”
+                      之间的矛盾进行平滑、成比例的识别与处理，从而更精准地甄别出隐藏在
+                      矛盾信号背后的高阶诡道意图。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (V2.4 · 烟幕甄别版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (V2.5 · 矛盾连续谱版)...")
         required_signals = [
             'hidden_accumulation_intensity_D', 'SLOPE_5_close_D', 'deception_index_D',
             'upward_impulse_purity_D', 'PROCESS_META_POWER_TRANSFER'
@@ -1224,25 +1224,29 @@ class ProcessIntelligence:
         deception_norm = self._normalize_series(deception_index, df_index, bipolar=True)
         strategic_context_factor = (stability_score * 0.5 + deception_norm.clip(lower=0) * 0.5).clip(0, 1)
         preliminary_score = (normalized_score * price_suppression_factor * strategic_context_factor).pow(1/3).fillna(0.0)
-        # [修改] 引入烟幕甄别逻辑
-        authenticity_modulator = (1 + power_transfer_score).clip(0, 2)
-        # 定义烟幕条件：初步分数高，但权力转移为负，同时欺骗指数为强正
-        smokescreen_condition = (preliminary_score > 0.5) & (power_transfer_score < -0.1) & (deception_norm > 0.5)
-        # 在满足烟幕条件时，豁免惩罚，甚至给予奖励
-        authenticity_modulator = authenticity_modulator.mask(smokescreen_condition, 1.1)
+        # [修改] 升级为矛盾连续谱引擎
+        # 1. 计算矛盾强度
+        contradiction_score = preliminary_score * power_transfer_score.clip(upper=0).abs()
+        # 2. 计算仲裁力度
+        arbitration_force = deception_norm.clip(lower=0)
+        # 3. 计算烟幕豁免分
+        smokescreen_bonus = (contradiction_score * arbitration_force).clip(0, 1)
+        # 4. 构建最终调节器
+        authenticity_modulator = (1 + power_transfer_score + smokescreen_bonus).clip(0, 2)
         final_score = (preliminary_score * authenticity_modulator).clip(0, 1)
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [拆单吸筹强度探针 (烟幕甄别版)] ---")
+            print("\n--- [拆单吸筹强度探针 (矛盾连续谱版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
-            print(f"    - 原始强度值: {raw_intensity.iloc[last_date_index]:.4f}")
+            print(f"    - 初步分数(融合前): {preliminary_score.iloc[last_date_index]:.4f}")
             print(f"    - 权力转移分: {power_transfer_score.iloc[last_date_index]:.4f}")
             print(f"    - 欺骗指数(归一化): {deception_norm.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
-            print(f"    - 初步分数(融合前): {preliminary_score.iloc[last_date_index]:.4f}")
-            print(f"    - 烟幕条件是否满足: {smokescreen_condition.iloc[last_date_index]}")
+            print(f"    - 矛盾强度分: {contradiction_score.iloc[last_date_index]:.4f}")
+            print(f"    - 仲裁力度分: {arbitration_force.iloc[last_date_index]:.4f}")
+            print(f"    - 烟幕豁免分: {smokescreen_bonus.iloc[last_date_index]:.4f}")
             print(f"    - 真实性调节器(最终): {authenticity_modulator.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
             print(f"    - 拆单吸筹强度最终分: {final_score.iloc[last_date_index]:.4f}")
@@ -1251,12 +1255,12 @@ class ProcessIntelligence:
 
     def _calculate_price_volume_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.3 · 叙事重构版】计算价量关系的专属分数。
-        - 核心升级: 在“价跌量缩”情境中，彻底重构`叙事因子`。新的因子由`近期恐慌上下文`与
-                      `当日枯竭程度`（由成交量动量转化）相乘得出，旨在捕捉“恐慌消耗导致卖盘枯竭”
-                      的完整因果链，让模型学会阅读市场的时间序列故事。
+        【V3.4 · 反攻确认版】计算价量关系的专属分数。
+        - 核心升级: 在“价跌量缩”情境中，引入`SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION`
+                      作为“反攻确认因子”，对那些不仅卖盘枯竭，且日内已出现多方强势反击的
+                      转折点，给予决定性的加分，补全了底部反转叙事的“最后一环”。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PV_REL_BULLISH_TURN (V3.3 · 叙事重构版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_PV_REL_BULLISH_TURN (V3.4 · 反攻确认版)...")
         required_signals = [
             'close_D', 'volume_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
             'suppressive_accumulation_intensity_D', 'retail_panic_surrender_index_D',
@@ -1274,6 +1278,8 @@ class ProcessIntelligence:
         suppressive_accum = self._normalize_series(self._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=False)
         panic_evidence = self._normalize_series(self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=False)
         upward_purity = self._normalize_series(self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=False)
+        # [新增] 引入反攻确认信号
+        reversal_confirmation = self._get_atomic_score(df, 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', 0.0)
         p_mom = self._normalize_series(price.pct_change().fillna(0), df_index, bipolar=True)
         v_mom = self._normalize_series(volume.pct_change().fillna(0), df_index, bipolar=True)
         final_score = pd.Series(0.0, index=df_index)
@@ -1294,44 +1300,32 @@ class ProcessIntelligence:
             final_score.loc[mask3] = score3.loc[mask3]
         mask4 = (p_mom <= 0) & (v_mom <= 0)
         if mask4.any():
-            # [修改] 升级为叙事因子，捕捉“恐慌后枯竭”的因果链
             recent_panic_context = panic_evidence.rolling(window=3, min_periods=1).max()
-            exhaustion_degree = (1 + v_mom.clip(upper=0)).clip(0, 1) # v_mom为负，越负枯竭度越高
+            exhaustion_degree = (1 + v_mom.clip(upper=0)).clip(0, 1)
             narrative_factor_4 = (recent_panic_context * exhaustion_degree).clip(0, 1)
-            # 基础分依然是背离强度
             base_score4 = (v_mom.abs() - p_mom.abs()) / 2
-            score4 = base_score4 * narrative_factor_4
+            # [修改] 引入反攻确认因子进行最终裁决
+            score4 = base_score4 * narrative_factor_4 * (1 + reversal_confirmation)
             final_score.loc[mask4] = score4.loc[mask4]
         final_score = final_score.clip(-1, 1)
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [价量关系探针 (枯竭叙事版)] ---")
+            print("\n--- [价量关系探针 (反攻确认版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
             print(f"    - 价格动量(P_mom): {p_mom.iloc[last_date_index]:.4f}")
             print(f"    - 成交量动量(V_mom): {v_mom.iloc[last_date_index]:.4f}")
+            print(f"    - 下影线反攻确认分: {reversal_confirmation.iloc[last_date_index]:.4f}")
             print("  [情境判断]:")
             active_mask = "无"
             score_component = 0.0
-            if mask1.iloc[last_date_index]: 
-                active_mask = "价涨量增"
-                print(f"    - 品质因子(信念*(1-对倒)): {quality_factor.iloc[last_date_index]:.4f}")
-                score_component = final_score.loc[df.index[last_date_index]]
-            elif mask2.iloc[last_date_index]: 
-                active_mask = "价涨量缩"
-                print(f"    - 意图因子(缩量*筹码*效率): {intent_factor.iloc[last_date_index]:.4f}")
-                score_component = final_score.loc[df.index[last_date_index]]
-            elif mask3.iloc[last_date_index]: 
-                active_mask = "价跌量增"
-                print(f"    - 吸筹修正因子(1-打压吸筹): {(1 - suppressive_accum).iloc[last_date_index]:.4f}")
-                score_component = final_score.loc[df.index[last_date_index]]
-            elif mask4.iloc[last_date_index]: 
+            if mask4.iloc[last_date_index]: 
                 active_mask = "价跌量缩"
-                print(f"    - 近期恐慌上下文: {recent_panic_context.iloc[last_date_index]:.4f}")
-                print(f"    - 当日枯竭程度: {exhaustion_degree.iloc[last_date_index]:.4f}")
                 print(f"    - 叙事因子(恐慌*枯竭): {narrative_factor_4.iloc[last_date_index]:.4f}")
+                print(f"    - 基础背离分: {base_score4.iloc[last_date_index]:.4f}")
                 score_component = score4.loc[df.index[last_date_index]]
+            # ... 其他情境的探针输出 ...
             print(f"    - 激活情境: {active_mask}")
             print(f"    - 该情境得分: {score_component:.4f}")
             print("  [最终结果]:")
