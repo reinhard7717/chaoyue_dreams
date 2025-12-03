@@ -37,7 +37,7 @@ class ProcessIntelligence:
         self.bipolar_sensitivity = get_param_value(self.params.get('bipolar_sensitivity'), 1.0)
         self.meta_score_weights = get_param_value(self.params.get('meta_score_weights'), [0.6, 0.4])
         self.diagnostics_config = get_param_value(self.params.get('diagnostics'), [])
-        # [新增] 统一获取调试参数和探针日期，提高代码效率和健壮性
+        # 统一获取调试参数和探针日期，提高代码效率和健壮性
         self.debug_params = get_params_block(self.strategy, 'debug_params', {})
         self.probe_dates = get_param_value(self.debug_params.get('probe_dates'), [])
 
@@ -137,28 +137,32 @@ class ProcessIntelligence:
 
     def run_process_diagnostics(self, df: pd.DataFrame, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
-        【V5.4 · 探针清理版】过程情报分析总指挥
-        - 核心清理: 更新了版本信息和日志输出，以反映探针清理后的状态。
-                     为特殊调度的信号 `PROCESS_META_POWER_TRANSFER` 补上了统一的最终战报发布。
+        【V5.5 · 依赖前置版】过程情报分析总指挥
+        - 核心升级: 重构任务调度逻辑，在主循环前优先计算并前置处理被广泛依赖的“基石信号”
+                      （如 PROCESS_META_POWER_TRANSFER），确保无论配置文件顺序如何，
+                      依赖关系都能被满足，彻底解决因计算顺序错误导致的崩溃问题。
         """
-        print("启动【V5.4 · 探针清理版】过程情报分析...")
+        print("启动【V5.5 · 依赖前置版】过程情报分析...")
         all_process_states = {}
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
         diagnostics = get_param_value(p_conf.get('diagnostics'), [])
-        for diag_config in diagnostics:
+        # 依赖前置处理逻辑
+        power_transfer_config = next((d for d in diagnostics if d.get('name') == 'PROCESS_META_POWER_TRANSFER'), None)
+        if power_transfer_config:
+            power_transfer_score = self._calculate_power_transfer(df, power_transfer_config)
+            all_process_states['PROCESS_META_POWER_TRANSFER'] = power_transfer_score
+            self.strategy.atomic_states['PROCESS_META_POWER_TRANSFER'] = power_transfer_score
+            print(f"    -> [过程层] {power_transfer_config['name']} (依赖前置) 计算完成，最新分值: {power_transfer_score.iloc[-1]:.4f}")
+        # 主循环处理剩余的诊断任务
+        remaining_diagnostics = [d for d in diagnostics if d.get('name') != 'PROCESS_META_POWER_TRANSFER']
+        for diag_config in remaining_diagnostics:
             if task_type_filter:
                 if diag_config.get('task_type') != task_type_filter:
                     continue
             diag_name = diag_config.get('name')
             if not diag_name:
                 continue
-            if diag_name == 'PROCESS_META_POWER_TRANSFER':
-                power_transfer_score = self._calculate_power_transfer(df, diag_config)
-                all_process_states[diag_name] = power_transfer_score
-                self.strategy.atomic_states[diag_name] = power_transfer_score
-                # 为特殊调度的信号补上统一的最终战报发布
-                print(f"    -> [过程层] {diag_name} 计算完成，最新分值: {power_transfer_score.iloc[-1]:.4f}")
-                continue
+            # [移除] 原有的特殊处理分支，逻辑已前置
             score = self._run_meta_analysis(df, diag_config)
             if isinstance(score, pd.Series):
                 all_process_states[diag_name] = score
@@ -166,7 +170,7 @@ class ProcessIntelligence:
             elif isinstance(score, dict):
                 all_process_states.update(score)
                 self.strategy.atomic_states.update(score)
-        print(f"【V5.4 · 探针清理版】分析完成，生成 {len(all_process_states)} 个过程元信号。")
+        print(f"【V5.5 · 依赖前置版】分析完成，生成 {len(all_process_states)} 个过程元信号。")
         return all_process_states
 
     def _run_meta_analysis(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
@@ -221,7 +225,7 @@ class ProcessIntelligence:
         wash_trade_norm = self._normalize_series(wash_trade_intensity, df_index, bipolar=False)
         deception_norm = self._normalize_series(deception_index, df_index, bipolar=True)
         conviction_norm = self._normalize_series(main_force_conviction, df_index, bipolar=True)
-        # [修改] 移除clip(0,1)，使其成为双极性因子
+        # 移除clip(0,1)，使其成为双极性因子
         transfer_authenticity_factor = (
             conviction_norm * 0.5 +
             (1 - wash_trade_norm) * 0.3 +
@@ -405,7 +409,7 @@ class ProcessIntelligence:
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         P_change = self._normalize_series(price_change, df_index, bipolar=True)
         CA_change = self._normalize_series(main_force_cost_advantage.diff(1).fillna(0), df_index, bipolar=True)
-        # [新增] 获取新的战术信号并归一化
+        # 获取新的战术信号并归一化
         main_force_conviction = self._normalize_series(self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=True)
         upward_purity = self._normalize_series(self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=False)
         suppressive_accum = self._normalize_series(self._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=False)
@@ -462,7 +466,7 @@ class ProcessIntelligence:
         - 新增功能: 植入“真理探针”，用于在指定日期输出风险调节前后的分数变化。
         """
         print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (V5.1 · 风险审判修正版)...")
-        # [修改] 引入新的风险审判信号依赖
+        # 引入新的风险审判信号依赖
         required_signals = [
             'pct_change_D', 'main_force_net_flow_calibrated_D', 'main_force_slippage_index_D',
             'upward_impulse_purity_D', 'volume_ratio_D', 'control_solidity_index_D',
@@ -532,17 +536,17 @@ class ProcessIntelligence:
         rs_modulator = (1 + relative_strength * rs_amplifier)
         capital_modulator = (1 + capital_signature * cs_modulator_weight)
         modulated_rally_intent = (base_rally_intent * rs_modulator * capital_modulator).clip(-1, 1)
-        # [新增] 风险审判模块
+        # 风险审判模块
         distribution_intensity = self._normalize_series(self._get_safe_series(df, 'distribution_at_peak_intensity_D', 0.0, method_name="_calculate_main_force_rally_intent"), df_index, bipolar=False)
         upper_shadow_pressure = self._normalize_series(self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_calculate_main_force_rally_intent"), df_index, bipolar=False)
         distribution_risk_score = (distribution_intensity * 0.6 + upper_shadow_pressure * 0.4).clip(0, 1)
-        # [修改] 修正风险审判逻辑，只惩罚看涨部分，避免削弱看跌信号
+        # 修正风险审判逻辑，只惩罚看涨部分，避免削弱看跌信号
         bullish_part = modulated_rally_intent.clip(lower=0)
         bearish_part = modulated_rally_intent.clip(upper=0)
         penalized_bullish_part = bullish_part * (1 - distribution_risk_score)
         final_rally_intent = (penalized_bullish_part + bearish_part).clip(-1, 1)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day, (final_rally_intent + 0.35)).clip(-1, 1)
-        # [修改] 优化探针日期获取逻辑并更新探针内容
+        # 优化探针日期获取逻辑并更新探针内容
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print("\n--- [主力拉升意图探针] ---")
@@ -632,7 +636,7 @@ class ProcessIntelligence:
         """
         signal_name = config.get('name')
         df_index = df.index
-        # [新增] 为 PROCESS_META_PV_REL_BULLISH_TURN 添加专属调度分支
+        # 为 PROCESS_META_PV_REL_BULLISH_TURN 添加专属调度分支
         if signal_name == 'PROCESS_META_PV_REL_BULLISH_TURN':
             relationship_score = self._calculate_price_volume_relationship(df, config)
         elif signal_name == 'PROCESS_META_MAIN_FORCE_RALLY_INTENT':
@@ -1216,7 +1220,7 @@ class ProcessIntelligence:
         price_trend_raw = self._get_safe_series(df, 'SLOPE_5_close_D', 0.0, method_name="_calculate_split_order_accumulation")
         deception_index = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_calculate_split_order_accumulation")
         upward_purity = self._normalize_series(self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_calculate_split_order_accumulation"), df_index, bipolar=False)
-        # [修改] 引入全息验证的三个维度信号
+        # 引入全息验证的三个维度信号
         flow_outcome = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
         structure_outcome = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         potential_outcome = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', 0.0)
@@ -1226,7 +1230,7 @@ class ProcessIntelligence:
         deception_norm = self._normalize_series(deception_index, df_index, bipolar=True)
         strategic_context_factor = (potential_outcome * 0.5 + deception_norm.clip(lower=0) * 0.5).clip(0, 1)
         preliminary_score = (normalized_score * price_suppression_factor * strategic_context_factor).pow(1/3).fillna(0.0)
-        # [修改] 构建全息验证调节器
+        # 构建全息验证调节器
         holographic_validation_score = (
             flow_outcome * 0.4 +
             structure_outcome * 0.4 +
@@ -1277,7 +1281,7 @@ class ProcessIntelligence:
         suppressive_accum = self._normalize_series(self._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=False)
         panic_evidence = self._normalize_series(self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=False)
         upward_purity = self._normalize_series(self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=False)
-        # [修改] 构建多维共振确认因子
+        # 构建多维共振确认因子
         reversal_confirmation_shape = self._get_atomic_score(df, 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', 0.0)
         reversal_confirmation_flow = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0)
         reversal_confirmation_psyche = self._normalize_series(main_force_conviction.diff(1).fillna(0), df_index, bipolar=False)

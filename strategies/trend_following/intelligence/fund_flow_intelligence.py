@@ -158,7 +158,6 @@ class FundFlowIntelligence:
         tension_magnitude = (norm_persistence * energy_injection).pow(0.5)
         # 3. 融合
         tension_score = disagreement_vector * (1 + tension_magnitude * 1.5) # 1.5是放大系数
-        # [新增] 调试探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -203,7 +202,6 @@ class FundFlowIntelligence:
         purity_filter = 1 - get_adaptive_mtf_normalized_score(wash_trade_intensity, df_index, ascending=True, tf_weights=tf_weights_ff)
         # 4. 融合
         battlefield_control_score = (flow_consensus_score * 0.4 + micro_control_score * 0.6) * purity_filter
-        # [新增] 调试探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -258,7 +256,6 @@ class FundFlowIntelligence:
                              flow_health_score * modulator_weights.get('flow_health', 0.3)
                              ).clip(0.5, 1.5)
         final_modulated_score = aggressive_intent_score * quality_modulator
-        # [新增] 调试探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -304,7 +301,6 @@ class FundFlowIntelligence:
         liquidity_amplifier = 1 / liquidity_supply.replace(0, 1e-9).clip(0.5, 2.0) # 反比关系，并限制范围
         # 4. 融合
         true_momentum = base_momentum * purity_filter * liquidity_amplifier
-        # [新增] 调试探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
