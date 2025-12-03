@@ -795,7 +795,23 @@
             "type": "process",
             "score": 250,
             "scoring_mode": "bipolar",
-            "description": "【方向型】主力从散户手中夺取控制权的过程。正分为佳，负分为罚。"
+            "description": "【V4.0 · 诡道甄别版】主力从散户手中夺取控制权的过程。核心升级：引入“转移真实性”调节器，通过融合“对倒强度”和“欺骗指数”等诡道信号，甄别筹码转移的真实意图，旨在过滤掉主力通过诱多或诱空制造的虚假权力交割，精确量化具备高含金量的、真实的控盘权转移。正分为佳，负分为罚。"
+        },
+        "PROCESS_META_MAIN_FORCE_RALLY_INTENT": {
+            "cn_name": "【过程】主力拉升意图",
+            "category": "过程层-基础",
+            "type": "process",
+            "score": 300,
+            "scoring_mode": "bipolar",
+            "description": "【V5.0 · 风险审判版】诊断主力拉升的综合意图。核心升级：引入“风险审判”机制。在评估拉升“动力”（攻击性、控制力、障碍清除能力）的基础上，引入“顶部派发强度”、“上影线抛压”等信号构建“风险调节器”，对伴随派发迹象的“伪拉升”进行惩罚。旨在穿透上涨表象，区分“真突破”与“拉高出货的陷阱”。"
+        },
+        "PROCESS_META_COST_ADVANTAGE_TREND": {
+            "cn_name": "【过程】成本优势趋势",
+            "category": "过程层-基础",
+            "type": "process",
+            "score": 280,
+            "scoring_mode": "bipolar",
+            "description": "【V4.0 · 全息战场版】诊断'价格'与'主力成本优势'的共识与背离。核心升级：将四象限模型从依赖“间接推断”的原子信号，升级为由“直接战术行为”信号驱动。例如，Q3象限（价跌优扩-黄金坑）将直接由“打压吸筹强度”等信号确认，Q4象限（价涨优缩-牛市陷阱）将由“顶部派发强度”等信号确认，极大提升了对战场真实博弈意图的识别精度。"
         },
         "PROCESS_META_STEALTH_ACCUMULATION": {
             "cn_name": "【过程】隐秘吸筹",
@@ -871,22 +887,6 @@
             "scoring_mode": "unipolar",
             "score": 200,
             "description": "衡量力学与筹码两大战略维度【看跌风险】的同步消散趋势。分值越高，机会越大。"
-        },
-        "PROCESS_META_MAIN_FORCE_RALLY_INTENT": {
-            "cn_name": "【过程】主力拉升意图",
-            "category": "过程层-基础",
-            "type": "process",
-            "score": 300,
-            "scoring_mode": "bipolar",
-            "description": "【V2.0 · 主力拉升意图重构版】诊断主力控盘拉升或抢筹拉升的综合意图。正分代表主力积极拉升，负分代表主力不积极或存在派发。"
-        },
-        "PROCESS_META_COST_ADVANTAGE_TREND": {
-            "cn_name": "【过程】成本优势趋势",
-            "category": "过程层-基础",
-            "type": "process",
-            "score": 280,
-            "scoring_mode": "bipolar",
-            "description": "【V2.0 重构】诊断'价格'与'主力成本优势'的共识趋势。正分代表价格上涨的同时主力成本优势扩大，是极强的看涨信号。"
         },
         "PROCESS_META_MAIN_FORCE_CONTROL": {
             "cn_name": "【过程】主力控盘",
