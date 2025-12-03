@@ -231,7 +231,9 @@ class ProcessIntelligence:
         effective_retail_flow = (net_sm_amount - sm_to_main_force) + (net_md_amount - md_to_main_force)
         power_transfer_raw = effective_main_force_flow.diff(1) - effective_retail_flow.diff(1)
         final_score = self._normalize_series(power_transfer_raw.fillna(0), df_index, bipolar=True)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print("\n--- [权力转移探针] ---")
             last_date_index = -1
@@ -290,7 +292,9 @@ class ProcessIntelligence:
         # 惩罚项：如果筹码同调性差，则降低信号分值
         penalty_factor = (1 + coherent_drive_score).clip(0, 1)
         final_score = (bullish_evidence * penalty_factor * gating_score).fillna(0.0)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print("\n--- [诡道吸筹探针] ---")
             last_date_index = -1
@@ -356,7 +360,9 @@ class ProcessIntelligence:
         else:
             relationship_score = (momentum_a + signal_b_factor_k * thrust_b) / (1 + signal_b_factor_k)
         relationship_score = relationship_score.clip(-1, 1)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print(f"\n--- [瞬时关系探针: {signal_name}] ---")
             last_date_index = -1
@@ -429,7 +435,9 @@ class ProcessIntelligence:
         Q4_confirm = (distribution_intensity * upper_shadow_pressure).pow(0.5)
         Q4_final = (Q4_base * Q4_confirm * -1).clip(-1, 0)
         final_score = (Q1_final + Q2_final + Q3_final + Q4_final).clip(-1, 1)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print("\n--- [成本优势趋势探针] ---")
             last_date_index = -1
@@ -535,7 +543,9 @@ class ProcessIntelligence:
         # [修改] 应用风险审判调节器
         final_rally_intent = (modulated_rally_intent * (1 - distribution_risk_score)).clip(-1, 1)
         final_rally_intent = final_rally_intent.mask(is_limit_up_day, (final_rally_intent + 0.35)).clip(-1, 1)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print("\n--- [主力拉升意图探针] ---")
             last_date_index = -1
@@ -591,7 +601,9 @@ class ProcessIntelligence:
         final_control_score = final_control_score.mask(kongpan_score < 0, kongpan_score.clip(upper=0))
         final_control_score = final_control_score.mask(main_force_flow_score < 0, main_force_flow_score.clip(upper=0))
         final_control_score = final_control_score.clip(-1, 1)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print("\n--- [主力控盘探针] ---")
             last_date_index = -1
@@ -681,7 +693,9 @@ class ProcessIntelligence:
             displacement_weight = self.meta_score_weights[0]
             momentum_weight = self.meta_score_weights[1]
             meta_score = (bipolar_displacement_strength * displacement_weight + bipolar_momentum_strength * momentum_weight)
-            probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+            # [修改] 修正探针日期获取逻辑
+            debug_params = get_params_block(self.strategy, 'debug_params', {})
+            probe_dates = get_param_value(debug_params.get('probe_dates'), [])
             if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
                 print(f"\n--- [关系元分析探针: {signal_name}] ---")
                 last_date_index = -1
@@ -757,7 +771,9 @@ class ProcessIntelligence:
         states[opportunity_signal_name] = opportunity_part.astype(np.float32)
         risk_part = meta_score.clip(upper=0).abs()
         states[risk_signal_name] = risk_part.astype(np.float32)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print(f"\n--- [分裂元分析探针: {config.get('name')}] ---")
             last_date_index = -1
@@ -809,7 +825,9 @@ class ProcessIntelligence:
         momentum_b_corrected = momentum_b_raw + antidote_k * momentum_antidote
         k = config.get('signal_b_factor_k', 1.0)
         relationship_score = (k * momentum_b_corrected - momentum_a) / (k + 1)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print("\n--- [赢家信念探针] ---")
             last_date_index = -1
@@ -856,7 +874,9 @@ class ProcessIntelligence:
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         decay_score = get_adaptive_mtf_normalized_score(decay_magnitude, df_index, ascending=True, tf_weights=default_weights)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print(f"\n--- [信号衰减探针: {signal_name}] ---")
             last_date_index = -1
@@ -913,7 +933,9 @@ class ProcessIntelligence:
         # 顶部反转信号：当健康度从正值区域开始向下恶化时
         top_reversal_raw = (bipolar_domain_health.diff(1).clip(upper=0).abs() * (1 + bipolar_domain_health.clip(upper=0))).fillna(0)
         top_reversal_score = get_adaptive_mtf_normalized_score(top_reversal_raw, df_index, ascending=True, tf_weights=default_weights)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print(f"\n--- [领域反转探针: {domain_name}] ---")
             last_date_index = -1
@@ -982,7 +1004,9 @@ class ProcessIntelligence:
         potential_gate_mask = historical_potential > potential_gate
         potential_modulator = (1 + historical_potential * potential_amplifier)
         final_score = (base_score * potential_modulator).where(potential_gate_mask, 0.0)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print("\n--- [隐秘吸筹探针] ---")
             last_date_index = -1
@@ -1043,7 +1067,9 @@ class ProcessIntelligence:
         # 融合筹码势能作为强门控
         potential_gate_mask = historical_potential > potential_gate
         final_score = base_score.where(washout_candidate_mask & potential_gate_mask, 0.0).fillna(0.0)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print("\n--- [恐慌洗盘吸筹探针] ---")
             last_date_index = -1
@@ -1105,7 +1131,9 @@ class ProcessIntelligence:
         washout_authenticity_score = (bullish_evidence - bearish_evidence).clip(0, 1)
         final_score = (context_score * internals_score * washout_authenticity_score)
         final_score = final_score.where(action_score > 0, 0.0).fillna(0.0)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print("\n--- [上冲回落洗盘探针] ---")
             last_date_index = -1
@@ -1161,7 +1189,9 @@ class ProcessIntelligence:
         kline_trigger = ((closing_position / 100).clip(0, 1))
         kinetic_trigger_score = (price_trigger * 0.4 + volume_trigger * 0.3 + kline_trigger * 0.3).clip(0, 1)
         final_score = (potential_energy_score * kinetic_trigger_score).fillna(0.0)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print("\n--- [吸筹末端拐点探针] ---")
             last_date_index = -1
@@ -1195,7 +1225,9 @@ class ProcessIntelligence:
         scene_mask = pct_change <= 0.02
         normalized_score = (raw_intensity / 100).clip(0, 1)
         final_score = normalized_score.where(scene_mask, 0.0).fillna(0.0)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print("\n--- [拆单吸筹强度探针] ---")
             last_date_index = -1
@@ -1243,7 +1275,9 @@ class ProcessIntelligence:
         rs_modulator = (1 + relative_strength.clip(lower=0) * rs_amplifier)
         final_score = (base_score * rs_modulator).clip(0, 1)
         final_score = final_score.where(breakout_trigger_mask, 0.0).fillna(0.0)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print("\n--- [突破加速抢筹探针] ---")
             last_date_index = -1
@@ -1305,7 +1339,9 @@ class ProcessIntelligence:
         inflection_intent_score = (flow_momentum.clip(lower=0) * 0.5 + buy_exhaustion_score * 0.5)
         inflection_intent_score = inflection_intent_score.where(inflection_intent_mask, 0.0)
         final_score = get_adaptive_mtf_normalized_score(inflection_intent_score, df_index, ascending=True, tf_weights=tf_weights_inflection).clip(0, 1)
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', [])
+        # [修改] 修正探针日期获取逻辑
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print("\n--- [资金流吸筹拐点探针] ---")
             last_date_index = -1
