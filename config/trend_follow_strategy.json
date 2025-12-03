@@ -510,7 +510,8 @@
             "task_type": "base",
             "relationship_type": "custom",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 实体化】对底层的 `split_order_accumulation_intensity_D` 原始指标进行场景化归一，生成[0,1]区间的拆单吸筹强度分。"
+            "efficiency_baseline": 0.15,
+            "description": "【V3.1 · 质效校准版】对底层的 `split_order_accumulation_intensity_D` 原始指标进行场景化归一，生成[0,1]区间的拆单吸筹强度分。引入“效率基准线”实现赏罚分明。"
           },
           {
             "name": "PROCESS_META_PF_REL_BULLISH_TURN",
