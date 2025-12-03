@@ -1245,24 +1245,9 @@ class ProcessIntelligence:
         potential_trend = self._normalize_series(potential_outcome.diff(3).fillna(0), df_index, bipolar=True)
         holographic_trend_score = (flow_trend * w_f + structure_trend * w_s + potential_trend * w_p)
         holographic_validation_score = (holographic_state_score * 0.6 + holographic_trend_score * 0.4).clip(-1, 1)
-        # [修改] 引入效率基准线，校准战果认知
         calibrated_holographic_score = holographic_validation_score - efficiency_baseline
         quality_efficiency_modulator = (1 - calibrated_holographic_score).clip(0.1, 2.0)
         final_score = dynamic_preliminary_score.pow(quality_efficiency_modulator).clip(0, 1)
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [拆单吸筹强度探针 (质效校准版)] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 动态初步分(战术): {dynamic_preliminary_score.iloc[last_date_index]:.4f}")
-            print(f"    - 全息验证综合分(战果): {holographic_validation_score.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 校准后全息分(减基准线): {calibrated_holographic_score.iloc[last_date_index]:.4f}")
-            print(f"    - 质效调节指数: {quality_efficiency_modulator.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 拆单吸筹强度最终分: {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         return final_score.astype(np.float32)
 
     def _calculate_price_volume_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1311,22 +1296,17 @@ class ProcessIntelligence:
         p_mom = self._normalize_series(price.pct_change().fillna(0), df_index, bipolar=True)
         v_mom = self._normalize_series(volume.pct_change().fillna(0), df_index, bipolar=True)
         final_score = pd.Series(0.0, index=df_index)
-        # 情境1: 价涨量增
         quality_factor = (self._normalize_series(main_force_conviction, df_index, bipolar=True).clip(lower=0) * (1 - wash_trade_penalty)).pow(0.5)
         score1 = (p_mom * v_mom).pow(0.5) * quality_factor
-        # 情境2: 价涨量缩
         intent_factor = (volume_atrophy_quality * chip_posture.clip(lower=0) * upward_purity).pow(1/3)
         score2 = (p_mom - v_mom) / 2 * intent_factor
-        # 情境3: 价跌量增
         base_score3 = -((p_mom.abs() * v_mom).pow(0.5))
         score3 = base_score3 * (1 - suppressive_accum)
-        # 情境4: 价跌量缩
         recent_panic_context = panic_evidence.rolling(window=3, min_periods=1).max()
         exhaustion_degree = (1 + v_mom.clip(upper=0)).clip(0, 1)
         narrative_factor_4 = (recent_panic_context * exhaustion_degree).clip(0, 1)
         base_score4 = (v_mom.abs() - p_mom.abs()) / 2
         score4 = base_score4 * narrative_factor_4 * (1 + resonance_confirmation_factor)
-        # 根据掩码应用分数
         mask1 = (p_mom > 0) & (v_mom > 0)
         mask2 = (p_mom > 0) & (v_mom <= 0)
         mask3 = (p_mom <= 0) & (v_mom > 0)
@@ -1336,43 +1316,6 @@ class ProcessIntelligence:
         if mask3.any(): final_score.loc[mask3] = score3.loc[mask3]
         if mask4.any(): final_score.loc[mask4] = score4.loc[mask4]
         final_score = final_score.clip(-1, 1)
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [价量关系探针 (权重自适应版)] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 价格动量(P_mom): {p_mom.iloc[last_date_index]:.4f}")
-            print(f"    - 成交量动量(V_mom): {v_mom.iloc[last_date_index]:.4f}")
-            print("  [情境判断]:")
-            active_mask = "无"
-            score_component = 0.0
-            if mask1.iloc[last_date_index]:
-                active_mask = "价涨量增"
-                print(f"    - 品质因子: {quality_factor.iloc[last_date_index]:.4f}")
-                score_component = score1.iloc[last_date_index]
-            elif mask2.iloc[last_date_index]:
-                active_mask = "价涨量缩"
-                print(f"    - 意图因子: {intent_factor.iloc[last_date_index]:.4f}")
-                score_component = score2.iloc[last_date_index]
-            elif mask3.iloc[last_date_index]:
-                active_mask = "价跌量增"
-                print(f"    - 吸筹修正因子: {(1 - suppressive_accum).iloc[last_date_index]:.4f}")
-                score_component = score3.iloc[last_date_index]
-            elif mask4.iloc[last_date_index]:
-                active_mask = "价跌量缩"
-                print(f"    - 基础共振分(状态): {base_resonance_score.iloc[last_date_index]:.4f}")
-                print(f"    - 加速度奖金(趋势): {acceleration_bonus.iloc[last_date_index]:.4f}")
-                print(f"    - 动态权重(状态/趋势): {weight_base.iloc[last_date_index]:.2f}/{weight_accel.iloc[last_date_index]:.2f}")
-                print(f"    - 融合共振分(自适应): {fused_resonance_score.iloc[last_date_index]:.4f}")
-                print(f"    - 和谐度(1-极差): {harmony_degree.iloc[last_date_index]:.4f}")
-                print(f"    - 最终共振因子: {resonance_confirmation_factor.iloc[last_date_index]:.4f}")
-                score_component = score4.iloc[last_date_index]
-            print(f"    - 激活情境: {active_mask}")
-            print(f"    - 该情境得分: {score_component:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 价量关系最终分: {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         return final_score.astype(np.float32)
 
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
