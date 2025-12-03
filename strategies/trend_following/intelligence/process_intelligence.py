@@ -1202,12 +1202,12 @@ class ProcessIntelligence:
 
     def _calculate_split_order_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.9 · 趋势验证版】计算“拆单吸筹强度”的专属信号。
-        - 核心升级: 将“全息验证”从静态快照升级为动态过程审计。通过为三大战果（流量、存量、势能）
-                      引入短期趋势计算，构建“全息趋势分”。最终验证分由“状态分”和“趋势分”加权融合，
-                      优先识别那些“既好，又在持续变好”的高质量吸筹。
+        【V3.0 · 战术动能版】计算“拆单吸筹强度”的专属信号。
+        - 核心升级: 为实现“知行合一”，在评估“战术执行质量”(`初步分数`)的基础上，新增了对其自身
+                      趋势的度量，即“战术动能分”。通过将战术的“当前状态”与“改善趋势”融合，
+                      构建了一个更具前瞻性的“动态初步分”，从而奖赏那些战术执行持续进步的行为。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (V2.9 · 趋势验证版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY (V3.0 · 战术动能版)...")
         required_signals = [
             'hidden_accumulation_intensity_D', 'SLOPE_5_close_D', 'deception_index_D',
             'upward_impulse_purity_D', 'PROCESS_META_POWER_TRANSFER',
@@ -1229,6 +1229,9 @@ class ProcessIntelligence:
         deception_norm = self._normalize_series(deception_index, df_index, bipolar=True)
         strategic_context_factor = (potential_outcome * 0.5 + deception_norm.clip(lower=0) * 0.5).clip(0, 1)
         preliminary_score = (normalized_score * price_suppression_factor * strategic_context_factor).pow(1/3).fillna(0.0)
+        # [新增] 引入战术动能维度
+        tactical_momentum_score = self._normalize_series(preliminary_score.diff(1).fillna(0), df_index, bipolar=False)
+        dynamic_preliminary_score = (preliminary_score * 0.7 + tactical_momentum_score * 0.3).clip(0, 1)
         stability_score = potential_outcome
         weight_flow = 1 - stability_score
         weight_structure = stability_score
@@ -1237,27 +1240,25 @@ class ProcessIntelligence:
         w_s = weight_structure / total_weight
         w_p = 0.2 / total_weight
         holographic_state_score = (flow_outcome * w_f + structure_outcome * w_s + potential_outcome * w_p)
-        # [新增] 计算全息趋势分
         flow_trend = self._normalize_series(flow_outcome.diff(3).fillna(0), df_index, bipolar=True)
         structure_trend = self._normalize_series(structure_outcome.diff(3).fillna(0), df_index, bipolar=True)
         potential_trend = self._normalize_series(potential_outcome.diff(3).fillna(0), df_index, bipolar=True)
         holographic_trend_score = (flow_trend * w_f + structure_trend * w_s + potential_trend * w_p)
-        # [修改] 融合状态分与趋势分
         holographic_validation_score = (holographic_state_score * 0.6 + holographic_trend_score * 0.4).clip(-1, 1)
         quality_efficiency_modulator = (1 - holographic_validation_score).clip(0.1, 2.0)
-        final_score = preliminary_score.pow(quality_efficiency_modulator).clip(0, 1)
+        # [修改] 使用动态初步分作为基数
+        final_score = dynamic_preliminary_score.pow(quality_efficiency_modulator).clip(0, 1)
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [拆单吸筹强度探针 (趋势验证版)] ---")
+            print("\n--- [拆单吸筹强度探针 (战术动能版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
-            print(f"    - 初步分数(质效合一前): {preliminary_score.iloc[last_date_index]:.4f}")
-            print(f"    - 战场环境(稳定性): {stability_score.iloc[last_date_index]:.4f}")
+            print(f"    - 初步分数(状态): {preliminary_score.iloc[last_date_index]:.4f}")
+            print(f"    - 战术动能分(趋势): {tactical_momentum_score.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
-            print(f"    - 全息验证分(状态): {holographic_state_score.iloc[last_date_index]:.4f}")
-            print(f"    - 全息验证分(趋势): {holographic_trend_score.iloc[last_date_index]:.4f}")
-            print(f"    - 全息验证综合分(融合后): {holographic_validation_score.iloc[last_date_index]:.4f}")
+            print(f"    - 动态初步分(融合后): {dynamic_preliminary_score.iloc[last_date_index]:.4f}")
+            print(f"    - 全息验证综合分: {holographic_validation_score.iloc[last_date_index]:.4f}")
             print(f"    - 质效调节指数: {quality_efficiency_modulator.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
             print(f"    - 拆单吸筹强度最终分: {final_score.iloc[last_date_index]:.4f}")
@@ -1266,12 +1267,12 @@ class ProcessIntelligence:
 
     def _calculate_price_volume_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.0 · 真·加速度版】计算价量关系的专属分数。
-        - 核心升级: 将“加速度”的计算从一阶导数(.diff(1))校准为真正的二阶导数(.diff(2))，
-                      使模型能精准捕捉拐点爆发的“点火”瞬间，而非仅仅是快速变化的过程。
-        - 核心优化: 优化了基础分与加速度奖金的融合权重，使“当前状态”与“未来趋势”的判断更加均衡。
+        【V4.1 · 权重自适应版】计算价量关系的专属分数。
+        - 核心升级: 废除固定的50/50融合权重，引入动态权重机制。加速度的权重与基础状态分负相关
+                      (`权重 = 1 - 基础分`)，使模型能在基础状态极差时，给予“改善趋势”更高的
+                      判断权重，从而更灵敏地捕捉“绝境逢生”式的关键转折点。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PV_REL_BULLISH_TURN (V4.0 · 真·加速度版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_PV_REL_BULLISH_TURN (V4.1 · 权重自适应版)...")
         required_signals = [
             'close_D', 'volume_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
             'suppressive_accumulation_intensity_D', 'retail_panic_surrender_index_D',
@@ -1301,24 +1302,31 @@ class ProcessIntelligence:
             reversal_confirmation_flow.clip(lower=0) * 0.4 +
             reversal_confirmation_psyche.clip(lower=0) * 0.2
         ).clip(0, 1)
+        weight_accel = (1 - base_resonance_score)
+        weight_base = 1 - weight_accel
+        fused_resonance_score = (base_resonance_score * weight_base + acceleration_bonus * weight_accel)
         resonance_components = pd.concat([reversal_confirmation_shape, reversal_confirmation_flow, reversal_confirmation_psyche], axis=1)
         harmony_degree = (1 - (resonance_components.max(axis=1) - resonance_components.min(axis=1))).clip(0, 1)
-        fused_resonance_score = (base_resonance_score * 0.5 + acceleration_bonus * 0.5)
         resonance_confirmation_factor = (fused_resonance_score * (1 + harmony_degree)).clip(0, 1)
         p_mom = self._normalize_series(price.pct_change().fillna(0), df_index, bipolar=True)
         v_mom = self._normalize_series(volume.pct_change().fillna(0), df_index, bipolar=True)
         final_score = pd.Series(0.0, index=df_index)
+        # 情境1: 价涨量增
         quality_factor = (self._normalize_series(main_force_conviction, df_index, bipolar=True).clip(lower=0) * (1 - wash_trade_penalty)).pow(0.5)
         score1 = (p_mom * v_mom).pow(0.5) * quality_factor
+        # 情境2: 价涨量缩
         intent_factor = (volume_atrophy_quality * chip_posture.clip(lower=0) * upward_purity).pow(1/3)
         score2 = (p_mom - v_mom) / 2 * intent_factor
+        # 情境3: 价跌量增
         base_score3 = -((p_mom.abs() * v_mom).pow(0.5))
         score3 = base_score3 * (1 - suppressive_accum)
+        # 情境4: 价跌量缩
         recent_panic_context = panic_evidence.rolling(window=3, min_periods=1).max()
         exhaustion_degree = (1 + v_mom.clip(upper=0)).clip(0, 1)
         narrative_factor_4 = (recent_panic_context * exhaustion_degree).clip(0, 1)
         base_score4 = (v_mom.abs() - p_mom.abs()) / 2
         score4 = base_score4 * narrative_factor_4 * (1 + resonance_confirmation_factor)
+        # 根据掩码应用分数
         mask1 = (p_mom > 0) & (v_mom > 0)
         mask2 = (p_mom > 0) & (v_mom <= 0)
         mask3 = (p_mom <= 0) & (v_mom > 0)
@@ -1330,7 +1338,7 @@ class ProcessIntelligence:
         final_score = final_score.clip(-1, 1)
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [价量关系探针 (真·加速度版)] ---")
+            print("\n--- [价量关系探针 (权重自适应版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
@@ -1355,7 +1363,8 @@ class ProcessIntelligence:
                 active_mask = "价跌量缩"
                 print(f"    - 基础共振分(状态): {base_resonance_score.iloc[last_date_index]:.4f}")
                 print(f"    - 加速度奖金(趋势): {acceleration_bonus.iloc[last_date_index]:.4f}")
-                print(f"    - 融合共振分(状态+趋势): {fused_resonance_score.iloc[last_date_index]:.4f}")
+                print(f"    - 动态权重(状态/趋势): {weight_base.iloc[last_date_index]:.2f}/{weight_accel.iloc[last_date_index]:.2f}")
+                print(f"    - 融合共振分(自适应): {fused_resonance_score.iloc[last_date_index]:.4f}")
                 print(f"    - 和谐度(1-极差): {harmony_degree.iloc[last_date_index]:.4f}")
                 print(f"    - 最终共振因子: {resonance_confirmation_factor.iloc[last_date_index]:.4f}")
                 score_component = score4.iloc[last_date_index]
