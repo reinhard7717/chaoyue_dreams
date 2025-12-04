@@ -1031,13 +1031,13 @@ class ProcessIntelligence:
 
     def _calculate_panic_washout_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.2 · 持久战心法版】计算“恐慌洗盘吸筹”的专属信号。
-        - 核心升级: 新增基于“心理对抗”的“持久战”场景触发器，通过审判“高累积恐慌”、
-                      “高累积承接”与“价格僵持”的共存状态，来识别“以磨代跌”的高级洗盘诡道，
-                      彻底摆脱对“价格暴跌”的依赖。
-        - 新增功能: 探针同步升级，清晰展示“闪电战”与“持久战”两种模式的判断过程。
+        【V4.3 · 空中加油版】计算“恐慌洗盘吸筹”的专属信号。
+        - 核心升级: 新增“空中加油”战争模式，识别在温和上涨过程中的高强度筹码换手。
+                      最终场景由“闪电战”、“持久战”、“空中加油”三者共同决定，
+                      使信号具备全天候、全地形的战术识别能力。
+        - 新增功能: 探针同步升级，清晰展示三种战争模式的判断过程。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (V4.2 · 持久战心法版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (V4.3 · 空中加油版)...")
         required_signals = [
             'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 'pct_change_D', 'close_D', 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION',
             'SCORE_BEHAVIOR_VOLUME_BURST', 'retail_panic_surrender_index_D', 'loser_pain_index_D',
@@ -1054,11 +1054,11 @@ class ProcessIntelligence:
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_panic_washout_accumulation")
         close_price = self._get_safe_series(df, 'close_D', 0.0, method_name="_calculate_panic_washout_accumulation")
-        lower_shadow_strength = self.strategy.atomic_states.get('SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', pd.Series(0.0, index=df_index))
-        volume_burst = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_BURST', pd.Series(0.0, index=df_index))
+        lower_shadow_strength = self.strategy.atomic_states.get('SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', pd.Series(0.0, index=df.index))
+        volume_burst = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_BURST', pd.Series(0.0, index=df.index))
         retail_panic_index = self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_calculate_panic_washout_accumulation")
         loser_pain_index = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_calculate_panic_washout_accumulation")
-        power_transfer_score = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
+        power_transfer_score = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df.index))
         active_buying_support = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_calculate_panic_washout_accumulation")
         concentration_slope = self._get_safe_series(df, f'SLOPE_1_winner_concentration_90pct_D', 0.0, method_name="_calculate_panic_washout_accumulation")
         main_force_cost_advantage = self._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name="_calculate_panic_washout_accumulation")
@@ -1076,7 +1076,7 @@ class ProcessIntelligence:
         absorption_score = absorption_score_instant.rolling(3, min_periods=1).mean()
         original_repair_score = (concentration_slope_norm * 0.6 + cost_advantage_slope_norm * 0.4).clip(0, 1)
         repair_score = (original_repair_score * 0.5 + structural_leverage_norm * 0.5).clip(0, 1)
-        # [修改] 场景触发器重构：闪电战 + 持久战
+        # [修改] 场景触发器重构：闪电战 + 持久战 + 空中加油
         # 模式1: 闪电战 (暴跌+放量)
         is_significant_drop_daily = (pct_change < -0.03) | (lower_shadow_strength > 0.6)
         is_significant_drop_cumulative = (close_price.pct_change(3).fillna(0) < -0.07)
@@ -1086,27 +1086,31 @@ class ProcessIntelligence:
         is_high_absorption = absorption_score > 0.15
         is_price_stalemate = close_price.pct_change(3).fillna(0).abs() < 0.05
         is_protracted_washout = is_high_panic & is_high_absorption & is_price_stalemate
-        washout_candidate_mask = is_blitz_washout | is_protracted_washout
+        # [新增] 模式3: 空中加油 (高恐慌+高承接+温和上涨)
+        pct_change_3d = close_price.pct_change(3).fillna(0)
+        is_moderate_rise = (pct_change_3d > 0) & (pct_change_3d < 0.10)
+        is_mid_air_refueling = is_high_panic & is_high_absorption & is_moderate_rise
+        washout_candidate_mask = is_blitz_washout | is_protracted_washout | is_mid_air_refueling
         base_score = (panic_score * absorption_score * repair_score).pow(1/3)
         potential_gate_mask = historical_potential > potential_gate
         final_score = base_score.where(washout_candidate_mask & potential_gate_mask, 0.0).fillna(0.0)
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [恐慌洗盘吸筹探针(持久战心法版)] ---")
+            print("\n--- [恐慌洗盘吸筹探针(空中加油版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
             print(f"    - 筹码势能: {historical_potential.iloc[last_date_index]:.4f}")
-            print(f"    - 跌幅(3日累积): {close_price.pct_change(3).fillna(0).iloc[last_date_index]:.4f}")
-            print(f"    - 量能爆发: {volume_burst.iloc[last_date_index]:.4f}")
+            print(f"    - 跌幅(3日累积): {pct_change_3d.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
             print(f"    - 恐慌分(3日累积): {panic_score.iloc[last_date_index]:.4f}")
             print(f"    - 承接分(3日累积): {absorption_score.iloc[last_date_index]:.4f}")
             print(f"    - 修复分(结构审判后): {repair_score.iloc[last_date_index]:.4f}")
             print(f"    - 基础分(三者融合): {base_score.iloc[last_date_index]:.4f}")
-            # [修改] 探针内容更新，反映两种战争模式
+            # [修改] 探针内容更新，反映三种战争模式
             print(f"    - 闪电战模式触发: {is_blitz_washout.iloc[last_date_index]}")
             print(f"    - 持久战模式触发: {is_protracted_washout.iloc[last_date_index]} (高恐慌:{is_high_panic.iloc[last_date_index]}, 高承接:{is_high_absorption.iloc[last_date_index]}, 价僵持:{is_price_stalemate.iloc[last_date_index]})")
+            print(f"    - 空中加油模式触发: {is_mid_air_refueling.iloc[last_date_index]} (高恐慌:{is_high_panic.iloc[last_date_index]}, 高承接:{is_high_absorption.iloc[last_date_index]}, 温和涨:{is_moderate_rise.iloc[last_date_index]})")
             print(f"    - 最终场景候选掩码: {washout_candidate_mask.iloc[last_date_index]}")
             print(f"    - 势能门控掩码: {potential_gate_mask.iloc[last_date_index]}")
             print("  [最终结果]:")
