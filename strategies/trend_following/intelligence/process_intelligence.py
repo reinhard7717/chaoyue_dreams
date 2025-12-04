@@ -320,12 +320,10 @@ class ProcessIntelligence:
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.2 · 探针植入版】计算通用的瞬时关系分数。
-        - 核心重构: 移除了所有针对特定信号的硬编码 `if` 判断（如 COST_ADVANTAGE_TREND）。
-                     此方法现在是一个纯粹的、通用的关系计算引擎。
-        - 指挥权统一: 所有特殊信号的调度逻辑已完全上移至 `_diagnose_meta_relationship`，
-                       彻底解决了“重复指令”和“指挥链精神分裂”的BUG。
-        - 新增功能: 植入“真理探针”，用于在指定日期输出关键计算过程。
+        【V2.0 · 协同效应版】计算通用的瞬时关系分数。
+        - 核心升级: 废除“线性叠加”的加权平均模型，引入更能体现“协同效应”的乘法模型。
+                      新公式 `关系分 = sign(合力方向) * (|动量A| * |动量B|) ^ 0.5` 使用几何平均值
+                      度量强度，能更好地捕捉信号间的“化学反应”，对同向共振给予更强烈的信号。
         """
         signal_name = config.get('name')
         signal_a_name = config.get('signal_A')
@@ -357,11 +355,16 @@ class ProcessIntelligence:
         momentum_a = get_adaptive_mtf_normalized_bipolar_score(change_a, df_index, default_weights, self.bipolar_sensitivity)
         thrust_b = get_adaptive_mtf_normalized_bipolar_score(change_b, df_index, default_weights, self.bipolar_sensitivity)
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
+        # [修改] 引入协同效应模型
         if relationship_type == 'divergence':
+            # 对于背离关系，核心是两者之差，保持原逻辑
             relationship_score = (signal_b_factor_k * thrust_b - momentum_a) / (signal_b_factor_k + 1)
-        else:
-            relationship_score = (momentum_a + signal_b_factor_k * thrust_b) / (1 + signal_b_factor_k)
-        relationship_score = relationship_score.clip(-1, 1)
+        else: # consensus
+            # 对于共识关系，使用乘法模型体现协同效应
+            force_vector_sum = momentum_a + signal_b_factor_k * thrust_b
+            magnitude = (momentum_a.abs() * thrust_b.abs()).pow(0.5)
+            relationship_score = np.sign(force_vector_sum) * magnitude
+        relationship_score = relationship_score.clip(-1, 1).fillna(0.0)
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print(f"\n--- [瞬时关系探针: {signal_name}] ---")
@@ -371,11 +374,12 @@ class ProcessIntelligence:
             print(f"    - 信号A ({signal_a_name}): {signal_a.iloc[last_date_index]:.4f}")
             print(f"    - 信号B ({signal_b_name}): {signal_b.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
-            print(f"    - 信号A变化率: {change_a.iloc[last_date_index]:.4f}")
-            print(f"    - 信号B变化率: {change_b.iloc[last_date_index]:.4f}")
             print(f"    - 信号A动量(归一化): {momentum_a.iloc[last_date_index]:.4f}")
             print(f"    - 信号B推力(归一化): {thrust_b.iloc[last_date_index]:.4f}")
             print(f"    - 关系类型: {relationship_type}")
+            if relationship_type == 'consensus':
+                print(f"    - 合力方向向量: {force_vector_sum.iloc[last_date_index]:.4f}")
+                print(f"    - 协同强度(几何平均): {magnitude.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
             print(f"    - 瞬时关系分: {relationship_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
