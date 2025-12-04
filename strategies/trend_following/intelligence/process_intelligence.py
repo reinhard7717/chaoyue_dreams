@@ -198,11 +198,11 @@ class ProcessIntelligence:
 
     def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.4 · 诡道权重版】计算“权力转移”信号。
-        - 核心升级: 在计算“战场清晰度”时，赋予“欺骗指数”(诡计)比“对倒强度”(噪声)更高的权重(0.6 vs 0.4)。
-                      这使得模型对主力的主动欺诈行为更为敏感，更符合A股的博弈特性。
+        【V4.5 · 极化放大版】计算“权力转移”信号。
+        - 核心升级: 在最终归一化分数的基础上，应用 `sign(x) * |x|^1.2` 的非线性放大。
+                      此举旨在放大强信号，压缩弱信号，使信号更具爆发力，更符合A股的极端博弈生态。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_POWER_TRANSFER (V4.4 · 诡道权重版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_POWER_TRANSFER (V4.5 · 极化放大版)...")
         required_signals = [
             'net_sh_amount_calibrated_D', 'net_md_amount_calibrated_D', 'net_lg_amount_calibrated_D',
             'net_xl_amount_calibrated_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
@@ -221,9 +221,8 @@ class ProcessIntelligence:
         wash_trade_norm = self._normalize_series(wash_trade_intensity, df_index, bipolar=False)
         deception_norm = self._normalize_series(deception_index, df_index, bipolar=True)
         conviction_norm = self._normalize_series(main_force_conviction, df_index, bipolar=True)
-        # [修改] 引入诡道权重，赋予“欺骗”更高的影响力
-        clarity_from_noise = (1 - wash_trade_norm) * 0.4 # 噪声权重0.4
-        clarity_from_deception = (1 + deception_norm) / 2 * 0.6 # 将[-1,1]的欺骗指数映射到[0,1]的清晰度贡献，权重0.6
+        clarity_from_noise = (1 - wash_trade_norm) * 0.4
+        clarity_from_deception = (1 + deception_norm) / 2 * 0.6
         clarity_factor = (clarity_from_noise + clarity_from_deception).clip(0, 1)
         transfer_authenticity_factor = (conviction_norm * clarity_factor).clip(-1, 1)
         md_to_main_force = net_md_amount * transfer_authenticity_factor
@@ -231,9 +230,12 @@ class ProcessIntelligence:
         effective_main_force_flow = net_lg_amount + net_elg_amount + md_to_main_force + sm_to_main_force
         effective_retail_flow = (net_sm_amount - sm_to_main_force) + (net_md_amount - md_to_main_force)
         power_transfer_raw = effective_main_force_flow.diff(1) - effective_retail_flow.diff(1)
-        final_score = self._normalize_series(power_transfer_raw.fillna(0), df_index, bipolar=True)
+        normalized_score = self._normalize_series(power_transfer_raw.fillna(0), df_index, bipolar=True)
+        # [修改] 引入非线性极化放大
+        final_score = np.sign(normalized_score) * normalized_score.abs().pow(1.2)
+        final_score = final_score.clip(-1, 1)
         probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+        if not df.empty and df.index[-1].strftime('%Y-%Y-%m-%d') in probe_dates:
             print("\n--- [权力转移探针] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
@@ -244,16 +246,12 @@ class ProcessIntelligence:
             print(f"    - 欺骗指数: {deception_index.iloc[last_date_index]:.4f}")
             print(f"    - 主力信念: {main_force_conviction.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
-            print(f"    - 对倒强度(归一化): {wash_trade_norm.iloc[last_date_index]:.4f}")
-            print(f"    - 欺骗指数(归一化): {deception_norm.iloc[last_date_index]:.4f}")
-            print(f"    - 主力信念(归一化): {conviction_norm.iloc[last_date_index]:.4f}")
             print(f"    - 战场清晰度因子: {clarity_factor.iloc[last_date_index]:.4f}")
             print(f"    - 转移真实性因子(双极性): {transfer_authenticity_factor.iloc[last_date_index]:.4f}")
-            print(f"    - 中单->主力有效转移: {md_to_main_force.iloc[last_date_index]:.2f}")
-            print(f"    - 散户->主力有效转移: {sm_to_main_force.iloc[last_date_index]:.2f}")
             print(f"    - 权力转移原始分: {power_transfer_raw.iloc[last_date_index]:.4f}")
+            print(f"    - 归一化分数(放大前): {normalized_score.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
-            print(f"    - 权力转移最终分: {final_score.iloc[last_date_index]:.4f}")
+            print(f"    - 权力转移最终分(放大后): {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         return final_score.astype(np.float32)
 
@@ -1134,11 +1132,11 @@ class ProcessIntelligence:
 
     def _calculate_price_volume_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.3.1 · 探针增强版】计算价量关系的专属分数。
-        - 核心升级: 新增专属探针，能动态识别并展示当前激活的“价量四象限”及其核心计算因子，
-                      极大提升了模型决策过程的透明度和可调试性。
+        【V4.4 · 主力意志加权版】计算价量关系的专属分数。
+        - 核心升级: 重新分配“基础共振分”的权重，将“主动承接”的权重从0.2提升至0.4，
+                      使模型决策的核心更倾向于有主力真金白银背书的、更可靠的行为证据。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PV_REL_BULLISH_TURN (V4.3.1 · 探针增强版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_PV_REL_BULLISH_TURN (V4.4 · 主力意志加权版)...")
         required_signals = [
             'close_D', 'volume_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
             'suppressive_accumulation_intensity_D', 'retail_panic_surrender_index_D',
@@ -1164,11 +1162,12 @@ class ProcessIntelligence:
         accel_flow = self._normalize_series(reversal_confirmation_flow.diff(2).fillna(0), df_index, bipolar=False)
         accel_psyche = self._normalize_series(reversal_confirmation_psyche.diff(2).fillna(0), df_index, bipolar=False)
         acceleration_bonus = (accel_shape * 0.3 + accel_flow * 0.4 + accel_psyche * 0.3).clip(0, 1)
+        # [修改] 提升“主动承接”权重，体现主力意志的核心地位
         base_resonance_score = (
-            reversal_confirmation_shape * 0.3 +
-            reversal_confirmation_flow.clip(lower=0) * 0.3 +
-            reversal_confirmation_psyche.clip(lower=0) * 0.2 +
-            active_buying_confirm * 0.2
+            reversal_confirmation_shape * 0.2 +
+            reversal_confirmation_flow.clip(lower=0) * 0.25 +
+            reversal_confirmation_psyche.clip(lower=0) * 0.15 +
+            active_buying_confirm * 0.4
         ).clip(0, 1)
         weight_accel = (1 - base_resonance_score)
         weight_base = 1 - weight_accel
@@ -1199,7 +1198,6 @@ class ProcessIntelligence:
         if mask3.any(): final_score.loc[mask3] = score3.loc[mask3]
         if mask4.any(): final_score.loc[mask4] = score4.loc[mask4]
         final_score = final_score.clip(-1, 1)
-        # [新增] 专属探针逻辑
         probe_dates = self.probe_dates
         enable_probe = config.get('enable_probe', True)
         if enable_probe and not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
@@ -1230,7 +1228,7 @@ class ProcessIntelligence:
                 print("    - 当前场景(象限): 价跌量缩 (Mask 4)")
                 print(f"    - 衰竭叙事因子: {narrative_factor_4.iloc[last_date_index]:.4f}")
                 print(f"    - 共振催化剂: {resonance_confirmation_factor.iloc[last_date_index]:.4f}")
-                print(f"      - 基础共振分: {base_resonance_score.iloc[last_date_index]:.4f}")
+                print(f"      - 基础共振分(意志加权): {base_resonance_score.iloc[last_date_index]:.4f}")
                 print(f"      - 和谐度: {harmony_degree.iloc[last_date_index]:.4f}")
                 print(f"    - 场景分数(score4): {score4.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
