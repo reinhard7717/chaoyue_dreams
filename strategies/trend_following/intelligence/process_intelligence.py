@@ -599,9 +599,8 @@ class ProcessIntelligence:
 
     def _diagnose_split_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.3 · 信念校准版】分裂型元关系诊断器
-        - 核心升级: 调用专属的 `_calculate_price_efficiency_relationship` 方法计算瞬时关系分，
-                      为价效关系引入“主力信念”和“对倒强度”的品质校准。
+        【V2.4 · 探针可控版】分裂型元关系诊断器
+        - 核心升级: 增加对 `enable_probe` 配置项的检查，实现探针输出的可配置化管理。
         """
         states = {}
         output_names = config.get('output_names', {})
@@ -610,7 +609,6 @@ class ProcessIntelligence:
         if not opportunity_signal_name or not risk_signal_name:
             print(f"        -> [分裂元分析] 警告: 缺少 'output_names' 配置，无法进行信号分裂。")
             return {}
-        # [修改] 调用专属的、经过升维的计算引擎
         relationship_score = self._calculate_price_efficiency_relationship(df, config)
         if relationship_score.empty:
             return {}
@@ -640,7 +638,9 @@ class ProcessIntelligence:
         risk_part = meta_score.clip(upper=0).abs()
         states[risk_signal_name] = risk_part.astype(np.float32)
         probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+        # [修改] 增加对 enable_probe 配置的检查
+        enable_probe = config.get('enable_probe', True)
+        if enable_probe and not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print(f"\n--- [分裂元分析探针: {config.get('name')}] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
@@ -1492,7 +1492,7 @@ class ProcessIntelligence:
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.1 · 探针可控版】计算通用的瞬时关系分数。
+        【V2.2 · 探针可控版】计算通用的瞬时关系分数。
         - 核心升级: 增加对 `enable_probe` 配置项的检查，实现探针输出的可配置化。
         """
         signal_name = config.get('name')
@@ -1527,14 +1527,15 @@ class ProcessIntelligence:
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
         if relationship_type == 'divergence':
             relationship_score = (signal_b_factor_k * thrust_b - momentum_a) / (signal_b_factor_k + 1)
-        else: # consensus
+        else:
             force_vector_sum = momentum_a + signal_b_factor_k * thrust_b
             magnitude = (momentum_a.abs() * thrust_b.abs()).pow(0.5)
             relationship_score = np.sign(force_vector_sum) * magnitude
         relationship_score = relationship_score.clip(-1, 1).fillna(0.0)
         probe_dates = self.probe_dates
-        enable_probe = config.get('enable_probe', True) # [修改] 读取探针开关配置，默认为True
-        if enable_probe and not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates: # [修改] 增加 enable_probe 判断
+        # [修改] 增加对 enable_probe 配置的检查
+        enable_probe = config.get('enable_probe', True)
+        if enable_probe and not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print(f"\n--- [瞬时关系探针: {signal_name}] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")

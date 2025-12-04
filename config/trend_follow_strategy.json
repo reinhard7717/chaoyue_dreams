@@ -591,6 +591,7 @@
             "signal_A": "SCORE_CHIP_STRATEGIC_POSTURE", "source_A": "atomic_states", "change_type_A": "diff",
             "signal_B": "SCORE_BEHAVIOR_UPWARD_EFFICIENCY", "source_B": "atomic_states", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
+            "enable_probe": false,
             "comment": "【V2.0 · 大一统同步版】诊断'筹码战略态势'与'行为上涨效率'的同步过程。高分代表两者同步改善。"
           },
           {
