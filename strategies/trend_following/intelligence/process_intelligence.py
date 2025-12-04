@@ -538,22 +538,20 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.1 · 专属方法重构版】对“关系分”进行元分析，输出分数。
-        - 核心重构: 新增对 PF_REL 和 PC_REL 信号的专属调度分支，调用其独立方法。
-                      并将通用的元分析逻辑移至 `_perform_meta_analysis_on_score` 核心引擎。
-                      此方法演变为一个纯粹的“指挥中心”。
+        【V5.2 · 数据脉络贯通版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 在调用 `_perform_meta_analysis_on_score` 时，将完整的 `df` 传递下去，
+                      修复了下游“门控元分析”无法获取 `close_D` 等数据的BUG。
         """
         signal_name = config.get('name')
         df_index = df.index
         meta_score = pd.Series(dtype=np.float32)
-        # [修改] 为特定信号添加专属调度分支
         if signal_name == 'PROCESS_META_PF_REL_BULLISH_TURN':
             meta_score = self._calculate_pf_relationship(df, config)
         elif signal_name == 'PROCESS_META_PC_REL_BULLISH_TURN':
             meta_score = self._calculate_pc_relationship(df, config)
         elif signal_name == 'PROCESS_META_PV_REL_BULLISH_TURN':
             relationship_score = self._calculate_price_volume_relationship(df, config)
-            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df_index)
+            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index) # [修改] 传递df
         elif signal_name == 'PROCESS_META_MAIN_FORCE_RALLY_INTENT':
             meta_score = self._calculate_main_force_rally_intent(df, config)
         elif signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND':
@@ -577,7 +575,6 @@ class ProcessIntelligence:
         elif signal_name == 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT':
             meta_score = self._calculate_fund_flow_accumulation_inflection(df, config)
         else:
-            # [修改] 通用处理流程现在调用核心引擎
             relationship_score = self._calculate_instantaneous_relationship(df, config)
             if relationship_score.empty:
                 return {}
@@ -586,7 +583,7 @@ class ProcessIntelligence:
             if diagnosis_mode == 'direct_confirmation':
                 meta_score = relationship_score
             else:
-                meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df_index)
+                meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index) # [修改] 传递df
         if meta_score.empty:
             return {}
         print(f"    -> [过程层] {signal_name} 计算完成，最新分值: {meta_score.iloc[-1]:.4f}")
@@ -1318,10 +1315,12 @@ class ProcessIntelligence:
         meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df.index)
         return meta_score
 
-    def _perform_meta_analysis_on_score(self, relationship_score: pd.Series, config: Dict, df_index: pd.Index) -> pd.Series:
+    def _perform_meta_analysis_on_score(self, relationship_score: pd.Series, config: Dict, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:
         """
-        【V1.1 · 探针可控版】可复用的元分析核心引擎。
-        - 核心升级: 增加对 `enable_probe` 配置项的检查，实现探针输出的可配置化。
+        【V1.2 · 数据脉络贯通版】可复用的元分析核心引擎。
+        - 核心升级: 新增 `df` 参数，接收完整的DataFrame。
+        - 核心修复: 修正了“门控元分析”逻辑，使其从 `df` 而非临时的 `relationship_score.to_frame()`
+                      中获取 `close_D` 和均线数据，彻底解决了数据缺失的警告。
         """
         signal_name = config.get('name')
         relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
@@ -1346,8 +1345,8 @@ class ProcessIntelligence:
         weight_displacement = 1 - weight_momentum
         meta_score = (bipolar_displacement_strength * weight_displacement + bipolar_momentum_strength * weight_momentum)
         probe_dates = self.probe_dates
-        enable_probe = config.get('enable_probe', True) # [修改] 读取探针开关配置，默认为True
-        if enable_probe and not relationship_score.empty and relationship_score.index[-1].strftime('%Y-%m-%d') in probe_dates: # [修改] 增加 enable_probe 判断
+        enable_probe = config.get('enable_probe', True)
+        if enable_probe and not relationship_score.empty and relationship_score.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print(f"\n--- [关系元分析探针: {signal_name}] ---")
             last_date_index = -1
             print(f"日期: {relationship_score.index[last_date_index].strftime('%Y-%m-%d')}")
@@ -1367,9 +1366,10 @@ class ProcessIntelligence:
             gate_is_open = pd.Series(True, index=df_index)
             if gate_type == 'price_vs_ma':
                 ma_period = gate_condition_config.get('ma_period', 5)
-                ma_series = self._get_safe_series(relationship_score.to_frame(), f'EMA_{ma_period}_D', method_name="_perform_meta_analysis_on_score")
+                # [修改] 从完整的df中获取均线和收盘价数据
+                ma_series = self._get_safe_series(df, f'EMA_{ma_period}_D', method_name="_perform_meta_analysis_on_score")
                 if ma_series is not None:
-                    close_series = self._get_safe_series(relationship_score.to_frame(), 'close_D', method_name="_perform_meta_analysis_on_score")
+                    close_series = self._get_safe_series(df, 'close_D', method_name="_perform_meta_analysis_on_score")
                     gate_is_open = close_series < ma_series
             meta_score = meta_score * gate_is_open.astype(float)
         signal_meta = self.score_type_map.get(signal_name, {})
