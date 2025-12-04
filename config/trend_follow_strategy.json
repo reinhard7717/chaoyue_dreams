@@ -523,6 +523,7 @@
             "source_B": "df",
             "change_type_B": "diff",
             "signal_b_factor_k": 1.5,
+            "enable_probe": false,
             "description": "【V3.0 · 信念驱动版】价资关系。诊断价格与'主力信念指数'的共识，穿透资金流表象，直击主力真实意图。"
           },
           {
@@ -535,6 +536,7 @@
             "source_B": "df",
             "change_type_B": "diff",
             "signal_b_factor_k": 2.0,
+            "enable_probe": false,
             "description": "【V3.0 · 结构验证版】价筹关系。诊断价格与'筹码主峰密集度'的共识，验证价格行为是否带来了筹码结构的优化。"
           },
           {

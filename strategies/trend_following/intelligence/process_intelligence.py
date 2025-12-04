@@ -318,74 +318,6 @@ class ProcessIntelligence:
             print("--- [探针结束] ---\n")
         return final_score.astype(np.float32)
 
-    def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V2.0 · 协同效应版】计算通用的瞬时关系分数。
-        - 核心升级: 废除“线性叠加”的加权平均模型，引入更能体现“协同效应”的乘法模型。
-                      新公式 `关系分 = sign(合力方向) * (|动量A| * |动量B|) ^ 0.5` 使用几何平均值
-                      度量强度，能更好地捕捉信号间的“化学反应”，对同向共振给予更强烈的信号。
-        """
-        signal_name = config.get('name')
-        signal_a_name = config.get('signal_A')
-        signal_b_name = config.get('signal_B')
-        df_index = df.index
-        relationship_type = config.get('relationship_type', 'consensus')
-        def get_signal_series(signal_name: str, source_type: str) -> Optional[pd.Series]:
-            series = None
-            if source_type == 'atomic_states':
-                series = self.strategy.atomic_states.get(signal_name)
-            else:
-                series = self._get_safe_series(df, signal_name, method_name="_calculate_instantaneous_relationship")
-            if series is None:
-                print(f"        -> [过程层警告] 依赖信号 '{signal_name}' (来源: {source_type}) 不存在，无法计算关系。")
-            return series
-        signal_a = get_signal_series(config.get('signal_A'), config.get('source_A', 'df'))
-        signal_b = get_signal_series(config.get('signal_B'), config.get('source_B', 'df'))
-        if signal_a is None or signal_b is None:
-            return pd.Series(dtype=np.float32)
-        def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
-            if change_type == 'diff':
-                return series.diff(1).fillna(0)
-            return ta.percent_return(series, length=1).fillna(0)
-        change_a = get_change_series(signal_a, config.get('change_type_A', 'pct'))
-        change_b = get_change_series(signal_b, config.get('change_type_B', 'pct'))
-        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        momentum_a = get_adaptive_mtf_normalized_bipolar_score(change_a, df_index, default_weights, self.bipolar_sensitivity)
-        thrust_b = get_adaptive_mtf_normalized_bipolar_score(change_b, df_index, default_weights, self.bipolar_sensitivity)
-        signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
-        # [修改] 引入协同效应模型
-        if relationship_type == 'divergence':
-            # 对于背离关系，核心是两者之差，保持原逻辑
-            relationship_score = (signal_b_factor_k * thrust_b - momentum_a) / (signal_b_factor_k + 1)
-        else: # consensus
-            # 对于共识关系，使用乘法模型体现协同效应
-            force_vector_sum = momentum_a + signal_b_factor_k * thrust_b
-            magnitude = (momentum_a.abs() * thrust_b.abs()).pow(0.5)
-            relationship_score = np.sign(force_vector_sum) * magnitude
-        relationship_score = relationship_score.clip(-1, 1).fillna(0.0)
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [瞬时关系探针: {signal_name}] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 信号A ({signal_a_name}): {signal_a.iloc[last_date_index]:.4f}")
-            print(f"    - 信号B ({signal_b_name}): {signal_b.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 信号A动量(归一化): {momentum_a.iloc[last_date_index]:.4f}")
-            print(f"    - 信号B推力(归一化): {thrust_b.iloc[last_date_index]:.4f}")
-            print(f"    - 关系类型: {relationship_type}")
-            if relationship_type == 'consensus':
-                print(f"    - 合力方向向量: {force_vector_sum.iloc[last_date_index]:.4f}")
-                print(f"    - 协同强度(几何平均): {magnitude.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 瞬时关系分: {relationship_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
-        self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
-        self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
-        return relationship_score
 
     def _calculate_cost_advantage_trend_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
@@ -633,101 +565,57 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 权重自适应元分析版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 废除融合“关系位移”与“关系动量”的固定权重。引入动态权重机制，
-                      使得“关系动量”(趋势)的权重与“瞬时关系分”(状态)负相关。
-                      这使模型能对处于极差状态但改善趋势强劲的关系，给予更高的评价。
+        【V5.1 · 专属方法重构版】对“关系分”进行元分析，输出分数。
+        - 核心重构: 新增对 PF_REL 和 PC_REL 信号的专属调度分支，调用其独立方法。
+                      并将通用的元分析逻辑移至 `_perform_meta_analysis_on_score` 核心引擎。
+                      此方法演变为一个纯粹的“指挥中心”。
         """
         signal_name = config.get('name')
         df_index = df.index
-        if signal_name == 'PROCESS_META_PV_REL_BULLISH_TURN':
+        meta_score = pd.Series(dtype=np.float32)
+        # [修改] 为特定信号添加专属调度分支
+        if signal_name == 'PROCESS_META_PF_REL_BULLISH_TURN':
+            meta_score = self._calculate_pf_relationship(df, config)
+        elif signal_name == 'PROCESS_META_PC_REL_BULLISH_TURN':
+            meta_score = self._calculate_pc_relationship(df, config)
+        elif signal_name == 'PROCESS_META_PV_REL_BULLISH_TURN':
             relationship_score = self._calculate_price_volume_relationship(df, config)
+            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df_index)
         elif signal_name == 'PROCESS_META_MAIN_FORCE_RALLY_INTENT':
-            relationship_score = self._calculate_main_force_rally_intent(df, config)
+            meta_score = self._calculate_main_force_rally_intent(df, config)
         elif signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND':
-            relationship_score = self._calculate_cost_advantage_trend_relationship(df, config)
+            meta_score = self._calculate_cost_advantage_trend_relationship(df, config)
         elif signal_name == 'PROCESS_META_MAIN_FORCE_CONTROL':
-            relationship_score = self._calculate_main_force_control_relationship(df, config)
+            meta_score = self._calculate_main_force_control_relationship(df, config)
         elif signal_name == 'PROCESS_META_STEALTH_ACCUMULATION':
-            relationship_score = self._calculate_stealth_accumulation(df, config)
+            meta_score = self._calculate_stealth_accumulation(df, config)
         elif signal_name == 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION':
-            relationship_score = self._calculate_panic_washout_accumulation(df, config)
+            meta_score = self._calculate_panic_washout_accumulation(df, config)
         elif signal_name == 'PROCESS_META_DECEPTIVE_ACCUMULATION':
-            relationship_score = self._calculate_deceptive_accumulation(df, config)
+            meta_score = self._calculate_deceptive_accumulation(df, config)
         elif signal_name == 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY':
-            relationship_score = self._calculate_split_order_accumulation(df, config)
+            meta_score = self._calculate_split_order_accumulation(df, config)
         elif signal_name == 'PROCESS_META_UPTHRUST_WASHOUT':
-            relationship_score = self._calculate_upthrust_washout(df, config)
+            meta_score = self._calculate_upthrust_washout(df, config)
         elif signal_name == 'PROCESS_META_ACCUMULATION_INFLECTION':
-            relationship_score = self._calculate_accumulation_inflection(df, config)
+            meta_score = self._calculate_accumulation_inflection(df, config)
         elif signal_name == 'PROCESS_META_BREAKOUT_ACCELERATION':
-            relationship_score = self._calculate_breakout_acceleration(df, config)
+            meta_score = self._calculate_breakout_acceleration(df, config)
         elif signal_name == 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT':
-            relationship_score = self._calculate_fund_flow_accumulation_inflection(df, config)
+            meta_score = self._calculate_fund_flow_accumulation_inflection(df, config)
         else:
+            # [修改] 通用处理流程现在调用核心引擎
             relationship_score = self._calculate_instantaneous_relationship(df, config)
-        if relationship_score.empty:
+            if relationship_score.empty:
+                return {}
+            self.strategy.atomic_states[f"PROCESS_ATOMIC_REL_SCORE_{signal_name}"] = relationship_score.astype(np.float32)
+            diagnosis_mode = config.get('diagnosis_mode', 'meta_analysis')
+            if diagnosis_mode == 'direct_confirmation':
+                meta_score = relationship_score
+            else:
+                meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df_index)
+        if meta_score.empty:
             return {}
-        self.strategy.atomic_states[signal_name] = relationship_score.astype(np.float32)
-        intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{signal_name}"
-        self.strategy.atomic_states[intermediate_signal_name] = relationship_score.astype(np.float32)
-        diagnosis_mode = config.get('diagnosis_mode', 'meta_analysis')
-        if signal_name in ['PROCESS_META_STEALTH_ACCUMULATION', 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 'PROCESS_META_DECEPTIVE_ACCUMULATION', 'PROCESS_META_UPTHRUST_WASHOUT', 'PROCESS_META_ACCUMULATION_INFLECTION', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 'PROCESS_META_BREAKOUT_ACCELERATION', 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT']:
-            diagnosis_mode = 'direct_confirmation'
-        if diagnosis_mode == 'direct_confirmation':
-            meta_score = relationship_score
-        else:
-            relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
-            relationship_momentum = relationship_displacement.diff(1).fillna(0)
-            p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-            p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-            default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-            bipolar_displacement_strength = get_adaptive_mtf_normalized_bipolar_score(
-                series=relationship_displacement,
-                target_index=df_index,
-                tf_weights=default_weights,
-                sensitivity=self.bipolar_sensitivity
-            )
-            bipolar_momentum_strength = get_adaptive_mtf_normalized_bipolar_score(
-                series=relationship_momentum,
-                target_index=df_index,
-                tf_weights=default_weights,
-                sensitivity=self.bipolar_sensitivity
-            )
-            # [修改] 引入权重自适应机制
-            instant_score_normalized = (relationship_score + 1) / 2 # 映射到 [0, 1]
-            weight_momentum = (1 - instant_score_normalized).clip(0, 1)
-            weight_displacement = 1 - weight_momentum
-            meta_score = (bipolar_displacement_strength * weight_displacement + bipolar_momentum_strength * weight_momentum)
-            probe_dates = self.probe_dates
-            if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-                print(f"\n--- [关系元分析探针: {signal_name}] ---")
-                last_date_index = -1
-                print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-                print("  [输入原料]:")
-                print(f"    - 瞬时关系分: {relationship_score.iloc[last_date_index]:.4f}")
-                print("  [关键计算]:")
-                print(f"    - 关系位移强度(归一化): {bipolar_displacement_strength.iloc[last_date_index]:.4f}")
-                print(f"    - 关系动量强度(归一化): {bipolar_momentum_strength.iloc[last_date_index]:.4f}")
-                print(f"    - 动态权重(位移/动量): {weight_displacement.iloc[last_date_index]:.2f}/{weight_momentum.iloc[last_date_index]:.2f}")
-                print("  [最终结果]:")
-                print(f"    - 元分析最终分: {meta_score.iloc[last_date_index]:.4f}")
-                print("--- [探针结束] ---\n")
-        if diagnosis_mode == 'gated_meta_analysis':
-            gate_condition_config = config.get('gate_condition', {})
-            gate_type = gate_condition_config.get('type')
-            gate_is_open = pd.Series(True, index=df_index)
-            if gate_type == 'price_vs_ma':
-                ma_period = gate_condition_config.get('ma_period', 5)
-                ma_series = df.get(f'EMA_{ma_period}_D')
-                if ma_series is not None:
-                    gate_is_open = df['close_D'] < ma_series
-            meta_score = meta_score * gate_is_open.astype(float)
-        signal_meta = self.score_type_map.get(signal_name, {})
-        scoring_mode = signal_meta.get('scoring_mode', 'unipolar')
-        if scoring_mode == 'unipolar':
-            meta_score = meta_score.clip(lower=0)
-        meta_score = meta_score.clip(-1, 1).astype(np.float32)
         print(f"    -> [过程层] {signal_name} 计算完成，最新分值: {meta_score.iloc[-1]:.4f}")
         return {signal_name: meta_score}
 
@@ -1432,5 +1320,152 @@ class ProcessIntelligence:
             print("--- [探针结束] ---\n")
         return final_score.astype(np.float32)
 
+    def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0 · 新增】计算“价资关系”的专属方法。
+        - 核心职责: 调度瞬时关系计算和元分析两大引擎，完成信号的完整生产。
+        """
+        print(f"    -> [过程层] 正在计算 {config.get('name')} (V3.0 · 信念驱动版)...")
+        relationship_score = self._calculate_instantaneous_relationship(df, config)
+        if relationship_score.empty:
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df.index)
+        return meta_score
 
+    def _calculate_pc_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0 · 新增】计算“价筹关系”的专属方法。
+        - 核心职责: 调度瞬时关系计算和元分析两大引擎，完成信号的完整生产。
+        """
+        print(f"    -> [过程层] 正在计算 {config.get('name')} (V3.0 · 结构验证版)...")
+        relationship_score = self._calculate_instantaneous_relationship(df, config)
+        if relationship_score.empty:
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df.index)
+        return meta_score
+
+    def _perform_meta_analysis_on_score(self, relationship_score: pd.Series, config: Dict, df_index: pd.Index) -> pd.Series:
+        """
+        【V1.1 · 探针可控版】可复用的元分析核心引擎。
+        - 核心升级: 增加对 `enable_probe` 配置项的检查，实现探针输出的可配置化。
+        """
+        signal_name = config.get('name')
+        relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
+        relationship_momentum = relationship_displacement.diff(1).fillna(0)
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        bipolar_displacement_strength = get_adaptive_mtf_normalized_bipolar_score(
+            series=relationship_displacement,
+            target_index=df_index,
+            tf_weights=default_weights,
+            sensitivity=self.bipolar_sensitivity
+        )
+        bipolar_momentum_strength = get_adaptive_mtf_normalized_bipolar_score(
+            series=relationship_momentum,
+            target_index=df_index,
+            tf_weights=default_weights,
+            sensitivity=self.bipolar_sensitivity
+        )
+        instant_score_normalized = (relationship_score + 1) / 2
+        weight_momentum = (1 - instant_score_normalized).clip(0, 1)
+        weight_displacement = 1 - weight_momentum
+        meta_score = (bipolar_displacement_strength * weight_displacement + bipolar_momentum_strength * weight_momentum)
+        probe_dates = self.probe_dates
+        enable_probe = config.get('enable_probe', True) # [修改] 读取探针开关配置，默认为True
+        if enable_probe and not relationship_score.empty and relationship_score.index[-1].strftime('%Y-%m-%d') in probe_dates: # [修改] 增加 enable_probe 判断
+            print(f"\n--- [关系元分析探针: {signal_name}] ---")
+            last_date_index = -1
+            print(f"日期: {relationship_score.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 瞬时关系分: {relationship_score.iloc[last_date_index]:.4f}")
+            print("  [关键计算]:")
+            print(f"    - 关系位移强度(归一化): {bipolar_displacement_strength.iloc[last_date_index]:.4f}")
+            print(f"    - 关系动量强度(归一化): {bipolar_momentum_strength.iloc[last_date_index]:.4f}")
+            print(f"    - 动态权重(位移/动量): {weight_displacement.iloc[last_date_index]:.2f}/{weight_momentum.iloc[last_date_index]:.2f}")
+            print("  [最终结果]:")
+            print(f"    - 元分析最终分: {meta_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        diagnosis_mode = config.get('diagnosis_mode', 'meta_analysis')
+        if diagnosis_mode == 'gated_meta_analysis':
+            gate_condition_config = config.get('gate_condition', {})
+            gate_type = gate_condition_config.get('type')
+            gate_is_open = pd.Series(True, index=df_index)
+            if gate_type == 'price_vs_ma':
+                ma_period = gate_condition_config.get('ma_period', 5)
+                ma_series = self._get_safe_series(relationship_score.to_frame(), f'EMA_{ma_period}_D', method_name="_perform_meta_analysis_on_score")
+                if ma_series is not None:
+                    close_series = self._get_safe_series(relationship_score.to_frame(), 'close_D', method_name="_perform_meta_analysis_on_score")
+                    gate_is_open = close_series < ma_series
+            meta_score = meta_score * gate_is_open.astype(float)
+        signal_meta = self.score_type_map.get(signal_name, {})
+        scoring_mode = signal_meta.get('scoring_mode', 'unipolar')
+        if scoring_mode == 'unipolar':
+            meta_score = meta_score.clip(lower=0)
+        return meta_score.clip(-1, 1).astype(np.float32)
+
+    def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V2.1 · 探针可控版】计算通用的瞬时关系分数。
+        - 核心升级: 增加对 `enable_probe` 配置项的检查，实现探针输出的可配置化。
+        """
+        signal_name = config.get('name')
+        signal_a_name = config.get('signal_A')
+        signal_b_name = config.get('signal_B')
+        df_index = df.index
+        relationship_type = config.get('relationship_type', 'consensus')
+        def get_signal_series(signal_name: str, source_type: str) -> Optional[pd.Series]:
+            series = None
+            if source_type == 'atomic_states':
+                series = self.strategy.atomic_states.get(signal_name)
+            else:
+                series = self._get_safe_series(df, signal_name, method_name="_calculate_instantaneous_relationship")
+            if series is None:
+                print(f"        -> [过程层警告] 依赖信号 '{signal_name}' (来源: {source_type}) 不存在，无法计算关系。")
+            return series
+        signal_a = get_signal_series(config.get('signal_A'), config.get('source_A', 'df'))
+        signal_b = get_signal_series(config.get('signal_B'), config.get('source_B', 'df'))
+        if signal_a is None or signal_b is None:
+            return pd.Series(dtype=np.float32)
+        def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
+            if change_type == 'diff':
+                return series.diff(1).fillna(0)
+            return ta.percent_return(series, length=1).fillna(0)
+        change_a = get_change_series(signal_a, config.get('change_type_A', 'pct'))
+        change_b = get_change_series(signal_b, config.get('change_type_B', 'pct'))
+        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        momentum_a = get_adaptive_mtf_normalized_bipolar_score(change_a, df_index, default_weights, self.bipolar_sensitivity)
+        thrust_b = get_adaptive_mtf_normalized_bipolar_score(change_b, df_index, default_weights, self.bipolar_sensitivity)
+        signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
+        if relationship_type == 'divergence':
+            relationship_score = (signal_b_factor_k * thrust_b - momentum_a) / (signal_b_factor_k + 1)
+        else: # consensus
+            force_vector_sum = momentum_a + signal_b_factor_k * thrust_b
+            magnitude = (momentum_a.abs() * thrust_b.abs()).pow(0.5)
+            relationship_score = np.sign(force_vector_sum) * magnitude
+        relationship_score = relationship_score.clip(-1, 1).fillna(0.0)
+        probe_dates = self.probe_dates
+        enable_probe = config.get('enable_probe', True) # [修改] 读取探针开关配置，默认为True
+        if enable_probe and not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates: # [修改] 增加 enable_probe 判断
+            print(f"\n--- [瞬时关系探针: {signal_name}] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 信号A ({signal_a_name}): {signal_a.iloc[last_date_index]:.4f}")
+            print(f"    - 信号B ({signal_b_name}): {signal_b.iloc[last_date_index]:.4f}")
+            print("  [关键计算]:")
+            print(f"    - 信号A动量(归一化): {momentum_a.iloc[last_date_index]:.4f}")
+            print(f"    - 信号B推力(归一化): {thrust_b.iloc[last_date_index]:.4f}")
+            print(f"    - 关系类型: {relationship_type}")
+            if relationship_type == 'consensus':
+                print(f"    - 合力方向向量: {force_vector_sum.iloc[last_date_index]:.4f}")
+                print(f"    - 协同强度(几何平均): {magnitude.iloc[last_date_index]:.4f}")
+            print("  [最终结果]:")
+            print(f"    - 瞬时关系分: {relationship_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
+        self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
+        return relationship_score
 
