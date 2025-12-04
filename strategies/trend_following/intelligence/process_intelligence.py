@@ -198,12 +198,11 @@ class ProcessIntelligence:
 
     def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.3 · 战场清晰度版】计算“权力转移”信号。
-        - 核心升级: 引入“战场清晰度”(clarity_factor)概念，分离“噪声”(对倒)与“诡计”(欺骗)的影响。
-                      新的“转移真实性因子”由 主力信念 * 战场清晰度 构成，更能反映主力意图
-                      在复杂环境下的真实穿透力，逻辑更严谨。
+        【V4.4 · 诡道权重版】计算“权力转移”信号。
+        - 核心升级: 在计算“战场清晰度”时，赋予“欺骗指数”(诡计)比“对倒强度”(噪声)更高的权重(0.6 vs 0.4)。
+                      这使得模型对主力的主动欺诈行为更为敏感，更符合A股的博弈特性。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_POWER_TRANSFER (V4.3 · 战场清晰度版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_POWER_TRANSFER (V4.4 · 诡道权重版)...")
         required_signals = [
             'net_sh_amount_calibrated_D', 'net_md_amount_calibrated_D', 'net_lg_amount_calibrated_D',
             'net_xl_amount_calibrated_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
@@ -222,10 +221,10 @@ class ProcessIntelligence:
         wash_trade_norm = self._normalize_series(wash_trade_intensity, df_index, bipolar=False)
         deception_norm = self._normalize_series(deception_index, df_index, bipolar=True)
         conviction_norm = self._normalize_series(main_force_conviction, df_index, bipolar=True)
-        # [修改] 引入“战场清晰度”概念
-        clarity_from_noise = 1 - wash_trade_norm
-        clarity_from_deception = deception_norm # 欺骗指数本身就是双极性的，负值（诱多）会直接降低清晰度
-        clarity_factor = (clarity_from_noise + clarity_from_deception).clip(0, 2) / 2 # 融合后归一到[0,1]
+        # [修改] 引入诡道权重，赋予“欺骗”更高的影响力
+        clarity_from_noise = (1 - wash_trade_norm) * 0.4 # 噪声权重0.4
+        clarity_from_deception = (1 + deception_norm) / 2 * 0.6 # 将[-1,1]的欺骗指数映射到[0,1]的清晰度贡献，权重0.6
+        clarity_factor = (clarity_from_noise + clarity_from_deception).clip(0, 1)
         transfer_authenticity_factor = (conviction_norm * clarity_factor).clip(-1, 1)
         md_to_main_force = net_md_amount * transfer_authenticity_factor
         sm_to_main_force = net_sm_amount * transfer_authenticity_factor
@@ -1135,12 +1134,11 @@ class ProcessIntelligence:
 
     def _calculate_price_volume_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.2 · 主动承接共振版】计算价量关系的专属分数。
-        - 核心升级: 在“共振确认因子”中，引入“主动买盘支撑”(`active_buying_support_D`)作为
-                      第四维证据。此举将模型对反转的判断从“形态推断”升级为更可靠的“行为确认”，
-                      显著提升了在“价跌量缩”场景下的判断精度。
+        【V4.3.1 · 探针增强版】计算价量关系的专属分数。
+        - 核心升级: 新增专属探针，能动态识别并展示当前激活的“价量四象限”及其核心计算因子，
+                      极大提升了模型决策过程的透明度和可调试性。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PV_REL_BULLISH_TURN (V4.2 · 主动承接共振版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_PV_REL_BULLISH_TURN (V4.3.1 · 探针增强版)...")
         required_signals = [
             'close_D', 'volume_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
             'suppressive_accumulation_intensity_D', 'retail_panic_surrender_index_D',
@@ -1161,13 +1159,11 @@ class ProcessIntelligence:
         reversal_confirmation_shape = self._get_atomic_score(df, 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', 0.0)
         reversal_confirmation_flow = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
         reversal_confirmation_psyche = self._normalize_series(main_force_conviction.diff(1).fillna(0), df_index, bipolar=True)
-        # [修改] 引入“主动买盘支撑”作为第四维共振证据
         active_buying_confirm = self._normalize_series(self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=False)
         accel_shape = self._normalize_series(reversal_confirmation_shape.diff(2).fillna(0), df_index, bipolar=False)
         accel_flow = self._normalize_series(reversal_confirmation_flow.diff(2).fillna(0), df_index, bipolar=False)
         accel_psyche = self._normalize_series(reversal_confirmation_psyche.diff(2).fillna(0), df_index, bipolar=False)
         acceleration_bonus = (accel_shape * 0.3 + accel_flow * 0.4 + accel_psyche * 0.3).clip(0, 1)
-        # [修改] 将主动承接证据加入基础共振分计算
         base_resonance_score = (
             reversal_confirmation_shape * 0.3 +
             reversal_confirmation_flow.clip(lower=0) * 0.3 +
@@ -1193,7 +1189,7 @@ class ProcessIntelligence:
         exhaustion_degree = (1 + v_mom.clip(upper=0)).clip(0, 1)
         narrative_factor_4 = (recent_panic_context * exhaustion_degree).clip(0, 1)
         base_score4 = (v_mom.abs() - p_mom.abs()) / 2
-        score4 = base_score4 * narrative_factor_4 * (1 + resonance_confirmation_factor)
+        score4 = base_score4 * narrative_factor_4 * resonance_confirmation_factor
         mask1 = (p_mom > 0) & (v_mom > 0)
         mask2 = (p_mom > 0) & (v_mom <= 0)
         mask3 = (p_mom <= 0) & (v_mom > 0)
@@ -1203,6 +1199,43 @@ class ProcessIntelligence:
         if mask3.any(): final_score.loc[mask3] = score3.loc[mask3]
         if mask4.any(): final_score.loc[mask4] = score4.loc[mask4]
         final_score = final_score.clip(-1, 1)
+        # [新增] 专属探针逻辑
+        probe_dates = self.probe_dates
+        enable_probe = config.get('enable_probe', True)
+        if enable_probe and not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print("\n--- [价量关系瞬时探针] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 价格(close_D): {price.iloc[last_date_index]:.2f}")
+            print(f"    - 成交量(volume_D): {volume.iloc[last_date_index]:.2f}")
+            print(f"    - 主力信念: {main_force_conviction.iloc[last_date_index]:.4f}")
+            print(f"    - 主动承接: {self._get_safe_series(df, 'active_buying_support_D', 0.0).iloc[last_date_index]:.4f}")
+            print("  [关键计算]:")
+            print(f"    - 价格动量(p_mom): {p_mom.iloc[last_date_index]:.4f}")
+            print(f"    - 成交量动量(v_mom): {v_mom.iloc[last_date_index]:.4f}")
+            if mask1.iloc[last_date_index]:
+                print("    - 当前场景(象限): 价涨量增 (Mask 1)")
+                print(f"    - 品质因子: {quality_factor.iloc[last_date_index]:.4f}")
+                print(f"    - 场景分数(score1): {score1.iloc[last_date_index]:.4f}")
+            elif mask2.iloc[last_date_index]:
+                print("    - 当前场景(象限): 价涨量缩 (Mask 2)")
+                print(f"    - 意图因子: {intent_factor.iloc[last_date_index]:.4f}")
+                print(f"    - 场景分数(score2): {score2.iloc[last_date_index]:.4f}")
+            elif mask3.iloc[last_date_index]:
+                print("    - 当前场景(象限): 价跌量增 (Mask 3)")
+                print(f"    - 压制吸筹因子: {suppressive_accum.iloc[last_date_index]:.4f}")
+                print(f"    - 场景分数(score3): {score3.iloc[last_date_index]:.4f}")
+            elif mask4.iloc[last_date_index]:
+                print("    - 当前场景(象限): 价跌量缩 (Mask 4)")
+                print(f"    - 衰竭叙事因子: {narrative_factor_4.iloc[last_date_index]:.4f}")
+                print(f"    - 共振催化剂: {resonance_confirmation_factor.iloc[last_date_index]:.4f}")
+                print(f"      - 基础共振分: {base_resonance_score.iloc[last_date_index]:.4f}")
+                print(f"      - 和谐度: {harmony_degree.iloc[last_date_index]:.4f}")
+                print(f"    - 场景分数(score4): {score4.iloc[last_date_index]:.4f}")
+            print("  [最终结果]:")
+            print(f"    - 瞬时关系分: {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
         return final_score.astype(np.float32)
 
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
