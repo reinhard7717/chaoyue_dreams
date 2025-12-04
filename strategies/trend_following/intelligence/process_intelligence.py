@@ -538,20 +538,28 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.2 · 数据脉络贯通版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 在调用 `_perform_meta_analysis_on_score` 时，将完整的 `df` 传递下去，
-                      修复了下游“门控元分析”无法获取 `close_D` 等数据的BUG。
+        【V5.3 · 诡道逻辑分派版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 为 PRICE_VS_RETAIL_CAPITULATION 和 PD_DIVERGENCE_CONFIRM 信号分派专属计算引擎，
+                      以实现其独特的、经过升维的“诡道”博弈逻辑。
         """
         signal_name = config.get('name')
         df_index = df.index
         meta_score = pd.Series(dtype=np.float32)
-        if signal_name == 'PROCESS_META_PF_REL_BULLISH_TURN':
+        # [新增] 为特定信号添加专属调度分支
+        if signal_name == 'PROCESS_META_PRICE_VS_RETAIL_CAPITULATION':
+            relationship_score = self._calculate_price_vs_capitulation_relationship(df, config)
+            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
+        elif signal_name == 'PROCESS_META_PD_DIVERGENCE_CONFIRM':
+            relationship_score = self._calculate_pd_divergence_relationship(df, config)
+            # 此信号逻辑为直接确认，无需元分析
+            meta_score = relationship_score
+        elif signal_name == 'PROCESS_META_PF_REL_BULLISH_TURN':
             meta_score = self._calculate_pf_relationship(df, config)
         elif signal_name == 'PROCESS_META_PC_REL_BULLISH_TURN':
             meta_score = self._calculate_pc_relationship(df, config)
         elif signal_name == 'PROCESS_META_PV_REL_BULLISH_TURN':
             relationship_score = self._calculate_price_volume_relationship(df, config)
-            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index) # [修改] 传递df
+            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
         elif signal_name == 'PROCESS_META_MAIN_FORCE_RALLY_INTENT':
             meta_score = self._calculate_main_force_rally_intent(df, config)
         elif signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND':
@@ -583,7 +591,7 @@ class ProcessIntelligence:
             if diagnosis_mode == 'direct_confirmation':
                 meta_score = relationship_score
             else:
-                meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index) # [修改] 传递df
+                meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
         if meta_score.empty:
             return {}
         print(f"    -> [过程层] {signal_name} 计算完成，最新分值: {meta_score.iloc[-1]:.4f}")
@@ -591,10 +599,9 @@ class ProcessIntelligence:
 
     def _diagnose_split_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 探针植入版】分裂型元关系诊断器
-        - 核心升级: 同步采用全新的“关系位移/关系动量”模型进行核心计算。
-        - 【优化】将 `bipolar_displacement_strength` 和 `bipolar_momentum_strength` 的归一化方式改为多时间维度自适应归一化。
-        - 新增功能: 植入“真理探针”，用于在指定日期输出关键计算过程。
+        【V2.3 · 信念校准版】分裂型元关系诊断器
+        - 核心升级: 调用专属的 `_calculate_price_efficiency_relationship` 方法计算瞬时关系分，
+                      为价效关系引入“主力信念”和“对倒强度”的品质校准。
         """
         states = {}
         output_names = config.get('output_names', {})
@@ -603,12 +610,12 @@ class ProcessIntelligence:
         if not opportunity_signal_name or not risk_signal_name:
             print(f"        -> [分裂元分析] 警告: 缺少 'output_names' 配置，无法进行信号分裂。")
             return {}
-        relationship_score = self._calculate_instantaneous_relationship(df, config)
+        # [修改] 调用专属的、经过升维的计算引擎
+        relationship_score = self._calculate_price_efficiency_relationship(df, config)
         if relationship_score.empty:
             return {}
         relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
         relationship_momentum = relationship_displacement.diff(1).fillna(0)
-        # 获取MTF权重配置
         p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
@@ -638,7 +645,7 @@ class ProcessIntelligence:
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
-            print(f"    - 瞬时关系分: {relationship_score.iloc[last_date_index]:.4f}")
+            print(f"    - 瞬时关系分(信念校准后): {relationship_score.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
             print(f"    - 关系位移强度(归一化): {bipolar_displacement_strength.iloc[last_date_index]:.4f}")
             print(f"    - 关系动量强度(归一化): {bipolar_momentum_strength.iloc[last_date_index]:.4f}")
@@ -648,6 +655,109 @@ class ProcessIntelligence:
             print(f"    - 风险部分({risk_signal_name}): {risk_part.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         return states
+
+    def _calculate_price_vs_capitulation_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V3.0 · 承接验证版】计算“价格与散户投降”的专属瞬时关系分。
+        - 核心升级: 引入 `active_buying_support_D` (主动承接强度) 作为“真实性放大器”。
+                      只有当“价跌慌不增”的表象伴随主力真实承接时，信号才会被放大，
+                      以此区分“死寂”与“黄金坑”。
+        """
+        required_signals = ['close_D', 'retail_panic_surrender_index_D', 'active_buying_support_D']
+        if not self._validate_required_signals(df, required_signals, "_calculate_price_vs_capitulation_relationship"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 计算基础背离分数
+        base_divergence_score = self._calculate_instantaneous_relationship(df, config)
+        # 引入主动承接作为真实性放大器
+        active_buying_support = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_calculate_price_vs_capitulation_relationship")
+        active_buying_norm = self._normalize_series(active_buying_support, df.index, bipolar=False)
+        authenticity_amplifier = 1 + active_buying_norm
+        final_score = (base_divergence_score * authenticity_amplifier).clip(-1, 1)
+        probe_dates = self.probe_dates
+        enable_probe = config.get('enable_probe', True)
+        if enable_probe and not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [瞬时关系探针(承接验证版): {config.get('name')}] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 主动承接强度(原始): {active_buying_support.iloc[last_date_index]:.4f}")
+            print("  [关键计算]:")
+            print(f"    - 基础背离分: {base_divergence_score.iloc[last_date_index]:.4f}")
+            print(f"    - 主动承接(归一化): {active_buying_norm.iloc[last_date_index]:.4f}")
+            print(f"    - 真实性放大器: {authenticity_amplifier.iloc[last_date_index]:.4f}")
+            print("  [最终结果]:")
+            print(f"    - 瞬时关系分(承接验证后): {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        return final_score
+
+    def _calculate_price_efficiency_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V3.0 · 信念校准版】计算“价格效率”的专属瞬时关系分。
+        - 核心升级: 引入由“主力信念”和“对倒强度”构成的“品质因子”，对原始的价效共识分
+                      进行“血统校准”，优先采纳由高信念、低噪音资金驱动的行为。
+        """
+        required_signals = ['close_D', 'VPA_EFFICIENCY_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D']
+        if not self._validate_required_signals(df, required_signals, "_calculate_price_efficiency_relationship"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 计算基础共识分数
+        base_consensus_score = self._calculate_instantaneous_relationship(df, config)
+        # 引入品质因子进行校准
+        main_force_conviction = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_price_efficiency_relationship")
+        wash_trade_intensity = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_calculate_price_efficiency_relationship")
+        conviction_norm = self._normalize_series(main_force_conviction, df.index, bipolar=True)
+        wash_trade_norm = self._normalize_series(wash_trade_intensity, df.index, bipolar=False)
+        quality_factor = (conviction_norm.clip(lower=0) * (1 - wash_trade_norm)).clip(0, 1)
+        final_score = (base_consensus_score * quality_factor).clip(-1, 1)
+        probe_dates = self.probe_dates
+        enable_probe = config.get('enable_probe', True)
+        if enable_probe and not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [瞬时关系探针(信念校准版): {config.get('name')}] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 主力信念(原始): {main_force_conviction.iloc[last_date_index]:.4f}")
+            print(f"    - 对倒强度(原始): {wash_trade_intensity.iloc[last_date_index]:.4f}")
+            print("  [关键计算]:")
+            print(f"    - 基础共识分: {base_consensus_score.iloc[last_date_index]:.4f}")
+            print(f"    - 品质因子: {quality_factor.iloc[last_date_index]:.4f}")
+            print("  [最终结果]:")
+            print(f"    - 瞬时关系分(信念校准后): {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        return final_score
+
+    def _calculate_pd_divergence_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V3.0 · 战场纵深版】计算“博弈背离”的专属瞬时关系分。
+        - 核心升级: 引入基于 `main_force_vpoc_D` 的“战场纵深因子”，为博弈背离信号
+                      赋予战略坐标。当背离发生在主力成本线之上时，信号将被放大，反之则被抑制。
+        """
+        required_signals = ['close_D', 'mf_retail_battle_intensity_D', 'main_force_vpoc_D']
+        if not self._validate_required_signals(df, required_signals, "_calculate_pd_divergence_relationship"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 计算基础背离分数
+        base_divergence_score = self._calculate_instantaneous_relationship(df, config)
+        # 引入战场纵深因子
+        close_price = self._get_safe_series(df, 'close_D', 0.0, method_name="_calculate_pd_divergence_relationship")
+        mf_vpoc = self._get_safe_series(df, 'main_force_vpoc_D', 0.0, method_name="_calculate_pd_divergence_relationship")
+        mf_vpoc_safe = mf_vpoc.replace(0, np.nan) # 防止除以零
+        battlefield_context_factor = (1 + (close_price - mf_vpoc_safe) / mf_vpoc_safe).fillna(1).clip(0, 2)
+        final_score = (base_divergence_score * battlefield_context_factor).clip(-1, 1)
+        probe_dates = self.probe_dates
+        enable_probe = config.get('enable_probe', True)
+        if enable_probe and not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [瞬时关系探针(战场纵深版): {config.get('name')}] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 收盘价: {close_price.iloc[last_date_index]:.2f}")
+            print(f"    - 主力VPOC: {mf_vpoc.iloc[last_date_index]:.2f}")
+            print("  [关键计算]:")
+            print(f"    - 基础背离分: {base_divergence_score.iloc[last_date_index]:.4f}")
+            print(f"    - 战场纵深因子: {battlefield_context_factor.iloc[last_date_index]:.4f}")
+            print("  [最终结果]:")
+            print(f"    - 瞬时关系分(战场纵深校准后): {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        return final_score
 
     def _calculate_winner_conviction_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
