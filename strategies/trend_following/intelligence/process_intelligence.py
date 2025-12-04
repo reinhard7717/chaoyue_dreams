@@ -928,14 +928,12 @@ class ProcessIntelligence:
 
     def _calculate_stealth_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V5.0 · 三才归元探针版】计算“隐蔽吸筹”的专属关系分数。
-        - 核心升级: 新增“温和推升”场景，与“打压”、“横盘”构成“三才归元”逻辑。
-                      引入 `upward_impulse_purity_D` 作为核心判据，捕捉主力在缓步推升
-                      过程中的高级吸筹手法，极大拓宽了战术识别范围。
-        - 新增功能: 植入详尽的“真理探针”，无保留输出所有关键中间变量。
+        【V5.1 · 全息融合探针版】计算“隐蔽吸筹”的专属关系分数。
+        - 核心升级: 将“横盘”与“温和推升”场景的证据融合方式，从“几何平均”升级为“全息证据加权融合”，
+                      允许核心证据的强势弥补次要证据的不足，以勘破“明修栈道，暗度陈仓”的诡道。
+        - 新增功能: 探针同步升级，清晰展示加权融合的计算过程。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_STEALTH_ACCUMULATION (V5.0 · 三才归元探针版)...")
-        # [新增] 引入上涨脉冲纯度等新依赖
+        print("    -> [过程层] 正在计算 PROCESS_META_STEALTH_ACCUMULATION (V5.1 · 全息融合探针版)...")
         required_signals = [
             'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 'SLOPE_5_close_D', 'SCORE_DYN_AXIOM_STABILITY',
             'SCORE_BEHAVIOR_VOLUME_ATROPHY', 'SLOPE_5_winner_concentration_90pct_D',
@@ -978,22 +976,32 @@ class ProcessIntelligence:
         evidence2_consolidative = power_transfer_score.clip(lower=0)
         evidence3_consolidative = peak_solidity_trend_norm.clip(lower=0)
         evidence4_consolidative = split_order_accumulation_score.clip(lower=0)
-        consolidative_score = (evidence1_consolidative * evidence2_consolidative * evidence3_consolidative * evidence4_consolidative).pow(1/4)
+        # [修改] 采用加权融合替代几何平均
+        consolidative_score = (
+            evidence1_consolidative * 0.2 +
+            evidence2_consolidative * 0.2 +
+            evidence3_consolidative * 0.2 +
+            evidence4_consolidative * 0.4  # 拆单吸筹是核心
+        )
         consolidative_score = consolidative_score.where(consolidative_mask, 0.0)
         gentle_push_mask = (price_trend_norm > 0.1) & (price_trend_norm < 0.5)
         evidence1_gentle = upward_purity.clip(lower=0)
         evidence2_gentle = power_transfer_score.clip(lower=0)
         evidence3_gentle = split_order_accumulation_score.clip(lower=0)
-        gentle_push_score = (evidence1_gentle * evidence2_gentle * evidence3_gentle).pow(1/3)
+        # [修改] 采用加权融合替代几何平均
+        gentle_push_score = (
+            evidence3_gentle * 0.5 +  # 拆单吸筹是核心
+            evidence1_gentle * 0.3 +  # 上涨纯度是品质
+            evidence2_gentle * 0.2    # 权力转移是结果
+        )
         gentle_push_score = gentle_push_score.where(gentle_push_mask, 0.0)
         base_score = pd.concat([suppressive_score, consolidative_score, gentle_push_score], axis=1).max(axis=1).fillna(0.0)
         potential_gate_mask = historical_potential > potential_gate
         potential_modulator = (1 + historical_potential * potential_amplifier)
         final_score = (base_score * potential_modulator).where(potential_gate_mask, 0.0)
-        # [新增] 植入详尽的真理探针
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [隐秘吸筹探针(三才归元版)] ---")
+            print("\n--- [隐秘吸筹探针(全息融合版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
@@ -1007,8 +1015,9 @@ class ProcessIntelligence:
             print("  [关键计算]:")
             print(f"    - 价格趋势(归一化): {price_trend_norm.iloc[last_date_index]:.4f}")
             print(f"    - 场景1(打压)得分: {suppressive_score.iloc[last_date_index]:.4f} (掩码: {suppressive_mask.iloc[last_date_index]})")
-            print(f"    - 场景2(横盘)得分: {consolidative_score.iloc[last_date_index]:.4f} (掩码: {consolidative_mask.iloc[last_date_index]})")
-            print(f"    - 场景3(温和推升)得分: {gentle_push_score.iloc[last_date_index]:.4f} (掩码: {gentle_push_mask.iloc[last_date_index]})")
+            # [修改] 探针内容更新，反映加权融合逻辑
+            print(f"    - 场景2(横盘)得分: {consolidative_score.iloc[last_date_index]:.4f} (掩码: {consolidative_mask.iloc[last_date_index]}) (加权融合)")
+            print(f"    - 场景3(温和推升)得分: {gentle_push_score.iloc[last_date_index]:.4f} (掩码: {gentle_push_mask.iloc[last_date_index]}) (加权融合)")
             print(f"    - 基础得分(三才归元): {base_score.iloc[last_date_index]:.4f}")
             print(f"    - 势能门控是否通过: {potential_gate_mask.iloc[last_date_index]}")
             print(f"    - 势能调节器: {potential_modulator.iloc[last_date_index]:.4f}")
@@ -1017,21 +1026,19 @@ class ProcessIntelligence:
             print("--- [探针结束] ---\n")
         self.strategy.atomic_states["_DEBUG_accum_suppressive_score"] = suppressive_score
         self.strategy.atomic_states["_DEBUG_accum_consolidative_score"] = consolidative_score
-        self.strategy.atomic_states["_DEBUG_accum_gentle_push_score"] = gentle_push_score # 新增调试信号
+        self.strategy.atomic_states["_DEBUG_accum_gentle_push_score"] = gentle_push_score
         return final_score.clip(0, 1).astype(np.float32)
 
     def _calculate_panic_washout_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.0 · 结构审判探针版】计算“恐慌洗盘吸筹”的专属信号。
-        - 核心升级: 引入 `structural_leverage_D` (结构杠杆) 对“修复分”进行“结构审判”。
-                      只有当洗盘行为带来了筹码结构韧性的实质性提升时，信号才会被确认，
-                      以此精准区分“真黄金坑”与“下跌中继陷阱”。
-        - 新增功能: 植入详尽的“真理探针”，重点揭示“结构审判”的计算过程。
+        【V4.1 · 累积效应探针版】计算“恐慌洗盘吸筹”的专属信号。
+        - 核心升级: 引入对“恐慌分”与“承接分”的3日累积效应考量，并拓宽场景触发条件以识别
+                      “慢洗”模式，将模型从“瞬时快照”升级为“过程追溯”。
+        - 新增功能: 探针同步升级，清晰展示“瞬时值”与“累积值”的对比。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (V4.0 · 结构审判探针版)...")
-        # [新增] 引入结构杠杆等新依赖
+        print("    -> [过程层] 正在计算 PROCESS_META_PANIC_WASHOUT_ACCUMULATION (V4.1 · 累积效应探针版)...")
         required_signals = [
-            'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 'pct_change_D', 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION',
+            'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 'pct_change_D', 'close_D', 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION',
             'SCORE_BEHAVIOR_VOLUME_BURST', 'retail_panic_surrender_index_D', 'loser_pain_index_D',
             'PROCESS_META_POWER_TRANSFER', 'active_buying_support_D', 'SLOPE_1_winner_concentration_90pct_D',
             'main_force_cost_advantage_D', 'structural_leverage_D'
@@ -1045,6 +1052,7 @@ class ProcessIntelligence:
         p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_panic_washout_accumulation")
+        close_price = self._get_safe_series(df, 'close_D', 0.0, method_name="_calculate_panic_washout_accumulation") # 新增
         lower_shadow_strength = self.strategy.atomic_states.get('SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', pd.Series(0.0, index=df_index))
         volume_burst = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_BURST', pd.Series(0.0, index=df_index))
         retail_panic_index = self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_calculate_panic_washout_accumulation")
@@ -1061,35 +1069,42 @@ class ProcessIntelligence:
         concentration_slope_norm = get_adaptive_mtf_normalized_score(concentration_slope, df_index, ascending=True, tf_weights=default_weights)
         cost_advantage_slope_norm = get_adaptive_mtf_normalized_score(cost_advantage_slope, df_index, ascending=True, tf_weights=default_weights)
         structural_leverage_norm = get_adaptive_mtf_normalized_score(structural_leverage_raw, df_index, ascending=True, tf_weights=default_weights)
-        panic_score = (retail_panic_norm * 0.7 + loser_pain_norm * 0.3).clip(0, 1)
-        absorption_score = (power_transfer_score.clip(lower=0) * 0.5 + lower_shadow_strength * 0.25 + active_buying_support_norm * 0.25).clip(0, 1)
+        panic_score_instant = (retail_panic_norm * 0.7 + loser_pain_norm * 0.3).clip(0, 1)
+        absorption_score_instant = (power_transfer_score.clip(lower=0) * 0.5 + lower_shadow_strength * 0.25 + active_buying_support_norm * 0.25).clip(0, 1)
+        # [修改] 引入累积效应
+        panic_score = panic_score_instant.rolling(3, min_periods=1).mean()
+        absorption_score = absorption_score_instant.rolling(3, min_periods=1).mean()
         original_repair_score = (concentration_slope_norm * 0.6 + cost_advantage_slope_norm * 0.4).clip(0, 1)
         repair_score = (original_repair_score * 0.5 + structural_leverage_norm * 0.5).clip(0, 1)
-        is_significant_drop = (pct_change < -0.03) | (lower_shadow_strength > 0.6)
+        # [修改] 拓宽场景触发条件
+        is_significant_drop_daily = (pct_change < -0.03) | (lower_shadow_strength > 0.6)
+        is_significant_drop_cumulative = (close_price.pct_change(3).fillna(0) < -0.07)
+        is_significant_drop = is_significant_drop_daily | is_significant_drop_cumulative
         is_volume_spike = volume_burst > 0.5
         washout_candidate_mask = is_significant_drop & is_volume_spike
         base_score = (panic_score * absorption_score * repair_score).pow(1/3)
         potential_gate_mask = historical_potential > potential_gate
         final_score = base_score.where(washout_candidate_mask & potential_gate_mask, 0.0).fillna(0.0)
-        # [新增] 植入详尽的真理探针
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [恐慌洗盘吸筹探针(结构审判版)] ---")
+            print("\n--- [恐慌洗盘吸筹探针(累积效应版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
             print(f"    - 筹码势能: {historical_potential.iloc[last_date_index]:.4f}")
-            print(f"    - 跌幅: {pct_change.iloc[last_date_index]:.4f}")
+            print(f"    - 跌幅(当日): {pct_change.iloc[last_date_index]:.4f}")
+            print(f"    - 跌幅(3日累积): {close_price.pct_change(3).fillna(0).iloc[last_date_index]:.4f}")
             print(f"    - 量能爆发: {volume_burst.iloc[last_date_index]:.4f}")
             print(f"    - 结构杠杆(原始): {structural_leverage_raw.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
-            print(f"    - 恐慌分: {panic_score.iloc[last_date_index]:.4f}")
-            print(f"    - 承接分: {absorption_score.iloc[last_date_index]:.4f}")
-            print(f"    - 修复分(原始): {original_repair_score.iloc[last_date_index]:.4f}")
-            print(f"    - 结构杠杆(归一化): {structural_leverage_norm.iloc[last_date_index]:.4f}")
+            # [修改] 探针内容更新，反映累积效应
+            print(f"    - 恐慌分(瞬时): {panic_score_instant.iloc[last_date_index]:.4f}")
+            print(f"    - 恐慌分(3日累积): {panic_score.iloc[last_date_index]:.4f}")
+            print(f"    - 承接分(瞬时): {absorption_score_instant.iloc[last_date_index]:.4f}")
+            print(f"    - 承接分(3日累积): {absorption_score.iloc[last_date_index]:.4f}")
             print(f"    - 修复分(结构审判后): {repair_score.iloc[last_date_index]:.4f}")
             print(f"    - 基础分(三者融合): {base_score.iloc[last_date_index]:.4f}")
-            print(f"    - 场景候选掩码: {washout_candidate_mask.iloc[last_date_index]}")
+            print(f"    - 场景候选掩码: {washout_candidate_mask.iloc[last_date_index]} (单日暴跌: {is_significant_drop_daily.iloc[last_date_index]}, 累积暴跌: {is_significant_drop_cumulative.iloc[last_date_index]})")
             print(f"    - 势能门控掩码: {potential_gate_mask.iloc[last_date_index]}")
             print("  [最终结果]:")
             print(f"    - 恐慌洗盘吸筹最终分: {final_score.iloc[last_date_index]:.4f}")
@@ -1097,7 +1112,7 @@ class ProcessIntelligence:
         self.strategy.atomic_states["_DEBUG_washout_panic_score"] = panic_score
         self.strategy.atomic_states["_DEBUG_washout_absorption_score"] = absorption_score
         self.strategy.atomic_states["_DEBUG_washout_repair_score"] = repair_score
-        self.strategy.atomic_states["_DEBUG_washout_structural_leverage_norm"] = structural_leverage_norm # 新增调试信号
+        self.strategy.atomic_states["_DEBUG_washout_structural_leverage_norm"] = structural_leverage_norm
         return final_score.astype(np.float32)
 
     def _calculate_upthrust_washout(self, df: pd.DataFrame, config: Dict) -> pd.Series:
