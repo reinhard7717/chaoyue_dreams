@@ -198,15 +198,12 @@ class ProcessIntelligence:
 
     def _calculate_power_transfer(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.2 · 韧性融合版】计算“权力转移”信号。
-        - 核心升级: 废除脆弱的乘法模型，改用更具韧性的加权融合模型来计算`转移真实性因子`。
-                      新的模型融合了`主力信念`、`对倒惩罚`和`欺骗指数`，负面信号会平滑地降低
-                      分数而不是直接归零，使信号更具韧性和现实意义。
-        - 核心优化: 欺骗指数的负向部分（诱多）现在会直接作为惩罚项，逻辑更加严谨。
-        - 核心升维: 移除了对`转移真实性因子`的`clip(0, 1)`限制，使其成为一个能反映综合意图的
-                      双极性指标。当综合评定为负时，将能正确计算出“主力向散户派发”的负向转移。
+        【V4.3 · 战场清晰度版】计算“权力转移”信号。
+        - 核心升级: 引入“战场清晰度”(clarity_factor)概念，分离“噪声”(对倒)与“诡计”(欺骗)的影响。
+                      新的“转移真实性因子”由 主力信念 * 战场清晰度 构成，更能反映主力意图
+                      在复杂环境下的真实穿透力，逻辑更严谨。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_POWER_TRANSFER (V4.2 · 韧性融合版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_POWER_TRANSFER (V4.3 · 战场清晰度版)...")
         required_signals = [
             'net_sh_amount_calibrated_D', 'net_md_amount_calibrated_D', 'net_lg_amount_calibrated_D',
             'net_xl_amount_calibrated_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
@@ -225,12 +222,11 @@ class ProcessIntelligence:
         wash_trade_norm = self._normalize_series(wash_trade_intensity, df_index, bipolar=False)
         deception_norm = self._normalize_series(deception_index, df_index, bipolar=True)
         conviction_norm = self._normalize_series(main_force_conviction, df_index, bipolar=True)
-        # 移除clip(0,1)，使其成为双极性因子
-        transfer_authenticity_factor = (
-            conviction_norm * 0.5 +
-            (1 - wash_trade_norm) * 0.3 +
-            deception_norm * 0.2
-        ).clip(-1, 1)
+        # [修改] 引入“战场清晰度”概念
+        clarity_from_noise = 1 - wash_trade_norm
+        clarity_from_deception = deception_norm # 欺骗指数本身就是双极性的，负值（诱多）会直接降低清晰度
+        clarity_factor = (clarity_from_noise + clarity_from_deception).clip(0, 2) / 2 # 融合后归一到[0,1]
+        transfer_authenticity_factor = (conviction_norm * clarity_factor).clip(-1, 1)
         md_to_main_force = net_md_amount * transfer_authenticity_factor
         sm_to_main_force = net_sm_amount * transfer_authenticity_factor
         effective_main_force_flow = net_lg_amount + net_elg_amount + md_to_main_force + sm_to_main_force
@@ -252,6 +248,7 @@ class ProcessIntelligence:
             print(f"    - 对倒强度(归一化): {wash_trade_norm.iloc[last_date_index]:.4f}")
             print(f"    - 欺骗指数(归一化): {deception_norm.iloc[last_date_index]:.4f}")
             print(f"    - 主力信念(归一化): {conviction_norm.iloc[last_date_index]:.4f}")
+            print(f"    - 战场清晰度因子: {clarity_factor.iloc[last_date_index]:.4f}")
             print(f"    - 转移真实性因子(双极性): {transfer_authenticity_factor.iloc[last_date_index]:.4f}")
             print(f"    - 中单->主力有效转移: {md_to_main_force.iloc[last_date_index]:.2f}")
             print(f"    - 散户->主力有效转移: {sm_to_main_force.iloc[last_date_index]:.2f}")
@@ -317,7 +314,6 @@ class ProcessIntelligence:
             print(f"    - 诡道吸筹最终分: {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         return final_score.astype(np.float32)
-
 
     def _calculate_cost_advantage_trend_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
@@ -1139,16 +1135,16 @@ class ProcessIntelligence:
 
     def _calculate_price_volume_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.1 · 权重自适应版】计算价量关系的专属分数。
-        - 核心升级: 废除固定的50/50融合权重，引入动态权重机制。加速度的权重与基础状态分负相关
-                      (`权重 = 1 - 基础分`)，使模型能在基础状态极差时，给予“改善趋势”更高的
-                      判断权重，从而更灵敏地捕捉“绝境逢生”式的关键转折点。
+        【V4.2 · 主动承接共振版】计算价量关系的专属分数。
+        - 核心升级: 在“共振确认因子”中，引入“主动买盘支撑”(`active_buying_support_D`)作为
+                      第四维证据。此举将模型对反转的判断从“形态推断”升级为更可靠的“行为确认”，
+                      显著提升了在“价跌量缩”场景下的判断精度。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_PV_REL_BULLISH_TURN (V4.1 · 权重自适应版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_PV_REL_BULLISH_TURN (V4.2 · 主动承接共振版)...")
         required_signals = [
             'close_D', 'volume_D', 'main_force_conviction_index_D', 'wash_trade_intensity_D',
             'suppressive_accumulation_intensity_D', 'retail_panic_surrender_index_D',
-            'upward_impulse_purity_D', 'PROCESS_META_POWER_TRANSFER'
+            'upward_impulse_purity_D', 'PROCESS_META_POWER_TRANSFER', 'active_buying_support_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_calculate_price_volume_relationship"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -1165,19 +1161,23 @@ class ProcessIntelligence:
         reversal_confirmation_shape = self._get_atomic_score(df, 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', 0.0)
         reversal_confirmation_flow = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
         reversal_confirmation_psyche = self._normalize_series(main_force_conviction.diff(1).fillna(0), df_index, bipolar=True)
+        # [修改] 引入“主动买盘支撑”作为第四维共振证据
+        active_buying_confirm = self._normalize_series(self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_calculate_price_volume_relationship"), df_index, bipolar=False)
         accel_shape = self._normalize_series(reversal_confirmation_shape.diff(2).fillna(0), df_index, bipolar=False)
         accel_flow = self._normalize_series(reversal_confirmation_flow.diff(2).fillna(0), df_index, bipolar=False)
         accel_psyche = self._normalize_series(reversal_confirmation_psyche.diff(2).fillna(0), df_index, bipolar=False)
         acceleration_bonus = (accel_shape * 0.3 + accel_flow * 0.4 + accel_psyche * 0.3).clip(0, 1)
+        # [修改] 将主动承接证据加入基础共振分计算
         base_resonance_score = (
-            reversal_confirmation_shape * 0.4 +
-            reversal_confirmation_flow.clip(lower=0) * 0.4 +
-            reversal_confirmation_psyche.clip(lower=0) * 0.2
+            reversal_confirmation_shape * 0.3 +
+            reversal_confirmation_flow.clip(lower=0) * 0.3 +
+            reversal_confirmation_psyche.clip(lower=0) * 0.2 +
+            active_buying_confirm * 0.2
         ).clip(0, 1)
         weight_accel = (1 - base_resonance_score)
         weight_base = 1 - weight_accel
         fused_resonance_score = (base_resonance_score * weight_base + acceleration_bonus * weight_accel)
-        resonance_components = pd.concat([reversal_confirmation_shape, reversal_confirmation_flow, reversal_confirmation_psyche], axis=1)
+        resonance_components = pd.concat([reversal_confirmation_shape, reversal_confirmation_flow, reversal_confirmation_psyche, active_buying_confirm], axis=1)
         harmony_degree = (1 - (resonance_components.max(axis=1) - resonance_components.min(axis=1))).clip(0, 1)
         resonance_confirmation_factor = (fused_resonance_score * (1 + harmony_degree)).clip(0, 1)
         p_mom = self._normalize_series(price.pct_change().fillna(0), df_index, bipolar=True)
