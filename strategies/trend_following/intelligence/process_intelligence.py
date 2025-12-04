@@ -538,20 +538,25 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.3 · 诡道逻辑分派版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 为 PRICE_VS_RETAIL_CAPITULATION 和 PD_DIVERGENCE_CONFIRM 信号分派专属计算引擎，
-                      以实现其独特的、经过升维的“诡道”博弈逻辑。
+        【V5.4 · 战略信号升维版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 为 FF_VS_STRUCTURE_LEAD 和 DYN_VS_CHIP_DECAY 信号分派专属计算引擎，
+                      引入“势能加权”和“派发审判”的诡道逻辑。
         """
         signal_name = config.get('name')
         df_index = df.index
         meta_score = pd.Series(dtype=np.float32)
-        # [新增] 为特定信号添加专属调度分支
-        if signal_name == 'PROCESS_META_PRICE_VS_RETAIL_CAPITULATION':
+        # [新增] 为新的战略信号分派专属计算引擎
+        if signal_name == 'PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD':
+            relationship_score = self._calculate_ff_vs_structure_relationship(df, config)
+            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
+        elif signal_name == 'PROCESS_STRATEGY_DYN_VS_CHIP_DECAY':
+            relationship_score = self._calculate_dyn_vs_chip_relationship(df, config)
+            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
+        elif signal_name == 'PROCESS_META_PRICE_VS_RETAIL_CAPITULATION':
             relationship_score = self._calculate_price_vs_capitulation_relationship(df, config)
             meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
         elif signal_name == 'PROCESS_META_PD_DIVERGENCE_CONFIRM':
             relationship_score = self._calculate_pd_divergence_relationship(df, config)
-            # 此信号逻辑为直接确认，无需元分析
             meta_score = relationship_score
         elif signal_name == 'PROCESS_META_PF_REL_BULLISH_TURN':
             meta_score = self._calculate_pf_relationship(df, config)
@@ -1555,4 +1560,52 @@ class ProcessIntelligence:
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
         self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
         return relationship_score
+
+    def _calculate_ff_vs_structure_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V3.0 · 势能加权版】计算“资金与结构”的专属瞬时关系分。
+        - 核心升级: 引入由 `SCORE_STRUCT_AXIOM_TREND_FORM` 绝对值构成的“战略态势放大器”，
+                      对基础背离分进行加权，使得在强趋势背景下的背离信号更具影响力。
+        """
+        required_signals = ['SCORE_STRUCT_AXIOM_TREND_FORM', 'SCORE_FF_AXIOM_CONSENSUS']
+        if not self._validate_required_signals(df, required_signals, "_calculate_ff_vs_structure_relationship"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 计算基础背离分数
+        base_divergence_score = self._calculate_instantaneous_relationship(df, config)
+        # 引入战略态势放大器
+        trend_form_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
+        strategic_context_amplifier = 1 + trend_form_score.abs()
+        final_score = (base_divergence_score * strategic_context_amplifier).clip(-1, 1)
+        return final_score
+
+    def _calculate_dyn_vs_chip_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V3.0 · 派发审判版】计算“动能与筹码”的专属瞬时关系分。
+        - 核心升级: 引入基于 `winner_profit_margin_avg_D` 的“派发压力因子”，对负向共识分
+                      进行“动机审判”。当人心溃散伴随高额浮盈时，看跌信号将被加重。
+        """
+        required_signals = ['SCORE_DYN_AXIOM_MOMENTUM', 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 'winner_profit_margin_avg_D']
+        if not self._validate_required_signals(df, required_signals, "_calculate_dyn_vs_chip_relationship"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 计算基础共识分数
+        base_consensus_score = self._calculate_instantaneous_relationship(df, config)
+        # 引入派发压力因子进行动机审判
+        profit_margin = self._get_safe_series(df, 'winner_profit_margin_avg_D', 0.0, method_name="_calculate_dyn_vs_chip_relationship")
+        profit_margin_norm = self._normalize_series(profit_margin, df.index, bipolar=False)
+        distribution_pressure_factor = 1 + profit_margin_norm
+        # 仅当基础分为负（内部分裂）时，才进行动机审判
+        final_score = base_consensus_score.where(
+            base_consensus_score >= 0,
+            base_consensus_score * distribution_pressure_factor
+        ).clip(-1, 1)
+        return final_score
+
+
+
+
+
+
+
+
+
 
