@@ -633,22 +633,17 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V4.7 · 诡道价量版】对“关系分”进行元分析，输出分数。
-        - 核心扩充: 为 `PROCESS_META_PV_REL_BULLISH_TURN` 新增专属调度分支，
-                     调用定制的 `_calculate_price_volume_relationship` 方法，
-                     以实现基于情境博弈的深度价量关系分析。
+        【V5.0 · 权重自适应元分析版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 废除融合“关系位移”与“关系动量”的固定权重。引入动态权重机制，
+                      使得“关系动量”(趋势)的权重与“瞬时关系分”(状态)负相关。
+                      这使模型能对处于极差状态但改善趋势强劲的关系，给予更高的评价。
         """
         signal_name = config.get('name')
         df_index = df.index
-        # 为 PROCESS_META_PV_REL_BULLISH_TURN 添加专属调度分支
         if signal_name == 'PROCESS_META_PV_REL_BULLISH_TURN':
             relationship_score = self._calculate_price_volume_relationship(df, config)
         elif signal_name == 'PROCESS_META_MAIN_FORCE_RALLY_INTENT':
             relationship_score = self._calculate_main_force_rally_intent(df, config)
-        elif signal_name == 'PROCESS_META_MAIN_FORCE_URGENCY':
-            relationship_score = self._calculate_main_force_urgency_relationship(df, config)
-        elif signal_name == 'PROCESS_META_WINNER_CONVICTION' and 'antidote_signal' in config:
-            relationship_score = self._calculate_winner_conviction_relationship(df, config)
         elif signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND':
             relationship_score = self._calculate_cost_advantage_trend_relationship(df, config)
         elif signal_name == 'PROCESS_META_MAIN_FORCE_CONTROL':
@@ -657,17 +652,16 @@ class ProcessIntelligence:
             relationship_score = self._calculate_stealth_accumulation(df, config)
         elif signal_name == 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION':
             relationship_score = self._calculate_panic_washout_accumulation(df, config)
-        elif signal_name == 'PROCESS_META_DECEPTIVE_ACCUMULATION': 
+        elif signal_name == 'PROCESS_META_DECEPTIVE_ACCUMULATION':
             relationship_score = self._calculate_deceptive_accumulation(df, config)
         elif signal_name == 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY':
             relationship_score = self._calculate_split_order_accumulation(df, config)
-        elif signal_name == 'PROCESS_META_UPTHRUST_WASHOUT': 
-            relationship_score = self._calculate_upthrust_washout(df, config) 
-        elif signal_name == 'PROCESS_META_ACCUMULATION_INFLECTION': 
+        elif signal_name == 'PROCESS_META_UPTHRUST_WASHOUT':
+            relationship_score = self._calculate_upthrust_washout(df, config)
+        elif signal_name == 'PROCESS_META_ACCUMULATION_INFLECTION':
             relationship_score = self._calculate_accumulation_inflection(df, config)
         elif signal_name == 'PROCESS_META_BREAKOUT_ACCELERATION':
             relationship_score = self._calculate_breakout_acceleration(df, config)
-        # 为“资金流吸筹拐点意图”添加专属调度分支
         elif signal_name == 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT':
             relationship_score = self._calculate_fund_flow_accumulation_inflection(df, config)
         else:
@@ -700,9 +694,11 @@ class ProcessIntelligence:
                 tf_weights=default_weights,
                 sensitivity=self.bipolar_sensitivity
             )
-            displacement_weight = self.meta_score_weights[0]
-            momentum_weight = self.meta_score_weights[1]
-            meta_score = (bipolar_displacement_strength * displacement_weight + bipolar_momentum_strength * momentum_weight)
+            # [修改] 引入权重自适应机制
+            instant_score_normalized = (relationship_score + 1) / 2 # 映射到 [0, 1]
+            weight_momentum = (1 - instant_score_normalized).clip(0, 1)
+            weight_displacement = 1 - weight_momentum
+            meta_score = (bipolar_displacement_strength * weight_displacement + bipolar_momentum_strength * weight_momentum)
             probe_dates = self.probe_dates
             if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
                 print(f"\n--- [关系元分析探针: {signal_name}] ---")
@@ -711,10 +707,9 @@ class ProcessIntelligence:
                 print("  [输入原料]:")
                 print(f"    - 瞬时关系分: {relationship_score.iloc[last_date_index]:.4f}")
                 print("  [关键计算]:")
-                print(f"    - 关系位移(原始): {relationship_displacement.iloc[last_date_index]:.4f}")
-                print(f"    - 关系动量(原始): {relationship_momentum.iloc[last_date_index]:.4f}")
                 print(f"    - 关系位移强度(归一化): {bipolar_displacement_strength.iloc[last_date_index]:.4f}")
                 print(f"    - 关系动量强度(归一化): {bipolar_momentum_strength.iloc[last_date_index]:.4f}")
+                print(f"    - 动态权重(位移/动量): {weight_displacement.iloc[last_date_index]:.2f}/{weight_momentum.iloc[last_date_index]:.2f}")
                 print("  [最终结果]:")
                 print(f"    - 元分析最终分: {meta_score.iloc[last_date_index]:.4f}")
                 print("--- [探针结束] ---\n")
