@@ -1293,26 +1293,28 @@ class ProcessIntelligence:
 
     def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.0 · 新增】计算“价资关系”的专属方法。
-        - 核心职责: 调度瞬时关系计算和元分析两大引擎，完成信号的完整生产。
+        【V1.1 · 调用修正版】计算“价资关系”的专属方法。
+        - 核心修复: 修正了对 `_perform_meta_analysis_on_score` 的调用，确保传递了完整的 `df` 和 `df.index`。
         """
         print(f"    -> [过程层] 正在计算 {config.get('name')} (V3.0 · 信念驱动版)...")
         relationship_score = self._calculate_instantaneous_relationship(df, config)
         if relationship_score.empty:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-        meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df.index)
+        # [修改] 修正调用参数，同时传递 df 和 df.index
+        meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df.index)
         return meta_score
 
     def _calculate_pc_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.0 · 新增】计算“价筹关系”的专属方法。
-        - 核心职责: 调度瞬时关系计算和元分析两大引擎，完成信号的完整生产。
+        【V1.1 · 调用修正版】计算“价筹关系”的专属方法。
+        - 核心修复: 修正了对 `_perform_meta_analysis_on_score` 的调用，确保传递了完整的 `df` 和 `df.index`。
         """
         print(f"    -> [过程层] 正在计算 {config.get('name')} (V3.0 · 结构验证版)...")
         relationship_score = self._calculate_instantaneous_relationship(df, config)
         if relationship_score.empty:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
-        meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df.index)
+        # [修改] 修正调用参数，同时传递 df 和 df.index
+        meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df.index)
         return meta_score
 
     def _perform_meta_analysis_on_score(self, relationship_score: pd.Series, config: Dict, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:
