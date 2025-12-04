@@ -602,6 +602,7 @@
             "signal_A": "SCORE_STRUCT_AXIOM_TREND_FORM", "source_A": "atomic_states", "change_type_A": "diff",
             "signal_B": "SCORE_FF_AXIOM_CONSENSUS", "source_B": "atomic_states", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
+            "enable_probe": false,
             "comment": "【V2.1 命名协议修复】1.明确为'背离'。2.废除k=-1.0。3.交换A/B信号，新逻辑为(资金流变化-结构变化)，正分代表资金领先结构。4.修正signal_B为全称。"
           },
           {
@@ -612,6 +613,7 @@
             "signal_A": "SCORE_DYN_AXIOM_MOMENTUM", "source_A": "atomic_states", "change_type_A": "diff",
             "signal_B": "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT", "source_B": "atomic_states", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
+            "enable_probe": false,
             "comment": "【V2.1 命名协议修复】明确为'共识'关系。高分代表力学风险与筹码风险同步恶化。修正signal_A为全称。"
           },
           {
