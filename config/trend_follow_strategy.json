@@ -552,6 +552,7 @@
             "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
             "signal_B": "retail_panic_surrender_index_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": 1.5,
+            "enable_probe": false,
             "comment": "【V2.0 换装】价格与散户投降。使用'散户恐慌投降指数'替代旧的'散户投降分布'。"
           },
           {
@@ -567,6 +568,7 @@
             "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
             "signal_B": "VPA_EFFICIENCY_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
+            "enable_probe": false,
             "comment": "【V2.0 · 信号分裂版】诊断'价格-VPA效率'关系。将其分裂为'效率看涨拐点'机会信号和'效率衰减'风险信号。"
           },
           {
@@ -578,6 +580,7 @@
             "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
             "signal_B": "mf_retail_battle_intensity_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": 2.5,
+            "enable_probe": false,
             "comment": "【V2.0 换装】博弈背离。使用'主力散户博弈烈度'替代旧的'资金流背离'。"
           },
           {
