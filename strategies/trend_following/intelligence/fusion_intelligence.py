@@ -43,12 +43,12 @@ class FusionIntelligence:
 
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.1 · 职责净化版】融合情报分析总指挥
-        - 核心升级: 移除了对已被废弃的 `_synthesize_upper_shadow_intent` 方法的调用，
-                    该方法的职责已由行为层的 `_calculate_distribution_intent` 更好地完成，
-                    此举净化了融合层的职责，避免了重复分析。
+        【V6.2 · 战术剧本版】融合情报分析总指挥
+        - 核心升级: 新增对两大“战术剧本”融合心法的调度：
+                    1. _synthesize_accumulation_playbook (吸筹剧本)
+                    2. _synthesize_trend_exhaustion_syndrome (趋势衰竭综合征)
         """
-        print("启动【V6.1 · 职责净化版】融合情报分析...")
+        print("启动【V6.2 · 战术剧本版】融合情报分析...")
         all_fusion_states = {}
         micro_conviction_states = self._synthesize_micro_conviction(df)
         all_fusion_states.update(micro_conviction_states)
@@ -89,7 +89,15 @@ class FusionIntelligence:
         contested_accumulation_states = self._synthesize_contested_accumulation(df)
         all_fusion_states.update(contested_accumulation_states)
         self.strategy.atomic_states.update(contested_accumulation_states)
-        print(f"【V6.1 · 职责净化版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
+        # [新增] 调用新增的战术剧本融合方法
+        accumulation_playbook_states = self._synthesize_accumulation_playbook(df)
+        all_fusion_states.update(accumulation_playbook_states)
+        self.strategy.atomic_states.update(accumulation_playbook_states)
+        # [新增] 调用新增的战术剧本融合方法
+        trend_exhaustion_states = self._synthesize_trend_exhaustion_syndrome(df)
+        all_fusion_states.update(trend_exhaustion_states)
+        self.strategy.atomic_states.update(trend_exhaustion_states)
+        print(f"【V6.2 · 战术剧本版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
 
     def _synthesize_market_contradiction(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -586,5 +594,127 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_MICRO_CONVICTION'] = micro_conviction_score.astype(np.float32)
         print(f"  -- [融合层] “微观信念”冶炼完成，最新分值: {micro_conviction_score.iloc[-1]:.4f}")
         return states
+
+    def _synthesize_accumulation_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 吸筹剧本】融合心法
+        - 核心目标: 将不同战术的吸筹信号融合成统一的“吸筹剧本”分。
+        - 融合模型: 吸筹剧本分 = max(隐秘吸筹, 恐慌吸筹, 诡道吸筹) × (1 + 筹码态势改善度)
+        - 核心诡道: 1. max()体现战术互斥性。 2. 筹码态势改善度作为品质调节器。
+        """
+        print("  -- [融合层] 正在推演“吸筹剧本”...")
+        states = {}
+        df_index = df.index
+        # 1. 获取原料信号
+        stealth_accumulation = self._get_atomic_score(df, 'PROCESS_META_STEALTH_ACCUMULATION', 0.0)
+        panic_accumulation = self._get_atomic_score(df, 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 0.0)
+        deceptive_accumulation = self._get_atomic_score(df, 'PROCESS_META_DECEPTIVE_ACCUMULATION', 0.0)
+        chip_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
+        # 2. 核心数学逻辑
+        # 2.1 识别主导战术 (max体现互斥性)
+        max_accumulation_tactic = np.maximum.reduce([
+            stealth_accumulation.values,
+            panic_accumulation.values,
+            deceptive_accumulation.values
+        ])
+        max_accumulation_tactic = pd.Series(max_accumulation_tactic, index=df_index)
+        # 2.2 计算品质调节器 (筹码态势改善度)
+        chip_posture_change = chip_posture.diff(1).fillna(0)
+        chip_improvement_factor = chip_posture_change.clip(lower=0) # 只关注正向改善
+        quality_modulator = 1 + chip_improvement_factor
+        # 2.3 融合
+        playbook_score = (max_accumulation_tactic * quality_modulator).clip(0, 1)
+        output_name = 'PROCESS_FUSION_ACCUMULATION_PLAYBOOK'
+        states[output_name] = playbook_score.astype(np.float32)
+        # [新增] 植入究极探针
+        probe_dates = self.strategy.params['debug_params'].get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [吸筹剧本究极探针] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 隐秘吸筹分: {stealth_accumulation.iloc[last_date_index]:.4f}")
+            print(f"    - 恐慌吸筹分: {panic_accumulation.iloc[last_date_index]:.4f}")
+            print(f"    - 诡道吸筹分: {deceptive_accumulation.iloc[last_date_index]:.4f}")
+            print(f"    - 筹码态势(今日): {chip_posture.iloc[last_date_index]:.4f}")
+            print(f"    - 筹码态势(昨日): {chip_posture.shift(1).fillna(0).iloc[last_date_index]:.4f}")
+            print("  [关键计算节点]:")
+            print(f"    - 主导吸筹战术分 (max): {max_accumulation_tactic.iloc[last_date_index]:.4f}")
+            print(f"    - 筹码态势改善度: {chip_improvement_factor.iloc[last_date_index]:.4f}")
+            print(f"    - 品质调节器 (1 + 改善度): {quality_modulator.iloc[last_date_index]:.4f}")
+            print("  [最终裁决]:")
+            print(f"    - 吸筹剧本分 ({output_name}): {playbook_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        print(f"  -- [融合层] “吸筹剧本”推演完成，最新分值: {playbook_score.iloc[-1]:.4f}")
+        return states
+
+    def _synthesize_trend_exhaustion_syndrome(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 趋势衰竭综合征】融合心法
+        - 核心目标: 将独立的顶部风险征兆进行非线性融合，识别风险“共振”。
+        - 融合模型: 衰竭综合征 = (w1*背离 + w2*衰减 + w3*冷却) × (1 + 共振奖励)
+        - 核心诡道: 引入“共振奖励”机制，体现风险的非线性叠加效应。
+        """
+        print("  -- [融合层] 正在诊断“趋势衰竭综合征”...")
+        states = {}
+        df_index = df.index
+        # 1. 从配置文件获取参数
+        p_conf = get_params_block(self.strategy, 'fusion_playbook_params', {})
+        p_exhaustion = get_param_value(p_conf.get('trend_exhaustion_syndrome'), {})
+        weights = get_param_value(p_exhaustion.get('weights'), {'divergence': 0.4, 'conviction_decay': 0.4, 'cooling': 0.2})
+        resonance_threshold = get_param_value(p_exhaustion.get('resonance_threshold'), 0.5)
+        resonance_bonus_factor = get_param_value(p_exhaustion.get('resonance_bonus_factor'), 0.3)
+        # 2. 获取原料信号
+        divergence = self._get_atomic_score(df, 'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE', 0.0)
+        conviction_decay = self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION_DECAY', 0.0)
+        sector_cooling = self._get_atomic_score(df, 'PROCESS_META_HOT_SECTOR_COOLING', 0.0)
+        # 3. 核心数学逻辑
+        # 3.1 计算加权基础分
+        total_weight = sum(weights.values())
+        if total_weight == 0: total_weight = 1.0 # 防止除零
+        weighted_sum = (
+            divergence * weights.get('divergence', 0) +
+            conviction_decay * weights.get('conviction_decay', 0) +
+            sector_cooling * weights.get('cooling', 0)
+        ) / total_weight
+        # 3.2 计算共振奖励
+        signals_above_threshold = (
+            (divergence > resonance_threshold).astype(int) +
+            (conviction_decay > resonance_threshold).astype(int) +
+            (sector_cooling > resonance_threshold).astype(int)
+        )
+        resonance_bonus = (signals_above_threshold >= 2).astype(float) * resonance_bonus_factor
+        resonance_modulator = 1 + resonance_bonus
+        # 3.3 融合
+        syndrome_score = (weighted_sum * resonance_modulator).clip(0, 1)
+        output_name = 'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME'
+        states[output_name] = syndrome_score.astype(np.float32)
+        # [新增] 植入究极探针
+        probe_dates = self.strategy.params['debug_params'].get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [趋势衰竭综合征究极探针] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 价势背离分: {divergence.iloc[last_date_index]:.4f} (权重: {weights.get('divergence', 0):.2f})")
+            print(f"    - 信念衰减分: {conviction_decay.iloc[last_date_index]:.4f} (权重: {weights.get('conviction_decay', 0):.2f})")
+            print(f"    - 板块冷却分: {sector_cooling.iloc[last_date_index]:.4f} (权重: {weights.get('cooling', 0):.2f})")
+            print("  [关键计算节点]:")
+            print(f"    - 加权基础分: {weighted_sum.iloc[last_date_index]:.4f}")
+            print(f"    - 共振阈值: {resonance_threshold}")
+            print(f"    - 超阈值信号数: {signals_above_threshold.iloc[last_date_index]}")
+            print(f"    - 共振奖励调节器 (1 + 奖励): {resonance_modulator.iloc[last_date_index]:.4f}")
+            print("  [最终裁决]:")
+            print(f"    - 衰竭综合征分 ({output_name}): {syndrome_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        print(f"  -- [融合层] “趋势衰竭综合征”诊断完成，最新分值: {syndrome_score.iloc[-1]:.4f}")
+        return states
+
+
+
+
+
+
+
 
 

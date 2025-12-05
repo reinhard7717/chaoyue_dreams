@@ -906,6 +906,22 @@
           "flow_multiplier_threshold": 0.0
         }
       },
+      "fusion_playbook_params": {
+        "description": "【V1.0 · 新增】为融合层的“战术剧本”系列信号提供专属参数配置。",
+        "trend_exhaustion_syndrome": {
+          "description": "【趋势衰竭综合征】融合模型的参数。",
+          "weights": {
+            "description": "融合价势背离、赢家信念衰减、热门板块冷却三大风险信号的权重。",
+            "divergence": 0.4,
+            "conviction_decay": 0.4,
+            "cooling": 0.2
+          },
+          "resonance_threshold": 0.5,
+          "comment_resonance_threshold": "当单个风险信号超过此阈值时，计入“共振”考量。",
+          "resonance_bonus_factor": 0.3,
+          "comment_resonance_bonus_factor": "当至少2个风险信号超阈值时，给予的额外奖励系数。"
+        }
+      },
       "upthrust_distribution_params": {
         "enabled": true,
         "description": "【V1.0】上冲派发风险诊断引擎参数，用于识别顶部风险。",
