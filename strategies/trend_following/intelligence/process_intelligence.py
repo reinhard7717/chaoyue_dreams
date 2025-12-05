@@ -1220,24 +1220,25 @@ class ProcessIntelligence:
 
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.1 · 探针植入版】诊断“突破加速抢筹”战术。
+        【V2.2 · 军令直达版】诊断“突破加速抢筹”战术。
+        - 核心修复: 将依赖信号从一个不存在的中间过程信号，修正为'PROCESS_META_MAIN_FORCE_RALLY_INTENT'的最终成品信号，
+                      解决了依赖缺失的BUG，并提升了逻辑的可靠性。
         - 核心升级: 引入“相对强度”公理作为环境调节器，放大“领军者”的突破信号，确认其龙头地位。
-        - 新增功能: 植入“真理探针”，用于在指定日期输出关键计算过程。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_BREAKOUT_ACCELERATION (V2.1 · 探针植入版)...")
-        # 将新公理加入依赖校验
+        print("    -> [过程层] 正在计算 PROCESS_META_BREAKOUT_ACCELERATION (V2.2 · 军令直达版)...")
+        # [修改] 修正核心依赖信号，直接使用最终的拉升意图信号
         required_signals = [
-            'SCORE_PATTERN_AXIOM_BREAKOUT', 'PROCESS_ATOMIC_REL_SCORE_PROCESS_META_MAIN_FORCE_RALLY_INTENT',
+            'SCORE_PATTERN_AXIOM_BREAKOUT', 'PROCESS_META_MAIN_FORCE_RALLY_INTENT',
             'PROCESS_META_POWER_TRANSFER', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH'
         ]
         if not self._validate_required_signals(df, required_signals, "_calculate_breakout_acceleration"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
-        # 获取新公理及配置参数
         relative_strength = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH', 0.0)
         rs_amplifier = config.get('relative_strength_amplifier', 0.0)
         breakout_signal = self.strategy.atomic_states.get('SCORE_PATTERN_AXIOM_BREAKOUT', pd.Series(0.0, index=df_index))
-        rally_intent_signal_name = 'PROCESS_ATOMIC_REL_SCORE_PROCESS_META_MAIN_FORCE_RALLY_INTENT'
+        # [修改] 使用正确的信号名获取拉升意图
+        rally_intent_signal_name = 'PROCESS_META_MAIN_FORCE_RALLY_INTENT'
         rally_intent = self.strategy.atomic_states.get(rally_intent_signal_name, pd.Series(0.0, index=df_index))
         power_transfer = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
         trend_form = self.strategy.atomic_states.get('SCORE_STRUCT_AXIOM_TREND_FORM', pd.Series(0.0, index=df_index))
@@ -1246,7 +1247,6 @@ class ProcessIntelligence:
         transfer_evidence = power_transfer.clip(lower=0)
         confirmation_evidence = trend_form.clip(lower=0)
         base_score = (driver_evidence * transfer_evidence * confirmation_evidence).pow(1/3)
-        # 融合相对强度
         rs_modulator = (1 + relative_strength.clip(lower=0) * rs_amplifier)
         final_score = (base_score * rs_modulator).clip(0, 1)
         final_score = final_score.where(breakout_trigger_mask, 0.0).fillna(0.0)
