@@ -400,9 +400,9 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.7 · 军令同步升级版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 为 PROCESS_META_PROFIT_VS_FLOW 信号分派专属计算引擎，
-                      确保其“派发压力 vs 建仓动力”的战场对抗逻辑得以执行。
+        【V5.8 · 军令直达版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 为 PROCESS_META_PROFIT_VS_FLOW 信号执行“军令直达”，
+                      其“战场态势分”即为最终分，不再经过元分析。
         """
         signal_name = config.get('name')
         df_index = df.index
@@ -419,10 +419,10 @@ class ProcessIntelligence:
         elif signal_name == 'PROCESS_META_PD_DIVERGENCE_CONFIRM':
             relationship_score = self._calculate_pd_divergence_relationship(df, config)
             meta_score = relationship_score
-        # [新增] 为“利润与流向”信号增加专属路由
+        # [修改] 为“利润与流向”信号执行“军令直达”
         elif signal_name == 'PROCESS_META_PROFIT_VS_FLOW':
             relationship_score = self._calculate_profit_vs_flow_relationship(df, config)
-            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
+            meta_score = relationship_score # 直接赋值，不再调用元分析
         elif signal_name == 'PROCESS_META_PF_REL_BULLISH_TURN':
             meta_score = self._calculate_pf_relationship(df, config)
         elif signal_name == 'PROCESS_META_PC_REL_BULLISH_TURN':

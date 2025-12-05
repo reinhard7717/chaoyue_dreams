@@ -725,7 +725,7 @@
             "type": "meta_analysis",
             "task_type": "base",
             "relationship_type": "custom",
-            "description": "【V4.0 · 战法升级版】诊断“利润与流向”。采用专属的“派发压力 vs 建仓动力”对抗模型，审判“利润兑现流量”与“主力净流入”的动量对抗，旨在勘破“边拉边撤”等诡道。"
+            "description": "【V4.2 · 军令直达版】诊断“利润与流向”。采用“战场态势”对抗模型，其瞬时关系分（建仓动力分 - 派发压力分）即为最终分，不再经过元分析，确保军令直达。"
           },
           {
             "name": "PROCESS_META_STOCK_SECTOR_SYNC",
