@@ -1304,11 +1304,10 @@ class ProcessIntelligence:
 
     def _calculate_stock_sector_sync(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0 · 龙头觉醒版】“个股板块同步”专属关系计算引擎
+        【V2.1 · 军令直达版】“个股板块同步”专属关系计算引擎
         - 核心重构: 创立“领导力加权”模型，废除僵化的动量同步逻辑。
         - 信号升级: 个股强度由 `pct_change_D` 直接衡量，更具实战性。
         - 核心逻辑: 瞬时关系分 = 个股强度分 * (1 + 板块强度分)。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“领导力加权”模型。
         """
         stock_signal_name = 'pct_change_D'
         sector_signal_name = 'industry_strength_rank_D'
@@ -1325,31 +1324,15 @@ class ProcessIntelligence:
         leadership_amplifier = 1 + sector_strength_score
         relationship_score = stock_strength_score * leadership_amplifier
         final_score = relationship_score.clip(-1, 1)
-        # 植入探针
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [瞬时关系探针(龙头觉醒版): {config.get('name')}] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 个股强度信号 ({stock_signal_name}): {stock_signal_raw.iloc[last_date_index]:.4f}")
-            print(f"    - 板块强度信号 ({sector_signal_name}): {sector_signal_raw.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 个股强度分(归一化): {stock_strength_score.iloc[last_date_index]:.4f}")
-            print(f"    - 板块强度分(归一化): {sector_strength_score.iloc[last_date_index]:.4f}")
-            print(f"    - 领导力放大器 (1+板块分): {leadership_amplifier.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 领导力加权分: {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [删除] 移除所有探针调试代码
         return final_score
 
     def _calculate_hot_sector_cooling(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0 · 寒潮来袭版】“热门板块冷却”专属关系计算引擎
+        【V2.1 · 军令直达版】“热门板块冷却”专属关系计算引擎
         - 核心重构: 创立“状态与方向”乘积模型，审判“高位下的资金背叛”。
         - 信号升级: 资金信号升级为更具意图的 `main_force_net_flow_calibrated_D`。
         - 核心逻辑: 瞬时关系分 = 板块热度(状态分) * 主力出逃(方向分)。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“寒潮来袭”模型。
         """
         hotness_signal_name = 'THEME_HOTNESS_SCORE_D'
         flow_signal_name = 'main_force_net_flow_calibrated_D'
@@ -1367,21 +1350,7 @@ class ProcessIntelligence:
         # 核心逻辑：寒潮来袭模型
         relationship_score = hotness_state_score * outflow_score
         final_score = relationship_score.clip(0, 1) # 这是一个单极风险信号
-        # 植入探针
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [瞬时关系探针(寒潮来袭版): {config.get('name')}] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 板块热度信号 ({hotness_signal_name}): {hotness_signal_raw.iloc[last_date_index]:.4f}")
-            print(f"    - 主力流向信号 ({flow_signal_name}): {flow_signal_raw.iloc[last_date_index]:.2f}")
-            print("  [关键计算]:")
-            print(f"    - 板块热度分(状态): {hotness_state_score.iloc[last_date_index]:.4f}")
-            print(f"    - 主力出逃分(方向): {outflow_score.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 寒潮来袭分 (热度*出逃): {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [删除] 移除所有探针调试代码
         return final_score
 
     def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
