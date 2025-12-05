@@ -998,14 +998,13 @@ class ProcessIntelligence:
 
     def _calculate_deceptive_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.2 · 全息审判版】计算“诡道吸筹”信号。
-        - 核心重构: 废除对“打压吸筹”的单一依赖，升级为由“拆单吸筹强度”、“欺诈指数”和“权力转移”
-                      构成的“诡道三证”全息审判模型，旨在识别更广泛的、非典型的隐蔽收集行为。
-        - 逻辑优化: 修正了“筹码同调性”惩罚因子，确保其只在筹码结构恶化时施加惩罚。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露新的审判逻辑。
+        【V3.3 · 矛盾博弈版】计算“诡道吸筹”信号。
+        - 核心重构: 创立“矛盾即证据”原则。通过构建“伪装分”来奖励“拆单吸筹”与“权力流出”
+                      同时发生的矛盾行为，旨在勘破“明修栈道，暗度陈仓”的终极诡道。
+        - 证据升级: 以“拆单吸筹强度”为核心行动，以“伪装分”和“欺诈指数”共同构建“诡道氛围”。
+        - 新增功能: 植入详尽的“真理探针”，全面暴露矛盾博弈的计算过程。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V3.2 · 全息审判版)...")
-        # [修改] 证据升维，引入新的核心驱动信号
+        print("    -> [过程层] 正在计算 PROCESS_META_DECEPTIVE_ACCUMULATION (V3.3 · 矛盾博弈版)...")
         required_signals = [
             'hidden_accumulation_intensity_D', 'deception_index_D', 'PROCESS_META_POWER_TRANSFER',
             'SCORE_CHIP_COHERENT_DRIVE', 'SLOPE_5_close_D'
@@ -1013,30 +1012,25 @@ class ProcessIntelligence:
         if not self._validate_required_signals(df, required_signals, "_calculate_deceptive_accumulation"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
-        # [修改] 使用“拆单吸筹强度”作为核心行动证据
         split_order_accum_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_calculate_deceptive_accumulation")
-        # [新增] 引入“欺诈指数”作为环境证据
         deception_index_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_calculate_deceptive_accumulation")
         power_transfer_score = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
         coherent_drive_score = self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0)
         price_trend_raw = self._get_safe_series(df, f'SLOPE_5_close_D', 0.0, method_name="_calculate_deceptive_accumulation")
-        # [修改] 归一化新的核心及环境证据
         core_action_score = self._normalize_series(split_order_accum_raw, df_index, bipolar=False)
         deception_evidence = self._normalize_series(deception_index_raw, df_index, bipolar=True).clip(lower=0)
-        transfer_evidence = power_transfer_score.clip(lower=0)
-        # [修改] 融合环境证据，构建“诡道氛围”
-        deceptive_context_score = (deception_evidence * 0.6 + transfer_evidence * 0.4).clip(0, 1)
+        # [新增] 创立“伪装分”，奖励权力转移为负的矛盾行为
+        disguise_score = (1 - power_transfer_score) / 2
+        # [修改] 重构“诡道氛围”，融合“伪装分”与“欺诈证据”
+        deceptive_context_score = (disguise_score * 0.6 + deception_evidence * 0.4).clip(0, 1)
         price_trend_norm = self._normalize_series(price_trend_raw, df_index, bipolar=True)
-        # 门控条件：价格趋势不能过强，否则不符合“诡道”
         price_gating_score = (1 - price_trend_norm.clip(lower=0.1)).clip(0, 1)
-        # [修改] 优化惩罚项：仅在筹码同调性为负时进行惩罚
         coherence_penalty_factor = (1 - coherent_drive_score.clip(upper=0).abs()).clip(0, 1)
-        # [修改] 最终审判逻辑
         final_score = (core_action_score * deceptive_context_score * coherence_penalty_factor * price_gating_score).fillna(0.0)
         # [修改] 升级探针以反映新逻辑
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [诡道吸筹探针(全息审判版)] ---")
+            print("\n--- [诡道吸筹探针(矛盾博弈版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
@@ -1047,7 +1041,8 @@ class ProcessIntelligence:
             print(f"    - 价格趋势(原始): {price_trend_raw.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
             print(f"    - 核心行动(拆单吸筹归一化): {core_action_score.iloc[last_date_index]:.4f}")
-            print(f"    - 诡道氛围(欺诈+转移): {deceptive_context_score.iloc[last_date_index]:.4f}")
+            print(f"    - 伪装分(源自权力转移): {disguise_score.iloc[last_date_index]:.4f}")
+            print(f"    - 诡道氛围(伪装+欺诈): {deceptive_context_score.iloc[last_date_index]:.4f}")
             print(f"    - 筹码同调惩罚因子: {coherence_penalty_factor.iloc[last_date_index]:.4f}")
             print(f"    - 价格门控分: {price_gating_score.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
@@ -1057,15 +1052,13 @@ class ProcessIntelligence:
 
     def _calculate_upthrust_washout(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.8 · 攻防审判版】识别主力利用“上冲回落”阴线进行的洗盘行为。
-        - 核心重构: 从“K线形态匹配”升维至“攻防力量审判”。将K线分解为“上冲抛压”与“回落承接”
-                      两股力量，只有当承接力量显著强于抛压时，才确认为成功洗盘。
-        - 证据升级: 引入“上涨脉冲纯度”、“上影线抛压”、“主动买盘支撑”等新一代信号，
-                      构建更全面的攻防评估体系。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露攻防博弈的计算过程。
+        【V1.9 · 意图优先版】识别主力利用“上冲回落”阴线进行的洗盘行为。
+        - 核心重构: 创立“意图优先”原则。在评估承接力量时，将“主动买盘支撑”和“权力转移”
+                      等体现主力真实意图的信号置于核心地位，而将“下影线”等外在形态降为次要证据。
+        - 证据升级: 重新分配承接审判分的内部权重，以反映新的“意图优先”逻辑。
+        - 新增功能: 植入详尽的“真理探针”，以追踪意图评估的计算过程。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_UPTHRUST_WASHOUT (V1.8 · 攻防审判版)...")
-        # [修改] 引入新的攻防证据信号
+        print("    -> [过程层] 正在计算 PROCESS_META_UPTHRUST_WASHOUT (V1.9 · 意图优先版)...")
         required_signals = [
             'SCORE_STRUCT_AXIOM_TREND_FORM', 'BIAS_21_D', 'pct_change_D',
             'upward_impulse_purity_D', 'upper_shadow_selling_pressure_D',
@@ -1075,50 +1068,46 @@ class ProcessIntelligence:
         if not self._validate_required_signals(df, required_signals, "_calculate_upthrust_washout"):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
-        # 1. 上下文审判 (Context Judgment)
         trend_form_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         bias_21 = self._get_safe_series(df, 'BIAS_21_D', 0.0, method_name="_calculate_upthrust_washout")
         upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_calculate_upthrust_washout")
         upward_purity_norm = self._normalize_series(upward_purity_raw, df_index, bipolar=False)
         context_mask = (trend_form_score > 0.2) & (bias_21 < 0.2) & (upward_purity_norm.rolling(3).mean() > 0.3)
-        # 2. 攻防力量审判 (Offense-Defense Judgment)
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_upthrust_washout")
         upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_calculate_upthrust_washout")
         lower_shadow_strength = self._get_atomic_score(df, 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', 0.0)
         active_buying_raw = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_calculate_upthrust_washout")
         power_transfer = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0)
-        # [新增] 抛压审判分
         is_down_day = (pct_change < 0).astype(float)
         upper_shadow_pressure_norm = self._normalize_series(upper_shadow_pressure_raw, df_index, bipolar=False)
         selling_pressure_score = (upper_shadow_pressure_norm * 0.7 + is_down_day * 0.3).clip(0, 1)
-        # [新增] 承接审判分
         active_buying_norm = self._normalize_series(active_buying_raw, df_index, bipolar=False)
+        # [修改] 重构承接审判分权重，体现“意图优先”
         absorption_rebuttal_score = (
-            lower_shadow_strength * 0.4 +
-            active_buying_norm * 0.4 +
-            power_transfer.clip(lower=0) * 0.2
+            active_buying_norm * 0.5 +             # 主动买盘(意图)是核心
+            power_transfer.clip(lower=0) * 0.3 +  # 权力转移(结果)是验证
+            lower_shadow_strength * 0.2           # 下影线(形态)是补充
         ).clip(0, 1)
-        # 3. 最终裁决 (Final Verdict)
         net_washout_intent = (absorption_rebuttal_score - selling_pressure_score).clip(0, 1)
         final_score = net_washout_intent.where(context_mask, 0.0).fillna(0.0)
         # [修改] 升级探针以反映新逻辑
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [上冲回落洗盘探针(攻防审判版)] ---")
+            print("\n--- [上冲回落洗盘探针(意图优先版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
-            print(f"    - 趋势形态分: {trend_form_score.iloc[last_date_index]:.4f}")
-            print(f"    - 21日乖离率: {bias_21.iloc[last_date_index]:.4f}")
-            print(f"    - 上涨脉冲纯度(3日均): {upward_purity_norm.rolling(3).mean().iloc[last_date_index]:.4f}")
+            print(f"    - 上下文掩码: {context_mask.iloc[last_date_index]}")
             print(f"    - 上影线抛压(原始): {upper_shadow_pressure_raw.iloc[last_date_index]:.4f}")
             print(f"    - 下影线承接强度: {lower_shadow_strength.iloc[last_date_index]:.4f}")
             print(f"    - 主动买盘支撑(原始): {active_buying_raw.iloc[last_date_index]:.4f}")
             print(f"    - 权力转移: {power_transfer.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
-            print(f"    - 上下文掩码: {context_mask.iloc[last_date_index]}")
             print(f"    - 抛压审判分: {selling_pressure_score.iloc[last_date_index]:.4f}")
-            print(f"    - 承接审判分: {absorption_rebuttal_score.iloc[last_date_index]:.4f}")
+            print(f"    - 承接审判分(意图优先): {absorption_rebuttal_score.iloc[last_date_index]:.4f}")
+            print(f"      - (贡献)主动买盘(归一化): {active_buying_norm.iloc[last_date_index]:.4f} * 0.5")
+            print(f"      - (贡献)权力转移: {power_transfer.clip(lower=0).iloc[last_date_index]:.4f} * 0.3")
+            print(f"      - (贡献)下影线: {lower_shadow_strength.iloc[last_date_index]:.4f} * 0.2")
             print(f"    - 净洗盘意图(承接-抛压): {net_washout_intent.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
             print(f"    - 上冲回落洗盘最终分: {final_score.iloc[last_date_index]:.4f}")
