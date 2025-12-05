@@ -349,14 +349,14 @@ class FusionIntelligence:
         """
         print("  -- [融合层] 正在冶炼“筹码趋势”...")
         states = {}
-        # 1. [修改] 重组信号，划分为“根基”与“神魂”两大阵营
+        # 1. 重组信号，划分为“根基”与“神魂”两大阵营
         # --- 根基 (Foundation) - 客观的物理结构与趋势 ---
         battlefield_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0)
         strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         # --- 神魂 (Soul) - 主观的持股意愿与战局变数 ---
         holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
         divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
-        # 2. [修改] 核心数学逻辑 - 神魂调制模型
+        # 2. 核心数学逻辑 - 神魂调制模型
         # 2.1 融合“根基分” (Foundation Score)
         # 地形学(静态)与态势(动态)同等重要
         foundation_score = (battlefield_geography * 0.5 + strategic_posture * 0.5).clip(-1, 1)
@@ -366,72 +366,63 @@ class FusionIntelligence:
         # 2.3 构建“神魂调制器” (Soul Modulator)
         modulation_factor = 0.5 # 调制系数，控制神魂的影响力
         soul_modulator = (1 + soul_score * modulation_factor).clip(0, 2)
-        # 3. [修改] 非线性融合: 根基 × 神魂调制器
+        # 3. 非线性融合: 根基 × 神魂调制器
         final_score = (foundation_score * soul_modulator).clip(-1, 1)
         states['FUSION_BIPOLAR_CHIP_TREND'] = final_score.astype(np.float32)
-        # 4. [新增] 植入究极探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates = debug_params.get('probe_dates', [])
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [筹码趋势究极探针 V4.0 · 神魂根基版] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料 - 根基 (Foundation)]:")
-            print(f"    - 战场地形学 (SCORE_CHIP_BATTLEFIELD_GEOGRAPHY): {battlefield_geography.iloc[last_date_index]:.4f}")
-            print(f"    - 战略态势 (SCORE_CHIP_STRATEGIC_POSTURE): {strategic_posture.iloc[last_date_index]:.4f}")
-            print("  [输入原料 - 神魂 (Soul)]:")
-            print(f"    - 持股心态 (SCORE_CHIP_AXIOM_HOLDER_SENTIMENT): {holder_sentiment.iloc[last_date_index]:.4f}")
-            print(f"    - 价筹背离 (SCORE_CHIP_AXIOM_DIVERGENCE): {divergence.iloc[last_date_index]:.4f}")
-            print("  [关键计算节点]:")
-            print(f"    - 根基分 (Foundation Score): {foundation_score.iloc[last_date_index]:.4f}")
-            print(f"    - 神魂分 (Soul Score): {soul_score.iloc[last_date_index]:.4f}")
-            print(f"    - 神魂调制器 (Soul Modulator): {soul_modulator.iloc[last_date_index]:.4f}")
-            print("  [最终裁决]:")
-            print(f"    - 筹码趋势分 (FUSION_BIPOLAR_CHIP_TREND): {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “筹码趋势”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
     def _synthesize_accumulation_inflection(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 大一统同步版】冶炼“吸筹拐点信号” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
-        - 核心重构: 将判断筹码支撑环境的条件，从旧的多个原子公理升级为两大“大一统”战略信号，
-                    使其对“吸筹末端”的判断更具战略深度。
+        【V3.0 · 天地人和版】冶炼“吸筹拐点信号” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
+        - 核心重构: 废弃V2.0基于“硬编码阈值”和“与逻辑门”的僵化清单模型，引入基于
+                      “天时、地利、人和”三要素和谐共振的非线性融合模型。
+        - 诡道哲学: 真正的拐点战机 = (天时 × 地利 × 人和)^(1/3)。它摒弃了“全有或全无”的
+                      愚钝判断，转而评估三大要素的“和谐度”，任何一环的缺失都将严重拉低
+                      最终评分，体现了“共振”与“木桶效应”的精髓。
         """
+        print("  -- [融合层] 正在冶炼“吸筹拐点信号”...")
         states = {}
-        df_index = df.index
-        inflection_score = pd.Series(0.0, index=df_index)
-        ff_inflection_intent = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0)
-        # 引入新的大一统筹码信号
-        strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
-        battlefield_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0)
-        holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
-        trend_momentum = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_TREND_MOMENTUM', 0.0)
-        p_conf_fusion_inflection = get_params_block(self.strategy, 'fusion_accumulation_inflection_params', {})
-        ff_inflection_threshold = get_param_value(p_conf_fusion_inflection.get('ff_inflection_threshold'), 0.6)
-        # 更新阈值参数，适配新信号
-        strategic_posture_threshold = get_param_value(p_conf_fusion_inflection.get('strategic_posture_threshold'), 0.5)
-        battlefield_geography_favorable_threshold = get_param_value(p_conf_fusion_inflection.get('battlefield_geography_favorable_threshold'), 0.0)
-        holder_sentiment_strong_threshold = get_param_value(p_conf_fusion_inflection.get('holder_sentiment_strong_threshold'), 0.5)
-        trend_momentum_positive_threshold = get_param_value(p_conf_fusion_inflection.get('trend_momentum_positive_threshold'), 0.0)
-        cond_ff_inflection_strong = (ff_inflection_intent > ff_inflection_threshold)
-        # 重构筹码支撑条件
-        cond_chip_supportive = (strategic_posture > strategic_posture_threshold) & \
-                               (battlefield_geography > battlefield_geography_favorable_threshold) & \
-                               (holder_sentiment > holder_sentiment_strong_threshold) & \
-                               (trend_momentum > trend_momentum_positive_threshold)
-        inflection_score.loc[cond_ff_inflection_strong] = ff_inflection_intent.loc[cond_ff_inflection_strong] * 0.6
-        # 更新加分项
-        inflection_score.loc[cond_ff_inflection_strong & cond_chip_supportive] += \
-            (strategic_posture.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.15 +
-             battlefield_geography.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.15 +
-             holder_sentiment.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.05 +
-             trend_momentum.loc[cond_ff_inflection_strong & cond_chip_supportive] * 0.05)
-        inflection_score = inflection_score.clip(0, 1)
-        tf_weights_fusion_inflection = get_param_value(p_conf_fusion_inflection.get('tf_fusion_weights'), {5: 0.6, 13: 0.3, 21: 0.1})
-        inflection_score_normalized = get_adaptive_mtf_normalized_score(inflection_score, df_index, ascending=True, tf_weights=tf_weights_fusion_inflection).clip(0, 1)
-        states['FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT'] = inflection_score_normalized
-        print(f"  -- [融合层] “吸筹拐点信号”冶炼完成，最新分值: {inflection_score_normalized.iloc[-1]:.4f}")
+        # 1. [修改] 信号升维：定义“天时、地利、人和”三大支柱
+        # 天时 (Heaven's Timing): 资金发起进攻的意图
+        tian_shi_raw = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0)
+        # 地利 (Earth's Advantage): 筹码环境是否有利
+        di_li_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0)
+        # 人和 (Man's Harmony): 市场整体氛围是否配合
+        ren_he_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
+        # 2. [修改] 核心数学逻辑 - 三才共振 (几何平均)
+        # 2.1 将各支柱处理成适于相乘的 [0, 1] 区间信号
+        # 天时: 信号本身就是[0, 1]的强度分，直接使用
+        tian_shi_score = tian_shi_raw.clip(0, 1)
+        # 地利: 只考虑筹码趋势为正（有利）的情况
+        di_li_score = di_li_raw.clip(lower=0)
+        # 人和: 市场不能有巨大的下行压力。将[-1, 1]的压力分映射为[0, 1]的和谐分
+        # 压力为-1(最大)时和谐度为0，压力为正(无下行压力)时和谐度为1
+        ren_he_score = (1 - ren_he_raw.clip(upper=0).abs())
+        # 2.2 非线性融合
+        # 几何平均体现“木桶效应”，任何一环为0则整体为0
+        final_score = (tian_shi_score * di_li_score * ren_he_score).pow(1/3).fillna(0.0)
+        states['FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT'] = final_score.astype(np.float32)
+        # 3. [新增] 植入究极探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = debug_params.get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [吸筹拐点究极探针 V3.0 · 天地人和版] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料 - 三才]:")
+            print(f"    - 天时 (资金意图 - 原始分): {tian_shi_raw.iloc[last_date_index]:.4f}")
+            print(f"    - 地利 (筹码趋势 - 原始分): {di_li_raw.iloc[last_date_index]:.4f}")
+            print(f"    - 人和 (市场压力 - 原始分): {ren_he_raw.iloc[last_date_index]:.4f}")
+            print("  [关键计算节点 - 归一化处理]:")
+            print(f"    - 天时 (最终得分): {tian_shi_score.iloc[last_date_index]:.4f}")
+            print(f"    - 地利 (最终得分): {di_li_score.iloc[last_date_index]:.4f}")
+            print(f"    - 人和 (和谐度分): {ren_he_score.iloc[last_date_index]:.4f}")
+            print("  [最终裁决]:")
+            print(f"    - 吸筹拐点分 (三才共振): {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        print(f"  -- [融合层] “吸筹拐点信号”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
     def _synthesize_contested_accumulation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
