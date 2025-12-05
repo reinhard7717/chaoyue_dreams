@@ -195,9 +195,9 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V33.6 · 调用链优化版】原子信号中心
-        - 核心修复: 调整了内部信号的计算和调用顺序，以适配 _diagnose_ambush_counterattack
-                      方法对高阶战术信号 offensive_absorption_intent 的新依赖。
+        【V33.7 · 调用链修复版】原子信号中心
+        - 核心修复: 修正了对 _calculate_absorption_strength 方法的调用，移除了在新版 V2.0
+                      中已废弃的 lower_shadow_quality 参数，解决了参数数量不匹配的 TypeError。
         """
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
@@ -310,17 +310,16 @@ class BehavioralIntelligence:
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence
         lower_shadow_quality = self._diagnose_lower_shadow_quality(df, stagnation_evidence)
         distribution_intent = self._calculate_distribution_intent(df, default_weights)
-        # [修改的代码行] 调整调用顺序，先计算依赖信号
         offensive_absorption_intent = self._diagnose_offensive_absorption_intent(df, lower_shadow_quality)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
         states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] = distribution_intent
         states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = offensive_absorption_intent
-        # [修改的代码行] 将依赖信号作为参数传入
         states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] = self._diagnose_ambush_counterattack(df, offensive_absorption_intent)
         states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = self._diagnose_breakout_failure_risk(df, distribution_intent)
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights)
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights)
-        states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = self._calculate_absorption_strength(df, default_weights, lower_shadow_quality)
+        # [修改的代码行] 修复调用错误：移除在新版 V2.0 中已废弃的 lower_shadow_quality 参数
+        states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = self._calculate_absorption_strength(df, default_weights)
         states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] = self._diagnose_shakeout_confirmation(
             df,
             states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'],
@@ -346,7 +345,6 @@ class BehavioralIntelligence:
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * selling_exhaustion_score).astype(np.float32)
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
         states['SCORE_BEHAVIOR_DECEPTION_INDEX'] = self._diagnose_deception_index(df)
-        # [修改的代码行] 在常规探针后，调用原料探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
