@@ -627,7 +627,7 @@ class FusionIntelligence:
         output_name = 'PROCESS_FUSION_ACCUMULATION_PLAYBOOK'
         states[output_name] = playbook_score.astype(np.float32)
         # [新增] 植入究极探针
-        probe_dates = self.strategy.params['debug_params'].get('probe_dates', [])
+        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', []) # [修改] 使用 .get() 安全访问，防止KeyError
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print(f"\n--- [吸筹剧本究极探针] ---")
             last_date_index = -1
@@ -690,7 +690,7 @@ class FusionIntelligence:
         output_name = 'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME'
         states[output_name] = syndrome_score.astype(np.float32)
         # [新增] 植入究极探针
-        probe_dates = self.strategy.params['debug_params'].get('probe_dates', [])
+        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', []) # [修改] 使用 .get() 安全访问，防止KeyError
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print(f"\n--- [趋势衰竭综合征究极探针] ---")
             last_date_index = -1
