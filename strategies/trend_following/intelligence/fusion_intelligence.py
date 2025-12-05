@@ -427,24 +427,52 @@ class FusionIntelligence:
 
     def _synthesize_contested_accumulation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 诡道博弈版】冶炼“博弈吸筹” (Contested Accumulation)
-        - 核心目标: 识别并量化“高位换手洗盘”这一高级战术形态。
-        - 博弈逻辑: 当微观层“隐秘吸筹”与行为层“派发意图”同时强烈时，这并非矛盾，而是
-                      “新主力利用老主力的卖盘进行权力交接”的信号。
-        - 数学公式: 博弈吸筹分 = (隐秘行动分 * 派发意图分)^0.5 * 趋势质量分
+        【V2.0 · 吸收裁决版】冶炼“博弈吸筹” (Contested Accumulation)
+        - 核心重构: 废弃V1.0“盲目相乘”模型，引入“吸收裁决”作为核心裁决维度，
+                      构建“战场识别 × 吸收裁决 × 战略背景”的三位一体审判模型。
+        - 核心公式: 博弈吸筹分 = 战场识别分 × 吸收裁决分 × 战略背景分
+        - 诡道哲学: 真正的权力交接，不仅要看“博弈”的激烈程度，更要看“吸收”的最终战果。
         """
+        print("  -- [融合层] 正在冶炼“博弈吸筹”...")
         states = {}
-        # 1. 获取矛盾双方的信号
+        # 1. [修改] 信号升维：定义“战场”、“裁决”、“背景”三大支柱
+        # 支柱一：战场识别 (识别权力交接的战场)
         stealth_ops = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
         distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
-        # 2. 获取场景过滤器
+        # 支柱二：吸收裁决 (审判新主力是否成功吸收抛压)
+        downward_resistance = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE', 0.0)
+        absorption_strength = self._get_atomic_score(df, 'SCORE_BEHAVIOR_ABSORPTION_STRENGTH', 0.0)
+        # 支柱三：战略背景 (确保战术服务于战略)
         trend_quality = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0).clip(lower=0)
-        # 3. 战术融合
-        # 只有当隐秘吸筹和派发意图同时存在时，信号才被激活
-        contested_evidence = (stealth_ops * distribution_intent).pow(0.5).fillna(0.0)
-        # 只有在健康的上升趋势中，这种换手才有积极意义
-        final_score = (contested_evidence * trend_quality).clip(0, 1)
-        states['FUSION_OPPORTUNITY_CONTESTED_ACCUMULATION'] = final_score.astype(np.float32)
+        # 2. [修改] 核心数学逻辑 - 三位一体审判
+        # 2.1 计算“战场识别分”
+        battlefield_score = (stealth_ops * distribution_intent).pow(0.5).fillna(0.0)
+        # 2.2 [新增] 计算“吸收裁决分”
+        absorption_verdict = (downward_resistance * 0.5 + absorption_strength * 0.5).clip(0, 1)
+        # 2.3 最终融合：三者相乘，体现“缺一不可”的严苛逻辑
+        final_score = (battlefield_score * absorption_verdict * trend_quality).clip(0, 1)
+        output_name = 'FUSION_OPPORTUNITY_CONTESTED_ACCUMULATION'
+        states[output_name] = final_score.astype(np.float32)
+        # 3. [新增] 植入究极探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = debug_params.get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [博弈吸筹究极探针 V2.0 · 吸收裁决版] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [第一层 - 战场识别 (Battlefield Identification)]:")
+            print(f"    - 原料: 隐秘行动分: {stealth_ops.iloc[last_date_index]:.4f}")
+            print(f"    - 原料: 派发意图分: {distribution_intent.iloc[last_date_index]:.4f}")
+            print(f"    - -> 战场识别分 (两者几何平均): {battlefield_score.iloc[last_date_index]:.4f}")
+            print("  [第二层 - 吸收裁决 (Absorption Verdict)]:")
+            print(f"    - 原料: 下跌抵抗分: {downward_resistance.iloc[last_date_index]:.4f}")
+            print(f"    - 原料: 下跌吸筹强度分: {absorption_strength.iloc[last_date_index]:.4f}")
+            print(f"    - -> 吸收裁决分 (两者加权): {absorption_verdict.iloc[last_date_index]:.4f}")
+            print("  [第三层 - 战略背景 (Strategic Context)]:")
+            print(f"    - 战略背景: 趋势质量分: {trend_quality.iloc[last_date_index]:.4f}")
+            print("  [最终裁决 (Final Judgment)]:")
+            print(f"    - 最终博弈吸筹分 (三者相乘): {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
         print(f"  -- [融合层] “博弈吸筹”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
@@ -496,7 +524,7 @@ class FusionIntelligence:
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
         df_index = df.index
-        # --- 1. [V4.0 核心保留] 态之诊断 (State Diagnosis) ---
+        # --- 1. 态之诊断 (State Diagnosis) ---
         # 1.1 信号原料库 (严格筛选公理级信号)
         struct_posture = self._get_atomic_score(df, 'SCORE_STRUCT_STRATEGIC_POSTURE', 0.0)
         struct_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0)
@@ -522,37 +550,17 @@ class FusionIntelligence:
         # 1.4 微观信念作为真实性检验
         micro_conviction_regulator = (1 + micro_conviction * 0.3).clip(0.7, 1.3)
         state_quality_score_final = (state_quality_score * micro_conviction_regulator).clip(-1, 1)
-        # --- 2. [新增] 势之诊断 (Potential Diagnosis) ---
+        # --- 2. 势之诊断 (Potential Diagnosis) ---
         # 2.1 计算“质量势能分”，即静态质量分的变化率 (EMA平滑)
         quality_change = state_quality_score_final.diff(1).fillna(0.0)
         quality_potential_score = quality_change.ewm(span=3, adjust=False).mean()
         # 2.2 构建“势能调节器”
         potential_modulation_factor = 0.5 # 势能调节系数
         potential_modulator = (1 + quality_potential_score * potential_modulation_factor).clip(0.5, 1.5)
-        # --- 3. [修改] 态势合一，终极裁决 ---
+        # --- 3. 态势合一，终极裁决 ---
         final_quality = (state_quality_score_final * potential_modulator).clip(-1, 1)
         states['FUSION_BIPOLAR_TREND_QUALITY'] = final_quality.astype(np.float32)
-        # --- 4. [新增] 植入究极探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates = debug_params.get('probe_dates', [])
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [趋势质量究极探针 V5.0 · 态势合一版] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [第一层 - 态之诊断 (State Diagnosis)]:")
-            print(f"    - 结构支柱 (骨): {((pillar_structure - 1).clip(-1, 1)).iloc[last_date_index]:.4f}")
-            print(f"    - 动能支柱 (势): {((pillar_momentum - 1).clip(-1, 1)).iloc[last_date_index]:.4f}")
-            print(f"    - 信念支柱 (魂): {((pillar_conviction - 1).clip(-1, 1)).iloc[last_date_index]:.4f}")
-            print(f"    - 根基支柱 (土): {((pillar_foundation - 1).clip(-1, 1)).iloc[last_date_index]:.4f}")
-            print(f"    - -> 四象共振(静态分): {state_quality_score.iloc[last_date_index]:.4f}")
-            print(f"    - -> 微观调节器: {micro_conviction_regulator.iloc[last_date_index]:.4f}")
-            print(f"    - -> 最终静态质量(态): {state_quality_score_final.iloc[last_date_index]:.4f}")
-            print("  [第二层 - 势之诊断 (Potential Diagnosis)]:")
-            print(f"    - 质量变化率(势): {quality_potential_score.iloc[last_date_index]:.4f}")
-            print(f"    - 势能调节器 (1+势*系数): {potential_modulator.iloc[last_date_index]:.4f}")
-            print("  [最终裁决 - 态势合一]:")
-            print(f"    - 最终趋势质量 (态 × 势能调节器): {final_quality.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {final_quality.iloc[-1]:.4f}")
         return states
 
