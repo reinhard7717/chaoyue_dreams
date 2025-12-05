@@ -375,40 +375,39 @@ class FusionIntelligence:
 
     def _synthesize_accumulation_inflection(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 天地人和版】冶炼“吸筹拐点信号” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
+        【V3.1 · 阴阳和谐版】冶炼“吸筹拐点信号” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
         - 核心重构: 废弃V2.0基于“硬编码阈值”和“与逻辑门”的僵化清单模型，引入基于
                       “天时、地利、人和”三要素和谐共振的非线性融合模型。
-        - 诡道哲学: 真正的拐点战机 = (天时 × 地利 × 人和)^(1/3)。它摒弃了“全有或全无”的
-                      愚钝判断，转而评估三大要素的“和谐度”，任何一环的缺失都将严重拉低
-                      最终评分，体现了“共振”与“木桶效应”的精髓。
+        - V3.1进化: 重塑“人和”的计算逻辑，从只看“无下行压力”的片面模型，进化为能同时
+                      体现“规避下行风险”与“拥抱上行助力”的“阴阳调和”模型。
+        - 诡道哲学: 真正的拐点战机 = (天时 × 地利 × 人和)^(1/3)。
         """
         print("  -- [融合层] 正在冶炼“吸筹拐点信号”...")
         states = {}
-        # 1. [修改] 信号升维：定义“天时、地利、人和”三大支柱
+        # 1. 信号升维：定义“天时、地利、人和”三大支柱
         # 天时 (Heaven's Timing): 资金发起进攻的意图
         tian_shi_raw = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0)
         # 地利 (Earth's Advantage): 筹码环境是否有利
         di_li_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0)
         # 人和 (Man's Harmony): 市场整体氛围是否配合
         ren_he_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
-        # 2. [修改] 核心数学逻辑 - 三才共振 (几何平均)
+        # 2. 核心数学逻辑 - 三才共振 (几何平均)
         # 2.1 将各支柱处理成适于相乘的 [0, 1] 区间信号
         # 天时: 信号本身就是[0, 1]的强度分，直接使用
         tian_shi_score = tian_shi_raw.clip(0, 1)
         # 地利: 只考虑筹码趋势为正（有利）的情况
         di_li_score = di_li_raw.clip(lower=0)
-        # 人和: 市场不能有巨大的下行压力。将[-1, 1]的压力分映射为[0, 1]的和谐分
-        # 压力为-1(最大)时和谐度为0，压力为正(无下行压力)时和谐度为1
-        ren_he_score = (1 - ren_he_raw.clip(upper=0).abs())
+        # [修改] 人和: 采用“阴阳调和”模型，将[-1, 1]的压力分完美映射为[0, 1]的和谐分
+        ren_he_score = (ren_he_raw + 1) / 2
         # 2.2 非线性融合
         # 几何平均体现“木桶效应”，任何一环为0则整体为0
         final_score = (tian_shi_score * di_li_score * ren_he_score).pow(1/3).fillna(0.0)
         states['FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT'] = final_score.astype(np.float32)
-        # 3. [新增] 植入究极探针
+        # 3. 植入究极探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [吸筹拐点究极探针 V3.0 · 天地人和版] ---")
+            print(f"\n--- [吸筹拐点究极探针 V3.1 · 阴阳和谐版] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料 - 三才]:")
@@ -418,7 +417,7 @@ class FusionIntelligence:
             print("  [关键计算节点 - 归一化处理]:")
             print(f"    - 天时 (最终得分): {tian_shi_score.iloc[last_date_index]:.4f}")
             print(f"    - 地利 (最终得分): {di_li_score.iloc[last_date_index]:.4f}")
-            print(f"    - 人和 (和谐度分): {ren_he_score.iloc[last_date_index]:.4f}")
+            print(f"    - 人和 (和谐度分 - 阴阳调和): {ren_he_score.iloc[last_date_index]:.4f}")
             print("  [最终裁决]:")
             print(f"    - 吸筹拐点分 (三才共振): {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
