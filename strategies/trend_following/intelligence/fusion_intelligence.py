@@ -577,21 +577,40 @@ class FusionIntelligence:
 
     def _synthesize_micro_conviction(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 战地直觉版】冶炼“微观信念” (Micro Conviction)
-        - 核心目标: 锻造一个能代表盘口最真实、最瞬时多空意图的终极微观信号。
-        - 融合逻辑: 微观信念 = f(瞬时意图, 意图趋势)。融合了“订单流失衡”和“微观价量背离”
-                      两大核心微观信号，作为宏观趋势的“真实性检验器”或“灵魂拷问者”。
+        【V2.0 · 意图确认版】冶炼“微观信念” (Micro Conviction)
+        - 核心重构: 废弃V1.0的线性加权模型，引入“意图-确认”非线性融合模型。
+        - 核心公式: 微观信念 = 瞬时意图 × (1 + 意图趋势 × 确认系数)
+        - 融合逻辑: 以“瞬时意图”为基础，用“意图趋势”作为确认或否定的调节器。
+                      此模型旨在放大“共振”信号，并揭示“意图与趋势相悖”的诡道陷阱。
         """
+        print("  -- [融合层] 正在冶炼“微观信念”...")
         states = {}
         # 1. 获取核心微观信号
         micro_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0)
         micro_divergence = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_DIVERGENCE', 0.0)
-        # 2. 融合：瞬时意图为主，意图趋势为辅
-        micro_conviction_score = (
-            micro_intent * 0.7 +
-            micro_divergence * 0.3
-        ).clip(-1, 1)
-        states['FUSION_BIPOLAR_MICRO_CONVICTION'] = micro_conviction_score.astype(np.float32)
+        # 2. 核心数学逻辑 - “意图-确认”模型
+        confirmation_factor = 0.5 # 确认系数，控制意图趋势的影响力
+        # 确认调节器：当意图趋势与瞬时意图同向时 > 1 (放大)，反向时 < 1 (抑制)
+        confirmation_modulator = (1 + micro_divergence * confirmation_factor)
+        # 非线性融合
+        micro_conviction_score = (micro_intent * confirmation_modulator).clip(-1, 1)
+        output_name = 'FUSION_BIPOLAR_MICRO_CONVICTION'
+        states[output_name] = micro_conviction_score.astype(np.float32)
+        # [新增] 植入究极探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = debug_params.get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [微观信念究极探针 V2.0] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 瞬时意图 (micro_intent): {micro_intent.iloc[last_date_index]:.4f}")
+            print(f"    - 意图趋势 (micro_divergence): {micro_divergence.iloc[last_date_index]:.4f}")
+            print("  [关键计算节点]:")
+            print(f"    - 确认调节器 (1 + 意图趋势 * {confirmation_factor}): {confirmation_modulator.iloc[last_date_index]:.4f}")
+            print("  [最终裁决]:")
+            print(f"    - 微观信念分 ({output_name}): {micro_conviction_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
         print(f"  -- [融合层] “微观信念”冶炼完成，最新分值: {micro_conviction_score.iloc[-1]:.4f}")
         return states
 
