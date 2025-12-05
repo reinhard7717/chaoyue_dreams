@@ -400,9 +400,9 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.6 · 军令同步升级版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 为 PROCESS_META_LOSER_CAPITULATION 信号分派专属计算引擎，
-                      确保其“恐慌吸收”的诡道逻辑得以执行。
+        【V5.7 · 军令同步升级版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 为 PROCESS_META_PROFIT_VS_FLOW 信号分派专属计算引擎，
+                      确保其“派发压力 vs 建仓动力”的战场对抗逻辑得以执行。
         """
         signal_name = config.get('name')
         df_index = df.index
@@ -419,6 +419,10 @@ class ProcessIntelligence:
         elif signal_name == 'PROCESS_META_PD_DIVERGENCE_CONFIRM':
             relationship_score = self._calculate_pd_divergence_relationship(df, config)
             meta_score = relationship_score
+        # [新增] 为“利润与流向”信号增加专属路由
+        elif signal_name == 'PROCESS_META_PROFIT_VS_FLOW':
+            relationship_score = self._calculate_profit_vs_flow_relationship(df, config)
+            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
         elif signal_name == 'PROCESS_META_PF_REL_BULLISH_TURN':
             meta_score = self._calculate_pf_relationship(df, config)
         elif signal_name == 'PROCESS_META_PC_REL_BULLISH_TURN':
@@ -431,7 +435,6 @@ class ProcessIntelligence:
         elif signal_name == 'PROCESS_META_WINNER_CONVICTION':
             relationship_score = self._calculate_winner_conviction_relationship(df, config)
             meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
-        # [新增] 为“套牢盘投降”信号增加专属路由
         elif signal_name == 'PROCESS_META_LOSER_CAPITULATION':
             meta_score = self._calculate_loser_capitulation(df, config)
         elif signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND':
@@ -1237,66 +1240,100 @@ class ProcessIntelligence:
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.2 · 探针植入版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
-        - 核心修复: 修正了数据访问逻辑，确保所有依赖的底层原子信号（如高频强度、校准后资金流等）
-                      都从正确的数据源 `df` 中获取，而非从 `atomic_states` 中错误查找，
-                      彻底解决了“依赖信号不存在”的警告。
-        - 新增功能: 植入“真理探针”，用于在指定日期输出关键计算过程。
+        【V2.0 · 战术升级版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
+        - 核心重构: 废除僵化的“AND”门槛，创立“战术评分”模型。最终分 = 前奏吸筹分 * 强攻分。
+        - 证据升级: “前奏分”通过归一化消除尺度问题；“强攻分”对核心证据进行加权，更具实战性。
+        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“战术评分”模型。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT (V1.2 · 探针植入版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT (V2.0 · 战术升级版)...")
         required_signals = [
-            'SCORE_FF_AXIOM_FLOW_MOMENTUM', 'hidden_accumulation_intensity_D',
-            'main_force_net_flow_calibrated_D', 'buy_quote_exhaustion_rate_D', 'large_order_pressure_D'
+            'hidden_accumulation_intensity_D', 'main_force_net_flow_calibrated_D',
+            'buy_quote_exhaustion_rate_D', 'large_order_pressure_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_calculate_fund_flow_accumulation_inflection"):
             return pd.Series(0.0, index=df.index)
         df_index = df.index
-        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        tf_weights_inflection = get_param_value(p_mtf.get('short_term_weights'), {'weights': {3: 0.5, 5: 0.3, 8: 0.2}})
-        # 修正数据源，从 df 获取原子原料，从 atomic_states 获取情报产物
-        flow_momentum = self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0)
-        psai = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_calculate_fund_flow_accumulation_inflection")
-        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_fund_flow_accumulation_inflection")
+        # 获取原料
+        prelude_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_calculate_fund_flow_accumulation_inflection")
+        main_force_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_fund_flow_accumulation_inflection")
         buy_exhaustion_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_calculate_fund_flow_accumulation_inflection")
         large_pressure_raw = self._get_safe_series(df, 'large_order_pressure_D', 0.0, method_name="_calculate_fund_flow_accumulation_inflection")
-        # 从config中读取参数
-        psai_high_threshold = config.get('psai_high_threshold', 0.5)
-        mf_flow_positive_threshold = config.get('mf_flow_positive_threshold', 0.0)
-        buy_exhaustion_threshold = config.get('buy_exhaustion_threshold', 0.7)
-        large_pressure_low_threshold = config.get('large_pressure_low_threshold', 0.3)
-        buy_exhaustion_score = get_adaptive_mtf_normalized_score(buy_exhaustion_raw, df_index, ascending=True, tf_weights=tf_weights_inflection)
-        large_pressure_score = get_adaptive_mtf_normalized_score(large_pressure_raw, df_index, ascending=True, tf_weights=tf_weights_inflection)
-        cond_prelude_accumulation = (psai.rolling(window=5).mean() > psai_high_threshold)
-        cond_overt_attack = (
-            (main_force_flow > mf_flow_positive_threshold) &
-            (buy_exhaustion_score > buy_exhaustion_threshold) &
-            (large_pressure_score < large_pressure_low_threshold)
-        )
-        inflection_intent_mask = cond_prelude_accumulation & cond_overt_attack
-        inflection_intent_score = (flow_momentum.clip(lower=0) * 0.5 + buy_exhaustion_score * 0.5)
-        inflection_intent_score = inflection_intent_score.where(inflection_intent_mask, 0.0)
-        final_score = get_adaptive_mtf_normalized_score(inflection_intent_score, df_index, ascending=True, tf_weights=tf_weights_inflection).clip(0, 1)
+        # [修改] 1. 重铸“前奏分”，消除尺度问题
+        prelude_score = self._normalize_series(prelude_raw.rolling(5).mean(), df_index, bipolar=False)
+        # [修改] 2. 重铸“强攻分”，采用加权模型
+        buy_exhaustion_norm = self._normalize_series(buy_exhaustion_raw, df_index, bipolar=False)
+        main_force_flow_momentum = self._normalize_series(main_force_flow_raw.diff(1).fillna(0), df_index, bipolar=True)
+        pressure_clearance_norm = 1 - self._normalize_series(large_pressure_raw, df_index, bipolar=False)
+        attack_score = (
+            buy_exhaustion_norm * 0.6 +
+            main_force_flow_momentum.clip(lower=0) * 0.3 +
+            pressure_clearance_norm.clip(lower=0) * 0.1
+        ).clip(0, 1)
+        # [修改] 3. 最终审判
+        final_score = (prelude_score * attack_score).fillna(0.0)
+        # [修改] 4. 全面升级探针
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [资金流吸筹拐点探针] ---")
+            print("\n--- [资金流吸筹拐点探针(战术升级版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
-            print(f"    - 资金流纯度与动能: {flow_momentum.iloc[last_date_index]:.4f}")
-            print(f"    - 隐蔽吸筹强度(5日均): {psai.rolling(window=5).mean().iloc[last_date_index]:.4f}")
-            print(f"    - 主力净流入: {main_force_flow.iloc[last_date_index]:.2f}")
-            print(f"    - 买盘消耗率(归一化): {buy_exhaustion_score.iloc[last_date_index]:.4f}")
-            print(f"    - 大单压力(归一化): {large_pressure_score.iloc[last_date_index]:.4f}")
+            print(f"    - 隐蔽吸筹(5日均, 原始): {prelude_raw.rolling(5).mean().iloc[last_date_index]:.4f}")
+            print(f"    - 买盘消耗率(原始): {buy_exhaustion_raw.iloc[last_date_index]:.4f}")
+            print(f"    - 主力净流入(1日变化): {main_force_flow_raw.diff(1).iloc[last_date_index]:.2f}")
+            print(f"    - 大单压力(原始): {large_pressure_raw.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
-            print(f"    - 条件1(前奏吸筹)满足: {cond_prelude_accumulation.iloc[last_date_index]}")
-            print(f"    - 条件2(公开强攻)满足: {cond_overt_attack.iloc[last_date_index]}")
-            print(f"    - 拐点意图掩码: {inflection_intent_mask.iloc[last_date_index]}")
-            print(f"    - 拐点意图得分(原始): {inflection_intent_score.iloc[last_date_index]:.4f}")
+            print(f"    - 前奏吸筹分(归一化): {prelude_score.iloc[last_date_index]:.4f}")
+            print(f"    - -> 买盘消耗(w=0.6): {buy_exhaustion_norm.iloc[last_date_index]:.4f}")
+            print(f"    - -> 主力流向动能(w=0.3): {main_force_flow_momentum.clip(lower=0).iloc[last_date_index]:.4f}")
+            print(f"    - -> 压力清除(w=0.1): {pressure_clearance_norm.clip(lower=0).iloc[last_date_index]:.4f}")
+            print(f"    - 强攻分(加权): {attack_score.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
             print(f"    - 资金流吸筹拐点最终分: {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         return final_score.astype(np.float32)
+
+    def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V4.0 · 战法升级版】“利润与流向”专属关系计算引擎
+        - 核心重构: 创立“派发压力 vs 建仓动力”的战场对抗模型。
+        - 信号升级: 将核心“压力”信号从“T0效率”升级为更精准的“利润兑现流量占比”。
+        - 核心逻辑: 瞬时关系分 = 建仓动力分 - 派发压力分。
+        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“战场对抗”模型。
+        """
+        pressure_signal_name = 'profit_taking_flow_ratio_D'    # 压力方
+        drive_signal_name = 'main_force_net_flow_calibrated_D' # 动力方
+        required_signals = [pressure_signal_name, drive_signal_name]
+        if not self._validate_required_signals(df, required_signals, "_calculate_profit_vs_flow_relationship"):
+            return pd.Series(dtype=np.float32)
+        df_index = df.index
+        pressure_signal_raw = self._get_safe_series(df, pressure_signal_name, 0.0, method_name="_calculate_profit_vs_flow_relationship")
+        drive_signal_raw = self._get_safe_series(df, drive_signal_name, 0.0, method_name="_calculate_profit_vs_flow_relationship")
+        # 计算各自的变化率（动量）
+        pressure_change = pressure_signal_raw.diff(1).fillna(0)
+        drive_change = drive_signal_raw.diff(1).fillna(0)
+        # 归一化动量
+        pressure_momentum = self._normalize_series(pressure_change, df_index, bipolar=True)
+        drive_momentum = self._normalize_series(drive_change, df_index, bipolar=True)
+        # 核心逻辑：战场对抗
+        relationship_score = drive_momentum - pressure_momentum
+        final_score = relationship_score.clip(-1, 1)
+        # 植入探针
+        probe_dates = self.probe_dates
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [瞬时关系探针(战法升级版): {config.get('name')}] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 派发压力信号 ({pressure_signal_name}): {pressure_signal_raw.iloc[last_date_index]:.4f}")
+            print(f"    - 建仓动力信号 ({drive_signal_name}): {drive_signal_raw.iloc[last_date_index]:.2f}")
+            print("  [关键计算]:")
+            print(f"    - 派发压力动量(归一化): {pressure_momentum.iloc[last_date_index]:.4f}")
+            print(f"    - 建仓动力动量(归一化): {drive_momentum.iloc[last_date_index]:.4f}")
+            print("  [最终结果]:")
+            print(f"    - 战场对抗分 (动力-压力): {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        return final_score
 
     def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
