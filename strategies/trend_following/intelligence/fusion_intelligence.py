@@ -145,29 +145,6 @@ class FusionIntelligence:
         # 3. 最终裁决
         bipolar_contradiction = (total_bullish_score - total_bearish_score).clip(-1, 1)
         states['FUSION_BIPOLAR_MARKET_CONTRADICTION'] = bipolar_contradiction.astype(np.float32)
-        # 4. [新增] 植入究极探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates = debug_params.get('probe_dates', [])
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [市场矛盾究极探针 V3.0 · 矛盾共振版] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料 - 看涨背离源 (信号值 @ 权重)]:")
-            print(f"    - SCORE_CHIP_AXIOM_DIVERGENCE (Bullish Part): {chip_divergence.clip(lower=0).iloc[last_date_index]:.4f} @ {chip_weight}")
-            for source, weight in divergence_sources.items():
-                s_name = f'SCORE_{source}_BULLISH_DIVERGENCE' if source != 'BEHAVIOR' else 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'
-                print(f"    - {s_name}: {self._get_atomic_score(df, s_name, 0.0).iloc[last_date_index]:.4f} @ {weight}")
-            print("  [输入原料 - 看跌背离源 (信号值 @ 权重)]:")
-            print(f"    - SCORE_CHIP_AXIOM_DIVERGENCE (Bearish Part): {chip_divergence.clip(upper=0).abs().iloc[last_date_index]:.4f} @ {chip_weight}")
-            for source, weight in divergence_sources.items():
-                s_name = f'SCORE_{source}_BEARISH_DIVERGENCE' if source != 'BEHAVIOR' else 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'
-                print(f"    - {s_name}: {self._get_atomic_score(df, s_name, 0.0).iloc[last_date_index]:.4f} @ {weight}")
-            print("  [关键计算节点]:")
-            print(f"    - 加权看涨矛盾总分: {total_bullish_score.iloc[last_date_index]:.4f}")
-            print(f"    - 加权看跌矛盾总分: {total_bearish_score.iloc[last_date_index]:.4f}")
-            print("  [最终裁决]:")
-            print(f"    - 市场矛盾分 (FUSION_BIPOLAR_MARKET_CONTRADICTION): {bipolar_contradiction.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         print(f"  -- [融合层] “市场矛盾”冶炼完成，最新分值: {bipolar_contradiction.iloc[-1]:.4f}")
         return states
 
@@ -241,49 +218,82 @@ class FusionIntelligence:
 
     def _synthesize_price_overextension_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.3 · 工具修正版】冶炼“价格超买意图” (Price Overextension Intent)
-        - 核心修复: 修正了因误用 `normalize_to_bipolar` 处理多时间框架权重而导致的 TypeError。
-                      全面换装为正确的 `get_adaptive_mtf_normalized_bipolar_score` 函数，
-                      确保“多维透镜”的战略意图得以正确执行。
+        【V2.0 · 状态与意图审判版】冶炼“价格超买意图” (Price Overextension Intent)
+        - 核心重构: 废弃V1.x仅依赖价格振荡器的线性模型，引入“状态 × 意图”的非线性乘法模型。
+        - 诡道哲学: 最终意图 = 超涨状态 × 反转意图。只有当价格达到极限状态，且市场
+                      出现明确的反转意图时，信号才会爆发，旨在过滤“高位钝化”等陷阱。
         """
+        print("  -- [融合层] 正在冶炼“价格超买意图”...")
         states = {}
         df_index = df.index
-        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        short_term_weights = get_param_value(p_mtf.get('short_term_weights'), {'weights': {3: 0.5, 5: 0.3, 8: 0.2}})
-        long_term_weights = get_param_value(p_mtf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
-        overextension_raw_bipolar = (self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.5) * 2 - 1).clip(-1, 1)
-        bias_raw = self._get_safe_series(df, 'BIAS_21_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        # 换用正确的多时间框架归一化函数
-        bias_score = get_adaptive_mtf_normalized_bipolar_score(bias_raw, df_index, tf_weights=default_weights, sensitivity=0.05)
-        winner_rate_raw = self._get_safe_series(df, 'total_winner_rate_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        # 换用正确的多时间框架归一化函数
-        winner_rate_score = get_adaptive_mtf_normalized_bipolar_score(winner_rate_raw, df_index, tf_weights=long_term_weights, sensitivity=0.1)
-        rsi_raw = self._get_safe_series(df, 'RSI_13_D', pd.Series(50.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        # 换用正确的多时间框架归一化函数
-        rsi_score = get_adaptive_mtf_normalized_bipolar_score(rsi_raw, df_index, tf_weights=short_term_weights, sensitivity=10.0)
-        core_overextension_sum = (
-            overextension_raw_bipolar * 0.2 + bias_score * 0.2 +
-            rsi_score * 0.15 + winner_rate_score * 0.15
-        )
-        fund_flow_consensus = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0)
-        chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
-        structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
-        micro_cost_control = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_COST_CONTROL', 0.0)
-        body_ratio_raw = self._get_safe_series(df, 'closing_strength_index_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
-        # 换用正确的多时间框架归一化函数
-        body_score = get_adaptive_mtf_normalized_bipolar_score(body_ratio_raw, df_index, tf_weights=default_weights, sensitivity=0.2)
-        distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
-        distribution_intent_score = (distribution_intent * -1).clip(-1, 0)
-        health_sum = (
-            fund_flow_consensus * 0.1 + chip_strategic_posture * 0.05 +
-            structural_trend_form * 0.05 + micro_cost_control * 0.03 +
-            body_score * 0.04 + distribution_intent_score * 0.03
-        )
-        final_overextension_intent = (core_overextension_sum - health_sum).clip(-1, 1)
-        states['FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT'] = final_overextension_intent.astype(np.float32)
-        print(f"  -- [融合层] “价格超买意图”冶炼完成，最新分值: {final_overextension_intent.iloc[-1]:.4f}")
+        # 1. 定义“超涨状态”的原料 (客观的伸展程度)
+        overbought_state_sources = {
+            'SCORE_DYN_AXIOM_OSCILLATOR': 0.6,  # 力学层-振荡器公理
+            'SCORE_STRUCT_AXIOM_DEVIATION': 0.4, # 结构层-偏离度公理
+        }
+        # 2. 定义“反转意图”的原料 (主观的博弈动机)
+        bearish_intent_sources = {
+            'SCORE_BEHAVIOR_DISTRIBUTION_INTENT': 0.4, # 行为层-派发意图
+            'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY': 0.3, # 行为层-看跌背离品质
+            'FUSION_RISK_STAGNATION': 0.3, # 融合层-滞涨风险
+        }
+        bullish_intent_sources = {
+            'SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK': 0.4, # 行为层-伏击式反攻
+            'SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY': 0.3, # 行为层-看涨背离品质
+            'FUSION_OPPORTUNITY_CONTESTED_ACCUMULATION': 0.3, # 融合层-争夺性吸筹
+        }
+        # 3. 核心数学逻辑 - 状态与意图的非线性审判
+        # 3.1 计算“超涨状态”分
+        oscillator_score = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_OSCILLATOR', 0.0)
+        deviation_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_DEVIATION', 0.0)
+        overbought_state = (oscillator_score.clip(lower=0) * overbought_state_sources['SCORE_DYN_AXIOM_OSCILLATOR'] +
+                            deviation_score.clip(lower=0) * overbought_state_sources['SCORE_STRUCT_AXIOM_DEVIATION'])
+        oversold_state = (oscillator_score.clip(upper=0).abs() * overbought_state_sources['SCORE_DYN_AXIOM_OSCILLATOR'] +
+                          deviation_score.clip(upper=0).abs() * overbought_state_sources['SCORE_STRUCT_AXIOM_DEVIATION'])
+        # 3.2 计算“反转意图”分
+        bearish_intent = pd.Series(0.0, index=df_index)
+        for signal, weight in bearish_intent_sources.items():
+            bearish_intent += self._get_atomic_score(df, signal, 0.0) * weight
+        bullish_intent = pd.Series(0.0, index=df_index)
+        for signal, weight in bullish_intent_sources.items():
+            bullish_intent += self._get_atomic_score(df, signal, 0.0) * weight
+        # 3.3 非线性融合: 状态 × 意图
+        overextension_bearish = (overbought_state * bearish_intent).clip(0, 1)
+        overextension_bullish = (oversold_state * bullish_intent).clip(0, 1)
+        # 4. 最终裁决
+        bipolar_intent = (overextension_bullish - overextension_bearish).clip(-1, 1)
+        states['FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT'] = bipolar_intent.astype(np.float32)
+        # 5. [新增] 植入究极探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = debug_params.get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [价格超买意图究极探针 V2.0 · 状态与意图审判版] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料 - 超买状态源 (Overbought State)]:")
+            print(f"    - SCORE_DYN_AXIOM_OSCILLATOR (Bearish Part): {oscillator_score.clip(lower=0).iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_STRUCT_AXIOM_DEVIATION (Bearish Part): {deviation_score.clip(lower=0).iloc[last_date_index]:.4f}")
+            print("  [输入原料 - 看跌意图源 (Bearish Intent)]:")
+            for s in bearish_intent_sources:
+                print(f"    - {s}: {self._get_atomic_score(df, s, 0.0).iloc[last_date_index]:.4f}")
+            print("  ---")
+            print("  [输入原料 - 超卖状态源 (Oversold State)]:")
+            print(f"    - SCORE_DYN_AXIOM_OSCILLATOR (Bullish Part): {oscillator_score.clip(upper=0).abs().iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_STRUCT_AXIOM_DEVIATION (Bullish Part): {deviation_score.clip(upper=0).abs().iloc[last_date_index]:.4f}")
+            print("  [输入原料 - 看涨意图源 (Bullish Intent)]:")
+            for s in bullish_intent_sources:
+                print(f"    - {s}: {self._get_atomic_score(df, s, 0.0).iloc[last_date_index]:.4f}")
+            print("  [关键计算节点]:")
+            print(f"    - 综合超买状态分: {overbought_state.iloc[last_date_index]:.4f}")
+            print(f"    - 综合看跌意图分: {bearish_intent.iloc[last_date_index]:.4f}")
+            print(f"    - 综合超卖状态分: {oversold_state.iloc[last_date_index]:.4f}")
+            print(f"    - 综合看涨意图分: {bullish_intent.iloc[last_date_index]:.4f}")
+            print(f"    - [状态×意图] 看跌意图最终得分: {overextension_bearish.iloc[last_date_index]:.4f}")
+            print(f"    - [状态×意图] 看涨意图最终得分: {overextension_bullish.iloc[last_date_index]:.4f}")
+            print("  [最终裁决]:")
+            print(f"    - 价格超买意图分 (FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT): {bipolar_intent.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        print(f"  -- [融合层] “价格超买意图”冶炼完成，最新分值: {bipolar_intent.iloc[-1]:.4f}")
         return states
 
     def _synthesize_trend_structure_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -514,7 +524,6 @@ class FusionIntelligence:
         micro_conviction_score = (micro_intent * confirmation_modulator).clip(-1, 1)
         output_name = 'FUSION_BIPOLAR_MICRO_CONVICTION'
         states[output_name] = micro_conviction_score.astype(np.float32)
-        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “微观信念”冶炼完成，最新分值: {micro_conviction_score.iloc[-1]:.4f}")
         return states
 
@@ -564,7 +573,6 @@ class FusionIntelligence:
         micro_conviction_regulator = (1 + micro_conviction * 0.3).clip(0.7, 1.3)
         final_bipolar_quality = (bipolar_quality * micro_conviction_regulator).clip(-1, 1)
         states['FUSION_BIPOLAR_TREND_QUALITY'] = final_bipolar_quality.astype(np.float32)
-        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {final_bipolar_quality.iloc[-1]:.4f} (原始分: {bipolar_quality.iloc[-1]:.4f}, 微观调节器: {micro_conviction_regulator.iloc[-1]:.4f})")
         return states
 
@@ -615,31 +623,6 @@ class FusionIntelligence:
         # 3. 最终裁决
         bipolar_pressure = (amplified_upward_pressure - amplified_downward_pressure).clip(-1, 1)
         states['FUSION_BIPOLAR_MARKET_PRESSURE'] = bipolar_pressure.astype(np.float32)
-        # 4. [新增] 植入究极探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates = debug_params.get('probe_dates', [])
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [市场压力究极探针 V2.0 · 压力共振版] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料 - 向上压力源]:")
-            for s in opportunity_signals:
-                print(f"    - {s}: {self._get_atomic_score(df, s, 0.0).iloc[last_date_index]:.4f}")
-            print("  [输入原料 - 向下压力源]:")
-            for s in risk_signals:
-                print(f"    - {s}: {self._get_atomic_score(df, s, 0.0).iloc[last_date_index]:.4f}")
-            print("  [关键计算节点]:")
-            print(f"    - 基础向上压力: {base_upward_pressure.iloc[last_date_index]:.4f}")
-            print(f"    - 基础向下压力: {base_downward_pressure.iloc[last_date_index]:.4f}")
-            print(f"    - 共振向上信号数(>{resonance_threshold}): {resonant_upward_signals.iloc[last_date_index]}")
-            print(f"    - 共振向下信号数(>{resonance_threshold}): {resonant_downward_signals.iloc[last_date_index]}")
-            print(f"    - 向上压力共振放大器: {upward_resonance_modulator.iloc[last_date_index]:.4f}")
-            print(f"    - 向下压力共振放大器: {downward_resonance_modulator.iloc[last_date_index]:.4f}")
-            print(f"    - 放大后向上压力: {amplified_upward_pressure.iloc[last_date_index]:.4f}")
-            print(f"    - 放大后向下压力: {amplified_downward_pressure.iloc[last_date_index]:.4f}")
-            print("  [最终裁决]:")
-            print(f"    - 市场压力分 (FUSION_BIPOLAR_MARKET_PRESSURE): {bipolar_pressure.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         print(f"  -- [融合层] “市场压力”冶炼完成，最新分值: {bipolar_pressure.iloc[-1]:.4f}")
         return states
 
@@ -674,7 +657,6 @@ class FusionIntelligence:
         playbook_score = (max_accumulation_tactic * quality_modulator).clip(0, 1)
         output_name = 'PROCESS_FUSION_ACCUMULATION_PLAYBOOK'
         states[output_name] = playbook_score.astype(np.float32)
-        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “吸筹剧本”推演完成，最新分值: {playbook_score.iloc[-1]:.4f}")
         return states
 
@@ -719,7 +701,6 @@ class FusionIntelligence:
         syndrome_score = (weighted_sum * resonance_modulator).clip(0, 1)
         output_name = 'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME'
         states[output_name] = syndrome_score.astype(np.float32)
-        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “趋势衰竭综合征”诊断完成，最新分值: {syndrome_score.iloc[-1]:.4f}")
         return states
 
