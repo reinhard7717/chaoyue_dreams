@@ -375,51 +375,54 @@ class FusionIntelligence:
 
     def _synthesize_accumulation_inflection(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 阴阳和谐版】冶炼“吸筹拐点信号” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
-        - 核心重构: 废弃V2.0基于“硬编码阈值”和“与逻辑门”的僵化清单模型，引入基于
-                      “天时、地利、人和”三要素和谐共振的非线性融合模型。
-        - V3.1进化: 重塑“人和”的计算逻辑，从只看“无下行压力”的片面模型，进化为能同时
-                      体现“规避下行风险”与“拥抱上行助力”的“阴阳调和”模型。
-        - 诡道哲学: 真正的拐点战机 = (天时 × 地利 × 人和)^(1/3)。
+        【V4.0 · 势能注入版】冶炼“吸筹拐点信号” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
+        - 核心重构: 废弃V2.0基于“硬编码阈值”和“与逻辑门”的僵化清单模型。
+        - V4.0进化: 在“天地人和”的静态和谐模型基础上，注入“地利改善度”作为动态的
+                      “势能放大器”。旨在捕捉不仅“态”佳，而且“势”在升腾的顶级战机。
+        - 诡道哲学: 终极拐点 = 和谐之态(根基) × 增长之势(矢量)。
         """
         print("  -- [融合层] 正在冶炼“吸筹拐点信号”...")
         states = {}
         # 1. 信号升维：定义“天时、地利、人和”三大支柱
-        # 天时 (Heaven's Timing): 资金发起进攻的意图
         tian_shi_raw = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0)
-        # 地利 (Earth's Advantage): 筹码环境是否有利
         di_li_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0)
-        # 人和 (Man's Harmony): 市场整体氛围是否配合
         ren_he_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
-        # 2. 核心数学逻辑 - 三才共振 (几何平均)
-        # 2.1 将各支柱处理成适于相乘的 [0, 1] 区间信号
-        # 天时: 信号本身就是[0, 1]的强度分，直接使用
+        # 2. 核心数学逻辑 - 和谐之态 × 增长之势
+        # 2.1 计算“和谐之态” (Harmony State)
         tian_shi_score = tian_shi_raw.clip(0, 1)
-        # 地利: 只考虑筹码趋势为正（有利）的情况
         di_li_score = di_li_raw.clip(lower=0)
-        # [修改] 人和: 采用“阴阳调和”模型，将[-1, 1]的压力分完美映射为[0, 1]的和谐分
         ren_he_score = (ren_he_raw + 1) / 2
-        # 2.2 非线性融合
-        # 几何平均体现“木桶效应”，任何一环为0则整体为0
-        final_score = (tian_shi_score * di_li_score * ren_he_score).pow(1/3).fillna(0.0)
+        harmony_state_score = (tian_shi_score * di_li_score * ren_he_score).pow(1/3).fillna(0.0)
+        # 2.2 [新增] 计算“增长之势” (Growth Potential)
+        # “地利”的改善度，即筹码趋势的积极变化
+        di_li_change = di_li_raw.diff(1).fillna(0.0)
+        # 构建势能调制器，只奖励积极的变化
+        amplification_factor = 0.5 # 势能放大系数
+        potential_energy_modulator = (1 + di_li_change.clip(lower=0) * amplification_factor)
+        # 2.3 [修改] 最终融合：和谐之态 × 势能调制器
+        final_score = (harmony_state_score * potential_energy_modulator).clip(0, 1)
         states['FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT'] = final_score.astype(np.float32)
         # 3. 植入究极探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [吸筹拐点究极探针 V3.1 · 阴阳和谐版] ---")
+            print(f"\n--- [吸筹拐点究极探针 V4.0 · 势能注入版] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料 - 三才]:")
             print(f"    - 天时 (资金意图 - 原始分): {tian_shi_raw.iloc[last_date_index]:.4f}")
             print(f"    - 地利 (筹码趋势 - 原始分): {di_li_raw.iloc[last_date_index]:.4f}")
             print(f"    - 人和 (市场压力 - 原始分): {ren_he_raw.iloc[last_date_index]:.4f}")
-            print("  [关键计算节点 - 归一化处理]:")
-            print(f"    - 天时 (最终得分): {tian_shi_score.iloc[last_date_index]:.4f}")
-            print(f"    - 地利 (最终得分): {di_li_score.iloc[last_date_index]:.4f}")
-            print(f"    - 人和 (和谐度分 - 阴阳调和): {ren_he_score.iloc[last_date_index]:.4f}")
+            print("  [关键计算节点 - 和谐之态]:")
+            print(f"    - 天时 (得分): {tian_shi_score.iloc[last_date_index]:.4f}")
+            print(f"    - 地利 (得分): {di_li_score.iloc[last_date_index]:.4f}")
+            print(f"    - 人和 (和谐度): {ren_he_score.iloc[last_date_index]:.4f}")
+            print(f"    - 和谐分 (三才共振): {harmony_state_score.iloc[last_date_index]:.4f}")
+            print("  [关键计算节点 - 增长之势]:")
+            print(f"    - 地利改善度 (日度变化): {di_li_change.iloc[last_date_index]:.4f}")
+            print(f"    - 势能调制器 (放大系数): {potential_energy_modulator.iloc[last_date_index]:.4f}")
             print("  [最终裁决]:")
-            print(f"    - 吸筹拐点分 (三才共振): {final_score.iloc[last_date_index]:.4f}")
+            print(f"    - 吸筹拐点分 (势能注入后): {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         print(f"  -- [融合层] “吸筹拐点信号”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
