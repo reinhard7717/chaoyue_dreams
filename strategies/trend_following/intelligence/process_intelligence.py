@@ -1033,14 +1033,13 @@ class ProcessIntelligence:
 
     def _calculate_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.2 · 意图点火版】识别多日累积吸筹后，即将由“量变”引发“质变”的拉升拐点。
-        - 核心升级: 从“形态确认”升维至“意图点火”。废除对“价、量、位”的僵化要求，
-                      转而审判“主力拉升意图”与“博弈背离”这两个最能体现攻击意图的高阶过程信号。
-        - 旨在解决因战术模板过于严苛而导致“点火”瞬间被错过的“大拐点悖论”。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“意图点火”逻辑。
+        【V2.3 · 势能衰减版】识别多日累积吸筹后，即将由“量变”引发“质变”的拉升拐点。
+        - 核心升级: 引入“势能衰减”机制。将累积势能的计算方法从简单的滚动求和(rolling.sum)
+                      升级为指数加权移动平均(ewm.mean)，赋予近期吸筹行为更高的权重，
+                      更精准地度量具备时效性的“爆发势能”。
+        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“势能衰减”逻辑。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_ACCUMULATION_INFLECTION (V2.2 · 意图点火版)...")
-        # [修改] 引入新的“意图点火”信号依赖
+        print("    -> [过程层] 正在计算 PROCESS_META_ACCUMULATION_INFLECTION (V2.3 · 势能衰减版)...")
         required_signals = [
             'PROCESS_META_STEALTH_ACCUMULATION', 'PROCESS_META_DECEPTIVE_ACCUMULATION',
             'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY',
@@ -1057,12 +1056,11 @@ class ProcessIntelligence:
         split_order_accum = self._get_atomic_score(df, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 0.0)
         power_transfer_accum = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0)
         daily_accumulation_strength = pd.concat([stealth_accum, deceptive_accum, panic_washout_accum, split_order_accum, power_transfer_accum], axis=1).max(axis=1)
-        potential_energy_raw = daily_accumulation_strength.rolling(window=accumulation_window, min_periods=5).sum()
+        # [修改] 采用指数加权移动平均(ewm)计算势能，引入时间衰减
+        potential_energy_raw = daily_accumulation_strength.ewm(span=accumulation_window, adjust=False, min_periods=5).mean()
         potential_energy_score = normalize_score(potential_energy_raw, df_index, window=accumulation_window, ascending=True).clip(0, 1)
-        # [修改] 重铸“动能”为“点火意图”
         rally_intent = self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_RALLY_INTENT', 0.0)
         divergence_confirm = self._get_atomic_score(df, 'PROCESS_META_PD_DIVERGENCE_CONFIRM', 0.0)
-        # [修改] 融合主攻信号与佯动信号，构建点火意图分
         ignition_intent_score = (
             rally_intent.clip(lower=0) * 0.6 +
             divergence_confirm.clip(lower=0) * 0.4
@@ -1071,7 +1069,7 @@ class ProcessIntelligence:
         # [修改] 升级探针以反映新逻辑
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [吸筹末端拐点探针(意图点火版)] ---")
+            print("\n--- [吸筹末端拐点探针(势能衰减版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
@@ -1079,7 +1077,7 @@ class ProcessIntelligence:
             print(f"    - 主力拉升意图: {rally_intent.iloc[last_date_index]:.4f}")
             print(f"    - 博弈背离确认: {divergence_confirm.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
-            print(f"    - 累积势能(原始): {potential_energy_raw.iloc[last_date_index]:.4f}")
+            print(f"    - 累积势能(EWM原始值): {potential_energy_raw.iloc[last_date_index]:.4f}")
             print(f"    - 势能得分(归一化): {potential_energy_score.iloc[last_date_index]:.4f}")
             print(f"    - 点火意图得分: {ignition_intent_score.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
@@ -1091,54 +1089,42 @@ class ProcessIntelligence:
 
     def _calculate_winner_conviction_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.1 · 信念拔河版】“赢家信念”专属关系计算引擎
-        - 核心重构: 创立“信念拔河”模型。将博弈双方从间接推断的信号，替换为直指核心的信号：
-                      信念方 -> winner_stability_index_D (赢家稳定性指数)
-                      压力方 -> profit_taking_flow_ratio_D (利润兑现流量占比)
-        - 逻辑简化: 废除复杂的“解毒剂”逻辑，使模型更纯粹、更健壮。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露新的拔河模型计算过程。
+        【V3.2 · 状态对抗版】“赢家信念”专属关系计算引擎
+        - 核心重构: 从“动量背离”升维至“状态对抗”。不再比较信号的变化率，而是直接对比
+                      “赢家稳定性”和“利润兑现压力”的绝对强度状态，更直观地反映信念与压力的对抗格局。
+        - 旨在解决因过度关注二阶“动量”而错失一阶“状态”强对抗信号的问题。
+        - 新增功能: 植入详尽的“真理探针”，全面暴露新的状态对抗模型计算过程。
         """
-        # [修改] 更新信号依赖，采用新的博弈双方
         signal_a_name = 'profit_taking_flow_ratio_D'  # 压力方
         signal_b_name = 'winner_stability_index_D'    # 信念方
         config['signal_A'] = signal_a_name
         config['signal_B'] = signal_b_name
         df_index = df.index
-        # [修改] 移除对解毒剂信号的依赖和获取
         def get_signal_series(signal_name: str) -> Optional[pd.Series]:
             return self._get_safe_series(df, signal_name, method_name="_calculate_winner_conviction_relationship")
-        def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
-            if series is None: return pd.Series(dtype=np.float32)
-            if change_type == 'diff':
-                return series.diff(1).fillna(0)
-            return ta.percent_return(series, length=1).fillna(0)
-        signal_a = get_signal_series(signal_a_name)
-        signal_b = get_signal_series(signal_b_name)
-        if signal_a is None or signal_b is None:
+        pressure_signal_raw = get_signal_series(signal_a_name)
+        conviction_signal_raw = get_signal_series(signal_b_name)
+        if pressure_signal_raw is None or conviction_signal_raw is None:
             print(f"        -> [赢家信念] 警告: 缺少核心信号 '{signal_a_name}' 或 '{signal_b_name}'。")
             return pd.Series(dtype=np.float32)
-        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # [修改] 动量A现在代表“压力动量”，动量B代表“信念动量”
-        momentum_a = self._normalize_series(get_change_series(signal_a, config.get('change_type_A', 'diff')), df_index, bipolar=True)
-        momentum_b = self._normalize_series(get_change_series(signal_b, config.get('change_type_B', 'diff')), df_index, bipolar=True)
-        # [废除] 移除解毒剂和修正逻辑
+        # [修改] 从计算动量改为计算状态分
+        pressure_state_score = self._normalize_series(pressure_signal_raw, df_index, bipolar=False)
+        conviction_state_score = self._normalize_series(conviction_signal_raw, df_index, bipolar=False)
         k = config.get('signal_b_factor_k', 1.0)
-        # [修改] 核心背离逻辑不变，但内涵已升维
-        relationship_score = (k * momentum_b - momentum_a) / (k + 1)
+        # [修改] 核心逻辑变为状态对抗：信念状态分 - 压力状态分
+        relationship_score = (k * conviction_state_score - pressure_state_score) / (k + 1)
         # [修改] 升级探针以反映新逻辑
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [赢家信念探针(信念拔河版)] ---")
+            print("\n--- [赢家信念探针(状态对抗版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
-            print(f"    - 压力方 ({signal_a_name}): {signal_a.iloc[last_date_index]:.4f}")
-            print(f"    - 信念方 ({signal_b_name}): {signal_b.iloc[last_date_index]:.4f}")
+            print(f"    - 压力方 ({signal_a_name}): {pressure_signal_raw.iloc[last_date_index]:.4f}")
+            print(f"    - 信念方 ({signal_b_name}): {conviction_signal_raw.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
-            print(f"    - 压力动量(归一化): {momentum_a.iloc[last_date_index]:.4f}")
-            print(f"    - 信念动量(归一化): {momentum_b.iloc[last_date_index]:.4f}")
+            print(f"    - 压力状态分(归一化): {pressure_state_score.iloc[last_date_index]:.4f}")
+            print(f"    - 信念状态分(归一化): {conviction_state_score.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
             print(f"    - 赢家信念关系分(信念-压力): {relationship_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
