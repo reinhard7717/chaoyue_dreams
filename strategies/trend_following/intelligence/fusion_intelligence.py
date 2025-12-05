@@ -218,18 +218,20 @@ class FusionIntelligence:
 
     def _synthesize_price_overextension_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 状态与意图审判版】冶炼“价格超买意图” (Price Overextension Intent)
+        【V2.1 · 真神归位版】冶炼“价格超买意图” (Price Overextension Intent)
         - 核心重构: 废弃V1.x仅依赖价格振荡器的线性模型，引入“状态 × 意图”的非线性乘法模型。
-        - 诡道哲学: 最终意图 = 超涨状态 × 反转意图。只有当价格达到极限状态，且市场
-                      出现明确的反转意图时，信号才会爆发，旨在过滤“高位钝化”等陷阱。
+        - 核心修复: 修正对已废弃“幽灵信号”的引用，引入《信号字典》中正确的、更高阶的
+                      `SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM` (情绪钟摆) 和
+                      `SCORE_STRUCT_AXIOM_MTF_COHESION` (宏观趋势健康度) 作为新基石。
+        - 诡道哲学: 最终意图 = 超涨状态 × 反转意图。
         """
         print("  -- [融合层] 正在冶炼“价格超买意图”...")
         states = {}
         df_index = df.index
-        # 1. 定义“超涨状态”的原料 (客观的伸展程度)
+        # 1. [修改] 定义“超涨状态”的原料 (客观的伸展程度)，使用正确的信号
         overbought_state_sources = {
-            'SCORE_DYN_AXIOM_OSCILLATOR': 0.6,  # 力学层-振荡器公理
-            'SCORE_STRUCT_AXIOM_DEVIATION': 0.4, # 结构层-偏离度公理
+            'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM': 0.6, # 基础层-情绪钟摆 (核心)
+            'SCORE_STRUCT_AXIOM_MTF_COHESION': 0.4, # 结构层-宏观趋势健康度 (佐证)
         }
         # 2. 定义“反转意图”的原料 (主观的博弈动机)
         bearish_intent_sources = {
@@ -243,13 +245,13 @@ class FusionIntelligence:
             'FUSION_OPPORTUNITY_CONTESTED_ACCUMULATION': 0.3, # 融合层-争夺性吸筹
         }
         # 3. 核心数学逻辑 - 状态与意图的非线性审判
-        # 3.1 计算“超涨状态”分
-        oscillator_score = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_OSCILLATOR', 0.0)
-        deviation_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_DEVIATION', 0.0)
-        overbought_state = (oscillator_score.clip(lower=0) * overbought_state_sources['SCORE_DYN_AXIOM_OSCILLATOR'] +
-                            deviation_score.clip(lower=0) * overbought_state_sources['SCORE_STRUCT_AXIOM_DEVIATION'])
-        oversold_state = (oscillator_score.clip(upper=0).abs() * overbought_state_sources['SCORE_DYN_AXIOM_OSCILLATOR'] +
-                          deviation_score.clip(upper=0).abs() * overbought_state_sources['SCORE_STRUCT_AXIOM_DEVIATION'])
+        # 3.1 [修改] 计算“超涨状态”分，使用正确的信号
+        sentiment_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
+        cohesion_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_MTF_COHESION', 0.0)
+        overbought_state = (sentiment_score.clip(lower=0) * overbought_state_sources['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'] +
+                            cohesion_score.clip(lower=0) * overbought_state_sources['SCORE_STRUCT_AXIOM_MTF_COHESION'])
+        oversold_state = (sentiment_score.clip(upper=0).abs() * overbought_state_sources['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'] +
+                          cohesion_score.clip(upper=0).abs() * overbought_state_sources['SCORE_STRUCT_AXIOM_MTF_COHESION'])
         # 3.2 计算“反转意图”分
         bearish_intent = pd.Series(0.0, index=df_index)
         for signal, weight in bearish_intent_sources.items():
@@ -263,23 +265,23 @@ class FusionIntelligence:
         # 4. 最终裁决
         bipolar_intent = (overextension_bullish - overextension_bearish).clip(-1, 1)
         states['FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT'] = bipolar_intent.astype(np.float32)
-        # 5. [新增] 植入究极探针
+        # 5. [修改] 升级究极探针以反映新的信号
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [价格超买意图究极探针 V2.0 · 状态与意图审判版] ---")
+            print(f"\n--- [价格超买意图究极探针 V2.1 · 真神归位版] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料 - 超买状态源 (Overbought State)]:")
-            print(f"    - SCORE_DYN_AXIOM_OSCILLATOR (Bearish Part): {oscillator_score.clip(lower=0).iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_STRUCT_AXIOM_DEVIATION (Bearish Part): {deviation_score.clip(lower=0).iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM (Bearish Part): {sentiment_score.clip(lower=0).iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_STRUCT_AXIOM_MTF_COHESION (Bearish Part): {cohesion_score.clip(lower=0).iloc[last_date_index]:.4f}")
             print("  [输入原料 - 看跌意图源 (Bearish Intent)]:")
             for s in bearish_intent_sources:
                 print(f"    - {s}: {self._get_atomic_score(df, s, 0.0).iloc[last_date_index]:.4f}")
             print("  ---")
             print("  [输入原料 - 超卖状态源 (Oversold State)]:")
-            print(f"    - SCORE_DYN_AXIOM_OSCILLATOR (Bullish Part): {oscillator_score.clip(upper=0).abs().iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_STRUCT_AXIOM_DEVIATION (Bullish Part): {deviation_score.clip(upper=0).abs().iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM (Bullish Part): {sentiment_score.clip(upper=0).abs().iloc[last_date_index]:.4f}")
+            print(f"    - SCORE_STRUCT_AXIOM_MTF_COHESION (Bullish Part): {cohesion_score.clip(upper=0).abs().iloc[last_date_index]:.4f}")
             print("  [输入原料 - 看涨意图源 (Bullish Intent)]:")
             for s in bullish_intent_sources:
                 print(f"    - {s}: {self._get_atomic_score(df, s, 0.0).iloc[last_date_index]:.4f}")
