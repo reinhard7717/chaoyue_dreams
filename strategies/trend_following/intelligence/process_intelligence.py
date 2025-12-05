@@ -775,11 +775,10 @@ class ProcessIntelligence:
 
     def _judge_domain_reversal(self, bipolar_domain_health: pd.Series, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 神谕审判版】领域反转信号的核心审判庭
-        - 核心重构: 创立基于“情境感知”的“神谕审判”模型，取代旧的、情境盲目的归一化逻辑。
+        【V1.1 · 神谕审判生产版】领域反转信号的核心审判庭
+        - 核心模型: 创立基于“情境感知”的“神谕审判”模型，取代旧的、情境盲目的归一化逻辑。
         - 底部反转神谕: `底部反转分 = 健康度正向变化量 × (1 - 昨日健康度)`
         - 顶部反转神谕: `顶部反转分 = 健康度负向变化量(取绝对值) × (1 + 昨日健康度)`
-        - 新增功能: 植入“究极探针”，彻底暴露审判过程的每一个核心计算节点。
         """
         domain_name = config.get('domain_name', '未知领域')
         output_bottom_name = config.get('output_bottom_reversal_name')
@@ -795,32 +794,7 @@ class ProcessIntelligence:
         top_context_factor = (1 + health_yesterday).clip(0, 2) # 情境调节器：昨日越好，反转越危险
         top_reversal_raw = health_change.clip(upper=0).abs() * top_context_factor
         top_reversal_score = top_reversal_raw.clip(0, 1) # 直接裁剪
-        # [新增] 植入究极探针
-        probe_dates = self.probe_dates
-        if not bipolar_domain_health.empty and bipolar_domain_health.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [领域反转究极探针: {domain_name}] ---")
-            last_date_index = -1
-            print(f"日期: {bipolar_domain_health.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            # 打印所有输入公理
-            for axiom_config in config.get('axioms', []):
-                axiom_name = axiom_config.get('name')
-                axiom_score = self.strategy.atomic_states.get(axiom_name, pd.Series(0.0, index=bipolar_domain_health.index))
-                print(f"    - 公理 ({axiom_name}): {axiom_score.iloc[last_date_index]:.4f}")
-            print("  [神谕审判过程]:")
-            print(f"    - 领域健康度(今日): {bipolar_domain_health.iloc[last_date_index]:.4f}")
-            print(f"    - 领域健康度(昨日): {health_yesterday.iloc[last_date_index]:.4f}")
-            print(f"    - 健康度变化量: {health_change.iloc[last_date_index]:.4f}")
-            print("    --- 底部反转审判 ---")
-            print(f"    - 底部情境调节器 (1 - 昨日健康度): {bottom_context_factor.iloc[last_date_index]:.4f}")
-            print(f"    - 底部反转(原始): {bottom_reversal_raw.iloc[last_date_index]:.4f}")
-            print("    --- 顶部反转审判 ---")
-            print(f"    - 顶部情境调节器 (1 + 昨日健康度): {top_context_factor.iloc[last_date_index]:.4f}")
-            print(f"    - 顶部反转(原始): {top_reversal_raw.iloc[last_date_index]:.4f}")
-            print("  [最终裁决]:")
-            print(f"    - 底部反转分({output_bottom_name}): {bottom_reversal_score.iloc[last_date_index]:.4f}")
-            print(f"    - 顶部反转分({output_top_name}): {top_reversal_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [删除] 移除所有“究极探针”调试代码
         return {
             output_bottom_name: bottom_reversal_score.astype(np.float32),
             output_top_name: top_reversal_score.astype(np.float32)
