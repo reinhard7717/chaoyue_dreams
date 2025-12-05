@@ -237,7 +237,7 @@ class FusionIntelligence:
             'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM': 0.6, # 基础层-情绪钟摆 (核心)
             'SCORE_STRUCT_AXIOM_MTF_COHESION': 0.4, # 结构层-宏观趋势健康度 (佐证)
         }
-        # 2. [修改] 定义“反转意图”的原料，斩断循环依赖，回归原子证据
+        # 2. 定义“反转意图”的原料，斩断循环依赖，回归原子证据
         bearish_intent_sources = {
             'SCORE_BEHAVIOR_DISTRIBUTION_INTENT': 0.4, # 行为层-派发意图
             'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY': 0.3, # 行为层-看跌背离品质
@@ -269,94 +269,66 @@ class FusionIntelligence:
         # 4. 最终裁决
         bipolar_intent = (overextension_bullish - overextension_bearish).clip(-1, 1)
         states['FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT'] = bipolar_intent.astype(np.float32)
-        # 5. [修改] 升级究极探针以反映新的信号
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates = debug_params.get('probe_dates', [])
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [价格超买意图究极探针 V2.2 · 因果斩断版] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料 - 超买状态源 (Overbought State)]:")
-            print(f"    - SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM (Bearish Part): {sentiment_score.clip(lower=0).iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_STRUCT_AXIOM_MTF_COHESION (Bearish Part): {cohesion_score.clip(lower=0).iloc[last_date_index]:.4f}")
-            print("  [输入原料 - 看跌意图源 (Bearish Intent)]:")
-            for s in bearish_intent_sources:
-                print(f"    - {s}: {self._get_atomic_score(df, s, 0.0).iloc[last_date_index]:.4f}")
-            print("  ---")
-            print("  [输入原料 - 超卖状态源 (Oversold State)]:")
-            print(f"    - SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM (Bullish Part): {sentiment_score.clip(upper=0).abs().iloc[last_date_index]:.4f}")
-            print(f"    - SCORE_STRUCT_AXIOM_MTF_COHESION (Bullish Part): {cohesion_score.clip(upper=0).abs().iloc[last_date_index]:.4f}")
-            print("  [输入原料 - 看涨意图源 (Bullish Intent)]:")
-            for s in bullish_intent_sources:
-                print(f"    - {s}: {self._get_atomic_score(df, s, 0.0).iloc[last_date_index]:.4f}")
-            print("  [关键计算节点]:")
-            print(f"    - 综合超买状态分: {overbought_state.iloc[last_date_index]:.4f}")
-            print(f"    - 综合看跌意图分: {bearish_intent.iloc[last_date_index]:.4f}")
-            print(f"    - 综合超卖状态分: {oversold_state.iloc[last_date_index]:.4f}")
-            print(f"    - 综合看涨意图分: {bullish_intent.iloc[last_date_index]:.4f}")
-            print(f"    - [状态×意图] 看跌意图最终得分: {overextension_bearish.iloc[last_date_index]:.4f}")
-            print(f"    - [状态×意图] 看涨意图最终得分: {overextension_bullish.iloc[last_date_index]:.4f}")
-            print("  [最终裁决]:")
-            print(f"    - 价格超买意图分 (FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT): {bipolar_intent.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “价格超买意图”冶炼完成，最新分值: {bipolar_intent.iloc[-1]:.4f}")
         return states
 
     def _synthesize_trend_structure_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.7 · 工具修正版】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
-        - 核心修复: 修正了因误用 `normalize_to_bipolar` 处理多时间框架权重而导致的 TypeError。
-                      全面换装为正确的 `get_adaptive_mtf_normalized_bipolar_score` 函数，
-                      确保“变焦透镜”的战略意图得以正确执行。
+        【V2.0 · 四象共振版】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
+        - 核心重构: 废弃V1.x基于底层技术指标的算术模型，引入基于四大情报域顶层信号的
+                      “四象共振”非线性融合模型。
+        - 诡道哲学: 基于“木桶效应”，采用几何平均融合。一个健康的趋势结构，必须是结构、
+                      力学、筹码、资金流四大支柱的共振，任何一环的缺失都将导致整体崩塌。
         """
+        print("  -- [融合层] 正在冶炼“趋势结构分”...")
         states = {}
         df_index = df.index
-        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        short_term_weights = get_param_value(p_mtf.get('short_term_weights'), {'weights': {3: 0.5, 5: 0.3, 8: 0.2}})
-        ema5 = self._get_safe_series(df, 'EMA_5_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
-        ema21 = self._get_safe_series(df, 'EMA_21_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
-        if ema5.isnull().all() or ema21.isnull().all():
-            alignment_score = pd.Series(0.0, index=df_index)
-        else:
-            raw_alignment = (ema5 - ema21) / (ema21.abs().replace(0, 1e-9))
-            # 换用正确的多时间框架归一化函数
-            alignment_score = get_adaptive_mtf_normalized_bipolar_score(raw_alignment, df_index, tf_weights=default_weights, sensitivity=5.0)
-        slope_ema5 = self._get_safe_series(df, 'SLOPE_5_EMA_5_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
-        slope_ema21 = self._get_safe_series(df, 'SLOPE_5_EMA_21_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
-        if slope_ema5.isnull().all() or slope_ema21.isnull().all():
-            slope_score = pd.Series(0.0, index=df_index)
-        else:
-            # 换用正确的多时间框架归一化函数
-            norm_slope_ema5 = get_adaptive_mtf_normalized_bipolar_score(slope_ema5, df_index, tf_weights=short_term_weights, sensitivity=0.005)
-            norm_slope_ema21 = get_adaptive_mtf_normalized_bipolar_score(slope_ema21, df_index, tf_weights=short_term_weights, sensitivity=0.005)
-            slope_score = (norm_slope_ema5 * 0.6 + norm_slope_ema21 * 0.4).clip(-1, 1)
-        if ema5.isnull().all() or ema21.isnull().all():
-            divergence_score = pd.Series(0.0, index=df_index)
-        else:
-            ma_bias_raw = (ema5 - ema21) / (ema21.abs().replace(0, 1e-9))
-            ma_bias_slope_raw = ma_bias_raw.diff(1).fillna(0)
-            # 换用正确的多时间框架归一化函数
-            norm_ma_bias = get_adaptive_mtf_normalized_bipolar_score(ma_bias_raw, df_index, tf_weights=default_weights, sensitivity=0.02)
-            norm_ma_bias_slope = get_adaptive_mtf_normalized_bipolar_score(ma_bias_slope_raw, df_index, tf_weights=default_weights, sensitivity=0.001)
-            divergence_score = (norm_ma_bias * 0.7 + norm_ma_bias_slope * 0.3).clip(-1, 1)
-        dma_raw = self._get_safe_series(df, 'DMA_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
-        # 换用正确的多时间框架归一化函数
-        dma_score = get_adaptive_mtf_normalized_bipolar_score(dma_raw, df_index, tf_weights=default_weights)
-        zigzag_raw = self._get_safe_series(df, 'ZIG_5_5.0_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
-        # 换用正确的多时间框架归一化函数
-        zigzag_score = get_adaptive_mtf_normalized_bipolar_score(zigzag_raw, df_index, tf_weights=default_weights, sensitivity=0.05)
-        weights = np.array([0.3, 0.3, 0.15, 0.15, 0.1])
-        components = [alignment_score, slope_score, divergence_score, dma_score, zigzag_score]
-        aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
-        final_trend_structure_score = (
-            aligned_components[0] * weights[0] + aligned_components[1] * weights[1] +
-            aligned_components[2] * weights[2] + aligned_components[3] * weights[3] +
-            aligned_components[4] * weights[4]
-        ).clip(-1, 1)
-        states['FUSION_BIPOLAR_TREND_STRUCTURE_SCORE'] = final_trend_structure_score.astype(np.float32)
-        print(f"  -- [融合层] “趋势结构分”冶炼完成，最新分值: {final_trend_structure_score.iloc[-1]:.4f}")
+        # 1. [修改] 信号升维：定义四大支柱，只引用各情报域的顶层信号
+        four_pillars = {
+            'structure': 'SCORE_STRUCT_STRATEGIC_POSTURE', # 结构支柱 (骨)
+            'dynamics': 'SCORE_DYN_GRAND_UNIFICATION',     # 力学支柱 (势)
+            'chip': 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY',    # 筹码支柱 (基)
+            'fund_flow': 'SCORE_FF_STRATEGIC_POSTURE'      # 资金支柱 (血)
+        }
+        # 2. [修改] 获取各支柱的原子信号分
+        pillar_scores = {
+            pillar: self._get_atomic_score(df, signal_name, 0.0)
+            for pillar, signal_name in four_pillars.items()
+        }
+        # 3. [修改] 核心数学逻辑 - 四象共振 (几何平均)
+        # 为避免负数开方，先将所有[-1, 1]的信号映射到[0, 2]区间进行计算
+        # (score + 1) 将 [-1, 1] 映射到 [0, 2]
+        mapped_scores = [score + 1 for score in pillar_scores.values()]
+        # 几何平均，体现“木桶效应”
+        # 为防止0值导致结果恒为0，加入一个极小值
+        product_of_scores = pd.Series(1.0, index=df_index)
+        for score in mapped_scores:
+            product_of_scores *= (score.clip(lower=1e-9))
+        resonance_score_mapped = product_of_scores.pow(1 / len(four_pillars))
+        # 将结果从[0, 2]区间映射回[-1, 1]
+        final_score = (resonance_score_mapped - 1).clip(-1, 1)
+        states['FUSION_BIPOLAR_TREND_STRUCTURE_SCORE'] = final_score.astype(np.float32)
+        # 4. [新增] 植入究极探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = debug_params.get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [趋势结构分究极探针 V2.0 · 四象共振版] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料 - 四象支柱 (Pillar)]:")
+            for pillar, score_series in pillar_scores.items():
+                print(f"    - {pillar.upper()} Pillar ({four_pillars[pillar]}): {score_series.iloc[last_date_index]:.4f}")
+            print("  [关键计算节点]:")
+            print(f"    - (映射后) 结构支柱分: {mapped_scores[0].iloc[last_date_index]:.4f}")
+            print(f"    - (映射后) 力学支柱分: {mapped_scores[1].iloc[last_date_index]:.4f}")
+            print(f"    - (映射后) 筹码支柱分: {mapped_scores[2].iloc[last_date_index]:.4f}")
+            print(f"    - (映射后) 资金支柱分: {mapped_scores[3].iloc[last_date_index]:.4f}")
+            print(f"    - (映射后) 共振融合分 (几何平均): {resonance_score_mapped.iloc[last_date_index]:.4f}")
+            print("  [最终裁决]:")
+            print(f"    - 趋势结构分 (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE): {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        print(f"  -- [融合层] “趋势结构分”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
     def _synthesize_fund_flow_trend(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
