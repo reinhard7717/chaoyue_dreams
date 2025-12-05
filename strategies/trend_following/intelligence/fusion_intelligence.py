@@ -556,10 +556,10 @@ class FusionIntelligence:
 
     def _synthesize_accumulation_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 薪火相加版】冶炼“吸筹剧本” (PROCESS_FUSION_ACCUMULATION_PLAYBOOK)
-        - 核心重构: 废黜`max()`“霸王之道”，引入`A+B-A*B`“王者之道”，使新点火与旧余烬
-                      能够协同增强，共同推升剧本强度，真正体现“势”的积累与融合。
-        - 诡道哲学: 薪火相加，烈焰升腾。新火之功，在于助燃余烬，而非取而代之。
+        【V5.0 · 道法合一版 (終章)】冶炼“吸筹剧本” (PROCESS_FUSION_ACCUMULATION_PLAYBOOK)
+        - 核心升华: 引入“王霸并济”二元法则。根据“点火器”强度，动态切换“王者之道”
+                      (薪火相加)与“霸王之道”(状态重置)，以区分“量变积累”与“质变突破”。
+        - 终章心法: 王者，积寸功；霸者，定乾坤。此法之后，再无增益。
         """
         print("  -- [融合层] 正在冶炼“吸筹剧本”...")
         states = {}
@@ -568,32 +568,41 @@ class FusionIntelligence:
         di_li = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0).clip(lower=0)
         ren_he = (self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0) + 1) / 2
         foundation_sustain_factor = (di_li * ren_he).pow(1/2).fillna(0.0)
-        # 2. 核心数学逻辑 - 状态记忆与协同增强
+        # 2. [修改] 核心数学逻辑 - 王霸并济，道法合一
         playbook_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        hegemon_threshold = 0.75 # 定义“霸王门槛”，区分“突破”与“胶着”
+        # 用于探针记录
+        chosen_path = ""
         for i in range(1, len(df)):
             previous_score = playbook_score.iloc[i-1]
             decay_modulator = foundation_sustain_factor.iloc[i]
             decayed_score = previous_score * decay_modulator
             current_igniter = igniter_signal.iloc[i]
-            # [修改] 王者之道：薪火相加，协同增强
-            playbook_score.iloc[i] = decayed_score + current_igniter - (decayed_score * current_igniter)
+            # [新增] 道法合一：根据“点火器”强度，选择“王者”或“霸王”之道
+            if current_igniter > hegemon_threshold:
+                # 霸王之道：压倒性信号出现，直接重置战局状态
+                playbook_score.iloc[i] = current_igniter
+                chosen_path = "霸王之道 (状态重置)"
+            else:
+                # 王者之道：常规信号，薪火相加，积累优势
+                playbook_score.iloc[i] = decayed_score + current_igniter - (decayed_score * current_igniter)
+                chosen_path = "王者之道 (薪火相加)"
         states['PROCESS_FUSION_ACCUMULATION_PLAYBOOK'] = playbook_score.astype(np.float32)
         # 3. 植入究极探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [吸筹剧本究极探针 V4.0 · 薪火相加版] ---")
+            print(f"\n--- [吸筹剧本究极探针 V5.0 · 道法合一版 (終章)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
             print(f"    - 点火器 (今日新火): {igniter_signal.iloc[last_date_index]:.4f}")
-            print(f"    - 根基稳固度 (衰减系数): {foundation_sustain_factor.iloc[last_date_index]:.4f}")
+            print(f"    - 霸王门槛: {hegemon_threshold:.2f}")
             print("  [关键计算节点 - 状态传递]:")
-            print(f"    - 昨日剧本分 (记忆): {playbook_score.iloc[last_date_index-1] if len(df) > 1 else 0.0:.4f}")
             decayed_val = (playbook_score.iloc[last_date_index-1] if len(df) > 1 else 0.0) * foundation_sustain_factor.iloc[last_date_index]
             print(f"    - 旧火焰余烬强度: {decayed_val:.4f}")
-            print("  [最终裁决 - 王者之道]:")
-            print(f"    - 今日剧本分 (余烬 + 新火 - 余烬*新火): {playbook_score.iloc[last_date_index]:.4f}")
+            print(f"  [最终裁决 - {chosen_path}]:")
+            print(f"    - 今日剧本分: {playbook_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         print(f"  -- [融合层] “吸筹剧本”冶炼完成，最新分值: {playbook_score.iloc[-1] if not playbook_score.empty else 0.0:.4f}")
         return states
