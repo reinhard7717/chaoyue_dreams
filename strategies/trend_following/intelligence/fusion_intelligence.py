@@ -393,10 +393,10 @@ class FusionIntelligence:
         di_li_score = di_li_raw.clip(lower=0)
         ren_he_score = (ren_he_raw + 1) / 2
         harmony_state_score = (tian_shi_score * di_li_score * ren_he_score).pow(1/3).fillna(0.0)
-        # 2.2 [修改] 计算“厚積之勢” (Accumulated Potential)
+        # 2.2 计算“厚積之勢” (Accumulated Potential)
         # “地利”的瞬时变化
         di_li_change_raw = di_li_raw.diff(1).fillna(0.0)
-        # [新增] 对瞬时变化进行平滑，以洞察趋势
+        # 对瞬时变化进行平滑，以洞察趋势
         smoothed_di_li_change = di_li_change_raw.ewm(span=3, adjust=False).mean()
         # 构建基于趋势的阴阳势能调制器
         amplification_factor = 0.5 # 势能放大/缩小系数
@@ -404,26 +404,7 @@ class FusionIntelligence:
         # 2.3 最终融合：和谐之态 × 厚積之勢调制器
         final_score = (harmony_state_score * potential_energy_modulator).clip(0, 1)
         states['FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT'] = final_score.astype(np.float32)
-        # 3. 植入究极探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates = debug_params.get('probe_dates', [])
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [吸筹拐点究极探针 V5.0 · 厚積薄發版 (終章)] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料 - 三才]:")
-            print(f"    - 天时 (资金意图 - 原始分): {tian_shi_raw.iloc[last_date_index]:.4f}")
-            print(f"    - 地利 (筹码趋势 - 原始分): {di_li_raw.iloc[last_date_index]:.4f}")
-            print(f"    - 人和 (市场压力 - 原始分): {ren_he_raw.iloc[last_date_index]:.4f}")
-            print("  [关键计算节点 - 和谐之态]:")
-            print(f"    - 和谐分 (三才共振): {harmony_state_score.iloc[last_date_index]:.4f}")
-            print("  [关键计算节点 - 厚積之勢]:")
-            print(f"    - 地利瞬时变化 (日度): {di_li_change_raw.iloc[last_date_index]:.4f}")
-            print(f"    - 地利厚積之勢 (平滑): {smoothed_di_li_change.iloc[last_date_index]:.4f}")
-            print(f"    - 终极势能调制器: {potential_energy_modulator.iloc[last_date_index]:.4f}")
-            print("  [最终裁决]:")
-            print(f"    - 吸筹拐点分 (终章): {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “吸筹拐点信号”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
@@ -575,36 +556,55 @@ class FusionIntelligence:
 
     def _synthesize_accumulation_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 吸筹剧本】融合心法
-        - 核心目标: 将不同战术的吸筹信号融合成统一的“吸筹剧本”分。
-        - 融合模型: 吸筹剧本分 = max(隐秘吸筹, 恐慌吸筹, 诡道吸筹) × (1 + 筹码态势改善度)
-        - 核心诡道: 1. max()体现战术互斥性。 2. 筹码态势改善度作为品质调节器。
+        【V2.0 · 龙脉绵延版】冶炼“吸筹剧本” (PROCESS_FUSION_ACCUMULATION_PLAYBOOK)
+        - 核心重构: 废弃对“拐点”的简单处理，引入具备“状态记忆”的“龙脉绵延”递归模型。
+        - 诡道哲学: “剧本”是燃烧的火焰，而非点火的动作。“拐点”负责点火，而“和谐之态”
+                      是决定火焰能否持续燃烧的“薪柴”。此法旨在捕捉战役的开启、持续与衰减。
+                      今日剧本分 = max(今日新拐点, 昨日剧本分 × 动态衰减系数)
         """
-        print("  -- [融合层] 正在推演“吸筹剧本”...")
+        print("  -- [融合层] 正在冶炼“吸筹剧本”...")
         states = {}
-        df_index = df.index
-        # 1. 获取原料信号
-        stealth_accumulation = self._get_atomic_score(df, 'PROCESS_META_STEALTH_ACCUMULATION', 0.0)
-        panic_accumulation = self._get_atomic_score(df, 'PROCESS_META_PANIC_WASHOUT_ACCUMULATION', 0.0)
-        deceptive_accumulation = self._get_atomic_score(df, 'PROCESS_META_DECEPTIVE_ACCUMULATION', 0.0)
-        chip_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
-        # 2. 核心数学逻辑
-        # 2.1 识别主导战术 (max体现互斥性)
-        max_accumulation_tactic = np.maximum.reduce([
-            stealth_accumulation.values,
-            panic_accumulation.values,
-            deceptive_accumulation.values
-        ])
-        max_accumulation_tactic = pd.Series(max_accumulation_tactic, index=df_index)
-        # 2.2 计算品质调节器 (筹码态势改善度)
-        chip_posture_change = chip_posture.diff(1).fillna(0)
-        chip_improvement_factor = chip_posture_change.clip(lower=0) # 只关注正向改善
-        quality_modulator = 1 + chip_improvement_factor
-        # 2.3 融合
-        playbook_score = (max_accumulation_tactic * quality_modulator).clip(0, 1)
-        output_name = 'PROCESS_FUSION_ACCUMULATION_PLAYBOOK'
-        states[output_name] = playbook_score.astype(np.float32)
-        print(f"  -- [融合层] “吸筹剧本”推演完成，最新分值: {playbook_score.iloc[-1]:.4f}")
+        # 1. [修改] 信号升维：定义“点火器”与“薪柴”
+        # 点火器 (Igniter): 吸筹拐点信号，负责开启和复燃剧本
+        igniter_signal = self._get_atomic_score(df, 'FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT', 0.0)
+        # 薪柴 (Fuel): 构成拐点的“和谐之态”，决定剧本能否持续
+        tian_shi = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0).clip(0, 1)
+        di_li = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0).clip(lower=0)
+        ren_he = (self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0) + 1) / 2
+        fuel_signal = (tian_shi * di_li * ren_he).pow(1/3).fillna(0.0)
+        # 2. [修改] 核心数学逻辑 - 状态记忆与动态衰减
+        playbook_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 使用循环实现递归，更清晰地展示状态传递
+        for i in range(1, len(df)):
+            # 获取昨日的剧本状态
+            previous_score = playbook_score.iloc[i-1]
+            # “薪柴”决定了衰减速度，薪柴越足(和谐度高)，衰减越慢
+            decay_modulator = fuel_signal.iloc[i]
+            decayed_score = previous_score * decay_modulator
+            # 获取今日的点火信号
+            current_igniter = igniter_signal.iloc[i]
+            # 剧本强度 = max(新点火的强度, 旧火焰衰减后的强度)
+            playbook_score.iloc[i] = max(current_igniter, decayed_score)
+        states['PROCESS_FUSION_ACCUMULATION_PLAYBOOK'] = playbook_score.astype(np.float32)
+        # 3. [新增] 植入究极探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = debug_params.get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [吸筹剧本究极探针 V2.0 · 龙脉绵延版] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 点火器 (今日拐点分): {igniter_signal.iloc[last_date_index]:.4f}")
+            print(f"    - 薪柴 (今日和谐度): {fuel_signal.iloc[last_date_index]:.4f}")
+            print("  [关键计算节点 - 状态传递]:")
+            print(f"    - 昨日剧本分 (记忆): {playbook_score.iloc[last_date_index-1] if len(df) > 1 else 0.0:.4f}")
+            decayed_val = (playbook_score.iloc[last_date_index-1] if len(df) > 1 else 0.0) * fuel_signal.iloc[last_date_index]
+            print(f"    - 动态衰减系数 (即薪柴): {fuel_signal.iloc[last_date_index]:.4f}")
+            print(f"    - 旧火焰衰减后强度: {decayed_val:.4f}")
+            print("  [最终裁决]:")
+            print(f"    - 今日剧本分 (max(点火器, 衰减后)): {playbook_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        print(f"  -- [融合层] “吸筹剧本”冶炼完成，最新分值: {playbook_score.iloc[-1] if not playbook_score.empty else 0.0:.4f}")
         return states
 
     def _synthesize_trend_exhaustion_syndrome(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
