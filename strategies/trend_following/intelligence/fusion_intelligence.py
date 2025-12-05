@@ -106,50 +106,72 @@ class FusionIntelligence:
 
     def _synthesize_market_contradiction(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 矛盾共振版】冶炼“市场矛盾” (Market Contradiction)
-        - 核心重构: 废弃V2.x基于max()的“赢家通吃”模型，引入“矛盾共振”加权融合模型。
-        - 诡道哲学: 采用加权求和，使得多个微弱但同向的背离信号能形成“共振”，其合力
-                      可以超越单一的强烈信号，旨在“于无声处听惊雷”。
-        - 信号赋权: 为不同情报域的信号赋予不同权重，体现其情报价值的差异。
+        【V4.0 · 多维印证版】冶炼“市场矛盾” (Market Contradiction)
+        - 核心重构: 废弃线性的“加权求和”模型，引入基于`A+B-A*B`的“迭代共振”模型。
+        - 诡道哲学: 矛盾的威力，不在于证据的数量，而在于多维证据间的“交叉印证”。
+                      每一个新证据，都是对旧有信念的非线性放大。
         """
         print("  -- [融合层] 正在冶炼“市场矛盾”...")
         states = {}
         df_index = df.index
-        # 1. [信号赋权] 定义各领域背离信号及其权重
+        # 1. [信号赋权] 定义各领域背离信号及其权重 (保持不变)
         divergence_sources = {
-            # 核心博弈层，权重最高
-            'CHIP': 0.30,
-            'FUND_FLOW': 0.25,
-            # 战术执行层，权重次之
-            'BEHAVIOR': 0.15,
-            'DYNAMIC_MECHANICS': 0.10,
-            # 表象结构层，权重较低
-            'STRUCTURE': 0.10,
-            'PATTERN': 0.05,
-            'MICRO_BEHAVIOR': 0.05,
+            'CHIP': 0.30, 'FUND_FLOW': 0.25, 'BEHAVIOR': 0.15,
+            'DYNAMIC_MECHANICS': 0.10, 'STRUCTURE': 0.10,
+            'PATTERN': 0.05, 'MICRO_BEHAVIOR': 0.05,
         }
-        # 2. [共振融合] 核心数学逻辑 - 加权求和
-        total_bullish_score = pd.Series(0.0, index=df_index)
-        total_bearish_score = pd.Series(0.0, index=df_index)
+        # 2. [修改] 核心数学逻辑 - 迭代共振
+        bullish_resonance_score = pd.Series(0.0, index=df_index)
+        bearish_resonance_score = pd.Series(0.0, index=df_index)
+        # 用于探针记录
+        bullish_probe_steps = []
+        bearish_probe_steps = []
         # 特殊处理双极性的筹码背离信号
         chip_divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
         chip_weight = divergence_sources.pop('CHIP')
-        total_bullish_score += chip_divergence.clip(lower=0) * chip_weight
-        total_bearish_score += chip_divergence.clip(upper=0).abs() * chip_weight
-        # 处理其他单极性背离信号
+        weighted_bullish_chip = chip_divergence.clip(lower=0) * chip_weight
+        weighted_bearish_chip = chip_divergence.clip(upper=0).abs() * chip_weight
+        bullish_resonance_score = bullish_resonance_score + weighted_bullish_chip - (bullish_resonance_score * weighted_bullish_chip)
+        bearish_resonance_score = bearish_resonance_score + weighted_bearish_chip - (bearish_resonance_score * weighted_bearish_chip)
+        bullish_probe_steps.append(f"  - CHIP (+{weighted_bullish_chip.iloc[-1]:.4f}) -> 共振分: {bullish_resonance_score.iloc[-1]:.4f}")
+        bearish_probe_steps.append(f"  - CHIP (+{weighted_bearish_chip.iloc[-1]:.4f}) -> 共振分: {bearish_resonance_score.iloc[-1]:.4f}")
+        # 迭代处理其他单极性背离信号
         for source, weight in divergence_sources.items():
-            # 行为层信号名称特殊
             if source == 'BEHAVIOR':
                 bull_signal_name = 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'
                 bear_signal_name = 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'
             else:
                 bull_signal_name = f'SCORE_{source}_BULLISH_DIVERGENCE'
                 bear_signal_name = f'SCORE_{source}_BEARISH_DIVERGENCE'
-            total_bullish_score += self._get_atomic_score(df, bull_signal_name, 0.0) * weight
-            total_bearish_score += self._get_atomic_score(df, bear_signal_name, 0.0) * weight
+            # 看涨共振
+            weighted_bull_signal = self._get_atomic_score(df, bull_signal_name, 0.0) * weight
+            bullish_resonance_score = bullish_resonance_score + weighted_bull_signal - (bullish_resonance_score * weighted_bull_signal)
+            bullish_probe_steps.append(f"  - {source} (+{weighted_bull_signal.iloc[-1]:.4f}) -> 共振分: {bullish_resonance_score.iloc[-1]:.4f}")
+            # 看跌共振
+            weighted_bear_signal = self._get_atomic_score(df, bear_signal_name, 0.0) * weight
+            bearish_resonance_score = bearish_resonance_score + weighted_bear_signal - (bearish_resonance_score * weighted_bear_signal)
+            bearish_probe_steps.append(f"  - {source} (+{weighted_bear_signal.iloc[-1]:.4f}) -> 共振分: {bearish_resonance_score.iloc[-1]:.4f}")
         # 3. 最终裁决
-        bipolar_contradiction = (total_bullish_score - total_bearish_score).clip(-1, 1)
+        bipolar_contradiction = (bullish_resonance_score - bearish_resonance_score).clip(-1, 1)
         states['FUSION_BIPOLAR_MARKET_CONTRADICTION'] = bipolar_contradiction.astype(np.float32)
+        # 4. [新增] 植入究极探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = debug_params.get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [市场矛盾究极探针 V4.0 · 多维印证版] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [看涨矛盾 - 迭代共振过程]:")
+            for step in bullish_probe_steps:
+                print(step)
+            print("  [看跌矛盾 - 迭代共振过程]:")
+            for step in bearish_probe_steps:
+                print(step)
+            print("  [最终裁决]:")
+            print(f"    - 看涨共振总分: {bullish_resonance_score.iloc[last_date_index]:.4f}")
+            print(f"    - 看跌共振总分: {bearish_resonance_score.iloc[last_date_index]:.4f}")
+            print(f"    - 市场矛盾净值: {bipolar_contradiction.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
         print(f"  -- [融合层] “市场矛盾”冶炼完成，最新分值: {bipolar_contradiction.iloc[-1]:.4f}")
         return states
 
@@ -215,25 +237,20 @@ class FusionIntelligence:
         print("  -- [融合层] 正在冶炼“资本对抗”...")
         states = {}
         df_index = df.index
-        # 1. [修改] 信号升维：定义“内因”与“外缘”
+        # 1. 信号升维：定义“内因”与“外缘”
         # --- 内因 (Internal Cause): 主力的“战役意志” ---
-        # 战略意图
         ff_posture = self._get_atomic_score(df, 'SCORE_FF_STRATEGIC_POSTURE', 0.0)
         chip_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         main_force_intent = (ff_posture * 0.5 + chip_posture * 0.5).clip(-1, 1)
-        # 战术执行
         tactical_execution = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
         # --- 外缘 (External Condition): 对手盘的“环境” ---
         sentiment_pendulum = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
         counterparty_state = -sentiment_pendulum
-        # 2. [修改] 核心数学逻辑 - 天人合一
+        # 2. 核心数学逻辑 - 天人合一
         # 2.1 融合“内因”，计算“战役意志”
-        # 将[-1, 1]映射到[0, 2]进行计算
         mapped_intent = main_force_intent + 1
         mapped_execution = tactical_execution + 1
-        # 几何平均，体现意图与执行的协同
         will_mapped = (mapped_intent.clip(lower=1e-9) * mapped_execution.clip(lower=1e-9)).pow(1/2)
-        # 映射回[-1, 1]
         campaign_will = (will_mapped - 1).clip(-1, 1)
         # 2.2 构建“环境调节器”
         modulation_factor = 0.5 # 环境调节系数
@@ -241,23 +258,7 @@ class FusionIntelligence:
         # 2.3 最终决断: 战役意志(我) × 环境调节器(天)
         final_score = (campaign_will * environment_modulator).clip(-1, 1)
         states['FUSION_BIPOLAR_CAPITAL_CONFRONTATION'] = final_score.astype(np.float32)
-        # 3. [修改] 升级究极探针至最终形态
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates = debug_params.get('probe_dates', [])
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [资本对抗究极探针 V5.0 · 意志与环境版 (終章)] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 主力意图 (战略): {main_force_intent.iloc[last_date_index]:.4f}")
-            print(f"    - 战术执行 (行动): {tactical_execution.iloc[last_date_index]:.4f}")
-            print(f"    - 对手盘状态 (环境): {counterparty_state.iloc[last_date_index]:.4f}")
-            print("  [关键计算节点 - 天人合一]:")
-            print(f"    - 战役意志 (内因): {campaign_will.iloc[last_date_index]:.4f}")
-            print(f"    - 环境调节器 (外缘): {environment_modulator.iloc[last_date_index]:.4f}")
-            print("  [最终裁决]:")
-            print(f"    - 资本对抗分 (意志 × 环境): {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “资本对抗”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
