@@ -399,8 +399,8 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.12 · 阴阳易位版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 为“价势背离”信号执行“军令直达”，其专属瞬时关系分即为最终分。
+        【V5.13 · 风暴之眼版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 新增对“风暴眼中的寂静”信号的专属路由，执行其高能压缩状态的诊断逻辑。
         """
         signal_name = config.get('name')
         df_index = df.index
@@ -462,7 +462,10 @@ class ProcessIntelligence:
             meta_score = relationship_score
         elif signal_name == 'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE':
             relationship_score = self._calculate_price_momentum_divergence(df, config)
-            meta_score = relationship_score # [修改] 执行“军令直达”，不再调用元分析
+            meta_score = relationship_score
+        # [新增] 为“风暴眼中的寂静”信号增加专属路由
+        elif signal_name == 'PROCESS_META_STORM_EYE_CALM':
+            meta_score = self._calculate_storm_eye_calm(df, config)
         else:
             relationship_score = self._calculate_instantaneous_relationship(df, config)
             if relationship_score.empty:
@@ -1426,6 +1429,53 @@ class ProcessIntelligence:
         # [修改] 修正调用参数，同时传递 df 和 df.index
         meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df.index)
         return meta_score
+
+    def _calculate_storm_eye_calm(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.1 · 风暴之眼探针版】“风暴眼中的寂静”专属计算引擎
+        - 核心重构: 创立“高能压缩”模型，旨在捕捉趋势爆发前的“窒息”状态。
+        - 信号融合: 融合结构张力、量能萎缩与主力控盘度三大核心证据。
+        - 核心逻辑: 寂静分 = (结构张力 × 量能萎缩) × (1 + 主力控盘度)。
+        - 新增功能: 植入详尽的“真理探针”，全面暴露“高能压缩”模型的计算细节。
+        """
+        tension_signal = 'SCORE_STRUCT_AXIOM_TENSION'
+        atrophy_signal = 'SCORE_BEHAVIOR_VOLUME_ATROPHY'
+        control_signal = 'control_solidity_index_D'
+        required_signals = [tension_signal, atrophy_signal, control_signal]
+        if not self._validate_required_signals(df, required_signals, "_calculate_storm_eye_calm"):
+            return pd.Series(dtype=np.float32)
+        df_index = df.index
+        # 获取原料信号
+        tension_score = self._get_atomic_score(df, tension_signal, 0.0)
+        atrophy_score = self._get_atomic_score(df, atrophy_signal, 0.0)
+        control_raw = self._get_safe_series(df, control_signal, 0.0, method_name="_calculate_storm_eye_calm")
+        # 归一化主力控盘度
+        control_score = self._normalize_series(control_raw, df_index, bipolar=True)
+        # 核心逻辑：高能压缩模型
+        # 基础压缩分 = 结构张力 × 量能萎缩
+        base_compression_score = (tension_score * atrophy_score).pow(0.5)
+        # 主力意图放大器
+        main_force_amplifier = 1 + control_score.clip(lower=0) # 只考虑正向控盘的增益效果
+        # 最终得分
+        final_score = (base_compression_score * main_force_amplifier).clip(0, 1)
+        # [新增] 植入真理探针
+        probe_dates = self.probe_dates
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [风暴之眼探针: {config.get('name')}] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 结构张力分 ({tension_signal}): {tension_score.iloc[last_date_index]:.4f}")
+            print(f"    - 量能萎缩分 ({atrophy_signal}): {atrophy_score.iloc[last_date_index]:.4f}")
+            print(f"    - 主力控盘度(原始) ({control_signal}): {control_raw.iloc[last_date_index]:.4f}")
+            print("  [关键计算]:")
+            print(f"    - 主力控盘分(归一化): {control_score.iloc[last_date_index]:.4f}")
+            print(f"    - 基础压缩分 (张力*萎缩): {base_compression_score.iloc[last_date_index]:.4f}")
+            print(f"    - 主力意图放大器 (1+控盘分): {main_force_amplifier.iloc[last_date_index]:.4f}")
+            print("  [最终结果]:")
+            print(f"    - 最终寂静分: {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        return final_score.astype(np.float32)
 
     def _perform_meta_analysis_on_score(self, relationship_score: pd.Series, config: Dict, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:
         """

@@ -706,6 +706,13 @@
             "description": "【V3.0 · 意图方向版】将原有的“能量是否压缩”的单极性判断，升级为“能量压缩后的最可能爆发方向”的双极性诊断。它在融合BBW、均线压缩率等张力指标的基础上，引入“主力姿态指数”作为方向调节器。正分代表能量高度压缩且主力意图偏多（弹簧压紧欲向上），负分则代表主力意图偏空。"
         },
         "说明_process_intelligence": "--- 过程层信号 (Process Intelligence) ---",
+        "PROCESS_META_STORM_EYE_CALM": {
+            "cn_name": "【过程】风暴眼中的寂静",
+            "category": "过程层-机会",
+            "type": "process",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 风暴之眼版】一个前瞻性机会信号，旨在量化趋势爆发前的“高能压缩”状态。基于“寂静分 = 结构张力 × 量能萎缩 × (1 + 主力控盘度)”模型，高分代表市场成交与波动被压缩到极致，且有主力控盘迹象，是大战一触即发的“风暴眼”信号。"
+        },
         "PROCESS_META_STOCK_SECTOR_SYNC": {
             "cn_name": "【过程】个股板块同步",
             "category": "过程层-战略",
