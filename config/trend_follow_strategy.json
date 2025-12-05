@@ -660,15 +660,11 @@
           },
           {
             "name": "PROCESS_META_WINNER_CONVICTION",
-            "type": "meta_analysis", "task_type": "base",
-            "relationship_type": "divergence",
-            "signal_A": "rally_distribution_pressure_D", "source_A": "df", "change_type_A": "diff",
-            "signal_B": "winner_profit_margin_avg_D", "source_B": "df", "change_type_B": "diff",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "relationship_type": "custom",
             "signal_b_factor_k": 1.0,
-            "antidote_signal": "total_winner_rate_D",
-            "antidote_change_type": "diff",
-            "antidote_k": 1.2,
-            "description": "【V3.0 解毒剂协议】诊断'修正后利润'与'紧迫度'的背离。引入total_winner_rate_D作为解毒剂，修正利润垫在突破日被稀释的问题。正分代表信念坚定，负分代表信念动摇。"
+            "description": "【V3.1 · 信念拔河版】诊断“赢家信念”。采用专属的“信念拔河”模型，直接对比“赢家稳定性”与“利润兑现压力”的消长，废除旧的间接信号和复杂的解毒剂逻辑。"
           },
           {
             "name": "PROCESS_META_LOSER_CAPITULATION",

@@ -137,24 +137,35 @@ class ProcessIntelligence:
 
     def run_process_diagnostics(self, df: pd.DataFrame, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
-        【V5.5 · 依赖前置版】过程情报分析总指挥
-        - 核心升级: 重构任务调度逻辑，在主循环前优先计算并前置处理被广泛依赖的“基石信号”
-                      （如 PROCESS_META_POWER_TRANSFER），确保无论配置文件顺序如何，
+        【V5.6 · 帅帐中军版】过程情报分析总指挥
+        - 核心升级: 建立“帅帐中军”调度机制。通过定义一个“基石信号”清单，按依赖顺序优先计算
+                      如“权力转移”、“主力拉升意图”等被广泛依赖的核心信号，确保无论配置文件顺序如何，
                       依赖关系都能被满足，彻底解决因计算顺序错误导致的崩溃问题。
         """
-        print("启动【V5.5 · 依赖前置版】过程情报分析...")
+        print("启动【V5.6 · 帅帐中军版】过程情报分析...")
         all_process_states = {}
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
         diagnostics = get_param_value(p_conf.get('diagnostics'), [])
-        # 依赖前置处理逻辑
-        power_transfer_config = next((d for d in diagnostics if d.get('name') == 'PROCESS_META_POWER_TRANSFER'), None)
-        if power_transfer_config:
-            power_transfer_score = self._calculate_power_transfer(df, power_transfer_config)
-            all_process_states['PROCESS_META_POWER_TRANSFER'] = power_transfer_score
-            self.strategy.atomic_states['PROCESS_META_POWER_TRANSFER'] = power_transfer_score
-            print(f"    -> [过程层] {power_transfer_config['name']} (依赖前置) 计算完成，最新分值: {power_transfer_score.iloc[-1]:.4f}")
+        # [新增] 定义需要优先计算的“基石信号”清单
+        priority_signals = [
+            'PROCESS_META_POWER_TRANSFER',
+            'PROCESS_META_MAIN_FORCE_RALLY_INTENT'
+        ]
+        # [修改] 依赖前置处理逻辑，遍历基石信号清单
+        processed_priority_signals = set()
+        for signal_name in priority_signals:
+            config = next((d for d in diagnostics if d.get('name') == signal_name), None)
+            if config:
+                # 使用 _run_meta_analysis 进行计算，以复用其内部逻辑
+                score_dict = self._run_meta_analysis(df, config)
+                if score_dict:
+                    all_process_states.update(score_dict)
+                    self.strategy.atomic_states.update(score_dict)
+                    latest_score = next(iter(score_dict.values())).iloc[-1]
+                    print(f"    -> [过程层] {signal_name} (基石信号) 计算完成，最新分值: {latest_score:.4f}")
+                    processed_priority_signals.add(signal_name)
         # 主循环处理剩余的诊断任务
-        remaining_diagnostics = [d for d in diagnostics if d.get('name') != 'PROCESS_META_POWER_TRANSFER']
+        remaining_diagnostics = [d for d in diagnostics if d.get('name') not in processed_priority_signals]
         for diag_config in remaining_diagnostics:
             if task_type_filter:
                 if diag_config.get('task_type') != task_type_filter:
@@ -162,7 +173,6 @@ class ProcessIntelligence:
             diag_name = diag_config.get('name')
             if not diag_name:
                 continue
-            # [移除] 原有的特殊处理分支，逻辑已前置
             score = self._run_meta_analysis(df, diag_config)
             if isinstance(score, pd.Series):
                 all_process_states[diag_name] = score
@@ -170,7 +180,7 @@ class ProcessIntelligence:
             elif isinstance(score, dict):
                 all_process_states.update(score)
                 self.strategy.atomic_states.update(score)
-        print(f"【V5.5 · 依赖前置版】分析完成，生成 {len(all_process_states)} 个过程元信号。")
+        print(f"【V5.6 · 帅帐中军版】分析完成，生成 {len(all_process_states)} 个过程元信号。")
         return all_process_states
 
     def _run_meta_analysis(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
@@ -481,14 +491,13 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.4 · 战略信号升维版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 为 FF_VS_STRUCTURE_LEAD 和 DYN_VS_CHIP_DECAY 信号分派专属计算引擎，
-                      引入“势能加权”和“派发审判”的诡道逻辑。
+        【V5.5 · 军令同步版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 为 PROCESS_META_WINNER_CONVICTION 信号分派专属计算引擎，
+                      确保其“信念拔河”的诡道逻辑得以执行。
         """
         signal_name = config.get('name')
         df_index = df.index
         meta_score = pd.Series(dtype=np.float32)
-        # [新增] 为新的战略信号分派专属计算引擎
         if signal_name == 'PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD':
             relationship_score = self._calculate_ff_vs_structure_relationship(df, config)
             meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
@@ -510,6 +519,10 @@ class ProcessIntelligence:
             meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
         elif signal_name == 'PROCESS_META_MAIN_FORCE_RALLY_INTENT':
             meta_score = self._calculate_main_force_rally_intent(df, config)
+        # [新增] 为“赢家信念”信号增加专属路由
+        elif signal_name == 'PROCESS_META_WINNER_CONVICTION':
+            relationship_score = self._calculate_winner_conviction_relationship(df, config)
+            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
         elif signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND':
             meta_score = self._calculate_cost_advantage_trend_relationship(df, config)
         elif signal_name == 'PROCESS_META_MAIN_FORCE_CONTROL':
@@ -535,7 +548,7 @@ class ProcessIntelligence:
             if relationship_score.empty:
                 return {}
             self.strategy.atomic_states[f"PROCESS_ATOMIC_REL_SCORE_{signal_name}"] = relationship_score.astype(np.float32)
-            diagnosis_mode = config.get('diagnosis_mode', 'meta_analysis')
+            diagnosis_mode = config.get('diagnosis_mode', 'direct_confirmation')
             if diagnosis_mode == 'direct_confirmation':
                 meta_score = relationship_score
             else:
