@@ -1052,13 +1052,13 @@ class ProcessIntelligence:
 
     def _calculate_upthrust_washout(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.9 · 意图优先版】识别主力利用“上冲回落”阴线进行的洗盘行为。
-        - 核心重构: 创立“意图优先”原则。在评估承接力量时，将“主动买盘支撑”和“权力转移”
-                      等体现主力真实意图的信号置于核心地位，而将“下影线”等外在形态降为次要证据。
-        - 证据升级: 重新分配承接审判分的内部权重，以反映新的“意图优先”逻辑。
-        - 新增功能: 植入详尽的“真理探针”，以追踪意图评估的计算过程。
+        【V2.0 · 强证优先版】识别主力利用“上冲回落”阴线进行的洗盘行为。
+        - 核心重构: 创立“强证优先”原则。废除对多种承接证据的加权平均，改为采用 max() 函数，
+                      直接取“主动买盘”、“下影线强度”、“权力转移”三者中的最强者作为最终承接证据，
+                      旨在识别任何一种足以扭转战局的决定性吸收力量。
+        - 新增功能: 探针同步升级，清晰展示“强证优先”的决策过程。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_UPTHRUST_WASHOUT (V1.9 · 意图优先版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_UPTHRUST_WASHOUT (V2.0 · 强证优先版)...")
         required_signals = [
             'SCORE_STRUCT_AXIOM_TREND_FORM', 'BIAS_21_D', 'pct_change_D',
             'upward_impulse_purity_D', 'upper_shadow_selling_pressure_D',
@@ -1082,32 +1082,27 @@ class ProcessIntelligence:
         upper_shadow_pressure_norm = self._normalize_series(upper_shadow_pressure_raw, df_index, bipolar=False)
         selling_pressure_score = (upper_shadow_pressure_norm * 0.7 + is_down_day * 0.3).clip(0, 1)
         active_buying_norm = self._normalize_series(active_buying_raw, df_index, bipolar=False)
-        # [修改] 重构承接审判分权重，体现“意图优先”
-        absorption_rebuttal_score = (
-            active_buying_norm * 0.5 +             # 主动买盘(意图)是核心
-            power_transfer.clip(lower=0) * 0.3 +  # 权力转移(结果)是验证
-            lower_shadow_strength * 0.2           # 下影线(形态)是补充
-        ).clip(0, 1)
+        power_transfer_norm = power_transfer.clip(lower=0)
+        # [修改] 重构承接审判分，采用“强证优先”原则
+        absorption_rebuttal_score = pd.concat([
+            active_buying_norm,
+            lower_shadow_strength,
+            power_transfer_norm
+        ], axis=1).max(axis=1)
         net_washout_intent = (absorption_rebuttal_score - selling_pressure_score).clip(0, 1)
         final_score = net_washout_intent.where(context_mask, 0.0).fillna(0.0)
         # [修改] 升级探针以反映新逻辑
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [上冲回落洗盘探针(意图优先版)] ---")
+            print("\n--- [上冲回落洗盘探针(强证优先版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
             print(f"    - 上下文掩码: {context_mask.iloc[last_date_index]}")
-            print(f"    - 上影线抛压(原始): {upper_shadow_pressure_raw.iloc[last_date_index]:.4f}")
-            print(f"    - 下影线承接强度: {lower_shadow_strength.iloc[last_date_index]:.4f}")
-            print(f"    - 主动买盘支撑(原始): {active_buying_raw.iloc[last_date_index]:.4f}")
-            print(f"    - 权力转移: {power_transfer.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
             print(f"    - 抛压审判分: {selling_pressure_score.iloc[last_date_index]:.4f}")
-            print(f"    - 承接审判分(意图优先): {absorption_rebuttal_score.iloc[last_date_index]:.4f}")
-            print(f"      - (贡献)主动买盘(归一化): {active_buying_norm.iloc[last_date_index]:.4f} * 0.5")
-            print(f"      - (贡献)权力转移: {power_transfer.clip(lower=0).iloc[last_date_index]:.4f} * 0.3")
-            print(f"      - (贡献)下影线: {lower_shadow_strength.iloc[last_date_index]:.4f} * 0.2")
+            print(f"    - 承接证据池: [主动买盘:{active_buying_norm.iloc[last_date_index]:.4f}, 下影线:{lower_shadow_strength.iloc[last_date_index]:.4f}, 权力转移:{power_transfer_norm.iloc[last_date_index]:.4f}]")
+            print(f"    - 承接审判分(强证优先): {absorption_rebuttal_score.iloc[last_date_index]:.4f}")
             print(f"    - 净洗盘意图(承接-抛压): {net_washout_intent.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
             print(f"    - 上冲回落洗盘最终分: {final_score.iloc[last_date_index]:.4f}")
