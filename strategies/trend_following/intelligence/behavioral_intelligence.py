@@ -195,9 +195,10 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V33.8 · 调用链修复版】原子信号中心
-        - 核心修复: 适配了 _diagnose_shakeout_confirmation V2.0 的新函数签名，
-                      移除了已废弃的 downward_resistance 参数，以匹配“政变确认版”新模型。
+        【V33.9 · 调用链修复版】原子信号中心
+        - 核心修复: 调整了 _diagnose_divergence_quality 的调用时序，确保在其依赖信号
+                      absorption_strength 和 distribution_intent 计算完成后再执行。
+                      并采用显式参数注入的方式传递依赖，解决了信号获取失败的根本问题。
         """
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
@@ -216,7 +217,8 @@ class BehavioralIntelligence:
             'support_validation_strength_D', 'impulse_quality_ratio_D', 'floating_chip_cleansing_efficiency_D',
             'panic_selling_cascade_D', 'capitulation_absorption_index_D', 'covert_accumulation_signal_D',
             'VOL_MA_5_D', 'VOL_MA_13_D', 'VOL_MA_21_D', 'loser_pain_index_D',
-            'deception_index_D', 'wash_trade_intensity_D', 'closing_auction_ambush_D', 'mf_retail_battle_intensity_D'
+            'deception_index_D', 'wash_trade_intensity_D', 'closing_auction_ambush_D', 'mf_retail_battle_intensity_D',
+            'main_force_conviction_index_D' # [新增依赖] 确保背离计算所需的核心信号被校验
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_behavioral_axioms"):
             print("    -> [行为情报引擎] 核心公理诊断失败，行为分析中止。")
@@ -319,13 +321,17 @@ class BehavioralIntelligence:
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights)
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights)
         states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = self._calculate_absorption_strength(df, default_weights)
-        # [修改的代码行] 修复调用错误：适配 V2.0 新签名，移除 downward_resistance 参数
         states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] = self._diagnose_shakeout_confirmation(
             df,
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
             states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
         )
-        bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(df)
+        # [修改的代码行] 调整调用时序，并在计算完成后再调用背离诊断，同时注入依赖
+        bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(
+            df,
+            states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
+            states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
+        )
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
         states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'] = bearish_divergence_quality
         # --- 机会与风险信号 ---
@@ -700,12 +706,12 @@ class BehavioralIntelligence:
         breakout_failure_risk = (lure_score * internal_risk_factor).clip(0, 1)
         return breakout_failure_risk.astype(np.float32)
 
-    def _diagnose_divergence_quality(self, df: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
+    def _diagnose_divergence_quality(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
-        【V3.0 · 信念冲突版】诊断高品质价量/价资背离
-        - 核心重构: 废弃了基于“平滑趋势谬误”和“静态位置幻觉”的 V2.0 模型。引入基于
-                      “政变前夜”思想的全新三维诊断模型，旨在精确识别由主力真实信念驱动的、
-                      发生在情绪极端点的、并得到初步行为确认的决定性背离。
+        【V3.1 · 依赖注入修复版】诊断高品质价量/价资背离
+        - 核心修复: 废弃了隐式的状态依赖，重构为显式的参数注入。方法现在直接接收
+                      absorption_strength 和 distribution_intent 作为参数，彻底解决了
+                      因调用时序不当导致的依赖信号获取失败问题。
         - 诊断三要素:
           1. 背离幅度 (Magnitude): 价格创出新高/低，但 `main_force_conviction_index_D` 逆势而行。
           2. 战场位置 (Location): 牛市背离发生在套牢盘极度痛苦 (`loser_pain_index_D`) 之时；
@@ -723,8 +729,9 @@ class BehavioralIntelligence:
         conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_divergence_quality")
         loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_diagnose_divergence_quality")
         winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_divergence_quality")
-        absorption_strength = self._get_atomic_score(df, 'SCORE_BEHAVIOR_ABSORPTION_STRENGTH', 0.0)
-        distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
+        # [修改的代码行] 移除不安全的信号获取，直接使用注入的参数
+        # absorption_strength = self._get_atomic_score(df, 'SCORE_BEHAVIOR_ABSORPTION_STRENGTH', 0.0)
+        # distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
         # --- 2. 计算牛市背离 (价格新低 vs 信念走高) ---
         price_new_low = (price == price.rolling(divergence_window, min_periods=1).min()).astype(float)
         conviction_trend_up = (conviction_raw > conviction_raw.rolling(divergence_window, min_periods=1).mean()).astype(float)
