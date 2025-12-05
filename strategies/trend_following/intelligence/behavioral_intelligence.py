@@ -195,9 +195,9 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V34.1 · 动能升维版】原子信号中心
-        - 核心升级: 废弃了旧的 V1.0 下跌动能计算逻辑，改为调用全新的 V2.0 "斩首行动版"
-                      `_diagnose_downward_momentum` 方法，实现了动能评估的根本性升维。
+        【V34.2 · 过热升维版】原子信号中心
+        - 核心升级: 废弃了旧的 V1.0 价格过热计算逻辑，改为调用全新的 V2.0 "泡沫脆弱度版"
+                      `_diagnose_price_overextension` 方法，实现了过热风险评估的根本性升维。
         """
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
@@ -217,7 +217,7 @@ class BehavioralIntelligence:
             'panic_selling_cascade_D', 'capitulation_absorption_index_D', 'covert_accumulation_signal_D',
             'VOL_MA_5_D', 'VOL_MA_13_D', 'VOL_MA_21_D', 'loser_pain_index_D',
             'deception_index_D', 'wash_trade_intensity_D', 'closing_auction_ambush_D', 'mf_retail_battle_intensity_D',
-            'main_force_conviction_index_D', 'SLOPE_5_loser_pain_index_D' # [新增依赖] 确保下跌动能计算所需的核心信号被校验
+            'main_force_conviction_index_D', 'SLOPE_5_loser_pain_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_behavioral_axioms"):
             print("    -> [行为情报引擎] 核心公理诊断失败，行为分析中止。")
@@ -237,28 +237,11 @@ class BehavioralIntelligence:
         # --- 动能信号 ---
         upward_momentum_score = self._diagnose_upward_momentum(df, default_weights)
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
-        # [修改的代码行] 移除旧的 V1.0 计算逻辑，改为调用全新的 V2.0 "斩首行动版" 方法
         downward_momentum_score = self._diagnose_downward_momentum(df, default_weights)
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
         # --- 超买信号 ---
-        bias_21 = self._get_safe_series(df, 'BIAS_21_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        rsi = self._get_safe_series(df, 'RSI_13_D', 50.0, method_name="_diagnose_behavioral_axioms")
-        winner_rate = self._get_safe_series(df, 'total_winner_rate_D', 50.0, method_name="_diagnose_behavioral_axioms")
-        winner_stability = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_behavioral_axioms")
-        control_solidity = self._get_safe_series(df, 'control_solidity_index_D', 0.5, method_name="_diagnose_behavioral_axioms")
-        trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        norm_bias = get_adaptive_mtf_normalized_score(bias_21, df.index, ascending=True, tf_weights=default_weights)
-        norm_rsi = get_adaptive_mtf_normalized_score(rsi, df.index, ascending=True, tf_weights=default_weights)
-        norm_winner_rate = get_adaptive_mtf_normalized_score(winner_rate, df.index, ascending=True, tf_weights=default_weights)
-        excitement_force = (norm_bias * norm_rsi * norm_winner_rate).pow(1/3).fillna(0.0)
-        norm_winner_stability = get_adaptive_mtf_normalized_score(winner_stability, df.index, ascending=True, tf_weights=long_term_weights)
-        norm_control_solidity = get_adaptive_mtf_normalized_score(control_solidity, df.index, ascending=True, tf_weights=long_term_weights)
-        norm_trend_vitality = get_adaptive_mtf_normalized_score(trend_vitality, df.index, ascending=True, tf_weights=long_term_weights)
-        conviction_force = (norm_winner_stability * norm_control_solidity * norm_trend_vitality).pow(1/3).fillna(0.0)
-        overextension_raw_score = (excitement_force - conviction_force).clip(lower=0)
-        volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_behavioral_axioms")
-        volume_amplifier = (1 + get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=default_weights)).clip(lower=1)
-        final_overextension_score = (overextension_raw_score * volume_amplifier).clip(0, 1)
+        # [修改的代码行] 移除旧的 V1.0 计算逻辑，改为调用全新的 V2.0 "泡沫脆弱度版" 方法
+        final_overextension_score = self._diagnose_price_overextension(df, default_weights, long_term_weights)
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
         # --- 行为铁三角 ---
         base_efficiency_raw = self._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
@@ -420,6 +403,60 @@ class BehavioralIntelligence:
                 print(f"        - 心理战果分 (痛苦加剧): {psychological_warfare_score.loc[probe_ts]:.4f}")
                 print(f"        - 最终动能品质分 (三维几何平均): {downward_momentum_score.loc[probe_ts]:.4f}")
         return downward_momentum_score.clip(0, 1).astype(np.float32)
+
+    def _diagnose_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, long_term_weights: Dict) -> pd.Series:
+        """
+        【V2.0 · 泡沫脆弱度版】诊断价格过热风险。
+        - 核心重构: 废弃了基于“静态热度谬误”和“粗暴音量陷阱”的 V1.0 模型。引入基于
+                      “泡沫脆弱度”思想的全新对抗性诊断模型。
+        - 核心博弈: 脆弱度 = 内部压力 (市场狂热) / 结构完整性 (主力信念与控制力)
+          1. 内部压力 (Internal Pressure): 审判市场狂热的加速度。由 `total_winner_rate_D`,
+                                           `ACCEL_5_pct_change_D`, `turnover_rate_f_D` 构成。
+          2. 结构完整性 (Structural Integrity): 审判泡沫壁的坚固度。由 `winner_stability_index_D`,
+                                                `control_solidity_index_D`, `main_force_conviction_index_D` 构成。
+        - 数学模型: 脆弱度分 = 内部压力分 / (结构完整性分 + ε)，并废弃成交量放大器。
+        """
+        # --- 1. 获取两大维度原始数据 ---
+        # 内部压力维度
+        winner_rate_raw = self._get_safe_series(df, 'total_winner_rate_D', 50.0, method_name="_diagnose_price_overextension")
+        price_accel_raw = self._get_safe_series(df, 'ACCEL_5_pct_change_D', 0.0, method_name="_diagnose_price_overextension")
+        turnover_raw = self._get_safe_series(df, 'turnover_rate_f_D', 0.0, method_name="_diagnose_price_overextension")
+        # 结构完整性维度
+        winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_price_overextension")
+        control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.5, method_name="_diagnose_price_overextension")
+        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_price_overextension")
+        # --- 2. 计算各维度得分 ---
+        # 维度一：内部压力分 (市场狂热)
+        winner_rate_score = get_adaptive_mtf_normalized_score(winner_rate_raw, df.index, ascending=True, tf_weights=tf_weights)
+        price_accel_score = get_adaptive_mtf_normalized_score(price_accel_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
+        turnover_score = get_adaptive_mtf_normalized_score(turnover_raw, df.index, ascending=True, tf_weights=tf_weights)
+        internal_pressure_score = (winner_rate_score * price_accel_score * turnover_score).pow(1/3)
+        # 维度二：结构完整性分 (主力信念与控制力)
+        winner_stability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=long_term_weights)
+        control_solidity_score = get_adaptive_mtf_normalized_score(control_solidity_raw, df.index, ascending=True, tf_weights=long_term_weights)
+        conviction_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=long_term_weights)
+        structural_integrity_score = (winner_stability_score * control_solidity_score * conviction_score).pow(1/3)
+        # --- 3. “泡沫脆弱度”合成 ---
+        bubble_fragility_score = (internal_pressure_score / (structural_integrity_score + 1e-9)).fillna(0.0)
+        # 对结果进行非线性放大和归一化，使得中低风险区差异不大，高风险区被显著放大
+        final_overextension_score = np.tanh(bubble_fragility_score * 0.5)
+        # --- 深度战术探针 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _diagnose_price_overextension @ {probe_date_str}")
+                print(f"        - 内部压力原始值: 获利盘率={winner_rate_raw.loc[probe_ts]:.2f}, 价格加速度={price_accel_raw.loc[probe_ts]:.2f}, 换手率={turnover_raw.loc[probe_ts]:.2f}")
+                print(f"        - 结构完整性原始值: 获利盘稳定={winner_stability_raw.loc[probe_ts]:.2f}, 筹码控制={control_solidity_raw.loc[probe_ts]:.2f}, 主力信念={conviction_raw.loc[probe_ts]:.2f}")
+                print(f"        - 内部压力分 (市场狂热): {internal_pressure_score.loc[probe_ts]:.4f}")
+                print(f"        - 结构完整性分 (主力信念与控制力): {structural_integrity_score.loc[probe_ts]:.4f}")
+                print(f"        - 泡沫脆弱度 (压力/结构): {bubble_fragility_score.loc[probe_ts]:.4f}")
+                print(f"        - 最终过热风险分 (tanh归一化): {final_overextension_score.loc[probe_ts]:.4f}")
+        return final_overextension_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
