@@ -195,9 +195,9 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V34.2 · 过热升维版】原子信号中心
-        - 核心升级: 废弃了旧的 V1.0 价格过热计算逻辑，改为调用全新的 V2.0 "泡沫脆弱度版"
-                      `_diagnose_price_overextension` 方法，实现了过热风险评估的根本性升维。
+        【V34.3 · 铁三角升维版】原子信号中心
+        - 核心升级: 废弃了旧的 V1.0 "行为铁三角" 内联计算逻辑，改为调用全新的 V2.0
+                      系列诊断方法，实现了对上涨效率、下跌抵抗、日内控制力的根本性升维。
         """
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
@@ -217,7 +217,8 @@ class BehavioralIntelligence:
             'panic_selling_cascade_D', 'capitulation_absorption_index_D', 'covert_accumulation_signal_D',
             'VOL_MA_5_D', 'VOL_MA_13_D', 'VOL_MA_21_D', 'loser_pain_index_D',
             'deception_index_D', 'wash_trade_intensity_D', 'closing_auction_ambush_D', 'mf_retail_battle_intensity_D',
-            'main_force_conviction_index_D', 'SLOPE_5_loser_pain_index_D'
+            'main_force_conviction_index_D', 'SLOPE_5_loser_pain_index_D',
+            'pressure_rejection_strength_D', 'active_buying_support_D', 'vwap_control_strength_D' # [新增依赖] 确保铁三角计算所需的核心信号被校验
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_behavioral_axioms"):
             print("    -> [行为情报引擎] 核心公理诊断失败，行为分析中止。")
@@ -240,33 +241,15 @@ class BehavioralIntelligence:
         downward_momentum_score = self._diagnose_downward_momentum(df, default_weights)
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
         # --- 超买信号 ---
-        # [修改的代码行] 移除旧的 V1.0 计算逻辑，改为调用全新的 V2.0 "泡沫脆弱度版" 方法
         final_overextension_score = self._diagnose_price_overextension(df, default_weights, long_term_weights)
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
         # --- 行为铁三角 ---
-        base_efficiency_raw = self._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        path_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        structural_confirm_raw = self._get_safe_series(df, 'vacuum_traversal_efficiency_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        base_efficiency_score = get_adaptive_mtf_normalized_score(base_efficiency_raw, df.index, ascending=True, tf_weights=default_weights)
-        path_purity_score = get_adaptive_mtf_normalized_score(path_purity_raw, df.index, ascending=True, tf_weights=default_weights)
-        structural_confirm_score = get_adaptive_mtf_normalized_score(structural_confirm_raw, df.index, ascending=True, tf_weights=default_weights)
-        upward_efficiency_score = (base_efficiency_score.pow(0.4) * path_purity_score.pow(0.3) * structural_confirm_score.pow(0.3)).fillna(0.0)
+        # [修改的代码行] 移除旧的 V1.0 内联计算逻辑，改为调用全新的 V2.0 诊断方法
+        upward_efficiency_score = self._diagnose_upward_efficiency(df, default_weights)
         states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
-        passive_absorption_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        active_defense_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        counter_attack_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        passive_absorption_score = get_adaptive_mtf_normalized_score(passive_absorption_raw, df.index, ascending=True, tf_weights=default_weights)
-        active_defense_score = get_adaptive_mtf_normalized_score(active_defense_raw, df.index, ascending=True, tf_weights=default_weights)
-        counter_attack_score = get_adaptive_mtf_normalized_score(counter_attack_raw, df.index, ascending=True, tf_weights=default_weights)
-        downward_resistance_score = (passive_absorption_score.pow(0.2) * active_defense_score.pow(0.4) * counter_attack_score.pow(0.4)).fillna(0.0)
+        downward_resistance_score = self._diagnose_downward_resistance(df, default_weights)
         states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
-        strategic_position_raw = self._get_safe_series(df, 'vwap_control_strength_D', 0.5, method_name="_diagnose_behavioral_axioms")
-        offensive_capability_raw = self._get_safe_series(df, 'impulse_quality_ratio_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        defensive_resilience_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        strategic_position_score = get_adaptive_mtf_normalized_score(strategic_position_raw, df.index, ascending=True, tf_weights=default_weights)
-        offensive_capability_score = get_adaptive_mtf_normalized_score(offensive_capability_raw, df.index, ascending=True, tf_weights=default_weights)
-        defensive_resilience_score = get_adaptive_mtf_normalized_score(defensive_resilience_raw, df.index, ascending=True, tf_weights=default_weights)
-        intraday_bull_control_score = (strategic_position_score.pow(0.4) * offensive_capability_score.pow(0.3) * defensive_resilience_score.pow(0.3)).fillna(0.0)
+        intraday_bull_control_score = self._diagnose_intraday_bull_control(df, default_weights)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
         stagnation_evidence = self._diagnose_stagnation_evidence(df, states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'])
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence
@@ -357,7 +340,7 @@ class BehavioralIntelligence:
 
     def _diagnose_downward_momentum(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.0 · 斩首行动版】诊断高品质下跌动能。
+        【V2.1 · 生产版】诊断高品质下跌动能。
         - 核心重构: 废弃了基于“恐慌幻觉”的 V1.0 模型。引入基于“斩首行动三要素”
                       （打击力度-战略意图-心理战果）的全新品质诊断模型。
         - 斩首行动三要素:
@@ -387,26 +370,12 @@ class BehavioralIntelligence:
             (strategic_intent_score + 1e-9) *
             (psychological_warfare_score + 1e-9)
         ).pow(1/3).fillna(0.0)
-        # --- 深度战术探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _diagnose_downward_momentum @ {probe_date_str}")
-                print(f"        - 原始值: 主动卖压={active_selling_raw.loc[probe_ts]:.2f}, 派发压力={distribution_pressure_raw.loc[probe_ts]:.2f}, 主力信念={conviction_raw.loc[probe_ts]:.2f}, 痛苦斜率={loser_pain_slope_raw.loc[probe_ts]:.2f}")
-                print(f"        - 打击力度分 (主动卖压*派发压力): {overwhelming_force_score.loc[probe_ts]:.4f}")
-                print(f"        - 战略意图分 (主力负向信念): {strategic_intent_score.loc[probe_ts]:.4f}")
-                print(f"        - 心理战果分 (痛苦加剧): {psychological_warfare_score.loc[probe_ts]:.4f}")
-                print(f"        - 最终动能品质分 (三维几何平均): {downward_momentum_score.loc[probe_ts]:.4f}")
+        # [修改的代码行] 移除探针代码，恢复生产版本
         return downward_momentum_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, long_term_weights: Dict) -> pd.Series:
         """
-        【V2.0 · 泡沫脆弱度版】诊断价格过热风险。
+        【V2.1 · 生产版】诊断价格过热风险。
         - 核心重构: 废弃了基于“静态热度谬误”和“粗暴音量陷阱”的 V1.0 模型。引入基于
                       “泡沫脆弱度”思想的全新对抗性诊断模型。
         - 核心博弈: 脆弱度 = 内部压力 (市场狂热) / 结构完整性 (主力信念与控制力)
@@ -440,6 +409,34 @@ class BehavioralIntelligence:
         bubble_fragility_score = (internal_pressure_score / (structural_integrity_score + 1e-9)).fillna(0.0)
         # 对结果进行非线性放大和归一化，使得中低风险区差异不大，高风险区被显著放大
         final_overextension_score = np.tanh(bubble_fragility_score * 0.5)
+        # [修改的代码行] 移除探针代码，恢复生产版本
+        return final_overextension_score.clip(0, 1).astype(np.float32)
+
+    def _diagnose_upward_efficiency(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
+        """
+        【V2.0 · 闪击战品质版】诊断高品质上涨效率。
+        - 核心重构: 废弃了基于宽泛概念的 V1.0 模型。引入基于“闪击战三要素”
+                      （突破纯净度-进攻性价比-卖压压制力）的全新诊断模型。
+        - 闪击战三要素:
+          1. 突破纯净度 (Breach Purity): 审判向上攻击的流畅性与直接性。采用 `upward_impulse_purity_D`。
+          2. 进攻性价比 (Offensive Efficiency): 审判攻击的能量转换效率。采用 `impulse_quality_ratio_D`。
+          3. 卖压压制力 (Pressure Suppression): 审判巩固战果、压制敌方反扑的能力。采用 `pressure_rejection_strength_D`。
+        - 数学模型: 效率分 = (纯净度分^0.4 * 性价比分^0.3 * 压制力分^0.3)
+        """
+        # --- 1. 获取三要素原始数据 ---
+        purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_upward_efficiency")
+        offensive_efficiency_raw = self._get_safe_series(df, 'impulse_quality_ratio_D', 0.0, method_name="_diagnose_upward_efficiency")
+        suppression_raw = self._get_safe_series(df, 'pressure_rejection_strength_D', 0.0, method_name="_diagnose_upward_efficiency")
+        # --- 2. 计算各要素得分 ---
+        purity_score = get_adaptive_mtf_normalized_score(purity_raw, df.index, ascending=True, tf_weights=tf_weights)
+        offensive_efficiency_score = get_adaptive_mtf_normalized_score(offensive_efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
+        suppression_score = get_adaptive_mtf_normalized_score(suppression_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # --- 3. “闪击战”三要素合成 ---
+        upward_efficiency_score = (
+            (purity_score + 1e-9).pow(0.4) *
+            (offensive_efficiency_score + 1e-9).pow(0.3) *
+            (suppression_score + 1e-9).pow(0.3)
+        ).fillna(0.0)
         # --- 深度战术探针 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -449,14 +446,91 @@ class BehavioralIntelligence:
             valid_probe_dates = [d for d in probe_timestamps if d in df.index]
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _diagnose_price_overextension @ {probe_date_str}")
-                print(f"        - 内部压力原始值: 获利盘率={winner_rate_raw.loc[probe_ts]:.2f}, 价格加速度={price_accel_raw.loc[probe_ts]:.2f}, 换手率={turnover_raw.loc[probe_ts]:.2f}")
-                print(f"        - 结构完整性原始值: 获利盘稳定={winner_stability_raw.loc[probe_ts]:.2f}, 筹码控制={control_solidity_raw.loc[probe_ts]:.2f}, 主力信念={conviction_raw.loc[probe_ts]:.2f}")
-                print(f"        - 内部压力分 (市场狂热): {internal_pressure_score.loc[probe_ts]:.4f}")
-                print(f"        - 结构完整性分 (主力信念与控制力): {structural_integrity_score.loc[probe_ts]:.4f}")
-                print(f"        - 泡沫脆弱度 (压力/结构): {bubble_fragility_score.loc[probe_ts]:.4f}")
-                print(f"        - 最终过热风险分 (tanh归一化): {final_overextension_score.loc[probe_ts]:.4f}")
-        return final_overextension_score.clip(0, 1).astype(np.float32)
+                print(f"      [行为探针] _diagnose_upward_efficiency @ {probe_date_str}")
+                print(f"        - 原始值: 突破纯净度={purity_raw.loc[probe_ts]:.2f}, 进攻性价比={offensive_efficiency_raw.loc[probe_ts]:.2f}, 卖压压制力={suppression_raw.loc[probe_ts]:.2f}")
+                print(f"        - 要素得分: 纯净度分={purity_score.loc[probe_ts]:.4f}, 性价比分={offensive_efficiency_score.loc[probe_ts]:.4f}, 压制力分={suppression_score.loc[probe_ts]:.4f}")
+                print(f"        - 最终上涨效率分 (闪击战品质): {upward_efficiency_score.loc[probe_ts]:.4f}")
+        return upward_efficiency_score.clip(0, 1).astype(np.float32)
+
+    def _diagnose_downward_resistance(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
+        """
+        【V2.0 · 阵地战韧性版】诊断高品质下跌抵抗。
+        - 核心重构: 废弃了基于“被动挨打”视角的 V1.0 模型。引入基于“纵深防御三要素”
+                      （被动承接-主动防御-积极反击）的全新诊断模型。
+        - 纵深防御三要素:
+          1. 被动承接 (Passive Absorption): 衡量市场对下跌的初步、自然消化能力。采用 `dip_absorption_power_D`。
+          2. 主动防御 (Active Defense): 审判在关键支撑位置的主动防守强度。采用 `support_validation_strength_D`。
+          3. 积极反击 (Proactive Counterattack): 审判多头主动出击、夺回失地的能力。采用 `active_buying_support_D`。
+        - 数学模型: 抵抗分 = (被动分^0.2 * 主动分^0.4 * 反击分^0.4)
+        """
+        # --- 1. 获取三要素原始数据 ---
+        passive_absorption_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_downward_resistance")
+        active_defense_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_diagnose_downward_resistance")
+        counter_attack_raw = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_diagnose_downward_resistance")
+        # --- 2. 计算各要素得分 ---
+        passive_absorption_score = get_adaptive_mtf_normalized_score(passive_absorption_raw, df.index, ascending=True, tf_weights=tf_weights)
+        active_defense_score = get_adaptive_mtf_normalized_score(active_defense_raw, df.index, ascending=True, tf_weights=tf_weights)
+        counter_attack_score = get_adaptive_mtf_normalized_score(counter_attack_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # --- 3. “纵深防御”三要素合成 ---
+        downward_resistance_score = (
+            (passive_absorption_score + 1e-9).pow(0.2) *
+            (active_defense_score + 1e-9).pow(0.4) *
+            (counter_attack_score + 1e-9).pow(0.4)
+        ).fillna(0.0)
+        # --- 深度战术探针 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _diagnose_downward_resistance @ {probe_date_str}")
+                print(f"        - 原始值: 被动承接={passive_absorption_raw.loc[probe_ts]:.2f}, 主动防御={active_defense_raw.loc[probe_ts]:.2f}, 积极反击={counter_attack_raw.loc[probe_ts]:.2f}")
+                print(f"        - 要素得分: 被动分={passive_absorption_score.loc[probe_ts]:.4f}, 主动分={active_defense_score.loc[probe_ts]:.4f}, 反击分={counter_attack_score.loc[probe_ts]:.4f}")
+                print(f"        - 最终下跌抵抗分 (阵地战韧性): {downward_resistance_score.loc[probe_ts]:.4f}")
+        return downward_resistance_score.clip(0, 1).astype(np.float32)
+
+    def _diagnose_intraday_bull_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
+        """
+        【V2.0 · 战区司令部版】诊断高品质日内多头控制力。
+        - 核心重构: 废弃了缺乏“灵魂”的 V1.0 模型。引入基于“战区司令部三要素”
+                      （战略位置-战术火力-司令意志）的全新诊断模型。
+        - 战区司令部三要素:
+          1. 战略位置 (Strategic Position): 审判对日内核心战场(VWAP)的控制权。采用 `vwap_control_strength_D`。
+          2. 战术火力 (Tactical Firepower): 审判发动有效攻击的能力。采用 `impulse_quality_ratio_D`。
+          3. 司令意志 (Commander's Will): 审判所有战术行动背后的主力真实信念。采用 `main_force_conviction_index_D`。
+        - 数学模型: 控制力分 = (位置分^0.3 * 火力分^0.3 * 意志分^0.4)
+        """
+        # --- 1. 获取三要素原始数据 ---
+        strategic_position_raw = self._get_safe_series(df, 'vwap_control_strength_D', 0.5, method_name="_diagnose_intraday_bull_control")
+        tactical_firepower_raw = self._get_safe_series(df, 'impulse_quality_ratio_D', 0.0, method_name="_diagnose_intraday_bull_control")
+        commanders_will_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_intraday_bull_control")
+        # --- 2. 计算各要素得分 ---
+        strategic_position_score = get_adaptive_mtf_normalized_score(strategic_position_raw, df.index, ascending=True, tf_weights=tf_weights)
+        tactical_firepower_score = get_adaptive_mtf_normalized_score(tactical_firepower_raw, df.index, ascending=True, tf_weights=tf_weights)
+        commanders_will_score = get_adaptive_mtf_normalized_score(commanders_will_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
+        # --- 3. “战区司令部”三要素合成 ---
+        intraday_bull_control_score = (
+            (strategic_position_score + 1e-9).pow(0.3) *
+            (tactical_firepower_score + 1e-9).pow(0.3) *
+            (commanders_will_score + 1e-9).pow(0.4)
+        ).fillna(0.0)
+        # --- 深度战术探针 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _diagnose_intraday_bull_control @ {probe_date_str}")
+                print(f"        - 原始值: 战略位置={strategic_position_raw.loc[probe_ts]:.2f}, 战术火力={tactical_firepower_raw.loc[probe_ts]:.2f}, 司令意志={commanders_will_raw.loc[probe_ts]:.2f}")
+                print(f"        - 要素得分: 位置分={strategic_position_score.loc[probe_ts]:.4f}, 火力分={tactical_firepower_score.loc[probe_ts]:.4f}, 意志分={commanders_will_score.loc[probe_ts]:.4f}")
+                print(f"        - 最终日内控制力分 (战区司令部): {intraday_bull_control_score.loc[probe_ts]:.4f}")
+        return intraday_bull_control_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
