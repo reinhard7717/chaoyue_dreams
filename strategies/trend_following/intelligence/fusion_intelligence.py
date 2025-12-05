@@ -284,19 +284,19 @@ class FusionIntelligence:
         print("  -- [融合层] 正在冶炼“趋势结构分”...")
         states = {}
         df_index = df.index
-        # 1. [修改] 信号升维：定义四大支柱，只引用各情报域的顶层信号
+        # 1. 信号升维：定义四大支柱，只引用各情报域的顶层信号
         four_pillars = {
             'structure': 'SCORE_STRUCT_STRATEGIC_POSTURE', # 结构支柱 (骨)
             'dynamics': 'SCORE_DYN_GRAND_UNIFICATION',     # 力学支柱 (势)
             'chip': 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY',    # 筹码支柱 (基)
             'fund_flow': 'SCORE_FF_STRATEGIC_POSTURE'      # 资金支柱 (血)
         }
-        # 2. [修改] 获取各支柱的原子信号分
+        # 2. 获取各支柱的原子信号分
         pillar_scores = {
             pillar: self._get_atomic_score(df, signal_name, 0.0)
             for pillar, signal_name in four_pillars.items()
         }
-        # 3. [修改] 核心数学逻辑 - 四象共振 (几何平均)
+        # 3. 核心数学逻辑 - 四象共振 (几何平均)
         # 为避免负数开方，先将所有[-1, 1]的信号映射到[0, 2]区间进行计算
         # (score + 1) 将 [-1, 1] 映射到 [0, 2]
         mapped_scores = [score + 1 for score in pillar_scores.values()]
@@ -309,73 +309,48 @@ class FusionIntelligence:
         # 将结果从[0, 2]区间映射回[-1, 1]
         final_score = (resonance_score_mapped - 1).clip(-1, 1)
         states['FUSION_BIPOLAR_TREND_STRUCTURE_SCORE'] = final_score.astype(np.float32)
-        # 4. [新增] 植入究极探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates = debug_params.get('probe_dates', [])
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [趋势结构分究极探针 V2.0 · 四象共振版] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料 - 四象支柱 (Pillar)]:")
-            for pillar, score_series in pillar_scores.items():
-                print(f"    - {pillar.upper()} Pillar ({four_pillars[pillar]}): {score_series.iloc[last_date_index]:.4f}")
-            print("  [关键计算节点]:")
-            print(f"    - (映射后) 结构支柱分: {mapped_scores[0].iloc[last_date_index]:.4f}")
-            print(f"    - (映射后) 力学支柱分: {mapped_scores[1].iloc[last_date_index]:.4f}")
-            print(f"    - (映射后) 筹码支柱分: {mapped_scores[2].iloc[last_date_index]:.4f}")
-            print(f"    - (映射后) 资金支柱分: {mapped_scores[3].iloc[last_date_index]:.4f}")
-            print(f"    - (映射后) 共振融合分 (几何平均): {resonance_score_mapped.iloc[last_date_index]:.4f}")
-            print("  [最终裁决]:")
-            print(f"    - 趋势结构分 (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE): {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “趋势结构分”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
     def _synthesize_fund_flow_trend(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 诡道博弈版】冶炼“资金趋势” (FUSION_BIPOLAR_FUND_FLOW_TREND)
-        - 核心重构: 废弃V1.x的线性加权模型，引入基于“攻防力量博弈”的非线性数学模型。
-        - 攻方力量: 融合主力共识、信念与动能，并以资金纯度(对倒强度)和隐蔽吸筹行为进行修正，量化真实、健康的多头攻击力。
-        - 守方弱点: 聚合空头力量、派发压力与散户FOMO陷阱等风险因子，通过“木桶短板”逻辑识别最主要的威胁。
-        - 诡道融合: 将“攻防力量差”与“价资背离”信号进行非线性融合，旨在穿透数据表象，揭示博弈格局与趋势的可持续性。
+        【V3.0 · 君臣共振版】冶炼“资金趋势” (FUSION_BIPOLAR_FUND_FLOW_TREND)
+        - 核心重构: 废弃V2.x混合低阶信号的攻防模型，引入基于顶层信号的“君臣共振”模型。
+        - 架构戒律: 严格遵守融合层职责，不再消费任何原始数据或低阶公理，只融合最高阶的战略信号。
+        - 诡道哲学: 最终趋势 = 战略态势(君) × (1 + 微观信念(臣) × 确认系数)。宏观趋势必须
+                      得到微观意图的确认，否则即为陷阱。
         """
+        print("  -- [融合层] 正在冶炼“资金趋势”...")
         states = {}
-        df_index = df.index
-        # 1. 获取核心原子信号
-        ff_consensus = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0)
-        ff_conviction = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONVICTION', 0.0)
-        ff_flow_momentum = self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0)
-        ff_divergence = self._get_atomic_score(df, 'SCORE_FF_AXIOM_DIVERGENCE', 0.0)
-        # 2. 获取用于深度博弈分析的原始数据
-        hidden_accumulation_raw = self._get_safe_series(df, 'hidden_accumulation_intensity_D', 0.0, method_name="_synthesize_fund_flow_trend")
-        wash_trade_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_synthesize_fund_flow_trend")
-        distribution_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_synthesize_fund_flow_trend")
-        retail_fomo_raw = self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name="_synthesize_fund_flow_trend")
-        # 3. 数据归一化处理
-        norm_window = 55
-        hidden_accumulation_score = normalize_score(hidden_accumulation_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
-        wash_trade_score = normalize_score(wash_trade_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
-        distribution_pressure_score = normalize_score(distribution_pressure_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
-        retail_fomo_score = normalize_score(retail_fomo_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
-        # 4. 核心数学逻辑 - 攻防力量模型
-        # 4.1 定义“攻方”力量 (多头力量)
-        bullish_base_force = (ff_consensus.clip(lower=0) * ff_conviction.clip(lower=0)).pow(0.5)
-        bullish_momentum_amplifier = ff_flow_momentum.clip(lower=0) * (1 + hidden_accumulation_score * 0.5)
-        purity_factor = 1 - wash_trade_score
-        bullish_power = (bullish_base_force * bullish_momentum_amplifier).pow(0.5) * purity_factor
-        # 4.2 定义“守方”弱点 (空头力量与风险)
-        bearish_explicit_force = np.maximum.reduce([
-            ff_consensus.clip(upper=0).abs(),
-            ff_conviction.clip(upper=0).abs(),
-            ff_flow_momentum.clip(upper=0).abs()
-        ])
-        bearish_implicit_risk = np.maximum(distribution_pressure_score, retail_fomo_score)
-        bearish_weakness = np.maximum(bearish_explicit_force, bearish_implicit_risk)
-        # 5. 融合攻防力量与“诡道”因子(背离)
-        power_balance = (bullish_power - bearish_weakness).clip(-1, 1)
-        fund_flow_trend_score = np.tanh(power_balance * 1.5 + ff_divergence * 0.5)
-        states['FUSION_BIPOLAR_FUND_FLOW_TREND'] = fund_flow_trend_score.astype(np.float32)
-        print(f"  -- [融合层] “资金趋势”冶炼完成，最新分值: {fund_flow_trend_score.iloc[-1]:.4f}")
+        # 1. [修改] 信号升维：定义“君”与“臣”
+        # 君：资金流情报引擎的最高战略判断
+        strategic_posture = self._get_atomic_score(df, 'SCORE_FF_STRATEGIC_POSTURE', 0.0)
+        # 臣：盘口最真实的微观意图，作为现实检验器
+        micro_conviction = self._get_atomic_score(df, 'FUSION_BIPOLAR_MICRO_CONVICTION', 0.0)
+        # 2. [修改] 核心数学逻辑 - 君臣共振模型
+        confirmation_factor = 0.5 # 确认系数，控制微观信念的影响力
+        # 共振调节器：当微观信念与战略态势同向时 > 1 (放大)，反向时 < 1 (抑制)
+        resonance_modulator = (1 + micro_conviction * confirmation_factor).clip(0, 2)
+        # 非线性融合
+        final_score = (strategic_posture * resonance_modulator).clip(-1, 1)
+        states['FUSION_BIPOLAR_FUND_FLOW_TREND'] = final_score.astype(np.float32)
+        # 3. [新增] 植入究极探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = debug_params.get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [资金趋势究极探针 V3.0 · 君臣共振版] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料 - 君臣佐使]:")
+            print(f"    - 君 (SCORE_FF_STRATEGIC_POSTURE): {strategic_posture.iloc[last_date_index]:.4f}")
+            print(f"    - 臣 (FUSION_BIPOLAR_MICRO_CONVICTION): {micro_conviction.iloc[last_date_index]:.4f}")
+            print("  [关键计算节点]:")
+            print(f"    - 共振调节器 (1 + 臣 * k): {resonance_modulator.iloc[last_date_index]:.4f}")
+            print("  [最终裁决]:")
+            print(f"    - 资金趋势分 (FUSION_BIPOLAR_FUND_FLOW_TREND): {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        print(f"  -- [融合层] “资金趋势”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
     def _synthesize_chip_trend(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
