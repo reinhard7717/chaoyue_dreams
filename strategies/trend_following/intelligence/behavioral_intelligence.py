@@ -357,62 +357,6 @@ class BehavioralIntelligence:
                 self._probe_raw_material_diagnostics(df, probe_ts)
         return states
 
-    def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
-        """
-        【V2.2 · 探针逻辑重构版】计算 SCORE_BEHAVIOR_VOLUME_ATROPHY 信号。
-        - 核心重构: 彻底重构了探针逻辑，使其不再依赖于数据集的最后一天。现在探针会遍历
-                      `probe_dates` 配置，并为每个在数据集中找到的日期精确打印当日的详细信息，
-                      完美适配历史区间调试。
-        """
-        df_index = df.index
-        vol = self._get_safe_series(df, 'volume_D', 0.0, method_name="_calculate_volume_atrophy")
-        vol_ma5 = self._get_safe_series(df, 'VOL_MA_5_D', 0.0, method_name="_calculate_volume_atrophy")
-        vol_ma13 = self._get_safe_series(df, 'VOL_MA_13_D', 0.0, method_name="_calculate_volume_atrophy")
-        vol_ma21 = self._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name="_calculate_volume_atrophy")
-        if vol.isnull().all() or vol_ma5.isnull().all() or vol_ma13.isnull().all() or vol_ma21.isnull().all():
-            print("    -> [行为情报引擎警告] 缺少成交量或成交量均线数据，无法计算 SCORE_BEHAVIOR_VOLUME_ATROPHY。")
-            return pd.Series(0.0, index=df_index)
-        vol_ma21_safe = vol_ma21.replace(0, 1e-9)
-        vol_below_ma21_raw = (1 - (vol / vol_ma21_safe)).clip(0, 1)
-        vol_below_ma21_score = get_adaptive_mtf_normalized_score(vol_below_ma21_raw, df_index, ascending=True, tf_weights=tf_weights)
-        vol_ma5_below_ma21_raw = (1 - (vol_ma5 / vol_ma21_safe)).clip(0, 1)
-        vol_ma5_below_ma21_score = get_adaptive_mtf_normalized_score(vol_ma5_below_ma21_raw, df_index, ascending=True, tf_weights=tf_weights)
-        is_ice_point_atrophy = ((vol < vol_ma5) & (vol_ma5 < vol_ma21)).astype(float)
-        ice_point_atrophy_persistence = is_ice_point_atrophy.rolling(window=5, min_periods=1).sum() / 5
-        ice_point_atrophy_score = is_ice_point_atrophy * (0.5 + ice_point_atrophy_persistence * 0.5)
-        is_ma_bearish_alignment = ((vol_ma5 < vol_ma13) & (vol_ma13 < vol_ma21)).astype(float)
-        ma_bearish_alignment_strength_raw = (vol_ma21 - vol_ma5) / vol_ma21_safe.replace(0, np.nan)
-        ma_bearish_alignment_score = get_adaptive_mtf_normalized_score(ma_bearish_alignment_strength_raw.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights)
-        ma_bearish_alignment_final_score = is_ma_bearish_alignment * ma_bearish_alignment_score
-        evidence_components = [vol_below_ma21_score, vol_ma5_below_ma21_score, ice_point_atrophy_score, ma_bearish_alignment_final_score]
-        weights = np.array([0.2, 0.2, 0.3, 0.3])
-        aligned_evidence_components = [comp.reindex(df_index, fill_value=0.0) for comp in evidence_components]
-        safe_evidence_components = [comp + 1e-9 for comp in aligned_evidence_components]
-        base_atrophy_score = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_evidence_components, weights)], axis=0), index=df_index)
-        lockup_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_calculate_volume_atrophy")
-        exhaustion_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_calculate_volume_atrophy")
-        cleansing_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_calculate_volume_atrophy")
-        lockup_factor = get_adaptive_mtf_normalized_score(lockup_raw, df.index, ascending=True, tf_weights=tf_weights)
-        exhaustion_factor = get_adaptive_mtf_normalized_score(exhaustion_raw, df.index, ascending=True, tf_weights=tf_weights)
-        cleansing_factor = get_adaptive_mtf_normalized_score(cleansing_raw, df.index, ascending=True, tf_weights=tf_weights)
-        context_modulator = (lockup_factor * exhaustion_factor * cleansing_factor).pow(1/3).fillna(0.0)
-        high_quality_atrophy_score = (base_atrophy_score * context_modulator).pow(0.5)
-        # --- 彻底重构探针逻辑以适配历史回溯 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _calculate_volume_atrophy @ {probe_date_str}")
-                print(f"        - 基础萎缩分: {base_atrophy_score.loc[probe_ts]:.4f}")
-                print(f"        - 环境调节器原始值: 锁定度={lockup_raw.loc[probe_ts]:.2f}, 枯竭度={exhaustion_raw.loc[probe_ts]:.2f}, 清洗度={cleansing_raw.loc[probe_ts]:.2f}")
-                print(f"        - 环境调节器因子: 锁定={lockup_factor.loc[probe_ts]:.4f}, 枯竭={exhaustion_factor.loc[probe_ts]:.4f}, 清洗={cleansing_factor.loc[probe_ts]:.4f} -> 综合={context_modulator.loc[probe_ts]:.4f}")
-                print(f"        - 最终高品质萎缩分: {high_quality_atrophy_score.loc[probe_ts]:.4f}")
-        return high_quality_atrophy_score.clip(0, 1)
-
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V1.2 · 信号校验增强版】诊断内部上下文信号：新高强度 (CONTEXT_NEW_HIGH_STRENGTH)
@@ -842,6 +786,55 @@ class BehavioralIntelligence:
                 print(f"        - 归一化分: 幅度={magnitude_score.loc[probe_ts]:.4f}, 信念={conviction_score.loc[probe_ts]:.4f}, 效率={efficiency_score.loc[probe_ts]:.4f}, 战果={result_score.loc[probe_ts]:.4f}")
                 print(f"        - 最终爆发品质分 (四维几何平均): {volume_burst_quality.loc[probe_ts]:.4f}")
         return volume_burst_quality.clip(0, 1).astype(np.float32)
+
+    def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
+        """
+        【V2.0 · 高质量萎缩版】计算高品质成交量萎缩信号。
+        - 核心重构: 废弃了基于“静态快照谬误”的 V1.2 模型。引入基于“环境决定论”的
+                      全新二元结构模型，旨在精确区分“良性惜售”与“恶性阴跌”。
+        - 核心二元结构:
+          1. 萎缩程度 (Atrophy Degree): 继续使用 `volume_ratio_D` 作为基础，衡量缩量状态。
+          2. 高质量环境调节器 (Quality Modulator): 引入三位一体的环境审判机制，对基础分进行调制。
+             - 获利盘锁定度: 使用 `winner_stability_index_D` 衡量赢家惜售意愿。
+             - 套牢盘枯竭度: 使用 `loser_pain_index_D` 衡量套牢盘是否被洗净。
+             - 浮筹清洗度: 使用 `floating_chip_cleansing_efficiency_D` 评估洗盘效率。
+        - 数学模型: 品质分 = 萎缩程度分 * (锁定分 * 枯竭分 * 清洗分) ^ (1/3)
+        """
+        # --- 1. 获取原始数据 ---
+        volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_calculate_volume_atrophy")
+        winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_calculate_volume_atrophy")
+        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_calculate_volume_atrophy")
+        cleansing_efficiency_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_calculate_volume_atrophy")
+        # --- 2. 计算各维度得分 ---
+        # 维度一：萎缩程度分 (与量比负相关)
+        atrophy_degree_score = 1 - get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=tf_weights)
+        # 构建高质量环境调节器
+        lockup_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=tf_weights)
+        exhaustion_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=tf_weights)
+        cleansing_score = get_adaptive_mtf_normalized_score(cleansing_efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
+        quality_modulator = (
+            (lockup_score + 1e-9) *
+            (exhaustion_score + 1e-9) *
+            (cleansing_score + 1e-9)
+        ).pow(1/3).fillna(0.0)
+        # --- 3. 最终品质合成 ---
+        volume_atrophy_quality = (atrophy_degree_score * quality_modulator).clip(0, 1)
+        # --- 深度战术探针 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _calculate_volume_atrophy @ {probe_date_str}")
+                print(f"        - 原始值: 量比={volume_ratio.loc[probe_ts]:.2f}, 赢家稳定={winner_stability_raw.loc[probe_ts]:.2f}, 输家痛苦={loser_pain_raw.loc[probe_ts]:.2f}, 浮筹清洗={cleansing_efficiency_raw.loc[probe_ts]:.2f}")
+                print(f"        - 基础分 (萎缩程度): {atrophy_degree_score.loc[probe_ts]:.4f}")
+                print(f"        - 环境调节器因子: 锁定分={lockup_score.loc[probe_ts]:.4f}, 枯竭分={exhaustion_score.loc[probe_ts]:.4f}, 清洗分={cleansing_score.loc[probe_ts]:.4f}")
+                print(f"        - 综合环境调节器 (三维几何平均): {quality_modulator.loc[probe_ts]:.4f}")
+                print(f"        - 最终萎缩品质分 (基础*环境): {volume_atrophy_quality.loc[probe_ts]:.4f}")
+        return volume_atrophy_quality.astype(np.float32)
 
     def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict, lower_shadow_quality: pd.Series) -> pd.Series:
         """
