@@ -195,9 +195,9 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V33.7 · 调用链修复版】原子信号中心
-        - 核心修复: 修正了对 _calculate_absorption_strength 方法的调用，移除了在新版 V2.0
-                      中已废弃的 lower_shadow_quality 参数，解决了参数数量不匹配的 TypeError。
+        【V33.8 · 调用链修复版】原子信号中心
+        - 核心修复: 适配了 _diagnose_shakeout_confirmation V2.0 的新函数签名，
+                      移除了已废弃的 downward_resistance 参数，以匹配“政变确认版”新模型。
         """
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
@@ -318,11 +318,10 @@ class BehavioralIntelligence:
         states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = self._diagnose_breakout_failure_risk(df, distribution_intent)
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights)
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights)
-        # [修改的代码行] 修复调用错误：移除在新版 V2.0 中已废弃的 lower_shadow_quality 参数
         states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = self._calculate_absorption_strength(df, default_weights)
+        # [修改的代码行] 修复调用错误：适配 V2.0 新签名，移除 downward_resistance 参数
         states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] = self._diagnose_shakeout_confirmation(
             df,
-            states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'],
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
             states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
         )
@@ -854,28 +853,41 @@ class BehavioralIntelligence:
                 print(f"        - 最终承接强度 (三维几何平均): {absorption_strength.loc[probe_ts]:.4f}")
         return absorption_strength.clip(0, 1).astype(np.float32)
 
-    def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, downward_resistance: pd.Series, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:
+    def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:
         """
-        【V1.3 · 分层门控版】诊断震荡洗盘确认信号
-        - 核心重构: 废弃“扁平几何平均”，引入“分层门控模型”。确立“防守反击强度”（过程）
-                      的核心基石地位，由“派发意图”（意图）和“清洗效率”（结果）组成的
-                      “品质调节器”对其进行调制。这确保了只有在核心行为真实发生时，
-                      信号才具有意义，解决了“证据扁平化谬误”。
+        【V2.0 · 政变确认版】诊断震荡洗盘确认信号。
+        - 核心重构: 废弃了基于“过程融合谬误”的 V1.3 模型。引入基于“政变三部曲”
+                      （前提-行动-成果）的全新门控模型，旨在精确识别主力主动控盘的洗盘行为。
+        - 政变三部曲:
+          1. 前提门控 (Precondition): 审查动机与环境。必须满足“无派发意图”和“非失控恐慌”
+                                      两大前提，否则“政变”无从谈起。
+          2. 核心引擎 (Core Action): 废弃 `downward_resistance`，直接采用更高阶的
+                                     `absorption_strength` 作为唯一核心。一场没有强力反攻
+                                     的洗盘，就是一次失败的政变。
+          3. 战术成果 (Result): 采用 `floating_chip_cleansing_efficiency_D` 作为最终战果
+                                  的验证，确认“政变”是否成功清洗了浮筹。
+        - 数学模型: 确认分 = 前提门控分 * (核心引擎分 * 战术成果分) ^ 0.5
         """
-        # --- 1. 获取核心输入 ---
-        cleansing_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_shakeout_confirmation")
+        # --- 1. 获取原始数据 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        cleansing_efficiency_score = get_adaptive_mtf_normalized_score(cleansing_raw, df.index, ascending=True, tf_weights=default_weights)
-        # --- 2. 计算“过程”基石 ---
-        defense_counter_attack_strength = (downward_resistance * absorption_strength).pow(0.5).fillna(0.0)
-        # --- 3. 构建“品质调节器” (由意图和结果构成) ---
-        certainty_amplifier = (1 - distribution_intent).pow(2).clip(0, 1)
-        qualifier_modulator = (certainty_amplifier * cleansing_efficiency_score).pow(0.5)
-        # --- 4. 分层门控合成 ---
-        shakeout_confirmation_score = (defense_counter_attack_strength * qualifier_modulator).clip(0, 1)
-        # --- 探针监测 ---
+        panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_shakeout_confirmation")
+        cleansing_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_shakeout_confirmation")
+        # --- 2. 计算三部曲的各个组件得分 ---
+        # 组件一：前提门控分
+        no_distribution_intent_score = (1 - distribution_intent).clip(0, 1)
+        panic_score = get_adaptive_mtf_normalized_score(panic_raw, df.index, ascending=True, tf_weights=default_weights)
+        controllable_environment_score = (1 - panic_score).clip(0, 1)
+        precondition_gate_score = (no_distribution_intent_score * controllable_environment_score).pow(0.5)
+        # 组件二：核心引擎分 (决定性反击)
+        core_action_score = absorption_strength
+        # 组件三：战术成果分 (清算效率)
+        tactical_result_score = get_adaptive_mtf_normalized_score(cleansing_raw, df.index, ascending=True, tf_weights=default_weights)
+        # --- 3. “政变”三部曲合成 ---
+        internal_confirmation = (core_action_score * tactical_result_score).pow(0.5).fillna(0.0)
+        shakeout_confirmation_score = (precondition_gate_score * internal_confirmation).clip(0, 1)
+        # --- 深度战术探针 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -885,10 +897,11 @@ class BehavioralIntelligence:
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_shakeout_confirmation @ {probe_date_str}")
-                print(f"        - 过程基石(防守反击): {defense_counter_attack_strength.loc[probe_ts]:.4f} (抵抗={downward_resistance.loc[probe_ts]:.2f}, 吸筹={absorption_strength.loc[probe_ts]:.2f})")
-                # [修改的代码行] 更新探针以反映新的分层模型
-                print(f"        - 品质调节器(意图*结果): {qualifier_modulator.loc[probe_ts]:.4f} (确定性={certainty_amplifier.loc[probe_ts]:.2f}, 清洗效率={cleansing_efficiency_score.loc[probe_ts]:.2f})")
-                print(f"        - 最终洗盘确认分(分层门控): {shakeout_confirmation_score.loc[probe_ts]:.4f}")
+                print(f"        - 原始值: 恐慌级联={panic_raw.loc[probe_ts]:.2f}, 浮筹清洗={cleansing_raw.loc[probe_ts]:.2f}, 承接强度(输入)={absorption_strength.loc[probe_ts]:.4f}, 派发意图(输入)={distribution_intent.loc[probe_ts]:.4f}")
+                print(f"        - 前提门控 (环境审查): {precondition_gate_score.loc[probe_ts]:.4f} (无派发意图={no_distribution_intent_score.loc[probe_ts]:.2f}, 环境可控={controllable_environment_score.loc[probe_ts]:.2f})")
+                print(f"        - 核心引擎 (决定性反击): {core_action_score.loc[probe_ts]:.4f}")
+                print(f"        - 战术成果 (清算效率): {tactical_result_score.loc[probe_ts]:.4f}")
+                print(f"        - 最终洗盘确认分 (门控*融合): {shakeout_confirmation_score.loc[probe_ts]:.4f}")
         return shakeout_confirmation_score.astype(np.float32)
 
     def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series) -> pd.Series:
