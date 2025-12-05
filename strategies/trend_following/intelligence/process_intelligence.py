@@ -1024,12 +1024,12 @@ class ProcessIntelligence:
 
     def _calculate_loser_capitulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V3.0 · 恐慌吸收版】计算“套牢盘投降”信号。
-        - 核心重构: 创立“恐慌与吸收”二元对抗模型。废除通用关系分析，转而审判在下跌日中，
-                      “恐慌抛售的烈度”与“主力主动吸收的强度”的乘积，旨在精准捕捉洗盘终点的信号。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“恐慌吸收”模型。
+        【V3.1 · 战场扩展版】计算“套牢盘投降”信号。
+        - 核心重构: 扩展“战场”定义。战场不再仅限于收盘下跌日，而是扩展为“收盘下跌 或 出现强力下影线吸收”，
+                      旨在捕捉经典的“金针探底”反转形态。
+        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“战场扩展”模型。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_LOSER_CAPITULATION (V3.0 · 恐慌吸收版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_LOSER_CAPITULATION (V3.1 · 战场扩展版)...")
         required_signals = [
             'pct_change_D', 'capitulation_flow_ratio_D', 'active_buying_support_D',
             'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'
@@ -1041,8 +1041,8 @@ class ProcessIntelligence:
         capitulation_flow_raw = self._get_safe_series(df, 'capitulation_flow_ratio_D', 0.0, method_name="_calculate_loser_capitulation")
         active_buying_raw = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_calculate_loser_capitulation")
         lower_shadow_absorption = self._get_atomic_score(df, 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', 0.0)
-        # 战场上下文：只在下跌日激活
-        context_mask = (pct_change < 0)
+        # [修改] 战场上下文：扩展为“下跌日”或“有强力下影线吸收”
+        context_mask = (pct_change < 0) | (lower_shadow_absorption > 0.5)
         # 恐慌分：衡量抛售的烈度
         panic_score = self._normalize_series(capitulation_flow_raw, df_index, bipolar=False)
         # 吸收分：采用“强证优先”原则，取最强的承接证据
@@ -1050,10 +1050,10 @@ class ProcessIntelligence:
         absorption_score = pd.concat([active_buying_norm, lower_shadow_absorption], axis=1).max(axis=1)
         # 最终审判：恐慌与吸收的乘积
         final_score = (panic_score * absorption_score).where(context_mask, 0.0).fillna(0.0)
-        # 植入探针
+        # [修改] 升级探针以反映新逻辑
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [套牢盘投降探针(恐慌吸收版)] ---")
+            print("\n--- [套牢盘投降探针(战场扩展版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
@@ -1062,7 +1062,7 @@ class ProcessIntelligence:
             print(f"    - 主动买盘支撑(原始): {active_buying_raw.iloc[last_date_index]:.4f}")
             print(f"    - 下影线吸收强度: {lower_shadow_absorption.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
-            print(f"    - 战场上下文(下跌日): {context_mask.iloc[last_date_index]}")
+            print(f"    - 战场上下文(下跌或强吸收): {context_mask.iloc[last_date_index]}")
             print(f"    - 恐慌分(归一化): {panic_score.iloc[last_date_index]:.4f}")
             print(f"    - 吸收分(强证优先): {absorption_score.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
