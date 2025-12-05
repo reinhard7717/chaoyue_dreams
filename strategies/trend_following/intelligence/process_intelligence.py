@@ -400,9 +400,9 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.9 · 龙头与寒潮版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 为“个股板块同步”和“热门板块冷却”信号分派专属计算引擎，
-                      确保其“龙头觉醒”与“寒潮来袭”的全新诡道逻辑得以执行。
+        【V5.10 · 全面军令直达版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 为“个股板块同步”和“热门板块冷却”信号执行“军令直达”，
+                      其专属瞬时关系分即为最终分，不再经过元分析。
         """
         signal_name = config.get('name')
         df_index = df.index
@@ -456,14 +456,12 @@ class ProcessIntelligence:
             meta_score = self._calculate_breakout_acceleration(df, config)
         elif signal_name == 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT':
             meta_score = self._calculate_fund_flow_accumulation_inflection(df, config)
-        # [新增] 为“龙头苏醒”信号增加专属路由
         elif signal_name == 'PROCESS_META_STOCK_SECTOR_SYNC':
             relationship_score = self._calculate_stock_sector_sync(df, config)
-            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
-        # [新增] 为“寒潮来袭”信号增加专属路由
+            meta_score = relationship_score # [修改] 执行“军令直达”，不再调用元分析
         elif signal_name == 'PROCESS_META_HOT_SECTOR_COOLING':
             relationship_score = self._calculate_hot_sector_cooling(df, config)
-            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
+            meta_score = relationship_score # [修改] 执行“军令直达”，不再调用元分析
         else:
             relationship_score = self._calculate_instantaneous_relationship(df, config)
             if relationship_score.empty:

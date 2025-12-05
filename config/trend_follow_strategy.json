@@ -732,7 +732,7 @@
             "type": "meta_analysis",
             "task_type": "base",
             "relationship_type": "custom",
-            "description": "【V2.0 · 龙头觉醒版】诊断个股与板块的同步性。采用专属的“领导力加权”模型，旨在捕捉“龙头率先启动”或“强者恒强”的战机，正分代表个股强势且/或得到板块确认。"
+            "description": "【V2.1 · 军令直达版】诊断个股与板块的同步性。采用专属的“领导力加权”模型，其瞬时关系分即为最终分，不再经过元分析。"
           },
           {
             "name": "PROCESS_META_HOT_SECTOR_COOLING",
@@ -740,7 +740,7 @@
             "task_type": "base",
             "relationship_type": "custom",
             "scoring_mode": "unipolar",
-            "description": "【V2.0 · 寒潮来袭版】诊断热门板块的冷却迹象。采用专属的“状态与方向”模型，审判“高热度状态”与“主力资金净流出”的乘积，正分代表高位派发风险加剧。"
+            "description": "【V2.1 · 军令直达版】诊断热门板块的冷却迹象。采用专属的“状态与方向”模型，其瞬时关系分即为最终分，不再经过元分析。"
           },
           {
             "name": "PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE",
