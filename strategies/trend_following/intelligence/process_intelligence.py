@@ -728,6 +728,50 @@ class ProcessIntelligence:
             print("--- [探针结束] ---\n")
         return relationship_score
 
+    def _calculate_winner_belief_erosion(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V2.0 · 信念侵蚀版】“赢家信念衰减”专属计算引擎
+        - 核心重构: 创立“压力放大”模型，审判信念衰减与派发压力的共振。
+        - 信号升级: 引入 `profit_taking_flow_ratio_D` 作为核心压力信号。
+        - 核心逻辑: 侵蚀分 = 基础衰减分 * (1 + 派发压力分)。
+        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“信念侵蚀”模型。
+        """
+        belief_signal_name = 'winner_stability_index_D'
+        pressure_signal_name = 'profit_taking_flow_ratio_D'
+        required_signals = [belief_signal_name, pressure_signal_name]
+        if not self._validate_required_signals(df, required_signals, "_calculate_winner_belief_erosion"):
+            return pd.Series(dtype=np.float32)
+        df_index = df.index
+        belief_signal_raw = self._get_safe_series(df, belief_signal_name, 0.0, method_name="_calculate_winner_belief_erosion")
+        pressure_signal_raw = self._get_safe_series(df, pressure_signal_name, 0.0, method_name="_calculate_winner_belief_erosion")
+        # 1. 计算基础衰减分
+        belief_change = belief_signal_raw.diff(1).fillna(0)
+        decay_magnitude = belief_change.clip(upper=0).abs()
+        base_decay_score = self._normalize_series(decay_magnitude, df_index, bipolar=False)
+        # 2. 计算派发压力分
+        pressure_score = self._normalize_series(pressure_signal_raw, df_index, bipolar=False)
+        # 3. 核心逻辑：压力放大模型
+        pressure_amplifier = 1 + pressure_score
+        erosion_score = (base_decay_score * pressure_amplifier).clip(0, 1)
+        # 探针
+        probe_dates = self.probe_dates
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [信念侵蚀探针: {config.get('name')}] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 信念信号 ({belief_signal_name}): {belief_signal_raw.iloc[last_date_index]:.4f}")
+            print(f"    - 压力信号 ({pressure_signal_name}): {pressure_signal_raw.iloc[last_date_index]:.4f}")
+            print("  [关键计算]:")
+            print(f"    - 信念变化量: {belief_change.iloc[last_date_index]:.4f}")
+            print(f"    - 基础衰减分(归一化): {base_decay_score.iloc[last_date_index]:.4f}")
+            print(f"    - 派发压力分(归一化): {pressure_score.iloc[last_date_index]:.4f}")
+            print(f"    - 压力放大器 (1+压力分): {pressure_amplifier.iloc[last_date_index]:.4f}")
+            print("  [最终结果]:")
+            print(f"    - 信念侵蚀分: {erosion_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        return erosion_score
+
     def _diagnose_domain_reversal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
         【V1.2 · 探针植入版】通用领域反转诊断器
