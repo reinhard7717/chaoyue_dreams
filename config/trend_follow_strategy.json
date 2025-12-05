@@ -757,7 +757,7 @@
             "task_type": "base",
             "relationship_type": "custom",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 风暴之眼版】诊断趋势爆发前的“高能压缩”状态。采用专属的“风暴眼”模型，融合结构张力、量能萎缩与主力控盘度，高分代表大战一触即发。"
+            "description": "【V1.2 · 丞相之印版】诊断趋势爆发前的“高能压缩”状态。采用专属的“风暴眼”模型，将主力正向控盘作为一票否决的“裁决因子”，对“结构张力”与“量能萎缩”的融合结果进行最终审判。高分代表一次由主力主导的、大战一触即发的“风暴眼”信号。"
           },
           {
             "name": "PROCESS_META_WINNER_CONVICTION_DECAY",

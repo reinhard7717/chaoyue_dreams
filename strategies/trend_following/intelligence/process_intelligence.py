@@ -1432,11 +1432,11 @@ class ProcessIntelligence:
 
     def _calculate_storm_eye_calm(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.1 · 风暴之眼探针版】“风暴眼中的寂静”专属计算引擎
-        - 核心重构: 创立“高能压缩”模型，旨在捕捉趋势爆发前的“窒息”状态。
+        【V1.2 · 丞相之印版】“风暴眼中的寂静”专属计算引擎
+        - 核心重构: 创立“高能压缩”模型，并将“主力控盘”从“放大器”升格为“裁决因子”。
         - 信号融合: 融合结构张力、量能萎缩与主力控盘度三大核心证据。
-        - 核心逻辑: 寂静分 = (结构张力 × 量能萎缩) × (1 + 主力控盘度)。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露“高能压缩”模型的计算细节。
+        - 核心逻辑: 寂静分 = 基础压缩分 * 主力控盘(裁决因子)。无主力正向控盘，则一票否决。
+        - 新增功能: 植入详尽的“真理探针”，全面暴露“丞相之印”模型的计算细节。
         """
         tension_signal = 'SCORE_STRUCT_AXIOM_TENSION'
         atrophy_signal = 'SCORE_BEHAVIOR_VOLUME_ATROPHY'
@@ -1454,14 +1454,14 @@ class ProcessIntelligence:
         # 核心逻辑：高能压缩模型
         # 基础压缩分 = 结构张力 × 量能萎缩
         base_compression_score = (tension_score * atrophy_score).pow(0.5)
-        # 主力意图放大器
-        main_force_amplifier = 1 + control_score.clip(lower=0) # 只考虑正向控盘的增益效果
-        # 最终得分
-        final_score = (base_compression_score * main_force_amplifier).clip(0, 1)
-        # [新增] 植入真理探针
+        # [修改] 主力控盘(裁决因子)，取其正值部分，实现“丞相之印”的一票否决权
+        main_force_adjudicator = control_score.clip(lower=0)
+        # [修改] 最终得分 = 基础压缩分 * 裁决因子
+        final_score = (base_compression_score * main_force_adjudicator).clip(0, 1)
+        # 植入真理探针
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [风暴之眼探针: {config.get('name')}] ---")
+            print(f"\n--- [风暴之眼探针(丞相之印版): {config.get('name')}] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
@@ -1471,9 +1471,10 @@ class ProcessIntelligence:
             print("  [关键计算]:")
             print(f"    - 主力控盘分(归一化): {control_score.iloc[last_date_index]:.4f}")
             print(f"    - 基础压缩分 (张力*萎缩): {base_compression_score.iloc[last_date_index]:.4f}")
-            print(f"    - 主力意图放大器 (1+控盘分): {main_force_amplifier.iloc[last_date_index]:.4f}")
+            # [修改] 更新探针输出，体现“裁决因子”的新角色
+            print(f"    - 主力控盘(裁决因子): {main_force_adjudicator.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
-            print(f"    - 最终寂静分: {final_score.iloc[last_date_index]:.4f}")
+            print(f"    - 最终寂静分 (基础分*裁决因子): {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         return final_score.astype(np.float32)
 
