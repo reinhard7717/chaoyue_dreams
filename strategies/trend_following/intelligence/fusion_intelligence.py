@@ -43,12 +43,11 @@ class FusionIntelligence:
 
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.2 · 战术剧本版】融合情报分析总指挥
-        - 核心升级: 新增对两大“战术剧本”融合心法的调度：
-                    1. _synthesize_accumulation_playbook (吸筹剧本)
-                    2. _synthesize_trend_exhaustion_syndrome (趋势衰竭综合征)
+        【V6.3 · 时序修复版】融合情报分析总指挥
+        - 核心修复: 调整各融合心法的调用顺序，确保被依赖的信号（如滞涨风险、衰竭综合征等）
+                    在消费它们的信号（如市场压力）之前被计算，解决信号缺失的根本问题。
         """
-        print("启动【V6.2 · 战术剧本版】融合情报分析...")
+        print("启动【V6.3 · 时序修复版】融合情报分析...")
         all_fusion_states = {}
         micro_conviction_states = self._synthesize_micro_conviction(df)
         all_fusion_states.update(micro_conviction_states)
@@ -59,6 +58,17 @@ class FusionIntelligence:
         quality_states = self._synthesize_trend_quality(df)
         all_fusion_states.update(quality_states)
         self.strategy.atomic_states.update(quality_states)
+        # [修改] 将多个融合信号的计算提前，作为“市场压力”的原料
+        stagnation_risk_states = self._synthesize_stagnation_risk(df)
+        all_fusion_states.update(stagnation_risk_states)
+        self.strategy.atomic_states.update(stagnation_risk_states)
+        trend_exhaustion_states = self._synthesize_trend_exhaustion_syndrome(df)
+        all_fusion_states.update(trend_exhaustion_states)
+        self.strategy.atomic_states.update(trend_exhaustion_states)
+        contested_accumulation_states = self._synthesize_contested_accumulation(df)
+        all_fusion_states.update(contested_accumulation_states)
+        self.strategy.atomic_states.update(contested_accumulation_states)
+        # [修改] 将“市场压力”的计算后移，确保其所有原料都已就绪
         pressure_states = self._synthesize_market_pressure(df)
         all_fusion_states.update(pressure_states)
         self.strategy.atomic_states.update(pressure_states)
@@ -71,9 +81,6 @@ class FusionIntelligence:
         overextension_intent_states = self._synthesize_price_overextension_intent(df)
         all_fusion_states.update(overextension_intent_states)
         self.strategy.atomic_states.update(overextension_intent_states)
-        stagnation_risk_states = self._synthesize_stagnation_risk(df)
-        all_fusion_states.update(stagnation_risk_states)
-        self.strategy.atomic_states.update(stagnation_risk_states)
         trend_structure_states = self._synthesize_trend_structure_score(df)
         all_fusion_states.update(trend_structure_states)
         self.strategy.atomic_states.update(trend_structure_states)
@@ -86,18 +93,10 @@ class FusionIntelligence:
         accumulation_inflection_states = self._synthesize_accumulation_inflection(df)
         all_fusion_states.update(accumulation_inflection_states)
         self.strategy.atomic_states.update(accumulation_inflection_states)
-        contested_accumulation_states = self._synthesize_contested_accumulation(df)
-        all_fusion_states.update(contested_accumulation_states)
-        self.strategy.atomic_states.update(contested_accumulation_states)
-        # [新增] 调用新增的战术剧本融合方法
         accumulation_playbook_states = self._synthesize_accumulation_playbook(df)
         all_fusion_states.update(accumulation_playbook_states)
         self.strategy.atomic_states.update(accumulation_playbook_states)
-        # [新增] 调用新增的战术剧本融合方法
-        trend_exhaustion_states = self._synthesize_trend_exhaustion_syndrome(df)
-        all_fusion_states.update(trend_exhaustion_states)
-        self.strategy.atomic_states.update(trend_exhaustion_states)
-        print(f"【V6.2 · 战术剧本版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
+        print(f"【V6.3 · 时序修复版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
 
     def _synthesize_market_contradiction(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
