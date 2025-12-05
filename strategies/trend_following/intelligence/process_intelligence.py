@@ -400,9 +400,9 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.10 · 全面军令直达版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 为“个股板块同步”和“热门板块冷却”信号执行“军令直达”，
-                      其专属瞬时关系分即为最终分，不再经过元分析。
+        【V5.11 · 强弩之末版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 为“价势背离”信号分派专属计算引擎，确保其“乾坤逆转”的
+                      全新诡道逻辑得以执行。
         """
         signal_name = config.get('name')
         df_index = df.index
@@ -458,10 +458,14 @@ class ProcessIntelligence:
             meta_score = self._calculate_fund_flow_accumulation_inflection(df, config)
         elif signal_name == 'PROCESS_META_STOCK_SECTOR_SYNC':
             relationship_score = self._calculate_stock_sector_sync(df, config)
-            meta_score = relationship_score # [修改] 执行“军令直达”，不再调用元分析
+            meta_score = relationship_score
         elif signal_name == 'PROCESS_META_HOT_SECTOR_COOLING':
             relationship_score = self._calculate_hot_sector_cooling(df, config)
-            meta_score = relationship_score # [修改] 执行“军令直达”，不再调用元分析
+            meta_score = relationship_score
+        # [新增] 为“价势背离”信号增加专属路由
+        elif signal_name == 'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE':
+            relationship_score = self._calculate_price_momentum_divergence(df, config)
+            meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
         else:
             relationship_score = self._calculate_instantaneous_relationship(df, config)
             if relationship_score.empty:
@@ -641,12 +645,14 @@ class ProcessIntelligence:
 
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 探针植入版】信号衰减诊断器
-        - 核心清理: 移除了为兼容旧信号 `winner_conviction_index_D` 而设置的临时补丁，
-                      因为配置文件已完成信号同步，代码逻辑恢复纯粹。
-        - 新增功能: 植入“真理探针”，用于在指定日期输出关键计算过程。
+        【V1.4 · 信念侵蚀版】信号衰减诊断器
+        - 核心升级: 为“赢家信念衰减”信号分派专属计算引擎，执行全新的“信念侵蚀”逻辑。
         """
         signal_name = config.get('name')
+        # [新增] 为“赢家信念衰减”信号增加专属路由
+        if signal_name == 'PROCESS_META_WINNER_CONVICTION_DECAY':
+            decay_score = self._calculate_winner_belief_erosion(df, config)
+            return {signal_name: decay_score.astype(np.float32)}
         source_signal_name = config.get('source_signal')
         source_type = config.get('source_type', 'df')
         df_index = df.index
@@ -681,6 +687,46 @@ class ProcessIntelligence:
             print(f"    - 衰减分数(归一化): {decay_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         return {signal_name: decay_score.astype(np.float32)}
+
+    def _calculate_price_momentum_divergence(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V2.0 · 乾坤逆转版】“价势背离”专属关系计算引擎
+        - 核心重构: 创立“方向对抗”模型，回归背离本质，废除错误的“加速度背离”逻辑。
+        - 信号升级: 比较“价格斜率”与“动量斜率”的当前方向，而非其变化率。
+        - 核心逻辑: 瞬时关系分 = 动能方向分(归一化) - 价格方向分(归一化)。
+        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“方向对抗”模型。
+        """
+        price_slope_signal = 'SLOPE_5_close_D'
+        momentum_slope_signal = 'SLOPE_5_MACDh_13_34_8_D'
+        required_signals = [price_slope_signal, momentum_slope_signal]
+        if not self._validate_required_signals(df, required_signals, "_calculate_price_momentum_divergence"):
+            return pd.Series(dtype=np.float32)
+        df_index = df.index
+        price_slope_raw = self._get_safe_series(df, price_slope_signal, 0.0, method_name="_calculate_price_momentum_divergence")
+        momentum_slope_raw = self._get_safe_series(df, momentum_slope_signal, 0.0, method_name="_calculate_price_momentum_divergence")
+        # 归一化当前方向（斜率值）
+        price_direction_score = self._normalize_series(price_slope_raw, df_index, bipolar=True)
+        momentum_direction_score = self._normalize_series(momentum_slope_raw, df_index, bipolar=True)
+        # 核心逻辑：方向对抗模型
+        # (动能方向 - 价格方向) -> 顶背离: (负 - 正) = 负相关 -> 放大为正分风险
+        # 底背离: (正 - 负) = 正相关 -> 放大为负分机会
+        relationship_score = (momentum_direction_score - price_direction_score).clip(-1, 1)
+        # 探针
+        probe_dates = self.probe_dates
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [瞬时关系探针(乾坤逆转版): {config.get('name')}] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 价格斜率 ({price_slope_signal}): {price_slope_raw.iloc[last_date_index]:.4f}")
+            print(f"    - 动量斜率 ({momentum_slope_signal}): {momentum_slope_raw.iloc[last_date_index]:.4f}")
+            print("  [关键计算]:")
+            print(f"    - 价格方向分(归一化): {price_direction_score.iloc[last_date_index]:.4f}")
+            print(f"    - 动能方向分(归一化): {momentum_direction_score.iloc[last_date_index]:.4f}")
+            print("  [最终结果]:")
+            print(f"    - 方向对抗分: {relationship_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        return relationship_score
 
     def _diagnose_domain_reversal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
