@@ -375,11 +375,11 @@ class FusionIntelligence:
 
     def _synthesize_accumulation_inflection(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.1 · 阴阳势能版】冶炼“吸筹拐点信号” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
-        - 核心重构: 废弃V2.0基于“硬编码阈值”和“与逻辑门”的僵化清单模型。
-        - V4.1证道: “势能调制器”由阳入阴，不仅奖励“地利”的改善（阳），更能惩罚
-                      其恶化（阴），使心法能主动规避根基正在腐朽的死亡陷阱。
-        - 诡道哲学: 终极拐点 = 和谐之态(根基) × 阴阳之势(矢量)。
+        【V5.0 · 厚積薄發版 (終章)】冶炼“吸籌拐點信號” (FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT)
+        - 核心升华: “势”的来源从单日的瞬时变化，升华为基于EMA的平滑趋势变化，旨在
+                      滤除噪波，洞察“地利”持续改善或恶化的真实“势”之厚度。
+        - 终章心法: 真正的拐点，是和谐之态与厚積之勢的共鸣。此法之后，再无增益。
+        - 诡道哲学: 终极拐点 = 和谐之态(根基) × 厚積之勢(趨勢)。
         """
         print("  -- [融合层] 正在冶炼“吸筹拐点信号”...")
         states = {}
@@ -387,26 +387,28 @@ class FusionIntelligence:
         tian_shi_raw = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0)
         di_li_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0)
         ren_he_raw = self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
-        # 2. 核心数学逻辑 - 和谐之态 × 阴阳之势
+        # 2. 核心数学逻辑 - 和谐之态 × 厚積之勢
         # 2.1 计算“和谐之态” (Harmony State)
         tian_shi_score = tian_shi_raw.clip(0, 1)
         di_li_score = di_li_raw.clip(lower=0)
         ren_he_score = (ren_he_raw + 1) / 2
         harmony_state_score = (tian_shi_score * di_li_score * ren_he_score).pow(1/3).fillna(0.0)
-        # 2.2 [修改] 计算“阴阳之势” (Yin-Yang Potential)
-        # “地利”的改善度，即筹码趋势的积极或消极变化
-        di_li_change = di_li_raw.diff(1).fillna(0.0)
-        # 构建阴阳势能调制器，奖励积极变化，惩罚消极变化
+        # 2.2 [修改] 计算“厚積之勢” (Accumulated Potential)
+        # “地利”的瞬时变化
+        di_li_change_raw = di_li_raw.diff(1).fillna(0.0)
+        # [新增] 对瞬时变化进行平滑，以洞察趋势
+        smoothed_di_li_change = di_li_change_raw.ewm(span=3, adjust=False).mean()
+        # 构建基于趋势的阴阳势能调制器
         amplification_factor = 0.5 # 势能放大/缩小系数
-        potential_energy_modulator = (1 + di_li_change * amplification_factor).clip(0, 2)
-        # 2.3 最终融合：和谐之态 × 阴阳势能调制器
+        potential_energy_modulator = (1 + smoothed_di_li_change * amplification_factor).clip(0, 2)
+        # 2.3 最终融合：和谐之态 × 厚積之勢调制器
         final_score = (harmony_state_score * potential_energy_modulator).clip(0, 1)
         states['FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT'] = final_score.astype(np.float32)
         # 3. 植入究极探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [吸筹拐点究极探针 V4.1 · 阴阳势能版] ---")
+            print(f"\n--- [吸筹拐点究极探针 V5.0 · 厚積薄發版 (終章)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料 - 三才]:")
@@ -414,15 +416,13 @@ class FusionIntelligence:
             print(f"    - 地利 (筹码趋势 - 原始分): {di_li_raw.iloc[last_date_index]:.4f}")
             print(f"    - 人和 (市场压力 - 原始分): {ren_he_raw.iloc[last_date_index]:.4f}")
             print("  [关键计算节点 - 和谐之态]:")
-            print(f"    - 天时 (得分): {tian_shi_score.iloc[last_date_index]:.4f}")
-            print(f"    - 地利 (得分): {di_li_score.iloc[last_date_index]:.4f}")
-            print(f"    - 人和 (和谐度): {ren_he_score.iloc[last_date_index]:.4f}")
             print(f"    - 和谐分 (三才共振): {harmony_state_score.iloc[last_date_index]:.4f}")
-            print("  [关键计算节点 - 阴阳之势]:")
-            print(f"    - 地利改善度 (日度变化): {di_li_change.iloc[last_date_index]:.4f}")
-            print(f"    - 阴阳势能调制器: {potential_energy_modulator.iloc[last_date_index]:.4f}")
+            print("  [关键计算节点 - 厚積之勢]:")
+            print(f"    - 地利瞬时变化 (日度): {di_li_change_raw.iloc[last_date_index]:.4f}")
+            print(f"    - 地利厚積之勢 (平滑): {smoothed_di_li_change.iloc[last_date_index]:.4f}")
+            print(f"    - 终极势能调制器: {potential_energy_modulator.iloc[last_date_index]:.4f}")
             print("  [最终裁决]:")
-            print(f"    - 吸筹拐点分 (势能注入后): {final_score.iloc[last_date_index]:.4f}")
+            print(f"    - 吸筹拐点分 (终章): {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         print(f"  -- [融合层] “吸筹拐点信号”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
