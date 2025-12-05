@@ -275,7 +275,7 @@ class FusionIntelligence:
         overextension_bearish = (overbought_state * bearish_intent * bearish_pressure).pow(1/3).fillna(0.0).clip(0, 1)
         overextension_bullish = (oversold_state * bullish_intent * bullish_pressure).pow(1/3).fillna(0.0).clip(0, 1)
         raw_bipolar_intent = (overextension_bullish - overextension_bearish).clip(-1, 1)
-        # --- 第2步: [新增] 天道裁决 ---
+        # --- 第2步: 天道裁决 ---
         # 2.1 获取天道背景 - 趋势质量
         trend_quality = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         # 2.2 计算冲突度 (只有当反转意图与趋势大势相反时，才产生冲突)
@@ -286,24 +286,7 @@ class FusionIntelligence:
         # 2.4 终审裁决
         final_score = (raw_bipolar_intent * contextual_modulator).clip(-1, 1)
         states['FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT'] = final_score.astype(np.float32)
-        # --- 第3步: [修改] 升级究极探针至最终形态 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates = debug_params.get('probe_dates', [])
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [价格超买意图究极探针 V4.0 · 天道裁决版 (終章)] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [第一层 - 初审判决]:")
-            print(f"    - 看跌三位一体 (天时×人和×地利): {-overextension_bearish.iloc[last_date_index]:.4f}")
-            print(f"    - 看涨三位一体 (天时×人和×地利): {overextension_bullish.iloc[last_date_index]:.4f}")
-            print(f"    - 初审判决净值: {raw_bipolar_intent.iloc[last_date_index]:.4f}")
-            print("  [第二层 - 天道裁决过程]:")
-            print(f"    - 天道背景 (趋势质量): {trend_quality.iloc[last_date_index]:.4f}")
-            print(f"    - 冲突度: {conflict_score.iloc[last_date_index]:.4f}")
-            print(f"    - 情境调节器 (1 + 冲突度*系数): {contextual_modulator.iloc[last_date_index]:.4f}")
-            print("  [最终裁决]:")
-            print(f"    - 价格超买意图 (初审 × 调节器): {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “价格超买意图”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
@@ -467,26 +450,55 @@ class FusionIntelligence:
 
     def _synthesize_micro_conviction(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 意图确认版】冶炼“微观信念” (Micro Conviction)
-        - 核心重构: 废弃V1.0的线性加权模型，引入“意图-确认”非线性融合模型。
-        - 核心公式: 微观信念 = 瞬时意图 × (1 + 意图趋势 × 确认系数)
-        - 融合逻辑: 以“瞬时意图”为基础，用“意图趋势”作为确认或否定的调节器。
-                      此模型旨在放大“共振”信号，并揭示“意图与趋势相悖”的诡道陷阱。
+        【V3.0 · 战术品质版】冶炼“微观信念” (Micro Conviction)
+        - 核心重构: 在V2.0“意图-确认”模型基础上，引入“战术品质”作为第三裁决维度。
+        - 核心公式: 最终信念 = (瞬时意图 × 确认调节器) × 品质调节器
+        - 诡道哲学: 信念的含金量，不仅在于意图的强度与持续性，更在于其执行的战术
+                      品质。此法旨在区分“匹夫之勇”与“运筹帷幄”。
         """
         print("  -- [融合层] 正在冶炼“微观信念”...")
         states = {}
-        # 1. 获取核心微观信号
+        # 1. [修改] 信号升维：定义“意图”、“趋势”、“品质”三大支柱
+        # 支柱一：瞬时意图
         micro_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0)
+        # 支柱二：意图趋势 (用于确认)
         micro_divergence = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_DIVERGENCE', 0.0)
-        # 2. 核心数学逻辑 - “意图-确认”模型
-        confirmation_factor = 0.5 # 确认系数，控制意图趋势的影响力
-        # 确认调节器：当意图趋势与瞬时意图同向时 > 1 (放大)，反向时 < 1 (抑制)
+        # 支柱三：战术品质 (用于裁决)
+        cost_control = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_COST_CONTROL', 0.0)
+        offensive_purity = self._get_atomic_score(df, 'SCORE_INTRADAY_OFFENSIVE_PURITY', 0.0)
+        # 2. [修改] 核心数学逻辑 - “意图-趋势-品质”三位一体裁决
+        # 2.1 计算“确认后的意图” (V2.0核心保留)
+        confirmation_factor = 0.5 # 确认系数
         confirmation_modulator = (1 + micro_divergence * confirmation_factor)
-        # 非线性融合
-        micro_conviction_score = (micro_intent * confirmation_modulator).clip(-1, 1)
+        confirmed_intent = (micro_intent * confirmation_modulator).clip(-1, 1)
+        # 2.2 [新增] 计算“战术品质”
+        # 成本控制(防守)与进攻纯度(进攻)同等重要
+        tactical_quality = (cost_control * 0.5 + offensive_purity * 0.5).clip(-1, 1)
+        # 2.3 [新增] 构建“品质调节器”
+        quality_factor = 0.3 # 品质影响系数
+        quality_modulator = (1 + tactical_quality * quality_factor).clip(0.7, 1.3)
+        # 2.4 [新增] 最终裁决：(确认后的意图) × 品质调节器
+        final_conviction_score = (confirmed_intent * quality_modulator).clip(-1, 1)
         output_name = 'FUSION_BIPOLAR_MICRO_CONVICTION'
-        states[output_name] = micro_conviction_score.astype(np.float32)
-        print(f"  -- [融合层] “微观信念”冶炼完成，最新分值: {micro_conviction_score.iloc[-1]:.4f}")
+        states[output_name] = final_conviction_score.astype(np.float32)
+        # 3. [新增] 植入究极探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = debug_params.get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [微观信念究极探针 V3.0 · 战术品质版] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [第一层 - 意图确认]:")
+            print(f"    - 瞬时意图: {micro_intent.iloc[last_date_index]:.4f}")
+            print(f"    - 确认调节器 (1+趋势*系数): {confirmation_modulator.iloc[last_date_index]:.4f}")
+            print(f"    - -> 确认后的意图: {confirmed_intent.iloc[last_date_index]:.4f}")
+            print("  [第二层 - 品质裁决]:")
+            print(f"    - 战术品质 (成本控制+进攻纯度): {tactical_quality.iloc[last_date_index]:.4f}")
+            print(f"    - 品质调节器 (1+品质*系数): {quality_modulator.iloc[last_date_index]:.4f}")
+            print("  [最终裁决]:")
+            print(f"    - 微观信念 (意图 × 品质调节器): {final_conviction_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        print(f"  -- [融合层] “微观信念”冶炼完成，最新分值: {final_conviction_score.iloc[-1]:.4f}")
         return states
 
     def _synthesize_trend_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
