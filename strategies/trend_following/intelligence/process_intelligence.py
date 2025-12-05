@@ -395,7 +395,6 @@ class ProcessIntelligence:
         # 核心逻辑：控盘杠杆模型
         control_leverage = 1 + fused_control_score.clip(lower=0) # 杠杆效应只在控盘为正时生效
         final_control_score = (main_force_flow_score * control_leverage).clip(-1, 1)
-        # [删除] 移除所有探针调试代码
         return final_control_score.astype(np.float32)
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
@@ -692,7 +691,6 @@ class ProcessIntelligence:
         - 核心重构: 创立“方向对抗”模型，回归背离本质。
         - 核心修正: 将核心公式修正为“价格方向分 - 动能方向分”，使顶背离（风险）输出正分。
         - 核心逻辑: 瞬时关系分 = 价格方向分(归一化) - 动能方向分(归一化)。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“方向对抗”模型。
         """
         price_slope_signal = 'SLOPE_5_close_D'
         momentum_slope_signal = 'SLOPE_5_MACDh_13_34_8_D'
@@ -708,22 +706,7 @@ class ProcessIntelligence:
         # 核心逻辑：方向对抗模型 (阴阳易位修正)
         # 顶背离: (正的价格分) - (负的动能分) = 显著正分 (风险)
         # 底背离: (负的价格分) - (正的动能分) = 显著负分 (机会)
-        relationship_score = (price_direction_score - momentum_direction_score).clip(-1, 1) # [修改] 修正公式，实现阴阳易位
-        # 探针
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [瞬时关系探针(阴阳易位版): {config.get('name')}] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 价格斜率 ({price_slope_signal}): {price_slope_raw.iloc[last_date_index]:.4f}")
-            print(f"    - 动量斜率 ({momentum_slope_signal}): {momentum_slope_raw.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 价格方向分(归一化): {price_direction_score.iloc[last_date_index]:.4f}")
-            print(f"    - 动能方向分(归一化): {momentum_direction_score.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 方向对抗分 (价-势): {relationship_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        relationship_score = (price_direction_score - momentum_direction_score).clip(-1, 1)
         return relationship_score
 
     def _calculate_winner_belief_erosion(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -732,7 +715,6 @@ class ProcessIntelligence:
         - 核心重构: 创立“压力放大”模型，审判信念衰减与派发压力的共振。
         - 信号升级: 引入 `profit_taking_flow_ratio_D` 作为核心压力信号。
         - 核心逻辑: 侵蚀分 = 基础衰减分 * (1 + 派发压力分)。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“信念侵蚀”模型。
         """
         belief_signal_name = 'winner_stability_index_D'
         pressure_signal_name = 'profit_taking_flow_ratio_D'
@@ -751,23 +733,6 @@ class ProcessIntelligence:
         # 3. 核心逻辑：压力放大模型
         pressure_amplifier = 1 + pressure_score
         erosion_score = (base_decay_score * pressure_amplifier).clip(0, 1)
-        # 探针
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [信念侵蚀探针: {config.get('name')}] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 信念信号 ({belief_signal_name}): {belief_signal_raw.iloc[last_date_index]:.4f}")
-            print(f"    - 压力信号 ({pressure_signal_name}): {pressure_signal_raw.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 信念变化量: {belief_change.iloc[last_date_index]:.4f}")
-            print(f"    - 基础衰减分(归一化): {base_decay_score.iloc[last_date_index]:.4f}")
-            print(f"    - 派发压力分(归一化): {pressure_score.iloc[last_date_index]:.4f}")
-            print(f"    - 压力放大器 (1+压力分): {pressure_amplifier.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 信念侵蚀分: {erosion_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
         return erosion_score
 
     def _diagnose_domain_reversal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
@@ -1328,7 +1293,6 @@ class ProcessIntelligence:
         # 相对强度调节器
         rs_modulator = (1 + relative_strength.clip(lower=0) * rs_amplifier)
         final_score = (resonance_score * rs_modulator).clip(0, 1).fillna(0.0)
-        # [删除] 移除所有探针调试代码
         return final_score.astype(np.float32)
 
     def _calculate_fund_flow_accumulation_inflection(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1363,7 +1327,6 @@ class ProcessIntelligence:
         ).clip(0, 1)
         # 3. 最终审判
         final_score = (prelude_score * attack_score).fillna(0.0)
-        # [删除] 移除所有探针调试代码
         return final_score.astype(np.float32)
 
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1387,7 +1350,6 @@ class ProcessIntelligence:
         # 核心逻辑：战场态势对抗
         relationship_score = drive_score - pressure_score
         final_score = relationship_score.clip(-1, 1)
-        # [删除] 移除所有探针调试代码
         return final_score
 
     def _calculate_stock_sector_sync(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1412,7 +1374,6 @@ class ProcessIntelligence:
         leadership_amplifier = 1 + sector_strength_score
         relationship_score = stock_strength_score * leadership_amplifier
         final_score = relationship_score.clip(-1, 1)
-        # [删除] 移除所有探针调试代码
         return final_score
 
     def _calculate_hot_sector_cooling(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1438,7 +1399,6 @@ class ProcessIntelligence:
         # 核心逻辑：寒潮来袭模型
         relationship_score = hotness_state_score * outflow_score
         final_score = relationship_score.clip(0, 1) # 这是一个单极风险信号
-        # [删除] 移除所有探针调试代码
         return final_score
 
     def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
