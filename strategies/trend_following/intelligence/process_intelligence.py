@@ -1243,7 +1243,6 @@ class ProcessIntelligence:
         【V2.0 · 战术升级版】识别主力从隐蔽吸筹转向公开强攻的转折信号。
         - 核心重构: 废除僵化的“AND”门槛，创立“战术评分”模型。最终分 = 前奏吸筹分 * 强攻分。
         - 证据升级: “前奏分”通过归一化消除尺度问题；“强攻分”对核心证据进行加权，更具实战性。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“战术评分”模型。
         """
         print("    -> [过程层] 正在计算 PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT (V2.0 · 战术升级版)...")
         required_signals = [
@@ -1258,9 +1257,9 @@ class ProcessIntelligence:
         main_force_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_fund_flow_accumulation_inflection")
         buy_exhaustion_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_calculate_fund_flow_accumulation_inflection")
         large_pressure_raw = self._get_safe_series(df, 'large_order_pressure_D', 0.0, method_name="_calculate_fund_flow_accumulation_inflection")
-        # [修改] 1. 重铸“前奏分”，消除尺度问题
+        # 1. 重铸“前奏分”，消除尺度问题
         prelude_score = self._normalize_series(prelude_raw.rolling(5).mean(), df_index, bipolar=False)
-        # [修改] 2. 重铸“强攻分”，采用加权模型
+        # 2. 重铸“强攻分”，采用加权模型
         buy_exhaustion_norm = self._normalize_series(buy_exhaustion_raw, df_index, bipolar=False)
         main_force_flow_momentum = self._normalize_series(main_force_flow_raw.diff(1).fillna(0), df_index, bipolar=True)
         pressure_clearance_norm = 1 - self._normalize_series(large_pressure_raw, df_index, bipolar=False)
@@ -1269,28 +1268,9 @@ class ProcessIntelligence:
             main_force_flow_momentum.clip(lower=0) * 0.3 +
             pressure_clearance_norm.clip(lower=0) * 0.1
         ).clip(0, 1)
-        # [修改] 3. 最终审判
+        # 3. 最终审判
         final_score = (prelude_score * attack_score).fillna(0.0)
-        # [修改] 4. 全面升级探针
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [资金流吸筹拐点探针(战术升级版)] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 隐蔽吸筹(5日均, 原始): {prelude_raw.rolling(5).mean().iloc[last_date_index]:.4f}")
-            print(f"    - 买盘消耗率(原始): {buy_exhaustion_raw.iloc[last_date_index]:.4f}")
-            print(f"    - 主力净流入(1日变化): {main_force_flow_raw.diff(1).iloc[last_date_index]:.2f}")
-            print(f"    - 大单压力(原始): {large_pressure_raw.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 前奏吸筹分(归一化): {prelude_score.iloc[last_date_index]:.4f}")
-            print(f"    - -> 买盘消耗(w=0.6): {buy_exhaustion_norm.iloc[last_date_index]:.4f}")
-            print(f"    - -> 主力流向动能(w=0.3): {main_force_flow_momentum.clip(lower=0).iloc[last_date_index]:.4f}")
-            print(f"    - -> 压力清除(w=0.1): {pressure_clearance_norm.clip(lower=0).iloc[last_date_index]:.4f}")
-            print(f"    - 强攻分(加权): {attack_score.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 资金流吸筹拐点最终分: {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [删除] 移除所有探针调试代码
         return final_score.astype(np.float32)
 
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1299,7 +1279,6 @@ class ProcessIntelligence:
         - 核心重构: 创立“战场态势”审判模型，从比较“动量”升维为比较力量的“当前水平”。
         - 信号升级: 将核心“压力”信号从“T0效率”升级为更精准的“利润兑现流量占比”。
         - 核心逻辑: 瞬时关系分 = 建仓动力分(归一化) - 派发压力分(归一化)。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“战场态势”模型。
         """
         pressure_signal_name = 'profit_taking_flow_ratio_D'    # 压力方
         drive_signal_name = 'main_force_net_flow_calibrated_D' # 动力方
@@ -1309,27 +1288,13 @@ class ProcessIntelligence:
         df_index = df.index
         pressure_signal_raw = self._get_safe_series(df, pressure_signal_name, 0.0, method_name="_calculate_profit_vs_flow_relationship")
         drive_signal_raw = self._get_safe_series(df, drive_signal_name, 0.0, method_name="_calculate_profit_vs_flow_relationship")
-        # [修改] 归一化信号的当前值，代表战场态势
+        # 归一化信号的当前值，代表战场态势
         pressure_score = self._normalize_series(pressure_signal_raw, df_index, bipolar=False) # 压力是无方向的，只看大小
         drive_score = self._normalize_series(drive_signal_raw, df_index, bipolar=True)      # 动力有正负方向
-        # [修改] 核心逻辑：战场态势对抗
+        # 核心逻辑：战场态势对抗
         relationship_score = drive_score - pressure_score
         final_score = relationship_score.clip(-1, 1)
-        # [修改] 升级探针以反映新逻辑
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [瞬时关系探针(战场态势版): {config.get('name')}] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 派发压力信号 ({pressure_signal_name}): {pressure_signal_raw.iloc[last_date_index]:.4f}")
-            print(f"    - 建仓动力信号 ({drive_signal_name}): {drive_signal_raw.iloc[last_date_index]:.2f}")
-            print("  [关键计算]:")
-            print(f"    - 派发压力分(归一化): {pressure_score.iloc[last_date_index]:.4f}")
-            print(f"    - 建仓动力分(归一化): {drive_score.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 战场态势分 (动力-压力): {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [删除] 移除所有探针调试代码
         return final_score
 
     def _calculate_pf_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
