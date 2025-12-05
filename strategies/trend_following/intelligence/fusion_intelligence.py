@@ -207,51 +207,54 @@ class FusionIntelligence:
 
     def _synthesize_capital_confrontation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 三体博弈版】冶炼“资本对抗” (Capital Confrontation)
-        - 核心重构: 废弃线性加权的“合影”模型，引入“主力意图×对手盘状态×战术执行”的
-                      “三体博弈”非线性融合模型，旨在描绘一场真实的资本绞杀战。
-        - 诡道哲学: 真正的对抗，是主力利用对手盘的弱点(情绪)，执行高效战术以达成其战略意图。
-                      三者缺一不可，故采用几何平均进行“共振审判”。
+        【V4.0 · 帅帐决断版】冶炼“资本对抗” (Capital Confrontation)
+        - 核心重构: 废弃“三权分立”的几何平均模型，引入“主力意图(君) × 战场优势(臣)”的
+                      “帅帐决断”非线性调制模型，确立战略意图的核心地位。
+        - 诡道哲学: 帅无战心，兵法何用？最终战果，是主帅的决心被战场优势所放大的结果。
         """
         print("  -- [融合层] 正在冶炼“资本对抗”...")
         states = {}
         df_index = df.index
-        # 1. [修改] 信号升维：定义“三体博弈”的三大引力体
-        # 引力体I: 主力意图 (融合资金与筹码的顶层战略)
+        # 1. [修改] 信号升维：定义“君”与“臣”
+        # 君 (Commander): 主力意图，作为决断的基石
         ff_posture = self._get_atomic_score(df, 'SCORE_FF_STRATEGIC_POSTURE', 0.0)
         chip_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         main_force_intent = (ff_posture * 0.5 + chip_posture * 0.5).clip(-1, 1)
-        # 引力体II: 对手盘状态 (散户情绪的反向指标，恐慌=机会，狂热=风险)
+        # 臣 (Minister): 战场优势，由环境与战术共同构成
         sentiment_pendulum = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
         counterparty_state = -sentiment_pendulum
-        # 引力体III: 战术执行 (主力的微观诡道操作)
         tactical_execution = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
-        # 2. [修改] 核心数学逻辑 - 三体共振 (非线性几何平均)
-        # 将[-1, 1]映射到[0, 2]以进行几何平均计算
-        mapped_intent = main_force_intent + 1
+        # 2. [修改] 核心数学逻辑 - 帅帐决断 (非线性调制)
+        # 2.1 计算“战场优势”分 (融合对手盘状态与战术执行)
+        # 将[-1, 1]映射到[0, 2]进行计算
         mapped_counterparty = counterparty_state + 1
         mapped_execution = tactical_execution + 1
-        # 几何平均，体现“木桶效应”，并加入极小值防止结果为0
-        product_of_scores = (mapped_intent.clip(lower=1e-9) *
-                             mapped_counterparty.clip(lower=1e-9) *
-                             mapped_execution.clip(lower=1e-9))
-        resonance_score_mapped = product_of_scores.pow(1/3)
-        # 将结果从[0, 2]映射回[-1, 1]
-        final_score = (resonance_score_mapped - 1).clip(-1, 1)
+        # 几何平均，体现环境与战术的协同
+        advantage_mapped = (mapped_counterparty.clip(lower=1e-9) * mapped_execution.clip(lower=1e-9)).pow(1/2)
+        # 映射回[-1, 1]
+        battlefield_advantage = (advantage_mapped - 1).clip(-1, 1)
+        # 2.2 构建“优势调节器”
+        modulation_factor = 0.5 # 优势调节系数
+        advantage_modulator = (1 + battlefield_advantage * modulation_factor).clip(0, 2)
+        # 2.3 最终决断: 主力意图 × 优势调节器
+        final_score = (main_force_intent * advantage_modulator).clip(-1, 1)
         states['FUSION_BIPOLAR_CAPITAL_CONFRONTATION'] = final_score.astype(np.float32)
-        # 3. [新增] 植入究极探针
+        # 3. [修改] 升级究极探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [资本对抗究极探针 V3.0 · 三体博弈版] ---")
+            print(f"\n--- [资本对抗究极探针 V4.0 · 帅帐决断版] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料 - 三大引力体]:")
-            print(f"    - I. 主力意图 (资金+筹码态势): {main_force_intent.iloc[last_date_index]:.4f}")
-            print(f"    - II. 对手盘状态 (情绪反转): {counterparty_state.iloc[last_date_index]:.4f} (原始情绪分: {sentiment_pendulum.iloc[last_date_index]:.4f})")
-            print(f"    - III. 战术执行 (隐秘行动): {tactical_execution.iloc[last_date_index]:.4f}")
-            print("  [最终裁决 - 非线性共振]:")
-            print(f"    - 资本对抗分 (三体博弈): {final_score.iloc[last_date_index]:.4f}")
+            print("  [输入原料]:")
+            print(f"    - 主力意图 (君，基石): {main_force_intent.iloc[last_date_index]:.4f}")
+            print(f"    - 对手盘状态 (环境): {counterparty_state.iloc[last_date_index]:.4f}")
+            print(f"    - 战术执行 (兵法): {tactical_execution.iloc[last_date_index]:.4f}")
+            print("  [关键计算节点 - 调制过程]:")
+            print(f"    - 战场优势 (臣): {battlefield_advantage.iloc[last_date_index]:.4f}")
+            print(f"    - 优势调节器 (1 + 优势*系数): {advantage_modulator.iloc[last_date_index]:.4f}")
+            print("  [最终裁决 - 帅帐决断]:")
+            print(f"    - 资本对抗分 (主力意图 × 调节器): {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         print(f"  -- [融合层] “资本对抗”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
