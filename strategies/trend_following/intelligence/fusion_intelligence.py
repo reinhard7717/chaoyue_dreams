@@ -556,50 +556,46 @@ class FusionIntelligence:
 
     def _synthesize_accumulation_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 龙脉绵延版】冶炼“吸筹剧本” (PROCESS_FUSION_ACCUMULATION_PLAYBOOK)
-        - 核心重构: 废弃对“拐点”的简单处理，引入具备“状态记忆”的“龙脉绵延”递归模型。
-        - 诡道哲学: “剧本”是燃烧的火焰，而非点火的动作。“拐点”负责点火，而“和谐之态”
-                      是决定火焰能否持续燃烧的“薪柴”。此法旨在捕捉战役的开启、持续与衰减。
-                      今日剧本分 = max(今日新拐点, 昨日剧本分 × 动态衰减系数)
+        【V3.0 · 根基绵延版】冶炼“吸筹剧本” (PROCESS_FUSION_ACCUMULATION_PLAYBOOK)
+        - 核心重构: 引入“体用分离”哲学，将决定剧本持续性的衰减因子，从包含“天时”的
+                      “和谐度”中剥离，重铸为只依赖“地利”与“人和”的“根基稳固度”。
+        - 诡道哲学: 点火靠“三才”，绵延靠“根基”。主力可“战术静默”，但战役之火不应因此熄灭。
+                      今日剧本分 = max(今日拐点, 昨日剧本分 × 根基稳固度)
         """
         print("  -- [融合层] 正在冶炼“吸筹剧本”...")
         states = {}
-        # 1. [修改] 信号升维：定义“点火器”与“薪柴”
+        # 1. 信号升维：定义“点火器”与“根基”
         # 点火器 (Igniter): 吸筹拐点信号，负责开启和复燃剧本
         igniter_signal = self._get_atomic_score(df, 'FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT', 0.0)
-        # 薪柴 (Fuel): 构成拐点的“和谐之态”，决定剧本能否持续
-        tian_shi = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0).clip(0, 1)
+        # [修改] 根基 (Foundation): 由“地利”与“人和”构成，决定剧本能否持续
         di_li = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0).clip(lower=0)
         ren_he = (self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0) + 1) / 2
-        fuel_signal = (tian_shi * di_li * ren_he).pow(1/3).fillna(0.0)
-        # 2. [修改] 核心数学逻辑 - 状态记忆与动态衰减
+        foundation_sustain_factor = (di_li * ren_he).pow(1/2).fillna(0.0)
+        # 2. 核心数学逻辑 - 状态记忆与根基衰减
         playbook_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 使用循环实现递归，更清晰地展示状态传递
         for i in range(1, len(df)):
-            # 获取昨日的剧本状态
             previous_score = playbook_score.iloc[i-1]
-            # “薪柴”决定了衰减速度，薪柴越足(和谐度高)，衰减越慢
-            decay_modulator = fuel_signal.iloc[i]
+            # [修改] 衰减速度由“根基稳固度”决定
+            decay_modulator = foundation_sustain_factor.iloc[i]
             decayed_score = previous_score * decay_modulator
-            # 获取今日的点火信号
             current_igniter = igniter_signal.iloc[i]
-            # 剧本强度 = max(新点火的强度, 旧火焰衰减后的强度)
             playbook_score.iloc[i] = max(current_igniter, decayed_score)
         states['PROCESS_FUSION_ACCUMULATION_PLAYBOOK'] = playbook_score.astype(np.float32)
-        # 3. [新增] 植入究极探针
+        # 3. 植入究极探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [吸筹剧本究极探针 V2.0 · 龙脉绵延版] ---")
+            print(f"\n--- [吸筹剧本究极探针 V3.0 · 根基绵延版] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
             print(f"    - 点火器 (今日拐点分): {igniter_signal.iloc[last_date_index]:.4f}")
-            print(f"    - 薪柴 (今日和谐度): {fuel_signal.iloc[last_date_index]:.4f}")
+            print(f"    - 根基-地利 (筹码趋势): {di_li.iloc[last_date_index]:.4f}")
+            print(f"    - 根基-人和 (市场和谐): {ren_he.iloc[last_date_index]:.4f}")
             print("  [关键计算节点 - 状态传递]:")
             print(f"    - 昨日剧本分 (记忆): {playbook_score.iloc[last_date_index-1] if len(df) > 1 else 0.0:.4f}")
-            decayed_val = (playbook_score.iloc[last_date_index-1] if len(df) > 1 else 0.0) * fuel_signal.iloc[last_date_index]
-            print(f"    - 动态衰减系数 (即薪柴): {fuel_signal.iloc[last_date_index]:.4f}")
+            print(f"    - 动态衰减系数 (根基稳固度): {foundation_sustain_factor.iloc[last_date_index]:.4f}")
+            decayed_val = (playbook_score.iloc[last_date_index-1] if len(df) > 1 else 0.0) * foundation_sustain_factor.iloc[last_date_index]
             print(f"    - 旧火焰衰减后强度: {decayed_val:.4f}")
             print("  [最终裁决]:")
             print(f"    - 今日剧本分 (max(点火器, 衰减后)): {playbook_score.iloc[last_date_index]:.4f}")
