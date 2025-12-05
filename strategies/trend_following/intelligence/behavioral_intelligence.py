@@ -742,27 +742,51 @@ class BehavioralIntelligence:
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series) -> pd.Series:
         """
-        【V1.1 · 意图驱动版】诊断突破失败级联风险
-        - 核心目标: 识别并量化“假突破”或“牛市陷阱”形态的风险，其核心是大量跟风盘在高位被套牢。
-        - 风险要素:
-          1. 突破尝试 (Attempt): 当天必须有向上突破近期高点的行为。
-          2. 快速溃败 (Collapse): 突破后快速回落，其核心证据由全新的“派发意图”信号提供。
-          3. 高位换手 (Volume): 突破时成交量显著放大，意味着大量资金被套。
-        - 非线性合成: 风险分 = 突破尝试(布尔) * (快速溃败^0.6 * 高位换手^0.4)，只有在突破失败时才激活。
+        【V2.0 · 诡道意图版】诊断突破失败级联风险
+        - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-套牢”
+                      诡道剧本的全新三维诊断模型，旨在精确识别高迷惑性的“牛市陷阱”。
+        - 战术三要素:
+          1. 诱饵 (The Lure): 使用更高阶的 `breakout_quality_score_D` 替代简单的价格突破判断，
+                               量化突破行为的“迷惑性”。一次看似完美的突破，其陷阱价值才最大。
+          2. 伏击 (The Ambush): 继续使用强大的 `distribution_intent` 信号，量化主力在诱多
+                                过程中的真实派发意图，即“收割”的坚决性。
+          3. 套牢盘 (The Trapped Force): 继续使用 `volume_ratio_D`，量化在陷阱高位被套牢的
+                                         资金规模，即未来级联崩塌的“燃料”。
+        - 数学模型: 风险分 = 诱饵分 * (伏击分 ^ 0.6 * 套牢盘分 ^ 0.4)
         """
+        required_signals = ['breakout_quality_score_D', 'volume_ratio_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_breakout_failure_risk"):
+            return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 1. 定义突破尝试
-        high_price = self._get_safe_series(df, 'high_D', 0.0, method_name="_diagnose_breakout_failure_risk")
-        recent_high = high_price.rolling(window=21, min_periods=21).max().shift(1)
-        is_breakout_attempt = (high_price > recent_high).astype(float)
-        # 2. 获取其他风险要素
-        collapse_score = distribution_intent # 直接使用传入的、更强大的派发意图分数
+        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # --- 1. 获取三大战术要素 ---
+        # 战术要素一：诱饵 (突破迷惑性)
+        breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name="_diagnose_breakout_failure_risk")
+        lure_score = get_adaptive_mtf_normalized_score(breakout_quality_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 战术要素二：伏击 (派发坚决性)
+        ambush_score = distribution_intent # 直接使用传入的、强大的派发意图分数
+        # 战术要素三：套牢盘 (潜在抛压规模)
         volume_raw = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_breakout_failure_risk")
-        volume_score = get_adaptive_mtf_normalized_score(volume_raw, df.index, ascending=True, tf_weights=default_weights)
-        # 3. 风险合成
-        breakout_failure_risk = is_breakout_attempt * (collapse_score.pow(0.6) * volume_score.pow(0.4)).fillna(0.0)
+        trapped_force_score = get_adaptive_mtf_normalized_score(volume_raw, df.index, ascending=True, tf_weights=default_weights)
+        # --- 2. 风险合成 ---
+        internal_risk_factor = (ambush_score.pow(0.6) * trapped_force_score.pow(0.4)).fillna(0.0)
+        breakout_failure_risk = (lure_score * internal_risk_factor).clip(0, 1)
+        # --- 深度战术探针 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _diagnose_breakout_failure_risk @ {probe_date_str}")
+                print(f"        - 战术要素 (诱饵): {lure_score.loc[probe_ts]:.4f} (原始突破品质: {breakout_quality_raw.loc[probe_ts]:.2f})")
+                print(f"        - 战术要素 (伏击): {ambush_score.loc[probe_ts]:.4f} (来源: distribution_intent)")
+                print(f"        - 战术要素 (套牢盘): {trapped_force_score.loc[probe_ts]:.4f} (原始量比: {volume_raw.loc[probe_ts]:.2f})")
+                print(f"        - 内部风险因子 (伏击*套牢盘): {internal_risk_factor.loc[probe_ts]:.4f}")
+                print(f"        - 最终突破失败风险 (诱饵*内部风险): {breakout_failure_risk.loc[probe_ts]:.4f}")
         return breakout_failure_risk.astype(np.float32)
 
     def _diagnose_divergence_quality(self, df: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
