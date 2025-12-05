@@ -1002,8 +1002,8 @@ class BehavioralIntelligence:
         # 过滤层：战略许可压制器
         strategic_clearance_suppressor = (1 - distribution_intent).clip(0, 1)
         # 增强层：司令部意志放大器
-        # [修改的代码行] 将主力信念转化为[0.5, 1.5]区间的放大器，中性信念为1.0
-        conviction_amplifier = (normalize_score(conviction_raw.clip(-5, 5), df.index, 55, center_zero=True) + 1.0).clip(0.5, 1.5)
+        # [修改的代码行] 修复TypeError：使用 normalize_to_bipolar 替换 normalize_score，以实现正确的双极性归一化
+        conviction_amplifier = (normalize_to_bipolar(conviction_raw.clip(-5, 5), df.index, 55) + 1.0).clip(0.5, 1.5)
         # --- 3. 最终合成 ---
         base_intent_score = tactical_victory_score * strategic_clearance_suppressor
         final_offensive_absorption_intent = (base_intent_score * conviction_amplifier).clip(0, 1)
