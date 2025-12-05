@@ -1037,7 +1037,6 @@ class ProcessIntelligence:
         - 核心升级: 引入“势能衰减”机制。将累积势能的计算方法从简单的滚动求和(rolling.sum)
                       升级为指数加权移动平均(ewm.mean)，赋予近期吸筹行为更高的权重，
                       更精准地度量具备时效性的“爆发势能”。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“势能衰减”逻辑。
         """
         print("    -> [过程层] 正在计算 PROCESS_META_ACCUMULATION_INFLECTION (V2.3 · 势能衰减版)...")
         required_signals = [
@@ -1056,7 +1055,7 @@ class ProcessIntelligence:
         split_order_accum = self._get_atomic_score(df, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 0.0)
         power_transfer_accum = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0)
         daily_accumulation_strength = pd.concat([stealth_accum, deceptive_accum, panic_washout_accum, split_order_accum, power_transfer_accum], axis=1).max(axis=1)
-        # [修改] 采用指数加权移动平均(ewm)计算势能，引入时间衰减
+        # 采用指数加权移动平均(ewm)计算势能，引入时间衰减
         potential_energy_raw = daily_accumulation_strength.ewm(span=accumulation_window, adjust=False, min_periods=5).mean()
         potential_energy_score = normalize_score(potential_energy_raw, df_index, window=accumulation_window, ascending=True).clip(0, 1)
         rally_intent = self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_RALLY_INTENT', 0.0)
@@ -1066,25 +1065,7 @@ class ProcessIntelligence:
             divergence_confirm.clip(lower=0) * 0.4
         ).clip(0, 1)
         final_score = (potential_energy_score * ignition_intent_score).fillna(0.0)
-        # [修改] 升级探针以反映新逻辑
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [吸筹末端拐点探针(势能衰减版)] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 当日综合吸筹强度: {daily_accumulation_strength.iloc[last_date_index]:.4f}")
-            print(f"    - 主力拉升意图: {rally_intent.iloc[last_date_index]:.4f}")
-            print(f"    - 博弈背离确认: {divergence_confirm.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 累积势能(EWM原始值): {potential_energy_raw.iloc[last_date_index]:.4f}")
-            print(f"    - 势能得分(归一化): {potential_energy_score.iloc[last_date_index]:.4f}")
-            print(f"    - 点火意图得分: {ignition_intent_score.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 吸筹末端拐点最终分: {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
-        self.strategy.atomic_states["_DEBUG_inflection_potential_energy"] = potential_energy_score
-        self.strategy.atomic_states["_DEBUG_inflection_ignition_intent"] = ignition_intent_score
+        # [删除] 移除所有探针及调试信号存储代码
         return final_score.astype(np.float32)
 
     def _calculate_winner_conviction_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1093,7 +1074,6 @@ class ProcessIntelligence:
         - 核心重构: 从“动量背离”升维至“状态对抗”。不再比较信号的变化率，而是直接对比
                       “赢家稳定性”和“利润兑现压力”的绝对强度状态，更直观地反映信念与压力的对抗格局。
         - 旨在解决因过度关注二阶“动量”而错失一阶“状态”强对抗信号的问题。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露新的状态对抗模型计算过程。
         """
         signal_a_name = 'profit_taking_flow_ratio_D'  # 压力方
         signal_b_name = 'winner_stability_index_D'    # 信念方
@@ -1107,27 +1087,13 @@ class ProcessIntelligence:
         if pressure_signal_raw is None or conviction_signal_raw is None:
             print(f"        -> [赢家信念] 警告: 缺少核心信号 '{signal_a_name}' 或 '{signal_b_name}'。")
             return pd.Series(dtype=np.float32)
-        # [修改] 从计算动量改为计算状态分
+        # 从计算动量改为计算状态分
         pressure_state_score = self._normalize_series(pressure_signal_raw, df_index, bipolar=False)
         conviction_state_score = self._normalize_series(conviction_signal_raw, df_index, bipolar=False)
         k = config.get('signal_b_factor_k', 1.0)
-        # [修改] 核心逻辑变为状态对抗：信念状态分 - 压力状态分
+        # 核心逻辑变为状态对抗：信念状态分 - 压力状态分
         relationship_score = (k * conviction_state_score - pressure_state_score) / (k + 1)
-        # [修改] 升级探针以反映新逻辑
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [赢家信念探针(状态对抗版)] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 压力方 ({signal_a_name}): {pressure_signal_raw.iloc[last_date_index]:.4f}")
-            print(f"    - 信念方 ({signal_b_name}): {conviction_signal_raw.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 压力状态分(归一化): {pressure_state_score.iloc[last_date_index]:.4f}")
-            print(f"    - 信念状态分(归一化): {conviction_state_score.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 赢家信念关系分(信念-压力): {relationship_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [删除] 移除所有探针调试代码
         return relationship_score.clip(-1, 1)
 
     def _calculate_split_order_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
