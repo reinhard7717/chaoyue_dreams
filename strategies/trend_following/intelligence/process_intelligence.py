@@ -740,13 +740,10 @@ class ProcessIntelligence:
 
     def _diagnose_domain_reversal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 探针植入版】通用领域反转诊断器
-        - 核心职责: 接收一个原子情报领域的公理信号列表和权重，计算该领域的双极性健康度，
-                      然后从健康度的变化中派生底部反转和顶部反转信号。
-        - 命名规范: 输出信号为 PROCESS_META_DOMAIN_BOTTOM_REVERSAL 和 PROCESS_META_DOMAIN_TOP_REVERSAL。
-        - 核心修复: 增加对所有依赖数据的存在性检查。
-        - 【优化】将 `bottom_reversal_score` 和 `top_reversal_score` 的归一化方式改为多时间维度自适应归一化。
-        - 新增功能: 植入“真理探针”，用于在指定日期输出关键计算过程。
+        【V2.0 · 神谕调度版】通用领域反转诊断调度中心
+        - 核心升级: 剥离旧的、有缺陷的计算逻辑，转变为一个纯粹的“调度中心”。
+        - 核心职责: 1. 计算各领域的“领域健康度(bipolar_domain_health)”。
+                      2. 将健康度数据呈送给新建的 `_judge_domain_reversal` 方法进行最终审判。
         """
         domain_name = config.get('domain_name')
         axiom_configs = config.get('axioms', [])
@@ -761,40 +758,66 @@ class ProcessIntelligence:
         for axiom_config in axiom_configs:
             axiom_name = axiom_config.get('name')
             axiom_weight = axiom_config.get('weight', 0.0)
+            # [修改] 增加对公理信号是否存在的防御性检查
+            if axiom_name not in self.strategy.atomic_states:
+                print(f"    -> [过程情报警告] 领域 '{domain_name}' 依赖的公理信号 '{axiom_name}' 不存在，跳过此公理。")
+                continue
             axiom_score = self.strategy.atomic_states.get(axiom_name, pd.Series(0.0, index=df_index))
             domain_health_components.append(axiom_score * axiom_weight)
-            total_weight += axiom_weight
+            total_weight += abs(axiom_weight) # [修改] 使用绝对值权重总和，以正确处理负权重
         if total_weight == 0:
             print(f"        -> [领域反转诊断] 警告: 领域 '{domain_name}' 的公理权重总和为0，无法计算健康度。")
             return {}
         # 计算该领域的双极性健康度
         bipolar_domain_health = (sum(domain_health_components) / total_weight).clip(-1, 1)
-        # 从健康度派生反转信号
-        # 底部反转信号：当健康度从负值区域开始向上改善时
-        bottom_reversal_raw = (bipolar_domain_health.diff(1).clip(lower=0) * (1 - bipolar_domain_health.clip(lower=0))).fillna(0)
-        # 获取MTF权重配置
-        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        bottom_reversal_score = get_adaptive_mtf_normalized_score(bottom_reversal_raw, df_index, ascending=True, tf_weights=default_weights)
-        # 顶部反转信号：当健康度从正值区域开始向下恶化时
-        top_reversal_raw = (bipolar_domain_health.diff(1).clip(upper=0).abs() * (1 + bipolar_domain_health.clip(upper=0))).fillna(0)
-        top_reversal_score = get_adaptive_mtf_normalized_score(top_reversal_raw, df_index, ascending=True, tf_weights=default_weights)
+        # [修改] 将健康度呈送给新的“神谕审判”方法进行最终裁决
+        return self._judge_domain_reversal(bipolar_domain_health, config)
+
+    def _judge_domain_reversal(self, bipolar_domain_health: pd.Series, config: Dict) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 神谕审判版】领域反转信号的核心审判庭
+        - 核心重构: 创立基于“情境感知”的“神谕审判”模型，取代旧的、情境盲目的归一化逻辑。
+        - 底部反转神谕: `底部反转分 = 健康度正向变化量 × (1 - 昨日健康度)`
+        - 顶部反转神谕: `顶部反转分 = 健康度负向变化量(取绝对值) × (1 + 昨日健康度)`
+        - 新增功能: 植入“究极探针”，彻底暴露审判过程的每一个核心计算节点。
+        """
+        domain_name = config.get('domain_name', '未知领域')
+        output_bottom_name = config.get('output_bottom_reversal_name')
+        output_top_name = config.get('output_top_reversal_name')
+        # 计算核心变量
+        health_yesterday = bipolar_domain_health.shift(1).fillna(0)
+        health_change = bipolar_domain_health.diff(1).fillna(0)
+        # 底部反转神谕
+        bottom_context_factor = (1 - health_yesterday).clip(0, 2) # 情境调节器：昨日越差，反转越有价值
+        bottom_reversal_raw = health_change.clip(lower=0) * bottom_context_factor
+        bottom_reversal_score = bottom_reversal_raw.clip(0, 1) # 直接裁剪，其值已具意义
+        # 顶部反转神谕
+        top_context_factor = (1 + health_yesterday).clip(0, 2) # 情境调节器：昨日越好，反转越危险
+        top_reversal_raw = health_change.clip(upper=0).abs() * top_context_factor
+        top_reversal_score = top_reversal_raw.clip(0, 1) # 直接裁剪
+        # [新增] 植入究极探针
         probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [领域反转探针: {domain_name}] ---")
+        if not bipolar_domain_health.empty and bipolar_domain_health.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [领域反转究极探针: {domain_name}] ---")
             last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print(f"日期: {bipolar_domain_health.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
-            for axiom_config in axiom_configs:
+            # 打印所有输入公理
+            for axiom_config in config.get('axioms', []):
                 axiom_name = axiom_config.get('name')
-                axiom_score = self.strategy.atomic_states.get(axiom_name, pd.Series(0.0, index=df_index))
+                axiom_score = self.strategy.atomic_states.get(axiom_name, pd.Series(0.0, index=bipolar_domain_health.index))
                 print(f"    - 公理 ({axiom_name}): {axiom_score.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 领域健康度(双极性): {bipolar_domain_health.iloc[last_date_index]:.4f}")
+            print("  [神谕审判过程]:")
+            print(f"    - 领域健康度(今日): {bipolar_domain_health.iloc[last_date_index]:.4f}")
+            print(f"    - 领域健康度(昨日): {health_yesterday.iloc[last_date_index]:.4f}")
+            print(f"    - 健康度变化量: {health_change.iloc[last_date_index]:.4f}")
+            print("    --- 底部反转审判 ---")
+            print(f"    - 底部情境调节器 (1 - 昨日健康度): {bottom_context_factor.iloc[last_date_index]:.4f}")
             print(f"    - 底部反转(原始): {bottom_reversal_raw.iloc[last_date_index]:.4f}")
+            print("    --- 顶部反转审判 ---")
+            print(f"    - 顶部情境调节器 (1 + 昨日健康度): {top_context_factor.iloc[last_date_index]:.4f}")
             print(f"    - 顶部反转(原始): {top_reversal_raw.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
+            print("  [最终裁决]:")
             print(f"    - 底部反转分({output_bottom_name}): {bottom_reversal_score.iloc[last_date_index]:.4f}")
             print(f"    - 顶部反转分({output_top_name}): {top_reversal_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
@@ -1436,7 +1459,6 @@ class ProcessIntelligence:
         - 核心重构: 创立“高能压缩”模型，并将“主力控盘”从“放大器”升格为“裁决因子”。
         - 信号融合: 融合结构张力、量能萎缩与主力控盘度三大核心证据。
         - 核心逻辑: 寂静分 = 基础压缩分 * 主力控盘(裁决因子)。无主力正向控盘，则一票否决。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露“丞相之印”模型的计算细节。
         """
         tension_signal = 'SCORE_STRUCT_AXIOM_TENSION'
         atrophy_signal = 'SCORE_BEHAVIOR_VOLUME_ATROPHY'
@@ -1454,28 +1476,11 @@ class ProcessIntelligence:
         # 核心逻辑：高能压缩模型
         # 基础压缩分 = 结构张力 × 量能萎缩
         base_compression_score = (tension_score * atrophy_score).pow(0.5)
-        # [修改] 主力控盘(裁决因子)，取其正值部分，实现“丞相之印”的一票否决权
+        # 主力控盘(裁决因子)，取其正值部分，实现“丞相之印”的一票否决权
         main_force_adjudicator = control_score.clip(lower=0)
-        # [修改] 最终得分 = 基础压缩分 * 裁决因子
+        # 最终得分 = 基础压缩分 * 裁决因子
         final_score = (base_compression_score * main_force_adjudicator).clip(0, 1)
-        # 植入真理探针
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [风暴之眼探针(丞相之印版): {config.get('name')}] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 结构张力分 ({tension_signal}): {tension_score.iloc[last_date_index]:.4f}")
-            print(f"    - 量能萎缩分 ({atrophy_signal}): {atrophy_score.iloc[last_date_index]:.4f}")
-            print(f"    - 主力控盘度(原始) ({control_signal}): {control_raw.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - 主力控盘分(归一化): {control_score.iloc[last_date_index]:.4f}")
-            print(f"    - 基础压缩分 (张力*萎缩): {base_compression_score.iloc[last_date_index]:.4f}")
-            # [修改] 更新探针输出，体现“裁决因子”的新角色
-            print(f"    - 主力控盘(裁决因子): {main_force_adjudicator.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 最终寂静分 (基础分*裁决因子): {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [删除] 移除所有探针调试代码
         return final_score.astype(np.float32)
 
     def _perform_meta_analysis_on_score(self, relationship_score: pd.Series, config: Dict, df: pd.DataFrame, df_index: pd.Index) -> pd.Series:
