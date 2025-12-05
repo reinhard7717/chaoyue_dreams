@@ -739,7 +739,7 @@ class BehavioralIntelligence:
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.0 · 信念驱动版】计算高品质看涨量能爆发信号。
+        【V2.1 · 生产版】计算高品质看涨量能爆发信号。
         - 核心重构: 废弃了基于“净值结果谬误”的 V1.4 模型。引入基于“信念-效率-战果”
                       军事突击思想的全新四维诊断模型，旨在穿透“冲高派发”等诡道迷雾。
         - 战术四要素:
@@ -772,24 +772,11 @@ class BehavioralIntelligence:
             (efficiency_score + 1e-9) *
             (result_score + 1e-9)
         ).pow(1/4).fillna(0.0)
-        # --- 深度战术探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _calculate_volume_burst_quality @ {probe_date_str}")
-                print(f"        - 原始值: 量比={volume_ratio.loc[probe_ts]:.2f}, 主力信念={conviction_raw.loc[probe_ts]:.2f}, 脉冲品质={efficiency_raw.loc[probe_ts]:.2f}, 收盘强度={result_raw.loc[probe_ts]:.2f}")
-                print(f"        - 归一化分: 幅度={magnitude_score.loc[probe_ts]:.4f}, 信念={conviction_score.loc[probe_ts]:.4f}, 效率={efficiency_score.loc[probe_ts]:.4f}, 战果={result_score.loc[probe_ts]:.4f}")
-                print(f"        - 最终爆发品质分 (四维几何平均): {volume_burst_quality.loc[probe_ts]:.4f}")
         return volume_burst_quality.clip(0, 1).astype(np.float32)
 
     def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.0 · 高质量萎缩版】计算高品质成交量萎缩信号。
+        【V2.1 · 生产版】计算高品质成交量萎缩信号。
         - 核心重构: 废弃了基于“静态快照谬误”的 V1.2 模型。引入基于“环境决定论”的
                       全新二元结构模型，旨在精确区分“良性惜售”与“恶性阴跌”。
         - 核心二元结构:
@@ -819,6 +806,41 @@ class BehavioralIntelligence:
         ).pow(1/3).fillna(0.0)
         # --- 3. 最终品质合成 ---
         volume_atrophy_quality = (atrophy_degree_score * quality_modulator).clip(0, 1)
+        return volume_atrophy_quality.astype(np.float32)
+
+    def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
+        """
+        【V2.0 · 战术环境版】计算高品质承接强度信号。
+        - 核心重构: 废弃了基于“下影线幻觉”的 V1.3 模型。引入基于“压力-意图-结果”
+                      战役分析框架的全新三维诊断模型，旨在精确区分“强力承接”与“诱空回补”。
+        - 战术三要素:
+          1. 战场环境 (Battlefield Context): 引入 `panic_selling_cascade_D`，衡量承接发生时
+                                             的抛压严重性。压力越大，承接价值越高。
+          2. 承接意图 (Absorption Intent): 采用 `main_force_conviction_index_D`，审判承接
+                                           行为是否由信念坚定的主力发起。
+          3. 承接结果 (Absorption Result): 使用下影线长度作为战果体现，只有在环境和意图
+                                           被证实后，形态才有意义。
+        - 数学模型: 强度分 = (环境分 * 意图分 * 结果分) ^ (1/3)
+        """
+        # --- 1. 获取三维度原始数据 ---
+        panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_calculate_absorption_strength")
+        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_absorption_strength")
+        # 计算承接形态的原始值 (下影线占比)
+        absorption_form_raw = (df['close'] - df['low']) / (df['high'] - df['low'] + 1e-9)
+        absorption_form_raw = absorption_form_raw.clip(0, 1)
+        # --- 2. 计算各维度得分 ---
+        # 维度一：战场环境分
+        battlefield_context_score = get_adaptive_mtf_normalized_score(panic_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 维度二：承接意图分
+        absorption_intent_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
+        # 维度三：承接结果分
+        absorption_result_score = normalize_score(absorption_form_raw, df.index, 55)
+        # --- 3. 三维战术合成 ---
+        absorption_strength = (
+            (battlefield_context_score + 1e-9) *
+            (absorption_intent_score + 1e-9) *
+            (absorption_result_score + 1e-9)
+        ).pow(1/3).fillna(0.0)
         # --- 深度战术探针 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -828,57 +850,11 @@ class BehavioralIntelligence:
             valid_probe_dates = [d for d in probe_timestamps if d in df.index]
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _calculate_volume_atrophy @ {probe_date_str}")
-                print(f"        - 原始值: 量比={volume_ratio.loc[probe_ts]:.2f}, 赢家稳定={winner_stability_raw.loc[probe_ts]:.2f}, 输家痛苦={loser_pain_raw.loc[probe_ts]:.2f}, 浮筹清洗={cleansing_efficiency_raw.loc[probe_ts]:.2f}")
-                print(f"        - 基础分 (萎缩程度): {atrophy_degree_score.loc[probe_ts]:.4f}")
-                print(f"        - 环境调节器因子: 锁定分={lockup_score.loc[probe_ts]:.4f}, 枯竭分={exhaustion_score.loc[probe_ts]:.4f}, 清洗分={cleansing_score.loc[probe_ts]:.4f}")
-                print(f"        - 综合环境调节器 (三维几何平均): {quality_modulator.loc[probe_ts]:.4f}")
-                print(f"        - 最终萎缩品质分 (基础*环境): {volume_atrophy_quality.loc[probe_ts]:.4f}")
-        return volume_atrophy_quality.astype(np.float32)
-
-    def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict, lower_shadow_quality: pd.Series) -> pd.Series:
-        """
-        【V3.3 · 几何平均终局版】计算下跌过程中的广义吸筹强度
-        - 核心重构: 废弃加权算术平均，采用加权几何平均。这确保了“事件”、“位置”、“形态”
-                      三大核心证据中任何一个为零，最终吸筹强度分都会被一票否决，
-                      达成了整个行为情报引擎在融合哲学上的最终统一。
-        """
-        required_signals = [
-            'capitulation_absorption_index_D', 'support_validation_strength_D',
-            'lower_shadow_absorption_strength_D', 'pct_change_D'
-        ]
-        if not self._validate_required_signals(df, required_signals, "_calculate_absorption_strength"):
-            return pd.Series(0.0, index=df.index)
-        # 1. 事件驱动证据 (投降承接)
-        event_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_calculate_absorption_strength")
-        event_score = get_adaptive_mtf_normalized_score(event_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 2. 位置证据 (关键支撑验证)
-        location_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_calculate_absorption_strength")
-        location_score = get_adaptive_mtf_normalized_score(location_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 3. 形态证据 (下影线品质)
-        morphology_score = lower_shadow_quality
-        # 4. 证据融合 (升级为几何平均)
-        absorption_strength = (
-            (event_score + 1e-9).pow(0.3) *
-            (location_score + 1e-9).pow(0.4) *
-            (morphology_score + 1e-9).pow(0.3)
-        ).fillna(0.0)
-        # --- 探针监测 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _calculate_absorption_strength @ {probe_date_str}")
-                print(f"        - 事件分 (投降承接): {event_score.loc[probe_ts]:.4f} (原始值: {event_raw.loc[probe_ts]:.2f})")
-                print(f"        - 位置分 (支撑验证): {location_score.loc[probe_ts]:.4f} (原始值: {location_raw.loc[probe_ts]:.2f})")
-                print(f"        - 形态分 (下影线-权威注入): {morphology_score.loc[probe_ts]:.4f}")
-                # [修改的代码行] 更新探针，反映新的融合模型
-                print(f"        - 最终下跌吸筹强度分(几何平均): {absorption_strength.loc[probe_ts]:.4f}")
-        return absorption_strength.astype(np.float32)
+                print(f"        - 原始值: 恐慌级联={panic_raw.loc[probe_ts]:.2f}, 主力信念={conviction_raw.loc[probe_ts]:.2f}, 承接形态={absorption_form_raw.loc[probe_ts]:.2f}")
+                print(f"        - 归一化分: 环境分={battlefield_context_score.loc[probe_ts]:.4f}, 意图分={absorption_intent_score.loc[probe_ts]:.4f}, 结果分={absorption_result_score.loc[probe_ts]:.4f}")
+                print(f"        - 最终承接强度 (三维几何平均): {absorption_strength.loc[probe_ts]:.4f}")
+        return absorption_strength.clip(0, 1).astype(np.float32)
 
     def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, downward_resistance: pd.Series, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:
         """
