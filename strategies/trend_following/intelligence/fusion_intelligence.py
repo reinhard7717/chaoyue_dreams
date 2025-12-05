@@ -207,54 +207,56 @@ class FusionIntelligence:
 
     def _synthesize_capital_confrontation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 帅帐决断版】冶炼“资本对抗” (Capital Confrontation)
-        - 核心重构: 废弃“三权分立”的几何平均模型，引入“主力意图(君) × 战场优势(臣)”的
-                      “帅帐决断”非线性调制模型，确立战略意图的核心地位。
-        - 诡道哲学: 帅无战心，兵法何用？最终战果，是主帅的决心被战场优势所放大的结果。
+        【V5.0 · 意志与环境版 (終章)】冶炼“资本对抗” (Capital Confrontation)
+        - 核心升华: 彻底分离“内因”(主力意志)与“外缘”(对手盘环境)，构建“战役意志 ×
+                      环境调节器”的“天人合一”终极模型。
+        - 终章心法: 以我心，应天时。内因驱动，外缘催化，方为博弈大道。此法之后，再无增益。
         """
         print("  -- [融合层] 正在冶炼“资本对抗”...")
         states = {}
         df_index = df.index
-        # 1. [修改] 信号升维：定义“君”与“臣”
-        # 君 (Commander): 主力意图，作为决断的基石
+        # 1. [修改] 信号升维：定义“内因”与“外缘”
+        # --- 内因 (Internal Cause): 主力的“战役意志” ---
+        # 战略意图
         ff_posture = self._get_atomic_score(df, 'SCORE_FF_STRATEGIC_POSTURE', 0.0)
         chip_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         main_force_intent = (ff_posture * 0.5 + chip_posture * 0.5).clip(-1, 1)
-        # 臣 (Minister): 战场优势，由环境与战术共同构成
+        # 战术执行
+        tactical_execution = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
+        # --- 外缘 (External Condition): 对手盘的“环境” ---
         sentiment_pendulum = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
         counterparty_state = -sentiment_pendulum
-        tactical_execution = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
-        # 2. [修改] 核心数学逻辑 - 帅帐决断 (非线性调制)
-        # 2.1 计算“战场优势”分 (融合对手盘状态与战术执行)
+        # 2. [修改] 核心数学逻辑 - 天人合一
+        # 2.1 融合“内因”，计算“战役意志”
         # 将[-1, 1]映射到[0, 2]进行计算
-        mapped_counterparty = counterparty_state + 1
+        mapped_intent = main_force_intent + 1
         mapped_execution = tactical_execution + 1
-        # 几何平均，体现环境与战术的协同
-        advantage_mapped = (mapped_counterparty.clip(lower=1e-9) * mapped_execution.clip(lower=1e-9)).pow(1/2)
+        # 几何平均，体现意图与执行的协同
+        will_mapped = (mapped_intent.clip(lower=1e-9) * mapped_execution.clip(lower=1e-9)).pow(1/2)
         # 映射回[-1, 1]
-        battlefield_advantage = (advantage_mapped - 1).clip(-1, 1)
-        # 2.2 构建“优势调节器”
-        modulation_factor = 0.5 # 优势调节系数
-        advantage_modulator = (1 + battlefield_advantage * modulation_factor).clip(0, 2)
-        # 2.3 最终决断: 主力意图 × 优势调节器
-        final_score = (main_force_intent * advantage_modulator).clip(-1, 1)
+        campaign_will = (will_mapped - 1).clip(-1, 1)
+        # 2.2 构建“环境调节器”
+        modulation_factor = 0.5 # 环境调节系数
+        environment_modulator = (1 + counterparty_state * modulation_factor).clip(0, 2)
+        # 2.3 最终决断: 战役意志(我) × 环境调节器(天)
+        final_score = (campaign_will * environment_modulator).clip(-1, 1)
         states['FUSION_BIPOLAR_CAPITAL_CONFRONTATION'] = final_score.astype(np.float32)
-        # 3. [修改] 升级究极探针
+        # 3. [修改] 升级究极探针至最终形态
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [资本对抗究极探针 V4.0 · 帅帐决断版] ---")
+            print(f"\n--- [资本对抗究极探针 V5.0 · 意志与环境版 (終章)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
-            print(f"    - 主力意图 (君，基石): {main_force_intent.iloc[last_date_index]:.4f}")
+            print(f"    - 主力意图 (战略): {main_force_intent.iloc[last_date_index]:.4f}")
+            print(f"    - 战术执行 (行动): {tactical_execution.iloc[last_date_index]:.4f}")
             print(f"    - 对手盘状态 (环境): {counterparty_state.iloc[last_date_index]:.4f}")
-            print(f"    - 战术执行 (兵法): {tactical_execution.iloc[last_date_index]:.4f}")
-            print("  [关键计算节点 - 调制过程]:")
-            print(f"    - 战场优势 (臣): {battlefield_advantage.iloc[last_date_index]:.4f}")
-            print(f"    - 优势调节器 (1 + 优势*系数): {advantage_modulator.iloc[last_date_index]:.4f}")
-            print("  [最终裁决 - 帅帐决断]:")
-            print(f"    - 资本对抗分 (主力意图 × 调节器): {final_score.iloc[last_date_index]:.4f}")
+            print("  [关键计算节点 - 天人合一]:")
+            print(f"    - 战役意志 (内因): {campaign_will.iloc[last_date_index]:.4f}")
+            print(f"    - 环境调节器 (外缘): {environment_modulator.iloc[last_date_index]:.4f}")
+            print("  [最终裁决]:")
+            print(f"    - 资本对抗分 (意志 × 环境): {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         print(f"  -- [融合层] “资本对抗”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
