@@ -493,6 +493,7 @@
             "relationship_type": "consensus",
             "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
             "signal_B": "volume_D", "source_B": "df", "change_type_B": "diff",
+            "enable_probe": false,
             "comment": "【基础元分析-价量】保持不变，这是最基础的关系。"
           },
           {
@@ -681,6 +682,7 @@
             "relationship_type": "custom",
             "relative_strength_amplifier": 1.0,
             "capital_signature_modulator_weight": 0.5,
+            "enable_probe": false,
             "description": "【V4.0 · 资本属性调节版】诊断主力拉升意图。引入'相对强度'和'资本属性'作为双重调节器，区分'真龙头'与'跟风者'，并识别资金的真实属性。"
           },
           {
