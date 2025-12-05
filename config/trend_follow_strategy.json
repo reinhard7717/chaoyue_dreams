@@ -851,7 +851,7 @@
             "task_type": "base",
             "diagnosis_type": "domain_reversal",
             "domain_name": "FUND_FLOW",
-            "output_bottom_reversal_name": "PROCESS_META_FUND_FLOW_BOTTOM_REversal",
+            "output_bottom_reversal_name": "PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL",
             "output_top_reversal_name": "PROCESS_META_FUND_FLOW_TOP_REVERSAL",
             "axioms": [
               {"name": "SCORE_FF_AXIOM_CONSENSUS", "weight": 0.4},

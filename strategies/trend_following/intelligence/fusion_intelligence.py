@@ -627,7 +627,8 @@ class FusionIntelligence:
         output_name = 'PROCESS_FUSION_ACCUMULATION_PLAYBOOK'
         states[output_name] = playbook_score.astype(np.float32)
         # [新增] 植入究极探针
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', []) # [修改] 使用 .get() 安全访问，防止KeyError
+        debug_params = get_params_block(self.strategy, 'debug_params', {}) # [修改] 使用 get_params_block 工具函数安全、正确地获取嵌套的调试参数
+        probe_dates = debug_params.get('probe_dates', []) # [修改] 从正确的 debug_params 块中获取 probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print(f"\n--- [吸筹剧本究极探针] ---")
             last_date_index = -1
@@ -690,7 +691,8 @@ class FusionIntelligence:
         output_name = 'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME'
         states[output_name] = syndrome_score.astype(np.float32)
         # [新增] 植入究极探针
-        probe_dates = self.strategy.params.get('debug_params', {}).get('probe_dates', []) # [修改] 使用 .get() 安全访问，防止KeyError
+        debug_params = get_params_block(self.strategy, 'debug_params', {}) # [修改] 使用 get_params_block 工具函数安全、正确地获取嵌套的调试参数
+        probe_dates = debug_params.get('probe_dates', []) # [修改] 从正确的 debug_params 块中获取 probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             print(f"\n--- [趋势衰竭综合征究极探针] ---")
             last_date_index = -1
