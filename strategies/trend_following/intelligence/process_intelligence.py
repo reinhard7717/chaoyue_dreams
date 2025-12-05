@@ -245,78 +245,6 @@ class ProcessIntelligence:
         final_score = final_score.clip(-1, 1)
         return final_score.astype(np.float32)
 
-    def _calculate_cost_advantage_trend_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V4.0 · 全息战场版】计算成本优势趋势。
-        - 核心升级: 将四象限模型的分析基石从“间接推断”升级为“直接战术行为”。
-                      使用数据层最新的战术级信号（如打压吸筹强度、顶部派发强度等）直接驱动
-                      各象限的逻辑判断，极大提升了对战场真实博弈意图的识别精度。
-        - 新增功能: 植入“真理探针”，用于在指定日期输出各象限的计算结果。
-        """
-        print("    -> [过程层] 正在计算 PROCESS_META_COST_ADVANTAGE_TREND (V4.0 · 全息战场版)...")
-        # 引入新的战术级信号依赖
-        required_signals = [
-            'pct_change_D', 'main_force_cost_advantage_D', 'main_force_conviction_index_D',
-            'upward_impulse_purity_D', 'suppressive_accumulation_intensity_D',
-            'lower_shadow_absorption_strength_D', 'distribution_at_peak_intensity_D',
-            'upper_shadow_selling_pressure_D', 'active_selling_pressure_D'
-        ]
-        if not self._validate_required_signals(df, required_signals, "_calculate_cost_advantage_trend_relationship"):
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        df_index = df.index
-        price_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship")
-        main_force_cost_advantage = self._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship")
-        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        P_change = self._normalize_series(price_change, df_index, bipolar=True)
-        CA_change = self._normalize_series(main_force_cost_advantage.diff(1).fillna(0), df_index, bipolar=True)
-        # 获取新的战术信号并归一化
-        main_force_conviction = self._normalize_series(self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=True)
-        upward_purity = self._normalize_series(self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=False)
-        suppressive_accum = self._normalize_series(self._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=False)
-        lower_shadow_absorb = self.strategy.atomic_states.get('SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', pd.Series(0.0, index=df_index))
-        distribution_intensity = self._normalize_series(self._get_safe_series(df, 'distribution_at_peak_intensity_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=False)
-        upper_shadow_pressure = self._normalize_series(self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=False)
-        active_selling = self._normalize_series(self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=False)
-        # 使用新的战术信号重构四象限逻辑
-        # Q1: 价涨 & 优扩 (健康上涨)
-        Q1_base = (P_change.clip(lower=0) * CA_change.clip(lower=0)).pow(0.5)
-        Q1_confirm = (main_force_conviction.clip(lower=0) * upward_purity).pow(0.5)
-        Q1_final = (Q1_base * Q1_confirm).clip(0, 1)
-        # Q2: 价跌 & 优缩 (健康下跌/派发)
-        Q2_base = (P_change.clip(upper=0).abs() * CA_change.clip(upper=0).abs()).pow(0.5)
-        Q2_confirm = (active_selling * main_force_conviction.clip(upper=0).abs()).pow(0.5)
-        Q2_final = (Q2_base * Q2_confirm * -1).clip(-1, 0)
-        # Q3: 价跌 & 优扩 (诡道吸筹 - 黄金坑)
-        Q3_base = (P_change.clip(upper=0).abs() * CA_change.clip(lower=0)).pow(0.5)
-        Q3_confirm = (suppressive_accum * lower_shadow_absorb).pow(0.5)
-        Q3_final = (Q3_base * Q3_confirm).clip(0, 1)
-        # Q4: 价涨 & 优缩 (拉高出货 - 牛市陷阱)
-        Q4_base = (P_change.clip(lower=0) * CA_change.clip(upper=0).abs()).pow(0.5)
-        Q4_confirm = (distribution_intensity * upper_shadow_pressure).pow(0.5)
-        Q4_final = (Q4_base * Q4_confirm * -1).clip(-1, 0)
-        final_score = (Q1_final + Q2_final + Q3_final + Q4_final).clip(-1, 1)
-        probe_dates = self.probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [成本优势趋势探针] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 价格变化(归一化): {P_change.iloc[last_date_index]:.4f}")
-            print(f"    - 成本优势变化(归一化): {CA_change.iloc[last_date_index]:.4f}")
-            print(f"    - 打压吸筹强度(归一化): {suppressive_accum.iloc[last_date_index]:.4f}")
-            print(f"    - 顶部派发强度(归一化): {distribution_intensity.iloc[last_date_index]:.4f}")
-            print("  [关键计算]:")
-            print(f"    - Q1 (健康上涨)得分: {Q1_final.iloc[last_date_index]:.4f}")
-            print(f"    - Q2 (派发下跌)得分: {Q2_final.iloc[last_date_index]:.4f}")
-            print(f"    - Q3 (黄金坑)得分: {Q3_final.iloc[last_date_index]:.4f}")
-            print(f"    - Q4 (牛市陷阱)得分: {Q4_final.iloc[last_date_index]:.4f}")
-            print("  [最终结果]:")
-            print(f"    - 成本优势趋势最终分: {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
-        return final_score.astype(np.float32)
-
     def _calculate_main_force_rally_intent(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
         【V5.1 · 风险审判修正版】计算“主力拉升意图”的专属关系分数。
@@ -491,9 +419,9 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.5 · 军令同步版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 为 PROCESS_META_WINNER_CONVICTION 信号分派专属计算引擎，
-                      确保其“信念拔河”的诡道逻辑得以执行。
+        【V5.6 · 军令同步升级版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 为 PROCESS_META_LOSER_CAPITULATION 信号分派专属计算引擎，
+                      确保其“恐慌吸收”的诡道逻辑得以执行。
         """
         signal_name = config.get('name')
         df_index = df.index
@@ -519,10 +447,12 @@ class ProcessIntelligence:
             meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
         elif signal_name == 'PROCESS_META_MAIN_FORCE_RALLY_INTENT':
             meta_score = self._calculate_main_force_rally_intent(df, config)
-        # [新增] 为“赢家信念”信号增加专属路由
         elif signal_name == 'PROCESS_META_WINNER_CONVICTION':
             relationship_score = self._calculate_winner_conviction_relationship(df, config)
             meta_score = self._perform_meta_analysis_on_score(relationship_score, config, df, df_index)
+        # [新增] 为“套牢盘投降”信号增加专属路由
+        elif signal_name == 'PROCESS_META_LOSER_CAPITULATION':
+            meta_score = self._calculate_loser_capitulation(df, config)
         elif signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND':
             meta_score = self._calculate_cost_advantage_trend_relationship(df, config)
         elif signal_name == 'PROCESS_META_MAIN_FORCE_CONTROL':
@@ -889,7 +819,6 @@ class ProcessIntelligence:
         potential_gate_mask = historical_potential > potential_gate
         potential_modulator = (1 + historical_potential * potential_amplifier)
         final_score = (base_score * potential_modulator).where(potential_gate_mask, 0.0)
-        # [删除] 移除所有探针调试代码
         self.strategy.atomic_states["_DEBUG_accum_suppressive_score"] = suppressive_score
         self.strategy.atomic_states["_DEBUG_accum_consolidative_score"] = consolidative_score
         self.strategy.atomic_states["_DEBUG_accum_gentle_push_score"] = gentle_push_score
@@ -948,7 +877,6 @@ class ProcessIntelligence:
         judged_base_score = (base_score * battle_outcome_modulator).clip(0, 1)
         potential_gate_mask = historical_potential > potential_gate
         final_score = judged_base_score.where(washout_candidate_mask & potential_gate_mask, 0.0).fillna(0.0)
-        # [删除] 移除所有探针调试代码
         self.strategy.atomic_states["_DEBUG_washout_panic_score"] = panic_score
         self.strategy.atomic_states["_DEBUG_washout_absorption_score"] = absorption_score
         self.strategy.atomic_states["_DEBUG_washout_repair_score"] = repair_score
@@ -985,7 +913,6 @@ class ProcessIntelligence:
         price_gating_score = (1 - price_trend_norm.clip(lower=0.1)).clip(0, 1)
         coherence_penalty_factor = (1 - coherent_drive_score.clip(upper=0).abs()).clip(0, 1)
         final_score = (core_action_score * deceptive_context_score * coherence_penalty_factor * price_gating_score).fillna(0.0)
-        # [删除] 移除所有探针调试代码
         return final_score.astype(np.float32)
 
     def _calculate_upthrust_washout(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -1093,8 +1020,126 @@ class ProcessIntelligence:
         k = config.get('signal_b_factor_k', 1.0)
         # 核心逻辑变为状态对抗：信念状态分 - 压力状态分
         relationship_score = (k * conviction_state_score - pressure_state_score) / (k + 1)
-        # [删除] 移除所有探针调试代码
         return relationship_score.clip(-1, 1)
+
+    def _calculate_loser_capitulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V3.0 · 恐慌吸收版】计算“套牢盘投降”信号。
+        - 核心重构: 创立“恐慌与吸收”二元对抗模型。废除通用关系分析，转而审判在下跌日中，
+                      “恐慌抛售的烈度”与“主力主动吸收的强度”的乘积，旨在精准捕捉洗盘终点的信号。
+        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“恐慌吸收”模型。
+        """
+        print("    -> [过程层] 正在计算 PROCESS_META_LOSER_CAPITULATION (V3.0 · 恐慌吸收版)...")
+        required_signals = [
+            'pct_change_D', 'capitulation_flow_ratio_D', 'active_buying_support_D',
+            'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_calculate_loser_capitulation"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        df_index = df.index
+        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_loser_capitulation")
+        capitulation_flow_raw = self._get_safe_series(df, 'capitulation_flow_ratio_D', 0.0, method_name="_calculate_loser_capitulation")
+        active_buying_raw = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_calculate_loser_capitulation")
+        lower_shadow_absorption = self._get_atomic_score(df, 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', 0.0)
+        # 战场上下文：只在下跌日激活
+        context_mask = (pct_change < 0)
+        # 恐慌分：衡量抛售的烈度
+        panic_score = self._normalize_series(capitulation_flow_raw, df_index, bipolar=False)
+        # 吸收分：采用“强证优先”原则，取最强的承接证据
+        active_buying_norm = self._normalize_series(active_buying_raw, df_index, bipolar=False)
+        absorption_score = pd.concat([active_buying_norm, lower_shadow_absorption], axis=1).max(axis=1)
+        # 最终审判：恐慌与吸收的乘积
+        final_score = (panic_score * absorption_score).where(context_mask, 0.0).fillna(0.0)
+        # 植入探针
+        probe_dates = self.probe_dates
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print("\n--- [套牢盘投降探针(恐慌吸收版)] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 当日涨跌幅: {pct_change.iloc[last_date_index]:.4f}")
+            print(f"    - 恐慌抛售流量(原始): {capitulation_flow_raw.iloc[last_date_index]:.4f}")
+            print(f"    - 主动买盘支撑(原始): {active_buying_raw.iloc[last_date_index]:.4f}")
+            print(f"    - 下影线吸收强度: {lower_shadow_absorption.iloc[last_date_index]:.4f}")
+            print("  [关键计算]:")
+            print(f"    - 战场上下文(下跌日): {context_mask.iloc[last_date_index]}")
+            print(f"    - 恐慌分(归一化): {panic_score.iloc[last_date_index]:.4f}")
+            print(f"    - 吸收分(强证优先): {absorption_score.iloc[last_date_index]:.4f}")
+            print("  [最终结果]:")
+            print(f"    - 套牢盘投降最终分: {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        return final_score.astype(np.float32)
+
+    def _calculate_cost_advantage_trend_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V4.1 · 象限审判版】计算成本优势趋势。
+        - 核心升级: 为各象限的确认环节配备专属的、最高保真度的战术信号，实现“精准审判”。
+                      - Q2(派发下跌)引入“利润兑现流量”作为核心证据。
+                      - Q4(牛市陷阱)引入“买盘虚弱度”作为核心惩罚项。
+        - 新增功能: 植入“真理探针”，用于在指定日期输出各象限的计算结果。
+        """
+        print("    -> [过程层] 正在计算 PROCESS_META_COST_ADVANTAGE_TREND (V4.1 · 象限审判版)...")
+        # [修改] 引入新的、更精准的战术信号依赖
+        required_signals = [
+            'pct_change_D', 'main_force_cost_advantage_D', 'main_force_conviction_index_D',
+            'upward_impulse_purity_D', 'suppressive_accumulation_intensity_D',
+            'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', 'distribution_at_peak_intensity_D',
+            'active_selling_pressure_D', 'profit_taking_flow_ratio_D', 'active_buying_support_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_calculate_cost_advantage_trend_relationship"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        df_index = df.index
+        price_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship")
+        main_force_cost_advantage = self._get_safe_series(df, 'main_force_cost_advantage_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship")
+        P_change = self._normalize_series(price_change, df_index, bipolar=True)
+        CA_change = self._normalize_series(main_force_cost_advantage.diff(1).fillna(0), df_index, bipolar=True)
+        # 获取战术信号并归一化
+        main_force_conviction = self._normalize_series(self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=True)
+        upward_purity = self._normalize_series(self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=False)
+        suppressive_accum = self._normalize_series(self._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=False)
+        lower_shadow_absorb = self._get_atomic_score(df, 'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION', 0.0)
+        distribution_intensity = self._normalize_series(self._get_safe_series(df, 'distribution_at_peak_intensity_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=False)
+        active_selling = self._normalize_series(self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=False)
+        # [新增] 获取Q2和Q4象限审判所需的新信号
+        profit_taking_flow = self._normalize_series(self._get_safe_series(df, 'profit_taking_flow_ratio_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=False)
+        active_buying_support = self._normalize_series(self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_calculate_cost_advantage_trend_relationship"), df_index, bipolar=False)
+        # Q1: 价涨 & 优扩 (健康上涨) - 逻辑不变
+        Q1_base = (P_change.clip(lower=0) * CA_change.clip(lower=0)).pow(0.5)
+        Q1_confirm = (main_force_conviction.clip(lower=0) * upward_purity).pow(0.5)
+        Q1_final = (Q1_base * Q1_confirm).clip(0, 1)
+        # [修改] Q2: 价跌 & 优缩 (派发下跌) - 引入利润兑现作为核心证据
+        Q2_base = (P_change.clip(upper=0).abs() * CA_change.clip(upper=0).abs()).pow(0.5)
+        Q2_distribution_evidence = (profit_taking_flow * 0.6 + active_selling * 0.4).clip(0, 1)
+        Q2_final = (Q2_base * Q2_distribution_evidence * -1).clip(-1, 0)
+        # Q3: 价跌 & 优扩 (黄金坑) - 逻辑不变
+        Q3_base = (P_change.clip(upper=0).abs() * CA_change.clip(lower=0)).pow(0.5)
+        Q3_confirm = (suppressive_accum * lower_shadow_absorb).pow(0.5)
+        Q3_final = (Q3_base * Q3_confirm).clip(0, 1)
+        # [修改] Q4: 价涨 & 优缩 (牛市陷阱) - 引入买盘虚弱度作为惩罚
+        Q4_base = (P_change.clip(lower=0) * CA_change.clip(upper=0).abs()).pow(0.5)
+        Q4_trap_evidence = (distribution_intensity * (1 - active_buying_support)).clip(0, 1)
+        Q4_final = (Q4_base * Q4_trap_evidence * -1).clip(-1, 0)
+        final_score = (Q1_final + Q2_final + Q3_final + Q4_final).clip(-1, 1)
+        # [修改] 升级探针以反映新逻辑
+        probe_dates = self.probe_dates
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print("\n--- [成本优势趋势探针(象限审判版)] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料]:")
+            print(f"    - 价格变化(归一化): {P_change.iloc[last_date_index]:.4f}")
+            print(f"    - 成本优势变化(归一化): {CA_change.iloc[last_date_index]:.4f}")
+            print(f"    - 利润兑现流量(归一化): {profit_taking_flow.iloc[last_date_index]:.4f}")
+            print(f"    - 主动买盘支撑(归一化): {active_buying_support.iloc[last_date_index]:.4f}")
+            print("  [关键计算]:")
+            print(f"    - Q1 (健康上涨)得分: {Q1_final.iloc[last_date_index]:.4f}")
+            print(f"    - Q2 (派发下跌)证据分: {Q2_distribution_evidence.iloc[last_date_index]:.4f} -> 得分: {Q2_final.iloc[last_date_index]:.4f}")
+            print(f"    - Q3 (黄金坑)得分: {Q3_final.iloc[last_date_index]:.4f}")
+            print(f"    - Q4 (牛市陷阱)证据分: {Q4_trap_evidence.iloc[last_date_index]:.4f} -> 得分: {Q4_final.iloc[last_date_index]:.4f}")
+            print("  [最终结果]:")
+            print(f"    - 成本优势趋势最终分: {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        return final_score.astype(np.float32)
 
     def _calculate_split_order_accumulation(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
