@@ -195,10 +195,9 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V33.9 · 调用链修复版】原子信号中心
-        - 核心修复: 调整了 _diagnose_divergence_quality 的调用时序，确保在其依赖信号
-                      absorption_strength 和 distribution_intent 计算完成后再执行。
-                      并采用显式参数注入的方式传递依赖，解决了信号获取失败的根本问题。
+        【V34.0 · 动能升维版】原子信号中心
+        - 核心升级: 废弃了旧的 V1.0 上涨动能计算逻辑，改为调用全新的 V2.0 "闪电战品质版"
+                      `_diagnose_upward_momentum` 方法，实现了动能评估的根本性升维。
         """
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
@@ -218,7 +217,7 @@ class BehavioralIntelligence:
             'panic_selling_cascade_D', 'capitulation_absorption_index_D', 'covert_accumulation_signal_D',
             'VOL_MA_5_D', 'VOL_MA_13_D', 'VOL_MA_21_D', 'loser_pain_index_D',
             'deception_index_D', 'wash_trade_intensity_D', 'closing_auction_ambush_D', 'mf_retail_battle_intensity_D',
-            'main_force_conviction_index_D' # [新增依赖] 确保背离计算所需的核心信号被校验
+            'main_force_conviction_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_behavioral_axioms"):
             print("    -> [行为情报引擎] 核心公理诊断失败，行为分析中止。")
@@ -241,21 +240,14 @@ class BehavioralIntelligence:
             print("    -> [行为情报兼容模式] _diagnose_behavioral_axioms: 未找到 'ACCEL_5_pct_change_D'，使用 'pct_change_D' 的5日差分作为代理。")
             price_accel = pct_change.diff(5).fillna(0.0)
         # --- 动能信号 ---
-        magnitude_factor_up = get_adaptive_mtf_normalized_score(pct_change.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
-        internal_strength_score = closing_deviation.clip(0, 1)
-        path_efficiency_score = get_adaptive_mtf_normalized_score(intraday_posture, df.index, ascending=True, tf_weights=default_weights)
-        flow_ratio = main_force_flow / amount
-        norm_flow_ratio = get_adaptive_mtf_normalized_bipolar_score(flow_ratio, df.index, default_weights, sensitivity=0.05)
-        smart_money_confirmation_score = (np.tanh(norm_flow_ratio * 2.0) + 1) / 2
-        quality_factor = (internal_strength_score * path_efficiency_score * smart_money_confirmation_score).pow(1/3).fillna(0.0)
-        overextension_risk_up = get_adaptive_mtf_normalized_score(bias_21.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
-        sustainability_factor = (1 - overextension_risk_up).clip(0, 1)
-        upward_momentum_score = (magnitude_factor_up * quality_factor * sustainability_factor).clip(0, 1)
+        # [修改的代码行] 移除旧的 V1.0 计算逻辑，改为调用全新的 V2.0 "闪电战品质版" 方法
+        upward_momentum_score = self._diagnose_upward_momentum(df, default_weights)
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
         volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_behavioral_axioms")
         magnitude_factor_down = get_adaptive_mtf_normalized_score(pct_change.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         internal_panic_score = (1 - closing_deviation).clip(0, 1)
         path_weakness_score = get_adaptive_mtf_normalized_score(intraday_posture.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        norm_flow_ratio = get_adaptive_mtf_normalized_bipolar_score((main_force_flow / amount), df.index, default_weights, sensitivity=0.05)
         smart_money_intent_score = (1 - norm_flow_ratio) / 2
         authenticity_factor = (internal_panic_score * path_weakness_score * smart_money_intent_score).pow(1/3).fillna(0.0)
         volume_burst_score_down = get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=default_weights)
@@ -326,7 +318,6 @@ class BehavioralIntelligence:
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
             states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
         )
-        # [修改的代码行] 调整调用时序，并在计算完成后再调用背离诊断，同时注入依赖
         bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(
             df,
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
@@ -359,6 +350,56 @@ class BehavioralIntelligence:
             for probe_ts in valid_probe_dates:
                 self._probe_raw_material_diagnostics(df, probe_ts)
         return states
+
+    def _diagnose_upward_momentum(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
+        """
+        【V2.0 · 闪电战品质版】诊断高品质上涨动能。
+        - 核心重构: 废弃了基于“表观强度幻觉”的 V1.0 模型。引入基于“闪电战三要素”
+                      （攻击力度-战略指挥-后勤支撑）的全新品质诊断模型。
+        - 闪电战三要素:
+          1. 攻击力度 (Offensive Force): 审判攻击的纯净度与效率。采用 `upward_impulse_purity_D`
+                                         和 `impulse_quality_ratio_D`。
+          2. 战略指挥 (Strategic Command): 审判攻击背后的主力真实信念。采用 `main_force_conviction_index_D`。
+          3. 后勤支撑 (Sustainability): 审判动能的可持续性，即内部获利盘的稳固程度。
+                                        采用 `winner_stability_index_D`。
+        - 数学模型: 动能分 = (攻击力度分 * 战略指挥分 * 后勤支撑分) ^ (1/3)
+        """
+        # --- 1. 获取三要素原始数据 ---
+        impulse_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_upward_momentum")
+        impulse_quality_raw = self._get_safe_series(df, 'impulse_quality_ratio_D', 0.0, method_name="_diagnose_upward_momentum")
+        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_upward_momentum")
+        winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_upward_momentum")
+        # --- 2. 计算各要素得分 ---
+        # 要素一：攻击力度分
+        purity_score = get_adaptive_mtf_normalized_score(impulse_purity_raw, df.index, ascending=True, tf_weights=tf_weights)
+        quality_score = get_adaptive_mtf_normalized_score(impulse_quality_raw, df.index, ascending=True, tf_weights=tf_weights)
+        offensive_force_score = (purity_score * quality_score).pow(0.5)
+        # 要素二：战略指挥分
+        strategic_command_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
+        # 要素三：后勤支撑分
+        sustainability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # --- 3. “闪电战”三要素合成 ---
+        upward_momentum_score = (
+            (offensive_force_score + 1e-9) *
+            (strategic_command_score + 1e-9) *
+            (sustainability_score + 1e-9)
+        ).pow(1/3).fillna(0.0)
+        # --- 深度战术探针 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _diagnose_upward_momentum @ {probe_date_str}")
+                print(f"        - 原始值: 脉冲纯净度={impulse_purity_raw.loc[probe_ts]:.2f}, 脉冲质量={impulse_quality_raw.loc[probe_ts]:.2f}, 主力信念={conviction_raw.loc[probe_ts]:.2f}, 获利盘稳定={winner_stability_raw.loc[probe_ts]:.2f}")
+                print(f"        - 攻击力度分 (品质*纯净度): {offensive_force_score.loc[probe_ts]:.4f}")
+                print(f"        - 战略指挥分 (主力信念): {strategic_command_score.loc[probe_ts]:.4f}")
+                print(f"        - 后勤支撑分 (获利盘稳定): {sustainability_score.loc[probe_ts]:.4f}")
+                print(f"        - 最终动能品质分 (三维几何平均): {upward_momentum_score.loc[probe_ts]:.4f}")
+        return upward_momentum_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
