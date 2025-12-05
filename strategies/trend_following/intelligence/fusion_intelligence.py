@@ -106,35 +106,29 @@ class FusionIntelligence:
 
     def _synthesize_market_contradiction(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 多维印证版】冶炼“市场矛盾” (Market Contradiction)
-        - 核心重构: 废弃线性的“加权求和”模型，引入基于`A+B-A*B`的“迭代共振”模型。
-        - 诡道哲学: 矛盾的威力，不在于证据的数量，而在于多维证据间的“交叉印证”。
-                      每一个新证据，都是对旧有信念的非线性放大。
+        【V5.0 · 情境审判版 (終章)】冶炼“市场矛盾” (Market Contradiction)
+        - 核心升华: 引入“趋势质量”作为上下文法官，对“原始矛盾”进行非线性审判。
+        - 终章心法: 矛盾的威力，取决于其与趋势的冲突程度。逆势之兆，罪加一等。
+                      此法之后，再无增益。
         """
         print("  -- [融合层] 正在冶炼“市场矛盾”...")
         states = {}
         df_index = df.index
-        # 1. [信号赋权] 定义各领域背离信号及其权重 (保持不变)
+        # 1. [V4.0 核心保留] 计算原始矛盾分 (迭代共振)
         divergence_sources = {
             'CHIP': 0.30, 'FUND_FLOW': 0.25, 'BEHAVIOR': 0.15,
             'DYNAMIC_MECHANICS': 0.10, 'STRUCTURE': 0.10,
             'PATTERN': 0.05, 'MICRO_BEHAVIOR': 0.05,
         }
-        # 2. [修改] 核心数学逻辑 - 迭代共振
         bullish_resonance_score = pd.Series(0.0, index=df_index)
         bearish_resonance_score = pd.Series(0.0, index=df_index)
-        # 用于探针记录
-        bullish_probe_steps = []
-        bearish_probe_steps = []
         # 特殊处理双极性的筹码背离信号
         chip_divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
         chip_weight = divergence_sources.pop('CHIP')
         weighted_bullish_chip = chip_divergence.clip(lower=0) * chip_weight
         weighted_bearish_chip = chip_divergence.clip(upper=0).abs() * chip_weight
-        bullish_resonance_score = bullish_resonance_score + weighted_bullish_chip - (bullish_resonance_score * weighted_bullish_chip)
-        bearish_resonance_score = bearish_resonance_score + weighted_bearish_chip - (bearish_resonance_score * weighted_bearish_chip)
-        bullish_probe_steps.append(f"  - CHIP (+{weighted_bullish_chip.iloc[-1]:.4f}) -> 共振分: {bullish_resonance_score.iloc[-1]:.4f}")
-        bearish_probe_steps.append(f"  - CHIP (+{weighted_bearish_chip.iloc[-1]:.4f}) -> 共振分: {bearish_resonance_score.iloc[-1]:.4f}")
+        bullish_resonance_score += weighted_bullish_chip - (bullish_resonance_score * weighted_bullish_chip)
+        bearish_resonance_score += weighted_bearish_chip - (bearish_resonance_score * weighted_bearish_chip)
         # 迭代处理其他单极性背离信号
         for source, weight in divergence_sources.items():
             if source == 'BEHAVIOR':
@@ -143,36 +137,41 @@ class FusionIntelligence:
             else:
                 bull_signal_name = f'SCORE_{source}_BULLISH_DIVERGENCE'
                 bear_signal_name = f'SCORE_{source}_BEARISH_DIVERGENCE'
-            # 看涨共振
             weighted_bull_signal = self._get_atomic_score(df, bull_signal_name, 0.0) * weight
             bullish_resonance_score = bullish_resonance_score + weighted_bull_signal - (bullish_resonance_score * weighted_bull_signal)
-            bullish_probe_steps.append(f"  - {source} (+{weighted_bull_signal.iloc[-1]:.4f}) -> 共振分: {bullish_resonance_score.iloc[-1]:.4f}")
-            # 看跌共振
             weighted_bear_signal = self._get_atomic_score(df, bear_signal_name, 0.0) * weight
             bearish_resonance_score = bearish_resonance_score + weighted_bear_signal - (bearish_resonance_score * weighted_bear_signal)
-            bearish_probe_steps.append(f"  - {source} (+{weighted_bear_signal.iloc[-1]:.4f}) -> 共振分: {bearish_resonance_score.iloc[-1]:.4f}")
-        # 3. 最终裁决
-        bipolar_contradiction = (bullish_resonance_score - bearish_resonance_score).clip(-1, 1)
-        states['FUSION_BIPOLAR_MARKET_CONTRADICTION'] = bipolar_contradiction.astype(np.float32)
-        # 4. [新增] 植入究极探针
+        raw_bipolar_contradiction = (bullish_resonance_score - bearish_resonance_score).clip(-1, 1)
+        # 2. [新增] 核心数学逻辑 - 情境审判
+        # 2.1 获取情境法官 - 趋势质量
+        trend_quality = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
+        # 2.2 计算冲突度 (只有当矛盾与趋势方向相反时，才产生冲突)
+        conflict_score = (-np.sign(raw_bipolar_contradiction) * trend_quality).clip(lower=0)
+        # 2.3 构建情境调节器
+        modulation_factor = 0.5 # 冲突调节系数
+        contextual_modulator = 1 + (conflict_score * modulation_factor)
+        # 2.4 最终审判
+        final_score = (raw_bipolar_contradiction * contextual_modulator).clip(-1, 1)
+        states['FUSION_BIPOLAR_MARKET_CONTRADICTION'] = final_score.astype(np.float32)
+        # 3. [修改] 升级究极探针至最终形态
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [市场矛盾究极探针 V4.0 · 多维印证版] ---")
+            print(f"\n--- [市场矛盾究极探针 V5.0 · 情境审判版 (終章)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [看涨矛盾 - 迭代共振过程]:")
-            for step in bullish_probe_steps:
-                print(step)
-            print("  [看跌矛盾 - 迭代共振过程]:")
-            for step in bearish_probe_steps:
-                print(step)
-            print("  [最终裁决]:")
+            print("  [第一层 - 原始矛盾计算]:")
             print(f"    - 看涨共振总分: {bullish_resonance_score.iloc[last_date_index]:.4f}")
             print(f"    - 看跌共振总分: {bearish_resonance_score.iloc[last_date_index]:.4f}")
-            print(f"    - 市场矛盾净值: {bipolar_contradiction.iloc[last_date_index]:.4f}")
+            print(f"    - 原始矛盾净值: {raw_bipolar_contradiction.iloc[last_date_index]:.4f}")
+            print("  [第二层 - 情境审判过程]:")
+            print(f"    - 情境法官 (趋势质量): {trend_quality.iloc[last_date_index]:.4f}")
+            print(f"    - 冲突度: {conflict_score.iloc[last_date_index]:.4f}")
+            print(f"    - 情境调节器 (1 + 冲突度*系数): {contextual_modulator.iloc[last_date_index]:.4f}")
+            print("  [最终裁决]:")
+            print(f"    - 市场矛盾分 (原始分 × 调节器): {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
-        print(f"  -- [融合层] “市场矛盾”冶炼完成，最新分值: {bipolar_contradiction.iloc[-1]:.4f}")
+        print(f"  -- [融合层] “市场矛盾”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
     def _synthesize_market_regime(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
