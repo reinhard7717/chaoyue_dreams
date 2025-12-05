@@ -207,18 +207,53 @@ class FusionIntelligence:
 
     def _synthesize_capital_confrontation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 代际同步版】冶炼“资本对抗” (Capital Confrontation)
-        - 核心修复: 将对废弃信号 `SCORE_MICRO_AXIOM_DECEPTION` 的依赖，替换为对
-                    新信号 `SCORE_MICRO_STRATEGY_STEALTH_OPS` 的依赖，完成情报代际同步。
+        【V3.0 · 三体博弈版】冶炼“资本对抗” (Capital Confrontation)
+        - 核心重构: 废弃线性加权的“合影”模型，引入“主力意图×对手盘状态×战术执行”的
+                      “三体博弈”非线性融合模型，旨在描绘一场真实的资本绞杀战。
+        - 诡道哲学: 真正的对抗，是主力利用对手盘的弱点(情绪)，执行高效战术以达成其战略意图。
+                      三者缺一不可，故采用几何平均进行“共振审判”。
         """
+        print("  -- [融合层] 正在冶炼“资本对抗”...")
         states = {}
-        flow_confrontation = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0)
-        chip_transfer = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
-        # 替换为新的微观信号
-        stealth_ops = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
-        bipolar_confrontation = (flow_confrontation * 0.5 + chip_transfer * 0.3 + stealth_ops * 0.2).clip(-1, 1)
-        states['FUSION_BIPOLAR_CAPITAL_CONFRONTATION'] = bipolar_confrontation.astype(np.float32)
-        print(f"  -- [融合层] “资本对抗”冶炼完成，最新分值: {bipolar_confrontation.iloc[-1]:.4f}")
+        df_index = df.index
+        # 1. [修改] 信号升维：定义“三体博弈”的三大引力体
+        # 引力体I: 主力意图 (融合资金与筹码的顶层战略)
+        ff_posture = self._get_atomic_score(df, 'SCORE_FF_STRATEGIC_POSTURE', 0.0)
+        chip_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
+        main_force_intent = (ff_posture * 0.5 + chip_posture * 0.5).clip(-1, 1)
+        # 引力体II: 对手盘状态 (散户情绪的反向指标，恐慌=机会，狂热=风险)
+        sentiment_pendulum = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
+        counterparty_state = -sentiment_pendulum
+        # 引力体III: 战术执行 (主力的微观诡道操作)
+        tactical_execution = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
+        # 2. [修改] 核心数学逻辑 - 三体共振 (非线性几何平均)
+        # 将[-1, 1]映射到[0, 2]以进行几何平均计算
+        mapped_intent = main_force_intent + 1
+        mapped_counterparty = counterparty_state + 1
+        mapped_execution = tactical_execution + 1
+        # 几何平均，体现“木桶效应”，并加入极小值防止结果为0
+        product_of_scores = (mapped_intent.clip(lower=1e-9) *
+                             mapped_counterparty.clip(lower=1e-9) *
+                             mapped_execution.clip(lower=1e-9))
+        resonance_score_mapped = product_of_scores.pow(1/3)
+        # 将结果从[0, 2]映射回[-1, 1]
+        final_score = (resonance_score_mapped - 1).clip(-1, 1)
+        states['FUSION_BIPOLAR_CAPITAL_CONFRONTATION'] = final_score.astype(np.float32)
+        # 3. [新增] 植入究极探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = debug_params.get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [资本对抗究极探针 V3.0 · 三体博弈版] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料 - 三大引力体]:")
+            print(f"    - I. 主力意图 (资金+筹码态势): {main_force_intent.iloc[last_date_index]:.4f}")
+            print(f"    - II. 对手盘状态 (情绪反转): {counterparty_state.iloc[last_date_index]:.4f} (原始情绪分: {sentiment_pendulum.iloc[last_date_index]:.4f})")
+            print(f"    - III. 战术执行 (隐秘行动): {tactical_execution.iloc[last_date_index]:.4f}")
+            print("  [最终裁决 - 非线性共振]:")
+            print(f"    - 资本对抗分 (三体博弈): {final_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        print(f"  -- [融合层] “资本对抗”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
     def _synthesize_price_overextension_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -568,42 +603,23 @@ class FusionIntelligence:
         di_li = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0).clip(lower=0)
         ren_he = (self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0) + 1) / 2
         foundation_sustain_factor = (di_li * ren_he).pow(1/2).fillna(0.0)
-        # 2. [修改] 核心数学逻辑 - 王霸并济，道法合一
+        # 2. 核心数学逻辑 - 王霸并济，道法合一
         playbook_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         hegemon_threshold = 0.75 # 定义“霸王门槛”，区分“突破”与“胶着”
-        # 用于探针记录
-        chosen_path = ""
         for i in range(1, len(df)):
             previous_score = playbook_score.iloc[i-1]
             decay_modulator = foundation_sustain_factor.iloc[i]
             decayed_score = previous_score * decay_modulator
             current_igniter = igniter_signal.iloc[i]
-            # [新增] 道法合一：根据“点火器”强度，选择“王者”或“霸王”之道
+            # 道法合一：根据“点火器”强度，选择“王者”或“霸王”之道
             if current_igniter > hegemon_threshold:
                 # 霸王之道：压倒性信号出现，直接重置战局状态
                 playbook_score.iloc[i] = current_igniter
-                chosen_path = "霸王之道 (状态重置)"
             else:
                 # 王者之道：常规信号，薪火相加，积累优势
                 playbook_score.iloc[i] = decayed_score + current_igniter - (decayed_score * current_igniter)
-                chosen_path = "王者之道 (薪火相加)"
         states['PROCESS_FUSION_ACCUMULATION_PLAYBOOK'] = playbook_score.astype(np.float32)
-        # 3. 植入究极探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates = debug_params.get('probe_dates', [])
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [吸筹剧本究极探针 V5.0 · 道法合一版 (終章)] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 点火器 (今日新火): {igniter_signal.iloc[last_date_index]:.4f}")
-            print(f"    - 霸王门槛: {hegemon_threshold:.2f}")
-            print("  [关键计算节点 - 状态传递]:")
-            decayed_val = (playbook_score.iloc[last_date_index-1] if len(df) > 1 else 0.0) * foundation_sustain_factor.iloc[last_date_index]
-            print(f"    - 旧火焰余烬强度: {decayed_val:.4f}")
-            print(f"  [最终裁决 - {chosen_path}]:")
-            print(f"    - 今日剧本分: {playbook_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “吸筹剧本”冶炼完成，最新分值: {playbook_score.iloc[-1] if not playbook_score.empty else 0.0:.4f}")
         return states
 
