@@ -702,37 +702,77 @@ class BehavioralIntelligence:
 
     def _diagnose_divergence_quality(self, df: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
         """
-        【V2.0 · 背离品质版】诊断高品质价量/价资背离
-        - 核心重构: 废弃简单的线性差值，引入“背离品质”三维诊断模型，旨在识别由主力意图确认的、发生在关键位置的、真正有效的背离信号。
-        - 诊断维度:
-          1. 背离形态 (Morphology): 价格趋势与资金流趋势的明确“背道而驰”。
-          2. 主力意图 (Intent): 主力资金流向是背离的核心驱动力。
-          3. 战场位置 (Location): 背离是否发生在超卖/超买的极端区域。
-        - 输出: 分别输出独立的、[0, 1]区间的牛市背离品质分和熊市背离品质分。
+        【V3.0 · 信念冲突版】诊断高品质价量/价资背离
+        - 核心重构: 废弃了基于“平滑趋势谬误”和“静态位置幻觉”的 V2.0 模型。引入基于
+                      “政变前夜”思想的全新三维诊断模型，旨在精确识别由主力真实信念驱动的、
+                      发生在情绪极端点的、并得到初步行为确认的决定性背离。
+        - 诊断三要素:
+          1. 背离幅度 (Magnitude): 价格创出新高/低，但 `main_force_conviction_index_D` 逆势而行。
+          2. 战场位置 (Location): 牛市背离发生在套牢盘极度痛苦 (`loser_pain_index_D`) 之时；
+                                  熊市背离发生在获利盘极不稳固 (`winner_stability_index_D`) 之际。
+          3. 确认信号 (Confirmation): 牛市背离需由 `absorption_strength` 确认；熊市背离需由
+                                      `distribution_intent` 确认。
+        - 数学模型: 品质分 = (幅度分^0.5 * 位置分^0.3 * 确认分^0.2)
         """
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 1. 获取原始数据
+        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        divergence_window = 5
+        # --- 1. 获取三维度原始数据 ---
         price = self._get_safe_series(df, 'close_D', 0.0, method_name="_diagnose_divergence_quality")
-        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_divergence_quality")
-        bias = self._get_safe_series(df, 'BIAS_21_D', 0.0, method_name="_diagnose_divergence_quality")
-        # 2. 计算各指标的趋势 (使用短期EMA的斜率来表示)
-        price_trend = price.ewm(span=5, adjust=False).mean().diff().fillna(0)
-        flow_trend = main_force_flow.ewm(span=5, adjust=False).mean().diff().fillna(0)
-        # 3. 归一化趋势和位置指标
-        norm_price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend, df.index, default_weights)
-        norm_flow_trend = get_adaptive_mtf_normalized_bipolar_score(flow_trend, df.index, default_weights)
-        norm_bias = get_adaptive_mtf_normalized_bipolar_score(bias, df.index, default_weights)
-        # 4. 计算牛市背离品质 (价格跌，资金涨，位置超卖)
-        bullish_morphology_evidence = (norm_flow_trend.clip(lower=0) - norm_price_trend.clip(upper=0).abs()).clip(lower=0)
-        oversold_location_evidence = norm_bias.clip(upper=0).abs()
-        bullish_divergence_quality = (bullish_morphology_evidence * oversold_location_evidence).pow(0.5).fillna(0.0)
-        # 5. 计算熊市背离品质 (价格涨，资金跌，位置超买)
-        bearish_morphology_evidence = (norm_price_trend.clip(lower=0) - norm_flow_trend.clip(upper=0).abs()).clip(lower=0)
-        overbought_location_evidence = norm_bias.clip(lower=0)
-        bearish_divergence_quality = (bearish_morphology_evidence * overbought_location_evidence).pow(0.5).fillna(0.0)
-        return bullish_divergence_quality.astype(np.float32), bearish_divergence_quality.astype(np.float32)
+        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_divergence_quality")
+        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_diagnose_divergence_quality")
+        winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_divergence_quality")
+        absorption_strength = self._get_atomic_score(df, 'SCORE_BEHAVIOR_ABSORPTION_STRENGTH', 0.0)
+        distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
+        # --- 2. 计算牛市背离 (价格新低 vs 信念走高) ---
+        price_new_low = (price == price.rolling(divergence_window, min_periods=1).min()).astype(float)
+        conviction_trend_up = (conviction_raw > conviction_raw.rolling(divergence_window, min_periods=1).mean()).astype(float)
+        bullish_magnitude_score = (price_new_low * conviction_trend_up).fillna(0.0)
+        bullish_location_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=default_weights)
+        bullish_confirmation_score = absorption_strength
+        bullish_divergence_quality = (
+            (bullish_magnitude_score + 1e-9).pow(0.5) *
+            (bullish_location_score + 1e-9).pow(0.3) *
+            (bullish_confirmation_score + 1e-9).pow(0.2)
+        ).fillna(0.0)
+        # --- 3. 计算熊市背离 (价格新高 vs 信念走低) ---
+        price_new_high = (price == price.rolling(divergence_window, min_periods=1).max()).astype(float)
+        conviction_trend_down = (conviction_raw < conviction_raw.rolling(divergence_window, min_periods=1).mean()).astype(float)
+        bearish_magnitude_score = (price_new_high * conviction_trend_down).fillna(0.0)
+        winner_instability_raw = 1 - winner_stability_raw # 获利盘不稳定性
+        bearish_location_score = get_adaptive_mtf_normalized_score(winner_instability_raw, df.index, ascending=True, tf_weights=default_weights)
+        bearish_confirmation_score = distribution_intent
+        bearish_divergence_quality = (
+            (bearish_magnitude_score + 1e-9).pow(0.5) *
+            (bearish_location_score + 1e-9).pow(0.3) *
+            (bearish_confirmation_score + 1e-9).pow(0.2)
+        ).fillna(0.0)
+        # --- 深度战术探针 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _diagnose_divergence_quality @ {probe_date_str}")
+                # 牛市背离探针
+                print(f"        [牛市背离]")
+                print(f"          - 原始值: 价格={price.loc[probe_ts]:.2f}, 主力信念={conviction_raw.loc[probe_ts]:.2f}, 套牢盘痛苦={loser_pain_raw.loc[probe_ts]:.2f}, 承接强度={absorption_strength.loc[probe_ts]:.4f}")
+                print(f"          - 幅度分={bullish_magnitude_score.loc[probe_ts]:.4f} (价格新低={price_new_low.loc[probe_ts]:.0f}, 信念走高={conviction_trend_up.loc[probe_ts]:.0f})")
+                print(f"          - 位置分={bullish_location_score.loc[probe_ts]:.4f} (套牢盘痛苦)")
+                print(f"          - 确认分={bullish_confirmation_score.loc[probe_ts]:.4f} (承接强度)")
+                print(f"          - 最终品质分(加权几何平均): {bullish_divergence_quality.loc[probe_ts]:.4f}")
+                # 熊市背离探针
+                print(f"        [熊市背离]")
+                print(f"          - 原始值: 价格={price.loc[probe_ts]:.2f}, 主力信念={conviction_raw.loc[probe_ts]:.2f}, 获利盘稳定={winner_stability_raw.loc[probe_ts]:.2f}, 派发意图={distribution_intent.loc[probe_ts]:.4f}")
+                print(f"          - 幅度分={bearish_magnitude_score.loc[probe_ts]:.4f} (价格新高={price_new_high.loc[probe_ts]:.0f}, 信念走低={conviction_trend_down.loc[probe_ts]:.0f})")
+                print(f"          - 位置分={bearish_location_score.loc[probe_ts]:.4f} (获利盘不稳)")
+                print(f"          - 确认分={bearish_confirmation_score.loc[probe_ts]:.4f} (派发意图)")
+                print(f"          - 最终品质分(加权几何平均): {bearish_divergence_quality.loc[probe_ts]:.4f}")
+        return bullish_divergence_quality.clip(0, 1).astype(np.float32), bearish_divergence_quality.clip(0, 1).astype(np.float32)
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
@@ -807,7 +847,7 @@ class BehavioralIntelligence:
 
     def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.0 · 战术环境版】计算高品质承接强度信号。
+        【V2.1 · 生产版】计算高品质承接强度信号。
         - 核心重构: 废弃了基于“下影线幻觉”的 V1.3 模型。引入基于“压力-意图-结果”
                       战役分析框架的全新三维诊断模型，旨在精确区分“强力承接”与“诱空回补”。
         - 战术三要素:
@@ -838,24 +878,12 @@ class BehavioralIntelligence:
             (absorption_intent_score + 1e-9) *
             (absorption_result_score + 1e-9)
         ).pow(1/3).fillna(0.0)
-        # --- 深度战术探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _calculate_absorption_strength @ {probe_date_str}")
-                print(f"        - 原始值: 恐慌级联={panic_raw.loc[probe_ts]:.2f}, 主力信念={conviction_raw.loc[probe_ts]:.2f}, 承接形态={absorption_form_raw.loc[probe_ts]:.2f}")
-                print(f"        - 归一化分: 环境分={battlefield_context_score.loc[probe_ts]:.4f}, 意图分={absorption_intent_score.loc[probe_ts]:.4f}, 结果分={absorption_result_score.loc[probe_ts]:.4f}")
-                print(f"        - 最终承接强度 (三维几何平均): {absorption_strength.loc[probe_ts]:.4f}")
+        # [修改的代码行] 移除探针代码，恢复生产版本
         return absorption_strength.clip(0, 1).astype(np.float32)
 
     def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:
         """
-        【V2.0 · 政变确认版】诊断震荡洗盘确认信号。
+        【V2.1 · 生产版】诊断震荡洗盘确认信号。
         - 核心重构: 废弃了基于“过程融合谬误”的 V1.3 模型。引入基于“政变三部曲”
                       （前提-行动-成果）的全新门控模型，旨在精确识别主力主动控盘的洗盘行为。
         - 政变三部曲:
@@ -887,21 +915,7 @@ class BehavioralIntelligence:
         # --- 3. “政变”三部曲合成 ---
         internal_confirmation = (core_action_score * tactical_result_score).pow(0.5).fillna(0.0)
         shakeout_confirmation_score = (precondition_gate_score * internal_confirmation).clip(0, 1)
-        # --- 深度战术探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _diagnose_shakeout_confirmation @ {probe_date_str}")
-                print(f"        - 原始值: 恐慌级联={panic_raw.loc[probe_ts]:.2f}, 浮筹清洗={cleansing_raw.loc[probe_ts]:.2f}, 承接强度(输入)={absorption_strength.loc[probe_ts]:.4f}, 派发意图(输入)={distribution_intent.loc[probe_ts]:.4f}")
-                print(f"        - 前提门控 (环境审查): {precondition_gate_score.loc[probe_ts]:.4f} (无派发意图={no_distribution_intent_score.loc[probe_ts]:.2f}, 环境可控={controllable_environment_score.loc[probe_ts]:.2f})")
-                print(f"        - 核心引擎 (决定性反击): {core_action_score.loc[probe_ts]:.4f}")
-                print(f"        - 战术成果 (清算效率): {tactical_result_score.loc[probe_ts]:.4f}")
-                print(f"        - 最终洗盘确认分 (门控*融合): {shakeout_confirmation_score.loc[probe_ts]:.4f}")
+        # [修改的代码行] 移除探针代码，恢复生产版本
         return shakeout_confirmation_score.astype(np.float32)
 
     def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series) -> pd.Series:
