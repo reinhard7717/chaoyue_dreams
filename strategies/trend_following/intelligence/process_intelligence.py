@@ -365,56 +365,57 @@ class ProcessIntelligence:
 
     def _calculate_main_force_control_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.4 · 探针植入版】计算“主力控盘”的专属关系分数。
-        - 核心重构: 移除了此处的最终日志输出。战报发布权已上移至调度中心。
-        - 新增功能: 植入“真理探针”，用于在指定日期输出关键计算过程。
+        【V2.0 · 控盘杠杆版】计算“主力控盘”的专属关系分数。
+        - 核心重构: 创立“控盘即杠杆”模型。将“控盘度”作为调节“资金流向”影响力的核心杠杆。
+                      最终分 = 主力净流入分 * (1 + 融合控盘分)。
+        - 证据升级: 融合传统的均线控盘度与更现代的“控盘稳固度”，形成更立体的控盘评分。
+        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“控盘杠杆”模型。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_CONTROL (V1.4 · 探针植入版)...")
+        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_CONTROL (V2.0 · 控盘杠杆版)...")
+        # [修改] 增加新的信号依赖
+        required_signals = ['close_D', 'main_force_net_flow_calibrated_D', 'control_solidity_index_D']
+        if not self._validate_required_signals(df, required_signals, "_calculate_main_force_control_relationship"):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
         df_index = df.index
-        std_window = self.std_window
-        bipolar_sensitivity = self.bipolar_sensitivity
+        # 传统控盘度计算
         ema13 = ta.ema(close=self._get_safe_series(df, 'close_D', method_name="_calculate_main_force_control_relationship"), length=13, append=False)
-        if ema13 is None:
-            print(f"    -> [过程层警告] '主力控盘'计算失败：数据长度不足以计算13周期EMA。")
-            return pd.Series(0.0, index=df_index)
+        if ema13 is None: return pd.Series(0.0, index=df_index)
         varn1 = ta.ema(close=ema13, length=13, append=False)
-        if varn1 is None:
-            print(f"    -> [过程层警告] '主力控盘'计算失败：数据长度不足以计算双重13周期EMA。")
-            return pd.Series(0.0, index=df_index)
+        if varn1 is None: return pd.Series(0.0, index=df_index)
         prev_varn1 = varn1.shift(1).replace(0, np.nan)
         kongpan_raw = (varn1 - prev_varn1) / prev_varn1 * 1000
-        youzhuang_kongpan = (kongpan_raw > kongpan_raw.shift(1)) & (kongpan_raw > 0)
-        main_force_net_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_control_relationship")
-        p_conf_behavioral = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf_behavioral.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        kongpan_score = get_adaptive_mtf_normalized_bipolar_score(kongpan_raw, df_index, default_weights, bipolar_sensitivity)
-        main_force_flow_score = get_adaptive_mtf_normalized_bipolar_score(main_force_net_flow, df_index, default_weights, bipolar_sensitivity)
-        final_control_score = pd.Series(0.0, index=df_index)
-        youzhuang_kongpan_float = youzhuang_kongpan.astype(float)
-        final_control_score = (kongpan_score.clip(lower=0) * main_force_flow_score.clip(lower=0) * youzhuang_kongpan_float).pow(1/3)
-        final_control_score = final_control_score.mask(kongpan_score < 0, kongpan_score.clip(upper=0))
-        final_control_score = final_control_score.mask(main_force_flow_score < 0, main_force_flow_score.clip(upper=0))
-        final_control_score = final_control_score.clip(-1, 1)
+        # [新增] 结构控盘度
+        control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.0, method_name="_calculate_main_force_control_relationship")
+        # 归一化
+        traditional_control_score = self._normalize_series(kongpan_raw, df_index, bipolar=True)
+        structural_control_score = self._normalize_series(control_solidity_raw, df_index, bipolar=True)
+        # [新增] 融合控盘分
+        fused_control_score = (traditional_control_score * 0.4 + structural_control_score * 0.6).clip(-1, 1)
+        # 主力资金流
+        main_force_net_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_main_force_control_relationship")
+        main_force_flow_score = self._normalize_series(main_force_net_flow, df_index, bipolar=True)
+        # [修改] 核心逻辑：控盘杠杆模型
+        control_leverage = 1 + fused_control_score.clip(lower=0) # 杠杆效应只在控盘为正时生效
+        final_control_score = (main_force_flow_score * control_leverage).clip(-1, 1)
+        # [修改] 全面升级探针
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [主力控盘探针] ---")
+            print("\n--- [主力控盘探针(控盘杠杆版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
-            print(f"    - 控盘度(原始): {kongpan_raw.iloc[last_date_index]:.4f}")
+            print(f"    - 传统控盘度(原始): {kongpan_raw.iloc[last_date_index]:.4f}")
+            print(f"    - 结构控盘度(原始): {control_solidity_raw.iloc[last_date_index]:.4f}")
             print(f"    - 主力净流入(原始): {main_force_net_flow.iloc[last_date_index]:.2f}")
             print("  [关键计算]:")
-            print(f"    - 有庄控盘(布尔): {youzhuang_kongpan.iloc[last_date_index]}")
-            print(f"    - 控盘度(归一化): {kongpan_score.iloc[last_date_index]:.4f}")
-            print(f"    - 主力净流入(归一化): {main_force_flow_score.iloc[last_date_index]:.4f}")
+            print(f"    - 传统控盘分(归一化): {traditional_control_score.iloc[last_date_index]:.4f}")
+            print(f"    - 结构控盘分(归一化): {structural_control_score.iloc[last_date_index]:.4f}")
+            print(f"    - 融合控盘分: {fused_control_score.iloc[last_date_index]:.4f}")
+            print(f"    - 主力净流入分(归一化): {main_force_flow_score.iloc[last_date_index]:.4f}")
+            print(f"    - 控盘杠杆: {control_leverage.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
             print(f"    - 主力控盘最终分: {final_control_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
-        self.strategy.atomic_states[f"_DEBUG_kongpan_raw"] = kongpan_raw
-        self.strategy.atomic_states[f"_DEBUG_youzhuang_kongpan"] = youzhuang_kongpan
-        self.strategy.atomic_states[f"_DEBUG_kongpan_score"] = kongpan_score
-        self.strategy.atomic_states[f"_DEBUG_main_force_flow_score"] = main_force_flow_score
         return final_control_score.astype(np.float32)
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
@@ -1220,13 +1221,14 @@ class ProcessIntelligence:
 
     def _calculate_breakout_acceleration(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.2 · 军令直达版】诊断“突破加速抢筹”战术。
-        - 核心修复: 将依赖信号从一个不存在的中间过程信号，修正为'PROCESS_META_MAIN_FORCE_RALLY_INTENT'的最终成品信号，
-                      解决了依赖缺失的BUG，并提升了逻辑的可靠性。
-        - 核心升级: 引入“相对强度”公理作为环境调节器，放大“领军者”的突破信号，确认其龙头地位。
+        【V3.0 · 共振审判版】诊断“突破加速抢筹”战术。
+        - 核心重构: 创立“突破即共振”模型。废除硬阈值门槛和几何平均，改为对四大核心证据
+                      （突破、意图、资金、结构）进行加权融合，以更鲁棒的“共振分”审判突破质量。
+        - 信号修正: 修正了对“拉升意图”信号的引用，确保使用最终权威信号。
+        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“共振审判”模型。
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_BREAKOUT_ACCELERATION (V2.2 · 军令直达版)...")
-        # [修改] 修正核心依赖信号，直接使用最终的拉升意图信号
+        print("    -> [过程层] 正在计算 PROCESS_META_BREAKOUT_ACCELERATION (V3.0 · 共振审判版)...")
+        # [修改] 修正并确认信号依赖
         required_signals = [
             'SCORE_PATTERN_AXIOM_BREAKOUT', 'PROCESS_META_MAIN_FORCE_RALLY_INTENT',
             'PROCESS_META_POWER_TRANSFER', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH'
@@ -1236,34 +1238,37 @@ class ProcessIntelligence:
         df_index = df.index
         relative_strength = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH', 0.0)
         rs_amplifier = config.get('relative_strength_amplifier', 0.0)
-        breakout_signal = self.strategy.atomic_states.get('SCORE_PATTERN_AXIOM_BREAKOUT', pd.Series(0.0, index=df_index))
-        # [修改] 使用正确的信号名获取拉升意图
-        rally_intent_signal_name = 'PROCESS_META_MAIN_FORCE_RALLY_INTENT'
-        rally_intent = self.strategy.atomic_states.get(rally_intent_signal_name, pd.Series(0.0, index=df_index))
-        power_transfer = self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df_index))
-        trend_form = self.strategy.atomic_states.get('SCORE_STRUCT_AXIOM_TREND_FORM', pd.Series(0.0, index=df_index))
-        breakout_trigger_mask = breakout_signal.rolling(window=3, min_periods=1).max() > 0.5
-        driver_evidence = rally_intent.clip(lower=0)
-        transfer_evidence = power_transfer.clip(lower=0)
-        confirmation_evidence = trend_form.clip(lower=0)
-        base_score = (driver_evidence * transfer_evidence * confirmation_evidence).pow(1/3)
+        # 定义四大核心证据
+        breakout_evidence = self._get_atomic_score(df, 'SCORE_PATTERN_AXIOM_BREAKOUT', 0.0)
+        # [修改] 修正信号引用，使用最终权威信号
+        intent_evidence = self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_RALLY_INTENT', 0.0).clip(lower=0)
+        flow_evidence = self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0)
+        structure_evidence = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0).clip(lower=0)
+        # [修改] 废除硬门槛，改为加权共振模型
+        weights = {'breakout': 0.4, 'intent': 0.3, 'structure': 0.2, 'flow': 0.1}
+        resonance_score = (
+            breakout_evidence * weights['breakout'] +
+            intent_evidence * weights['intent'] +
+            structure_evidence * weights['structure'] +
+            flow_evidence * weights['flow']
+        ).clip(0, 1)
+        # 相对强度调节器
         rs_modulator = (1 + relative_strength.clip(lower=0) * rs_amplifier)
-        final_score = (base_score * rs_modulator).clip(0, 1)
-        final_score = final_score.where(breakout_trigger_mask, 0.0).fillna(0.0)
+        final_score = (resonance_score * rs_modulator).clip(0, 1).fillna(0.0)
+        # [修改] 全面升级探针
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print("\n--- [突破加速抢筹探针] ---")
+            print("\n--- [突破加速抢筹探针(共振审判版)] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 突破信号: {breakout_signal.iloc[last_date_index]:.4f}")
-            print(f"    - 拉升意图: {rally_intent.iloc[last_date_index]:.4f}")
-            print(f"    - 权力转移: {power_transfer.iloc[last_date_index]:.4f}")
-            print(f"    - 趋势形态: {trend_form.iloc[last_date_index]:.4f}")
+            print("  [输入原料(四大核心证据)]:")
+            print(f"    - 突破证据 (w={weights['breakout']}): {breakout_evidence.iloc[last_date_index]:.4f}")
+            print(f"    - 意图证据 (w={weights['intent']}): {intent_evidence.iloc[last_date_index]:.4f}")
+            print(f"    - 结构证据 (w={weights['structure']}): {structure_evidence.iloc[last_date_index]:.4f}")
+            print(f"    - 资金证据 (w={weights['flow']}): {flow_evidence.iloc[last_date_index]:.4f}")
             print(f"    - 相对强度: {relative_strength.iloc[last_date_index]:.4f}")
             print("  [关键计算]:")
-            print(f"    - 突破触发掩码: {breakout_trigger_mask.iloc[last_date_index]}")
-            print(f"    - 基础分(三证据融合): {base_score.iloc[last_date_index]:.4f}")
+            print(f"    - 共振分(加权融合): {resonance_score.iloc[last_date_index]:.4f}")
             print(f"    - 相对强度调节器: {rs_modulator.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
             print(f"    - 突破加速抢筹最终分: {final_score.iloc[last_date_index]:.4f}")
