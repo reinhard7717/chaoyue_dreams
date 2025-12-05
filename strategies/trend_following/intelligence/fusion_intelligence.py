@@ -153,43 +153,6 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_MARKET_REGIME'] = bipolar_regime.astype(np.float32)
         return states
 
-    def _synthesize_market_pressure(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.4 · 情报名册同步版】冶炼“市场压力” (Market Pressure)
-        - 核心修复: 更新了内部的 `reversal_sources` 信号列表，将对已废弃的微观行为反转信号的依赖，
-                    同步为对过程层最新的“微观策略”反转信号的依赖，完成了情报链路的代际同步。
-        """
-        print("  -- [融合层] 正在冶炼“市场压力”...")
-        states = {}
-        df_index = df.index
-        # 更新信号列表，用新的微观策略反转信号替换旧的微观行为反转信号
-        reversal_sources = [
-            'PROCESS_META_FOUNDATION_BOTTOM_REVERSAL', 'PROCESS_META_FOUNDATION_TOP_REVERSAL',
-            'PROCESS_META_STRUCTURE_BOTTOM_REVERSAL', 'PROCESS_META_STRUCTURE_TOP_REVERSAL',
-            'PROCESS_META_PATTERN_BOTTOM_REVERSAL', 'PROCESS_META_PATTERN_TOP_REVERSAL',
-            'PROCESS_META_DYNAMIC_MECHANICS_BOTTOM_REVERSAL', 'PROCESS_META_DYNAMIC_MECHANICS_TOP_REVERSAL',
-            'PROCESS_META_CHIP_BOTTOM_REVERSAL', 'PROCESS_META_CHIP_TOP_REVERSAL',
-            'PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL', 'PROCESS_META_FUND_FLOW_TOP_REVERSAL',
-            'PROCESS_META_MICRO_STRATEGY_BOTTOM_REVERSAL', 'PROCESS_META_MICRO_STRATEGY_TOP_REVERSAL',
-            'PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL', 'PROCESS_META_BEHAVIOR_TOP_REVERSAL'
-        ]
-        upward_pressure_scores = []
-        downward_pressure_scores = []
-        for signal_name in reversal_sources:
-            if 'BOTTOM_REVERSAL' in signal_name:
-                upward_pressure_scores.append(self._get_atomic_score(df, signal_name, 0.0).values)
-            elif 'TOP_REVERSAL' in signal_name:
-                downward_pressure_scores.append(self._get_atomic_score(df, signal_name, 0.0).values)
-        structural_bottom_fractal = self._get_atomic_score(df, 'SCORE_STRUCT_BOTTOM_FRACTAL', 0.0)
-        upward_pressure_scores.append(structural_bottom_fractal.values)
-        net_upward_pressure = np.maximum.reduce(upward_pressure_scores)
-        net_downward_pressure = np.maximum.reduce(downward_pressure_scores)
-        bipolar_pressure = (pd.Series(net_upward_pressure, index=df_index) -
-                            pd.Series(net_downward_pressure, index=df_index)).clip(-1, 1)
-        states['FUSION_BIPOLAR_MARKET_PRESSURE'] = bipolar_pressure.astype(np.float32)
-        print(f"  -- [融合层] “市场压力”冶炼完成，最新分值: {bipolar_pressure.iloc[-1]:.4f}")
-        return states
-
     def _synthesize_stagnation_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.1 · 依赖净化版】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
@@ -563,31 +526,83 @@ class FusionIntelligence:
         micro_conviction_regulator = (1 + micro_conviction * 0.3).clip(0.7, 1.3)
         final_bipolar_quality = (bipolar_quality * micro_conviction_regulator).clip(-1, 1)
         states['FUSION_BIPOLAR_TREND_QUALITY'] = final_bipolar_quality.astype(np.float32)
-        # --- 3. 植入究极探针 ---
+        # [修改] 移除究极探针，恢复生产状态
+        print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {final_bipolar_quality.iloc[-1]:.4f} (原始分: {bipolar_quality.iloc[-1]:.4f}, 微观调节器: {micro_conviction_regulator.iloc[-1]:.4f})")
+        return states
+
+    def _synthesize_market_pressure(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.0 · 压力共振版】冶炼“市场压力” (Market Pressure)
+        - 核心重构: 废弃V1.x基于max()的“赢家通吃”模型，引入“压力共振”非线性融合模型。
+        - 信号升维: 引用最高阶的战术级机会与风险信号，取代底层的过程信号。
+        - 诡道哲学: 多个同向压力信号同时出现时，其合力将通过“共振放大器”被非线性放大，
+                      以体现风险或机会的“集群效应”。
+        """
+        print("  -- [融合层] 正在冶炼“市场压力”...")
+        states = {}
+        df_index = df.index
+        # 1. [信号升维] 引用最高阶的战术信号
+        opportunity_signals = {
+            'SCORE_CHIP_HARMONY_INFLECTION': 0.3,
+            'SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK': 0.25,
+            'SCORE_OPPORTUNITY_SELLING_EXHAUSTION': 0.2,
+            'SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY': 0.15,
+            'FUSION_OPPORTUNITY_CONTESTED_ACCUMULATION': 0.1,
+        }
+        risk_signals = {
+            'SCORE_RISK_BREAKOUT_FAILURE_CASCADE': 0.3,
+            'SCORE_BEHAVIOR_DISTRIBUTION_INTENT': 0.25,
+            'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME': 0.2,
+            'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY': 0.15,
+            'FUSION_RISK_STAGNATION': 0.1,
+        }
+        # 2. 核心数学逻辑 - 压力共振模型
+        # 2.1 计算基础压力 (加权融合)
+        base_upward_pressure = pd.Series(0.0, index=df_index)
+        for signal, weight in opportunity_signals.items():
+            base_upward_pressure += self._get_atomic_score(df, signal, 0.0) * weight
+        base_downward_pressure = pd.Series(0.0, index=df_index)
+        for signal, weight in risk_signals.items():
+            base_downward_pressure += self._get_atomic_score(df, signal, 0.0) * weight
+        # 2.2 计算共振放大器
+        resonance_threshold = 0.5
+        resonance_bonus_factor = 0.2
+        resonant_upward_signals = sum(self._get_atomic_score(df, s, 0.0) > resonance_threshold for s in opportunity_signals)
+        resonant_downward_signals = sum(self._get_atomic_score(df, s, 0.0) > resonance_threshold for s in risk_signals)
+        upward_resonance_modulator = 1 + (resonant_upward_signals * resonance_bonus_factor)
+        downward_resonance_modulator = 1 + (resonant_downward_signals * resonance_bonus_factor)
+        # 2.3 应用放大器
+        amplified_upward_pressure = (base_upward_pressure * upward_resonance_modulator).clip(0, 1)
+        amplified_downward_pressure = (base_downward_pressure * downward_resonance_modulator).clip(0, 1)
+        # 3. 最终裁决
+        bipolar_pressure = (amplified_upward_pressure - amplified_downward_pressure).clip(-1, 1)
+        states['FUSION_BIPOLAR_MARKET_PRESSURE'] = bipolar_pressure.astype(np.float32)
+        # 4. [新增] 植入究极探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [趋势质量究极探针 V4.0 · 四象支柱版] ---")
+            print(f"\n--- [市场压力究极探针 V2.0 · 压力共振版] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 结构支柱: struct_posture={struct_posture.iloc[last_date_index]:.4f}, struct_geography={struct_geography.iloc[last_date_index]:.4f}, struct_stability={struct_stability.iloc[last_date_index]:.4f}")
-            print(f"    - 动能支柱: dyn_momentum={dyn_momentum.iloc[last_date_index]:.4f}, dyn_inertia={dyn_inertia.iloc[last_date_index]:.4f}, behavior_upward_momentum={behavior_upward_momentum.iloc[last_date_index]:.4f}")
-            print(f"    - 信念支柱: ff_posture={ff_posture.iloc[last_date_index]:.4f}, chip_posture={chip_posture.iloc[last_date_index]:.4f}, chip_sentiment={chip_sentiment.iloc[last_date_index]:.4f}")
-            print(f"    - 根基支柱: found_posture={found_posture.iloc[last_date_index]:.4f}, found_constitution={found_constitution.iloc[last_date_index]:.4f}, found_tide={found_tide.iloc[last_date_index]:.4f}")
-            print(f"    - 微观调节器原料: micro_conviction={micro_conviction.iloc[last_date_index]:.4f}")
+            print("  [输入原料 - 向上压力源]:")
+            for s in opportunity_signals:
+                print(f"    - {s}: {self._get_atomic_score(df, s, 0.0).iloc[last_date_index]:.4f}")
+            print("  [输入原料 - 向下压力源]:")
+            for s in risk_signals:
+                print(f"    - {s}: {self._get_atomic_score(df, s, 0.0).iloc[last_date_index]:.4f}")
             print("  [关键计算节点]:")
-            print(f"    - 结构支柱分 (0-2): {pillar_structure.iloc[last_date_index]:.4f}")
-            print(f"    - 动能支柱分 (0-2): {pillar_momentum.iloc[last_date_index]:.4f}")
-            print(f"    - 信念支柱分 (0-2): {pillar_conviction.iloc[last_date_index]:.4f}")
-            print(f"    - 根基支柱分 (0-2): {pillar_foundation.iloc[last_date_index]:.4f}")
-            print(f"    - 四象融合原始分 (几何平均, 0-2): {raw_quality_score_positive.iloc[last_date_index]:.4f}")
-            print(f"    - 映射后品质分 (bipolar_quality, -1 to 1): {bipolar_quality.iloc[last_date_index]:.4f}")
-            print(f"    - 微观调节器 (micro_conviction_regulator): {micro_conviction_regulator.iloc[last_date_index]:.4f}")
+            print(f"    - 基础向上压力: {base_upward_pressure.iloc[last_date_index]:.4f}")
+            print(f"    - 基础向下压力: {base_downward_pressure.iloc[last_date_index]:.4f}")
+            print(f"    - 共振向上信号数(>{resonance_threshold}): {resonant_upward_signals.iloc[last_date_index]}")
+            print(f"    - 共振向下信号数(>{resonance_threshold}): {resonant_downward_signals.iloc[last_date_index]}")
+            print(f"    - 向上压力共振放大器: {upward_resonance_modulator.iloc[last_date_index]:.4f}")
+            print(f"    - 向下压力共振放大器: {downward_resonance_modulator.iloc[last_date_index]:.4f}")
+            print(f"    - 放大后向上压力: {amplified_upward_pressure.iloc[last_date_index]:.4f}")
+            print(f"    - 放大后向下压力: {amplified_downward_pressure.iloc[last_date_index]:.4f}")
             print("  [最终裁决]:")
-            print(f"    - 趋势质量分 (FUSION_BIPOLAR_TREND_QUALITY): {final_bipolar_quality.iloc[last_date_index]:.4f}")
+            print(f"    - 市场压力分 (FUSION_BIPOLAR_MARKET_PRESSURE): {bipolar_pressure.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
-        print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {final_bipolar_quality.iloc[-1]:.4f} (原始分: {bipolar_quality.iloc[-1]:.4f}, 微观调节器: {micro_conviction_regulator.iloc[-1]:.4f})")
+        print(f"  -- [融合层] “市场压力”冶炼完成，最新分值: {bipolar_pressure.iloc[-1]:.4f}")
         return states
 
     def _synthesize_accumulation_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
