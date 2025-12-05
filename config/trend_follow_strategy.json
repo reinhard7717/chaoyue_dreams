@@ -747,8 +747,9 @@
             "type": "meta_analysis",
             "task_type": "base",
             "relationship_type": "custom",
+            "diagnosis_mode": "direct_confirmation",
             "scoring_mode": "bipolar",
-            "description": "【V2.0 · 乾坤逆转版】诊断价格趋势与动量趋势的背离。采用专属的“方向对抗”模型，回归背离本质。正分代表价升势衰的顶背离风险，负分代表价跌势强的底背离机会。"
+            "description": "【V2.1 · 阴阳易位版】诊断价格趋势与动量趋势的背离。采用专属的“方向对抗”模型，其瞬时关系分即为最终分。正分代表价升势衰的顶背离风险，负分代表价跌势强的底背离机会。"
           },
           {
             "name": "PROCESS_META_WINNER_CONVICTION_DECAY",
