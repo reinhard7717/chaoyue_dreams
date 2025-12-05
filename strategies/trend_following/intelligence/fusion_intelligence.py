@@ -43,38 +43,43 @@ class FusionIntelligence:
 
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.4 · 终极时序版】融合情报分析总指挥
-        - 核心修复: 进行最终时序修正，确保`价格超买意图`在`滞涨风险`之前计算，
-                    彻底解决所有融合信号之间的依赖问题，使法阵调度圆满无缺。
+        【V6.5 · 因果重塑版】融合情报分析总指挥
+        - 核心重构: 在斩断“循环依赖”后，重塑并固化所有融合心法的终极调用顺序。
+                    严格遵循“先炼丹，后入药”的层级原则，彻底根除所有时序问题。
         """
-        print("启动【V6.4 · 终极时序版】融合情报分析...")
+        print("启动【V6.5 · 因果重塑版】融合情报分析...")
         all_fusion_states = {}
+        # --- 第1层: 基础态势 (无内部依赖) ---
         micro_conviction_states = self._synthesize_micro_conviction(df)
         all_fusion_states.update(micro_conviction_states)
         self.strategy.atomic_states.update(micro_conviction_states)
         regime_states = self._synthesize_market_regime(df)
         all_fusion_states.update(regime_states)
         self.strategy.atomic_states.update(regime_states)
+        # --- 第2层: 依赖基础态势 ---
         quality_states = self._synthesize_trend_quality(df)
         all_fusion_states.update(quality_states)
         self.strategy.atomic_states.update(quality_states)
-        # [修改] 将“价格超买意图”的计算提前，作为“滞涨风险”的原料
-        overextension_intent_states = self._synthesize_price_overextension_intent(df)
-        all_fusion_states.update(overextension_intent_states)
-        self.strategy.atomic_states.update(overextension_intent_states)
-        # [修改] 确保“滞涨风险”在其所有原料计算完毕后执行
-        stagnation_risk_states = self._synthesize_stagnation_risk(df)
-        all_fusion_states.update(stagnation_risk_states)
-        self.strategy.atomic_states.update(stagnation_risk_states)
-        trend_exhaustion_states = self._synthesize_trend_exhaustion_syndrome(df)
-        all_fusion_states.update(trend_exhaustion_states)
-        self.strategy.atomic_states.update(trend_exhaustion_states)
+        # --- 第3层: 依赖第2层信号 ---
         contested_accumulation_states = self._synthesize_contested_accumulation(df)
         all_fusion_states.update(contested_accumulation_states)
         self.strategy.atomic_states.update(contested_accumulation_states)
+        # --- 第4层: 依赖原子信号 (因果斩断后) ---
+        overextension_intent_states = self._synthesize_price_overextension_intent(df)
+        all_fusion_states.update(overextension_intent_states)
+        self.strategy.atomic_states.update(overextension_intent_states)
+        # --- 第5层: 依赖第4层信号 ---
+        stagnation_risk_states = self._synthesize_stagnation_risk(df)
+        all_fusion_states.update(stagnation_risk_states)
+        self.strategy.atomic_states.update(stagnation_risk_states)
+        # --- 第6层: 综合诊断 (依赖多个前序信号) ---
+        trend_exhaustion_states = self._synthesize_trend_exhaustion_syndrome(df)
+        all_fusion_states.update(trend_exhaustion_states)
+        self.strategy.atomic_states.update(trend_exhaustion_states)
         pressure_states = self._synthesize_market_pressure(df)
         all_fusion_states.update(pressure_states)
         self.strategy.atomic_states.update(pressure_states)
+        # --- 其他独立或已满足依赖的信号 ---
         confrontation_states = self._synthesize_capital_confrontation(df)
         all_fusion_states.update(confrontation_states)
         self.strategy.atomic_states.update(confrontation_states)
@@ -96,7 +101,7 @@ class FusionIntelligence:
         accumulation_playbook_states = self._synthesize_accumulation_playbook(df)
         all_fusion_states.update(accumulation_playbook_states)
         self.strategy.atomic_states.update(accumulation_playbook_states)
-        print(f"【V6.4 · 终极时序版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
+        print(f"【V6.5 · 因果重塑版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
 
     def _synthesize_market_contradiction(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -218,34 +223,33 @@ class FusionIntelligence:
 
     def _synthesize_price_overextension_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 真神归位版】冶炼“价格超买意图” (Price Overextension Intent)
+        【V2.2 · 因果斩断版】冶炼“价格超买意图” (Price Overextension Intent)
         - 核心重构: 废弃V1.x仅依赖价格振荡器的线性模型，引入“状态 × 意图”的非线性乘法模型。
-        - 核心修复: 修正对已废弃“幽灵信号”的引用，引入《信号字典》中正确的、更高阶的
-                      `SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM` (情绪钟摆) 和
-                      `SCORE_STRUCT_AXIOM_MTF_COHESION` (宏观趋势健康度) 作为新基石。
+        - 核心修复: 斩断与`滞涨风险`等其他融合信号的“循环依赖”，使其回归本源，仅依赖
+                      更基础的“原子级”证据，重塑法阵的因果律。
         - 诡道哲学: 最终意图 = 超涨状态 × 反转意图。
         """
         print("  -- [融合层] 正在冶炼“价格超买意图”...")
         states = {}
         df_index = df.index
-        # 1. [修改] 定义“超涨状态”的原料 (客观的伸展程度)，使用正确的信号
+        # 1. 定义“超涨状态”的原料 (客观的伸展程度)
         overbought_state_sources = {
             'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM': 0.6, # 基础层-情绪钟摆 (核心)
             'SCORE_STRUCT_AXIOM_MTF_COHESION': 0.4, # 结构层-宏观趋势健康度 (佐证)
         }
-        # 2. 定义“反转意图”的原料 (主观的博弈动机)
+        # 2. [修改] 定义“反转意图”的原料，斩断循环依赖，回归原子证据
         bearish_intent_sources = {
             'SCORE_BEHAVIOR_DISTRIBUTION_INTENT': 0.4, # 行为层-派发意图
             'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY': 0.3, # 行为层-看跌背离品质
-            'FUSION_RISK_STAGNATION': 0.3, # 融合层-滞涨风险
+            'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW': 0.3, # [替换] 内部-滞涨证据(原始分)
         }
         bullish_intent_sources = {
             'SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK': 0.4, # 行为层-伏击式反攻
             'SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY': 0.3, # 行为层-看涨背离品质
-            'FUSION_OPPORTUNITY_CONTESTED_ACCUMULATION': 0.3, # 融合层-争夺性吸筹
+            'SCORE_BEHAVIOR_ABSORPTION_STRENGTH': 0.3, # [替换] 行为层-下跌吸筹强度
         }
         # 3. 核心数学逻辑 - 状态与意图的非线性审判
-        # 3.1 [修改] 计算“超涨状态”分，使用正确的信号
+        # 3.1 计算“超涨状态”分
         sentiment_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
         cohesion_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_MTF_COHESION', 0.0)
         overbought_state = (sentiment_score.clip(lower=0) * overbought_state_sources['SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM'] +
@@ -269,7 +273,7 @@ class FusionIntelligence:
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [价格超买意图究极探针 V2.1 · 真神归位版] ---")
+            print(f"\n--- [价格超买意图究极探针 V2.2 · 因果斩断版] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料 - 超买状态源 (Overbought State)]:")
