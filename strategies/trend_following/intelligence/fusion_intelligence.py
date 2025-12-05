@@ -556,49 +556,44 @@ class FusionIntelligence:
 
     def _synthesize_accumulation_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 根基绵延版】冶炼“吸筹剧本” (PROCESS_FUSION_ACCUMULATION_PLAYBOOK)
-        - 核心重构: 引入“体用分离”哲学，将决定剧本持续性的衰减因子，从包含“天时”的
-                      “和谐度”中剥离，重铸为只依赖“地利”与“人和”的“根基稳固度”。
-        - 诡道哲学: 点火靠“三才”，绵延靠“根基”。主力可“战术静默”，但战役之火不应因此熄灭。
-                      今日剧本分 = max(今日拐点, 昨日剧本分 × 根基稳固度)
+        【V4.0 · 薪火相加版】冶炼“吸筹剧本” (PROCESS_FUSION_ACCUMULATION_PLAYBOOK)
+        - 核心重构: 废黜`max()`“霸王之道”，引入`A+B-A*B`“王者之道”，使新点火与旧余烬
+                      能够协同增强，共同推升剧本强度，真正体现“势”的积累与融合。
+        - 诡道哲学: 薪火相加，烈焰升腾。新火之功，在于助燃余烬，而非取而代之。
         """
         print("  -- [融合层] 正在冶炼“吸筹剧本”...")
         states = {}
         # 1. 信号升维：定义“点火器”与“根基”
-        # 点火器 (Igniter): 吸筹拐点信号，负责开启和复燃剧本
         igniter_signal = self._get_atomic_score(df, 'FUSION_BIPOLAR_ACCUMULATION_INFLECTION_POINT', 0.0)
-        # [修改] 根基 (Foundation): 由“地利”与“人和”构成，决定剧本能否持续
         di_li = self._get_atomic_score(df, 'FUSION_BIPOLAR_CHIP_TREND', 0.0).clip(lower=0)
         ren_he = (self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0) + 1) / 2
         foundation_sustain_factor = (di_li * ren_he).pow(1/2).fillna(0.0)
-        # 2. 核心数学逻辑 - 状态记忆与根基衰减
+        # 2. 核心数学逻辑 - 状态记忆与协同增强
         playbook_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         for i in range(1, len(df)):
             previous_score = playbook_score.iloc[i-1]
-            # [修改] 衰减速度由“根基稳固度”决定
             decay_modulator = foundation_sustain_factor.iloc[i]
             decayed_score = previous_score * decay_modulator
             current_igniter = igniter_signal.iloc[i]
-            playbook_score.iloc[i] = max(current_igniter, decayed_score)
+            # [修改] 王者之道：薪火相加，协同增强
+            playbook_score.iloc[i] = decayed_score + current_igniter - (decayed_score * current_igniter)
         states['PROCESS_FUSION_ACCUMULATION_PLAYBOOK'] = playbook_score.astype(np.float32)
         # 3. 植入究极探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [吸筹剧本究极探针 V3.0 · 根基绵延版] ---")
+            print(f"\n--- [吸筹剧本究极探针 V4.0 · 薪火相加版] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
-            print(f"    - 点火器 (今日拐点分): {igniter_signal.iloc[last_date_index]:.4f}")
-            print(f"    - 根基-地利 (筹码趋势): {di_li.iloc[last_date_index]:.4f}")
-            print(f"    - 根基-人和 (市场和谐): {ren_he.iloc[last_date_index]:.4f}")
+            print(f"    - 点火器 (今日新火): {igniter_signal.iloc[last_date_index]:.4f}")
+            print(f"    - 根基稳固度 (衰减系数): {foundation_sustain_factor.iloc[last_date_index]:.4f}")
             print("  [关键计算节点 - 状态传递]:")
             print(f"    - 昨日剧本分 (记忆): {playbook_score.iloc[last_date_index-1] if len(df) > 1 else 0.0:.4f}")
-            print(f"    - 动态衰减系数 (根基稳固度): {foundation_sustain_factor.iloc[last_date_index]:.4f}")
             decayed_val = (playbook_score.iloc[last_date_index-1] if len(df) > 1 else 0.0) * foundation_sustain_factor.iloc[last_date_index]
-            print(f"    - 旧火焰衰减后强度: {decayed_val:.4f}")
-            print("  [最终裁决]:")
-            print(f"    - 今日剧本分 (max(点火器, 衰减后)): {playbook_score.iloc[last_date_index]:.4f}")
+            print(f"    - 旧火焰余烬强度: {decayed_val:.4f}")
+            print("  [最终裁决 - 王者之道]:")
+            print(f"    - 今日剧本分 (余烬 + 新火 - 余烬*新火): {playbook_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         print(f"  -- [融合层] “吸筹剧本”冶炼完成，最新分值: {playbook_score.iloc[-1] if not playbook_score.empty else 0.0:.4f}")
         return states
