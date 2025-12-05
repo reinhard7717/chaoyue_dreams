@@ -195,9 +195,9 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V34.0 · 动能升维版】原子信号中心
-        - 核心升级: 废弃了旧的 V1.0 上涨动能计算逻辑，改为调用全新的 V2.0 "闪电战品质版"
-                      `_diagnose_upward_momentum` 方法，实现了动能评估的根本性升维。
+        【V34.1 · 动能升维版】原子信号中心
+        - 核心升级: 废弃了旧的 V1.0 下跌动能计算逻辑，改为调用全新的 V2.0 "斩首行动版"
+                      `_diagnose_downward_momentum` 方法，实现了动能评估的根本性升维。
         """
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
@@ -217,7 +217,7 @@ class BehavioralIntelligence:
             'panic_selling_cascade_D', 'capitulation_absorption_index_D', 'covert_accumulation_signal_D',
             'VOL_MA_5_D', 'VOL_MA_13_D', 'VOL_MA_21_D', 'loser_pain_index_D',
             'deception_index_D', 'wash_trade_intensity_D', 'closing_auction_ambush_D', 'mf_retail_battle_intensity_D',
-            'main_force_conviction_index_D'
+            'main_force_conviction_index_D', 'SLOPE_5_loser_pain_index_D' # [新增依赖] 确保下跌动能计算所需的核心信号被校验
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_behavioral_axioms"):
             print("    -> [行为情报引擎] 核心公理诊断失败，行为分析中止。")
@@ -229,34 +229,19 @@ class BehavioralIntelligence:
         long_term_weights = get_param_value(p_conf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
         # --- 基础信号计算 ---
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        closing_deviation = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_behavioral_axioms")
-        intraday_posture = self._get_safe_series(df, 'intraday_posture_score_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_behavioral_axioms")
-        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_behavioral_axioms").replace(0, 1e-9)
-        bias_21 = self._get_safe_series(df, 'BIAS_21_D', 0.0, method_name="_diagnose_behavioral_axioms")
         if 'ACCEL_5_pct_change_D' in df.columns:
             price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', 0.0, method_name="_diagnose_behavioral_axioms")
         else:
             print("    -> [行为情报兼容模式] _diagnose_behavioral_axioms: 未找到 'ACCEL_5_pct_change_D'，使用 'pct_change_D' 的5日差分作为代理。")
             price_accel = pct_change.diff(5).fillna(0.0)
         # --- 动能信号 ---
-        # [修改的代码行] 移除旧的 V1.0 计算逻辑，改为调用全新的 V2.0 "闪电战品质版" 方法
         upward_momentum_score = self._diagnose_upward_momentum(df, default_weights)
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
-        volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_behavioral_axioms")
-        magnitude_factor_down = get_adaptive_mtf_normalized_score(pct_change.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
-        internal_panic_score = (1 - closing_deviation).clip(0, 1)
-        path_weakness_score = get_adaptive_mtf_normalized_score(intraday_posture.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
-        norm_flow_ratio = get_adaptive_mtf_normalized_bipolar_score((main_force_flow / amount), df.index, default_weights, sensitivity=0.05)
-        smart_money_intent_score = (1 - norm_flow_ratio) / 2
-        authenticity_factor = (internal_panic_score * path_weakness_score * smart_money_intent_score).pow(1/3).fillna(0.0)
-        volume_burst_score_down = get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=default_weights)
-        price_accel_score = get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
-        panic_score = (volume_burst_score_down * price_accel_score).pow(0.5)
-        panic_amplifier = 1 + panic_score
-        downward_momentum_score = (magnitude_factor_down * authenticity_factor * panic_amplifier).clip(0, 1)
+        # [修改的代码行] 移除旧的 V1.0 计算逻辑，改为调用全新的 V2.0 "斩首行动版" 方法
+        downward_momentum_score = self._diagnose_downward_momentum(df, default_weights)
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
         # --- 超买信号 ---
+        bias_21 = self._get_safe_series(df, 'BIAS_21_D', 0.0, method_name="_diagnose_behavioral_axioms")
         rsi = self._get_safe_series(df, 'RSI_13_D', 50.0, method_name="_diagnose_behavioral_axioms")
         winner_rate = self._get_safe_series(df, 'total_winner_rate_D', 50.0, method_name="_diagnose_behavioral_axioms")
         winner_stability = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_behavioral_axioms")
@@ -353,7 +338,7 @@ class BehavioralIntelligence:
 
     def _diagnose_upward_momentum(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.0 · 闪电战品质版】诊断高品质上涨动能。
+        【V2.1 · 生产版】诊断高品质上涨动能。
         - 核心重构: 废弃了基于“表观强度幻觉”的 V1.0 模型。引入基于“闪电战三要素”
                       （攻击力度-战略指挥-后勤支撑）的全新品质诊断模型。
         - 闪电战三要素:
@@ -384,6 +369,41 @@ class BehavioralIntelligence:
             (strategic_command_score + 1e-9) *
             (sustainability_score + 1e-9)
         ).pow(1/3).fillna(0.0)
+        # [修改的代码行] 移除探针代码，恢复生产版本
+        return upward_momentum_score.clip(0, 1).astype(np.float32)
+
+    def _diagnose_downward_momentum(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
+        """
+        【V2.0 · 斩首行动版】诊断高品质下跌动能。
+        - 核心重构: 废弃了基于“恐慌幻觉”的 V1.0 模型。引入基于“斩首行动三要素”
+                      （打击力度-战略意图-心理战果）的全新品质诊断模型。
+        - 斩首行动三要素:
+          1. 打击力度 (Overwhelming Force): 审判卖压的主动性与持续性。采用 `active_selling_pressure_D`
+                                            和 `rally_distribution_pressure_D`。
+          2. 战略意图 (Strategic Intent): 审判主力是否“佯退”还是“真撤”。采用 `main_force_conviction_index_D` 的负值。
+          3. 心理战果 (Psychological Warfare): 审判多头阵营的士气崩溃程度。采用 `SLOPE_5_loser_pain_index_D`。
+        - 数学模型: 动能分 = (打击力度分 * 战略意图分 * 心理战果分) ^ (1/3)
+        """
+        # --- 1. 获取三要素原始数据 ---
+        active_selling_raw = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name="_diagnose_downward_momentum")
+        distribution_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_downward_momentum")
+        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_downward_momentum")
+        loser_pain_slope_raw = self._get_safe_series(df, 'SLOPE_5_loser_pain_index_D', 0.0, method_name="_diagnose_downward_momentum")
+        # --- 2. 计算各要素得分 ---
+        # 要素一：打击力度分
+        active_selling_score = get_adaptive_mtf_normalized_score(active_selling_raw, df.index, ascending=True, tf_weights=tf_weights)
+        distribution_pressure_score = get_adaptive_mtf_normalized_score(distribution_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
+        overwhelming_force_score = (active_selling_score * distribution_pressure_score).pow(0.5)
+        # 要素二：战略意图分 (只考虑主力负向信念)
+        strategic_intent_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
+        # 要素三：心理战果分 (套牢盘痛苦加剧)
+        psychological_warfare_score = get_adaptive_mtf_normalized_score(loser_pain_slope_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
+        # --- 3. “斩首行动”三要素合成 ---
+        downward_momentum_score = (
+            (overwhelming_force_score + 1e-9) *
+            (strategic_intent_score + 1e-9) *
+            (psychological_warfare_score + 1e-9)
+        ).pow(1/3).fillna(0.0)
         # --- 深度战术探针 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -393,13 +413,13 @@ class BehavioralIntelligence:
             valid_probe_dates = [d for d in probe_timestamps if d in df.index]
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _diagnose_upward_momentum @ {probe_date_str}")
-                print(f"        - 原始值: 脉冲纯净度={impulse_purity_raw.loc[probe_ts]:.2f}, 脉冲质量={impulse_quality_raw.loc[probe_ts]:.2f}, 主力信念={conviction_raw.loc[probe_ts]:.2f}, 获利盘稳定={winner_stability_raw.loc[probe_ts]:.2f}")
-                print(f"        - 攻击力度分 (品质*纯净度): {offensive_force_score.loc[probe_ts]:.4f}")
-                print(f"        - 战略指挥分 (主力信念): {strategic_command_score.loc[probe_ts]:.4f}")
-                print(f"        - 后勤支撑分 (获利盘稳定): {sustainability_score.loc[probe_ts]:.4f}")
-                print(f"        - 最终动能品质分 (三维几何平均): {upward_momentum_score.loc[probe_ts]:.4f}")
-        return upward_momentum_score.clip(0, 1).astype(np.float32)
+                print(f"      [行为探针] _diagnose_downward_momentum @ {probe_date_str}")
+                print(f"        - 原始值: 主动卖压={active_selling_raw.loc[probe_ts]:.2f}, 派发压力={distribution_pressure_raw.loc[probe_ts]:.2f}, 主力信念={conviction_raw.loc[probe_ts]:.2f}, 痛苦斜率={loser_pain_slope_raw.loc[probe_ts]:.2f}")
+                print(f"        - 打击力度分 (主动卖压*派发压力): {overwhelming_force_score.loc[probe_ts]:.4f}")
+                print(f"        - 战略意图分 (主力负向信念): {strategic_intent_score.loc[probe_ts]:.4f}")
+                print(f"        - 心理战果分 (痛苦加剧): {psychological_warfare_score.loc[probe_ts]:.4f}")
+                print(f"        - 最终动能品质分 (三维几何平均): {downward_momentum_score.loc[probe_ts]:.4f}")
+        return downward_momentum_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -749,7 +769,7 @@ class BehavioralIntelligence:
 
     def _diagnose_divergence_quality(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
-        【V3.1 · 依赖注入修复版】诊断高品质价量/价资背离
+        【V3.2 · 生产版】诊断高品质价量/价资背离
         - 核心修复: 废弃了隐式的状态依赖，重构为显式的参数注入。方法现在直接接收
                       absorption_strength 和 distribution_intent 作为参数，彻底解决了
                       因调用时序不当导致的依赖信号获取失败问题。
@@ -770,9 +790,6 @@ class BehavioralIntelligence:
         conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_divergence_quality")
         loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_diagnose_divergence_quality")
         winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_divergence_quality")
-        # [修改的代码行] 移除不安全的信号获取，直接使用注入的参数
-        # absorption_strength = self._get_atomic_score(df, 'SCORE_BEHAVIOR_ABSORPTION_STRENGTH', 0.0)
-        # distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
         # --- 2. 计算牛市背离 (价格新低 vs 信念走高) ---
         price_new_low = (price == price.rolling(divergence_window, min_periods=1).min()).astype(float)
         conviction_trend_up = (conviction_raw > conviction_raw.rolling(divergence_window, min_periods=1).mean()).astype(float)
@@ -796,30 +813,7 @@ class BehavioralIntelligence:
             (bearish_location_score + 1e-9).pow(0.3) *
             (bearish_confirmation_score + 1e-9).pow(0.2)
         ).fillna(0.0)
-        # --- 深度战术探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _diagnose_divergence_quality @ {probe_date_str}")
-                # 牛市背离探针
-                print(f"        [牛市背离]")
-                print(f"          - 原始值: 价格={price.loc[probe_ts]:.2f}, 主力信念={conviction_raw.loc[probe_ts]:.2f}, 套牢盘痛苦={loser_pain_raw.loc[probe_ts]:.2f}, 承接强度={absorption_strength.loc[probe_ts]:.4f}")
-                print(f"          - 幅度分={bullish_magnitude_score.loc[probe_ts]:.4f} (价格新低={price_new_low.loc[probe_ts]:.0f}, 信念走高={conviction_trend_up.loc[probe_ts]:.0f})")
-                print(f"          - 位置分={bullish_location_score.loc[probe_ts]:.4f} (套牢盘痛苦)")
-                print(f"          - 确认分={bullish_confirmation_score.loc[probe_ts]:.4f} (承接强度)")
-                print(f"          - 最终品质分(加权几何平均): {bullish_divergence_quality.loc[probe_ts]:.4f}")
-                # 熊市背离探针
-                print(f"        [熊市背离]")
-                print(f"          - 原始值: 价格={price.loc[probe_ts]:.2f}, 主力信念={conviction_raw.loc[probe_ts]:.2f}, 获利盘稳定={winner_stability_raw.loc[probe_ts]:.2f}, 派发意图={distribution_intent.loc[probe_ts]:.4f}")
-                print(f"          - 幅度分={bearish_magnitude_score.loc[probe_ts]:.4f} (价格新高={price_new_high.loc[probe_ts]:.0f}, 信念走低={conviction_trend_down.loc[probe_ts]:.0f})")
-                print(f"          - 位置分={bearish_location_score.loc[probe_ts]:.4f} (获利盘不稳)")
-                print(f"          - 确认分={bearish_confirmation_score.loc[probe_ts]:.4f} (派发意图)")
-                print(f"          - 最终品质分(加权几何平均): {bearish_divergence_quality.loc[probe_ts]:.4f}")
+        # [修改的代码行] 移除探针代码，恢复生产版本
         return bullish_divergence_quality.clip(0, 1).astype(np.float32), bearish_divergence_quality.clip(0, 1).astype(np.float32)
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
