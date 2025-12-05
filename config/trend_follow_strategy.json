@@ -731,21 +731,16 @@
             "name": "PROCESS_META_STOCK_SECTOR_SYNC",
             "type": "meta_analysis",
             "task_type": "base",
-            "relationship_type": "consensus",
-            "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
-            "signal_B": "industry_strength_rank_D", "source_B": "df", "change_type_B": "diff",
-            "signal_b_factor_k": 1.0,
-            "description": "【新增·龙头苏醒】诊断个股与所属板块强弱排名的同步性。正分代表个股上涨伴随板块排名提升。"
+            "relationship_type": "custom",
+            "description": "【V2.0 · 龙头觉醒版】诊断个股与板块的同步性。采用专属的“领导力加权”模型，旨在捕捉“龙头率先启动”或“强者恒强”的战机，正分代表个股强势且/或得到板块确认。"
           },
           {
             "name": "PROCESS_META_HOT_SECTOR_COOLING",
             "type": "meta_analysis",
             "task_type": "base",
-            "relationship_type": "consensus",
-            "signal_A": "THEME_HOTNESS_SCORE_D", "source_A": "df", "change_type_A": "diff",
-            "signal_B": "net_flow_calibrated_D", "source_B": "df", "change_type_B": "diff",
-            "signal_b_factor_k": -1.0,
-            "description": "【新增·板块轮动】诊断热门板块的冷却迹象。正分代表热度下降且资金流出。"
+            "relationship_type": "custom",
+            "scoring_mode": "unipolar",
+            "description": "【V2.0 · 寒潮来袭版】诊断热门板块的冷却迹象。采用专属的“状态与方向”模型，审判“高热度状态”与“主力资金净流出”的乘积，正分代表高位派发风险加剧。"
           },
           {
             "name": "PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE",
