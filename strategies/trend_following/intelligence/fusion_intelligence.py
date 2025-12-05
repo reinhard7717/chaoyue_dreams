@@ -458,7 +458,7 @@ class FusionIntelligence:
         """
         print("  -- [融合层] 正在冶炼“微观信念”...")
         states = {}
-        # 1. [修改] 信号升维：定义“意图”、“趋势”、“品质”三大支柱
+        # 1. 信号升维：定义“意图”、“趋势”、“品质”三大支柱
         # 支柱一：瞬时意图
         micro_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0)
         # 支柱二：意图趋势 (用于确认)
@@ -466,88 +466,94 @@ class FusionIntelligence:
         # 支柱三：战术品质 (用于裁决)
         cost_control = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_COST_CONTROL', 0.0)
         offensive_purity = self._get_atomic_score(df, 'SCORE_INTRADAY_OFFENSIVE_PURITY', 0.0)
-        # 2. [修改] 核心数学逻辑 - “意图-趋势-品质”三位一体裁决
+        # 2. 核心数学逻辑 - “意图-趋势-品质”三位一体裁决
         # 2.1 计算“确认后的意图” (V2.0核心保留)
         confirmation_factor = 0.5 # 确认系数
         confirmation_modulator = (1 + micro_divergence * confirmation_factor)
         confirmed_intent = (micro_intent * confirmation_modulator).clip(-1, 1)
-        # 2.2 [新增] 计算“战术品质”
+        # 2.2 计算“战术品质”
         # 成本控制(防守)与进攻纯度(进攻)同等重要
         tactical_quality = (cost_control * 0.5 + offensive_purity * 0.5).clip(-1, 1)
-        # 2.3 [新增] 构建“品质调节器”
+        # 2.3 构建“品质调节器”
         quality_factor = 0.3 # 品质影响系数
         quality_modulator = (1 + tactical_quality * quality_factor).clip(0.7, 1.3)
-        # 2.4 [新增] 最终裁决：(确认后的意图) × 品质调节器
+        # 2.4 最终裁决：(确认后的意图) × 品质调节器
         final_conviction_score = (confirmed_intent * quality_modulator).clip(-1, 1)
         output_name = 'FUSION_BIPOLAR_MICRO_CONVICTION'
         states[output_name] = final_conviction_score.astype(np.float32)
-        # 3. [新增] 植入究极探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates = debug_params.get('probe_dates', [])
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [微观信念究极探针 V3.0 · 战术品质版] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [第一层 - 意图确认]:")
-            print(f"    - 瞬时意图: {micro_intent.iloc[last_date_index]:.4f}")
-            print(f"    - 确认调节器 (1+趋势*系数): {confirmation_modulator.iloc[last_date_index]:.4f}")
-            print(f"    - -> 确认后的意图: {confirmed_intent.iloc[last_date_index]:.4f}")
-            print("  [第二层 - 品质裁决]:")
-            print(f"    - 战术品质 (成本控制+进攻纯度): {tactical_quality.iloc[last_date_index]:.4f}")
-            print(f"    - 品质调节器 (1+品质*系数): {quality_modulator.iloc[last_date_index]:.4f}")
-            print("  [最终裁决]:")
-            print(f"    - 微观信念 (意图 × 品质调节器): {final_conviction_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “微观信念”冶炼完成，最新分值: {final_conviction_score.iloc[-1]:.4f}")
         return states
 
     def _synthesize_trend_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 四象支柱版】冶炼“趋势质量” (Trend Quality)
-        - 核心重构: 废弃V3.x的线性加权“大杂烩”模型，引入基于“四象支柱”的非线性融合模型。
-        - 核心公式: 趋势质量 = (结构支柱 × 动能支柱 × 信念支柱 × 根基支柱)^(1/4)
-        - 诡道哲学: 基于“木桶效应”，任何一根支柱的崩塌都会导致整体质量的急剧下降，
-                      旨在暴露趋势的“最短板”，而非被平庸信号所平均。
-        - 信号净化: 严格遵守融合层戒律，只消费各情报层提炼的“公理级”或“超级原子”信号。
+        【V5.0 · 态势合一版】冶炼“趋势质量” (Trend Quality)
+        - 核心重构: 在V4.0“四象支柱”模型基础上，引入质量自身的“变化率”作为“势”，
+                      构建“静态之态 × 动态之势”的双核驱动模型。
+        - 核心公式: 最终质量 = 静态质量(态) × (1 + 质量变化率(势) × 调节系数)
+        - 诡道哲学: 既要洞察当下的强弱(态)，更要审度其演化的方向(势)，方为趋势之本源。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
         df_index = df.index
-        # --- 1. 信号原料库 (严格筛选公理级信号) ---
-        # 支柱一：结构 (Structure Pillar) - 趋势的骨架是否坚固
+        # --- 1. [V4.0 核心保留] 态之诊断 (State Diagnosis) ---
+        # 1.1 信号原料库 (严格筛选公理级信号)
         struct_posture = self._get_atomic_score(df, 'SCORE_STRUCT_STRATEGIC_POSTURE', 0.0)
-        struct_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0) # 筹码地形归于结构
+        struct_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0)
         struct_stability = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_STABILITY', 0.0)
-        # 支柱二：动能 (Momentum Pillar) - 趋势的引擎是否强劲
         dyn_momentum = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0)
         dyn_inertia = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_INERTIA', 0.0)
         behavior_upward_momentum = self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0)
-        # 支柱三：信念 (Conviction Pillar) - 趋势的灵魂是否坚定
         ff_posture = self._get_atomic_score(df, 'SCORE_FF_STRATEGIC_POSTURE', 0.0)
         chip_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         chip_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
-        # 支柱四：根基 (Foundation Pillar) - 趋势的土壤是否肥沃
         found_posture = self._get_atomic_score(df, 'SCORE_FOUNDATION_STRATEGIC_POSTURE', 0.0)
         found_constitution = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION', 0.0)
         found_tide = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0)
-        # 最终调节器
         micro_conviction = self._get_atomic_score(df, 'FUSION_BIPOLAR_MICRO_CONVICTION', 0.0)
-        # --- 2. 核心数学逻辑 - 四象支柱模型 ---
-        # 分别计算各支柱得分 (将所有输入信号转换为[0,2]区间，便于几何平均)
+        # 1.2 计算各支柱得分 (映射到[0,2]区间)
         pillar_structure = ((struct_posture + 1) * 0.5 + (struct_geography + 1) * 0.3 + (struct_stability + 1) * 0.2)
         pillar_momentum = ((dyn_momentum + 1) * 0.4 + (dyn_inertia + 1) * 0.3 + (behavior_upward_momentum + 1) * 0.3)
         pillar_conviction = ((ff_posture + 1) * 0.4 + (chip_posture + 1) * 0.4 + (chip_sentiment + 1) * 0.2)
         pillar_foundation = ((found_posture + 1) * 0.5 + (found_constitution + 1) * 0.3 + (found_tide + 1) * 0.2)
-        # 非线性融合：几何平均体现“木桶效应”，任何支柱为0则整体为0
-        # 为避免负数开方，先在[0,2]区间计算，再映射回[-1,1]
-        raw_quality_score_positive = (pillar_structure * pillar_momentum * pillar_conviction * pillar_foundation).pow(1/4)
-        # 映射回[-1, 1]
-        bipolar_quality = (raw_quality_score_positive - 1).clip(-1, 1)
-        # 应用微观信念作为最终的真实性检验器
+        # 1.3 四象共振，得出“静态质量分”
+        raw_quality_mapped = (pillar_structure * pillar_momentum * pillar_conviction * pillar_foundation).pow(1/4)
+        state_quality_score = (raw_quality_mapped - 1).clip(-1, 1)
+        # 1.4 微观信念作为真实性检验
         micro_conviction_regulator = (1 + micro_conviction * 0.3).clip(0.7, 1.3)
-        final_bipolar_quality = (bipolar_quality * micro_conviction_regulator).clip(-1, 1)
-        states['FUSION_BIPOLAR_TREND_QUALITY'] = final_bipolar_quality.astype(np.float32)
-        print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {final_bipolar_quality.iloc[-1]:.4f} (原始分: {bipolar_quality.iloc[-1]:.4f}, 微观调节器: {micro_conviction_regulator.iloc[-1]:.4f})")
+        state_quality_score_final = (state_quality_score * micro_conviction_regulator).clip(-1, 1)
+        # --- 2. [新增] 势之诊断 (Potential Diagnosis) ---
+        # 2.1 计算“质量势能分”，即静态质量分的变化率 (EMA平滑)
+        quality_change = state_quality_score_final.diff(1).fillna(0.0)
+        quality_potential_score = quality_change.ewm(span=3, adjust=False).mean()
+        # 2.2 构建“势能调节器”
+        potential_modulation_factor = 0.5 # 势能调节系数
+        potential_modulator = (1 + quality_potential_score * potential_modulation_factor).clip(0.5, 1.5)
+        # --- 3. [修改] 态势合一，终极裁决 ---
+        final_quality = (state_quality_score_final * potential_modulator).clip(-1, 1)
+        states['FUSION_BIPOLAR_TREND_QUALITY'] = final_quality.astype(np.float32)
+        # --- 4. [新增] 植入究极探针 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = debug_params.get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [趋势质量究极探针 V5.0 · 态势合一版] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [第一层 - 态之诊断 (State Diagnosis)]:")
+            print(f"    - 结构支柱 (骨): {((pillar_structure - 1).clip(-1, 1)).iloc[last_date_index]:.4f}")
+            print(f"    - 动能支柱 (势): {((pillar_momentum - 1).clip(-1, 1)).iloc[last_date_index]:.4f}")
+            print(f"    - 信念支柱 (魂): {((pillar_conviction - 1).clip(-1, 1)).iloc[last_date_index]:.4f}")
+            print(f"    - 根基支柱 (土): {((pillar_foundation - 1).clip(-1, 1)).iloc[last_date_index]:.4f}")
+            print(f"    - -> 四象共振(静态分): {state_quality_score.iloc[last_date_index]:.4f}")
+            print(f"    - -> 微观调节器: {micro_conviction_regulator.iloc[last_date_index]:.4f}")
+            print(f"    - -> 最终静态质量(态): {state_quality_score_final.iloc[last_date_index]:.4f}")
+            print("  [第二层 - 势之诊断 (Potential Diagnosis)]:")
+            print(f"    - 质量变化率(势): {quality_potential_score.iloc[last_date_index]:.4f}")
+            print(f"    - 势能调节器 (1+势*系数): {potential_modulator.iloc[last_date_index]:.4f}")
+            print("  [最终裁决 - 态势合一]:")
+            print(f"    - 最终趋势质量 (态 × 势能调节器): {final_quality.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {final_quality.iloc[-1]:.4f}")
         return states
 
     def _synthesize_market_pressure(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
