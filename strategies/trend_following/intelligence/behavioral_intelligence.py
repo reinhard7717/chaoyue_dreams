@@ -195,9 +195,9 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V34.3 · 铁三角升维版】原子信号中心
-        - 核心升级: 废弃了旧的 V1.0 "行为铁三角" 内联计算逻辑，改为调用全新的 V2.0
-                      系列诊断方法，实现了对上涨效率、下跌抵抗、日内控制力的根本性升维。
+        【V34.4 · 滞涨升维适配版】原子信号中心
+        - 核心升级: 适配了 V4.0 "信念危机版" 的 `_diagnose_stagnation_evidence` 方法，
+                      在 `required_signals` 中加入了新的依赖信号。
         """
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
@@ -218,7 +218,8 @@ class BehavioralIntelligence:
             'VOL_MA_5_D', 'VOL_MA_13_D', 'VOL_MA_21_D', 'loser_pain_index_D',
             'deception_index_D', 'wash_trade_intensity_D', 'closing_auction_ambush_D', 'mf_retail_battle_intensity_D',
             'main_force_conviction_index_D', 'SLOPE_5_loser_pain_index_D',
-            'pressure_rejection_strength_D', 'active_buying_support_D', 'vwap_control_strength_D' # [新增依赖] 确保铁三角计算所需的核心信号被校验
+            'pressure_rejection_strength_D', 'active_buying_support_D', 'vwap_control_strength_D',
+            'SLOPE_5_winner_stability_index_D' # [新增依赖] 确保滞涨计算所需的核心信号被校验
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_behavioral_axioms"):
             print("    -> [行为情报引擎] 核心公理诊断失败，行为分析中止。")
@@ -244,13 +245,13 @@ class BehavioralIntelligence:
         final_overextension_score = self._diagnose_price_overextension(df, default_weights, long_term_weights)
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
         # --- 行为铁三角 ---
-        # [修改的代码行] 移除旧的 V1.0 内联计算逻辑，改为调用全新的 V2.0 诊断方法
         upward_efficiency_score = self._diagnose_upward_efficiency(df, default_weights)
         states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
         downward_resistance_score = self._diagnose_downward_resistance(df, default_weights)
         states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
         intraday_bull_control_score = self._diagnose_intraday_bull_control(df, default_weights)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
+        # [修改的代码行] 调用新版滞涨诊断方法
         stagnation_evidence = self._diagnose_stagnation_evidence(df, states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'])
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence
         lower_shadow_quality = self._diagnose_lower_shadow_quality(df, stagnation_evidence)
@@ -335,7 +336,6 @@ class BehavioralIntelligence:
             (strategic_command_score + 1e-9) *
             (sustainability_score + 1e-9)
         ).pow(1/3).fillna(0.0)
-        # [修改的代码行] 移除探针代码，恢复生产版本
         return upward_momentum_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_downward_momentum(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -370,7 +370,6 @@ class BehavioralIntelligence:
             (strategic_intent_score + 1e-9) *
             (psychological_warfare_score + 1e-9)
         ).pow(1/3).fillna(0.0)
-        # [修改的代码行] 移除探针代码，恢复生产版本
         return downward_momentum_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, long_term_weights: Dict) -> pd.Series:
@@ -409,12 +408,11 @@ class BehavioralIntelligence:
         bubble_fragility_score = (internal_pressure_score / (structural_integrity_score + 1e-9)).fillna(0.0)
         # 对结果进行非线性放大和归一化，使得中低风险区差异不大，高风险区被显著放大
         final_overextension_score = np.tanh(bubble_fragility_score * 0.5)
-        # [修改的代码行] 移除探针代码，恢复生产版本
         return final_overextension_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_upward_efficiency(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.0 · 闪击战品质版】诊断高品质上涨效率。
+        【V2.1 · 生产版】诊断高品质上涨效率。
         - 核心重构: 废弃了基于宽泛概念的 V1.0 模型。引入基于“闪击战三要素”
                       （突破纯净度-进攻性价比-卖压压制力）的全新诊断模型。
         - 闪击战三要素:
@@ -437,24 +435,11 @@ class BehavioralIntelligence:
             (offensive_efficiency_score + 1e-9).pow(0.3) *
             (suppression_score + 1e-9).pow(0.3)
         ).fillna(0.0)
-        # --- 深度战术探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _diagnose_upward_efficiency @ {probe_date_str}")
-                print(f"        - 原始值: 突破纯净度={purity_raw.loc[probe_ts]:.2f}, 进攻性价比={offensive_efficiency_raw.loc[probe_ts]:.2f}, 卖压压制力={suppression_raw.loc[probe_ts]:.2f}")
-                print(f"        - 要素得分: 纯净度分={purity_score.loc[probe_ts]:.4f}, 性价比分={offensive_efficiency_score.loc[probe_ts]:.4f}, 压制力分={suppression_score.loc[probe_ts]:.4f}")
-                print(f"        - 最终上涨效率分 (闪击战品质): {upward_efficiency_score.loc[probe_ts]:.4f}")
         return upward_efficiency_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_downward_resistance(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.0 · 阵地战韧性版】诊断高品质下跌抵抗。
+        【V2.1 · 生产版】诊断高品质下跌抵抗。
         - 核心重构: 废弃了基于“被动挨打”视角的 V1.0 模型。引入基于“纵深防御三要素”
                       （被动承接-主动防御-积极反击）的全新诊断模型。
         - 纵深防御三要素:
@@ -477,24 +462,11 @@ class BehavioralIntelligence:
             (active_defense_score + 1e-9).pow(0.4) *
             (counter_attack_score + 1e-9).pow(0.4)
         ).fillna(0.0)
-        # --- 深度战术探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _diagnose_downward_resistance @ {probe_date_str}")
-                print(f"        - 原始值: 被动承接={passive_absorption_raw.loc[probe_ts]:.2f}, 主动防御={active_defense_raw.loc[probe_ts]:.2f}, 积极反击={counter_attack_raw.loc[probe_ts]:.2f}")
-                print(f"        - 要素得分: 被动分={passive_absorption_score.loc[probe_ts]:.4f}, 主动分={active_defense_score.loc[probe_ts]:.4f}, 反击分={counter_attack_score.loc[probe_ts]:.4f}")
-                print(f"        - 最终下跌抵抗分 (阵地战韧性): {downward_resistance_score.loc[probe_ts]:.4f}")
         return downward_resistance_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_intraday_bull_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.0 · 战区司令部版】诊断高品质日内多头控制力。
+        【V2.1 · 生产版】诊断高品质日内多头控制力。
         - 核心重构: 废弃了缺乏“灵魂”的 V1.0 模型。引入基于“战区司令部三要素”
                       （战略位置-战术火力-司令意志）的全新诊断模型。
         - 战区司令部三要素:
@@ -517,19 +489,6 @@ class BehavioralIntelligence:
             (tactical_firepower_score + 1e-9).pow(0.3) *
             (commanders_will_score + 1e-9).pow(0.4)
         ).fillna(0.0)
-        # --- 深度战术探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _diagnose_intraday_bull_control @ {probe_date_str}")
-                print(f"        - 原始值: 战略位置={strategic_position_raw.loc[probe_ts]:.2f}, 战术火力={tactical_firepower_raw.loc[probe_ts]:.2f}, 司令意志={commanders_will_raw.loc[probe_ts]:.2f}")
-                print(f"        - 要素得分: 位置分={strategic_position_score.loc[probe_ts]:.4f}, 火力分={tactical_firepower_score.loc[probe_ts]:.4f}, 意志分={commanders_will_score.loc[probe_ts]:.4f}")
-                print(f"        - 最终日内控制力分 (战区司令部): {intraday_bull_control_score.loc[probe_ts]:.4f}")
         return intraday_bull_control_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -619,54 +578,56 @@ class BehavioralIntelligence:
 
     def _diagnose_stagnation_evidence(self, df: pd.DataFrame, upward_efficiency: pd.Series) -> pd.Series:
         """
-        【V3.9 · 全局语义统一版】诊断内部行为信号：滞涨证据
-        - 核心重构: 对 `distribution_pressure` 应用 `.clip(lower=0)` 进行语义净化，
-                      确保其业务语义在整个行为情报引擎中保持绝对一致。这块最后的拼图
-                      使我们的模型在哲学、逻辑和语义三个层面达到了完全的和谐统一。
+        【V4.0 · 信念危机版】诊断内部行为信号：滞涨证据
+        - 核心重构: 废弃了基于“战术僵化”的 V3.9 模型。引入基于“信念危机”思想的全新
+                      双维度诊断模型，旨在区分“良性蓄势”与“恶性派发”的滞涨。
+        - 信念危机双维度:
+          1. 微观战局僵持 (Micro-Battlefield Stalemate): 审判前线战况的胶着程度。
+          2. 宏观信念动摇 (Macro-Conviction Erosion): 审判主力司令部的真实意图与筹码结构的稳定性。
         """
         df_index = df.index
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 1. 数据准备
+        p_thresholds = get_param_value(p_conf.get('neutral_zone_thresholds'), {})
+        alpha_threshold = get_param_value(p_thresholds.get('main_force_execution_alpha_D'), 0.0)
+        # --- 1. 获取原始数据 ---
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_stagnation_evidence")
-        if 'ACCEL_5_pct_change_D' in df.columns:
-            price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', 0.0, method_name="_diagnose_stagnation_evidence")
-        else:
-            print("    -> [行为情报兼容模式] _diagnose_stagnation_evidence: 未找到 'ACCEL_5_pct_change_D'，使用 'pct_change_D' 的5日差分作为代理。")
-            price_accel = pct_change.diff(5).fillna(0.0)
-        closing_deviation = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_stagnation_evidence")
-        # [修改的代码行] 对原始信号进行语义净化，实现全局统一
-        distribution_pressure = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_stagnation_evidence").clip(lower=0)
-        active_selling = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name="_diagnose_stagnation_evidence")
-        chip_fatigue = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
-        winner_rate = self._get_safe_series(df, 'total_winner_rate_D', 50.0, method_name="_diagnose_stagnation_evidence")
-        trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
-        # 2. 计算“微观冲突分”
+        price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', 0.0, method_name="_diagnose_stagnation_evidence")
+        chip_fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
+        rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_stagnation_evidence").clip(lower=0)
+        upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_stagnation_evidence")
+        mf_alpha_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_stagnation_evidence")
+        winner_rate_raw = self._get_safe_series(df, 'total_winner_rate_D', 50.0, method_name="_diagnose_stagnation_evidence")
+        conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
+        winner_stability_slope_raw = self._get_safe_series(df, 'SLOPE_5_winner_stability_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
+        # --- 2. 维度一：微观战局僵持 (Micro-Battlefield Stalemate) ---
+        # [修改的代码行] 沿用并优化“多头衰竭”的计算
         inefficiency_score = (1 - upward_efficiency).clip(0, 1)
         momentum_decay_score = get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
-        intraday_failure_score = (1 - closing_deviation).clip(0, 1)
-        chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue, df_index, ascending=True, tf_weights=default_weights)
-        bullish_exhaustion = (inefficiency_score * momentum_decay_score * intraday_failure_score * chip_fatigue_score).pow(1/4).fillna(0.0)
-        distribution_score = get_adaptive_mtf_normalized_score(distribution_pressure, df_index, ascending=True, tf_weights=default_weights)
-        active_selling_score = get_adaptive_mtf_normalized_score(active_selling, df_index, ascending=True, tf_weights=default_weights)
-        bullish_failure_score = (1 - closing_deviation).clip(0, 1)
-        process_evidence = (distribution_score * active_selling_score).pow(0.5)
-        outcome_evidence = bullish_failure_score
-        bearish_ambush = (process_evidence * 0.7 + outcome_evidence * 0.3)
-        total_energy = (bullish_exhaustion + bearish_ambush) / 2
-        balance_factor = 1 - (bullish_exhaustion - bearish_ambush).abs()
-        micro_conflict_score = (total_energy * balance_factor).fillna(0.0)
-        # 3. 构建“宏观风险分”
-        profit_pressure_score = get_adaptive_mtf_normalized_score(winner_rate, df_index, ascending=True, tf_weights=default_weights)
-        vitality_decay_raw = trend_vitality.diff(3).clip(upper=0).abs()
-        vitality_decay_score = get_adaptive_mtf_normalized_score(vitality_decay_raw, df_index, ascending=True, tf_weights=default_weights)
-        macro_risk_score = (profit_pressure_score * vitality_decay_score).pow(0.5)
-        # 4. 谐波融合
-        stagnation_evidence = (micro_conflict_score * 0.6 + macro_risk_score * 0.4)
+        chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df_index, ascending=True, tf_weights=default_weights)
+        bullish_exhaustion_score = (inefficiency_score * momentum_decay_score * chip_fatigue_score).pow(1/3).fillna(0.0)
+        # [修改的代码行] 重构“空头伏击”的计算，形成三点证据链
+        rally_pressure_score = get_adaptive_mtf_normalized_score(rally_pressure_raw, df_index, ascending=True, tf_weights=default_weights)
+        upper_shadow_score = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df_index, ascending=True, tf_weights=default_weights)
+        mf_alpha_filtered = self._apply_neutral_zone_filter(mf_alpha_raw, alpha_threshold)
+        mf_distribution_evidence = get_adaptive_mtf_normalized_score(mf_alpha_filtered.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
+        bearish_ambush_score = (rally_pressure_score * upper_shadow_score * mf_distribution_evidence).pow(1/3).fillna(0.0)
+        # 使用和谐共振模型融合
+        total_energy = (bullish_exhaustion_score + bearish_ambush_score) / 2
+        balance_factor = 1 - (bullish_exhaustion_score - bearish_ambush_score).abs()
+        micro_stalemate_score = (total_energy * balance_factor).fillna(0.0)
+        # --- 3. 维度二：宏观信念动摇 (Macro-Conviction Erosion) ---
+        # [修改的代码行] 全新构建“宏观信念动摇”维度
+        profit_pressure_score = get_adaptive_mtf_normalized_score(winner_rate_raw, df_index, ascending=True, tf_weights=default_weights)
+        conviction_decay_score = get_adaptive_mtf_normalized_score(conviction_slope_raw.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
+        instability_score = get_adaptive_mtf_normalized_score(winner_stability_slope_raw.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
+        macro_erosion_score = (profit_pressure_score * conviction_decay_score * instability_score).pow(1/3).fillna(0.0)
+        # --- 4. 最终合成 ---
+        stagnation_evidence = (micro_stalemate_score * 0.6 + macro_erosion_score * 0.4)
         is_rising_or_flat = (pct_change >= -0.005).astype(float)
         final_stagnation_evidence = (stagnation_evidence * is_rising_or_flat).clip(0, 1)
-        # --- 探针逻辑 ---
+        # --- 深度战术探针 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -676,11 +637,19 @@ class BehavioralIntelligence:
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_stagnation_evidence @ {probe_date_str}")
-                print(f"        - 多头衰竭分: {bullish_exhaustion.loc[probe_ts]:.4f}")
-                print(f"        - 空头伏击分 (新): {bearish_ambush.loc[probe_ts]:.4f} (过程分={process_evidence.loc[probe_ts]:.2f}, 结果分={outcome_evidence.loc[probe_ts]:.2f})")
-                print(f"        - 微观冲突分(共振模型): {micro_conflict_score.loc[probe_ts]:.4f} (总能量={total_energy.loc[probe_ts]:.2f}, 均衡度={balance_factor.loc[probe_ts]:.2f})")
-                print(f"        - 宏观风险分(谐波): {macro_risk_score.loc[probe_ts]:.4f} (获利盘压力={profit_pressure_score.loc[probe_ts]:.2f}, 活力衰减={vitality_decay_score.loc[probe_ts]:.2f})")
-                print(f"        - 最终滞涨证据分(融合后): {final_stagnation_evidence.loc[probe_ts]:.4f}")
+                print(f"        --- [维度一: 微观战局僵持] ---")
+                print(f"          - 多头衰竭原始值: 效率分={upward_efficiency.loc[probe_ts]:.2f}, 价格加速度={price_accel.loc[probe_ts]:.2f}, 筹码疲劳={chip_fatigue_raw.loc[probe_ts]:.2f}")
+                print(f"          - 空头伏击原始值: 反弹派发={rally_pressure_raw.loc[probe_ts]:.2f}, 上影线压力={upper_shadow_pressure_raw.loc[probe_ts]:.2f}, 主力Alpha={mf_alpha_raw.loc[probe_ts]:.4f}")
+                print(f"          - 多头衰竭分: {bullish_exhaustion_score.loc[probe_ts]:.4f}")
+                print(f"          - 空头伏击分: {bearish_ambush_score.loc[probe_ts]:.4f}")
+                print(f"          - 微观战局僵持分(共振模型): {micro_stalemate_score.loc[probe_ts]:.4f} (总能量={total_energy.loc[probe_ts]:.2f}, 均衡度={balance_factor.loc[probe_ts]:.2f})")
+                print(f"        --- [维度二: 宏观信念动摇] ---")
+                print(f"          - 原始值: 获利盘率={winner_rate_raw.loc[probe_ts]:.2f}, 信念斜率={conviction_slope_raw.loc[probe_ts]:.2f}, 获利盘稳定斜率={winner_stability_slope_raw.loc[probe_ts]:.2f}")
+                print(f"          - 要素得分: 获利盘压力分={profit_pressure_score.loc[probe_ts]:.4f}, 信念衰减分={conviction_decay_score.loc[probe_ts]:.4f}, 筹码失稳分={instability_score.loc[probe_ts]:.4f}")
+                print(f"          - 宏观信念动摇分: {macro_erosion_score.loc[probe_ts]:.4f}")
+                print(f"        --- [最终合成] ---")
+                print(f"        - 融合滞涨证据分: {stagnation_evidence.loc[probe_ts]:.4f}")
+                print(f"        - 最终滞涨证据分 (过滤后): {final_stagnation_evidence.loc[probe_ts]:.4f} (is_rising_or_flat={is_rising_or_flat.loc[probe_ts]:.0f})")
         return final_stagnation_evidence.astype(np.float32)
 
     def _diagnose_lower_shadow_quality(self, df: pd.DataFrame, stagnation_evidence: pd.Series) -> pd.Series:
@@ -924,7 +893,6 @@ class BehavioralIntelligence:
             (bearish_location_score + 1e-9).pow(0.3) *
             (bearish_confirmation_score + 1e-9).pow(0.2)
         ).fillna(0.0)
-        # [修改的代码行] 移除探针代码，恢复生产版本
         return bullish_divergence_quality.clip(0, 1).astype(np.float32), bearish_divergence_quality.clip(0, 1).astype(np.float32)
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -1031,7 +999,6 @@ class BehavioralIntelligence:
             (absorption_intent_score + 1e-9) *
             (absorption_result_score + 1e-9)
         ).pow(1/3).fillna(0.0)
-        # [修改的代码行] 移除探针代码，恢复生产版本
         return absorption_strength.clip(0, 1).astype(np.float32)
 
     def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:
@@ -1068,7 +1035,6 @@ class BehavioralIntelligence:
         # --- 3. “政变”三部曲合成 ---
         internal_confirmation = (core_action_score * tactical_result_score).pow(0.5).fillna(0.0)
         shakeout_confirmation_score = (precondition_gate_score * internal_confirmation).clip(0, 1)
-        # [修改的代码行] 移除探针代码，恢复生产版本
         return shakeout_confirmation_score.astype(np.float32)
 
     def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series) -> pd.Series:
