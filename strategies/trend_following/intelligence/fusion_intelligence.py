@@ -188,7 +188,7 @@ class FusionIntelligence:
         print("  -- [融合层] 正在冶炼“滞涨风险”...")
         states = {}
         df_index = df.index
-        # --- 1. [修改] 信号升维：定义“内腐”与“外强”两大阵营 ---
+        # --- 1. 信号升维：定义“内腐”与“外强”两大阵营 ---
         # 阵营一：内部腐化度 (Internal Decay) - 趋势的内在病根
         trend_quality = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         trend_quality_decay = -trend_quality.diff(1).fillna(0.0).clip(upper=0) # 核心病根：趋势质量衰减
@@ -202,7 +202,7 @@ class FusionIntelligence:
         retail_fomo = normalize_score(self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name="_synthesize_stagnation_risk"), df_index, window=55, ascending=True).clip(0, 1)
         # 最终场景过滤器
         is_price_stagnant_or_rising = (self._get_safe_series(df, 'pct_change_D', method_name="_synthesize_stagnation_risk") >= -0.005).astype(float)
-        # --- 2. [修改] 核心数学逻辑 - 背离审判 ---
+        # --- 2. 核心数学逻辑 - 背离审判 ---
         # 2.1 计算“内部腐化度” (几何平均，体现症状共振)
         internal_decay_components = {
             '趋势质量衰减': (trend_quality_decay, 0.30),
@@ -224,27 +224,7 @@ class FusionIntelligence:
         raw_stagnation_risk = (internal_decay_score * external_illusion_score).pow(0.5).fillna(0.0)
         final_stagnation_risk = (raw_stagnation_risk * is_price_stagnant_or_rising).clip(0, 1)
         states['FUSION_RISK_STAGNATION'] = final_stagnation_risk.astype(np.float32)
-        # --- 3. [新增] 植入究极探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates = debug_params.get('probe_dates', [])
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [滞涨风险究极探针 V3.0 · 内腐外强版] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [第一层 - 内腐诊断 (Internal Decay Diagnosis)]:")
-            for name, (comp, weight) in internal_decay_components.items():
-                print(f"    - 原料: {name}: {comp.iloc[last_date_index]:.4f} (权重: {weight})")
-            print(f"    - -> 内部腐化度 (几何平均): {internal_decay_score.iloc[last_date_index]:.4f}")
-            print("  [第二层 - 外强幻象诊断 (External Strength Illusion Diagnosis)]:")
-            print(f"    - 原料: 价格超买风险: {price_overextension.iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 散户FOMO风险: {retail_fomo.iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 获利盘供给: {profit_taking_supply.iloc[last_date_index]:.4f}")
-            print(f"    - -> 外部强势幻象 (加权平均): {external_illusion_score.iloc[last_date_index]:.4f}")
-            print("  [最终裁决 (Final Judgment)]:")
-            print(f"    - 原始风险 (内腐×外强)^0.5: {raw_stagnation_risk.iloc[last_date_index]:.4f}")
-            print(f"    - 价格过滤器 (价格是否未跌): {is_price_stagnant_or_rising.iloc[last_date_index]:.1f}")
-            print(f"    - -> 最终滞涨风险: {final_stagnation_risk.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “滞涨风险”冶炼完成，最新分值: {final_stagnation_risk.iloc[-1]:.4f}")
         return states
 
@@ -670,45 +650,63 @@ class FusionIntelligence:
 
     def _synthesize_trend_exhaustion_syndrome(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 趋势衰竭综合征】融合心法
-        - 核心目标: 将独立的顶部风险征兆进行非线性融合，识别风险“共振”。
-        - 融合模型: 衰竭综合征 = (w1*背离 + w2*衰减 + w3*冷却) × (1 + 共振奖励)
-        - 核心诡道: 引入“共振奖励”机制，体现风险的非线性叠加效应。
+        【V2.0 · 意志与压力版】冶炼“趋势衰竭综合征”
+        - 核心重构: 废弃V1.0基于陈旧过程信号的“症状叠加”模型，引入基于高阶信号的
+                      “意志vs压力”二元博弈模型。
+        - 核心公式: 衰竭风险 = (上涨意志衰竭度 × 反转压力增强度)^(1/2)
+        - 诡道哲学: 趋势之终结，非无故自崩，乃上涨意志之衰竭，恰逢反转压力之增强，
+                      两相博弈，天平倾覆之必然结果。
         """
         print("  -- [融合层] 正在诊断“趋势衰竭综合征”...")
         states = {}
         df_index = df.index
-        # 1. 从配置文件获取参数
-        p_conf = get_params_block(self.strategy, 'fusion_playbook_params', {})
-        p_exhaustion = get_param_value(p_conf.get('trend_exhaustion_syndrome'), {})
-        weights = get_param_value(p_exhaustion.get('weights'), {'divergence': 0.4, 'conviction_decay': 0.4, 'cooling': 0.2})
-        resonance_threshold = get_param_value(p_exhaustion.get('resonance_threshold'), 0.5)
-        resonance_bonus_factor = get_param_value(p_exhaustion.get('resonance_bonus_factor'), 0.3)
-        # 2. 获取原料信号
-        divergence = self._get_atomic_score(df, 'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE', 0.0)
-        conviction_decay = self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION_DECAY', 0.0)
-        sector_cooling = self._get_atomic_score(df, 'PROCESS_META_HOT_SECTOR_COOLING', 0.0)
-        # 3. 核心数学逻辑
-        # 3.1 计算加权基础分
-        total_weight = sum(weights.values())
-        if total_weight == 0: total_weight = 1.0 # 防止除零
-        weighted_sum = (
-            divergence * weights.get('divergence', 0) +
-            conviction_decay * weights.get('conviction_decay', 0) +
-            sector_cooling * weights.get('cooling', 0)
-        ) / total_weight
-        # 3.2 计算共振奖励
-        signals_above_threshold = (
-            (divergence > resonance_threshold).astype(int) +
-            (conviction_decay > resonance_threshold).astype(int) +
-            (sector_cooling > resonance_threshold).astype(int)
-        )
-        resonance_bonus = (signals_above_threshold >= 2).astype(float) * resonance_bonus_factor
-        resonance_modulator = 1 + resonance_bonus
-        # 3.3 融合
-        syndrome_score = (weighted_sum * resonance_modulator).clip(0, 1)
+        # --- 1. [修改] 信号升维：定义“意志”与“压力”两大阵营 ---
+        # 阵营一：上涨意志衰竭度 (Weakening Will) - 诊断多头是否军心涣散
+        trend_quality = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
+        trend_quality_decay = -trend_quality.diff(1).fillna(0.0).clip(upper=0) # 核心：趋势质量衰减
+        distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
+        chip_posture_decay = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(upper=0).abs()
+        # 阵营二：反转压力增强度 (Intensifying Pressure) - 诊断空头是否兵临城下
+        overextension_risk = self._get_atomic_score(df, 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs()
+        bearish_divergence = self._get_atomic_score(df, 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY', 0.0)
+        stagnation_risk = self._get_atomic_score(df, 'FUSION_RISK_STAGNATION', 0.0)
+        # --- 2. [修改] 核心数学逻辑 - 二元博弈 ---
+        # 2.1 计算“上涨意志衰竭度” (几何平均，体现症状共振)
+        will_components = [trend_quality_decay, distribution_intent, chip_posture_decay]
+        weakening_will_score = pd.Series(1.0, index=df_index)
+        for comp in will_components:
+            weakening_will_score *= comp.clip(lower=1e-9)
+        weakening_will_score = weakening_will_score.pow(1 / len(will_components))
+        # 2.2 计算“反转压力增强度” (几何平均)
+        pressure_components = [overextension_risk, bearish_divergence, stagnation_risk]
+        intensifying_pressure_score = pd.Series(1.0, index=df_index)
+        for comp in pressure_components:
+            intensifying_pressure_score *= comp.clip(lower=1e-9)
+        intensifying_pressure_score = intensifying_pressure_score.pow(1 / len(pressure_components))
+        # 2.3 最终融合：意志 × 压力
+        syndrome_score = (weakening_will_score * intensifying_pressure_score).pow(0.5).fillna(0.0).clip(0, 1)
         output_name = 'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME'
         states[output_name] = syndrome_score.astype(np.float32)
+        # --- 3. [新增] 植入究极探针 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = debug_params.get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [趋势衰竭究极探针 V2.0 · 意志与压力版] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [第一层 - 上涨意志衰竭诊断 (Weakening Will)]:")
+            print(f"    - 原料: 趋势质量衰减: {trend_quality_decay.iloc[last_date_index]:.4f}")
+            print(f"    - 原料: 派发意图: {distribution_intent.iloc[last_date_index]:.4f}")
+            print(f"    - 原料: 筹码态势崩坏: {chip_posture_decay.iloc[last_date_index]:.4f}")
+            print(f"    - -> 意志衰竭度 (几何平均): {weakening_will_score.iloc[last_date_index]:.4f}")
+            print("  [第二层 - 反转压力增强诊断 (Intensifying Pressure)]:")
+            print(f"    - 原料: 价格超买风险: {overextension_risk.iloc[last_date_index]:.4f}")
+            print(f"    - 原料: 熊市背离品质: {bearish_divergence.iloc[last_date_index]:.4f}")
+            print(f"    - 原料: 滞涨风险: {stagnation_risk.iloc[last_date_index]:.4f}")
+            print(f"    - -> 压力增强度 (几何平均): {intensifying_pressure_score.iloc[last_date_index]:.4f}")
+            print("  [最终裁决 (Final Judgment)]:")
+            print(f"    - 最终衰竭风险 (意志×压力)^0.5: {syndrome_score.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
         print(f"  -- [融合层] “趋势衰竭综合征”诊断完成，最新分值: {syndrome_score.iloc[-1]:.4f}")
         return states
 

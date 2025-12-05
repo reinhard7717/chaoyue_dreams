@@ -97,18 +97,22 @@ class IntradayBehaviorEngine:
 
     def _diagnose_offensive_purity(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 日线信号重构版】日内战报之一：诊断“进攻纯度”
-        - 核心重构: 废除所有分钟级计算，转为直接使用数据层提供的、预计算好的日线级信号 `intraday_offensive_purity_D`。
-        - 核心修复: 修复了探针逻辑，使其能够正确地在指定的 probe_dates 循环并打印每日的详细诊断信息。
+        【V2.1 · 代理信号重构版】日内战报之一：诊断“进攻纯度”
+        - 核心重构: 由于预计算信号不存在，本方法重构为使用可用的日线级代理信号进行融合计算。
+                      通过融合“上涨脉冲纯度”和“主力信念指数”来评估进攻质量。
         """
-        signal_name = "SCORE_INTRADAY_OFFENSIVE_PURITY"
-        # [代码修改开始] 重构为直接读取日线级预计算信号
-        raw_signal_name = "intraday_offensive_purity_D"
-        if not self._validate_required_signals(df, [raw_signal_name], "_diagnose_offensive_purity"):
+        signal_name = "SCORE_INTRADay_OFFENSIVE_PURITY"
+        # 使用可用的代理信号进行计算
+        required_signals = ['upward_impulse_purity_D', 'main_force_conviction_index_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_offensive_purity"):
             return {signal_name: pd.Series(0.0, index=df.index)}
-        final_score = self._get_safe_series(df, raw_signal_name, 0.0, "_diagnose_offensive_purity")
-        # [代码修改结束]
-        # --- [代码修改开始] 重构探针逻辑以适配向量化计算 ---
+        
+        purity = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, "_diagnose_offensive_purity")
+        conviction = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, "_diagnose_offensive_purity")
+        
+        # 融合逻辑：高质量的进攻是既纯粹又有信念的
+        final_score = (purity.pow(0.6) * ((conviction + 1) / 2).pow(0.4)).fillna(0.0)
+        
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -117,29 +121,31 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        score_on_date = final_score.get(probe_date, 'N/A')
+                        p_purity = purity.get(probe_date, 0.0)
+                        p_conviction = conviction.get(probe_date, 0.0)
+                        p_final_score = final_score.get(probe_date, 0.0)
                         print(f"      [日内行为探针] _diagnose_offensive_purity @ {probe_date_str}")
-                        print(f"        - 读取预计算信号 '{raw_signal_name}': {score_on_date:.4f}")
-                        print(f"        - 最终进攻纯度分: {score_on_date:.4f}")
+                        print(f"        - [代理] 上涨脉冲纯度 (upward_impulse_purity_D): {p_purity:.4f}")
+                        print(f"        - [代理] 主力信念指数 (main_force_conviction_index_D): {p_conviction:.4f}")
+                        print(f"        - 最终进攻纯度分: {p_final_score:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_offensive_purity 处理日期 {probe_date_str} 失败: {e}")
-        # [代码修改结束]
+        
         return {signal_name: final_score}
 
     def _diagnose_dominance_consensus(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 日线信号重构版】日内战报之二：诊断“支配共识”
-        - 核心重构: 废除所有分钟级计算，转为直接使用数据层提供的、预计算好的日线级信号 `intraday_dominance_consensus_D`。
-        - 核心修复: 修复了探针逻辑，使其能够正确地在指定的 probe_dates 循环并打印每日的详细诊断信息。
+        【V2.1 · 代理信号重构版】日内战报之二：诊断“支配共识”
+        - 核心重构: 由于预计算信号不存在，本方法重构为直接采用 `vwap_control_strength_D` 作为核心代理信号。
         """
         signal_name = "SCORE_INTRADAY_DOMINANCE_CONSENSUS"
-        # [代码修改开始] 重构为直接读取日线级预计算信号
-        raw_signal_name = "intraday_dominance_consensus_D"
+        # 使用可用的代理信号
+        raw_signal_name = "vwap_control_strength_D"
         if not self._validate_required_signals(df, [raw_signal_name], "_diagnose_dominance_consensus"):
             return {signal_name: pd.Series(0.0, index=df.index)}
+        
         final_score = self._get_safe_series(df, raw_signal_name, 0.0, "_diagnose_dominance_consensus")
-        # [代码修改结束]
-        # --- [代码修改开始] 重构探针逻辑 ---
+        
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -150,11 +156,11 @@ class IntradayBehaviorEngine:
                     if probe_date in df.index:
                         score_on_date = final_score.get(probe_date, 'N/A')
                         print(f"      [日内行为探针] _diagnose_dominance_consensus @ {probe_date_str}")
-                        print(f"        - 读取预计算信号 '{raw_signal_name}': {score_on_date:.4f}")
+                        print(f"        - [代理] VWAP控制强度 ({raw_signal_name}): {score_on_date:.4f}")
                         print(f"        - 最终支配共识分: {score_on_date:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_dominance_consensus 处理日期 {probe_date_str} 失败: {e}")
-        # [代码修改结束]
+        
         return {signal_name: final_score}
 
     def _diagnose_conviction_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -166,7 +172,7 @@ class IntradayBehaviorEngine:
         # [代码修改] 此方法现在需要从分钟数据中找到对应的日线数据，但实际上传入的已经是日线数据df
         if df.empty:
             return {"SCORE_INTRADAY_CONVICTION_REVERSAL": pd.Series(dtype=np.float64)}
-        # [代码修改开始] 将所有计算向量化，使其能处理整个DataFrame
+        # 将所有计算向量化，使其能处理整个DataFrame
         panic_score = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, "_diagnose_conviction_reversal")
         absorption_score = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, "_diagnose_conviction_reversal")
         mf_alpha_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, "_diagnose_conviction_reversal")
@@ -180,8 +186,7 @@ class IntradayBehaviorEngine:
         mf_alpha_bearish = mf_alpha_raw.clip(upper=0).abs()
         bearish_reversal_evidence = (distribution_score * conviction_decay * mf_alpha_bearish).pow(1/3).fillna(0)
         final_score = (bullish_reversal_evidence - bearish_reversal_evidence).fillna(0)
-        # [代码修改结束]
-        # --- [代码修改开始] 重构探针逻辑以适配历史回溯和向量化计算 ---
+        # --- 重构探针逻辑以适配历史回溯和向量化计算 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -211,23 +216,22 @@ class IntradayBehaviorEngine:
                         print(f"        - 最终信念反转分: {p_final_score:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_conviction_reversal 处理日期 {probe_date_str} 失败: {e}")
-        # [代码修改结束]
         return {"SCORE_INTRADAY_CONVICTION_REVERSAL": final_score.clip(-1, 1)}
 
     def _diagnose_tactical_arc(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 日线信号重构版】日内叙事之一：诊断“战术弧线”
-        - 核心重构: 废除所有分钟级计算，转为直接使用数据层提供的、预计算好的日线级信号 `intraday_tactical_arc_D`。
-        - 核心修复: 修复了探针逻辑，使其能够正确地在指定的 probe_dates 循环并打印每日的详细诊断信息。
+        【V2.1 · 代理信号重构版】日内叙事之一：诊断“战术弧线”
+        - 核心重构: 由于预计算信号不存在，本方法重构为使用 `closing_strength_index_D` 作为核心代理，
+                      因为它反映了全天力量博弈的最终结果。
         """
         signal_name = "SCORE_INTRADAY_TACTICAL_ARC"
-        # [代码修改开始] 重构为直接读取日线级预计算信号
-        raw_signal_name = "intraday_tactical_arc_D"
+        # 使用可用的代理信号
+        raw_signal_name = "closing_strength_index_D"
         if not self._validate_required_signals(df, [raw_signal_name], "_diagnose_tactical_arc"):
             return {signal_name: pd.Series(0.0, index=df.index)}
+        
         final_score = self._get_safe_series(df, raw_signal_name, 0.0, "_diagnose_tactical_arc")
-        # [代码修改结束]
-        # --- [代码修改开始] 重构探针逻辑 ---
+        
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -238,11 +242,11 @@ class IntradayBehaviorEngine:
                     if probe_date in df.index:
                         score_on_date = final_score.get(probe_date, 'N/A')
                         print(f"      [日内行为探针] _diagnose_tactical_arc @ {probe_date_str}")
-                        print(f"        - 读取预计算信号 '{raw_signal_name}': {score_on_date:.4f}")
+                        print(f"        - [代理] 收盘强度指数 ({raw_signal_name}): {score_on_date:.4f}")
                         print(f"        - 最终战术弧线分: {score_on_date:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_tactical_arc 处理日期 {probe_date_str} 失败: {e}")
-        # [代码修改结束]
+        
         return {signal_name: final_score}
 
     def _diagnose_auction_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -253,7 +257,7 @@ class IntradayBehaviorEngine:
         """
         if df.empty:
             return {"SCORE_INTRADAY_AUCTION_INTENT": pd.Series(dtype=np.float64)}
-        # [代码修改开始] 向量化计算
+        # 向量化计算
         # 从日线数据中获取开盘和收盘的博弈信号Series
         opening_intent = self._get_safe_series(df, 'opening_battle_result_D', 0.0, "_diagnose_auction_intent")
         closing_intent = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, "_diagnose_auction_intent")
@@ -263,8 +267,7 @@ class IntradayBehaviorEngine:
         # 加权融合
         final_score = (opening_intent * weights.get('opening', 0.4) +
                        closing_intent * weights.get('closing', 0.6))
-        # [代码修改结束]
-        # --- [代码修改开始] 重构探针逻辑 ---
+        # --- 重构探针逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -282,23 +285,26 @@ class IntradayBehaviorEngine:
                         print(f"        - 最终竞价意图分: {p_final_score:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_auction_intent 处理日期 {probe_date_str} 失败: {e}")
-        # [代码修改结束]
         return {"SCORE_INTRADAY_AUCTION_INTENT": final_score.clip(-1, 1)}
 
     def _diagnose_recovery_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 日线信号重构版】日内叙事之三：诊断“修复质量”
-        - 核心重构: 废除所有分钟级计算，转为直接使用数据层提供的、预计算好的日线级信号 `intraday_recovery_quality_D`。
-        - 核心修复: 修复了探针逻辑，使其能够正确地在指定的 probe_dates 循环并打印每日的详细诊断信息。
+        【V2.1 · 代理信号重构版】日内叙事之三：诊断“修复质量”
+        - 核心重构: 由于预计算信号不存在，本方法重构为融合“下影线承接强度”和“逢低吸筹力量”
+                      来综合评估日内下跌后的修复质量。
         """
         signal_name = "SCORE_INTRADAY_RECOVERY_QUALITY"
-        # [代码修改开始] 重构为直接读取日线级预计算信号
-        raw_signal_name = "intraday_recovery_quality_D"
-        if not self._validate_required_signals(df, [raw_signal_name], "_diagnose_recovery_quality"):
+        # 使用可用的代理信号进行计算
+        required_signals = ['lower_shadow_absorption_strength_D', 'dip_absorption_power_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_recovery_quality"):
             return {signal_name: pd.Series(0.0, index=df.index)}
-        final_score = self._get_safe_series(df, raw_signal_name, 0.0, "_diagnose_recovery_quality")
-        # [代码修改结束]
-        # --- [代码修改开始] 重构探针逻辑 ---
+        
+        lower_shadow = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, "_diagnose_recovery_quality")
+        dip_absorption = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, "_diagnose_recovery_quality")
+        
+        # 融合逻辑：高质量的修复体现在下影线和整体低位区都有强力承接
+        final_score = (lower_shadow * 0.5 + dip_absorption * 0.5).fillna(0.0)
+        
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -307,13 +313,16 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        score_on_date = final_score.get(probe_date, 'N/A')
+                        p_lower_shadow = lower_shadow.get(probe_date, 0.0)
+                        p_dip_absorption = dip_absorption.get(probe_date, 0.0)
+                        p_final_score = final_score.get(probe_date, 0.0)
                         print(f"      [日内行为探针] _diagnose_recovery_quality @ {probe_date_str}")
-                        print(f"        - 读取预计算信号 '{raw_signal_name}': {score_on_date:.4f}")
-                        print(f"        - 最终修复质量分: {score_on_date:.4f}")
+                        print(f"        - [代理] 下影线承接强度: {p_lower_shadow:.4f}")
+                        print(f"        - [代理] 逢低吸筹力量: {p_dip_absorption:.4f}")
+                        print(f"        - 最终修复质量分: {p_final_score:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_recovery_quality 处理日期 {probe_date_str} 失败: {e}")
-        # [代码修改结束]
+        
         return {signal_name: final_score.clip(0, 1)}
 
     def _diagnose_ambush_and_flank(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -324,7 +333,7 @@ class IntradayBehaviorEngine:
         """
         if df.empty:
             return {"SCORE_INTRADAY_AMBUSH_AND_FLANK": pd.Series(dtype=np.float64)}
-        # [代码修改开始] 向量化计算
+        # 向量化计算
         params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('ambush_flank_params', {})
         weights = params.get('fusion_weights', {'panic_evidence': 0.2, 'absorption_power': 0.4, 'recovery_strength': 0.4})
         min_dip_pct = params.get('min_dip_to_open_pct', 0.03)
@@ -340,8 +349,7 @@ class IntradayBehaviorEngine:
         final_score = (panic_evidence.pow(weights.get('panic_evidence', 0.2)) *
                        absorption_power.pow(weights.get('absorption_power', 0.4)) *
                        recovery_strength.pow(weights.get('recovery_strength', 0.4))).where(gate_condition, 0.0).fillna(0.0)
-        # [代码修改结束]
-        # --- [代码修改开始] 重构探针逻辑 ---
+        # --- 重构探针逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -365,32 +373,29 @@ class IntradayBehaviorEngine:
                         print(f"        - 最终伏击与侧翼分: {p_final_score:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_ambush_and_flank 处理日期 {probe_date_str} 失败: {e}")
-        # [代码修改结束]
         return {"SCORE_INTRADAY_AMBUSH_AND_FLANK": final_score.clip(0, 1)}
 
     def _diagnose_final_assault(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 日线信号重构版】日内诡道之二：诊断“终末强袭”
-        - 核心重构: 废除所有分钟级计算，转为融合数据层提供的三个核心日线级信号：尾盘攻击强度、加速度和收盘竞价意图。
-        - 核心修复: 修复了探针逻辑，使其能够正确地在指定的 probe_dates 循环并打印每日的详细诊断信息。
+        【V2.1 · 代理信号重构版】日内诡道之二：诊断“终末强袭”
+        - 核心重构: 由于预计算信号不存在，本方法重构为融合“收盘竞价偷袭”和“收盘前动态”这两个信号。
         """
         signal_name = "SCORE_INTRADAY_FINAL_ASSAULT"
-        required_signals = ['final_assault_strength_D', 'final_assault_accel_D', 'closing_auction_ambush_D']
+        # 使用可用的代理信号
+        required_signals = ['closing_auction_ambush_D', 'pre_closing_posturing_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_final_assault"):
             return {signal_name: pd.Series(0.0, index=df.index)}
-        # [代码修改开始] 重构为融合多个日线级预计算信号
+        
         params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('final_assault_params', {})
-        weights = params.get('fusion_weights', {'assault_strength': 0.5, 'assault_accel': 0.2, 'closing_auction': 0.3})
-        # 获取三个核心证据的Series
-        assault_strength = self._get_safe_series(df, 'final_assault_strength_D', 0.0, "_diagnose_final_assault")
-        assault_accel = self._get_safe_series(df, 'final_assault_accel_D', 0.0, "_diagnose_final_assault")
+        # 调整权重以适应新的信号
+        weights = params.get('fusion_weights', {'closing_auction': 0.6, 'pre_closing': 0.4})
+        
         closing_auction_intent = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, "_diagnose_final_assault")
-        # 加权融合
-        final_score = (assault_strength * weights.get('assault_strength', 0.5) +
-                       assault_accel * weights.get('assault_accel', 0.2) +
-                       closing_auction_intent * weights.get('closing_auction', 0.3)).fillna(0.0)
-        # [代码修改结束]
-        # --- [代码修改开始] 重构探针逻辑 ---
+        pre_closing_posturing = self._get_safe_series(df, 'pre_closing_posturing_D', 0.0, "_diagnose_final_assault")
+        
+        final_score = (closing_auction_intent * weights.get('closing_auction', 0.6) +
+                       pre_closing_posturing * weights.get('pre_closing', 0.4)).fillna(0.0)
+        
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -399,50 +404,33 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        p_strength = assault_strength.get(probe_date, 0.0)
-                        p_accel = assault_accel.get(probe_date, 0.0)
                         p_auction = closing_auction_intent.get(probe_date, 0.0)
+                        p_posturing = pre_closing_posturing.get(probe_date, 0.0)
                         p_final = final_score.get(probe_date, 0.0)
                         print(f"      [日内诡道探针] _diagnose_final_assault @ {probe_date_str}")
-                        print(f"        - [证据] 尾盘攻击强度 (final_assault_strength_D): {p_strength:.4f}")
-                        print(f"        - [证据] 尾盘攻击加速 (final_assault_accel_D): {p_accel:.4f}")
-                        print(f"        - [证据] 收盘竞价偷袭 (closing_auction_ambush_D): {p_auction:.4f}")
+                        print(f"        - [代理] 收盘竞价偷袭 (closing_auction_ambush_D): {p_auction:.4f}")
+                        print(f"        - [代理] 收盘前动态 (pre_closing_posturing_D): {p_posturing:.4f}")
                         print(f"        - 最终终末强袭分: {p_final:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_final_assault 处理日期 {probe_date_str} 失败: {e}")
-        # [代码修改结束]
+        
         return {signal_name: final_score.clip(-1, 1)}
 
     def _diagnose_vwap_battlefield(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 向量化重构版】日内诡道之三：诊断“VWAP攻防”
-        - 核心重构: 对整个方法进行向量化重构，使其能够处理完整的日线数据DataFrame并为每一天生成分数。
-        - 核心修复: 修复了探针逻辑，使其能够正确地在指定的 probe_dates 循环并打印每日的详细诊断信息。
+        【V1.3 · 代理信号重构版】日内诡道之三：诊断“VWAP攻防”
+        - 核心重构: 由于 `vwap_D` 信号不可用，无法进行攻防计算。本方法重构为直接采纳
+                      `vwap_control_strength_D` 作为最终裁决，它本身就是对VWAP攻防的总结。
         """
-        required_signals = ['close_D', 'low_D', 'high_D', 'vwap_D', 'volume_D', 'vwap_control_strength_D']
+        signal_name = "SCORE_INTRADAY_VWAP_BATTLEFIELD"
+        # 直接使用 vwap_control_strength_D
+        required_signals = ['vwap_control_strength_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_vwap_battlefield"):
-            return {"SCORE_INTRADAY_VWAP_BATTLEFIELD": pd.Series(0.0, index=df.index)}
-        # [代码修改开始] 向量化计算
-        params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('vwap_battlefield_params', {})
-        weights = params.get('fusion_weights', {'net_battle_score': 0.6, 'control_strength': 0.4})
-        # 使用日线级信号进行攻防测试判断
-        vwap = self._get_safe_series(df, 'vwap_D', np.nan, "_diagnose_vwap_battlefield")
-        # VWAP支撑测试: 最低价触及或低于VWAP，但收盘价高于VWAP
-        support_mask = (self._get_safe_series(df, 'low_D') <= vwap) & (self._get_safe_series(df, 'close_D') > vwap)
-        # VWAP压制测试: 最高价触及或高于VWAP，但收盘价低于VWAP
-        suppression_mask = (self._get_safe_series(df, 'high_D') >= vwap) & (self._get_safe_series(df, 'close_D') < vwap)
-        volume = self._get_safe_series(df, 'volume_D', 0.0, "_diagnose_vwap_battlefield")
-        # 以当日成交量作为支撑或压制的“分数”
-        support_score = volume.where(support_mask, 0.0)
-        suppression_score = volume.where(suppression_mask, 0.0)
-        total_battle_volume = support_score + suppression_score + 1e-9
-        net_battle_score = (support_score - suppression_score) / total_battle_volume
-        # 直接使用日线级的VWAP控制信号
+            return {signal_name: pd.Series(0.0, index=df.index)}
+        
         control_strength = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_vwap_battlefield")
-        final_score = (net_battle_score * weights.get('net_battle_score', 0.6) +
-                       control_strength * weights.get('control_strength', 0.4)).fillna(0.0)
-        # [代码修改结束]
-        # --- [代码修改开始] 重构探针逻辑 ---
+        final_score = control_strength
+        
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -451,20 +439,14 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        p_support_score = support_score.get(probe_date, 0.0)
-                        p_suppression_score = suppression_score.get(probe_date, 0.0)
-                        p_net_battle_score = net_battle_score.get(probe_date, 0.0)
                         p_control_strength = control_strength.get(probe_date, 0.0)
                         p_final_score = final_score.get(probe_date, 0.0)
                         print(f"      [日内诡道探针] _diagnose_vwap_battlefield @ {probe_date_str}")
-                        print(f"        - [计算] VWAP支撑总量: {p_support_score:.2f}")
-                        print(f"        - [计算] VWAP压制总量: {p_suppression_score:.2f}")
-                        print(f"        - [计算] 净战斗分: {p_net_battle_score:.4f}")
-                        print(f"        - [证据] VWAP控制强度 (vwap_control_strength_D): {p_control_strength:.4f}")
+                        print(f"        - [代理] VWAP控制强度 (vwap_control_strength_D): {p_control_strength:.4f}")
                         print(f"        - 最终VWAP攻防分: {p_final_score:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_vwap_battlefield 处理日期 {probe_date_str} 失败: {e}")
-        # [代码修改结束]
-        return {"SCORE_INTRADAY_VWAP_BATTLEFIELD": final_score.clip(-1, 1)}
+        
+        return {signal_name: final_score.clip(-1, 1)}
 
 

@@ -24,7 +24,7 @@ class OffensiveLayer:
         p_context_suppression = get_params_block(self.strategy, 'contextual_suppression_params', {})
         bottom_context_threshold = get_param_value(p_context_suppression.get('bottom_context_threshold'), 0.9)
         top_context_threshold = get_param_value(p_context_suppression.get('top_context_threshold'), 0.9)
-        # [代码修改开始] 移除了整个“真理探针 V2.0”的调试代码块
+        # 移除了整个“真理探针 V2.0”的调试代码块
         for signal_name, meta in score_map.items():
             if not isinstance(meta, dict): continue
             signal_series = all_available_signals.get(signal_name)

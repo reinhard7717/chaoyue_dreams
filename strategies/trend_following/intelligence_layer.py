@@ -5,7 +5,7 @@ import numpy as np
 import pandas_ta as ta
 from typing import Dict
 from .structural_defense_layer import StructuralDefenseLayer
-# --- [代码修改开始] 将所有情报模块和工具函数的导入整合到文件顶部 ---
+# --- 将所有情报模块和工具函数的导入整合到文件顶部 ---
 from .intelligence.foundation_intelligence import FoundationIntelligence
 from .intelligence.structural_intelligence import StructuralIntelligence
 from .intelligence.chip_intelligence import ChipIntelligence
@@ -44,7 +44,7 @@ class IntelligenceLayer:
                       彻底解决因作用域问题导致的 UnboundLocalError。
         """
         self.strategy = strategy_instance
-        # [代码修改开始] 移除所有在此方法内部的import语句
+        # 移除所有在此方法内部的import语句
         # 现在所有依赖都在文件顶部导入，可以直接使用
         self.kline_params = get_params_block(self.strategy, 'kline_pattern_params')
         self.strategy.pattern_recognizer = KlinePatternRecognizer(params=self.kline_params)
@@ -64,7 +64,6 @@ class IntelligenceLayer:
         self.structural_defense_layer = StructuralDefenseLayer(self.strategy)
         self.predictive_intel = PredictiveIntelligence(self.strategy)
         self.probes = ForensicProbes(self)
-        # [代码修改结束]
 
     def run_all_diagnostics(self, df: pd.DataFrame) -> Dict:
         """
@@ -85,14 +84,13 @@ class IntelligenceLayer:
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         update_states(self.behavioral_intel.run_behavioral_analysis_command(df))
         update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
-        # [代码修改开始] 重构日内引擎的调用逻辑
+        # 重构日内引擎的调用逻辑
         try:
             # 直接调用日内引擎，并传递日线DataFrame
             intraday_results = self.intraday_behavior_engine.run_intraday_diagnostics(df)
             update_states(intraday_results)
         except Exception as e:
             print(f"    -> [情报层错误] 调用日内行为引擎失败: {e}")
-        # [代码修改结束]
         update_states(self.foundation_intel.run_foundation_analysis_command(df))
         chip_states_from_intel = self.chip_intel.run_chip_intelligence_command(df)
         update_states(chip_states_from_intel)
