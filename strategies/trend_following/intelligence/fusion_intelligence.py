@@ -43,11 +43,11 @@ class FusionIntelligence:
 
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.3 · 时序修复版】融合情报分析总指挥
-        - 核心修复: 调整各融合心法的调用顺序，确保被依赖的信号（如滞涨风险、衰竭综合征等）
-                    在消费它们的信号（如市场压力）之前被计算，解决信号缺失的根本问题。
+        【V6.4 · 终极时序版】融合情报分析总指挥
+        - 核心修复: 进行最终时序修正，确保`价格超买意图`在`滞涨风险`之前计算，
+                    彻底解决所有融合信号之间的依赖问题，使法阵调度圆满无缺。
         """
-        print("启动【V6.3 · 时序修复版】融合情报分析...")
+        print("启动【V6.4 · 终极时序版】融合情报分析...")
         all_fusion_states = {}
         micro_conviction_states = self._synthesize_micro_conviction(df)
         all_fusion_states.update(micro_conviction_states)
@@ -58,7 +58,11 @@ class FusionIntelligence:
         quality_states = self._synthesize_trend_quality(df)
         all_fusion_states.update(quality_states)
         self.strategy.atomic_states.update(quality_states)
-        # [修改] 将多个融合信号的计算提前，作为“市场压力”的原料
+        # [修改] 将“价格超买意图”的计算提前，作为“滞涨风险”的原料
+        overextension_intent_states = self._synthesize_price_overextension_intent(df)
+        all_fusion_states.update(overextension_intent_states)
+        self.strategy.atomic_states.update(overextension_intent_states)
+        # [修改] 确保“滞涨风险”在其所有原料计算完毕后执行
         stagnation_risk_states = self._synthesize_stagnation_risk(df)
         all_fusion_states.update(stagnation_risk_states)
         self.strategy.atomic_states.update(stagnation_risk_states)
@@ -68,7 +72,6 @@ class FusionIntelligence:
         contested_accumulation_states = self._synthesize_contested_accumulation(df)
         all_fusion_states.update(contested_accumulation_states)
         self.strategy.atomic_states.update(contested_accumulation_states)
-        # [修改] 将“市场压力”的计算后移，确保其所有原料都已就绪
         pressure_states = self._synthesize_market_pressure(df)
         all_fusion_states.update(pressure_states)
         self.strategy.atomic_states.update(pressure_states)
@@ -78,9 +81,6 @@ class FusionIntelligence:
         contradiction_states = self._synthesize_market_contradiction(df)
         all_fusion_states.update(contradiction_states)
         self.strategy.atomic_states.update(contradiction_states)
-        overextension_intent_states = self._synthesize_price_overextension_intent(df)
-        all_fusion_states.update(overextension_intent_states)
-        self.strategy.atomic_states.update(overextension_intent_states)
         trend_structure_states = self._synthesize_trend_structure_score(df)
         all_fusion_states.update(trend_structure_states)
         self.strategy.atomic_states.update(trend_structure_states)
@@ -96,39 +96,78 @@ class FusionIntelligence:
         accumulation_playbook_states = self._synthesize_accumulation_playbook(df)
         all_fusion_states.update(accumulation_playbook_states)
         self.strategy.atomic_states.update(accumulation_playbook_states)
-        print(f"【V6.3 · 时序修复版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
+        print(f"【V6.4 · 终极时序版】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
 
     def _synthesize_market_contradiction(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 基础层升维同步版】冶炼“市场矛盾” (Market Contradiction)
-        - 核心清理: 移除了对基础层背离信号的依赖，因为新的基础公理体系不再输出
-                      独立的背离信号，其逻辑已内化到新公理中。
+        【V3.0 · 矛盾共振版】冶炼“市场矛盾” (Market Contradiction)
+        - 核心重构: 废弃V2.x基于max()的“赢家通吃”模型，引入“矛盾共振”加权融合模型。
+        - 诡道哲学: 采用加权求和，使得多个微弱但同向的背离信号能形成“共振”，其合力
+                      可以超越单一的强烈信号，旨在“于无声处听惊雷”。
+        - 信号赋权: 为不同情报域的信号赋予不同权重，体现其情报价值的差异。
         """
         print("  -- [融合层] 正在冶炼“市场矛盾”...")
         states = {}
-        # 移除 'FOUNDATION'，因为它不再提供独立的背离信号
-        divergence_sources = [
-            'STRUCTURE', 'PATTERN', 'DYNAMIC_MECHANICS',
-            'FUND_FLOW', 'MICRO_BEHAVIOR'
-        ]
-        bullish_divergence_scores = []
-        bearish_divergence_scores = []
-        for source in divergence_sources:
-            bull_signal_name = f'SCORE_{source}_BULLISH_DIVERGENCE'
-            bear_signal_name = f'SCORE_{source}_BEARISH_DIVERGENCE'
-            bullish_divergence_scores.append(self._get_atomic_score(df, bull_signal_name, 0.0).values)
-            bearish_divergence_scores.append(self._get_atomic_score(df, bear_signal_name, 0.0).values)
-        bullish_divergence_scores.append(self._get_atomic_score(df, 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY', 0.0).values)
-        bearish_divergence_scores.append(self._get_atomic_score(df, 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY', 0.0).values)
+        df_index = df.index
+        # 1. [信号赋权] 定义各领域背离信号及其权重
+        divergence_sources = {
+            # 核心博弈层，权重最高
+            'CHIP': 0.30,
+            'FUND_FLOW': 0.25,
+            # 战术执行层，权重次之
+            'BEHAVIOR': 0.15,
+            'DYNAMIC_MECHANICS': 0.10,
+            # 表象结构层，权重较低
+            'STRUCTURE': 0.10,
+            'PATTERN': 0.05,
+            'MICRO_BEHAVIOR': 0.05,
+        }
+        # 2. [共振融合] 核心数学逻辑 - 加权求和
+        total_bullish_score = pd.Series(0.0, index=df_index)
+        total_bearish_score = pd.Series(0.0, index=df_index)
+        # 特殊处理双极性的筹码背离信号
         chip_divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
-        bullish_divergence_scores.append(chip_divergence.clip(lower=0).values)
-        bearish_divergence_scores.append(chip_divergence.clip(upper=0).abs().values)
-        net_bullish_divergence = np.maximum.reduce(bullish_divergence_scores)
-        net_bearish_divergence = np.maximum.reduce(bearish_divergence_scores)
-        bipolar_contradiction = (pd.Series(net_bullish_divergence, index=df.index) -
-                                 pd.Series(net_bearish_divergence, index=df.index)).clip(-1, 1)
+        chip_weight = divergence_sources.pop('CHIP')
+        total_bullish_score += chip_divergence.clip(lower=0) * chip_weight
+        total_bearish_score += chip_divergence.clip(upper=0).abs() * chip_weight
+        # 处理其他单极性背离信号
+        for source, weight in divergence_sources.items():
+            # 行为层信号名称特殊
+            if source == 'BEHAVIOR':
+                bull_signal_name = 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'
+                bear_signal_name = 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'
+            else:
+                bull_signal_name = f'SCORE_{source}_BULLISH_DIVERGENCE'
+                bear_signal_name = f'SCORE_{source}_BEARISH_DIVERGENCE'
+            total_bullish_score += self._get_atomic_score(df, bull_signal_name, 0.0) * weight
+            total_bearish_score += self._get_atomic_score(df, bear_signal_name, 0.0) * weight
+        # 3. 最终裁决
+        bipolar_contradiction = (total_bullish_score - total_bearish_score).clip(-1, 1)
         states['FUSION_BIPOLAR_MARKET_CONTRADICTION'] = bipolar_contradiction.astype(np.float32)
+        # 4. [新增] 植入究极探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = debug_params.get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [市场矛盾究极探针 V3.0 · 矛盾共振版] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [输入原料 - 看涨背离源 (信号值 @ 权重)]:")
+            print(f"    - SCORE_CHIP_AXIOM_DIVERGENCE (Bullish Part): {chip_divergence.clip(lower=0).iloc[last_date_index]:.4f} @ {chip_weight}")
+            for source, weight in divergence_sources.items():
+                s_name = f'SCORE_{source}_BULLISH_DIVERGENCE' if source != 'BEHAVIOR' else 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'
+                print(f"    - {s_name}: {self._get_atomic_score(df, s_name, 0.0).iloc[last_date_index]:.4f} @ {weight}")
+            print("  [输入原料 - 看跌背离源 (信号值 @ 权重)]:")
+            print(f"    - SCORE_CHIP_AXIOM_DIVERGENCE (Bearish Part): {chip_divergence.clip(upper=0).abs().iloc[last_date_index]:.4f} @ {chip_weight}")
+            for source, weight in divergence_sources.items():
+                s_name = f'SCORE_{source}_BEARISH_DIVERGENCE' if source != 'BEHAVIOR' else 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'
+                print(f"    - {s_name}: {self._get_atomic_score(df, s_name, 0.0).iloc[last_date_index]:.4f} @ {weight}")
+            print("  [关键计算节点]:")
+            print(f"    - 加权看涨矛盾总分: {total_bullish_score.iloc[last_date_index]:.4f}")
+            print(f"    - 加权看跌矛盾总分: {total_bearish_score.iloc[last_date_index]:.4f}")
+            print("  [最终裁决]:")
+            print(f"    - 市场矛盾分 (FUSION_BIPOLAR_MARKET_CONTRADICTION): {bipolar_contradiction.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
         print(f"  -- [融合层] “市场矛盾”冶炼完成，最新分值: {bipolar_contradiction.iloc[-1]:.4f}")
         return states
 

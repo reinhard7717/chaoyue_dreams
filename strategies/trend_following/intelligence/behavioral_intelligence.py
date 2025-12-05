@@ -628,7 +628,7 @@ class BehavioralIntelligence:
 
     def _diagnose_lower_shadow_quality(self, df: pd.DataFrame, stagnation_evidence: pd.Series) -> pd.Series:
         """
-        【V12.0 · 伏击战役版】诊断下影线承接品质。
+        【V12.1 · 生产版】诊断下影线承接品质。
         - 核心重构: 废弃了基于“法医式”K线形态拼凑的 V11.0 模型。引入基于“伏击战役”
                       思想的全新三位一体诊断模型，旨在审判整个“诱空-反击”的战役全过程。
         - 伏击战役三要素:
@@ -648,7 +648,6 @@ class BehavioralIntelligence:
         context_score = get_adaptive_mtf_normalized_score(context_raw, df.index, ascending=True, tf_weights=default_weights)
         action_score = get_adaptive_mtf_normalized_score(action_raw, df.index, ascending=True, tf_weights=default_weights)
         outcome_score = normalize_score(outcome_raw, df.index, 55)
-        # [修改的代码行] 采用加权几何平均，融合“伏击战役”三要素
         base_quality_score = (
             (context_score + 1e-9).pow(0.3) *
             (action_score + 1e-9).pow(0.4) *
@@ -658,30 +657,12 @@ class BehavioralIntelligence:
         stagnation_suppressor = (1 - stagnation_evidence).clip(0, 1)
         # --- 4. 最终合成 ---
         final_lower_shadow_quality = (base_quality_score * stagnation_suppressor).clip(0, 1)
-        # --- 深度战术探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _diagnose_lower_shadow_quality @ {probe_date_str}")
-                print(f"        --- [维度一: 伏击战役三要素] ---")
-                print(f"          - 原始值: 战役背景(恐慌级联)={context_raw.loc[probe_ts]:.2f}, 核心行动(主动买盘)={action_raw.loc[probe_ts]:.2f}, 战役结果(收盘强度)={outcome_raw.loc[probe_ts]:.2f}")
-                print(f"          - 要素得分: 背景分={context_score.loc[probe_ts]:.4f}, 行动分={action_score.loc[probe_ts]:.4f}, 结果分={outcome_score.loc[probe_ts]:.4f}")
-                print(f"          - 基础品质分(几何平均): {base_quality_score.loc[probe_ts]:.4f}")
-                print(f"        --- [维度二: 战略环境压制器] ---")
-                print(f"          - 原始滞涨证据分: {stagnation_evidence.loc[probe_ts]:.4f}")
-                print(f"          - 滞涨压制器乘数: {stagnation_suppressor.loc[probe_ts]:.4f}")
-                print(f"        --- [最终合成] ---")
-                print(f"        - 最终下影线品质分 (压制后): {final_lower_shadow_quality.loc[probe_ts]:.4f}")
+        # [修改的代码行] 移除探针代码，恢复生产版本
         return final_lower_shadow_quality.astype(np.float32)
 
     def _diagnose_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V5.0 · 派发罪证链版】诊断派发意图。
+        【V5.1 · 生产版】诊断派发意图。
         - 核心重构: 废弃了基于单一卖压结果的 V4.0 模型。引入基于“动机-凶器-指纹”
                       三位一体的“罪证链”诊断模型，旨在审判一次完整的派发行为。
         - 派发罪证链三要素:
@@ -697,11 +678,9 @@ class BehavioralIntelligence:
         fingerprint_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_distribution_intent")
         # --- 2. 计算各要素得分 ---
         motive_score = get_adaptive_mtf_normalized_score(motive_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # [修改的代码行] 将两种卖压行为融合成“凶器”得分
         rally_pressure_score = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
         upper_shadow_score = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
         weapon_score = (rally_pressure_score * 0.5 + upper_shadow_score * 0.5)
-        # [修改的代码行] 提取主力隐蔽派发的“指纹”得分
         fingerprint_score = get_adaptive_mtf_normalized_score(fingerprint_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
         # --- 3. “罪证链”三要素合成 ---
         distribution_intent_score = (
@@ -709,20 +688,7 @@ class BehavioralIntelligence:
             (weapon_score + 1e-9).pow(0.4) *
             (fingerprint_score + 1e-9).pow(0.4)
         ).fillna(0.0)
-        # --- 深度战术探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _diagnose_distribution_intent @ {probe_date_str}")
-                print(f"        --- [派发罪证链三要素] ---")
-                print(f"          - 原始值: 动机(获利盘流比)={motive_raw.loc[probe_ts]:.2f}, 凶器(反弹派压)={rally_pressure_raw.loc[probe_ts]:.2f}, 凶器(上影线)={upper_shadow_pressure_raw.loc[probe_ts]:.2f}, 指纹(主力Alpha)={fingerprint_raw.loc[probe_ts]:.4f}")
-                print(f"          - 要素得分: 动机分={motive_score.loc[probe_ts]:.4f}, 凶器分={weapon_score.loc[probe_ts]:.4f}, 指纹分={fingerprint_score.loc[probe_ts]:.4f}")
-                print(f"          - 最终派发意图分 (罪证链): {distribution_intent_score.loc[probe_ts]:.4f}")
+        # [修改的代码行] 移除探针代码，恢复生产版本
         return distribution_intent_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
@@ -985,7 +951,7 @@ class BehavioralIntelligence:
 
     def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series, distribution_intent: pd.Series) -> pd.Series:
         """
-        【V3.0 · 战略反击许可版】诊断进攻性承接意图。
+        【V3.1 · 生产版】诊断进攻性承接意图。
         - 核心重构: 废弃了孤立看待下影线的 V2.0 模型。引入“战术胜利+战略许可+司令部意志”
                       三层诊断框架，确保战术行为的战略有效性。
         - 三层诊断框架:
@@ -1002,26 +968,11 @@ class BehavioralIntelligence:
         # 过滤层：战略许可压制器
         strategic_clearance_suppressor = (1 - distribution_intent).clip(0, 1)
         # 增强层：司令部意志放大器
-        # [修改的代码行] 修复TypeError：使用 normalize_to_bipolar 替换 normalize_score，以实现正确的双极性归一化
         conviction_amplifier = (normalize_to_bipolar(conviction_raw.clip(-5, 5), df.index, 55) + 1.0).clip(0.5, 1.5)
         # --- 3. 最终合成 ---
         base_intent_score = tactical_victory_score * strategic_clearance_suppressor
         final_offensive_absorption_intent = (base_intent_score * conviction_amplifier).clip(0, 1)
-        # --- 深度战术探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _diagnose_offensive_absorption_intent @ {probe_date_str}")
-                print(f"        --- [三层诊断框架] ---")
-                print(f"          - 输入信号: 战术胜利(下影线品质)={tactical_victory_score.loc[probe_ts]:.4f}, 战略风险(派发意图)={distribution_intent.loc[probe_ts]:.4f}, 司令部意志(主力信念)={conviction_raw.loc[probe_ts]:.2f}")
-                print(f"          - 中间计算: 战略许可压制器={strategic_clearance_suppressor.loc[probe_ts]:.4f}, 司令部意志放大器={conviction_amplifier.loc[probe_ts]:.4f}")
-                print(f"          - 基础意图分 (压制后): {base_intent_score.loc[probe_ts]:.4f}")
-                print(f"          - 最终进攻承接意图分 (放大后): {final_offensive_absorption_intent.loc[probe_ts]:.4f}")
+        # [修改的代码行] 移除探针代码，恢复生产版本
         return final_offensive_absorption_intent.astype(np.float32)
 
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
