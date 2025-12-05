@@ -42,7 +42,7 @@ class IntradayBehaviorEngine:
             return False
         return True
 
-    def run_intraday_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]: # [代码修改] 移除 async
+    def run_intraday_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]: # 移除 async
         """
         【V4.3 · 同步执行版】日内诊断总指挥
         - 核心重构: 移除所有 async/await 关键字，改为同步执行，以符合CPU密集型任务的最佳实践并与其他情报引擎保持一致。
@@ -62,8 +62,8 @@ class IntradayBehaviorEngine:
             if not df.empty:
                 print(f"    - 日线数据行数: {len(df)}")
         # --- 探针结束 ---
-        print("启动【V4.3 · 同步执行版】日内行为诊断...") # [代码修改] 更新版本号和描述
-        # [代码修改] 移除对 _prepare_intraday_indicators 的调用
+        print("启动【V4.3 · 同步执行版】日内行为诊断...") # 更新版本号和描述
+        # 移除对 _prepare_intraday_indicators 的调用
         if df is None or df.empty:
             print("日线数据为空，无法进行日内行为诊断。")
             return {
@@ -76,6 +76,7 @@ class IntradayBehaviorEngine:
                 "SCORE_INTRADAY_AMBUSH_AND_FLANK": pd.Series(dtype=np.float64),
                 "SCORE_INTRADAY_FINAL_ASSAULT": pd.Series(dtype=np.float64),
                 "SCORE_INTRADAY_VWAP_BATTLEFIELD": pd.Series(dtype=np.float64),
+                "SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL": pd.Series(dtype=np.float64), # 新增信号的空序列
             }
         diagnostics_to_run = [
             self._diagnose_offensive_purity,
@@ -87,6 +88,7 @@ class IntradayBehaviorEngine:
             self._diagnose_ambush_and_flank,
             self._diagnose_final_assault,
             self._diagnose_vwap_battlefield,
+            self._diagnose_intraday_bull_control, # 新增对日内多头控制力诊断方法的调用
         ]
         final_scores = {}
         for diagnostic_func in diagnostics_to_run:
@@ -94,6 +96,58 @@ class IntradayBehaviorEngine:
             final_scores.update(result)
         print(f"日内行为诊断完成，生成 {len(final_scores)} 个信号序列。")
         return final_scores
+
+    def _diagnose_intraday_bull_control(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.1 · 指挥权量化版】行为层原子信号：诊断“日内多头控制力”
+        - 核心逻辑: 基于“战场指挥权”思想，构建乘法模型：`控制力 = 战略位置 * 战术品质`。
+                    旨在穿透VWAP表象，量化主力是否真正主导了日内攻防节奏。
+        """
+        signal_name = "SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL"
+        required_signals = [
+            'vwap_control_strength_D',           # 代理“战略位置”
+            'upward_impulse_purity_D',           # 代理“进攻能力”
+            'lower_shadow_absorption_strength_D',# 代理“防守韧性”
+            'dip_absorption_power_D'             # 代理“防守韧性”
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_intraday_bull_control"):
+            return {signal_name: pd.Series(0.0, index=df.index)}
+        # 1. 获取战略位置分 (核心基石)
+        position_score = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_intraday_bull_control")
+        # 2. 计算战术品质分 (含金量调节器)
+        # 2.1 进攻能力
+        offensive_quality = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, "_diagnose_intraday_bull_control")
+        # 2.2 防守韧性
+        lower_shadow_strength = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, "_diagnose_intraday_bull_control")
+        dip_absorption_power = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, "_diagnose_intraday_bull_control")
+        defensive_quality = (lower_shadow_strength + dip_absorption_power) / 2
+        # 2.3 融合攻防，得到综合战术品质
+        action_quality = (offensive_quality + defensive_quality) / 2
+        # 3. 最终融合：战略位置分 * 战术品质分
+        final_score = (position_score * action_quality).fillna(0.0)
+        # --- 探针逻辑 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df.empty:
+            for probe_date_str in probe_dates:
+                try:
+                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    if probe_date in df.index:
+                        p_position = position_score.get(probe_date, 0.0)
+                        p_offensive = offensive_quality.get(probe_date, 0.0)
+                        p_defensive = defensive_quality.get(probe_date, 0.0)
+                        p_action_quality = action_quality.get(probe_date, 0.0)
+                        p_final_score = final_score.get(probe_date, 0.0)
+                        print(f"      [日内行为探针] _diagnose_intraday_bull_control @ {probe_date_str}")
+                        print(f"        - [原料] 战略位置 (vwap_control_strength_D): {p_position:.4f}")
+                        print(f"        - [原料] 进攻能力 (upward_impulse_purity_D): {p_offensive:.4f}")
+                        print(f"        - [原料] 防守韧性 (lower_shadow + dip_absorption): {p_defensive:.4f}")
+                        print(f"        - [计算节点] 综合战术品质分 (action_quality): {p_action_quality:.4f}")
+                        print(f"        - [结果] 最终日内多头控制力分: {p_final_score:.4f}")
+                except Exception as e:
+                    print(f"    -> [日内行为探针错误] _diagnose_intraday_bull_control 处理日期 {probe_date_str} 失败: {e}")
+        return {signal_name: final_score.clip(-1, 1)}
 
     def _diagnose_offensive_purity(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -169,7 +223,7 @@ class IntradayBehaviorEngine:
         - 核心重构: 对整个方法进行向量化重构，使其能够处理完整的日线数据DataFrame并为每一天生成分数，而不是仅处理第一天。
         - 核心修复: 修复了探针逻辑，使其能够正确地在指定的 probe_dates 循环并打印每日的详细诊断信息。
         """
-        # [代码修改] 此方法现在需要从分钟数据中找到对应的日线数据，但实际上传入的已经是日线数据df
+        # 此方法现在需要从分钟数据中找到对应的日线数据，但实际上传入的已经是日线数据df
         if df.empty:
             return {"SCORE_INTRADAY_CONVICTION_REVERSAL": pd.Series(dtype=np.float64)}
         # 将所有计算向量化，使其能处理整个DataFrame

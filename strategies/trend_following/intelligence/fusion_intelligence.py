@@ -566,16 +566,16 @@ class FusionIntelligence:
 
     def _synthesize_market_pressure(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 压力共振版】冶炼“市场压力” (Market Pressure)
-        - 核心重构: 废弃V1.x基于max()的“赢家通吃”模型，引入“压力共振”非线性融合模型。
-        - 信号升维: 引用最高阶的战术级机会与风险信号，取代底层的过程信号。
-        - 诡道哲学: 多个同向压力信号同时出现时，其合力将通过“共振放大器”被非线性放大，
-                      以体现风险或机会的“集群效应”。
+        【V3.0 · 态势裁决版】冶炼“市场压力” (Market Pressure)
+        - 核心重构: 废弃V2.0“独立共振后相减”模型，引入“态势裁决”模型。
+        - 核心公式: 最终压力 = 战术净压力(臣) × 战场态势调节器(君)
+        - 诡道哲学: 压力之强弱，不在其本身，而在其是否顺应大势。以“趋势质量”为君，
+                      裁决战术压力之臣，方能洞察顺势强攻与逆势反抽之别。
         """
         print("  -- [融合层] 正在冶炼“市场压力”...")
         states = {}
         df_index = df.index
-        # 1. [信号升维] 引用最高阶的战术信号
+        # --- 1. [修改] 信号升维并计算“战术净压力” (臣) ---
         opportunity_signals = {
             'SCORE_CHIP_HARMONY_INFLECTION': 0.3,
             'SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK': 0.25,
@@ -590,28 +590,40 @@ class FusionIntelligence:
             'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY': 0.15,
             'FUSION_RISK_STAGNATION': 0.1,
         }
-        # 2. 核心数学逻辑 - 压力共振模型
-        # 2.1 计算基础压力 (加权融合)
-        base_upward_pressure = pd.Series(0.0, index=df_index)
+        tactical_upward_pressure = pd.Series(0.0, index=df_index)
         for signal, weight in opportunity_signals.items():
-            base_upward_pressure += self._get_atomic_score(df, signal, 0.0) * weight
-        base_downward_pressure = pd.Series(0.0, index=df_index)
+            tactical_upward_pressure += self._get_atomic_score(df, signal, 0.0) * weight
+        tactical_downward_pressure = pd.Series(0.0, index=df_index)
         for signal, weight in risk_signals.items():
-            base_downward_pressure += self._get_atomic_score(df, signal, 0.0) * weight
-        # 2.2 计算共振放大器
-        resonance_threshold = 0.5
-        resonance_bonus_factor = 0.2
-        resonant_upward_signals = sum(self._get_atomic_score(df, s, 0.0) > resonance_threshold for s in opportunity_signals)
-        resonant_downward_signals = sum(self._get_atomic_score(df, s, 0.0) > resonance_threshold for s in risk_signals)
-        upward_resonance_modulator = 1 + (resonant_upward_signals * resonance_bonus_factor)
-        downward_resonance_modulator = 1 + (resonant_downward_signals * resonance_bonus_factor)
-        # 2.3 应用放大器
-        amplified_upward_pressure = (base_upward_pressure * upward_resonance_modulator).clip(0, 1)
-        amplified_downward_pressure = (base_downward_pressure * downward_resonance_modulator).clip(0, 1)
-        # 3. 最终裁决
-        bipolar_pressure = (amplified_upward_pressure - amplified_downward_pressure).clip(-1, 1)
-        states['FUSION_BIPOLAR_MARKET_PRESSURE'] = bipolar_pressure.astype(np.float32)
-        print(f"  -- [融合层] “市场压力”冶炼完成，最新分值: {bipolar_pressure.iloc[-1]:.4f}")
+            tactical_downward_pressure += self._get_atomic_score(df, signal, 0.0) * weight
+        net_tactical_pressure = (tactical_upward_pressure - tactical_downward_pressure).clip(-1, 1)
+        # --- 2. [新增] 获取“战场态势” (君) ---
+        battlefield_context = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
+        # --- 3. [新增] 核心数学逻辑 - 态势裁决 ---
+        # 3.1 构建“战场态势调节器”
+        modulation_factor = 0.5 # 态势影响系数
+        battlefield_modulator = (1 + battlefield_context * modulation_factor).clip(0.5, 1.5)
+        # 3.2 最终裁决：战术净压力 × 战场态势调节器
+        final_pressure = (net_tactical_pressure * battlefield_modulator).clip(-1, 1)
+        states['FUSION_BIPOLAR_MARKET_PRESSURE'] = final_pressure.astype(np.float32)
+        # --- 4. [新增] 植入究极探针 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = debug_params.get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [市场压力究极探针 V3.0 · 态势裁决版] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [第一层 - 战术压力计算 (Tactical Pressure Calculation)]:")
+            print(f"    - 原始看涨压力分: {tactical_upward_pressure.iloc[last_date_index]:.4f}")
+            print(f"    - 原始看跌压力分: {tactical_downward_pressure.iloc[last_date_index]:.4f}")
+            print(f"    - -> 战术净压力 (臣): {net_tactical_pressure.iloc[last_date_index]:.4f}")
+            print("  [第二层 - 战场态势裁决 (Battlefield Posture Judgment)]:")
+            print(f"    - 战场背景 (趋势质量): {battlefield_context.iloc[last_date_index]:.4f}")
+            print(f"    - -> 战场态势调节器 (君): {battlefield_modulator.iloc[last_date_index]:.4f}")
+            print("  [最终裁决 (Final Judgment)]:")
+            print(f"    - 最终市场压力 (臣 × 君): {final_pressure.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
+        print(f"  -- [融合层] “市场压力”冶炼完成，最新分值: {final_pressure.iloc[-1]:.4f}")
         return states
 
     def _synthesize_accumulation_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -660,7 +672,7 @@ class FusionIntelligence:
         print("  -- [融合层] 正在诊断“趋势衰竭综合征”...")
         states = {}
         df_index = df.index
-        # --- 1. [修改] 信号升维：定义“意志”与“压力”两大阵营 ---
+        # --- 1. 信号升维：定义“意志”与“压力”两大阵营 ---
         # 阵营一：上涨意志衰竭度 (Weakening Will) - 诊断多头是否军心涣散
         trend_quality = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         trend_quality_decay = -trend_quality.diff(1).fillna(0.0).clip(upper=0) # 核心：趋势质量衰减
@@ -670,7 +682,7 @@ class FusionIntelligence:
         overextension_risk = self._get_atomic_score(df, 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs()
         bearish_divergence = self._get_atomic_score(df, 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY', 0.0)
         stagnation_risk = self._get_atomic_score(df, 'FUSION_RISK_STAGNATION', 0.0)
-        # --- 2. [修改] 核心数学逻辑 - 二元博弈 ---
+        # --- 2. 核心数学逻辑 - 二元博弈 ---
         # 2.1 计算“上涨意志衰竭度” (几何平均，体现症状共振)
         will_components = [trend_quality_decay, distribution_intent, chip_posture_decay]
         weakening_will_score = pd.Series(1.0, index=df_index)
@@ -687,26 +699,7 @@ class FusionIntelligence:
         syndrome_score = (weakening_will_score * intensifying_pressure_score).pow(0.5).fillna(0.0).clip(0, 1)
         output_name = 'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME'
         states[output_name] = syndrome_score.astype(np.float32)
-        # --- 3. [新增] 植入究极探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates = debug_params.get('probe_dates', [])
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [趋势衰竭究极探针 V2.0 · 意志与压力版] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [第一层 - 上涨意志衰竭诊断 (Weakening Will)]:")
-            print(f"    - 原料: 趋势质量衰减: {trend_quality_decay.iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 派发意图: {distribution_intent.iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 筹码态势崩坏: {chip_posture_decay.iloc[last_date_index]:.4f}")
-            print(f"    - -> 意志衰竭度 (几何平均): {weakening_will_score.iloc[last_date_index]:.4f}")
-            print("  [第二层 - 反转压力增强诊断 (Intensifying Pressure)]:")
-            print(f"    - 原料: 价格超买风险: {overextension_risk.iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 熊市背离品质: {bearish_divergence.iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 滞涨风险: {stagnation_risk.iloc[last_date_index]:.4f}")
-            print(f"    - -> 压力增强度 (几何平均): {intensifying_pressure_score.iloc[last_date_index]:.4f}")
-            print("  [最终裁决 (Final Judgment)]:")
-            print(f"    - 最终衰竭风险 (意志×压力)^0.5: {syndrome_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “趋势衰竭综合征”诊断完成，最新分值: {syndrome_score.iloc[-1]:.4f}")
         return states
 

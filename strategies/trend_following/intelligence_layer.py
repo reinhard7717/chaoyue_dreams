@@ -77,7 +77,7 @@ class IntelligenceLayer:
         self.strategy.playbook_states = {}
         self.strategy.exit_triggers = pd.DataFrame(index=df.index)
         def update_states(new_states: Dict):
-            # [代码修改] 简化update_states，因为所有引擎现在都应返回Series字典
+            # 简化update_states，因为所有引擎现在都应返回Series字典
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
         # --- 阶段一：基础原子情报层 (Foundation & Atomic Layer) ---

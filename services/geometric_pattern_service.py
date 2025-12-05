@@ -291,7 +291,7 @@ class GeometricPatternService:
             platform_low = group['low_qfq'].min()
             if platform_low == 0: continue
             price_range_pct = (platform_high - platform_low) / platform_low
-            # [代码修改] V2.53 在计算rss时，关闭内部归一化
+            # V2.53 在计算rss时，关闭内部归一化
             rebased_rs = group['rs'] / group['rs'].iloc[0] if 'rs' in group and not group.empty and group['rs'].iloc[0] != 0 else pd.Series()
             metrics = {
                 'vps': self._calculate_volume_profile_skewness(group),
@@ -1249,7 +1249,7 @@ class GeometricPatternService:
         if len(series) < 2: return 0.0
         x = np.arange(len(series))
         slope, _ = np.polyfit(x, series.values, 1)
-        # [代码修改] V2.53 引入智能归一化逻辑
+        # V2.53 引入智能归一化逻辑
         if normalize:
             # 对斜率进行归一化，使其不受序列绝对值大小的影响
             return slope / series.mean() if series.mean() != 0 else 0.0
@@ -1336,7 +1336,7 @@ class GeometricPatternService:
         internal_strength = ((platform_group['close_qfq'] - platform_group['low_qfq']) / daily_range.replace(0, np.nan)).fillna(0.5)
         score_internal = internal_strength.mean() * 100
         # 支柱五: 相对市场强度 (Relative Strength Slope) - 权重 10%
-        # [代码修改] V2.54 实施“真理契约”，检查'rs'列是否存在
+        # V2.54 实施“真理契约”，检查'rs'列是否存在
         if 'rs' in platform_group and not platform_group.empty and platform_group['rs'].iloc[0] != 0:
             rebased_rs = platform_group['rs'] / platform_group['rs'].iloc[0]
             rss = self._calculate_linear_regression_slope(rebased_rs, normalize=False)
