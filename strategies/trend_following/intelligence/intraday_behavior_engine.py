@@ -1,5 +1,4 @@
 # 文件: strategies/trend_following/intelligence/intraday_behavior_engine.py
-import asyncio
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
@@ -43,24 +42,10 @@ class IntradayBehaviorEngine:
             return False
         return True
 
-    async def _prepare_intraday_indicators(self, df_minute: pd.DataFrame) -> Optional[pd.DataFrame]:
+    def run_intraday_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]: # [代码修改] 移除 async
         """
-        【V3.0 · 战报精简版】
-        统一为分钟数据计算所有必需的战术指标，仅保留VWAP。
-        """
-        if df_minute is None or df_minute.empty:
-            return None
-        df_enriched = df_minute.copy()
-        # 移除不再需要的KDJ计算
-        # VWAP (为公理二：支配共识服务)
-        df_enriched = await self.calculator.calculate_vwap(df_enriched)
-        return df_enriched
-
-    async def run_intraday_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V4.2 · 全面向量化版】日内诊断总指挥
-        - 核心重构: 移除所有分钟级数据处理逻辑，全面转向处理日线DataFrame。
-                      所有诊断方法现在都基于预计算的日线级信号进行向量化计算，并返回Series。
+        【V4.3 · 同步执行版】日内诊断总指挥
+        - 核心重构: 移除所有 async/await 关键字，改为同步执行，以符合CPU密集型任务的最佳实践并与其他情报引擎保持一致。
         """
         # --- 引擎启动探针 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -68,7 +53,6 @@ class IntradayBehaviorEngine:
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         processed_date_str = "未知日期"
         if not df.empty:
-            # [代码修改] 使用df.index.min()和max()来表示处理的数据范围
             start_date_str = df.index.min().strftime('%Y-%m-%d')
             end_date_str = df.index.max().strftime('%Y-%m-%d')
             processed_date_str = f"{start_date_str} to {end_date_str}"
@@ -78,11 +62,10 @@ class IntradayBehaviorEngine:
             if not df.empty:
                 print(f"    - 日线数据行数: {len(df)}")
         # --- 探针结束 ---
-        print("启动【V4.2 · 全面向量化版】日内行为诊断...") # [代码修改] 更新版本号和描述
-        # [代码修改开始] 移除分钟数据准备步骤，直接使用传入的日线df
+        print("启动【V4.3 · 同步执行版】日内行为诊断...") # [代码修改] 更新版本号和描述
+        # [代码修改] 移除对 _prepare_intraday_indicators 的调用
         if df is None or df.empty:
             print("日线数据为空，无法进行日内行为诊断。")
-            # [代码修改] 返回空的Series字典
             return {
                 "SCORE_INTRADAY_OFFENSIVE_PURITY": pd.Series(dtype=np.float64),
                 "SCORE_INTRADAY_DOMINANCE_CONSENSUS": pd.Series(dtype=np.float64),
@@ -94,27 +77,25 @@ class IntradayBehaviorEngine:
                 "SCORE_INTRADAY_FINAL_ASSAULT": pd.Series(dtype=np.float64),
                 "SCORE_INTRADAY_VWAP_BATTLEFIELD": pd.Series(dtype=np.float64),
             }
-        tasks = [
-            self._diagnose_offensive_purity(df),
-            self._diagnose_dominance_consensus(df),
-            self._diagnose_conviction_reversal(df),
-            self._diagnose_tactical_arc(df),
-            self._diagnose_auction_intent(df),
-            self._diagnose_recovery_quality(df),
-            self._diagnose_ambush_and_flank(df),
-            self._diagnose_final_assault(df),
-            self._diagnose_vwap_battlefield(df),
+        diagnostics_to_run = [
+            self._diagnose_offensive_purity,
+            self._diagnose_dominance_consensus,
+            self._diagnose_conviction_reversal,
+            self._diagnose_tactical_arc,
+            self._diagnose_auction_intent,
+            self._diagnose_recovery_quality,
+            self._diagnose_ambush_and_flank,
+            self._diagnose_final_assault,
+            self._diagnose_vwap_battlefield,
         ]
-        # [代码修改结束]
-        results = await asyncio.gather(*tasks)
         final_scores = {}
-        for res_dict in results:
-            final_scores.update(res_dict)
-        # [代码修改] 探针现在在各个子方法中实现，此处打印简要完成信息
+        for diagnostic_func in diagnostics_to_run:
+            result = diagnostic_func(df)
+            final_scores.update(result)
         print(f"日内行为诊断完成，生成 {len(final_scores)} 个信号序列。")
         return final_scores
 
-    async def _diagnose_offensive_purity(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_offensive_purity(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.0 · 日线信号重构版】日内战报之一：诊断“进攻纯度”
         - 核心重构: 废除所有分钟级计算，转为直接使用数据层提供的、预计算好的日线级信号 `intraday_offensive_purity_D`。
@@ -145,7 +126,7 @@ class IntradayBehaviorEngine:
         # [代码修改结束]
         return {signal_name: final_score}
 
-    async def _diagnose_dominance_consensus(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_dominance_consensus(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.0 · 日线信号重构版】日内战报之二：诊断“支配共识”
         - 核心重构: 废除所有分钟级计算，转为直接使用数据层提供的、预计算好的日线级信号 `intraday_dominance_consensus_D`。
@@ -176,7 +157,7 @@ class IntradayBehaviorEngine:
         # [代码修改结束]
         return {signal_name: final_score}
 
-    async def _diagnose_conviction_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_conviction_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V1.5 · 向量化重构版】日内战报之三：诊断“信念反转”
         - 核心重构: 对整个方法进行向量化重构，使其能够处理完整的日线数据DataFrame并为每一天生成分数，而不是仅处理第一天。
@@ -233,7 +214,7 @@ class IntradayBehaviorEngine:
         # [代码修改结束]
         return {"SCORE_INTRADAY_CONVICTION_REVERSAL": final_score.clip(-1, 1)}
 
-    async def _diagnose_tactical_arc(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_tactical_arc(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.0 · 日线信号重构版】日内叙事之一：诊断“战术弧线”
         - 核心重构: 废除所有分钟级计算，转为直接使用数据层提供的、预计算好的日线级信号 `intraday_tactical_arc_D`。
@@ -264,7 +245,7 @@ class IntradayBehaviorEngine:
         # [代码修改结束]
         return {signal_name: final_score}
 
-    async def _diagnose_auction_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_auction_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V1.1 · 向量化重构版】日内叙事之二：诊断“竞价意图”
         - 核心重构: 对整个方法进行向量化重构，使其能够处理完整的日线数据DataFrame并为每一天生成分数。
@@ -304,7 +285,7 @@ class IntradayBehaviorEngine:
         # [代码修改结束]
         return {"SCORE_INTRADAY_AUCTION_INTENT": final_score.clip(-1, 1)}
 
-    async def _diagnose_recovery_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_recovery_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.0 · 日线信号重构版】日内叙事之三：诊断“修复质量”
         - 核心重构: 废除所有分钟级计算，转为直接使用数据层提供的、预计算好的日线级信号 `intraday_recovery_quality_D`。
@@ -335,7 +316,7 @@ class IntradayBehaviorEngine:
         # [代码修改结束]
         return {signal_name: final_score.clip(0, 1)}
 
-    async def _diagnose_ambush_and_flank(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_ambush_and_flank(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V1.2 · 向量化重构版】日内诡道之一：诊断“伏击与侧翼”
         - 核心重构: 对整个方法进行向量化重构，使其能够处理完整的日线数据DataFrame并为每一天生成分数。
@@ -387,7 +368,7 @@ class IntradayBehaviorEngine:
         # [代码修改结束]
         return {"SCORE_INTRADAY_AMBUSH_AND_FLANK": final_score.clip(0, 1)}
 
-    async def _diagnose_final_assault(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_final_assault(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.0 · 日线信号重构版】日内诡道之二：诊断“终末强袭”
         - 核心重构: 废除所有分钟级计算，转为融合数据层提供的三个核心日线级信号：尾盘攻击强度、加速度和收盘竞价意图。
@@ -432,7 +413,7 @@ class IntradayBehaviorEngine:
         # [代码修改结束]
         return {signal_name: final_score.clip(-1, 1)}
 
-    async def _diagnose_vwap_battlefield(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_vwap_battlefield(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V1.2 · 向量化重构版】日内诡道之三：诊断“VWAP攻防”
         - 核心重构: 对整个方法进行向量化重构，使其能够处理完整的日线数据DataFrame并为每一天生成分数。

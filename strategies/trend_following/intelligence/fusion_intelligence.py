@@ -179,33 +179,72 @@ class FusionIntelligence:
 
     def _synthesize_stagnation_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 依赖净化版】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
-        - 核心修复: 将对已废弃的 `FUSION_BIPOLAR_UPPER_SHADOW_INTENT` 的依赖，
-                    升级为对行为层更权威的 `SCORE_BEHAVIOR_DISTRIBUTION_INTENT` 信号的依赖。
+        【V3.0 · 内腐外强版】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
+        - 核心重构: 废弃V2.1的“症状清单”模型，引入“内腐外强”背离审判模型。
+        - 核心公式: 滞涨风险 = (内部腐化度 × 外部强势幻象)^(1/2)
+        - 诡道哲学: 最大的风险，源于内部趋势质量的腐化与外部价格强势的假象之间的
+                      致命背离，此乃“温水煮蛙”之局。
         """
+        print("  -- [融合层] 正在冶炼“滞涨风险”...")
         states = {}
         df_index = df.index
-        stagnation_evidence_raw = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.0)
-        price_overextension_risk = self._get_atomic_score(df, 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs()
-        # 替换为更权威的派发意图信号
-        distribution_intent_risk = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
-        fund_flow_bearish_risk = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(upper=0).abs()
-        chip_dispersion_risk = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(upper=0).abs()
-        profit_taking_supply_risk = normalize_score(self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_synthesize_stagnation_risk"), df_index, window=55, ascending=True).clip(0, 1)
-        trend_confirmation_risk = (1 - self._get_atomic_score(df, 'CONTEXT_TREND_CONFIRMED', 0.0)).clip(0, 1)
-        retail_fomo_risk = normalize_score(self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name="_synthesize_stagnation_risk"), df_index, window=55, ascending=True).clip(0, 1)
+        # --- 1. [修改] 信号升维：定义“内腐”与“外强”两大阵营 ---
+        # 阵营一：内部腐化度 (Internal Decay) - 趋势的内在病根
+        trend_quality = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
+        trend_quality_decay = -trend_quality.diff(1).fillna(0.0).clip(upper=0) # 核心病根：趋势质量衰减
+        distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
+        fund_flow_bearish = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(upper=0).abs()
+        chip_dispersion = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(upper=0).abs()
+        stagnation_evidence = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.0)
+        # 阵营二：外部强势幻象 (External Strength Illusion) - 迷惑性的表象
+        price_overextension = self._get_atomic_score(df, 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs()
+        profit_taking_supply = normalize_score(self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_synthesize_stagnation_risk"), df_index, window=55, ascending=True).clip(0, 1)
+        retail_fomo = normalize_score(self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name="_synthesize_stagnation_risk"), df_index, window=55, ascending=True).clip(0, 1)
+        # 最终场景过滤器
         is_price_stagnant_or_rising = (self._get_safe_series(df, 'pct_change_D', method_name="_synthesize_stagnation_risk") >= -0.005).astype(float)
-        risk_components = [
-            stagnation_evidence_raw, price_overextension_risk, distribution_intent_risk,
-            fund_flow_bearish_risk, chip_dispersion_risk, profit_taking_supply_risk,
-            trend_confirmation_risk, retail_fomo_risk
-        ]
-        weights = np.array([0.15, 0.15, 0.15, 0.15, 0.15, 0.10, 0.05, 0.10])
-        aligned_risk_components = [comp.reindex(df_index, fill_value=0.0) for comp in risk_components]
-        safe_risk_components = [comp + 1e-9 for comp in aligned_risk_components]
-        stagnation_risk_score = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_risk_components, weights)], axis=0), index=df_index)
-        final_stagnation_risk = (stagnation_risk_score * is_price_stagnant_or_rising).clip(0, 1)
+        # --- 2. [修改] 核心数学逻辑 - 背离审判 ---
+        # 2.1 计算“内部腐化度” (几何平均，体现症状共振)
+        internal_decay_components = {
+            '趋势质量衰减': (trend_quality_decay, 0.30),
+            '派发意图': (distribution_intent, 0.25),
+            '资金流出': (fund_flow_bearish, 0.15),
+            '筹码分散': (chip_dispersion, 0.15),
+            '微观滞涨': (stagnation_evidence, 0.15),
+        }
+        internal_decay_score = pd.Series(1.0, index=df_index)
+        for name, (comp, weight) in internal_decay_components.items():
+            internal_decay_score *= (comp.clip(lower=1e-9) ** weight)
+        # 2.2 计算“外部强势幻象” (加权平均)
+        external_illusion_score = (
+            price_overextension * 0.4 +
+            retail_fomo * 0.4 +
+            profit_taking_supply * 0.2
+        ).clip(0, 1)
+        # 2.3 最终融合：内腐 × 外强
+        raw_stagnation_risk = (internal_decay_score * external_illusion_score).pow(0.5).fillna(0.0)
+        final_stagnation_risk = (raw_stagnation_risk * is_price_stagnant_or_rising).clip(0, 1)
         states['FUSION_RISK_STAGNATION'] = final_stagnation_risk.astype(np.float32)
+        # --- 3. [新增] 植入究极探针 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates = debug_params.get('probe_dates', [])
+        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
+            print(f"\n--- [滞涨风险究极探针 V3.0 · 内腐外强版] ---")
+            last_date_index = -1
+            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+            print("  [第一层 - 内腐诊断 (Internal Decay Diagnosis)]:")
+            for name, (comp, weight) in internal_decay_components.items():
+                print(f"    - 原料: {name}: {comp.iloc[last_date_index]:.4f} (权重: {weight})")
+            print(f"    - -> 内部腐化度 (几何平均): {internal_decay_score.iloc[last_date_index]:.4f}")
+            print("  [第二层 - 外强幻象诊断 (External Strength Illusion Diagnosis)]:")
+            print(f"    - 原料: 价格超买风险: {price_overextension.iloc[last_date_index]:.4f}")
+            print(f"    - 原料: 散户FOMO风险: {retail_fomo.iloc[last_date_index]:.4f}")
+            print(f"    - 原料: 获利盘供给: {profit_taking_supply.iloc[last_date_index]:.4f}")
+            print(f"    - -> 外部强势幻象 (加权平均): {external_illusion_score.iloc[last_date_index]:.4f}")
+            print("  [最终裁决 (Final Judgment)]:")
+            print(f"    - 原始风险 (内腐×外强)^0.5: {raw_stagnation_risk.iloc[last_date_index]:.4f}")
+            print(f"    - 价格过滤器 (价格是否未跌): {is_price_stagnant_or_rising.iloc[last_date_index]:.1f}")
+            print(f"    - -> 最终滞涨风险: {final_stagnation_risk.iloc[last_date_index]:.4f}")
+            print("--- [探针结束] ---\n")
         print(f"  -- [融合层] “滞涨风险”冶炼完成，最新分值: {final_stagnation_risk.iloc[-1]:.4f}")
         return states
 
@@ -435,7 +474,7 @@ class FusionIntelligence:
         """
         print("  -- [融合层] 正在冶炼“博弈吸筹”...")
         states = {}
-        # 1. [修改] 信号升维：定义“战场”、“裁决”、“背景”三大支柱
+        # 1. 信号升维：定义“战场”、“裁决”、“背景”三大支柱
         # 支柱一：战场识别 (识别权力交接的战场)
         stealth_ops = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
         distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
@@ -444,35 +483,16 @@ class FusionIntelligence:
         absorption_strength = self._get_atomic_score(df, 'SCORE_BEHAVIOR_ABSORPTION_STRENGTH', 0.0)
         # 支柱三：战略背景 (确保战术服务于战略)
         trend_quality = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0).clip(lower=0)
-        # 2. [修改] 核心数学逻辑 - 三位一体审判
+        # 2. 核心数学逻辑 - 三位一体审判
         # 2.1 计算“战场识别分”
         battlefield_score = (stealth_ops * distribution_intent).pow(0.5).fillna(0.0)
-        # 2.2 [新增] 计算“吸收裁决分”
+        # 2.2 计算“吸收裁决分”
         absorption_verdict = (downward_resistance * 0.5 + absorption_strength * 0.5).clip(0, 1)
         # 2.3 最终融合：三者相乘，体现“缺一不可”的严苛逻辑
         final_score = (battlefield_score * absorption_verdict * trend_quality).clip(0, 1)
         output_name = 'FUSION_OPPORTUNITY_CONTESTED_ACCUMULATION'
         states[output_name] = final_score.astype(np.float32)
-        # 3. [新增] 植入究极探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates = debug_params.get('probe_dates', [])
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [博弈吸筹究极探针 V2.0 · 吸收裁决版] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [第一层 - 战场识别 (Battlefield Identification)]:")
-            print(f"    - 原料: 隐秘行动分: {stealth_ops.iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 派发意图分: {distribution_intent.iloc[last_date_index]:.4f}")
-            print(f"    - -> 战场识别分 (两者几何平均): {battlefield_score.iloc[last_date_index]:.4f}")
-            print("  [第二层 - 吸收裁决 (Absorption Verdict)]:")
-            print(f"    - 原料: 下跌抵抗分: {downward_resistance.iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 下跌吸筹强度分: {absorption_strength.iloc[last_date_index]:.4f}")
-            print(f"    - -> 吸收裁决分 (两者加权): {absorption_verdict.iloc[last_date_index]:.4f}")
-            print("  [第三层 - 战略背景 (Strategic Context)]:")
-            print(f"    - 战略背景: 趋势质量分: {trend_quality.iloc[last_date_index]:.4f}")
-            print("  [最终裁决 (Final Judgment)]:")
-            print(f"    - 最终博弈吸筹分 (三者相乘): {final_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “博弈吸筹”冶炼完成，最新分值: {final_score.iloc[-1]:.4f}")
         return states
 
