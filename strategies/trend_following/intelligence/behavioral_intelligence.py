@@ -195,9 +195,9 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V34.4 · 滞涨升维适配版】原子信号中心
-        - 核心升级: 适配了 V4.0 "信念危机版" 的 `_diagnose_stagnation_evidence` 方法，
-                      在 `required_signals` 中加入了新的依赖信号。
+        【V34.5 · 攻防一体化适配版】原子信号中心
+        - 核心升级: 适配了 V5.0 "派发罪证链" 和 V3.0 "战略反击许可" 模型，
+                      并调整了内部调用顺序以确保逻辑依赖的正确性。
         """
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
@@ -219,7 +219,7 @@ class BehavioralIntelligence:
             'deception_index_D', 'wash_trade_intensity_D', 'closing_auction_ambush_D', 'mf_retail_battle_intensity_D',
             'main_force_conviction_index_D', 'SLOPE_5_loser_pain_index_D',
             'pressure_rejection_strength_D', 'active_buying_support_D', 'vwap_control_strength_D',
-            'SLOPE_5_winner_stability_index_D' # [新增依赖] 确保滞涨计算所需的核心信号被校验
+            'SLOPE_5_winner_stability_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_behavioral_axioms"):
             print("    -> [行为情报引擎] 核心公理诊断失败，行为分析中止。")
@@ -251,14 +251,14 @@ class BehavioralIntelligence:
         states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
         intraday_bull_control_score = self._diagnose_intraday_bull_control(df, default_weights)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
-        # [修改的代码行] 调用新版滞涨诊断方法
         stagnation_evidence = self._diagnose_stagnation_evidence(df, states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'])
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence
         lower_shadow_quality = self._diagnose_lower_shadow_quality(df, stagnation_evidence)
-        distribution_intent = self._calculate_distribution_intent(df, default_weights)
-        offensive_absorption_intent = self._diagnose_offensive_absorption_intent(df, lower_shadow_quality)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
+        # [修改的代码行] 调整调用顺序，确保“派发意图”先于“进攻性承接”计算
+        distribution_intent = self._diagnose_distribution_intent(df, default_weights)
         states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] = distribution_intent
+        offensive_absorption_intent = self._diagnose_offensive_absorption_intent(df, lower_shadow_quality, distribution_intent)
         states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = offensive_absorption_intent
         states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] = self._diagnose_ambush_counterattack(df, offensive_absorption_intent)
         states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = self._diagnose_breakout_failure_risk(df, distribution_intent)
@@ -578,7 +578,7 @@ class BehavioralIntelligence:
 
     def _diagnose_stagnation_evidence(self, df: pd.DataFrame, upward_efficiency: pd.Series) -> pd.Series:
         """
-        【V4.0 · 信念危机版】诊断内部行为信号：滞涨证据
+        【V4.1 · 生产版】诊断内部行为信号：滞涨证据
         - 核心重构: 废弃了基于“战术僵化”的 V3.9 模型。引入基于“信念危机”思想的全新
                       双维度诊断模型，旨在区分“良性蓄势”与“恶性派发”的滞涨。
         - 信念危机双维度:
@@ -602,23 +602,19 @@ class BehavioralIntelligence:
         conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
         winner_stability_slope_raw = self._get_safe_series(df, 'SLOPE_5_winner_stability_index_D', 0.0, method_name="_diagnose_stagnation_evidence")
         # --- 2. 维度一：微观战局僵持 (Micro-Battlefield Stalemate) ---
-        # [修改的代码行] 沿用并优化“多头衰竭”的计算
         inefficiency_score = (1 - upward_efficiency).clip(0, 1)
         momentum_decay_score = get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
         chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df_index, ascending=True, tf_weights=default_weights)
         bullish_exhaustion_score = (inefficiency_score * momentum_decay_score * chip_fatigue_score).pow(1/3).fillna(0.0)
-        # [修改的代码行] 重构“空头伏击”的计算，形成三点证据链
         rally_pressure_score = get_adaptive_mtf_normalized_score(rally_pressure_raw, df_index, ascending=True, tf_weights=default_weights)
         upper_shadow_score = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df_index, ascending=True, tf_weights=default_weights)
         mf_alpha_filtered = self._apply_neutral_zone_filter(mf_alpha_raw, alpha_threshold)
         mf_distribution_evidence = get_adaptive_mtf_normalized_score(mf_alpha_filtered.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
         bearish_ambush_score = (rally_pressure_score * upper_shadow_score * mf_distribution_evidence).pow(1/3).fillna(0.0)
-        # 使用和谐共振模型融合
         total_energy = (bullish_exhaustion_score + bearish_ambush_score) / 2
         balance_factor = 1 - (bullish_exhaustion_score - bearish_ambush_score).abs()
         micro_stalemate_score = (total_energy * balance_factor).fillna(0.0)
         # --- 3. 维度二：宏观信念动摇 (Macro-Conviction Erosion) ---
-        # [修改的代码行] 全新构建“宏观信念动摇”维度
         profit_pressure_score = get_adaptive_mtf_normalized_score(winner_rate_raw, df_index, ascending=True, tf_weights=default_weights)
         conviction_decay_score = get_adaptive_mtf_normalized_score(conviction_slope_raw.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
         instability_score = get_adaptive_mtf_normalized_score(winner_stability_slope_raw.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
@@ -627,6 +623,41 @@ class BehavioralIntelligence:
         stagnation_evidence = (micro_stalemate_score * 0.6 + macro_erosion_score * 0.4)
         is_rising_or_flat = (pct_change >= -0.005).astype(float)
         final_stagnation_evidence = (stagnation_evidence * is_rising_or_flat).clip(0, 1)
+        # [修改的代码行] 移除探针代码，恢复生产版本
+        return final_stagnation_evidence.astype(np.float32)
+
+    def _diagnose_lower_shadow_quality(self, df: pd.DataFrame, stagnation_evidence: pd.Series) -> pd.Series:
+        """
+        【V12.0 · 伏击战役版】诊断下影线承接品质。
+        - 核心重构: 废弃了基于“法医式”K线形态拼凑的 V11.0 模型。引入基于“伏击战役”
+                      思想的全新三位一体诊断模型，旨在审判整个“诱空-反击”的战役全过程。
+        - 伏击战役三要素:
+          1. 战役背景 (The Lure): 审判是否存在真实的恐慌抛盘，为伏击提供前提。采用 `panic_selling_cascade_D`。
+          2. 核心行动 (The Ambush): 审判主力在下跌中是否发动了主动、持续的反击。采用 `active_buying_support_D`。
+          3. 战役结果 (The Victory): 审判反击是否成功收复失地，巩固战果。采用 `closing_strength_index_D`。
+        - 数学模型: 品质分 = (背景分^0.3 * 行动分^0.4 * 结果分^0.3) * 滞涨压制器
+        """
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # --- 1. 维度一：获取伏击战役三要素的原始数据 ---
+        context_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_lower_shadow_quality")
+        action_raw = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_diagnose_lower_shadow_quality")
+        outcome_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_lower_shadow_quality")
+        # --- 2. 维度一：计算伏击战役基础品质分 ---
+        context_score = get_adaptive_mtf_normalized_score(context_raw, df.index, ascending=True, tf_weights=default_weights)
+        action_score = get_adaptive_mtf_normalized_score(action_raw, df.index, ascending=True, tf_weights=default_weights)
+        outcome_score = normalize_score(outcome_raw, df.index, 55)
+        # [修改的代码行] 采用加权几何平均，融合“伏击战役”三要素
+        base_quality_score = (
+            (context_score + 1e-9).pow(0.3) *
+            (action_score + 1e-9).pow(0.4) *
+            (outcome_score + 1e-9).pow(0.3)
+        ).fillna(0.0)
+        # --- 3. 维度二：构建战略环境压制器 ---
+        stagnation_suppressor = (1 - stagnation_evidence).clip(0, 1)
+        # --- 4. 最终合成 ---
+        final_lower_shadow_quality = (base_quality_score * stagnation_suppressor).clip(0, 1)
         # --- 深度战术探针 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -636,132 +667,49 @@ class BehavioralIntelligence:
             valid_probe_dates = [d for d in probe_timestamps if d in df.index]
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _diagnose_stagnation_evidence @ {probe_date_str}")
-                print(f"        --- [维度一: 微观战局僵持] ---")
-                print(f"          - 多头衰竭原始值: 效率分={upward_efficiency.loc[probe_ts]:.2f}, 价格加速度={price_accel.loc[probe_ts]:.2f}, 筹码疲劳={chip_fatigue_raw.loc[probe_ts]:.2f}")
-                print(f"          - 空头伏击原始值: 反弹派发={rally_pressure_raw.loc[probe_ts]:.2f}, 上影线压力={upper_shadow_pressure_raw.loc[probe_ts]:.2f}, 主力Alpha={mf_alpha_raw.loc[probe_ts]:.4f}")
-                print(f"          - 多头衰竭分: {bullish_exhaustion_score.loc[probe_ts]:.4f}")
-                print(f"          - 空头伏击分: {bearish_ambush_score.loc[probe_ts]:.4f}")
-                print(f"          - 微观战局僵持分(共振模型): {micro_stalemate_score.loc[probe_ts]:.4f} (总能量={total_energy.loc[probe_ts]:.2f}, 均衡度={balance_factor.loc[probe_ts]:.2f})")
-                print(f"        --- [维度二: 宏观信念动摇] ---")
-                print(f"          - 原始值: 获利盘率={winner_rate_raw.loc[probe_ts]:.2f}, 信念斜率={conviction_slope_raw.loc[probe_ts]:.2f}, 获利盘稳定斜率={winner_stability_slope_raw.loc[probe_ts]:.2f}")
-                print(f"          - 要素得分: 获利盘压力分={profit_pressure_score.loc[probe_ts]:.4f}, 信念衰减分={conviction_decay_score.loc[probe_ts]:.4f}, 筹码失稳分={instability_score.loc[probe_ts]:.4f}")
-                print(f"          - 宏观信念动摇分: {macro_erosion_score.loc[probe_ts]:.4f}")
-                print(f"        --- [最终合成] ---")
-                print(f"        - 融合滞涨证据分: {stagnation_evidence.loc[probe_ts]:.4f}")
-                print(f"        - 最终滞涨证据分 (过滤后): {final_stagnation_evidence.loc[probe_ts]:.4f} (is_rising_or_flat={is_rising_or_flat.loc[probe_ts]:.0f})")
-        return final_stagnation_evidence.astype(np.float32)
-
-    def _diagnose_lower_shadow_quality(self, df: pd.DataFrame, stagnation_evidence: pd.Series) -> pd.Series:
-        """
-        【V11.0 · 关键证据否决权版】诊断下影线承接品质。
-        - 核心重构 (基础分): 废弃加权算术平均，采用加权几何平均。这确保了当最关键的
-                            “意图分”为零时，整个基础品质分被一票否决，直接归零。
-        - 核心重构 (放大器): 简化为“门控放大器”，由“恐慌承接度”直接控制，逻辑更清晰。
-        """
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        p_thresholds = get_param_value(p_conf.get('neutral_zone_thresholds'), {})
-        ambush_threshold = get_param_value(p_thresholds.get('main_force_execution_alpha_D'), 0.0)
-        # --- 1. 计算基础K线品质分 ---
-        magnitude_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_lower_shadow_quality")
-        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_lower_shadow_quality")
-        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_diagnose_lower_shadow_quality").replace(0, 1e-9)
-        location_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_diagnose_lower_shadow_quality")
-        magnitude_score = get_adaptive_mtf_normalized_score(magnitude_raw, df.index, ascending=True, tf_weights=default_weights)
-        flow_ratio = main_force_flow / amount
-        intent_score = get_adaptive_mtf_normalized_score(flow_ratio.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
-        location_score = get_adaptive_mtf_normalized_score(location_raw, df.index, ascending=True, tf_weights=default_weights)
-        # [修改的代码行] 升级为加权几何平均，实现“一票否决”
-        base_quality_score = (
-            (magnitude_score + 1e-9).pow(0.3) *
-            (intent_score + 1e-9).pow(0.5) *
-            (location_score + 1e-9).pow(0.2)
-        ).fillna(0.0)
-        # --- 2. 构建双向奖惩机制和新的放大器 ---
-        panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_lower_shadow_quality")
-        capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_lower_shadow_quality")
-        ambush_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_lower_shadow_quality")
-        ambush_raw_filtered = self._apply_neutral_zone_filter(ambush_raw, ambush_threshold)
-        ambush_intent_score = get_adaptive_mtf_normalized_bipolar_score(ambush_raw_filtered, df.index, default_weights)
-        active_neutral_modulator = (0.95 + ambush_intent_score * 0.55).clip(0, 2)
-        modulated_quality_score = base_quality_score * active_neutral_modulator
-        panic_absorption_score = get_adaptive_mtf_normalized_score((panic_raw * capitulation_raw).pow(0.5), df.index, ascending=True, tf_weights=default_weights)
-        # [修改的代码行] 简化为“门控放大器”
-        context_amplifier = 1 + panic_absorption_score
-        # --- 3. 非线性合成 ---
-        provisional_final_quality = (modulated_quality_score * context_amplifier).clip(0, 1)
-        stagnation_suppressor = (1 - stagnation_evidence).clip(0, 1)
-        final_lower_shadow_quality = provisional_final_quality * stagnation_suppressor
-        # --- 探针监测 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_lower_shadow_quality @ {probe_date_str}")
-                # [修改的代码行] 更新探针以反映几何平均模型
-                print(f"        - 基础品质分(几何平均): {base_quality_score.loc[probe_ts]:.4f} (幅度={magnitude_score.loc[probe_ts]:.2f}, 意图={intent_score.loc[probe_ts]:.2f}, 位置={location_score.loc[probe_ts]:.2f})")
-                print(f"        - 伏击意图(主动中性): {ambush_intent_score.loc[probe_ts]:.4f} (原始Alpha={ambush_raw.loc[probe_ts]:.6f}) -> 调制乘数={active_neutral_modulator.loc[probe_ts]:.4f} -> 调制后品质分: {modulated_quality_score.loc[probe_ts]:.4f}")
-                # [修改的代码行] 更新探针以反映门控放大器
-                print(f"        - 门控放大器(新): 恐慌承接度={panic_absorption_score.loc[probe_ts]:.4f} -> 放大倍数={context_amplifier.loc[probe_ts]:.4f}")
-                print(f"        - 滞涨压制器: {stagnation_suppressor.loc[probe_ts]:.4f} (滞涨证据分={stagnation_evidence.loc[probe_ts]:.4f}) -> 压制前品质分: {provisional_final_quality.loc[probe_ts]:.4f}")
-                print(f"        - 最终下影线品质分(压制后): {final_lower_shadow_quality.loc[probe_ts]:.4f}")
+                print(f"        --- [维度一: 伏击战役三要素] ---")
+                print(f"          - 原始值: 战役背景(恐慌级联)={context_raw.loc[probe_ts]:.2f}, 核心行动(主动买盘)={action_raw.loc[probe_ts]:.2f}, 战役结果(收盘强度)={outcome_raw.loc[probe_ts]:.2f}")
+                print(f"          - 要素得分: 背景分={context_score.loc[probe_ts]:.4f}, 行动分={action_score.loc[probe_ts]:.4f}, 结果分={outcome_score.loc[probe_ts]:.4f}")
+                print(f"          - 基础品质分(几何平均): {base_quality_score.loc[probe_ts]:.4f}")
+                print(f"        --- [维度二: 战略环境压制器] ---")
+                print(f"          - 原始滞涨证据分: {stagnation_evidence.loc[probe_ts]:.4f}")
+                print(f"          - 滞涨压制器乘数: {stagnation_suppressor.loc[probe_ts]:.4f}")
+                print(f"        --- [最终合成] ---")
+                print(f"        - 最终下影线品质分 (压制后): {final_lower_shadow_quality.loc[probe_ts]:.4f}")
         return final_lower_shadow_quality.astype(np.float32)
 
-    def _calculate_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
+    def _diagnose_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.7 · 语义净化版】计算派发意图
-        - 核心修复: 对 `rally_distribution_pressure_D` 应用 `.clip(lower=0)` 进行语义净化，
-                      确保只有正值的“派发压力”才能被视为有效证据，彻底解决了因负值
-                      导致归一化结果与业务逻辑相悖的“语义错配谬误”。
+        【V5.0 · 派发罪证链版】诊断派发意图。
+        - 核心重构: 废弃了基于单一卖压结果的 V4.0 模型。引入基于“动机-凶器-指纹”
+                      三位一体的“罪证链”诊断模型，旨在审判一次完整的派发行为。
+        - 派发罪证链三要素:
+          1. 动机 (Motive): 审判市场是否存在强烈的获利了结动机。采用 `profit_taking_flow_ratio_D`。
+          2. 凶器 (Weapon): 审判是否存在反弹受阻或冲高回落的卖压行为。融合 `rally_distribution_pressure_D` 和 `upper_shadow_selling_pressure_D`。
+          3. 指纹 (Fingerprint): 审判主力是否留下了“言行不一”的隐蔽派发痕迹。采用 `main_force_execution_alpha_D` 的负值部分。
+        - 数学模型: 派发分 = (动机分^0.2 * 凶器分^0.4 * 指纹分^0.4)
         """
-        required_signals = [
-            'rally_distribution_pressure_D', 'upper_shadow_selling_pressure_D',
-            'profit_taking_flow_ratio_D', 'main_force_execution_alpha_D',
-            'SLOPE_5_main_force_conviction_index_D', 'closing_strength_index_D'
-        ]
-        if not self._validate_required_signals(df, required_signals, "_calculate_distribution_intent"):
-            return pd.Series(0.0, index=df.index)
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_thresholds = get_param_value(p_conf.get('neutral_zone_thresholds'), {})
-        alpha_threshold = get_param_value(p_thresholds.get('main_force_execution_alpha_D'), 0.0)
-        # --- 五维证据链归一化 ---
-        # [修改的代码行] 对原始信号进行语义净化
-        rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_calculate_distribution_intent").clip(lower=0)
-        process_evidence = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
-        upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_calculate_distribution_intent")
-        outcome_evidence = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
-        profit_taking_raw = self._get_safe_series(df, 'profit_taking_flow_ratio_D', 0.0, method_name="_calculate_distribution_intent")
-        flow_evidence = get_adaptive_mtf_normalized_score(profit_taking_raw, df.index, ascending=True, tf_weights=tf_weights)
-        mf_alpha_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_calculate_distribution_intent")
-        mf_alpha_filtered = self._apply_neutral_zone_filter(mf_alpha_raw, alpha_threshold)
-        mf_alpha_bearish = abs(mf_alpha_filtered.clip(upper=0))
-        main_force_evidence = get_adaptive_mtf_normalized_score(mf_alpha_bearish, df.index, ascending=True, tf_weights=tf_weights)
-        conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_calculate_distribution_intent")
-        conviction_decay = abs(conviction_slope_raw.clip(upper=0))
-        conviction_evidence = get_adaptive_mtf_normalized_score(conviction_decay, df.index, ascending=True, tf_weights=tf_weights)
-        base_distribution_intent = (
-            (process_evidence + 1e-9).pow(0.30) *
-            (outcome_evidence + 1e-9).pow(0.20) *
-            (flow_evidence + 1e-9).pow(0.20) *
-            (main_force_evidence + 1e-9).pow(0.15) *
-            (conviction_evidence + 1e-9).pow(0.15)
+        # --- 1. 获取“罪证链”三要素的原始数据 ---
+        motive_raw = self._get_safe_series(df, 'profit_taking_flow_ratio_D', 0.0, method_name="_diagnose_distribution_intent")
+        rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_distribution_intent")
+        upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_distribution_intent")
+        fingerprint_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_distribution_intent")
+        # --- 2. 计算各要素得分 ---
+        motive_score = get_adaptive_mtf_normalized_score(motive_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # [修改的代码行] 将两种卖压行为融合成“凶器”得分
+        rally_pressure_score = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
+        upper_shadow_score = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
+        weapon_score = (rally_pressure_score * 0.5 + upper_shadow_score * 0.5)
+        # [修改的代码行] 提取主力隐蔽派发的“指纹”得分
+        fingerprint_score = get_adaptive_mtf_normalized_score(fingerprint_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
+        # --- 3. “罪证链”三要素合成 ---
+        distribution_intent_score = (
+            (motive_score + 1e-9).pow(0.2) *
+            (weapon_score + 1e-9).pow(0.4) *
+            (fingerprint_score + 1e-9).pow(0.4)
         ).fillna(0.0)
-        # --- 市场接受度放大器 (逻辑不变) ---
-        market_acceptance_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_calculate_distribution_intent")
-        market_acceptance_normalized = normalize_score(market_acceptance_raw, df.index, 55)
-        acceptance_amplifier = 1 + (market_acceptance_normalized * 0.5)
-        # --- 主力控盘能力调节器 (逻辑不变) ---
-        positive_alpha_score = get_adaptive_mtf_normalized_bipolar_score(mf_alpha_filtered, df.index, tf_weights).clip(lower=0)
-        control_modulator = 0.95 + (positive_alpha_score * 0.55)
-        # --- 最终合成 ---
-        distribution_intent_score = (base_distribution_intent * acceptance_amplifier * control_modulator).clip(0, 1)
-        # --- 更新探针逻辑 ---
+        # --- 深度战术探针 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -770,14 +718,12 @@ class BehavioralIntelligence:
             valid_probe_dates = [d for d in probe_timestamps if d in df.index]
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _calculate_distribution_intent @ {probe_date_str}")
-                # [修改的代码行] 更新探针以反映净化后的值
-                print(f"        - 过程证据(新): rally_distribution_pressure_D(净化后) = {rally_pressure_raw.loc[probe_ts]:.2f} -> 归一化分 = {process_evidence.loc[probe_ts]:.4f}")
-                print(f"        - 基础派发意图分(几何平均): {base_distribution_intent.loc[probe_ts]:.4f}")
-                print(f"        - 市场接受度放大器: {acceptance_amplifier.loc[probe_ts]:.4f} (收盘偏离度(原始)={market_acceptance_raw.loc[probe_ts]:.2f}, 净化后={market_acceptance_normalized.loc[probe_ts]:.4f})")
-                print(f"        - 控盘能力调节器(主动中性): {control_modulator.loc[probe_ts]:.4f} (原始Alpha={mf_alpha_raw.loc[probe_ts]:.6f}, 正Alpha分={positive_alpha_score.loc[probe_ts]:.4f})")
-                print(f"        - 最终派发意图分: {distribution_intent_score.loc[probe_ts]:.4f}")
-        return distribution_intent_score.astype(np.float32)
+                print(f"      [行为探针] _diagnose_distribution_intent @ {probe_date_str}")
+                print(f"        --- [派发罪证链三要素] ---")
+                print(f"          - 原始值: 动机(获利盘流比)={motive_raw.loc[probe_ts]:.2f}, 凶器(反弹派压)={rally_pressure_raw.loc[probe_ts]:.2f}, 凶器(上影线)={upper_shadow_pressure_raw.loc[probe_ts]:.2f}, 指纹(主力Alpha)={fingerprint_raw.loc[probe_ts]:.4f}")
+                print(f"          - 要素得分: 动机分={motive_score.loc[probe_ts]:.4f}, 凶器分={weapon_score.loc[probe_ts]:.4f}, 指纹分={fingerprint_score.loc[probe_ts]:.4f}")
+                print(f"          - 最终派发意图分 (罪证链): {distribution_intent_score.loc[probe_ts]:.4f}")
+        return distribution_intent_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
         """
@@ -1037,38 +983,31 @@ class BehavioralIntelligence:
         shakeout_confirmation_score = (precondition_gate_score * internal_confirmation).clip(0, 1)
         return shakeout_confirmation_score.astype(np.float32)
 
-    def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series) -> pd.Series:
+    def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series, distribution_intent: pd.Series) -> pd.Series:
         """
-        【V3.4 · 全证据链几何平均版】诊断进攻性承接意图
-        - 核心重构: 废弃加权算术平均，采用加权几何平均。这确保了四大核心证据
-                      (形态、执行、隐蔽、环境)中任何一个为零，最终意图分都会被
-                      一票否决，彻底解决了“上下文覆盖行为”的逻辑谬误。
+        【V3.0 · 战略反击许可版】诊断进攻性承接意图。
+        - 核心重构: 废弃了孤立看待下影线的 V2.0 模型。引入“战术胜利+战略许可+司令部意志”
+                      三层诊断框架，确保战术行为的战略有效性。
+        - 三层诊断框架:
+          1. 战术胜利 (Tactical Victory): 必须存在一次高质量的下影线承接。采用 `lower_shadow_quality`。
+          2. 战略许可 (Strategic Clearance): 必须在主力未进行战略派发的背景下。使用 `distribution_intent` 作为一票否决压制器。
+          3. 司令部意志 (Commander's Will): 必须得到主力真实信念的支持。采用 `main_force_conviction_index_D` 作为进攻意图放大器。
+        - 数学模型: 意图分 = (战术胜利分 * 战略许可压制器) * 司令部意志放大器
         """
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        p_thresholds = get_param_value(p_conf.get('neutral_zone_thresholds'), {})
-        execution_threshold = get_param_value(p_thresholds.get('main_force_execution_alpha_D'), 0.0)
-        covert_ops_threshold = get_param_value(p_thresholds.get('covert_accumulation_signal_D'), 0.0)
-        # 1. 获取四维评估的原始数据 (逻辑不变)
-        morphology_score = lower_shadow_quality
-        execution_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
-        covert_ops_raw = self._get_safe_series(df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
-        context_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
-        # 2. 归一化各维度证据 (逻辑不变)
-        execution_raw_filtered = self._apply_neutral_zone_filter(execution_raw, execution_threshold)
-        execution_score = get_adaptive_mtf_normalized_bipolar_score(execution_raw_filtered, df.index, default_weights).clip(lower=0)
-        covert_ops_raw_filtered = self._apply_neutral_zone_filter(covert_ops_raw, covert_ops_threshold)
-        covert_ops_score = get_adaptive_mtf_normalized_bipolar_score(covert_ops_raw_filtered, df.index, default_weights).clip(lower=0)
-        context_score = get_adaptive_mtf_normalized_score(context_raw, df.index, ascending=True, tf_weights=default_weights)
-        # 3. 升级为加权几何平均融合
-        offensive_absorption_intent = (
-            (morphology_score + 1e-9).pow(0.20) *
-            (execution_score + 1e-9).pow(0.35) *
-            (covert_ops_score + 1e-9).pow(0.25) *
-            (context_score + 1e-9).pow(0.20)
-        ).fillna(0.0)
-        # --- 探针监测 ---
+        # --- 1. 获取“司令部意志”原始数据 ---
+        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_offensive_absorption_intent")
+        # --- 2. 构建三层诊断框架 ---
+        # 基础层：战术胜利分
+        tactical_victory_score = lower_shadow_quality
+        # 过滤层：战略许可压制器
+        strategic_clearance_suppressor = (1 - distribution_intent).clip(0, 1)
+        # 增强层：司令部意志放大器
+        # [修改的代码行] 将主力信念转化为[0.5, 1.5]区间的放大器，中性信念为1.0
+        conviction_amplifier = (normalize_score(conviction_raw.clip(-5, 5), df.index, 55, center_zero=True) + 1.0).clip(0.5, 1.5)
+        # --- 3. 最终合成 ---
+        base_intent_score = tactical_victory_score * strategic_clearance_suppressor
+        final_offensive_absorption_intent = (base_intent_score * conviction_amplifier).clip(0, 1)
+        # --- 深度战术探针 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -1078,13 +1017,12 @@ class BehavioralIntelligence:
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _diagnose_offensive_absorption_intent @ {probe_date_str}")
-                print(f"        - 形态分 (下影线品质): {morphology_score.loc[probe_ts]:.4f}")
-                print(f"        - 执行分 (正Alpha-噪声过滤后): {execution_score.loc[probe_ts]:.4f} (原始值: {execution_raw.loc[probe_ts]:.6f})")
-                print(f"        - 隐蔽分 (隐蔽吸筹-噪声过滤后): {covert_ops_score.loc[probe_ts]:.4f} (原始值: {covert_ops_raw.loc[probe_ts]:.6f})")
-                print(f"        - 环境分 (恐慌级联): {context_score.loc[probe_ts]:.4f} (原始值: {context_raw.loc[probe_ts]:.2f})")
-                # [修改的代码行] 更新探针以反映几何平均模型
-                print(f"        - 最终进攻性承接意图分(几何平均): {offensive_absorption_intent.loc[probe_ts]:.4f}")
-        return offensive_absorption_intent.clip(0, 1).astype(np.float32)
+                print(f"        --- [三层诊断框架] ---")
+                print(f"          - 输入信号: 战术胜利(下影线品质)={tactical_victory_score.loc[probe_ts]:.4f}, 战略风险(派发意图)={distribution_intent.loc[probe_ts]:.4f}, 司令部意志(主力信念)={conviction_raw.loc[probe_ts]:.2f}")
+                print(f"          - 中间计算: 战略许可压制器={strategic_clearance_suppressor.loc[probe_ts]:.4f}, 司令部意志放大器={conviction_amplifier.loc[probe_ts]:.4f}")
+                print(f"          - 基础意图分 (压制后): {base_intent_score.loc[probe_ts]:.4f}")
+                print(f"          - 最终进攻承接意图分 (放大后): {final_offensive_absorption_intent.loc[probe_ts]:.4f}")
+        return final_offensive_absorption_intent.astype(np.float32)
 
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
         """
