@@ -693,7 +693,7 @@ class BehavioralIntelligence:
 
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
         """
-        【V2.0 · 战术意图升维版】诊断伏击式反攻信号
+        【V2.1 · 生产版】诊断伏击式反攻信号
         - 核心重构: 废弃旧的、基于底层特征拼凑的 V1.0 模型。引入基于“因果传导”哲学的
                       分层门控模型，从根本上解决了旧模型的“战术意图错配”和“因果倒置”缺陷。
         - 战术三要素:
@@ -723,26 +723,11 @@ class BehavioralIntelligence:
         quality_modulator = (counterattack_result_score * battlefield_environment_score).pow(0.5).fillna(0.0)
         # --- 3. 分层门控合成 ---
         ambush_counterattack_score = (ambush_process_score * quality_modulator).clip(0, 1)
-        # --- 深度战术探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _diagnose_ambush_counterattack @ {probe_date_str}")
-                print(f"        - 核心基石 (伏击过程): {ambush_process_score.loc[probe_ts]:.4f} (来源: offensive_absorption_intent)")
-                print(f"        - 品质因子 (反击结果): {counterattack_result_score.loc[probe_ts]:.4f} (原始收盘强度: {counterattack_result_raw.loc[probe_ts]:.2f})")
-                print(f"        - 品质因子 (战场环境): {battlefield_environment_score.loc[probe_ts]:.4f} (原始恐慌级联: {battlefield_environment_raw.loc[probe_ts]:.2f})")
-                print(f"        - 综合品质调节器: {quality_modulator.loc[probe_ts]:.4f}")
-                print(f"        - 最终伏击反攻分 (分层门控): {ambush_counterattack_score.loc[probe_ts]:.4f}")
         return ambush_counterattack_score.astype(np.float32)
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series) -> pd.Series:
         """
-        【V2.0 · 诡道意图版】诊断突破失败级联风险
+        【V2.1 · 生产版】诊断突破失败级联风险
         - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-套牢”
                       诡道剧本的全新三维诊断模型，旨在精确识别高迷惑性的“牛市陷阱”。
         - 战术三要素:
@@ -772,21 +757,6 @@ class BehavioralIntelligence:
         # --- 2. 风险合成 ---
         internal_risk_factor = (ambush_score.pow(0.6) * trapped_force_score.pow(0.4)).fillna(0.0)
         breakout_failure_risk = (lure_score * internal_risk_factor).clip(0, 1)
-        # --- 深度战术探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                probe_date_str = probe_ts.strftime('%Y-%m-%d')
-                print(f"      [行为探针] _diagnose_breakout_failure_risk @ {probe_date_str}")
-                print(f"        - 战术要素 (诱饵): {lure_score.loc[probe_ts]:.4f} (原始突破品质: {breakout_quality_raw.loc[probe_ts]:.2f})")
-                print(f"        - 战术要素 (伏击): {ambush_score.loc[probe_ts]:.4f} (来源: distribution_intent)")
-                print(f"        - 战术要素 (套牢盘): {trapped_force_score.loc[probe_ts]:.4f} (原始量比: {volume_raw.loc[probe_ts]:.2f})")
-                print(f"        - 内部风险因子 (伏击*套牢盘): {internal_risk_factor.loc[probe_ts]:.4f}")
-                print(f"        - 最终突破失败风险 (诱饵*内部风险): {breakout_failure_risk.loc[probe_ts]:.4f}")
         return breakout_failure_risk.astype(np.float32)
 
     def _diagnose_divergence_quality(self, df: pd.DataFrame) -> Tuple[pd.Series, pd.Series]:
@@ -825,35 +795,40 @@ class BehavioralIntelligence:
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.4 · 绝对裁决版】计算高品质看涨量能爆发信号。
-        - 核心重构: 修复了“守门员”因归一化逻辑而失职的漏洞。引入基于原始主力资金流的
-                      “绝对裁决”机制，确保只有在主力净流入为正时，驱动分才有效，
-                      彻底杜绝了主力流出日仍被判为“看涨爆发”的逻辑矛盾。
-        - ... (其他注释保持不变)
+        【V2.0 · 信念驱动版】计算高品质看涨量能爆发信号。
+        - 核心重构: 废弃了基于“净值结果谬误”的 V1.4 模型。引入基于“信念-效率-战果”
+                      军事突击思想的全新四维诊断模型，旨在穿透“冲高派发”等诡道迷雾。
+        - 战术四要素:
+          1. 幅度 (Magnitude): 保留 `volume_ratio_D`，衡量兵力投入规模。
+          2. 信念 (Conviction): 废弃简单的 flow_ratio，采用 `main_force_conviction_index_D`，
+                                衡量主力真实的、不可动摇的进攻决心。
+          3. 效率 (Efficiency): 升级为 `impulse_quality_ratio_D`，衡量战术执行的凌厉程度。
+          4. 战果 (Result): 新增 `closing_strength_index_D`，作为最终审判官，衡量多头是否
+                             成功巩固了胜利果实，严惩“冲高回落”式的失败进攻。
+        - 数学模型: 品质分 = (幅度分 * 信念分 * 效率分 * 战果分) ^ (1/4)
         """
         # --- 1. 获取四维度原始数据 ---
         volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_calculate_volume_burst_quality")
-        main_force_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_volume_burst_quality")
-        amount = self._get_safe_series(df, 'amount_D', 1.0, method_name="_calculate_volume_burst_quality").replace(0, 1e-9)
-        efficiency_raw = self._get_safe_series(df, 'microstructure_efficiency_index_D', 0.0, method_name="_calculate_volume_burst_quality")
-        urgency_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_calculate_volume_burst_quality")
-        pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_calculate_volume_burst_quality")
+        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_volume_burst_quality")
+        efficiency_raw = self._get_safe_series(df, 'impulse_quality_ratio_D', 0.0, method_name="_calculate_volume_burst_quality")
+        result_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_calculate_volume_burst_quality")
         # --- 2. 计算各维度得分 ---
+        # 维度一：幅度分
         magnitude_score = get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=tf_weights)
-        # 实施“绝对裁决”
-        flow_ratio = main_force_flow / amount
-        # 归一化前先不clip，保留原始信息用于裁决
-        driver_score_normalized = get_adaptive_mtf_normalized_score(flow_ratio.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
-        # 绝对裁决：只有当原始主力资金流为正时，驱动分才有效
-        is_positive_flow = (main_force_flow > 0).astype(float)
-        driver_score = driver_score_normalized * is_positive_flow
+        # 维度二：信念分
+        conviction_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
+        # 维度三：效率分
         efficiency_score = get_adaptive_mtf_normalized_score(efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
-        urgency_score = get_adaptive_mtf_normalized_score(urgency_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # --- 3. 非线性合成与情景过滤 ---
-        is_rising = (pct_change > 0).astype(float)
-        other_factors_quality = (magnitude_score * efficiency_score * urgency_score).pow(1/3)
-        volume_burst_quality = (driver_score * other_factors_quality * is_rising).fillna(0.0)
-        # --- 彻底重构探针逻辑以适配历史回溯 ---
+        # 维度四：战果分
+        result_score = normalize_score(result_raw, df.index, 55)
+        # --- 3. 四维战术合成 ---
+        volume_burst_quality = (
+            (magnitude_score + 1e-9) *
+            (conviction_score + 1e-9) *
+            (efficiency_score + 1e-9) *
+            (result_score + 1e-9)
+        ).pow(1/4).fillna(0.0)
+        # --- 深度战术探针 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -863,9 +838,9 @@ class BehavioralIntelligence:
             for probe_ts in valid_probe_dates:
                 probe_date_str = probe_ts.strftime('%Y-%m-%d')
                 print(f"      [行为探针] _calculate_volume_burst_quality @ {probe_date_str}")
-                print(f"        - 原始值: 量比={volume_ratio.loc[probe_ts]:.2f}, 主力流={main_force_flow.loc[probe_ts]:.2f}, 效率={efficiency_raw.loc[probe_ts]:.2f}, 紧迫性={urgency_raw.loc[probe_ts]:.2f}")
-                print(f"        - 归一化分: 幅度={magnitude_score.loc[probe_ts]:.4f}, 驱动(裁决后)={driver_score.loc[probe_ts]:.4f}, 效率={efficiency_score.loc[probe_ts]:.4f}, 紧迫性={urgency_score.loc[probe_ts]:.4f}")
-                print(f"        - 最终爆发品质分: {volume_burst_quality.loc[probe_ts]:.4f} (上涨日: {is_rising.loc[probe_ts]})")
+                print(f"        - 原始值: 量比={volume_ratio.loc[probe_ts]:.2f}, 主力信念={conviction_raw.loc[probe_ts]:.2f}, 脉冲品质={efficiency_raw.loc[probe_ts]:.2f}, 收盘强度={result_raw.loc[probe_ts]:.2f}")
+                print(f"        - 归一化分: 幅度={magnitude_score.loc[probe_ts]:.4f}, 信念={conviction_score.loc[probe_ts]:.4f}, 效率={efficiency_score.loc[probe_ts]:.4f}, 战果={result_score.loc[probe_ts]:.4f}")
+                print(f"        - 最终爆发品质分 (四维几何平均): {volume_burst_quality.loc[probe_ts]:.4f}")
         return volume_burst_quality.clip(0, 1).astype(np.float32)
 
     def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict, lower_shadow_quality: pd.Series) -> pd.Series:
