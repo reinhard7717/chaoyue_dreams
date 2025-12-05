@@ -1295,11 +1295,11 @@ class ProcessIntelligence:
 
     def _calculate_profit_vs_flow_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V4.0 · 战法升级版】“利润与流向”专属关系计算引擎
-        - 核心重构: 创立“派发压力 vs 建仓动力”的战场对抗模型。
+        【V4.1 · 战场态势版】“利润与流向”专属关系计算引擎
+        - 核心重构: 创立“战场态势”审判模型，从比较“动量”升维为比较力量的“当前水平”。
         - 信号升级: 将核心“压力”信号从“T0效率”升级为更精准的“利润兑现流量占比”。
-        - 核心逻辑: 瞬时关系分 = 建仓动力分 - 派发压力分。
-        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“战场对抗”模型。
+        - 核心逻辑: 瞬时关系分 = 建仓动力分(归一化) - 派发压力分(归一化)。
+        - 新增功能: 植入详尽的“真理探针”，全面暴露新的“战场态势”模型。
         """
         pressure_signal_name = 'profit_taking_flow_ratio_D'    # 压力方
         drive_signal_name = 'main_force_net_flow_calibrated_D' # 动力方
@@ -1309,29 +1309,26 @@ class ProcessIntelligence:
         df_index = df.index
         pressure_signal_raw = self._get_safe_series(df, pressure_signal_name, 0.0, method_name="_calculate_profit_vs_flow_relationship")
         drive_signal_raw = self._get_safe_series(df, drive_signal_name, 0.0, method_name="_calculate_profit_vs_flow_relationship")
-        # 计算各自的变化率（动量）
-        pressure_change = pressure_signal_raw.diff(1).fillna(0)
-        drive_change = drive_signal_raw.diff(1).fillna(0)
-        # 归一化动量
-        pressure_momentum = self._normalize_series(pressure_change, df_index, bipolar=True)
-        drive_momentum = self._normalize_series(drive_change, df_index, bipolar=True)
-        # 核心逻辑：战场对抗
-        relationship_score = drive_momentum - pressure_momentum
+        # [修改] 归一化信号的当前值，代表战场态势
+        pressure_score = self._normalize_series(pressure_signal_raw, df_index, bipolar=False) # 压力是无方向的，只看大小
+        drive_score = self._normalize_series(drive_signal_raw, df_index, bipolar=True)      # 动力有正负方向
+        # [修改] 核心逻辑：战场态势对抗
+        relationship_score = drive_score - pressure_score
         final_score = relationship_score.clip(-1, 1)
-        # 植入探针
+        # [修改] 升级探针以反映新逻辑
         probe_dates = self.probe_dates
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [瞬时关系探针(战法升级版): {config.get('name')}] ---")
+            print(f"\n--- [瞬时关系探针(战场态势版): {config.get('name')}] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
             print(f"    - 派发压力信号 ({pressure_signal_name}): {pressure_signal_raw.iloc[last_date_index]:.4f}")
             print(f"    - 建仓动力信号 ({drive_signal_name}): {drive_signal_raw.iloc[last_date_index]:.2f}")
             print("  [关键计算]:")
-            print(f"    - 派发压力动量(归一化): {pressure_momentum.iloc[last_date_index]:.4f}")
-            print(f"    - 建仓动力动量(归一化): {drive_momentum.iloc[last_date_index]:.4f}")
+            print(f"    - 派发压力分(归一化): {pressure_score.iloc[last_date_index]:.4f}")
+            print(f"    - 建仓动力分(归一化): {drive_score.iloc[last_date_index]:.4f}")
             print("  [最终结果]:")
-            print(f"    - 战场对抗分 (动力-压力): {final_score.iloc[last_date_index]:.4f}")
+            print(f"    - 战场态势分 (动力-压力): {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
         return final_score
 
