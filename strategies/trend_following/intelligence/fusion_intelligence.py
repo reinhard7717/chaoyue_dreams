@@ -190,89 +190,6 @@ class FusionIntelligence:
         print(f"  -- [融合层] “市场压力”冶炼完成，最新分值: {bipolar_pressure.iloc[-1]:.4f}")
         return states
 
-    def _synthesize_trend_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V3.3 · 基础层升维同步版】冶炼“趋势质量” (Trend Quality)
-        - 核心升级: 将对旧基础四公理的依赖，全面切换为对“市场体质”、“情绪钟摆”、
-                      “流动性潮汐”、“市场张力”四大新公理的依赖，完成与基础层的代际同步。
-        """
-        print("  -- [融合层] 正在冶炼“趋势质量”...")
-        states = {}
-        df_index = df.index
-        # 全面换装为新的四大基础公理
-        foundation_constitution = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION', 0.0)
-        foundation_pendulum = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM', 0.0)
-        foundation_tide = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0)
-        foundation_tension = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION', 0.0)
-        structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
-        structural_mtf_cohesion = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_MTF_COHESION', 0.0)
-        structural_stability = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_STABILITY', 0.0)
-        dynamic_momentum = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0)
-        dynamic_inertia = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_INERTIA', 0.0)
-        dynamic_stability = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_STABILITY', 0.0)
-        dynamic_energy = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_ENERGY', 0.0)
-        dynamic_ma_acceleration = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MA_ACCELERATION', 0.0)
-        fund_flow_consensus = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0)
-        fund_flow_conviction = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONVICTION', 0.0)
-        fund_flow_increment = self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0)
-        chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
-        chip_battlefield_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0)
-        chip_holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
-        micro_stealth_ops = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
-        micro_shock_awe = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_SHOCK_AND_AWE', 0.0)
-        micro_cost_control = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_COST_CONTROL', 0.0)
-        behavior_upward_efficiency = self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0)
-        behavior_downward_resistance = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE', 0.0)
-        behavior_intraday_bull_control = self._get_atomic_score(df, 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 0.0)
-        pattern_reversal = self._get_atomic_score(df, 'SCORE_PATTERN_AXIOM_REVERSAL', 0.0)
-        pattern_breakout = self._get_atomic_score(df, 'SCORE_PATTERN_AXIOM_BREAKOUT', 0.0)
-        main_force_on_peak_flow = self._get_atomic_score(df, 'main_force_on_peak_flow_D', 0.0)
-        aaa_raw = self._get_safe_series(df, 'AAA_D', 0.0, method_name="_synthesize_trend_quality")
-        aaa_score = normalize_to_bipolar(aaa_raw * -1, df_index, window=55)
-        pdi_raw = self._get_safe_series(df, 'PDI_14_D', 0.0, method_name="_synthesize_trend_quality")
-        pdi_score = normalize_to_bipolar(pdi_raw, df_index, window=55)
-        structural_bottom_fractal = self._get_atomic_score(df, 'SCORE_STRUCT_BOTTOM_FRACTAL', 0.0)
-        breakout_readiness_raw = self._get_safe_series(df, 'breakout_readiness_score_D', 0.0, method_name="_synthesize_trend_quality")
-        breakout_readiness_score = normalize_to_bipolar(breakout_readiness_raw, df_index, window=55, sensitivity=20)
-        trend_vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.0, method_name="_synthesize_trend_quality")
-        trend_vitality_score = normalize_to_bipolar(trend_vitality_raw, df_index, window=55, sensitivity=0.5)
-        # 更新组件和权重，用新的基础公理替换旧的
-        components_and_weights = {
-            'foundation_constitution': (foundation_constitution, 0.08), 'foundation_pendulum': (foundation_pendulum, -0.02),
-            'foundation_tide': (foundation_tide, 0.03), 'foundation_tension': (foundation_tension, 0.02),
-            'structural_trend_form': (structural_trend_form, 0.10), 'structural_mtf_cohesion': (structural_mtf_cohesion, 0.05),
-            'structural_stability': (structural_stability, 0.05), 'dynamic_momentum': (dynamic_momentum, 0.08),
-            'dynamic_inertia': (dynamic_inertia, 0.05), 'dynamic_stability': (dynamic_stability, 0.02),
-            'dynamic_energy': (dynamic_energy, 0.02), 'dynamic_ma_acceleration': (dynamic_ma_acceleration, 0.03),
-            'fund_flow_consensus': (fund_flow_consensus, 0.03), 'fund_flow_conviction': (fund_flow_conviction, 0.03),
-            'fund_flow_increment': (fund_flow_increment, 0.03),
-            'chip_strategic_posture': (chip_strategic_posture, 0.07),
-            'chip_battlefield_geography': (chip_battlefield_geography, 0.05),
-            'chip_holder_sentiment': (chip_holder_sentiment, 0.03),
-            'micro_stealth_ops': (micro_stealth_ops, 0.01),
-            'micro_shock_awe': (micro_shock_awe, 0.01),
-            'micro_cost_control': (micro_cost_control, 0.01),
-            'behavior_upward_efficiency': (behavior_upward_efficiency, 0.02), 'behavior_downward_resistance': (behavior_downward_resistance, 0.02),
-            'behavior_intraday_bull_control': (behavior_intraday_bull_control, 0.01), 'pattern_reversal': (pattern_reversal, 0.01),
-            'pattern_breakout': (pattern_breakout, 0.02), 'main_force_on_peak_flow': (main_force_on_peak_flow, 0.01),
-            'aaa_score': (aaa_score, 0.02), 'pdi_score': (pdi_score, 0.03),
-            'structural_bottom_fractal': (structural_bottom_fractal, 0.02), 'breakout_readiness_score': (breakout_readiness_score, 0.10),
-            'trend_vitality_score': (trend_vitality_score, 0.10)
-        }
-        bipolar_quality = pd.Series(0.0, index=df_index)
-        total_weight = sum(w for _, w in components_and_weights.values())
-        for name, (series, weight) in components_and_weights.items():
-            if not series.empty:
-                contribution = series * (weight / total_weight)
-                bipolar_quality += contribution
-        bipolar_quality = bipolar_quality.clip(-1, 1)
-        micro_conviction = self._get_atomic_score(df, 'FUSION_BIPOLAR_MICRO_CONVICTION', 0.0)
-        micro_conviction_regulator = (1 + micro_conviction * 0.3).clip(0.7, 1.3)
-        final_bipolar_quality = (bipolar_quality * micro_conviction_regulator).clip(-1, 1)
-        states['FUSION_BIPOLAR_TREND_QUALITY'] = final_bipolar_quality.astype(np.float32)
-        print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {final_bipolar_quality.iloc[-1]:.4f} (原始分: {bipolar_quality.iloc[-1]:.4f}, 微观调节器: {micro_conviction_regulator.iloc[-1]:.4f})")
-        return states
-
     def _synthesize_stagnation_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.1 · 依赖净化版】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
@@ -596,22 +513,81 @@ class FusionIntelligence:
         micro_conviction_score = (micro_intent * confirmation_modulator).clip(-1, 1)
         output_name = 'FUSION_BIPOLAR_MICRO_CONVICTION'
         states[output_name] = micro_conviction_score.astype(np.float32)
-        # [新增] 植入究极探针
+        # [修改] 移除究极探针，恢复生产状态
+        print(f"  -- [融合层] “微观信念”冶炼完成，最新分值: {micro_conviction_score.iloc[-1]:.4f}")
+        return states
+
+    def _synthesize_trend_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V4.0 · 四象支柱版】冶炼“趋势质量” (Trend Quality)
+        - 核心重构: 废弃V3.x的线性加权“大杂烩”模型，引入基于“四象支柱”的非线性融合模型。
+        - 核心公式: 趋势质量 = (结构支柱 × 动能支柱 × 信念支柱 × 根基支柱)^(1/4)
+        - 诡道哲学: 基于“木桶效应”，任何一根支柱的崩塌都会导致整体质量的急剧下降，
+                      旨在暴露趋势的“最短板”，而非被平庸信号所平均。
+        - 信号净化: 严格遵守融合层戒律，只消费各情报层提炼的“公理级”或“超级原子”信号。
+        """
+        print("  -- [融合层] 正在冶炼“趋势质量”...")
+        states = {}
+        df_index = df.index
+        # --- 1. 信号原料库 (严格筛选公理级信号) ---
+        # 支柱一：结构 (Structure Pillar) - 趋势的骨架是否坚固
+        struct_posture = self._get_atomic_score(df, 'SCORE_STRUCT_STRATEGIC_POSTURE', 0.0)
+        struct_geography = self._get_atomic_score(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0) # 筹码地形归于结构
+        struct_stability = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_STABILITY', 0.0)
+        # 支柱二：动能 (Momentum Pillar) - 趋势的引擎是否强劲
+        dyn_momentum = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0)
+        dyn_inertia = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_INERTIA', 0.0)
+        behavior_upward_momentum = self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0)
+        # 支柱三：信念 (Conviction Pillar) - 趋势的灵魂是否坚定
+        ff_posture = self._get_atomic_score(df, 'SCORE_FF_STRATEGIC_POSTURE', 0.0)
+        chip_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
+        chip_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
+        # 支柱四：根基 (Foundation Pillar) - 趋势的土壤是否肥沃
+        found_posture = self._get_atomic_score(df, 'SCORE_FOUNDATION_STRATEGIC_POSTURE', 0.0)
+        found_constitution = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION', 0.0)
+        found_tide = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0)
+        # 最终调节器
+        micro_conviction = self._get_atomic_score(df, 'FUSION_BIPOLAR_MICRO_CONVICTION', 0.0)
+        # --- 2. 核心数学逻辑 - 四象支柱模型 ---
+        # 分别计算各支柱得分 (将所有输入信号转换为[0,2]区间，便于几何平均)
+        pillar_structure = ((struct_posture + 1) * 0.5 + (struct_geography + 1) * 0.3 + (struct_stability + 1) * 0.2)
+        pillar_momentum = ((dyn_momentum + 1) * 0.4 + (dyn_inertia + 1) * 0.3 + (behavior_upward_momentum + 1) * 0.3)
+        pillar_conviction = ((ff_posture + 1) * 0.4 + (chip_posture + 1) * 0.4 + (chip_sentiment + 1) * 0.2)
+        pillar_foundation = ((found_posture + 1) * 0.5 + (found_constitution + 1) * 0.3 + (found_tide + 1) * 0.2)
+        # 非线性融合：几何平均体现“木桶效应”，任何支柱为0则整体为0
+        # 为避免负数开方，先在[0,2]区间计算，再映射回[-1,1]
+        raw_quality_score_positive = (pillar_structure * pillar_momentum * pillar_conviction * pillar_foundation).pow(1/4)
+        # 映射回[-1, 1]
+        bipolar_quality = (raw_quality_score_positive - 1).clip(-1, 1)
+        # 应用微观信念作为最终的真实性检验器
+        micro_conviction_regulator = (1 + micro_conviction * 0.3).clip(0.7, 1.3)
+        final_bipolar_quality = (bipolar_quality * micro_conviction_regulator).clip(-1, 1)
+        states['FUSION_BIPOLAR_TREND_QUALITY'] = final_bipolar_quality.astype(np.float32)
+        # --- 3. 植入究极探针 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [微观信念究极探针 V2.0] ---")
+            print(f"\n--- [趋势质量究极探针 V4.0 · 四象支柱版] ---")
             last_date_index = -1
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
             print("  [输入原料]:")
-            print(f"    - 瞬时意图 (micro_intent): {micro_intent.iloc[last_date_index]:.4f}")
-            print(f"    - 意图趋势 (micro_divergence): {micro_divergence.iloc[last_date_index]:.4f}")
+            print(f"    - 结构支柱: struct_posture={struct_posture.iloc[last_date_index]:.4f}, struct_geography={struct_geography.iloc[last_date_index]:.4f}, struct_stability={struct_stability.iloc[last_date_index]:.4f}")
+            print(f"    - 动能支柱: dyn_momentum={dyn_momentum.iloc[last_date_index]:.4f}, dyn_inertia={dyn_inertia.iloc[last_date_index]:.4f}, behavior_upward_momentum={behavior_upward_momentum.iloc[last_date_index]:.4f}")
+            print(f"    - 信念支柱: ff_posture={ff_posture.iloc[last_date_index]:.4f}, chip_posture={chip_posture.iloc[last_date_index]:.4f}, chip_sentiment={chip_sentiment.iloc[last_date_index]:.4f}")
+            print(f"    - 根基支柱: found_posture={found_posture.iloc[last_date_index]:.4f}, found_constitution={found_constitution.iloc[last_date_index]:.4f}, found_tide={found_tide.iloc[last_date_index]:.4f}")
+            print(f"    - 微观调节器原料: micro_conviction={micro_conviction.iloc[last_date_index]:.4f}")
             print("  [关键计算节点]:")
-            print(f"    - 确认调节器 (1 + 意图趋势 * {confirmation_factor}): {confirmation_modulator.iloc[last_date_index]:.4f}")
+            print(f"    - 结构支柱分 (0-2): {pillar_structure.iloc[last_date_index]:.4f}")
+            print(f"    - 动能支柱分 (0-2): {pillar_momentum.iloc[last_date_index]:.4f}")
+            print(f"    - 信念支柱分 (0-2): {pillar_conviction.iloc[last_date_index]:.4f}")
+            print(f"    - 根基支柱分 (0-2): {pillar_foundation.iloc[last_date_index]:.4f}")
+            print(f"    - 四象融合原始分 (几何平均, 0-2): {raw_quality_score_positive.iloc[last_date_index]:.4f}")
+            print(f"    - 映射后品质分 (bipolar_quality, -1 to 1): {bipolar_quality.iloc[last_date_index]:.4f}")
+            print(f"    - 微观调节器 (micro_conviction_regulator): {micro_conviction_regulator.iloc[last_date_index]:.4f}")
             print("  [最终裁决]:")
-            print(f"    - 微观信念分 ({output_name}): {micro_conviction_score.iloc[last_date_index]:.4f}")
+            print(f"    - 趋势质量分 (FUSION_BIPOLAR_TREND_QUALITY): {final_bipolar_quality.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
-        print(f"  -- [融合层] “微观信念”冶炼完成，最新分值: {micro_conviction_score.iloc[-1]:.4f}")
+        print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {final_bipolar_quality.iloc[-1]:.4f} (原始分: {bipolar_quality.iloc[-1]:.4f}, 微观调节器: {micro_conviction_regulator.iloc[-1]:.4f})")
         return states
 
     def _synthesize_accumulation_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -645,26 +621,7 @@ class FusionIntelligence:
         playbook_score = (max_accumulation_tactic * quality_modulator).clip(0, 1)
         output_name = 'PROCESS_FUSION_ACCUMULATION_PLAYBOOK'
         states[output_name] = playbook_score.astype(np.float32)
-        # [新增] 植入究极探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {}) # [修改] 使用 get_params_block 工具函数安全、正确地获取嵌套的调试参数
-        probe_dates = debug_params.get('probe_dates', []) # [修改] 从正确的 debug_params 块中获取 probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [吸筹剧本究极探针] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 隐秘吸筹分: {stealth_accumulation.iloc[last_date_index]:.4f}")
-            print(f"    - 恐慌吸筹分: {panic_accumulation.iloc[last_date_index]:.4f}")
-            print(f"    - 诡道吸筹分: {deceptive_accumulation.iloc[last_date_index]:.4f}")
-            print(f"    - 筹码态势(今日): {chip_posture.iloc[last_date_index]:.4f}")
-            print(f"    - 筹码态势(昨日): {chip_posture.shift(1).fillna(0).iloc[last_date_index]:.4f}")
-            print("  [关键计算节点]:")
-            print(f"    - 主导吸筹战术分 (max): {max_accumulation_tactic.iloc[last_date_index]:.4f}")
-            print(f"    - 筹码态势改善度: {chip_improvement_factor.iloc[last_date_index]:.4f}")
-            print(f"    - 品质调节器 (1 + 改善度): {quality_modulator.iloc[last_date_index]:.4f}")
-            print("  [最终裁决]:")
-            print(f"    - 吸筹剧本分 ({output_name}): {playbook_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “吸筹剧本”推演完成，最新分值: {playbook_score.iloc[-1]:.4f}")
         return states
 
@@ -709,25 +666,7 @@ class FusionIntelligence:
         syndrome_score = (weighted_sum * resonance_modulator).clip(0, 1)
         output_name = 'PROCESS_FUSION_TREND_EXHAUSTION_SYNDROME'
         states[output_name] = syndrome_score.astype(np.float32)
-        # [新增] 植入究极探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {}) # [修改] 使用 get_params_block 工具函数安全、正确地获取嵌套的调试参数
-        probe_dates = debug_params.get('probe_dates', []) # [修改] 从正确的 debug_params 块中获取 probe_dates
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [趋势衰竭综合征究极探针] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [输入原料]:")
-            print(f"    - 价势背离分: {divergence.iloc[last_date_index]:.4f} (权重: {weights.get('divergence', 0):.2f})")
-            print(f"    - 信念衰减分: {conviction_decay.iloc[last_date_index]:.4f} (权重: {weights.get('conviction_decay', 0):.2f})")
-            print(f"    - 板块冷却分: {sector_cooling.iloc[last_date_index]:.4f} (权重: {weights.get('cooling', 0):.2f})")
-            print("  [关键计算节点]:")
-            print(f"    - 加权基础分: {weighted_sum.iloc[last_date_index]:.4f}")
-            print(f"    - 共振阈值: {resonance_threshold}")
-            print(f"    - 超阈值信号数: {signals_above_threshold.iloc[last_date_index]}")
-            print(f"    - 共振奖励调节器 (1 + 奖励): {resonance_modulator.iloc[last_date_index]:.4f}")
-            print("  [最终裁决]:")
-            print(f"    - 衰竭综合征分 ({output_name}): {syndrome_score.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
+        # [修改] 移除究极探针，恢复生产状态
         print(f"  -- [融合层] “趋势衰竭综合征”诊断完成，最新分值: {syndrome_score.iloc[-1]:.4f}")
         return states
 
