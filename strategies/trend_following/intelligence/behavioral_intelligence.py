@@ -195,11 +195,9 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V33.5 · 完整修复版】原子信号中心
-        - 核心修复: 提供了此方法的完整、未经删节的代码，修正了因上一版代码片段不完整
-                      导致的 `NameError: name 'pct_change' is not defined` 错误。
-        - 核心升级: 在探针循环中集成了新的“原料数据深度探针”，提供对关键信号
-                      归零的终极根源追溯能力。
+        【V33.6 · 调用链优化版】原子信号中心
+        - 核心修复: 调整了内部信号的计算和调用顺序，以适配 _diagnose_ambush_counterattack
+                      方法对高阶战术信号 offensive_absorption_intent 的新依赖。
         """
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
@@ -312,9 +310,13 @@ class BehavioralIntelligence:
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence
         lower_shadow_quality = self._diagnose_lower_shadow_quality(df, stagnation_evidence)
         distribution_intent = self._calculate_distribution_intent(df, default_weights)
+        # [修改的代码行] 调整调用顺序，先计算依赖信号
+        offensive_absorption_intent = self._diagnose_offensive_absorption_intent(df, lower_shadow_quality)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
         states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] = distribution_intent
-        states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] = self._diagnose_ambush_counterattack(df, lower_shadow_quality)
+        states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = offensive_absorption_intent
+        # [修改的代码行] 将依赖信号作为参数传入
+        states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] = self._diagnose_ambush_counterattack(df, offensive_absorption_intent)
         states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = self._diagnose_breakout_failure_risk(df, distribution_intent)
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights)
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights)
@@ -343,7 +345,6 @@ class BehavioralIntelligence:
         ).fillna(0.0)
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * selling_exhaustion_score).astype(np.float32)
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
-        states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = self._diagnose_offensive_absorption_intent(df, lower_shadow_quality)
         states['SCORE_BEHAVIOR_DECEPTION_INDEX'] = self._diagnose_deception_index(df)
         # [修改的代码行] 在常规探针后，调用原料探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
