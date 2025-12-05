@@ -690,31 +690,53 @@ class BehavioralIntelligence:
                 print(f"        - 最终派发意图分: {distribution_intent_score.loc[probe_ts]:.4f}")
         return distribution_intent_score.astype(np.float32)
 
-    def _diagnose_ambush_counterattack(self, df: pd.DataFrame, lower_shadow_quality: pd.Series) -> pd.Series:
+    def _diagnose_ambush_counterattack(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
         """
-        【V1.0 · 伏击战术版】诊断伏击式反攻信号
-        - 核心目标: 识别主力利用日内恐慌进行大规模隐蔽吸筹后发动的强势反攻。
-        - 战术要素:
-          1. 反击形态 (Morphology): 必须有高质量的长下影线。
-          2. 恐慌环境 (Panic): 日内必须出现过恐慌性抛售。
-          3. 主力伏击 (Ambush): 主力展现出精准的低吸高抛能力。
-          4. 隐蔽吸筹 (Covert Ops): 存在隐蔽吸筹的微观证据。
-        - 非线性合成: 信号分 = (形态^0.3 * 环境^0.2 * 伏击^0.4 * 隐蔽^0.1)，赋予主力行为最高权重。
+        【V2.0 · 战术意图升维版】诊断伏击式反攻信号
+        - 核心重构: 废弃旧的、基于底层特征拼凑的 V1.0 模型。引入基于“因果传导”哲学的
+                      分层门控模型，从根本上解决了旧模型的“战术意图错配”和“因果倒置”缺陷。
+        - 战术三要素:
+          1. 伏击过程 (核心基石): 直接采用高阶战术信号 SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT，
+                                  代表对整个伏击行为的最终诊断。
+          2. 反击结果 (品质验证): 采用 closing_strength_index_D，衡量反攻的最终战果。
+          3. 战场环境 (价值放大): 采用 panic_selling_cascade_D，量化恐慌环境，放大在危急时刻
+                                  完成的伏击反攻的战术价值。
+        - 数学模型: 伏击反攻分 = 伏击过程分 * (反击结果分 * 战场环境分) ^ 0.5
         """
+        required_signals = ['closing_strength_index_D', 'panic_selling_cascade_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_ambush_counterattack"):
+            return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 1. 获取战术要素原始数据
-        panic_evidence_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_ambush_counterattack")
-        main_force_alpha_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_ambush_counterattack")
-        covert_ops_raw = self._get_safe_series(df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_ambush_counterattack")
-        # 2. 归一化各要素
-        morphology_score = lower_shadow_quality # 直接使用传入的高质量下影线分数
-        panic_score = get_adaptive_mtf_normalized_score(panic_evidence_raw, df.index, ascending=True, tf_weights=default_weights)
-        ambush_score = get_adaptive_mtf_normalized_score(main_force_alpha_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
-        covert_ops_score = get_adaptive_mtf_normalized_score(covert_ops_raw, df.index, ascending=True, tf_weights=default_weights)
-        # 3. 战术合成
-        ambush_counterattack_score = (morphology_score.pow(0.3) * panic_score.pow(0.2) * ambush_score.pow(0.4) * covert_ops_score.pow(0.1)).fillna(0.0)
+        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # --- 1. 获取三大战术要素 ---
+        # 核心基石：伏击过程分 (直接使用传入的高阶意图信号)
+        ambush_process_score = offensive_absorption_intent
+        # 品质调节器元素1：反击结果分
+        counterattack_result_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_ambush_counterattack")
+        counterattack_result_score = normalize_score(counterattack_result_raw, df.index, 55)
+        # 品质调节器元素2：战场环境分
+        battlefield_environment_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_ambush_counterattack")
+        battlefield_environment_score = get_adaptive_mtf_normalized_score(battlefield_environment_raw, df.index, ascending=True, tf_weights=default_weights)
+        # --- 2. 构建品质调节器 ---
+        quality_modulator = (counterattack_result_score * battlefield_environment_score).pow(0.5).fillna(0.0)
+        # --- 3. 分层门控合成 ---
+        ambush_counterattack_score = (ambush_process_score * quality_modulator).clip(0, 1)
+        # --- 深度战术探针 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            for probe_ts in valid_probe_dates:
+                probe_date_str = probe_ts.strftime('%Y-%m-%d')
+                print(f"      [行为探针] _diagnose_ambush_counterattack @ {probe_date_str}")
+                print(f"        - 核心基石 (伏击过程): {ambush_process_score.loc[probe_ts]:.4f} (来源: offensive_absorption_intent)")
+                print(f"        - 品质因子 (反击结果): {counterattack_result_score.loc[probe_ts]:.4f} (原始收盘强度: {counterattack_result_raw.loc[probe_ts]:.2f})")
+                print(f"        - 品质因子 (战场环境): {battlefield_environment_score.loc[probe_ts]:.4f} (原始恐慌级联: {battlefield_environment_raw.loc[probe_ts]:.2f})")
+                print(f"        - 综合品质调节器: {quality_modulator.loc[probe_ts]:.4f}")
+                print(f"        - 最终伏击反攻分 (分层门控): {ambush_counterattack_score.loc[probe_ts]:.4f}")
         return ambush_counterattack_score.astype(np.float32)
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series) -> pd.Series:
