@@ -151,8 +151,8 @@ class IntradayBehaviorEngine:
 
     def _diagnose_dominance_consensus(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.3 · Final Quench版】日内战报之二：诊断“支配共识”
-        - 核心重构: 沿用V4.2的“预测向量”模型，但现在调用经过“临界点豁免”最终淬火的
+        【V4.4 · Production Ready版】日内战报之二：诊断“支配共识”
+        - 核心重构: 沿用V4.3的“预测向量”模型，并调用经过“临界点豁免”最终淬火的
                       V1.1版`get_robust_bipolar_normalized_score`工具，确保系统绝对鲁棒。
         """
         signal_name = "SCORE_INTRADAY_DOMINANCE_CONSENSUS"
@@ -174,86 +174,103 @@ class IntradayBehaviorEngine:
             dominance_state_vector * weights.get('state', 0.6) +
             conviction_trend_vector * weights.get('trend', 0.4)
         ).fillna(0.0)
-        # --- 探针逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        p_state_raw = dominance_state_vector.get(probe_date, 0.0)
-                        p_trend_raw = raw_conviction_trend.get(probe_date, 0.0)
-                        p_trend_norm = conviction_trend_vector.get(probe_date, 0.0)
-                        p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"      [日内行为探针 V4.3] _diagnose_dominance_consensus @ {probe_date_str}")
-                        print(f"        --- [原料数据] ---")
-                        print(f"        - 支配态势原始值 (vwap_control_strength_D): {p_state_raw:.4f}")
-                        print(f"        - 共识趋势原始值 (SLOPE_5_main_force_conviction_index_D): {p_trend_raw:.4f}")
-                        print(f"        --- [关键计算节点：向量化] ---")
-                        print(f"        - 支配态势向量 (Vector_State): {p_state_raw:.4f} (权重: {weights.get('state', 0.6)})")
-                        print(f"        - 共识趋势向量 (Vector_Trend): {p_trend_norm:.4f} (权重: {weights.get('trend', 0.4)})")
-                        print(f"        --- [结果] ---")
-                        print(f"        - 最终支配共识分 (加权合成): {p_final_score:.4f}")
-                except Exception as e:
-                    print(f"    -> [日内行为探针错误] _diagnose_dominance_consensus 处理日期 {probe_date_str} 失败: {e}")
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return {signal_name: final_score.clip(-1, 1)}
 
     def _diagnose_conviction_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 向量化重构版】日内战报之三：诊断“信念反转”
-        - 核心重构: 对整个方法进行向量化重构，使其能够处理完整的日线数据DataFrame并为每一天生成分数，而不是仅处理第一天。
-        - 核心修复: 修复了探针逻辑，使其能够正确地在指定的 probe_dates 循环并打印每日的详细诊断信息。
+        【V2.0 · 非对称战争版】日内战报之三：诊断“信念反转”
+        - 核心重构: 废弃V1.5的几何平均模型和对主力Alpha的错误解读。
+                      进化为基于“非对称博弈”的全新诊断框架。
+                      1. 看涨(底部): 诊断“恐慌下的优质承接”，采用加法模型，由正Alpha作为可靠性裁决。
+                      2. 看跌(顶部): 诊断“信念崩溃下的从容派发”，彻底修正逻辑，将“正Alpha派发”作为最危险的顶部信号。
         """
-        # 此方法现在需要从分钟数据中找到对应的日线数据，但实际上传入的已经是日线数据df
-        if df.empty:
-            return {"SCORE_INTRADAY_CONVICTION_REVERSAL": pd.Series(dtype=np.float64)}
-        # 将所有计算向量化，使其能处理整个DataFrame
-        panic_score = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, "_diagnose_conviction_reversal")
-        absorption_score = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, "_diagnose_conviction_reversal")
-        mf_alpha_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, "_diagnose_conviction_reversal")
-        # 使用tanh进行柔性映射，k=2.0表示对alpha的正负较为敏感
-        bullish_alpha_score = (np.tanh(mf_alpha_raw * 2.0) + 1) / 2
-        bullish_reversal_evidence = (panic_score * absorption_score * bullish_alpha_score).pow(1/3).fillna(0)
-        distribution_score = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, "_diagnose_conviction_reversal")
-        conviction_slope_5d = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', np.nan, "_diagnose_conviction_reversal")
-        # 当5日斜率无效时，明确将衰减设为0
-        conviction_decay = -conviction_slope_5d.clip(upper=0).fillna(0)
-        mf_alpha_bearish = mf_alpha_raw.clip(upper=0).abs()
-        bearish_reversal_evidence = (distribution_score * conviction_decay * mf_alpha_bearish).pow(1/3).fillna(0)
-        final_score = (bullish_reversal_evidence - bearish_reversal_evidence).fillna(0)
-        # --- 重构探针逻辑以适配历史回溯和向量化计算 ---
+        signal_name = "SCORE_INTRADAY_CONVICTION_REVERSAL"
+        required_signals = [
+            'panic_selling_cascade_D', 'capitulation_absorption_index_D',
+            'main_force_execution_alpha_D', 'rally_distribution_pressure_D',
+            'SLOPE_5_main_force_conviction_index_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_conviction_reversal"):
+            return {signal_name: pd.Series(0.0, index=df.index)}
+        # --- 获取参数与归一化配置 ---
+        mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
+        default_weights = mtf_params.get('default_weights')
+        # --- [核心逻辑] V2.0 ---
+        # 1. 获取所有原料信号
+        raw_panic = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, "_diagnose_conviction_reversal")
+        raw_absorption = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, "_diagnose_conviction_reversal")
+        raw_mf_alpha = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, "_diagnose_conviction_reversal")
+        raw_distribution = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, "_diagnose_conviction_reversal")
+        raw_conviction_slope = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, "_diagnose_conviction_reversal")
+        # 2. 信号归一化处理
+        norm_panic = get_adaptive_mtf_normalized_score(raw_panic, df.index, tf_weights=default_weights)
+        norm_absorption = get_adaptive_mtf_normalized_score(raw_absorption, df.index, tf_weights=default_weights)
+        norm_distribution = get_adaptive_mtf_normalized_score(raw_distribution, df.index, tf_weights=default_weights)
+        norm_conviction_decay = get_adaptive_mtf_normalized_score(-raw_conviction_slope.clip(upper=0), df.index, tf_weights=default_weights)
+        # 对双极性的主力Alpha进行归一化
+        norm_mf_alpha = get_robust_bipolar_normalized_score(raw_mf_alpha, df.index, window=55)
+        # 3. 构建非对称模型
+        # 3.1 看涨诊断: 恐慌下的优质承接
+        base_bullish_score = (norm_panic * 0.5 + norm_absorption * 0.5)
+        bullish_alpha_amplifier = (1 + norm_mf_alpha.clip(lower=0) * 0.5) # 正Alpha作为放大器
+        bullish_reversal_score = (base_bullish_score * bullish_alpha_amplifier).fillna(0.0)
+        # 3.2 看跌诊断: 信念崩溃下的从容派发
+        base_bearish_score = (norm_distribution * 0.5 + norm_conviction_decay * 0.5)
+        bearish_alpha_amplifier = (1 + norm_mf_alpha.clip(lower=0) * 1.0) # 正Alpha作为更强的放大器
+        bearish_reversal_score = (base_bearish_score * bearish_alpha_amplifier).fillna(0.0)
+        # 4. 最终裁决
+        final_score = (bullish_reversal_score - bearish_reversal_score).fillna(0.0)
+        # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
         if is_debug_enabled and probe_dates and not df.empty:
-            # 遍历所有探针日期
             for probe_date_str in probe_dates:
                 try:
-                    # 尝试将字符串日期转换为与DataFrame索引时区匹配的Timestamp
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        # 从Series中获取探针日期的具体值
-                        p_panic_score = panic_score.get(probe_date, 0.0)
-                        p_absorption_score = absorption_score.get(probe_date, 0.0)
-                        p_bullish_alpha_score = bullish_alpha_score.get(probe_date, 0.0)
-                        p_mf_alpha_raw = mf_alpha_raw.get(probe_date, 0.0)
-                        p_bullish_reversal_evidence = bullish_reversal_evidence.get(probe_date, 0.0)
-                        p_distribution_score = distribution_score.get(probe_date, 0.0)
-                        p_conviction_decay = conviction_decay.get(probe_date, 0.0)
-                        p_conviction_slope_5d = conviction_slope_5d.get(probe_date, np.nan)
-                        conviction_decay_source = "FALLBACK_ZERO" if pd.isna(p_conviction_slope_5d) else "5D_SLOPE"
-                        p_mf_alpha_bearish = mf_alpha_bearish.get(probe_date, 0.0)
-                        p_bearish_reversal_evidence = bearish_reversal_evidence.get(probe_date, 0.0)
+                        print(f"      [日内行为探针 V2.0] _diagnose_conviction_reversal @ {probe_date_str}")
+                        # --- 看涨诊断 ---
+                        p_raw_panic = raw_panic.get(probe_date, 0.0)
+                        p_norm_panic = norm_panic.get(probe_date, 0.0)
+                        p_raw_absorption = raw_absorption.get(probe_date, 0.0)
+                        p_norm_absorption = norm_absorption.get(probe_date, 0.0)
+                        p_base_bullish = base_bullish_score.get(probe_date, 0.0)
+                        p_bullish_amp = bullish_alpha_amplifier.get(probe_date, 1.0)
+                        p_bullish_final = bullish_reversal_score.get(probe_date, 0.0)
+                        print(f"        --- [看涨诊断：恐慌下的优质承接] ---")
+                        print(f"          - 原料-恐慌: {p_raw_panic:.4f} -> 归一化: {p_norm_panic:.4f}")
+                        print(f"          - 原料-承接: {p_raw_absorption:.4f} -> 归一化: {p_norm_absorption:.4f}")
+                        print(f"          - 关键节点-基础分 (恐慌+承接): {p_base_bullish:.4f}")
+                        print(f"          - 关键节点-Alpha放大器: {p_bullish_amp:.4f}")
+                        print(f"          - 结果-看涨分: {p_bullish_final:.4f}")
+                        # --- 看跌诊断 ---
+                        p_raw_dist = raw_distribution.get(probe_date, 0.0)
+                        p_norm_dist = norm_distribution.get(probe_date, 0.0)
+                        p_raw_conv_slope = raw_conviction_slope.get(probe_date, 0.0)
+                        p_norm_conv_decay = norm_conviction_decay.get(probe_date, 0.0)
+                        p_base_bearish = base_bearish_score.get(probe_date, 0.0)
+                        p_bearish_amp = bearish_alpha_amplifier.get(probe_date, 1.0)
+                        p_bearish_final = bearish_reversal_score.get(probe_date, 0.0)
+                        print(f"        --- [看跌诊断：信念崩溃下的从容派发] ---")
+                        print(f"          - 原料-派发: {p_raw_dist:.4f} -> 归一化: {p_norm_dist:.4f}")
+                        print(f"          - 原料-信念斜率: {p_raw_conv_slope:.4f} -> 归一化信念衰减: {p_norm_conv_decay:.4f}")
+                        print(f"          - 关键节点-基础分 (派发+衰减): {p_base_bearish:.4f}")
+                        print(f"          - 关键节点-Alpha放大器: {p_bearish_amp:.4f}")
+                        print(f"          - 结果-看跌分: {p_bearish_final:.4f}")
+                        # --- Alpha裁决者 ---
+                        p_raw_alpha = raw_mf_alpha.get(probe_date, 0.0)
+                        p_norm_alpha = norm_mf_alpha.get(probe_date, 0.0)
+                        print(f"        --- [Alpha裁决者] ---")
+                        print(f"          - 原料-主力Alpha: {p_raw_alpha:.4f} -> 归一化: {p_norm_alpha:.4f}")
+                        # --- 最终裁决 ---
                         p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"      [日内行为探针] _diagnose_conviction_reversal @ {probe_date_str}")
-                        print(f"        - 看涨证据: 恐慌={p_panic_score:.2f}, 承接={p_absorption_score:.2f}, 主力Alpha分(新)={p_bullish_alpha_score:.2f} (原始Alpha={p_mf_alpha_raw:.2f}) -> 综合={p_bullish_reversal_evidence:.4f}")
-                        print(f"        - 看跌证据: 派发={p_distribution_score:.2f}, 信念衰减={p_conviction_decay:.2f} (来源: {conviction_decay_source}), 主力Alpha-={p_mf_alpha_bearish:.2f} -> 综合={p_bearish_reversal_evidence:.4f}")
-                        print(f"        - 最终信念反转分: {p_final_score:.4f}")
+                        print(f"        --- [最终裁决] ---")
+                        print(f"        - 最终信念反转分 (看涨分 - 看跌分): {p_final_score:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_conviction_reversal 处理日期 {probe_date_str} 失败: {e}")
-        return {"SCORE_INTRADAY_CONVICTION_REVERSAL": final_score.clip(-1, 1)}
+        return {signal_name: final_score.clip(-1, 1)}
 
     def _diagnose_tactical_arc(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
