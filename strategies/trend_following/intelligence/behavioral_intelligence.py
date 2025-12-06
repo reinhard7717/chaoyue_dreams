@@ -253,10 +253,10 @@ class BehavioralIntelligence:
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
         stagnation_evidence = self._diagnose_stagnation_evidence(df, states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'])
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence
-        lower_shadow_quality = self._diagnose_lower_shadow_quality(df) # [代码修改] 移除已废弃的 'stagnation_evidence' 参数
+        lower_shadow_quality = self._diagnose_lower_shadow_quality(df)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
-        # [修改的代码行] 调整调用顺序，确保“派发意图”先于“进攻性承接”计算
-        distribution_intent = self._diagnose_distribution_intent(df, default_weights)
+        # [代码修改] 调整调用顺序，并将 final_overextension_score 作为参数直接传递
+        distribution_intent = self._diagnose_distribution_intent(df, default_weights, final_overextension_score)
         states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] = distribution_intent
         offensive_absorption_intent = self._diagnose_offensive_absorption_intent(df, lower_shadow_quality, distribution_intent)
         states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = offensive_absorption_intent
@@ -809,7 +809,7 @@ class BehavioralIntelligence:
         final_lower_shadow_quality = (base_drama_quality * directors_intent_score).clip(0, 1)
         return final_lower_shadow_quality.astype(np.float32)
 
-    def _diagnose_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
+    def _diagnose_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict, overextension_raw: pd.Series) -> pd.Series:
         """
         【V6.0 · 审判日协议 (探针激活版)】诊断派发意图。
         - 核心重构: 废弃V5.1“犯罪现场调查”模型，引入“战术执行 × 战略环境”的全新双维诊断框架。
@@ -843,7 +843,7 @@ class BehavioralIntelligence:
         # --- 3. 维度二：战略环境风险分 ---
         # 3.1 获取战略原料数据
         vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.5, method_name="_diagnose_distribution_intent")
-        overextension_raw = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.0)
+        # [代码修改] 移除 _get_atomic_score 调用，直接使用传入的 overextension_raw 参数
         winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_distribution_intent")
         control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.5, method_name="_diagnose_distribution_intent")
         conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_diagnose_distribution_intent")
