@@ -1239,9 +1239,9 @@
           "comment": "synergy_factor_k用于同向协同剧本，conflict_factor_k用于矛盾冲突剧本（逆转奖励/背叛惩罚）。"
         },
         "vwap_battlefield_params": {
-          "description": "【V2.0 · 战场积分协议】“VWAP攻防”信号参数",
-          "attrition_factor_k": 0.5,
-          "comment": "战损系数k。用于调节VWAP穿越强度对最终战果的折损效应，值越高，对拉锯战的惩罚越重。"
+          "description": "【V2.1 · 僵局不稳定性协议】“VWAP攻防”信号参数",
+          "instability_penalty_k": 0.3,
+          "comment": "不稳定性惩罚系数k。用于将VWAP穿越强度（战损）作为一个独立的风险因子进行惩罚。"
         },
         "dominance_consensus_params": {
             "enabled": true,

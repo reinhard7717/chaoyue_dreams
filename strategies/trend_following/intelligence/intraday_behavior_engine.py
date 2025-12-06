@@ -439,32 +439,30 @@ class IntradayBehaviorEngine:
 
     def _diagnose_vwap_battlefield(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 战场积分协议 (探针激活版)】日内诡道之三：诊断“VWAP攻防”
-        - 核心重构: 废弃V1.3“唯结果论”的代理信号，引入“战场积分协议”。
-        - 核心逻辑: 最终得分 = 战果向量 × 战损调节器。
-                      1. 战果向量: 由`vwap_control_strength_D`代表最终的胜负结果。
-                      2. 战损调节器: 由`vwap_crossing_intensity_D`量化战斗过程的消耗度。
-                      此模型旨在奖励“决胜之役”（低消耗、高战果），并惩罚“拉锯惨胜”
-                      （高消耗、低纯度战果），深度评估战役的真实含金量。
+        【V2.1 · 僵局不稳定性协议 (探针激活版)】日内诡道之三：诊断“VWAP攻防”
+        - 核心重构: 废弃V2.0的“战损调节器”，引入“僵局不稳定性协议”。
+        - 核心逻辑: 最终分 = 方向向量 - k * 不稳定性向量。
+                      深刻贯彻“胜败论品质，僵局论不稳”的哲学。VWAP穿越强度不再是
+                      一个折扣因子，而是一个独立的、直接的惩罚项。此模型能将高强度
+                      的平局精准地识别为负面风险信号，解决了V2.0的逻辑奇点。
         """
         signal_name = "SCORE_INTRADAY_VWAP_BATTLEFIELD"
         required_signals = ['vwap_control_strength_D', 'vwap_crossing_intensity_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_vwap_battlefield"):
             return {signal_name: pd.Series(0.0, index=df.index)}
-        # --- [核心逻辑] V2.0 ---
+        # --- [核心逻辑] V2.1 ---
         # 1. 获取参数
         params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('vwap_battlefield_params', {})
-        k_attrition = params.get('attrition_factor_k', 0.5)
+        k_instability = params.get('instability_penalty_k', 0.3)
         # 2. 获取原料信号
-        outcome_vector = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_vwap_battlefield")
-        attrition_raw = self._get_safe_series(df, 'vwap_crossing_intensity_D', 0.0, "_diagnose_vwap_battlefield")
-        # 3. 校准战损度
+        directional_vector = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_vwap_battlefield")
+        instability_raw = self._get_safe_series(df, 'vwap_crossing_intensity_D', 0.0, "_diagnose_vwap_battlefield")
+        # 3. 校准不稳定性向量
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
         default_weights = mtf_params.get('default_weights')
-        norm_attrition_score = get_adaptive_mtf_normalized_score(attrition_raw, df.index, default_weights).fillna(0.0)
-        # 4. 构建战损调节器并计算最终得分
-        attrition_modulator = 1 - k_attrition * norm_attrition_score
-        final_score = (outcome_vector * attrition_modulator).fillna(0.0)
+        instability_vector = get_adaptive_mtf_normalized_score(instability_raw, df.index, default_weights).fillna(0.0)
+        # 4. 计算最终得分
+        final_score = (directional_vector - k_instability * instability_vector).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -474,23 +472,23 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [日内诡道探针 V2.0] _diagnose_vwap_battlefield @ {probe_date_str}")
+                        print(f"      [日内诡道探针 V2.1] _diagnose_vwap_battlefield @ {probe_date_str}")
                         # --- 原料数据 ---
-                        p_outcome = outcome_vector.get(probe_date, 'N/A')
-                        p_attrition_raw = attrition_raw.get(probe_date, 'N/A')
+                        p_directional = directional_vector.get(probe_date, 'N/A')
+                        p_instability_raw = instability_raw.get(probe_date, 'N/A')
                         print(f"        --- [原料数据] ---")
-                        print(f"          - 战果向量 (vwap_control_strength_D): {p_outcome if isinstance(p_outcome, str) else f'{p_outcome:.4f}'}")
-                        print(f"          - 原始战损 (vwap_crossing_intensity_D): {p_attrition_raw if isinstance(p_attrition_raw, str) else f'{p_attrition_raw:.4f}'}")
+                        print(f"          - 方向向量 (vwap_control_strength_D): {p_directional if isinstance(p_directional, str) else f'{p_directional:.4f}'}")
+                        print(f"          - 原始不稳定性 (vwap_crossing_intensity_D): {p_instability_raw if isinstance(p_instability_raw, str) else f'{p_instability_raw:.4f}'}")
                         # --- 关键计算节点 ---
-                        p_attrition_norm = norm_attrition_score.get(probe_date, 'N/A')
-                        p_modulator = attrition_modulator.get(probe_date, 'N/A')
+                        p_instability_norm = instability_vector.get(probe_date, 'N/A')
+                        p_penalty = (k_instability * instability_vector).get(probe_date, 'N/A')
                         print(f"        --- [关键计算节点] ---")
-                        print(f"          - 归一化战损度: {p_attrition_norm if isinstance(p_attrition_norm, str) else f'{p_attrition_norm:.4f}'}")
-                        print(f"          - 战损调节器 (1 - {k_attrition}*归一化战损): {p_modulator if isinstance(p_modulator, str) else f'{p_modulator:.4f}'}")
+                        print(f"          - 归一化不稳定性向量: {p_instability_norm if isinstance(p_instability_norm, str) else f'{p_instability_norm:.4f}'}")
+                        print(f"          - 不稳定性惩罚 ({k_instability}*不稳定性向量): {p_penalty if isinstance(p_penalty, str) else f'{p_penalty:.4f}'}")
                         # --- 最终结果 ---
                         p_final = final_score.get(probe_date, 0.0)
                         print(f"        --- [最终结果] ---")
-                        print(f"        - 最终VWAP攻防分 (战果 × 战损调节器): {p_final:.4f}")
+                        print(f"        - 最终VWAP攻防分 (方向向量 - 惩罚): {p_final:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_vwap_battlefield 处理日期 {probe_date_str} 失败: {e}")
         return {signal_name: final_score.clip(-1, 1)}
