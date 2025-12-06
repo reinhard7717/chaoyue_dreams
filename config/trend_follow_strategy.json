@@ -1193,6 +1193,11 @@
           },
           "comment": "融合“战役背景”、“核心行动”、“司令部意志”三大要素时的权重。"
         },
+        "puppeteers_gambit_params": {
+          "description": "【V2.0 · 提线木偶的诡局】“博弈欺骗指数”信号参数",
+          "evidence_amplifier_k": 0.5,
+          "comment": "证据放大器系数k。用于将对倒、欺骗等行为作为调节器，放大“认知失调向量”的得分。"
+        },
         "neutral_zone_thresholds": {
           "description": "【V1.0】中性死区阈值。绝对值低于此阈值的信号值将被视作0，以过滤噪声。",
           "main_force_execution_alpha_D": 0.001,
