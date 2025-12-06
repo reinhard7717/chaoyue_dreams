@@ -305,8 +305,8 @@ class BehavioralIntelligence:
 
     def _diagnose_upward_momentum(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.1 · 生产版】诊断高品质上涨动能。
-        - 核心重构: 废弃了基于“表观强度幻觉”的 V1.0 模型。引入基于“闪电战三要素”
+        【V2.1 · 闪电战协议 (探针激活版)】诊断高品质上涨动能。
+        - 核心重构: 废弃了基于“表观强度幻觉”的 V2.0 模型。引入基于“闪电战三要素”
                       （攻击力度-战略指挥-后勤支撑）的全新品质诊断模型。
         - 闪电战三要素:
           1. 攻击力度 (Offensive Force): 审判攻击的纯净度与效率。采用 `upward_impulse_purity_D`
@@ -336,6 +336,40 @@ class BehavioralIntelligence:
             (strategic_command_score + 1e-9) *
             (sustainability_score + 1e-9)
         ).pow(1/3).fillna(0.0)
+        # --- [探针逻辑] 暴露所有计算节点 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df.empty:
+            for probe_date_str in probe_dates:
+                try:
+                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    if probe_date in df.index:
+                        print(f"      [行为探针 V2.1] _diagnose_upward_momentum @ {probe_date_str}")
+                        # --- 原料数据 ---
+                        p_purity_raw = impulse_purity_raw.get(probe_date, 'N/A')
+                        p_quality_raw = impulse_quality_raw.get(probe_date, 'N/A')
+                        p_conviction_raw = conviction_raw.get(probe_date, 'N/A')
+                        p_stability_raw = winner_stability_raw.get(probe_date, 'N/A')
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - 脉冲纯度 (upward_impulse_purity_D): {p_purity_raw if isinstance(p_purity_raw, str) else f'{p_purity_raw:.4f}'}")
+                        print(f"          - 脉冲质量 (impulse_quality_ratio_D): {p_quality_raw if isinstance(p_quality_raw, str) else f'{p_quality_raw:.4f}'}")
+                        print(f"          - 主力信念 (main_force_conviction_index_D): {p_conviction_raw if isinstance(p_conviction_raw, str) else f'{p_conviction_raw:.4f}'}")
+                        print(f"          - 赢家稳定 (winner_stability_index_D): {p_stability_raw if isinstance(p_stability_raw, str) else f'{p_stability_raw:.4f}'}")
+                        # --- 关键计算节点 ---
+                        p_offensive_force = offensive_force_score.get(probe_date, 'N/A')
+                        p_strategic_command = strategic_command_score.get(probe_date, 'N/A')
+                        p_sustainability = sustainability_score.get(probe_date, 'N/A')
+                        print(f"        --- [关键计算节点 - 闪电战三要素] ---")
+                        print(f"          - 攻击力度分 (归一化): {p_offensive_force if isinstance(p_offensive_force, str) else f'{p_offensive_force:.4f}'}")
+                        print(f"          - 战略指挥分 (归一化): {p_strategic_command if isinstance(p_strategic_command, str) else f'{p_strategic_command:.4f}'}")
+                        print(f"          - 后勤支撑分 (归一化): {p_sustainability if isinstance(p_sustainability, str) else f'{p_sustainability:.4f}'}")
+                        # --- 最终结果 ---
+                        p_final = upward_momentum_score.get(probe_date, 0.0)
+                        print(f"        --- [最终结果] ---")
+                        print(f"        - 最终上涨动能分 (三要素几何平均): {p_final:.4f}")
+                except Exception as e:
+                    print(f"    -> [行为探针错误] _diagnose_upward_momentum 处理日期 {probe_date_str} 失败: {e}")
         return upward_momentum_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_intraday_bull_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:

@@ -439,7 +439,7 @@ class IntradayBehaviorEngine:
 
     def _diagnose_vwap_battlefield(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 僵局不稳定性协议 (探针激活版)】日内诡道之三：诊断“VWAP攻防”
+        【V2.1 · Production Ready版】日内诡道之三：诊断“VWAP攻防”
         - 核心重构: 废弃V2.0的“战损调节器”，引入“僵局不稳定性协议”。
         - 核心逻辑: 最终分 = 方向向量 - k * 不稳定性向量。
                       深刻贯彻“胜败论品质，僵局论不稳”的哲学。VWAP穿越强度不再是
@@ -463,34 +463,7 @@ class IntradayBehaviorEngine:
         instability_vector = get_adaptive_mtf_normalized_score(instability_raw, df.index, default_weights).fillna(0.0)
         # 4. 计算最终得分
         final_score = (directional_vector - k_instability * instability_vector).fillna(0.0)
-        # --- [探针逻辑] 暴露所有计算节点 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        print(f"      [日内诡道探针 V2.1] _diagnose_vwap_battlefield @ {probe_date_str}")
-                        # --- 原料数据 ---
-                        p_directional = directional_vector.get(probe_date, 'N/A')
-                        p_instability_raw = instability_raw.get(probe_date, 'N/A')
-                        print(f"        --- [原料数据] ---")
-                        print(f"          - 方向向量 (vwap_control_strength_D): {p_directional if isinstance(p_directional, str) else f'{p_directional:.4f}'}")
-                        print(f"          - 原始不稳定性 (vwap_crossing_intensity_D): {p_instability_raw if isinstance(p_instability_raw, str) else f'{p_instability_raw:.4f}'}")
-                        # --- 关键计算节点 ---
-                        p_instability_norm = instability_vector.get(probe_date, 'N/A')
-                        p_penalty = (k_instability * instability_vector).get(probe_date, 'N/A')
-                        print(f"        --- [关键计算节点] ---")
-                        print(f"          - 归一化不稳定性向量: {p_instability_norm if isinstance(p_instability_norm, str) else f'{p_instability_norm:.4f}'}")
-                        print(f"          - 不稳定性惩罚 ({k_instability}*不稳定性向量): {p_penalty if isinstance(p_penalty, str) else f'{p_penalty:.4f}'}")
-                        # --- 最终结果 ---
-                        p_final = final_score.get(probe_date, 0.0)
-                        print(f"        --- [最终结果] ---")
-                        print(f"        - 最终VWAP攻防分 (方向向量 - 惩罚): {p_final:.4f}")
-                except Exception as e:
-                    print(f"    -> [日内行为探针错误] _diagnose_vwap_battlefield 处理日期 {probe_date_str} 失败: {e}")
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return {signal_name: final_score.clip(-1, 1)}
 
 
