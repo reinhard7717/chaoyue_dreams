@@ -356,37 +356,36 @@ class IntradayBehaviorEngine:
 
     def _diagnose_ambush_and_flank(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 战术完整性协议】日内诡道之一：诊断“伏击与侧翼”
-        - 核心重构: 废弃V1.2“原料堆砌”的幼稚构想，引入“战术完整性协议”。
-                      1. 定义三大支柱: 伏击机会(恐慌)、伏击执行(吸收)、侧翼反击(恢复质量)。
-                      2. 贯彻完全校准: 对所有原始输入信号进行归一化，杜绝“标度暴政”。
-                      3. 升级反击评估: 废弃粗糙的`closing_strength_index_D`，直接调用更高阶的
-                                       `SCORE_INTRADAY_RECOVERY_QUALITY`作为最终裁决。
-                      4. 稳健融合: 采用加权算术平均，确保模型稳定与可解释性。
+        【V2.1 · Production Ready版】日内诡道之一：诊断“伏击与侧翼”
+        - 核心重构: 沿用V2.0的“战术完整性协议”，并引入最终进化“动态阈值协议”。
+        - 核心逻辑: 废除静态的百分比门槛，采用基于ATR的动态门控。只有当盘中下探深度
+                      显著超过其近期日均波幅时，才被视为一次有效的“伏击机会”，
+                      实现了对不同波动环境下战术机会的自适应识别。
         """
         signal_name = "SCORE_INTRADAY_AMBUSH_AND_FLANK"
         required_signals = [
-            'open_D', 'low_D',
+            'open_D', 'low_D', 'ATR_14_D', # [代码修改] 新增ATR依赖
             'panic_selling_cascade_D',
             'dip_absorption_power_D',
-            'SCORE_INTRADAY_RECOVERY_QUALITY' # 核心升级
+            'SCORE_INTRADAY_RECOVERY_QUALITY'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_ambush_and_flank"):
             return {signal_name: pd.Series(0.0, index=df.index)}
-        # --- [核心逻辑] V2.0 ---
-        # 1. 获取参数与门控条件
+        # --- [核心逻辑] V2.1 ---
+        # 1. 获取参数
         params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('ambush_flank_params', {})
         weights = params.get('fusion_weights', {'opportunity': 0.2, 'execution': 0.4, 'counter_attack': 0.4})
-        min_dip_pct = params.get('min_dip_to_open_pct', 0.03)
-        daily_open = df.get('open_D')
-        daily_low = df.get('low_D')
-        # 门控条件：当日必须有足够的下探幅度
-        gate_condition = (daily_open > 0) & (((daily_open - daily_low) / daily_open) >= min_dip_pct)
-        # 2. 获取三大支柱的原料信号
-        opportunity_raw = df.get('panic_selling_cascade_D')
-        execution_raw = df.get('dip_absorption_power_D')
-        counter_attack_score = df.get('SCORE_INTRADAY_RECOVERY_QUALITY') # 直接使用高阶信号
-        # 3. 校准原始信号
+        k_atr = params.get('atr_multiplier_for_dip', 0.75) # [代码修改] 从静态百分比改为ATR乘数
+        # 2. [核心进化] 构建动态ATR门控
+        daily_open = self._get_safe_series(df, 'open_D', 0.0, "_diagnose_ambush_and_flank")
+        daily_low = self._get_safe_series(df, 'low_D', 0.0, "_diagnose_ambush_and_flank")
+        atr = self._get_safe_series(df, 'ATR_14_D', 0.0, "_diagnose_ambush_and_flank")
+        dip_magnitude = daily_open - daily_low
+        gate_condition = (atr > 0) & (dip_magnitude >= k_atr * atr)
+        # 3. 获取三大支柱信号并校准
+        opportunity_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, "_diagnose_ambush_and_flank")
+        execution_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, "_diagnose_ambush_and_flank")
+        counter_attack_score = self._get_safe_series(df, 'SCORE_INTRADAY_RECOVERY_QUALITY', 0.0, "_diagnose_ambush_and_flank")
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
         default_weights = mtf_params.get('default_weights')
         norm_opportunity = get_adaptive_mtf_normalized_score(opportunity_raw, df.index, default_weights).fillna(0.0)
@@ -394,8 +393,46 @@ class IntradayBehaviorEngine:
         # 4. 融合计算
         final_score = (norm_opportunity * weights.get('opportunity', 0.2) +
                        norm_execution * weights.get('execution', 0.4) +
-                       counter_attack_score.fillna(0.0) * weights.get('counter_attack', 0.4)
+                       counter_attack_score * weights.get('counter_attack', 0.4)
                       ).where(gate_condition, 0.0).fillna(0.0)
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        return {signal_name: final_score.clip(0, 1)}
+
+    def _diagnose_final_assault(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V3.0 · 战术意图 · 审判协议】日内诡道之二：诊断“终末强袭”
+        - 核心重构: 废弃V2.1“静态快照”谬误，引入“战术三幕剧”模型，审判从
+                      “战术铺垫” -> “强袭过程” -> “战果确认” 的完整战术链条。
+        - 核心逻辑: 引入“强袭过程放大器”，将尾盘攻击的真实动能作为审判因子，对
+                      首尾意图进行放大或惩罚。旨在区分“真强袭”与“假偷袭”。
+        """
+        signal_name = "SCORE_INTRADAY_FINAL_ASSAULT"
+        # [代码修改] 引入新的核心信号 final_assault_momentum_D
+        required_signals = [
+            'pre_closing_posturing_D',
+            'final_assault_momentum_D', # 核心进化：强袭过程
+            'closing_auction_ambush_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_final_assault"):
+            return {signal_name: pd.Series(0.0, index=df.index)}
+        # --- [核心逻辑] V3.0 ---
+        # 1. 获取参数
+        params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('final_assault_params', {})
+        k_amplifier = params.get('assault_amplifier_k', 0.5)
+        # 2. 获取三幕剧的原料信号
+        buildup_raw = self._get_safe_series(df, 'pre_closing_posturing_D', 0.0, "_diagnose_final_assault")
+        assault_raw = self._get_safe_series(df, 'final_assault_momentum_D', 0.0, "_diagnose_final_assault")
+        confirmation_raw = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, "_diagnose_final_assault")
+        # 3. [核心进化] 校准所有战术向量
+        mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
+        default_weights = mtf_params.get('default_weights')
+        norm_buildup = get_adaptive_mtf_normalized_bipolar_score(buildup_raw, df.index, default_weights).fillna(0.0)
+        norm_assault = get_adaptive_mtf_normalized_bipolar_score(assault_raw, df.index, default_weights).fillna(0.0)
+        norm_confirmation = get_adaptive_mtf_normalized_bipolar_score(confirmation_raw, df.index, default_weights).fillna(0.0)
+        # 4. 构建审判模型
+        base_intent_vector = (norm_buildup + norm_confirmation) / 2
+        assault_amplifier = 1 + k_amplifier * norm_assault
+        final_score = (base_intent_vector * assault_amplifier).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -405,76 +442,30 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [日内诡道探针 V2.0] _diagnose_ambush_and_flank @ {probe_date_str}")
-                        p_gate = gate_condition.get(probe_date, False)
-                        dip_pct = ((daily_open.get(probe_date, 0) - daily_low.get(probe_date, 0)) / daily_open.get(probe_date, 1)) * 100
-                        print(f"        --- [门控检查] ---")
-                        print(f"          - 当日下探幅度: {dip_pct:.2f}% (要求 >= {min_dip_pct*100}%) -> 触发: {p_gate}")
-                        if not p_gate:
-                            continue
+                        print(f"      [日内诡道探针 V3.0] _diagnose_final_assault @ {probe_date_str}")
                         # --- 原料数据与校准过程 ---
-                        p_opp_raw = opportunity_raw.get(probe_date, 'N/A')
-                        p_opp_norm = norm_opportunity.get(probe_date, 'N/A')
-                        p_exec_raw = execution_raw.get(probe_date, 'N/A')
-                        p_exec_norm = norm_execution.get(probe_date, 'N/A')
-                        p_counter_score = counter_attack_score.get(probe_date, 'N/A')
-                        print(f"        --- [原料数据 -> 支柱校准] ---")
-                        print(f"          - 支柱1 [机会] (恐慌原料): {p_opp_raw if isinstance(p_opp_raw, str) else f'{p_opp_raw:.4f}'} -> 校准后: {p_opp_norm if isinstance(p_opp_norm, str) else f'{p_opp_norm:.4f}'}")
-                        print(f"          - 支柱2 [执行] (吸收原料): {p_exec_raw if isinstance(p_exec_raw, str) else f'{p_exec_raw:.4f}'} -> 校准后: {p_exec_norm if isinstance(p_exec_norm, str) else f'{p_exec_norm:.4f}'}")
-                        print(f"          - 支柱3 [反击] (恢复质量分): {p_counter_score if isinstance(p_counter_score, str) else f'{p_counter_score:.4f}'}")
+                        p_build_raw = buildup_raw.get(probe_date, 'N/A')
+                        p_build_norm = norm_buildup.get(probe_date, 'N/A')
+                        p_assault_raw = assault_raw.get(probe_date, 'N/A')
+                        p_assault_norm = norm_assault.get(probe_date, 'N/A')
+                        p_confirm_raw = confirmation_raw.get(probe_date, 'N/A')
+                        p_confirm_norm = norm_confirmation.get(probe_date, 'N/A')
+                        print(f"        --- [原料数据 -> 战术校准] ---")
+                        print(f"          - 1.铺垫 (收盘前动态): {p_build_raw if isinstance(p_build_raw, str) else f'{p_build_raw:.4f}'} -> 校准后: {p_build_norm if isinstance(p_build_norm, str) else f'{p_build_norm:.4f}'}")
+                        print(f"          - 2.强袭 (尾盘动能): {p_assault_raw if isinstance(p_assault_raw, str) else f'{p_assault_raw:.4f}'} -> 校准后: {p_assault_norm if isinstance(p_assault_norm, str) else f'{p_assault_norm:.4f}'}")
+                        print(f"          - 3.确认 (竞价偷袭): {p_confirm_raw if isinstance(p_confirm_raw, str) else f'{p_confirm_raw:.4f}'} -> 校准后: {p_confirm_norm if isinstance(p_confirm_norm, str) else f'{p_confirm_norm:.4f}'}")
                         # --- 关键计算节点 ---
-                        w_opp = weights.get('opportunity', 0.2)
-                        w_exec = weights.get('execution', 0.4)
-                        w_counter = weights.get('counter_attack', 0.4)
+                        p_base_vector = base_intent_vector.get(probe_date, 0.0)
+                        p_amplifier = assault_amplifier.get(probe_date, 0.0)
                         print(f"        --- [关键计算节点] ---")
-                        print(f"          - 权重配置: 机会({w_opp}) | 执行({w_exec}) | 反击({w_counter})")
+                        print(f"          - 基础意图向量 ((铺垫+确认)/2): {p_base_vector:.4f}")
+                        print(f"          - 强袭过程放大器 (1 + {k_amplifier}*强袭): {p_amplifier:.4f}")
                         # --- 最终结果 ---
                         p_final = final_score.get(probe_date, 0.0)
                         print(f"        --- [最终结果] ---")
-                        print(f"        - 最终伏击与侧翼分: {p_final:.4f}")
-                except Exception as e:
-                    print(f"    -> [日内行为探针错误] _diagnose_ambush_and_flank 处理日期 {probe_date_str} 失败: {e}")
-        return {signal_name: final_score.clip(0, 1)}
-
-    def _diagnose_final_assault(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V2.1 · 代理信号重构版】日内诡道之二：诊断“终末强袭”
-        - 核心重构: 由于预计算信号不存在，本方法重构为融合“收盘竞价偷袭”和“收盘前动态”这两个信号。
-        """
-        signal_name = "SCORE_INTRADAY_FINAL_ASSAULT"
-        # 使用可用的代理信号
-        required_signals = ['closing_auction_ambush_D', 'pre_closing_posturing_D']
-        if not self._validate_required_signals(df, required_signals, "_diagnose_final_assault"):
-            return {signal_name: pd.Series(0.0, index=df.index)}
-        
-        params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('final_assault_params', {})
-        # 调整权重以适应新的信号
-        weights = params.get('fusion_weights', {'closing_auction': 0.6, 'pre_closing': 0.4})
-        
-        closing_auction_intent = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, "_diagnose_final_assault")
-        pre_closing_posturing = self._get_safe_series(df, 'pre_closing_posturing_D', 0.0, "_diagnose_final_assault")
-        
-        final_score = (closing_auction_intent * weights.get('closing_auction', 0.6) +
-                       pre_closing_posturing * weights.get('pre_closing', 0.4)).fillna(0.0)
-        
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        p_auction = closing_auction_intent.get(probe_date, 0.0)
-                        p_posturing = pre_closing_posturing.get(probe_date, 0.0)
-                        p_final = final_score.get(probe_date, 0.0)
-                        print(f"      [日内诡道探针] _diagnose_final_assault @ {probe_date_str}")
-                        print(f"        - [代理] 收盘竞价偷袭 (closing_auction_ambush_D): {p_auction:.4f}")
-                        print(f"        - [代理] 收盘前动态 (pre_closing_posturing_D): {p_posturing:.4f}")
-                        print(f"        - 最终终末强袭分: {p_final:.4f}")
+                        print(f"        - 最终终末强袭分 (意图 × 放大器): {p_final:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_final_assault 处理日期 {probe_date_str} 失败: {e}")
-        
         return {signal_name: final_score.clip(-1, 1)}
 
     def _diagnose_vwap_battlefield(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
