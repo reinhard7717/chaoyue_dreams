@@ -118,8 +118,24 @@ class IntradayBehaviorEngine:
         # 2.1 进攻能力
         offensive_quality = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, "_diagnose_intraday_bull_control")
         # 2.2 防守韧性
-        lower_shadow_strength = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, "_diagnose_intraday_bull_control")
-        dip_absorption_power = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, "_diagnose_intraday_bull_control")
+        # [代码修改] 对原始信号进行自适应多时间框架归一化，确保其值在[0, 1]区间
+        params = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        mtf_params = get_param_value(params.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(mtf_params.get('default_weights'), None)
+        raw_lower_shadow = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, "_diagnose_intraday_bull_control")
+        raw_dip_absorption = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, "_diagnose_intraday_bull_control")
+        lower_shadow_strength = get_adaptive_mtf_normalized_score(
+            series=raw_lower_shadow,
+            target_index=df.index,
+            ascending=True,
+            tf_weights=default_weights
+        )
+        dip_absorption_power = get_adaptive_mtf_normalized_score(
+            series=raw_dip_absorption,
+            target_index=df.index,
+            ascending=True,
+            tf_weights=default_weights
+        )
         defensive_quality = (lower_shadow_strength + dip_absorption_power) / 2
         # 2.3 融合攻防，得到综合战术品质
         action_quality = (offensive_quality + defensive_quality) / 2
@@ -136,13 +152,20 @@ class IntradayBehaviorEngine:
                     if probe_date in df.index:
                         p_position = position_score.get(probe_date, 0.0)
                         p_offensive = offensive_quality.get(probe_date, 0.0)
+                        # [代码修改] 升级探针，同时输出原始值和归一化值
+                        p_raw_lower_shadow = raw_lower_shadow.get(probe_date, 0.0)
+                        p_norm_lower_shadow = lower_shadow_strength.get(probe_date, 0.0)
+                        p_raw_dip_absorption = raw_dip_absorption.get(probe_date, 0.0)
+                        p_norm_dip_absorption = dip_absorption_power.get(probe_date, 0.0)
                         p_defensive = defensive_quality.get(probe_date, 0.0)
                         p_action_quality = action_quality.get(probe_date, 0.0)
                         p_final_score = final_score.get(probe_date, 0.0)
                         print(f"      [日内行为探针] _diagnose_intraday_bull_control @ {probe_date_str}")
                         print(f"        - [原料] 战略位置 (vwap_control_strength_D): {p_position:.4f}")
                         print(f"        - [原料] 进攻能力 (upward_impulse_purity_D): {p_offensive:.4f}")
-                        print(f"        - [原料] 防守韧性 (lower_shadow + dip_absorption): {p_defensive:.4f}")
+                        print(f"        - [原料] 下影线承接强度 (原始): {p_raw_lower_shadow:.4f} -> (归一化): {p_norm_lower_shadow:.4f}")
+                        print(f"        - [原料] 逢低吸筹力量 (原始): {p_raw_dip_absorption:.4f} -> (归一化): {p_norm_dip_absorption:.4f}")
+                        print(f"        - [计算节点] 综合防守韧性分 (defensive_quality): {p_defensive:.4f}")
                         print(f"        - [计算节点] 综合战术品质分 (action_quality): {p_action_quality:.4f}")
                         print(f"        - [结果] 最终日内多头控制力分: {p_final_score:.4f}")
                 except Exception as e:
