@@ -811,60 +811,56 @@ class BehavioralIntelligence:
 
     def _diagnose_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict, overextension_raw: pd.Series) -> pd.Series:
         """
-        【V6.0 · 审判日协议 (探针激活版)】诊断派发意图。
-        - 核心重构: 废弃V5.1“犯罪现场调查”模型，引入“战术执行 × 战略环境”的全新双维诊断框架。
-        - 诊断双维度:
-          1. 战术执行 (Tactical Execution): 沿用V5.1“罪证链”逻辑，评估主动派发动作。
-          2. 战略环境 (Strategic Environment): 新增战略评估，审判战场环境的恶化程度。
-        - 数学模型: 最终派发意图 = 战术执行分 * 战略环境风险分
+        【V7.0 · 大气压强协议 (探针激活版)】诊断派发意图。
+        - 核心重构: 废弃V6.0“战术绝对主义”乘法模型，引入“双轨独立审判”框架。
+        - 诊断双轨:
+          1. 战术风险 (Tactical Risk): 评估主动派发动作，即“风暴”强度。
+          2. 战略风险 (Strategic Risk): 评估战场环境恶化，即“大气压”读数。
+        - 数学模型: 最终风险 = max(战术风险, 战略风险) * (1 + 协同奖励)
         """
         # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        params = get_param_value(p_conf.get('judgment_day_protocol_params'), {})
-        env_weights = get_param_value(params.get('environment_weights'), {'fatigue': 0.4, 'decay': 0.3, 'betrayal': 0.3})
-        # --- 2. 维度一：战术执行分 (沿用V5.1“罪证链”逻辑) ---
-        # 2.1 获取战术原料数据
+        # [代码修改] 切换到新的参数块
+        params = get_param_value(p_conf.get('atmospheric_pressure_params'), {})
+        synergy_bonus = get_param_value(params.get('synergy_bonus_factor'), 0.2)
+        # [代码修改] 沿用V6.0的战略环境权重
+        env_params = get_param_value(p_conf.get('judgment_day_protocol_params'), {})
+        env_weights = get_param_value(env_params.get('environment_weights'), {'fatigue': 0.4, 'decay': 0.3, 'betrayal': 0.3})
+        # --- 2. 轨道一：战术风险评估 (风暴强度) ---
         motive_raw = self._get_safe_series(df, 'profit_taking_flow_ratio_D', 0.0, method_name="_diagnose_distribution_intent")
         rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_distribution_intent")
         upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_distribution_intent")
         fingerprint_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_distribution_intent")
-        # 2.2 计算战术各要素得分
         motive_score = get_adaptive_mtf_normalized_score(motive_raw, df.index, ascending=True, tf_weights=tf_weights)
         rally_pressure_score = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
         upper_shadow_score = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
         weapon_score = (rally_pressure_score * 0.5 + upper_shadow_score * 0.5)
         fingerprint_score = get_adaptive_mtf_normalized_score(fingerprint_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
-        # 2.3 合成战术执行分
-        tactical_execution_score = (
+        tactical_risk_score = (
             (motive_score + 1e-9).pow(0.2) *
             (weapon_score + 1e-9).pow(0.4) *
             (fingerprint_score + 1e-9).pow(0.4)
         ).fillna(0.0)
-        # --- 3. 维度二：战略环境风险分 ---
-        # 3.1 获取战略原料数据
+        # --- 3. 轨道二：战略风险评估 (大气压读数) ---
         vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.5, method_name="_diagnose_distribution_intent")
-        # [代码修改] 移除 _get_atomic_score 调用，直接使用传入的 overextension_raw 参数
         winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_distribution_intent")
         control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.5, method_name="_diagnose_distribution_intent")
         conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_diagnose_distribution_intent")
-        # 3.2 计算战略各要素得分
-        # 要素一：多头部队疲惫度
         vitality_score = get_adaptive_mtf_normalized_score(vitality_raw, df.index, ascending=True, tf_weights=tf_weights)
         bullish_fatigue_score = ((1 - vitality_score) * overextension_raw).pow(0.5)
-        # 要素二：防御工事瓦解度
         stability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=tf_weights)
         solidity_score = get_adaptive_mtf_normalized_score(control_solidity_raw, df.index, ascending=True, tf_weights=tf_weights)
         fortress_decay_score = ((1 - stability_score) * (1 - solidity_score)).pow(0.5)
-        # 要素三：指挥官背叛度
         commanders_betrayal_score = get_adaptive_mtf_normalized_score(conviction_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
-        # 3.3 合成战略环境风险分
-        strategic_environment_score = (
+        strategic_risk_score = (
             bullish_fatigue_score * env_weights.get('fatigue', 0.4) +
             fortress_decay_score * env_weights.get('decay', 0.3) +
             commanders_betrayal_score * env_weights.get('betrayal', 0.3)
         ).clip(0, 1)
-        # --- 4. 最终合成：战术执行 × 战略环境 ---
-        final_distribution_intent = (tactical_execution_score * strategic_environment_score).clip(0, 1)
+        # --- 4. 最终合成：双轨独立审判 ---
+        base_risk = pd.concat([tactical_risk_score, strategic_risk_score], axis=1).max(axis=1)
+        synergy_amplifier = 1 + (tactical_risk_score * strategic_risk_score).pow(0.5) * synergy_bonus
+        final_distribution_intent = (base_risk * synergy_amplifier).clip(0, 1)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -874,22 +870,16 @@ class BehavioralIntelligence:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [行为探针 V6.0] _diagnose_distribution_intent @ {probe_date_str}")
-                        # --- 维度一：战术执行 ---
-                        print(f"        --- [维度一：战术执行 (罪证链)] ---")
-                        print(f"          - [动机] 获利了结动机分: {motive_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [凶器] 主动卖压行为分: {weapon_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [指纹] 主力隐蔽派发分: {fingerprint_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [融合] 战术执行总分: {tactical_execution_score.get(probe_date, 'N/A'):.4f}")
-                        # --- 维度二：战略环境 ---
-                        print(f"        --- [维度二：战略环境 (审判日)] ---")
-                        print(f"          - [要素] 多头部队疲惫度: {bullish_fatigue_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [要素] 防御工事瓦解度: {fortress_decay_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [要素] 指挥官背叛度: {commanders_betrayal_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [融合] 战略环境风险总分: {strategic_environment_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"      [行为探针 V7.0] _diagnose_distribution_intent @ {probe_date_str}")
+                        # --- 双轨独立审判 ---
+                        print(f"        --- [双轨独立审判 (大气压强协议)] ---")
+                        print(f"          - [轨道一] 战术风险 (风暴强度): {tactical_risk_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [轨道二] 战略风险 (大气压): {strategic_risk_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [融合] 基础风险 (取最大值): {base_risk.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [融合] 协同奖励放大器: {synergy_amplifier.get(probe_date, 'N/A'):.4f}")
                         # --- 最终结果 ---
                         print(f"        --- [最终结果] ---")
-                        print(f"        - 最终派发意图分 (战术 × 战略): {final_distribution_intent.get(probe_date, 0.0):.4f}")
+                        print(f"        - 最终派发意图分 (max(战术,战略) × 协同): {final_distribution_intent.get(probe_date, 0.0):.4f}")
                 except Exception as e:
                     print(f"    -> [行为探针错误] _diagnose_distribution_intent 处理日期 {probe_date_str} 失败: {e}")
         return final_distribution_intent.astype(np.float32)

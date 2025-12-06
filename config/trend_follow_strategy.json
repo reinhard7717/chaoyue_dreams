@@ -1265,6 +1265,11 @@
           },
           "comment": "融合“多头疲惫度”、“防御瓦解度”、“指挥官背叛度”构建“战略环境风险分”时的权重。"
         },
+        "atmospheric_pressure_params": {
+          "description": "【V7.0 · 大气压强协议】“派发意图”信号参数",
+          "synergy_bonus_factor": 0.2,
+          "comment": "当战术风险与战略风险同时存在时，给予的协同奖励系数。"
+        },
         "neutral_zone_thresholds": {
           "description": "【V1.0】中性死区阈值。绝对值低于此阈值的信号值将被视作0，以过滤噪声。",
           "main_force_execution_alpha_D": 0.001,
