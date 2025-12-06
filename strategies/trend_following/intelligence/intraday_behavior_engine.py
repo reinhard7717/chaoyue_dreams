@@ -267,13 +267,10 @@ class IntradayBehaviorEngine:
 
     def _diagnose_auction_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 信念升级协议】日内叙事之二：诊断“竞价意图”
-        - 核心重构: 废弃V2.0错误的“强度惩罚谬误”。引入“信念升级协议”。
-                      1. 基础意图 = (开篇向量 + 收官向量) / 2
-                      2. 协同因子: 引入双轨制裁决系统。
-                         - 若方向一致: 奖励信念的强度升级 (1 + k_reward * ||收官|-|开篇||)。
-                         - 若方向矛盾: 惩罚意图的背叛行为 (1 - k_punish * |开篇-收官|)。
-                      此模型能精准识别并奖励“信念升级”的强趋势信号，同时惩罚“诡道背叛”。
+        【V2.2 · Production Ready版】日内叙事之二：诊断“竞价意图”
+        - 核心重构: 沿用V2.1“信念升级协议”的最终逻辑。
+        - 核心逻辑: 采用“双轨制协同因子”，对方向一致的“信念升级”行为给予奖励，
+                      对方向矛盾的“意图背叛”行为施加惩罚，实现对主力言行合一的精准裁决。
         """
         signal_name = "SCORE_INTRADAY_AUCTION_INTENT"
         required_signals = [
@@ -295,7 +292,7 @@ class IntradayBehaviorEngine:
         norm_closing_vector = (norm_closing_magnitude * np.sign(raw_closing_vector)).fillna(0.0)
         # 3. 计算基础意图向量
         base_intent = (norm_opening_vector + norm_closing_vector) / 2
-        # 4. [核心进化] 计算双轨制“协同因子”
+        # 4. 计算双轨制“协同因子”
         k_reward = 0.5
         k_punish = 0.75
         is_consistent = (np.sign(norm_opening_vector) * np.sign(norm_closing_vector) >= 0)
@@ -308,6 +305,45 @@ class IntradayBehaviorEngine:
         synergy_factor = pd.Series(np.where(is_consistent, reward_factor, punishment_factor), index=df.index)
         # 5. 最终裁决
         final_score = (base_intent * synergy_factor).fillna(0.0)
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        return {signal_name: final_score.clip(-1, 1)}
+
+    def _diagnose_recovery_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.0 · 成本效益分析版】日内叙事之三：诊断“恢复质量”
+        - 核心重构: 废弃V1.0仅看“结果”的幼稚模型。引入“成本效益分析”框架。
+                      1. 战果(Benefit) = 收盘价在当日的位置。
+                      2. 成本(Cost) = w1*弹药消耗(成交量异常) + w2*战线混乱度(波动率)。
+                      3. 最终质量 = 战果 / (1 + k * 总成本)。
+                      此模型能精准识别“王者归来”式的高质量恢复，并惩罚“惨胜如败”的
+                      高成本、高风险伪反弹。
+        """
+        signal_name = "SCORE_INTRADAY_RECOVERY_QUALITY"
+        required_signals = [
+            'closing_strength_index_D',
+            'volume_anomaly_D',
+            'volatility_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_recovery_quality"):
+            return {signal_name: pd.Series(0.0, index=df.index)}
+        # --- [核心逻辑] V2.0 ---
+        # 1. 获取战果与成本的原料信号
+        recovery_magnitude = self._get_safe_series(df, 'closing_strength_index_D', 0.0, "_diagnose_recovery_quality")
+        raw_ammunition_expenditure = self._get_safe_series(df, 'volume_anomaly_D', 0.0, "_diagnose_recovery_quality")
+        raw_battlefield_turbulence = self._get_safe_series(df, 'volatility_D', 0.0, "_diagnose_recovery_quality")
+        # 2. [核心进化] 成本审计：对成本项进行归一化
+        mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
+        default_weights = mtf_params.get('default_weights')
+        norm_ammo_cost = get_adaptive_mtf_normalized_score(raw_ammunition_expenditure, df.index, default_weights)
+        norm_turbulence_cost = get_adaptive_mtf_normalized_score(raw_battlefield_turbulence, df.index, default_weights)
+        # 3. 计算总成本 (权重: 弹药消耗0.6, 战线混乱度0.4)
+        w_ammo = 0.6
+        w_turbulence = 0.4
+        total_cost = (w_ammo * norm_ammo_cost + w_turbulence * norm_turbulence_cost).fillna(0.0)
+        # 4. 计算成本惩罚因子 (k=1.0)
+        cost_penalty_factor = 1 + 1.0 * total_cost
+        # 5. 最终裁决
+        final_score = (recovery_magnitude / cost_penalty_factor).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -317,72 +353,32 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [日内行为探针 V2.1] _diagnose_auction_intent @ {probe_date_str}")
-                        # --- 原料数据与归一化过程 ---
-                        p_opening_norm = norm_opening_vector.get(probe_date, 0.0)
-                        p_closing_norm = norm_closing_vector.get(probe_date, 0.0)
-                        print(f"        --- [归一化向量] ---")
-                        print(f"          - 开篇向量: {p_opening_norm:.4f}")
-                        print(f"          - 收官向量: {p_closing_norm:.4f}")
+                        print(f"      [日内行为探针 V2.0] _diagnose_recovery_quality @ {probe_date_str}")
+                        # --- 原料数据 ---
+                        p_magnitude = recovery_magnitude.get(probe_date, 0.0)
+                        p_ammo_raw = raw_ammunition_expenditure.get(probe_date, 0.0)
+                        p_turb_raw = raw_battlefield_turbulence.get(probe_date, 0.0)
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - 恢复广度 (战果): {p_magnitude:.4f}")
+                        print(f"          - 弹药消耗 (成交量异常): {p_ammo_raw:.4f}")
+                        print(f"          - 战线混乱 (波动率): {p_turb_raw:.4f}")
                         # --- 关键计算节点 ---
-                        p_base_intent = base_intent.get(probe_date, 0.0)
-                        p_is_consistent = is_consistent.get(probe_date, False)
-                        p_synergy = synergy_factor.get(probe_date, 0.0)
+                        p_ammo_norm = norm_ammo_cost.get(probe_date, 0.0)
+                        p_turb_norm = norm_turbulence_cost.get(probe_date, 0.0)
+                        p_total_cost = total_cost.get(probe_date, 0.0)
+                        p_penalty = cost_penalty_factor.get(probe_date, 1.0)
                         print(f"        --- [关键计算节点] ---")
-                        print(f"          - 基础意图 ((开+收)/2): {p_base_intent:.4f}")
-                        print(f"          - 方向是否一致: {p_is_consistent}")
-                        if p_is_consistent:
-                            p_escalation = escalation_bonus.get(probe_date, 0.0)
-                            print(f"          - [奖励轨道] 信念升级强度: {p_escalation:.4f}")
-                        else:
-                            p_conflict = conflict_penalty.get(probe_date, 0.0)
-                            print(f"          - [惩罚轨道] 意图冲突强度: {p_conflict:.4f}")
-                        print(f"          - 最终协同因子: {p_synergy:.4f}")
+                        print(f"          - 归一化弹药成本: {p_ammo_norm:.4f}")
+                        print(f"          - 归一化混乱成本: {p_turb_norm:.4f}")
+                        print(f"          - 总成本 (w_ammo*c1 + w_turb*c2): {p_total_cost:.4f}")
+                        print(f"          - 成本惩罚因子 (1 + k*总成本): {p_penalty:.4f}")
                         # --- 最终结果 ---
                         p_final = final_score.get(probe_date, 0.0)
                         print(f"        --- [最终结果] ---")
-                        print(f"        - 最终竞价意图分 (基础意图 × 协同因子): {p_final:.4f}")
-                except Exception as e:
-                    print(f"    -> [日内行为探针错误] _diagnose_auction_intent 处理日期 {probe_date_str} 失败: {e}")
-        return {signal_name: final_score.clip(-1, 1)}
-
-    def _diagnose_recovery_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V2.1 · 代理信号重构版】日内叙事之三：诊断“修复质量”
-        - 核心重构: 由于预计算信号不存在，本方法重构为融合“下影线承接强度”和“逢低吸筹力量”
-                      来综合评估日内下跌后的修复质量。
-        """
-        signal_name = "SCORE_INTRADAY_RECOVERY_QUALITY"
-        # 使用可用的代理信号进行计算
-        required_signals = ['lower_shadow_absorption_strength_D', 'dip_absorption_power_D']
-        if not self._validate_required_signals(df, required_signals, "_diagnose_recovery_quality"):
-            return {signal_name: pd.Series(0.0, index=df.index)}
-        
-        lower_shadow = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, "_diagnose_recovery_quality")
-        dip_absorption = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, "_diagnose_recovery_quality")
-        
-        # 融合逻辑：高质量的修复体现在下影线和整体低位区都有强力承接
-        final_score = (lower_shadow * 0.5 + dip_absorption * 0.5).fillna(0.0)
-        
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        p_lower_shadow = lower_shadow.get(probe_date, 0.0)
-                        p_dip_absorption = dip_absorption.get(probe_date, 0.0)
-                        p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"      [日内行为探针] _diagnose_recovery_quality @ {probe_date_str}")
-                        print(f"        - [代理] 下影线承接强度: {p_lower_shadow:.4f}")
-                        print(f"        - [代理] 逢低吸筹力量: {p_dip_absorption:.4f}")
-                        print(f"        - 最终修复质量分: {p_final_score:.4f}")
+                        print(f"        - 最终恢复质量分 (战果 / 惩罚因子): {p_final:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_recovery_quality 处理日期 {probe_date_str} 失败: {e}")
-        
-        return {signal_name: final_score.clip(0, 1)}
+        return {signal_name: final_score.clip(-1, 1)}
 
     def _diagnose_ambush_and_flank(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
