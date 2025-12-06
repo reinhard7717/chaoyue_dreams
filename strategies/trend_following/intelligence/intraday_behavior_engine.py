@@ -97,7 +97,7 @@ class IntradayBehaviorEngine:
 
     def _diagnose_offensive_purity(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 · Verdict Amplification版】日内战报之一：诊断“进攻纯度”
+        【V5.1 · Production Ready版】日内战报之一：诊断“进攻纯度”
         - 核心重构: 引入“裁决放大”机制。品质分不再是简单的调节器，而是放大器。
                       1. 将“核心进攻得分”向量化至[-1, 1]，明确胜负方向。
                       2. 将“品质调节器”转换为“品质放大器”，值域如[0.5, 1.5]。
@@ -117,7 +117,7 @@ class IntradayBehaviorEngine:
         parent_params = get_params_block(self.strategy, 'intraday_behavior_params', {})
         params = get_param_value(parent_params.get('offensive_purity_params'), {})
         axis_weights = get_param_value(params.get('primary_axis_weights'), {'opening': 0.2, 'control': 0.5, 'closing': 0.3})
-        # --- 反脆弱归一化层 (与V4.0保持一致) ---
+        # --- 反脆弱归一化层 ---
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
         default_weights = mtf_params.get('default_weights')
         raw_opening_intent = self._get_safe_series(df, 'opening_battle_result_D', 0.0, "_diagnose_offensive_purity")
@@ -128,7 +128,7 @@ class IntradayBehaviorEngine:
         norm_midday_control = get_adaptive_mtf_normalized_bipolar_score(raw_midday_control, df.index, default_weights)
         norm_pressure_suppression = get_adaptive_mtf_normalized_score(raw_upper_shadow_pressure, df.index, ascending=False, tf_weights=default_weights)
         norm_closing_power = get_adaptive_mtf_normalized_bipolar_score(raw_closing_power, df.index, default_weights)
-        # --- [核心进化] 裁决放大逻辑 ---
+        # --- 裁决放大逻辑 ---
         # 1. 计算“核心进攻得分” ([0, 1] 区间)
         opening_score = (norm_opening_intent + 1) / 2
         control_score = (norm_midday_control + 1) / 2
@@ -146,6 +146,37 @@ class IntradayBehaviorEngine:
         final_vector = (primary_axis_vector * quality_amplifier).fillna(0.0)
         # 5. 将最终向量映射回 [0, 1] 区间作为最终得分
         final_score = (final_vector / 2) + 0.5
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        return {signal_name: final_score.clip(0, 1)}
+
+    def _diagnose_dominance_consensus(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V3.0 · 态势演化版】日内战报之二：诊断“支配共识”
+        - 核心重构: 废弃旧的代理逻辑，进化为“支配态势 × 共识演化趋势”的非线性融合模型。
+                      旨在穿透静态战果，洞察力量的动态演化方向。
+        """
+        signal_name = "SCORE_INTRADAY_DOMINANCE_CONSENSUS"
+        # [代码修改] 引入新的核心信号：主力信念指数的斜率
+        required_signals = ['vwap_control_strength_D', 'SLOPE_5_main_force_conviction_index_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_dominance_consensus"):
+            return {signal_name: pd.Series(0.0, index=df.index)}
+        # --- 获取参数 ---
+        parent_params = get_params_block(self.strategy, 'intraday_behavior_params', {})
+        params = get_param_value(parent_params.get('dominance_consensus_params'), {})
+        sensitivity = get_param_value(params.get('consensus_modulator_sensitivity'), 0.5)
+        # --- [核心逻辑] ---
+        # 1. 获取原料信号
+        # 维度一：支配态势 (存量)
+        dominance_state = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_dominance_consensus")
+        # 维度二：共识演化趋势 (增量)
+        conviction_trend = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, "_diagnose_dominance_consensus")
+        # 2. 对“共识演化趋势”进行标准化，使其成为一个有效的调节器
+        # 使用双极性归一化，将其映射到[-1, 1]区间
+        norm_conviction_trend = normalize_to_bipolar(conviction_trend, df.index, window=55, sensitivity=1.0)
+        # 3. 构建共识调节器，值域如 [0.5, 1.5]
+        consensus_modulator = 1 + norm_conviction_trend * sensitivity
+        # 4. 非线性融合：用“共识调节器”去调制“支配态势”
+        final_score = (dominance_state * consensus_modulator).fillna(0.0)
         # --- 探针逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -155,54 +186,24 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        # [代码修改] 探针重构，展示“裁决放大”的全过程
-                        p_primary_axis_score = primary_axis_score.get(probe_date, 0.0)
-                        p_primary_axis_vector = primary_axis_vector.get(probe_date, 0.0)
-                        p_quality_amplifier = quality_amplifier.get(probe_date, 0.0)
-                        p_final_vector = final_vector.get(probe_date, 0.0)
+                        # [代码修改] 探针输出所有原料和关键计算节点
+                        p_dominance_state = dominance_state.get(probe_date, 0.0)
+                        p_conviction_trend = conviction_trend.get(probe_date, 0.0)
+                        p_norm_trend = norm_conviction_trend.get(probe_date, 0.0)
+                        p_modulator = consensus_modulator.get(probe_date, 0.0)
                         p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"      [日内行为探针 V5.0] _diagnose_offensive_purity @ {probe_date_str}")
-                        print(f"        --- [1. 核心战果评估] ---")
-                        print(f"        - 核心进攻得分 ([0,1]): {p_primary_axis_score:.4f}")
-                        print(f"        - [计算节点] 核心进攻向量 (-> [-1,1]): {p_primary_axis_vector:.4f}")
-                        print(f"        --- [2. 品质裁决] ---")
-                        print(f"        - [计算节点] 品质放大器 (-> [0.5,1.5]): {p_quality_amplifier:.4f}")
-                        print(f"        --- [3. 最终裁决] ---")
-                        print(f"        - [计算节点] 最终向量 (核心向量 * 放大器): {p_final_vector:.4f}")
-                        print(f"        - 最终进攻纯度分 (映射回[0,1]): {p_final_score:.4f}")
-                except Exception as e:
-                    print(f"    -> [日内行为探针错误] _diagnose_offensive_purity 处理日期 {probe_date_str} 失败: {e}")
-        return {signal_name: final_score.clip(0, 1)}
-
-    def _diagnose_dominance_consensus(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V2.1 · 代理信号重构版】日内战报之二：诊断“支配共识”
-        - 核心重构: 由于预计算信号不存在，本方法重构为直接采用 `vwap_control_strength_D` 作为核心代理信号。
-        """
-        signal_name = "SCORE_INTRADAY_DOMINANCE_CONSENSUS"
-        # 使用可用的代理信号
-        raw_signal_name = "vwap_control_strength_D"
-        if not self._validate_required_signals(df, [raw_signal_name], "_diagnose_dominance_consensus"):
-            return {signal_name: pd.Series(0.0, index=df.index)}
-        
-        final_score = self._get_safe_series(df, raw_signal_name, 0.0, "_diagnose_dominance_consensus")
-        
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        score_on_date = final_score.get(probe_date, 'N/A')
-                        print(f"      [日内行为探针] _diagnose_dominance_consensus @ {probe_date_str}")
-                        print(f"        - [代理] VWAP控制强度 ({raw_signal_name}): {score_on_date:.4f}")
-                        print(f"        - 最终支配共识分: {score_on_date:.4f}")
+                        print(f"      [日内行为探针 V3.0] _diagnose_dominance_consensus @ {probe_date_str}")
+                        print(f"        --- [原料数据] ---")
+                        print(f"        - 支配态势 (vwap_control_strength_D): {p_dominance_state:.4f}")
+                        print(f"        - 共识趋势 (SLOPE_5_main_force_conviction_index_D): {p_conviction_trend:.4f}")
+                        print(f"        --- [关键计算节点] ---")
+                        print(f"        - 标准化共识趋势 (-> [-1,1]): {p_norm_trend:.4f}")
+                        print(f"        - 共识调节器 (-> [0.5,1.5]): {p_modulator:.4f}")
+                        print(f"        --- [结果] ---")
+                        print(f"        - 最终支配共识分 (态势 * 调节器): {p_final_score:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_dominance_consensus 处理日期 {probe_date_str} 失败: {e}")
-        
-        return {signal_name: final_score}
+        return {signal_name: final_score.clip(-1, 1)}
 
     def _diagnose_conviction_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
