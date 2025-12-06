@@ -97,11 +97,12 @@ class IntradayBehaviorEngine:
 
     def _diagnose_offensive_purity(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · Hierarchical Fusion版】日内战报之一：诊断“进攻纯度”
-        - 核心重构: 抛弃V3.1的“平均主义”几何融合，进化为更符合战场直觉的“层级融合模型”。
-                      1. 将开局、盘中控制、收官融合成“主战轴心得分”，代表核心战果。
-                      2. 将抛压抑制分作为“品质调节器”，用于调节核心战果得分。
-                      3. 最终分 = 主战轴心得分 * 品质调节器，旨在区分“完胜”与“惨胜”。
+        【V5.0 · Verdict Amplification版】日内战报之一：诊断“进攻纯度”
+        - 核心重构: 引入“裁决放大”机制。品质分不再是简单的调节器，而是放大器。
+                      1. 将“核心进攻得分”向量化至[-1, 1]，明确胜负方向。
+                      2. 将“品质调节器”转换为“品质放大器”，值域如[0.5, 1.5]。
+                      3. 最终向量 = 核心向量 * 品质放大器。此举能精准识别“胜者愈胜”，
+                         并深刻洞察“在弱抵抗下失败是更大的失败”这一高级博弈逻辑。
         """
         signal_name = "SCORE_INTRADAY_OFFENSIVE_PURITY"
         required_signals = [
@@ -116,7 +117,7 @@ class IntradayBehaviorEngine:
         parent_params = get_params_block(self.strategy, 'intraday_behavior_params', {})
         params = get_param_value(parent_params.get('offensive_purity_params'), {})
         axis_weights = get_param_value(params.get('primary_axis_weights'), {'opening': 0.2, 'control': 0.5, 'closing': 0.3})
-        # --- 反脆弱归一化层 (与V3.1保持一致) ---
+        # --- 反脆弱归一化层 (与V4.0保持一致) ---
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
         default_weights = mtf_params.get('default_weights')
         raw_opening_intent = self._get_safe_series(df, 'opening_battle_result_D', 0.0, "_diagnose_offensive_purity")
@@ -127,21 +128,24 @@ class IntradayBehaviorEngine:
         norm_midday_control = get_adaptive_mtf_normalized_bipolar_score(raw_midday_control, df.index, default_weights)
         norm_pressure_suppression = get_adaptive_mtf_normalized_score(raw_upper_shadow_pressure, df.index, ascending=False, tf_weights=default_weights)
         norm_closing_power = get_adaptive_mtf_normalized_bipolar_score(raw_closing_power, df.index, default_weights)
-        # --- [核心进化] 层级融合逻辑 ---
-        # 1. 计算“主战轴心”三大维度的[0,1]纯度分
+        # --- [核心进化] 裁决放大逻辑 ---
+        # 1. 计算“核心进攻得分” ([0, 1] 区间)
         opening_score = (norm_opening_intent + 1) / 2
         control_score = (norm_midday_control + 1) / 2
         closing_score = (norm_closing_power + 1) / 2
-        # 2. 加权融合成“核心进攻得分”
         primary_axis_score = (
             opening_score * axis_weights.get('opening', 0.2) +
             control_score * axis_weights.get('control', 0.5) +
             closing_score * axis_weights.get('closing', 0.3)
         )
-        # 3. “抛压抑制分”直接作为“品质调节器”
-        quality_modulator = norm_pressure_suppression
-        # 4. 最终融合：核心进攻得分 * 品质调节器
-        final_score = (primary_axis_score * quality_modulator).fillna(0.0)
+        # 2. 将核心得分向量化至 [-1, 1]
+        primary_axis_vector = (primary_axis_score - 0.5) * 2
+        # 3. 将品质分转换为 [0.5, 1.5] 区间的放大器
+        quality_amplifier = 0.5 + norm_pressure_suppression
+        # 4. 最终裁决：核心向量 * 品质放大器
+        final_vector = (primary_axis_vector * quality_amplifier).fillna(0.0)
+        # 5. 将最终向量映射回 [0, 1] 区间作为最终得分
+        final_score = (final_vector / 2) + 0.5
         # --- 探针逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -151,23 +155,21 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        # [代码修改] 探针重构，清晰展示层级融合过程
-                        p_opening_score = opening_score.get(probe_date, 0.0)
-                        p_control_score = control_score.get(probe_date, 0.0)
-                        p_closing_score = closing_score.get(probe_date, 0.0)
+                        # [代码修改] 探针重构，展示“裁决放大”的全过程
                         p_primary_axis_score = primary_axis_score.get(probe_date, 0.0)
-                        p_quality_modulator = quality_modulator.get(probe_date, 0.0)
+                        p_primary_axis_vector = primary_axis_vector.get(probe_date, 0.0)
+                        p_quality_amplifier = quality_amplifier.get(probe_date, 0.0)
+                        p_final_vector = final_vector.get(probe_date, 0.0)
                         p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"      [日内行为探针 V4.0] _diagnose_offensive_purity @ {probe_date_str}")
-                        print(f"        --- [1. 主战轴心 (核心战果)] ---")
-                        print(f"        - 开局纯度分: {p_opening_score:.4f} (权重: {axis_weights.get('opening', 0.2)})")
-                        print(f"        - 控制纯度分: {p_control_score:.4f} (权重: {axis_weights.get('control', 0.5)})")
-                        print(f"        - 收官纯度分: {p_closing_score:.4f} (权重: {axis_weights.get('closing', 0.3)})")
-                        print(f"        - [计算节点] 核心进攻得分: {p_primary_axis_score:.4f}")
-                        print(f"        --- [2. 品质调节器 (战役品质)] ---")
-                        print(f"        - [计算节点] 品质调节器 (抛压抑制分): {p_quality_modulator:.4f}")
-                        print(f"        --- [3. 结果] ---")
-                        print(f"        - 最终进攻纯度分 (核心得分 * 品质调节器): {p_final_score:.4f}")
+                        print(f"      [日内行为探针 V5.0] _diagnose_offensive_purity @ {probe_date_str}")
+                        print(f"        --- [1. 核心战果评估] ---")
+                        print(f"        - 核心进攻得分 ([0,1]): {p_primary_axis_score:.4f}")
+                        print(f"        - [计算节点] 核心进攻向量 (-> [-1,1]): {p_primary_axis_vector:.4f}")
+                        print(f"        --- [2. 品质裁决] ---")
+                        print(f"        - [计算节点] 品质放大器 (-> [0.5,1.5]): {p_quality_amplifier:.4f}")
+                        print(f"        --- [3. 最终裁决] ---")
+                        print(f"        - [计算节点] 最终向量 (核心向量 * 放大器): {p_final_vector:.4f}")
+                        print(f"        - 最终进攻纯度分 (映射回[0,1]): {p_final_score:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_offensive_purity 处理日期 {probe_date_str} 失败: {e}")
         return {signal_name: final_score.clip(0, 1)}

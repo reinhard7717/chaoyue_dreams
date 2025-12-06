@@ -1224,7 +1224,7 @@
         "description": "【V1.0 · 统一配置块】所有日内行为情报的统一参数配置块。",
         "offensive_purity_params": {
             "enabled": true,
-            "description": "【V4.0 · 层级融合版】为'进攻纯度'信号提供专属的层级融合权重。",
+            "description": "【V5.0 · 裁决放大版】为'进攻纯度'信号提供专属的层级融合权重。",
             "primary_axis_weights": {
                 "description": "主战轴心三大核心维度的融合权重。",
                 "opening": 0.2,
