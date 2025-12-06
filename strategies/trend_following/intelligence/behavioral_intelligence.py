@@ -336,7 +336,6 @@ class BehavioralIntelligence:
             (strategic_command_score + 1e-9) *
             (sustainability_score + 1e-9)
         ).pow(1/3).fillna(0.0)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return upward_momentum_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_downward_momentum(self, df: pd.DataFrame) -> pd.Series:
@@ -381,7 +380,6 @@ class BehavioralIntelligence:
             (defense_vacuum_score + 1e-9).pow(weights.get('defense_vacuum', 0.3)) *
             (command_vacuum_score + 1e-9).pow(weights.get('command_vacuum', 0.3))
         ).fillna(0.0)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return downward_momentum_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series, distribution_intent: pd.Series) -> pd.Series:
@@ -424,7 +422,6 @@ class BehavioralIntelligence:
             (commanders_will_score + 1e-9).pow(weights.get('commanders_will', 0.3))
         ).fillna(0.0)
         final_offensive_absorption_intent = (base_quality_score * strategic_prerequisite_score).clip(0, 1)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return final_offensive_absorption_intent.astype(np.float32)
 
     def _diagnose_intraday_bull_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -477,7 +474,6 @@ class BehavioralIntelligence:
         intentional_bias = comprehensive_quality_modulator * np.sign(net_action_bias)
         # 3. 双极驱动融合
         final_score = (position_score * position_weight + intentional_bias * intent_weight).fillna(0.0)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return final_score.clip(-1, 1).astype(np.float32) # [修改的代码行] 修复返回值类型，从字典改为Series，并增加类型转换
 
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
@@ -513,7 +509,6 @@ class BehavioralIntelligence:
         # --- 4. 计算认知失调并施加放大器 ---
         cognitive_dissonance_vector = (intent_vector - narrative_vector) / 2
         final_deception_index = (cognitive_dissonance_vector * evidence_amplifier).clip(-1, 1)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return final_deception_index.astype(np.float32)
 
     def _diagnose_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, long_term_weights: Dict) -> pd.Series:
@@ -745,7 +740,7 @@ class BehavioralIntelligence:
 
     def _diagnose_lower_shadow_quality(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V13.0 · 导演剪辑版协议 (探针激活版)】诊断下影线承接品质。
+        【V13.0 · Production Ready版】诊断下影线承接品质。
         - 核心重构: 废弃V12.1“战地记者”模型，引入“剧本×表演×意图”的全新三幕式诊断框架。
         - 诊断三幕剧:
           1. 剧本 (The Script): 审判“危机”的真实性与烈度 (`panic_selling_cascade_D`)。
@@ -785,34 +780,6 @@ class BehavioralIntelligence:
         # --- 4. 最终合成 ---
         base_drama_quality = (script_quality_score * performance_quality_score).pow(0.5).fillna(0.0)
         final_lower_shadow_quality = (base_drama_quality * directors_intent_score).clip(0, 1)
-        # --- [探针逻辑] 暴露所有计算节点 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        print(f"      [行为探针 V13.0] _diagnose_lower_shadow_quality @ {probe_date_str}")
-                        # --- 原料数据 ---
-                        print(f"        --- [原料数据] ---")
-                        print(f"          - [剧本] 恐慌级联 (panic_selling_cascade_D): {script_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [表演] 主动防御 (active_buying_support_D): {performance_active_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [表演] 逢低吸纳 (dip_absorption_power_D): {performance_dip_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [意图] 主力信念 (main_force_conviction_index_D): {intent_conviction_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [意图] 隐蔽增持 (covert_accumulation_signal_D): {intent_covert_ops_raw.get(probe_date, 'N/A'):.4f}")
-                        # --- 关键计算节点 ---
-                        print(f"        --- [关键计算节点 - 导演剪辑版协议] ---")
-                        print(f"          - [第一幕] 剧本品质分 (归一化): {script_quality_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [第二幕] 表演品质分 (融合): {performance_quality_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [第三幕] 导演意图分 (融合): {directors_intent_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [合成前] 基础戏剧分 (剧本*表演): {base_drama_quality.get(probe_date, 'N/A'):.4f}")
-                        # --- 最终结果 ---
-                        print(f"        --- [最终结果] ---")
-                        print(f"        - 最终下影线品质分 (基础戏剧 × 导演意图): {final_lower_shadow_quality.get(probe_date, 0.0):.4f}")
-                except Exception as e:
-                    print(f"    -> [行为探针错误] _diagnose_lower_shadow_quality 处理日期 {probe_date_str} 失败: {e}")
         return final_lower_shadow_quality.astype(np.float32)
 
     def _diagnose_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -1006,7 +973,6 @@ class BehavioralIntelligence:
         strategic_environment_score = (1 - beachhead_resistance_score)
         # --- 4. 最终合成：战术品质 × 战略环境 ---
         final_burst_quality = (tactical_assault_quality_score * strategic_environment_score).clip(0, 1)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return final_burst_quality.astype(np.float32)
 
     def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -1052,42 +1018,74 @@ class BehavioralIntelligence:
             (stability_score).pow(quality_weights.get('stability_score', 0.4))
         ).fillna(0.0)
         final_atrophy_quality = (strategic_context_gate * base_atrophy_score * quality_modulator).clip(0, 1)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return final_atrophy_quality.astype(np.float32)
 
     def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.1 · 生产版】计算高品质承接强度信号。
-        - 核心重构: 废弃了基于“下影线幻觉”的 V1.3 模型。引入基于“压力-意图-结果”
-                      战役分析框架的全新三维诊断模型，旨在精确区分“强力承接”与“诱空回补”。
-        - 战术三要素:
-          1. 战场环境 (Battlefield Context): 引入 `panic_selling_cascade_D`，衡量承接发生时
-                                             的抛压严重性。压力越大，承接价值越高。
-          2. 承接意图 (Absorption Intent): 采用 `main_force_conviction_index_D`，审判承接
-                                           行为是否由信念坚定的主力发起。
-          3. 承接结果 (Absorption Result): 使用下影线长度作为战果体现，只有在环境和意图
-                                           被证实后，形态才有意义。
-        - 数学模型: 强度分 = (环境分 * 意图分 * 结果分) ^ (1/3)
+        【V3.0 · 堡垒协议 (探针激活版)】计算高品质承接强度信号。
+        - 核心重构: 废弃V2.1“孤城谬误”模型，引入“地基×行动×意图”的全新三维诊断框架。
+        - 诊断三维度:
+          1. 地基勘探 (The Foundation Survey): 审判承接是否发生在经过验证的坚固支撑位上。
+          2. 构筑行动 (The Construction Action): 审判承接过程本身的强度与主动性。
+          3. 总督意志 (The Governor's Will): 审判承接行为背后的主力真实信念。
+        - 数学模型: 强度分 = (地基品质分 * 构筑行动分 * 总督意志分) ^ (1/3)
         """
-        # --- 1. 获取三维度原始数据 ---
-        panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_calculate_absorption_strength")
-        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_absorption_strength")
-        # 计算承接形态的原始值 (下影线占比)
-        absorption_form_raw = (df['close'] - df['low']) / (df['high'] - df['low'] + 1e-9)
-        absorption_form_raw = absorption_form_raw.clip(0, 1)
-        # --- 2. 计算各维度得分 ---
-        # 维度一：战场环境分
-        battlefield_context_score = get_adaptive_mtf_normalized_score(panic_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 维度二：承接意图分
-        absorption_intent_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
-        # 维度三：承接结果分
-        absorption_result_score = normalize_score(absorption_form_raw, df.index, 55)
-        # --- 3. 三维战术合成 ---
+        # --- 1. 获取参数 ---
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        params = get_param_value(p_conf.get('citadel_protocol_params'), {})
+        action_weights = get_param_value(params.get('action_weights'), {'dip_absorption': 0.6, 'active_buying': 0.4})
+        # --- 2. 获取三维度原始数据 ---
+        # 维度一：地基
+        foundation_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_calculate_absorption_strength")
+        # 维度二：行动
+        action_dip_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_calculate_absorption_strength")
+        action_active_raw = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_calculate_absorption_strength")
+        # 维度三：意图
+        intent_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_absorption_strength")
+        # --- 3. 计算各维度得分 ---
+        # 维度一：地基品质分
+        foundation_score = get_adaptive_mtf_normalized_score(foundation_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 维度二：构筑行动分
+        action_dip_score = get_adaptive_mtf_normalized_score(action_dip_raw, df.index, ascending=True, tf_weights=tf_weights)
+        action_active_score = get_adaptive_mtf_normalized_score(action_active_raw, df.index, ascending=True, tf_weights=tf_weights)
+        construction_action_score = (
+            action_dip_score * action_weights.get('dip_absorption', 0.6) +
+            action_active_score * action_weights.get('active_buying', 0.4)
+        )
+        # 维度三：总督意志分
+        governors_will_score = get_adaptive_mtf_normalized_score(intent_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
+        # --- 4. “堡垒协议”三维合成 ---
         absorption_strength = (
-            (battlefield_context_score + 1e-9) *
-            (absorption_intent_score + 1e-9) *
-            (absorption_result_score + 1e-9)
+            (foundation_score + 1e-9) *
+            (construction_action_score + 1e-9) *
+            (governors_will_score + 1e-9)
         ).pow(1/3).fillna(0.0)
+        # --- [探针逻辑] 暴露所有计算节点 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df.empty:
+            for probe_date_str in probe_dates:
+                try:
+                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    if probe_date in df.index:
+                        print(f"      [行为探针 V3.0] _calculate_absorption_strength @ {probe_date_str}")
+                        # --- 原料数据 ---
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - [地基] 支撑验证强度 (support_validation_strength_D): {foundation_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [行动] 逢低吸纳力 (dip_absorption_power_D): {action_dip_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [行动] 主动防御力 (active_buying_support_D): {action_active_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [意图] 主力信念 (main_force_conviction_index_D): {intent_raw.get(probe_date, 'N/A'):.4f}")
+                        # --- 关键计算节点 ---
+                        print(f"        --- [关键计算节点 - 堡垒协议] ---")
+                        print(f"          - [维度一] 地基品质分 (归一化): {foundation_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度二] 构筑行动分 (融合): {construction_action_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度三] 总督意志分 (归一化): {governors_will_score.get(probe_date, 'N/A'):.4f}")
+                        # --- 最终结果 ---
+                        print(f"        --- [最终结果] ---")
+                        print(f"        - 最终承接强度分 (三维融合): {absorption_strength.get(probe_date, 0.0):.4f}")
+                except Exception as e:
+                    print(f"    -> [行为探针错误] _calculate_absorption_strength 处理日期 {probe_date_str} 失败: {e}")
         return absorption_strength.clip(0, 1).astype(np.float32)
 
     def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:

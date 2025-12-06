@@ -155,7 +155,6 @@ class IntradayBehaviorEngine:
         final_vector = (primary_axis_vector * quality_amplifier).fillna(0.0)
         # 5. 将最终向量映射回 [0, 1] 区间作为最终得分
         final_score = (final_vector / 2) + 0.5
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return {signal_name: final_score.clip(0, 1)}
 
     def _diagnose_dominance_consensus(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -183,7 +182,6 @@ class IntradayBehaviorEngine:
             dominance_state_vector * weights.get('state', 0.6) +
             conviction_trend_vector * weights.get('trend', 0.4)
         ).fillna(0.0)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return {signal_name: final_score.clip(-1, 1)}
 
     def _diagnose_conviction_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -232,7 +230,6 @@ class IntradayBehaviorEngine:
         directional_score = bullish_final_score - bearish_final_score
         conflict_intensity = np.minimum(bullish_final_score, bearish_final_score)
         final_score = (directional_score * (1 - conflict_intensity)).fillna(0.0)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return {signal_name: final_score.clip(-1, 1)}
 
     def _diagnose_tactical_arc(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -271,7 +268,6 @@ class IntradayBehaviorEngine:
         context_amplifier = 1 + battlefield_intensity * 0.5
         # 5. 最终裁决
         final_score = (arc_direction * context_amplifier).fillna(0.0)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return {signal_name: final_score.clip(-1, 1)}
 
     def _diagnose_auction_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -314,7 +310,6 @@ class IntradayBehaviorEngine:
         synergy_factor = pd.Series(np.where(is_consistent, reward_factor, punishment_factor), index=df.index)
         # 5. 最终裁决
         final_score = (base_intent * synergy_factor).fillna(0.0)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return {signal_name: final_score.clip(-1, 1)}
 
     def _diagnose_recovery_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -351,7 +346,6 @@ class IntradayBehaviorEngine:
         resolution_factor = 1 + (conviction_raw - k_exp * norm_panic_context)
         # 5. 最终认证
         final_score = (norm_base_recovery * panic_amplifier * resolution_factor).fillna(0.0)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return {signal_name: final_score.clip(-1, 1)}
 
     def _diagnose_ambush_and_flank(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -395,7 +389,6 @@ class IntradayBehaviorEngine:
                        norm_execution * weights.get('execution', 0.4) +
                        counter_attack_score * weights.get('counter_attack', 0.4)
                       ).where(gate_condition, 0.0).fillna(0.0)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return {signal_name: final_score.clip(0, 1)}
 
     def _diagnose_final_assault(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -434,7 +427,6 @@ class IntradayBehaviorEngine:
         final_amplifier = pd.Series(np.where(is_consistent, synergy_amplifier, conflict_amplifier), index=df.index)
         # 4. 最终裁决
         final_score = (norm_verdict_vector * final_amplifier).fillna(0.0)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return {signal_name: final_score.clip(-1, 1)}
 
     def _diagnose_vwap_battlefield(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -463,7 +455,6 @@ class IntradayBehaviorEngine:
         instability_vector = get_adaptive_mtf_normalized_score(instability_raw, df.index, default_weights).fillna(0.0)
         # 4. 计算最终得分
         final_score = (directional_vector - k_instability * instability_vector).fillna(0.0)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return {signal_name: final_score.clip(-1, 1)}
 
 

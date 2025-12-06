@@ -1224,6 +1224,14 @@
           },
           "comment": "stability_window: 计算过程稳定性的价格波动率窗口。quality_weights: 融合“筹码纯度”和“过程稳定性”构建最终品质调节器的权重。"
         },
+        "citadel_protocol_params": {
+          "description": "【V3.0 · 堡垒协议】“承接强度”信号参数",
+          "action_weights": {
+            "dip_absorption": 0.6,
+            "active_buying": 0.4
+          },
+          "comment": "融合“逢低吸纳”和“主动防御”构建“构筑行动分”时的权重。"
+        },
         "neutral_zone_thresholds": {
           "description": "【V1.0】中性死区阈值。绝对值低于此阈值的信号值将被视作0，以过滤噪声。",
           "main_force_execution_alpha_D": 0.001,
