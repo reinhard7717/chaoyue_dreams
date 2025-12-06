@@ -239,7 +239,7 @@ class BehavioralIntelligence:
         # --- 动能信号 ---
         upward_momentum_score = self._diagnose_upward_momentum(df, default_weights)
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
-        downward_momentum_score = self._diagnose_downward_momentum(df) # [代码修改] 移除了多余的 'default_weights' 参数
+        downward_momentum_score = self._diagnose_downward_momentum(df)
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
         # --- 超买信号 ---
         final_overextension_score = self._diagnose_price_overextension(df, default_weights, long_term_weights)
@@ -253,7 +253,7 @@ class BehavioralIntelligence:
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
         stagnation_evidence = self._diagnose_stagnation_evidence(df, states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'])
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence
-        lower_shadow_quality = self._diagnose_lower_shadow_quality(df, stagnation_evidence)
+        lower_shadow_quality = self._diagnose_lower_shadow_quality(df) # [代码修改] 移除已废弃的 'stagnation_evidence' 参数
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
         # [修改的代码行] 调整调用顺序，确保“派发意图”先于“进攻性承接”计算
         distribution_intent = self._diagnose_distribution_intent(df, default_weights)
@@ -743,38 +743,76 @@ class BehavioralIntelligence:
         # [修改的代码行] 移除探针代码，恢复生产版本
         return final_stagnation_evidence.astype(np.float32)
 
-    def _diagnose_lower_shadow_quality(self, df: pd.DataFrame, stagnation_evidence: pd.Series) -> pd.Series:
+    def _diagnose_lower_shadow_quality(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V12.1 · 生产版】诊断下影线承接品质。
-        - 核心重构: 废弃了基于“法医式”K线形态拼凑的 V11.0 模型。引入基于“伏击战役”
-                      思想的全新三位一体诊断模型，旨在审判整个“诱空-反击”的战役全过程。
-        - 伏击战役三要素:
-          1. 战役背景 (The Lure): 审判是否存在真实的恐慌抛盘，为伏击提供前提。采用 `panic_selling_cascade_D`。
-          2. 核心行动 (The Ambush): 审判主力在下跌中是否发动了主动、持续的反击。采用 `active_buying_support_D`。
-          3. 战役结果 (The Victory): 审判反击是否成功收复失地，巩固战果。采用 `closing_strength_index_D`。
-        - 数学模型: 品质分 = (背景分^0.3 * 行动分^0.4 * 结果分^0.3) * 滞涨压制器
+        【V13.0 · 导演剪辑版协议 (探针激活版)】诊断下影线承接品质。
+        - 核心重构: 废弃V12.1“战地记者”模型，引入“剧本×表演×意图”的全新三幕式诊断框架。
+        - 诊断三幕剧:
+          1. 剧本 (The Script): 审判“危机”的真实性与烈度 (`panic_selling_cascade_D`)。
+          2. 表演 (The Performance): 审判“主角”救场的完成度 (融合 `active_buying_support_D` 等)。
+          3. 意图 (The Intent): 审判“导演”的真实内心独白 (融合 `main_force_conviction_index_D` 等)。
+        - 数学模型: 品质分 = (剧本品质 * 表演品质) ^ 0.5 * 导演意图分
         """
+        # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        params = get_param_value(p_conf.get('directors_cut_params'), {})
+        intent_weights = get_param_value(params.get('intent_weights'), {'conviction': 0.7, 'covert_ops': 0.3})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # --- 1. 维度一：获取伏击战役三要素的原始数据 ---
-        context_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_lower_shadow_quality")
-        action_raw = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_diagnose_lower_shadow_quality")
-        outcome_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_lower_shadow_quality")
-        # --- 2. 维度一：计算伏击战役基础品质分 ---
-        context_score = get_adaptive_mtf_normalized_score(context_raw, df.index, ascending=True, tf_weights=default_weights)
-        action_score = get_adaptive_mtf_normalized_score(action_raw, df.index, ascending=True, tf_weights=default_weights)
-        outcome_score = normalize_score(outcome_raw, df.index, 55)
-        base_quality_score = (
-            (context_score + 1e-9).pow(0.3) *
-            (action_score + 1e-9).pow(0.4) *
-            (outcome_score + 1e-9).pow(0.3)
-        ).fillna(0.0)
-        # --- 3. 维度二：构建战略环境压制器 ---
-        stagnation_suppressor = (1 - stagnation_evidence).clip(0, 1)
+        default_weights = get_param_value(p_mtf.get('default_weights'), {})
+        # --- 2. 获取三幕剧的原料数据 ---
+        # Act I: 剧本
+        script_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_lower_shadow_quality")
+        # Act II: 表演
+        performance_active_raw = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_diagnose_lower_shadow_quality")
+        performance_dip_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_lower_shadow_quality")
+        # Act III: 意图
+        intent_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_lower_shadow_quality")
+        intent_covert_ops_raw = self._get_safe_series(df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_lower_shadow_quality")
+        # --- 3. 计算各幕得分 ---
+        # 第一幕：剧本品质分
+        script_quality_score = get_adaptive_mtf_normalized_score(script_raw, df.index, ascending=True, tf_weights=default_weights)
+        # 第二幕：表演品质分
+        performance_active_score = get_adaptive_mtf_normalized_score(performance_active_raw, df.index, ascending=True, tf_weights=default_weights)
+        performance_dip_score = get_adaptive_mtf_normalized_score(performance_dip_raw, df.index, ascending=True, tf_weights=default_weights)
+        performance_quality_score = (performance_active_score * 0.6 + performance_dip_score * 0.4)
+        # 第三幕：导演意图分
+        intent_conviction_score = get_adaptive_mtf_normalized_score(intent_conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        intent_covert_ops_score = get_adaptive_mtf_normalized_score(intent_covert_ops_raw, df.index, ascending=True, tf_weights=default_weights)
+        directors_intent_score = (
+            intent_conviction_score * intent_weights.get('conviction', 0.7) +
+            intent_covert_ops_score * intent_weights.get('covert_ops', 0.3)
+        ).clip(0, 1)
         # --- 4. 最终合成 ---
-        final_lower_shadow_quality = (base_quality_score * stagnation_suppressor).clip(0, 1)
-        # [修改的代码行] 移除探针代码，恢复生产版本
+        base_drama_quality = (script_quality_score * performance_quality_score).pow(0.5).fillna(0.0)
+        final_lower_shadow_quality = (base_drama_quality * directors_intent_score).clip(0, 1)
+        # --- [探针逻辑] 暴露所有计算节点 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df.empty:
+            for probe_date_str in probe_dates:
+                try:
+                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    if probe_date in df.index:
+                        print(f"      [行为探针 V13.0] _diagnose_lower_shadow_quality @ {probe_date_str}")
+                        # --- 原料数据 ---
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - [剧本] 恐慌级联 (panic_selling_cascade_D): {script_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [表演] 主动防御 (active_buying_support_D): {performance_active_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [表演] 逢低吸纳 (dip_absorption_power_D): {performance_dip_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [意图] 主力信念 (main_force_conviction_index_D): {intent_conviction_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [意图] 隐蔽增持 (covert_accumulation_signal_D): {intent_covert_ops_raw.get(probe_date, 'N/A'):.4f}")
+                        # --- 关键计算节点 ---
+                        print(f"        --- [关键计算节点 - 导演剪辑版协议] ---")
+                        print(f"          - [第一幕] 剧本品质分 (归一化): {script_quality_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [第二幕] 表演品质分 (融合): {performance_quality_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [第三幕] 导演意图分 (融合): {directors_intent_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [合成前] 基础戏剧分 (剧本*表演): {base_drama_quality.get(probe_date, 'N/A'):.4f}")
+                        # --- 最终结果 ---
+                        print(f"        --- [最终结果] ---")
+                        print(f"        - 最终下影线品质分 (基础戏剧 × 导演意图): {final_lower_shadow_quality.get(probe_date, 0.0):.4f}")
+                except Exception as e:
+                    print(f"    -> [行为探针错误] _diagnose_lower_shadow_quality 处理日期 {probe_date_str} 失败: {e}")
         return final_lower_shadow_quality.astype(np.float32)
 
     def _diagnose_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -973,7 +1011,7 @@ class BehavioralIntelligence:
 
     def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V3.0 · 熔炉协议 (探针激活版)】计算高品质成交量萎缩信号。
+        【V3.0 · Production Ready版】计算高品质成交量萎缩信号。
         - 核心重构: 废弃V2.1“静态快照谬误”模型，引入“战略环境×静态筹码×动态过程”的全新三维诊断框架。
         - 诊断三维度:
           1. 战略环境门控 (The Furnace Check): 审判多头是否掌控日内主导权，作为点火前提。
@@ -1014,36 +1052,7 @@ class BehavioralIntelligence:
             (stability_score).pow(quality_weights.get('stability_score', 0.4))
         ).fillna(0.0)
         final_atrophy_quality = (strategic_context_gate * base_atrophy_score * quality_modulator).clip(0, 1)
-        # --- [探针逻辑] 暴露所有计算节点 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        print(f"      [行为探针 V3.0] _calculate_volume_atrophy @ {probe_date_str}")
-                        # --- 原料数据 ---
-                        print(f"        --- [原料数据] ---")
-                        print(f"          - [环境] VWAP控制力 (vwap_control_strength_D): {vwap_control_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [基础] 量比 (volume_ratio_D): {volume_ratio.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [纯度] 赢家稳定 (winner_stability_index_D): {winner_stability_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [纯度] 输家痛苦 (loser_pain_index_D): {loser_pain_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [纯度] 浮筹清洗 (floating_chip_cleansing_efficiency_D): {cleansing_efficiency_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [稳定] 5日波动率 (raw): {price_volatility.get(probe_date, 'N/A'):.4f}")
-                        # --- 关键计算节点 ---
-                        print(f"        --- [关键计算节点 - 熔炉协议] ---")
-                        print(f"          - [门控] 战略环境门控分 (归一化): {strategic_context_gate.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [基础] 基础萎缩分 (1 - norm_vol_ratio): {base_atrophy_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [品质] 筹码纯度分 (三维融合): {purity_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [品质] 过程稳定分 (1 - norm_volatility): {stability_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [品质] 最终品质调节器 (纯度*稳定): {quality_modulator.get(probe_date, 'N/A'):.4f}")
-                        # --- 最终结果 ---
-                        print(f"        --- [最终结果] ---")
-                        print(f"        - 最终成交量萎缩分 (门控 × 基础 × 品质): {final_atrophy_quality.get(probe_date, 0.0):.4f}")
-                except Exception as e:
-                    print(f"    -> [行为探针错误] _calculate_volume_atrophy 处理日期 {probe_date_str} 失败: {e}")
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return final_atrophy_quality.astype(np.float32)
 
     def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
