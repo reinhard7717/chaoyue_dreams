@@ -228,13 +228,10 @@ class IntradayBehaviorEngine:
 
     def _diagnose_tactical_arc(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.2 · 绝对向量版】日内叙事之一：诊断“战术弧线”
-        - 核心重构: 沿用V3.0“叙事向量”逻辑。
-        - 核心修复: 废弃V3.1错误的“相对归一化”。采用“符号保护”新范式：
-                      1. 提取原始信号的绝对方向(sign)。
-                      2. 对原始信号的绝对值(magnitude)进行单极化归一化，评估其强度排位。
-                      3. 最终向量 = 符号 × 强度。
-                      此举确保了向量的绝对方向不被篡改，从根本上修正了逻辑。
+        【V3.3 · Production Ready版】日内叙事之一：诊断“战术弧线”
+        - 核心重构: 沿用V3.2“绝对向量版”的最终逻辑。
+        - 核心逻辑: 采用“符号保护”归一化范式，计算“收官向量”与“开篇向量”的差值，
+                      并由“战局重要性”进行调节，精准量化日内力量的消长趋势。
         """
         signal_name = "SCORE_INTRADAY_TACTICAL_ARC"
         required_signals = [
@@ -249,7 +246,7 @@ class IntradayBehaviorEngine:
         raw_opening_vector = self._get_safe_series(df, 'opening_battle_result_D', 0.0, "_diagnose_tactical_arc")
         raw_closing_vector = self._get_safe_series(df, 'pre_closing_posturing_D', 0.0, "_diagnose_tactical_arc")
         battlefield_intensity_vector = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_tactical_arc")
-        # 2. [新增] “符号保护”归一化
+        # 2. “符号保护”归一化
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
         default_weights = mtf_params.get('default_weights')
         # 归一化开篇向量
@@ -265,6 +262,46 @@ class IntradayBehaviorEngine:
         context_amplifier = 1 + battlefield_intensity * 0.5
         # 5. 最终裁决
         final_score = (arc_direction * context_amplifier).fillna(0.0)
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        return {signal_name: final_score.clip(-1, 1)}
+
+    def _diagnose_auction_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.0 · 一致性裁决版】日内叙事之二：诊断“竞价意图”
+        - 核心重构: 废弃V1.0简单的线性相加。引入“一致性裁决”模型。
+                      1. 基础意图 = (开篇向量 + 收官向量) / 2
+                      2. 和谐因子 = 1 - k * |开篇向量 - 收官向量| (惩罚矛盾)
+                      3. 最终分 = 基础意图 × 和谐因子
+                      此模型能精准识别“言行一致”的强信号，并对“开盘诱多、收盘派发”等
+                      经典的“意图背叛”诡道战术施加毁灭性惩罚。
+        """
+        signal_name = "SCORE_INTRADAY_AUCTION_INTENT"
+        required_signals = [
+            'opening_battle_result_D',
+            'closing_auction_ambush_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_auction_intent"):
+            return {signal_name: pd.Series(0.0, index=df.index)}
+        # --- [核心逻辑] V2.0 ---
+        # 1. 获取原料信号
+        raw_opening_vector = self._get_safe_series(df, 'opening_battle_result_D', 0.0, "_diagnose_auction_intent")
+        raw_closing_vector = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, "_diagnose_auction_intent")
+        # 2. 采用“符号保护”归一化，确保绝对方向
+        mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
+        default_weights = mtf_params.get('default_weights')
+        # 归一化开篇向量
+        norm_opening_magnitude = get_adaptive_mtf_normalized_score(raw_opening_vector.abs(), df.index, default_weights)
+        norm_opening_vector = (norm_opening_magnitude * np.sign(raw_opening_vector)).fillna(0.0)
+        # 归一化收官向量
+        norm_closing_magnitude = get_adaptive_mtf_normalized_score(raw_closing_vector.abs(), df.index, default_weights)
+        norm_closing_vector = (norm_closing_magnitude * np.sign(raw_closing_vector)).fillna(0.0)
+        # 3. 计算基础意图向量
+        base_intent = (norm_opening_vector + norm_closing_vector) / 2
+        # 4. 计算和谐因子 (k=0.75)
+        intent_difference = (norm_opening_vector - norm_closing_vector).abs()
+        harmony_factor = 1 - 0.75 * intent_difference
+        # 5. 最终裁决
+        final_score = (base_intent * harmony_factor).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -274,68 +311,30 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [日内行为探针 V3.2] _diagnose_tactical_arc @ {probe_date_str}")
+                        print(f"      [日内行为探针 V2.0] _diagnose_auction_intent @ {probe_date_str}")
                         # --- 原料数据与归一化过程 ---
                         p_opening_raw = raw_opening_vector.get(probe_date, 0.0)
                         p_opening_norm = norm_opening_vector.get(probe_date, 0.0)
                         p_closing_raw = raw_closing_vector.get(probe_date, 0.0)
                         p_closing_norm = norm_closing_vector.get(probe_date, 0.0)
-                        p_intensity_raw = battlefield_intensity_vector.get(probe_date, 0.0)
                         print(f"        --- [原料数据 -> 绝对向量归一化] ---")
                         print(f"          - 开篇向量 (原料): {p_opening_raw:.4f} -> 归一化: {p_opening_norm:.4f}")
                         print(f"          - 收官向量 (原料): {p_closing_raw:.4f} -> 归一化: {p_closing_norm:.4f}")
-                        print(f"          - 战局强度 (原料): {p_intensity_raw:.4f}")
                         # --- 关键计算节点 ---
-                        p_arc_dir = arc_direction.get(probe_date, 0.0)
-                        p_amplifier = context_amplifier.get(probe_date, 1.0)
+                        p_base_intent = base_intent.get(probe_date, 0.0)
+                        p_difference = intent_difference.get(probe_date, 0.0)
+                        p_harmony = harmony_factor.get(probe_date, 0.0)
                         print(f"        --- [关键计算节点] ---")
-                        print(f"          - 弧线方向 (归一化收官 - 归一化开篇): {p_arc_dir:.4f}")
-                        print(f"          - 战局调节器 (1 + |强度|*0.5): {p_amplifier:.4f}")
+                        print(f"          - 基础意图 ((开+收)/2): {p_base_intent:.4f}")
+                        print(f"          - 意图差异 |开-收|: {p_difference:.4f}")
+                        print(f"          - 和谐因子 (1 - 0.75*差异): {p_harmony:.4f}")
                         # --- 最终结果 ---
                         p_final = final_score.get(probe_date, 0.0)
                         print(f"        --- [最终结果] ---")
-                        print(f"        - 最终战术弧线分 (方向 × 调节器): {p_final:.4f}")
-                except Exception as e:
-                    print(f"    -> [日内行为探针错误] _diagnose_tactical_arc 处理日期 {probe_date_str} 失败: {e}")
-        return {signal_name: final_score.clip(-1, 1)}
-
-    def _diagnose_auction_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.1 · 向量化重构版】日内叙事之二：诊断“竞价意图”
-        - 核心重构: 对整个方法进行向量化重构，使其能够处理完整的日线数据DataFrame并为每一天生成分数。
-        - 核心修复: 修复了探针逻辑，使其能够正确地在指定的 probe_dates 循环并打印每日的详细诊断信息。
-        """
-        if df.empty:
-            return {"SCORE_INTRADAY_AUCTION_INTENT": pd.Series(dtype=np.float64)}
-        # 向量化计算
-        # 从日线数据中获取开盘和收盘的博弈信号Series
-        opening_intent = self._get_safe_series(df, 'opening_battle_result_D', 0.0, "_diagnose_auction_intent")
-        closing_intent = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, "_diagnose_auction_intent")
-        # 从配置中获取权重
-        params = get_params_block(self.strategy, 'intraday_narrative_engine_params', {})
-        weights = get_param_value(params.get('auction_intent_weights'), {'opening': 0.4, 'closing': 0.6})
-        # 加权融合
-        final_score = (opening_intent * weights.get('opening', 0.4) +
-                       closing_intent * weights.get('closing', 0.6))
-        # --- 重构探针逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        p_opening_intent = opening_intent.get(probe_date, 0.0)
-                        p_closing_intent = closing_intent.get(probe_date, 0.0)
-                        p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"      [日内行为探针] _diagnose_auction_intent @ {probe_date_str}")
-                        print(f"        - 开盘博弈结果分: {p_opening_intent:.4f}")
-                        print(f"        - 收盘竞价偷袭分: {p_closing_intent:.4f}")
-                        print(f"        - 最终竞价意图分: {p_final_score:.4f}")
+                        print(f"        - 最终竞价意图分 (基础意图 × 和谐因子): {p_final:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_auction_intent 处理日期 {probe_date_str} 失败: {e}")
-        return {"SCORE_INTRADAY_AUCTION_INTENT": final_score.clip(-1, 1)}
+        return {signal_name: final_score.clip(-1, 1)}
 
     def _diagnose_recovery_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
