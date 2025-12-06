@@ -310,45 +310,35 @@ class IntradayBehaviorEngine:
 
     def _diagnose_recovery_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 效率审计版】日内叙事之三：诊断“恢复质量”
-        - 核心重构: 沿用V2.0“成本效益分析”框架，但使用数据层实际存在的信号重铸。
-                      1. 战果(Benefit) = closing_strength_index_D
-                      2. 成本(Cost):
-                         - 弹药消耗 -> volume_vs_ma_5_ratio_D
-                         - 战线混乱 -> ATR_14_D
-                      3. 最终质量 = 战果 / (1 + k * 总成本)。
-                      此模型能精准识别“王者归来”式的高质量恢复，并惩罚“惨胜如败”的
-                      高成本、高风险伪反弹，且完全基于可用数据。
+        【V2.0 · V型反转认证协议】日内叙事之三：诊断“恢复质量”
+        - 核心重构: 废弃V1.0基于K线形态的幼稚构想。引入“V型反转·认证协议”。
+                      1. 恢复根基: 采用`lower_shadow_absorption_strength_D`作为承接实力的基石。
+                      2. 环境放大器: 引入`panic_selling_cascade_D`，奖励在恐慌中完成的恢复。
+                      3. 信念验证器: 引入`vwap_control_strength_D`，验证主力是否最终夺回日内控制权。
+                      最终分 = 根基 × 放大器 × 验证器。精准识别高价值的“真V反”。
         """
         signal_name = "SCORE_INTRADAY_RECOVERY_QUALITY"
-        # [代码修改] 更新所需信号为数据层实际存在的信号
         required_signals = [
-            'closing_strength_index_D',
-            'volume_vs_ma_5_ratio_D',
-            'ATR_14_D'
+            'lower_shadow_absorption_strength_D',
+            'panic_selling_cascade_D',
+            'vwap_control_strength_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_recovery_quality"):
             return {signal_name: pd.Series(0.0, index=df.index)}
-        # --- [核心逻辑] V2.1 ---
-        # 1. 获取战果与成本的原料信号
-        recovery_magnitude = self._get_safe_series(df, 'closing_strength_index_D', 0.0, "_diagnose_recovery_quality")
-        # [代码修改] 使用新的、可用的成本信号
-        raw_ammunition_expenditure = self._get_safe_series(df, 'volume_vs_ma_5_ratio_D', 1.0, "_diagnose_recovery_quality")
-        raw_battlefield_turbulence = self._get_safe_series(df, 'ATR_14_D', 0.0, "_diagnose_recovery_quality")
-        # 2. 成本审计：对成本项进行归一化，以统一量纲
-        mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
-        default_weights = mtf_params.get('default_weights')
-        # 对成交量比率，我们关心的是超出1的部分，因此先减1再取绝对值
-        norm_ammo_cost = get_adaptive_mtf_normalized_score((raw_ammunition_expenditure - 1).abs(), df.index, default_weights)
-        norm_turbulence_cost = get_adaptive_mtf_normalized_score(raw_battlefield_turbulence, df.index, default_weights)
-        # 3. 计算总成本 (权重: 弹药消耗0.6, 战线混乱度0.4)
-        w_ammo = 0.6
-        w_turbulence = 0.4
-        total_cost = (w_ammo * norm_ammo_cost + w_turbulence * norm_turbulence_cost).fillna(0.0)
-        # 4. 计算成本惩罚因子 (k=1.0)
-        cost_penalty_factor = 1 + 1.0 * total_cost
-        # 5. 最终裁决
-        final_score = (recovery_magnitude / cost_penalty_factor).fillna(0.0)
+        # --- [核心逻辑] V2.0 ---
+        # 1. 获取原料信号 (暴露问题，不使用防御性代码)
+        base_recovery_raw = df.get('lower_shadow_absorption_strength_D', pd.Series(np.nan, index=df.index))
+        panic_context_raw = df.get('panic_selling_cascade_D', pd.Series(np.nan, index=df.index))
+        conviction_raw = df.get('vwap_control_strength_D', pd.Series(np.nan, index=df.index))
+        # 2. 定义恢复根基
+        base_recovery = base_recovery_raw.fillna(0.0)
+        # 3. 构建环境放大器
+        k_panic = 0.5
+        panic_amplifier = 1 + k_panic * panic_context_raw.fillna(0.0)
+        # 4. 构建信念验证器
+        conviction_verifier = 1 + conviction_raw.fillna(0.0)
+        # 5. 最终认证
+        final_score = (base_recovery * panic_amplifier * conviction_verifier).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -358,29 +348,25 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [日内行为探针 V2.1] _diagnose_recovery_quality @ {probe_date_str}")
+                        print(f"      [日内行为探针 V2.0] _diagnose_recovery_quality @ {probe_date_str}")
                         # --- 原料数据 ---
-                        p_magnitude = recovery_magnitude.get(probe_date, 0.0)
-                        p_ammo_raw = raw_ammunition_expenditure.get(probe_date, 0.0)
-                        p_turb_raw = raw_battlefield_turbulence.get(probe_date, 0.0)
+                        p_base_raw = base_recovery_raw.get(probe_date, 'N/A')
+                        p_panic_raw = panic_context_raw.get(probe_date, 'N/A')
+                        p_conviction_raw = conviction_raw.get(probe_date, 'N/A')
                         print(f"        --- [原料数据] ---")
-                        print(f"          - 恢复广度 (战果): {p_magnitude:.4f}")
-                        print(f"          - 弹药消耗 (成交量/5日均量): {p_ammo_raw:.4f}")
-                        print(f"          - 战线混乱 (ATR_14): {p_turb_raw:.4f}")
+                        print(f"          - 恢复根基 (下影线吸收强度): {p_base_raw if isinstance(p_base_raw, str) else f'{p_base_raw:.4f}'}")
+                        print(f"          - 恐慌环境 (恐慌抛售级联): {p_panic_raw if isinstance(p_panic_raw, str) else f'{p_panic_raw:.4f}'}")
+                        print(f"          - 信念原料 (VWAP控制强度): {p_conviction_raw if isinstance(p_conviction_raw, str) else f'{p_conviction_raw:.4f}'}")
                         # --- 关键计算节点 ---
-                        p_ammo_norm = norm_ammo_cost.get(probe_date, 0.0)
-                        p_turb_norm = norm_turbulence_cost.get(probe_date, 0.0)
-                        p_total_cost = total_cost.get(probe_date, 0.0)
-                        p_penalty = cost_penalty_factor.get(probe_date, 1.0)
+                        p_amplifier = panic_amplifier.get(probe_date, 0.0)
+                        p_verifier = conviction_verifier.get(probe_date, 0.0)
                         print(f"        --- [关键计算节点] ---")
-                        print(f"          - 归一化弹药成本: {p_ammo_norm:.4f}")
-                        print(f"          - 归一化混乱成本: {p_turb_norm:.4f}")
-                        print(f"          - 总成本 (w_ammo*c1 + w_turb*c2): {p_total_cost:.4f}")
-                        print(f"          - 成本惩罚因子 (1 + k*总成本): {p_penalty:.4f}")
+                        print(f"          - 环境放大器 (1 + 0.5*恐慌): {p_amplifier:.4f}")
+                        print(f"          - 信念验证器 (1 + VWAP控制): {p_verifier:.4f}")
                         # --- 最终结果 ---
                         p_final = final_score.get(probe_date, 0.0)
                         print(f"        --- [最终结果] ---")
-                        print(f"        - 最终恢复质量分 (战果 / 惩罚因子): {p_final:.4f}")
+                        print(f"        - 最终恢复质量分 (根基 × 放大器 × 验证器): {p_final:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_recovery_quality 处理日期 {probe_date_str} 失败: {e}")
         return {signal_name: final_score.clip(-1, 1)}
