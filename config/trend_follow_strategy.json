@@ -1270,6 +1270,15 @@
           "synergy_bonus_factor": 0.2,
           "comment": "当战术风险与战略风险同时存在时，给予的协同奖励系数。"
         },
+        "grandmasters_protocol_params": {
+          "description": "【V3.0 · 大国工匠协议】“洗盘确认”信号参数",
+          "quality_weights": {
+            "efficiency": 0.4,
+            "control": 0.4,
+            "decisiveness": 0.2
+          },
+          "comment": "融合“效率”、“控制力”、“决断力”构建“执行品质分”时的权重。"
+        },
         "neutral_zone_thresholds": {
           "description": "【V1.0】中性死区阈值。绝对值低于此阈值的信号值将被视作0，以过滤噪声。",
           "main_force_execution_alpha_D": 0.001,

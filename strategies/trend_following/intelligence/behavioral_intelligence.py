@@ -811,7 +811,7 @@ class BehavioralIntelligence:
 
     def _diagnose_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict, overextension_raw: pd.Series) -> pd.Series:
         """
-        【V7.0 · 大气压强协议 (探针激活版)】诊断派发意图。
+        【V7.0 · Production Ready版】诊断派发意图。
         - 核心重构: 废弃V6.0“战术绝对主义”乘法模型，引入“双轨独立审判”框架。
         - 诊断双轨:
           1. 战术风险 (Tactical Risk): 评估主动派发动作，即“风暴”强度。
@@ -820,10 +820,8 @@ class BehavioralIntelligence:
         """
         # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        # [代码修改] 切换到新的参数块
         params = get_param_value(p_conf.get('atmospheric_pressure_params'), {})
         synergy_bonus = get_param_value(params.get('synergy_bonus_factor'), 0.2)
-        # [代码修改] 沿用V6.0的战略环境权重
         env_params = get_param_value(p_conf.get('judgment_day_protocol_params'), {})
         env_weights = get_param_value(env_params.get('environment_weights'), {'fatigue': 0.4, 'decay': 0.3, 'betrayal': 0.3})
         # --- 2. 轨道一：战术风险评估 (风暴强度) ---
@@ -861,27 +859,7 @@ class BehavioralIntelligence:
         base_risk = pd.concat([tactical_risk_score, strategic_risk_score], axis=1).max(axis=1)
         synergy_amplifier = 1 + (tactical_risk_score * strategic_risk_score).pow(0.5) * synergy_bonus
         final_distribution_intent = (base_risk * synergy_amplifier).clip(0, 1)
-        # --- [探针逻辑] 暴露所有计算节点 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        print(f"      [行为探针 V7.0] _diagnose_distribution_intent @ {probe_date_str}")
-                        # --- 双轨独立审判 ---
-                        print(f"        --- [双轨独立审判 (大气压强协议)] ---")
-                        print(f"          - [轨道一] 战术风险 (风暴强度): {tactical_risk_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [轨道二] 战略风险 (大气压): {strategic_risk_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [融合] 基础风险 (取最大值): {base_risk.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [融合] 协同奖励放大器: {synergy_amplifier.get(probe_date, 'N/A'):.4f}")
-                        # --- 最终结果 ---
-                        print(f"        --- [最终结果] ---")
-                        print(f"        - 最终派发意图分 (max(战术,战略) × 协同): {final_distribution_intent.get(probe_date, 0.0):.4f}")
-                except Exception as e:
-                    print(f"    -> [行为探针错误] _diagnose_distribution_intent 处理日期 {probe_date_str} 失败: {e}")
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return final_distribution_intent.astype(np.float32)
 
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
@@ -1136,38 +1114,78 @@ class BehavioralIntelligence:
 
     def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:
         """
-        【V2.1 · 生产版】诊断震荡洗盘确认信号。
-        - 核心重构: 废弃了基于“过程融合谬误”的 V1.3 模型。引入基于“政变三部曲”
-                      （前提-行动-成果）的全新门控模型，旨在精确识别主力主动控盘的洗盘行为。
-        - 政变三部曲:
-          1. 前提门控 (Precondition): 审查动机与环境。必须满足“无派发意图”和“非失控恐慌”
-                                      两大前提，否则“政变”无从谈起。
-          2. 核心引擎 (Core Action): 废弃 `downward_resistance`，直接采用更高阶的
-                                     `absorption_strength` 作为唯一核心。一场没有强力反攻
-                                     的洗盘，就是一次失败的政变。
-          3. 战术成果 (Result): 采用 `floating_chip_cleansing_efficiency_D` 作为最终战果
-                                  的验证，确认“政变”是否成功清洗了浮筹。
-        - 数学模型: 确认分 = 前提门控分 * (核心引擎分 * 战术成果分) ^ 0.5
+        【V3.0 · 大国工匠协议 (探针激活版)】诊断震荡洗盘确认信号。
+        - 核心重构: 废弃V2.1“事件审计员”模型，引入“意图×行动×品质”的全新三维诊断框架。
+        - 诊断三维度:
+          1. 战略意图 (Strategic Intent): 审判动机，必须满足“无派发意图”。
+          2. 战术行动 (Tactical Action): 评估核心承接力量 (`absorption_strength`)。
+          3. 执行品质 (Execution Quality): 评估洗盘技艺（效率、控制力、决断力）。
+        - 数学模型: 确认分 = 战略意图 * (战术行动 * 执行品质) ^ 0.5
         """
-        # --- 1. 获取原始数据 ---
+        # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        params = get_param_value(p_conf.get('grandmasters_protocol_params'), {})
+        quality_weights = get_param_value(params.get('quality_weights'), {'efficiency': 0.4, 'control': 0.4, 'decisiveness': 0.2})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_shakeout_confirmation")
-        cleansing_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_shakeout_confirmation")
-        # --- 2. 计算三部曲的各个组件得分 ---
-        # 组件一：前提门控分
-        no_distribution_intent_score = (1 - distribution_intent).clip(0, 1)
-        panic_score = get_adaptive_mtf_normalized_score(panic_raw, df.index, ascending=True, tf_weights=default_weights)
-        controllable_environment_score = (1 - panic_score).clip(0, 1)
-        precondition_gate_score = (no_distribution_intent_score * controllable_environment_score).pow(0.5)
-        # 组件二：核心引擎分 (决定性反击)
-        core_action_score = absorption_strength
-        # 组件三：战术成果分 (清算效率)
-        tactical_result_score = get_adaptive_mtf_normalized_score(cleansing_raw, df.index, ascending=True, tf_weights=default_weights)
-        # --- 3. “政变”三部曲合成 ---
-        internal_confirmation = (core_action_score * tactical_result_score).pow(0.5).fillna(0.0)
-        shakeout_confirmation_score = (precondition_gate_score * internal_confirmation).clip(0, 1)
+        default_weights = get_param_value(p_conf.get('default_weights'), {})
+        # --- 2. 获取三维度原始数据 ---
+        # 维度一：战略意图 (已作为参数传入)
+        # 维度二：战术行动 (已作为参数传入)
+        # 维度三：执行品质
+        efficiency_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_shakeout_confirmation")
+        control_raw = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, method_name="_diagnose_shakeout_confirmation")
+        high = self._get_safe_series(df, 'high_D', 0.0, method_name="_diagnose_shakeout_confirmation")
+        low = self._get_safe_series(df, 'low_D', 0.0, method_name="_diagnose_shakeout_confirmation")
+        close = self._get_safe_series(df, 'close_D', 0.0, method_name="_diagnose_shakeout_confirmation")
+        # --- 3. 计算各维度得分 ---
+        # 维度一：战略意图分
+        strategic_intent_score = (1 - distribution_intent).clip(0, 1)
+        # 维度二：战术行动分
+        tactical_action_score = absorption_strength
+        # 维度三：执行品质分 (工匠指数)
+        efficiency_score = get_adaptive_mtf_normalized_score(efficiency_raw, df.index, ascending=True, tf_weights=default_weights)
+        control_score = normalize_score(control_raw, df.index, 55) # VWAP控制力本身就是[-1,1]附近，用简单归一化即可
+        decisiveness_score = ((close - low) / (high - low + 1e-9)).fillna(0.5).clip(0, 1)
+        execution_quality_score = (
+            efficiency_score * quality_weights.get('efficiency', 0.4) +
+            control_score * quality_weights.get('control', 0.4) +
+            decisiveness_score * quality_weights.get('decisiveness', 0.2)
+        ).clip(0, 1)
+        # --- 4. “大国工匠协议”三维合成 ---
+        base_confirmation = (tactical_action_score * execution_quality_score).pow(0.5).fillna(0.0)
+        shakeout_confirmation_score = (strategic_intent_score * base_confirmation).clip(0, 1)
+        # --- [探针逻辑] 暴露所有计算节点 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df.empty:
+            for probe_date_str in probe_dates:
+                try:
+                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    if probe_date in df.index:
+                        print(f"      [行为探针 V3.0] _diagnose_shakeout_confirmation @ {probe_date_str}")
+                        # --- 打印原料数据 ---
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - [意图] 派发意图 (distribution_intent): {distribution_intent.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [行动] 承接强度 (absorption_strength): {absorption_strength.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [品质] 浮筹清洗效率 (efficiency_raw): {efficiency_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [品质] VWAP控制强度 (control_raw): {control_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [品质] K线 (H/L/C): {high.get(probe_date, 'N/A'):.2f}/{low.get(probe_date, 'N/A'):.2f}/{close.get(probe_date, 'N/A'):.2f}")
+                        # --- 打印关键计算节点 ---
+                        print(f"        --- [关键计算节点 - 大国工匠协议] ---")
+                        print(f"          - [维度一] 战略意图分: {strategic_intent_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度二] 战术行动分: {tactical_action_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度三] 执行品质分 (工匠指数):")
+                        print(f"              - 效率分 (efficiency_score): {efficiency_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 控制力分 (control_score): {control_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 决断力分 (decisiveness_score): {decisiveness_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 品质总分 (execution_quality_score): {execution_quality_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [融合] 基础确认分 (行动 × 品质)^0.5: {base_confirmation.get(probe_date, 'N/A'):.4f}")
+                        # --- 打印最终结果 ---
+                        print(f"        --- [最终结果] ---")
+                        print(f"        - 最终洗盘确认分 (意图 × 基础确认): {shakeout_confirmation_score.get(probe_date, 0.0):.4f}")
+                except Exception as e:
+                    print(f"    -> [行为探针错误] _diagnose_shakeout_confirmation 处理日期 {probe_date_str} 失败: {e}")
         return shakeout_confirmation_score.astype(np.float32)
 
     def _apply_neutral_zone_filter(self, series: pd.Series, threshold: float) -> pd.Series:
