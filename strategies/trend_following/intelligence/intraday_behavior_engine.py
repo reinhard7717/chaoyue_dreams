@@ -310,13 +310,11 @@ class IntradayBehaviorEngine:
 
     def _diagnose_recovery_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 完全校准协议】日内叙事之三：诊断“恢复质量”
-        - 核心重构: 修复V2.1“未校准修正器谬误”，将校准原则贯彻到底。
-                      1. 校准所有原料: 对`lower_shadow_absorption_strength_D`和`panic_selling_cascade_D`
-                                      均进行自适应归一化，统一标度。
-                      2. 重构放大器: 基于“校准后”的恐慌分，构建一个有界的、非线性的放大器
-                                     (1 + k * calibrated_panic^2)，奖励极端恐慌。
-                      最终模型在完全理性的空间内运行，杜绝了任何标度失控的风险。
+        【V2.3 · Production Ready版】日内叙事之三：诊断“恢复质量”
+        - 核心重构: 沿用V2.2的完全校准原则，并引入最终进化“期望校准·决断协议”。
+        - 核心逻辑: 引入“决断因子”，根据恐慌程度动态调整对VWAP控制力的期望。
+                      在巨大危机中，仅仅维持战线是不够的，唯有反攻制胜才能获得高分。
+                      实现了对恢复质量的情境感知裁决。
         """
         signal_name = "SCORE_INTRADAY_RECOVERY_QUALITY"
         required_signals = [
@@ -326,23 +324,69 @@ class IntradayBehaviorEngine:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_recovery_quality"):
             return {signal_name: pd.Series(0.0, index=df.index)}
-        # --- [核心逻辑] V2.2 ---
+        # --- [核心逻辑] V2.3 ---
         # 1. 获取原料信号
-        base_recovery_raw = df.get('lower_shadow_absorption_strength_D', pd.Series(np.nan, index=df.index))
-        panic_context_raw = df.get('panic_selling_cascade_D', pd.Series(np.nan, index=df.index))
-        conviction_raw = df.get('vwap_control_strength_D', pd.Series(np.nan, index=df.index))
-        # 2. [核心进化] 校准所有参与计算的原始信号
+        base_recovery_raw = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, "_diagnose_recovery_quality")
+        panic_context_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, "_diagnose_recovery_quality")
+        conviction_raw = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_recovery_quality")
+        # 2. 校准所有参与计算的原始信号
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
         default_weights = mtf_params.get('default_weights')
         norm_base_recovery = get_adaptive_mtf_normalized_score(base_recovery_raw, df.index, default_weights).fillna(0.0)
         norm_panic_context = get_adaptive_mtf_normalized_score(panic_context_raw, df.index, default_weights).fillna(0.0)
-        # 3. 重构环境放大器 (基于校准后的恐慌分)
+        # 3. 构建环境放大器 (基于校准后的恐慌分)
         k_panic = 0.75
         panic_amplifier = 1 + k_panic * (norm_panic_context ** 2)
-        # 4. 构建信念验证器 (原料已是[-1,1]区间，无需校准)
-        conviction_verifier = 1 + conviction_raw.fillna(0.0)
+        # 4. [核心进化] 构建期望校准的“决断因子”
+        k_exp = 0.25
+        resolution_factor = 1 + (conviction_raw - k_exp * norm_panic_context)
         # 5. 最终认证
-        final_score = (norm_base_recovery * panic_amplifier * conviction_verifier).fillna(0.0)
+        final_score = (norm_base_recovery * panic_amplifier * resolution_factor).fillna(0.0)
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        return {signal_name: final_score.clip(-1, 1)}
+
+    def _diagnose_ambush_and_flank(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.0 · 战术完整性协议】日内诡道之一：诊断“伏击与侧翼”
+        - 核心重构: 废弃V1.2“原料堆砌”的幼稚构想，引入“战术完整性协议”。
+                      1. 定义三大支柱: 伏击机会(恐慌)、伏击执行(吸收)、侧翼反击(恢复质量)。
+                      2. 贯彻完全校准: 对所有原始输入信号进行归一化，杜绝“标度暴政”。
+                      3. 升级反击评估: 废弃粗糙的`closing_strength_index_D`，直接调用更高阶的
+                                       `SCORE_INTRADAY_RECOVERY_QUALITY`作为最终裁决。
+                      4. 稳健融合: 采用加权算术平均，确保模型稳定与可解释性。
+        """
+        signal_name = "SCORE_INTRADAY_AMBUSH_AND_FLANK"
+        required_signals = [
+            'open_D', 'low_D',
+            'panic_selling_cascade_D',
+            'dip_absorption_power_D',
+            'SCORE_INTRADAY_RECOVERY_QUALITY' # 核心升级
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_ambush_and_flank"):
+            return {signal_name: pd.Series(0.0, index=df.index)}
+        # --- [核心逻辑] V2.0 ---
+        # 1. 获取参数与门控条件
+        params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('ambush_flank_params', {})
+        weights = params.get('fusion_weights', {'opportunity': 0.2, 'execution': 0.4, 'counter_attack': 0.4})
+        min_dip_pct = params.get('min_dip_to_open_pct', 0.03)
+        daily_open = df.get('open_D')
+        daily_low = df.get('low_D')
+        # 门控条件：当日必须有足够的下探幅度
+        gate_condition = (daily_open > 0) & (((daily_open - daily_low) / daily_open) >= min_dip_pct)
+        # 2. 获取三大支柱的原料信号
+        opportunity_raw = df.get('panic_selling_cascade_D')
+        execution_raw = df.get('dip_absorption_power_D')
+        counter_attack_score = df.get('SCORE_INTRADAY_RECOVERY_QUALITY') # 直接使用高阶信号
+        # 3. 校准原始信号
+        mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
+        default_weights = mtf_params.get('default_weights')
+        norm_opportunity = get_adaptive_mtf_normalized_score(opportunity_raw, df.index, default_weights).fillna(0.0)
+        norm_execution = get_adaptive_mtf_normalized_score(execution_raw, df.index, default_weights).fillna(0.0)
+        # 4. 融合计算
+        final_score = (norm_opportunity * weights.get('opportunity', 0.2) +
+                       norm_execution * weights.get('execution', 0.4) +
+                       counter_attack_score.fillna(0.0) * weights.get('counter_attack', 0.4)
+                      ).where(gate_condition, 0.0).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -352,80 +396,36 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [日内行为探针 V2.2] _diagnose_recovery_quality @ {probe_date_str}")
+                        print(f"      [日内诡道探针 V2.0] _diagnose_ambush_and_flank @ {probe_date_str}")
+                        p_gate = gate_condition.get(probe_date, False)
+                        dip_pct = ((daily_open.get(probe_date, 0) - daily_low.get(probe_date, 0)) / daily_open.get(probe_date, 1)) * 100
+                        print(f"        --- [门控检查] ---")
+                        print(f"          - 当日下探幅度: {dip_pct:.2f}% (要求 >= {min_dip_pct*100}%) -> 触发: {p_gate}")
+                        if not p_gate:
+                            continue
                         # --- 原料数据与校准过程 ---
-                        p_base_raw = base_recovery_raw.get(probe_date, 'N/A')
-                        p_base_norm = norm_base_recovery.get(probe_date, 'N/A')
-                        p_panic_raw = panic_context_raw.get(probe_date, 'N/A')
-                        p_panic_norm = norm_panic_context.get(probe_date, 'N/A')
-                        p_conviction_raw = conviction_raw.get(probe_date, 'N/A')
-                        print(f"        --- [原料数据 -> 完全校准] ---")
-                        print(f"          - 恢复根基 (原料): {p_base_raw if isinstance(p_base_raw, str) else f'{p_base_raw:.4f}'} -> 校准后: {p_base_norm if isinstance(p_base_norm, str) else f'{p_base_norm:.4f}'}")
-                        print(f"          - 恐慌环境 (原料): {p_panic_raw if isinstance(p_panic_raw, str) else f'{p_panic_raw:.4f}'} -> 校准后: {p_panic_norm if isinstance(p_panic_norm, str) else f'{p_panic_norm:.4f}'}")
-                        print(f"          - 信念原料 (VWAP控制): {p_conviction_raw if isinstance(p_conviction_raw, str) else f'{p_conviction_raw:.4f}'}")
+                        p_opp_raw = opportunity_raw.get(probe_date, 'N/A')
+                        p_opp_norm = norm_opportunity.get(probe_date, 'N/A')
+                        p_exec_raw = execution_raw.get(probe_date, 'N/A')
+                        p_exec_norm = norm_execution.get(probe_date, 'N/A')
+                        p_counter_score = counter_attack_score.get(probe_date, 'N/A')
+                        print(f"        --- [原料数据 -> 支柱校准] ---")
+                        print(f"          - 支柱1 [机会] (恐慌原料): {p_opp_raw if isinstance(p_opp_raw, str) else f'{p_opp_raw:.4f}'} -> 校准后: {p_opp_norm if isinstance(p_opp_norm, str) else f'{p_opp_norm:.4f}'}")
+                        print(f"          - 支柱2 [执行] (吸收原料): {p_exec_raw if isinstance(p_exec_raw, str) else f'{p_exec_raw:.4f}'} -> 校准后: {p_exec_norm if isinstance(p_exec_norm, str) else f'{p_exec_norm:.4f}'}")
+                        print(f"          - 支柱3 [反击] (恢复质量分): {p_counter_score if isinstance(p_counter_score, str) else f'{p_counter_score:.4f}'}")
                         # --- 关键计算节点 ---
-                        p_amplifier = panic_amplifier.get(probe_date, 0.0)
-                        p_verifier = conviction_verifier.get(probe_date, 0.0)
+                        w_opp = weights.get('opportunity', 0.2)
+                        w_exec = weights.get('execution', 0.4)
+                        w_counter = weights.get('counter_attack', 0.4)
                         print(f"        --- [关键计算节点] ---")
-                        print(f"          - 环境放大器 (1 + 0.75*校准恐慌^2): {p_amplifier:.4f}")
-                        print(f"          - 信念验证器 (1 + VWAP控制): {p_verifier:.4f}")
+                        print(f"          - 权重配置: 机会({w_opp}) | 执行({w_exec}) | 反击({w_counter})")
                         # --- 最终结果 ---
                         p_final = final_score.get(probe_date, 0.0)
                         print(f"        --- [最终结果] ---")
-                        print(f"        - 最终恢复质量分 (校准根基 × 放大器 × 验证器): {p_final:.4f}")
-                except Exception as e:
-                    print(f"    -> [日内行为探针错误] _diagnose_recovery_quality 处理日期 {probe_date_str} 失败: {e}")
-        return {signal_name: final_score.clip(-1, 1)}
-
-    def _diagnose_ambush_and_flank(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.2 · 向量化重构版】日内诡道之一：诊断“伏击与侧翼”
-        - 核心重构: 对整个方法进行向量化重构，使其能够处理完整的日线数据DataFrame并为每一天生成分数。
-        - 核心修复: 修复了探针逻辑，使其能够正确地在指定的 probe_dates 循环并打印每日的详细诊断信息。
-        """
-        if df.empty:
-            return {"SCORE_INTRADAY_AMBUSH_AND_FLANK": pd.Series(dtype=np.float64)}
-        # 向量化计算
-        params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('ambush_flank_params', {})
-        weights = params.get('fusion_weights', {'panic_evidence': 0.2, 'absorption_power': 0.4, 'recovery_strength': 0.4})
-        min_dip_pct = params.get('min_dip_to_open_pct', 0.03)
-        daily_open = self._get_safe_series(df, 'open_D', 0.0, "_diagnose_ambush_and_flank")
-        daily_low = self._get_safe_series(df, 'low_D', 0.0, "_diagnose_ambush_and_flank")
-        # 门控条件：当日必须有足够的下探幅度
-        gate_condition = (daily_open > 0) & (((daily_open - daily_low) / daily_open) >= min_dip_pct)
-        # 直接从日线信号获取三大核心证据
-        panic_evidence = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, "_diagnose_ambush_and_flank")
-        absorption_power = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, "_diagnose_ambush_and_flank")
-        recovery_strength = self._get_safe_series(df, 'closing_strength_index_D', 0.0, "_diagnose_ambush_and_flank")
-        # 融合计算
-        final_score = (panic_evidence.pow(weights.get('panic_evidence', 0.2)) *
-                       absorption_power.pow(weights.get('absorption_power', 0.4)) *
-                       recovery_strength.pow(weights.get('recovery_strength', 0.4))).where(gate_condition, 0.0).fillna(0.0)
-        # --- 重构探针逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        p_gate = gate_condition.get(probe_date, False)
-                        if not p_gate:
-                            print(f"      [日内诡道探针] _diagnose_ambush_and_flank @ {probe_date_str} -> 未触发 (下探幅度不足)")
-                            continue
-                        p_panic_evidence = panic_evidence.get(probe_date, 0.0)
-                        p_absorption_power = absorption_power.get(probe_date, 0.0)
-                        p_recovery_strength = recovery_strength.get(probe_date, 0.0)
-                        p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"      [日内诡道探针] _diagnose_ambush_and_flank @ {probe_date_str}")
-                        print(f"        - [证据] 恐慌抛售级联 (panic_selling_cascade_D): {p_panic_evidence:.4f}")
-                        print(f"        - [证据] 逢低吸筹力量 (dip_absorption_power_D): {p_absorption_power:.4f}")
-                        print(f"        - [证据] 收盘强度指数 (closing_strength_index_D): {p_recovery_strength:.4f}")
-                        print(f"        - 最终伏击与侧翼分: {p_final_score:.4f}")
+                        print(f"        - 最终伏击与侧翼分: {p_final:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_ambush_and_flank 处理日期 {probe_date_str} 失败: {e}")
-        return {"SCORE_INTRADAY_AMBUSH_AND_FLANK": final_score.clip(0, 1)}
+        return {signal_name: final_score.clip(0, 1)}
 
     def _diagnose_final_assault(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
