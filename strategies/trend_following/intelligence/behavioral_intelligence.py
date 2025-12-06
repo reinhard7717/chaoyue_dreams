@@ -551,30 +551,73 @@ class BehavioralIntelligence:
 
     def _diagnose_upward_efficiency(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.1 · 生产版】诊断高品质上涨效率。
-        - 核心重构: 废弃了基于宽泛概念的 V1.0 模型。引入基于“闪击战三要素”
-                      （突破纯净度-进攻性价比-卖压压制力）的全新诊断模型。
-        - 闪击战三要素:
-          1. 突破纯净度 (Breach Purity): 审判向上攻击的流畅性与直接性。采用 `upward_impulse_purity_D`。
-          2. 进攻性价比 (Offensive Efficiency): 审判攻击的能量转换效率。采用 `impulse_quality_ratio_D`。
-          3. 卖压压制力 (Pressure Suppression): 审判巩固战果、压制敌方反扑的能力。采用 `pressure_rejection_strength_D`。
-        - 数学模型: 效率分 = (纯净度分^0.4 * 性价比分^0.3 * 压制力分^0.3)
+        【V3.0 · 最小阻力路径协议 (探针激活版)】诊断高品质上涨效率。
+        - 核心重构: 废弃V2.1“皮洛士胜利谬误”模型，引入“战术品质 × 战略地形”的全新双维诊断框架。
+        - 诊断双维度:
+          1. 战术强攻品质 (The Spearhead's Edge): 沿用V2.1逻辑，评估“矛头”的锋利度。
+          2. 战略环境地形 (The Battlefield Terrain): 新增战略评估，审判前方“地形”的阻力。
+        - 数学模型: 最终效率分 = 战术品质分 * (1 - 战略阻力分)
         """
-        # --- 1. 获取三要素原始数据 ---
+        # --- 1. 获取参数 ---
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        params = get_param_value(p_conf.get('pathfinder_protocol_params'), {})
+        resistance_weights = get_param_value(params.get('resistance_weights'), {'chip_fatigue': 0.6, 'loser_pain': 0.4})
+        # --- 2. 获取两大维度原始数据 ---
+        # 维度一：战术品质
         purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_upward_efficiency")
         offensive_efficiency_raw = self._get_safe_series(df, 'impulse_quality_ratio_D', 0.0, method_name="_diagnose_upward_efficiency")
         suppression_raw = self._get_safe_series(df, 'pressure_rejection_strength_D', 0.0, method_name="_diagnose_upward_efficiency")
-        # --- 2. 计算各要素得分 ---
+        # 维度二：战略地形
+        chip_fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name="_diagnose_upward_efficiency")
+        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_diagnose_upward_efficiency")
+        # --- 3. 计算各维度得分 ---
+        # 维度一：战术强攻品质分
         purity_score = get_adaptive_mtf_normalized_score(purity_raw, df.index, ascending=True, tf_weights=tf_weights)
         offensive_efficiency_score = get_adaptive_mtf_normalized_score(offensive_efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
         suppression_score = get_adaptive_mtf_normalized_score(suppression_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # --- 3. “闪击战”三要素合成 ---
-        upward_efficiency_score = (
+        tactical_assault_score = (
             (purity_score + 1e-9).pow(0.4) *
             (offensive_efficiency_score + 1e-9).pow(0.3) *
             (suppression_score + 1e-9).pow(0.3)
         ).fillna(0.0)
-        return upward_efficiency_score.clip(0, 1).astype(np.float32)
+        # 维度二：战略环境地形分
+        chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df.index, ascending=True, tf_weights=tf_weights)
+        loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=tf_weights)
+        strategic_resistance_score = (
+            chip_fatigue_score * resistance_weights.get('chip_fatigue', 0.6) +
+            loser_pain_score * resistance_weights.get('loser_pain', 0.4)
+        ).clip(0, 1)
+        strategic_environment_score = (1 - strategic_resistance_score)
+        # --- 4. 最终合成：战术品质 × 战略环境 ---
+        final_upward_efficiency = (tactical_assault_score * strategic_environment_score).clip(0, 1)
+        # --- [探针逻辑] 暴露所有计算节点 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df.empty:
+            for probe_date_str in probe_dates:
+                try:
+                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    if probe_date in df.index:
+                        print(f"      [行为探针 V3.0] _diagnose_upward_efficiency @ {probe_date_str}")
+                        # --- 原料数据 ---
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - [战术] 突破纯净度 (upward_impulse_purity_D): {purity_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战术] 进攻性价比 (impulse_quality_ratio_D): {offensive_efficiency_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战术] 卖压压制力 (pressure_rejection_strength_D): {suppression_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战略] 筹码疲劳度 (chip_fatigue_index_D): {chip_fatigue_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战略] 套牢盘痛苦 (loser_pain_index_D): {loser_pain_raw.get(probe_date, 'N/A'):.4f}")
+                        # --- 关键计算节点 ---
+                        print(f"        --- [关键计算节点 - 最小阻力路径协议] ---")
+                        print(f"          - [维度一] 战术强攻品质分 (融合): {tactical_assault_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度二] 战略阻力指数 (融合): {strategic_resistance_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度二] 战略环境得分 (1 - 阻力): {strategic_environment_score.get(probe_date, 'N/A'):.4f}")
+                        # --- 最终结果 ---
+                        print(f"        --- [最终结果] ---")
+                        print(f"        - 最终上涨效率分 (战术 × 战略): {final_upward_efficiency.get(probe_date, 0.0):.4f}")
+                except Exception as e:
+                    print(f"    -> [行为探针错误] _diagnose_upward_efficiency 处理日期 {probe_date_str} 失败: {e}")
+        return final_upward_efficiency.astype(np.float32)
 
     def _diagnose_downward_resistance(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
@@ -1022,7 +1065,7 @@ class BehavioralIntelligence:
 
     def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V3.0 · 堡垒协议 (探针激活版)】计算高品质承接强度信号。
+        【V3.0 · Production Ready版】计算高品质承接强度信号。
         - 核心重构: 废弃V2.1“孤城谬误”模型，引入“地基×行动×意图”的全新三维诊断框架。
         - 诊断三维度:
           1. 地基勘探 (The Foundation Survey): 审判承接是否发生在经过验证的坚固支撑位上。
@@ -1060,32 +1103,7 @@ class BehavioralIntelligence:
             (construction_action_score + 1e-9) *
             (governors_will_score + 1e-9)
         ).pow(1/3).fillna(0.0)
-        # --- [探针逻辑] 暴露所有计算节点 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        print(f"      [行为探针 V3.0] _calculate_absorption_strength @ {probe_date_str}")
-                        # --- 原料数据 ---
-                        print(f"        --- [原料数据] ---")
-                        print(f"          - [地基] 支撑验证强度 (support_validation_strength_D): {foundation_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [行动] 逢低吸纳力 (dip_absorption_power_D): {action_dip_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [行动] 主动防御力 (active_buying_support_D): {action_active_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [意图] 主力信念 (main_force_conviction_index_D): {intent_raw.get(probe_date, 'N/A'):.4f}")
-                        # --- 关键计算节点 ---
-                        print(f"        --- [关键计算节点 - 堡垒协议] ---")
-                        print(f"          - [维度一] 地基品质分 (归一化): {foundation_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度二] 构筑行动分 (融合): {construction_action_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度三] 总督意志分 (归一化): {governors_will_score.get(probe_date, 'N/A'):.4f}")
-                        # --- 最终结果 ---
-                        print(f"        --- [最终结果] ---")
-                        print(f"        - 最终承接强度分 (三维融合): {absorption_strength.get(probe_date, 0.0):.4f}")
-                except Exception as e:
-                    print(f"    -> [行为探针错误] _calculate_absorption_strength 处理日期 {probe_date_str} 失败: {e}")
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return absorption_strength.clip(0, 1).astype(np.float32)
 
     def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:

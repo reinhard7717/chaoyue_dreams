@@ -1232,6 +1232,14 @@
           },
           "comment": "融合“逢低吸纳”和“主动防御”构建“构筑行动分”时的权重。"
         },
+        "pathfinder_protocol_params": {
+          "description": "【V3.0 · 最小阻力路径协议】“上涨效率”信号参数",
+          "resistance_weights": {
+            "chip_fatigue": 0.6,
+            "loser_pain": 0.4
+          },
+          "comment": "融合“筹码疲劳度”和“套牢盘痛苦度”构建“战略阻力指数”时的权重。"
+        },
         "neutral_zone_thresholds": {
           "description": "【V1.0】中性死区阈值。绝对值低于此阈值的信号值将被视作0，以过滤噪声。",
           "main_force_execution_alpha_D": 0.001,
