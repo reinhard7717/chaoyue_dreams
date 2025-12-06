@@ -426,55 +426,77 @@ class BehavioralIntelligence:
 
     def _diagnose_intraday_bull_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V5.1 · Production Ready版】行为层原子信号：诊断“日内多头控制力”
-        - 核心逻辑: 进化为“战果”与“意图”双引擎加权融合模型。
-                    即使战果（战略位置）为平局，强大的过程意图也能独立驱动信号得分，
-                    旨在捕捉“虽败犹荣”或“平局中的进攻优势”等高价值博弈信息。
+        【V6.0 · 时序裁决协议 (探针激活版)】诊断“日内多头控制力”
+        - 核心重构: 废弃V5.1“最后一分钟谎言谬误”模型，引入“战果×过程×叙事”的全新三维诊断框架。
+        - 诊断三维度:
+          1. 战略位置 (Strategic Position): 评估最终战果，即收盘价相对VWAP的位置。
+          2. 过程品质 (Process Quality): 评估全天攻防动作的综合效率与信念。
+          3. 叙事诚信度 (Narrative Integrity): 审判结局与过程是否一致，惩罚“尾盘偷袭”等欺骗行为。
+        - 数学模型: 最终控制力 = 战略位置分 * (过程品质分 * 叙事诚信度分) ^ 0.5
         """
-        signal_name = "SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL"
-        required_signals = [
-            'vwap_control_strength_D',
-            'upward_impulse_purity_D',
-            'lower_shadow_absorption_strength_D',
-            'dip_absorption_power_D',
-            'main_force_conviction_index_D'
-        ]
-        if not self._validate_required_signals(df, required_signals, "_diagnose_intraday_bull_control"):
-            return pd.Series(0.0, index=df.index) # [修改的代码行] 修复返回值类型，从字典改为Series
-        # --- 获取参数 ---
+        # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        params = get_param_value(p_conf.get('bull_control_params'), {})
-        drive_weights = get_param_value(params.get('bipolar_drive_weights'), {'position_score': 0.7, 'intentional_bias': 0.3})
-        position_weight = drive_weights.get('position_score', 0.7)
-        intent_weight = drive_weights.get('intentional_bias', 0.3)
-        base_consciousness = get_param_value(params.get('base_consciousness_factor'), 0.1)
-        # 1. 引擎一：战略位置分 (战果)
-        position_score = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_intraday_bull_control")
-        # 2. 引擎二：意图偏差分 (过程)
-        # 2.1 计算综合品质调节器
-        offensive_quality = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, "_diagnose_intraday_bull_control")
-        mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
-        default_weights = mtf_params.get('default_weights')
-        raw_lower_shadow = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, "_diagnose_intraday_bull_control")
-        raw_dip_absorption = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, "_diagnose_intraday_bull_control")
-        lower_shadow_strength = get_adaptive_mtf_normalized_score(raw_lower_shadow, df.index, True, default_weights)
-        dip_absorption_power = get_adaptive_mtf_normalized_score(raw_dip_absorption, df.index, True, default_weights)
-        defensive_quality = (lower_shadow_strength + dip_absorption_power) / 2
-        weight_offensive = (1 + position_score) / 2
-        weight_defensive = (1 - position_score) / 2
-        asymmetric_action_quality = offensive_quality * weight_offensive + defensive_quality * weight_defensive
-        raw_conviction_index = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, "_diagnose_intraday_bull_control")
-        conviction_index = raw_conviction_index.clip(-1, 1)
-        belief_modulator = base_consciousness + ((conviction_index + 1) / 2) * (1 - base_consciousness)
-        comprehensive_quality_modulator = (
-            asymmetric_action_quality.pow(0.7) * belief_modulator.pow(0.3)
-        ).fillna(0.0)
-        # 2.2 计算意图方向并赋予品质调节器
-        net_action_bias = offensive_quality - defensive_quality
-        intentional_bias = comprehensive_quality_modulator * np.sign(net_action_bias)
-        # 3. 双极驱动融合
-        final_score = (position_score * position_weight + intentional_bias * intent_weight).fillna(0.0)
-        return final_score.clip(-1, 1).astype(np.float32) # [修改的代码行] 修复返回值类型，从字典改为Series，并增加类型转换
+        params = get_param_value(p_conf.get('chronos_protocol_params'), {})
+        fusion_weights = get_param_value(params.get('fusion_weights'), {'process_quality': 0.5, 'narrative_integrity': 0.5})
+        # --- 2. 获取三维度原始数据 ---
+        # 维度一：战略位置
+        position_raw = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, method_name="_diagnose_intraday_bull_control")
+        # 维度二：过程品质
+        purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_intraday_bull_control")
+        resistance_raw = self._get_safe_series(df, 'pressure_rejection_strength_D', 0.0, method_name="_diagnose_intraday_bull_control")
+        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_intraday_bull_control")
+        # 维度三：叙事诚信度
+        posture_raw = self._get_safe_series(df, 'intraday_posture_score_D', 0.0, method_name="_diagnose_intraday_bull_control")
+        ambush_raw = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, method_name="_diagnose_intraday_bull_control")
+        # --- 3. 计算各维度得分 ---
+        # 维度一：战略位置分 (作为基础分)
+        strategic_position_score = position_raw.clip(-1, 1)
+        # 维度二：过程品质分 (作为调节器)
+        purity_score = get_adaptive_mtf_normalized_score(purity_raw, df.index, ascending=True, tf_weights=tf_weights)
+        resistance_score = get_adaptive_mtf_normalized_score(resistance_raw, df.index, ascending=True, tf_weights=tf_weights)
+        conviction_score = get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df.index, tf_weights)
+        process_quality_score = ((purity_score + resistance_score) / 2 * (conviction_score.clip(0,1) + 1) / 2).clip(0, 1)
+        # 维度三：叙事诚信度分 (作为调节器)
+        posture_score = posture_raw.clip(-1, 1)
+        ambush_score = get_adaptive_mtf_normalized_score(ambush_raw, df.index, ascending=True, tf_weights=tf_weights)
+        narrative_deception_score = (ambush_score * (1 - posture_score.clip(lower=0))).clip(0, 1)
+        narrative_integrity_score = (1 - narrative_deception_score)
+        # --- 4. “时序裁决”三维合成 ---
+        quality_modulator = (
+            process_quality_score * fusion_weights.get('process_quality', 0.5) +
+            narrative_integrity_score * fusion_weights.get('narrative_integrity', 0.5)
+        )
+        final_control_score = (strategic_position_score * quality_modulator).clip(-1, 1)
+        # --- [探针逻辑] 暴露所有计算节点 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df.empty:
+            for probe_date_str in probe_dates:
+                try:
+                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    if probe_date in df.index:
+                        print(f"      [行为探针 V6.0] _diagnose_intraday_bull_control @ {probe_date_str}")
+                        # --- 原料数据 ---
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - [战果] VWAP控制强度 (vwap_control_strength_D): {position_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [过程] 上涨纯净度 (upward_impulse_purity_D): {purity_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [过程] 卖压压制力 (pressure_rejection_strength_D): {resistance_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [过程] 主力信念 (main_force_conviction_index_D): {conviction_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [叙事] 日内姿态 (intraday_posture_score_D): {posture_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [叙事] 尾盘偷袭 (closing_auction_ambush_D): {ambush_raw.get(probe_date, 'N/A'):.4f}")
+                        # --- 关键计算节点 ---
+                        print(f"        --- [关键计算节点 - 时序裁决协议] ---")
+                        print(f"          - [维度一] 战略位置分 (基础分): {strategic_position_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度二] 过程品质分 (调节器): {process_quality_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度三] 叙事诚信度分 (调节器): {narrative_integrity_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [融合] 最终品质调节器: {quality_modulator.get(probe_date, 'N/A'):.4f}")
+                        # --- 最终结果 ---
+                        print(f"        --- [最终结果] ---")
+                        print(f"        - 最终日内控制力分 (战果 × 调节器): {final_control_score.get(probe_date, 0.0):.4f}")
+                except Exception as e:
+                    print(f"    -> [行为探针错误] _diagnose_intraday_bull_control 处理日期 {probe_date_str} 失败: {e}")
+        return final_control_score.astype(np.float32)
 
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
         """
@@ -595,7 +617,7 @@ class BehavioralIntelligence:
 
     def _diagnose_downward_resistance(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V3.0 · 弹性防御协议 (探针激活版)】诊断高品质下跌抵抗。
+        【V3.0 · Production Ready版】诊断高品质下跌抵抗。
         - 核心重构: 废弃V2.1“空城计谬误”模型，引入“战术应对 × 战略意图”的全新双维诊断框架。
         - 诊断双维度:
           1. 战术应对能力 (The Tactical Response): 沿用V2.1逻辑，评估防线的坚固度。
@@ -633,32 +655,7 @@ class BehavioralIntelligence:
         ).clip(0, 1)
         # --- 4. 最终合成：战术应对 × 战略意图 ---
         final_downward_resistance = (tactical_response_score * strategic_intent_score).clip(0, 1)
-        # --- [探针逻辑] 暴露所有计算节点 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        print(f"      [行为探针 V3.0] _diagnose_downward_resistance @ {probe_date_str}")
-                        # --- 原料数据 ---
-                        print(f"        --- [原料数据] ---")
-                        print(f"          - [战术] 被动承接 (dip_absorption_power_D): {passive_absorption_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [战术] 主动防御 (support_validation_strength_D): {active_defense_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [战术] 积极反击 (active_buying_support_D): {counter_attack_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [战略] 主力信念 (main_force_conviction_index_D): {conviction_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [战略] 浮筹清洗效率 (floating_chip_cleansing_efficiency_D): {cleansing_raw.get(probe_date, 'N/A'):.4f}")
-                        # --- 关键计算节点 ---
-                        print(f"        --- [关键计算节点 - 弹性防御协议] ---")
-                        print(f"          - [维度一] 战术应对能力分 (融合): {tactical_response_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度二] 战略意图分 (融合): {strategic_intent_score.get(probe_date, 'N/A'):.4f}")
-                        # --- 最终结果 ---
-                        print(f"        --- [最终结果] ---")
-                        print(f"        - 最终下跌抵抗分 (战术 × 战略): {final_downward_resistance.get(probe_date, 0.0):.4f}")
-                except Exception as e:
-                    print(f"    -> [行为探针错误] _diagnose_downward_resistance 处理日期 {probe_date_str} 失败: {e}")
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return final_downward_resistance.astype(np.float32)
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

@@ -1248,6 +1248,14 @@
           },
           "comment": "融合“主力信念”和“浮筹清洗效率”构建“战略意图分”时的权重。"
         },
+        "chronos_protocol_params": {
+          "description": "【V6.0 · 时序裁决协议】“日内多头控制”信号参数",
+          "fusion_weights": {
+            "process_quality": 0.5,
+            "narrative_integrity": 0.5
+          },
+          "comment": "融合“过程品质”和“叙事诚信度”构建最终调节器的权重。"
+        },
         "neutral_zone_thresholds": {
           "description": "【V1.0】中性死区阈值。绝对值低于此阈值的信号值将被视作0，以过滤噪声。",
           "main_force_execution_alpha_D": 0.001,
