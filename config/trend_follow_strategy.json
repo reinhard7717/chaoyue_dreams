@@ -1233,9 +1233,15 @@
             }
         },
         "final_assault_params": {
-          "description": "【V3.0 · 协同裁决版】“终末强袭”信号参数",
+          "description": "【V3.1 · 叙事智能版】“终末强袭”信号参数",
           "synergy_factor_k": 0.5,
-          "comment": "协同因子k。用于构建协同放大器 (1 + k * 意图向量)，调节收盘前意图对最终竞价裁决的放大效应。"
+          "conflict_factor_k": 0.25,
+          "comment": "synergy_factor_k用于同向协同剧本，conflict_factor_k用于矛盾冲突剧本（逆转奖励/背叛惩罚）。"
+        },
+        "vwap_battlefield_params": {
+          "description": "【V2.0 · 战场积分协议】“VWAP攻防”信号参数",
+          "attrition_factor_k": 0.5,
+          "comment": "战损系数k。用于调节VWAP穿越强度对最终战果的折损效应，值越高，对拉锯战的惩罚越重。"
         },
         "dominance_consensus_params": {
             "enabled": true,

@@ -400,11 +400,11 @@ class IntradayBehaviorEngine:
 
     def _diagnose_final_assault(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 叙事智能协议 (探针保留版)】日内诡道之二：诊断“终末强袭”
+        【V3.1 · Production Ready版】日内诡道之二：诊断“终末强袭”
         - 核心重构: 沿用V3.0的“协同裁决”框架，并引入最终进化“叙事智能协议”。
         - 核心逻辑: 引入“非对称战术放大器”，使其能够识别并差异化评估不同的尾盘剧本。
                       它能正确地为“逆转伏击”（克服盘末抛压完成偷袭）这一高阶战术
-                      赋予额外的价值奖励，而不再错误地将其视为矛盾信号进行惩罚。
+                      赋予额外的价值奖励，并对“意图背叛”施加更严厉的惩罚。
         """
         signal_name = "SCORE_INTRADAY_FINAL_ASSAULT"
         required_signals = ['closing_auction_ambush_D', 'pre_closing_posturing_D']
@@ -414,7 +414,7 @@ class IntradayBehaviorEngine:
         # 1. 获取参数
         params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('final_assault_params', {})
         k_synergy = params.get('synergy_factor_k', 0.5)
-        k_reversal = params.get('reversal_bonus_k', 0.25)
+        k_conflict = params.get('conflict_factor_k', 0.25) # [代码修改] 使用统一的冲突因子
         # 2. 获取原料信号并进行“符号保护”归一化
         intent_raw = self._get_safe_series(df, 'pre_closing_posturing_D', 0.0, "_diagnose_final_assault")
         verdict_raw = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, "_diagnose_final_assault")
@@ -428,12 +428,43 @@ class IntradayBehaviorEngine:
         is_consistent = (np.sign(norm_intent_vector) * np.sign(norm_verdict_vector) >= 0)
         # 轨道一：协同放大器 (用于意图与裁决同向的剧本)
         synergy_amplifier = 1 + k_synergy * norm_intent_vector
-        # 轨道二：逆转放大器 (用于“逆转伏击”或“背信弃义”等矛盾剧本)
-        reversal_amplifier = 1 + k_reversal * norm_intent_vector.abs() * np.sign(norm_verdict_vector)
+        # 轨道二：冲突放大器 (用于矛盾剧本，意图的绝对值越大，放大效应越强)
+        conflict_amplifier = 1 + k_conflict * norm_intent_vector.abs()
         # 根据剧本选择合适的放大器
-        final_amplifier = pd.Series(np.where(is_consistent, synergy_amplifier, reversal_amplifier), index=df.index)
+        final_amplifier = pd.Series(np.where(is_consistent, synergy_amplifier, conflict_amplifier), index=df.index)
         # 4. 最终裁决
         final_score = (norm_verdict_vector * final_amplifier).fillna(0.0)
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        return {signal_name: final_score.clip(-1, 1)}
+
+    def _diagnose_vwap_battlefield(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.0 · 战场积分协议 (探针激活版)】日内诡道之三：诊断“VWAP攻防”
+        - 核心重构: 废弃V1.3“唯结果论”的代理信号，引入“战场积分协议”。
+        - 核心逻辑: 最终得分 = 战果向量 × 战损调节器。
+                      1. 战果向量: 由`vwap_control_strength_D`代表最终的胜负结果。
+                      2. 战损调节器: 由`vwap_crossing_intensity_D`量化战斗过程的消耗度。
+                      此模型旨在奖励“决胜之役”（低消耗、高战果），并惩罚“拉锯惨胜”
+                      （高消耗、低纯度战果），深度评估战役的真实含金量。
+        """
+        signal_name = "SCORE_INTRADAY_VWAP_BATTLEFIELD"
+        required_signals = ['vwap_control_strength_D', 'vwap_crossing_intensity_D']
+        if not self._validate_required_signals(df, required_signals, "_diagnose_vwap_battlefield"):
+            return {signal_name: pd.Series(0.0, index=df.index)}
+        # --- [核心逻辑] V2.0 ---
+        # 1. 获取参数
+        params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('vwap_battlefield_params', {})
+        k_attrition = params.get('attrition_factor_k', 0.5)
+        # 2. 获取原料信号
+        outcome_vector = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_vwap_battlefield")
+        attrition_raw = self._get_safe_series(df, 'vwap_crossing_intensity_D', 0.0, "_diagnose_vwap_battlefield")
+        # 3. 校准战损度
+        mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
+        default_weights = mtf_params.get('default_weights')
+        norm_attrition_score = get_adaptive_mtf_normalized_score(attrition_raw, df.index, default_weights).fillna(0.0)
+        # 4. 构建战损调节器并计算最终得分
+        attrition_modulator = 1 - k_attrition * norm_attrition_score
+        final_score = (outcome_vector * attrition_modulator).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -443,72 +474,25 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [日内诡道探针 V3.1] _diagnose_final_assault @ {probe_date_str}")
-                        # --- 原料数据与校准过程 ---
-                        p_intent_raw = intent_raw.get(probe_date, 'N/A')
-                        p_intent_norm = norm_intent_vector.get(probe_date, 'N/A')
-                        p_verdict_raw = verdict_raw.get(probe_date, 'N/A')
-                        p_verdict_norm = norm_verdict_vector.get(probe_date, 'N/A')
-                        print(f"        --- [原料数据 -> 向量校准] ---")
-                        print(f"          - 意图向量 (收盘前动态): {p_intent_raw if isinstance(p_intent_raw, str) else f'{p_intent_raw:.4f}'} -> 校准后: {p_intent_norm if isinstance(p_intent_norm, str) else f'{p_intent_norm:.4f}'}")
-                        print(f"          - 裁决向量 (收盘竞价): {p_verdict_raw if isinstance(p_verdict_raw, str) else f'{p_verdict_raw:.4f}'} -> 校准后: {p_verdict_norm if isinstance(p_verdict_norm, str) else f'{p_verdict_norm:.4f}'}")
+                        print(f"      [日内诡道探针 V2.0] _diagnose_vwap_battlefield @ {probe_date_str}")
+                        # --- 原料数据 ---
+                        p_outcome = outcome_vector.get(probe_date, 'N/A')
+                        p_attrition_raw = attrition_raw.get(probe_date, 'N/A')
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - 战果向量 (vwap_control_strength_D): {p_outcome if isinstance(p_outcome, str) else f'{p_outcome:.4f}'}")
+                        print(f"          - 原始战损 (vwap_crossing_intensity_D): {p_attrition_raw if isinstance(p_attrition_raw, str) else f'{p_attrition_raw:.4f}'}")
                         # --- 关键计算节点 ---
-                        p_is_consistent = is_consistent.get(probe_date, False)
-                        p_amplifier = final_amplifier.get(probe_date, 0.0)
+                        p_attrition_norm = norm_attrition_score.get(probe_date, 'N/A')
+                        p_modulator = attrition_modulator.get(probe_date, 'N/A')
                         print(f"        --- [关键计算节点] ---")
-                        if p_is_consistent:
-                            playbook = "协同强袭" if np.sign(p_verdict_norm) >= 0 else "协同溃败"
-                            print(f"          - 剧本识别: {playbook} (意图与裁决同向)")
-                            print(f"          - 放大器公式: 1 + k_synergy * 意图 = 1 + {k_synergy} * {p_intent_norm:.4f}")
-                        else:
-                            if np.sign(p_verdict_norm) > 0:
-                                playbook = "逆转伏击"
-                                print(f"          - 剧本识别: {playbook} (意图为负, 裁决为正)")
-                                print(f"          - 放大器公式: 1 + k_reversal * |意图| = 1 + {k_reversal} * |{p_intent_norm:.4f}|")
-                            else:
-                                playbook = "意图背叛"
-                                print(f"          - 剧本识别: {playbook} (意图为正, 裁决为负)")
-                                print(f"          - 放大器公式: 1 - k_reversal * |意图| = 1 - {k_reversal} * |{p_intent_norm:.4f}|")
-                        print(f"          - 最终战术放大器: {p_amplifier:.4f}")
+                        print(f"          - 归一化战损度: {p_attrition_norm if isinstance(p_attrition_norm, str) else f'{p_attrition_norm:.4f}'}")
+                        print(f"          - 战损调节器 (1 - {k_attrition}*归一化战损): {p_modulator if isinstance(p_modulator, str) else f'{p_modulator:.4f}'}")
                         # --- 最终结果 ---
                         p_final = final_score.get(probe_date, 0.0)
                         print(f"        --- [最终结果] ---")
-                        print(f"        - 最终终末强袭分 (裁决向量 × 放大器): {p_final:.4f}")
-                except Exception as e:
-                    print(f"    -> [日内行为探针错误] _diagnose_final_assault 处理日期 {probe_date_str} 失败: {e}")
-        return {signal_name: final_score.clip(-1, 1)}
-
-    def _diagnose_vwap_battlefield(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.3 · 代理信号重构版】日内诡道之三：诊断“VWAP攻防”
-        - 核心重构: 由于 `vwap_D` 信号不可用，无法进行攻防计算。本方法重构为直接采纳
-                      `vwap_control_strength_D` 作为最终裁决，它本身就是对VWAP攻防的总结。
-        """
-        signal_name = "SCORE_INTRADAY_VWAP_BATTLEFIELD"
-        # 直接使用 vwap_control_strength_D
-        required_signals = ['vwap_control_strength_D']
-        if not self._validate_required_signals(df, required_signals, "_diagnose_vwap_battlefield"):
-            return {signal_name: pd.Series(0.0, index=df.index)}
-        
-        control_strength = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_vwap_battlefield")
-        final_score = control_strength
-        
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        p_control_strength = control_strength.get(probe_date, 0.0)
-                        p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"      [日内诡道探针] _diagnose_vwap_battlefield @ {probe_date_str}")
-                        print(f"        - [代理] VWAP控制强度 (vwap_control_strength_D): {p_control_strength:.4f}")
-                        print(f"        - 最终VWAP攻防分: {p_final_score:.4f}")
+                        print(f"        - 最终VWAP攻防分 (战果 × 战损调节器): {p_final:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_vwap_battlefield 处理日期 {probe_date_str} 失败: {e}")
-        
         return {signal_name: final_score.clip(-1, 1)}
 
 
