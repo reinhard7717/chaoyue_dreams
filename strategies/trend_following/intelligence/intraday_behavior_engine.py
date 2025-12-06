@@ -310,31 +310,36 @@ class IntradayBehaviorEngine:
 
     def _diagnose_recovery_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 成本效益分析版】日内叙事之三：诊断“恢复质量”
-        - 核心重构: 废弃V1.0仅看“结果”的幼稚模型。引入“成本效益分析”框架。
-                      1. 战果(Benefit) = 收盘价在当日的位置。
-                      2. 成本(Cost) = w1*弹药消耗(成交量异常) + w2*战线混乱度(波动率)。
+        【V2.1 · 效率审计版】日内叙事之三：诊断“恢复质量”
+        - 核心重构: 沿用V2.0“成本效益分析”框架，但使用数据层实际存在的信号重铸。
+                      1. 战果(Benefit) = closing_strength_index_D
+                      2. 成本(Cost):
+                         - 弹药消耗 -> volume_vs_ma_5_ratio_D
+                         - 战线混乱 -> ATR_14_D
                       3. 最终质量 = 战果 / (1 + k * 总成本)。
                       此模型能精准识别“王者归来”式的高质量恢复，并惩罚“惨胜如败”的
-                      高成本、高风险伪反弹。
+                      高成本、高风险伪反弹，且完全基于可用数据。
         """
         signal_name = "SCORE_INTRADAY_RECOVERY_QUALITY"
+        # [代码修改] 更新所需信号为数据层实际存在的信号
         required_signals = [
             'closing_strength_index_D',
-            'volume_anomaly_D',
-            'volatility_D'
+            'volume_vs_ma_5_ratio_D',
+            'ATR_14_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_recovery_quality"):
             return {signal_name: pd.Series(0.0, index=df.index)}
-        # --- [核心逻辑] V2.0 ---
+        # --- [核心逻辑] V2.1 ---
         # 1. 获取战果与成本的原料信号
         recovery_magnitude = self._get_safe_series(df, 'closing_strength_index_D', 0.0, "_diagnose_recovery_quality")
-        raw_ammunition_expenditure = self._get_safe_series(df, 'volume_anomaly_D', 0.0, "_diagnose_recovery_quality")
-        raw_battlefield_turbulence = self._get_safe_series(df, 'volatility_D', 0.0, "_diagnose_recovery_quality")
-        # 2. [核心进化] 成本审计：对成本项进行归一化
+        # [代码修改] 使用新的、可用的成本信号
+        raw_ammunition_expenditure = self._get_safe_series(df, 'volume_vs_ma_5_ratio_D', 1.0, "_diagnose_recovery_quality")
+        raw_battlefield_turbulence = self._get_safe_series(df, 'ATR_14_D', 0.0, "_diagnose_recovery_quality")
+        # 2. 成本审计：对成本项进行归一化，以统一量纲
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
         default_weights = mtf_params.get('default_weights')
-        norm_ammo_cost = get_adaptive_mtf_normalized_score(raw_ammunition_expenditure, df.index, default_weights)
+        # 对成交量比率，我们关心的是超出1的部分，因此先减1再取绝对值
+        norm_ammo_cost = get_adaptive_mtf_normalized_score((raw_ammunition_expenditure - 1).abs(), df.index, default_weights)
         norm_turbulence_cost = get_adaptive_mtf_normalized_score(raw_battlefield_turbulence, df.index, default_weights)
         # 3. 计算总成本 (权重: 弹药消耗0.6, 战线混乱度0.4)
         w_ammo = 0.6
@@ -353,15 +358,15 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [日内行为探针 V2.0] _diagnose_recovery_quality @ {probe_date_str}")
+                        print(f"      [日内行为探针 V2.1] _diagnose_recovery_quality @ {probe_date_str}")
                         # --- 原料数据 ---
                         p_magnitude = recovery_magnitude.get(probe_date, 0.0)
                         p_ammo_raw = raw_ammunition_expenditure.get(probe_date, 0.0)
                         p_turb_raw = raw_battlefield_turbulence.get(probe_date, 0.0)
                         print(f"        --- [原料数据] ---")
                         print(f"          - 恢复广度 (战果): {p_magnitude:.4f}")
-                        print(f"          - 弹药消耗 (成交量异常): {p_ammo_raw:.4f}")
-                        print(f"          - 战线混乱 (波动率): {p_turb_raw:.4f}")
+                        print(f"          - 弹药消耗 (成交量/5日均量): {p_ammo_raw:.4f}")
+                        print(f"          - 战线混乱 (ATR_14): {p_turb_raw:.4f}")
                         # --- 关键计算节点 ---
                         p_ammo_norm = norm_ammo_cost.get(probe_date, 0.0)
                         p_turb_norm = norm_turbulence_cost.get(probe_date, 0.0)
