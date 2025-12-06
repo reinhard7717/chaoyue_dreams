@@ -228,11 +228,10 @@ class IntradayBehaviorEngine:
 
     def _diagnose_tactical_arc(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 叙事向量版】日内叙事之一：诊断“战术弧线”
-        - 核心重构: 废弃V2.1使用`closing_strength_index_D`的错误代理。
-                      进化为基于“叙事向量”的全新博弈模型。
-                      1. 弧线方向 = 收官向量 - 开篇向量。
-                      2. 引入“战局重要性”调节器(|VWAP控制强度|)，放大关键战役中力量消长的信号意义。
+        【V3.1 · 标度向量版】日内叙事之一：诊断“战术弧线”
+        - 核心重构: 沿用V3.0“叙事向量”逻辑。
+        - 核心修复: 引入“先归一，再计算”的数学纪律。对所有输入向量进行自适应双极化归一化，
+                      确保在统一标度下进行计算，彻底解决“巴别塔困境”，保证模型的鲁棒性与普适性。
         """
         signal_name = "SCORE_INTRADAY_TACTICAL_ARC"
         required_signals = [
@@ -242,16 +241,22 @@ class IntradayBehaviorEngine:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_tactical_arc"):
             return {signal_name: pd.Series(0.0, index=df.index)}
-        # --- [核心逻辑] V3.0 ---
-        # 1. 获取叙事向量及战局上下文
-        opening_vector = self._get_safe_series(df, 'opening_battle_result_D', 0.0, "_diagnose_tactical_arc")
-        closing_vector = self._get_safe_series(df, 'pre_closing_posturing_D', 0.0, "_diagnose_tactical_arc")
-        battlefield_intensity = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_tactical_arc").abs()
-        # 2. 计算弧线方向 (核心：收官力量 - 开篇力量)
-        arc_direction = closing_vector - opening_vector
-        # 3. 计算战局重要性调节器 (k=0.5, 意味着一场惨烈的战役能将信号意义放大50%)
+        # --- [核心逻辑] V3.1 ---
+        # 1. 获取原料信号
+        raw_opening_vector = self._get_safe_series(df, 'opening_battle_result_D', 0.0, "_diagnose_tactical_arc")
+        raw_closing_vector = self._get_safe_series(df, 'pre_closing_posturing_D', 0.0, "_diagnose_tactical_arc")
+        battlefield_intensity_vector = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_tactical_arc")
+        # 2. [新增] 向量标度化 (归一化)
+        mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
+        default_weights = mtf_params.get('default_weights')
+        norm_opening_vector = get_adaptive_mtf_normalized_bipolar_score(raw_opening_vector, df.index, default_weights)
+        norm_closing_vector = get_adaptive_mtf_normalized_bipolar_score(raw_closing_vector, df.index, default_weights)
+        # 3. 计算弧线方向 (核心：收官力量 - 开篇力量)
+        arc_direction = norm_closing_vector - norm_opening_vector
+        # 4. 计算战局重要性调节器
+        battlefield_intensity = battlefield_intensity_vector.abs()
         context_amplifier = 1 + battlefield_intensity * 0.5
-        # 4. 最终裁决
+        # 5. 最终裁决
         final_score = (arc_direction * context_amplifier).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -262,22 +267,23 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [日内行为探针 V3.0] _diagnose_tactical_arc @ {probe_date_str}")
-                        # --- 原料数据 ---
-                        p_opening = opening_vector.get(probe_date, 0.0)
-                        p_closing = closing_vector.get(probe_date, 0.0)
-                        p_intensity_raw = self._get_safe_series(df, 'vwap_control_strength_D', 0.0).get(probe_date, 0.0)
-                        p_intensity = battlefield_intensity.get(probe_date, 0.0)
-                        print(f"        --- [原料数据] ---")
-                        print(f"          - 开篇向量 (opening_battle_result_D): {p_opening:.4f}")
-                        print(f"          - 收官向量 (pre_closing_posturing_D): {p_closing:.4f}")
-                        print(f"          - 战局强度 (vwap_control_strength_D): {p_intensity_raw:.4f} -> abs: {p_intensity:.4f}")
+                        print(f"      [日内行为探针 V3.1] _diagnose_tactical_arc @ {probe_date_str}")
+                        # --- 原料数据与归一化过程 ---
+                        p_opening_raw = raw_opening_vector.get(probe_date, 0.0)
+                        p_opening_norm = norm_opening_vector.get(probe_date, 0.0)
+                        p_closing_raw = raw_closing_vector.get(probe_date, 0.0)
+                        p_closing_norm = norm_closing_vector.get(probe_date, 0.0)
+                        p_intensity_raw = battlefield_intensity_vector.get(probe_date, 0.0)
+                        print(f"        --- [原料数据 -> 归一化] ---")
+                        print(f"          - 开篇向量 (原料): {p_opening_raw:.4f} -> 归一化: {p_opening_norm:.4f}")
+                        print(f"          - 收官向量 (原料): {p_closing_raw:.4f} -> 归一化: {p_closing_norm:.4f}")
+                        print(f"          - 战局强度 (原料): {p_intensity_raw:.4f}")
                         # --- 关键计算节点 ---
                         p_arc_dir = arc_direction.get(probe_date, 0.0)
                         p_amplifier = context_amplifier.get(probe_date, 1.0)
                         print(f"        --- [关键计算节点] ---")
-                        print(f"          - 弧线方向 (收官 - 开篇): {p_arc_dir:.4f}")
-                        print(f"          - 战局调节器 (1 + 强度*0.5): {p_amplifier:.4f}")
+                        print(f"          - 弧线方向 (归一化收官 - 归一化开篇): {p_arc_dir:.4f}")
+                        print(f"          - 战局调节器 (1 + |强度|*0.5): {p_amplifier:.4f}")
                         # --- 最终结果 ---
                         p_final = final_score.get(probe_date, 0.0)
                         print(f"        --- [最终结果] ---")
