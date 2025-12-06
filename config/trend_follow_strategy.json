@@ -1231,6 +1231,14 @@
                 "control": 0.5,
                 "closing": 0.3
             }
+        },
+        "dominance_consensus_params": {
+            "enabled": true,
+            "description": "【V4.0 · 预测向量版】为'支配共识'信号提供专属的向量合成权重。",
+            "vector_weights": {
+                "state": 0.6,
+                "trend": 0.4
+            }
         }
       },
       "chip_ultimate_params": {

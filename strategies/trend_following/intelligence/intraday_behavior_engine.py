@@ -151,32 +151,31 @@ class IntradayBehaviorEngine:
 
     def _diagnose_dominance_consensus(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 态势演化版】日内战报之二：诊断“支配共识”
-        - 核心重构: 废弃旧的代理逻辑，进化为“支配态势 × 共识演化趋势”的非线性融合模型。
-                      旨在穿透静态战果，洞察力量的动态演化方向。
+        【V4.0 · 预测向量版】日内战报之二：诊断“支配共识”
+        - 核心重构: 废弃V3.0的乘法模型，进化为“支配态势向量 + 共识趋势向量”的加权合成模型。
+                      旨在赋予信号预测能力，解决“零值黑洞”悖论。
         """
         signal_name = "SCORE_INTRADAY_DOMINANCE_CONSENSUS"
-        # [代码修改] 引入新的核心信号：主力信念指数的斜率
         required_signals = ['vwap_control_strength_D', 'SLOPE_5_main_force_conviction_index_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_dominance_consensus"):
             return {signal_name: pd.Series(0.0, index=df.index)}
         # --- 获取参数 ---
         parent_params = get_params_block(self.strategy, 'intraday_behavior_params', {})
         params = get_param_value(parent_params.get('dominance_consensus_params'), {})
-        sensitivity = get_param_value(params.get('consensus_modulator_sensitivity'), 0.5)
+        weights = get_param_value(params.get('vector_weights'), {'state': 0.6, 'trend': 0.4})
         # --- [核心逻辑] ---
         # 1. 获取原料信号
-        # 维度一：支配态势 (存量)
-        dominance_state = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_dominance_consensus")
-        # 维度二：共识演化趋势 (增量)
-        conviction_trend = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, "_diagnose_dominance_consensus")
-        # 2. 对“共识演化趋势”进行标准化，使其成为一个有效的调节器
-        # 使用双极性归一化，将其映射到[-1, 1]区间
-        norm_conviction_trend = normalize_to_bipolar(conviction_trend, df.index, window=55, sensitivity=1.0)
-        # 3. 构建共识调节器，值域如 [0.5, 1.5]
-        consensus_modulator = 1 + norm_conviction_trend * sensitivity
-        # 4. 非线性融合：用“共识调节器”去调制“支配态势”
-        final_score = (dominance_state * consensus_modulator).fillna(0.0)
+        # 向量一：支配态势 (存量)
+        dominance_state_vector = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_dominance_consensus")
+        # 向量二的原料：共识演化趋势 (增量)
+        raw_conviction_trend = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, "_diagnose_dominance_consensus")
+        # 2. 标准化趋势原料，生成[-1, 1]区间的“共识趋势向量”
+        conviction_trend_vector = normalize_to_bipolar(raw_conviction_trend, df.index, window=55, sensitivity=1.0)
+        # 3. 向量加权合成
+        final_score = (
+            dominance_state_vector * weights.get('state', 0.6) +
+            conviction_trend_vector * weights.get('trend', 0.4)
+        ).fillna(0.0)
         # --- 探针逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -186,21 +185,20 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        # [代码修改] 探针输出所有原料和关键计算节点
-                        p_dominance_state = dominance_state.get(probe_date, 0.0)
-                        p_conviction_trend = conviction_trend.get(probe_date, 0.0)
-                        p_norm_trend = norm_conviction_trend.get(probe_date, 0.0)
-                        p_modulator = consensus_modulator.get(probe_date, 0.0)
+                        # [代码修改] 探针重构，展示向量合成的全过程
+                        p_state_raw = dominance_state_vector.get(probe_date, 0.0)
+                        p_trend_raw = raw_conviction_trend.get(probe_date, 0.0)
+                        p_trend_norm = conviction_trend_vector.get(probe_date, 0.0)
                         p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"      [日内行为探针 V3.0] _diagnose_dominance_consensus @ {probe_date_str}")
+                        print(f"      [日内行为探针 V4.0] _diagnose_dominance_consensus @ {probe_date_str}")
                         print(f"        --- [原料数据] ---")
-                        print(f"        - 支配态势 (vwap_control_strength_D): {p_dominance_state:.4f}")
-                        print(f"        - 共识趋势 (SLOPE_5_main_force_conviction_index_D): {p_conviction_trend:.4f}")
-                        print(f"        --- [关键计算节点] ---")
-                        print(f"        - 标准化共识趋势 (-> [-1,1]): {p_norm_trend:.4f}")
-                        print(f"        - 共识调节器 (-> [0.5,1.5]): {p_modulator:.4f}")
+                        print(f"        - 支配态势原始值 (vwap_control_strength_D): {p_state_raw:.4f}")
+                        print(f"        - 共识趋势原始值 (SLOPE_5_main_force_conviction_index_D): {p_trend_raw:.4f}")
+                        print(f"        --- [关键计算节点：向量化] ---")
+                        print(f"        - 支配态势向量 (Vector_State): {p_state_raw:.4f} (权重: {weights.get('state', 0.6)})")
+                        print(f"        - 共识趋势向量 (Vector_Trend): {p_trend_norm:.4f} (权重: {weights.get('trend', 0.4)})")
                         print(f"        --- [结果] ---")
-                        print(f"        - 最终支配共识分 (态势 * 调节器): {p_final_score:.4f}")
+                        print(f"        - 最终支配共识分 (加权合成): {p_final_score:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_dominance_consensus 处理日期 {probe_date_str} 失败: {e}")
         return {signal_name: final_score.clip(-1, 1)}
