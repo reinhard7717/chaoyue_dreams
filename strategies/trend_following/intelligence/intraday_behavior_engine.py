@@ -99,9 +99,9 @@ class IntradayBehaviorEngine:
 
     def _diagnose_intraday_bull_control(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.1 · Antifragile Resilience版】行为层原子信号：诊断“日内多头控制力”
-        - 核心逻辑: 引入“反脆弱”裁决层。在使用主力信念指数前，通过clip(-1, 1)强制约束其范围，
-                    确保模型在面对上游极端数据时具备韧性，不会因数学错误而失效。
+        【V4.0 · Base Consciousness版】行为层原子信号：诊断“日内多头控制力”
+        - 核心逻辑: 引入“基础意识”因子，将信念调节器的值域从[0,1]提升至[base_consciousness, 1]，
+                    根除“硬零”veto问题，使模型能捕捉悲观环境下的反抗“张力”。
         """
         signal_name = "SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL"
         required_signals = [
@@ -117,6 +117,8 @@ class IntradayBehaviorEngine:
         parent_params = get_params_block(self.strategy, 'intraday_behavior_params', {})
         params = get_param_value(parent_params.get('bull_control_params'), {})
         fusion_weights = get_param_value(params.get('fusion_weights'), {'asymmetric_quality': 0.7, 'belief_modulator': 0.3})
+        # [代码修改] 获取新的“基础意识”参数
+        base_consciousness = get_param_value(params.get('base_consciousness_factor'), 0.1)
         # 1. 获取战略位置分 (核心基石)
         position_score = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_intraday_bull_control")
         # 2. 计算战术品质分
@@ -135,9 +137,9 @@ class IntradayBehaviorEngine:
         asymmetric_action_quality = offensive_quality * weight_offensive + defensive_quality * weight_defensive
         # 2.3 构建信念调节器
         raw_conviction_index = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, "_diagnose_intraday_bull_control")
-        # [代码修改] 增加“裁决层”，确保信念指数在[-1, 1]范围内，增强模型韧性
         conviction_index = raw_conviction_index.clip(-1, 1)
-        belief_modulator = (conviction_index + 1) / 2
+        # [代码修改] 使用新的映射公式，将[-1, 1]映射到[base_consciousness, 1]
+        belief_modulator = base_consciousness + ((conviction_index + 1) / 2) * (1 - base_consciousness)
         # 2.4 非线性融合战术品质与信念
         comprehensive_quality_modulator = (
             asymmetric_action_quality.pow(fusion_weights.get('asymmetric_quality', 0.7)) *
@@ -160,18 +162,19 @@ class IntradayBehaviorEngine:
                         p_w_off = weight_offensive.get(probe_date, 0.5)
                         p_w_def = weight_defensive.get(probe_date, 0.5)
                         p_asymmetric_quality = asymmetric_action_quality.get(probe_date, 0.0)
-                        # [代码修改] 升级探针，展示裁决过程
                         p_raw_conviction = raw_conviction_index.get(probe_date, 0.0)
                         p_clipped_conviction = conviction_index.get(probe_date, 0.0)
                         p_belief_mod = belief_modulator.get(probe_date, 0.0)
                         p_comp_quality = comprehensive_quality_modulator.get(probe_date, 0.0)
                         p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"      [日内行为探针 V3.1] _diagnose_intraday_bull_control @ {probe_date_str}")
+                        print(f"      [日内行为探针 V4.0] _diagnose_intraday_bull_control @ {probe_date_str}")
                         print(f"        - [基石] 战略位置 (vwap_control_strength_D): {p_position:.4f}")
                         print(f"        - [原料] 进攻品质: {p_offensive:.4f}, 防守品质: {p_defensive:.4f}")
                         print(f"        - [计算节点] 非对称权重 (攻/防): {p_w_off:.2f} / {p_w_def:.2f}")
                         print(f"        - [计算节点] 非对称战术品质分: {p_asymmetric_quality:.4f}")
-                        print(f"        - [原料] 主力信念指数 (原始): {p_raw_conviction:.4f} -> (裁决后): {p_clipped_conviction:.4f} -> 信念调节器: {p_belief_mod:.4f}")
+                        # [代码修改] 升级探针，展示“基础意识”因子的作用
+                        print(f"        - [原料] 主力信念指数 (原始): {p_raw_conviction:.4f} -> (裁决后): {p_clipped_conviction:.4f}")
+                        print(f"        - [计算节点] 信念调节器 (基础意识={base_consciousness}): {p_belief_mod:.4f}")
                         print(f"        - [计算节点] 综合品质调节器 (品质^0.7 * 信念^0.3): {p_comp_quality:.4f}")
                         print(f"        - [结果] 最终日内多头控制力分: {p_final_score:.4f}")
                 except Exception as e:

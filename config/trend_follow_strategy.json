@@ -1217,7 +1217,8 @@
         "description": "【V1.0 · 统一配置块】所有日内行为情报的统一参数配置块。",
         "bull_control_params": {
           "enabled": true,
-          "description": "【V3.0 · 信念强化版】为'日内多头控制'信号提供专属的非对称融合参数。",
+          "description": "【V4.0 · 基础意识版】为'日内多头控制'信号提供专属的非对称融合参数。",
+          "base_consciousness_factor": 0.1,
           "fusion_weights": {
             "description": "战术品质与信念调节器的几何平均融合权重。",
             "asymmetric_quality": 0.7,
