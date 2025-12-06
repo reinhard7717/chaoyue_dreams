@@ -338,7 +338,7 @@ class BehavioralIntelligence:
         ).pow(1/3).fillna(0.0)
         return upward_momentum_score.clip(0, 1).astype(np.float32)
 
-    def _diagnose_intraday_bull_control(self, df: pd.DataFrame, tf_weights: Dict) -> Dict[str, pd.Series]:
+    def _diagnose_intraday_bull_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
         【V5.1 · Production Ready版】行为层原子信号：诊断“日内多头控制力”
         - 核心逻辑: 进化为“战果”与“意图”双引擎加权融合模型。
@@ -354,7 +354,7 @@ class BehavioralIntelligence:
             'main_force_conviction_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_intraday_bull_control"):
-            return {signal_name: pd.Series(0.0, index=df.index)}
+            return pd.Series(0.0, index=df.index) # [修改的代码行] 修复返回值类型，从字典改为Series
         # --- 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         params = get_param_value(p_conf.get('bull_control_params'), {})
@@ -389,7 +389,7 @@ class BehavioralIntelligence:
         # 3. 双极驱动融合
         final_score = (position_score * position_weight + intentional_bias * intent_weight).fillna(0.0)
         # [代码修改] 移除整个探针逻辑块，恢复生产状态
-        return {signal_name: final_score.clip(-1, 1)}
+        return final_score.clip(-1, 1).astype(np.float32) # [修改的代码行] 修复返回值类型，从字典改为Series，并增加类型转换
 
     def _diagnose_downward_momentum(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
