@@ -179,11 +179,10 @@ class IntradayBehaviorEngine:
 
     def _diagnose_conviction_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 非对称战争版】日内战报之三：诊断“信念反转”
-        - 核心重构: 废弃V1.5的几何平均模型和对主力Alpha的错误解读。
-                      进化为基于“非对称博弈”的全新诊断框架。
-                      1. 看涨(底部): 诊断“恐慌下的优质承接”，采用加法模型，由正Alpha作为可靠性裁决。
-                      2. 看跌(顶部): 诊断“信念崩溃下的从容派发”，彻底修正逻辑，将“正Alpha派发”作为最危险的顶部信号。
+        【V2.1 · 两极化修正版】日内战报之三：诊断“信念反转”
+        - 核心重构: 引入“证据协同”模型 (最强证据 + 协同奖励)，解决V2.0加法模型的“独脚凳”脆弱性。
+        - 核心修复: 对`rally_distribution_pressure_D`等双极性信号，强制使用双极化归一化工具，
+                      彻底修正V2.0中存在的“指鹿为马”式逻辑谬误。
         """
         signal_name = "SCORE_INTRADAY_CONVICTION_REVERSAL"
         required_signals = [
@@ -196,7 +195,7 @@ class IntradayBehaviorEngine:
         # --- 获取参数与归一化配置 ---
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
         default_weights = mtf_params.get('default_weights')
-        # --- [核心逻辑] V2.0 ---
+        # --- [核心逻辑] V2.1 ---
         # 1. 获取所有原料信号
         raw_panic = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, "_diagnose_conviction_reversal")
         raw_absorption = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, "_diagnose_conviction_reversal")
@@ -206,21 +205,24 @@ class IntradayBehaviorEngine:
         # 2. 信号归一化处理
         norm_panic = get_adaptive_mtf_normalized_score(raw_panic, df.index, tf_weights=default_weights)
         norm_absorption = get_adaptive_mtf_normalized_score(raw_absorption, df.index, tf_weights=default_weights)
-        norm_distribution = get_adaptive_mtf_normalized_score(raw_distribution, df.index, tf_weights=default_weights)
+        # [代码修改] 对双极性的派发压力信号使用双极化归一化
+        norm_distribution = get_adaptive_mtf_normalized_bipolar_score(raw_distribution, df.index, default_weights).clip(lower=0)
         norm_conviction_decay = get_adaptive_mtf_normalized_score(-raw_conviction_slope.clip(upper=0), df.index, tf_weights=default_weights)
-        # 对双极性的主力Alpha进行归一化
         norm_mf_alpha = get_robust_bipolar_normalized_score(raw_mf_alpha, df.index, window=55)
-        # 3. 构建非对称模型
+        # 3. 构建“证据协同”模型
         # 3.1 看涨诊断: 恐慌下的优质承接
-        base_bullish_score = (norm_panic * 0.5 + norm_absorption * 0.5)
-        bullish_alpha_amplifier = (1 + norm_mf_alpha.clip(lower=0) * 0.5) # 正Alpha作为放大器
-        bullish_reversal_score = (base_bullish_score * bullish_alpha_amplifier).fillna(0.0)
+        bullish_base_score = np.maximum(norm_panic, norm_absorption)
+        bullish_synergy_bonus = (norm_panic * norm_absorption).pow(0.5)
+        bullish_reversal_score = ((bullish_base_score + bullish_synergy_bonus) / 1.5).fillna(0.0) # 假设协同权重为0.5
         # 3.2 看跌诊断: 信念崩溃下的从容派发
-        base_bearish_score = (norm_distribution * 0.5 + norm_conviction_decay * 0.5)
-        bearish_alpha_amplifier = (1 + norm_mf_alpha.clip(lower=0) * 1.0) # 正Alpha作为更强的放大器
-        bearish_reversal_score = (base_bearish_score * bearish_alpha_amplifier).fillna(0.0)
+        bearish_base_score = np.maximum(norm_distribution, norm_conviction_decay)
+        bearish_synergy_bonus = (norm_distribution * norm_conviction_decay).pow(0.5)
+        bearish_reversal_score = ((bearish_base_score + bearish_synergy_bonus) / 1.5).fillna(0.0) # 假设协同权重为0.5
+        # 3.3 Alpha裁决放大
+        bullish_final_score = bullish_reversal_score * (1 + norm_mf_alpha.clip(lower=0) * 1.0)
+        bearish_final_score = bearish_reversal_score * (1 + norm_mf_alpha.clip(lower=0) * 1.5) # 派发时对正Alpha更敏感
         # 4. 最终裁决
-        final_score = (bullish_reversal_score - bearish_reversal_score).fillna(0.0)
+        final_score = (bullish_final_score - bearish_final_score).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -230,35 +232,32 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [日内行为探针 V2.0] _diagnose_conviction_reversal @ {probe_date_str}")
+                        print(f"      [日内行为探针 V2.1] _diagnose_conviction_reversal @ {probe_date_str}")
                         # --- 看涨诊断 ---
-                        p_raw_panic = raw_panic.get(probe_date, 0.0)
                         p_norm_panic = norm_panic.get(probe_date, 0.0)
-                        p_raw_absorption = raw_absorption.get(probe_date, 0.0)
                         p_norm_absorption = norm_absorption.get(probe_date, 0.0)
-                        p_base_bullish = base_bullish_score.get(probe_date, 0.0)
-                        p_bullish_amp = bullish_alpha_amplifier.get(probe_date, 1.0)
-                        p_bullish_final = bullish_reversal_score.get(probe_date, 0.0)
-                        print(f"        --- [看涨诊断：恐慌下的优质承接] ---")
-                        print(f"          - 原料-恐慌: {p_raw_panic:.4f} -> 归一化: {p_norm_panic:.4f}")
-                        print(f"          - 原料-承接: {p_raw_absorption:.4f} -> 归一化: {p_norm_absorption:.4f}")
-                        print(f"          - 关键节点-基础分 (恐慌+承接): {p_base_bullish:.4f}")
-                        print(f"          - 关键节点-Alpha放大器: {p_bullish_amp:.4f}")
-                        print(f"          - 结果-看涨分: {p_bullish_final:.4f}")
+                        p_bullish_base = bullish_base_score.get(probe_date, 0.0)
+                        p_bullish_synergy = bullish_synergy_bonus.get(probe_date, 0.0)
+                        p_bullish_final = bullish_final_score.get(probe_date, 0.0)
+                        print(f"        --- [看涨诊断：证据协同模型] ---")
+                        print(f"          - 证据-恐慌(归一化): {p_norm_panic:.4f}")
+                        print(f"          - 证据-承接(归一化): {p_norm_absorption:.4f}")
+                        print(f"          - 关键节点-最强证据分: {p_bullish_base:.4f}")
+                        print(f"          - 关键节点-协同奖励分: {p_bullish_synergy:.4f}")
+                        print(f"          - 结果-看涨分 (裁决后): {p_bullish_final:.4f}")
                         # --- 看跌诊断 ---
                         p_raw_dist = raw_distribution.get(probe_date, 0.0)
                         p_norm_dist = norm_distribution.get(probe_date, 0.0)
-                        p_raw_conv_slope = raw_conviction_slope.get(probe_date, 0.0)
                         p_norm_conv_decay = norm_conviction_decay.get(probe_date, 0.0)
-                        p_base_bearish = base_bearish_score.get(probe_date, 0.0)
-                        p_bearish_amp = bearish_alpha_amplifier.get(probe_date, 1.0)
-                        p_bearish_final = bearish_reversal_score.get(probe_date, 0.0)
-                        print(f"        --- [看跌诊断：信念崩溃下的从容派发] ---")
-                        print(f"          - 原料-派发: {p_raw_dist:.4f} -> 归一化: {p_norm_dist:.4f}")
-                        print(f"          - 原料-信念斜率: {p_raw_conv_slope:.4f} -> 归一化信念衰减: {p_norm_conv_decay:.4f}")
-                        print(f"          - 关键节点-基础分 (派发+衰减): {p_base_bearish:.4f}")
-                        print(f"          - 关键节点-Alpha放大器: {p_bearish_amp:.4f}")
-                        print(f"          - 结果-看跌分: {p_bearish_final:.4f}")
+                        p_bearish_base = bearish_base_score.get(probe_date, 0.0)
+                        p_bearish_synergy = bearish_synergy_bonus.get(probe_date, 0.0)
+                        p_bearish_final = bearish_final_score.get(probe_date, 0.0)
+                        print(f"        --- [看跌诊断：证据协同模型] ---")
+                        print(f"          - 证据-派发(原料: {p_raw_dist:.4f} -> 归一化): {p_norm_dist:.4f}")
+                        print(f"          - 证据-信念衰减(归一化): {p_norm_conv_decay:.4f}")
+                        print(f"          - 关键节点-最强证据分: {p_bearish_base:.4f}")
+                        print(f"          - 关键节点-协同奖励分: {p_bearish_synergy:.4f}")
+                        print(f"          - 结果-看跌分 (裁决后): {p_bearish_final:.4f}")
                         # --- Alpha裁决者 ---
                         p_raw_alpha = raw_mf_alpha.get(probe_date, 0.0)
                         p_norm_alpha = norm_mf_alpha.get(probe_date, 0.0)
