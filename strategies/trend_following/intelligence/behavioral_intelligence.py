@@ -339,6 +339,86 @@ class BehavioralIntelligence:
         # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return upward_momentum_score.clip(0, 1).astype(np.float32)
 
+    def _diagnose_downward_momentum(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V3.0 · 焦土协议 (探针激活版)】诊断价格下跌动能。
+        - 核心重构: 废弃V2.0“单点否决”逻辑，引入基于“多头防御体系系统性崩溃”的全新诊断模型。
+        - 诊断框架 (三要素):
+          1. 前沿阵地失守 (The Frontline Breach): 审判下跌的破坏力 (跌幅 * 下跌效率)。
+          2. 防御工事崩塌 (The Fortress Crumbling): 审判抵抗的缺席 (1 - 防御力量分)。
+          3. 指挥系统溃败 (The Command Collapse): 审判主力信心的崩塌 (1 - 主力正面信念分)。
+        - 数学模型: 动能分 = (破坏力 * 防御真空 * 信念真空) ^ (1/3)
+        """
+        # --- 1. 获取参数 ---
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        params = get_param_value(p_conf.get('scorched_earth_params'), {})
+        weights = get_param_value(params.get('fusion_weights'), {'breach_force': 0.4, 'defense_vacuum': 0.3, 'command_vacuum': 0.3})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {})
+        # --- 2. 获取原始数据 ---
+        pct_change_raw = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_downward_momentum")
+        efficiency_raw = self._get_safe_series(df, 'vacuum_traversal_efficiency_D', 0.0, method_name="_diagnose_downward_momentum")
+        dip_absorption_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_downward_momentum")
+        active_buying_raw = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_diagnose_downward_momentum")
+        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_downward_momentum")
+        # --- 3. 计算核心组件 ---
+        # 组件一：前沿阵地失守 (破坏力)
+        raw_drop = pct_change_raw.clip(upper=0).abs()
+        drop_score = get_adaptive_mtf_normalized_score(raw_drop, df.index, ascending=True, tf_weights=default_weights)
+        efficiency_score = get_adaptive_mtf_normalized_score(efficiency_raw, df.index, ascending=True, tf_weights=default_weights)
+        breach_force_score = (drop_score * efficiency_score).pow(0.5)
+        # 组件二：防御工事崩塌 (防御真空)
+        dip_absorption_score = get_adaptive_mtf_normalized_score(dip_absorption_raw, df.index, ascending=True, tf_weights=default_weights)
+        active_buying_score = get_adaptive_mtf_normalized_score(active_buying_raw, df.index, ascending=True, tf_weights=default_weights)
+        defense_power_score = (dip_absorption_score * 0.5 + active_buying_score * 0.5)
+        defense_vacuum_score = (1 - defense_power_score).clip(0, 1)
+        # 组件三：指挥系统溃败 (信念真空)
+        positive_conviction_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        command_vacuum_score = (1 - positive_conviction_score).clip(0, 1)
+        # --- 4. 最终合成 ---
+        downward_momentum_score = (
+            (breach_force_score + 1e-9).pow(weights.get('breach_force', 0.4)) *
+            (defense_vacuum_score + 1e-9).pow(weights.get('defense_vacuum', 0.3)) *
+            (command_vacuum_score + 1e-9).pow(weights.get('command_vacuum', 0.3))
+        ).fillna(0.0)
+        # --- [探针逻辑] 暴露所有计算节点 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df.empty:
+            for probe_date_str in probe_dates:
+                try:
+                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    if probe_date in df.index:
+                        print(f"      [行为探针 V3.0] _diagnose_downward_momentum @ {probe_date_str}")
+                        # --- 原料数据 ---
+                        p_pct_raw = pct_change_raw.get(probe_date, 'N/A')
+                        p_eff_raw = efficiency_raw.get(probe_date, 'N/A')
+                        p_dip_raw = dip_absorption_raw.get(probe_date, 'N/A')
+                        p_active_raw = active_buying_raw.get(probe_date, 'N/A')
+                        p_conv_raw = conviction_raw.get(probe_date, 'N/A')
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - 原始跌幅 (pct_change_D): {p_pct_raw if isinstance(p_pct_raw, str) else f'{p_pct_raw:.4f}'}")
+                        print(f"          - 下跌效率 (vacuum_traversal_efficiency_D): {p_eff_raw if isinstance(p_eff_raw, str) else f'{p_eff_raw:.4f}'}")
+                        print(f"          - 逢低吸纳 (dip_absorption_power_D): {p_dip_raw if isinstance(p_dip_raw, str) else f'{p_dip_raw:.4f}'}")
+                        print(f"          - 主动防御 (active_buying_support_D): {p_active_raw if isinstance(p_active_raw, str) else f'{p_active_raw:.4f}'}")
+                        print(f"          - 主力信念 (main_force_conviction_index_D): {p_conv_raw if isinstance(p_conv_raw, str) else f'{p_conv_raw:.4f}'}")
+                        # --- 关键计算节点 ---
+                        p_breach = breach_force_score.get(probe_date, 'N/A')
+                        p_defense_vac = defense_vacuum_score.get(probe_date, 'N/A')
+                        p_command_vac = command_vacuum_score.get(probe_date, 'N/A')
+                        print(f"        --- [关键计算节点 - 焦土协议] ---")
+                        print(f"          - 前沿破坏力分 (归一化): {p_breach if isinstance(p_breach, str) else f'{p_breach:.4f}'}")
+                        print(f"          - 防御真空度分 (1 - 防御力): {p_defense_vac if isinstance(p_defense_vac, str) else f'{p_defense_vac:.4f}'}")
+                        print(f"          - 信念真空度分 (1 - 信念): {p_command_vac if isinstance(p_command_vac, str) else f'{p_command_vac:.4f}'}")
+                        # --- 最终结果 ---
+                        p_final = downward_momentum_score.get(probe_date, 0.0)
+                        print(f"        --- [最终结果] ---")
+                        print(f"        - 最终下跌动能分 (三要素加权几何平均): {p_final:.4f}")
+                except Exception as e:
+                    print(f"    -> [行为探针错误] _diagnose_downward_momentum 处理日期 {probe_date_str} 失败: {e}")
+        return downward_momentum_score.clip(0, 1).astype(np.float32)
+
     def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series, distribution_intent: pd.Series) -> pd.Series:
         """
         【V4.0 · Production Ready版】诊断进攻性承接意图。
@@ -435,43 +515,9 @@ class BehavioralIntelligence:
         # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return final_score.clip(-1, 1).astype(np.float32) # [修改的代码行] 修复返回值类型，从字典改为Series，并增加类型转换
 
-    def _diagnose_downward_momentum(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
-        """
-        【V2.1 · 生产版】诊断高品质下跌动能。
-        - 核心重构: 废弃了基于“恐慌幻觉”的 V1.0 模型。引入基于“斩首行动三要素”
-                      （打击力度-战略意图-心理战果）的全新品质诊断模型。
-        - 斩首行动三要素:
-          1. 打击力度 (Overwhelming Force): 审判卖压的主动性与持续性。采用 `active_selling_pressure_D`
-                                            和 `rally_distribution_pressure_D`。
-          2. 战略意图 (Strategic Intent): 审判主力是否“佯退”还是“真撤”。采用 `main_force_conviction_index_D` 的负值。
-          3. 心理战果 (Psychological Warfare): 审判多头阵营的士气崩溃程度。采用 `SLOPE_5_loser_pain_index_D`。
-        - 数学模型: 动能分 = (打击力度分 * 战略意图分 * 心理战果分) ^ (1/3)
-        """
-        # --- 1. 获取三要素原始数据 ---
-        active_selling_raw = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name="_diagnose_downward_momentum")
-        distribution_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_downward_momentum")
-        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_downward_momentum")
-        loser_pain_slope_raw = self._get_safe_series(df, 'SLOPE_5_loser_pain_index_D', 0.0, method_name="_diagnose_downward_momentum")
-        # --- 2. 计算各要素得分 ---
-        # 要素一：打击力度分
-        active_selling_score = get_adaptive_mtf_normalized_score(active_selling_raw, df.index, ascending=True, tf_weights=tf_weights)
-        distribution_pressure_score = get_adaptive_mtf_normalized_score(distribution_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
-        overwhelming_force_score = (active_selling_score * distribution_pressure_score).pow(0.5)
-        # 要素二：战略意图分 (只考虑主力负向信念)
-        strategic_intent_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
-        # 要素三：心理战果分 (套牢盘痛苦加剧)
-        psychological_warfare_score = get_adaptive_mtf_normalized_score(loser_pain_slope_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
-        # --- 3. “斩首行动”三要素合成 ---
-        downward_momentum_score = (
-            (overwhelming_force_score + 1e-9) *
-            (strategic_intent_score + 1e-9) *
-            (psychological_warfare_score + 1e-9)
-        ).pow(1/3).fillna(0.0)
-        return downward_momentum_score.clip(0, 1).astype(np.float32)
-
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V2.0 · 提线木偶的诡局 (探针激活版)】诊断博弈欺骗指数
+        【V2.0 · Production Ready版】诊断博弈欺骗指数
         - 核心重构: 废弃V1.2“结果导向”模型，引入基于“认知失调”的全新诊断模型。
         - 核心逻辑: 欺骗分 = (主力真实意图向量 - K线表象剧本向量) * 证据放大器
                       直接量化“意图”与“表象”的背离程度，能识别更高明的欺骗形态。
@@ -502,42 +548,7 @@ class BehavioralIntelligence:
         # --- 4. 计算认知失调并施加放大器 ---
         cognitive_dissonance_vector = (intent_vector - narrative_vector) / 2
         final_deception_index = (cognitive_dissonance_vector * evidence_amplifier).clip(-1, 1)
-        # --- [探针逻辑] 暴露所有计算节点 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        print(f"      [行为探针 V2.0] _diagnose_deception_index @ {probe_date_str}")
-                        # --- 原料数据 ---
-                        p_narrative_raw = narrative_raw.get(probe_date, 'N/A')
-                        p_intent_raw = intent_raw.get(probe_date, 'N/A')
-                        p_deception_raw = base_deception_raw.get(probe_date, 'N/A')
-                        p_wash_raw = wash_trade_raw.get(probe_date, 'N/A')
-                        print(f"        --- [原料数据] ---")
-                        print(f"          - 剧本原料 (closing_strength_index_D): {p_narrative_raw if isinstance(p_narrative_raw, str) else f'{p_narrative_raw:.4f}'}")
-                        print(f"          - 意图原料 (main_force_ofi_D): {p_intent_raw if isinstance(p_intent_raw, str) else f'{p_intent_raw:.4f}'}")
-                        print(f"          - 欺骗工具 (deception_index_D): {p_deception_raw if isinstance(p_deception_raw, str) else f'{p_deception_raw:.4f}'}")
-                        print(f"          - 对倒工具 (wash_trade_intensity_D): {p_wash_raw if isinstance(p_wash_raw, str) else f'{p_wash_raw:.4f}'}")
-                        # --- 关键计算节点 ---
-                        p_narrative_vec = narrative_vector.get(probe_date, 'N/A')
-                        p_intent_vec = intent_vector.get(probe_date, 'N/A')
-                        p_amplifier = evidence_amplifier.get(probe_date, 'N/A')
-                        p_dissonance = cognitive_dissonance_vector.get(probe_date, 'N/A')
-                        print(f"        --- [关键计算节点 - 提线木偶的诡局] ---")
-                        print(f"          - 剧本向量 (归一化): {p_narrative_vec if isinstance(p_narrative_vec, str) else f'{p_narrative_vec:.4f}'}")
-                        print(f"          - 意图向量 (归一化): {p_intent_vec if isinstance(p_intent_vec, str) else f'{p_intent_vec:.4f}'}")
-                        print(f"          - 证据放大器 (1 + {k_amplifier}*证据分): {p_amplifier if isinstance(p_amplifier, str) else f'{p_amplifier:.4f}'}")
-                        print(f"          - 认知失调向量 ((意图-剧本)/2): {p_dissonance if isinstance(p_dissonance, str) else f'{p_dissonance:.4f}'}")
-                        # --- 最终结果 ---
-                        p_final = final_deception_index.get(probe_date, 0.0)
-                        print(f"        --- [最终结果] ---")
-                        print(f"        - 最终博弈欺骗指数 (失调向量 × 放大器): {p_final:.4f}")
-                except Exception as e:
-                    print(f"    -> [行为探针错误] _diagnose_deception_index 处理日期 {probe_date_str} 失败: {e}")
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return final_deception_index.astype(np.float32)
 
     def _diagnose_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, long_term_weights: Dict) -> pd.Series:
