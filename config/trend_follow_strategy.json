@@ -1232,6 +1232,11 @@
                 "closing": 0.3
             }
         },
+        "final_assault_params": {
+          "description": "【V3.0 · 协同裁决版】“终末强袭”信号参数",
+          "synergy_factor_k": 0.5,
+          "comment": "协同因子k。用于构建协同放大器 (1 + k * 意图向量)，调节收盘前意图对最终竞价裁决的放大效应。"
+        },
         "dominance_consensus_params": {
             "enabled": true,
             "description": "【V4.0 · 预测向量版】为'支配共识'信号提供专属的向量合成权重。",

@@ -400,39 +400,34 @@ class IntradayBehaviorEngine:
 
     def _diagnose_final_assault(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 战术意图 · 审判协议】日内诡道之二：诊断“终末强袭”
-        - 核心重构: 废弃V2.1“静态快照”谬误，引入“战术三幕剧”模型，审判从
-                      “战术铺垫” -> “强袭过程” -> “战果确认” 的完整战术链条。
-        - 核心逻辑: 引入“强袭过程放大器”，将尾盘攻击的真实动能作为审判因子，对
-                      首尾意图进行放大或惩罚。旨在区分“真强袭”与“假偷袭”。
+        【V3.0 · 协同裁决协议】日内诡道之二：诊断“终末强袭”
+        - 核心重构: 废弃V2.1“静态快照”式的加权平均，引入“协同裁决”协议。
+                      1. 定义角色: 将`pre_closing_posturing_D`视为“意图”，`closing_auction_ambush_D`视为“裁决”。
+                      2. 完全校准: 对两大输入向量进行“符号保护”归一化，统一标度。
+                      3. 协同放大: 最终分 = 裁决向量 × (1 + k * 意图向量)。此模型能放大“意图被确认”的
+                                     信号，并严惩“意图被背叛”的陷阱，深度诠释尾盘博弈的叙事逻辑。
         """
         signal_name = "SCORE_INTRADAY_FINAL_ASSAULT"
-        # [代码修改] 引入新的核心信号 final_assault_momentum_D
-        required_signals = [
-            'pre_closing_posturing_D',
-            'final_assault_momentum_D', # 核心进化：强袭过程
-            'closing_auction_ambush_D'
-        ]
+        required_signals = ['closing_auction_ambush_D', 'pre_closing_posturing_D']
         if not self._validate_required_signals(df, required_signals, "_diagnose_final_assault"):
             return {signal_name: pd.Series(0.0, index=df.index)}
         # --- [核心逻辑] V3.0 ---
         # 1. 获取参数
         params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('final_assault_params', {})
-        k_amplifier = params.get('assault_amplifier_k', 0.5)
-        # 2. 获取三幕剧的原料信号
-        buildup_raw = self._get_safe_series(df, 'pre_closing_posturing_D', 0.0, "_diagnose_final_assault")
-        assault_raw = self._get_safe_series(df, 'final_assault_momentum_D', 0.0, "_diagnose_final_assault")
-        confirmation_raw = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, "_diagnose_final_assault")
-        # 3. [核心进化] 校准所有战术向量
+        k_synergy = params.get('synergy_factor_k', 0.5)
+        # 2. 获取原料信号
+        intent_raw = self._get_safe_series(df, 'pre_closing_posturing_D', 0.0, "_diagnose_final_assault")
+        verdict_raw = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, "_diagnose_final_assault")
+        # 3. “符号保护”归一化
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
         default_weights = mtf_params.get('default_weights')
-        norm_buildup = get_adaptive_mtf_normalized_bipolar_score(buildup_raw, df.index, default_weights).fillna(0.0)
-        norm_assault = get_adaptive_mtf_normalized_bipolar_score(assault_raw, df.index, default_weights).fillna(0.0)
-        norm_confirmation = get_adaptive_mtf_normalized_bipolar_score(confirmation_raw, df.index, default_weights).fillna(0.0)
-        # 4. 构建审判模型
-        base_intent_vector = (norm_buildup + norm_confirmation) / 2
-        assault_amplifier = 1 + k_amplifier * norm_assault
-        final_score = (base_intent_vector * assault_amplifier).fillna(0.0)
+        norm_intent_magnitude = get_adaptive_mtf_normalized_score(intent_raw.abs(), df.index, default_weights)
+        norm_intent_vector = (norm_intent_magnitude * np.sign(intent_raw)).fillna(0.0)
+        norm_verdict_magnitude = get_adaptive_mtf_normalized_score(verdict_raw.abs(), df.index, default_weights)
+        norm_verdict_vector = (norm_verdict_magnitude * np.sign(verdict_raw)).fillna(0.0)
+        # 4. 构建协同放大器并进行最终裁决
+        synergy_amplifier = 1 + k_synergy * norm_intent_vector
+        final_score = (norm_verdict_vector * synergy_amplifier).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -444,26 +439,21 @@ class IntradayBehaviorEngine:
                     if probe_date in df.index:
                         print(f"      [日内诡道探针 V3.0] _diagnose_final_assault @ {probe_date_str}")
                         # --- 原料数据与校准过程 ---
-                        p_build_raw = buildup_raw.get(probe_date, 'N/A')
-                        p_build_norm = norm_buildup.get(probe_date, 'N/A')
-                        p_assault_raw = assault_raw.get(probe_date, 'N/A')
-                        p_assault_norm = norm_assault.get(probe_date, 'N/A')
-                        p_confirm_raw = confirmation_raw.get(probe_date, 'N/A')
-                        p_confirm_norm = norm_confirmation.get(probe_date, 'N/A')
-                        print(f"        --- [原料数据 -> 战术校准] ---")
-                        print(f"          - 1.铺垫 (收盘前动态): {p_build_raw if isinstance(p_build_raw, str) else f'{p_build_raw:.4f}'} -> 校准后: {p_build_norm if isinstance(p_build_norm, str) else f'{p_build_norm:.4f}'}")
-                        print(f"          - 2.强袭 (尾盘动能): {p_assault_raw if isinstance(p_assault_raw, str) else f'{p_assault_raw:.4f}'} -> 校准后: {p_assault_norm if isinstance(p_assault_norm, str) else f'{p_assault_norm:.4f}'}")
-                        print(f"          - 3.确认 (竞价偷袭): {p_confirm_raw if isinstance(p_confirm_raw, str) else f'{p_confirm_raw:.4f}'} -> 校准后: {p_confirm_norm if isinstance(p_confirm_norm, str) else f'{p_confirm_norm:.4f}'}")
+                        p_intent_raw = intent_raw.get(probe_date, 'N/A')
+                        p_intent_norm = norm_intent_vector.get(probe_date, 'N/A')
+                        p_verdict_raw = verdict_raw.get(probe_date, 'N/A')
+                        p_verdict_norm = norm_verdict_vector.get(probe_date, 'N/A')
+                        print(f"        --- [原料数据 -> 向量校准] ---")
+                        print(f"          - 意图向量 (收盘前动态): {p_intent_raw if isinstance(p_intent_raw, str) else f'{p_intent_raw:.4f}'} -> 校准后: {p_intent_norm if isinstance(p_intent_norm, str) else f'{p_intent_norm:.4f}'}")
+                        print(f"          - 裁决向量 (收盘竞价): {p_verdict_raw if isinstance(p_verdict_raw, str) else f'{p_verdict_raw:.4f}'} -> 校准后: {p_verdict_norm if isinstance(p_verdict_norm, str) else f'{p_verdict_norm:.4f}'}")
                         # --- 关键计算节点 ---
-                        p_base_vector = base_intent_vector.get(probe_date, 0.0)
-                        p_amplifier = assault_amplifier.get(probe_date, 0.0)
+                        p_amplifier = synergy_amplifier.get(probe_date, 0.0)
                         print(f"        --- [关键计算节点] ---")
-                        print(f"          - 基础意图向量 ((铺垫+确认)/2): {p_base_vector:.4f}")
-                        print(f"          - 强袭过程放大器 (1 + {k_amplifier}*强袭): {p_amplifier:.4f}")
+                        print(f"          - 协同放大器 (1 + {k_synergy}*意图): {p_amplifier:.4f}")
                         # --- 最终结果 ---
                         p_final = final_score.get(probe_date, 0.0)
                         print(f"        --- [最终结果] ---")
-                        print(f"        - 最终终末强袭分 (意图 × 放大器): {p_final:.4f}")
+                        print(f"        - 最终终末强袭分 (裁决向量 × 放大器): {p_final:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_final_assault 处理日期 {probe_date_str} 失败: {e}")
         return {signal_name: final_score.clip(-1, 1)}
