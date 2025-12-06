@@ -267,13 +267,13 @@ class IntradayBehaviorEngine:
 
     def _diagnose_auction_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 一致性裁决版】日内叙事之二：诊断“竞价意图”
-        - 核心重构: 废弃V1.0简单的线性相加。引入“一致性裁决”模型。
+        【V2.1 · 信念升级协议】日内叙事之二：诊断“竞价意图”
+        - 核心重构: 废弃V2.0错误的“强度惩罚谬误”。引入“信念升级协议”。
                       1. 基础意图 = (开篇向量 + 收官向量) / 2
-                      2. 和谐因子 = 1 - k * |开篇向量 - 收官向量| (惩罚矛盾)
-                      3. 最终分 = 基础意图 × 和谐因子
-                      此模型能精准识别“言行一致”的强信号，并对“开盘诱多、收盘派发”等
-                      经典的“意图背叛”诡道战术施加毁灭性惩罚。
+                      2. 协同因子: 引入双轨制裁决系统。
+                         - 若方向一致: 奖励信念的强度升级 (1 + k_reward * ||收官|-|开篇||)。
+                         - 若方向矛盾: 惩罚意图的背叛行为 (1 - k_punish * |开篇-收官|)。
+                      此模型能精准识别并奖励“信念升级”的强趋势信号，同时惩罚“诡道背叛”。
         """
         signal_name = "SCORE_INTRADAY_AUCTION_INTENT"
         required_signals = [
@@ -282,26 +282,32 @@ class IntradayBehaviorEngine:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_auction_intent"):
             return {signal_name: pd.Series(0.0, index=df.index)}
-        # --- [核心逻辑] V2.0 ---
+        # --- [核心逻辑] V2.1 ---
         # 1. 获取原料信号
         raw_opening_vector = self._get_safe_series(df, 'opening_battle_result_D', 0.0, "_diagnose_auction_intent")
         raw_closing_vector = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, "_diagnose_auction_intent")
-        # 2. 采用“符号保护”归一化，确保绝对方向
+        # 2. 采用“符号保护”归一化
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
         default_weights = mtf_params.get('default_weights')
-        # 归一化开篇向量
         norm_opening_magnitude = get_adaptive_mtf_normalized_score(raw_opening_vector.abs(), df.index, default_weights)
         norm_opening_vector = (norm_opening_magnitude * np.sign(raw_opening_vector)).fillna(0.0)
-        # 归一化收官向量
         norm_closing_magnitude = get_adaptive_mtf_normalized_score(raw_closing_vector.abs(), df.index, default_weights)
         norm_closing_vector = (norm_closing_magnitude * np.sign(raw_closing_vector)).fillna(0.0)
         # 3. 计算基础意图向量
         base_intent = (norm_opening_vector + norm_closing_vector) / 2
-        # 4. 计算和谐因子 (k=0.75)
-        intent_difference = (norm_opening_vector - norm_closing_vector).abs()
-        harmony_factor = 1 - 0.75 * intent_difference
+        # 4. [核心进化] 计算双轨制“协同因子”
+        k_reward = 0.5
+        k_punish = 0.75
+        is_consistent = (np.sign(norm_opening_vector) * np.sign(norm_closing_vector) >= 0)
+        # 奖励轨道: 奖励信念强度的净增长
+        escalation_bonus = (norm_closing_vector.abs() - norm_opening_vector.abs()).abs()
+        reward_factor = 1 + k_reward * escalation_bonus
+        # 惩罚轨道: 惩罚方向的背离
+        conflict_penalty = (norm_opening_vector - norm_closing_vector).abs()
+        punishment_factor = 1 - k_punish * conflict_penalty
+        synergy_factor = pd.Series(np.where(is_consistent, reward_factor, punishment_factor), index=df.index)
         # 5. 最终裁决
-        final_score = (base_intent * harmony_factor).fillna(0.0)
+        final_score = (base_intent * synergy_factor).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -311,27 +317,31 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [日内行为探针 V2.0] _diagnose_auction_intent @ {probe_date_str}")
+                        print(f"      [日内行为探针 V2.1] _diagnose_auction_intent @ {probe_date_str}")
                         # --- 原料数据与归一化过程 ---
-                        p_opening_raw = raw_opening_vector.get(probe_date, 0.0)
                         p_opening_norm = norm_opening_vector.get(probe_date, 0.0)
-                        p_closing_raw = raw_closing_vector.get(probe_date, 0.0)
                         p_closing_norm = norm_closing_vector.get(probe_date, 0.0)
-                        print(f"        --- [原料数据 -> 绝对向量归一化] ---")
-                        print(f"          - 开篇向量 (原料): {p_opening_raw:.4f} -> 归一化: {p_opening_norm:.4f}")
-                        print(f"          - 收官向量 (原料): {p_closing_raw:.4f} -> 归一化: {p_closing_norm:.4f}")
+                        print(f"        --- [归一化向量] ---")
+                        print(f"          - 开篇向量: {p_opening_norm:.4f}")
+                        print(f"          - 收官向量: {p_closing_norm:.4f}")
                         # --- 关键计算节点 ---
                         p_base_intent = base_intent.get(probe_date, 0.0)
-                        p_difference = intent_difference.get(probe_date, 0.0)
-                        p_harmony = harmony_factor.get(probe_date, 0.0)
+                        p_is_consistent = is_consistent.get(probe_date, False)
+                        p_synergy = synergy_factor.get(probe_date, 0.0)
                         print(f"        --- [关键计算节点] ---")
                         print(f"          - 基础意图 ((开+收)/2): {p_base_intent:.4f}")
-                        print(f"          - 意图差异 |开-收|: {p_difference:.4f}")
-                        print(f"          - 和谐因子 (1 - 0.75*差异): {p_harmony:.4f}")
+                        print(f"          - 方向是否一致: {p_is_consistent}")
+                        if p_is_consistent:
+                            p_escalation = escalation_bonus.get(probe_date, 0.0)
+                            print(f"          - [奖励轨道] 信念升级强度: {p_escalation:.4f}")
+                        else:
+                            p_conflict = conflict_penalty.get(probe_date, 0.0)
+                            print(f"          - [惩罚轨道] 意图冲突强度: {p_conflict:.4f}")
+                        print(f"          - 最终协同因子: {p_synergy:.4f}")
                         # --- 最终结果 ---
                         p_final = final_score.get(probe_date, 0.0)
                         print(f"        --- [最终结果] ---")
-                        print(f"        - 最终竞价意图分 (基础意图 × 和谐因子): {p_final:.4f}")
+                        print(f"        - 最终竞价意图分 (基础意图 × 协同因子): {p_final:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_auction_intent 处理日期 {probe_date_str} 失败: {e}")
         return {signal_name: final_score.clip(-1, 1)}
