@@ -6,7 +6,7 @@ from typing import Dict, Optional, Any
 # 导入 get_params_block 工具
 from strategies.trend_following.utils import (
     get_params_block, get_param_value, normalize_to_bipolar, 
-    get_adaptive_mtf_normalized_score, is_limit_up, get_adaptive_mtf_normalized_bipolar_score, 
+    get_adaptive_mtf_normalized_bipolar_score, is_limit_up, get_adaptive_mtf_normalized_score, 
     normalize_score
 )
 
@@ -97,13 +97,12 @@ class IntradayBehaviorEngine:
 
     def _diagnose_offensive_purity(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 四维战报版】日内战报之一：诊断“进攻纯度”
-        - 核心重构: 废弃旧的、基于日线结果的代理逻辑，进化为对日内完整进攻过程的四维度评估：
-                      1)开局意图, 2)盘中控制, 3)抛压抑制, 4)收官之力。
-                      通过几何平均进行融合，确保任何环节的瑕疵都会惩罚性地拉低总分。
+        【V3.1 · Antifragile Normalization版】日内战报之一：诊断“进攻纯度”
+        - 核心重构: 引入“反脆弱归一化层”。在V3.0的四维评估逻辑前，强制使用自适应MTF归一化工具
+                      (get_adaptive_mtf_normalized_bipolar_score等)对所有原始输入信号进行“驯化”，
+                      确保模型对上游数据的标度(Scale)变化免疫，从根本上解决数据假设风险。
         """
         signal_name = "SCORE_INTRADAY_OFFENSIVE_PURITY"
-        # [代码修改] 替换为四个全新的、描述过程的代理信号
         required_signals = [
             'opening_battle_result_D',
             'vwap_control_strength_D',
@@ -112,21 +111,30 @@ class IntradayBehaviorEngine:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_offensive_purity"):
             return {signal_name: pd.Series(0.0, index=df.index)}
-        # 1. 获取四大维度的原料信号
-        opening_intent = self._get_safe_series(df, 'opening_battle_result_D', 0.0, "_diagnose_offensive_purity")
-        midday_control = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_offensive_purity")
-        upper_shadow_pressure = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, "_diagnose_offensive_purity")
-        closing_power = self._get_safe_series(df, 'closing_strength_index_D', 0.0, "_diagnose_offensive_purity")
-        # 2. [核心逻辑] 对信号进行预处理，使其符合[0, 1]区间的“纯度”定义
-        # 开局意图和盘中控制天然在[-1, 1]，映射到[0, 1]
-        opening_score = (opening_intent + 1) / 2
-        control_score = (midday_control + 1) / 2
-        # 抛压是风险信号，值越大纯度越低，因此需要反向处理
-        pressure_suppression_score = 1 - upper_shadow_pressure.clip(0, 1)
-        # 收官之力天然在[-1, 1]，映射到[0, 1]
-        closing_score = (closing_power + 1) / 2
-        # 3. [核心逻辑] 四维几何平均融合
-        # 为避免0值导致整个结果为0，对输入进行一个微小的平滑处理
+        # --- [核心进化] 反脆弱归一化层 ---
+        # 1. 获取归一化参数
+        # 复用行为动力学参数块中的MTF权重配置，保持系统一致性
+        mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
+        default_weights = mtf_params.get('default_weights')
+        # 2. 获取四大维度的原始信号
+        raw_opening_intent = self._get_safe_series(df, 'opening_battle_result_D', 0.0, "_diagnose_offensive_purity")
+        raw_midday_control = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_offensive_purity")
+        raw_upper_shadow_pressure = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, "_diagnose_offensive_purity")
+        raw_closing_power = self._get_safe_series(df, 'closing_strength_index_D', 0.0, "_diagnose_offensive_purity")
+        # 3. “驯化”原始信号，生成符合[-1, 1]或[0, 1]契约的标准信号
+        norm_opening_intent = get_adaptive_mtf_normalized_bipolar_score(raw_opening_intent, df.index, default_weights)
+        norm_midday_control = get_adaptive_mtf_normalized_bipolar_score(raw_midday_control, df.index, default_weights)
+        # 对于抛压这种“越高越坏”的信号，使用ascending=False进行反向归一化，直接得到“抛压抑制分”
+        norm_pressure_suppression = get_adaptive_mtf_normalized_score(raw_upper_shadow_pressure, df.index, ascending=False, tf_weights=default_weights)
+        norm_closing_power = get_adaptive_mtf_normalized_bipolar_score(raw_closing_power, df.index, default_weights)
+        # --- 四维融合逻辑 (现在处理的是经过驯化的标准信号) ---
+        # 1. 将[-1, 1]的双极性标准信号映射到[0, 1]的纯度分
+        opening_score = (norm_opening_intent + 1) / 2
+        control_score = (norm_midday_control + 1) / 2
+        # 抛压抑制分已经通过反向归一化直接得到，无需再做 `1 - x` 的操作
+        pressure_suppression_score = norm_pressure_suppression
+        closing_score = (norm_closing_power + 1) / 2
+        # 2. 四维几何平均融合
         epsilon = 1e-9
         final_score = (
             (opening_score + epsilon) *
@@ -143,28 +151,37 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        # [代码修改] 探针输出所有原料和关键计算节点
-                        p_opening_raw = opening_intent.get(probe_date, 0.0)
-                        p_control_raw = midday_control.get(probe_date, 0.0)
-                        p_pressure_raw = upper_shadow_pressure.get(probe_date, 0.0)
-                        p_closing_raw = closing_power.get(probe_date, 0.0)
+                        # [代码修改] 探针全面升级，展示从原始数据到最终得分的全过程
+                        p_opening_raw = raw_opening_intent.get(probe_date, 0.0)
+                        p_control_raw = raw_midday_control.get(probe_date, 0.0)
+                        p_pressure_raw = raw_upper_shadow_pressure.get(probe_date, 0.0)
+                        p_closing_raw = raw_closing_power.get(probe_date, 0.0)
+                        p_opening_norm = norm_opening_intent.get(probe_date, 0.0)
+                        p_control_norm = norm_midday_control.get(probe_date, 0.0)
+                        p_pressure_norm = norm_pressure_suppression.get(probe_date, 0.0)
+                        p_closing_norm = norm_closing_power.get(probe_date, 0.0)
                         p_opening_score = opening_score.get(probe_date, 0.0)
                         p_control_score = control_score.get(probe_date, 0.0)
                         p_pressure_suppression_score = pressure_suppression_score.get(probe_date, 0.0)
                         p_closing_score = closing_score.get(probe_date, 0.0)
                         p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"      [日内行为探针 V3.0] _diagnose_offensive_purity @ {probe_date_str}")
-                        print(f"        --- [原料数据] ---")
-                        print(f"        - 开局意图 (opening_battle_result_D): {p_opening_raw:.4f}")
-                        print(f"        - 盘中控制 (vwap_control_strength_D): {p_control_raw:.4f}")
-                        print(f"        - 上影线抛压 (upper_shadow_selling_pressure_D): {p_pressure_raw:.4f}")
-                        print(f"        - 收官之力 (closing_strength_index_D): {p_closing_raw:.4f}")
-                        print(f"        --- [关键计算节点: 映射为[0,1]纯度分] ---")
+                        print(f"      [日内行为探针 V3.1] _diagnose_offensive_purity @ {probe_date_str}")
+                        print(f"        --- [1. 原始数据输入] ---")
+                        print(f"        - 原始开局意图: {p_opening_raw:.4f}")
+                        print(f"        - 原始盘中控制: {p_control_raw:.4f}")
+                        print(f"        - 原始上影抛压: {p_pressure_raw:.4f}")
+                        print(f"        - 原始收官之力: {p_closing_raw:.4f}")
+                        print(f"        --- [2. 反脆弱归一化层 (驯化为标准信号)] ---")
+                        print(f"        - 标准化开局意图 (-> [-1,1]): {p_opening_norm:.4f}")
+                        print(f"        - 标准化盘中控制 (-> [-1,1]): {p_control_norm:.4f}")
+                        print(f"        - 标准化抛压抑制 (-> [0,1], 反向): {p_pressure_norm:.4f}")
+                        print(f"        - 标准化收官之力 (-> [-1,1]): {p_closing_norm:.4f}")
+                        print(f"        --- [3. 映射为[0,1]纯度分 (用于融合)] ---")
                         print(f"        - 开局纯度分: {p_opening_score:.4f}")
                         print(f"        - 控制纯度分: {p_control_score:.4f}")
-                        print(f"        - 抛压抑制分 (1 - 抛压): {p_pressure_suppression_score:.4f}")
+                        print(f"        - 抛压抑制分: {p_pressure_suppression_score:.4f}")
                         print(f"        - 收官纯度分: {p_closing_score:.4f}")
-                        print(f"        --- [结果] ---")
+                        print(f"        --- [4. 结果] ---")
                         print(f"        - 最终进攻纯度分 (四维几何平均): {p_final_score:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_offensive_purity 处理日期 {probe_date_str} 失败: {e}")
