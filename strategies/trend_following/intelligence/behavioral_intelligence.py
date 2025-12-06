@@ -551,7 +551,7 @@ class BehavioralIntelligence:
 
     def _diagnose_upward_efficiency(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V3.0 · 最小阻力路径协议 (探针激活版)】诊断高品质上涨效率。
+        【V3.0 · Production Ready版】诊断高品质上涨效率。
         - 核心重构: 废弃V2.1“皮洛士胜利谬误”模型，引入“战术品质 × 战略地形”的全新双维诊断框架。
         - 诊断双维度:
           1. 战术强攻品质 (The Spearhead's Edge): 沿用V2.1逻辑，评估“矛头”的锋利度。
@@ -590,6 +590,49 @@ class BehavioralIntelligence:
         strategic_environment_score = (1 - strategic_resistance_score)
         # --- 4. 最终合成：战术品质 × 战略环境 ---
         final_upward_efficiency = (tactical_assault_score * strategic_environment_score).clip(0, 1)
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        return final_upward_efficiency.astype(np.float32)
+
+    def _diagnose_downward_resistance(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
+        """
+        【V3.0 · 弹性防御协议 (探针激活版)】诊断高品质下跌抵抗。
+        - 核心重构: 废弃V2.1“空城计谬误”模型，引入“战术应对 × 战略意图”的全新双维诊断框架。
+        - 诊断双维度:
+          1. 战术应对能力 (The Tactical Response): 沿用V2.1逻辑，评估防线的坚固度。
+          2. 战略欺诈意图 (The Strategic Feint): 新增战略评估，审判抵抗的真实目的。
+        - 数学模型: 最终抵抗分 = 战术应对分 * 战略意图分
+        """
+        # --- 1. 获取参数 ---
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        params = get_param_value(p_conf.get('elastic_defense_params'), {})
+        intent_weights = get_param_value(params.get('intent_weights'), {'conviction': 0.6, 'cleansing': 0.4})
+        # --- 2. 获取两大维度原始数据 ---
+        # 维度一：战术应对
+        passive_absorption_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_downward_resistance")
+        active_defense_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_diagnose_downward_resistance")
+        counter_attack_raw = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_diagnose_downward_resistance")
+        # 维度二：战略意图
+        conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_downward_resistance")
+        cleansing_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_downward_resistance")
+        # --- 3. 计算各维度得分 ---
+        # 维度一：战术应对能力分
+        passive_absorption_score = get_adaptive_mtf_normalized_score(passive_absorption_raw, df.index, ascending=True, tf_weights=tf_weights)
+        active_defense_score = get_adaptive_mtf_normalized_score(active_defense_raw, df.index, ascending=True, tf_weights=tf_weights)
+        counter_attack_score = get_adaptive_mtf_normalized_score(counter_attack_raw, df.index, ascending=True, tf_weights=tf_weights)
+        tactical_response_score = (
+            (passive_absorption_score + 1e-9).pow(0.2) *
+            (active_defense_score + 1e-9).pow(0.4) *
+            (counter_attack_score + 1e-9).pow(0.4)
+        ).fillna(0.0)
+        # 维度二：战略意图分
+        conviction_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
+        cleansing_score = get_adaptive_mtf_normalized_score(cleansing_raw, df.index, ascending=True, tf_weights=tf_weights)
+        strategic_intent_score = (
+            conviction_score * intent_weights.get('conviction', 0.6) +
+            cleansing_score * intent_weights.get('cleansing', 0.4)
+        ).clip(0, 1)
+        # --- 4. 最终合成：战术应对 × 战略意图 ---
+        final_downward_resistance = (tactical_response_score * strategic_intent_score).clip(0, 1)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -599,52 +642,24 @@ class BehavioralIntelligence:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [行为探针 V3.0] _diagnose_upward_efficiency @ {probe_date_str}")
+                        print(f"      [行为探针 V3.0] _diagnose_downward_resistance @ {probe_date_str}")
                         # --- 原料数据 ---
                         print(f"        --- [原料数据] ---")
-                        print(f"          - [战术] 突破纯净度 (upward_impulse_purity_D): {purity_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [战术] 进攻性价比 (impulse_quality_ratio_D): {offensive_efficiency_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [战术] 卖压压制力 (pressure_rejection_strength_D): {suppression_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [战略] 筹码疲劳度 (chip_fatigue_index_D): {chip_fatigue_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [战略] 套牢盘痛苦 (loser_pain_index_D): {loser_pain_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战术] 被动承接 (dip_absorption_power_D): {passive_absorption_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战术] 主动防御 (support_validation_strength_D): {active_defense_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战术] 积极反击 (active_buying_support_D): {counter_attack_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战略] 主力信念 (main_force_conviction_index_D): {conviction_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战略] 浮筹清洗效率 (floating_chip_cleansing_efficiency_D): {cleansing_raw.get(probe_date, 'N/A'):.4f}")
                         # --- 关键计算节点 ---
-                        print(f"        --- [关键计算节点 - 最小阻力路径协议] ---")
-                        print(f"          - [维度一] 战术强攻品质分 (融合): {tactical_assault_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度二] 战略阻力指数 (融合): {strategic_resistance_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度二] 战略环境得分 (1 - 阻力): {strategic_environment_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"        --- [关键计算节点 - 弹性防御协议] ---")
+                        print(f"          - [维度一] 战术应对能力分 (融合): {tactical_response_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度二] 战略意图分 (融合): {strategic_intent_score.get(probe_date, 'N/A'):.4f}")
                         # --- 最终结果 ---
                         print(f"        --- [最终结果] ---")
-                        print(f"        - 最终上涨效率分 (战术 × 战略): {final_upward_efficiency.get(probe_date, 0.0):.4f}")
+                        print(f"        - 最终下跌抵抗分 (战术 × 战略): {final_downward_resistance.get(probe_date, 0.0):.4f}")
                 except Exception as e:
-                    print(f"    -> [行为探针错误] _diagnose_upward_efficiency 处理日期 {probe_date_str} 失败: {e}")
-        return final_upward_efficiency.astype(np.float32)
-
-    def _diagnose_downward_resistance(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
-        """
-        【V2.1 · 生产版】诊断高品质下跌抵抗。
-        - 核心重构: 废弃了基于“被动挨打”视角的 V1.0 模型。引入基于“纵深防御三要素”
-                      （被动承接-主动防御-积极反击）的全新诊断模型。
-        - 纵深防御三要素:
-          1. 被动承接 (Passive Absorption): 衡量市场对下跌的初步、自然消化能力。采用 `dip_absorption_power_D`。
-          2. 主动防御 (Active Defense): 审判在关键支撑位置的主动防守强度。采用 `support_validation_strength_D`。
-          3. 积极反击 (Proactive Counterattack): 审判多头主动出击、夺回失地的能力。采用 `active_buying_support_D`。
-        - 数学模型: 抵抗分 = (被动分^0.2 * 主动分^0.4 * 反击分^0.4)
-        """
-        # --- 1. 获取三要素原始数据 ---
-        passive_absorption_raw = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_downward_resistance")
-        active_defense_raw = self._get_safe_series(df, 'support_validation_strength_D', 0.0, method_name="_diagnose_downward_resistance")
-        counter_attack_raw = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name="_diagnose_downward_resistance")
-        # --- 2. 计算各要素得分 ---
-        passive_absorption_score = get_adaptive_mtf_normalized_score(passive_absorption_raw, df.index, ascending=True, tf_weights=tf_weights)
-        active_defense_score = get_adaptive_mtf_normalized_score(active_defense_raw, df.index, ascending=True, tf_weights=tf_weights)
-        counter_attack_score = get_adaptive_mtf_normalized_score(counter_attack_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # --- 3. “纵深防御”三要素合成 ---
-        downward_resistance_score = (
-            (passive_absorption_score + 1e-9).pow(0.2) *
-            (active_defense_score + 1e-9).pow(0.4) *
-            (counter_attack_score + 1e-9).pow(0.4)
-        ).fillna(0.0)
-        return downward_resistance_score.clip(0, 1).astype(np.float32)
+                    print(f"    -> [行为探针错误] _diagnose_downward_resistance 处理日期 {probe_date_str} 失败: {e}")
+        return final_downward_resistance.astype(np.float32)
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
