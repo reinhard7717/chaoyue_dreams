@@ -338,6 +338,59 @@ class BehavioralIntelligence:
         ).pow(1/3).fillna(0.0)
         return upward_momentum_score.clip(0, 1).astype(np.float32)
 
+    def _diagnose_intraday_bull_control(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V5.1 · Production Ready版】行为层原子信号：诊断“日内多头控制力”
+        - 核心逻辑: 进化为“战果”与“意图”双引擎加权融合模型。
+                    即使战果（战略位置）为平局，强大的过程意图也能独立驱动信号得分，
+                    旨在捕捉“虽败犹荣”或“平局中的进攻优势”等高价值博弈信息。
+        """
+        signal_name = "SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL"
+        required_signals = [
+            'vwap_control_strength_D',
+            'upward_impulse_purity_D',
+            'lower_shadow_absorption_strength_D',
+            'dip_absorption_power_D',
+            'main_force_conviction_index_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_intraday_bull_control"):
+            return {signal_name: pd.Series(0.0, index=df.index)}
+        # --- 获取参数 ---
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        params = get_param_value(p_conf.get('bull_control_params'), {})
+        drive_weights = get_param_value(params.get('bipolar_drive_weights'), {'position_score': 0.7, 'intentional_bias': 0.3})
+        position_weight = drive_weights.get('position_score', 0.7)
+        intent_weight = drive_weights.get('intentional_bias', 0.3)
+        base_consciousness = get_param_value(params.get('base_consciousness_factor'), 0.1)
+        # 1. 引擎一：战略位置分 (战果)
+        position_score = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_intraday_bull_control")
+        # 2. 引擎二：意图偏差分 (过程)
+        # 2.1 计算综合品质调节器
+        offensive_quality = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, "_diagnose_intraday_bull_control")
+        mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
+        default_weights = mtf_params.get('default_weights')
+        raw_lower_shadow = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, "_diagnose_intraday_bull_control")
+        raw_dip_absorption = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, "_diagnose_intraday_bull_control")
+        lower_shadow_strength = get_adaptive_mtf_normalized_score(raw_lower_shadow, df.index, True, default_weights)
+        dip_absorption_power = get_adaptive_mtf_normalized_score(raw_dip_absorption, df.index, True, default_weights)
+        defensive_quality = (lower_shadow_strength + dip_absorption_power) / 2
+        weight_offensive = (1 + position_score) / 2
+        weight_defensive = (1 - position_score) / 2
+        asymmetric_action_quality = offensive_quality * weight_offensive + defensive_quality * weight_defensive
+        raw_conviction_index = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, "_diagnose_intraday_bull_control")
+        conviction_index = raw_conviction_index.clip(-1, 1)
+        belief_modulator = base_consciousness + ((conviction_index + 1) / 2) * (1 - base_consciousness)
+        comprehensive_quality_modulator = (
+            asymmetric_action_quality.pow(0.7) * belief_modulator.pow(0.3)
+        ).fillna(0.0)
+        # 2.2 计算意图方向并赋予品质调节器
+        net_action_bias = offensive_quality - defensive_quality
+        intentional_bias = comprehensive_quality_modulator * np.sign(net_action_bias)
+        # 3. 双极驱动融合
+        final_score = (position_score * position_weight + intentional_bias * intent_weight).fillna(0.0)
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        return {signal_name: final_score.clip(-1, 1)}
+
     def _diagnose_downward_momentum(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
         【V2.1 · 生产版】诊断高品质下跌动能。
@@ -463,33 +516,6 @@ class BehavioralIntelligence:
             (counter_attack_score + 1e-9).pow(0.4)
         ).fillna(0.0)
         return downward_resistance_score.clip(0, 1).astype(np.float32)
-
-    def _diagnose_intraday_bull_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
-        """
-        【V2.1 · 生产版】诊断高品质日内多头控制力。
-        - 核心重构: 废弃了缺乏“灵魂”的 V1.0 模型。引入基于“战区司令部三要素”
-                      （战略位置-战术火力-司令意志）的全新诊断模型。
-        - 战区司令部三要素:
-          1. 战略位置 (Strategic Position): 审判对日内核心战场(VWAP)的控制权。采用 `vwap_control_strength_D`。
-          2. 战术火力 (Tactical Firepower): 审判发动有效攻击的能力。采用 `impulse_quality_ratio_D`。
-          3. 司令意志 (Commander's Will): 审判所有战术行动背后的主力真实信念。采用 `main_force_conviction_index_D`。
-        - 数学模型: 控制力分 = (位置分^0.3 * 火力分^0.3 * 意志分^0.4)
-        """
-        # --- 1. 获取三要素原始数据 ---
-        strategic_position_raw = self._get_safe_series(df, 'vwap_control_strength_D', 0.5, method_name="_diagnose_intraday_bull_control")
-        tactical_firepower_raw = self._get_safe_series(df, 'impulse_quality_ratio_D', 0.0, method_name="_diagnose_intraday_bull_control")
-        commanders_will_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_intraday_bull_control")
-        # --- 2. 计算各要素得分 ---
-        strategic_position_score = get_adaptive_mtf_normalized_score(strategic_position_raw, df.index, ascending=True, tf_weights=tf_weights)
-        tactical_firepower_score = get_adaptive_mtf_normalized_score(tactical_firepower_raw, df.index, ascending=True, tf_weights=tf_weights)
-        commanders_will_score = get_adaptive_mtf_normalized_score(commanders_will_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
-        # --- 3. “战区司令部”三要素合成 ---
-        intraday_bull_control_score = (
-            (strategic_position_score + 1e-9).pow(0.3) *
-            (tactical_firepower_score + 1e-9).pow(0.3) *
-            (commanders_will_score + 1e-9).pow(0.4)
-        ).fillna(0.0)
-        return intraday_bull_control_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

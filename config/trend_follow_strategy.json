@@ -1208,13 +1208,6 @@
           "momentum_span": 5,
           "potential_window": 120
         },
-        "ultimate_signal_params": {
-          "description": "【V4.0】行为领域终极信号合成器参数。"
-        }
-      },
-      "intraday_behavior_params": {
-        "enabled": true,
-        "description": "【V1.0 · 统一配置块】所有日内行为情报的统一参数配置块。",
         "bull_control_params": {
           "enabled": true,
           "description": "【V5.0 · 双极驱动融合版】为'日内多头控制'信号提供专属的融合参数。",
@@ -1225,6 +1218,11 @@
             "intentional_bias": 0.3
           }
         }
+      },
+      "intraday_behavior_params": {
+        "enabled": true,
+        "description": "【V1.0 · 统一配置块】所有日内行为情报的统一参数配置块。"
+
       },
       "chip_ultimate_params": {
         "enabled": true,

@@ -76,7 +76,6 @@ class IntradayBehaviorEngine:
                 "SCORE_INTRADAY_AMBUSH_AND_FLANK": pd.Series(dtype=np.float64),
                 "SCORE_INTRADAY_FINAL_ASSAULT": pd.Series(dtype=np.float64),
                 "SCORE_INTRADAY_VWAP_BATTLEFIELD": pd.Series(dtype=np.float64),
-                "SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL": pd.Series(dtype=np.float64), # 新增信号的空序列
             }
         diagnostics_to_run = [
             self._diagnose_offensive_purity,
@@ -88,8 +87,7 @@ class IntradayBehaviorEngine:
             self._diagnose_ambush_and_flank,
             self._diagnose_final_assault,
             self._diagnose_vwap_battlefield,
-            self._diagnose_intraday_bull_control, # 新增对日内多头控制力诊断方法的调用
-        ]
+       ]
         final_scores = {}
         for diagnostic_func in diagnostics_to_run:
             result = diagnostic_func(df)
@@ -97,57 +95,45 @@ class IntradayBehaviorEngine:
         print(f"日内行为诊断完成，生成 {len(final_scores)} 个信号序列。")
         return final_scores
 
-    def _diagnose_intraday_bull_control(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_offensive_purity(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 · Bipolar Drive Fusion版】行为层原子信号：诊断“日内多头控制力”
-        - 核心逻辑: 进化为“战果”与“意图”双引擎加权融合模型。
-                    即使战果（战略位置）为平局，强大的过程意图也能独立驱动信号得分，
-                    旨在捕捉“虽败犹荣”或“平局中的进攻优势”等高价值博弈信息。
+        【V3.0 · 四维战报版】日内战报之一：诊断“进攻纯度”
+        - 核心重构: 废弃旧的、基于日线结果的代理逻辑，进化为对日内完整进攻过程的四维度评估：
+                      1)开局意图, 2)盘中控制, 3)抛压抑制, 4)收官之力。
+                      通过几何平均进行融合，确保任何环节的瑕疵都会惩罚性地拉低总分。
         """
-        signal_name = "SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL"
+        signal_name = "SCORE_INTRADAY_OFFENSIVE_PURITY"
+        # [代码修改] 替换为四个全新的、描述过程的代理信号
         required_signals = [
+            'opening_battle_result_D',
             'vwap_control_strength_D',
-            'upward_impulse_purity_D',
-            'lower_shadow_absorption_strength_D',
-            'dip_absorption_power_D',
-            'main_force_conviction_index_D'
+            'upper_shadow_selling_pressure_D',
+            'closing_strength_index_D'
         ]
-        if not self._validate_required_signals(df, required_signals, "_diagnose_intraday_bull_control"):
+        if not self._validate_required_signals(df, required_signals, "_diagnose_offensive_purity"):
             return {signal_name: pd.Series(0.0, index=df.index)}
-        # --- 获取参数 ---
-        parent_params = get_params_block(self.strategy, 'intraday_behavior_params', {})
-        params = get_param_value(parent_params.get('bull_control_params'), {})
-        # [代码修改] 获取新的双极驱动权重
-        drive_weights = get_param_value(params.get('bipolar_drive_weights'), {'position_score': 0.7, 'intentional_bias': 0.3})
-        position_weight = drive_weights.get('position_score', 0.7)
-        intent_weight = drive_weights.get('intentional_bias', 0.3)
-        base_consciousness = get_param_value(params.get('base_consciousness_factor'), 0.1)
-        # 1. 引擎一：战略位置分 (战果)
-        position_score = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_intraday_bull_control")
-        # 2. 引擎二：意图偏差分 (过程)
-        # 2.1 计算综合品质调节器 (与V4.0相同)
-        offensive_quality = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, "_diagnose_intraday_bull_control")
-        mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
-        default_weights = mtf_params.get('default_weights')
-        raw_lower_shadow = self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, "_diagnose_intraday_bull_control")
-        raw_dip_absorption = self._get_safe_series(df, 'dip_absorption_power_D', 0.0, "_diagnose_intraday_bull_control")
-        lower_shadow_strength = get_adaptive_mtf_normalized_score(raw_lower_shadow, df.index, True, default_weights)
-        dip_absorption_power = get_adaptive_mtf_normalized_score(raw_dip_absorption, df.index, True, default_weights)
-        defensive_quality = (lower_shadow_strength + dip_absorption_power) / 2
-        weight_offensive = (1 + position_score) / 2
-        weight_defensive = (1 - position_score) / 2
-        asymmetric_action_quality = offensive_quality * weight_offensive + defensive_quality * weight_defensive
-        raw_conviction_index = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, "_diagnose_intraday_bull_control")
-        conviction_index = raw_conviction_index.clip(-1, 1)
-        belief_modulator = base_consciousness + ((conviction_index + 1) / 2) * (1 - base_consciousness)
-        comprehensive_quality_modulator = (
-            asymmetric_action_quality.pow(0.7) * belief_modulator.pow(0.3)
-        ).fillna(0.0)
-        # 2.2 [核心进化] 计算意图方向并赋予品质调节器
-        net_action_bias = offensive_quality - defensive_quality
-        intentional_bias = comprehensive_quality_modulator * np.sign(net_action_bias)
-        # 3. [核心进化] 双极驱动融合
-        final_score = (position_score * position_weight + intentional_bias * intent_weight).fillna(0.0)
+        # 1. 获取四大维度的原料信号
+        opening_intent = self._get_safe_series(df, 'opening_battle_result_D', 0.0, "_diagnose_offensive_purity")
+        midday_control = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_offensive_purity")
+        upper_shadow_pressure = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, "_diagnose_offensive_purity")
+        closing_power = self._get_safe_series(df, 'closing_strength_index_D', 0.0, "_diagnose_offensive_purity")
+        # 2. [核心逻辑] 对信号进行预处理，使其符合[0, 1]区间的“纯度”定义
+        # 开局意图和盘中控制天然在[-1, 1]，映射到[0, 1]
+        opening_score = (opening_intent + 1) / 2
+        control_score = (midday_control + 1) / 2
+        # 抛压是风险信号，值越大纯度越低，因此需要反向处理
+        pressure_suppression_score = 1 - upper_shadow_pressure.clip(0, 1)
+        # 收官之力天然在[-1, 1]，映射到[0, 1]
+        closing_score = (closing_power + 1) / 2
+        # 3. [核心逻辑] 四维几何平均融合
+        # 为避免0值导致整个结果为0，对输入进行一个微小的平滑处理
+        epsilon = 1e-9
+        final_score = (
+            (opening_score + epsilon) *
+            (control_score + epsilon) *
+            (pressure_suppression_score + epsilon) *
+            (closing_score + epsilon)
+        ).pow(1/4).fillna(0.0)
         # --- 探针逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -157,61 +143,32 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        p_position = position_score.get(probe_date, 0.0)
-                        p_offensive = offensive_quality.get(probe_date, 0.0)
-                        p_defensive = defensive_quality.get(probe_date, 0.0)
-                        p_comp_quality = comprehensive_quality_modulator.get(probe_date, 0.0)
-                        # [代码修改] 升级探针，展示双极驱动融合过程
-                        p_net_action_bias = net_action_bias.get(probe_date, 0.0)
-                        p_intentional_bias = intentional_bias.get(probe_date, 0.0)
+                        # [代码修改] 探针输出所有原料和关键计算节点
+                        p_opening_raw = opening_intent.get(probe_date, 0.0)
+                        p_control_raw = midday_control.get(probe_date, 0.0)
+                        p_pressure_raw = upper_shadow_pressure.get(probe_date, 0.0)
+                        p_closing_raw = closing_power.get(probe_date, 0.0)
+                        p_opening_score = opening_score.get(probe_date, 0.0)
+                        p_control_score = control_score.get(probe_date, 0.0)
+                        p_pressure_suppression_score = pressure_suppression_score.get(probe_date, 0.0)
+                        p_closing_score = closing_score.get(probe_date, 0.0)
                         p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"      [日内行为探针 V5.0] _diagnose_intraday_bull_control @ {probe_date_str}")
-                        print(f"        - [引擎1: 战果] 战略位置分: {p_position:.4f} (权重: {position_weight})")
-                        print(f"        - [引擎2: 意图] 综合品质调节器: {p_comp_quality:.4f}")
-                        print(f"        - [引擎2: 意图] 净行动偏差 (攻-防): {p_net_action_bias:.4f}")
-                        print(f"        - [引擎2: 意图] 意图偏差分 (品质*方向): {p_intentional_bias:.4f} (权重: {intent_weight})")
-                        print(f"        - [结果] 最终日内多头控制力分 (战果*w1 + 意图*w2): {p_final_score:.4f}")
-                except Exception as e:
-                    print(f"    -> [日内行为探针错误] _diagnose_intraday_bull_control 处理日期 {probe_date_str} 失败: {e}")
-        return {signal_name: final_score.clip(-1, 1)}
-
-    def _diagnose_offensive_purity(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V2.1 · 代理信号重构版】日内战报之一：诊断“进攻纯度”
-        - 核心重构: 由于预计算信号不存在，本方法重构为使用可用的日线级代理信号进行融合计算。
-                      通过融合“上涨脉冲纯度”和“主力信念指数”来评估进攻质量。
-        """
-        signal_name = "SCORE_INTRADay_OFFENSIVE_PURITY"
-        # 使用可用的代理信号进行计算
-        required_signals = ['upward_impulse_purity_D', 'main_force_conviction_index_D']
-        if not self._validate_required_signals(df, required_signals, "_diagnose_offensive_purity"):
-            return {signal_name: pd.Series(0.0, index=df.index)}
-        
-        purity = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, "_diagnose_offensive_purity")
-        conviction = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, "_diagnose_offensive_purity")
-        
-        # 融合逻辑：高质量的进攻是既纯粹又有信念的
-        final_score = (purity.pow(0.6) * ((conviction + 1) / 2).pow(0.4)).fillna(0.0)
-        
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        p_purity = purity.get(probe_date, 0.0)
-                        p_conviction = conviction.get(probe_date, 0.0)
-                        p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"      [日内行为探针] _diagnose_offensive_purity @ {probe_date_str}")
-                        print(f"        - [代理] 上涨脉冲纯度 (upward_impulse_purity_D): {p_purity:.4f}")
-                        print(f"        - [代理] 主力信念指数 (main_force_conviction_index_D): {p_conviction:.4f}")
-                        print(f"        - 最终进攻纯度分: {p_final_score:.4f}")
+                        print(f"      [日内行为探针 V3.0] _diagnose_offensive_purity @ {probe_date_str}")
+                        print(f"        --- [原料数据] ---")
+                        print(f"        - 开局意图 (opening_battle_result_D): {p_opening_raw:.4f}")
+                        print(f"        - 盘中控制 (vwap_control_strength_D): {p_control_raw:.4f}")
+                        print(f"        - 上影线抛压 (upper_shadow_selling_pressure_D): {p_pressure_raw:.4f}")
+                        print(f"        - 收官之力 (closing_strength_index_D): {p_closing_raw:.4f}")
+                        print(f"        --- [关键计算节点: 映射为[0,1]纯度分] ---")
+                        print(f"        - 开局纯度分: {p_opening_score:.4f}")
+                        print(f"        - 控制纯度分: {p_control_score:.4f}")
+                        print(f"        - 抛压抑制分 (1 - 抛压): {p_pressure_suppression_score:.4f}")
+                        print(f"        - 收官纯度分: {p_closing_score:.4f}")
+                        print(f"        --- [结果] ---")
+                        print(f"        - 最终进攻纯度分 (四维几何平均): {p_final_score:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_offensive_purity 处理日期 {probe_date_str} 失败: {e}")
-        
-        return {signal_name: final_score}
+        return {signal_name: final_score.clip(0, 1)}
 
     def _diagnose_dominance_consensus(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
