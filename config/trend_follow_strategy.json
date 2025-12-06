@@ -1256,6 +1256,15 @@
           },
           "comment": "融合“过程品质”和“叙事诚信度”构建最终调节器的权重。"
         },
+        "judgment_day_protocol_params": {
+          "description": "【V6.0 · 审判日协议】“派发意图”信号参数",
+          "environment_weights": {
+            "fatigue": 0.4,
+            "decay": 0.3,
+            "betrayal": 0.3
+          },
+          "comment": "融合“多头疲惫度”、“防御瓦解度”、“指挥官背叛度”构建“战略环境风险分”时的权重。"
+        },
         "neutral_zone_thresholds": {
           "description": "【V1.0】中性死区阈值。绝对值低于此阈值的信号值将被视作0，以过滤噪声。",
           "main_force_execution_alpha_D": 0.001,

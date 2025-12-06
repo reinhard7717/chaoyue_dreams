@@ -426,7 +426,7 @@ class BehavioralIntelligence:
 
     def _diagnose_intraday_bull_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V6.0 · 时序裁决协议 (探针激活版)】诊断“日内多头控制力”
+        【V6.0 · Production Ready版】诊断“日内多头控制力”
         - 核心重构: 废弃V5.1“最后一分钟谎言谬误”模型，引入“战果×过程×叙事”的全新三维诊断框架。
         - 诊断三维度:
           1. 战略位置 (Strategic Position): 评估最终战果，即收盘价相对VWAP的位置。
@@ -467,35 +467,7 @@ class BehavioralIntelligence:
             narrative_integrity_score * fusion_weights.get('narrative_integrity', 0.5)
         )
         final_control_score = (strategic_position_score * quality_modulator).clip(-1, 1)
-        # --- [探针逻辑] 暴露所有计算节点 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        print(f"      [行为探针 V6.0] _diagnose_intraday_bull_control @ {probe_date_str}")
-                        # --- 原料数据 ---
-                        print(f"        --- [原料数据] ---")
-                        print(f"          - [战果] VWAP控制强度 (vwap_control_strength_D): {position_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [过程] 上涨纯净度 (upward_impulse_purity_D): {purity_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [过程] 卖压压制力 (pressure_rejection_strength_D): {resistance_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [过程] 主力信念 (main_force_conviction_index_D): {conviction_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [叙事] 日内姿态 (intraday_posture_score_D): {posture_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [叙事] 尾盘偷袭 (closing_auction_ambush_D): {ambush_raw.get(probe_date, 'N/A'):.4f}")
-                        # --- 关键计算节点 ---
-                        print(f"        --- [关键计算节点 - 时序裁决协议] ---")
-                        print(f"          - [维度一] 战略位置分 (基础分): {strategic_position_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度二] 过程品质分 (调节器): {process_quality_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度三] 叙事诚信度分 (调节器): {narrative_integrity_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [融合] 最终品质调节器: {quality_modulator.get(probe_date, 'N/A'):.4f}")
-                        # --- 最终结果 ---
-                        print(f"        --- [最终结果] ---")
-                        print(f"        - 最终日内控制力分 (战果 × 调节器): {final_control_score.get(probe_date, 0.0):.4f}")
-                except Exception as e:
-                    print(f"    -> [行为探针错误] _diagnose_intraday_bull_control 处理日期 {probe_date_str} 失败: {e}")
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return final_control_score.astype(np.float32)
 
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
@@ -839,34 +811,88 @@ class BehavioralIntelligence:
 
     def _diagnose_distribution_intent(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V5.1 · 生产版】诊断派发意图。
-        - 核心重构: 废弃了基于单一卖压结果的 V4.0 模型。引入基于“动机-凶器-指纹”
-                      三位一体的“罪证链”诊断模型，旨在审判一次完整的派发行为。
-        - 派发罪证链三要素:
-          1. 动机 (Motive): 审判市场是否存在强烈的获利了结动机。采用 `profit_taking_flow_ratio_D`。
-          2. 凶器 (Weapon): 审判是否存在反弹受阻或冲高回落的卖压行为。融合 `rally_distribution_pressure_D` 和 `upper_shadow_selling_pressure_D`。
-          3. 指纹 (Fingerprint): 审判主力是否留下了“言行不一”的隐蔽派发痕迹。采用 `main_force_execution_alpha_D` 的负值部分。
-        - 数学模型: 派发分 = (动机分^0.2 * 凶器分^0.4 * 指纹分^0.4)
+        【V6.0 · 审判日协议 (探针激活版)】诊断派发意图。
+        - 核心重构: 废弃V5.1“犯罪现场调查”模型，引入“战术执行 × 战略环境”的全新双维诊断框架。
+        - 诊断双维度:
+          1. 战术执行 (Tactical Execution): 沿用V5.1“罪证链”逻辑，评估主动派发动作。
+          2. 战略环境 (Strategic Environment): 新增战略评估，审判战场环境的恶化程度。
+        - 数学模型: 最终派发意图 = 战术执行分 * 战略环境风险分
         """
-        # --- 1. 获取“罪证链”三要素的原始数据 ---
+        # --- 1. 获取参数 ---
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        params = get_param_value(p_conf.get('judgment_day_protocol_params'), {})
+        env_weights = get_param_value(params.get('environment_weights'), {'fatigue': 0.4, 'decay': 0.3, 'betrayal': 0.3})
+        # --- 2. 维度一：战术执行分 (沿用V5.1“罪证链”逻辑) ---
+        # 2.1 获取战术原料数据
         motive_raw = self._get_safe_series(df, 'profit_taking_flow_ratio_D', 0.0, method_name="_diagnose_distribution_intent")
         rally_pressure_raw = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_distribution_intent")
         upper_shadow_pressure_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_distribution_intent")
         fingerprint_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_distribution_intent")
-        # --- 2. 计算各要素得分 ---
+        # 2.2 计算战术各要素得分
         motive_score = get_adaptive_mtf_normalized_score(motive_raw, df.index, ascending=True, tf_weights=tf_weights)
         rally_pressure_score = get_adaptive_mtf_normalized_score(rally_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
         upper_shadow_score = get_adaptive_mtf_normalized_score(upper_shadow_pressure_raw, df.index, ascending=True, tf_weights=tf_weights)
         weapon_score = (rally_pressure_score * 0.5 + upper_shadow_score * 0.5)
         fingerprint_score = get_adaptive_mtf_normalized_score(fingerprint_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
-        # --- 3. “罪证链”三要素合成 ---
-        distribution_intent_score = (
+        # 2.3 合成战术执行分
+        tactical_execution_score = (
             (motive_score + 1e-9).pow(0.2) *
             (weapon_score + 1e-9).pow(0.4) *
             (fingerprint_score + 1e-9).pow(0.4)
         ).fillna(0.0)
-        # [修改的代码行] 移除探针代码，恢复生产版本
-        return distribution_intent_score.clip(0, 1).astype(np.float32)
+        # --- 3. 维度二：战略环境风险分 ---
+        # 3.1 获取战略原料数据
+        vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.5, method_name="_diagnose_distribution_intent")
+        overextension_raw = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.0)
+        winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_distribution_intent")
+        control_solidity_raw = self._get_safe_series(df, 'control_solidity_index_D', 0.5, method_name="_diagnose_distribution_intent")
+        conviction_slope_raw = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_diagnose_distribution_intent")
+        # 3.2 计算战略各要素得分
+        # 要素一：多头部队疲惫度
+        vitality_score = get_adaptive_mtf_normalized_score(vitality_raw, df.index, ascending=True, tf_weights=tf_weights)
+        bullish_fatigue_score = ((1 - vitality_score) * overextension_raw).pow(0.5)
+        # 要素二：防御工事瓦解度
+        stability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=tf_weights)
+        solidity_score = get_adaptive_mtf_normalized_score(control_solidity_raw, df.index, ascending=True, tf_weights=tf_weights)
+        fortress_decay_score = ((1 - stability_score) * (1 - solidity_score)).pow(0.5)
+        # 要素三：指挥官背叛度
+        commanders_betrayal_score = get_adaptive_mtf_normalized_score(conviction_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
+        # 3.3 合成战略环境风险分
+        strategic_environment_score = (
+            bullish_fatigue_score * env_weights.get('fatigue', 0.4) +
+            fortress_decay_score * env_weights.get('decay', 0.3) +
+            commanders_betrayal_score * env_weights.get('betrayal', 0.3)
+        ).clip(0, 1)
+        # --- 4. 最终合成：战术执行 × 战略环境 ---
+        final_distribution_intent = (tactical_execution_score * strategic_environment_score).clip(0, 1)
+        # --- [探针逻辑] 暴露所有计算节点 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df.empty:
+            for probe_date_str in probe_dates:
+                try:
+                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    if probe_date in df.index:
+                        print(f"      [行为探针 V6.0] _diagnose_distribution_intent @ {probe_date_str}")
+                        # --- 维度一：战术执行 ---
+                        print(f"        --- [维度一：战术执行 (罪证链)] ---")
+                        print(f"          - [动机] 获利了结动机分: {motive_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [凶器] 主动卖压行为分: {weapon_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [指纹] 主力隐蔽派发分: {fingerprint_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [融合] 战术执行总分: {tactical_execution_score.get(probe_date, 'N/A'):.4f}")
+                        # --- 维度二：战略环境 ---
+                        print(f"        --- [维度二：战略环境 (审判日)] ---")
+                        print(f"          - [要素] 多头部队疲惫度: {bullish_fatigue_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [要素] 防御工事瓦解度: {fortress_decay_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [要素] 指挥官背叛度: {commanders_betrayal_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [融合] 战略环境风险总分: {strategic_environment_score.get(probe_date, 'N/A'):.4f}")
+                        # --- 最终结果 ---
+                        print(f"        --- [最终结果] ---")
+                        print(f"        - 最终派发意图分 (战术 × 战略): {final_distribution_intent.get(probe_date, 0.0):.4f}")
+                except Exception as e:
+                    print(f"    -> [行为探针错误] _diagnose_distribution_intent 处理日期 {probe_date_str} 失败: {e}")
+        return final_distribution_intent.astype(np.float32)
 
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
         """
