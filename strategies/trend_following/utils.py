@@ -368,6 +368,41 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int,
     # 使用reindex确保索引完整，并将因隔离产生的NaN填充回中性值0.0
     return bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
 
+def get_robust_bipolar_normalized_score(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
+    """
+    【V1.0 · 鲁棒归一化版】双极归一化的高阶进化版 (力学罗盘)
+    - 新增原因: 为解决“零标准差悖论”而生，避免修改公共基础方法`normalize_to_bipolar`。
+    - 核心逻辑: 引入“绝对偏差校准”逻辑。当滚动标准差接近于零时，任何偏离均值的行为
+                  都将被视为最大强度的信号(直接赋予+1或-1)，从而能精准捕捉从“静默期”
+                  到“爆发期”的突变。
+    """
+    if sensitivity == 1.0:
+        sensitivity = 2.0
+    if series is None or series.isnull().all() or series.empty:
+        return pd.Series(default_value, index=target_index, dtype=np.float32)
+    series = series.reindex(target_index)
+    series_isolated = series.where(series.abs() >= 1e-6)
+    min_periods = max(1, int(window * 0.2))
+    rolling_mean = series_isolated.rolling(window=window, min_periods=min_periods).mean()
+    rolling_std = series_isolated.rolling(window=window, min_periods=min_periods).std()
+    # --- 绝对偏差校准逻辑 ---
+    # 创建一个默认的bipolar_score序列
+    bipolar_score = pd.Series(np.nan, index=series.index, dtype=np.float32)
+    # 条件1：标准差有效（不为零）
+    valid_std_mask = rolling_std.abs() > 1e-9
+    # 对标准差有效的部分，正常计算z-score
+    if valid_std_mask.any():
+        z_score = (series_isolated[valid_std_mask] - rolling_mean[valid_std_mask]) / (rolling_std[valid_std_mask] * sensitivity)
+        bipolar_score.loc[valid_std_mask] = np.tanh(z_score)
+    # 条件2：标准差为零，但值偏离了均值（突变信号）
+    zero_std_mask = ~valid_std_mask
+    if zero_std_mask.any():
+        deviation = series_isolated[zero_std_mask] - rolling_mean[zero_std_mask]
+        # 直接使用符号作为最大强度的信号
+        bipolar_score.loc[zero_std_mask] = np.sign(deviation)
+    return bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
+
+
 def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window: int) -> Tuple[pd.Series, pd.Series]:
     """
     【V2.3 · 赫尔墨斯之翼优化版】全息动态计算引擎
