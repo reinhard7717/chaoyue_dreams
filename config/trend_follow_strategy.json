@@ -1207,6 +1207,14 @@
           },
           "comment": "融合“前沿破坏力”、“防御真空度”、“信念真空度”三大崩溃要素时的权重。"
         },
+        "beachhead_protocol_params": {
+          "description": "【V3.0 · 抢滩登陆协议】“看涨量能爆发”信号参数",
+          "strategic_weights": {
+            "chip_fatigue": 0.6,
+            "loser_pain": 0.4
+          },
+          "comment": "融合“敌军火力(筹码疲劳度)”和“敌军兵力(套牢盘痛苦度)”构建“滩头阵地阻力指数”时的权重。"
+        },
         "neutral_zone_thresholds": {
           "description": "【V1.0】中性死区阈值。绝对值低于此阈值的信号值将被视作0，以过滤噪声。",
           "main_force_execution_alpha_D": 0.001,

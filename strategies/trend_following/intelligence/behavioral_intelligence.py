@@ -341,7 +341,7 @@ class BehavioralIntelligence:
 
     def _diagnose_downward_momentum(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V3.0 · 焦土协议 (探针激活版)】诊断价格下跌动能。
+        【V3.0 · Production Ready版】诊断价格下跌动能。
         - 核心重构: 废弃V2.0“单点否决”逻辑，引入基于“多头防御体系系统性崩溃”的全新诊断模型。
         - 诊断框架 (三要素):
           1. 前沿阵地失守 (The Frontline Breach): 审判下跌的破坏力 (跌幅 * 下跌效率)。
@@ -381,42 +381,7 @@ class BehavioralIntelligence:
             (defense_vacuum_score + 1e-9).pow(weights.get('defense_vacuum', 0.3)) *
             (command_vacuum_score + 1e-9).pow(weights.get('command_vacuum', 0.3))
         ).fillna(0.0)
-        # --- [探针逻辑] 暴露所有计算节点 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        print(f"      [行为探针 V3.0] _diagnose_downward_momentum @ {probe_date_str}")
-                        # --- 原料数据 ---
-                        p_pct_raw = pct_change_raw.get(probe_date, 'N/A')
-                        p_eff_raw = efficiency_raw.get(probe_date, 'N/A')
-                        p_dip_raw = dip_absorption_raw.get(probe_date, 'N/A')
-                        p_active_raw = active_buying_raw.get(probe_date, 'N/A')
-                        p_conv_raw = conviction_raw.get(probe_date, 'N/A')
-                        print(f"        --- [原料数据] ---")
-                        print(f"          - 原始跌幅 (pct_change_D): {p_pct_raw if isinstance(p_pct_raw, str) else f'{p_pct_raw:.4f}'}")
-                        print(f"          - 下跌效率 (vacuum_traversal_efficiency_D): {p_eff_raw if isinstance(p_eff_raw, str) else f'{p_eff_raw:.4f}'}")
-                        print(f"          - 逢低吸纳 (dip_absorption_power_D): {p_dip_raw if isinstance(p_dip_raw, str) else f'{p_dip_raw:.4f}'}")
-                        print(f"          - 主动防御 (active_buying_support_D): {p_active_raw if isinstance(p_active_raw, str) else f'{p_active_raw:.4f}'}")
-                        print(f"          - 主力信念 (main_force_conviction_index_D): {p_conv_raw if isinstance(p_conv_raw, str) else f'{p_conv_raw:.4f}'}")
-                        # --- 关键计算节点 ---
-                        p_breach = breach_force_score.get(probe_date, 'N/A')
-                        p_defense_vac = defense_vacuum_score.get(probe_date, 'N/A')
-                        p_command_vac = command_vacuum_score.get(probe_date, 'N/A')
-                        print(f"        --- [关键计算节点 - 焦土协议] ---")
-                        print(f"          - 前沿破坏力分 (归一化): {p_breach if isinstance(p_breach, str) else f'{p_breach:.4f}'}")
-                        print(f"          - 防御真空度分 (1 - 防御力): {p_defense_vac if isinstance(p_defense_vac, str) else f'{p_defense_vac:.4f}'}")
-                        print(f"          - 信念真空度分 (1 - 信念): {p_command_vac if isinstance(p_command_vac, str) else f'{p_command_vac:.4f}'}")
-                        # --- 最终结果 ---
-                        p_final = downward_momentum_score.get(probe_date, 0.0)
-                        print(f"        --- [最终结果] ---")
-                        print(f"        - 最终下跌动能分 (三要素加权几何平均): {p_final:.4f}")
-                except Exception as e:
-                    print(f"    -> [行为探针错误] _diagnose_downward_momentum 处理日期 {probe_date_str} 失败: {e}")
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return downward_momentum_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_offensive_absorption_intent(self, df: pd.DataFrame, lower_shadow_quality: pd.Series, distribution_intent: pd.Series) -> pd.Series:
@@ -961,40 +926,77 @@ class BehavioralIntelligence:
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V2.1 · 生产版】计算高品质看涨量能爆发信号。
-        - 核心重构: 废弃了基于“净值结果谬误”的 V1.4 模型。引入基于“信念-效率-战果”
-                      军事突击思想的全新四维诊断模型，旨在穿透“冲高派发”等诡道迷雾。
-        - 战术四要素:
-          1. 幅度 (Magnitude): 保留 `volume_ratio_D`，衡量兵力投入规模。
-          2. 信念 (Conviction): 废弃简单的 flow_ratio，采用 `main_force_conviction_index_D`，
-                                衡量主力真实的、不可动摇的进攻决心。
-          3. 效率 (Efficiency): 升级为 `impulse_quality_ratio_D`，衡量战术执行的凌厉程度。
-          4. 战果 (Result): 新增 `closing_strength_index_D`，作为最终审判官，衡量多头是否
-                             成功巩固了胜利果实，严惩“冲高回落”式的失败进攻。
-        - 数学模型: 品质分 = (幅度分 * 信念分 * 效率分 * 战果分) ^ (1/4)
+        【V3.0 · 抢滩登陆协议 (探针激活版)】计算高品质看涨量能爆发信号。
+        - 核心重构: 废弃V2.1“战术近视眼”模型，引入“战术品质 × 战略环境”的全新双维诊断框架。
+        - 诊断双维度:
+          1. 战术强攻品质 (Tactical Assault Quality): 保留V2.1四维模型(幅度、信念、效率、战果)，评估登陆部队战斗力。
+          2. 战略环境评估 (Strategic Environment Assessment): 新增“滩头阵地阻力指数”，评估登陆点上方的套牢盘压力。
+        - 数学模型: 品质分 = 战术品质分 * (1 - 战略阻力分)
         """
-        # --- 1. 获取四维度原始数据 ---
+        # --- 1. 获取参数 ---
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        params = get_param_value(p_conf.get('beachhead_protocol_params'), {})
+        strategic_weights = get_param_value(params.get('strategic_weights'), {'chip_fatigue': 0.6, 'loser_pain': 0.4})
+        # --- 2. 维度一：战术强攻品质评估 (沿用V2.1逻辑) ---
+        # 2.1 获取战术原料数据
         volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_calculate_volume_burst_quality")
         conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_calculate_volume_burst_quality")
         efficiency_raw = self._get_safe_series(df, 'impulse_quality_ratio_D', 0.0, method_name="_calculate_volume_burst_quality")
         result_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_calculate_volume_burst_quality")
-        # --- 2. 计算各维度得分 ---
-        # 维度一：幅度分
+        # 2.2 计算战术各要素得分
         magnitude_score = get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=tf_weights)
-        # 维度二：信念分
         conviction_score = get_adaptive_mtf_normalized_score(conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
-        # 维度三：效率分
         efficiency_score = get_adaptive_mtf_normalized_score(efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
-        # 维度四：战果分
         result_score = normalize_score(result_raw, df.index, 55)
-        # --- 3. 四维战术合成 ---
-        volume_burst_quality = (
-            (magnitude_score + 1e-9) *
-            (conviction_score + 1e-9) *
-            (efficiency_score + 1e-9) *
-            (result_score + 1e-9)
+        # 2.3 合成战术强攻品质分
+        tactical_assault_quality_score = (
+            (magnitude_score + 1e-9) * (conviction_score + 1e-9) *
+            (efficiency_score + 1e-9) * (result_score + 1e-9)
         ).pow(1/4).fillna(0.0)
-        return volume_burst_quality.clip(0, 1).astype(np.float32)
+        # --- 3. 维度二：战略环境评估 ---
+        # 3.1 获取战略原料数据
+        chip_fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name="_calculate_volume_burst_quality")
+        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_calculate_volume_burst_quality")
+        # 3.2 计算战略阻力各要素得分
+        chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df.index, ascending=True, tf_weights=tf_weights)
+        loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 3.3 合成滩头阵地阻力指数
+        beachhead_resistance_score = (
+            chip_fatigue_score * strategic_weights.get('chip_fatigue', 0.6) +
+            loser_pain_score * strategic_weights.get('loser_pain', 0.4)
+        ).clip(0, 1)
+        strategic_environment_score = (1 - beachhead_resistance_score)
+        # --- 4. 最终合成：战术品质 × 战略环境 ---
+        final_burst_quality = (tactical_assault_quality_score * strategic_environment_score).clip(0, 1)
+        # --- [探针逻辑] 暴露所有计算节点 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df.empty:
+            for probe_date_str in probe_dates:
+                try:
+                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    if probe_date in df.index:
+                        print(f"      [行为探针 V3.0] _calculate_volume_burst_quality @ {probe_date_str}")
+                        # --- 原料数据 ---
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - [战术] 量比 (volume_ratio_D): {volume_ratio.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战术] 主力信念 (main_force_conviction_index_D): {conviction_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战术] 脉冲质量 (impulse_quality_ratio_D): {efficiency_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战术] 收盘强度 (closing_strength_index_D): {result_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战略] 筹码疲劳 (chip_fatigue_index_D): {chip_fatigue_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战略] 套牢痛苦 (loser_pain_index_D): {loser_pain_raw.get(probe_date, 'N/A'):.4f}")
+                        # --- 关键计算节点 ---
+                        print(f"        --- [关键计算节点 - 抢滩登陆协议] ---")
+                        print(f"          - [战术] 战术强攻品质分 (四维融合): {tactical_assault_quality_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战略] 滩头阵地阻力指数 (归一化): {beachhead_resistance_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [战略] 战略环境分 (1 - 阻力): {strategic_environment_score.get(probe_date, 'N/A'):.4f}")
+                        # --- 最终结果 ---
+                        print(f"        --- [最终结果] ---")
+                        print(f"        - 最终看涨量能爆发分 (战术品质 × 战略环境): {final_burst_quality.get(probe_date, 0.0):.4f}")
+                except Exception as e:
+                    print(f"    -> [行为探针错误] _calculate_volume_burst_quality 处理日期 {probe_date_str} 失败: {e}")
+        return final_burst_quality.astype(np.float32)
 
     def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
