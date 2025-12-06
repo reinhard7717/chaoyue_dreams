@@ -99,9 +99,10 @@ class IntradayBehaviorEngine:
 
     def _diagnose_intraday_bull_control(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · Base Consciousness版】行为层原子信号：诊断“日内多头控制力”
-        - 核心逻辑: 引入“基础意识”因子，将信念调节器的值域从[0,1]提升至[base_consciousness, 1]，
-                    根除“硬零”veto问题，使模型能捕捉悲观环境下的反抗“张力”。
+        【V5.0 · Bipolar Drive Fusion版】行为层原子信号：诊断“日内多头控制力”
+        - 核心逻辑: 进化为“战果”与“意图”双引擎加权融合模型。
+                    即使战果（战略位置）为平局，强大的过程意图也能独立驱动信号得分，
+                    旨在捕捉“虽败犹荣”或“平局中的进攻优势”等高价值博弈信息。
         """
         signal_name = "SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL"
         required_signals = [
@@ -116,13 +117,15 @@ class IntradayBehaviorEngine:
         # --- 获取参数 ---
         parent_params = get_params_block(self.strategy, 'intraday_behavior_params', {})
         params = get_param_value(parent_params.get('bull_control_params'), {})
-        fusion_weights = get_param_value(params.get('fusion_weights'), {'asymmetric_quality': 0.7, 'belief_modulator': 0.3})
-        # [代码修改] 获取新的“基础意识”参数
+        # [代码修改] 获取新的双极驱动权重
+        drive_weights = get_param_value(params.get('bipolar_drive_weights'), {'position_score': 0.7, 'intentional_bias': 0.3})
+        position_weight = drive_weights.get('position_score', 0.7)
+        intent_weight = drive_weights.get('intentional_bias', 0.3)
         base_consciousness = get_param_value(params.get('base_consciousness_factor'), 0.1)
-        # 1. 获取战略位置分 (核心基石)
+        # 1. 引擎一：战略位置分 (战果)
         position_score = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_intraday_bull_control")
-        # 2. 计算战术品质分
-        # 2.1 获取进攻与防守的原料信号并归一化
+        # 2. 引擎二：意图偏差分 (过程)
+        # 2.1 计算综合品质调节器 (与V4.0相同)
         offensive_quality = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, "_diagnose_intraday_bull_control")
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
         default_weights = mtf_params.get('default_weights')
@@ -131,22 +134,20 @@ class IntradayBehaviorEngine:
         lower_shadow_strength = get_adaptive_mtf_normalized_score(raw_lower_shadow, df.index, True, default_weights)
         dip_absorption_power = get_adaptive_mtf_normalized_score(raw_dip_absorption, df.index, True, default_weights)
         defensive_quality = (lower_shadow_strength + dip_absorption_power) / 2
-        # 2.2 构建基于战略位置的非对称权重
         weight_offensive = (1 + position_score) / 2
         weight_defensive = (1 - position_score) / 2
         asymmetric_action_quality = offensive_quality * weight_offensive + defensive_quality * weight_defensive
-        # 2.3 构建信念调节器
         raw_conviction_index = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, "_diagnose_intraday_bull_control")
         conviction_index = raw_conviction_index.clip(-1, 1)
-        # [代码修改] 使用新的映射公式，将[-1, 1]映射到[base_consciousness, 1]
         belief_modulator = base_consciousness + ((conviction_index + 1) / 2) * (1 - base_consciousness)
-        # 2.4 非线性融合战术品质与信念
         comprehensive_quality_modulator = (
-            asymmetric_action_quality.pow(fusion_weights.get('asymmetric_quality', 0.7)) *
-            belief_modulator.pow(fusion_weights.get('belief_modulator', 0.3))
+            asymmetric_action_quality.pow(0.7) * belief_modulator.pow(0.3)
         ).fillna(0.0)
-        # 3. 最终融合：战略位置分 * 综合品质调节器
-        final_score = (position_score * comprehensive_quality_modulator).fillna(0.0)
+        # 2.2 [核心进化] 计算意图方向并赋予品质调节器
+        net_action_bias = offensive_quality - defensive_quality
+        intentional_bias = comprehensive_quality_modulator * np.sign(net_action_bias)
+        # 3. [核心进化] 双极驱动融合
+        final_score = (position_score * position_weight + intentional_bias * intent_weight).fillna(0.0)
         # --- 探针逻辑 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -159,24 +160,17 @@ class IntradayBehaviorEngine:
                         p_position = position_score.get(probe_date, 0.0)
                         p_offensive = offensive_quality.get(probe_date, 0.0)
                         p_defensive = defensive_quality.get(probe_date, 0.0)
-                        p_w_off = weight_offensive.get(probe_date, 0.5)
-                        p_w_def = weight_defensive.get(probe_date, 0.5)
-                        p_asymmetric_quality = asymmetric_action_quality.get(probe_date, 0.0)
-                        p_raw_conviction = raw_conviction_index.get(probe_date, 0.0)
-                        p_clipped_conviction = conviction_index.get(probe_date, 0.0)
-                        p_belief_mod = belief_modulator.get(probe_date, 0.0)
                         p_comp_quality = comprehensive_quality_modulator.get(probe_date, 0.0)
+                        # [代码修改] 升级探针，展示双极驱动融合过程
+                        p_net_action_bias = net_action_bias.get(probe_date, 0.0)
+                        p_intentional_bias = intentional_bias.get(probe_date, 0.0)
                         p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"      [日内行为探针 V4.0] _diagnose_intraday_bull_control @ {probe_date_str}")
-                        print(f"        - [基石] 战略位置 (vwap_control_strength_D): {p_position:.4f}")
-                        print(f"        - [原料] 进攻品质: {p_offensive:.4f}, 防守品质: {p_defensive:.4f}")
-                        print(f"        - [计算节点] 非对称权重 (攻/防): {p_w_off:.2f} / {p_w_def:.2f}")
-                        print(f"        - [计算节点] 非对称战术品质分: {p_asymmetric_quality:.4f}")
-                        # [代码修改] 升级探针，展示“基础意识”因子的作用
-                        print(f"        - [原料] 主力信念指数 (原始): {p_raw_conviction:.4f} -> (裁决后): {p_clipped_conviction:.4f}")
-                        print(f"        - [计算节点] 信念调节器 (基础意识={base_consciousness}): {p_belief_mod:.4f}")
-                        print(f"        - [计算节点] 综合品质调节器 (品质^0.7 * 信念^0.3): {p_comp_quality:.4f}")
-                        print(f"        - [结果] 最终日内多头控制力分: {p_final_score:.4f}")
+                        print(f"      [日内行为探针 V5.0] _diagnose_intraday_bull_control @ {probe_date_str}")
+                        print(f"        - [引擎1: 战果] 战略位置分: {p_position:.4f} (权重: {position_weight})")
+                        print(f"        - [引擎2: 意图] 综合品质调节器: {p_comp_quality:.4f}")
+                        print(f"        - [引擎2: 意图] 净行动偏差 (攻-防): {p_net_action_bias:.4f}")
+                        print(f"        - [引擎2: 意图] 意图偏差分 (品质*方向): {p_intentional_bias:.4f} (权重: {intent_weight})")
+                        print(f"        - [结果] 最终日内多头控制力分 (战果*w1 + 意图*w2): {p_final_score:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_intraday_bull_control 处理日期 {probe_date_str} 失败: {e}")
         return {signal_name: final_score.clip(-1, 1)}
