@@ -179,10 +179,12 @@ class IntradayBehaviorEngine:
 
     def _diagnose_conviction_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 两极化修正版】日内战报之三：诊断“信念反转”
-        - 核心重构: 引入“证据协同”模型 (最强证据 + 协同奖励)，解决V2.0加法模型的“独脚凳”脆弱性。
-        - 核心修复: 对`rally_distribution_pressure_D`等双极性信号，强制使用双极化归一化工具，
-                      彻底修正V2.0中存在的“指鹿为马”式逻辑谬误。
+        【V2.2 · 僵局裁决版】日内战报之三：诊断“信念反转”
+        - 核心重构: 在V2.1“证据协同”模型基础上，引入“冲突惩罚”机制。
+        - 核心逻辑: 最终分 = (看涨分 - 看跌分) × (1 - 冲突强度分)。
+                      其中，“冲突强度分” = min(看涨分, 看跌分)。
+                      此举使模型能识别“高强度僵局”，在这种不确定性极高的状态下，
+                      模型会主动压制微弱的方向信号，输出接近于0的裁决，体现了更高的博弈智慧。
         """
         signal_name = "SCORE_INTRADAY_CONVICTION_REVERSAL"
         required_signals = [
@@ -195,34 +197,32 @@ class IntradayBehaviorEngine:
         # --- 获取参数与归一化配置 ---
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
         default_weights = mtf_params.get('default_weights')
-        # --- [核心逻辑] V2.1 ---
-        # 1. 获取所有原料信号
+        # --- [核心逻辑] V2.2 ---
+        # 1. 获取并归一化所有原料信号
         raw_panic = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, "_diagnose_conviction_reversal")
         raw_absorption = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, "_diagnose_conviction_reversal")
         raw_mf_alpha = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, "_diagnose_conviction_reversal")
         raw_distribution = self._get_safe_series(df, 'rally_distribution_pressure_D', 0.0, "_diagnose_conviction_reversal")
         raw_conviction_slope = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, "_diagnose_conviction_reversal")
-        # 2. 信号归一化处理
         norm_panic = get_adaptive_mtf_normalized_score(raw_panic, df.index, tf_weights=default_weights)
         norm_absorption = get_adaptive_mtf_normalized_score(raw_absorption, df.index, tf_weights=default_weights)
-        # [代码修改] 对双极性的派发压力信号使用双极化归一化
         norm_distribution = get_adaptive_mtf_normalized_bipolar_score(raw_distribution, df.index, default_weights).clip(lower=0)
         norm_conviction_decay = get_adaptive_mtf_normalized_score(-raw_conviction_slope.clip(upper=0), df.index, tf_weights=default_weights)
         norm_mf_alpha = get_robust_bipolar_normalized_score(raw_mf_alpha, df.index, window=55)
-        # 3. 构建“证据协同”模型
-        # 3.1 看涨诊断: 恐慌下的优质承接
+        # 2. 构建“证据协同”模型
         bullish_base_score = np.maximum(norm_panic, norm_absorption)
         bullish_synergy_bonus = (norm_panic * norm_absorption).pow(0.5)
-        bullish_reversal_score = ((bullish_base_score + bullish_synergy_bonus) / 1.5).fillna(0.0) # 假设协同权重为0.5
-        # 3.2 看跌诊断: 信念崩溃下的从容派发
+        bullish_reversal_score = ((bullish_base_score + bullish_synergy_bonus) / 1.5).fillna(0.0)
         bearish_base_score = np.maximum(norm_distribution, norm_conviction_decay)
         bearish_synergy_bonus = (norm_distribution * norm_conviction_decay).pow(0.5)
-        bearish_reversal_score = ((bearish_base_score + bearish_synergy_bonus) / 1.5).fillna(0.0) # 假设协同权重为0.5
-        # 3.3 Alpha裁决放大
+        bearish_reversal_score = ((bearish_base_score + bearish_synergy_bonus) / 1.5).fillna(0.0)
+        # 3. Alpha裁决放大
         bullish_final_score = bullish_reversal_score * (1 + norm_mf_alpha.clip(lower=0) * 1.0)
-        bearish_final_score = bearish_reversal_score * (1 + norm_mf_alpha.clip(lower=0) * 1.5) # 派发时对正Alpha更敏感
-        # 4. 最终裁决
-        final_score = (bullish_final_score - bearish_final_score).fillna(0.0)
+        bearish_final_score = bearish_reversal_score * (1 + norm_mf_alpha.clip(lower=0) * 1.5)
+        # 4. [新增] 僵局裁决：计算冲突并施加惩罚
+        directional_score = bullish_final_score - bearish_final_score
+        conflict_intensity = np.minimum(bullish_final_score, bearish_final_score)
+        final_score = (directional_score * (1 - conflict_intensity)).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -232,41 +232,20 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [日内行为探针 V2.1] _diagnose_conviction_reversal @ {probe_date_str}")
-                        # --- 看涨诊断 ---
-                        p_norm_panic = norm_panic.get(probe_date, 0.0)
-                        p_norm_absorption = norm_absorption.get(probe_date, 0.0)
-                        p_bullish_base = bullish_base_score.get(probe_date, 0.0)
-                        p_bullish_synergy = bullish_synergy_bonus.get(probe_date, 0.0)
+                        print(f"      [日内行为探针 V2.2] _diagnose_conviction_reversal @ {probe_date_str}")
                         p_bullish_final = bullish_final_score.get(probe_date, 0.0)
-                        print(f"        --- [看涨诊断：证据协同模型] ---")
-                        print(f"          - 证据-恐慌(归一化): {p_norm_panic:.4f}")
-                        print(f"          - 证据-承接(归一化): {p_norm_absorption:.4f}")
-                        print(f"          - 关键节点-最强证据分: {p_bullish_base:.4f}")
-                        print(f"          - 关键节点-协同奖励分: {p_bullish_synergy:.4f}")
-                        print(f"          - 结果-看涨分 (裁决后): {p_bullish_final:.4f}")
-                        # --- 看跌诊断 ---
-                        p_raw_dist = raw_distribution.get(probe_date, 0.0)
-                        p_norm_dist = norm_distribution.get(probe_date, 0.0)
-                        p_norm_conv_decay = norm_conviction_decay.get(probe_date, 0.0)
-                        p_bearish_base = bearish_base_score.get(probe_date, 0.0)
-                        p_bearish_synergy = bearish_synergy_bonus.get(probe_date, 0.0)
                         p_bearish_final = bearish_final_score.get(probe_date, 0.0)
-                        print(f"        --- [看跌诊断：证据协同模型] ---")
-                        print(f"          - 证据-派发(原料: {p_raw_dist:.4f} -> 归一化): {p_norm_dist:.4f}")
-                        print(f"          - 证据-信念衰减(归一化): {p_norm_conv_decay:.4f}")
-                        print(f"          - 关键节点-最强证据分: {p_bearish_base:.4f}")
-                        print(f"          - 关键节点-协同奖励分: {p_bearish_synergy:.4f}")
-                        print(f"          - 结果-看跌分 (裁决后): {p_bearish_final:.4f}")
-                        # --- Alpha裁决者 ---
-                        p_raw_alpha = raw_mf_alpha.get(probe_date, 0.0)
-                        p_norm_alpha = norm_mf_alpha.get(probe_date, 0.0)
-                        print(f"        --- [Alpha裁决者] ---")
-                        print(f"          - 原料-主力Alpha: {p_raw_alpha:.4f} -> 归一化: {p_norm_alpha:.4f}")
-                        # --- 最终裁决 ---
+                        print(f"        --- [力量评估] ---")
+                        print(f"          - 看涨力量 (裁决后): {p_bullish_final:.4f}")
+                        print(f"          - 看跌力量 (裁决后): {p_bearish_final:.4f}")
+                        # --- 僵局裁决 ---
+                        p_directional = directional_score.get(probe_date, 0.0)
+                        p_conflict = conflict_intensity.get(probe_date, 0.0)
                         p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"        --- [最终裁决] ---")
-                        print(f"        - 最终信念反转分 (看涨分 - 看跌分): {p_final_score:.4f}")
+                        print(f"        --- [僵局裁决] ---")
+                        print(f"          - 关键节点-净方向分 (看涨-看跌): {p_directional:.4f}")
+                        print(f"          - 关键节点-冲突强度分 (min(看涨,看跌)): {p_conflict:.4f}")
+                        print(f"          - 最终信念反转分 (净方向 × (1-冲突)): {p_final_score:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_conviction_reversal 处理日期 {probe_date_str} 失败: {e}")
         return {signal_name: final_score.clip(-1, 1)}
