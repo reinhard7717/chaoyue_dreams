@@ -179,8 +179,8 @@ class IntradayBehaviorEngine:
 
     def _diagnose_conviction_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 僵局裁决版】日内战报之三：诊断“信念反转”
-        - 核心重构: 在V2.1“证据协同”模型基础上，引入“冲突惩罚”机制。
+        【V2.3 · Production Ready版】日内战报之三：诊断“信念反转”
+        - 核心重构: 沿用V2.2的“僵局裁决”模型，引入“冲突惩罚”机制。
         - 核心逻辑: 最终分 = (看涨分 - 看跌分) × (1 - 冲突强度分)。
                       其中，“冲突强度分” = min(看涨分, 看跌分)。
                       此举使模型能识别“高强度僵局”，在这种不确定性极高的状态下，
@@ -219,10 +219,40 @@ class IntradayBehaviorEngine:
         # 3. Alpha裁决放大
         bullish_final_score = bullish_reversal_score * (1 + norm_mf_alpha.clip(lower=0) * 1.0)
         bearish_final_score = bearish_reversal_score * (1 + norm_mf_alpha.clip(lower=0) * 1.5)
-        # 4. [新增] 僵局裁决：计算冲突并施加惩罚
+        # 4. 僵局裁决：计算冲突并施加惩罚
         directional_score = bullish_final_score - bearish_final_score
         conflict_intensity = np.minimum(bullish_final_score, bearish_final_score)
         final_score = (directional_score * (1 - conflict_intensity)).fillna(0.0)
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        return {signal_name: final_score.clip(-1, 1)}
+
+    def _diagnose_tactical_arc(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V3.0 · 叙事向量版】日内叙事之一：诊断“战术弧线”
+        - 核心重构: 废弃V2.1使用`closing_strength_index_D`的错误代理。
+                      进化为基于“叙事向量”的全新博弈模型。
+                      1. 弧线方向 = 收官向量 - 开篇向量。
+                      2. 引入“战局重要性”调节器(|VWAP控制强度|)，放大关键战役中力量消长的信号意义。
+        """
+        signal_name = "SCORE_INTRADAY_TACTICAL_ARC"
+        required_signals = [
+            'opening_battle_result_D',
+            'pre_closing_posturing_D',
+            'vwap_control_strength_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_tactical_arc"):
+            return {signal_name: pd.Series(0.0, index=df.index)}
+        # --- [核心逻辑] V3.0 ---
+        # 1. 获取叙事向量及战局上下文
+        opening_vector = self._get_safe_series(df, 'opening_battle_result_D', 0.0, "_diagnose_tactical_arc")
+        closing_vector = self._get_safe_series(df, 'pre_closing_posturing_D', 0.0, "_diagnose_tactical_arc")
+        battlefield_intensity = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_tactical_arc").abs()
+        # 2. 计算弧线方向 (核心：收官力量 - 开篇力量)
+        arc_direction = closing_vector - opening_vector
+        # 3. 计算战局重要性调节器 (k=0.5, 意味着一场惨烈的战役能将信号意义放大50%)
+        context_amplifier = 1 + battlefield_intensity * 0.5
+        # 4. 最终裁决
+        final_score = (arc_direction * context_amplifier).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -232,54 +262,29 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [日内行为探针 V2.2] _diagnose_conviction_reversal @ {probe_date_str}")
-                        p_bullish_final = bullish_final_score.get(probe_date, 0.0)
-                        p_bearish_final = bearish_final_score.get(probe_date, 0.0)
-                        print(f"        --- [力量评估] ---")
-                        print(f"          - 看涨力量 (裁决后): {p_bullish_final:.4f}")
-                        print(f"          - 看跌力量 (裁决后): {p_bearish_final:.4f}")
-                        # --- 僵局裁决 ---
-                        p_directional = directional_score.get(probe_date, 0.0)
-                        p_conflict = conflict_intensity.get(probe_date, 0.0)
-                        p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"        --- [僵局裁决] ---")
-                        print(f"          - 关键节点-净方向分 (看涨-看跌): {p_directional:.4f}")
-                        print(f"          - 关键节点-冲突强度分 (min(看涨,看跌)): {p_conflict:.4f}")
-                        print(f"          - 最终信念反转分 (净方向 × (1-冲突)): {p_final_score:.4f}")
-                except Exception as e:
-                    print(f"    -> [日内行为探针错误] _diagnose_conviction_reversal 处理日期 {probe_date_str} 失败: {e}")
-        return {signal_name: final_score.clip(-1, 1)}
-
-    def _diagnose_tactical_arc(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V2.1 · 代理信号重构版】日内叙事之一：诊断“战术弧线”
-        - 核心重构: 由于预计算信号不存在，本方法重构为使用 `closing_strength_index_D` 作为核心代理，
-                      因为它反映了全天力量博弈的最终结果。
-        """
-        signal_name = "SCORE_INTRADAY_TACTICAL_ARC"
-        # 使用可用的代理信号
-        raw_signal_name = "closing_strength_index_D"
-        if not self._validate_required_signals(df, [raw_signal_name], "_diagnose_tactical_arc"):
-            return {signal_name: pd.Series(0.0, index=df.index)}
-        
-        final_score = self._get_safe_series(df, raw_signal_name, 0.0, "_diagnose_tactical_arc")
-        
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        score_on_date = final_score.get(probe_date, 'N/A')
-                        print(f"      [日内行为探针] _diagnose_tactical_arc @ {probe_date_str}")
-                        print(f"        - [代理] 收盘强度指数 ({raw_signal_name}): {score_on_date:.4f}")
-                        print(f"        - 最终战术弧线分: {score_on_date:.4f}")
+                        print(f"      [日内行为探针 V3.0] _diagnose_tactical_arc @ {probe_date_str}")
+                        # --- 原料数据 ---
+                        p_opening = opening_vector.get(probe_date, 0.0)
+                        p_closing = closing_vector.get(probe_date, 0.0)
+                        p_intensity_raw = self._get_safe_series(df, 'vwap_control_strength_D', 0.0).get(probe_date, 0.0)
+                        p_intensity = battlefield_intensity.get(probe_date, 0.0)
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - 开篇向量 (opening_battle_result_D): {p_opening:.4f}")
+                        print(f"          - 收官向量 (pre_closing_posturing_D): {p_closing:.4f}")
+                        print(f"          - 战局强度 (vwap_control_strength_D): {p_intensity_raw:.4f} -> abs: {p_intensity:.4f}")
+                        # --- 关键计算节点 ---
+                        p_arc_dir = arc_direction.get(probe_date, 0.0)
+                        p_amplifier = context_amplifier.get(probe_date, 1.0)
+                        print(f"        --- [关键计算节点] ---")
+                        print(f"          - 弧线方向 (收官 - 开篇): {p_arc_dir:.4f}")
+                        print(f"          - 战局调节器 (1 + 强度*0.5): {p_amplifier:.4f}")
+                        # --- 最终结果 ---
+                        p_final = final_score.get(probe_date, 0.0)
+                        print(f"        --- [最终结果] ---")
+                        print(f"        - 最终战术弧线分 (方向 × 调节器): {p_final:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_tactical_arc 处理日期 {probe_date_str} 失败: {e}")
-        
-        return {signal_name: final_score}
+        return {signal_name: final_score.clip(-1, 1)}
 
     def _diagnose_auction_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
