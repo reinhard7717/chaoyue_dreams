@@ -310,12 +310,12 @@ class IntradayBehaviorEngine:
 
     def _diagnose_recovery_quality(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · V型反转认证协议】日内叙事之三：诊断“恢复质量”
-        - 核心重构: 废弃V1.0基于K线形态的幼稚构想。引入“V型反转·认证协议”。
-                      1. 恢复根基: 采用`lower_shadow_absorption_strength_D`作为承接实力的基石。
-                      2. 环境放大器: 引入`panic_selling_cascade_D`，奖励在恐慌中完成的恢复。
-                      3. 信念验证器: 引入`vwap_control_strength_D`，验证主力是否最终夺回日内控制权。
-                      最终分 = 根基 × 放大器 × 验证器。精准识别高价值的“真V反”。
+        【V2.1 · 根基校准版】日内叙事之三：诊断“恢复质量”
+        - 核心重构: 修复V2.0“原始标度的暴政”这一致命缺陷。
+                      1. 校准恢复根基: 对`lower_shadow_absorption_strength_D`进行自适应归一化，
+                                      将其从无意义的原始值，校准为[0,1]区间的历史强度排位分。
+                      2. 保留修正器: 沿用V2.0的环境放大器与信念验证器。
+                      最终分 = (校准后根基) × 放大器 × 验证器。确保信号的可比性与权重稳定。
         """
         signal_name = "SCORE_INTRADAY_RECOVERY_QUALITY"
         required_signals = [
@@ -325,20 +325,22 @@ class IntradayBehaviorEngine:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_recovery_quality"):
             return {signal_name: pd.Series(0.0, index=df.index)}
-        # --- [核心逻辑] V2.0 ---
-        # 1. 获取原料信号 (暴露问题，不使用防御性代码)
+        # --- [核心逻辑] V2.1 ---
+        # 1. 获取原料信号
         base_recovery_raw = df.get('lower_shadow_absorption_strength_D', pd.Series(np.nan, index=df.index))
         panic_context_raw = df.get('panic_selling_cascade_D', pd.Series(np.nan, index=df.index))
         conviction_raw = df.get('vwap_control_strength_D', pd.Series(np.nan, index=df.index))
-        # 2. 定义恢复根基
-        base_recovery = base_recovery_raw.fillna(0.0)
+        # 2. [核心进化] 校准恢复根基
+        mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
+        default_weights = mtf_params.get('default_weights')
+        norm_base_recovery = get_adaptive_mtf_normalized_score(base_recovery_raw, df.index, default_weights).fillna(0.0)
         # 3. 构建环境放大器
         k_panic = 0.5
         panic_amplifier = 1 + k_panic * panic_context_raw.fillna(0.0)
         # 4. 构建信念验证器
         conviction_verifier = 1 + conviction_raw.fillna(0.0)
         # 5. 最终认证
-        final_score = (base_recovery * panic_amplifier * conviction_verifier).fillna(0.0)
+        final_score = (norm_base_recovery * panic_amplifier * conviction_verifier).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -348,15 +350,16 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [日内行为探针 V2.0] _diagnose_recovery_quality @ {probe_date_str}")
-                        # --- 原料数据 ---
+                        print(f"      [日内行为探针 V2.1] _diagnose_recovery_quality @ {probe_date_str}")
+                        # --- 原料数据与校准过程 ---
                         p_base_raw = base_recovery_raw.get(probe_date, 'N/A')
+                        p_base_norm = norm_base_recovery.get(probe_date, 'N/A')
                         p_panic_raw = panic_context_raw.get(probe_date, 'N/A')
                         p_conviction_raw = conviction_raw.get(probe_date, 'N/A')
-                        print(f"        --- [原料数据] ---")
-                        print(f"          - 恢复根基 (下影线吸收强度): {p_base_raw if isinstance(p_base_raw, str) else f'{p_base_raw:.4f}'}")
-                        print(f"          - 恐慌环境 (恐慌抛售级联): {p_panic_raw if isinstance(p_panic_raw, str) else f'{p_panic_raw:.4f}'}")
-                        print(f"          - 信念原料 (VWAP控制强度): {p_conviction_raw if isinstance(p_conviction_raw, str) else f'{p_conviction_raw:.4f}'}")
+                        print(f"        --- [原料数据 -> 根基校准] ---")
+                        print(f"          - 恢复根基 (原料): {p_base_raw if isinstance(p_base_raw, str) else f'{p_base_raw:.4f}'} -> 校准后: {p_base_norm if isinstance(p_base_norm, str) else f'{p_base_norm:.4f}'}")
+                        print(f"          - 恐慌环境 (原料): {p_panic_raw if isinstance(p_panic_raw, str) else f'{p_panic_raw:.4f}'}")
+                        print(f"          - 信念原料 (原料): {p_conviction_raw if isinstance(p_conviction_raw, str) else f'{p_conviction_raw:.4f}'}")
                         # --- 关键计算节点 ---
                         p_amplifier = panic_amplifier.get(probe_date, 0.0)
                         p_verifier = conviction_verifier.get(probe_date, 0.0)
@@ -366,7 +369,7 @@ class IntradayBehaviorEngine:
                         # --- 最终结果 ---
                         p_final = final_score.get(probe_date, 0.0)
                         print(f"        --- [最终结果] ---")
-                        print(f"        - 最终恢复质量分 (根基 × 放大器 × 验证器): {p_final:.4f}")
+                        print(f"        - 最终恢复质量分 (校准根基 × 放大器 × 验证器): {p_final:.4f}")
                 except Exception as e:
                     print(f"    -> [日内行为探针错误] _diagnose_recovery_quality 处理日期 {probe_date_str} 失败: {e}")
         return {signal_name: final_score.clip(-1, 1)}
