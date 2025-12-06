@@ -239,7 +239,7 @@ class BehavioralIntelligence:
         # --- 动能信号 ---
         upward_momentum_score = self._diagnose_upward_momentum(df, default_weights)
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
-        downward_momentum_score = self._diagnose_downward_momentum(df, default_weights)
+        downward_momentum_score = self._diagnose_downward_momentum(df) # [代码修改] 移除了多余的 'default_weights' 参数
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
         # --- 超买信号 ---
         final_overextension_score = self._diagnose_price_overextension(df, default_weights, long_term_weights)
