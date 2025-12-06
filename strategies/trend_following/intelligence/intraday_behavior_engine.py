@@ -42,10 +42,13 @@ class IntradayBehaviorEngine:
             return False
         return True
 
-    def run_intraday_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]: # 移除 async
+    def run_intraday_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.3 · 同步执行版】日内诊断总指挥
-        - 核心重构: 移除所有 async/await 关键字，改为同步执行，以符合CPU密集型任务的最佳实践并与其他情报引擎保持一致。
+        【V4.4 · 依赖感知型指挥系统】日内诊断总指挥
+        - 核心重构: 修复“指挥系统失序”的致命缺陷。
+                      1. 重整指挥序列: 调整诊断方法的执行顺序，确保依赖项被优先计算。
+                      2. 打通情报链路: 采用“累积式情报更新”循环，将每个方法生成的新信号
+                                       立刻合并回DataFrame，供后续方法使用，确保情报实时流通。
         """
         # --- 引擎启动探针 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -62,8 +65,7 @@ class IntradayBehaviorEngine:
             if not df.empty:
                 print(f"    - 日线数据行数: {len(df)}")
         # --- 探针结束 ---
-        print("启动【V4.3 · 同步执行版】日内行为诊断...") # 更新版本号和描述
-        # 移除对 _prepare_intraday_indicators 的调用
+        print("启动【V4.4 · 依赖感知型指挥系统】日内行为诊断...")
         if df is None or df.empty:
             print("日线数据为空，无法进行日内行为诊断。")
             return {
@@ -77,21 +79,28 @@ class IntradayBehaviorEngine:
                 "SCORE_INTRADAY_FINAL_ASSAULT": pd.Series(dtype=np.float64),
                 "SCORE_INTRADAY_VWAP_BATTLEFIELD": pd.Series(dtype=np.float64),
             }
+        # [代码修改] 重整指挥序列，将 _diagnose_recovery_quality 移至 _diagnose_ambush_and_flank 之前
         diagnostics_to_run = [
             self._diagnose_offensive_purity,
             self._diagnose_dominance_consensus,
             self._diagnose_conviction_reversal,
             self._diagnose_tactical_arc,
             self._diagnose_auction_intent,
-            self._diagnose_recovery_quality,
-            self._diagnose_ambush_and_flank,
+            self._diagnose_recovery_quality, # 依赖项提前
             self._diagnose_final_assault,
             self._diagnose_vwap_battlefield,
+            self._diagnose_ambush_and_flank, # 依赖方置后
        ]
         final_scores = {}
+        # [代码修改] 采用“累积式情报更新”循环，打通情报链路
+        df_cumulative = df.copy() # 创建一个可变副本以累积信号
         for diagnostic_func in diagnostics_to_run:
-            result = diagnostic_func(df)
+            result = diagnostic_func(df_cumulative) # 使用累积了新信号的DataFrame
             final_scores.update(result)
+            # 将新生成的信号合并回df_cumulative，供下一次循环使用
+            for signal_name, signal_series in result.items():
+                if signal_name not in df_cumulative.columns:
+                    df_cumulative[signal_name] = signal_series
         print(f"日内行为诊断完成，生成 {len(final_scores)} 个信号序列。")
         return final_scores
 
