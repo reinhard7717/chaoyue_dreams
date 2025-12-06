@@ -926,7 +926,7 @@ class BehavioralIntelligence:
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V3.0 · 抢滩登陆协议 (探针激活版)】计算高品质看涨量能爆发信号。
+        【V3.0 · Production Ready版】计算高品质看涨量能爆发信号。
         - 核心重构: 废弃V2.1“战术近视眼”模型，引入“战术品质 × 战略环境”的全新双维诊断框架。
         - 诊断双维度:
           1. 战术强攻品质 (Tactical Assault Quality): 保留V2.1四维模型(幅度、信念、效率、战果)，评估登陆部队战斗力。
@@ -968,6 +968,52 @@ class BehavioralIntelligence:
         strategic_environment_score = (1 - beachhead_resistance_score)
         # --- 4. 最终合成：战术品质 × 战略环境 ---
         final_burst_quality = (tactical_assault_quality_score * strategic_environment_score).clip(0, 1)
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        return final_burst_quality.astype(np.float32)
+
+    def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
+        """
+        【V3.0 · 熔炉协议 (探针激活版)】计算高品质成交量萎缩信号。
+        - 核心重构: 废弃V2.1“静态快照谬误”模型，引入“战略环境×静态筹码×动态过程”的全新三维诊断框架。
+        - 诊断三维度:
+          1. 战略环境门控 (The Furnace Check): 审判多头是否掌控日内主导权，作为点火前提。
+          2. 筹码纯度诊断 (The Purity Test): 沿用V2.1逻辑，评估“炉料”品质（获利盘、套牢盘、浮筹）。
+          3. 过程稳定性封印 (The Stability Seal): 新增动态诊断，审判“淬炼”过程是否平稳（低波动率）。
+        - 数学模型: 品质分 = 战略门控 * 基础萎缩分 * (纯度分 * 稳定分) ^ 0.5
+        """
+        # --- 1. 获取参数 ---
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        params = get_param_value(p_conf.get('crucible_protocol_params'), {})
+        stability_window = get_param_value(params.get('stability_window'), 5)
+        quality_weights = get_param_value(params.get('quality_weights'), {'purity_score': 0.6, 'stability_score': 0.4})
+        # --- 2. 获取原料数据 ---
+        volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_calculate_volume_atrophy")
+        winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_calculate_volume_atrophy")
+        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_calculate_volume_atrophy")
+        cleansing_efficiency_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_calculate_volume_atrophy")
+        vwap_control_raw = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, method_name="_calculate_volume_atrophy")
+        close_price = self._get_safe_series(df, 'close_D', 0.0, method_name="_calculate_volume_atrophy")
+        # --- 3. 计算核心组件 ---
+        # 组件一：战略环境门控 (The Furnace Check)
+        # 只有当多头至少取得平局或优势时，门控才开启
+        strategic_context_gate = normalize_score(vwap_control_raw, df.index, 55)
+        # 组件二：基础萎缩分
+        base_atrophy_score = 1 - get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=tf_weights)
+        # 组件三：筹码纯度诊断 (The Purity Test)
+        lockup_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=tf_weights)
+        exhaustion_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=tf_weights)
+        cleansing_score = get_adaptive_mtf_normalized_score(cleansing_efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
+        purity_score = ((lockup_score + 1e-9) * (exhaustion_score + 1e-9) * (cleansing_score + 1e-9)).pow(1/3).fillna(0.0)
+        # 组件四：过程稳定性封印 (The Stability Seal)
+        price_volatility = close_price.pct_change().rolling(window=stability_window).std().fillna(0)
+        normalized_volatility = get_adaptive_mtf_normalized_score(price_volatility, df.index, ascending=True, tf_weights=tf_weights)
+        stability_score = (1 - normalized_volatility).clip(0, 1)
+        # --- 4. 最终品质合成 ---
+        quality_modulator = (
+            (purity_score).pow(quality_weights.get('purity_score', 0.6)) *
+            (stability_score).pow(quality_weights.get('stability_score', 0.4))
+        ).fillna(0.0)
+        final_atrophy_quality = (strategic_context_gate * base_atrophy_score * quality_modulator).clip(0, 1)
         # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
@@ -977,60 +1023,28 @@ class BehavioralIntelligence:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [行为探针 V3.0] _calculate_volume_burst_quality @ {probe_date_str}")
+                        print(f"      [行为探针 V3.0] _calculate_volume_atrophy @ {probe_date_str}")
                         # --- 原料数据 ---
                         print(f"        --- [原料数据] ---")
-                        print(f"          - [战术] 量比 (volume_ratio_D): {volume_ratio.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [战术] 主力信念 (main_force_conviction_index_D): {conviction_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [战术] 脉冲质量 (impulse_quality_ratio_D): {efficiency_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [战术] 收盘强度 (closing_strength_index_D): {result_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [战略] 筹码疲劳 (chip_fatigue_index_D): {chip_fatigue_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [战略] 套牢痛苦 (loser_pain_index_D): {loser_pain_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [环境] VWAP控制力 (vwap_control_strength_D): {vwap_control_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [基础] 量比 (volume_ratio_D): {volume_ratio.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [纯度] 赢家稳定 (winner_stability_index_D): {winner_stability_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [纯度] 输家痛苦 (loser_pain_index_D): {loser_pain_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [纯度] 浮筹清洗 (floating_chip_cleansing_efficiency_D): {cleansing_efficiency_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [稳定] 5日波动率 (raw): {price_volatility.get(probe_date, 'N/A'):.4f}")
                         # --- 关键计算节点 ---
-                        print(f"        --- [关键计算节点 - 抢滩登陆协议] ---")
-                        print(f"          - [战术] 战术强攻品质分 (四维融合): {tactical_assault_quality_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [战略] 滩头阵地阻力指数 (归一化): {beachhead_resistance_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [战略] 战略环境分 (1 - 阻力): {strategic_environment_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"        --- [关键计算节点 - 熔炉协议] ---")
+                        print(f"          - [门控] 战略环境门控分 (归一化): {strategic_context_gate.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [基础] 基础萎缩分 (1 - norm_vol_ratio): {base_atrophy_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [品质] 筹码纯度分 (三维融合): {purity_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [品质] 过程稳定分 (1 - norm_volatility): {stability_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [品质] 最终品质调节器 (纯度*稳定): {quality_modulator.get(probe_date, 'N/A'):.4f}")
                         # --- 最终结果 ---
                         print(f"        --- [最终结果] ---")
-                        print(f"        - 最终看涨量能爆发分 (战术品质 × 战略环境): {final_burst_quality.get(probe_date, 0.0):.4f}")
+                        print(f"        - 最终成交量萎缩分 (门控 × 基础 × 品质): {final_atrophy_quality.get(probe_date, 0.0):.4f}")
                 except Exception as e:
-                    print(f"    -> [行为探针错误] _calculate_volume_burst_quality 处理日期 {probe_date_str} 失败: {e}")
-        return final_burst_quality.astype(np.float32)
-
-    def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
-        """
-        【V2.1 · 生产版】计算高品质成交量萎缩信号。
-        - 核心重构: 废弃了基于“静态快照谬误”的 V1.2 模型。引入基于“环境决定论”的
-                      全新二元结构模型，旨在精确区分“良性惜售”与“恶性阴跌”。
-        - 核心二元结构:
-          1. 萎缩程度 (Atrophy Degree): 继续使用 `volume_ratio_D` 作为基础，衡量缩量状态。
-          2. 高质量环境调节器 (Quality Modulator): 引入三位一体的环境审判机制，对基础分进行调制。
-             - 获利盘锁定度: 使用 `winner_stability_index_D` 衡量赢家惜售意愿。
-             - 套牢盘枯竭度: 使用 `loser_pain_index_D` 衡量套牢盘是否被洗净。
-             - 浮筹清洗度: 使用 `floating_chip_cleansing_efficiency_D` 评估洗盘效率。
-        - 数学模型: 品质分 = 萎缩程度分 * (锁定分 * 枯竭分 * 清洗分) ^ (1/3)
-        """
-        # --- 1. 获取原始数据 ---
-        volume_ratio = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_calculate_volume_atrophy")
-        winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_calculate_volume_atrophy")
-        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_calculate_volume_atrophy")
-        cleansing_efficiency_raw = self._get_safe_series(df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_calculate_volume_atrophy")
-        # --- 2. 计算各维度得分 ---
-        # 维度一：萎缩程度分 (与量比负相关)
-        atrophy_degree_score = 1 - get_adaptive_mtf_normalized_score(volume_ratio, df.index, ascending=True, tf_weights=tf_weights)
-        # 构建高质量环境调节器
-        lockup_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=tf_weights)
-        exhaustion_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=tf_weights)
-        cleansing_score = get_adaptive_mtf_normalized_score(cleansing_efficiency_raw, df.index, ascending=True, tf_weights=tf_weights)
-        quality_modulator = (
-            (lockup_score + 1e-9) *
-            (exhaustion_score + 1e-9) *
-            (cleansing_score + 1e-9)
-        ).pow(1/3).fillna(0.0)
-        # --- 3. 最终品质合成 ---
-        volume_atrophy_quality = (atrophy_degree_score * quality_modulator).clip(0, 1)
-        return volume_atrophy_quality.astype(np.float32)
+                    print(f"    -> [行为探针错误] _calculate_volume_atrophy 处理日期 {probe_date_str} 失败: {e}")
+        return final_atrophy_quality.astype(np.float32)
 
     def _calculate_absorption_strength(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
