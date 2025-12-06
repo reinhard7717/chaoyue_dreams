@@ -228,10 +228,13 @@ class IntradayBehaviorEngine:
 
     def _diagnose_tactical_arc(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 标度向量版】日内叙事之一：诊断“战术弧线”
+        【V3.2 · 绝对向量版】日内叙事之一：诊断“战术弧线”
         - 核心重构: 沿用V3.0“叙事向量”逻辑。
-        - 核心修复: 引入“先归一，再计算”的数学纪律。对所有输入向量进行自适应双极化归一化，
-                      确保在统一标度下进行计算，彻底解决“巴别塔困境”，保证模型的鲁棒性与普适性。
+        - 核心修复: 废弃V3.1错误的“相对归一化”。采用“符号保护”新范式：
+                      1. 提取原始信号的绝对方向(sign)。
+                      2. 对原始信号的绝对值(magnitude)进行单极化归一化，评估其强度排位。
+                      3. 最终向量 = 符号 × 强度。
+                      此举确保了向量的绝对方向不被篡改，从根本上修正了逻辑。
         """
         signal_name = "SCORE_INTRADAY_TACTICAL_ARC"
         required_signals = [
@@ -241,17 +244,21 @@ class IntradayBehaviorEngine:
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_tactical_arc"):
             return {signal_name: pd.Series(0.0, index=df.index)}
-        # --- [核心逻辑] V3.1 ---
+        # --- [核心逻辑] V3.2 ---
         # 1. 获取原料信号
         raw_opening_vector = self._get_safe_series(df, 'opening_battle_result_D', 0.0, "_diagnose_tactical_arc")
         raw_closing_vector = self._get_safe_series(df, 'pre_closing_posturing_D', 0.0, "_diagnose_tactical_arc")
         battlefield_intensity_vector = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_tactical_arc")
-        # 2. [新增] 向量标度化 (归一化)
+        # 2. [新增] “符号保护”归一化
         mtf_params = get_params_block(self.strategy, 'behavioral_dynamics_params', {}).get('mtf_normalization_params', {})
         default_weights = mtf_params.get('default_weights')
-        norm_opening_vector = get_adaptive_mtf_normalized_bipolar_score(raw_opening_vector, df.index, default_weights)
-        norm_closing_vector = get_adaptive_mtf_normalized_bipolar_score(raw_closing_vector, df.index, default_weights)
-        # 3. 计算弧线方向 (核心：收官力量 - 开篇力量)
+        # 归一化开篇向量
+        norm_opening_magnitude = get_adaptive_mtf_normalized_score(raw_opening_vector.abs(), df.index, default_weights)
+        norm_opening_vector = norm_opening_magnitude * np.sign(raw_opening_vector)
+        # 归一化收官向量
+        norm_closing_magnitude = get_adaptive_mtf_normalized_score(raw_closing_vector.abs(), df.index, default_weights)
+        norm_closing_vector = norm_closing_magnitude * np.sign(raw_closing_vector)
+        # 3. 计算弧线方向
         arc_direction = norm_closing_vector - norm_opening_vector
         # 4. 计算战局重要性调节器
         battlefield_intensity = battlefield_intensity_vector.abs()
@@ -267,14 +274,14 @@ class IntradayBehaviorEngine:
                 try:
                     probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
                     if probe_date in df.index:
-                        print(f"      [日内行为探针 V3.1] _diagnose_tactical_arc @ {probe_date_str}")
+                        print(f"      [日内行为探针 V3.2] _diagnose_tactical_arc @ {probe_date_str}")
                         # --- 原料数据与归一化过程 ---
                         p_opening_raw = raw_opening_vector.get(probe_date, 0.0)
                         p_opening_norm = norm_opening_vector.get(probe_date, 0.0)
                         p_closing_raw = raw_closing_vector.get(probe_date, 0.0)
                         p_closing_norm = norm_closing_vector.get(probe_date, 0.0)
                         p_intensity_raw = battlefield_intensity_vector.get(probe_date, 0.0)
-                        print(f"        --- [原料数据 -> 归一化] ---")
+                        print(f"        --- [原料数据 -> 绝对向量归一化] ---")
                         print(f"          - 开篇向量 (原料): {p_opening_raw:.4f} -> 归一化: {p_opening_norm:.4f}")
                         print(f"          - 收官向量 (原料): {p_closing_raw:.4f} -> 归一化: {p_closing_norm:.4f}")
                         print(f"          - 战局强度 (原料): {p_intensity_raw:.4f}")
