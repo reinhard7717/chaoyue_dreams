@@ -151,9 +151,9 @@ class IntradayBehaviorEngine:
 
     def _diagnose_dominance_consensus(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.2 · Robust Normalization版】日内战报之二：诊断“支配共识”
-        - 核心重构: 沿用V4.0的“预测向量”模型，但调用新增的、更鲁棒的
-                      `get_robust_bipolar_normalized_score`工具，确保系统对“静默期”数据免疫。
+        【V4.3 · Final Quench版】日内战报之二：诊断“支配共识”
+        - 核心重构: 沿用V4.2的“预测向量”模型，但现在调用经过“临界点豁免”最终淬火的
+                      V1.1版`get_robust_bipolar_normalized_score`工具，确保系统绝对鲁棒。
         """
         signal_name = "SCORE_INTRADAY_DOMINANCE_CONSENSUS"
         required_signals = ['vwap_control_strength_D', 'SLOPE_5_main_force_conviction_index_D']
@@ -165,12 +165,9 @@ class IntradayBehaviorEngine:
         weights = get_param_value(params.get('vector_weights'), {'state': 0.6, 'trend': 0.4})
         # --- [核心逻辑] ---
         # 1. 获取原料信号
-        # 向量一：支配态势 (存量)
         dominance_state_vector = self._get_safe_series(df, 'vwap_control_strength_D', 0.0, "_diagnose_dominance_consensus")
-        # 向量二的原料：共识演化趋势 (增量)
         raw_conviction_trend = self._get_safe_series(df, 'SLOPE_5_main_force_conviction_index_D', 0.0, "_diagnose_dominance_consensus")
         # 2. 标准化趋势原料，生成[-1, 1]区间的“共识趋势向量”
-        # [代码修改] 调用新增的鲁棒归一化函数
         conviction_trend_vector = get_robust_bipolar_normalized_score(raw_conviction_trend, df.index, window=55, sensitivity=1.0)
         # 3. 向量加权合成
         final_score = (
@@ -190,7 +187,7 @@ class IntradayBehaviorEngine:
                         p_trend_raw = raw_conviction_trend.get(probe_date, 0.0)
                         p_trend_norm = conviction_trend_vector.get(probe_date, 0.0)
                         p_final_score = final_score.get(probe_date, 0.0)
-                        print(f"      [日内行为探针 V4.2] _diagnose_dominance_consensus @ {probe_date_str}")
+                        print(f"      [日内行为探针 V4.3] _diagnose_dominance_consensus @ {probe_date_str}")
                         print(f"        --- [原料数据] ---")
                         print(f"        - 支配态势原始值 (vwap_control_strength_D): {p_state_raw:.4f}")
                         print(f"        - 共识趋势原始值 (SLOPE_5_main_force_conviction_index_D): {p_trend_raw:.4f}")

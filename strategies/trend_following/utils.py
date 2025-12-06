@@ -370,11 +370,11 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int,
 
 def get_robust_bipolar_normalized_score(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
     """
-    【V1.0 · 鲁棒归一化版】双极归一化的高阶进化版 (力学罗盘)
-    - 新增原因: 为解决“零标准差悖论”而生，避免修改公共基础方法`normalize_to_bipolar`。
-    - 核心逻辑: 引入“绝对偏差校准”逻辑。当滚动标准差接近于零时，任何偏离均值的行为
-                  都将被视为最大强度的信号(直接赋予+1或-1)，从而能精准捕捉从“静默期”
-                  到“爆发期”的突变。
+    【V1.1 · 临界点豁免版】双极归一化的高阶进化版 (力学罗盘)
+    - 新增原因: 为解决“零标准差悖论”与“min_periods陷阱”而生。
+    - 核心逻辑: 在V1.0“绝对偏差校准”基础上，增加“临界点豁免”协议。当因数据稀疏
+                  导致滚动计算失败时，直接采信当前值的符号作为信号，确保在突变临界点
+                  的信号不会被湮灭。
     """
     if sensitivity == 1.0:
         sensitivity = 2.0
@@ -385,23 +385,26 @@ def get_robust_bipolar_normalized_score(series: pd.Series, target_index: pd.Inde
     min_periods = max(1, int(window * 0.2))
     rolling_mean = series_isolated.rolling(window=window, min_periods=min_periods).mean()
     rolling_std = series_isolated.rolling(window=window, min_periods=min_periods).std()
-    # --- 绝对偏差校准逻辑 ---
-    # 创建一个默认的bipolar_score序列
     bipolar_score = pd.Series(np.nan, index=series.index, dtype=np.float32)
-    # 条件1：标准差有效（不为零）
-    valid_std_mask = rolling_std.abs() > 1e-9
-    # 对标准差有效的部分，正常计算z-score
+    valid_std_mask = rolling_std.notna() & (rolling_std.abs() > 1e-9)
     if valid_std_mask.any():
         z_score = (series_isolated[valid_std_mask] - rolling_mean[valid_std_mask]) / (rolling_std[valid_std_mask] * sensitivity)
         bipolar_score.loc[valid_std_mask] = np.tanh(z_score)
-    # 条件2：标准差为零，但值偏离了均值（突变信号）
     zero_std_mask = ~valid_std_mask
     if zero_std_mask.any():
         deviation = series_isolated[zero_std_mask] - rolling_mean[zero_std_mask]
-        # 直接使用符号作为最大强度的信号
-        bipolar_score.loc[zero_std_mask] = np.sign(deviation)
+        # [代码修改] 增加临界点豁免逻辑
+        # 正常情况：deviation可以计算出来
+        valid_deviation_mask = deviation.notna()
+        if valid_deviation_mask.any():
+            bipolar_score.loc[deviation[valid_deviation_mask].index] = np.sign(deviation[valid_deviation_mask])
+        # 豁免情况：deviation是NaN (通常因为min_periods导致rolling_mean是NaN)
+        nan_deviation_mask = deviation.isna()
+        if nan_deviation_mask.any():
+            # 直接使用原始series的符号
+            original_series_subset = series[deviation[nan_deviation_mask].index]
+            bipolar_score.loc[original_series_subset.index] = np.sign(original_series_subset)
     return bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
-
 
 def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window: int) -> Tuple[pd.Series, pd.Series]:
     """
