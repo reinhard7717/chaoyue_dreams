@@ -482,7 +482,7 @@
       },
       "behavioral_divergence_params": {
         "enabled": true,
-        "description": "【V2.0 · 行为背离进化版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
+        "description": "【V3.0 · 行为背离情境自适应版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
         "multi_timeframe_slopes": {
           "enabled": true,
           "periods": [5, 13],
@@ -494,6 +494,25 @@
           "min_duration": 2,
           "max_duration_window": 5,
           "description": "背离持续性参数。min_duration为最小持续天数，max_duration_window用于归一化。"
+        },
+        "adaptive_thresholds": {
+          "enabled": true,
+          "min_slope_diff_atr_multiplier": 0.005,
+          "min_slope_diff_base": 0.005,
+          "rsi_oversold_trend_adjust_factor": 5,
+          "rsi_overbought_trend_adjust_factor": 5,
+          "description": "自适应阈值参数。min_slope_diff根据ATR动态调整，RSI阈值根据趋势活力调整。"
+        },
+        "synergy_weights": {
+          "enabled": true,
+          "two_indicators_synergy_bonus": 0.1,
+          "three_indicators_synergy_bonus": 0.2,
+          "description": "多指标协同背离奖励权重。"
+        },
+        "structural_context_weights": {
+          "enabled": true,
+          "bbw_slope_penalty_factor": 0.1,
+          "description": "结构上下文权重。BBW斜率惩罚因子，用于波动率发散时的惩罚。"
         },
         "bullish_divergence_weights": {
           "price_rsi": 0.4,

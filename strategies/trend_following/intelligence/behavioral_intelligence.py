@@ -1451,13 +1451,16 @@ class BehavioralIntelligence:
 
     def _diagnose_pure_behavioral_divergence(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> Tuple[pd.Series, pd.Series]:
         """
-        【V2.0 · 行为背离进化版】诊断纯粹基于行为类原始数据的看涨/看跌背离信号。
+        【V3.0 · 行为背离情境自适应版】诊断纯粹基于行为类原始数据的看涨/看跌背离信号。
         严格遵循“行为情报层只分析行为类原始数据”的原则，不依赖任何筹码或资金流数据。
         进化点：
         1. 鲁棒斜率计算：引入多时间框架（MTF）的斜率加权平均，减少短期噪音。
         2. 背离持续性：考虑背离条件连续满足的天数，增强信号可靠性。
         3. 确认因子精细化：将确认因子从二值化变为连续值，并优化融合方式。
-        4. 非线性融合：采用几何平均融合背离强度、持续性因子和确认因子。
+        4. 动态阈值与情境感知：使关键阈值（如min_divergence_slope_diff、RSI超买超卖）能够根据市场波动率和趋势活力进行自适应调整。
+        5. 多指标协同背离：引入对多个行为指标（RSI, MACD, Volume）同时出现背离的奖励机制。
+        6. 背离形态与结构：尝试捕捉更具结构性的背离特征，例如背离发生时的价格波动率收敛或发散。
+        7. 非线性融合优化：调整融合权重，并引入惩罚机制，以更精细地控制信号输出。
         需要加入详细的探针，输出原料数据、关键计算节点、结果的值，以便于检查和调试。
         """
         method_name = "_diagnose_pure_behavioral_divergence"
@@ -1465,27 +1468,37 @@ class BehavioralIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         mtf_slopes_params = get_param_value(p_conf.get('multi_timeframe_slopes'), {"enabled": True, "periods": [5, 13], "weights": {"5": 0.7, "13": 0.3}})
         persistence_params = get_param_value(p_conf.get('persistence_params'), {"enabled": True, "min_duration": 2, "max_duration_window": 5})
+        adaptive_thresholds_params = get_param_value(p_conf.get('adaptive_thresholds'), {"enabled": True, "min_slope_diff_atr_multiplier": 0.005, "min_slope_diff_base": 0.005, "rsi_oversold_trend_adjust_factor": 5, "rsi_overbought_trend_adjust_factor": 5})
+        synergy_weights_params = get_param_value(p_conf.get('synergy_weights'), {"enabled": True, "two_indicators_synergy_bonus": 0.1, "three_indicators_synergy_bonus": 0.2})
+        structural_context_weights_params = get_param_value(p_conf.get('structural_context_weights'), {"enabled": True, "bbw_slope_penalty_factor": 0.1})
+
         bullish_div_weights = get_param_value(p_conf.get('bullish_divergence_weights'), {"price_rsi": 0.4, "price_macd": 0.3, "price_volume": 0.3})
         bearish_div_weights = get_param_value(p_conf.get('bearish_divergence_weights'), {"price_rsi": 0.4, "price_macd": 0.3, "price_volume": 0.3})
         bullish_conf_weights = get_param_value(p_conf.get('bullish_confirmation_weights'), {"rsi_oversold": 0.3, "volume_increase": 0.3, "buying_support": 0.2, "volatility_high": 0.2})
         bearish_conf_weights = get_param_value(p_conf.get('bearish_confirmation_weights'), {"rsi_overbought": 0.3, "volume_decrease": 0.3, "selling_pressure": 0.2, "volatility_high": 0.2})
-        rsi_oversold_threshold = get_param_value(p_conf.get('rsi_oversold_threshold'), 30)
-        rsi_overbought_threshold = get_param_value(p_conf.get('rsi_overbought_threshold'), 70)
-        min_divergence_slope_diff = get_param_value(p_conf.get('min_divergence_slope_diff'), 0.01)
+        
+        rsi_oversold_threshold_base = get_param_value(p_conf.get('rsi_oversold_threshold'), 30)
+        rsi_overbought_threshold_base = get_param_value(p_conf.get('rsi_overbought_threshold'), 70)
+        min_divergence_slope_diff_base = get_param_value(adaptive_thresholds_params.get('min_slope_diff_base'), 0.005)
+        min_slope_diff_atr_multiplier = get_param_value(adaptive_thresholds_params.get('min_slope_diff_atr_multiplier'), 0.005)
+        rsi_oversold_trend_adjust_factor = get_param_value(adaptive_thresholds_params.get('rsi_oversold_trend_adjust_factor'), 5)
+        rsi_overbought_trend_adjust_factor = get_param_value(adaptive_thresholds_params.get('rsi_overbought_trend_adjust_factor'), 5)
+
         min_persistence_duration = get_param_value(persistence_params.get('min_duration'), 2)
         max_persistence_window = get_param_value(persistence_params.get('max_duration_window'), 5)
 
         # 2. 获取所需原始数据和斜率
         required_signals = [
-            'close_D', 'RSI_13_D', 'MACDh_13_34_8_D', 'volume_D', 'ATR_14_D',
-            'active_buying_support_D', 'active_selling_pressure_D'
+            'close_D', 'RSI_13_D', 'MACDh_13_34_8_D', 'volume_D', 'ATR_14_D', 'BBW_21_2.0_D',
+            'active_buying_support_D', 'active_selling_pressure_D', 'trend_vitality_index_D'
         ]
         # 动态添加MTF斜率信号到required_signals
         mtf_periods = mtf_slopes_params.get('periods', [5])
         for period in mtf_periods:
             required_signals.extend([
                 f'SLOPE_{period}_close_D', f'SLOPE_{period}_RSI_13_D',
-                f'SLOPE_{period}_MACDh_13_34_8_D', f'SLOPE_{period}_volume_D'
+                f'SLOPE_{period}_MACDh_13_34_8_D', f'SLOPE_{period}_volume_D',
+                f'SLOPE_{period}_BBW_21_2.0_D' # 新增BBW斜率
             ])
 
         if not self._validate_required_signals(df, required_signals, method_name):
@@ -1494,7 +1507,7 @@ class BehavioralIntelligence:
 
         # 3. 计算鲁棒斜率 (Robust Slopes)
         robust_slopes = {}
-        for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume']:
+        for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0']: # 新增BBW
             weighted_slope = pd.Series(0.0, index=df.index)
             total_weight = 0.0
             for period in mtf_periods:
@@ -1508,28 +1521,41 @@ class BehavioralIntelligence:
             if total_weight > 0:
                 robust_slopes[indicator] = weighted_slope / total_weight
             else:
-                robust_slopes[indicator] = self._get_safe_series(df, f'SLOPE_{mtf_periods[0]}_{indicator}_D', 0.0, method_name=method_name) # Fallback to first period if no weights/cols found
+                # Fallback to first period if no weights/cols found, or 0.0 if no slope at all
+                first_period_col = f'SLOPE_{mtf_periods[0]}_{indicator}_D' if mtf_periods else None
+                robust_slopes[indicator] = self._get_safe_series(df, first_period_col, 0.0, method_name=method_name)
 
         robust_close_slope = robust_slopes['close']
         robust_rsi_slope = robust_slopes['RSI_13']
         robust_macd_slope = robust_slopes['MACDh_13_34_8']
         robust_volume_slope = robust_slopes['volume']
+        robust_bbw_slope = robust_slopes['BBW_21_2.0'] # 新增BBW斜率
 
         # 4. 获取其他原始数据
         rsi_val = self._get_safe_series(df, 'RSI_13_D', 50.0, method_name=method_name)
         atr_val = self._get_safe_series(df, 'ATR_14_D', 0.0, method_name=method_name)
         active_buying = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name=method_name)
         active_selling = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name=method_name)
+        trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.5, method_name=method_name)
 
         # 归一化确认因子 (0到1)
         norm_active_buying = get_adaptive_mtf_normalized_score(active_buying, df.index, ascending=True, tf_weights=tf_weights)
         norm_active_selling = get_adaptive_mtf_normalized_score(active_selling, df.index, ascending=True, tf_weights=tf_weights)
         norm_atr = get_adaptive_mtf_normalized_score(atr_val, df.index, ascending=True, tf_weights=tf_weights)
-
+        
+        # 5. 动态阈值计算
+        # 动态最小斜率差异: 基础值 + ATR的百分比
+        dynamic_min_divergence_slope_diff = min_divergence_slope_diff_base + atr_val * min_slope_diff_atr_multiplier
+        # 动态RSI超买超卖阈值: 根据趋势活力调整
+        # 趋势越强，RSI超卖阈值越低（需要更极端才算超卖），超买阈值越高（需要更极端才算超买）
+        # trend_vitality 范围 [0, 1]，0.5为中性
+        rsi_oversold_threshold_dynamic = rsi_oversold_threshold_base - (trend_vitality - 0.5) * rsi_oversold_trend_adjust_factor
+        rsi_overbought_threshold_dynamic = rsi_overbought_threshold_base + (trend_vitality - 0.5) * rsi_overbought_trend_adjust_factor
+        
         bullish_divergence_score = pd.Series(0.0, index=df.index)
         bearish_divergence_score = pd.Series(0.0, index=df.index)
 
-        # 5. 计算看涨背离 (Bullish Divergence)
+        # 6. 计算看涨背离 (Bullish Divergence)
         # 价格趋势向下
         price_down_trend = (robust_close_slope < 0)
         # 行为动量或量能趋势向上
@@ -1548,11 +1574,11 @@ class BehavioralIntelligence:
             bullish_div_strength_macd * bullish_div_weights.get('price_macd', 0.3) +
             bullish_div_strength_volume * bullish_div_weights.get('price_volume', 0.3)
         )
-        total_bullish_div_strength = total_bullish_div_strength.where(total_bullish_div_strength > min_divergence_slope_diff, 0.0)
+        total_bullish_div_strength = total_bullish_div_strength.where(total_bullish_div_strength > dynamic_min_divergence_slope_diff, 0.0)
         norm_total_bullish_div_strength = get_adaptive_mtf_normalized_score(total_bullish_div_strength, df.index, ascending=True, tf_weights=tf_weights)
 
         # 确认因子 (精细化为连续值)
-        rsi_oversold_conf = get_adaptive_mtf_normalized_score((rsi_oversold_threshold - rsi_val).clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
+        rsi_oversold_conf = get_adaptive_mtf_normalized_score((rsi_oversold_threshold_dynamic - rsi_val).clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
         volume_increase_conf = get_adaptive_mtf_normalized_score(robust_volume_slope.clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
         
         total_bullish_conf_factor = (
@@ -1568,15 +1594,32 @@ class BehavioralIntelligence:
         bullish_persistence_factor = (bullish_persistence_count / max_persistence_window).clip(0, 1)
         bullish_persistence_factor = bullish_persistence_factor.where(bullish_persistence_count >= min_persistence_duration, 0.0)
 
+        # 多指标协同奖励 (Synergy Bonus)
+        num_bullish_indicators_diverging = rsi_up_trend.astype(int) + macd_up_trend.astype(int) + volume_up_trend.astype(int)
+        bullish_synergy_bonus = pd.Series(0.0, index=df.index)
+        if synergy_weights_params.get('enabled'):
+            bullish_synergy_bonus = bullish_synergy_bonus.mask(num_bullish_indicators_diverging == 2, synergy_weights_params.get('two_indicators_synergy_bonus', 0.1))
+            bullish_synergy_bonus = bullish_synergy_bonus.mask(num_bullish_indicators_diverging >= 3, synergy_weights_params.get('three_indicators_synergy_bonus', 0.2))
+        bullish_synergy_factor = (1 + bullish_synergy_bonus).clip(1, 1.5) # 限制奖励上限
+
+        # 结构上下文惩罚 (Structural Context Penalty)
+        # 波动率收敛（BBW斜率向下）是好事，波动率发散（BBW斜率向上）是坏事
+        bbw_slope_penalty = pd.Series(0.0, index=df.index)
+        if structural_context_weights_params.get('enabled'):
+            bbw_slope_penalty = robust_bbw_slope.clip(lower=0) * structural_context_weights_params.get('bbw_slope_penalty_factor', 0.1)
+        structural_context_factor = (1 - get_adaptive_mtf_normalized_score(bbw_slope_penalty, df.index, ascending=True, tf_weights=tf_weights)).clip(0.5, 1) # 惩罚因子，最低0.5
+
         # 最终看涨背离分数 (非线性融合)
         bullish_divergence_score = (
-            (norm_total_bullish_div_strength + 1e-9).pow(0.5) *
+            (norm_total_bullish_div_strength + 1e-9).pow(0.4) *
             (bullish_persistence_factor + 1e-9).pow(0.2) *
-            (norm_total_bullish_conf_factor + 1e-9).pow(0.3)
-        ).pow(1/1).fillna(0.0) # 保持总权重为1，避免过度放大
+            (norm_total_bullish_conf_factor + 1e-9).pow(0.3) *
+            (bullish_synergy_factor + 1e-9).pow(0.1) * # 协同奖励作为乘数因子
+            (structural_context_factor + 1e-9).pow(0.1) # 结构上下文作为乘数因子
+        ).pow(1/1.1).fillna(0.0) # 调整总权重，确保在0-1之间
         bullish_divergence_score = bullish_divergence_score.where(bullish_div_condition_raw, 0.0).clip(0, 1)
 
-        # 6. 计算看跌背离 (Bearish Divergence)
+        # 7. 计算看跌背离 (Bearish Divergence)
         # 价格趋势向上
         price_up_trend = (robust_close_slope > 0)
         # 行为动量或量能趋势向下
@@ -1595,11 +1638,11 @@ class BehavioralIntelligence:
             bearish_div_strength_macd * bearish_div_weights.get('price_macd', 0.3) +
             bearish_div_strength_volume * bearish_div_weights.get('price_volume', 0.3)
         )
-        total_bearish_div_strength = total_bearish_div_strength.where(total_bearish_div_strength > min_divergence_slope_diff, 0.0)
+        total_bearish_div_strength = total_bearish_div_strength.where(total_bearish_div_strength > dynamic_min_divergence_slope_diff, 0.0)
         norm_total_bearish_div_strength = get_adaptive_mtf_normalized_score(total_bearish_div_strength, df.index, ascending=True, tf_weights=tf_weights)
 
         # 确认因子 (精细化为连续值)
-        rsi_overbought_conf = get_adaptive_mtf_normalized_score((rsi_val - rsi_overbought_threshold).clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
+        rsi_overbought_conf = get_adaptive_mtf_normalized_score((rsi_val - rsi_overbought_threshold_dynamic).clip(lower=0), df.index, ascending=True, tf_weights=tf_weights)
         volume_decrease_conf = get_adaptive_mtf_normalized_score(robust_volume_slope.clip(upper=0).abs(), df.index, ascending=True, tf_weights=tf_weights)
 
         total_bearish_conf_factor = (
@@ -1615,53 +1658,85 @@ class BehavioralIntelligence:
         bearish_persistence_factor = (bearish_persistence_count / max_persistence_window).clip(0, 1)
         bearish_persistence_factor = bearish_persistence_factor.where(bearish_persistence_count >= min_persistence_duration, 0.0)
 
+        # 多指标协同奖励 (Synergy Bonus)
+        num_bearish_indicators_diverging = rsi_down_trend.astype(int) + macd_down_trend.astype(int) + volume_down_trend.astype(int)
+        bearish_synergy_bonus = pd.Series(0.0, index=df.index)
+        if synergy_weights_params.get('enabled'):
+            bearish_synergy_bonus = bearish_synergy_bonus.mask(num_bearish_indicators_diverging == 2, synergy_weights_params.get('two_indicators_synergy_bonus', 0.1))
+            bearish_synergy_bonus = bearish_synergy_bonus.mask(num_bearish_indicators_diverging >= 3, synergy_weights_params.get('three_indicators_synergy_bonus', 0.2))
+        bearish_synergy_factor = (1 + bearish_synergy_bonus).clip(1, 1.5) # 限制奖励上限
+
+        # 结构上下文惩罚 (Structural Context Penalty)
+        # 波动率收敛（BBW斜率向下）是好事，波动率发散（BBW斜率向上）是坏事
+        # 看跌背离时，如果波动率还在发散，说明风险可能更大，惩罚力度可以小一点，或者反向奖励
+        # 这里我们假设波动率发散（BBW斜率向上）在看跌背离时是风险加剧，所以惩罚
+        bbw_slope_penalty_bearish = pd.Series(0.0, index=df.index)
+        if structural_context_weights_params.get('enabled'):
+            bbw_slope_penalty_bearish = robust_bbw_slope.clip(lower=0) * structural_context_weights_params.get('bbw_slope_penalty_factor', 0.1)
+        structural_context_factor_bearish = (1 - get_adaptive_mtf_normalized_score(bbw_slope_penalty_bearish, df.index, ascending=True, tf_weights=tf_weights)).clip(0.5, 1) # 惩罚因子，最低0.5
+
         # 最终看跌背离分数 (非线性融合)
         bearish_divergence_score = (
-            (norm_total_bearish_div_strength + 1e-9).pow(0.5) *
+            (norm_total_bearish_div_strength + 1e-9).pow(0.4) *
             (bearish_persistence_factor + 1e-9).pow(0.2) *
-            (norm_total_bearish_conf_factor + 1e-9).pow(0.3)
-        ).pow(1/1).fillna(0.0) # 保持总权重为1，避免过度放大
+            (norm_total_bearish_conf_factor + 1e-9).pow(0.3) *
+            (bearish_synergy_factor + 1e-9).pow(0.1) * # 协同奖励作为乘数因子
+            (structural_context_factor_bearish + 1e-9).pow(0.1) # 结构上下文作为乘数因子
+        ).pow(1/1.1).fillna(0.0) # 调整总权重，确保在0-1之间
         bearish_divergence_score = bearish_divergence_score.where(bearish_div_condition_raw, 0.0).clip(0, 1)
 
-        # 7. 调试探针
+        # 8. 调试探针
         if debug_enabled and probe_ts and probe_ts in df.index:
             probe_date_str = probe_ts.strftime('%Y-%m-%d')
-            print(f"\n--- 行为背离进化版 (V2.0) 探针 @ {probe_date_str} ---")
+            print(f"\n--- 行为背离情境自适应版 (V3.0) 探针 @ {probe_date_str} ---")
             print(f"  [原料数据]:")
             print(f"    RSI_13_D: {rsi_val.loc[probe_ts]:.2f}")
             print(f"    ATR_14_D: {atr_val.loc[probe_ts]:.4f}")
             print(f"    active_buying_support_D: {active_buying.loc[probe_ts]:.4f}")
             print(f"    active_selling_pressure_D: {active_selling.loc[probe_ts]:.4f}")
+            print(f"    trend_vitality_index_D: {trend_vitality.loc[probe_ts]:.4f}")
             print(f"  [配置参数]:")
             print(f"    MTF periods: {mtf_periods}, weights: {mtf_slopes_params.get('weights')}")
             print(f"    Persistence min_duration: {min_persistence_duration}, max_window: {max_persistence_window}")
-            print(f"    rsi_oversold_threshold: {rsi_oversold_threshold}")
-            print(f"    rsi_overbought_threshold: {rsi_overbought_threshold}")
-            print(f"    min_divergence_slope_diff: {min_divergence_slope_diff}")
+            print(f"    rsi_oversold_threshold_base: {rsi_oversold_threshold_base}")
+            print(f"    rsi_overbought_threshold_base: {rsi_overbought_threshold_base}")
+            print(f"    min_divergence_slope_diff_base: {min_divergence_slope_diff_base}")
+            print(f"    min_slope_diff_atr_multiplier: {min_slope_diff_atr_multiplier}")
+            print(f"    rsi_oversold_trend_adjust_factor: {rsi_oversold_trend_adjust_factor}")
+            print(f"    rsi_overbought_trend_adjust_factor: {rsi_overbought_trend_adjust_factor}")
+            print(f"    two_indicators_synergy_bonus: {synergy_weights_params.get('two_indicators_synergy_bonus')}")
+            print(f"    three_indicators_synergy_bonus: {synergy_weights_params.get('three_indicators_synergy_bonus')}")
+            print(f"    bbw_slope_penalty_factor: {structural_context_weights_params.get('bbw_slope_penalty_factor')}")
+            print(f"  [动态阈值]:")
+            print(f"    dynamic_min_divergence_slope_diff: {dynamic_min_divergence_slope_diff.loc[probe_ts]:.4f}")
+            print(f"    rsi_oversold_threshold_dynamic: {rsi_oversold_threshold_dynamic.loc[probe_ts]:.2f}")
+            print(f"    rsi_overbought_threshold_dynamic: {rsi_overbought_threshold_dynamic.loc[probe_ts]:.2f}")
             print(f"  [鲁棒斜率 (Robust Slopes)]:")
             print(f"    robust_close_slope: {robust_close_slope.loc[probe_ts]:.4f}")
             print(f"    robust_rsi_slope: {robust_rsi_slope.loc[probe_ts]:.4f}")
             print(f"    robust_macd_slope: {robust_macd_slope.loc[probe_ts]:.4f}")
             print(f"    robust_volume_slope: {robust_volume_slope.loc[probe_ts]:.4f}")
+            print(f"    robust_bbw_slope: {robust_bbw_slope.loc[probe_ts]:.4f}")
             print(f"  [看涨背离关键计算节点]:")
             print(f"    price_down_trend: {price_down_trend.loc[probe_ts]}")
             print(f"    rsi_up_trend: {rsi_up_trend.loc[probe_ts]}")
             print(f"    macd_up_trend: {macd_up_trend.loc[probe_ts]}")
             print(f"    volume_up_trend: {volume_up_trend.loc[probe_ts]}")
             print(f"    bullish_div_condition_raw: {bullish_div_condition_raw.loc[probe_ts]}")
-            print(f"    bullish_div_strength_rsi: {bullish_div_strength_rsi.loc[probe_ts]:.4f}")
-            print(f"    bullish_div_strength_macd: {bullish_div_strength_macd.loc[probe_ts]:.4f}")
-            print(f"    bullish_div_strength_volume: {bullish_div_strength_volume.loc[probe_ts]:.4f}")
             print(f"    total_bullish_div_strength (raw): {total_bullish_div_strength.loc[probe_ts]:.4f}")
             print(f"    norm_total_bullish_div_strength: {norm_total_bullish_div_strength.loc[probe_ts]:.4f}")
             print(f"    rsi_oversold_conf (continuous): {rsi_oversold_conf.loc[probe_ts]:.4f}")
             print(f"    volume_increase_conf (continuous): {volume_increase_conf.loc[probe_ts]:.4f}")
             print(f"    norm_active_buying: {norm_active_buying.loc[probe_ts]:.4f}")
             print(f"    norm_atr (bullish): {norm_atr.loc[probe_ts]:.4f}")
-            print(f"    total_bullish_conf_factor (raw): {total_bullish_conf_factor.loc[probe_ts]:.4f}")
             print(f"    norm_total_bullish_conf_factor: {norm_total_bullish_conf_factor.loc[probe_ts]:.4f}")
             print(f"    bullish_persistence_count: {bullish_persistence_count.loc[probe_ts]:.0f}")
             print(f"    bullish_persistence_factor: {bullish_persistence_factor.loc[probe_ts]:.4f}")
+            print(f"    num_bullish_indicators_diverging: {num_bullish_indicators_diverging.loc[probe_ts]:.0f}")
+            print(f"    bullish_synergy_bonus: {bullish_synergy_bonus.loc[probe_ts]:.4f}")
+            print(f"    bullish_synergy_factor: {bullish_synergy_factor.loc[probe_ts]:.4f}")
+            print(f"    bbw_slope_penalty: {bbw_slope_penalty.loc[probe_ts]:.4f}")
+            print(f"    structural_context_factor: {structural_context_factor.loc[probe_ts]:.4f}")
             print(f"  [看涨背离结果]: SCORE_BEHAVIOR_BULLISH_DIVERGENCE = {bullish_divergence_score.loc[probe_ts]:.4f}")
             print(f"  [看跌背离关键计算节点]:")
             print(f"    price_up_trend: {price_up_trend.loc[probe_ts]}")
@@ -1669,19 +1744,20 @@ class BehavioralIntelligence:
             print(f"    macd_down_trend: {macd_down_trend.loc[probe_ts]}")
             print(f"    volume_down_trend: {volume_down_trend.loc[probe_ts]}")
             print(f"    bearish_div_condition_raw: {bearish_div_condition_raw.loc[probe_ts]}")
-            print(f"    bearish_div_strength_rsi: {bearish_div_strength_rsi.loc[probe_ts]:.4f}")
-            print(f"    bearish_div_strength_macd: {bearish_div_strength_macd.loc[probe_ts]:.4f}")
-            print(f"    bearish_div_strength_volume: {bearish_div_strength_volume.loc[probe_ts]:.4f}")
             print(f"    total_bearish_div_strength (raw): {total_bearish_div_strength.loc[probe_ts]:.4f}")
             print(f"    norm_total_bearish_div_strength: {norm_total_bearish_div_strength.loc[probe_ts]:.4f}")
             print(f"    rsi_overbought_conf (continuous): {rsi_overbought_conf.loc[probe_ts]:.4f}")
             print(f"    volume_decrease_conf (continuous): {volume_decrease_conf.loc[probe_ts]:.4f}")
             print(f"    norm_active_selling: {norm_active_selling.loc[probe_ts]:.4f}")
             print(f"    norm_atr (bearish): {norm_atr.loc[probe_ts]:.4f}")
-            print(f"    total_bearish_conf_factor (raw): {total_bearish_conf_factor.loc[probe_ts]:.4f}")
             print(f"    norm_total_bearish_conf_factor: {norm_total_bearish_conf_factor.loc[probe_ts]:.4f}")
             print(f"    bearish_persistence_count: {bearish_persistence_count.loc[probe_ts]:.0f}")
             print(f"    bearish_persistence_factor: {bearish_persistence_factor.loc[probe_ts]:.4f}")
+            print(f"    num_bearish_indicators_diverging: {num_bearish_indicators_diverging.loc[probe_ts]:.0f}")
+            print(f"    bearish_synergy_bonus: {bearish_synergy_bonus.loc[probe_ts]:.4f}")
+            print(f"    bearish_synergy_factor: {bearish_synergy_factor.loc[probe_ts]:.4f}")
+            print(f"    bbw_slope_penalty_bearish: {bbw_slope_penalty_bearish.loc[probe_ts]:.4f}")
+            print(f"    structural_context_factor_bearish: {structural_context_factor_bearish.loc[probe_ts]:.4f}")
             print(f"  [看跌背离结果]: SCORE_BEHAVIOR_BEARISH_DIVERGENCE = {bearish_divergence_score.loc[probe_ts]:.4f}")
 
         return bullish_divergence_score.astype(np.float32), bearish_divergence_score.astype(np.float32)
