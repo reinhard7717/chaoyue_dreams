@@ -482,7 +482,7 @@
       },
       "behavioral_divergence_params": {
         "enabled": true,
-        "description": "【V7.0 · 行为背离行为一致性与模式序列版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
+        "description": "【V8.0 · 行为背离强度惯性与自适应引擎版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
         "multi_timeframe_slopes": {
           "enabled": true,
           "periods": [5, 13],
@@ -499,7 +499,8 @@
           "enabled": true,
           "min_duration": 2,
           "max_duration_window": 5,
-          "description": "背离持续性参数。min_duration为最小持续天数，max_duration_window用于归一化。"
+          "quality_decay_factor": 0.05,
+          "description": "背离持续性参数。min_duration为最小持续天数，max_duration_window用于归一化，quality_decay_factor用于持续期间的质量评估。"
         },
         "adaptive_thresholds": {
           "enabled": true,
@@ -586,6 +587,26 @@
           "reversal_pct_change_threshold": 0.01,
           "sequence_bonus": 0.2,
           "description": "行为模式序列识别参数。识别价格和成交量在短期内的特定组合模式。"
+        },
+        "behavioral_strength_params": {
+          "enabled": true,
+          "acceleration_bonus": 0.05,
+          "description": "行为强度参数。对背离方向上的加速度给予额外奖励。"
+        },
+        "behavioral_inertia_params": {
+          "enabled": true,
+          "long_term_adx_threshold": 30,
+          "long_term_slope_stability_threshold": 0.8,
+          "high_inertia_penalty": 0.1,
+          "low_inertia_bonus": 0.05,
+          "description": "行为惯性评估参数。评估市场长期趋势的惯性，对背离信号进行调整。"
+        },
+        "adaptive_fusion_weights_params": {
+          "enabled": true,
+          "trend_strong_penalty_factor": 0.1,
+          "ranging_bonus_factor": 0.1,
+          "volatility_high_penalty_factor": 0.05,
+          "description": "自适应融合权重参数。根据市场情境动态调整融合公式的幂次。"
         },
         "bullish_divergence_weights": {
           "price_rsi": 0.4,
