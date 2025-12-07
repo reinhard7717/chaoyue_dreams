@@ -1412,7 +1412,7 @@
           "comment": "融合“脆弱战场”、“幽灵诡计”和“突袭品质”构建“伏击式反攻”时的权重及参数。"
         },
         "breakout_failure_risk_params": {
-          "description": "【V4.8 · 风险动态前置调制版】“突破失败级联风险”信号参数",
+          "description": "【V4.9 · 变量定义修复版】“突破失败级联风险”信号参数",
           "core_risk_weights": {
             "ambush": 0.3,
             "trapped_force_pain": 0.4,

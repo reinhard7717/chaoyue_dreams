@@ -1010,7 +1010,7 @@ class BehavioralIntelligence:
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, overextension_score_series: pd.Series, deception_index_series: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        【V4.8 · 风险动态前置调制版】诊断突破失败级联风险
+        【V4.9 · 变量定义修复版】诊断突破失败级联风险
         - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-套牢-背弃-情境”
                       诡道剧本的全新五维诊断模型，旨在精确识别高迷惑性的“牛市陷阱”。
         - 战术五要素:
@@ -1164,13 +1164,16 @@ class BehavioralIntelligence:
         ).pow(1 / core_risk_synergy_exponent).fillna(0.0)
         # 使用 1 - (1 - x)^P 形式的幂函数对 weighted_avg_risk 进行高风险区间拉伸
         stretched_weighted_avg_risk = (1 - (1 - weighted_avg_risk).pow(core_risk_high_end_stretch_power)).clip(0,1)
-        # [代码修改] 将 core_risk_base 命名为 core_risk_base_initial
         core_risk_base_initial = (lure_score_modulated * stretched_weighted_avg_risk).clip(0,1).fillna(0.0)
-        # [代码修改] deceptive_calm_effect 依赖于 core_risk_base_initial
+        # [代码修改] 重新添加 deceptive_calm_score 的计算
+        deceptive_calm_score = (
+            (1 - overextension_score) * deceptive_calm_weights.get('overextension_inverse', 0.3) +
+            (1 - positive_deception_score) * deceptive_calm_weights.get('positive_deception_inverse', 0.3) +
+            (1 - retail_fomo_score) * deceptive_calm_weights.get('retail_fomo_inverse', 0.4)
+        ).clip(0,1)
         deceptive_calm_effect = deceptive_calm_score * deceptive_calm_multiplier * (core_risk_base_initial > deceptive_calm_threshold).astype(float)
         final_amplifier = 1 + (context_amplifier_factor * max_amplification_factor) + deceptive_calm_effect
-        # [代码修改] 计算风险动态调制因子
-        # 确保有足够的历史数据进行EMA和斜率计算
+        # 计算风险动态调制因子
         # 注意：这里 risk_ema 等的计算应该基于 core_risk_base_initial，而不是最终的 breakout_failure_risk
         if len(core_risk_base_initial) < max(risk_ema_span, risk_trend_slope_window, risk_momentum_diff_window) + 1:
             risk_dynamic_modulator = pd.Series(1.0, index=df.index)
@@ -1193,7 +1196,6 @@ class BehavioralIntelligence:
                 (risk_momentum_score * risk_momentum_mod_multiplier)
             ).clip(0.5, 1.5) # 限制调制因子在合理范围，防止过度放大或缩小
         # --- 4. 最终风险合成 ---
-        # [代码修改] 将所有调制因子一同应用于 core_risk_base_initial
         breakout_failure_risk = (core_risk_base_initial * final_amplifier * risk_dynamic_modulator).clip(0, 1)
         # --- 5. 探针输出 ---
         if debug_enabled and probe_ts and probe_ts in df.index:
@@ -1241,7 +1243,7 @@ class BehavioralIntelligence:
             print(f"         - positive_deception_score (正向欺骗分): {positive_deception_score.loc[probe_ts]:.4f}")
             print(f"         - retail_fomo_score (散户狂热分): {retail_fomo_score.loc[probe_ts]:.4f}")
             print(f"         - context_amplifier_factor (显性情境放大因子): {context_amplifier_factor.loc[probe_ts]:.4f}")
-            print(f"         - deceptive_calm_score (欺骗性平静分): {deceptive_calm_score.loc[probe_ts]:.4f}")
+            print(f"         - deceptive_calm_score (欺骗性平静分): {deceptive_calm_score.loc[probe_ts]:.4f}") # [代码修改] 重新添加
             print(f"         - deceptive_calm_effect (欺骗性平静效应): {deceptive_calm_effect.loc[probe_ts]:.4f}")
             print(f"         - normalized_volatility (归一化波动性): {normalized_volatility.loc[probe_ts]:.4f}")
             print(f"         - normalized_inverse_trend_vitality (归一化反向趋势活力): {normalized_inverse_trend_vitality.loc[probe_ts]:.4f}")
@@ -1251,7 +1253,7 @@ class BehavioralIntelligence:
             print(f"         - dynamic_mf_abandonment_weight (动态主力背弃度权重): {dynamic_mf_abandonment_weight.loc[probe_ts]:.4f}")
             print(f"         - weighted_avg_risk (核心风险加权平均): {weighted_avg_risk.loc[probe_ts]:.4f}")
             print(f"         - stretched_weighted_avg_risk (拉伸后的核心风险加权平均): {stretched_weighted_avg_risk.loc[probe_ts]:.4f}")
-            print(f"         - core_risk_base_initial (基础核心风险基准分): {core_risk_base_initial.loc[probe_ts]:.4f}") # [代码修改] 变量名更新
+            print(f"         - core_risk_base_initial (基础核心风险基准分): {core_risk_base_initial.loc[probe_ts]:.4f}")
             print(f"         - final_amplifier (最终放大器): {final_amplifier.loc[probe_ts]:.4f}")
             print(f"         - risk_ema (风险EMA): {risk_ema.loc[probe_ts]:.4f}")
             print(f"         - risk_trend (风险趋势): {risk_trend.loc[probe_ts]:.4f}")
