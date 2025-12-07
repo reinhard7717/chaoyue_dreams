@@ -895,6 +895,22 @@
               {"name": "SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL", "weight": 0.1}
             ],
             "comment": "行为领域反转信号，由过程层生成。"
+          },
+          {
+            "name": "PROCESS_META_WASH_OUT_REBOUND",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "relationship_type": "custom",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 洗盘诱空反弹协议】识别主力通过制造虚假抛压（洗盘、诱空），迫使散户割肉后，随即展开的反弹机会。"
+          },
+          {
+            "name": "PROCESS_META_COVERT_ACCUMULATION",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "relationship_type": "custom",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 隐蔽吸筹协议】识别主力在市场情绪低迷、价格波动不大或小幅下跌/盘整时，通过隐蔽手段进行持续吸筹的行为。"
           }
         ],
         "wash_out_rebound_params": {
