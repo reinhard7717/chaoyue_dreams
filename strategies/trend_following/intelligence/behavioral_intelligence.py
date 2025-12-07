@@ -1010,7 +1010,7 @@ class BehavioralIntelligence:
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, overextension_score_series: pd.Series, deception_index_series: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        【V4.3 · 风险权重自适应版】诊断突破失败级联风险
+        【V4.4 · 核心风险协同增强版】诊断突破失败级联风险
         - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-套牢-背弃-情境”
                       诡道剧本的全新五维诊断模型，旨在精确识别高迷惑性的“牛市陷阱”。
         - 战术五要素:
@@ -1021,7 +1021,7 @@ class BehavioralIntelligence:
           5. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买)、`SCORE_BEHAVIOR_DECEPTION_INDEX` (正向，拉高出货) 和 `retail_fomo_premium_index_D` (正向散户狂热)，以及“欺骗性平静”效应，对风险进行情境化放大。
         - 数学模型: 风险分 = 核心风险基准分 × 情境放大器
                       核心风险基准分 = 情境化诱饵分 × tanh(核心风险加权平均 × TanhFactor)
-                      核心风险加权平均 = 动态权重加权平均(伏击分, 套牢盘痛苦度, 主力背弃度)，其中动态权重指数根据市场波动性和趋势活力自适应调整。
+                      核心风险加权平均 = 动态权重加权幂平均(伏击分, 套牢盘痛苦度, 主力背弃度)，其中动态权重指数根据市场波动性和趋势活力自适应调整，幂指数用于增强协同效应。
                       情境放大器 = 1 + (显性情境放大因子 × MaxAmplificationFactor) + 欺骗性平静效应
         """
         method_name = "_diagnose_breakout_failure_risk"
@@ -1034,7 +1034,7 @@ class BehavioralIntelligence:
             'trend_vitality_index_D',
             'active_buying_support_D',
             'upward_impulse_purity_D',
-            'VOLATILITY_INSTABILITY_INDEX_21d_D' # [代码修改] 新增
+            'VOLATILITY_INSTABILITY_INDEX_21d_D'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
@@ -1058,10 +1058,11 @@ class BehavioralIntelligence:
         deceptive_calm_weights = get_param_value(breakout_params.get('deceptive_calm_weights'), {"overextension_inverse": 0.3, "positive_deception_inverse": 0.3, "retail_fomo_inverse": 0.4})
         deceptive_calm_multiplier = get_param_value(breakout_params.get('deceptive_calm_multiplier'), 0.2)
         deceptive_calm_threshold = get_param_value(breakout_params.get('deceptive_calm_threshold'), 0.5)
-        # [代码修改] 替换 dynamic_risk_weight_exponent 为 base_dynamic_risk_weight_exponent 和调制因子
         base_dynamic_risk_weight_exponent = get_param_value(breakout_params.get('base_dynamic_risk_weight_exponent'), 1.5)
         volatility_exponent_multiplier = get_param_value(breakout_params.get('volatility_exponent_multiplier'), 0.5)
         trend_vitality_exponent_multiplier = get_param_value(breakout_params.get('trend_vitality_exponent_multiplier'), 0.5)
+        # [代码修改] 新增 core_risk_synergy_exponent
+        core_risk_synergy_exponent = get_param_value(breakout_params.get('core_risk_synergy_exponent'), 2.0)
         # --- 1. 获取五大核心战术要素的原始数据 ---
         # 诱饵 (The Lure)
         breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name=method_name)
@@ -1074,7 +1075,7 @@ class BehavioralIntelligence:
         # 主力背弃度 (Main Force Abandonment)
         main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
         main_force_execution_alpha_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name=method_name)
-        main_force_net_flow_calibrated_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name) # [代码修改] 变量名统一
+        main_force_net_flow_calibrated_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
         # 情境放大器 (Contextual Amplifier) - 从参数获取
         overextension_score = overextension_score_series
         deception_raw = deception_index_series
@@ -1082,7 +1083,6 @@ class BehavioralIntelligence:
         trend_vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.5, method_name=method_name)
         active_buying_raw = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name=method_name)
         upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
-        # [代码修改] 获取波动性原始数据
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
         # --- 2. 计算各要素得分 ---
         lure_score = get_adaptive_mtf_normalized_score(breakout_quality_raw, df.index, ascending=True, tf_weights=default_weights)
@@ -1114,7 +1114,7 @@ class BehavioralIntelligence:
         trapped_force_score = (potential_pressure * (1 + instability_trigger * trapped_force_amplification_factor)).clip(0,1)
         conviction_decay_score = get_adaptive_mtf_normalized_score(main_force_conviction_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         alpha_negative_normalized = get_adaptive_mtf_normalized_score(main_force_execution_alpha_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
-        negative_net_flow_score = get_adaptive_mtf_normalized_score(main_force_net_flow_calibrated_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights) # [代码修改] 变量名统一
+        negative_net_flow_score = get_adaptive_mtf_normalized_score(main_force_net_flow_calibrated_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         amplified_negative_net_flow_score = (1 - (1 - negative_net_flow_score).pow(mf_net_flow_power_factor)).clip(0,1)
         mf_abandonment_score = (
             conviction_decay_score * mf_abandonment_weights.get('conviction_decay', 0.3) +
@@ -1130,7 +1130,6 @@ class BehavioralIntelligence:
             retail_fomo_score * context_amplifier_weights.get('retail_fomo', 0.3)
         ).clip(0, 1)
         # --- 3. 核心风险基准分合成 ---
-        # [代码修改] 计算自适应动态风险权重指数
         normalized_volatility = get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, ascending=True, tf_weights=default_weights)
         normalized_inverse_trend_vitality = (1 - get_adaptive_mtf_normalized_score(trend_vitality_raw, df.index, ascending=True, tf_weights=default_weights)).clip(0,1)
         adaptive_dynamic_risk_weight_exponent = (
@@ -1138,7 +1137,6 @@ class BehavioralIntelligence:
             normalized_volatility * volatility_exponent_multiplier +
             normalized_inverse_trend_vitality * trend_vitality_exponent_multiplier
         ).clip(1.0, 3.0) # 限制指数范围，防止过大或过小
-        # [代码修改] 使用自适应指数计算动态权重
         dynamic_ambush_contribution = (ambush_score.pow(adaptive_dynamic_risk_weight_exponent)) * core_risk_weights.get('ambush', 0.3)
         dynamic_trapped_force_contribution = (trapped_force_score.pow(adaptive_dynamic_risk_weight_exponent)) * core_risk_weights.get('trapped_force_pain', 0.4)
         dynamic_mf_abandonment_contribution = (mf_abandonment_score.pow(adaptive_dynamic_risk_weight_exponent)) * core_risk_weights.get('main_force_abandonment', 0.3)
@@ -1149,11 +1147,16 @@ class BehavioralIntelligence:
         dynamic_ambush_weight = dynamic_ambush_weight.fillna(core_risk_weights.get('ambush', 0.3))
         dynamic_trapped_force_weight = dynamic_trapped_force_weight.fillna(core_risk_weights.get('trapped_force_pain', 0.4))
         dynamic_mf_abandonment_weight = dynamic_mf_abandonment_weight.fillna(core_risk_weights.get('main_force_abandonment', 0.3))
+        # [代码修改] 使用加权幂平均计算 weighted_avg_risk
+        # 避免 0^0 导致 NaN，将 0 替换为极小值
+        ambush_score_pow = (ambush_score + 1e-9).pow(core_risk_synergy_exponent)
+        trapped_force_score_pow = (trapped_force_score + 1e-9).pow(core_risk_synergy_exponent)
+        mf_abandonment_score_pow = (mf_abandonment_score + 1e-9).pow(core_risk_synergy_exponent)
         weighted_avg_risk = (
-            ambush_score * dynamic_ambush_weight +
-            trapped_force_score * dynamic_trapped_force_weight +
-            mf_abandonment_score * dynamic_mf_abandonment_weight
-        )
+            dynamic_ambush_weight * ambush_score_pow +
+            dynamic_trapped_force_weight * trapped_force_score_pow +
+            dynamic_mf_abandonment_weight * mf_abandonment_score_pow
+        ).pow(1 / core_risk_synergy_exponent).fillna(0.0)
         core_risk_base = lure_score_modulated * np.tanh(weighted_avg_risk * core_risk_tanh_factor).fillna(0.0)
         deceptive_calm_score = (
             (1 - overextension_score) * deceptive_calm_weights.get('overextension_inverse', 0.3) +
@@ -1177,14 +1180,14 @@ class BehavioralIntelligence:
             print(f"         - chip_fatigue_index_D: {chip_fatigue_raw.loc[probe_ts]:.4f}")
             print(f"         - main_force_conviction_index_D: {main_force_conviction_raw.loc[probe_ts]:.4f}")
             print(f"         - main_force_execution_alpha_D: {main_force_execution_alpha_raw.loc[probe_ts]:.4f}")
-            print(f"         - main_force_net_flow_calibrated_D: {main_force_net_flow_calibrated_raw.loc[probe_ts]:.4f}") # [代码修改] 变量名统一
+            print(f"         - main_force_net_flow_calibrated_D: {main_force_net_flow_calibrated_raw.loc[probe_ts]:.4f}")
             print(f"         - INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW (passed): {overextension_score.loc[probe_ts]:.4f}")
             print(f"         - SCORE_BEHAVIOR_DECEPTION_INDEX (passed): {deception_raw.loc[probe_ts]:.4f}")
             print(f"         - retail_fomo_premium_index_D: {retail_fomo_raw.loc[probe_ts]:.4f}")
             print(f"         - trend_vitality_index_D: {trend_vitality_raw.loc[probe_ts]:.4f}")
             print(f"         - active_buying_support_D: {active_buying_raw.loc[probe_ts]:.4f}")
             print(f"         - upward_impulse_purity_D: {upward_purity_raw.loc[probe_ts]:.4f}")
-            print(f"         - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[probe_ts]:.4f}") # [代码修改] 新增
+            print(f"         - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[probe_ts]:.4f}")
             print(f"       - 关键计算节点:")
             print(f"         - lure_score (诱饵分): {lure_score.loc[probe_ts]:.4f}")
             print(f"         - market_weakness_score (市场弱势分): {market_weakness_score.loc[probe_ts]:.4f}")
@@ -1212,15 +1215,15 @@ class BehavioralIntelligence:
             print(f"         - context_amplifier_factor (显性情境放大因子): {context_amplifier_factor.loc[probe_ts]:.4f}")
             print(f"         - deceptive_calm_score (欺骗性平静分): {deceptive_calm_score.loc[probe_ts]:.4f}")
             print(f"         - deceptive_calm_effect (欺骗性平静效应): {deceptive_calm_effect.loc[probe_ts]:.4f}")
-            print(f"         - normalized_volatility (归一化波动性): {normalized_volatility.loc[probe_ts]:.4f}") # [代码修改] 新增
-            print(f"         - normalized_inverse_trend_vitality (归一化反向趋势活力): {normalized_inverse_trend_vitality.loc[probe_ts]:.4f}") # [代码修改] 新增
-            print(f"         - adaptive_dynamic_risk_weight_exponent (自适应动态风险权重指数): {adaptive_dynamic_risk_weight_exponent.loc[probe_ts]:.4f}") # [代码修改] 新增
+            print(f"         - normalized_volatility (归一化波动性): {normalized_volatility.loc[probe_ts]:.4f}")
+            print(f"         - normalized_inverse_trend_vitality (归一化反向趋势活力): {normalized_inverse_trend_vitality.loc[probe_ts]:.4f}")
+            print(f"         - adaptive_dynamic_risk_weight_exponent (自适应动态风险权重指数): {adaptive_dynamic_risk_weight_exponent.loc[probe_ts]:.4f}")
             print(f"         - dynamic_ambush_weight (动态伏击权重): {dynamic_ambush_weight.loc[probe_ts]:.4f}")
             print(f"         - dynamic_trapped_force_weight (动态套牢盘痛苦度权重): {dynamic_trapped_force_weight.loc[probe_ts]:.4f}")
             print(f"         - dynamic_mf_abandonment_weight (动态主力背弃度权重): {dynamic_mf_abandonment_weight.loc[probe_ts]:.4f}")
-            print(f"         - final_amplifier (最终放大器): {final_amplifier.loc[probe_ts]:.4f}")
-            print(f"         - weighted_avg_risk (核心风险加权平均): {weighted_avg_risk.loc[probe_ts]:.4f}")
+            print(f"         - weighted_avg_risk (核心风险加权平均): {weighted_avg_risk.loc[probe_ts]:.4f}") # [代码修改] 打印新的加权平均
             print(f"         - core_risk_base (核心风险基准分): {core_risk_base.loc[probe_ts]:.4f}")
+            print(f"         - final_amplifier (最终放大器): {final_amplifier.loc[probe_ts]:.4f}")
             print(f"       - 最终结果:")
             print(f"         - SCORE_RISK_BREAKOUT_FAILURE_CASCADE: {breakout_failure_risk.loc[probe_ts]:.4f}")
         return breakout_failure_risk.astype(np.float32)
