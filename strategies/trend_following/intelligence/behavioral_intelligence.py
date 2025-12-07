@@ -1809,8 +1809,8 @@ class BehavioralIntelligence:
             'close_D', 'RSI_13_D', 'MACDh_13_34_8_D', 'volume_D', 'ATR_14_D', 'BBW_21_2.0_D',
             'active_buying_support_D', 'active_selling_pressure_D', 'trend_vitality_index_D',
             'open_D', 'high_D', 'low_D', 'ADX_14_D', 'VOL_MA_21_D', 'pct_change_D',
-            'BIAS_5_D', 'BBP_20_2.0_D', # 新增BIAS和BBP
-            'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL' # 新增行为层派生信号
+            'BIAS_5_D', 'BBP_21_2.0_D', # [修改的代码行] 修正BBP指标名称
+            'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL' # [修改的代码行] 新增行为层派生信号
         ]
         # 动态添加MTF斜率信号到required_signals
         mtf_periods = mtf_slopes_params.get('periods', [5])
@@ -1907,6 +1907,9 @@ class BehavioralIntelligence:
         current_volume = self._get_safe_series(df, 'volume_D', 0.0, method_name=method_name)
         volume_avg = self._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name=method_name)
         pct_change_val = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
+        # [修改的代码行] 获取派生信号
+        upward_efficiency_val = self._get_safe_series(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5, method_name=method_name)
+        intraday_bull_control_val = self._get_safe_series(df, 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 0.5, method_name=method_name)
 
         # 归一化确认因子 (0到1)
         norm_active_buying = get_adaptive_mtf_normalized_score(active_buying, df.index, ascending=True, tf_weights=tf_weights)
@@ -2569,6 +2572,8 @@ class BehavioralIntelligence:
             print(f"    volume_D: {current_volume.loc[probe_ts]:.0f}")
             print(f"    VOL_MA_21_D (volume_avg): {volume_avg.loc[probe_ts]:.0f}")
             print(f"    pct_change_D: {pct_change_val.loc[probe_ts]:.4f}")
+            print(f"    SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {upward_efficiency_val.loc[probe_ts]:.4f}") # [修改的代码行] 新增探针输出
+            print(f"    SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {intraday_bull_control_val.loc[probe_ts]:.4f}") # [修改的代码行] 新增探针输出
             print(f"  [配置参数]:")
             print(f"    MTF periods: {mtf_periods}, weights: {mtf_slopes_params.get('weights')}")
             print(f"    Long Term Period: {long_term_period}, Resonance Bonus: {multi_level_resonance_params.get('resonance_bonus')}")
