@@ -118,10 +118,10 @@ class ChipIntelligence:
         """
         【V7.0 · 诡道时序增强版】诊断主力的综合战略态势 (大一统信号)
         - 核心升级1: 细化“指挥官决心”维度中的诡道类型，将单一欺骗指数拆分为“压价吸筹（诱空）”、“拉高出货（诱多）”和“对倒”三种，并进行加权融合。
-        - 核心升级2: 对基础战略态势得分进行时间序列分析，计算其“速度”和“加速度”，并将其与基础得分进行融合，增强信号的前瞻性。
-        - 核心升级3: 植入标准化的“真理探针”，输出所有原始数据、关键计算过程及最终结果。
+        - 核心升级2: 对基础战略态态得分进行时间序列分析，计算其“速度”和“加速度”，并将其与基础得分进行融合，增强信号的前瞻性。
         """
-        print("    -> [筹码层] 正在诊断“战略态态 (V7.0 · 诡道时序增强版)”...")
+        # [代码修改] 移除调试探针
+        # print("    -> [筹码层] 正在诊断“战略态态 (V7.0 · 诡道时序增强版)”...")
         required_signals = [
             'cost_gini_coefficient_D', 'covert_accumulation_signal_D', 'peak_exchange_purity_D',
             'main_force_cost_advantage_D', 'control_solidity_index_D', 'SLOPE_5_main_force_conviction_index_D',
@@ -158,24 +158,21 @@ class ChipIntelligence:
         control_solidity = self._get_safe_series(df, df, 'control_solidity_index_D', 0.0)
         conviction_slope = self._get_safe_series(df, df, 'SLOPE_5_main_force_conviction_index_D', 0.0)
         
-        # [代码修改] 细化诡道类型
         deception_index = self._get_safe_series(df, df, 'deception_index_D', 0.0)
         wash_trade_intensity = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0)
 
-        # 根据 signal_dictionary.json 的定义：deception_index_D > 0 代表压价吸筹（诱空），< 0 代表拉高出货（诱多）
-        deception_bear_trap_raw = deception_index.clip(lower=0) # 压价吸筹 (诱空) - 正向贡献
-        deception_bull_trap_raw = deception_index.clip(upper=0).abs() # 拉高出货 (诱多) - 负向贡献
+        deception_bear_trap_raw = deception_index.clip(lower=0)
+        deception_bull_trap_raw = deception_index.clip(upper=0).abs()
 
         bear_trap_score = get_adaptive_mtf_normalized_score(deception_bear_trap_raw, df_index, ascending=True, tf_weights=tf_weights)
         bull_trap_score = get_adaptive_mtf_normalized_score(deception_bull_trap_raw, df_index, ascending=True, tf_weights=tf_weights)
         wash_trade_score = get_adaptive_mtf_normalized_score(wash_trade_intensity, df_index, ascending=True, tf_weights=tf_weights)
 
-        # 融合诡道影响力：压价吸筹（诱空）是积极的，拉高出货（诱多）和对倒是消极的
         deception_impact_score = (
             bear_trap_score * deception_fusion_weights.get('bear_trap_positive', 0.6)
             - bull_trap_score * deception_fusion_weights.get('bull_trap_negative', 0.2)
             - wash_trade_score * deception_fusion_weights.get('wash_trade_negative', 0.2)
-        ).clip(-1, 1) # 确保在 [-1, 1] 范围内
+        ).clip(-1, 1)
 
         advantage_score = get_adaptive_mtf_normalized_bipolar_score(cost_advantage, df_index, tf_weights)
         solidity_score = get_adaptive_mtf_normalized_bipolar_score(control_solidity, df_index, tf_weights)
@@ -183,7 +180,7 @@ class ChipIntelligence:
 
         commanders_resolve_score = (
             (advantage_score.add(1)/2) * (solidity_score.add(1)/2) *
-            (intent_score.clip(lower=-1, upper=1).add(1)/2) * (deception_impact_score.add(1)/2) # [代码修改] 使用新的诡道影响力得分
+            (intent_score.clip(lower=-1, upper=1).add(1)/2) * (deception_impact_score.add(1)/2)
         ).pow(1/4) * 2 - 1
 
         # --- 维度3: 战场控制 (Battlefield Control) ---
@@ -199,98 +196,23 @@ class ChipIntelligence:
             (commanders_resolve_score.add(1)/2).pow(0.5) *
             (formation_deployment_score.add(1)/2).pow(0.3) *
             (battlefield_control_score.add(1)/2).pow(0.2)
-        ).pow(1/(0.5+0.3+0.2)) * 2 - 1 # [代码修改] 确保幂次和为1，并映射回[-1,1]
+        ).pow(1/(0.5+0.3+0.2)) * 2 - 1
 
-        # --- [代码修改] NEW: 时间序列分析 (Strategic Dynamics) ---
-        # 使用 EMA 平滑基础得分，以计算其速度和加速度
+        # --- 时间序列分析 (Strategic Dynamics) ---
         smoothed_base_score = base_strategic_posture_score.ewm(span=smoothing_ema_span, adjust=False).mean()
         
-        # 计算速度 (一阶导数)
         velocity = smoothed_base_score.diff(1).fillna(0)
-        # 计算加速度 (二阶导数)
         acceleration = velocity.diff(1).fillna(0)
 
-        # 归一化速度和加速度到双极性得分
         norm_velocity = get_adaptive_mtf_normalized_bipolar_score(velocity, df_index, tf_weights)
         norm_acceleration = get_adaptive_mtf_normalized_bipolar_score(acceleration, df_index, tf_weights)
 
-        # 将基础得分与时间序列动态融合
         final_score = (
             (base_strategic_posture_score.add(1)/2).pow(dynamic_fusion_weights.get('base_score', 0.6)) *
             (norm_velocity.add(1)/2).pow(dynamic_fusion_weights.get('velocity', 0.2)) *
             (norm_acceleration.add(1)/2).pow(dynamic_fusion_weights.get('acceleration', 0.2))
-        ).pow(1 / sum(dynamic_fusion_weights.values())) * 2 - 1 # 确保幂次和为1，并映射回[-1,1]
-
-        # --- [代码修改] 探针逻辑: 暴露所有计算节点 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date in df.index:
-                print(f"    -> [战略态势探针] @ {probe_date.date()}:")
-                print(f"       --- [原始输入数据] ---")
-                print(f"         - cost_gini_coefficient_D: {self._get_safe_series(df, df, 'cost_gini_coefficient_D').loc[probe_date]:.4f}")
-                print(f"         - covert_accumulation_signal_D: {covert_accumulation.loc[probe_date]:.4f}")
-                print(f"         - peak_exchange_purity_D: {peak_purity.loc[probe_date]:.4f}")
-                print(f"         - main_force_cost_advantage_D: {cost_advantage.loc[probe_date]:.4f}")
-                print(f"         - control_solidity_index_D: {control_solidity.loc[probe_date]:.4f}")
-                print(f"         - SLOPE_5_main_force_conviction_index_D: {conviction_slope.loc[probe_date]:.4f}")
-                print(f"         - floating_chip_cleansing_efficiency_D: {cleansing_efficiency.loc[probe_date]:.4f}")
-                print(f"         - dominant_peak_solidity_D: {peak_solidity.loc[probe_date]:.4f}")
-                print(f"         - deception_index_D (原始): {deception_index.loc[probe_date]:.4f}")
-                print(f"         - wash_trade_intensity_D (原始): {wash_trade_intensity.loc[probe_date]:.4f}")
-
-                print(f"       --- [维度1: 阵型部署 (Formation Deployment)] ---")
-                print(f"         - 原始值:")
-                print(f"           - concentration_level (1-Gini): {concentration_level.loc[probe_date]:.4f}")
-                print(f"           - covert_accumulation: {covert_accumulation.loc[probe_date]:.4f}")
-                print(f"           - peak_purity: {peak_purity.loc[probe_date]:.4f}")
-                print(f"         - 归一化得分:")
-                print(f"           - level_score: {level_score.loc[probe_date]:.4f}")
-                print(f"           - efficiency_score (covert_accum & peak_purity fusion): {efficiency_score.loc[probe_date]:.4f}")
-                print(f"         - 维度结果: formation_deployment_score: {formation_deployment_score.loc[probe_date]:.4f}")
-
-                print(f"       --- [维度2: 指挥官决心 (Commander's Resolve)] ---")
-                print(f"         - 原始值:")
-                print(f"           - cost_advantage: {cost_advantage.loc[probe_date]:.4f}")
-                print(f"           - control_solidity: {control_solidity.loc[probe_date]:.4f}")
-                print(f"           - conviction_slope: {conviction_slope.loc[probe_date]:.4f}")
-                print(f"           - deception_bear_trap_raw (压价吸筹): {deception_bear_trap_raw.loc[probe_date]:.4f}")
-                print(f"           - deception_bull_trap_raw (拉高出货): {deception_bull_trap_raw.loc[probe_date]:.4f}")
-                print(f"           - wash_trade_intensity (对倒): {wash_trade_intensity.loc[probe_date]:.4f}")
-                print(f"         - 归一化得分:")
-                print(f"           - advantage_score: {advantage_score.loc[probe_date]:.4f}")
-                print(f"           - solidity_score: {solidity_score.loc[probe_date]:.4f}")
-                print(f"           - intent_score: {intent_score.loc[probe_date]:.4f}")
-                print(f"           - bear_trap_score (normalized): {bear_trap_score.loc[probe_date]:.4f}")
-                print(f"           - bull_trap_score (normalized): {bull_trap_score.loc[probe_date]:.4f}")
-                print(f"           - wash_trade_score (normalized): {wash_trade_score.loc[probe_date]:.4f}")
-                print(f"         - 融合过程 (诡道影响力):")
-                print(f"           - deception_impact_score: {deception_impact_score.loc[probe_date]:.4f}")
-                print(f"         - 维度结果: commanders_resolve_score: {commanders_resolve_score.loc[probe_date]:.4f}")
-
-                print(f"       --- [维度3: 战场控制 (Battlefield Control)] ---")
-                print(f"         - 原始值:")
-                print(f"           - cleansing_efficiency: {cleansing_efficiency.loc[probe_date]:.4f}")
-                print(f"           - peak_solidity: {peak_solidity.loc[probe_date]:.4f}")
-                print(f"         - 归一化得分:")
-                print(f"           - cleansing_score: {cleansing_score.loc[probe_date]:.4f}")
-                print(f"           - peak_solidity_score: {peak_solidity_score.loc[probe_date]:.4f}")
-                print(f"         - 维度结果: battlefield_control_score: {battlefield_control_score.loc[probe_date]:.4f}")
-
-                print(f"       --- [基础融合 (不含时间序列动态)] ---")
-                print(f"         - base_strategic_posture_score: {base_strategic_posture_score.loc[probe_date]:.4f}")
-
-                print(f"       --- [时间序列动态 (Strategic Dynamics)] ---")
-                print(f"         - 平滑基础得分 (smoothed_base_score): {smoothed_base_score.loc[probe_date]:.4f}")
-                print(f"         - 速度 (velocity): {velocity.loc[probe_date]:.4f}")
-                print(f"         - 加速度 (acceleration): {acceleration.loc[probe_date]:.4f}")
-                print(f"         - 归一化速度 (norm_velocity): {norm_velocity.loc[probe_date]:.4f}")
-                print(f"         - 归一化加速度 (norm_acceleration): {norm_acceleration.loc[probe_date]:.4f}")
-
-                print(f"       --- [最终融合结果] ---")
-                print(f"         - SCORE_CHIP_STRATEGIC_POSTURE: {final_score.loc[probe_date]:.4f}")
+        ).pow(1 / sum(dynamic_fusion_weights.values())) * 2 - 1
+        
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_battlefield_geography(self, df: pd.DataFrame) -> pd.Series:
@@ -300,45 +222,56 @@ class ChipIntelligence:
                       有利度是在改善还是在恶化，从而对静态地形分进行动态调节，使信号更具前瞻性。
         - 核心升级: 植入标准化的“真理探针”，输出所有原始数据、关键计算过程及最终结果。
         """
-        print("    -> [筹码层] 正在诊断“战场地形 (V7.0 · 动态演化版)”...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“战场地形 (V7.0 · 动态演化版)”...")
         required_signals = [
             'dominant_peak_solidity_D', 'support_validation_strength_D', 'chip_fault_blockage_ratio_D',
             'pressure_rejection_strength_D', 'vacuum_zone_magnitude_D', 'vacuum_traversal_efficiency_D',
-            'SLOPE_5_support_validation_strength_D', 'SLOPE_5_pressure_rejection_strength_D' # [修改代码行] 新增斜率依赖
+            'SLOPE_5_support_validation_strength_D', 'SLOPE_5_pressure_rejection_strength_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_battlefield_geography"):
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         df_index = df.index
+
+        # --- 维度1: 下方支撑 (Support Strength) ---
         peak_solidity = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5)
         support_validation = self._get_safe_series(df, df, 'support_validation_strength_D', 0.0)
         solidity_score = get_adaptive_mtf_normalized_score(peak_solidity, df_index, tf_weights)
         validation_score = get_adaptive_mtf_normalized_score(support_validation, df_index, tf_weights)
         support_strength_score = (solidity_score * validation_score).pow(0.5)
+
+        # --- 维度2: 上方阻力 (Resistance Strength) ---
         fault_blockage = self._get_safe_series(df, df, 'chip_fault_blockage_ratio_D', 0.5)
         pressure_rejection = self._get_safe_series(df, df, 'pressure_rejection_strength_D', 0.5)
         blockage_score = get_adaptive_mtf_normalized_score(fault_blockage, df_index, tf_weights)
         rejection_score = get_adaptive_mtf_normalized_score(pressure_rejection, df_index, tf_weights)
         resistance_strength_score = (blockage_score * rejection_score).pow(0.5)
+
+        # --- 维度3: 最小阻力路径 (Path Score) ---
         vacuum_magnitude = self._get_safe_series(df, df, 'vacuum_zone_magnitude_D', 0.0)
         vacuum_efficiency = self._get_safe_series(df, df, 'vacuum_traversal_efficiency_D', 0.0)
         magnitude_score = get_adaptive_mtf_normalized_score(vacuum_magnitude, df_index, tf_weights)
         efficiency_score = get_adaptive_mtf_normalized_score(vacuum_efficiency, df_index, tf_weights)
         path_score = (magnitude_score * efficiency_score).pow(0.5)
-        base_score = support_strength_score * (1 - resistance_strength_score)
-        static_final_score = np.sign(base_score) * (base_score.abs() * path_score).pow(0.5)
-        # [新增代码块] 计算动态演化因子
+
+        # --- 静态融合 ---
+        base_score_raw = support_strength_score * (1 - resistance_strength_score)
+        static_final_score = np.sign(base_score_raw) * (base_score_raw.abs() * path_score).pow(0.5)
+
+        # --- 维度4: 动态演化 (Dynamic Evolution) ---
         support_trend_raw = self._get_safe_series(df, df, 'SLOPE_5_support_validation_strength_D', 0.0)
         resistance_trend_raw = self._get_safe_series(df, df, 'SLOPE_5_pressure_rejection_strength_D', 0.0)
         support_trend_score = get_adaptive_mtf_normalized_bipolar_score(support_trend_raw, df_index, tf_weights)
         resistance_trend_score = get_adaptive_mtf_normalized_bipolar_score(resistance_trend_raw, df_index, tf_weights)
-        # 地形优势变化 = 支撑趋势 - 阻力趋势 (支撑增强、阻力减弱为最佳)
+        
         terrain_advantage_change = support_trend_score - resistance_trend_score
-        # 将变化趋势转化为一个调节因子 (1.0为中性, >1.0为增强, <1.0为削弱)
         dynamic_evolution_factor = 1.0 + (terrain_advantage_change * 0.25) # 变化趋势的影响力设为25%
+
+        # --- 最终动态融合 ---
         final_score = static_final_score * dynamic_evolution_factor
-        # 植入标准化探针
+
+        # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -346,22 +279,59 @@ class ChipIntelligence:
             probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
             if probe_date in df.index:
                 print(f"    -> [战场地形探针] @ {probe_date.date()}:")
-                print(f"       - 维度1: 下方支撑 (Support)")
-                print(f"         - 原料: peak_solidity: {peak_solidity.loc[probe_date]:.4f}, support_validation: {support_validation.loc[probe_date]:.4f}")
-                print(f"         - 结果: support_strength_score: {support_strength_score.loc[probe_date]:.4f}")
-                print(f"       - 维度2: 上方阻力 (Resistance)")
-                print(f"         - 原料: fault_blockage: {fault_blockage.loc[probe_date]:.4f}, pressure_rejection: {pressure_rejection.loc[probe_date]:.4f}")
-                print(f"         - 结果: resistance_strength_score: {resistance_strength_score.loc[probe_date]:.4f}")
-                print(f"       - 维度3: 最小阻力路径 (Path)")
-                print(f"         - 原料: vacuum_magnitude: {vacuum_magnitude.loc[probe_date]:.4f}, vacuum_efficiency: {vacuum_efficiency.loc[probe_date]:.4f}")
-                print(f"         - 结果: path_score: {path_score.loc[probe_date]:.4f}")
-                print(f"       - 静态融合结果: static_final_score: {static_final_score.loc[probe_date]:.4f}")
-                # [新增代码块] 探针输出动态演化维度
-                print(f"       - 维度4: 动态演化 (Dynamic Evolution)")
-                print(f"         - 原料: support_trend_raw: {support_trend_raw.loc[probe_date]:.4f}, resistance_trend_raw: {resistance_trend_raw.loc[probe_date]:.4f}")
-                print(f"         - 过程: terrain_advantage_change: {terrain_advantage_change.loc[probe_date]:.4f}")
-                print(f"         - 结果: dynamic_evolution_factor: {dynamic_evolution_factor.loc[probe_date]:.4f}")
-                print(f"       - 最终动态融合结果: final_score: {final_score.loc[probe_date]:.4f}")
+                print(f"       --- [原始输入数据] ---")
+                print(f"         - dominant_peak_solidity_D: {peak_solidity.loc[probe_date]:.4f}")
+                print(f"         - support_validation_strength_D: {support_validation.loc[probe_date]:.4f}")
+                print(f"         - chip_fault_blockage_ratio_D: {fault_blockage.loc[probe_date]:.4f}")
+                print(f"         - pressure_rejection_strength_D: {pressure_rejection.loc[probe_date]:.4f}")
+                print(f"         - vacuum_zone_magnitude_D: {vacuum_magnitude.loc[probe_date]:.4f}")
+                print(f"         - vacuum_traversal_efficiency_D: {vacuum_efficiency.loc[probe_date]:.4f}")
+                print(f"         - SLOPE_5_support_validation_strength_D: {support_trend_raw.loc[probe_date]:.4f}")
+                print(f"         - SLOPE_5_pressure_rejection_strength_D: {resistance_trend_raw.loc[probe_date]:.4f}")
+
+                print(f"       --- [维度1: 下方支撑 (Support Strength)] ---")
+                print(f"         - 原始值:")
+                print(f"           - peak_solidity: {peak_solidity.loc[probe_date]:.4f}")
+                print(f"           - support_validation: {support_validation.loc[probe_date]:.4f}")
+                print(f"         - 归一化得分:")
+                print(f"           - solidity_score (normalized): {solidity_score.loc[probe_date]:.4f}")
+                print(f"           - validation_score (normalized): {validation_score.loc[probe_date]:.4f}")
+                print(f"         - 维度结果: support_strength_score: {support_strength_score.loc[probe_date]:.4f}")
+
+                print(f"       --- [维度2: 上方阻力 (Resistance Strength)] ---")
+                print(f"         - 原始值:")
+                print(f"           - fault_blockage: {fault_blockage.loc[probe_date]:.4f}")
+                print(f"           - pressure_rejection: {pressure_rejection.loc[probe_date]:.4f}")
+                print(f"         - 归一化得分:")
+                print(f"           - blockage_score (normalized): {blockage_score.loc[probe_date]:.4f}")
+                print(f"           - rejection_score (normalized): {rejection_score.loc[probe_date]:.4f}")
+                print(f"         - 维度结果: resistance_strength_score: {resistance_strength_score.loc[probe_date]:.4f}")
+
+                print(f"       --- [维度3: 最小阻力路径 (Path Score)] ---")
+                print(f"         - 原始值:")
+                print(f"           - vacuum_magnitude: {vacuum_magnitude.loc[probe_date]:.4f}")
+                print(f"           - vacuum_efficiency: {vacuum_efficiency.loc[probe_date]:.4f}")
+                print(f"         - 归一化得分:")
+                print(f"           - magnitude_score (normalized): {magnitude_score.loc[probe_date]:.4f}")
+                print(f"           - efficiency_score (normalized): {efficiency_score.loc[probe_date]:.4f}")
+                print(f"         - 维度结果: path_score: {path_score.loc[probe_date]:.4f}")
+
+                print(f"       --- [静态融合] ---")
+                print(f"         - 过程: base_score_raw (support * (1 - resistance)): {base_score_raw.loc[probe_date]:.4f}")
+                print(f"         - 静态融合结果: static_final_score: {static_final_score.loc[probe_date]:.4f}")
+
+                print(f"       --- [维度4: 动态演化 (Dynamic Evolution)] ---")
+                print(f"         - 原始趋势斜率:")
+                print(f"           - support_trend_raw: {support_trend_raw.loc[probe_date]:.4f}")
+                print(f"           - resistance_trend_raw: {resistance_trend_raw.loc[probe_date]:.4f}")
+                print(f"         - 归一化趋势得分:")
+                print(f"           - support_trend_score (normalized): {support_trend_score.loc[probe_date]:.4f}")
+                print(f"           - resistance_trend_score (normalized): {resistance_trend_score.loc[probe_date]:.4f}")
+                print(f"         - 过程: terrain_advantage_change (support_trend - resistance_trend): {terrain_advantage_change.loc[probe_date]:.4f}")
+                print(f"         - 动态演化因子: dynamic_evolution_factor: {dynamic_evolution_factor.loc[probe_date]:.4f}")
+
+                print(f"       --- [最终动态融合结果] ---")
+                print(f"         - SCORE_CHIP_BATTLEFIELD_GEOGRAPHY: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
