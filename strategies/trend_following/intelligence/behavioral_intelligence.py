@@ -1010,14 +1010,17 @@ class BehavioralIntelligence:
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, overextension_score_series: pd.Series, deception_index_series: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        【V4.9 · 变量定义修复版】诊断突破失败级联风险
+        【V5.0 · 行为情报纯化版】诊断突破失败级联风险
         - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-套牢-背弃-情境”
                       诡道剧本的全新五维诊断模型，旨在精确识别高迷惑性的“牛市陷阱”。
+        - 行为情报纯化: 将“套牢盘痛苦度”和“主力背弃度”的计算，从直接依赖原始筹码/资金流数据，
+                          升级为依赖【筹码情报层】和【资金流情报层】输出的高级融合信号。
+                          这使得本行为情报模块更专注于行为模式的识别，避免了跨领域数据耦合。
         - 战术五要素:
           1. 诱饵 (The Lure): 使用更高阶的 `breakout_quality_score_D` 量化突破行为的“迷惑性”，并根据市场趋势弱势进行情境化放大。
           2. 伏击 (The Ambush): 融合 `distribution_intent` (明确派发意图) 和 “隐蔽伏击意图” (买盘支持减弱、上涨纯度下降)，量化主力在诱多过程中的真实派发意图和潜在陷阱。
-          3. 套牢盘痛苦度 (Trapped Force Pain): 融合抛压潜力（获利盘比例、量比）和抛压触发器（获利盘不稳定性、筹码疲劳度），并引入联动放大机制，使抛压触发器对高抛压潜力产生更强的非线性影响。
-          4. 主力背弃度 (Main Force Abandonment): 融合 `main_force_conviction_index_D` (负向)、`main_force_execution_alpha_D` (负向) 和 `main_force_net_flow_calibrated_D` (负向)，并对负向主力净流分应用 `1 - (1 - score)^P` 形式的幂函数，确保其在高风险时得到有效增强，量化主力对突破的放弃程度和实际资金流出。
+          3. 套牢盘痛苦度 (Trapped Force Pain): 融合【筹码情报层】的“持仓信念韧性”、“战场地形”和“战术换手博弈”信号，综合评估套牢盘的痛苦程度和结构性压力。
+          4. 主力背弃度 (Main Force Abandonment): 融合【资金流情报层】的“攻击性意图”和“资金流纯度与动能”信号，量化主力对突破的放弃程度和实际资金流出。
           5. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买)、`SCORE_BEHAVIOR_DECEPTION_INDEX` (正向，拉高出货) 和 `retail_fomo_premium_index_D` (正向散户狂热)，以及“欺骗性平静”效应，对风险进行情境化放大。
         - 数学模型: 风险分 = 核心风险基准分 × 情境放大器 × 风险动态调制因子
                       核心风险基准分 = 情境化诱饵分 × (1 - (1 - 核心风险加权平均)^P)
@@ -1027,15 +1030,18 @@ class BehavioralIntelligence:
         """
         method_name = "_diagnose_breakout_failure_risk"
         required_signals = [
-            'breakout_quality_score_D', 'volume_ratio_D', 'total_winner_rate_D',
-            'winner_stability_index_D', 'chip_fatigue_index_D',
-            'main_force_conviction_index_D', 'main_force_execution_alpha_D',
-            'main_force_net_flow_calibrated_D',
+            'breakout_quality_score_D',
             'retail_fomo_premium_index_D',
             'trend_vitality_index_D',
             'active_buying_support_D',
             'upward_impulse_purity_D',
-            'VOLATILITY_INSTABILITY_INDEX_21d_D'
+            'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            # [代码修改] 新增高阶筹码和资金流信号
+            'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT',
+            'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY',
+            'SCORE_CHIP_TACTICAL_EXCHANGE',
+            'SCORE_FF_AXIOM_CONVICTION',
+            'SCORE_FF_AXIOM_FLOW_MOMENTUM'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
@@ -1044,17 +1050,23 @@ class BehavioralIntelligence:
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         breakout_params = get_param_value(p_conf.get('breakout_failure_risk_params'), {})
         core_risk_weights = get_param_value(breakout_params.get('core_risk_weights'), {"ambush": 0.3, "trapped_force_pain": 0.4, "main_force_abandonment": 0.3})
-        trapped_force_pain_weights = get_param_value(breakout_params.get('trapped_force_pain_weights'), {"potential_pressure": 0.6, "instability_trigger": 0.4})
-        potential_pressure_weights = get_param_value(breakout_params.get('potential_pressure_weights'), {"winner_rate": 0.7, "volume_ratio": 0.3})
-        instability_trigger_weights = get_param_value(breakout_params.get('instability_trigger_weights'), {"winner_instability": 0.6, "chip_fatigue": 0.4})
-        mf_abandonment_weights = get_param_value(breakout_params.get('main_force_abandonment_weights'), {"conviction_decay": 0.3, "negative_alpha": 0.3, "negative_net_flow": 0.4})
+        # [代码修改] 移除旧的权重参数
+        # trapped_force_pain_weights = get_param_value(breakout_params.get('trapped_force_pain_weights'), {"potential_pressure": 0.6, "instability_trigger": 0.4})
+        # potential_pressure_weights = get_param_value(breakout_params.get('potential_pressure_weights'), {"winner_rate": 0.7, "volume_ratio": 0.3})
+        # instability_trigger_weights = get_param_value(breakout_params.get('instability_trigger_weights'), {"winner_instability": 0.6, "chip_fatigue": 0.4})
+        # mf_abandonment_weights = get_param_value(breakout_params.get('main_force_abandonment_weights'), {"conviction_decay": 0.3, "negative_alpha": 0.3, "negative_net_flow": 0.4})
+        # [代码修改] 新增新的融合权重参数
+        trapped_force_fusion_weights = get_param_value(breakout_params.get('trapped_force_fusion_weights'), {"holder_pain": 0.4, "unfavorable_geography": 0.3, "poor_tactical_exchange": 0.3})
+        mf_abandonment_fusion_weights = get_param_value(breakout_params.get('mf_abandonment_fusion_weights'), {"low_ff_conviction": 0.5, "low_ff_momentum": 0.5})
+
         context_amplifier_weights = get_param_value(breakout_params.get('context_amplifier_weights'), {"overextension": 0.4, "positive_deception": 0.3, "retail_fomo": 0.3})
         max_amplification_factor = get_param_value(breakout_params.get('max_amplification_factor'), 0.5)
         lure_weakness_multiplier = get_param_value(breakout_params.get('lure_weakness_multiplier'), 0.5)
         ambush_fusion_weights = get_param_value(breakout_params.get('ambush_fusion_weights'), {"distribution_intent": 0.7, "covert_ambush_intent": 0.3})
         covert_ambush_intent_weights = get_param_value(breakout_params.get('covert_ambush_intent_weights'), {"weak_buying_support": 0.6, "declining_impulse_purity": 0.4})
-        trapped_force_amplification_factor = get_param_value(breakout_params.get('trapped_force_amplification_factor'), 1.0)
-        mf_net_flow_power_factor = get_param_value(breakout_params.get('mf_net_flow_power_factor'), 2.0)
+        # [代码修改] 移除不再使用的参数
+        # trapped_force_amplification_factor = get_param_value(breakout_params.get('trapped_force_amplification_factor'), 1.0)
+        # mf_net_flow_power_factor = get_param_value(breakout_params.get('mf_net_flow_power_factor'), 2.0)
         deceptive_calm_weights = get_param_value(breakout_params.get('deceptive_calm_weights'), {"overextension_inverse": 0.3, "positive_deception_inverse": 0.3, "retail_fomo_inverse": 0.4})
         deceptive_calm_multiplier = get_param_value(breakout_params.get('deceptive_calm_multiplier'), 0.2)
         deceptive_calm_threshold = get_param_value(breakout_params.get('deceptive_calm_threshold'), 0.5)
@@ -1072,15 +1084,22 @@ class BehavioralIntelligence:
         # 诱饵 (The Lure)
         breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name=method_name)
         # 伏击 (The Ambush) - 直接使用传入的 distribution_intent
-        # 套牢盘痛苦度 (Trapped Force Pain)
-        winner_rate_raw = self._get_safe_series(df, 'total_winner_rate_D', 50.0, method_name=method_name)
-        volume_raw = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name=method_name)
-        winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name=method_name)
-        chip_fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name=method_name)
-        # 主力背弃度 (Main Force Abandonment)
-        main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
-        main_force_execution_alpha_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name=method_name)
-        main_force_net_flow_calibrated_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
+        # [代码修改] 移除旧的原始数据获取
+        # winner_rate_raw = self._get_safe_series(df, 'total_winner_rate_D', 50.0, method_name=method_name)
+        # volume_raw = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name=method_name)
+        # winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name=method_name)
+        # chip_fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name=method_name)
+        # main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
+        # main_force_execution_alpha_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name=method_name)
+        # main_force_net_flow_calibrated_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name=method_name)
+
+        # [代码修改] 获取高阶筹码和资金流信号
+        holder_sentiment_score = self._get_safe_series(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0, method_name=method_name)
+        battlefield_geography_score = self._get_safe_series(df, 'SCORE_CHIP_BATTLEFIELD_GEOGRAPHY', 0.0, method_name=method_name)
+        tactical_exchange_score = self._get_safe_series(df, 'SCORE_CHIP_TACTICAL_EXCHANGE', 0.0, method_name=method_name)
+        ff_conviction_score = self._get_safe_series(df, 'SCORE_FF_AXIOM_CONVICTION', 0.0, method_name=method_name)
+        ff_momentum_score = self._get_safe_series(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, method_name=method_name)
+
         # 情境放大器 (Contextual Amplifier) - 从参数获取
         overextension_score = overextension_score_series
         deception_raw = deception_index_series
@@ -1103,29 +1122,29 @@ class BehavioralIntelligence:
             distribution_intent * ambush_fusion_weights.get('distribution_intent', 0.7) +
             covert_ambush_intent_score * ambush_fusion_weights.get('covert_ambush_intent', 0.3)
         ).clip(0,1)
-        winner_rate_score = get_adaptive_mtf_normalized_score(winner_rate_raw, df.index, ascending=True, tf_weights=default_weights)
-        volume_ratio_score = get_adaptive_mtf_normalized_score(volume_raw, df.index, ascending=True, tf_weights=default_weights)
-        winner_stability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=default_weights)
-        chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df.index, ascending=True, tf_weights=default_weights)
-        # 抛压潜力 = 获利盘比例 * 量比
-        potential_pressure = (
-            winner_rate_score * potential_pressure_weights.get('winner_rate', 0.7) +
-            volume_ratio_score * potential_pressure_weights.get('volume_ratio', 0.3)
-        ).clip(0,1)
-        # 抛压触发器 = (1 - 获利盘稳定性) * 筹码疲劳度
-        winner_instability_score = (1 - winner_stability_score).clip(0,1)
-        instability_trigger = (winner_instability_score * instability_trigger_weights.get('winner_instability', 0.6) +
-                               chip_fatigue_score * instability_trigger_weights.get('chip_fatigue', 0.4)).clip(0,1)
-        trapped_force_score = (potential_pressure * (1 + instability_trigger * trapped_force_amplification_factor)).clip(0,1)
-        conviction_decay_score = get_adaptive_mtf_normalized_score(main_force_conviction_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
-        alpha_negative_normalized = get_adaptive_mtf_normalized_score(main_force_execution_alpha_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
-        negative_net_flow_score = get_adaptive_mtf_normalized_score(main_force_net_flow_calibrated_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
-        amplified_negative_net_flow_score = (1 - (1 - negative_net_flow_score).pow(mf_net_flow_power_factor)).clip(0,1)
+
+        # [代码修改] 套牢盘痛苦度 (Trapped Force Pain) - 使用高阶筹码信号
+        # 将双极性分数转换为单极性风险分数 (当原始分数低/负时，风险分数高)
+        holder_pain_score = (1 - (holder_sentiment_score + 1) / 2) # 0到1，越高表示痛苦越大
+        unfavorable_geography_score = (1 - (battlefield_geography_score + 1) / 2) # 0到1，越高表示地形越不利
+        poor_tactical_exchange_score = (1 - (tactical_exchange_score + 1) / 2) # 0到1，越高表示换手质量越差
+
+        trapped_force_score = (
+            holder_pain_score * trapped_force_fusion_weights.get('holder_pain', 0.4) +
+            unfavorable_geography_score * trapped_force_fusion_weights.get('unfavorable_geography', 0.3) +
+            poor_tactical_exchange_score * trapped_force_fusion_weights.get('poor_tactical_exchange', 0.3)
+        ).clip(0, 1)
+
+        # [代码修改] 主力背弃度 (Main Force Abandonment) - 使用高阶资金流信号
+        # 将双极性分数转换为单极性风险分数 (当原始分数低/负时，风险分数高)
+        low_ff_conviction_score = (1 - (ff_conviction_score + 1) / 2) # 0到1，越高表示信念越低
+        low_ff_momentum_score = (1 - (ff_momentum_score + 1) / 2) # 0到1，越高表示动量越低
+
         mf_abandonment_score = (
-            conviction_decay_score * mf_abandonment_weights.get('conviction_decay', 0.3) +
-            alpha_negative_normalized * mf_abandonment_weights.get('negative_alpha', 0.3) +
-            amplified_negative_net_flow_score * mf_abandonment_weights.get('negative_net_flow', 0.4)
-        ).clip(0, 1).fillna(0.0)
+            low_ff_conviction_score * mf_abandonment_fusion_weights.get('low_ff_conviction', 0.5) +
+            low_ff_momentum_score * mf_abandonment_fusion_weights.get('low_ff_momentum', 0.5)
+        ).clip(0, 1)
+
         positive_deception_score = deception_raw.clip(lower=0)
         retail_fomo_score = get_adaptive_mtf_normalized_score(retail_fomo_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         # 显性情境放大因子
@@ -1165,7 +1184,6 @@ class BehavioralIntelligence:
         # 使用 1 - (1 - x)^P 形式的幂函数对 weighted_avg_risk 进行高风险区间拉伸
         stretched_weighted_avg_risk = (1 - (1 - weighted_avg_risk).pow(core_risk_high_end_stretch_power)).clip(0,1)
         core_risk_base_initial = (lure_score_modulated * stretched_weighted_avg_risk).clip(0,1).fillna(0.0)
-        # [代码修改] 重新添加 deceptive_calm_score 的计算
         deceptive_calm_score = (
             (1 - overextension_score) * deceptive_calm_weights.get('overextension_inverse', 0.3) +
             (1 - positive_deception_score) * deceptive_calm_weights.get('positive_deception_inverse', 0.3) +
@@ -1174,7 +1192,6 @@ class BehavioralIntelligence:
         deceptive_calm_effect = deceptive_calm_score * deceptive_calm_multiplier * (core_risk_base_initial > deceptive_calm_threshold).astype(float)
         final_amplifier = 1 + (context_amplifier_factor * max_amplification_factor) + deceptive_calm_effect
         # 计算风险动态调制因子
-        # 注意：这里 risk_ema 等的计算应该基于 core_risk_base_initial，而不是最终的 breakout_failure_risk
         if len(core_risk_base_initial) < max(risk_ema_span, risk_trend_slope_window, risk_momentum_diff_window) + 1:
             risk_dynamic_modulator = pd.Series(1.0, index=df.index)
             risk_ema = pd.Series(0.0, index=df.index)
@@ -1186,15 +1203,13 @@ class BehavioralIntelligence:
             risk_ema = core_risk_base_initial.ewm(span=risk_ema_span, adjust=False).mean()
             risk_trend = risk_ema.diff(risk_trend_slope_window).fillna(0.0)
             risk_momentum = risk_trend.diff(risk_momentum_diff_window).fillna(0.0)
-            # 归一化趋势和动量，使其在[-1, 1]之间，以便进行放大或缩小
             risk_trend_score = get_adaptive_mtf_normalized_bipolar_score(risk_trend, df.index, default_weights)
             risk_momentum_score = get_adaptive_mtf_normalized_bipolar_score(risk_momentum, df.index, default_weights)
-            # 动态调制因子：当趋势和动量为正时放大，为负时缩小
             risk_dynamic_modulator = (
                 1 +
                 (risk_trend_score * risk_trend_mod_multiplier) +
                 (risk_momentum_score * risk_momentum_mod_multiplier)
-            ).clip(0.5, 1.5) # 限制调制因子在合理范围，防止过度放大或缩小
+            ).clip(0.5, 1.5)
         # --- 4. 最终风险合成 ---
         breakout_failure_risk = (core_risk_base_initial * final_amplifier * risk_dynamic_modulator).clip(0, 1)
         # --- 5. 探针输出 ---
@@ -1204,13 +1219,13 @@ class BehavioralIntelligence:
             print(f"       - 原始数据:")
             print(f"         - breakout_quality_score_D: {breakout_quality_raw.loc[probe_ts]:.4f}")
             print(f"         - distribution_intent: {distribution_intent.loc[probe_ts]:.4f}")
-            print(f"         - total_winner_rate_D: {winner_rate_raw.loc[probe_ts]:.4f}")
-            print(f"         - volume_ratio_D: {volume_raw.loc[probe_ts]:.4f}")
-            print(f"         - winner_stability_index_D: {winner_stability_raw.loc[probe_ts]:.4f}")
-            print(f"         - chip_fatigue_index_D: {chip_fatigue_raw.loc[probe_ts]:.4f}")
-            print(f"         - main_force_conviction_index_D: {main_force_conviction_raw.loc[probe_ts]:.4f}")
-            print(f"         - main_force_execution_alpha_D: {main_force_execution_alpha_raw.loc[probe_ts]:.4f}")
-            print(f"         - main_force_net_flow_calibrated_D: {main_force_net_flow_calibrated_raw.loc[probe_ts]:.4f}")
+            # [代码修改] 新增高阶筹码和资金流信号打印
+            print(f"         - SCORE_CHIP_AXIOM_HOLDER_SENTIMENT: {holder_sentiment_score.loc[probe_ts]:.4f}")
+            print(f"         - SCORE_CHIP_BATTLEFIELD_GEOGRAPHY: {battlefield_geography_score.loc[probe_ts]:.4f}")
+            print(f"         - SCORE_CHIP_TACTICAL_EXCHANGE: {tactical_exchange_score.loc[probe_ts]:.4f}")
+            print(f"         - SCORE_FF_AXIOM_CONVICTION: {ff_conviction_score.loc[probe_ts]:.4f}")
+            print(f"         - SCORE_FF_AXIOM_FLOW_MOMENTUM: {ff_momentum_score.loc[probe_ts]:.4f}")
+
             print(f"         - INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW (passed): {overextension_score.loc[probe_ts]:.4f}")
             print(f"         - SCORE_BEHAVIOR_DECEPTION_INDEX (passed): {deception_raw.loc[probe_ts]:.4f}")
             print(f"         - retail_fomo_premium_index_D: {retail_fomo_raw.loc[probe_ts]:.4f}")
@@ -1226,24 +1241,21 @@ class BehavioralIntelligence:
             print(f"         - declining_impulse_purity_score (上涨纯度下降分): {declining_impulse_purity_score.loc[probe_ts]:.4f}")
             print(f"         - covert_ambush_intent_score (隐蔽伏击意图分): {covert_ambush_intent_score.loc[probe_ts]:.4f}")
             print(f"         - ambush_score (伏击分): {ambush_score.loc[probe_ts]:.4f}")
-            print(f"         - winner_rate_score (获利盘分): {winner_rate_score.loc[probe_ts]:.4f}")
-            print(f"         - volume_ratio_score (量比分): {volume_ratio_score.loc[probe_ts]:.4f}")
-            print(f"         - winner_stability_score (获利盘稳定性分): {winner_stability_score.loc[probe_ts]:.4f}")
-            print(f"         - chip_fatigue_score (筹码疲劳分): {chip_fatigue_score.loc[probe_ts]:.4f}")
-            print(f"         - potential_pressure (抛压潜力): {potential_pressure.loc[probe_ts]:.4f}")
-            print(f"         - winner_instability_score (获利盘不稳定性分): {winner_instability_score.loc[probe_ts]:.4f}")
-            print(f"         - instability_trigger (抛压触发器): {instability_trigger.loc[probe_ts]:.4f}")
+            # [代码修改] 新增高阶筹码信号计算打印
+            print(f"         - holder_pain_score (持仓痛苦分): {holder_pain_score.loc[probe_ts]:.4f}")
+            print(f"         - unfavorable_geography_score (不利地形分): {unfavorable_geography_score.loc[probe_ts]:.4f}")
+            print(f"         - poor_tactical_exchange_score (不良换手分): {poor_tactical_exchange_score.loc[probe_ts]:.4f}")
             print(f"         - trapped_force_score (套牢盘痛苦度): {trapped_force_score.loc[probe_ts]:.4f}")
-            print(f"         - conviction_decay_score (信念衰减分): {conviction_decay_score.loc[probe_ts]:.4f}")
-            print(f"         - alpha_negative_normalized (负向alpha归一化): {alpha_negative_normalized.loc[probe_ts]:.4f}")
-            print(f"         - negative_net_flow_score (负向主力净流分): {negative_net_flow_score.loc[probe_ts]:.4f}")
-            print(f"         - amplified_negative_net_flow_score (放大后的负向主力净流分): {amplified_negative_net_flow_score.loc[probe_ts]:.4f}")
+            # [代码修改] 新增高阶资金流信号计算打印
+            print(f"         - low_ff_conviction_score (低资金流信念分): {low_ff_conviction_score.loc[probe_ts]:.4f}")
+            print(f"         - low_ff_momentum_score (低资金流动量分): {low_ff_momentum_score.loc[probe_ts]:.4f}")
             print(f"         - mf_abandonment_score (主力背弃度): {mf_abandonment_score.loc[probe_ts]:.4f}")
+
             print(f"         - overextension_score (价格超买分): {overextension_score.loc[probe_ts]:.4f}")
             print(f"         - positive_deception_score (正向欺骗分): {positive_deception_score.loc[probe_ts]:.4f}")
             print(f"         - retail_fomo_score (散户狂热分): {retail_fomo_score.loc[probe_ts]:.4f}")
             print(f"         - context_amplifier_factor (显性情境放大因子): {context_amplifier_factor.loc[probe_ts]:.4f}")
-            print(f"         - deceptive_calm_score (欺骗性平静分): {deceptive_calm_score.loc[probe_ts]:.4f}") # [代码修改] 重新添加
+            print(f"         - deceptive_calm_score (欺骗性平静分): {deceptive_calm_score.loc[probe_ts]:.4f}")
             print(f"         - deceptive_calm_effect (欺骗性平静效应): {deceptive_calm_effect.loc[probe_ts]:.4f}")
             print(f"         - normalized_volatility (归一化波动性): {normalized_volatility.loc[probe_ts]:.4f}")
             print(f"         - normalized_inverse_trend_vitality (归一化反向趋势活力): {normalized_inverse_trend_vitality.loc[probe_ts]:.4f}")

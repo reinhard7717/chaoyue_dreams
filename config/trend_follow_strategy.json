@@ -1412,28 +1412,20 @@
           "comment": "融合“脆弱战场”、“幽灵诡计”和“突袭品质”构建“伏击式反攻”时的权重及参数。"
         },
         "breakout_failure_risk_params": {
-          "description": "【V4.9 · 变量定义修复版】“突破失败级联风险”信号参数",
+          "description": "【V5.0 · 行为情报纯化版】“突破失败级联风险”信号参数",
           "core_risk_weights": {
             "ambush": 0.3,
             "trapped_force_pain": 0.4,
             "main_force_abandonment": 0.3
           },
-          "trapped_force_pain_weights": {
-            "potential_pressure": 0.6,
-            "instability_trigger": 0.4
+          "trapped_force_fusion_weights": {
+            "holder_pain": 0.4,
+            "unfavorable_geography": 0.3,
+            "poor_tactical_exchange": 0.3
           },
-          "potential_pressure_weights": {
-            "winner_rate": 0.7,
-            "volume_ratio": 0.3
-          },
-          "instability_trigger_weights": {
-            "winner_instability": 0.6,
-            "chip_fatigue": 0.4
-          },
-          "main_force_abandonment_weights": {
-            "conviction_decay": 0.3,
-            "negative_alpha": 0.3,
-            "negative_net_flow": 0.4
+          "mf_abandonment_fusion_weights": {
+            "low_ff_conviction": 0.5,
+            "low_ff_momentum": 0.5
           },
           "context_amplifier_weights": {
             "overextension": 0.4,
@@ -1450,8 +1442,6 @@
             "weak_buying_support": 0.6,
             "declining_impulse_purity": 0.4
           },
-          "trapped_force_amplification_factor": 1.0,
-          "mf_net_flow_power_factor": 2.0,
           "deceptive_calm_weights": {
             "overextension_inverse": 0.3,
             "positive_deception_inverse": 0.3,
