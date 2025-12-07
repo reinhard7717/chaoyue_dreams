@@ -1496,6 +1496,22 @@
           "holder_sentiment": 0.2,
           "peak_integrity": 0.15,
           "trend_momentum": 0.2
+        },
+        "strategic_posture_params": {
+          "description": "【V7.0 · 诡道时序增强版】战略态势信号的专属参数。",
+          "deception_fusion_weights": {
+            "description": "融合不同欺骗类型时的权重。",
+            "bear_trap_positive": 0.6,
+            "bull_trap_negative": 0.2,
+            "wash_trade_negative": 0.2
+          },
+          "dynamic_fusion_weights": {
+            "description": "融合基础战略态势与时间序列动态时的权重。",
+            "base_score": 0.6,
+            "velocity": 0.2,
+            "acceleration": 0.2
+          },
+          "smoothing_ema_span": 5
         }
       },
       "dynamic_mechanics_params": {

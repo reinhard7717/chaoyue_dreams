@@ -116,60 +116,112 @@ class ChipIntelligence:
 
     def _diagnose_strategic_posture(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V6.4 · 诡道增强版】诊断主力的综合战略态势 (大一统信号)
-        - 核心升级: 在“指挥官决心”维度中，引入“博弈欺骗指数”作为第四大融合因子，
-                      旨在识别并量化主力在部署战略态势时所采用的欺骗战术，
-                      从而更精准地评估其真实意图的强度与决心。
-        - 核心升级: 植入标准化的“真理探针”，输出所有原始数据、关键计算过程及最终结果。
+        【V7.0 · 诡道时序增强版】诊断主力的综合战略态势 (大一统信号)
+        - 核心升级1: 细化“指挥官决心”维度中的诡道类型，将单一欺骗指数拆分为“压价吸筹（诱空）”、“拉高出货（诱多）”和“对倒”三种，并进行加权融合。
+        - 核心升级2: 对基础战略态势得分进行时间序列分析，计算其“速度”和“加速度”，并将其与基础得分进行融合，增强信号的前瞻性。
+        - 核心升级3: 植入标准化的“真理探针”，输出所有原始数据、关键计算过程及最终结果。
         """
-        print("    -> [筹码层] 正在诊断“战略态势 (V6.4 · 诡道增强版)”...")
+        print("    -> [筹码层] 正在诊断“战略态态 (V7.0 · 诡道时序增强版)”...")
         required_signals = [
             'cost_gini_coefficient_D', 'covert_accumulation_signal_D', 'peak_exchange_purity_D',
             'main_force_cost_advantage_D', 'control_solidity_index_D', 'SLOPE_5_main_force_conviction_index_D',
             'floating_chip_cleansing_efficiency_D', 'dominant_peak_solidity_D',
-            'deception_index_D' # 新增依赖信号
+            'deception_index_D', # 原始欺骗指数，用于拆分
+            'wash_trade_intensity_D' # 新增对倒强度依赖
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_strategic_posture"):
             return pd.Series(0.0, index=df.index)
+
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        sp_params = get_param_value(p_conf.get('strategic_posture_params'), {})
+        deception_fusion_weights = get_param_value(sp_params.get('deception_fusion_weights'), {"bear_trap_positive": 0.6, "bull_trap_negative": 0.2, "wash_trade_negative": 0.2})
+        dynamic_fusion_weights = get_param_value(sp_params.get('dynamic_fusion_weights'), {'base_score': 0.6, 'velocity': 0.2, 'acceleration': 0.2})
+        smoothing_ema_span = get_param_value(sp_params.get('smoothing_ema_span'), 5)
+
         df_index = df.index
+
         # --- 维度1: 阵型部署 (Formation Deployment) ---
         concentration_level = 1 - self._get_safe_series(df, df, 'cost_gini_coefficient_D', 0.5)
         covert_accumulation = self._get_safe_series(df, df, 'covert_accumulation_signal_D', 0.0)
         peak_purity = self._get_safe_series(df, df, 'peak_exchange_purity_D', 0.0)
+
         level_score = get_adaptive_mtf_normalized_bipolar_score(concentration_level, df_index, tf_weights)
         efficiency_score = (
             get_adaptive_mtf_normalized_bipolar_score(covert_accumulation, df_index, tf_weights).add(1)/2 *
             get_adaptive_mtf_normalized_bipolar_score(peak_purity, df_index, tf_weights).add(1)/2
         ).pow(0.5) * 2 - 1
         formation_deployment_score = (level_score.add(1)/2 * efficiency_score.add(1)/2).pow(0.5) * 2 - 1
+
         # --- 维度2: 指挥官决心 (Commander's Resolve) ---
         cost_advantage = self._get_safe_series(df, df, 'main_force_cost_advantage_D', 0.0)
         control_solidity = self._get_safe_series(df, df, 'control_solidity_index_D', 0.0)
         conviction_slope = self._get_safe_series(df, df, 'SLOPE_5_main_force_conviction_index_D', 0.0)
+        
+        # [代码修改] 细化诡道类型
         deception_index = self._get_safe_series(df, df, 'deception_index_D', 0.0)
+        wash_trade_intensity = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0)
+
+        # 根据 signal_dictionary.json 的定义：deception_index_D > 0 代表压价吸筹（诱空），< 0 代表拉高出货（诱多）
+        deception_bear_trap_raw = deception_index.clip(lower=0) # 压价吸筹 (诱空) - 正向贡献
+        deception_bull_trap_raw = deception_index.clip(upper=0).abs() # 拉高出货 (诱多) - 负向贡献
+
+        bear_trap_score = get_adaptive_mtf_normalized_score(deception_bear_trap_raw, df_index, ascending=True, tf_weights=tf_weights)
+        bull_trap_score = get_adaptive_mtf_normalized_score(deception_bull_trap_raw, df_index, ascending=True, tf_weights=tf_weights)
+        wash_trade_score = get_adaptive_mtf_normalized_score(wash_trade_intensity, df_index, ascending=True, tf_weights=tf_weights)
+
+        # 融合诡道影响力：压价吸筹（诱空）是积极的，拉高出货（诱多）和对倒是消极的
+        deception_impact_score = (
+            bear_trap_score * deception_fusion_weights.get('bear_trap_positive', 0.6)
+            - bull_trap_score * deception_fusion_weights.get('bull_trap_negative', 0.2)
+            - wash_trade_score * deception_fusion_weights.get('wash_trade_negative', 0.2)
+        ).clip(-1, 1) # 确保在 [-1, 1] 范围内
+
         advantage_score = get_adaptive_mtf_normalized_bipolar_score(cost_advantage, df_index, tf_weights)
         solidity_score = get_adaptive_mtf_normalized_bipolar_score(control_solidity, df_index, tf_weights)
         intent_score = get_adaptive_mtf_normalized_bipolar_score(conviction_slope, df_index, tf_weights)
-        deception_score = get_adaptive_mtf_normalized_bipolar_score(deception_index, df_index, tf_weights)
+
         commanders_resolve_score = (
             (advantage_score.add(1)/2) * (solidity_score.add(1)/2) *
-            (intent_score.clip(lower=-1, upper=1).add(1)/2) * (deception_score.add(1)/2)
+            (intent_score.clip(lower=-1, upper=1).add(1)/2) * (deception_impact_score.add(1)/2) # [代码修改] 使用新的诡道影响力得分
         ).pow(1/4) * 2 - 1
+
         # --- 维度3: 战场控制 (Battlefield Control) ---
         cleansing_efficiency = self._get_safe_series(df, df, 'floating_chip_cleansing_efficiency_D', 0.0)
         peak_solidity = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5)
+
         cleansing_score = get_adaptive_mtf_normalized_bipolar_score(cleansing_efficiency, df_index, tf_weights)
         peak_solidity_score = get_adaptive_mtf_normalized_bipolar_score(peak_solidity, df_index, tf_weights)
         battlefield_control_score = (cleansing_score.add(1)/2 * peak_solidity_score.add(1)/2).pow(0.5) * 2 - 1
-        # --- 最终融合 ---
-        final_score = (
+
+        # --- 基础融合 (不含时间序列动态) ---
+        base_strategic_posture_score = (
             (commanders_resolve_score.add(1)/2).pow(0.5) *
             (formation_deployment_score.add(1)/2).pow(0.3) *
             (battlefield_control_score.add(1)/2).pow(0.2)
-        ) * 2 - 1
-        # --- [探针逻辑] 暴露所有计算节点 ---
+        ).pow(1/(0.5+0.3+0.2)) * 2 - 1 # [代码修改] 确保幂次和为1，并映射回[-1,1]
+
+        # --- [代码修改] NEW: 时间序列分析 (Strategic Dynamics) ---
+        # 使用 EMA 平滑基础得分，以计算其速度和加速度
+        smoothed_base_score = base_strategic_posture_score.ewm(span=smoothing_ema_span, adjust=False).mean()
+        
+        # 计算速度 (一阶导数)
+        velocity = smoothed_base_score.diff(1).fillna(0)
+        # 计算加速度 (二阶导数)
+        acceleration = velocity.diff(1).fillna(0)
+
+        # 归一化速度和加速度到双极性得分
+        norm_velocity = get_adaptive_mtf_normalized_bipolar_score(velocity, df_index, tf_weights)
+        norm_acceleration = get_adaptive_mtf_normalized_bipolar_score(acceleration, df_index, tf_weights)
+
+        # 将基础得分与时间序列动态融合
+        final_score = (
+            (base_strategic_posture_score.add(1)/2).pow(dynamic_fusion_weights.get('base_score', 0.6)) *
+            (norm_velocity.add(1)/2).pow(dynamic_fusion_weights.get('velocity', 0.2)) *
+            (norm_acceleration.add(1)/2).pow(dynamic_fusion_weights.get('acceleration', 0.2))
+        ).pow(1 / sum(dynamic_fusion_weights.values())) * 2 - 1 # 确保幂次和为1，并映射回[-1,1]
+
+        # --- [代码修改] 探针逻辑: 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -186,7 +238,9 @@ class ChipIntelligence:
                 print(f"         - SLOPE_5_main_force_conviction_index_D: {conviction_slope.loc[probe_date]:.4f}")
                 print(f"         - floating_chip_cleansing_efficiency_D: {cleansing_efficiency.loc[probe_date]:.4f}")
                 print(f"         - dominant_peak_solidity_D: {peak_solidity.loc[probe_date]:.4f}")
-                print(f"         - deception_index_D: {deception_index.loc[probe_date]:.4f}")
+                print(f"         - deception_index_D (原始): {deception_index.loc[probe_date]:.4f}")
+                print(f"         - wash_trade_intensity_D (原始): {wash_trade_intensity.loc[probe_date]:.4f}")
+
                 print(f"       --- [维度1: 阵型部署 (Formation Deployment)] ---")
                 print(f"         - 原始值:")
                 print(f"           - concentration_level (1-Gini): {concentration_level.loc[probe_date]:.4f}")
@@ -194,23 +248,28 @@ class ChipIntelligence:
                 print(f"           - peak_purity: {peak_purity.loc[probe_date]:.4f}")
                 print(f"         - 归一化得分:")
                 print(f"           - level_score: {level_score.loc[probe_date]:.4f}")
-                print(f"           - covert_accumulation_score (normalized): {get_adaptive_mtf_normalized_bipolar_score(covert_accumulation, df_index, tf_weights).loc[probe_date]:.4f}")
-                print(f"           - peak_purity_score (normalized): {get_adaptive_mtf_normalized_bipolar_score(peak_purity, df_index, tf_weights).loc[probe_date]:.4f}")
-                print(f"         - 融合过程:")
-                print(f"           - efficiency_score: {efficiency_score.loc[probe_date]:.4f}")
+                print(f"           - efficiency_score (covert_accum & peak_purity fusion): {efficiency_score.loc[probe_date]:.4f}")
                 print(f"         - 维度结果: formation_deployment_score: {formation_deployment_score.loc[probe_date]:.4f}")
+
                 print(f"       --- [维度2: 指挥官决心 (Commander's Resolve)] ---")
                 print(f"         - 原始值:")
                 print(f"           - cost_advantage: {cost_advantage.loc[probe_date]:.4f}")
                 print(f"           - control_solidity: {control_solidity.loc[probe_date]:.4f}")
                 print(f"           - conviction_slope: {conviction_slope.loc[probe_date]:.4f}")
-                print(f"           - deception_index: {deception_index.loc[probe_date]:.4f}")
+                print(f"           - deception_bear_trap_raw (压价吸筹): {deception_bear_trap_raw.loc[probe_date]:.4f}")
+                print(f"           - deception_bull_trap_raw (拉高出货): {deception_bull_trap_raw.loc[probe_date]:.4f}")
+                print(f"           - wash_trade_intensity (对倒): {wash_trade_intensity.loc[probe_date]:.4f}")
                 print(f"         - 归一化得分:")
                 print(f"           - advantage_score: {advantage_score.loc[probe_date]:.4f}")
                 print(f"           - solidity_score: {solidity_score.loc[probe_date]:.4f}")
                 print(f"           - intent_score: {intent_score.loc[probe_date]:.4f}")
-                print(f"           - deception_score: {deception_score.loc[probe_date]:.4f}")
+                print(f"           - bear_trap_score (normalized): {bear_trap_score.loc[probe_date]:.4f}")
+                print(f"           - bull_trap_score (normalized): {bull_trap_score.loc[probe_date]:.4f}")
+                print(f"           - wash_trade_score (normalized): {wash_trade_score.loc[probe_date]:.4f}")
+                print(f"         - 融合过程 (诡道影响力):")
+                print(f"           - deception_impact_score: {deception_impact_score.loc[probe_date]:.4f}")
                 print(f"         - 维度结果: commanders_resolve_score: {commanders_resolve_score.loc[probe_date]:.4f}")
+
                 print(f"       --- [维度3: 战场控制 (Battlefield Control)] ---")
                 print(f"         - 原始值:")
                 print(f"           - cleansing_efficiency: {cleansing_efficiency.loc[probe_date]:.4f}")
@@ -219,9 +278,19 @@ class ChipIntelligence:
                 print(f"           - cleansing_score: {cleansing_score.loc[probe_date]:.4f}")
                 print(f"           - peak_solidity_score: {peak_solidity_score.loc[probe_date]:.4f}")
                 print(f"         - 维度结果: battlefield_control_score: {battlefield_control_score.loc[probe_date]:.4f}")
-                print(f"       --- [最终融合] ---")
-                print(f"         - 融合权重: Commander's Resolve (0.5), Formation Deployment (0.3), Battlefield Control (0.2)")
-                print(f"         - 最终结果: SCORE_CHIP_STRATEGIC_POSTURE: {final_score.loc[probe_date]:.4f}")
+
+                print(f"       --- [基础融合 (不含时间序列动态)] ---")
+                print(f"         - base_strategic_posture_score: {base_strategic_posture_score.loc[probe_date]:.4f}")
+
+                print(f"       --- [时间序列动态 (Strategic Dynamics)] ---")
+                print(f"         - 平滑基础得分 (smoothed_base_score): {smoothed_base_score.loc[probe_date]:.4f}")
+                print(f"         - 速度 (velocity): {velocity.loc[probe_date]:.4f}")
+                print(f"         - 加速度 (acceleration): {acceleration.loc[probe_date]:.4f}")
+                print(f"         - 归一化速度 (norm_velocity): {norm_velocity.loc[probe_date]:.4f}")
+                print(f"         - 归一化加速度 (norm_acceleration): {norm_acceleration.loc[probe_date]:.4f}")
+
+                print(f"       --- [最终融合结果] ---")
+                print(f"         - SCORE_CHIP_STRATEGIC_POSTURE: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_battlefield_geography(self, df: pd.DataFrame) -> pd.Series:
