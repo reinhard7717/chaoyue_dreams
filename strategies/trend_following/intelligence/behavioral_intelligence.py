@@ -1451,7 +1451,7 @@ class BehavioralIntelligence:
 
     def _diagnose_pure_behavioral_divergence(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> Tuple[pd.Series, pd.Series]:
         """
-        【V6.0 · 行为背离多维情境与模式识别版】诊断纯粹基于行为类原始数据的看涨/看跌背离信号。
+        【V7.0 · 行为背离多时间框架模式共振版】诊断纯粹基于行为类原始数据的看涨/看跌背离信号。
         严格遵循“行为情报层只分析行为类原始数据”的原则，不依赖任何筹码或资金流数据。
         进化点：
         1. 鲁棒斜率计算：引入多时间框架（MTF）的斜率加权平均，减少短期噪音。
@@ -1467,8 +1467,10 @@ class BehavioralIntelligence:
         11. 市场情境动态权重：根据ADX和ATR的强度，更精细地调整融合权重。
         12. 多维情境感知：引入市场情绪（通过价格波动率和方向性）和趋势健康度（通过ADX和价格斜率稳定性）作为独立的情境因子。
         13. 增强的K线模式识别：识别更具体的反转K线模式（如锤头/射击之星，吞没形态），并给予额外奖励。
-        14. 信号新鲜度：引入一个“信号新鲜度”因子，对刚刚形成的背离（即持续天数为1）给予额外奖励。
-        15. 非线性融合优化：整合所有新引入的因子，并调整融合公式。
+        14. 信号新鲜度：引入一个“信号新鲜度”因子，对刚刚形成的背离（即持续天数=1）给予额外奖励。
+        15. 多时间框架K线模式共振：检查周线级别K线模式与日线背离的共振。
+        16. 行为模式序列识别：识别背离发生前一段时间内的量价行为序列。
+        17. 非线性融合优化：整合所有新引入的因子，并调整融合公式。
         需要加入详细的探针，输出原料数据、关键计算节点、结果的值，以便于检查和调试。
         """
         method_name = "_diagnose_pure_behavioral_divergence"
@@ -1480,12 +1482,13 @@ class BehavioralIntelligence:
         adaptive_thresholds_params = get_param_value(p_conf.get('adaptive_thresholds'), {"enabled": True, "min_slope_diff_atr_multiplier": 0.005, "min_slope_diff_base": 0.005, "rsi_oversold_trend_adjust_factor": 5, "rsi_overbought_trend_adjust_factor": 5})
         synergy_weights_params = get_param_value(p_conf.get('synergy_weights'), {"enabled": True, "two_indicators_synergy_bonus": 0.1, "three_indicators_synergy_bonus": 0.2})
         structural_context_weights_params = get_param_value(p_conf.get('structural_context_weights'), {"enabled": True, "bbw_slope_penalty_factor": 0.1})
-        price_action_confirmation_params = get_param_value(p_conf.get('price_action_confirmation_params'), {"enabled": True, "lower_shadow_ratio_threshold": 0.4, "upper_shadow_ratio_threshold": 0.4, "body_ratio_threshold": 0.3, "confirmation_bonus": 0.15, "engulfing_pattern_bonus": 0.1, "hammer_shooting_star_bonus": 0.1})
+        price_action_confirmation_params = get_param_value(p_conf.get('price_action_confirmation_params'), {"enabled": True, "lower_shadow_ratio_threshold": 0.4, "upper_shadow_ratio_threshold": 0.4, "body_ratio_threshold": 0.3, "confirmation_bonus": 0.15, "engulfing_pattern_bonus": 0.1, "hammer_shooting_star_bonus": 0.1, "mtf_pattern_resonance_bonus": 0.15})
         volume_price_structure_params = get_param_value(p_conf.get('volume_price_structure_params'), {"enabled": True, "volume_climax_threshold_multiplier": 2.0, "volume_drying_up_threshold_multiplier": 0.5, "narrow_range_body_ratio": 0.2, "wide_range_body_ratio": 0.7, "structure_bonus": 0.15})
         purity_assessment_params = get_param_value(p_conf.get('purity_assessment_params'), {"enabled": True, "slope_std_dev_threshold": 0.5, "whipsaw_penalty_factor": 0.1})
         market_regime_params = get_param_value(p_conf.get('market_regime_params'), {"enabled": True, "adx_trend_threshold": 25, "adx_ranging_threshold": 20, "adx_div_weight_max_adjust": 0.3, "adx_conf_weight_max_adjust": 0.3, "atr_conf_weight_max_adjust": 0.2})
         market_context_params = get_param_value(p_conf.get('market_context_params'), {"enabled": True, "price_momentum_window": 5, "favorable_sentiment_slope_threshold": 0.001, "unfavorable_sentiment_slope_threshold": -0.001, "slope_stability_threshold": 0.7, "adx_strength_threshold": 25, "favorable_context_bonus": 0.1, "unfavorable_context_penalty": 0.1})
         signal_freshness_params = get_param_value(p_conf.get('signal_freshness_params'), {"enabled": True, "freshness_bonus": 0.1})
+        behavioral_sequence_params = get_param_value(p_conf.get('behavioral_sequence_params'), {"enabled": True, "volume_drying_up_days": 3, "volume_drying_up_multiplier": 0.8, "recent_reversal_days": 2, "sequence_bonus": 0.15})
 
         bullish_div_weights = get_param_value(p_conf.get('bullish_divergence_weights'), {"price_rsi": 0.4, "price_macd": 0.3, "price_volume": 0.3})
         bearish_div_weights = get_param_value(p_conf.get('bearish_divergence_weights'), {"price_rsi": 0.4, "price_macd": 0.3, "price_volume": 0.3})
@@ -1506,7 +1509,9 @@ class BehavioralIntelligence:
         required_signals = [
             'close_D', 'RSI_13_D', 'MACDh_13_34_8_D', 'volume_D', 'ATR_14_D', 'BBW_21_2.0_D',
             'active_buying_support_D', 'active_selling_pressure_D', 'trend_vitality_index_D',
-            'open_D', 'high_D', 'low_D', 'ADX_14_D', 'VOL_MA_21_D', 'pct_change_D' # [修改的代码行] 新增pct_change_D
+            'open_D', 'high_D', 'low_D', 'ADX_14_D', 'VOL_MA_21_D', 'pct_change_D',
+            'WEEKLY_BULLISH_ENGULFING_D', 'WEEKLY_BEARISH_ENGULFING_D', # [修改的代码行] 新增周线K线模式信号
+            'WEEKLY_HAMMER_D', 'WEEKLY_SHOOTING_STAR_D' # [修改的代码行] 新增周线K线模式信号
         ]
         # 动态添加MTF斜率信号到required_signals
         mtf_periods = mtf_slopes_params.get('periods', [5])
@@ -1515,7 +1520,7 @@ class BehavioralIntelligence:
                 f'SLOPE_{period}_close_D', f'SLOPE_{period}_RSI_13_D',
                 f'SLOPE_{period}_MACDh_13_34_8_D', f'SLOPE_{period}_volume_D',
                 f'SLOPE_{period}_BBW_21_2.0_D',
-                f'SLOPE_{period}_pct_change_D' # [修改的代码行] 新增pct_change斜率
+                f'SLOPE_{period}_pct_change_D'
             ])
         # 添加长期斜率信号
         long_term_period = multi_level_resonance_params.get('long_term_period', 21)
@@ -1530,7 +1535,7 @@ class BehavioralIntelligence:
 
         # 3. 计算鲁棒斜率 (Robust Slopes)
         robust_slopes = {}
-        for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']: # [修改的代码行] 新增pct_change
+        for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
             weighted_slope = pd.Series(0.0, index=df.index)
             total_weight = 0.0
             for period in mtf_periods:
@@ -1552,7 +1557,7 @@ class BehavioralIntelligence:
         robust_macd_slope = robust_slopes['MACDh_13_34_8']
         robust_volume_slope = robust_slopes['volume']
         robust_bbw_slope = robust_slopes['BBW_21_2.0']
-        robust_pct_change_slope = robust_slopes['pct_change'] # [修改的代码行] 新增pct_change鲁棒斜率
+        robust_pct_change_slope = robust_slopes['pct_change']
 
         # 计算长期斜率
         long_term_close_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_close_D', 0.0, method_name=method_name)
@@ -1576,7 +1581,13 @@ class BehavioralIntelligence:
         adx_val = self._get_safe_series(df, 'ADX_14_D', 0.0, method_name=method_name)
         current_volume = self._get_safe_series(df, 'volume_D', 0.0, method_name=method_name)
         volume_avg = self._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name=method_name)
-        pct_change_val = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name) # [修改的代码行] 新增pct_change_val
+        pct_change_val = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
+
+        # [修改的代码行] 获取周线K线模式信号
+        weekly_bullish_engulfing = self._get_safe_series(df, 'WEEKLY_BULLISH_ENGULFING_D', False, method_name=method_name)
+        weekly_bearish_engulfing = self._get_safe_series(df, 'WEEKLY_BEARISH_ENGULFING_D', False, method_name=method_name)
+        weekly_hammer = self._get_safe_series(df, 'WEEKLY_HAMMER_D', False, method_name=method_name)
+        weekly_shooting_star = self._get_safe_series(df, 'WEEKLY_SHOOTING_STAR_D', False, method_name=method_name)
 
         # 归一化确认因子 (0到1)
         norm_active_buying = get_adaptive_mtf_normalized_score(active_buying, df.index, ascending=True, tf_weights=tf_weights)
@@ -1671,14 +1682,12 @@ class BehavioralIntelligence:
             is_long_lower_shadow = (lower_shadow_ratio > price_action_confirmation_params.get('lower_shadow_ratio_threshold', 0.4))
             is_small_body = (body_ratio < price_action_confirmation_params.get('body_ratio_threshold', 0.3))
             
-            # [修改的代码行] 增强K线模式识别：看涨吞没
             is_bullish_engulfing = (
                 (close_price > open_price) & # 当前是阳线
                 (df['close_D'].shift(1) < df['open_D'].shift(1)) & # 前一日是阴线
                 (close_price > df['open_D'].shift(1)) & # 当前收盘价高于前一日开盘价
                 (open_price < df['close_D'].shift(1)) # 当前开盘价低于前一日收盘价
             )
-            # [修改的代码行] 增强K线模式识别：锤头线
             is_hammer = (
                 (close_price > open_price) & # 阳线
                 (lower_shadow_ratio > price_action_confirmation_params.get('lower_shadow_ratio_threshold', 0.4)) & # 长下影线
@@ -1687,8 +1696,13 @@ class BehavioralIntelligence:
             )
 
             bullish_price_action_conf = bullish_price_action_conf.mask(is_long_lower_shadow & is_small_body, price_action_confirmation_params.get('confirmation_bonus', 0.15))
-            bullish_price_action_conf = bullish_price_action_conf.mask(is_bullish_engulfing, price_action_confirmation_params.get('engulfing_pattern_bonus', 0.1)) # [修改的代码行]
-            bullish_price_action_conf = bullish_price_action_conf.mask(is_hammer, price_action_confirmation_params.get('hammer_shooting_star_bonus', 0.1)) # [修改的代码行]
+            bullish_price_action_conf = bullish_price_action_conf.mask(is_bullish_engulfing, price_action_confirmation_params.get('engulfing_pattern_bonus', 0.1))
+            bullish_price_action_conf = bullish_price_action_conf.mask(is_hammer, price_action_confirmation_params.get('hammer_shooting_star_bonus', 0.1))
+
+            # [修改的代码行] 多时间框架K线模式共振
+            mtf_pattern_resonance_bonus = price_action_confirmation_params.get('mtf_pattern_resonance_bonus', 0.15)
+            is_weekly_bullish_pattern = weekly_bullish_engulfing | weekly_hammer
+            bullish_price_action_conf = bullish_price_action_conf.mask(is_weekly_bullish_pattern, bullish_price_action_conf + mtf_pattern_resonance_bonus)
 
         bullish_price_action_factor = (1 + bullish_price_action_conf).clip(1, 1.5)
 
@@ -1749,10 +1763,10 @@ class BehavioralIntelligence:
             dynamic_bullish_conf_weight_multiplier = dynamic_bullish_conf_weight_multiplier * (1 - norm_atr * atr_conf_max_adjust)
             dynamic_bullish_conf_weight_multiplier = dynamic_bullish_conf_weight_multiplier.clip(0.5, 1.5)
 
-        # [修改的代码行] 多维情境感知 (Multi-Dimensional Contextual Awareness)
+        # 多维情境感知 (Multi-Dimensional Contextual Awareness)
         bullish_market_context_factor = pd.Series(1.0, index=df.index)
         if market_context_params.get('enabled'):
-            price_momentum_window = market_context_params.get('price_momentum_window', 5)
+            # price_momentum_window = market_context_params.get('price_momentum_window', 5) # 未直接使用，通过robust_pct_change_slope体现
             favorable_sentiment_slope_threshold = market_context_params.get('favorable_sentiment_slope_threshold', 0.001)
             unfavorable_sentiment_slope_threshold = market_context_params.get('unfavorable_sentiment_slope_threshold', -0.001)
             slope_stability_threshold = market_context_params.get('slope_stability_threshold', 0.7)
@@ -1765,6 +1779,10 @@ class BehavioralIntelligence:
             is_unfavorable_sentiment = (robust_pct_change_slope < unfavorable_sentiment_slope_threshold)
 
             # 趋势健康度：ADX强度 + 价格斜率稳定性 (1 - norm_slope_std_dev)
+            # norm_slope_std_dev 来自 purity_assessment_params 的计算
+            short_term_close_slopes = df[f'SLOPE_{mtf_periods[0]}_close_D']
+            slope_std_dev = short_term_close_slopes.rolling(window=mtf_periods[0]).std().fillna(0)
+            norm_slope_std_dev = get_adaptive_mtf_normalized_score(slope_std_dev, df.index, ascending=True, tf_weights=tf_weights)
             is_healthy_trend = (adx_val > adx_strength_threshold) & ((1 - norm_slope_std_dev) > slope_stability_threshold)
 
             # 综合情境因子
@@ -1777,7 +1795,7 @@ class BehavioralIntelligence:
             )
             bullish_market_context_factor = (1 + market_context_bonus_penalty).clip(0.5, 1.5)
 
-        # [修改的代码行] 信号新鲜度 (Signal Freshness)
+        # 信号新鲜度 (Signal Freshness)
         bullish_freshness_factor = pd.Series(1.0, index=df.index)
         if signal_freshness_params.get('enabled'):
             freshness_bonus = signal_freshness_params.get('freshness_bonus', 0.1)
@@ -1786,8 +1804,44 @@ class BehavioralIntelligence:
             )
         bullish_freshness_factor = bullish_freshness_factor.clip(1, 1.5) # 限制奖励上限
 
+        # [修改的代码行] 行为模式序列识别 (Behavioral Pattern Sequence Recognition)
+        bullish_behavioral_sequence_factor = pd.Series(1.0, index=df.index)
+        if behavioral_sequence_params.get('enabled'):
+            volume_drying_up_days = behavioral_sequence_params.get('volume_drying_up_days', 3)
+            volume_drying_up_multiplier = behavioral_sequence_params.get('volume_drying_up_multiplier', 0.8)
+            recent_reversal_days = behavioral_sequence_params.get('recent_reversal_days', 2)
+            sequence_bonus = behavioral_sequence_params.get('sequence_bonus', 0.15)
+
+            # 1. 价格下跌趋势 (已存在 price_down_trend)
+            # 2. 近期缩量下跌 (过去N天成交量低于平均值)
+            recent_volume_drying_up = (df['volume_D'].rolling(window=volume_drying_up_days).mean() < volume_avg * volume_drying_up_multiplier)
+            
+            # 3. 近期出现反转K线迹象 (长下影线或阳线)
+            # 重新计算K线影线和实体比率，因为这里需要历史数据
+            prev_open = df['open_D'].shift(1)
+            prev_high = df['high_D'].shift(1)
+            prev_low = df['low_D'].shift(1)
+            prev_close = df['close_D'].shift(1)
+
+            prev_body_range = (prev_close - prev_open).abs()
+            prev_total_range = prev_high - prev_low
+            prev_total_range_safe = prev_total_range.replace(0, 1e-9)
+            prev_lower_shadow = prev_low.mask(prev_close > prev_open, prev_open) - prev_low.mask(prev_close > prev_open, prev_close)
+            prev_lower_shadow_ratio = (prev_lower_shadow / prev_total_range_safe).clip(0, 1)
+            
+            is_recent_long_lower_shadow = (prev_lower_shadow_ratio > price_action_confirmation_params.get('lower_shadow_ratio_threshold', 0.4)).rolling(window=recent_reversal_days).max().fillna(False)
+            is_recent_positive_close = (prev_close > prev_open).rolling(window=recent_reversal_days).max().fillna(False)
+
+            # 组合序列条件
+            bullish_sequence_condition = price_down_trend & recent_volume_drying_up & (is_recent_long_lower_shadow | is_recent_positive_close)
+            
+            bullish_behavioral_sequence_factor = bullish_behavioral_sequence_factor.mask(
+                bullish_sequence_condition, 1 + sequence_bonus
+            )
+        bullish_behavioral_sequence_factor = bullish_behavioral_sequence_factor.clip(1, 1.5)
+
         # 最终看涨背离分数 (非线性融合)
-        # 基础权重: 0.4 (强度) + 0.2 (持续性) + 0.3 (确认) + 0.1 (协同) + 0.1 (结构上下文) + 0.1 (共振) + 0.1 (价格行为) + 0.1 (量价结构) + 0.1 (纯度) + 0.1 (市场情境) + 0.1 (新鲜度) = 1.7
+        # 基础权重: 0.4 (强度) + 0.2 (持续性) + 0.3 (确认) + 0.1 (协同) + 0.1 (结构上下文) + 0.1 (共振) + 0.1 (价格行为) + 0.1 (量价结构) + 0.1 (纯度) + 0.1 (市场情境) + 0.1 (新鲜度) + 0.1 (行为序列) = 1.8
         # 考虑动态权重调整，最大可能总权重会更高，所以pow(1/X)的X需要相应调整
         bullish_divergence_score = (
             (norm_total_bullish_div_strength + 1e-9).pow(0.4 * dynamic_bullish_div_weight_multiplier) *
@@ -1799,9 +1853,10 @@ class BehavioralIntelligence:
             (bullish_price_action_factor + 1e-9).pow(0.1) *
             (bullish_volume_price_structure_factor + 1e-9).pow(0.1) *
             (bullish_purity_factor + 1e-9).pow(0.1) *
-            (bullish_market_context_factor + 1e-9).pow(0.1) * # [修改的代码行] 新增市场情境因子
-            (bullish_freshness_factor + 1e-9).pow(0.1) # [修改的代码行] 新增新鲜度因子
-        ).pow(1/2.0).fillna(0.0) # [修改的代码行] 调整总权重，假设最大权重和为2.0
+            (bullish_market_context_factor + 1e-9).pow(0.1) *
+            (bullish_freshness_factor + 1e-9).pow(0.1) *
+            (bullish_behavioral_sequence_factor + 1e-9).pow(0.1) # [修改的代码行] 新增行为序列因子
+        ).pow(1/2.1).fillna(0.0) # [修改的代码行] 调整总权重，假设最大权重和为2.1
         bullish_divergence_score = bullish_divergence_score.where(bullish_div_condition_raw, 0.0).clip(0, 1)
 
         # 7. 计算看跌背离 (Bearish Divergence)
@@ -1884,14 +1939,12 @@ class BehavioralIntelligence:
             is_long_upper_shadow = (upper_shadow_ratio > price_action_confirmation_params.get('upper_shadow_ratio_threshold', 0.4))
             is_small_body = (body_ratio < price_action_confirmation_params.get('body_ratio_threshold', 0.3))
 
-            # [修改的代码行] 增强K线模式识别：看跌吞没
             is_bearish_engulfing = (
                 (close_price < open_price) & # 当前是阴线
                 (df['close_D'].shift(1) > df['open_D'].shift(1)) & # 前一日是阳线
                 (close_price < df['open_D'].shift(1)) & # 当前收盘价低于前一日开盘价
                 (open_price > df['close_D'].shift(1)) # 当前开盘价高于前一日收盘价
             )
-            # [修改的代码行] 增强K线模式识别：射击之星
             is_shooting_star = (
                 (close_price < open_price) & # 阴线
                 (upper_shadow_ratio > price_action_confirmation_params.get('upper_shadow_ratio_threshold', 0.4)) & # 长上影线
@@ -1900,8 +1953,13 @@ class BehavioralIntelligence:
             )
             
             bearish_price_action_conf = bearish_price_action_conf.mask(is_long_upper_shadow & is_small_body, price_action_confirmation_params.get('confirmation_bonus', 0.15))
-            bearish_price_action_conf = bearish_price_action_conf.mask(is_bearish_engulfing, price_action_confirmation_params.get('engulfing_pattern_bonus', 0.1)) # [修改的代码行]
-            bearish_price_action_conf = bearish_price_action_conf.mask(is_shooting_star, price_action_confirmation_params.get('hammer_shooting_star_bonus', 0.1)) # [修改的代码行]
+            bearish_price_action_conf = bearish_price_action_conf.mask(is_bearish_engulfing, price_action_confirmation_params.get('engulfing_pattern_bonus', 0.1))
+            bearish_price_action_conf = bearish_price_action_conf.mask(is_shooting_star, price_action_confirmation_params.get('hammer_shooting_star_bonus', 0.1))
+
+            # [修改的代码行] 多时间框架K线模式共振
+            mtf_pattern_resonance_bonus = price_action_confirmation_params.get('mtf_pattern_resonance_bonus', 0.15)
+            is_weekly_bearish_pattern = weekly_bearish_engulfing | weekly_shooting_star
+            bearish_price_action_conf = bearish_price_action_conf.mask(is_weekly_bearish_pattern, bearish_price_action_conf + mtf_pattern_resonance_bonus)
 
         bearish_price_action_factor = (1 + bearish_price_action_conf).clip(1, 1.5)
 
@@ -1962,10 +2020,9 @@ class BehavioralIntelligence:
             dynamic_bearish_conf_weight_multiplier = dynamic_bearish_conf_weight_multiplier * (1 - norm_atr * atr_conf_max_adjust)
             dynamic_bearish_conf_weight_multiplier = dynamic_bearish_conf_weight_multiplier.clip(0.5, 1.5)
 
-        # [修改的代码行] 多维情境感知 (Multi-Dimensional Contextual Awareness)
+        # 多维情境感知 (Multi-Dimensional Contextual Awareness)
         bearish_market_context_factor = pd.Series(1.0, index=df.index)
         if market_context_params.get('enabled'):
-            price_momentum_window = market_context_params.get('price_momentum_window', 5)
             favorable_sentiment_slope_threshold = market_context_params.get('favorable_sentiment_slope_threshold', 0.001)
             unfavorable_sentiment_slope_threshold = market_context_params.get('unfavorable_sentiment_slope_threshold', -0.001)
             slope_stability_threshold = market_context_params.get('slope_stability_threshold', 0.7)
@@ -1976,6 +2033,9 @@ class BehavioralIntelligence:
             is_favorable_sentiment = (robust_pct_change_slope > favorable_sentiment_slope_threshold)
             is_unfavorable_sentiment = (robust_pct_change_slope < unfavorable_sentiment_slope_threshold)
 
+            short_term_close_slopes = df[f'SLOPE_{mtf_periods[0]}_close_D']
+            slope_std_dev = short_term_close_slopes.rolling(window=mtf_periods[0]).std().fillna(0)
+            norm_slope_std_dev = get_adaptive_mtf_normalized_score(slope_std_dev, df.index, ascending=True, tf_weights=tf_weights)
             is_healthy_trend = (adx_val > adx_strength_threshold) & ((1 - norm_slope_std_dev) > slope_stability_threshold)
 
             market_context_bonus_penalty = pd.Series(0.0, index=df.index)
@@ -1987,7 +2047,7 @@ class BehavioralIntelligence:
             )
             bearish_market_context_factor = (1 + market_context_bonus_penalty).clip(0.5, 1.5)
 
-        # [修改的代码行] 信号新鲜度 (Signal Freshness)
+        # 信号新鲜度 (Signal Freshness)
         bearish_freshness_factor = pd.Series(1.0, index=df.index)
         if signal_freshness_params.get('enabled'):
             freshness_bonus = signal_freshness_params.get('freshness_bonus', 0.1)
@@ -1995,6 +2055,41 @@ class BehavioralIntelligence:
                 bearish_persistence_count == 1, 1 + freshness_bonus
             )
         bearish_freshness_factor = bearish_freshness_factor.clip(1, 1.5) # 限制奖励上限
+
+        # [修改的代码行] 行为模式序列识别 (Behavioral Pattern Sequence Recognition)
+        bearish_behavioral_sequence_factor = pd.Series(1.0, index=df.index)
+        if behavioral_sequence_params.get('enabled'):
+            volume_drying_up_days = behavioral_sequence_params.get('volume_drying_up_days', 3)
+            volume_drying_up_multiplier = behavioral_sequence_params.get('volume_drying_up_multiplier', 0.8)
+            recent_reversal_days = behavioral_sequence_params.get('recent_reversal_days', 2)
+            sequence_bonus = behavioral_sequence_params.get('sequence_bonus', 0.15)
+
+            # 1. 价格上涨趋势 (已存在 price_up_trend)
+            # 2. 近期缩量上涨 (过去N天成交量低于平均值)
+            recent_volume_drying_up = (df['volume_D'].rolling(window=volume_drying_up_days).mean() < volume_avg * volume_drying_up_multiplier)
+            
+            # 3. 近期出现反转K线迹象 (长上影线或阴线)
+            prev_open = df['open_D'].shift(1)
+            prev_high = df['high_D'].shift(1)
+            prev_low = df['low_D'].shift(1)
+            prev_close = df['close_D'].shift(1)
+
+            prev_body_range = (prev_close - prev_open).abs()
+            prev_total_range = prev_high - prev_low
+            prev_total_range_safe = prev_total_range.replace(0, 1e-9)
+            prev_upper_shadow = prev_high - prev_high.mask(prev_close > prev_open, prev_close)
+            prev_upper_shadow_ratio = (prev_upper_shadow / prev_total_range_safe).clip(0, 1)
+            
+            is_recent_long_upper_shadow = (prev_upper_shadow_ratio > price_action_confirmation_params.get('upper_shadow_ratio_threshold', 0.4)).rolling(window=recent_reversal_days).max().fillna(False)
+            is_recent_negative_close = (prev_close < prev_open).rolling(window=recent_reversal_days).max().fillna(False)
+
+            # 组合序列条件
+            bearish_sequence_condition = price_up_trend & recent_volume_drying_up & (is_recent_long_upper_shadow | is_recent_negative_close)
+            
+            bearish_behavioral_sequence_factor = bearish_behavioral_sequence_factor.mask(
+                bearish_sequence_condition, 1 + sequence_bonus
+            )
+        bearish_behavioral_sequence_factor = bearish_behavioral_sequence_factor.clip(1, 1.5)
 
         # 最终看跌背离分数 (非线性融合)
         bearish_divergence_score = (
@@ -2007,15 +2102,16 @@ class BehavioralIntelligence:
             (bearish_price_action_factor + 1e-9).pow(0.1) *
             (bearish_volume_price_structure_factor + 1e-9).pow(0.1) *
             (bearish_purity_factor + 1e-9).pow(0.1) *
-            (bearish_market_context_factor + 1e-9).pow(0.1) * # [修改的代码行] 新增市场情境因子
-            (bearish_freshness_factor + 1e-9).pow(0.1) # [修改的代码行] 新增新鲜度因子
-        ).pow(1/2.0).fillna(0.0) # [修改的代码行] 调整总权重，假设最大权重和为2.0
+            (bearish_market_context_factor + 1e-9).pow(0.1) *
+            (bearish_freshness_factor + 1e-9).pow(0.1) *
+            (bearish_behavioral_sequence_factor + 1e-9).pow(0.1) # [修改的代码行] 新增行为序列因子
+        ).pow(1/2.1).fillna(0.0) # [修改的代码行] 调整总权重，假设最大权重和为2.1
         bearish_divergence_score = bearish_divergence_score.where(bearish_div_condition_raw, 0.0).clip(0, 1)
 
         # 8. 调试探针
         if debug_enabled and probe_ts and probe_ts in df.index:
             probe_date_str = probe_ts.strftime('%Y-%m-%d')
-            print(f"\n--- 行为背离多维情境与模式识别版 (V6.0) 探针 @ {probe_date_str} ---")
+            print(f"\n--- 行为背离多时间框架模式共振版 (V7.0) 探针 @ {probe_date_str} ---")
             print(f"  [原料数据]:")
             print(f"    RSI_13_D: {rsi_val.loc[probe_ts]:.2f}")
             print(f"    ATR_14_D: {atr_val.loc[probe_ts]:.4f}")
@@ -2030,7 +2126,11 @@ class BehavioralIntelligence:
             print(f"    ADX_14_D: {adx_val.loc[probe_ts]:.2f}")
             print(f"    volume_D: {current_volume.loc[probe_ts]:.0f}")
             print(f"    VOL_MA_21_D (volume_avg): {volume_avg.loc[probe_ts]:.0f}")
-            print(f"    pct_change_D: {pct_change_val.loc[probe_ts]:.4f}") # [修改的代码行]
+            print(f"    pct_change_D: {pct_change_val.loc[probe_ts]:.4f}")
+            print(f"    WEEKLY_BULLISH_ENGULFING_D: {weekly_bullish_engulfing.loc[probe_ts]}") # [修改的代码行]
+            print(f"    WEEKLY_BEARISH_ENGULFING_D: {weekly_bearish_engulfing.loc[probe_ts]}") # [修改的代码行]
+            print(f"    WEEKLY_HAMMER_D: {weekly_hammer.loc[probe_ts]}") # [修改的代码行]
+            print(f"    WEEKLY_SHOOTING_STAR_D: {weekly_shooting_star.loc[probe_ts]}") # [修改的代码行]
             print(f"  [配置参数]:")
             print(f"    MTF periods: {mtf_periods}, weights: {mtf_slopes_params.get('weights')}")
             print(f"    Long Term Period: {long_term_period}, Resonance Bonus: {multi_level_resonance_params.get('resonance_bonus')}")
@@ -2048,8 +2148,9 @@ class BehavioralIntelligence:
             print(f"    Upper Shadow Ratio Threshold: {price_action_confirmation_params.get('upper_shadow_ratio_threshold')}")
             print(f"    Body Ratio Threshold: {price_action_confirmation_params.get('body_ratio_threshold')}")
             print(f"    Price Action Confirmation Bonus: {price_action_confirmation_params.get('confirmation_bonus')}")
-            print(f"    Engulfing Pattern Bonus: {price_action_confirmation_params.get('engulfing_pattern_bonus')}") # [修改的代码行]
-            print(f"    Hammer/Shooting Star Bonus: {price_action_confirmation_params.get('hammer_shooting_star_bonus')}") # [修改的代码行]
+            print(f"    Engulfing Pattern Bonus: {price_action_confirmation_params.get('engulfing_pattern_bonus')}")
+            print(f"    Hammer/Shooting Star Bonus: {price_action_confirmation_params.get('hammer_shooting_star_bonus')}")
+            print(f"    MTF Pattern Resonance Bonus: {price_action_confirmation_params.get('mtf_pattern_resonance_bonus')}") # [修改的代码行]
             print(f"    Volume Climax Threshold Multiplier: {volume_price_structure_params.get('volume_climax_threshold_multiplier')}")
             print(f"    Volume Drying Up Threshold Multiplier: {volume_price_structure_params.get('volume_drying_up_threshold_multiplier')}")
             print(f"    Narrow Range Body Ratio: {volume_price_structure_params.get('narrow_range_body_ratio')}")
@@ -2062,14 +2163,18 @@ class BehavioralIntelligence:
             print(f"    ADX Div Weight Max Adjust: {market_regime_params.get('adx_div_weight_max_adjust')}")
             print(f"    ADX Conf Weight Max Adjust: {market_regime_params.get('adx_conf_weight_max_adjust')}")
             print(f"    ATR Conf Weight Max Adjust: {market_regime_params.get('atr_conf_weight_max_adjust')}")
-            print(f"    Market Context Price Momentum Window: {market_context_params.get('price_momentum_window')}") # [修改的代码行]
-            print(f"    Favorable Sentiment Slope Threshold: {market_context_params.get('favorable_sentiment_slope_threshold')}") # [修改的代码行]
-            print(f"    Unfavorable Sentiment Slope Threshold: {market_context_params.get('unfavorable_sentiment_slope_threshold')}") # [修改的代码行]
-            print(f"    Slope Stability Threshold: {market_context_params.get('slope_stability_threshold')}") # [修改的代码行]
-            print(f"    ADX Strength Threshold: {market_context_params.get('adx_strength_threshold')}") # [修改的代码行]
-            print(f"    Favorable Context Bonus: {market_context_params.get('favorable_context_bonus')}") # [修改的代码行]
-            print(f"    Unfavorable Context Penalty: {market_context_params.get('unfavorable_context_penalty')}") # [修改的代码行]
-            print(f"    Freshness Bonus: {signal_freshness_params.get('freshness_bonus')}") # [修改的代码行]
+            print(f"    Market Context Price Momentum Window: {market_context_params.get('price_momentum_window')}")
+            print(f"    Favorable Sentiment Slope Threshold: {market_context_params.get('favorable_sentiment_slope_threshold')}")
+            print(f"    Unfavorable Sentiment Slope Threshold: {market_context_params.get('unfavorable_sentiment_slope_threshold')}")
+            print(f"    Slope Stability Threshold: {market_context_params.get('slope_stability_threshold')}")
+            print(f"    ADX Strength Threshold: {market_context_params.get('adx_strength_threshold')}")
+            print(f"    Favorable Context Bonus: {market_context_params.get('favorable_context_bonus')}")
+            print(f"    Unfavorable Context Penalty: {market_context_params.get('unfavorable_context_penalty')}")
+            print(f"    Freshness Bonus: {signal_freshness_params.get('freshness_bonus')}")
+            print(f"    Behavioral Sequence Volume Drying Up Days: {behavioral_sequence_params.get('volume_drying_up_days')}") # [修改的代码行]
+            print(f"    Behavioral Sequence Volume Drying Up Multiplier: {behavioral_sequence_params.get('volume_drying_up_multiplier')}") # [修改的代码行]
+            print(f"    Behavioral Sequence Recent Reversal Days: {behavioral_sequence_params.get('recent_reversal_days')}") # [修改的代码行]
+            print(f"    Behavioral Sequence Bonus: {behavioral_sequence_params.get('sequence_bonus')}") # [修改的代码行]
             print(f"  [动态阈值]:")
             print(f"    dynamic_min_divergence_slope_diff: {dynamic_min_divergence_slope_diff.loc[probe_ts]:.4f}")
             print(f"    rsi_oversold_threshold_dynamic: {rsi_oversold_threshold_dynamic.loc[probe_ts]:.2f}")
@@ -2080,7 +2185,7 @@ class BehavioralIntelligence:
             print(f"    robust_macd_slope: {robust_macd_slope.loc[probe_ts]:.4f}")
             print(f"    robust_volume_slope: {robust_volume_slope.loc[probe_ts]:.4f}")
             print(f"    robust_bbw_slope: {robust_bbw_slope.loc[probe_ts]:.4f}")
-            print(f"    robust_pct_change_slope: {robust_pct_change_slope.loc[probe_ts]:.4f}") # [修改的代码行]
+            print(f"    robust_pct_change_slope: {robust_pct_change_slope.loc[probe_ts]:.4f}")
             print(f"  [长期斜率 (Long Term Slopes)]:")
             print(f"    long_term_close_slope: {long_term_close_slope.loc[probe_ts]:.4f}")
             print(f"    long_term_rsi_slope: {long_term_rsi_slope.loc[probe_ts]:.4f}")
@@ -2112,8 +2217,9 @@ class BehavioralIntelligence:
             print(f"    bullish_purity_factor: {bullish_purity_factor.loc[probe_ts]:.4f}")
             print(f"    dynamic_bullish_div_weight_multiplier: {dynamic_bullish_div_weight_multiplier.loc[probe_ts]:.4f}")
             print(f"    dynamic_bullish_conf_weight_multiplier: {dynamic_bullish_conf_weight_multiplier.loc[probe_ts]:.4f}")
-            print(f"    bullish_market_context_factor: {bullish_market_context_factor.loc[probe_ts]:.4f}") # [修改的代码行]
-            print(f"    bullish_freshness_factor: {bullish_freshness_factor.loc[probe_ts]:.4f}") # [修改的代码行]
+            print(f"    bullish_market_context_factor: {bullish_market_context_factor.loc[probe_ts]:.4f}")
+            print(f"    bullish_freshness_factor: {bullish_freshness_factor.loc[probe_ts]:.4f}")
+            print(f"    bullish_behavioral_sequence_factor: {bullish_behavioral_sequence_factor.loc[probe_ts]:.4f}") # [修改的代码行]
             print(f"  [看涨背离结果]: SCORE_BEHAVIOR_BULLISH_DIVERGENCE = {bullish_divergence_score.loc[probe_ts]:.4f}")
             print(f"  [看跌背离关键计算节点]:")
             print(f"    price_up_trend: {price_up_trend.loc[probe_ts]}")
@@ -2141,12 +2247,12 @@ class BehavioralIntelligence:
             print(f"    bearish_purity_factor: {bearish_purity_factor.loc[probe_ts]:.4f}")
             print(f"    dynamic_bearish_div_weight_multiplier: {dynamic_bearish_div_weight_multiplier.loc[probe_ts]:.4f}")
             print(f"    dynamic_bearish_conf_weight_multiplier: {dynamic_bearish_conf_weight_multiplier.loc[probe_ts]:.4f}")
-            print(f"    bearish_market_context_factor: {bearish_market_context_factor.loc[probe_ts]:.4f}") # [修改的代码行]
-            print(f"    bearish_freshness_factor: {bearish_freshness_factor.loc[probe_ts]:.4f}") # [修改的代码行]
+            print(f"    bearish_market_context_factor: {bearish_market_context_factor.loc[probe_ts]:.4f}")
+            print(f"    bearish_freshness_factor: {bearish_freshness_factor.loc[probe_ts]:.4f}")
+            print(f"    bearish_behavioral_sequence_factor: {bearish_behavioral_sequence_factor.loc[probe_ts]:.4f}") # [修改的代码行]
             print(f"  [看跌背离结果]: SCORE_BEHAVIOR_BEARISH_DIVERGENCE = {bearish_divergence_score.loc[probe_ts]:.4f}")
 
         return bullish_divergence_score.astype(np.float32), bearish_divergence_score.astype(np.float32)
-
     def _apply_neutral_zone_filter(self, series: pd.Series, threshold: float) -> pd.Series:
         """
         【V1.0 · 新增】应用中性“死区”过滤器。

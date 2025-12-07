@@ -482,7 +482,7 @@
       },
       "behavioral_divergence_params": {
         "enabled": true,
-        "description": "【V6.0 · 行为背离多维情境与模式识别版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
+        "description": "【V7.0 · 行为背离多时间框架模式共振版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
         "multi_timeframe_slopes": {
           "enabled": true,
           "periods": [5, 13],
@@ -528,7 +528,8 @@
           "confirmation_bonus": 0.15,
           "engulfing_pattern_bonus": 0.1,
           "hammer_shooting_star_bonus": 0.1,
-          "description": "价格行为结构确认参数。用于识别长影线、吞没形态、锤头/射击之星等反转K线特征。"
+          "mtf_pattern_resonance_bonus": 0.15,
+          "description": "价格行为结构确认参数。用于识别长影线、吞没形态、锤头/射击之星等反转K线特征，并加入多时间框架共振奖励。"
         },
         "volume_price_structure_params": {
           "enabled": true,
@@ -569,6 +570,14 @@
           "enabled": true,
           "freshness_bonus": 0.1,
           "description": "信号新鲜度参数。对刚刚形成的背离（持续天数=1）给予额外奖励。"
+        },
+        "behavioral_sequence_params": {
+          "enabled": true,
+          "volume_drying_up_days": 3,
+          "volume_drying_up_multiplier": 0.8,
+          "recent_reversal_days": 2,
+          "sequence_bonus": 0.15,
+          "description": "行为模式序列识别参数。识别背离前的量价行为序列。"
         },
         "bullish_divergence_weights": {
           "price_rsi": 0.4,
