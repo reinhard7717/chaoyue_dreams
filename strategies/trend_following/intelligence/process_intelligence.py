@@ -1704,8 +1704,13 @@ class ProcessIntelligence:
         if is_debug_enabled and self.probe_dates and not df.empty:
             for probe_date_str in self.probe_dates:
                 try:
-                    # [代码修改] 统一日期格式为Timestamp，并本地化时区以匹配df.index
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    # [代码修改] 鲁棒地处理日期时间对象的时区，确保与df.index匹配
+                    naive_probe_date = pd.to_datetime(probe_date_str)
+                    if df.index.tz is not None:
+                        probe_date = naive_probe_date.tz_localize(df.index.tz)
+                    else:
+                        probe_date = naive_probe_date
+
                     if probe_date in df.index:
                         print(f"      [过程探针 V1.0] _calculate_process_wash_out_rebound @ {probe_date_str}")
                         # --- 打印原料数据 ---
@@ -1818,8 +1823,13 @@ class ProcessIntelligence:
         if is_debug_enabled and self.probe_dates and not df.empty:
             for probe_date_str in self.probe_dates:
                 try:
-                    # [代码修改] 统一日期格式为Timestamp，并本地化时区以匹配df.index
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    # [代码修改] 鲁棒地处理日期时间对象的时区，确保与df.index匹配
+                    naive_probe_date = pd.to_datetime(probe_date_str)
+                    if df.index.tz is not None:
+                        probe_date = naive_probe_date.tz_localize(df.index.tz)
+                    else:
+                        probe_date = naive_probe_date
+
                     if probe_date in df.index:
                         print(f"      [过程探针 V1.0] _calculate_process_covert_accumulation @ {probe_date_str}")
                         # --- 打印原料数据 ---
