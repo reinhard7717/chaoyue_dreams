@@ -482,12 +482,18 @@
       },
       "behavioral_divergence_params": {
         "enabled": true,
-        "description": "【V3.0 · 行为背离情境自适应版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
+        "description": "【V4.0 · 行为背离结构化共振版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
         "multi_timeframe_slopes": {
           "enabled": true,
           "periods": [5, 13],
           "weights": {"5": 0.7, "13": 0.3},
-          "description": "用于计算鲁棒斜率的多时间框架周期和权重。"
+          "description": "用于计算鲁棒斜率的短期多时间框架周期和权重。"
+        },
+        "multi_level_resonance_params": {
+          "enabled": true,
+          "long_term_period": 21,
+          "resonance_bonus": 0.2,
+          "description": "多级别背离共振参数。long_term_period为长期斜率周期，resonance_bonus为共振奖励。"
         },
         "persistence_params": {
           "enabled": true,
@@ -513,6 +519,22 @@
           "enabled": true,
           "bbw_slope_penalty_factor": 0.1,
           "description": "结构上下文权重。BBW斜率惩罚因子，用于波动率发散时的惩罚。"
+        },
+        "price_action_confirmation_params": {
+          "enabled": true,
+          "lower_shadow_ratio_threshold": 0.4,
+          "upper_shadow_ratio_threshold": 0.4,
+          "body_ratio_threshold": 0.3,
+          "confirmation_bonus": 0.15,
+          "description": "价格行为结构确认参数。用于识别长影线等反转K线特征。"
+        },
+        "market_regime_params": {
+          "enabled": true,
+          "adx_trend_threshold": 25,
+          "adx_ranging_threshold": 20,
+          "trend_market_div_weight_adjust": 0.2,
+          "ranging_market_conf_weight_adjust": 0.2,
+          "description": "市场情境动态权重参数。根据ADX判断趋势/震荡，并调整融合权重。"
         },
         "bullish_divergence_weights": {
           "price_rsi": 0.4,
