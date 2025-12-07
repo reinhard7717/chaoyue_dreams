@@ -1700,11 +1700,13 @@ class ProcessIntelligence:
             (rebound_quality_score + 1e-9).pow(fusion_weights.get('rebound_quality', 0.4))
         ).pow(1/(fusion_weights.get('deception_context', 0.3) + fusion_weights.get('panic_depth', 0.3) + fusion_weights.get('rebound_quality', 0.4))).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
-        is_debug_enabled = get_param_value(self.debug_params.get('enabled'), False)
+        # [代码修改] 修正is_debug_enabled的获取方式
+        is_debug_enabled = get_param_value(self.debug_params.get('enabled', {}).get('value'), False)
         if is_debug_enabled and self.probe_dates and not df.empty:
             for probe_date_str in self.probe_dates:
                 try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    # [代码修改] 统一日期格式为Timestamp进行比较
+                    probe_date = pd.to_datetime(probe_date_str)
                     if probe_date in df.index:
                         print(f"      [过程探针 V1.0] _calculate_process_wash_out_rebound @ {probe_date_str}")
                         # --- 打印原料数据 ---
@@ -1813,11 +1815,13 @@ class ProcessIntelligence:
             (chip_optimization_score + 1e-9).pow(fusion_weights.get('chip_optimization', 0.3))
         ).pow(1/(fusion_weights.get('market_context', 0.3) + fusion_weights.get('covert_action', 0.4) + fusion_weights.get('chip_optimization', 0.3))).fillna(0.0)
         # --- [探针逻辑] 暴露所有计算节点 ---
-        is_debug_enabled = get_param_value(self.debug_params.get('enabled'), False)
+        # [代码修改] 修正is_debug_enabled的获取方式
+        is_debug_enabled = get_param_value(self.debug_params.get('enabled', {}).get('value'), False)
         if is_debug_enabled and self.probe_dates and not df.empty:
             for probe_date_str in self.probe_dates:
                 try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    # [代码修改] 统一日期格式为Timestamp进行比较
+                    probe_date = pd.to_datetime(probe_date_str)
                     if probe_date in df.index:
                         print(f"      [过程探针 V1.0] _calculate_process_covert_accumulation @ {probe_date_str}")
                         # --- 打印原料数据 ---
