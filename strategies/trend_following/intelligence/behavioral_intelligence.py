@@ -1010,17 +1010,20 @@ class BehavioralIntelligence:
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, overextension_score_series: pd.Series, deception_index_series: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        【V5.2 · 行为情报核心聚焦版】诊断突破失败级联风险
+        【V5.3 · 行为模式精微化版】诊断突破失败级联风险
         - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-情境”
                       诡道剧本的全新三维诊断模型，旨在精确识别高迷惑性的“牛市陷阱”。
         - 行为情报核心聚焦: 严格遵循“只分析行为类原始数据”的原则。本模块不再分析原始筹码/资金流信号，
                               也不依赖其他情报层的高阶融合信号。原有的“套牢盘痛苦度”和“主力背弃度”维度
                               因其本质依赖筹码/资金流数据，已从本方法中移除，以确保行为情报的纯粹性。
                               本信号现在专注于纯粹的市场行为模式。
+        - 核心进化:
+          1. 增强“伏击”维度：引入“行为动量背离”信号，通过分析价格趋势与纯行为动量指标（如RSI斜率）之间的背离，识别价格上涨但内在动能衰竭的潜在伏击迹象。
+          2. 增强“情境放大器”维度：引入“行为情绪极端”信号，综合散户狂热、RSI超买和乖离率过高这三个纯行为指标，量化市场情绪的极端亢奋程度，作为放大风险的情境因子。
         - 战术三要素:
           1. 诱饵 (The Lure): 使用更高阶的 `breakout_quality_score_D` 量化突破行为的“迷惑性”，并根据市场趋势弱势进行情境化放大。
-          2. 伏击 (The Ambush): 融合 `distribution_intent` (明确派发意图) 和 “隐蔽伏击意图” (买盘支持减弱、上涨纯度下降)，量化主力在诱多过程中的真实派发意图和潜在陷阱。
-          3. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买)、`SCORE_BEHAVIOR_DECEPTION_INDEX` (正向，拉高出货) 和 `retail_fomo_premium_index_D` (正向散户狂热)，以及“欺骗性平静”效应，对风险进行情境化放大。
+          2. 伏击 (The Ambush): 融合 `distribution_intent` (明确派发意图) 和 “隐蔽伏击意图” (买盘支持减弱、上涨纯度下降)，以及新增的“行为动量背离”，量化主力在诱多过程中的真实派发意图和潜在陷阱。
+          3. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买)、`SCORE_BEHAVIOR_DECEPTION_INDEX` (正向，拉高出货) 和 `retail_fomo_premium_index_D` (正向散户狂热)，以及新增的“行为情绪极端”信号和“欺骗性平静”效应，对风险进行情境化放大。
         - 数学模型: 风险分 = 核心风险基准分 × 情境放大器 × 风险动态调制因子
                       核心风险基准分 = 情境化诱饵分 × (1 - (1 - 伏击分)^P)  # 简化为只考虑伏击
                       情境放大器 = 1 + (显性情境放大因子 × MaxAmplificationFactor) + 欺骗性平静效应
@@ -1033,12 +1036,12 @@ class BehavioralIntelligence:
             'trend_vitality_index_D',
             'active_buying_support_D',
             'upward_impulse_purity_D',
-            'VOLATILITY_INSTABILITY_INDEX_21d_D'
-            # [代码修改] 移除所有筹码/资金流相关的原始信号
-            # 'volume_ratio_D', 'total_winner_rate_D',
-            # 'winner_stability_index_D', 'chip_fatigue_index_D',
-            # 'main_force_conviction_index_D', 'main_force_execution_alpha_D',
-            # 'main_force_net_flow_calibrated_D',
+            'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            # [修改代码行] 新增行为类原始信号
+            'RSI_13_D',
+            'SLOPE_5_RSI_13_D',
+            'BIAS_55_D',
+            'SLOPE_5_close_D' # 用于计算行为动量背离
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
@@ -1046,24 +1049,14 @@ class BehavioralIntelligence:
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         breakout_params = get_param_value(p_conf.get('breakout_failure_risk_params'), {})
-        # [代码修改] 调整 core_risk_weights，使其只包含 ambush
-        core_risk_weights = get_param_value(breakout_params.get('core_risk_weights'), {"ambush": 1.0}) # 仅保留伏击权重
+        core_risk_weights = get_param_value(breakout_params.get('core_risk_weights'), {"ambush": 1.0})
 
-        # [代码修改] 移除所有与“套牢盘痛苦度”和“主力背弃度”相关的参数
-        # trapped_force_pain_weights = get_param_value(breakout_params.get('trapped_force_pain_weights'), {"potential_pressure": 0.6, "instability_trigger": 0.4})
-        # potential_pressure_weights = get_param_value(breakout_params.get('potential_pressure_weights'), {"winner_rate": 0.7, "volume_ratio": 0.3})
-        # instability_trigger_weights = get_param_value(breakap_params.get('instability_trigger_weights'), {"winner_instability": 0.6, "chip_fatigue": 0.4})
-        # mf_abandonment_weights = get_param_value(breakout_params.get('main_force_abandonment_weights'), {"conviction_decay": 0.3, "negative_alpha": 0.3, "negative_net_flow": 0.4})
-        
         context_amplifier_weights = get_param_value(breakout_params.get('context_amplifier_weights'), {"overextension": 0.4, "positive_deception": 0.3, "retail_fomo": 0.3})
         max_amplification_factor = get_param_value(breakout_params.get('max_amplification_factor'), 0.5)
         lure_weakness_multiplier = get_param_value(breakout_params.get('lure_weakness_multiplier'), 0.5)
         ambush_fusion_weights = get_param_value(breakout_params.get('ambush_fusion_weights'), {"distribution_intent": 0.7, "covert_ambush_intent": 0.3})
         covert_ambush_intent_weights = get_param_value(breakout_params.get('covert_ambush_intent_weights'), {"weak_buying_support": 0.6, "declining_impulse_purity": 0.4})
         
-        # [代码修改] 移除不再使用的参数
-        # trapped_force_amplification_factor = get_param_value(breakout_params.get('trapped_force_amplification_factor'), 1.0)
-        # mf_net_flow_power_factor = get_param_value(breakout_params.get('mf_net_flow_power_factor'), 2.0)
         deceptive_calm_weights = get_param_value(breakout_params.get('deceptive_calm_weights'), {"overextension_inverse": 0.3, "positive_deception_inverse": 0.3, "retail_fomo_inverse": 0.4})
         deceptive_calm_multiplier = get_param_value(breakout_params.get('deceptive_calm_multiplier'), 0.2)
         deceptive_calm_threshold = get_param_value(breakout_params.get('deceptive_calm_threshold'), 0.5)
@@ -1077,10 +1070,16 @@ class BehavioralIntelligence:
         risk_momentum_diff_window = get_param_value(breakout_params.get('risk_momentum_diff_window'), 1)
         risk_trend_mod_multiplier = get_param_value(breakout_params.get('risk_trend_mod_multiplier'), 0.2)
         risk_momentum_mod_multiplier = get_param_value(breakout_params.get('risk_momentum_mod_multiplier'), 0.1)
+
+        # [新增代码块] 新增行为动量背离和行为情绪极端信号的权重
+        behavioral_momentum_divergence_weights = get_param_value(breakout_params.get('behavioral_momentum_divergence_weights'), {"price_slope_weight": 0.5, "rsi_slope_weight": 0.5})
+        behavioral_sentiment_extreme_weights = get_param_value(breakout_params.get('behavioral_sentiment_extreme_weights'), {"retail_fomo": 0.4, "rsi_extreme": 0.3, "bias_extreme": 0.3})
+
         # --- 1. 获取核心战术要素的原始数据 ---
         # 诱饵 (The Lure)
         breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name=method_name)
         # 伏击 (The Ambush) - 直接使用传入的 distribution_intent
+        
         # 情境放大器 (Contextual Amplifier) - 从参数获取
         overextension_score = overextension_score_series
         deception_raw = deception_index_series
@@ -1089,6 +1088,13 @@ class BehavioralIntelligence:
         active_buying_raw = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name=method_name)
         upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
+
+        # [新增代码块] 获取计算新信号所需的原始行为数据
+        close_slope_raw = self._get_safe_series(df, 'SLOPE_5_close_D', 0.0, method_name=method_name)
+        rsi_raw = self._get_safe_series(df, 'RSI_13_D', 50.0, method_name=method_name)
+        rsi_slope_raw = self._get_safe_series(df, 'SLOPE_5_RSI_13_D', 0.0, method_name=method_name)
+        bias_raw = self._get_safe_series(df, 'BIAS_55_D', 0.0, method_name=method_name)
+
         # --- 2. 计算各要素得分 ---
         lure_score = get_adaptive_mtf_normalized_score(breakout_quality_raw, df.index, ascending=True, tf_weights=default_weights)
         market_weakness_score = get_adaptive_mtf_normalized_score(trend_vitality_raw, df.index, ascending=False, tf_weights=default_weights)
@@ -1099,24 +1105,46 @@ class BehavioralIntelligence:
             weak_buying_support_score * covert_ambush_intent_weights.get('weak_buying_support', 0.6) +
             declining_impulse_purity_score * covert_ambush_intent_weights.get('declining_impulse_purity', 0.4)
         ).clip(0,1)
+
+        # [新增代码块] 计算行为动量背离信号
+        behavioral_momentum_divergence_raw = pd.Series(0.0, index=df.index)
+        # 价格上涨 (斜率 > 0) 且 RSI 动量下降 (斜率 < 0)
+        bullish_divergence_mask = (close_slope_raw > 0) & (rsi_slope_raw < 0)
+        # 背离强度 = 价格上涨斜率的绝对值 + RSI下降斜率的绝对值
+        behavioral_momentum_divergence_raw.loc[bullish_divergence_mask] = \
+            close_slope_raw.loc[bullish_divergence_mask].abs() * behavioral_momentum_divergence_weights.get('price_slope_weight', 0.5) + \
+            rsi_slope_raw.loc[bullish_divergence_mask].abs() * behavioral_momentum_divergence_weights.get('rsi_slope_weight', 0.5)
+        behavioral_momentum_divergence_score = get_adaptive_mtf_normalized_score(behavioral_momentum_divergence_raw, df.index, ascending=True, tf_weights=default_weights)
+
+        # [修改代码行] 将行为动量背离融入 ambush_score
         ambush_score = (
             distribution_intent * ambush_fusion_weights.get('distribution_intent', 0.7) +
-            covert_ambush_intent_score * ambush_fusion_weights.get('covert_ambush_intent', 0.3)
+            covert_ambush_intent_score * ambush_fusion_weights.get('covert_ambush_intent', 0.2) +
+            behavioral_momentum_divergence_score * ambush_fusion_weights.get('behavioral_momentum_divergence', 0.1)
         ).clip(0,1)
 
-        # [代码修改] 移除套牢盘痛苦度计算
         trapped_force_score = pd.Series(0.0, index=df.index) # 设为0，不再参与计算
-
-        # [代码修改] 移除主力背弃度计算
         mf_abandonment_score = pd.Series(0.0, index=df.index) # 设为0，不再参与计算
 
         positive_deception_score = deception_raw.clip(lower=0)
         retail_fomo_score = get_adaptive_mtf_normalized_score(retail_fomo_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
-        # 显性情境放大因子
+
+        # [新增代码块] 计算行为情绪极端信号
+        norm_retail_fomo_extreme = get_adaptive_mtf_normalized_score(retail_fomo_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        norm_rsi_extreme = get_adaptive_mtf_normalized_score(rsi_raw.clip(70, 100), df.index, ascending=True, tf_weights=default_weights) # RSI > 70 视为极端
+        norm_bias_extreme = get_adaptive_mtf_normalized_score(bias_raw.clip(0.1, 1.0), df.index, ascending=True, tf_weights=default_weights) # BIAS > 0.1 视为极端
+        behavioral_sentiment_extreme_score = (
+            norm_retail_fomo_extreme * behavioral_sentiment_extreme_weights.get('retail_fomo', 0.4) +
+            norm_rsi_extreme * behavioral_sentiment_extreme_weights.get('rsi_extreme', 0.3) +
+            norm_bias_extreme * behavioral_sentiment_extreme_weights.get('bias_extreme', 0.3)
+        ).clip(0,1)
+
+        # [修改代码行] 将行为情绪极端融入 context_amplifier_factor
         context_amplifier_factor = (
-            overextension_score * context_amplifier_weights.get('overextension', 0.4) +
-            positive_deception_score * context_amplifier_weights.get('positive_deception', 0.3) +
-            retail_fomo_score * context_amplifier_weights.get('retail_fomo', 0.3)
+            overextension_score * context_amplifier_weights.get('overextension', 0.3) +
+            positive_deception_score * context_amplifier_weights.get('positive_deception', 0.2) +
+            retail_fomo_score * context_amplifier_weights.get('retail_fomo', 0.2) +
+            behavioral_sentiment_extreme_score * context_amplifier_weights.get('behavioral_sentiment_extreme', 0.3)
         ).clip(0, 1)
         # --- 3. 核心风险基准分合成 ---
         normalized_volatility = get_adaptive_mtf_normalized_score(volatility_instability_raw, df.index, ascending=True, tf_weights=default_weights)
@@ -1125,18 +1153,15 @@ class BehavioralIntelligence:
             base_dynamic_risk_weight_exponent +
             normalized_volatility * volatility_exponent_multiplier +
             normalized_inverse_trend_vitality * trend_vitality_exponent_multiplier
-        ).clip(1.0, 3.0) # 限制指数范围，防止过大或过小
+        ).clip(1.0, 3.0)
         
-        # [代码修改] 简化核心风险加权平均的计算，只考虑伏击
         dynamic_ambush_contribution = (ambush_score.pow(adaptive_dynamic_risk_weight_exponent)) * core_risk_weights.get('ambush', 1.0)
         total_dynamic_contribution = dynamic_ambush_contribution
-        dynamic_ambush_weight = pd.Series(1.0, index=df.index) # 只有一个维度，权重为1
+        dynamic_ambush_weight = pd.Series(1.0, index=df.index)
         
-        # 使用加权幂平均计算 weighted_avg_risk (现在只剩伏击)
         ambush_score_pow = (ambush_score + 1e-9).pow(core_risk_synergy_exponent)
         weighted_avg_risk = (dynamic_ambush_weight * ambush_score_pow).pow(1 / core_risk_synergy_exponent).fillna(0.0)
         
-        # 使用 1 - (1 - x)^P 形式的幂函数对 weighted_avg_risk 进行高风险区间拉伸
         stretched_weighted_avg_risk = (1 - (1 - weighted_avg_risk).pow(core_risk_high_end_stretch_power)).clip(0,1)
         core_risk_base_initial = (lure_score_modulated * stretched_weighted_avg_risk).clip(0,1).fillna(0.0)
         deceptive_calm_score = (
@@ -1181,6 +1206,11 @@ class BehavioralIntelligence:
             print(f"         - active_buying_support_D: {active_buying_raw.loc[probe_ts]:.4f}")
             print(f"         - upward_impulse_purity_D: {upward_purity_raw.loc[probe_ts]:.4f}")
             print(f"         - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[probe_ts]:.4f}")
+            # [新增代码块] 打印新引入的原始行为数据
+            print(f"         - RSI_13_D: {rsi_raw.loc[probe_ts]:.4f}")
+            print(f"         - SLOPE_5_RSI_13_D: {rsi_slope_raw.loc[probe_ts]:.4f}")
+            print(f"         - BIAS_55_D: {bias_raw.loc[probe_ts]:.4f}")
+            print(f"         - SLOPE_5_close_D: {close_slope_raw.loc[probe_ts]:.4f}")
             print(f"       - 关键计算节点:")
             print(f"         - lure_score (诱饵分): {lure_score.loc[probe_ts]:.4f}")
             print(f"         - market_weakness_score (市场弱势分): {market_weakness_score.loc[probe_ts]:.4f}")
@@ -1188,12 +1218,20 @@ class BehavioralIntelligence:
             print(f"         - weak_buying_support_score (买盘支持减弱分): {weak_buying_support_score.loc[probe_ts]:.4f}")
             print(f"         - declining_impulse_purity_score (上涨纯度下降分): {declining_impulse_purity_score.loc[probe_ts]:.4f}")
             print(f"         - covert_ambush_intent_score (隐蔽伏击意图分): {covert_ambush_intent_score.loc[probe_ts]:.4f}")
+            # [新增代码块] 打印行为动量背离信号
+            print(f"         - behavioral_momentum_divergence_raw: {behavioral_momentum_divergence_raw.loc[probe_ts]:.4f}")
+            print(f"         - behavioral_momentum_divergence_score: {behavioral_momentum_divergence_score.loc[probe_ts]:.4f}")
             print(f"         - ambush_score (伏击分): {ambush_score.loc[probe_ts]:.4f}")
             print(f"         - trapped_force_score (套牢盘痛苦度): {trapped_force_score.loc[probe_ts]:.4f} (已移除，设为0)")
             print(f"         - mf_abandonment_score (主力背弃度): {mf_abandonment_score.loc[probe_ts]:.4f} (已移除，设为0)")
             print(f"         - overextension_score (价格超买分): {overextension_score.loc[probe_ts]:.4f}")
             print(f"         - positive_deception_score (正向欺骗分): {positive_deception_score.loc[probe_ts]:.4f}")
             print(f"         - retail_fomo_score (散户狂热分): {retail_fomo_score.loc[probe_ts]:.4f}")
+            # [新增代码块] 打印行为情绪极端信号
+            print(f"         - norm_retail_fomo_extreme: {norm_retail_fomo_extreme.loc[probe_ts]:.4f}")
+            print(f"         - norm_rsi_extreme: {norm_rsi_extreme.loc[probe_ts]:.4f}")
+            print(f"         - norm_bias_extreme: {norm_bias_extreme.loc[probe_ts]:.4f}")
+            print(f"         - behavioral_sentiment_extreme_score: {behavioral_sentiment_extreme_score.loc[probe_ts]:.4f}")
             print(f"         - context_amplifier_factor (显性情境放大因子): {context_amplifier_factor.loc[probe_ts]:.4f}")
             print(f"         - deceptive_calm_score (欺骗性平静分): {deceptive_calm_score.loc[probe_ts]:.4f}")
             print(f"         - deceptive_calm_effect (欺骗性平静效应): {deceptive_calm_effect.loc[probe_ts]:.4f}")

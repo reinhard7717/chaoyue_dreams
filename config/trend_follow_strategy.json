@@ -1247,24 +1247,35 @@
         "description": "聪明钱（游资与机构协同）信号参数"
       },
       "breakout_failure_risk_params": {
-        "description": "【V5.2 · 行为情报核心聚焦版】“突破失败级联风险”信号参数",
+        "description": "【V5.3 · 行为模式精微化版】“突破失败级联风险”信号参数",
         "core_risk_weights": {
           "ambush": 1.0
         },
         "context_amplifier_weights": {
-          "overextension": 0.4,
-          "positive_deception": 0.3,
-          "retail_fomo": 0.3
+          "overextension": 0.3,
+          "positive_deception": 0.2,
+          "retail_fomo": 0.2,
+          "behavioral_sentiment_extreme": 0.3
         },
         "max_amplification_factor": 0.5,
         "lure_weakness_multiplier": 0.5,
         "ambush_fusion_weights": {
           "distribution_intent": 0.7,
-          "covert_ambush_intent": 0.3
+          "covert_ambush_intent": 0.2,
+          "behavioral_momentum_divergence": 0.1
         },
         "covert_ambush_intent_weights": {
           "weak_buying_support": 0.6,
           "declining_impulse_purity": 0.4
+        },
+        "behavioral_momentum_divergence_weights": {
+          "price_slope_weight": 0.5,
+          "rsi_slope_weight": 0.5
+        },
+        "behavioral_sentiment_extreme_weights": {
+          "retail_fomo": 0.4,
+          "rsi_extreme": 0.3,
+          "bias_extreme": 0.3
         },
         "deceptive_calm_weights": {
           "overextension_inverse": 0.3,
