@@ -245,6 +245,16 @@ class BehavioralIntelligence:
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         long_term_weights = get_param_value(p_conf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
+        # [代码修改] 获取调试参数，用于传递给子方法
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        probe_ts = None
+        if is_debug_enabled and probe_dates:
+            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
+            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
+            if valid_probe_dates:
+                probe_ts = valid_probe_dates[0] # 使用第一个有效的探针日期
         # --- 基础信号计算 ---
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_behavioral_axioms")
         if 'ACCEL_5_pct_change_D' in df.columns:
@@ -277,7 +287,12 @@ class BehavioralIntelligence:
         offensive_absorption_intent = self._diagnose_offensive_absorption_intent(df, lower_shadow_quality, distribution_intent)
         states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = offensive_absorption_intent
         states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] = self._diagnose_ambush_counterattack(df, offensive_absorption_intent)
-        states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = self._diagnose_breakout_failure_risk(df, distribution_intent)
+        states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = self._diagnose_breakout_failure_risk(
+            df,
+            distribution_intent,
+            is_debug_enabled, # 修改的代码行: 传递 debug_enabled
+            probe_ts # 修改的代码行: 传递 probe_ts
+        )
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights)
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights)
         states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = self._calculate_absorption_strength(df, default_weights)
@@ -309,14 +324,7 @@ class BehavioralIntelligence:
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * selling_exhaustion_score).astype(np.float32)
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
         states['SCORE_BEHAVIOR_DECEPTION_INDEX'] = self._diagnose_deception_index(df)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates:
-            probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
-            valid_probe_dates = [d for d in probe_timestamps if d in df.index]
-            for probe_ts in valid_probe_dates:
-                self._probe_raw_material_diagnostics(df, probe_ts)
+        # [代码修改] 移除 SCORE_RISK_BREAKOUT_FAILURE_CASCADE 相关的探针逻辑，因为该信号已在其自身方法中实现详细探针
         return states
 
     def _diagnose_upward_momentum(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -995,38 +1003,116 @@ class BehavioralIntelligence:
         ).pow(1/(fusion_weights.get('context', 0.3) + fusion_weights.get('action', 0.4) + fusion_weights.get('quality', 0.3))).fillna(0.0)
         return ambush_counterattack_score.clip(0, 1).astype(np.float32)
 
-    def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series) -> pd.Series:
+    def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        【V2.1 · 生产版】诊断突破失败级联风险
-        - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-套牢”
-                      诡道剧本的全新三维诊断模型，旨在精确识别高迷惑性的“牛市陷阱”。
-        - 战术三要素:
-          1. 诱饵 (The Lure): 使用更高阶的 `breakout_quality_score_D` 替代简单的价格突破判断，
-                               量化突破行为的“迷惑性”。一次看似完美的突破，其陷阱价值才最大。
-          2. 伏击 (The Ambush): 继续使用强大的 `distribution_intent` 信号，量化主力在诱多
-                                过程中的真实派发意图，即“收割”的坚决性。
-          3. 套牢盘 (The Trapped Force): 继续使用 `volume_ratio_D`，量化在陷阱高位被套牢的
-                                         资金规模，即未来级联崩塌的“燃料”。
-        - 数学模型: 风险分 = 诱饵分 * (伏击分 ^ 0.6 * 套牢盘分 ^ 0.4)
+        【V3.0 · 诡道升级版】诊断突破失败级联风险
+        - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-套牢-背弃-情境”
+                      诡道剧本的全新五维诊断模型，旨在精确识别高迷惑性的“牛市陷阱”。
+        - 战术五要素:
+          1. 诱饵 (The Lure): 使用更高阶的 `breakout_quality_score_D` 量化突破行为的“迷惑性”。
+          2. 伏击 (The Ambush): 使用强大的 `distribution_intent` 量化主力在诱多过程中的真实派发意图。
+          3. 套牢盘痛苦度 (Trapped Force Pain): 融合 `loser_pain_index_D` 和 `volume_ratio_D`，直接量化高位被套牢资金的痛苦程度和规模。
+          4. 主力背弃度 (Main Force Abandonment): 融合 `main_force_conviction_index_D` (负向) 和 `main_force_execution_alpha_D` (负向)，量化主力对突破的放弃程度。
+          5. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买) 和 `SCORE_BEHAVIOR_DECEPTION_INDEX` (负向，拉高出货)，对风险进行情境化放大。
+        - 数学模型: 风险分 = 核心风险基准分 × 情境放大器
+                      核心风险基准分 = 诱饵分 × (伏击分 ^ W_ambush × 套牢盘痛苦度 ^ W_trapped_pain × 主力背弃度 ^ W_mf_abandon)
+                      情境放大器 = 1 + (价格超买分 × W_overextension + 负向欺骗分 × W_negative_deception) × MaxAmplificationFactor
         """
-        required_signals = ['breakout_quality_score_D', 'volume_ratio_D']
-        if not self._validate_required_signals(df, required_signals, "_diagnose_breakout_failure_risk"):
+        method_name = "_diagnose_breakout_failure_risk"
+        required_signals = [
+            'breakout_quality_score_D', 'volume_ratio_D', 'loser_pain_index_D',
+            'main_force_conviction_index_D', 'main_force_execution_alpha_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # --- 1. 获取三大战术要素 ---
-        # 战术要素一：诱饵 (突破迷惑性)
-        breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name="_diagnose_breakout_failure_risk")
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # [代码修改] 获取新的参数配置
+        breakout_params = get_param_value(p_conf.get('breakout_failure_risk_params'), {})
+        core_risk_weights = get_param_value(breakout_params.get('core_risk_weights'), {"ambush": 0.4, "trapped_force_pain": 0.3, "main_force_abandonment": 0.3})
+        trapped_force_pain_weights = get_param_value(breakout_params.get('trapped_force_pain_weights'), {"loser_pain": 0.7, "volume_ratio": 0.3})
+        mf_abandonment_weights = get_param_value(breakout_params.get('main_force_abandonment_weights'), {"conviction_decay": 0.5, "negative_alpha": 0.5})
+        context_amplifier_weights = get_param_value(breakout_params.get('context_amplifier_weights'), {"overextension": 0.6, "negative_deception": 0.4})
+        max_amplification_factor = get_param_value(breakout_params.get('max_amplification_factor'), 0.5)
+        # --- 1. 获取五大核心战术要素的原始数据 ---
+        # 诱饵 (The Lure)
+        breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name=method_name)
+        # 伏击 (The Ambush) - 直接使用传入的 distribution_intent
+        # 套牢盘痛苦度 (Trapped Force Pain)
+        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name=method_name)
+        volume_raw = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name=method_name)
+        # 主力背弃度 (Main Force Abandonment)
+        main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
+        main_force_execution_alpha_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name=method_name)
+        # 情境放大器 (Contextual Amplifier) - 从 atomic_states 获取
+        overextension_raw = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.0)
+        deception_raw = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0)
+        # --- 2. 计算各要素得分 ---
         lure_score = get_adaptive_mtf_normalized_score(breakout_quality_raw, df.index, ascending=True, tf_weights=default_weights)
-        # 战术要素二：伏击 (派发坚决性)
-        ambush_score = distribution_intent # 直接使用传入的、强大的派发意图分数
-        # 战术要素三：套牢盘 (潜在抛压规模)
-        volume_raw = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_breakout_failure_risk")
-        trapped_force_score = get_adaptive_mtf_normalized_score(volume_raw, df.index, ascending=True, tf_weights=default_weights)
-        # --- 2. 风险合成 ---
-        internal_risk_factor = (ambush_score.pow(0.6) * trapped_force_score.pow(0.4)).fillna(0.0)
-        breakout_failure_risk = (lure_score * internal_risk_factor).clip(0, 1)
+        ambush_score = distribution_intent
+        loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=default_weights)
+        volume_ratio_score = get_adaptive_mtf_normalized_score(volume_raw, df.index, ascending=True, tf_weights=default_weights)
+        trapped_force_score = (
+            loser_pain_score.pow(trapped_force_pain_weights.get('loser_pain', 0.7)) *
+            volume_ratio_score.pow(trapped_force_pain_weights.get('volume_ratio', 0.3))
+        ).fillna(0.0)
+        # 主力信念归一化到 [0,1]，然后 (1 - score) 表示信念衰减/背弃
+        conviction_normalized = get_adaptive_mtf_normalized_score(main_force_conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        conviction_decay_score = (1 - conviction_normalized).clip(0, 1)
+        # 主力执行力alpha的负向部分，归一化到 [0,1]
+        alpha_negative_normalized = get_adaptive_mtf_normalized_score(main_force_execution_alpha_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        mf_abandonment_score = (
+            conviction_decay_score.pow(mf_abandonment_weights.get('conviction_decay', 0.5)) *
+            alpha_negative_normalized.pow(mf_abandonment_weights.get('negative_alpha', 0.5))
+        ).fillna(0.0)
+        # 情境放大器
+        overextension_score = overextension_raw # 已经是 [0,1]
+        negative_deception_score = deception_raw.clip(upper=0).abs() # 负向欺骗，即拉高出货
+        context_amplifier_factor = (
+            overextension_score * context_amplifier_weights.get('overextension', 0.6) +
+            negative_deception_score * context_amplifier_weights.get('negative_deception', 0.4)
+        ).clip(0, 1)
+        final_amplifier = 1 + context_amplifier_factor * max_amplification_factor # 最大放大 max_amplification_factor
+        # --- 3. 核心风险基准分合成 ---
+        core_risk_base = (
+            lure_score *
+            ambush_score.pow(core_risk_weights.get('ambush', 0.4)) *
+            trapped_force_score.pow(core_risk_weights.get('trapped_force_pain', 0.3)) *
+            mf_abandonment_score.pow(core_risk_weights.get('main_force_abandonment', 0.3))
+        ).fillna(0.0)
+        # --- 4. 最终风险合成 ---
+        breakout_failure_risk = (core_risk_base * final_amplifier).clip(0, 1)
+        # --- 5. 探针输出 ---
+        if debug_enabled and probe_ts and probe_ts in df.index:
+            probe_date_str = probe_ts.strftime('%Y-%m-%d')
+            print(f"\n    -> [探针] SCORE_RISK_BREAKOUT_FAILURE_CASCADE @ {probe_date_str}")
+            print(f"       - 原始数据:")
+            print(f"         - breakout_quality_score_D: {breakout_quality_raw.loc[probe_ts]:.4f}")
+            print(f"         - distribution_intent: {distribution_intent.loc[probe_ts]:.4f}")
+            print(f"         - loser_pain_index_D: {loser_pain_raw.loc[probe_ts]:.4f}")
+            print(f"         - volume_ratio_D: {volume_raw.loc[probe_ts]:.4f}")
+            print(f"         - main_force_conviction_index_D: {main_force_conviction_raw.loc[probe_ts]:.4f}")
+            print(f"         - main_force_execution_alpha_D: {main_force_execution_alpha_raw.loc[probe_ts]:.4f}")
+            print(f"         - INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW: {overextension_raw.loc[probe_ts]:.4f}")
+            print(f"         - SCORE_BEHAVIOR_DECEPTION_INDEX: {deception_raw.loc[probe_ts]:.4f}")
+            print(f"       - 关键计算节点:")
+            print(f"         - lure_score (诱饵分): {lure_score.loc[probe_ts]:.4f}")
+            print(f"         - ambush_score (伏击分): {ambush_score.loc[probe_ts]:.4f}")
+            print(f"         - loser_pain_score (痛苦分): {loser_pain_score.loc[probe_ts]:.4f}")
+            print(f"         - volume_ratio_score (量比分): {volume_ratio_score.loc[probe_ts]:.4f}")
+            print(f"         - trapped_force_score (套牢盘痛苦度): {trapped_force_score.loc[probe_ts]:.4f}")
+            print(f"         - conviction_normalized (主力信念归一化): {conviction_normalized.loc[probe_ts]:.4f}")
+            print(f"         - conviction_decay_score (信念衰减分): {conviction_decay_score.loc[probe_ts]:.4f}")
+            print(f"         - alpha_negative_normalized (负向alpha归一化): {alpha_negative_normalized.loc[probe_ts]:.4f}")
+            print(f"         - mf_abandonment_score (主力背弃度): {mf_abandonment_score.loc[probe_ts]:.4f}")
+            print(f"         - overextension_score (价格超买分): {overextension_score.loc[probe_ts]:.4f}")
+            print(f"         - negative_deception_score (负向欺骗分): {negative_deception_score.loc[probe_ts]:.4f}")
+            print(f"         - context_amplifier_factor (情境放大因子): {context_amplifier_factor.loc[probe_ts]:.4f}")
+            print(f"         - final_amplifier (最终放大器): {final_amplifier.loc[probe_ts]:.4f}")
+            print(f"         - core_risk_base (核心风险基准分): {core_risk_base.loc[probe_ts]:.4f}")
+            print(f"       - 最终结果:")
+            print(f"         - SCORE_RISK_BREAKOUT_FAILURE_CASCADE: {breakout_failure_risk.loc[probe_ts]:.4f}")
         return breakout_failure_risk.astype(np.float32)
 
     def _diagnose_divergence_quality(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> Tuple[pd.Series, pd.Series]:
