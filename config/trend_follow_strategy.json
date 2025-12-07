@@ -1412,17 +1412,19 @@
           "comment": "融合“脆弱战场”、“幽灵诡计”和“突袭品质”构建“伏击式反攻”时的权重及参数。"
         },
         "breakout_failure_risk_params": {
-          "description": "【V3.2 · 深度博弈版】“突破失败级联风险”信号参数",
+          "description": "【V3.3 · 级联风险重构版】“突破失败级联风险”信号参数",
           "core_risk_weights": {
-            "ambush": 0.4,
-            "trapped_force_pain": 0.3,
+            "ambush": 0.3,
+            "trapped_force_pain": 0.4,
             "main_force_abandonment": 0.3
           },
           "trapped_force_pain_weights": {
-            "winner_rate": 0.4,
-            "volume_ratio": 0.3,
-            "winner_stability": 0.2,
-            "chip_fatigue": 0.1
+            "potential_pressure": 0.7,
+            "instability_trigger": 0.3
+          },
+          "instability_trigger_weights": {
+            "winner_instability": 0.6,
+            "chip_fatigue": 0.4
           },
           "main_force_abandonment_weights": {
             "conviction_decay": 0.4,
