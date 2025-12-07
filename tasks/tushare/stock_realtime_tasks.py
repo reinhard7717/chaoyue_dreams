@@ -433,7 +433,6 @@ def dispatch_tick_data_cleaning_task(start_date_str: str, end_date_str: str = No
             end_date = datetime.datetime.strptime(end_date_str, '%Y-%m-%d').date()
         else:
             end_date = datetime.datetime.now(timezone.get_default_timezone()).date()
-        
         dates_to_process = []
         current_date = start_date
         while current_date <= end_date:
