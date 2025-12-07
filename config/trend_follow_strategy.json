@@ -1279,6 +1279,22 @@
           },
           "comment": "融合“效率”、“控制力”、“决断力”构建“执行品质分”时的权重。"
         },
+        "fog_of_war_protocol_params": {
+          "description": "【V2.0 · 战场迷雾协议】“微观结构意图”信号参数",
+          "core_intent_weights": {
+            "ofi": 0.6,
+            "quote_exhaustion": 0.4
+          },
+          "environmental_adaptability_weights": {
+            "volatility_sensitivity": 0.5,
+            "liquidity_sensitivity": 0.5
+          },
+          "behavioral_coherence_weights": {
+            "impulse_purity": 0.7,
+            "deception_penalty": 0.3
+          },
+          "comment": "融合“核心意图强度”、“环境适应性”、“行为一致性”构建“微观结构意图”时的权重。"
+        },
         "neutral_zone_thresholds": {
           "description": "【V1.0】中性死区阈值。绝对值低于此阈值的信号值将被视作0，以过滤噪声。",
           "main_force_execution_alpha_D": 0.001,

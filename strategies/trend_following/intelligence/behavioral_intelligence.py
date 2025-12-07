@@ -690,29 +690,125 @@ class BehavioralIntelligence:
 
     def _diagnose_microstructure_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 主力意图聚焦版】微观结构意图诊断引擎
-        - 核心升级: 将通用的订单流失衡(OFI)替换为“主力订单流失衡(main_force_ofi_D)”，
-                    从而更精准地聚焦于市场主导力量的真实意图，排除散户噪音。
+        【V2.0 · 战场迷雾协议 (探针激活版)】微观结构意图诊断引擎
+        - 核心重构: 废弃V1.3“静态快照”模型，引入“核心意图强度 × 环境适应性 × 行为一致性”的全新三维诊断框架。
+        - 诊断三维度:
+          1. 核心意图强度 (Core Intent Magnitude): 诊断主力订单流和挂单枯竭的原始意图。
+          2. 环境适应性 (Environmental Adaptability): 根据市场波动率和流动性校准意图的显著性。
+          3. 行为一致性 (Behavioral Coherence): 通过价格脉冲纯度、欺诈指数印证意图的真实性。
+        - 数学模型: 最终微观意图 = 核心意图强度 × 环境适应性因子 × 行为一致性因子
         """
-        # 将依赖信号从通用OFI升级为主力OFI
-        required_signals = ['main_force_ofi_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D']
-        if not self._validate_required_signals(df, required_signals, "_diagnose_microstructure_intent"):
-            return {}
-        states = {}
+        # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        params = get_param_value(p_conf.get('fog_of_war_protocol_params'), {})
+        core_intent_weights = get_param_value(params.get('core_intent_weights'), {"ofi": 0.6, "quote_exhaustion": 0.4})
+        env_adapt_weights = get_param_value(params.get('environmental_adaptability_weights'), {"volatility_sensitivity": 0.5, "liquidity_sensitivity": 0.5})
+        behavior_coherence_weights = get_param_value(params.get('behavioral_coherence_weights'), {"impulse_purity": 0.7, "deception_penalty": 0.3})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # 获取主力OFI原始数据
+        # --- 2. 维度一：核心意图强度 (Core Intent Magnitude) ---
+        required_signals_core = ['main_force_ofi_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D']
+        if not self._validate_required_signals(df, required_signals_core, "_diagnose_microstructure_intent"):
+            return {'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT': pd.Series(0.0, index=df.index)}
         ofi_raw = self._get_safe_series(df, 'main_force_ofi_D', 0.0, method_name="_diagnose_microstructure_intent")
         buy_sweep_raw = self._get_safe_series(df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_microstructure_intent")
         sell_sweep_raw = self._get_safe_series(df, 'sell_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_microstructure_intent")
         ofi_score = get_adaptive_mtf_normalized_bipolar_score(ofi_raw, df.index, default_weights)
         buy_sweep_score = get_adaptive_mtf_normalized_score(buy_sweep_raw, df.index, ascending=True, tf_weights=default_weights)
         sell_sweep_score = get_adaptive_mtf_normalized_score(sell_sweep_raw, df.index, ascending=True, tf_weights=default_weights)
-        bullish_intent = (ofi_score.clip(lower=0) * 0.5 + buy_sweep_score * 0.5)
-        bearish_intent = (ofi_score.clip(upper=0).abs() * 0.5 + sell_sweep_score * 0.5)
-        micro_intent_score = (bullish_intent - bearish_intent).clip(-1, 1)
-        states['SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT'] = micro_intent_score.astype(np.float32)
+        bullish_core_intent = (ofi_score.clip(lower=0) * core_intent_weights.get('ofi', 0.6) + buy_sweep_score * core_intent_weights.get('quote_exhaustion', 0.4))
+        bearish_core_intent = (ofi_score.clip(upper=0).abs() * core_intent_weights.get('ofi', 0.6) + sell_sweep_score * core_intent_weights.get('quote_exhaustion', 0.4))
+        core_intent_magnitude = (bullish_core_intent - bearish_core_intent).clip(-1, 1)
+        # --- 3. 维度二：环境适应性 (Environmental Adaptability) ---
+        required_signals_env = ['ATR_14_D', 'volume_ratio_D']
+        environmental_adaptability_factor_raw = pd.Series(0.0, index=df.index) # 用于探针输出
+        environmental_adaptability_factor = pd.Series(1.0, index=df.index)
+        if self._validate_required_signals(df, required_signals_env, "_diagnose_microstructure_intent"):
+            atr_raw = self._get_safe_series(df, 'ATR_14_D', 0.0, method_name="_diagnose_microstructure_intent")
+            volume_ratio_raw = self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_microstructure_intent")
+            volatility_score = get_adaptive_mtf_normalized_score(atr_raw, df.index, ascending=True, tf_weights=default_weights)
+            liquidity_score = (1 - get_adaptive_mtf_normalized_score(volume_ratio_raw, df.index, ascending=True, tf_weights=default_weights))
+            environmental_adaptability_factor_raw = (
+                volatility_score * env_adapt_weights.get('volatility_sensitivity', 0.5) +
+                liquidity_score * env_adapt_weights.get('liquidity_sensitivity', 0.5)
+            ).clip(0, 1)
+            environmental_adaptability_factor = 0.5 + environmental_adaptability_factor_raw * 0.5 # 映射到 [0.5, 1.0]
+        # --- 4. 维度三：行为一致性 (Behavioral Coherence) ---
+        required_signals_behavior = ['upward_impulse_purity_D', 'downward_impulse_purity_D', 'deception_index_D']
+        upward_purity_score = pd.Series(0.0, index=df.index) # 用于探针输出
+        downward_purity_score = pd.Series(0.0, index=df.index) # 用于探针输出
+        deception_score = pd.Series(0.0, index=df.index) # 用于探针输出
+        purity_coherence = pd.Series(0.0, index=df.index) # 用于探针输出
+        deception_penalty_factor = pd.Series(1.0, index=df.index) # 用于探针输出
+        behavioral_coherence_factor_raw = pd.Series(0.0, index=df.index) # 用于探针输出
+        behavioral_coherence_factor = pd.Series(1.0, index=df.index)
+        if self._validate_required_signals(df, required_signals_behavior, "_diagnose_microstructure_intent"):
+            upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_microstructure_intent")
+            downward_purity_raw = self._get_safe_series(df, 'downward_impulse_purity_D', 0.0, method_name="_diagnose_microstructure_intent")
+            deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_microstructure_intent")
+            upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
+            downward_purity_score = get_adaptive_mtf_normalized_score(downward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
+            deception_score = get_adaptive_mtf_normalized_score(deception_raw, df.index, ascending=True, tf_weights=default_weights)
+            purity_coherence = pd.Series(0.0, index=df.index)
+            purity_coherence = purity_coherence.mask(core_intent_magnitude > 0, upward_purity_score * (1 - downward_purity_score))
+            purity_coherence = purity_coherence.mask(core_intent_magnitude < 0, downward_purity_score * (1 - upward_purity_score))
+            purity_coherence = purity_coherence.mask(core_intent_magnitude == 0, 0.5)
+            deception_penalty_factor = (1 - deception_score * behavior_coherence_weights.get('deception_penalty', 0.3)).clip(0, 1)
+            behavioral_coherence_factor_raw = (
+                purity_coherence * behavior_coherence_weights.get('impulse_purity', 0.7) +
+                deception_penalty_factor * (1 - behavior_coherence_weights.get('impulse_purity', 0.7))
+            ).clip(0, 1)
+            behavioral_coherence_factor = 0.5 + behavioral_coherence_factor_raw * 0.5 # 映射到 [0.5, 1.0]
+        # --- 5. 最终合成：三维融合 ---
+        final_micro_intent = (core_intent_magnitude * environmental_adaptability_factor * behavioral_coherence_factor).clip(-1, 1)
+        states = {'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT': final_micro_intent.astype(np.float32)}
+        # --- [探针逻辑] 暴露所有计算节点 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df.empty:
+            for probe_date_str in probe_dates:
+                try:
+                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    if probe_date in df.index:
+                        print(f"      [行为探针 V2.0] _diagnose_microstructure_intent @ {probe_date_str}")
+                        # --- 打印原料数据 ---
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - [核心意图] 主力OFI (main_force_ofi_D): {ofi_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [核心意图] 买方挂单枯竭 (buy_quote_exhaustion_rate_D): {buy_sweep_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [核心意图] 卖方挂单枯竭 (sell_quote_exhaustion_rate_D): {sell_sweep_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [环境适应性] ATR (ATR_14_D): {self._get_safe_series(df, 'ATR_14_D', 0.0).get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [环境适应性] 量比 (volume_ratio_D): {self._get_safe_series(df, 'volume_ratio_D', 1.0).get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [行为一致性] 上涨脉冲纯度 (upward_impulse_purity_D): {self._get_safe_series(df, 'upward_impulse_purity_D', 0.0).get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [行为一致性] 下跌脉冲纯度 (downward_impulse_purity_D): {self._get_safe_series(df, 'downward_impulse_purity_D', 0.0).get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [行为一致性] 欺骗指数 (deception_index_D): {self._get_safe_series(df, 'deception_index_D', 0.0).get(probe_date, 'N/A'):.4f}")
+                        # --- 打印关键计算节点 ---
+                        print(f"        --- [关键计算节点 - 战场迷雾协议] ---")
+                        print(f"          - [维度一] 核心意图强度:")
+                        print(f"              - OFI归一化分: {ofi_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 买方枯竭归一化分: {buy_sweep_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 卖方枯竭归一化分: {sell_sweep_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 看涨核心意图: {bullish_core_intent.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 看跌核心意图: {bearish_core_intent.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 核心意图强度 (core_intent_magnitude): {core_intent_magnitude.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度二] 环境适应性:")
+                        print(f"              - 波动率得分: {volatility_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 流动性得分: {liquidity_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 环境适应性因子 (原始): {environmental_adaptability_factor_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 环境适应性因子 (映射后): {environmental_adaptability_factor.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度三] 行为一致性:")
+                        print(f"              - 上涨脉冲纯度得分: {upward_purity_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 下跌脉冲纯度得分: {downward_purity_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 欺骗指数得分: {deception_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 脉冲纯度一致性 (purity_coherence): {purity_coherence.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 欺骗惩罚因子 (deception_penalty_factor): {deception_penalty_factor.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 行为一致性因子 (原始): {behavioral_coherence_factor_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 行为一致性因子 (映射后): {behavioral_coherence_factor.get(probe_date, 'N/A'):.4f}")
+                        # --- 最终结果 ---
+                        print(f"        --- [最终结果] ---")
+                        print(f"        - 最终微观结构意图分 (核心意图 × 环境适应性 × 行为一致性): {final_micro_intent.get(probe_date, 0.0):.4f}")
+                except Exception as e:
+                    print(f"    -> [行为探针错误] _diagnose_microstructure_intent 处理日期 {probe_date_str} 失败: {e}")
         return states
 
     def _diagnose_stagnation_evidence(self, df: pd.DataFrame, upward_efficiency: pd.Series) -> pd.Series:
@@ -1114,7 +1210,7 @@ class BehavioralIntelligence:
 
     def _diagnose_shakeout_confirmation(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> pd.Series:
         """
-        【V3.0 · 大国工匠协议 (探针激活版)】诊断震荡洗盘确认信号。
+        【V3.0 · Production Ready版】诊断震荡洗盘确认信号。
         - 核心重构: 废弃V2.1“事件审计员”模型，引入“意图×行动×品质”的全新三维诊断框架。
         - 诊断三维度:
           1. 战略意图 (Strategic Intent): 审判动机，必须满足“无派发意图”。
@@ -1154,38 +1250,7 @@ class BehavioralIntelligence:
         # --- 4. “大国工匠协议”三维合成 ---
         base_confirmation = (tactical_action_score * execution_quality_score).pow(0.5).fillna(0.0)
         shakeout_confirmation_score = (strategic_intent_score * base_confirmation).clip(0, 1)
-        # --- [探针逻辑] 暴露所有计算节点 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        print(f"      [行为探针 V3.0] _diagnose_shakeout_confirmation @ {probe_date_str}")
-                        # --- 打印原料数据 ---
-                        print(f"        --- [原料数据] ---")
-                        print(f"          - [意图] 派发意图 (distribution_intent): {distribution_intent.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [行动] 承接强度 (absorption_strength): {absorption_strength.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [品质] 浮筹清洗效率 (efficiency_raw): {efficiency_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [品质] VWAP控制强度 (control_raw): {control_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [品质] K线 (H/L/C): {high.get(probe_date, 'N/A'):.2f}/{low.get(probe_date, 'N/A'):.2f}/{close.get(probe_date, 'N/A'):.2f}")
-                        # --- 打印关键计算节点 ---
-                        print(f"        --- [关键计算节点 - 大国工匠协议] ---")
-                        print(f"          - [维度一] 战略意图分: {strategic_intent_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度二] 战术行动分: {tactical_action_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度三] 执行品质分 (工匠指数):")
-                        print(f"              - 效率分 (efficiency_score): {efficiency_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 控制力分 (control_score): {control_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 决断力分 (decisiveness_score): {decisiveness_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - [融合] 品质总分 (execution_quality_score): {execution_quality_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [融合] 基础确认分 (行动 × 品质)^0.5: {base_confirmation.get(probe_date, 'N/A'):.4f}")
-                        # --- 打印最终结果 ---
-                        print(f"        --- [最终结果] ---")
-                        print(f"        - 最终洗盘确认分 (意图 × 基础确认): {shakeout_confirmation_score.get(probe_date, 0.0):.4f}")
-                except Exception as e:
-                    print(f"    -> [行为探针错误] _diagnose_shakeout_confirmation 处理日期 {probe_date_str} 失败: {e}")
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return shakeout_confirmation_score.astype(np.float32)
 
     def _apply_neutral_zone_filter(self, series: pd.Series, threshold: float) -> pd.Series:
