@@ -1016,13 +1016,12 @@ class BehavioralIntelligence:
           2. 伏击 (The Ambush): 使用强大的 `distribution_intent` 量化主力在诱多过程中的真实派发意图。
           3. 套牢盘痛苦度 (Trapped Force Pain): 融合 `loser_pain_index_D` 和 `volume_ratio_D`，直接量化高位被套牢资金的痛苦程度和规模。
           4. 主力背弃度 (Main Force Abandonment): 融合 `main_force_conviction_index_D` (负向) 和 `main_force_execution_alpha_D` (负向)，量化主力对突破的放弃程度。
-          5. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买) 和 `SCORE_BEHAVIOR_DECEPTION_INDEX` (负向，拉高出货)，对风险进行情境化放大。
+          5. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买) 和 `SCORE_BEHAVIOR_DECEPTION_INDEX` (正向，拉高出货)，对风险进行情境化放大。
         - 数学模型: 风险分 = 核心风险基准分 × 情境放大器
                       核心风险基准分 = 诱饵分 × (伏击分 ^ W_ambush × 套牢盘痛苦度 ^ W_trapped_pain × 主力背弃度 ^ W_mf_abandon)
-                      情境放大器 = 1 + (价格超买分 × W_overextension + 负向欺骗分 × W_negative_deception) × MaxAmplificationFactor
+                      情境放大器 = 1 + (价格超买分 × W_overextension + 正向欺骗分 × W_positive_deception) × MaxAmplificationFactor
         """
         method_name = "_diagnose_breakout_failure_risk"
-        # [代码修改] 移除 INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW 和 SCORE_BEHAVIOR_DECEPTION_INDEX，因为它们现在作为参数传入
         required_signals = [
             'breakout_quality_score_D', 'volume_ratio_D', 'loser_pain_index_D',
             'main_force_conviction_index_D', 'main_force_execution_alpha_D'
@@ -1032,12 +1031,11 @@ class BehavioralIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # [代码修改] 获取新的参数配置
         breakout_params = get_param_value(p_conf.get('breakout_failure_risk_params'), {})
         core_risk_weights = get_param_value(breakout_params.get('core_risk_weights'), {"ambush": 0.4, "trapped_force_pain": 0.3, "main_force_abandonment": 0.3})
         trapped_force_pain_weights = get_param_value(breakout_params.get('trapped_force_pain_weights'), {"loser_pain": 0.7, "volume_ratio": 0.3})
         mf_abandonment_weights = get_param_value(breakout_params.get('main_force_abandonment_weights'), {"conviction_decay": 0.5, "negative_alpha": 0.5})
-        context_amplifier_weights = get_param_value(breakout_params.get('context_amplifier_weights'), {"overextension": 0.6, "negative_deception": 0.4})
+        context_amplifier_weights = get_param_value(breakout_params.get('context_amplifier_weights'), {"overextension": 0.6, "positive_deception": 0.4}) # 修改的代码行: 权重名称改为 positive_deception
         max_amplification_factor = get_param_value(breakout_params.get('max_amplification_factor'), 0.5)
         # --- 1. 获取五大核心战术要素的原始数据 ---
         # 诱饵 (The Lure)
@@ -1050,8 +1048,8 @@ class BehavioralIntelligence:
         main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
         main_force_execution_alpha_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name=method_name)
         # 情境放大器 (Contextual Amplifier) - 从参数获取
-        overextension_score = overextension_score_series # 修改的代码行: 直接使用传入的 series
-        deception_raw = deception_index_series # 修改的代码行: 直接使用传入的 series
+        overextension_score = overextension_score_series
+        deception_raw = deception_index_series
         # --- 2. 计算各要素得分 ---
         lure_score = get_adaptive_mtf_normalized_score(breakout_quality_raw, df.index, ascending=True, tf_weights=default_weights)
         ambush_score = distribution_intent
@@ -1062,20 +1060,22 @@ class BehavioralIntelligence:
             volume_ratio_score.pow(trapped_force_pain_weights.get('volume_ratio', 0.3))
         ).fillna(0.0)
         # 主力信念归一化到 [0,1]，然后 (1 - score) 表示信念衰减/背弃
-        conviction_normalized = get_adaptive_mtf_normalized_score(main_force_conviction_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
-        conviction_decay_score = (1 - conviction_normalized).clip(0, 1)
+        # [代码修改] main_force_conviction_raw 负值越大，信念越差，所以直接取负向部分归一化
+        conviction_decay_score = get_adaptive_mtf_normalized_score(main_force_conviction_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         # 主力执行力alpha的负向部分，归一化到 [0,1]
         alpha_negative_normalized = get_adaptive_mtf_normalized_score(main_force_execution_alpha_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        # [代码修改] 修正 mf_abandonment_score 计算逻辑，使用加权平均避免乘积为0
         mf_abandonment_score = (
-            conviction_decay_score.pow(mf_abandonment_weights.get('conviction_decay', 0.5)) *
-            alpha_negative_normalized.pow(mf_abandonment_weights.get('negative_alpha', 0.5))
-        ).fillna(0.0)
+            conviction_decay_score * mf_abandonment_weights.get('conviction_decay', 0.5) +
+            alpha_negative_normalized * mf_abandonment_weights.get('negative_alpha', 0.5)
+        ).clip(0, 1).fillna(0.0)
         # 情境放大器
-        # overextension_score = overextension_raw # 已经是 [0,1] - This line is now redundant as overextension_score is already the passed series
-        negative_deception_score = deception_raw.clip(upper=0).abs() # 负向欺骗，即拉高出货
+        # overextension_score 已经是 [0,1]
+        # [代码修改] 只有正向欺骗（拉高出货）才作为放大因素
+        positive_deception_score = deception_raw.clip(lower=0)
         context_amplifier_factor = (
             overextension_score * context_amplifier_weights.get('overextension', 0.6) +
-            negative_deception_score * context_amplifier_weights.get('negative_deception', 0.4)
+            positive_deception_score * context_amplifier_weights.get('positive_deception', 0.4) # 修改的代码行: 使用 positive_deception_score
         ).clip(0, 1)
         final_amplifier = 1 + context_amplifier_factor * max_amplification_factor # 最大放大 max_amplification_factor
         # --- 3. 核心风险基准分合成 ---
@@ -1098,20 +1098,19 @@ class BehavioralIntelligence:
             print(f"         - volume_ratio_D: {volume_raw.loc[probe_ts]:.4f}")
             print(f"         - main_force_conviction_index_D: {main_force_conviction_raw.loc[probe_ts]:.4f}")
             print(f"         - main_force_execution_alpha_D: {main_force_execution_alpha_raw.loc[probe_ts]:.4f}")
-            print(f"         - INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW (passed): {overextension_score.loc[probe_ts]:.4f}") # Modified probe output
-            print(f"         - SCORE_BEHAVIOR_DECEPTION_INDEX (passed): {deception_raw.loc[probe_ts]:.4f}") # Modified probe output
+            print(f"         - INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW (passed): {overextension_score.loc[probe_ts]:.4f}")
+            print(f"         - SCORE_BEHAVIOR_DECEPTION_INDEX (passed): {deception_raw.loc[probe_ts]:.4f}")
             print(f"       - 关键计算节点:")
             print(f"         - lure_score (诱饵分): {lure_score.loc[probe_ts]:.4f}")
             print(f"         - ambush_score (伏击分): {ambush_score.loc[probe_ts]:.4f}")
             print(f"         - loser_pain_score (痛苦分): {loser_pain_score.loc[probe_ts]:.4f}")
             print(f"         - volume_ratio_score (量比分): {volume_ratio_score.loc[probe_ts]:.4f}")
             print(f"         - trapped_force_score (套牢盘痛苦度): {trapped_force_score.loc[probe_ts]:.4f}")
-            print(f"         - conviction_normalized (主力信念归一化): {conviction_normalized.loc[probe_ts]:.4f}")
-            print(f"         - conviction_decay_score (信念衰减分): {conviction_decay_score.loc[probe_ts]:.4f}")
+            print(f"         - conviction_decay_score (信念衰减分): {conviction_decay_score.loc[probe_ts]:.4f}") # 修改的代码行: 打印修正后的信念衰减分
             print(f"         - alpha_negative_normalized (负向alpha归一化): {alpha_negative_normalized.loc[probe_ts]:.4f}")
             print(f"         - mf_abandonment_score (主力背弃度): {mf_abandonment_score.loc[probe_ts]:.4f}")
             print(f"         - overextension_score (价格超买分): {overextension_score.loc[probe_ts]:.4f}")
-            print(f"         - negative_deception_score (负向欺骗分): {negative_deception_score.loc[probe_ts]:.4f}")
+            print(f"         - positive_deception_score (正向欺骗分): {positive_deception_score.loc[probe_ts]:.4f}") # 修改的代码行: 打印正向欺骗分
             print(f"         - context_amplifier_factor (情境放大因子): {context_amplifier_factor.loc[probe_ts]:.4f}")
             print(f"         - final_amplifier (最终放大器): {final_amplifier.loc[probe_ts]:.4f}")
             print(f"         - core_risk_base (核心风险基准分): {core_risk_base.loc[probe_ts]:.4f}")
