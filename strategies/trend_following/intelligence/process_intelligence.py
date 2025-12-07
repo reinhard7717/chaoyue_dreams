@@ -1631,7 +1631,7 @@ class ProcessIntelligence:
 
     def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
         """
-        【V1.0 · 洗盘诱空反弹协议 (探针激活版)】计算“洗盘诱空反弹”信号。
+        【V1.0 · 洗盘诱空反弹协议】计算“洗盘诱空反弹”信号。
         - 核心理念: 识别主力通过制造虚假抛压（洗盘、诱空），迫使散户割肉后，随即展开的反弹机会。
         - 诊断三维度:
           1. 洗盘诱空背景 (Wash-out Deception Context): 评估洗盘诱空发生的可能性。
@@ -1639,7 +1639,8 @@ class ProcessIntelligence:
           3. 承接反弹品质 (Absorption Rebound Quality): 评估反弹的有效性和质量。
         - 数学模型: 最终分 = (洗盘诱空背景分^W1 * 恐慌割肉深度分^W2 * 承接反弹品质分^W3)
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_WASH_OUT_REBOUND (V1.0 · 洗盘诱空反弹协议)...")
+        # [代码修改] 移除调试探针
+        # print("    -> [过程层] 正在计算 PROCESS_META_WASH_OUT_REBOUND (V1.0 · 洗盘诱空反弹协议)...")
         # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
         params = get_param_value(p_conf.get('wash_out_rebound_params'), {})
@@ -1699,58 +1700,11 @@ class ProcessIntelligence:
             (panic_depth_score + 1e-9).pow(fusion_weights.get('panic_depth', 0.3)) *
             (rebound_quality_score + 1e-9).pow(fusion_weights.get('rebound_quality', 0.4))
         ).pow(1/(fusion_weights.get('deception_context', 0.3) + fusion_weights.get('panic_depth', 0.3) + fusion_weights.get('rebound_quality', 0.4))).fillna(0.0)
-        # --- [探针逻辑] 暴露所有计算节点 ---
-        is_debug_enabled = get_param_value(self.debug_params.get('enabled', {}).get('value'), False)
-        if is_debug_enabled and self.probe_dates and not df.empty:
-            for probe_date_str in self.probe_dates:
-                try:
-                    # [代码修改] 鲁棒地处理日期时间对象的时区，确保与df.index匹配
-                    naive_probe_date = pd.to_datetime(probe_date_str)
-                    if df.index.tz is not None:
-                        probe_date = naive_probe_date.tz_localize(df.index.tz)
-                    else:
-                        probe_date = naive_probe_date
-
-                    if probe_date in df.index:
-                        print(f"      [过程探针 V1.0] _calculate_process_wash_out_rebound @ {probe_date_str}")
-                        # --- 打印原料数据 ---
-                        print(f"        --- [原料数据] ---")
-                        print(f"          - 进攻性承接意图 (offensive_absorption_intent): {offensive_absorption_intent.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 对倒强度 (wash_trade_intensity_D): {wash_trade_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 欺骗指数 (deception_index_D): {deception_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 主动卖压 (active_selling_pressure_D): {active_selling_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 恐慌抛售级联 (panic_selling_cascade_D): {panic_cascade_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 散户恐慌投降 (retail_panic_surrender_index_D): {retail_surrender_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 亏损盘痛苦指数 (loser_pain_index_D): {loser_pain_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 收盘强度 (closing_strength_index_D): {closing_strength_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 上涨脉冲纯度 (upward_purity_D): {upward_purity_raw.get(probe_date, 'N/A'):.4f}")
-                        # --- 打印关键计算节点 ---
-                        print(f"        --- [关键计算节点 - 洗盘诱空反弹协议] ---")
-                        print(f"          - [维度一] 洗盘诱空背景:")
-                        print(f"              - 对倒强度得分: {wash_trade_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 主动卖压得分: {active_selling_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 欺骗指数负值得分: {deception_negative_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - [融合] 洗盘诱空背景分 (deception_context_score): {deception_context_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度二] 恐慌割肉深度:")
-                        print(f"              - 恐慌抛售级联得分: {panic_cascade_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 散户恐慌投降得分: {retail_surrender_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 亏损盘痛苦得分: {loser_pain_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - [融合] 恐慌割肉深度分 (panic_depth_score): {panic_depth_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度三] 承接反弹品质:")
-                        print(f"              - 承接强度得分: {absorption_intent_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 收盘强度得分: {closing_strength_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 上涨脉冲纯度得分: {upward_purity_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - [融合] 承接反弹品质分 (rebound_quality_score): {rebound_quality_score.get(probe_date, 'N/A'):.4f}")
-                        # --- 最终结果 ---
-                        print(f"        --- [最终结果] ---")
-                        print(f"        - 最终洗盘诱空反弹分 (PROCESS_META_WASH_OUT_REBOUND): {wash_out_rebound_score.get(probe_date, 0.0):.4f}")
-                except Exception as e:
-                    print(f"    -> [过程探针错误] _calculate_process_wash_out_rebound 处理日期 {probe_date_str} 失败: {e}")
         return wash_out_rebound_score.clip(0, 1).astype(np.float32)
 
     def _calculate_process_covert_accumulation(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.0 · 隐蔽吸筹协议 (探针激活版)】计算“隐蔽吸筹”信号。
+        【V1.0 · 隐蔽吸筹协议】计算“隐蔽吸筹”信号。
         - 核心理念: 识别主力在市场情绪低迷、价格波动不大或小幅下跌/盘整时，通过隐蔽手段进行持续吸筹的行为。
         - 诊断三维度:
           1. 市场背景 (Market Context): 评估市场情绪的脆弱性、价格的弱势和低波动性。
@@ -1758,7 +1712,8 @@ class ProcessIntelligence:
           3. 筹码优化 (Chip Optimization): 评估筹码结构是否有利于吸筹。
         - 数学模型: 最终分 = (市场背景分^W1 * 隐蔽行动分^W2 * 筹码优化分^W3)
         """
-        print("    -> [过程层] 正在计算 PROCESS_META_COVERT_ACCUMULATION (V1.0 · 隐蔽吸筹协议)...")
+        # [代码修改] 移除调试探针
+        # print("    -> [过程层] 正在计算 PROCESS_META_COVERT_ACCUMULATION (V1.0 · 隐蔽吸筹协议)...")
         # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
         params = get_param_value(p_conf.get('covert_accumulation_params'), {})
@@ -1818,51 +1773,6 @@ class ProcessIntelligence:
             (covert_action_score + 1e-9).pow(fusion_weights.get('covert_action', 0.4)) *
             (chip_optimization_score + 1e-9).pow(fusion_weights.get('chip_optimization', 0.3))
         ).pow(1/(fusion_weights.get('market_context', 0.3) + fusion_weights.get('covert_action', 0.4) + fusion_weights.get('chip_optimization', 0.3))).fillna(0.0)
-        # --- [探针逻辑] 暴露所有计算节点 ---
-        is_debug_enabled = get_param_value(self.debug_params.get('enabled', {}).get('value'), False)
-        if is_debug_enabled and self.probe_dates and not df.empty:
-            for probe_date_str in self.probe_dates:
-                try:
-                    # [代码修改] 鲁棒地处理日期时间对象的时区，确保与df.index匹配
-                    naive_probe_date = pd.to_datetime(probe_date_str)
-                    if df.index.tz is not None:
-                        probe_date = naive_probe_date.tz_localize(df.index.tz)
-                    else:
-                        probe_date = naive_probe_date
-
-                    if probe_date in df.index:
-                        print(f"      [过程探针 V1.0] _calculate_process_covert_accumulation @ {probe_date_str}")
-                        # --- 打印原料数据 ---
-                        print(f"        --- [原料数据] ---")
-                        print(f"          - 散户恐慌投降指数 (retail_panic_surrender_index_D): {retail_panic_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 价格弱势斜率 (SLOPE_{price_weakness_slope_window}_close_D): {price_weakness_slope_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 布林带宽度 (BBW_{low_volatility_bbw_window}_2.0_D): {bbw_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 压制式吸筹强度 (suppressive_accumulation_intensity_D): {suppressive_accum_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 主力净流量 (main_force_net_flow_calibrated_D): {main_force_flow_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 欺骗指数 (deception_index_D): {deception_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 筹码疲劳指数 (chip_fatigue_index_D): {chip_fatigue_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 亏损盘痛苦指数 (loser_pain_index_D): {loser_pain_raw.get(probe_date, 'N/A'):.4f}")
-                        # --- 打印关键计算节点 ---
-                        print(f"        --- [关键计算节点 - 隐蔽吸筹协议] ---")
-                        print(f"          - [维度一] 市场背景:")
-                        print(f"              - 散户恐慌得分: {retail_panic_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 价格弱势得分: {price_weakness_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 低波动率得分: {low_volatility_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - [融合] 市场背景分 (market_context_score): {market_context_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度二] 隐蔽行动:")
-                        print(f"              - 压制式吸筹得分: {suppressive_accum_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 主力净流量得分: {main_force_flow_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 欺骗指数正值得分: {deception_positive_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - [融合] 隐蔽行动分 (covert_action_score): {covert_action_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度三] 筹码优化:")
-                        print(f"              - 筹码疲劳得分: {chip_fatigue_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 亏损盘痛苦得分: {loser_pain_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - [融合] 筹码优化分 (chip_optimization_score): {chip_optimization_score.get(probe_date, 'N/A'):.4f}")
-                        # --- 最终结果 ---
-                        print(f"        --- [最终结果] ---")
-                        print(f"        - 最终隐蔽吸筹分 (PROCESS_META_COVERT_ACCUMULATION): {covert_accumulation_score.get(probe_date, 0.0):.4f}")
-                except Exception as e:
-                    print(f"    -> [过程探针错误] _calculate_process_covert_accumulation 处理日期 {probe_date_str} 失败: {e}")
         return covert_accumulation_score.clip(0, 1).astype(np.float32)
 
 

@@ -134,6 +134,7 @@ class ChipIntelligence:
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         df_index = df.index
+        # --- 维度1: 阵型部署 (Formation Deployment) ---
         concentration_level = 1 - self._get_safe_series(df, df, 'cost_gini_coefficient_D', 0.5)
         covert_accumulation = self._get_safe_series(df, df, 'covert_accumulation_signal_D', 0.0)
         peak_purity = self._get_safe_series(df, df, 'peak_exchange_purity_D', 0.0)
@@ -143,28 +144,32 @@ class ChipIntelligence:
             get_adaptive_mtf_normalized_bipolar_score(peak_purity, df_index, tf_weights).add(1)/2
         ).pow(0.5) * 2 - 1
         formation_deployment_score = (level_score.add(1)/2 * efficiency_score.add(1)/2).pow(0.5) * 2 - 1
+        # --- 维度2: 指挥官决心 (Commander's Resolve) ---
         cost_advantage = self._get_safe_series(df, df, 'main_force_cost_advantage_D', 0.0)
         control_solidity = self._get_safe_series(df, df, 'control_solidity_index_D', 0.0)
         conviction_slope = self._get_safe_series(df, df, 'SLOPE_5_main_force_conviction_index_D', 0.0)
-        deception_index = self._get_safe_series(df, df, 'deception_index_D', 0.0) # 获取欺骗指数
+        deception_index = self._get_safe_series(df, df, 'deception_index_D', 0.0)
         advantage_score = get_adaptive_mtf_normalized_bipolar_score(cost_advantage, df_index, tf_weights)
         solidity_score = get_adaptive_mtf_normalized_bipolar_score(control_solidity, df_index, tf_weights)
         intent_score = get_adaptive_mtf_normalized_bipolar_score(conviction_slope, df_index, tf_weights)
-        deception_score = get_adaptive_mtf_normalized_bipolar_score(deception_index, df_index, tf_weights) # 归一化欺骗指数
-        commanders_resolve_score = ( # 将欺骗指数得分融合进指挥官决心
+        deception_score = get_adaptive_mtf_normalized_bipolar_score(deception_index, df_index, tf_weights)
+        commanders_resolve_score = (
             (advantage_score.add(1)/2) * (solidity_score.add(1)/2) *
             (intent_score.clip(lower=-1, upper=1).add(1)/2) * (deception_score.add(1)/2)
         ).pow(1/4) * 2 - 1
+        # --- 维度3: 战场控制 (Battlefield Control) ---
         cleansing_efficiency = self._get_safe_series(df, df, 'floating_chip_cleansing_efficiency_D', 0.0)
         peak_solidity = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5)
         cleansing_score = get_adaptive_mtf_normalized_bipolar_score(cleansing_efficiency, df_index, tf_weights)
         peak_solidity_score = get_adaptive_mtf_normalized_bipolar_score(peak_solidity, df_index, tf_weights)
         battlefield_control_score = (cleansing_score.add(1)/2 * peak_solidity_score.add(1)/2).pow(0.5) * 2 - 1
+        # --- 最终融合 ---
         final_score = (
             (commanders_resolve_score.add(1)/2).pow(0.5) *
             (formation_deployment_score.add(1)/2).pow(0.3) *
             (battlefield_control_score.add(1)/2).pow(0.2)
         ) * 2 - 1
+        # --- [探针逻辑] 暴露所有计算节点 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -172,20 +177,51 @@ class ChipIntelligence:
             probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
             if probe_date in df.index:
                 print(f"    -> [战略态势探针] @ {probe_date.date()}:")
-                print(f"       - 维度1: 阵型部署 (Formation Deployment)")
-                print(f"         - 原料: cost_gini: {self._get_safe_series(df, df, 'cost_gini_coefficient_D').loc[probe_date]:.4f}, covert_accum: {covert_accumulation.loc[probe_date]:.4f}, peak_purity: {peak_purity.loc[probe_date]:.4f}")
-                print(f"         - 过程: level_score: {level_score.loc[probe_date]:.4f}, efficiency_score: {efficiency_score.loc[probe_date]:.4f}")
-                print(f"         - 结果: formation_deployment_score: {formation_deployment_score.loc[probe_date]:.4f}")
-                print(f"       - 维度2: 指挥官决心 (Commander's Resolve)")
-                # 更新探针输出
-                print(f"         - 原料: cost_adv: {cost_advantage.loc[probe_date]:.4f}, ctrl_solidity: {control_solidity.loc[probe_date]:.4f}, conviction_slope: {conviction_slope.loc[probe_date]:.4f}, deception_idx: {deception_index.loc[probe_date]:.4f}")
-                print(f"         - 过程: advantage_score: {advantage_score.loc[probe_date]:.4f}, solidity_score: {solidity_score.loc[probe_date]:.4f}, intent_score: {intent_score.loc[probe_date]:.4f}, deception_score: {deception_score.loc[probe_date]:.4f}")
-                print(f"         - 结果: commanders_resolve_score: {commanders_resolve_score.loc[probe_date]:.4f}")
-                print(f"       - 维度3: 战场控制 (Battlefield Control)")
-                print(f"         - 原料: cleansing_eff: {cleansing_efficiency.loc[probe_date]:.4f}, peak_solidity: {peak_solidity.loc[probe_date]:.4f}")
-                print(f"         - 过程: cleansing_score: {cleansing_score.loc[probe_date]:.4f}, peak_solidity_score: {peak_solidity_score.loc[probe_date]:.4f}")
-                print(f"         - 结果: battlefield_control_score: {battlefield_control_score.loc[probe_date]:.4f}")
-                print(f"       - 最终融合结果: final_score: {final_score.loc[probe_date]:.4f}")
+                print(f"       --- [原始输入数据] ---")
+                print(f"         - cost_gini_coefficient_D: {self._get_safe_series(df, df, 'cost_gini_coefficient_D').loc[probe_date]:.4f}")
+                print(f"         - covert_accumulation_signal_D: {covert_accumulation.loc[probe_date]:.4f}")
+                print(f"         - peak_exchange_purity_D: {peak_purity.loc[probe_date]:.4f}")
+                print(f"         - main_force_cost_advantage_D: {cost_advantage.loc[probe_date]:.4f}")
+                print(f"         - control_solidity_index_D: {control_solidity.loc[probe_date]:.4f}")
+                print(f"         - SLOPE_5_main_force_conviction_index_D: {conviction_slope.loc[probe_date]:.4f}")
+                print(f"         - floating_chip_cleansing_efficiency_D: {cleansing_efficiency.loc[probe_date]:.4f}")
+                print(f"         - dominant_peak_solidity_D: {peak_solidity.loc[probe_date]:.4f}")
+                print(f"         - deception_index_D: {deception_index.loc[probe_date]:.4f}")
+                print(f"       --- [维度1: 阵型部署 (Formation Deployment)] ---")
+                print(f"         - 原始值:")
+                print(f"           - concentration_level (1-Gini): {concentration_level.loc[probe_date]:.4f}")
+                print(f"           - covert_accumulation: {covert_accumulation.loc[probe_date]:.4f}")
+                print(f"           - peak_purity: {peak_purity.loc[probe_date]:.4f}")
+                print(f"         - 归一化得分:")
+                print(f"           - level_score: {level_score.loc[probe_date]:.4f}")
+                print(f"           - covert_accumulation_score (normalized): {get_adaptive_mtf_normalized_bipolar_score(covert_accumulation, df_index, tf_weights).loc[probe_date]:.4f}")
+                print(f"           - peak_purity_score (normalized): {get_adaptive_mtf_normalized_bipolar_score(peak_purity, df_index, tf_weights).loc[probe_date]:.4f}")
+                print(f"         - 融合过程:")
+                print(f"           - efficiency_score: {efficiency_score.loc[probe_date]:.4f}")
+                print(f"         - 维度结果: formation_deployment_score: {formation_deployment_score.loc[probe_date]:.4f}")
+                print(f"       --- [维度2: 指挥官决心 (Commander's Resolve)] ---")
+                print(f"         - 原始值:")
+                print(f"           - cost_advantage: {cost_advantage.loc[probe_date]:.4f}")
+                print(f"           - control_solidity: {control_solidity.loc[probe_date]:.4f}")
+                print(f"           - conviction_slope: {conviction_slope.loc[probe_date]:.4f}")
+                print(f"           - deception_index: {deception_index.loc[probe_date]:.4f}")
+                print(f"         - 归一化得分:")
+                print(f"           - advantage_score: {advantage_score.loc[probe_date]:.4f}")
+                print(f"           - solidity_score: {solidity_score.loc[probe_date]:.4f}")
+                print(f"           - intent_score: {intent_score.loc[probe_date]:.4f}")
+                print(f"           - deception_score: {deception_score.loc[probe_date]:.4f}")
+                print(f"         - 维度结果: commanders_resolve_score: {commanders_resolve_score.loc[probe_date]:.4f}")
+                print(f"       --- [维度3: 战场控制 (Battlefield Control)] ---")
+                print(f"         - 原始值:")
+                print(f"           - cleansing_efficiency: {cleansing_efficiency.loc[probe_date]:.4f}")
+                print(f"           - peak_solidity: {peak_solidity.loc[probe_date]:.4f}")
+                print(f"         - 归一化得分:")
+                print(f"           - cleansing_score: {cleansing_score.loc[probe_date]:.4f}")
+                print(f"           - peak_solidity_score: {peak_solidity_score.loc[probe_date]:.4f}")
+                print(f"         - 维度结果: battlefield_control_score: {battlefield_control_score.loc[probe_date]:.4f}")
+                print(f"       --- [最终融合] ---")
+                print(f"         - 融合权重: Commander's Resolve (0.5), Formation Deployment (0.3), Battlefield Control (0.2)")
+                print(f"         - 最终结果: SCORE_CHIP_STRATEGIC_POSTURE: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_battlefield_geography(self, df: pd.DataFrame) -> pd.Series:

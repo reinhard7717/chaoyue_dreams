@@ -114,7 +114,30 @@
             "type": "risk",
             "description": "【V1.0 · 战术信号】一个高危风险信号，旨在量化“牛市陷阱”或“假突破”形态的风险。它捕捉了股价尝试突破近期高点、吸引大量跟风盘后，被主力资金快速打压并派发筹码的完整过程。高分代表大量多头在高位被套牢，形成了巨大的潜在抛压，是强烈的离场或规避信号。"
         },
-        "SCORE_BOARD_EARTH_HEAVEN": {
+        "SCORE_BEHAVIOR_BULLISH_DIVERGENCE": {
+            "cn_name": "【行为】看涨背离",
+            "category": "内部计分-行为",
+            "type": "dynamic",
+            "description": "【V1.0】基于行为公理，诊断价格行为与量能行为之间的看涨背离。"
+        },
+        "SCORE_BEHAVIOR_BEARISH_DIVERGENCE": {
+            "cn_name": "【行为】看跌背离",
+            "category": "内部计分-行为",
+            "type": "risk",
+            "description": "【V1.0】基于行为公理，诊断价格行为与量能行为之间的看跌背离。"
+        },
+        "INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW": {
+            "cn_name": "【内部】价格超买亢奋(原始分)",
+            "category": "行为层-内部",
+            "type": "internal",
+            "description": "【V2.1 · 量能确认版】通过‘市场亢奋度’（融合乖离率、RSI、获利盘）与‘主力信念度’（融合筹码稳定度、控盘稳固度、趋势活力）的差值来量化超买风险。核心升级：引入‘成交量确认因子’，当亢奋情绪伴随着异常放大的成交量（高量比）时，其风险将被放大。这使得信号对最危险的‘天量天价’式超买更加敏感。"
+        },
+        "INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW": {
+            "cn_name": "【内部】滞涨证据(原始分)",
+            "category": "行为层-内部",
+            "type": "internal",
+            "description": "【V3.2 · 空头伏击增强版】融合‘微观滞涨证据’（多头衰竭 vs 空头伏击）与‘宏观风险放大器’（高位获利盘 vs 趋势活力衰减），综合诊断上涨过程中的滞涨风险。核心升级：重构了‘空头伏击’的定义，引入‘多头进攻失败’（收盘价远离日内高点）作为核心裁决证据，使其能更精准地识别出伴随着长上影线或高开低走的、具有真实杀伤力的滞涨风险。"
+        },        "SCORE_BOARD_EARTH_HEAVEN": {
             "cn_name": "【行为】地天板",
             "category": "行为层-机会",
             "type": "context",
@@ -180,30 +203,6 @@
             "category": "日内行为-诡道",
             "type": "context",
             "description": "【V2.1 · 僵局不稳定性协议】终极形态。引入“僵局不稳定性”模型，深刻诠释“胜败论品质，僵局论不稳”的博弈哲学。它将VWAP穿越强度视为一个独立的“不稳定性”风险向量，直接对“战果”进行惩罚。此模型不仅能为“惨胜”打折扣，更能将“血流成河的平局”精准地识别为一个强烈的负面风险信号，而不再错误地将其归为中性。"
-        },
-        "INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW": {
-            "cn_name": "【内部】价格超买亢奋(原始分)",
-            "category": "行为层-内部",
-            "type": "internal",
-            "description": "【V2.1 · 量能确认版】通过‘市场亢奋度’（融合乖离率、RSI、获利盘）与‘主力信念度’（融合筹码稳定度、控盘稳固度、趋势活力）的差值来量化超买风险。核心升级：引入‘成交量确认因子’，当亢奋情绪伴随着异常放大的成交量（高量比）时，其风险将被放大。这使得信号对最危险的‘天量天价’式超买更加敏感。"
-        },
-        "INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW": {
-            "cn_name": "【内部】滞涨证据(原始分)",
-            "category": "行为层-内部",
-            "type": "internal",
-            "description": "【V3.2 · 空头伏击增强版】融合‘微观滞涨证据’（多头衰竭 vs 空头伏击）与‘宏观风险放大器’（高位获利盘 vs 趋势活力衰减），综合诊断上涨过程中的滞涨风险。核心升级：重构了‘空头伏击’的定义，引入‘多头进攻失败’（收盘价远离日内高点）作为核心裁决证据，使其能更精准地识别出伴随着长上影线或高开低走的、具有真实杀伤力的滞涨风险。"
-        },
-        "SCORE_BEHAVIOR_BULLISH_DIVERGENCE": {
-            "cn_name": "【行为】看涨背离",
-            "category": "内部计分-行为",
-            "type": "dynamic",
-            "description": "【V1.0】基于行为公理，诊断价格行为与量能行为之间的看涨背离。"
-        },
-        "SCORE_BEHAVIOR_BEARISH_DIVERGENCE": {
-            "cn_name": "【行为】看跌背离",
-            "category": "内部计分-行为",
-            "type": "risk",
-            "description": "【V1.0】基于行为公理，诊断价格行为与量能行为之间的看跌背离。"
         },
         "说明_chip_layer": "--- 筹码层 (Chip) ---",
         "SCORE_CHIP_STRATEGIC_POSTURE": {
