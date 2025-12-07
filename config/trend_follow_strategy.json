@@ -1528,11 +1528,11 @@
             "wash_trade_negative": 0.2
           },
           "dynamic_fusion_weights": {
-            "description": "融合基础战略态势与时间序列动态时的权重。",
             "base_score": 0.6,
             "velocity": 0.2,
             "acceleration": 0.2
           },
+          "description_dynamic_fusion_weights": "融合基础战略态势与时间序列动态时的权重。",
           "smoothing_ema_span": 5
         }
       },
