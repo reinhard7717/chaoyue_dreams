@@ -482,7 +482,19 @@
       },
       "behavioral_divergence_params": {
         "enabled": true,
-        "description": "【V1.0 · 行为背离纯化版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
+        "description": "【V2.0 · 行为背离进化版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
+        "multi_timeframe_slopes": {
+          "enabled": true,
+          "periods": [5, 13],
+          "weights": {"5": 0.7, "13": 0.3},
+          "description": "用于计算鲁棒斜率的多时间框架周期和权重。"
+        },
+        "persistence_params": {
+          "enabled": true,
+          "min_duration": 2,
+          "max_duration_window": 5,
+          "description": "背离持续性参数。min_duration为最小持续天数，max_duration_window用于归一化。"
+        },
         "bullish_divergence_weights": {
           "price_rsi": 0.4,
           "price_macd": 0.3,
@@ -510,7 +522,6 @@
         "macd_bullish_threshold": 0,
         "macd_bearish_threshold": 0,
         "min_divergence_slope_diff": 0.01,
-        "min_divergence_duration": 3,
         "comment": "定义了价格与RSI、MACD、成交量之间的背离权重，以及行为确认因子的权重和阈值。"
       },
       "process_intelligence_params": {
