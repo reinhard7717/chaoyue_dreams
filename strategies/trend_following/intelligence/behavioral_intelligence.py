@@ -1784,7 +1784,7 @@ class BehavioralIntelligence:
         behavioral_strength_params = get_param_value(p_conf.get('behavioral_strength_params'), {"enabled": True, "acceleration_bonus": 0.05})
         behavioral_inertia_params = get_param_value(p_conf.get('behavioral_inertia_params'), {"enabled": True, "long_term_adx_threshold": 30, "long_term_slope_stability_threshold": 0.8, "high_inertia_penalty": 0.1, "low_inertia_bonus": 0.05})
         adaptive_fusion_weights_params = get_param_value(p_conf.get('adaptive_fusion_weights_params'), {"enabled": True, "trend_strong_penalty_factor": 0.1, "ranging_bonus_factor": 0.1, "volatility_high_penalty_factor": 0.05})
-        # [修改的代码行] 获取新重构信号的参数
+        # 获取新重构信号的参数
         price_overextension_params = get_param_value(p_conf.get('price_overextension_params'), {"enabled": True})
         stagnation_evidence_params = get_param_value(p_conf.get('stagnation_evidence_params'), {"enabled": True})
 
@@ -1798,7 +1798,7 @@ class BehavioralIntelligence:
         min_divergence_slope_diff_base = get_param_value(adaptive_thresholds_params.get('min_slope_diff_base'), 0.005)
         min_slope_diff_atr_multiplier = get_param_value(adaptive_thresholds_params.get('min_slope_diff_atr_multiplier'), 0.005)
         rsi_oversold_trend_adjust_factor = get_param_value(adaptive_thresholds_params.get('rsi_oversold_trend_adjust_factor'), 5)
-        rsi_overbought_trend_adjust_factor = get_param_value(adaptive_conf_weights_params.get('rsi_overbought_trend_adjust_factor'), 5) # [修改的代码行] 修正参数获取
+        rsi_overbought_trend_adjust_factor = get_param_value(adaptive_thresholds_params.get('rsi_overbought_trend_adjust_factor'), 5) # [修改的代码行] 修正参数获取
 
         min_persistence_duration = get_param_value(persistence_params.get('min_duration'), 2)
         max_persistence_window = get_param_value(persistence_params.get('max_duration_window'), 5)
@@ -1809,8 +1809,8 @@ class BehavioralIntelligence:
             'close_D', 'RSI_13_D', 'MACDh_13_34_8_D', 'volume_D', 'ATR_14_D', 'BBW_21_2.0_D',
             'active_buying_support_D', 'active_selling_pressure_D', 'trend_vitality_index_D',
             'open_D', 'high_D', 'low_D', 'ADX_14_D', 'VOL_MA_21_D', 'pct_change_D',
-            'BIAS_5_D', 'BBP_20_2.0_D', # [修改的代码行] 新增BIAS和BBP
-            'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL' # [修改的代码行] 新增行为层派生信号
+            'BIAS_5_D', 'BBP_20_2.0_D', # 新增BIAS和BBP
+            'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL' # 新增行为层派生信号
         ]
         # 动态添加MTF斜率信号到required_signals
         mtf_periods = mtf_slopes_params.get('periods', [5])
@@ -1884,6 +1884,7 @@ class BehavioralIntelligence:
         pattern_volume_slope = self._get_safe_series(df, f'SLOPE_{pattern_lookback_window}_volume_D', 0.0, method_name=method_name)
 
         # 获取加速度数据
+        accel_period = mtf_periods[0]
         accel_close = self._get_safe_series(df, f'ACCEL_{accel_period}_close_D', 0.0, method_name=method_name)
         accel_rsi = self._get_safe_series(df, f'ACCEL_{accel_period}_RSI_13_D', 0.0, method_name=method_name)
         accel_macd = self._get_safe_series(df, f'ACCEL_{accel_period}_MACDh_13_34_8_D', 0.0, method_name=method_name)
@@ -2545,7 +2546,7 @@ class BehavioralIntelligence:
         ).pow(1 / (2.2 * adaptive_fusion_weight_multiplier)).fillna(0.0).clip(0, 1)
         bearish_divergence_score = bearish_divergence_score.where(bearish_div_condition_raw, 0.0)
 
-        # [修改的代码行] 调用新重构的内部行为信号
+        # 调用新重构的内部行为信号
         internal_price_overextension_raw = self._calculate_behavioral_price_overextension(df, tf_weights, debug_enabled, probe_ts)
         internal_stagnation_evidence_raw = self._calculate_behavioral_stagnation_evidence(df, tf_weights, debug_enabled, probe_ts)
 
@@ -2723,7 +2724,7 @@ class BehavioralIntelligence:
             print(f"    bearish_inertia_factor: {bearish_inertia_factor.loc[probe_ts]:.4f}")
             print(f"    adaptive_fusion_weight_multiplier (bearish): {adaptive_fusion_weight_multiplier.loc[probe_ts]:.4f}")
             print(f"  [看跌背离结果]: SCORE_BEHAVIOR_BEARISH_DIVERGENCE = {bearish_divergence_score.loc[probe_ts]:.4f}")
-            # [修改的代码行] 新增重构信号的探针输出
+            # 新增重构信号的探针输出
             print(f"  [重构内部行为信号]:")
             print(f"    INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW: {internal_price_overextension_raw.loc[probe_ts]:.4f}")
             print(f"    INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW: {internal_stagnation_evidence_raw.loc[probe_ts]:.4f}")
