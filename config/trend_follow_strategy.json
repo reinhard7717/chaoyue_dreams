@@ -1296,18 +1296,26 @@
           "comment": "融合“核心意图强度”、“环境适应性”、“行为一致性”构建“微观结构意图”时的权重。"
         },
         "deceptive_divergence_protocol_params": {
-          "description": "【V4.0 · 诡道背离协议】“牛市背离品质”信号参数",
+          "description": "【V5.0 · 诡道背离协议】“牛熊背离品质”信号参数",
           "bullish_magnitude_params": {
             "price_downtrend_slope_window": 5,
             "conviction_uptrend_slope_window": 5
           },
+          "bearish_magnitude_params": {
+            "price_slope_window": 5,
+            "conviction_downtrend_slope_window": 5,
+            "price_stagnation_overextension_weight": 0.5,
+            "comment": "price_stagnation_overextension_weight用于平衡价格未强劲下跌与价格过热的权重，几何平均数中不直接使用，但可作为参考"
+          },
           "fusion_weights": {
             "magnitude": 0.4,
             "location": 0.3,
-            "absorption_confirmation": 0.2,
-            "micro_intent_confirmation": 0.1
+            "bullish_absorption_confirmation": 0.2,
+            "bearish_distribution_confirmation": 0.2,
+            "micro_intent_confirmation": 0.1,
+            "deceptive_narrative_confirmation": 0.1
           },
-          "comment": "融合“背离深度与广度”、“战略位置”、“主力承接确认”和“行为印证确认”构建“牛市背离品质”时的权重及参数。"
+          "comment": "融合“背离深度与广度”、“战略位置”、“主力承接/派发确认”、“微观意图确认”和“欺骗叙事确认”构建“牛熊背离品质”时的权重及参数。"
         },
         "neutral_zone_thresholds": {
           "description": "【V1.0】中性死区阈值。绝对值低于此阈值的信号值将被视作0，以过滤噪声。",
