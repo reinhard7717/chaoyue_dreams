@@ -923,37 +923,100 @@ class BehavioralIntelligence:
 
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
         """
-        【V2.1 · 生产版】诊断伏击式反攻信号
-        - 核心重构: 废弃旧的、基于底层特征拼凑的 V1.0 模型。引入基于“因果传导”哲学的
-                      分层门控模型，从根本上解决了旧模型的“战术意图错配”和“因果倒置”缺陷。
-        - 战术三要素:
-          1. 伏击过程 (核心基石): 直接采用高阶战术信号 SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT，
-                                  代表对整个伏击行为的最终诊断。
-          2. 反击结果 (品质验证): 采用 closing_strength_index_D，衡量反攻的最终战果。
-          3. 战场环境 (价值放大): 采用 panic_selling_cascade_D，量化恐慌环境，放大在危急时刻
-                                  完成的伏击反攻的战术价值。
-        - 数学模型: 伏击反攻分 = 伏击过程分 * (反击结果分 * 战场环境分) ^ 0.5
+        【V3.0 · 诡道伏击协议 (探针激活版)】诊断伏击式反攻信号
+        - 核心重构: 废弃V2.1“因果传导”模型，引入“伏击背景 × 诡道行动 × 反攻品质”的全新三维诊断框架。
+        - 诊断三维度:
+          1. 伏击背景 (Ambush Context): 评估市场先前的脆弱性（恐慌、下跌深度）。
+          2. 诡道行动 (Deceptive Action): 评估主力承接的强度及其欺骗性（制造弱势假象）。
+          3. 反攻品质 (Counterattack Quality): 评估反攻的有效性与纯粹性（收盘强度、上涨脉冲纯度）。
+        - 数学模型: 伏击反攻分 = (伏击背景分^W1 * 诡道行动分^W2 * 反攻品质分^W3)
         """
-        required_signals = ['closing_strength_index_D', 'panic_selling_cascade_D']
+        # --- 1. 获取参数 ---
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        params = get_param_value(p_conf.get('ambush_counterattack_params'), {})
+        fusion_weights = get_param_value(params.get('fusion_weights'), {"context": 0.3, "action": 0.4, "quality": 0.3})
+        context_weights = get_param_value(params.get('context_weights'), {"panic": 0.6, "prior_weakness": 0.4})
+        action_weights = get_param_value(params.get('action_weights'), {"absorption": 0.7, "deception": 0.3})
+        quality_weights = get_param_value(params.get('quality_weights'), {"closing_strength": 0.6, "upward_purity": 0.4})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # --- 2. 获取所有原始数据 ---
+        required_signals = [
+            'panic_selling_cascade_D', 'pct_change_D', 'deception_index_D',
+            'closing_strength_index_D', 'upward_impulse_purity_D'
+        ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_ambush_counterattack"):
             return pd.Series(0.0, index=df.index)
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        # --- 1. 获取三大战术要素 ---
-        # 核心基石：伏击过程分 (直接使用传入的高阶意图信号)
-        ambush_process_score = offensive_absorption_intent
-        # 品质调节器元素1：反击结果分
-        counterattack_result_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_ambush_counterattack")
-        counterattack_result_score = normalize_score(counterattack_result_raw, df.index, 55)
-        # 品质调节器元素2：战场环境分
-        battlefield_environment_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_ambush_counterattack")
-        battlefield_environment_score = get_adaptive_mtf_normalized_score(battlefield_environment_raw, df.index, ascending=True, tf_weights=default_weights)
-        # --- 2. 构建品质调节器 ---
-        quality_modulator = (counterattack_result_score * battlefield_environment_score).pow(0.5).fillna(0.0)
-        # --- 3. 分层门控合成 ---
-        ambush_counterattack_score = (ambush_process_score * quality_modulator).clip(0, 1)
-        return ambush_counterattack_score.astype(np.float32)
+        panic_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_diagnose_ambush_counterattack")
+        pct_change_raw = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_ambush_counterattack")
+        deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_ambush_counterattack")
+        closing_strength_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_ambush_counterattack")
+        upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_ambush_counterattack")
+        # --- 3. 维度一：伏击背景 (Ambush Context) ---
+        panic_score = get_adaptive_mtf_normalized_score(panic_raw, df.index, ascending=True, tf_weights=default_weights)
+        prior_weakness_score = get_adaptive_mtf_normalized_score(pct_change_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        ambush_context_score = (
+            (panic_score + 1e-9).pow(context_weights.get('panic', 0.6)) *
+            (prior_weakness_score + 1e-9).pow(context_weights.get('prior_weakness', 0.4))
+        ).pow(1/(context_weights.get('panic', 0.6) + context_weights.get('prior_weakness', 0.4))).fillna(0.0)
+        # --- 4. 维度二：诡道行动 (Deceptive Action) ---
+        absorption_score = offensive_absorption_intent
+        deceptive_narrative_score = get_adaptive_mtf_normalized_score(deception_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        deceptive_action_score = (
+            (absorption_score + 1e-9).pow(action_weights.get('absorption', 0.7)) *
+            (deceptive_narrative_score + 1e-9).pow(action_weights.get('deception', 0.3))
+        ).pow(1/(action_weights.get('absorption', 0.7) + action_weights.get('deception', 0.3))).fillna(0.0)
+        # --- 5. 维度三：反攻品质 (Counterattack Quality) ---
+        closing_strength_score = normalize_score(closing_strength_raw, df.index, 55)
+        upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
+        counterattack_quality_score = (
+            (closing_strength_score + 1e-9).pow(quality_weights.get('closing_strength', 0.6)) *
+            (upward_purity_score + 1e-9).pow(quality_weights.get('upward_purity', 0.4))
+        ).pow(1/(quality_weights.get('closing_strength', 0.6) + quality_weights.get('upward_purity', 0.4))).fillna(0.0)
+        # --- 6. 最终合成：三维融合 ---
+        ambush_counterattack_score = (
+            (ambush_context_score + 1e-9).pow(fusion_weights.get('context', 0.3)) *
+            (deceptive_action_score + 1e-9).pow(fusion_weights.get('action', 0.4)) *
+            (counterattack_quality_score + 1e-9).pow(fusion_weights.get('quality', 0.3))
+        ).pow(1/(fusion_weights.get('context', 0.3) + fusion_weights.get('action', 0.4) + fusion_weights.get('quality', 0.3))).fillna(0.0)
+        # --- [探针逻辑] 暴露所有计算节点 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df.empty:
+            for probe_date_str in probe_dates:
+                try:
+                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    if probe_date in df.index:
+                        print(f"      [行为探针 V3.0] _diagnose_ambush_counterattack @ {probe_date_str}")
+                        # --- 打印原料数据 ---
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - 进攻性承接意图 (offensive_absorption_intent): {offensive_absorption_intent.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 恐慌抛售级联 (panic_selling_cascade_D): {panic_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 涨跌幅 (pct_change_D): {pct_change_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 欺骗指数 (deception_index_D): {deception_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 收盘强度 (closing_strength_index_D): {closing_strength_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 上涨脉冲纯度 (upward_impulse_purity_D): {upward_purity_raw.get(probe_date, 'N/A'):.4f}")
+                        # --- 打印关键计算节点 ---
+                        print(f"        --- [关键计算节点 - 诡道伏击协议] ---")
+                        print(f"          - [维度一] 伏击背景:")
+                        print(f"              - 恐慌得分: {panic_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 先前弱势得分: {prior_weakness_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 伏击背景分 (ambush_context_score): {ambush_context_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度二] 诡道行动:")
+                        print(f"              - 承接强度得分: {absorption_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 欺骗叙事得分: {deceptive_narrative_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 诡道行动分 (deceptive_action_score): {deceptive_action_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度三] 反攻品质:")
+                        print(f"              - 收盘强度得分: {closing_strength_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 上涨脉冲纯度得分: {upward_purity_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 反攻品质分 (counterattack_quality_score): {counterattack_quality_score.get(probe_date, 'N/A'):.4f}")
+                        # --- 最终结果 ---
+                        print(f"        --- [最终结果] ---")
+                        print(f"        - 最终伏击式反攻分 (SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK): {ambush_counterattack_score.get(probe_date, 0.0):.4f}")
+                except Exception as e:
+                    print(f"    -> [行为探针错误] _diagnose_ambush_counterattack 处理日期 {probe_date_str} 失败: {e}")
+        return ambush_counterattack_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series) -> pd.Series:
         """
@@ -991,7 +1054,7 @@ class BehavioralIntelligence:
 
     def _diagnose_divergence_quality(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
-        【V5.0 · 诡道背离协议 (探针激活版)】诊断高品质价量/价资背离
+        【V5.0 · Production Ready版】诊断高品质价量/价资背离
         - 核心重构: 废弃V4.0“宏观趋势分析”模型，引入“背离深度与广度 × 战略位置 × 双重确认 × 欺骗叙事确认”的全新四维诊断框架。
         - 诊断四维度:
           1. 背离深度与广度 (Divergence Depth & Breadth): 使用斜率更鲁棒地检测价格趋势和主力信念趋势。
@@ -1013,10 +1076,10 @@ class BehavioralIntelligence:
             'close_D', 'main_force_conviction_index_D', 'loser_pain_index_D', 'winner_stability_index_D',
             f'SLOPE_{bullish_magnitude_params.get("price_downtrend_slope_window", 5)}_close_D',
             f'SLOPE_{bullish_magnitude_params.get("conviction_uptrend_slope_window", 5)}_main_force_conviction_index_D',
-            f'SLOPE_{bearish_magnitude_params.get("price_slope_window", 5)}_close_D', # [代码修改] 确保熊市价格斜率窗口参数被使用
-            f'SLOPE_{bearish_magnitude_params.get("conviction_downtrend_slope_window", 5)}_main_force_conviction_index_D', # [代码修改] 确保熊市信念斜率窗口参数被使用
+            f'SLOPE_{bearish_magnitude_params.get("price_slope_window", 5)}_close_D',
+            f'SLOPE_{bearish_magnitude_params.get("conviction_downtrend_slope_window", 5)}_main_force_conviction_index_D',
             'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT',
-            'deception_index_D' # [代码修改] 新增欺骗指数信号
+            'deception_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_divergence_quality"):
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
@@ -1024,26 +1087,22 @@ class BehavioralIntelligence:
         conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_divergence_quality")
         loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_diagnose_divergence_quality")
         winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_divergence_quality")
-        # [代码修改] 使用各自的斜率窗口参数
         bullish_price_slope_raw = self._get_safe_series(df, f'SLOPE_{bullish_magnitude_params.get("price_downtrend_slope_window", 5)}_close_D', 0.0, method_name="_diagnose_divergence_quality")
         bullish_conviction_slope_raw = self._get_safe_series(df, f'SLOPE_{bullish_magnitude_params.get("conviction_uptrend_slope_window", 5)}_main_force_conviction_index_D', 0.0, method_name="_diagnose_divergence_quality")
         bearish_price_slope_raw = self._get_safe_series(df, f'SLOPE_{bearish_magnitude_params.get("price_slope_window", 5)}_close_D', 0.0, method_name="_diagnose_divergence_quality")
         bearish_conviction_slope_raw = self._get_safe_series(df, f'SLOPE_{bearish_magnitude_params.get("conviction_downtrend_slope_window", 5)}_main_force_conviction_index_D', 0.0, method_name="_diagnose_divergence_quality")
         micro_intent_raw = self._get_safe_series(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0, method_name="_diagnose_divergence_quality")
-        deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_divergence_quality") # [代码修改] 获取欺骗指数原始数据
+        deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_divergence_quality")
         # --- 3. 计算牛市背离 (价格下跌趋势 vs 信念上升趋势) ---
         # 维度一：背离深度与广度 (Magnitude)
-        # 价格下跌趋势：斜率为负且显著
         price_downtrend_score = get_adaptive_mtf_normalized_score(bullish_price_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
-        # 信念上升趋势：斜率为正且显著
         conviction_uptrend_score = get_adaptive_mtf_normalized_score(bullish_conviction_slope_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
-        # 融合：价格下跌趋势与信念上升趋势同时存在
         bullish_magnitude_score = (price_downtrend_score * conviction_uptrend_score).pow(0.5).fillna(0.0)
         # 维度二：战略位置 (Location)
         bullish_location_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=default_weights)
         # 维度三：双重确认 (Dual Confirmation)
         bullish_absorption_confirmation_score = absorption_strength
-        bullish_micro_intent_confirmation_score = micro_intent_raw.clip(lower=0) # 只取看涨部分
+        bullish_micro_intent_confirmation_score = micro_intent_raw.clip(lower=0)
         # --- 4. 牛市背离品质合成 ---
         bullish_divergence_quality = (
             (bullish_magnitude_score + 1e-9).pow(fusion_weights.get('magnitude', 0.4)) *
@@ -1057,15 +1116,13 @@ class BehavioralIntelligence:
         conviction_downtrend_score = get_adaptive_mtf_normalized_score(bearish_conviction_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         bearish_magnitude_score = (price_uptrend_score * conviction_downtrend_score).pow(0.5).fillna(0.0)
         # 维度二：战略位置 (Location)
-        winner_instability_raw = 1 - winner_stability_raw # 获利盘不稳定性
+        winner_instability_raw = 1 - winner_stability_raw
         bearish_location_score = get_adaptive_mtf_normalized_score(winner_instability_raw, df.index, ascending=True, tf_weights=default_weights)
-        # 维度三：双重确认 (Dual Confirmation)
+        # 维度三：三重确认 (Triple Confirmation)
         bearish_distribution_confirmation_score = distribution_intent
-        bearish_micro_intent_confirmation_score = micro_intent_raw.clip(upper=0).abs() # 只取看跌部分
-        # [代码修改] 新增欺骗叙事确认因子
-        # 欺骗指数为负（即价格表现强于主力真实意图）时，该因子得分高，作为熊市背离的额外确认
+        bearish_micro_intent_confirmation_score = micro_intent_raw.clip(upper=0).abs()
         deceptive_narrative_confirmation_score = get_adaptive_mtf_normalized_score(
-            deception_raw.clip(upper=0).abs(), # 取负向欺骗的绝对值
+            deception_raw.clip(upper=0).abs(),
             df.index,
             ascending=True,
             tf_weights=default_weights
@@ -1074,63 +1131,11 @@ class BehavioralIntelligence:
         bearish_divergence_quality = (
             (bearish_magnitude_score + 1e-9).pow(fusion_weights.get('magnitude', 0.4)) *
             (bearish_location_score + 1e-9).pow(fusion_weights.get('location', 0.3)) *
-            (bearish_distribution_confirmation_score + 1e-9).pow(fusion_weights.get('bearish_distribution_confirmation', 0.2)) * # [代码修改] 使用bearish_distribution_confirmation权重
+            (bearish_distribution_confirmation_score + 1e-9).pow(fusion_weights.get('bearish_distribution_confirmation', 0.2)) *
             (bearish_micro_intent_confirmation_score + 1e-9).pow(fusion_weights.get('micro_intent_confirmation', 0.1)) *
-            (deceptive_narrative_confirmation_score + 1e-9).pow(fusion_weights.get('deceptive_narrative_confirmation', 0.1)) # [代码修改] 新增欺骗叙事确认因子
+            (deceptive_narrative_confirmation_score + 1e-9).pow(fusion_weights.get('deceptive_narrative_confirmation', 0.1))
         ).fillna(0.0)
-        # --- [探针逻辑] 暴露所有计算节点 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        print(f"      [行为探针 V5.0] _diagnose_divergence_quality @ {probe_date_str}")
-                        # --- 打印原料数据 ---
-                        print(f"        --- [原料数据] ---")
-                        print(f"          - 价格 (close_D): {price.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 主力信念指数 (main_force_conviction_index_D): {conviction_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 亏损盘痛苦指数 (loser_pain_index_D): {loser_pain_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 获利盘稳定性指数 (winner_stability_index_D): {winner_stability_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 牛市价格斜率 (SLOPE_{bullish_magnitude_params.get('price_downtrend_slope_window', 5)}_close_D): {bullish_price_slope_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 牛市信念斜率 (SLOPE_{bullish_magnitude_params.get('conviction_uptrend_slope_window', 5)}_main_force_conviction_index_D): {bullish_conviction_slope_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 熊市价格斜率 (SLOPE_{bearish_magnitude_params.get('price_slope_window', 5)}_close_D): {bearish_price_slope_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 熊市信念斜率 (SLOPE_{bearish_magnitude_params.get('conviction_downtrend_slope_window', 5)}_main_force_conviction_index_D): {bearish_conviction_slope_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 承接强度 (absorption_strength): {absorption_strength.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 派发意图 (distribution_intent): {distribution_intent.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 微观结构意图 (SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT): {micro_intent_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 欺骗指数 (deception_index_D): {deception_raw.get(probe_date, 'N/A'):.4f}") # [代码修改] 新增欺骗指数原始数据探针
-                        # --- 打印关键计算节点 - 牛市背离 ---
-                        print(f"        --- [关键计算节点 - 牛市背离品质] ---")
-                        print(f"          - [维度一] 背离深度与广度:")
-                        print(f"              - 价格下跌趋势分: {price_downtrend_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 信念上升趋势分: {conviction_uptrend_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - [融合] 背离深度与广度分 (bullish_magnitude_score): {bullish_magnitude_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度二] 战略位置分 (bullish_location_score): {bullish_location_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度三] 双重确认:")
-                        print(f"              - 主力承接确认分 (bullish_absorption_confirmation_score): {bullish_absorption_confirmation_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 微观意图确认分 (bullish_micro_intent_confirmation_score): {bullish_micro_intent_confirmation_score.get(probe_date, 'N/A'):.4f}")
-                        # --- 最终结果 - 牛市背离 ---
-                        print(f"        --- [最终结果 - 牛市背离品质] ---")
-                        print(f"        - 最终牛市背离品质分: {bullish_divergence_quality.get(probe_date, 0.0):.4f}")
-                        # --- 打印关键计算节点 - 熊市背离 ---
-                        print(f"        --- [关键计算节点 - 熊市背离品质] ---")
-                        print(f"          - [维度一] 背离深度与广度:")
-                        print(f"              - 价格上升趋势分: {price_uptrend_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 信念下降趋势分: {conviction_downtrend_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - [融合] 背离深度与广度分 (bearish_magnitude_score): {bearish_magnitude_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度二] 战略位置分 (bearish_location_score): {bearish_location_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度三] 三重确认:") # [代码修改] 更改为三重确认
-                        print(f"              - 主力派发确认分 (bearish_distribution_confirmation_score): {bearish_distribution_confirmation_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 微观意图确认分 (bearish_micro_intent_confirmation_score): {bearish_micro_intent_confirmation_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 欺骗叙事确认分 (deceptive_narrative_confirmation_score): {deceptive_narrative_confirmation_score.get(probe_date, 'N/A'):.4f}") # [代码修改] 新增欺骗叙事确认因子探针
-                        # --- 最终结果 - 熊市背离 ---
-                        print(f"        --- [最终结果 - 熊市背离品质] ---")
-                        print(f"        - 最终熊市背离品质分: {bearish_divergence_quality.get(probe_date, 0.0):.4f}")
-                except Exception as e:
-                    print(f"    -> [行为探针错误] _diagnose_divergence_quality 处理日期 {probe_date_str} 失败: {e}")
+        # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return bullish_divergence_quality.clip(0, 1).astype(np.float32), bearish_divergence_quality.clip(0, 1).astype(np.float32)
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:

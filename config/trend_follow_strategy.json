@@ -1317,6 +1317,27 @@
           },
           "comment": "融合“背离深度与广度”、“战略位置”、“主力承接/派发确认”、“微观意图确认”和“欺骗叙事确认”构建“牛熊背离品质”时的权重及参数。"
         },
+        "ambush_counterattack_params": {
+          "description": "【V3.0 · 诡道伏击协议】“伏击式反攻”信号参数",
+          "fusion_weights": {
+            "context": 0.3,
+            "action": 0.4,
+            "quality": 0.3
+          },
+          "context_weights": {
+            "panic": 0.6,
+            "prior_weakness": 0.4
+          },
+          "action_weights": {
+            "absorption": 0.7,
+            "deception": 0.3
+          },
+          "quality_weights": {
+            "closing_strength": 0.6,
+            "upward_purity": 0.4
+          },
+          "comment": "融合“伏击背景”、“诡道行动”和“反攻品质”构建“伏击式反攻”时的权重及参数。"
+        },
         "neutral_zone_thresholds": {
           "description": "【V1.0】中性死区阈值。绝对值低于此阈值的信号值将被视作0，以过滤噪声。",
           "main_force_execution_alpha_D": 0.001,
