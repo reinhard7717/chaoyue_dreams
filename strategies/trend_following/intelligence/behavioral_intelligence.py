@@ -1536,7 +1536,12 @@ class BehavioralIntelligence:
         atr_val = self._get_safe_series(df, 'ATR_14_D', 0.0, method_name=method_name)
         active_buying = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name=method_name)
         active_selling = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name=method_name)
-        trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.5, method_name=method_name)
+        
+        # [修改的代码行] 对 trend_vitality 进行归一化处理，确保其值域在 [0, 1]
+        raw_trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.5, method_name=method_name)
+        # 假设 trend_vitality_index_D 原始值可能较大，需要先归一化到 [0, 1]
+        # 这里使用 normalize_score，假设其内部会处理好异常值和映射
+        trend_vitality = normalize_score(raw_trend_vitality, df.index, 55) # 假设55是合适的归一化窗口
 
         # 归一化确认因子 (0到1)
         norm_active_buying = get_adaptive_mtf_normalized_score(active_buying, df.index, ascending=True, tf_weights=tf_weights)
@@ -1547,7 +1552,7 @@ class BehavioralIntelligence:
         # 动态最小斜率差异: 基础值 + ATR的百分比
         dynamic_min_divergence_slope_diff = min_divergence_slope_diff_base + atr_val * min_slope_diff_atr_multiplier
         # 动态RSI超买超卖阈值: 根据趋势活力调整
-        # 趋势越强，RSI超卖阈值越低（需要更极端才算超卖），超买阈值越高（需要更极端才算超买）
+        # 趋势越强（trend_vitality 接近1），RSI超卖阈值越低（需要更极端才算超卖），超买阈值越高（需要更极端才算超买）
         # trend_vitality 范围 [0, 1]，0.5为中性
         rsi_oversold_threshold_dynamic = rsi_oversold_threshold_base - (trend_vitality - 0.5) * rsi_oversold_trend_adjust_factor
         rsi_overbought_threshold_dynamic = rsi_overbought_threshold_base + (trend_vitality - 0.5) * rsi_overbought_trend_adjust_factor
@@ -1694,7 +1699,8 @@ class BehavioralIntelligence:
             print(f"    ATR_14_D: {atr_val.loc[probe_ts]:.4f}")
             print(f"    active_buying_support_D: {active_buying.loc[probe_ts]:.4f}")
             print(f"    active_selling_pressure_D: {active_selling.loc[probe_ts]:.4f}")
-            print(f"    trend_vitality_index_D: {trend_vitality.loc[probe_ts]:.4f}")
+            print(f"    raw_trend_vitality_index_D: {raw_trend_vitality.loc[probe_ts]:.4f}") # [修改的代码行] 输出原始趋势活力
+            print(f"    normalized_trend_vitality: {trend_vitality.loc[probe_ts]:.4f}") # [修改的代码行] 输出归一化后的趋势活力
             print(f"  [配置参数]:")
             print(f"    MTF periods: {mtf_periods}, weights: {mtf_slopes_params.get('weights')}")
             print(f"    Persistence min_duration: {min_persistence_duration}, max_window: {max_persistence_window}")
