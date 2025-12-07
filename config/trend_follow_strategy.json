@@ -23,7 +23,7 @@
       "macd": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [13, 34, 8] }, { "apply_on": ["W"], "periods": [12, 26, 9] }] },
       "dmi": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [14] }] },
       "cmf": { "enabled": true, "apply_on": ["D", "W"], "periods": [21] },
-      "bias": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [21, 55, 89, 144, 233, 377] }, { "apply_on": ["W"], "periods": [20] }] },
+      "bias": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [5, 13, 21, 55, 89, 144, 233, 377] }, { "apply_on": ["W"], "periods": [20] }] },
       "atr": { "enabled": true, "apply_on": ["D", "W"], "periods": [14] },
       "roc": { "enabled": true, "configs": [ { "apply_on": ["D"], "periods": [12] } ] },
       "price_volume_ma_comparison": {

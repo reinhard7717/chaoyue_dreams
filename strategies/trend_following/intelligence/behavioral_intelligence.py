@@ -1423,7 +1423,8 @@ class BehavioralIntelligence:
         # 获取所需纯行为数据和派生信号
         required_signals = [
             'close_D', 'RSI_13_D', 'MACDh_13_34_8_D', 'volume_D', 'VOL_MA_21_D',
-            'BIAS_5_D', 'BBP_20_2.0_D', 'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D',
+            'BIAS_5_D', 'BBP_21_2.0_D', # [修改的代码行] 修正BBP指标名称
+            'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D',
             'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D',
             'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'
         ]
@@ -1437,7 +1438,7 @@ class BehavioralIntelligence:
         current_volume = self._get_safe_series(df, 'volume_D', 0.0, method_name=method_name)
         volume_avg = self._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name=method_name)
         bias_val = self._get_safe_series(df, 'BIAS_5_D', 0.0, method_name=method_name)
-        bbp_val = self._get_safe_series(df, 'BBP_20_2.0_D', 0.5, method_name=method_name) # Bollinger Band %B
+        bbp_val = self._get_safe_series(df, 'BBP_21_2.0_D', 0.5, method_name=method_name) # [修改的代码行] 修正BBP指标名称
         
         accel_close = self._get_safe_series(df, 'ACCEL_5_close_D', 0.0, method_name=method_name)
         accel_rsi = self._get_safe_series(df, 'ACCEL_5_RSI_13_D', 0.0, method_name=method_name)
@@ -1490,7 +1491,6 @@ class BehavioralIntelligence:
         # 非线性融合所有亢奋证据
         # 采用几何平均，确保所有因子都贡献，且因子为0时整体为0
         # 权重分配：价格偏离 (0.3), 动量过热 (0.3), 成交量极端 (0.2), 日内行为极端 (0.2)
-        # 调整幂次以反映重要性，并进行归一化
         overextension_score = (
             (norm_bbp_overbought + 1e-9).pow(0.3) *
             (momentum_overheat_score + 1e-9).pow(0.3) *
@@ -1509,7 +1509,7 @@ class BehavioralIntelligence:
             print(f"    volume_D: {current_volume.loc[probe_ts]:.0f}")
             print(f"    VOL_MA_21_D: {volume_avg.loc[probe_ts]:.0f}")
             print(f"    BIAS_5_D: {bias_val.loc[probe_ts]:.4f}")
-            print(f"    BBP_20_2.0_D: {bbp_val.loc[probe_ts]:.4f}")
+            print(f"    BBP_21_2.0_D: {bbp_val.loc[probe_ts]:.4f}") # [修改的代码行] 修正BBP指标名称
             print(f"    ACCEL_5_close_D: {accel_close.loc[probe_ts]:.4f}")
             print(f"    ACCEL_5_RSI_13_D: {accel_rsi.loc[probe_ts]:.4f}")
             print(f"    ACCEL_5_MACDh_13_34_8_D: {accel_macd.loc[probe_ts]:.4f}")
