@@ -1010,14 +1010,14 @@ class BehavioralIntelligence:
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, overextension_score_series: pd.Series, deception_index_series: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        【V3.8 · 伏击敏感度增强版】诊断突破失败级联风险
+        【V3.9 · 风险联动增强版】诊断突破失败级联风险
         - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-套牢-背弃-情境”
                       诡道剧本的全新五维诊断模型，旨在精确识别高迷惑性的“牛市陷阱”。
         - 战术五要素:
           1. 诱饵 (The Lure): 使用更高阶的 `breakout_quality_score_D` 量化突破行为的“迷惑性”，并根据市场趋势弱势进行情境化放大。
           2. 伏击 (The Ambush): 融合 `distribution_intent` (明确派发意图) 和 “隐蔽伏击意图” (买盘支持减弱、上涨纯度下降)，量化主力在诱多过程中的真实派发意图和潜在陷阱。
-          3. 套牢盘痛苦度 (Trapped Force Pain): 融合抛压潜力（获利盘比例、量比）和抛压触发器（获利盘不稳定性、筹码疲劳度），更全面地量化高位被套牢资金的痛苦程度和规模。
-          4. 主力背弃度 (Main Force Abandonment): 融合 `main_force_conviction_index_D` (负向)、`main_force_execution_alpha_D` (负向) 和 `main_force_net_flow_calibrated_D` (负向)，量化主力对突破的放弃程度和实际资金流出。
+          3. 套牢盘痛苦度 (Trapped Force Pain): 融合抛压潜力（获利盘比例、量比）和抛压触发器（获利盘不稳定性、筹码疲劳度），并引入联动放大机制，使抛压触发器对高抛压潜力产生更强的非线性影响。
+          4. 主力背弃度 (Main Force Abandonment): 融合 `main_force_conviction_index_D` (负向)、`main_force_execution_alpha_D` (负向) 和 `main_force_net_flow_calibrated_D` (负向)，并对负向主力净流分应用幂函数，增强其在极端情况下的非线性影响，量化主力对突破的放弃程度和实际资金流出。
           5. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买)、`SCORE_BEHAVIOR_DECEPTION_INDEX` (正向，拉高出货) 和 `retail_fomo_premium_index_D` (正向散户狂热)，对风险进行情境化放大。
         - 数学模型: 风险分 = 核心风险基准分 × 情境放大器
                       核心风险基准分 = 情境化诱饵分 × tanh(核心风险加权平均 × TanhFactor)
@@ -1031,8 +1031,8 @@ class BehavioralIntelligence:
             'main_force_net_flow_calibrated_D',
             'retail_fomo_premium_index_D',
             'trend_vitality_index_D',
-            'active_buying_support_D', # [代码修改] 新增
-            'upward_impulse_purity_D' # [代码修改] 新增
+            'active_buying_support_D',
+            'upward_impulse_purity_D'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
@@ -1049,9 +1049,11 @@ class BehavioralIntelligence:
         max_amplification_factor = get_param_value(breakout_params.get('max_amplification_factor'), 0.5)
         core_risk_tanh_factor = get_param_value(breakout_params.get('core_risk_tanh_factor'), 2.0)
         lure_weakness_multiplier = get_param_value(breakout_params.get('lure_weakness_multiplier'), 0.5)
-        # [代码修改] 新增 ambush_fusion_weights 和 covert_ambush_intent_weights
         ambush_fusion_weights = get_param_value(breakout_params.get('ambush_fusion_weights'), {"distribution_intent": 0.7, "covert_ambush_intent": 0.3})
         covert_ambush_intent_weights = get_param_value(breakout_params.get('covert_ambush_intent_weights'), {"weak_buying_support": 0.6, "declining_impulse_purity": 0.4})
+        # [代码修改] 新增 trapped_force_amplification_factor 和 mf_net_flow_power_factor
+        trapped_force_amplification_factor = get_param_value(breakout_params.get('trapped_force_amplification_factor'), 1.0)
+        mf_net_flow_power_factor = get_param_value(breakout_params.get('mf_net_flow_power_factor'), 1.5)
         # --- 1. 获取五大核心战术要素的原始数据 ---
         # 诱饵 (The Lure)
         breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name=method_name)
@@ -1070,21 +1072,18 @@ class BehavioralIntelligence:
         deception_raw = deception_index_series
         retail_fomo_raw = self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name=method_name)
         trend_vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.5, method_name=method_name)
-        # [代码修改] 获取隐蔽伏击意图的原始数据
         active_buying_raw = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name=method_name)
         upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
         # --- 2. 计算各要素得分 ---
         lure_score = get_adaptive_mtf_normalized_score(breakout_quality_raw, df.index, ascending=True, tf_weights=default_weights)
         market_weakness_score = get_adaptive_mtf_normalized_score(trend_vitality_raw, df.index, ascending=False, tf_weights=default_weights)
         lure_score_modulated = (lure_score * (1 + market_weakness_score * lure_weakness_multiplier)).clip(0, 1)
-        # [代码修改] 计算隐蔽伏击意图分数
         weak_buying_support_score = (1 - get_adaptive_mtf_normalized_score(active_buying_raw, df.index, ascending=True, tf_weights=default_weights)).clip(0,1)
         declining_impulse_purity_score = (1 - get_adaptive_mtf_normalized_score(upward_purity_raw, df.index, ascending=True, tf_weights=default_weights)).clip(0,1)
         covert_ambush_intent_score = (
             weak_buying_support_score * covert_ambush_intent_weights.get('weak_buying_support', 0.6) +
             declining_impulse_purity_score * covert_ambush_intent_weights.get('declining_impulse_purity', 0.4)
         ).clip(0,1)
-        # [代码修改] 融合明确派发意图和隐蔽伏击意图
         ambush_score = (
             distribution_intent * ambush_fusion_weights.get('distribution_intent', 0.7) +
             covert_ambush_intent_score * ambush_fusion_weights.get('covert_ambush_intent', 0.3)
@@ -1102,15 +1101,16 @@ class BehavioralIntelligence:
         winner_instability_score = (1 - winner_stability_score).clip(0,1)
         instability_trigger = (winner_instability_score * instability_trigger_weights.get('winner_instability', 0.6) +
                                chip_fatigue_score * instability_trigger_weights.get('chip_fatigue', 0.4)).clip(0,1)
-        trapped_force_score = (potential_pressure * trapped_force_pain_weights.get('potential_pressure', 0.6) +
-                               instability_trigger * trapped_force_pain_weights.get('instability_trigger', 0.4)).clip(0,1)
+        # [代码修改] 引入联动放大机制
+        trapped_force_score = (potential_pressure * (1 + instability_trigger * trapped_force_amplification_factor)).clip(0,1)
         conviction_decay_score = get_adaptive_mtf_normalized_score(main_force_conviction_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         alpha_negative_normalized = get_adaptive_mtf_normalized_score(main_force_execution_alpha_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         negative_net_flow_score = get_adaptive_mtf_normalized_score(main_force_net_flow_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        # [代码修改] 对 negative_net_flow_score 应用幂函数
         mf_abandonment_score = (
             conviction_decay_score * mf_abandonment_weights.get('conviction_decay', 0.3) +
             alpha_negative_normalized * mf_abandonment_weights.get('negative_alpha', 0.3) +
-            negative_net_flow_score * mf_abandonment_weights.get('negative_net_flow', 0.4)
+            (negative_net_flow_score.pow(mf_net_flow_power_factor)) * mf_abandonment_weights.get('negative_net_flow', 0.4)
         ).clip(0, 1).fillna(0.0)
         positive_deception_score = deception_raw.clip(lower=0)
         retail_fomo_score = get_adaptive_mtf_normalized_score(retail_fomo_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
@@ -1147,15 +1147,15 @@ class BehavioralIntelligence:
             print(f"         - SCORE_BEHAVIOR_DECEPTION_INDEX (passed): {deception_raw.loc[probe_ts]:.4f}")
             print(f"         - retail_fomo_premium_index_D: {retail_fomo_raw.loc[probe_ts]:.4f}")
             print(f"         - trend_vitality_index_D: {trend_vitality_raw.loc[probe_ts]:.4f}")
-            print(f"         - active_buying_support_D: {active_buying_raw.loc[probe_ts]:.4f}") # [代码修改] 新增
-            print(f"         - upward_impulse_purity_D: {upward_purity_raw.loc[probe_ts]:.4f}") # [代码修改] 新增
+            print(f"         - active_buying_support_D: {active_buying_raw.loc[probe_ts]:.4f}")
+            print(f"         - upward_impulse_purity_D: {upward_purity_raw.loc[probe_ts]:.4f}")
             print(f"       - 关键计算节点:")
             print(f"         - lure_score (诱饵分): {lure_score.loc[probe_ts]:.4f}")
             print(f"         - market_weakness_score (市场弱势分): {market_weakness_score.loc[probe_ts]:.4f}")
             print(f"         - lure_score_modulated (情境化诱饵分): {lure_score_modulated.loc[probe_ts]:.4f}")
-            print(f"         - weak_buying_support_score (买盘支持减弱分): {weak_buying_support_score.loc[probe_ts]:.4f}") # [代码修改] 新增
-            print(f"         - declining_impulse_purity_score (上涨纯度下降分): {declining_impulse_purity_score.loc[probe_ts]:.4f}") # [代码修改] 新增
-            print(f"         - covert_ambush_intent_score (隐蔽伏击意图分): {covert_ambush_intent_score.loc[probe_ts]:.4f}") # [代码修改] 新增
+            print(f"         - weak_buying_support_score (买盘支持减弱分): {weak_buying_support_score.loc[probe_ts]:.4f}")
+            print(f"         - declining_impulse_purity_score (上涨纯度下降分): {declining_impulse_purity_score.loc[probe_ts]:.4f}")
+            print(f"         - covert_ambush_intent_score (隐蔽伏击意图分): {covert_ambush_intent_score.loc[probe_ts]:.4f}")
             print(f"         - ambush_score (伏击分): {ambush_score.loc[probe_ts]:.4f}")
             print(f"         - winner_rate_score (获利盘分): {winner_rate_score.loc[probe_ts]:.4f}")
             print(f"         - volume_ratio_score (量比分): {volume_ratio_score.loc[probe_ts]:.4f}")
