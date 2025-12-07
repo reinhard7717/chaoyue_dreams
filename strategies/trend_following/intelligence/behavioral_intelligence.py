@@ -239,8 +239,8 @@ class BehavioralIntelligence:
             'winner_stability_index_D',
             'chip_fatigue_index_D',
             'main_force_net_flow_calibrated_D',
-            'retail_fomo_premium_index_D',
-            'market_trend_weakness_D' # 新增
+            'retail_fomo_premium_index_D'
+            # [代码修改] 移除 market_trend_weakness_D，因为它不存在于数据层
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_behavioral_axioms"):
             print("    -> [行为情报引擎] 核心公理诊断失败，行为分析中止。")
@@ -1030,7 +1030,7 @@ class BehavioralIntelligence:
             'main_force_conviction_index_D', 'main_force_execution_alpha_D',
             'main_force_net_flow_calibrated_D',
             'retail_fomo_premium_index_D',
-            'market_trend_weakness_D' # 新增
+            'trend_vitality_index_D' # [代码修改] 将 market_trend_weakness_D 替换为 trend_vitality_index_D
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
@@ -1046,7 +1046,6 @@ class BehavioralIntelligence:
         context_amplifier_weights = get_param_value(breakout_params.get('context_amplifier_weights'), {"overextension": 0.4, "positive_deception": 0.3, "retail_fomo": 0.3})
         max_amplification_factor = get_param_value(breakout_params.get('max_amplification_factor'), 0.5)
         core_risk_tanh_factor = get_param_value(breakout_params.get('core_risk_tanh_factor'), 2.0)
-        # [代码修改] 新增 lure_weakness_multiplier
         lure_weakness_multiplier = get_param_value(breakout_params.get('lure_weakness_multiplier'), 0.5)
         # --- 1. 获取五大核心战术要素的原始数据 ---
         # 诱饵 (The Lure)
@@ -1065,12 +1064,12 @@ class BehavioralIntelligence:
         overextension_score = overextension_score_series
         deception_raw = deception_index_series
         retail_fomo_raw = self._get_safe_series(df, 'retail_fomo_premium_index_D', 0.0, method_name=method_name)
-        # [代码修改] 获取 market_trend_weakness_D 原始数据
-        market_weakness_raw = self._get_safe_series(df, 'market_trend_weakness_D', 0.0, method_name=method_name)
+        # [代码修改] 获取 trend_vitality_index_D 原始数据
+        trend_vitality_raw = self._get_safe_series(df, 'trend_vitality_index_D', 0.5, method_name=method_name)
         # --- 2. 计算各要素得分 ---
         lure_score = get_adaptive_mtf_normalized_score(breakout_quality_raw, df.index, ascending=True, tf_weights=default_weights)
-        # [代码修改] 归一化 market_weakness_score
-        market_weakness_score = get_adaptive_mtf_normalized_score(market_weakness_raw, df.index, ascending=True, tf_weights=default_weights)
+        # [代码修改] 归一化 market_weakness_score，低活力代表高弱势，所以 ascending=False
+        market_weakness_score = get_adaptive_mtf_normalized_score(trend_vitality_raw, df.index, ascending=False, tf_weights=default_weights)
         # [代码修改] 计算情境化诱饵分
         lure_score_modulated = (lure_score * (1 + market_weakness_score * lure_weakness_multiplier)).clip(0, 1)
         ambush_score = distribution_intent
@@ -1111,7 +1110,6 @@ class BehavioralIntelligence:
             trapped_force_score * core_risk_weights.get('trapped_force_pain', 0.4) +
             mf_abandonment_score * core_risk_weights.get('main_force_abandonment', 0.3)
         ) / sum(core_risk_weights.values())
-        # [代码修改] 使用 lure_score_modulated
         core_risk_base = lure_score_modulated * np.tanh(weighted_avg_risk * core_risk_tanh_factor).fillna(0.0)
         # --- 4. 最终风险合成 ---
         breakout_failure_risk = (core_risk_base * final_amplifier).clip(0, 1)
@@ -1132,11 +1130,11 @@ class BehavioralIntelligence:
             print(f"         - INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW (passed): {overextension_score.loc[probe_ts]:.4f}")
             print(f"         - SCORE_BEHAVIOR_DECEPTION_INDEX (passed): {deception_raw.loc[probe_ts]:.4f}")
             print(f"         - retail_fomo_premium_index_D: {retail_fomo_raw.loc[probe_ts]:.4f}")
-            print(f"         - market_trend_weakness_D: {market_weakness_raw.loc[probe_ts]:.4f}") # 新增
+            print(f"         - trend_vitality_index_D: {trend_vitality_raw.loc[probe_ts]:.4f}") # [代码修改] 打印 trend_vitality_index_D
             print(f"       - 关键计算节点:")
             print(f"         - lure_score (诱饵分): {lure_score.loc[probe_ts]:.4f}")
-            print(f"         - market_weakness_score (市场弱势分): {market_weakness_score.loc[probe_ts]:.4f}") # 新增
-            print(f"         - lure_score_modulated (情境化诱饵分): {lure_score_modulated.loc[probe_ts]:.4f}") # 新增
+            print(f"         - market_weakness_score (市场弱势分): {market_weakness_score.loc[probe_ts]:.4f}") # [代码修改] 打印 market_weakness_score
+            print(f"         - lure_score_modulated (情境化诱饵分): {lure_score_modulated.loc[probe_ts]:.4f}")
             print(f"         - ambush_score (伏击分): {ambush_score.loc[probe_ts]:.4f}")
             print(f"         - winner_rate_score (获利盘分): {winner_rate_score.loc[probe_ts]:.4f}")
             print(f"         - volume_ratio_score (量比分): {volume_ratio_score.loc[probe_ts]:.4f}")
