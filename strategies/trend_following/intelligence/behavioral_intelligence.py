@@ -1028,50 +1028,124 @@ class BehavioralIntelligence:
 
     def _diagnose_divergence_quality(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
-        【V3.2 · 生产版】诊断高品质价量/价资背离
-        - 核心修复: 废弃了隐式的状态依赖，重构为显式的参数注入。方法现在直接接收
-                      absorption_strength 和 distribution_intent 作为参数，彻底解决了
-                      因调用时序不当导致的依赖信号获取失败问题。
-        - 诊断三要素:
-          1. 背离幅度 (Magnitude): 价格创出新高/低，但 `main_force_conviction_index_D` 逆势而行。
-          2. 战场位置 (Location): 牛市背离发生在套牢盘极度痛苦 (`loser_pain_index_D`) 之时；
-                                  熊市背离发生在获利盘极不稳固 (`winner_stability_index_D`) 之际。
-          3. 确认信号 (Confirmation): 牛市背离需由 `absorption_strength` 确认；熊市背离需由
-                                      `distribution_intent` 确认。
-        - 数学模型: 品质分 = (幅度分^0.5 * 位置分^0.3 * 确认分^0.2)
+        【V4.0 · 诡道背离协议 (探针激活版)】诊断高品质价量/价资背离
+        - 核心重构: 废弃V3.2“机械性背离”模型，引入“背离深度与广度 × 战略位置 × 双重确认”的全新三维诊断框架。
+        - 诊断三维度:
+          1. 背离深度与广度 (Divergence Depth & Breadth): 使用斜率更鲁棒地检测价格下跌趋势和主力信念上升趋势。
+          2. 战略位置 (Strategic Location): 评估背离是否发生在绝望区 (`loser_pain_index_D`)。
+          3. 双重确认 (Dual Confirmation): 由“主力承接” (`absorption_strength`) 和“微观意图” (`SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT`) 进行双重印证。
+        - 数学模型: 品质分 = (背离深度与广度分^0.4 * 战略位置分^0.3 * 主力承接确认分^0.2 * 行为印证确认分^0.1)
         """
+        # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        params = get_param_value(p_conf.get('deceptive_divergence_protocol_params'), {})
+        bullish_magnitude_params = get_param_value(params.get('bullish_magnitude_params'), {"price_downtrend_slope_window": 5, "conviction_uptrend_slope_window": 5})
+        fusion_weights = get_param_value(params.get('fusion_weights'), {"magnitude": 0.4, "location": 0.3, "absorption_confirmation": 0.2, "micro_intent_confirmation": 0.1})
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
-        default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        divergence_window = 5
-        # --- 1. 获取三维度原始数据 ---
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # --- 2. 获取所有原始数据 ---
+        required_signals = [
+            'close_D', 'main_force_conviction_index_D', 'loser_pain_index_D', 'winner_stability_index_D',
+            f'SLOPE_{bullish_magnitude_params.get("price_downtrend_slope_window", 5)}_close_D',
+            f'SLOPE_{bullish_magnitude_params.get("conviction_uptrend_slope_window", 5)}_main_force_conviction_index_D',
+            'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT' # 新增微观意图信号
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_divergence_quality"):
+            return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
         price = self._get_safe_series(df, 'close_D', 0.0, method_name="_diagnose_divergence_quality")
         conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_divergence_quality")
         loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_diagnose_divergence_quality")
         winner_stability_raw = self._get_safe_series(df, 'winner_stability_index_D', 0.5, method_name="_diagnose_divergence_quality")
-        # --- 2. 计算牛市背离 (价格新低 vs 信念走高) ---
-        price_new_low = (price == price.rolling(divergence_window, min_periods=1).min()).astype(float)
-        conviction_trend_up = (conviction_raw > conviction_raw.rolling(divergence_window, min_periods=1).mean()).astype(float)
-        bullish_magnitude_score = (price_new_low * conviction_trend_up).fillna(0.0)
+        price_slope_raw = self._get_safe_series(df, f'SLOPE_{bullish_magnitude_params.get("price_downtrend_slope_window", 5)}_close_D', 0.0, method_name="_diagnose_divergence_quality")
+        conviction_slope_raw = self._get_safe_series(df, f'SLOPE_{bullish_magnitude_params.get("conviction_uptrend_slope_window", 5)}_main_force_conviction_index_D', 0.0, method_name="_diagnose_divergence_quality")
+        micro_intent_raw = self._get_safe_series(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0, method_name="_diagnose_divergence_quality")
+        # --- 3. 计算牛市背离 (价格下跌趋势 vs 信念上升趋势) ---
+        # 维度一：背离深度与广度 (Magnitude)
+        # 价格下跌趋势：斜率为负且显著
+        price_downtrend_score = get_adaptive_mtf_normalized_score(price_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        # 信念上升趋势：斜率为正且显著
+        conviction_uptrend_score = get_adaptive_mtf_normalized_score(conviction_slope_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        # 融合：价格下跌趋势与信念上升趋势同时存在
+        bullish_magnitude_score = (price_downtrend_score * conviction_uptrend_score).pow(0.5).fillna(0.0)
+        # 维度二：战略位置 (Location)
         bullish_location_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=default_weights)
-        bullish_confirmation_score = absorption_strength
+        # 维度三：双重确认 (Dual Confirmation)
+        bullish_absorption_confirmation_score = absorption_strength
+        bullish_micro_intent_confirmation_score = micro_intent_raw.clip(lower=0) # 只取看涨部分
+        # --- 4. 牛市背离品质合成 ---
         bullish_divergence_quality = (
-            (bullish_magnitude_score + 1e-9).pow(0.5) *
-            (bullish_location_score + 1e-9).pow(0.3) *
-            (bullish_confirmation_score + 1e-9).pow(0.2)
+            (bullish_magnitude_score + 1e-9).pow(fusion_weights.get('magnitude', 0.4)) *
+            (bullish_location_score + 1e-9).pow(fusion_weights.get('location', 0.3)) *
+            (bullish_absorption_confirmation_score + 1e-9).pow(fusion_weights.get('absorption_confirmation', 0.2)) *
+            (bullish_micro_intent_confirmation_score + 1e-9).pow(fusion_weights.get('micro_intent_confirmation', 0.1))
         ).fillna(0.0)
-        # --- 3. 计算熊市背离 (价格新高 vs 信念走低) ---
-        price_new_high = (price == price.rolling(divergence_window, min_periods=1).max()).astype(float)
-        conviction_trend_down = (conviction_raw < conviction_raw.rolling(divergence_window, min_periods=1).mean()).astype(float)
-        bearish_magnitude_score = (price_new_high * conviction_trend_down).fillna(0.0)
+        # --- 5. 计算熊市背离 (价格上升趋势 vs 信念下降趋势) ---
+        # 维度一：背离深度与广度 (Magnitude)
+        price_uptrend_score = get_adaptive_mtf_normalized_score(price_slope_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        conviction_downtrend_score = get_adaptive_mtf_normalized_score(conviction_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
+        bearish_magnitude_score = (price_uptrend_score * conviction_downtrend_score).pow(0.5).fillna(0.0)
+        # 维度二：战略位置 (Location)
         winner_instability_raw = 1 - winner_stability_raw # 获利盘不稳定性
         bearish_location_score = get_adaptive_mtf_normalized_score(winner_instability_raw, df.index, ascending=True, tf_weights=default_weights)
-        bearish_confirmation_score = distribution_intent
+        # 维度三：双重确认 (Dual Confirmation)
+        bearish_distribution_confirmation_score = distribution_intent
+        bearish_micro_intent_confirmation_score = micro_intent_raw.clip(upper=0).abs() # 只取看跌部分
+        # --- 6. 熊市背离品质合成 ---
         bearish_divergence_quality = (
-            (bearish_magnitude_score + 1e-9).pow(0.5) *
-            (bearish_location_score + 1e-9).pow(0.3) *
-            (bearish_confirmation_score + 1e-9).pow(0.2)
+            (bearish_magnitude_score + 1e-9).pow(fusion_weights.get('magnitude', 0.4)) *
+            (bearish_location_score + 1e-9).pow(fusion_weights.get('location', 0.3)) *
+            (bearish_distribution_confirmation_score + 1e-9).pow(fusion_weights.get('absorption_confirmation', 0.2)) * # 这里沿用absorption_confirmation的权重，但实际是distribution
+            (bearish_micro_intent_confirmation_score + 1e-9).pow(fusion_weights.get('micro_intent_confirmation', 0.1))
         ).fillna(0.0)
+        # --- [探针逻辑] 暴露所有计算节点 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
+        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
+        if is_debug_enabled and probe_dates and not df.empty:
+            for probe_date_str in probe_dates:
+                try:
+                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    if probe_date in df.index:
+                        print(f"      [行为探针 V4.0] _diagnose_divergence_quality @ {probe_date_str}")
+                        # --- 打印原料数据 ---
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - 价格 (close_D): {price.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 主力信念指数 (main_force_conviction_index_D): {conviction_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 亏损盘痛苦指数 (loser_pain_index_D): {loser_pain_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 获利盘稳定性指数 (winner_stability_index_D): {winner_stability_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 价格斜率 (SLOPE_{bullish_magnitude_params.get('price_downtrend_slope_window', 5)}_close_D): {price_slope_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 信念斜率 (SLOPE_{bullish_magnitude_params.get('conviction_uptrend_slope_window', 5)}_main_force_conviction_index_D): {conviction_slope_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 承接强度 (absorption_strength): {absorption_strength.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 派发意图 (distribution_intent): {distribution_intent.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 微观结构意图 (SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT): {micro_intent_raw.get(probe_date, 'N/A'):.4f}")
+                        # --- 打印关键计算节点 - 牛市背离 ---
+                        print(f"        --- [关键计算节点 - 牛市背离品质] ---")
+                        print(f"          - [维度一] 背离深度与广度:")
+                        print(f"              - 价格下跌趋势分: {price_downtrend_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 信念上升趋势分: {conviction_uptrend_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 背离深度与广度分 (bullish_magnitude_score): {bullish_magnitude_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度二] 战略位置分 (bullish_location_score): {bullish_location_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度三] 双重确认:")
+                        print(f"              - 主力承接确认分 (bullish_absorption_confirmation_score): {bullish_absorption_confirmation_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 微观意图确认分 (bullish_micro_intent_confirmation_score): {bullish_micro_intent_confirmation_score.get(probe_date, 'N/A'):.4f}")
+                        # --- 最终结果 - 牛市背离 ---
+                        print(f"        --- [最终结果 - 牛市背离品质] ---")
+                        print(f"        - 最终牛市背离品质分: {bullish_divergence_quality.get(probe_date, 0.0):.4f}")
+                        # --- 打印关键计算节点 - 熊市背离 ---
+                        print(f"        --- [关键计算节点 - 熊市背离品质] ---")
+                        print(f"          - [维度一] 背离深度与广度:")
+                        print(f"              - 价格上升趋势分: {price_uptrend_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 信念下降趋势分: {conviction_downtrend_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 背离深度与广度分 (bearish_magnitude_score): {bearish_magnitude_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度二] 战略位置分 (bearish_location_score): {bearish_location_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度三] 双重确认:")
+                        print(f"              - 主力派发确认分 (bearish_distribution_confirmation_score): {bearish_distribution_confirmation_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 微观意图确认分 (bearish_micro_intent_confirmation_score): {bearish_micro_intent_confirmation_score.get(probe_date, 'N/A'):.4f}")
+                        # --- 最终结果 - 熊市背离 ---
+                        print(f"        --- [最终结果 - 熊市背离品质] ---")
+                        print(f"        - 最终熊市背离品质分: {bearish_divergence_quality.get(probe_date, 0.0):.4f}")
+                except Exception as e:
+                    print(f"    -> [行为探针错误] _diagnose_divergence_quality 处理日期 {probe_date_str} 失败: {e}")
         return bullish_divergence_quality.clip(0, 1).astype(np.float32), bearish_divergence_quality.clip(0, 1).astype(np.float32)
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
