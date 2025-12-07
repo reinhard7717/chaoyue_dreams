@@ -44,12 +44,25 @@ class BehavioralIntelligence:
 
     def run_behavioral_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V30.0 · 背离品质重构版】行为情报模块总指挥
-        - 核心重构: 废弃了旧的、基于单一双极性信号 `SCORE_BEHAVIOR_PRICE_VS_VOLUME_DIVERGENCE` 的背离处理逻辑。
-                    现在，高质量的牛熊背离信号由 `_diagnose_behavioral_axioms` 内部的 `_diagnose_divergence_quality` 方法直接生成，
-                    确保了信号的独立性和诊断的深度。
+        【V30.1 · 依赖感知型背离品质重构版】行为情报模块总指挥
+        - 核心重构: 修复了因信号生成顺序导致的依赖缺失问题。
+                    现在，所有依赖信号（特别是 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT）
+                    都会在被使用之前生成并合并到主数据帧中，确保情报流的完整性。
         """
         all_behavioral_states = {}
+
+        # [代码修改] 调整执行顺序：首先生成 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT
+        # 因为它是 _diagnose_divergence_quality 的依赖项，而 _diagnose_divergence_quality
+        # 在 _diagnose_behavioral_axioms 内部被调用。
+        micro_intent_signals = self._diagnose_microstructure_intent(df)
+        self.strategy.atomic_states.update(micro_intent_signals)
+        all_behavioral_states.update(micro_intent_signals)
+        # [代码修改] 立即将微观意图信号合并到df中，供后续方法使用 _get_safe_series 获取
+        for k, v in micro_intent_signals.items():
+            if k not in df.columns:
+                df[k] = v
+
+        # [代码修改] 接着生成核心公理信号，此时 _diagnose_divergence_quality 可以访问到微观意图信号
         atomic_signals = self._diagnose_behavioral_axioms(df)
         # 如果核心公理诊断失败，则提前返回，防止后续错误
         if not atomic_signals:
@@ -57,14 +70,17 @@ class BehavioralIntelligence:
             return {}
         self.strategy.atomic_states.update(atomic_signals)
         all_behavioral_states.update(atomic_signals)
-        micro_intent_signals = self._diagnose_microstructure_intent(df)
-        self.strategy.atomic_states.update(micro_intent_signals)
-        all_behavioral_states.update(micro_intent_signals)
+        # [代码修改] 将原子信号合并到df中，供后续的 _calculate_signal_dynamics 方法使用
+        for k, v in atomic_signals.items():
+            if k not in df.columns:
+                df[k] = v
+
+        # 生成上下文新高强度信号
         context_new_high_strength = self._diagnose_context_new_high_strength(df)
         self.strategy.atomic_states.update(context_new_high_strength)
         all_behavioral_states.update(context_new_high_strength)
-        # 移除旧的、基于 bipolar_to_exclusive_unipolar 的背离处理逻辑
-        for k, v in atomic_signals.items():
+        # [代码修改] 将上下文信号合并到df中
+        for k, v in context_new_high_strength.items():
             if k not in df.columns:
                 df[k] = v
         df_with_dynamics = self._calculate_signal_dynamics(df)
