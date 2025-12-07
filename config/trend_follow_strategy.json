@@ -482,7 +482,7 @@
       },
       "behavioral_divergence_params": {
         "enabled": true,
-        "description": "【V4.0 · 行为背离结构化共振版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
+        "description": "【V5.0 · 行为背离深度结构与自适应融合版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
         "multi_timeframe_slopes": {
           "enabled": true,
           "periods": [5, 13],
@@ -528,13 +528,29 @@
           "confirmation_bonus": 0.15,
           "description": "价格行为结构确认参数。用于识别长影线等反转K线特征。"
         },
+        "volume_price_structure_params": {
+          "enabled": true,
+          "volume_climax_threshold_multiplier": 2.0,
+          "volume_drying_up_threshold_multiplier": 0.5,
+          "narrow_range_body_ratio": 0.2,
+          "wide_range_body_ratio": 0.7,
+          "structure_bonus": 0.15,
+          "description": "多维度量价结构确认参数。识别地量、天量、窄幅震荡等。"
+        },
+        "purity_assessment_params": {
+          "enabled": true,
+          "slope_std_dev_threshold": 0.5,
+          "whipsaw_penalty_factor": 0.1,
+          "description": "背离纯度评估参数。评估价格斜率的稳定性，惩罚噪音。"
+        },
         "market_regime_params": {
           "enabled": true,
           "adx_trend_threshold": 25,
           "adx_ranging_threshold": 20,
-          "trend_market_div_weight_adjust": 0.2,
-          "ranging_market_conf_weight_adjust": 0.2,
-          "description": "市场情境动态权重参数。根据ADX判断趋势/震荡，并调整融合权重。"
+          "adx_div_weight_max_adjust": 0.3,
+          "adx_conf_weight_max_adjust": 0.3,
+          "atr_conf_weight_max_adjust": 0.2,
+          "description": "市场情境动态权重参数。根据ADX和ATR动态调整融合权重。"
         },
         "bullish_divergence_weights": {
           "price_rsi": 0.4,
