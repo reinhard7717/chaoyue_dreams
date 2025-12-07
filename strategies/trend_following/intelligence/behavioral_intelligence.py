@@ -1010,13 +1010,13 @@ class BehavioralIntelligence:
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, overextension_score_series: pd.Series, deception_index_series: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        【V3.4 · 风险非线性增强版】诊断突破失败级联风险
+        【V3.5 · 权重精细化版】诊断突破失败级联风险
         - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-套牢-背弃-情境”
                       诡道剧本的全新五维诊断模型，旨在精确识别高迷惑性的“牛市陷阱”。
         - 战术五要素:
           1. 诱饵 (The Lure): 使用更高阶的 `breakout_quality_score_D` 量化突破行为的“迷惑性”。
           2. 伏击 (The Ambush): 使用强大的 `distribution_intent` 量化主力在诱多过程中的真实派发意图。
-          3. 套牢盘痛苦度 (Trapped Force Pain): 融合 `total_winner_rate_D`、`volume_ratio_D` (抛压潜力) 和 `(1 - winner_stability_index_D)`、`chip_fatigue_index_D` (抛压触发器)，更全面地量化高位被套牢资金的痛苦程度和规模。
+          3. 套牢盘痛苦度 (Trapped Force Pain): 融合抛压潜力（获利盘比例、量比）和抛压触发器（获利盘不稳定性、筹码疲劳度），更全面地量化高位被套牢资金的痛苦程度和规模。
           4. 主力背弃度 (Main Force Abandonment): 融合 `main_force_conviction_index_D` (负向)、`main_force_execution_alpha_D` (负向) 和 `main_force_net_flow_calibrated_D` (负向)，量化主力对突破的放弃程度和实际资金流出。
           5. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买)、`SCORE_BEHAVIOR_DECEPTION_INDEX` (正向，拉高出货) 和 `retail_fomo_premium_index_D` (散户狂热)，对风险进行情境化放大。
         - 数学模型: 风险分 = 核心风险基准分 × 情境放大器
@@ -1038,14 +1038,13 @@ class BehavioralIntelligence:
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         breakout_params = get_param_value(p_conf.get('breakout_failure_risk_params'), {})
         core_risk_weights = get_param_value(breakout_params.get('core_risk_weights'), {"ambush": 0.3, "trapped_force_pain": 0.4, "main_force_abandonment": 0.3})
-        # [代码修改] 微调 trapped_force_pain_weights 的默认值
         trapped_force_pain_weights = get_param_value(breakout_params.get('trapped_force_pain_weights'), {"potential_pressure": 0.6, "instability_trigger": 0.4})
+        # [代码修改] 新增获取 potential_pressure_weights
+        potential_pressure_weights = get_param_value(breakout_params.get('potential_pressure_weights'), {"winner_rate": 0.7, "volume_ratio": 0.3})
         instability_trigger_weights = get_param_value(breakout_params.get('instability_trigger_weights'), {"winner_instability": 0.6, "chip_fatigue": 0.4})
-        # [代码修改] 微调 main_force_abandonment_weights 的默认值
         mf_abandonment_weights = get_param_value(breakout_params.get('main_force_abandonment_weights'), {"conviction_decay": 0.3, "negative_alpha": 0.3, "negative_net_flow": 0.4})
         context_amplifier_weights = get_param_value(breakout_params.get('context_amplifier_weights'), {"overextension": 0.4, "positive_deception": 0.3, "retail_fomo": 0.3})
         max_amplification_factor = get_param_value(breakout_params.get('max_amplification_factor'), 0.5)
-        # [代码修改] 新增 core_risk_tanh_factor
         core_risk_tanh_factor = get_param_value(breakout_params.get('core_risk_tanh_factor'), 2.0)
         # --- 1. 获取五大核心战术要素的原始数据 ---
         # 诱饵 (The Lure)
@@ -1072,10 +1071,11 @@ class BehavioralIntelligence:
         winner_stability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=default_weights)
         chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df.index, ascending=True, tf_weights=default_weights)
         # 抛压潜力 = 获利盘比例 * 量比
-        potential_pressure = (winner_rate_score * trapped_force_pain_weights.get('winner_rate', 0.4) + # 这里的权重应该来自 trapped_force_pain_weights
-                              volume_ratio_score * trapped_force_pain_weights.get('volume_ratio', 0.3)).clip(0,1) # 这里的权重应该来自 trapped_force_pain_weights
-        # [代码修改] 修正 potential_pressure 的权重引用
-        potential_pressure = (winner_rate_score * 0.7 + volume_ratio_score * 0.3).clip(0,1) # 临时修正，等待JSON配置更新
+        # [代码修改] 使用 potential_pressure_weights 配置的权重
+        potential_pressure = (
+            winner_rate_score * potential_pressure_weights.get('winner_rate', 0.7) +
+            volume_ratio_score * potential_pressure_weights.get('volume_ratio', 0.3)
+        ).clip(0,1)
         # 抛压触发器 = (1 - 获利盘稳定性) * 筹码疲劳度
         winner_instability_score = (1 - winner_stability_score).clip(0,1)
         instability_trigger = (winner_instability_score * instability_trigger_weights.get('winner_instability', 0.6) +
@@ -1099,7 +1099,6 @@ class BehavioralIntelligence:
         ).clip(0, 1)
         final_amplifier = 1 + context_amplifier_factor * max_amplification_factor
         # --- 3. 核心风险基准分合成 ---
-        # [代码修改] 修正 core_risk_base 计算逻辑，引入 tanh 非线性函数
         weighted_avg_risk = (
             ambush_score * core_risk_weights.get('ambush', 0.3) +
             trapped_force_score * core_risk_weights.get('trapped_force_pain', 0.4) +
@@ -1145,7 +1144,7 @@ class BehavioralIntelligence:
             print(f"         - retail_fomo_score (散户狂热分): {retail_fomo_score.loc[probe_ts]:.4f}")
             print(f"         - context_amplifier_factor (情境放大因子): {context_amplifier_factor.loc[probe_ts]:.4f}")
             print(f"         - final_amplifier (最终放大器): {final_amplifier.loc[probe_ts]:.4f}")
-            print(f"         - weighted_avg_risk (核心风险加权平均): {weighted_avg_risk.loc[probe_ts]:.4f}") # 新增
+            print(f"         - weighted_avg_risk (核心风险加权平均): {weighted_avg_risk.loc[probe_ts]:.4f}")
             print(f"         - core_risk_base (核心风险基准分): {core_risk_base.loc[probe_ts]:.4f}")
             print(f"       - 最终结果:")
             print(f"         - SCORE_RISK_BREAKOUT_FAILURE_CASCADE: {breakout_failure_risk.loc[probe_ts]:.4f}")
