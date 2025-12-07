@@ -183,7 +183,9 @@
         "NMFNF_D": [5, 13, 21],
         "OCH_D": [5, 13, 21],
         "说明_基础公理": "--- 为基础公理提供支持 ---",
-        "industry_strength_rank_D": [5, 8, 13]
+        "industry_strength_rank_D": [5, 8, 13],
+        "VOL_MA_5_D": [5, 13],
+        "VOL_MA_13_D": [5, 13]
       }
     },
     "accel_params": {
@@ -477,6 +479,39 @@
         "sbc_threshold_pct": 0.05,
         "despair_periods": { "short": [21, 5], "mid": [55, 21], "long": [233, 55] },
         "despair_weights": { "short": 0.2, "mid": 0.3, "long": 0.5 }
+      },
+      "behavioral_divergence_params": {
+        "enabled": true,
+        "description": "【V1.0 · 行为背离纯化版】纯粹基于行为类原始数据的看涨/看跌背离信号参数。",
+        "bullish_divergence_weights": {
+          "price_rsi": 0.4,
+          "price_macd": 0.3,
+          "price_volume": 0.3
+        },
+        "bearish_divergence_weights": {
+          "price_rsi": 0.4,
+          "price_macd": 0.3,
+          "price_volume": 0.3
+        },
+        "bullish_confirmation_weights": {
+          "rsi_oversold": 0.3,
+          "volume_increase": 0.3,
+          "buying_support": 0.2,
+          "volatility_high": 0.2
+        },
+        "bearish_confirmation_weights": {
+          "rsi_overbought": 0.3,
+          "volume_decrease": 0.3,
+          "selling_pressure": 0.2,
+          "volatility_high": 0.2
+        },
+        "rsi_oversold_threshold": 30,
+        "rsi_overbought_threshold": 70,
+        "macd_bullish_threshold": 0,
+        "macd_bearish_threshold": 0,
+        "min_divergence_slope_diff": 0.01,
+        "min_divergence_duration": 3,
+        "comment": "定义了价格与RSI、MACD、成交量之间的背离权重，以及行为确认因子的权重和阈值。"
       },
       "process_intelligence_params": {
         "comment": "【过程情报引擎 V4.1 · 通达信指标集成版】配置块。核心元分析已从线性回归升级为'关系位移/关系动量'模型，以捕捉非线性变化。",

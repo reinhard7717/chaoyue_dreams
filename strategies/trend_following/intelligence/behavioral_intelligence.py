@@ -239,8 +239,9 @@ class BehavioralIntelligence:
             'winner_stability_index_D',
             'chip_fatigue_index_D',
             'main_force_net_flow_calibrated_D',
-            'retail_fomo_premium_index_D'
-            # [代码修改] 移除 market_trend_weakness_D，因为它不存在于数据层
+            'retail_fomo_premium_index_D',
+            # [修改的代码行] 新增V1.0纯行为背离信号所需的斜率数据
+            'SLOPE_5_close_D', 'SLOPE_5_RSI_13_D', 'SLOPE_5_MACDh_13_34_8_D', 'SLOPE_5_volume_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_behavioral_axioms"):
             print("    -> [行为情报引擎] 核心公理诊断失败，行为分析中止。")
@@ -308,6 +309,16 @@ class BehavioralIntelligence:
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
             states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
         )
+        # [修改的代码行] 调用新的纯行为背离诊断方法，严格遵循V1.0定义
+        bullish_pure_div, bearish_pure_div = self._diagnose_pure_behavioral_divergence(
+            df,
+            default_weights,
+            is_debug_enabled,
+            probe_ts
+        )
+        states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_pure_div # 新增 V1.0 看涨背离信号
+        states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_pure_div # 新增 V1.0 看跌背离信号
+        # [修改的代码行] 保持对 _QUALITY 版本的调用，因为它们是不同的、更高级的信号
         bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(
             df,
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
@@ -1017,31 +1028,12 @@ class BehavioralIntelligence:
                               也不依赖其他情报层的高阶融合信号。原有的“套牢盘痛苦度”和“主力背弃度”维度
                               因其本质依赖筹码/资金流数据，已从本方法中移除，以确保行为情报的纯粹性。
                               本信号现在专注于纯粹的市场行为模式。
-        - 核心进化:
-          1. 增强“伏击”维度：引入“行为动量背离”信号，通过分析价格趋势与纯行为动量指标（如RSI斜率）之间的背离，识别价格上涨但内在动能衰竭的潜在伏击迹象。
-          2. 增强“情境放大器”维度：引入“行为情绪极端”信号，综合散户狂热、RSI超买和乖离率过高这三个纯行为指标，量化市场情绪的极端亢奋程度，作为放大风险的情境因子。
-        - 战术三要素:
-          1. 诱饵 (The Lure): 使用更高阶的 `breakout_quality_score_D` 量化突破行为的“迷惑性”，并根据市场趋势弱势进行情境化放大。
-          2. 伏击 (The Ambush): 融合 `distribution_intent` (明确派发意图) 和 “隐蔽伏击意图” (买盘支持减弱、上涨纯度下降)，以及新增的“行为动量背离”，量化主力在诱多过程中的真实派发意图和潜在陷阱。
-          3. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买)、`SCORE_BEHAVIOR_DECEPTION_INDEX` (正向，拉高出货) 和 `retail_fomo_premium_index_D` (正向散户狂热)，以及新增的“行为情绪极端”信号和“欺骗性平静”效应，对风险进行情境化放大。
-        - 数学模型: 风险分 = 核心风险基准分 × 情境放大器 × 风险动态调制因子
-                      核心风险基准分 = 情境化诱饵分 × (1 - (1 - 伏击分)^P)  # 简化为只考虑伏击
-                      情境放大器 = 1 + (显性情境放大因子 × MaxAmplificationFactor) + 欺骗性平静效应
-                      风险动态调制因子 = 1 + (风险趋势分 × 趋势乘数) + (风险动量分 × 动量乘数)
         """
         method_name = "_diagnose_breakout_failure_risk"
         required_signals = [
-            'breakout_quality_score_D',
-            'retail_fomo_premium_index_D',
-            'trend_vitality_index_D',
-            'active_buying_support_D',
-            'upward_impulse_purity_D',
-            'VOLATILITY_INSTABILITY_INDEX_21d_D',
-            # [修改代码行] 新增行为类原始信号
-            'RSI_13_D',
-            'SLOPE_5_RSI_13_D',
-            'BIAS_55_D',
-            'SLOPE_5_close_D' # 用于计算行为动量背离
+            'breakout_quality_score_D', 'retail_fomo_premium_index_D', 'trend_vitality_index_D',
+            'active_buying_support_D', 'upward_impulse_purity_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'RSI_13_D', 'SLOPE_5_RSI_13_D', 'BIAS_55_D', 'SLOPE_5_close_D' # 用于计算行为动量背离
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
             return pd.Series(0.0, index=df.index)
@@ -1070,11 +1062,9 @@ class BehavioralIntelligence:
         risk_momentum_diff_window = get_param_value(breakout_params.get('risk_momentum_diff_window'), 1)
         risk_trend_mod_multiplier = get_param_value(breakout_params.get('risk_trend_mod_multiplier'), 0.2)
         risk_momentum_mod_multiplier = get_param_value(breakout_params.get('risk_momentum_mod_multiplier'), 0.1)
-
-        # [新增代码块] 新增行为动量背离和行为情绪极端信号的权重
+        # 新增行为动量背离和行为情绪极端信号的权重
         behavioral_momentum_divergence_weights = get_param_value(breakout_params.get('behavioral_momentum_divergence_weights'), {"price_slope_weight": 0.5, "rsi_slope_weight": 0.5})
         behavioral_sentiment_extreme_weights = get_param_value(breakout_params.get('behavioral_sentiment_extreme_weights'), {"retail_fomo": 0.4, "rsi_extreme": 0.3, "bias_extreme": 0.3})
-
         # --- 1. 获取核心战术要素的原始数据 ---
         # 诱饵 (The Lure)
         breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name=method_name)
@@ -1089,7 +1079,7 @@ class BehavioralIntelligence:
         upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name=method_name)
         volatility_instability_raw = self._get_safe_series(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name=method_name)
 
-        # [新增代码块] 获取计算新信号所需的原始行为数据
+        # 获取计算新信号所需的原始行为数据
         close_slope_raw = self._get_safe_series(df, 'SLOPE_5_close_D', 0.0, method_name=method_name)
         rsi_raw = self._get_safe_series(df, 'RSI_13_D', 50.0, method_name=method_name)
         rsi_slope_raw = self._get_safe_series(df, 'SLOPE_5_RSI_13_D', 0.0, method_name=method_name)
@@ -1106,7 +1096,7 @@ class BehavioralIntelligence:
             declining_impulse_purity_score * covert_ambush_intent_weights.get('declining_impulse_purity', 0.4)
         ).clip(0,1)
 
-        # [新增代码块] 计算行为动量背离信号
+        # 计算行为动量背离信号
         behavioral_momentum_divergence_raw = pd.Series(0.0, index=df.index)
         # 价格上涨 (斜率 > 0) 且 RSI 动量下降 (斜率 < 0)
         bullish_divergence_mask = (close_slope_raw > 0) & (rsi_slope_raw < 0)
@@ -1129,7 +1119,7 @@ class BehavioralIntelligence:
         positive_deception_score = deception_raw.clip(lower=0)
         retail_fomo_score = get_adaptive_mtf_normalized_score(retail_fomo_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
 
-        # [新增代码块] 计算行为情绪极端信号
+        # 计算行为情绪极端信号
         norm_retail_fomo_extreme = get_adaptive_mtf_normalized_score(retail_fomo_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         norm_rsi_extreme = get_adaptive_mtf_normalized_score(rsi_raw.clip(70, 100), df.index, ascending=True, tf_weights=default_weights) # RSI > 70 视为极端
         norm_bias_extreme = get_adaptive_mtf_normalized_score(bias_raw.clip(0.1, 1.0), df.index, ascending=True, tf_weights=default_weights) # BIAS > 0.1 视为极端
@@ -1192,65 +1182,6 @@ class BehavioralIntelligence:
             ).clip(0.5, 1.5)
         # --- 4. 最终风险合成 ---
         breakout_failure_risk = (core_risk_base_initial * final_amplifier * risk_dynamic_modulator).clip(0, 1)
-        # --- 5. 探针输出 ---
-        if debug_enabled and probe_ts and probe_ts in df.index:
-            probe_date_str = probe_ts.strftime('%Y-%m-%d')
-            print(f"\n    -> [探针] SCORE_RISK_BREAKOUT_FAILURE_CASCADE @ {probe_date_str}")
-            print(f"       - 原始数据:")
-            print(f"         - breakout_quality_score_D: {breakout_quality_raw.loc[probe_ts]:.4f}")
-            print(f"         - distribution_intent: {distribution_intent.loc[probe_ts]:.4f}")
-            print(f"         - INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW (passed): {overextension_score.loc[probe_ts]:.4f}")
-            print(f"         - SCORE_BEHAVIOR_DECEPTION_INDEX (passed): {deception_raw.loc[probe_ts]:.4f}")
-            print(f"         - retail_fomo_premium_index_D: {retail_fomo_raw.loc[probe_ts]:.4f}")
-            print(f"         - trend_vitality_index_D: {trend_vitality_raw.loc[probe_ts]:.4f}")
-            print(f"         - active_buying_support_D: {active_buying_raw.loc[probe_ts]:.4f}")
-            print(f"         - upward_impulse_purity_D: {upward_purity_raw.loc[probe_ts]:.4f}")
-            print(f"         - VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[probe_ts]:.4f}")
-            # [新增代码块] 打印新引入的原始行为数据
-            print(f"         - RSI_13_D: {rsi_raw.loc[probe_ts]:.4f}")
-            print(f"         - SLOPE_5_RSI_13_D: {rsi_slope_raw.loc[probe_ts]:.4f}")
-            print(f"         - BIAS_55_D: {bias_raw.loc[probe_ts]:.4f}")
-            print(f"         - SLOPE_5_close_D: {close_slope_raw.loc[probe_ts]:.4f}")
-            print(f"       - 关键计算节点:")
-            print(f"         - lure_score (诱饵分): {lure_score.loc[probe_ts]:.4f}")
-            print(f"         - market_weakness_score (市场弱势分): {market_weakness_score.loc[probe_ts]:.4f}")
-            print(f"         - lure_score_modulated (情境化诱饵分): {lure_score_modulated.loc[probe_ts]:.4f}")
-            print(f"         - weak_buying_support_score (买盘支持减弱分): {weak_buying_support_score.loc[probe_ts]:.4f}")
-            print(f"         - declining_impulse_purity_score (上涨纯度下降分): {declining_impulse_purity_score.loc[probe_ts]:.4f}")
-            print(f"         - covert_ambush_intent_score (隐蔽伏击意图分): {covert_ambush_intent_score.loc[probe_ts]:.4f}")
-            # [新增代码块] 打印行为动量背离信号
-            print(f"         - behavioral_momentum_divergence_raw: {behavioral_momentum_divergence_raw.loc[probe_ts]:.4f}")
-            print(f"         - behavioral_momentum_divergence_score: {behavioral_momentum_divergence_score.loc[probe_ts]:.4f}")
-            print(f"         - ambush_score (伏击分): {ambush_score.loc[probe_ts]:.4f}")
-            print(f"         - trapped_force_score (套牢盘痛苦度): {trapped_force_score.loc[probe_ts]:.4f} (已移除，设为0)")
-            print(f"         - mf_abandonment_score (主力背弃度): {mf_abandonment_score.loc[probe_ts]:.4f} (已移除，设为0)")
-            print(f"         - overextension_score (价格超买分): {overextension_score.loc[probe_ts]:.4f}")
-            print(f"         - positive_deception_score (正向欺骗分): {positive_deception_score.loc[probe_ts]:.4f}")
-            print(f"         - retail_fomo_score (散户狂热分): {retail_fomo_score.loc[probe_ts]:.4f}")
-            # [新增代码块] 打印行为情绪极端信号
-            print(f"         - norm_retail_fomo_extreme: {norm_retail_fomo_extreme.loc[probe_ts]:.4f}")
-            print(f"         - norm_rsi_extreme: {norm_rsi_extreme.loc[probe_ts]:.4f}")
-            print(f"         - norm_bias_extreme: {norm_bias_extreme.loc[probe_ts]:.4f}")
-            print(f"         - behavioral_sentiment_extreme_score: {behavioral_sentiment_extreme_score.loc[probe_ts]:.4f}")
-            print(f"         - context_amplifier_factor (显性情境放大因子): {context_amplifier_factor.loc[probe_ts]:.4f}")
-            print(f"         - deceptive_calm_score (欺骗性平静分): {deceptive_calm_score.loc[probe_ts]:.4f}")
-            print(f"         - deceptive_calm_effect (欺骗性平静效应): {deceptive_calm_effect.loc[probe_ts]:.4f}")
-            print(f"         - normalized_volatility (归一化波动性): {normalized_volatility.loc[probe_ts]:.4f}")
-            print(f"         - normalized_inverse_trend_vitality (归一化反向趋势活力): {normalized_inverse_trend_vitality.loc[probe_ts]:.4f}")
-            print(f"         - adaptive_dynamic_risk_weight_exponent (自适应动态风险权重指数): {adaptive_dynamic_risk_weight_exponent.loc[probe_ts]:.4f}")
-            print(f"         - dynamic_ambush_weight (动态伏击权重): {dynamic_ambush_weight.loc[probe_ts]:.4f}")
-            print(f"         - weighted_avg_risk (核心风险加权平均): {weighted_avg_risk.loc[probe_ts]:.4f}")
-            print(f"         - stretched_weighted_avg_risk (拉伸后的核心风险加权平均): {stretched_weighted_avg_risk.loc[probe_ts]:.4f}")
-            print(f"         - core_risk_base_initial (基础核心风险基准分): {core_risk_base_initial.loc[probe_ts]:.4f}")
-            print(f"         - final_amplifier (最终放大器): {final_amplifier.loc[probe_ts]:.4f}")
-            print(f"         - risk_ema (风险EMA): {risk_ema.loc[probe_ts]:.4f}")
-            print(f"         - risk_trend (风险趋势): {risk_trend.loc[probe_ts]:.4f}")
-            print(f"         - risk_momentum (风险动量): {risk_momentum.loc[probe_ts]:.4f}")
-            print(f"         - risk_trend_score (风险趋势分): {risk_trend_score.loc[probe_ts]:.4f}")
-            print(f"         - risk_momentum_score (风险动量分): {risk_momentum_score.loc[probe_ts]:.4f}")
-            print(f"         - risk_dynamic_modulator (风险动态调制因子): {risk_dynamic_modulator.loc[probe_ts]:.4f}")
-            print(f"       - 最终结果:")
-            print(f"         - SCORE_RISK_BREAKOUT_FAILURE_CASCADE: {breakout_failure_risk.loc[probe_ts]:.4f}")
         return breakout_failure_risk.astype(np.float32)
 
     def _diagnose_divergence_quality(self, df: pd.DataFrame, absorption_strength: pd.Series, distribution_intent: pd.Series) -> Tuple[pd.Series, pd.Series]:
@@ -1517,6 +1448,175 @@ class BehavioralIntelligence:
         shakeout_confirmation_score = (strategic_intent_score * base_confirmation).clip(0, 1)
         # [代码修改] 移除整个探针逻辑块，恢复生产状态
         return shakeout_confirmation_score.astype(np.float32)
+
+    def _diagnose_pure_behavioral_divergence(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> Tuple[pd.Series, pd.Series]:
+        """
+        【V1.0 · 行为背离纯化版】诊断纯粹基于行为类原始数据的看涨/看跌背离信号。
+        严格遵循“行为情报层只分析行为类原始数据”的原则，不依赖任何筹码或资金流数据。
+        判断逻辑：
+        看涨背离：价格趋势向下，但行为动量趋势（RSI、MACD斜率）或行为量能趋势（成交量均线斜率）向上。
+                  并通过RSI超卖、成交量增加、活跃买盘支持和高波动率等行为确认因子进行加权融合。
+        看跌背离：价格趋势向上，但行为动量趋势（RSI、MACD斜率）或行为量能趋势（成交量均线斜率）向下。
+                  并通过RSI超买、成交量减少、活跃卖盘压力和高波动率等行为确认因子进行加权融合。
+        需要加入详细的探针，输出原料数据、关键计算节点、结果的值，以便于检查和调试。
+        """
+        method_name = "_diagnose_pure_behavioral_divergence"
+        # 1. 获取配置参数
+        p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
+        bullish_div_weights = get_param_value(p_conf.get('bullish_divergence_weights'), {"price_rsi": 0.4, "price_macd": 0.3, "price_volume": 0.3})
+        bearish_div_weights = get_param_value(p_conf.get('bearish_divergence_weights'), {"price_rsi": 0.4, "price_macd": 0.3, "price_volume": 0.3})
+        bullish_conf_weights = get_param_value(p_conf.get('bullish_confirmation_weights'), {"rsi_oversold": 0.3, "volume_increase": 0.3, "buying_support": 0.2, "volatility_high": 0.2})
+        bearish_conf_weights = get_param_value(p_conf.get('bearish_confirmation_weights'), {"rsi_overbought": 0.3, "volume_decrease": 0.3, "selling_pressure": 0.2, "volatility_high": 0.2})
+        rsi_oversold_threshold = get_param_value(p_conf.get('rsi_oversold_threshold'), 30)
+        rsi_overbought_threshold = get_param_value(p_conf.get('rsi_overbought_threshold'), 70)
+        min_divergence_slope_diff = get_param_value(p_conf.get('min_divergence_slope_diff'), 0.01)
+        # 2. 获取所需原始数据和斜率
+        required_signals = [
+            'close_D', 'RSI_13_D', 'MACDh_13_34_8_D', 'volume_D', 'ATR_14_D',
+            'active_buying_support_D', 'active_selling_pressure_D',
+            'SLOPE_5_close_D', 'SLOPE_5_RSI_13_D', 'SLOPE_5_MACDh_13_34_8_D', 'SLOPE_5_volume_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, method_name):
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号，返回默认值。")
+            return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
+        close_slope = self._get_safe_series(df, 'SLOPE_5_close_D', 0.0, method_name=method_name)
+        rsi_slope = self._get_safe_series(df, 'SLOPE_5_RSI_13_D', 0.0, method_name=method_name)
+        macd_slope = self._get_safe_series(df, 'SLOPE_5_MACDh_13_34_8_D', 0.0, method_name=method_name)
+        volume_slope = self._get_safe_series(df, 'SLOPE_5_volume_D', 0.0, method_name=method_name)
+        rsi_val = self._get_safe_series(df, 'RSI_13_D', 50.0, method_name=method_name)
+        atr_val = self._get_safe_series(df, 'ATR_14_D', 0.0, method_name=method_name)
+        active_buying = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name=method_name)
+        active_selling = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name=method_name)
+        # 归一化确认因子 (0到1)
+        norm_active_buying = get_adaptive_mtf_normalized_score(active_buying, df.index, ascending=True, tf_weights=tf_weights)
+        norm_active_selling = get_adaptive_mtf_normalized_score(active_selling, df.index, ascending=True, tf_weights=tf_weights)
+        norm_atr = get_adaptive_mtf_normalized_score(atr_val, df.index, ascending=True, tf_weights=tf_weights)
+        bullish_divergence_score = pd.Series(0.0, index=df.index)
+        bearish_divergence_score = pd.Series(0.0, index=df.index)
+        # 3. 计算看涨背离 (Bullish Divergence)
+        # 价格趋势向下
+        price_down_trend = (close_slope < 0)
+        # 行为动量或量能趋势向上
+        rsi_up_trend = (rsi_slope > 0)
+        macd_up_trend = (macd_slope > 0)
+        volume_up_trend = (volume_slope > 0)
+        # 满足背离条件
+        bullish_div_condition = price_down_trend & (rsi_up_trend | macd_up_trend | volume_up_trend)
+        # 计算背离强度
+        bullish_div_strength_rsi = (rsi_up_trend * (rsi_slope - close_slope)).clip(lower=0)
+        bullish_div_strength_macd = (macd_up_trend * (macd_slope - close_slope)).clip(lower=0)
+        bullish_div_strength_volume = (volume_up_trend * (volume_slope - close_slope)).clip(lower=0)
+        # 综合背离强度 (加权平均)
+        total_bullish_div_strength = (
+            bullish_div_strength_rsi * bullish_div_weights.get('price_rsi', 0.4) +
+            bullish_div_strength_macd * bullish_div_weights.get('price_macd', 0.3) +
+            bullish_div_strength_volume * bullish_div_weights.get('price_volume', 0.3)
+        )
+        # 过滤掉低于最小斜率差异的背离
+        total_bullish_div_strength = total_bullish_div_strength.where(total_bullish_div_strength > min_divergence_slope_diff, 0.0)
+        # 归一化背离强度 (0到1)
+        norm_total_bullish_div_strength = get_adaptive_mtf_normalized_score(total_bullish_div_strength, df.index, ascending=True, tf_weights=tf_weights)
+        # 确认因子
+        rsi_oversold_conf = (rsi_val < rsi_oversold_threshold).astype(float)
+        volume_increase_conf = (volume_slope > 0).astype(float)
+        total_bullish_conf_factor = (
+            rsi_oversold_conf * bullish_conf_weights.get('rsi_oversold', 0.3) +
+            volume_increase_conf * bullish_conf_weights.get('volume_increase', 0.3) +
+            norm_active_buying * bullish_conf_weights.get('buying_support', 0.2) +
+            norm_atr * bullish_conf_weights.get('volatility_high', 0.2)
+        )
+        norm_total_bullish_conf_factor = normalize_score(total_bullish_conf_factor, df.index, 55) # 简单归一化到0-1
+        # 最终看涨背离分数 = 背离强度 * 确认因子 (仅在背离条件满足时)
+        bullish_divergence_score = norm_total_bullish_div_strength * norm_total_bullish_conf_factor * bullish_div_condition.astype(float)
+        # 4. 计算看跌背离 (Bearish Divergence)
+        # 价格趋势向上
+        price_up_trend = (close_slope > 0)
+        # 行为动量或量能趋势向下
+        rsi_down_trend = (rsi_slope < 0)
+        macd_down_trend = (macd_slope < 0)
+        volume_down_trend = (volume_slope < 0)
+        # 满足背离条件
+        bearish_div_condition = price_up_trend & (rsi_down_trend | macd_down_trend | volume_down_trend)
+        # 计算背离强度
+        bearish_div_strength_rsi = (rsi_down_trend * (close_slope - rsi_slope)).clip(lower=0)
+        bearish_div_strength_macd = (macd_down_trend * (close_slope - macd_slope)).clip(lower=0)
+        bearish_div_strength_volume = (volume_down_trend * (close_slope - volume_slope)).clip(lower=0)
+        # 综合背离强度 (加权平均)
+        total_bearish_div_strength = (
+            bearish_div_strength_rsi * bearish_div_weights.get('price_rsi', 0.4) +
+            bearish_div_strength_macd * bearish_div_weights.get('price_macd', 0.3) +
+            bearish_div_strength_volume * bearish_div_weights.get('price_volume', 0.3)
+        )
+        # 过滤掉低于最小斜率差异的背离
+        total_bearish_div_strength = total_bearish_div_strength.where(total_bearish_div_strength > min_divergence_slope_diff, 0.0)
+        # 归一化背离强度 (0到1)
+        norm_total_bearish_div_strength = get_adaptive_mtf_normalized_score(total_bearish_div_strength, df.index, ascending=True, tf_weights=tf_weights)
+        # 确认因子
+        rsi_overbought_conf = (rsi_val > rsi_overbought_threshold).astype(float)
+        volume_decrease_conf = (volume_slope < 0).astype(float)
+        total_bearish_conf_factor = (
+            rsi_overbought_conf * bearish_conf_weights.get('rsi_overbought', 0.3) +
+            volume_decrease_conf * bearish_conf_weights.get('volume_decrease', 0.3) +
+            norm_active_selling * bearish_conf_weights.get('selling_pressure', 0.2) +
+            norm_atr * bearish_conf_weights.get('volatility_high', 0.2)
+        )
+        norm_total_bearish_conf_factor = normalize_score(total_bearish_conf_factor, df.index, 55) # 简单归一化到0-1
+        # 最终看跌背离分数 = 背离强度 * 确认因子 (仅在背离条件满足时)
+        bearish_divergence_score = norm_total_bearish_div_strength * norm_total_bearish_conf_factor * bearish_div_condition.astype(float)
+        # 5. 调试探针
+        if debug_enabled and probe_ts and probe_ts in df.index:
+            probe_date_str = probe_ts.strftime('%Y-%m-%d')
+            print(f"\n--- 行为背离纯化版 (V1.0) 探针 @ {probe_date_str} ---")
+            print(f"  [原料数据]:")
+            print(f"    close_slope: {close_slope.loc[probe_ts]:.4f}")
+            print(f"    rsi_slope: {rsi_slope.loc[probe_ts]:.4f}")
+            print(f"    macd_slope: {macd_slope.loc[probe_ts]:.4f}")
+            print(f"    volume_slope: {volume_slope.loc[probe_ts]:.4f}")
+            print(f"    rsi_val: {rsi_val.loc[probe_ts]:.2f}")
+            print(f"    atr_val: {atr_val.loc[probe_ts]:.4f}")
+            print(f"    active_buying: {active_buying.loc[probe_ts]:.4f}")
+            print(f"    active_selling: {active_selling.loc[probe_ts]:.4f}")
+            print(f"  [配置参数]:")
+            print(f"    rsi_oversold_threshold: {rsi_oversold_threshold}")
+            print(f"    rsi_overbought_threshold: {rsi_overbought_threshold}")
+            print(f"    min_divergence_slope_diff: {min_divergence_slope_diff}")
+            print(f"  [看涨背离关键计算节点]:")
+            print(f"    price_down_trend: {price_down_trend.loc[probe_ts]}")
+            print(f"    rsi_up_trend: {rsi_up_trend.loc[probe_ts]}")
+            print(f"    macd_up_trend: {macd_up_trend.loc[probe_ts]}")
+            print(f"    volume_up_trend: {volume_up_trend.loc[probe_ts]}")
+            print(f"    bullish_div_condition: {bullish_div_condition.loc[probe_ts]}")
+            print(f"    bullish_div_strength_rsi: {bullish_div_strength_rsi.loc[probe_ts]:.4f}")
+            print(f"    bullish_div_strength_macd: {bullish_div_strength_macd.loc[probe_ts]:.4f}")
+            print(f"    bullish_div_strength_volume: {bullish_div_strength_volume.loc[probe_ts]:.4f}")
+            print(f"    total_bullish_div_strength (raw): {total_bullish_div_strength.loc[probe_ts]:.4f}")
+            print(f"    norm_total_bullish_div_strength: {norm_total_bullish_div_strength.loc[probe_ts]:.4f}")
+            print(f"    rsi_oversold_conf: {rsi_oversold_conf.loc[probe_ts]:.2f}")
+            print(f"    volume_increase_conf: {volume_increase_conf.loc[probe_ts]:.2f}")
+            print(f"    norm_active_buying: {norm_active_buying.loc[probe_ts]:.4f}")
+            print(f"    norm_atr (bullish): {norm_atr.loc[probe_ts]:.4f}")
+            print(f"    total_bullish_conf_factor (raw): {total_bullish_conf_factor.loc[probe_ts]:.4f}")
+            print(f"    norm_total_bullish_conf_factor: {norm_total_bullish_conf_factor.loc[probe_ts]:.4f}")
+            print(f"  [看涨背离结果]: SCORE_BEHAVIOR_BULLISH_DIVERGENCE = {bullish_divergence_score.loc[probe_ts]:.4f}")
+            print(f"  [看跌背离关键计算节点]:")
+            print(f"    price_up_trend: {price_up_trend.loc[probe_ts]}")
+            print(f"    rsi_down_trend: {rsi_down_trend.loc[probe_ts]}")
+            print(f"    macd_down_trend: {macd_down_trend.loc[probe_ts]}")
+            print(f"    volume_down_trend: {volume_down_trend.loc[probe_ts]}")
+            print(f"    bearish_div_condition: {bearish_div_condition.loc[probe_ts]}")
+            print(f"    bearish_div_strength_rsi: {bearish_div_strength_rsi.loc[probe_ts]:.4f}")
+            print(f"    bearish_div_strength_macd: {bearish_div_strength_macd.loc[probe_ts]:.4f}")
+            print(f"    bearish_div_strength_volume: {bearish_div_strength_volume.loc[probe_ts]:.4f}")
+            print(f"    total_bearish_div_strength (raw): {total_bearish_div_strength.loc[probe_ts]:.4f}")
+            print(f"    norm_total_bearish_div_strength: {norm_total_bearish_div_strength.loc[probe_ts]:.4f}")
+            print(f"    rsi_overbought_conf: {rsi_overbought_conf.loc[probe_ts]:.2f}")
+            print(f"    volume_decrease_conf: {volume_decrease_conf.loc[probe_ts]:.2f}")
+            print(f"    norm_active_selling: {norm_active_selling.loc[probe_ts]:.4f}")
+            print(f"    norm_atr (bearish): {norm_atr.loc[probe_ts]:.4f}")
+            print(f"    total_bearish_conf_factor (raw): {total_bearish_conf_factor.loc[probe_ts]:.4f}")
+            print(f"    norm_total_bearish_conf_factor: {norm_total_bearish_conf_factor.loc[probe_ts]:.4f}")
+            print(f"  [看跌背离结果]: SCORE_BEHAVIOR_BEARISH_DIVERGENCE = {bearish_divergence_score.loc[probe_ts]:.4f}")
+        return bullish_divergence_score.astype(np.float32), bearish_divergence_score.astype(np.float32)
 
     def _apply_neutral_zone_filter(self, series: pd.Series, threshold: float) -> pd.Series:
         """
