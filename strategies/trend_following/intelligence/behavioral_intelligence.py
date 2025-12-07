@@ -1501,7 +1501,7 @@ class BehavioralIntelligence:
         required_signals = [
             'close_D', 'RSI_13_D', 'MACDh_13_34_8_D', 'volume_D', 'ATR_14_D', 'BBW_21_2.0_D',
             'active_buying_support_D', 'active_selling_pressure_D', 'trend_vitality_index_D',
-            'open_D', 'high_D', 'low_D', 'ADX_14_D', 'volume_avg_D', 'TR_1_D' # [修改的代码行] 新增K线数据、ADX、平均成交量、真实波幅
+            'open_D', 'high_D', 'low_D', 'ADX_14_D', 'VOL_MA_21_D' # [修改的代码行] 替换 'volume_avg_D' 为 'VOL_MA_21_D'，移除 'TR_1_D'
         ]
         # 动态添加MTF斜率信号到required_signals
         mtf_periods = mtf_slopes_params.get('periods', [5])
@@ -1567,9 +1567,9 @@ class BehavioralIntelligence:
         low_price = self._get_safe_series(df, 'low_D', df['close_D'], method_name=method_name)
         close_price = self._get_safe_series(df, 'close_D', df['close_D'], method_name=method_name)
         adx_val = self._get_safe_series(df, 'ADX_14_D', 0.0, method_name=method_name)
-        current_volume = self._get_safe_series(df, 'volume_D', 0.0, method_name=method_name) # [修改的代码行]
-        volume_avg = self._get_safe_series(df, 'volume_avg_D', 0.0, method_name=method_name) # [修改的代码行]
-        tr_val = self._get_safe_series(df, 'TR_1_D', 0.0, method_name=method_name) # [修改的代码行]
+        current_volume = self._get_safe_series(df, 'volume_D', 0.0, method_name=method_name)
+        volume_avg = self._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name=method_name) # [修改的代码行] 替换 'volume_avg_D' 为 'VOL_MA_21_D'
+        # tr_val = self._get_safe_series(df, 'TR_1_D', 0.0, method_name=method_name) # [修改的代码行] 移除此行，因为TR_1_D未提供且未被使用
 
         # 归一化确认因子 (0到1)
         norm_active_buying = get_adaptive_mtf_normalized_score(active_buying, df.index, ascending=True, tf_weights=tf_weights)
@@ -1667,13 +1667,13 @@ class BehavioralIntelligence:
             bullish_price_action_conf = bullish_price_action_conf.mask(is_long_lower_shadow & is_small_body, price_action_confirmation_params.get('confirmation_bonus', 0.15))
         bullish_price_action_factor = (1 + bullish_price_action_conf).clip(1, 1.5)
 
-        # [修改的代码行] 多维度量价结构确认 (Multi-Dimensional Volume-Price Structure Confirmation)
+        # 多维度量价结构确认 (Multi-Dimensional Volume-Price Structure Confirmation)
         bullish_volume_price_structure_factor = pd.Series(1.0, index=df.index)
         if volume_price_structure_params.get('enabled'):
             vol_climax_mult = volume_price_structure_params.get('volume_climax_threshold_multiplier', 2.0)
             vol_drying_mult = volume_price_structure_params.get('volume_drying_up_threshold_multiplier', 0.5)
             narrow_body_ratio = volume_price_structure_params.get('narrow_range_body_ratio', 0.2)
-            wide_body_ratio = volume_price_structure_params.get('wide_range_body_ratio', 0.7)
+            # wide_body_ratio = volume_price_structure_params.get('wide_range_body_ratio', 0.7) # 未在看涨背离中使用
             structure_bonus = volume_price_structure_params.get('structure_bonus', 0.15)
 
             # 成交量质量：地量（看涨背离时，下跌缩量是好事）
@@ -1698,7 +1698,7 @@ class BehavioralIntelligence:
             )
             bullish_volume_price_structure_factor = (1 + bullish_volume_price_structure_conf).clip(1, 1.5)
 
-        # [修改的代码行] 背离的“纯度”与“质量”评估 (Divergence Purity and Quality Assessment)
+        # 背离的“纯度”与“质量”评估 (Divergence Purity and Quality Assessment)
         bullish_purity_factor = pd.Series(1.0, index=df.index)
         if purity_assessment_params.get('enabled'):
             # 评估价格斜率的稳定性：短期内robust_close_slope的标准差
@@ -1718,7 +1718,7 @@ class BehavioralIntelligence:
             )
             bullish_purity_factor = (1 - purity_penalty).clip(0.5, 1) # 最低惩罚到0.5
 
-        # [修改的代码行] 市场情境动态权重 (Market Regime Dynamic Weighting)
+        # 市场情境动态权重 (Market Regime Dynamic Weighting)
         dynamic_bullish_div_weight_multiplier = pd.Series(1.0, index=df.index)
         dynamic_bullish_conf_weight_multiplier = pd.Series(1.0, index=df.index)
         if market_regime_params.get('enabled'):
@@ -1754,9 +1754,9 @@ class BehavioralIntelligence:
             (structural_context_factor + 1e-9).pow(0.1) *
             (bullish_resonance_factor + 1e-9).pow(0.1) *
             (bullish_price_action_factor + 1e-9).pow(0.1) *
-            (bullish_volume_price_structure_factor + 1e-9).pow(0.1) * # [修改的代码行] 新增量价结构因子
-            (bullish_purity_factor + 1e-9).pow(0.1) # [修改的代码行] 新增纯度因子
-        ).pow(1/1.8).fillna(0.0) # [修改的代码行] 调整总权重，假设最大权重和为1.8
+            (bullish_volume_price_structure_factor + 1e-9).pow(0.1) *
+            (bullish_purity_factor + 1e-9).pow(0.1)
+        ).pow(1/1.8).fillna(0.0) # 调整总权重，假设最大权重和为1.8
         bullish_divergence_score = bullish_divergence_score.where(bullish_div_condition_raw, 0.0).clip(0, 1)
 
         # 7. 计算看跌背离 (Bearish Divergence)
@@ -1842,12 +1842,12 @@ class BehavioralIntelligence:
             bearish_price_action_conf = bearish_price_action_conf.mask(is_long_upper_shadow & is_small_body, price_action_confirmation_params.get('confirmation_bonus', 0.15))
         bearish_price_action_factor = (1 + bearish_price_action_conf).clip(1, 1.5)
 
-        # [修改的代码行] 多维度量价结构确认 (Multi-Dimensional Volume-Price Structure Confirmation)
+        # 多维度量价结构确认 (Multi-Dimensional Volume-Price Structure Confirmation)
         bearish_volume_price_structure_factor = pd.Series(1.0, index=df.index)
         if volume_price_structure_params.get('enabled'):
             vol_climax_mult = volume_price_structure_params.get('volume_climax_threshold_multiplier', 2.0)
             vol_drying_mult = volume_price_structure_params.get('volume_drying_up_threshold_multiplier', 0.5)
-            narrow_body_ratio = volume_price_structure_params.get('narrow_range_body_ratio', 0.2)
+            # narrow_body_ratio = volume_price_structure_params.get('narrow_range_body_ratio', 0.2) # 未在看跌背离中使用
             wide_body_ratio = volume_price_structure_params.get('wide_range_body_ratio', 0.7)
             structure_bonus = volume_price_structure_params.get('structure_bonus', 0.15)
 
@@ -1872,7 +1872,7 @@ class BehavioralIntelligence:
             )
             bearish_volume_price_structure_factor = (1 + bearish_volume_price_structure_conf).clip(1, 1.5)
 
-        # [修改的代码行] 背离的“纯度”与“质量”评估 (Divergence Purity and Quality Assessment)
+        # 背离的“纯度”与“质量”评估 (Divergence Purity and Quality Assessment)
         bearish_purity_factor = pd.Series(1.0, index=df.index)
         if purity_assessment_params.get('enabled'):
             short_term_close_slopes = df[f'SLOPE_{mtf_periods[0]}_close_D']
@@ -1887,7 +1887,7 @@ class BehavioralIntelligence:
             )
             bearish_purity_factor = (1 - purity_penalty).clip(0.5, 1)
 
-        # [修改的代码行] 市场情境动态权重 (Market Regime Dynamic Weighting)
+        # 市场情境动态权重 (Market Regime Dynamic Weighting)
         dynamic_bearish_div_weight_multiplier = pd.Series(1.0, index=df.index)
         dynamic_bearish_conf_weight_multiplier = pd.Series(1.0, index=df.index)
         if market_regime_params.get('enabled'):
@@ -1915,9 +1915,9 @@ class BehavioralIntelligence:
             (structural_context_factor_bearish + 1e-9).pow(0.1) *
             (bearish_resonance_factor + 1e-9).pow(0.1) *
             (bearish_price_action_factor + 1e-9).pow(0.1) *
-            (bearish_volume_price_structure_factor + 1e-9).pow(0.1) * # [修改的代码行] 新增量价结构因子
-            (bearish_purity_factor + 1e-9).pow(0.1) # [修改的代码行] 新增纯度因子
-        ).pow(1/1.8).fillna(0.0) # [修改的代码行] 调整总权重，假设最大权重和为1.8
+            (bearish_volume_price_structure_factor + 1e-9).pow(0.1) *
+            (bearish_purity_factor + 1e-9).pow(0.1)
+        ).pow(1/1.8).fillna(0.0) # 调整总权重，假设最大权重和为1.8
         bearish_divergence_score = bearish_divergence_score.where(bearish_div_condition_raw, 0.0).clip(0, 1)
 
         # 8. 调试探针
@@ -1936,9 +1936,9 @@ class BehavioralIntelligence:
             print(f"    low_D: {low_price.loc[probe_ts]:.2f}")
             print(f"    close_D: {close_price.loc[probe_ts]:.2f}")
             print(f"    ADX_14_D: {adx_val.loc[probe_ts]:.2f}")
-            print(f"    volume_D: {current_volume.loc[probe_ts]:.0f}") # [修改的代码行]
-            print(f"    volume_avg_D: {volume_avg.loc[probe_ts]:.0f}") # [修改的代码行]
-            print(f"    TR_1_D: {tr_val.loc[probe_ts]:.4f}") # [修改的代码行]
+            print(f"    volume_D: {current_volume.loc[probe_ts]:.0f}")
+            print(f"    VOL_MA_21_D (volume_avg): {volume_avg.loc[probe_ts]:.0f}") # [修改的代码行] 更新列名
+            # print(f"    TR_1_D: {tr_val.loc[probe_ts]:.4f}") # [修改的代码行] 移除此行
             print(f"  [配置参数]:")
             print(f"    MTF periods: {mtf_periods}, weights: {mtf_slopes_params.get('weights')}")
             print(f"    Long Term Period: {long_term_period}, Resonance Bonus: {multi_level_resonance_params.get('resonance_bonus')}")
@@ -1956,18 +1956,18 @@ class BehavioralIntelligence:
             print(f"    Upper Shadow Ratio Threshold: {price_action_confirmation_params.get('upper_shadow_ratio_threshold')}")
             print(f"    Body Ratio Threshold: {price_action_confirmation_params.get('body_ratio_threshold')}")
             print(f"    Price Action Confirmation Bonus: {price_action_confirmation_params.get('confirmation_bonus')}")
-            print(f"    Volume Climax Threshold Multiplier: {volume_price_structure_params.get('volume_climax_threshold_multiplier')}") # [修改的代码行]
-            print(f"    Volume Drying Up Threshold Multiplier: {volume_price_structure_params.get('volume_drying_up_threshold_multiplier')}") # [修改的代码行]
-            print(f"    Narrow Range Body Ratio: {volume_price_structure_params.get('narrow_range_body_ratio')}") # [修改的代码行]
-            print(f"    Wide Range Body Ratio: {volume_price_structure_params.get('wide_range_body_ratio')}") # [修改的代码行]
-            print(f"    Volume Price Structure Bonus: {volume_price_structure_params.get('structure_bonus')}") # [修改的代码行]
-            print(f"    Slope Std Dev Threshold: {purity_assessment_params.get('slope_std_dev_threshold')}") # [修改的代码行]
-            print(f"    Whipsaw Penalty Factor: {purity_assessment_params.get('whipsaw_penalty_factor')}") # [修改的代码行]
+            print(f"    Volume Climax Threshold Multiplier: {volume_price_structure_params.get('volume_climax_threshold_multiplier')}")
+            print(f"    Volume Drying Up Threshold Multiplier: {volume_price_structure_params.get('volume_drying_up_threshold_multiplier')}")
+            print(f"    Narrow Range Body Ratio: {volume_price_structure_params.get('narrow_range_body_ratio')}")
+            print(f"    Wide Range Body Ratio: {volume_price_structure_params.get('wide_range_body_ratio')}")
+            print(f"    Volume Price Structure Bonus: {volume_price_structure_params.get('structure_bonus')}")
+            print(f"    Slope Std Dev Threshold: {purity_assessment_params.get('slope_std_dev_threshold')}")
+            print(f"    Whipsaw Penalty Factor: {purity_assessment_params.get('whipsaw_penalty_factor')}")
             print(f"    ADX Trend Threshold: {market_regime_params.get('adx_trend_threshold')}")
             print(f"    ADX Ranging Threshold: {market_regime_params.get('adx_ranging_threshold')}")
-            print(f"    ADX Div Weight Max Adjust: {market_regime_params.get('adx_div_weight_max_adjust')}") # [修改的代码行]
-            print(f"    ADX Conf Weight Max Adjust: {market_regime_params.get('adx_conf_weight_max_adjust')}") # [修改的代码行]
-            print(f"    ATR Conf Weight Max Adjust: {market_regime_params.get('atr_conf_weight_max_adjust')}") # [修改的代码行]
+            print(f"    ADX Div Weight Max Adjust: {market_regime_params.get('adx_div_weight_max_adjust')}")
+            print(f"    ADX Conf Weight Max Adjust: {market_regime_params.get('adx_conf_weight_max_adjust')}")
+            print(f"    ATR Conf Weight Max Adjust: {market_regime_params.get('atr_conf_weight_max_adjust')}")
             print(f"  [动态阈值]:")
             print(f"    dynamic_min_divergence_slope_diff: {dynamic_min_divergence_slope_diff.loc[probe_ts]:.4f}")
             print(f"    rsi_oversold_threshold_dynamic: {rsi_oversold_threshold_dynamic.loc[probe_ts]:.2f}")
@@ -2005,10 +2005,10 @@ class BehavioralIntelligence:
             print(f"    structural_context_factor: {structural_context_factor.loc[probe_ts]:.4f}")
             print(f"    bullish_resonance_factor: {bullish_resonance_factor.loc[probe_ts]:.4f}")
             print(f"    bullish_price_action_factor: {bullish_price_action_factor.loc[probe_ts]:.4f}")
-            print(f"    bullish_volume_price_structure_factor: {bullish_volume_price_structure_factor.loc[probe_ts]:.4f}") # [修改的代码行]
-            print(f"    bullish_purity_factor: {bullish_purity_factor.loc[probe_ts]:.4f}") # [修改的代码行]
-            print(f"    dynamic_bullish_div_weight_multiplier: {dynamic_bullish_div_weight_multiplier.loc[probe_ts]:.4f}") # [修改的代码行]
-            print(f"    dynamic_bullish_conf_weight_multiplier: {dynamic_bullish_conf_weight_multiplier.loc[probe_ts]:.4f}") # [修改的代码行]
+            print(f"    bullish_volume_price_structure_factor: {bullish_volume_price_structure_factor.loc[probe_ts]:.4f}")
+            print(f"    bullish_purity_factor: {bullish_purity_factor.loc[probe_ts]:.4f}")
+            print(f"    dynamic_bullish_div_weight_multiplier: {dynamic_bullish_div_weight_multiplier.loc[probe_ts]:.4f}")
+            print(f"    dynamic_bullish_conf_weight_multiplier: {dynamic_bullish_conf_weight_multiplier.loc[probe_ts]:.4f}")
             print(f"  [看涨背离结果]: SCORE_BEHAVIOR_BULLISH_DIVERGENCE = {bullish_divergence_score.loc[probe_ts]:.4f}")
             print(f"  [看跌背离关键计算节点]:")
             print(f"    price_up_trend: {price_up_trend.loc[probe_ts]}")
@@ -2032,10 +2032,10 @@ class BehavioralIntelligence:
             print(f"    structural_context_factor_bearish: {structural_context_factor_bearish.loc[probe_ts]:.4f}")
             print(f"    bearish_resonance_factor: {bearish_resonance_factor.loc[probe_ts]:.4f}")
             print(f"    bearish_price_action_factor: {bearish_price_action_factor.loc[probe_ts]:.4f}")
-            print(f"    bearish_volume_price_structure_factor: {bearish_volume_price_structure_factor.loc[probe_ts]:.4f}") # [修改的代码行]
-            print(f"    bearish_purity_factor: {bearish_purity_factor.loc[probe_ts]:.4f}") # [修改的代码行]
-            print(f"    dynamic_bearish_div_weight_multiplier: {dynamic_bearish_div_weight_multiplier.loc[probe_ts]:.4f}") # [修改的代码行]
-            print(f"    dynamic_bearish_conf_weight_multiplier: {dynamic_bearish_conf_weight_multiplier.loc[probe_ts]:.4f}") # [修改的代码行]
+            print(f"    bearish_volume_price_structure_factor: {bearish_volume_price_structure_factor.loc[probe_ts]:.4f}")
+            print(f"    bearish_purity_factor: {bearish_purity_factor.loc[probe_ts]:.4f}")
+            print(f"    dynamic_bearish_div_weight_multiplier: {dynamic_bearish_div_weight_multiplier.loc[probe_ts]:.4f}")
+            print(f"    dynamic_bearish_conf_weight_multiplier: {dynamic_bearish_conf_weight_multiplier.loc[probe_ts]:.4f}")
             print(f"  [看跌背离结果]: SCORE_BEHAVIOR_BEARISH_DIVERGENCE = {bearish_divergence_score.loc[probe_ts]:.4f}")
 
         return bullish_divergence_score.astype(np.float32), bearish_divergence_score.astype(np.float32)
