@@ -734,7 +734,7 @@ class BehavioralIntelligence:
             ).clip(0, 1)
             environmental_adaptability_factor = 0.5 + environmental_adaptability_factor_raw * 0.5 # 映射到 [0.5, 1.0]
         # --- 4. 维度三：行为一致性 (Behavioral Coherence) ---
-        required_signals_behavior = ['upward_impulse_purity_D', 'downward_impulse_purity_D', 'deception_index_D']
+        required_signals_behavior = ['upward_impulse_purity_D', 'vacuum_traversal_efficiency_D', 'deception_index_D']
         upward_purity_score = pd.Series(0.0, index=df.index) # 用于探针输出
         downward_purity_score = pd.Series(0.0, index=df.index) # 用于探针输出
         deception_score = pd.Series(0.0, index=df.index) # 用于探针输出
@@ -744,7 +744,7 @@ class BehavioralIntelligence:
         behavioral_coherence_factor = pd.Series(1.0, index=df.index)
         if self._validate_required_signals(df, required_signals_behavior, "_diagnose_microstructure_intent"):
             upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_microstructure_intent")
-            downward_purity_raw = self._get_safe_series(df, 'downward_impulse_purity_D', 0.0, method_name="_diagnose_microstructure_intent")
+            downward_purity_raw = self._get_safe_series(df, 'vacuum_traversal_efficiency_D', 0.0, method_name="_diagnose_microstructure_intent")
             deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_microstructure_intent")
             upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
             downward_purity_score = get_adaptive_mtf_normalized_score(downward_purity_raw, df.index, ascending=True, tf_weights=default_weights)
@@ -780,7 +780,7 @@ class BehavioralIntelligence:
                         print(f"          - [环境适应性] ATR (ATR_14_D): {self._get_safe_series(df, 'ATR_14_D', 0.0).get(probe_date, 'N/A'):.4f}")
                         print(f"          - [环境适应性] 量比 (volume_ratio_D): {self._get_safe_series(df, 'volume_ratio_D', 1.0).get(probe_date, 'N/A'):.4f}")
                         print(f"          - [行为一致性] 上涨脉冲纯度 (upward_impulse_purity_D): {self._get_safe_series(df, 'upward_impulse_purity_D', 0.0).get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [行为一致性] 下跌脉冲纯度 (downward_impulse_purity_D): {self._get_safe_series(df, 'downward_impulse_purity_D', 0.0).get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [行为一致性] 真空穿越效率 (vacuum_traversal_efficiency_D): {self._get_safe_series(df, 'vacuum_traversal_efficiency_D', 0.0).get(probe_date, 'N/A'):.4f}")
                         print(f"          - [行为一致性] 欺骗指数 (deception_index_D): {self._get_safe_series(df, 'deception_index_D', 0.0).get(probe_date, 'N/A'):.4f}")
                         # --- 打印关键计算节点 ---
                         print(f"        --- [关键计算节点 - 战场迷雾协议] ---")
@@ -798,7 +798,7 @@ class BehavioralIntelligence:
                         print(f"              - [融合] 环境适应性因子 (映射后): {environmental_adaptability_factor.get(probe_date, 'N/A'):.4f}")
                         print(f"          - [维度三] 行为一致性:")
                         print(f"              - 上涨脉冲纯度得分: {upward_purity_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 下跌脉冲纯度得分: {downward_purity_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 真空穿越效率得分: {downward_purity_score.get(probe_date, 'N/A'):.4f}")
                         print(f"              - 欺骗指数得分: {deception_score.get(probe_date, 'N/A'):.4f}")
                         print(f"              - 脉冲纯度一致性 (purity_coherence): {purity_coherence.get(probe_date, 'N/A'):.4f}")
                         print(f"              - 欺骗惩罚因子 (deception_penalty_factor): {deception_penalty_factor.get(probe_date, 'N/A'):.4f}")
