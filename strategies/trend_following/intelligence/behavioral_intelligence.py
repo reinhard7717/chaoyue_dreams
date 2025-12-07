@@ -245,7 +245,6 @@ class BehavioralIntelligence:
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_conf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         long_term_weights = get_param_value(p_conf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
-        # [代码修改] 获取调试参数，用于传递给子方法
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
         probe_dates = get_param_value(debug_params.get('probe_dates'), [])
@@ -254,7 +253,7 @@ class BehavioralIntelligence:
             probe_timestamps = pd.to_datetime(probe_dates).tz_localize(df.index.tz if df.index.tz else None)
             valid_probe_dates = [d for d in probe_timestamps if d in df.index]
             if valid_probe_dates:
-                probe_ts = valid_probe_dates[0] # 使用第一个有效的探针日期
+                probe_ts = valid_probe_dates[0]
         # --- 基础信号计算 ---
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_behavioral_axioms")
         if 'ACCEL_5_pct_change_D' in df.columns:
@@ -269,7 +268,7 @@ class BehavioralIntelligence:
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
         # --- 超买信号 ---
         final_overextension_score = self._diagnose_price_overextension(df, default_weights, long_term_weights)
-        states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
+        states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32) # 修改的代码行: 确保类型一致
         # --- 行为铁三角 ---
         upward_efficiency_score = self._diagnose_upward_efficiency(df, default_weights)
         states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
@@ -281,6 +280,9 @@ class BehavioralIntelligence:
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence
         lower_shadow_quality = self._diagnose_lower_shadow_quality(df)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
+        # [代码修改] 提前计算 SCORE_BEHAVIOR_DECEPTION_INDEX，因为它是 _diagnose_breakout_failure_risk 的依赖
+        deception_index = self._diagnose_deception_index(df)
+        states['SCORE_BEHAVIOR_DECEPTION_INDEX'] = deception_index
         # [代码修改] 调整调用顺序，并将 final_overextension_score 作为参数直接传递
         distribution_intent = self._diagnose_distribution_intent(df, default_weights, final_overextension_score)
         states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] = distribution_intent
@@ -290,8 +292,10 @@ class BehavioralIntelligence:
         states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = self._diagnose_breakout_failure_risk(
             df,
             distribution_intent,
-            is_debug_enabled, # 修改的代码行: 传递 debug_enabled
-            probe_ts # 修改的代码行: 传递 probe_ts
+            final_overextension_score, # 修改的代码行: 传递 final_overextension_score
+            deception_index, # 修改的代码行: 传递 deception_index
+            is_debug_enabled,
+            probe_ts
         )
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights)
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights)
@@ -323,7 +327,6 @@ class BehavioralIntelligence:
         ).fillna(0.0)
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * selling_exhaustion_score).astype(np.float32)
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
-        states['SCORE_BEHAVIOR_DECEPTION_INDEX'] = self._diagnose_deception_index(df)
         # [代码修改] 移除 SCORE_RISK_BREAKOUT_FAILURE_CASCADE 相关的探针逻辑，因为该信号已在其自身方法中实现详细探针
         return states
 
@@ -1003,7 +1006,7 @@ class BehavioralIntelligence:
         ).pow(1/(fusion_weights.get('context', 0.3) + fusion_weights.get('action', 0.4) + fusion_weights.get('quality', 0.3))).fillna(0.0)
         return ambush_counterattack_score.clip(0, 1).astype(np.float32)
 
-    def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
+    def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, overextension_score_series: pd.Series, deception_index_series: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
         【V3.0 · 诡道升级版】诊断突破失败级联风险
         - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-套牢-背弃-情境”
@@ -1019,6 +1022,7 @@ class BehavioralIntelligence:
                       情境放大器 = 1 + (价格超买分 × W_overextension + 负向欺骗分 × W_negative_deception) × MaxAmplificationFactor
         """
         method_name = "_diagnose_breakout_failure_risk"
+        # [代码修改] 移除 INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW 和 SCORE_BEHAVIOR_DECEPTION_INDEX，因为它们现在作为参数传入
         required_signals = [
             'breakout_quality_score_D', 'volume_ratio_D', 'loser_pain_index_D',
             'main_force_conviction_index_D', 'main_force_execution_alpha_D'
@@ -1045,9 +1049,9 @@ class BehavioralIntelligence:
         # 主力背弃度 (Main Force Abandonment)
         main_force_conviction_raw = self._get_safe_series(df, 'main_force_conviction_index_D', 0.0, method_name=method_name)
         main_force_execution_alpha_raw = self._get_safe_series(df, 'main_force_execution_alpha_D', 0.0, method_name=method_name)
-        # 情境放大器 (Contextual Amplifier) - 从 atomic_states 获取
-        overextension_raw = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.0)
-        deception_raw = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0)
+        # 情境放大器 (Contextual Amplifier) - 从参数获取
+        overextension_score = overextension_score_series # 修改的代码行: 直接使用传入的 series
+        deception_raw = deception_index_series # 修改的代码行: 直接使用传入的 series
         # --- 2. 计算各要素得分 ---
         lure_score = get_adaptive_mtf_normalized_score(breakout_quality_raw, df.index, ascending=True, tf_weights=default_weights)
         ambush_score = distribution_intent
@@ -1067,7 +1071,7 @@ class BehavioralIntelligence:
             alpha_negative_normalized.pow(mf_abandonment_weights.get('negative_alpha', 0.5))
         ).fillna(0.0)
         # 情境放大器
-        overextension_score = overextension_raw # 已经是 [0,1]
+        # overextension_score = overextension_raw # 已经是 [0,1] - This line is now redundant as overextension_score is already the passed series
         negative_deception_score = deception_raw.clip(upper=0).abs() # 负向欺骗，即拉高出货
         context_amplifier_factor = (
             overextension_score * context_amplifier_weights.get('overextension', 0.6) +
@@ -1094,8 +1098,8 @@ class BehavioralIntelligence:
             print(f"         - volume_ratio_D: {volume_raw.loc[probe_ts]:.4f}")
             print(f"         - main_force_conviction_index_D: {main_force_conviction_raw.loc[probe_ts]:.4f}")
             print(f"         - main_force_execution_alpha_D: {main_force_execution_alpha_raw.loc[probe_ts]:.4f}")
-            print(f"         - INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW: {overextension_raw.loc[probe_ts]:.4f}")
-            print(f"         - SCORE_BEHAVIOR_DECEPTION_INDEX: {deception_raw.loc[probe_ts]:.4f}")
+            print(f"         - INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW (passed): {overextension_score.loc[probe_ts]:.4f}") # Modified probe output
+            print(f"         - SCORE_BEHAVIOR_DECEPTION_INDEX (passed): {deception_raw.loc[probe_ts]:.4f}") # Modified probe output
             print(f"       - 关键计算节点:")
             print(f"         - lure_score (诱饵分): {lure_score.loc[probe_ts]:.4f}")
             print(f"         - ambush_score (伏击分): {ambush_score.loc[probe_ts]:.4f}")
