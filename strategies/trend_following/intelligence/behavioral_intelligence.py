@@ -1010,7 +1010,7 @@ class BehavioralIntelligence:
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, overextension_score_series: pd.Series, deception_index_series: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        【V4.0 · 风险非线性校准版】诊断突破失败级联风险
+        【V4.1 · 欺骗性平静放大版】诊断突破失败级联风险
         - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-套牢-背弃-情境”
                       诡道剧本的全新五维诊断模型，旨在精确识别高迷惑性的“牛市陷阱”。
         - 战术五要素:
@@ -1018,10 +1018,10 @@ class BehavioralIntelligence:
           2. 伏击 (The Ambush): 融合 `distribution_intent` (明确派发意图) 和 “隐蔽伏击意图” (买盘支持减弱、上涨纯度下降)，量化主力在诱多过程中的真实派发意图和潜在陷阱。
           3. 套牢盘痛苦度 (Trapped Force Pain): 融合抛压潜力（获利盘比例、量比）和抛压触发器（获利盘不稳定性、筹码疲劳度），并引入联动放大机制，使抛压触发器对高抛压潜力产生更强的非线性影响。
           4. 主力背弃度 (Main Force Abandonment): 融合 `main_force_conviction_index_D` (负向)、`main_force_execution_alpha_D` (负向) 和 `main_force_net_flow_calibrated_D` (负向)，并对负向主力净流分应用 `1 - (1 - score)^P` 形式的幂函数，确保其在高风险时得到有效增强，量化主力对突破的放弃程度和实际资金流出。
-          5. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买)、`SCORE_BEHAVIOR_DECEPTION_INDEX` (正向，拉高出货) 和 `retail_fomo_premium_index_D` (正向散户狂热)，对风险进行情境化放大。
+          5. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买)、`SCORE_BEHAVIOR_DECEPTION_INDEX` (正向，拉高出货) 和 `retail_fomo_premium_index_D` (正向散户狂热)，以及“欺骗性平静”效应，对风险进行情境化放大。
         - 数学模型: 风险分 = 核心风险基准分 × 情境放大器
                       核心风险基准分 = 情境化诱饵分 × tanh(核心风险加权平均 × TanhFactor)
-                      情境放大器 = 1 + (价格超买分 × W_overextension + 正向欺骗分 × W_positive_deception + 正向散户狂热分 × W_retail_fomo) × MaxAmplificationFactor
+                      情境放大器 = 1 + (显性情境放大因子 × MaxAmplificationFactor) + 欺骗性平静效应
         """
         method_name = "_diagnose_breakout_failure_risk"
         required_signals = [
@@ -1052,7 +1052,11 @@ class BehavioralIntelligence:
         ambush_fusion_weights = get_param_value(breakout_params.get('ambush_fusion_weights'), {"distribution_intent": 0.7, "covert_ambush_intent": 0.3})
         covert_ambush_intent_weights = get_param_value(breakout_params.get('covert_ambush_intent_weights'), {"weak_buying_support": 0.6, "declining_impulse_purity": 0.4})
         trapped_force_amplification_factor = get_param_value(breakout_params.get('trapped_force_amplification_factor'), 1.0)
-        mf_net_flow_power_factor = get_param_value(breakout_params.get('mf_net_flow_power_factor'), 2.0) # [代码修改] 调整默认值以配合新的非线性函数
+        mf_net_flow_power_factor = get_param_value(breakout_params.get('mf_net_flow_power_factor'), 2.0)
+        # [代码修改] 新增欺骗性平静参数
+        deceptive_calm_weights = get_param_value(breakout_params.get('deceptive_calm_weights'), {"overextension_inverse": 0.3, "positive_deception_inverse": 0.3, "retail_fomo_inverse": 0.4})
+        deceptive_calm_multiplier = get_param_value(breakout_params.get('deceptive_calm_multiplier'), 0.2)
+        deceptive_calm_threshold = get_param_value(breakout_params.get('deceptive_calm_threshold'), 0.5)
         # --- 1. 获取五大核心战术要素的原始数据 ---
         # 诱饵 (The Lure)
         breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name=method_name)
@@ -1104,7 +1108,6 @@ class BehavioralIntelligence:
         conviction_decay_score = get_adaptive_mtf_normalized_score(main_force_conviction_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         alpha_negative_normalized = get_adaptive_mtf_normalized_score(main_force_execution_alpha_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         negative_net_flow_score = get_adaptive_mtf_normalized_score(main_force_net_flow_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
-        # [代码修改] 对 negative_net_flow_score 应用 1 - (1 - score)^P 形式的幂函数
         amplified_negative_net_flow_score = (1 - (1 - negative_net_flow_score).pow(mf_net_flow_power_factor)).clip(0,1)
         mf_abandonment_score = (
             conviction_decay_score * mf_abandonment_weights.get('conviction_decay', 0.3) +
@@ -1113,12 +1116,12 @@ class BehavioralIntelligence:
         ).clip(0, 1).fillna(0.0)
         positive_deception_score = deception_raw.clip(lower=0)
         retail_fomo_score = get_adaptive_mtf_normalized_score(retail_fomo_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
+        # 显性情境放大因子
         context_amplifier_factor = (
             overextension_score * context_amplifier_weights.get('overextension', 0.4) +
             positive_deception_score * context_amplifier_weights.get('positive_deception', 0.3) +
             retail_fomo_score * context_amplifier_weights.get('retail_fomo', 0.3)
         ).clip(0, 1)
-        final_amplifier = 1 + context_amplifier_factor * max_amplification_factor
         # --- 3. 核心风险基准分合成 ---
         weighted_avg_risk = (
             ambush_score * core_risk_weights.get('ambush', 0.3) +
@@ -1126,6 +1129,15 @@ class BehavioralIntelligence:
             mf_abandonment_score * core_risk_weights.get('main_force_abandonment', 0.3)
         ) / sum(core_risk_weights.values())
         core_risk_base = lure_score_modulated * np.tanh(weighted_avg_risk * core_risk_tanh_factor).fillna(0.0)
+        # [代码修改] 计算欺骗性平静分和效应
+        deceptive_calm_score = (
+            (1 - overextension_score) * deceptive_calm_weights.get('overextension_inverse', 0.3) +
+            (1 - positive_deception_score) * deceptive_calm_weights.get('positive_deception_inverse', 0.3) +
+            (1 - retail_fomo_score) * deceptive_calm_weights.get('retail_fomo_inverse', 0.4)
+        ).clip(0,1)
+        deceptive_calm_effect = deceptive_calm_score * deceptive_calm_multiplier * (core_risk_base > deceptive_calm_threshold).astype(float)
+        # [代码修改] 最终放大器融合显性情境放大因子和欺骗性平静效应
+        final_amplifier = 1 + (context_amplifier_factor * max_amplification_factor) + deceptive_calm_effect
         # --- 4. 最终风险合成 ---
         breakout_failure_risk = (core_risk_base * final_amplifier).clip(0, 1)
         # --- 5. 探针输出 ---
@@ -1167,12 +1179,14 @@ class BehavioralIntelligence:
             print(f"         - conviction_decay_score (信念衰减分): {conviction_decay_score.loc[probe_ts]:.4f}")
             print(f"         - alpha_negative_normalized (负向alpha归一化): {alpha_negative_normalized.loc[probe_ts]:.4f}")
             print(f"         - negative_net_flow_score (负向主力净流分): {negative_net_flow_score.loc[probe_ts]:.4f}")
-            print(f"         - amplified_negative_net_flow_score (放大后的负向主力净流分): {amplified_negative_net_flow_score.loc[probe_ts]:.4f}") # [代码修改] 新增
+            print(f"         - amplified_negative_net_flow_score (放大后的负向主力净流分): {amplified_negative_net_flow_score.loc[probe_ts]:.4f}")
             print(f"         - mf_abandonment_score (主力背弃度): {mf_abandonment_score.loc[probe_ts]:.4f}")
             print(f"         - overextension_score (价格超买分): {overextension_score.loc[probe_ts]:.4f}")
             print(f"         - positive_deception_score (正向欺骗分): {positive_deception_score.loc[probe_ts]:.4f}")
             print(f"         - retail_fomo_score (散户狂热分): {retail_fomo_score.loc[probe_ts]:.4f}")
-            print(f"         - context_amplifier_factor (情境放大因子): {context_amplifier_factor.loc[probe_ts]:.4f}")
+            print(f"         - context_amplifier_factor (显性情境放大因子): {context_amplifier_factor.loc[probe_ts]:.4f}") # [代码修改] 更改名称
+            print(f"         - deceptive_calm_score (欺骗性平静分): {deceptive_calm_score.loc[probe_ts]:.4f}") # [代码修改] 新增
+            print(f"         - deceptive_calm_effect (欺骗性平静效应): {deceptive_calm_effect.loc[probe_ts]:.4f}") # [代码修改] 新增
             print(f"         - final_amplifier (最终放大器): {final_amplifier.loc[probe_ts]:.4f}")
             print(f"         - weighted_avg_risk (核心风险加权平均): {weighted_avg_risk.loc[probe_ts]:.4f}")
             print(f"         - core_risk_base (核心风险基准分): {core_risk_base.loc[probe_ts]:.4f}")
