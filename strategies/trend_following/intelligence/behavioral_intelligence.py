@@ -1010,7 +1010,7 @@ class BehavioralIntelligence:
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, overextension_score_series: pd.Series, deception_index_series: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        【V3.3 · 级联风险重构版】诊断突破失败级联风险
+        【V3.4 · 风险非线性增强版】诊断突破失败级联风险
         - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-套牢-背弃-情境”
                       诡道剧本的全新五维诊断模型，旨在精确识别高迷惑性的“牛市陷阱”。
         - 战术五要素:
@@ -1020,7 +1020,7 @@ class BehavioralIntelligence:
           4. 主力背弃度 (Main Force Abandonment): 融合 `main_force_conviction_index_D` (负向)、`main_force_execution_alpha_D` (负向) 和 `main_force_net_flow_calibrated_D` (负向)，量化主力对突破的放弃程度和实际资金流出。
           5. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买)、`SCORE_BEHAVIOR_DECEPTION_INDEX` (正向，拉高出货) 和 `retail_fomo_premium_index_D` (散户狂热)，对风险进行情境化放大。
         - 数学模型: 风险分 = 核心风险基准分 × 情境放大器
-                      核心风险基准分 = 诱饵分 × (W_ambush * 伏击分 + W_trapped_pain * 套牢盘痛苦度 + W_mf_abandon * 主力背弃度) / (W_ambush + W_trapped_pain + W_mf_abandon)
+                      核心风险基准分 = 诱饵分 × tanh(核心风险加权平均 × TanhFactor)
                       情境放大器 = 1 + (价格超买分 × W_overextension + 正向欺骗分 × W_positive_deception + 散户狂热分 × W_retail_fomo) × MaxAmplificationFactor
         """
         method_name = "_diagnose_breakout_failure_risk"
@@ -1037,14 +1037,16 @@ class BehavioralIntelligence:
         p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         breakout_params = get_param_value(p_conf.get('breakout_failure_risk_params'), {})
-        # [代码修改] core_risk_weights 调整为加权平均的权重
         core_risk_weights = get_param_value(breakout_params.get('core_risk_weights'), {"ambush": 0.3, "trapped_force_pain": 0.4, "main_force_abandonment": 0.3})
-        # [代码修改] trapped_force_pain_weights 调整为抛压潜力与触发器的权重
-        trapped_force_pain_weights = get_param_value(breakout_params.get('trapped_force_pain_weights'), {"winner_rate": 0.4, "volume_ratio": 0.3, "instability_trigger": 0.3})
+        # [代码修改] 微调 trapped_force_pain_weights 的默认值
+        trapped_force_pain_weights = get_param_value(breakout_params.get('trapped_force_pain_weights'), {"potential_pressure": 0.6, "instability_trigger": 0.4})
         instability_trigger_weights = get_param_value(breakout_params.get('instability_trigger_weights'), {"winner_instability": 0.6, "chip_fatigue": 0.4})
-        mf_abandonment_weights = get_param_value(breakout_params.get('main_force_abandonment_weights'), {"conviction_decay": 0.4, "negative_alpha": 0.3, "negative_net_flow": 0.3})
+        # [代码修改] 微调 main_force_abandonment_weights 的默认值
+        mf_abandonment_weights = get_param_value(breakout_params.get('main_force_abandonment_weights'), {"conviction_decay": 0.3, "negative_alpha": 0.3, "negative_net_flow": 0.4})
         context_amplifier_weights = get_param_value(breakout_params.get('context_amplifier_weights'), {"overextension": 0.4, "positive_deception": 0.3, "retail_fomo": 0.3})
         max_amplification_factor = get_param_value(breakout_params.get('max_amplification_factor'), 0.5)
+        # [代码修改] 新增 core_risk_tanh_factor
+        core_risk_tanh_factor = get_param_value(breakout_params.get('core_risk_tanh_factor'), 2.0)
         # --- 1. 获取五大核心战术要素的原始数据 ---
         # 诱饵 (The Lure)
         breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name=method_name)
@@ -1069,23 +1071,24 @@ class BehavioralIntelligence:
         volume_ratio_score = get_adaptive_mtf_normalized_score(volume_raw, df.index, ascending=True, tf_weights=default_weights)
         winner_stability_score = get_adaptive_mtf_normalized_score(winner_stability_raw, df.index, ascending=True, tf_weights=default_weights)
         chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df.index, ascending=True, tf_weights=default_weights)
-        # [代码修改] 修正 trapped_force_score 计算逻辑
         # 抛压潜力 = 获利盘比例 * 量比
-        potential_pressure = (winner_rate_score * trapped_force_pain_weights.get('winner_rate', 0.4) +
-                              volume_ratio_score * trapped_force_pain_weights.get('volume_ratio', 0.3)).clip(0,1)
+        potential_pressure = (winner_rate_score * trapped_force_pain_weights.get('winner_rate', 0.4) + # 这里的权重应该来自 trapped_force_pain_weights
+                              volume_ratio_score * trapped_force_pain_weights.get('volume_ratio', 0.3)).clip(0,1) # 这里的权重应该来自 trapped_force_pain_weights
+        # [代码修改] 修正 potential_pressure 的权重引用
+        potential_pressure = (winner_rate_score * 0.7 + volume_ratio_score * 0.3).clip(0,1) # 临时修正，等待JSON配置更新
         # 抛压触发器 = (1 - 获利盘稳定性) * 筹码疲劳度
         winner_instability_score = (1 - winner_stability_score).clip(0,1)
         instability_trigger = (winner_instability_score * instability_trigger_weights.get('winner_instability', 0.6) +
                                chip_fatigue_score * instability_trigger_weights.get('chip_fatigue', 0.4)).clip(0,1)
-        trapped_force_score = (potential_pressure * trapped_force_pain_weights.get('potential_pressure', 0.7) +
-                               instability_trigger * trapped_force_pain_weights.get('instability_trigger', 0.3)).clip(0,1) # 调整权重
+        trapped_force_score = (potential_pressure * trapped_force_pain_weights.get('potential_pressure', 0.6) +
+                               instability_trigger * trapped_force_pain_weights.get('instability_trigger', 0.4)).clip(0,1)
         conviction_decay_score = get_adaptive_mtf_normalized_score(main_force_conviction_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         alpha_negative_normalized = get_adaptive_mtf_normalized_score(main_force_execution_alpha_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         negative_net_flow_score = get_adaptive_mtf_normalized_score(main_force_net_flow_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         mf_abandonment_score = (
-            conviction_decay_score * mf_abandonment_weights.get('conviction_decay', 0.4) +
+            conviction_decay_score * mf_abandonment_weights.get('conviction_decay', 0.3) +
             alpha_negative_normalized * mf_abandonment_weights.get('negative_alpha', 0.3) +
-            negative_net_flow_score * mf_abandonment_weights.get('negative_net_flow', 0.3)
+            negative_net_flow_score * mf_abandonment_weights.get('negative_net_flow', 0.4)
         ).clip(0, 1).fillna(0.0)
         positive_deception_score = deception_raw.clip(lower=0)
         retail_fomo_score = get_adaptive_mtf_normalized_score(retail_fomo_raw, df.index, ascending=True, tf_weights=default_weights)
@@ -1096,14 +1099,13 @@ class BehavioralIntelligence:
         ).clip(0, 1)
         final_amplifier = 1 + context_amplifier_factor * max_amplification_factor
         # --- 3. 核心风险基准分合成 ---
-        # [代码修改] 修正 core_risk_base 计算逻辑，改为加权平均
-        core_risk_base = (
-            lure_score * (
-                ambush_score * core_risk_weights.get('ambush', 0.3) +
-                trapped_force_score * core_risk_weights.get('trapped_force_pain', 0.4) +
-                mf_abandonment_score * core_risk_weights.get('main_force_abandonment', 0.3)
-            ) / sum(core_risk_weights.values()) # 确保权重和为1
-        ).fillna(0.0)
+        # [代码修改] 修正 core_risk_base 计算逻辑，引入 tanh 非线性函数
+        weighted_avg_risk = (
+            ambush_score * core_risk_weights.get('ambush', 0.3) +
+            trapped_force_score * core_risk_weights.get('trapped_force_pain', 0.4) +
+            mf_abandonment_score * core_risk_weights.get('main_force_abandonment', 0.3)
+        ) / sum(core_risk_weights.values())
+        core_risk_base = lure_score * np.tanh(weighted_avg_risk * core_risk_tanh_factor).fillna(0.0)
         # --- 4. 最终风险合成 ---
         breakout_failure_risk = (core_risk_base * final_amplifier).clip(0, 1)
         # --- 5. 探针输出 ---
@@ -1130,9 +1132,9 @@ class BehavioralIntelligence:
             print(f"         - volume_ratio_score (量比分): {volume_ratio_score.loc[probe_ts]:.4f}")
             print(f"         - winner_stability_score (获利盘稳定性分): {winner_stability_score.loc[probe_ts]:.4f}")
             print(f"         - chip_fatigue_score (筹码疲劳分): {chip_fatigue_score.loc[probe_ts]:.4f}")
-            print(f"         - potential_pressure (抛压潜力): {potential_pressure.loc[probe_ts]:.4f}") # 新增
-            print(f"         - winner_instability_score (获利盘不稳定性分): {winner_instability_score.loc[probe_ts]:.4f}") # 新增
-            print(f"         - instability_trigger (抛压触发器): {instability_trigger.loc[probe_ts]:.4f}") # 新增
+            print(f"         - potential_pressure (抛压潜力): {potential_pressure.loc[probe_ts]:.4f}")
+            print(f"         - winner_instability_score (获利盘不稳定性分): {winner_instability_score.loc[probe_ts]:.4f}")
+            print(f"         - instability_trigger (抛压触发器): {instability_trigger.loc[probe_ts]:.4f}")
             print(f"         - trapped_force_score (套牢盘痛苦度): {trapped_force_score.loc[probe_ts]:.4f}")
             print(f"         - conviction_decay_score (信念衰减分): {conviction_decay_score.loc[probe_ts]:.4f}")
             print(f"         - alpha_negative_normalized (负向alpha归一化): {alpha_negative_normalized.loc[probe_ts]:.4f}")
@@ -1143,6 +1145,7 @@ class BehavioralIntelligence:
             print(f"         - retail_fomo_score (散户狂热分): {retail_fomo_score.loc[probe_ts]:.4f}")
             print(f"         - context_amplifier_factor (情境放大因子): {context_amplifier_factor.loc[probe_ts]:.4f}")
             print(f"         - final_amplifier (最终放大器): {final_amplifier.loc[probe_ts]:.4f}")
+            print(f"         - weighted_avg_risk (核心风险加权平均): {weighted_avg_risk.loc[probe_ts]:.4f}") # 新增
             print(f"         - core_risk_base (核心风险基准分): {core_risk_base.loc[probe_ts]:.4f}")
             print(f"       - 最终结果:")
             print(f"         - SCORE_RISK_BREAKOUT_FAILURE_CASCADE: {breakout_failure_risk.loc[probe_ts]:.4f}")

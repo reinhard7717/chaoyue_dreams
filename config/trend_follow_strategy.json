@@ -1412,24 +1412,24 @@
           "comment": "融合“脆弱战场”、“幽灵诡计”和“突袭品质”构建“伏击式反攻”时的权重及参数。"
         },
         "breakout_failure_risk_params": {
-          "description": "【V3.3 · 级联风险重构版】“突破失败级联风险”信号参数",
+          "description": "【V3.4 · 风险非线性增强版】“突破失败级联风险”信号参数",
           "core_risk_weights": {
             "ambush": 0.3,
             "trapped_force_pain": 0.4,
             "main_force_abandonment": 0.3
           },
           "trapped_force_pain_weights": {
-            "potential_pressure": 0.7,
-            "instability_trigger": 0.3
+            "potential_pressure": 0.6,
+            "instability_trigger": 0.4
           },
           "instability_trigger_weights": {
             "winner_instability": 0.6,
             "chip_fatigue": 0.4
           },
           "main_force_abandonment_weights": {
-            "conviction_decay": 0.4,
+            "conviction_decay": 0.3,
             "negative_alpha": 0.3,
-            "negative_net_flow": 0.3
+            "negative_net_flow": 0.4
           },
           "context_amplifier_weights": {
             "overextension": 0.4,
@@ -1437,6 +1437,7 @@
             "retail_fomo": 0.3
           },
           "max_amplification_factor": 0.5,
+          "core_risk_tanh_factor": 2.0,
           "comment": "融合“诱饵”、“伏击”、“套牢盘痛苦度”、“主力背弃度”和“情境放大器”构建“突破失败级联风险”时的权重及参数。"
         },
         "neutral_zone_thresholds": {
