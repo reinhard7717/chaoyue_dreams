@@ -1010,7 +1010,7 @@ class BehavioralIntelligence:
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, overextension_score_series: pd.Series, deception_index_series: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        【V4.1 · 欺骗性平静放大版】诊断突破失败级联风险
+        【V4.2 · 动态风险权重版】诊断突破失败级联风险
         - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-套牢-背弃-情境”
                       诡道剧本的全新五维诊断模型，旨在精确识别高迷惑性的“牛市陷阱”。
         - 战术五要素:
@@ -1021,6 +1021,7 @@ class BehavioralIntelligence:
           5. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买)、`SCORE_BEHAVIOR_DECEPTION_INDEX` (正向，拉高出货) 和 `retail_fomo_premium_index_D` (正向散户狂热)，以及“欺骗性平静”效应，对风险进行情境化放大。
         - 数学模型: 风险分 = 核心风险基准分 × 情境放大器
                       核心风险基准分 = 情境化诱饵分 × tanh(核心风险加权平均 × TanhFactor)
+                      核心风险加权平均 = 动态权重加权平均(伏击分, 套牢盘痛苦度, 主力背弃度)
                       情境放大器 = 1 + (显性情境放大因子 × MaxAmplificationFactor) + 欺骗性平静效应
         """
         method_name = "_diagnose_breakout_failure_risk"
@@ -1053,10 +1054,11 @@ class BehavioralIntelligence:
         covert_ambush_intent_weights = get_param_value(breakout_params.get('covert_ambush_intent_weights'), {"weak_buying_support": 0.6, "declining_impulse_purity": 0.4})
         trapped_force_amplification_factor = get_param_value(breakout_params.get('trapped_force_amplification_factor'), 1.0)
         mf_net_flow_power_factor = get_param_value(breakout_params.get('mf_net_flow_power_factor'), 2.0)
-        # [代码修改] 新增欺骗性平静参数
         deceptive_calm_weights = get_param_value(breakout_params.get('deceptive_calm_weights'), {"overextension_inverse": 0.3, "positive_deception_inverse": 0.3, "retail_fomo_inverse": 0.4})
         deceptive_calm_multiplier = get_param_value(breakout_params.get('deceptive_calm_multiplier'), 0.2)
         deceptive_calm_threshold = get_param_value(breakout_params.get('deceptive_calm_threshold'), 0.5)
+        # [代码修改] 新增 dynamic_risk_weight_exponent
+        dynamic_risk_weight_exponent = get_param_value(breakout_params.get('dynamic_risk_weight_exponent'), 1.5)
         # --- 1. 获取五大核心战术要素的原始数据 ---
         # 诱饵 (The Lure)
         breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name=method_name)
@@ -1123,20 +1125,31 @@ class BehavioralIntelligence:
             retail_fomo_score * context_amplifier_weights.get('retail_fomo', 0.3)
         ).clip(0, 1)
         # --- 3. 核心风险基准分合成 ---
+        # [代码修改] 计算动态权重
+        dynamic_ambush_contribution = (ambush_score.pow(dynamic_risk_weight_exponent)) * core_risk_weights.get('ambush', 0.3)
+        dynamic_trapped_force_contribution = (trapped_force_score.pow(dynamic_risk_weight_exponent)) * core_risk_weights.get('trapped_force_pain', 0.4)
+        dynamic_mf_abandonment_contribution = (mf_abandonment_score.pow(dynamic_risk_weight_exponent)) * core_risk_weights.get('main_force_abandonment', 0.3)
+        total_dynamic_contribution = dynamic_ambush_contribution + dynamic_trapped_force_contribution + dynamic_mf_abandonment_contribution
+        # 避免除以零，如果所有贡献都为零，则使用原始权重
+        dynamic_ambush_weight = dynamic_ambush_contribution / total_dynamic_contribution.replace(0, 1)
+        dynamic_trapped_force_weight = dynamic_trapped_force_contribution / total_dynamic_contribution.replace(0, 1)
+        dynamic_mf_abandonment_weight = dynamic_mf_abandonment_contribution / total_dynamic_contribution.replace(0, 1)
+        # 如果 total_dynamic_contribution 为 0，则所有动态权重都为 NaN，此时回退到原始权重
+        dynamic_ambush_weight = dynamic_ambush_weight.fillna(core_risk_weights.get('ambush', 0.3))
+        dynamic_trapped_force_weight = dynamic_trapped_force_weight.fillna(core_risk_weights.get('trapped_force_pain', 0.4))
+        dynamic_mf_abandonment_weight = dynamic_mf_abandonment_weight.fillna(core_risk_weights.get('main_force_abandonment', 0.3))
         weighted_avg_risk = (
-            ambush_score * core_risk_weights.get('ambush', 0.3) +
-            trapped_force_score * core_risk_weights.get('trapped_force_pain', 0.4) +
-            mf_abandonment_score * core_risk_weights.get('main_force_abandonment', 0.3)
-        ) / sum(core_risk_weights.values())
+            ambush_score * dynamic_ambush_weight +
+            trapped_force_score * dynamic_trapped_force_weight +
+            mf_abandonment_score * dynamic_mf_abandonment_weight
+        )
         core_risk_base = lure_score_modulated * np.tanh(weighted_avg_risk * core_risk_tanh_factor).fillna(0.0)
-        # [代码修改] 计算欺骗性平静分和效应
         deceptive_calm_score = (
             (1 - overextension_score) * deceptive_calm_weights.get('overextension_inverse', 0.3) +
             (1 - positive_deception_score) * deceptive_calm_weights.get('positive_deception_inverse', 0.3) +
             (1 - retail_fomo_score) * deceptive_calm_weights.get('retail_fomo_inverse', 0.4)
         ).clip(0,1)
         deceptive_calm_effect = deceptive_calm_score * deceptive_calm_multiplier * (core_risk_base > deceptive_calm_threshold).astype(float)
-        # [代码修改] 最终放大器融合显性情境放大因子和欺骗性平静效应
         final_amplifier = 1 + (context_amplifier_factor * max_amplification_factor) + deceptive_calm_effect
         # --- 4. 最终风险合成 ---
         breakout_failure_risk = (core_risk_base * final_amplifier).clip(0, 1)
@@ -1184,9 +1197,12 @@ class BehavioralIntelligence:
             print(f"         - overextension_score (价格超买分): {overextension_score.loc[probe_ts]:.4f}")
             print(f"         - positive_deception_score (正向欺骗分): {positive_deception_score.loc[probe_ts]:.4f}")
             print(f"         - retail_fomo_score (散户狂热分): {retail_fomo_score.loc[probe_ts]:.4f}")
-            print(f"         - context_amplifier_factor (显性情境放大因子): {context_amplifier_factor.loc[probe_ts]:.4f}") # [代码修改] 更改名称
-            print(f"         - deceptive_calm_score (欺骗性平静分): {deceptive_calm_score.loc[probe_ts]:.4f}") # [代码修改] 新增
-            print(f"         - deceptive_calm_effect (欺骗性平静效应): {deceptive_calm_effect.loc[probe_ts]:.4f}") # [代码修改] 新增
+            print(f"         - context_amplifier_factor (显性情境放大因子): {context_amplifier_factor.loc[probe_ts]:.4f}")
+            print(f"         - deceptive_calm_score (欺骗性平静分): {deceptive_calm_score.loc[probe_ts]:.4f}")
+            print(f"         - deceptive_calm_effect (欺骗性平静效应): {deceptive_calm_effect.loc[probe_ts]:.4f}")
+            print(f"         - dynamic_ambush_weight (动态伏击权重): {dynamic_ambush_weight.loc[probe_ts]:.4f}") # [代码修改] 新增
+            print(f"         - dynamic_trapped_force_weight (动态套牢盘痛苦度权重): {dynamic_trapped_force_weight.loc[probe_ts]:.4f}") # [代码修改] 新增
+            print(f"         - dynamic_mf_abandonment_weight (动态主力背弃度权重): {dynamic_mf_abandonment_weight.loc[probe_ts]:.4f}") # [代码修改] 新增
             print(f"         - final_amplifier (最终放大器): {final_amplifier.loc[probe_ts]:.4f}")
             print(f"         - weighted_avg_risk (核心风险加权平均): {weighted_avg_risk.loc[probe_ts]:.4f}")
             print(f"         - core_risk_base (核心风险基准分): {core_risk_base.loc[probe_ts]:.4f}")
