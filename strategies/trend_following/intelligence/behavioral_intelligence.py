@@ -1010,7 +1010,7 @@ class BehavioralIntelligence:
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, overextension_score_series: pd.Series, deception_index_series: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        【V4.6 · 变量名修正版】诊断突破失败级联风险
+        【V4.7 · 风险动态趋势感知版】诊断突破失败级联风险
         - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-套牢-背弃-情境”
                       诡道剧本的全新五维诊断模型，旨在精确识别高迷惑性的“牛市陷阱”。
         - 战术五要素:
@@ -1019,10 +1019,11 @@ class BehavioralIntelligence:
           3. 套牢盘痛苦度 (Trapped Force Pain): 融合抛压潜力（获利盘比例、量比）和抛压触发器（获利盘不稳定性、筹码疲劳度），并引入联动放大机制，使抛压触发器对高抛压潜力产生更强的非线性影响。
           4. 主力背弃度 (Main Force Abandonment): 融合 `main_force_conviction_index_D` (负向)、`main_force_execution_alpha_D` (负向) 和 `main_force_net_flow_calibrated_D` (负向)，并对负向主力净流分应用 `1 - (1 - score)^P` 形式的幂函数，确保其在高风险时得到有效增强，量化主力对突破的放弃程度和实际资金流出。
           5. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买)、`SCORE_BEHAVIOR_DECEPTION_INDEX` (正向，拉高出货) 和 `retail_fomo_premium_index_D` (正向散户狂热)，以及“欺骗性平静”效应，对风险进行情境化放大。
-        - 数学模型: 风险分 = 核心风险基准分 × 情境放大器
+        - 数学模型: 风险分 = 核心风险基准分 × 情境放大器 × 风险动态调制因子
                       核心风险基准分 = 情境化诱饵分 × (1 - (1 - 核心风险加权平均)^P)
                       核心风险加权平均 = 动态权重加权幂平均(伏击分, 套牢盘痛苦度, 主力背弃度)，其中动态权重指数根据市场波动性和趋势活力自适应调整，幂指数用于增强协同效应。
                       情境放大器 = 1 + (显性情境放大因子 × MaxAmplificationFactor) + 欺骗性平静效应
+                      风险动态调制因子 = 1 + (风险趋势分 × 趋势乘数) + (风险动量分 × 动量乘数)
         """
         method_name = "_diagnose_breakout_failure_risk"
         required_signals = [
@@ -1062,6 +1063,12 @@ class BehavioralIntelligence:
         trend_vitality_exponent_multiplier = get_param_value(breakout_params.get('trend_vitality_exponent_multiplier'), 0.5)
         core_risk_synergy_exponent = get_param_value(breakout_params.get('core_risk_synergy_exponent'), 2.0)
         core_risk_high_end_stretch_power = get_param_value(breakout_params.get('core_risk_high_end_stretch_power'), 2.0)
+        # [代码修改] 新增风险动态调制参数
+        risk_ema_span = get_param_value(breakout_params.get('risk_ema_span'), 5)
+        risk_trend_slope_window = get_param_value(breakout_params.get('risk_trend_slope_window'), 5)
+        risk_momentum_diff_window = get_param_value(breakout_params.get('risk_momentum_diff_window'), 1)
+        risk_trend_mod_multiplier = get_param_value(breakout_params.get('risk_trend_mod_multiplier'), 0.2)
+        risk_momentum_mod_multiplier = get_param_value(breakout_params.get('risk_momentum_mod_multiplier'), 0.1)
         # --- 1. 获取五大核心战术要素的原始数据 ---
         # 诱饵 (The Lure)
         breakout_quality_raw = self._get_safe_series(df, 'breakout_quality_score_D', 0.0, method_name=method_name)
@@ -1158,7 +1165,6 @@ class BehavioralIntelligence:
         ).pow(1 / core_risk_synergy_exponent).fillna(0.0)
         # 使用 1 - (1 - x)^P 形式的幂函数对 weighted_avg_risk 进行高风险区间拉伸
         stretched_weighted_avg_risk = (1 - (1 - weighted_avg_risk).pow(core_risk_high_end_stretch_power)).clip(0,1)
-        # [代码修改] 修正变量名拼写错误
         core_risk_base = (lure_score_modulated * stretched_weighted_avg_risk).clip(0,1).fillna(0.0)
         deceptive_calm_score = (
             (1 - overextension_score) * deceptive_calm_weights.get('overextension_inverse', 0.3) +
@@ -1167,8 +1173,31 @@ class BehavioralIntelligence:
         ).clip(0,1)
         deceptive_calm_effect = deceptive_calm_score * deceptive_calm_multiplier * (core_risk_base > deceptive_calm_threshold).astype(float)
         final_amplifier = 1 + (context_amplifier_factor * max_amplification_factor) + deceptive_calm_effect
-        # --- 4. 最终风险合成 ---
-        breakout_failure_risk = (core_risk_base * final_amplifier).clip(0, 1)
+        # --- 4. 最终风险合成 (未调制前) ---
+        breakout_failure_risk_unmodulated = (core_risk_base * final_amplifier).clip(0, 1)
+        # [代码修改] 计算风险动态调制因子
+        # 确保有足够的历史数据进行EMA和斜率计算
+        if len(breakout_failure_risk_unmodulated) < max(risk_ema_span, risk_trend_slope_window, risk_momentum_diff_window) + 1:
+            risk_dynamic_modulator = pd.Series(1.0, index=df.index)
+            risk_ema = pd.Series(0.0, index=df.index)
+            risk_trend = pd.Series(0.0, index=df.index)
+            risk_momentum = pd.Series(0.0, index=df.index)
+            risk_trend_score = pd.Series(0.0, index=df.index)
+            risk_momentum_score = pd.Series(0.0, index=df.index)
+        else:
+            risk_ema = breakout_failure_risk_unmodulated.ewm(span=risk_ema_span, adjust=False).mean()
+            risk_trend = risk_ema.diff(risk_trend_slope_window).fillna(0.0)
+            risk_momentum = risk_trend.diff(risk_momentum_diff_window).fillna(0.0)
+            # 归一化趋势和动量，使其在[-1, 1]之间，以便进行放大或缩小
+            risk_trend_score = get_adaptive_mtf_normalized_bipolar_score(risk_trend, df.index, default_weights)
+            risk_momentum_score = get_adaptive_mtf_normalized_bipolar_score(risk_momentum, df.index, default_weights)
+            # 动态调制因子：当趋势和动量为正时放大，为负时缩小
+            risk_dynamic_modulator = (
+                1 +
+                (risk_trend_score * risk_trend_mod_multiplier) +
+                (risk_momentum_score * risk_momentum_mod_multiplier)
+            ).clip(0.5, 1.5) # 限制调制因子在合理范围，防止过度放大或缩小
+        breakout_failure_risk = (breakout_failure_risk_unmodulated * risk_dynamic_modulator).clip(0, 1)
         # --- 5. 探针输出 ---
         if debug_enabled and probe_ts and probe_ts in df.index:
             probe_date_str = probe_ts.strftime('%Y-%m-%d')
@@ -1227,6 +1256,13 @@ class BehavioralIntelligence:
             print(f"         - stretched_weighted_avg_risk (拉伸后的核心风险加权平均): {stretched_weighted_avg_risk.loc[probe_ts]:.4f}")
             print(f"         - core_risk_base (核心风险基准分): {core_risk_base.loc[probe_ts]:.4f}")
             print(f"         - final_amplifier (最终放大器): {final_amplifier.loc[probe_ts]:.4f}")
+            print(f"         - breakout_failure_risk_unmodulated (未调制风险): {breakout_failure_risk_unmodulated.loc[probe_ts]:.4f}") # [代码修改] 新增
+            print(f"         - risk_ema (风险EMA): {risk_ema.loc[probe_ts]:.4f}") # [代码修改] 新增
+            print(f"         - risk_trend (风险趋势): {risk_trend.loc[probe_ts]:.4f}") # [代码修改] 新增
+            print(f"         - risk_momentum (风险动量): {risk_momentum.loc[probe_ts]:.4f}") # [代码修改] 新增
+            print(f"         - risk_trend_score (风险趋势分): {risk_trend_score.loc[probe_ts]:.4f}") # [代码修改] 新增
+            print(f"         - risk_momentum_score (风险动量分): {risk_momentum_score.loc[probe_ts]:.4f}") # [代码修改] 新增
+            print(f"         - risk_dynamic_modulator (风险动态调制因子): {risk_dynamic_modulator.loc[probe_ts]:.4f}") # [代码修改] 新增
             print(f"       - 最终结果:")
             print(f"         - SCORE_RISK_BREAKOUT_FAILURE_CASCADE: {breakout_failure_risk.loc[probe_ts]:.4f}")
         return breakout_failure_risk.astype(np.float32)
