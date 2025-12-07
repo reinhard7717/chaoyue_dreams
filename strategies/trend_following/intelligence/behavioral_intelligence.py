@@ -923,8 +923,8 @@ class BehavioralIntelligence:
 
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
         """
-        【V5.0 · 诡道反击协议 (探针激活版)】诊断伏击式反攻信号
-        - 核心重构: 废弃V4.0“幽灵突袭协议”模型，引入“脆弱战场 × 幽灵诡计 × 突袭品质”的全新三维诊断框架。
+        【V5.0 · 诡道反击协议】诊断伏击式反攻信号。
+        - 核心重构: 引入“脆弱战场 × 幽灵诡计 × 突袭品质”的全新三维诊断框架。
         - 诊断三维度:
           1. 脆弱战场 (Vulnerable Battlefield): 评估市场先前的脆弱性（恐慌、短期下跌趋势/价格停滞、亏损盘痛苦）。
           2. 幽灵诡计 (Phantom Trick): 评估主力承接的强度及其看涨欺骗性（制造弱势假象）。
@@ -946,7 +946,7 @@ class BehavioralIntelligence:
         required_signals = [
             'panic_selling_cascade_D', f'SLOPE_{prior_weakness_slope_window}_close_D', 'loser_pain_index_D',
             'deception_index_D', 'closing_strength_index_D', 'upward_impulse_purity_D',
-            f'SLOPE_{price_stagnation_params.get("slope_window", 5)}_close_D', 'BBW_21_2.0_D' # [代码修改] 新增价格停滞所需信号
+            f'SLOPE_{price_stagnation_params.get("slope_window", 5)}_close_D', 'BBW_21_2.0_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_ambush_counterattack"):
             return pd.Series(0.0, index=df.index)
@@ -956,20 +956,17 @@ class BehavioralIntelligence:
         deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_diagnose_ambush_counterattack")
         closing_strength_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_diagnose_ambush_counterattack")
         upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_diagnose_ambush_counterattack")
-        # [代码修改] 获取价格停滞相关原始数据
         stagnation_slope_raw = self._get_safe_series(df, f'SLOPE_{price_stagnation_params.get("slope_window", 5)}_close_D', 0.0, method_name="_diagnose_ambush_counterattack")
         bbw_raw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name="_diagnose_ambush_counterattack")
         # --- 3. 维度一：脆弱战场 (Vulnerable Battlefield) ---
         panic_score = get_adaptive_mtf_normalized_score(panic_raw, df.index, ascending=True, tf_weights=default_weights)
         prior_weakness_score = get_adaptive_mtf_normalized_score(prior_weakness_slope_raw.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df.index, ascending=True, tf_weights=default_weights)
-        # [代码修改] 计算价格停滞得分
-        bbw_score = get_adaptive_mtf_normalized_score(bbw_raw, df.index, ascending=False, tf_weights=default_weights) # BBW越小，波动率越低，得分越高
+        bbw_score = get_adaptive_mtf_normalized_score(bbw_raw, df.index, ascending=False, tf_weights=default_weights)
         price_stagnation_score = pd.Series(0.0, index=df.index)
         price_stagnation_condition = (stagnation_slope_raw.abs() < price_stagnation_params.get("max_abs_slope_threshold", 0.005)) & \
-                                     (bbw_score > (1 - price_stagnation_params.get("max_bbw_score_threshold", 0.3))) # BBW得分高表示波动率低
+                                     (bbw_score > (1 - price_stagnation_params.get("max_bbw_score_threshold", 0.3)))
         price_stagnation_score[price_stagnation_condition] = (bbw_score[price_stagnation_condition] * (1 - stagnation_slope_raw.abs()[price_stagnation_condition] / price_stagnation_params.get("max_abs_slope_threshold", 0.005))).clip(0,1)
-        # [代码修改] 融合脆弱战场分
         ambush_context_score = (
             (panic_score + 1e-9).pow(context_weights.get('panic', 0.3)) *
             (prior_weakness_score + 1e-9).pow(context_weights.get('prior_weakness_slope', 0.4)) *
@@ -978,7 +975,6 @@ class BehavioralIntelligence:
         ).pow(1/(context_weights.get('panic', 0.3) + context_weights.get('prior_weakness_slope', 0.4) + context_weights.get('loser_pain', 0.2) + context_weights.get('price_stagnation', 0.1))).fillna(0.0)
         # --- 4. 维度二：幽灵诡计 (Phantom Trick) ---
         absorption_score = offensive_absorption_intent
-        # [代码修改] 捕捉看涨欺骗（主力意图强于价格表现，即价格被虚假压低）
         deceptive_narrative_score = get_adaptive_mtf_normalized_score(deception_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         deceptive_action_score = (
             (absorption_score + 1e-9).pow(action_weights.get('absorption', 0.6)) *
@@ -997,48 +993,6 @@ class BehavioralIntelligence:
             (deceptive_action_score + 1e-9).pow(fusion_weights.get('action', 0.4)) *
             (counterattack_quality_score + 1e-9).pow(fusion_weights.get('quality', 0.3))
         ).pow(1/(fusion_weights.get('context', 0.3) + fusion_weights.get('action', 0.4) + fusion_weights.get('quality', 0.3))).fillna(0.0)
-        # --- [探针逻辑] 暴露所有计算节点 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        is_debug_enabled = get_param_value(debug_params.get('enabled'), False)
-        probe_dates = get_param_value(debug_params.get('probe_dates'), [])
-        if is_debug_enabled and probe_dates and not df.empty:
-            for probe_date_str in probe_dates:
-                try:
-                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
-                    if probe_date in df.index:
-                        print(f"      [行为探针 V5.0] _diagnose_ambush_counterattack @ {probe_date_str}")
-                        # --- 打印原料数据 ---
-                        print(f"        --- [原料数据] ---")
-                        print(f"          - 进攻性承接意图 (offensive_absorption_intent): {offensive_absorption_intent.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 恐慌抛售级联 (panic_selling_cascade_D): {panic_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 先前弱势斜率 (SLOPE_{prior_weakness_slope_window}_close_D): {prior_weakness_slope_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 亏损盘痛苦指数 (loser_pain_index_D): {loser_pain_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 价格停滞斜率 (SLOPE_{price_stagnation_params.get('slope_window', 5)}_close_D): {stagnation_slope_raw.get(probe_date, 'N/A'):.4f}") # [代码修改] 打印价格停滞斜率
-                        print(f"          - 布林带宽度 (BBW_21_2.0_D): {bbw_raw.get(probe_date, 'N/A'):.4f}") # [代码修改] 打印布林带宽度
-                        print(f"          - 欺骗指数 (deception_index_D): {deception_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 收盘强度 (closing_strength_index_D): {closing_strength_raw.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - 上涨脉冲纯度 (upward_impulse_purity_D): {upward_purity_raw.get(probe_date, 'N/A'):.4f}")
-                        # --- 打印关键计算节点 ---
-                        print(f"        --- [关键计算节点 - 诡道反击协议] ---")
-                        print(f"          - [维度一] 脆弱战场:")
-                        print(f"              - 恐慌得分: {panic_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 先前弱势得分: {prior_weakness_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 亏损盘痛苦得分: {loser_pain_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 价格停滞得分: {price_stagnation_score.get(probe_date, 'N/A'):.4f}") # [代码修改] 打印价格停滞得分
-                        print(f"              - [融合] 脆弱战场分 (ambush_context_score): {ambush_context_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度二] 幽灵诡计:")
-                        print(f"              - 承接强度得分: {absorption_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 欺骗叙事得分 (看涨欺骗): {deceptive_narrative_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - [融合] 幽灵诡计分 (deceptive_action_score): {deceptive_action_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"          - [维度三] 突袭品质:")
-                        print(f"              - 收盘强度得分: {closing_strength_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - 上涨脉冲纯度得分: {upward_purity_score.get(probe_date, 'N/A'):.4f}")
-                        print(f"              - [融合] 突袭品质分 (counterattack_quality_score): {counterattack_quality_score.get(probe_date, 'N/A'):.4f}")
-                        # --- 最终结果 ---
-                        print(f"        --- [最终结果] ---")
-                        print(f"        - 最终伏击式反攻分 (SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK): {ambush_counterattack_score.get(probe_date, 0.0):.4f}")
-                except Exception as e:
-                    print(f"    -> [行为探针错误] _diagnose_ambush_counterattack 处理日期 {probe_date_str} 失败: {e}")
         return ambush_counterattack_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series) -> pd.Series:

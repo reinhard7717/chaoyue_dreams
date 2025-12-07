@@ -399,8 +399,8 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.13 · 风暴之眼版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 新增对“风暴眼中的寂静”信号的专属路由，执行其高能压缩状态的诊断逻辑。
+        【V5.15 · 诡道反击版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 新增对“隐蔽吸筹”信号的专属路由，执行其诊断逻辑。
         """
         signal_name = config.get('name')
         df_index = df.index
@@ -463,9 +463,13 @@ class ProcessIntelligence:
         elif signal_name == 'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE':
             relationship_score = self._calculate_price_momentum_divergence(df, config)
             meta_score = relationship_score
-        # [新增] 为“风暴眼中的寂静”信号增加专属路由
         elif signal_name == 'PROCESS_META_STORM_EYE_CALM':
             meta_score = self._calculate_storm_eye_calm(df, config)
+        elif signal_name == 'PROCESS_META_WASH_OUT_REBOUND':
+            offensive_absorption_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT', 0.0)
+            meta_score = self._calculate_process_wash_out_rebound(df, offensive_absorption_intent)
+        elif signal_name == 'PROCESS_META_COVERT_ACCUMULATION': # [代码修改] 新增隐蔽吸筹信号路由
+            meta_score = self._calculate_process_covert_accumulation(df)
         else:
             relationship_score = self._calculate_instantaneous_relationship(df, config)
             if relationship_score.empty:
@@ -1625,7 +1629,229 @@ class ProcessIntelligence:
         ).clip(-1, 1)
         return final_score
 
+    def _calculate_process_wash_out_rebound(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 洗盘诱空反弹协议 (探针激活版)】计算“洗盘诱空反弹”信号。
+        - 核心理念: 识别主力通过制造虚假抛压（洗盘、诱空），迫使散户割肉后，随即展开的反弹机会。
+        - 诊断三维度:
+          1. 洗盘诱空背景 (Wash-out Deception Context): 评估洗盘诱空发生的可能性。
+          2. 恐慌割肉深度 (Panic Capitulation Depth): 评估市场恐慌和散户割肉的程度。
+          3. 承接反弹品质 (Absorption Rebound Quality): 评估反弹的有效性和质量。
+        - 数学模型: 最终分 = (洗盘诱空背景分^W1 * 恐慌割肉深度分^W2 * 承接反弹品质分^W3)
+        """
+        print("    -> [过程层] 正在计算 PROCESS_META_WASH_OUT_REBOUND (V1.0 · 洗盘诱空反弹协议)...")
+        # --- 1. 获取参数 ---
+        p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
+        params = get_param_value(p_conf.get('wash_out_rebound_params'), {})
+        fusion_weights = get_param_value(params.get('fusion_weights'), {"deception_context": 0.3, "panic_depth": 0.3, "rebound_quality": 0.4})
+        deception_context_weights = get_param_value(params.get('deception_context_weights'), {"wash_trade": 0.4, "active_selling": 0.3, "deception_negative": 0.3})
+        panic_depth_weights = get_param_value(params.get('panic_depth_weights'), {"panic_cascade": 0.4, "retail_surrender": 0.3, "loser_pain": 0.3})
+        rebound_quality_weights = get_param_value(params.get('rebound_quality_weights'), {"absorption_intent": 0.4, "closing_strength": 0.3, "upward_purity": 0.3})
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # --- 2. 获取所有原始数据 ---
+        required_signals = [
+            'wash_trade_intensity_D', 'deception_index_D', 'active_selling_pressure_D',
+            'panic_selling_cascade_D', 'retail_panic_surrender_index_D', 'loser_pain_index_D',
+            'closing_strength_index_D', 'upward_impulse_purity_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_calculate_process_wash_out_rebound"):
+            return pd.Series(0.0, index=df.index)
+        df_index = df.index
+        wash_trade_raw = self._get_safe_series(df, 'wash_trade_intensity_D', 0.0, method_name="_calculate_process_wash_out_rebound")
+        deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_calculate_process_wash_out_rebound")
+        active_selling_raw = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name="_calculate_process_wash_out_rebound")
+        panic_cascade_raw = self._get_safe_series(df, 'panic_selling_cascade_D', 0.0, method_name="_calculate_process_wash_out_rebound")
+        retail_surrender_raw = self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_calculate_process_wash_out_rebound")
+        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_calculate_process_wash_out_rebound")
+        closing_strength_raw = self._get_safe_series(df, 'closing_strength_index_D', 0.5, method_name="_calculate_process_wash_out_rebound")
+        upward_purity_raw = self._get_safe_series(df, 'upward_impulse_purity_D', 0.0, method_name="_calculate_process_wash_out_rebound")
+        # --- 3. 维度一：洗盘诱空背景 (Wash-out Deception Context) ---
+        wash_trade_score = get_adaptive_mtf_normalized_score(wash_trade_raw, df_index, ascending=True, tf_weights=default_weights)
+        active_selling_score = get_adaptive_mtf_normalized_score(active_selling_raw, df_index, ascending=True, tf_weights=default_weights)
+        deception_negative_score = get_adaptive_mtf_normalized_score(deception_raw.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
+        deception_context_score = (
+            (wash_trade_score + 1e-9).pow(deception_context_weights.get('wash_trade', 0.4)) *
+            (active_selling_score + 1e-9).pow(deception_context_weights.get('active_selling', 0.3)) *
+            (deception_negative_score + 1e-9).pow(deception_context_weights.get('deception_negative', 0.3))
+        ).pow(1/(deception_context_weights.get('wash_trade', 0.4) + deception_context_weights.get('active_selling', 0.3) + deception_context_weights.get('deception_negative', 0.3))).fillna(0.0)
+        # --- 4. 维度二：恐慌割肉深度 (Panic Capitulation Depth) ---
+        panic_cascade_score = get_adaptive_mtf_normalized_score(panic_cascade_raw, df_index, ascending=True, tf_weights=default_weights)
+        retail_surrender_score = get_adaptive_mtf_normalized_score(retail_surrender_raw, df_index, ascending=True, tf_weights=default_weights)
+        loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df_index, ascending=True, tf_weights=default_weights)
+        panic_depth_score = (
+            (panic_cascade_score + 1e-9).pow(panic_depth_weights.get('panic_cascade', 0.4)) *
+            (retail_surrender_score + 1e-9).pow(panic_depth_weights.get('retail_surrender', 0.3)) *
+            (loser_pain_score + 1e-9).pow(panic_depth_weights.get('loser_pain', 0.3))
+        ).pow(1/(panic_depth_weights.get('panic_cascade', 0.4) + panic_depth_weights.get('retail_surrender', 0.3) + panic_depth_weights.get('loser_pain', 0.3))).fillna(0.0)
+        # --- 5. 维度三：承接反弹品质 (Absorption Rebound Quality) ---
+        absorption_intent_score = offensive_absorption_intent
+        closing_strength_score = normalize_score(closing_strength_raw, df_index, 55)
+        upward_purity_score = get_adaptive_mtf_normalized_score(upward_purity_raw, df_index, ascending=True, tf_weights=default_weights)
+        rebound_quality_score = (
+            (absorption_intent_score + 1e-9).pow(rebound_quality_weights.get('absorption_intent', 0.4)) *
+            (closing_strength_score + 1e-9).pow(rebound_quality_weights.get('closing_strength', 0.3)) *
+            (upward_purity_score + 1e-9).pow(rebound_quality_weights.get('upward_purity', 0.3))
+        ).pow(1/(rebound_quality_weights.get('absorption_intent', 0.4) + rebound_quality_weights.get('closing_strength', 0.3) + rebound_quality_weights.get('upward_purity', 0.3))).fillna(0.0)
+        # --- 6. 最终合成：三维融合 ---
+        wash_out_rebound_score = (
+            (deception_context_score + 1e-9).pow(fusion_weights.get('deception_context', 0.3)) *
+            (panic_depth_score + 1e-9).pow(fusion_weights.get('panic_depth', 0.3)) *
+            (rebound_quality_score + 1e-9).pow(fusion_weights.get('rebound_quality', 0.4))
+        ).pow(1/(fusion_weights.get('deception_context', 0.3) + fusion_weights.get('panic_depth', 0.3) + fusion_weights.get('rebound_quality', 0.4))).fillna(0.0)
+        # --- [探针逻辑] 暴露所有计算节点 ---
+        is_debug_enabled = get_param_value(self.debug_params.get('enabled'), False)
+        if is_debug_enabled and self.probe_dates and not df.empty:
+            for probe_date_str in self.probe_dates:
+                try:
+                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    if probe_date in df.index:
+                        print(f"      [过程探针 V1.0] _calculate_process_wash_out_rebound @ {probe_date_str}")
+                        # --- 打印原料数据 ---
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - 进攻性承接意图 (offensive_absorption_intent): {offensive_absorption_intent.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 对倒强度 (wash_trade_intensity_D): {wash_trade_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 欺骗指数 (deception_index_D): {deception_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 主动卖压 (active_selling_pressure_D): {active_selling_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 恐慌抛售级联 (panic_selling_cascade_D): {panic_cascade_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 散户恐慌投降 (retail_panic_surrender_index_D): {retail_surrender_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 亏损盘痛苦指数 (loser_pain_index_D): {loser_pain_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 收盘强度 (closing_strength_index_D): {closing_strength_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 上涨脉冲纯度 (upward_impulse_purity_D): {upward_purity_raw.get(probe_date, 'N/A'):.4f}")
+                        # --- 打印关键计算节点 ---
+                        print(f"        --- [关键计算节点 - 洗盘诱空反弹协议] ---")
+                        print(f"          - [维度一] 洗盘诱空背景:")
+                        print(f"              - 对倒强度得分: {wash_trade_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 主动卖压得分: {active_selling_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 欺骗指数负值得分: {deception_negative_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 洗盘诱空背景分 (deception_context_score): {deception_context_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度二] 恐慌割肉深度:")
+                        print(f"              - 恐慌抛售级联得分: {panic_cascade_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 散户恐慌投降得分: {retail_surrender_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 亏损盘痛苦得分: {loser_pain_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 恐慌割肉深度分 (panic_depth_score): {panic_depth_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度三] 承接反弹品质:")
+                        print(f"              - 承接强度得分: {absorption_intent_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 收盘强度得分: {closing_strength_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 上涨脉冲纯度得分: {upward_purity_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 承接反弹品质分 (rebound_quality_score): {rebound_quality_score.get(probe_date, 'N/A'):.4f}")
+                        # --- 最终结果 ---
+                        print(f"        --- [最终结果] ---")
+                        print(f"        - 最终洗盘诱空反弹分 (PROCESS_META_WASH_OUT_REBOUND): {wash_out_rebound_score.get(probe_date, 0.0):.4f}")
+                except Exception as e:
+                    print(f"    -> [过程探针错误] _calculate_process_wash_out_rebound 处理日期 {probe_date_str} 失败: {e}")
+        return wash_out_rebound_score.clip(0, 1).astype(np.float32)
 
+    def _calculate_process_covert_accumulation(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 隐蔽吸筹协议 (探针激活版)】计算“隐蔽吸筹”信号。
+        - 核心理念: 识别主力在市场情绪低迷、价格波动不大或小幅下跌/盘整时，通过隐蔽手段进行持续吸筹的行为。
+        - 诊断三维度:
+          1. 市场背景 (Market Context): 评估市场情绪的脆弱性、价格的弱势和低波动性。
+          2. 隐蔽行动 (Covert Action): 评估主力隐蔽吸筹的迹象。
+          3. 筹码优化 (Chip Optimization): 评估筹码结构是否有利于吸筹。
+        - 数学模型: 最终分 = (市场背景分^W1 * 隐蔽行动分^W2 * 筹码优化分^W3)
+        """
+        print("    -> [过程层] 正在计算 PROCESS_META_COVERT_ACCUMULATION (V1.0 · 隐蔽吸筹协议)...")
+        # --- 1. 获取参数 ---
+        p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
+        params = get_param_value(p_conf.get('covert_accumulation_params'), {})
+        fusion_weights = get_param_value(params.get('fusion_weights'), {"market_context": 0.3, "covert_action": 0.4, "chip_optimization": 0.3})
+        market_context_weights = get_param_value(params.get('market_context_weights'), {"retail_panic": 0.3, "price_weakness": 0.4, "low_volatility": 0.3})
+        covert_action_weights = get_param_value(params.get('covert_action_weights'), {"suppressive_accum": 0.4, "main_force_flow": 0.3, "deception_positive": 0.3})
+        chip_optimization_weights = get_param_value(params.get('chip_optimization_weights'), {"chip_fatigue": 0.5, "loser_pain": 0.5})
+        price_weakness_slope_window = get_param_value(params.get('price_weakness_slope_window'), 5)
+        low_volatility_bbw_window = get_param_value(params.get('low_volatility_bbw_window'), 21)
+        p_mtf = get_param_value(p_conf.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        # --- 2. 获取所有原始数据 ---
+        required_signals = [
+            'retail_panic_surrender_index_D', f'SLOPE_{price_weakness_slope_window}_close_D', f'BBW_{low_volatility_bbw_window}_2.0_D',
+            'suppressive_accumulation_intensity_D', 'main_force_net_flow_calibrated_D', 'deception_index_D',
+            'chip_fatigue_index_D', 'loser_pain_index_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_calculate_process_covert_accumulation"):
+            return pd.Series(0.0, index=df.index)
+        df_index = df.index
+        retail_panic_raw = self._get_safe_series(df, 'retail_panic_surrender_index_D', 0.0, method_name="_calculate_process_covert_accumulation")
+        price_weakness_slope_raw = self._get_safe_series(df, f'SLOPE_{price_weakness_slope_window}_close_D', 0.0, method_name="_calculate_process_covert_accumulation")
+        bbw_raw = self._get_safe_series(df, f'BBW_{low_volatility_bbw_window}_2.0_D', 0.0, method_name="_calculate_process_covert_accumulation")
+        suppressive_accum_raw = self._get_safe_series(df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_calculate_process_covert_accumulation")
+        main_force_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_calculate_process_covert_accumulation")
+        deception_raw = self._get_safe_series(df, 'deception_index_D', 0.0, method_name="_calculate_process_covert_accumulation")
+        chip_fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', 0.0, method_name="_calculate_process_covert_accumulation")
+        loser_pain_raw = self._get_safe_series(df, 'loser_pain_index_D', 0.0, method_name="_calculate_process_covert_accumulation")
+        # --- 3. 维度一：市场背景 (Market Context) ---
+        retail_panic_score = get_adaptive_mtf_normalized_score(retail_panic_raw, df_index, ascending=True, tf_weights=default_weights)
+        price_weakness_score = get_adaptive_mtf_normalized_score(price_weakness_slope_raw.clip(upper=0).abs(), df_index, ascending=True, tf_weights=default_weights)
+        low_volatility_score = get_adaptive_mtf_normalized_score(bbw_raw, df_index, ascending=False, tf_weights=default_weights) # BBW越小，波动率越低，得分越高
+        market_context_score = (
+            (retail_panic_score + 1e-9).pow(market_context_weights.get('retail_panic', 0.3)) *
+            (price_weakness_score + 1e-9).pow(market_context_weights.get('price_weakness', 0.4)) *
+            (low_volatility_score + 1e-9).pow(market_context_weights.get('low_volatility', 0.3))
+        ).pow(1/(market_context_weights.get('retail_panic', 0.3) + market_context_weights.get('price_weakness', 0.4) + market_context_weights.get('low_volatility', 0.3))).fillna(0.0)
+        # --- 4. 维度二：隐蔽行动 (Covert Action) ---
+        suppressive_accum_score = get_adaptive_mtf_normalized_score(suppressive_accum_raw, df_index, ascending=True, tf_weights=default_weights)
+        main_force_flow_score = get_adaptive_mtf_normalized_score(main_force_flow_raw.clip(lower=0), df_index, ascending=True, tf_weights=default_weights)
+        deception_positive_score = get_adaptive_mtf_normalized_score(deception_raw.clip(lower=0), df_index, ascending=True, tf_weights=default_weights)
+        covert_action_score = (
+            (suppressive_accum_score + 1e-9).pow(covert_action_weights.get('suppressive_accum', 0.4)) *
+            (main_force_flow_score + 1e-9).pow(covert_action_weights.get('main_force_flow', 0.3)) *
+            (deception_positive_score + 1e-9).pow(covert_action_weights.get('deception_positive', 0.3))
+        ).pow(1/(covert_action_weights.get('suppressive_accum', 0.4) + covert_action_weights.get('main_force_flow', 0.3) + covert_action_weights.get('deception_positive', 0.3))).fillna(0.0)
+        # --- 5. 维度三：筹码优化 (Chip Optimization) ---
+        chip_fatigue_score = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df_index, ascending=True, tf_weights=default_weights)
+        loser_pain_score = get_adaptive_mtf_normalized_score(loser_pain_raw, df_index, ascending=True, tf_weights=default_weights)
+        chip_optimization_score = (
+            (chip_fatigue_score + 1e-9).pow(chip_optimization_weights.get('chip_fatigue', 0.5)) *
+            (loser_pain_score + 1e-9).pow(chip_optimization_weights.get('loser_pain', 0.5))
+        ).pow(1/(chip_optimization_weights.get('chip_fatigue', 0.5) + chip_optimization_weights.get('loser_pain', 0.5))).fillna(0.0)
+        # --- 6. 最终合成：三维融合 ---
+        covert_accumulation_score = (
+            (market_context_score + 1e-9).pow(fusion_weights.get('market_context', 0.3)) *
+            (covert_action_score + 1e-9).pow(fusion_weights.get('covert_action', 0.4)) *
+            (chip_optimization_score + 1e-9).pow(fusion_weights.get('chip_optimization', 0.3))
+        ).pow(1/(fusion_weights.get('market_context', 0.3) + fusion_weights.get('covert_action', 0.4) + fusion_weights.get('chip_optimization', 0.3))).fillna(0.0)
+        # --- [探针逻辑] 暴露所有计算节点 ---
+        is_debug_enabled = get_param_value(self.debug_params.get('enabled'), False)
+        if is_debug_enabled and self.probe_dates and not df.empty:
+            for probe_date_str in self.probe_dates:
+                try:
+                    probe_date = pd.to_datetime(probe_date_str).tz_localize(df.index.tz)
+                    if probe_date in df.index:
+                        print(f"      [过程探针 V1.0] _calculate_process_covert_accumulation @ {probe_date_str}")
+                        # --- 打印原料数据 ---
+                        print(f"        --- [原料数据] ---")
+                        print(f"          - 散户恐慌投降指数 (retail_panic_surrender_index_D): {retail_panic_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 价格弱势斜率 (SLOPE_{price_weakness_slope_window}_close_D): {price_weakness_slope_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 布林带宽度 (BBW_{low_volatility_bbw_window}_2.0_D): {bbw_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 压制式吸筹强度 (suppressive_accumulation_intensity_D): {suppressive_accum_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 主力净流量 (main_force_net_flow_calibrated_D): {main_force_flow_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 欺骗指数 (deception_index_D): {deception_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 筹码疲劳指数 (chip_fatigue_index_D): {chip_fatigue_raw.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - 亏损盘痛苦指数 (loser_pain_index_D): {loser_pain_raw.get(probe_date, 'N/A'):.4f}")
+                        # --- 打印关键计算节点 ---
+                        print(f"        --- [关键计算节点 - 隐蔽吸筹协议] ---")
+                        print(f"          - [维度一] 市场背景:")
+                        print(f"              - 散户恐慌得分: {retail_panic_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 价格弱势得分: {price_weakness_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 低波动率得分: {low_volatility_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 市场背景分 (market_context_score): {market_context_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度二] 隐蔽行动:")
+                        print(f"              - 压制式吸筹得分: {suppressive_accum_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 主力净流量得分: {main_force_flow_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 欺骗指数正值得分: {deception_positive_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 隐蔽行动分 (covert_action_score): {covert_action_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"          - [维度三] 筹码优化:")
+                        print(f"              - 筹码疲劳得分: {chip_fatigue_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - 亏损盘痛苦得分: {loser_pain_score.get(probe_date, 'N/A'):.4f}")
+                        print(f"              - [融合] 筹码优化分 (chip_optimization_score): {chip_optimization_score.get(probe_date, 'N/A'):.4f}")
+                        # --- 最终结果 ---
+                        print(f"        --- [最终结果] ---")
+                        print(f"        - 最终隐蔽吸筹分 (PROCESS_META_COVERT_ACCUMULATION): {covert_accumulation_score.get(probe_date, 0.0):.4f}")
+                except Exception as e:
+                    print(f"    -> [过程探针错误] _calculate_process_covert_accumulation 处理日期 {probe_date_str} 失败: {e}")
+        return covert_accumulation_score.clip(0, 1).astype(np.float32)
 
 
 

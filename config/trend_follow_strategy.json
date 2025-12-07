@@ -897,6 +897,55 @@
             "comment": "行为领域反转信号，由过程层生成。"
           }
         ],
+        "wash_out_rebound_params": {
+          "description": "【V1.0 · 洗盘诱空反弹协议】参数",
+          "fusion_weights": {
+            "deception_context": 0.3,
+            "panic_depth": 0.3,
+            "rebound_quality": 0.4
+          },
+          "deception_context_weights": {
+            "wash_trade": 0.4,
+            "active_selling": 0.3,
+            "deception_negative": 0.3
+          },
+          "panic_depth_weights": {
+            "panic_cascade": 0.4,
+            "retail_surrender": 0.3,
+            "loser_pain": 0.3
+          },
+          "rebound_quality_weights": {
+            "absorption_intent": 0.4,
+            "closing_strength": 0.3,
+            "upward_purity": 0.3
+          },
+          "comment": "识别主力通过制造虚假抛压（洗盘、诱空），迫使散户割肉后，随即展开的反弹机会。"
+        },
+        "covert_accumulation_params": {
+          "description": "【V1.0 · 隐蔽吸筹协议】参数",
+          "fusion_weights": {
+            "market_context": 0.3,
+            "covert_action": 0.4,
+            "chip_optimization": 0.3
+          },
+          "market_context_weights": {
+            "retail_panic": 0.3,
+            "price_weakness": 0.4,
+            "low_volatility": 0.3
+          },
+          "covert_action_weights": {
+            "suppressive_accum": 0.4,
+            "main_force_flow": 0.3,
+            "deception_positive": 0.3
+          },
+          "chip_optimization_weights": {
+            "chip_fatigue": 0.5,
+            "loser_pain": 0.5
+          },
+          "price_weakness_slope_window": 5,
+          "low_volatility_bbw_window": 21,
+          "comment": "识别主力在市场情绪低迷、价格波动不大或小幅下跌/盘整时，通过隐蔽手段进行持续吸筹的行为。"
+        },
         "main_force_urgency_params": {
           "description": "【V1.0 · 深度博弈版】主力紧迫度计算的权重配置。",
           "weights": {
