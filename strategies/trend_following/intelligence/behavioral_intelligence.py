@@ -1586,6 +1586,7 @@ class BehavioralIntelligence:
         long_term_adx_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_ADX_14_D', 0.0, method_name=method_name) # [修改的代码行]
 
         # 模式序列所需的斜率
+        pattern_lookback_window = pattern_sequence_params.get('lookback_window', 3)
         pattern_close_slope = self._get_safe_series(df, f'SLOPE_{pattern_lookback_window}_close_D', 0.0, method_name=method_name)
         pattern_volume_slope = self._get_safe_series(df, f'SLOPE_{pattern_lookback_window}_volume_D', 0.0, method_name=method_name)
 
@@ -1676,6 +1677,7 @@ class BehavioralIntelligence:
 
         # [修改的代码行] 行为强度与持续性 - 持续性 (Persistence Factor with Quality)
         bullish_persistence_factor = pd.Series(0.0, index=df.index)
+        bullish_persistence_quality = pd.Series(0, index=df.index) # 初始化
         if persistence_params.get('enabled'):
             quality_decay_factor = persistence_params.get('quality_decay_factor', 0.05)
             # 价格下跌幅度逐渐减小 (价格加速度为正) 或成交量萎缩 (成交量加速度为负)
@@ -1794,7 +1796,6 @@ class BehavioralIntelligence:
             adx_ranging_threshold = market_regime_params.get('adx_ranging_threshold', 20)
             adx_div_max_adjust = market_regime_params.get('adx_div_weight_max_adjust', 0.3)
             adx_conf_max_adjust = market_regime_params.get('adx_conf_weight_max_adjust', 0.3)
-            atr_conf_max_adjust = market_regime_params.get('atr_conf_weight_max_adjust', 0.2)
 
             norm_adx = normalize_score(adx_val, df.index, 55)
             
@@ -1802,7 +1803,7 @@ class BehavioralIntelligence:
             dynamic_bullish_conf_weight_multiplier = dynamic_bullish_conf_weight_multiplier.mask(
                 adx_val < adx_ranging_threshold, 1 + (1 - norm_adx) * adx_conf_max_adjust
             )
-            dynamic_bullish_conf_weight_multiplier = dynamic_bullish_conf_weight_multiplier * (1 - norm_atr * atr_conf_max_adjust)
+            dynamic_bullish_conf_weight_multiplier = dynamic_bullish_conf_weight_multiplier * (1 - norm_atr * market_regime_params.get('atr_conf_weight_max_adjust', 0.2))
             dynamic_bullish_conf_weight_multiplier = dynamic_bullish_conf_weight_multiplier.clip(0.5, 1.5)
 
         # 多维情境感知 (Multi-Dimensional Contextual Awareness)
@@ -1881,17 +1882,23 @@ class BehavioralIntelligence:
 
         # [修改的代码行] “行为惯性”评估 (Behavioral Inertia Assessment)
         bullish_inertia_factor = pd.Series(1.0, index=df.index)
+        is_strong_long_term_trend = pd.Series(False, index=df.index) # 初始化
+        is_stable_long_term_slope = pd.Series(False, index=df.index) # 初始化
         if behavioral_inertia_params.get('enabled'):
             long_term_adx_threshold = behavioral_inertia_params.get('long_term_adx_threshold', 30)
             long_term_slope_stability_threshold = behavioral_inertia_params.get('long_term_slope_stability_threshold', 0.8)
             high_inertia_penalty = behavioral_inertia_params.get('high_inertia_penalty', 0.1)
             low_inertia_bonus = behavioral_inertia_params.get('low_inertia_bonus', 0.05)
 
-            # 长期ADX强度
-            is_strong_long_term_trend = (self._get_safe_series(df, f'ADX_14_D', 0.0, method_name=method_name).rolling(long_term_period).mean() > long_term_adx_threshold)
+            # 长期ADX强度 (使用ADX的长期均值来判断趋势强度)
+            long_term_adx_mean = self._get_safe_series(df, 'ADX_14_D', 0.0, method_name=method_name).rolling(long_term_period).mean()
+            is_strong_long_term_trend = (long_term_adx_mean > long_term_adx_threshold)
+            
             # 长期价格斜率稳定性 (长期斜率的标准差越小越稳定)
             long_term_close_slopes_series = df[f'SLOPE_{long_term_period}_close_D']
             long_term_slope_std_dev = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)
+            # 归一化标准差，使其在0-1之间，高标准差表示不稳定，低标准差表示稳定
+            # 这里需要一个反向归一化，或者直接判断小于某个阈值
             norm_long_term_slope_std_dev = get_adaptive_mtf_normalized_score(long_term_slope_std_dev, df.index, ascending=False, tf_weights=tf_weights) # 越小越好，所以ascending=False
             is_stable_long_term_slope = (norm_long_term_slope_std_dev > long_term_slope_stability_threshold)
 
@@ -2001,6 +2008,7 @@ class BehavioralIntelligence:
 
         # [修改的代码行] 行为强度与持续性 - 持续性 (Persistence Factor with Quality)
         bearish_persistence_factor = pd.Series(0.0, index=df.index)
+        bearish_persistence_quality = pd.Series(0, index=df.index) # 初始化
         if persistence_params.get('enabled'):
             quality_decay_factor = persistence_params.get('quality_decay_factor', 0.05)
             # 价格上涨幅度逐渐减小 (价格加速度为负) 或成交量萎缩 (成交量加速度为负)
@@ -2118,7 +2126,6 @@ class BehavioralIntelligence:
             adx_ranging_threshold = market_regime_params.get('adx_ranging_threshold', 20)
             adx_div_max_adjust = market_regime_params.get('adx_div_weight_max_adjust', 0.3)
             adx_conf_max_adjust = market_regime_params.get('adx_conf_weight_max_adjust', 0.3)
-            atr_conf_max_adjust = market_regime_params.get('atr_conf_weight_max_adjust', 0.2)
 
             norm_adx = normalize_score(adx_val, df.index, 55)
             
@@ -2126,7 +2133,7 @@ class BehavioralIntelligence:
             dynamic_bearish_conf_weight_multiplier = dynamic_bearish_conf_weight_multiplier.mask(
                 adx_val < adx_ranging_threshold, 1 + (1 - norm_adx) * adx_conf_max_adjust
             )
-            dynamic_bearish_conf_weight_multiplier = dynamic_bearish_conf_weight_multiplier * (1 - norm_atr * atr_conf_max_adjust)
+            dynamic_bearish_conf_weight_multiplier = dynamic_bearish_conf_weight_multiplier * (1 - norm_atr * market_regime_params.get('atr_conf_weight_max_adjust', 0.2))
             dynamic_bearish_conf_weight_multiplier = dynamic_bearish_conf_weight_multiplier.clip(0.5, 1.5)
 
         # 多维情境感知 (Multi-Dimensional Contextual Awareness)
@@ -2211,11 +2218,8 @@ class BehavioralIntelligence:
             high_inertia_penalty = behavioral_inertia_params.get('high_inertia_penalty', 0.1)
             low_inertia_bonus = behavioral_inertia_params.get('low_inertia_bonus', 0.05)
 
-            is_strong_long_term_trend = (self._get_safe_series(df, f'ADX_14_D', 0.0, method_name=method_name).rolling(long_term_period).mean() > long_term_adx_threshold)
-            long_term_close_slopes_series = df[f'SLOPE_{long_term_period}_close_D']
-            long_term_slope_std_dev = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)
-            norm_long_term_slope_std_dev = get_adaptive_mtf_normalized_score(long_term_slope_std_dev, df.index, ascending=False, tf_weights=tf_weights)
-            is_stable_long_term_slope = (norm_long_term_slope_std_dev > long_term_slope_stability_threshold)
+            is_strong_long_term_trend = (long_term_adx_mean > long_term_adx_threshold) # 使用上面计算的long_term_adx_mean
+            is_stable_long_term_slope = (norm_long_term_slope_std_dev > long_term_slope_stability_threshold) # 使用上面计算的norm_long_term_slope_std_dev
 
             is_high_inertia_market = is_strong_long_term_trend & is_stable_long_term_slope
             is_low_inertia_market = ~is_strong_long_term_trend | ~is_stable_long_term_slope
@@ -2227,25 +2231,8 @@ class BehavioralIntelligence:
             bearish_inertia_factor = (1 + inertia_adjustment).clip(0.5, 1.5)
 
         # [修改的代码行] 自适应参数调整的规则引擎 (Adaptive Fusion Weights)
-        adaptive_fusion_weight_multiplier = pd.Series(1.0, index=df.index)
-        if adaptive_fusion_weights_params.get('enabled'):
-            trend_strong_penalty_factor = adaptive_fusion_weights_params.get('trend_strong_penalty_factor', 0.1)
-            ranging_bonus_factor = adaptive_fusion_weights_params.get('ranging_bonus_factor', 0.1)
-            volatility_high_penalty_factor = adaptive_fusion_weights_params.get('volatility_high_penalty_factor', 0.05)
-
-            is_strong_trend = (adx_val > market_regime_params.get('adx_trend_threshold', 25))
-            adaptive_fusion_weight_multiplier = adaptive_fusion_weight_multiplier.mask(
-                is_strong_trend, adaptive_fusion_weight_multiplier * (1 - trend_strong_penalty_factor)
-            )
-            is_ranging_market = (adx_val < market_regime_params.get('adx_ranging_threshold', 20))
-            adaptive_fusion_weight_multiplier = adaptive_fusion_weight_multiplier.mask(
-                is_ranging_market, adaptive_fusion_weight_multiplier * (1 + ranging_bonus_factor)
-            )
-            is_high_volatility = (norm_atr > 0.8)
-            adaptive_fusion_weight_multiplier = adaptive_fusion_weight_multiplier.mask(
-                is_high_volatility, adaptive_fusion_weight_multiplier * (1 - volatility_high_penalty_factor)
-            )
-        adaptive_fusion_weight_multiplier = adaptive_fusion_weight_multiplier.clip(0.5, 1.5)
+        # adaptive_fusion_weight_multiplier 在看涨和看跌背离中共享，因为它反映的是市场整体情境
+        # 已经在看涨部分计算，这里直接使用
 
         # 最终看跌背离分数 (非线性融合)
         bearish_divergence_score = (
@@ -2442,7 +2429,6 @@ class BehavioralIntelligence:
             print(f"  [看跌背离结果]: SCORE_BEHAVIOR_BEARISH_DIVERGENCE = {bearish_divergence_score.loc[probe_ts]:.4f}")
 
         return bullish_divergence_score.astype(np.float32), bearish_divergence_score.astype(np.float32)
-
     def _apply_neutral_zone_filter(self, series: pd.Series, threshold: float) -> pd.Series:
         """
         【V1.0 · 新增】应用中性“死区”过滤器。
