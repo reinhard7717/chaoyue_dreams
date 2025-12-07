@@ -1010,7 +1010,7 @@ class BehavioralIntelligence:
 
     def _diagnose_breakout_failure_risk(self, df: pd.DataFrame, distribution_intent: pd.Series, overextension_score_series: pd.Series, deception_index_series: pd.Series, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        【V3.5 · 权重精细化版】诊断突破失败级联风险
+        【V3.6 · 情境敏感度优化版】诊断突破失败级联风险
         - 核心重构: 废弃了基于简单价格比较的“机械式突破谬误”模型。引入基于“诱多-伏击-套牢-背弃-情境”
                       诡道剧本的全新五维诊断模型，旨在精确识别高迷惑性的“牛市陷阱”。
         - 战术五要素:
@@ -1018,10 +1018,10 @@ class BehavioralIntelligence:
           2. 伏击 (The Ambush): 使用强大的 `distribution_intent` 量化主力在诱多过程中的真实派发意图。
           3. 套牢盘痛苦度 (Trapped Force Pain): 融合抛压潜力（获利盘比例、量比）和抛压触发器（获利盘不稳定性、筹码疲劳度），更全面地量化高位被套牢资金的痛苦程度和规模。
           4. 主力背弃度 (Main Force Abandonment): 融合 `main_force_conviction_index_D` (负向)、`main_force_execution_alpha_D` (负向) 和 `main_force_net_flow_calibrated_D` (负向)，量化主力对突破的放弃程度和实际资金流出。
-          5. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买)、`SCORE_BEHAVIOR_DECEPTION_INDEX` (正向，拉高出货) 和 `retail_fomo_premium_index_D` (散户狂热)，对风险进行情境化放大。
+          5. 情境放大器 (Contextual Amplifier): 融合 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买)、`SCORE_BEHAVIOR_DECEPTION_INDEX` (正向，拉高出货) 和 `retail_fomo_premium_index_D` (正向散户狂热)，对风险进行情境化放大。
         - 数学模型: 风险分 = 核心风险基准分 × 情境放大器
                       核心风险基准分 = 诱饵分 × tanh(核心风险加权平均 × TanhFactor)
-                      情境放大器 = 1 + (价格超买分 × W_overextension + 正向欺骗分 × W_positive_deception + 散户狂热分 × W_retail_fomo) × MaxAmplificationFactor
+                      情境放大器 = 1 + (价格超买分 × W_overextension + 正向欺骗分 × W_positive_deception + 正向散户狂热分 × W_retail_fomo) × MaxAmplificationFactor
         """
         method_name = "_diagnose_breakout_failure_risk"
         required_signals = [
@@ -1039,7 +1039,6 @@ class BehavioralIntelligence:
         breakout_params = get_param_value(p_conf.get('breakout_failure_risk_params'), {})
         core_risk_weights = get_param_value(breakout_params.get('core_risk_weights'), {"ambush": 0.3, "trapped_force_pain": 0.4, "main_force_abandonment": 0.3})
         trapped_force_pain_weights = get_param_value(breakout_params.get('trapped_force_pain_weights'), {"potential_pressure": 0.6, "instability_trigger": 0.4})
-        # [代码修改] 新增获取 potential_pressure_weights
         potential_pressure_weights = get_param_value(breakout_params.get('potential_pressure_weights'), {"winner_rate": 0.7, "volume_ratio": 0.3})
         instability_trigger_weights = get_param_value(breakout_params.get('instability_trigger_weights'), {"winner_instability": 0.6, "chip_fatigue": 0.4})
         mf_abandonment_weights = get_param_value(breakout_params.get('main_force_abandonment_weights'), {"conviction_decay": 0.3, "negative_alpha": 0.3, "negative_net_flow": 0.4})
@@ -1091,7 +1090,8 @@ class BehavioralIntelligence:
             negative_net_flow_score * mf_abandonment_weights.get('negative_net_flow', 0.4)
         ).clip(0, 1).fillna(0.0)
         positive_deception_score = deception_raw.clip(lower=0)
-        retail_fomo_score = get_adaptive_mtf_normalized_score(retail_fomo_raw, df.index, ascending=True, tf_weights=default_weights)
+        # [代码修改] 修正 retail_fomo_score 的计算，只考虑正向狂热
+        retail_fomo_score = get_adaptive_mtf_normalized_score(retail_fomo_raw.clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         context_amplifier_factor = (
             overextension_score * context_amplifier_weights.get('overextension', 0.4) +
             positive_deception_score * context_amplifier_weights.get('positive_deception', 0.3) +
