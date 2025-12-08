@@ -1757,11 +1757,12 @@
           "comment_final_fusion_weights_sensitivity": "最终融合中，调制器对各维度权重的敏感度。"
         },
         "tactical_exchange_params": {
-          "description": "【V5.0 · 筹码天眼版】战术换手博弈的质量与意图。",
+          "description": "【V6.0 · 筹码脉动版】战术换手博弈的质量与意图。",
           "intent_weights": {
-            "control_transfer": 0.4,
-            "cleansing_efficiency": 0.3,
-            "accumulation_intent": 0.3
+            "control_transfer": 0.3,
+            "cleansing_efficiency": 0.2,
+            "accumulation_intent": 0.3,
+            "intent_execution_quality": 0.2
           },
           "deception_arbitration_power": 2.0,
           "deception_impact_sensitivity": 0.5,
@@ -1773,18 +1774,39 @@
           },
           "deception_outcome_effectiveness_threshold": 0.3,
           "deception_outcome_cost_threshold": 0.3,
+          "intent_execution_quality_params": {
+            "description": "意图执行质量参数",
+            "buying_support_weight": 0.3,
+            "selling_pressure_weight": 0.2,
+            "price_impact_weight": 0.2,
+            "clearing_rate_weight": 0.15,
+            "flow_credibility_weight": 0.15,
+            "slope_period": 5
+          },
           "quality_weights": {
-            "bullish_absorption": 0.2,
-            "bullish_purity": 0.2,
-            "bearish_distribution": 0.2,
+            "bullish_absorption": 0.15,
+            "bullish_purity": 0.15,
+            "bearish_distribution": 0.15,
             "exchange_purity": 0.15,
             "structural_optimization": 0.1,
             "psychological_pressure_absorption": 0.1,
-            "exchange_efficiency": 0.05
+            "exchange_efficiency": 0.05,
+            "chip_peak_dynamics": 0.15
           },
           "quality_context_signal_name": "winner_loser_momentum_D",
           "structural_optimization_slope_period": 5,
           "psychological_pressure_absorption_slope_period": 5,
+          "chip_peak_dynamics_params": {
+            "description": "筹码峰动态参数",
+            "secondary_cost_weight": 0.5,
+            "secondary_volume_weight": 0.5,
+            "slope_period": 5
+          },
+          "chip_behavioral_pattern_intensity_params": {
+            "description": "筹码行为模式强度参数",
+            "modulator_factor": 0.2,
+            "slope_period": 5
+          },
           "environment_weights": {
             "geography": 0.3,
             "chip_fatigue": 0.2,
@@ -1805,9 +1827,11 @@
             "rhythm_persistence": 0.1
           },
           "meta_modulator_weights": {
-            "chip_health": 0.4,
-            "volatility_instability": 0.3,
-            "main_force_conviction": 0.3
+            "chip_health": 0.25,
+            "volatility_instability": 0.25,
+            "main_force_conviction": 0.25,
+            "main_force_activity": 0.15,
+            "flow_credibility": 0.1
           },
           "meta_modulator_sensitivity": 0.5
         }
