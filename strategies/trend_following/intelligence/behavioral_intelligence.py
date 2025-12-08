@@ -216,13 +216,14 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V34.10 · 依赖编排与调试增强版】原子信号中心
+        【V34.11 · 依赖编排与调试增强版】原子信号中心
         - 核心升级: 适配了 V5.0 "派发罪证链" 和 V3.0 "战略反击许可" 模型，
                       并调整了内部调用顺序以确保逻辑依赖的正确性。
         - 【修正】确保所有派生信号在被需要时已添加到df中。
         - 【新增】将鲁棒斜率计算提升到方法开头，解决循环依赖问题。
         - 【调试】增加详细打印，追踪df列的添加情况，包括df的内存地址和完整列列表。
         - 【重要修正】确保所有新生成的信号在添加到states字典的同时，也立即添加到传入的df中，以解决内部依赖问题。
+        - 【命名修正】统一long_term_斜率的命名，使其与robust_斜率的命名风格一致。
         """
         method_name = "_diagnose_behavioral_axioms"
         
@@ -361,13 +362,13 @@ class BehavioralIntelligence:
         long_term_macd_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_MACDh_13_34_8_D', 0.0, method_name=method_name)
         long_term_volume_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_volume_D', 0.0, method_name=method_name)
         long_term_adx_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_ADX_14_D', 0.0, method_name=method_name)
-        # [修改的代码行] 将长期斜率添加到df中，并添加到states中
+        # [修改的代码行] 将长期斜率添加到df中，并添加到states中，修正命名
         df['long_term_close_slope'] = long_term_close_slope
         states['long_term_close_slope'] = long_term_close_slope
-        df['long_term_rsi_slope'] = long_term_rsi_slope
-        states['long_term_rsi_slope'] = long_term_rsi_slope
-        df['long_term_macd_slope'] = long_term_macd_slope
-        states['long_term_macd_slope'] = long_term_macd_slope
+        df['long_term_RSI_13_slope'] = long_term_rsi_slope # [修改的代码行] 修正列名
+        states['long_term_RSI_13_slope'] = long_term_rsi_slope # [修改的代码行] 修正列名
+        df['long_term_MACDh_13_34_8_slope'] = long_term_macd_slope # [修改的代码行] 修正列名
+        states['long_term_MACDh_13_34_8_slope'] = long_term_macd_slope # [修改的代码行] 修正列名
         df['long_term_volume_slope'] = long_term_volume_slope
         states['long_term_volume_slope'] = long_term_volume_slope
         df['long_term_adx_slope'] = long_term_adx_slope
