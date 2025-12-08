@@ -242,7 +242,7 @@ class ChipIntelligence:
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V7.0 · 诡道博弈版】筹码公理三：诊断“持仓信念韧性”
+        【V7.1 · 诡道非对称版】筹码公理三：诊断“持仓信念韧性”
         - 核心升级1: 动态信念权重。引入“市场趋势情境”来动态调整 `winner_stability` 和 `loser_pain` 在 `belief_core_score` 中的权重。
                       在上升趋势中，更看重赢家稳定性；在下降趋势中，更看重输家痛苦指数。
         - 核心升级2: 恐慌奖励动态敏感度。`capitulation_bonus` 的乘数不再是固定值，而是根据市场波动性进行动态调整。
@@ -251,126 +251,116 @@ class ChipIntelligence:
                       并引入一个动态敏感度，该敏感度可以根据市场情绪的绝对强度进行调整。
         - 核心升级4: 诡道因子融入压力测试。引入一个“诡道因子”（例如 `deception_index_D` 的负向部分，代表诱空）来调节 `pressure_test_score`。
                       如果存在诱空，即使承接和防守分数不高，也可能被视为一种“策略性”的压力测试。
+        - 核心升级5: 欺骗的非对称影响。引入正向欺骗（诱多）作为对 `conviction_base` 的直接惩罚，以反映主力诱多派发的风险。
+        - 核心升级6: 情绪杂质的上下文敏感性。根据市场情绪上下文（如过热/过冷）动态调整 `impurity_score` 的非线性调制强度。
         - 探针增强: 详细输出所有新增参数、中间计算结果和最终结果，以便于检查和调试。
         - 修复: 修正了情绪纯度非线性调制中 `conviction_base` 未定义的问题，将其计算提前。
         """
-        print("    -> [筹码层] 正在诊断“持仓信念”公理 (V7.0 · 诡道博弈版)...")
+        print("    -> [筹码层] 正在诊断“持仓信念”公理 (V7.1 · 诡道非对称版)...")
         required_signals = [
             'winner_stability_index_D', 'loser_pain_index_D', 'dip_absorption_power_D',
             'mf_cost_zone_defense_intent_D', 'retail_fomo_premium_index_D',
             'profit_realization_quality_D', 'capitulation_absorption_index_D',
             'SLOPE_55_close_D',
             'VOLATILITY_INSTABILITY_INDEX_21d_D',
-            'deception_index_D'
+            'deception_index_D',
+            'BIAS_55_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_holder_sentiment"):
             return pd.Series(0.0, index=df.index)
-        
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         holder_sentiment_params = get_param_value(p_conf.get('holder_sentiment_params'), {})
-
         sentiment_trend_modulator_signal_name = get_param_value(holder_sentiment_params.get('sentiment_trend_modulator_signal_name'), 'SLOPE_55_close_D')
         sentiment_trend_mod_norm_window = get_param_value(holder_sentiment_params.get('sentiment_trend_mod_norm_window'), 55)
         sentiment_trend_mod_factor = get_param_value(holder_sentiment_params.get('sentiment_trend_mod_factor'), 0.5)
-
         panic_reward_modulator_signal_name = get_param_value(holder_sentiment_params.get('panic_reward_modulator_signal_name'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         panic_reward_mod_norm_window = get_param_value(holder_sentiment_params.get('panic_reward_mod_norm_window'), 21)
         panic_reward_mod_factor = get_param_value(holder_sentiment_params.get('panic_reward_mod_factor'), 1.0)
         panic_reward_mod_tanh_factor = get_param_value(holder_sentiment_params.get('panic_reward_mod_tanh_factor'), 1.0)
         capitulation_base_reward_multiplier = get_param_value(holder_sentiment_params.get('capitulation_base_reward_multiplier'), 0.3)
-
         impurity_non_linear_enabled = get_param_value(holder_sentiment_params.get('impurity_non_linear_enabled'), True)
         impurity_tanh_factor = get_param_value(holder_sentiment_params.get('impurity_tanh_factor'), 1.0)
         impurity_sentiment_sensitivity = get_param_value(holder_sentiment_params.get('impurity_sentiment_sensitivity'), 0.5)
-
         deception_factor_enabled = get_param_value(holder_sentiment_params.get('deception_factor_enabled'), True)
         deception_signal_name = get_param_value(holder_sentiment_params.get('deception_signal_name'), 'deception_index_D')
         deception_impact_factor = get_param_value(holder_sentiment_params.get('deception_impact_factor'), 0.2)
-
+        positive_deception_penalty_enabled = get_param_value(holder_sentiment_params.get('positive_deception_penalty_enabled'), True)
+        positive_deception_impact_factor = get_param_value(holder_sentiment_params.get('positive_deception_impact_factor'), 0.15)
+        impurity_context_modulation_enabled = get_param_value(holder_sentiment_params.get('impurity_context_modulation_enabled'), True)
+        impurity_context_modulator_signal_name = get_param_value(holder_sentiment_params.get('impurity_context_modulator_signal_name'), 'BIAS_55_D')
+        impurity_context_mod_norm_window = get_param_value(holder_sentiment_params.get('impurity_context_mod_norm_window'), 55)
+        impurity_context_overbought_amp_factor = get_param_value(holder_sentiment_params.get('impurity_context_overbought_amp_factor'), 0.5)
+        impurity_context_oversold_damp_factor = get_param_value(holder_sentiment_params.get('impurity_context_oversold_damp_factor'), 0.2)
         df_index = df.index
-
-        # --- 维度1: 信念内核 (Belief Core) ---
         winner_stability = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         loser_pain = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        
         stability_score = get_adaptive_mtf_normalized_bipolar_score(winner_stability, df_index, tf_weights)
         pain_score = get_adaptive_mtf_normalized_bipolar_score(loser_pain, df_index, tf_weights)
-
         sentiment_trend_raw = self._get_safe_series(df, df, sentiment_trend_modulator_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
         normalized_sentiment_trend = normalize_score(sentiment_trend_raw, df_index, window=sentiment_trend_mod_norm_window, ascending=True)
-        
         dynamic_stability_weight = 0.5 + (normalized_sentiment_trend * sentiment_trend_mod_factor).clip(-0.4, 0.4)
         dynamic_pain_weight = 0.5 - (normalized_sentiment_trend * sentiment_trend_mod_factor).clip(-0.4, 0.4)
-        
         total_dynamic_weight = dynamic_stability_weight + dynamic_pain_weight
         dynamic_stability_weight = dynamic_stability_weight / total_dynamic_weight
         dynamic_pain_weight = dynamic_pain_weight / total_dynamic_weight
-
         belief_core_score = (
             (stability_score.add(1)/2).pow(dynamic_stability_weight) * 
             (pain_score.add(1)/2).pow(dynamic_pain_weight)
         ).pow(1 / (dynamic_stability_weight + dynamic_pain_weight)) * 2 - 1
-
-        # --- 维度2: 压力测试 (Stress Test) ---
         absorption_power = self._get_safe_series(df, df, 'dip_absorption_power_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         defense_intent = self._get_safe_series(df, df, 'mf_cost_zone_defense_intent_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         capitulation_absorption = self._get_safe_series(df, df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        
         absorption_score = get_adaptive_mtf_normalized_bipolar_score(absorption_power, df_index, tf_weights)
         defense_score = get_adaptive_mtf_normalized_bipolar_score(defense_intent, df_index, tf_weights)
         capitulation_score = get_adaptive_mtf_normalized_score(capitulation_absorption, df_index, tf_weights)
-
         base_pressure_score = ((absorption_score.add(1)/2 * defense_score.add(1)/2).pow(0.5) * 2 - 1)
-
         panic_modulator_raw = self._get_safe_series(df, df, panic_reward_modulator_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
         normalized_panic_modulator = normalize_score(panic_modulator_raw, df_index, window=panic_reward_mod_norm_window, ascending=True)
-        
         panic_reward_adjustment_factor = np.tanh(normalized_panic_modulator * panic_reward_mod_tanh_factor) * panic_reward_mod_factor
-        
         dynamic_capitulation_reward_multiplier = capitulation_base_reward_multiplier * (1 + panic_reward_adjustment_factor)
         dynamic_capitulation_reward_multiplier = dynamic_capitulation_reward_multiplier.clip(0.1, 0.8)
-
         capitulation_bonus = capitulation_score * dynamic_capitulation_reward_multiplier
-
         deception_impact = pd.Series(0.0, index=df.index)
+        deception_raw = self._get_safe_series(df, df, deception_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
         if deception_factor_enabled:
-            deception_raw = self._get_safe_series(df, df, deception_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
             negative_deception = deception_raw.clip(upper=0).abs()
             normalized_negative_deception = get_adaptive_mtf_normalized_score(negative_deception, df_index, tf_weights)
             deception_impact = normalized_negative_deception * deception_impact_factor
-
         pressure_test_score = base_pressure_score * (1 + capitulation_bonus + deception_impact)
         pressure_test_score = pressure_test_score.clip(-1, 1)
-
-        # [修改代码行] 将 conviction_base 的计算提前
         conviction_base = ((belief_core_score.add(1)/2) * (pressure_test_score.add(1)/2)).pow(0.5)
-
-        # --- 维度3: 情绪纯度 (Emotional Purity) ---
+        positive_deception_penalty = pd.Series(0.0, index=df.index)
+        if positive_deception_penalty_enabled:
+            positive_deception_raw = deception_raw.clip(lower=0)
+            normalized_positive_deception = get_adaptive_mtf_normalized_score(positive_deception_raw, df_index, tf_weights)
+            positive_deception_penalty = normalized_positive_deception * positive_deception_impact_factor
+            conviction_base = conviction_base * (1 - positive_deception_penalty)
+            conviction_base = conviction_base.clip(0, 1)
         fomo_index = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         profit_taking_quality = self._get_safe_series(df, df, 'profit_realization_quality_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        
         fomo_score = get_adaptive_mtf_normalized_score(fomo_index, df_index, ascending=True, tf_weights=tf_weights)
         profit_taking_score = get_adaptive_mtf_normalized_score(profit_taking_quality, df_index, ascending=True, tf_weights=tf_weights)
-        
         impurity_score = (fomo_score * profit_taking_score).pow(0.5)
-
         if impurity_non_linear_enabled:
             current_sentiment_strength = conviction_base.abs()
             normalized_sentiment_strength = normalize_score(current_sentiment_strength, df_index, window=21, ascending=True)
-            
             dynamic_impurity_tanh_factor = impurity_tanh_factor * (1 + normalized_sentiment_strength * impurity_sentiment_sensitivity)
-            dynamic_impurity_tanh_factor = dynamic_impurity_tanh_factor.clip(0.5, 2.0)
-
+            if impurity_context_modulation_enabled:
+                context_modulator_raw = self._get_safe_series(df, df, impurity_context_modulator_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
+                normalized_context_modulator = normalize_score(context_modulator_raw, df_index, window=impurity_context_mod_norm_window, ascending=True)
+                overbought_mask = normalized_context_modulator > 0.7
+                oversold_mask = normalized_context_modulator < 0.3
+                context_adjustment_factor = pd.Series(1.0, index=df.index)
+                context_adjustment_factor.loc[overbought_mask] = 1 + (normalized_context_modulator.loc[overbought_mask] - 0.7) * impurity_context_overbought_amp_factor / 0.3
+                context_adjustment_factor.loc[oversold_mask] = 1 - (0.3 - normalized_context_modulator.loc[oversold_mask]) * impurity_context_oversold_damp_factor / 0.3
+                dynamic_impurity_tanh_factor = dynamic_impurity_tanh_factor * context_adjustment_factor
+            dynamic_impurity_tanh_factor = dynamic_impurity_tanh_factor.clip(0.5, 3.0)
             modulated_impurity_effect = np.tanh(impurity_score * dynamic_impurity_tanh_factor)
             final_impurity_effect = modulated_impurity_effect
         else:
             final_impurity_effect = impurity_score
-
-        # --- 最终融合 ---
         final_score = (conviction_base * (1 - final_impurity_effect)) * 2 - 1
-        
-        # 植入标准化探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -381,55 +371,60 @@ class ChipIntelligence:
                 print(f"       - 基础参数: sentiment_trend_mod_factor: {sentiment_trend_mod_factor:.2f}, panic_reward_mod_factor: {panic_reward_mod_factor:.2f}, panic_reward_mod_tanh_factor: {panic_reward_mod_tanh_factor:.2f}, capitulation_base_reward_multiplier: {capitulation_base_reward_multiplier:.2f}")
                 print(f"       - 情绪纯度非线性参数: enabled: {impurity_non_linear_enabled}, tanh_factor: {impurity_tanh_factor:.2f}, sentiment_sensitivity: {impurity_sentiment_sensitivity:.2f}")
                 print(f"       - 诡道因子参数: enabled: {deception_factor_enabled}, signal: '{deception_signal_name}', impact_factor: {deception_impact_factor:.2f}")
-                
+                print(f"       - 正向欺骗惩罚参数: enabled: {positive_deception_penalty_enabled}, impact_factor: {positive_deception_impact_factor:.2f}")
+                print(f"       - 情绪杂质上下文调制参数: enabled: {impurity_context_modulation_enabled}, modulator: '{impurity_context_modulator_signal_name}', norm_window: {impurity_context_mod_norm_window}, overbought_amp: {impurity_context_overbought_amp_factor:.2f}, oversold_damp: {impurity_context_oversold_damp_factor:.2f}")
                 print(f"       - 原料: winner_stability_index_D: {winner_stability.loc[probe_date]:.4f}, loser_pain_index_D: {loser_pain.loc[probe_date]:.4f}")
                 print(f"       - 过程: stability_score: {stability_score.loc[probe_date]:.4f}, pain_score: {pain_score.loc[probe_date]:.4f}")
-                
                 print(f"       - 动态信念权重调制器 (原始): {sentiment_trend_modulator_signal_name}: {sentiment_trend_raw.loc[probe_date]:.4f}")
                 print(f"       - 动态信念权重调制器 (归一化): {normalized_sentiment_trend.loc[probe_date]:.4f}")
                 print(f"       - 动态信念权重: stability_weight: {dynamic_stability_weight.loc[probe_date]:.4f}, pain_weight: {dynamic_pain_weight.loc[probe_date]:.4f}")
                 print(f"       - 过程: belief_core_score: {belief_core_score.loc[probe_date]:.4f}")
-
                 print(f"       - 原料: dip_absorption_power_D: {absorption_power.loc[probe_date]:.4f}, mf_cost_zone_defense_intent_D: {defense_intent.loc[probe_date]:.4f}, capitulation_absorption_index_D: {capitulation_absorption.loc[probe_date]:.4f}")
                 print(f"       - 过程: absorption_score: {absorption_score.loc[probe_date]:.4f}, defense_score: {defense_score.loc[probe_date]:.4f}, capitulation_score: {capitulation_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: base_pressure_score: {base_pressure_score.loc[probe_date]:.4f}")
-
                 print(f"       - 恐慌奖励调制器 (原始): {panic_reward_modulator_signal_name}: {panic_modulator_raw.loc[probe_date]:.4f}")
                 print(f"       - 恐慌奖励调制器 (归一化): {normalized_panic_modulator.loc[probe_date]:.4f}")
                 print(f"       - 恐慌奖励调整因子: {panic_reward_adjustment_factor.loc[probe_date]:.4f}")
                 print(f"       - 动态恐慌奖励乘数: {dynamic_capitulation_reward_multiplier.loc[probe_date]:.4f}")
                 print(f"       - 过程: capitulation_bonus: {capitulation_bonus.loc[probe_date]:.4f}")
-
                 if deception_factor_enabled:
-                    deception_raw = self._get_safe_series(df, df, deception_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment") # [修改代码行] 重新获取原始值用于探针
                     negative_deception_val = deception_raw.clip(upper=0).abs().loc[probe_date]
-                    normalized_negative_deception_val = get_adaptive_mtf_normalized_score(deception_raw.clip(upper=0).abs(), df_index, tf_weights).loc[probe_date] # [修改代码行] 重新获取中间值用于探针
+                    normalized_negative_deception_val = get_adaptive_mtf_normalized_score(deception_raw.clip(upper=0).abs(), df_index, tf_weights).loc[probe_date]
                     deception_impact_val = deception_impact.loc[probe_date]
-                    print(f"       - 诡道因子 (原始): {deception_signal_name}: {deception_raw.loc[probe_date]:.4f}") # [修改代码行]
+                    print(f"       - 诡道因子 (原始): {deception_signal_name}: {deception_raw.loc[probe_date]:.4f}")
                     print(f"       - 诡道因子 (负向): {negative_deception_val:.4f}")
                     print(f"       - 诡道因子 (归一化负向): {normalized_negative_deception_val:.4f}")
                     print(f"       - 诡道因子 (影响): {deception_impact_val:.4f}")
-                
                 print(f"       - 过程: pressure_test_score: {pressure_test_score.loc[probe_date]:.4f}")
-                print(f"       - 过程: conviction_base (pre-impurity): {conviction_base.loc[probe_date]:.4f}") # [修改代码行] 探针输出位置调整
-
+                print(f"       - 过程: conviction_base (pre-deception penalty): {((belief_core_score.add(1)/2) * (pressure_test_score.add(1)/2)).pow(0.5).loc[probe_date]:.4f}")
+                if positive_deception_penalty_enabled:
+                    positive_deception_raw_val = deception_raw.clip(lower=0).loc[probe_date]
+                    normalized_positive_deception_val = get_adaptive_mtf_normalized_score(deception_raw.clip(lower=0), df_index, tf_weights).loc[probe_date]
+                    positive_deception_penalty_val = positive_deception_penalty.loc[probe_date]
+                    print(f"       - 诡道因子 (正向): {positive_deception_raw_val:.4f}")
+                    print(f"       - 诡道因子 (归一化正向): {normalized_positive_deception_val:.4f}")
+                    print(f"       - 正向欺骗惩罚: {positive_deception_penalty_val:.4f}")
+                print(f"       - 过程: conviction_base (post-deception penalty): {conviction_base.loc[probe_date]:.4f}")
                 print(f"       - 原料: retail_fomo_premium_index_D: {fomo_index.loc[probe_date]:.4f}, profit_realization_quality_D: {profit_taking_quality.loc[probe_date]:.4f}")
                 print(f"       - 过程: fomo_score: {fomo_score.loc[probe_date]:.4f}, profit_taking_score: {profit_taking_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: impurity_score: {impurity_score.loc[probe_date]:.4f}")
-
                 if impurity_non_linear_enabled:
                     current_sentiment_strength_val = conviction_base.abs().loc[probe_date]
                     normalized_sentiment_strength_val = normalize_score(conviction_base.abs(), df_index, window=21, ascending=True).loc[probe_date]
-                    dynamic_impurity_tanh_factor_val = dynamic_impurity_tanh_factor.loc[probe_date]
-                    modulated_impurity_effect_val = modulated_impurity_effect.loc[probe_date]
                     print(f"       - 情绪强度 (原始): {current_sentiment_strength_val:.4f}")
                     print(f"       - 情绪强度 (归一化): {normalized_sentiment_strength_val:.4f}")
-                    print(f"       - 动态情绪纯度 tanh 因子: {dynamic_impurity_tanh_factor_val:.4f}")
-                    print(f"       - 过程: modulated_impurity_effect: {modulated_impurity_effect_val:.4f}")
+                    print(f"       - 动态情绪纯度 tanh 因子 (pre-context): {impurity_tanh_factor * (1 + normalized_sentiment_strength.loc[probe_date] * impurity_sentiment_sensitivity):.4f}")
+                    if impurity_context_modulation_enabled:
+                        context_modulator_raw_val = self._get_safe_series(df, df, impurity_context_modulator_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment").loc[probe_date]
+                        normalized_context_modulator_val = normalized_context_modulator.loc[probe_date]
+                        context_adjustment_factor_val = context_adjustment_factor.loc[probe_date]
+                        print(f"       - 情绪杂质上下文调制器 (原始): {impurity_context_modulator_signal_name}: {context_modulator_raw_val:.4f}")
+                        print(f"       - 情绪杂质上下文调制器 (归一化): {normalized_context_modulator_val:.4f}")
+                        print(f"       - 上下文调整因子: {context_adjustment_factor_val:.4f}")
+                    print(f"       - 动态情绪纯度 tanh 因子 (post-context): {dynamic_impurity_tanh_factor.loc[probe_date]:.4f}")
+                    print(f"       - 过程: modulated_impurity_effect: {modulated_impurity_effect.loc[probe_date]:.4f}")
                 print(f"       - 过程: final_impurity_effect: {final_impurity_effect.loc[probe_date]:.4f}")
-
                 print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
-
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list, strategic_posture: pd.Series, battlefield_geography: pd.Series, holder_sentiment: pd.Series) -> pd.Series:
