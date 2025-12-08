@@ -960,12 +960,16 @@ class ChipIntelligence:
         # 结构张力负向代表结构脆弱，有利于恐慌
         norm_structural_tension_negative = get_adaptive_mtf_normalized_score(structural_tension_raw, df_index, ascending=False, tf_weights=tf_weights)
 
+        # [修改代码行] 过滤非数值权重进行求和
+        panic_source_numeric_weights = {k: v for k, v in panic_source_weights.items() if isinstance(v, (int, float))}
+        total_panic_source_weight = sum(panic_source_numeric_weights.values())
+
         panic_source_score = (
-            norm_retail_panic_surrender.pow(panic_source_weights.get('retail_panic_surrender', 0.3)) *
-            norm_loser_pain.pow(panic_source_weights.get('loser_pain', 0.3)) *
-            norm_chip_fatigue.pow(panic_source_weights.get('chip_fatigue', 0.2)) *
-            norm_structural_tension_negative.pow(panic_source_weights.get('structural_tension_negative', 0.2))
-        ).pow(1 / sum(panic_source_weights.values()))
+            norm_retail_panic_surrender.pow(panic_source_numeric_weights.get('retail_panic_surrender', 0.3)) *
+            norm_loser_pain.pow(panic_source_numeric_weights.get('loser_pain', 0.3)) *
+            norm_chip_fatigue.pow(panic_source_numeric_weights.get('chip_fatigue', 0.2)) *
+            norm_structural_tension_negative.pow(panic_source_numeric_weights.get('structural_tension_negative', 0.2))
+        ).pow(1 / total_panic_source_weight)
 
         is_panic_context = panic_source_score > panic_context_threshold
 
@@ -982,13 +986,17 @@ class ChipIntelligence:
         norm_support_validation_strength = get_adaptive_mtf_normalized_score(support_validation_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_main_force_execution_alpha = get_adaptive_mtf_normalized_score(main_force_execution_alpha_raw, df_index, ascending=True, tf_weights=tf_weights)
 
+        # [修改代码行] 过滤非数值权重进行求和
+        counter_flow_medium_numeric_weights = {k: v for k, v in counter_flow_medium_weights.items() if isinstance(v, (int, float))}
+        total_counter_flow_medium_weight = sum(counter_flow_medium_numeric_weights.values())
+
         counter_flow_medium_score = (
-            norm_divergence_bullish.pow(counter_flow_medium_weights.get('divergence_bullish', 0.3)) *
-            norm_capitulation_absorption.pow(counter_flow_medium_weights.get('capitulation_absorption', 0.2)) *
-            norm_floating_chip_cleansing_efficiency.pow(counter_flow_medium_weights.get('cleansing_efficiency', 0.2)) *
-            norm_support_validation_strength.pow(counter_flow_medium_weights.get('support_validation', 0.15)) *
-            norm_main_force_execution_alpha.pow(counter_flow_medium_weights.get('main_force_execution_alpha', 0.15))
-        ).pow(1 / sum(counter_flow_medium_weights.values()))
+            norm_divergence_bullish.pow(counter_flow_medium_numeric_weights.get('divergence_bullish', 0.3)) *
+            norm_capitulation_absorption.pow(counter_flow_medium_numeric_weights.get('capitulation_absorption', 0.2)) *
+            norm_floating_chip_cleansing_efficiency.pow(counter_flow_medium_numeric_weights.get('cleansing_efficiency', 0.2)) *
+            norm_support_validation_strength.pow(counter_flow_medium_numeric_weights.get('support_validation', 0.15)) *
+            norm_main_force_execution_alpha.pow(counter_flow_medium_numeric_weights.get('main_force_execution_alpha', 0.15))
+        ).pow(1 / total_counter_flow_medium_weight)
 
         # --- 维度3: 主力回声 (Main Force Echo - Pure Chip Accumulation Evidence) ---
         covert_accumulation_raw = self._get_safe_series(df, df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_absorption_echo")
@@ -1003,13 +1011,17 @@ class ChipIntelligence:
         norm_peak_control_transfer = get_adaptive_mtf_normalized_score(peak_control_transfer_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_main_force_conviction_positive = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights).clip(0, 1) # 取正向部分
 
+        # [修改代码行] 过滤非数值权重进行求和
+        main_force_echo_numeric_weights = {k: v for k, v in main_force_echo_weights.items() if isinstance(v, (int, float))}
+        total_main_force_echo_weight = sum(main_force_echo_numeric_weights.values())
+
         main_force_echo_score = (
-            norm_covert_accumulation.pow(main_force_echo_weights.get('covert_accumulation', 0.3)) *
-            norm_suppressive_accumulation.pow(main_force_echo_weights.get('suppressive_accumulation', 0.2)) *
-            norm_main_force_cost_advantage.pow(main_force_echo_weights.get('cost_advantage', 0.2)) *
-            norm_peak_control_transfer.pow(main_force_echo_weights.get('peak_control_transfer', 0.15)) *
-            norm_main_force_conviction_positive.pow(main_force_echo_weights.get('main_force_conviction_positive', 0.15))
-        ).pow(1 / sum(main_force_echo_weights.values()))
+            norm_covert_accumulation.pow(main_force_echo_numeric_weights.get('covert_accumulation', 0.3)) *
+            norm_suppressive_accumulation.pow(main_force_echo_numeric_weights.get('suppressive_accumulation', 0.2)) *
+            norm_main_force_cost_advantage.pow(main_force_echo_numeric_weights.get('cost_advantage', 0.2)) *
+            norm_peak_control_transfer.pow(main_force_echo_numeric_weights.get('peak_control_transfer', 0.15)) *
+            norm_main_force_conviction_positive.pow(main_force_echo_numeric_weights.get('main_force_conviction_positive', 0.15))
+        ).pow(1 / total_main_force_echo_weight)
 
         # --- 维度4: 诡道背景调制 (Deception Context Modulation) ---
         chip_fault_magnitude_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', 0.0, method_name="_diagnose_absorption_echo")
@@ -1133,10 +1145,14 @@ class ChipIntelligence:
         norm_retail_fomo_premium = get_adaptive_mtf_normalized_score(retail_fomo_premium_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_winner_profit_margin = get_adaptive_mtf_normalized_score(winner_profit_margin_raw, df_index, ascending=True, tf_weights=tf_weights)
 
+        # [修改代码行] 过滤非数值权重进行求和
+        fomo_backdrop_numeric_weights = {k: v for k, v in fomo_backdrop_weights.items() if isinstance(v, (int, float))}
+        total_fomo_backdrop_weight = sum(fomo_backdrop_numeric_weights.values())
+
         fomo_backdrop_score = (
-            norm_retail_fomo_premium.pow(fomo_backdrop_weights.get('retail_fomo_premium', 0.5)) *
-            norm_winner_profit_margin.pow(fomo_backdrop_weights.get('winner_profit_margin', 0.5))
-        ).pow(1 / sum(fomo_backdrop_weights.values()))
+            norm_retail_fomo_premium.pow(fomo_backdrop_numeric_weights.get('retail_fomo_premium', 0.5)) *
+            norm_winner_profit_margin.pow(fomo_backdrop_numeric_weights.get('winner_profit_margin', 0.5))
+        ).pow(1 / total_fomo_backdrop_weight)
 
         is_fomo_context = fomo_backdrop_score > fomo_context_threshold
 
@@ -1150,11 +1166,15 @@ class ChipIntelligence:
         norm_dispersal_by_distribution = get_adaptive_mtf_normalized_score(dispersal_by_distribution_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_chip_fault_magnitude_for_shadow = get_adaptive_mtf_normalized_score(chip_fault_magnitude_raw.abs(), df_index, ascending=True, tf_weights=tf_weights)
 
+        # [修改代码行] 过滤非数值权重进行求和
+        divergence_shadow_numeric_weights = {k: v for k, v in divergence_shadow_weights.items() if isinstance(v, (int, float))}
+        total_divergence_shadow_weight = sum(divergence_shadow_numeric_weights.values())
+
         divergence_shadow_score = (
-            norm_divergence_bearish.pow(divergence_shadow_weights.get('divergence_bearish', 0.4)) *
-            norm_dispersal_by_distribution.pow(divergence_shadow_weights.get('distribution_intensity', 0.3)) *
-            norm_chip_fault_magnitude_for_shadow.pow(divergence_shadow_weights.get('chip_fault_magnitude', 0.3))
-        ).pow(1 / sum(divergence_shadow_weights.values()))
+            norm_divergence_bearish.pow(divergence_shadow_numeric_weights.get('divergence_bearish', 0.4)) *
+            norm_dispersal_by_distribution.pow(divergence_shadow_numeric_weights.get('distribution_intensity', 0.3)) *
+            norm_chip_fault_magnitude_for_shadow.pow(divergence_shadow_numeric_weights.get('chip_fault_magnitude', 0.3))
+        ).pow(1 / total_divergence_shadow_weight)
 
         # --- 维度3: 主力抽离 (Main Force Retreat - Pure Chip Distribution Evidence) ---
         profit_taking_flow_ratio_raw = self._get_safe_series(df, df, 'profit_taking_flow_ratio_D', 0.0, method_name="_diagnose_distribution_whisper")
@@ -1163,10 +1183,14 @@ class ChipIntelligence:
         norm_profit_taking_flow_ratio = get_adaptive_mtf_normalized_score(profit_taking_flow_ratio_raw, df_index, ascending=True, tf_weights=tf_weights)
         # norm_dispersal_by_distribution 已经获取过
 
+        # [修改代码行] 过滤非数值权重进行求和
+        main_force_retreat_numeric_weights = {k: v for k, v in main_force_retreat_weights.items() if isinstance(v, (int, float))}
+        total_main_force_retreat_weight = sum(main_force_retreat_numeric_weights.values())
+
         main_force_retreat_score = (
-            norm_profit_taking_flow_ratio.pow(main_force_retreat_weights.get('profit_taking_flow', 0.5)) *
-            norm_dispersal_by_distribution.pow(main_force_retreat_weights.get('dispersal_by_distribution', 0.5))
-        ).pow(1 / sum(main_force_retreat_weights.values()))
+            norm_profit_taking_flow_ratio.pow(main_force_retreat_numeric_weights.get('profit_taking_flow', 0.5)) *
+            norm_dispersal_by_distribution.pow(main_force_retreat_numeric_weights.get('dispersal_by_distribution', 0.5))
+        ).pow(1 / total_main_force_retreat_weight)
 
         # --- 维度4: 诡道背景调制 (Deception Context Modulation) ---
         # chip_fault_magnitude_raw 已经获取过
