@@ -52,18 +52,18 @@ class BehavioralIntelligence:
         """
         all_behavioral_states = {}
 
-        # [代码修改] 调整执行顺序：首先生成 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT
+        # 调整执行顺序：首先生成 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT
         # 因为它是 _diagnose_divergence_quality 的依赖项，而 _diagnose_divergence_quality
         # 在 _diagnose_behavioral_axioms 内部被调用。
         micro_intent_signals = self._diagnose_microstructure_intent(df)
         self.strategy.atomic_states.update(micro_intent_signals)
         all_behavioral_states.update(micro_intent_signals)
-        # [代码修改] 立即将微观意图信号合并到df中，供后续方法使用 _get_safe_series 获取
+        # 立即将微观意图信号合并到df中，供后续方法使用 _get_safe_series 获取
         for k, v in micro_intent_signals.items():
             if k not in df.columns:
                 df[k] = v
 
-        # [代码修改] 接着生成核心公理信号，此时 _diagnose_divergence_quality 可以访问到微观意图信号
+        # 接着生成核心公理信号，此时 _diagnose_divergence_quality 可以访问到微观意图信号
         atomic_signals = self._diagnose_behavioral_axioms(df)
         # 如果核心公理诊断失败，则提前返回，防止后续错误
         if not atomic_signals:
@@ -71,7 +71,7 @@ class BehavioralIntelligence:
             return {}
         self.strategy.atomic_states.update(atomic_signals)
         all_behavioral_states.update(atomic_signals)
-        # [代码修改] 将原子信号合并到df中，供后续的 _calculate_signal_dynamics 方法使用
+        # 将原子信号合并到df中，供后续的 _calculate_signal_dynamics 方法使用
         for k, v in atomic_signals.items():
             if k not in df.columns:
                 df[k] = v
@@ -79,17 +79,17 @@ class BehavioralIntelligence:
         # 生成上下文新高强度信号
         context_new_high_strength = self._diagnose_context_new_high_strength(df)
         self.strategy.atomic_states.update(context_new_high_strength)
-        # [修改的代码行] 修正NameError: context_new_high_high_strength -> context_new_high_strength
+        # 修正NameError: context_new_high_high_strength -> context_new_high_strength
         all_behavioral_states.update(context_new_high_strength) 
-        # [代码修改] 将上下文信号合并到df中
+        # 将上下文信号合并到df中
         for k, v in context_new_high_strength.items():
             if k not in df.columns:
                 df[k] = v
         
-        # [修改的代码行] 将_calculate_signal_dynamics返回的新的DataFrame重新赋值给df
+        # 将_calculate_signal_dynamics返回的新的DataFrame重新赋值给df
         df = self._calculate_signal_dynamics(df) 
         
-        dynamic_cols = [c for c in df.columns if c.startswith(('MOMENTUM_', 'POTENTIAL_', 'THRUST_', 'RESONANCE_'))] # [修改的代码行] 从更新后的df中获取列
+        dynamic_cols = [c for c in df.columns if c.startswith(('MOMENTUM_', 'POTENTIAL_', 'THRUST_', 'RESONANCE_'))] # 从更新后的df中获取列
         self.strategy.atomic_states.update(df[dynamic_cols])
         all_behavioral_states.update(df[dynamic_cols])
         return all_behavioral_states
@@ -227,7 +227,7 @@ class BehavioralIntelligence:
         """
         method_name = "_diagnose_behavioral_axioms"
         
-        # [修改的代码行] 获取所有参数配置，用于动态构建required_signals
+        # 获取所有参数配置，用于动态构建required_signals
         p_behavioral_div_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         mtf_slopes_params = get_param_value(p_behavioral_div_conf.get('multi_timeframe_slopes'), {"enabled": True, "periods": [5, 13], "weights": {"5": 0.7, "13": 0.3}})
         mtf_periods = mtf_slopes_params.get('periods', [5])
@@ -237,7 +237,7 @@ class BehavioralIntelligence:
         pattern_lookback_window = pattern_sequence_params.get('lookback_window', 3)
         accel_period = mtf_periods[0] # 使用最短MTF周期作为加速度周期
 
-        # [修改的代码行] 重新构建required_signals，确保包含所有原始输入信号
+        # 重新构建required_signals，确保包含所有原始输入信号
         required_signals = [
             'close_D', 'high_D', 'low_D', 'open_D', 'volume_D', 'amount_D', 'pct_change_D',
             'volume_ratio_D', 'turnover_rate_f_D', 'main_force_net_flow_calibrated_D',
@@ -306,12 +306,6 @@ class BehavioralIntelligence:
         # --- 基础信号计算 ---
         pct_change = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
         price_accel = self._get_safe_series(df, 'ACCEL_5_pct_change_D', pct_change.diff(5).fillna(0.0), method_name=method_name)
-
-        # [DEBUG PRINT]
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"    -> [DEBUG] {method_name}: id(df) BEFORE robust_slopes calculation: {id(df)}")
-            print(f"    -> [DEBUG] {method_name}: df.columns BEFORE robust_slopes calculation: {df.columns.tolist()[:10]}...")
-
         # 1. 计算鲁棒斜率 (Robust Slopes)
         robust_slopes = {}
         for indicator in ['close', 'RSI_13', 'MACDh_13_34_8', 'volume', 'BBW_21_2.0', 'pct_change']:
@@ -332,53 +326,34 @@ class BehavioralIntelligence:
                 first_period_col = f'SLOPE_{mtf_periods[0]}_{indicator}_D' if mtf_periods else None
                 robust_slopes[indicator] = self._get_safe_series(df, first_period_col, 0.0, method_name=method_name)
             
-            # [修改的代码行] 将鲁棒斜率添加到df中，并添加到states中
+            # 将鲁棒斜率添加到df中，并添加到states中
             df[f'robust_{indicator}_slope'] = robust_slopes[indicator]
             states[f'robust_{indicator}_slope'] = robust_slopes[indicator]
-            # [NEW DEBUG] Check immediately if the column exists
-            if is_debug_enabled and probe_ts and probe_ts in df.index:
-                if f'robust_{indicator}_slope' not in df.columns:
-                    print(f"    -> [CRITICAL DEBUG] Column 'robust_{indicator}_slope' NOT found in df.columns immediately after assignment for {indicator}!")
-                else:
-                    print(f"    -> [CRITICAL DEBUG] Column 'robust_{indicator}_slope' FOUND in df.columns immediately after assignment for {indicator}.")
 
-
-        # [DEBUG PRINT]
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"    -> [DEBUG] {method_name}: id(df) AFTER robust_slopes calculation: {id(df)}")
-            # [修改的代码行] 打印所有列，或者至少是最后几列，以确认新列是否真的被添加
-            print(f"    -> [DEBUG] {method_name}: df.columns AFTER robust_slopes calculation (full list): {df.columns.tolist()}")
-            print(f"    -> [DEBUG] {method_name}: robust_slopes calculated keys: {robust_slopes.keys()}")
-            for k, v in robust_slopes.items():
-                if probe_ts in v.index:
-                    print(f"        robust_{k}_slope value at probe_ts: {v.loc[probe_ts]}")
-                else:
-                    print(f"        robust_{k}_slope not available at probe_ts")
-
-        # [修改的代码行] 计算长期斜率 - 提升到这里
+        # 计算长期斜率 - 提升到这里
         long_term_period = multi_level_resonance_params.get('long_term_period', 21) # 确保long_term_period已定义
         long_term_close_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_close_D', 0.0, method_name=method_name)
         long_term_rsi_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_RSI_13_D', 0.0, method_name=method_name)
         long_term_macd_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_MACDh_13_34_8_D', 0.0, method_name=method_name)
         long_term_volume_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_volume_D', 0.0, method_name=method_name)
         long_term_adx_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_ADX_14_D', 0.0, method_name=method_name)
-        # [修改的代码行] 将长期斜率添加到df中，并添加到states中，修正命名
+        # 将长期斜率添加到df中，并添加到states中，修正命名
         df['long_term_close_slope'] = long_term_close_slope
         states['long_term_close_slope'] = long_term_close_slope
-        df['long_term_RSI_13_slope'] = long_term_rsi_slope # [修改的代码行] 修正列名
-        states['long_term_RSI_13_slope'] = long_term_rsi_slope # [修改的代码行] 修正列名
-        df['long_term_MACDh_13_34_8_slope'] = long_term_macd_slope # [修改的代码行] 修正列名
-        states['long_term_MACDh_13_34_8_slope'] = long_term_macd_slope # [修改的代码行] 修正列名
+        df['long_term_RSI_13_slope'] = long_term_rsi_slope # 修正列名
+        states['long_term_RSI_13_slope'] = long_term_rsi_slope # 修正列名
+        df['long_term_MACDh_13_34_8_slope'] = long_term_macd_slope # 修正列名
+        states['long_term_MACDh_13_34_8_slope'] = long_term_macd_slope # 修正列名
         df['long_term_volume_slope'] = long_term_volume_slope
         states['long_term_volume_slope'] = long_term_volume_slope
         df['long_term_adx_slope'] = long_term_adx_slope
         states['long_term_adx_slope'] = long_term_adx_slope
 
-        # [修改的代码行] 模式序列所需的斜率 - 提升到这里
+        # 模式序列所需的斜率 - 提升到这里
         pattern_lookback_window = pattern_sequence_params.get('lookback_window', 3)
         pattern_close_slope = self._get_safe_series(df, f'SLOPE_{pattern_lookback_window}_close_D', 0.0, method_name=method_name)
         pattern_volume_slope = self._get_safe_series(df, f'SLOPE_{pattern_lookback_window}_volume_D', 0.0, method_name=method_name)
-        # [修改的代码行] 将模式序列斜率添加到df中，并添加到states中
+        # 将模式序列斜率添加到df中，并添加到states中
         df['pattern_close_slope'] = pattern_close_slope
         states['pattern_close_slope'] = pattern_close_slope
         df['pattern_volume_slope'] = pattern_volume_slope
@@ -387,68 +362,53 @@ class BehavioralIntelligence:
         # --- 动能信号 ---
         upward_momentum_score = self._diagnose_upward_momentum(df, default_weights)
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
-        df['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32) # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
         
         downward_momentum_score = self._diagnose_downward_momentum(df)
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
-        df['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32) # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
 
         # --- 行为铁三角 (依赖于df中的信号，所以先计算并添加到df) ---
         upward_efficiency_score = self._diagnose_upward_efficiency(df, default_weights)
         states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
-        df['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32) # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
 
         downward_resistance_score = self._diagnose_downward_resistance(df, default_weights)
         states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
-        df['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32) # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
 
         intraday_bull_control_score = self._diagnose_intraday_bull_control(df, default_weights)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
-        df['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32) # [修改的代码行] 添加到df
-
-        # [DEBUG PRINT]
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"    -> [DEBUG] {method_name}: df.columns BEFORE calling _calculate_behavioral_price_overextension: {df.columns.tolist()[-10:]}...") # [修改的代码行] 打印最后10列
-
+        df['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
         # --- 超买信号 (依赖于df中的信号，所以先计算并添加到df) ---
         # 调用重构后的纯行为超买信号
         final_overextension_score = self._calculate_behavioral_price_overextension(df, default_weights, is_debug_enabled, probe_ts)
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
-        df['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32) # [修改的代码行] 添加到df
-
-        # [DEBUG PRINT]
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"    -> [DEBUG] {method_name}: df.columns BEFORE calling _calculate_behavioral_stagnation_evidence: {df.columns.tolist()[-10:]}...") # [修改的代码行] 打印最后10列
-
+        df['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
         # --- 滞涨信号 (依赖于df中的信号，所以先计算并添加到df) ---
         # 调用重构后的纯行为滞涨信号
         stagnation_evidence = self._calculate_behavioral_stagnation_evidence(df, default_weights, is_debug_enabled, probe_ts)
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence.astype(np.float32)
-        df['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence.astype(np.float32) # [修改的代码行] 添加到df
-
-        # [DEBUG PRINT]
-        if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"    -> [DEBUG] {method_name}: df.columns BEFORE calling _diagnose_pure_behavioral_divergence: {df.columns.tolist()[-10:]}...") # [修改的代码行] 打印最后10列
-
+        df['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence.astype(np.float32)
         # --- 其他信号 ---
         lower_shadow_quality = self._diagnose_lower_shadow_quality(df)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
-        df['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
 
         deception_index = self._diagnose_deception_index(df)
         states['SCORE_BEHAVIOR_DECEPTION_INDEX'] = deception_index
-        df['SCORE_BEHAVIOR_DECEPTION_INDEX'] = deception_index # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_DECEPTION_INDEX'] = deception_index
 
         distribution_intent = self._diagnose_distribution_intent(df, default_weights, final_overextension_score)
         states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] = distribution_intent
-        df['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] = distribution_intent # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] = distribution_intent
 
         offensive_absorption_intent = self._diagnose_offensive_absorption_intent(df, lower_shadow_quality, distribution_intent)
         states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = offensive_absorption_intent
-        df['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = offensive_absorption_intent # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = offensive_absorption_intent
 
         states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] = self._diagnose_ambush_counterattack(df, offensive_absorption_intent)
-        df['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] = states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] = states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK']
 
         states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = self._diagnose_breakout_failure_risk(
             df,
@@ -458,23 +418,23 @@ class BehavioralIntelligence:
             is_debug_enabled,
             probe_ts
         )
-        df['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] # [修改的代码行] 添加到df
+        df['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE']
 
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights)
-        df['SCORE_BEHAVIOR_VOLUME_BURST'] = states['SCORE_BEHAVIOR_VOLUME_BURST'] # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_VOLUME_BURST'] = states['SCORE_BEHAVIOR_VOLUME_BURST']
 
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights)
-        df['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = states['SCORE_BEHAVIOR_VOLUME_ATROPHY']
 
         states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = self._calculate_absorption_strength(df, default_weights)
-        df['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH']
 
         states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] = self._diagnose_shakeout_confirmation(
             df,
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
             states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
         )
-        df['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] = states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] = states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION']
 
         # 调用新的纯行为背离诊断方法，严格遵循V1.0定义
         bullish_pure_div, bearish_pure_div = self._diagnose_pure_behavioral_divergence(
@@ -484,9 +444,9 @@ class BehavioralIntelligence:
             probe_ts
         )
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_pure_div # 新增 V1.0 看涨背离信号
-        df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_pure_div # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_pure_div
         states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_pure_div # 新增 V1.0 看跌背离信号
-        df['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_pure_div # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_pure_div
 
         # 保持对 _QUALITY 版本的调用，因为它们是不同的、更高级的信号
         bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(
@@ -495,15 +455,15 @@ class BehavioralIntelligence:
             states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
         )
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
-        df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
         states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'] = bearish_divergence_quality
-        df['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'] = bearish_divergence_quality # [修改的代码行] 添加到df
+        df['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'] = bearish_divergence_quality
 
         # --- 机会与风险信号 ---
         is_rising = (pct_change > 0).astype(float)
         is_falling = (pct_change < 0).astype(float)
         states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = (is_rising * states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] * states['SCORE_BEHAVIOR_VOLUME_ATROPHY']).pow(1/3).astype(np.float32)
-        df['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] # [修改的代码行] 添加到df
+        df['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = states['SCORE_OPPORTUNITY_LOCKUP_RALLY']
 
         capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name=method_name)
         selling_deceleration_score = (1 - get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)).clip(0, 1)
@@ -515,10 +475,10 @@ class BehavioralIntelligence:
             capitulation_confirm_score.pow(0.2)
         ).fillna(0.0)
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * selling_exhaustion_score).astype(np.float32)
-        df['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] # [修改的代码行] 添加到df
+        df['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION']
 
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
-        df['SCORE_RISK_LIQUIDITY_DRAIN'] = states['SCORE_RISK_LIQUIDITY_DRAIN'] # [修改的代码行] 添加到df
+        df['SCORE_RISK_LIQUIDITY_DRAIN'] = states['SCORE_RISK_LIQUIDITY_DRAIN']
 
         return states
 
@@ -1608,13 +1568,13 @@ class BehavioralIntelligence:
         # 获取所需纯行为数据和派生信号
         required_signals = [
             'close_D', 'RSI_13_D', 'MACDh_13_34_8_D', 'volume_D', 'VOL_MA_21_D',
-            'BIAS_5_D', 'BBP_21_2.0_D', # [修改的代码行] 修正BBP指标名称
+            'BIAS_5_D', 'BBP_21_2.0_D', # 修正BBP指标名称
             'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D',
             'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D',
             'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
-            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。") # [修改的代码行] 打印缺失信号
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。") # 打印缺失信号
             return pd.Series(0.0, index=df.index)
 
         close_price = self._get_safe_series(df, 'close_D', df['close_D'], method_name=method_name)
@@ -1623,7 +1583,7 @@ class BehavioralIntelligence:
         current_volume = self._get_safe_series(df, 'volume_D', 0.0, method_name=method_name)
         volume_avg = self._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name=method_name)
         bias_val = self._get_safe_series(df, 'BIAS_5_D', 0.0, method_name=method_name)
-        bbp_val = self._get_safe_series(df, 'BBP_21_2.0_D', 0.5, method_name=method_name) # [修改的代码行] 修正BBP指标名称
+        bbp_val = self._get_safe_series(df, 'BBP_21_2.0_D', 0.5, method_name=method_name) # 修正BBP指标名称
         
         accel_close = self._get_safe_series(df, 'ACCEL_5_close_D', 0.0, method_name=method_name)
         accel_rsi = self._get_safe_series(df, 'ACCEL_5_RSI_13_D', 0.0, method_name=method_name)
@@ -1694,7 +1654,7 @@ class BehavioralIntelligence:
             print(f"    volume_D: {current_volume.loc[probe_ts]:.0f}")
             print(f"    VOL_MA_21_D: {volume_avg.loc[probe_ts]:.0f}")
             print(f"    BIAS_5_D: {bias_val.loc[probe_ts]:.4f}")
-            print(f"    BBP_21_2.0_D: {bbp_val.loc[probe_ts]:.4f}") # [修改的代码行] 修正BBP指标名称
+            print(f"    BBP_21_2.0_D: {bbp_val.loc[probe_ts]:.4f}") # 修正BBP指标名称
             print(f"    ACCEL_5_close_D: {accel_close.loc[probe_ts]:.4f}")
             print(f"    ACCEL_5_RSI_13_D: {accel_rsi.loc[probe_ts]:.4f}")
             print(f"    ACCEL_5_MACDh_13_34_8_D: {accel_macd.loc[probe_ts]:.4f}")
@@ -1751,7 +1711,7 @@ class BehavioralIntelligence:
             return pd.Series(0.0, index=df.index)
 
         # 获取所需纯行为数据和派生信号
-        # [修改的代码行] 修正robust_rsi_slope和robust_macd_slope的名称
+        # 修正robust_rsi_slope和robust_macd_slope的名称
         required_signals = [
             'close_D', 'open_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_21_D',
             'robust_close_slope', 'robust_RSI_13_slope', 'robust_MACDh_13_34_8_slope', 'robust_volume_slope',
@@ -1771,7 +1731,7 @@ class BehavioralIntelligence:
         pct_change_val = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
 
         robust_close_slope = self._get_safe_series(df, 'robust_close_slope', 0.0, method_name=method_name)
-        # [修改的代码行] 修正robust_rsi_slope和robust_macd_slope的名称
+        # 修正robust_rsi_slope和robust_macd_slope的名称
         robust_rsi_slope = self._get_safe_series(df, 'robust_RSI_13_slope', 0.0, method_name=method_name)
         robust_macd_slope = self._get_safe_series(df, 'robust_MACDh_13_34_8_slope', 0.0, method_name=method_name)
         robust_volume_slope = self._get_safe_series(df, 'robust_volume_slope', 0.0, method_name=method_name)
@@ -1967,11 +1927,11 @@ class BehavioralIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         mtf_slopes_params = get_param_value(p_conf.get('multi_timeframe_slopes'), {"enabled": True, "periods": [5, 13], "weights": {"5": 0.7, "13": 0.3}})
         multi_level_resonance_params = get_param_value(p_conf.get('multi_level_resonance_params'), {"enabled": True, "long_term_period": 21, "resonance_bonus": 0.2})
-        # [修改的代码行] 调试打印 multi_level_resonance_params
+        # 调试打印 multi_level_resonance_params
         if debug_enabled and probe_ts and probe_ts in df.index:
             print(f"    -> [DEBUG] {method_name}: multi_level_resonance_params: {multi_level_resonance_params}")
         long_term_period = multi_level_resonance_params.get('long_term_period', 21)
-        # [修改的代码行] 调试打印 long_term_period
+        # 调试打印 long_term_period
         if debug_enabled and probe_ts and probe_ts in df.index:
             print(f"    -> [DEBUG] {method_name}: long_term_period defined as: {long_term_period}, type: {type(long_term_period)}")
 
@@ -2011,7 +1971,7 @@ class BehavioralIntelligence:
         persistence_quality_decay_factor = get_param_value(persistence_params.get('quality_decay_factor', 0.05))
 
         # 2. 获取所需原始数据和斜率
-        # [修改的代码行] 确保required_signals列表包含了所有在_diagnose_behavioral_axioms中计算并添加到df的信号
+        # 确保required_signals列表包含了所有在_diagnose_behavioral_axioms中计算并添加到df的信号
         required_signals = [
             'close_D', 'RSI_13_D', 'MACDh_13_34_8_D', 'volume_D', 'ATR_14_D', 'BBW_21_2.0_D',
             'active_buying_support_D', 'active_selling_pressure_D', 'trend_vitality_index_D',
@@ -2037,7 +1997,7 @@ class BehavioralIntelligence:
             print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。")
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
 
-        # [修改的代码行] 直接从df中获取鲁棒斜率 (已在_diagnose_behavioral_axioms中计算并添加到df)
+        # 直接从df中获取鲁棒斜率 (已在_diagnose_behavioral_axioms中计算并添加到df)
         robust_close_slope = self._get_safe_series(df, 'robust_close_slope', 0.0, method_name=method_name)
         robust_rsi_slope = self._get_safe_series(df, 'robust_RSI_13_slope', 0.0, method_name=method_name)
         robust_macd_slope = self._get_safe_series(df, 'robust_MACDh_13_34_8_slope', 0.0, method_name=method_name)
@@ -2045,14 +2005,14 @@ class BehavioralIntelligence:
         robust_bbw_slope = self._get_safe_series(df, 'robust_BBW_21_2.0_slope', 0.0, method_name=method_name)
         robust_pct_change_slope = self._get_safe_series(df, 'robust_pct_change_slope', 0.0, method_name=method_name)
 
-        # [修改的代码行] 直接从df中获取长期斜率 (已在_diagnose_behavioral_axioms中计算并添加到df)
+        # 直接从df中获取长期斜率 (已在_diagnose_behavioral_axioms中计算并添加到df)
         long_term_close_slope = self._get_safe_series(df, 'long_term_close_slope', 0.0, method_name=method_name)
         long_term_rsi_slope = self._get_safe_series(df, 'long_term_RSI_13_slope', 0.0, method_name=method_name)
         long_term_macd_slope = self._get_safe_series(df, 'long_term_MACDh_13_34_8_slope', 0.0, method_name=method_name)
         long_term_volume_slope = self._get_safe_series(df, 'long_term_volume_slope', 0.0, method_name=method_name)
         long_term_adx_slope = self._get_safe_series(df, 'long_term_adx_slope', 0.0, method_name=method_name)
 
-        # [修改的代码行] 直接从df中获取模式序列所需的斜率 (已在_diagnose_behavioral_axioms中计算并添加到df)
+        # 直接从df中获取模式序列所需的斜率 (已在_diagnose_behavioral_axioms中计算并添加到df)
         pattern_lookback_window = pattern_sequence_params.get('lookback_window', 3)
         pattern_close_slope = self._get_safe_series(df, 'pattern_close_slope', 0.0, method_name=method_name)
         pattern_volume_slope = self._get_safe_series(df, 'pattern_volume_slope', 0.0, method_name=method_name)
@@ -2253,7 +2213,7 @@ class BehavioralIntelligence:
         # 背离的“纯度”与“质量”评估 (Divergence Purity and Quality Assessment)
         bullish_purity_factor = pd.Series(1.0, index=df.index)
         if purity_assessment_params.get('enabled'):
-            # [修改的代码行] 这里获取原始的SLOPE，而不是robust_close_slope
+            # 这里获取原始的SLOPE，而不是robust_close_slope
             short_term_close_slopes = self._get_safe_series(df, f'SLOPE_{mtf_slopes_params.get("periods", [5])[0]}_close_D', 0.0, method_name=method_name)
             slope_std_dev = short_term_close_slopes.rolling(window=mtf_slopes_params.get("periods", [5])[0]).std().fillna(0)
             norm_slope_std_dev = get_adaptive_mtf_normalized_score(slope_std_dev, df.index, ascending=True, tf_weights=tf_weights)
@@ -2368,14 +2328,14 @@ class BehavioralIntelligence:
             low_inertia_bonus = behavioral_inertia_params.get('low_inertia_bonus', 0.05)
 
             # 长期ADX强度 (使用ADX的长期均值来判断趋势强度)
-            # [修改的代码行] 调试打印 long_term_period 再次确认
+            # 调试打印 long_term_period 再次确认
             if debug_enabled and probe_ts and probe_ts in df.index:
                 print(f"    -> [DEBUG] {method_name}: long_term_period value before long_term_adx_mean: {long_term_period}, type: {type(long_term_period)}")
             long_term_adx_mean = self._get_safe_series(df, 'ADX_14_D', 0.0, method_name=method_name).rolling(long_term_period).mean()
             is_strong_long_term_trend = (long_term_adx_mean > long_term_adx_threshold)
             
             # 长期价格斜率稳定性 (长期斜率的标准差越小越稳定)
-            long_term_close_slopes_series = self._get_safe_series(df, f'SLOPE_{long_term_period}_close_D', 0.0, method_name=method_name) # [修改的代码行] 获取原始长期斜率
+            long_term_close_slopes_series = self._get_safe_series(df, f'SLOPE_{long_term_period}_close_D', 0.0, method_name=method_name) # 获取原始长期斜率
             long_term_slope_std_dev = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)
             # 归一化标准差，使其在0-1之间，高标准差表示不稳定，低标准差表示稳定
             norm_long_term_slope_std_dev = get_adaptive_mtf_normalized_score(long_term_slope_std_dev, df.index, ascending=False, tf_weights=tf_weights) # 越小越好，所以ascending=False
@@ -2588,7 +2548,7 @@ class BehavioralIntelligence:
         # 背离的“纯度”与“质量”评估 (Divergence Purity and Quality Assessment)
         bearish_purity_factor = pd.Series(1.0, index=df.index)
         if purity_assessment_params.get('enabled'):
-            # [修改的代码行] 这里获取原始的SLOPE，而不是robust_close_slope
+            # 这里获取原始的SLOPE，而不是robust_close_slope
             short_term_close_slopes = self._get_safe_series(df, f'SLOPE_{mtf_slopes_params.get("periods", [5])[0]}_close_D', 0.0, method_name=method_name)
             slope_std_dev = short_term_close_slopes.rolling(window=mtf_slopes_params.get("periods", [5])[0]).std().fillna(0)
             norm_slope_std_dev = get_adaptive_mtf_normalized_score(slope_std_dev, df.index, ascending=True, tf_weights=tf_weights)
@@ -2701,7 +2661,7 @@ class BehavioralIntelligence:
             low_inertia_bonus = behavioral_inertia_params.get('low_inertia_bonus', 0.05)
 
             is_strong_long_term_trend = (long_term_adx_mean > long_term_adx_threshold) # 使用上面计算的long_term_adx_mean
-            # [修改的代码行] 获取原始长期斜率
+            # 获取原始长期斜率
             long_term_close_slopes_series = self._get_safe_series(df, f'SLOPE_{long_term_period}_close_D', 0.0, method_name=method_name)
             long_term_slope_std_dev = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)
             # 归一化标准差，使其在0-1之间，高标准差表示不稳定，低标准差表示稳定
@@ -2740,188 +2700,164 @@ class BehavioralIntelligence:
         ).pow(1 / (2.2 * adaptive_fusion_weight_multiplier)).fillna(0.0).clip(0, 1)
         bearish_divergence_score = bearish_divergence_score.where(bearish_div_condition_raw, 0.0)
 
-        # 8. 调试探针
-        if debug_enabled and probe_ts and probe_ts in df.index:
-            probe_date_str = probe_ts.strftime('%Y-%m-%d')
-            print(f"\n--- 行为背离强度惯性与自适应引擎版 (V8.0) 探针 @ {probe_date_str} ---")
-            print(f"  [原料数据]:")
-            print(f"    RSI_13_D: {rsi_val.loc[probe_ts]:.2f}")
-            print(f"    ATR_14_D: {atr_val.loc[probe_ts]:.4f}")
-            print(f"    active_buying_support_D: {active_buying.loc[probe_ts]:.4f}")
-            print(f"    active_selling_pressure_D: {active_selling.loc[probe_ts]:.4f}")
-            print(f"    raw_trend_vitality_index_D: {raw_trend_vitality.loc[probe_ts]:.4f}")
-            print(f"    normalized_trend_vitality: {trend_vitality.loc[probe_ts]:.4f}")
-            print(f"    open_D: {open_price.loc[probe_ts]:.2f}")
-            print(f"    high_D: {high_price.loc[probe_ts]:.2f}")
-            print(f"    low_D: {low_price.loc[probe_ts]:.2f}")
-            print(f"    close_D: {close_price.loc[probe_ts]:.2f}")
-            print(f"    ADX_14_D: {adx_val.loc[probe_ts]:.2f}")
-            print(f"    volume_D: {current_volume.loc[probe_ts]:.0f}")
-            print(f"    VOL_MA_21_D (volume_avg): {volume_avg.loc[probe_ts]:.0f}")
-            print(f"    pct_change_D: {pct_change_val.loc[probe_ts]:.4f}")
-            print(f"    SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {upward_efficiency_val.loc[probe_ts]:.4f}")
-            print(f"    SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {intraday_bull_control_val.loc[probe_ts]:.4f}")
-            print(f"  [配置参数]:")
-            print(f"    MTF periods: {mtf_slopes_params.get('periods')}, weights: {mtf_slopes_params.get('weights')}")
-            print(f"    Long Term Period: {multi_level_resonance_params.get('long_term_period')}, Resonance Bonus: {multi_level_resonance_params.get('resonance_bonus')}")
-            print(f"    Persistence min_duration: {min_persistence_duration}, max_window: {max_persistence_window}, quality_decay_factor: {persistence_quality_decay_factor}")
-            print(f"    rsi_oversold_threshold_base: {rsi_oversold_threshold_base}")
-            print(f"    rsi_overbought_threshold_base: {rsi_overbought_threshold_base}")
-            print(f"    min_divergence_slope_diff_base: {min_divergence_slope_diff_base}")
-            print(f"    min_slope_diff_atr_multiplier: {min_slope_diff_atr_multiplier}")
-            print(f"    rsi_oversold_trend_adjust_factor: {rsi_oversold_trend_adjust_factor}")
-            print(f"    rsi_overbought_trend_adjust_factor: {rsi_overbought_trend_adjust_factor}")
-            print(f"    two_indicators_synergy_bonus: {synergy_weights_params.get('two_indicators_synergy_bonus')}")
-            print(f"    three_indicators_synergy_bonus: {synergy_weights_params.get('three_indicators_synergy_bonus')}")
-            print(f"    bbw_slope_penalty_factor: {structural_context_weights_params.get('bbw_slope_penalty_factor')}")
-            print(f"    Lower Shadow Ratio Threshold: {price_action_confirmation_params.get('lower_shadow_ratio_threshold')}")
-            print(f"    Upper Shadow Ratio Threshold: {price_action_confirmation_params.get('upper_shadow_ratio_threshold')}")
-            print(f"    Body Ratio Threshold: {price_action_confirmation_params.get('body_ratio_threshold')}")
-            print(f"    Price Action Confirmation Bonus: {price_action_confirmation_params.get('confirmation_bonus')}")
-            print(f"    Engulfing Pattern Bonus: {price_action_confirmation_params.get('engulfing_pattern_bonus')}")
-            print(f"    Hammer/Shooting Star Bonus: {price_action_confirmation_params.get('hammer_shooting_star_bonus')}")
-            print(f"    Volume Climax Threshold Multiplier: {volume_price_structure_params.get('volume_climax_threshold_multiplier')}")
-            print(f"    Volume Drying Up Threshold Multiplier: {volume_price_structure_params.get('volume_drying_up_threshold_multiplier')}")
-            print(f"    Narrow Range Body Ratio: {volume_price_structure_params.get('narrow_range_body_ratio')}")
-            print(f"    Wide Range Body Ratio: {volume_price_structure_params.get('wide_range_body_ratio')}")
-            print(f"    Volume Price Structure Bonus: {volume_price_structure_params.get('structure_bonus')}")
-            print(f"    Slope Std Dev Threshold: {purity_assessment_params.get('slope_std_dev_threshold')}")
-            print(f"    Whipsaw Penalty Factor: {purity_assessment_params.get('whipsaw_penalty_factor')}")
-            print(f"    ADX Trend Threshold: {market_regime_params.get('adx_trend_threshold')}")
-            print(f"    ADX Ranging Threshold: {market_regime_params.get('adx_ranging_threshold')}")
-            print(f"    ADX Div Weight Max Adjust: {market_regime_params.get('adx_div_weight_max_adjust')}")
-            print(f"    ADX Conf Weight Max Adjust: {market_regime_params.get('adx_conf_weight_max_adjust')}")
-            print(f"    ATR Conf Weight Max Adjust: {market_regime_params.get('atr_conf_weight_max_adjust')}")
-            print(f"    Market Context Price Momentum Window: {market_context_params.get('price_momentum_window')}")
-            print(f"    Favorable Sentiment Slope Threshold: {market_context_params.get('favorable_sentiment_slope_threshold')}")
-            print(f"    Unfavorable Sentiment Slope Threshold: {market_context_params.get('unfavorable_sentiment_slope_threshold')}")
-            print(f"    Slope Stability Threshold: {market_context_params.get('slope_stability_threshold')}")
-            print(f"    ADX Strength Threshold: {market_context_params.get('adx_strength_threshold')}")
-            print(f"    Favorable Context Bonus: {market_context_params.get('favorable_context_bonus')}")
-            print(f"    Unfavorable Context Penalty: {market_context_params.get('unfavorable_context_penalty')}")
-            print(f"    Freshness Bonus: {signal_freshness_params.get('freshness_bonus')}")
-            print(f"    Min Consistent Indicators for Bonus: {behavioral_consistency_params.get('min_consistent_indicators_for_bonus')}")
-            print(f"    Conflict Penalty Threshold: {behavioral_consistency_params.get('conflict_penalty_threshold')}")
-            print(f"    Consistency Bonus: {behavioral_consistency_params.get('consistency_bonus')}")
-            print(f"    Conflict Penalty: {behavioral_consistency_params.get('conflict_penalty')}")
-            print(f"    Pattern Sequence Lookback Window: {pattern_sequence_params.get('lookback_window')}")
-            print(f"    Pattern Sequence Volume Drying Up Ratio: {pattern_sequence_params.get('volume_drying_up_ratio')}")
-            print(f"    Pattern Sequence Volume Climax Ratio: {pattern_sequence_params.get('volume_climax_ratio')}")
-            print(f"    Pattern Sequence Reversal Pct Change Threshold: {pattern_sequence_params.get('reversal_pct_change_threshold')}")
-            print(f"    Pattern Sequence Bonus: {pattern_sequence_params.get('sequence_bonus')}")
-            print(f"    Acceleration Bonus: {behavioral_strength_params.get('acceleration_bonus')}")
-            print(f"    Long Term ADX Threshold: {behavioral_inertia_params.get('long_term_adx_threshold')}")
-            print(f"    Long Term Slope Stability Threshold: {behavioral_inertia_params.get('long_term_slope_stability_threshold')}")
-            print(f"    High Inertia Penalty: {behavioral_inertia_params.get('high_inertia_penalty')}")
-            print(f"    Low Inertia Bonus: {behavioral_inertia_params.get('low_inertia_bonus')}")
-            print(f"    Trend Strong Penalty Factor: {adaptive_fusion_weights_params.get('trend_strong_penalty_factor')}")
-            print(f"    Ranging Bonus Factor: {adaptive_fusion_weights_params.get('ranging_bonus_factor')}")
-            print(f"    Volatility High Penalty Factor: {adaptive_fusion_weights_params.get('volatility_high_penalty_factor')}")
-            print(f"  [动态阈值]:")
-            print(f"    dynamic_min_divergence_slope_diff: {dynamic_min_divergence_slope_diff.loc[probe_ts]:.4f}")
-            print(f"    rsi_oversold_threshold_dynamic: {rsi_oversold_threshold_dynamic.loc[probe_ts]:.2f}")
-            print(f"    rsi_overbought_threshold_dynamic: {rsi_overbought_threshold_dynamic.loc[probe_ts]:.2f}")
-            print(f"  [鲁棒斜率 (Robust Slopes)]:")
-            print(f"    robust_close_slope: {robust_close_slope.loc[probe_ts]:.4f}")
-            print(f"    robust_rsi_slope: {robust_rsi_slope.loc[probe_ts]:.4f}")
-            print(f"    robust_macd_slope: {robust_macd_slope.loc[probe_ts]:.4f}")
-            print(f"    robust_volume_slope: {robust_volume_slope.loc[probe_ts]:.4f}")
-            print(f"    robust_bbw_slope: {robust_bbw_slope.loc[probe_ts]:.4f}")
-            print(f"    robust_pct_change_slope: {robust_pct_change_slope.loc[probe_ts]:.4f}")
-            print(f"  [长期斜率 (Long Term Slopes)]:")
-            print(f"    long_term_close_slope: {long_term_close_slope.loc[probe_ts]:.4f}")
-            print(f"    long_term_rsi_slope: {long_term_rsi_slope.loc[probe_ts]:.4f}")
-            print(f"    long_term_macd_slope: {long_term_macd_slope.loc[probe_ts]:.4f}")
-            print(f"    long_term_volume_slope: {long_term_volume_slope.loc[probe_ts]:.4f}")
-            print(f"    long_term_adx_slope: {long_term_adx_slope.loc[probe_ts]:.4f}")
-            print(f"  [模式序列斜率 (Pattern Sequence Slopes)]:")
-            print(f"    pattern_close_slope: {pattern_close_slope.loc[probe_ts]:.4f}")
-            print(f"    pattern_volume_slope: {pattern_volume_slope.loc[probe_ts]:.4f}")
-            print(f"  [加速度 (Acceleration)]:")
-            print(f"    accel_close: {accel_close.loc[probe_ts]:.4f}")
-            print(f"    accel_rsi: {accel_rsi.loc[probe_ts]:.4f}")
-            print(f"    accel_macd: {accel_macd.loc[probe_ts]:.4f}")
-            print(f"    accel_volume: {accel_volume.loc[probe_ts]:.4f}")
-            print(f"  [看涨背离关键计算节点]:")
-            print(f"    price_down_trend: {price_down_trend.loc[probe_ts]}")
-            print(f"    rsi_up_trend: {rsi_up_trend.loc[probe_ts]}")
-            print(f"    macd_up_trend: {macd_up_trend.loc[probe_ts]}")
-            print(f"    volume_up_trend: {volume_up_trend.loc[probe_ts]}")
-            print(f"    bullish_div_condition_raw: {bullish_div_condition_raw.loc[probe_ts]}")
-            print(f"    bullish_accelerated_strength: {bullish_accelerated_strength.loc[probe_ts]:.4f}")
-            print(f"    bullish_final_strength_factor: {bullish_final_strength_factor.loc[probe_ts]:.4f}")
-            print(f"    norm_total_bullish_conf_factor: {norm_total_bullish_conf_factor.loc[probe_ts]:.4f}")
-            print(f"    bullish_persistence_count: {bullish_persistence_count.loc[probe_ts]:.0f}")
-            print(f"    bullish_persistence_quality: {bullish_persistence_quality.loc[probe_ts]:.0f}")
-            print(f"    bullish_persistence_factor: {bullish_persistence_factor.loc[probe_ts]:.4f}")
-            print(f"    num_bullish_indicators_diverging: {num_bullish_indicators_diverging.loc[probe_ts]:.0f}")
-            print(f"    bullish_synergy_bonus: {bullish_synergy_bonus.loc[probe_ts]:.4f}")
-            print(f"    bullish_synergy_factor: {bullish_synergy_factor.loc[probe_ts]:.4f}")
-            print(f"    bbw_slope_penalty: {bbw_slope_penalty.loc[probe_ts]:.4f}")
-            print(f"    structural_context_factor: {structural_context_factor.loc[probe_ts]:.4f}")
-            print(f"    bullish_resonance_factor: {bullish_resonance_factor.loc[probe_ts]:.4f}")
-            print(f"    bullish_price_action_factor: {bullish_price_action_factor.loc[probe_ts]:.4f}")
-            print(f"    bullish_volume_price_structure_factor: {bullish_volume_price_structure_factor.loc[probe_ts]:.4f}")
-            print(f"    bullish_purity_factor: {bullish_purity_factor.loc[probe_ts]:.4f}")
-            print(f"    dynamic_bullish_div_weight_multiplier: {dynamic_bullish_div_weight_multiplier.loc[probe_ts]:.4f}")
-            print(f"    dynamic_bullish_conf_weight_multiplier: {dynamic_bullish_conf_weight_multiplier.loc[probe_ts]:.4f}")
-            print(f"    bullish_market_context_factor: {bullish_market_context_factor.loc[probe_ts]:.4f}")
-            print(f"    bullish_freshness_factor: {bullish_freshness_factor.loc[probe_ts]:.4f}")
-            print(f"    bullish_diverging_indicators_count: {bullish_diverging_indicators_count.loc[probe_ts]:.0f}")
-            print(f"    bullish_conflicting_indicators_count: {bullish_conflicting_indicators_count.loc[probe_ts]:.0f}")
-            print(f"    bullish_consistency_factor: {bullish_consistency_factor.loc[probe_ts]:.4f}")
-            print(f"    price_declining_in_window: {price_declining_in_window.loc[probe_ts]}")
-            print(f"    volume_drying_up_in_window: {volume_drying_up_in_window.loc[probe_ts]}")
-            print(f"    current_bar_reversal (bullish): {current_bar_reversal.loc[probe_ts]}")
-            print(f"    bullish_pattern_sequence_factor: {bullish_pattern_sequence_factor.loc[probe_ts]:.4f}")
-            print(f"    is_strong_long_term_trend (bullish): {is_strong_long_term_trend.loc[probe_ts]}")
-            print(f"    is_stable_long_term_slope (bullish): {is_stable_long_term_slope.loc[probe_ts]}")
-            print(f"    bullish_inertia_factor: {bullish_inertia_factor.loc[probe_ts]:.4f}")
-            print(f"    adaptive_fusion_weight_multiplier (bullish): {adaptive_fusion_weight_multiplier.loc[probe_ts]:.4f}")
-            print(f"  [看涨背离结果]: SCORE_BEHAVIOR_BULLISH_DIVERGENCE = {bullish_divergence_score.loc[probe_ts]:.4f}")
-            print(f"  [看跌背离关键计算节点]:")
-            print(f"    price_up_trend: {price_up_trend.loc[probe_ts]}")
-            print(f"    rsi_down_trend: {rsi_down_trend.loc[probe_ts]}")
-            print(f"    macd_down_trend: {macd_down_trend.loc[probe_ts]}")
-            print(f"    volume_down_trend: {volume_down_trend.loc[probe_ts]}")
-            print(f"    bearish_div_condition_raw: {bearish_div_condition_raw.loc[probe_ts]}")
-            print(f"    bearish_accelerated_strength: {bearish_accelerated_strength.loc[probe_ts]:.4f}")
-            print(f"    bearish_final_strength_factor: {bearish_final_strength_factor.loc[probe_ts]:.4f}")
-            print(f"    norm_total_bearish_div_strength: {norm_total_bearish_div_strength.loc[probe_ts]:.4f}")
-            print(f"    bearish_persistence_count: {bearish_persistence_count.loc[probe_ts]:.0f}")
-            print(f"    bearish_persistence_quality: {bearish_persistence_quality.loc[probe_ts]:.0f}")
-            print(f"    bearish_persistence_factor: {bearish_persistence_factor.loc[probe_ts]:.4f}")
-            print(f"    num_bearish_indicators_diverging: {num_bearish_indicators_diverging.loc[probe_ts]:.0f}")
-            print(f"    bearish_synergy_bonus: {bearish_synergy_bonus.loc[probe_ts]:.4f}")
-            print(f"    bearish_synergy_factor: {bearish_synergy_factor.loc[probe_ts]:.4f}")
-            print(f"    bbw_slope_penalty_bearish: {bbw_slope_penalty_bearish.loc[probe_ts]:.4f}")
-            print(f"    structural_context_factor_bearish: {structural_context_factor_bearish.loc[probe_ts]:.4f}")
-            print(f"    bearish_resonance_factor: {bearish_resonance_factor.loc[probe_ts]:.4f}")
-            print(f"    bearish_price_action_factor: {bearish_price_action_factor.loc[probe_ts]:.4f}")
-            print(f"    bearish_volume_price_structure_factor: {bearish_volume_price_structure_factor.loc[probe_ts]:.4f}")
-            print(f"    bearish_purity_factor: {bearish_purity_factor.loc[probe_ts]:.4f}")
-            print(f"    dynamic_bearish_div_weight_multiplier: {dynamic_bearish_div_weight_multiplier.loc[probe_ts]:.4f}")
-            print(f"    dynamic_bearish_conf_weight_multiplier: {dynamic_bearish_conf_weight_multiplier.loc[probe_ts]:.4f}")
-            print(f"    bearish_market_context_factor: {bearish_market_context_factor.loc[probe_ts]:.4f}")
-            print(f"    bearish_freshness_factor: {bearish_freshness_factor.loc[probe_ts]:.4f}")
-            print(f"    bearish_diverging_indicators_count: {bearish_diverging_indicators_count.loc[probe_ts]:.0f}")
-            print(f"    bearish_conflicting_indicators_count: {bearish_conflicting_indicators_count.loc[probe_ts]:.0f}")
-            print(f"    bearish_consistency_factor: {bearish_consistency_factor.loc[probe_ts]:.4f}")
-            print(f"    price_rising_in_window: {price_rising_in_window.loc[probe_ts]}")
-            print(f"    volume_drying_up_in_window: {volume_drying_up_in_window.loc[probe_ts]}")
-            print(f"    current_bar_reversal (bearish): {current_bar_reversal.loc[probe_ts]}")
-            print(f"    bearish_pattern_sequence_factor: {bearish_pattern_sequence_factor.loc[probe_ts]:.4f}")
-            print(f"    is_strong_long_term_trend (bearish): {is_strong_long_term_trend.loc[probe_ts]}")
-            print(f"    is_stable_long_term_slope (bearish): {is_stable_long_term_slope.loc[probe_ts]}")
-            print(f"    bearish_inertia_factor: {bearish_inertia_factor.loc[probe_ts]:.4f}")
-            print(f"    adaptive_fusion_weight_multiplier (bearish): {adaptive_fusion_weight_multiplier.loc[probe_ts]:.4f}")
-            print(f"  [看跌背离结果]: SCORE_BEHAVIOR_BEARISH_DIVERGENCE = {bearish_divergence_score.loc[probe_ts]:.4f}")
-            # 新增重构信号的探针输出
-            print(f"  [重构内部行为信号]:")
-            print(f"    INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW: {internal_price_overextension_raw.loc[probe_ts]:.4f}")
-            print(f"    INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW: {internal_stagnation_evidence_raw.loc[probe_ts]:.4f}")
-
         return bullish_divergence_score.astype(np.float32), bearish_divergence_score.astype(np.float32)
+
+    def _diagnose_pure_behavioral_divergence(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> Tuple[pd.Series, pd.Series]:
+        """
+        【V8.1 · 行为背离强度惯性与自适应引擎版】诊断纯粹基于行为类原始数据的看涨/看跌背离信号。
+        - 核心重构: 提取看涨/看跌背离的公共计算逻辑到辅助方法，减少代码冗余，提高可读性和维护性。
+        - 优化效率: 集中获取参数和信号，避免重复计算。
+        - 清理探针: 移除所有调试打印，使代码更简洁。
+        """
+        method_name = "_diagnose_pure_behavioral_divergence"
+
+        # 1. 获取所有配置参数
+        p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
+        params = { # [修改的代码行] 将所有参数打包成一个字典
+            'mtf_slopes_params': get_param_value(p_conf.get('multi_timeframe_slopes'), {"enabled": True, "periods": [5, 13], "weights": {"5": 0.7, "13": 0.3}}),
+            'multi_level_resonance_params': get_param_value(p_conf.get('multi_level_resonance_params'), {"enabled": True, "long_term_period": 21, "resonance_bonus": 0.2}),
+            'persistence_params': get_param_value(p_conf.get('persistence_params'), {"enabled": True, "min_duration": 2, "max_duration_window": 5, "quality_decay_factor": 0.05}),
+            'adaptive_thresholds_params': get_param_value(p_conf.get('adaptive_thresholds'), {"enabled": True, "min_slope_diff_atr_multiplier": 0.005, "min_slope_diff_base": 0.005, "rsi_oversold_trend_adjust_factor": 5, "rsi_overbought_trend_adjust_factor": 5}),
+            'synergy_weights_params': get_param_value(p_conf.get('synergy_weights'), {"enabled": True, "two_indicators_synergy_bonus": 0.1, "three_indicators_synergy_bonus": 0.2}),
+            'structural_context_weights_params': get_param_value(p_conf.get('structural_context_weights'), {"enabled": True, "bbw_slope_penalty_factor": 0.1}),
+            'price_action_confirmation_params': get_param_value(p_conf.get('price_action_confirmation_params'), {"enabled": True, "lower_shadow_ratio_threshold": 0.4, "upper_shadow_ratio_threshold": 0.4, "body_ratio_threshold": 0.3, "confirmation_bonus": 0.15, "engulfing_pattern_bonus": 0.1, "hammer_shooting_star_bonus": 0.1}),
+            'volume_price_structure_params': get_param_value(p_conf.get('volume_price_structure_params'), {"enabled": True, "volume_climax_threshold_multiplier": 2.0, "volume_drying_up_threshold_multiplier": 0.5, "narrow_range_body_ratio": 0.2, "wide_range_body_ratio": 0.7, "structure_bonus": 0.15}),
+            'purity_assessment_params': get_param_value(p_conf.get('purity_assessment_params'), {"enabled": True, "slope_std_dev_threshold": 0.5, "whipsaw_penalty_factor": 0.1}),
+            'market_regime_params': get_param_value(p_conf.get('market_regime_params'), {"enabled": True, "adx_trend_threshold": 25, "adx_ranging_threshold": 20, "adx_div_weight_max_adjust": 0.3, "adx_conf_weight_max_adjust": 0.3, "atr_conf_weight_max_adjust": 0.2}),
+            'market_context_params': get_param_value(p_conf.get('market_context_params'), {"enabled": True, "price_momentum_window": 5, "favorable_sentiment_slope_threshold": 0.001, "unfavorable_sentiment_slope_threshold": -0.001, "slope_stability_threshold": 0.7, "adx_strength_threshold": 25, "favorable_context_bonus": 0.1, "unfavorable_context_penalty": 0.1}),
+            'signal_freshness_params': get_param_value(p_conf.get('signal_freshness_params'), {"enabled": True, "freshness_bonus": 0.1}),
+            'behavioral_consistency_params': get_param_value(p_conf.get('behavioral_consistency_params'), {"enabled": True, "min_consistent_indicators_for_bonus": 2, "conflict_penalty_threshold": 1, "consistency_bonus": 0.1, "conflict_penalty": 0.15}),
+            'pattern_sequence_params': get_param_value(p_conf.get('pattern_sequence_params'), {"enabled": True, "lookback_window": 3, "volume_drying_up_ratio": 0.8, "volume_climax_ratio": 1.5, "reversal_pct_change_threshold": 0.01, "sequence_bonus": 0.2}),
+            'behavioral_strength_params': get_param_value(p_conf.get('behavioral_strength_params'), {"enabled": True, "acceleration_bonus": 0.05}),
+            'behavioral_inertia_params': get_param_value(p_conf.get('behavioral_inertia_params'), {"enabled": True, "long_term_adx_threshold": 30, "long_term_slope_stability_threshold": 0.8, "high_inertia_penalty": 0.1, "low_inertia_bonus": 0.05}),
+            'adaptive_fusion_weights_params': get_param_value(p_conf.get('adaptive_fusion_weights_params'), {"enabled": True, "trend_strong_penalty_factor": 0.1, "ranging_bonus_factor": 0.1, "volatility_high_penalty_factor": 0.05}),
+            'bullish_div_weights': get_param_value(p_conf.get('bullish_divergence_weights'), {"price_rsi": 0.4, "price_macd": 0.3, "price_volume": 0.3}),
+            'bearish_div_weights': get_param_value(p_conf.get('bearish_divergence_weights'), {"price_rsi": 0.4, "price_macd": 0.3, "price_volume": 0.3}),
+            'bullish_conf_weights': get_param_value(p_conf.get('bullish_confirmation_weights'), {"rsi_oversold": 0.3, "volume_increase": 0.3, "buying_support": 0.2, "volatility_high": 0.2}),
+            'bearish_conf_weights': get_param_value(p_conf.get('bearish_confirmation_weights'), {"rsi_overbought": 0.3, "volume_decrease": 0.3, "selling_pressure": 0.2, "volatility_high": 0.2}),
+            'rsi_oversold_threshold_base': get_param_value(p_conf.get('rsi_oversold_threshold'), 30),
+            'rsi_overbought_threshold_base': get_param_value(p_conf.get('rsi_overbought_threshold'), 70),
+            'min_divergence_slope_diff_base': get_param_value(get_param_value(p_conf.get('adaptive_thresholds'), {}).get('min_slope_diff_base'), 0.005), # [修改的代码行] 修正获取方式
+            'min_slope_diff_atr_multiplier': get_param_value(get_param_value(p_conf.get('adaptive_thresholds'), {}).get('min_slope_diff_atr_multiplier'), 0.005), # [修改的代码行] 修正获取方式
+            'rsi_oversold_trend_adjust_factor': get_param_value(get_param_value(p_conf.get('adaptive_thresholds'), {}).get('rsi_oversold_trend_adjust_factor'), 5), # [修改的代码行] 修正获取方式
+            'rsi_overbought_trend_adjust_factor': get_param_value(get_param_value(p_conf.get('adaptive_thresholds'), {}).get('rsi_overbought_trend_adjust_factor'), 5), # [修改的代码行] 修正获取方式
+            'long_term_period': get_param_value(get_param_value(p_conf.get('multi_level_resonance_params'), {}).get('long_term_period'), 21) # [修改的代码行] 确保long_term_period被正确获取并传递
+        }
+        
+        # 2. 获取所需原始数据和派生信号
+        mtf_periods = params['mtf_slopes_params'].get('periods', [5])
+        accel_period = mtf_periods[0]
+
+        required_signals = [
+            'close_D', 'RSI_13_D', 'MACDh_13_34_8_D', 'volume_D', 'ATR_14_D', 'BBW_21_2.0_D',
+            'active_buying_support_D', 'active_selling_pressure_D', 'trend_vitality_index_D',
+            'open_D', 'high_D', 'low_D', 'ADX_14_D', 'VOL_MA_21_D', 'pct_change_D',
+            'BIAS_5_D', 'BBP_21_2.0_D',
+            'ACCEL_5_pct_change_D',
+            'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL',
+            'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW',
+            'robust_close_slope', 'robust_RSI_13_slope', 'robust_MACDh_13_34_8_slope', 'robust_volume_slope',
+            'robust_BBW_21_2.0_slope', 'robust_pct_change_slope',
+            'long_term_close_slope', 'long_term_RSI_13_slope', 'long_term_MACDh_13_34_8_slope', 'long_term_volume_slope',
+            'long_term_adx_slope',
+            'pattern_close_slope', 'pattern_volume_slope',
+            f'ACCEL_{accel_period}_close_D',
+            f'ACCEL_{accel_period}_RSI_13_D',
+            f'ACCEL_{accel_period}_MACDh_13_34_8_D',
+            f'ACCEL_{accel_period}_volume_D'
+        ]
+
+        if not self._validate_required_signals(df, required_signals, method_name):
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。")
+            return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
+
+        # 集中获取所有信号
+        robust_close_slope = self._get_safe_series(df, 'robust_close_slope', 0.0, method_name=method_name)
+        robust_rsi_slope = self._get_safe_series(df, 'robust_RSI_13_slope', 0.0, method_name=method_name)
+        robust_macd_slope = self._get_safe_series(df, 'robust_MACDh_13_34_8_slope', 0.0, method_name=method_name)
+        robust_volume_slope = self._get_safe_series(df, 'robust_volume_slope', 0.0, method_name=method_name)
+        robust_bbw_slope = self._get_safe_series(df, 'robust_BBW_21_2.0_slope', 0.0, method_name=method_name)
+        robust_pct_change_slope = self._get_safe_series(df, 'robust_pct_change_slope', 0.0, method_name=method_name)
+
+        long_term_close_slope = self._get_safe_series(df, 'long_term_close_slope', 0.0, method_name=method_name)
+        long_term_rsi_slope = self._get_safe_series(df, 'long_term_RSI_13_slope', 0.0, method_name=method_name)
+        long_term_macd_slope = self._get_safe_series(df, 'long_term_MACDh_13_34_8_slope', 0.0, method_name=method_name)
+        long_term_volume_slope = self._get_safe_series(df, 'long_term_volume_slope', 0.0, method_name=method_name)
+        long_term_adx_slope = self._get_safe_series(df, 'long_term_adx_slope', 0.0, method_name=method_name)
+
+        pattern_close_slope = self._get_safe_series(df, 'pattern_close_slope', 0.0, method_name=method_name)
+        pattern_volume_slope = self._get_safe_series(df, 'pattern_volume_slope', 0.0, method_name=method_name)
+
+        accel_close = self._get_safe_series(df, f'ACCEL_{accel_period}_close_D', 0.0, method_name=method_name)
+        accel_rsi = self._get_safe_series(df, f'ACCEL_{accel_period}_RSI_13_D', 0.0, method_name=method_name)
+        accel_macd = self._get_safe_series(df, f'ACCEL_{accel_period}_MACDh_13_34_8_D', 0.0, method_name=method_name)
+        accel_volume = self._get_safe_series(df, f'ACCEL_{accel_period}_volume_D', 0.0, method_name=method_name)
+
+        rsi_val = self._get_safe_series(df, 'RSI_13_D', 50.0, method_name=method_name)
+        atr_val = self._get_safe_series(df, 'ATR_14_D', 0.0, method_name=method_name)
+        active_buying = self._get_safe_series(df, 'active_buying_support_D', 0.0, method_name=method_name)
+        active_selling = self._get_safe_series(df, 'active_selling_pressure_D', 0.0, method_name=method_name)
+        
+        raw_trend_vitality = self._get_safe_series(df, 'trend_vitality_index_D', 0.5, method_name=method_name)
+        trend_vitality = normalize_score(raw_trend_vitality, df.index, 55)
+
+        open_price = self._get_safe_series(df, 'open_D', df['close_D'], method_name=method_name)
+        high_price = self._get_safe_series(df, 'high_D', df['close_D'], method_name=method_name)
+        low_price = self._get_safe_series(df, 'low_D', df['close_D'], method_name=method_name)
+        close_price = self._get_safe_series(df, 'close_D', df['close_D'], method_name=method_name)
+        adx_val = self._get_safe_series(df, 'ADX_14_D', 0.0, method_name=method_name)
+        current_volume = self._get_safe_series(df, 'volume_D', 0.0, method_name=method_name)
+        volume_avg = self._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name=method_name)
+        pct_change_val = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
+        
+        upward_efficiency_val = self._get_safe_series(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5, method_name=method_name)
+        intraday_bull_control_val = self._get_safe_series(df, 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 0.5, method_name=method_name)
+        
+        internal_price_overextension_raw = self._get_safe_series(df, 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.0, method_name=method_name)
+        internal_stagnation_evidence_raw = self._get_safe_series(df, 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.0, method_name=method_name)
+
+        # 归一化确认因子 (0到1)
+        norm_active_buying = get_adaptive_mtf_normalized_score(active_buying, df.index, ascending=True, tf_weights=tf_weights)
+        norm_active_selling = get_adaptive_mtf_normalized_score(active_selling, df.index, ascending=True, tf_weights=tf_weights)
+        norm_atr = get_adaptive_mtf_normalized_score(atr_val, df.index, ascending=True, tf_weights=tf_weights)
+        
+        # 动态阈值计算
+        dynamic_min_divergence_slope_diff = params['min_divergence_slope_diff_base'] + atr_val * params['min_slope_diff_atr_multiplier']
+        rsi_oversold_threshold_dynamic = params['rsi_oversold_threshold_base'] - (trend_vitality - 0.5) * params['rsi_oversold_trend_adjust_factor']
+        rsi_overbought_threshold_dynamic = params['rsi_overbought_threshold_base'] + (trend_vitality - 0.5) * params['rsi_overbought_trend_adjust_factor']
+        
+        # 3. 调用辅助方法计算看涨和看跌背离
+        bullish_divergence_score = self._calculate_single_divergence_type(
+            df, True, params, tf_weights,
+            debug_enabled, probe_ts,
+            robust_close_slope, robust_rsi_slope, robust_macd_slope, robust_volume_slope, robust_bbw_slope, robust_pct_change_slope,
+            long_term_close_slope, long_term_rsi_slope, long_term_macd_slope, long_term_volume_slope, long_term_adx_slope,
+            pattern_close_slope, pattern_volume_slope,
+            accel_close, accel_rsi, accel_macd, accel_volume,
+            rsi_val, atr_val, active_buying, active_selling, trend_vitality,
+            open_price, high_price, low_price, close_price, adx_val, current_volume, volume_avg, pct_change_val,
+            upward_efficiency_val, intraday_bull_control_val,
+            internal_price_overextension_raw, internal_stagnation_evidence_raw,
+            norm_active_buying, norm_active_selling, norm_atr,
+            dynamic_min_divergence_slope_diff, rsi_oversold_threshold_dynamic, rsi_overbought_threshold_dynamic
+        )
+
+        bearish_divergence_score = self._calculate_single_divergence_type(
+            df, False, params, tf_weights,
+            debug_enabled, probe_ts,
+            robust_close_slope, robust_rsi_slope, robust_macd_slope, robust_volume_slope, robust_bbw_slope, robust_pct_change_slope,
+            long_term_close_slope, long_term_rsi_slope, long_term_macd_slope, long_term_volume_slope, long_term_adx_slope,
+            pattern_close_slope, pattern_volume_slope,
+            accel_close, accel_rsi, accel_macd, accel_volume,
+            rsi_val, atr_val, active_buying, active_selling, trend_vitality,
+            open_price, high_price, low_price, close_price, adx_val, current_volume, volume_avg, pct_change_val,
+            upward_efficiency_val, intraday_bull_control_val,
+            internal_price_overextension_raw, internal_stagnation_evidence_raw,
+            norm_active_buying, norm_active_selling, norm_atr,
+            dynamic_min_divergence_slope_diff, rsi_oversold_threshold_dynamic, rsi_overbought_threshold_dynamic
+        )
+
+        return bullish_divergence_score, bearish_divergence_score
 
     def _apply_neutral_zone_filter(self, series: pd.Series, threshold: float) -> pd.Series:
         """
