@@ -105,7 +105,6 @@ class FoundationIntelligence:
         trend_health_score = (breakout_quality_score * trend_vitality_score).pow(0.5)
         # 4. 最终融合
         trend_confirmed = (adx_score * direction_score * trend_health_score).pow(1/3).fillna(0.0)
-        
         return {'CONTEXT_TREND_CONFIRMED': trend_confirmed.astype(np.float32)}
 
     def _diagnose_axiom_market_constitution(self, df: pd.DataFrame, params: dict) -> pd.Series:
@@ -156,7 +155,6 @@ class FoundationIntelligence:
         constitution_score = base_trend_score.copy()
         bullish_mask = base_trend_score > 0
         constitution_score[bullish_mask] = (base_trend_score[bullish_mask] * health_modulator[bullish_mask]).pow(0.5)
-        
         return constitution_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_sentiment_pendulum(self, df: pd.DataFrame) -> pd.Series:
@@ -184,7 +182,6 @@ class FoundationIntelligence:
         # 修改: 将诡道调节器的惩罚因子从 0.5 提升至 0.75，增强压制力
         reality_check_modulator = 1 - (base_pendulum_score * deception_index.clip(-1, 1) < 0) * np.abs(deception_index.clip(-1, 1)) * 0.75
         pendulum_score = base_pendulum_score * reality_check_modulator
-        
         return pendulum_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_liquidity_tide(self, df: pd.DataFrame) -> pd.Series:
@@ -220,7 +217,6 @@ class FoundationIntelligence:
         quality_modulator = (1 - wash_trade_penalty * 0.75).clip(0, 1) # 最多惩罚75%
         # 6. 最终融合
         tide_score = base_tide_score * quality_modulator
-        
         return tide_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_market_tension(self, df: pd.DataFrame) -> pd.Series:
@@ -254,7 +250,6 @@ class FoundationIntelligence:
         directional_bias = get_adaptive_mtf_normalized_bipolar_score(main_force_posture, df_index, default_weights)
         # 6. 最终融合: 张力强度 * 意图方向
         tension_final_score = unipolar_tension_score * directional_bias
-        
         return tension_final_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_relative_strength(self, df: pd.DataFrame) -> pd.Series:
@@ -282,7 +277,6 @@ class FoundationIntelligence:
         momentum_score = get_adaptive_mtf_normalized_bipolar_score(rank_slope, df_index, default_weights)
         # 3. 融合: 状态与动量加权
         relative_strength_score = (state_score * 0.6 + momentum_score * 0.4)
-        
         return relative_strength_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_harmony_inflection(self, params: dict, strategic_posture: pd.Series, modulator: pd.Series) -> pd.Series: # 修改: 接收调节器
@@ -306,7 +300,6 @@ class FoundationIntelligence:
         raw_inflection_score = ((velocity_norm * acceleration_norm).pow(0.5) * gate).fillna(0.0) # 修改: 变量重命名为 raw_
         # 新增: 应用环境调节器
         inflection_score = raw_inflection_score * modulator
-        
         return inflection_score.clip(0, 1).astype(np.float32)
 
     def _calculate_environmental_modulator(self, df: pd.DataFrame, params: dict) -> pd.Series: # 修改: 增加df参数
@@ -344,7 +337,6 @@ class FoundationIntelligence:
         theme_hotness_score = get_adaptive_mtf_normalized_score(theme_hotness_raw, df_index, ascending=True, tf_weights=default_weights)
         env_score = (market_proxy_score * w_mkt + sector_strength_score * w_sec + theme_hotness_score * w_thm).clip(-1, 1)
         modulator = 1.0 + (env_score * bonus_factor)
-        
         return modulator.astype(np.float32)
 
     def _synthesize_strategic_posture(
@@ -380,7 +372,6 @@ class FoundationIntelligence:
         )
         # 新增: 应用环境调节器
         strategic_posture = raw_strategic_posture * modulator
-        
         return strategic_posture.clip(-1, 1).astype(np.float32)
 
 

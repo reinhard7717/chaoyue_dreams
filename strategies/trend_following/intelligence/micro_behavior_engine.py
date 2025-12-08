@@ -116,7 +116,6 @@ class MicroBehaviorEngine:
         micro_intent_trend_raw = micro_intent.ewm(span=5, adjust=False).mean().diff().fillna(0)
         micro_intent_trend = get_adaptive_mtf_normalized_bipolar_score(micro_intent_trend_raw, df.index, default_weights)
         divergence_score = (micro_intent_trend - price_trend).clip(-1, 1)
-        
         return divergence_score.astype(np.float32)
 
     def _diagnose_strategy_stealth_ops(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -141,7 +140,6 @@ class MicroBehaviorEngine:
         # --- 战术合成 ---
         base_score = (pressure_score * accumulation_score).pow(0.5).fillna(0.0)
         stealth_ops_score = (base_score * purity_modulator).fillna(0.0)
-        
         return stealth_ops_score.astype(np.float32)
 
     def _diagnose_strategy_shock_and_awe(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -171,7 +169,6 @@ class MicroBehaviorEngine:
         shock_magnitude = (impact_score * clearing_score).pow(0.5).fillna(0.0)
         base_score = (shock_magnitude * outcome_intent)
         shock_and_awe_score = (base_score * awe_amplifier).clip(-1, 1)
-        
         return shock_and_awe_score.astype(np.float32)
 
     def _diagnose_strategy_cost_control(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -218,7 +215,6 @@ class MicroBehaviorEngine:
         harmony_inflection_score = pd.Series(harmony_inflection_score, index=strategic_intent.index)
         # 使用 normalize_score 进行最终的归一化，使其在历史数据中具有可比性
         final_score = normalize_score(harmony_inflection_score, harmony_inflection_score.index, 55)
-        
         return final_score.astype(np.float32)
 
     def _synthesize_strategic_intent(self, stealth_ops: pd.Series, shock_awe: pd.Series, cost_control: pd.Series, divergence: pd.Series) -> pd.Series:
@@ -244,7 +240,6 @@ class MicroBehaviorEngine:
             gated_offensive_force * 0.7 + # 修改代码
             risk_factor * 0.3             # 修改代码
         ).clip(-1, 1)
-        
         return strategic_intent_score.astype(np.float32)
 
 
