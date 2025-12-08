@@ -1743,8 +1743,6 @@
           "comment_nozzle_efficiency_weights": "喷管效率中，真空区大小、趋势和穿越效率的融合权重。",
           "final_fusion_dynamic_weights_enabled": true,
           "comment_final_fusion_dynamic_weights_enabled": "是否启用最终融合动态权重。",
-          "final_fusion_modulator_signal_name": "SCORE_CHIP_STRATEGIC_POSTURE",
-          "comment_final_fusion_modulator_signal_name": "用于最终融合动态权重的调制器信号名称（如SCORE_CHIP_STRATEGIC_POSTURE）。",
           "final_fusion_weights_base": {
             "engine": 0.33,
             "fuel": 0.33,
