@@ -377,14 +377,16 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V7.0 · 筹码健康自适应版】诊断筹码同调驱动力
+        【V7.1 · 变量初始化修复版】诊断筹码同调驱动力
+        - 核心修复: 确保 `amplification_power`, `dampening_power` 和 `modulation_factor` 变量
+                      在所有逻辑路径下都被正确初始化为 `pd.Series`，避免 `NameError`。
         - 核心升级1: 移除外部情境信号依赖，转而专注于筹码层面的原始数据。
         - 核心升级2: 引入筹码健康度 `chip_health_score_D` 作为非线性调制参数的动态调节器。
                       当筹码健康时，增强放大效果，减弱削弱效果；反之亦然。
         - 核心升级3: 增强真理探针。详细输出筹码健康度参数、其值，以及动态调整后的幂指数，
                       以便于深度调试与验证。
         """
-        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.0 · 筹码健康自适应版)”...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.1 · 变量初始化修复版)”...") # [修改代码行]
         
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         coherent_drive_params = get_param_value(p_conf.get('coherent_drive_params'), {})
@@ -392,36 +394,51 @@ class ChipIntelligence:
         base_amplification_power = get_param_value(coherent_drive_params.get('amplification_power'), 1.2)
         base_dampening_power = get_param_value(coherent_drive_params.get('dampening_power'), 1.5)
 
-        # [修改代码块] 移除外部情境参数，引入筹码健康度自适应参数
         chip_health_modulation_enabled = get_param_value(coherent_drive_params.get('chip_health_modulation_enabled'), True)
-        chip_health_sensitivity_amp = get_param_value(coherent_drive_params.get('chip_health_sensitivity_amp'), 0.5) # 筹码健康度对放大效果的敏感度
-        chip_health_sensitivity_damp = get_param_value(coherent_drive_params.get('chip_health_sensitivity_damp'), 0.5) # 筹码健康度对削弱效果的敏感度
+        chip_health_sensitivity_amp = get_param_value(coherent_drive_params.get('chip_health_sensitivity_amp'), 0.5)
+        chip_health_sensitivity_damp = get_param_value(coherent_drive_params.get('chip_health_sensitivity_damp'), 0.5)
 
+        # [修改代码块] 确保 amplification_power, dampening_power 和 modulation_factor 始终被初始化为 Series
         amplification_power = pd.Series(base_amplification_power, index=df.index)
         dampening_power = pd.Series(base_dampening_power, index=df.index)
+        modulation_factor = pd.Series(1.0, index=df.index) # 默认调制因子为1.0，即不调制
+
         current_chip_health_score = pd.Series(0.0, index=df.index) # 默认中性
 
         if chip_health_modulation_enabled:
-            # [修改代码块] 获取筹码健康度信号
             current_chip_health_score = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_structural_consensus")
             
-            # 将 chip_health_score 归一化到 [-1, 1] 区间，如果它本身不是这个区间
-            # 假设 chip_health_score_D 已经是归一化到 [0, 1] 的，我们将其映射到 [-1, 1]
-            # 或者直接使用其原始值，如果其语义是 [0, 1]
-            # 这里假设 chip_health_score_D 是 [0, 1] 区间，0.5为中性，低于0.5为不健康，高于0.5为健康
-            # 映射到 [-1, 1] 区间，0为中性
+            # 将 chip_health_score 归一化到 [-1, 1] 区间，0为中性
             normalized_chip_health = (current_chip_health_score * 2) - 1
 
-            # [修改代码块] 根据筹码健康度动态调整幂指数
-            # 筹码健康度越高 (normalized_chip_health 越高)，amplification_power 越高，dampening_power 越低
-            # 筹码健康度越低 (normalized_chip_health 越低)，amplification_power 越低，dampening_power 越高
             amplification_power = base_amplification_power * (1 + normalized_chip_health * chip_health_sensitivity_amp)
             dampening_power = base_dampening_power * (1 - normalized_chip_health * chip_health_sensitivity_damp)
             
-            # 确保幂指数不会过低或过高，设置合理范围
             amplification_power = amplification_power.clip(0.5, 2.0) 
             dampening_power = dampening_power.clip(0.5, 2.0) 
             
+        # [修改代码块] 调制因子的计算逻辑保持不变，但现在 amplification_power 和 dampening_power 始终是 Series
+        bullish_mask = holder_sentiment_scores > 0
+        bearish_mask = holder_sentiment_scores < 0
+
+        # 牛市情绪 (holder_sentiment_scores > 0)
+        # 顺风 (cost_structure_scores > 0): 结构助力，放大驱动力
+        bullish_tailwind_mask = bullish_mask & (cost_structure_scores > 0)
+        modulation_factor.loc[bullish_tailwind_mask] = (1 + cost_structure_scores.loc[bullish_tailwind_mask]) ** amplification_power.loc[bullish_tailwind_mask]
+        
+        # 逆风 (cost_structure_scores < 0): 结构阻碍，削弱驱动力
+        bullish_headwind_mask = bullish_mask & (cost_structure_scores < 0)
+        modulation_factor.loc[bullish_headwind_mask] = (1 - cost_structure_scores.loc[bullish_headwind_mask].abs()) ** dampening_power.loc[bullish_headwind_mask]
+
+        # 熊市情绪 (holder_sentiment_scores < 0)
+        # 顺风 (cost_structure_scores < 0): 结构助力，放大驱动力
+        bearish_tailwind_mask = bearish_mask & (cost_structure_scores < 0)
+        modulation_factor.loc[bearish_tailwind_mask] = (1 + cost_structure_scores.loc[bearish_tailwind_mask].abs()) ** amplification_power.loc[bearish_tailwind_mask]
+        
+        # 逆风 (cost_structure_scores > 0): 结构阻碍，削弱驱动力
+        bearish_headwind_mask = bearish_mask & (cost_structure_scores > 0)
+        modulation_factor.loc[bearish_headwind_mask] = (1 - cost_structure_scores.loc[bearish_headwind_mask]) ** dampening_power.loc[bearish_headwind_mask]
+        
         coherent_drive_raw = holder_sentiment_scores * modulation_factor
         final_score = np.tanh(coherent_drive_raw * (self.bipolar_sensitivity * 2))
         
@@ -434,12 +451,12 @@ class ChipIntelligence:
             if probe_date in df.index:
                 print(f"    -> [同调驱动力探针] @ {probe_date.date()}:")
                 print(f"       - 基础参数: base_amplification_power: {base_amplification_power:.2f}, base_dampening_power: {base_dampening_power:.2f}")
-                print(f"       - 筹码健康度调制参数: chip_health_modulation_enabled: {chip_health_modulation_enabled}, chip_health_sensitivity_amp: {chip_health_sensitivity_amp:.2f}, chip_health_sensitivity_damp: {chip_health_sensitivity_damp:.2f}") # [修改代码行]
+                print(f"       - 筹码健康度调制参数: chip_health_modulation_enabled: {chip_health_modulation_enabled}, chip_health_sensitivity_amp: {chip_health_sensitivity_amp:.2f}, chip_health_sensitivity_damp: {chip_health_sensitivity_damp:.2f}")
                 if chip_health_modulation_enabled:
-                    print(f"       - 筹码健康度信号: chip_health_score_D: {current_chip_health_score.loc[probe_date]:.4f}") # [修改代码行]
-                    print(f"       - 动态幂指数: amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}") # [修改代码行]
+                    print(f"       - 筹码健康度信号: chip_health_score_D: {current_chip_health_score.loc[probe_date]:.4f}")
+                    print(f"       - 动态幂指数: amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}")
                 else:
-                    print(f"       - 静态幂指数: amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}") # [修改代码行]
+                    print(f"       - 静态幂指数: amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}")
                 
                 print(f"       - 原料: base_drive (holder_sentiment): {holder_sentiment_scores.loc[probe_date]:.4f}")
                 print(f"       - 原料: cost_structure_scores: {cost_structure_scores.loc[probe_date]:.4f}")
