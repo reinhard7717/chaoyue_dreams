@@ -1924,11 +1924,11 @@ class BehavioralIntelligence:
             'bearish_conf_weights': get_param_value(p_conf.get('bearish_confirmation_weights'), {"rsi_overbought": 0.3, "volume_decrease": 0.3, "selling_pressure": 0.2, "volatility_high": 0.2}),
             'rsi_oversold_threshold_base': get_param_value(p_conf.get('rsi_oversold_threshold'), 30),
             'rsi_overbought_threshold_base': get_param_value(p_conf.get('rsi_overbought_threshold'), 70),
-            'min_divergence_slope_diff_base': get_param_value(get_param_value(p_conf.get('adaptive_thresholds'), {}).get('min_slope_diff_base'), 0.005), # [修改的代码行] 修正获取方式
-            'min_slope_diff_atr_multiplier': get_param_value(get_param_value(p_conf.get('adaptive_thresholds'), {}).get('min_slope_diff_atr_multiplier'), 0.005), # [修改的代码行] 修正获取方式
-            'rsi_oversold_trend_adjust_factor': get_param_value(get_param_value(p_conf.get('adaptive_thresholds'), {}).get('rsi_oversold_trend_adjust_factor'), 5), # [修改的代码行] 修正获取方式
-            'rsi_overbought_trend_adjust_factor': get_param_value(get_param_value(p_conf.get('adaptive_thresholds'), {}).get('rsi_overbought_trend_adjust_factor'), 5), # [修改的代码行] 修正获取方式
-            'long_term_period': get_param_value(get_param_value(p_conf.get('multi_level_resonance_params'), {}).get('long_term_period'), 21) # [修改的代码行] 确保long_term_period被正确获取并传递
+            'min_divergence_slope_diff_base': get_param_value(get_param_value(p_conf.get('adaptive_thresholds'), {}).get('min_slope_diff_base'), 0.005),
+            'min_slope_diff_atr_multiplier': get_param_value(get_param_value(p_conf.get('adaptive_thresholds'), {}).get('min_slope_diff_atr_multiplier'), 0.005),
+            'rsi_oversold_trend_adjust_factor': get_param_value(get_param_value(p_conf.get('adaptive_thresholds'), {}).get('rsi_oversold_trend_adjust_factor'), 5),
+            'rsi_overbought_trend_adjust_factor': get_param_value(get_param_value(p_conf.get('adaptive_thresholds'), {}).get('rsi_overbought_trend_adjust_factor'), 5),
+            'long_term_period': get_param_value(get_param_value(p_conf.get('multi_level_resonance_params'), {}).get('long_term_period'), 21)
         }
         
         # 2. 获取所需原始数据和派生信号
@@ -2016,7 +2016,7 @@ class BehavioralIntelligence:
         # 3. 调用辅助方法计算看涨和看跌背离
         bullish_divergence_score = self._calculate_single_divergence_type(
             df, True, params, tf_weights,
-            debug_enabled, probe_ts,
+            # [修改的代码行] 移除 debug_enabled, probe_ts
             robust_close_slope, robust_rsi_slope, robust_macd_slope, robust_volume_slope, robust_bbw_slope, robust_pct_change_slope,
             long_term_close_slope, long_term_rsi_slope, long_term_macd_slope, long_term_volume_slope, long_term_adx_slope,
             pattern_close_slope, pattern_volume_slope,
@@ -2031,7 +2031,7 @@ class BehavioralIntelligence:
 
         bearish_divergence_score = self._calculate_single_divergence_type(
             df, False, params, tf_weights,
-            debug_enabled, probe_ts,
+            # [修改的代码行] 移除 debug_enabled, probe_ts
             robust_close_slope, robust_rsi_slope, robust_macd_slope, robust_volume_slope, robust_bbw_slope, robust_pct_change_slope,
             long_term_close_slope, long_term_rsi_slope, long_term_macd_slope, long_term_volume_slope, long_term_adx_slope,
             pattern_close_slope, pattern_volume_slope,
