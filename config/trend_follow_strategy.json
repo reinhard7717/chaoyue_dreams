@@ -1865,7 +1865,7 @@
             "meta_modulator_sensitivity": 0.5
           },
           "historical_potential_params": {
-            "description": "【V4.0 · 势能博弈临界版】筹码势能信号的专属参数。",
+            "description": "【V5.0 · 势能博弈临界版】筹码势能信号的专属参数。",
             "mf_aq_weights": {
               "covert_accumulation": 0.25,
               "suppressive_accumulation": 0.15,
@@ -1895,8 +1895,9 @@
               "vacuum_magnitude": 0.3,
               "vacuum_efficiency": 0.3,
               "resistance_absorption": 0.2,
-              "rejection_strength": 0.1,
-              "support_strength": 0.1
+              "resistance_game_strength_weight": 0.2,
+              "order_book_clearing_rate": 0.05,
+              "micro_price_impact_asymmetry": 0.05
             },
             "dgm_weights": {
               "deception_impact": 0.4,

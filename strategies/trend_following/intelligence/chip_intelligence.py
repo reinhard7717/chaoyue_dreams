@@ -981,7 +981,7 @@ class ChipIntelligence:
         - 核心升级5: 情境自适应权重 (ACW)。引入“市场情绪与流动性情境”，增加市场情绪分数和资金流可信度指数作为情境调制器。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print("    -> [筹码层] 正在诊断“筹码势能”公理 (V5.0 · 势能博弈临界版)...") # [修改代码行] 版本号更新
+        print("    -> [筹码层] 正在诊断“筹码势能”公理 (V5.0 · 势能博弈临界版)...")
         required_signals = [
             'covert_accumulation_signal_D', 'suppressive_accumulation_intensity_D',
             'main_force_cost_advantage_D', 'floating_chip_cleansing_efficiency_D',
@@ -1025,7 +1025,7 @@ class ChipIntelligence:
         })
         pce_weights = get_param_value(historical_potential_params.get('pce_weights'), {
             'vacuum_magnitude': 0.3, 'vacuum_efficiency': 0.3, 'resistance_absorption': 0.2,
-            'rejection_strength': 0.1, 'support_strength': 0.1,
+            'resistance_game_strength_weight': 0.2, # [修改代码行] 合并 rejection_strength 和 support_strength，权重 0.2
             'order_book_clearing_rate': 0.05, 'micro_price_impact_asymmetry': 0.05
         })
         dgm_weights = get_param_value(historical_potential_params.get('dgm_weights'), {
@@ -1079,12 +1079,10 @@ class ChipIntelligence:
         dynamic_covert_weight.loc[low_health_low_cost_advantage_mask] += mf_aq_asymmetry_params.get('covert_weight_boost', 0.2)
         dynamic_suppressive_weight.loc[low_health_low_cost_advantage_mask] -= mf_aq_asymmetry_params.get('suppressive_weight_boost', 0.1)
         
-        # 计算所有基础权重之和，用于归一化
         base_mf_aq_total_weight = mf_aq_weights.get('covert_accumulation', 0.25) + mf_aq_weights.get('suppressive_accumulation', 0.15) + \
                                   mf_aq_weights.get('cost_advantage', 0.25) + mf_aq_weights.get('cleansing_efficiency', 0.15) + \
                                   mf_aq_weights.get('execution_alpha', 0.05) + mf_aq_weights.get('friction_index', 0.05)
 
-        # 动态权重调整后的实际权重和
         sum_dynamic_weights_mf_aq = dynamic_covert_weight + dynamic_suppressive_weight + \
                                     mf_aq_weights.get('cost_advantage', 0.25) + mf_aq_weights.get('cleansing_efficiency', 0.15) + \
                                     mf_aq_weights.get('execution_alpha', 0.05) + mf_aq_weights.get('friction_index', 0.05)
@@ -1096,7 +1094,7 @@ class ChipIntelligence:
             (norm_floating_chip_cleansing_efficiency * mf_aq_weights.get('cleansing_efficiency', 0.15)) +
             (norm_main_force_execution_alpha * mf_aq_weights.get('execution_alpha', 0.05)) +
             (norm_asymmetric_friction_index * mf_aq_weights.get('friction_index', 0.05))
-        ) / sum_dynamic_weights_mf_aq.replace(0, 1e-6) * base_mf_aq_total_weight # [修改代码行] 确保归一化到原始权重和
+        ) / sum_dynamic_weights_mf_aq.replace(0, 1e-6) * base_mf_aq_total_weight
 
         mf_aq_score = mf_aq_score * deception_purity_adjustment
         mf_aq_score = mf_aq_score.clip(0, 1)
@@ -1112,7 +1110,7 @@ class ChipIntelligence:
         structural_tension_raw = self._get_safe_series(df, df, 'structural_tension_index_D', 0.0, method_name="_diagnose_axiom_historical_potential")
         structural_entropy_change_raw = self._get_safe_series(df, df, 'structural_entropy_change_D', 0.0, method_name="_diagnose_axiom_historical_potential")
 
-        norm_dominant_peak_solidity = get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, tf_weights=tf_weights)
+        norm_dominant_peak_solidity = get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_cost_structure_skewness_slope = get_adaptive_mtf_normalized_bipolar_score(cost_structure_skewness_slope_raw, df_index, tf_weights)
         norm_peak_separation_ratio_slope = get_adaptive_mtf_normalized_bipolar_score(peak_separation_ratio_slope_raw, df_index, tf_weights)
         norm_winner_stability = get_adaptive_mtf_normalized_score(winner_stability_raw, df_index, ascending=False, tf_weights=tf_weights)
@@ -1165,7 +1163,7 @@ class ChipIntelligence:
             norm_vacuum_zone_magnitude * pce_weights.get('vacuum_magnitude', 0.3) +
             norm_vacuum_traversal_efficiency * pce_weights.get('vacuum_efficiency', 0.3) +
             resistance_absorption_score * pce_weights.get('resistance_absorption', 0.2) +
-            resistance_game_strength * pce_weights.get('rejection_strength', 0.1) +
+            resistance_game_strength * pce_weights.get('resistance_game_strength_weight', 0.2) + # [修改代码行] 使用合并后的权重
             norm_order_book_clearing_rate * pce_weights.get('order_book_clearing_rate', 0.05) +
             norm_micro_price_impact_asymmetry * pce_weights.get('micro_price_impact_asymmetry', 0.05)
         ).clip(0, 1)
@@ -1250,7 +1248,7 @@ class ChipIntelligence:
                 print(f"       - 参数: mf_aq_weights: {mf_aq_weights}")
                 print(f"       - 参数: mf_aq_asymmetry_params: {mf_aq_asymmetry_params}")
                 print(f"       - 参数: cst_weights: {cst_weights}")
-                print(f"       - 参数: pce_weights: {pce_weights}")
+                print(f"       - 参数: pce_weights: {pce_weights}") # [修改代码行] 打印更新后的 pce_weights
                 print(f"       - 参数: dgm_weights: {dgm_weights}")
                 print(f"       - 参数: dgm_asymmetry_params: {dgm_asymmetry_params}")
                 print(f"       - 参数: final_fusion_weights: {final_fusion_weights}")
@@ -1329,7 +1327,7 @@ class ChipIntelligence:
                 print(f"       - 过程: norm_micro_price_impact_asymmetry: {norm_micro_price_impact_asymmetry.loc[probe_date]:.4f}")
                 print(f"       - 过程: resistance_absorption_score: {resistance_absorption_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: resistance_game_strength: {resistance_game_strength.loc[probe_date]:.4f}")
-                print(f"       - 过程: pce_score: {pce_score.loc[probe_date]:.4f}")
+                print(f"       - 过程: pce_score: {pce_score.loc[probe_date]:.4f}") # [修改代码行] 打印更新后的 pce_score
 
                 print(f"       - 过程: norm_deception_index: {norm_deception_index.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_wash_trade_intensity: {norm_wash_trade_intensity.loc[probe_date]:.4f}")
