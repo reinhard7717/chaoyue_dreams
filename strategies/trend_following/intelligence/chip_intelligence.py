@@ -377,14 +377,14 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V7.14 · 情绪强度结构调制版】诊断筹码同调驱动力
-        - 核心升级1: 引入情绪强度对筹码结构调制效果的动态缩放。激活后的持股心态（activated_holder_sentiment_scores）的强度，
-                      将动态缩放筹码结构分数对驱动力的最终影响，使得情绪的“信念”或“决心”能够进一步影响筹码结构传导的效率。
-        - 核心升级2: 增强真理探针。详细输出新的情绪强度结构调制参数和中间计算结果，并修正探针中“过程”逻辑的显示，
-                      使其更准确地反映动态阈值和原始情绪的判断。
+        【V7.15 · 结构强度幂指数自适应版】诊断筹码同调驱动力
+        - 核心升级1: 引入结构强度对幂指数的自适应调整。amplification_power 和 dampening_power 将根据
+                      最终用于调制的筹码结构分数（final_cost_structure_for_modulation_scaled）的绝对强度
+                      进行进一步的动态调整，使得传动系统在面对极端顺风或逆风情况时，能够自适应地增强其放大或削弱驱动力的能力。
+        - 核心升级2: 增强真理探针。详细输出新的结构强度幂指数自适应参数和中间计算结果。
         - 修复: 修正了探针输出中 `abs_activated_sentiment_val` 的计算错误，确保在标量值上正确调用绝对值函数。
         """
-        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.14 · 情绪强度结构调制版)”...")
+        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.15 · 结构强度幂指数自适应版)”...") # [修改代码行]
         
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         coherent_drive_params = get_param_value(p_conf.get('coherent_drive_params'), {})
@@ -441,6 +441,13 @@ class ChipIntelligence:
         structure_modulation_base_strength = get_param_value(coherent_drive_params.get('structure_modulation_base_strength'), 1.0)
         structure_modulation_sentiment_tanh_factor = get_param_value(coherent_drive_params.get('structure_modulation_sentiment_tanh_factor'), 1.0)
         structure_modulation_sentiment_sensitivity = get_param_value(coherent_drive_params.get('structure_modulation_sentiment_sensitivity'), 1.0)
+
+        # [新增代码块] 结构强度幂指数自适应参数
+        structural_power_adjustment_enabled = get_param_value(coherent_drive_params.get('structural_power_adjustment_enabled'), False)
+        structural_power_sensitivity_amp = get_param_value(coherent_drive_params.get('structural_power_sensitivity_amp'), 0.5)
+        structural_power_sensitivity_damp = get_param_value(coherent_drive_params.get('structural_power_sensitivity_damp'), 0.5)
+        structural_power_tanh_factor_amp = get_param_value(coherent_drive_params.get('structural_power_tanh_factor_amp'), 1.0)
+        structural_power_tanh_factor_damp = get_param_value(coherent_drive_params.get('structural_power_tanh_factor_damp'), 1.0)
 
         amplification_power = pd.Series(base_amplification_power, index=df.index)
         dampening_power = pd.Series(base_dampening_power, index=df.index)
@@ -584,6 +591,29 @@ class ChipIntelligence:
 
         final_cost_structure_for_modulation_scaled = final_cost_structure_for_modulation * dynamic_structure_modulation_strength
 
+        # [新增代码块] 结构强度对幂指数的自适应调整
+        if structural_power_adjustment_enabled:
+            # 记录调整前的幂指数，用于探针
+            amplification_power_before_structural_adj = amplification_power.copy()
+            dampening_power_before_structural_adj = dampening_power.copy()
+
+            positive_structure_mask = final_cost_structure_for_modulation_scaled > 0
+            negative_structure_mask = final_cost_structure_for_modulation_scaled < 0
+
+            if positive_structure_mask.any():
+                positive_structure_strength = final_cost_structure_for_modulation_scaled[positive_structure_mask]
+                boost_amp = np.tanh(positive_structure_strength * structural_power_tanh_factor_amp) * structural_power_sensitivity_amp
+                amplification_power.loc[positive_structure_mask] = amplification_power.loc[positive_structure_mask] * (1 + boost_amp)
+            
+            if negative_structure_mask.any():
+                negative_structure_strength = final_cost_structure_for_modulation_scaled[negative_structure_mask].abs()
+                boost_damp = np.tanh(negative_structure_strength * structural_power_tanh_factor_damp) * structural_power_sensitivity_damp
+                dampening_power.loc[negative_structure_mask] = dampening_power.loc[negative_structure_mask] * (1 + boost_damp)
+            
+            # 再次裁剪，确保幂指数在合理范围内
+            amplification_power = amplification_power.clip(0.5, 3.0) # [修改代码行] 扩大裁剪范围以允许更大的动态调整
+            dampening_power = dampening_power.clip(0.5, 3.0) # [修改代码行] 扩大裁剪范围以允许更大的动态调整
+
         bullish_mask = holder_sentiment_scores > dynamic_sentiment_neutrality_threshold
         bearish_mask = holder_sentiment_scores < -dynamic_sentiment_neutrality_threshold
 
@@ -628,6 +658,10 @@ class ChipIntelligence:
                 print(f"         - 筹码结构: base_threshold: {cost_structure_neutrality_base_threshold:.2f}, chip_health_sensitivity: {cost_structure_neutrality_chip_health_sensitivity:.2f}")
                 print(f"       - 情绪激活阈值参数: enabled: {sentiment_activation_enabled}, tanh_factor: {sentiment_activation_tanh_factor:.2f}, strength: {sentiment_activation_strength:.2f}")
                 print(f"       - 情绪强度结构调制参数: enabled: {structure_modulation_strength_enabled}, base_strength: {structure_modulation_base_strength:.2f}, sentiment_tanh_factor: {structure_modulation_sentiment_tanh_factor:.2f}, sentiment_sensitivity: {structure_modulation_sentiment_sensitivity:.2f}")
+                # [新增代码块] 打印结构强度幂指数自适应参数
+                print(f"       - 结构强度幂指数自适应参数: enabled: {structural_power_adjustment_enabled}")
+                print(f"         - 放大: sensitivity: {structural_power_sensitivity_amp:.2f}, tanh_factor: {structural_power_tanh_factor_amp:.2f}")
+                print(f"         - 削弱: sensitivity: {structural_power_sensitivity_damp:.2f}, tanh_factor: {structural_power_tanh_factor_damp:.2f}")
 
                 if chip_health_modulation_enabled:
                     print(f"       - 筹码健康度信号 (原始): chip_health_score_D: {current_chip_health_score_raw.loc[probe_date]:.4f}")
@@ -645,7 +679,7 @@ class ChipIntelligence:
                         print(f"       - 敏感度调制信号 (非线性-放大): non_linear_modulator_effect_amp: {non_linear_modulator_effect_amp.loc[probe_date]:.4f}")
                         print(f"       - 敏感度调制信号 (非线性-削弱): non_linear_modulator_effect_damp: {non_linear_modulator_effect_damp.loc[probe_date]:.4f}")
                     print(f"       - 动态敏感度: dynamic_chip_health_sensitivity_amp: {dynamic_chip_health_sensitivity_amp.loc[probe_date]:.2f}, dynamic_chip_health_sensitivity_damp: {dynamic_chip_health_sensitivity_damp.loc[probe_date]:.2f}")
-                    print(f"       - 动态幂指数: amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}")
+                    print(f"       - 动态幂指数 (筹码健康度调制后): amplification_power: {amplification_power_before_structural_adj.loc[probe_date]:.2f}, dampening_power: {dampening_power_before_structural_adj.loc[probe_date]:.2f}") # [修改代码行]
                 else:
                     print(f"       - 静态幂指数: amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}")
                 
@@ -689,7 +723,6 @@ class ChipIntelligence:
                     print(f"       - 最终用于调制的筹码结构分数 (耦合前): {final_cost_structure_for_modulation.loc[probe_date]:.4f}")
                 
                 if structure_modulation_strength_enabled:
-                    # [修改代码行] 修正：使用 np.abs() 获取标量值的绝对值
                     abs_activated_sentiment_val = np.abs(activated_holder_sentiment_scores.loc[probe_date])
                     sentiment_tanh_modulated_for_structure_val = np.tanh(abs_activated_sentiment_val * structure_modulation_sentiment_tanh_factor)
                     print(f"       - 激活情绪强度 (绝对值): {abs_activated_sentiment_val:.4f}")
@@ -698,6 +731,24 @@ class ChipIntelligence:
                     print(f"       - 最终用于调制的筹码结构分数 (缩放后): {final_cost_structure_for_modulation_scaled.loc[probe_date]:.4f}")
                 else:
                     print(f"       - 最终用于调制的筹码结构分数: {final_cost_structure_for_modulation_scaled.loc[probe_date]:.4f}")
+
+                # [新增代码块] 打印结构强度幂指数自适应的中间结果
+                if structural_power_adjustment_enabled:
+                    current_final_cost_structure_for_modulation_scaled = final_cost_structure_for_modulation_scaled.loc[probe_date]
+                    current_amplification_power_before_structural_adj = amplification_power_before_structural_adj.loc[probe_date]
+                    current_dampening_power_before_structural_adj = dampening_power_before_structural_adj.loc[probe_date]
+                    
+                    boost_amp_val = 0.0
+                    boost_damp_val = 0.0
+                    if current_final_cost_structure_for_modulation_scaled > 0:
+                        boost_amp_val = np.tanh(current_final_cost_structure_for_modulation_scaled * structural_power_tanh_factor_amp) * structural_power_sensitivity_amp
+                        print(f"       - 结构强度对放大幂指数的增强因子: {boost_amp_val:.4f}")
+                    elif current_final_cost_structure_for_modulation_scaled < 0:
+                        boost_damp_val = np.tanh(np.abs(current_final_cost_structure_for_modulation_scaled) * structural_power_tanh_factor_damp) * structural_power_sensitivity_damp
+                        print(f"       - 结构强度对削弱幂指数的增强因子: {boost_damp_val:.4f}")
+                    
+                    print(f"       - 动态幂指数 (结构强度自适应后): amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}")
+
 
                 current_raw_sentiment = holder_sentiment_scores.loc[probe_date]
                 current_activated_sentiment = activated_holder_sentiment_scores.loc[probe_date]
