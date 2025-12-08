@@ -389,7 +389,7 @@ class ChipIntelligence:
 
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list, strategic_posture: pd.Series, battlefield_geography: pd.Series, holder_sentiment: pd.Series) -> pd.Series:
         """
-        【V7.0 · 战略推力引擎版】筹码公理六：诊断“结构性推力”
+        【V7.1 · 战略推力引擎版】筹码公理六：诊断“结构性推力”
         - 核心升级1: 引擎功率动态权重。引入筹码健康度趋势作为调制器，动态调整静态基础分与动态变化率的融合权重。
         - 核心升级2: 燃料品质诡道调制。引入筹码故障幅度作为负向调制器，削弱被“诱多”等诡道污染的燃料品质，并使协同奖励情境感知。
         - 核心升级3: 喷管效率多维深化。融合真空区大小、真空区趋势和真空穿越效率，更全面评估最小阻力路径。
@@ -397,8 +397,10 @@ class ChipIntelligence:
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         - 修复: 解决 SCORE_CHIP_STRATEGIC_POSTURE 作为调制器时因重复查找导致的数据缺失警告。
         - 修复: 修正 get_adaptive_mtf_normalized_score 函数的参数传递错误。
+        - 升级: 优化 synergy_bonus 计算，引入平滑激活函数，避免硬性截断。
+        - 升级: 增强最终融合动态权重的情境感知，引入多情境调制器进行综合调整。
         """
-        print("    -> [筹码层] 正在诊断“结构性推力”公理 (V7.0 · 战略推力引擎版)...")
+        print("    -> [筹码层] 正在诊断“结构性推力”公理 (V7.1 · 战略推力引擎版)...") # [修改代码行] 版本号更新
         required_signals = [
             'main_force_conviction_index_D', 'vacuum_zone_magnitude_D', 'upward_impulse_purity_D',
             'chip_health_score_D', 'chip_fault_magnitude_D', 'SLOPE_5_vacuum_zone_magnitude_D',
@@ -418,10 +420,18 @@ class ChipIntelligence:
         synergy_bonus_base = get_param_value(trend_momentum_params.get('synergy_bonus_base'), 0.25)
         synergy_bonus_context_modulator_signal_name = get_param_value(trend_momentum_params.get('synergy_bonus_context_modulator_signal_name'), 'chip_health_score_D')
         synergy_bonus_context_sensitivity = get_param_value(trend_momentum_params.get('synergy_bonus_context_sensitivity'), 0.5)
+        synergy_activation_threshold = get_param_value(trend_momentum_params.get('synergy_activation_threshold'), 0.0) # [新增代码行] 协同奖励激活阈值
         nozzle_efficiency_weights = get_param_value(trend_momentum_params.get('nozzle_efficiency_weights'), {'magnitude': 0.5, 'trend': 0.3, 'traversal': 0.2})
         final_fusion_dynamic_weights_enabled = get_param_value(trend_momentum_params.get('final_fusion_dynamic_weights_enabled'), True)
         final_fusion_weights_base = get_param_value(trend_momentum_params.get('final_fusion_weights_base'), {'engine': 0.33, 'fuel': 0.33, 'nozzle': 0.34})
         final_fusion_weights_sensitivity = get_param_value(trend_momentum_params.get('final_fusion_weights_sensitivity'), {'engine': 0.5, 'fuel': 0.5, 'nozzle': 0.5})
+        # [新增代码块] 最终融合情境调制器配置
+        final_fusion_context_modulators = get_param_value(trend_momentum_params.get('final_fusion_context_modulators'), {
+            'strategic_posture': {'signal': strategic_posture, 'weight': 0.5, 'sensitivity': 0.5},
+            'battlefield_geography': {'signal': battlefield_geography, 'weight': 0.3, 'sensitivity': 0.3},
+            'holder_sentiment': {'signal': holder_sentiment, 'weight': 0.2, 'sensitivity': 0.2}
+        })
+        
         df_index = df.index
         static_engine_power = (
             strategic_posture * health_weights['posture'] +
@@ -457,8 +467,20 @@ class ChipIntelligence:
         norm_synergy_context = get_adaptive_mtf_normalized_score(synergy_context_raw, df_index, ascending=True, tf_weights=tf_weights)
         dynamic_synergy_bonus_factor = synergy_bonus_base * (1 + norm_synergy_context * synergy_bonus_context_sensitivity)
         dynamic_synergy_bonus_factor = dynamic_synergy_bonus_factor.clip(0.1, 0.5)
-        synergy_bonus = (conviction_score.clip(lower=0) * purity_score.clip(lower=0)).pow(0.5) * dynamic_synergy_bonus_factor
-        fuel_quality_score = fuel_quality_score_after_deception + synergy_bonus
+        
+        # [修改代码块] 优化 synergy_bonus 计算
+        # 将 conviction_score 和 purity_score 映射到 [0, 1] 范围
+        conviction_norm = conviction_score.add(1) / 2
+        purity_norm = purity_score.add(1) / 2
+        # 计算几何平均，代表协同潜力
+        synergy_potential = (conviction_norm * purity_norm).pow(0.5)
+        # 应用平滑激活函数：只有当协同潜力高于阈值时才显著激活奖励
+        # (synergy_potential - threshold) / (1 - threshold) 将 [threshold, 1] 映射到 [0, 1]
+        synergy_activation = ((synergy_potential - synergy_activation_threshold) / (1 - synergy_activation_threshold)).clip(0, 1)
+        synergy_bonus = synergy_activation * dynamic_synergy_bonus_factor
+        # [修改代码行] fuel_quality_score 现在是 fuel_quality_score_after_deception 和 synergy_bonus 的加和
+        fuel_quality_score = fuel_quality_score_after_deception + synergy_bonus 
+
         vacuum_magnitude_raw = self._get_safe_series(df, df, 'vacuum_zone_magnitude_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
         vacuum_trend_raw = self._get_safe_series(df, df, 'SLOPE_5_vacuum_zone_magnitude_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
         vacuum_traversal_raw = self._get_safe_series(df, df, 'vacuum_traversal_efficiency_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
@@ -477,8 +499,31 @@ class ChipIntelligence:
         final_fuel_weight = pd.Series(final_fusion_weights_base.get('fuel', 0.33), index=df_index)
         final_nozzle_weight = pd.Series(final_fusion_weights_base.get('nozzle', 0.34), index=df_index)
         if final_fusion_dynamic_weights_enabled:
-            fusion_modulator_raw = strategic_posture
-            normalized_fusion_modulator = get_adaptive_mtf_normalized_bipolar_score(fusion_modulator_raw, df_index, tf_weights)
+            # [修改代码块] 增强最终融合动态权重的情境感知
+            context_modulator_components = []
+            total_context_weight = 0.0
+            for ctx_name, ctx_config in final_fusion_context_modulators.items():
+                signal_series = ctx_config.get('signal')
+                weight = ctx_config.get('weight', 0.0)
+                sensitivity = ctx_config.get('sensitivity', 0.0)
+                if signal_series is not None and weight > 0:
+                    # 对每个情境信号进行归一化处理
+                    norm_signal = get_adaptive_mtf_normalized_bipolar_score(signal_series, df_index, tf_weights)
+                    context_modulator_components.append(norm_signal * weight * sensitivity)
+                    total_context_weight += weight * sensitivity
+            
+            if context_modulator_components and total_context_weight > 0:
+                # 综合情境调制器：加权平均
+                context_fusion_modulator = sum(context_modulator_components) / total_context_weight
+                # 使用综合情境调制器作为 normalized_fusion_modulator
+                normalized_fusion_modulator = context_fusion_modulator
+            else:
+                # 如果没有有效的情境调制器，则回退到中性值
+                normalized_fusion_modulator = pd.Series(0.0, index=df_index)
+
+            # fusion_modulator_raw = strategic_posture # [删除代码行] 不再直接使用 strategic_posture
+            # normalized_fusion_modulator = get_adaptive_mtf_normalized_bipolar_score(fusion_modulator_raw, df_index, tf_weights) # [删除代码行]
+            
             engine_mod = normalized_fusion_modulator * final_fusion_weights_sensitivity.get('engine', 0.5)
             fuel_mod = normalized_fusion_modulator * final_fusion_weights_sensitivity.get('fuel', 0.5)
             nozzle_mod = -normalized_fusion_modulator * final_fusion_weights_sensitivity.get('nozzle', 0.5)
@@ -500,16 +545,17 @@ class ChipIntelligence:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
             if probe_date in df.index:
-                print(f"       - 内部调试: final_score (raw): {final_score.loc[probe_date]}")
                 print(f"    -> [结构性推力探针] @ {probe_date.date()}:")
                 print(f"       - 参数: health_weights: {health_weights}")
                 print(f"       - 参数: engine_power_dynamic_weight_modulator_signal_name: {engine_power_dynamic_weight_modulator_signal_name}, engine_power_dynamic_weight_sensitivity: {engine_power_dynamic_weight_sensitivity:.2f}")
                 print(f"       - 参数: static_engine_power_base_weight: {static_engine_power_base_weight:.2f}, dynamic_engine_power_base_weight: {dynamic_engine_power_base_weight:.2f}")
                 print(f"       - 参数: fuel_purity_deception_penalty_factor: {fuel_purity_deception_penalty_factor:.2f}")
                 print(f"       - 参数: synergy_bonus_base: {synergy_bonus_base:.2f}, synergy_bonus_context_modulator_signal_name: {synergy_bonus_context_modulator_signal_name}, synergy_bonus_context_sensitivity: {synergy_bonus_context_sensitivity:.2f}")
+                print(f"       - 参数: synergy_activation_threshold: {synergy_activation_threshold:.2f}") # [新增代码行]
                 print(f"       - 参数: nozzle_efficiency_weights: {nozzle_efficiency_weights}")
                 print(f"       - 参数: final_fusion_dynamic_weights_enabled: {final_fusion_dynamic_weights_enabled}")
                 print(f"       - 参数: final_fusion_weights_base: {final_fusion_weights_base}, final_fusion_weights_sensitivity: {final_fusion_weights_sensitivity}")
+                print(f"       - 参数: final_fusion_context_modulators: {final_fusion_context_modulators}") # [新增代码行]
                 print(f"       - 原料: strategic_posture: {strategic_posture.loc[probe_date]:.4f}, battlefield_geography: {battlefield_geography.loc[probe_date]:.4f}, holder_sentiment: {holder_sentiment.loc[probe_date]:.4f}")
                 print(f"       - 原料: {engine_power_dynamic_weight_modulator_signal_name}: {health_score_slope_raw.loc[probe_date]:.4f}, norm_health_score_slope: {norm_health_score_slope.loc[probe_date]:.4f}")
                 print(f"       - 原料: main_force_conviction_index_D: {conviction_raw.loc[probe_date]:.4f}, upward_impulse_purity_D: {impulse_purity_raw.loc[probe_date]:.4f}")
@@ -517,14 +563,16 @@ class ChipIntelligence:
                 print(f"       - 原料: {synergy_bonus_context_modulator_signal_name}: {synergy_context_raw.loc[probe_date]:.4f}, norm_synergy_context: {norm_synergy_context.loc[probe_date]:.4f}")
                 print(f"       - 原料: vacuum_zone_magnitude_D: {vacuum_magnitude_raw.loc[probe_date]:.4f}, SLOPE_5_vacuum_zone_magnitude_D: {vacuum_trend_raw.loc[probe_date]:.4f}, vacuum_traversal_efficiency_D: {vacuum_traversal_raw.loc[probe_date]:.4f}")
                 if final_fusion_dynamic_weights_enabled:
-                    print(f"       - 原料: fusion_modulator_raw (from strategic_posture): {fusion_modulator_raw.loc[probe_date]:.4f}, normalized_fusion_modulator: {normalized_fusion_modulator.loc[probe_date]:.4f}")
+                    # [修改代码行] 打印综合情境调制器
+                    print(f"       - 原料: context_fusion_modulator: {normalized_fusion_modulator.loc[probe_date]:.4f}") 
                 print(f"       - 过程: static_engine_power: {static_engine_power.loc[probe_date]:.4f}")
                 print(f"       - 过程: dynamic_weight_mod: {dynamic_weight_mod.loc[probe_date]:.4f}, current_static_weight: {current_static_weight.loc[probe_date]:.4f}, current_dynamic_weight: {current_dynamic_weight.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_slope (health): {norm_slope.loc[probe_date]:.4f}, norm_accel (health): {norm_accel.loc[probe_date]:.4f}, dynamic_engine_power: {dynamic_engine_power.loc[probe_date]:.4f}")
                 print(f"       - 过程: engine_power_score: {engine_power_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: conviction_score: {conviction_score.loc[probe_date]:.4f}, purity_score: {purity_score.loc[probe_date]:.4f}, base_fuel_quality: {base_fuel_quality.loc[probe_date]:.4f}")
                 print(f"       - 过程: deception_penalty: {deception_penalty.loc[probe_date]:.4f}, fuel_quality_score_after_deception: {fuel_quality_score_after_deception.loc[probe_date]:.4f}")
-                print(f"       - 过程: dynamic_synergy_bonus_factor: {dynamic_synergy_bonus_factor.loc[probe_date]:.4f}, synergy_bonus: {synergy_bonus.loc[probe_date]:.4f}")
+                # [新增代码行] 打印协同潜力和平滑激活
+                print(f"       - 过程: synergy_potential: {synergy_potential.loc[probe_date]:.4f}, synergy_activation: {synergy_activation.loc[probe_date]:.4f}, dynamic_synergy_bonus_factor: {dynamic_synergy_bonus_factor.loc[probe_date]:.4f}, synergy_bonus: {synergy_bonus.loc[probe_date]:.4f}")
                 print(f"       - 过程: fuel_quality_score: {fuel_quality_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_vacuum_magnitude: {norm_vacuum_magnitude.loc[probe_date]:.4f}, norm_vacuum_trend: {norm_vacuum_trend.loc[probe_date]:.4f}, norm_traversal_efficiency: {norm_traversal_efficiency.loc[probe_date]:.4f}")
                 print(f"       - 过程: nozzle_efficiency_score: {nozzle_efficiency_score.loc[probe_date]:.4f}")
