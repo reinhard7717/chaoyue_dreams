@@ -92,28 +92,6 @@ class ChipIntelligence:
         print(f"【V18.0 · 破晓版】分析完成，生成 {len(all_chip_states)} 个筹码原子信号。") # [修改代码行]
         return all_chip_states
 
-    def _run_integrity_probe(self, df: pd.DataFrame, required_signals: list, probe_name: str):
-        """
-        【V2.4 · 物证探针版】
-        - 核心升级: 不再进行条件判断，而是无条件打印所有依赖信号在探针日期的值和近期标准差，
-                      以获取关于“幻影信号”的决定性物证。
-        """
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if not probe_dates_str:
-            return
-        probe_date_naive = pd.to_datetime(probe_dates_str[0])
-        probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-        if probe_date in df.index:
-            print(f"    -> [筹码公理-{probe_name}-物证探针] 正在检查数据值...")
-            for s in required_signals:
-                if s not in df.columns:
-                    print(f"        - [失败] 信号 '{s}' 列不存在。")
-                    continue
-                val = df.loc[probe_date, s]
-                std_dev = df[s].loc[:probe_date].tail(21).std()
-                print(f"        - [物证] 信号: {s:<45} | 当日值: {val:<10.4f} | 近期标准差: {std_dev:.4f}")
-
     def _diagnose_strategic_posture(self, df: pd.DataFrame) -> pd.Series:
         """
         【V7.0 · 诡道时序增强版】诊断主力的综合战略态势 (大一统信号)
@@ -302,26 +280,6 @@ class ChipIntelligence:
         impurity_score = (fomo_score * profit_taking_score).pow(0.5)
         conviction_base = ((belief_core_score.add(1)/2) * (pressure_test_score.clip(-1, 1).add(1)/2)).pow(0.5)
         final_score = (conviction_base * (1 - impurity_score)) * 2 - 1
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date in df.index:
-                print(f"    -> [持仓信念探针] @ {probe_date.date()}:")
-                print(f"       - 维度1: 信念内核 (Belief Core)")
-                print(f"         - 原料: winner_stability: {winner_stability.loc[probe_date]:.4f}, loser_pain: {loser_pain.loc[probe_date]:.4f}")
-                print(f"         - 结果: belief_core_score: {belief_core_score.loc[probe_date]:.4f}")
-                print(f"       - 维度2: 压力测试 (Pressure Test)")
-                # [修改代码块] 更新探针输出
-                print(f"         - 原料: absorption_power: {absorption_power.loc[probe_date]:.4f}, defense_intent: {defense_intent.loc[probe_date]:.4f}, capitulation_absorption: {capitulation_absorption.loc[probe_date]:.4f}")
-                print(f"         - 过程: base_pressure_score: {base_pressure_score.loc[probe_date]:.4f}, capitulation_bonus: {capitulation_bonus.loc[probe_date]:.4f}")
-                print(f"         - 结果: pressure_test_score (with bonus): {pressure_test_score.loc[probe_date]:.4f}")
-                print(f"       - 维度3: 情绪纯度 (Impurity)")
-                print(f"         - 原料: fomo_index: {fomo_index.loc[probe_date]:.4f}, profit_taking_quality: {profit_taking_quality.loc[probe_date]:.4f}")
-                print(f"         - 过程: fomo_score (corrected): {fomo_score.loc[probe_date]:.4f}, profit_taking_score: {profit_taking_score.loc[probe_date]:.4f}")
-                print(f"         - 结果: impurity_score: {impurity_score.loc[probe_date]:.4f}")
-                print(f"       - 最终融合结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_axiom_trend_momentum(self, df: pd.DataFrame, periods: list, strategic_posture: pd.Series, battlefield_geography: pd.Series, holder_sentiment: pd.Series) -> pd.Series:
@@ -369,28 +327,6 @@ class ChipIntelligence:
             (fuel_quality_score.clip(-1, 1).add(1)/2) *
             (nozzle_efficiency_score.add(1)/2)
         ).pow(1/3) * 2 - 1
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date in df.index:
-                print(f"    -> [结构性推力探针] @ {probe_date.date()}:")
-                print(f"       - 维度1: 引擎功率 (Engine Power)")
-                print(f"         - 原料 (上游信号): posture: {strategic_posture.loc[probe_date]:.4f}, geography: {battlefield_geography.loc[probe_date]:.4f}, sentiment: {holder_sentiment.loc[probe_date]:.4f}")
-                # [修改代码块] 更新探针输出
-                print(f"         - 原料 (计算过程): health_score (arithmetic): {health_score.loc[probe_date]:.4f}, slope: {slope.loc[probe_date]:.4f}, accel: {accel.loc[probe_date]:.4f}")
-                print(f"         - 过程 (融合): static_power: {static_engine_power.loc[probe_date]:.4f}, dynamic_power: {dynamic_engine_power.loc[probe_date]:.4f}")
-                print(f"         - 结果: engine_power_score: {engine_power_score.loc[probe_date]:.4f}")
-                print(f"       - 维度2: 燃料品质 (Fuel Quality)")
-                print(f"         - 原料: conviction_index: {conviction.loc[probe_date]:.4f}, impulse_purity: {impulse_purity.loc[probe_date]:.4f}")
-                print(f"         - 过程: conviction_score: {conviction_score.loc[probe_date]:.4f}, purity_score: {purity_score.loc[probe_date]:.4f}")
-                print(f"         - 过程: base_fuel_quality: {base_fuel_quality.loc[probe_date]:.4f}, synergy_bonus: {synergy_bonus.loc[probe_date]:.4f}")
-                print(f"         - 结果: fuel_quality_score (with bonus): {fuel_quality_score.loc[probe_date]:.4f}")
-                print(f"       - 维度3: 喷管效率 (Nozzle Efficiency)")
-                print(f"         - 原料: vacuum_magnitude: {vacuum.loc[probe_date]:.4f}")
-                print(f"         - 结果: nozzle_efficiency_score: {nozzle_efficiency_score.loc[probe_date]:.4f}")
-                print(f"       - 最终融合结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
@@ -437,28 +373,6 @@ class ChipIntelligence:
         final_score = np.tanh(np.arctanh(safe_base_score) * conflict_amplifier)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date in df.index:
-                print(f"    -> [价筹张力探针] @ {probe_date.date()}:")
-                print(f"       - 维度1: 分歧向量 (Disagreement Vector)")
-                print(f"         - 原料: chip_momentum: {chip_momentum.loc[probe_date]:.4f}, price_trend: {price_trend.loc[probe_date]:.4f}")
-                print(f"         - 过程: norm_chip_momentum: {norm_chip_momentum.loc[probe_date]:.4f}, norm_price_trend: {norm_price_trend.loc[probe_date]:.4f}")
-                print(f"         - 结果: disagreement_vector: {disagreement_vector.loc[probe_date]:.4f}")
-                print(f"       - 维度2: 张力强度 (Tension Magnitude)")
-                print(f"         - 原料: volume: {volume.loc[probe_date]:.0f}")
-                print(f"         - 过程: persistence: {persistence.loc[probe_date]:.4f}, energy_injection: {energy_injection.loc[probe_date]:.4f}")
-                print(f"         - 结果: tension_magnitude: {tension_magnitude.loc[probe_date]:.4f}")
-                # [修改代码块] 更新探针输出
-                print(f"       - 维度3: 主力意图验证 (Main Force Intent)")
-                print(f"         - 原料: mf_flow: {mf_flow.loc[probe_date]:.2f}")
-                print(f"         - 过程: is_conspiracy: {is_conspiracy.loc[probe_date]}, norm_mf_flow_strength: {norm_mf_flow_strength.loc[probe_date]:.4f}")
-                print(f"         - 过程: conviction_score: {conviction_score.loc[probe_date]:.4f}, conviction_factor: {conviction_factor.loc[probe_date]:.4f}")
-                print(f"       - 最终融合 (渐进放大):")
-                print(f"         - 过程: base_final_score (with conviction): {base_final_score.loc[probe_date]:.4f}, conflict_amplifier: {conflict_amplifier.loc[probe_date]:.4f}")
-                print(f"         - 过程: uncompressed_score: {np.arctanh(safe_base_score).loc[probe_date]:.4f}, amplified_uncompressed: {np.arctanh(safe_base_score).loc[probe_date] * conflict_amplifier.loc[probe_date]:.4f}")
-                print(f"         - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
@@ -569,26 +483,6 @@ class ChipIntelligence:
         mf_inflow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0)
         main_force_echo_score = get_adaptive_mtf_normalized_score(mf_inflow, df_index, tf_weights)
         final_score = (panic_source_score * counter_flow_medium_score * main_force_echo_score) * is_panic_context
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date in df.index:
-                print(f"    -> [吸筹回声探针] @ {probe_date.date()}:")
-                print(f"       - 状态门控: is_panic_context (price_trend < 0): {is_panic_context.loc[probe_date]}")
-                print(f"       - 要素1: 恐慌声源 (Panic Source)")
-                print(f"         - 原料: price_trend: {price_trend.loc[probe_date]:.4f}")
-                # [修改代码行] 更新探针以显示门控效果
-                print(f"         - 过程: panic_source_raw: {panic_source_score_raw.loc[probe_date]:.4f}")
-                print(f"         - 结果: panic_source_score (gated): {panic_source_score.loc[probe_date]:.4f}")
-                print(f"       - 要素2: 逆流介质 (Counter Flow Medium)")
-                print(f"         - 原料: divergence_score: {divergence_score.loc[probe_date]:.4f}")
-                print(f"         - 结果: counter_flow_medium_score: {counter_flow_medium_score.loc[probe_date]:.4f}")
-                print(f"       - 要素3: 主力回声 (Main Force Echo)")
-                print(f"         - 原料: mf_inflow: {mf_inflow.loc[probe_date]:.2f}")
-                print(f"         - 结果: main_force_echo_score: {main_force_echo_score.loc[probe_date]:.4f}")
-                print(f"       - 最终融合结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(0, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_distribution_whisper(self, df: pd.DataFrame, divergence_score: pd.Series) -> pd.Series:
@@ -616,26 +510,6 @@ class ChipIntelligence:
         mf_inflow = self._get_safe_series(df, df, 'main_force_net_flow_calibrated_D', 0.0)
         main_force_retreat_score = get_adaptive_mtf_normalized_score(mf_inflow, df_index, ascending=False, tf_weights=tf_weights)
         final_score = (fomo_backdrop_score * divergence_shadow_score * main_force_retreat_score) * is_fomo_context
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date in df.index:
-                print(f"    -> [派发诡影探针] @ {probe_date.date()}:")
-                print(f"       - 状态门控: is_fomo_context (price_trend > 0): {is_fomo_context.loc[probe_date]}")
-                print(f"       - 要素1: 狂热背景 (FOMO Backdrop)")
-                print(f"         - 原料: price_trend: {price_trend.loc[probe_date]:.4f}")
-                # [修改代码行] 更新探针以显示门控效果
-                print(f"         - 过程: fomo_backdrop_raw: {fomo_backdrop_score_raw.loc[probe_date]:.4f}")
-                print(f"         - 结果: fomo_backdrop_score (gated): {fomo_backdrop_score.loc[probe_date]:.4f}")
-                print(f"       - 要素2: 背离诡影 (Divergence Shadow)")
-                print(f"         - 原料: divergence_score: {divergence_score.loc[probe_date]:.4f}")
-                print(f"         - 结果: divergence_shadow_score: {divergence_shadow_score.loc[probe_date]:.4f}")
-                print(f"       - 要素3: 主力抽离 (Main Force Retreat)")
-                print(f"         - 原料: mf_inflow: {mf_inflow.loc[probe_date]:.2f}")
-                print(f"         - 结果: main_force_retreat_score: {main_force_retreat_score.loc[probe_date]:.4f}")
-                print(f"       - 最终融合结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(0, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_axiom_historical_potential(self, df: pd.DataFrame) -> pd.Series:
@@ -736,31 +610,6 @@ class ChipIntelligence:
             quality_score.clip(-1, 1) * weights['quality'] +
             context_score.clip(-1, 1) * weights['context']
         )
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date in df.index:
-                print(f"    -> [战术换手博弈探针] @ {probe_date.date()}:")
-                print(f"       - 维度1: 换手意图 (Intent)")
-                # [修改代码块] 更新探针输出
-                print(f"         - 原料: power_transfer: {power_transfer.loc[probe_date]:.2f}, control_transfer: {control_transfer.loc[probe_date]:.4f}, deception_idx: {deception_index.loc[probe_date]:.4f}")
-                print(f"         - 过程: base_intent_score: {base_intent_score.loc[probe_date]:.4f}, norm_deception: {norm_deception.loc[probe_date]:.4f}")
-                print(f"         - 过程(连续仲裁): arbitration_weight: {arbitration_weight.loc[probe_date]:.4f}")
-                print(f"         - 结果: intent_score (arbitrated): {intent_score.loc[probe_date]:.4f}")
-                print(f"       - 维度2: 换手质量 (Quality)")
-                print(f"         - 原料: absorption: {absorption_idx.loc[probe_date]:.4f}, impulse_purity: {impulse_purity.loc[probe_date]:.4f}, profit_taking: {profit_quality.loc[probe_date]:.4f}, is_up_day: {is_up_day.loc[probe_date]}")
-                print(f"         - 过程: norm_absorption(gated): {norm_absorption.loc[probe_date]:.4f}, norm_impulse_purity(gated): {norm_impulse_purity.loc[probe_date]:.4f}")
-                print(f"         - 过程: bullish_quality (dynamic): {bullish_quality.loc[probe_date]:.4f}, bearish_quality: {bearish_quality.loc[probe_date]:.4f}")
-                print(f"         - 结果: quality_score: {quality_score.loc[probe_date]:.4f}")
-                print(f"       - 维度3: 换手环境 (Context)")
-                print(f"         - 原料: geography (injected): {geography.loc[probe_date]:.4f}, bias55: {bias.loc[probe_date]:.4f}, is_consolidating: {is_consolidating.loc[probe_date]}")
-                print(f"         - 过程: norm_bias_risk: {norm_bias_risk.loc[probe_date]:.4f}")
-                print(f"         - 结果: context_score: {context_score.loc[probe_date]:.4f}")
-                print(f"       - 最终融合 (加权算术平均):")
-                print(f"         - 贡献: Intent({weights['intent']}): {intent_score.clip(-1, 1).loc[probe_date] * weights['intent']:.4f}, Quality({weights['quality']}): {quality_score.clip(-1, 1).loc[probe_date] * weights['quality']:.4f}, Context({weights['context']}): {context_score.clip(-1, 1).loc[probe_date] * weights['context']:.4f}")
-                print(f"         - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_strategic_tactical_harmony(self, df: pd.DataFrame, strategic_posture: pd.Series, tactical_exchange: pd.Series) -> pd.Series:
@@ -779,18 +628,6 @@ class ChipIntelligence:
         harmony_factor = (1 - abs(strategic_posture - tactical_exchange) / 2).clip(lower=0)
         # 3. 最终裁决
         final_score = base_intent_score * harmony_factor
-        # 植入标准化探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date in df.index:
-                print(f"    -> [战略战术和谐度探针] @ {probe_date.date()}:")
-                print(f"       - 原料: strategic_posture: {strategic_posture.loc[probe_date]:.4f}, tactical_exchange: {tactical_exchange.loc[probe_date]:.4f}")
-                print(f"       - 过程: base_intent_score: {base_intent_score.loc[probe_date]:.4f}")
-                print(f"       - 过程: harmony_factor: {harmony_factor.loc[probe_date]:.4f}")
-                print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_harmony_inflection(self, df: pd.DataFrame, harmony_score: pd.Series) -> pd.Series:
@@ -815,21 +652,6 @@ class ChipIntelligence:
         position_factor = (1 - harmony_score.clip(lower=0, upper=1))
         # 4. 最终融合，并应用“天条”门控
         final_score = reversal_momentum * position_factor * is_inflection_gate
-        # 植入标准化探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date in df.index:
-                print(f"    -> [和谐拐点探针] @ {probe_date.date()}:")
-                print(f"       - 原料: harmony_score: {harmony_score.loc[probe_date]:.4f}")
-                print(f"       - 过程: velocity: {harmony_velocity.loc[probe_date]:.4f}, acceleration: {harmony_acceleration.loc[probe_date]:.4f}")
-                # [修改代码块] 更新探针输出
-                print(f"       - 裁决(神笔之门): is_inflection_gate (v>0 & a>0): {is_inflection_gate.loc[probe_date]}")
-                print(f"       - 过程: norm_velocity: {norm_velocity.loc[probe_date]:.4f}, norm_acceleration: {norm_acceleration.loc[probe_date]:.4f}")
-                print(f"       - 过程: reversal_momentum: {reversal_momentum.loc[probe_date]:.4f}, position_factor: {position_factor.loc[probe_date]:.4f}")
-                print(f"       - 结果: final_score (gated): {final_score.loc[probe_date]:.4f}")
         return final_score.clip(0, 1).fillna(0.0).astype(np.float32)
 
 
