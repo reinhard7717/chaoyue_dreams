@@ -1552,7 +1552,7 @@
           "comment_chip_health_tanh_factor_damp": "用于筹码健康度对削弱幂指数进行非线性调制（tanh函数）的因子，控制非线性响应的陡峭程度。",
           "chip_health_sensitivity_modulation_enabled": true,
           "comment_chip_health_sensitivity_modulation_enabled": "是否启用筹码健康度敏感度的动态调整。",
-          "chip_sensitivity_modulator_signal_name": "chip_volatility_score_D",
+          "chip_sensitivity_modulator_signal_name": "VOLATILITY_INSTABILITY_INDEX_21d_D",
           "comment_chip_sensitivity_modulator_signal_name": "用于动态调整筹码健康度敏感度的筹码信号名称。",
           "chip_sensitivity_mod_norm_window": 21,
           "comment_chip_sensitivity_mod_norm_window": "用于归一化调制敏感度信号的滚动窗口大小。",
