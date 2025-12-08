@@ -252,7 +252,7 @@ class ChipIntelligence:
         - 核心升级4: 诡道因子融入压力测试。引入一个“诡道因子”（例如 `deception_index_D` 的负向部分，代表诱空）来调节 `pressure_test_score`。
                       如果存在诱空，即使承接和防守分数不高，也可能被视为一种“策略性”的压力测试。
         - 探针增强: 详细输出所有新增参数、中间计算结果和最终结果，以便于检查和调试。
-        - 修复: 修正了情绪纯度非线性调制中 `holder_sentiment_scores` 未定义的问题，改为使用 `conviction_base`。
+        - 修复: 修正了情绪纯度非线性调制中 `conviction_base` 未定义的问题，将其计算提前。
         """
         print("    -> [筹码层] 正在诊断“持仓信念”公理 (V7.0 · 诡道博弈版)...")
         required_signals = [
@@ -343,6 +343,9 @@ class ChipIntelligence:
         pressure_test_score = base_pressure_score * (1 + capitulation_bonus + deception_impact)
         pressure_test_score = pressure_test_score.clip(-1, 1)
 
+        # [修改代码行] 将 conviction_base 的计算提前
+        conviction_base = ((belief_core_score.add(1)/2) * (pressure_test_score.add(1)/2)).pow(0.5)
+
         # --- 维度3: 情绪纯度 (Emotional Purity) ---
         fomo_index = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         profit_taking_quality = self._get_safe_series(df, df, 'profit_realization_quality_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
@@ -353,7 +356,6 @@ class ChipIntelligence:
         impurity_score = (fomo_score * profit_taking_score).pow(0.5)
 
         if impurity_non_linear_enabled:
-            # [修改代码行] 修正变量名，使用 conviction_base 作为情绪强度
             current_sentiment_strength = conviction_base.abs()
             normalized_sentiment_strength = normalize_score(current_sentiment_strength, df_index, window=21, ascending=True)
             
@@ -366,7 +368,6 @@ class ChipIntelligence:
             final_impurity_effect = impurity_score
 
         # --- 最终融合 ---
-        conviction_base = ((belief_core_score.add(1)/2) * (pressure_test_score.add(1)/2)).pow(0.5)
         final_score = (conviction_base * (1 - final_impurity_effect)) * 2 - 1
         
         # 植入标准化探针
@@ -400,24 +401,25 @@ class ChipIntelligence:
                 print(f"       - 过程: capitulation_bonus: {capitulation_bonus.loc[probe_date]:.4f}")
 
                 if deception_factor_enabled:
-                    deception_raw_val = self._get_safe_series(df, df, deception_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment").loc[probe_date] # [修改代码行] 重新获取原始值用于探针
-                    negative_deception_val = deception_raw.clip(upper=0).abs().loc[probe_date] # [修改代码行] 重新获取中间值用于探针
-                    normalized_negative_deception_val = get_adaptive_mtf_normalized_score(negative_deception, df_index, tf_weights).loc[probe_date] # [修改代码行] 重新获取中间值用于探针
+                    deception_raw = self._get_safe_series(df, df, deception_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment") # [修改代码行] 重新获取原始值用于探针
+                    negative_deception_val = deception_raw.clip(upper=0).abs().loc[probe_date]
+                    normalized_negative_deception_val = get_adaptive_mtf_normalized_score(deception_raw.clip(upper=0).abs(), df_index, tf_weights).loc[probe_date] # [修改代码行] 重新获取中间值用于探针
                     deception_impact_val = deception_impact.loc[probe_date]
-                    print(f"       - 诡道因子 (原始): {deception_signal_name}: {deception_raw_val:.4f}")
+                    print(f"       - 诡道因子 (原始): {deception_signal_name}: {deception_raw.loc[probe_date]:.4f}") # [修改代码行]
                     print(f"       - 诡道因子 (负向): {negative_deception_val:.4f}")
                     print(f"       - 诡道因子 (归一化负向): {normalized_negative_deception_val:.4f}")
                     print(f"       - 诡道因子 (影响): {deception_impact_val:.4f}")
                 
                 print(f"       - 过程: pressure_test_score: {pressure_test_score.loc[probe_date]:.4f}")
+                print(f"       - 过程: conviction_base (pre-impurity): {conviction_base.loc[probe_date]:.4f}") # [修改代码行] 探针输出位置调整
 
                 print(f"       - 原料: retail_fomo_premium_index_D: {fomo_index.loc[probe_date]:.4f}, profit_realization_quality_D: {profit_taking_quality.loc[probe_date]:.4f}")
                 print(f"       - 过程: fomo_score: {fomo_score.loc[probe_date]:.4f}, profit_taking_score: {profit_taking_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: impurity_score: {impurity_score.loc[probe_date]:.4f}")
 
                 if impurity_non_linear_enabled:
-                    current_sentiment_strength_val = conviction_base.abs().loc[probe_date] # [修改代码行] 修正变量名
-                    normalized_sentiment_strength_val = normalize_score(conviction_base.abs(), df_index, window=21, ascending=True).loc[probe_date] # [修改代码行] 修正变量名
+                    current_sentiment_strength_val = conviction_base.abs().loc[probe_date]
+                    normalized_sentiment_strength_val = normalize_score(conviction_base.abs(), df_index, window=21, ascending=True).loc[probe_date]
                     dynamic_impurity_tanh_factor_val = dynamic_impurity_tanh_factor.loc[probe_date]
                     modulated_impurity_effect_val = modulated_impurity_effect.loc[probe_date]
                     print(f"       - 情绪强度 (原始): {current_sentiment_strength_val:.4f}")
@@ -426,7 +428,6 @@ class ChipIntelligence:
                     print(f"       - 过程: modulated_impurity_effect: {modulated_impurity_effect_val:.4f}")
                 print(f"       - 过程: final_impurity_effect: {final_impurity_effect.loc[probe_date]:.4f}")
 
-                print(f"       - 过程: conviction_base: {conviction_base.loc[probe_date]:.4f}")
                 print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
 
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
