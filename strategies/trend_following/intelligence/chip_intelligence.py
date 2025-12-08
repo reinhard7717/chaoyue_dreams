@@ -377,14 +377,12 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V7.3 · 筹码健康非线性调制版】诊断筹码同调驱动力
-        - 核心升级1: 引入非线性映射。对归一化后的筹码健康度 `normalized_chip_health` 应用 `tanh` 函数，
-                      使其对 `amplification_power` 和 `dampening_power` 的调整呈现非线性特征，
-                      更好地模拟筹码博弈的边际效应和饱和效应。
-        - 核心升级2: 增强真理探针。详细输出 `chip_health_tanh_factor` 和 `tanh` 映射后的值，
-                      以便于深度调试与验证。
+        【V7.5 · 筹码健康MTF归一化版】诊断筹码同调驱动力
+        - 核心升级1: 引入多时间框架(MTF)归一化。筹码健康度 `chip_health_score_D` 将通过 `get_adaptive_mtf_normalized_bipolar_score`
+                      在多个时间周期上进行归一化和融合，提供更全面、鲁棒的筹码健康度上下文。
+        - 核心升级2: 增强真理探针。详细输出MTF归一化参数，以便于深度调试与验证。
         """
-        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.3 · 筹码健康非线性调制版)”...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.5 · 筹码健康MTF归一化版)”...") # [修改代码行]
         
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         coherent_drive_params = get_param_value(p_conf.get('coherent_drive_params'), {})
@@ -395,10 +393,11 @@ class ChipIntelligence:
         chip_health_modulation_enabled = get_param_value(coherent_drive_params.get('chip_health_modulation_enabled'), True)
         chip_health_sensitivity_amp = get_param_value(coherent_drive_params.get('chip_health_sensitivity_amp'), 0.5)
         chip_health_sensitivity_damp = get_param_value(coherent_drive_params.get('chip_health_sensitivity_damp'), 0.5)
-        chip_health_norm_window = get_param_value(coherent_drive_params.get('chip_health_norm_window'), 55)
-        chip_health_norm_sensitivity = get_param_value(coherent_drive_params.get('chip_health_norm_sensitivity'), 2.0)
-        # [新增代码行] 获取 tanh 映射因子
-        chip_health_tanh_factor = get_param_value(coherent_drive_params.get('chip_health_tanh_factor'), 1.0)
+        
+        # [修改代码块] 获取筹码健康度MTF归一化参数
+        chip_health_mtf_norm_params = get_param_value(coherent_drive_params.get('chip_health_mtf_norm_params'), {})
+        chip_health_tanh_factor_amp = get_param_value(coherent_drive_params.get('chip_health_tanh_factor_amp'), 1.0)
+        chip_health_tanh_factor_damp = get_param_value(coherent_drive_params.get('chip_health_tanh_factor_damp'), 1.0)
 
         amplification_power = pd.Series(base_amplification_power, index=df.index)
         dampening_power = pd.Series(base_dampening_power, index=df.index)
@@ -406,24 +405,25 @@ class ChipIntelligence:
 
         current_chip_health_score_raw = pd.Series(0.0, index=df.index)
         normalized_chip_health = pd.Series(0.0, index=df.index)
-        modulated_chip_health = pd.Series(0.0, index=df.index) # [新增代码行] 存储 tanh 映射后的值
+        modulated_chip_health_amp = pd.Series(0.0, index=df.index)
+        modulated_chip_health_damp = pd.Series(0.0, index=df.index)
 
         if chip_health_modulation_enabled:
             current_chip_health_score_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_structural_consensus")
             
-            normalized_chip_health = get_robust_bipolar_normalized_score(
+            # [修改代码块] 使用 get_adaptive_mtf_normalized_bipolar_score 进行MTF归一化
+            normalized_chip_health = get_adaptive_mtf_normalized_bipolar_score(
                 current_chip_health_score_raw, 
                 df.index, 
-                window=chip_health_norm_window, 
-                sensitivity=chip_health_norm_sensitivity,
-                default_value=0.0
+                tf_weights=chip_health_mtf_norm_params.get('weights', {}), # 传入权重字典
+                sensitivity=chip_health_mtf_norm_params.get('sensitivity', 2.0) # 传入敏感度
             )
             
-            # [新增代码块] 对归一化后的筹码健康度进行 tanh 映射
-            modulated_chip_health = np.tanh(normalized_chip_health * chip_health_tanh_factor)
+            modulated_chip_health_amp = np.tanh(normalized_chip_health * chip_health_tanh_factor_amp)
+            modulated_chip_health_damp = np.tanh(normalized_chip_health * chip_health_tanh_factor_damp)
 
-            amplification_power = base_amplification_power * (1 + modulated_chip_health * chip_health_sensitivity_amp) # [修改代码行]
-            dampening_power = base_dampening_power * (1 - modulated_chip_health * chip_health_sensitivity_damp) # [修改代码行]
+            amplification_power = base_amplification_power * (1 + modulated_chip_health_amp * chip_health_sensitivity_amp)
+            dampening_power = base_dampening_power * (1 - modulated_chip_health_damp * chip_health_sensitivity_damp)
             
             amplification_power = amplification_power.clip(0.5, 2.0) 
             dampening_power = dampening_power.clip(0.5, 2.0) 
@@ -456,14 +456,14 @@ class ChipIntelligence:
                 print(f"    -> [同调驱动力探针] @ {probe_date.date()}:")
                 print(f"       - 基础参数: base_amplification_power: {base_amplification_power:.2f}, base_dampening_power: {base_dampening_power:.2f}")
                 print(f"       - 筹码健康度调制参数: chip_health_modulation_enabled: {chip_health_modulation_enabled}, chip_health_sensitivity_amp: {chip_health_sensitivity_amp:.2f}, chip_health_sensitivity_damp: {chip_health_sensitivity_damp:.2f}")
-                print(f"       - 筹码健康度归一化参数: chip_health_norm_window: {chip_health_norm_window}, chip_health_norm_sensitivity: {chip_health_norm_sensitivity:.2f}")
-                # [新增代码行] 打印 tanh 映射因子
-                print(f"       - 筹码健康度非线性参数: chip_health_tanh_factor: {chip_health_tanh_factor:.2f}")
+                # [修改代码块] 打印MTF归一化参数
+                print(f"       - 筹码健康度MTF归一化参数: {chip_health_mtf_norm_params}")
+                print(f"       - 筹码健康度非线性参数: chip_health_tanh_factor_amp: {chip_health_tanh_factor_amp:.2f}, chip_health_tanh_factor_damp: {chip_health_tanh_factor_damp:.2f}")
                 if chip_health_modulation_enabled:
                     print(f"       - 筹码健康度信号 (原始): chip_health_score_D: {current_chip_health_score_raw.loc[probe_date]:.4f}")
                     print(f"       - 筹码健康度信号 (归一化): normalized_chip_health: {normalized_chip_health.loc[probe_date]:.4f}")
-                    # [新增代码行] 打印 tanh 映射后的值
-                    print(f"       - 筹码健康度信号 (非线性调制): modulated_chip_health: {modulated_chip_health.loc[probe_date]:.4f}")
+                    print(f"       - 筹码健康度信号 (非线性调制-放大): modulated_chip_health_amp: {modulated_chip_health_amp.loc[probe_date]:.4f}")
+                    print(f"       - 筹码健康度信号 (非线性调制-削弱): modulated_chip_health_damp: {modulated_chip_health_damp.loc[probe_date]:.4f}")
                     print(f"       - 动态幂指数: amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}")
                 else:
                     print(f"       - 静态幂指数: amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}")
