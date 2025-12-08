@@ -1523,11 +1523,17 @@
           "smoothing_ema_span": 5
         },
         "coherent_drive_params": {
-          "description": "【V5.0 · 非线性共振版】筹码同调驱动力信号的专属参数。",
+          "description": "【V6.0 · 情境自适应版】筹码同调驱动力信号的专属参数。",
           "amplification_power": 1.2,
-          "comment_amplification_power": "结构顺风时，对驱动力进行非线性放大的幂指数。大于1增强放大效果。",
+          "comment_amplification_power": "结构顺风时，对驱动力进行非线性放大的基础幂指数。大于1增强放大效果。",
           "dampening_power": 1.5,
-          "comment_dampening_power": "结构逆风时，对驱动力进行非线性削弱的幂指数。大于1增强削弱效果。"
+          "comment_dampening_power": "结构逆风时，对驱动力进行非线性削弱的基础幂指数。大于1增强削弱效果。",
+          "contextual_power_modulation": true,
+          "comment_contextual_power_modulation": "是否启用情境自适应，根据宏观市场情境动态调整幂指数。",
+          "context_signal_name": "SCORE_FOUNDATION_STRATEGIC_POSTURE",
+          "comment_context_signal_name": "用于动态调整幂指数的宏观情境信号名称。",
+          "context_sensitivity": 0.3,
+          "comment_context_sensitivity": "情境信号对幂指数调整的敏感度，控制调整幅度。"
         }
       },
       "dynamic_mechanics_params": {

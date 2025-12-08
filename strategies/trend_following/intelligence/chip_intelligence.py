@@ -377,20 +377,57 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V5.0 · 非线性共振版】诊断筹码同调驱动力
-        - 核心升级1: 引入非线性调制机制。将结构对情绪的放大或削弱作用从线性模型升级为可配置的幂函数，
-                      通过 'amplification_power' 和 'dampening_power' 精细控制共振与阻碍的强度。
-        - 核心升级2: 移除防御性裁剪。取消了对调制因子 'clip(lower=0.1)' 的限制，允许在极端结构阻碍下，
-                      驱动力被完全抑制，以暴露更真实的博弈状态。
-        - 核心升级3: 增强真理探针。详细输出非线性调制参数及调制因子的计算逻辑，便于深度调试与验证。
+        【V6.0 · 情境自适应版】诊断筹码同调驱动力
+        - 核心升级1: 引入情境自适应机制。非线性调制参数 'amplification_power' 和 'dampening_power'
+                      将根据宏观市场情境信号（如 SCORE_FOUNDATION_STRATEGIC_POSTURE）动态调整。
+        - 核心升级2: 增强真理探针。详细输出情境自适应参数、宏观情境信号值，以及动态调整后的幂指数，
+                      以便于深度调试与验证。
         """
-        print("    -> [筹码层] 正在诊断“同调驱动力 (V5.0 · 非线性共振版)”...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“同调驱动力 (V6.0 · 情境自适应版)”...") # [修改代码行]
         
-        # [新增代码块] 获取非线性调制参数
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         coherent_drive_params = get_param_value(p_conf.get('coherent_drive_params'), {})
-        amplification_power = get_param_value(coherent_drive_params.get('amplification_power'), 1.2)
-        dampening_power = get_param_value(coherent_drive_params.get('dampening_power'), 1.5)
+        
+        # [修改代码块] 获取基础非线性调制参数
+        base_amplification_power = get_param_value(coherent_drive_params.get('amplification_power'), 1.2)
+        base_dampening_power = get_param_value(coherent_drive_params.get('dampening_power'), 1.5)
+
+        # [新增代码块] 获取情境自适应参数
+        contextual_power_modulation = get_param_value(coherent_drive_params.get('contextual_power_modulation'), False)
+        context_signal_name = get_param_value(coherent_drive_params.get('context_signal_name'), 'SCORE_FOUNDATION_STRATEGIC_POSTURE')
+        context_sensitivity = get_param_value(coherent_drive_params.get('context_sensitivity'), 0.3) # 敏感度，控制情境影响幅度
+
+        amplification_power = base_amplification_power
+        dampening_power = base_dampening_power
+        current_context_score = pd.Series(0.0, index=df.index) # 默认中性
+
+        if contextual_power_modulation:
+            # [新增代码块] 获取宏观情境信号
+            if context_signal_name in df.columns:
+                current_context_score = df[context_signal_name]
+            else:
+                # 尝试从已计算的原子信号中获取，如果不存在则使用默认值
+                # 这里假设 context_signal_name 可能是其他情报引擎的输出，需要从 all_chip_states 或其他地方获取
+                # 为了简化，暂时从 df 中获取，如果 df 中没有，则使用 0.0
+                print(f"    -> [筹码情报警告] 情境信号 '{context_signal_name}' 未在DataFrame中找到，使用默认中性情境。")
+                current_context_score = pd.Series(0.0, index=df.index)
+
+            # [新增代码块] 根据情境信号动态调整幂指数
+            # 市场情境越积极 (context_score 越高)，amplification_power 越高，dampening_power 越低
+            # 市场情境越消极 (context_score 越低)，amplification_power 越低，dampening_power 越高
+            amplification_power = base_amplification_power * (1 + current_context_score * context_sensitivity)
+            dampening_power = base_dampening_power * (1 - current_context_score * context_sensitivity)
+            
+            # 确保幂指数不会过低或过高，设置合理范围
+            amplification_power = amplification_power.clip(0.5, 2.0) # 放大效果至少0.5倍，最多2倍
+            dampening_power = dampening_power.clip(0.5, 2.0) # 削弱效果至少0.5倍，最多2倍
+            
+            # 将 Series 转换为标量，以便在探针中显示当日值
+            amplification_power_scalar = amplification_power.loc[df.index[-1]] if not amplification_power.empty else base_amplification_power
+            dampening_power_scalar = dampening_power.loc[df.index[-1]] if not dampening_power.empty else base_dampening_power
+        else:
+            amplification_power_scalar = base_amplification_power
+            dampening_power_scalar = base_dampening_power
 
         base_drive = holder_sentiment_scores
         modulation_factor = pd.Series(1.0, index=df.index)
@@ -398,24 +435,24 @@ class ChipIntelligence:
         bullish_mask = base_drive > 0
         bearish_mask = base_drive < 0
 
-        # [修改代码块] 调整调制因子计算逻辑，移除防御性裁剪，引入非线性调制
+        # [修改代码块] 调整调制因子计算逻辑，使用动态幂指数
         # 牛市情绪 (base_drive > 0)
         # 顺风 (cost_structure_scores > 0): 结构助力，放大驱动力
         bullish_tailwind_mask = bullish_mask & (cost_structure_scores > 0)
-        modulation_factor.loc[bullish_tailwind_mask] = (1 + cost_structure_scores.loc[bullish_tailwind_mask]) ** amplification_power
+        modulation_factor.loc[bullish_tailwind_mask] = (1 + cost_structure_scores.loc[bullish_tailwind_mask]) ** amplification_power.loc[bullish_tailwind_mask]
         
         # 逆风 (cost_structure_scores < 0): 结构阻碍，削弱驱动力
         bullish_headwind_mask = bullish_mask & (cost_structure_scores < 0)
-        modulation_factor.loc[bullish_headwind_mask] = (1 - cost_structure_scores.loc[bullish_headwind_mask].abs()) ** dampening_power
+        modulation_factor.loc[bullish_headwind_mask] = (1 - cost_structure_scores.loc[bullish_headwind_mask].abs()) ** dampening_power.loc[bullish_headwind_mask]
 
         # 熊市情绪 (base_drive < 0)
         # 顺风 (cost_structure_scores < 0): 结构助力，放大驱动力
         bearish_tailwind_mask = bearish_mask & (cost_structure_scores < 0)
-        modulation_factor.loc[bearish_tailwind_mask] = (1 + cost_structure_scores.loc[bearish_tailwind_mask].abs()) ** amplification_power
+        modulation_factor.loc[bearish_tailwind_mask] = (1 + cost_structure_scores.loc[bearish_tailwind_mask].abs()) ** amplification_power.loc[bearish_tailwind_mask]
         
         # 逆风 (cost_structure_scores > 0): 结构阻碍，削弱驱动力
         bearish_headwind_mask = bearish_mask & (cost_structure_scores > 0)
-        modulation_factor.loc[bearish_headwind_mask] = (1 - cost_structure_scores.loc[bearish_headwind_mask]) ** dampening_power
+        modulation_factor.loc[bearish_headwind_mask] = (1 - cost_structure_scores.loc[bearish_headwind_mask]) ** dampening_power.loc[bearish_headwind_mask]
         
         coherent_drive_raw = base_drive * modulation_factor
         final_score = np.tanh(coherent_drive_raw * (self.bipolar_sensitivity * 2))
@@ -428,31 +465,41 @@ class ChipIntelligence:
             probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
             if probe_date in df.index:
                 print(f"    -> [同调驱动力探针] @ {probe_date.date()}:")
-                print(f"       - 参数: amplification_power: {amplification_power:.2f}, dampening_power: {dampening_power:.2f}") # [修改代码行]
+                print(f"       - 基础参数: base_amplification_power: {base_amplification_power:.2f}, base_dampening_power: {base_dampening_power:.2f}")
+                print(f"       - 情境参数: contextual_power_modulation: {contextual_power_modulation}, context_signal_name: '{context_signal_name}', context_sensitivity: {context_sensitivity:.2f}")
+                if contextual_power_modulation:
+                    print(f"       - 情境信号: {context_signal_name}: {current_context_score.loc[probe_date]:.4f}")
+                    print(f"       - 动态幂指数: amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}")
+                else:
+                    print(f"       - 静态幂指数: amplification_power: {amplification_power_scalar:.2f}, dampening_power: {dampening_power_scalar:.2f}")
+                
                 print(f"       - 原料: base_drive (holder_sentiment): {base_drive.loc[probe_date]:.4f}")
                 print(f"       - 原料: cost_structure_scores: {cost_structure_scores.loc[probe_date]:.4f}")
-                # [修改代码块] 更新探针输出，增加非线性调制参数和更详细的计算过程
+                
                 current_base_drive = base_drive.loc[probe_date]
                 current_cost_structure = cost_structure_scores.loc[probe_date]
                 current_modulation_factor = modulation_factor.loc[probe_date]
+                current_amp_power = amplification_power.loc[probe_date] if contextual_power_modulation else base_amplification_power
+                current_damp_power = dampening_power.loc[probe_date] if contextual_power_modulation else base_dampening_power
+
                 print(f"       - 过程: base_drive > 0: {current_base_drive > 0}, cost_structure_scores > 0: {current_cost_structure > 0}")
                 if current_base_drive > 0:
                     if current_cost_structure > 0:
-                        expected_mod_factor = (1 + current_cost_structure) ** amplification_power
-                        print(f"         - 逻辑: 牛市情绪顺风 (1 + {current_cost_structure:.4f})^{amplification_power:.2f} = {expected_mod_factor:.4f}")
+                        expected_mod_factor = (1 + current_cost_structure) ** current_amp_power
+                        print(f"         - 逻辑: 牛市情绪顺风 (1 + {current_cost_structure:.4f})^{current_amp_power:.2f} = {expected_mod_factor:.4f}")
                     else:
-                        expected_mod_factor = (1 - abs(current_cost_structure)) ** dampening_power
-                        print(f"         - 逻辑: 牛市情绪逆风 (1 - |{current_cost_structure:.4f}|)^{dampening_power:.2f} = {expected_mod_factor:.4f}")
+                        expected_mod_factor = (1 - abs(current_cost_structure)) ** current_damp_power
+                        print(f"         - 逻辑: 牛市情绪逆风 (1 - |{current_cost_structure:.4f}|)^{current_damp_power:.2f} = {expected_mod_factor:.4f}")
                 elif current_base_drive < 0:
                     if current_cost_structure < 0:
-                        expected_mod_factor = (1 + abs(current_cost_structure)) ** amplification_power
-                        print(f"         - 逻辑: 熊市情绪顺风 (1 + |{current_cost_structure:.4f}|)^{amplification_power:.2f} = {expected_mod_factor:.4f}")
+                        expected_mod_factor = (1 + abs(current_cost_structure)) ** current_amp_power
+                        print(f"         - 逻辑: 熊市情绪顺风 (1 + |{current_cost_structure:.4f}|)^{current_amp_power:.2f} = {expected_mod_factor:.4f}")
                     else:
-                        expected_mod_factor = (1 - current_cost_structure) ** dampening_power
-                        print(f"         - 逻辑: 熊市情绪逆风 (1 - {current_cost_structure:.4f})^{dampening_power:.2f} = {expected_mod_factor:.4f}")
+                        expected_mod_factor = (1 - current_cost_structure) ** current_damp_power
+                        print(f"         - 逻辑: 熊市情绪逆风 (1 - {current_cost_structure:.4f})^{current_damp_power:.2f} = {expected_mod_factor:.4f}")
                 else: # current_base_drive == 0
                     expected_mod_factor = 1.0 # 中性情绪，调制因子为1.0
-                    print(f"         - 逻辑: 中性情绪 (base_drive = 0)，调制因子保持为 {expected_mod_factor:.4f}") # [修改代码行]
+                    print(f"         - 逻辑: 中性情绪 (base_drive = 0)，调制因子保持为 {expected_mod_factor:.4f}")
                 print(f"       - 过程: modulation_factor (实际): {current_modulation_factor:.4f}")
                 print(f"       - 过程: coherent_drive_raw (pre-tanh): {coherent_drive_raw.loc[probe_date]:.4f}")
                 print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
