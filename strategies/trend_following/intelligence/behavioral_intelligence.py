@@ -51,17 +51,19 @@ class BehavioralIntelligence:
         - 【修正】确保df在整个调用链中正确更新。
         """
         all_behavioral_states = {}
-        # 调整执行顺序：首先生成 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT
+
+        # [代码修改] 调整执行顺序：首先生成 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT
         # 因为它是 _diagnose_divergence_quality 的依赖项，而 _diagnose_divergence_quality
         # 在 _diagnose_behavioral_axioms 内部被调用。
         micro_intent_signals = self._diagnose_microstructure_intent(df)
         self.strategy.atomic_states.update(micro_intent_signals)
         all_behavioral_states.update(micro_intent_signals)
-        # 立即将微观意图信号合并到df中，供后续方法使用 _get_safe_series 获取
+        # [代码修改] 立即将微观意图信号合并到df中，供后续方法使用 _get_safe_series 获取
         for k, v in micro_intent_signals.items():
             if k not in df.columns:
                 df[k] = v
-        # 接着生成核心公理信号，此时 _diagnose_divergence_quality 可以访问到微观意图信号
+
+        # [代码修改] 接着生成核心公理信号，此时 _diagnose_divergence_quality 可以访问到微观意图信号
         atomic_signals = self._diagnose_behavioral_axioms(df)
         # 如果核心公理诊断失败，则提前返回，防止后续错误
         if not atomic_signals:
@@ -69,22 +71,25 @@ class BehavioralIntelligence:
             return {}
         self.strategy.atomic_states.update(atomic_signals)
         all_behavioral_states.update(atomic_signals)
-        # 将原子信号合并到df中，供后续的 _calculate_signal_dynamics 方法使用
+        # [代码修改] 将原子信号合并到df中，供后续的 _calculate_signal_dynamics 方法使用
         for k, v in atomic_signals.items():
             if k not in df.columns:
                 df[k] = v
+
         # 生成上下文新高强度信号
         context_new_high_strength = self._diagnose_context_new_high_strength(df)
         self.strategy.atomic_states.update(context_new_high_strength)
-        all_behavioral_states.update(context_new_high_high_strength)
-        # 将上下文信号合并到df中
+        # [修改的代码行] 修正NameError: context_new_high_high_strength -> context_new_high_strength
+        all_behavioral_states.update(context_new_high_strength) 
+        # [代码修改] 将上下文信号合并到df中
         for k, v in context_new_high_strength.items():
             if k not in df.columns:
                 df[k] = v
-        # 将_calculate_signal_dynamics返回的新的DataFrame重新赋值给df
+        
+        # [修改的代码行] 将_calculate_signal_dynamics返回的新的DataFrame重新赋值给df
         df = self._calculate_signal_dynamics(df) 
         
-        dynamic_cols = [c for c in df.columns if c.startswith(('MOMENTUM_', 'POTENTIAL_', 'THRUST_', 'RESONANCE_'))] # 从更新后的df中获取列
+        dynamic_cols = [c for c in df.columns if c.startswith(('MOMENTUM_', 'POTENTIAL_', 'THRUST_', 'RESONANCE_'))] # [修改的代码行] 从更新后的df中获取列
         self.strategy.atomic_states.update(df[dynamic_cols])
         all_behavioral_states.update(df[dynamic_cols])
         return all_behavioral_states
@@ -211,12 +216,13 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V34.8 · 依赖编排与调试增强版】原子信号中心
+        【V34.9 · 依赖编排与调试增强版】原子信号中心
         - 核心升级: 适配了 V5.0 "派发罪证链" 和 V3.0 "战略反击许可" 模型，
                       并调整了内部调用顺序以确保逻辑依赖的正确性。
         - 【修正】确保所有派生信号在被需要时已添加到df中。
         - 【新增】将鲁棒斜率计算提升到方法开头，解决循环依赖问题。
         - 【调试】增加详细打印，追踪df列的添加情况。
+        - 【重要修正】确保所有新生成的信号都通过返回的states字典传递，不再直接修改传入的df。
         """
         method_name = "_diagnose_behavioral_axioms"
         
@@ -324,13 +330,13 @@ class BehavioralIntelligence:
                 first_period_col = f'SLOPE_{mtf_periods[0]}_{indicator}_D' if mtf_periods else None
                 robust_slopes[indicator] = self._get_safe_series(df, first_period_col, 0.0, method_name=method_name)
             
-            # [修改的代码行] 将鲁棒斜率添加到df中，并添加到states中
-            df[f'robust_{indicator}_slope'] = robust_slopes[indicator]
+            # [修改的代码行] 将鲁棒斜率添加到states中，不再直接修改df
             states[f'robust_{indicator}_slope'] = robust_slopes[indicator]
 
         # [DEBUG PRINT]
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"    -> [DEBUG] {method_name}: df.columns AFTER robust_slopes calculation: {df.columns.tolist()[:10]}...")
+            # [修改的代码行] 打印df.columns，但预期它不会包含robust_slopes，因为它们只添加到states
+            print(f"    -> [DEBUG] {method_name}: df.columns AFTER robust_slopes calculation (should be unchanged): {df.columns.tolist()[:10]}...")
             print(f"    -> [DEBUG] {method_name}: robust_slopes calculated keys: {robust_slopes.keys()}")
             for k, v in robust_slopes.items():
                 if probe_ts in v.index:
@@ -344,49 +350,42 @@ class BehavioralIntelligence:
         long_term_macd_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_MACDh_13_34_8_D', 0.0, method_name=method_name)
         long_term_volume_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_volume_D', 0.0, method_name=method_name)
         long_term_adx_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_ADX_14_D', 0.0, method_name=method_name)
-        # [修改的代码行] 将长期斜率添加到df中，并添加到states中
-        df['long_term_close_slope'] = long_term_close_slope
+        # [修改的代码行] 将长期斜率添加到states中，不再直接修改df
         states['long_term_close_slope'] = long_term_close_slope
-        df['long_term_rsi_slope'] = long_term_rsi_slope
         states['long_term_rsi_slope'] = long_term_rsi_slope
-        df['long_term_macd_slope'] = long_term_macd_slope
         states['long_term_macd_slope'] = long_term_macd_slope
-        df['long_term_volume_slope'] = long_term_volume_slope
         states['long_term_volume_slope'] = long_term_volume_slope
-        df['long_term_adx_slope'] = long_term_adx_slope
         states['long_term_adx_slope'] = long_term_adx_slope
 
         # [修改的代码行] 模式序列所需的斜率 - 提升到这里
         pattern_lookback_window = pattern_sequence_params.get('lookback_window', 3)
         pattern_close_slope = self._get_safe_series(df, f'SLOPE_{pattern_lookback_window}_close_D', 0.0, method_name=method_name)
         pattern_volume_slope = self._get_safe_series(df, f'SLOPE_{pattern_lookback_window}_volume_D', 0.0, method_name=method_name)
-        # [修改的代码行] 将模式序列斜率添加到df中，并添加到states中
-        df['pattern_close_slope'] = pattern_close_slope
+        # [修改的代码行] 将模式序列斜率添加到states中，不再直接修改df
         states['pattern_close_slope'] = pattern_close_slope
-        df['pattern_volume_slope'] = pattern_volume_slope
         states['pattern_volume_slope'] = pattern_volume_slope
 
         # --- 动能信号 ---
         upward_momentum_score = self._diagnose_upward_momentum(df, default_weights)
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
-        df['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32) # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = ...
         
         downward_momentum_score = self._diagnose_downward_momentum(df)
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
-        df['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32) # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = ...
 
         # --- 行为铁三角 (依赖于df中的信号，所以先计算并添加到df) ---
         upward_efficiency_score = self._diagnose_upward_efficiency(df, default_weights)
         states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32)
-        df['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency_score.astype(np.float32) # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = ...
 
         downward_resistance_score = self._diagnose_downward_resistance(df, default_weights)
         states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32)
-        df['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance_score.astype(np.float32) # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = ...
 
         intraday_bull_control_score = self._diagnose_intraday_bull_control(df, default_weights)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32)
-        df['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control_score.astype(np.float32) # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = ...
 
         # [DEBUG PRINT]
         if is_debug_enabled and probe_ts and probe_ts in df.index:
@@ -396,7 +395,7 @@ class BehavioralIntelligence:
         # 调用重构后的纯行为超买信号
         final_overextension_score = self._calculate_behavioral_price_overextension(df, default_weights, is_debug_enabled, probe_ts)
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32)
-        df['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = final_overextension_score.astype(np.float32) # 添加到df
+        # [修改的代码行] 移除df['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = ...
 
         # [DEBUG PRINT]
         if is_debug_enabled and probe_ts and probe_ts in df.index:
@@ -406,7 +405,7 @@ class BehavioralIntelligence:
         # 调用重构后的纯行为滞涨信号
         stagnation_evidence = self._calculate_behavioral_stagnation_evidence(df, default_weights, is_debug_enabled, probe_ts)
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence.astype(np.float32)
-        df['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = stagnation_evidence.astype(np.float32) # 添加到df
+        # [修改的代码行] 移除df['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = ...
 
         # [DEBUG PRINT]
         if is_debug_enabled and probe_ts and probe_ts in df.index:
@@ -415,22 +414,22 @@ class BehavioralIntelligence:
         # --- 其他信号 ---
         lower_shadow_quality = self._diagnose_lower_shadow_quality(df)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality
-        df['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_quality # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = ...
 
         deception_index = self._diagnose_deception_index(df)
         states['SCORE_BEHAVIOR_DECEPTION_INDEX'] = deception_index
-        df['SCORE_BEHAVIOR_DECEPTION_INDEX'] = deception_index # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_DECEPTION_INDEX'] = ...
 
         distribution_intent = self._diagnose_distribution_intent(df, default_weights, final_overextension_score)
         states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] = distribution_intent
-        df['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] = distribution_intent # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_DISTRIBUTION_INTENT'] = ...
 
         offensive_absorption_intent = self._diagnose_offensive_absorption_intent(df, lower_shadow_quality, distribution_intent)
         states['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = offensive_absorption_intent
-        df['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = offensive_absorption_intent # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT'] = ...
 
         states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] = self._diagnose_ambush_counterattack(df, offensive_absorption_intent)
-        df['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] = states['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'] = ...
 
         states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = self._diagnose_breakout_failure_risk(
             df,
@@ -440,23 +439,23 @@ class BehavioralIntelligence:
             is_debug_enabled,
             probe_ts
         )
-        df['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] # 添加到df
+        # [修改的代码行] 移除df['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = ...
 
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights)
-        df['SCORE_BEHAVIOR_VOLUME_BURST'] = states['SCORE_BEHAVIOR_VOLUME_BURST'] # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_VOLUME_BURST'] = ...
 
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights)
-        df['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = ...
 
         states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = self._calculate_absorption_strength(df, default_weights)
-        df['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'] = ...
 
         states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] = self._diagnose_shakeout_confirmation(
             df,
             states['SCORE_BEHAVIOR_ABSORPTION_STRENGTH'],
             states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
         )
-        df['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] = states['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_SHAKEOUT_CONFIRMATION'] = ...
 
         # 调用新的纯行为背离诊断方法，严格遵循V1.0定义
         bullish_pure_div, bearish_pure_div = self._diagnose_pure_behavioral_divergence(
@@ -466,9 +465,9 @@ class BehavioralIntelligence:
             probe_ts
         )
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_pure_div # 新增 V1.0 看涨背离信号
-        df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_pure_div # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = ...
         states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_pure_div # 新增 V1.0 看跌背离信号
-        df['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_pure_div # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = ...
 
         # 保持对 _QUALITY 版本的调用，因为它们是不同的、更高级的信号
         bullish_divergence_quality, bearish_divergence_quality = self._diagnose_divergence_quality(
@@ -477,15 +476,15 @@ class BehavioralIntelligence:
             states['SCORE_BEHAVIOR_DISTRIBUTION_INTENT']
         )
         states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality
-        df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = bullish_divergence_quality # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY'] = ...
         states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'] = bearish_divergence_quality
-        df['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'] = bearish_divergence_quality # 添加到df
+        # [修改的代码行] 移除df['SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY'] = ...
 
         # --- 机会与风险信号 ---
         is_rising = (pct_change > 0).astype(float)
         is_falling = (pct_change < 0).astype(float)
         states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = (is_rising * states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] * states['SCORE_BEHAVIOR_VOLUME_ATROPHY']).pow(1/3).astype(np.float32)
-        df['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] # 添加到df
+        # [修改的代码行] 移除df['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = ...
 
         capitulation_raw = self._get_safe_series(df, 'capitulation_absorption_index_D', 0.0, method_name=method_name)
         selling_deceleration_score = (1 - get_adaptive_mtf_normalized_score(price_accel.clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)).clip(0, 1)
@@ -497,10 +496,10 @@ class BehavioralIntelligence:
             capitulation_confirm_score.pow(0.2)
         ).fillna(0.0)
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * selling_exhaustion_score).astype(np.float32)
-        df['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] # 添加到df
+        # [修改的代码行] 移除df['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = ...
 
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
-        df['SCORE_RISK_LIQUIDITY_DRAIN'] = states['SCORE_RISK_LIQUIDITY_DRAIN'] # 添加到df
+        # [修改的代码行] 移除df['SCORE_RISK_LIQUIDITY_DRAIN'] = ...
 
         return states
 
