@@ -1523,7 +1523,7 @@
           "smoothing_ema_span": 5
         },
         "coherent_drive_params": {
-          "description": "【V7.11 · 筹码健康度敏感度非对称版】筹码同调驱动力信号的专属参数。",
+          "description": "【V7.12 · 动态中性阈值版】筹码同调驱动力信号的专属参数。",
           "amplification_power": 1.2,
           "comment_amplification_power": "结构顺风时，对驱动力进行非线性放大的基础幂指数。大于1增强放大效果。",
           "dampening_power": 1.5,
@@ -1595,7 +1595,17 @@
           "chip_health_sensitivity_damp_positive_health": 0.4,
           "comment_chip_health_sensitivity_damp_positive_health": "当筹码健康度积极时，对削弱幂指数调整的基础敏感度。",
           "chip_health_sensitivity_damp_negative_health": 0.6,
-          "comment_chip_health_sensitivity_damp_negative_health": "当筹码健康度消极时，对削弱幂指数调整的基础敏感度。"
+          "comment_chip_health_sensitivity_damp_negative_health": "当筹码健康度消极时，对削弱幂指数调整的基础敏感度。",
+          "dynamic_neutrality_thresholds_enabled": true,
+          "comment_dynamic_neutrality_thresholds_enabled": "是否启用动态中性阈值，根据筹码健康度动态调整情绪和筹码结构的中性界限。",
+          "sentiment_neutrality_base_threshold": 0.0,
+          "comment_sentiment_neutrality_base_threshold": "持股心态中性阈值的基准值。",
+          "sentiment_neutrality_chip_health_sensitivity": 0.1,
+          "comment_sentiment_neutrality_chip_health_sensitivity": "normalized_chip_health 对持股心态中性阈值影响的敏感度。",
+          "cost_structure_neutrality_base_threshold": 0.0,
+          "comment_cost_structure_neutrality_base_threshold": "筹码结构中性阈值的基准值。",
+          "cost_structure_neutrality_chip_health_sensitivity": 0.1,
+          "comment_cost_structure_neutrality_chip_health_sensitivity": "normalized_chip_health 对筹码结构中性阈值影响的敏感度。"
         }
       },
       "dynamic_mechanics_params": {
