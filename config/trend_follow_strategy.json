@@ -1523,7 +1523,7 @@
           "smoothing_ema_span": 5
         },
         "coherent_drive_params": {
-          "description": "【V7.17 · 结构幂指数非对称非线性版】筹码同调驱动力信号的专属参数。",
+          "description": "【V7.18 · 最终分数敏感度动态版】筹码同调驱动力信号的专属参数。",
           "amplification_power": 1.2,
           "comment_amplification_power": "结构顺风时，对驱动力进行非线性放大的基础幂指数。大于1增强放大效果。",
           "dampening_power": 1.5,
@@ -1653,7 +1653,19 @@
           "structural_power_offset_positive_structure": 0.0,
           "comment_structural_power_offset_positive_structure": "当结构为正时，应用于结构强度（在 tanh 之前）的偏移量。",
           "structural_power_offset_negative_structure": 0.0,
-          "comment_structural_power_offset_negative_structure": "当结构为负时，应用于结构强度绝对值（在 tanh 之前）的偏移量。"
+          "comment_structural_power_offset_negative_structure": "当结构为负时，应用于结构强度绝对值（在 tanh 之前）的偏移量。",
+          "final_score_sensitivity_modulation_enabled": true,
+          "comment_final_score_sensitivity_modulation_enabled": "是否启用最终分数敏感度的动态调整。",
+          "final_score_modulator_signal_name": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+          "comment_final_score_modulator_signal_name": "用于动态调整最终分数敏感度的信号名称。",
+          "final_score_mod_norm_window": 21,
+          "comment_final_score_mod_norm_window": "用于归一化调制敏感度信号的滚动窗口大小。",
+          "final_score_mod_factor": 1.0,
+          "comment_final_score_mod_factor": "调制信号对最终分数敏感度调整的影响强度。",
+          "final_score_mod_tanh_factor": 1.0,
+          "comment_final_score_mod_tanh_factor": "用于调制信号对最终分数敏感度进行非线性调制（tanh函数）的因子。",
+          "final_score_base_sensitivity_multiplier": 2.0,
+          "comment_final_score_base_sensitivity_multiplier": "self.bipolar_sensitivity 的基础乘数，如果动态调制未启用。"
         }
       },
       "dynamic_mechanics_params": {
