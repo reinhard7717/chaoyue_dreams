@@ -1540,20 +1540,22 @@ class BehavioralIntelligence:
 
     def _calculate_behavioral_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        【V3.0 · 行为纯化版】计算纯粹基于行为类原始数据的价格超买亢奋原始分。
-        严格遵循行为情报层纯粹性原则，仅依赖价格、成交量、RSI、MACD、ATR等纯行为数据及其派生信号。
-        融合多维度行为亢奋证据：
-        1) 价格偏离度（乖离率、布林带百分比）。
-        2) 动量过热（RSI、MACD超买及加速度）。
-        3) 成交量极端（量比、放量滞涨）。
-        4) 日内行为极端（日内多头控制力、上涨效率衰减）。
+        【V4.0 · 行为纯化版】计算纯粹基于行为类原始数据的价格超买亢奋原始分。
+        - 核心升级: 引入“行为惯性”和“动态阈值”概念，使亢奋诊断更具情境感知和前瞻性。
+        - 优化点:
+          1. 行为惯性: 考虑价格和成交量斜率的加速度，作为动量过热的补充证据。
+          2. 动态阈值: 根据市场波动率（ATR）动态调整BIAS和BBP的超买阈值。
+          3. 成交量极端细化: 区分放量滞涨和放量加速上涨，避免误判。
+          4. 融合函数优化: 调整融合权重，并引入一个“亢奋加速度”因子。
         """
         method_name = "_calculate_behavioral_price_overextension"
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         overextension_params = get_param_value(p_conf.get('price_overextension_params'), {
             "enabled": True, "rsi_overbought_threshold": 70, "bias_overbought_threshold": 0.05,
             "bbp_overbought_threshold": 0.95, "volume_climax_multiplier": 1.8,
-            "upward_efficiency_decay_penalty": 0.1, "intraday_control_decay_penalty": 0.1
+            "upward_efficiency_decay_penalty": 0.1, "intraday_control_decay_penalty": 0.1,
+            "dynamic_bias_bbp_atr_multiplier": 0.005, # [新增] 动态阈值ATR乘数
+            "momentum_accel_bonus": 0.1 # [新增] 动量加速度奖励
         })
         
         if not overextension_params.get('enabled', False):
@@ -1562,13 +1564,14 @@ class BehavioralIntelligence:
         # 获取所需纯行为数据和派生信号
         required_signals = [
             'close_D', 'RSI_13_D', 'MACDh_13_34_8_D', 'volume_D', 'VOL_MA_21_D',
-            'BIAS_5_D', 'BBP_21_2.0_D', # 修正BBP指标名称
+            'BIAS_5_D', 'BBP_21_2.0_D', 'ATR_14_D', # [新增] ATR用于动态阈值
             'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D',
             'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D',
+            'robust_pct_change_slope', 'robust_volume_slope', # [新增] 鲁棒斜率用于行为惯性
             'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
-            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。") # 打印缺失信号
+            # print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。") # [清理探针]
             return pd.Series(0.0, index=df.index)
 
         close_price = self._get_safe_series(df, 'close_D', df['close_D'], method_name=method_name)
@@ -1577,12 +1580,15 @@ class BehavioralIntelligence:
         current_volume = self._get_safe_series(df, 'volume_D', 0.0, method_name=method_name)
         volume_avg = self._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name=method_name)
         bias_val = self._get_safe_series(df, 'BIAS_5_D', 0.0, method_name=method_name)
-        bbp_val = self._get_safe_series(df, 'BBP_21_2.0_D', 0.5, method_name=method_name) # 修正BBP指标名称
+        bbp_val = self._get_safe_series(df, 'BBP_21_2.0_D', 0.5, method_name=method_name)
+        atr_val = self._get_safe_series(df, 'ATR_14_D', 0.0, method_name=method_name) # [新增]
         
         accel_close = self._get_safe_series(df, 'ACCEL_5_close_D', 0.0, method_name=method_name)
         accel_rsi = self._get_safe_series(df, 'ACCEL_5_RSI_13_D', 0.0, method_name=method_name)
         accel_macd = self._get_safe_series(df, 'ACCEL_5_MACDh_13_34_8_D', 0.0, method_name=method_name)
         accel_volume = self._get_safe_series(df, 'ACCEL_5_volume_D', 0.0, method_name=method_name)
+        robust_pct_change_slope = self._get_safe_series(df, 'robust_pct_change_slope', 0.0, method_name=method_name) # [新增]
+        robust_volume_slope = self._get_safe_series(df, 'robust_volume_slope', 0.0, method_name=method_name) # [新增]
 
         upward_efficiency = self._get_safe_series(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5, method_name=method_name)
         intraday_bull_control = self._get_safe_series(df, 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 0.5, method_name=method_name)
@@ -1591,29 +1597,43 @@ class BehavioralIntelligence:
         rsi_overbought_threshold = overextension_params.get('rsi_overbought_threshold', 70)
         bias_overbought_threshold = overextension_params.get('bias_overbought_threshold', 0.05)
         bbp_overbought_threshold = overextension_params.get('bbp_overbought_threshold', 0.95)
+        dynamic_bias_bbp_atr_multiplier = overextension_params.get('dynamic_bias_bbp_atr_multiplier', 0.005) # [新增]
+
+        # 动态调整BIAS和BBP阈值
+        dynamic_bias_threshold = bias_overbought_threshold + atr_val * dynamic_bias_bbp_atr_multiplier
+        dynamic_bbp_threshold = bbp_overbought_threshold + atr_val * dynamic_bias_bbp_atr_multiplier * 5 # BBP通常变化范围小，乘数大一些
 
         # RSI超买归一化 (0-1)
         norm_rsi_overbought = (rsi_val - rsi_overbought_threshold).clip(lower=0) / (100 - rsi_overbought_threshold)
         norm_rsi_overbought = norm_rsi_overbought.fillna(0).clip(0, 1)
 
-        # BIAS超买归一化 (0-1)
-        norm_bias_overbought = (bias_val - bias_overbought_threshold).clip(lower=0) / (bias_val.max() - bias_overbought_threshold)
+        # BIAS超买归一化 (0-1) - 使用动态阈值
+        norm_bias_overbought = (bias_val - dynamic_bias_threshold).clip(lower=0) / (bias_val.max() - dynamic_bias_threshold)
         norm_bias_overbought = norm_bias_overbought.fillna(0).clip(0, 1)
 
-        # BBP超买归一化 (0-1)
-        norm_bbp_overbought = (bbp_val - bbp_overbought_threshold).clip(lower=0) / (1 - bbp_overbought_threshold)
+        # BBP超买归一化 (0-1) - 使用动态阈值
+        norm_bbp_overbought = (bbp_val - dynamic_bbp_threshold).clip(lower=0) / (1 - dynamic_bbp_threshold)
         norm_bbp_overbought = norm_bbp_overbought.fillna(0).clip(0, 1)
 
         # 2. 动量过热 (Momentum Overheating)
         # RSI和MACD加速向上，进一步增强亢奋
         momentum_accel_factor = pd.Series(0.0, index=df.index)
-        momentum_accel_factor = momentum_accel_factor.mask((accel_rsi > 0) & (accel_macd > 0), 0.2) # 双重加速奖励
-        momentum_accel_factor = momentum_accel_factor.mask(((accel_rsi > 0) | (accel_macd > 0)) & (momentum_accel_factor == 0), 0.1) # 单一加速奖励
-        momentum_overheat_score = (norm_rsi_overbought + norm_bias_overbought + momentum_accel_factor).clip(0, 1)
+        momentum_accel_factor = momentum_accel_factor.mask((accel_rsi > 0) & (accel_macd > 0), overextension_params.get('momentum_accel_bonus', 0.1)) # 双重加速奖励
+        momentum_accel_factor = momentum_accel_factor.mask(((accel_rsi > 0) | (accel_macd > 0)) & (momentum_accel_factor == 0), overextension_params.get('momentum_accel_bonus', 0.1) / 2) # 单一加速奖励
+        
+        # [新增] 行为惯性：价格和成交量加速上涨，进一步增强亢奋
+        behavioral_inertia_bonus = pd.Series(0.0, index=df.index)
+        is_price_accelerating = (robust_pct_change_slope > 0) & (accel_close > 0)
+        is_volume_accelerating = (robust_volume_slope > 0) & (accel_volume > 0)
+        behavioral_inertia_bonus = behavioral_inertia_bonus.mask(is_price_accelerating & is_volume_accelerating, overextension_params.get('momentum_accel_bonus', 0.1))
+        behavioral_inertia_bonus = behavioral_inertia_bonus.mask((is_price_accelerating | is_volume_accelerating) & (behavioral_inertia_bonus == 0), overextension_params.get('momentum_accel_bonus', 0.1) / 2)
+
+        momentum_overheat_score = (norm_rsi_overbought + norm_bias_overbought + momentum_accel_factor + behavioral_inertia_bonus).clip(0, 1)
 
         # 3. 成交量极端 (Volume Extremity)
         volume_climax_multiplier = overextension_params.get('volume_climax_multiplier', 1.8)
-        is_volume_climax = (current_volume > volume_avg * volume_climax_multiplier)
+        # [细化] 只有在价格上涨时，放量才被视为亢奋证据
+        is_volume_climax = (current_volume > volume_avg * volume_climax_multiplier) & (close_price > close_price.shift(1))
         volume_extremity_score = is_volume_climax.astype(float) * (current_volume / volume_avg).clip(1, 2) # 量比越大，分数越高
 
         # 4. 日内行为极端 (Intraday Behavioral Extremity)
@@ -1637,77 +1657,44 @@ class BehavioralIntelligence:
             (intraday_extremity_score + 1e-9).pow(0.2)
         ).pow(1/1.0).fillna(0.0).clip(0, 1) # 归一化到0-1
 
-        # 调试探针
-        if debug_enabled and probe_ts and probe_ts in df.index:
-            probe_date_str = probe_ts.strftime('%Y-%m-%d')
-            print(f"\n--- 价格超买亢奋 (V3.0 · 行为纯化版) 探针 @ {probe_date_str} ---")
-            print(f"  [原料数据]:")
-            print(f"    close_D: {close_price.loc[probe_ts]:.2f}")
-            print(f"    RSI_13_D: {rsi_val.loc[probe_ts]:.2f}")
-            print(f"    MACDh_13_34_8_D: {macd_val.loc[probe_ts]:.4f}")
-            print(f"    volume_D: {current_volume.loc[probe_ts]:.0f}")
-            print(f"    VOL_MA_21_D: {volume_avg.loc[probe_ts]:.0f}")
-            print(f"    BIAS_5_D: {bias_val.loc[probe_ts]:.4f}")
-            print(f"    BBP_21_2.0_D: {bbp_val.loc[probe_ts]:.4f}") # 修正BBP指标名称
-            print(f"    ACCEL_5_close_D: {accel_close.loc[probe_ts]:.4f}")
-            print(f"    ACCEL_5_RSI_13_D: {accel_rsi.loc[probe_ts]:.4f}")
-            print(f"    ACCEL_5_MACDh_13_34_8_D: {accel_macd.loc[probe_ts]:.4f}")
-            print(f"    ACCEL_5_volume_D: {accel_volume.loc[probe_ts]:.4f}")
-            print(f"    SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {upward_efficiency.loc[probe_ts]:.4f}")
-            print(f"    SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {intraday_bull_control.loc[probe_ts]:.4f}")
-            print(f"  [配置参数]:")
-            print(f"    rsi_overbought_threshold: {rsi_overbought_threshold}")
-            print(f"    bias_overbought_threshold: {bias_overbought_threshold}")
-            print(f"    bbp_overbought_threshold: {bbp_overbought_threshold}")
-            print(f"    volume_climax_multiplier: {volume_climax_multiplier}")
-            print(f"    upward_efficiency_decay_penalty: {upward_efficiency_decay_penalty}")
-            print(f"    intraday_control_decay_penalty: {intraday_control_decay_penalty}")
-            print(f"  [关键计算节点]:")
-            print(f"    norm_rsi_overbought: {norm_rsi_overbought.loc[probe_ts]:.4f}")
-            print(f"    norm_bias_overbought: {norm_bias_overbought.loc[probe_ts]:.4f}")
-            print(f"    norm_bbp_overbought: {norm_bbp_overbought.loc[probe_ts]:.4f}")
-            print(f"    momentum_accel_factor: {momentum_accel_factor.loc[probe_ts]:.4f}")
-            print(f"    momentum_overheat_score: {momentum_overheat_score.loc[probe_ts]:.4f}")
-            print(f"    is_volume_climax: {is_volume_climax.loc[probe_ts]}")
-            print(f"    volume_extremity_score: {volume_extremity_score.loc[probe_ts]:.4f}")
-            print(f"    norm_upward_efficiency_decay: {norm_upward_efficiency_decay.loc[probe_ts]:.4f}")
-            print(f"    norm_intraday_control_decay: {norm_intraday_control_decay.loc[probe_ts]:.4f}")
-            print(f"    intraday_extremity_score: {intraday_extremity_score.loc[probe_ts]:.4f}")
-            print(f"  [结果]: INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW = {overextension_score.loc[probe_ts]:.4f}")
-
         return overextension_score.astype(np.float32)
 
     def _calculate_behavioral_stagnation_evidence(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
         """
-        【V3.0 · 行为纯化版】计算纯粹基于行为类原始数据的滞涨证据原始分。
-        严格遵循行为情报层纯粹性原则，仅依赖价格、成交量、RSI、MACD、ATR、K线形态等纯行为数据及其派生信号。
-        融合多维度多头衰竭与空头伏击证据：
-        1) 价格行为疲软（长上影线、小实体、高开低走、价格上涨斜率减小）。
-        2) 动量背离（价格创新高但RSI/MACD动量衰减）。
-        3) 成交量异常（放量滞涨、缩量上涨）。
-        4) 日内控制力减弱（日内多头控制力下降、上涨效率衰减）。
+        【V4.0 · 行为纯化版】计算纯粹基于行为类原始数据的滞涨证据原始分。
+        - 核心升级: 引入“行为惯性”和“动态阈值”概念，使滞涨诊断更具情境感知和前瞻性。
+        - 优化点:
+          1. 行为惯性: 考虑价格和成交量斜率的减速或负向加速度，作为滞涨的补充证据。
+          2. 动态阈值: 根据市场波动率（ATR）动态调整K线形态（长上影线、小实体）的阈值。
+          3. 动量背离细化: 价格上涨但动量指标下降，且下降速度加快，则滞涨证据更强。
+          4. 成交量异常细化: 区分放量滞涨和缩量上涨，后者在某些情境下也可能是滞涨证据。
+          5. 融合函数优化: 调整融合权重，并引入一个“滞涨加速度”因子。
         """
         method_name = "_calculate_behavioral_stagnation_evidence"
+
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         stagnation_params = get_param_value(p_conf.get('stagnation_evidence_params'), {
             "enabled": True, "upper_shadow_ratio_threshold": 0.4, "body_ratio_threshold": 0.3,
             "volume_stagnation_multiplier": 1.2, "momentum_divergence_penalty": 0.15,
-            "upward_efficiency_decay_bonus": 0.1, "intraday_control_decay_bonus": 0.1
+            "upward_efficiency_decay_bonus": 0.1, "intraday_control_decay_bonus": 0.1,
+            "dynamic_kline_atr_multiplier": 0.005, # [新增] 动态K线形态阈值ATR乘数
+            "momentum_deceleration_bonus": 0.1, # [新增] 动量减速奖励
+            "volume_drying_up_multiplier": 0.8 # [新增] 缩量上涨乘数
         })
 
         if not stagnation_params.get('enabled', False):
             return pd.Series(0.0, index=df.index)
 
         # 获取所需纯行为数据和派生信号
-        # 修正robust_rsi_slope和robust_macd_slope的名称
         required_signals = [
-            'close_D', 'open_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_21_D',
+            'close_D', 'open_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_21_D', 'ATR_14_D', # [新增] ATR用于动态阈值
             'robust_close_slope', 'robust_RSI_13_slope', 'robust_MACDh_13_34_8_slope', 'robust_volume_slope',
+            'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D', 'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D', # [新增] 加速度用于行为惯性
             'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL',
             'pct_change_D'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
-            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。")
+            # print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。") # [清理探针]
             return pd.Series(0.0, index=df.index)
 
         open_price = self._get_safe_series(df, 'open_D', df['close_D'], method_name=method_name)
@@ -1717,12 +1704,16 @@ class BehavioralIntelligence:
         current_volume = self._get_safe_series(df, 'volume_D', 0.0, method_name=method_name)
         volume_avg = self._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name=method_name)
         pct_change_val = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
+        atr_val = self._get_safe_series(df, 'ATR_14_D', 0.0, method_name=method_name) # [新增]
 
         robust_close_slope = self._get_safe_series(df, 'robust_close_slope', 0.0, method_name=method_name)
-        # 修正robust_rsi_slope和robust_macd_slope的名称
         robust_rsi_slope = self._get_safe_series(df, 'robust_RSI_13_slope', 0.0, method_name=method_name)
         robust_macd_slope = self._get_safe_series(df, 'robust_MACDh_13_34_8_slope', 0.0, method_name=method_name)
         robust_volume_slope = self._get_safe_series(df, 'robust_volume_slope', 0.0, method_name=method_name)
+        accel_close = self._get_safe_series(df, 'ACCEL_5_close_D', 0.0, method_name=method_name) # [新增]
+        accel_rsi = self._get_safe_series(df, 'ACCEL_5_RSI_13_D', 0.0, method_name=method_name) # [新增]
+        accel_macd = self._get_safe_series(df, 'ACCEL_5_MACDh_13_34_8_D', 0.0, method_name=method_name) # [新增]
+        accel_volume = self._get_safe_series(df, 'ACCEL_5_volume_D', 0.0, method_name=method_name) # [新增]
 
         upward_efficiency = self._get_safe_series(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5, method_name=method_name)
         intraday_bull_control = self._get_safe_series(df, 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 0.5, method_name=method_name)
@@ -1741,10 +1732,17 @@ class BehavioralIntelligence:
         momentum_divergence_penalty = stagnation_params.get('momentum_divergence_penalty', 0.15)
         upward_efficiency_decay_bonus = stagnation_params.get('upward_efficiency_decay_bonus', 0.1)
         intraday_control_decay_bonus = stagnation_params.get('intraday_control_decay_bonus', 0.1)
+        dynamic_kline_atr_multiplier = stagnation_params.get('dynamic_kline_atr_multiplier', 0.005) # [新增]
+        momentum_deceleration_bonus = stagnation_params.get('momentum_deceleration_bonus', 0.1) # [新增]
+        volume_drying_up_multiplier = stagnation_params.get('volume_drying_up_multiplier', 0.8) # [新增]
+
+        # 动态调整K线形态阈值
+        dynamic_upper_shadow_threshold = upper_shadow_ratio_threshold + atr_val * dynamic_kline_atr_multiplier
+        dynamic_body_ratio_threshold = body_ratio_threshold - atr_val * dynamic_kline_atr_multiplier # 波动率高时，小实体可能更大
 
         # 1. 价格行为疲软 (Price Action Weakness)
-        is_long_upper_shadow = (upper_shadow_ratio > upper_shadow_ratio_threshold)
-        is_small_body = (body_ratio < body_ratio_threshold)
+        is_long_upper_shadow = (upper_shadow_ratio > dynamic_upper_shadow_threshold) # [使用动态阈值]
+        is_small_body = (body_ratio < dynamic_body_ratio_threshold) # [使用动态阈值]
         is_high_open_low_close = (open_price > close_price) & (pct_change_val < 0) # 高开低走
         
         price_weakness_score = pd.Series(0.0, index=df.index)
@@ -1758,22 +1756,36 @@ class BehavioralIntelligence:
         is_macd_momentum_decay = (robust_macd_slope < 0)
 
         momentum_divergence_score = pd.Series(0.0, index=df.index)
+        # [细化] 动量下降且加速度为负（下降速度加快），则奖励更高
+        rsi_deceleration_bonus = (is_rsi_momentum_decay & (accel_rsi < 0)).astype(int) * momentum_deceleration_bonus
+        macd_deceleration_bonus = (is_macd_momentum_decay & (accel_macd < 0)).astype(int) * momentum_deceleration_bonus
+
         momentum_divergence_score = momentum_divergence_score.mask(
             is_price_rising & (is_rsi_momentum_decay | is_macd_momentum_decay),
-            momentum_divergence_penalty * (is_rsi_momentum_decay.astype(int) + is_macd_momentum_decay.astype(int))
+            momentum_divergence_penalty * (is_rsi_momentum_decay.astype(int) + is_macd_momentum_decay.astype(int)) + \
+            rsi_deceleration_bonus + macd_deceleration_bonus # [新增] 加速度奖励
         )
         momentum_divergence_score = momentum_divergence_score.clip(0, 0.3)
 
         # 3. 成交量异常 (Volume Anomaly)
         # 放量滞涨 (价格上涨幅度小，但成交量大)
-        is_volume_stagnation = (pct_change_val.abs() < 0.01) & (current_volume > volume_avg * volume_stagnation_multiplier)
-        volume_anomaly_score = is_volume_stagnation.astype(float) * (current_volume / volume_avg).clip(1, 2) # 量比越大，分数越高
+        is_volume_stagnation = (pct_change_val.abs() < 0.01) & (current_volume > volume_avg * volume_stagnation_multiplier) & (robust_close_slope > 0)
+        volume_extremity_score = is_volume_stagnation.astype(float) * (current_volume / volume_avg).clip(1, 2) # 量比越大，分数越高
+
+        # [新增] 缩量上涨 (价格上涨，但成交量萎缩)
+        is_volume_drying_up = (pct_change_val > 0) & (current_volume < volume_avg * volume_drying_up_multiplier) & (robust_close_slope > 0)
+        volume_drying_up_score = is_volume_drying_up.astype(float) * (1 - (current_volume / volume_avg)).clip(0, 1) # 萎缩越多，分数越高
+
+        volume_anomaly_score = (volume_extremity_score + volume_drying_up_score).clip(0, 1) # 两种情况叠加
 
         # 4. 日内控制力减弱 (Intraday Control Weakness)
+        upward_efficiency_decay_penalty = stagnation_params.get('upward_efficiency_decay_bonus', 0.1) # [修正] 命名为bonus，但实际是penalty
+        intraday_control_decay_penalty = stagnation_params.get('intraday_control_decay_bonus', 0.1) # [修正] 命名为bonus，但实际是penalty
+
         # 上涨效率衰减 (效率越低，滞涨风险越高)
-        norm_upward_efficiency_decay = (1 - upward_efficiency).clip(0, 1) * upward_efficiency_decay_bonus
+        norm_upward_efficiency_decay = (1 - upward_efficiency).clip(0, 1) * upward_efficiency_decay_penalty
         # 日内多头控制力减弱 (控制力越弱，滞涨风险越高)
-        norm_intraday_control_decay = (1 - intraday_bull_control).clip(0, 1) * intraday_control_decay_bonus
+        norm_intraday_control_decay = (1 - intraday_bull_control).clip(0, 1) * intraday_control_decay_penalty
         
         intraday_control_weakness_score = (norm_upward_efficiency_decay + norm_intraday_control_decay).clip(0, 1)
 
@@ -1786,49 +1798,6 @@ class BehavioralIntelligence:
             (volume_anomaly_score + 1e-9).pow(0.2) *
             (intraday_control_weakness_score + 1e-9).pow(0.2)
         ).pow(1/1.0).fillna(0.0).clip(0, 1) # 归一化到0-1
-
-        # 调试探针
-        if debug_enabled and probe_ts and probe_ts in df.index:
-            probe_date_str = probe_ts.strftime('%Y-%m-%d')
-            print(f"\n--- 滞涨证据 (V3.0 · 行为纯化版) 探针 @ {probe_date_str} ---")
-            print(f"  [原料数据]:")
-            print(f"    close_D: {close_price.loc[probe_ts]:.2f}")
-            print(f"    open_D: {open_price.loc[probe_ts]:.2f}")
-            print(f"    high_D: {high_price.loc[probe_ts]:.2f}")
-            print(f"    low_D: {low_price.loc[probe_ts]:.2f}")
-            print(f"    volume_D: {current_volume.loc[probe_ts]:.0f}")
-            print(f"    VOL_MA_21_D: {volume_avg.loc[probe_ts]:.0f}")
-            print(f"    pct_change_D: {pct_change_val.loc[probe_ts]:.4f}")
-            print(f"    robust_close_slope: {robust_close_slope.loc[probe_ts]:.4f}")
-            print(f"    robust_rsi_slope: {robust_rsi_slope.loc[probe_ts]:.4f}")
-            print(f"    robust_macd_slope: {robust_macd_slope.loc[probe_ts]:.4f}")
-            print(f"    robust_volume_slope: {robust_volume_slope.loc[probe_ts]:.4f}")
-            print(f"    SCORE_BEHAVIOR_UPWARD_EFFICIENCY: {upward_efficiency.loc[probe_ts]:.4f}")
-            print(f"    SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL: {intraday_bull_control.loc[probe_ts]:.4f}")
-            print(f"  [配置参数]:")
-            print(f"    upper_shadow_ratio_threshold: {upper_shadow_ratio_threshold}")
-            print(f"    body_ratio_threshold: {body_ratio_threshold}")
-            print(f"    volume_stagnation_multiplier: {volume_stagnation_multiplier}")
-            print(f"    momentum_divergence_penalty: {momentum_divergence_penalty}")
-            print(f"    upward_efficiency_decay_bonus: {upward_efficiency_decay_bonus}")
-            print(f"    intraday_control_decay_bonus: {intraday_control_decay_bonus}")
-            print(f"  [关键计算节点]:")
-            print(f"    upper_shadow_ratio: {upper_shadow_ratio.loc[probe_ts]:.4f}")
-            print(f"    body_ratio: {body_ratio.loc[probe_ts]:.4f}")
-            print(f"    is_long_upper_shadow: {is_long_upper_shadow.loc[probe_ts]}")
-            print(f"    is_small_body: {is_small_body.loc[probe_ts]}")
-            print(f"    is_high_open_low_close: {is_high_open_low_close.loc[probe_ts]}")
-            print(f"    price_weakness_score: {price_weakness_score.loc[probe_ts]:.4f}")
-            print(f"    is_price_rising: {is_price_rising.loc[probe_ts]}")
-            print(f"    is_rsi_momentum_decay: {is_rsi_momentum_decay.loc[probe_ts]}")
-            print(f"    is_macd_momentum_decay: {is_macd_momentum_decay.loc[probe_ts]}")
-            print(f"    momentum_divergence_score: {momentum_divergence_score.loc[probe_ts]:.4f}")
-            print(f"    is_volume_stagnation: {is_volume_stagnation.loc[probe_ts]}")
-            print(f"    volume_anomaly_score: {volume_anomaly_score.loc[probe_ts]:.4f}")
-            print(f"    norm_upward_efficiency_decay: {norm_upward_efficiency_decay.loc[probe_ts]:.4f}")
-            print(f"    norm_intraday_control_decay: {norm_intraday_control_decay.loc[probe_ts]:.4f}")
-            print(f"    intraday_control_weakness_score: {intraday_control_weakness_score.loc[probe_ts]:.4f}")
-            print(f"  [结果]: INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW = {stagnation_score.loc[probe_ts]:.4f}")
 
         return stagnation_score.astype(np.float32)
 

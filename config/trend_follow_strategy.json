@@ -1521,6 +1521,13 @@
           },
           "description_dynamic_fusion_weights": "融合基础战略态势与时间序列动态时的权重。",
           "smoothing_ema_span": 5
+        },
+        "coherent_drive_params": {
+          "description": "【V5.0 · 非线性共振版】筹码同调驱动力信号的专属参数。",
+          "amplification_power": 1.2,
+          "comment_amplification_power": "结构顺风时，对驱动力进行非线性放大的幂指数。大于1增强放大效果。",
+          "dampening_power": 1.5,
+          "comment_dampening_power": "结构逆风时，对驱动力进行非线性削弱的幂指数。大于1增强削弱效果。"
         }
       },
       "dynamic_mechanics_params": {
