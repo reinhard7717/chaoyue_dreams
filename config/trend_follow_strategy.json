@@ -1757,7 +1757,7 @@
           "comment_final_fusion_weights_sensitivity": "最终融合中，调制器对各维度权重的敏感度。"
         },
         "tactical_exchange_params": {
-          "description": "【V3.0 · 诡道博弈深化版】战术换手博弈信号的专属参数。",
+          "description": "【V4.0 · 诡道博弈精算版】战术换手博弈的质量与意图。",
           "intent_weights": {
             "control_transfer": 0.4,
             "cleansing_efficiency": 0.3,
@@ -1767,25 +1767,44 @@
           "deception_impact_sensitivity": 0.5,
           "deception_context_modulator_signal_name": "chip_health_score_D",
           "deception_context_sensitivity": 0.3,
+          "deception_outcome_weights": {
+            "effectiveness": 0.6,
+            "cost": 0.4
+          },
+          "deception_outcome_effectiveness_threshold": 0.3,
+          "deception_outcome_cost_threshold": 0.3,
           "quality_weights": {
-            "bullish_absorption": 0.5,
-            "bullish_purity": 0.5,
-            "bearish_distribution": 1.0
+            "bullish_absorption": 0.25,
+            "bullish_purity": 0.25,
+            "bearish_distribution": 0.25,
+            "exchange_purity": 0.15,
+            "structural_optimization": 0.1
           },
           "quality_context_signal_name": "winner_loser_momentum_D",
+          "structural_optimization_slope_period": 5,
           "environment_weights": {
-            "geography": 0.5,
-            "chip_fatigue": 0.3,
-            "chip_stability": 0.2
+            "geography": 0.4,
+            "chip_fatigue": 0.2,
+            "chip_stability": 0.2,
+            "dominant_peak_health": 0.2
           },
           "chip_fatigue_impact_factor": 0.5,
           "chip_stability_modulator_signal_name": "VOLATILITY_INSTABILITY_INDEX_21d_D",
           "chip_stability_sensitivity": 0.5,
+          "dominant_peak_health_slope_period": 5,
+          "rhythm_persistence_slope_period": 5,
+          "rhythm_persistence_sensitivity": 0.5,
           "final_fusion_weights": {
-            "intent": 0.4,
-            "quality": 0.4,
-            "environment": 0.2
-          }
+            "intent": 0.35,
+            "quality": 0.35,
+            "environment": 0.2,
+            "rhythm_persistence": 0.1
+          },
+          "meta_modulator_weights": {
+            "chip_health": 0.6,
+            "volatility_instability": 0.4
+          },
+          "meta_modulator_sensitivity": 0.5
         }
       },
       "dynamic_mechanics_params": {
