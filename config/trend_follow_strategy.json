@@ -1523,7 +1523,7 @@
           "smoothing_ema_span": 5
         },
         "coherent_drive_params": {
-          "description": "【V7.10 · 情绪结构动态耦合版】筹码同调驱动力信号的专属参数。",
+          "description": "【V7.11 · 筹码健康度敏感度非对称版】筹码同调驱动力信号的专属参数。",
           "amplification_power": 1.2,
           "comment_amplification_power": "结构顺风时，对驱动力进行非线性放大的基础幂指数。大于1增强放大效果。",
           "dampening_power": 1.5,
@@ -1531,9 +1531,9 @@
           "chip_health_modulation_enabled": true,
           "comment_chip_health_modulation_enabled": "是否启用筹码健康度自适应，根据筹码健康度动态调整幂指数。",
           "chip_health_sensitivity_amp": 0.5,
-          "comment_chip_health_sensitivity_amp": "筹码健康度对放大幂指数调整的基础敏感度，将被动态调整。",
+          "comment_chip_health_sensitivity_amp": "筹码健康度对放大幂指数调整的默认基础敏感度，如果非对称敏感度未启用。",
           "chip_health_sensitivity_damp": 0.5,
-          "comment_chip_health_sensitivity_damp": "筹码健康度对削弱幂指数调整的基础敏感度，将被动态调整。",
+          "comment_chip_health_sensitivity_damp": "筹码健康度对削弱幂指数调整的默认基础敏感度，如果非对称敏感度未启用。",
           "chip_health_mtf_norm_params": {
             "description": "用于筹码健康度 `chip_health_score_D` 多时间框架(MTF)双极性归一化的参数。",
             "weights": {
@@ -1585,7 +1585,17 @@
           "sentiment_coupling_tanh_factor": 1.0,
           "comment_sentiment_coupling_tanh_factor": "用于持股心态强度非线性映射（tanh函数）的因子，控制耦合强度的非线性响应。",
           "sentiment_coupling_sensitivity": 1.0,
-          "comment_sentiment_coupling_sensitivity": "持股心态强度对耦合强度调整的敏感度。"
+          "comment_sentiment_coupling_sensitivity": "持股心态强度对耦合强度调整的敏感度。",
+          "chip_health_asymmetric_sensitivity_enabled": true,
+          "comment_chip_health_asymmetric_sensitivity_enabled": "是否启用筹码健康度调制敏感度的非对称性。",
+          "chip_health_sensitivity_amp_positive_health": 0.6,
+          "comment_chip_health_sensitivity_amp_positive_health": "当筹码健康度积极时，对放大幂指数调整的基础敏感度。",
+          "chip_health_sensitivity_amp_negative_health": 0.4,
+          "comment_chip_health_sensitivity_amp_negative_health": "当筹码健康度消极时，对放大幂指数调整的基础敏感度。",
+          "chip_health_sensitivity_damp_positive_health": 0.4,
+          "comment_chip_health_sensitivity_damp_positive_health": "当筹码健康度积极时，对削弱幂指数调整的基础敏感度。",
+          "chip_health_sensitivity_damp_negative_health": 0.6,
+          "comment_chip_health_sensitivity_damp_negative_health": "当筹码健康度消极时，对削弱幂指数调整的基础敏感度。"
         }
       },
       "dynamic_mechanics_params": {
