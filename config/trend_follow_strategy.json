@@ -1523,7 +1523,7 @@
           "smoothing_ema_span": 5
         },
         "coherent_drive_params": {
-          "description": "【V7.7 · 筹码健康动态敏感度非线性版】筹码同调驱动力信号的专属参数。",
+          "description": "【V7.8 · 筹码结构动态影响版】筹码同调驱动力信号的专属参数。",
           "amplification_power": 1.2,
           "comment_amplification_power": "结构顺风时，对驱动力进行非线性放大的基础幂指数。大于1增强放大效果。",
           "dampening_power": 1.5,
@@ -1563,7 +1563,15 @@
           "chip_sensitivity_mod_tanh_factor_amp": 1.0,
           "comment_chip_sensitivity_mod_tanh_factor_amp": "用于调制信号对放大幂指数敏感度进行非线性调制（tanh函数）的因子。",
           "chip_sensitivity_mod_tanh_factor_damp": 1.0,
-          "comment_chip_sensitivity_mod_tanh_factor_damp": "用于调制信号对削弱幂指数敏感度进行非线性调制（tanh函数）的因子。"
+          "comment_chip_sensitivity_mod_tanh_factor_damp": "用于调制信号对削弱幂指数敏感度进行非线性调制（tanh函数）的因子。",
+          "cost_structure_impact_modulation_enabled": true,
+          "comment_cost_structure_impact_modulation_enabled": "是否启用筹码结构分数影响的动态调整。",
+          "cost_structure_impact_base_factor": 1.0,
+          "comment_cost_structure_impact_base_factor": "筹码结构分数影响的基准因子。",
+          "cost_structure_impact_sentiment_sensitivity": 1.0,
+          "comment_cost_structure_impact_sentiment_sensitivity": "持股心态强度对筹码结构分数影响因子调整的敏感度。",
+          "cost_structure_impact_sentiment_tanh_factor": 1.0,
+          "comment_cost_structure_impact_sentiment_tanh_factor": "用于持股心态强度非线性映射（tanh函数）的因子。"
         }
       },
       "dynamic_mechanics_params": {
