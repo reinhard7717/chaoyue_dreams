@@ -382,8 +382,9 @@ class ChipIntelligence:
                       进行动态调整，以更精细地模拟市场共识形成的速度和强度。
         - 核心升级2: 增强真理探针。详细输出新的动态敏感度参数和中间计算结果。
         - 修复: 修正了探针输出中 `abs_activated_sentiment_val` 的计算错误，确保在标量值上正确调用绝对值函数。
+        - 修复: 修正了 `dynamic_chip_health_sensitivity_damp` 变量的 `clip` 方法调用中的变量名错误。
         """
-        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.18 · 最终分数敏感度动态版)”...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.18 · 最终分数敏感度动态版)”...")
         
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         coherent_drive_params = get_param_value(p_conf.get('coherent_drive_params'), {})
@@ -461,13 +462,12 @@ class ChipIntelligence:
         structural_power_offset_positive_structure = get_param_value(coherent_drive_params.get('structural_power_offset_positive_structure'), 0.0)
         structural_power_offset_negative_structure = get_param_value(coherent_drive_params.get('structural_power_offset_negative_structure'), 0.0)
 
-        # [新增代码块] 最终分数敏感度动态调制参数
         final_score_sensitivity_modulation_enabled = get_param_value(coherent_drive_params.get('final_score_sensitivity_modulation_enabled'), False)
         final_score_modulator_signal_name = get_param_value(coherent_drive_params.get('final_score_modulator_signal_name'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         final_score_mod_norm_window = get_param_value(coherent_drive_params.get('final_score_mod_norm_window'), 21)
         final_score_mod_factor = get_param_value(coherent_drive_params.get('final_score_mod_factor'), 1.0)
         final_score_mod_tanh_factor = get_param_value(coherent_drive_params.get('final_score_mod_tanh_factor'), 1.0)
-        final_score_base_sensitivity_multiplier = get_param_value(coherent_drive_params.get('final_score_base_sensitivity_multiplier'), 2.0) # 默认值与 self.bipolar_sensitivity * 2 保持一致
+        final_score_base_sensitivity_multiplier = get_param_value(coherent_drive_params.get('final_score_base_sensitivity_multiplier'), 2.0)
 
         amplification_power = pd.Series(base_amplification_power, index=df.index)
         dampening_power = pd.Series(base_dampening_power, index=df.index)
@@ -505,7 +505,6 @@ class ChipIntelligence:
         structural_power_non_linear_modulator_effect_amp = pd.Series(0.0, index=df.index)
         structural_power_non_linear_modulator_effect_damp = pd.Series(0.0, index=df.index)
 
-        # [新增代码行] 最终分数动态敏感度乘数初始化
         dynamic_final_score_sensitivity_multiplier = pd.Series(final_score_base_sensitivity_multiplier, index=df.index)
         final_score_modulator_signal_raw = pd.Series(0.0, index=df.index)
         final_score_normalized_modulator_signal = pd.Series(0.5, index=df.index)
@@ -552,7 +551,8 @@ class ChipIntelligence:
                 dynamic_chip_health_sensitivity_damp = base_damp_sensitivity_series * (1 + non_linear_modulator_effect_damp * chip_sensitivity_mod_factor_damp)
 
                 dynamic_chip_health_sensitivity_amp = dynamic_chip_health_sensitivity_amp.clip(base_amp_sensitivity_series * 0.1, base_amp_sensitivity_series * 2.0)
-                dynamic_chip_health_sensitivity_damp = dynamic_damp_sensitivity_series.clip(base_damp_sensitivity_series * 0.1, base_damp_sensitivity_series * 2.0) # [修改代码行] 修正变量名
+                # [修改代码行] 修正变量名
+                dynamic_chip_health_sensitivity_damp = dynamic_chip_health_sensitivity_damp.clip(base_damp_sensitivity_series * 0.1, base_damp_sensitivity_series * 2.0)
             else:
                 dynamic_chip_health_sensitivity_amp = base_amp_sensitivity_series
                 dynamic_chip_health_sensitivity_damp = base_damp_sensitivity_series
@@ -689,7 +689,6 @@ class ChipIntelligence:
         
         coherent_drive_raw = activated_holder_sentiment_scores * modulation_factor
 
-        # [新增代码块] 最终分数敏感度动态调制
         if final_score_sensitivity_modulation_enabled:
             final_score_modulator_signal_raw = self._get_safe_series(df, df, final_score_modulator_signal_name, 0.0, method_name="_diagnose_structural_consensus")
             final_score_normalized_modulator_signal = normalize_score(
@@ -706,7 +705,6 @@ class ChipIntelligence:
         else:
             dynamic_final_score_sensitivity_multiplier = pd.Series(final_score_base_sensitivity_multiplier, index=df.index)
 
-        # [修改代码行] 使用动态敏感度乘数
         final_score = np.tanh(coherent_drive_raw * (self.bipolar_sensitivity * dynamic_final_score_sensitivity_multiplier))
         
         # 植入标准化探针
@@ -744,7 +742,6 @@ class ChipIntelligence:
                 print(f"       - 结构幂指数非对称非线性映射: enabled: {structural_power_asymmetric_tanh_enabled}")
                 print(f"         - 正向结构: tanh_factor: {structural_power_tanh_factor_positive_structure:.2f}, offset: {structural_power_offset_positive_structure:.2f}")
                 print(f"         - 负向结构: tanh_factor: {structural_power_tanh_factor_negative_structure:.2f}, offset: {structural_power_offset_negative_structure:.2f}")
-                # [新增代码块] 打印最终分数敏感度动态调制参数
                 print(f"       - 最终分数敏感度动态调制: enabled: {final_score_sensitivity_modulation_enabled}, modulator: '{final_score_modulator_signal_name}', norm_window: {final_score_mod_norm_window}, mod_factor: {final_score_mod_factor:.2f}")
                 print(f"         - 动态敏感度非线性参数: mod_tanh_factor: {final_score_mod_tanh_factor:.2f}, base_multiplier: {final_score_base_sensitivity_multiplier:.2f}")
 
@@ -793,7 +790,7 @@ class ChipIntelligence:
                         print(f"       - 筹码结构动态影响因子 (看跌): dynamic_cost_structure_impact_factor_bearish: {dynamic_cost_structure_impact_factor_bearish.loc[probe_date]:.4f}")
                         print(f"       - 选定筹码结构动态影响因子: {selected_dynamic_cost_structure_impact_factor.loc[probe_date]:.4f}")
                     else:
-                        print(f"       - 选定筹码结构动态影响因子: {selected_dynamic_structure_impact_factor.loc[probe_date]:.4f}") # [修改代码行] 修正变量名
+                        print(f"       - 选定筹码结构动态影响因子: {selected_dynamic_cost_structure_impact_factor.loc[probe_date]:.4f}")
                     print(f"       - 原料: cost_structure_scores (原始): {cost_structure_scores.loc[probe_date]:.4f}")
                     print(f"       - 原料: cost_structure_scores (调整后): {adjusted_cost_structure_scores.loc[probe_date]:.4f}")
                 else:
@@ -855,7 +852,6 @@ class ChipIntelligence:
                     
                     print(f"       - 动态幂指数 (结构强度自适应后): amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}")
 
-                # [新增代码块] 打印最终分数敏感度动态调制中间结果
                 if final_score_sensitivity_modulation_enabled:
                     print(f"       - 最终分数调制信号 (原始): {final_score_modulator_signal_name}: {final_score_modulator_signal_raw.loc[probe_date]:.4f}")
                     print(f"       - 最终分数调制信号 (归一化): {final_score_normalized_modulator_signal.loc[probe_date]:.4f}")
