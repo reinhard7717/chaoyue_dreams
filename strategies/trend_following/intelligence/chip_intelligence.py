@@ -377,12 +377,13 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V7.6 · 筹码健康动态敏感度版】诊断筹码同调驱动力
-        - 核心升级1: 引入筹码健康度敏感度的动态调整。筹码健康度对放大/削弱幂指数的影响强度（敏感度）
-                      将根据另一个筹码层面的信号（如筹码波动性）进行动态调整，实现更深层次的自适应。
-        - 核心升级2: 增强真理探针。详细输出动态敏感度相关的参数和中间值，以便于深度调试与验证。
+        【V7.7 · 筹码健康动态敏感度非线性版】诊断筹码同调驱动力
+        - 核心升级1: 引入动态敏感度本身的非线性调制。对用于调整筹码健康度敏感度的调制信号，
+                      在影响敏感度之前，先进行双极性映射和 `tanh` 非线性处理。这使得调制信号
+                      对敏感度的影响更具非线性特征，能更精细地模拟筹码博弈的复杂性。
+        - 核心升级2: 增强真理探针。详细输出新的非线性调制参数和中间计算结果，以便于深度调试与验证。
         """
-        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.6 · 筹码健康动态敏感度版)”...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.7 · 筹码健康动态敏感度非线性版)”...") # [修改代码行]
         
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         coherent_drive_params = get_param_value(p_conf.get('coherent_drive_params'), {})
@@ -391,7 +392,6 @@ class ChipIntelligence:
         base_dampening_power = get_param_value(coherent_drive_params.get('dampening_power'), 1.5)
 
         chip_health_modulation_enabled = get_param_value(coherent_drive_params.get('chip_health_modulation_enabled'), True)
-        # [修改代码行] 基础敏感度参数，将被动态调整
         base_chip_health_sensitivity_amp = get_param_value(coherent_drive_params.get('chip_health_sensitivity_amp'), 0.5)
         base_chip_health_sensitivity_damp = get_param_value(coherent_drive_params.get('chip_health_sensitivity_damp'), 0.5)
         
@@ -399,12 +399,14 @@ class ChipIntelligence:
         chip_health_tanh_factor_amp = get_param_value(coherent_drive_params.get('chip_health_tanh_factor_amp'), 1.0)
         chip_health_tanh_factor_damp = get_param_value(coherent_drive_params.get('chip_health_tanh_factor_damp'), 1.0)
 
-        # [新增代码块] 动态敏感度调制参数
         chip_health_sensitivity_modulation_enabled = get_param_value(coherent_drive_params.get('chip_health_sensitivity_modulation_enabled'), False)
-        chip_sensitivity_modulator_signal_name = get_param_value(coherent_drive_params.get('chip_sensitivity_modulator_signal_name'), 'chip_volatility_score_D')
+        chip_sensitivity_modulator_signal_name = get_param_value(coherent_drive_params.get('chip_sensitivity_modulator_signal_name'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         chip_sensitivity_mod_norm_window = get_param_value(coherent_drive_params.get('chip_sensitivity_mod_norm_window'), 21)
         chip_sensitivity_mod_factor_amp = get_param_value(coherent_drive_params.get('chip_sensitivity_mod_factor_amp'), 1.0)
         chip_sensitivity_mod_factor_damp = get_param_value(coherent_drive_params.get('chip_sensitivity_mod_factor_damp'), 1.0)
+        # [新增代码行] 获取动态敏感度非线性调制因子
+        chip_sensitivity_mod_tanh_factor_amp = get_param_value(coherent_drive_params.get('chip_sensitivity_mod_tanh_factor_amp'), 1.0)
+        chip_sensitivity_mod_tanh_factor_damp = get_param_value(coherent_drive_params.get('chip_sensitivity_mod_tanh_factor_damp'), 1.0)
 
         amplification_power = pd.Series(base_amplification_power, index=df.index)
         dampening_power = pd.Series(base_dampening_power, index=df.index)
@@ -415,11 +417,13 @@ class ChipIntelligence:
         modulated_chip_health_amp = pd.Series(0.0, index=df.index)
         modulated_chip_health_damp = pd.Series(0.0, index=df.index)
 
-        # [新增代码块] 动态敏感度变量初始化
         dynamic_chip_health_sensitivity_amp = pd.Series(base_chip_health_sensitivity_amp, index=df.index)
         dynamic_chip_health_sensitivity_damp = pd.Series(base_chip_health_sensitivity_damp, index=df.index)
         modulator_signal_raw = pd.Series(0.0, index=df.index)
-        normalized_modulator_signal = pd.Series(0.5, index=df.index) # 默认中性
+        normalized_modulator_signal = pd.Series(0.5, index=df.index)
+        # [新增代码行] 调制信号非线性处理后的值
+        non_linear_modulator_effect_amp = pd.Series(0.0, index=df.index)
+        non_linear_modulator_effect_damp = pd.Series(0.0, index=df.index)
 
         if chip_health_modulation_enabled:
             current_chip_health_score_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_structural_consensus")
@@ -431,30 +435,30 @@ class ChipIntelligence:
                 sensitivity=chip_health_mtf_norm_params.get('sensitivity', 2.0)
             )
             
-            # [新增代码块] 动态调整敏感度
             if chip_health_sensitivity_modulation_enabled:
                 modulator_signal_raw = self._get_safe_series(df, df, chip_sensitivity_modulator_signal_name, 0.0, method_name="_diagnose_structural_consensus")
-                # 归一化调制信号到 [0, 1]
                 normalized_modulator_signal = normalize_score(
                     modulator_signal_raw,
                     df.index,
                     window=chip_sensitivity_mod_norm_window,
-                    ascending=True # 假设更高的调制信号值意味着更高的敏感度需求
+                    ascending=True
                 )
                 
-                # 根据归一化后的调制信号动态调整敏感度
-                # (normalized_modulator_signal - 0.5) 将范围从 [0,1] 映射到 [-0.5, 0.5]，0.5为中性
-                dynamic_chip_health_sensitivity_amp = base_chip_health_sensitivity_amp * (1 + (normalized_modulator_signal - 0.5) * chip_sensitivity_mod_factor_amp)
-                dynamic_chip_health_sensitivity_damp = base_chip_health_sensitivity_damp * (1 + (normalized_modulator_signal - 0.5) * chip_sensitivity_mod_factor_damp)
+                # [新增代码块] 调制信号非线性处理
+                modulator_bipolar = (normalized_modulator_signal * 2) - 1 # 映射到 [-1, 1]
+                non_linear_modulator_effect_amp = np.tanh(modulator_bipolar * chip_sensitivity_mod_tanh_factor_amp)
+                non_linear_modulator_effect_damp = np.tanh(modulator_bipolar * chip_sensitivity_mod_tanh_factor_damp)
 
-                # 限制动态敏感度的范围，防止过大或过小
+                # [修改代码行] 根据非线性调制后的信号动态调整敏感度
+                dynamic_chip_health_sensitivity_amp = base_chip_health_sensitivity_amp * (1 + non_linear_modulator_effect_amp * chip_sensitivity_mod_factor_amp)
+                dynamic_chip_health_sensitivity_damp = base_chip_health_sensitivity_damp * (1 + non_linear_modulator_effect_damp * chip_sensitivity_mod_factor_damp)
+
                 dynamic_chip_health_sensitivity_amp = dynamic_chip_health_sensitivity_amp.clip(base_chip_health_sensitivity_amp * 0.1, base_chip_health_sensitivity_amp * 2.0)
                 dynamic_chip_health_sensitivity_damp = dynamic_chip_health_sensitivity_damp.clip(base_chip_health_sensitivity_damp * 0.1, base_chip_health_sensitivity_damp * 2.0)
             
             modulated_chip_health_amp = np.tanh(normalized_chip_health * chip_health_tanh_factor_amp)
             modulated_chip_health_damp = np.tanh(normalized_chip_health * chip_health_tanh_factor_damp)
 
-            # [修改代码行] 使用动态调整后的敏感度
             amplification_power = base_amplification_power * (1 + modulated_chip_health_amp * dynamic_chip_health_sensitivity_amp)
             dampening_power = base_dampening_power * (1 - modulated_chip_health_damp * dynamic_chip_health_sensitivity_damp)
             
@@ -488,21 +492,24 @@ class ChipIntelligence:
             if probe_date in df.index:
                 print(f"    -> [同调驱动力探针] @ {probe_date.date()}:")
                 print(f"       - 基础参数: base_amplification_power: {base_amplification_power:.2f}, base_dampening_power: {base_dampening_power:.2f}")
-                # [修改代码行] 打印基础敏感度
                 print(f"       - 筹码健康度基础敏感度: base_chip_health_sensitivity_amp: {base_chip_health_sensitivity_amp:.2f}, base_chip_health_sensitivity_damp: {base_chip_health_sensitivity_damp:.2f}")
                 print(f"       - 筹码健康度MTF归一化参数: {chip_health_mtf_norm_params}")
                 print(f"       - 筹码健康度非线性参数: chip_health_tanh_factor_amp: {chip_health_tanh_factor_amp:.2f}, chip_health_tanh_factor_damp: {chip_health_tanh_factor_damp:.2f}")
-                # [新增代码块] 打印动态敏感度调制参数
                 print(f"       - 筹码健康度动态敏感度调制: enabled: {chip_health_sensitivity_modulation_enabled}, modulator: '{chip_sensitivity_modulator_signal_name}', norm_window: {chip_sensitivity_mod_norm_window}, mod_factor_amp: {chip_sensitivity_mod_factor_amp:.2f}, mod_factor_damp: {chip_sensitivity_mod_factor_damp:.2f}")
+                # [新增代码行] 打印动态敏感度非线性调制因子
+                print(f"       - 动态敏感度非线性参数: chip_sensitivity_mod_tanh_factor_amp: {chip_sensitivity_mod_tanh_factor_amp:.2f}, chip_sensitivity_mod_tanh_factor_damp: {chip_sensitivity_mod_tanh_factor_damp:.2f}")
                 if chip_health_modulation_enabled:
                     print(f"       - 筹码健康度信号 (原始): chip_health_score_D: {current_chip_health_score_raw.loc[probe_date]:.4f}")
                     print(f"       - 筹码健康度信号 (归一化): normalized_chip_health: {normalized_chip_health.loc[probe_date]:.4f}")
                     print(f"       - 筹码健康度信号 (非线性调制-放大): modulated_chip_health_amp: {modulated_chip_health_amp.loc[probe_date]:.4f}")
                     print(f"       - 筹码健康度信号 (非线性调制-削弱): modulated_chip_health_damp: {modulated_chip_health_damp.loc[probe_date]:.4f}")
-                    # [新增代码块] 打印动态敏感度
                     if chip_health_sensitivity_modulation_enabled:
                         print(f"       - 敏感度调制信号 (原始): {chip_sensitivity_modulator_signal_name}: {modulator_signal_raw.loc[probe_date]:.4f}")
                         print(f"       - 敏感度调制信号 (归一化): normalized_modulator_signal: {normalized_modulator_signal.loc[probe_date]:.4f}")
+                        # [新增代码块] 打印调制信号非线性处理后的值
+                        print(f"       - 敏感度调制信号 (双极性): modulator_bipolar: {((normalized_modulator_signal.loc[probe_date] * 2) - 1):.4f}")
+                        print(f"       - 敏感度调制信号 (非线性-放大): non_linear_modulator_effect_amp: {non_linear_modulator_effect_amp.loc[probe_date]:.4f}")
+                        print(f"       - 敏感度调制信号 (非线性-削弱): non_linear_modulator_effect_damp: {non_linear_modulator_effect_damp.loc[probe_date]:.4f}")
                         print(f"       - 动态敏感度: dynamic_chip_health_sensitivity_amp: {dynamic_chip_health_sensitivity_amp.loc[probe_date]:.2f}, dynamic_chip_health_sensitivity_damp: {dynamic_chip_health_sensitivity_damp.loc[probe_date]:.2f}")
                     print(f"       - 动态幂指数: amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}")
                 else:
