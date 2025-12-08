@@ -1601,7 +1601,7 @@
           "final_score_base_sensitivity_multiplier": 2.0
         },
         "holder_sentiment_params": {
-          "description": "【V7.5 · 杂质独立调制版】持仓信念韧性信号的专属参数。",
+          "description": "【V7.6 · 杂质协同调制版】持仓信念韧性信号的专属参数。",
           "sentiment_trend_modulator_signal_name": "SLOPE_55_winner_concentration_90pct_D",
           "comment_sentiment_trend_modulator_signal_name": "用于动态调整信念权重的筹码趋势信号名称（如SLOPE_55_winner_concentration_90pct_D）。",
           "sentiment_trend_mod_norm_window": 55,
@@ -1653,7 +1653,11 @@
           "min_pressure_weight": 0.3,
           "comment_min_pressure_weight": "在最低压力下，压力测试分数在融合中的最小权重。",
           "max_pressure_weight": 0.7,
-          "comment_max_pressure_weight": "在最高压力下，压力测试分数在融合中的最大权重。"
+          "comment_max_pressure_weight": "在最高压力下，压力测试分数在融合中的最大权重。",
+          "impurity_fusion_exponent_base": 0.7,
+          "comment_impurity_fusion_exponent_base": "杂质融合指数的基础值，用于控制FOMO和利润兑现效应融合的激进程度（0-1之间，1为最激进）。",
+          "impurity_fusion_exponent_sensitivity": 0.5,
+          "comment_impurity_fusion_exponent_sensitivity": "杂质融合指数对信念强度（normalized_sentiment_strength）的敏感度。信念强度越高，融合指数越低，杂质削弱作用越温和。"
         }
 
       },
