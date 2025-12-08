@@ -1755,6 +1755,37 @@
             "nozzle": 0.5
           },
           "comment_final_fusion_weights_sensitivity": "最终融合中，调制器对各维度权重的敏感度。"
+        },
+        "tactical_exchange_params": {
+          "description": "【V3.0 · 诡道博弈深化版】战术换手博弈信号的专属参数。",
+          "intent_weights": {
+            "control_transfer": 0.4,
+            "cleansing_efficiency": 0.3,
+            "accumulation_intent": 0.3
+          },
+          "deception_arbitration_power": 2.0,
+          "deception_impact_sensitivity": 0.5,
+          "deception_context_modulator_signal_name": "chip_health_score_D",
+          "deception_context_sensitivity": 0.3,
+          "quality_weights": {
+            "bullish_absorption": 0.5,
+            "bullish_purity": 0.5,
+            "bearish_distribution": 1.0
+          },
+          "quality_context_signal_name": "winner_loser_momentum_D",
+          "environment_weights": {
+            "geography": 0.5,
+            "chip_fatigue": 0.3,
+            "chip_stability": 0.2
+          },
+          "chip_fatigue_impact_factor": 0.5,
+          "chip_stability_modulator_signal_name": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+          "chip_stability_sensitivity": 0.5,
+          "final_fusion_weights": {
+            "intent": 0.4,
+            "quality": 0.4,
+            "environment": 0.2
+          }
         }
       },
       "dynamic_mechanics_params": {
