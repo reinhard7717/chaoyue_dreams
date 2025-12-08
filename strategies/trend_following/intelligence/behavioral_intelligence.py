@@ -1750,14 +1750,15 @@ class BehavioralIntelligence:
             return pd.Series(0.0, index=df.index)
 
         # 获取所需纯行为数据和派生信号
+        # [修改的代码行] 修正robust_rsi_slope和robust_macd_slope的名称
         required_signals = [
             'close_D', 'open_D', 'high_D', 'low_D', 'volume_D', 'VOL_MA_21_D',
-            'robust_close_slope', 'robust_rsi_slope', 'robust_macd_slope', 'robust_volume_slope',
+            'robust_close_slope', 'robust_RSI_13_slope', 'robust_MACDh_13_34_8_slope', 'robust_volume_slope',
             'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL',
             'pct_change_D'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
-            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。") # [修改的代码行] 打印缺失信号
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。")
             return pd.Series(0.0, index=df.index)
 
         open_price = self._get_safe_series(df, 'open_D', df['close_D'], method_name=method_name)
@@ -1769,8 +1770,9 @@ class BehavioralIntelligence:
         pct_change_val = self._get_safe_series(df, 'pct_change_D', 0.0, method_name=method_name)
 
         robust_close_slope = self._get_safe_series(df, 'robust_close_slope', 0.0, method_name=method_name)
-        robust_rsi_slope = self._get_safe_series(df, 'robust_rsi_slope', 0.0, method_name=method_name)
-        robust_macd_slope = self._get_safe_series(df, 'robust_macd_slope', 0.0, method_name=method_name)
+        # [修改的代码行] 修正robust_rsi_slope和robust_macd_slope的名称
+        robust_rsi_slope = self._get_safe_series(df, 'robust_RSI_13_slope', 0.0, method_name=method_name)
+        robust_macd_slope = self._get_safe_series(df, 'robust_MACDh_13_34_8_slope', 0.0, method_name=method_name)
         robust_volume_slope = self._get_safe_series(df, 'robust_volume_slope', 0.0, method_name=method_name)
 
         upward_efficiency = self._get_safe_series(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5, method_name=method_name)
@@ -2009,9 +2011,9 @@ class BehavioralIntelligence:
             'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', # 行为层派生信号
             'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', # 重构后的内部信号
             # 确保鲁棒斜率、长期斜率、模式序列斜率和加速度信号已存在于df中
-            'robust_close_slope', 'robust_rsi_slope', 'robust_macd_slope', 'robust_volume_slope',
-            'robust_bbw_slope', 'robust_pct_change_slope',
-            'long_term_close_slope', 'long_term_rsi_slope', 'long_term_macd_slope', 'long_term_volume_slope',
+            'robust_close_slope', 'robust_RSI_13_slope', 'robust_MACDh_13_34_8_slope', 'robust_volume_slope',
+            'robust_BBW_21_2.0_slope', 'robust_pct_change_slope',
+            'long_term_close_slope', 'long_term_RSI_13_slope', 'long_term_MACDh_13_34_8_slope', 'long_term_volume_slope',
             'long_term_adx_slope',
             'pattern_close_slope', 'pattern_volume_slope',
             # 确保加速度信号名称正确
@@ -2027,16 +2029,16 @@ class BehavioralIntelligence:
 
         # [修改的代码行] 直接从df中获取鲁棒斜率 (已在_diagnose_behavioral_axioms中计算并添加到df)
         robust_close_slope = self._get_safe_series(df, 'robust_close_slope', 0.0, method_name=method_name)
-        robust_rsi_slope = self._get_safe_series(df, 'robust_rsi_slope', 0.0, method_name=method_name)
-        robust_macd_slope = self._get_safe_series(df, 'robust_macd_slope', 0.0, method_name=method_name)
+        robust_rsi_slope = self._get_safe_series(df, 'robust_RSI_13_slope', 0.0, method_name=method_name)
+        robust_macd_slope = self._get_safe_series(df, 'robust_MACDh_13_34_8_slope', 0.0, method_name=method_name)
         robust_volume_slope = self._get_safe_series(df, 'robust_volume_slope', 0.0, method_name=method_name)
-        robust_bbw_slope = self._get_safe_series(df, 'robust_bbw_slope', 0.0, method_name=method_name)
+        robust_bbw_slope = self._get_safe_series(df, 'robust_BBW_21_2.0_slope', 0.0, method_name=method_name)
         robust_pct_change_slope = self._get_safe_series(df, 'robust_pct_change_slope', 0.0, method_name=method_name)
 
         # [修改的代码行] 直接从df中获取长期斜率 (已在_diagnose_behavioral_axioms中计算并添加到df)
         long_term_close_slope = self._get_safe_series(df, 'long_term_close_slope', 0.0, method_name=method_name)
-        long_term_rsi_slope = self._get_safe_series(df, 'long_term_rsi_slope', 0.0, method_name=method_name)
-        long_term_macd_slope = self._get_safe_series(df, 'long_term_macd_slope', 0.0, method_name=method_name)
+        long_term_rsi_slope = self._get_safe_series(df, 'long_term_RSI_13_slope', 0.0, method_name=method_name)
+        long_term_macd_slope = self._get_safe_series(df, 'long_term_MACDh_13_34_8_slope', 0.0, method_name=method_name)
         long_term_volume_slope = self._get_safe_series(df, 'long_term_volume_slope', 0.0, method_name=method_name)
         long_term_adx_slope = self._get_safe_series(df, 'long_term_adx_slope', 0.0, method_name=method_name)
 
@@ -2103,7 +2105,9 @@ class BehavioralIntelligence:
         # 行为强度与持续性 - 强度 (Accelerated Strength)
         bullish_accelerated_strength = pd.Series(0.0, index=df.index)
         if behavioral_strength_params.get('enabled'):
-            accel_period = mtf_slopes_params.get("periods", [5])[0] # 确保accel_period定义
+            acceleration_bonus = behavioral_strength_params.get('acceleration_bonus', 0.05)
+            # 确保accel_period定义
+            accel_period = mtf_slopes_params.get("periods", [5])[0] 
             bullish_accel_strength_rsi = (rsi_up_trend & (self._get_safe_series(df, f'ACCEL_{accel_period}_RSI_13_D', 0.0, method_name=method_name) > 0)).astype(int) * acceleration_bonus
             bullish_accel_strength_macd = (macd_up_trend & (self._get_safe_series(df, f'ACCEL_{accel_period}_MACDh_13_34_8_D', 0.0, method_name=method_name) > 0)).astype(int) * acceleration_bonus
             bullish_accel_strength_volume = (volume_up_trend & (self._get_safe_series(df, f'ACCEL_{accel_period}_volume_D', 0.0, method_name=method_name) > 0)).astype(int) * acceleration_bonus
@@ -2143,7 +2147,8 @@ class BehavioralIntelligence:
         if persistence_params.get('enabled'):
             quality_decay_factor = persistence_params.get('quality_decay_factor', 0.05)
             # 价格下跌幅度逐渐减小 (价格加速度为正) 或成交量萎缩 (成交量加速度为负)
-            accel_period = mtf_slopes_params.get("periods", [5])[0] # 确保accel_period定义
+            # 确保accel_period定义
+            accel_period = mtf_slopes_params.get("periods", [5])[0] 
             bullish_persistence_quality = (self._get_safe_series(df, f'ACCEL_{accel_period}_close_D', 0.0, method_name=method_name) > 0).astype(int) + (self._get_safe_series(df, f'ACCEL_{accel_period}_volume_D', 0.0, method_name=method_name) < 0).astype(int)
             bullish_persistence_quality = bullish_persistence_quality.clip(0, 2) # 最大奖励2个点
             
@@ -2359,7 +2364,7 @@ class BehavioralIntelligence:
             is_strong_long_term_trend = (long_term_adx_mean > long_term_adx_threshold)
             
             # 长期价格斜率稳定性 (长期斜率的标准差越小越稳定)
-            long_term_close_slopes_series = self._get_safe_series(df, f'SLOPE_{long_term_period}_close_D', 0.0, method_name=method_name) # [修改的代码行] 获取原始长期斜率
+            long_term_close_slopes_series = self._get_safe_series(df, 'long_term_close_slope', 0.0, method_name=method_name) # [修改的代码行] 获取原始长期斜率
             long_term_slope_std_dev = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)
             # 归一化标准差，使其在0-1之间，高标准差表示不稳定，低标准差表示稳定
             norm_long_term_slope_std_dev = get_adaptive_mtf_normalized_score(long_term_slope_std_dev, df.index, ascending=False, tf_weights=tf_weights) # 越小越好，所以ascending=False
@@ -2436,7 +2441,8 @@ class BehavioralIntelligence:
         if behavioral_strength_params.get('enabled'):
             acceleration_bonus = behavioral_strength_params.get('acceleration_bonus', 0.05)
             # 价格上涨，RSI/MACD/Volume加速下跌，则增强强度
-            accel_period = mtf_slopes_params.get("periods", [5])[0] # 确保accel_period定义
+            # 确保accel_period定义
+            accel_period = mtf_slopes_params.get("periods", [5])[0] 
             bearish_accel_strength_rsi = (rsi_down_trend & (self._get_safe_series(df, f'ACCEL_{accel_period}_RSI_13_D', 0.0, method_name=method_name) < 0)).astype(int) * acceleration_bonus
             bearish_accel_strength_macd = (macd_down_trend & (self._get_safe_series(df, f'ACCEL_{accel_period}_MACDh_13_34_8_D', 0.0, method_name=method_name) < 0)).astype(int) * acceleration_bonus
             bearish_accel_strength_volume = (volume_down_trend & (self._get_safe_series(df, f'ACCEL_{accel_period}_volume_D', 0.0, method_name=method_name) < 0)).astype(int) * acceleration_bonus
@@ -2476,7 +2482,8 @@ class BehavioralIntelligence:
         if persistence_params.get('enabled'):
             quality_decay_factor = persistence_params.get('quality_decay_factor', 0.05)
             # 价格上涨幅度逐渐减小 (价格加速度为负) 或成交量萎缩 (成交量加速度为负)
-            accel_period = mtf_slopes_params.get("periods", [5])[0] # 确保accel_period定义
+            # 确保accel_period定义
+            accel_period = mtf_slopes_params.get("periods", [5])[0] 
             bearish_persistence_quality = (self._get_safe_series(df, f'ACCEL_{accel_period}_close_D', 0.0, method_name=method_name) < 0).astype(int) + (self._get_safe_series(df, f'ACCEL_{accel_period}_volume_D', 0.0, method_name=method_name) < 0).astype(int)
             bearish_persistence_quality = bearish_persistence_quality.clip(0, 2) # 最大奖励2个点
             
@@ -2684,9 +2691,10 @@ class BehavioralIntelligence:
             high_inertia_penalty = behavioral_inertia_params.get('high_inertia_penalty', 0.1)
             low_inertia_bonus = behavioral_inertia_params.get('low_inertia_bonus', 0.05)
 
+            long_term_adx_mean = self._get_safe_series(df, 'ADX_14_D', 0.0, method_name=method_name).rolling(long_term_period).mean()
             is_strong_long_term_trend = (long_term_adx_mean > long_term_adx_threshold) # 使用上面计算的long_term_adx_mean
             # [修改的代码行] 获取原始长期斜率
-            long_term_close_slopes_series = self._get_safe_series(df, f'SLOPE_{long_term_period}_close_D', 0.0, method_name=method_name)
+            long_term_close_slopes_series = self._get_safe_series(df, 'long_term_close_slope', 0.0, method_name=method_name)
             long_term_slope_std_dev = long_term_close_slopes_series.rolling(window=long_term_period).std().fillna(0)
             # 归一化标准差，使其在0-1之间，高标准差表示不稳定，低标准差表示稳定
             norm_long_term_slope_std_dev = get_adaptive_mtf_normalized_score(long_term_slope_std_dev, df.index, ascending=False, tf_weights=tf_weights) # 越小越好，所以ascending=False
