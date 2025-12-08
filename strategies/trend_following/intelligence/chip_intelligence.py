@@ -377,16 +377,16 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V7.1 · 变量初始化修复版】诊断筹码同调驱动力
-        - 核心修复: 确保 `amplification_power`, `dampening_power` 和 `modulation_factor` 变量
-                      在所有逻辑路径下都被正确初始化为 `pd.Series`，避免 `NameError`。
+        【V7.2 · 筹码健康归一化版】诊断筹码同调驱动力
+        - 核心修复: 修正了 `chip_health_score_D` 的归一化逻辑。现在使用 `get_robust_bipolar_normalized_score`
+                      将其映射到 `[-1, 1]` 区间，确保动态幂指数调整的合理性。
         - 核心升级1: 移除外部情境信号依赖，转而专注于筹码层面的原始数据。
         - 核心升级2: 引入筹码健康度 `chip_health_score_D` 作为非线性调制参数的动态调节器。
                       当筹码健康时，增强放大效果，减弱削弱效果；反之亦然。
-        - 核心升级3: 增强真理探针。详细输出筹码健康度参数、其值，以及动态调整后的幂指数，
+        - 核心升级3: 增强真理探针。详细输出筹码健康度参数、其原始值和归一化值，以及动态调整后的幂指数，
                       以便于深度调试与验证。
         """
-        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.1 · 变量初始化修复版)”...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.2 · 筹码健康归一化版)”...") # [修改代码行]
         
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         coherent_drive_params = get_param_value(p_conf.get('coherent_drive_params'), {})
@@ -397,27 +397,37 @@ class ChipIntelligence:
         chip_health_modulation_enabled = get_param_value(coherent_drive_params.get('chip_health_modulation_enabled'), True)
         chip_health_sensitivity_amp = get_param_value(coherent_drive_params.get('chip_health_sensitivity_amp'), 0.5)
         chip_health_sensitivity_damp = get_param_value(coherent_drive_params.get('chip_health_sensitivity_damp'), 0.5)
+        # [新增代码块] 获取筹码健康度归一化参数
+        chip_health_norm_window = get_param_value(coherent_drive_params.get('chip_health_norm_window'), 55)
+        chip_health_norm_sensitivity = get_param_value(coherent_drive_params.get('chip_health_norm_sensitivity'), 2.0)
 
-        # [修改代码块] 确保 amplification_power, dampening_power 和 modulation_factor 始终被初始化为 Series
         amplification_power = pd.Series(base_amplification_power, index=df.index)
         dampening_power = pd.Series(base_dampening_power, index=df.index)
-        modulation_factor = pd.Series(1.0, index=df.index) # 默认调制因子为1.0，即不调制
+        modulation_factor = pd.Series(1.0, index=df.index)
 
-        current_chip_health_score = pd.Series(0.0, index=df.index) # 默认中性
+        current_chip_health_score_raw = pd.Series(0.0, index=df.index) # 原始筹码健康度
+        normalized_chip_health = pd.Series(0.0, index=df.index) # 归一化后的筹码健康度
 
         if chip_health_modulation_enabled:
-            current_chip_health_score = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_structural_consensus")
+            # [修改代码块] 获取原始筹码健康度信号
+            current_chip_health_score_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_structural_consensus")
             
-            # 将 chip_health_score 归一化到 [-1, 1] 区间，0为中性
-            normalized_chip_health = (current_chip_health_score * 2) - 1
+            # [修改代码块] 对 chip_health_score_D 进行双极性归一化
+            normalized_chip_health = get_robust_bipolar_normalized_score(
+                current_chip_health_score_raw, 
+                df.index, 
+                window=chip_health_norm_window, 
+                sensitivity=chip_health_norm_sensitivity,
+                default_value=0.0 # 默认中性健康度为0
+            )
 
+            # [修改代码块] 根据归一化后的筹码健康度动态调整幂指数
             amplification_power = base_amplification_power * (1 + normalized_chip_health * chip_health_sensitivity_amp)
             dampening_power = base_dampening_power * (1 - normalized_chip_health * chip_health_sensitivity_damp)
             
             amplification_power = amplification_power.clip(0.5, 2.0) 
             dampening_power = dampening_power.clip(0.5, 2.0) 
             
-        # [修改代码块] 调制因子的计算逻辑保持不变，但现在 amplification_power 和 dampening_power 始终是 Series
         bullish_mask = holder_sentiment_scores > 0
         bearish_mask = holder_sentiment_scores < 0
 
@@ -452,8 +462,11 @@ class ChipIntelligence:
                 print(f"    -> [同调驱动力探针] @ {probe_date.date()}:")
                 print(f"       - 基础参数: base_amplification_power: {base_amplification_power:.2f}, base_dampening_power: {base_dampening_power:.2f}")
                 print(f"       - 筹码健康度调制参数: chip_health_modulation_enabled: {chip_health_modulation_enabled}, chip_health_sensitivity_amp: {chip_health_sensitivity_amp:.2f}, chip_health_sensitivity_damp: {chip_health_sensitivity_damp:.2f}")
+                # [修改代码块] 打印筹码健康度归一化参数
+                print(f"       - 筹码健康度归一化参数: chip_health_norm_window: {chip_health_norm_window}, chip_health_norm_sensitivity: {chip_health_norm_sensitivity:.2f}")
                 if chip_health_modulation_enabled:
-                    print(f"       - 筹码健康度信号: chip_health_score_D: {current_chip_health_score.loc[probe_date]:.4f}")
+                    print(f"       - 筹码健康度信号 (原始): chip_health_score_D: {current_chip_health_score_raw.loc[probe_date]:.4f}") # [修改代码行]
+                    print(f"       - 筹码健康度信号 (归一化): normalized_chip_health: {normalized_chip_health.loc[probe_date]:.4f}") # [新增代码行]
                     print(f"       - 动态幂指数: amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}")
                 else:
                     print(f"       - 静态幂指数: amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}")
