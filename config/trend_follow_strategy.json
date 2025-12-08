@@ -1523,7 +1523,7 @@
           "smoothing_ema_span": 5
         },
         "coherent_drive_params": {
-          "description": "【V7.12 · 动态中性阈值版】筹码同调驱动力信号的专属参数。",
+          "description": "【V7.13 · 情绪激活阈值版】筹码同调驱动力信号的专属参数。",
           "amplification_power": 1.2,
           "comment_amplification_power": "结构顺风时，对驱动力进行非线性放大的基础幂指数。大于1增强放大效果。",
           "dampening_power": 1.5,
@@ -1605,7 +1605,13 @@
           "cost_structure_neutrality_base_threshold": 0.0,
           "comment_cost_structure_neutrality_base_threshold": "筹码结构中性阈值的基准值。",
           "cost_structure_neutrality_chip_health_sensitivity": 0.1,
-          "comment_cost_structure_neutrality_chip_health_sensitivity": "normalized_chip_health 对筹码结构中性阈值影响的敏感度。"
+          "comment_cost_structure_neutrality_chip_health_sensitivity": "normalized_chip_health 对筹码结构中性阈值影响的敏感度。",
+          "sentiment_activation_enabled": true,
+          "comment_sentiment_activation_enabled": "是否启用情绪激活阈值，根据动态中性阈值对情绪进行激活处理。",
+          "sentiment_activation_tanh_factor": 1.0,
+          "comment_sentiment_activation_tanh_factor": "用于情绪激活后 tanh 非线性映射的因子，控制响应的陡峭程度。",
+          "sentiment_activation_strength": 1.0,
+          "comment_sentiment_activation_strength": "情绪激活后的整体强度缩放因子。"
         }
       },
       "dynamic_mechanics_params": {
