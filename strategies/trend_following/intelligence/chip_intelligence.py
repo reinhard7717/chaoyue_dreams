@@ -377,52 +377,46 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V6.0 · 情境自适应版】诊断筹码同调驱动力
+        【V6.1 · 情境信号修复版】诊断筹码同调驱动力
+        - 核心修复: 修正了情境信号 'SCORE_FOUNDATION_STRATEGIC_POSTURE' 的获取逻辑，
+                      现在它会优先从 `self.strategy.atomic_states` 中获取，确保信号可用性。
         - 核心升级1: 引入情境自适应机制。非线性调制参数 'amplification_power' 和 'dampening_power'
                       将根据宏观市场情境信号（如 SCORE_FOUNDATION_STRATEGIC_POSTURE）动态调整。
         - 核心升级2: 增强真理探针。详细输出情境自适应参数、宏观情境信号值，以及动态调整后的幂指数，
                       以便于深度调试与验证。
         """
-        print("    -> [筹码层] 正在诊断“同调驱动力 (V6.0 · 情境自适应版)”...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“同调驱动力 (V6.1 · 情境信号修复版)”...") # [修改代码行]
         
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         coherent_drive_params = get_param_value(p_conf.get('coherent_drive_params'), {})
         
-        # [修改代码块] 获取基础非线性调制参数
         base_amplification_power = get_param_value(coherent_drive_params.get('amplification_power'), 1.2)
         base_dampening_power = get_param_value(coherent_drive_params.get('dampening_power'), 1.5)
 
-        # [新增代码块] 获取情境自适应参数
         contextual_power_modulation = get_param_value(coherent_drive_params.get('contextual_power_modulation'), False)
         context_signal_name = get_param_value(coherent_drive_params.get('context_signal_name'), 'SCORE_FOUNDATION_STRATEGIC_POSTURE')
-        context_sensitivity = get_param_value(coherent_drive_params.get('context_sensitivity'), 0.3) # 敏感度，控制情境影响幅度
+        context_sensitivity = get_param_value(coherent_drive_params.get('context_sensitivity'), 0.3)
 
         amplification_power = base_amplification_power
         dampening_power = base_dampening_power
         current_context_score = pd.Series(0.0, index=df.index) # 默认中性
 
         if contextual_power_modulation:
-            # [新增代码块] 获取宏观情境信号
-            if context_signal_name in df.columns:
+            # [修改代码块] 优先从 self.strategy.atomic_states 中获取情境信号
+            if hasattr(self.strategy, 'atomic_states') and context_signal_name in self.strategy.atomic_states:
+                current_context_score = self.strategy.atomic_states[context_signal_name]
+            elif context_signal_name in df.columns: # 回退到从 df 中获取
                 current_context_score = df[context_signal_name]
             else:
-                # 尝试从已计算的原子信号中获取，如果不存在则使用默认值
-                # 这里假设 context_signal_name 可能是其他情报引擎的输出，需要从 all_chip_states 或其他地方获取
-                # 为了简化，暂时从 df 中获取，如果 df 中没有，则使用 0.0
-                print(f"    -> [筹码情报警告] 情境信号 '{context_signal_name}' 未在DataFrame中找到，使用默认中性情境。")
+                print(f"    -> [筹码情报警告] 情境信号 '{context_signal_name}' 未在 atomic_states 或 DataFrame中找到，使用默认中性情境。") # [修改代码行]
                 current_context_score = pd.Series(0.0, index=df.index)
 
-            # [新增代码块] 根据情境信号动态调整幂指数
-            # 市场情境越积极 (context_score 越高)，amplification_power 越高，dampening_power 越低
-            # 市场情境越消极 (context_score 越低)，amplification_power 越低，dampening_power 越高
             amplification_power = base_amplification_power * (1 + current_context_score * context_sensitivity)
             dampening_power = base_dampening_power * (1 - current_context_score * context_sensitivity)
             
-            # 确保幂指数不会过低或过高，设置合理范围
-            amplification_power = amplification_power.clip(0.5, 2.0) # 放大效果至少0.5倍，最多2倍
-            dampening_power = dampening_power.clip(0.5, 2.0) # 削弱效果至少0.5倍，最多2倍
+            amplification_power = amplification_power.clip(0.5, 2.0)
+            dampening_power = dampening_power.clip(0.5, 2.0)
             
-            # 将 Series 转换为标量，以便在探针中显示当日值
             amplification_power_scalar = amplification_power.loc[df.index[-1]] if not amplification_power.empty else base_amplification_power
             dampening_power_scalar = dampening_power.loc[df.index[-1]] if not dampening_power.empty else base_dampening_power
         else:
