@@ -1523,7 +1523,7 @@
           "smoothing_ema_span": 5
         },
         "coherent_drive_params": {
-          "description": "【V7.2 · 筹码健康归一化版】筹码同调驱动力信号的专属参数。",
+          "description": "【V7.3 · 筹码健康非线性调制版】筹码同调驱动力信号的专属参数。",
           "amplification_power": 1.2,
           "comment_amplification_power": "结构顺风时，对驱动力进行非线性放大的基础幂指数。大于1增强放大效果。",
           "dampening_power": 1.5,
@@ -1537,7 +1537,9 @@
           "chip_health_norm_window": 55,
           "comment_chip_health_norm_window": "用于筹码健康度 `chip_health_score_D` 双极性归一化的滚动窗口大小。",
           "chip_health_norm_sensitivity": 2.0,
-          "comment_chip_health_norm_sensitivity": "用于筹码健康度 `chip_health_score_D` 双极性归一化的敏感度。"
+          "comment_chip_health_norm_sensitivity": "用于筹码健康度 `chip_health_score_D` 双极性归一化的敏感度。",
+          "chip_health_tanh_factor": 1.0,
+          "comment_chip_health_tanh_factor": "用于筹码健康度非线性调制（tanh函数）的因子，控制非线性响应的陡峭程度。"
         }
       },
       "dynamic_mechanics_params": {
