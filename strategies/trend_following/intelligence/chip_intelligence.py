@@ -436,17 +436,17 @@ class ChipIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V7.0 · 筹码意图共振版】筹码公理五：诊断“价筹张力”
+        【V7.1 · 诡道双向调制版】筹码公理五：诊断“价筹张力”
         - 核心数学升级1: 将“主力共谋验证”从依赖资金流信号升级为更纯粹、更稳健的“主力筹码意图验证”模型。
                           该模型直接评估1)主力筹码信念是否与背离方向一致(同谋), 2)主力信念强度是否足够大(兵力)。
                           只有当两者都满足时，才确认为一次高置信度的“战术性背离”，并给予显著加成。
         - 核心数学升级2: “筹码趋势”的多元化解读。引入赢家集中度与赢家/输家动量共同构建复合筹码趋势，更全面捕捉筹码结构与价格的分歧。
         - 核心数学升级3: “持续性”的优化。将持续性量化为分歧方向的一致性累积，而非波动性，更准确反映张力积蓄。
         - 核心数学升级4: “能量注入”的筹码化。替换通用成交量为建设性换手率，更精准反映筹码层面的活跃度与质量。
-        - 核心数学升级5: “诡道博弈”深度融入。引入筹码故障幅度对分歧强度进行情境调制，识别主力在筹码层面制造的“战术阳谋”。
+        - 核心数学升级5: “诡道双向调制”。引入筹码故障幅度对分歧强度进行情境调制，根据故障与分歧方向的匹配关系，动态地放大或削弱价筹张力信号。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print("    -> [筹码层] 正在诊断“价筹张力”公理 (V7.0 · 筹码意图共振版)...")
+        print("    -> [筹码层] 正在诊断“价筹张力”公理 (V7.1 · 诡道双向调制版)...") # [修改代码行]
         required_signals = [
             'winner_loser_momentum_D', 'winner_concentration_90pct_D', 'SLOPE_5_close_D',
             'constructive_turnover_ratio_D', 'main_force_conviction_index_D', 'chip_fault_magnitude_D'
@@ -455,13 +455,14 @@ class ChipIntelligence:
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        divergence_params = get_param_value(p_conf.get('divergence_params'), {}) # [新增参数块]
-        chip_trend_momentum_weight = get_param_value(divergence_params.get('chip_trend_momentum_weight'), 0.6) # [新增参数]
-        chip_trend_concentration_weight = get_param_value(divergence_params.get('chip_trend_concentration_weight'), 0.4) # [新增参数]
-        tension_magnitude_amplifier = get_param_value(divergence_params.get('tension_magnitude_amplifier'), 1.5) # [新增参数]
-        chip_intent_factor_amplifier = get_param_value(divergence_params.get('chip_intent_factor_amplifier'), 0.5) # [新增参数]
-        deception_modulator_impact_clip = get_param_value(divergence_params.get('deception_modulator_impact_clip'), 0.5) # [新增参数]
-        conflict_bonus = get_param_value(divergence_params.get('conflict_bonus'), 0.5) # [新增参数]
+        divergence_params = get_param_value(p_conf.get('divergence_params'), {})
+        chip_trend_momentum_weight = get_param_value(divergence_params.get('chip_trend_momentum_weight'), 0.6)
+        chip_trend_concentration_weight = get_param_value(divergence_params.get('chip_trend_concentration_weight'), 0.4)
+        tension_magnitude_amplifier = get_param_value(divergence_params.get('tension_magnitude_amplifier'), 1.5)
+        chip_intent_factor_amplifier = get_param_value(divergence_params.get('chip_intent_factor_amplifier'), 0.5)
+        deception_modulator_impact_clip = get_param_value(divergence_params.get('deception_modulator_impact_clip'), 0.5)
+        conflict_bonus = get_param_value(divergence_params.get('conflict_bonus'), 0.5)
+        deception_modulator_reinforce_factor = get_param_value(divergence_params.get('deception_modulator_reinforce_factor'), 0.5) # [新增参数]
         
         df_index = df.index
 
@@ -476,7 +477,7 @@ class ChipIntelligence:
         composite_chip_trend = (
             norm_chip_momentum * chip_trend_momentum_weight +
             norm_chip_concentration * chip_trend_concentration_weight
-        ) / (chip_trend_momentum_weight + chip_trend_concentration_weight) # [修改代码块] 复合筹码趋势
+        ) / (chip_trend_momentum_weight + chip_trend_concentration_weight)
 
         price_trend_raw = self._get_safe_series(df, df, 'SLOPE_5_close_D', 0.0, method_name="_diagnose_axiom_divergence")
         norm_price_trend = get_adaptive_mtf_normalized_bipolar_score(price_trend_raw, df_index, tf_weights)
@@ -506,18 +507,27 @@ class ChipIntelligence:
         chip_intent_verification_score = is_aligned * intent_strength
         chip_intent_factor = 1.0 + chip_intent_verification_score * chip_intent_factor_amplifier
 
-        # --- 7. 筹码诡道因子调制 (Chip Deception Modulation) ---
+        # --- 7. 筹码诡道双向调制 (Chip Deception Bidirectional Modulation) --- [修改代码块]
         chip_fault_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', 0.0)
         norm_chip_fault = get_adaptive_mtf_normalized_score(chip_fault_raw.abs(), df_index, tf_weights) # 故障幅度本身是正向的
         
-        # 诡道影响方向：如果筹码故障方向与分歧方向一致，则削弱分歧强度
-        # 例如：看涨分歧 (disagreement_vector > 0) + 正向故障 (chip_fault_raw > 0, 诱多) -> 负面影响
-        # 例如：看跌分歧 (disagreement_vector < 0) + 负向故障 (chip_fault_raw < 0, 诱空) -> 负面影响
-        chip_fault_impact = norm_chip_fault * (np.sign(chip_fault_raw) * np.sign(disagreement_vector)).clip(lower=0) # 只有当符号一致时才产生影响
-        deception_modulator = 1 - chip_fault_impact.clip(0, deception_modulator_impact_clip) # 削弱分歧强度，最大削弱比例由参数控制
+        divergence_sign = np.sign(disagreement_vector)
+        fault_sign = np.sign(chip_fault_raw)
+        
+        deception_modulator_factor = pd.Series(1.0, index=df_index)
+        
+        # 故障与分歧方向一致时，削弱张力
+        align_mask = (divergence_sign == fault_sign)
+        deception_modulator_factor.loc[align_mask] = 1 - norm_chip_fault.loc[align_mask] * deception_modulator_impact_clip
+        
+        # 故障与分歧方向相反时，放大张力 (诡道印证分歧)
+        oppose_mask = (divergence_sign != fault_sign)
+        deception_modulator_factor.loc[oppose_mask] = 1 + norm_chip_fault.loc[oppose_mask] * deception_modulator_reinforce_factor
+        
+        deception_modulator_factor = deception_modulator_factor.clip(0.1, 2.0) # 裁剪到合理范围
 
         # --- 8. 基础融合 (Base Fusion) ---
-        base_final_score = disagreement_vector * (1 + tension_magnitude * tension_magnitude_amplifier) * chip_intent_factor * deception_modulator
+        base_final_score = disagreement_vector * (1 + tension_magnitude * tension_magnitude_amplifier) * chip_intent_factor * deception_modulator_factor # [修改代码行]
         
         # --- 9. 冲突放大器 (Conflict Amplifier) ---
         conflict_mask = (np.sign(composite_chip_trend) * np.sign(norm_price_trend) < 0)
@@ -538,7 +548,7 @@ class ChipIntelligence:
                 print(f"    -> [价筹张力探针] @ {probe_date.date()}:")
                 print(f"       - 参数: chip_trend_momentum_weight: {chip_trend_momentum_weight:.2f}, chip_trend_concentration_weight: {chip_trend_concentration_weight:.2f}")
                 print(f"       - 参数: tension_magnitude_amplifier: {tension_magnitude_amplifier:.2f}, chip_intent_factor_amplifier: {chip_intent_factor_amplifier:.2f}")
-                print(f"       - 参数: deception_modulator_impact_clip: {deception_modulator_impact_clip:.2f}, conflict_bonus: {conflict_bonus:.2f}")
+                print(f"       - 参数: deception_modulator_impact_clip: {deception_modulator_impact_clip:.2f}, deception_modulator_reinforce_factor: {deception_modulator_reinforce_factor:.2f}, conflict_bonus: {conflict_bonus:.2f}") # [修改代码行]
                 print(f"       - 原料: winner_loser_momentum_D: {chip_momentum_raw.loc[probe_date]:.4f}, winner_concentration_90pct_D: {chip_concentration_raw.loc[probe_date]:.4f}")
                 print(f"       - 原料: SLOPE_5_close_D: {price_trend_raw.loc[probe_date]:.4f}, constructive_turnover_ratio_D: {constructive_turnover_raw.loc[probe_date]:.4f}")
                 print(f"       - 原料: main_force_conviction_index_D: {mf_chip_conviction_raw.loc[probe_date]:.4f}, chip_fault_magnitude_D: {chip_fault_raw.loc[probe_date]:.4f}")
@@ -550,8 +560,10 @@ class ChipIntelligence:
                 print(f"       - 过程: tension_magnitude: {tension_magnitude.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_mf_chip_conviction: {norm_mf_chip_conviction.loc[probe_date]:.4f}, is_aligned: {is_aligned.loc[probe_date]}, intent_strength: {intent_strength.loc[probe_date]:.4f}")
                 print(f"       - 过程: chip_intent_verification_score: {chip_intent_verification_score.loc[probe_date]:.4f}, chip_intent_factor: {chip_intent_factor.loc[probe_date]:.4f}")
-                print(f"       - 过程: norm_chip_fault: {norm_chip_fault.loc[probe_date]:.4f}, chip_fault_impact: {chip_fault_impact.loc[probe_date]:.4f}")
-                print(f"       - 过程: deception_modulator: {deception_modulator.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_chip_fault: {norm_chip_fault.loc[probe_date]:.4f}")
+                print(f"       - 过程: divergence_sign: {divergence_sign.loc[probe_date]:.0f}, fault_sign: {fault_sign.loc[probe_date]:.0f}") # [新增探针]
+                print(f"       - 过程: align_mask: {align_mask.loc[probe_date]}, oppose_mask: {oppose_mask.loc[probe_date]}") # [新增探针]
+                print(f"       - 过程: deception_modulator_factor: {deception_modulator_factor.loc[probe_date]:.4f}") # [修改探针]
                 print(f"       - 过程: base_final_score (pre-conflict): {base_final_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: conflict_mask: {conflict_mask.loc[probe_date]}, conflict_amplifier: {conflict_amplifier.loc[probe_date]:.4f}")
                 print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
