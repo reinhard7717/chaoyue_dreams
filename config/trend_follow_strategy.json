@@ -1601,7 +1601,7 @@
           "final_score_base_sensitivity_multiplier": 2.0
         },
         "holder_sentiment_params": {
-          "description": "【V7.6 · 杂质协同调制版】持仓信念韧性信号的专属参数。",
+          "description": "【V7.7 · 杂质双向感知版】持仓信念韧性信号的专属参数。",
           "sentiment_trend_modulator_signal_name": "SLOPE_55_winner_concentration_90pct_D",
           "comment_sentiment_trend_modulator_signal_name": "用于动态调整信念权重的筹码趋势信号名称（如SLOPE_55_winner_concentration_90pct_D）。",
           "sentiment_trend_mod_norm_window": 55,
@@ -1657,7 +1657,11 @@
           "impurity_fusion_exponent_base": 0.7,
           "comment_impurity_fusion_exponent_base": "杂质融合指数的基础值，用于控制FOMO和利润兑现效应融合的激进程度（0-1之间，1为最激进）。",
           "impurity_fusion_exponent_sensitivity": 0.5,
-          "comment_impurity_fusion_exponent_sensitivity": "杂质融合指数对信念强度（normalized_sentiment_strength）的敏感度。信念强度越高，融合指数越低，杂质削弱作用越温和。"
+          "comment_impurity_fusion_exponent_sensitivity": "杂质融合指数对信念强度（normalized_sentiment_strength）的敏感度。信念强度越高，融合指数越低，杂质削弱作用越温和。",
+          "fomo_concentration_optimal_target": 0.5,
+          "comment_fomo_concentration_optimal_target": "赢家集中度（winner_concentration_90pct_D）的最优目标值，偏离此值越大，Fomo杂质越高。",
+          "profit_taking_threshold": 5.0,
+          "comment_profit_taking_threshold": "赢家平均利润率（winner_profit_margin_avg_D）的阈值，低于此值不计入利润兑现杂质。"
         }
 
       },
