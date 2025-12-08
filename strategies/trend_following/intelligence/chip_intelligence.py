@@ -242,7 +242,7 @@ class ChipIntelligence:
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V7.3 · MTF增强版】筹码公理三：诊断“持仓信念韧性”
+        【V7.4 · 动态融合版】筹码公理三：诊断“持仓信念韧性”
         - 核心升级1: 动态信念权重。引入“筹码趋势情境”（赢家集中度趋势）来动态调整 `winner_stability` 和 `loser_pain` 在 `belief_core_score` 中的权重。
                       在赢家集中度上升趋势中，更看重赢家稳定性；在下降趋势中，更看重输家痛苦指数。
         - 核心升级2: 恐慌奖励动态敏感度。`capitulation_bonus` 的乘数不再是固定值，而是根据“筹码疲劳指数”进行动态调整。
@@ -254,10 +254,11 @@ class ChipIntelligence:
         - 核心升级5: 欺骗的非对称影响。引入正向“筹码故障幅度”（诱多）作为对 `conviction_base` 的直接惩罚，以反映主力诱多派发的风险。
         - 核心升级6: 情绪杂质的上下文敏感性。根据“筹码健康度”（如过热/过冷）动态调整 `impurity_score` 的非线性调制强度。
         - 核心升级7: 调制器信号MTF增强。`sentiment_trend_modulator`、`panic_reward_modulator`和`impurity_context_modulator`的归一化方式升级为多时间框架（MTF）自适应归一化，使其更鲁棒和情境感知。
+        - 核心升级8: 信念内核与压力测试动态融合。`conviction_base`的计算引入动态权重，根据筹码压力信号（如筹码疲劳指数）调整信念内核和压力测试的融合权重，使模型更具情境适应性。
         - 探针增强: 详细输出所有新增参数、中间计算结果和最终结果，以便于检查和调试。
         - 修复: 修正了情绪纯度非线性调制中 `conviction_base` 未定义的问题，将其计算提前。
         """
-        print("    -> [筹码层] 正在诊断“持仓信念”公理 (V7.3 · MTF增强版)...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“持仓信念”公理 (V7.4 · 动态融合版)...")
         required_signals = [
             'winner_stability_index_D', 'loser_pain_index_D', 'active_buying_support_D',
             'support_validation_strength_D', 'winner_concentration_90pct_D',
@@ -273,10 +274,10 @@ class ChipIntelligence:
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         holder_sentiment_params = get_param_value(p_conf.get('holder_sentiment_params'), {})
         sentiment_trend_modulator_signal_name = get_param_value(holder_sentiment_params.get('sentiment_trend_modulator_signal_name'), 'SLOPE_55_winner_concentration_90pct_D')
-        sentiment_trend_mod_norm_window = get_param_value(holder_sentiment_params.get('sentiment_trend_mod_norm_window'), 55) # 保留参数，但在此处不再直接使用
+        sentiment_trend_mod_norm_window = get_param_value(holder_sentiment_params.get('sentiment_trend_mod_norm_window'), 55)
         sentiment_trend_mod_factor = get_param_value(holder_sentiment_params.get('sentiment_trend_mod_factor'), 0.5)
         panic_reward_modulator_signal_name = get_param_value(holder_sentiment_params.get('panic_reward_modulator_signal_name'), 'chip_fatigue_index_D')
-        panic_reward_mod_norm_window = get_param_value(holder_sentiment_params.get('panic_reward_mod_norm_window'), 21) # 保留参数，但在此处不再直接使用
+        panic_reward_mod_norm_window = get_param_value(holder_sentiment_params.get('panic_reward_mod_norm_window'), 21)
         panic_reward_mod_factor = get_param_value(holder_sentiment_params.get('panic_reward_mod_factor'), 1.0)
         panic_reward_mod_tanh_factor = get_param_value(holder_sentiment_params.get('panic_reward_mod_tanh_factor'), 1.0)
         capitulation_base_reward_multiplier = get_param_value(holder_sentiment_params.get('capitulation_base_reward_multiplier'), 0.3)
@@ -290,16 +291,20 @@ class ChipIntelligence:
         positive_deception_impact_factor = get_param_value(holder_sentiment_params.get('positive_deception_impact_factor'), 0.15)
         impurity_context_modulation_enabled = get_param_value(holder_sentiment_params.get('impurity_context_modulation_enabled'), True)
         impurity_context_modulator_signal_name = get_param_value(holder_sentiment_params.get('impurity_context_modulator_signal_name'), 'chip_health_score_D')
-        impurity_context_mod_norm_window = get_param_value(holder_sentiment_params.get('impurity_context_mod_norm_window'), 55) # 保留参数，但在此处不再直接使用
+        impurity_context_mod_norm_window = get_param_value(holder_sentiment_params.get('impurity_context_mod_norm_window'), 55)
         impurity_context_overbought_amp_factor = get_param_value(holder_sentiment_params.get('impurity_context_overbought_amp_factor'), 0.5)
         impurity_context_oversold_damp_factor = get_param_value(holder_sentiment_params.get('impurity_context_oversold_damp_factor'), 0.2)
+        # [新增代码块] 动态融合参数
+        dynamic_fusion_enabled = get_param_value(holder_sentiment_params.get('dynamic_fusion_enabled'), True)
+        min_pressure_weight = get_param_value(holder_sentiment_params.get('min_pressure_weight'), 0.3)
+        max_pressure_weight = get_param_value(holder_sentiment_params.get('max_pressure_weight'), 0.7)
         df_index = df.index
         winner_stability = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         loser_pain = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         stability_score = get_adaptive_mtf_normalized_bipolar_score(winner_stability, df_index, tf_weights)
         pain_score = get_adaptive_mtf_normalized_bipolar_score(loser_pain, df_index, tf_weights)
         sentiment_trend_raw = self._get_safe_series(df, df, sentiment_trend_modulator_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        normalized_sentiment_trend = get_adaptive_mtf_normalized_score(sentiment_trend_raw, df_index, tf_weights=tf_weights, ascending=True) # [修改代码行]
+        normalized_sentiment_trend = get_adaptive_mtf_normalized_score(sentiment_trend_raw, df_index, tf_weights=tf_weights, ascending=True)
         dynamic_stability_weight = 0.5 + (normalized_sentiment_trend * sentiment_trend_mod_factor).clip(-0.4, 0.4)
         dynamic_pain_weight = 0.5 - (normalized_sentiment_trend * sentiment_trend_mod_factor).clip(-0.4, 0.4)
         total_dynamic_weight = dynamic_stability_weight + dynamic_pain_weight
@@ -317,7 +322,7 @@ class ChipIntelligence:
         capitulation_score = get_adaptive_mtf_normalized_score(capitulation_absorption, df_index, tf_weights)
         base_pressure_score = ((absorption_score.add(1)/2 * defense_score.add(1)/2).pow(0.5) * 2 - 1)
         panic_modulator_raw = self._get_safe_series(df, df, panic_reward_modulator_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        normalized_panic_modulator = get_adaptive_mtf_normalized_score(panic_modulator_raw, df_index, tf_weights=tf_weights, ascending=True) # [修改代码行]
+        normalized_panic_modulator = get_adaptive_mtf_normalized_score(panic_modulator_raw, df_index, tf_weights=tf_weights, ascending=True)
         panic_reward_adjustment_factor = np.tanh(normalized_panic_modulator * panic_reward_mod_tanh_factor) * panic_reward_mod_factor
         dynamic_capitulation_reward_multiplier = capitulation_base_reward_multiplier * (1 + panic_reward_adjustment_factor)
         dynamic_capitulation_reward_multiplier = dynamic_capitulation_reward_multiplier.clip(0.1, 0.8)
@@ -330,7 +335,17 @@ class ChipIntelligence:
             deception_impact = normalized_negative_deception * deception_impact_factor
         pressure_test_score = base_pressure_score * (1 + capitulation_bonus + deception_impact)
         pressure_test_score = pressure_test_score.clip(-1, 1)
-        conviction_base = ((belief_core_score.add(1)/2) * (pressure_test_score.add(1)/2)).pow(0.5)
+        # [修改代码块] 动态融合信念内核与压力测试
+        s_belief_core = belief_core_score.add(1)/2 # 缩放到 [0,1]
+        s_pressure_test = pressure_test_score.add(1)/2 # 缩放到 [0,1]
+        dynamic_belief_core_weight = pd.Series(0.5, index=df.index)
+        dynamic_pressure_test_weight = pd.Series(0.5, index=df.index)
+        if dynamic_fusion_enabled:
+            # normalized_panic_modulator (0-1) 作为压力信号，越高代表压力越大
+            # 压力越大，pressure_test_score 的权重越高
+            dynamic_pressure_test_weight = min_pressure_weight + (max_pressure_weight - min_pressure_weight) * normalized_panic_modulator
+            dynamic_belief_core_weight = 1.0 - dynamic_pressure_test_weight
+        conviction_base = (s_belief_core.pow(dynamic_belief_core_weight) * s_pressure_test.pow(dynamic_pressure_test_weight))
         positive_deception_penalty = pd.Series(0.0, index=df.index)
         if positive_deception_penalty_enabled:
             positive_deception_raw = deception_raw.clip(lower=0)
@@ -345,11 +360,11 @@ class ChipIntelligence:
         impurity_score = (fomo_score * profit_taking_score).pow(0.5)
         if impurity_non_linear_enabled:
             current_sentiment_strength = conviction_base.abs()
-            normalized_sentiment_strength = normalize_score(current_sentiment_strength, df_index, window=21, ascending=True) # 此处仍使用单窗口归一化，因为它是对conviction_base的强度评估，而非原始调制器信号
+            normalized_sentiment_strength = normalize_score(current_sentiment_strength, df_index, window=21, ascending=True)
             dynamic_impurity_tanh_factor = impurity_tanh_factor * (1 + normalized_sentiment_strength * impurity_sentiment_sensitivity)
             if impurity_context_modulation_enabled:
                 context_modulator_raw = self._get_safe_series(df, df, impurity_context_modulator_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
-                normalized_context_modulator = get_adaptive_mtf_normalized_score(context_modulator_raw, df_index, tf_weights=tf_weights, ascending=True) # [修改代码行]
+                normalized_context_modulator = get_adaptive_mtf_normalized_score(context_modulator_raw, df_index, tf_weights=tf_weights, ascending=True)
                 overbought_mask = normalized_context_modulator > 0.7
                 oversold_mask = normalized_context_modulator < 0.3
                 context_adjustment_factor = pd.Series(1.0, index=df.index)
@@ -373,18 +388,19 @@ class ChipIntelligence:
                 print(f"       - 情绪纯度非线性参数: enabled: {impurity_non_linear_enabled}, tanh_factor: {impurity_tanh_factor:.2f}, sentiment_sensitivity: {impurity_sentiment_sensitivity:.2f}")
                 print(f"       - 诡道因子参数: enabled: {deception_factor_enabled}, signal: '{deception_signal_name}', impact_factor: {deception_impact_factor:.2f}")
                 print(f"       - 正向欺骗惩罚参数: enabled: {positive_deception_penalty_enabled}, impact_factor: {positive_deception_impact_factor:.2f}")
-                print(f"       - 情绪杂质上下文调制参数: enabled: {impurity_context_modulation_enabled}, modulator: '{impurity_context_modulator_signal_name}', overbought_amp: {impurity_context_overbought_amp_factor:.2f}, oversold_damp: {impurity_context_oversold_damp_factor:.2f}") # [修改探针输出]
+                print(f"       - 情绪杂质上下文调制参数: enabled: {impurity_context_modulation_enabled}, modulator: '{impurity_context_modulator_signal_name}', overbought_amp: {impurity_context_overbought_amp_factor:.2f}, oversold_damp: {impurity_context_oversold_damp_factor:.2f}")
+                print(f"       - 动态融合参数: enabled: {dynamic_fusion_enabled}, min_pressure_weight: {min_pressure_weight:.2f}, max_pressure_weight: {max_pressure_weight:.2f}") # [新增探针]
                 print(f"       - 原料: winner_stability_index_D: {winner_stability.loc[probe_date]:.4f}, loser_pain_index_D: {loser_pain.loc[probe_date]:.4f}")
                 print(f"       - 过程: stability_score: {stability_score.loc[probe_date]:.4f}, pain_score: {pain_score.loc[probe_date]:.4f}")
                 print(f"       - 动态信念权重调制器 (原始): {sentiment_trend_modulator_signal_name}: {sentiment_trend_raw.loc[probe_date]:.4f}")
-                print(f"       - 动态信念权重调制器 (MTF归一化): {normalized_sentiment_trend.loc[probe_date]:.4f}") # [修改探针输出]
+                print(f"       - 动态信念权重调制器 (MTF归一化): {normalized_sentiment_trend.loc[probe_date]:.4f}")
                 print(f"       - 动态信念权重: stability_weight: {dynamic_stability_weight.loc[probe_date]:.4f}, pain_weight: {dynamic_pain_weight.loc[probe_date]:.4f}")
                 print(f"       - 过程: belief_core_score: {belief_core_score.loc[probe_date]:.4f}")
                 print(f"       - 原料: active_buying_support_D: {absorption_power.loc[probe_date]:.4f}, support_validation_strength_D: {defense_intent.loc[probe_date]:.4f}, capitulation_absorption_index_D: {capitulation_absorption.loc[probe_date]:.4f}")
                 print(f"       - 过程: absorption_score: {absorption_score.loc[probe_date]:.4f}, defense_score: {defense_score.loc[probe_date]:.4f}, capitulation_score: {capitulation_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: base_pressure_score: {base_pressure_score.loc[probe_date]:.4f}")
                 print(f"       - 恐慌奖励调制器 (原始): {panic_reward_modulator_signal_name}: {panic_modulator_raw.loc[probe_date]:.4f}")
-                print(f"       - 恐慌奖励调制器 (MTF归一化): {normalized_panic_modulator.loc[probe_date]:.4f}") # [修改探针输出]
+                print(f"       - 恐慌奖励调制器 (MTF归一化): {normalized_panic_modulator.loc[probe_date]:.4f}")
                 print(f"       - 恐慌奖励调整因子: {panic_reward_adjustment_factor.loc[probe_date]:.4f}")
                 print(f"       - 动态恐慌奖励乘数: {dynamic_capitulation_reward_multiplier.loc[probe_date]:.4f}")
                 print(f"       - 过程: capitulation_bonus: {capitulation_bonus.loc[probe_date]:.4f}")
@@ -394,16 +410,18 @@ class ChipIntelligence:
                     deception_impact_val = deception_impact.loc[probe_date]
                     print(f"       - 诡道因子 (原始): {deception_signal_name}: {deception_raw.loc[probe_date]:.4f}")
                     print(f"       - 诡道因子 (负向): {negative_deception_val:.4f}")
-                    print(f"       - 诡道因子 (MTF归一化负向): {normalized_negative_deception_val:.4f}") # [修改探针输出]
+                    print(f"       - 诡道因子 (MTF归一化负向): {normalized_negative_deception_val:.4f}")
                     print(f"       - 诡道因子 (影响): {deception_impact_val:.4f}")
                 print(f"       - 过程: pressure_test_score: {pressure_test_score.loc[probe_date]:.4f}")
-                print(f"       - 过程: conviction_base (pre-deception penalty): {((belief_core_score.add(1)/2) * (pressure_test_score.add(1)/2)).pow(0.5).loc[probe_date]:.4f}")
+                print(f"       - 过程: conviction_base (pre-dynamic fusion): {((belief_core_score.add(1)/2) * (pressure_test_score.add(1)/2)).pow(0.5).loc[probe_date]:.4f}") # [修改探针输出]
+                if dynamic_fusion_enabled: # [新增探针]
+                    print(f"       - 动态融合权重: belief_core_weight: {dynamic_belief_core_weight.loc[probe_date]:.4f}, pressure_test_weight: {dynamic_pressure_test_weight.loc[probe_date]:.4f}")
                 if positive_deception_penalty_enabled:
                     positive_deception_raw_val = deception_raw.clip(lower=0).loc[probe_date]
                     normalized_positive_deception_val = get_adaptive_mtf_normalized_score(deception_raw.clip(lower=0), df_index, tf_weights).loc[probe_date]
                     positive_deception_penalty_val = positive_deception_penalty.loc[probe_date]
                     print(f"       - 诡道因子 (正向): {positive_deception_raw_val:.4f}")
-                    print(f"       - 诡道因子 (MTF归一化正向): {normalized_positive_deception_val:.4f}") # [修改探针输出]
+                    print(f"       - 诡道因子 (MTF归一化正向): {normalized_positive_deception_val:.4f}")
                     print(f"       - 正向欺骗惩罚: {positive_deception_penalty_val:.4f}")
                 print(f"       - 过程: conviction_base (post-deception penalty): {conviction_base.loc[probe_date]:.4f}")
                 print(f"       - 原料: winner_concentration_90pct_D: {fomo_index.loc[probe_date]:.4f}, winner_profit_margin_avg_D: {profit_taking_quality.loc[probe_date]:.4f}")
@@ -411,7 +429,7 @@ class ChipIntelligence:
                 print(f"       - 过程: impurity_score: {impurity_score.loc[probe_date]:.4f}")
                 if impurity_non_linear_enabled:
                     current_sentiment_strength_val = conviction_base.abs().loc[probe_date]
-                    normalized_sentiment_strength_val = normalize_score(current_sentiment_strength, df_index, window=21, ascending=True).loc[probe_date] # 此处仍使用单窗口归一化，因为它是对conviction_base的强度评估，而非原始调制器信号
+                    normalized_sentiment_strength_val = normalize_score(current_sentiment_strength, df_index, window=21, ascending=True).loc[probe_date]
                     print(f"       - 情绪强度 (原始): {current_sentiment_strength_val:.4f}")
                     print(f"       - 情绪强度 (归一化): {normalized_sentiment_strength_val:.4f}")
                     print(f"       - 动态情绪纯度 tanh 因子 (pre-context): {impurity_tanh_factor * (1 + normalized_sentiment_strength.loc[probe_date] * impurity_sentiment_sensitivity):.4f}")
@@ -420,7 +438,7 @@ class ChipIntelligence:
                         normalized_context_modulator_val = normalized_context_modulator.loc[probe_date]
                         context_adjustment_factor_val = context_adjustment_factor.loc[probe_date]
                         print(f"       - 情绪杂质上下文调制器 (原始): {impurity_context_modulator_signal_name}: {context_modulator_raw_val:.4f}")
-                        print(f"       - 情绪杂质上下文调制器 (MTF归一化): {normalized_context_modulator_val:.4f}") # [修改探针输出]
+                        print(f"       - 情绪杂质上下文调制器 (MTF归一化): {normalized_context_modulator_val:.4f}")
                         print(f"       - 上下文调整因子: {context_adjustment_factor_val:.4f}")
                     print(f"       - 动态情绪纯度 tanh 因子 (post-context): {dynamic_impurity_tanh_factor.loc[probe_date]:.4f}")
                     print(f"       - 过程: modulated_impurity_effect: {modulated_impurity_effect.loc[probe_date]:.4f}")

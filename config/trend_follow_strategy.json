@@ -1601,7 +1601,7 @@
           "final_score_base_sensitivity_multiplier": 2.0
         },
         "holder_sentiment_params": {
-          "description": "【V7.3 · MTF增强版】持仓信念韧性信号的专属参数。",
+          "description": "【V7.4 · 动态融合版】持仓信念韧性信号的专属参数。",
           "sentiment_trend_modulator_signal_name": "SLOPE_55_winner_concentration_90pct_D",
           "comment_sentiment_trend_modulator_signal_name": "用于动态调整信念权重的筹码趋势信号名称（如SLOPE_55_winner_concentration_90pct_D）。",
           "sentiment_trend_mod_norm_window": 55,
@@ -1643,7 +1643,13 @@
           "impurity_context_overbought_amp_factor": 0.5,
           "comment_impurity_context_overbought_amp_factor": "在筹码过热市场中，情绪杂质影响的放大因子。",
           "impurity_context_oversold_damp_factor": 0.2,
-          "comment_impurity_context_oversold_damp_factor": "在筹码过冷市场中，情绪杂质影响的削弱因子。"
+          "comment_impurity_context_oversold_damp_factor": "在筹码过冷市场中，情绪杂质影响的削弱因子。",
+          "dynamic_fusion_enabled": true,
+          "comment_dynamic_fusion_enabled": "是否启用信念内核与压力测试的动态融合权重。",
+          "min_pressure_weight": 0.3,
+          "comment_min_pressure_weight": "在最低压力下，压力测试分数在融合中的最小权重。",
+          "max_pressure_weight": 0.7,
+          "comment_max_pressure_weight": "在最高压力下，压力测试分数在融合中的最大权重。"
         }
 
       },
