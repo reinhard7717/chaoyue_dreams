@@ -468,7 +468,7 @@ class ProcessIntelligence:
         elif signal_name == 'PROCESS_META_WASH_OUT_REBOUND':
             offensive_absorption_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT', 0.0)
             meta_score = self._calculate_process_wash_out_rebound(df, offensive_absorption_intent)
-        elif signal_name == 'PROCESS_META_COVERT_ACCUMULATION': # [代码修改] 新增隐蔽吸筹信号路由
+        elif signal_name == 'PROCESS_META_COVERT_ACCUMULATION': # 新增隐蔽吸筹信号路由
             meta_score = self._calculate_process_covert_accumulation(df)
         else:
             relationship_score = self._calculate_instantaneous_relationship(df, config)
@@ -1639,7 +1639,7 @@ class ProcessIntelligence:
           3. 承接反弹品质 (Absorption Rebound Quality): 评估反弹的有效性和质量。
         - 数学模型: 最终分 = (洗盘诱空背景分^W1 * 恐慌割肉深度分^W2 * 承接反弹品质分^W3)
         """
-        # [代码修改] 移除调试探针
+        # 移除调试探针
         # print("    -> [过程层] 正在计算 PROCESS_META_WASH_OUT_REBOUND (V1.0 · 洗盘诱空反弹协议)...")
         # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})
@@ -1712,7 +1712,7 @@ class ProcessIntelligence:
           3. 筹码优化 (Chip Optimization): 评估筹码结构是否有利于吸筹。
         - 数学模型: 最终分 = (市场背景分^W1 * 隐蔽行动分^W2 * 筹码优化分^W3)
         """
-        # [代码修改] 移除调试探针
+        # 移除调试探针
         # print("    -> [过程层] 正在计算 PROCESS_META_COVERT_ACCUMULATION (V1.0 · 隐蔽吸筹协议)...")
         # --- 1. 获取参数 ---
         p_conf = get_params_block(self.strategy, 'process_intelligence_params', {})

@@ -212,7 +212,7 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
         return pd.Series(default_value, index=target_index, dtype=np.float32)
     series = series.reindex(target_index)
     min_periods = max(1, int(window * 0.2))
-    # [修改的代码行] 在原始序列上直接进行计算
+    # 在原始序列上直接进行计算
     rank = series.rolling(
         window=window, 
         min_periods=min_periods
@@ -393,7 +393,7 @@ def get_robust_bipolar_normalized_score(series: pd.Series, target_index: pd.Inde
     zero_std_mask = ~valid_std_mask
     if zero_std_mask.any():
         deviation = series_isolated[zero_std_mask] - rolling_mean[zero_std_mask]
-        # [代码修改] 增加临界点豁免逻辑
+        # 增加临界点豁免逻辑
         # 正常情况：deviation可以计算出来
         valid_deviation_mask = deviation.notna()
         if valid_deviation_mask.any():

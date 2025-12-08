@@ -115,7 +115,7 @@ class BaseAdvancedChipMetrics(models.Model):
         **CROSS_DAY_FLOW_METRICS,
         **GAME_THEORY_METRICS,
         **VITAL_SIGNS_METRICS,
-        **CONTEXTUAL_ACTION_METRICS, # [修改的代码行] 整合新指标
+        **CONTEXTUAL_ACTION_METRICS, # 整合新指标
     }
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     INTEGER_FIELDS = ['peak_volume', 'pressure_above_volume', 'support_below_volume']
@@ -373,7 +373,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         **POWER_STRUCTURE_METRICS,
         **TACTICAL_LOG_METRICS,
         **OUTCOME_ASSESSMENT_METRICS,
-        **MICRO_DYNAMICS_METRICS, # [修改的代码行] 整合新指标
+        **MICRO_DYNAMICS_METRICS, # 整合新指标
     }
     SLOPE_ACCEL_EXCLUSIONS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',

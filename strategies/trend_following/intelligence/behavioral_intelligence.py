@@ -44,25 +44,24 @@ class BehavioralIntelligence:
 
     def run_behavioral_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V30.1 · 依赖感知型背离品质重构版】行为情报模块总指挥
+        【V30.2 · 依赖感知型背离品质重构版】行为情报模块总指挥
         - 核心重构: 修复了因信号生成顺序导致的依赖缺失问题。
                     现在，所有依赖信号（特别是 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT）
                     都会在被使用之前生成并合并到主数据帧中，确保情报流的完整性。
+        - 【修正】确保df在整个调用链中正确更新。
         """
         all_behavioral_states = {}
-
-        # [代码修改] 调整执行顺序：首先生成 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT
+        # 调整执行顺序：首先生成 SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT
         # 因为它是 _diagnose_divergence_quality 的依赖项，而 _diagnose_divergence_quality
         # 在 _diagnose_behavioral_axioms 内部被调用。
         micro_intent_signals = self._diagnose_microstructure_intent(df)
         self.strategy.atomic_states.update(micro_intent_signals)
         all_behavioral_states.update(micro_intent_signals)
-        # [代码修改] 立即将微观意图信号合并到df中，供后续方法使用 _get_safe_series 获取
+        # 立即将微观意图信号合并到df中，供后续方法使用 _get_safe_series 获取
         for k, v in micro_intent_signals.items():
             if k not in df.columns:
                 df[k] = v
-
-        # [代码修改] 接着生成核心公理信号，此时 _diagnose_divergence_quality 可以访问到微观意图信号
+        # 接着生成核心公理信号，此时 _diagnose_divergence_quality 可以访问到微观意图信号
         atomic_signals = self._diagnose_behavioral_axioms(df)
         # 如果核心公理诊断失败，则提前返回，防止后续错误
         if not atomic_signals:
@@ -70,23 +69,24 @@ class BehavioralIntelligence:
             return {}
         self.strategy.atomic_states.update(atomic_signals)
         all_behavioral_states.update(atomic_signals)
-        # [代码修改] 将原子信号合并到df中，供后续的 _calculate_signal_dynamics 方法使用
+        # 将原子信号合并到df中，供后续的 _calculate_signal_dynamics 方法使用
         for k, v in atomic_signals.items():
             if k not in df.columns:
                 df[k] = v
-
         # 生成上下文新高强度信号
         context_new_high_strength = self._diagnose_context_new_high_strength(df)
         self.strategy.atomic_states.update(context_new_high_strength)
-        all_behavioral_states.update(context_new_high_strength)
-        # [代码修改] 将上下文信号合并到df中
+        all_behavioral_states.update(context_new_high_high_strength)
+        # 将上下文信号合并到df中
         for k, v in context_new_high_strength.items():
             if k not in df.columns:
                 df[k] = v
-        df_with_dynamics = self._calculate_signal_dynamics(df)
-        dynamic_cols = [c for c in df_with_dynamics.columns if c.startswith(('MOMENTUM_', 'POTENTIAL_', 'THRUST_', 'RESONANCE_'))]
-        self.strategy.atomic_states.update(df_with_dynamics[dynamic_cols])
-        all_behavioral_states.update(df_with_dynamics[dynamic_cols])
+        # 将_calculate_signal_dynamics返回的新的DataFrame重新赋值给df
+        df = self._calculate_signal_dynamics(df) 
+        
+        dynamic_cols = [c for c in df.columns if c.startswith(('MOMENTUM_', 'POTENTIAL_', 'THRUST_', 'RESONANCE_'))] # 从更新后的df中获取列
+        self.strategy.atomic_states.update(df[dynamic_cols])
+        all_behavioral_states.update(df[dynamic_cols])
         return all_behavioral_states
 
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
@@ -668,7 +668,7 @@ class BehavioralIntelligence:
             narrative_integrity_score * fusion_weights.get('narrative_integrity', 0.5)
         )
         final_control_score = (strategic_position_score * quality_modulator).clip(-1, 1)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        # 移除整个探针逻辑块，恢复生产状态
         return final_control_score.astype(np.float32)
 
     def _diagnose_deception_index(self, df: pd.DataFrame) -> pd.Series:
@@ -785,7 +785,7 @@ class BehavioralIntelligence:
         strategic_environment_score = (1 - strategic_resistance_score)
         # --- 4. 最终合成：战术品质 × 战略环境 ---
         final_upward_efficiency = (tactical_assault_score * strategic_environment_score).clip(0, 1)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        # 移除整个探针逻辑块，恢复生产状态
         return final_upward_efficiency.astype(np.float32)
 
     def _diagnose_downward_resistance(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -828,7 +828,7 @@ class BehavioralIntelligence:
         ).clip(0, 1)
         # --- 4. 最终合成：战术应对 × 战略意图 ---
         final_downward_resistance = (tactical_response_score * strategic_intent_score).clip(0, 1)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        # 移除整个探针逻辑块，恢复生产状态
         return final_downward_resistance.astype(np.float32)
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -955,7 +955,7 @@ class BehavioralIntelligence:
             behavioral_coherence_factor = 0.5 + behavioral_coherence_factor_raw * 0.5 # 映射到 [0.5, 1.0]
         # --- 5. 最终合成：三维融合 ---
         final_micro_intent = (core_intent_magnitude * environmental_adaptability_factor * behavioral_coherence_factor).clip(-1, 1)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        # 移除整个探针逻辑块，恢复生产状态
         states = {'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT': final_micro_intent.astype(np.float32)}
         return states
 
@@ -1006,7 +1006,7 @@ class BehavioralIntelligence:
         stagnation_evidence = (micro_stalemate_score * 0.6 + macro_erosion_score * 0.4)
         is_rising_or_flat = (pct_change >= -0.005).astype(float)
         final_stagnation_evidence = (stagnation_evidence * is_rising_or_flat).clip(0, 1)
-        # [修改的代码行] 移除探针代码，恢复生产版本
+        # 移除探针代码，恢复生产版本
         return final_stagnation_evidence.astype(np.float32)
 
     def _diagnose_lower_shadow_quality(self, df: pd.DataFrame) -> pd.Series:
@@ -1103,7 +1103,7 @@ class BehavioralIntelligence:
         base_risk = pd.concat([tactical_risk_score, strategic_risk_score], axis=1).max(axis=1)
         synergy_amplifier = 1 + (tactical_risk_score * strategic_risk_score).pow(0.5) * synergy_bonus
         final_distribution_intent = (base_risk * synergy_amplifier).clip(0, 1)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        # 移除整个探针逻辑块，恢复生产状态
         return final_distribution_intent.astype(np.float32)
 
     def _diagnose_ambush_counterattack(self, df: pd.DataFrame, offensive_absorption_intent: pd.Series) -> pd.Series:
@@ -1423,7 +1423,7 @@ class BehavioralIntelligence:
             (bearish_micro_intent_confirmation_score + 1e-9).pow(fusion_weights.get('micro_intent_confirmation', 0.1)) *
             (deceptive_narrative_confirmation_score + 1e-9).pow(fusion_weights.get('deceptive_narrative_confirmation', 0.1))
         ).fillna(0.0)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        # 移除整个探针逻辑块，恢复生产状态
         return bullish_divergence_quality.clip(0, 1).astype(np.float32), bearish_divergence_quality.clip(0, 1).astype(np.float32)
 
     def _calculate_volume_burst_quality(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
@@ -1557,7 +1557,7 @@ class BehavioralIntelligence:
             (construction_action_score + 1e-9) *
             (governors_will_score + 1e-9)
         ).pow(1/3).fillna(0.0)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        # 移除整个探针逻辑块，恢复生产状态
         return absorption_strength.clip(0, 1).astype(np.float32)
 
     def _calculate_behavioral_price_overextension(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> pd.Series:
@@ -1584,13 +1584,13 @@ class BehavioralIntelligence:
         # 获取所需纯行为数据和派生信号
         required_signals = [
             'close_D', 'RSI_13_D', 'MACDh_13_34_8_D', 'volume_D', 'VOL_MA_21_D',
-            'BIAS_5_D', 'BBP_21_2.0_D', # [修改的代码行] 修正BBP指标名称
+            'BIAS_5_D', 'BBP_21_2.0_D', # 修正BBP指标名称
             'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D',
             'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D',
             'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
-            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。") # [修改的代码行] 打印缺失信号
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。") # 打印缺失信号
             return pd.Series(0.0, index=df.index)
 
         close_price = self._get_safe_series(df, 'close_D', df['close_D'], method_name=method_name)
@@ -1599,7 +1599,7 @@ class BehavioralIntelligence:
         current_volume = self._get_safe_series(df, 'volume_D', 0.0, method_name=method_name)
         volume_avg = self._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name=method_name)
         bias_val = self._get_safe_series(df, 'BIAS_5_D', 0.0, method_name=method_name)
-        bbp_val = self._get_safe_series(df, 'BBP_21_2.0_D', 0.5, method_name=method_name) # [修改的代码行] 修正BBP指标名称
+        bbp_val = self._get_safe_series(df, 'BBP_21_2.0_D', 0.5, method_name=method_name) # 修正BBP指标名称
         
         accel_close = self._get_safe_series(df, 'ACCEL_5_close_D', 0.0, method_name=method_name)
         accel_rsi = self._get_safe_series(df, 'ACCEL_5_RSI_13_D', 0.0, method_name=method_name)
@@ -1670,7 +1670,7 @@ class BehavioralIntelligence:
             print(f"    volume_D: {current_volume.loc[probe_ts]:.0f}")
             print(f"    VOL_MA_21_D: {volume_avg.loc[probe_ts]:.0f}")
             print(f"    BIAS_5_D: {bias_val.loc[probe_ts]:.4f}")
-            print(f"    BBP_21_2.0_D: {bbp_val.loc[probe_ts]:.4f}") # [修改的代码行] 修正BBP指标名称
+            print(f"    BBP_21_2.0_D: {bbp_val.loc[probe_ts]:.4f}") # 修正BBP指标名称
             print(f"    ACCEL_5_close_D: {accel_close.loc[probe_ts]:.4f}")
             print(f"    ACCEL_5_RSI_13_D: {accel_rsi.loc[probe_ts]:.4f}")
             print(f"    ACCEL_5_MACDh_13_34_8_D: {accel_macd.loc[probe_ts]:.4f}")
@@ -1728,7 +1728,7 @@ class BehavioralIntelligence:
             'pct_change_D'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
-            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。") # [修改的代码行] 打印缺失信号
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。") # 打印缺失信号
             return pd.Series(0.0, index=df.index)
 
         open_price = self._get_safe_series(df, 'open_D', df['close_D'], method_name=method_name)
@@ -1894,7 +1894,7 @@ class BehavioralIntelligence:
         # --- 4. “大国工匠协议”三维合成 ---
         base_confirmation = (tactical_action_score * execution_quality_score).pow(0.5).fillna(0.0)
         shakeout_confirmation_score = (strategic_intent_score * base_confirmation).clip(0, 1)
-        # [代码修改] 移除整个探针逻辑块，恢复生产状态
+        # 移除整个探针逻辑块，恢复生产状态
         return shakeout_confirmation_score.astype(np.float32)
 
     def _diagnose_pure_behavioral_divergence(self, df: pd.DataFrame, tf_weights: Dict, debug_enabled: bool = False, probe_ts: Optional[pd.Timestamp] = None) -> Tuple[pd.Series, pd.Series]:

@@ -120,7 +120,7 @@ class ChipIntelligence:
         - 核心升级1: 细化“指挥官决心”维度中的诡道类型，将单一欺骗指数拆分为“压价吸筹（诱空）”、“拉高出货（诱多）”和“对倒”三种，并进行加权融合。
         - 核心升级2: 对基础战略态态得分进行时间序列分析，计算其“速度”和“加速度”，并将其与基础得分进行融合，增强信号的前瞻性。
         """
-        # [代码修改] 移除调试探针
+        # 移除调试探针
         # print("    -> [筹码层] 正在诊断“战略态态 (V7.0 · 诡道时序增强版)”...")
         required_signals = [
             'cost_gini_coefficient_D', 'covert_accumulation_signal_D', 'peak_exchange_purity_D',

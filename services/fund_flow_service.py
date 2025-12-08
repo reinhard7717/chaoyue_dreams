@@ -1740,7 +1740,7 @@ class AdvancedFundFlowMetricsService:
                 if weights.sum() > 0:
                     efficiency_coeff = np.average(df['price_change_per_ofi'], weights=weights)
                     metrics['flow_efficiency_index'] = (efficiency_coeff * daily_total_volume) / atr
-                    # [修改的代码行] 使用标准化的 `should_probe` 控制探针
+                    # 使用标准化的 `should_probe` 控制探针
                     if should_probe:
                         print(f"  [探针] flow_efficiency_index (高频-流量效率) 计算:")
                         print(f"    - 核心效率系数 (每单位OFI撬动的价格): {efficiency_coeff:.8f}")

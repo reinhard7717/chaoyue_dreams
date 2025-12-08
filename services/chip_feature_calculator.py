@@ -1380,7 +1380,7 @@ class ChipFeatureCalculator:
         hf_analysis_df = raw_hf_df.copy()
         hf_analysis_df['mid_price'] = (hf_analysis_df['buy_price1'] + hf_analysis_df['sell_price1']) / 2
         hf_analysis_df['prev_mid_price'] = hf_analysis_df['mid_price'].shift(1)
-        hf_analysis_df['mid_price_delta'] = hf_analysis_df['mid_price'].diff() # [修改的代码行] 补全 mid_price_delta 的计算
+        hf_analysis_df['mid_price_delta'] = hf_analysis_df['mid_price'].diff() # 补全 mid_price_delta 的计算
         buy_pressure = np.where(hf_analysis_df['mid_price'] >= hf_analysis_df['prev_mid_price'], hf_analysis_df['buy_volume1'].shift(1), 0)
         sell_pressure = np.where(hf_analysis_df['mid_price'] <= hf_analysis_df['prev_mid_price'], hf_analysis_df['sell_volume1'].shift(1), 0)
         hf_analysis_df['ofi'] = buy_pressure - sell_pressure
@@ -1443,7 +1443,7 @@ class ChipFeatureCalculator:
             intent_component = intent_numerator / intent_denominator if intent_denominator > 0 else 0
             price_start = above_peak_zone_df['price'].iloc[0]
             price_end = above_peak_zone_df['price'].iloc[-1]
-            # [修改的代码行] 修正派发成果的计算逻辑，价格下跌为正成果
+            # 修正派发成果的计算逻辑，价格下跌为正成果
             outcome_component = np.tanh((price_start - price_end) / atr)
             metrics['distribution_at_peak_intensity'] = (focus_component * intent_component * (1 + outcome_component)) * 100
         # 2. 计算主峰区吸筹烈度

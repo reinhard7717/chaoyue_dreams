@@ -79,7 +79,7 @@ class IntradayBehaviorEngine:
                 "SCORE_INTRADAY_FINAL_ASSAULT": pd.Series(dtype=np.float64),
                 "SCORE_INTRADAY_VWAP_BATTLEFIELD": pd.Series(dtype=np.float64),
             }
-        # [代码修改] 重整指挥序列，将 _diagnose_recovery_quality 移至 _diagnose_ambush_and_flank 之前
+        # 重整指挥序列，将 _diagnose_recovery_quality 移至 _diagnose_ambush_and_flank 之前
         diagnostics_to_run = [
             self._diagnose_offensive_purity,
             self._diagnose_dominance_consensus,
@@ -92,7 +92,7 @@ class IntradayBehaviorEngine:
             self._diagnose_ambush_and_flank, # 依赖方置后
        ]
         final_scores = {}
-        # [代码修改] 采用“累积式情报更新”循环，打通情报链路
+        # 采用“累积式情报更新”循环，打通情报链路
         df_cumulative = df.copy() # 创建一个可变副本以累积信号
         for diagnostic_func in diagnostics_to_run:
             result = diagnostic_func(df_cumulative) # 使用累积了新信号的DataFrame
@@ -358,7 +358,7 @@ class IntradayBehaviorEngine:
         """
         signal_name = "SCORE_INTRADAY_AMBUSH_AND_FLANK"
         required_signals = [
-            'open_D', 'low_D', 'ATR_14_D', # [代码修改] 新增ATR依赖
+            'open_D', 'low_D', 'ATR_14_D', # 新增ATR依赖
             'panic_selling_cascade_D',
             'dip_absorption_power_D',
             'SCORE_INTRADAY_RECOVERY_QUALITY'
@@ -369,7 +369,7 @@ class IntradayBehaviorEngine:
         # 1. 获取参数
         params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('ambush_flank_params', {})
         weights = params.get('fusion_weights', {'opportunity': 0.2, 'execution': 0.4, 'counter_attack': 0.4})
-        k_atr = params.get('atr_multiplier_for_dip', 0.75) # [代码修改] 从静态百分比改为ATR乘数
+        k_atr = params.get('atr_multiplier_for_dip', 0.75) # 从静态百分比改为ATR乘数
         # 2. [核心进化] 构建动态ATR门控
         daily_open = self._get_safe_series(df, 'open_D', 0.0, "_diagnose_ambush_and_flank")
         daily_low = self._get_safe_series(df, 'low_D', 0.0, "_diagnose_ambush_and_flank")
@@ -407,7 +407,7 @@ class IntradayBehaviorEngine:
         # 1. 获取参数
         params = get_params_block(self.strategy, 'intraday_gambit_engine_params', {}).get('final_assault_params', {})
         k_synergy = params.get('synergy_factor_k', 0.5)
-        k_conflict = params.get('conflict_factor_k', 0.25) # [代码修改] 使用统一的冲突因子
+        k_conflict = params.get('conflict_factor_k', 0.25) # 使用统一的冲突因子
         # 2. 获取原料信号并进行“符号保护”归一化
         intent_raw = self._get_safe_series(df, 'pre_closing_posturing_D', 0.0, "_diagnose_final_assault")
         verdict_raw = self._get_safe_series(df, 'closing_auction_ambush_D', 0.0, "_diagnose_final_assault")
