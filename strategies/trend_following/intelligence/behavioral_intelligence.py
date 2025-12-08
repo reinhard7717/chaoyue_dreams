@@ -1588,6 +1588,12 @@ class BehavioralIntelligence:
         4) 日内行为极端（日内多头控制力、上涨效率衰减）。
         """
         method_name = "_calculate_behavioral_price_overextension"
+        
+        # [NEW DEBUG PRINT]
+        if debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"    -> [DEBUG] {method_name}: id(df) at start: {id(df)}")
+            print(f"    -> [DEBUG] {method_name}: df.columns at start (full list): {df.columns.tolist()}")
+
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         overextension_params = get_param_value(p_conf.get('price_overextension_params'), {
             "enabled": True, "rsi_overbought_threshold": 70, "bias_overbought_threshold": 0.05,
@@ -1601,13 +1607,13 @@ class BehavioralIntelligence:
         # 获取所需纯行为数据和派生信号
         required_signals = [
             'close_D', 'RSI_13_D', 'MACDh_13_34_8_D', 'volume_D', 'VOL_MA_21_D',
-            'BIAS_5_D', 'BBP_21_2.0_D', # 修正BBP指标名称
+            'BIAS_5_D', 'BBP_21_2.0_D', # [修改的代码行] 修正BBP指标名称
             'ACCEL_5_close_D', 'ACCEL_5_RSI_13_D',
             'ACCEL_5_MACDh_13_34_8_D', 'ACCEL_5_volume_D',
             'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
-            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。") # 打印缺失信号
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。") # [修改的代码行] 打印缺失信号
             return pd.Series(0.0, index=df.index)
 
         close_price = self._get_safe_series(df, 'close_D', df['close_D'], method_name=method_name)
@@ -1616,7 +1622,7 @@ class BehavioralIntelligence:
         current_volume = self._get_safe_series(df, 'volume_D', 0.0, method_name=method_name)
         volume_avg = self._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name=method_name)
         bias_val = self._get_safe_series(df, 'BIAS_5_D', 0.0, method_name=method_name)
-        bbp_val = self._get_safe_series(df, 'BBP_21_2.0_D', 0.5, method_name=method_name) # 修正BBP指标名称
+        bbp_val = self._get_safe_series(df, 'BBP_21_2.0_D', 0.5, method_name=method_name) # [修改的代码行] 修正BBP指标名称
         
         accel_close = self._get_safe_series(df, 'ACCEL_5_close_D', 0.0, method_name=method_name)
         accel_rsi = self._get_safe_series(df, 'ACCEL_5_RSI_13_D', 0.0, method_name=method_name)
@@ -1687,7 +1693,7 @@ class BehavioralIntelligence:
             print(f"    volume_D: {current_volume.loc[probe_ts]:.0f}")
             print(f"    VOL_MA_21_D: {volume_avg.loc[probe_ts]:.0f}")
             print(f"    BIAS_5_D: {bias_val.loc[probe_ts]:.4f}")
-            print(f"    BBP_21_2.0_D: {bbp_val.loc[probe_ts]:.4f}") # 修正BBP指标名称
+            print(f"    BBP_21_2.0_D: {bbp_val.loc[probe_ts]:.4f}") # [修改的代码行] 修正BBP指标名称
             print(f"    ACCEL_5_close_D: {accel_close.loc[probe_ts]:.4f}")
             print(f"    ACCEL_5_RSI_13_D: {accel_rsi.loc[probe_ts]:.4f}")
             print(f"    ACCEL_5_MACDh_13_34_8_D: {accel_macd.loc[probe_ts]:.4f}")
@@ -1727,6 +1733,12 @@ class BehavioralIntelligence:
         4) 日内控制力减弱（日内多头控制力下降、上涨效率衰减）。
         """
         method_name = "_calculate_behavioral_stagnation_evidence"
+
+        # [NEW DEBUG PRINT]
+        if debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"    -> [DEBUG] {method_name}: id(df) at start: {id(df)}")
+            print(f"    -> [DEBUG] {method_name}: df.columns at start (full list): {df.columns.tolist()}")
+
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         stagnation_params = get_param_value(p_conf.get('stagnation_evidence_params'), {
             "enabled": True, "upper_shadow_ratio_threshold": 0.4, "body_ratio_threshold": 0.3,
@@ -1745,7 +1757,7 @@ class BehavioralIntelligence:
             'pct_change_D'
         ]
         if not self._validate_required_signals(df, required_signals, method_name):
-            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。") # 打印缺失信号
+            print(f"    -> [行为情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {required_signals}，返回默认值。") # [修改的代码行] 打印缺失信号
             return pd.Series(0.0, index=df.index)
 
         open_price = self._get_safe_series(df, 'open_D', df['close_D'], method_name=method_name)
@@ -1943,9 +1955,10 @@ class BehavioralIntelligence:
         需要加入详细的探针，输出原料数据、关键计算节点、结果的值，以便于检查和调试。
         """
         method_name = "_diagnose_pure_behavioral_divergence"
-        # [DEBUG PRINT]
+        # [NEW DEBUG PRINT]
         if debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"    -> [DEBUG] {method_name}: df.columns at start: {df.columns.tolist()[:10]}...")
+            print(f"    -> [DEBUG] {method_name}: id(df) at start: {id(df)}")
+            print(f"    -> [DEBUG] {method_name}: df.columns at start (full list): {df.columns.tolist()}")
 
         # 1. 获取配置参数
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
