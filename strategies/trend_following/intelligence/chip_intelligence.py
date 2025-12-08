@@ -4,7 +4,7 @@ from typing import Dict, Tuple, Any, Union
 from strategies.trend_following import utils
 from strategies.trend_following.utils import (
     get_params_block, get_param_value, get_adaptive_mtf_normalized_score, 
-    get_adaptive_mtf_normalized_bipolar_score, is_limit_up
+    get_adaptive_mtf_normalized_bipolar_score, get_robust_bipolar_normalized_score
 )
 
 class ChipIntelligence:
