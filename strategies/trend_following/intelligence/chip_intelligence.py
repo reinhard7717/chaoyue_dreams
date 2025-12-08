@@ -396,13 +396,13 @@ class ChipIntelligence:
         - 核心升级4: 最终融合动态权重。引入战略态势作为情境调制器，动态调整引擎功率、燃料品质、喷管效率的融合权重。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         - 修复: 解决 SCORE_CHIP_STRATEGIC_POSTURE 作为调制器时因重复查找导致的数据缺失警告。
+        - 修复: 修正 get_adaptive_mtf_normalized_score 函数的参数传递错误。
         """
         print("    -> [筹码层] 正在诊断“结构性推力”公理 (V7.0 · 战略推力引擎版)...")
         required_signals = [
             'main_force_conviction_index_D', 'vacuum_zone_magnitude_D', 'upward_impulse_purity_D',
             'chip_health_score_D', 'chip_fault_magnitude_D', 'SLOPE_5_vacuum_zone_magnitude_D',
             'vacuum_traversal_efficiency_D'
-            # 'SCORE_CHIP_STRATEGIC_POSTURE' # [修改代码行] 移除，因为它作为参数传入
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_trend_momentum"):
             return pd.Series(0.0, index=df.index)
@@ -420,7 +420,6 @@ class ChipIntelligence:
         synergy_bonus_context_sensitivity = get_param_value(trend_momentum_params.get('synergy_bonus_context_sensitivity'), 0.5)
         nozzle_efficiency_weights = get_param_value(trend_momentum_params.get('nozzle_efficiency_weights'), {'magnitude': 0.5, 'trend': 0.3, 'traversal': 0.2})
         final_fusion_dynamic_weights_enabled = get_param_value(trend_momentum_params.get('final_fusion_dynamic_weights_enabled'), True)
-        # final_fusion_modulator_signal_name = get_param_value(trend_momentum_params.get('final_fusion_modulator_signal_name'), 'SCORE_CHIP_STRATEGIC_POSTURE') # [修改代码行] 移除此参数，直接使用传入的 strategic_posture
         final_fusion_weights_base = get_param_value(trend_momentum_params.get('final_fusion_weights_base'), {'engine': 0.33, 'fuel': 0.33, 'nozzle': 0.34})
         final_fusion_weights_sensitivity = get_param_value(trend_momentum_params.get('final_fusion_weights_sensitivity'), {'engine': 0.5, 'fuel': 0.5, 'nozzle': 0.5})
         df_index = df.index
@@ -449,13 +448,13 @@ class ChipIntelligence:
         purity_score = get_adaptive_mtf_normalized_bipolar_score(impulse_purity_raw, df_index, tf_weights)
         base_fuel_quality = ((conviction_score.add(1)/2) * (purity_score.add(1)/2)).pow(0.5) * 2 - 1
         chip_fault_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
-        norm_chip_fault = get_adaptive_mtf_normalized_score(chip_fault_raw.abs(), df_index, tf_weights)
-        deception_penalty = pd.Series(0.0, index=df_index)
+        norm_chip_fault = get_adaptive_mtf_normalized_score(chip_fault_raw.abs(), df_index, ascending=True, tf_weights=tf_weights) # [修改代码行] 修正参数传递
+        deception_penalty = pd.Series(0.0, index=df.index)
         positive_fault_mask = chip_fault_raw > 0
         deception_penalty.loc[positive_fault_mask] = norm_chip_fault.loc[positive_fault_mask] * fuel_purity_deception_penalty_factor
         fuel_quality_score_after_deception = base_fuel_quality * (1 - deception_penalty.clip(0, 1))
         synergy_context_raw = self._get_safe_series(df, df, synergy_bonus_context_modulator_signal_name, 0.0, method_name="_diagnose_axiom_trend_momentum")
-        norm_synergy_context = get_adaptive_mtf_normalized_score(synergy_context_raw, df_index, tf_weights)
+        norm_synergy_context = get_adaptive_mtf_normalized_score(synergy_context_raw, df_index, ascending=True, tf_weights=tf_weights) # [修改代码行] 修正参数传递
         dynamic_synergy_bonus_factor = synergy_bonus_base * (1 + norm_synergy_context * synergy_bonus_context_sensitivity)
         dynamic_synergy_bonus_factor = dynamic_synergy_bonus_factor.clip(0.1, 0.5)
         synergy_bonus = (conviction_score.clip(lower=0) * purity_score.clip(lower=0)).pow(0.5) * dynamic_synergy_bonus_factor
@@ -478,8 +477,7 @@ class ChipIntelligence:
         final_fuel_weight = pd.Series(final_fusion_weights_base.get('fuel', 0.33), index=df_index)
         final_nozzle_weight = pd.Series(final_fusion_weights_base.get('nozzle', 0.34), index=df_index)
         if final_fusion_dynamic_weights_enabled:
-            # fusion_modulator_raw = self._get_safe_series(df, df, final_fusion_modulator_signal_name, 0.0, method_name="_diagnose_axiom_trend_momentum") # [修改代码行] 移除
-            fusion_modulator_raw = strategic_posture # [修改代码行] 直接使用传入的 strategic_posture
+            fusion_modulator_raw = strategic_posture
             normalized_fusion_modulator = get_adaptive_mtf_normalized_bipolar_score(fusion_modulator_raw, df_index, tf_weights)
             engine_mod = normalized_fusion_modulator * final_fusion_weights_sensitivity.get('engine', 0.5)
             fuel_mod = normalized_fusion_modulator * final_fusion_weights_sensitivity.get('fuel', 0.5)
@@ -510,7 +508,6 @@ class ChipIntelligence:
                 print(f"       - 参数: synergy_bonus_base: {synergy_bonus_base:.2f}, synergy_bonus_context_modulator_signal_name: {synergy_bonus_context_modulator_signal_name}, synergy_bonus_context_sensitivity: {synergy_bonus_context_sensitivity:.2f}")
                 print(f"       - 参数: nozzle_efficiency_weights: {nozzle_efficiency_weights}")
                 print(f"       - 参数: final_fusion_dynamic_weights_enabled: {final_fusion_dynamic_weights_enabled}")
-                # print(f"       - 参数: final_fusion_modulator_signal_name: {final_fusion_modulator_signal_name}") # [修改代码行] 移除
                 print(f"       - 参数: final_fusion_weights_base: {final_fusion_weights_base}, final_fusion_weights_sensitivity: {final_fusion_weights_sensitivity}")
                 print(f"       - 原料: strategic_posture: {strategic_posture.loc[probe_date]:.4f}, battlefield_geography: {battlefield_geography.loc[probe_date]:.4f}, holder_sentiment: {holder_sentiment.loc[probe_date]:.4f}")
                 print(f"       - 原料: {engine_power_dynamic_weight_modulator_signal_name}: {health_score_slope_raw.loc[probe_date]:.4f}, norm_health_score_slope: {norm_health_score_slope.loc[probe_date]:.4f}")
@@ -519,7 +516,7 @@ class ChipIntelligence:
                 print(f"       - 原料: {synergy_bonus_context_modulator_signal_name}: {synergy_context_raw.loc[probe_date]:.4f}, norm_synergy_context: {norm_synergy_context.loc[probe_date]:.4f}")
                 print(f"       - 原料: vacuum_zone_magnitude_D: {vacuum_magnitude_raw.loc[probe_date]:.4f}, SLOPE_5_vacuum_zone_magnitude_D: {vacuum_trend_raw.loc[probe_date]:.4f}, vacuum_traversal_efficiency_D: {vacuum_traversal_raw.loc[probe_date]:.4f}")
                 if final_fusion_dynamic_weights_enabled:
-                    print(f"       - 原料: fusion_modulator_raw (from strategic_posture): {fusion_modulator_raw.loc[probe_date]:.4f}, normalized_fusion_modulator: {normalized_fusion_modulator.loc[probe_date]:.4f}") # [修改代码行] 调整探针输出
+                    print(f"       - 原料: fusion_modulator_raw (from strategic_posture): {fusion_modulator_raw.loc[probe_date]:.4f}, normalized_fusion_modulator: {normalized_fusion_modulator.loc[probe_date]:.4f}")
                 print(f"       - 过程: static_engine_power: {static_engine_power.loc[probe_date]:.4f}")
                 print(f"       - 过程: dynamic_weight_mod: {dynamic_weight_mod.loc[probe_date]:.4f}, current_static_weight: {current_static_weight.loc[probe_date]:.4f}, current_dynamic_weight: {current_dynamic_weight.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_slope (health): {norm_slope.loc[probe_date]:.4f}, norm_accel (health): {norm_accel.loc[probe_date]:.4f}, dynamic_engine_power: {dynamic_engine_power.loc[probe_date]:.4f}")
@@ -538,7 +535,7 @@ class ChipIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V7.2 · 生产就绪版】筹码公理五：诊断“价筹张力”
+        【V7.2 · 情境自适应张力版】筹码公理五：诊断“价筹张力”
         - 核心数学升级1: 将“主力共谋验证”从依赖资金流信号升级为更纯粹、更稳健的“主力筹码意图验证”模型。
                           该模型直接评估1)主力筹码信念是否与背离方向一致(同谋), 2)主力信念强度是否足够大(兵力)。
                           只有当两者都满足时，才确认为一次高置信度的“战术性背离”，并给予显著加成。
@@ -549,9 +546,10 @@ class ChipIntelligence:
         - 核心数学升级6: “情境自适应放大器”。引入筹码健康度作为情境调制器，动态调整张力强度和主力意图验证的放大倍数。
         - 核心数学升级7: “非线性放大控制”。对放大项引入tanh变换，使其增长更平滑，并有饱和上限，防止过度放大。
         - 核心数学升级8: “动态复合筹码趋势权重”。引入筹码波动不稳定性指数作为调制器，自适应调整复合筹码趋势中动量和集中度的权重。
-        - 代码优化: 移除所有调试探针，达到生产代码标准。
+        - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
+        - 修复: 修正 get_adaptive_mtf_normalized_score 函数的参数传递错误。
         """
-        # print("    -> [筹码层] 正在诊断“价筹张力”公理 (V7.2 · 生产就绪版)...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“价筹张力”公理 (V7.2 · 情境自适应张力版)...")
         required_signals = [
             'winner_loser_momentum_D', 'winner_concentration_90pct_D', 'SLOPE_5_close_D',
             'constructive_turnover_ratio_D', 'main_force_conviction_index_D', 'chip_fault_magnitude_D',
@@ -627,7 +625,7 @@ class ChipIntelligence:
             chip_intent_amplification_term = np.tanh(chip_intent_amplification_term * non_linear_amp_tanh_factor)
         chip_intent_factor = 1.0 + chip_intent_amplification_term
         chip_fault_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', 0.0)
-        norm_chip_fault = get_adaptive_mtf_normalized_score(chip_fault_raw.abs(), df_index, tf_weights)
+        norm_chip_fault = get_adaptive_mtf_normalized_score(chip_fault_raw.abs(), df_index, ascending=True, tf_weights=tf_weights) # [修改代码行] 修正参数传递
         divergence_sign = np.sign(disagreement_vector)
         fault_sign = np.sign(chip_fault_raw)
         deception_modulator_factor = pd.Series(1.0, index=df_index)
@@ -642,6 +640,46 @@ class ChipIntelligence:
         conflict_amplifier.loc[conflict_mask] = 1.0 + conflict_bonus
         safe_base_score = base_final_score.clip(-0.999, 0.999)
         final_score = np.tanh(np.arctanh(safe_base_score) * conflict_amplifier)
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
+            if probe_date in df.index:
+                print(f"    -> [价筹张力探针] @ {probe_date.date()}:")
+                print(f"       - 参数: chip_trend_momentum_weight_base: {chip_trend_momentum_weight_base:.2f}, chip_trend_concentration_weight_base: {chip_trend_concentration_weight_base:.2f}")
+                print(f"       - 参数: tension_magnitude_amplifier_base: {tension_magnitude_amplifier_base:.2f}, chip_intent_factor_amplifier_base: {chip_intent_factor_amplifier_base:.2f}")
+                print(f"       - 参数: deception_modulator_impact_clip: {deception_modulator_impact_clip:.2f}, deception_modulator_reinforce_factor: {deception_modulator_reinforce_factor:.2f}, conflict_bonus: {conflict_bonus:.2f}")
+                print(f"       - 参数: contextual_amplification_enabled: {contextual_amplification_enabled}, context_modulator_signal_name: {context_modulator_signal_name}, context_sensitivity_tension: {context_sensitivity_tension:.2f}, context_sensitivity_intent: {context_sensitivity_intent:.2f}")
+                print(f"       - 参数: non_linear_amplification_enabled: {non_linear_amplification_enabled}, non_linear_amp_tanh_factor: {non_linear_amp_tanh_factor:.2f}")
+                print(f"       - 参数: dynamic_chip_trend_weights_enabled: {dynamic_chip_trend_weights_enabled}, chip_trend_weight_modulator_signal_name: {chip_trend_weight_modulator_signal_name}, chip_trend_weight_mod_sensitivity: {chip_trend_weight_mod_sensitivity:.2f}")
+                print(f"       - 原料: winner_loser_momentum_D: {chip_momentum_raw.loc[probe_date]:.4f}, winner_concentration_90pct_D: {chip_concentration_raw.loc[probe_date]:.4f}")
+                print(f"       - 原料: SLOPE_5_close_D: {price_trend_raw.loc[probe_date]:.4f}, constructive_turnover_ratio_D: {constructive_turnover_raw.loc[probe_date]:.4f}")
+                print(f"       - 原料: main_force_conviction_index_D: {mf_chip_conviction_raw.loc[probe_date]:.4f}, chip_fault_magnitude_D: {chip_fault_raw.loc[probe_date]:.4f}")
+                if contextual_amplification_enabled:
+                    print(f"       - 原料: {context_modulator_signal_name}: {context_modulator_raw.loc[probe_date]:.4f}, normalized_context: {normalized_context.loc[probe_date]:.4f}")
+                if dynamic_chip_trend_weights_enabled:
+                    print(f"       - 原料: {chip_trend_weight_modulator_signal_name}: {chip_trend_modulator_raw.loc[probe_date]:.4f}, normalized_chip_trend_modulator: {normalized_chip_trend_modulator.loc[probe_date]:.4f}")
+                    print(f"       - 过程: dynamic_momentum_weight: {dynamic_momentum_weight.loc[probe_date]:.4f}, dynamic_concentration_weight: {dynamic_concentration_weight.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_chip_momentum: {norm_chip_momentum.loc[probe_date]:.4f}, norm_chip_concentration: {norm_chip_concentration.loc[probe_date]:.4f}")
+                print(f"       - 过程: composite_chip_trend: {composite_chip_trend.loc[probe_date]:.4f}, norm_price_trend: {norm_price_trend.loc[probe_date]:.4f}")
+                print(f"       - 过程: disagreement_vector: {disagreement_vector.loc[probe_date]:.4f}")
+                print(f"       - 过程: persistence_raw: {persistence_raw.loc[probe_date]:.4f}, norm_persistence: {norm_persistence.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_constructive_turnover: {norm_constructive_turnover.loc[probe_date]:.4f}, energy_injection: {energy_injection.loc[probe_date]:.4f}")
+                print(f"       - 过程: tension_magnitude: {tension_magnitude.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_mf_chip_conviction: {norm_mf_chip_conviction.loc[probe_date]:.4f}, is_aligned: {is_aligned.loc[probe_date]}, intent_strength: {intent_strength.loc[probe_date]:.4f}")
+                print(f"       - 过程: chip_intent_verification_score: {chip_intent_verification_score.loc[probe_date]:.4f}")
+                if contextual_amplification_enabled:
+                    print(f"       - 过程: dynamic_tension_amplifier: {dynamic_tension_amplifier.loc[probe_date]:.4f}, dynamic_chip_intent_factor_amplifier: {dynamic_chip_intent_factor_amplifier.loc[probe_date]:.4f}")
+                print(f"       - 过程: tension_amplification_term: {tension_amplification_term.loc[probe_date]:.4f}, chip_intent_amplification_term: {chip_intent_amplification_term.loc[probe_date]:.4f}")
+                print(f"       - 过程: chip_intent_factor: {chip_intent_factor.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_chip_fault: {norm_chip_fault.loc[probe_date]:.4f}")
+                print(f"       - 过程: divergence_sign: {divergence_sign.loc[probe_date]:.0f}, fault_sign: {fault_sign.loc[probe_date]:.0f}")
+                print(f"       - 过程: align_mask: {align_mask.loc[probe_date]}, oppose_mask: {oppose_mask.loc[probe_date]}")
+                print(f"       - 过程: deception_modulator_factor: {deception_modulator_factor.loc[probe_date]:.4f}")
+                print(f"       - 过程: base_final_score (pre-conflict): {base_final_score.loc[probe_date]:.4f}")
+                print(f"       - 过程: conflict_mask: {conflict_mask.loc[probe_date]}, conflict_amplifier: {conflict_amplifier.loc[probe_date]:.4f}")
+                print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
