@@ -216,12 +216,12 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V34.9 · 依赖编排与调试增强版】原子信号中心
+        【V34.10 · 依赖编排与调试增强版】原子信号中心
         - 核心升级: 适配了 V5.0 "派发罪证链" 和 V3.0 "战略反击许可" 模型，
                       并调整了内部调用顺序以确保逻辑依赖的正确性。
         - 【修正】确保所有派生信号在被需要时已添加到df中。
         - 【新增】将鲁棒斜率计算提升到方法开头，解决循环依赖问题。
-        - 【调试】增加详细打印，追踪df列的添加情况。
+        - 【调试】增加详细打印，追踪df列的添加情况，包括df的内存地址和完整列列表。
         - 【重要修正】确保所有新生成的信号在添加到states字典的同时，也立即添加到传入的df中，以解决内部依赖问题。
         """
         method_name = "_diagnose_behavioral_axioms"
@@ -308,6 +308,7 @@ class BehavioralIntelligence:
 
         # [DEBUG PRINT]
         if is_debug_enabled and probe_ts and probe_ts in df.index:
+            print(f"    -> [DEBUG] {method_name}: id(df) BEFORE robust_slopes calculation: {id(df)}")
             print(f"    -> [DEBUG] {method_name}: df.columns BEFORE robust_slopes calculation: {df.columns.tolist()[:10]}...")
 
         # 1. 计算鲁棒斜率 (Robust Slopes)
@@ -333,10 +334,19 @@ class BehavioralIntelligence:
             # [修改的代码行] 将鲁棒斜率添加到df中，并添加到states中
             df[f'robust_{indicator}_slope'] = robust_slopes[indicator]
             states[f'robust_{indicator}_slope'] = robust_slopes[indicator]
+            # [NEW DEBUG] Check immediately if the column exists
+            if is_debug_enabled and probe_ts and probe_ts in df.index:
+                if f'robust_{indicator}_slope' not in df.columns:
+                    print(f"    -> [CRITICAL DEBUG] Column 'robust_{indicator}_slope' NOT found in df.columns immediately after assignment for {indicator}!")
+                else:
+                    print(f"    -> [CRITICAL DEBUG] Column 'robust_{indicator}_slope' FOUND in df.columns immediately after assignment for {indicator}.")
+
 
         # [DEBUG PRINT]
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"    -> [DEBUG] {method_name}: df.columns AFTER robust_slopes calculation: {df.columns.tolist()[:10]}...")
+            print(f"    -> [DEBUG] {method_name}: id(df) AFTER robust_slopes calculation: {id(df)}")
+            # [修改的代码行] 打印所有列，或者至少是最后几列，以确认新列是否真的被添加
+            print(f"    -> [DEBUG] {method_name}: df.columns AFTER robust_slopes calculation (full list): {df.columns.tolist()}")
             print(f"    -> [DEBUG] {method_name}: robust_slopes calculated keys: {robust_slopes.keys()}")
             for k, v in robust_slopes.items():
                 if probe_ts in v.index:
@@ -345,6 +355,7 @@ class BehavioralIntelligence:
                     print(f"        robust_{k}_slope not available at probe_ts")
 
         # [修改的代码行] 计算长期斜率 - 提升到这里
+        long_term_period = multi_level_resonance_params.get('long_term_period', 21) # 确保long_term_period已定义
         long_term_close_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_close_D', 0.0, method_name=method_name)
         long_term_rsi_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_RSI_13_D', 0.0, method_name=method_name)
         long_term_macd_slope = self._get_safe_series(df, f'SLOPE_{long_term_period}_MACDh_13_34_8_D', 0.0, method_name=method_name)
@@ -396,7 +407,7 @@ class BehavioralIntelligence:
 
         # [DEBUG PRINT]
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"    -> [DEBUG] {method_name}: df.columns BEFORE calling _calculate_behavioral_price_overextension: {df.columns.tolist()[:10]}...")
+            print(f"    -> [DEBUG] {method_name}: df.columns BEFORE calling _calculate_behavioral_price_overextension: {df.columns.tolist()[-10:]}...") # [修改的代码行] 打印最后10列
 
         # --- 超买信号 (依赖于df中的信号，所以先计算并添加到df) ---
         # 调用重构后的纯行为超买信号
@@ -406,7 +417,7 @@ class BehavioralIntelligence:
 
         # [DEBUG PRINT]
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"    -> [DEBUG] {method_name}: df.columns BEFORE calling _calculate_behavioral_stagnation_evidence: {df.columns.tolist()[:10]}...")
+            print(f"    -> [DEBUG] {method_name}: df.columns BEFORE calling _calculate_behavioral_stagnation_evidence: {df.columns.tolist()[-10:]}...") # [修改的代码行] 打印最后10列
 
         # --- 滞涨信号 (依赖于df中的信号，所以先计算并添加到df) ---
         # 调用重构后的纯行为滞涨信号
@@ -416,7 +427,7 @@ class BehavioralIntelligence:
 
         # [DEBUG PRINT]
         if is_debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"    -> [DEBUG] {method_name}: df.columns BEFORE calling _diagnose_pure_behavioral_divergence: {df.columns.tolist()[:10]}...")
+            print(f"    -> [DEBUG] {method_name}: df.columns BEFORE calling _diagnose_pure_behavioral_divergence: {df.columns.tolist()[-10:]}...") # [修改的代码行] 打印最后10列
 
         # --- 其他信号 ---
         lower_shadow_quality = self._diagnose_lower_shadow_quality(df)
