@@ -242,7 +242,7 @@ class ChipIntelligence:
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V7.4 · 动态融合版】筹码公理三：诊断“持仓信念韧性”
+        【V7.5 · 杂质独立调制版】筹码公理三：诊断“持仓信念韧性”
         - 核心升级1: 动态信念权重。引入“筹码趋势情境”（赢家集中度趋势）来动态调整 `winner_stability` 和 `loser_pain` 在 `belief_core_score` 中的权重。
                       在赢家集中度上升趋势中，更看重赢家稳定性；在下降趋势中，更看重输家痛苦指数。
         - 核心升级2: 恐慌奖励动态敏感度。`capitulation_bonus` 的乘数不再是固定值，而是根据“筹码疲劳指数”进行动态调整。
@@ -255,10 +255,11 @@ class ChipIntelligence:
         - 核心升级6: 情绪杂质的上下文敏感性。根据“筹码健康度”（如过热/过冷）动态调整 `impurity_score` 的非线性调制强度。
         - 核心升级7: 调制器信号MTF增强。`sentiment_trend_modulator`、`panic_reward_modulator`和`impurity_context_modulator`的归一化方式升级为多时间框架（MTF）自适应归一化，使其更鲁棒和情境感知。
         - 核心升级8: 信念内核与压力测试动态融合。`conviction_base`的计算引入动态权重，根据筹码压力信号（如筹码疲劳指数）调整信念内核和压力测试的融合权重，使模型更具情境适应性。
+        - 核心升级9: 杂质独立调制与乘法融合。`fomo_score`和`profit_taking_score`将独立进行情境敏感的非线性调制，然后以乘法形式融合其对`conviction_base`的削弱作用，以更精细地捕捉不同杂质的非对称影响。
         - 探针增强: 详细输出所有新增参数、中间计算结果和最终结果，以便于检查和调试。
         - 修复: 修正了情绪纯度非线性调制中 `conviction_base` 未定义的问题，将其计算提前。
         """
-        print("    -> [筹码层] 正在诊断“持仓信念”公理 (V7.4 · 动态融合版)...")
+        print("    -> [筹码层] 正在诊断“持仓信念”公理 (V7.5 · 杂质独立调制版)...")
         required_signals = [
             'winner_stability_index_D', 'loser_pain_index_D', 'active_buying_support_D',
             'support_validation_strength_D', 'winner_concentration_90pct_D',
@@ -282,8 +283,11 @@ class ChipIntelligence:
         panic_reward_mod_tanh_factor = get_param_value(holder_sentiment_params.get('panic_reward_mod_tanh_factor'), 1.0)
         capitulation_base_reward_multiplier = get_param_value(holder_sentiment_params.get('capitulation_base_reward_multiplier'), 0.3)
         impurity_non_linear_enabled = get_param_value(holder_sentiment_params.get('impurity_non_linear_enabled'), True)
-        impurity_tanh_factor = get_param_value(holder_sentiment_params.get('impurity_tanh_factor'), 1.0)
-        impurity_sentiment_sensitivity = get_param_value(holder_sentiment_params.get('impurity_sentiment_sensitivity'), 0.5)
+        # [修改代码行] 移除 impurity_tanh_factor 和 impurity_sentiment_sensitivity
+        fomo_tanh_factor = get_param_value(holder_sentiment_params.get('fomo_tanh_factor'), 1.0) # [新增参数]
+        fomo_sentiment_sensitivity = get_param_value(holder_sentiment_params.get('fomo_sentiment_sensitivity'), 0.5) # [新增参数]
+        profit_taking_tanh_factor = get_param_value(holder_sentiment_params.get('profit_taking_tanh_factor'), 1.0) # [新增参数]
+        profit_taking_sentiment_sensitivity = get_param_value(holder_sentiment_params.get('profit_taking_sentiment_sensitivity'), 0.5) # [新增参数]
         deception_factor_enabled = get_param_value(holder_sentiment_params.get('deception_factor_enabled'), True)
         deception_signal_name = get_param_value(holder_sentiment_params.get('deception_signal_name'), 'chip_fault_magnitude_D')
         deception_impact_factor = get_param_value(holder_sentiment_params.get('deception_impact_factor'), 0.2)
@@ -294,7 +298,6 @@ class ChipIntelligence:
         impurity_context_mod_norm_window = get_param_value(holder_sentiment_params.get('impurity_context_mod_norm_window'), 55)
         impurity_context_overbought_amp_factor = get_param_value(holder_sentiment_params.get('impurity_context_overbought_amp_factor'), 0.5)
         impurity_context_oversold_damp_factor = get_param_value(holder_sentiment_params.get('impurity_context_oversold_damp_factor'), 0.2)
-        # [新增代码块] 动态融合参数
         dynamic_fusion_enabled = get_param_value(holder_sentiment_params.get('dynamic_fusion_enabled'), True)
         min_pressure_weight = get_param_value(holder_sentiment_params.get('min_pressure_weight'), 0.3)
         max_pressure_weight = get_param_value(holder_sentiment_params.get('max_pressure_weight'), 0.7)
@@ -335,14 +338,11 @@ class ChipIntelligence:
             deception_impact = normalized_negative_deception * deception_impact_factor
         pressure_test_score = base_pressure_score * (1 + capitulation_bonus + deception_impact)
         pressure_test_score = pressure_test_score.clip(-1, 1)
-        # [修改代码块] 动态融合信念内核与压力测试
-        s_belief_core = belief_core_score.add(1)/2 # 缩放到 [0,1]
-        s_pressure_test = pressure_test_score.add(1)/2 # 缩放到 [0,1]
+        s_belief_core = belief_core_score.add(1)/2
+        s_pressure_test = pressure_test_score.add(1)/2
         dynamic_belief_core_weight = pd.Series(0.5, index=df.index)
         dynamic_pressure_test_weight = pd.Series(0.5, index=df.index)
         if dynamic_fusion_enabled:
-            # normalized_panic_modulator (0-1) 作为压力信号，越高代表压力越大
-            # 压力越大，pressure_test_score 的权重越高
             dynamic_pressure_test_weight = min_pressure_weight + (max_pressure_weight - min_pressure_weight) * normalized_panic_modulator
             dynamic_belief_core_weight = 1.0 - dynamic_pressure_test_weight
         conviction_base = (s_belief_core.pow(dynamic_belief_core_weight) * s_pressure_test.pow(dynamic_pressure_test_weight))
@@ -357,25 +357,39 @@ class ChipIntelligence:
         profit_taking_quality = self._get_safe_series(df, df, 'winner_profit_margin_avg_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         fomo_score = get_adaptive_mtf_normalized_score(fomo_index, df_index, ascending=True, tf_weights=tf_weights)
         profit_taking_score = get_adaptive_mtf_normalized_score(profit_taking_quality, df_index, ascending=True, tf_weights=tf_weights)
-        impurity_score = (fomo_score * profit_taking_score).pow(0.5)
+        # [修改代码块] 情绪纯度独立调制
+        fomo_effect = pd.Series(0.0, index=df.index)
+        profit_taking_effect = pd.Series(0.0, index=df.index)
+        final_impurity_effect = pd.Series(0.0, index=df.index)
         if impurity_non_linear_enabled:
             current_sentiment_strength = conviction_base.abs()
             normalized_sentiment_strength = normalize_score(current_sentiment_strength, df_index, window=21, ascending=True)
-            dynamic_impurity_tanh_factor = impurity_tanh_factor * (1 + normalized_sentiment_strength * impurity_sentiment_sensitivity)
+            context_adjustment_factor = pd.Series(1.0, index=df.index)
             if impurity_context_modulation_enabled:
                 context_modulator_raw = self._get_safe_series(df, df, impurity_context_modulator_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
                 normalized_context_modulator = get_adaptive_mtf_normalized_score(context_modulator_raw, df_index, tf_weights=tf_weights, ascending=True)
                 overbought_mask = normalized_context_modulator > 0.7
                 oversold_mask = normalized_context_modulator < 0.3
-                context_adjustment_factor = pd.Series(1.0, index=df.index)
                 context_adjustment_factor.loc[overbought_mask] = 1 + (normalized_context_modulator.loc[overbought_mask] - 0.7) * impurity_context_overbought_amp_factor / 0.3
                 context_adjustment_factor.loc[oversold_mask] = 1 - (0.3 - normalized_context_modulator.loc[oversold_mask]) * impurity_context_oversold_damp_factor / 0.3
-                dynamic_impurity_tanh_factor = dynamic_impurity_tanh_factor * context_adjustment_factor
-            dynamic_impurity_tanh_factor = dynamic_impurity_tanh_factor.clip(0.5, 3.0)
-            modulated_impurity_effect = np.tanh(impurity_score * dynamic_impurity_tanh_factor)
-            final_impurity_effect = modulated_impurity_effect
+            # 独立调制 FOMO 效应
+            dynamic_fomo_tanh_factor = fomo_tanh_factor * (1 + normalized_sentiment_strength * fomo_sentiment_sensitivity)
+            dynamic_fomo_tanh_factor = dynamic_fomo_tanh_factor * context_adjustment_factor
+            dynamic_fomo_tanh_factor = dynamic_fomo_tanh_factor.clip(0.5, 3.0)
+            fomo_effect = np.tanh(fomo_score * dynamic_fomo_tanh_factor)
+            # 独立调制 Profit Taking 效应
+            dynamic_profit_taking_tanh_factor = profit_taking_tanh_factor * (1 + normalized_sentiment_strength * profit_taking_sentiment_sensitivity)
+            dynamic_profit_taking_tanh_factor = dynamic_profit_taking_tanh_factor * context_adjustment_factor
+            dynamic_profit_taking_tanh_factor = dynamic_profit_taking_tanh_factor.clip(0.5, 3.0)
+            profit_taking_effect = np.tanh(profit_taking_score * dynamic_profit_taking_tanh_factor)
+            # 乘法融合两个效应
+            final_impurity_effect = 1 - (1 - fomo_effect) * (1 - profit_taking_effect)
         else:
-            final_impurity_effect = impurity_score
+            # 如果非线性调制未启用，则退化为简单的几何平均（或根据需要调整）
+            # 为了保持逻辑一致性，这里可以简单地将 fomo_score 和 profit_taking_score 视为直接的效应
+            # 或者，如果 impurity_non_linear_enabled 为 False，则 impurity_score 应该为 0，不产生影响
+            # 考虑到业务逻辑，如果禁用非线性，则意味着不考虑杂质影响，所以 final_impurity_effect 设为 0
+            final_impurity_effect = pd.Series(0.0, index=df.index)
         final_score = (conviction_base * (1 - final_impurity_effect)) * 2 - 1
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -385,11 +399,13 @@ class ChipIntelligence:
             if probe_date in df.index:
                 print(f"    -> [持仓信念探针] @ {probe_date.date()}:")
                 print(f"       - 基础参数: sentiment_trend_mod_factor: {sentiment_trend_mod_factor:.2f}, panic_reward_mod_factor: {panic_reward_mod_factor:.2f}, panic_reward_mod_tanh_factor: {panic_reward_mod_tanh_factor:.2f}, capitulation_base_reward_multiplier: {capitulation_base_reward_multiplier:.2f}")
-                print(f"       - 情绪纯度非线性参数: enabled: {impurity_non_linear_enabled}, tanh_factor: {impurity_tanh_factor:.2f}, sentiment_sensitivity: {impurity_sentiment_sensitivity:.2f}")
+                print(f"       - 情绪纯度非线性参数: enabled: {impurity_non_linear_enabled}")
+                print(f"       - FOMO调制参数: tanh_factor: {fomo_tanh_factor:.2f}, sentiment_sensitivity: {fomo_sentiment_sensitivity:.2f}") # [新增探针]
+                print(f"       - 利润兑现调制参数: tanh_factor: {profit_taking_tanh_factor:.2f}, sentiment_sensitivity: {profit_taking_sentiment_sensitivity:.2f}") # [新增探针]
                 print(f"       - 诡道因子参数: enabled: {deception_factor_enabled}, signal: '{deception_signal_name}', impact_factor: {deception_impact_factor:.2f}")
                 print(f"       - 正向欺骗惩罚参数: enabled: {positive_deception_penalty_enabled}, impact_factor: {positive_deception_impact_factor:.2f}")
                 print(f"       - 情绪杂质上下文调制参数: enabled: {impurity_context_modulation_enabled}, modulator: '{impurity_context_modulator_signal_name}', overbought_amp: {impurity_context_overbought_amp_factor:.2f}, oversold_damp: {impurity_context_oversold_damp_factor:.2f}")
-                print(f"       - 动态融合参数: enabled: {dynamic_fusion_enabled}, min_pressure_weight: {min_pressure_weight:.2f}, max_pressure_weight: {max_pressure_weight:.2f}") # [新增探针]
+                print(f"       - 动态融合参数: enabled: {dynamic_fusion_enabled}, min_pressure_weight: {min_pressure_weight:.2f}, max_pressure_weight: {max_pressure_weight:.2f}")
                 print(f"       - 原料: winner_stability_index_D: {winner_stability.loc[probe_date]:.4f}, loser_pain_index_D: {loser_pain.loc[probe_date]:.4f}")
                 print(f"       - 过程: stability_score: {stability_score.loc[probe_date]:.4f}, pain_score: {pain_score.loc[probe_date]:.4f}")
                 print(f"       - 动态信念权重调制器 (原始): {sentiment_trend_modulator_signal_name}: {sentiment_trend_raw.loc[probe_date]:.4f}")
@@ -413,8 +429,8 @@ class ChipIntelligence:
                     print(f"       - 诡道因子 (MTF归一化负向): {normalized_negative_deception_val:.4f}")
                     print(f"       - 诡道因子 (影响): {deception_impact_val:.4f}")
                 print(f"       - 过程: pressure_test_score: {pressure_test_score.loc[probe_date]:.4f}")
-                print(f"       - 过程: conviction_base (pre-dynamic fusion): {((belief_core_score.add(1)/2) * (pressure_test_score.add(1)/2)).pow(0.5).loc[probe_date]:.4f}") # [修改探针输出]
-                if dynamic_fusion_enabled: # [新增探针]
+                print(f"       - 过程: conviction_base (pre-dynamic fusion): {((belief_core_score.add(1)/2) * (pressure_test_score.add(1)/2)).pow(0.5).loc[probe_date]:.4f}")
+                if dynamic_fusion_enabled:
                     print(f"       - 动态融合权重: belief_core_weight: {dynamic_belief_core_weight.loc[probe_date]:.4f}, pressure_test_weight: {dynamic_pressure_test_weight.loc[probe_date]:.4f}")
                 if positive_deception_penalty_enabled:
                     positive_deception_raw_val = deception_raw.clip(lower=0).loc[probe_date]
@@ -426,13 +442,11 @@ class ChipIntelligence:
                 print(f"       - 过程: conviction_base (post-deception penalty): {conviction_base.loc[probe_date]:.4f}")
                 print(f"       - 原料: winner_concentration_90pct_D: {fomo_index.loc[probe_date]:.4f}, winner_profit_margin_avg_D: {profit_taking_quality.loc[probe_date]:.4f}")
                 print(f"       - 过程: fomo_score: {fomo_score.loc[probe_date]:.4f}, profit_taking_score: {profit_taking_score.loc[probe_date]:.4f}")
-                print(f"       - 过程: impurity_score: {impurity_score.loc[probe_date]:.4f}")
                 if impurity_non_linear_enabled:
                     current_sentiment_strength_val = conviction_base.abs().loc[probe_date]
                     normalized_sentiment_strength_val = normalize_score(current_sentiment_strength, df_index, window=21, ascending=True).loc[probe_date]
                     print(f"       - 情绪强度 (原始): {current_sentiment_strength_val:.4f}")
                     print(f"       - 情绪强度 (归一化): {normalized_sentiment_strength_val:.4f}")
-                    print(f"       - 动态情绪纯度 tanh 因子 (pre-context): {impurity_tanh_factor * (1 + normalized_sentiment_strength.loc[probe_date] * impurity_sentiment_sensitivity):.4f}")
                     if impurity_context_modulation_enabled:
                         context_modulator_raw_val = self._get_safe_series(df, df, impurity_context_modulator_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment").loc[probe_date]
                         normalized_context_modulator_val = normalized_context_modulator.loc[probe_date]
@@ -440,8 +454,12 @@ class ChipIntelligence:
                         print(f"       - 情绪杂质上下文调制器 (原始): {impurity_context_modulator_signal_name}: {context_modulator_raw_val:.4f}")
                         print(f"       - 情绪杂质上下文调制器 (MTF归一化): {normalized_context_modulator_val:.4f}")
                         print(f"       - 上下文调整因子: {context_adjustment_factor_val:.4f}")
-                    print(f"       - 动态情绪纯度 tanh 因子 (post-context): {dynamic_impurity_tanh_factor.loc[probe_date]:.4f}")
-                    print(f"       - 过程: modulated_impurity_effect: {modulated_impurity_effect.loc[probe_date]:.4f}")
+                    print(f"       - 动态FOMO tanh 因子 (pre-context): {fomo_tanh_factor * (1 + normalized_sentiment_strength.loc[probe_date] * fomo_sentiment_sensitivity):.4f}") # [新增探针]
+                    print(f"       - 动态FOMO tanh 因子 (post-context): {dynamic_fomo_tanh_factor.loc[probe_date]:.4f}") # [新增探针]
+                    print(f"       - 过程: fomo_effect: {fomo_effect.loc[probe_date]:.4f}") # [新增探针]
+                    print(f"       - 动态利润兑现 tanh 因子 (pre-context): {profit_taking_tanh_factor * (1 + normalized_sentiment_strength.loc[probe_date] * profit_taking_sentiment_sensitivity):.4f}") # [新增探针]
+                    print(f"       - 动态利润兑现 tanh 因子 (post-context): {dynamic_profit_taking_tanh_factor.loc[probe_date]:.4f}") # [新增探针]
+                    print(f"       - 过程: profit_taking_effect: {profit_taking_effect.loc[probe_date]:.4f}") # [新增探针]
                 print(f"       - 过程: final_impurity_effect: {final_impurity_effect.loc[probe_date]:.4f}")
                 print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
