@@ -112,23 +112,11 @@ class StructuralIntelligence:
         effective_env_modifier = env_modifier * (1 - waiver_coefficient)
         contextual_posture = (strategic_posture * (1 + effective_env_modifier)).clip(0, 1)
         all_states['SCORE_STRUCT_CONTEXTUAL_POSTURE'] = contextual_posture.astype(np.float32)
-        if self.is_probe_date:
-            print(f"    [探针] 情境战略态势 (SCORE_STRUCT_CONTEXTUAL_POSTURE): {contextual_posture.iloc[-1]:.4f}")
-            if waiver_coefficient.iloc[-1] > 0:
-                print(f"      - 神笔干预: [荣耀的代价] 触发！龙头潜力({leadership_potential.iloc[-1]:.2f})作为豁免系数")
-                print(f"      - 计算: 原始调节器({env_modifier.iloc[-1]:.2f}) * (1 - {waiver_coefficient.iloc[-1]:.2f}) -> 有效调节器={effective_env_modifier.iloc[-1]:.2f}")
-                print(f"      - 融合: 内部态势({strategic_posture.iloc[-1]:.2f}) * (1 + 有效调节器) -> 最终态势")
-            else:
-                print(f"      - 融合: 内部态势分={strategic_posture.iloc[-1]:.2f}, 环境调节器={env_modifier.iloc[-1]:.2f} -> 最终态势 = 内部态势 * (1 + 调节器)")
         # --- 步骤七: 基于最终情境态势，更新动量 ---
         final_posture_slope_raw = ta.slope(contextual_posture, length=momentum_window)
         final_posture_slope_raw.fillna(0, inplace=True)
         final_structural_momentum = get_adaptive_mtf_normalized_bipolar_score(final_posture_slope_raw, df.index, tf_weights)
         all_states['SCORE_STRUCT_MOMENTUM'] = final_structural_momentum.astype(np.float32)
-        if self.is_probe_date:
-            today_score = final_structural_momentum.iloc[-1]
-            print(f"    [探针] 结构动量(势) (SCORE_STRUCT_MOMENTUM): {today_score:.4f}")
-            print(f"      - 原料: (最终)情境战略态势5日斜率(原始)={final_posture_slope_raw.iloc[-1]:.4f}")
         # --- 步骤八: 诊断剧本 ---
         playbook_secondary_launch = self._diagnose_playbook_secondary_launch(
             df, axiom_stability, contextual_posture, final_structural_momentum
@@ -162,12 +150,6 @@ class StructuralIntelligence:
         ma_structure_trend_score = get_adaptive_mtf_normalized_bipolar_score(ma_structure_trend_raw, df.index, tf_weights)
         divergence_score = (ma_structure_trend_score - price_trend_score).clip(-1, 1)
         final_score = divergence_score.astype(np.float32)
-        if self.is_probe_date:
-            today_score = final_score.iloc[-1]
-            print(f"    [探针] 结构背离公理 (SCORE_STRUCT_AXIOM_DIVERGENCE): {today_score:.4f}")
-            print(f"      - MTF权重: default")
-            print(f"      - 原料: 价格趋势(原始)={price_trend_raw.iloc[-1]:.4f}, 均线结构趋势(原始)={ma_structure_trend_raw.iloc[-1]:.4f}")
-            print(f"      - 计算: 价格趋势分={price_trend_score.iloc[-1]:.4f}, 均线结构趋势分={ma_structure_trend_score.iloc[-1]:.4f}")
         return final_score
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame) -> pd.Series:
@@ -240,15 +222,6 @@ class StructuralIntelligence:
         trend_direction = np.sign(self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_axiom_trend_form"))
         trend_form_score = np.where(trend_direction >= 0, bullish_form_score, -bearish_form_score)
         final_score = pd.Series(trend_form_score, index=df_index).clip(-1, 1).astype(np.float32)
-        if self.is_probe_date:
-            today_score = final_score.iloc[-1]
-            print(f"    [探针] 趋势形态公理 (SCORE_STRUCT_AXIOM_TREND_FORM): {today_score:.4f}")
-            print(f"      - MTF权重: short_term_geometry")
-            print(f"      - 原料: 排列分={alignment_score.iloc[-1]:.2f}, 平均斜率分={avg_slope_score.iloc[-1]:.2f}, 有序度(原始)={orderliness_raw.iloc[-1]:.2f}, 角度(原始)={angle_raw.iloc[-1]:.2f}")
-            print(f"      - 计算: 有序度分(原始)={orderliness_score.iloc[-1]:.2f}, 角度分={angle_score.iloc[-1]:.2f}")
-            if arbitration_triggered.iloc[-1]:
-                print(f"      - 仲裁: [触发] 排列分(0.9+) > 有序度分, 已修正有序度分 => {corrected_orderliness_score.iloc[-1]:.2f}")
-            print(f"      - 融合: 看涨形态分={bullish_form_score.iloc[-1]:.2f}, 看跌形态分={bearish_form_score.iloc[-1]:.2f}, 趋势方向={trend_direction.iloc[-1]:.0f}")
         return final_score
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame) -> pd.Series:
@@ -298,13 +271,7 @@ class StructuralIntelligence:
             micro_liquidity_score * 0.2
         ).clip(0, 1)
         final_score = (stability_score * 2 - 1).astype(np.float32)
-        if self.is_probe_date:
-            today_score = final_score.iloc[-1]
-            print(f"    [探针] 结构稳定性公理 (SCORE_STRUCT_AXIOM_STABILITY): {today_score:.4f}")
-            print(f"      - MTF权重: long_term_stability")
-            print(f"      - 原料: 支撑强度(原始)={pullback_depth_raw.iloc[-1]:.2f}, 流动性(原始)={liquidity_auth_raw.iloc[-1]:.2f}")
-            print(f"      - 计算: 宏观支撑分={macro_support_score.iloc[-1]:.2f}, 韧性分={resilience_score.iloc[-1]:.2f}, 流动性分={micro_liquidity_score.iloc[-1]:.2f}")
-            return final_score
+        return final_score
 
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, daily_trend_form_score: pd.Series) -> pd.Series:
         """
@@ -358,16 +325,6 @@ class StructuralIntelligence:
         bearish_harmony = bearish_macro_health * 0.7 + micro_intent_score.clip(upper=0).abs() * 0.3
         final_score_raw = bullish_harmony - bearish_harmony
         final_score = final_score_raw.clip(-1, 1).astype(np.float32)
-        if self.is_probe_date:
-            today_score = final_score.iloc[-1]
-            print(f"    [探针] 宏观趋势健康度公理 (SCORE_STRUCT_AXIOM_MTF_COHESION): {today_score:.4f}")
-            print(f"      - MTF权重: default (for micro)")
-            print(f"      - 宏观原料: 排列分={alignment_score.iloc[-1]:.2f}, BBP_21(原始)={bbp_raw.iloc[-1]:.2f}")
-            print(f"      - 宏观计算: 过热惩罚={overheat_penalty.iloc[-1]:.2f}, 超跌缓和={oversold_mitigation.iloc[-1]:.2f}")
-            print(f"      - 宏观计算: 看涨健康度分={bullish_macro_health.iloc[-1]:.2f}, 看跌健康度分={bearish_macro_health.iloc[-1]:.2f}")
-            print(f"      - 微观原料: OFI(原始)={ofi_raw.iloc[-1]:.2f}, 买盘消耗(原始)={buy_sweep_raw.iloc[-1]:.2f}")
-            print(f"      - 微观计算: 微观意图分={micro_intent_score.iloc[-1]:.2f}")
-            print(f"      - 和谐度融合: (宏观健康度*0.7 + 微观意图*0.3)")
         return final_score
 
     def _diagnose_bottom_fractal(self, df: pd.DataFrame, n: int = 5, min_depth_ratio: float = 0.001) -> pd.Series:
@@ -410,16 +367,6 @@ class StructuralIntelligence:
                         is_bottom = False
             if is_bottom:
                 bottom_fractal_score.iloc[i] = 1.0
-        # --- 新增代码开始 ---
-        if self.is_probe_date:
-            today_score = bottom_fractal_score.iloc[-1]
-            print(f"    [探针] 底分型公理 (SCORE_STRUCT_BOTTOM_FRACTAL): {today_score:.4f}")
-            if today_score > 0:
-                probe_index = len(df) - 1
-                middle_low_probe = low_series.iloc[probe_index]
-                surrounding_lows_probe = [low_series.iloc[j] for j in range(probe_index - half_n, probe_index + half_n + 1) if j != probe_index]
-                print(f"      - 结构确认: 中心Low={middle_low_probe:.2f}, 周围Lows={surrounding_lows_probe}")
-        # --- 新增代码结束 ---
         return bottom_fractal_score
 
     def _diagnose_strategic_posture(self, axiom_trend_form: pd.Series, axiom_mtf_cohesion: pd.Series, axiom_stability: pd.Series, axiom_tension: pd.Series, platform_foundation: pd.Series, breakout_readiness: pd.Series) -> Tuple[pd.Series, pd.Series]:
@@ -459,17 +406,6 @@ class StructuralIntelligence:
         defense_modifier = (defense_strength - 0.5) * conviction_factor
         strategic_posture = (offense_score * (1 + defense_modifier)).clip(0, 1)
         final_score = strategic_posture.astype(np.float32)
-        if self.is_probe_date:
-            today_score = final_score.iloc[-1]
-            print(f"    [探针] 结构战略态势 (SCORE_STRUCT_STRATEGIC_POSTURE): {today_score:.4f}")
-            print(f"      - 原料: 趋势形态分={axiom_trend_form.iloc[-1]:.2f}, 宏观健康度分={axiom_mtf_cohesion.iloc[-1]:.2f}, 结构稳定性分={axiom_stability.iloc[-1]:.2f}")
-            print(f"      - 新增原料: 杠杆(原始)={leverage_raw.iloc[-1]:.2f} -> 杠杆分={leverage_score.iloc[-1]:.2f}")
-            print(f"      - 新增原料: 结构张力分={axiom_tension.iloc[-1]:.2f}")
-            print(f"      - 计算: 基础矛分={base_offense_score.iloc[-1]:.2f}, 张力放大器={tension_amplifier.iloc[-1]:.2f} -> 最终矛分={offense_score.iloc[-1]:.2f}")
-            # --- 修改代码开始 ---
-            print(f"      - 计算: 动态盾={dynamic_defense.iloc[-1]:.2f}, 静态盾(平台品质={platform_foundation.iloc[-1]:.2f}, 准备度={breakout_readiness.iloc[-1]:.2f}) -> 最终盾强度={defense_strength.iloc[-1]:.2f}")
-            # --- 修改代码结束 ---
-            print(f"      - 协同融合: 防御调节器={defense_modifier.iloc[-1]:.2f} -> 最终态势 = 最终矛分 * (1 + 调节器)")
         return final_score, defense_strength
 
     def _diagnose_axiom_tension(self, df: pd.DataFrame) -> pd.Series:
@@ -507,12 +443,6 @@ class StructuralIntelligence:
             volume_compression_score * 0.2
         ).clip(0, 1)
         final_score = tension_score.astype(np.float32)
-        if self.is_probe_date:
-            today_score = final_score.iloc[-1]
-            print(f"    [探针] 结构张力公理 (SCORE_STRUCT_AXIOM_TENSION): {today_score:.4f}")
-            print(f"      - 价格压缩: BBW(原始)={price_compression_raw.iloc[-1]:.3f} -> 分数={price_compression_score.iloc[-1]:.2f}")
-            print(f"      - 结构压缩: EMA标准差(原始)={structure_compression_raw.iloc[-1]:.4f} -> 分数={structure_compression_score.iloc[-1]:.2f}")
-            print(f"      - 量能压缩: 均量比(原始)={volume_compression_raw.iloc[-1]:.3f} -> 分数={volume_compression_score.iloc[-1]:.2f}")
         return final_score
 
     def _diagnose_playbook_secondary_launch(self, df: pd.DataFrame, axiom_stability: pd.Series, strategic_posture: pd.Series, structural_momentum: pd.Series) -> pd.Series:
@@ -553,11 +483,6 @@ class StructuralIntelligence:
                             break # 找到符合条件的洗盘日，即可停止内层循环
             if washout_found:
                 playbook_score.iloc[i] = 1.0
-        if self.is_probe_date and playbook_score.iloc[-1] > 0:
-            print(f"    [探针] 结构剧本-二次启动 (SCORE_STRUCT_PLAYBOOK_SECONDARY_LAUNCH): {playbook_score.iloc[-1]:.4f}")
-            print(f"      - 剧本确认: [蓄势]->[洗盘吸筹]->[启动] 模式在今日识别成功!")
-        elif self.is_probe_date:
-            print(f"    [探针] 结构剧本-二次启动 (SCORE_STRUCT_PLAYBOOK_SECONDARY_LAUNCH): 0.0000")
         return playbook_score
 
     def _diagnose_axiom_environment(self, df: pd.DataFrame) -> pd.Series:
@@ -586,11 +511,6 @@ class StructuralIntelligence:
             theme_hotness_score * 0.4
         ).clip(0, 1)
         final_score = environment_score.astype(np.float32)
-        if self.is_probe_date:
-            today_score = final_score.iloc[-1]
-            print(f"    [探针] 战场环境公理 (SCORE_STRUCT_AXIOM_ENVIRONMENT): {today_score:.4f}")
-            print(f"      - 地利: 板块排名(原始)={sector_rank_raw.iloc[-1]:.2f} -> 分数={sector_strength_score.iloc[-1]:.2f}")
-            print(f"      - 人和: 主题热度(原始)={theme_hotness_raw.iloc[-1]:.2f} -> 分数={theme_hotness_score.iloc[-1]:.2f}")
         return final_score
 
     def _diagnose_leadership_potential(self, strategic_posture: pd.Series, axiom_environment: pd.Series, structural_momentum: pd.Series, axiom_tension: pd.Series) -> pd.Series:
@@ -612,15 +532,6 @@ class StructuralIntelligence:
         # --- 3. 输出最终裁决 ---
         # 只有在矛盾区域内，才输出龙头潜力的证据分
         final_score = (leadership_evidence_score * is_conflict_zone).astype(np.float32)
-        if self.is_probe_date:
-            today_score = final_score.iloc[-1]
-            if is_conflict_zone.iloc[-1]:
-                print(f"    [探针] 龙头潜力 (SCORE_STRUCT_LEADERSHIP_POTENTIAL): {today_score:.4f}")
-                print(f"      - 裁决: [激活] 内部态势({strategic_posture.iloc[-1]:.2f}) > {posture_threshold} 且 环境({axiom_environment.iloc[-1]:.2f}) < {env_threshold}")
-                print(f"      - 证据: 结构动量分={structural_momentum.iloc[-1]:.2f}, 结构张力分={axiom_tension.iloc[-1]:.2f}")
-            else:
-                print(f"    [探针] 龙头潜力 (SCORE_STRUCT_LEADERSHIP_POTENTIAL): 0.0000")
-                print(f"      - 裁决: [未激活] 未满足“个体强，环境弱”的矛盾情境。")
         return final_score
 
     def _diagnose_platform_foundation(self, df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
@@ -693,17 +604,6 @@ class StructuralIntelligence:
         dynamic_high.ffill(inplace=True)
         dynamic_low.ffill(inplace=True)
         vpoc.ffill(inplace=True)
-        if self.is_probe_date:
-            today_score = platform_quality.iloc[-1]
-            print(f"    [探针] 平台基石品质 (SCORE_STRUCT_PLATFORM_FOUNDATION): {today_score:.4f}")
-            if is_valid_platform_day.iloc[-1]:
-                print(f"      - 状态: [有效平台] 持续天数={duration_counts.iloc[-1]}")
-                # --- 新增代码开始 ---
-                print(f"      - 法医鉴定: 形态分={s_structure.iloc[-1]:.2f}, 筹码分={s_chips.iloc[-1]:.2f}, 主力分={s_main_force.iloc[-1]:.2f}, 情绪分={s_sentiment.iloc[-1]:.2f}")
-                # --- 新增代码结束 ---
-                print(f"      - 勘探边界: 高点={dynamic_high.iloc[-1]:.2f}, VPOC={vpoc.iloc[-1]:.2f}, 低点={dynamic_low.iloc[-1]:.2f}")
-            else:
-                print(f"      - 状态: [无效平台] 持续天数={duration_counts.iloc[-1] if is_in_platform_state.iloc[-1] else 0}, 未满足最少{min_duration}天要求。")
         return platform_quality, dynamic_high, dynamic_low, vpoc
 
     def _diagnose_final_judgment(self, contextual_posture: pd.Series, defense_strength: pd.Series, structural_momentum: pd.Series) -> pd.Series:
@@ -731,14 +631,6 @@ class StructuralIntelligence:
         # --- 3. 做出最终裁决 ---
         final_judgment_score = (contextual_posture - final_penalty).clip(-1, 1)
         final_score = final_judgment_score.astype(np.float32)
-        if self.is_probe_date:
-            today_score = final_score.iloc[-1]
-            print(f"    [探针] 终极裁决 (SCORE_STRUCT_FINAL_JUDGMENT): {today_score:.4f}")
-            if is_veto_triggered.iloc[-1]:
-                print(f"      - 裁决: [力竭陷阱-否决] 触发！高态势({contextual_posture.iloc[-1]:.2f}) + 弱防御({defense_strength.iloc[-1]:.2f}) + 低动量({structural_momentum.iloc[-1]:.2f})")
-                print(f"      - 计算: 防御脆弱度={defense_weakness.iloc[-1]:.2f}, 动能脆弱度={momentum_weakness.iloc[-1]:.2f} -> 最终惩罚={final_penalty.iloc[-1]:.2f}")
-            else:
-                print(f"      - 裁决: [通过] 未识别到致命风险综合征。")
         return final_score
 
     def _diagnose_breakout_readiness(self, df: pd.DataFrame, axiom_tension: pd.Series) -> pd.Series:
@@ -775,10 +667,6 @@ class StructuralIntelligence:
         ).clip(0, 1)
         # 废除 is_consolidating 开关，直接输出连续性分数
         final_score = readiness_score.astype(np.float32)
-        if self.is_probe_date:
-            today_score = final_score.iloc[-1]
-            print(f"    [探针] 突破准备度 (SCORE_STRUCT_BREAKOUT_READINESS): {today_score:.4f}")
-            print(f"      - 质量评估: 供应枯竭度={supply_exhaustion_score.iloc[-1]:.2f}, 主力控盘度={main_force_control_score.iloc[-1]:.2f}, 势能积蓄度={energy_accumulation_score.iloc[-1]:.2f}")
         return final_score
 
 

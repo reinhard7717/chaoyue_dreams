@@ -1757,7 +1757,7 @@
           "comment_final_fusion_weights_sensitivity": "最终融合中，调制器对各维度权重的敏感度。"
         },
         "tactical_exchange_params": {
-          "description": "【V4.0 · 诡道博弈精算版】战术换手博弈的质量与意图。",
+          "description": "【V5.0 · 筹码天眼版】战术换手博弈的质量与意图。",
           "intent_weights": {
             "control_transfer": 0.4,
             "cleansing_efficiency": 0.3,
@@ -1774,19 +1774,23 @@
           "deception_outcome_effectiveness_threshold": 0.3,
           "deception_outcome_cost_threshold": 0.3,
           "quality_weights": {
-            "bullish_absorption": 0.25,
-            "bullish_purity": 0.25,
-            "bearish_distribution": 0.25,
+            "bullish_absorption": 0.2,
+            "bullish_purity": 0.2,
+            "bearish_distribution": 0.2,
             "exchange_purity": 0.15,
-            "structural_optimization": 0.1
+            "structural_optimization": 0.1,
+            "psychological_pressure_absorption": 0.1,
+            "exchange_efficiency": 0.05
           },
           "quality_context_signal_name": "winner_loser_momentum_D",
           "structural_optimization_slope_period": 5,
+          "psychological_pressure_absorption_slope_period": 5,
           "environment_weights": {
-            "geography": 0.4,
+            "geography": 0.3,
             "chip_fatigue": 0.2,
             "chip_stability": 0.2,
-            "dominant_peak_health": 0.2
+            "dominant_peak_health": 0.15,
+            "chip_patience_and_stability": 0.15
           },
           "chip_fatigue_impact_factor": 0.5,
           "chip_stability_modulator_signal_name": "VOLATILITY_INSTABILITY_INDEX_21d_D",
@@ -1801,8 +1805,9 @@
             "rhythm_persistence": 0.1
           },
           "meta_modulator_weights": {
-            "chip_health": 0.6,
-            "volatility_instability": 0.4
+            "chip_health": 0.4,
+            "volatility_instability": 0.3,
+            "main_force_conviction": 0.3
           },
           "meta_modulator_sensitivity": 0.5
         }

@@ -1002,58 +1002,64 @@ class ChipIntelligence:
 
     def _diagnose_tactical_exchange(self, df: pd.DataFrame, battlefield_geography: pd.Series) -> pd.Series:
         """
-        【V4.0 · 诡道博弈精算版】诊断战术换手博弈的质量与意图
-        - 核心升级1: 诡道博弈的“成功度”与“成本”评估。引入对诡道行为（诱空吸筹、诱多派发）是否达到预期效果以及主力为此付出的筹码成本的量化。
-        - 核心升级2: 换手“纯度”与“结构优化”评估。更细致地评估换手本身的纯净度，以及换手后筹码结构是否得到健康优化。
-        - 核心升级3: 关键筹码“阵地”的博弈强度。评估换手行为对核心筹码峰（如主力成本峰）的影响和其健康度变化。
-        - 核心升级4: 换手“节奏”与“持续性”。引入对换手意图和质量短期趋势的评估，捕捉主力行为的连贯性。
-        - 核心升级5: 非线性融合的进一步深化。引入更复杂的动态权重调制器，使最终融合更具情境适应性。
+        【V5.0 · 筹码天眼版】诊断战术换手博弈的质量与意图
+        - 核心升级1: 筹码“博弈深度”与“心理防线”评估。量化换手对套牢盘和获利盘的吸收与承接能力。
+        - 核心升级2: 筹码“能量密度”与“效率”。评估单位成交量带来的筹码结构优化程度。
+        - 核心升级3: 筹码“时间价值”与“耐心”。衡量筹码的沉淀度及主力吸筹的耐心。
+        - 核心升级4: 非线性融合的进一步深化。扩展元调制器，纳入更多情境因子，使融合权重更具适应性。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print("    -> [筹码层] 正在诊断“战术换手博弈 (V4.0 · 诡道博弈精算版)”...") # [修改代码行] 版本号更新
+        print("    -> [筹码层] 正在诊断“战术换手博弈 (V5.0 · 筹码天眼版)”...") # [修改代码行] 版本号更新
         required_signals = [
             'peak_control_transfer_D', 'floating_chip_cleansing_efficiency_D',
             'suppressive_accumulation_intensity_D', 'gathering_by_chasing_D', 'gathering_by_support_D',
             'chip_fault_magnitude_D', 'main_force_conviction_index_D',
-            'retail_panic_surrender_index_D', 'loser_pain_index_D', 'winner_profit_margin_avg_D', # [新增代码行] 诡道结果评估
-            'peak_exchange_purity_D', # [新增代码行] 换手纯度
-            'SLOPE_5_winner_concentration_90pct_D', 'SLOPE_5_cost_structure_skewness_D', 'SLOPE_5_peak_separation_ratio_D', # [新增代码行] 结构优化
+            'retail_panic_surrender_index_D', 'loser_pain_index_D', 'winner_profit_margin_avg_D',
+            'peak_exchange_purity_D',
+            'SLOPE_5_winner_concentration_90pct_D', 'SLOPE_5_cost_structure_skewness_D', 'SLOPE_5_peak_separation_ratio_D',
             'winner_loser_momentum_D', 'chip_health_score_D',
             'capitulation_absorption_index_D', 'upward_impulse_purity_D', 'profit_realization_quality_D',
-            'chip_fatigue_index_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D', # [新增代码行] 波动不稳定性作为元调制器
-            'dominant_peak_solidity_D', 'SLOPE_5_dominant_peak_solidity_D' # [新增代码行] 主力峰健康度
+            'chip_fatigue_index_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'dominant_peak_solidity_D', 'SLOPE_5_dominant_peak_solidity_D',
+            'total_loser_rate_D', 'total_winner_rate_D', # [新增代码行] 博弈深度
+            'SLOPE_5_total_loser_rate_D', 'SLOPE_5_total_winner_rate_D', # [新增代码行] 博弈深度斜率
+            'volume_D', # [新增代码行] 换手效率
+            'winner_stability_index_D' # [新增代码行] 筹码稳定性
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_tactical_exchange"):
             return pd.Series(0.0, index=df.index)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         tactical_exchange_params = get_param_value(p_conf.get('tactical_exchange_params'), {})
-        # [修改代码块] 加载新增参数
         intent_weights = get_param_value(tactical_exchange_params.get('intent_weights'), {'control_transfer': 0.4, 'cleansing_efficiency': 0.3, 'accumulation_intent': 0.3})
         deception_arbitration_power = get_param_value(tactical_exchange_params.get('deception_arbitration_power'), 2.0)
         deception_impact_sensitivity = get_param_value(tactical_exchange_params.get('deception_impact_sensitivity'), 0.5)
         deception_context_modulator_signal_name = get_param_value(tactical_exchange_params.get('deception_context_modulator_signal_name'), 'chip_health_score_D')
         deception_context_sensitivity = get_param_value(tactical_exchange_params.get('deception_context_sensitivity'), 0.3)
-        deception_outcome_weights = get_param_value(tactical_exchange_params.get('deception_outcome_weights'), {'effectiveness': 0.6, 'cost': 0.4}) # [新增代码行]
-        deception_outcome_effectiveness_threshold = get_param_value(tactical_exchange_params.get('deception_outcome_effectiveness_threshold'), 0.3) # [新增代码行]
-        deception_outcome_cost_threshold = get_param_value(tactical_exchange_params.get('deception_outcome_cost_threshold'), 0.3) # [新增代码行]
+        deception_outcome_weights = get_param_value(tactical_exchange_params.get('deception_outcome_weights'), {'effectiveness': 0.6, 'cost': 0.4})
+        deception_outcome_effectiveness_threshold = get_param_value(tactical_exchange_params.get('deception_outcome_effectiveness_threshold'), 0.3)
+        deception_outcome_cost_threshold = get_param_value(tactical_exchange_params.get('deception_outcome_cost_threshold'), 0.3)
 
-        quality_weights = get_param_value(tactical_exchange_params.get('quality_weights'), {'bullish_absorption': 0.25, 'bullish_purity': 0.25, 'bearish_distribution': 0.25, 'exchange_purity': 0.15, 'structural_optimization': 0.1}) # [修改代码行] 增加纯度与结构优化权重
+        # [修改代码行] 增加心理防线和换手效率权重
+        quality_weights = get_param_value(tactical_exchange_params.get('quality_weights'), {'bullish_absorption': 0.2, 'bullish_purity': 0.2, 'bearish_distribution': 0.2, 'exchange_purity': 0.15, 'structural_optimization': 0.1, 'psychological_pressure_absorption': 0.1, 'exchange_efficiency': 0.05})
         quality_context_signal_name = get_param_value(tactical_exchange_params.get('quality_context_signal_name'), 'winner_loser_momentum_D')
-        structural_optimization_slope_period = get_param_value(tactical_exchange_params.get('structural_optimization_slope_period'), 5) # [新增代码行]
+        structural_optimization_slope_period = get_param_value(tactical_exchange_params.get('structural_optimization_slope_period'), 5)
+        psychological_pressure_absorption_slope_period = get_param_value(tactical_exchange_params.get('psychological_pressure_absorption_slope_period'), 5) # [新增代码行]
 
-        environment_weights = get_param_value(tactical_exchange_params.get('environment_weights'), {'geography': 0.4, 'chip_fatigue': 0.2, 'chip_stability': 0.2, 'dominant_peak_health': 0.2}) # [修改代码行] 增加主力峰健康度权重
+        # [修改代码行] 增加筹码耐心与稳定性权重
+        environment_weights = get_param_value(tactical_exchange_params.get('environment_weights'), {'geography': 0.3, 'chip_fatigue': 0.2, 'chip_stability': 0.2, 'dominant_peak_health': 0.15, 'chip_patience_and_stability': 0.15})
         chip_fatigue_impact_factor = get_param_value(tactical_exchange_params.get('chip_fatigue_impact_factor'), 0.5)
         chip_stability_modulator_signal_name = get_param_value(tactical_exchange_params.get('chip_stability_modulator_signal_name'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         chip_stability_sensitivity = get_param_value(tactical_exchange_params.get('chip_stability_sensitivity'), 0.5)
-        dominant_peak_health_slope_period = get_param_value(tactical_exchange_params.get('dominant_peak_health_slope_period'), 5) # [新增代码行]
+        dominant_peak_health_slope_period = get_param_value(tactical_exchange_params.get('dominant_peak_health_slope_period'), 5)
 
-        rhythm_persistence_slope_period = get_param_value(tactical_exchange_params.get('rhythm_persistence_slope_period'), 5) # [新增代码行]
-        rhythm_persistence_sensitivity = get_param_value(tactical_exchange_params.get('rhythm_persistence_sensitivity'), 0.5) # [新增代码行]
+        rhythm_persistence_slope_period = get_param_value(tactical_exchange_params.get('rhythm_persistence_slope_period'), 5)
+        rhythm_persistence_sensitivity = get_param_value(tactical_exchange_params.get('rhythm_persistence_sensitivity'), 0.5)
 
-        final_fusion_weights = get_param_value(tactical_exchange_params.get('final_fusion_weights'), {'intent': 0.35, 'quality': 0.35, 'environment': 0.2, 'rhythm_persistence': 0.1}) # [修改代码行] 增加节奏持续性权重
-        meta_modulator_weights = get_param_value(tactical_exchange_params.get('meta_modulator_weights'), {'chip_health': 0.6, 'volatility_instability': 0.4}) # [新增代码行]
-        meta_modulator_sensitivity = get_param_value(tactical_exchange_params.get('meta_modulator_sensitivity'), 0.5) # [新增代码行]
+        final_fusion_weights = get_param_value(tactical_exchange_params.get('final_fusion_weights'), {'intent': 0.35, 'quality': 0.35, 'environment': 0.2, 'rhythm_persistence': 0.1})
+        # [修改代码行] 增加主力信念到元调制器
+        meta_modulator_weights = get_param_value(tactical_exchange_params.get('meta_modulator_weights'), {'chip_health': 0.4, 'volatility_instability': 0.3, 'main_force_conviction': 0.3})
+        meta_modulator_sensitivity = get_param_value(tactical_exchange_params.get('meta_modulator_sensitivity'), 0.5)
 
         df_index = df.index
 
@@ -1081,7 +1087,6 @@ class ChipIntelligence:
         norm_mf_conviction = get_adaptive_mtf_normalized_bipolar_score(mf_conviction_raw, df_index, tf_weights)
         chip_deception_direction = np.sign(norm_mf_conviction)
         
-        # [新增代码块] 诡道博弈的“成功度”与“成本”评估
         retail_panic_surrender_raw = self._get_safe_series(df, df, 'retail_panic_surrender_index_D', method_name="_diagnose_tactical_exchange")
         loser_pain_raw = self._get_safe_series(df, df, 'loser_pain_index_D', method_name="_diagnose_tactical_exchange")
         winner_profit_margin_avg_raw = self._get_safe_series(df, df, 'winner_profit_margin_avg_D', method_name="_diagnose_tactical_exchange")
@@ -1093,28 +1098,22 @@ class ChipIntelligence:
         deception_effectiveness_score = pd.Series(0.0, index=df_index)
         deception_cost_score = pd.Series(0.0, index=df_index)
         
-        # 诱空吸筹 (chip_deception_direction > 0)
         induce_bear_mask = chip_deception_direction > 0
         deception_effectiveness_score.loc[induce_bear_mask] = (norm_retail_panic_surrender.loc[induce_bear_mask] + norm_loser_pain.loc[induce_bear_mask]) / 2
-        deception_cost_score.loc[induce_bear_mask] = norm_suppressive_accum.loc[induce_bear_mask] # 诱空吸筹时，吸筹强度越高，成本越高，越真实
+        deception_cost_score.loc[induce_bear_mask] = norm_suppressive_accum.loc[induce_bear_mask]
 
-        # 诱多派发 (chip_deception_direction < 0)
         induce_bull_mask = chip_deception_direction < 0
-        deception_effectiveness_score.loc[induce_bull_mask] = norm_winner_profit_margin_avg.loc[induce_bull_mask] # 诱多派发时，赢家利润越高，越容易吸引散户接盘
-        deception_cost_score.loc[induce_bull_mask] = (1 - get_adaptive_mtf_normalized_score(self._get_safe_series(df, df, 'profit_realization_quality_D', method_name="_diagnose_tactical_exchange"), df_index, ascending=True, tf_weights=tf_weights)).loc[induce_bull_mask] # 派发质量越差，成本越高，越不真实
+        deception_effectiveness_score.loc[induce_bull_mask] = norm_winner_profit_margin_avg.loc[induce_bull_mask]
+        deception_cost_score.loc[induce_bull_mask] = (1 - get_adaptive_mtf_normalized_score(self._get_safe_series(df, df, 'profit_realization_quality_D', method_name="_diagnose_tactical_exchange"), df_index, ascending=True, tf_weights=tf_weights)).loc[induce_bull_mask]
 
-        # 融合诡道结果和成本，调制原始诡道强度
-        # 诡道结果越好，成本越低，诡道强度越真实
         deception_quality_modulator = (
             deception_outcome_weights.get('effectiveness', 0.6) * deception_effectiveness_score.clip(0, 1) +
             deception_outcome_weights.get('cost', 0.4) * deception_cost_score.clip(0, 1)
         )
         
-        # 只有当诡道结果和成本都达到一定阈值时，才认为诡道是“高质量”的，否则削弱其影响
         high_quality_deception_mask = (deception_effectiveness_score > deception_outcome_effectiveness_threshold) & (deception_cost_score > deception_outcome_cost_threshold)
-        deception_quality_modulator.loc[~high_quality_deception_mask] *= 0.5 # 质量不高的诡道，影响力减半
+        deception_quality_modulator.loc[~high_quality_deception_mask] *= 0.5
 
-        # 最终的筹码诡道意图分，考虑了结果和成本
         chip_deception_score_refined = norm_chip_fault * chip_deception_direction * (1 + deception_quality_modulator.clip(0, 1))
         chip_deception_score_refined = chip_deception_score_refined.clip(-1, 1)
 
@@ -1124,7 +1123,7 @@ class ChipIntelligence:
         dynamic_deception_impact_sensitivity = dynamic_deception_impact_sensitivity.clip(0.1, 1.0)
 
         arbitration_weight = (norm_chip_fault * dynamic_deception_impact_sensitivity).pow(deception_arbitration_power).clip(0, 1)
-        intent_score = base_intent_score * (1 - arbitration_weight) + chip_deception_score_refined * arbitration_weight # [修改代码行] 使用 refined 诡道分
+        intent_score = base_intent_score * (1 - arbitration_weight) + chip_deception_score_refined * arbitration_weight
         intent_score = intent_score.clip(-1, 1)
 
         # --- 维度2: 换手质量 (Exchange Quality) - 纯筹码化与情境自适应 ---
@@ -1143,34 +1142,61 @@ class ChipIntelligence:
         dynamic_bearish_quality_weight = (1 - norm_chip_momentum_context.add(1)/2) * 0.5 + 0.5
 
         bullish_quality_score = (
-            norm_absorption * quality_weights.get('bullish_absorption', 0.25) +
-            norm_impulse_purity * quality_weights.get('bullish_purity', 0.25)
+            norm_absorption * quality_weights.get('bullish_absorption', 0.2) +
+            norm_impulse_purity * quality_weights.get('bullish_purity', 0.2)
         ) * dynamic_bullish_quality_weight
         
-        bearish_quality_score = norm_profit_realization * quality_weights.get('bearish_distribution', 0.25) * dynamic_bearish_quality_weight
+        bearish_quality_score = norm_profit_realization * quality_weights.get('bearish_distribution', 0.2) * dynamic_bearish_quality_weight
 
-        # [新增代码块] 换手“纯度”与“结构优化”评估
         peak_exchange_purity_raw = self._get_safe_series(df, df, 'peak_exchange_purity_D', method_name="_diagnose_tactical_exchange")
         exchange_purity_score = get_adaptive_mtf_normalized_score(peak_exchange_purity_raw, df_index, ascending=True, tf_weights=tf_weights)
 
-        # 结构优化：赢家集中度上升，成本结构偏度下降，筹码峰分离度下降
         slope_wc_raw = self._get_safe_series(df, df, f'SLOPE_{structural_optimization_slope_period}_winner_concentration_90pct_D', method_name="_diagnose_tactical_exchange")
         slope_css_raw = self._get_safe_series(df, df, f'SLOPE_{structural_optimization_slope_period}_cost_structure_skewness_D', method_name="_diagnose_tactical_exchange")
         slope_psr_raw = self._get_safe_series(df, df, f'SLOPE_{structural_optimization_slope_period}_peak_separation_ratio_D', method_name="_diagnose_tactical_exchange")
 
         norm_slope_wc = get_adaptive_mtf_normalized_score(slope_wc_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_slope_css = get_adaptive_mtf_normalized_score(slope_css_raw, df_index, ascending=False, tf_weights=tf_weights) # 偏度下降为好
-        norm_slope_psr = get_adaptive_mtf_normalized_score(slope_psr_raw, df_index, ascending=False, tf_weights=tf_weights) # 分离度下降为好
+        norm_slope_css = get_adaptive_mtf_normalized_score(slope_css_raw, df_index, ascending=False, tf_weights=tf_weights)
+        norm_slope_psr = get_adaptive_mtf_normalized_score(slope_psr_raw, df_index, ascending=False, tf_weights=tf_weights)
 
         structural_optimization_score = (norm_slope_wc + norm_slope_css + norm_slope_psr) / 3
         structural_optimization_score = structural_optimization_score.clip(0, 1)
 
+        # [新增代码块] 筹码“博弈深度”与“心理防线”评估
+        total_loser_rate_raw = self._get_safe_series(df, df, 'total_loser_rate_D', method_name="_diagnose_tactical_exchange")
+        total_winner_rate_raw = self._get_safe_series(df, df, 'total_winner_rate_D', method_name="_diagnose_tactical_exchange")
+        slope_loser_rate_raw = self._get_safe_series(df, df, f'SLOPE_{psychological_pressure_absorption_slope_period}_total_loser_rate_D', method_name="_diagnose_tactical_exchange")
+        slope_winner_rate_raw = self._get_safe_series(df, df, f'SLOPE_{psychological_pressure_absorption_slope_period}_total_winner_rate_D', method_name="_diagnose_tactical_exchange")
+
+        norm_total_loser_rate = get_adaptive_mtf_normalized_score(total_loser_rate_raw, df_index, ascending=False, tf_weights=tf_weights) # 输家比例越低越好
+        norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights) # 赢家比例越高越好
+        norm_slope_loser_rate = get_adaptive_mtf_normalized_bipolar_score(slope_loser_rate_raw, df_index, tf_weights, sensitivity=1.0) # 输家比例下降为好
+        norm_slope_winner_rate = get_adaptive_mtf_normalized_bipolar_score(slope_winner_rate_raw, df_index, tf_weights, sensitivity=1.0) # 赢家比例上升为好
+
+        # 输家筹码吸收质量：吸收恐慌盘，且输家比例下降
+        loser_absorption_quality = norm_absorption * (1 - norm_slope_loser_rate.clip(upper=0).abs()) # 输家比例下降（负斜率）越强，吸收质量越好
+        # 赢家筹码承接质量：派发质量好，且赢家比例不快速上升
+        winner_resilience_quality = norm_profit_realization * (1 - norm_slope_winner_rate.clip(lower=0)) # 赢家比例不快速上升（正斜率不强），承接质量越好
+
+        psychological_pressure_absorption_score = (loser_absorption_quality + winner_resilience_quality) / 2
+        psychological_pressure_absorption_score = psychological_pressure_absorption_score.clip(0, 1)
+
+        # [新增代码块] 筹码“能量密度”与“效率”评估
+        volume_raw = self._get_safe_series(df, df, 'volume_D', method_name="_diagnose_tactical_exchange")
+        norm_volume = get_adaptive_mtf_normalized_score(volume_raw, df_index, ascending=True, tf_weights=tf_weights)
+        
+        # 换手效率 = 结构优化 / 归一化成交量 (避免除以0)
+        exchange_efficiency_score = structural_optimization_score / (norm_volume.replace(0, 1e-6))
+        exchange_efficiency_score = exchange_efficiency_score.clip(0, 1) # 归一化到0-1
+
         # 融合所有质量维度
         quality_score = (
-            bullish_quality_score * (1 - dynamic_bearish_quality_weight) + # 看涨质量在看跌情境下权重降低
-            bearish_quality_score * (1 - dynamic_bullish_quality_weight) + # 看跌质量在看涨情境下权重降低
+            bullish_quality_score * (1 - dynamic_bearish_quality_weight) +
+            bearish_quality_score * (1 - dynamic_bullish_quality_weight) +
             exchange_purity_score * quality_weights.get('exchange_purity', 0.15) +
-            structural_optimization_score * quality_weights.get('structural_optimization', 0.1)
+            structural_optimization_score * quality_weights.get('structural_optimization', 0.1) +
+            psychological_pressure_absorption_score * quality_weights.get('psychological_pressure_absorption', 0.1) + # [新增代码行]
+            exchange_efficiency_score * quality_weights.get('exchange_efficiency', 0.05) # [新增代码行]
         ).clip(-1, 1)
 
         # --- 维度3: 换手环境 (Exchange Context) - 纯筹码化与情境自适应 ---
@@ -1184,24 +1210,35 @@ class ChipIntelligence:
         dynamic_chip_fatigue_impact = norm_chip_fatigue * chip_fatigue_impact_factor
         dynamic_chip_stability_bonus = norm_chip_stability_modulator * chip_stability_sensitivity
 
-        # [新增代码块] 关键筹码“阵地”的博弈强度
         dominant_peak_solidity_raw = self._get_safe_series(df, df, 'dominant_peak_solidity_D', method_name="_diagnose_tactical_exchange")
         slope_dps_raw = self._get_safe_series(df, df, f'SLOPE_{dominant_peak_health_slope_period}_dominant_peak_solidity_D', method_name="_diagnose_tactical_exchange")
         
         norm_dps = get_adaptive_mtf_normalized_score(dominant_peak_solidity_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_slope_dps = get_adaptive_mtf_normalized_bipolar_score(slope_dps_raw, df_index, tf_weights)
         
-        dominant_peak_health_score = (norm_dps * 0.7 + norm_slope_dps * 0.3).clip(0, 1) # 峰值越实，趋势越好，健康度越高
+        dominant_peak_health_score = (norm_dps * 0.7 + norm_slope_dps * 0.3).clip(0, 1)
 
+        # [新增代码块] 筹码“时间价值”与“耐心”评估
+        winner_stability_index_raw = self._get_safe_series(df, df, 'winner_stability_index_D', method_name="_diagnose_tactical_exchange")
+        norm_winner_stability = get_adaptive_mtf_normalized_score(winner_stability_index_raw, df_index, ascending=True, tf_weights=tf_weights)
+
+        # 主力耐心指数：gathering_by_support / (gathering_by_support + gathering_by_chasing)
+        # 归一化后的值，避免直接使用原始值可能带来的量纲问题
+        chip_patience_ratio = norm_gathering_support / (norm_gathering_support + norm_gathering_chasing + 1e-6)
+        chip_patience_score = get_adaptive_mtf_normalized_score(chip_patience_ratio, df_index, ascending=True, tf_weights=tf_weights)
+
+        chip_patience_and_stability_score = (norm_winner_stability * 0.5 + chip_patience_score * 0.5).clip(0, 1)
+
+        # [修改代码行] 融合所有环境维度
         context_score = (
-            battlefield_geography * environment_weights.get('geography', 0.4) -
+            battlefield_geography * environment_weights.get('geography', 0.3) -
             dynamic_chip_fatigue_impact * environment_weights.get('chip_fatigue', 0.2) +
             dynamic_chip_stability_bonus * environment_weights.get('chip_stability', 0.2) +
-            dominant_peak_health_score * environment_weights.get('dominant_peak_health', 0.2)
+            dominant_peak_health_score * environment_weights.get('dominant_peak_health', 0.15) +
+            chip_patience_and_stability_score * environment_weights.get('chip_patience_and_stability', 0.15) # [新增代码行]
         ).clip(-1, 1)
 
-        # [新增代码块] 维度4: 换手节奏与持续性 (Exchange Rhythm & Persistence)
-        # 计算意图和质量的短期斜率
+        # --- 维度4: 换手节奏与持续性 (Exchange Rhythm & Persistence) ---
         rhythm_intent_slope = base_intent_score.diff(rhythm_persistence_slope_period).fillna(0)
         rhythm_quality_slope = quality_score.diff(rhythm_persistence_slope_period).fillna(0)
 
@@ -1212,16 +1249,19 @@ class ChipIntelligence:
         rhythm_and_persistence_score = (rhythm_and_persistence_score * rhythm_persistence_sensitivity).clip(-1, 1)
 
         # --- 最终融合 ---
-        # [新增代码块] 动态调整最终融合权重
+        # [修改代码块] 动态调整最终融合权重，增加主力信念
         volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', method_name="_diagnose_tactical_exchange")
-        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights) # 不稳定性越低，调制器越高
+        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights)
+
+        main_force_conviction_abs_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', method_name="_diagnose_tactical_exchange").abs()
+        norm_main_force_conviction = get_adaptive_mtf_normalized_score(main_force_conviction_abs_raw, df_index, ascending=True, tf_weights=tf_weights)
 
         market_context_meta_modulator = (
-            norm_chip_health * meta_modulator_weights.get('chip_health', 0.6) +
-            norm_volatility_instability * meta_modulator_weights.get('volatility_instability', 0.4)
+            norm_chip_health * meta_modulator_weights.get('chip_health', 0.4) +
+            norm_volatility_instability * meta_modulator_weights.get('volatility_instability', 0.3) +
+            norm_main_force_conviction * meta_modulator_weights.get('main_force_conviction', 0.3) # [新增代码行]
         ).clip(0, 1)
 
-        # 市场情境越好，各维度权重越能充分发挥；情境越差，权重越趋于平均
         dynamic_final_fusion_weights = {
             'intent': final_fusion_weights.get('intent', 0.35) * (1 + market_context_meta_modulator * meta_modulator_sensitivity),
             'quality': final_fusion_weights.get('quality', 0.35) * (1 + market_context_meta_modulator * meta_modulator_sensitivity),
@@ -1229,7 +1269,6 @@ class ChipIntelligence:
             'rhythm_persistence': final_fusion_weights.get('rhythm_persistence', 0.1) * (1 + market_context_meta_modulator * meta_modulator_sensitivity)
         }
         
-        # 归一化动态权重
         sum_dynamic_weights = sum(dynamic_final_fusion_weights.values())
         normalized_dynamic_weights = {k: v / sum_dynamic_weights for k, v in dynamic_final_fusion_weights.items()}
 
@@ -1254,6 +1293,7 @@ class ChipIntelligence:
                 print(f"       - 参数: deception_outcome_weights: {deception_outcome_weights}, effectiveness_threshold: {deception_outcome_effectiveness_threshold:.2f}, cost_threshold: {deception_outcome_cost_threshold:.2f}")
                 print(f"       - 参数: quality_weights: {quality_weights}")
                 print(f"       - 参数: quality_context_signal_name: {quality_context_signal_name}, structural_optimization_slope_period: {structural_optimization_slope_period}")
+                print(f"       - 参数: psychological_pressure_absorption_slope_period: {psychological_pressure_absorption_slope_period}") # [新增代码行]
                 print(f"       - 参数: environment_weights: {environment_weights}")
                 print(f"       - 参数: chip_fatigue_impact_factor: {chip_fatigue_impact_factor:.2f}")
                 print(f"       - 参数: chip_stability_modulator_signal_name: {chip_stability_modulator_signal_name}, chip_stability_sensitivity: {chip_stability_sensitivity:.2f}")
@@ -1271,6 +1311,10 @@ class ChipIntelligence:
                 print(f"       - 原料: capitulation_absorption_index_D: {absorption_idx_raw.loc[probe_date]:.4f}, upward_impulse_purity_D: {impulse_purity_raw.loc[probe_date]:.4f}, profit_realization_quality_D: {profit_quality_raw.loc[probe_date]:.4f}")
                 print(f"       - 原料: chip_fatigue_index_D: {chip_fatigue_raw.loc[probe_date]:.4f}, {chip_stability_modulator_signal_name}: {chip_stability_modulator_raw.loc[probe_date]:.4f}")
                 print(f"       - 原料: dominant_peak_solidity_D: {dominant_peak_solidity_raw.loc[probe_date]:.4f}, SLOPE_{dominant_peak_health_slope_period}_dominant_peak_solidity_D: {slope_dps_raw.loc[probe_date]:.4f}")
+                print(f"       - 原料: total_loser_rate_D: {total_loser_rate_raw.loc[probe_date]:.4f}, total_winner_rate_D: {total_winner_rate_raw.loc[probe_date]:.4f}") # [新增代码行]
+                print(f"       - 原料: SLOPE_{psychological_pressure_absorption_slope_period}_total_loser_rate_D: {slope_loser_rate_raw.loc[probe_date]:.4f}, SLOPE_{psychological_pressure_absorption_slope_period}_total_winner_rate_D: {slope_winner_rate_raw.loc[probe_date]:.4f}") # [新增代码行]
+                print(f"       - 原料: volume_D: {volume_raw.loc[probe_date]:.4f}") # [新增代码行]
+                print(f"       - 原料: winner_stability_index_D: {winner_stability_index_raw.loc[probe_date]:.4f}") # [新增代码行]
                 print(f"       - 原料: battlefield_geography: {battlefield_geography.loc[probe_date]:.4f}, chip_health_score_D: {chip_health_raw.loc[probe_date]:.4f}, VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_control_transfer: {norm_control_transfer.loc[probe_date]:.4f}, norm_cleansing_efficiency: {norm_cleansing_efficiency.loc[probe_date]:.4f}, accumulation_intent_score: {accumulation_intent_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: base_intent_score: {base_intent_score.loc[probe_date]:.4f}")
@@ -1282,18 +1326,23 @@ class ChipIntelligence:
                 print(f"       - 过程: intent_score: {intent_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_chip_momentum_context: {norm_chip_momentum_context.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_absorption: {norm_absorption.loc[probe_date]:.4f}, norm_impulse_purity: {norm_impulse_purity.loc[probe_date]:.4f}, norm_profit_realization: {norm_profit_realization.loc[probe_date]:.4f}")
-                # [修改代码行] 修正bullish_quality_score和bearish_quality_score的探针输出，使其与实际计算逻辑一致
-                print(f"       - 过程: bullish_quality_score: {bullish_quality_score.loc[probe_date]:.4f}, bearish_quality_score: {bearish_quality_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: dynamic_bullish_quality_weight: {dynamic_bullish_quality_weight.loc[probe_date]:.4f}, dynamic_bearish_quality_weight: {dynamic_bearish_quality_weight.loc[probe_date]:.4f}")
+                print(f"       - 过程: bullish_quality_score: {bullish_quality_score.loc[probe_date]:.4f}, bearish_quality_score: {bearish_quality_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: exchange_purity_score: {exchange_purity_score.loc[probe_date]:.4f}, structural_optimization_score: {structural_optimization_score.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_total_loser_rate: {norm_total_loser_rate.loc[probe_date]:.4f}, norm_total_winner_rate: {norm_total_winner_rate.loc[probe_date]:.4f}") # [新增代码行]
+                print(f"       - 过程: norm_slope_loser_rate: {norm_slope_loser_rate.loc[probe_date]:.4f}, norm_slope_winner_rate: {norm_slope_winner_rate.loc[probe_date]:.4f}") # [新增代码行]
+                print(f"       - 过程: loser_absorption_quality: {loser_absorption_quality.loc[probe_date]:.4f}, winner_resilience_quality: {winner_resilience_quality.loc[probe_date]:.4f}") # [新增代码行]
+                print(f"       - 过程: psychological_pressure_absorption_score: {psychological_pressure_absorption_score.loc[probe_date]:.4f}") # [新增代码行]
+                print(f"       - 过程: norm_volume: {norm_volume.loc[probe_date]:.4f}, exchange_efficiency_score: {exchange_efficiency_score.loc[probe_date]:.4f}") # [新增代码行]
                 print(f"       - 过程: quality_score: {quality_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_chip_fatigue: {norm_chip_fatigue.loc[probe_date]:.4f}, norm_chip_stability_modulator: {norm_chip_stability_modulator.loc[probe_date]:.4f}, norm_chip_health: {norm_chip_health.loc[probe_date]:.4f}")
                 print(f"       - 过程: dynamic_chip_fatigue_impact: {dynamic_chip_fatigue_impact.loc[probe_date]:.4f}, dynamic_chip_stability_bonus: {dynamic_chip_stability_bonus.loc[probe_date]:.4f}")
                 print(f"       - 过程: dominant_peak_health_score: {dominant_peak_health_score.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_winner_stability: {norm_winner_stability.loc[probe_date]:.4f}, chip_patience_ratio: {chip_patience_ratio.loc[probe_date]:.4f}, chip_patience_score: {chip_patience_score.loc[probe_date]:.4f}") # [新增代码行]
+                print(f"       - 过程: chip_patience_and_stability_score: {chip_patience_and_stability_score.loc[probe_date]:.4f}") # [新增代码行]
                 print(f"       - 过程: context_score: {context_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: rhythm_intent_slope: {rhythm_intent_slope.loc[probe_date]:.4f}, rhythm_quality_slope: {rhythm_quality_slope.loc[probe_date]:.4f}, rhythm_and_persistence_score: {rhythm_and_persistence_score.loc[probe_date]:.4f}")
-                print(f"       - 过程: norm_volatility_instability: {norm_volatility_instability.loc[probe_date]:.4f}, market_context_meta_modulator: {market_context_meta_modulator.loc[probe_date]:.4f}")
-                # [修改代码行] 修复TypeError: unsupported format string passed to Series.__format__
+                print(f"       - 过程: norm_volatility_instability: {norm_volatility_instability.loc[probe_date]:.4f}, norm_main_force_conviction: {norm_main_force_conviction.loc[probe_date]:.4f}, market_context_meta_modulator: {market_context_meta_modulator.loc[probe_date]:.4f}") # [修改代码行]
                 print(f"       - 过程: normalized_dynamic_weights (intent): {normalized_dynamic_weights.get('intent', pd.Series(0.0, index=df_index)).loc[probe_date]:.4f}, (quality): {normalized_dynamic_weights.get('quality', pd.Series(0.0, index=df_index)).loc[probe_date]:.4f}, (environment): {normalized_dynamic_weights.get('environment', pd.Series(0.0, index=df_index)).loc[probe_date]:.4f}, (rhythm_persistence): {normalized_dynamic_weights.get('rhythm_persistence', pd.Series(0.0, index=df_index)).loc[probe_date]:.4f}")
                 print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)

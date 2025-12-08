@@ -109,24 +109,6 @@ class FundFlowIntelligence:
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
-        # --- 5. 探针输出 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"    -> [资金流战略态势探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - [矛] base: {attack_base.loc[probe_date_for_loop]:.4f}, dissonance: {attack_dissonance.loc[probe_date_for_loop]:.4f} -> vector_synthesized: {attack_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - [盾] base: {structure_base.loc[probe_date_for_loop]:.4f}, dissonance: {structure_dissonance.loc[probe_date_for_loop]:.4f} -> vector_synthesized: {structure_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - [环境] context_modulator: {context_modulator.loc[probe_date_for_loop]:.4f} (属性:{axiom_capital_signature.loc[probe_date_for_loop]:.2f}, 张力:{axiom_divergence.loc[probe_date_for_loop]:.2f})")
-                print(f"       - [结果] final_strategic_posture: {strategic_posture_score.loc[probe_date_for_loop]:.4f}")
-                # 新增：和谐拐点探针
-                print(f"    -> [资金流和谐拐点探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - [原料] posture_score: {strategic_posture_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - [计算节点] velocity: {posture_velocity.loc[probe_date_for_loop]:.4f} -> norm: {norm_velocity.loc[probe_date_for_loop]:.4f}")
-                print(f"       - [计算节点] acceleration: {posture_acceleration.loc[probe_date_for_loop]:.4f} -> norm: {norm_acceleration.loc[probe_date_for_loop]:.4f}")
-                print(f"       - [结果] final_inflection_score: {harmony_inflection_score.loc[probe_date_for_loop]:.4f}")
         print(f"【V29.0 · 拐点洞察版】分析完成，生成 {len(all_states)} 个资金流原子及融合信号。") # 修改: 更新日志
         return all_states
 
@@ -158,16 +140,6 @@ class FundFlowIntelligence:
         tension_magnitude = (norm_persistence * energy_injection).pow(0.5)
         # 3. 融合
         tension_score = disagreement_vector * (1 + tension_magnitude * 1.5) # 1.5是放大系数
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [价资张力探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - disagreement_vector: {disagreement_vector.loc[probe_date_for_loop]:.4f}")
-                print(f"       - tension_magnitude: {tension_magnitude.loc[probe_date_for_loop]:.4f}")
-                print(f"       - final_tension_score: {tension_score.loc[probe_date_for_loop]:.4f}")
         return tension_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -202,17 +174,7 @@ class FundFlowIntelligence:
         purity_filter = 1 - get_adaptive_mtf_normalized_score(wash_trade_intensity, df_index, ascending=True, tf_weights=tf_weights_ff)
         # 4. 融合
         battlefield_control_score = (flow_consensus_score * 0.4 + micro_control_score * 0.6) * purity_filter
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [战场控制权探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - flow_consensus_score: {flow_consensus_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - micro_control_score: {micro_control_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - purity_filter: {purity_filter.loc[probe_date_for_loop]:.4f}")
-                print(f"       - final_control_score: {battlefield_control_score.loc[probe_date_for_loop]:.4f}")
+
         return battlefield_control_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int, capital_signature_score: pd.Series, flow_health_score: pd.Series) -> pd.Series:
@@ -256,19 +218,7 @@ class FundFlowIntelligence:
                              flow_health_score * modulator_weights.get('flow_health', 0.3)
                              ).clip(0.5, 1.5)
         final_modulated_score = aggressive_intent_score * quality_modulator
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [攻击性意图探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - blitz_intent_score (闪电战): {blitz_intent_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - trench_warfare_score (阵地战): {trench_warfare_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - cost_advantage_score (成本): {cost_advantage_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - [计算节点] raw_intent_score: {aggressive_intent_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - [计算节点] quality_modulator: {quality_modulator.loc[probe_date_for_loop]:.4f} (资本属性分: {capital_signature_score.loc[probe_date_for_loop]:.2f}, 结构健康度分: {flow_health_score.loc[probe_date_for_loop]:.2f})")
-                print(f"       - [结果] final_modulated_score: {final_modulated_score.loc[probe_date_for_loop]:.4f}")
+
         return final_modulated_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_flow_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -301,17 +251,7 @@ class FundFlowIntelligence:
         liquidity_amplifier = 1 / liquidity_supply.replace(0, 1e-9).clip(0.5, 2.0) # 反比关系，并限制范围
         # 4. 融合
         true_momentum = base_momentum * purity_filter * liquidity_amplifier
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [资金流纯度与动能探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - base_momentum: {base_momentum.loc[probe_date_for_loop]:.4f}")
-                print(f"       - purity_filter: {purity_filter.loc[probe_date_for_loop]:.4f}")
-                print(f"       - liquidity_amplifier: {liquidity_amplifier.loc[probe_date_for_loop]:.4f}")
-                print(f"       - final_true_momentum: {true_momentum.loc[probe_date_for_loop]:.4f}")
+
         return true_momentum.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_capital_signature(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -356,19 +296,7 @@ class FundFlowIntelligence:
         ).clip(0, 1)
         # 3. 融合
         capital_signature_score = patient_capital_score - agile_capital_score
-        # 新增：调试探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [资本属性探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - [原料] institutional_flow: {institutional_flow.loc[probe_date_for_loop]:.2f}, ofi: {ofi.loc[probe_date_for_loop]:.2f}, trade_count: {trade_count.loc[probe_date_for_loop]:.2f}, theme_hotness: {theme_hotness.loc[probe_date_for_loop]:.2f}")
-                print(f"       - [计算节点] flow_consistency (raw): {flow_consistency.loc[probe_date_for_loop]:.4f}, flow_steadiness: {flow_steadiness.loc[probe_date_for_loop]:.4f}") # 新增: 增加关键计算节点输出
-                print(f"       - [计算节点] patient_capital_score (耐心资本): {patient_capital_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - [计算节点] agile_capital_score (敏捷资本): {agile_capital_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - [结果] final_signature_score: {capital_signature_score.loc[probe_date_for_loop]:.4f}")
+
         return capital_signature_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_flow_structure_health(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -407,19 +335,6 @@ class FundFlowIntelligence:
         health_core = (norm_flow_steadiness * 0.4 + norm_cost_cohesion * 0.6)
         # 使用 np.sign(norm_flow_efficiency) 确保当资金为净流出时，健康度指标也呈负向贡献
         flow_structure_health_score = (norm_flow_efficiency * 0.5 + health_core * np.sign(norm_flow_efficiency) * 0.5) * risk_filter
-        # 调试探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [资金流结构健康度探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - [原料] net_flow: {net_flow.loc[probe_date_for_loop]:.2f}, ATR: {price_volatility.loc[probe_date_for_loop]:.2f}, vpoc: {vpoc.loc[probe_date_for_loop]:.2f}, leverage: {structural_leverage.loc[probe_date_for_loop]:.2f}")
-                print(f"       - [计算节点] norm_flow_steadiness: {norm_flow_steadiness.loc[probe_date_for_loop]:.4f}")
-                print(f"       - [计算节点] norm_flow_efficiency: {norm_flow_efficiency.loc[probe_date_for_loop]:.4f}")
-                print(f"       - [计算节点] norm_cost_cohesion: {norm_cost_cohesion.loc[probe_date_for_loop]:.4f}")
-                print(f"       - [计算节点] risk_filter: {risk_filter.loc[probe_date_for_loop]:.4f}")
-                print(f"       - [结果] final_health_score: {flow_structure_health_score.loc[probe_date_for_loop]:.4f}")
+
         return flow_structure_health_score.clip(-1, 1).astype(np.float32)
 

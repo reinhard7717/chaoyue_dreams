@@ -105,18 +105,7 @@ class FoundationIntelligence:
         trend_health_score = (breakout_quality_score * trend_vitality_score).pow(0.5)
         # 4. 最终融合
         trend_confirmed = (adx_score * direction_score * trend_health_score).pow(1/3).fillna(0.0)
-        # 更新探针内容
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [趋势确认探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - adx_score (强度): {adx_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - direction_score (方向): {direction_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - trend_health_score (健康度): {trend_health_score.loc[probe_date_for_loop]:.4f} (突破质量: {breakout_quality_score.loc[probe_date_for_loop]:.4f}, 趋势活力: {trend_vitality_score.loc[probe_date_for_loop]:.4f})")
-                print(f"       - final_trend_confirmed: {trend_confirmed.loc[probe_date_for_loop]:.4f}")
+        
         return {'CONTEXT_TREND_CONFIRMED': trend_confirmed.astype(np.float32)}
 
     def _diagnose_axiom_market_constitution(self, df: pd.DataFrame, params: dict) -> pd.Series:
@@ -167,20 +156,7 @@ class FoundationIntelligence:
         constitution_score = base_trend_score.copy()
         bullish_mask = base_trend_score > 0
         constitution_score[bullish_mask] = (base_trend_score[bullish_mask] * health_modulator[bullish_mask]).pow(0.5)
-        # 修改: 更新调试探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [市场体质探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - base_trend_score: {base_trend_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - turnover_health_score: {turnover_health_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - conviction_score: {conviction_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - resilience_score (新增): {resilience_score.loc[probe_date_for_loop]:.4f} (原始值: {resilience.loc[probe_date_for_loop]:.2f})")
-                print(f"       - health_modulator: {health_modulator.loc[probe_date_for_loop]:.4f}")
-                print(f"       - final_constitution_score: {constitution_score.loc[probe_date_for_loop]:.4f}")
+        
         return constitution_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_sentiment_pendulum(self, df: pd.DataFrame) -> pd.Series:
@@ -208,21 +184,7 @@ class FoundationIntelligence:
         # 修改: 将诡道调节器的惩罚因子从 0.5 提升至 0.75，增强压制力
         reality_check_modulator = 1 - (base_pendulum_score * deception_index.clip(-1, 1) < 0) * np.abs(deception_index.clip(-1, 1)) * 0.75
         pendulum_score = base_pendulum_score * reality_check_modulator
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [情绪钟摆探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - rsi_score: {rsi_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - panic_score: {panic_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - fomo_score: {fomo_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - base_pendulum_score: {base_pendulum_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - deception_index (原始值): {deception_index.loc[probe_date_for_loop]:.4f}")
-                # 修改: 在探针中说明惩罚因子已调整
-                print(f"       - reality_check_modulator (诡道调节器 @ 惩罚因子0.75): {reality_check_modulator.loc[probe_date_for_loop]:.4f}")
-                print(f"       - final_pendulum_score: {pendulum_score.loc[probe_date_for_loop]:.4f}")
+        
         return pendulum_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_liquidity_tide(self, df: pd.DataFrame) -> pd.Series:
@@ -258,21 +220,7 @@ class FoundationIntelligence:
         quality_modulator = (1 - wash_trade_penalty * 0.75).clip(0, 1) # 最多惩罚75%
         # 6. 最终融合
         tide_score = base_tide_score * quality_modulator
-        # 修改: 更新调试探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [流动性潮汐探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - direction_score (CMF): {direction_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - energy_score (Amount Slope): {energy_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - activity_score (Turnover Slope): {activity_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - base_tide_score: {base_tide_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - wash_trade_penalty (对倒惩罚): {wash_trade_penalty.loc[probe_date_for_loop]:.4f} (原始值: {wash_trade.loc[probe_date_for_loop]:.2f})")
-                print(f"       - quality_modulator (品质调节器): {quality_modulator.loc[probe_date_for_loop]:.4f}")
-                print(f"       - final_tide_score: {tide_score.loc[probe_date_for_loop]:.4f}")
+        
         return tide_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_market_tension(self, df: pd.DataFrame) -> pd.Series:
@@ -306,17 +254,7 @@ class FoundationIntelligence:
         directional_bias = get_adaptive_mtf_normalized_bipolar_score(main_force_posture, df_index, default_weights)
         # 6. 最终融合: 张力强度 * 意图方向
         tension_final_score = unipolar_tension_score * directional_bias
-        # 修改: 更新调试探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [市场张力探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - unipolar_tension_score (张力强度): {unipolar_tension_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - directional_bias (主力意图): {directional_bias.loc[probe_date_for_loop]:.4f} (原始值: {main_force_posture.loc[probe_date_for_loop]:.2f})")
-                print(f"       - final_tension_score (最终得分): {tension_final_score.loc[probe_date_for_loop]:.4f}")
+        
         return tension_final_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_relative_strength(self, df: pd.DataFrame) -> pd.Series:
@@ -344,17 +282,7 @@ class FoundationIntelligence:
         momentum_score = get_adaptive_mtf_normalized_bipolar_score(rank_slope, df_index, default_weights)
         # 3. 融合: 状态与动量加权
         relative_strength_score = (state_score * 0.6 + momentum_score * 0.4)
-        # 修改: 更新调试探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [相对强度探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - state_score (静态排名分): {state_score.loc[probe_date_for_loop]:.4f} (原始排名: {industry_rank.loc[probe_date_for_loop]:.2f})")
-                print(f"       - momentum_score (排名动量分): {momentum_score.loc[probe_date_for_loop]:.4f} (原始斜率: {rank_slope.loc[probe_date_for_loop]:.4f})")
-                print(f"       - final_relative_strength_score (融合后): {relative_strength_score.loc[probe_date_for_loop]:.4f}")
+        
         return relative_strength_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_harmony_inflection(self, params: dict, strategic_posture: pd.Series, modulator: pd.Series) -> pd.Series: # 修改: 接收调节器
@@ -378,21 +306,7 @@ class FoundationIntelligence:
         raw_inflection_score = ((velocity_norm * acceleration_norm).pow(0.5) * gate).fillna(0.0) # 修改: 变量重命名为 raw_
         # 新增: 应用环境调节器
         inflection_score = raw_inflection_score * modulator
-        # 修改: 更新探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [和谐拐点探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - 战略态势分: {strategic_posture.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 速度 (原始): {velocity.loc[probe_date_for_loop]:.4f}, (归一化): {velocity_norm.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 加速度 (原始): {acceleration.loc[probe_date_for_loop]:.4f}, (归一化): {acceleration_norm.loc[probe_date_for_loop]:.4f}")
-                print(f"       - '双正'门控是否开启: {gate.loc[probe_date_for_loop]}")
-                print(f"       - 原始和谐拐点分: {raw_inflection_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 环境调节器: {modulator.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 最终和谐拐点分: {inflection_score.loc[probe_date_for_loop]:.4f}")
+        
         return inflection_score.clip(0, 1).astype(np.float32)
 
     def _calculate_environmental_modulator(self, df: pd.DataFrame, params: dict) -> pd.Series: # 修改: 增加df参数
@@ -430,18 +344,7 @@ class FoundationIntelligence:
         theme_hotness_score = get_adaptive_mtf_normalized_score(theme_hotness_raw, df_index, ascending=True, tf_weights=default_weights)
         env_score = (market_proxy_score * w_mkt + sector_strength_score * w_sec + theme_hotness_score * w_thm).clip(-1, 1)
         modulator = 1.0 + (env_score * bonus_factor)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [环境调节器探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - 市场代理分: {market_proxy_score.loc[probe_date_for_loop]:.4f} (贡献: {market_proxy_score.loc[probe_date_for_loop] * w_mkt:.4f})")
-                print(f"       - 板块强度分: {sector_strength_score.loc[probe_date_for_loop]:.4f} (贡献: {sector_strength_score.loc[probe_date_for_loop] * w_sec:.4f})")
-                print(f"       - 主题热度分: {theme_hotness_score.loc[probe_date_for_loop]:.4f} (贡献: {theme_hotness_score.loc[probe_date_for_loop] * w_thm:.4f})")
-                print(f"       - 环境总分: {env_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 最终调节器: {modulator.loc[probe_date_for_loop]:.4f}")
+        
         return modulator.astype(np.float32)
 
     def _synthesize_strategic_posture(
@@ -477,23 +380,7 @@ class FoundationIntelligence:
         )
         # 新增: 应用环境调节器
         strategic_posture = raw_strategic_posture * modulator
-        # 修改: 更新探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            df_index = constitution.index
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [战略态势探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - 体质贡献: {constitution.loc[probe_date_for_loop]:.4f} * {w_c} = {constitution.loc[probe_date_for_loop] * w_c:.4f}")
-                print(f"       - 强度贡献: {relative_strength.loc[probe_date_for_loop]:.4f} * {w_rs} = {relative_strength.loc[probe_date_for_loop] * w_rs:.4f}")
-                print(f"       - 流动性贡献: {liquidity.loc[probe_date_for_loop]:.4f} * {w_l} = {liquidity.loc[probe_date_for_loop] * w_l:.4f}")
-                print(f"       - 情绪贡献: {sentiment.loc[probe_date_for_loop]:.4f} * {w_s} = {sentiment.loc[probe_date_for_loop] * w_s:.4f}")
-                print(f"       - 张力贡献: {tension.loc[probe_date_for_loop]:.4f} * {w_t} = {tension.loc[probe_date_for_loop] * w_t:.4f}")
-                print(f"       - 原始战略态势分: {raw_strategic_posture.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 环境调节器: {modulator.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 最终战略态势分: {strategic_posture.loc[probe_date_for_loop]:.4f}")
+        
         return strategic_posture.clip(-1, 1).astype(np.float32)
 
 
