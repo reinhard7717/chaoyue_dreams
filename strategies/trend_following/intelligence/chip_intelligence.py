@@ -422,12 +422,20 @@ class ChipIntelligence:
         final_fusion_dynamic_weights_enabled = get_param_value(trend_momentum_params.get('final_fusion_dynamic_weights_enabled'), True)
         final_fusion_weights_base = get_param_value(trend_momentum_params.get('final_fusion_weights_base'), {'engine': 0.33, 'fuel': 0.33, 'nozzle': 0.34})
         final_fusion_weights_sensitivity = get_param_value(trend_momentum_params.get('final_fusion_weights_sensitivity'), {'engine': 0.5, 'fuel': 0.5, 'nozzle': 0.5})
-        final_fusion_context_modulators = get_param_value(trend_momentum_params.get('final_fusion_context_modulators'), {
-            'strategic_posture': {'signal': strategic_posture, 'weight': 0.5, 'sensitivity': 0.5},
-            'battlefield_geography': {'signal': battlefield_geography, 'weight': 0.3, 'sensitivity': 0.3},
-            'holder_sentiment': {'signal': holder_sentiment, 'weight': 0.2, 'sensitivity': 0.2}
+        final_fusion_context_modulators_config = get_param_value(trend_momentum_params.get('final_fusion_context_modulators'), {
+            'strategic_posture': {'signal': "strategic_posture", 'weight': 0.5, 'sensitivity': 0.5},
+            'battlefield_geography': {'signal': "battlefield_geography", 'weight': 0.3, 'sensitivity': 0.3},
+            'holder_sentiment': {'signal': "holder_sentiment", 'weight': 0.2, 'sensitivity': 0.2}
         })
         df_index = df.index
+
+        # [新增代码块] 创建信号映射字典
+        signal_map = {
+            "strategic_posture": strategic_posture,
+            "battlefield_geography": battlefield_geography,
+            "holder_sentiment": holder_sentiment
+        }
+
         static_engine_power = (
             strategic_posture * health_weights['posture'] +
             battlefield_geography * health_weights['geography'] +
@@ -454,7 +462,7 @@ class ChipIntelligence:
         base_fuel_quality = ((conviction_score.add(1)/2) * (purity_score.add(1)/2)).pow(0.5) * 2 - 1
         chip_fault_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', 0.0, method_name="_diagnose_axiom_trend_momentum")
         norm_chip_fault = get_adaptive_mtf_normalized_score(chip_fault_raw.abs(), df_index, ascending=True, tf_weights=tf_weights)
-        deception_penalty = pd.Series(0.0, index=df.index)
+        deception_penalty = pd.Series(0.0, index=df_index)
         positive_fault_mask = chip_fault_raw > 0
         deception_penalty.loc[positive_fault_mask] = norm_chip_fault.loc[positive_fault_mask] * fuel_purity_deception_penalty_factor
         fuel_quality_score_after_deception = base_fuel_quality * (1 - deception_penalty.clip(0, 1))
@@ -488,8 +496,9 @@ class ChipIntelligence:
         if final_fusion_dynamic_weights_enabled:
             context_modulator_components = []
             total_context_weight = 0.0
-            for ctx_name, ctx_config in final_fusion_context_modulators.items():
-                signal_series = ctx_config.get('signal')
+            for ctx_name, ctx_config in final_fusion_context_modulators_config.items(): # [修改代码行] 使用 config 变量
+                signal_key = ctx_config.get('signal') # [修改代码行] 获取信号的键名
+                signal_series = signal_map.get(signal_key) # [新增代码行] 从 signal_map 中获取实际的 Series 对象
                 weight = ctx_config.get('weight', 0.0)
                 sensitivity = ctx_config.get('sensitivity', 0.0)
                 if signal_series is not None and weight > 0:
