@@ -377,13 +377,13 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V7.8 · 筹码结构动态影响版】诊断筹码同调驱动力
-        - 核心升级1: 引入筹码结构分数（cost_structure_scores）的动态影响因子。该因子根据持股心态（holder_sentiment_scores）的强度
-                      进行非线性调整，使得筹码结构对情绪驱动力的调制强度更具自适应性，模拟诡道博弈中情绪信念对结构影响的放大或削弱。
-        - 核心升级2: 增强真理探针。详细输出新的动态影响因子参数和中间计算结果，以便于深度调试与验证。
-        - 修复: 修正了探针输出中 `abs_holder_sentiment_val` 的计算错误，确保在标量值上正确调用绝对值函数。
+        【V7.9 · 筹码结构情绪非对称影响版】诊断筹码同调驱动力
+        - 核心升级1: 引入筹码结构分数（cost_structure_scores）对情绪驱动力影响的非对称性。
+                      根据持股心态（holder_sentiment_scores）的正负方向，分别计算看涨和看跌情绪下的动态影响因子，
+                      使得筹码结构对情绪驱动力的调制强度更精细地反映市场情绪的非对称反应。
+        - 核心升级2: 增强真理探针。详细输出新的非对称动态影响因子参数和中间计算结果，以便于深度调试与验证。
         """
-        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.8 · 筹码结构动态影响版)”...")
+        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.9 · 筹码结构情绪非对称影响版)”...") # [修改代码行]
         
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         coherent_drive_params = get_param_value(p_conf.get('coherent_drive_params'), {})
@@ -407,10 +407,14 @@ class ChipIntelligence:
         chip_sensitivity_mod_tanh_factor_amp = get_param_value(coherent_drive_params.get('chip_sensitivity_mod_tanh_factor_amp'), 1.0)
         chip_sensitivity_mod_tanh_factor_damp = get_param_value(coherent_drive_params.get('chip_sensitivity_mod_tanh_factor_damp'), 1.0)
 
-        cost_structure_impact_modulation_enabled = get_param_value(coherent_drive_params.get('cost_structure_impact_modulation_enabled'), False)
-        cost_structure_impact_base_factor = get_param_value(coherent_drive_params.get('cost_structure_impact_base_factor'), 1.0)
-        cost_structure_impact_sentiment_sensitivity = get_param_value(coherent_drive_params.get('cost_structure_impact_sentiment_sensitivity'), 1.0)
-        cost_structure_impact_sentiment_tanh_factor = get_param_value(coherent_drive_params.get('cost_structure_impact_sentiment_tanh_factor'), 1.0)
+        # [修改代码块] 筹码结构动态影响因子参数 (现在是非对称的)
+        cost_structure_asymmetric_impact_enabled = get_param_value(coherent_drive_params.get('cost_structure_asymmetric_impact_enabled'), False)
+        cost_structure_impact_base_factor_bullish = get_param_value(coherent_drive_params.get('cost_structure_impact_base_factor_bullish'), 1.0)
+        cost_structure_impact_base_factor_bearish = get_param_value(coherent_drive_params.get('cost_structure_impact_base_factor_bearish'), 1.0)
+        cost_structure_impact_sentiment_sensitivity_bullish = get_param_value(coherent_drive_params.get('cost_structure_impact_sentiment_sensitivity_bullish'), 1.0)
+        cost_structure_impact_sentiment_sensitivity_bearish = get_param_value(coherent_drive_params.get('cost_structure_impact_sentiment_sensitivity_bearish'), 1.0)
+        cost_structure_impact_sentiment_tanh_factor_bullish = get_param_value(coherent_drive_params.get('cost_structure_impact_sentiment_tanh_factor_bullish'), 1.0)
+        cost_structure_impact_sentiment_tanh_factor_bearish = get_param_value(coherent_drive_params.get('cost_structure_impact_sentiment_tanh_factor_bearish'), 1.0)
 
         amplification_power = pd.Series(base_amplification_power, index=df.index)
         dampening_power = pd.Series(base_dampening_power, index=df.index)
@@ -428,7 +432,9 @@ class ChipIntelligence:
         non_linear_modulator_effect_amp = pd.Series(0.0, index=df.index)
         non_linear_modulator_effect_damp = pd.Series(0.0, index=df.index)
 
-        dynamic_cost_structure_impact_factor = pd.Series(cost_structure_impact_base_factor, index=df.index)
+        # [修改代码行] 筹码结构动态影响因子变量初始化 (现在是两个)
+        dynamic_cost_structure_impact_factor_bullish = pd.Series(cost_structure_impact_base_factor_bullish, index=df.index)
+        dynamic_cost_structure_impact_factor_bearish = pd.Series(cost_structure_impact_base_factor_bearish, index=df.index)
         
         if chip_health_modulation_enabled:
             current_chip_health_score_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_structural_consensus")
@@ -468,14 +474,33 @@ class ChipIntelligence:
             amplification_power = amplification_power.clip(0.5, 2.0) 
             dampening_power = dampening_power.clip(0.5, 2.0) 
         
-        if cost_structure_impact_modulation_enabled:
-            abs_holder_sentiment = holder_sentiment_scores.abs()
-            normalized_abs_sentiment_tanh = np.tanh(abs_holder_sentiment * cost_structure_impact_sentiment_tanh_factor)
-            
-            dynamic_cost_structure_impact_factor = cost_structure_impact_base_factor * (1 + (normalized_abs_sentiment_tanh - 0.5) * cost_structure_impact_sentiment_sensitivity)
-            dynamic_cost_structure_impact_factor = dynamic_cost_structure_impact_factor.clip(0.1, 2.0)
+        # [修改代码块] 计算筹码结构动态影响因子 (非对称)
+        if cost_structure_asymmetric_impact_enabled:
+            # 看涨情绪下的影响因子
+            positive_sentiment_mask = holder_sentiment_scores > 0
+            if positive_sentiment_mask.any():
+                positive_sentiment_strength = holder_sentiment_scores[positive_sentiment_mask] # 只取正值
+                normalized_positive_sentiment_tanh = np.tanh(positive_sentiment_strength * cost_structure_impact_sentiment_tanh_factor_bullish)
+                dynamic_cost_structure_impact_factor_bullish.loc[positive_sentiment_mask] = \
+                    cost_structure_impact_base_factor_bullish * (1 + (normalized_positive_sentiment_tanh - 0.5) * cost_structure_impact_sentiment_sensitivity_bullish)
+                dynamic_cost_structure_impact_factor_bullish = dynamic_cost_structure_impact_factor_bullish.clip(0.1, 2.0)
+
+            # 看跌情绪下的影响因子
+            negative_sentiment_mask = holder_sentiment_scores < 0
+            if negative_sentiment_mask.any():
+                negative_sentiment_strength = holder_sentiment_scores[negative_sentiment_mask].abs() # 取绝对值
+                normalized_negative_sentiment_tanh = np.tanh(negative_sentiment_strength * cost_structure_impact_sentiment_tanh_factor_bearish)
+                dynamic_cost_structure_impact_factor_bearish.loc[negative_sentiment_mask] = \
+                    cost_structure_impact_base_factor_bearish * (1 + (normalized_negative_sentiment_tanh - 0.5) * cost_structure_impact_sentiment_sensitivity_bearish)
+                dynamic_cost_structure_impact_factor_bearish = dynamic_cost_structure_impact_factor_bearish.clip(0.1, 2.0)
         
-        adjusted_cost_structure_scores = cost_structure_scores * dynamic_cost_structure_impact_factor
+        # [新增代码块] 根据情绪方向选择合适的动态影响因子
+        selected_dynamic_cost_structure_impact_factor = pd.Series(1.0, index=df.index)
+        selected_dynamic_cost_structure_impact_factor.loc[holder_sentiment_scores > 0] = dynamic_cost_structure_impact_factor_bullish.loc[holder_sentiment_scores > 0]
+        selected_dynamic_cost_structure_impact_factor.loc[holder_sentiment_scores < 0] = dynamic_cost_structure_impact_factor_bearish.loc[holder_sentiment_scores < 0]
+        # 对于 holder_sentiment_scores == 0 的情况，保持为1.0 (默认值)
+
+        adjusted_cost_structure_scores = cost_structure_scores * selected_dynamic_cost_structure_impact_factor # [修改代码行]
 
         bullish_mask = holder_sentiment_scores > 0
         bearish_mask = holder_sentiment_scores < 0
@@ -509,7 +534,10 @@ class ChipIntelligence:
                 print(f"       - 筹码健康度非线性参数: chip_health_tanh_factor_amp: {chip_health_tanh_factor_amp:.2f}, chip_health_tanh_factor_damp: {chip_health_tanh_factor_damp:.2f}")
                 print(f"       - 筹码健康度动态敏感度调制: enabled: {chip_health_sensitivity_modulation_enabled}, modulator: '{chip_sensitivity_modulator_signal_name}', norm_window: {chip_sensitivity_mod_norm_window}, mod_factor_amp: {chip_sensitivity_mod_factor_amp:.2f}, mod_factor_damp: {chip_sensitivity_mod_factor_damp:.2f}")
                 print(f"       - 动态敏感度非线性参数: chip_sensitivity_mod_tanh_factor_amp: {chip_sensitivity_mod_tanh_factor_amp:.2f}, chip_sensitivity_mod_tanh_factor_damp: {chip_sensitivity_mod_tanh_factor_damp:.2f}")
-                print(f"       - 筹码结构动态影响参数: enabled: {cost_structure_impact_modulation_enabled}, base_factor: {cost_structure_impact_base_factor:.2f}, sentiment_sensitivity: {cost_structure_impact_sentiment_sensitivity:.2f}, sentiment_tanh_factor: {cost_structure_impact_sentiment_tanh_factor:.2f}")
+                # [修改代码块] 打印筹码结构动态影响参数 (非对称)
+                print(f"       - 筹码结构情绪非对称影响参数: enabled: {cost_structure_asymmetric_impact_enabled}")
+                print(f"         - 看涨: base_factor: {cost_structure_impact_base_factor_bullish:.2f}, sentiment_sensitivity: {cost_structure_impact_sentiment_sensitivity_bullish:.2f}, sentiment_tanh_factor: {cost_structure_impact_sentiment_tanh_factor_bullish:.2f}")
+                print(f"         - 看跌: base_factor: {cost_structure_impact_base_factor_bearish:.2f}, sentiment_sensitivity: {cost_structure_impact_sentiment_sensitivity_bearish:.2f}, sentiment_tanh_factor: {cost_structure_impact_sentiment_tanh_factor_bearish:.2f}")
                 if chip_health_modulation_enabled:
                     print(f"       - 筹码健康度信号 (原始): chip_health_score_D: {current_chip_health_score_raw.loc[probe_date]:.4f}")
                     print(f"       - 筹码健康度信号 (归一化): normalized_chip_health: {normalized_chip_health.loc[probe_date]:.4f}")
@@ -527,13 +555,24 @@ class ChipIntelligence:
                     print(f"       - 静态幂指数: amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}")
                 
                 print(f"       - 原料: base_drive (holder_sentiment): {holder_sentiment_scores.loc[probe_date]:.4f}")
-                if cost_structure_impact_modulation_enabled:
-                    # [修改代码行] 修正：使用 np.abs() 获取标量值的绝对值
-                    abs_holder_sentiment_val = np.abs(holder_sentiment_scores.loc[probe_date])
-                    normalized_abs_sentiment_tanh_val = np.tanh(abs_holder_sentiment_val * cost_structure_impact_sentiment_tanh_factor)
-                    print(f"       - 原料: holder_sentiment_scores (绝对值): {abs_holder_sentiment_val:.4f}")
-                    print(f"       - 原料: holder_sentiment_scores (绝对值非线性): {normalized_abs_sentiment_tanh_val:.4f}")
-                    print(f"       - 筹码结构动态影响因子: dynamic_cost_structure_impact_factor: {dynamic_cost_structure_impact_factor.loc[probe_date]:.4f}")
+                if cost_structure_asymmetric_impact_enabled: # [修改代码行]
+                    current_holder_sentiment = holder_sentiment_scores.loc[probe_date]
+                    if current_holder_sentiment > 0:
+                        positive_sentiment_strength_val = current_holder_sentiment
+                        normalized_positive_sentiment_tanh_val = np.tanh(positive_sentiment_strength_val * cost_structure_impact_sentiment_tanh_factor_bullish)
+                        print(f"       - 原料: holder_sentiment_scores (看涨强度): {positive_sentiment_strength_val:.4f}")
+                        print(f"       - 原料: holder_sentiment_scores (看涨强度非线性): {normalized_positive_sentiment_tanh_val:.4f}")
+                        print(f"       - 筹码结构动态影响因子 (看涨): dynamic_cost_structure_impact_factor_bullish: {dynamic_cost_structure_impact_factor_bullish.loc[probe_date]:.4f}")
+                        print(f"       - 选定筹码结构动态影响因子: {selected_dynamic_cost_structure_impact_factor.loc[probe_date]:.4f}") # [新增代码行]
+                    elif current_holder_sentiment < 0:
+                        negative_sentiment_strength_val = np.abs(current_holder_sentiment)
+                        normalized_negative_sentiment_tanh_val = np.tanh(negative_sentiment_strength_val * cost_structure_impact_sentiment_tanh_factor_bearish)
+                        print(f"       - 原料: holder_sentiment_scores (看跌强度): {negative_sentiment_strength_val:.4f}")
+                        print(f"       - 原料: holder_sentiment_scores (看跌强度非线性): {normalized_negative_sentiment_tanh_val:.4f}")
+                        print(f"       - 筹码结构动态影响因子 (看跌): dynamic_cost_structure_impact_factor_bearish: {dynamic_cost_structure_impact_factor_bearish.loc[probe_date]:.4f}")
+                        print(f"       - 选定筹码结构动态影响因子: {selected_dynamic_cost_structure_impact_factor.loc[probe_date]:.4f}") # [新增代码行]
+                    else: # current_holder_sentiment == 0
+                        print(f"       - 选定筹码结构动态影响因子: {selected_dynamic_cost_structure_impact_factor.loc[probe_date]:.4f}") # [新增代码行]
                     print(f"       - 原料: cost_structure_scores (原始): {cost_structure_scores.loc[probe_date]:.4f}")
                     print(f"       - 原料: cost_structure_scores (调整后): {adjusted_cost_structure_scores.loc[probe_date]:.4f}")
                 else:
