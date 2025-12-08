@@ -1523,7 +1523,7 @@
           "smoothing_ema_span": 5
         },
         "coherent_drive_params": {
-          "description": "【V7.9 · 筹码结构情绪非对称影响版】筹码同调驱动力信号的专属参数。",
+          "description": "【V7.10 · 情绪结构动态耦合版】筹码同调驱动力信号的专属参数。",
           "amplification_power": 1.2,
           "comment_amplification_power": "结构顺风时，对驱动力进行非线性放大的基础幂指数。大于1增强放大效果。",
           "dampening_power": 1.5,
@@ -1577,7 +1577,15 @@
           "cost_structure_impact_sentiment_tanh_factor_bullish": 1.0,
           "comment_cost_structure_impact_sentiment_tanh_factor_bullish": "看涨情绪强度非线性映射（tanh函数）的因子。",
           "cost_structure_impact_sentiment_tanh_factor_bearish": 1.0,
-          "comment_cost_structure_impact_sentiment_tanh_factor_bearish": "看跌情绪强度非线性映射（tanh函数）的因子。"
+          "comment_cost_structure_impact_sentiment_tanh_factor_bearish": "看跌情绪强度非线性映射（tanh函数）的因子。",
+          "sentiment_cost_structure_coupling_enabled": true,
+          "comment_sentiment_cost_structure_coupling_enabled": "是否启用情绪与筹码结构之间的动态耦合强度。",
+          "sentiment_coupling_base_factor": 1.0,
+          "comment_sentiment_coupling_base_factor": "情绪与筹码结构耦合强度的基准因子。",
+          "sentiment_coupling_tanh_factor": 1.0,
+          "comment_sentiment_coupling_tanh_factor": "用于持股心态强度非线性映射（tanh函数）的因子，控制耦合强度的非线性响应。",
+          "sentiment_coupling_sensitivity": 1.0,
+          "comment_sentiment_coupling_sensitivity": "持股心态强度对耦合强度调整的敏感度。"
         }
       },
       "dynamic_mechanics_params": {
