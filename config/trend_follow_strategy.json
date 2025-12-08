@@ -176,6 +176,8 @@
         "winner_stability_index_D": [5, 8, 13],
         "observed_large_order_size_avg_D": [5, 8],
         "main_force_vpoc_D": [5, 8, 13, 21],
+        "main_force_activity_ratio_D": [5],
+          "main_force_flow_directionality_D": [5],
         "说明_通达信指标": "--- 通达信指标的斜率 ---",
         "AAA_D": [5, 8, 13],
         "DMA_D": [5, 8, 13],
