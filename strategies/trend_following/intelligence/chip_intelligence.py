@@ -377,13 +377,13 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V7.13 · 情绪激活阈值版】诊断筹码同调驱动力
-        - 核心升级1: 引入情绪激活阈值。持股心态（holder_sentiment_scores）在参与驱动力计算前，
-                      会根据其与动态中性阈值的相对关系进行“激活”或“去激活”处理，
-                      以更精细地模拟市场情绪的真实驱动力。
-        - 核心升级2: 增强真理探针。详细输出新的情绪激活阈值参数和中间计算结果，以便于深度调试与验证。
+        【V7.14 · 情绪强度结构调制版】诊断筹码同调驱动力
+        - 核心升级1: 引入情绪强度对筹码结构调制效果的动态缩放。激活后的持股心态（activated_holder_sentiment_scores）的强度，
+                      将动态缩放筹码结构分数对驱动力的最终影响，使得情绪的“信念”或“决心”能够进一步影响筹码结构传导的效率。
+        - 核心升级2: 增强真理探针。详细输出新的情绪强度结构调制参数和中间计算结果，并修正探针中“过程”逻辑的显示，
+                      使其更准确地反映动态阈值和原始情绪的判断。
         """
-        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.13 · 情绪激活阈值版)”...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.14 · 情绪强度结构调制版)”...") # [修改代码行]
         
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         coherent_drive_params = get_param_value(p_conf.get('coherent_drive_params'), {})
@@ -432,10 +432,15 @@ class ChipIntelligence:
         cost_structure_neutrality_base_threshold = get_param_value(coherent_drive_params.get('cost_structure_neutrality_base_threshold'), 0.0)
         cost_structure_neutrality_chip_health_sensitivity = get_param_value(coherent_drive_params.get('cost_structure_neutrality_chip_health_sensitivity'), 0.1)
 
-        # [新增代码块] 情绪激活阈值参数
         sentiment_activation_enabled = get_param_value(coherent_drive_params.get('sentiment_activation_enabled'), False)
         sentiment_activation_tanh_factor = get_param_value(coherent_drive_params.get('sentiment_activation_tanh_factor'), 1.0)
         sentiment_activation_strength = get_param_value(coherent_drive_params.get('sentiment_activation_strength'), 1.0)
+
+        # [新增代码块] 情绪强度结构调制参数
+        structure_modulation_strength_enabled = get_param_value(coherent_drive_params.get('structure_modulation_strength_enabled'), False)
+        structure_modulation_base_strength = get_param_value(coherent_drive_params.get('structure_modulation_base_strength'), 1.0)
+        structure_modulation_sentiment_tanh_factor = get_param_value(coherent_drive_params.get('structure_modulation_sentiment_tanh_factor'), 1.0)
+        structure_modulation_sentiment_sensitivity = get_param_value(coherent_drive_params.get('structure_modulation_sentiment_sensitivity'), 1.0)
 
         amplification_power = pd.Series(base_amplification_power, index=df.index)
         dampening_power = pd.Series(base_dampening_power, index=df.index)
@@ -462,8 +467,10 @@ class ChipIntelligence:
         dynamic_sentiment_neutrality_threshold = pd.Series(sentiment_neutrality_base_threshold, index=df.index)
         dynamic_cost_structure_neutrality_threshold = pd.Series(cost_structure_neutrality_base_threshold, index=df.index)
 
-        # [新增代码行] 情绪激活后的持股心态
         activated_holder_sentiment_scores = holder_sentiment_scores.copy()
+        # [新增代码行] 情绪强度结构调制因子初始化
+        dynamic_structure_modulation_strength = pd.Series(structure_modulation_base_strength, index=df.index)
+        final_cost_structure_for_modulation_scaled = pd.Series(0.0, index=df.index)
 
         if chip_health_modulation_enabled:
             current_chip_health_score_raw = self._get_safe_series(df, df, 'chip_health_score_D', 0.0, method_name="_diagnose_structural_consensus")
@@ -525,22 +532,18 @@ class ChipIntelligence:
             dynamic_sentiment_neutrality_threshold = dynamic_sentiment_neutrality_threshold.clip(-0.2, 0.2)
             dynamic_cost_structure_neutrality_threshold = dynamic_cost_structure_neutrality_threshold.clip(-0.2, 0.2)
 
-        # [新增代码块] 情绪激活处理
         if sentiment_activation_enabled:
             positive_active_mask = holder_sentiment_scores > dynamic_sentiment_neutrality_threshold
             negative_active_mask = holder_sentiment_scores < -dynamic_sentiment_neutrality_threshold
             neutral_mask = ~(positive_active_mask | negative_active_mask)
 
-            # 对于超出中性区的值，进行平移
             activated_holder_sentiment_scores.loc[positive_active_mask] = \
                 holder_sentiment_scores.loc[positive_active_mask] - dynamic_sentiment_neutrality_threshold.loc[positive_active_mask]
             activated_holder_sentiment_scores.loc[negative_active_mask] = \
                 holder_sentiment_scores.loc[negative_active_mask] + dynamic_sentiment_neutrality_threshold.loc[negative_active_mask]
             
-            # 中性区内的值设置为零
             activated_holder_sentiment_scores.loc[neutral_mask] = 0.0
 
-            # 应用 tanh 非线性激活并缩放强度
             activated_holder_sentiment_scores = np.tanh(activated_holder_sentiment_scores * sentiment_activation_tanh_factor) * sentiment_activation_strength
         
         if cost_structure_asymmetric_impact_enabled:
@@ -574,29 +577,38 @@ class ChipIntelligence:
 
         final_cost_structure_for_modulation = adjusted_cost_structure_scores * dynamic_coupling_factor
 
-        # [修改代码块] 掩码判断仍基于原始 holder_sentiment_scores 和动态阈值
+        # [新增代码块] 计算情绪强度对筹码结构调制效果的动态缩放
+        if structure_modulation_strength_enabled:
+            abs_activated_sentiment = activated_holder_sentiment_scores.abs()
+            sentiment_tanh_modulated_for_structure = np.tanh(abs_activated_sentiment * structure_modulation_sentiment_tanh_factor)
+            dynamic_structure_modulation_strength = structure_modulation_base_strength * (1 + sentiment_tanh_modulated_for_structure * structure_modulation_sentiment_sensitivity)
+            dynamic_structure_modulation_strength = dynamic_structure_modulation_strength.clip(0.1, 2.0) # 限制范围
+
+        # [修改代码行] 将最终调整后的筹码结构分数与动态结构调制强度结合
+        final_cost_structure_for_modulation_scaled = final_cost_structure_for_modulation * dynamic_structure_modulation_strength
+
+        # 掩码判断仍基于原始 holder_sentiment_scores 和动态阈值
         bullish_mask = holder_sentiment_scores > dynamic_sentiment_neutrality_threshold
         bearish_mask = holder_sentiment_scores < -dynamic_sentiment_neutrality_threshold
 
         # 牛市情绪 (holder_sentiment_scores > dynamic_sentiment_neutrality_threshold)
-        # 顺风 (final_cost_structure_for_modulation > dynamic_cost_structure_neutrality_threshold): 结构助力，放大驱动力
-        bullish_tailwind_mask = bullish_mask & (final_cost_structure_for_modulation > dynamic_cost_structure_neutrality_threshold)
-        modulation_factor.loc[bullish_tailwind_mask] = (1 + final_cost_structure_for_modulation.loc[bullish_tailwind_mask]) ** amplification_power.loc[bullish_tailwind_mask]
+        # 顺风 (final_cost_structure_for_modulation_scaled > dynamic_cost_structure_neutrality_threshold): 结构助力，放大驱动力
+        bullish_tailwind_mask = bullish_mask & (final_cost_structure_for_modulation_scaled > dynamic_cost_structure_neutrality_threshold) # [修改代码行]
+        modulation_factor.loc[bullish_tailwind_mask] = (1 + final_cost_structure_for_modulation_scaled.loc[bullish_tailwind_mask]) ** amplification_power.loc[bullish_tailwind_mask] # [修改代码行]
         
-        # 逆风 (final_cost_structure_for_modulation < -dynamic_cost_structure_neutrality_threshold): 结构阻碍，削弱驱动力
-        bullish_headwind_mask = bullish_mask & (final_cost_structure_for_modulation < -dynamic_cost_structure_neutrality_threshold)
-        modulation_factor.loc[bullish_headwind_mask] = (1 - final_cost_structure_for_modulation.loc[bullish_headwind_mask].abs()) ** dampening_power.loc[bullish_headwind_mask]
+        # 逆风 (final_cost_structure_for_modulation_scaled < -dynamic_cost_structure_neutrality_threshold): 结构阻碍，削弱驱动力
+        bullish_headwind_mask = bullish_mask & (final_cost_structure_for_modulation_scaled < -dynamic_cost_structure_neutrality_threshold) # [修改代码行]
+        modulation_factor.loc[bullish_headwind_mask] = (1 - final_cost_structure_for_modulation_scaled.loc[bullish_headwind_mask].abs()) ** dampening_power.loc[bullish_headwind_mask] # [修改代码行]
 
         # 熊市情绪 (holder_sentiment_scores < -dynamic_sentiment_neutrality_threshold)
-        # 顺风 (final_cost_structure_for_modulation < -dynamic_cost_structure_neutrality_threshold): 结构助力，放大驱动力
-        bearish_tailwind_mask = bearish_mask & (final_cost_structure_for_modulation < -dynamic_cost_structure_neutrality_threshold)
-        modulation_factor.loc[bearish_tailwind_mask] = (1 + final_cost_structure_for_modulation.loc[bearish_tailwind_mask].abs()) ** amplification_power.loc[bearish_tailwind_mask]
+        # 顺风 (final_cost_structure_for_modulation_scaled < -dynamic_cost_structure_neutrality_threshold): 结构助力，放大驱动力
+        bearish_tailwind_mask = bearish_mask & (final_cost_structure_for_modulation_scaled < -dynamic_cost_structure_neutrality_threshold) # [修改代码行]
+        modulation_factor.loc[bearish_tailwind_mask] = (1 + final_cost_structure_for_modulation_scaled.loc[bearish_tailwind_mask].abs()) ** amplification_power.loc[bearish_tailwind_mask] # [修改代码行]
         
-        # 逆风 (final_cost_structure_for_modulation > dynamic_cost_structure_neutrality_threshold): 结构阻碍，削弱驱动力
-        bearish_headwind_mask = bearish_mask & (final_cost_structure_for_modulation > dynamic_cost_structure_neutrality_threshold)
-        modulation_factor.loc[bearish_headwind_mask] = (1 - final_cost_structure_for_modulation.loc[bearish_headwind_mask]) ** dampening_power.loc[bearish_headwind_mask]
+        # 逆风 (final_cost_structure_for_modulation_scaled > dynamic_cost_structure_neutrality_threshold): 结构阻碍，削弱驱动力
+        bearish_headwind_mask = bearish_mask & (final_cost_structure_for_modulation_scaled > dynamic_cost_structure_neutrality_threshold) # [修改代码行]
+        modulation_factor.loc[bearish_headwind_mask] = (1 - final_cost_structure_for_modulation_scaled.loc[bearish_headwind_mask]) ** dampening_power.loc[bearish_headwind_mask] # [修改代码行]
         
-        # [修改代码行] coherent_drive_raw 使用激活后的情绪分数
         coherent_drive_raw = activated_holder_sentiment_scores * modulation_factor
         final_score = np.tanh(coherent_drive_raw * (self.bipolar_sensitivity * 2))
         
@@ -624,8 +636,9 @@ class ChipIntelligence:
                 print(f"       - 动态中性阈值参数: enabled: {dynamic_neutrality_thresholds_enabled}")
                 print(f"         - 情绪: base_threshold: {sentiment_neutrality_base_threshold:.2f}, chip_health_sensitivity: {sentiment_neutrality_chip_health_sensitivity:.2f}")
                 print(f"         - 筹码结构: base_threshold: {cost_structure_neutrality_base_threshold:.2f}, chip_health_sensitivity: {cost_structure_neutrality_chip_health_sensitivity:.2f}")
-                # [新增代码块] 打印情绪激活阈值参数
                 print(f"       - 情绪激活阈值参数: enabled: {sentiment_activation_enabled}, tanh_factor: {sentiment_activation_tanh_factor:.2f}, strength: {sentiment_activation_strength:.2f}")
+                # [新增代码块] 打印情绪强度结构调制参数
+                print(f"       - 情绪强度结构调制参数: enabled: {structure_modulation_strength_enabled}, base_strength: {structure_modulation_base_strength:.2f}, sentiment_tanh_factor: {structure_modulation_sentiment_tanh_factor:.2f}, sentiment_sensitivity: {structure_modulation_sentiment_sensitivity:.2f}")
 
                 if chip_health_modulation_enabled:
                     print(f"       - 筹码健康度信号 (原始): chip_health_score_D: {current_chip_health_score_raw.loc[probe_date]:.4f}")
@@ -652,7 +665,6 @@ class ChipIntelligence:
                     print(f"       - 动态筹码结构中性阈值: {dynamic_cost_structure_neutrality_threshold.loc[probe_date]:.4f}")
 
                 print(f"       - 原料: base_drive (holder_sentiment): {holder_sentiment_scores.loc[probe_date]:.4f}")
-                # [新增代码块] 打印激活后的情绪分数
                 if sentiment_activation_enabled:
                     print(f"       - 原料: activated_holder_sentiment_scores: {activated_holder_sentiment_scores.loc[probe_date]:.4f}")
 
@@ -685,43 +697,57 @@ class ChipIntelligence:
                     print(f"       - 情绪强度 (绝对值): {abs_holder_sentiment_val:.4f}")
                     print(f"       - 情绪强度 (tanh调制): {sentiment_tanh_modulated_val:.4f}")
                     print(f"       - 动态耦合因子: {dynamic_coupling_factor.loc[probe_date]:.4f}")
-                    print(f"       - 最终用于调制的筹码结构分数: {final_cost_structure_for_modulation.loc[probe_date]:.4f}")
+                    print(f"       - 最终用于调制的筹码结构分数 (耦合前): {final_cost_structure_for_modulation.loc[probe_date]:.4f}") # [修改代码行]
                 
-                # [修改代码行] current_base_drive 现在是激活后的情绪分数
-                current_base_drive = activated_holder_sentiment_scores.loc[probe_date]
-                current_cost_structure = final_cost_structure_for_modulation.loc[probe_date]
+                # [新增代码块] 打印情绪强度结构调制相关信息
+                if structure_modulation_strength_enabled:
+                    abs_activated_sentiment_val = activated_holder_sentiment_scores.loc[probe_date].abs()
+                    sentiment_tanh_modulated_for_structure_val = np.tanh(abs_activated_sentiment_val * structure_modulation_sentiment_tanh_factor)
+                    print(f"       - 激活情绪强度 (绝对值): {abs_activated_sentiment_val:.4f}")
+                    print(f"       - 激活情绪强度 (tanh调制-结构): {sentiment_tanh_modulated_for_structure_val:.4f}")
+                    print(f"       - 动态结构调制强度: {dynamic_structure_modulation_strength.loc[probe_date]:.4f}")
+                    print(f"       - 最终用于调制的筹码结构分数 (缩放后): {final_cost_structure_for_modulation_scaled.loc[probe_date]:.4f}") # [修改代码行]
+                else: # [新增代码行] 如果未启用，则直接打印未缩放的
+                    print(f"       - 最终用于调制的筹码结构分数: {final_cost_structure_for_modulation_scaled.loc[probe_date]:.4f}") # [修改代码行]
+
+                # [修改代码块] 修正探针中“过程”逻辑的显示
+                current_raw_sentiment = holder_sentiment_scores.loc[probe_date] # 原始情绪用于判断掩码
+                current_activated_sentiment = activated_holder_sentiment_scores.loc[probe_date] # 激活情绪用于计算 coherent_drive_raw
+                current_cost_structure_for_mod_scaled = final_cost_structure_for_modulation_scaled.loc[probe_date] # 缩放后的筹码结构用于调制
                 current_modulation_factor = modulation_factor.loc[probe_date]
                 current_amp_power = amplification_power.loc[probe_date]
                 current_damp_power = dampening_power.loc[probe_date]
+                current_dynamic_sentiment_threshold = dynamic_sentiment_neutrality_threshold.loc[probe_date]
+                current_dynamic_cost_structure_threshold = dynamic_cost_structure_neutrality_threshold.loc[probe_date]
 
-                # [修改代码行] 过程判断现在基于激活后的情绪分数与0进行比较
-                print(f"       - 过程: activated_base_drive > 0: {current_base_drive > 0}, cost_structure_scores > 0: {current_cost_structure > 0}")
+                print(f"       - 过程: raw_sentiment > {current_dynamic_sentiment_threshold:.4f}: {current_raw_sentiment > current_dynamic_sentiment_threshold}, cost_structure_for_mod_scaled > {current_dynamic_cost_structure_threshold:.4f}: {current_cost_structure_for_mod_scaled > current_dynamic_cost_structure_threshold}")
                 
-                if current_base_drive > 0:
-                    if current_cost_structure > 0:
-                        expected_mod_factor = (1 + current_cost_structure) ** current_amp_power
-                        print(f"         - 逻辑: 牛市情绪顺风 (1 + {current_cost_structure:.4f})^{current_amp_power:.2f} = {expected_mod_factor:.4f}")
-                    elif current_cost_structure < 0: # [修改代码行] 筹码结构中性区间不进行调制，所以这里直接判断 < 0
-                        expected_mod_factor = (1 - abs(current_cost_structure)) ** current_damp_power
-                        print(f"         - 逻辑: 牛市情绪逆风 (1 - |{current_cost_structure:.4f}|)^{current_damp_power:.2f} = {expected_mod_factor:.4f}")
-                    else: # 筹码结构在中性区间
-                        expected_mod_factor = 1.0 # 中性结构不调制
+                # 复制实际的掩码判断逻辑
+                if current_raw_sentiment > current_dynamic_sentiment_threshold: # Bullish sentiment
+                    if current_cost_structure_for_mod_scaled > current_dynamic_cost_structure_threshold: # Bullish tailwind
+                        expected_mod_factor = (1 + current_cost_structure_for_mod_scaled) ** current_amp_power
+                        print(f"         - 逻辑: 牛市情绪顺风 (1 + {current_cost_structure_for_mod_scaled:.4f})^{current_amp_power:.2f} = {expected_mod_factor:.4f}")
+                    elif current_cost_structure_for_mod_scaled < -current_dynamic_cost_structure_threshold: # Bullish headwind
+                        expected_mod_factor = (1 - abs(current_cost_structure_for_mod_scaled)) ** current_damp_power
+                        print(f"         - 逻辑: 牛市情绪逆风 (1 - |{current_cost_structure_for_mod_scaled:.4f}|)^{current_damp_power:.2f} = {expected_mod_factor:.4f}")
+                    else: # Cost structure neutral
+                        expected_mod_factor = 1.0
                         print(f"         - 逻辑: 牛市情绪，筹码结构中性，调制因子保持为 {expected_mod_factor:.4f}")
-                elif current_base_drive < 0:
-                    if current_cost_structure < 0: # [修改代码行] 筹码结构中性区间不进行调制，所以这里直接判断 < 0
-                        expected_mod_factor = (1 + abs(current_cost_structure)) ** current_amp_power
-                        print(f"         - 逻辑: 熊市情绪顺风 (1 + |{current_cost_structure:.4f}|)^{current_amp_power:.2f} = {expected_mod_factor:.4f}")
-                    elif current_cost_structure > 0: # [修改代码行] 筹码结构中性区间不进行调制，所以这里直接判断 > 0
-                        expected_mod_factor = (1 - current_cost_structure) ** current_damp_power
-                        print(f"         - 逻辑: 熊市情绪逆风 (1 - {current_cost_structure:.4f})^{current_damp_power:.2f} = {expected_mod_factor:.4f}")
-                    else: # 筹码结构在中性区间
-                        expected_mod_factor = 1.0 # 中性结构不调制
+                elif current_raw_sentiment < -current_dynamic_sentiment_threshold: # Bearish sentiment
+                    if current_cost_structure_for_mod_scaled < -current_dynamic_cost_structure_threshold: # Bearish tailwind
+                        expected_mod_factor = (1 + abs(current_cost_structure_for_mod_scaled)) ** current_amp_power
+                        print(f"         - 逻辑: 熊市情绪顺风 (1 + |{current_cost_structure_for_mod_scaled:.4f}|)^{current_amp_power:.2f} = {expected_mod_factor:.4f}")
+                    elif current_cost_structure_for_mod_scaled > current_dynamic_cost_structure_threshold: # Bearish headwind
+                        expected_mod_factor = (1 - current_cost_structure_for_mod_scaled) ** current_damp_power
+                        print(f"         - 逻辑: 熊市情绪逆风 (1 - {current_cost_structure_for_mod_scaled:.4f})^{current_damp_power:.2f} = {expected_mod_factor:.4f}")
+                    else: # Cost structure neutral
+                        expected_mod_factor = 1.0
                         print(f"         - 逻辑: 熊市情绪，筹码结构中性，调制因子保持为 {expected_mod_factor:.4f}")
-                else: # current_base_drive == 0 (情绪在中性区间或被激活为0)
+                else: # Sentiment neutral
                     expected_mod_factor = 1.0
-                    print(f"         - 逻辑: 情绪中性或被激活为0，调制因子保持为 {expected_mod_factor:.4f}")
+                    print(f"         - 逻辑: 情绪中性，调制因子保持为 {expected_mod_factor:.4f}")
                 print(f"       - 过程: modulation_factor (实际): {current_modulation_factor:.4f}")
-                print(f"       - 过程: coherent_drive_raw (pre-tanh): {coherent_drive_raw.loc[probe_date]:.4f}")
+                print(f"       - 过程: coherent_drive_raw (pre-tanh): {current_activated_sentiment * current_modulation_factor:.4f}") # 使用激活情绪
                 print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.astype(np.float32)
 

@@ -1523,7 +1523,7 @@
           "smoothing_ema_span": 5
         },
         "coherent_drive_params": {
-          "description": "【V7.13 · 情绪激活阈值版】筹码同调驱动力信号的专属参数。",
+          "description": "【V7.14 · 情绪强度结构调制版】筹码同调驱动力信号的专属参数。",
           "amplification_power": 1.2,
           "comment_amplification_power": "结构顺风时，对驱动力进行非线性放大的基础幂指数。大于1增强放大效果。",
           "dampening_power": 1.5,
@@ -1611,7 +1611,15 @@
           "sentiment_activation_tanh_factor": 1.0,
           "comment_sentiment_activation_tanh_factor": "用于情绪激活后 tanh 非线性映射的因子，控制响应的陡峭程度。",
           "sentiment_activation_strength": 1.0,
-          "comment_sentiment_activation_strength": "情绪激活后的整体强度缩放因子。"
+          "comment_sentiment_activation_strength": "情绪激活后的整体强度缩放因子。",
+          "structure_modulation_strength_enabled": true,
+          "comment_structure_modulation_strength_enabled": "是否启用情绪强度对筹码结构调制效果的动态缩放。",
+          "structure_modulation_base_strength": 1.0,
+          "comment_structure_modulation_base_strength": "结构调制强度的基准值。",
+          "structure_modulation_sentiment_tanh_factor": 1.0,
+          "comment_structure_modulation_sentiment_tanh_factor": "用于激活情绪强度非线性映射（tanh函数）的因子，控制结构调制强度的非线性响应。",
+          "structure_modulation_sentiment_sensitivity": 1.0,
+          "comment_structure_modulation_sentiment_sensitivity": "激活情绪强度对结构调制强度调整的敏感度。"
         }
       },
       "dynamic_mechanics_params": {
