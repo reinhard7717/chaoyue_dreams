@@ -1549,12 +1549,6 @@ class BehavioralIntelligence:
         4) 日内行为极端（日内多头控制力、上涨效率衰减）。
         """
         method_name = "_calculate_behavioral_price_overextension"
-        
-        # [NEW DEBUG PRINT]
-        if debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"    -> [DEBUG] {method_name}: id(df) at start: {id(df)}")
-            print(f"    -> [DEBUG] {method_name}: df.columns at start (full list): {df.columns.tolist()}")
-
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         overextension_params = get_param_value(p_conf.get('price_overextension_params'), {
             "enabled": True, "rsi_overbought_threshold": 70, "bias_overbought_threshold": 0.05,
@@ -1694,12 +1688,6 @@ class BehavioralIntelligence:
         4) 日内控制力减弱（日内多头控制力下降、上涨效率衰减）。
         """
         method_name = "_calculate_behavioral_stagnation_evidence"
-
-        # [NEW DEBUG PRINT]
-        if debug_enabled and probe_ts and probe_ts in df.index:
-            print(f"    -> [DEBUG] {method_name}: id(df) at start: {id(df)}")
-            print(f"    -> [DEBUG] {method_name}: df.columns at start (full list): {df.columns.tolist()}")
-
         p_conf = get_params_block(self.strategy, 'behavioral_divergence_params', {})
         stagnation_params = get_param_value(p_conf.get('stagnation_evidence_params'), {
             "enabled": True, "upper_shadow_ratio_threshold": 0.4, "body_ratio_threshold": 0.3,
