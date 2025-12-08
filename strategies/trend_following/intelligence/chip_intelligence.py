@@ -377,14 +377,14 @@ class ChipIntelligence:
 
     def _diagnose_structural_consensus(self, df: pd.DataFrame, cost_structure_scores: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series:
         """
-        【V7.16 · 结构幂指数敏感度动态版】诊断筹码同调驱动力
-        - 核心升级1: 引入结构强度对幂指数自适应调整的敏感度动态调制。structural_power_sensitivity_amp 和
-                      structural_power_sensitivity_damp 将根据市场环境（如波动性、不稳定性）进行动态调整，
-                      使得模型在不同市场环境下对筹码结构信号的反应更加精细和智能。
-        - 核心升级2: 增强真理探针。详细输出新的动态敏感度参数和中间计算结果。
+        【V7.17 · 结构幂指数非对称非线性版】诊断筹码同调驱动力
+        - 核心升级1: 引入结构强度对幂指数自适应调整的非对称非线性映射。为正向和负向结构强度引入独立的
+                      tanh 因子和可选的偏移量，以更精细地模拟市场在面对极度乐观和极度悲观结构性信号时，
+                      其“兴奋”和“恐惧”的非线性反应模式。
+        - 核心升级2: 增强真理探针。详细输出新的非对称非线性参数和中间计算结果。
         - 修复: 修正了探针输出中 `abs_activated_sentiment_val` 的计算错误，确保在标量值上正确调用绝对值函数。
         """
-        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.16 · 结构幂指数敏感度动态版)”...") # [修改代码行]
+        print("    -> [筹码层] 正在诊断“同调驱动力 (V7.17 · 结构幂指数非对称非线性版)”...") # [修改代码行]
         
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         coherent_drive_params = get_param_value(p_conf.get('coherent_drive_params'), {})
@@ -443,13 +443,12 @@ class ChipIntelligence:
         structure_modulation_sentiment_sensitivity = get_param_value(coherent_drive_params.get('structure_modulation_sentiment_sensitivity'), 1.0)
 
         structural_power_adjustment_enabled = get_param_value(coherent_drive_params.get('structural_power_adjustment_enabled'), False)
-        # [修改代码行] 默认敏感度，如果动态调制未启用
         default_structural_power_sensitivity_amp = get_param_value(coherent_drive_params.get('structural_power_sensitivity_amp'), 0.5)
         default_structural_power_sensitivity_damp = get_param_value(coherent_drive_params.get('structural_power_sensitivity_damp'), 0.5)
-        structural_power_tanh_factor_amp = get_param_value(coherent_drive_params.get('structural_power_tanh_factor_amp'), 1.0)
-        structural_power_tanh_factor_damp = get_param_value(coherent_drive_params.get('structural_power_tanh_factor_damp'), 1.0)
+        # [修改代码行] 旧的 tanh 因子现在作为默认值，如果非对称 tanh 未启用
+        default_structural_power_tanh_factor_amp = get_param_value(coherent_drive_params.get('structural_power_tanh_factor_amp'), 1.0)
+        default_structural_power_tanh_factor_damp = get_param_value(coherent_drive_params.get('structural_power_tanh_factor_damp'), 1.0)
 
-        # [新增代码块] 结构幂指数敏感度动态调制参数
         structural_power_sensitivity_modulation_enabled = get_param_value(coherent_drive_params.get('structural_power_sensitivity_modulation_enabled'), False)
         structural_power_modulator_signal_name = get_param_value(coherent_drive_params.get('structural_power_modulator_signal_name'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         structural_power_mod_norm_window = get_param_value(coherent_drive_params.get('structural_power_mod_norm_window'), 21)
@@ -457,6 +456,13 @@ class ChipIntelligence:
         structural_power_mod_factor_damp = get_param_value(coherent_drive_params.get('structural_power_mod_factor_damp'), 1.0)
         structural_power_mod_tanh_factor_amp = get_param_value(coherent_drive_params.get('structural_power_mod_tanh_factor_amp'), 1.0)
         structural_power_mod_tanh_factor_damp = get_param_value(coherent_drive_params.get('structural_power_mod_tanh_factor_damp'), 1.0)
+
+        # [新增代码块] 结构幂指数非对称非线性映射参数
+        structural_power_asymmetric_tanh_enabled = get_param_value(coherent_drive_params.get('structural_power_asymmetric_tanh_enabled'), False)
+        structural_power_tanh_factor_positive_structure = get_param_value(coherent_drive_params.get('structural_power_tanh_factor_positive_structure'), 1.0)
+        structural_power_tanh_factor_negative_structure = get_param_value(coherent_drive_params.get('structural_power_tanh_factor_negative_structure'), 1.0)
+        structural_power_offset_positive_structure = get_param_value(coherent_drive_params.get('structural_power_offset_positive_structure'), 0.0)
+        structural_power_offset_negative_structure = get_param_value(coherent_drive_params.get('structural_power_offset_negative_structure'), 0.0)
 
         amplification_power = pd.Series(base_amplification_power, index=df.index)
         dampening_power = pd.Series(base_dampening_power, index=df.index)
@@ -487,7 +493,6 @@ class ChipIntelligence:
         dynamic_structure_modulation_strength = pd.Series(structure_modulation_base_strength, index=df.index)
         final_cost_structure_for_modulation_scaled = pd.Series(0.0, index=df.index)
 
-        # [新增代码行] 结构幂指数动态敏感度初始化
         dynamic_structural_power_sensitivity_amp = pd.Series(default_structural_power_sensitivity_amp, index=df.index)
         dynamic_structural_power_sensitivity_damp = pd.Series(default_structural_power_sensitivity_damp, index=df.index)
         structural_power_modulator_signal_raw = pd.Series(0.0, index=df.index)
@@ -609,7 +614,6 @@ class ChipIntelligence:
 
         final_cost_structure_for_modulation_scaled = final_cost_structure_for_modulation * dynamic_structure_modulation_strength
 
-        # [新增代码块] 结构幂指数敏感度动态调制
         if structural_power_sensitivity_modulation_enabled:
             structural_power_modulator_signal_raw = self._get_safe_series(df, df, structural_power_modulator_signal_name, 0.0, method_name="_diagnose_structural_consensus")
             structural_power_normalized_modulator_signal = normalize_score(
@@ -640,14 +644,20 @@ class ChipIntelligence:
 
             if positive_structure_mask.any():
                 positive_structure_strength = final_cost_structure_for_modulation_scaled[positive_structure_mask]
-                # [修改代码行] 使用动态敏感度
-                boost_amp = np.tanh(positive_structure_strength * structural_power_tanh_factor_amp) * dynamic_structural_power_sensitivity_amp.loc[positive_structure_mask]
+                # [修改代码行] 应用非对称非线性映射
+                if structural_power_asymmetric_tanh_enabled:
+                    boost_amp = np.tanh((positive_structure_strength + structural_power_offset_positive_structure) * structural_power_tanh_factor_positive_structure) * dynamic_structural_power_sensitivity_amp.loc[positive_structure_mask]
+                else:
+                    boost_amp = np.tanh(positive_structure_strength * default_structural_power_tanh_factor_amp) * dynamic_structural_power_sensitivity_amp.loc[positive_structure_mask]
                 amplification_power.loc[positive_structure_mask] = amplification_power.loc[positive_structure_mask] * (1 + boost_amp)
             
             if negative_structure_mask.any():
                 negative_structure_strength = final_cost_structure_for_modulation_scaled[negative_structure_mask].abs()
-                # [修改代码行] 使用动态敏感度
-                boost_damp = np.tanh(negative_structure_strength * structural_power_tanh_factor_damp) * dynamic_structural_power_sensitivity_damp.loc[negative_structure_mask]
+                # [修改代码行] 应用非对称非线性映射
+                if structural_power_asymmetric_tanh_enabled:
+                    boost_damp = np.tanh((negative_structure_strength + structural_power_offset_negative_structure) * structural_power_tanh_factor_negative_structure) * dynamic_structural_power_sensitivity_damp.loc[negative_structure_mask]
+                else:
+                    boost_damp = np.tanh(negative_structure_strength * default_structural_power_tanh_factor_damp) * dynamic_structural_power_sensitivity_damp.loc[negative_structure_mask]
                 dampening_power.loc[negative_structure_mask] = dampening_power.loc[negative_structure_mask] * (1 + boost_damp)
             
             amplification_power = amplification_power.clip(0.5, 3.0)
@@ -698,13 +708,15 @@ class ChipIntelligence:
                 print(f"       - 情绪激活阈值参数: enabled: {sentiment_activation_enabled}, tanh_factor: {sentiment_activation_tanh_factor:.2f}, strength: {sentiment_activation_strength:.2f}")
                 print(f"       - 情绪强度结构调制参数: enabled: {structure_modulation_strength_enabled}, base_strength: {structure_modulation_base_strength:.2f}, sentiment_tanh_factor: {structure_modulation_sentiment_tanh_factor:.2f}, sentiment_sensitivity: {structure_modulation_sentiment_sensitivity:.2f}")
                 print(f"       - 结构强度幂指数自适应参数: enabled: {structural_power_adjustment_enabled}")
-                # [修改代码行] 打印默认敏感度
                 print(f"         - 默认放大敏感度: {default_structural_power_sensitivity_amp:.2f}, 默认削弱敏感度: {default_structural_power_sensitivity_damp:.2f}")
-                print(f"         - 放大: tanh_factor: {structural_power_tanh_factor_amp:.2f}")
-                print(f"         - 削弱: tanh_factor: {structural_power_tanh_factor_damp:.2f}")
-                # [新增代码块] 打印结构幂指数敏感度动态调制参数
+                print(f"         - 默认放大 tanh_factor: {default_structural_power_tanh_factor_amp:.2f}") # [修改代码行]
+                print(f"         - 默认削弱 tanh_factor: {default_structural_power_tanh_factor_damp:.2f}") # [修改代码行]
                 print(f"       - 结构幂指数敏感度动态调制: enabled: {structural_power_sensitivity_modulation_enabled}, modulator: '{structural_power_modulator_signal_name}', norm_window: {structural_power_mod_norm_window}, mod_factor_amp: {structural_power_mod_factor_amp:.2f}, mod_factor_damp: {structural_power_mod_factor_damp:.2f}")
                 print(f"         - 动态敏感度非线性参数: mod_tanh_factor_amp: {structural_power_mod_tanh_factor_amp:.2f}, mod_tanh_factor_damp: {structural_power_mod_tanh_factor_damp:.2f}")
+                # [新增代码块] 打印结构幂指数非对称非线性映射参数
+                print(f"       - 结构幂指数非对称非线性映射: enabled: {structural_power_asymmetric_tanh_enabled}")
+                print(f"         - 正向结构: tanh_factor: {structural_power_tanh_factor_positive_structure:.2f}, offset: {structural_power_offset_positive_structure:.2f}")
+                print(f"         - 负向结构: tanh_factor: {structural_power_tanh_factor_negative_structure:.2f}, offset: {structural_power_offset_negative_structure:.2f}")
 
                 if chip_health_modulation_enabled:
                     print(f"       - 筹码健康度信号 (原始): chip_health_score_D: {current_chip_health_score_raw.loc[probe_date]:.4f}")
@@ -776,7 +788,6 @@ class ChipIntelligence:
                     print(f"       - 最终用于调制的筹码结构分数: {final_cost_structure_for_modulation_scaled.loc[probe_date]:.4f}")
 
                 if structural_power_adjustment_enabled:
-                    # [新增代码块] 打印结构幂指数敏感度动态调制中间结果
                     if structural_power_sensitivity_modulation_enabled:
                         print(f"       - 结构幂指数调制信号 (原始): {structural_power_modulator_signal_name}: {structural_power_modulator_signal_raw.loc[probe_date]:.4f}")
                         print(f"       - 结构幂指数调制信号 (归一化): {structural_power_normalized_modulator_signal.loc[probe_date]:.4f}")
@@ -792,12 +803,26 @@ class ChipIntelligence:
                     boost_amp_val = 0.0
                     boost_damp_val = 0.0
                     if current_final_cost_structure_for_modulation_scaled > 0:
-                        # [修改代码行] 使用动态敏感度
-                        boost_amp_val = np.tanh(current_final_cost_structure_for_modulation_scaled * structural_power_tanh_factor_amp) * dynamic_structural_power_sensitivity_amp.loc[probe_date]
+                        # [修改代码行] 打印非对称非线性映射的中间值
+                        if structural_power_asymmetric_tanh_enabled:
+                            tanh_input = (current_final_cost_structure_for_modulation_scaled + structural_power_offset_positive_structure) * structural_power_tanh_factor_positive_structure
+                            print(f"       - 正向结构 tanh 输入: ({current_final_cost_structure_for_modulation_scaled:.4f} + {structural_power_offset_positive_structure:.2f}) * {structural_power_tanh_factor_positive_structure:.2f} = {tanh_input:.4f}")
+                            boost_amp_val = np.tanh(tanh_input) * dynamic_structural_power_sensitivity_amp.loc[probe_date]
+                        else:
+                            tanh_input = current_final_cost_structure_for_modulation_scaled * default_structural_power_tanh_factor_amp
+                            print(f"       - 正向结构 tanh 输入 (默认): {current_final_cost_structure_for_modulation_scaled:.4f} * {default_structural_power_tanh_factor_amp:.2f} = {tanh_input:.4f}")
+                            boost_amp_val = np.tanh(tanh_input) * dynamic_structural_power_sensitivity_amp.loc[probe_date]
                         print(f"       - 结构强度对放大幂指数的增强因子: {boost_amp_val:.4f}")
                     elif current_final_cost_structure_for_modulation_scaled < 0:
-                        # [修改代码行] 使用动态敏感度
-                        boost_damp_val = np.tanh(np.abs(current_final_cost_structure_for_modulation_scaled) * structural_power_tanh_factor_damp) * dynamic_structural_power_sensitivity_damp.loc[probe_date]
+                        # [修改代码行] 打印非对称非线性映射的中间值
+                        if structural_power_asymmetric_tanh_enabled:
+                            tanh_input = (np.abs(current_final_cost_structure_for_modulation_scaled) + structural_power_offset_negative_structure) * structural_power_tanh_factor_negative_structure
+                            print(f"       - 负向结构 tanh 输入: (|{current_final_cost_structure_for_modulation_scaled:.4f}| + {structural_power_offset_negative_structure:.2f}) * {structural_power_tanh_factor_negative_structure:.2f} = {tanh_input:.4f}")
+                            boost_damp_val = np.tanh(tanh_input) * dynamic_structural_power_sensitivity_damp.loc[probe_date]
+                        else:
+                            tanh_input = np.abs(current_final_cost_structure_for_modulation_scaled) * default_structural_power_tanh_factor_damp
+                            print(f"       - 负向结构 tanh 输入 (默认): |{current_final_cost_structure_for_modulation_scaled:.4f}| * {default_structural_power_tanh_factor_damp:.2f} = {tanh_input:.4f}")
+                            boost_damp_val = np.tanh(tanh_input) * dynamic_structural_power_sensitivity_damp.loc[probe_date]
                         print(f"       - 结构强度对削弱幂指数的增强因子: {boost_damp_val:.4f}")
                     
                     print(f"       - 动态幂指数 (结构强度自适应后): amplification_power: {amplification_power.loc[probe_date]:.2f}, dampening_power: {dampening_power.loc[probe_date]:.2f}")
