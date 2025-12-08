@@ -1864,6 +1864,40 @@
             },
             "meta_modulator_sensitivity": 0.5
           },
+          "absorption_echo_params": {
+            "description": "【V3.0 · 高频诡道反吸版】吸筹回声信号的专属参数。",
+            "panic_source_weights": {
+              "description": "恐慌声源融合权重。",
+              "retail_panic_surrender": 0.3,
+              "loser_pain": 0.3,
+              "chip_fatigue": 0.2,
+              "structural_tension_negative": 0.2
+            },
+            "panic_context_threshold": 0.3,
+            "counter_flow_medium_weights": {
+              "description": "逆流介质融合权重。",
+              "divergence_bullish": 0.3,
+              "capitulation_absorption": 0.2,
+              "cleansing_efficiency": 0.2,
+              "support_validation": 0.15,
+              "main_force_execution_alpha": 0.15
+            },
+            "main_force_echo_weights": {
+              "description": "主力回声融合权重。",
+              "covert_accumulation": 0.3,
+              "suppressive_accumulation": 0.2,
+              "cost_advantage": 0.2,
+              "peak_control_transfer": 0.15,
+              "main_force_conviction_positive": 0.15
+            },
+            "deception_modulator_params": {
+              "description": "诡道背景调制参数。",
+              "boost_factor": 0.6,
+              "penalty_factor": 0.4,
+              "conviction_threshold": 0.2
+            },
+            "final_fusion_exponent": 0.25
+          },
           "historical_potential_params": {
             "description": "【V5.0 · 势能博弈临界版】筹码势能信号的专属参数。",
             "mf_aq_weights": {

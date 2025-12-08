@@ -917,20 +917,21 @@ class ChipIntelligence:
 
     def _diagnose_absorption_echo(self, df: pd.DataFrame, divergence_score: pd.Series) -> pd.Series:
         """
-        【V2.0 · 诡道反吸版】诊断“吸筹回声”信号
-        - 核心升级1: 重构“恐慌声源”。严格遵循纯筹码原则，替换价格趋势为散户恐慌投降指数和输家痛苦指数。
-        - 核心升级2: 强化“逆流介质”。在价筹张力基础上，引入投降吸收指数和浮筹清洗效率，更全面评估吸收能力。
-        - 核心升级3: 纯化“主力回声”。替换资金流为隐蔽吸筹、压制吸筹和主力成本优势等纯筹码吸筹证据。
-        - 核心升级4: 新增“诡道背景调制”。引入筹码故障幅度（诱空）作为增强因子，（诱多）作为惩罚因子。
-        - 核心升级5: 优化最终融合。采用加权几何平均融合核心维度，并应用诡道调制。
+        【V3.0 · 高频诡道反吸版】诊断“吸筹回声”信号
+        - 核心升级1: 恐慌声源深度化。引入筹码疲劳指数和结构张力指数的负向部分，更全面刻画恐慌的深度和结构脆弱性。
+        - 核心升级2: 逆流介质弹性化。引入支撑验证强度和主力执行效率，评估主力在关键支撑位的防守能力和吸筹效率。
+        - 核心升级3: 主力回声信念化。引入筹码峰控制转移和主力信念指数的正向部分，验证筹码转移和主力吸筹的坚定信念。
+        - 核心升级4: 诡道背景调制智能化。结合筹码故障幅度与主力信念指数，更智能地判断诡道意图并进行调制。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print("    -> [筹码层] 正在诊断“吸筹回声” (V2.0 · 诡道反吸版)...")
+        print("    -> [筹码层] 正在诊断“吸筹回声” (V3.0 · 高频诡道反吸版)...")
         required_signals = [
-            'retail_panic_surrender_index_D', 'loser_pain_index_D',
+            'retail_panic_surrender_index_D', 'loser_pain_index_D', 'chip_fatigue_index_D', 'structural_tension_index_D',
             'capitulation_absorption_index_D', 'floating_chip_cleansing_efficiency_D',
+            'support_validation_strength_D', 'main_force_execution_alpha_D',
             'covert_accumulation_signal_D', 'suppressive_accumulation_intensity_D',
-            'main_force_cost_advantage_D', 'chip_fault_magnitude_D'
+            'main_force_cost_advantage_D', 'peak_control_transfer_D', 'main_force_conviction_index_D',
+            'chip_fault_magnitude_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_absorption_echo"):
             return pd.Series(0.0, index=df.index)
@@ -940,72 +941,97 @@ class ChipIntelligence:
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         
         absorption_echo_params = get_param_value(p_conf.get('absorption_echo_params'), {})
-        panic_source_weights = get_param_value(absorption_echo_params.get('panic_source_weights'), {'retail_panic_surrender': 0.5, 'loser_pain': 0.5})
+        panic_source_weights = get_param_value(absorption_echo_params.get('panic_source_weights'), {'retail_panic_surrender': 0.3, 'loser_pain': 0.3, 'chip_fatigue': 0.2, 'structural_tension_negative': 0.2})
         panic_context_threshold = get_param_value(absorption_echo_params.get('panic_context_threshold'), 0.3)
-        counter_flow_medium_weights = get_param_value(absorption_echo_params.get('counter_flow_medium_weights'), {'divergence_bullish': 0.4, 'capitulation_absorption': 0.3, 'cleansing_efficiency': 0.3})
-        main_force_echo_weights = get_param_value(absorption_echo_params.get('main_force_echo_weights'), {'covert_accumulation': 0.4, 'suppressive_accumulation': 0.3, 'cost_advantage': 0.3})
-        deception_modulator_params = get_param_value(absorption_echo_params.get('deception_modulator_params'), {'boost_factor': 0.5, 'penalty_factor': 0.3})
-        final_fusion_exponent = get_param_value(absorption_echo_params.get('final_fusion_exponent'), 0.3333)
+        counter_flow_medium_weights = get_param_value(absorption_echo_params.get('counter_flow_medium_weights'), {'divergence_bullish': 0.3, 'capitulation_absorption': 0.2, 'cleansing_efficiency': 0.2, 'support_validation': 0.15, 'main_force_execution_alpha': 0.15})
+        main_force_echo_weights = get_param_value(absorption_echo_params.get('main_force_echo_weights'), {'covert_accumulation': 0.3, 'suppressive_accumulation': 0.2, 'cost_advantage': 0.2, 'peak_control_transfer': 0.15, 'main_force_conviction_positive': 0.15})
+        deception_modulator_params = get_param_value(absorption_echo_params.get('deception_modulator_params'), {'boost_factor': 0.6, 'penalty_factor': 0.4, 'conviction_threshold': 0.2})
+        final_fusion_exponent = get_param_value(absorption_echo_params.get('final_fusion_exponent'), 0.25) # 调整为0.25，因为有4个维度
 
         # --- 维度1: 恐慌声源 (Panic Source - Pure Chip Panic) ---
         retail_panic_surrender_raw = self._get_safe_series(df, df, 'retail_panic_surrender_index_D', 0.0, method_name="_diagnose_absorption_echo")
         loser_pain_raw = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_absorption_echo")
+        chip_fatigue_raw = self._get_safe_series(df, df, 'chip_fatigue_index_D', 0.0, method_name="_diagnose_absorption_echo")
+        structural_tension_raw = self._get_safe_series(df, df, 'structural_tension_index_D', 0.0, method_name="_diagnose_absorption_echo")
 
         norm_retail_panic_surrender = get_adaptive_mtf_normalized_score(retail_panic_surrender_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_loser_pain = get_adaptive_mtf_normalized_score(loser_pain_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_chip_fatigue = get_adaptive_mtf_normalized_score(chip_fatigue_raw, df_index, ascending=True, tf_weights=tf_weights)
+        # 结构张力负向代表结构脆弱，有利于恐慌
+        norm_structural_tension_negative = get_adaptive_mtf_normalized_score(structural_tension_raw, df_index, ascending=False, tf_weights=tf_weights)
 
         panic_source_score = (
-            norm_retail_panic_surrender.pow(panic_source_weights.get('retail_panic_surrender', 0.5)) *
-            norm_loser_pain.pow(panic_source_weights.get('loser_pain', 0.5))
+            norm_retail_panic_surrender.pow(panic_source_weights.get('retail_panic_surrender', 0.3)) *
+            norm_loser_pain.pow(panic_source_weights.get('loser_pain', 0.3)) *
+            norm_chip_fatigue.pow(panic_source_weights.get('chip_fatigue', 0.2)) *
+            norm_structural_tension_negative.pow(panic_source_weights.get('structural_tension_negative', 0.2))
         ).pow(1 / sum(panic_source_weights.values()))
 
         is_panic_context = panic_source_score > panic_context_threshold
 
         # --- 维度2: 逆流介质 (Counter Flow Medium - Hidden Chip Strength/Absorption Capacity) ---
-        # divergence_score 已经作为参数传入，是 SCORE_CHIP_AXIOM_DIVERGENCE
         norm_divergence_bullish = divergence_score.clip(0, 1) # 取正向部分，代表看涨张力
 
         capitulation_absorption_raw = self._get_safe_series(df, df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_absorption_echo")
         floating_chip_cleansing_efficiency_raw = self._get_safe_series(df, df, 'floating_chip_cleansing_efficiency_D', 0.0, method_name="_diagnose_absorption_echo")
+        support_validation_strength_raw = self._get_safe_series(df, df, 'support_validation_strength_D', 0.0, method_name="_diagnose_absorption_echo")
+        main_force_execution_alpha_raw = self._get_safe_series(df, df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_absorption_echo")
 
         norm_capitulation_absorption = get_adaptive_mtf_normalized_score(capitulation_absorption_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_floating_chip_cleansing_efficiency = get_adaptive_mtf_normalized_score(floating_chip_cleansing_efficiency_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_support_validation_strength = get_adaptive_mtf_normalized_score(support_validation_strength_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_main_force_execution_alpha = get_adaptive_mtf_normalized_score(main_force_execution_alpha_raw, df_index, ascending=True, tf_weights=tf_weights)
 
         counter_flow_medium_score = (
-            norm_divergence_bullish.pow(counter_flow_medium_weights.get('divergence_bullish', 0.4)) *
-            norm_capitulation_absorption.pow(counter_flow_medium_weights.get('capitulation_absorption', 0.3)) *
-            norm_floating_chip_cleansing_efficiency.pow(counter_flow_medium_weights.get('cleansing_efficiency', 0.3))
+            norm_divergence_bullish.pow(counter_flow_medium_weights.get('divergence_bullish', 0.3)) *
+            norm_capitulation_absorption.pow(counter_flow_medium_weights.get('capitulation_absorption', 0.2)) *
+            norm_floating_chip_cleansing_efficiency.pow(counter_flow_medium_weights.get('cleansing_efficiency', 0.2)) *
+            norm_support_validation_strength.pow(counter_flow_medium_weights.get('support_validation', 0.15)) *
+            norm_main_force_execution_alpha.pow(counter_flow_medium_weights.get('main_force_execution_alpha', 0.15))
         ).pow(1 / sum(counter_flow_medium_weights.values()))
 
         # --- 维度3: 主力回声 (Main Force Echo - Pure Chip Accumulation Evidence) ---
         covert_accumulation_raw = self._get_safe_series(df, df, 'covert_accumulation_signal_D', 0.0, method_name="_diagnose_absorption_echo")
         suppressive_accumulation_raw = self._get_safe_series(df, df, 'suppressive_accumulation_intensity_D', 0.0, method_name="_diagnose_absorption_echo")
         main_force_cost_advantage_raw = self._get_safe_series(df, df, 'main_force_cost_advantage_D', 0.0, method_name="_diagnose_absorption_echo")
+        peak_control_transfer_raw = self._get_safe_series(df, df, 'peak_control_transfer_D', 0.0, method_name="_diagnose_absorption_echo")
+        main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_absorption_echo")
 
         norm_covert_accumulation = get_adaptive_mtf_normalized_score(covert_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights)
         norm_suppressive_accumulation = get_adaptive_mtf_normalized_score(suppressive_accumulation_raw, df_index, ascending=True, tf_weights=tf_weights)
-        norm_main_force_cost_advantage = get_adaptive_mtf_normalized_score(main_force_cost_advantage_raw, df_index, ascending=True, tf_weights=tf_weights) # 成本优势越高越好
+        norm_main_force_cost_advantage = get_adaptive_mtf_normalized_score(main_force_cost_advantage_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_peak_control_transfer = get_adaptive_mtf_normalized_score(peak_control_transfer_raw, df_index, ascending=True, tf_weights=tf_weights)
+        norm_main_force_conviction_positive = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights).clip(0, 1) # 取正向部分
 
         main_force_echo_score = (
-            norm_covert_accumulation.pow(main_force_echo_weights.get('covert_accumulation', 0.4)) *
-            norm_suppressive_accumulation.pow(main_force_echo_weights.get('suppressive_accumulation', 0.3)) *
-            norm_main_force_cost_advantage.pow(main_force_echo_weights.get('cost_advantage', 0.3))
+            norm_covert_accumulation.pow(main_force_echo_weights.get('covert_accumulation', 0.3)) *
+            norm_suppressive_accumulation.pow(main_force_echo_weights.get('suppressive_accumulation', 0.2)) *
+            norm_main_force_cost_advantage.pow(main_force_echo_weights.get('cost_advantage', 0.2)) *
+            norm_peak_control_transfer.pow(main_force_echo_weights.get('peak_control_transfer', 0.15)) *
+            norm_main_force_conviction_positive.pow(main_force_echo_weights.get('main_force_conviction_positive', 0.15))
         ).pow(1 / sum(main_force_echo_weights.values()))
 
         # --- 维度4: 诡道背景调制 (Deception Context Modulation) ---
         chip_fault_magnitude_raw = self._get_safe_series(df, df, 'chip_fault_magnitude_D', 0.0, method_name="_diagnose_absorption_echo")
         norm_chip_fault_magnitude_bipolar = get_adaptive_mtf_normalized_bipolar_score(chip_fault_magnitude_raw, df_index, tf_weights)
+        norm_main_force_conviction_bipolar = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights)
 
         deception_modulator = pd.Series(1.0, index=df_index)
-        # 负向筹码故障（诱空）增强信号
-        induced_panic_mask = norm_chip_fault_magnitude_bipolar < 0
-        deception_modulator.loc[induced_panic_mask] = 1 + norm_chip_fault_magnitude_bipolar.loc[induced_panic_mask].abs() * deception_modulator_params.get('boost_factor', 0.5)
-        # 正向筹码故障（诱多）惩罚信号
-        deceptive_bullish_mask = norm_chip_fault_magnitude_bipolar > 0
-        deception_modulator.loc[deceptive_bullish_mask] = 1 - norm_chip_fault_magnitude_bipolar.loc[deceptive_bullish_mask] * deception_modulator_params.get('penalty_factor', 0.3)
+        
+        # 诱空吸筹 (负向筹码故障 + 主力信念坚定) -> 增强信号
+        induced_panic_and_conviction_mask = (norm_chip_fault_magnitude_bipolar < 0) & \
+                                            (norm_main_force_conviction_bipolar > deception_modulator_params.get('conviction_threshold', 0.2))
+        deception_modulator.loc[induced_panic_and_conviction_mask] = 1 + norm_chip_fault_magnitude_bipolar.loc[induced_panic_and_conviction_mask].abs() * deception_modulator_params.get('boost_factor', 0.6)
+        
+        # 诱多派发 (正向筹码故障 + 主力信念动摇) -> 惩罚信号
+        deceptive_bullish_and_weak_conviction_mask = (norm_chip_fault_magnitude_bipolar > 0) & \
+                                                     (norm_main_force_conviction_bipolar < -deception_modulator_params.get('conviction_threshold', 0.2))
+        deception_modulator.loc[deceptive_bullish_and_weak_conviction_mask] = 1 - norm_chip_fault_magnitude_bipolar.loc[deceptive_bullish_and_weak_conviction_mask] * deception_modulator_params.get('penalty_factor', 0.4)
+        
         deception_modulator = deception_modulator.clip(0.1, 2.0) # 限制调制范围
 
         # --- 最终融合 ---
+        # 使用几何平均融合三个核心维度
         base_score = (
             panic_source_score.pow(final_fusion_exponent) *
             counter_flow_medium_score.pow(final_fusion_exponent) *
@@ -1025,30 +1051,43 @@ class ChipIntelligence:
                 print(f"       - 参数: absorption_echo_params: {absorption_echo_params}")
                 print(f"       - 原料: retail_panic_surrender_index_D: {retail_panic_surrender_raw.loc[probe_date]:.4f}")
                 print(f"       - 原料: loser_pain_index_D: {loser_pain_raw.loc[probe_date]:.4f}")
+                print(f"       - 原料: chip_fatigue_index_D: {chip_fatigue_raw.loc[probe_date]:.4f}")
+                print(f"       - 原料: structural_tension_index_D: {structural_tension_raw.loc[probe_date]:.4f}")
                 print(f"       - 原料: SCORE_CHIP_AXIOM_DIVERGENCE: {divergence_score.loc[probe_date]:.4f}")
                 print(f"       - 原料: capitulation_absorption_index_D: {capitulation_absorption_raw.loc[probe_date]:.4f}")
                 print(f"       - 原料: floating_chip_cleansing_efficiency_D: {floating_chip_cleansing_efficiency_raw.loc[probe_date]:.4f}")
+                print(f"       - 原料: support_validation_strength_D: {support_validation_strength_raw.loc[probe_date]:.4f}")
+                print(f"       - 原料: main_force_execution_alpha_D: {main_force_execution_alpha_raw.loc[probe_date]:.4f}")
                 print(f"       - 原料: covert_accumulation_signal_D: {covert_accumulation_raw.loc[probe_date]:.4f}")
                 print(f"       - 原料: suppressive_accumulation_intensity_D: {suppressive_accumulation_raw.loc[probe_date]:.4f}")
                 print(f"       - 原料: main_force_cost_advantage_D: {main_force_cost_advantage_raw.loc[probe_date]:.4f}")
+                print(f"       - 原料: peak_control_transfer_D: {peak_control_transfer_raw.loc[probe_date]:.4f}")
+                print(f"       - 原料: main_force_conviction_index_D: {main_force_conviction_raw.loc[probe_date]:.4f}")
                 print(f"       - 原料: chip_fault_magnitude_D: {chip_fault_magnitude_raw.loc[probe_date]:.4f}")
 
                 print(f"       - 过程: norm_retail_panic_surrender: {norm_retail_panic_surrender.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_loser_pain: {norm_loser_pain.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_chip_fatigue: {norm_chip_fatigue.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_structural_tension_negative: {norm_structural_tension_negative.loc[probe_date]:.4f}")
                 print(f"       - 过程: panic_source_score: {panic_source_score.loc[probe_date]:.4f}")
                 print(f"       - 过程: is_panic_context: {is_panic_context.loc[probe_date]}")
 
                 print(f"       - 过程: norm_divergence_bullish: {norm_divergence_bullish.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_capitulation_absorption: {norm_capitulation_absorption.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_floating_chip_cleansing_efficiency: {norm_floating_chip_cleansing_efficiency.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_support_validation_strength: {norm_support_validation_strength.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_main_force_execution_alpha: {norm_main_force_execution_alpha.loc[probe_date]:.4f}")
                 print(f"       - 过程: counter_flow_medium_score: {counter_flow_medium_score.loc[probe_date]:.4f}")
 
                 print(f"       - 过程: norm_covert_accumulation: {norm_covert_accumulation.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_suppressive_accumulation: {norm_suppressive_accumulation.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_main_force_cost_advantage: {norm_main_force_cost_advantage.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_peak_control_transfer: {norm_peak_control_transfer.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_main_force_conviction_positive: {norm_main_force_conviction_positive.loc[probe_date]:.4f}")
                 print(f"       - 过程: main_force_echo_score: {main_force_echo_score.loc[probe_date]:.4f}")
 
                 print(f"       - 过程: norm_chip_fault_magnitude_bipolar: {norm_chip_fault_magnitude_bipolar.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_main_force_conviction_bipolar: {norm_main_force_conviction_bipolar.loc[probe_date]:.4f}")
                 print(f"       - 过程: deception_modulator: {deception_modulator.loc[probe_date]:.4f}")
 
                 print(f"       - 过程: base_score (pre-deception): {base_score.loc[probe_date]:.4f}")
