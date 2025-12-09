@@ -142,9 +142,8 @@ class CognitiveIntelligence:
 
     def _deduce_suppressive_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V5.2 · 动态权重赋值修正版】贝叶斯推演：“主力打压吸筹”剧本
-        - 核心修正: 修复了情境自适应权重赋值时，将 Series 赋值给 Series 元素导致的 ValueError。
-                    现在每个证据的权重都是一个随日期变化的 Series。
+        【V5.3 · 变量作用域修正版】贝叶斯推演：“主力打压吸筹”剧本
+        - 核心修正: 修复了 `evidence_names` 变量作用域问题，确保其在探针输出时可用。
         - 核心升级:
             1. 情境自适应权重：根据市场情绪、趋势质量、波动率等宏观情境动态调整证据权重。
             2. 非线性融合：对证据分数应用幂次变换，放大强证据的影响。
@@ -178,6 +177,21 @@ class CognitiveIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df.index:
                 print(f"    -> [探针] 主力打压吸筹 @ {probe_date_for_loop.date()}:")
+
+        # 定义基础权重 (在方法开始处定义，确保作用域)
+        base_weights_dict = {
+            'capital_confrontation': 0.10,
+            'price_falling': 0.08,
+            'deception': 0.12,
+            'volume_atrophy': 0.05,
+            'efficiency': 0.10,
+            'stealth_accum': 0.15,
+            'split_order_accum': 0.10,
+            'power_transfer': 0.08,
+            'chip_strategic_posture': 0.12,
+            'market_contradiction_bullish': 0.10
+        }
+        evidence_names = list(base_weights_dict.keys()) # 确保在整个方法中都可访问
 
         # --- 1. 获取情境调制信号 ---
         market_regime_score = self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_REGIME', 0.0) # [-1, 1]
@@ -248,20 +262,6 @@ class CognitiveIntelligence:
             print(f"       - 承接效率(原始): {raw_efficiency.loc[probe_date_for_loop]:.4f}, 斜率: {slope_efficiency.loc[probe_date_for_loop]:.4f}, 动态证据: {efficiency_evidence_dynamic.loc[probe_date_for_loop]:.4f}")
 
         # --- 4. 情境自适应权重 (Context-adaptive weights) ---
-        # 定义基础权重
-        base_weights_dict = {
-            'capital_confrontation': 0.10,
-            'price_falling': 0.08,
-            'deception': 0.12,
-            'volume_atrophy': 0.05,
-            'efficiency': 0.10,
-            'stealth_accum': 0.15,
-            'split_order_accum': 0.10,
-            'power_transfer': 0.08,
-            'chip_strategic_posture': 0.12,
-            'market_contradiction_bullish': 0.10
-        }
-
         # 初始化 adaptive_weights_per_date 为一个字典，每个值都是一个 Series，索引与 df.index 相同
         adaptive_weights_per_date = {
             name: pd.Series(base_weight, index=df.index, dtype=np.float32)
@@ -310,7 +310,7 @@ class CognitiveIntelligence:
             print(f"       - 市场状态调制: {market_regime_mod.loc[probe_date_for_loop]:.4f}, 趋势质量调制: {trend_quality_mod.loc[probe_date_for_loop]:.4f}, 情绪调制: {sentiment_mod.loc[probe_date_for_loop]:.4f}")
             # 打印特定日期的自适应权重
             print(f"       - 自适应权重 (2025-11-28):")
-            for name in evidence_names:
+            for name in evidence_names: # 使用已经定义好的 evidence_names
                 print(f"         - {name}: {weights_df.loc[probe_date_for_loop, name]:.4f}")
 
         # --- 5. 非线性变换 (Power Transformation) ---
@@ -327,7 +327,7 @@ class CognitiveIntelligence:
             chip_evidence,
             market_contradiction_bullish
         ]
-        evidence_names = list(base_weights_dict.keys()) # 用于匹配自适应权重
+        # evidence_names 已经定义在方法顶部，无需重复定义
 
         transformed_evidence_scores = []
         for i, evidence_series in enumerate(evidence_list):
