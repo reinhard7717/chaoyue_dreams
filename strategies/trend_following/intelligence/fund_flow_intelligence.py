@@ -1191,6 +1191,175 @@ class FundFlowIntelligence:
             return pd.Series(0.0, index=df.index)
         return sum(mtf_scores) / total_weight
 
+    def _diagnose_fund_flow_divergence_signals(self, df: pd.DataFrame, norm_window: int, axiom_divergence: pd.Series) -> Tuple[pd.Series, pd.Series]:
+        """
+        【V2.0 · 意图确认与情境校准版】诊断资金流看涨/看跌背离信号。
+        - 核心升级：基于资金流内部分歧与意图张力公理（SCORE_FF_AXIOM_DIVERGENCE）的看涨/看跌部分，
+                    并引入多维度确认、纯度过滤和情境校准。
+        - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
+        """
+        print("    -> [资金流层] 正在诊断“资金流看涨/看跌背离信号 (V2.0 · 意图确认与情境校准版)”...")
+        # --- 探针: 原始输入 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        df_index = df.index
+        probe_date = None
+        is_probe_active = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            temp_probe_date = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if temp_probe_date in df_index:
+                probe_date = temp_probe_date
+                is_probe_active = True
+                print(f"    -> [资金流背离信号探针] @ {probe_date.date()}:")
+        # --- 参数加载 ---
+        p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        self.tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        ffd_params = get_param_value(p_conf_ff.get('fund_flow_divergence_params'), {})
+        purity_weights = get_param_value(ffd_params.get('purity_weights'), {"deception_inverse": 0.5, "wash_trade_inverse": 0.5})
+        confirmation_weights = get_param_value(ffd_params.get('confirmation_weights'), {"conviction_positive": 0.5, "flow_momentum_positive": 0.5})
+        context_modulator_weights = get_param_value(ffd_params.get('context_modulator_weights'), {"strategic_posture": 0.4, "flow_credibility": 0.3, "retail_panic_fomo_context": 0.3})
+        non_linear_exponent = get_param_value(ffd_params.get('non_linear_exponent'), 1.2)
+        bullish_divergence_threshold = get_param_value(ffd_params.get('bullish_divergence_threshold'), 0.1)
+        bearish_divergence_threshold = get_param_value(ffd_params.get('bearish_divergence_threshold'), 0.1)
+        retail_panic_fomo_sensitivity = get_param_value(ffd_params.get('retail_panic_fomo_sensitivity'), 0.5)
+        # --- 信号依赖校验 ---
+        required_signals = [
+            'SCORE_FF_AXIOM_CONVICTION', 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 'SCORE_FF_STRATEGIC_POSTURE',
+            'flow_credibility_index_D', 'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D',
+            'SLOPE_5_deception_index_D', 'SLOPE_13_deception_index_D', 'SLOPE_21_deception_index_D',
+            'SLOPE_5_wash_trade_intensity_D', 'SLOPE_13_wash_trade_intensity_D', 'SLOPE_21_wash_trade_intensity_D'
+        ]
+        if not self._validate_required_signals(df, required_signals, "_diagnose_fund_flow_divergence_signals"):
+            return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
+        # --- 原始数据获取 (用于探针和计算) ---
+        # 基础背离
+        bullish_base_divergence, bearish_base_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
+        # 确认信号
+        axiom_conviction = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_CONVICTION', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        axiom_flow_momentum = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        # 纯度过滤信号
+        deception_slope_5_raw = self._get_safe_series(df, df, 'SLOPE_5_deception_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        deception_slope_13_raw = self._get_safe_series(df, df, 'SLOPE_13_deception_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        deception_slope_21_raw = self._get_safe_series(df, df, 'SLOPE_21_deception_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        wash_trade_slope_5_raw = self._get_safe_series(df, df, 'SLOPE_5_wash_trade_intensity_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        wash_trade_slope_13_raw = self._get_safe_series(df, df, 'SLOPE_13_wash_trade_intensity_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        wash_trade_slope_21_raw = self._get_safe_series(df, df, 'SLOPE_21_wash_trade_intensity_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        # 情境校准信号
+        strategic_posture = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_STRATEGIC_POSTURE', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        retail_panic_raw = self._get_safe_series(df, df, 'retail_panic_surrender_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        retail_fomo_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        if is_probe_active:
+            print(f"       - 原料: SCORE_FF_AXIOM_DIVERGENCE (raw): {axiom_divergence.loc[probe_date]:.4f}")
+            print(f"       - 原料: SCORE_FF_AXIOM_CONVICTION (raw): {axiom_conviction.loc[probe_date]:.4f}")
+            print(f"       - 原料: SCORE_FF_AXIOM_FLOW_MOMENTUM (raw): {axiom_flow_momentum.loc[probe_date]:.4f}")
+            print(f"       - 原料: SCORE_FF_STRATEGIC_POSTURE (raw): {strategic_posture.loc[probe_date]:.4f}")
+            print(f"       - 原料: flow_credibility_index_D (raw): {flow_credibility_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: retail_panic_surrender_index_D (raw): {retail_panic_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: retail_fomo_premium_index_D (raw): {retail_fomo_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_5_deception_index_D (raw): {deception_slope_5_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_13_deception_index_D (raw): {deception_slope_13_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_21_deception_index_D (raw): {deception_slope_21_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_5_wash_trade_intensity_D (raw): {wash_trade_slope_5_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_13_wash_trade_intensity_D (raw): {wash_trade_slope_13_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_21_wash_trade_intensity_D (raw): {wash_trade_slope_21_raw.loc[probe_date]:.4f}")
+        # --- 1. 纯度过滤 (Purity Filter) ---
+        # 欺骗指数多时间框架融合
+        norm_deception_slope_5 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_5_raw, df_index, self.tf_weights_ff)
+        norm_deception_slope_13 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_13_raw, df_index, self.tf_weights_ff)
+        norm_deception_slope_21 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_21_raw, df_index, self.tf_weights_ff)
+        norm_deception_multi_tf = (
+            norm_deception_slope_5 * 0.5 +
+            norm_deception_slope_13 * 0.3 +
+            norm_deception_slope_21 * 0.2
+        ).clip(-1, 1)
+        # 对倒强度多时间框架融合
+        norm_wash_trade_slope_5 = get_adaptive_mtf_normalized_score(wash_trade_slope_5_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_wash_trade_slope_13 = get_adaptive_mtf_normalized_score(wash_trade_slope_13_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_wash_trade_slope_21 = get_adaptive_mtf_normalized_score(wash_trade_slope_21_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_wash_trade_multi_tf = (
+            norm_wash_trade_slope_5 * 0.5 +
+            norm_wash_trade_slope_13 * 0.3 +
+            norm_wash_trade_slope_21 * 0.2
+        ).clip(0, 1)
+        # 看涨纯度：欺骗指数负向（诱空）且对倒强度低
+        bullish_purity_modulator = (1 + norm_deception_multi_tf.clip(upper=0).abs() * purity_weights.get('deception_inverse', 0.5)) * (1 - norm_wash_trade_multi_tf * purity_weights.get('wash_trade_inverse', 0.5))
+        # 看跌纯度：欺骗指数正向（诱多）且对倒强度低
+        bearish_purity_modulator = (1 + norm_deception_multi_tf.clip(lower=0) * purity_weights.get('deception_inverse', 0.5)) * (1 - norm_wash_trade_multi_tf * purity_weights.get('wash_trade_inverse', 0.5))
+        if is_probe_active:
+            print(f"       - 过程: norm_deception_multi_tf (Purity): {norm_deception_multi_tf.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_wash_trade_multi_tf (Purity): {norm_wash_trade_multi_tf.loc[probe_date]:.4f}")
+            print(f"       - 过程: bullish_purity_modulator (Purity): {bullish_purity_modulator.loc[probe_date]:.4f}")
+            print(f"       - 过程: bearish_purity_modulator (Purity): {bearish_purity_modulator.loc[probe_date]:.4f}")
+        # --- 2. 意图确认 (Intent Confirmation) ---
+        # 信念韧性确认
+        bullish_conviction_confirm = axiom_conviction.clip(lower=0) * confirmation_weights.get('conviction_positive', 0.5)
+        bearish_conviction_confirm = axiom_conviction.clip(upper=0).abs() * confirmation_weights.get('conviction_positive', 0.5)
+        # 资金流纯度与动能确认
+        bullish_flow_momentum_confirm = axiom_flow_momentum.clip(lower=0) * confirmation_weights.get('flow_momentum_positive', 0.5)
+        bearish_flow_momentum_confirm = axiom_flow_momentum.clip(upper=0).abs() * confirmation_weights.get('flow_momentum_positive', 0.5)
+        # 综合确认
+        bullish_confirmation_score = (bullish_conviction_confirm + bullish_flow_momentum_confirm).clip(0, 1)
+        bearish_confirmation_score = (bearish_conviction_confirm + bearish_flow_momentum_confirm).clip(0, 1)
+        if is_probe_active:
+            print(f"       - 过程: bullish_conviction_confirm (Confirm): {bullish_conviction_confirm.loc[probe_date]:.4f}")
+            print(f"       - 过程: bearish_conviction_confirm (Confirm): {bearish_conviction_confirm.loc[probe_date]:.4f}")
+            print(f"       - 过程: bullish_flow_momentum_confirm (Confirm): {bullish_flow_momentum_confirm.loc[probe_date]:.4f}")
+            print(f"       - 过程: bearish_flow_momentum_confirm (Confirm): {bearish_flow_momentum_confirm.loc[probe_date]:.4f}")
+            print(f"       - 过程: bullish_confirmation_score (Confirm): {bullish_confirmation_score.loc[probe_date]:.4f}")
+            print(f"       - 过程: bearish_confirmation_score (Confirm): {bearish_confirmation_score.loc[probe_date]:.4f}")
+        # --- 3. 情境校准 (Contextual Calibration) ---
+        # 资金流战略态势
+        norm_strategic_posture = get_adaptive_mtf_normalized_bipolar_score(strategic_posture, df_index, self.tf_weights_ff)
+        bullish_posture_mod = norm_strategic_posture.clip(lower=0) * context_modulator_weights.get('strategic_posture', 0.4)
+        bearish_posture_mod = norm_strategic_posture.clip(upper=0).abs() * context_modulator_weights.get('strategic_posture', 0.4)
+        # 资金流可信度
+        norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        credibility_mod = norm_flow_credibility * context_modulator_weights.get('flow_credibility', 0.3)
+        # 散户情绪情境
+        norm_retail_panic = get_adaptive_mtf_normalized_score(retail_panic_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        norm_retail_fomo = get_adaptive_mtf_normalized_score(retail_fomo_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        # 恐慌时增强看涨，狂热时增强看跌
+        bullish_retail_context_mod = norm_retail_panic * retail_panic_fomo_sensitivity * context_modulator_weights.get('retail_panic_fomo_context', 0.3)
+        bearish_retail_context_mod = norm_retail_fomo * retail_panic_fomo_sensitivity * context_modulator_weights.get('retail_panic_fomo_context', 0.3)
+        # 综合情境调制器
+        bullish_context_modulator = (1 + bullish_posture_mod + credibility_mod + bullish_retail_context_mod).clip(0.5, 2.0)
+        bearish_context_modulator = (1 + bearish_posture_mod + credibility_mod + bearish_retail_context_mod).clip(0.5, 2.0)
+        if is_probe_active:
+            print(f"       - 过程: norm_strategic_posture (Context): {norm_strategic_posture.loc[probe_date]:.4f}")
+            print(f"       - 过程: bullish_posture_mod (Context): {bullish_posture_mod.loc[probe_date]:.4f}")
+            print(f"       - 过程: bearish_posture_mod (Context): {bearish_posture_mod.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_flow_credibility (Context): {norm_flow_credibility.loc[probe_date]:.4f}")
+            print(f"       - 过程: credibility_mod (Context): {credibility_mod.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_retail_panic (Context): {norm_retail_panic.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_retail_fomo (Context): {norm_retail_fomo.loc[probe_date]:.4f}")
+            print(f"       - 过程: bullish_retail_context_mod (Context): {bullish_retail_context_mod.loc[probe_date]:.4f}")
+            print(f"       - 过程: bearish_retail_context_mod (Context): {bearish_retail_context_mod.loc[probe_date]:.4f}")
+            print(f"       - 过程: bullish_context_modulator (Context): {bullish_context_modulator.loc[probe_date]:.4f}")
+            print(f"       - 过程: bearish_context_modulator (Context): {bearish_context_modulator.loc[probe_date]:.4f}")
+        # --- 4. 非线性融合 (Non-linear Fusion) ---
+        # 看涨背离
+        bullish_divergence_score = (
+            bullish_base_divergence *
+            bullish_purity_modulator *
+            bullish_confirmation_score *
+            bullish_context_modulator
+        ).pow(non_linear_exponent).clip(0, 1)
+        # 看跌背离
+        bearish_divergence_score = (
+            bearish_base_divergence *
+            bearish_purity_modulator *
+            bearish_confirmation_score *
+            bearish_context_modulator
+        ).pow(non_linear_exponent).clip(0, 1)
+        # 应用阈值
+        bullish_divergence_score = bullish_divergence_score.where(bullish_divergence_score > bullish_divergence_threshold, 0.0)
+        bearish_divergence_score = bearish_divergence_score.where(bearish_divergence_score > bearish_divergence_threshold, 0.0)
+        if is_probe_active:
+            print(f"       - 结果: SCORE_FUND_FLOW_BULLISH_DIVERGENCE: {bullish_divergence_score.loc[probe_date]:.4f}")
+            print(f"       - 结果: SCORE_FUND_FLOW_BEARISH_DIVERGENCE: {bearish_divergence_score.loc[probe_date]:.4f}")
+        return bullish_divergence_score.astype(np.float32), bearish_divergence_score.astype(np.float32)
 
 
 
