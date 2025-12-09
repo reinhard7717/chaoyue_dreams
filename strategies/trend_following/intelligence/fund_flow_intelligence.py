@@ -1668,7 +1668,6 @@ class FundFlowIntelligence:
             (1 + norm_market_sentiment.abs() * np.sign(norm_market_sentiment) * purity_context_mod_factors.get('market_sentiment', 0.5)) *
             (1 + (norm_flow_credibility_purity - 0.5) * purity_context_mod_factors.get('flow_credibility', 0.5))
         ).clip(0.5, 1.5)
-        if is_probe_active: print(f"       - 过程: purity_context_mod (V4.0): {purity_context_mod.loc[probe_date]:.4f}")
         # 看涨纯度：欺骗指数负向（诱空）且对倒强度低
         bullish_purity_modulator = (1 + norm_deception_multi_tf.clip(upper=0).abs() * purity_weights.get('deception_inverse', 0.5) * purity_context_mod) * (1 - norm_wash_trade_multi_tf * purity_weights.get('wash_trade_inverse', 0.5) * purity_context_mod)
         # 看跌纯度：欺骗指数正向（诱多）且对倒强度低
