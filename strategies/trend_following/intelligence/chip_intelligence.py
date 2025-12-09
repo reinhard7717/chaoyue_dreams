@@ -2083,14 +2083,15 @@ class ChipIntelligence:
 
     def _diagnose_harmony_inflection(self, df: pd.DataFrame, harmony_score: pd.Series) -> pd.Series:
         """
-        【V2.0 · 动态拐点感知版】诊断战略与战术和谐度的动态转折点
-        - 核心升级1: 广义拐点定义与双向强度量化。不再局限于“双正天条”，通过双极归一化速度和加速度，能够识别速度方向改变（从负到正为底部拐点，从正到负为顶部拐点）或加速度转折（从负到正预示动能改善，从正到负预示动能恶化）的更广泛拐点类型，并量化其正向或负向强度。
-        - 核心升级2: 动态位置敏感度。根据和谐度所处区间（低位、中位、高位），动态调整对底部拐点和顶部拐点的敏感度，例如在低和谐度区域显著增强正向拐点信号，在高和谐度区域显著增强负向拐点信号。
-        - 核心升级3: 情境调制器。引入筹码健康度、筹码波动不稳定性等筹码层情境因子，动态调整拐点信号的可靠性和强度，过滤噪音，突出真实转折。
-        - 核心升级4: 拐点强度非线性融合。采用更精细的非线性函数融合速度和加速度，更准确量化拐点强度。
+        【V3.0 · 诡道确认版】诊断战略与战术和谐度的动态转折点，旨在构建一个诡道拐点判别与确认系统。
+        - 核心升级1: 动态阈值自适应：和谐度所处区间（低位、中位、高位）的判断阈值不再固定，而是根据市场波动性或筹码健康度动态调整，提高对拐点“位置”判断的适应性。
+        - 核心升级2: 非对称拐点动能融合：采用更复杂的非线性函数融合速度和加速度，并允许正向和负向拐点使用不同的融合参数，以更精细地量化拐点背后的真实动能，并反映市场情绪的非对称性。
+        - 核心升级3: 诡道博弈过滤与惩罚：引入欺骗指数、对倒强度等诡道因子作为调制器，识别并惩罚伴随诱多欺骗的正向拐点，或适度削弱伴随诱空洗盘的负向拐点，提高信号真实性。
+        - 核心升级4: 拐点延续性确认奖励：引入短期延续性检查机制，如果拐点方向在后续几天得到确认，则给予额外奖励，增强信号可靠性和鲁棒性。
+        - 核心升级5: 增强情境调制器：除了筹码健康度和波动性，再引入主力信念指数作为情境调制器，更全面评估拐点信号在不同市场参与者意图下的可靠性。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print("    -> [筹码层] 正在诊断“和谐拐点 (V2.0 · 动态拐点感知版)”...")
+        print("    -> [筹码层] 正在诊断“和谐拐点 (V3.0 · 诡道确认版)”...")
         # --- 探针: 原始输入 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -2105,25 +2106,42 @@ class ChipIntelligence:
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         inflection_params = get_param_value(p_conf.get('harmony_inflection_params'), {})
-        # V2.0 广义拐点定义参数
+        # V3.0 广义拐点定义参数
         velocity_period = get_param_value(inflection_params.get('velocity_period'), 1)
         acceleration_period = get_param_value(inflection_params.get('acceleration_period'), 1)
-        inflection_strength_exponent = get_param_value(inflection_params.get('inflection_strength_exponent'), 0.7)
-        # V2.0 动态位置敏感度参数
-        low_harmony_threshold = get_param_value(inflection_params.get('low_harmony_threshold'), 0.2)
-        high_harmony_threshold = get_param_value(inflection_params.get('high_harmony_threshold'), 0.8)
+        positive_strength_tanh_factor = get_param_value(inflection_params.get('positive_strength_tanh_factor'), 1.5)
+        negative_strength_tanh_factor = get_param_value(inflection_params.get('negative_strength_tanh_factor'), 1.5)
+        # V3.0 动态阈值自适应参数
+        base_low_harmony_threshold = get_param_value(inflection_params.get('base_low_harmony_threshold'), 0.2)
+        base_high_harmony_threshold = get_param_value(inflection_params.get('base_high_harmony_threshold'), 0.8)
+        threshold_modulator_signal_name = get_param_value(inflection_params.get('threshold_modulator_signal'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
+        threshold_modulator_sensitivity = get_param_value(inflection_params.get('threshold_modulator_sensitivity'), 0.2)
         low_harmony_boost_factor = get_param_value(inflection_params.get('low_harmony_boost_factor'), 1.5)
-        high_harmony_boost_factor = get_param_value(inflection_params.get('high_harmony_boost_factor'), 1.5) # 新增高位负向拐点增强因子
+        high_harmony_boost_factor = get_param_value(inflection_params.get('high_harmony_boost_factor'), 1.5)
         mid_harmony_neutral_factor = get_param_value(inflection_params.get('mid_harmony_neutral_factor'), 1.0)
-        # V2.0 情境调制器参数
+        # V3.0 诡道博弈过滤与惩罚参数
+        deception_signal_name = get_param_value(inflection_params.get('deception_signal'), 'deception_index_D')
+        wash_trade_signal_name = get_param_value(inflection_params.get('wash_trade_signal'), 'wash_trade_intensity_D')
+        deception_penalty_sensitivity = get_param_value(inflection_params.get('deception_penalty_sensitivity'), 0.7)
+        wash_trade_mitigation_sensitivity = get_param_value(inflection_params.get('wash_trade_mitigation_sensitivity'), 0.3)
+        # V3.0 拐点延续性确认奖励参数
+        persistence_period = get_param_value(inflection_params.get('persistence_period'), 2)
+        persistence_bonus_factor = get_param_value(inflection_params.get('persistence_bonus_factor'), 0.1)
+        # V3.0 增强情境调制器参数
         context_modulator_signal_1_name = get_param_value(inflection_params.get('context_modulator_signal_1'), 'chip_health_score_D')
         context_modulator_signal_2_name = get_param_value(inflection_params.get('context_modulator_signal_2'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
+        context_modulator_signal_3_name = get_param_value(inflection_params.get('context_modulator_signal_3'), 'main_force_conviction_index_D') # 新增主力信念
         context_modulator_sensitivity_health = get_param_value(inflection_params.get('context_modulator_sensitivity_health'), 0.5)
         context_modulator_sensitivity_volatility = get_param_value(inflection_params.get('context_modulator_sensitivity_volatility'), 0.3)
+        context_modulator_sensitivity_conviction = get_param_value(inflection_params.get('context_modulator_sensitivity_conviction'), 0.4)
         # --- 信号依赖校验 ---
         required_signals = [
+            threshold_modulator_signal_name,
+            deception_signal_name,
+            wash_trade_signal_name,
             context_modulator_signal_1_name,
-            context_modulator_signal_2_name
+            context_modulator_signal_2_name,
+            context_modulator_signal_3_name
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_harmony_inflection"):
             return pd.Series(0.0, index=df.index)
@@ -2139,23 +2157,21 @@ class ChipIntelligence:
             print(f"       - 过程: harmony_acceleration: {harmony_acceleration.loc[probe_date]:.4f}")
             print(f"       - 过程: norm_velocity: {norm_velocity.loc[probe_date]:.4f}")
             print(f"       - 过程: norm_acceleration: {norm_acceleration.loc[probe_date]:.4f}")
-        # --- 2. 广义拐点强度非线性融合 (Generalized Inflection Strength Non-linear Fusion) ---
+        # --- 2. 非对称拐点动能融合 (Asymmetric Inflection Momentum Fusion) ---
         # 底部拐点强度 (速度负 -> 正, 或速度负但加速度正)
         positive_inflection_strength = pd.Series(0.0, index=df_index)
-        # 速度从负转正，或速度仍负但加速度转正
         positive_inflection_mask = ((norm_velocity.shift(1) < 0) & (norm_velocity >= 0)) | \
-                                   ((norm_velocity < 0) & (norm_acceleration > 0))
+                                   ((norm_velocity < 0) & (norm_acceleration > 0)) | \
+                                   ((norm_velocity >= 0) & (norm_acceleration > 0)) # 速度和加速度都为正也算正向动能
         positive_inflection_strength.loc[positive_inflection_mask] = \
-            (norm_velocity.loc[positive_inflection_mask].abs() + norm_acceleration.loc[positive_inflection_mask].clip(lower=0)).pow(inflection_strength_exponent)
-        positive_inflection_strength = positive_inflection_strength.clip(0, 1)
+            np.tanh((norm_velocity.loc[positive_inflection_mask].clip(lower=0) + norm_acceleration.loc[positive_inflection_mask].clip(lower=0)) * positive_strength_tanh_factor)
         # 顶部拐点强度 (速度正 -> 负, 或速度正但加速度负)
         negative_inflection_strength = pd.Series(0.0, index=df_index)
-        # 速度从正转负，或速度仍正但加速度转负
         negative_inflection_mask = ((norm_velocity.shift(1) > 0) & (norm_velocity <= 0)) | \
-                                   ((norm_velocity > 0) & (norm_acceleration < 0))
+                                   ((norm_velocity > 0) & (norm_acceleration < 0)) | \
+                                   ((norm_velocity <= 0) & (norm_acceleration < 0)) # 速度和加速度都为负也算负向动能
         negative_inflection_strength.loc[negative_inflection_mask] = \
-            (norm_velocity.loc[negative_inflection_mask].abs() + norm_acceleration.loc[negative_inflection_mask].abs().clip(lower=0)).pow(inflection_strength_exponent)
-        negative_inflection_strength = negative_inflection_strength.clip(0, 1)
+            np.tanh((norm_velocity.loc[negative_inflection_mask].abs().clip(lower=0) + norm_acceleration.loc[negative_inflection_mask].abs().clip(lower=0)) * negative_strength_tanh_factor)
         # 综合拐点强度 (保留方向)
         inflection_strength = positive_inflection_strength - negative_inflection_strength
         # --- 探针: 拐点强度 ---
@@ -2163,44 +2179,99 @@ class ChipIntelligence:
             print(f"       - 过程: positive_inflection_strength: {positive_inflection_strength.loc[probe_date]:.4f}")
             print(f"       - 过程: negative_inflection_strength: {negative_inflection_strength.loc[probe_date]:.4f}")
             print(f"       - 过程: inflection_strength: {inflection_strength.loc[probe_date]:.4f}")
-        # --- 3. 动态位置敏感度 (Dynamic Position Sensitivity) ---
+        # --- 3. 动态阈值自适应 (Dynamic Threshold Adaptation) ---
+        threshold_modulator_raw = self._get_safe_series(df, df, threshold_modulator_signal_name, 0.0, method_name="_diagnose_harmony_inflection")
+        # 归一化到 [0, 1]，波动性越高，值越大
+        norm_threshold_modulator = get_adaptive_mtf_normalized_score(threshold_modulator_raw, df_index, ascending=True, tf_weights=tf_weights)
+        # 动态调整阈值：波动性越高，阈值范围越宽 (对拐点判断更宽松)
+        dynamic_low_harmony_threshold = base_low_harmony_threshold * (1 - norm_threshold_modulator * threshold_modulator_sensitivity)
+        dynamic_high_harmony_threshold = base_high_harmony_threshold * (1 + norm_threshold_modulator * threshold_modulator_sensitivity)
+        dynamic_low_harmony_threshold = dynamic_low_harmony_threshold.clip(0.05, 0.3) # 限制合理范围
+        dynamic_high_harmony_threshold = dynamic_high_harmony_threshold.clip(0.7, 0.95) # 限制合理范围
+        # --- 探针: 动态阈值 ---
+        if probe_dates_str and probe_date in df_index:
+            print(f"       - 原料: {threshold_modulator_signal_name} (raw): {threshold_modulator_raw.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_threshold_modulator: {norm_threshold_modulator.loc[probe_date]:.4f}")
+            print(f"       - 过程: dynamic_low_harmony_threshold: {dynamic_low_harmony_threshold.loc[probe_date]:.4f}")
+            print(f"       - 过程: dynamic_high_harmony_threshold: {dynamic_high_harmony_threshold.loc[probe_date]:.4f}")
+        # --- 4. 动态位置敏感度 (Dynamic Position Sensitivity) ---
         position_sensitivity_factor = pd.Series(mid_harmony_neutral_factor, index=df_index)
-        # 低和谐度区域 (0 到 low_harmony_threshold)
-        low_harmony_zone_mask = harmony_score < low_harmony_threshold
-        # 在低和谐度区域，正向拐点更重要，负向拐点被削弱
+        # 低和谐度区域 (0 到 dynamic_low_harmony_threshold)
+        low_harmony_zone_mask = harmony_score < dynamic_low_harmony_threshold
         position_sensitivity_factor.loc[low_harmony_zone_mask & (inflection_strength > 0)] = low_harmony_boost_factor
         position_sensitivity_factor.loc[low_harmony_zone_mask & (inflection_strength < 0)] = 1 / low_harmony_boost_factor # 削弱负向拐点
-        # 高和谐度区域 (high_harmony_threshold 到 1)
-        high_harmony_zone_mask = harmony_score > high_harmony_threshold
-        # 在高和谐度区域，负向拐点更重要，正向拐点被削弱
+        # 高和谐度区域 (dynamic_high_harmony_threshold 到 1)
+        high_harmony_zone_mask = harmony_score > dynamic_high_harmony_threshold
         position_sensitivity_factor.loc[high_harmony_zone_mask & (inflection_strength < 0)] = high_harmony_boost_factor # 增强负向拐点
         position_sensitivity_factor.loc[high_harmony_zone_mask & (inflection_strength > 0)] = 1 / high_harmony_boost_factor # 削弱正向拐点
         # --- 探针: 位置敏感度 ---
         if probe_dates_str and probe_date in df_index:
             print(f"       - 过程: position_sensitivity_factor: {position_sensitivity_factor.loc[probe_date]:.4f}")
-        # --- 4. 情境调制器 (Contextual Modulators) ---
+        # --- 5. 诡道博弈过滤与惩罚 (Deceptive Game Filtering & Penalty) ---
+        deception_raw = self._get_safe_series(df, df, deception_signal_name, 0.0, method_name="_diagnose_harmony_inflection")
+        norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_raw, df_index, tf_weights) # 归一化到 [-1, 1]
+        wash_trade_raw = self._get_safe_series(df, df, wash_trade_signal_name, 0.0, method_name="_diagnose_harmony_inflection")
+        norm_wash_trade = get_adaptive_mtf_normalized_score(wash_trade_raw, df_index, ascending=True, tf_weights=tf_weights) # 归一化到 [0, 1]
+        deception_modulator = pd.Series(1.0, index=df_index)
+        # 诱多陷阱惩罚：正向拐点伴随高欺骗指数
+        bull_trap_mask = (inflection_strength > 0) & (norm_deception > 0)
+        deception_modulator.loc[bull_trap_mask] = 1 - (norm_deception.loc[bull_trap_mask] * deception_penalty_sensitivity).clip(0, 1)
+        # 诱空洗盘缓解：负向拐点伴随高对倒强度 (可能不是真实恶化)
+        bear_trap_mitigation_mask = (inflection_strength < 0) & (norm_wash_trade > 0)
+        deception_modulator.loc[bear_trap_mitigation_mask] = 1 + (norm_wash_trade.loc[bear_trap_mitigation_mask] * wash_trade_mitigation_sensitivity).clip(0, 0.5) # 限制缓解幅度
+        # 应用诡道调制
+        inflection_strength_modulated = inflection_strength * deception_modulator
+        # --- 探针: 诡道博弈过滤 ---
+        if probe_dates_str and probe_date in df_index:
+            print(f"       - 原料: {deception_signal_name} (raw): {deception_raw.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_deception: {norm_deception.loc[probe_date]:.4f}")
+            print(f"       - 原料: {wash_trade_signal_name} (raw): {wash_trade_raw.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_wash_trade: {norm_wash_trade.loc[probe_date]:.4f}")
+            print(f"       - 过程: deception_modulator: {deception_modulator.loc[probe_date]:.4f}")
+            print(f"       - 过程: inflection_strength_modulated: {inflection_strength_modulated.loc[probe_date]:.4f}")
+        # --- 6. 拐点延续性确认奖励 (Inflection Persistence Confirmation Bonus) ---
+        persistence_bonus = pd.Series(0.0, index=df_index)
+        # 计算拐点方向的短期延续性
+        # 如果当前是正向拐点，且过去 persistence_period 天内，inflection_strength 大部分时间为正
+        positive_persistence_mask = (inflection_strength_modulated > 0) & \
+                                    (inflection_strength_modulated.rolling(window=persistence_period, min_periods=1).mean() > 0)
+        persistence_bonus.loc[positive_persistence_mask] = persistence_bonus_factor
+        # 如果当前是负向拐点，且过去 persistence_period 天内，inflection_strength 大部分时间为负
+        negative_persistence_mask = (inflection_strength_modulated < 0) & \
+                                    (inflection_strength_modulated.rolling(window=persistence_period, min_periods=1).mean() < 0)
+        persistence_bonus.loc[negative_persistence_mask] = -persistence_bonus_factor
+        # --- 探针: 延续性确认 ---
+        if probe_dates_str and probe_date in df_index:
+            print(f"       - 过程: persistence_bonus: {persistence_bonus.loc[probe_date]:.4f}")
+        # --- 7. 增强情境调制器 (Enhanced Contextual Modulators) ---
         # 筹码健康度 (chip_health_score_D)
         chip_health_raw = self._get_safe_series(df, df, context_modulator_signal_1_name, 0.0, method_name="_diagnose_harmony_inflection")
         norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights) # 归一化到 [0, 1]
         # 筹码波动不稳定性 (VOLATILITY_INSTABILITY_INDEX_21d_D)
         volatility_instability_raw = self._get_safe_series(df, df, context_modulator_signal_2_name, 0.0, method_name="_diagnose_harmony_inflection")
         norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights) # 波动性越高，值越小 (负向影响)
+        # 主力信念指数 (main_force_conviction_index_D)
+        main_force_conviction_raw = self._get_safe_series(df, df, context_modulator_signal_3_name, 0.0, method_name="_diagnose_harmony_inflection")
+        norm_main_force_conviction = get_adaptive_mtf_normalized_score(main_force_conviction_raw.abs(), df_index, ascending=True, tf_weights=tf_weights) # 绝对值越高，信念越强
         # 融合情境调制器
-        # 健康度越高，波动性越低，情境因子越接近1，拐点信号越可靠
+        # 健康度越高，波动性越低，主力信念越强，情境因子越接近1，拐点信号越可靠
         context_modulator = (
             (1 + norm_chip_health * context_modulator_sensitivity_health) *
-            (1 + norm_volatility_instability * context_modulator_sensitivity_volatility)
-        ).clip(0.5, 1.5) # 限制调制范围
+            (1 + norm_volatility_instability * context_modulator_sensitivity_volatility) *
+            (1 + norm_main_force_conviction * context_modulator_sensitivity_conviction)
+        ).clip(0.5, 2.0) # 限制调制范围
         # --- 探针: 情境调制器 ---
         if probe_dates_str and probe_date in df_index:
             print(f"       - 原料: {context_modulator_signal_1_name} (raw): {chip_health_raw.loc[probe_date]:.4f}")
             print(f"       - 过程: norm_chip_health: {norm_chip_health.loc[probe_date]:.4f}")
             print(f"       - 原料: {context_modulator_signal_2_name} (raw): {volatility_instability_raw.loc[probe_date]:.4f}")
             print(f"       - 过程: norm_volatility_instability: {norm_volatility_instability.loc[probe_date]:.4f}")
+            print(f"       - 原料: {context_modulator_signal_3_name} (raw): {main_force_conviction_raw.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_main_force_conviction: {norm_main_force_conviction.loc[probe_date]:.4f}")
             print(f"       - 过程: context_modulator: {context_modulator.loc[probe_date]:.4f}")
         # --- 最终融合 ---
-        # 拐点强度 * 动态位置敏感度 * 情境调制器
-        final_score = inflection_strength * position_sensitivity_factor * context_modulator
+        # 拐点强度 (诡道调制后) * 动态位置敏感度 * 情境调制器 + 延续性奖励
+        final_score = (inflection_strength_modulated * position_sensitivity_factor * context_modulator) + persistence_bonus
         # --- 探针: 最终结果 ---
         if probe_dates_str and probe_date in df_index:
             print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
