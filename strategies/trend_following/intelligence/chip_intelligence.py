@@ -1971,6 +1971,22 @@ class ChipIntelligence:
         probe_dates_str = debug_params.get('probe_dates', [])
         df_index = df.index
         
+        # --- START OF MODIFICATION ---
+        probe_date = None
+        is_probing_enabled = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            if df_index.tz is not None:
+                probe_date = probe_date_naive.tz_localize(df_index.tz, ambiguous='infer')
+            else:
+                probe_date = probe_date_naive
+            if probe_date is not None and probe_date in df_index:
+                is_probing_enabled = True
+                print(f"    -> [战略战术和谐度探针] @ {probe_date.date()}:")
+                print(f"       - 原料: strategic_posture: {strategic_posture.loc[probe_date]:.4f}")
+                print(f"       - 原料: tactical_exchange: {tactical_exchange.loc[probe_date]:.4f}")
+        # --- END OF MODIFICATION ---
+
         # --- 确保所有新的筹码类调制器信号都已存在 ---
         required_signals = [
             'chip_health_score_D', 'structural_tension_index_D', 'main_force_conviction_index_D',
@@ -2043,7 +2059,7 @@ class ChipIntelligence:
         base_intent_score = strategic_posture * dynamic_strategic_weight + tactical_exchange * dynamic_tactical_weight
 
         # --- 探针: 动态权重与基础意图分 ---
-        if probe_dates_str and probe_date in df_index:
+        if is_probing_enabled:
             print(f"       - 原料: chip_health_score_D (raw): {chip_health_raw.loc[probe_date]:.4f}")
             print(f"       - 原料: structural_tension_index_D (raw): {structural_tension_raw.loc[probe_date]:.4f}")
             print(f"       - 过程: norm_chip_health: {norm_chip_health.loc[probe_date]:.4f}")
@@ -2078,7 +2094,7 @@ class ChipIntelligence:
         harmony_factor = harmony_factor.clip(0, 1)
 
         # --- 探针: 和谐因子 ---
-        if probe_dates_str and probe_date in df_index:
+        if is_probing_enabled:
             print(f"       - 原料: main_force_conviction_index_D (raw): {main_force_conviction_raw.loc[probe_date]:.4f}")
             print(f"       - 原料: chip_fatigue_index_D (raw): {chip_fatigue_raw.loc[probe_date]:.4f}")
             print(f"       - 过程: norm_main_force_conviction: {norm_main_force_conviction.loc[probe_date]:.4f}")
@@ -2138,7 +2154,7 @@ class ChipIntelligence:
         alignment_bonus.loc[bearish_alignment_mask] = -dynamic_trend_bonus_factor.loc[bearish_alignment_mask]
 
         # --- 探针: 冲突惩罚与趋势奖励 ---
-        if probe_dates_str and probe_date in df_index:
+        if is_probing_enabled:
             print(f"       - 过程: dynamic_conflict_threshold: {dynamic_conflict_threshold.loc[probe_date]:.4f}")
             print(f"       - 过程: conflict_mask: {conflict_mask.loc[probe_date]}")
             print(f"       - 过程: dynamic_conflict_penalty_factor: {dynamic_conflict_penalty_factor.loc[probe_date]:.4f}")
@@ -2155,7 +2171,7 @@ class ChipIntelligence:
         final_score = base_intent_score * harmony_factor * conflict_penalty + alignment_bonus
 
         # --- 探针: 最终结果 ---
-        if probe_dates_str and probe_date in df_index:
+        if is_probing_enabled:
             print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
 
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
