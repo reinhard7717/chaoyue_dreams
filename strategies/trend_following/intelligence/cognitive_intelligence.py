@@ -36,16 +36,6 @@ class CognitiveIntelligence:
         """
         if name in self.strategy.atomic_states:
             score = self.strategy.atomic_states[name]
-            debug_params = get_params_block(self.strategy, 'debug_params', {})
-            probe_dates_str = debug_params.get('probe_dates', [])
-            if probe_dates_str and name == 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION':
-                probe_date_naive = pd.to_datetime(probe_dates_str[0])
-                probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-                if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                    if isinstance(score, pd.Series):
-                        print(f"    -> [DEBUG _get_fused_score] 获取融合信号 '{name}' 原始值: {score.loc[probe_date_for_loop]:.4f}")
-                    else:
-                        print(f"    -> [DEBUG _get_fused_score] 获取融合信号 '{name}' 原始值: {score:.4f}")
             return score
         else:
             print(f"    -> [认知层警告] 融合态势信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
@@ -399,14 +389,6 @@ class CognitiveIntelligence:
             structural_consensus_prob * structural_consensus_weight
         ).clip(0, 1)
         states['COGNITIVE_PRIOR_TREND_PROB'] = prior_trend.astype(np.float32)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date in df_index:
-                print(f"    -> [先验信念探针] @ {probe_date.date()}:")
-                print(f"       - 最终趋势先验概率 (prior_trend): {prior_trend.loc[probe_date]:.4f}")
         market_pressure = self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
         reversal_pressure_weight = 0.6
         reversal_regime_strength_weight = 0.4
@@ -415,11 +397,6 @@ class CognitiveIntelligence:
         prior_reversal_raw = (market_pressure.abs() * reversal_pressure_weight + market_regime.abs() * reversal_regime_strength_weight).clip(0, 1)
         prior_reversal = (prior_reversal_raw * suppression_factor).clip(0, 1)
         states['COGNITIVE_PRIOR_REVERSAL_PROB'] = prior_reversal.astype(np.float32)
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date in df_index:
-                print(f"       - 最终反转先验概率 (prior_reversal): {prior_reversal.loc[probe_date]:.4f}")
         return states
 
     def _fuse_and_adjudicate_playbooks(self, df: pd.DataFrame, playbook_scores: Dict[str, pd.Series]) -> Dict[str, pd.Series]:

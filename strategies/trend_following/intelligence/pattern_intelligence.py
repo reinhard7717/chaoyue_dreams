@@ -92,25 +92,6 @@ class PatternIntelligence:
         p_conf_pattern = get_params_block(self.strategy, 'pattern_params', {})
         tf_weights_pattern = get_param_value(p_conf_pattern.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}) # 借用筹码的MTF权重配置
         divergence_score = get_adaptive_mtf_normalized_bipolar_score(raw_divergence_score, df.index, tf_weights_pattern)
-        # region 新增代码块: 探针逻辑
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_dates = [pd.to_datetime(d).tz_localize(df.index.tz) if df.index.tz else pd.to_datetime(d) for d in probe_dates_str]
-            for probe_date in probe_dates:
-                if probe_date in df.index:
-                    idx = df.index.get_loc(probe_date)
-                    print(f"\n[探针] _diagnose_axiom_divergence on {probe_date.date()}:")
-                    print(f"  - 输入原料:")
-                    print(f"    - 价格斜率 (price_slope): {price_slope.iloc[idx]:.4f}")
-                    print(f"    - 动量斜率 (momentum_slope): {momentum_slope.iloc[idx]:.4f}")
-                    print(f"  - 关键计算节点:")
-                    print(f"    - 看涨背离强度: {bullish_divergence_strength.iloc[idx]:.2f}")
-                    print(f"    - 看跌背离强度: {bearish_divergence_strength.iloc[idx]:.2f}")
-                    print(f"    - 原始背离分数: {raw_divergence_score.iloc[idx]:.4f}")
-                    print(f"  - 最终结果:")
-                    print(f"    - 归一化背离分数: {divergence_score.iloc[idx]:.4f}")
-        # endregion
         return divergence_score.astype(np.float32)
 
     def _diagnose_axiom_reversal(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -127,20 +108,6 @@ class PatternIntelligence:
         p_conf_pattern = get_params_block(self.strategy, 'pattern_params', {})
         tf_weights_pattern = get_param_value(p_conf_pattern.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         reversal_score = get_adaptive_mtf_normalized_bipolar_score(raw_reversal_score, df.index, tf_weights_pattern)
-        # region 新增代码块: 探针逻辑
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_dates = [pd.to_datetime(d).tz_localize(df.index.tz) if df.index.tz else pd.to_datetime(d) for d in probe_dates_str]
-            for probe_date in probe_dates:
-                if probe_date in df.index:
-                    idx = df.index.get_loc(probe_date)
-                    print(f"\n[探针] _diagnose_axiom_reversal on {probe_date.date()}:")
-                    print(f"  - 输入原料:")
-                    print(f"    - 对手盘衰竭指数 (raw_reversal_score): {raw_reversal_score.iloc[idx]:.4f}")
-                    print(f"  - 最终结果:")
-                    print(f"    - 归一化反转分数: {reversal_score.iloc[idx]:.4f}")
-        # endregion
         return reversal_score.astype(np.float32)
 
     def _diagnose_axiom_breakout(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -161,28 +128,6 @@ class PatternIntelligence:
         p_conf_pattern = get_params_block(self.strategy, 'pattern_params', {})
         tf_weights_pattern = get_param_value(p_conf_pattern.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         breakout_score = get_adaptive_mtf_normalized_bipolar_score(raw_breakout_score, df.index, tf_weights_pattern)
-        # region 新增代码块: 探针逻辑
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_dates = [pd.to_datetime(d).tz_localize(df.index.tz) if df.index.tz else pd.to_datetime(d) for d in probe_dates_str]
-            for probe_date in probe_dates:
-                if probe_date in df.index:
-                    idx = df.index.get_loc(probe_date)
-                    print(f"\n[探针] _diagnose_axiom_breakout on {probe_date.date()}:")
-                    print(f"  - 输入原料:")
-                    print(f"    - 收盘价: {self._get_safe_series(df, 'close_D').iloc[idx]:.2f}")
-                    print(f"    - 盘整高点: {self._get_safe_series(df, 'dynamic_consolidation_high_D').iloc[idx]:.2f}")
-                    print(f"    - 盘整低点: {self._get_safe_series(df, 'dynamic_consolidation_low_D').iloc[idx]:.2f}")
-                    print(f"    - 突破质量分: {breakout_quality.iloc[idx]:.4f}")
-                    print(f"  - 关键计算节点:")
-                    print(f"    - 向上突破: {is_breakout_up.iloc[idx]:.2f}")
-                    print(f"    - 向下突破: {is_breakout_down.iloc[idx]:.2f}")
-                    print(f"    - 突破方向: {breakout_direction.iloc[idx]:.2f}")
-                    print(f"    - 原始突破分数: {raw_breakout_score.iloc[idx]:.4f}")
-                    print(f"  - 最终结果:")
-                    print(f"    - 归一化突破分数: {breakout_score.iloc[idx]:.4f}")
-        # endregion
         return breakout_score.astype(np.float32)
 
     def _diagnose_axiom_pullback_confirmation(self, df: pd.DataFrame) -> pd.Series:
@@ -418,8 +363,6 @@ class PatternIntelligence:
             # region 探针判断
             current_date = df_index[i]
             is_probing_this_day = current_date in probe_dates
-            if is_probing_this_day:
-                print(f"\n[探针] 正在为 {current_date.date()} 诊断“多方炮”形态...")
             # endregion
             # K1 (i-2)
             k1_open, k1_close, k1_high, k1_low, k1_volume = open_D.iloc[i-2], close_D.iloc[i-2], high_D.iloc[i-2], low_D.iloc[i-2], volume_D.iloc[i-2]
@@ -434,24 +377,14 @@ class PatternIntelligence:
             # 条件1: K1是放量阳线
             cond1_price = k1_close > k1_open 
             cond1_volume = k1_volume > k1_vol_ma5 * 1.2 
-            if is_probing_this_day:
-                print(f"  - K1 ({df_index[i-2].date()}) 条件判断:")
-                print(f"    - 原料: close={k1_close:.2f}, open={k1_open:.2f}, volume={k1_volume:.0f}, vol_ma5={k1_vol_ma5:.0f}")
-                print(f"    - 判断: 是阳线 ({cond1_price}), 且放量 (>1.2*MA5) ({cond1_volume})")
             if not (cond1_price and cond1_volume):
-                if is_probing_this_day: print("    - 结论: K1不满足，跳过。")
                 continue
             # 条件2: K2是缩量、小实体且被K1包含
             cond2_volume = k2_volume < k1_volume 
             k2_body_ratio = abs(k2_close - k2_open) / (k2_high - k2_low + 1e-9) if (k2_high - k2_low) > 0 else 0
             cond2_body_small = k2_body_ratio < 0.5 
             cond2_within_k1_range = k2_low >= k1_low and k2_high <= k1_high 
-            if is_probing_this_day:
-                print(f"  - K2 ({df_index[i-1].date()}) 条件判断:")
-                print(f"    - 原料: low={k2_low:.2f}, high={k2_high:.2f}, k2_volume={k2_volume:.0f}, k1_volume={k1_volume:.0f}, body_ratio={k2_body_ratio:.2f}")
-                print(f"    - 判断: 缩量(k2_vol < k1_vol) ({cond2_volume}), 小实体 ({cond2_body_small}), 在K1范围内 ({cond2_within_k1_range})")
             if not (cond2_volume and cond2_body_small and cond2_within_k1_range):
-                if is_probing_this_day: print("    - 结论: K2不满足，跳过。")
                 continue
             # 条件3: K3是阳线，收盘价高于K1，且满足双轨战术之一
             cond3_price = k3_close > k3_open 
@@ -461,18 +394,8 @@ class PatternIntelligence:
             # 轨道二：诡道突破型 (Deceptive Advance)
             cond3_deceptive_advance = (k3_volume < k2_volume) and ((k3_mf_net_flow > 0) or (k3_dip_absorption > 0.5)) # 修改代码行: 核心升级，将AND改为OR
             cond3_volume_ok = cond3_artillery_attack or cond3_deceptive_advance 
-            if is_probing_this_day:
-                print(f"  - K3 ({current_date.date()}) 条件判断:")
-                print(f"    - 原料: close={k3_close:.2f}, open={k3_open:.2f}, k3_volume={k3_volume:.0f}, k2_volume={k2_volume:.0f}, vol_ma5={k3_vol_ma5:.0f}")
-                print(f"    - 诡道验证原料: mf_net_flow={k3_mf_net_flow:.2f}, dip_absorption={k3_dip_absorption:.2f}")
-                print(f"    - 价格判断: 是阳线 ({cond3_price}), 收盘价高于K1 ({cond3_close_higher_than_k1})")
-                print(f"    - 量能双轨战术判断:")
-                print(f"      - 轨道1 (炮火攻击): (k3_vol>k2_vol)({k3_volume > k2_volume}) AND (k3_vol>vol_ma5)({k3_volume > k3_vol_ma5}) -> {cond3_artillery_attack}")
-                print(f"      - 轨道2 (诡道突破): (k3_vol<k2_vol)({k3_volume < k2_volume}) AND ((mf_flow>0)({k3_mf_net_flow > 0}) OR (dip_abs>0.5)({k3_dip_absorption > 0.5})) -> {cond3_deceptive_advance}")
-                print(f"    - 最终量能条件: {cond3_volume_ok}")
             if cond3_price and cond3_close_higher_than_k1 and cond3_volume_ok:
                 duofangpao_score.iloc[i] = 1.0
-                if is_probing_this_day: print("  -> [结论] 成功匹配！")
         return duofangpao_score.astype(np.float32)
 
 

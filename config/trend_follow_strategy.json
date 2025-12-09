@@ -2324,7 +2324,7 @@
           }
         },
         "axiom_consensus_params": {
-          "description": "【V4.0 · 诡道动态博弈版】战场控制权公理的专属参数。",
+          "description": "【V5.0 · 意图推断与情境预测版】战场控制权公理的专属参数。",
           "deception_mod_enabled": true,
           "comment_deception_mod_enabled": "是否启用诡道博弈情境调制。",
           "deception_penalty_sensitivity": 0.6,
@@ -2335,6 +2335,10 @@
           "comment_conviction_threshold_deception": "主力信念强度阈值，用于判断诡道情境。",
           "flow_credibility_threshold": 0.5,
           "comment_flow_credibility_threshold": "资金流可信度阈值，用于全局诡道调制。",
+          "deception_context_modulator_signal": "market_sentiment_score_D",
+          "comment_deception_context_modulator_signal": "诡道调制器的情境因子信号（如市场情绪）。",
+          "deception_context_sensitivity": 0.3,
+          "comment_deception_context_sensitivity": "情境因子对诡道调制效果的敏感度。",
           "dynamic_weight_mod_enabled": true,
           "comment_dynamic_weight_mod_enabled": "是否启用宏观与微观动态权重自适应。",
           "macro_flow_base_weight": 0.4,
@@ -2345,16 +2349,26 @@
           "comment_dynamic_weight_modulator_signal_1": "动态权重调制器信号1（波动不稳定性）。",
           "dynamic_weight_modulator_signal_2": "SLOPE_5_NMFNF_D",
           "comment_dynamic_weight_modulator_signal_2": "动态权重调制器信号2（资金流短期趋势）。",
+          "dynamic_weight_modulator_signal_3": "market_sentiment_score_D",
+          "comment_dynamic_weight_modulator_signal_3": "动态权重调制器信号3（市场情绪）。",
           "dynamic_weight_sensitivity_volatility": 0.3,
           "comment_dynamic_weight_sensitivity_volatility": "波动性对动态权重调整的敏感度。",
           "dynamic_weight_sensitivity_flow_slope": 0.2,
           "comment_dynamic_weight_sensitivity_flow_slope": "资金流短期趋势对动态权重调整的敏感度。",
+          "dynamic_weight_sensitivity_sentiment": 0.1,
+          "comment_dynamic_weight_sensitivity_sentiment": "市场情绪对动态权重调整的敏感度。",
           "asymmetric_micro_control_enabled": true,
           "comment_asymmetric_micro_control_enabled": "是否启用微观盘口控制力非对称增强。",
           "exhaustion_boost_factor": 0.2,
           "comment_exhaustion_boost_factor": "买盘枯竭低/卖盘枯竭高时的增强因子。",
           "exhaustion_penalty_factor": 0.3,
           "comment_exhaustion_penalty_factor": "买盘枯竭高/卖盘枯竭低时的惩罚因子。",
+          "micro_intent_fusion_weights": {
+            "description": "微观意图分数融合权重。",
+            "imbalance": 0.4,
+            "efficiency": 0.3,
+            "exhaustion": 0.3
+          },
           "smoothing_ema_span": 5,
           "comment_smoothing_ema_span": "战场控制权动态演化平滑EMA周期。",
           "dynamic_evolution_base_weights": {
@@ -2362,7 +2376,11 @@
             "velocity": 0.2,
             "acceleration": 0.2
           },
-          "comment_dynamic_evolution_base_weights": "融合基础战场控制权与时间序列动态时的基础权重。"
+          "comment_dynamic_evolution_base_weights": "融合基础战场控制权与时间序列动态时的基础权重。",
+          "dynamic_evolution_context_modulator_signal": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+          "comment_dynamic_evolution_context_modulator_signal": "动态演化权重的情境因子信号（如波动不稳定性）。",
+          "dynamic_evolution_context_sensitivity": 0.2,
+          "comment_dynamic_evolution_context_sensitivity": "情境因子对动态演化权重调整的敏感度。"
         }
       },
       "fusion_accumulation_inflection_params": {

@@ -606,24 +606,6 @@ class FusionIntelligence:
         # 3.2 最终裁决：战术净压力 × 战场态势调节器
         final_pressure = (net_tactical_pressure * battlefield_modulator).clip(-1, 1)
         states['FUSION_BIPOLAR_MARKET_PRESSURE'] = final_pressure.astype(np.float32)
-        # --- 4. [新增] 植入究极探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates = debug_params.get('probe_dates', [])
-        if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
-            print(f"\n--- [市场压力究极探针 V3.0 · 态势裁决版] ---")
-            last_date_index = -1
-            print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
-            print("  [第一层 - 战术压力计算 (Tactical Pressure Calculation)]:")
-            print(f"    - 原始看涨压力分: {tactical_upward_pressure.iloc[last_date_index]:.4f}")
-            print(f"    - 原始看跌压力分: {tactical_downward_pressure.iloc[last_date_index]:.4f}")
-            print(f"    - -> 战术净压力 (臣): {net_tactical_pressure.iloc[last_date_index]:.4f}")
-            print("  [第二层 - 战场态势裁决 (Battlefield Posture Judgment)]:")
-            print(f"    - 战场背景 (趋势质量): {battlefield_context.iloc[last_date_index]:.4f}")
-            print(f"    - -> 战场态势调节器 (君): {battlefield_modulator.iloc[last_date_index]:.4f}")
-            print("  [最终裁决 (Final Judgment)]:")
-            print(f"    - 最终市场压力 (臣 × 君): {final_pressure.iloc[last_date_index]:.4f}")
-            print("--- [探针结束] ---\n")
-        print(f"  -- [融合层] “市场压力”冶炼完成，最新分值: {final_pressure.iloc[-1]:.4f}")
         return states
 
     def _synthesize_accumulation_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
