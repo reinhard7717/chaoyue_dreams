@@ -162,7 +162,7 @@ class FundFlowIntelligence:
         adaptive_weight_sensitivity_sentiment = get_param_value(ad_params.get('adaptive_weight_sensitivity_sentiment'), 0.1)
         smoothing_ema_span = get_param_value(ad_params.get('smoothing_ema_span'), 5)
         dynamic_evolution_base_weights = get_param_value(ad_params.get('dynamic_evolution_base_weights'), {'base_score': 0.5, 'velocity': 0.3, 'acceleration': 0.2})
-        dynamic_evolution_context_modulator_signal_1_name = get_param_value(ad_params.get('dynamic_evolution_context_modulator_signal_1'), 'main_force_conviction_index_D')
+        dynamic_evolution_context_modulator_1_name = get_param_value(ad_params.get('dynamic_evolution_context_modulator_1_name'), 'main_force_conviction_index_D')
         dynamic_evolution_context_sensitivity_1 = get_param_value(ad_params.get('dynamic_evolution_context_sensitivity_1'), 0.2)
         # --- 信号依赖校验 ---
         required_signals = []
@@ -204,10 +204,11 @@ class FundFlowIntelligence:
             adaptive_weight_modulator_signal_1_name,
             adaptive_weight_modulator_signal_2_name,
             adaptive_weight_modulator_signal_3_name,
-            dynamic_evolution_context_modulator_signal_1_name
+            dynamic_evolution_context_modulator_1_name
         ])
         for mod_name, mod_params in energy_injection_context_modulators.items():
-            required_signals.append(mod_params['signal'])
+            if isinstance(mod_params, dict) and 'signal' in mod_params: # 修正: 确保mod_params是字典且包含'signal'键
+                required_signals.append(mod_params['signal'])
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_divergence"):
             return pd.Series(0.0, index=df.index)
         # --- 原始数据获取 (用于探针和计算) ---
@@ -247,13 +248,14 @@ class FundFlowIntelligence:
         # 能量注入情境调制器
         energy_modulator_signals = {}
         for mod_name, mod_params in energy_injection_context_modulators.items():
-            energy_modulator_signals[mod_name] = self._get_safe_series(df, df, mod_params['signal'], 0.0, method_name="_diagnose_axiom_divergence")
+            if isinstance(mod_params, dict) and 'signal' in mod_params: # 修正: 确保mod_params是字典且包含'signal'键
+                energy_modulator_signals[mod_name] = self._get_safe_series(df, df, mod_params['signal'], 0.0, method_name="_diagnose_axiom_divergence")
         # 自适应权重调制器
         adaptive_weight_modulator_1_raw = self._get_safe_series(df, df, adaptive_weight_modulator_signal_1_name, 0.0, method_name="_diagnose_axiom_divergence")
         adaptive_weight_modulator_2_raw = self._get_safe_series(df, df, adaptive_weight_modulator_signal_2_name, 0.0, method_name="_diagnose_axiom_divergence")
         adaptive_weight_modulator_3_raw = self._get_safe_series(df, df, adaptive_weight_modulator_signal_3_name, 0.0, method_name="_diagnose_axiom_divergence")
         # 动态演化情境因子
-        dynamic_evolution_context_modulator_1_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_signal_1_name, 0.0, method_name="_diagnose_axiom_divergence")
+        dynamic_evolution_context_modulator_1_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_1_name, 0.0, method_name="_diagnose_axiom_divergence")
         if is_probe_active:
             print(f"       - 原料: retail_fomo_premium_index_D (raw): {retail_fomo_premium_raw.loc[probe_date]:.4f}")
             print(f"       - 原料: retail_panic_surrender_index_D (raw): {retail_panic_surrender_raw.loc[probe_date]:.4f}")
@@ -290,7 +292,8 @@ class FundFlowIntelligence:
                 print(f"       - 原料: ACCEL_{p}_buy_quote_exhaustion_rate_D (raw): {buy_exhaustion_accels_raw[p].loc[probe_date]:.4f}")
                 print(f"       - 原料: ACCEL_{p}_sell_quote_exhaustion_rate_D (raw): {sell_exhaustion_accels_raw[p].loc[probe_date]:.4f}")
             for mod_name, mod_params in energy_injection_context_modulators.items():
-                print(f"       - 原料: {mod_params['signal']} (raw): {energy_modulator_signals[mod_name].loc[probe_date]:.4f}")
+                if isinstance(mod_params, dict) and 'signal' in mod_params: # 修正: 确保mod_params是字典且包含'signal'键
+                    print(f"       - 原料: {mod_params['signal']} (raw): {energy_modulator_signals[mod_name].loc[probe_date]:.4f}")
         # --- 1. 核心分歧向量 (Core Divergence Vector) ---
         norm_nmfnf_slope_mtf = self._get_mtf_dynamic_score(df, 'NMFNF_D', divergence_slope_periods, divergence_slope_weights, True, False)
         norm_nmfnf_accel_mtf = self._get_mtf_dynamic_score(df, 'NMFNF_D', divergence_accel_periods, divergence_accel_weights, True, True)
@@ -357,15 +360,15 @@ class FundFlowIntelligence:
         norm_sell_exhaustion = get_adaptive_mtf_normalized_score(sell_exhaustion_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         micro_exhaustion_score = (norm_sell_exhaustion - norm_buy_exhaustion).clip(-1, 1)
         # 微观动态脉冲
-        obi_dynamic_params = micro_intent_dynamic_signals.get('order_book_imbalance_D', {"slope": 0.6, "accel": 0.4})
+        obi_dynamic_params = micro_intent_dynamic_signals.get('order_book_imbalance_D', {"slope": 0.6, "accel": 0.4, "weight": 0.2})
         norm_obi_slope_mtf = self._get_mtf_dynamic_score(df, 'order_book_imbalance_D', divergence_slope_periods, divergence_slope_weights, True, False)
         norm_obi_accel_mtf = self._get_mtf_dynamic_score(df, 'order_book_imbalance_D', divergence_accel_periods, divergence_accel_weights, True, True)
         obi_dynamic_pulse = (norm_obi_slope_mtf * obi_dynamic_params.get('slope', 0.6) + norm_obi_accel_mtf * obi_dynamic_params.get('accel', 0.4)).clip(-1, 1)
-        buy_exh_dynamic_params = micro_intent_dynamic_signals.get('buy_quote_exhaustion_rate_D', {"slope": 0.5, "accel": 0.5})
+        buy_exh_dynamic_params = micro_intent_dynamic_signals.get('buy_quote_exhaustion_rate_D', {"slope": 0.5, "accel": 0.5, "weight": 0.15})
         norm_buy_exh_slope_mtf = self._get_mtf_dynamic_score(df, 'buy_quote_exhaustion_rate_D', divergence_slope_periods, divergence_slope_weights, False, False)
         norm_buy_exh_accel_mtf = self._get_mtf_dynamic_score(df, 'buy_quote_exhaustion_rate_D', divergence_accel_periods, divergence_accel_weights, False, True)
         buy_exh_dynamic_pulse = (norm_buy_exh_slope_mtf * buy_exh_dynamic_params.get('slope', 0.5) + norm_buy_exh_accel_mtf * buy_exh_dynamic_params.get('accel', 0.5)).clip(0, 1)
-        sell_exh_dynamic_params = micro_intent_dynamic_signals.get('sell_quote_exhaustion_rate_D', {"slope": 0.5, "accel": 0.5})
+        sell_exh_dynamic_params = micro_intent_dynamic_signals.get('sell_quote_exhaustion_rate_D', {"slope": 0.5, "accel": 0.5, "weight": 0.15})
         norm_sell_exh_slope_mtf = self._get_mtf_dynamic_score(df, 'sell_quote_exhaustion_rate_D', divergence_slope_periods, divergence_slope_weights, False, False)
         norm_sell_exh_accel_mtf = self._get_mtf_dynamic_score(df, 'sell_quote_exhaustion_rate_D', divergence_accel_periods, divergence_accel_weights, False, True)
         sell_exh_dynamic_pulse = (norm_sell_exh_slope_mtf * sell_exh_dynamic_params.get('slope', 0.5) + norm_sell_exh_accel_mtf * sell_exh_dynamic_params.get('accel', 0.5)).clip(0, 1)
@@ -373,8 +376,8 @@ class FundFlowIntelligence:
         micro_intent_tension_score = (
             norm_order_book_imbalance * micro_intent_tension_signals_weights.get('order_book_imbalance_D', 0.5) +
             micro_exhaustion_score * (micro_intent_tension_signals_weights.get('buy_quote_exhaustion_rate_D', 0.25) + micro_intent_tension_signals_weights.get('sell_quote_exhaustion_rate_D', 0.25)) +
-            obi_dynamic_pulse * micro_intent_dynamic_signals.get('order_book_imbalance_D', {}).get('weight', 0.2) + # 假设配置中有一个总权重
-            micro_dynamic_exhaustion_score * (micro_intent_dynamic_signals.get('buy_quote_exhaustion_rate_D', {}).get('weight', 0.15) + micro_intent_dynamic_signals.get('sell_quote_exhaustion_rate_D', {}).get('weight', 0.15))
+            obi_dynamic_pulse * obi_dynamic_params.get('weight', 0.2) +
+            micro_dynamic_exhaustion_score * (buy_exh_dynamic_params.get('weight', 0.15) + sell_exh_dynamic_params.get('weight', 0.15))
         ).clip(-1, 1)
         if is_probe_active:
             print(f"       - 过程: norm_order_book_imbalance (MIT): {norm_order_book_imbalance.loc[probe_date]:.4f}")
@@ -404,9 +407,10 @@ class FundFlowIntelligence:
         # 情境自适应调制能量注入
         energy_injection_modulator = pd.Series(1.0, index=df_index)
         for mod_name, mod_params in energy_injection_context_modulators.items():
-            mod_signal = energy_modulator_signals[mod_name]
-            norm_mod_signal = get_adaptive_mtf_normalized_score(mod_signal, df_index, ascending=mod_params.get('ascending', True), tf_weights=self.tf_weights_ff)
-            energy_injection_modulator *= (1 + (norm_mod_signal - 0.5) * mod_params.get('sensitivity', 0.0))
+            if isinstance(mod_params, dict) and 'signal' in mod_params: # 修正: 确保mod_params是字典且包含'signal'键
+                mod_signal = energy_modulator_signals[mod_name]
+                norm_mod_signal = get_adaptive_mtf_normalized_score(mod_signal, df_index, ascending=mod_params.get('ascending', True), tf_weights=self.tf_weights_ff)
+                energy_injection_modulator *= (1 + (norm_mod_signal - 0.5) * mod_params.get('sensitivity', 0.0))
         energy_injection = (energy_injection_base * energy_injection_modulator).clip(0, 1)
         combined_divergence_abs = (
             core_divergence_score.abs() * divergence_component_weights.get('core_divergence', 0.3) +
