@@ -370,12 +370,10 @@ def clean_tick_data_for_stock(stock_code: str, trade_date_str: str):
         if not TradeCalendar.is_trade_date(check_date=current_date):
             start_dt = datetime.datetime.combine(current_date, datetime.time.min, tzinfo=local_tz)
             end_dt = datetime.datetime.combine(current_date, datetime.time.max, tzinfo=local_tz)
-            
             deleted_count, _ = TickModel.objects.filter(
                 stock_id=stock_code,
                 trade_time__range=(start_dt, end_dt)
             ).delete()
-            
             if deleted_count > 0:
                 logger.info(f"[{stock_code}] {trade_date_str} 非交易日，清理了 {deleted_count} 条异常Tick数据。")
             return

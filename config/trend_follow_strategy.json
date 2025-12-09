@@ -196,6 +196,7 @@
         "total_loser_rate_D": [5, 8, 13, 21],
         "retail_fomo_premium_index_D": [5, 8, 13, 21],
         "flow_credibility_index_D": [5, 8, 13, 21],
+        "vwap_control_strength_D": [5, 8, 13, 21],
         "说明_pattern_axioms": "--- 为形态三大公理提供支持 ---",
         "intraday_vwap_div_index_D": [5, 8, 13, 21],
         "breakout_quality_score_D": [5, 8, 13, 21],
@@ -293,6 +294,7 @@
         "total_loser_rate_D": [5, 8, 13, 21],
         "retail_fomo_premium_index_D": [5, 8, 13, 21],
         "flow_credibility_index_D": [5, 8, 13, 21],
+        "vwap_control_strength_D": [5, 8, 13, 21],
         "说明_micro_behavior_axioms": "--- 为微观行为公理提供支持 ---",
         "observed_large_order_size_avg_D": [5, 8],
         "main_force_vpoc_D": [5, 8, 13, 21],
@@ -1933,7 +1935,7 @@
           "meta_modulator_sensitivity": 0.5
         },
         "absorption_echo_params": {
-          "description": "【V4.0 · 深度高频诡道反吸版】吸筹回声信号的专属参数。",
+          "description": "【V5.0 · 诡道反吸强化版】吸筹回声信号的专属参数。",
           "panic_source_weights": {
             "description": "恐慌声源融合权重。",
             "retail_panic_surrender": 0.15,
@@ -1945,7 +1947,10 @@
             "loser_loss_margin_avg": 0.08,
             "loser_pain_slope": 0.08,
             "chip_fatigue_accel": 0.08,
-            "volatility_instability": 0.08
+            "volatility_instability": 0.08,
+            "total_loser_rate_accel": 0.05,
+            "retail_panic_surrender_slope": 0.05,
+            "structural_tension_accel": 0.05
           },
           "panic_context_threshold": 0.3,
           "counter_flow_medium_weights": {
@@ -1960,7 +1965,15 @@
             "control_solidity": 0.08,
             "support_validation_slope": 0.08,
             "main_force_execution_alpha_accel": 0.05,
-            "order_book_clearing_rate": 0.06
+            "order_book_clearing_rate": 0.06,
+            "cleansing_efficiency_slope": 0.05,
+            "order_book_clearing_accel": 0.05,
+            "micro_impact_asymmetry": 0.05,
+            "micro_impact_asymmetry_slope": 0.03,
+            "vwap_control_strength": 0.05,
+            "vwap_control_strength_slope": 0.03,
+            "vwap_crossing_intensity": 0.03,
+            "vwap_crossing_intensity_accel": 0.02
           },
           "main_force_echo_weights": {
             "description": "主力回声融合权重。",
@@ -1975,19 +1988,30 @@
             "main_force_activity_ratio": 0.08,
             "covert_accumulation_slope": 0.08,
             "main_force_conviction_accel": 0.08,
-            "smart_money_net_buy_positive": 0.08
+            "smart_money_net_buy_positive": 0.08,
+            "covert_accumulation_accel": 0.05,
+            "suppressive_accumulation_slope": 0.05,
+            "cost_advantage_accel": 0.05,
+            "flow_directionality_slope": 0.05,
+            "main_force_vpoc_accel": 0.05,
+            "smart_money_net_buy_slope": 0.05
           },
           "deception_modulator_params": {
             "description": "诡道背景调制参数。",
-            "boost_factor": 0.6,
-            "penalty_factor": 0.4,
             "conviction_threshold": 0.2,
             "deception_index_boost_weight": 0.5,
-            "wash_trade_penalty_weight": 0.3
+            "deception_index_penalty_weight": 0.5,
+            "wash_trade_penalty_weight": 0.3,
+            "penalty_factor": 0.4
+          },
+          "context_modulator_weights": {
+            "description": "情境调制器融合权重。",
+            "flow_credibility": 0.4,
+            "structural_tension_inverse": 0.3,
+            "chip_health": 0.3
           },
           "final_fusion_exponent": 0.25
         },
-
         "distribution_whisper_params": {
           "description": "【V4.0 · 深度高频诡道派发版】派发诡影信号的专属参数。",
           "fomo_backdrop_weights": {

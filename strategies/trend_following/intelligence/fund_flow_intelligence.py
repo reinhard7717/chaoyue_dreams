@@ -174,7 +174,6 @@ class FundFlowIntelligence:
         purity_filter = 1 - get_adaptive_mtf_normalized_score(wash_trade_intensity, df_index, ascending=True, tf_weights=tf_weights_ff)
         # 4. 融合
         battlefield_control_score = (flow_consensus_score * 0.4 + micro_control_score * 0.6) * purity_filter
-
         return battlefield_control_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int, capital_signature_score: pd.Series, flow_health_score: pd.Series) -> pd.Series:
@@ -218,7 +217,6 @@ class FundFlowIntelligence:
                              flow_health_score * modulator_weights.get('flow_health', 0.3)
                              ).clip(0.5, 1.5)
         final_modulated_score = aggressive_intent_score * quality_modulator
-
         return final_modulated_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_flow_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -251,7 +249,6 @@ class FundFlowIntelligence:
         liquidity_amplifier = 1 / liquidity_supply.replace(0, 1e-9).clip(0.5, 2.0) # 反比关系，并限制范围
         # 4. 融合
         true_momentum = base_momentum * purity_filter * liquidity_amplifier
-
         return true_momentum.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_capital_signature(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -296,7 +293,6 @@ class FundFlowIntelligence:
         ).clip(0, 1)
         # 3. 融合
         capital_signature_score = patient_capital_score - agile_capital_score
-
         return capital_signature_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_flow_structure_health(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -335,6 +331,5 @@ class FundFlowIntelligence:
         health_core = (norm_flow_steadiness * 0.4 + norm_cost_cohesion * 0.6)
         # 使用 np.sign(norm_flow_efficiency) 确保当资金为净流出时，健康度指标也呈负向贡献
         flow_structure_health_score = (norm_flow_efficiency * 0.5 + health_core * np.sign(norm_flow_efficiency) * 0.5) * risk_filter
-
         return flow_structure_health_score.clip(-1, 1).astype(np.float32)
 

@@ -826,14 +826,12 @@ class GeometricPatternService:
         df_tick = tick_map.get(touch_date.date())
         if df_tick is None or df_tick.empty:
             return 0.5 # 没有微观数据，给予中性分
-
         # 计算全天OFI
         buy_vol = df_tick[df_tick['type'] == 'B']['volume'].sum()
         sell_vol = df_tick[df_tick['type'] == 'S']['volume'].sum()
         total_active_vol = buy_vol + sell_vol
         if total_active_vol == 0:
             return 0.5
-
         ofi_ratio = (buy_vol - sell_vol) / total_active_vol
         # 根据趋势线类型，判断OFI是否提供了“信念”证明
         conviction_score = 0.5
