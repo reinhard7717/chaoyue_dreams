@@ -65,11 +65,8 @@ class FundFlowIntelligence:
         axiom_consensus = self._diagnose_axiom_consensus(df, norm_window)
         axiom_flow_momentum = self._diagnose_axiom_flow_momentum(df, norm_window)
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
-        axiom_conviction = self._diagnose_axiom_conviction(
-            df, norm_window,
-            capital_signature_score=axiom_capital_signature,
-            flow_health_score=axiom_flow_structure_health
-        )
+        # 修改代码行：移除多余的参数
+        axiom_conviction = self._diagnose_axiom_conviction(df, norm_window)
         # --- 2. 战略态势的向量合成 ---
         fusion_weights = get_param_value(p_conf.get('posture_fusion_weights'), {})
         penalty_factor = get_param_value(p_conf.get('dissonance_penalty_factor'), 0.25)
