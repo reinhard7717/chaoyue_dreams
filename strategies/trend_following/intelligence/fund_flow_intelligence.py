@@ -319,15 +319,15 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V3.0 · 高频意图与结构韧性版】资金流公理二：诊断“信念韧性”
-        - 核心升级1: 核心信念强度：引入日内大单追踪和资金流结构纯度，提升信念评估的实时性和结构化。
-        - 核心升级2: 诡道博弈韧性调制：集成高频诡道识别（如虚假挂单、冰山订单），并引入市场流动性作为情境因子，更精微地评估主力信念在诡道博弈中的抗压能力。
-        - 核心升级3: 信念传导效率：量化日内价格冲击和订单流压力，评估主力信念转化为价格影响的实时效率。
-        - 核心升级4: 动态情境自适应权重：扩展情境因子（如市场流动性），并采用非线性权重调整，深度感知市场情境。
-        - 核心升级5: 信念演化趋势：融入多时间框架演化趋势和趋势强度，增强信号的前瞻性。
+        【V4.0 · 多维时空与自适应粒度版】资金流公理二：诊断“信念韧性”
+        - 核心升级1: 核心信念强度：融合主力信念和聪明钱净买入的多时间框架斜率，深化资金流纯度，提升信念判断的跨周期稳健性。
+        - 核心升级2: 诡道博弈韧性调制：引入欺骗指数和对倒强度的多时间框架斜率，并根据资金流可信度和市场流动性动态调整惩罚因子，同时引入核心信念强度进行反馈调制，更精微地评估诡道影响。
+        - 核心升级3: 信念传导效率：融合主力执行Alpha和资金流效率的多时间框架斜率，引入日内VWAP偏离指数衡量执行成本，并结合大单压力与价格冲击形成“投入产出比”，全面评估效率。
+        - 核心升级4: 动态情境自适应权重：扩展情境因子（如趋势活力），并根据波动性和流动性动态调整高频信号权重，实现粒度自适应的非线性权重调制。
+        - 核心升级5: 信念演化趋势：对最终信念分数进行多周期平滑，并结合趋势活力评估惯性与转折预警。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print("    -> [资金流层] 正在诊断“信念韧性 (V3.0 · 高频意图与结构韧性版)”公理...")
+        print("    -> [资金流层] 正在诊断“信念韧性 (V4.0 · 多维时空与自适应粒度版)”公理...")
         # --- 探针: 原始输入 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -345,113 +345,155 @@ class FundFlowIntelligence:
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         ac_params = get_param_value(p_conf_ff.get('axiom_conviction_params'), {})
-        # V3.0 核心信念强度参数
-        core_conviction_weights = get_param_value(ac_params.get('core_conviction_weights'), {'main_force_conviction': 0.3, 'smart_money_net_buy': 0.2, 'flow_credibility': 0.2, 'intraday_large_order_flow': 0.2, 'flow_purity': 0.1})
-        # V3.0 诡道博弈韧性调制参数
+        # V4.0 核心信念强度参数
+        core_conviction_weights = get_param_value(ac_params.get('core_conviction_weights'), {'main_force_conviction_slope_5': 0.2, 'main_force_conviction_slope_13': 0.2, 'main_force_conviction_slope_21': 0.1, 'smart_money_net_buy_slope_5': 0.15, 'smart_money_net_buy_slope_13': 0.15, 'flow_credibility': 0.1, 'intraday_large_order_flow': 0.1})
+        # V4.0 诡道博弈韧性调制参数
         deceptive_resilience_mod_enabled = get_param_value(ac_params.get('deceptive_resilience_mod_enabled'), True)
         deception_penalty_factor = get_param_value(ac_params.get('deception_penalty_factor'), 0.5)
         wash_trade_penalty_factor = get_param_value(ac_params.get('wash_trade_penalty_factor'), 0.3)
         resilience_context_modulator_signal_1_name = get_param_value(ac_params.get('resilience_context_modulator_signal_1'), 'market_sentiment_score_D')
         resilience_context_modulator_signal_2_name = get_param_value(ac_params.get('resilience_context_modulator_signal_2'), 'main_force_cost_advantage_D')
-        resilience_context_modulator_signal_3_name = get_param_value(ac_params.get('resilience_context_modulator_signal_3'), 'order_book_liquidity_supply_D') # 修改: 使用实际可用信号
+        resilience_context_modulator_signal_3_name = get_param_value(ac_params.get('resilience_context_modulator_signal_3'), 'order_book_liquidity_supply_D')
         resilience_context_sensitivity_sentiment = get_param_value(ac_params.get('resilience_context_sensitivity_sentiment'), 0.3)
         resilience_context_sensitivity_cost_advantage = get_param_value(ac_params.get('resilience_context_sensitivity_cost_advantage'), 0.2)
         resilience_context_sensitivity_liquidity = get_param_value(ac_params.get('resilience_context_sensitivity_liquidity'), 0.2)
-        # V3.0 信念传导效率参数
-        transmission_efficiency_weights = get_param_value(ac_params.get('transmission_efficiency_weights'), {'main_force_execution_alpha': 0.3, 'flow_efficiency': 0.3, 'intraday_price_impact': 0.2, 'order_flow_pressure': 0.2})
-        # V3.0 动态情境自适应权重参数
+        deception_slope_weights = get_param_value(ac_params.get('deception_slope_weights'), {'slope_5': 0.5, 'slope_13': 0.3, 'slope_21': 0.2})
+        wash_trade_slope_weights = get_param_value(ac_params.get('wash_trade_slope_weights'), {'slope_5': 0.5, 'slope_13': 0.3, 'slope_21': 0.2})
+        conviction_feedback_sensitivity = get_param_value(ac_params.get('conviction_feedback_sensitivity'), 0.2)
+        # V4.0 信念传导效率参数
+        transmission_efficiency_weights = get_param_value(ac_params.get('transmission_efficiency_weights'), {'main_force_execution_alpha_slope_5': 0.2, 'main_force_execution_alpha_slope_13': 0.1, 'flow_efficiency_slope_5': 0.2, 'flow_efficiency_slope_13': 0.1, 'intraday_price_impact': 0.2, 'large_order_pressure': 0.1, 'intraday_vwap_deviation': 0.1})
+        # V4.0 动态情境自适应权重参数
         dynamic_weight_mod_enabled = get_param_value(ac_params.get('dynamic_weight_mod_enabled'), True)
         core_conviction_base_weight = get_param_value(ac_params.get('core_conviction_base_weight'), 0.4)
         deceptive_resilience_base_weight = get_param_value(ac_params.get('deceptive_resilience_base_weight'), 0.3)
         transmission_efficiency_base_weight = get_param_value(ac_params.get('transmission_efficiency_base_weight'), 0.3)
         dynamic_weight_modulator_signal_1_name = get_param_value(ac_params.get('dynamic_weight_modulator_signal_1'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         dynamic_weight_modulator_signal_2_name = get_param_value(ac_params.get('dynamic_weight_modulator_signal_2'), 'market_sentiment_score_D')
-        dynamic_weight_modulator_signal_3_name = get_param_value(ac_params.get('dynamic_weight_modulator_signal_3'), 'order_book_liquidity_supply_D') # 修改: 使用实际可用信号
+        dynamic_weight_modulator_signal_3_name = get_param_value(ac_params.get('dynamic_weight_modulator_signal_3'), 'order_book_liquidity_supply_D')
+        dynamic_weight_modulator_signal_4_name = get_param_value(ac_params.get('dynamic_weight_modulator_signal_4'), 'trend_vitality_index_D')
         dynamic_weight_sensitivity_volatility = get_param_value(ac_params.get('dynamic_weight_sensitivity_volatility'), 0.4)
         dynamic_weight_sensitivity_sentiment = get_param_value(ac_params.get('dynamic_weight_sensitivity_sentiment'), 0.3)
         dynamic_weight_sensitivity_liquidity = get_param_value(ac_params.get('dynamic_weight_sensitivity_liquidity'), 0.2)
-        # V3.0 信念演化趋势参数
+        dynamic_weight_sensitivity_trend_vitality = get_param_value(ac_params.get('dynamic_weight_sensitivity_trend_vitality'), 0.1)
+        # V4.0 信念演化趋势参数
         smoothing_ema_span = get_param_value(ac_params.get('smoothing_ema_span'), 5)
         dynamic_evolution_base_weights = get_param_value(ac_params.get('dynamic_evolution_base_weights'), {'base_score': 0.5, 'velocity': 0.3, 'acceleration': 0.2})
         dynamic_evolution_context_modulator_signal_1_name = get_param_value(ac_params.get('dynamic_evolution_context_modulator_signal'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
         dynamic_evolution_context_sensitivity_1 = get_param_value(ac_params.get('dynamic_evolution_context_sensitivity'), 0.2)
-        dynamic_evolution_context_modulator_signal_2_name = get_param_value(ac_params.get('dynamic_evolution_context_modulator_signal_2'), 'trend_vitality_index_D') # 修改: 使用实际可用信号
+        dynamic_evolution_context_modulator_signal_2_name = get_param_value(ac_params.get('dynamic_evolution_context_modulator_signal_2'), 'trend_vitality_index_D')
         dynamic_evolution_context_sensitivity_2 = get_param_value(ac_params.get('dynamic_evolution_context_sensitivity_2'), 0.1)
         # --- 信号依赖校验 (仅资金类信号) ---
         required_signals = [
-            'main_force_conviction_index_D', 'SMART_MONEY_HM_NET_BUY_D', 'flow_credibility_index_D',
-            'buy_lg_amount_D', 'buy_elg_amount_D', 'sell_lg_amount_D', 'sell_elg_amount_D', # V3.0 核心信念 - 用于合成
-            'peak_exchange_purity_D', # V3.0 核心信念 - 替代
-            'deception_index_D', 'wash_trade_intensity_D',
-            'main_force_cost_advantage_D', resilience_context_modulator_signal_1_name, resilience_context_modulator_signal_3_name, # V3.0 诡道韧性
-            'main_force_execution_alpha_D', 'flow_efficiency_index_D',
-            'micro_price_impact_asymmetry_D', 'large_order_pressure_D', # V3.0 传导效率 - 替代
-            dynamic_weight_modulator_signal_1_name, dynamic_weight_modulator_signal_2_name, dynamic_weight_modulator_signal_3_name, # V3.0 动态权重
-            dynamic_evolution_context_modulator_signal_1_name, dynamic_evolution_context_modulator_signal_2_name # V3.0 演化趋势
+            'SLOPE_5_main_force_conviction_index_D', 'SLOPE_13_main_force_conviction_index_D', 'SLOPE_21_main_force_conviction_index_D',
+            'SLOPE_5_SMART_MONEY_HM_NET_BUY_D', 'SLOPE_13_SMART_MONEY_HM_NET_BUY_D',
+            'flow_credibility_index_D',
+            'buy_lg_amount_D', 'buy_elg_amount_D', 'sell_lg_amount_D', 'sell_elg_amount_D', # 用于合成 intraday_large_order_flow
+            'peak_exchange_purity_D',
+            'SLOPE_5_deception_index_D', 'SLOPE_13_deception_index_D', 'SLOPE_21_deception_index_D',
+            'SLOPE_5_wash_trade_intensity_D', 'SLOPE_13_wash_trade_intensity_D', 'SLOPE_21_wash_trade_intensity_D',
+            'main_force_cost_advantage_D', resilience_context_modulator_signal_1_name, resilience_context_modulator_signal_3_name,
+            'SLOPE_5_main_force_execution_alpha_D', 'SLOPE_13_main_force_execution_alpha_D',
+            'SLOPE_5_flow_efficiency_index_D', 'SLOPE_13_flow_efficiency_index_D',
+            'micro_price_impact_asymmetry_D', 'large_order_pressure_D', 'intraday_vwap_div_index_D',
+            dynamic_weight_modulator_signal_1_name, dynamic_weight_modulator_signal_2_name, dynamic_weight_modulator_signal_3_name, dynamic_weight_modulator_signal_4_name,
+            dynamic_evolution_context_modulator_signal_1_name, dynamic_evolution_context_modulator_signal_2_name
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_conviction"):
             return pd.Series(0.0, index=df.index)
         # --- 原始数据获取 (用于探针和计算) ---
-        main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_conviction")
-        smart_money_net_buy_raw = self._get_safe_series(df, df, 'SMART_MONEY_HM_NET_BUY_D', 0.0, method_name="_diagnose_axiom_conviction")
+        # Core Conviction
+        mf_conviction_slope_5_raw = self._get_safe_series(df, df, 'SLOPE_5_main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_conviction")
+        mf_conviction_slope_13_raw = self._get_safe_series(df, df, 'SLOPE_13_main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_conviction")
+        mf_conviction_slope_21_raw = self._get_safe_series(df, df, 'SLOPE_21_main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_conviction")
+        sm_net_buy_slope_5_raw = self._get_safe_series(df, df, 'SLOPE_5_SMART_MONEY_HM_NET_BUY_D', 0.0, method_name="_diagnose_axiom_conviction")
+        sm_net_buy_slope_13_raw = self._get_safe_series(df, df, 'SLOPE_13_SMART_MONEY_HM_NET_BUY_D', 0.0, method_name="_diagnose_axiom_conviction")
         flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_axiom_conviction")
-        # V3.0 核心信念 - 合成 intraday_large_order_flow_D
         buy_lg_amount_raw = self._get_safe_series(df, df, 'buy_lg_amount_D', 0.0, method_name="_diagnose_axiom_conviction")
         buy_elg_amount_raw = self._get_safe_series(df, df, 'buy_elg_amount_D', 0.0, method_name="_diagnose_axiom_conviction")
         sell_lg_amount_raw = self._get_safe_series(df, df, 'sell_lg_amount_D', 0.0, method_name="_diagnose_axiom_conviction")
         sell_elg_amount_raw = self._get_safe_series(df, df, 'sell_elg_amount_D', 0.0, method_name="_diagnose_axiom_conviction")
         intraday_large_order_flow_synthesized = (buy_lg_amount_raw + buy_elg_amount_raw) - (sell_lg_amount_raw + sell_elg_amount_raw)
-        main_force_flow_purity_raw = self._get_safe_series(df, df, 'peak_exchange_purity_D', 0.0, method_name="_diagnose_axiom_conviction") # 修改: 使用实际可用信号
-        deception_index_raw = self._get_safe_series(df, df, 'deception_index_D', 0.0, method_name="_diagnose_axiom_conviction")
-        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_conviction")
+        main_force_flow_purity_raw = self._get_safe_series(df, df, 'peak_exchange_purity_D', 0.0, method_name="_diagnose_axiom_conviction")
+        # Deceptive Resilience
+        deception_slope_5_raw = self._get_safe_series(df, df, 'SLOPE_5_deception_index_D', 0.0, method_name="_diagnose_axiom_conviction")
+        deception_slope_13_raw = self._get_safe_series(df, df, 'SLOPE_13_deception_index_D', 0.0, method_name="_diagnose_axiom_conviction")
+        deception_slope_21_raw = self._get_safe_series(df, df, 'SLOPE_21_deception_index_D', 0.0, method_name="_diagnose_axiom_conviction")
+        wash_trade_slope_5_raw = self._get_safe_series(df, df, 'SLOPE_5_wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_conviction")
+        wash_trade_slope_13_raw = self._get_safe_series(df, df, 'SLOPE_13_wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_conviction")
+        wash_trade_slope_21_raw = self._get_safe_series(df, df, 'SLOPE_21_wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_conviction")
         main_force_cost_advantage_raw = self._get_safe_series(df, df, resilience_context_modulator_signal_2_name, 0.0, method_name="_diagnose_axiom_conviction")
         market_sentiment_raw = self._get_safe_series(df, df, resilience_context_modulator_signal_1_name, 0.0, method_name="_diagnose_axiom_conviction")
-        market_liquidity_raw = self._get_safe_series(df, df, resilience_context_modulator_signal_3_name, 0.0, method_name="_diagnose_axiom_conviction") # 修改: 使用实际可用信号
-        main_force_execution_alpha_raw = self._get_safe_series(df, df, 'main_force_execution_alpha_D', 0.0, method_name="_diagnose_axiom_conviction")
-        flow_efficiency_raw = self._get_safe_series(df, df, 'flow_efficiency_index_D', 0.0, method_name="_diagnose_axiom_conviction")
-        intraday_price_impact_raw = self._get_safe_series(df, df, 'micro_price_impact_asymmetry_D', 0.0, method_name="_diagnose_axiom_conviction") # 修改: 使用实际可用信号
-        order_flow_pressure_raw = self._get_safe_series(df, df, 'large_order_pressure_D', 0.0, method_name="_diagnose_axiom_conviction") # 修改: 使用实际可用信号
+        market_liquidity_raw = self._get_safe_series(df, df, resilience_context_modulator_signal_3_name, 0.0, method_name="_diagnose_axiom_conviction")
+        # Transmission Efficiency
+        mf_exec_alpha_slope_5_raw = self._get_safe_series(df, df, 'SLOPE_5_main_force_execution_alpha_D', 0.0, method_name="_diagnose_axiom_conviction")
+        mf_exec_alpha_slope_13_raw = self._get_safe_series(df, df, 'SLOPE_13_main_force_execution_alpha_D', 0.0, method_name="_diagnose_axiom_conviction")
+        flow_efficiency_slope_5_raw = self._get_safe_series(df, df, 'SLOPE_5_flow_efficiency_index_D', 0.0, method_name="_diagnose_axiom_conviction")
+        flow_efficiency_slope_13_raw = self._get_safe_series(df, df, 'SLOPE_13_flow_efficiency_index_D', 0.0, method_name="_diagnose_axiom_conviction")
+        intraday_price_impact_raw = self._get_safe_series(df, df, 'micro_price_impact_asymmetry_D', 0.0, method_name="_diagnose_axiom_conviction")
+        large_order_pressure_raw = self._get_safe_series(df, df, 'large_order_pressure_D', 0.0, method_name="_diagnose_axiom_conviction")
+        intraday_vwap_deviation_raw = self._get_safe_series(df, df, 'intraday_vwap_div_index_D', 0.0, method_name="_diagnose_axiom_conviction")
+        # Dynamic Weighting & Evolution Context
         volatility_instability_raw = self._get_safe_series(df, df, dynamic_weight_modulator_signal_1_name, 0.0, method_name="_diagnose_axiom_conviction")
         market_sentiment_dw_raw = self._get_safe_series(df, df, dynamic_weight_modulator_signal_2_name, 0.0, method_name="_diagnose_axiom_conviction")
-        market_liquidity_dw_raw = self._get_safe_series(df, df, dynamic_weight_modulator_signal_3_name, 0.0, method_name="_diagnose_axiom_conviction") # 修改: 使用实际可用信号
+        market_liquidity_dw_raw = self._get_safe_series(df, df, dynamic_weight_modulator_signal_3_name, 0.0, method_name="_diagnose_axiom_conviction")
+        trend_vitality_dw_raw = self._get_safe_series(df, df, dynamic_weight_modulator_signal_4_name, 0.0, method_name="_diagnose_axiom_conviction")
         dynamic_evolution_context_modulator_1_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_signal_1_name, 0.0, method_name="_diagnose_axiom_conviction")
-        dynamic_evolution_context_modulator_2_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_signal_2_name, 0.0, method_name="_diagnose_axiom_conviction") # 修改: 使用实际可用信号
+        dynamic_evolution_context_modulator_2_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_signal_2_name, 0.0, method_name="_diagnose_axiom_conviction")
         if is_probe_active:
-            print(f"       - 原料: main_force_conviction_index_D (raw): {main_force_conviction_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: SMART_MONEY_HM_NET_BUY_D (raw): {smart_money_net_buy_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_5_main_force_conviction_index_D (raw): {mf_conviction_slope_5_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_13_main_force_conviction_index_D (raw): {mf_conviction_slope_13_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_21_main_force_conviction_index_D (raw): {mf_conviction_slope_21_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_5_SMART_MONEY_HM_NET_BUY_D (raw): {sm_net_buy_slope_5_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_13_SMART_MONEY_HM_NET_BUY_D (raw): {sm_net_buy_slope_13_raw.loc[probe_date]:.4f}")
             print(f"       - 原料: flow_credibility_index_D (raw): {flow_credibility_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: intraday_large_order_flow_synthesized (raw): {intraday_large_order_flow_synthesized.loc[probe_date]:.4f}") # 修改: 探针输出合成信号
-            print(f"       - 原料: peak_exchange_purity_D (raw): {main_force_flow_purity_raw.loc[probe_date]:.4f}") # 修改: 探针输出实际信号
-            print(f"       - 原料: deception_index_D (raw): {deception_index_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: wash_trade_intensity_D (raw): {wash_trade_intensity_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: intraday_large_order_flow_synthesized (raw): {intraday_large_order_flow_synthesized.loc[probe_date]:.4f}")
+            print(f"       - 原料: peak_exchange_purity_D (raw): {main_force_flow_purity_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_5_deception_index_D (raw): {deception_slope_5_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_13_deception_index_D (raw): {deception_slope_13_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_21_deception_index_D (raw): {deception_slope_21_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_5_wash_trade_intensity_D (raw): {wash_trade_slope_5_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_13_wash_trade_intensity_D (raw): {wash_trade_slope_13_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_21_wash_trade_intensity_D (raw): {wash_trade_slope_21_raw.loc[probe_date]:.4f}")
             print(f"       - 原料: main_force_cost_advantage_D (raw): {main_force_cost_advantage_raw.loc[probe_date]:.4f}")
             print(f"       - 原料: {resilience_context_modulator_signal_1_name} (raw): {market_sentiment_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: {resilience_context_modulator_signal_3_name} (raw): {market_liquidity_raw.loc[probe_date]:.4f}") # 修改: 探针输出实际信号
-            print(f"       - 原料: main_force_execution_alpha_D (raw): {main_force_execution_alpha_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: flow_efficiency_index_D (raw): {flow_efficiency_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: micro_price_impact_asymmetry_D (raw): {intraday_price_impact_raw.loc[probe_date]:.4f}") # 修改: 探针输出实际信号
-            print(f"       - 原料: large_order_pressure_D (raw): {order_flow_pressure_raw.loc[probe_date]:.4f}") # 修改: 探针输出实际信号
+            print(f"       - 原料: {resilience_context_modulator_signal_3_name} (raw): {market_liquidity_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_5_main_force_execution_alpha_D (raw): {mf_exec_alpha_slope_5_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_13_main_force_execution_alpha_D (raw): {mf_exec_alpha_slope_13_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_5_flow_efficiency_index_D (raw): {flow_efficiency_slope_5_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_13_flow_efficiency_index_D (raw): {flow_efficiency_slope_13_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: micro_price_impact_asymmetry_D (raw): {intraday_price_impact_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: large_order_pressure_D (raw): {large_order_pressure_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: intraday_vwap_div_index_D (raw): {intraday_vwap_deviation_raw.loc[probe_date]:.4f}")
             print(f"       - 原料: {dynamic_weight_modulator_signal_1_name} (raw): {volatility_instability_raw.loc[probe_date]:.4f}")
             print(f"       - 原料: {dynamic_weight_modulator_signal_2_name} (raw): {market_sentiment_dw_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: {dynamic_weight_modulator_signal_3_name} (raw): {market_liquidity_dw_raw.loc[probe_date]:.4f}") # 修改: 探针输出实际信号
+            print(f"       - 原料: {dynamic_weight_modulator_signal_3_name} (raw): {market_liquidity_dw_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: {dynamic_weight_modulator_signal_4_name} (raw): {trend_vitality_dw_raw.loc[probe_date]:.4f}")
             print(f"       - 原料: {dynamic_evolution_context_modulator_signal_1_name} (raw): {dynamic_evolution_context_modulator_1_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: {dynamic_evolution_context_modulator_signal_2_name} (raw): {dynamic_evolution_context_modulator_2_raw.loc[probe_date]:.4f}") # 修改: 探针输出实际信号
+            print(f"       - 原料: {dynamic_evolution_context_modulator_signal_2_name} (raw): {dynamic_evolution_context_modulator_2_raw.loc[probe_date]:.4f}")
         # --- 1. 核心信念强度 (Core Conviction Strength) ---
-        norm_main_force_conviction = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights_ff)
-        norm_smart_money_net_buy = get_adaptive_mtf_normalized_bipolar_score(smart_money_net_buy_raw, df_index, tf_weights_ff)
+        norm_mf_conviction_slope_5 = get_adaptive_mtf_normalized_bipolar_score(mf_conviction_slope_5_raw, df_index, tf_weights_ff)
+        norm_mf_conviction_slope_13 = get_adaptive_mtf_normalized_bipolar_score(mf_conviction_slope_13_raw, df_index, tf_weights_ff)
+        norm_mf_conviction_slope_21 = get_adaptive_mtf_normalized_bipolar_score(mf_conviction_slope_21_raw, df_index, tf_weights_ff)
+        norm_sm_net_buy_slope_5 = get_adaptive_mtf_normalized_bipolar_score(sm_net_buy_slope_5_raw, df_index, tf_weights_ff)
+        norm_sm_net_buy_slope_13 = get_adaptive_mtf_normalized_bipolar_score(sm_net_buy_slope_13_raw, df_index, tf_weights_ff)
         norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
-        norm_intraday_large_order_flow = get_adaptive_mtf_normalized_bipolar_score(intraday_large_order_flow_synthesized, df_index, tf_weights_ff) # 修改: 使用合成信号
-        norm_main_force_flow_purity = get_adaptive_mtf_normalized_score(main_force_flow_purity_raw, df_index, ascending=True, tf_weights=tf_weights_ff) # 修改: 使用实际可用信号
+        norm_intraday_large_order_flow = get_adaptive_mtf_normalized_bipolar_score(intraday_large_order_flow_synthesized, df_index, tf_weights_ff)
+        norm_main_force_flow_purity = get_adaptive_mtf_normalized_score(main_force_flow_purity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         core_conviction_score = (
-            norm_main_force_conviction * core_conviction_weights.get('main_force_conviction', 0.3) +
-            norm_smart_money_net_buy * core_conviction_weights.get('smart_money_net_buy', 0.2) +
-            norm_flow_credibility * core_conviction_weights.get('flow_credibility', 0.2) +
-            norm_intraday_large_order_flow * core_conviction_weights.get('intraday_large_order_flow', 0.2) +
-            norm_main_force_flow_purity * core_conviction_weights.get('flow_purity', 0.1)
+            norm_mf_conviction_slope_5 * core_conviction_weights.get('main_force_conviction_slope_5', 0.2) +
+            norm_mf_conviction_slope_13 * core_conviction_weights.get('main_force_conviction_slope_13', 0.2) +
+            norm_mf_conviction_slope_21 * core_conviction_weights.get('main_force_conviction_slope_21', 0.1) +
+            norm_sm_net_buy_slope_5 * core_conviction_weights.get('smart_money_net_buy_slope_5', 0.15) +
+            norm_sm_net_buy_slope_13 * core_conviction_weights.get('smart_money_net_buy_slope_13', 0.15) +
+            norm_flow_credibility * core_conviction_weights.get('flow_credibility', 0.1) +
+            norm_intraday_large_order_flow * core_conviction_weights.get('intraday_large_order_flow', 0.1)
         ).clip(-1, 1)
         if is_probe_active:
-            print(f"       - 过程: norm_main_force_conviction: {norm_main_force_conviction.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_smart_money_net_buy: {norm_smart_money_net_buy.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_mf_conviction_slope_5: {norm_mf_conviction_slope_5.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_mf_conviction_slope_13: {norm_mf_conviction_slope_13.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_mf_conviction_slope_21: {norm_mf_conviction_slope_21.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_sm_net_buy_slope_5: {norm_sm_net_buy_slope_5.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_sm_net_buy_slope_13: {norm_sm_net_buy_slope_13.loc[probe_date]:.4f}")
             print(f"       - 过程: norm_flow_credibility: {norm_flow_credibility.loc[probe_date]:.4f}")
             print(f"       - 过程: norm_intraday_large_order_flow: {norm_intraday_large_order_flow.loc[probe_date]:.4f}")
             print(f"       - 过程: norm_main_force_flow_purity: {norm_main_force_flow_purity.loc[probe_date]:.4f}")
@@ -459,52 +501,82 @@ class FundFlowIntelligence:
         # --- 2. 诡道博弈韧性调制 (Deceptive Resilience Modulation) ---
         deceptive_resilience_modulator = pd.Series(1.0, index=df_index)
         if deceptive_resilience_mod_enabled:
-            norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights_ff)
-            norm_wash_trade = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+            # V4.0 多时间框架诡道
+            norm_deception_slope_5 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_5_raw, df_index, tf_weights_ff)
+            norm_deception_slope_13 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_13_raw, df_index, tf_weights_ff)
+            norm_deception_slope_21 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_21_raw, df_index, tf_weights_ff)
+            norm_deception_multi_tf = (
+                norm_deception_slope_5 * deception_slope_weights.get('slope_5', 0.5) +
+                norm_deception_slope_13 * deception_slope_weights.get('slope_13', 0.3) +
+                norm_deception_slope_21 * deception_slope_weights.get('slope_21', 0.2)
+            ).clip(-1, 1)
+            norm_wash_trade_slope_5 = get_adaptive_mtf_normalized_score(wash_trade_slope_5_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+            norm_wash_trade_slope_13 = get_adaptive_mtf_normalized_score(wash_trade_slope_13_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+            norm_wash_trade_slope_21 = get_adaptive_mtf_normalized_score(wash_trade_slope_21_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+            norm_wash_trade_multi_tf = (
+                norm_wash_trade_slope_5 * wash_trade_slope_weights.get('slope_5', 0.5) +
+                norm_wash_trade_slope_13 * wash_trade_slope_weights.get('slope_13', 0.3) +
+                norm_wash_trade_slope_21 * wash_trade_slope_weights.get('slope_21', 0.2)
+            ).clip(0, 1)
             norm_market_sentiment = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, tf_weights_ff)
             norm_cost_advantage = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, tf_weights_ff)
-            norm_market_liquidity = get_adaptive_mtf_normalized_score(market_liquidity_raw, df_index, ascending=True, tf_weights=tf_weights_ff) # 修改: 使用实际可用信号
+            norm_market_liquidity = get_adaptive_mtf_normalized_score(market_liquidity_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
             # 情境因子对惩罚/奖励的敏感度调制
             sentiment_mod = (1 + norm_market_sentiment.abs() * resilience_context_sensitivity_sentiment * np.sign(norm_market_sentiment))
             cost_advantage_mod = (1 + norm_cost_advantage.abs() * resilience_context_sensitivity_cost_advantage * np.sign(norm_cost_advantage))
-            liquidity_mod = (1 + (norm_market_liquidity - 0.5) * resilience_context_sensitivity_liquidity) # 流动性越高，mod越大
-            # 基础惩罚：对倒强度，受情绪和流动性影响
-            deceptive_resilience_modulator = deceptive_resilience_modulator * (1 - norm_wash_trade * wash_trade_penalty_factor * sentiment_mod.clip(0.5, 1.5) * liquidity_mod.clip(0.5, 1.5))
+            liquidity_mod = (1 + (norm_market_liquidity - 0.5) * resilience_context_sensitivity_liquidity)
+            # V4.0 信念反馈调制：核心信念强度影响诡道惩罚
+            conviction_feedback_mod = (1 - core_conviction_score.abs() * conviction_feedback_sensitivity * np.sign(core_conviction_score)) # 信念越强，惩罚越轻；信念越弱，惩罚越重
+            # 基础惩罚：对倒强度，受情绪、流动性和信念反馈影响
+            deceptive_resilience_modulator = deceptive_resilience_modulator * (1 - norm_wash_trade_multi_tf * wash_trade_penalty_factor * sentiment_mod.clip(0.5, 1.5) * liquidity_mod.clip(0.5, 1.5) * conviction_feedback_mod.clip(0.5, 1.5))
             # 欺骗指数调制：
-            # 正向欺骗 (诱多) 惩罚信念，在市场情绪高涨、流动性充裕时惩罚更重
-            bull_trap_mask = (norm_deception > 0)
-            deceptive_resilience_modulator.loc[bull_trap_mask] = deceptive_resilience_modulator.loc[bull_trap_mask] * (1 - norm_deception.loc[bull_trap_mask] * deception_penalty_factor * sentiment_mod.loc[bull_trap_mask].clip(0.5, 1.5) * liquidity_mod.loc[bull_trap_mask].clip(0.5, 1.5))
-            # 负向欺骗 (诱空) 在主力成本优势高、市场情绪低迷、流动性差时，可能为洗盘，增强信念韧性
-            bear_trap_resilience_mask = (norm_deception < 0) & (norm_cost_advantage > 0.5) & (norm_market_sentiment < -0.5) & (norm_market_liquidity < 0.5)
-            deceptive_resilience_modulator.loc[bear_trap_resilience_mask] = deceptive_resilience_modulator.loc[bear_trap_resilience_mask] * (1 + norm_deception.loc[bear_trap_resilience_mask].abs() * deception_penalty_factor * cost_advantage_mod.loc[bear_trap_resilience_mask].clip(0.5, 1.5) * (1 - liquidity_mod.loc[bear_trap_resilience_mask].clip(0.5, 1.5))) # 流动性越差，增强效果越明显
+            bull_trap_mask = (norm_deception_multi_tf > 0)
+            deceptive_resilience_modulator.loc[bull_trap_mask] = deceptive_resilience_modulator.loc[bull_trap_mask] * (1 - norm_deception_multi_tf.loc[bull_trap_mask] * deception_penalty_factor * sentiment_mod.loc[bull_trap_mask].clip(0.5, 1.5) * liquidity_mod.loc[bull_trap_mask].clip(0.5, 1.5) * conviction_feedback_mod.loc[bull_trap_mask].clip(0.5, 1.5))
+            bear_trap_resilience_mask = (norm_deception_multi_tf < 0) & (norm_cost_advantage > 0.5) & (norm_market_sentiment < -0.5) & (norm_market_liquidity < 0.5) & (core_conviction_score > 0.2) # 只有核心信念也强时才认为是洗盘
+            deceptive_resilience_modulator.loc[bear_trap_resilience_mask] = deceptive_resilience_modulator.loc[bear_trap_resilience_mask] * (1 + norm_deception_multi_tf.loc[bear_trap_resilience_mask].abs() * deception_penalty_factor * cost_advantage_mod.loc[bear_trap_resilience_mask].clip(0.5, 1.5) * (1 - liquidity_mod.loc[bear_trap_resilience_mask].clip(0.5, 1.5)))
             deceptive_resilience_modulator = deceptive_resilience_modulator.clip(0.01, 2.0)
         if is_probe_active:
             if deceptive_resilience_mod_enabled:
-                print(f"       - 过程: norm_deception (resilience): {norm_deception.loc[probe_date]:.4f}")
-                print(f"       - 过程: norm_wash_trade (resilience): {norm_wash_trade.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_deception_multi_tf (resilience): {norm_deception_multi_tf.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_wash_trade_multi_tf (resilience): {norm_wash_trade_multi_tf.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_market_sentiment (resilience): {norm_market_sentiment.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_cost_advantage (resilience): {norm_cost_advantage.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_market_liquidity (resilience): {norm_market_liquidity.loc[probe_date]:.4f}")
                 print(f"       - 过程: sentiment_mod (resilience): {sentiment_mod.loc[probe_date]:.4f}")
                 print(f"       - 过程: cost_advantage_mod (resilience): {cost_advantage_mod.loc[probe_date]:.4f}")
                 print(f"       - 过程: liquidity_mod (resilience): {liquidity_mod.loc[probe_date]:.4f}")
+                print(f"       - 过程: conviction_feedback_mod (resilience): {conviction_feedback_mod.loc[probe_date]:.4f}")
             print(f"       - 过程: deceptive_resilience_modulator: {deceptive_resilience_modulator.loc[probe_date]:.4f}")
         # --- 3. 信念传导效率 (Conviction Transmission Efficiency) ---
-        norm_main_force_execution_alpha = get_adaptive_mtf_normalized_bipolar_score(main_force_execution_alpha_raw, df_index, tf_weights_ff)
-        norm_flow_efficiency = get_adaptive_mtf_normalized_bipolar_score(flow_efficiency_raw, df_index, tf_weights_ff)
-        norm_intraday_price_impact = get_adaptive_mtf_normalized_bipolar_score(intraday_price_impact_raw, df_index, tf_weights_ff) # 修改: 使用实际可用信号
-        norm_order_flow_pressure = get_adaptive_mtf_normalized_bipolar_score(order_flow_pressure_raw, df_index, tf_weights_ff) # 修改: 使用实际可用信号
+        norm_mf_exec_alpha_slope_5 = get_adaptive_mtf_normalized_bipolar_score(mf_exec_alpha_slope_5_raw, df_index, tf_weights_ff)
+        norm_mf_exec_alpha_slope_13 = get_adaptive_mtf_normalized_bipolar_score(mf_exec_alpha_slope_13_raw, df_index, tf_weights_ff)
+        norm_flow_efficiency_slope_5 = get_adaptive_mtf_normalized_bipolar_score(flow_efficiency_slope_5_raw, df_index, tf_weights_ff)
+        norm_flow_efficiency_slope_13 = get_adaptive_mtf_normalized_bipolar_score(flow_efficiency_slope_13_raw, df_index, tf_weights_ff)
+        norm_intraday_price_impact = get_adaptive_mtf_normalized_bipolar_score(intraday_price_impact_raw, df_index, tf_weights_ff)
+        norm_large_order_pressure = get_adaptive_mtf_normalized_score(large_order_pressure_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+        norm_intraday_vwap_deviation = get_adaptive_mtf_normalized_score(intraday_vwap_deviation_raw, df_index, ascending=False, tf_weights=tf_weights_ff) # VWAP偏离越小越好
+        # V4.0 投入产出比
+        efficiency_ratio = (norm_intraday_price_impact + (1 - norm_intraday_vwap_deviation)) / (norm_large_order_pressure + 1e-9) # 产出 / 投入
+        norm_efficiency_ratio = get_adaptive_mtf_normalized_score(efficiency_ratio, df_index, ascending=True, tf_weights=tf_weights_ff)
         transmission_efficiency_score = (
-            norm_main_force_execution_alpha * transmission_efficiency_weights.get('main_force_execution_alpha', 0.3) +
-            norm_flow_efficiency * transmission_efficiency_weights.get('flow_efficiency', 0.3) +
+            norm_mf_exec_alpha_slope_5 * transmission_efficiency_weights.get('main_force_execution_alpha_slope_5', 0.2) +
+            norm_mf_exec_alpha_slope_13 * transmission_efficiency_weights.get('main_force_execution_alpha_slope_13', 0.1) +
+            norm_flow_efficiency_slope_5 * transmission_efficiency_weights.get('flow_efficiency_slope_5', 0.2) +
+            norm_flow_efficiency_slope_13 * transmission_efficiency_weights.get('flow_efficiency_slope_13', 0.1) +
             norm_intraday_price_impact * transmission_efficiency_weights.get('intraday_price_impact', 0.2) +
-            norm_order_flow_pressure * transmission_efficiency_weights.get('order_flow_pressure', 0.2)
+            norm_large_order_pressure * transmission_efficiency_weights.get('large_order_pressure', 0.1) +
+            norm_intraday_vwap_deviation * transmission_efficiency_weights.get('intraday_vwap_deviation', 0.1)
         ).clip(-1, 1)
         if is_probe_active:
-            print(f"       - 过程: norm_main_force_execution_alpha: {norm_main_force_execution_alpha.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_flow_efficiency: {norm_flow_efficiency.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_mf_exec_alpha_slope_5: {norm_mf_exec_alpha_slope_5.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_mf_exec_alpha_slope_13: {norm_mf_exec_alpha_slope_13.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_flow_efficiency_slope_5: {norm_flow_efficiency_slope_5.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_flow_efficiency_slope_13: {norm_flow_efficiency_slope_13.loc[probe_date]:.4f}")
             print(f"       - 过程: norm_intraday_price_impact: {norm_intraday_price_impact.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_order_flow_pressure: {norm_order_flow_pressure.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_large_order_pressure: {norm_large_order_pressure.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_intraday_vwap_deviation: {norm_intraday_vwap_deviation.loc[probe_date]:.4f}")
+            print(f"       - 过程: efficiency_ratio: {efficiency_ratio.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_efficiency_ratio: {norm_efficiency_ratio.loc[probe_date]:.4f}")
             print(f"       - 过程: transmission_efficiency_score: {transmission_efficiency_score.loc[probe_date]:.4f}")
         # --- 4. 动态情境自适应权重 (Dynamic Contextual Weighting) ---
         dynamic_core_conviction_weight = pd.Series(core_conviction_base_weight, index=df_index)
@@ -513,15 +585,17 @@ class FundFlowIntelligence:
         if dynamic_weight_mod_enabled:
             norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
             norm_market_sentiment_dw = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_dw_raw, df_index, tf_weights=tf_weights_ff)
-            norm_market_liquidity_dw = get_adaptive_mtf_normalized_score(market_liquidity_dw_raw, df_index, ascending=True, tf_weights=tf_weights_ff) # 修改: 使用实际可用信号
-            # 波动性高时，更关注诡道韧性；市场情绪高涨时，更关注核心信念和传导效率；流动性差时，诡道韧性权重增加
+            norm_market_liquidity_dw = get_adaptive_mtf_normalized_score(market_liquidity_dw_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+            norm_trend_vitality_dw = get_adaptive_mtf_normalized_score(trend_vitality_dw_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
+            # 波动性高时，更关注诡道韧性；市场情绪高涨时，更关注核心信念和传导效率；流动性差时，诡道韧性权重增加；趋势强劲时，核心信念和传导效率权重增加
             mod_factor_volatility = (norm_volatility_instability - 0.5) * dynamic_weight_sensitivity_volatility
             mod_factor_sentiment = norm_market_sentiment_dw * dynamic_weight_sensitivity_sentiment
-            mod_factor_liquidity = (0.5 - norm_market_liquidity_dw) * dynamic_weight_sensitivity_liquidity # 流动性越差，mod越大
+            mod_factor_liquidity = (0.5 - norm_market_liquidity_dw) * dynamic_weight_sensitivity_liquidity
+            mod_factor_trend_vitality = (norm_trend_vitality_dw - 0.5) * dynamic_weight_sensitivity_trend_vitality
             # 调整权重
-            dynamic_core_conviction_weight = dynamic_core_conviction_weight * (1 + mod_factor_sentiment - mod_factor_volatility)
-            dynamic_deceptive_resilience_weight = dynamic_deceptive_resilience_weight * (1 + mod_factor_volatility + mod_factor_liquidity - mod_factor_sentiment)
-            dynamic_transmission_efficiency_weight = dynamic_transmission_efficiency_weight * (1 + mod_factor_sentiment - mod_factor_liquidity)
+            dynamic_core_conviction_weight = dynamic_core_conviction_weight * (1 + mod_factor_sentiment - mod_factor_volatility + mod_factor_trend_vitality)
+            dynamic_deceptive_resilience_weight = dynamic_deceptive_resilience_weight * (1 + mod_factor_volatility + mod_factor_liquidity - mod_factor_sentiment - mod_factor_trend_vitality)
+            dynamic_transmission_efficiency_weight = dynamic_transmission_efficiency_weight * (1 + mod_factor_sentiment - mod_factor_liquidity + mod_factor_trend_vitality)
             # 归一化动态权重
             sum_dynamic_weights = dynamic_core_conviction_weight + dynamic_deceptive_resilience_weight + dynamic_transmission_efficiency_weight
             dynamic_core_conviction_weight = dynamic_core_conviction_weight / sum_dynamic_weights
@@ -535,10 +609,11 @@ class FundFlowIntelligence:
                 print(f"       - 过程: norm_volatility_instability (dw): {norm_volatility_instability.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_market_sentiment (dw): {norm_market_sentiment_dw.loc[probe_date]:.4f}")
                 print(f"       - 过程: norm_market_liquidity (dw): {norm_market_liquidity_dw.loc[probe_date]:.4f}")
+                print(f"       - 过程: norm_trend_vitality (dw): {norm_trend_vitality_dw.loc[probe_date]:.4f}")
                 print(f"       - 过程: dynamic_core_conviction_weight: {dynamic_core_conviction_weight.loc[probe_date]:.4f}")
                 print(f"       - 过程: dynamic_deceptive_resilience_weight: {dynamic_deceptive_resilience_weight.loc[probe_date]:.4f}")
                 print(f"       - 过程: dynamic_transmission_efficiency_weight: {dynamic_transmission_efficiency_weight.loc[probe_date]:.4f}")
-        # --- 5. 融合基础信念分数 (V3.0 非线性建模) ---
+        # --- 5. 融合基础信念分数 (V4.0 非线性建模) ---
         base_conviction_score = np.tanh(
             core_conviction_score * dynamic_core_conviction_weight * deceptive_resilience_modulator +
             transmission_efficiency_score * dynamic_transmission_efficiency_weight
@@ -551,7 +626,7 @@ class FundFlowIntelligence:
         acceleration = velocity.diff(1).fillna(0)
         norm_velocity = get_adaptive_mtf_normalized_bipolar_score(velocity, df_index, tf_weights=tf_weights_ff)
         norm_acceleration = get_adaptive_mtf_normalized_bipolar_score(acceleration, df_index, tf_weights=tf_weights_ff)
-        # V3.0 预测性与前瞻性增强：根据情境动态调整速度和加速度权重
+        # V4.0 预测性与前瞻性增强：根据情境动态调整速度和加速度权重
         norm_dynamic_evolution_context_1 = get_adaptive_mtf_normalized_score(dynamic_evolution_context_modulator_1_raw, df_index, ascending=False, tf_weights=tf_weights_ff) # 波动不稳定性越低，动态权重越高
         norm_dynamic_evolution_context_2 = get_adaptive_mtf_normalized_score(dynamic_evolution_context_modulator_2_raw, df_index, ascending=True, tf_weights=tf_weights_ff) # 趋势强度越高，动态权重越高
         # 综合情境因子

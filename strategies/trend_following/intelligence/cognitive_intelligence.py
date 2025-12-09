@@ -235,30 +235,6 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         posterior_prob = posterior_prob.mask(is_limit_up_yesterday, posterior_prob * 0.5).clip(0, 1)
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                print(f"    -> [高位派发风险探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - capital_confrontation_bearish: {capital_confrontation_bearish.loc[probe_date_for_loop]:.4f}")
-                print(f"       - price_overextension_risk: {price_overextension_risk.loc[probe_date_for_loop]:.4f}")
-                print(f"       - low_upward_efficiency: {low_upward_efficiency.loc[probe_date_for_loop]:.4f}")
-                print(f"       - profit_vs_flow_bearish: {profit_vs_flow_bearish.loc[probe_date_for_loop]:.4f}")
-                print(f"       - chip_dispersion_evidence: {chip_dispersion_evidence.loc[probe_date_for_loop]:.4f}")
-                print(f"       - market_contradiction_bearish: {market_contradiction_bearish.loc[probe_date_for_loop]:.4f}")
-                # 更新探针日志
-                print(f"       - distribution_intent_evidence: {distribution_intent_evidence.loc[probe_date_for_loop]:.4f}")
-                print(f"       - fund_flow_bearish_divergence: {fund_flow_bearish_divergence.loc[probe_date_for_loop]:.4f}")
-                print(f"       - chip_bearish_divergence: {chip_bearish_divergence.loc[probe_date_for_loop]:.4f}")
-                print(f"       - dip_absorption_inverse: {dip_absorption_inverse.loc[probe_date_for_loop]:.4f}")
-                print(f"       - main_force_holding_inverse: {main_force_holding_inverse.loc[probe_date_for_loop]:.4f}")
-                print(f"       - trend_modulator: {trend_modulator.loc[probe_date_for_loop]:.4f}")
-                print(f"       - is_limit_up_yesterday: {is_limit_up_yesterday.loc[probe_date_for_loop]}")
-                print(f"       - likelihood (modulated): {likelihood.loc[probe_date_for_loop]:.4f}")
-                print(f"       - prior_prob: {prior_prob.loc[probe_date_for_loop]:.4f}")
-                print(f"       - posterior_prob: {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_DISTRIBUTION_AT_HIGH': posterior_prob.astype(np.float32)}
 
     def _deduce_trend_exhaustion_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
