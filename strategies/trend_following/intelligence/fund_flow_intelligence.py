@@ -124,7 +124,13 @@ class FundFlowIntelligence:
         # 核心裁决：速度和加速度必须同时为正
         harmony_inflection_score = (norm_velocity.clip(lower=0) * norm_acceleration.clip(lower=0)).pow(0.5)
         # --- 4. 新增：资金流看涨/看跌背离信号 ---
-        # 将 strategic_posture_score 传递给 atomic_states，以便 _diagnose_fund_flow_divergence_signals 可以获取
+        # 将所有原子公理存储到 self.strategy.atomic_states，以便 _diagnose_fund_flow_divergence_signals 可以获取
+        self.strategy.atomic_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
+        self.strategy.atomic_states['SCORE_FF_AXIOM_CONSENSUS'] = axiom_consensus
+        self.strategy.atomic_states['SCORE_FF_AXIOM_CONVICTION'] = axiom_conviction
+        self.strategy.atomic_states['SCORE_FF_AXIOM_FLOW_MOMENTUM'] = axiom_flow_momentum
+        self.strategy.atomic_states['SCORE_FF_AXIOM_CAPITAL_SIGNATURE'] = axiom_capital_signature
+        self.strategy.atomic_states['SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH'] = axiom_flow_structure_health
         self.strategy.atomic_states['SCORE_FF_STRATEGIC_POSTURE'] = strategic_posture_score
         bullish_divergence, bearish_divergence = self._diagnose_fund_flow_divergence_signals(df, norm_window, axiom_divergence)
         # --- 5. 状态赋值 ---
