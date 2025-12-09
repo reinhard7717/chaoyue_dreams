@@ -142,7 +142,10 @@ class CognitiveIntelligence:
 
     def _deduce_suppressive_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V7.0 · 诡道吸筹深度强化版】贝叶斯推演：“主力打压吸筹”剧本
+        【V7.1 · 归一化函数与拼写修正版】贝叶斯推演：“主力打压吸筹”剧本
+        - 核心修正: 修复了 `NameError: name 'normalize_to_unipolar' is not defined`，
+                    将 `normalize_to_unipolar` 替换为 `normalize_score` 并正确设置 `ascending` 参数。
+                    同时修正了 `adaptive_weights_per_per_date` 的拼写错误。
         - 核心升级:
             1. 强化“打压”证据：引入 `SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM` 和 `SLOPE_5_pct_change_D`，
                更直接、动态地捕捉主力制造压力的行为。
@@ -332,7 +335,8 @@ class CognitiveIntelligence:
 
         raw_pct_change_slope = self._get_atomic_score(df, 'SLOPE_5_pct_change_D', 0.0)
         # 将斜率归一化到 [0, 1] 范围，负斜率越大，证据越强
-        pct_change_slope_evidence = self._forge_dynamic_evidence(df, normalize_to_unipolar(-raw_pct_change_slope, df.index, 21))
+        # 修改行: 替换 normalize_to_unipolar 为 normalize_score，并设置 ascending=True
+        pct_change_slope_evidence = self._forge_dynamic_evidence(df, normalize_score(-raw_pct_change_slope, df.index, 21, ascending=True))
 
         raw_micro_stealth_ops = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
         micro_stealth_ops_evidence = self._forge_dynamic_evidence(df, raw_micro_stealth_ops)
@@ -405,7 +409,7 @@ class CognitiveIntelligence:
         adaptive_weights_per_date['deception'] += market_regime_mod + trend_quality_mod + sentiment_mod
         adaptive_weights_per_date['volume_atrophy'] += market_regime_mod + trend_quality_mod + sentiment_mod
         adaptive_weights_per_date['suppressive_accum_intensity'] += market_regime_mod + trend_quality_mod + volatility_mod
-        adaptive_weights_per_per_date['suppressive_accum_intensity_slope'] += market_regime_mod + trend_quality_mod + volatility_mod # 修改行: 压制吸筹强度斜率调制
+        adaptive_weights_per_date['suppressive_accum_intensity_slope'] += market_regime_mod + trend_quality_mod + volatility_mod # 修改行: 压制吸筹强度斜率调制
         adaptive_weights_per_date['shakeout_confirmation'] += market_regime_mod + trend_quality_mod + volatility_mod
         adaptive_weights_per_date['deceptive_accum'] += market_regime_mod + trend_quality_mod + sentiment_mod
         adaptive_weights_per_date['panic_washout_accum'] += market_regime_mod + trend_quality_mod + sentiment_mod
