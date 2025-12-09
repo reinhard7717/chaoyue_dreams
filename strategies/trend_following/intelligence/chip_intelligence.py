@@ -1979,55 +1979,46 @@ class ChipIntelligence:
                 print(f"    -> [战略战术和谐度探针] @ {probe_date.date()}:")
                 print(f"       - 原料: strategic_posture: {strategic_posture.loc[probe_date]:.4f}")
                 print(f"       - 原料: tactical_exchange: {tactical_exchange.loc[probe_date]:.4f}")
-
         # --- 参数加载 ---
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         harmony_params = get_param_value(p_conf.get('strategic_tactical_harmony_params'), {})
-
         # V3.0 动态权重参数
         strategic_weight_base = get_param_value(harmony_params.get('strategic_weight_base'), 0.6)
         tactical_weight_base = get_param_value(harmony_params.get('tactical_weight_base'), 0.4)
         dynamic_weight_modulator_signal_name = get_param_value(harmony_params.get('dynamic_weight_modulator_signal'), 'VOLATILITY_INSTABILITY_INDEX_21d_D') # 更改为筹码波动不稳定性
         dynamic_weight_sensitivity = get_param_value(harmony_params.get('dynamic_weight_sensitivity'), 0.3) # 调整敏感度
-
         # V3.0 和谐因子参数
         harmony_non_linear_exponent = get_param_value(harmony_params.get('harmony_non_linear_exponent'), 2.5) # 提高非线性惩罚
         harmony_context_modulator_signal_name = get_param_value(harmony_params.get('harmony_context_modulator_signal'), 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT') # 更改为纯筹码信号
         harmony_context_sensitivity = get_param_value(harmony_params.get('harmony_context_sensitivity'), 0.4) # 调整敏感度
-
         # V3.0 冲突惩罚参数
         conflict_threshold = get_param_value(harmony_params.get('conflict_threshold'), 0.6) # 提高冲突阈值
         conflict_penalty_factor = get_param_value(harmony_params.get('conflict_penalty_factor'), 0.7) # 提高惩罚力度
         deception_modulator_signal_name = get_param_value(harmony_params.get('deception_modulator_signal'), 'deception_index_D') # 引入欺骗指数
         deception_penalty_sensitivity = get_param_value(harmony_params.get('deception_penalty_sensitivity'), 0.5)
-
         # V3.0 趋势奖励参数
         trend_alignment_threshold = get_param_value(harmony_params.get('trend_alignment_threshold'), 0.75) # 提高奖励阈值
         trend_bonus_factor = get_param_value(harmony_params.get('trend_bonus_factor'), 0.15) # 提高奖励力度
         quality_calibrator_signal_name = get_param_value(harmony_params.get('quality_calibrator_signal'), 'chip_health_score_D') # 引入品质校准
         quality_calibration_sensitivity = get_param_value(harmony_params.get('quality_calibration_sensitivity'), 0.5)
-
+        high_harmony_threshold = get_param_value(harmony_params.get('high_harmony_threshold'), 0.8) # [修改代码行] 重新添加 high_harmony_threshold 参数加载
         # --- 1. 动态权重融合 (Dynamic Weight Fusion) ---
         # 使用筹码波动不稳定性作为调制器
         dynamic_weight_modulator_raw = self._get_safe_series(df, df, dynamic_weight_modulator_signal_name, 0.0, method_name="_diagnose_strategic_tactical_harmony")
         # 归一化到 [0, 1]，波动性越高，值越大
         norm_dynamic_weight_modulator = get_adaptive_mtf_normalized_score(dynamic_weight_modulator_raw, df_index, ascending=True, tf_weights=tf_weights)
-
         # 根据筹码波动不稳定性调整战略和战术权重
         # 波动性越高 (norm_dynamic_weight_modulator 越大)，市场越不稳定，短期战术执行的重要性被放大，战略权重降低
         # 波动性越低 (norm_dynamic_weight_modulator 越小)，市场越稳定，长期战略意图的权重越高，战术权重降低
         dynamic_strategic_weight = strategic_weight_base * (1 - norm_dynamic_weight_modulator * dynamic_weight_sensitivity)
         dynamic_tactical_weight = tactical_weight_base * (1 + norm_dynamic_weight_modulator * dynamic_weight_sensitivity)
-
         # 归一化动态权重，使其和为1
         sum_dynamic_weights = dynamic_strategic_weight + dynamic_tactical_weight
         dynamic_strategic_weight = dynamic_strategic_weight / sum_dynamic_weights
         dynamic_tactical_weight = dynamic_tactical_weight / sum_dynamic_weights
-
         # 计算以动态权重为基础的意图分
         base_intent_score = strategic_posture * dynamic_strategic_weight + tactical_exchange * dynamic_tactical_weight
-
         # --- 探针: 动态权重与基础意图分 ---
         if probe_dates_str and probe_date in df_index:
             print(f"       - 过程: {dynamic_weight_modulator_signal_name} (raw): {dynamic_weight_modulator_raw.loc[probe_date]:.4f}")
@@ -2035,26 +2026,20 @@ class ChipIntelligence:
             print(f"       - 过程: dynamic_strategic_weight: {dynamic_strategic_weight.loc[probe_date]:.4f}")
             print(f"       - 过程: dynamic_tactical_weight: {dynamic_tactical_weight.loc[probe_date]:.4f}")
             print(f"       - 过程: base_intent_score (dynamic weighted): {base_intent_score.loc[probe_date]:.4f}")
-
         # --- 2. 和谐因子非线性增强 (Non-linear Harmony Factor Enhancement) ---
         raw_difference = (strategic_posture - tactical_exchange).abs() / 2 # 归一化到 [0, 1]
-        
         # 应用非线性变换，放大差异的影响
         non_linear_diff = raw_difference.pow(harmony_non_linear_exponent)
-
         # 基础和谐因子
         harmony_factor = (1 - non_linear_diff).clip(lower=0)
-
         # 情境化和谐度调制 (使用持仓信念韧性作为调制器，纯筹码信号)
         harmony_context_modulator_raw = self._get_safe_series(df, df, harmony_context_modulator_signal_name, 0.0, method_name="_diagnose_strategic_tactical_harmony")
         norm_harmony_context = get_adaptive_mtf_normalized_bipolar_score(harmony_context_modulator_raw, df_index, tf_weights) # 归一化到 [-1, 1]
-
         # 持仓信念韧性越强（norm_harmony_context 越大），市场对分歧的容忍度越高，和谐度因子被放大
         # 持仓信念韧性越弱（norm_harmony_context 越小），市场对分歧越敏感，和谐度因子被削弱
         context_modulation_effect = (norm_harmony_context * harmony_context_sensitivity).clip(-0.5, 0.5) # 限制调制效果
         harmony_factor = harmony_factor * (1 + context_modulation_effect)
         harmony_factor = harmony_factor.clip(0, 1) # 确保在 [0, 1] 范围内
-
         # --- 探针: 和谐因子 ---
         if probe_dates_str and probe_date in df_index:
             print(f"       - 过程: raw_difference: {raw_difference.loc[probe_date]:.4f}")
@@ -2063,28 +2048,22 @@ class ChipIntelligence:
             print(f"       - 过程: norm_harmony_context: {norm_harmony_context.loc[probe_date]:.4f}")
             print(f"       - 过程: context_modulation_effect: {context_modulation_effect.loc[probe_date]:.4f}")
             print(f"       - 过程: harmony_factor (non-linear & modulated): {harmony_factor.loc[probe_date]:.4f}")
-
         # --- 3. 冲突情境识别与惩罚 (Conflict Context Recognition & Penalty) ---
         conflict_penalty_factor_adjusted = pd.Series(1.0, index=df_index)
         # 识别战略与战术方向完全背离且强度足够的情境
         strong_bullish_strategic_bearish_tactical = (strategic_posture > conflict_threshold) & (tactical_exchange < -conflict_threshold)
         strong_bearish_strategic_bullish_tactical = (strategic_posture < -conflict_threshold) & (tactical_exchange > conflict_threshold)
-        
         conflict_mask = strong_bullish_strategic_bearish_tactical | strong_bearish_strategic_bullish_tactical
-        
         # 引入诡道因子进行调制
         deception_raw = self._get_safe_series(df, df, deception_modulator_signal_name, 0.0, method_name="_diagnose_strategic_tactical_harmony")
         norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_raw, df_index, tf_weights) # 归一化到 [-1, 1]
-
         # 如果冲突伴随着明显的“诱多”式欺骗 (norm_deception > 0)，惩罚更严厉
         # 如果冲突伴随着“诱空”式欺骗 (norm_deception < 0)，且主力信念坚定，则可能减弱惩罚 (此处简化为不增强惩罚)
         deception_impact = pd.Series(0.0, index=df_index)
         deception_impact.loc[conflict_mask & (norm_deception > 0)] = norm_deception.loc[conflict_mask & (norm_deception > 0)] * deception_penalty_sensitivity
-        
         # 在冲突情境下施加额外惩罚，并考虑欺骗影响
         conflict_penalty_factor_adjusted.loc[conflict_mask] = 1 - (conflict_penalty_factor + deception_impact.loc[conflict_mask]).clip(0, 1)
         conflict_penalty_factor_adjusted = conflict_penalty_factor_adjusted.clip(0, 1) # 确保惩罚因子在 [0, 1] 范围内
-
         # --- 探针: 冲突惩罚 ---
         if probe_dates_str and probe_date in df_index:
             print(f"       - 过程: conflict_mask: {conflict_mask.loc[probe_date]}")
@@ -2092,10 +2071,8 @@ class ChipIntelligence:
             print(f"       - 过程: norm_deception: {norm_deception.loc[probe_date]:.4f}")
             print(f"       - 过程: deception_impact: {deception_impact.loc[probe_date]:.4f}")
             print(f"       - 过程: conflict_penalty_factor_adjusted: {conflict_penalty_factor_adjusted.loc[probe_date]:.4f}")
-
         # --- 4. 趋势一致性奖励 (Trend Alignment Bonus) ---
         alignment_bonus = pd.Series(0.0, index=df_index)
-
         # 识别战略与战术高度协同且强度足够的情境
         bullish_alignment_mask = (strategic_posture > trend_alignment_threshold) & \
                                  (tactical_exchange > trend_alignment_threshold) & \
@@ -2103,19 +2080,15 @@ class ChipIntelligence:
         bearish_alignment_mask = (strategic_posture < -trend_alignment_threshold) & \
                                  (tactical_exchange < -trend_alignment_threshold) & \
                                  (harmony_factor > high_harmony_threshold)
-        
         # 引入筹码品质因子进行校准
         quality_calibrator_raw = self._get_safe_series(df, df, quality_calibrator_signal_name, 0.0, method_name="_diagnose_strategic_tactical_harmony")
         norm_quality_calibrator = get_adaptive_mtf_normalized_score(quality_calibrator_raw, df_index, ascending=True, tf_weights=tf_weights) # 归一化到 [0, 1]
-
         # 只有当品质因子较高时才给予奖励，否则削弱奖励
         calibrated_bonus_factor = trend_bonus_factor * (1 + norm_quality_calibrator * quality_calibration_sensitivity)
         calibrated_bonus_factor = calibrated_bonus_factor.clip(0, trend_bonus_factor * 2) # 限制奖励上限
-
         # 给予奖励或惩罚
         alignment_bonus.loc[bullish_alignment_mask] = calibrated_bonus_factor.loc[bullish_alignment_mask]
         alignment_bonus.loc[bearish_alignment_mask] = -calibrated_bonus_factor.loc[bearish_alignment_mask]
-
         # --- 探针: 趋势奖励 ---
         if probe_dates_str and probe_date in df_index:
             print(f"       - 过程: bullish_alignment_mask: {bullish_alignment_mask.loc[probe_date]}")
@@ -2124,15 +2097,12 @@ class ChipIntelligence:
             print(f"       - 过程: norm_quality_calibrator: {norm_quality_calibrator.loc[probe_date]:.4f}")
             print(f"       - 过程: calibrated_bonus_factor: {calibrated_bonus_factor.loc[probe_date]:.4f}")
             print(f"       - 过程: alignment_bonus: {alignment_bonus.loc[probe_date]:.4f}")
-
         # --- 最终融合 ---
         # 基础意图分 * 和谐因子 * 冲突惩罚 + 趋势奖励
         final_score = base_intent_score * harmony_factor * conflict_penalty_factor_adjusted + alignment_bonus
-
         # --- 探针: 最终结果 ---
         if probe_dates_str and probe_date in df_index:
             print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
-
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_harmony_inflection(self, df: pd.DataFrame, harmony_score: pd.Series) -> pd.Series:
