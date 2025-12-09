@@ -2717,7 +2717,7 @@
           "comment_smoothing_ema_span": "动能演化趋势平滑EMA周期。"
         },
         "fund_flow_divergence_params": {
-          "description": "【V2.0 · 意图确认与情境校准版】资金流看涨/看跌背离信号的专属参数。",
+          "description": "【V3.0 · 深度共振与微观意图强化版】资金流看涨/看跌背离信号的专属参数。",
           "purity_weights": {
             "deception_inverse": 0.5,
             "wash_trade_inverse": 0.5
@@ -2741,8 +2741,25 @@
           "bearish_divergence_threshold": 0.1,
           "comment_bearish_divergence_threshold": "看跌背离信号的最低有效阈值。",
           "retail_panic_fomo_sensitivity": 0.5,
-          "comment_retail_panic_fomo_sensitivity": "散户恐慌/狂热对情境调制器的敏感度。"
+          "comment_retail_panic_fomo_sensitivity": "散户恐慌/狂热对情境调制器的敏感度。",
+          "mtf_resonance_factor_weights": {
+            "nmfnf_cohesion": 0.6,
+            "conviction_cohesion": 0.4
+          },
+          "comment_mtf_resonance_factor_weights": "多时间框架共振/背离因子的融合权重。",
+          "micro_macro_divergence_weights": {
+            "micro_intent_strength": 0.5,
+            "macro_flow_momentum": 0.5
+          },
+          "comment_micro_macro_divergence_weights": "微观意图与宏观资金流背离因子的融合权重。",
+          "dynamic_context_modulator_sensitivity": {
+            "volatility_instability": 0.2,
+            "flow_credibility": 0.15,
+            "trend_vitality": 0.1
+          },
+          "comment_dynamic_context_modulator_sensitivity": "动态情境调制器对信号的敏感度。"
         }
+
       },
       "fusion_accumulation_inflection_params": {
         "description": "【V2.0 · 大一统同步版】吸筹拐点信号融合参数。",
