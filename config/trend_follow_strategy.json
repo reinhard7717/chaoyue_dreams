@@ -261,6 +261,7 @@
         "counterparty_exhaustion_index_D": [5, 8, 13, 21],
         "SMART_MONEY_HM_NET_BUY_D": [5, 8, 13, 21],
         "deception_index_D": [5, 8, 13, 21],
+        "main_force_execution_alpha_D": [5, 8, 13, 21],
         "说明_V33_advanced_chip_metrics": "--- 为V33.0新一代筹码高级指标提供支持 ---",
         "peak_separation_ratio_D": [5, 8, 13, 21],
         "chip_fault_magnitude_D": [5, 8, 13, 21],
