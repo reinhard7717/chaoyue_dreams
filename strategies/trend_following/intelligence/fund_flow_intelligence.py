@@ -11,36 +11,25 @@ class FundFlowIntelligence:
         """
         self.strategy = strategy_instance
 
-    def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法", probe_date: pd.Timestamp = None) -> pd.Series:
-        """
-        【V1.2 · 探针增强版】安全地从DataFrame或字典中获取Series，如果不存在则打印警告并返回默认Series。
-        - 核心修复: 接收 df 参数，并使用其索引创建默认 Series，确保上下文一致。
-        - 探针增强: 如果 probe_date 存在，则打印原始数据。
-        """
-        df_index = df.index
-        series = None
-        if isinstance(data_source, pd.DataFrame):
-            if column_name not in data_source.columns:
-                print(f"    -> [资金流情报警告] 方法 '{method_name}' 缺少DataFrame数据 '{column_name}'，使用默认值 {default_value}。")
-                series = pd.Series(default_value, index=df_index)
+    def _get_mtf_dynamic_score(self, df: pd.DataFrame, signal_base_name: str, periods_list: list, weights_dict: dict, is_bipolar: bool, is_accel: bool = False) -> pd.Series:
+        mtf_scores = []
+        numeric_weights = {k: v for k, v in weights_dict.items() if isinstance(v, (int, float))}
+        total_weight = sum(numeric_weights.values())
+        if total_weight == 0:
+            return pd.Series(0.0, index=df.index)
+        for period_str, weight in numeric_weights.items():
+            period = int(period_str)
+            prefix = 'ACCEL' if is_accel else 'SLOPE'
+            col_name = f'{prefix}_{period}_{signal_base_name}'
+            raw_data = self._get_safe_series(df, df, col_name, 0.0, method_name="_diagnose_axiom_divergence")
+            if is_bipolar:
+                norm_score = get_adaptive_mtf_normalized_bipolar_score(raw_data, df.index, self.tf_weights_ff)
             else:
-                series = data_source[column_name]
-        elif isinstance(data_source, dict):
-            if column_name not in data_source:
-                print(f"    -> [资金流情报警告] 方法 '{method_name}' 缺少字典数据 '{column_name}'，使用默认值 {default_value}。")
-                series = pd.Series(default_value, index=df_index)
-            else:
-                raw_data = data_source[column_name]
-                if isinstance(raw_data, pd.Series):
-                    series = raw_data.reindex(df_index, fill_value=default_value)
-                else:
-                    series = pd.Series(raw_data, index=df_index)
-        else:
-            print(f"    -> [资金流情报警告] 方法 '{method_name}' 接收到未知数据源类型 {type(data_source)}，无法获取 '{column_name}'，使用默认值 {default_value}。")
-            series = pd.Series(default_value, index=df_index)
-        if probe_date is not None and series is not None and probe_date in series.index:
-            print(f"       - 原料: {column_name} (raw): {series.loc[probe_date]:.4f}")
-        return series
+                norm_score = get_adaptive_mtf_normalized_score(raw_data, df.index, ascending=True, tf_weights=self.tf_weights_ff)
+            mtf_scores.append(norm_score * weight)
+        if not mtf_scores:
+            return pd.Series(0.0, index=df.index)
+        return sum(mtf_scores) / total_weight
 
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: List[str], method_name: str) -> bool:
         """
@@ -101,6 +90,8 @@ class FundFlowIntelligence:
         # 核心裁决：速度和加速度必须同时为正
         harmony_inflection_score = (norm_velocity.clip(lower=0) * norm_acceleration.clip(lower=0)).pow(0.5)
         # --- 4. 新增：资金流看涨/看跌背离信号 ---
+        # 将 strategic_posture_score 传递给 atomic_states，以便 _diagnose_fund_flow_divergence_signals 可以获取
+        self.strategy.atomic_states['SCORE_FF_STRATEGIC_POSTURE'] = strategic_posture_score
         bullish_divergence, bearish_divergence = self._diagnose_fund_flow_divergence_signals(df, norm_window, axiom_divergence)
         # --- 5. 状态赋值 ---
         all_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
@@ -1235,35 +1226,36 @@ class FundFlowIntelligence:
         # --- 原始数据获取 (用于探针和计算) ---
         # 基础背离
         bullish_base_divergence, bearish_base_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
+        if is_probe_active:
+            print(f"       - 原料: bullish_base_divergence (raw): {bullish_base_divergence.loc[probe_date]:.4f}")
+            print(f"       - 原料: bearish_base_divergence (raw): {bearish_base_divergence.loc[probe_date]:.4f}")
         # 确认信号
         axiom_conviction = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_CONVICTION', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        if is_probe_active: print(f"       - 原料: SCORE_FF_AXIOM_CONVICTION (raw): {axiom_conviction.loc[probe_date]:.4f}")
         axiom_flow_momentum = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        if is_probe_active: print(f"       - 原料: SCORE_FF_AXIOM_FLOW_MOMENTUM (raw): {axiom_flow_momentum.loc[probe_date]:.4f}")
         # 纯度过滤信号
         deception_slope_5_raw = self._get_safe_series(df, df, 'SLOPE_5_deception_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        if is_probe_active: print(f"       - 原料: SLOPE_5_deception_index_D (raw): {deception_slope_5_raw.loc[probe_date]:.4f}")
         deception_slope_13_raw = self._get_safe_series(df, df, 'SLOPE_13_deception_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        if is_probe_active: print(f"       - 原料: SLOPE_13_deception_index_D (raw): {deception_slope_13_raw.loc[probe_date]:.4f}")
         deception_slope_21_raw = self._get_safe_series(df, df, 'SLOPE_21_deception_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        if is_probe_active: print(f"       - 原料: SLOPE_21_deception_index_D (raw): {deception_slope_21_raw.loc[probe_date]:.4f}")
         wash_trade_slope_5_raw = self._get_safe_series(df, df, 'SLOPE_5_wash_trade_intensity_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        if is_probe_active: print(f"       - 原料: SLOPE_5_wash_trade_intensity_D (raw): {wash_trade_slope_5_raw.loc[probe_date]:.4f}")
         wash_trade_slope_13_raw = self._get_safe_series(df, df, 'SLOPE_13_wash_trade_intensity_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        if is_probe_active: print(f"       - 原料: SLOPE_13_wash_trade_intensity_D (raw): {wash_trade_slope_13_raw.loc[probe_date]:.4f}")
         wash_trade_slope_21_raw = self._get_safe_series(df, df, 'SLOPE_21_wash_trade_intensity_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        if is_probe_active: print(f"       - 原料: SLOPE_21_wash_trade_intensity_D (raw): {wash_trade_slope_21_raw.loc[probe_date]:.4f}")
         # 情境校准信号
         strategic_posture = self._get_safe_series(df, self.strategy.atomic_states, 'SCORE_FF_STRATEGIC_POSTURE', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        if is_probe_active: print(f"       - 原料: SCORE_FF_STRATEGIC_POSTURE (raw): {strategic_posture.loc[probe_date]:.4f}")
         flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        if is_probe_active: print(f"       - 原料: flow_credibility_index_D (raw): {flow_credibility_raw.loc[probe_date]:.4f}")
         retail_panic_raw = self._get_safe_series(df, df, 'retail_panic_surrender_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        if is_probe_active: print(f"       - 原料: retail_panic_surrender_index_D (raw): {retail_panic_raw.loc[probe_date]:.4f}")
         retail_fomo_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
-        if is_probe_active:
-            print(f"       - 原料: SCORE_FF_AXIOM_DIVERGENCE (raw): {axiom_divergence.loc[probe_date]:.4f}")
-            print(f"       - 原料: SCORE_FF_AXIOM_CONVICTION (raw): {axiom_conviction.loc[probe_date]:.4f}")
-            print(f"       - 原料: SCORE_FF_AXIOM_FLOW_MOMENTUM (raw): {axiom_flow_momentum.loc[probe_date]:.4f}")
-            print(f"       - 原料: SCORE_FF_STRATEGIC_POSTURE (raw): {strategic_posture.loc[probe_date]:.4f}")
-            print(f"       - 原料: flow_credibility_index_D (raw): {flow_credibility_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: retail_panic_surrender_index_D (raw): {retail_panic_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: retail_fomo_premium_index_D (raw): {retail_fomo_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: SLOPE_5_deception_index_D (raw): {deception_slope_5_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: SLOPE_13_deception_index_D (raw): {deception_slope_13_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: SLOPE_21_deception_index_D (raw): {deception_slope_21_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: SLOPE_5_wash_trade_intensity_D (raw): {wash_trade_slope_5_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: SLOPE_13_wash_trade_intensity_D (raw): {wash_trade_slope_13_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: SLOPE_21_wash_trade_intensity_D (raw): {wash_trade_slope_21_raw.loc[probe_date]:.4f}")
+        if is_probe_active: print(f"       - 原料: retail_fomo_premium_index_D (raw): {retail_fomo_raw.loc[probe_date]:.4f}")
         # --- 1. 纯度过滤 (Purity Filter) ---
         # 欺骗指数多时间框架融合
         norm_deception_slope_5 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_5_raw, df_index, self.tf_weights_ff)
