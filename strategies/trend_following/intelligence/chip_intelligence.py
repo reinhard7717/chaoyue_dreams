@@ -324,12 +324,11 @@ class ChipIntelligence:
         context_modulator_weights = get_param_value(holder_sentiment_params.get('context_modulator_weights'), {
             'volatility_instability': 0.3, 'market_sentiment': 0.4, 'flow_credibility': 0.3
         })
-        # 重新加载 deception_modulator_params，因为它包含 conviction_threshold
-        deception_modulator_params = get_param_value(holder_sentiment_params.get('deception_modulator_params'), {'boost_factor': 0.6, 'penalty_factor': 0.4, 'conviction_threshold': 0.2, 'deception_index_weight': 0.5}) # 新增此行
+        deception_modulator_params = get_param_value(holder_sentiment_params.get('deception_modulator_params'), {'boost_factor': 0.6, 'penalty_factor': 0.4, 'conviction_threshold': 0.2, 'deception_index_weight': 0.5})
 
         df_index = df.index
 
-        # --- 维度1: 信念内核 (Belief Core Score) ---
+        # --- 原始数据获取 ---
         winner_stability = self._get_safe_series(df, df, 'winner_stability_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         loser_pain = self._get_safe_series(df, df, 'loser_pain_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         total_winner_rate_raw = self._get_safe_series(df, df, 'total_winner_rate_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
@@ -338,7 +337,38 @@ class ChipIntelligence:
         slope_5_winner_stability_raw = self._get_safe_series(df, df, 'SLOPE_5_winner_stability_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         accel_5_loser_pain_raw = self._get_safe_series(df, df, 'ACCEL_5_loser_pain_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         slope_5_winner_loser_momentum_raw = self._get_safe_series(df, df, 'SLOPE_5_winner_loser_momentum_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        
+        absorption_power = self._get_safe_series(df, df, 'active_buying_support_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        defense_intent = self._get_safe_series(df, df, 'support_validation_strength_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        capitulation_absorption = self._get_safe_series(df, df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        opening_gap_defense_strength_raw = self._get_safe_series(df, df, 'opening_gap_defense_strength_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        control_solidity_raw = self._get_safe_series(df, df, 'control_solidity_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        order_book_clearing_rate_raw = self._get_safe_series(df, df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        micro_price_impact_asymmetry_raw = self._get_safe_series(df, df, 'micro_price_impact_asymmetry_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        slope_5_support_validation_raw = self._get_safe_series(df, df, 'SLOPE_5_support_validation_strength_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        accel_5_capitulation_absorption_raw = self._get_safe_series(df, df, 'ACCEL_5_capitulation_absorption_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        slope_5_active_buying_support_raw = self._get_safe_series(df, df, 'SLOPE_5_active_buying_support_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
 
+        fomo_index_raw = self._get_safe_series(df, df, 'winner_concentration_90pct_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        profit_taking_quality_raw = self._get_safe_series(df, df, 'winner_profit_margin_avg_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        upper_shadow_selling_pressure_raw = self._get_safe_series(df, df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        rally_distribution_pressure_raw = self._get_safe_series(df, df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        retail_fomo_premium_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        slope_5_winner_profit_margin_raw = self._get_safe_series(df, df, 'SLOPE_5_winner_profit_margin_avg_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        accel_5_retail_fomo_premium_raw = self._get_safe_series(df, df, 'ACCEL_5_retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+
+        chip_fatigue_raw = self._get_safe_series(df, df, 'chip_fatigue_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment") # 提前获取
+        deception_raw = self._get_safe_series(df, df, deception_signal_name, 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        deception_index_raw = self._get_safe_series(df, df, 'deception_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        
+        volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        market_sentiment_raw = self._get_safe_series(df, df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+
+
+        # --- 维度1: 信念内核 (Belief Core Score) ---
         norm_winner_stability = get_adaptive_mtf_normalized_bipolar_score(winner_stability, df_index, tf_weights)
         norm_loser_pain = get_adaptive_mtf_normalized_bipolar_score(loser_pain, df_index, tf_weights)
         norm_total_winner_rate = get_adaptive_mtf_normalized_score(total_winner_rate_raw, df_index, ascending=True, tf_weights=tf_weights)
@@ -370,18 +400,6 @@ class ChipIntelligence:
 
 
         # --- 维度2: 压力测试 (Pressure Test Score) ---
-        absorption_power = self._get_safe_series(df, df, 'active_buying_support_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        defense_intent = self._get_safe_series(df, df, 'support_validation_strength_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        capitulation_absorption = self._get_safe_series(df, df, 'capitulation_absorption_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        
-        opening_gap_defense_strength_raw = self._get_safe_series(df, df, 'opening_gap_defense_strength_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        control_solidity_raw = self._get_safe_series(df, df, 'control_solidity_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        order_book_clearing_rate_raw = self._get_safe_series(df, df, 'order_book_clearing_rate_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        micro_price_impact_asymmetry_raw = self._get_safe_series(df, df, 'micro_price_impact_asymmetry_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        slope_5_support_validation_raw = self._get_safe_series(df, df, 'SLOPE_5_support_validation_strength_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        accel_5_capitulation_absorption_raw = self._get_safe_series(df, df, 'ACCEL_5_capitulation_absorption_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        slope_5_active_buying_support_raw = self._get_safe_series(df, df, 'SLOPE_5_active_buying_support_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-
         norm_absorption_power = get_adaptive_mtf_normalized_bipolar_score(absorption_power, df_index, tf_weights)
         norm_defense_intent = get_adaptive_mtf_normalized_bipolar_score(defense_intent, df_index, tf_weights)
         norm_capitulation_absorption = get_adaptive_mtf_normalized_score(capitulation_absorption, df_index, tf_weights=tf_weights)
@@ -447,12 +465,9 @@ class ChipIntelligence:
             conviction_base = conviction_base.clip(0, 1)
         
         # V8.0 新增：更智能的诡道因子调制
-        deception_index_raw = self._get_safe_series(df, df, 'deception_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         norm_deception_index_bipolar = get_adaptive_mtf_normalized_bipolar_score(deception_index_raw, df_index, tf_weights)
-        wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         
-        main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         norm_main_force_conviction_bipolar = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights)
 
         # 负向欺骗（诱空）且主力信念坚定 -> 增强信念
@@ -468,15 +483,6 @@ class ChipIntelligence:
         conviction_base = conviction_base.clip(0, 1)
 
         # --- 杂质削弱 (Impurity Score) ---
-        fomo_index_raw = self._get_safe_series(df, df, 'winner_concentration_90pct_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        profit_taking_quality_raw = self._get_safe_series(df, df, 'winner_profit_margin_avg_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        
-        upper_shadow_selling_pressure_raw = self._get_safe_series(df, df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        rally_distribution_pressure_raw = self._get_safe_series(df, df, 'rally_distribution_pressure_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        retail_fomo_premium_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        slope_5_winner_profit_margin_raw = self._get_safe_series(df, df, 'SLOPE_5_winner_profit_margin_avg_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-        accel_5_retail_fomo_premium_raw = self._get_safe_series(df, df, 'ACCEL_5_retail_fomo_premium_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-
         fomo_deviation = (fomo_index_raw - fomo_concentration_optimal_target).abs()
         norm_fomo_deviation = get_adaptive_mtf_normalized_score(fomo_deviation, df_index, ascending=True, tf_weights=tf_weights)
         profit_taking_quality_thresholded = (profit_taking_quality_raw - profit_taking_threshold).clip(lower=0)
@@ -499,10 +505,6 @@ class ChipIntelligence:
             context_adjustment_factor = pd.Series(1.0, index=df.index)
             
             # --- 情境调制器 (Contextual Modulators) ---
-            volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-            market_sentiment_raw = self._get_safe_series(df, df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-            flow_credibility_raw = self._get_safe_series(df, df, 'flow_credibility_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
-
             norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=tf_weights)
             norm_market_sentiment = get_adaptive_mtf_normalized_score(market_sentiment_raw, df_index, ascending=True, tf_weights=tf_weights)
             norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=tf_weights)
