@@ -142,7 +142,9 @@ class CognitiveIntelligence:
 
     def _deduce_suppressive_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V8.0 · 诡道吸筹全景版】贝叶斯推演：“主力打压吸筹”剧本
+        【V8.1 · 信号可用性优化版】贝叶斯推演：“主力打压吸筹”剧本
+        - 核心修正: 将 `SCORE_BEHAVIOR_INTRADAY_VWAP_BATTLEFIELD` 从 `required_signals` 列表中移除，
+                    使其成为可选证据，避免因日内信号缺失导致方法启动失败。
         - 核心升级:
             1. 强化“打压”证据：引入 `SCORE_BEHAVIOR_DOWNWARD_RESISTANCE` (适度抵抗) 和
                `SCORE_BEHAVIOR_INTRADAY_VWAP_BATTLEFIELD` (负向部分)，更全面捕捉控制性打压。
@@ -177,8 +179,8 @@ class CognitiveIntelligence:
             'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 'SCORE_FF_AXIOM_CONVICTION',
             'SLOPE_5_suppressive_accumulation_intensity_D', 'SLOPE_5_covert_accumulation_signal_D',
             'SCORE_BEHAVIOR_BULLISH_DIVERGENCE',
-            # V8.0 新增证据信号
-            'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE', 'SCORE_BEHAVIOR_INTRADAY_VWAP_BATTLEFIELD',
+            # V8.0 新增证据信号 (SCORE_BEHAVIOR_INTRADAY_VWAP_BATTLEFIELD 已移除，作为可选信号处理)
+            'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE',
             'SCORE_CHIP_TACTICAL_EXCHANGE', 'SCORE_FF_AXIOM_FLOW_MOMENTUM',
             'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 'SCORE_STRUCT_AXIOM_TENSION'
         ]
@@ -366,9 +368,9 @@ class CognitiveIntelligence:
 
         # V8.0 新增证据获取
         raw_downward_resistance = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE', 0.0)
-        # 适度的下跌抵抗是好事，过高或过低都不好。这里简单取其值。
         downward_resistance_evidence = self._forge_dynamic_evidence(df, raw_downward_resistance)
 
+        # SCORE_BEHAVIOR_INTRADAY_VWAP_BATTLEFIELD 现在是可选信号，如果缺失，_get_atomic_score 会返回0.0
         raw_intraday_vwap_battlefield = self._get_atomic_score(df, 'SCORE_BEHAVIOR_INTRADAY_VWAP_BATTLEFIELD', 0.0)
         # VWAP攻防是双极性，负值表示卖压，我们希望负值越大越好（作为打压证据）
         intraday_vwap_battlefield_negative_evidence = self._forge_dynamic_evidence(df, raw_intraday_vwap_battlefield.clip(upper=0).abs())
@@ -438,8 +440,8 @@ class CognitiveIntelligence:
         adaptive_weights_per_date['panic_washout_accum'] += market_regime_mod + trend_quality_mod + sentiment_mod
         adaptive_weights_per_date['price_downward_momentum'] += market_regime_mod + trend_quality_mod + volatility_mod
         adaptive_weights_per_date['pct_change_slope'] += market_regime_mod + trend_quality_mod + volatility_mod
-        adaptive_weights_per_date['downward_resistance'] += market_regime_mod + trend_quality_mod + volatility_mod # 修改行: 下跌抵抗调制
-        adaptive_weights_per_date['intraday_vwap_battlefield_negative'] += market_regime_mod + trend_quality_mod + volatility_mod # 修改行: 日内VWAP攻防负向调制
+        adaptive_weights_per_date['downward_resistance'] += market_regime_mod + trend_quality_mod + volatility_mod
+        adaptive_weights_per_date['intraday_vwap_battlefield_negative'] += market_regime_mod + trend_quality_mod + volatility_mod
 
         # 吸筹证据权重增加 (capital_confrontation, efficiency, stealth_accum, split_order_accum, power_transfer, chip_strategic_posture, loser_capitulation, absorption_strength, offensive_absorption_intent, chip_opp_absorption_echo, covert_accum_signal, fund_flow_bullish_divergence, micro_stealth_ops, micro_cost_control, chip_holder_sentiment_bullish, ff_conviction_bullish, chip_tactical_exchange, ff_flow_momentum_bullish, ff_accum_inflection_intent)
         adaptive_weights_per_date['capital_confrontation'] += market_regime_mod + sentiment_mod
@@ -459,14 +461,14 @@ class CognitiveIntelligence:
         adaptive_weights_per_date['micro_cost_control'] += market_regime_mod + sentiment_mod + trend_quality_mod
         adaptive_weights_per_date['chip_holder_sentiment_bullish'] += market_regime_mod + sentiment_mod
         adaptive_weights_per_date['ff_conviction_bullish'] += market_regime_mod + sentiment_mod
-        adaptive_weights_per_date['chip_tactical_exchange'] += market_regime_mod + sentiment_mod + trend_quality_mod # 修改行: 战术换手博弈调制
-        adaptive_weights_per_date['ff_flow_momentum_bullish'] += market_regime_mod + sentiment_mod # 修改行: 资金流纯度与动能调制
-        adaptive_weights_per_date['ff_accum_inflection_intent'] += market_regime_mod + sentiment_mod + trend_quality_mod # 修改行: 资金流吸筹拐点意图调制
+        adaptive_weights_per_date['chip_tactical_exchange'] += market_regime_mod + sentiment_mod + trend_quality_mod
+        adaptive_weights_per_date['ff_flow_momentum_bullish'] += market_regime_mod + sentiment_mod
+        adaptive_weights_per_date['ff_accum_inflection_intent'] += market_regime_mod + sentiment_mod + trend_quality_mod
 
         # 市场矛盾、行为看涨背离和结构张力权重相对稳定，略受趋势质量影响
         adaptive_weights_per_date['market_contradiction_bullish'] += (1 - trend_quality_mod) * 0.05
         adaptive_weights_per_date['behavior_bullish_divergence'] += (1 - trend_quality_mod) * 0.05
-        adaptive_weights_per_date['structural_tension'] += (1 - trend_quality_mod) * 0.05 # 修改行: 结构张力调制
+        adaptive_weights_per_date['structural_tension'] += (1 - trend_quality_mod) * 0.05
 
         # 反向证据权重：在市场情绪低迷或趋势差时，反向证据的缺失更重要
         adaptive_weights_per_date['distribution_intent_negative'] += market_regime_mod + sentiment_mod
@@ -564,7 +566,7 @@ class CognitiveIntelligence:
             process_stealth_accum_evidence_dynamic + split_order_accum_evidence +
             deceptive_accum_evidence + panic_washout_accum_evidence +
             covert_accum_signal_evidence + micro_stealth_ops_evidence +
-            ff_accum_inflection_intent_evidence # 修改行: 添加 ff_accum_inflection_intent_evidence 到奖励计算
+            ff_accum_inflection_intent_evidence
         ) * unexpected_context_multiplier * unexpected_bonus_factor
         
         # 将奖励加到似然度上，并确保不超过1
