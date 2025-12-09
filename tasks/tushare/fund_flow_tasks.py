@@ -322,6 +322,53 @@ def save_fund_flow_daily_data_history_task():
         logger.error(f"执行 save_fund_flow_daily_data_history_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_tasks": 0}
 
+@celery_app.task(name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_last_n_days_task', queue='celery')
+def save_fund_flow_daily_data_last_n_days_task(num_days: int):
+    """
+    【无绑定版】
+    调度器任务：获取最近N个交易日的个股日级资金流向数据（三种渠道）。
+    Args:
+        num_days (int): 需要获取的交易日数量。
+    """
+    task_id = current_task.request.id
+    logger.info(f"任务启动: {task_id} - save_fund_flow_daily_data_last_n_days_task (调度器模式) - 准备分派最近 {num_days} 个交易日的资金流数据任务。")
+    print(f"调试信息：主任务 {task_id} 启动，准备分派最近 {num_days} 个交易日的个股资金流数据获取任务组。")
+    try:
+        # 获取最新的N个交易日
+        trade_days_list = TradeCalendar.get_latest_n_trade_dates(n=num_days)
+        if not trade_days_list:
+            logger.warning(f"任务 {task_id}: 未能从TradeCalendar获取到最近 {num_days} 个交易日，无法分派任务。")
+            print(f"调试信息：任务 {task_id} 警告：未能获取到交易日。")
+            return {"status": "skipped", "message": "Trade calendar is empty or num_days is invalid."}
+        
+        # 为每个交易日创建子任务签名
+        task_signatures = []
+        for trade_date in trade_days_list:
+            # save_fund_flow_daily_data_history_batch 已经支持处理单个日期（start_date=end_date）
+            task_signatures.append(
+                save_fund_flow_daily_data_history_batch.s(
+                    start_date=trade_date, 
+                    end_date=trade_date
+                ).set(queue='SaveHistoryData_TimeTrade') # 指定子任务的队列
+            )
+        
+        if not task_signatures:
+            logger.info(f"任务 {task_id}: 没有需要分派的资金流数据子任务。")
+            print(f"调试信息：任务 {task_id}：没有子任务需要分派。")
+            return {"status": "success", "dispatched_tasks": 0}
+
+        # 将所有子任务组成一个组并异步分派
+        task_group = group(task_signatures)
+        result = task_group.apply_async()
+        
+        logger.info(f"任务 {task_id}: 成功分派 {len(task_signatures)} 个个股资金流数据子任务组。Group ID: {result.id}")
+        print(f"调试信息：任务 {task_id}: 成功分派 {len(task_signatures)} 个个股资金流数据子任务组。Group ID: {result.id}")
+        return {"status": "dispatched", "group_id": result.id, "dispatched_tasks": len(task_signatures), "num_days_requested": num_days}
+    except Exception as e:
+        logger.error(f"任务 {task_id}: 执行 save_fund_flow_daily_data_last_n_days_task 时出错: {e}", exc_info=True)
+        print(f"调试信息：任务 {task_id} 错误：{e}")
+        return {"status": "error", "message": f"Failed to dispatch task group: {e}", "num_days_requested": num_days}
+
 
 # ================ （当日）板块、行业资金流向数据 - 同花顺 ================
 @celery_app.task(name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_data_ths_today', queue='SaveHistoryData_TimeTrade')
@@ -353,7 +400,6 @@ def save_fund_flow_daily_data_ths_yesterday(cache_manager: CacheManager):
         yesterday = today_date - datetime.timedelta(days=1)
         return await fund_flow_dao.save_history_fund_flow_cnt_ths_data(trade_date=yesterday)
     async_to_sync(main)()
-
 
 # ================ （本周）板块、行业资金流向数据 - 同花顺 ================
 @celery_app.task(queue='SaveHistoryData_TimeTrade')
@@ -419,6 +465,51 @@ def save_fund_flow_daily_data_ths_history_task():
         logger.error(f"执行 save_fund_flow_daily_data_ths_history_task (调度器模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "dispatched_batches": 0}
 
+@celery_app.task(name='tasks.tushare.fund_flow_tasks.save_fund_flow_daily_ths_data_last_n_days_task', queue='celery')
+def save_fund_flow_daily_ths_data_last_n_days_task(num_days: int):
+    """
+    【无绑定版】
+    调度器任务：获取最近N个交易日的板块、行业资金流向数据（同花顺）。
+    Args:
+        num_days (int): 需要获取的交易日数量。
+    """
+    task_id = current_task.request.id
+    logger.info(f"任务启动: {task_id} - save_fund_flow_daily_ths_data_last_n_days_task (调度器模式) - 准备分派最近 {num_days} 个交易日的板块/行业资金流数据任务。")
+    print(f"调试信息：主任务 {task_id} 启动，准备分派最近 {num_days} 个交易日的板块/行业资金流数据获取任务组。")
+    try:
+        # 获取最新的N个交易日
+        trade_days_list = TradeCalendar.get_latest_n_trade_dates(n=num_days)
+        if not trade_days_list:
+            logger.warning(f"任务 {task_id}: 未能从TradeCalendar获取到最近 {num_days} 个交易日，无法分派任务。")
+            print(f"调试信息：任务 {task_id} 警告：未能获取到交易日。")
+            return {"status": "skipped", "message": "Trade calendar is empty or num_days is invalid."}
+        
+        # 为每个交易日创建子任务签名
+        task_signatures = []
+        for trade_date in trade_days_list:
+            # save_fund_flow_daily_data_ths_history_batch 已经支持处理单个交易日
+            task_signatures.append(
+                save_fund_flow_daily_data_ths_history_batch.s(
+                    trade_date=trade_date
+                ).set(queue=FAVORITE_SAVE_API_DATA_QUEUE) # 沿用现有历史任务的队列配置
+            )
+        
+        if not task_signatures:
+            logger.info(f"任务 {task_id}: 没有需要分派的板块/行业资金流数据子任务。")
+            print(f"调试信息：任务 {task_id}：没有子任务需要分派。")
+            return {"status": "success", "dispatched_tasks": 0}
+
+        # 将所有子任务组成一个组并异步分派
+        task_group = group(task_signatures)
+        result = task_group.apply_async()
+        
+        logger.info(f"任务 {task_id}: 成功分派 {len(task_signatures)} 个板块/行业资金流数据子任务组。Group ID: {result.id}")
+        print(f"调试信息：任务 {task_id}: 成功分派 {len(task_signatures)} 个板块/行业资金流数据子任务组。Group ID: {result.id}")
+        return {"status": "dispatched", "group_id": result.id, "dispatched_tasks": len(task_signatures), "num_days_requested": num_days}
+    except Exception as e:
+        logger.error(f"任务 {task_id}: 执行 save_fund_flow_daily_ths_data_last_n_days_task 时出错: {e}", exc_info=True)
+        print(f"调试信息：任务 {task_id} 错误：{e}")
+        return {"status": "error", "message": f"Failed to dispatch task group: {e}", "num_days_requested": num_days}
 
 
 
