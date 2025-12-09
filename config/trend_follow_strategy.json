@@ -2716,6 +2716,50 @@
           "smoothing_ema_span": 5,
           "comment_smoothing_ema_span": "动能演化趋势平滑EMA周期。"
         },
+        "axiom_capital_signature_params": {
+          "description": "【V2.0 · 动态意图与结构韧性版】资金流公理五：资本属性的专属参数。",
+          "patient_capital_weights": {
+            "mtf_flow_persistence": 0.3,
+            "cost_efficiency": 0.2,
+            "covert_accumulation": 0.2,
+            "flow_purity": 0.15,
+            "structural_resilience": 0.15
+          },
+          "comment_patient_capital_weights": "耐心资本画像各组件的融合权重。",
+          "agile_capital_weights": {
+            "ofi_impact": 0.3,
+            "activity_concentration": 0.25,
+            "short_term_momentum": 0.25,
+            "theme_chasing": 0.2
+          },
+          "comment_agile_capital_weights": "敏捷资本画像各组件的融合权重。",
+          "mtf_periods_patient_flow": {
+            "short": [5, 13],
+            "long": [21, 55]
+          },
+          "comment_mtf_periods_patient_flow": "耐心资本流量持久性分析的多时间框架周期。",
+          "mtf_periods_agile_ofi": {
+            "short": [5, 13],
+            "long": [21]
+          },
+          "comment_mtf_periods_agile_ofi": "敏捷资本OFII冲击力分析的多时间框架周期。",
+          "capital_context_modulator_sensitivity": {
+            "liquidity": 0.2,
+            "volatility": 0.3,
+            "sentiment": 0.1,
+            "trend_vitality": 0.2
+          },
+          "comment_capital_context_modulator_sensitivity": "市场情境对资本属性判断的调制敏感度。",
+          "fusion_exponent": 1.0,
+          "comment_fusion_exponent": "最终融合的非线性指数，可根据情境动态调整。",
+          "dynamic_fusion_weights": {
+            "patient_base": 0.5,
+            "agile_base": 0.5,
+            "trend_vitality_mod": 0.2,
+            "volatility_mod": 0.1
+          },
+          "comment_dynamic_fusion_weights": "动态调整耐心资本和敏捷资本在最终融合中的权重。"
+        },
         "fund_flow_divergence_params": {
           "description": "【V4.0 · 动态共振与微观意图精炼版】资金流看涨/看跌背离信号的专属参数。",
           "purity_weights": {
