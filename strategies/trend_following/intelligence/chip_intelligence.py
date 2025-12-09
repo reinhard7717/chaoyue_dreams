@@ -83,7 +83,8 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_COHERENT_DRIVE'] = coherent_drive
         tactical_exchange = self._diagnose_tactical_exchange(df, battlefield_geography)
         all_chip_states['SCORE_CHIP_TACTICAL_EXCHANGE'] = tactical_exchange
-        strategic_tactical_harmony = self._diagnose_strategic_tactical_harmony(df, strategic_posture, tactical_exchange)
+        # [修改代码行] 传递 holder_sentiment_scores
+        strategic_tactical_harmony = self._diagnose_strategic_tactical_harmony(df, strategic_posture, tactical_exchange, holder_sentiment_scores)
         all_chip_states['SCORE_CHIP_STRATEGIC_TACTICAL_HARMONY'] = strategic_tactical_harmony
         harmony_inflection = self._diagnose_harmony_inflection(df, strategic_tactical_harmony)
         all_chip_states['SCORE_CHIP_HARMONY_INFLECTION'] = harmony_inflection
@@ -1957,7 +1958,7 @@ class ChipIntelligence:
         ).clip(-1, 1)
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
-    def _diagnose_strategic_tactical_harmony(self, df: pd.DataFrame, strategic_posture: pd.Series, tactical_exchange: pd.Series) -> pd.Series:
+    def _diagnose_strategic_tactical_harmony(self, df: pd.DataFrame, strategic_posture: pd.Series, tactical_exchange: pd.Series, holder_sentiment_scores: pd.Series) -> pd.Series: # [修改代码行] 增加 holder_sentiment_scores 参数
         """
         【V3.0 · 诡道微观共振版】诊断战略与战术的和谐度
         - 核心升级1: 战术执行微观深化。引入高频微观筹码行为（如日内筹码流平衡、订单簿压力等）作为“当日战术执行”的更精细化输入，提升战术评估的颗粒度和准确性。
@@ -2002,7 +2003,18 @@ class ChipIntelligence:
         trend_bonus_factor = get_param_value(harmony_params.get('trend_bonus_factor'), 0.15) # 提高奖励力度
         quality_calibrator_signal_name = get_param_value(harmony_params.get('quality_calibrator_signal'), 'chip_health_score_D') # 引入品质校准
         quality_calibration_sensitivity = get_param_value(harmony_params.get('quality_calibration_sensitivity'), 0.5)
-        high_harmony_threshold = get_param_value(harmony_params.get('high_harmony_threshold'), 0.8) # [修改代码行] 重新添加 high_harmony_threshold 参数加载
+        high_harmony_threshold = get_param_value(harmony_params.get('high_harmony_threshold'), 0.8)
+        # --- 信号依赖校验 ---
+        required_signals = [
+            dynamic_weight_modulator_signal_name,
+            deception_modulator_signal_name,
+            quality_calibrator_signal_name
+        ]
+        # 如果 harmony_context_modulator_signal_name 不是 SCORE_CHIP_AXIOM_HOLDER_SENTIMENT，则也需要从 df 中获取
+        if harmony_context_modulator_signal_name != 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT':
+            required_signals.append(harmony_context_modulator_signal_name)
+        if not self._validate_required_signals(df, required_signals, "_diagnose_strategic_tactical_harmony"):
+            return pd.Series(0.0, index=df.index)
         # --- 1. 动态权重融合 (Dynamic Weight Fusion) ---
         # 使用筹码波动不稳定性作为调制器
         dynamic_weight_modulator_raw = self._get_safe_series(df, df, dynamic_weight_modulator_signal_name, 0.0, method_name="_diagnose_strategic_tactical_harmony")
@@ -2033,7 +2045,11 @@ class ChipIntelligence:
         # 基础和谐因子
         harmony_factor = (1 - non_linear_diff).clip(lower=0)
         # 情境化和谐度调制 (使用持仓信念韧性作为调制器，纯筹码信号)
-        harmony_context_modulator_raw = self._get_safe_series(df, df, harmony_context_modulator_signal_name, 0.0, method_name="_diagnose_strategic_tactical_harmony")
+        # [修改代码行] 从传入的 holder_sentiment_scores 中获取，而不是从 df 中获取
+        if harmony_context_modulator_signal_name == 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT':
+            harmony_context_modulator_raw = holder_sentiment_scores
+        else:
+            harmony_context_modulator_raw = self._get_safe_series(df, df, harmony_context_modulator_signal_name, 0.0, method_name="_diagnose_strategic_tactical_harmony")
         norm_harmony_context = get_adaptive_mtf_normalized_bipolar_score(harmony_context_modulator_raw, df_index, tf_weights) # 归一化到 [-1, 1]
         # 持仓信念韧性越强（norm_harmony_context 越大），市场对分歧的容忍度越高，和谐度因子被放大
         # 持仓信念韧性越弱（norm_harmony_context 越小），市场对分歧越敏感，和谐度因子被削弱
@@ -2044,7 +2060,7 @@ class ChipIntelligence:
         if probe_dates_str and probe_date in df_index:
             print(f"       - 过程: raw_difference: {raw_difference.loc[probe_date]:.4f}")
             print(f"       - 过程: non_linear_diff: {non_linear_diff.loc[probe_date]:.4f}")
-            print(f"       - 过程: {harmony_context_modulator_signal_name} (raw): {harmony_context_modulator_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: {harmony_context_modulator_signal_name} (raw): {harmony_context_modulator_raw.loc[probe_date]:.4f}")
             print(f"       - 过程: norm_harmony_context: {norm_harmony_context.loc[probe_date]:.4f}")
             print(f"       - 过程: context_modulation_effect: {context_modulation_effect.loc[probe_date]:.4f}")
             print(f"       - 过程: harmony_factor (non-linear & modulated): {harmony_factor.loc[probe_date]:.4f}")
