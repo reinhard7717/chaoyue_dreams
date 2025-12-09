@@ -264,7 +264,7 @@ class ChipIntelligence:
             'SLOPE_5_winner_profit_margin_avg_D', 'ACCEL_5_retail_fomo_premium_index_D',
             'deception_index_D', 'wash_trade_intensity_D',
             'VOLATILITY_INSTABILITY_INDEX_21d_D', 'market_sentiment_score_D', 'flow_credibility_index_D',
-            'main_force_conviction_index_D' # 新增此行
+            'main_force_conviction_index_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_axiom_holder_sentiment"):
             return pd.Series(0.0, index=df.index)
@@ -324,6 +324,8 @@ class ChipIntelligence:
         context_modulator_weights = get_param_value(holder_sentiment_params.get('context_modulator_weights'), {
             'volatility_instability': 0.3, 'market_sentiment': 0.4, 'flow_credibility': 0.3
         })
+        # 重新加载 deception_modulator_params，因为它包含 conviction_threshold
+        deception_modulator_params = get_param_value(holder_sentiment_params.get('deception_modulator_params'), {'boost_factor': 0.6, 'penalty_factor': 0.4, 'conviction_threshold': 0.2, 'deception_index_weight': 0.5}) # 新增此行
 
         df_index = df.index
 
@@ -450,9 +452,8 @@ class ChipIntelligence:
         wash_trade_intensity_raw = self._get_safe_series(df, df, 'wash_trade_intensity_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
         norm_wash_trade_intensity = get_adaptive_mtf_normalized_score(wash_trade_intensity_raw, df_index, ascending=True, tf_weights=tf_weights)
         
-        # 新增：获取并归一化主力信念指数
-        main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment") # 新增此行
-        norm_main_force_conviction_bipolar = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights) # 新增此行
+        main_force_conviction_raw = self._get_safe_series(df, df, 'main_force_conviction_index_D', 0.0, method_name="_diagnose_axiom_holder_sentiment")
+        norm_main_force_conviction_bipolar = get_adaptive_mtf_normalized_bipolar_score(main_force_conviction_raw, df_index, tf_weights)
 
         # 负向欺骗（诱空）且主力信念坚定 -> 增强信念
         deception_boost_mask = (norm_deception_index_bipolar < 0) & (norm_main_force_conviction_bipolar > deception_modulator_params.get('conviction_threshold', 0.2))
@@ -460,7 +461,7 @@ class ChipIntelligence:
         
         # 正向欺骗（诱多）且主力信念动摇 -> 削弱信念
         deception_penalty_mask = (norm_deception_index_bipolar > 0) & (norm_main_force_conviction_bipolar < -deception_modulator_params.get('conviction_threshold', 0.2))
-        conviction_base.loc[deception_penalty_mask] = conviction_base.loc[deception_penalty_mask] * (1 - norm_deception_index_bipolar.loc[deception_penalty_mask] * deception_modulator_weights.get('deception_index_boost', 0.5)) # 使用相同权重进行惩罚
+        conviction_base.loc[deception_penalty_mask] = conviction_base.loc[deception_penalty_mask] * (1 - norm_deception_index_bipolar.loc[deception_penalty_mask] * deception_modulator_weights.get('deception_index_boost', 0.5))
 
         # 对倒强度作为杂质削弱信念
         conviction_base = conviction_base * (1 - norm_wash_trade_intensity * deception_modulator_weights.get('wash_trade_penalty', 0.3))
@@ -600,7 +601,7 @@ class ChipIntelligence:
                 print(f"       - 原料: chip_fault_magnitude_D: {deception_raw.loc[probe_date]:.4f}")
                 print(f"       - 原料: deception_index_D: {deception_index_raw.loc[probe_date]:.4f}")
                 print(f"       - 原料: wash_trade_intensity_D: {wash_trade_intensity_raw.loc[probe_date]:.4f}")
-                print(f"       - 原料: main_force_conviction_index_D: {main_force_conviction_raw.loc[probe_date]:.4f}") # 新增此行
+                print(f"       - 原料: main_force_conviction_index_D: {main_force_conviction_raw.loc[probe_date]:.4f}")
                 print(f"       - 原料: chip_health_score_D: {self._get_safe_series(df, df, 'chip_health_score_D', 0.0).loc[probe_date]:.4f}")
                 print(f"       - 原料: VOLATILITY_INSTABILITY_INDEX_21d_D: {volatility_instability_raw.loc[probe_date]:.4f}")
                 print(f"       - 原料: market_sentiment_score_D: {market_sentiment_raw.loc[probe_date]:.4f}")
