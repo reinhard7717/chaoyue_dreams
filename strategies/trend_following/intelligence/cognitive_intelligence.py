@@ -142,7 +142,10 @@ class CognitiveIntelligence:
 
     def _deduce_suppressive_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 诡道博弈强化与情境自适应版】贝叶斯推演：“主力打压吸筹”剧本
+        【V5.1 · 信号依赖修正版】贝叶斯推演：“主力打压吸筹”剧本
+        - 核心修正: 根据数据层实际提供的信号，移除了对不存在的斜率信号的依赖。
+                    `PROCESS_META_STEALTH_ACCUMULATION` 和 `SCORE_BEHAVIOR_DECEPTION_INDEX`
+                    将使用其静态证据值，而 `dip_absorption_power_D` 仍将进行动态调制。
         - 核心升级:
             1. 情境自适应权重：根据市场情绪、趋势质量、波动率等宏观情境动态调整证据权重。
             2. 非线性融合：对证据分数应用幂次变换，放大强证据的影响。
@@ -160,8 +163,8 @@ class CognitiveIntelligence:
             # 新增情境和时间序列信号
             'FUSION_BIPOLAR_MARKET_REGIME', 'FUSION_BIPOLAR_TREND_QUALITY', 'market_sentiment_score_D',
             'VOLATILITY_INSTABILITY_INDEX_21d_D',
-            'SLOPE_5_PROCESS_META_STEALTH_ACCUMULATION', 'SLOPE_5_dip_absorption_power_D',
-            'SLOPE_5_SCORE_BEHAVIOR_DECEPTION_INDEX'
+            # 仅保留存在的斜率信号
+            'SLOPE_5_dip_absorption_power_D'
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_suppressive_accumulation"):
             print("    -> [探针] 信号校验失败，返回默认值。")
@@ -196,24 +199,24 @@ class CognitiveIntelligence:
         price_change_bipolar = normalize_to_bipolar(raw_price_change, df.index, 21)
         price_falling_evidence = self._forge_dynamic_evidence(df, price_change_bipolar.clip(upper=0).abs())
 
-        # 2.3 行为欺骗指数 (正向) - 主力打压的意图
+        # 2.3 行为欺骗指数 (正向) - 主力打压的意图 (无斜率，使用静态证据)
         raw_deception_index = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0)
-        slope_deception_index = self._get_atomic_score(df, 'SLOPE_5_SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0)
         deception_evidence = self._forge_dynamic_evidence(df, raw_deception_index.clip(lower=0))
+        deception_evidence_dynamic = deception_evidence # 静态证据，无动态调制
 
         # 2.4 成交量萎缩 - 打压吸筹的背景
         raw_volume_atrophy = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0)
         volume_atrophy_evidence = self._forge_dynamic_evidence(df, raw_volume_atrophy)
 
-        # 2.5 承接效率 - 吸收抛压的能力
+        # 2.5 承接效率 - 吸收抛压的能力 (有斜率，进行动态调制)
         raw_efficiency = self._get_atomic_score(df, 'dip_absorption_power_D', 0.0)
         slope_efficiency = self._get_atomic_score(df, 'SLOPE_5_dip_absorption_power_D', 0.0)
         efficiency_evidence = self._forge_dynamic_evidence(df, raw_efficiency)
 
-        # 2.6 隐秘吸筹过程 - 直接的吸筹信号
+        # 2.6 隐秘吸筹过程 - 直接的吸筹信号 (无斜率，使用静态证据)
         raw_process_stealth_accum = self._get_atomic_score(df, 'PROCESS_META_STEALTH_ACCUMULATION', 0.0)
-        slope_stealth_accum = self._get_atomic_score(df, 'SLOPE_5_PROCESS_META_STEALTH_ACCUMULATION', 0.0)
         process_stealth_accum_evidence = self._forge_dynamic_evidence(df, raw_process_stealth_accum.clip(lower=0))
+        process_stealth_accum_evidence_dynamic = process_stealth_accum_evidence # 静态证据，无动态调制
 
         # 2.7 拆单吸筹强度 - 微观订单流的吸筹证据
         raw_split_order_accum = self._get_atomic_score(df, 'PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY', 0.0)
@@ -235,25 +238,15 @@ class CognitiveIntelligence:
         slope_impact_factor = 0.5 # 斜率对证据的调制强度
         norm_window_slope = 21 # 斜率归一化窗口
 
-        # 3.1 欺骗指数动态调制
-        norm_slope_deception = normalize_to_bipolar(slope_deception_index, df.index, norm_window_slope)
-        deception_evidence_dynamic = deception_evidence * (1 + norm_slope_deception.clip(lower=0) * slope_impact_factor)
-        deception_evidence_dynamic = deception_evidence_dynamic.clip(0, 1) # 确保在[0,1]范围内
-
-        # 3.2 承接效率动态调制
+        # 3.1 承接效率动态调制 (仅此项有斜率)
         norm_slope_efficiency = normalize_to_bipolar(slope_efficiency, df.index, norm_window_slope)
         efficiency_evidence_dynamic = efficiency_evidence * (1 + norm_slope_efficiency.clip(lower=0) * slope_impact_factor)
         efficiency_evidence_dynamic = efficiency_evidence_dynamic.clip(0, 1)
 
-        # 3.3 隐秘吸筹动态调制
-        norm_slope_stealth_accum = normalize_to_bipolar(slope_stealth_accum, df.index, norm_window_slope)
-        process_stealth_accum_evidence_dynamic = process_stealth_accum_evidence * (1 + norm_slope_stealth_accum.clip(lower=0) * slope_impact_factor)
-        process_stealth_accum_evidence_dynamic = process_stealth_accum_evidence_dynamic.clip(0, 1)
-
         if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-            print(f"       - 欺骗指数(原始): {raw_deception_index.loc[probe_date_for_loop]:.4f}, 斜率: {slope_deception_index.loc[probe_date_for_loop]:.4f}, 动态证据: {deception_evidence_dynamic.loc[probe_date_for_loop]:.4f}")
+            print(f"       - 行为欺骗(原始): {raw_deception_index.loc[probe_date_for_loop]:.4f}, 动态证据: {deception_evidence_dynamic.loc[probe_date_for_loop]:.4f} (无斜率调制)")
+            print(f"       - 隐秘吸筹(原始): {raw_process_stealth_accum.loc[probe_date_for_loop]:.4f}, 动态证据: {process_stealth_accum_evidence_dynamic.loc[probe_date_for_loop]:.4f} (无斜率调制)")
             print(f"       - 承接效率(原始): {raw_efficiency.loc[probe_date_for_loop]:.4f}, 斜率: {slope_efficiency.loc[probe_date_for_loop]:.4f}, 动态证据: {efficiency_evidence_dynamic.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 隐秘吸筹(原始): {raw_process_stealth_accum.loc[probe_date_for_loop]:.4f}, 斜率: {slope_stealth_accum.loc[probe_date_for_loop]:.4f}, 动态证据: {process_stealth_accum_evidence_dynamic.loc[probe_date_for_loop]:.4f}")
 
         # --- 4. 情境自适应权重 (Context-adaptive weights) ---
         # 定义基础权重
@@ -311,10 +304,10 @@ class CognitiveIntelligence:
         evidence_list = [
             capital_confrontation_evidence,
             price_falling_evidence,
-            deception_evidence_dynamic, # 使用动态调制后的证据
+            deception_evidence_dynamic, # 使用静态证据
             volume_atrophy_evidence,
             efficiency_evidence_dynamic, # 使用动态调制后的证据
-            process_stealth_accum_evidence_dynamic, # 使用动态调制后的证据
+            process_stealth_accum_evidence_dynamic, # 使用静态证据
             split_order_accum_evidence,
             power_transfer_evidence,
             chip_evidence,

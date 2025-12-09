@@ -199,6 +199,7 @@
         "vwap_control_strength_D": [5, 8, 13, 21],
         "vwap_crossing_intensity_D": [5, 8, 13, 21],
         "flow_efficiency_index_D": [5, 13],
+        "dip_absorption_power_D": [5, 13, 21],
         "说明_pattern_axioms": "--- 为形态三大公理提供支持 ---",
         "intraday_vwap_div_index_D": [5, 8, 13, 21],
         "breakout_quality_score_D": [5, 8, 13, 21],
