@@ -312,6 +312,7 @@ class IndicatorService:
             return df_renamed
         else:
             return df
+
     def _get_max_lookback_period(self, config: dict) -> int:
         """
         【军需官】扫描整个策略配置，找出所有指标中要求的最长回溯期。
@@ -322,6 +323,7 @@ class IndicatorService:
         calculated_max = 350 # 保守估计，足以满足EMA(55周)等大周期指标
         # print(f"    - [军需官] 扫描完成，最大回溯需求估算为 {calculated_max} 个日线周期。")
         return calculated_max
+
     async def prepare_data_for_strategy(
         self,
         stock_code: str,
@@ -411,11 +413,20 @@ class IndicatorService:
             if not smart_money_signals_df.empty:
                 smart_money_signals_df.index = pd.to_datetime(smart_money_signals_df.index, utc=True)
                 df_daily = df_daily.merge(smart_money_signals_df, left_index=True, right_index=True, how='left')
+                # --- START OF MODIFICATION ---
+                # 智能判断列类型进行填充和类型转换
                 for col in smart_money_signals_df.columns:
-                    df_daily[col] = df_daily[col].fillna(False).astype(bool)
+                    # 如果原始smart_money_signals_df中的列是数值类型，则填充0.0并转换为float
+                    if pd.api.types.is_numeric_dtype(smart_money_signals_df[col]):
+                        df_daily[col] = df_daily[col].fillna(0.0).astype(float)
+                    else:
+                        # 否则，假定为布尔类型（或需要布尔处理的），填充False并转换为bool
+                        df_daily[col] = df_daily[col].fillna(False).astype(bool)
+                # --- END OF MODIFICATION ---
         all_dfs['D'] = df_daily
         # self._log_final_data_columns(all_dfs)
         return all_dfs
+
     async def _prepare_base_data_and_indicators(
         self,
         stock_code: str,
