@@ -354,7 +354,6 @@ def save_fund_flow_daily_data_last_n_days_task(num_days: int):
             logger.info(f"任务 {task_id}: 没有需要分派的资金流数据子任务。")
             print(f"调试信息：任务 {task_id}：没有子任务需要分派。")
             return {"status": "success", "dispatched_tasks": 0}
-
         # 将所有子任务组成一个组并异步分派
         task_group = group(task_signatures)
         result = task_group.apply_async()
@@ -493,7 +492,6 @@ def save_fund_flow_daily_ths_data_last_n_days_task(num_days: int):
             logger.info(f"任务 {task_id}: 没有需要分派的板块/行业资金流数据子任务。")
             print(f"调试信息：任务 {task_id}：没有子任务需要分派。")
             return {"status": "success", "dispatched_tasks": 0}
-
         # 将所有子任务组成一个组并异步分派
         task_group = group(task_signatures)
         result = task_group.apply_async()

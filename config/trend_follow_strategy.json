@@ -2322,6 +2322,47 @@
             "capital_signature": 0.1,
             "divergence": 0.1
           }
+        },
+        "axiom_consensus_params": {
+          "description": "【V4.0 · 诡道动态博弈版】战场控制权公理的专属参数。",
+          "deception_mod_enabled": true,
+          "comment_deception_mod_enabled": "是否启用诡道博弈情境调制。",
+          "deception_penalty_sensitivity": 0.6,
+          "comment_deception_penalty_sensitivity": "欺骗指数对控制权的惩罚敏感度。",
+          "wash_trade_penalty_sensitivity": 0.4,
+          "comment_wash_trade_penalty_sensitivity": "对倒强度对控制权的惩罚敏感度。",
+          "conviction_threshold_deception": 0.2,
+          "comment_conviction_threshold_deception": "主力信念强度阈值，用于判断诡道情境。",
+          "flow_credibility_threshold": 0.5,
+          "comment_flow_credibility_threshold": "资金流可信度阈值，用于全局诡道调制。",
+          "dynamic_weight_mod_enabled": true,
+          "comment_dynamic_weight_mod_enabled": "是否启用宏观与微观动态权重自适应。",
+          "macro_flow_base_weight": 0.4,
+          "comment_macro_flow_base_weight": "宏观资金流向的基础权重。",
+          "micro_control_base_weight": 0.6,
+          "comment_micro_control_base_weight": "微观盘口控制力的基础权重。",
+          "dynamic_weight_modulator_signal_1": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+          "comment_dynamic_weight_modulator_signal_1": "动态权重调制器信号1（波动不稳定性）。",
+          "dynamic_weight_modulator_signal_2": "SLOPE_5_NMFNF_D",
+          "comment_dynamic_weight_modulator_signal_2": "动态权重调制器信号2（资金流短期趋势）。",
+          "dynamic_weight_sensitivity_volatility": 0.3,
+          "comment_dynamic_weight_sensitivity_volatility": "波动性对动态权重调整的敏感度。",
+          "dynamic_weight_sensitivity_flow_slope": 0.2,
+          "comment_dynamic_weight_sensitivity_flow_slope": "资金流短期趋势对动态权重调整的敏感度。",
+          "asymmetric_micro_control_enabled": true,
+          "comment_asymmetric_micro_control_enabled": "是否启用微观盘口控制力非对称增强。",
+          "exhaustion_boost_factor": 0.2,
+          "comment_exhaustion_boost_factor": "买盘枯竭低/卖盘枯竭高时的增强因子。",
+          "exhaustion_penalty_factor": 0.3,
+          "comment_exhaustion_penalty_factor": "买盘枯竭高/卖盘枯竭低时的惩罚因子。",
+          "smoothing_ema_span": 5,
+          "comment_smoothing_ema_span": "战场控制权动态演化平滑EMA周期。",
+          "dynamic_evolution_base_weights": {
+            "base_score": 0.6,
+            "velocity": 0.2,
+            "acceleration": 0.2
+          },
+          "comment_dynamic_evolution_base_weights": "融合基础战场控制权与时间序列动态时的基础权重。"
         }
       },
       "fusion_accumulation_inflection_params": {
