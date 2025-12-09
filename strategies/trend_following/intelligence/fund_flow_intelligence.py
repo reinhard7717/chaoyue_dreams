@@ -10,6 +10,9 @@ class FundFlowIntelligence:
         :param strategy_instance: 策略主实例的引用。
         """
         self.strategy = strategy_instance
+        # 修正: 在初始化时加载 tf_weights_ff，确保其始终可用
+        p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        self.tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
 
     def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
@@ -166,7 +169,8 @@ class FundFlowIntelligence:
         df_index = df.index
         # --- 参数加载 ---
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
-        self.tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        # 修正: 移除重复加载 self.tf_weights_ff，因为它已在 __init__ 中加载
+        # self.tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         ad_params = get_param_value(p_conf_ff.get('axiom_divergence_params'), {})
         divergence_slope_periods = get_param_value(ad_params.get('divergence_slope_periods'), [5, 13, 21, 34, 55])
         raw_divergence_slope_weights = get_param_value(ad_params.get('divergence_slope_weights'), {"5": 0.4, "13": 0.3, "21": 0.2, "34": 0.05, "55": 0.05})
@@ -289,18 +293,18 @@ class FundFlowIntelligence:
         # 动态演化情境因子
         dynamic_evolution_context_modulator_1_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_1_name, 0.0, method_name="_diagnose_axiom_divergence")
         # --- 1. 核心分歧向量 (Core Divergence Vector) ---
-        norm_nmfnf_slope_mtf = self._get_mtf_dynamic_score(df, 'NMFNF_D', divergence_slope_periods, divergence_slope_weights, True, False)
-        norm_nmfnf_accel_mtf = self._get_mtf_dynamic_score(df, 'NMFNF_D', divergence_accel_periods, divergence_accel_weights, True, True)
-        norm_mf_conviction_slope_mtf = self._get_mtf_dynamic_score(df, 'main_force_conviction_index_D', divergence_slope_periods, divergence_slope_weights, True, False)
-        norm_mf_conviction_accel_mtf = self._get_mtf_dynamic_score(df, 'main_force_conviction_index_D', divergence_accel_periods, divergence_accel_weights, True, True)
+        norm_nmfnf_slope_mtf = self._get_mtf_dynamic_score(df, 'NMFNF_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name="_diagnose_axiom_divergence")
+        norm_nmfnf_accel_mtf = self._get_mtf_dynamic_score(df, 'NMFNF_D', divergence_accel_periods, divergence_accel_weights, True, True, method_name="_diagnose_axiom_divergence")
+        norm_mf_conviction_slope_mtf = self._get_mtf_dynamic_score(df, 'main_force_conviction_index_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name="_diagnose_axiom_divergence")
+        norm_mf_conviction_accel_mtf = self._get_mtf_dynamic_score(df, 'main_force_conviction_index_D', divergence_accel_periods, divergence_accel_weights, True, True, method_name="_diagnose_axiom_divergence")
         nmfnf_dynamic_score = (norm_nmfnf_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_nmfnf_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(-1, 1)
         mf_conviction_dynamic_score = (norm_mf_conviction_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_mf_conviction_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(-1, 1)
         core_divergence_score = (nmfnf_dynamic_score - mf_conviction_dynamic_score).clip(-1, 1)
         # --- 2. 结构性张力 (Structural Tension) ---
-        norm_lg_flow_slope_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', divergence_slope_periods, divergence_slope_weights, True, False)
-        norm_lg_flow_accel_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', divergence_accel_periods, divergence_accel_weights, True, True)
-        norm_retail_flow_slope_mtf = self._get_mtf_dynamic_score(df, 'retail_net_flow_calibrated_D', divergence_slope_periods, divergence_slope_weights, True, False)
-        norm_retail_flow_accel_mtf = self._get_mtf_dynamic_score(df, 'retail_net_flow_calibrated_D', divergence_accel_periods, divergence_accel_weights, True, True)
+        norm_lg_flow_slope_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name="_diagnose_axiom_divergence")
+        norm_lg_flow_accel_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', divergence_accel_periods, divergence_accel_weights, True, True, method_name="_diagnose_axiom_divergence")
+        norm_retail_flow_slope_mtf = self._get_mtf_dynamic_score(df, 'retail_net_flow_calibrated_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name="_diagnose_axiom_divergence")
+        norm_retail_flow_accel_mtf = self._get_mtf_dynamic_score(df, 'retail_net_flow_calibrated_D', divergence_accel_periods, divergence_accel_weights, True, True, method_name="_diagnose_axiom_divergence")
         lg_flow_dynamic_score = (norm_lg_flow_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_lg_flow_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(-1, 1)
         retail_flow_dynamic_score = (norm_retail_flow_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_retail_flow_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(-1, 1)
         norm_retail_fomo = get_adaptive_mtf_normalized_score(retail_fomo_premium_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
@@ -309,10 +313,10 @@ class FundFlowIntelligence:
         retail_modulator = (1 - norm_retail_fomo * retail_sentiment_mod_sensitivity) + (norm_retail_panic * retail_sentiment_mod_sensitivity)
         structural_tension_score = (structural_divergence_base * retail_modulator).clip(-1, 1)
         # --- 3. 诡道意图张力 (Deceptive Intent Tension) ---
-        norm_deception_slope_mtf = self._get_mtf_dynamic_score(df, 'deception_index_D', divergence_slope_periods, divergence_slope_weights, True, False)
-        norm_deception_accel_mtf = self._get_mtf_dynamic_score(df, 'deception_index_D', divergence_accel_periods, divergence_accel_weights, True, True)
-        norm_wash_trade_slope_mtf = self._get_mtf_dynamic_score(df, 'wash_trade_intensity_D', divergence_slope_periods, divergence_slope_weights, False, False)
-        norm_wash_trade_accel_mtf = self._get_mtf_dynamic_score(df, 'wash_trade_intensity_D', divergence_accel_periods, divergence_accel_weights, False, True)
+        norm_deception_slope_mtf = self._get_mtf_dynamic_score(df, 'deception_index_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name="_diagnose_axiom_divergence")
+        norm_deception_accel_mtf = self._get_mtf_dynamic_score(df, 'deception_index_D', divergence_accel_periods, divergence_accel_weights, True, True, method_name="_diagnose_axiom_divergence")
+        norm_wash_trade_slope_mtf = self._get_mtf_dynamic_score(df, 'wash_trade_intensity_D', divergence_slope_periods, divergence_slope_weights, False, False, method_name="_diagnose_axiom_divergence")
+        norm_wash_trade_accel_mtf = self._get_mtf_dynamic_score(df, 'wash_trade_intensity_D', divergence_accel_periods, divergence_accel_weights, False, True, method_name="_diagnose_axiom_divergence")
         deception_dynamic_score = (norm_deception_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_deception_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(-1, 1)
         wash_trade_dynamic_score = (norm_wash_trade_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_wash_trade_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(0, 1)
         norm_flow_credibility = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
@@ -326,16 +330,16 @@ class FundFlowIntelligence:
         micro_exhaustion_score = (norm_sell_exhaustion - norm_buy_exhaustion).clip(-1, 1)
         # 微观动态脉冲
         obi_dynamic_params = micro_intent_dynamic_signals.get('order_book_imbalance_D', {"slope": 0.6, "accel": 0.4, "weight": 0.2})
-        norm_obi_slope_mtf = self._get_mtf_dynamic_score(df, 'order_book_imbalance_D', divergence_slope_periods, divergence_slope_weights, True, False)
-        norm_obi_accel_mtf = self._get_mtf_dynamic_score(df, 'order_book_imbalance_D', divergence_accel_periods, divergence_accel_weights, True, True)
+        norm_obi_slope_mtf = self._get_mtf_dynamic_score(df, 'order_book_imbalance_D', divergence_slope_periods, divergence_slope_weights, True, False, method_name="_diagnose_axiom_divergence")
+        norm_obi_accel_mtf = self._get_mtf_dynamic_score(df, 'order_book_imbalance_D', divergence_accel_periods, divergence_accel_weights, True, True, method_name="_diagnose_axiom_divergence")
         obi_dynamic_pulse = (norm_obi_slope_mtf * obi_dynamic_params.get('slope', 0.6) + norm_obi_accel_mtf * obi_dynamic_params.get('accel', 0.4)).clip(-1, 1)
         buy_exh_dynamic_params = micro_intent_dynamic_signals.get('buy_quote_exhaustion_rate_D', {"slope": 0.5, "accel": 0.5, "weight": 0.15})
-        norm_buy_exh_slope_mtf = self._get_mtf_dynamic_score(df, 'buy_quote_exhaustion_rate_D', divergence_slope_periods, divergence_slope_weights, False, False)
-        norm_buy_exh_accel_mtf = self._get_mtf_dynamic_score(df, 'buy_quote_exhaustion_rate_D', divergence_accel_periods, divergence_accel_weights, False, True)
+        norm_buy_exh_slope_mtf = self._get_mtf_dynamic_score(df, 'buy_quote_exhaustion_rate_D', divergence_slope_periods, divergence_slope_weights, False, False, method_name="_diagnose_axiom_divergence")
+        norm_buy_exh_accel_mtf = self._get_mtf_dynamic_score(df, 'buy_quote_exhaustion_rate_D', divergence_accel_periods, divergence_accel_weights, False, True, method_name="_diagnose_axiom_divergence")
         buy_exh_dynamic_pulse = (norm_buy_exh_slope_mtf * buy_exh_dynamic_params.get('slope', 0.5) + norm_buy_exh_accel_mtf * buy_exh_dynamic_params.get('accel', 0.5)).clip(0, 1)
         sell_exh_dynamic_params = micro_intent_dynamic_signals.get('sell_quote_exhaustion_rate_D', {"slope": 0.5, "accel": 0.5, "weight": 0.15})
-        norm_sell_exh_slope_mtf = self._get_mtf_dynamic_score(df, 'sell_quote_exhaustion_rate_D', divergence_slope_periods, divergence_slope_weights, False, False)
-        norm_sell_exh_accel_mtf = self._get_mtf_dynamic_score(df, 'sell_quote_exhaustion_rate_D', divergence_accel_periods, divergence_accel_weights, False, True)
+        norm_sell_exh_slope_mtf = self._get_mtf_dynamic_score(df, 'sell_quote_exhaustion_rate_D', divergence_slope_periods, divergence_slope_weights, False, False, method_name="_diagnose_axiom_divergence")
+        norm_sell_exh_accel_mtf = self._get_mtf_dynamic_score(df, 'sell_quote_exhaustion_rate_D', divergence_accel_periods, divergence_accel_weights, False, True, method_name="_diagnose_axiom_divergence")
         sell_exh_dynamic_pulse = (norm_sell_exh_slope_mtf * sell_exh_dynamic_params.get('slope', 0.5) + norm_sell_exh_accel_mtf * sell_exh_dynamic_params.get('accel', 0.5)).clip(0, 1)
         micro_dynamic_exhaustion_score = (sell_exh_dynamic_pulse - buy_exh_dynamic_pulse).clip(-1, 1)
         micro_intent_tension_score = (
@@ -763,7 +767,7 @@ class FundFlowIntelligence:
         norm_mf_exec_alpha_slope_13 = get_adaptive_mtf_normalized_bipolar_score(mf_exec_alpha_slope_13_raw, df_index, tf_weights_ff)
         norm_flow_efficiency_slope_5 = get_adaptive_mtf_normalized_bipolar_score(flow_efficiency_slope_5_raw, df_index, tf_weights_ff)
         norm_flow_efficiency_slope_13 = get_adaptive_mtf_normalized_bipolar_score(flow_efficiency_slope_13_raw, df_index, tf_weights_ff)
-        norm_intraday_price_impact = get_adaptive_mtf_normalized_bipolar_score(intraday_price_impact_raw, df_index, tf_weights_ff)
+        norm_intraday_price_impact = get_adaptive_mtf_normalized_bipolar_score(intraday_price_impact_raw, df_index, tf_weights=tf_weights_ff)
         norm_large_order_pressure = get_adaptive_mtf_normalized_score(large_order_pressure_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_intraday_vwap_deviation = get_adaptive_mtf_normalized_score(intraday_vwap_deviation_raw, df_index, ascending=False, tf_weights=tf_weights_ff) # VWAP偏离越小越好
         # V4.0 投入产出比
