@@ -188,6 +188,17 @@ class ChipIntelligence:
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         df_index = df.index
+        
+        probe_date = None # 初始化 probe_date
+        is_probe_active = False # 初始化探针激活标志
+
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            temp_probe_date = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if temp_probe_date in df_index:
+                probe_date = temp_probe_date # 赋值给外部作用域的 probe_date
+                is_probe_active = True
+                print(f"    -> [战场地形探针] @ {probe_date.date()}:")
         # --- 参数加载 ---
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -226,7 +237,7 @@ class ChipIntelligence:
         validation_score = get_adaptive_mtf_normalized_score(support_validation, df_index, tf_weights)
         support_strength_score = (solidity_score * validation_score).pow(0.5)
         # --- 探针: 下方支撑 ---
-        if probe_dates_str and probe_date in df_index:
+        if is_probe_active:
             print(f"       - 原料: dominant_peak_solidity_D (raw): {peak_solidity.loc[probe_date]:.4f}")
             print(f"       - 原料: support_validation_strength_D (raw): {support_validation.loc[probe_date]:.4f}")
             print(f"       - 过程: solidity_score: {solidity_score.loc[probe_date]:.4f}")
@@ -239,7 +250,7 @@ class ChipIntelligence:
         rejection_score = get_adaptive_mtf_normalized_score(pressure_rejection, df_index, tf_weights)
         resistance_strength_score = (blockage_score * rejection_score).pow(0.5)
         # --- 探针: 上方阻力 ---
-        if probe_dates_str and probe_date in df_index:
+        if is_probe_active:
             print(f"       - 原料: chip_fault_blockage_ratio_D (raw): {fault_blockage.loc[probe_date]:.4f}")
             print(f"       - 原料: pressure_rejection_strength_D (raw): {pressure_rejection.loc[probe_date]:.4f}")
             print(f"       - 过程: blockage_score: {blockage_score.loc[probe_date]:.4f}")
@@ -249,7 +260,7 @@ class ChipIntelligence:
         # 正值代表地形有利 (支撑强于阻力)，负值代表地形不利 (阻力强于支撑)
         base_terrain_advantage_score = support_strength_score - resistance_strength_score
         # --- 探针: 核心地形优势 ---
-        if probe_dates_str and probe_date in df_index:
+        if is_probe_active:
             print(f"       - 过程: base_terrain_advantage_score: {base_terrain_advantage_score.loc[probe_date]:.4f}")
         # --- 4. 最小阻力路径动态调制 (Dynamic Path of Least Resistance Modulation) ---
         vacuum_magnitude = self._get_safe_series(df, df, 'vacuum_zone_magnitude_D', 0.0)
@@ -260,7 +271,7 @@ class ChipIntelligence:
         # 路径效率越高，对地形优势的放大作用越强
         path_modulation_factor = (1 + path_efficiency * path_efficiency_mod_factor).pow(path_efficiency_non_linear_exponent)
         # --- 探针: 最小阻力路径 ---
-        if probe_dates_str and probe_date in df_index:
+        if is_probe_active:
             print(f"       - 原料: vacuum_zone_magnitude_D (raw): {vacuum_magnitude.loc[probe_date]:.4f}")
             print(f"       - 原料: vacuum_traversal_efficiency_D (raw): {vacuum_efficiency.loc[probe_date]:.4f}")
             print(f"       - 过程: norm_vacuum_magnitude: {norm_vacuum_magnitude.loc[probe_date]:.4f}")
@@ -278,7 +289,7 @@ class ChipIntelligence:
         dynamic_evolution_modulator = (1 + terrain_advantage_change * dynamic_evolution_mod_factor).pow(dynamic_evolution_non_linear_exponent)
         dynamic_evolution_modulator = dynamic_evolution_modulator.clip(0.5, 1.5) # 限制调制范围
         # --- 探针: 动态演化趋势 ---
-        if probe_dates_str and probe_date in df_index:
+        if is_probe_active:
             print(f"       - 原料: SLOPE_5_support_validation_strength_D (raw): {support_trend_raw.loc[probe_date]:.4f}")
             print(f"       - 原料: SLOPE_5_pressure_rejection_strength_D (raw): {resistance_trend_raw.loc[probe_date]:.4f}")
             print(f"       - 过程: support_trend_score: {support_trend_score.loc[probe_date]:.4f}")
@@ -303,12 +314,12 @@ class ChipIntelligence:
                  (norm_chip_fault.loc[bear_trap_mitigation_mask].abs().clip(lower=0) * deception_mitigation_sensitivity)).clip(0, 0.5) # 限制缓解幅度
         deception_filter_factor = deception_filter_factor.clip(0.1, 2.0) # 限制过滤因子范围
         # --- 探针: 诡道地形过滤 ---
-        if probe_dates_str and probe_date in df_index:
+        if is_probe_active:
             print(f"       - 原料: {deception_signal_name} (raw): {deception_raw.loc[probe_date]:.4f}")
-            print(f"       - 過程: norm_deception: {norm_deception.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_deception: {norm_deception.loc[probe_date]:.4f}")
             print(f"       - 原料: {chip_fault_signal_name} (raw): {chip_fault_raw.loc[probe_date]:.4f}")
-            print(f"       - 過程: norm_chip_fault: {norm_chip_fault.loc[probe_date]:.4f}")
-            print(f"       - 過程: deception_filter_factor: {deception_filter_factor.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_chip_fault: {norm_chip_fault.loc[probe_date]:.4f}")
+            print(f"       - 过程: deception_filter_factor: {deception_filter_factor.loc[probe_date]:.4f}")
         # --- 7. 情境感知与自适应权重 (Contextual Awareness & Adaptive Weighting) ---
         chip_health_raw = self._get_safe_series(df, df, context_modulator_signal_1_name, 0.0)
         norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights) # 归一化到 [0, 1]
@@ -320,17 +331,17 @@ class ChipIntelligence:
             (1 + norm_volatility_instability * context_modulator_sensitivity_volatility)
         ).clip(0.5, 1.5) # 限制调制范围
         # --- 探针: 情境调制器 ---
-        if probe_dates_str and probe_date in df_index:
+        if is_probe_active:
             print(f"       - 原料: {context_modulator_signal_1_name} (raw): {chip_health_raw.loc[probe_date]:.4f}")
-            print(f"       - 過程: norm_chip_health: {norm_chip_health.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_chip_health: {norm_chip_health.loc[probe_date]:.4f}")
             print(f"       - 原料: {context_modulator_signal_2_name} (raw): {volatility_instability_raw.loc[probe_date]:.4f}")
-            print(f"       - 過程: norm_volatility_instability: {norm_volatility_instability.loc[probe_date]:.4f}")
-            print(f"       - 過程: context_modulator: {context_modulator.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_volatility_instability: {norm_volatility_instability.loc[probe_date]:.4f}")
+            print(f"       - 过程: context_modulator: {context_modulator.loc[probe_date]:.4f}")
         # --- 最终融合 ---
         # 核心地形优势 * 路径调制 * 动态演化调制 * 诡道过滤 * 情境调制
         final_score = base_terrain_advantage_score * path_modulation_factor * dynamic_evolution_modulator * deception_filter_factor * context_modulator
         # --- 探针: 最终结果 ---
-        if probe_dates_str and probe_date in df_index:
+        if is_probe_active:
             print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
