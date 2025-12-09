@@ -31,11 +31,17 @@ class FundFlowIntelligence:
             return pd.Series(0.0, index=df.index)
         return sum(mtf_scores) / total_weight
 
-    def _validate_required_signals(self, df: pd.DataFrame, required_signals: List[str], method_name: str) -> bool:
+    def _validate_required_signals(self, df: pd.DataFrame, required_signals: List[str], method_name: str, atomic_states: Optional[Dict[str, pd.Series]] = None) -> bool:
         """
-        【V1.0 · 战前情报校验】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
+        【V1.1 · 扩展校验源版】内部辅助方法，用于在方法执行前验证所有必需的数据信号是否存在。
+        - 核心升级: 增加对 atomic_states 的校验，允许信号来自 df.columns 或 atomic_states。
         """
-        missing_signals = [s for s in required_signals if s not in df.columns]
+        missing_signals = []
+        for s in required_signals:
+            if s not in df.columns:
+                # 如果信号不在df的列中，则检查是否在atomic_states中
+                if atomic_states is None or s not in atomic_states:
+                    missing_signals.append(s)
         if missing_signals:
             print(f"    -> [资金流情报校验] 方法 '{method_name}' 启动失败：缺少核心信号 {missing_signals}。")
             return False
@@ -1221,7 +1227,7 @@ class FundFlowIntelligence:
             'SLOPE_5_deception_index_D', 'SLOPE_13_deception_index_D', 'SLOPE_21_deception_index_D',
             'SLOPE_5_wash_trade_intensity_D', 'SLOPE_13_wash_trade_intensity_D', 'SLOPE_21_wash_trade_intensity_D'
         ]
-        if not self._validate_required_signals(df, required_signals, "_diagnose_fund_flow_divergence_signals"):
+        if not self._validate_required_signals(df, required_signals, "_diagnose_fund_flow_divergence_signals", atomic_states=self.strategy.atomic_states):
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
         # --- 原始数据获取 (用于探针和计算) ---
         # 基础背离
