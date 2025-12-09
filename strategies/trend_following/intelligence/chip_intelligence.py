@@ -175,52 +175,163 @@ class ChipIntelligence:
 
     def _diagnose_battlefield_geography(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V8.0 · 动态演化版】诊断筹码的战场地形 (大一统信号)
-        - 核心升级: 引入“动态演化”因子。通过融合支撑强度斜率与阻力强度斜率，量化战场地形的
-                      有利度是在改善还是在恶化，从而对静态地形分进行动态调节，使信号更具前瞻性。
-        - 核心升级: 植入标准化的“真理探针”，输出所有原始数据、关键计算过程及最终结果。
+        【V9.0 · 诡道地形判别版】诊断筹码的战场地形，旨在提供一个双极的、具备诡道过滤和情境自适应能力的信号。
+        - 核心升级1: 核心地形优势量化：重新定义地形优势为“支撑强度 - 阻力强度”，直接输出双极分数 [-1, 1]，正值代表地形有利，负值代表地形不利。
+        - 核心升级2: 最小阻力路径动态调制：路径效率（真空区大小与穿越效率）不再简单相乘，而是作为非线性调制因子，放大或削弱核心地形优势。
+        - 核心升级3: 动态演化趋势强化：地形趋势变化（支撑与阻力斜率之差）作为乘数，对地形优势进行非线性强化，引入前瞻性。
+        - 核心升级4: 诡道地形过滤与惩罚：引入欺骗指数和筹码故障幅度作为诡道因子，对地形优势进行过滤和惩罚，例如在有利地形伴随诱多或虚假支撑时进行惩罚，在不利地形伴随诱空洗盘或虚假阻力时进行缓解。
+        - 核心升级5: 情境感知与自适应权重：引入筹码健康度、筹码波动不稳定性等情境因子，动态调整各维度的融合权重，使模型在不同市场环境下自适应地调整对地形特征的关注重点。
+        - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print("    -> [筹码层] 正在诊断“战场地形 (V8.0 · 动态演化版)”...")
+        print("    -> [筹码层] 正在诊断“战场地形 (V9.0 · 诡道地形判别版)”...")
+        # --- 探针: 原始输入 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        df_index = df.index
+        # --- 参数加载 ---
+        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
+        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
+        bg_params = get_param_value(p_conf.get('battlefield_geography_params'), {}) # 新增参数块
+        # V9.0 最小阻力路径动态调制参数
+        path_efficiency_mod_factor = get_param_value(bg_params.get('path_efficiency_mod_factor'), 0.5)
+        path_efficiency_non_linear_exponent = get_param_value(bg_params.get('path_efficiency_non_linear_exponent'), 1.5)
+        # V9.0 动态演化趋势强化参数
+        dynamic_evolution_mod_factor = get_param_value(bg_params.get('dynamic_evolution_mod_factor'), 0.3)
+        dynamic_evolution_non_linear_exponent = get_param_value(bg_params.get('dynamic_evolution_non_linear_exponent'), 1.2)
+        # V9.0 诡道地形过滤与惩罚参数
+        deception_signal_name = get_param_value(bg_params.get('deception_signal'), 'deception_index_D')
+        chip_fault_signal_name = get_param_value(bg_params.get('chip_fault_signal'), 'chip_fault_magnitude_D')
+        deception_penalty_sensitivity = get_param_value(bg_params.get('deception_penalty_sensitivity'), 0.6)
+        chip_fault_penalty_sensitivity = get_param_value(bg_params.get('chip_fault_penalty_sensitivity'), 0.4)
+        deception_mitigation_sensitivity = get_param_value(bg_params.get('deception_mitigation_sensitivity'), 0.3)
+        # V9.0 情境感知与自适应权重参数
+        context_modulator_signal_1_name = get_param_value(bg_params.get('context_modulator_signal_1'), 'chip_health_score_D')
+        context_modulator_signal_2_name = get_param_value(bg_params.get('context_modulator_signal_2'), 'VOLATILITY_INSTABILITY_INDEX_21d_D')
+        context_modulator_sensitivity_health = get_param_value(bg_params.get('context_modulator_sensitivity_health'), 0.4)
+        context_modulator_sensitivity_volatility = get_param_value(bg_params.get('context_modulator_sensitivity_volatility'), 0.3)
+        # --- 信号依赖校验 ---
         required_signals = [
             'dominant_peak_solidity_D', 'support_validation_strength_D', 'chip_fault_blockage_ratio_D',
             'pressure_rejection_strength_D', 'vacuum_zone_magnitude_D', 'vacuum_traversal_efficiency_D',
-            'SLOPE_5_support_validation_strength_D', 'SLOPE_5_pressure_rejection_strength_D'
+            'SLOPE_5_support_validation_strength_D', 'SLOPE_5_pressure_rejection_strength_D',
+            deception_signal_name, chip_fault_signal_name,
+            context_modulator_signal_1_name, context_modulator_signal_2_name
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_battlefield_geography"):
             return pd.Series(0.0, index=df.index)
-        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
-        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        df_index = df.index
-        # --- 维度1: 下方支撑 (Support Strength) ---
+        # --- 1. 下方支撑 (Support Strength) ---
         peak_solidity = self._get_safe_series(df, df, 'dominant_peak_solidity_D', 0.5)
         support_validation = self._get_safe_series(df, df, 'support_validation_strength_D', 0.0)
         solidity_score = get_adaptive_mtf_normalized_score(peak_solidity, df_index, tf_weights)
         validation_score = get_adaptive_mtf_normalized_score(support_validation, df_index, tf_weights)
         support_strength_score = (solidity_score * validation_score).pow(0.5)
-        # --- 维度2: 上方阻力 (Resistance Strength) ---
+        # --- 探针: 下方支撑 ---
+        if probe_dates_str and probe_date in df_index:
+            print(f"       - 原料: dominant_peak_solidity_D (raw): {peak_solidity.loc[probe_date]:.4f}")
+            print(f"       - 原料: support_validation_strength_D (raw): {support_validation.loc[probe_date]:.4f}")
+            print(f"       - 过程: solidity_score: {solidity_score.loc[probe_date]:.4f}")
+            print(f"       - 过程: validation_score: {validation_score.loc[probe_date]:.4f}")
+            print(f"       - 过程: support_strength_score: {support_strength_score.loc[probe_date]:.4f}")
+        # --- 2. 上方阻力 (Resistance Strength) ---
         fault_blockage = self._get_safe_series(df, df, 'chip_fault_blockage_ratio_D', 0.5)
         pressure_rejection = self._get_safe_series(df, df, 'pressure_rejection_strength_D', 0.5)
         blockage_score = get_adaptive_mtf_normalized_score(fault_blockage, df_index, tf_weights)
         rejection_score = get_adaptive_mtf_normalized_score(pressure_rejection, df_index, tf_weights)
         resistance_strength_score = (blockage_score * rejection_score).pow(0.5)
-        # --- 维度3: 最小阻力路径 (Path Score) ---
+        # --- 探针: 上方阻力 ---
+        if probe_dates_str and probe_date in df_index:
+            print(f"       - 原料: chip_fault_blockage_ratio_D (raw): {fault_blockage.loc[probe_date]:.4f}")
+            print(f"       - 原料: pressure_rejection_strength_D (raw): {pressure_rejection.loc[probe_date]:.4f}")
+            print(f"       - 过程: blockage_score: {blockage_score.loc[probe_date]:.4f}")
+            print(f"       - 过程: rejection_score: {rejection_score.loc[probe_date]:.4f}")
+            print(f"       - 过程: resistance_strength_score: {resistance_strength_score.loc[probe_date]:.4f}")
+        # --- 3. 核心地形优势量化 (Core Terrain Advantage Quantification - Bipolar) ---
+        # 正值代表地形有利 (支撑强于阻力)，负值代表地形不利 (阻力强于支撑)
+        base_terrain_advantage_score = support_strength_score - resistance_strength_score
+        # --- 探针: 核心地形优势 ---
+        if probe_dates_str and probe_date in df_index:
+            print(f"       - 过程: base_terrain_advantage_score: {base_terrain_advantage_score.loc[probe_date]:.4f}")
+        # --- 4. 最小阻力路径动态调制 (Dynamic Path of Least Resistance Modulation) ---
         vacuum_magnitude = self._get_safe_series(df, df, 'vacuum_zone_magnitude_D', 0.0)
         vacuum_efficiency = self._get_safe_series(df, df, 'vacuum_traversal_efficiency_D', 0.0)
-        magnitude_score = get_adaptive_mtf_normalized_score(vacuum_magnitude, df_index, tf_weights)
-        efficiency_score = get_adaptive_mtf_normalized_score(vacuum_efficiency, df_index, tf_weights)
-        path_score = (magnitude_score * efficiency_score).pow(0.5)
-        # --- 静态融合 ---
-        base_score_raw = support_strength_score * (1 - resistance_strength_score)
-        static_final_score = np.sign(base_score_raw) * (base_score_raw.abs() * path_score).pow(0.5)
-        # --- 维度4: 动态演化 (Dynamic Evolution) ---
+        norm_vacuum_magnitude = get_adaptive_mtf_normalized_score(vacuum_magnitude, df_index, tf_weights)
+        norm_vacuum_efficiency = get_adaptive_mtf_normalized_score(vacuum_efficiency, df_index, tf_weights)
+        path_efficiency = (norm_vacuum_magnitude * norm_vacuum_efficiency).pow(0.5) # 归一化到 [0, 1]
+        # 路径效率越高，对地形优势的放大作用越强
+        path_modulation_factor = (1 + path_efficiency * path_efficiency_mod_factor).pow(path_efficiency_non_linear_exponent)
+        # --- 探针: 最小阻力路径 ---
+        if probe_dates_str and probe_date in df_index:
+            print(f"       - 原料: vacuum_zone_magnitude_D (raw): {vacuum_magnitude.loc[probe_date]:.4f}")
+            print(f"       - 原料: vacuum_traversal_efficiency_D (raw): {vacuum_efficiency.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_vacuum_magnitude: {norm_vacuum_magnitude.loc[probe_date]:.4f}")
+            print(f"       - 过程: norm_vacuum_efficiency: {norm_vacuum_efficiency.loc[probe_date]:.4f}")
+            print(f"       - 过程: path_efficiency: {path_efficiency.loc[probe_date]:.4f}")
+            print(f"       - 过程: path_modulation_factor: {path_modulation_factor.loc[probe_date]:.4f}")
+        # --- 5. 动态演化趋势强化 (Dynamic Evolution Trend Reinforcement) ---
         support_trend_raw = self._get_safe_series(df, df, 'SLOPE_5_support_validation_strength_D', 0.0)
         resistance_trend_raw = self._get_safe_series(df, df, 'SLOPE_5_pressure_rejection_strength_D', 0.0)
         support_trend_score = get_adaptive_mtf_normalized_bipolar_score(support_trend_raw, df_index, tf_weights)
         resistance_trend_score = get_adaptive_mtf_normalized_bipolar_score(resistance_trend_raw, df_index, tf_weights)
+        # 地形优势变化趋势 (正值代表趋势改善，负值代表趋势恶化)
         terrain_advantage_change = support_trend_score - resistance_trend_score
-        dynamic_evolution_factor = 1.0 + (terrain_advantage_change * 0.25) # 变化趋势的影响力设为25%
-        # --- 最终动态融合 ---
-        final_score = static_final_score * dynamic_evolution_factor
+        # 趋势改善时，对地形优势进行放大；趋势恶化时，对地形优势进行削弱
+        dynamic_evolution_modulator = (1 + terrain_advantage_change * dynamic_evolution_mod_factor).pow(dynamic_evolution_non_linear_exponent)
+        dynamic_evolution_modulator = dynamic_evolution_modulator.clip(0.5, 1.5) # 限制调制范围
+        # --- 探针: 动态演化趋势 ---
+        if probe_dates_str and probe_date in df_index:
+            print(f"       - 原料: SLOPE_5_support_validation_strength_D (raw): {support_trend_raw.loc[probe_date]:.4f}")
+            print(f"       - 原料: SLOPE_5_pressure_rejection_strength_D (raw): {resistance_trend_raw.loc[probe_date]:.4f}")
+            print(f"       - 过程: support_trend_score: {support_trend_score.loc[probe_date]:.4f}")
+            print(f"       - 过程: resistance_trend_score: {resistance_trend_score.loc[probe_date]:.4f}")
+            print(f"       - 过程: terrain_advantage_change: {terrain_advantage_change.loc[probe_date]:.4f}")
+            print(f"       - 过程: dynamic_evolution_modulator: {dynamic_evolution_modulator.loc[probe_date]:.4f}")
+        # --- 6. 诡道地形过滤与惩罚 (Deceptive Terrain Filtering & Penalty) ---
+        deception_raw = self._get_safe_series(df, df, deception_signal_name, 0.0)
+        norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_raw, df_index, tf_weights) # 归一化到 [-1, 1]
+        chip_fault_raw = self._get_safe_series(df, df, chip_fault_signal_name, 0.0)
+        norm_chip_fault = get_adaptive_mtf_normalized_bipolar_score(chip_fault_raw, df_index, tf_weights) # 归一化到 [-1, 1]
+        deception_filter_factor = pd.Series(1.0, index=df_index)
+        # 地形有利 (base_terrain_advantage_score > 0) 且伴随诱多 (norm_deception > 0) 或虚假支撑 (norm_chip_fault > 0) -> 惩罚
+        bull_trap_penalty_mask = (base_terrain_advantage_score > 0) & ((norm_deception > 0) | (norm_chip_fault > 0))
+        deception_filter_factor.loc[bull_trap_penalty_mask] = \
+            1 - ((norm_deception.loc[bull_trap_penalty_mask].clip(lower=0) * deception_penalty_sensitivity) + \
+                 (norm_chip_fault.loc[bull_trap_penalty_mask].clip(lower=0) * chip_fault_penalty_sensitivity)).clip(0, 1)
+        # 地形不利 (base_terrain_advantage_score < 0) 且伴随诱空洗盘 (norm_deception < 0) 或虚假阻力 (norm_chip_fault < 0) -> 缓解
+        bear_trap_mitigation_mask = (base_terrain_advantage_score < 0) & ((norm_deception < 0) | (norm_chip_fault < 0))
+        deception_filter_factor.loc[bear_trap_mitigation_mask] = \
+            1 + ((norm_deception.loc[bear_trap_mitigation_mask].abs().clip(lower=0) * deception_mitigation_sensitivity) + \
+                 (norm_chip_fault.loc[bear_trap_mitigation_mask].abs().clip(lower=0) * deception_mitigation_sensitivity)).clip(0, 0.5) # 限制缓解幅度
+        deception_filter_factor = deception_filter_factor.clip(0.1, 2.0) # 限制过滤因子范围
+        # --- 探针: 诡道地形过滤 ---
+        if probe_dates_str and probe_date in df_index:
+            print(f"       - 原料: {deception_signal_name} (raw): {deception_raw.loc[probe_date]:.4f}")
+            print(f"       - 過程: norm_deception: {norm_deception.loc[probe_date]:.4f}")
+            print(f"       - 原料: {chip_fault_signal_name} (raw): {chip_fault_raw.loc[probe_date]:.4f}")
+            print(f"       - 過程: norm_chip_fault: {norm_chip_fault.loc[probe_date]:.4f}")
+            print(f"       - 過程: deception_filter_factor: {deception_filter_factor.loc[probe_date]:.4f}")
+        # --- 7. 情境感知与自适应权重 (Contextual Awareness & Adaptive Weighting) ---
+        chip_health_raw = self._get_safe_series(df, df, context_modulator_signal_1_name, 0.0)
+        norm_chip_health = get_adaptive_mtf_normalized_score(chip_health_raw, df_index, ascending=True, tf_weights=tf_weights) # 归一化到 [0, 1]
+        volatility_instability_raw = self._get_safe_series(df, df, context_modulator_signal_2_name, 0.0)
+        norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=False, tf_weights=tf_weights) # 波动性越高，值越小 (负向影响)
+        # 融合情境调制器：健康度越高，波动性越低，情境因子越接近1，地形信号越可靠
+        context_modulator = (
+            (1 + norm_chip_health * context_modulator_sensitivity_health) *
+            (1 + norm_volatility_instability * context_modulator_sensitivity_volatility)
+        ).clip(0.5, 1.5) # 限制调制范围
+        # --- 探针: 情境调制器 ---
+        if probe_dates_str and probe_date in df_index:
+            print(f"       - 原料: {context_modulator_signal_1_name} (raw): {chip_health_raw.loc[probe_date]:.4f}")
+            print(f"       - 過程: norm_chip_health: {norm_chip_health.loc[probe_date]:.4f}")
+            print(f"       - 原料: {context_modulator_signal_2_name} (raw): {volatility_instability_raw.loc[probe_date]:.4f}")
+            print(f"       - 過程: norm_volatility_instability: {norm_volatility_instability.loc[probe_date]:.4f}")
+            print(f"       - 過程: context_modulator: {context_modulator.loc[probe_date]:.4f}")
+        # --- 最终融合 ---
+        # 核心地形优势 * 路径调制 * 动态演化调制 * 诡道过滤 * 情境调制
+        final_score = base_terrain_advantage_score * path_modulation_factor * dynamic_evolution_modulator * deception_filter_factor * context_modulator
+        # --- 探针: 最终结果 ---
+        if probe_dates_str and probe_date in df_index:
+            print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
@@ -2096,12 +2207,6 @@ class ChipIntelligence:
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         df_index = df.index
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date in df_index:
-                print(f"    -> [和谐拐点探针] @ {probe_date.date()}:")
-                print(f"       - 原料: harmony_score: {harmony_score.loc[probe_date]:.4f}")
         # --- 参数加载 ---
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -2151,12 +2256,6 @@ class ChipIntelligence:
         # 使用双极归一化，保留方向和强度
         norm_velocity = get_adaptive_mtf_normalized_bipolar_score(harmony_velocity, df_index, tf_weights)
         norm_acceleration = get_adaptive_mtf_normalized_bipolar_score(harmony_acceleration, df_index, tf_weights)
-        # --- 探针: 速度与加速度 ---
-        if probe_dates_str and probe_date in df_index:
-            print(f"       - 过程: harmony_velocity: {harmony_velocity.loc[probe_date]:.4f}")
-            print(f"       - 过程: harmony_acceleration: {harmony_acceleration.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_velocity: {norm_velocity.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_acceleration: {norm_acceleration.loc[probe_date]:.4f}")
         # --- 2. 非对称拐点动能融合 (Asymmetric Inflection Momentum Fusion) ---
         # 底部拐点强度 (速度负 -> 正, 或速度负但加速度正)
         positive_inflection_strength = pd.Series(0.0, index=df_index)
@@ -2174,11 +2273,6 @@ class ChipIntelligence:
             np.tanh((norm_velocity.loc[negative_inflection_mask].abs().clip(lower=0) + norm_acceleration.loc[negative_inflection_mask].abs().clip(lower=0)) * negative_strength_tanh_factor)
         # 综合拐点强度 (保留方向)
         inflection_strength = positive_inflection_strength - negative_inflection_strength
-        # --- 探针: 拐点强度 ---
-        if probe_dates_str and probe_date in df_index:
-            print(f"       - 过程: positive_inflection_strength: {positive_inflection_strength.loc[probe_date]:.4f}")
-            print(f"       - 过程: negative_inflection_strength: {negative_inflection_strength.loc[probe_date]:.4f}")
-            print(f"       - 过程: inflection_strength: {inflection_strength.loc[probe_date]:.4f}")
         # --- 3. 动态阈值自适应 (Dynamic Threshold Adaptation) ---
         threshold_modulator_raw = self._get_safe_series(df, df, threshold_modulator_signal_name, 0.0, method_name="_diagnose_harmony_inflection")
         # 归一化到 [0, 1]，波动性越高，值越大
@@ -2188,12 +2282,6 @@ class ChipIntelligence:
         dynamic_high_harmony_threshold = base_high_harmony_threshold * (1 + norm_threshold_modulator * threshold_modulator_sensitivity)
         dynamic_low_harmony_threshold = dynamic_low_harmony_threshold.clip(0.05, 0.3) # 限制合理范围
         dynamic_high_harmony_threshold = dynamic_high_harmony_threshold.clip(0.7, 0.95) # 限制合理范围
-        # --- 探针: 动态阈值 ---
-        if probe_dates_str and probe_date in df_index:
-            print(f"       - 原料: {threshold_modulator_signal_name} (raw): {threshold_modulator_raw.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_threshold_modulator: {norm_threshold_modulator.loc[probe_date]:.4f}")
-            print(f"       - 过程: dynamic_low_harmony_threshold: {dynamic_low_harmony_threshold.loc[probe_date]:.4f}")
-            print(f"       - 过程: dynamic_high_harmony_threshold: {dynamic_high_harmony_threshold.loc[probe_date]:.4f}")
         # --- 4. 动态位置敏感度 (Dynamic Position Sensitivity) ---
         position_sensitivity_factor = pd.Series(mid_harmony_neutral_factor, index=df_index)
         # 低和谐度区域 (0 到 dynamic_low_harmony_threshold)
@@ -2204,9 +2292,6 @@ class ChipIntelligence:
         high_harmony_zone_mask = harmony_score > dynamic_high_harmony_threshold
         position_sensitivity_factor.loc[high_harmony_zone_mask & (inflection_strength < 0)] = high_harmony_boost_factor # 增强负向拐点
         position_sensitivity_factor.loc[high_harmony_zone_mask & (inflection_strength > 0)] = 1 / high_harmony_boost_factor # 削弱正向拐点
-        # --- 探针: 位置敏感度 ---
-        if probe_dates_str and probe_date in df_index:
-            print(f"       - 过程: position_sensitivity_factor: {position_sensitivity_factor.loc[probe_date]:.4f}")
         # --- 5. 诡道博弈过滤与惩罚 (Deceptive Game Filtering & Penalty) ---
         deception_raw = self._get_safe_series(df, df, deception_signal_name, 0.0, method_name="_diagnose_harmony_inflection")
         norm_deception = get_adaptive_mtf_normalized_bipolar_score(deception_raw, df_index, tf_weights) # 归一化到 [-1, 1]
@@ -2221,14 +2306,6 @@ class ChipIntelligence:
         deception_modulator.loc[bear_trap_mitigation_mask] = 1 + (norm_wash_trade.loc[bear_trap_mitigation_mask] * wash_trade_mitigation_sensitivity).clip(0, 0.5) # 限制缓解幅度
         # 应用诡道调制
         inflection_strength_modulated = inflection_strength * deception_modulator
-        # --- 探针: 诡道博弈过滤 ---
-        if probe_dates_str and probe_date in df_index:
-            print(f"       - 原料: {deception_signal_name} (raw): {deception_raw.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_deception: {norm_deception.loc[probe_date]:.4f}")
-            print(f"       - 原料: {wash_trade_signal_name} (raw): {wash_trade_raw.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_wash_trade: {norm_wash_trade.loc[probe_date]:.4f}")
-            print(f"       - 过程: deception_modulator: {deception_modulator.loc[probe_date]:.4f}")
-            print(f"       - 过程: inflection_strength_modulated: {inflection_strength_modulated.loc[probe_date]:.4f}")
         # --- 6. 拐点延续性确认奖励 (Inflection Persistence Confirmation Bonus) ---
         persistence_bonus = pd.Series(0.0, index=df_index)
         # 计算拐点方向的短期延续性
@@ -2240,9 +2317,6 @@ class ChipIntelligence:
         negative_persistence_mask = (inflection_strength_modulated < 0) & \
                                     (inflection_strength_modulated.rolling(window=persistence_period, min_periods=1).mean() < 0)
         persistence_bonus.loc[negative_persistence_mask] = -persistence_bonus_factor
-        # --- 探针: 延续性确认 ---
-        if probe_dates_str and probe_date in df_index:
-            print(f"       - 过程: persistence_bonus: {persistence_bonus.loc[probe_date]:.4f}")
         # --- 7. 增强情境调制器 (Enhanced Contextual Modulators) ---
         # 筹码健康度 (chip_health_score_D)
         chip_health_raw = self._get_safe_series(df, df, context_modulator_signal_1_name, 0.0, method_name="_diagnose_harmony_inflection")
@@ -2260,21 +2334,9 @@ class ChipIntelligence:
             (1 + norm_volatility_instability * context_modulator_sensitivity_volatility) *
             (1 + norm_main_force_conviction * context_modulator_sensitivity_conviction)
         ).clip(0.5, 2.0) # 限制调制范围
-        # --- 探针: 情境调制器 ---
-        if probe_dates_str and probe_date in df_index:
-            print(f"       - 原料: {context_modulator_signal_1_name} (raw): {chip_health_raw.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_chip_health: {norm_chip_health.loc[probe_date]:.4f}")
-            print(f"       - 原料: {context_modulator_signal_2_name} (raw): {volatility_instability_raw.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_volatility_instability: {norm_volatility_instability.loc[probe_date]:.4f}")
-            print(f"       - 原料: {context_modulator_signal_3_name} (raw): {main_force_conviction_raw.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_main_force_conviction: {norm_main_force_conviction.loc[probe_date]:.4f}")
-            print(f"       - 过程: context_modulator: {context_modulator.loc[probe_date]:.4f}")
         # --- 最终融合 ---
         # 拐点强度 (诡道调制后) * 动态位置敏感度 * 情境调制器 + 延续性奖励
         final_score = (inflection_strength_modulated * position_sensitivity_factor * context_modulator) + persistence_bonus
-        # --- 探针: 最终结果 ---
-        if probe_dates_str and probe_date in df_index:
-            print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).fillna(0.0).astype(np.float32)
 
 
