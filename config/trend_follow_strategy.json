@@ -2717,7 +2717,7 @@
           "comment_smoothing_ema_span": "动能演化趋势平滑EMA周期。"
         },
         "fund_flow_divergence_params": {
-          "description": "【V3.0 · 深度共振与微观意图强化版】资金流看涨/看跌背离信号的专属参数。",
+          "description": "【V4.0 · 动态共振与微观意图精炼版】资金流看涨/看跌背离信号的专属参数。",
           "purity_weights": {
             "deception_inverse": 0.5,
             "wash_trade_inverse": 0.5
@@ -2735,7 +2735,7 @@
           },
           "comment_context_modulator_weights": "战略态势、资金流可信度和散户情绪对背离信号的情境调制权重。",
           "non_linear_exponent": 1.2,
-          "comment_non_linear_exponent": "最终融合的非线性指数，用于增强共振效应。",
+          "comment_non_linear_exponent": "最终融合的非线性指数基准值。",
           "bullish_divergence_threshold": 0.1,
           "comment_bullish_divergence_threshold": "看涨背离信号的最低有效阈值。",
           "bearish_divergence_threshold": 0.1,
@@ -2755,11 +2755,33 @@
           "dynamic_context_modulator_sensitivity": {
             "volatility_instability": 0.2,
             "flow_credibility": 0.15,
-            "trend_vitality": 0.1
+            "trend_vitality": 0.1,
+            "market_sentiment": 0.1
           },
-          "comment_dynamic_context_modulator_sensitivity": "动态情境调制器对信号的敏感度。"
+          "comment_dynamic_context_modulator_sensitivity": "动态情境调制器对信号的敏感度。",
+          "micro_intent_signals_weights": {
+            "order_book_imbalance": 0.3,
+            "exhaustion_rate": 0.3,
+            "micro_impact_elasticity": 0.2,
+            "main_force_t0_efficiency": 0.2
+          },
+          "comment_micro_intent_signals_weights": "构建全面微观意图强度的信号权重。",
+          "bullish_exponent_context_factors": {
+            "trend_vitality": 0.7,
+            "volatility_inverse": 0.3
+          },
+          "comment_bullish_exponent_context_factors": "影响看涨非线性指数的上下文因子及其权重。",
+          "bearish_exponent_context_factors": {
+            "volatility_instability": 0.6,
+            "flow_credibility_inverse": 0.4
+          },
+          "comment_bearish_exponent_context_factors": "影响看跌非线性指数的上下文因子及其权重。",
+          "purity_context_mod_factors": {
+            "market_sentiment": 0.5,
+            "flow_credibility": 0.5
+          },
+          "comment_purity_context_mod_factors": "影响纯度调制器敏感度的上下文因子及其权重。"
         }
-
       },
       "fusion_accumulation_inflection_params": {
         "description": "【V2.0 · 大一统同步版】吸筹拐点信号融合参数。",

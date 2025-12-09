@@ -1224,8 +1224,9 @@ class FundFlowIntelligence:
 
     def _calculate_mtf_cohesion_divergence(self, df: pd.DataFrame, signal_base_name: str, short_periods: List[int], long_periods: List[int], is_bipolar: bool, tf_weights: Dict, probe_date: pd.Timestamp, is_probe_active: bool, method_name: str) -> pd.Series:
         """
-        【V3.0 新增】计算多时间框架的共振/背离因子。
-        分析短期和长期斜率/加速度的一致性。
+        【V4.0 升级】计算双极性多时间框架的共振/背离因子。
+        分析短期和长期斜率/加速度的一致性及其方向。
+        返回 -1 到 1 的分数，正值表示看涨共振，负值表示看跌共振。
         """
         short_slope_scores = []
         short_accel_scores = []
@@ -1259,8 +1260,8 @@ class FundFlowIntelligence:
                 long_slope_scores.append(get_adaptive_mtf_normalized_bipolar_score(slope_raw, df.index, tf_weights))
                 long_accel_scores.append(get_adaptive_mtf_normalized_bipolar_score(accel_raw, df.index, tf_weights))
             else:
-                long_slope_scores.append(get_adaptive_mtf_normalized_score(slope_raw, df.index, ascending=True, tf_weights=tf_weights))
-                long_accel_scores.append(get_adaptive_mtf_normalized_score(accel_raw, df.index, ascending=True, tf_weights=tf_weights))
+                long_slope_scores.append(get_adaptive_mtf_normalized_score(raw_data, df.index, ascending=True, tf_weights=tf_weights))
+                long_accel_scores.append(get_adaptive_mtf_normalized_score(raw_data, df.index, ascending=True, tf_weights=tf_weights))
         # 平均短期和长期分数
         avg_short_slope = sum(short_slope_scores) / len(short_slope_scores) if short_slope_scores else pd.Series(0.0, index=df.index)
         avg_short_accel = sum(short_accel_scores) / len(short_accel_scores) if short_accel_scores else pd.Series(0.0, index=df.index)
@@ -1271,27 +1272,31 @@ class FundFlowIntelligence:
             print(f"       - 过程: avg_short_accel ({signal_base_name}): {avg_short_accel.loc[probe_date]:.4f}")
             print(f"       - 过程: avg_long_slope ({signal_base_name}): {avg_long_slope.loc[probe_date]:.4f}")
             print(f"       - 过程: avg_long_accel ({signal_base_name}): {avg_long_accel.loc[probe_date]:.4f}")
-        # 计算共振/背离
-        # 斜率共振：短期和长期斜率方向一致且强度接近
-        slope_cohesion = (1 - (avg_short_slope - avg_long_slope).abs()).clip(0, 1)
-        # 加速度共振：短期和长期加速度方向一致且强度接近
-        accel_cohesion = (1 - (avg_short_accel - avg_long_accel).abs()).clip(0, 1)
-        # 综合共振因子
-        cohesion_factor = (slope_cohesion + accel_cohesion) / 2
-        # 考虑方向一致性，如果方向相反，则惩罚
-        direction_penalty = (np.sign(avg_short_slope) * np.sign(avg_long_slope) < 0).astype(float) * 0.5 # 方向相反惩罚0.5
-        cohesion_factor = cohesion_factor * (1 - direction_penalty)
-        return cohesion_factor.astype(np.float32)
+        # 计算双极性共振/背离分数
+        # 1. 方向一致性：如果短期和长期方向一致，则为正；相反则为负。
+        direction_alignment = np.sign(avg_short_slope) * np.sign(avg_long_slope)
+        # 2. 强度一致性：短期和长期强度越接近，一致性越高。
+        # 使用几何平均来衡量强度一致性，并确保其为正值
+        strength_cohesion_slope = (1 - (avg_short_slope.abs() - avg_long_slope.abs()).abs()).clip(0, 1)
+        strength_cohesion_accel = (1 - (avg_short_accel.abs() - avg_long_accel.abs()).abs()).clip(0, 1)
+        # 综合强度一致性
+        strength_cohesion = (strength_cohesion_slope + strength_cohesion_accel) / 2
+        # 3. 最终双极性共振分数：方向 * 强度
+        # 如果方向一致，则强度一致性越高，分数越高（正向或负向）
+        # 如果方向不一致，则分数趋近于0
+        mtf_resonance_score = strength_cohesion * direction_alignment
+        return mtf_resonance_score.astype(np.float32)
 
     def _diagnose_fund_flow_divergence_signals(self, df: pd.DataFrame, norm_window: int, axiom_divergence: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """
-        【V3.0 · 深度共振与微观意图强化版】诊断资金流看涨/看跌背离信号。
-        - 核心升级：1) 多时间框架共振/背离因子：明确量化资金流核心指标在不同时间框架（短期与中长期）斜率和加速度之间的一致性或冲突性，作为独立的调制器。
-                    2) 微观意图强化与宏观背离：更深入地利用微观资金流信号，并与宏观资金流信号对比，识别微观与宏观层面的资金流意图背离。
-                    3) 情境自适应权重与非线性融合优化：进一步细化情境调制器，根据市场波动率、资金流可信度、市场情绪等动态调整各组件权重和信号敏感度。
+        【V4.0 · 动态共振与微观意图精炼版】诊断资金流看涨/看跌背离信号。
+        - 核心升级：1) 双极性多时间框架共振/背离因子：将MTF共振因子升级为-1到1的双极性分数，直接指示看涨/看跌共振或冲突。
+                    2) 更全面的微观意图强度：整合更多微观资金流信号（如冲击弹性、T0效率）及其动态，构建更鲁棒的微观意图分数。
+                    3) 看涨/看跌专属动态非线性指数：为看涨和看跌信号分别设置动态调整的非线性指数，实现更精细的放大/抑制。
+                    4) 情境自适应纯度调制：根据市场情绪和资金流可信度动态调整纯度过滤的敏感度。
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
-        print("    -> [资金流层] 正在诊断“资金流看涨/看跌背离信号 (V3.0 · 深度共振与微观意图强化版)”...")
+        print("    -> [资金流层] 正在诊断“资金流看涨/看跌背离信号 (V4.0 · 动态共振与微观意图精炼版)”...")
         # --- 探针: 原始输入 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -1312,27 +1317,32 @@ class FundFlowIntelligence:
         purity_weights = get_param_value(ffd_params.get('purity_weights'), {"deception_inverse": 0.5, "wash_trade_inverse": 0.5})
         confirmation_weights = get_param_value(ffd_params.get('confirmation_weights'), {"conviction_positive": 0.5, "flow_momentum_positive": 0.5})
         context_modulator_weights = get_param_value(ffd_params.get('context_modulator_weights'), {"strategic_posture": 0.4, "flow_credibility": 0.3, "retail_panic_fomo_context": 0.3})
-        non_linear_exponent = get_param_value(ffd_params.get('non_linear_exponent'), 1.2)
+        non_linear_exponent_base = get_param_value(ffd_params.get('non_linear_exponent'), 1.2)
         bullish_divergence_threshold = get_param_value(ffd_params.get('bullish_divergence_threshold'), 0.1)
         bearish_divergence_threshold = get_param_value(ffd_params.get('bearish_divergence_threshold'), 0.1)
         retail_panic_fomo_sensitivity = get_param_value(ffd_params.get('retail_panic_fomo_sensitivity'), 0.5)
-        # V3.0 新增参数
+        # V4.0 新增参数
         mtf_resonance_factor_weights = get_param_value(ffd_params.get('mtf_resonance_factor_weights'), {"nmfnf_cohesion": 0.6, "conviction_cohesion": 0.4})
         micro_macro_divergence_weights = get_param_value(ffd_params.get('micro_macro_divergence_weights'), {"micro_intent_strength": 0.5, "macro_flow_momentum": 0.5})
-        dynamic_context_modulator_sensitivity = get_param_value(ffd_params.get('dynamic_context_modulator_sensitivity'), {"volatility_instability": 0.2, "flow_credibility": 0.15, "trend_vitality": 0.1})
+        dynamic_context_modulator_sensitivity = get_param_value(ffd_params.get('dynamic_context_modulator_sensitivity'), {"volatility_instability": 0.2, "flow_credibility": 0.15, "trend_vitality": 0.1, "market_sentiment": 0.1})
+        micro_intent_signals_weights = get_param_value(ffd_params.get('micro_intent_signals_weights'), {"order_book_imbalance": 0.3, "exhaustion_rate": 0.3, "micro_impact_elasticity": 0.2, "main_force_t0_efficiency": 0.2})
+        bullish_exponent_context_factors = get_param_value(ffd_params.get('bullish_exponent_context_factors'), {"trend_vitality": 0.7, "volatility_inverse": 0.3})
+        bearish_exponent_context_factors = get_param_value(ffd_params.get('bearish_exponent_context_factors'), {"volatility_instability": 0.6, "flow_credibility_inverse": 0.4})
+        purity_context_mod_factors = get_param_value(ffd_params.get('purity_context_mod_factors'), {"market_sentiment": 0.5, "flow_credibility": 0.5})
         # --- 信号依赖校验 ---
         required_signals = [
             'SCORE_FF_AXIOM_CONVICTION', 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 'SCORE_FF_STRATEGIC_POSTURE',
             'flow_credibility_index_D', 'retail_panic_surrender_index_D', 'retail_fomo_premium_index_D',
             'SLOPE_5_deception_index_D', 'SLOPE_13_deception_index_D', 'SLOPE_21_deception_index_D',
             'SLOPE_5_wash_trade_intensity_D', 'SLOPE_13_wash_trade_intensity_D', 'SLOPE_21_wash_trade_intensity_D',
-            # V3.0 新增依赖
+            # V4.0 新增依赖
             'SLOPE_5_NMFNF_D', 'SLOPE_13_NMFNF_D', 'SLOPE_21_NMFNF_D', 'SLOPE_55_NMFNF_D',
             'ACCEL_5_NMFNF_D', 'ACCEL_13_NMFNF_D', 'ACCEL_21_NMFNF_D', 'ACCEL_55_NMFNF_D',
             'SLOPE_5_main_force_conviction_index_D', 'SLOPE_13_main_force_conviction_index_D', 'SLOPE_21_main_force_conviction_index_D', 'SLOPE_55_main_force_conviction_index_D',
             'ACCEL_5_main_force_conviction_index_D', 'ACCEL_13_main_force_conviction_index_D', 'ACCEL_21_main_force_conviction_index_D', 'ACCEL_55_main_force_conviction_index_D',
             'order_book_imbalance_D', 'buy_quote_exhaustion_rate_D', 'sell_quote_exhaustion_rate_D', # 微观意图信号
-            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'trend_vitality_index_D' # 动态情境调制器
+            'micro_impact_elasticity_D', 'main_force_t0_efficiency_D', # V4.0 更全面的微观意图信号
+            'VOLATILITY_INSTABILITY_INDEX_21d_D', 'trend_vitality_index_D', 'market_sentiment_score_D' # 动态情境调制器
         ]
         if not self._validate_required_signals(df, required_signals, "_diagnose_fund_flow_divergence_signals", atomic_states=self.strategy.atomic_states):
             return pd.Series(0.0, index=df.index), pd.Series(0.0, index=df.index)
@@ -1369,17 +1379,23 @@ class FundFlowIntelligence:
         if is_probe_active: print(f"       - 原料: retail_panic_surrender_index_D (raw): {retail_panic_raw.loc[probe_date]:.4f}")
         retail_fomo_raw = self._get_safe_series(df, df, 'retail_fomo_premium_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
         if is_probe_active: print(f"       - 原料: retail_fomo_premium_index_D (raw): {retail_fomo_raw.loc[probe_date]:.4f}")
-        # V3.0 新增原始数据
+        # V4.0 新增原始数据
         order_book_imbalance_raw = self._get_safe_series(df, df, 'order_book_imbalance_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
         if is_probe_active: print(f"       - 原料: order_book_imbalance_D (raw): {order_book_imbalance_raw.loc[probe_date]:.4f}")
         buy_exhaustion_raw = self._get_safe_series(df, df, 'buy_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
         if is_probe_active: print(f"       - 原料: buy_quote_exhaustion_rate_D (raw): {buy_exhaustion_raw.loc[probe_date]:.4f}")
         sell_exhaustion_raw = self._get_safe_series(df, df, 'sell_quote_exhaustion_rate_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
         if is_probe_active: print(f"       - 原料: sell_quote_exhaustion_rate_D (raw): {sell_exhaustion_raw.loc[probe_date]:.4f}")
+        micro_impact_elasticity_raw = self._get_safe_series(df, df, 'micro_impact_elasticity_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        if is_probe_active: print(f"       - 原料: micro_impact_elasticity_D (raw): {micro_impact_elasticity_raw.loc[probe_date]:.4f}")
+        main_force_t0_efficiency_raw = self._get_safe_series(df, df, 'main_force_t0_efficiency_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        if is_probe_active: print(f"       - 原料: main_force_t0_efficiency_D (raw): {main_force_t0_efficiency_raw.loc[probe_date]:.4f}")
         volatility_instability_raw = self._get_safe_series(df, df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
         if is_probe_active: print(f"       - 原料: VOLATILITY_INSTABILITY_INDEX_21d_D (raw): {volatility_instability_raw.loc[probe_date]:.4f}")
         trend_vitality_raw = self._get_safe_series(df, df, 'trend_vitality_index_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
         if is_probe_active: print(f"       - 原料: trend_vitality_index_D (raw): {trend_vitality_raw.loc[probe_date]:.4f}")
+        market_sentiment_raw = self._get_safe_series(df, df, 'market_sentiment_score_D', 0.0, method_name="_diagnose_fund_flow_divergence_signals")
+        if is_probe_active: print(f"       - 原料: market_sentiment_score_D (raw): {market_sentiment_raw.loc[probe_date]:.4f}")
         # --- 1. 纯度过滤 (Purity Filter) ---
         # 欺骗指数多时间框架融合
         norm_deception_slope_5 = get_adaptive_mtf_normalized_bipolar_score(deception_slope_5_raw, df_index, self.tf_weights_ff)
@@ -1399,10 +1415,18 @@ class FundFlowIntelligence:
             norm_wash_trade_slope_13 * 0.3 +
             norm_wash_trade_slope_21 * 0.2
         ).clip(0, 1)
+        # V4.0 情境自适应纯度调制
+        norm_market_sentiment = get_adaptive_mtf_normalized_bipolar_score(market_sentiment_raw, df_index, self.tf_weights_ff)
+        norm_flow_credibility_purity = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        purity_context_mod = (
+            (1 + norm_market_sentiment.abs() * np.sign(norm_market_sentiment) * purity_context_mod_factors.get('market_sentiment', 0.5)) *
+            (1 + (norm_flow_credibility_purity - 0.5) * purity_context_mod_factors.get('flow_credibility', 0.5))
+        ).clip(0.5, 1.5)
+        if is_probe_active: print(f"       - 过程: purity_context_mod (V4.0): {purity_context_mod.loc[probe_date]:.4f}")
         # 看涨纯度：欺骗指数负向（诱空）且对倒强度低
-        bullish_purity_modulator = (1 + norm_deception_multi_tf.clip(upper=0).abs() * purity_weights.get('deception_inverse', 0.5)) * (1 - norm_wash_trade_multi_tf * purity_weights.get('wash_trade_inverse', 0.5))
+        bullish_purity_modulator = (1 + norm_deception_multi_tf.clip(upper=0).abs() * purity_weights.get('deception_inverse', 0.5) * purity_context_mod) * (1 - norm_wash_trade_multi_tf * purity_weights.get('wash_trade_inverse', 0.5) * purity_context_mod)
         # 看跌纯度：欺骗指数正向（诱多）且对倒强度低
-        bearish_purity_modulator = (1 + norm_deception_multi_tf.clip(lower=0) * purity_weights.get('deception_inverse', 0.5)) * (1 - norm_wash_trade_multi_tf * purity_weights.get('wash_trade_inverse', 0.5))
+        bearish_purity_modulator = (1 + norm_deception_multi_tf.clip(lower=0) * purity_weights.get('deception_inverse', 0.5) * purity_context_mod) * (1 - norm_wash_trade_multi_tf * purity_weights.get('wash_trade_inverse', 0.5) * purity_context_mod)
         if is_probe_active:
             print(f"       - 过程: norm_deception_multi_tf (Purity): {norm_deception_multi_tf.loc[probe_date]:.4f}")
             print(f"       - 过程: norm_wash_trade_multi_tf (Purity): {norm_wash_trade_multi_tf.loc[probe_date]:.4f}")
@@ -1454,34 +1478,31 @@ class FundFlowIntelligence:
             print(f"       - 过程: bearish_retail_context_mod (Context): {bearish_retail_context_mod.loc[probe_date]:.4f}")
             print(f"       - 过程: bullish_context_modulator (Context): {bullish_context_modulator.loc[probe_date]:.4f}")
             print(f"       - 过程: bearish_context_modulator (Context): {bearish_context_modulator.loc[probe_date]:.4f}")
-        # --- V3.0 新增: 多时间框架共振/背离因子 (MTF Resonance/Divergence Factor) ---
+        # --- V4.0 升级: 双极性多时间框架共振/背离因子 (Bipolar MTF Resonance/Divergence Factor) ---
         # 短期和长期时间框架定义
         short_periods = [5, 13]
         long_periods = [21, 55]
-        nmfnf_cohesion_factor = self._calculate_mtf_cohesion_divergence(df, 'NMFNF_D', short_periods, long_periods, True, self.tf_weights_ff, probe_date, is_probe_active, "_diagnose_fund_flow_divergence_signals")
-        conviction_cohesion_factor = self._calculate_mtf_cohesion_divergence(df, 'main_force_conviction_index_D', short_periods, long_periods, True, self.tf_weights_ff, probe_date, is_probe_active, "_diagnose_fund_flow_divergence_signals")
-        mtf_resonance_factor = (
-            nmfnf_cohesion_factor * mtf_resonance_factor_weights.get('nmfnf_cohesion', 0.6) +
-            conviction_cohesion_factor * mtf_resonance_factor_weights.get('conviction_cohesion', 0.4)
-        ).clip(0, 1)
-        if is_probe_active: print(f"       - 过程: mtf_resonance_factor (V3.0): {mtf_resonance_factor.loc[probe_date]:.4f}")
-        # --- V3.0 新增: 微观意图强化与宏观背离 (Micro-Intent Amplification & Macro Divergence) ---
-        # 强化微观意图强度 (使用 axiom_divergence 中已计算的 micro_intent_tension_score)
-        # 注意：axiom_divergence 已经包含了 micro_intent_tension_score，这里直接使用其值
-        # 如果需要更精细的微观意图，可以从 axiom_divergence 的内部组件中提取或重新计算
-        # 假设 axiom_divergence 已经包含了微观意图的综合信息，这里直接使用其绝对值作为强度
-        # 或者，我们可以直接从 axiom_divergence 的计算结果中获取 micro_intent_tension_score
-        # 为了避免重复计算，这里假设 axiom_divergence 内部的 micro_intent_tension_score 是可访问的
-        # 但由于 axiom_divergence 返回的是最终分数，我们无法直接获取其内部的 micro_intent_tension_score
-        # 因此，我们需要重新计算一个简化的微观意图强度，或者修改 axiom_divergence 的返回结构
-        # 考虑到不修改 axiom_divergence 的返回结构，我们在这里重新计算一个简化的微观意图强度
+        nmfnf_bipolar_resonance_factor = self._calculate_mtf_cohesion_divergence(df, 'NMFNF_D', short_periods, long_periods, True, self.tf_weights_ff, probe_date, is_probe_active, "_diagnose_fund_flow_divergence_signals")
+        conviction_bipolar_resonance_factor = self._calculate_mtf_cohesion_divergence(df, 'main_force_conviction_index_D', short_periods, long_periods, True, self.tf_weights_ff, probe_date, is_probe_active, "_diagnose_fund_flow_divergence_signals")
+        mtf_bipolar_resonance_factor = (
+            nmfnf_bipolar_resonance_factor * mtf_resonance_factor_weights.get('nmfnf_cohesion', 0.6) +
+            conviction_bipolar_resonance_factor * mtf_resonance_factor_weights.get('conviction_cohesion', 0.4)
+        ).clip(-1, 1)
+        if is_probe_active: print(f"       - 过程: mtf_bipolar_resonance_factor (V4.0): {mtf_bipolar_resonance_factor.loc[probe_date]:.4f}")
+        # --- V4.0 升级: 更全面的微观意图强度 (Comprehensive Micro-Intent Strength) ---
         norm_order_book_imbalance = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, self.tf_weights_ff)
         norm_buy_exhaustion = get_adaptive_mtf_normalized_score(buy_exhaustion_raw, df_index, ascending=False, tf_weights=self.tf_weights_ff)
         norm_sell_exhaustion = get_adaptive_mtf_normalized_score(sell_exhaustion_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
-        micro_intent_strength = (norm_order_book_imbalance + (norm_sell_exhaustion - norm_buy_exhaustion)).clip(-1, 1)
-        if is_probe_active: print(f"       - 过程: micro_intent_strength (V3.0): {micro_intent_strength.loc[probe_date]:.4f}")
+        norm_micro_impact_elasticity = get_adaptive_mtf_normalized_bipolar_score(micro_impact_elasticity_raw, df_index, self.tf_weights_ff)
+        norm_main_force_t0_efficiency = get_adaptive_mtf_normalized_bipolar_score(main_force_t0_efficiency_raw, df_index, self.tf_weights_ff)
+        micro_intent_strength = (
+            norm_order_book_imbalance * micro_intent_signals_weights.get('order_book_imbalance', 0.3) +
+            (norm_sell_exhaustion - norm_buy_exhaustion) * micro_intent_signals_weights.get('exhaustion_rate', 0.3) +
+            norm_micro_impact_elasticity * micro_intent_signals_weights.get('micro_impact_elasticity', 0.2) +
+            norm_main_force_t0_efficiency * micro_intent_signals_weights.get('main_force_t0_efficiency', 0.2)
+        ).clip(-1, 1)
+        if is_probe_active: print(f"       - 过程: micro_intent_strength (V4.0): {micro_intent_strength.loc[probe_date]:.4f}")
         # 微观-宏观背离因子：比较微观意图强度与宏观资金流动能
-        # 如果微观意图看涨，但宏观动能看跌，则为负向背离；反之亦然
         micro_macro_divergence_factor = (
             micro_intent_strength * micro_macro_divergence_weights.get('micro_intent_strength', 0.5) -
             axiom_flow_momentum * micro_macro_divergence_weights.get('macro_flow_momentum', 0.5)
@@ -1490,45 +1511,47 @@ class FundFlowIntelligence:
         bullish_micro_macro_mod = (1 + micro_macro_divergence_factor.clip(lower=0))
         bearish_micro_macro_mod = (1 + micro_macro_divergence_factor.clip(upper=0).abs())
         if is_probe_active:
-            print(f"       - 过程: micro_macro_divergence_factor (V3.0): {micro_macro_divergence_factor.loc[probe_date]:.4f}")
-            print(f"       - 过程: bullish_micro_macro_mod (V3.0): {bullish_micro_macro_mod.loc[probe_date]:.4f}")
-            print(f"       - 过程: bearish_micro_macro_mod (V3.0): {bearish_micro_macro_mod.loc[probe_date]:.4f}")
-        # --- V3.0 新增: 动态情境自适应权重 (Dynamic Contextual Adaptation) ---
+            print(f"       - 过程: micro_macro_divergence_factor (V4.0): {micro_macro_divergence_factor.loc[probe_date]:.4f}")
+            print(f"       - 过程: bullish_micro_macro_mod (V4.0): {bullish_micro_macro_mod.loc[probe_date]:.4f}")
+            print(f"       - 过程: bearish_micro_macro_mod (V4.0): {bearish_micro_macro_mod.loc[probe_date]:.4f}")
+        # --- V4.0 升级: 看涨/看跌专属动态非线性指数 (Bullish/Bearish Adaptive Non-linear Exponents) ---
         norm_volatility_instability = get_adaptive_mtf_normalized_score(volatility_instability_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
-        if is_probe_active: print(f"       - 过程: norm_volatility_instability (V3.0): {norm_volatility_instability.loc[probe_date]:.4f}")
         norm_trend_vitality = get_adaptive_mtf_normalized_score(trend_vitality_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
-        if is_probe_active: print(f"       - 过程: norm_trend_vitality (V3.0): {norm_trend_vitality.loc[probe_date]:.4f}")
-        # 动态调整非线性指数
-        dynamic_non_linear_exponent = non_linear_exponent * (1 + norm_trend_vitality * dynamic_context_modulator_sensitivity.get('trend_vitality', 0.1))
-        if is_probe_active: print(f"       - 过程: dynamic_non_linear_exponent (V3.0): {dynamic_non_linear_exponent.loc[probe_date]:.4f}")
-        # 动态调整纯度、确认和情境调制器的敏感度
-        # 波动性高时，纯度过滤更严格，确认权重更高
-        purity_sensitivity_mod = (1 - norm_volatility_instability * dynamic_context_modulator_sensitivity.get('volatility_instability', 0.2))
-        confirmation_sensitivity_mod = (1 + norm_volatility_instability * dynamic_context_modulator_sensitivity.get('volatility_instability', 0.2))
-        credibility_sensitivity_mod = (1 + norm_flow_credibility * dynamic_context_modulator_sensitivity.get('flow_credibility', 0.15))
+        norm_flow_credibility_exp = get_adaptive_mtf_normalized_score(flow_credibility_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
+        # 看涨指数：趋势活力越高，波动性越低，指数越大
+        bullish_exponent_mod_factor = (
+            norm_trend_vitality * bullish_exponent_context_factors.get('trend_vitality', 0.7) +
+            (1 - norm_volatility_instability) * bullish_exponent_context_factors.get('volatility_inverse', 0.3)
+        ).clip(0, 1)
+        bullish_dynamic_non_linear_exponent = non_linear_exponent_base * (1 + bullish_exponent_mod_factor * dynamic_context_modulator_sensitivity.get('trend_vitality', 0.1))
+        # 看跌指数：波动性越高，资金流可信度越低，指数越大
+        bearish_exponent_mod_factor = (
+            norm_volatility_instability * bearish_exponent_context_factors.get('volatility_instability', 0.6) +
+            (1 - norm_flow_credibility_exp) * bearish_exponent_context_factors.get('flow_credibility_inverse', 0.4)
+        ).clip(0, 1)
+        bearish_dynamic_non_linear_exponent = non_linear_exponent_base * (1 + bearish_exponent_mod_factor * dynamic_context_modulator_sensitivity.get('volatility_instability', 0.2))
         if is_probe_active:
-            print(f"       - 过程: purity_sensitivity_mod (V3.0): {purity_sensitivity_mod.loc[probe_date]:.4f}")
-            print(f"       - 过程: confirmation_sensitivity_mod (V3.0): {confirmation_sensitivity_mod.loc[probe_date]:.4f}")
-            print(f"       - 过程: credibility_sensitivity_mod (V3.0): {credibility_sensitivity_mod.loc[probe_date]:.4f}")
+            print(f"       - 过程: bullish_dynamic_non_linear_exponent (V4.0): {bullish_dynamic_non_linear_exponent.loc[probe_date]:.4f}")
+            print(f"       - 过程: bearish_dynamic_non_linear_exponent (V4.0): {bearish_dynamic_non_linear_exponent.loc[probe_date]:.4f}")
         # --- 4. 非线性融合 (Non-linear Fusion) ---
         # 看涨背离
         bullish_divergence_score = (
             bullish_base_divergence *
-            (bullish_purity_modulator * purity_sensitivity_mod).clip(0.1, 2.0) * # 动态调整纯度敏感度
-            (bullish_confirmation_score * confirmation_sensitivity_mod).clip(0.1, 2.0) * # 动态调整确认敏感度
-            (bullish_context_modulator * credibility_sensitivity_mod).clip(0.1, 2.0) * # 动态调整情境敏感度
-            (1 + mtf_resonance_factor) * # 引入MTF共振因子，共振越强，放大越多
+            (bullish_purity_modulator * purity_context_mod).clip(0.1, 2.0) * # 动态调整纯度敏感度
+            (bullish_confirmation_score * (1 + norm_volatility_instability * dynamic_context_modulator_sensitivity.get('volatility_instability', 0.2))).clip(0.1, 2.0) * # 动态调整确认敏感度
+            (bullish_context_modulator * (1 + norm_flow_credibility * dynamic_context_modulator_sensitivity.get('flow_credibility', 0.15))).clip(0.1, 2.0) * # 动态调整情境敏感度
+            (1 + mtf_bipolar_resonance_factor.clip(lower=0)) * # 引入双极性MTF共振因子，只取正向放大看涨
             bullish_micro_macro_mod # 引入微观-宏观背离因子
-        ).pow(dynamic_non_linear_exponent).clip(0, 1) # 动态调整非线性指数
+        ).pow(bullish_dynamic_non_linear_exponent).clip(0, 1) # 动态调整非线性指数
         # 看跌背离
         bearish_divergence_score = (
             bearish_base_divergence *
-            (bearish_purity_modulator * purity_sensitivity_mod).clip(0.1, 2.0) * # 动态调整纯度敏感度
-            (bearish_confirmation_score * confirmation_sensitivity_mod).clip(0.1, 2.0) * # 动态调整确认敏感度
-            (bearish_context_modulator * credibility_sensitivity_mod).clip(0.1, 2.0) * # 动态调整情境敏感度
-            (1 + mtf_resonance_factor) * # 引入MTF共振因子，共振越强，放大越多
+            (bearish_purity_modulator * purity_context_mod).clip(0.1, 2.0) * # 动态调整纯度敏感度
+            (bearish_confirmation_score * (1 + norm_volatility_instability * dynamic_context_modulator_sensitivity.get('volatility_instability', 0.2))).clip(0.1, 2.0) * # 动态调整确认敏感度
+            (bearish_context_modulator * (1 + norm_flow_credibility * dynamic_context_modulator_sensitivity.get('flow_credibility', 0.15))).clip(0.1, 2.0) * # 动态调整情境敏感度
+            (1 + mtf_bipolar_resonance_factor.clip(upper=0).abs()) * # 引入双极性MTF共振因子，只取负向放大看跌
             bearish_micro_macro_mod # 引入微观-宏观背离因子
-        ).pow(dynamic_non_linear_exponent).clip(0, 1) # 动态调整非线性指数
+        ).pow(bearish_dynamic_non_linear_exponent).clip(0, 1) # 动态调整非线性指数
         # 应用阈值
         bullish_divergence_score = bullish_divergence_score.where(bullish_divergence_score > bullish_divergence_threshold, 0.0)
         bearish_divergence_score = bearish_divergence_score.where(bearish_divergence_score > bearish_divergence_threshold, 0.0)

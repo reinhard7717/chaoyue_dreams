@@ -153,6 +153,58 @@ def save_all_daily_industry_concept_data_task(cache_manager=None):
         logger.info(final_message)
         return final_message
 
+@celery_app.task(name='tasks.tushare.industry_tasks.save_industry_concept_data_last_n_days_task', queue='celery')
+@with_cache_manager
+def save_industry_concept_data_last_n_days_task(num_days: int, cache_manager=None):
+    """
+    【无绑定版】
+    调度器任务：获取最近N个交易日的板块指数行情及所有行业、概念、题材数据。
+    Args:
+        num_days (int): 需要获取的交易日数量。
+    """
+    task_id = current_task.request.id
+    logger.info(f"任务启动: {task_id} - save_industry_concept_data_last_n_days_task (调度器模式) - 准备分派最近 {num_days} 个交易日的行业概念数据任务。")
+    print(f"调试信息：主任务 {task_id} 启动，准备分派最近 {num_days} 个交易日的行业概念数据获取任务组。")
+    try:
+        index_dao = IndexBasicDAO(cache_manager)
+        # 获取最新的N个交易日
+        async def get_trade_dates_async():
+            return await index_dao.get_last_n_trade_cal_open(n=num_days)
+        trade_days_list = async_to_sync(get_trade_dates_async)()
+
+        if not trade_days_list:
+            logger.warning(f"任务 {task_id}: 未能从TradeCalendar获取到最近 {num_days} 个交易日，无法分派任务。")
+            print(f"调试信息：任务 {task_id} 警告：未能获取到交易日。")
+            return {"status": "skipped", "message": "Trade calendar is empty or num_days is invalid."}
+        
+        # 为每个交易日创建子任务签名
+        task_signatures = []
+        for trade_date in trade_days_list:
+            # process_single_day_historical_data_task 已经支持处理单个交易日的所有行业概念数据
+            task_signatures.append(
+                process_single_day_historical_data_task.s(
+                    trade_date_str=trade_date.strftime('%Y-%m-%d')
+                ).set(queue='SaveHistoryData_TimeTrade') # 指定子任务的队列
+            )
+        
+        if not task_signatures:
+            logger.info(f"任务 {task_id}: 没有需要分派的行业概念数据子任务。")
+            print(f"调试信息：任务 {task_id}：没有子任务需要分派。")
+            return {"status": "success", "dispatched_tasks": 0}
+
+        # 将所有子任务组成一个组并异步分派
+        task_group = group(task_signatures)
+        result = task_group.apply_async()
+        
+        logger.info(f"任务 {task_id}: 成功分派 {len(task_signatures)} 个行业概念数据子任务组。Group ID: {result.id}")
+        print(f"调试信息：任务 {task_id}: 成功分派 {len(task_signatures)} 个行业概念数据子任务组。Group ID: {result.id}")
+        return {"status": "dispatched", "group_id": result.id, "dispatched_tasks": len(task_signatures), "num_days_requested": num_days}
+    except Exception as e:
+        logger.error(f"任务 {task_id}: 执行 save_industry_concept_data_last_n_days_task 时出错: {e}", exc_info=True)
+        print(f"调试信息：任务 {task_id} 错误：{e}")
+        return {"status": "error", "message": f"Failed to dispatch task group: {e}", "num_days_requested": num_days}
+
+
 # =================================================================
 # =================== 静态数据更新任务 (新任务) ==================
 # =================================================================
