@@ -142,10 +142,10 @@ class CognitiveIntelligence:
 
     def _deduce_suppressive_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V7.1 · 归一化函数与拼写修正版】贝叶斯推演：“主力打压吸筹”剧本
-        - 核心修正: 修复了 `NameError: name 'normalize_to_unipolar' is not defined`，
-                    将 `normalize_to_unipolar` 替换为 `normalize_score` 并正确设置 `ascending` 参数。
-                    同时修正了 `adaptive_weights_per_per_date` 的拼写错误。
+        【V7.2 · 证据列表与权重同步版】贝叶斯推演：“主力打压吸筹”剧本
+        - 核心修正: 修复了 `ValueError: operands could not be broadcast together` 错误，
+                    确保 `evidence_list` 中的证据数量和顺序与 `base_weights_dict` 中的键完全一致。
+                    解耦了原始信号与自身斜率的调制，将斜率作为独立证据。
         - 核心升级:
             1. 强化“打压”证据：引入 `SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM` 和 `SLOPE_5_pct_change_D`，
                更直接、动态地捕捉主力制造压力的行为。
@@ -334,8 +334,6 @@ class CognitiveIntelligence:
         price_downward_momentum_evidence = self._forge_dynamic_evidence(df, raw_price_downward_momentum)
 
         raw_pct_change_slope = self._get_atomic_score(df, 'SLOPE_5_pct_change_D', 0.0)
-        # 将斜率归一化到 [0, 1] 范围，负斜率越大，证据越强
-        # 修改行: 替换 normalize_to_unipolar 为 normalize_score，并设置 ascending=True
         pct_change_slope_evidence = self._forge_dynamic_evidence(df, normalize_score(-raw_pct_change_slope, df.index, 21, ascending=True))
 
         raw_micro_stealth_ops = self._get_atomic_score(df, 'SCORE_MICRO_STRATEGY_STEALTH_OPS', 0.0)
@@ -365,22 +363,22 @@ class CognitiveIntelligence:
         efficiency_evidence_dynamic = efficiency_evidence * (1 + norm_slope_efficiency.clip(lower=0) * slope_impact_factor)
         efficiency_evidence_dynamic = efficiency_evidence_dynamic.clip(0, 1)
 
-        # 3.2 压制吸筹强度动态调制
+        # 3.2 压制吸筹强度斜率证据 (独立证据)
         norm_slope_suppressive_accum_intensity = normalize_to_bipolar(slope_suppressive_accum_intensity, df.index, norm_window_slope)
-        suppressive_accum_intensity_evidence_dynamic = suppressive_accum_intensity_evidence * (1 + norm_slope_suppressive_accum_intensity.clip(lower=0) * slope_impact_factor)
-        suppressive_accum_intensity_evidence_dynamic = suppressive_accum_intensity_evidence_dynamic.clip(0, 1)
+        suppressive_accum_intensity_slope_evidence = self._forge_dynamic_evidence(df, norm_slope_suppressive_accum_intensity.clip(lower=0)) # 修改行: 创建独立斜率证据
 
-        # 3.3 隐蔽吸筹信号动态调制
+        # 3.3 隐蔽吸筹信号斜率证据 (独立证据)
         norm_slope_covert_accum_signal = normalize_to_bipolar(slope_covert_accum_signal, df.index, norm_window_slope)
-        covert_accum_signal_evidence_dynamic = covert_accum_signal_evidence * (1 + norm_slope_covert_accum_signal.clip(lower=0) * slope_impact_factor)
-        covert_accum_signal_evidence_dynamic = covert_accum_signal_evidence_dynamic.clip(0, 1)
+        covert_accum_signal_slope_evidence = self._forge_dynamic_evidence(df, norm_slope_covert_accum_signal.clip(lower=0)) # 修改行: 创建独立斜率证据
 
         if probe_date_for_loop is not None and probe_date_for_loop in df.index:
             print(f"       - 行为欺骗(原始): {raw_deception_index.loc[probe_date_for_loop]:.4f}, 动态证据: {deception_evidence_dynamic.loc[probe_date_for_loop]:.4f} (无斜率调制)")
             print(f"       - 隐秘吸筹(原始): {raw_process_stealth_accum.loc[probe_date_for_loop]:.4f}, 动态证据: {process_stealth_accum_evidence_dynamic.loc[probe_date_for_loop]:.4f} (无斜率调制)")
             print(f"       - 承接效率(原始): {raw_efficiency.loc[probe_date_for_loop]:.4f}, 斜率: {slope_efficiency.loc[probe_date_for_loop]:.4f}, 动态证据: {efficiency_evidence_dynamic.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 压制吸筹强度(原始): {raw_suppressive_accum_intensity.loc[probe_date_for_loop]:.4f}, 斜率: {slope_suppressive_accum_intensity.loc[probe_date_for_loop]:.4f}, 动态证据: {suppressive_accum_intensity_evidence_dynamic.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 隐蔽吸筹信号(原始): {raw_covert_accum_signal.loc[probe_date_for_loop]:.4f}, 斜率: {slope_covert_accum_signal.loc[probe_date_for_loop]:.4f}, 动态证据: {covert_accum_signal_evidence_dynamic.loc[probe_date_for_loop]:.4f}")
+            print(f"       - 压制吸筹强度(原始): {raw_suppressive_accum_intensity.loc[probe_date_for_loop]:.4f}, 斜率: {slope_suppressive_accum_intensity.loc[probe_date_for_loop]:.4f}, 动态证据: {suppressive_accum_intensity_evidence.loc[probe_date_for_loop]:.4f}") # 修改行: 打印原始证据
+            print(f"       - 压制吸筹强度斜率证据: {suppressive_accum_intensity_slope_evidence.loc[probe_date_for_loop]:.4f}") # 修改行: 打印斜率证据
+            print(f"       - 隐蔽吸筹信号(原始): {raw_covert_accum_signal.loc[probe_date_for_loop]:.4f}, 斜率: {slope_covert_accum_signal.loc[probe_date_for_loop]:.4f}, 动态证据: {covert_accum_signal_evidence.loc[probe_date_for_loop]:.4f}") # 修改行: 打印原始证据
+            print(f"       - 隐蔽吸筹信号斜率证据: {covert_accum_signal_slope_evidence.loc[probe_date_for_loop]:.4f}") # 修改行: 打印斜率证据
             print(f"       - 洗盘确认(原始): {raw_shakeout_confirmation.loc[probe_date_for_loop]:.4f}, 证据: {shakeout_confirmation_evidence.loc[probe_date_for_loop]:.4f}")
             print(f"       - 派发意图(原始): {raw_distribution_intent.loc[probe_date_for_loop]:.4f}, 反向证据: {distribution_intent_negative_evidence.loc[probe_date_for_loop]:.4f}")
             print(f"       - 价格下跌动能(原始): {raw_price_downward_momentum.loc[probe_date_for_loop]:.4f}, 证据: {price_downward_momentum_evidence.loc[probe_date_for_loop]:.4f}")
@@ -474,9 +472,9 @@ class CognitiveIntelligence:
             power_transfer_evidence,
             chip_evidence, # chip_strategic_posture
             market_contradiction_bullish,
-            # V6.0 引入的证据
-            suppressive_accum_intensity_evidence_dynamic, # 修改行: 使用动态调制后的证据
-            covert_accum_signal_evidence_dynamic, # 修改行: 使用动态调制后的证据
+            # V6.0 引入的证据 (现在使用原始证据，斜率作为独立证据)
+            suppressive_accum_intensity_evidence, # 修改行: 使用原始证据
+            covert_accum_signal_evidence, # 修改行: 使用原始证据
             shakeout_confirmation_evidence,
             deceptive_accum_evidence,
             panic_washout_accum_evidence,
@@ -494,6 +492,8 @@ class CognitiveIntelligence:
             micro_cost_control_evidence,
             chip_holder_sentiment_bullish_evidence,
             ff_conviction_bullish_evidence,
+            suppressive_accum_intensity_slope_evidence, # 修改行: 添加独立的斜率证据
+            covert_accum_signal_slope_evidence, # 修改行: 添加独立的斜率证据
             behavior_bullish_divergence_evidence
         ]
         # evidence_names 已经定义在方法顶部，无需重复定义
@@ -525,7 +525,7 @@ class CognitiveIntelligence:
         unexpected_accumulation_bonus = (
             process_stealth_accum_evidence_dynamic + split_order_accum_evidence +
             deceptive_accum_evidence + panic_washout_accum_evidence +
-            covert_accum_signal_evidence_dynamic + micro_stealth_ops_evidence # 修改行: 添加 covert_accum_signal_evidence_dynamic 和 micro_stealth_ops_evidence 到奖励计算
+            covert_accum_signal_evidence + micro_stealth_ops_evidence # 修改行: 使用原始 covert_accum_signal_evidence
         ) * unexpected_context_multiplier * unexpected_bonus_factor
         
         # 将奖励加到似然度上，并确保不超过1
