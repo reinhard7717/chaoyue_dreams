@@ -1516,26 +1516,6 @@ class FundFlowIntelligence:
         flow_structure_health_score = (norm_flow_efficiency * 0.5 + health_core * np.sign(norm_flow_efficiency) * 0.5) * risk_filter
         return flow_structure_health_score.clip(-1, 1).astype(np.float32)
 
-    def _get_mtf_dynamic_score(self, df: pd.DataFrame, signal_base_name: str, periods_list: list, weights_dict: dict, is_bipolar: bool, is_accel: bool = False) -> pd.Series:
-        mtf_scores = []
-        numeric_weights = {k: v for k, v in weights_dict.items() if isinstance(v, (int, float))}
-        total_weight = sum(numeric_weights.values())
-        if total_weight == 0:
-            return pd.Series(0.0, index=df.index)
-        for period_str, weight in numeric_weights.items():
-            period = int(period_str)
-            prefix = 'ACCEL' if is_accel else 'SLOPE'
-            col_name = f'{prefix}_{period}_{signal_base_name}'
-            raw_data = self._get_safe_series(df, df, col_name, 0.0, method_name="_diagnose_axiom_divergence")
-            if is_bipolar:
-                norm_score = get_adaptive_mtf_normalized_bipolar_score(raw_data, df.index, self.tf_weights_ff)
-            else:
-                norm_score = get_adaptive_mtf_normalized_score(raw_data, df.index, ascending=True, tf_weights=self.tf_weights_ff)
-            mtf_scores.append(norm_score * weight)
-        if not mtf_scores:
-            return pd.Series(0.0, index=df.index)
-        return sum(mtf_scores) / total_weight
-
     def _calculate_mtf_cohesion_divergence(self, df: pd.DataFrame, signal_base_name: str, short_periods: List[int], long_periods: List[int], is_bipolar: bool, tf_weights: Dict) -> pd.Series:
         """
         【V4.0 升级 · 探针移除版】计算双极性多时间框架的共振/背离因子。
