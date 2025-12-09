@@ -38,14 +38,15 @@ class DynamicMechanicsEngine:
                       便于持续监控和验证模型的顶层裁决逻辑。
         """
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
+        current_date_str = df.index[-1].strftime('%Y-%m-%d')
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 动态力学引擎在配置中被禁用，跳过分析。")
             return {}
         all_dynamic_states = {}
-        axiom_momentum, momentum_tension = self._diagnose_axiom_momentum(df, is_probe_day, current_date_str)
-        axiom_inertia, inertia_tension = self._diagnose_axiom_inertia(df, is_probe_day, current_date_str)
-        axiom_stability, stability_tension = self._diagnose_axiom_stability(df, is_probe_day, current_date_str)
-        axiom_energy, energy_tension = self._diagnose_axiom_energy(df, is_probe_day, current_date_str)
+        axiom_momentum, momentum_tension = self._diagnose_axiom_momentum(df, False, current_date_str)
+        axiom_inertia, inertia_tension = self._diagnose_axiom_inertia(df, False, current_date_str)
+        axiom_stability, stability_tension = self._diagnose_axiom_stability(df, False, current_date_str)
+        axiom_energy, energy_tension = self._diagnose_axiom_energy(df, False, current_date_str)
         axiom_ma_dynamics = self._diagnose_axiom_ma_dynamics(df)
         axiom_divergence = self._diagnose_axiom_divergence(df, axiom_momentum, axiom_inertia)
         all_tensions = [momentum_tension, inertia_tension, stability_tension, energy_tension]
