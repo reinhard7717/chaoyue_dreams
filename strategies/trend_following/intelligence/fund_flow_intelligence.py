@@ -1405,9 +1405,6 @@ class FundFlowIntelligence:
             accel_col = f'ACCEL_{p}_{signal_base_name}'
             slope_raw = self._get_safe_series(df, df, slope_col, 0.0, method_name)
             accel_raw = self._get_safe_series(df, df, accel_col, 0.0, method_name)
-            if is_probe_active:
-                print(f"       - 原料: {slope_col} (raw): {slope_raw.loc[probe_date]:.4f}")
-                print(f"       - 原料: {accel_col} (raw): {accel_raw.loc[probe_date]:.4f}")
             if is_bipolar:
                 short_slope_scores.append(get_adaptive_mtf_normalized_bipolar_score(slope_raw, df.index, tf_weights))
                 short_accel_scores.append(get_adaptive_mtf_normalized_bipolar_score(accel_raw, df.index, tf_weights))
