@@ -1298,9 +1298,9 @@ class FundFlowIntelligence:
         patient_flow_slope_weights_short = {str(p): 1/len(mtf_periods_patient_flow.get('short', [1])) for p in mtf_periods_patient_flow.get('short', [1])}
         patient_flow_accel_weights_short = {str(p): 1/len(mtf_periods_patient_flow.get('short', [1])) for p in mtf_periods_patient_flow.get('short', [1])}
         patient_flow_slope_weights_long = {str(p): 1/len(mtf_periods_patient_flow.get('long', [1])) for p in mtf_periods_patient_flow.get('long', [1])}
-        norm_institutional_flow_slope_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', mtf_periods_patient_flow.get('short', []), patient_flow_slope_weights_short, True, False, method_name="_diagnose_axiom_capital_signature")
-        norm_institutional_flow_accel_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', mtf_periods_patient_flow.get('short', []), patient_flow_accel_weights_short, True, True, method_name="_diagnose_axiom_capital_signature")
-        norm_institutional_flow_long_slope_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', mtf_periods_patient_flow.get('long', []), patient_flow_slope_weights_long, True, False, method_name="_diagnose_axiom_capital_signature")
+        norm_institutional_flow_slope_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', mtf_periods_patient_flow.get('short', []), patient_flow_slope_weights_short, True, False)
+        norm_institutional_flow_accel_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', mtf_periods_patient_flow.get('short', []), patient_flow_accel_weights_short, True, True)
+        norm_institutional_flow_long_slope_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', mtf_periods_patient_flow.get('long', []), patient_flow_slope_weights_long, True, False)
         flow_persistence = (
             norm_institutional_flow_slope_mtf * 0.4 +
             norm_institutional_flow_accel_mtf * 0.3 +
