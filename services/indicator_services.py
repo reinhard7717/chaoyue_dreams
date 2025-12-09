@@ -359,18 +359,21 @@ class IndicatorService:
         consolidation_params = indicators_config.get('consolidation_period', {})
         if consolidation_params.get('enabled', False):
             all_dfs = await self.feature_service.calculate_consolidation_period(all_dfs, consolidation_params)
-        # --- 8. 【斜率与加速度计算】 ---
-        all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
-        all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
-        # --- 9. 【高级模式识别】 ---
+        # --- 8. 【高级模式识别】 ---
+        # 注意：此步骤依赖于一些斜率和加速度，但如果这些斜率和加速度是基于基础OHLCV或早期计算的指标，
+        # 且不依赖于后续的上下文注入信号，则可以保留在此处。
+        # 如果高级模式识别也依赖于上下文注入信号的斜率/加速度，则需要将其移动到斜率/加速度计算之后。
+        # 暂时保留在此处，假设其依赖的斜率/加速度已在_prepare_base_data_and_indicators中处理或不依赖上下文信号。
         all_dfs = await self.feature_service.calculate_pattern_recognition_signals(all_dfs, config)
-        # --- 10. 【上下文信息注入】 ---
+
+        # --- 9. 【上下文信息注入】 ---
+        # 此处将所有外部信号（包括smart_money_signals_df）合并到all_dfs['D']
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             return all_dfs
         df_daily = all_dfs['D']
         start_date = df_daily.index.min().date()
         end_date = df_daily.index.max().date()
-        # (后续的上下文注入逻辑保持不变)
+
         hot_money_params = self._find_params_recursively(config, 'hot_money_params')
         if hot_money_params and hot_money_params.get('enabled', False):
             hm_signals_df = await self.context_service.prepare_hot_money_signals(stock_code, start_date, end_date, hot_money_params)
@@ -418,18 +421,13 @@ class IndicatorService:
                         df_daily[col] = df_daily[col].fillna(0.0).astype(float)
                     else:
                         df_daily[col] = df_daily[col].fillna(False).astype(bool)
-                # --- NEW DEBUG PRINT ---
-                if 'SMART_MONEY_HM_NET_BUY_D' in df_daily.columns:
-                    print(f"DEBUG: [IndicatorService] After smart_money_signals_df merge and type conversion:")
-                    print(f"       'SMART_MONEY_HM_NET_BUY_D' exists in df_daily.columns.")
-                    print(f"       Dtype: {df_daily['SMART_MONEY_HM_NET_BUY_D'].dtype}")
-                    print(f"       First 5 values: {df_daily['SMART_MONEY_HM_NET_BUY_D'].head().tolist()}")
-                    print(f"       Number of NaNs: {df_daily['SMART_MONEY_HM_NET_BUY_D'].isnull().sum()}")
-                else:
-                    print(f"DEBUG: [IndicatorService] After smart_money_signals_df merge and type conversion: 'SMART_MONEY_HM_NET_BUY_D' NOT found in df_daily.columns.")
-                # --- END NEW DEBUG PRINT ---
-        all_dfs['D'] = df_daily
-        # self._log_final_data_columns(all_dfs)
+        all_dfs['D'] = df_daily # 更新all_dfs['D']为包含所有上下文信号的df_daily
+
+        # --- 10. 【斜率与加速度计算】(移动到所有上下文信息注入之后) ---
+        all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
+        all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
+
+        # self._log_final_data_columns(all_dfs) # 移除调试打印
         return all_dfs
 
     async def _prepare_base_data_and_indicators(
