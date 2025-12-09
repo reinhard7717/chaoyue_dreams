@@ -258,7 +258,7 @@
         "cost_structure_skewness_D": [5, 8, 13, 21],
         "winner_stability_index_D": [5, 8, 13, 21],
         "chip_fault_blockage_ratio_D": [5, 8, 13, 21],
-        "wash_trade_intensity_D": [5, 8, 13, 21],
+        "wash_trade_intensity_D": [5, 8, 13, 21, 34, 55],
         "retail_flow_dominance_index_D": [5, 8, 13, 21],
         "total_winner_rate_D": [5, 8, 13, 21],
         "winner_loser_momentum_D": [5, 8, 13, 21],
@@ -274,7 +274,7 @@
         "control_solidity_index_D": [5, 8, 13, 21],
         "counterparty_exhaustion_index_D": [5, 8, 13, 21],
         "SMART_MONEY_HM_NET_BUY_D": [5, 8, 13, 21],
-        "deception_index_D": [5, 8, 13, 21],
+        "deception_index_D": [5, 8, 13, 21, 34, 55],
         "main_force_execution_alpha_D": [5, 8, 13, 21],
         "说明_V33_advanced_chip_metrics": "--- 为V33.0新一代筹码高级指标提供支持 ---",
         "peak_separation_ratio_D": [5, 8, 13, 21],
@@ -293,7 +293,7 @@
         "chip_health_score_D": [5, 8, 13, 21],
         "VOLATILITY_INSTABILITY_INDEX_21d_D": [5, 8, 13, 21],
         "constructive_turnover_ratio_D": [5, 8, 13, 21],
-        "main_force_conviction_index_D": [5, 8, 13, 21],
+        "main_force_conviction_index_D": [5, 8, 13, 21, 34, 55],
         "SLOPE_5_chip_health_score_D": [5, 8, 13],
         "SLOPE_5_vacuum_zone_magnitude_D": [5, 8, 13],
         "vacuum_zone_magnitude_D": [5, 8, 13],
@@ -308,15 +308,21 @@
         "structural_tension_index_D": [5, 8, 13, 21],
         "order_book_clearing_rate_D": [5, 8, 13, 21],
         "vwap_crossing_intensity_D": [5, 8, 13, 21],
-        "net_lg_amount_calibrated_D": [5],
-        "comment_net_lg_amount_calibrated_D": "新增5日加速度",
+        "net_lg_amount_calibrated_D": [5, 13, 21, 34, 55],
+        "comment_net_lg_amount_calibrated_D": "新增多周期加速度",
         "net_xl_amount_calibrated_D": [5],
         "comment_net_xl_amount_calibrated_D": "新增5日加速度",
-        "retail_net_flow_calibrated_D": [5],
-        "comment_retail_net_flow_calibrated_D": "新增5日加速度",
+        "retail_net_flow_calibrated_D": [5, 13, 21, 34, 55],
+        "comment_retail_net_flow_calibrated_D": "新增多周期加速度",
         "说明_micro_behavior_axioms": "--- 为微观行为公理提供支持 ---",
         "observed_large_order_size_avg_D": [5, 8],
         "main_force_vpoc_D": [5, 8, 13, 21],
+        "order_book_imbalance_D": [5, 13, 21, 34, 55],
+        "comment_order_book_imbalance_D": "新增多周期加速度",
+        "buy_quote_exhaustion_rate_D": [5, 13, 21, 34, 55],
+        "comment_buy_quote_exhaustion_rate_D": "新增多周期加速度",
+        "sell_quote_exhaustion_rate_D": [5, 13, 21, 34, 55],
+        "comment_sell_quote_exhaustion_rate_D": "新增多周期加速度",
         "说明_通达信指标": "--- 通达信指标的加速度 ---",
         "AAA_D": [5, 8, 13],
         "DMA_D": [5, 8, 13],
@@ -327,7 +333,7 @@
         "PDI_14_D": [5, 8],
         "turnover_rate_f_D": [5, 8],
         "说明_资金流和筹码动量": "--- 为资金流和筹码动量公理提供支持 ---",
-        "NMFNF_D": [5, 13, 21, 55],
+        "NMFNF_D": [5, 13, 21, 34, 55],
         "OCH_D": [5, 13, 21]
       }
     }
@@ -2493,7 +2499,7 @@
           "comment_dynamic_evolution_context_sensitivity_2": "情境因子2对动态演化权重调整的敏感度。"
         },
         "axiom_divergence_params": {
-          "description": "【V4.0 · 多维时空与微观意图版】资金流内部分歧与意图张力公理的专属参数。",
+          "description": "【V5.0 · 动态共振与微观脉冲版】资金流内部分歧与意图张力公理的专属参数。",
           "divergence_slope_periods": [5, 13, 21, 34, 55],
           "comment_divergence_slope_periods": "用于计算各张力维度斜率的多时间框架周期列表。",
           "divergence_slope_weights": {
@@ -2504,11 +2510,31 @@
             "34": 0.05,
             "55": 0.05
           },
+          "divergence_accel_periods": [5, 13, 21, 34, 55],
+          "comment_divergence_accel_periods": "用于计算各张力维度加速度的多时间框架周期列表。",
+          "divergence_accel_weights": {
+            "description": "各时间框架加速度在融合时的权重。",
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "34": 0.05,
+            "55": 0.05
+          },
+          "slope_accel_fusion_weights": {
+            "description": "各张力维度内部，斜率与加速度融合时的权重。",
+            "slope": 0.6,
+            "accel": 0.4
+          },
           "energy_injection_signals": {
             "description": "用于能量注入的资金流活动信号及其权重。",
             "main_force_activity_ratio_D": 0.4,
             "main_force_ofi_D": 0.3,
             "micro_impact_elasticity_D": 0.3
+          },
+          "energy_injection_context_modulators": {
+            "description": "情境自适应能量注入的调制器及其敏感度。",
+            "volatility_instability_D": {"signal": "VOLATILITY_INSTABILITY_INDEX_21d_D", "sensitivity": 0.2, "ascending": false},
+            "flow_credibility_D": {"signal": "flow_credibility_index_D", "sensitivity": 0.1, "ascending": true}
           },
           "persistence_window": 13,
           "comment_persistence_window": "计算分歧持续性的滚动窗口。",
@@ -2531,16 +2557,26 @@
             "buy_quote_exhaustion_rate_D": 0.25,
             "sell_quote_exhaustion_rate_D": 0.25
           },
+          "micro_intent_dynamic_signals": {
+            "description": "微观意图张力中，动态信号（斜率/加速度）的融合权重。",
+            "order_book_imbalance_D": {"slope": 0.6, "accel": 0.4},
+            "buy_quote_exhaustion_rate_D": {"slope": 0.5, "accel": 0.5},
+            "sell_quote_exhaustion_rate_D": {"slope": 0.5, "accel": 0.5}
+          },
           "non_linear_fusion_exponent": 0.8,
           "comment_non_linear_fusion_exponent": "最终融合的非线性指数，用于增强共振或惩罚冲突。",
           "adaptive_weight_modulator_signal_1": "flow_credibility_index_D",
           "comment_adaptive_weight_modulator_signal_1": "自适应权重调制器信号1（资金流可信度）。",
           "adaptive_weight_modulator_signal_2": "VOLATILITY_INSTABILITY_INDEX_21d_D",
           "comment_adaptive_weight_modulator_signal_2": "自适应权重调制器信号2（波动不稳定性）。",
+          "adaptive_weight_modulator_signal_3": "market_sentiment_score_D",
+          "comment_adaptive_weight_modulator_signal_3": "自适应权重调制器信号3（市场情绪）。",
           "adaptive_weight_sensitivity_credibility": 0.2,
           "comment_adaptive_weight_sensitivity_credibility": "资金流可信度对自适应权重调整的敏感度。",
           "adaptive_weight_sensitivity_volatility": 0.1,
           "comment_adaptive_weight_sensitivity_volatility": "波动不稳定性对自适应权重调整的敏感度。",
+          "adaptive_weight_sensitivity_sentiment": 0.1,
+          "comment_adaptive_weight_sensitivity_sentiment": "市场情绪对自适应权重调整的敏感度。",
           "smoothing_ema_span": 5,
           "comment_smoothing_ema_span": "张力演化趋势平滑EMA周期。",
           "dynamic_evolution_base_weights": {
