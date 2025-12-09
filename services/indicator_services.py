@@ -365,7 +365,6 @@ class IndicatorService:
         # 如果高级模式识别也依赖于上下文注入信号的斜率/加速度，则需要将其移动到斜率/加速度计算之后。
         # 暂时保留在此处，假设其依赖的斜率/加速度已在_prepare_base_data_and_indicators中处理或不依赖上下文信号。
         all_dfs = await self.feature_service.calculate_pattern_recognition_signals(all_dfs, config)
-
         # --- 9. 【上下文信息注入】 ---
         # 此处将所有外部信号（包括smart_money_signals_df）合并到all_dfs['D']
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
@@ -373,7 +372,6 @@ class IndicatorService:
         df_daily = all_dfs['D']
         start_date = df_daily.index.min().date()
         end_date = df_daily.index.max().date()
-
         hot_money_params = self._find_params_recursively(config, 'hot_money_params')
         if hot_money_params and hot_money_params.get('enabled', False):
             hm_signals_df = await self.context_service.prepare_hot_money_signals(stock_code, start_date, end_date, hot_money_params)
@@ -422,11 +420,9 @@ class IndicatorService:
                     else:
                         df_daily[col] = df_daily[col].fillna(False).astype(bool)
         all_dfs['D'] = df_daily # 更新all_dfs['D']为包含所有上下文信号的df_daily
-
         # --- 10. 【斜率与加速度计算】(移动到所有上下文信息注入之后) ---
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
-
         # self._log_final_data_columns(all_dfs) # 移除调试打印
         return all_dfs
 
