@@ -2719,20 +2719,21 @@
           "comment_smoothing_ema_span": "动能演化趋势平滑EMA周期。"
         },
         "axiom_capital_signature_params": {
-          "description": "【V2.0 · 动态意图与结构韧性版】资金流公理五：资本属性的专属参数。",
+          "description": "【V3.0 · 意图博弈与结构演化版】资金流公理五：资本属性的专属参数。",
           "patient_capital_weights": {
-            "mtf_flow_persistence": 0.3,
+            "mtf_flow_persistence": 0.25,
             "cost_efficiency": 0.2,
-            "covert_accumulation": 0.2,
-            "flow_purity": 0.15,
-            "structural_resilience": 0.15
+            "covertness_anti_recon": 0.2,
+            "chip_structure_control": 0.2,
+            "flow_structure_resilience": 0.15
           },
           "comment_patient_capital_weights": "耐心资本画像各组件的融合权重。",
           "agile_capital_weights": {
-            "ofi_impact": 0.3,
-            "activity_concentration": 0.25,
-            "short_term_momentum": 0.25,
-            "theme_chasing": 0.2
+            "ofi_impact_directionality": 0.25,
+            "emotion_driven_risk_appetite": 0.2,
+            "game_efficiency_utilization": 0.2,
+            "short_term_explosiveness": 0.2,
+            "theme_chasing": 0.15
           },
           "comment_agile_capital_weights": "敏捷资本画像各组件的融合权重。",
           "mtf_periods_patient_flow": {
@@ -2749,18 +2750,51 @@
             "liquidity": 0.2,
             "volatility": 0.3,
             "sentiment": 0.1,
-            "trend_vitality": 0.2
+            "trend_vitality": 0.2,
+            "market_phase": 0.15,
+            "risk_appetite": 0.1
           },
           "comment_capital_context_modulator_sensitivity": "市场情境对资本属性判断的调制敏感度。",
           "fusion_exponent": 1.0,
-          "comment_fusion_exponent": "最终融合的非线性指数，可根据情境动态调整。",
+          "comment_fusion_exponent": "最终融合的非线性指数基准值。",
           "dynamic_fusion_weights": {
             "patient_base": 0.5,
             "agile_base": 0.5,
             "trend_vitality_mod": 0.2,
-            "volatility_mod": 0.1
+            "volatility_mod": 0.1,
+            "market_phase_mod": 0.15,
+            "risk_appetite_mod": 0.1
           },
-          "comment_dynamic_fusion_weights": "动态调整耐心资本和敏捷资本在最终融合中的权重。"
+          "comment_dynamic_fusion_weights": "动态调整耐心资本和敏捷资本在最终融合中的权重。",
+          "inter_capital_game_weights": {
+            "mf_retail_battle_intensity": 0.6,
+            "mf_retail_liquidity_swap_corr": 0.4
+          },
+          "comment_inter_capital_game_weights": "资本间意图博弈分析的融合权重。",
+          "covertness_anti_recon_weights": {
+            "covert_accumulation_slope": 0.4,
+            "suppressive_accumulation_slope": 0.3,
+            "deception_wash_trade_inverse": 0.3
+          },
+          "comment_covertness_anti_recon_weights": "隐蔽性与反侦察能力组件的融合权重。",
+          "chip_structure_control_weights": {
+            "cost_structure_skewness": 0.4,
+            "chip_fatigue": 0.3,
+            "winner_loser_momentum": 0.3
+          },
+          "comment_chip_structure_control_weights": "成本结构与筹码分布组件的融合权重。",
+          "emotion_driven_risk_appetite_weights": {
+            "retail_fomo_slope": 0.4,
+            "retail_panic_slope": 0.3,
+            "market_sentiment_slope": 0.3
+          },
+          "comment_emotion_driven_risk_appetite_weights": "情绪驱动与风险偏好组件的融合权重。",
+          "game_efficiency_utilization_weights": {
+            "main_force_t0_efficiency_accel": 0.4,
+            "main_force_slippage_inverse_accel": 0.3,
+            "main_force_execution_alpha_accel": 0.3
+          },
+          "comment_game_efficiency_utilization_weights": "博弈效率与资金利用率组件的融合权重。"
         },
         "fund_flow_divergence_params": {
           "description": "【V4.0 · 动态共振与微观意图精炼版】资金流看涨/看跌背离信号的专属参数。",
