@@ -49,6 +49,17 @@ class FeatureEngineeringService:
             if timeframe not in all_dfs or all_dfs[timeframe] is None:
                 continue
             df = all_dfs[timeframe]
+            # --- NEW DEBUG PRINT ---
+            if col_pattern == 'SMART_MONEY_HM_NET_BUY_D':
+                print(f"DEBUG: [FeatureEngineeringService.calculate_all_slopes] Processing col_pattern '{col_pattern}' for timeframe '{timeframe}'.")
+                if col_pattern not in df.columns:
+                    print(f"DEBUG: [FeatureEngineeringService.calculate_all_slopes] '{col_pattern}' NOT found in df.columns for timeframe '{timeframe}'. Skipping.")
+                    continue
+                else:
+                    print(f"DEBUG: [FeatureEngineeringService.calculate_all_slopes] '{col_pattern}' FOUND in df.columns for timeframe '{timeframe}'. Dtype: {df[col_pattern].dtype}")
+                    print(f"DEBUG: [FeatureEngineeringService.calculate_all_slopes] First 5 values of '{col_pattern}': {df[col_pattern].head().tolist()}")
+                    print(f"DEBUG: [FeatureEngineeringService.calculate_all_slopes] Number of NaNs in '{col_pattern}': {df[col_pattern].isnull().sum()}")
+            # --- END NEW DEBUG PRINT ---
             # 检查源数据列是否存在
             if col_pattern not in df.columns:
                 continue
@@ -58,6 +69,8 @@ class FeatureEngineeringService:
                 slope_col_name = f'SLOPE_{lookback}_{col_pattern}'
                 # 如果目标斜率列已存在，则跳过，避免重复计算
                 if slope_col_name in df.columns:
+                    if col_pattern == 'SMART_MONEY_HM_NET_BUY_D':
+                        print(f"DEBUG: [FeatureEngineeringService.calculate_all_slopes] '{slope_col_name}' already exists. Skipping calculation.")
                     continue
                 # 设置计算所需的最小周期数，增加计算结果的稳定性
                 min_p = max(2, lookback // 2)
@@ -67,6 +80,11 @@ class FeatureEngineeringService:
                 slope_series = linreg_result if isinstance(linreg_result, pd.Series) else linreg_result.iloc[:, 0]
                 # 将计算结果存入DataFrame，空值填充为0
                 df[slope_col_name] = slope_series.fillna(0)
+                # --- NEW DEBUG PRINT ---
+                if col_pattern == 'SMART_MONEY_HM_NET_BUY_D':
+                    print(f"DEBUG: [FeatureEngineeringService.calculate_all_slopes] Successfully calculated '{slope_col_name}'. First 5 values: {df[slope_col_name].head().tolist()}")
+                    print(f"DEBUG: [FeatureEngineeringService.calculate_all_slopes] Number of NaNs in '{slope_col_name}': {df[slope_col_name].isnull().sum()}")
+                # --- END NEW DEBUG PRINT ---
             all_dfs[timeframe] = df
         return all_dfs
 

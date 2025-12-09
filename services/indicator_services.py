@@ -413,16 +413,21 @@ class IndicatorService:
             if not smart_money_signals_df.empty:
                 smart_money_signals_df.index = pd.to_datetime(smart_money_signals_df.index, utc=True)
                 df_daily = df_daily.merge(smart_money_signals_df, left_index=True, right_index=True, how='left')
-                # --- START OF MODIFICATION ---
-                # 智能判断列类型进行填充和类型转换
                 for col in smart_money_signals_df.columns:
-                    # 如果原始smart_money_signals_df中的列是数值类型，则填充0.0并转换为float
                     if pd.api.types.is_numeric_dtype(smart_money_signals_df[col]):
                         df_daily[col] = df_daily[col].fillna(0.0).astype(float)
                     else:
-                        # 否则，假定为布尔类型（或需要布尔处理的），填充False并转换为bool
                         df_daily[col] = df_daily[col].fillna(False).astype(bool)
-                # --- END OF MODIFICATION ---
+                # --- NEW DEBUG PRINT ---
+                if 'SMART_MONEY_HM_NET_BUY_D' in df_daily.columns:
+                    print(f"DEBUG: [IndicatorService] After smart_money_signals_df merge and type conversion:")
+                    print(f"       'SMART_MONEY_HM_NET_BUY_D' exists in df_daily.columns.")
+                    print(f"       Dtype: {df_daily['SMART_MONEY_HM_NET_BUY_D'].dtype}")
+                    print(f"       First 5 values: {df_daily['SMART_MONEY_HM_NET_BUY_D'].head().tolist()}")
+                    print(f"       Number of NaNs: {df_daily['SMART_MONEY_HM_NET_BUY_D'].isnull().sum()}")
+                else:
+                    print(f"DEBUG: [IndicatorService] After smart_money_signals_df merge and type conversion: 'SMART_MONEY_HM_NET_BUY_D' NOT found in df_daily.columns.")
+                # --- END NEW DEBUG PRINT ---
         all_dfs['D'] = df_daily
         # self._log_final_data_columns(all_dfs)
         return all_dfs
