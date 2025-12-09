@@ -2381,6 +2381,62 @@
           "comment_dynamic_evolution_context_modulator_signal": "动态演化权重的情境因子信号（如波动不稳定性）。",
           "dynamic_evolution_context_sensitivity": 0.2,
           "comment_dynamic_evolution_context_sensitivity": "情境因子对动态演化权重调整的敏感度。"
+        },
+        "axiom_conviction_params": {
+          "description": "【V2.0 · 诡道韧性版】主力资金信念韧性公理的专属参数。",
+          "core_conviction_weights": {
+            "description": "核心信念强度融合权重。",
+            "main_force_conviction": 0.4,
+            "smart_money_net_buy": 0.3,
+            "flow_credibility": 0.3
+          },
+          "deceptive_resilience_mod_enabled": true,
+          "comment_deceptive_resilience_mod_enabled": "是否启用诡道博弈韧性调制。",
+          "deception_penalty_factor": 0.5,
+          "comment_deception_penalty_factor": "欺骗指数对信念的惩罚因子。",
+          "wash_trade_penalty_factor": 0.3,
+          "comment_wash_trade_penalty_factor": "对倒强度对信念的惩罚因子。",
+          "resilience_context_modulator_signal_1": "market_sentiment_score_D",
+          "comment_resilience_context_modulator_signal_1": "韧性调制情境因子1（市场情绪）。",
+          "resilience_context_modulator_signal_2": "main_force_cost_advantage_D",
+          "comment_resilience_context_modulator_signal_2": "韧性调制情境因子2（主力成本优势）。",
+          "resilience_context_sensitivity_sentiment": 0.3,
+          "comment_resilience_context_sensitivity_sentiment": "市场情绪对韧性调制效果的敏感度。",
+          "resilience_context_sensitivity_cost_advantage": 0.2,
+          "comment_resilience_context_sensitivity_cost_advantage": "主力成本优势对韧性调制效果的敏感度。",
+          "transmission_efficiency_weights": {
+            "description": "信念传导效率融合权重。",
+            "main_force_execution_alpha": 0.6,
+            "flow_efficiency": 0.4
+          },
+          "dynamic_weight_mod_enabled": true,
+          "comment_dynamic_weight_mod_enabled": "是否启用动态情境自适应权重。",
+          "core_conviction_base_weight": 0.5,
+          "comment_core_conviction_base_weight": "核心信念强度的基础权重。",
+          "deceptive_resilience_base_weight": 0.3,
+          "comment_deceptive_resilience_base_weight": "诡道韧性的基础权重。",
+          "transmission_efficiency_base_weight": 0.2,
+          "comment_transmission_efficiency_base_weight": "传导效率的基础权重。",
+          "dynamic_weight_modulator_signal_1": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+          "comment_dynamic_weight_modulator_signal_1": "动态权重调制器信号1（波动不稳定性）。",
+          "dynamic_weight_modulator_signal_2": "market_sentiment_score_D",
+          "comment_dynamic_weight_modulator_signal_2": "动态权重调制器信号2（市场情绪）。",
+          "dynamic_weight_sensitivity_volatility": 0.4,
+          "comment_dynamic_weight_sensitivity_volatility": "波动性对动态权重调整的敏感度。",
+          "dynamic_weight_sensitivity_sentiment": 0.3,
+          "comment_dynamic_weight_sensitivity_sentiment": "市场情绪对动态权重调整的敏感度。",
+          "smoothing_ema_span": 5,
+          "comment_smoothing_ema_span": "信念演化趋势平滑EMA周期。",
+          "dynamic_evolution_base_weights": {
+            "base_score": 0.6,
+            "velocity": 0.2,
+            "acceleration": 0.2
+          },
+          "comment_dynamic_evolution_base_weights": "融合基础信念分数与时间序列动态时的基础权重。",
+          "dynamic_evolution_context_modulator_signal": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+          "comment_dynamic_evolution_context_modulator_signal": "动态演化权重的情境因子信号（如波动不稳定性）。",
+          "dynamic_evolution_context_sensitivity": 0.2,
+          "comment_dynamic_evolution_context_sensitivity": "情境因子对动态演化权重调整的敏感度。"
         }
       },
       "fusion_accumulation_inflection_params": {
