@@ -145,7 +145,9 @@ class FundFlowIntelligence:
         amplification_factor = get_param_value(ad_params.get('amplification_factor'), 1.5)
         retail_sentiment_mod_sensitivity = get_param_value(ad_params.get('retail_sentiment_mod_sensitivity'), 0.2)
         deception_mod_sensitivity = get_param_value(ad_params.get('deception_mod_sensitivity'), 0.3)
-        divergence_component_weights = get_param_value(ad_params.get('divergence_component_weights'), {'core_divergence': 0.3, 'structural_tension': 0.25, 'deceptive_tension': 0.25, 'micro_intent_tension': 0.2})
+        raw_divergence_component_weights = get_param_value(ad_params.get('divergence_component_weights'), {'core_divergence': 0.3, 'structural_tension': 0.25, 'deceptive_tension': 0.25, 'micro_intent_tension': 0.2})
+        # 过滤掉非数值的权重，例如 'description' 字段
+        divergence_component_weights = {k: v for k, v in raw_divergence_component_weights.items() if isinstance(v, (int, float))}
         micro_intent_tension_signals_weights = get_param_value(ad_params.get('micro_intent_tension_signals'), {'order_book_imbalance_D': 0.5, 'buy_quote_exhaustion_rate_D': 0.25, 'sell_quote_exhaustion_rate_D': 0.25})
         non_linear_fusion_exponent = get_param_value(ad_params.get('non_linear_fusion_exponent'), 0.8)
         adaptive_weight_modulator_signal_1_name = get_param_value(ad_params.get('adaptive_weight_modulator_signal_1'), 'flow_credibility_index_D')
@@ -230,7 +232,7 @@ class FundFlowIntelligence:
         # --- 1. 核心分歧向量 (Core Divergence Vector) ---
         norm_nmfnf_slope_mtf = pd.Series(0.0, index=df_index)
         norm_mf_conviction_slope_mtf = pd.Series(0.0, index=df_index)
-        total_slope_weight = sum(divergence_slope_weights.values()) # 修正: 确保这里只对数值求和
+        total_slope_weight = sum(divergence_slope_weights.values())
         if total_slope_weight > 0:
             for p_str, weight in divergence_slope_weights.items():
                 p = int(p_str)
@@ -330,9 +332,9 @@ class FundFlowIntelligence:
         # --- 6. 非线性融合与情境自适应权重 ---
         norm_adaptive_weight_modulator_1 = get_adaptive_mtf_normalized_score(adaptive_weight_modulator_1_raw, df_index, ascending=True, tf_weights=tf_weights_ff)
         norm_adaptive_weight_modulator_2 = get_adaptive_mtf_normalized_score(adaptive_weight_modulator_2_raw, df_index, ascending=False, tf_weights=tf_weights_ff)
-        total_base_weight = sum(divergence_component_weights.values())
+        total_base_weight = sum(divergence_component_weights.values()) # 修正: 确保这里只对数值求和
         if total_base_weight == 0:
-            return pd.Series(0.0, index=df_index)
+            return pd.Series(0.0, index=df.index)
         dynamic_core_divergence_weight = divergence_component_weights.get('core_divergence', 0.3) * (1 + norm_adaptive_weight_modulator_1 * adaptive_weight_sensitivity_credibility - norm_adaptive_weight_modulator_2 * adaptive_weight_sensitivity_volatility)
         dynamic_structural_tension_weight = divergence_component_weights.get('structural_tension', 0.25) * (1 + norm_adaptive_weight_modulator_1 * adaptive_weight_sensitivity_credibility + norm_adaptive_weight_modulator_2 * adaptive_weight_sensitivity_volatility)
         dynamic_deceptive_tension_weight = divergence_component_weights.get('deceptive_tension', 0.25) * (1 - norm_adaptive_weight_modulator_1 * adaptive_weight_sensitivity_credibility + norm_adaptive_weight_modulator_2 * adaptive_weight_sensitivity_volatility)
