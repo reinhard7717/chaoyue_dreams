@@ -2715,6 +2715,33 @@
           "comment_dynamic_evolution_context_sensitivity_4": "情境因子4对动态演化权重调整的敏感度。",
           "smoothing_ema_span": 5,
           "comment_smoothing_ema_span": "动能演化趋势平滑EMA周期。"
+        },
+        "fund_flow_divergence_params": {
+          "description": "【V2.0 · 意图确认与情境校准版】资金流看涨/看跌背离信号的专属参数。",
+          "purity_weights": {
+            "deception_inverse": 0.5,
+            "wash_trade_inverse": 0.5
+          },
+          "comment_purity_weights": "欺骗指数和对倒强度对背离纯度的负向影响权重。",
+          "confirmation_weights": {
+            "conviction_positive": 0.5,
+            "flow_momentum_positive": 0.5
+          },
+          "comment_confirmation_weights": "主力信念和资金流动能对背离信号的确认权重。",
+          "context_modulator_weights": {
+            "strategic_posture": 0.4,
+            "flow_credibility": 0.3,
+            "retail_panic_fomo_context": 0.3
+          },
+          "comment_context_modulator_weights": "战略态势、资金流可信度和散户情绪对背离信号的情境调制权重。",
+          "non_linear_exponent": 1.2,
+          "comment_non_linear_exponent": "最终融合的非线性指数，用于增强共振效应。",
+          "bullish_divergence_threshold": 0.1,
+          "comment_bullish_divergence_threshold": "看涨背离信号的最低有效阈值。",
+          "bearish_divergence_threshold": 0.1,
+          "comment_bearish_divergence_threshold": "看跌背离信号的最低有效阈值。",
+          "retail_panic_fomo_sensitivity": 0.5,
+          "comment_retail_panic_fomo_sensitivity": "散户恐慌/狂热对情境调制器的敏感度。"
         }
       },
       "fusion_accumulation_inflection_params": {

@@ -11,29 +11,36 @@ class FundFlowIntelligence:
         """
         self.strategy = strategy_instance
 
-    def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+    def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法", probe_date: pd.Timestamp = None) -> pd.Series:
         """
-        【V1.1 · 上下文修复版】安全地从DataFrame或字典中获取Series，如果不存在则打印警告并返回默认Series。
+        【V1.2 · 探针增强版】安全地从DataFrame或字典中获取Series，如果不存在则打印警告并返回默认Series。
         - 核心修复: 接收 df 参数，并使用其索引创建默认 Series，确保上下文一致。
+        - 探针增强: 如果 probe_date 存在，则打印原始数据。
         """
-        df_index = df.index # 使用传入的 df.index
+        df_index = df.index
+        series = None
         if isinstance(data_source, pd.DataFrame):
             if column_name not in data_source.columns:
                 print(f"    -> [资金流情报警告] 方法 '{method_name}' 缺少DataFrame数据 '{column_name}'，使用默认值 {default_value}。")
-                return pd.Series(default_value, index=df_index)
-            return data_source[column_name]
+                series = pd.Series(default_value, index=df_index)
+            else:
+                series = data_source[column_name]
         elif isinstance(data_source, dict):
             if column_name not in data_source:
                 print(f"    -> [资金流情报警告] 方法 '{method_name}' 缺少字典数据 '{column_name}'，使用默认值 {default_value}。")
-                return pd.Series(default_value, index=df_index)
-            series = data_source[column_name]
-            if isinstance(series, pd.Series):
-                return series.reindex(df_index, fill_value=default_value)
+                series = pd.Series(default_value, index=df_index)
             else:
-                return pd.Series(series, index=df_index)
+                raw_data = data_source[column_name]
+                if isinstance(raw_data, pd.Series):
+                    series = raw_data.reindex(df_index, fill_value=default_value)
+                else:
+                    series = pd.Series(raw_data, index=df_index)
         else:
             print(f"    -> [资金流情报警告] 方法 '{method_name}' 接收到未知数据源类型 {type(data_source)}，无法获取 '{column_name}'，使用默认值 {default_value}。")
-            return pd.Series(default_value, index=df_index)
+            series = pd.Series(default_value, index=df_index)
+        if probe_date is not None and series is not None and probe_date in series.index:
+            print(f"       - 原料: {column_name} (raw): {series.loc[probe_date]:.4f}")
+        return series
 
     def _validate_required_signals(self, df: pd.DataFrame, required_signals: List[str], method_name: str) -> bool:
         """
@@ -56,7 +63,7 @@ class FundFlowIntelligence:
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 资金流情报引擎在配置中被禁用，跳过分析。")
             return {}
-        print("启动【V29.0 · 拐点洞察版】资金流情报分析...") # 修改: 更新版本号和名称
+        print("启动【V29.0 · 拐点洞察版】资金流情报分析...")
         all_states = {}
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         # --- 1. 计算所有原子公理 ---
@@ -65,7 +72,6 @@ class FundFlowIntelligence:
         axiom_consensus = self._diagnose_axiom_consensus(df, norm_window)
         axiom_flow_momentum = self._diagnose_axiom_flow_momentum(df, norm_window)
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
-        # 修改代码行：移除多余的参数
         axiom_conviction = self._diagnose_axiom_conviction(df, norm_window)
         # --- 2. 战略态势的向量合成 ---
         fusion_weights = get_param_value(p_conf.get('posture_fusion_weights'), {})
@@ -94,7 +100,9 @@ class FundFlowIntelligence:
         norm_acceleration = get_adaptive_mtf_normalized_score(posture_acceleration, df.index, ascending=True, tf_weights={3:1.0})
         # 核心裁决：速度和加速度必须同时为正
         harmony_inflection_score = (norm_velocity.clip(lower=0) * norm_acceleration.clip(lower=0)).pow(0.5)
-        # --- 4. 状态赋值 ---
+        # --- 4. 新增：资金流看涨/看跌背离信号 ---
+        bullish_divergence, bearish_divergence = self._diagnose_fund_flow_divergence_signals(df, norm_window, axiom_divergence)
+        # --- 5. 状态赋值 ---
         all_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_FF_AXIOM_CONSENSUS'] = axiom_consensus
         all_states['SCORE_FF_AXIOM_CONVICTION'] = axiom_conviction
@@ -102,11 +110,10 @@ class FundFlowIntelligence:
         all_states['SCORE_FF_AXIOM_CAPITAL_SIGNATURE'] = axiom_capital_signature
         all_states['SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH'] = axiom_flow_structure_health
         all_states['SCORE_FF_STRATEGIC_POSTURE'] = strategic_posture_score.astype(np.float32)
-        all_states['SCORE_FF_HARMONY_INFLECTION'] = harmony_inflection_score.astype(np.float32) # 新增: 和谐拐点机会信号
-        bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
+        all_states['SCORE_FF_HARMONY_INFLECTION'] = harmony_inflection_score.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FUND_FLOW_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
-        print(f"【V29.0 · 拐点洞察版】分析完成，生成 {len(all_states)} 个资金流原子及融合信号。") # 修改: 更新日志
+        print(f"【V29.0 · 拐点洞察版】分析完成，生成 {len(all_states)} 个资金流原子及融合信号。")
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
@@ -119,19 +126,7 @@ class FundFlowIntelligence:
         - 探针增强: 详细输出所有原始数据、关键计算节点、结果的值，以便于检查和调试。
         """
         print("    -> [资金流层] 正在诊断“资金流内部分歧与意图张力 (V5.0 · 动态共振与微观脉冲版)”公理...")
-        # --- 探针: 原始输入 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
         df_index = df.index
-        probe_date = None
-        is_probe_active = False
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            temp_probe_date = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if temp_probe_date in df_index:
-                probe_date = temp_probe_date
-                is_probe_active = True
-                print(f"    -> [资金流内部分歧与意图张力探针] @ {probe_date.date()}:")
         # --- 参数加载 ---
         p_conf_ff = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         self.tf_weights_ff = get_param_value(p_conf_ff.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -256,44 +251,6 @@ class FundFlowIntelligence:
         adaptive_weight_modulator_3_raw = self._get_safe_series(df, df, adaptive_weight_modulator_signal_3_name, 0.0, method_name="_diagnose_axiom_divergence")
         # 动态演化情境因子
         dynamic_evolution_context_modulator_1_raw = self._get_safe_series(df, df, dynamic_evolution_context_modulator_1_name, 0.0, method_name="_diagnose_axiom_divergence")
-        if is_probe_active:
-            print(f"       - 原料: retail_fomo_premium_index_D (raw): {retail_fomo_premium_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: retail_panic_surrender_index_D (raw): {retail_panic_surrender_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: flow_credibility_index_D (raw): {flow_credibility_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: wash_trade_intensity_D (raw): {wash_trade_intensity_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: main_force_activity_ratio_D (raw): {mf_activity_ratio_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: main_force_ofi_D (raw): {mf_ofi_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: micro_impact_elasticity_D (raw): {micro_impact_elasticity_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: order_book_imbalance_D (raw): {order_book_imbalance_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: buy_quote_exhaustion_rate_D (raw): {buy_exhaustion_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: sell_quote_exhaustion_rate_D (raw): {sell_exhaustion_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: {adaptive_weight_modulator_signal_1_name} (raw): {adaptive_weight_modulator_1_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: {adaptive_weight_modulator_signal_2_name} (raw): {adaptive_weight_modulator_2_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: {adaptive_weight_modulator_signal_3_name} (raw): {adaptive_weight_modulator_3_raw.loc[probe_date]:.4f}")
-            print(f"       - 原料: {dynamic_evolution_context_modulator_1_name} (raw): {dynamic_evolution_context_modulator_1_raw.loc[probe_date]:.4f}")
-            for p in divergence_slope_periods:
-                print(f"       - 原料: SLOPE_{p}_NMFNF_D (raw): {nmfnf_slopes_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: SLOPE_{p}_main_force_conviction_index_D (raw): {mf_conviction_slopes_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: SLOPE_{p}_net_lg_amount_calibrated_D (raw): {lg_flow_slopes_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: SLOPE_{p}_retail_net_flow_calibrated_D (raw): {retail_flow_slopes_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: SLOPE_{p}_deception_index_D (raw): {deception_slopes_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: SLOPE_{p}_wash_trade_intensity_D (raw): {wash_trade_slopes_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: SLOPE_{p}_order_book_imbalance_D (raw): {order_book_imbalance_slopes_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: SLOPE_{p}_buy_quote_exhaustion_rate_D (raw): {buy_exhaustion_slopes_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: SLOPE_{p}_sell_quote_exhaustion_rate_D (raw): {sell_exhaustion_slopes_raw[p].loc[probe_date]:.4f}")
-            for p in divergence_accel_periods:
-                print(f"       - 原料: ACCEL_{p}_NMFNF_D (raw): {nmfnf_accels_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: ACCEL_{p}_main_force_conviction_index_D (raw): {mf_conviction_accels_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: ACCEL_{p}_net_lg_amount_calibrated_D (raw): {lg_flow_accels_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: ACCEL_{p}_retail_net_flow_calibrated_D (raw): {retail_flow_accels_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: ACCEL_{p}_deception_index_D (raw): {deception_accels_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: ACCEL_{p}_wash_trade_intensity_D (raw): {wash_trade_accels_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: ACCEL_{p}_order_book_imbalance_D (raw): {order_book_imbalance_accels_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: ACCEL_{p}_buy_quote_exhaustion_rate_D (raw): {buy_exhaustion_accels_raw[p].loc[probe_date]:.4f}")
-                print(f"       - 原料: ACCEL_{p}_sell_quote_exhaustion_rate_D (raw): {sell_exhaustion_accels_raw[p].loc[probe_date]:.4f}")
-            for mod_name, mod_params in energy_injection_context_modulators.items():
-                if isinstance(mod_params, dict) and 'signal' in mod_params: # 修正: 确保mod_params是字典且包含'signal'键
-                    print(f"       - 原料: {mod_params['signal']} (raw): {energy_modulator_signals[mod_name].loc[probe_date]:.4f}")
         # --- 1. 核心分歧向量 (Core Divergence Vector) ---
         norm_nmfnf_slope_mtf = self._get_mtf_dynamic_score(df, 'NMFNF_D', divergence_slope_periods, divergence_slope_weights, True, False)
         norm_nmfnf_accel_mtf = self._get_mtf_dynamic_score(df, 'NMFNF_D', divergence_accel_periods, divergence_accel_weights, True, True)
@@ -302,14 +259,6 @@ class FundFlowIntelligence:
         nmfnf_dynamic_score = (norm_nmfnf_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_nmfnf_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(-1, 1)
         mf_conviction_dynamic_score = (norm_mf_conviction_slope_mtf * slope_accel_fusion_weights.get('slope', 0.6) + norm_mf_conviction_accel_mtf * slope_accel_fusion_weights.get('accel', 0.4)).clip(-1, 1)
         core_divergence_score = (nmfnf_dynamic_score - mf_conviction_dynamic_score).clip(-1, 1)
-        if is_probe_active:
-            print(f"       - 过程: norm_nmfnf_slope_mtf (CDV): {norm_nmfnf_slope_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_nmfnf_accel_mtf (CDV): {norm_nmfnf_accel_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: nmfnf_dynamic_score (CDV): {nmfnf_dynamic_score.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_mf_conviction_slope_mtf (CDV): {norm_mf_conviction_slope_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_mf_conviction_accel_mtf (CDV): {norm_mf_conviction_accel_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: mf_conviction_dynamic_score (CDV): {mf_conviction_dynamic_score.loc[probe_date]:.4f}")
-            print(f"       - 过程: core_divergence_score: {core_divergence_score.loc[probe_date]:.4f}")
         # --- 2. 结构性张力 (Structural Tension) ---
         norm_lg_flow_slope_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', divergence_slope_periods, divergence_slope_weights, True, False)
         norm_lg_flow_accel_mtf = self._get_mtf_dynamic_score(df, 'net_lg_amount_calibrated_D', divergence_accel_periods, divergence_accel_weights, True, True)
@@ -322,17 +271,6 @@ class FundFlowIntelligence:
         structural_divergence_base = (lg_flow_dynamic_score - retail_flow_dynamic_score)
         retail_modulator = (1 - norm_retail_fomo * retail_sentiment_mod_sensitivity) + (norm_retail_panic * retail_sentiment_mod_sensitivity)
         structural_tension_score = (structural_divergence_base * retail_modulator).clip(-1, 1)
-        if is_probe_active:
-            print(f"       - 过程: norm_lg_flow_slope_mtf (ST): {norm_lg_flow_slope_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_lg_flow_accel_mtf (ST): {norm_lg_flow_accel_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: lg_flow_dynamic_score (ST): {lg_flow_dynamic_score.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_retail_flow_slope_mtf (ST): {norm_retail_flow_slope_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_retail_flow_accel_mtf (ST): {norm_retail_flow_accel_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: retail_flow_dynamic_score (ST): {retail_flow_dynamic_score.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_retail_fomo (ST): {norm_retail_fomo.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_retail_panic (ST): {norm_retail_panic.loc[probe_date]:.4f}")
-            print(f"       - 过程: retail_modulator (ST): {retail_modulator.loc[probe_date]:.4f}")
-            print(f"       - 过程: structural_tension_score: {structural_tension_score.loc[probe_date]:.4f}")
         # --- 3. 诡道意图张力 (Deceptive Intent Tension) ---
         norm_deception_slope_mtf = self._get_mtf_dynamic_score(df, 'deception_index_D', divergence_slope_periods, divergence_slope_weights, True, False)
         norm_deception_accel_mtf = self._get_mtf_dynamic_score(df, 'deception_index_D', divergence_accel_periods, divergence_accel_weights, True, True)
@@ -344,16 +282,6 @@ class FundFlowIntelligence:
         deceptive_divergence_base = (norm_flow_credibility - deception_dynamic_score.abs() * np.sign(deception_dynamic_score))
         wash_trade_modulator = (1 - wash_trade_dynamic_score * deception_mod_sensitivity)
         deceptive_tension_score = (deceptive_divergence_base * wash_trade_modulator).clip(-1, 1)
-        if is_probe_active:
-            print(f"       - 过程: norm_flow_credibility (DIT): {norm_flow_credibility.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_deception_slope_mtf (DIT): {norm_deception_slope_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_deception_accel_mtf (DIT): {norm_deception_accel_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: deception_dynamic_score (DIT): {deception_dynamic_score.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_wash_trade_slope_mtf (DIT): {norm_wash_trade_slope_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_wash_trade_accel_mtf (DIT): {norm_wash_trade_accel_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: wash_trade_dynamic_score (DIT): {wash_trade_dynamic_score.loc[probe_date]:.4f}")
-            print(f"       - 过程: wash_trade_modulator (DIT): {wash_trade_modulator.loc[probe_date]:.4f}")
-            print(f"       - 过程: deceptive_tension_score: {deceptive_tension_score.loc[probe_date]:.4f}")
         # --- 4. 微观意图张力 (Micro-Flow Intent Tension) ---
         norm_order_book_imbalance = get_adaptive_mtf_normalized_bipolar_score(order_book_imbalance_raw, df_index, tf_weights=self.tf_weights_ff)
         norm_buy_exhaustion = get_adaptive_mtf_normalized_score(buy_exhaustion_raw, df_index, ascending=False, tf_weights=self.tf_weights_ff)
@@ -379,22 +307,6 @@ class FundFlowIntelligence:
             obi_dynamic_pulse * obi_dynamic_params.get('weight', 0.2) +
             micro_dynamic_exhaustion_score * (buy_exh_dynamic_params.get('weight', 0.15) + sell_exh_dynamic_params.get('weight', 0.15))
         ).clip(-1, 1)
-        if is_probe_active:
-            print(f"       - 过程: norm_order_book_imbalance (MIT): {norm_order_book_imbalance.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_buy_exhaustion (MIT): {norm_buy_exhaustion.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_sell_exhaustion (MIT): {norm_sell_exhaustion.loc[probe_date]:.4f}")
-            print(f"       - 过程: micro_exhaustion_score (MIT): {micro_exhaustion_score.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_obi_slope_mtf (MIT): {norm_obi_slope_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_obi_accel_mtf (MIT): {norm_obi_accel_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: obi_dynamic_pulse (MIT): {obi_dynamic_pulse.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_buy_exh_slope_mtf (MIT): {norm_buy_exh_slope_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_buy_exh_accel_mtf (MIT): {norm_buy_exh_accel_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: buy_exh_dynamic_pulse (MIT): {buy_exh_dynamic_pulse.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_sell_exh_slope_mtf (MIT): {norm_sell_exh_slope_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_sell_exh_accel_mtf (MIT): {norm_sell_exh_accel_mtf.loc[probe_date]:.4f}")
-            print(f"       - 过程: sell_exh_dynamic_pulse (MIT): {sell_exh_dynamic_pulse.loc[probe_date]:.4f}")
-            print(f"       - 过程: micro_dynamic_exhaustion_score (MIT): {micro_dynamic_exhaustion_score.loc[probe_date]:.4f}")
-            print(f"       - 过程: micro_intent_tension_score: {micro_intent_tension_score.loc[probe_date]:.4f}")
         # --- 5. 能量注入与持续性 (Energy Injection & Persistence) ---
         norm_mf_activity = get_adaptive_mtf_normalized_score(mf_activity_ratio_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         norm_mf_ofi = get_adaptive_mtf_normalized_score(mf_ofi_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
@@ -421,17 +333,6 @@ class FundFlowIntelligence:
         persistence = combined_divergence_abs.rolling(window=persistence_window, min_periods=max(1, int(persistence_window * 0.2))).std().fillna(0)
         norm_persistence = get_adaptive_mtf_normalized_score(persistence, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         eip_score = (energy_injection * norm_persistence).pow(0.5).clip(0, 1)
-        if is_probe_active:
-            print(f"       - 过程: norm_mf_activity (EIP): {norm_mf_activity.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_mf_ofi (EIP): {norm_mf_ofi.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_micro_impact_elasticity (EIP): {norm_micro_impact_elasticity.loc[probe_date]:.4f}")
-            print(f"       - 过程: energy_injection_base (EIP): {energy_injection_base.loc[probe_date]:.4f}")
-            print(f"       - 过程: energy_injection_modulator (EIP): {energy_injection_modulator.loc[probe_date]:.4f}")
-            print(f"       - 过程: energy_injection (EIP): {energy_injection.loc[probe_date]:.4f}")
-            print(f"       - 过程: combined_divergence_abs (EIP): {combined_divergence_abs.loc[probe_date]:.4f}")
-            print(f"       - 过程: persistence (EIP): {persistence.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_persistence (EIP): {norm_persistence.loc[probe_date]:.4f}")
-            print(f"       - 过程: eip_score: {eip_score.loc[probe_date]:.4f}")
         # --- 6. 非线性融合与情境自适应权重 ---
         norm_adaptive_weight_modulator_1 = get_adaptive_mtf_normalized_score(adaptive_weight_modulator_1_raw, df_index, ascending=True, tf_weights=self.tf_weights_ff)
         norm_adaptive_weight_modulator_2 = get_adaptive_mtf_normalized_score(adaptive_weight_modulator_2_raw, df_index, ascending=False, tf_weights=self.tf_weights_ff)
@@ -456,16 +357,6 @@ class FundFlowIntelligence:
         ).pow(1 / (dynamic_core_divergence_weight + dynamic_structural_tension_weight + dynamic_deceptive_tension_weight + dynamic_micro_intent_tension_weight)) * 2 - 1
         base_tension_score = (fused_divergence_base * (1 + eip_score * amplification_factor)).clip(-1, 1)
         base_tension_score = np.tanh(base_tension_score * non_linear_fusion_exponent)
-        if is_probe_active:
-            print(f"       - 过程: norm_adaptive_weight_modulator_1: {norm_adaptive_weight_modulator_1.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_adaptive_weight_modulator_2: {norm_adaptive_weight_modulator_2.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_adaptive_weight_modulator_3: {norm_adaptive_weight_modulator_3.loc[probe_date]:.4f}")
-            print(f"       - 过程: dynamic_core_divergence_weight: {dynamic_core_divergence_weight.loc[probe_date]:.4f}")
-            print(f"       - 过程: dynamic_structural_tension_weight: {dynamic_structural_tension_weight.loc[probe_date]:.4f}")
-            print(f"       - 过程: dynamic_deceptive_tension_weight: {dynamic_deceptive_tension_weight.loc[probe_date]:.4f}")
-            print(f"       - 过程: dynamic_micro_intent_tension_weight: {dynamic_micro_intent_tension_weight.loc[probe_date]:.4f}")
-            print(f"       - 过程: fused_divergence_base: {fused_divergence_base.loc[probe_date]:.4f}")
-            print(f"       - 过程: base_tension_score (before dynamic evolution): {base_tension_score.loc[probe_date]:.4f}")
         # --- 7. 张力演化趋势与预警 (Tension Evolution & Early Warning) ---
         smoothed_base_score = base_tension_score.ewm(span=smoothing_ema_span, adjust=False).mean()
         velocity = smoothed_base_score.diff(1).fillna(0)
@@ -485,17 +376,6 @@ class FundFlowIntelligence:
             (norm_velocity.add(1)/2).pow(dynamic_velocity_weight) *
             (norm_acceleration.add(1)/2).pow(dynamic_acceleration_weight)
         ).pow(1 / (dynamic_base_score_weight + dynamic_velocity_weight + dynamic_acceleration_weight)) * 2 - 1
-        if is_probe_active:
-            print(f"       - 过程: smoothed_base_score: {smoothed_base_score.loc[probe_date]:.4f}")
-            print(f"       - 过程: velocity: {velocity.loc[probe_date]:.4f}")
-            print(f"       - 过程: acceleration: {acceleration.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_velocity: {norm_velocity.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_acceleration: {norm_acceleration.loc[probe_date]:.4f}")
-            print(f"       - 过程: norm_dynamic_evolution_context_1: {norm_dynamic_evolution_context_1.loc[probe_date]:.4f}")
-            print(f"       - 过程: dynamic_base_score_weight: {dynamic_base_score_weight.loc[probe_date]:.4f}")
-            print(f"       - 过程: dynamic_velocity_weight: {dynamic_velocity_weight.loc[probe_date]:.4f}")
-            print(f"       - 过程: dynamic_acceleration_weight: {dynamic_acceleration_weight.loc[probe_date]:.4f}")
-            print(f"       - 结果: final_score: {final_score.loc[probe_date]:.4f}")
         return final_score.clip(-1, 1).astype(np.float32)
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
