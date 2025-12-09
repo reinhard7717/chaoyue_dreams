@@ -11,6 +11,34 @@ class FundFlowIntelligence:
         """
         self.strategy = strategy_instance
 
+    def _get_safe_series(self, df: pd.DataFrame, data_source: Union[pd.DataFrame, Dict[str, pd.Series]], column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+        """
+        【V1.1 · 上下文修复版】安全地从DataFrame或字典中获取Series，如果不存在则打印警告并返回默认Series。
+        - 核心修复: 接收 df 参数，并使用其索引创建默认 Series，确保上下文一致。
+        """
+        df_index = df.index
+        series = None
+        if isinstance(data_source, pd.DataFrame):
+            if column_name not in data_source.columns:
+                print(f"    -> [资金流情报警告] 方法 '{method_name}' 缺少DataFrame数据 '{column_name}'，使用默认值 {default_value}。")
+                series = pd.Series(default_value, index=df_index)
+            else:
+                series = data_source[column_name]
+        elif isinstance(data_source, dict):
+            if column_name not in data_source:
+                print(f"    -> [资金流情报警告] 方法 '{method_name}' 缺少字典数据 '{column_name}'，使用默认值 {default_value}。")
+                series = pd.Series(default_value, index=df_index)
+            else:
+                raw_data = data_source[column_name]
+                if isinstance(raw_data, pd.Series):
+                    series = raw_data.reindex(df_index, fill_value=default_value)
+                else:
+                    series = pd.Series(raw_data, index=df_index)
+        else:
+            print(f"    -> [资金流情报警告] 方法 '{method_name}' 接收到未知数据源类型 {type(data_source)}，无法获取 '{column_name}'，使用默认值 {default_value}。")
+            series = pd.Series(default_value, index=df_index)
+        return series
+
     def _get_mtf_dynamic_score(self, df: pd.DataFrame, signal_base_name: str, periods_list: list, weights_dict: dict, is_bipolar: bool, is_accel: bool = False) -> pd.Series:
         mtf_scores = []
         numeric_weights = {k: v for k, v in weights_dict.items() if isinstance(v, (int, float))}
