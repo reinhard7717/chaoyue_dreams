@@ -1389,7 +1389,7 @@ class FundFlowIntelligence:
             return pd.Series(0.0, index=df.index)
         return sum(mtf_scores) / total_weight
 
-    def _calculate_mtf_cohesion_divergence(self, df: pd.DataFrame, signal_base_name: str, short_periods: List[int], long_periods: List[int], is_bipolar: bool, tf_weights: Dict, probe_date: pd.Timestamp, is_probe_active: bool, method_name: str) -> pd.Series:
+    def _calculate_mtf_cohesion_divergence(self, df: pd.DataFrame, signal_base_name: str, short_periods: List[int], long_periods: List[int], is_bipolar: bool, tf_weights: Dict, method_name: str) -> pd.Series:
         """
         【V4.0 升级】计算双极性多时间框架的共振/背离因子。
         分析短期和长期斜率/加速度的一致性及其方向。
@@ -1420,9 +1420,6 @@ class FundFlowIntelligence:
             accel_col = f'ACCEL_{p}_{signal_base_name}'
             slope_raw = self._get_safe_series(df, df, slope_col, 0.0, method_name)
             accel_raw = self._get_safe_series(df, df, accel_col, 0.0, method_name)
-            if is_probe_active:
-                print(f"       - 原料: {slope_col} (raw): {slope_raw.loc[probe_date]:.4f}")
-                print(f"       - 原料: {accel_col} (raw): {accel_raw.loc[probe_date]:.4f}")
             if is_bipolar:
                 long_slope_scores.append(get_adaptive_mtf_normalized_bipolar_score(slope_raw, df.index, tf_weights))
                 long_accel_scores.append(get_adaptive_mtf_normalized_bipolar_score(accel_raw, df.index, tf_weights))
@@ -1434,11 +1431,6 @@ class FundFlowIntelligence:
         avg_short_accel = sum(short_accel_scores) / len(short_accel_scores) if short_accel_scores else pd.Series(0.0, index=df.index)
         avg_long_slope = sum(long_slope_scores) / len(long_slope_scores) if long_slope_scores else pd.Series(0.0, index=df.index)
         avg_long_accel = sum(long_accel_scores) / len(long_accel_scores) if long_accel_scores else pd.Series(0.0, index=df.index)
-        if is_probe_active:
-            print(f"       - 过程: avg_short_slope ({signal_base_name}): {avg_short_slope.loc[probe_date]:.4f}")
-            print(f"       - 过程: avg_short_accel ({signal_base_name}): {avg_short_accel.loc[probe_date]:.4f}")
-            print(f"       - 过程: avg_long_slope ({signal_base_name}): {avg_long_slope.loc[probe_date]:.4f}")
-            print(f"       - 过程: avg_long_accel ({signal_base_name}): {avg_long_accel.loc[probe_date]:.4f}")
         # 计算双极性共振/背离分数
         # 1. 方向一致性：如果短期和长期方向一致，则为正；相反则为负。
         direction_alignment = np.sign(avg_short_slope) * np.sign(avg_long_slope)
@@ -1589,8 +1581,8 @@ class FundFlowIntelligence:
         # 短期和长期时间框架定义
         short_periods = [5, 13]
         long_periods = [21, 55]
-        nmfnf_bipolar_resonance_factor = self._calculate_mtf_cohesion_divergence(df, 'NMFNF_D', short_periods, long_periods, True, self.tf_weights_ff, probe_date, is_probe_active, "_diagnose_fund_flow_divergence_signals")
-        conviction_bipolar_resonance_factor = self._calculate_mtf_cohesion_divergence(df, 'main_force_conviction_index_D', short_periods, long_periods, True, self.tf_weights_ff, probe_date, is_probe_active, "_diagnose_fund_flow_divergence_signals")
+        nmfnf_bipolar_resonance_factor = self._calculate_mtf_cohesion_divergence(df, 'NMFNF_D', short_periods, long_periods, True, self.tf_weights_ff, "_diagnose_fund_flow_divergence_signals")
+        conviction_bipolar_resonance_factor = self._calculate_mtf_cohesion_divergence(df, 'main_force_conviction_index_D', short_periods, long_periods, True, self.tf_weights_ff, "_diagnose_fund_flow_divergence_signals")
         mtf_bipolar_resonance_factor = (
             nmfnf_bipolar_resonance_factor * mtf_resonance_factor_weights.get('nmfnf_cohesion', 0.6) +
             conviction_bipolar_resonance_factor * mtf_resonance_factor_weights.get('conviction_cohesion', 0.4)
