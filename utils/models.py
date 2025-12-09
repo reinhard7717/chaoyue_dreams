@@ -4,7 +4,6 @@ from django.core.serializers.json import DjangoJSONEncoder
 class BaseModel(models.Model):
     class Meta:
         abstract = True  # 设置为抽象类，这样Django不会为这个模型创建数据表
-        
     def __str__(self):
         """
         默认的字符串表示方法

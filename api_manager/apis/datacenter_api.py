@@ -480,7 +480,6 @@ class DataCenterAPI(BaseAPI):
             Optional[List[Dict]]: 个股阶段统计数据，如请求失败则返回None
         """
         return await self.get('data/all/zjlx/ggjdtj_20', expected_type='list')
-    
     async def get_net_inflow_amount_rank(self) -> Optional[List[Dict]]:
         """
         获取净流入额排名数据

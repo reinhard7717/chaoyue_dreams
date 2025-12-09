@@ -128,7 +128,6 @@ class Command(BaseCommand):
             count += len(members_to_create)
         self.stdout.write(f"     ...完成，处理 {count} 条同花顺板块成分记录。")
         return count
-    
     async def migrate_dc_members(self, concept_map):
         """迁移东方财富板块成分"""
         self.stdout.write("  -> 正在迁移 [东方财富板块] 成分股...")

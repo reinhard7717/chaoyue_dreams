@@ -23,7 +23,6 @@ class IndexInfo(models.Model):
         db_table = "index_info"
         verbose_name = "指数基础信息"
         verbose_name_plural = verbose_name
-        
     def __str__(self):
         return f"{self.index_code} - {self.name}"
 

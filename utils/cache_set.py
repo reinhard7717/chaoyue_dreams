@@ -75,7 +75,6 @@ class CacheSet():
         except Exception as e:
             logger.error(f"缓存指数[{index_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}", exc_info=True)
             return False
-        
     async def _stock_latest_data(self, stock_code: str, time_level: str, data_to_cache: Dict[str, Any], cache_key: str) -> bool:
         if not data_to_cache:
             logger.warning(f"试图缓存股票[{stock_code}] 时间级别[{time_level}] 的空时间序列数据，操作跳过。")
@@ -206,7 +205,6 @@ class UserCacheSet(CacheSet):
         except Exception as e:
             logger.error(f"缓存用户 {user_id} 自选股列表失败: {str(e)}", exc_info=True)
             return False
-        
     async def all_favorites(self, fav_data: Dict) -> bool:
         """
         将所有自选股列表缓存到 Redis，使用 Hash 类型。

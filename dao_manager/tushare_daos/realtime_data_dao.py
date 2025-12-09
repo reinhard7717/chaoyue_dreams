@@ -157,7 +157,6 @@ class StockRealtimeDAO(BaseDAO):
         results = await asyncio.gather(*tasks)
         final_map = {code: df for code, df in results if df is not None and not df.empty}
         return final_map
-    
     # --- 读操作 (Read Operation) ---
     async def get_daily_real_ticks(self, stock_code: str, trade_date: str) -> Optional[pd.DataFrame]:
         """

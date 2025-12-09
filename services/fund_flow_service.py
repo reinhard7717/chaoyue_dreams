@@ -134,7 +134,6 @@ class AdvancedFundFlowMetricsService:
                 is_incremental = False
                 fetch_start_date = None
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
-        
     async def _load_and_merge_sources(self, stock_info, data_dfs: dict, base_daily_df: pd.DataFrame):
         """
         【V2.4 · 净流量悖论修复版】

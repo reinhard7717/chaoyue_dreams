@@ -93,7 +93,6 @@ class PositionSnapshotService:
         except Exception as e:
             logger.error(f"为 Tracker ID {tracker_id} 重建快照时发生严重错误: {e}", exc_info=True)
             return 0
-        
     # --- 异步辅助方法 ---
     @sync_to_async(thread_sensitive=True)
     def _get_tracker(self, tracker_id):

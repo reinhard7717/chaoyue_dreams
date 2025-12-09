@@ -340,7 +340,6 @@ def save_fund_flow_daily_data_last_n_days_task(num_days: int):
             logger.warning(f"任务 {task_id}: 未能从TradeCalendar获取到最近 {num_days} 个交易日，无法分派任务。")
             print(f"调试信息：任务 {task_id} 警告：未能获取到交易日。")
             return {"status": "skipped", "message": "Trade calendar is empty or num_days is invalid."}
-        
         # 为每个交易日创建子任务签名
         task_signatures = []
         for trade_date in trade_days_list:
@@ -351,7 +350,6 @@ def save_fund_flow_daily_data_last_n_days_task(num_days: int):
                     end_date=trade_date
                 ).set(queue='SaveHistoryData_TimeTrade') # 指定子任务的队列
             )
-        
         if not task_signatures:
             logger.info(f"任务 {task_id}: 没有需要分派的资金流数据子任务。")
             print(f"调试信息：任务 {task_id}：没有子任务需要分派。")
@@ -360,7 +358,6 @@ def save_fund_flow_daily_data_last_n_days_task(num_days: int):
         # 将所有子任务组成一个组并异步分派
         task_group = group(task_signatures)
         result = task_group.apply_async()
-        
         logger.info(f"任务 {task_id}: 成功分派 {len(task_signatures)} 个个股资金流数据子任务组。Group ID: {result.id}")
         print(f"调试信息：任务 {task_id}: 成功分派 {len(task_signatures)} 个个股资金流数据子任务组。Group ID: {result.id}")
         return {"status": "dispatched", "group_id": result.id, "dispatched_tasks": len(task_signatures), "num_days_requested": num_days}
@@ -483,7 +480,6 @@ def save_fund_flow_daily_ths_data_last_n_days_task(num_days: int):
             logger.warning(f"任务 {task_id}: 未能从TradeCalendar获取到最近 {num_days} 个交易日，无法分派任务。")
             print(f"调试信息：任务 {task_id} 警告：未能获取到交易日。")
             return {"status": "skipped", "message": "Trade calendar is empty or num_days is invalid."}
-        
         # 为每个交易日创建子任务签名
         task_signatures = []
         for trade_date in trade_days_list:
@@ -493,7 +489,6 @@ def save_fund_flow_daily_ths_data_last_n_days_task(num_days: int):
                     trade_date=trade_date
                 ).set(queue=FAVORITE_SAVE_API_DATA_QUEUE) # 沿用现有历史任务的队列配置
             )
-        
         if not task_signatures:
             logger.info(f"任务 {task_id}: 没有需要分派的板块/行业资金流数据子任务。")
             print(f"调试信息：任务 {task_id}：没有子任务需要分派。")
@@ -502,7 +497,6 @@ def save_fund_flow_daily_ths_data_last_n_days_task(num_days: int):
         # 将所有子任务组成一个组并异步分派
         task_group = group(task_signatures)
         result = task_group.apply_async()
-        
         logger.info(f"任务 {task_id}: 成功分派 {len(task_signatures)} 个板块/行业资金流数据子任务组。Group ID: {result.id}")
         print(f"调试信息：任务 {task_id}: 成功分派 {len(task_signatures)} 个板块/行业资金流数据子任务组。Group ID: {result.id}")
         return {"status": "dispatched", "group_id": result.id, "dispatched_tasks": len(task_signatures), "num_days_requested": num_days}

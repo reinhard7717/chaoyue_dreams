@@ -50,7 +50,6 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
                     favorite_stock_codes.add(fav.get("stock_code"))
     except Exception as e:
         logger.error(f"获取自选股列表时出错: {e}", exc_info=True)
-        
     try:
         # 直接使用传入的DAO实例
         all_stocks = await stock_basic_dao.get_stock_list()
@@ -60,7 +59,6 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
                     all_stock_codes.add(stock.stock_code)
     except Exception as e:
         logger.error(f"获取全市场股票列表时出错: {e}", exc_info=True)
-        
     non_favorite_stock_codes = list(all_stock_codes - favorite_stock_codes)
     favorite_stock_codes_list = list(favorite_stock_codes)
     # 返回排序后的列表，保证每次结果一致
@@ -378,7 +376,6 @@ def update_favorite_stock_trackers(self):
             logger.info(f"已向用户 {user_id} 发送快照更新通知。")
         logger.info(f"每日快照任务完成。成功处理 {len(trackers_needing_snapshot)} 个追踪器。")
         return f"成功处理 {len(trackers_needing_snapshot)} 个追踪器的每日快照。"
-            
     except Exception as e:
         logger.error(f"更新持仓追踪器（创建快照）时发生严重错误: {e}", exc_info=True)
         self.retry(exc=e, countdown=60)
@@ -1734,7 +1731,6 @@ def run_top_n_performance_analysis(
     if not top_signals:
         logger.warning("在指定时间段内未发现任何符合条件的Top-N买入信号，任务终止。")
         return
-        
     total_signals = len(top_signals)
     logger.info(f"步骤1完成: 共发现 {total_signals} 个Top-{top_n}信号实例。")
     # --- 3. 高效评估信号表现 (无变化) ---
@@ -1744,7 +1740,6 @@ def run_top_n_performance_analysis(
     if not all_stock_codes:
         logger.warning("信号列表为空，无法继续进行价格预加载。")
         return
-        
     min_date_needed = start_date
     # 增加对 max_date_needed 的None检查
     max_date_needed_candidate = TradeCalendar.get_trade_date_offset(end_date, holding_days + 2)

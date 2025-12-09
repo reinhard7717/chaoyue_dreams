@@ -69,7 +69,6 @@ class StructuralProbes:
         print("\n  [链路层 5] 终极对质 (Final Verdict)")
         print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针重算值 {final_recalc_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, final_recalc_score) else '❌ 不一致'}")
         print("\n--- “结构健康度探针”解剖完毕 ---")
-        
     def _deploy_structural_pillar_fusion_probe(self, probe_date: pd.Timestamp, period: int = 13):
         """
         【探针 V2.0 · V20引擎同步版】结构支柱融合探针

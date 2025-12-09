@@ -93,7 +93,6 @@ def run_intraday_strategy_for_all_stocks(self, *, cache_manager: CacheManager):
     if not all_codes:
         logger.warning("[盘中策略] 未找到任何股票数据，任务终止。")
         return {"status": "failed", "reason": "No stocks found."}
-        
     total_stocks = len(all_codes)
     logger.info(f"[盘中策略] 准备为 {total_stocks} 只股票执行盘中分析。")
     # 3. 派发并行子任务

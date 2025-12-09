@@ -38,7 +38,6 @@ def is_trading_time():
     该函数现在会同时检查日期和时间。
     """
     now = datetime.datetime.now()
-    
     # 新增代码行: 首先检查当天是否为交易日
     if not TradeCalendar.is_trade_date(check_date=now.date()):
         return False # 如果不是交易日，则直接返回False
@@ -72,7 +71,6 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
                     favorite_stock_codes.add(fav.get("stock_code"))
     except Exception as e:
         logger.error(f"获取自选股列表时出错: {e}", exc_info=True)
-        
     try:
         # 直接使用传入的DAO实例
         all_stocks = await stock_basic_dao.get_stock_list()
@@ -82,7 +80,6 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
                     all_stock_codes.add(stock.stock_code)
     except Exception as e:
         logger.error(f"获取全市场股票列表时出错: {e}", exc_info=True)
-        
     non_favorite_stock_codes = list(all_stock_codes - favorite_stock_codes)
     favorite_stock_codes_list = list(favorite_stock_codes)
     # 返回排序后的列表，保证每次结果一致
@@ -441,16 +438,13 @@ def dispatch_tick_data_cleaning_task(start_date_str: str, end_date_str: str = No
         return {"status": "error", "message": "日期格式错误"}
 
     logger.info(f"--- 开始为日期范围 {start_date_str} 至 {end_date.strftime('%Y-%m-%d')} 分派Tick数据清理任务 ---")
-    
     stock_codes = list(StockInfo.objects.filter(list_status='L').values_list('stock_code', flat=True))
-    
     total_dispatched_count = 0
     for process_date in dates_to_process:
         date_str = process_date.strftime('%Y-%m-%d')
         for stock_code in stock_codes:
             clean_tick_data_for_stock.s(stock_code, date_str).set(queue="SaveData_RealTime_Quote").apply_async()
             total_dispatched_count += 1
-            
     logger.info(f"--- Tick数据清理任务分派完成，共为 {len(dates_to_process)} 天、{len(stock_codes)} 只股票分派了 {total_dispatched_count} 个任务。 ---")
     return {
         "status": "success",

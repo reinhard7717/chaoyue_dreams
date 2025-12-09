@@ -315,11 +315,9 @@ class BaseAPI:
             await self._session.close()
             self._session = None
             logger.debug("HTTP会话已关闭")
-            
     async def __aenter__(self):
         """异步上下文管理器入口"""
         return self
-        
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """异步上下文管理器出口，确保会话关闭"""
         await self.close()

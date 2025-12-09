@@ -162,7 +162,6 @@ def update_favorite_stock_trackers(self):
         else:
             logger.warning("没有可供创建的快照数据。")
             return "没有可供创建的快照数据。"
-            
     except Exception as e:
         logger.error(f"更新持仓追踪器（创建快照）时发生严重错误: {e}", exc_info=True)
         # 如果任务失败，可以发起重试

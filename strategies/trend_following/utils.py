@@ -167,7 +167,6 @@ def create_persistent_state(df: pd.DataFrame, entry_event_series: pd.Series, per
             end_date = window_indices[-1] if not window_indices.empty else entry_idx
         # 使用.loc进行高效的区间赋值
         persistent_series.loc[entry_idx:end_date] = True
-        
     return persistent_series.astype(np.int8) # 使用int8类型，内存效率最高
 
 def optimize_df_memory(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
@@ -203,30 +202,35 @@ def optimize_df_memory(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
 
 def normalize_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value=0.5) -> pd.Series:
     """
-    【V2.2 · 绝对零点校准版】通用归一化引擎 (万物标尺)
+    【V2.3 · 绝对零点校准版】通用归一化引擎 (万物标尺)
     - 核心修复: 废弃“零值隔离”，引入“绝对零点校准”。在完成排名归一化后，
                   强制将原始输入为零的位置的最终得分校准为最低分0.0，
                   彻底根除所有场景下的“零值归一化悖论”。
+    - 修复V2.2: 修正 zero_mask 的应用逻辑，确保其与 rank 序列的索引对齐。
     """
     if series is None or series.isnull().all() or series.empty:
         return pd.Series(default_value, index=target_index, dtype=np.float32)
-    series = series.reindex(target_index)
+    # 确保 series 与 target_index 对齐，并填充 NaN
+    series_aligned = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0) # 填充NaN以确保rolling计算
     min_periods = max(1, int(window * 0.2))
-    # 在原始序列上直接进行计算
-    rank = series.rolling(
+    rank = series_aligned.rolling(
         window=window, 
         min_periods=min_periods
     ).rank(
         pct=True, 
         ascending=ascending
     )
+    # 重新对齐 rank 并填充 NaN，确保与 target_index 匹配
     rank = rank.reindex(target_index).fillna(default_value)
-    # [新增代码行] 绝对零点校准：原始值为0，则最终分必须为0
-    zero_mask = series.abs() < 1e-6
+    # 绝对零点校准：原始值为0，则最终分必须为0
+    # 使用 series_aligned 来创建 zero_mask，确保索引一致性
+    zero_mask = (series_aligned.abs() < 1e-6)
+    # 仅当 mask 和 rank 长度一致时才应用，避免潜在的索引问题
     if len(zero_mask) == len(rank):
-        rank[zero_mask] = 0.0 # 对于[0,1]的排名分，0是最低分
+        rank.loc[zero_mask] = 0.0 # 对于[0,1]的排名分，0是最低分
     else:
-        print(f"警告: 在 normalize_score 中，校准掩码与得分序列长度不匹配，校准跳过。")
+        # 打印更详细的警告信息
+        print(f"警告: 在 normalize_score 中，校准掩码与得分序列长度不匹配，校准跳过。len(zero_mask)={len(zero_mask)}, len(rank)={len(rank)}")
     return rank.astype(np.float32)
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
@@ -344,65 +348,69 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     top_context_score = np.maximum(conventional_top_score, structural_resistance_score).astype(np.float32)
     return bottom_context_score, top_context_score
 
-def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
+def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 2.0, default_value: float = 0.0) -> pd.Series:
     """
-    【V3.1 · 零值隔离版】双极归一化引擎 (力学罗盘)
+    【V3.2 · 零值隔离版】双极归一化引擎 (力学罗盘)
     - 核心修复: 采用“零值隔离”策略。在滚动计算前，将零值替换为NaN，使其不参与均值和标准差的计算。
                   计算完成后，再将NaN的结果填充为中性值0.0，从源头根除“零值归一化悖论”。
+    - 修复V3.1: 将 sensitivity 的默认值直接设置为 2.0，避免不直观的默认值行为。
     """
-    if sensitivity == 1.0:
-        sensitivity = 2.0
+    # 移除 if sensitivity == 1.0: sensitivity = 2.0 逻辑，直接使用默认值 2.0
     if series is None or series.isnull().all() or series.empty:
         return pd.Series(default_value, index=target_index, dtype=np.float32)
-    series = series.reindex(target_index)
+    # 确保 series 与 target_index 对齐，并填充 NaN
+    series_aligned = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0) # 填充NaN以确保rolling计算
     # 零值隔离：将接近0的值替换为NaN
-    series_isolated = series.where(series.abs() >= 1e-6)
+    series_isolated = series_aligned.where(series_aligned.abs() >= 1e-6)
     min_periods = max(1, int(window * 0.2))
     # 在隔离了零值的序列上进行计算
     rolling_mean = series_isolated.rolling(window=window, min_periods=min_periods).mean()
     rolling_std = series_isolated.rolling(window=window, min_periods=min_periods).std()
-    rolling_std = rolling_std.replace(0, np.nan)
+    rolling_std = rolling_std.replace(0, np.nan) # 避免除以零
     # 使用隔离后的序列进行Z-score计算
     z_score = (series_isolated - rolling_mean) / (rolling_std * sensitivity)
     bipolar_score = np.tanh(z_score)
     # 使用reindex确保索引完整，并将因隔离产生的NaN填充回中性值0.0
     return bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
 
-def get_robust_bipolar_normalized_score(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
+def get_robust_bipolar_normalized_score(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 2.0, default_value: float = 0.0) -> pd.Series:
     """
-    【V1.1 · 临界点豁免版】双极归一化的高阶进化版 (力学罗盘)
+    【V1.2 · 临界点豁免版】双极归一化的高阶进化版 (力学罗盘)
     - 新增原因: 为解决“零标准差悖论”与“min_periods陷阱”而生。
     - 核心逻辑: 在V1.0“绝对偏差校准”基础上，增加“临界点豁免”协议。当因数据稀疏
                   导致滚动计算失败时，直接采信当前值的符号作为信号，确保在突变临界点
                   的信号不会被湮灭。
+    - 修复V1.1: 将 sensitivity 的默认值直接设置为 2.0，避免不直观的默认值行为。
     """
-    if sensitivity == 1.0:
-        sensitivity = 2.0
+    # 移除 if sensitivity == 1.0: sensitivity = 2.0 逻辑，直接使用默认值 2.0
     if series is None or series.isnull().all() or series.empty:
         return pd.Series(default_value, index=target_index, dtype=np.float32)
-    series = series.reindex(target_index)
-    series_isolated = series.where(series.abs() >= 1e-6)
+    # 确保 series 与 target_index 对齐，并填充 NaN
+    series_aligned = series.reindex(target_index).fillna(method='ffill').fillna(method='bfill').fillna(0) # 填充NaN以确保rolling计算
+    series_isolated = series_aligned.where(series_aligned.abs() >= 1e-6)
     min_periods = max(1, int(window * 0.2))
     rolling_mean = series_isolated.rolling(window=window, min_periods=min_periods).mean()
     rolling_std = series_isolated.rolling(window=window, min_periods=min_periods).std()
     bipolar_score = pd.Series(np.nan, index=series.index, dtype=np.float32)
+    # 避免除以零，并确保标准差有效
     valid_std_mask = rolling_std.notna() & (rolling_std.abs() > 1e-9)
     if valid_std_mask.any():
         z_score = (series_isolated[valid_std_mask] - rolling_mean[valid_std_mask]) / (rolling_std[valid_std_mask] * sensitivity)
         bipolar_score.loc[valid_std_mask] = np.tanh(z_score)
-    zero_std_mask = ~valid_std_mask
-    if zero_std_mask.any():
-        deviation = series_isolated[zero_std_mask] - rolling_mean[zero_std_mask]
-        # 增加临界点豁免逻辑
-        # 正常情况：deviation可以计算出来
+    # 处理标准差为零或NaN的情况 (临界点豁免逻辑)
+    zero_or_nan_std_mask = ~valid_std_mask
+    if zero_or_nan_std_mask.any():
+        # 尝试计算偏差
+        deviation = series_isolated[zero_or_nan_std_mask] - rolling_mean[zero_or_nan_std_mask]
+        # 正常情况：deviation可以计算出来 (即 rolling_mean 有效)
         valid_deviation_mask = deviation.notna()
         if valid_deviation_mask.any():
             bipolar_score.loc[deviation[valid_deviation_mask].index] = np.sign(deviation[valid_deviation_mask])
-        # 豁免情况：deviation是NaN (通常因为min_periods导致rolling_mean是NaN)
+        # 豁免情况：deviation是NaN (通常因为 min_periods 导致 rolling_mean 是 NaN)
         nan_deviation_mask = deviation.isna()
         if nan_deviation_mask.any():
-            # 直接使用原始series的符号
-            original_series_subset = series[deviation[nan_deviation_mask].index]
+            # 直接使用原始 series_aligned 的符号
+            original_series_subset = series_aligned[nan_deviation_mask.index]
             bipolar_score.loc[original_series_subset.index] = np.sign(original_series_subset)
     return bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
 

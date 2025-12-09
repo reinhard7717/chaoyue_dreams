@@ -518,7 +518,6 @@ class StrategyCacheGet(CacheGet):
         else:
             logger.info(f"缓存未命中: 未找到股票[{stock_code}] 最新策略判断, key: {cache_key}")
             return None
-        
     async def all_analyze_signals_trend_following_data(self):
         """
         获取全部股票的最新趋势跟踪策略数据（从Redis缓存）。

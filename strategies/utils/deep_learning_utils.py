@@ -475,7 +475,6 @@ def prepare_data_for_transformer(
         num_inf = np.sum(np.isinf(current_features_np))
         num_nan = np.sum(np.isnan(current_features_np))
         logger.warning(f"处理前特征中 Inf 数量: {num_inf}, NaN 数量: {num_nan}")
-        
     current_features_np = np.nan_to_num(
         current_features_np,
         nan=0.0, # 将 NaN 替换为 0

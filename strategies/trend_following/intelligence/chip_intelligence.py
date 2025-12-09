@@ -395,7 +395,6 @@ class ChipIntelligence:
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         df_index = df.index
-        
         probe_date = None # 初始化 probe_date
         is_probe_active = False # 初始化探针激活标志
 

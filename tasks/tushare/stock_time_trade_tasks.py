@@ -78,7 +78,6 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
                     favorite_stock_codes.add(fav.get("stock_code"))
     except Exception as e:
         logger.error(f"获取自选股列表时出错: {e}", exc_info=True)
-        
     try:
         # 直接使用传入的DAO实例
         all_stocks = await stock_basic_dao.get_stock_list()
@@ -88,7 +87,6 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
                     all_stock_codes.add(stock.stock_code)
     except Exception as e:
         logger.error(f"获取全市场股票列表时出错: {e}", exc_info=True)
-        
     non_favorite_stock_codes = list(all_stock_codes - favorite_stock_codes)
     favorite_stock_codes_list = list(favorite_stock_codes)
     # 返回排序后的列表，保证每次结果一致
@@ -1577,7 +1575,6 @@ def _group_consecutive_dates(dates: List[datetime.date]) -> List[tuple[datetime.
     for k, g in groupby(enumerate(sorted_dates), lambda ix: ix[0] - ix[1].toordinal()):
         group = list(map(itemgetter(1), g))
         ranges.append((group[0], group[-1]))
-        
     return ranges
 
 def _group_dates_by_chunk_size(dates: List[datetime.date], chunk_size: int) -> List[tuple[datetime.date, datetime.date]]:
@@ -1603,7 +1600,6 @@ def _group_dates_by_chunk_size(dates: List[datetime.date], chunk_size: int) -> L
             start_date = chunk[0]
             end_date = chunk[-1]
             ranges.append((start_date, end_date))
-            
     return ranges
 
 @celery_app.task(name='tasks.stock_time_trade_tasks.repair_missing_cyq_data_for_stock', queue='SaveHistoryData_TimeTrade', bind=True)

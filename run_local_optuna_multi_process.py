@@ -122,7 +122,6 @@ def objective(trial, strategy, item_name, epochs):
           f"nhead={transformer_hyperparams['transformer_model_config']['nhead']}, learning_rate={transformer_hyperparams['transformer_training_config']['learning_rate']:.6e}")
     # 初始化 val_mae 为 NaN，以避免 NoneType 错误
     val_mae = float('nan')
-    
     try:
         # 将 train_transformer_model_from_prepared_data 的返回值赋给一个临时变量
         returned_val_mae = strategy.train_transformer_model_from_prepared_data(
@@ -181,7 +180,6 @@ def run_local_transformer_training_batch(
         if 'CUDA_VISIBLE_DEVICES' in os.environ:
             del os.environ['CUDA_VISIBLE_DEVICES']
         logger.info("未指定 GPU ID，CUDA_VISIBLE_DEVICES 未设置。")
-    
     # --- 解析和验证路径 ---
     actual_model_base_dir = None
     if model_base_dir_path_str:
@@ -342,7 +340,6 @@ if __name__ == '__main__':
     print("停止命令:")
     print("  echo quit | nvidia-cuda-mps-control")
     print("-------------------------------------------\n")
-    
     parser = argparse.ArgumentParser(description="本地批量训练 Transformer 模型脚本。")
     parser.add_argument(
         "--params-file",

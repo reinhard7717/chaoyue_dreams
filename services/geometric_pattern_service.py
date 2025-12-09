@@ -841,7 +841,6 @@ class GeometricPatternService:
         elif line_type == 'resistance':
             # 阻力线需要主动卖盘确认，OFI为负加分
             conviction_score = 0.5 - (ofi_ratio / 2) # 将 [-1, 1] 的 ofi_ratio 映射到 [1, 0]
-            
         return np.clip(conviction_score, 0, 1)
 
     def _calculate_breakout_momentum_from_realtime(self, df_realtime: pd.DataFrame) -> float:
@@ -858,7 +857,6 @@ class GeometricPatternService:
         df_realtime = df_realtime[df_realtime['time_diff_seconds'] > 0]
         if df_realtime.empty:
             return 0.0
-            
         # 计算每秒的价格变化率（速度）
         df_realtime['price_velocity'] = df_realtime['price_change_pct'] / df_realtime['time_diff_seconds']
         # 动能分 = 平均速度 * 速度为正的时间占比 (惩罚下跌)
