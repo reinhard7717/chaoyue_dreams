@@ -1228,7 +1228,6 @@ class FundFlowIntelligence:
             norm_institutional_flow_accel_mtf * 0.3 +
             norm_institutional_flow_long_slope_mtf * 0.3
         ).clip(-1, 1)
-        if is_probe_active: print(f"       - 过程: flow_persistence (Patient): {flow_persistence.loc[probe_date]:.4f}")
         # 1.2 成本控制与效率
         norm_cost_advantage = get_adaptive_mtf_normalized_bipolar_score(main_force_cost_advantage_raw, df_index, tf_weights=tf_weights_ff)
         norm_vwap_guidance = get_adaptive_mtf_normalized_bipolar_score(main_force_vwap_guidance_raw, df_index, tf_weights=tf_weights_ff)
