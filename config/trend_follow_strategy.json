@@ -2492,6 +2492,34 @@
           "dynamic_evolution_context_sensitivity_2": 0.1,
           "comment_dynamic_evolution_context_sensitivity_2": "情境因子2对动态演化权重调整的敏感度。"
         },
+        "axiom_divergence_params": {
+          "description": "【V3.0 · 资金流内部分歧与意图张力版】资金流内部分歧与意图张力公理的专属参数。",
+          "core_divergence_slope_period": 5,
+          "comment_core_divergence_slope_period": "核心分歧向量中资金净流量和主力信念的斜率周期。",
+          "structural_tension_slope_period": 5,
+          "comment_structural_tension_slope_period": "结构性张力中大单和散户资金流的斜率周期。",
+          "deceptive_tension_slope_period": 5,
+          "comment_deceptive_tension_slope_period": "诡道意图张力中欺骗指数的斜率周期。",
+          "energy_injection_signals": {
+            "description": "用于能量注入的资金流活动信号及其权重。",
+            "main_force_activity_ratio_D": 0.6,
+            "main_force_ofi_D": 0.4
+          },
+          "persistence_window": 13,
+          "comment_persistence_window": "计算分歧持续性的滚动窗口。",
+          "amplification_factor": 1.5,
+          "comment_amplification_factor": "最终张力分数的放大系数。",
+          "retail_sentiment_mod_sensitivity": 0.2,
+          "comment_retail_sentiment_mod_sensitivity": "散户情绪对结构性张力的调制敏感度。",
+          "deception_mod_sensitivity": 0.3,
+          "comment_deception_mod_sensitivity": "对倒强度对诡道意图张力的调制敏感度。",
+          "divergence_component_weights": {
+            "description": "核心分歧、结构性张力、诡道意图张力在最终融合中的权重。",
+            "core_divergence": 0.4,
+            "structural_tension": 0.3,
+            "deceptive_tension": 0.3
+          }
+        },
         "axiom_flow_momentum_params": {
           "description": "【V6.0 · 深度情境与结构洞察版】资金流纯度与动能公理的专属参数。",
           "base_momentum_weights": {
