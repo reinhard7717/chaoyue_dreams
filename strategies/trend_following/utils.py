@@ -350,12 +350,12 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
 
 def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 2.0, default_value: float = 0.0) -> pd.Series:
     """
-    【V3.2 · 零值隔离版】双极归一化引擎 (力学罗盘)
+    【V3.3 · 零值隔离与符号校准版】双极归一化引擎 (力学罗盘)
     - 核心修复: 采用“零值隔离”策略。在滚动计算前，将零值替换为NaN，使其不参与均值和标准差的计算。
                   计算完成后，再将NaN的结果填充为中性值0.0，从源头根除“零值归一化悖论”。
-    - 修复V3.1: 将 sensitivity 的默认值直接设置为 2.0，避免不直观的默认值行为。
+    - 修复V3.2: 引入“符号校准”机制。在Z-score归一化后，如果原始信号的符号与归一化后的分数符号不一致，
+                  且原始信号的绝对值足够大，则强制修正归一化分数的符号，确保双极性信号的方向性不被扭曲。
     """
-    # 移除 if sensitivity == 1.0: sensitivity = 2.0 逻辑，直接使用默认值 2.0
     if series is None or series.isnull().all() or series.empty:
         return pd.Series(default_value, index=target_index, dtype=np.float32)
     # 确保 series 与 target_index 对齐，并填充 NaN
@@ -370,6 +370,13 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int,
     # 使用隔离后的序列进行Z-score计算
     z_score = (series_isolated - rolling_mean) / (rolling_std * sensitivity)
     bipolar_score = np.tanh(z_score)
+    # --- V3.3 新增: 符号校准机制 ---
+    # 仅对原始值非零且符号不一致的情况进行校准
+    # 避免对接近零的噪音进行误判，设置一个小的绝对值阈值
+    sign_mismatch_mask = (series_aligned.abs() > 1e-6) & (np.sign(series_aligned) != np.sign(bipolar_score))
+    # 对于符号不一致的情况，将 bipolar_score 的符号强制修正为与原始 series_aligned 一致
+    # 同时保留 bipolar_score 的绝对值，但如果原始值为0，则保持0
+    bipolar_score.loc[sign_mismatch_mask] = bipolar_score.loc[sign_mismatch_mask].abs() * np.sign(series_aligned.loc[sign_mismatch_mask])
     # 使用reindex确保索引完整，并将因隔离产生的NaN填充回中性值0.0
     return bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
 
