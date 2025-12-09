@@ -142,10 +142,9 @@ class CognitiveIntelligence:
 
     def _deduce_suppressive_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V5.1 · 信号依赖修正版】贝叶斯推演：“主力打压吸筹”剧本
-        - 核心修正: 根据数据层实际提供的信号，移除了对不存在的斜率信号的依赖。
-                    `PROCESS_META_STEALTH_ACCUMULATION` 和 `SCORE_BEHAVIOR_DECEPTION_INDEX`
-                    将使用其静态证据值，而 `dip_absorption_power_D` 仍将进行动态调制。
+        【V5.2 · 动态权重赋值修正版】贝叶斯推演：“主力打压吸筹”剧本
+        - 核心修正: 修复了情境自适应权重赋值时，将 Series 赋值给 Series 元素导致的 ValueError。
+                    现在每个证据的权重都是一个随日期变化的 Series。
         - 核心升级:
             1. 情境自适应权重：根据市场情绪、趋势质量、波动率等宏观情境动态调整证据权重。
             2. 非线性融合：对证据分数应用幂次变换，放大强证据的影响。
@@ -262,7 +261,12 @@ class CognitiveIntelligence:
             'chip_strategic_posture': 0.12,
             'market_contradiction_bullish': 0.10
         }
-        adaptive_weights = pd.Series(base_weights_dict, dtype=np.float32)
+
+        # 初始化 adaptive_weights_per_date 为一个字典，每个值都是一个 Series，索引与 df.index 相同
+        adaptive_weights_per_date = {
+            name: pd.Series(base_weight, index=df.index, dtype=np.float32)
+            for name, base_weight in base_weights_dict.items()
+        }
 
         # 调制因子：将情境信号映射到权重调整系数
         # 市场状态：越熊市/震荡，打压吸筹越合理，增加相关证据权重
@@ -274,30 +278,40 @@ class CognitiveIntelligence:
         # 波动不稳定性：波动越大，打压吸筹可能越剧烈，或吸筹难度越大
         volatility_mod = volatility_instability * 0.05 # 波动越大，略微增加打压证据权重
 
-        # 应用调制：
+        # 应用调制：直接将调制 Series 加到对应的权重 Series 上
         # 打压证据权重增加 (price_falling, deception, volume_atrophy)
-        adaptive_weights['price_falling'] += market_regime_mod + trend_quality_mod + volatility_mod
-        adaptive_weights['deception'] += market_regime_mod + trend_quality_mod + sentiment_mod
-        adaptive_weights['volume_atrophy'] += market_regime_mod + trend_quality_mod + sentiment_mod
+        adaptive_weights_per_date['price_falling'] += market_regime_mod + trend_quality_mod + volatility_mod
+        adaptive_weights_per_date['deception'] += market_regime_mod + trend_quality_mod + sentiment_mod
+        adaptive_weights_per_date['volume_atrophy'] += market_regime_mod + trend_quality_mod + sentiment_mod
 
         # 吸筹证据权重增加 (capital_confrontation, efficiency, stealth_accum, split_order_accum, power_transfer, chip_strategic_posture)
-        adaptive_weights['capital_confrontation'] += market_regime_mod + sentiment_mod
-        adaptive_weights['efficiency'] += market_regime_mod + sentiment_mod
-        adaptive_weights['stealth_accum'] += market_regime_mod + sentiment_mod + trend_quality_mod
-        adaptive_weights['split_order_accum'] += market_regime_mod + sentiment_mod + trend_quality_mod
-        adaptive_weights['power_transfer'] += market_regime_mod + sentiment_mod
-        adaptive_weights['chip_strategic_posture'] += market_regime_mod + sentiment_mod
+        adaptive_weights_per_date['capital_confrontation'] += market_regime_mod + sentiment_mod
+        adaptive_weights_per_date['efficiency'] += market_regime_mod + sentiment_mod
+        adaptive_weights_per_date['stealth_accum'] += market_regime_mod + sentiment_mod + trend_quality_mod
+        adaptive_weights_per_date['split_order_accum'] += market_regime_mod + sentiment_mod + trend_quality_mod
+        adaptive_weights_per_date['power_transfer'] += market_regime_mod + sentiment_mod
+        adaptive_weights_per_date['chip_strategic_posture'] += market_regime_mod + sentiment_mod
 
         # 市场矛盾权重相对稳定，略受趋势质量影响
-        adaptive_weights['market_contradiction_bullish'] += (1 - trend_quality_mod) * 0.05
+        adaptive_weights_per_date['market_contradiction_bullish'] += (1 - trend_quality_mod) * 0.05
 
-        # 确保权重非负，并重新归一化
-        adaptive_weights = adaptive_weights.clip(lower=0)
-        adaptive_weights /= adaptive_weights.sum()
+        # 确保权重非负
+        for name in adaptive_weights_per_date:
+            adaptive_weights_per_date[name] = adaptive_weights_per_date[name].clip(lower=0)
+
+        # 将字典转换为 DataFrame，并按行（日期）归一化
+        weights_df = pd.DataFrame(adaptive_weights_per_date)
+        weights_sum_per_date = weights_df.sum(axis=1)
+        # 避免除以零，如果和为零，则均匀分配权重
+        weights_sum_per_date = weights_sum_per_date.replace(0, weights_df.shape[1])
+        weights_df = weights_df.div(weights_sum_per_date, axis=0)
 
         if probe_date_for_loop is not None and probe_date_for_loop in df.index:
             print(f"       - 市场状态调制: {market_regime_mod.loc[probe_date_for_loop]:.4f}, 趋势质量调制: {trend_quality_mod.loc[probe_date_for_loop]:.4f}, 情绪调制: {sentiment_mod.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 自适应权重 (示例): price_falling: {adaptive_weights['price_falling']:.4f}, stealth_accum: {adaptive_weights['stealth_accum']:.4f}")
+            # 打印特定日期的自适应权重
+            print(f"       - 自适应权重 (2025-11-28):")
+            for name in evidence_names:
+                print(f"         - {name}: {weights_df.loc[probe_date_for_loop, name]:.4f}")
 
         # --- 5. 非线性变换 (Power Transformation) ---
         power_factor = 1.2 # 放大强证据的影响
@@ -326,9 +340,8 @@ class CognitiveIntelligence:
         safe_scores = np.maximum(stacked_transformed_scores, 1e-9) # 避免对数运算错误
 
         # --- 6. 计算似然度 (Likelihood) ---
-        # 将自适应权重转换为与 stacked_transformed_scores 匹配的数组
-        adaptive_weights_array = np.array([adaptive_weights[name] for name in evidence_names])
-        likelihood_values = np.exp(np.sum(np.log(safe_scores) * adaptive_weights_array[:, np.newaxis], axis=0))
+        # 使用归一化后的 weights_df.values.T (转置) 来与 evidence_scores 进行元素乘法
+        likelihood_values = np.exp(np.sum(np.log(safe_scores) * weights_df.values.T, axis=0))
         likelihood = pd.Series(likelihood_values, index=df.index)
 
         # --- 7. 反事实推理代理 (Unexpected Accumulation Bonus) ---
