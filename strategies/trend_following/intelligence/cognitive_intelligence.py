@@ -142,17 +142,11 @@ class CognitiveIntelligence:
 
     def _deduce_suppressive_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V8.1 · 信号可用性优化版】贝叶斯推演：“主力打压吸筹”剧本
-        - 核心修正: 将 `SCORE_BEHAVIOR_INTRADAY_VWAP_BATTLEFIELD` 从 `required_signals` 列表中移除，
-                    使其成为可选证据，避免因日内信号缺失导致方法启动失败。
+        【V9.0 · 诡道吸筹动态协同版】贝叶斯推演：“主力打压吸筹”剧本
         - 核心升级:
-            1. 强化“打压”证据：引入 `SCORE_BEHAVIOR_DOWNWARD_RESISTANCE` (适度抵抗) 和
-               `SCORE_BEHAVIOR_INTRADAY_VWAP_BATTLEFIELD` (负向部分)，更全面捕捉控制性打压。
-            2. 深化“吸筹”证据：引入 `SCORE_CHIP_TACTICAL_EXCHANGE` (高质量换手)、
-               `SCORE_FF_AXIOM_FLOW_MOMENTUM` (资金流纯度与动能) 和
-               `PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT` (资金流吸筹拐点意图)，
-               从多维度验证吸筹行为。
-            3. 引入结构性证据：引入 `SCORE_STRUCT_AXIOM_TENSION` (结构张力)，预示能量积蓄。
+            1. 动态 `power_factor`：根据 `volatility_instability` 动态调整非线性放大因子。
+            2. 增强“压制”证据的情境放大：在熊市/弱势趋势中，额外放大压制相关证据的权重。
+            3. 引入“协同吸筹”证据：通过几何平均融合多个核心吸筹信号，捕捉协同效应。
             4. 调整证据权重：根据新增信号的直接性和重要性，重新分配权重。
         """
         print("    -- [剧本推演] 主力打压吸筹 (动态证据)...")
@@ -179,10 +173,11 @@ class CognitiveIntelligence:
             'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 'SCORE_FF_AXIOM_CONVICTION',
             'SLOPE_5_suppressive_accumulation_intensity_D', 'SLOPE_5_covert_accumulation_signal_D',
             'SCORE_BEHAVIOR_BULLISH_DIVERGENCE',
-            # V8.0 新增证据信号 (SCORE_BEHAVIOR_INTRADAY_VWAP_BATTLEFIELD 已移除，作为可选信号处理)
+            # V8.0 引入的证据信号
             'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE',
             'SCORE_CHIP_TACTICAL_EXCHANGE', 'SCORE_FF_AXIOM_FLOW_MOMENTUM',
             'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 'SCORE_STRUCT_AXIOM_TENSION'
+            # SCORE_BEHAVIOR_INTRADAY_VWAP_BATTLEFIELD 已移除 required_signals，作为可选信号处理
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_suppressive_accumulation"):
             print("    -> [探针] 信号校验失败，返回默认值。")
@@ -200,46 +195,48 @@ class CognitiveIntelligence:
 
         # 定义基础权重 (在方法开始处定义，确保作用域)
         base_weights_dict = {
-            'capital_confrontation': 0.03, # 资本对抗 (看涨部分)
-            'price_falling': 0.03, # 价格下跌证据 (基础下跌)
-            'deception': 0.05, # 行为欺骗指数 (正向)
-            'volume_atrophy': 0.02, # 成交量萎缩
-            'efficiency': 0.03, # 承接效率
-            'stealth_accum': 0.05, # 隐秘吸筹过程 (PROCESS_META_STEALTH_ACCUMULATION)
-            'split_order_accum': 0.03, # 拆单吸筹强度
-            'power_transfer': 0.02, # 权力转移 (正向)
-            'chip_strategic_posture': 0.04, # 筹码战略态势 (看涨部分)
-            'market_contradiction_bullish': 0.02, # 市场矛盾 (看涨部分)
+            'capital_confrontation': 0.02, # 资本对抗 (看涨部分)
+            'price_falling': 0.02, # 价格下跌证据 (基础下跌)
+            'deception': 0.04, # 行为欺骗指数 (正向)
+            'volume_atrophy': 0.01, # 成交量萎缩
+            'efficiency': 0.02, # 承接效率
+            'stealth_accum': 0.04, # 隐秘吸筹过程 (PROCESS_META_STEALTH_ACCUMULATION)
+            'split_order_accum': 0.02, # 拆单吸筹强度
+            'power_transfer': 0.01, # 权力转移 (正向)
+            'chip_strategic_posture': 0.03, # 筹码战略态势 (看涨部分)
+            'market_contradiction_bullish': 0.01, # 市场矛盾 (看涨部分)
             # V6.0 引入的证据权重
-            'suppressive_accum_intensity': 0.06, # 直接的压制吸筹强度 (原始指标)
-            'covert_accum_signal': 0.06, # 直接的隐蔽吸筹信号 (原始指标)
-            'shakeout_confirmation': 0.05, # 洗盘确认 (行为层)
-            'deceptive_accum': 0.05, # 诡道吸筹 (过程层)
-            'panic_washout_accum': 0.05, # 恐慌洗盘吸筹 (过程层)
-            'loser_capitulation': 0.04, # 输家投降仪式 (过程层)
-            'absorption_strength': 0.04, # 承接强度 (行为层)
-            'offensive_absorption_intent': 0.04, # 进攻性承接意图 (行为层)
-            'fund_flow_bullish_divergence': 0.03, # 资金流看涨背离
-            'chip_opp_absorption_echo': 0.05, # 筹码吸筹回声
-            'distribution_intent_negative': 0.04, # 派发意图 (反向)
-            'chip_risk_distribution_whisper_negative': 0.04, # 派发诡影 (反向)
+            'suppressive_accum_intensity': 0.05, # 直接的压制吸筹强度 (原始指标)
+            'covert_accum_signal': 0.05, # 直接的隐蔽吸筹信号 (原始指标)
+            'shakeout_confirmation': 0.04, # 洗盘确认 (行为层)
+            'deceptive_accum': 0.04, # 诡道吸筹 (过程层)
+            'panic_washout_accum': 0.04, # 恐慌洗盘吸筹 (过程层)
+            'loser_capitulation': 0.03, # 输家投降仪式 (过程层)
+            'absorption_strength': 0.03, # 承接强度 (行为层)
+            'offensive_absorption_intent': 0.03, # 进攻性承接意图 (行为层)
+            'fund_flow_bullish_divergence': 0.02, # 资金流看涨背离
+            'chip_opp_absorption_echo': 0.04, # 筹码吸筹回声
+            'distribution_intent_negative': 0.03, # 派发意图 (反向)
+            'chip_risk_distribution_whisper_negative': 0.03, # 派发诡影 (反向)
             # V7.0 新增证据权重
-            'price_downward_momentum': 0.06, # 价格下跌动能 (行为层)
-            'pct_change_slope': 0.03, # 价格变化斜率 (动态打压)
-            'micro_stealth_ops': 0.07, # 微观隐秘行动 (微观层)
-            'micro_cost_control': 0.06, # 微观成本控制 (微观层)
-            'chip_holder_sentiment_bullish': 0.05, # 筹码持仓信念韧性 (看涨部分)
-            'ff_conviction_bullish': 0.05, # 资金流信念韧性 (看涨部分)
-            'suppressive_accum_intensity_slope': 0.04, # 压制吸筹强度斜率 (动态吸筹)
-            'covert_accum_signal_slope': 0.04, # 隐蔽吸筹信号斜率 (动态吸筹)
-            'behavior_bullish_divergence': 0.04, # 行为看涨背离
-            # V8.0 新增证据权重
-            'downward_resistance': 0.04, # 下跌抵抗 (行为层)
-            'intraday_vwap_battlefield_negative': 0.03, # 日内VWAP攻防 (负向)
-            'chip_tactical_exchange': 0.06, # 战术换手博弈 (筹码层)
-            'ff_flow_momentum_bullish': 0.05, # 资金流纯度与动能 (看涨部分)
-            'ff_accum_inflection_intent': 0.05, # 资金流吸筹拐点意图 (过程层)
-            'structural_tension': 0.03 # 结构张力 (结构层)
+            'price_downward_momentum': 0.05, # 价格下跌动能 (行为层)
+            'pct_change_slope': 0.02, # 价格变化斜率 (动态打压)
+            'micro_stealth_ops': 0.06, # 微观隐秘行动 (微观层)
+            'micro_cost_control': 0.05, # 微观成本控制 (微观层)
+            'chip_holder_sentiment_bullish': 0.04, # 筹码持仓信念韧性 (看涨部分)
+            'ff_conviction_bullish': 0.04, # 资金流信念韧性 (看涨部分)
+            'suppressive_accum_intensity_slope': 0.03, # 压制吸筹强度斜率 (动态吸筹)
+            'covert_accum_signal_slope': 0.03, # 隐蔽吸筹信号斜率 (动态吸筹)
+            'behavior_bullish_divergence': 0.03, # 行为看涨背离
+            # V8.0 引入的证据权重
+            'downward_resistance': 0.03, # 下跌抵抗 (行为层)
+            'intraday_vwap_battlefield_negative': 0.02, # 日内VWAP攻防 (负向)
+            'chip_tactical_exchange': 0.05, # 战术换手博弈 (筹码层)
+            'ff_flow_momentum_bullish': 0.04, # 资金流纯度与动能 (看涨部分)
+            'ff_accum_inflection_intent': 0.04, # 资金流吸筹拐点意图 (过程层)
+            'structural_tension': 0.02, # 结构张力 (结构层)
+            # V9.0 新增证据权重
+            'synergistic_accumulation': 0.08 # 协同吸筹 (高权重)
         }
         evidence_names = list(base_weights_dict.keys()) # 确保在整个方法中都可访问
 
@@ -366,7 +363,7 @@ class CognitiveIntelligence:
         raw_behavior_bullish_divergence = self._get_atomic_score(df, 'SCORE_BEHAVIOR_BULLISH_DIVERGENCE', 0.0)
         behavior_bullish_divergence_evidence = self._forge_dynamic_evidence(df, raw_behavior_bullish_divergence)
 
-        # V8.0 新增证据获取
+        # V8.0 引入的证据获取
         raw_downward_resistance = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE', 0.0)
         downward_resistance_evidence = self._forge_dynamic_evidence(df, raw_downward_resistance)
 
@@ -386,6 +383,22 @@ class CognitiveIntelligence:
 
         raw_structural_tension = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TENSION', 0.0)
         structural_tension_evidence = self._forge_dynamic_evidence(df, raw_structural_tension)
+
+        # V9.0 新增协同吸筹证据
+        # 确保所有组件都是 Series 且索引一致，然后进行几何平均
+        synergistic_accumulation_components = [
+            covert_accum_signal_evidence,
+            chip_tactical_exchange_evidence,
+            ff_accum_inflection_intent_evidence
+        ]
+        # 过滤掉可能为0的项，避免log(0)错误，并确保所有项都是正数
+        synergistic_accumulation_safe_components = [np.maximum(s, 1e-9) for s in synergistic_accumulation_components]
+        # 几何平均
+        synergistic_accumulation_evidence = self._forge_dynamic_evidence(df, pd.Series(
+            np.exp(np.mean([np.log(s.values) for s in synergistic_accumulation_safe_components], axis=0)),
+            index=df.index
+        ))
+
 
         # --- 3. 时间序列动态调制 (Time-series Dynamics Modulation) ---
         slope_impact_factor = 0.5 # 斜率对证据的调制强度
@@ -410,6 +423,8 @@ class CognitiveIntelligence:
             print(f"       - 价格变化斜率(原始): {raw_pct_change_slope.loc[probe_date_for_loop]:.4f}, 证据: {pct_change_slope_evidence.loc[probe_date_for_loop]:.4f}")
             print(f"       - 下跌抵抗(原始): {raw_downward_resistance.loc[probe_date_for_loop]:.4f}, 证据: {downward_resistance_evidence.loc[probe_date_for_loop]:.4f}")
             print(f"       - 日内VWAP攻防(原始): {raw_intraday_vwap_battlefield.loc[probe_date_for_loop]:.4f}, 负向证据: {intraday_vwap_battlefield_negative_evidence.loc[probe_date_for_loop]:.4f}")
+            print(f"       - 协同吸筹证据: {synergistic_accumulation_evidence.loc[probe_date_for_loop]:.4f}")
+
 
         # --- 4. 情境自适应权重 (Context-adaptive weights) ---
         # 初始化 adaptive_weights_per_date 为一个字典，每个值都是一个 Series，索引与 df.index 相同
@@ -428,22 +443,26 @@ class CognitiveIntelligence:
         # 波动不稳定性：波动越大，打压吸筹可能越剧烈，或吸筹难度越大
         volatility_mod = volatility_instability * 0.05 # 波动越大，略微增加打压证据权重
 
+        # V9.0 增强“压制”证据的情境放大
+        # 当市场状态和趋势质量偏负时，压制证据的权重应更高
+        suppression_context_amplification = (market_regime_score.clip(upper=0).abs() + trend_quality_score.clip(upper=0).abs()) * 0.1
+        
         # 应用调制：直接将调制 Series 加到对应的权重 Series 上
         # 打压证据权重增加 (price_falling, deception, volume_atrophy, suppressive_accum_intensity, shakeout_confirmation, deceptive_accum, panic_washout_accum, price_downward_momentum, pct_change_slope, downward_resistance, intraday_vwap_battlefield_negative)
-        adaptive_weights_per_date['price_falling'] += market_regime_mod + trend_quality_mod + volatility_mod
-        adaptive_weights_per_date['deception'] += market_regime_mod + trend_quality_mod + sentiment_mod
-        adaptive_weights_per_date['volume_atrophy'] += market_regime_mod + trend_quality_mod + sentiment_mod
-        adaptive_weights_per_date['suppressive_accum_intensity'] += market_regime_mod + trend_quality_mod + volatility_mod
-        adaptive_weights_per_date['suppressive_accum_intensity_slope'] += market_regime_mod + trend_quality_mod + volatility_mod
-        adaptive_weights_per_date['shakeout_confirmation'] += market_regime_mod + trend_quality_mod + volatility_mod
-        adaptive_weights_per_date['deceptive_accum'] += market_regime_mod + trend_quality_mod + sentiment_mod
-        adaptive_weights_per_date['panic_washout_accum'] += market_regime_mod + trend_quality_mod + sentiment_mod
-        adaptive_weights_per_date['price_downward_momentum'] += market_regime_mod + trend_quality_mod + volatility_mod
-        adaptive_weights_per_date['pct_change_slope'] += market_regime_mod + trend_quality_mod + volatility_mod
-        adaptive_weights_per_date['downward_resistance'] += market_regime_mod + trend_quality_mod + volatility_mod
-        adaptive_weights_per_date['intraday_vwap_battlefield_negative'] += market_regime_mod + trend_quality_mod + volatility_mod
+        adaptive_weights_per_date['price_falling'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification
+        adaptive_weights_per_date['deception'] += market_regime_mod + trend_quality_mod + sentiment_mod + suppression_context_amplification
+        adaptive_weights_per_date['volume_atrophy'] += market_regime_mod + trend_quality_mod + sentiment_mod + suppression_context_amplification
+        adaptive_weights_per_date['suppressive_accum_intensity'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification
+        adaptive_weights_per_date['suppressive_accum_intensity_slope'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification
+        adaptive_weights_per_date['shakeout_confirmation'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification
+        adaptive_weights_per_date['deceptive_accum'] += market_regime_mod + trend_quality_mod + sentiment_mod + suppression_context_amplification
+        adaptive_weights_per_date['panic_washout_accum'] += market_regime_mod + trend_quality_mod + sentiment_mod + suppression_context_amplification
+        adaptive_weights_per_date['price_downward_momentum'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification
+        adaptive_weights_per_date['pct_change_slope'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification
+        adaptive_weights_per_date['downward_resistance'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification
+        adaptive_weights_per_date['intraday_vwap_battlefield_negative'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification
 
-        # 吸筹证据权重增加 (capital_confrontation, efficiency, stealth_accum, split_order_accum, power_transfer, chip_strategic_posture, loser_capitulation, absorption_strength, offensive_absorption_intent, chip_opp_absorption_echo, covert_accum_signal, fund_flow_bullish_divergence, micro_stealth_ops, micro_cost_control, chip_holder_sentiment_bullish, ff_conviction_bullish, chip_tactical_exchange, ff_flow_momentum_bullish, ff_accum_inflection_intent)
+        # 吸筹证据权重增加 (capital_confrontation, efficiency, stealth_accum, split_order_accum, power_transfer, chip_strategic_posture, loser_capitulation, absorption_strength, offensive_absorption_intent, chip_opp_absorption_echo, covert_accum_signal, fund_flow_bullish_divergence, micro_stealth_ops, micro_cost_control, chip_holder_sentiment_bullish, ff_conviction_bullish, chip_tactical_exchange, ff_flow_momentum_bullish, ff_accum_inflection_intent, synergistic_accumulation)
         adaptive_weights_per_date['capital_confrontation'] += market_regime_mod + sentiment_mod
         adaptive_weights_per_date['efficiency'] += market_regime_mod + sentiment_mod
         adaptive_weights_per_date['stealth_accum'] += market_regime_mod + sentiment_mod + trend_quality_mod
@@ -464,6 +483,7 @@ class CognitiveIntelligence:
         adaptive_weights_per_date['chip_tactical_exchange'] += market_regime_mod + sentiment_mod + trend_quality_mod
         adaptive_weights_per_date['ff_flow_momentum_bullish'] += market_regime_mod + sentiment_mod
         adaptive_weights_per_date['ff_accum_inflection_intent'] += market_regime_mod + sentiment_mod + trend_quality_mod
+        adaptive_weights_per_date['synergistic_accumulation'] += market_regime_mod + sentiment_mod + trend_quality_mod # 修改行: 协同吸筹调制
 
         # 市场矛盾、行为看涨背离和结构张力权重相对稳定，略受趋势质量影响
         adaptive_weights_per_date['market_contradiction_bullish'] += (1 - trend_quality_mod) * 0.05
@@ -493,7 +513,10 @@ class CognitiveIntelligence:
                 print(f"         - {name}: {weights_df.loc[probe_date_for_loop, name]:.4f}")
 
         # --- 5. 非线性变换 (Power Transformation) ---
-        power_factor = 1.2 # 放大强证据的影响
+        # V9.0 动态 power_factor
+        # power_factor 范围从 1.0 (波动性为0) 到 1.5 (波动性为1)
+        power_factor_dynamic = 1.0 + volatility_instability * 0.5 
+
         evidence_list = [
             capital_confrontation_evidence,
             price_falling_evidence,
@@ -534,13 +557,16 @@ class CognitiveIntelligence:
             chip_tactical_exchange_evidence,
             ff_flow_momentum_bullish_evidence,
             ff_accum_inflection_intent_evidence,
-            structural_tension_evidence
+            structural_tension_evidence,
+            # V9.0 新增证据
+            synergistic_accumulation_evidence
         ]
         # evidence_names 已经定义在方法顶部，无需重复定义
 
         transformed_evidence_scores = []
         for i, evidence_series in enumerate(evidence_list):
-            transformed_score = evidence_series.pow(power_factor)
+            # 修改行: 使用动态 power_factor_dynamic
+            transformed_score = evidence_series.pow(power_factor_dynamic)
             transformed_evidence_scores.append(transformed_score.values)
             if probe_date_for_loop is not None and probe_date_for_loop in df.index:
                 print(f"       - {evidence_names[i]} (原始证据): {evidence_series.loc[probe_date_for_loop]:.4f}, 变换后: {transformed_score.loc[probe_date_for_loop]:.4f}")
@@ -561,12 +587,12 @@ class CognitiveIntelligence:
         # 所以，如果 trend_quality_score > -0.5 (即不是非常熊市)，则 bonus 越高
         unexpected_context_multiplier = (trend_quality_score + 0.5).clip(0, 1) # 趋势质量从-0.5到1，乘数从0到1.5
         
-        # 意外吸筹奖励 = (隐秘吸筹 + 拆单吸筹 + 诡道吸筹 + 恐慌洗盘吸筹 + 隐蔽吸筹信号 + 微观隐秘行动 + 资金流吸筹拐点意图) * 意外情境乘数 * 奖励因子
+        # 意外吸筹奖励 = (隐秘吸筹 + 拆单吸筹 + 诡道吸筹 + 恐慌洗盘吸筹 + 隐蔽吸筹信号 + 微观隐秘行动 + 资金流吸筹拐点意图 + 协同吸筹) * 意外情境乘数 * 奖励因子
         unexpected_accumulation_bonus = (
             process_stealth_accum_evidence_dynamic + split_order_accum_evidence +
             deceptive_accum_evidence + panic_washout_accum_evidence +
             covert_accum_signal_evidence + micro_stealth_ops_evidence +
-            ff_accum_inflection_intent_evidence
+            ff_accum_inflection_intent_evidence + synergistic_accumulation_evidence # 修改行: 添加 synergistic_accumulation_evidence 到奖励计算
         ) * unexpected_context_multiplier * unexpected_bonus_factor
         
         # 将奖励加到似然度上，并确保不超过1
