@@ -3162,7 +3162,7 @@
             }
           },
         "leading_dragon_awakening_params": {
-          "description": "【V5.0 · 诡道博弈与情境自适应强化版】龙头苏醒剧本的专属参数。",
+          "description": "【V6.0 · 矛盾情境与协同强化版】龙头苏醒剧本的专属参数。",
           "base_weights": {
             "capital_confrontation": 0.08,
             "breakout_quality": 0.08,
@@ -3172,8 +3172,8 @@
             "chip_coherent_drive": 0.10,
             "micro_strategic_intent": 0.09,
             "breakout_readiness": 0.09,
-            "volume_burst": 0.07,
-            "price_upward_momentum": 0.07,
+            "volume_burst": 0.09,
+            "price_upward_momentum": 0.09,
             "capital_confrontation_change": 0.05,
             "chip_coherent_drive_change": 0.05,
             "micro_strategic_intent_change": 0.05,
@@ -3197,7 +3197,8 @@
             "sentiment_asymmetry_mod_bullish": 0.05,
             "sentiment_asymmetry_mod_bearish": 0.05,
             "liquidity_capital_boost": 0.05,
-            "contradictory_context_amplifier": 0.5
+            "contradictory_context_amplifier": 0.5,
+            "trend_quality_dampening_factor": 0.8
           },
           "power_factor_dynamic_base": 1.0,
           "power_factor_dynamic_volatility_multiplier": 0.5,
@@ -3212,7 +3213,11 @@
             "dynamic_penalty_mod_sensitivity": 0.5,
             "min_penalty_reduction_factor": 0.2,
             "max_penalty_amplification_factor": 1.5,
-            "contradictory_context_penalty_boost": 0.3
+            "contradictory_context_penalty_boost": 0.3,
+            "sentiment_liquidity_contradiction_penalty": 0.7
+          },
+          "synergy_bonuses": {
+            "breakout_volume_momentum_synergy": 0.2
           }
         }
       },
