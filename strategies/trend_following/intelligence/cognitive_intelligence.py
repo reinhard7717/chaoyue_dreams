@@ -1310,7 +1310,9 @@ class CognitiveIntelligence:
                 print(f"         - {key}: {value:.4f}")
             print(f"       - 原始惩罚信号值:")
             print(f"         - raw_distribution_intent: {raw_distribution_intent.loc[probe_date_for_loop]:.4f}")
-            print(f"         - raw_deception_index (positive part): {raw_deception_index.loc[probe_date_for_loop].clip(lower=0):.4f}")
+            # 修改开始：修正 clip 调用的顺序
+            print(f"         - raw_deception_index (positive part): {(raw_deception_index.clip(lower=0)).loc[probe_date_for_loop]:.4f}")
+            # 修改结束
             print(f"         - raw_chip_risk_distribution_whisper: {raw_chip_risk_distribution_whisper.loc[probe_date_for_loop]:.4f}")
             print(f"       - 派发意图惩罚因子: {distribution_intent_penalty_factor.loc[probe_date_for_loop]:.4f}")
             print(f"       - 博弈欺骗指数正向惩罚因子: {deception_positive_penalty_factor.loc[probe_date_for_loop]:.4f}")
