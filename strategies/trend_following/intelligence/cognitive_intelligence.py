@@ -882,12 +882,10 @@ class CognitiveIntelligence:
 
     def _deduce_chasing_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 动态权重与情境感知版】贝叶斯推演：“主力拉升抢筹”剧本
+        【V4.1 · 情绪归一化与权重探针增强版】贝叶斯推演：“主力拉升抢筹”剧本
         - 核心升级:
-            1. 证据丰富度提升: 引入量能爆发、上涨效率、微观订单流意图、结构突破准备度、结构动量、力学动量、相对强度和筹码趋势动量等新证据。
-            2. 动态权重与情境感知: 根据市场趋势质量、波动不稳定性、市场情绪和流动性动态等情境因子，动态调整各项证据的权重。
-            3. 非线性融合与惩罚机制: 引入动态幂次变换，并增加对派发意图和欺骗指数等负面信号的直接惩罚。
-            4. 详细探针: 输出原始数据、关键计算节点和结果值，以便于检查和调试。
+            1. 情绪信号归一化: 对 `market_sentiment_score_D` 进行显式归一化，确保其在 `[0, 1]` 范围内参与调制。
+            2. 权重探针增强: 增加权重在不同调制阶段的输出，便于调试权重归零问题。
         """
         print("    -- [剧本推演] 主力拉升抢筹 (动态证据)...")
         df_index = df.index
@@ -922,13 +920,14 @@ class CognitiveIntelligence:
         # --- 1. 获取情境调制信号 ---
         trend_quality_score = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0) # [-1, 1]
         volatility_instability = self._get_atomic_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.5) # [0, 1]
-        sentiment_score = self._get_atomic_score(df, 'market_sentiment_score_D', 0.5) # [0, 1]
+        # 修改开始：显式归一化 sentiment_score
+        raw_sentiment_score = self._get_atomic_score(df, 'market_sentiment_score_D', 0.5)
+        sentiment_score = normalize_score(raw_sentiment_score, df_index, window=self.norm_window, ascending=True)
+        sentiment_score_clipped = sentiment_score.clip(0, 1)
+        # 修改结束
         raw_liquidity_dynamics = self._get_fused_score(df, 'FUSION_BIPOLAR_LIQUIDITY_DYNAMICS', 0.0) # [-1, 1]
         raw_distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0) # [0, 1]
         raw_deception_index = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0) # [-1, 1]
-
-        # 修正 sentiment_score 的范围，确保在 [0, 1] 内进行调制计算
-        sentiment_score_clipped = sentiment_score.clip(0, 1)
 
         # --- 2. 获取并锻造证据信号 ---
         capital_confrontation = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0))
@@ -992,15 +991,13 @@ class CognitiveIntelligence:
         # 流动性动态：流动性越好，抢筹越顺畅，增强资金流、资本对抗类证据权重
         liquidity_mod = raw_liquidity_dynamics.clip(lower=0) * 0.1
 
-        # 应用调制
-        # 修改开始
+        # 应用正向调制
         for name in [
-            'price_rising_evidence', 'process_evidence', 'volume_burst_evidence', # 将 'rally_intent_evidence' 替换为 'process_evidence'
+            'price_rising_evidence', 'process_evidence', 'volume_burst_evidence',
             'upward_efficiency_evidence', 'structural_momentum_bullish_evidence',
             'dyn_momentum_bullish_evidence', 'relative_strength_evidence', 'chip_trend_momentum_evidence'
         ]:
             adaptive_weights_per_date[name] += trend_mod + sentiment_mod
-        # 修改结束
         
         for name in [
             'chip_coherent_drive_evidence', 'efficiency_evidence', 'microstructure_intent_bullish_evidence',
@@ -1012,6 +1009,13 @@ class CognitiveIntelligence:
             'capital_confrontation', 'ff_accum_inflection_intent_evidence'
         ]:
             adaptive_weights_per_date[name] += liquidity_mod
+
+        # 修改开始：存储正向调制后的权重，用于探针
+        weights_after_positive_mod = {}
+        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+            for name in adaptive_weights_per_date:
+                weights_after_positive_mod[name] = adaptive_weights_per_date[name].loc[probe_date_for_loop]
+        # 修改结束
 
         # 惩罚调制：如果存在派发意图或欺骗，则降低所有看涨证据的权重
         distribution_penalty = raw_distribution_intent * 0.2
@@ -1069,14 +1073,23 @@ class CognitiveIntelligence:
             print(f"       - 原始情境信号:")
             print(f"         - trend_quality_score: {trend_quality_score.loc[probe_date_for_loop]:.4f}")
             print(f"         - volatility_instability: {volatility_instability.loc[probe_date_for_loop]:.4f}")
-            print(f"         - sentiment_score: {sentiment_score.loc[probe_date_for_loop]:.4f}")
+            print(f"         - raw_sentiment_score: {raw_sentiment_score.loc[probe_date_for_loop]:.4f}") # 修改：输出原始情绪分数
+            print(f"         - normalized_sentiment_score: {sentiment_score.loc[probe_date_for_loop]:.4f}") # 修改：输出归一化后的情绪分数
             print(f"         - raw_liquidity_dynamics: {raw_liquidity_dynamics.loc[probe_date_for_loop]:.4f}")
             print(f"         - raw_distribution_intent: {raw_distribution_intent.loc[probe_date_for_loop]:.4f}")
             print(f"         - raw_deception_index: {raw_deception_index.loc[probe_date_for_loop]:.4f}")
             print(f"       - 动态幂次因子 (power_factor_dynamic): {power_factor_dynamic.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 动态权重 (weights_df):")
+            # 修改开始：增强权重探针输出
+            print(f"       - 动态权重 (weights_df) 基础值:")
+            for name in evidence_names:
+                print(f"         - {name}: {base_weights_dict.get(name, 'N/A'):.4f}")
+            print(f"       - 动态权重 (weights_df) 正向调制后 (probe_date_for_loop):")
+            for name in evidence_names:
+                print(f"         - {name}: {weights_after_positive_mod.get(name, 'N/A'):.4f}")
+            print(f"       - 动态权重 (weights_df) 最终归一化后 (probe_date_for_loop):")
             for name in evidence_names:
                 print(f"         - {name}: {weights_df.loc[probe_date_for_loop, name]:.4f}")
+            # 修改结束
             print(f"       - 似然度 (likelihood): {likelihood.loc[probe_date_for_loop]:.4f}")
             print(f"       - 先验概率 (prior_prob): {prior_prob.loc[probe_date_for_loop]:.4f}")
             print(f"       - 最终后验概率 (posterior_prob): {posterior_prob.loc[probe_date_for_loop]:.4f}")
