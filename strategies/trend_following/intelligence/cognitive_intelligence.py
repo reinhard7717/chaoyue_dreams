@@ -1094,7 +1094,7 @@ class CognitiveIntelligence:
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION': posterior_prob.astype(np.float32)}
 
-    def _deduce_capitulation_reversal(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd[str, pd.Series]]:
+    def _deduce_capitulation_reversal(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
         【V9.0 · 深度恐慌与诡道吸筹增强版】贝叶斯推演：“恐慌投降反转”机会剧本
         - 核心升级:
@@ -1156,7 +1156,7 @@ class CognitiveIntelligence:
             'absorption_echo_evidence': 0.06,
             'deceptive_accumulation_evidence': 0.12
         }
-        base_weights_dict = {**default_base_weights, **cap_rev_params.get('base_weights', {})} # 修改行
+        base_weights_dict = {**default_base_weights, **cap_rev_params.get('base_weights', {})}
         context_modulation_factors = cap_rev_params.get('context_modulation_factors', {
             'sentiment_negative_mod': 0.15,
             'volatility_high_mod': 0.1,
@@ -1190,7 +1190,7 @@ class CognitiveIntelligence:
             'holder_sentiment_negative': 0.15,
             'distribution_intent_positive': 0.08
         }
-        panic_context_score_weights = {**default_panic_context_score_weights, **cap_rev_params.get('panic_context_score_weights', {})} # 修改行
+        panic_context_score_weights = {**default_panic_context_score_weights, **cap_rev_params.get('panic_context_score_weights', {})}
         sentiment_inverse_exponent = cap_rev_params.get('sentiment_inverse_exponent', 2.0)
         dynamic_penalty_modulation_params = cap_rev_params.get('dynamic_penalty_modulation_params', {
             'enabled': True,
