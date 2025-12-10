@@ -652,9 +652,9 @@ class CognitiveIntelligence:
 
     def _deduce_distribution_at_high(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V5.5 · 筹码与高位特征强化版】贝叶斯推演：“高位派发”风险剧本
+        【V5.6 · 战术换手博弈强化版】贝叶斯推演：“高位派发”风险剧本
         - 核心升级:
-            1.  **筹码风险证据强化：** 引入 `SCORE_CHIP_AXIOM_CONCENTRATION` 的负向部分，补充 `chip_bearish_divergence` 零值时的不足。
+            1.  **筹码风险证据强化：** 引入 `SCORE_CHIP_TACTICAL_EXCHANGE` 的负向部分作为“筹码集中度下降/派发”的证据，替代不存在的信号，并补充 `chip_bearish_divergence` 零值时的不足。
             2.  **高位特征证据强化：** 引入 `CONTEXT_NEW_HIGH_STRENGTH` 的反向部分和 `SCORE_STRUCT_AXIOM_STABILITY` 的负向部分，更全面地捕捉高位风险。
             3.  **趋势调制器精细化：** `trend_modulator` 结合 `structural_trend_form`，在趋势结构恶化时，对风险的放大作用更显著。
             4.  **证据归一化策略优化：** 调整 `_forge_dynamic_evidence` 的 `apply_normalization` 策略，确保原子信号在正确尺度上参与计算。
@@ -679,7 +679,7 @@ class CognitiveIntelligence:
             'SCORE_BEHAVIOR_BEARISH_DIVERGENCE',
             'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 'SCORE_INTRADAY_TACTICAL_ARC',
             'SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK',
-            'SCORE_CHIP_AXIOM_CONCENTRATION', 'CONTEXT_NEW_HIGH_STRENGTH', 'SCORE_STRUCT_AXIOM_STABILITY' # 新增证据
+            'SCORE_CHIP_TACTICAL_EXCHANGE', 'CONTEXT_NEW_HIGH_STRENGTH', 'SCORE_STRUCT_AXIOM_STABILITY' # 新增证据
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_distribution_at_high"):
             print("    -> [探针] 信号校验失败，返回默认值。")
@@ -784,9 +784,9 @@ class CognitiveIntelligence:
         raw_ambush_counterattack = self._get_atomic_score(df, 'SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK', 0.0)
         ambush_counterattack_inverse = self._forge_dynamic_evidence(df, (1 - raw_ambush_counterattack).clip(0, 1), apply_normalization=True)
 
-        # 3.21 筹码集中度 (反向) - 筹码集中度下降是派发风险
-        raw_chip_concentration = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
-        chip_concentration_inverse = self._forge_dynamic_evidence(df, (1 - raw_chip_concentration).clip(0, 1), apply_normalization=True)
+        # 3.21 战术换手博弈 (负向) - 负分代表主力派发或无人承接的崩溃式换手
+        raw_chip_tactical_exchange = self._get_atomic_score(df, 'SCORE_CHIP_TACTICAL_EXCHANGE', 0.0)
+        chip_tactical_exchange_bearish = self._forge_dynamic_evidence(df, raw_chip_tactical_exchange.clip(upper=0).abs(), apply_normalization=True)
 
         # 3.22 新高强度 (反向) - 创新高但伴随风险信号，则新高强度越高，风险越大
         raw_new_high_strength = self._get_atomic_score(df, 'CONTEXT_NEW_HIGH_STRENGTH', 0.0)
@@ -819,9 +819,9 @@ class CognitiveIntelligence:
             'price_overextension_raw': 0.05,
             'behavior_bearish_divergence': 0.04,
             'ambush_counterattack_inverse': 0.03,
-            'chip_concentration_inverse': 0.06, # 新增权重
-            'new_high_strength_inverse': 0.05, # 新增权重
-            'low_structural_stability': 0.05 # 新增权重
+            'chip_tactical_exchange_bearish': 0.06, # 新增权重
+            'new_high_strength_inverse': 0.05,
+            'low_structural_stability': 0.05
         }
         evidence_names = list(base_weights_dict.keys())
 
@@ -858,7 +858,7 @@ class CognitiveIntelligence:
         adaptive_weights_per_date['fund_flow_bearish_divergence'] += liquidity_dynamics.clip(upper=0).abs() * 0.15
         adaptive_weights_per_date['ff_axiom_divergence_bearish'] += liquidity_dynamics.clip(upper=0).abs() * 0.15
         adaptive_weights_per_date['chip_axiom_divergence_bearish'] += liquidity_dynamics.clip(upper=0).abs() * 0.1
-        adaptive_weights_per_date['chip_concentration_inverse'] += liquidity_dynamics.clip(upper=0).abs() * 0.1 # 流动性差时，筹码分散风险更大
+        adaptive_weights_per_date['chip_tactical_exchange_bearish'] += liquidity_dynamics.clip(upper=0).abs() * 0.1 # 流动性差时，筹码分散风险更大
 
         # 确保权重非负
         for name in adaptive_weights_per_date:
@@ -884,7 +884,7 @@ class CognitiveIntelligence:
             deception_index_positive, volume_burst_inverse, chip_axiom_divergence_bearish,
             ff_axiom_divergence_bearish, stagnation_evidence, price_overextension_raw,
             behavior_bearish_divergence, ambush_counterattack_inverse,
-            chip_concentration_inverse, new_high_strength_inverse, low_structural_stability
+            chip_tactical_exchange_bearish, new_high_strength_inverse, low_structural_stability
         ]
 
         transformed_evidence_scores = []
