@@ -818,15 +818,17 @@ class CognitiveIntelligence:
 
     def _deduce_trend_exhaustion_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 证据解耦与情境化重构版】贝叶斯推演：“趋势衰竭”风险剧本
+        【V6.1 · 零证据调制与情境化重构版】贝叶斯推演：“趋势衰竭”风险剧本
         - 核心升级:
-            1. 彻底解耦 COGNITIVE_* 信号：替换为底层的非认知层信号，避免循环依赖。
-            2. 证据锻造层优化：引入 min_positive_evidence_threshold，确保弱正向信号也能贡献微小证据。
-            3. 强化情境化动态权重：引入矛盾情境放大器，并增强情境调制因子的影响强度。
-            4. 趋势强度放大器：当趋势强劲时，趋势衰竭信号的敏感度被放大，而非简单削弱。
-            5. 增强证据集：新增成交量高潮、散户狂热、价格动能衰竭、多维度背离等非认知层证据。
-            6. 上涨停板惩罚情境化：上涨停板后的风险惩罚，根据超买和派发意图进行动态调制。
-            7. 详细探针：加入print输出所有原始值、锻造值、关键计算节点和结果，以便于检查和调试。
+            1. 零证据调制：引入 zero_evidence_modulator，对于原始值为零的非概率证据，赋予一个非常小的非零值，避免似然度完全归零。
+            2. 零证据情境化：zero_evidence_modulator 的值根据市场情境（如矛盾情境）进行动态调整。
+            3. 彻底解耦 COGNITIVE_* 信号：替换为底层的非认知层信号，避免循环依赖。
+            4. 证据锻造层优化：引入 min_positive_evidence_threshold，确保弱正向信号也能贡献微小证据。
+            5. 强化情境化动态权重：引入矛盾情境放大器，并增强情境调制因子的影响强度。
+            6. 趋势强度放大器：当趋势强劲时，趋势衰竭信号的敏感度被放大，而非简单削弱。
+            7. 增强证据集：新增成交量高潮、散户狂热、价格动能衰竭、多维度背离等非认知层证据。
+            8. 上涨停板惩罚情境化：上涨停板后的风险惩罚，根据超买和派发意图进行动态调制。
+            9. 详细探针：加入print输出所有原始值、锻造值、关键计算节点和结果，以便于检查和调试。
         """
         print("    -- [剧本推演] 趋势衰竭风险 (动态证据)...")
         df_index = df.index
@@ -855,9 +857,9 @@ class CognitiveIntelligence:
             'chip_axiom_divergence_negative': 0.05,
             'ff_axiom_divergence_negative': 0.05,
             'chip_historical_potential_negative': 0.04,
-            'fomo_capital_divergence': 0.05, # 新增
-            'profit_chip_pressure': 0.05, # 新增
-            'cyclical_peak_pressure': 0.05 # 新增
+            'fomo_capital_divergence': 0.05,
+            'profit_chip_pressure': 0.05,
+            'cyclical_peak_pressure': 0.05
         })
         context_modulation_factors = te_params.get('context_modulation_factors', {
             'sentiment_mod_strength': 0.15,
@@ -875,6 +877,7 @@ class CognitiveIntelligence:
         power_factor_dynamic_volatility_multiplier = te_params.get('power_factor_dynamic_volatility_multiplier', 0.5)
         trend_strength_amplifier_sensitivity = te_params.get('trend_strength_amplifier_sensitivity', 0.8)
         trend_strength_amplifier_max = te_params.get('trend_strength_amplifier_max', 2.5)
+        zero_evidence_modulator_base = te_params.get('zero_evidence_modulator_base', 1e-3) # 新增：获取 zero_evidence_modulator_base
         evidence_names = list(base_weights_dict.keys())
         # 更新信号校验列表，移除 COGNITIVE_* 信号，添加底层信号
         required_signals = [
@@ -913,82 +916,88 @@ class CognitiveIntelligence:
                 print(f"       - 情境信号 - market_sentiment: {market_sentiment.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 情境信号 - volatility_instability: {volatility_instability.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 情境信号 - liquidity_dynamics: {liquidity_dynamics.loc[probe_date_for_loop]:.4f}")
+        # --- 零证据调制器情境化 ---
+        # 在矛盾情境下，即使证据为零，也赋予一个略高的基础值
+        contradictory_context_score = (market_sentiment * (1 - liquidity_dynamics.clip(lower=0))).clip(0,1) # 情绪高涨但流动性差
+        zero_evidence_modulator = zero_evidence_modulator_base * (1 + contradictory_context_score * 0.5) # 矛盾情境下略微提高
+        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+            print(f"       - 零证据调制器 (zero_evidence_modulator): {zero_evidence_modulator.loc[probe_date_for_loop]:.4f}")
         # --- 2. 获取并锻造证据信号 ---
         is_limit_up_yesterday = self._get_safe_series(df, 'IS_LIMIT_UP_D', False, method_name="_deduce_trend_exhaustion_risk").shift(1).fillna(False)
         # main_force_holding_inverse
         raw_main_force_holding_strength = self._get_main_force_holding_strength(df)
-        main_force_holding_inverse = self._forge_dynamic_evidence(df, (1 - raw_main_force_holding_strength).clip(0,1))
+        main_force_holding_inverse = self._forge_dynamic_evidence(df, (1 - raw_main_force_holding_strength).clip(0,1), zero_evidence_modulator=zero_evidence_modulator)
         # price_momentum_divergence
         raw_price_momentum_divergence = self._get_atomic_score(df, 'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE', 0.0).clip(lower=0)
-        price_momentum_divergence = self._forge_dynamic_evidence(df, raw_price_momentum_divergence)
+        price_momentum_divergence = self._forge_dynamic_evidence(df, raw_price_momentum_divergence, zero_evidence_modulator=zero_evidence_modulator)
         # stagnation_evidence
         raw_stagnation_evidence = (1 - self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5)).clip(0, 1)
-        stagnation_evidence = self._forge_dynamic_evidence(df, raw_stagnation_evidence)
+        stagnation_evidence = self._forge_dynamic_evidence(df, raw_stagnation_evidence, zero_evidence_modulator=zero_evidence_modulator)
         # price_overextension_risk
         raw_price_overextension_score = self._get_fused_score(df, 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0)
-        price_overextension_risk = self._forge_dynamic_evidence(df, raw_price_overextension_score.clip(upper=0).abs())
+        price_overextension_risk = self._forge_dynamic_evidence(df, raw_price_overextension_score.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator)
         # winner_conviction_decay
         raw_winner_conviction_decay = self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION_DECAY', 0.0)
-        winner_conviction_decay = self._forge_dynamic_evidence(df, raw_winner_conviction_decay)
+        winner_conviction_decay = self._forge_dynamic_evidence(df, raw_winner_conviction_decay, zero_evidence_modulator=zero_evidence_modulator)
         # capital_retreat_evidence
         raw_capital_confrontation_score = self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0)
-        capital_retreat_evidence = self._forge_dynamic_evidence(df, raw_capital_confrontation_score.clip(upper=0).abs())
+        capital_retreat_evidence = self._forge_dynamic_evidence(df, raw_capital_confrontation_score.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator)
         # fund_flow_bearish_divergence
         raw_fund_flow_bearish_divergence = self._get_atomic_score(df, 'SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 0.0)
-        fund_flow_bearish_divergence = self._forge_dynamic_evidence(df, raw_fund_flow_bearish_divergence)
+        fund_flow_bearish_divergence = self._forge_dynamic_evidence(df, raw_fund_flow_bearish_divergence, zero_evidence_modulator=zero_evidence_modulator)
         # chip_dispersion_evidence
         raw_chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
-        chip_dispersion_evidence = self._forge_dynamic_evidence(df, raw_chip_strategic_posture.clip(upper=0).abs())
+        chip_dispersion_evidence = self._forge_dynamic_evidence(df, raw_chip_strategic_posture.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator)
         # chip_bearish_divergence
         raw_chip_risk_distribution_whisper = self._get_atomic_score(df, 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 0.0)
-        chip_bearish_divergence = self._forge_dynamic_evidence(df, raw_chip_risk_distribution_whisper)
+        chip_bearish_divergence = self._forge_dynamic_evidence(df, raw_chip_risk_distribution_whisper, zero_evidence_modulator=zero_evidence_modulator)
         # structural_deterioration
         raw_structural_trend_form_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
-        structural_deterioration = self._forge_dynamic_evidence(df, raw_structural_trend_form_score.clip(upper=0).abs())
+        structural_deterioration = self._forge_dynamic_evidence(df, raw_structural_trend_form_score.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator)
         # market_contradiction_bearish
         raw_market_contradiction_score = self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0)
-        market_contradiction_bearish = self._forge_dynamic_evidence(df, raw_market_contradiction_score.clip(upper=0).abs())
+        market_contradiction_bearish = self._forge_dynamic_evidence(df, raw_market_contradiction_score.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator)
         # distribution_intent_risk
         raw_distribution_intent_risk = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
-        distribution_intent_risk = self._forge_dynamic_evidence(df, raw_distribution_intent_risk)
+        distribution_intent_risk = self._forge_dynamic_evidence(df, raw_distribution_intent_risk, zero_evidence_modulator=zero_evidence_modulator)
         # trend_quality_inverse
-        trend_quality_inverse = self._forge_dynamic_evidence(df, (1 - trend_quality).clip(0,1))
+        trend_quality_inverse = self._forge_dynamic_evidence(df, (1 - trend_quality).clip(0,1), zero_evidence_modulator=zero_evidence_modulator)
         # new_high_strength_inverse
         raw_new_high_strength = self._get_atomic_score(df, 'CONTEXT_NEW_HIGH_STRENGTH', 0.0)
-        new_high_strength_inverse = self._forge_dynamic_evidence(df, (1 - raw_new_high_strength).clip(0,1))
+        new_high_strength_inverse = self._forge_dynamic_evidence(df, (1 - raw_new_high_strength).clip(0,1), zero_evidence_modulator=zero_evidence_modulator)
         # dip_absorption_inverse
         raw_dip_absorption_power = self._get_atomic_score(df, 'dip_absorption_power_D', 0.0)
-        dip_absorption_inverse = self._forge_dynamic_evidence(df, (1 - raw_dip_absorption_power).clip(0, 1))
+        dip_absorption_inverse = self._forge_dynamic_evidence(df, (1 - raw_dip_absorption_power).clip(0, 1), zero_evidence_modulator=zero_evidence_modulator)
         # volume_climax_evidence
         raw_volume_burst = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0)
-        volume_climax_evidence = self._forge_dynamic_evidence(df, raw_volume_burst)
+        volume_climax_evidence = self._forge_dynamic_evidence(df, raw_volume_burst, zero_evidence_modulator=zero_evidence_modulator)
         # retail_fomo_evidence
         raw_retail_fomo = self._get_atomic_score(df, 'retail_fomo_premium_index_D', 0.0)
-        retail_fomo_evidence = self._forge_dynamic_evidence(df, raw_retail_fomo)
+        retail_fomo_evidence = self._forge_dynamic_evidence(df, raw_retail_fomo, zero_evidence_modulator=zero_evidence_modulator)
         # price_momentum_inverse
         raw_price_upward_momentum = self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0)
-        price_momentum_inverse = self._forge_dynamic_evidence(df, (1 - raw_price_upward_momentum).clip(0,1))
+        price_momentum_inverse = self._forge_dynamic_evidence(df, (1 - raw_price_upward_momentum).clip(0,1), zero_evidence_modulator=zero_evidence_modulator)
         # behavior_bearish_divergence
         raw_behavior_bearish_divergence = self._get_atomic_score(df, 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE', 0.0)
-        behavior_bearish_divergence = self._forge_dynamic_evidence(df, raw_behavior_bearish_divergence)
+        behavior_bearish_divergence = self._forge_dynamic_evidence(df, raw_behavior_bearish_divergence, zero_evidence_modulator=zero_evidence_modulator)
         # chip_axiom_divergence_negative
         raw_chip_axiom_divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
-        chip_axiom_divergence_negative = self._forge_dynamic_evidence(df, raw_chip_axiom_divergence.clip(upper=0).abs())
+        chip_axiom_divergence_negative = self._forge_dynamic_evidence(df, raw_chip_axiom_divergence.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator)
         # ff_axiom_divergence_negative
         raw_ff_axiom_divergence = self._get_atomic_score(df, 'SCORE_FF_AXIOM_DIVERGENCE', 0.0)
-        ff_axiom_divergence_negative = self._forge_dynamic_evidence(df, raw_ff_axiom_divergence.clip(upper=0).abs())
+        ff_axiom_divergence_negative = self._forge_dynamic_evidence(df, raw_ff_axiom_divergence.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator)
         # chip_historical_potential_negative
         raw_chip_historical_potential = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0)
-        chip_historical_potential_negative = self._forge_dynamic_evidence(df, raw_chip_historical_potential.clip(upper=0).abs())
+        chip_historical_potential_negative = self._forge_dynamic_evidence(df, raw_chip_historical_potential.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator)
         # --- 新增证据：解耦 COGNITIVE_* 信号 ---
         # fomo_capital_divergence (替换 retail_fomo_retreat_risk)
-        fomo_capital_divergence = self._forge_dynamic_evidence(df, (retail_fomo_evidence + capital_retreat_evidence) / 2)
+        fomo_capital_divergence = self._forge_dynamic_evidence(df, (retail_fomo_evidence + capital_retreat_evidence) / 2, zero_evidence_modulator=zero_evidence_modulator)
         # profit_chip_pressure (替换 long_term_profit_distribution_risk)
-        profit_chip_pressure = self._forge_dynamic_evidence(df, (winner_conviction_decay + chip_dispersion_evidence) / 2)
+        profit_chip_pressure = self._forge_dynamic_evidence(df, (winner_conviction_decay + chip_dispersion_evidence) / 2, zero_evidence_modulator=zero_evidence_modulator)
         # cyclical_peak_pressure (替换 cyclical_top_risk)
         raw_dominant_cycle_power = self._get_atomic_score(df, 'DOMINANT_CYCLE_POWER', 0.0)
         raw_dominant_cycle_phase = self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE', 0.0)
-        cyclical_peak_pressure = self._forge_dynamic_evidence(df, (raw_dominant_cycle_power * raw_dominant_cycle_phase.clip(lower=0)).clip(0,1))
+        cyclical_peak_pressure = self._forge_dynamic_evidence(df, (raw_dominant_cycle_power * raw_dominant_cycle_phase.clip(lower=0)).clip(0,1), zero_evidence_modulator=zero_evidence_modulator)
         if probe_date_for_loop is not None and probe_date_for_loop in df_index:
             print(f"       - 原始证据 - raw_main_force_holding_strength: {raw_main_force_holding_strength.loc[probe_date_for_loop]:.4f}")
             print(f"       - 锻造证据 - main_force_holding_inverse: {main_force_holding_inverse.loc[probe_date_for_loop]:.4f}")
@@ -2102,29 +2111,32 @@ class CognitiveIntelligence:
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION': posterior_prob.astype(np.float32)}
 
-    def _forge_dynamic_evidence(self, df: pd.DataFrame, evidence: pd.Series, is_probability: bool = False, apply_normalization: bool = True) -> pd.Series:
+    def _forge_dynamic_evidence(self, df: pd.DataFrame, evidence: pd.Series, is_probability: bool = False, apply_normalization: bool = True, zero_evidence_modulator: float = None) -> pd.Series:
         """
-        【V2.6 · 最小证据阈值与弱信号贡献可配置版】动态证据锻造
+        【V2.7 · 零证据调制与弱信号贡献可配置版】动态证据锻造
         - 核心升级:
             1. `min_evidence_threshold` 从硬编码改为从策略参数中获取，提高可配置性。
             2. 引入 `min_positive_evidence_threshold`，确保弱正向信号也能贡献微小证据，避免似然度过低。
+            3. 引入 `zero_evidence_modulator`，对于原始值为零的非概率证据，赋予一个非常小的非零值，避免似然度完全归零。
         """
         # 确保证据是 Pandas Series 类型
         if not isinstance(evidence, pd.Series):
             evidence = pd.Series(evidence, index=df.index)
-        # 确保证据值在 [0, 1] 范围内，并处理 NaN
-        # 此处将负值裁剪为 0，表示不贡献正向证据
-        evidence = evidence.fillna(0.0).clip(0, 1)
+        # 原始证据值（在裁剪和填充NaN之后）
+        original_clipped_evidence = evidence.fillna(0.0).clip(0, 1)
         # 获取 min_positive_evidence_threshold
         min_positive_evidence_threshold = get_params_block(self.strategy, 'cognitive_intelligence_params', {}).get('min_positive_evidence_threshold', 1e-4)
         # 应用 min_positive_evidence_threshold：如果证据值在 (0, min_positive_evidence_threshold) 之间，则提升到 min_positive_evidence_threshold
         # 仅对正向证据应用此逻辑
-        evidence = evidence.mask((evidence > 0) & (evidence < min_positive_evidence_threshold), min_positive_evidence_threshold)
+        evidence = original_clipped_evidence.mask((original_clipped_evidence > 0) & (original_clipped_evidence < min_positive_evidence_threshold), min_positive_evidence_threshold)
         # 如果需要归一化且不是概率值，则进行归一化
         if apply_normalization and not is_probability:
             evidence = normalize_score(evidence, df.index, window=self.norm_window, ascending=True)
             # 归一化后再次确保在 [0, 1] 范围内，并处理可能出现的 NaN
             evidence = evidence.fillna(0.0).clip(0, 1)
+        # 零证据调制：如果原始证据为0，且不是概率值，则应用 zero_evidence_modulator
+        if zero_evidence_modulator is not None and not is_probability:
+            evidence = evidence.mask(original_clipped_evidence == 0, zero_evidence_modulator)
         # 避免对数运算错误，将接近0的值替换为最小证据阈值。
         # 这一步放在归一化之后，确保所有最终用于几何平均的证据都满足此条件。
         min_evidence_threshold_val = get_params_block(self.strategy, 'min_evidence_threshold', 1e-9)

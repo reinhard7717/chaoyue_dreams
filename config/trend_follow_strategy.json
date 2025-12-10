@@ -3222,7 +3222,7 @@
           }
         },
         "trend_exhaustion_params": {
-          "description": "【V6.0 · 证据解耦与情境化重构版】趋势衰竭风险剧本的专属参数。",
+          "description": "【V6.1 · 零证据调制与情境化重构版】趋势衰竭风险剧本的专属参数。",
           "base_weights": {
             "price_momentum_divergence": 0.07,
             "winner_conviction_decay": 0.06,
@@ -3265,7 +3265,8 @@
           "power_factor_dynamic_base": 1.0,
           "power_factor_dynamic_volatility_multiplier": 0.5,
           "trend_strength_amplifier_sensitivity": 0.8,
-          "trend_strength_amplifier_max": 2.5
+          "trend_strength_amplifier_max": 2.5,
+          "zero_evidence_modulator_base": 0.001 
         }
       },
 
