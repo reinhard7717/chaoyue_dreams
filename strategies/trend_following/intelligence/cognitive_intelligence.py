@@ -652,16 +652,15 @@ class CognitiveIntelligence:
 
     def _deduce_distribution_at_high(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V5.3 · 融合信号斜率内部计算版】贝叶斯推演：“高位派发”风险剧本
+        【V5.4 · 证据激活与归一化精炼版】贝叶斯推演：“高位派发”风险剧本
         - 核心升级:
-            1.  **融合信号斜率内部计算：** 针对融合层信号 `FUSION_BIPOLAR_TREND_QUALITY` 的斜率，从依赖预计算改为在方法内部动态计算，解决了信号缺失问题。
-            2.  **证据集扩充：** 引入 `SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK`。
-            3.  **证据转换精炼：** 优化 `capital_confrontation_bearish` 和 `chip_dispersion_evidence` 的提取逻辑，使其在情境下更敏感。
-            4.  **情境激活因子：** 引入 `sentiment_activation_factor` 和 `liquidity_activation_factor`，在市场情绪狂热或流动性枯竭时，放大相关派发证据的强度。
-            5.  **强化动态权重：** 根据市场情绪、流动性动态、趋势质量和波动不稳定性等情境因子，更精细地动态调整每个证据的权重，尤其是在矛盾情境下放大关键证据。
-            6.  **动态非线性转换：** `power_factor` 纳入流动性动态的负向影响，使其在流动性枯竭时也能提高放大作用。
-            7.  **优化趋势调制器：** `trend_modulator` 在趋势质量恶化时不再抑制风险，而是保持中性或略微放大风险。
-            8.  **详细探针：** 增加关键计算节点的输出，特别是情境激活因子。
+            1.  **证据归一化策略优化：** 调整 `_forge_dynamic_evidence` 的 `apply_normalization` 策略，确保原子信号在正确尺度上参与计算。
+            2.  **承接力证据精炼：** 优化 `dip_absorption_inverse` 的计算，使其与流动性动态更一致，避免矛盾。
+            3.  **情境激活因子：** 引入更强的情境激活因子，在市场情绪狂热或流动性枯竭时，显著放大 `price_overextension_raw` 和 `stagnation_evidence` 等关键派发证据的强度。
+            4.  **强化动态权重：** 根据市场情绪、流动性动态、趋势质量和波动不稳定性等情境因子，更精细地动态调整每个证据的权重，尤其是在矛盾情境下放大关键证据。
+            5.  **动态非线性转换：** `power_factor` 纳入流动性动态的负向影响，使其在流动性枯竭时也能提高放大作用。
+            6.  **优化趋势调制器：** `trend_modulator` 在趋势质量恶化时不再抑制风险，而是保持中性或略微放大风险。
+            7.  **详细探针：** 增加关键计算节点的输出，特别是情境激活因子。
         """
         print("    -- [剧本推演] 高位派发风险 (动态证据)...")
         # --- 1. 信号校验 ---
@@ -696,93 +695,95 @@ class CognitiveIntelligence:
         market_sentiment = self._get_atomic_score(df, 'market_sentiment_score_D', 0.5).clip(0, 1) # [0, 1]
         volatility_instability = self._get_atomic_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.5) # [0, 1]
         liquidity_dynamics = self._get_fused_score(df, 'FUSION_BIPOLAR_LIQUIDITY_DYNAMICS', 0.0) # [-1, 1]
-        # 修改开始：在方法内部动态计算 FUSION_BIPOLAR_TREND_QUALITY 的斜率
         trend_quality_slope = trend_quality.diff(5).fillna(0) # 5日变化率作为斜率
-        # 修改结束
 
         # --- 3. 获取原始证据信号 ---
         # 3.1 资本对抗 (负向) - 资金流出/空头力量
         raw_capital_confrontation = self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0)
-        # 优化：如果资本对抗为正，但市场情绪狂热，流动性差，这本身就是风险，不应直接为0。转换为缺乏买方力量的证据：1 - 积极的资本对抗
-        capital_confrontation_bearish = self._forge_dynamic_evidence(df, (1 - raw_capital_confrontation.clip(lower=0)).clip(0,1), apply_normalization=False)
+        # 优化：转换为缺乏买方力量的证据：1 - 积极的资本对抗，并进行归一化
+        capital_confrontation_bearish = self._forge_dynamic_evidence(df, (1 - raw_capital_confrontation.clip(lower=0)).clip(0,1), apply_normalization=True)
 
         # 3.2 价格超买意图 (负向) - 价格远离价值中枢
         raw_price_overextension_intent = self._get_fused_score(df, 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0)
-        price_overextension_risk = self._forge_dynamic_evidence(df, raw_price_overextension_intent.clip(upper=0).abs(), apply_normalization=False)
+        price_overextension_risk = self._forge_dynamic_evidence(df, raw_price_overextension_intent.clip(upper=0).abs(), apply_normalization=True)
 
         # 3.3 上涨效率低下 (反向) - 价格上涨但效率低
         raw_upward_efficiency = self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5)
-        low_upward_efficiency = self._forge_dynamic_evidence(df, (1 - raw_upward_efficiency).clip(0, 1), apply_normalization=False)
+        low_upward_efficiency = self._forge_dynamic_evidence(df, (1 - raw_upward_efficiency).clip(0, 1), apply_normalization=True)
 
         # 3.4 利润与资金流 (负向) - 赚钱卖出
         raw_profit_vs_flow = self._get_atomic_score(df, 'PROCESS_META_PROFIT_VS_FLOW', 0.0)
-        profit_vs_flow_bearish = self._forge_dynamic_evidence(df, raw_profit_vs_flow.clip(upper=0).abs(), apply_normalization=False)
+        profit_vs_flow_bearish = self._forge_dynamic_evidence(df, raw_profit_vs_flow.clip(upper=0).abs(), apply_normalization=True)
 
         # 3.5 筹码战略态势 (负向) - 筹码分散/主力消极
         raw_chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
         # 优化：即使主力态势为正，但如果不够强劲，也应视为风险。转换为缺乏积极态势的证据。
-        chip_dispersion_evidence = self._forge_dynamic_evidence(df, (1 - raw_chip_strategic_posture.clip(lower=0)).clip(0,1), apply_normalization=False)
+        chip_dispersion_evidence = self._forge_dynamic_evidence(df, (1 - raw_chip_strategic_posture.clip(lower=0)).clip(0,1), apply_normalization=True)
 
         # 3.6 市场矛盾 (负向) - 宏观看跌背离
         raw_market_contradiction = self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0)
-        market_contradiction_bearish = self._forge_dynamic_evidence(df, raw_market_contradiction.clip(upper=0).abs(), apply_normalization=False)
+        market_contradiction_bearish = self._forge_dynamic_evidence(df, raw_market_contradiction.clip(upper=0).abs(), apply_normalization=True)
 
         # 3.7 行为派发意图 (正向) - 直接的派发信号
         raw_distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
-        distribution_intent_evidence = self._forge_dynamic_evidence(df, raw_distribution_intent, apply_normalization=False)
+        distribution_intent_evidence = self._forge_dynamic_evidence(df, raw_distribution_intent, apply_normalization=True)
 
         # 3.8 资金流看跌背离 (正向)
         raw_fund_flow_bearish_divergence = self._get_atomic_score(df, 'SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 0.0)
-        fund_flow_bearish_divergence = self._forge_dynamic_evidence(df, raw_fund_flow_bearish_divergence, apply_normalization=False)
+        fund_flow_bearish_divergence = self._forge_dynamic_evidence(df, raw_fund_flow_bearish_divergence, apply_normalization=True)
 
         # 3.9 筹码派发诡影 (正向)
         raw_chip_risk_distribution_whisper = self._get_atomic_score(df, 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 0.0)
-        chip_bearish_divergence = self._forge_dynamic_evidence(df, raw_chip_risk_distribution_whisper, apply_normalization=False)
+        chip_bearish_divergence = self._forge_dynamic_evidence(df, raw_chip_risk_distribution_whisper, apply_normalization=True)
 
         # 3.10 下跌承接力 (反向) - 承接力越弱，派发风险越高
         raw_dip_absorption_power = self._get_atomic_score(df, 'dip_absorption_power_D', 0.0)
-        # 优化：如果承接力为0，则反向证据为1（风险最大）
-        dip_absorption_inverse = self._forge_dynamic_evidence(df, (1 - raw_dip_absorption_power).clip(0, 1), apply_normalization=False)
+        # 优化：承接力不足的证据，并受流动性动态的负向影响调制
+        # 当流动性差时，即使原始承接力高，也应降低其可信度，从而提高承接力不足的证据
+        dip_absorption_inverse = self._forge_dynamic_evidence(df, (1 - raw_dip_absorption_power).clip(0, 1), apply_normalization=True)
+        # 引入流动性动态的负向部分来调制承接力不足的证据
+        liquidity_dynamics_negative_mod = liquidity_dynamics.clip(upper=0).abs()
+        dip_absorption_inverse = (dip_absorption_inverse + liquidity_dynamics_negative_mod * 0.5).clip(0,1) # 流动性越差，承接力不足的证据越强
 
         # 3.11 主力持仓信念 (反向) - 主力信念越弱，派发风险越高
         main_force_holding_strength = self._get_main_force_holding_strength(df)
-        main_force_holding_inverse = self._forge_dynamic_evidence(df, (1 - main_force_holding_strength).clip(0, 1), apply_normalization=False)
+        main_force_holding_inverse = self._forge_dynamic_evidence(df, (1 - main_force_holding_strength).clip(0, 1), apply_normalization=True)
 
         # 3.12 熊市背离品质 (正向) - 价格上涨但指标背离 (新增证据)
         raw_bearish_divergence_quality = self._get_atomic_score(df, 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY', 0.0)
-        bearish_divergence_quality = self._forge_dynamic_evidence(df, raw_bearish_divergence_quality, apply_normalization=False)
+        bearish_divergence_quality = self._forge_dynamic_evidence(df, raw_bearish_divergence_quality, apply_normalization=True)
 
         # 3.13 博弈欺骗指数 (正向) - 拉高出货的欺骗
         raw_deception_index = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0)
-        deception_index_positive = self._forge_dynamic_evidence(df, raw_deception_index.clip(lower=0), apply_normalization=False)
+        deception_index_positive = self._forge_dynamic_evidence(df, raw_deception_index.clip(lower=0), apply_normalization=True)
 
         # 3.14 看涨量能爆发 (反向) - 放量滞涨 (新增证据，反向解读)
         raw_volume_burst = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0)
-        volume_burst_inverse = self._forge_dynamic_evidence(df, (1 - raw_volume_burst).clip(0, 1), apply_normalization=False)
+        volume_burst_inverse = self._forge_dynamic_evidence(df, (1 - raw_volume_burst).clip(0, 1), apply_normalization=True)
 
         # 3.15 筹码价筹张力 (负向) - 价格上涨但筹码分散
         raw_chip_axiom_divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
-        chip_axiom_divergence_bearish = self._forge_dynamic_evidence(df, raw_chip_axiom_divergence.clip(upper=0).abs(), apply_normalization=False)
+        chip_axiom_divergence_bearish = self._forge_dynamic_evidence(df, raw_chip_axiom_divergence.clip(upper=0).abs(), apply_normalization=True)
 
         # 3.16 资金流内部分歧 (负向) - 资金流看跌张力
         raw_ff_axiom_divergence = self._get_atomic_score(df, 'SCORE_FF_AXIOM_DIVERGENCE', 0.0)
-        ff_axiom_divergence_bearish = self._forge_dynamic_evidence(df, raw_ff_axiom_divergence.clip(upper=0).abs(), apply_normalization=False)
+        ff_axiom_divergence_bearish = self._forge_dynamic_evidence(df, raw_ff_axiom_divergence.clip(upper=0).abs(), apply_normalization=True)
 
         # 3.17 滞涨证据 (正向) - 价格上涨乏力 (新增证据)
         raw_stagnation_evidence = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.0)
-        stagnation_evidence = self._forge_dynamic_evidence(df, raw_stagnation_evidence, apply_normalization=False)
+        stagnation_evidence = self._forge_dynamic_evidence(df, raw_stagnation_evidence, apply_normalization=True)
 
         # 3.18 价格超买亢奋 (正向) - 市场情绪过热 (新增证据)
         raw_price_overextension_raw = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.0)
-        price_overextension_raw = self._forge_dynamic_evidence(df, raw_price_overextension_raw, apply_normalization=False)
+        price_overextension_raw = self._forge_dynamic_evidence(df, raw_price_overextension_raw, apply_normalization=True)
 
         # 3.19 行为看跌背离 (正向) - 价格与行为动量/量能的背离 (新增证据)
         raw_behavior_bearish_divergence = self._get_atomic_score(df, 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE', 0.0)
-        behavior_bearish_divergence = self._forge_dynamic_evidence(df, raw_behavior_bearish_divergence, apply_normalization=False)
+        behavior_bearish_divergence = self._forge_dynamic_evidence(df, raw_behavior_bearish_divergence, apply_normalization=True)
 
         # 3.20 伏击式反攻 (负向) - 高位伏击式反攻可能意味着诱多 (新增证据)
         raw_ambush_counterattack = self._get_atomic_score(df, 'SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK', 0.0)
-        ambush_counterattack_inverse = self._forge_dynamic_evidence(df, (1 - raw_ambush_counterattack).clip(0, 1), apply_normalization=False)
+        ambush_counterattack_inverse = self._forge_dynamic_evidence(df, (1 - raw_ambush_counterattack).clip(0, 1), apply_normalization=True)
 
 
         # --- 4. 定义基础权重 ---
@@ -1044,17 +1045,19 @@ class CognitiveIntelligence:
 
     def _establish_prior_beliefs(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 高位风险敏感版】建立先验信念
+        【V2.1 · 高位风险敏感与情境激活版】建立先验信念
         - 核心升级:
             1.  **降低趋势确认抑制：** 调整 `suppression_factor` 的计算，使其对高位风险的先验抑制作用减弱。
             2.  **引入价格超买意图：** 将 `FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT` 的负向部分作为高位风险的先验信号，增强对顶部风险的敏感度。
+            3.  **情境激活先验：** 引入市场情绪（狂热）和流动性动态（枯竭）来直接提高 `prior_reversal`，使其对高位派发背景更敏感。
         """
         # 增加信号校验
         required_signals = [
             'FUSION_BIPOLAR_MARKET_REGIME', 'FUSION_BIPOLAR_TREND_QUALITY', 'FUSION_BIPOLAR_TREND_STRUCTURE_SCORE',
             'FUSION_BIPOLAR_FUND_FLOW_TREND', 'FUSION_BIPOLAR_CHIP_TREND', 'SCORE_CHIP_COHERENT_DRIVE',
             'FUSION_BIPOLAR_MARKET_PRESSURE', 'CONTEXT_TREND_CONFIRMED',
-            'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT' # 新增先验信号
+            'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', # 新增先验信号
+            'market_sentiment_score_D', 'FUSION_BIPOLAR_LIQUIDITY_DYNAMICS' # 情境激活先验所需
         ]
         if not self._validate_required_signals(df, required_signals, "_establish_prior_beliefs"):
             # 如果关键先验信号缺失，返回一个中性的先验概率
@@ -1098,6 +1101,9 @@ class CognitiveIntelligence:
         trend_confirmed = self._get_atomic_score(df, 'CONTEXT_TREND_CONFIRMED', 0.0)
         # 新增：价格超买意图的负向部分，作为高位风险的先验信号
         price_overextension_risk_prior = self._get_fused_score(df, 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs()
+        # 新增：市场情绪和流动性动态，用于情境激活先验
+        market_sentiment = self._get_atomic_score(df, 'market_sentiment_score_D', 0.5).clip(0, 1)
+        liquidity_dynamics = self._get_fused_score(df, 'FUSION_BIPOLAR_LIQUIDITY_DYNAMICS', 0.0)
 
         # 调整 suppression_factor 的计算，降低趋势确认对高位风险的抑制作用
         # 即使趋势确认，如果存在价格超买风险，先验也不应被完全抑制
@@ -1110,10 +1116,15 @@ class CognitiveIntelligence:
         prior_reversal_raw = (
             market_pressure.abs() * reversal_pressure_weight +
             market_regime.abs() * reversal_regime_strength_weight +
-            price_overextension_risk_prior * price_overextension_prior_weight # 引入价格超买风险
+            price_overextension_risk_prior * price_overextension_prior_weight
         ).clip(0, 1)
-        # 最终先验 = 原始先验 * 抑制因子
-        prior_reversal = (prior_reversal_raw * suppression_factor).clip(0, 1)
+
+        # 情境激活先验：当市场情绪狂热且流动性差时，直接提高先验概率
+        sentiment_liquidity_activation = (market_sentiment * 0.5 + liquidity_dynamics.clip(upper=0).abs() * 0.5).clip(0,1)
+        prior_reversal_activated = (prior_reversal_raw + sentiment_liquidity_activation * 0.2).clip(0,1) # 增加0.2的激活强度
+
+        # 最终先验 = 激活后的原始先验 * 抑制因子
+        prior_reversal = (prior_reversal_activated * suppression_factor).clip(0, 1)
         states['COGNITIVE_PRIOR_REVERSAL_PROB'] = prior_reversal.astype(np.float32)
         return states
 
