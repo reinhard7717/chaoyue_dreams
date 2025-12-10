@@ -582,10 +582,10 @@ class CognitiveIntelligence:
 
     def _deduce_distribution_at_high(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 复合证据非线性聚合与情境放大版】贝叶斯推演：“高位派发”风险剧本
+        【V6.1 · Power Factor 柔化与情境放大版】贝叶斯推演：“高位派发”风险剧本
         - 核心升级:
-            1.  **复合筹码派发证据非线性聚合：** `composite_chip_distribution_evidence` 采用非线性聚合方式，当多个筹码风险信号同时存在时，其复合强度呈指数级增长，更精准反映风险。
-            2.  **动态 Power Factor 情境强化：** `power_factor_dynamic` 在极端市场情绪和流动性情境下，引入非线性放大，使得强证据更强，弱证据更弱，提高似然度区分度。
+            1.  **动态 Power Factor 柔化：** 降低 `power_factor_dynamic` 在极端情境下的放大强度，避免过度抑制中等强度证据，提高整体似然度。
+            2.  **复合筹码派发证据非线性聚合：** `composite_chip_distribution_evidence` 采用非线性聚合方式，当多个筹码风险信号同时存在时，其复合强度呈指数级增长，更精准反映风险。
             3.  **承接力证据精炼：** 进一步增强 `dip_absorption_inverse` 对 `liquidity_dynamics` 负向部分的敏感度。
             4.  **趋势调制器重构：** 重新设计 `trend_modulator_factor` 的计算逻辑，确保在市场情绪狂热、流动性差的背景下，即使趋势质量略有改善，调制器也至少保持中性或放大风险。
             5.  **高位特征证据强化：** 引入 `CONTEXT_NEW_HIGH_STRENGTH` 的反向部分和 `SCORE_STRUCT_AXIOM_STABILITY` 的负向部分，更全面地捕捉高位风险。
@@ -726,9 +726,7 @@ class CognitiveIntelligence:
         low_structural_stability = self._forge_dynamic_evidence(df, (1 - raw_structural_stability).clip(0, 1), apply_normalization=True)
 
         # 新增：复合筹码派发证据
-        # 聚合多个筹码相关的风险信号，使其更鲁棒
-        # 采用非线性聚合：对每个组件应用幂函数，然后相加，再整体归一化
-        component_chip_bearish_divergence = chip_bearish_divergence.pow(0.5) # 弱化0值影响
+        component_chip_bearish_divergence = chip_bearish_divergence.pow(0.5)
         component_chip_dispersion_evidence = chip_dispersion_evidence.pow(0.8)
         component_chip_axiom_divergence_bearish = chip_axiom_divergence_bearish.pow(0.8)
         component_holder_sentiment_inverse = holder_sentiment_inverse.pow(0.8)
@@ -748,9 +746,11 @@ class CognitiveIntelligence:
             'price_overextension_risk': 0.05,
             'low_upward_efficiency': 0.05,
             'profit_vs_flow_bearish': 0.10,
+            'chip_dispersion_evidence': 0.0,
             'market_contradiction_bearish': 0.05,
             'distribution_intent_evidence': 0.08,
             'fund_flow_bearish_divergence': 0.06,
+            'chip_bearish_divergence': 0.0,
             'dip_absorption_inverse': 0.05,
             'main_force_holding_inverse': 0.06,
             'bearish_divergence_quality': 0.09,
@@ -801,12 +801,11 @@ class CognitiveIntelligence:
         weights_df = weights_df.div(weights_sum_per_date, axis=0)
 
         # --- 6. 动态 `power_factor` (非线性转换) ---
-        # 强化 power_factor_dynamic 的情境敏感度：在极端情境下，引入非线性放大
         base_power_factor = 1.0 + (volatility_instability * 0.2 + market_sentiment * 0.2 + liquidity_dynamics.clip(upper=0).abs() * 0.3)
         
         # 极端情境放大因子：当市场情绪极高且流动性极差时，进一步放大 power_factor
         extreme_context_factor = (market_sentiment.pow(2) + liquidity_dynamics.clip(upper=0).abs().pow(2)) / 2
-        power_factor_dynamic = (base_power_factor + extreme_context_factor * 0.5).clip(1.0, 2.0) # 限制上限为2.0
+        power_factor_dynamic = (base_power_factor + extreme_context_factor * 0.3).clip(1.0, 1.8) # 降低乘数从0.5到0.3，并调整上限从2.0到1.8
 
 
         # --- 7. 证据转换与似然度计算 ---
@@ -925,7 +924,7 @@ class CognitiveIntelligence:
                 if name == 'composite_chip_distribution_evidence':
                     continue
                 raw_val = evidence_map[name].loc[probe_date_for_loop]
-                transformed_val = (evidence_map[name].pow(power_factor_dynamic)).loc[probe_date_for_loop] # 直接计算转换值
+                transformed_val = (evidence_map[name].pow(power_factor_dynamic)).loc[probe_date_for_loop]
                 weight_val = weights_df.loc[probe_date_for_loop, name]
                 print(f"         - {name}: 原始={raw_val:.4f}, 转换={transformed_val:.4f}, 权重={weight_val:.4f}")
             print(f"       - 似然度 (Likelihood): {likelihood.loc[probe_date_for_loop]:.4f}")
@@ -1017,7 +1016,7 @@ class CognitiveIntelligence:
 
     def _establish_prior_beliefs(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.3 · 高位风险敏感与情境激活版】建立先验信念
+        【V2.4 · 高位风险敏感与情境激活版】建立先验信念
         - 核心升级:
             1.  **降低趋势确认抑制：** 调整 `suppression_factor` 的计算，使其对高位风险的先验抑制作用减弱。
             2.  **引入价格超买意图：** 将 `FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT` 的负向部分作为高位风险的先验信号，增强对顶部风险的敏感度。
@@ -1084,9 +1083,8 @@ class CognitiveIntelligence:
             price_overextension_risk_prior * price_overextension_prior_weight
         ).clip(0, 1)
 
-        # 情境激活先验：当市场情绪狂热且流动性差时，直接提高先验概率
-        sentiment_liquidity_activation = (market_sentiment.pow(2) * 0.5 + liquidity_dynamics.clip(upper=0).abs().pow(2) * 0.5).clip(0,1) # 引入幂函数放大极端情境
-        prior_reversal_activated = (prior_reversal_raw + sentiment_liquidity_activation * 0.4).clip(0,1) # 增加0.4的激活强度 (从0.3提高到0.4)
+        sentiment_liquidity_activation = (market_sentiment.pow(2) * 0.5 + liquidity_dynamics.clip(upper=0).abs().pow(2) * 0.5).clip(0,1)
+        prior_reversal_activated = (prior_reversal_raw + sentiment_liquidity_activation * 0.5).clip(0,1) # 增加0.5的激活强度 (从0.4提高到0.5)
 
         prior_reversal = (prior_reversal_activated * suppression_factor).clip(0, 1)
         states['COGNITIVE_PRIOR_REVERSAL_PROB'] = prior_reversal.astype(np.float32)
