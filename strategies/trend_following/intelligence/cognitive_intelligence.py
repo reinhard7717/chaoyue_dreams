@@ -2023,15 +2023,22 @@ class CognitiveIntelligence:
 
     def _forge_dynamic_evidence(self, df: pd.DataFrame, evidence: pd.Series, is_probability: bool = False, apply_normalization: bool = True) -> pd.Series:
         """
-        【V2.5 · 最小证据阈值可配置版】动态证据锻造
-        - 核心升级: `min_evidence_threshold` 从硬编码改为从策略参数中获取，提高可配置性。
+        【V2.6 · 最小证据阈值与弱信号贡献可配置版】动态证据锻造
+        - 核心升级:
+            1. `min_evidence_threshold` 从硬编码改为从策略参数中获取，提高可配置性。
+            2. 引入 `min_positive_evidence_threshold`，确保弱正向信号也能贡献微小证据，避免似然度过低。
         """
         # 确保证据是 Pandas Series 类型
         if not isinstance(evidence, pd.Series):
             evidence = pd.Series(evidence, index=df.index)
         # 确保证据值在 [0, 1] 范围内，并处理 NaN
         # 此处将负值裁剪为 0，表示不贡献正向证据
-        evidence = evidence.fillna(0.0).clip(0, 1) 
+        evidence = evidence.fillna(0.0).clip(0, 1)
+        # 获取 min_positive_evidence_threshold
+        min_positive_evidence_threshold = get_params_block(self.strategy, 'cognitive_intelligence_params', {}).get('min_positive_evidence_threshold', 1e-4)
+        # 应用 min_positive_evidence_threshold：如果证据值在 (0, min_positive_evidence_threshold) 之间，则提升到 min_positive_evidence_threshold
+        # 仅对正向证据应用此逻辑
+        evidence = evidence.mask((evidence > 0) & (evidence < min_positive_evidence_threshold), min_positive_evidence_threshold)
         # 如果需要归一化且不是概率值，则进行归一化
         if apply_normalization and not is_probability:
             evidence = normalize_score(evidence, df.index, window=self.norm_window, ascending=True)
