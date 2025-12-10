@@ -3099,36 +3099,50 @@
           "synergy_force_weight": 0.3
         },
           "capitulation_reversal_params": {
-            "description": "【V4.0 · 极端情境与双向惩罚版】恐慌投降反转剧本的专属参数。",
+            "description": "【V5.0 · 深度恐慌与多维反转确认版】恐慌投降反转剧本的专属参数。",
             "base_weights": {
-              "panic_washout_evidence": 0.18,
-              "lower_shadow_absorption": 0.12,
-              "price_vs_capitulation_divergence": 0.12,
+              "panic_washout_evidence": 0.15,
+              "lower_shadow_absorption": 0.10,
+              "price_vs_capitulation_divergence": 0.10,
               "loser_capitulation_consensus": 0.08,
-              "power_transfer_to_main_force": 0.12,
+              "power_transfer_to_main_force": 0.10,
               "micro_reversal_confirmation": 0.08,
               "chip_geography_support": 0.05,
               "chip_posture_improvement": 0.08,
               "deception_negative_evidence": 0.05,
-              "selling_exhaustion_evidence": 0.12
+              "selling_exhaustion_evidence": 0.10,
+              "microstructure_intent_bullish_evidence": 0.05,
+              "structure_bottom_reversal_evidence": 0.03,
+              "dynamic_mechanics_bottom_reversal_evidence": 0.03
             },
             "context_modulation_factors": {
               "sentiment_negative_mod": 0.15,
               "volatility_high_mod": 0.1,
               "trend_weak_mod": 0.1,
-              "liquidity_positive_mod": 0.05
+              "liquidity_positive_mod": 0.05,
+              "panic_depth_mod": 0.15
             },
             "penalty_coefficients": {
               "distribution_intent": 0.5,
               "deception_positive": 0.5,
               "chip_risk_distribution_whisper": 0.5,
-              "non_panic_sentiment": 0.5,
+              "panic_context_penalty": 0.8,
               "power_transfer_negative": 0.5,
               "chip_geography_negative": 0.5
             },
             "power_factor_dynamic_base": 1.0,
             "power_factor_dynamic_volatility_multiplier": 0.5,
-            "power_factor_dynamic_sentiment_multiplier": 0.5
+            "power_factor_dynamic_panic_multiplier": 0.5,
+            "negative_penalty_exponent": 1.5,
+            "panic_context_score_weights": {
+              "panic_washout": 0.2,
+              "loser_capitulation": 0.2,
+              "selling_exhaustion": 0.2,
+              "price_vs_capitulation": 0.1,
+              "price_downward_momentum": 0.1,
+              "volatility_instability": 0.1,
+              "sentiment_inverse": 0.1
+            }
           }
 
 
