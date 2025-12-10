@@ -1138,7 +1138,7 @@ class CognitiveIntelligence:
             return {'COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL': pd.Series(0.0, index=df_index)}
         # 获取可配置参数
         cap_rev_params = get_params_block(self.strategy, 'cognitive_intelligence_params', {}).get('capitulation_reversal_params', {})
-        # 修改行: 合并默认权重和配置权重，确保所有键都存在
+        # 合并默认权重和配置权重，确保所有键都存在
         default_base_weights = {
             'panic_washout_evidence': 0.10,
             'lower_shadow_absorption': 0.07,
@@ -1177,7 +1177,7 @@ class CognitiveIntelligence:
         power_factor_dynamic_volatility_multiplier = cap_rev_params.get('power_factor_dynamic_volatility_multiplier', 0.5)
         power_factor_dynamic_panic_multiplier = cap_rev_params.get('power_factor_dynamic_panic_multiplier', 0.5)
         negative_penalty_exponent = cap_rev_params.get('negative_penalty_exponent', 1.5)
-        # 修改行: 合并默认权重和配置权重，确保所有键都存在
+        # 合并默认权重和配置权重，确保所有键都存在
         default_panic_context_score_weights = {
             'panic_washout': 0.15,
             'loser_capitulation': 0.15,
@@ -1283,7 +1283,7 @@ class CognitiveIntelligence:
         raw_price_downward_momentum = self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0)
         raw_volume_atrophy = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0)
         raw_holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
-        # raw_distribution_intent 已在前面获取
+        raw_distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0) # 修改行: 将此行上移
         # --- 2.1 计算恐慌情境分数 (Panic_Context_Score) ---
         # 融合恐慌相关信号，归一化到 [0, 1]
         panic_components = []
