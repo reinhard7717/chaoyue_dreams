@@ -652,13 +652,14 @@ class CognitiveIntelligence:
 
     def _deduce_distribution_at_high(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 诡道博弈与情境自适应版】贝叶斯推演：“高位派发”风险剧本
+        【V5.1 · 融合信号斜率动态计算版】贝叶斯推演：“高位派发”风险剧本
         - 核心升级:
-            1.  **证据集扩充：** 引入 `SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY` (熊市背离品质), `INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW` (滞涨证据), `SCORE_BEHAVIOR_BEARISH_DIVERGENCE` (行为看跌背离), `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买亢奋) 等更直接或情境相关的派发证据。
-            2.  **强化动态权重：** 根据市场情绪、流动性动态、趋势质量和波动不稳定性等情境因子，更精细地动态调整每个证据的权重，尤其是在矛盾情境下放大关键证据。
-            3.  **动态非线性转换：** `power_factor` 纳入流动性动态的负向影响，使其在流动性枯竭时也能提高放大作用。
-            4.  **优化趋势调制器：** `trend_modulator` 在趋势质量恶化时不再抑制风险，而是保持中性或略微放大风险。
-            5.  **详细探针：** 增加关键计算节点的输出，便于检查和调试。
+            1.  **融合信号斜率动态计算：** 针对融合层信号 `FUSION_BIPOLAR_TREND_QUALITY` 的斜率，从依赖预计算改为在方法内部动态计算，解决了信号缺失问题。
+            2.  **证据集扩充：** 引入 `SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY` (熊市背离品质), `INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW` (滞涨证据), `SCORE_BEHAVIOR_BEARISH_DIVERGENCE` (行为看跌背离), `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW` (价格超买亢奋) 等更直接或情境相关的派发证据。
+            3.  **强化动态权重：** 根据市场情绪、流动性动态、趋势质量和波动不稳定性等情境因子，更精细地动态调整每个证据的权重，尤其是在矛盾情境下放大关键证据。
+            4.  **动态非线性转换：** `power_factor` 纳入流动性动态的负向影响，使其在流动性枯竭时也能提高放大作用。
+            5.  **优化趋势调制器：** `trend_modulator` 在趋势质量恶化时不再抑制风险，而是保持中性或略微放大风险。
+            6.  **详细探针：** 增加关键计算节点的输出，便于检查和调试。
         """
         print("    -- [剧本推演] 高位派发风险 (动态证据)...")
         # --- 1. 信号校验 ---
@@ -672,7 +673,8 @@ class CognitiveIntelligence:
             'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY', 'SCORE_BEHAVIOR_DECEPTION_INDEX',
             'SCORE_BEHAVIOR_VOLUME_BURST', 'SCORE_CHIP_AXIOM_DIVERGENCE', 'SCORE_FF_AXIOM_DIVERGENCE',
             'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW',
-            'SCORE_BEHAVIOR_BEARISH_DIVERGENCE', 'SLOPE_5_FUSION_BIPOLAR_TREND_QUALITY' # 新增趋势质量斜率
+            'SCORE_BEHAVIOR_BEARISH_DIVERGENCE',
+            'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 'SCORE_INTRADAY_TACTICAL_ARC' # 涨停次日惩罚优化所需
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_distribution_at_high"):
             print("    -> [探针] 信号校验失败，返回默认值。")
@@ -691,7 +693,9 @@ class CognitiveIntelligence:
         market_sentiment = self._get_atomic_score(df, 'market_sentiment_score_D', 0.5).clip(0, 1) # [0, 1]
         volatility_instability = self._get_atomic_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.5) # [0, 1]
         liquidity_dynamics = self._get_fused_score(df, 'FUSION_BIPOLAR_LIQUIDITY_DYNAMICS', 0.0) # [-1, 1]
-        trend_quality_slope = self._get_atomic_score(df, 'SLOPE_5_FUSION_BIPOLAR_TREND_QUALITY', 0.0) # 趋势质量斜率
+        # 修改开始：动态计算 FUSION_BIPOLAR_TREND_QUALITY 的斜率
+        trend_quality_slope = trend_quality.diff(5).fillna(0) # 5日变化率作为斜率
+        # 修改结束
 
         # --- 3. 获取原始证据信号 ---
         # 3.1 资本对抗 (负向) - 资金流出/空头力量
@@ -785,14 +789,14 @@ class CognitiveIntelligence:
             'chip_bearish_divergence': 0.07,
             'dip_absorption_inverse': 0.05,
             'main_force_holding_inverse': 0.08,
-            'bearish_divergence_quality': 0.07, # 新增证据权重
+            'bearish_divergence_quality': 0.07,
             'deception_index_positive': 0.05,
             'volume_burst_inverse': 0.03,
             'chip_axiom_divergence_bearish': 0.04,
             'ff_axiom_divergence_bearish': 0.04,
-            'stagnation_evidence': 0.06, # 新增证据权重
-            'price_overextension_raw': 0.05, # 新增证据权重
-            'behavior_bearish_divergence': 0.05 # 新增证据权重
+            'stagnation_evidence': 0.06,
+            'price_overextension_raw': 0.05,
+            'behavior_bearish_divergence': 0.05
         }
         evidence_names = list(base_weights_dict.keys())
 
@@ -935,7 +939,6 @@ class CognitiveIntelligence:
             print(f"       - 后验概率 (Posterior Prob): {posterior_prob.loc[probe_date_for_loop]:.4f}")
 
         return {'COGNITIVE_RISK_DISTRIBUTION_AT_HIGH': posterior_prob.astype(np.float32)}
-
 
     def _deduce_trend_exhaustion_risk(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
