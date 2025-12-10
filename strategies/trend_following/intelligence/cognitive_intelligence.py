@@ -198,16 +198,6 @@ class CognitiveIntelligence:
             print("    -> [探针] 信号校验失败，返回默认值。")
             return {'COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION': pd.Series(0.0, index=df.index)}
 
-        # 获取调试参数
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        probe_date_for_loop = None
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"    -> [探针] 主力打压吸筹 @ {probe_date_for_loop.date()}:")
-
         # 定义基础权重 (在方法开始处定义，确保作用域)
         base_weights_dict = {
             'capital_confrontation': 0.015, # 资本对抗 (看涨部分)
@@ -271,10 +261,6 @@ class CognitiveIntelligence:
 
         # 修正 sentiment_score 的范围，确保在 [0, 1] 内进行调制计算
         sentiment_score_clipped = sentiment_score.clip(0, 1)
-
-        if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-            print(f"       - 情境信号: 市场状态: {market_regime_score.loc[probe_date_for_loop]:.4f}, 趋势质量: {trend_quality_score.loc[probe_date_for_loop]:.4f}, 情绪(原始): {sentiment_score.loc[probe_date_for_loop]:.4f}, 情绪(裁剪后): {sentiment_score_clipped.loc[probe_date_for_loop]:.4f}, 波动不稳: {volatility_instability.loc[probe_date_for_loop]:.4f}, 流动性动态: {raw_liquidity_dynamics.loc[probe_date_for_loop]:.4f}")
-
         # --- 2. 获取原始证据信号及其时间序列动态 ---
         # 2.1 资本对抗 (看涨部分) - 主力买入意愿
         raw_capital_confrontation = self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0)
@@ -449,29 +435,6 @@ class CognitiveIntelligence:
         norm_slope_efficiency = normalize_to_bipolar(slope_efficiency, df.index, norm_window_slope)
         efficiency_evidence_dynamic = efficiency_evidence * (1 + norm_slope_efficiency.clip(lower=0) * slope_impact_factor)
         efficiency_evidence_dynamic = efficiency_evidence_dynamic.clip(0, 1)
-
-        if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-            print(f"       - 行为欺骗(原始): {raw_deception_index.loc[probe_date_for_loop]:.4f}, 动态证据: {deception_evidence_dynamic.loc[probe_date_for_loop]:.4f} (无斜率调制)")
-            print(f"       - 隐秘吸筹(原始): {raw_process_stealth_accum.loc[probe_date_for_loop]:.4f}, 动态证据: {process_stealth_accum_evidence_dynamic.loc[probe_date_for_loop]:.4f} (无斜率调制)")
-            print(f"       - 承接效率(原始): {raw_efficiency.loc[probe_date_for_loop]:.4f}, 斜率: {slope_efficiency.loc[probe_date_for_loop]:.4f}, 动态证据: {efficiency_evidence_dynamic.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 压制吸筹强度(原始): {raw_suppressive_accum_intensity.loc[probe_date_for_loop]:.4f}, 斜率: {slope_suppressive_accum_intensity.loc[probe_date_for_loop]:.4f}, 证据: {suppressive_accum_intensity_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 压制吸筹强度斜率证据: {suppressive_accum_intensity_slope_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 隐蔽吸筹信号(原始): {raw_covert_accum_signal.loc[probe_date_for_loop]:.4f}, 斜率: {slope_covert_accum_signal.loc[probe_date_for_loop]:.4f}, 证据: {covert_accum_signal_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 隐蔽吸筹信号斜率证据: {covert_accum_signal_slope_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 洗盘确认(原始): {raw_shakeout_confirmation.loc[probe_date_for_loop]:.4f}, 证据: {shakeout_confirmation_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 派发意图(原始): {raw_distribution_intent.loc[probe_date_for_loop]:.4f}, 反向证据: {distribution_intent_negative_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 价格下跌动能(原始): {raw_price_downward_momentum.loc[probe_date_for_loop]:.4f}, 证据: {price_downward_momentum_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 价格变化斜率(原始): {raw_pct_change_slope.loc[probe_date_for_loop]:.4f}, 证据: {pct_change_slope_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 下跌抵抗(原始): {raw_downward_resistance.loc[probe_date_for_loop]:.4f}, 证据: {downward_resistance_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 日内VWAP攻防(原始): {raw_intraday_vwap_battlefield.loc[probe_date_for_loop]:.4f}, 负向证据: {intraday_vwap_battlefield_negative_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 协同吸筹证据: {synergistic_accumulation_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 微观意图背离(原始): {raw_micro_axiom_divergence.loc[probe_date_for_loop]:.4f}, 负向证据: {micro_axiom_divergence_negative_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 吸筹拐点信号(原始): {raw_fusion_accumulation_inflection_point.loc[probe_date_for_loop]:.4f}, 证据: {fusion_accumulation_inflection_point_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 筹码同调驱动力(原始): {raw_chip_coherent_drive.loc[probe_date_for_loop]:.4f}, 证据: {chip_coherent_drive_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 资金流耐心资本(原始): {raw_ff_capital_signature.loc[probe_date_for_loop]:.4f}, 证据: {ff_capital_signature_patient_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 结构稳定性(原始): {raw_struct_stability.loc[probe_date_for_loop]:.4f}, 证据: {struct_stability_evidence.loc[probe_date_for_loop]:.4f}")
-
-
         # --- 4. 情境自适应权重 (Context-adaptive weights) ---
         # 初始化 adaptive_weights_per_date 为一个字典，每个值都是一个 Series，索引与 df.index 相同
         adaptive_weights_per_date = {
@@ -578,16 +541,6 @@ class CognitiveIntelligence:
         # 避免除以零，如果和为零，则均匀分配权重
         weights_sum_per_date = weights_sum_per_date.replace(0, weights_df.shape[1])
         weights_df = weights_df.div(weights_sum_per_date, axis=0)
-
-        if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-            print(f"       - 市场状态调制: {market_regime_mod.loc[probe_date_for_loop]:.4f}, 趋势质量调制: {trend_quality_mod.loc[probe_date_for_loop]:.4f}, 情绪调制: {sentiment_mod.loc[probe_date_for_loop]:.4f}, 流动性调制: {liquidity_mod.loc[probe_date_for_loop]:.4f}, 压制情境放大: {suppression_context_amplification.loc[probe_date_for_loop]:.4f}, 欺骗放大: {deception_amplification.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 情绪非对称调制(看涨): {sentiment_asymmetry_mod_bullish.loc[probe_date_for_loop]:.4f}, 情绪非对称调制(看跌): {sentiment_asymmetry_mod_bearish.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 反向证据放大: {reverse_evidence_amplification.loc[probe_date_for_loop]:.4f}")
-            # 打印特定日期的自适应权重
-            print(f"       - 自适应权重 (2025-11-28):")
-            for name in evidence_names: # 使用已经定义好的 evidence_names
-                print(f"         - {name}: {weights_df.loc[probe_date_for_loop, name]:.4f}")
-
         # --- 5. 非线性变换 (Power Transformation) ---
         # V9.0 动态 power_factor
         # power_factor 范围从 1.0 (波动性为0) 到 1.5 (波动性为1)
@@ -658,9 +611,6 @@ class CognitiveIntelligence:
         for i, evidence_series in enumerate(evidence_list):
             transformed_score = evidence_series.pow(power_factor_dynamic)
             transformed_evidence_scores.append(transformed_score.values)
-            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-                print(f"       - {evidence_names[i]} (原始证据): {evidence_series.loc[probe_date_for_loop]:.4f}, 变换后: {transformed_score.loc[probe_date_for_loop]:.4f}")
-
         stacked_transformed_scores = np.stack(transformed_evidence_scores, axis=0)
         safe_scores = np.maximum(stacked_transformed_scores, 1e-9) # 避免对数运算错误
 
@@ -688,11 +638,6 @@ class CognitiveIntelligence:
         # 将奖励加到似然度上，并确保不超过1
         likelihood = (likelihood + unexpected_accumulation_bonus).clip(0, 1)
 
-        if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-            print(f"       - 意外情境乘数: {unexpected_context_multiplier.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 意外吸筹奖励: {unexpected_accumulation_bonus.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 似然度 (含奖励): {likelihood.loc[probe_date_for_loop]:.4f}")
-
         # --- 8. 计算后验概率 (Posterior Probability) ---
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
@@ -702,11 +647,6 @@ class CognitiveIntelligence:
         # V11.0 优化惩罚机制：使用非线性函数，惩罚因子在趋势质量高时更重
         bullish_trend_penalty_factor = (trend_quality_score.clip(0.6, 1.0) - 0.6).pow(2) * 2.5
         posterior_prob = (posterior_prob * (1 - bullish_trend_penalty_factor)).clip(0, 1) # 惩罚后确保在[0,1]
-
-        if probe_date_for_loop is not None and probe_date_for_loop in df.index:
-            print(f"       - 先验概率(prior_prob): {prior_prob.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 趋势质量惩罚因子: {bullish_trend_penalty_factor.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 最终后验概率(posterior_prob): {posterior_prob.loc[probe_date_for_loop]:.4f}")
 
         return {'COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION': posterior_prob.astype(np.float32)}
 
@@ -942,43 +882,203 @@ class CognitiveIntelligence:
 
     def _deduce_chasing_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.8 · 调用修复版】贝叶斯推演：“主力拉升抢筹”剧本
-        - 【V3.8 修复】修正对 _forge_dynamic_evidence 的调用，传入 df 参数。
+        【V4.0 · 动态权重与情境感知版】贝叶斯推演：“主力拉升抢筹”剧本
+        - 核心升级:
+            1. 证据丰富度提升: 引入量能爆发、上涨效率、微观订单流意图、结构突破准备度、结构动量、力学动量、相对强度和筹码趋势动量等新证据。
+            2. 动态权重与情境感知: 根据市场趋势质量、波动不稳定性、市场情绪和流动性动态等情境因子，动态调整各项证据的权重。
+            3. 非线性融合与惩罚机制: 引入动态幂次变换，并增加对派发意图和欺骗指数等负面信号的直接惩罚。
+            4. 详细探针: 输出原始数据、关键计算节点和结果值，以便于检查和调试。
         """
         print("    -- [剧本推演] 主力拉升抢筹 (动态证据)...")
+        df_index = df.index
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_date_for_loop = None
+        if debug_params.get('enabled', False) and debug_params.get('probe_dates'):
+            probe_date_naive = pd.to_datetime(debug_params['probe_dates'][0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            print(f"    -> [探针] 正在为日期 {probe_date_for_loop.date()} 调试 COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION")
+
         # 增加信号校验
         required_signals = [
             'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 'pct_change_D', 'VPA_EFFICIENCY_D',
             'PROCESS_META_MAIN_FORCE_RALLY_INTENT', 'PROCESS_META_WINNER_CONVICTION',
             'SCORE_CHIP_STRATEGIC_POSTURE', 'SCORE_CHIP_COHERENT_DRIVE',
-            'SCORE_PATTERN_PULLBACK_CONFIRMATION', 'SCORE_PATTERN_DUOFANGPAO'
+            'SCORE_PATTERN_PULLBACK_CONFIRMATION', 'SCORE_PATTERN_DUOFANGPAO',
+            # 新增证据信号
+            'SCORE_BEHAVIOR_VOLUME_BURST', 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY',
+            'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 'SCORE_STRUCT_BREAKOUT_READINESS',
+            'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 'SCORE_STRUCT_MOMENTUM',
+            'SCORE_DYN_AXIOM_MOMENTUM', 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH',
+            'SCORE_CHIP_AXIOM_TREND_MOMENTUM',
+            # 情境信号
+            'FUSION_BIPOLAR_TREND_QUALITY', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
+            'market_sentiment_score_D', 'FUSION_BIPOLAR_LIQUIDITY_DYNAMICS',
+            'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 'SCORE_BEHAVIOR_DECEPTION_INDEX'
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_chasing_accumulation"):
-            return {'COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION': pd.Series(0.0, index=df.index)}
+            print("    -> [探针] 信号校验失败，返回默认值。")
+            return {'COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION': pd.Series(0.0, index=df_index)}
+
+        # --- 1. 获取情境调制信号 ---
+        trend_quality_score = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0) # [-1, 1]
+        volatility_instability = self._get_atomic_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.5) # [0, 1]
+        sentiment_score = self._get_atomic_score(df, 'market_sentiment_score_D', 0.5) # [0, 1]
+        raw_liquidity_dynamics = self._get_fused_score(df, 'FUSION_BIPOLAR_LIQUIDITY_DYNAMICS', 0.0) # [-1, 1]
+        raw_distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0) # [0, 1]
+        raw_deception_index = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0) # [-1, 1]
+
+        # 修正 sentiment_score 的范围，确保在 [0, 1] 内进行调制计算
+        sentiment_score_clipped = sentiment_score.clip(0, 1)
+
+        # --- 2. 获取并锻造证据信号 ---
         capital_confrontation = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0))
-        price_change_bipolar = normalize_to_bipolar(self._get_atomic_score(df, 'pct_change_D'), df.index, 21)
+        price_change_bipolar = normalize_to_bipolar(self._get_atomic_score(df, 'pct_change_D'), df_index, 21)
         price_rising_evidence = self._forge_dynamic_evidence(df, price_change_bipolar.clip(lower=0))
-        efficiency_evidence = self._forge_dynamic_evidence(df, normalize_score(self._get_atomic_score(df, 'VPA_EFFICIENCY_D'), df.index, 55))
+        efficiency_evidence = self._forge_dynamic_evidence(df, normalize_score(self._get_atomic_score(df, 'VPA_EFFICIENCY_D'), df_index, 55))
         rally_intent_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_RALLY_INTENT', 0.0).clip(lower=0))
         conviction_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0).clip(lower=0))
-        process_evidence = (rally_intent_evidence * conviction_evidence).pow(0.5)
-        # 将 SCORE_CHIP_AXIOM_CONCENTRATION 替换为 SCORE_CHIP_STRATEGIC_POSTURE
-        chip_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(lower=0))
-        structural_consensus_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0))
+        process_evidence = (rally_intent_evidence * conviction_evidence).pow(0.5) # 融合拉升意图和赢家信念
+        chip_strategic_posture_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(lower=0))
+        chip_coherent_drive_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0))
         pullback_confirmation_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_PATTERN_PULLBACK_CONFIRMATION', 0.0))
         duofangpao_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_PATTERN_DUOFANGPAO', 0.0))
-        evidence_scores = np.stack([
-            capital_confrontation.values, price_rising_evidence.values, efficiency_evidence.values,
-            process_evidence.values, chip_evidence.values, structural_consensus_evidence.values,
-            pullback_confirmation_evidence.values, duofangpao_evidence.values
-        ], axis=0)
-        evidence_weights = np.array([0.12, 0.08, 0.08, 0.18, 0.12, 0.12, 0.15, 0.15])
-        evidence_weights /= evidence_weights.sum()
-        safe_scores = np.maximum(evidence_scores, 1e-9)
-        likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
-        likelihood = pd.Series(likelihood_values, index=df.index)
-        prior_prob = priors.get('COGNITIVE_PRIOR_TREND_PROB', pd.Series(0.0, index=likelihood.index))
+
+        # 新增证据
+        volume_burst_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0))
+        upward_efficiency_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0))
+        microstructure_intent_bullish_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0).clip(lower=0))
+        breakout_readiness_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_STRUCT_BREAKOUT_READINESS', 0.0))
+        ff_accum_inflection_intent_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0))
+        structural_momentum_bullish_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_STRUCT_MOMENTUM', 0.0).clip(lower=0))
+        dyn_momentum_bullish_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0).clip(lower=0))
+        relative_strength_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH', 0.0).clip(lower=0))
+        chip_trend_momentum_evidence = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_TREND_MOMENTUM', 0.0).clip(lower=0))
+
+        # --- 3. 定义基础权重 ---
+        base_weights_dict = {
+            'capital_confrontation': 0.08,
+            'price_rising_evidence': 0.07,
+            'efficiency_evidence': 0.05,
+            'process_evidence': 0.10, # rally_intent * conviction
+            'chip_strategic_posture_evidence': 0.08,
+            'chip_coherent_drive_evidence': 0.10,
+            'pullback_confirmation_evidence': 0.05,
+            'duofangpao_evidence': 0.05,
+            'volume_burst_evidence': 0.07,
+            'upward_efficiency_evidence': 0.06,
+            'microstructure_intent_bullish_evidence': 0.07,
+            'breakout_readiness_evidence': 0.05,
+            'ff_accum_inflection_intent_evidence': 0.06,
+            'structural_momentum_bullish_evidence': 0.04,
+            'dyn_momentum_bullish_evidence': 0.04,
+            'relative_strength_evidence': 0.03,
+            'chip_trend_momentum_evidence': 0.03
+        }
+        evidence_names = list(base_weights_dict.keys())
+
+        # --- 4. 动态权重调整 ---
+        adaptive_weights_per_date = {
+            name: pd.Series(base_weight, index=df_index, dtype=np.float32)
+            for name, base_weight in base_weights_dict.items()
+        }
+
+        # 调制因子
+        # 趋势质量：趋势越强，拉升抢筹越合理，增强价格、动量、效率类证据权重
+        trend_mod = trend_quality_score.clip(lower=0) * 0.15
+        # 波动不稳定性：波动越大，抢筹可能越剧烈，增强量能、微观意图类证据权重
+        volatility_mod = volatility_instability * 0.1
+        # 市场情绪：情绪越乐观，拉升抢筹越容易，增强价格、拉升意图类证据权重
+        sentiment_mod = sentiment_score_clipped * 0.1
+        # 流动性动态：流动性越好，抢筹越顺畅，增强资金流、资本对抗类证据权重
+        liquidity_mod = raw_liquidity_dynamics.clip(lower=0) * 0.1
+
+        # 应用调制
+        for name in [
+            'price_rising_evidence', 'rally_intent_evidence', 'volume_burst_evidence',
+            'upward_efficiency_evidence', 'structural_momentum_bullish_evidence',
+            'dyn_momentum_bullish_evidence', 'relative_strength_evidence', 'chip_trend_momentum_evidence'
+        ]:
+            adaptive_weights_per_date[name] += trend_mod + sentiment_mod
+        
+        for name in [
+            'chip_coherent_drive_evidence', 'efficiency_evidence', 'microstructure_intent_bullish_evidence',
+            'breakout_readiness_evidence'
+        ]:
+            adaptive_weights_per_date[name] += volatility_mod
+
+        for name in [
+            'capital_confrontation', 'ff_accum_inflection_intent_evidence'
+        ]:
+            adaptive_weights_per_date[name] += liquidity_mod
+
+        # 惩罚调制：如果存在派发意图或欺骗，则降低所有看涨证据的权重
+        distribution_penalty = raw_distribution_intent * 0.2
+        deception_penalty = raw_deception_index.clip(lower=0) * 0.15 # 仅正向欺骗（拉高出货）进行惩罚
+
+        for name in adaptive_weights_per_date:
+            adaptive_weights_per_date[name] -= distribution_penalty + deception_penalty
+            adaptive_weights_per_date[name] = adaptive_weights_per_date[name].clip(lower=0) # 确保权重非负
+
+        # 将字典转换为 DataFrame，并按行（日期）归一化
+        weights_df = pd.DataFrame(adaptive_weights_per_date)
+        weights_sum_per_date = weights_df.sum(axis=1)
+        weights_sum_per_date = weights_sum_per_date.replace(0, weights_df.shape[1]) # 避免除以零
+        weights_df = weights_df.div(weights_sum_per_date, axis=0)
+
+        # --- 5. 动态幂次变换 (Power Transformation) ---
+        # power_factor 范围从 1.0 (波动性为0) 到 1.5 (波动性为1)，波动越大，证据的非线性放大越强
+        power_factor_dynamic = 1.0 + volatility_instability * 0.5
+
+        evidence_list = [
+            capital_confrontation, price_rising_evidence, efficiency_evidence,
+            process_evidence, chip_strategic_posture_evidence, chip_coherent_drive_evidence,
+            pullback_confirmation_evidence, duofangpao_evidence,
+            volume_burst_evidence, upward_efficiency_evidence, microstructure_intent_bullish_evidence,
+            breakout_readiness_evidence, ff_accum_inflection_intent_evidence, structural_momentum_bullish_evidence,
+            dyn_momentum_bullish_evidence, relative_strength_evidence, chip_trend_momentum_evidence
+        ]
+
+        transformed_evidence_scores = []
+        for evidence_series in evidence_list:
+            transformed_score = evidence_series.pow(power_factor_dynamic)
+            transformed_evidence_scores.append(transformed_score.values)
+        
+        stacked_transformed_scores = np.stack(transformed_evidence_scores, axis=0)
+        safe_scores = np.maximum(stacked_transformed_scores, 1e-9) # 避免对数运算错误
+
+        # --- 6. 计算似然度 (Likelihood) ---
+        likelihood_values = np.exp(np.sum(np.log(safe_scores) * weights_df.values.T, axis=0))
+        likelihood = pd.Series(likelihood_values, index=df_index)
+
+        # --- 7. 风险惩罚与流动性奖励 (直接作用于似然度) ---
+        # 派发意图和正向欺骗越高，惩罚越大
+        likelihood = likelihood * (1 - raw_distribution_intent) * (1 - raw_deception_index.clip(lower=0))
+        # 流动性动态越积极，奖励越大
+        likelihood = likelihood * (1 + raw_liquidity_dynamics.clip(lower=0) * 0.1)
+        likelihood = likelihood.clip(0, 1) # 确保似然度在 [0, 1] 范围内
+
+        # --- 8. 计算后验概率 (Posterior Probability) ---
+        prior_prob = priors.get('COGNITIVE_PRIOR_TREND_PROB', pd.Series(0.0, index=df_index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
+
+        # --- 9. 探针输出 ---
+        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+            print(f"    -> [探针] COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION @ {probe_date_for_loop.date()}:")
+            print(f"       - 原始情境信号:")
+            print(f"         - trend_quality_score: {trend_quality_score.loc[probe_date_for_loop]:.4f}")
+            print(f"         - volatility_instability: {volatility_instability.loc[probe_date_for_loop]:.4f}")
+            print(f"         - sentiment_score: {sentiment_score.loc[probe_date_for_loop]:.4f}")
+            print(f"         - raw_liquidity_dynamics: {raw_liquidity_dynamics.loc[probe_date_for_loop]:.4f}")
+            print(f"         - raw_distribution_intent: {raw_distribution_intent.loc[probe_date_for_loop]:.4f}")
+            print(f"         - raw_deception_index: {raw_deception_index.loc[probe_date_for_loop]:.4f}")
+            print(f"       - 动态幂次因子 (power_factor_dynamic): {power_factor_dynamic.loc[probe_date_for_loop]:.4f}")
+            print(f"       - 动态权重 (weights_df):")
+            for name in evidence_names:
+                print(f"         - {name}: {weights_df.loc[probe_date_for_loop, name]:.4f}")
+            print(f"       - 似然度 (likelihood): {likelihood.loc[probe_date_for_loop]:.4f}")
+            print(f"       - 先验概率 (prior_prob): {prior_prob.loc[probe_date_for_loop]:.4f}")
+            print(f"       - 最终后验概率 (posterior_prob): {posterior_prob.loc[probe_date_for_loop]:.4f}")
+
         return {'COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION': posterior_prob.astype(np.float32)}
 
     def _deduce_capitulation_reversal(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
