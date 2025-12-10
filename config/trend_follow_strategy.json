@@ -3162,7 +3162,7 @@
             }
           },
         "leading_dragon_awakening_params": {
-          "description": "【V4.0 · 诡道博弈与情境自适应强化版】龙头苏醒剧本的专属参数。",
+          "description": "【V5.0 · 诡道博弈与情境自适应强化版】龙头苏醒剧本的专属参数。",
           "base_weights": {
             "capital_confrontation": 0.08,
             "breakout_quality": 0.08,
@@ -3184,7 +3184,9 @@
             "ff_conviction": 0.06,
             "chip_trend_momentum": 0.06,
             "chip_historical_potential": 0.05,
-            "intraday_offensive_purity": 0.04
+            "intraday_offensive_purity": 0.04,
+            "chip_coherent_drive_slope": 0.03,
+            "micro_strategic_intent_slope": 0.03
           },
           "context_modulation_factors": {
             "market_regime_mod_strength": 0.1,
@@ -3194,7 +3196,8 @@
             "volatility_mod_breakout_strength": 0.05,
             "sentiment_asymmetry_mod_bullish": 0.05,
             "sentiment_asymmetry_mod_bearish": 0.05,
-            "liquidity_capital_boost": 0.05
+            "liquidity_capital_boost": 0.05,
+            "contradictory_context_amplifier": 0.5
           },
           "power_factor_dynamic_base": 1.0,
           "power_factor_dynamic_volatility_multiplier": 0.5,
@@ -3208,7 +3211,8 @@
             "chip_historical_potential_negative": 0.4,
             "dynamic_penalty_mod_sensitivity": 0.5,
             "min_penalty_reduction_factor": 0.2,
-            "max_penalty_amplification_factor": 1.5
+            "max_penalty_amplification_factor": 1.5,
+            "contradictory_context_penalty_boost": 0.3
           }
         }
       },

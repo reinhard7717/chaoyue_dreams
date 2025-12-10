@@ -1460,7 +1460,7 @@ class CognitiveIntelligence:
 
     def _deduce_leading_dragon_awakening(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 诡道博弈与情境自适应强化版】贝叶斯推演：“龙头苏醒”剧本
+        【V5.0 · 诡道博弈与情境自适应强化版】贝叶斯推演：“龙头苏醒”剧本
         - 核心升级:
             1. 动态权重调整：引入市场状态、趋势质量、波动性和情绪等情境因子，动态调整各项证据的权重。
             2. 扩展证据集：新增微观战略意图、突破准备度、看涨量能爆发、价格上涨动能、基础公理相对强度等证据，更全面捕捉龙头特征。
@@ -1468,7 +1468,7 @@ class CognitiveIntelligence:
             4. 强化风险惩罚机制：引入博弈欺骗指数、派发诡影、高位派发风险、行为看跌背离、价筹张力负向、资金流分歧负向作为惩罚因子，抑制虚假信号。
             5. 动态幂次变换：根据波动不稳定性动态调整证据的非线性放大因子。
             6. 新增证据：上涨效率、资金流信念韧性、筹码结构性推力、筹码势能、日内进攻纯度。
-            7. 惩罚优化：引入筹码势能负向作为惩罚，动态调整惩罚强度。
+            7. 惩罚优化：引入筹码势能负向作为惩罚，动态调整惩罚强度，并引入情绪与流动性矛盾时的惩罚放大。
             8. 详细探针：加入print输出关键计算节点和结果，便于检查和调试。
         """
         print("    -- [剧本推演] 龙头苏醒 (动态证据)...")
@@ -1492,11 +1492,13 @@ class CognitiveIntelligence:
             'breakout_quality_slope': 0.05,
             'volume_burst_change': 0.03,
             'price_upward_momentum_change': 0.03,
-            'upward_efficiency': 0.04, # 新增
-            'ff_conviction': 0.06, # 新增
-            'chip_trend_momentum': 0.06, # 新增
-            'chip_historical_potential': 0.05, # 新增
-            'intraday_offensive_purity': 0.04 # 新增
+            'upward_efficiency': 0.04,
+            'ff_conviction': 0.06,
+            'chip_trend_momentum': 0.06,
+            'chip_historical_potential': 0.05,
+            'intraday_offensive_purity': 0.04,
+            'chip_coherent_drive_slope': 0.03, # 新增
+            'micro_strategic_intent_slope': 0.03 # 新增
         })
         evidence_names = list(base_weights_dict.keys())
         context_modulation_factors = ld_params.get('context_modulation_factors', {
@@ -1507,7 +1509,8 @@ class CognitiveIntelligence:
             'volatility_mod_breakout_strength': 0.05,
             'sentiment_asymmetry_mod_bullish': 0.05,
             'sentiment_asymmetry_mod_bearish': 0.05,
-            'liquidity_capital_boost': 0.05 # 新增
+            'liquidity_capital_boost': 0.05,
+            'contradictory_context_amplifier': 0.5 # 新增
         })
         power_factor_dynamic_base = ld_params.get('power_factor_dynamic_base', 1.0)
         power_factor_dynamic_volatility_multiplier = ld_params.get('power_factor_dynamic_volatility_multiplier', 0.5)
@@ -1518,10 +1521,11 @@ class CognitiveIntelligence:
             'bearish_divergence': 0.6,
             'chip_axiom_divergence_negative': 0.5,
             'ff_axiom_divergence_negative': 0.5,
-            'chip_historical_potential_negative': 0.4, # 新增
+            'chip_historical_potential_negative': 0.4,
             'dynamic_penalty_mod_sensitivity': 0.5,
             'min_penalty_reduction_factor': 0.2,
-            'max_penalty_amplification_factor': 1.5
+            'max_penalty_amplification_factor': 1.5,
+            'contradictory_context_penalty_boost': 0.3 # 新增
         })
 
         required_signals = [
@@ -1536,11 +1540,13 @@ class CognitiveIntelligence:
             'SCORE_BEHAVIOR_BEARISH_DIVERGENCE',
             'SCORE_CHIP_AXIOM_DIVERGENCE',
             'SCORE_FF_AXIOM_DIVERGENCE',
-            'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', # 新增
-            'SCORE_FF_AXIOM_CONVICTION', # 新增
-            'SCORE_CHIP_AXIOM_TREND_MOMENTUM', # 新增
-            'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', # 新增
-            'SCORE_INTRADAY_OFFENSIVE_PURITY' # 新增
+            'SCORE_BEHAVIOR_UPWARD_EFFICIENCY',
+            'SCORE_FF_AXIOM_CONVICTION',
+            'SCORE_CHIP_AXIOM_TREND_MOMENTUM',
+            'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL',
+            'SCORE_INTRADAY_OFFENSIVE_PURITY',
+            'SLOPE_5_chip_coherent_drive', # 新增
+            'SLOPE_5_micro_strategic_intent' # 新增
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_leading_dragon_awakening"):
             print("    -> [探针] 信号校验失败，返回默认值。")
@@ -1554,7 +1560,6 @@ class CognitiveIntelligence:
         liquidity_dynamics = self._get_fused_score(df, 'FUSION_BIPOLAR_LIQUIDITY_DYNAMICS', 0.0)
 
         # --- 2. 获取并锻造证据信号 ---
-        # 核心机会证据
         capital_confrontation = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0))
         breakout_quality = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'breakout_quality_score_D', 0.0))
         sector_sync = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'PROCESS_META_STOCK_SECTOR_SYNC', 0.0).clip(lower=0))
@@ -1565,22 +1570,22 @@ class CognitiveIntelligence:
         breakout_readiness = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_STRUCT_BREAKOUT_READINESS', 0.0))
         volume_burst = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0))
         price_upward_momentum = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0))
-        upward_efficiency = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0)) # 新增
-        ff_conviction = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONVICTION', 0.0).clip(lower=0)) # 新增
-        chip_trend_momentum = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_TREND_MOMENTUM', 0.0).clip(lower=0)) # 新增
-        raw_chip_historical_potential = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0) # 新增
-        chip_historical_potential = self._forge_dynamic_evidence(df, raw_chip_historical_potential.clip(lower=0)) # 新增
-        intraday_offensive_purity = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_INTRADAY_OFFENSIVE_PURITY', 0.0).clip(lower=0)) # 新增
+        upward_efficiency = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0))
+        ff_conviction = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONVICTION', 0.0).clip(lower=0))
+        chip_trend_momentum = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_TREND_MOMENTUM', 0.0).clip(lower=0))
+        raw_chip_historical_potential = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0)
+        chip_historical_potential = self._forge_dynamic_evidence(df, raw_chip_historical_potential.clip(lower=0))
+        intraday_offensive_purity = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_INTRADAY_OFFENSIVE_PURITY', 0.0).clip(lower=0))
 
-        # 新增：证据的时间动态 (变化率/斜率)
         capital_confrontation_change = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).diff(5).fillna(0).clip(lower=0))
         chip_coherent_drive_change = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0).diff(5).fillna(0).clip(lower=0))
         micro_strategic_intent_change = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_MICRO_STRATEGIC_INTENT', 0.0).diff(5).fillna(0).clip(lower=0))
         breakout_quality_slope = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SLOPE_5_breakout_quality_score_D', 0.0).clip(lower=0))
         volume_burst_change = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0).diff(5).fillna(0).clip(lower=0))
         price_upward_momentum_change = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0).diff(5).fillna(0).clip(lower=0))
+        chip_coherent_drive_slope = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SLOPE_5_chip_coherent_drive', 0.0).clip(lower=0)) # 新增
+        micro_strategic_intent_slope = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SLOPE_5_micro_strategic_intent', 0.0).clip(lower=0)) # 新增
 
-        # 惩罚证据 (原始值，用于直接惩罚)
         raw_deception_index = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0)
         deception_index_positive = raw_deception_index.clip(lower=0)
         raw_chip_risk_distribution_whisper = self._get_atomic_score(df, 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 0.0)
@@ -1590,7 +1595,7 @@ class CognitiveIntelligence:
         chip_axiom_divergence_negative = raw_chip_axiom_divergence.clip(upper=0).abs()
         raw_ff_axiom_divergence = self._get_atomic_score(df, 'SCORE_FF_AXIOM_DIVERGENCE', 0.0)
         ff_axiom_divergence_negative = raw_ff_axiom_divergence.clip(upper=0).abs()
-        chip_historical_potential_negative = raw_chip_historical_potential.clip(upper=0).abs() # 新增
+        chip_historical_potential_negative = raw_chip_historical_potential.clip(upper=0).abs()
 
         # --- 3. 动态权重调整 (Context-adaptive weights) ---
         adaptive_weights_per_date = {
@@ -1598,43 +1603,37 @@ class CognitiveIntelligence:
             for name, base_weight in base_weights_dict.items()
         }
 
-        # 调制因子
         market_regime_mod = market_regime_score.clip(lower=0) * context_modulation_factors['market_regime_mod_strength']
         trend_quality_mod = trend_quality_score.clip(lower=0) * context_modulation_factors['trend_quality_mod_strength']
         sentiment_mod = sentiment_score * context_modulation_factors['sentiment_mod_strength']
         liquidity_mod = liquidity_dynamics.clip(lower=0) * context_modulation_factors['liquidity_mod_strength']
         volatility_mod_breakout = volatility_instability * context_modulation_factors['volatility_mod_breakout_strength']
 
-        # 情绪非对称调制：情绪越乐观，对龙头苏醒的权重越谨慎（可能诱多）；情绪越悲观，权重越放大（逆势机会）
         sentiment_asymmetry_mod_bullish = (1 - sentiment_score) * context_modulation_factors['sentiment_asymmetry_mod_bullish']
         sentiment_asymmetry_mod_bearish = sentiment_score * context_modulation_factors['sentiment_asymmetry_mod_bearish']
 
-        # 流动性对资本流入和量能爆发的额外奖励
         liquidity_capital_boost = liquidity_dynamics.clip(lower=0) * context_modulation_factors['liquidity_capital_boost']
 
-        # 应用调制
         for name in evidence_names:
             adaptive_weights_per_date[name] += market_regime_mod + trend_quality_mod + sentiment_mod + liquidity_mod
         
-        # 对突破相关证据额外调制
         adaptive_weights_per_date['breakout_quality'] += volatility_mod_breakout
         adaptive_weights_per_date['breakout_readiness'] += volatility_mod_breakout
         adaptive_weights_per_date['volume_burst'] += volatility_mod_breakout
         adaptive_weights_per_date['price_upward_momentum'] += volatility_mod_breakout
 
-        # 对时间动态证据在趋势市场中给予额外奖励
         adaptive_weights_per_date['capital_confrontation_change'] += trend_quality_mod
         adaptive_weights_per_date['chip_coherent_drive_change'] += trend_quality_mod
         adaptive_weights_per_date['micro_strategic_intent_change'] += trend_quality_mod
         adaptive_weights_per_date['breakout_quality_slope'] += trend_quality_mod
         adaptive_weights_per_date['volume_burst_change'] += trend_quality_mod
         adaptive_weights_per_date['price_upward_momentum_change'] += trend_quality_mod
+        adaptive_weights_per_date['chip_coherent_drive_slope'] += trend_quality_mod # 新增
+        adaptive_weights_per_date['micro_strategic_intent_slope'] += trend_quality_mod # 新增
 
-        # 对资本对抗和量能爆发在流动性好的时候额外奖励
         adaptive_weights_per_date['capital_confrontation'] += liquidity_capital_boost
         adaptive_weights_per_date['volume_burst'] += liquidity_capital_boost
 
-        # 确保权重非负
         for name in adaptive_weights_per_date:
             adaptive_weights_per_date[name] = adaptive_weights_per_date[name].clip(lower=0)
 
@@ -1653,7 +1652,8 @@ class CognitiveIntelligence:
             price_upward_momentum, upward_efficiency, ff_conviction,
             chip_trend_momentum, chip_historical_potential, intraday_offensive_purity,
             capital_confrontation_change, chip_coherent_drive_change, micro_strategic_intent_change,
-            breakout_quality_slope, volume_burst_change, price_upward_momentum_change
+            breakout_quality_slope, volume_burst_change, price_upward_momentum_change,
+            chip_coherent_drive_slope, micro_strategic_intent_slope # 新增
         ]
 
         transformed_evidence_scores = []
@@ -1670,11 +1670,22 @@ class CognitiveIntelligence:
         likelihood = pd.Series(likelihood_values, index=df_index)
 
         # --- 6. 惩罚机制 ---
-        # 动态惩罚调制器：在市场情绪高涨或波动性低时，惩罚效果更强
+        # 动态惩罚调制器：结合情绪、波动性，并引入情绪与流动性矛盾时的惩罚放大
+        contradictory_context_amplifier = pd.Series(1.0, index=df_index)
+        contradictory_mask = (sentiment_score > 0.7) & (liquidity_dynamics < -0.5) # 情绪高涨但流动性差
+        contradictory_context_amplifier.loc[contradictory_mask] = (
+            1 + (sentiment_score.loc[contradictory_mask] - 0.7) *
+            (liquidity_dynamics.loc[contradictory_mask].abs() - 0.5) *
+            context_modulation_factors['contradictory_context_amplifier']
+        ).clip(1.0, 2.0) # 至少1.0，最多2.0倍放大
+
         dynamic_penalty_modulator = (
             (sentiment_score * penalty_coefficients['dynamic_penalty_mod_sensitivity']) +
             ((1 - volatility_instability) * penalty_coefficients['dynamic_penalty_mod_sensitivity'])
         ).clip(penalty_coefficients['min_penalty_reduction_factor'], penalty_coefficients['max_penalty_amplification_factor'])
+        
+        # 结合矛盾情境放大器
+        dynamic_penalty_modulator = dynamic_penalty_modulator * contradictory_context_amplifier * (1 + penalty_coefficients['contradictory_context_penalty_boost'])
 
         deception_penalty_factor = 1 - deception_index_positive * penalty_coefficients['deception_index_positive'] * dynamic_penalty_modulator
         likelihood = likelihood * deception_penalty_factor.clip(0, 1)
@@ -1694,7 +1705,6 @@ class CognitiveIntelligence:
         ff_axiom_divergence_negative_penalty_factor = 1 - ff_axiom_divergence_negative * penalty_coefficients['ff_axiom_divergence_negative'] * dynamic_penalty_modulator
         likelihood = likelihood * ff_axiom_divergence_negative_penalty_factor.clip(0, 1)
 
-        # 新增：筹码势能负向惩罚
         chip_historical_potential_negative_penalty_factor = 1 - chip_historical_potential_negative * penalty_coefficients['chip_historical_potential_negative'] * dynamic_penalty_modulator
         likelihood = likelihood * chip_historical_potential_negative_penalty_factor.clip(0, 1)
 
@@ -1738,6 +1748,8 @@ class CognitiveIntelligence:
                 print(f"       - 突破品质斜率 (breakout_quality_slope): {breakout_quality_slope.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 看涨量能爆发变化 (volume_burst_change): {volume_burst_change.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 价格上涨动能变化 (price_upward_momentum_change): {price_upward_momentum_change.loc[probe_date_for_loop]:.4f}")
+                print(f"       - 筹码同调驱动力斜率 (chip_coherent_drive_slope): {chip_coherent_drive_slope.loc[probe_date_for_loop]:.4f}")
+                print(f"       - 微观战略意图斜率 (micro_strategic_intent_slope): {micro_strategic_intent_slope.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 动态幂次因子 (power_factor_dynamic): {power_factor_dynamic.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 似然度 (likelihood): {likelihood.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 欺骗指数正向 (deception_index_positive): {deception_index_positive.loc[probe_date_for_loop]:.4f}")
