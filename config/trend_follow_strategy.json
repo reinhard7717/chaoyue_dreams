@@ -3162,7 +3162,7 @@
             }
           },
         "leading_dragon_awakening_params": {
-          "description": "【V7.1 · 证据韧性与情境调制优化版】龙头苏醒剧本的专属参数。",
+          "description": "【V8.0 · 证据韧性与惩罚情境化版】龙头苏醒剧本的专属参数。",
           "base_weights": {
             "capital_confrontation": 0.08,
             "breakout_quality": 0.08,
@@ -3197,7 +3197,7 @@
             "liquidity_capital_boost": 0.05,
             "contradictory_context_amplifier": 0.5,
             "trend_quality_evidence_mod_factor": 0.8,
-            "min_trend_quality_evidence_modulator": 0.3
+            "min_trend_quality_evidence_modulator": 0.4
           },
           "power_factor_dynamic_base": 1.0,
           "power_factor_dynamic_volatility_multiplier": 0.5,
@@ -3213,7 +3213,8 @@
             "min_penalty_reduction_factor": 0.2,
             "max_penalty_amplification_factor": 1.5,
             "contradictory_context_penalty_boost": 0.3,
-            "sentiment_liquidity_contradiction_penalty": 0.7
+            "sentiment_liquidity_contradiction_penalty": 0.7,
+            "trend_quality_penalty_dampening": 0.5
           },
           "synergy_bonuses": {
             "breakout_volume_momentum_synergy": 0.2

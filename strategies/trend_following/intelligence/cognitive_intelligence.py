@@ -1460,16 +1460,16 @@ class CognitiveIntelligence:
 
     def _deduce_leading_dragon_awakening(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V7.1 · 证据韧性与情境调制优化版】贝叶斯推演：“龙头苏醒”剧本
+        【V8.0 · 证据韧性与惩罚情境化版】贝叶斯推演：“龙头苏醒”剧本
         - 核心升级:
-            1. 趋势质量调制优化：提高趋势质量证据调制器的下限，确保在趋势不佳时，证据的“有效性”不会被压制得过低。
-            2. 优化情报层信号变化率计算：确保所有情报层信号的变化率（diff）都直接对其Series进行计算。
-            3. 移除冗余斜率证据：简化模型，避免重复计算和配置。
-            4. 强化矛盾情境惩罚：新增对高情绪与负流动性矛盾的显式惩罚，识别诱多陷阱。
-            5. 增强协同奖励：对突破品质、量能爆发和价格动量三者协同出现时给予额外奖励。
-            6. 调整证据权重：提高量能爆发和价格动量在基础权重中的比重。
-            7. 优化动态惩罚调制器：确保其在复杂情境下更准确地放大或抑制惩罚。
-            8. 详细探针：增加min_evidence_threshold_val和trend_quality_evidence_modulator的输出，便于调试。
+            1. 趋势质量调制优化：采用线性插值计算证据调制器，确保在趋势不佳时，证据的“有效性”不会被压制得过低。
+            2. 惩罚情境化：在趋势质量极低时，适当降低惩罚的放大作用，避免过度悲观。
+            3. 优化情报层信号变化率计算：确保所有情报层信号的变化率（diff）都直接对其Series进行计算。
+            4. 移除冗余斜率证据：简化模型，避免重复计算和配置。
+            5. 强化矛盾情境惩罚：新增对高情绪与负流动性矛盾的显式惩罚，识别诱多陷阱。
+            6. 增强协同奖励：对突破品质、量能爆发和价格动量三者协同出现时给予额外奖励。
+            7. 调整证据权重：提高量能爆发和价格动量在基础权重中的比重。
+            8. 详细探针：增加min_evidence_threshold_val、trend_quality_evidence_modulator以及调制后证据的输出，便于调试。
         """
         print("    -- [剧本推演] 龙头苏醒 (动态证据)...")
         df_index = df.index
@@ -1509,7 +1509,7 @@ class CognitiveIntelligence:
             'liquidity_capital_boost': 0.05,
             'contradictory_context_amplifier': 0.5,
             'trend_quality_evidence_mod_factor': 0.8,
-            'min_trend_quality_evidence_modulator': 0.3 # 新增
+            'min_trend_quality_evidence_modulator': 0.4 # 修改
         })
         power_factor_dynamic_base = ld_params.get('power_factor_dynamic_base', 1.0)
         power_factor_dynamic_volatility_multiplier = ld_params.get('power_factor_dynamic_volatility_multiplier', 0.5)
@@ -1525,7 +1525,8 @@ class CognitiveIntelligence:
             'min_penalty_reduction_factor': 0.2,
             'max_penalty_amplification_factor': 1.5,
             'contradictory_context_penalty_boost': 0.3,
-            'sentiment_liquidity_contradiction_penalty': 0.7
+            'sentiment_liquidity_contradiction_penalty': 0.7,
+            'trend_quality_penalty_dampening': 0.5 # 新增
         })
         synergy_bonuses = ld_params.get('synergy_bonuses', {
             'breakout_volume_momentum_synergy': 0.2
@@ -1597,9 +1598,9 @@ class CognitiveIntelligence:
         }
         # 调制因子
         market_regime_mod = market_regime_score.clip(lower=0) * context_modulation_factors['market_regime_mod_strength']
-        # 趋势质量调制：用于调制证据强度，而不是直接削弱权重
-        # 修改行：提高trend_quality_evidence_modulator的下限
-        trend_quality_evidence_modulator = trend_quality_score.clip(context_modulation_factors['min_trend_quality_evidence_modulator'], 1.0)
+        # 修改行：采用线性插值计算trend_quality_evidence_modulator
+        min_tq_mod = context_modulation_factors['min_trend_quality_evidence_modulator']
+        trend_quality_evidence_modulator = min_tq_mod + (1 - min_tq_mod) * trend_quality_score.clip(0, 1)
         trend_quality_mod = trend_quality_score.clip(lower=0) * context_modulation_factors['trend_quality_mod_strength']
         sentiment_mod = sentiment_score * context_modulation_factors['sentiment_mod_strength']
         liquidity_mod = liquidity_dynamics.clip(lower=0) * context_modulation_factors['liquidity_mod_strength']
@@ -1660,11 +1661,13 @@ class CognitiveIntelligence:
         }
         evidence_list = [all_evidence_series[name] for name in evidence_names]
         transformed_evidence_scores = []
-        for evidence_series in evidence_list:
+        modulated_evidence_values_for_probe = {} # 新增
+        for name, evidence_series in zip(evidence_names, evidence_list): # 修改
             # 修改行：将趋势质量调制应用于证据本身
             modulated_evidence_series = evidence_series * trend_quality_evidence_modulator
             transformed_score = modulated_evidence_series.pow(power_factor_dynamic)
             transformed_evidence_scores.append(transformed_score.values)
+            modulated_evidence_values_for_probe[name] = modulated_evidence_series # 新增
         stacked_transformed_scores = np.stack(transformed_evidence_scores, axis=0)
         min_evidence_threshold_val = get_params_block(self.strategy, 'min_evidence_threshold', 1e-9)
         safe_scores = np.maximum(stacked_transformed_scores, min_evidence_threshold_val)
@@ -1687,6 +1690,10 @@ class CognitiveIntelligence:
         ).clip(penalty_coefficients['min_penalty_reduction_factor'], penalty_coefficients['max_penalty_amplification_factor'])
         # 结合矛盾情境放大器
         dynamic_penalty_modulator = dynamic_penalty_modulator * contradictory_context_amplifier * (1 + penalty_coefficients['contradictory_context_penalty_boost'])
+        # 新增：趋势质量对惩罚的缓和作用
+        # 趋势质量越差 (trend_quality_score 越小)，惩罚的放大作用越小，甚至略微减弱
+        trend_quality_penalty_dampening_factor = 1 - (1 - trend_quality_score) * penalty_coefficients['trend_quality_penalty_dampening']
+        dynamic_penalty_modulator = dynamic_penalty_modulator * trend_quality_penalty_dampening_factor.clip(0.5, 1.0) # 确保不会完全消除惩罚，也不会过度放大
         # 新增：情绪与流动性矛盾的显式惩罚
         sentiment_liquidity_contradiction_penalty_factor = pd.Series(0.0, index=df_index)
         sentiment_liquidity_contradiction_penalty_factor.loc[contradictory_mask] = (
@@ -1726,30 +1733,12 @@ class CognitiveIntelligence:
                 print(f"       - 波动不稳定性 (volatility_instability): {volatility_instability.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 市场情绪 (sentiment_score): {sentiment_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 流动性动态 (liquidity_dynamics): {liquidity_dynamics.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 资本对抗 (capital_confrontation): {capital_confrontation.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 突破品质 (breakout_quality): {breakout_quality.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 个股板块同步 (sector_sync): {sector_sync.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 相对强度 (relative_strength): {relative_strength.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 霸占模式 (bazhan_mode): {bazhan_mode.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 筹码同调驱动力 (chip_coherent_drive): {chip_coherent_drive.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 微观战略意图 (micro_strategic_intent): {micro_strategic_intent.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 突破准备度 (breakout_readiness): {breakout_readiness.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 看涨量能爆发 (volume_burst): {volume_burst.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 价格上涨动能 (price_upward_momentum): {price_upward_momentum.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 上涨效率 (upward_efficiency): {upward_efficiency.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 资金流信念韧性 (ff_conviction): {ff_conviction.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 筹码结构性推力 (chip_trend_momentum): {chip_trend_momentum.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 筹码势能 (chip_historical_potential): {chip_historical_potential.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 日内进攻纯度 (intraday_offensive_purity): {intraday_offensive_purity.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 资本对抗变化 (capital_confrontation_change): {capital_confrontation_change.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 筹码同调驱动力变化 (chip_coherent_drive_change): {chip_coherent_drive_change.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 微观战略意图变化 (micro_strategic_intent_change): {micro_strategic_intent_change.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 突破品质斜率 (breakout_quality_slope): {breakout_quality_slope.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 看涨量能爆发变化 (volume_burst_change): {volume_burst_change.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 价格上涨动能变化 (price_upward_momentum_change): {price_upward_momentum_change.loc[probe_date_for_loop]:.4f}")
+                # 打印调制后的证据值
+                for name in evidence_names:
+                    print(f"       - {name} (modulated): {modulated_evidence_values_for_probe[name].loc[probe_date_for_loop]:.4f}") # 新增
                 print(f"       - 动态幂次因子 (power_factor_dynamic): {power_factor_dynamic.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 趋势质量证据调制器 (trend_quality_evidence_modulator): {trend_quality_evidence_modulator.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 最小证据阈值 (min_evidence_threshold_val): {min_evidence_threshold_val:.9f}") # 新增
+                print(f"       - 最小证据阈值 (min_evidence_threshold_val): {min_evidence_threshold_val:.9f}")
                 print(f"       - 似然度 (likelihood): {likelihood.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 欺骗指数正向 (deception_index_positive): {deception_index_positive.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 派发诡影 (raw_chip_risk_distribution_whisper): {raw_chip_risk_distribution_whisper.loc[probe_date_for_loop]:.4f}")
@@ -1759,6 +1748,7 @@ class CognitiveIntelligence:
                 print(f"       - 资金流分歧负向 (ff_axiom_divergence_negative): {ff_axiom_divergence_negative.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 筹码势能负向 (chip_historical_potential_negative): {chip_historical_potential_negative.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 动态惩罚调制器 (dynamic_penalty_modulator): {dynamic_penalty_modulator.loc[probe_date_for_loop]:.4f}")
+                print(f"       - 趋势质量惩罚缓和因子 (trend_quality_penalty_dampening_factor): {trend_quality_penalty_dampening_factor.loc[probe_date_for_loop]:.4f}") # 新增
                 print(f"       - 情绪流动性矛盾惩罚因子 (sentiment_liquidity_contradiction_penalty_factor): {sentiment_liquidity_contradiction_penalty_factor.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 惩罚后似然度 (likelihood after penalties): {likelihood.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 先验概率 (prior_prob): {prior_prob.loc[probe_date_for_loop]:.4f}")
