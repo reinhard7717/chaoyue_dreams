@@ -690,7 +690,8 @@ class FusionIntelligence:
 
     def _synthesize_liquidity_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 三体博弈模型】冶炼“流动性博弈动态” (FUSION_BIPOLAR_LIQUIDITY_DYNAMICS)
+        【V2.0 · 协同共振版】冶炼“流动性博弈动态” (FUSION_BIPOLAR_LIQUIDITY_DYNAMICS)
+        - 核心重构: 废弃V1.0内部维度融合的“几何平均”法，引入“加权协同与非线性激活”法。
         - 核心目标: 融合“价量效能”、“权势转移”、“流动性状态”三大维度，输出[-1, 1]的双极性分数。
         - 诡道哲学: 流动性是市场博弈的血液。健康的流动性动态，是主力主导、价量协同、权力稳固的体现；
                       混乱的流动性动态，则预示着主力派发、权力失衡、市场混乱。
@@ -700,79 +701,95 @@ class FusionIntelligence:
         states = {}
         df_index = df.index
 
-        # --- 1. 定义三大维度及其原料信号 ---
+        # [修改] 辅助函数：计算加权和并应用tanh激活，映射到[0, 1]
+        def weighted_sum_with_activation_series(components_with_weights, index, activation_sensitivity=1.0):
+            if not components_with_weights:
+                return pd.Series(0.0, index=index)
+            
+            raw_sum = pd.Series(0.0, index=index)
+            total_possible_weight = 0.0
+            
+            for comp, weight in components_with_weights:
+                raw_sum += comp * weight
+                total_possible_weight += weight
+            
+            if total_possible_weight > 0:
+                # Normalize the raw sum by total possible weight to get a score typically in [0, 1]
+                # Then apply tanh to introduce non-linearity and map to [-1, 1], then scale to [0, 1]
+                normalized_sum = raw_sum / total_possible_weight
+                # Apply tanh to the normalized sum, scaled by activation_sensitivity
+                # (tanh(x) + 1) / 2 maps [-inf, inf] to [0, 1]
+                return (np.tanh(normalized_sum * activation_sensitivity) + 1) / 2
+            else:
+                return pd.Series(0.0, index=index)
+
+        # --- 1. 定义三大维度及其原料信号 (新增明确权重) ---
 
         # 1.1 维度一：价量效能 (Price-Volume Efficiency - PVE)
         # 看涨PVE原料
-        bullish_pve_components = [
-            self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0),
-            self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0),
-            self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0),
-            self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0).clip(lower=0) # 动量品质的正向部分
+        bullish_pve_components_with_weights = [
+            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0), 0.3),
+            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0), 0.25),
+            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0), 0.25),
+            (self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0).clip(lower=0), 0.2)
         ]
         # 看跌PVE原料
-        bearish_pve_components = [
-            self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0),
-            self._get_atomic_score(df, 'PROCESS_RISK_VPA_EFFICIENCY_DECAY', 0.0),
-            self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0).clip(upper=0).abs() # 动量品质的负向部分
+        bearish_pve_components_with_weights = [
+            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0), 0.3),
+            (self._get_atomic_score(df, 'PROCESS_RISK_VPA_EFFICIENCY_DECAY', 0.0), 0.3),
+            (self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0).clip(upper=0).abs(), 0.4)
         ]
 
         # 1.2 维度二：权势转移 (Power Transfer - PT)
         # 看涨PT原料
-        bullish_pt_components = [
-            self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0),
-            self._get_atomic_score(df, 'SCORE_CHIP_TACTICAL_EXCHANGE', 0.0).clip(lower=0),
-            self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(lower=0),
-            self._get_atomic_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0)
+        bullish_pt_components_with_weights = [
+            (self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0), 0.3),
+            (self._get_atomic_score(df, 'SCORE_CHIP_TACTICAL_EXCHANGE', 0.0).clip(lower=0), 0.25),
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(lower=0), 0.25),
+            (self._get_atomic_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0), 0.2)
         ]
         # 看跌PT原料
-        bearish_pt_components = [
-            self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(upper=0).abs(),
-            self._get_atomic_score(df, 'SCORE_CHIP_TACTICAL_EXCHANGE', 0.0).clip(upper=0).abs(),
-            self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(upper=0).abs(),
-            self._get_atomic_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs()
+        bearish_pt_components_with_weights = [
+            (self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(upper=0).abs(), 0.3),
+            (self._get_atomic_score(df, 'SCORE_CHIP_TACTICAL_EXCHANGE', 0.0).clip(upper=0).abs(), 0.25),
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(upper=0).abs(), 0.25),
+            (self._get_atomic_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs(), 0.2)
         ]
 
         # 1.3 维度三：流动性状态 (Liquidity State - LS)
         # 看涨LS原料
-        bullish_ls_components = [
-            self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0).clip(lower=0),
-            self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0).clip(lower=0),
-            self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.0).clip(lower=0),
-            self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0) # 高品质萎缩是看涨信号
+        bullish_ls_components_with_weights = [
+            (self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0).clip(lower=0), 0.3),
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0).clip(lower=0), 0.25),
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.0).clip(lower=0), 0.25),
+            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0), 0.2) # 高品质萎缩是看涨信号
         ]
         # 看跌LS原料
-        bearish_ls_components = [
-            self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0).clip(upper=0).abs(),
-            self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0).clip(upper=0).abs(),
-            self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.0).clip(upper=0).abs(),
-            self._get_atomic_score(df, 'FUSION_RISK_STAGNATION', 0.0) # 滞涨风险是看跌信号
+        bearish_ls_components_with_weights = [
+            (self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0).clip(upper=0).abs(), 0.3),
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0).clip(upper=0).abs(), 0.25),
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.0).clip(upper=0).abs(), 0.25),
+            (self._get_atomic_score(df, 'FUSION_RISK_STAGNATION', 0.0), 0.2) # 滞涨风险是看跌信号
         ]
 
         # --- 2. 核心数学逻辑 - 融合三大维度 ---
-
-        # 辅助函数：计算几何平均 (处理空列表和零值)
-        def geometric_mean_series(series_list, index):
-            if not series_list:
-                return pd.Series(0.0, index=index)
-            product = pd.Series(1.0, index=index)
-            for s in series_list:
-                product *= s.clip(lower=1e-9) # 避免log(0)或0乘积
-            return product.pow(1.0 / len(series_list))
-
-        # 2.1 计算价量效能 (PVE) 的双极性分数
-        bullish_pve_fused = geometric_mean_series(bullish_pve_components, df_index)
-        bearish_pve_fused = geometric_mean_series(bearish_pve_components, df_index)
+        
+        # [修改] 2.1 计算价量效能 (PVE) 的双极性分数
+        pve_activation_sensitivity = 2.0 # 维度内部激活敏感度
+        bullish_pve_fused = weighted_sum_with_activation_series(bullish_pve_components_with_weights, df_index, pve_activation_sensitivity)
+        bearish_pve_fused = weighted_sum_with_activation_series(bearish_pve_components_with_weights, df_index, pve_activation_sensitivity)
         pve_score = (bullish_pve_fused - bearish_pve_fused).clip(-1, 1)
 
-        # 2.2 计算权势转移 (PT) 的双极性分数
-        bullish_pt_fused = geometric_mean_series(bullish_pt_components, df_index)
-        bearish_pt_fused = geometric_mean_series(bearish_pt_components, df_index)
+        # [修改] 2.2 计算权势转移 (PT) 的双极性分数
+        pt_activation_sensitivity = 2.0
+        bullish_pt_fused = weighted_sum_with_activation_series(bullish_pt_components_with_weights, df_index, pt_activation_sensitivity)
+        bearish_pt_fused = weighted_sum_with_activation_series(bearish_pt_components_with_weights, df_index, pt_activation_sensitivity)
         pt_score = (bullish_pt_fused - bearish_pt_fused).clip(-1, 1)
 
-        # 2.3 计算流动性状态 (LS) 的双极性分数
-        bullish_ls_fused = geometric_mean_series(bullish_ls_components, df_index)
-        bearish_ls_fused = geometric_mean_series(bearish_ls_components, df_index)
+        # [修改] 2.3 计算流动性状态 (LS) 的双极性分数
+        ls_activation_sensitivity = 2.0
+        bullish_ls_fused = weighted_sum_with_activation_series(bullish_ls_components_with_weights, df_index, ls_activation_sensitivity)
+        bearish_ls_fused = weighted_sum_with_activation_series(bearish_ls_components_with_weights, df_index, ls_activation_sensitivity)
         ls_score = (bullish_ls_fused - bearish_ls_fused).clip(-1, 1)
 
         # 2.4 融合三大维度 (加权平均 + tanh激活)
@@ -788,50 +805,66 @@ class FusionIntelligence:
         final_score = np.tanh(raw_fusion_score * 2.0) # 乘以2.0可以增加tanh的敏感度
         states['FUSION_BIPOLAR_LIQUIDITY_DYNAMICS'] = final_score.astype(np.float32)
 
-        # --- 3. 植入究极探针 ---
+        # --- 3. 植入究极探针 (更新探针以反映新逻辑) ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             last_date_index = -1
-            print(f"\n--- [流动性博弈动态究极探针 V1.0 · 三体博弈模型] ---")
+            print(f"\n--- [流动性博弈动态究极探针 V2.0 · 协同共振版] ---")
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
 
             print("\n  [维度一: 价量效能 (Price-Volume Efficiency - PVE)]:")
-            print(f"    - 原料: 价格上涨动能: {bullish_pve_components[0].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 看涨量能爆发: {bullish_pve_components[1].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 上涨效率: {bullish_pve_components[2].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 动量品质(正): {bullish_pve_components[3].iloc[last_date_index]:.4f}")
-            print(f"    - -> 看涨PVE融合分: {bullish_pve_fused.iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 价格下跌动能: {bearish_pve_components[0].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: VPA效率衰减风险: {bearish_pve_components[1].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 动量品质(负): {bearish_pve_components[2].iloc[last_date_index]:.4f}")
-            print(f"    - -> 看跌PVE融合分: {bearish_pve_fused.iloc[last_date_index]:.4f}")
+            print("    [看涨PVE原料]:")
+            bullish_pve_raw_sum = pd.Series(0.0, index=df_index)
+            for name, (comp, weight) in zip(['价格上涨动能', '看涨量能爆发', '上涨效率', '动量品质(正)'], bullish_pve_components_with_weights):
+                print(f"      - {name}: {comp.iloc[last_date_index]:.4f} (权重: {weight:.2f}, 贡献: {comp.iloc[last_date_index] * weight:.4f})")
+                bullish_pve_raw_sum += comp * weight
+            print(f"    - -> 看涨PVE加权和: {bullish_pve_raw_sum.iloc[last_date_index]:.4f}")
+            print(f"    - -> 看涨PVE融合分 (激活后): {bullish_pve_fused.iloc[last_date_index]:.4f}")
+
+            print("    [看跌PVE原料]:")
+            bearish_pve_raw_sum = pd.Series(0.0, index=df_index)
+            for name, (comp, weight) in zip(['价格下跌动能', 'VPA效率衰减风险', '动量品质(负)'], bearish_pve_components_with_weights):
+                print(f"      - {name}: {comp.iloc[last_date_index]:.4f} (权重: {weight:.2f}, 贡献: {comp.iloc[last_date_index] * weight:.4f})")
+                bearish_pve_raw_sum += comp * weight
+            print(f"    - -> 看跌PVE加权和: {bearish_pve_raw_sum.iloc[last_date_index]:.4f}")
+            print(f"    - -> 看跌PVE融合分 (激活后): {bearish_pve_fused.iloc[last_date_index]:.4f}")
             print(f"    - -> PVE双极性分数: {pve_score.iloc[last_date_index]:.4f}")
 
             print("\n  [维度二: 权势转移 (Power Transfer - PT)]:")
-            print(f"    - 原料: 权力转移(正): {bullish_pt_components[0].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 战术换手博弈(正): {bullish_pt_components[1].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 战场控制权(正): {bullish_pt_components[2].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 资本对抗(正): {bullish_pt_components[3].iloc[last_date_index]:.4f}")
-            print(f"    - -> 看涨PT融合分: {bullish_pt_fused.iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 权力转移(负): {bearish_pt_components[0].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 战术换手博弈(负): {bearish_pt_components[1].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 战场控制权(负): {bearish_pt_components[2].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 资本对抗(负): {bearish_pt_components[3].iloc[last_date_index]:.4f}")
-            print(f"    - -> 看跌PT融合分: {bearish_pt_fused.iloc[last_date_index]:.4f}")
+            print("    [看涨PT原料]:")
+            bullish_pt_raw_sum = pd.Series(0.0, index=df_index)
+            for name, (comp, weight) in zip(['权力转移(正)', '战术换手博弈(正)', '战场控制权(正)', '资本对抗(正)'], bullish_pt_components_with_weights):
+                print(f"      - {name}: {comp.iloc[last_date_index]:.4f} (权重: {weight:.2f}, 贡献: {comp.iloc[last_date_index] * weight:.4f})")
+                bullish_pt_raw_sum += comp * weight
+            print(f"    - -> 看涨PT加权和: {bullish_pt_raw_sum.iloc[last_date_index]:.4f}")
+            print(f"    - -> 看涨PT融合分 (激活后): {bullish_pt_fused.iloc[last_date_index]:.4f}")
+
+            print("    [看跌PT原料]:")
+            bearish_pt_raw_sum = pd.Series(0.0, index=df_index)
+            for name, (comp, weight) in zip(['权力转移(负)', '战术换手博弈(负)', '战场控制权(负)', '资本对抗(负)'], bearish_pt_components_with_weights):
+                print(f"      - {name}: {comp.iloc[last_date_index]:.4f} (权重: {weight:.2f}, 贡献: {comp.iloc[last_date_index] * weight:.4f})")
+                bearish_pt_raw_sum += comp * weight
+            print(f"    - -> 看跌PT加权和: {bearish_pt_raw_sum.iloc[last_date_index]:.4f}")
+            print(f"    - -> 看跌PT融合分 (激活后): {bearish_pt_fused.iloc[last_date_index]:.4f}")
             print(f"    - -> PT双极性分数: {pt_score.iloc[last_date_index]:.4f}")
 
             print("\n  [维度三: 流动性状态 (Liquidity State - LS)]:")
-            print(f"    - 原料: 流动性潮汐(正): {bullish_ls_components[0].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 资金流纯度与动能(正): {bullish_ls_components[1].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 资金流结构健康度(正): {bullish_ls_components[2].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 成交量萎缩(高品质): {bullish_ls_components[3].iloc[last_date_index]:.4f}")
-            print(f"    - -> 看涨LS融合分: {bullish_ls_fused.iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 流动性潮汐(负): {bearish_ls_components[0].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 资金流纯度与动能(负): {bearish_ls_components[1].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 资金流结构健康度(负): {bearish_ls_components[2].iloc[last_date_index]:.4f}")
-            print(f"    - 原料: 滞涨风险: {bearish_ls_components[3].iloc[last_date_index]:.4f}")
-            print(f"    - -> 看跌LS融合分: {bearish_ls_fused.iloc[last_date_index]:.4f}")
+            print("    [看涨LS原料]:")
+            bullish_ls_raw_sum = pd.Series(0.0, index=df_index)
+            for name, (comp, weight) in zip(['流动性潮汐(正)', '资金流纯度与动能(正)', '资金流结构健康度(正)', '成交量萎缩(高品质)'], bullish_ls_components_with_weights):
+                print(f"      - {name}: {comp.iloc[last_date_index]:.4f} (权重: {weight:.2f}, 贡献: {comp.iloc[last_date_index] * weight:.4f})")
+                bullish_ls_raw_sum += comp * weight
+            print(f"    - -> 看涨LS加权和: {bullish_ls_raw_sum.iloc[last_date_index]:.4f}")
+            print(f"    - -> 看涨LS融合分 (激活后): {bullish_ls_fused.iloc[last_date_index]:.4f}")
+
+            print("    [看跌LS原料]:")
+            bearish_ls_raw_sum = pd.Series(0.0, index=df_index)
+            for name, (comp, weight) in zip(['流动性潮汐(负)', '资金流纯度与动能(负)', '资金流结构健康度(负)', '滞涨风险'], bearish_ls_components_with_weights):
+                print(f"      - {name}: {comp.iloc[last_date_index]:.4f} (权重: {weight:.2f}, 贡献: {comp.iloc[last_date_index] * weight:.4f})")
+                bearish_ls_raw_sum += comp * weight
+            print(f"    - -> 看跌LS加权和: {bearish_ls_raw_sum.iloc[last_date_index]:.4f}")
+            print(f"    - -> 看跌LS融合分 (激活后): {bearish_ls_fused.iloc[last_date_index]:.4f}")
             print(f"    - -> LS双极性分数: {ls_score.iloc[last_date_index]:.4f}")
 
             print("\n  [最终裁决 (Final Judgment)]:")
