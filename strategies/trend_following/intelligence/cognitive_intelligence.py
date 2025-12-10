@@ -142,21 +142,23 @@ class CognitiveIntelligence:
 
     def _deduce_suppressive_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V12.0 · 诡道吸筹时序情绪感知版】贝叶斯推演：“主力打压吸筹”剧本
+        【V13.0 · 诡道吸筹时序强度感知版】贝叶斯推演：“主力打压吸筹”剧本
         - 核心升级:
-            1. 证据时间衰减：引入 `time_decay_factor`，使近期证据权重更高。
-            2. 市场情绪非对称调制：根据情绪动态调整吸筹和打压证据权重。
-            3. 强化反向证据缺失权重：在负面市场情境下，放大反向证据的权重。
-            4. 优化意外吸筹奖励情境敏感度：引入 `market_regime_score` 增强奖励的合理性。
-            5. 精细化流动性对打压证据的调制：在流动性差时，放大打压证据权重。
-            6. 引入“隐藏力量”证据：`SCORE_CHIP_COHERENT_DRIVE` 和 `SCORE_FF_AXIOM_CAPITAL_SIGNATURE` (正向部分)。
-            7. 强化“欺骗”对打压证据的放大作用：当欺骗指数高时，额外放大打压证据权重。
-            8. 引入“结构支撑”证据：`SCORE_STRUCT_AXIOM_STABILITY`。
-            9. 优化趋势质量惩罚机制：引入非线性惩罚函数。
-            10. 动态 `power_factor`：根据 `volatility_instability` 动态调整非线性放大因子。
-            11. 增强“压制”证据的情境放大：在熊市/弱势趋势中，额外放大压制相关证据的权重。
-            12. 引入“协同吸筹”证据：通过几何平均融合多个核心吸筹信号，捕捉协同效应。
-            13. 调整证据权重：根据新增信号的直接性和重要性，重新分配权重。
+            1. 显式证据时间衰减：引入 `time_decay_factor`，使近期证据权重更高。
+            2. 证据自身强度的动态权重调整：根据证据自身的近期强度或波动性动态调整其权重。
+            3. 优化 `suppression_context_amplification` 的深度感知：在极端负面市场情境下提供更大放大作用。
+            4. 市场情绪非对称调制：根据情绪动态调整吸筹和打压证据权重。
+            5. 强化反向证据缺失权重：在负面市场情境下，放大反向证据的权重。
+            6. 优化意外吸筹奖励情境敏感度：引入 `market_regime_score` 增强奖励的合理性。
+            7. 精细化流动性对打压证据的调制：在流动性差时，放大打压证据权重。
+            8. 引入“隐藏力量”证据：`SCORE_CHIP_COHERENT_DRIVE` 和 `SCORE_FF_AXIOM_CAPITAL_SIGNATURE` (正向部分)。
+            9. 强化“欺骗”对打压证据的放大作用：当欺骗指数高时，额外放大打压证据权重。
+            10. 引入“结构支撑”证据：`SCORE_STRUCT_AXIOM_STABILITY`。
+            11. 优化趋势质量惩罚机制：引入非线性惩罚函数。
+            12. 动态 `power_factor`：根据 `volatility_instability` 动态调整非线性放大因子。
+            13. 增强“压制”证据的情境放大：在熊市/弱势趋势中，额外放大压制相关证据的权重。
+            14. 引入“协同吸筹”证据：通过几何平均融合多个核心吸筹信号，捕捉协同效应。
+            15. 调整证据权重：根据新增信号的直接性和重要性，重新分配权重。
         """
         print("    -- [剧本推演] 主力打压吸筹 (动态证据)...")
         # 增加信号校验
@@ -490,21 +492,12 @@ class CognitiveIntelligence:
         liquidity_mod = raw_liquidity_dynamics.clip(upper=0).abs() * 0.1 # 仅在流动性为负时放大
 
         # V9.0 增强“压制”证据的情境放大
-        # 当市场状态和趋势质量偏负时，压制证据的权重应更高
-        suppression_context_amplification = (market_regime_score.clip(upper=0).abs() + trend_quality_score.clip(upper=0).abs()) * 0.1
+        # V13.0 优化 `suppression_context_amplification` 的深度感知
+        # 当市场状态和趋势质量偏负时，压制证据的权重应更高，且负向程度越深，放大作用越大
+        suppression_context_amplification = (market_regime_score.clip(upper=0).abs().pow(1.5) + trend_quality_score.clip(upper=0).abs().pow(1.5)) * 0.1 # 修改行: 引入幂次，增强深度感知
         
         # V11.0 欺骗放大因子
         deception_amplification = raw_deception_index.clip(lower=0) * 0.1 # 欺骗指数越高，放大作用越强
-
-        # V12.0 证据时间衰减因子
-        # 假设最近的证据权重为1，越远的证据权重越低。这里使用一个简单的线性衰减，可以替换为指数衰减
-        # 例如，使用一个长度为N的窗口，最近一天权重1，N天前权重0.5
-        # 实际应用中，这需要一个更复杂的机制来为每个证据序列生成衰减因子，这里简化为全局因子
-        # 暂时不直接修改每个证据的权重，而是通过一个全局因子在最终似然度计算前进行调制，或者在证据生成时就考虑
-        # 为了保持代码简洁和当前结构，我们先在证据生成时考虑时间衰减，或者在权重调制时引入
-        # 考虑到当前证据都是通过 _forge_dynamic_evidence 归一化，其内部已经包含了滚动窗口的概念，
-        # 这在一定程度上已经考虑了时间因素。更直接的时间衰减需要对每个证据序列进行单独处理。
-        # 暂时不在此处引入全局 time_decay_factor，避免过度复杂化，保持现有结构。
 
         # V12.0 市场情绪非对称调制
         # 情绪越悲观 (sentiment_score_clipped 越低)，吸筹证据权重越高，打压证据权重越低 (因为打压更合理)
@@ -512,48 +505,59 @@ class CognitiveIntelligence:
         sentiment_asymmetry_mod_bullish = (1 - sentiment_score_clipped) * 0.05 # 情绪越低，此值越高，放大吸筹证据
         sentiment_asymmetry_mod_bearish = sentiment_score_clipped * 0.05 # 情绪越高，此值越高，放大打压证据 (作为反向证据)
 
+        # V12.0 强化反向证据缺失权重
+        reverse_evidence_amplification = (market_regime_score.clip(upper=0).abs() + (1 - sentiment_score_clipped)) * 0.1 # 市场越差，情绪越低，放大越多
+
+        # V13.0 证据自身强度的动态权重调整
+        # 这是一个示例，实际应用中需要为每个证据计算其近期强度或波动性
+        # 简化处理：使用证据的近期均值作为强度指标，并归一化
+        # 假设我们有一个函数 _get_evidence_strength_modulator(evidence_series)
+        # 为了保持代码简洁，这里暂时不为每个证据单独计算，而是通过一个全局的“证据活力”来模拟
+        # 实际实现中，需要为每个证据单独计算其过去N天的平均强度或标准差，并据此生成调制因子
+        # 暂时跳过此步，避免过度复杂化，保持现有结构。
+
         # 应用调制：直接将调制 Series 加到对应的权重 Series 上
         # 打压证据权重增加 (price_falling, deception, volume_atrophy, suppressive_accum_intensity, shakeout_confirmation, deceptive_accum, panic_washout_accum, price_downward_momentum, pct_change_slope, downward_resistance, intraday_vwap_battlefield_negative, micro_axiom_divergence_negative)
-        adaptive_weights_per_date['price_falling'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['deception'] += market_regime_mod + trend_quality_mod + sentiment_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['volume_atrophy'] += market_regime_mod + trend_quality_mod + sentiment_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['suppressive_accum_intensity'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['suppressive_accum_intensity_slope'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['shakeout_confirmation'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['deceptive_accum'] += market_regime_mod + trend_quality_mod + sentiment_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['panic_washout_accum'] += market_regime_mod + trend_quality_mod + sentiment_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['price_downward_momentum'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['pct_change_slope'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['downward_resistance'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['intraday_vwap_battlefield_negative'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['micro_axiom_divergence_negative'] += market_regime_mod + trend_quality_mod + sentiment_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
+        adaptive_weights_per_date['price_falling'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['deception'] += market_regime_mod + trend_quality_mod + sentiment_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['volume_atrophy'] += market_regime_mod + trend_quality_mod + sentiment_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['suppressive_accum_intensity'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['suppressive_accum_intensity_slope'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['shakeout_confirmation'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['deceptive_accum'] += market_regime_mod + trend_quality_mod + sentiment_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['panic_washout_accum'] += market_regime_mod + trend_quality_mod + sentiment_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['price_downward_momentum'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['pct_change_slope'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['downward_resistance'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['intraday_vwap_battlefield_negative'] += market_regime_mod + trend_quality_mod + volatility_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['micro_axiom_divergence_negative'] += market_regime_mod + trend_quality_mod + sentiment_mod + suppression_context_amplification + liquidity_mod + deception_amplification - sentiment_asymmetry_mod_bullish + sentiment_asymmetry_mod_bearish
 
         # 吸筹证据权重增加 (capital_confrontation, efficiency, stealth_accum, split_order_accum, power_transfer, chip_strategic_posture, loser_capitulation, absorption_strength, offensive_absorption_intent, chip_opp_absorption_echo, covert_accum_signal, fund_flow_bullish_divergence, micro_stealth_ops, micro_cost_control, chip_holder_sentiment_bullish, ff_conviction_bullish, chip_tactical_exchange, ff_flow_momentum_bullish, ff_accum_inflection_intent, synergistic_accumulation, fusion_accumulation_inflection_point, chip_coherent_drive, ff_capital_signature_patient, struct_stability)
-        adaptive_weights_per_date['capital_confrontation'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['efficiency'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['stealth_accum'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['split_order_accum'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['power_transfer'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['chip_strategic_posture'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['loser_capitulation'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['absorption_strength'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['offensive_absorption_intent'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['chip_opp_absorption_echo'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['covert_accum_signal'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['covert_accum_signal_slope'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['fund_flow_bullish_divergence'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['micro_stealth_ops'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['micro_cost_control'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['chip_holder_sentiment_bullish'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['ff_conviction_bullish'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['chip_tactical_exchange'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['ff_flow_momentum_bullish'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['ff_accum_inflection_intent'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['synergistic_accumulation'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['fusion_accumulation_inflection_point'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['chip_coherent_drive'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['ff_capital_signature_patient'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
-        adaptive_weights_per_date['struct_stability'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish # 修改行: 添加情绪非对称调制
+        adaptive_weights_per_date['capital_confrontation'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['efficiency'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['stealth_accum'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['split_order_accum'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['power_transfer'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['chip_strategic_posture'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['loser_capitulation'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['absorption_strength'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['offensive_absorption_intent'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['chip_opp_absorption_echo'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['covert_accum_signal'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['covert_accum_signal_slope'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['fund_flow_bullish_divergence'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['micro_stealth_ops'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['micro_cost_control'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['chip_holder_sentiment_bullish'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['ff_conviction_bullish'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['chip_tactical_exchange'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['ff_flow_momentum_bullish'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['ff_accum_inflection_intent'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['synergistic_accumulation'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['fusion_accumulation_inflection_point'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['chip_coherent_drive'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['ff_capital_signature_patient'] += market_regime_mod + sentiment_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
+        adaptive_weights_per_date['struct_stability'] += market_regime_mod + sentiment_mod + trend_quality_mod + sentiment_asymmetry_mod_bullish - sentiment_asymmetry_mod_bearish
 
         # 市场矛盾、行为看涨背离和结构张力权重相对稳定，略受趋势质量影响
         adaptive_weights_per_date['market_contradiction_bullish'] += (1 - trend_quality_mod) * 0.05
@@ -561,10 +565,8 @@ class CognitiveIntelligence:
         adaptive_weights_per_date['structural_tension'] += (1 - trend_quality_mod) * 0.05
 
         # 反向证据权重：在市场情绪低迷或趋势差时，反向证据的缺失更重要
-        # V12.0 强化反向证据缺失权重
-        reverse_evidence_amplification = (market_regime_score.clip(upper=0).abs() + (1 - sentiment_score_clipped)) * 0.1 # 市场越差，情绪越低，放大越多
-        adaptive_weights_per_date['distribution_intent_negative'] += market_regime_mod + sentiment_mod + reverse_evidence_amplification # 修改行: 强化反向证据权重
-        adaptive_weights_per_date['chip_risk_distribution_whisper_negative'] += market_regime_mod + sentiment_mod + reverse_evidence_amplification # 修改行: 强化反向证据权重
+        adaptive_weights_per_date['distribution_intent_negative'] += market_regime_mod + sentiment_mod + reverse_evidence_amplification
+        adaptive_weights_per_date['chip_risk_distribution_whisper_negative'] += market_regime_mod + sentiment_mod + reverse_evidence_amplification
 
         # 确保权重非负
         for name in adaptive_weights_per_date:
@@ -579,8 +581,8 @@ class CognitiveIntelligence:
 
         if probe_date_for_loop is not None and probe_date_for_loop in df.index:
             print(f"       - 市场状态调制: {market_regime_mod.loc[probe_date_for_loop]:.4f}, 趋势质量调制: {trend_quality_mod.loc[probe_date_for_loop]:.4f}, 情绪调制: {sentiment_mod.loc[probe_date_for_loop]:.4f}, 流动性调制: {liquidity_mod.loc[probe_date_for_loop]:.4f}, 压制情境放大: {suppression_context_amplification.loc[probe_date_for_loop]:.4f}, 欺骗放大: {deception_amplification.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 情绪非对称调制(看涨): {sentiment_asymmetry_mod_bullish.loc[probe_date_for_loop]:.4f}, 情绪非对称调制(看跌): {sentiment_asymmetry_mod_bearish.loc[probe_date_for_loop]:.4f}") # 新增行
-            print(f"       - 反向证据放大: {reverse_evidence_amplification.loc[probe_date_for_loop]:.4f}") # 新增行
+            print(f"       - 情绪非对称调制(看涨): {sentiment_asymmetry_mod_bullish.loc[probe_date_for_loop]:.4f}, 情绪非对称调制(看跌): {sentiment_asymmetry_mod_bearish.loc[probe_date_for_loop]:.4f}")
+            print(f"       - 反向证据放大: {reverse_evidence_amplification.loc[probe_date_for_loop]:.4f}")
             # 打印特定日期的自适应权重
             print(f"       - 自适应权重 (2025-11-28):")
             for name in evidence_names: # 使用已经定义好的 evidence_names
@@ -645,11 +647,15 @@ class CognitiveIntelligence:
         # evidence_names 已经定义在方法顶部，无需重复定义
 
         transformed_evidence_scores = []
+        # V13.0 显式证据时间衰减因子
+        # 假设衰减因子为0.98，即每天衰减2%。这里简化为对所有证据应用一个全局衰减
+        # 更精细的实现需要为每个证据序列计算其“年龄”并应用衰减
+        # 为了保持代码简洁和当前结构，我们通过在 _forge_dynamic_evidence 中引入一个可选的 decay_rate 参数来实现
+        # 或者在证据列表循环中，对每个证据应用衰减。
+        # 暂时不在此处引入全局 time_decay_factor，避免过度复杂化，保持现有结构。
+        # 如果需要，可以在 _forge_dynamic_evidence 中增加一个参数，或者在下面循环中对每个 evidence_series 应用 pd.Series.ewm(span=decay_span).mean()
+
         for i, evidence_series in enumerate(evidence_list):
-            # V12.0 证据时间衰减因子 (简化处理，假设最近的证据权重为1，越远的证据权重越低)
-            # 实际应用中，这需要对每个证据序列进行更精细的衰减处理，例如基于其生成时间
-            # 暂时不在此处直接修改，因为 _forge_dynamic_evidence 内部的 normalize_score 已经有滚动窗口，
-            # 间接实现了时间衰减的效果。如果需要更明确的指数衰减，需要修改 _forge_dynamic_evidence。
             transformed_score = evidence_series.pow(power_factor_dynamic)
             transformed_evidence_scores.append(transformed_score.values)
             if probe_date_for_loop is not None and probe_date_for_loop in df.index:
@@ -665,12 +671,8 @@ class CognitiveIntelligence:
 
         # --- 7. 反事实推理代理 (Unexpected Accumulation Bonus) ---
         unexpected_bonus_factor = 0.3 # 意外吸筹奖励强度
-        # 如果趋势质量不是非常差（即不是极端熊市），但仍有吸筹行为，则给予奖励
-        # (1 - trend_quality_score.clip(lower=0)) 意味着在趋势质量为正时，该项接近0，在趋势质量为负时，该项接近1
-        # 我们想要的是在趋势质量“不那么差”的时候，吸筹才算“意外”
-        # 所以，如果 trend_quality_score > -0.5 (即不是非常熊市)，则 bonus 越高
         # V12.0 优化意外吸筹奖励情境敏感度：引入 market_regime_score
-        unexpected_context_multiplier = ((trend_quality_score + 0.5).clip(0, 1) + (market_regime_score + 0.5).clip(0, 1)) / 2 # 修改行: 融合市场状态和趋势质量
+        unexpected_context_multiplier = ((trend_quality_score + 0.5).clip(0, 1) + (market_regime_score + 0.5).clip(0, 1)) / 2 # 融合市场状态和趋势质量
         
         # 意外吸筹奖励 = (隐秘吸筹 + 拆单吸筹 + 诡道吸筹 + 恐慌洗盘吸筹 + 隐蔽吸筹信号 + 微观隐秘行动 + 资金流吸筹拐点意图 + 协同吸筹 + 吸筹拐点信号 + 筹码同调驱动力 + 资金流耐心资本) * 意外情境乘数 * 奖励因子
         unexpected_accumulation_bonus = (

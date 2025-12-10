@@ -30,16 +30,32 @@ class FusionIntelligence:
 
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
         """
-        【V1.4 · 上下文修复版】安全地从原子状态库或主数据帧中获取分数。
-        - 【V1.4 修复】接收 df 参数，并使用其索引创建默认 Series，确保上下文一致。
+        【V1.5 · 边界约束版】安全地从原子状态库或主数据帧中获取分数，并进行边界约束。
+        - 【V1.5 新增】根据 signal_dictionary 中的 scoring_mode 对信号进行 clip 边界约束，确保数值在预期范围内。
         """
+        score_series = pd.Series(default, index=df.index) # 默认值Series
+        
         if name in self.strategy.atomic_states:
-            return self.strategy.atomic_states[name]
+            score_series = self.strategy.atomic_states[name]
         elif name in self.strategy.df_indicators.columns:
-            return self.strategy.df_indicators[name]
+            score_series = self.strategy.df_indicators[name]
         else:
             print(f"    -> [融合层-原子信号警告] 预期原子信号 '{name}' 在 atomic_states 和 df_indicators 中均不存在，使用默认值 {default}。")
-            return pd.Series(default, index=df.index)
+            return score_series # 如果找不到，直接返回默认Series，无需裁剪
+
+        # 获取信号的 scoring_mode，用于边界约束
+        # 假设 self.strategy.signal_dictionary 是一个字典，包含所有信号的元数据
+        signal_meta = self.strategy.signal_dictionary.get('score_type_map', {}).get(name, {})
+        scoring_mode = signal_meta.get('scoring_mode')
+
+        # 根据 scoring_mode 进行边界约束
+        if scoring_mode == 'unipolar': # 预期范围 [0, 1]
+            score_series = score_series.clip(0, 1)
+        elif scoring_mode == 'bipolar': # 预期范围 [-1, 1]
+            score_series = score_series.clip(-1, 1)
+        # 对于其他 scoring_mode 或未定义的，不进行裁剪，保持原始值
+
+        return score_series
 
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
