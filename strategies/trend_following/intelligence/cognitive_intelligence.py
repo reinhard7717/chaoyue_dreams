@@ -882,13 +882,14 @@ class CognitiveIntelligence:
 
     def _deduce_chasing_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V4.8 · 惩罚系数可配置版】贝叶斯推演：“主力拉升抢筹”剧本
+        【V4.9 · 最小证据阈值可配置版】贝叶斯推演：“主力拉升抢筹”剧本
         - 核心升级:
-            1. 惩罚系数可配置: 将负面证据的惩罚系数作为可配置参数，提高模型灵活性。
-            2. 多维度负面证据惩罚: 扩展负面证据惩罚机制，将微观订单流意图、力学动量和筹码趋势动量的负向部分也作为惩罚因子，更全面地降低剧本概率。
-            3. 证据处理流程优化: 确保 `_forge_dynamic_evidence` 在归一化后再次应用 `min_evidence_threshold`，提高鲁棒性。
-            4. 原始证据值探针: 增加每个证据在 `_forge_dynamic_evidence` 处理前的原始值输出，以便于诊断证据为零的根本原因。
-            5. 情绪信号归一化: 对 `market_sentiment_score_D` 进行显式归一化，确保其在 `[0, 1]` 范围内参与调制。
+            1. 最小证据阈值可配置: `min_evidence_threshold` 从硬编码改为从策略参数中获取，提高可配置性。
+            2. 惩罚系数可配置: 将负面证据的惩罚系数作为可配置参数，提高模型灵活性。
+            3. 多维度负面证据惩罚: 扩展负面证据惩罚机制，将微观订单流意图、力学动量和筹码趋势动量的负向部分也作为惩罚因子，更全面地降低剧本概率。
+            4. 证据处理流程优化: 确保 `_forge_dynamic_evidence` 在归一化后再次应用 `min_evidence_threshold`，提高鲁棒性。
+            5. 原始证据值探针: 增加每个证据在 `_forge_dynamic_evidence` 处理前的原始值输出，以便于诊断证据为零的根本原因。
+            6. 情绪信号归一化: 对 `market_sentiment_score_D` 进行显式归一化，确保其在 `[0, 1]` 范围内参与调制。
         """
         print("    -- [剧本推演] 主力拉升抢筹 (动态证据)...")
         df_index = df.index
@@ -1148,7 +1149,10 @@ class CognitiveIntelligence:
             transformed_evidence_scores.append(transformed_score.values)
         
         stacked_transformed_scores = np.stack(transformed_evidence_scores, axis=0)
-        safe_scores = np.maximum(stacked_transformed_scores, self.min_evidence_threshold) # 避免对数运算错误
+        # 修改开始：从策略参数中获取 min_evidence_threshold
+        min_evidence_threshold_val = get_params_block(self.strategy, 'min_evidence_threshold', 1e-9)
+        safe_scores = np.maximum(stacked_transformed_scores, min_evidence_threshold_val) # 避免对数运算错误
+        # 修改结束
 
         # --- 6. 计算似然度 (Likelihood) ---
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * weights_df.values.T, axis=0))
@@ -1156,7 +1160,6 @@ class CognitiveIntelligence:
 
         # --- 7. 风险惩罚与流动性奖励 (直接作用于似然度) ---
         # 获取惩罚系数 (可配置)
-        # 修改开始：引入可配置的惩罚系数
         penalty_coefficients = get_params_block(self.strategy, 'chasing_accumulation_penalty_coefficients', {
             'distribution_intent': 0.2,
             'deception_index': 0.15,
@@ -1166,7 +1169,6 @@ class CognitiveIntelligence:
             'chip_trend_momentum_bearish': 0.5,
             'liquidity_reward': 0.1
         })
-        # 修改结束
 
         # 派发意图和正向欺骗越高，惩罚越大
         likelihood = likelihood * (1 - raw_distribution_intent * penalty_coefficients['distribution_intent']) * (1 - raw_deception_index.clip(lower=0) * penalty_coefficients['deception_index'])
@@ -1207,6 +1209,9 @@ class CognitiveIntelligence:
             print(f"         - raw_distribution_intent: {raw_distribution_intent.loc[probe_date_for_loop]:.4f}")
             print(f"         - raw_deception_index: {raw_deception_index.loc[probe_date_for_loop]:.4f}")
             print(f"       - 动态幂次因子 (power_factor_dynamic): {power_factor_dynamic.loc[probe_date_for_loop]:.4f}")
+            # 修改开始：输出 min_evidence_threshold
+            print(f"       - 最小证据阈值 (min_evidence_threshold): {min_evidence_threshold_val:.9f}")
+            # 修改结束
             print(f"       - 原始证据值 (raw_evidence_values_for_probe):")
             for name in evidence_names:
                 raw_val = raw_evidence_values_for_probe.get(name, pd.Series(np.nan, index=df_index)).loc[probe_date_for_loop]
@@ -1225,11 +1230,9 @@ class CognitiveIntelligence:
             for name in evidence_names:
                 print(f"         - {name}: {weights_df.loc[probe_date_for_loop, name]:.4f}")
             print(f"       - 似然度 (likelihood) 惩罚前: {pd.Series(likelihood_values, index=df_index).loc[probe_date_for_loop]:.4f}") # 输出惩罚前的似然度
-            # 修改开始：输出可配置的惩罚系数
             print(f"       - 惩罚系数:")
             for key, value in penalty_coefficients.items():
                 print(f"         - {key}: {value:.4f}")
-            # 修改结束
             print(f"       - 筹码同调驱动力惩罚因子: {chip_coherent_drive_penalty_factor.loc[probe_date_for_loop]:.4f}")
             print(f"       - 微观订单流意图惩罚因子: {microstructure_penalty_factor.loc[probe_date_for_loop]:.4f}")
             print(f"       - 力学动量惩罚因子: {dyn_momentum_penalty_factor.loc[probe_date_for_loop]:.4f}")
@@ -1428,8 +1431,8 @@ class CognitiveIntelligence:
 
     def _forge_dynamic_evidence(self, df: pd.DataFrame, evidence: pd.Series, is_probability: bool = False, apply_normalization: bool = True) -> pd.Series:
         """
-        【V2.4 · 鲁棒性增强版】动态证据锻造
-        - 核心升级: 确保 `normalize_score` 后的结果也经过 `min_evidence_threshold` 的处理，提高鲁棒性。
+        【V2.5 · 最小证据阈值可配置版】动态证据锻造
+        - 核心升级: `min_evidence_threshold` 从硬编码改为从策略参数中获取，提高可配置性。
         """
         if not isinstance(evidence, pd.Series):
             evidence = pd.Series(evidence, index=df.index)
@@ -1446,7 +1449,10 @@ class CognitiveIntelligence:
         
         # 避免对数运算错误，将接近0的值替换为最小证据阈值。
         # 这一步放在归一化之后，确保所有最终用于几何平均的证据都满足此条件。
-        evidence = evidence.mask(evidence < self.min_evidence_threshold, self.min_evidence_threshold)
+        # 修改开始：从策略参数中获取 min_evidence_threshold
+        min_evidence_threshold_val = get_params_block(self.strategy, 'min_evidence_threshold', 1e-9)
+        evidence = evidence.mask(evidence < min_evidence_threshold_val, min_evidence_threshold_val)
+        # 修改结束
         
         return evidence
 
