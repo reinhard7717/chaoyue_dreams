@@ -93,26 +93,28 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V28.0 · 指挥链重构版】总指挥
-        - 核心重构: 彻底重构了剧本推演的执行顺序，将其改造为有序的、分批次的“依赖推演”流程。
-                      确保了有依赖关系的剧本总是在其依赖项计算完成之后才被执行，从根本上
-                      解决了因“指挥失序”导致的“循环依赖”崩溃问题。
+        【V28.1 · 指挥链重构版 - 依赖修复】总指挥
+        - 核心修复: 调整了剧本推演的执行顺序，将依赖基础风险剧本的机会剧本（如龙头苏醒）
+                      移动到基础风险剧本计算完成之后，解决了因依赖顺序错误导致的信号缺失问题。
         """
-        print("启动【V28.0 · 指挥链重构版】认知情报分析...")
+        print("启动【V28.1 · 指挥链重构版 - 依赖修复】认知情报分析...")
         playbook_states = {}
         priors = self._establish_prior_beliefs(df)
         self.strategy.atomic_states.update(priors)
         # --- 重构为分批次的依赖推演流程 ---
-        # 第1批：机会剧本 (通常无内部依赖)
-        print("    -> [认知层] 开始推演 第1批 (机会) 剧本...")
+        # 第1批：独立机会剧本 (无内部依赖，或仅依赖prior)
+        print("    -> [认知层] 开始推演 第1批 (独立机会) 剧本...")
         playbook_states.update(self._deduce_suppressive_accumulation(df, priors))
         playbook_states.update(self._deduce_chasing_accumulation(df, priors))
         playbook_states.update(self._deduce_capitulation_reversal(df, priors))
-        playbook_states.update(self._deduce_leading_dragon_awakening(df, priors))
+        # playbook_states.update(self._deduce_leading_dragon_awakening(df, priors)) # 原始行，已移动
         playbook_states.update(self._deduce_sector_rotation_vanguard(df, priors))
         playbook_states.update(self._deduce_energy_compression_breakout(df, priors))
         playbook_states.update(self._deduce_stealth_bottoming_divergence(df, priors))
         playbook_states.update(self._deduce_micro_absorption_divergence(df, priors))
+        # 在调用依赖剧本之前，将当前已生成的剧本更新到 self.strategy.playbook_states 以供 _get_playbook_score 使用
+        self.strategy.playbook_states.update(playbook_states) # 修改行：更新 playbook_states
+
         # 第2批：无内部依赖的基础风险剧本
         print("    -> [认知层] 开始推演 第2批 (基础风险) 剧本...")
         playbook_states.update(self._deduce_distribution_at_high(df, priors))
@@ -122,22 +124,29 @@ class CognitiveIntelligence:
         playbook_states.update(self._deduce_liquidity_trap_risk(df, priors))
         playbook_states.update(self._deduce_t0_arbitrage_pressure_risk(df, priors))
         playbook_states.update(self._deduce_key_support_break_risk(df, priors))
-        # 在调用依赖剧本之前，将当前已生成的剧本更新到 self.strategy.playbook_states 以供 _get_playbook_score 使用
-        self.strategy.playbook_states.update(playbook_states)
-        # 第3批：依赖第2批剧本的高级风险剧本
-        print("    -> [认知层] 开始推演 第3批 (高级风险) 剧本...")
+        # 再次更新，确保基础风险剧本已可用
+        self.strategy.playbook_states.update(playbook_states) # 修改行：更新 playbook_states
+
+        # 第3批：依赖基础风险剧本的机会剧本
+        print("    -> [认知层] 开始推演 第3批 (依赖基础风险的机会) 剧本...") # 新增行
+        playbook_states.update(self._deduce_leading_dragon_awakening(df, priors)) # 移动行
+        self.strategy.playbook_states.update(playbook_states) # 修改行：更新 playbook_states
+
+        # 第4批：依赖第2批剧本的高级风险剧本 (原第3批)
+        print("    -> [认知层] 开始推演 第4批 (高级风险) 剧本...") # 修改行
         playbook_states.update(self._deduce_trend_exhaustion_risk(df, priors))
-        self.strategy.playbook_states.update(playbook_states) # 每次更新，确保依赖链条完整
+        self.strategy.playbook_states.update(playbook_states)
         playbook_states.update(self._deduce_harvest_confirmation_risk(df, priors))
         self.strategy.playbook_states.update(playbook_states)
         playbook_states.update(self._deduce_bull_trap_distribution_risk(df, priors))
         self.strategy.playbook_states.update(playbook_states)
         playbook_states.update(self._deduce_high_level_structural_collapse_risk(df, priors))
         self.strategy.playbook_states.update(playbook_states)
-        # 第4批：依赖第3批剧本的机会剧本 (如果有)
-        print("    -> [认知层] 开始推演 第4批 (依赖型机会) 剧本...")
+
+        # 第5批：依赖第4批剧本的机会剧本 (原第4批)
+        print("    -> [认知层] 开始推演 第5批 (依赖高级风险的机会) 剧本...") # 修改行
         playbook_states.update(self._deduce_divergence_reversal(df, priors))
-        print("【V28.0 · 指挥链重构版】所有剧本推演完成。")
+        print("【V28.1 · 指挥链重构版 - 依赖修复】所有剧本推演完成。") # 修改行
         return playbook_states
 
     def _deduce_suppressive_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
