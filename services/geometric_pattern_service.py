@@ -220,12 +220,16 @@ class GeometricPatternService:
         【V2.53 · 智能归一化版】应用升级后的斜率计算函数，为RSSlope关闭冗余归一化。
         - V2.53 核心升级: 在计算 RSSlope 时，调用斜率计算函数并传入 `normalize=False`，
                          确保参照系校准后的序列不再被错误地二次归一化。
+        - V2.55 核心修复: 增加对所有可能产生 NaN/Infinity 的数值字段进行检查和转换，
+                         确保在保存到 MySQL 数据库前，所有数值都是有效的浮点数或 None。
         """
         import math
         # 移除了所有探针print语句
         if len(enriched_df) < 120:
+            print(f"[{self.stock_code}] [平台计算] enriched_df 数据不足 {len(enriched_df)} 天，跳过平台计算。")
             return
         if not self.platform_archetypes:
+            print(f"[{self.stock_code}] [平台计算] 未配置平台原型，跳过平台计算。")
             return
         df_copy = enriched_df.copy()
         df_copy.ta.atr(length=14, append=True)
@@ -242,6 +246,7 @@ class GeometricPatternService:
                 df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce')
         required_cols = ['high_qfq', 'low_qfq', 'close_qfq']
         if not all(col in df_copy.columns for col in required_cols):
+            print(f"[{self.stock_code}] [平台计算] 缺少必要的日线数据列，跳过平台计算。")
             return
         df_copy.ta.adx(high='high_qfq', low='low_qfq', close='close_qfq', length=14, append=True)
         bbu_col, bbl_col, bbm_col, bbw_col = 'BBU_21_2.0', 'BBL_21_2.0', 'BBM_21_2.0', 'BBW_21_2.0'
@@ -251,6 +256,7 @@ class GeometricPatternService:
         if all(col in df_copy.columns for col in [bbu_col, bbl_col, bbm_col]):
             df_copy[bbw_col] = (df_copy[bbu_col] - df_copy[bbl_col]) / df_copy[bbm_col]
         else:
+            print(f"[{self.stock_code}] [平台计算] 无法计算布林带宽度，跳过平台计算。")
             return
         df_copy = self._calculate_breakout_readiness(df_copy)
         combined_is_potential = pd.Series(False, index=df_copy.index)
@@ -292,7 +298,10 @@ class GeometricPatternService:
             if platform_low == 0: continue
             price_range_pct = (platform_high - platform_low) / platform_low
             # V2.53 在计算rss时，关闭内部归一化
-            rebased_rs = group['rs'] / group['rs'].iloc[0] if 'rs' in group and not group.empty and group['rs'].iloc[0] != 0 else pd.Series()
+            rebased_rs = pd.Series()
+            if 'rs' in group and not group.empty and group['rs'].iloc[0] != 0:
+                rebased_rs = group['rs'] / group['rs'].iloc[0]
+
             metrics = {
                 'vps': self._calculate_volume_profile_skewness(group),
                 'vts': self._calculate_linear_regression_slope(group['vol']), # 保持默认归一化
@@ -311,59 +320,109 @@ class GeometricPatternService:
                     if fit_score > best_fit_score:
                         best_fit_score = fit_score
                         best_archetype = archetype
-            if best_archetype:
-                archetype_name = best_archetype.get('name', 'UNKNOWN')
-                conviction_score = self._calculate_platform_conviction_score(group)
-                character, score_val = self._assess_platform_character(group)
-                platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
-                precise_vpoc = None
-                if platform_minutes_dfs:
-                    platform_minutes_df = pd.concat(platform_minutes_dfs)
-                    if not platform_minutes_df.empty and 'volume' in platform_minutes_df.columns and platform_minutes_df['volume'].sum() > 0:
-                        precise_vpoc = np.average(platform_minutes_df['close'], weights=platform_minutes_df['volume'])
-                internal_ofi_sum, internal_total_amount = 0, 0
-                for d in group.index:
-                    if d.date() in tick_map:
-                        ofi, amount = self._calculate_daily_ofi_from_ticks(tick_map[d.date()])
-                        internal_ofi_sum += ofi * df_copy.loc[d, 'close_qfq']
-                        internal_total_amount += amount
-                internal_accumulation_intensity = (internal_ofi_sum / internal_total_amount) * 100 if internal_total_amount > 0 else 0.0
-                breakout_quality_score = None
-                next_trade_date = TradeCalendar.get_next_trade_date(end_date.date())
-                if next_trade_date and pd.to_datetime(next_trade_date) in df_copy.index:
-                    breakout_day_close = df_copy.loc[pd.to_datetime(next_trade_date), 'close_qfq']
-                    if breakout_day_close > platform_high:
-                        ofi_score, momentum_score = 0.0, 0.0
-                        if next_trade_date in tick_map:
-                            ofi, _ = self._calculate_daily_ofi_from_ticks(tick_map[next_trade_date])
-                            breakout_vol = df_copy.loc[pd.to_datetime(next_trade_date), 'vol'] * 100
-                            if breakout_vol > 0: ofi_score = np.clip(ofi / breakout_vol, -1, 1)
-                        if next_trade_date in realtime_map:
-                            momentum_score = self._calculate_breakout_momentum_from_realtime(realtime_map[next_trade_date])
-                        breakout_quality_score = (ofi_score * 0.6) + (momentum_score * 0.4)
-                breakout_readiness = group['breakout_readiness_score'].iloc[-1] if 'breakout_readiness_score' in group else None
-                if breakout_readiness is not None and math.isnan(breakout_readiness):
-                    breakout_readiness = None
-                platform_data = {
-                    'stock': self.stock_instance, 'start_date': start_date.date(), 'end_date': end_date.date(),
-                    'duration': len(group), 'high': platform_high, 'low': platform_low,
-                    'vpoc': np.average(group['close_qfq'], weights=group['vol']),
-                    'total_volume': group['vol'].sum() * 100, 'quality_score': (score_val + 100) / 200,
-                    'precise_vpoc': precise_vpoc, 'internal_accumulation_intensity': internal_accumulation_intensity,
-                    'breakout_quality_score': breakout_quality_score,
-                    'breakout_readiness_score': breakout_readiness,
-                    'platform_character': character, 'character_score': score_val,
-                    'platform_archetype': archetype_name,
-                    'goodness_of_fit_score': best_fit_score,
-                    'platform_conviction_score': conviction_score,
-                }
-                platforms_to_save.append(platform_data)
-                saved_start_dates.add(start_date)
+            
+            # 确保 best_fit_score 是有效数值
+            if np.isnan(best_fit_score) or np.isinf(best_fit_score):
+                best_fit_score = None
+
+            character, score_val = self._assess_platform_character(group)
+            # 确保 score_val 是有效数值
+            if np.isnan(score_val) or np.isinf(score_val):
+                score_val = None
+
+            conviction_score = self._calculate_platform_conviction_score(group)
+            # 确保 conviction_score 是有效数值
+            if np.isnan(conviction_score) or np.isinf(conviction_score):
+                conviction_score = None
+
+            # precise_vpoc 计算及 NaN/Inf 处理
+            precise_vpoc = None
+            platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
+            if platform_minutes_dfs:
+                platform_minutes_df = pd.concat(platform_minutes_dfs)
+                if not platform_minutes_df.empty and 'volume' in platform_minutes_df.columns and platform_minutes_df['volume'].sum() > 0:
+                    temp_precise_vpoc = np.average(platform_minutes_df['close'], weights=platform_minutes_df['volume'])
+                    if not np.isnan(temp_precise_vpoc) and not np.isinf(temp_precise_vpoc):
+                        precise_vpoc = temp_precise_vpoc
+
+            # internal_accumulation_intensity 计算及 NaN/Inf 处理
+            internal_ofi_sum, internal_total_amount = 0, 0
+            for d in group.index:
+                if d.date() in tick_map:
+                    ofi, amount = self._calculate_daily_ofi_from_ticks(tick_map[d.date()])
+                    internal_ofi_sum += ofi * df_copy.loc[d, 'close_qfq']
+                    internal_total_amount += amount
+            internal_accumulation_intensity = (internal_ofi_sum / internal_total_amount) * 100 if internal_total_amount > 0 else 0.0
+            if np.isnan(internal_accumulation_intensity) or np.isinf(internal_accumulation_intensity):
+                internal_accumulation_intensity = None
+
+            # breakout_quality_score 计算及 NaN/Inf 处理
+            breakout_quality_score = None
+            next_trade_date = TradeCalendar.get_next_trade_date(end_date.date())
+            if next_trade_date and pd.to_datetime(next_trade_date) in df_copy.index:
+                breakout_day_close = df_copy.loc[pd.to_datetime(next_trade_date), 'close_qfq']
+                if breakout_day_close > platform_high:
+                    ofi_score_val = 0.0
+                    momentum_score_val = 0.0
+                    if next_trade_date in tick_map:
+                        ofi, _ = self._calculate_daily_ofi_from_ticks(tick_map[next_trade_date])
+                        breakout_vol = df_copy.loc[pd.to_datetime(next_trade_date), 'vol'] * 100
+                        if breakout_vol > 0:
+                            ofi_score_val = np.clip(ofi / breakout_vol, -1, 1)
+                    if next_trade_date in realtime_map:
+                        momentum_score_val = self._calculate_breakout_momentum_from_realtime(realtime_map[next_trade_date])
+                    
+                    if np.isnan(ofi_score_val) or np.isinf(ofi_score_val): ofi_score_val = 0.0
+                    if np.isnan(momentum_score_val) or np.isinf(momentum_score_val): momentum_score_val = 0.0
+
+                    temp_breakout_quality_score = (ofi_score_val * 0.6) + (momentum_score_val * 0.4)
+                    if not np.isnan(temp_breakout_quality_score) and not np.isinf(temp_breakout_quality_score):
+                        breakout_quality_score = temp_breakout_quality_score
+
+            # breakout_readiness 已经有处理，但再次确保
+            breakout_readiness = group['breakout_readiness_score'].iloc[-1] if 'breakout_readiness_score' in group else None
+            if breakout_readiness is not None and (math.isnan(breakout_readiness) or math.isinf(breakout_readiness)):
+                breakout_readiness = None
+
+            # vpoc 计算及 NaN/Inf 处理
+            vpoc_val = np.average(group['close_qfq'], weights=group['vol']) if group['vol'].sum() > 0 else None
+            if vpoc_val is not None and (np.isnan(vpoc_val) or np.isinf(vpoc_val)):
+                vpoc_val = None
+
+            platform_data = {
+                'stock': self.stock_instance, 'start_date': start_date.date(), 'end_date': end_date.date(),
+                'duration': len(group), 'high': platform_high, 'low': platform_low,
+                'vpoc': vpoc_val,
+                'total_volume': group['vol'].sum() * 100,
+                'quality_score': (score_val + 100) / 200 if score_val is not None else None,
+                'precise_vpoc': precise_vpoc,
+                'internal_accumulation_intensity': internal_accumulation_intensity,
+                'breakout_quality_score': breakout_quality_score,
+                'breakout_readiness_score': breakout_readiness,
+                'platform_character': character,
+                'character_score': score_val,
+                'platform_archetype': archetype_name if best_archetype else None,
+                'goodness_of_fit_score': best_fit_score,
+                'platform_conviction_score': conviction_score,
+            }
+            platforms_to_save.append(platform_data)
+            saved_start_dates.add(start_date)
         found_count = len(platforms_to_save)
         if found_count > 0:
             for data in platforms_to_save:
+                # 最终兜底：对所有浮点数值进行 NaN/Infinity 检查并转换为 None
+                sanitized_data = {}
+                for k, v in data.items():
+                    if isinstance(v, (float, np.floating)):
+                        if np.isnan(v) or np.isinf(v):
+                            sanitized_data[k] = None
+                        else:
+                            sanitized_data[k] = v
+                    else:
+                        sanitized_data[k] = v
+                print(f"[{self.stock_code}] [平台保存] 准备保存平台数据: {sanitized_data}") # 调试信息
                 self.platform_model.objects.update_or_create(
-                    stock=data['stock'], start_date=data['start_date'], defaults=data
+                    stock=sanitized_data['stock'], start_date=sanitized_data['start_date'], defaults=sanitized_data
                 )
 
     def _calculate_breakout_readiness(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -664,6 +723,7 @@ class GeometricPatternService:
         """
         【V2.19 新增】平台性质评估专家系统。
         对给定的平台区间进行多维情报审问，返回其定性性质和定量评分。
+        - V2.55 核心修复: 在计算最终得分前，将所有可能为 NaN/Infinity 的中间分数转换为 0.0。
         """
         scores = {}
         # 1. 资金证据 (权重: 40%)
@@ -692,15 +752,17 @@ class GeometricPatternService:
         # 日内能量密度 (越低越好)
         energy_mean = platform_df['intraday_energy_density'].mean()
         scores['structure_energy'] = (1 - np.clip(energy_mean / 1.5, 0, 1)) * 10 # 能量密度超过1.5认为博弈激烈
+        # V2.55 核心修复: 确保所有分数都是有效数值
+        sanitized_scores = {k: np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0) for k, v in scores.items()}
         # 计算最终得分
-        final_score = sum(scores.values())
+        final_score = sum(sanitized_scores.values())
         # 根据得分定性
         character = 'CONSOLIDATION'
         if final_score > 40:
             character = 'ACCUMULATION'
         elif final_score < -30:
             character = 'DISTRIBUTION'
-        elif -30 <= final_score < 0 and scores.get('structure_burst', 0) < 5: # 结构混乱，偏向洗盘
+        elif -30 <= final_score < 0 and sanitized_scores.get('structure_burst', 0) < 5: # 结构混乱，偏向洗盘
             character = 'SHAKEOUT'
         return character, round(final_score, 2)
 
@@ -1314,6 +1376,7 @@ class GeometricPatternService:
         - V2.54 核心修复: 在计算相对强度斜率得分前，检查'rs'列是否存在。如果不存在，
                          直接将该项得分置为中立的50分，而不是基于一个虚假的0.0斜率
                          进行计算，从而保证最终信念评分不受数据缺失的污染。
+        - V2.55 核心修复: 在计算最终信念评分前，将所有可能为 NaN/Infinity 的中间分数转换为 0.0。
         """
         # 支柱一: 控盘与洗盘力度 (Price Kurtosis) - 权重 30%
         pk = self._calculate_price_kurtosis(platform_group)
@@ -1341,6 +1404,14 @@ class GeometricPatternService:
         else:
             # 如果'rs'数据不存在，则给予中立分50，避免评分被污染
             score_rss = 50.0
+        
+        # V2.55 核心修复: 确保所有分数组件都是有效数值
+        score_kurtosis = np.nan_to_num(score_kurtosis, nan=0.0, posinf=0.0, neginf=0.0)
+        score_vcr = np.nan_to_num(score_vcr, nan=0.0, posinf=0.0, neginf=0.0)
+        score_vts = np.nan_to_num(score_vts, nan=0.0, posinf=0.0, neginf=0.0)
+        score_internal = np.nan_to_num(score_internal, nan=0.0, posinf=0.0, neginf=0.0)
+        score_rss = np.nan_to_num(score_rss, nan=0.0, posinf=0.0, neginf=0.0)
+
         # 融合总分
         conviction_score = (
             score_kurtosis * 0.30 +

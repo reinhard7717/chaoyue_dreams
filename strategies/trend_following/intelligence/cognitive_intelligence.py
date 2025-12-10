@@ -828,11 +828,9 @@ class CognitiveIntelligence:
             6. 趋势强度放大器：当趋势强劲时，趋势衰竭信号的敏感度被放大，而非简单削弱。
             7. 增强证据集：新增成交量高潮、散户狂热、价格动能衰竭、多维度背离等非认知层证据。
             8. 上涨停板惩罚情境化：上涨停板后的风险惩罚，根据超买和派发意图进行动态调制。
-            9. 详细探针：加入print输出所有原始值、锻造值、关键计算节点和结果，以便于检查和调试。
+            9. 清理探针：移除所有调试信息，恢复生产代码。
         """
-        print("    -- [剧本推演] 趋势衰竭风险 (动态证据)...")
         df_index = df.index
-        # 获取参数
         te_params = get_params_block(self.strategy, 'cognitive_intelligence_params', {}).get('trend_exhaustion_params', {})
         base_weights_dict = te_params.get('base_weights', {
             'price_momentum_divergence': 0.07,
@@ -878,9 +876,8 @@ class CognitiveIntelligence:
         trend_strength_amplifier_sensitivity = te_params.get('trend_strength_amplifier_sensitivity', 0.8)
         trend_strength_amplifier_max = te_params.get('trend_strength_amplifier_max', 2.5)
         zero_evidence_modulator_base = te_params.get('zero_evidence_modulator_base', 1e-3)
-        absolute_strength_threshold = te_params.get('absolute_strength_threshold', 0.7) # 新增：获取绝对强度阈值
+        absolute_strength_threshold = te_params.get('absolute_strength_threshold', 0.7)
         evidence_names = list(base_weights_dict.keys())
-        # 更新信号校验列表，移除 COGNITIVE_* 信号，添加底层信号
         required_signals = [
             'FUSION_BIPOLAR_TREND_QUALITY', 'SCORE_STRUCT_AXIOM_TREND_FORM', 'IS_LIMIT_UP_D',
             'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE', 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY',
@@ -893,175 +890,74 @@ class CognitiveIntelligence:
             'SCORE_BEHAVIOR_BEARISH_DIVERGENCE', 'SCORE_CHIP_AXIOM_DIVERGENCE', 'SCORE_FF_AXIOM_DIVERGENCE',
             'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 'market_sentiment_score_D', 'VOLATILITY_INSTABILITY_INDEX_21d_D',
             'FUSION_BIPOLAR_LIQUIDITY_DYNAMICS',
-            'DOMINANT_CYCLE_POWER', 'DOMINANT_CYCLE_PHASE' # 新增底层周期信号
+            'DOMINANT_CYCLE_POWER', 'DOMINANT_CYCLE_PHASE'
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_trend_exhaustion_risk"):
-            print("    -> [探针] 信号校验失败，返回默认值。")
             return {'COGNITIVE_RISK_TREND_EXHAUSTION': pd.Series(0.0, index=df_index)}
-        # --- 1. 获取情境调制信号 ---
         trend_quality = self._get_fused_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         structural_trend_form = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         market_sentiment = self._get_atomic_score(df, 'market_sentiment_score_D', 0.5).clip(0, 1)
         volatility_instability = self._get_atomic_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.5)
         liquidity_dynamics = self._get_fused_score(df, 'FUSION_BIPOLAR_LIQUIDITY_DYNAMICS', 0.0)
-        probe_date_for_loop = None
-        debug_mode_enabled = False
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-                debug_mode_enabled = True
-                print(f"    -> [趋势衰竭探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - 情境信号 - trend_quality: {trend_quality.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 情境信号 - structural_trend_form: {structural_trend_form.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 情境信号 - market_sentiment: {market_sentiment.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 情境信号 - volatility_instability: {volatility_instability.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 情境信号 - liquidity_dynamics: {liquidity_dynamics.loc[probe_date_for_loop]:.4f}")
-        # --- 零证据调制器情境化 ---
-        # 在矛盾情境下，即使证据为零，也赋予一个略高的基础值
-        contradictory_context_score = (market_sentiment * (1 - liquidity_dynamics.clip(lower=0))).clip(0,1) # 情绪高涨但流动性差
-        zero_evidence_modulator = zero_evidence_modulator_base * (1 + contradictory_context_score * 0.5) # 矛盾情境下略微提高
-        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-            print(f"       - 零证据调制器 (zero_evidence_modulator): {zero_evidence_modulator.loc[probe_date_for_loop]:.4f}")
-        # --- 2. 获取并锻造证据信号 ---
+        contradictory_context_score = (market_sentiment * (1 - liquidity_dynamics.clip(lower=0))).clip(0,1)
+        zero_evidence_modulator = zero_evidence_modulator_base * (1 + contradictory_context_score * 0.5)
         is_limit_up_yesterday = self._get_safe_series(df, 'IS_LIMIT_UP_D', False, method_name="_deduce_trend_exhaustion_risk").shift(1).fillna(False)
-        # main_force_holding_inverse
         raw_main_force_holding_strength = self._get_main_force_holding_strength(df)
-        main_force_holding_inverse = self._forge_dynamic_evidence(df, (1 - raw_main_force_holding_strength).clip(0,1), zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        # price_momentum_divergence
+        main_force_holding_inverse = self._forge_dynamic_evidence(df, (1 - raw_main_force_holding_strength).clip(0,1), zero_evidence_modulator=zero_evidence_modulator)
         raw_price_momentum_divergence = self._get_atomic_score(df, 'PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE', 0.0).clip(lower=0)
-        price_momentum_divergence = self._forge_dynamic_evidence(df, raw_price_momentum_divergence, zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        # stagnation_evidence
+        price_momentum_divergence = self._forge_dynamic_evidence(df, raw_price_momentum_divergence, zero_evidence_modulator=zero_evidence_modulator)
         raw_stagnation_evidence = (1 - self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5)).clip(0, 1)
-        stagnation_evidence = self._forge_dynamic_evidence(df, raw_stagnation_evidence, apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold, debug_mode=debug_mode_enabled)
-        # price_overextension_risk
+        stagnation_evidence = self._forge_dynamic_evidence(df, raw_stagnation_evidence, apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold)
         raw_price_overextension_score = self._get_fused_score(df, 'FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0)
-        price_overextension_risk = self._forge_dynamic_evidence(df, raw_price_overextension_score.clip(upper=0).abs(), apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold, debug_mode=debug_mode_enabled)
-        # winner_conviction_decay
+        price_overextension_risk = self._forge_dynamic_evidence(df, raw_price_overextension_score.clip(upper=0).abs(), apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold)
         raw_winner_conviction_decay = self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION_DECAY', 0.0)
-        winner_conviction_decay = self._forge_dynamic_evidence(df, raw_winner_conviction_decay, apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold, debug_mode=debug_mode_enabled)
-        # capital_retreat_evidence
+        winner_conviction_decay = self._forge_dynamic_evidence(df, raw_winner_conviction_decay, apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold)
         raw_capital_confrontation_score = self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0)
-        capital_retreat_evidence = self._forge_dynamic_evidence(df, raw_capital_confrontation_score.clip(upper=0).abs(), apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold, debug_mode=debug_mode_enabled)
-        # fund_flow_bearish_divergence
+        capital_retreat_evidence = self._forge_dynamic_evidence(df, raw_capital_confrontation_score.clip(upper=0).abs(), apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold)
         raw_fund_flow_bearish_divergence = self._get_atomic_score(df, 'SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 0.0)
-        fund_flow_bearish_divergence = self._forge_dynamic_evidence(df, raw_fund_flow_bearish_divergence, zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        # chip_dispersion_evidence
+        fund_flow_bearish_divergence = self._forge_dynamic_evidence(df, raw_fund_flow_bearish_divergence, zero_evidence_modulator=zero_evidence_modulator)
         raw_chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0)
-        chip_dispersion_evidence = self._forge_dynamic_evidence(df, raw_chip_strategic_posture.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        # chip_bearish_divergence
+        chip_dispersion_evidence = self._forge_dynamic_evidence(df, raw_chip_strategic_posture.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator)
         raw_chip_risk_distribution_whisper = self._get_atomic_score(df, 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 0.0)
-        chip_bearish_divergence = self._forge_dynamic_evidence(df, raw_chip_risk_distribution_whisper, apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold, debug_mode=debug_mode_enabled)
-        # structural_deterioration
+        chip_bearish_divergence = self._forge_dynamic_evidence(df, raw_chip_risk_distribution_whisper, apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold)
         raw_structural_trend_form_score = self._get_atomic_score(df, 'SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
-        structural_deterioration = self._forge_dynamic_evidence(df, raw_structural_trend_form_score.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        # market_contradiction_bearish
+        structural_deterioration = self._forge_dynamic_evidence(df, raw_structural_trend_form_score.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator)
         raw_market_contradiction_score = self._get_fused_score(df, 'FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0)
-        market_contradiction_bearish = self._forge_dynamic_evidence(df, raw_market_contradiction_score.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        # distribution_intent_risk
+        market_contradiction_bearish = self._forge_dynamic_evidence(df, raw_market_contradiction_score.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator)
         raw_distribution_intent_risk = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
-        distribution_intent_risk = self._forge_dynamic_evidence(df, raw_distribution_intent_risk, apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold, debug_mode=debug_mode_enabled)
-        # trend_quality_inverse
-        trend_quality_inverse = self._forge_dynamic_evidence(df, (1 - trend_quality).clip(0,1), zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        # new_high_strength_inverse
+        distribution_intent_risk = self._forge_dynamic_evidence(df, raw_distribution_intent_risk, apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold)
+        trend_quality_inverse = self._forge_dynamic_evidence(df, (1 - trend_quality).clip(0,1), zero_evidence_modulator=zero_evidence_modulator)
         raw_new_high_strength = self._get_atomic_score(df, 'CONTEXT_NEW_HIGH_STRENGTH', 0.0)
-        new_high_strength_inverse = self._forge_dynamic_evidence(df, (1 - raw_new_high_strength).clip(0,1), zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        # dip_absorption_inverse
+        new_high_strength_inverse = self._forge_dynamic_evidence(df, (1 - raw_new_high_strength).clip(0,1), zero_evidence_modulator=zero_evidence_modulator)
         raw_dip_absorption_power = self._get_atomic_score(df, 'dip_absorption_power_D', 0.0)
-        dip_absorption_inverse = self._forge_dynamic_evidence(df, (1 - raw_dip_absorption_power).clip(0, 1), zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        # volume_climax_evidence
+        dip_absorption_inverse = self._forge_dynamic_evidence(df, (1 - raw_dip_absorption_power).clip(0, 1), zero_evidence_modulator=zero_evidence_modulator)
         raw_volume_burst = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0)
-        volume_climax_evidence = self._forge_dynamic_evidence(df, raw_volume_burst, apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold, debug_mode=debug_mode_enabled)
-        # retail_fomo_evidence
+        volume_climax_evidence = self._forge_dynamic_evidence(df, raw_volume_burst, apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold)
         raw_retail_fomo = self._get_atomic_score(df, 'retail_fomo_premium_index_D', 0.0)
-        retail_fomo_evidence = self._forge_dynamic_evidence(df, raw_retail_fomo, apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold, debug_mode=debug_mode_enabled)
-        # price_momentum_inverse
+        retail_fomo_evidence = self._forge_dynamic_evidence(df, raw_retail_fomo, apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold)
         raw_price_upward_momentum = self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0)
-        price_momentum_inverse = self._forge_dynamic_evidence(df, (1 - raw_price_upward_momentum).clip(0,1), zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        # behavior_bearish_divergence
+        price_momentum_inverse = self._forge_dynamic_evidence(df, (1 - raw_price_upward_momentum).clip(0,1), zero_evidence_modulator=zero_evidence_modulator)
         raw_behavior_bearish_divergence = self._get_atomic_score(df, 'SCORE_BEHAVIOR_BEARISH_DIVERGENCE', 0.0)
-        behavior_bearish_divergence = self._forge_dynamic_evidence(df, raw_behavior_bearish_divergence, apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold, debug_mode=debug_mode_enabled)
-        # chip_axiom_divergence_negative
+        behavior_bearish_divergence = self._forge_dynamic_evidence(df, raw_behavior_bearish_divergence, apply_normalization=False, zero_evidence_modulator=zero_evidence_modulator, absolute_strength_threshold=absolute_strength_threshold)
         raw_chip_axiom_divergence = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_DIVERGENCE', 0.0)
-        chip_axiom_divergence_negative = self._forge_dynamic_evidence(df, raw_chip_axiom_divergence.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        # ff_axiom_divergence_negative
+        chip_axiom_divergence_negative = self._forge_dynamic_evidence(df, raw_chip_axiom_divergence.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator)
         raw_ff_axiom_divergence = self._get_atomic_score(df, 'SCORE_FF_AXIOM_DIVERGENCE', 0.0)
-        ff_axiom_divergence_negative = self._forge_dynamic_evidence(df, raw_ff_axiom_divergence.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        # chip_historical_potential_negative
+        ff_axiom_divergence_negative = self._forge_dynamic_evidence(df, raw_ff_axiom_divergence.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator)
         raw_chip_historical_potential = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL', 0.0)
-        chip_historical_potential_negative = self._forge_dynamic_evidence(df, raw_chip_historical_potential.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        # --- 新增证据：解耦 COGNITIVE_* 信号 ---
-        # fomo_capital_divergence (替换 retail_fomo_retreat_risk)
-        fomo_capital_divergence = self._forge_dynamic_evidence(df, (retail_fomo_evidence + capital_retreat_evidence) / 2, zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        # profit_chip_pressure (替换 long_term_profit_distribution_risk)
-        profit_chip_pressure = self._forge_dynamic_evidence(df, (winner_conviction_decay + chip_dispersion_evidence) / 2, zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        # cyclical_peak_pressure (替换 cyclical_top_risk)
+        chip_historical_potential_negative = self._forge_dynamic_evidence(df, raw_chip_historical_potential.clip(upper=0).abs(), zero_evidence_modulator=zero_evidence_modulator)
+        fomo_capital_divergence = self._forge_dynamic_evidence(df, (retail_fomo_evidence + capital_retreat_evidence) / 2, zero_evidence_modulator=zero_evidence_modulator)
+        profit_chip_pressure = self._forge_dynamic_evidence(df, (winner_conviction_decay + chip_dispersion_evidence) / 2, zero_evidence_modulator=zero_evidence_modulator)
         raw_dominant_cycle_power = self._get_atomic_score(df, 'DOMINANT_CYCLE_POWER', 0.0)
         raw_dominant_cycle_phase = self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE', 0.0)
-        cyclical_peak_pressure = self._forge_dynamic_evidence(df, (raw_dominant_cycle_power * raw_dominant_cycle_phase.clip(lower=0)).clip(0,1), zero_evidence_modulator=zero_evidence_modulator, debug_mode=debug_mode_enabled)
-        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-            print(f"       - 原始证据 - raw_main_force_holding_strength: {raw_main_force_holding_strength.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - main_force_holding_inverse: {main_force_holding_inverse.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_price_momentum_divergence: {raw_price_momentum_divergence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - price_momentum_divergence: {price_momentum_divergence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_stagnation_evidence: {raw_stagnation_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - stagnation_evidence: {stagnation_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_price_overextension_score: {raw_price_overextension_score.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - price_overextension_risk: {price_overextension_risk.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_winner_conviction_decay: {raw_winner_conviction_decay.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - winner_conviction_decay: {winner_conviction_decay.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_capital_confrontation_score: {raw_capital_confrontation_score.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - capital_retreat_evidence: {capital_retreat_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_fund_flow_bearish_divergence: {raw_fund_flow_bearish_divergence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - fund_flow_bearish_divergence: {fund_flow_bearish_divergence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_chip_strategic_posture (for chip_dispersion_evidence): {raw_chip_strategic_posture.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - chip_dispersion_evidence: {chip_dispersion_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_chip_risk_distribution_whisper: {raw_chip_risk_distribution_whisper.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - chip_bearish_divergence: {chip_bearish_divergence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_structural_trend_form_score: {raw_structural_trend_form_score.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - structural_deterioration: {structural_deterioration.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_market_contradiction_score: {raw_market_contradiction_score.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - market_contradiction_bearish: {market_contradiction_bearish.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_distribution_intent_risk: {raw_distribution_intent_risk.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - distribution_intent_risk: {distribution_intent_risk.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - trend_quality: {trend_quality.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - trend_quality_inverse: {trend_quality_inverse.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_new_high_strength: {raw_new_high_strength.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - new_high_strength_inverse: {new_high_strength_inverse.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_dip_absorption_power: {raw_dip_absorption_power.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - dip_absorption_inverse: {dip_absorption_inverse.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_volume_burst: {raw_volume_burst.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - volume_climax_evidence: {volume_climax_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_retail_fomo: {raw_retail_fomo.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - retail_fomo_evidence: {retail_fomo_evidence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_price_upward_momentum: {raw_price_upward_momentum.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - price_momentum_inverse: {price_momentum_inverse.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_behavior_bearish_divergence: {raw_behavior_bearish_divergence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - behavior_bearish_divergence: {behavior_bearish_divergence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_chip_axiom_divergence: {raw_chip_axiom_divergence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - chip_axiom_divergence_negative: {chip_axiom_divergence_negative.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_ff_axiom_divergence: {raw_ff_axiom_divergence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - ff_axiom_divergence_negative: {ff_axiom_divergence_negative.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_chip_historical_potential: {raw_chip_historical_potential.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - chip_historical_potential_negative: {chip_historical_potential_negative.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_dominant_cycle_power: {raw_dominant_cycle_power.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据 - raw_dominant_cycle_phase: {raw_dominant_cycle_phase.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - fomo_capital_divergence: {fomo_capital_divergence.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - profit_chip_pressure: {profit_chip_pressure.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 锻造证据 - cyclical_peak_pressure: {cyclical_peak_pressure.loc[probe_date_for_loop]:.4f}")
-        # --- 3. 动态权重调整 (Context-adaptive weights) ---
+        cyclical_peak_pressure = self._forge_dynamic_evidence(df, (raw_dominant_cycle_power * raw_dominant_cycle_phase.clip(lower=0)).clip(0,1), zero_evidence_modulator=zero_evidence_modulator)
         adaptive_weights_per_date = {
             name: pd.Series(base_weight, index=df_index, dtype=np.float32)
             for name, base_weight in base_weights_dict.items()
         }
-        # 调制因子
         sentiment_mod = market_sentiment * context_modulation_factors['sentiment_mod_strength']
         volatility_mod = volatility_instability * context_modulation_factors['volatility_mod_strength']
         trend_strength_mod = trend_quality.clip(lower=0) * context_modulation_factors['trend_strength_mod_strength']
         liquidity_mod = liquidity_dynamics.clip(upper=0).abs() * context_modulation_factors['liquidity_mod_strength']
-        # 矛盾情境放大器：高情绪但低流动性，放大风险证据权重
         contradictory_context_amplifier = pd.Series(1.0, index=df_index)
         contradictory_mask = (market_sentiment > 0.7) & (liquidity_dynamics < -0.5)
         contradictory_context_amplifier.loc[contradictory_mask] = (
@@ -1069,28 +965,16 @@ class CognitiveIntelligence:
             (liquidity_dynamics.loc[contradictory_mask].abs() - 0.5) *
             context_modulation_factors['contradictory_context_amplifier']
         ).clip(1.0, 2.0)
-        # 应用调制：对所有证据权重进行调整
         for name in evidence_names:
             adaptive_weights_per_date[name] += sentiment_mod + volatility_mod + trend_strength_mod + liquidity_mod
-            # 针对矛盾情境，额外放大风险证据权重
             if name in ['price_overextension_risk', 'distribution_intent_risk', 'retail_fomo_evidence', 'capital_retreat_evidence', 'fomo_capital_divergence']:
                 adaptive_weights_per_date[name] *= contradictory_context_amplifier
-        # 确保权重非负
         for name in adaptive_weights_per_date:
             adaptive_weights_per_date[name] = adaptive_weights_per_date[name].clip(lower=0)
         weights_df = pd.DataFrame(adaptive_weights_per_date)
         weights_sum_per_date = weights_df.sum(axis=1)
         weights_sum_per_date = weights_sum_per_date.replace(0, weights_df.shape[1])
         weights_df = weights_df.div(weights_sum_per_date, axis=0)
-        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-            print(f"       - 动态权重调制因子 - sentiment_mod: {sentiment_mod.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 动态权重调制因子 - volatility_mod: {volatility_mod.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 动态权重调制因子 - trend_strength_mod: {trend_strength_mod.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 动态权重调制因子 - liquidity_mod: {liquidity_mod.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 矛盾情境放大器 (contradictory_context_amplifier): {contradictory_context_amplifier.loc[probe_date_for_loop]:.4f}")
-            for name in evidence_names:
-                print(f"       - 动态权重 - {name}: {weights_df.loc[probe_date_for_loop, name]:.4f}")
-        # --- 4. 动态幂次变换 (Power Transformation) ---
         power_factor_dynamic = power_factor_dynamic_base + volatility_instability * power_factor_dynamic_volatility_multiplier
         evidence_map = {
             'price_momentum_divergence': price_momentum_divergence,
@@ -1120,56 +1004,23 @@ class CognitiveIntelligence:
             'cyclical_peak_pressure': cyclical_peak_pressure
         }
         evidence_list_for_likelihood = [evidence_map[name] for name in evidence_names]
-        transformed_evidence_scores = []
-        for evidence_series in evidence_list_for_likelihood:
-            transformed_score = evidence_series.pow(power_factor_dynamic)
-            transformed_evidence_scores.append(transformed_score.values)
-        stacked_transformed_scores = np.stack(transformed_evidence_scores, axis=0)
+        stacked_transformed_scores = np.stack([e.pow(power_factor_dynamic).values for e in evidence_list_for_likelihood], axis=0)
         min_evidence_threshold_val = get_params_block(self.strategy, 'min_evidence_threshold', 1e-9)
         safe_scores = np.maximum(stacked_transformed_scores, min_evidence_threshold_val)
-        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-            print(f"       - 动态幂次因子 (power_factor_dynamic): {power_factor_dynamic.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 最小证据阈值 (min_evidence_threshold_val): {min_evidence_threshold_val:.9f}")
-            for i, name in enumerate(evidence_names):
-                print(f"       - 幂次变换后证据 - {name}: {safe_scores[i, df.index.get_loc(probe_date_for_loop)]:.4f}")
-        # --- 5. 计算似然度 (Likelihood) ---
-        likelihood_values = np.exp(np.sum(np.log(safe_scores) * weights_df.values.T, axis=0))
-        likelihood = pd.Series(likelihood_values, index=df_index)
-        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-            print(f"       - 原始似然度 (likelihood raw): {likelihood.loc[probe_date_for_loop]:.4f}")
-        # --- 6. 趋势强度放大器 ---
-        # 趋势越强劲，趋势衰竭信号的敏感度越高，放大似然度
+        likelihood = pd.Series(np.exp(np.sum(np.log(safe_scores) * weights_df.values.T, axis=0)), index=df_index)
         combined_positive_trend_score = (trend_quality.clip(lower=0) + structural_trend_form.clip(lower=0)) / 2
         trend_strength_amplifier = 1 + (combined_positive_trend_score * trend_strength_amplifier_sensitivity).clip(0, trend_strength_amplifier_max - 1)
         likelihood = likelihood * trend_strength_amplifier
-        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-            print(f"       - 组合正向趋势分 (combined_positive_trend_score): {combined_positive_trend_score.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 趋势强度放大器 (trend_strength_amplifier): {trend_strength_amplifier.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 放大后似然度 (likelihood after amplifier): {likelihood.loc[probe_date_for_loop]:.4f}")
-        # --- 7. 上涨停板情境化惩罚 ---
         if is_limit_up_yesterday.any():
-            # 惩罚强度由超买和派发意图动态调制
             limit_up_penalty_factor = (
                 limit_up_penalty_factors['base_penalty_multiplier'] +
                 price_overextension_risk * limit_up_penalty_factors['overextension_mod_strength'] +
                 distribution_intent_risk * limit_up_penalty_factors['distribution_mod_strength']
-            ).clip(0, 1) # 惩罚因子在0到1之间
+            ).clip(0, 1)
             likelihood.loc[is_limit_up_yesterday] = likelihood.loc[is_limit_up_yesterday] * (1 - limit_up_penalty_factor.loc[is_limit_up_yesterday])
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index and is_limit_up_yesterday.loc[probe_date_for_loop]:
-                print(f"       - 涨停板惩罚因子 - base_penalty_multiplier: {limit_up_penalty_factors['base_penalty_multiplier']:.4f}")
-                print(f"       - 涨停板惩罚因子 - overextension_mod_strength: {limit_up_penalty_factors['overextension_mod_strength']:.4f}")
-                print(f"       - 涨停板惩罚因子 - distribution_mod_strength: {limit_up_penalty_factors['distribution_mod_strength']:.4f}")
-                print(f"       - 涨停板惩罚因子 - price_overextension_risk: {price_overextension_risk.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 涨停板惩罚因子 - distribution_intent_risk: {distribution_intent_risk.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 最终涨停板惩罚因子 (limit_up_penalty_factor): {limit_up_penalty_factor.loc[probe_date_for_loop]:.4f}")
-                print(f"       - 惩罚后似然度 (likelihood after limit up penalty): {likelihood.loc[probe_date_for_loop]:.4f}")
         likelihood = likelihood.clip(0, 1)
-        # --- 8. 计算后验概率 (Posterior Probability) ---
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=df_index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
-            print(f"       - 先验概率 (prior_prob): {prior_prob.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 最终后验概率 (posterior_prob): {posterior_prob.loc[probe_date_for_loop]:.4f}")
         return {'COGNITIVE_RISK_TREND_EXHAUSTION': posterior_prob.astype(np.float32)}
 
     def _establish_prior_beliefs(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
