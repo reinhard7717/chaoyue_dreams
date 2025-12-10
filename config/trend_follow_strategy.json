@@ -3219,7 +3219,52 @@
           "synergy_bonuses": {
             "breakout_volume_momentum_synergy": 0.2
           }
-        }
+        },
+            "trend_exhaustion_params": {
+              "description": "【V4.0 · 情境感知与证据强化版】趋势衰竭风险剧本的专属参数。",
+              "base_weights": {
+                "price_momentum_divergence": 0.07,
+                "winner_conviction_decay": 0.06,
+                "stagnation_evidence": 0.02,
+                "chip_dispersion_evidence": 0.06,
+                "fund_flow_bearish_divergence": 0.05,
+                "structural_deterioration": 0.04,
+                "capital_retreat_evidence": 0.07,
+                "cyclical_top_risk": 0.05,
+                "price_overextension_risk": 0.02,
+                "distribution_intent_risk": 0.03,
+                "market_contradiction_bearish": 0.03,
+                "retail_fomo_retreat_risk": 0.03,
+                "chip_bearish_divergence": 0.02,
+                "long_term_profit_distribution_risk": 0.02,
+                "trend_quality_inverse": 0.08,
+                "new_high_strength_inverse": 0.08,
+                "dip_absorption_inverse": 0.07,
+                "main_force_holding_inverse": 0.09,
+                "volume_climax_evidence": 0.05,
+                "retail_fomo_evidence": 0.06,
+                "price_momentum_inverse": 0.04,
+                "behavior_bearish_divergence": 0.05,
+                "chip_axiom_divergence_negative": 0.05,
+                "ff_axiom_divergence_negative": 0.05,
+                "chip_historical_potential_negative": 0.04
+              },
+              "context_modulation_factors": {
+                "sentiment_mod_strength": 0.1,
+                "volatility_mod_strength": 0.08,
+                "trend_strength_mod_strength": 0.15,
+                "liquidity_mod_strength": 0.07
+              },
+              "limit_up_penalty_factors": {
+                "base_penalty_multiplier": 0.5,
+                "overextension_mod_strength": 0.3,
+                "distribution_mod_strength": 0.2
+              },
+              "power_factor_dynamic_base": 1.0,
+              "power_factor_dynamic_volatility_multiplier": 0.5,
+              "trend_strength_amplifier_sensitivity": 0.8,
+              "trend_strength_amplifier_max": 2.0
+            }
       },
 
       "intraday_behavior_engine_params": {
