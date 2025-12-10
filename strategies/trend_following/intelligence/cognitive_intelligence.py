@@ -177,7 +177,6 @@ class CognitiveIntelligence:
             'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE',
             'SCORE_CHIP_TACTICAL_EXCHANGE', 'SCORE_FF_AXIOM_FLOW_MOMENTUM',
             'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 'SCORE_STRUCT_AXIOM_TENSION'
-            # SCORE_BEHAVIOR_INTRADAY_VWAP_BATTLEFIELD 已移除 required_signals，作为可选信号处理
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_suppressive_accumulation"):
             print("    -> [探针] 信号校验失败，返回默认值。")
@@ -367,8 +366,7 @@ class CognitiveIntelligence:
         raw_downward_resistance = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE', 0.0)
         downward_resistance_evidence = self._forge_dynamic_evidence(df, raw_downward_resistance)
 
-        # SCORE_BEHAVIOR_INTRADAY_VWAP_BATTLEFIELD 现在是可选信号，如果缺失，_get_atomic_score 会返回0.0
-        raw_intraday_vwap_battlefield = self._get_atomic_score(df, 'SCORE_BEHAVIOR_INTRADAY_VWAP_BATTLEFIELD', 0.0)
+        raw_intraday_vwap_battlefield = self._get_atomic_score(df, 'SCORE_INTRADAY_VWAP_BATTLEFIELD', 0.0)
         # VWAP攻防是双极性，负值表示卖压，我们希望负值越大越好（作为打压证据）
         intraday_vwap_battlefield_negative_evidence = self._forge_dynamic_evidence(df, raw_intraday_vwap_battlefield.clip(upper=0).abs())
 
