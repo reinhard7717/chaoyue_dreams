@@ -993,12 +993,14 @@ class CognitiveIntelligence:
         liquidity_mod = raw_liquidity_dynamics.clip(lower=0) * 0.1
 
         # 应用调制
+        # 修改开始
         for name in [
-            'price_rising_evidence', 'rally_intent_evidence', 'volume_burst_evidence',
+            'price_rising_evidence', 'process_evidence', 'volume_burst_evidence', # 将 'rally_intent_evidence' 替换为 'process_evidence'
             'upward_efficiency_evidence', 'structural_momentum_bullish_evidence',
             'dyn_momentum_bullish_evidence', 'relative_strength_evidence', 'chip_trend_momentum_evidence'
         ]:
             adaptive_weights_per_date[name] += trend_mod + sentiment_mod
+        # 修改结束
         
         for name in [
             'chip_coherent_drive_evidence', 'efficiency_evidence', 'microstructure_intent_bullish_evidence',
