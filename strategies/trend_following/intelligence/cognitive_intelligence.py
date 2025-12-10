@@ -1486,6 +1486,7 @@ class CognitiveIntelligence:
             'volume_burst': 0.08,
             'price_upward_momentum': 0.07
         })
+        evidence_names = list(base_weights_dict.keys()) # 修改行：明确定义 evidence_names
         context_modulation_factors = ld_params.get('context_modulation_factors', {
             'market_regime_mod_strength': 0.1,
             'trend_quality_mod_strength': 0.1,
@@ -1564,7 +1565,7 @@ class CognitiveIntelligence:
         volatility_mod_breakout = volatility_instability * context_modulation_factors['volatility_mod_breakout_strength']
 
         # 应用调制
-        for name in evidence_names:
+        for name in evidence_names: # 修改行：使用已定义的 evidence_names
             adaptive_weights_per_date[name] += market_regime_mod + trend_quality_mod + sentiment_mod + liquidity_mod
         
         # 对突破相关证据额外调制
