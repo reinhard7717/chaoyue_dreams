@@ -1497,7 +1497,9 @@ class CognitiveIntelligence:
             'ff_conviction': 0.06,
             'chip_trend_momentum': 0.06,
             'chip_historical_potential': 0.05,
-            'intraday_offensive_purity': 0.04
+            'intraday_offensive_purity': 0.04,
+            'chip_coherent_drive_slope': 0.03,
+            'micro_strategic_intent_slope': 0.03
         })
         evidence_names = list(base_weights_dict.keys())
         context_modulation_factors = ld_params.get('context_modulation_factors', {
@@ -1526,6 +1528,7 @@ class CognitiveIntelligence:
             'max_penalty_amplification_factor': 1.5,
             'contradictory_context_penalty_boost': 0.3
         })
+        # 修改行：移除不需要的SLOPE信号，因为它们是情报层信号的内部计算
         required_signals = [
             'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 'breakout_quality_score_D', 'PROCESS_META_STOCK_SECTOR_SYNC',
             'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH', 'IS_BAZHAN_D', 'SCORE_CHIP_COHERENT_DRIVE',
@@ -1569,11 +1572,14 @@ class CognitiveIntelligence:
         chip_historical_potential = self._forge_dynamic_evidence(df, raw_chip_historical_potential.clip(lower=0))
         intraday_offensive_purity = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_INTRADAY_OFFENSIVE_PURITY', 0.0).clip(lower=0))
         capital_confrontation_change = self._forge_dynamic_evidence(df, self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).diff(5).fillna(0).clip(lower=0))
-        chip_coherent_drive_change = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0).diff(5).fillna(0).clip(lower=0))
-        micro_strategic_intent_change = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_MICRO_STRATEGIC_INTENT', 0.0).diff(5).fillna(0).clip(lower=0))
+        chip_coherent_drive_change = self._forge_dynamic_evidence(df, chip_coherent_drive.diff(5).fillna(0).clip(lower=0)) # 修改行：直接对chip_coherent_drive进行diff
+        micro_strategic_intent_change = self._forge_dynamic_evidence(df, micro_strategic_intent.diff(5).fillna(0).clip(lower=0)) # 修改行：直接对micro_strategic_intent进行diff
         breakout_quality_slope = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SLOPE_5_breakout_quality_score_D', 0.0).clip(lower=0))
         volume_burst_change = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0).diff(5).fillna(0).clip(lower=0))
         price_upward_momentum_change = self._forge_dynamic_evidence(df, self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0).diff(5).fillna(0).clip(lower=0))
+        # 新增行：计算情报层信号的斜率
+        chip_coherent_drive_slope = self._forge_dynamic_evidence(df, chip_coherent_drive.diff(5).fillna(0).clip(lower=0))
+        micro_strategic_intent_slope = self._forge_dynamic_evidence(df, micro_strategic_intent.diff(5).fillna(0).clip(lower=0))
         raw_deception_index = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0)
         deception_index_positive = raw_deception_index.clip(lower=0)
         raw_chip_risk_distribution_whisper = self._get_atomic_score(df, 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 0.0)
@@ -1608,6 +1614,8 @@ class CognitiveIntelligence:
         adaptive_weights_per_date['breakout_quality_slope'] += trend_quality_mod
         adaptive_weights_per_date['volume_burst_change'] += trend_quality_mod
         adaptive_weights_per_date['price_upward_momentum_change'] += trend_quality_mod
+        adaptive_weights_per_date['chip_coherent_drive_slope'] += trend_quality_mod # 新增
+        adaptive_weights_per_date['micro_strategic_intent_slope'] += trend_quality_mod # 新增
         adaptive_weights_per_date['capital_confrontation'] += liquidity_capital_boost
         adaptive_weights_per_date['volume_burst'] += liquidity_capital_boost
         for name in adaptive_weights_per_date:
@@ -1617,15 +1625,33 @@ class CognitiveIntelligence:
         weights_sum_per_date = weights_sum_per_date.replace(0, weights_df.shape[1])
         weights_df = weights_df.div(weights_sum_per_date, axis=0)
         power_factor_dynamic = power_factor_dynamic_base + volatility_instability * power_factor_dynamic_volatility_multiplier
-        evidence_list = [
-            capital_confrontation, breakout_quality, sector_sync,
-            relative_strength, bazhan_mode, chip_coherent_drive,
-            micro_strategic_intent, breakout_readiness, volume_burst,
-            price_upward_momentum, upward_efficiency, ff_conviction,
-            chip_trend_momentum, chip_historical_potential, intraday_offensive_purity,
-            capital_confrontation_change, chip_coherent_drive_change, micro_strategic_intent_change,
-            breakout_quality_slope, volume_burst_change, price_upward_momentum_change
-        ]
+        # 修改行：确保evidence_list的构建顺序与base_weights_dict的键顺序一致
+        all_evidence_series = {
+            'capital_confrontation': capital_confrontation,
+            'breakout_quality': breakout_quality,
+            'sector_sync': sector_sync,
+            'relative_strength': relative_strength,
+            'bazhan_mode': bazhan_mode,
+            'chip_coherent_drive': chip_coherent_drive,
+            'micro_strategic_intent': micro_strategic_intent,
+            'breakout_readiness': breakout_readiness,
+            'volume_burst': volume_burst,
+            'price_upward_momentum': price_upward_momentum,
+            'upward_efficiency': upward_efficiency,
+            'ff_conviction': ff_conviction,
+            'chip_trend_momentum': chip_trend_momentum,
+            'chip_historical_potential': chip_historical_potential,
+            'intraday_offensive_purity': intraday_offensive_purity,
+            'capital_confrontation_change': capital_confrontation_change,
+            'chip_coherent_drive_change': chip_coherent_drive_change,
+            'micro_strategic_intent_change': micro_strategic_intent_change,
+            'breakout_quality_slope': breakout_quality_slope,
+            'volume_burst_change': volume_burst_change,
+            'price_upward_momentum_change': price_upward_momentum_change,
+            'chip_coherent_drive_slope': chip_coherent_drive_slope,
+            'micro_strategic_intent_slope': micro_strategic_intent_slope
+        }
+        evidence_list = [all_evidence_series[name] for name in evidence_names]
         transformed_evidence_scores = []
         for evidence_series in evidence_list:
             transformed_score = evidence_series.pow(power_factor_dynamic)
@@ -1697,6 +1723,8 @@ class CognitiveIntelligence:
                 print(f"       - 突破品质斜率 (breakout_quality_slope): {breakout_quality_slope.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 看涨量能爆发变化 (volume_burst_change): {volume_burst_change.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 价格上涨动能变化 (price_upward_momentum_change): {price_upward_momentum_change.loc[probe_date_for_loop]:.4f}")
+                print(f"       - 筹码同调驱动力斜率 (chip_coherent_drive_slope): {chip_coherent_drive_slope.loc[probe_date_for_loop]:.4f}")
+                print(f"       - 微观战略意图斜率 (micro_strategic_intent_slope): {micro_strategic_intent_slope.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 动态幂次因子 (power_factor_dynamic): {power_factor_dynamic.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 似然度 (likelihood): {likelihood.loc[probe_date_for_loop]:.4f}")
                 print(f"       - 欺骗指数正向 (deception_index_positive): {deception_index_positive.loc[probe_date_for_loop]:.4f}")
