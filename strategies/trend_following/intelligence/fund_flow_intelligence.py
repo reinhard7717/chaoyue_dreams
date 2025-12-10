@@ -146,6 +146,7 @@ class FundFlowIntelligence:
         all_states['SCORE_FF_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_FF_AXIOM_CONSENSUS'] = axiom_consensus
         all_states['SCORE_FF_AXIOM_CONVICTION'] = axiom_conviction
+        print(f"    -> [资金流情报校验] 计算“资金流内部分歧与意图张力(SCORE_FF_AXIOM_DIVERGENCE)” 分数：{axiom_divergence.mean():.4f}")
         all_states['SCORE_FF_AXIOM_FLOW_MOMENTUM'] = axiom_flow_momentum
         all_states['SCORE_FF_AXIOM_CAPITAL_SIGNATURE'] = axiom_capital_signature
         all_states['SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH'] = axiom_flow_structure_health

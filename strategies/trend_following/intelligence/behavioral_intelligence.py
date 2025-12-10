@@ -344,6 +344,7 @@ class BehavioralIntelligence:
         # --- 动能信号 ---
         upward_momentum_score = self._diagnose_upward_momentum(df, default_weights)
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
+        print(f"    -> [行为情校验] 计算“价格上涨动量(SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM)” 分数：{upward_momentum_score.mean():.4f}")
         df['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = upward_momentum_score.astype(np.float32)
         downward_momentum_score = self._diagnose_downward_momentum(df)
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = downward_momentum_score.astype(np.float32)
@@ -393,6 +394,7 @@ class BehavioralIntelligence:
         )
         df['SCORE_RISK_BREAKOUT_FAILURE_CASCADE'] = states['SCORE_RISK_BREAKOUT_FAILURE_CASCADE']
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = self._calculate_volume_burst_quality(df, default_weights)
+        print(f"    -> [微观行为情报校验] 计算“成交量爆发(SCORE_BEHAVIOR_VOLUME_BURST)” 分数：{states['SCORE_BEHAVIOR_VOLUME_BURST'].mean():.4f}")
         df['SCORE_BEHAVIOR_VOLUME_BURST'] = states['SCORE_BEHAVIOR_VOLUME_BURST']
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights)
         df['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = states['SCORE_BEHAVIOR_VOLUME_ATROPHY']

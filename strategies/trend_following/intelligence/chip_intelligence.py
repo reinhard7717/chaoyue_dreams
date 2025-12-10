@@ -73,14 +73,17 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_BATTLEFIELD_GEOGRAPHY'] = battlefield_geography
         chip_trend_momentum_scores = self._diagnose_axiom_trend_momentum(df, periods, strategic_posture, battlefield_geography, holder_sentiment_scores)
         all_chip_states['SCORE_CHIP_AXIOM_TREND_MOMENTUM'] = chip_trend_momentum_scores
+        print(f"    -> [筹码情报校验] 计算“筹码趋势动量(SCORE_CHIP_AXIOM_TREND_MOMENTUM)” 分数：{chip_trend_momentum_scores.mean():.4f}")
         historical_potential = self._diagnose_axiom_historical_potential(df)
         all_chip_states['SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL'] = historical_potential
+        print(f"    -> [筹码情报校验] 计算“筹码历史潜力(SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL)” 分数：{historical_potential.mean():.4f}")
         absorption_echo = self._diagnose_absorption_echo(df, divergence_scores)
         all_chip_states['SCORE_CHIP_OPP_ABSORPTION_ECHO'] = absorption_echo
         distribution_whisper = self._diagnose_distribution_whisper(df, divergence_scores)
         all_chip_states['SCORE_CHIP_RISK_DISTRIBUTION_WHISPER'] = distribution_whisper
         coherent_drive = self._diagnose_structural_consensus(df, battlefield_geography, holder_sentiment_scores)
         all_chip_states['SCORE_CHIP_COHERENT_DRIVE'] = coherent_drive
+        print(f"    -> [筹码情报校验] 计算“筹码一致驱动(SCORE_CHIP_COHERENT_DRIVE)” 分数：{coherent_drive.mean():.4f}")
         tactical_exchange = self._diagnose_tactical_exchange(df, battlefield_geography)
         all_chip_states['SCORE_CHIP_TACTICAL_EXCHANGE'] = tactical_exchange
         # [修改代码行] 传递 holder_sentiment_scores
@@ -1184,6 +1187,7 @@ class ChipIntelligence:
         else:
             dynamic_final_score_sensitivity_multiplier = pd.Series(final_score_base_sensitivity_multiplier, index=df.index)
         final_score = np.tanh(coherent_drive_raw * (self.bipolar_sensitivity * dynamic_final_score_sensitivity_multiplier))
+        print(f"    -> [筹码情报校验] 计算“筹码一致驱动” 分数：{final_score.mean():.4f}")
         return final_score.astype(np.float32)
 
     def _diagnose_absorption_echo(self, df: pd.DataFrame, divergence_scores: pd.Series) -> pd.Series:
