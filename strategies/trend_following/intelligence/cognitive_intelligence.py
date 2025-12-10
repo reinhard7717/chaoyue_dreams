@@ -882,11 +882,11 @@ class CognitiveIntelligence:
 
     def _deduce_chasing_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V4.6 · 证据处理流程优化与探针增强版】贝叶斯推演：“主力拉升抢筹”剧本
+        【V4.7 · 多维度负面证据惩罚版】贝叶斯推演：“主力拉升抢筹”剧本
         - 核心升级:
-            1. 证据处理流程优化: 确保 `_forge_dynamic_evidence` 在归一化后再次应用 `min_evidence_threshold`，提高鲁棒性。
-            2. 原始证据值探针: 增加每个证据在 `_forge_dynamic_evidence` 处理前的原始值输出，以便于诊断证据为零的根本原因。
-            3. 双极性证据惩罚优化: 对于 `SCORE_CHIP_COHERENT_DRIVE` 等双极性信号，其负向部分将作为惩罚因子，在似然度计算后对结果进行乘法惩罚，而非简单裁剪为零。
+            1. 多维度负面证据惩罚: 扩展负面证据惩罚机制，将微观订单流意图、力学动量和筹码趋势动量的负向部分也作为惩罚因子，更全面地降低剧本概率。
+            2. 证据处理流程优化: 确保 `_forge_dynamic_evidence` 在归一化后再次应用 `min_evidence_threshold`，提高鲁棒性。
+            3. 原始证据值探针: 增加每个证据在 `_forge_dynamic_evidence` 处理前的原始值输出，以便于诊断证据为零的根本原因。
             4. 情绪信号归一化: 对 `market_sentiment_score_D` 进行显式归一化，确保其在 `[0, 1]` 范围内参与调制。
         """
         print("    -- [剧本推演] 主力拉升抢筹 (动态证据)...")
@@ -1010,11 +1010,12 @@ class CognitiveIntelligence:
         raw_evidence_values_for_probe['upward_efficiency_evidence'] = raw_upward_efficiency
         processed_evidence_values['upward_efficiency_evidence'] = upward_efficiency_evidence
 
-        # microstructure_intent_bullish_evidence: 已是归一化分数，无需再次normalize_score
+        # microstructure_intent_bullish_evidence: 已是归一化分数，但其负值需要单独处理为惩罚
         raw_microstructure_intent_bullish = self._get_atomic_score(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0)
         microstructure_intent_bullish_evidence = self._forge_dynamic_evidence(df, raw_microstructure_intent_bullish.clip(lower=0), apply_normalization=False)
         raw_evidence_values_for_probe['microstructure_intent_bullish_evidence'] = raw_microstructure_intent_bullish
         processed_evidence_values['microstructure_intent_bullish_evidence'] = microstructure_intent_bullish_evidence
+        microstructure_intent_bearish_penalty = raw_microstructure_intent_bullish.clip(upper=0).abs()
 
         # breakout_readiness_evidence: 已是归一化分数，无需再次normalize_score
         raw_breakout_readiness = self._get_atomic_score(df, 'SCORE_STRUCT_BREAKOUT_READINESS', 0.0)
@@ -1034,11 +1035,12 @@ class CognitiveIntelligence:
         raw_evidence_values_for_probe['structural_momentum_bullish_evidence'] = raw_structural_momentum_bullish
         processed_evidence_values['structural_momentum_bullish_evidence'] = structural_momentum_bullish_evidence
 
-        # dyn_momentum_bullish_evidence: 已是归一化分数，无需再次normalize_score
+        # dyn_momentum_bullish_evidence: 已是归一化分数，但其负值需要单独处理为惩罚
         raw_dyn_momentum_bullish = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0)
         dyn_momentum_bullish_evidence = self._forge_dynamic_evidence(df, raw_dyn_momentum_bullish.clip(lower=0), apply_normalization=False)
         raw_evidence_values_for_probe['dyn_momentum_bullish_evidence'] = raw_dyn_momentum_bullish
         processed_evidence_values['dyn_momentum_bullish_evidence'] = dyn_momentum_bullish_evidence
+        dyn_momentum_bearish_penalty = raw_dyn_momentum_bullish.clip(upper=0).abs()
 
         # relative_strength_evidence: 已是归一化分数，无需再次normalize_score
         raw_relative_strength = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH', 0.0)
@@ -1046,11 +1048,12 @@ class CognitiveIntelligence:
         raw_evidence_values_for_probe['relative_strength_evidence'] = raw_relative_strength
         processed_evidence_values['relative_strength_evidence'] = relative_strength_evidence
 
-        # chip_trend_momentum_evidence: 已是归一化分数，无需再次normalize_score
+        # chip_trend_momentum_evidence: 已是归一化分数，但其负值需要单独处理为惩罚
         raw_chip_trend_momentum = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_TREND_MOMENTUM', 0.0)
         chip_trend_momentum_evidence = self._forge_dynamic_evidence(df, raw_chip_trend_momentum.clip(lower=0), apply_normalization=False)
         raw_evidence_values_for_probe['chip_trend_momentum_evidence'] = raw_chip_trend_momentum
         processed_evidence_values['chip_trend_momentum_evidence'] = chip_trend_momentum_evidence
+        chip_trend_momentum_bearish_penalty = raw_chip_trend_momentum.clip(upper=0).abs()
 
 
         # --- 3. 定义基础权重 ---
@@ -1155,11 +1158,23 @@ class CognitiveIntelligence:
         likelihood = likelihood * (1 - raw_distribution_intent) * (1 - raw_deception_index.clip(lower=0))
         # 流动性动态越积极，奖励越大
         likelihood = likelihood * (1 + raw_liquidity_dynamics.clip(lower=0) * 0.1)
-        # 新增：筹码同调驱动力负向部分的惩罚
-        # 惩罚因子：1 - 负向驱动力强度 * 惩罚系数
-        # 惩罚系数可以根据需要调整，例如 0.5 意味着负向驱动力为 1 时，似然度减半
+        
+        # 筹码同调驱动力负向部分的惩罚
         chip_coherent_drive_penalty_factor = 1 - chip_coherent_drive_penalty * 0.5
-        likelihood = likelihood * chip_coherent_drive_penalty_factor.clip(0, 1) # 确保惩罚因子在 [0, 1]
+        likelihood = likelihood * chip_coherent_drive_penalty_factor.clip(0, 1)
+
+        # 微观订单流意图负向部分的惩罚
+        microstructure_penalty_factor = 1 - microstructure_intent_bearish_penalty * 0.5
+        likelihood = likelihood * microstructure_penalty_factor.clip(0, 1)
+
+        # 力学动量负向部分的惩罚
+        dyn_momentum_penalty_factor = 1 - dyn_momentum_bearish_penalty * 0.5
+        likelihood = likelihood * dyn_momentum_penalty_factor.clip(0, 1)
+
+        # 筹码趋势动量负向部分的惩罚
+        chip_trend_momentum_penalty_factor = 1 - chip_trend_momentum_bearish_penalty * 0.5
+        likelihood = likelihood * chip_trend_momentum_penalty_factor.clip(0, 1)
+
         likelihood = likelihood.clip(0, 1) # 确保似然度在 [0, 1] 范围内
 
         # --- 8. 计算后验概率 (Posterior Probability) ---
@@ -1197,6 +1212,9 @@ class CognitiveIntelligence:
                 print(f"         - {name}: {weights_df.loc[probe_date_for_loop, name]:.4f}")
             print(f"       - 似然度 (likelihood) 惩罚前: {pd.Series(likelihood_values, index=df_index).loc[probe_date_for_loop]:.4f}") # 输出惩罚前的似然度
             print(f"       - 筹码同调驱动力惩罚因子: {chip_coherent_drive_penalty_factor.loc[probe_date_for_loop]:.4f}")
+            print(f"       - 微观订单流意图惩罚因子: {microstructure_penalty_factor.loc[probe_date_for_loop]:.4f}")
+            print(f"       - 力学动量惩罚因子: {dyn_momentum_penalty_factor.loc[probe_date_for_loop]:.4f}")
+            print(f"       - 筹码趋势动量惩罚因子: {chip_trend_momentum_penalty_factor.loc[probe_date_for_loop]:.4f}")
             print(f"       - 似然度 (likelihood) 惩罚后: {likelihood.loc[probe_date_for_loop]:.4f}")
             print(f"       - 先验概率 (prior_prob): {prior_prob.loc[probe_date_for_loop]:.4f}")
             print(f"       - 最终后验概率 (posterior_prob): {posterior_prob.loc[probe_date_for_loop]:.4f}")
