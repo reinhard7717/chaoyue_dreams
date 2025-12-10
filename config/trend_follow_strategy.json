@@ -3162,7 +3162,7 @@
             }
           },
         "leading_dragon_awakening_params": {
-          "description": "【V6.0 · 矛盾情境与协同强化版】龙头苏醒剧本的专属参数。",
+          "description": "【V7.1 · 证据韧性与情境调制优化版】龙头苏醒剧本的专属参数。",
           "base_weights": {
             "capital_confrontation": 0.08,
             "breakout_quality": 0.08,
@@ -3184,9 +3184,7 @@
             "ff_conviction": 0.06,
             "chip_trend_momentum": 0.06,
             "chip_historical_potential": 0.05,
-            "intraday_offensive_purity": 0.04,
-            "chip_coherent_drive_slope": 0.03,
-            "micro_strategic_intent_slope": 0.03
+            "intraday_offensive_purity": 0.04
           },
           "context_modulation_factors": {
             "market_regime_mod_strength": 0.1,
@@ -3198,7 +3196,8 @@
             "sentiment_asymmetry_mod_bearish": 0.05,
             "liquidity_capital_boost": 0.05,
             "contradictory_context_amplifier": 0.5,
-            "trend_quality_dampening_factor": 0.8
+            "trend_quality_evidence_mod_factor": 0.8,
+            "min_trend_quality_evidence_modulator": 0.3
           },
           "power_factor_dynamic_base": 1.0,
           "power_factor_dynamic_volatility_multiplier": 0.5,
