@@ -1096,11 +1096,11 @@ class CognitiveIntelligence:
 
     def _deduce_capitulation_reversal(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V8.0 · 深度恐慌与多维吸筹确认版】贝叶斯推演：“恐慌投降反转”机会剧本
+        【V9.0 · 深度恐慌与诡道吸筹增强版】贝叶斯推演：“恐慌投降反转”机会剧本
         - 核心升级:
-            1. 强化恐慌情境分数: 移除不可用信号，优化权重分配。
-            2. 新增核心吸筹/吸收证据: 引入吸筹回声。
-            3. 动态权重调制优化: 恐慌深度对证据权重的影响更精细。
+            1. 强化恐慌情境分数: 引入持仓信念韧性负向和派发意图正向，优化权重分配。
+            2. 新增核心吸筹证据: 引入诡道吸筹。
+            3. 探针输出修正: 修正deception_negative_evidence的原始值显示。
             4. 参数可配置化: 所有新增参数均可配置。
             5. 探针增强: 详细输出所有新增信号和计算过程。
         """
@@ -1127,10 +1127,11 @@ class CognitiveIntelligence:
             'SCORE_OPPORTUNITY_SELLING_EXHAUSTION', 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT',
             'PROCESS_META_STRUCTURE_BOTTOM_REVERSAL', 'PROCESS_META_DYNAMIC_MECHANICS_BOTTOM_REVERSAL',
             'PROCESS_META_WASH_OUT_REBOUND', 'PROCESS_META_COVERT_ACCUMULATION',
-            'SCORE_CHIP_OPP_ABSORPTION_ECHO', # 修改行: 替换 SCORE_BEHAVIOR_DIP_ABSORPTION_POWER
+            'SCORE_CHIP_OPP_ABSORPTION_ECHO',
+            'PROCESS_META_DECEPTIVE_ACCUMULATION', # 新增诡道吸筹
             # 用于恐慌情境分数
-            'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 'SCORE_BEHAVIOR_VOLUME_ATROPHY'
-            # 修改行: 移除 SCORE_BEHAVIOR_PANIC_SELLING_CASCADE
+            'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 'SCORE_BEHAVIOR_VOLUME_ATROPHY',
+            'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT' # 新增持仓信念韧性
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_capitulation_reversal"):
             print("    -> [探针] 信号校验失败，返回默认值。")
@@ -1138,20 +1139,21 @@ class CognitiveIntelligence:
         # 获取可配置参数
         cap_rev_params = get_params_block(self.strategy, 'cognitive_intelligence_params', {}).get('capitulation_reversal_params', {})
         base_weights_dict = cap_rev_params.get('base_weights', {
-            'panic_washout_evidence': 0.12,
-            'lower_shadow_absorption': 0.08,
-            'price_vs_capitulation_divergence': 0.08,
-            'loser_capitulation_consensus': 0.07,
-            'power_transfer_to_main_force': 0.08,
-            'micro_reversal_confirmation': 0.07,
-            'chip_geography_support': 0.04,
-            'chip_posture_improvement': 0.07,
-            'deception_negative_evidence': 0.04,
-            'selling_exhaustion_evidence': 0.08,
-            'wash_out_rebound_evidence': 0.05,
-            'reversal_strength_fusion_evidence': 0.07,
-            'covert_accumulation_evidence': 0.08,
-            'absorption_echo_evidence': 0.07 # 修改行: 替换 dip_absorption_power_evidence
+            'panic_washout_evidence': 0.10,
+            'lower_shadow_absorption': 0.07,
+            'price_vs_capitulation_divergence': 0.07,
+            'loser_capitulation_consensus': 0.06,
+            'power_transfer_to_main_force': 0.07,
+            'micro_reversal_confirmation': 0.06,
+            'chip_geography_support': 0.03,
+            'chip_posture_improvement': 0.06,
+            'deception_negative_evidence': 0.03,
+            'selling_exhaustion_evidence': 0.07,
+            'wash_out_rebound_evidence': 0.04,
+            'reversal_strength_fusion_evidence': 0.06,
+            'covert_accumulation_evidence': 0.07,
+            'absorption_echo_evidence': 0.06,
+            'deceptive_accumulation_evidence': 0.12 # 新增
         })
         context_modulation_factors = cap_rev_params.get('context_modulation_factors', {
             'sentiment_negative_mod': 0.15,
@@ -1174,15 +1176,16 @@ class CognitiveIntelligence:
         power_factor_dynamic_panic_multiplier = cap_rev_params.get('power_factor_dynamic_panic_multiplier', 0.5)
         negative_penalty_exponent = cap_rev_params.get('negative_penalty_exponent', 1.5)
         panic_context_score_weights = cap_rev_params.get('panic_context_score_weights', {
-            'panic_washout': 0.2, # 修改行: 调整权重以重新分配 panic_selling_cascade 的权重
-            'loser_capitulation': 0.2, # 修改行: 调整权重以重新分配 panic_selling_cascade 的权重
-            'selling_exhaustion': 0.2,
-            'price_vs_capitulation': 0.1,
-            'price_downward_momentum': 0.15, # 修改行: 调整权重以重新分配 panic_selling_cascade 的权重
-            'volatility_instability': 0.1,
-            'sentiment_inverse': 0.05, # 修改行: 调整权重以重新分配 panic_selling_cascade 的权重
-            'volume_atrophy': 0.0 # 修改行: 调整权重以重新分配 panic_selling_cascade 的权重
-            # 修改行: 移除 'panic_selling_cascade': 0.1
+            'panic_washout': 0.15,
+            'loser_capitulation': 0.15,
+            'selling_exhaustion': 0.15,
+            'price_vs_capitulation': 0.08,
+            'price_downward_momentum': 0.12,
+            'volatility_instability': 0.08,
+            'sentiment_inverse': 0.04,
+            'volume_atrophy': 0.0,
+            'holder_sentiment_negative': 0.15, # 新增
+            'distribution_intent_positive': 0.08 # 新增
         })
         sentiment_inverse_exponent = cap_rev_params.get('sentiment_inverse_exponent', 2.0)
         dynamic_penalty_modulation_params = cap_rev_params.get('dynamic_penalty_modulation_params', {
@@ -1264,14 +1267,19 @@ class CognitiveIntelligence:
         covert_accumulation_evidence = self._forge_dynamic_evidence(df, raw_covert_accumulation)
         raw_evidence_values_for_probe['covert_accumulation_evidence'] = raw_covert_accumulation
         processed_evidence_values['covert_accumulation_evidence'] = covert_accumulation_evidence
-        raw_absorption_echo = self._get_atomic_score(df, 'SCORE_CHIP_OPP_ABSORPTION_ECHO', 0.0) # 修改行: 替换 dip_absorption_power
-        absorption_echo_evidence = self._forge_dynamic_evidence(df, raw_absorption_echo) # 修改行: 替换 dip_absorption_power
-        raw_evidence_values_for_probe['absorption_echo_evidence'] = raw_absorption_echo # 修改行: 替换 dip_absorption_power
-        processed_evidence_values['absorption_echo_evidence'] = absorption_echo_evidence # 修改行: 替换 dip_absorption_power
+        raw_absorption_echo = self._get_atomic_score(df, 'SCORE_CHIP_OPP_ABSORPTION_ECHO', 0.0)
+        absorption_echo_evidence = self._forge_dynamic_evidence(df, raw_absorption_echo)
+        raw_evidence_values_for_probe['absorption_echo_evidence'] = raw_absorption_echo
+        processed_evidence_values['absorption_echo_evidence'] = absorption_echo_evidence
+        raw_deceptive_accumulation = self._get_atomic_score(df, 'PROCESS_META_DECEPTIVE_ACCUMULATION', 0.0) # 新增
+        deceptive_accumulation_evidence = self._forge_dynamic_evidence(df, raw_deceptive_accumulation) # 新增
+        raw_evidence_values_for_probe['deceptive_accumulation_evidence'] = raw_deceptive_accumulation # 新增
+        processed_evidence_values['deceptive_accumulation_evidence'] = deceptive_accumulation_evidence # 新增
         # 用于恐慌情境分数
         raw_price_downward_momentum = self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0)
         raw_volume_atrophy = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0)
-        # 修改行: 移除 raw_panic_selling_cascade = self._get_atomic_score(df, 'SCORE_BEHAVIOR_PANIC_SELLING_CASCADE', 0.0)
+        raw_holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0) # 新增
+        raw_distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0) # 已有，但用于恐慌情境分数
         # --- 2.1 计算恐慌情境分数 (Panic_Context_Score) ---
         # 融合恐慌相关信号，归一化到 [0, 1]
         panic_components = []
@@ -1295,7 +1303,10 @@ class CognitiveIntelligence:
                 panic_components.append((1 - sentiment_score_clipped).pow(sentiment_inverse_exponent) * weight)
             elif signal_name == 'volume_atrophy':
                 panic_components.append(raw_volume_atrophy * weight)
-            # 修改行: 移除 elif signal_name == 'panic_selling_cascade': panic_components.append(raw_panic_selling_cascade * weight)
+            elif signal_name == 'holder_sentiment_negative': # 新增
+                panic_components.append(raw_holder_sentiment.clip(upper=0).abs() * weight)
+            elif signal_name == 'distribution_intent_positive': # 新增
+                panic_components.append(raw_distribution_intent.clip(lower=0) * weight)
         panic_context_score_raw = sum(panic_components) / panic_weights_sum if panic_weights_sum > 0 else pd.Series(0.0, index=df_index)
         panic_context_score = panic_context_score_raw.clip(0, 1)
         # --- 2.2 融合反转强度证据 ---
@@ -1322,9 +1333,9 @@ class CognitiveIntelligence:
         trend_weak_mod = (1 - trend_quality_score.clip(lower=0)) * context_modulation_factors['trend_weak_mod']
         liquidity_positive_mod = raw_liquidity_dynamics.clip(lower=0) * context_modulation_factors['liquidity_positive_mod']
         panic_depth_mod = (panic_context_score.pow(context_modulation_factors['panic_depth_mod_exponent'])) * context_modulation_factors['panic_depth_mod']
-        for name in ['panic_washout_evidence', 'price_vs_capitulation_divergence', 'loser_capitulation_consensus', 'selling_exhaustion_evidence', 'wash_out_rebound_evidence', 'absorption_echo_evidence']: # 修改行: 替换 dip_absorption_power_evidence
+        for name in ['panic_washout_evidence', 'price_vs_capitulation_divergence', 'loser_capitulation_consensus', 'selling_exhaustion_evidence', 'wash_out_rebound_evidence', 'absorption_echo_evidence']:
             adaptive_weights_per_date[name] += sentiment_negative_mod + volatility_high_mod + trend_weak_mod + panic_depth_mod
-        for name in ['lower_shadow_absorption', 'power_transfer_to_main_force', 'micro_reversal_confirmation', 'deception_negative_evidence', 'reversal_strength_fusion_evidence', 'covert_accumulation_evidence']:
+        for name in ['lower_shadow_absorption', 'power_transfer_to_main_force', 'micro_reversal_confirmation', 'deception_negative_evidence', 'reversal_strength_fusion_evidence', 'covert_accumulation_evidence', 'deceptive_accumulation_evidence']: # 修改行: 新增 deceptive_accumulation_evidence
             adaptive_weights_per_date[name] += sentiment_negative_mod + trend_weak_mod + liquidity_positive_mod + panic_depth_mod
         for name in ['chip_geography_support', 'chip_posture_improvement']:
             adaptive_weights_per_date[name] += trend_weak_mod + liquidity_positive_mod
@@ -1346,7 +1357,8 @@ class CognitiveIntelligence:
             chip_geography_support, chip_posture_improvement,
             deception_negative_evidence, selling_exhaustion_evidence,
             wash_out_rebound_evidence, reversal_strength_fusion_evidence,
-            covert_accumulation_evidence, absorption_echo_evidence # 修改行: 替换 dip_absorption_power_evidence
+            covert_accumulation_evidence, absorption_echo_evidence,
+            deceptive_accumulation_evidence # 新增
         ]
         transformed_evidence_scores = []
         for evidence_series in evidence_list:
@@ -1359,7 +1371,7 @@ class CognitiveIntelligence:
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * weights_df.values.T, axis=0))
         likelihood = pd.Series(likelihood_values, index=df_index)
         # --- 7. 反向证据惩罚 ---
-        raw_distribution_intent = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DISTRIBUTION_INTENT', 0.0)
+        # raw_distribution_intent 已在前面获取
         distribution_intent_penalty_factor = 1 - raw_distribution_intent * penalty_coefficients['distribution_intent']
         likelihood = likelihood * distribution_intent_penalty_factor.clip(0, 1)
         deception_positive_penalty_factor = 1 - raw_deception_index.clip(lower=0) * penalty_coefficients['deception_positive']
@@ -1395,7 +1407,8 @@ class CognitiveIntelligence:
             print(f"         - raw_liquidity_dynamics: {raw_liquidity_dynamics.loc[probe_date_for_loop]:.4f}")
             print(f"         - raw_price_downward_momentum: {raw_price_downward_momentum.loc[probe_date_for_loop]:.4f}")
             print(f"         - raw_volume_atrophy: {raw_volume_atrophy.loc[probe_date_for_loop]:.4f}")
-            # 修改行: 移除 raw_panic_selling_cascade 探针输出
+            print(f"         - raw_holder_sentiment: {raw_holder_sentiment.loc[probe_date_for_loop]:.4f}") # 新增
+            print(f"         - raw_distribution_intent: {raw_distribution_intent.loc[probe_date_for_loop]:.4f}") # 新增
             print(f"       - 恐慌情境分数 (panic_context_score): {panic_context_score.loc[probe_date_for_loop]:.4f}")
             print(f"       - 动态幂次因子 (power_factor_dynamic): {power_factor_dynamic.loc[probe_date_for_loop]:.4f}")
             print(f"       - 最小证据阈值 (min_evidence_threshold): {min_evidence_threshold_val:.9f}")
@@ -1423,7 +1436,7 @@ class CognitiveIntelligence:
             print(f"       - 原始惩罚信号值:")
             print(f"         - raw_distribution_intent: {raw_distribution_intent.loc[probe_date_for_loop]:.4f}")
             print(f"         - raw_deception_index (positive part): {(raw_deception_index.clip(lower=0)).loc[probe_date_for_loop]:.4f}")
-            print(f"         - raw_deception_index (negative part for deception_negative_evidence): {(raw_deception_index.clip(upper=0).abs()).loc[probe_date_for_loop]:.4f}") # 修改行: 修正探针显示为负向部分
+            print(f"         - raw_deception_index (negative part for deception_negative_evidence): {(raw_deception_index.clip(upper=0).abs()).loc[probe_date_for_loop]:.4f}")
             print(f"         - raw_chip_risk_distribution_whisper: {raw_chip_risk_distribution_whisper.loc[probe_date_for_loop]:.4f}")
             print(f"         - raw_power_transfer (negative part): {power_transfer_penalty_factor_raw.loc[probe_date_for_loop]:.4f}")
             print(f"         - raw_chip_geography_support (negative part): {chip_geography_penalty_factor_raw.loc[probe_date_for_loop]:.4f}")
