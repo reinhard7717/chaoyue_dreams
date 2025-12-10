@@ -3097,7 +3097,35 @@
           "corr_window": 21,
           "corr_slope_window": 5,
           "synergy_force_weight": 0.3
+        },
+        "capitulation_reversal_params": {
+          "description": "【V3.0 · 诡道情境感知版】恐慌投降反转剧本的专属参数。",
+          "base_weights": {
+            "panic_washout_evidence": 0.20,
+            "lower_shadow_absorption": 0.15,
+            "price_vs_capitulation_divergence": 0.15,
+            "loser_capitulation_consensus": 0.10,
+            "power_transfer_to_main_force": 0.15,
+            "micro_reversal_confirmation": 0.10,
+            "chip_geography_support": 0.05,
+            "chip_posture_improvement": 0.10,
+            "deception_negative_evidence": 0.05
+          },
+          "context_modulation_factors": {
+            "sentiment_negative_mod": 0.15,
+            "volatility_high_mod": 0.1,
+            "trend_weak_mod": 0.1,
+            "liquidity_positive_mod": 0.05
+          },
+          "penalty_coefficients": {
+            "distribution_intent": 0.5,
+            "deception_positive": 0.5,
+            "chip_risk_distribution_whisper": 0.5
+          },
+          "power_factor_dynamic_base": 1.0,
+          "power_factor_dynamic_volatility_multiplier": 0.5
         }
+
       },
       "intraday_behavior_engine_params": {
         "enabled": true,
