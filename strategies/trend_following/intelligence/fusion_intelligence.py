@@ -690,14 +690,14 @@ class FusionIntelligence:
 
     def _synthesize_liquidity_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 诡道情境自适应版】冶炼“流动性博弈动态” (FUSION_BIPOLAR_LIQUIDITY_DYNAMICS)
-        - 核心重构: 引入“动态激活敏感度”和“非线性情境调制”，并初步探索“维度间协同/冲突”裁决机制。
+        【V5.0 · 诡道穿透版】冶炼“流动性博弈动态” (FUSION_BIPOLAR_LIQUIDITY_DYNAMICS)
+        - 核心重构: 引入“诡道因子非对称调制”，深化流动性“质量”与“纯度”量化，优化动态激活敏感度，强化维度间协同/冲突裁决。
         - 核心目标: 融合“价量效能”、“权势转移”、“流动性状态”三大维度，输出[-1, 1]的双极性分数。
         - 诡道哲学: 流动性是市场博弈的血液。健康的流动性动态，是主力主导、价量协同、权力稳固的体现；
                       混乱的流动性动态，则预示着主力派发、权力失衡、市场混乱。
                       其判断重心与反应速度，应随市场情境（趋势质量、市场政权、波动率、情绪、资金流可信度）
-                      动态调整，并能识别维度间的协同与冲突。
-        - 融合模型: 最终得分 = tanh((动态权重_pve*PVE + 动态权重_pt*PT + 动态权重_ls*LS) * 协同/冲突因子)
+                      动态调整，并能识别维度间的协同与冲突，穿透主力诡道。
+        - 融合模型: 最终得分 = tanh( (动态权重_pve*PVE + 动态权重_pt*PT + 动态权重_ls*LS) * 协同/冲突因子 * 诡道穿透因子)
         """
         print("  -- [融合层] 正在冶炼“流动性博弈动态”...")
         states = {}
@@ -706,8 +706,10 @@ class FusionIntelligence:
         # [修改] 从配置中读取参数
         ld_params = get_params_block(self.strategy, 'fusion_playbook_params', {}).get('liquidity_dynamics', {})
 
-        # 辅助函数：计算加权和并应用tanh激活，映射到[0, 1]
-        def weighted_sum_with_activation_series(components_with_weights, index, activation_sensitivity=1.0):
+        # [修改] 辅助函数：计算加权和并应用tanh激活，映射到[0, 1]，并引入诡道调制
+        def weighted_sum_with_activation_series(components_with_weights, index, activation_sensitivity=1.0,
+                                                deception_index=None, wash_trade_intensity=None, flow_credibility=None,
+                                                deception_mod_params=None, is_bullish=True):
             if not components_with_weights:
                 return pd.Series(0.0, index=index)
             
@@ -720,23 +722,56 @@ class FusionIntelligence:
             
             if total_possible_weight > 0:
                 normalized_sum = raw_sum / total_possible_weight
-                return (np.tanh(normalized_sum * activation_sensitivity) + 1) / 2
+                activated_score = (np.tanh(normalized_sum * activation_sensitivity) + 1) / 2
+
+                # [新增] 诡道因子非对称调制
+                if deception_index is not None and wash_trade_intensity is not None and deception_mod_params is not None:
+                    deception_penalty_factor = get_param_value(deception_mod_params.get('deception_penalty_factor'), 0.2)
+                    wash_trade_penalty_factor = get_param_value(deception_mod_params.get('wash_trade_penalty_factor'), 0.1)
+                    deception_reward_factor = get_param_value(deception_mod_params.get('deception_reward_factor'), 0.1)
+                    credibility_influence = get_param_value(deception_mod_params.get('credibility_influence'), 0.5)
+
+                    # 资金流可信度对欺骗因子的影响：可信度越高，欺骗因子的影响越小
+                    credibility_mod = (1 - flow_credibility * credibility_influence).clip(0, 1) if flow_credibility is not None else pd.Series(1.0, index=index)
+                    
+                    # 欺骗指数和对倒强度，经过可信度调制
+                    modulated_deception = deception_index * credibility_mod
+                    modulated_wash_trade = wash_trade_intensity * credibility_mod
+
+                    # 非对称调制逻辑
+                    if is_bullish: # 看涨信号
+                        # 如果看涨信号与正向欺骗（拉高出货）或对倒同向，则惩罚
+                        penalty = (modulated_deception.clip(lower=0) * deception_penalty_factor +
+                                   modulated_wash_trade * wash_trade_penalty_factor)
+                        activated_score = (activated_score - penalty).clip(0, 1)
+                    else: # 看跌信号
+                        # 如果看跌信号与负向欺骗（压价吸筹）同向，则奖励 (反向惩罚)
+                        reward = (modulated_deception.clip(upper=0).abs() * deception_reward_factor)
+                        activated_score = (activated_score + reward).clip(0, 1)
+                        # 如果看跌信号与正向欺骗（诱空）同向，则惩罚
+                        penalty = (modulated_deception.clip(lower=0) * deception_penalty_factor)
+                        activated_score = (activated_score - penalty).clip(0, 1)
+
+                return activated_score
             else:
                 return pd.Series(0.0, index=index)
 
         # --- 1. 定义三大维度及其原料信号 (新增明确权重) ---
 
         # 1.1 维度一：价量效能 (Price-Volume Efficiency - PVE)
+        # [修改] 增加 PRICE_VOLUME_ENTROPY_D 的考量
         bullish_pve_components_with_weights = [
-            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0), 0.3),
-            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0), 0.25),
-            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0), 0.25),
-            (self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0).clip(lower=0), 0.2)
+            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0), 0.25),
+            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0), 0.2),
+            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0), 0.2),
+            (self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0).clip(lower=0), 0.2),
+            (1 - self._get_atomic_score(df, 'PRICE_VOLUME_ENTROPY_D', 0.0), 0.15) # 熵越低，价量关系越清晰，越好
         ]
         bearish_pve_components_with_weights = [
             (self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0), 0.3),
             (self._get_atomic_score(df, 'PROCESS_RISK_VPA_EFFICIENCY_DECAY', 0.0), 0.3),
-            (self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0).clip(upper=0).abs(), 0.4)
+            (self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0).clip(upper=0).abs(), 0.2),
+            (self._get_atomic_score(df, 'PRICE_VOLUME_ENTROPY_D', 0.0), 0.2) # 熵越高，价量关系越混乱，越差
         ]
 
         # 1.2 维度二：权势转移 (Power Transfer - PT)
@@ -754,50 +789,71 @@ class FusionIntelligence:
         ]
 
         # 1.3 维度三：流动性状态 (Liquidity State - LS)
+        # [修改] 增加资金流基尼系数和散户资金主导指数的考量
         bullish_ls_components_with_weights = [
-            (self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0).clip(lower=0), 0.3),
-            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0).clip(lower=0), 0.25),
-            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.0).clip(lower=0), 0.25),
-            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0), 0.2) # 高品质萎缩是看涨信号
+            (self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0).clip(lower=0), 0.25),
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0).clip(lower=0), 0.2),
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.0).clip(lower=0), 0.2),
+            (self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0), 0.15), # 高品质萎缩是看涨信号
+            (1 - self._get_atomic_score(df, 'main_force_flow_gini_D', 0.0), 0.1), # 基尼系数越低，资金流越均匀，越好
+            (1 - self._get_atomic_score(df, 'retail_flow_dominance_index_D', 0.0), 0.1) # 散户主导越低，越好
         ]
         bearish_ls_components_with_weights = [
-            (self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0).clip(upper=0).abs(), 0.3),
-            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0).clip(upper=0).abs(), 0.25),
-            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.0).clip(upper=0).abs(), 0.25),
-            (self._get_atomic_score(df, 'FUSION_RISK_STAGNATION', 0.0), 0.2) # 滞涨风险是看跌信号
+            (self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0).clip(upper=0).abs(), 0.25),
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0).clip(upper=0).abs(), 0.2),
+            (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.0).clip(upper=0).abs(), 0.2),
+            (self._get_atomic_score(df, 'FUSION_RISK_STAGNATION', 0.0), 0.15), # 滞涨风险是看跌信号
+            (self._get_atomic_score(df, 'main_force_flow_gini_D', 0.0), 0.1), # 基尼系数越高，资金流越集中，可能风险
+            (self._get_atomic_score(df, 'retail_flow_dominance_index_D', 0.0), 0.1) # 散户主导越高，越差
         ]
 
         # --- 2. 核心数学逻辑 - 融合三大维度 ---
         
-        # [新增] 2.1 动态计算维度内部激活敏感度
+        # [修改] 2.1 动态计算维度内部激活敏感度
+        # 获取调制信号
+        volatility_instability = self._get_atomic_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0)
+        market_sentiment = self._get_atomic_score(df, 'market_sentiment_score_D', 0.0)
+        flow_credibility = self._get_atomic_score(df, 'flow_credibility_index_D', 0.0)
+        deception_index = self._get_atomic_score(df, 'deception_index_D', 0.0)
+        wash_trade_intensity = self._get_atomic_score(df, 'wash_trade_intensity_D', 0.0)
+
+        # PVE敏感度：受波动率不稳定性调制
         pve_sens_params = ld_params.get('pve_activation_sensitivity_params', {})
         pve_base_sens = get_param_value(pve_sens_params.get('base_sensitivity'), 2.0)
-        pve_mod_signal = self._get_atomic_score(df, get_param_value(pve_sens_params.get('modulator_signal')), 0.0)
         pve_mod_factor = get_param_value(pve_sens_params.get('modulator_factor'), 0.5)
-        pve_activation_sensitivity = pve_base_sens * (1 + pve_mod_signal * pve_mod_factor).clip(0.5, 1.5) # 限制调节范围
+        pve_activation_sensitivity = pve_base_sens * (1 + np.tanh(volatility_instability * pve_mod_factor)).clip(0.5, 1.5)
 
+        # PT敏感度：受市场情绪调制
         pt_sens_params = ld_params.get('pt_activation_sensitivity_params', {})
         pt_base_sens = get_param_value(pt_sens_params.get('base_sensitivity'), 2.0)
-        pt_mod_signal = self._get_atomic_score(df, get_param_value(pt_sens_params.get('modulator_signal')), 0.0)
         pt_mod_factor = get_param_value(pt_sens_params.get('modulator_factor'), 0.5)
-        pt_activation_sensitivity = pt_base_sens * (1 + pt_mod_signal * pt_mod_factor).clip(0.5, 1.5)
+        pt_activation_sensitivity = pt_base_sens * (1 + np.tanh(market_sentiment * pt_mod_factor)).clip(0.5, 1.5)
 
+        # LS敏感度：受资金流可信度调制
         ls_sens_params = ld_params.get('ls_activation_sensitivity_params', {})
         ls_base_sens = get_param_value(ls_sens_params.get('base_sensitivity'), 2.0)
-        ls_mod_signal = self._get_atomic_score(df, get_param_value(ls_sens_params.get('modulator_signal')), 0.0)
         ls_mod_factor = get_param_value(ls_sens_params.get('modulator_factor'), 0.5)
-        ls_activation_sensitivity = ls_base_sens * (1 + ls_mod_signal * ls_mod_factor).clip(0.5, 1.5)
+        ls_activation_sensitivity = ls_base_sens * (1 + np.tanh(flow_credibility * ls_mod_factor)).clip(0.5, 1.5)
 
-        bullish_pve_fused = weighted_sum_with_activation_series(bullish_pve_components_with_weights, df_index, pve_activation_sensitivity)
-        bearish_pve_fused = weighted_sum_with_activation_series(bearish_pve_components_with_weights, df_index, pve_activation_sensitivity)
+        # 诡道调制参数
+        deception_mod_params = ld_params.get('deception_modulation_params', {})
+
+        bullish_pve_fused = weighted_sum_with_activation_series(bullish_pve_components_with_weights, df_index, pve_activation_sensitivity,
+                                                                deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=True)
+        bearish_pve_fused = weighted_sum_with_activation_series(bearish_pve_components_with_weights, df_index, pve_activation_sensitivity,
+                                                                deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=False)
         pve_score = (bullish_pve_fused - bearish_pve_fused).clip(-1, 1)
 
-        bullish_pt_fused = weighted_sum_with_activation_series(bullish_pt_components_with_weights, df_index, pt_activation_sensitivity)
-        bearish_pt_fused = weighted_sum_with_activation_series(bearish_pt_components_with_weights, df_index, pt_activation_sensitivity)
+        bullish_pt_fused = weighted_sum_with_activation_series(bullish_pt_components_with_weights, df_index, pt_activation_sensitivity,
+                                                               deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=True)
+        bearish_pt_fused = weighted_sum_with_activation_series(bearish_pt_components_with_weights, df_index, pt_activation_sensitivity,
+                                                               deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=False)
         pt_score = (bullish_pt_fused - bearish_pt_fused).clip(-1, 1)
 
-        bullish_ls_fused = weighted_sum_with_activation_series(bullish_ls_components_with_weights, df_index, ls_activation_sensitivity)
-        bearish_ls_fused = weighted_sum_with_activation_series(bearish_ls_components_with_weights, df_index, ls_activation_sensitivity)
+        bullish_ls_fused = weighted_sum_with_activation_series(bullish_ls_components_with_weights, df_index, ls_activation_sensitivity,
+                                                               deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=True)
+        bearish_ls_fused = weighted_sum_with_activation_series(bearish_ls_components_with_weights, df_index, ls_activation_sensitivity,
+                                                               deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=False)
         ls_score = (bullish_ls_fused - bearish_ls_fused).clip(-1, 1)
 
         # [修改] 2.2 动态融合三大维度 (加权平均 + tanh激活)
@@ -816,7 +872,7 @@ class FusionIntelligence:
         tq_non_linear_sensitivity = get_param_value(context_mod_params.get('tq_non_linear_sensitivity'), 2.0)
         mr_non_linear_sensitivity = get_param_value(context_mod_params.get('mr_non_linear_sensitivity'), 2.0)
 
-        # [新增] 非线性调制宏观情境信号
+        # 非线性调制宏观情境信号
         modulated_tq = np.tanh(trend_quality * tq_non_linear_sensitivity)
         modulated_mr = np.tanh(market_regime * mr_non_linear_sensitivity)
 
@@ -839,36 +895,32 @@ class FusionIntelligence:
             ls_score * normalized_weights_ls
         )
 
-        # [新增] 2.3 维度间协同/冲突初步裁决
+        # [修改] 2.3 维度间协同/冲突初步裁决 (强化诡道因子影响)
         synergy_conflict_params = ld_params.get('synergy_conflict_params', {})
         synergy_threshold = get_param_value(synergy_conflict_params.get('synergy_threshold'), 0.5)
         conflict_threshold = get_param_value(synergy_conflict_params.get('conflict_threshold'), -0.5)
         synergy_bonus_factor = get_param_value(synergy_conflict_params.get('synergy_bonus_factor'), 0.1)
         conflict_penalty_factor = get_param_value(synergy_conflict_params.get('conflict_penalty_factor'), 0.1)
+        deception_impact_on_synergy = get_param_value(synergy_conflict_params.get('deception_impact_on_synergy'), 0.5)
 
-        # 计算三个维度的平均方向
-        avg_direction = (pve_score + pt_score + ls_score) / 3.0
+        synergy_conflict_modulator = pd.Series(1.0, index=df_index)
 
-        # 协同因子：当三个维度都强烈同向时，给予奖励
-        synergy_factor = pd.Series(1.0, index=df_index)
         # 强协同（都看涨）
         strong_bullish_synergy = (pve_score > synergy_threshold) & (pt_score > synergy_threshold) & (ls_score > synergy_threshold)
-        synergy_factor.loc[strong_bullish_synergy] += synergy_bonus_factor
+        synergy_conflict_modulator.loc[strong_bullish_synergy] += synergy_bonus_factor * (1 - deception_index.clip(lower=0) * deception_impact_on_synergy) # 欺骗指数越高，协同奖励越少
         # 强协同（都看跌）
         strong_bearish_synergy = (pve_score < conflict_threshold) & (pt_score < conflict_threshold) & (ls_score < conflict_threshold)
-        synergy_factor.loc[strong_bearish_synergy] += synergy_bonus_factor # 负向协同也应增强信号强度
+        synergy_conflict_modulator.loc[strong_bearish_synergy] += synergy_bonus_factor * (1 - deception_index.clip(upper=0).abs() * deception_impact_on_synergy) # 负向欺骗越高，协同奖励越少
 
-        # 冲突因子：当维度间方向显著矛盾时，给予惩罚 (例如，PVE看涨，但PT和LS看跌，可能为诱多)
-        conflict_factor = pd.Series(1.0, index=df_index)
+        # 冲突因子：当维度间方向显著矛盾时，给予惩罚 (例如，PVE看涨，但PT和LS看跌，可能预示“拉高出货”的诡道，应予惩罚)
         # PVE看涨，但PT和LS看跌 (诱多风险)
         bullish_pve_bearish_pt_ls = (pve_score > synergy_threshold) & (pt_score < conflict_threshold) & (ls_score < conflict_threshold)
-        conflict_factor.loc[bullish_pve_bearish_pt_ls] -= conflict_penalty_factor
+        synergy_conflict_modulator.loc[bullish_pve_bearish_pt_ls] -= conflict_penalty_factor * (1 + deception_index.clip(lower=0) * deception_impact_on_synergy) # 欺骗指数越高，惩罚越重
         # PVE看跌，但PT和LS看涨 (诱空风险)
         bearish_pve_bullish_pt_ls = (pve_score < conflict_threshold) & (pt_score > synergy_threshold) & (ls_score > synergy_threshold)
-        conflict_factor.loc[bearish_pve_bullish_pt_ls] -= conflict_penalty_factor
+        synergy_conflict_modulator.loc[bearish_pve_bullish_pt_ls] -= conflict_penalty_factor * (1 + deception_index.clip(upper=0).abs() * deception_impact_on_synergy) # 负向欺骗越高，惩罚越重
 
-        # 最终的协同/冲突调节器
-        synergy_conflict_modulator = (synergy_factor * conflict_factor).clip(0.5, 1.5) # 限制调节范围
+        synergy_conflict_modulator = synergy_conflict_modulator.clip(0.5, 1.5) # 限制调节范围
 
         # 最终得分应用协同/冲突调节器
         final_score = np.tanh(raw_fusion_score * 2.0 * synergy_conflict_modulator) # 乘以2.0可以增加tanh的敏感度
@@ -879,14 +931,21 @@ class FusionIntelligence:
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             last_date_index = -1
-            print(f"\n--- [流动性博弈动态究极探针 V4.0 · 诡道情境自适应版] ---")
+            print(f"\n--- [流动性博弈动态究极探针 V5.0 · 诡道穿透版] ---")
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
+
+            print("\n  [诡道因子与宏观情境]:")
+            print(f"    - 波动率不稳定性 (VOLATILITY_INSTABILITY_INDEX_21d_D): {volatility_instability.iloc[last_date_index]:.4f}")
+            print(f"    - 市场情绪 (market_sentiment_score_D): {market_sentiment.iloc[last_date_index]:.4f}")
+            print(f"    - 资金流可信度 (flow_credibility_index_D): {flow_credibility.iloc[last_date_index]:.4f}")
+            print(f"    - 欺骗指数 (deception_index_D): {deception_index.iloc[last_date_index]:.4f}")
+            print(f"    - 对倒强度 (wash_trade_intensity_D): {wash_trade_intensity.iloc[last_date_index]:.4f}")
 
             print("\n  [维度一: 价量效能 (Price-Volume Efficiency - PVE)]:")
             print(f"    - 动态激活敏感度: {pve_activation_sensitivity.iloc[last_date_index]:.4f}")
             print("    [看涨PVE原料]:")
             bullish_pve_raw_sum = pd.Series(0.0, index=df_index)
-            for name, (comp, weight) in zip(['价格上涨动能', '看涨量能爆发', '上涨效率', '动量品质(正)'], bullish_pve_components_with_weights):
+            for name, (comp, weight) in zip(['价格上涨动能', '看涨量能爆发', '上涨效率', '动量品质(正)', '价量熵(逆)'], bullish_pve_components_with_weights):
                 print(f"      - {name}: {comp.iloc[last_date_index]:.4f} (权重: {weight:.2f}, 贡献: {comp.iloc[last_date_index] * weight:.4f})")
                 bullish_pve_raw_sum += comp * weight
             print(f"    - -> 看涨PVE加权和: {bullish_pve_raw_sum.iloc[last_date_index]:.4f}")
@@ -894,7 +953,7 @@ class FusionIntelligence:
 
             print("    [看跌PVE原料]:")
             bearish_pve_raw_sum = pd.Series(0.0, index=df_index)
-            for name, (comp, weight) in zip(['价格下跌动能', 'VPA效率衰减风险', '动量品质(负)'], bearish_pve_components_with_weights):
+            for name, (comp, weight) in zip(['价格下跌动能', 'VPA效率衰减风险', '动量品质(负)', '价量熵'], bearish_pve_components_with_weights):
                 print(f"      - {name}: {comp.iloc[last_date_index]:.4f} (权重: {weight:.2f}, 贡献: {comp.iloc[last_date_index] * weight:.4f})")
                 bearish_pve_raw_sum += comp * weight
             print(f"    - -> 看跌PVE加权和: {bearish_pve_raw_sum.iloc[last_date_index]:.4f}")
@@ -924,7 +983,7 @@ class FusionIntelligence:
             print(f"    - 动态激活敏感度: {ls_activation_sensitivity.iloc[last_date_index]:.4f}")
             print("    [看涨LS原料]:")
             bullish_ls_raw_sum = pd.Series(0.0, index=df_index)
-            for name, (comp, weight) in zip(['流动性潮汐(正)', '资金流纯度与动能(正)', '资金流结构健康度(正)', '成交量萎缩(高品质)'], bullish_ls_components_with_weights):
+            for name, (comp, weight) in zip(['流动性潮汐(正)', '资金流纯度与动能(正)', '资金流结构健康度(正)', '成交量萎缩(高品质)', '资金流基尼(逆)', '散户主导(逆)'], bullish_ls_components_with_weights):
                 print(f"      - {name}: {comp.iloc[last_date_index]:.4f} (权重: {weight:.2f}, 贡献: {comp.iloc[last_date_index] * weight:.4f})")
                 bullish_ls_raw_sum += comp * weight
             print(f"    - -> 看涨LS加权和: {bullish_ls_raw_sum.iloc[last_date_index]:.4f}")
@@ -932,7 +991,7 @@ class FusionIntelligence:
 
             print("    [看跌LS原料]:")
             bearish_ls_raw_sum = pd.Series(0.0, index=df_index)
-            for name, (comp, weight) in zip(['流动性潮汐(负)', '资金流纯度与动能(负)', '资金流结构健康度(负)', '滞涨风险'], bearish_ls_components_with_weights):
+            for name, (comp, weight) in zip(['流动性潮汐(负)', '资金流纯度与动能(负)', '资金流结构健康度(负)', '滞涨风险', '资金流基尼', '散户主导'], bearish_ls_components_with_weights):
                 print(f"      - {name}: {comp.iloc[last_date_index]:.4f} (权重: {weight:.2f}, 贡献: {comp.iloc[last_date_index] * weight:.4f})")
                 bearish_ls_raw_sum += comp * weight
             print(f"    - -> 看跌LS加权和: {bearish_ls_raw_sum.iloc[last_date_index]:.4f}")
