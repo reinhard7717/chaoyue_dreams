@@ -727,43 +727,67 @@ class CognitiveIntelligence:
         low_structural_stability = self._forge_dynamic_evidence(df, (1 - raw_structural_stability).clip(0, 1), apply_normalization=True)
 
         # 新增：复合筹码派发证据
-        # 动态调整内部权重，当 chip_bearish_divergence 为0时，将其权重分配给其他组件
-        base_weights_components = {
-            'chip_bearish_divergence': 0.3,
-            'chip_dispersion_evidence': 0.2,
-            'chip_axiom_divergence_bearish': 0.3,
-            'holder_sentiment_inverse': 0.2
-        }
+        # 动态调整内部权重，当 chip_bearish_divergence 为0时，将其权重按比例分配给其他组件
         
-        # 计算动态权重
-        dynamic_weights_components = pd.DataFrame(base_weights_components, index=df_index)
-        
-        # 如果 chip_bearish_divergence 为0，将其权重按比例分配给其他非零组件
-        zero_chip_bearish_mask = (component_chip_bearish_divergence == 0)
-        
-        # 计算剩余组件的总权重
-        remaining_total_weight = dynamic_weights_components[['chip_dispersion_evidence', 'chip_axiom_divergence_bearish', 'holder_sentiment_inverse']].sum(axis=1)
-        
-        # 分配权重
-        for col in ['chip_dispersion_evidence', 'chip_axiom_divergence_bearish', 'holder_sentiment_inverse']:
-            # 只有当 chip_bearish_divergence 为0且 remaining_total_weight > 0 时才进行分配
-            allocation_ratio = dynamic_weights_components[col] / remaining_total_weight
-            dynamic_weights_components.loc[zero_chip_bearish_mask, col] += dynamic_weights_components.loc[zero_chip_bearish_mask, 'chip_bearish_divergence'] * allocation_ratio.loc[zero_chip_bearish_mask]
-        
-        # 将 chip_bearish_divergence 的权重设为0，因为它已经分配出去了
-        dynamic_weights_components.loc[zero_chip_bearish_mask, 'chip_bearish_divergence'] = 0
-        
-        # 应用幂函数
+        # 1. 定义原始组件和它们的幂次处理 (提前定义，避免NameError)
         component_chip_bearish_divergence_pow = chip_bearish_divergence.pow(0.5)
         component_chip_dispersion_evidence_pow = chip_dispersion_evidence.pow(0.8)
         component_chip_axiom_divergence_bearish_pow = chip_axiom_divergence_bearish.pow(0.8)
         component_holder_sentiment_inverse_pow = holder_sentiment_inverse.pow(0.8)
 
+        # 2. 定义基础权重
+        base_weights_components = pd.Series({
+            'chip_bearish_divergence': 0.3,
+            'chip_dispersion_evidence': 0.2,
+            'chip_axiom_divergence_bearish': 0.3,
+            'holder_sentiment_inverse': 0.2
+        })
+        
+        # 3. 初始化动态权重为基础权重
+        dynamic_weights_components_df = pd.DataFrame({
+            'chip_bearish_divergence': base_weights_components['chip_bearish_divergence'],
+            'chip_dispersion_evidence': base_weights_components['chip_dispersion_evidence'],
+            'chip_axiom_divergence_bearish': base_weights_components['chip_axiom_divergence_bearish'],
+            'holder_sentiment_inverse': base_weights_components['holder_sentiment_inverse']
+        }, index=df_index)
+
+        # 4. 识别 chip_bearish_divergence 为0的日期 (修正变量名)
+        zero_chip_bearish_mask = (chip_bearish_divergence == 0) # 修正的代码行
+
+        # 5. 在这些日期，计算其他组件的有效（非零）基础权重之和
+        other_components_series = {
+            'chip_dispersion_evidence': chip_dispersion_evidence,
+            'chip_axiom_divergence_bearish': chip_axiom_divergence_bearish,
+            'holder_sentiment_inverse': holder_sentiment_inverse
+        }
+        
+        sum_of_other_active_base_weights = pd.Series(0.0, index=df_index)
+        for col_name, series_obj in other_components_series.items():
+            sum_of_other_active_base_weights += dynamic_weights_components_df[col_name] * (series_obj != 0).astype(float)
+        
+        sum_of_other_active_base_weights_safe = sum_of_other_active_base_weights.replace(0, 1)
+
+        # 6. 执行权重重新分配
+        reallocation_active_mask = zero_chip_bearish_mask & (sum_of_other_active_base_weights > 0)
+        
+        weight_to_reallocate = dynamic_weights_components_df.loc[reallocation_active_mask, 'chip_bearish_divergence']
+
+        for col in ['chip_dispersion_evidence', 'chip_axiom_divergence_bearish', 'holder_sentiment_inverse']:
+            component_is_non_zero_mask = (other_components_series[col] != 0)
+            
+            proportion = (dynamic_weights_components_df[col] * component_is_non_zero_mask.astype(float)) / sum_of_other_active_base_weights_safe
+            
+            dynamic_weights_components_df.loc[reallocation_active_mask, col] += \
+                weight_to_reallocate * proportion.loc[reallocation_active_mask]
+        
+        dynamic_weights_components_df.loc[reallocation_active_mask, 'chip_bearish_divergence'] = 0
+
+        # 7. 计算复合证据的原始值
         composite_chip_distribution_evidence_raw = (
-            component_chip_bearish_divergence_pow * dynamic_weights_components['chip_bearish_divergence'] +
-            component_chip_dispersion_evidence_pow * dynamic_weights_components['chip_dispersion_evidence'] +
-            component_chip_axiom_divergence_bearish_pow * dynamic_weights_components['chip_axiom_divergence_bearish'] +
-            component_holder_sentiment_inverse_pow * dynamic_weights_components['holder_sentiment_inverse']
+            component_chip_bearish_divergence_pow * dynamic_weights_components_df['chip_bearish_divergence'] +
+            component_chip_dispersion_evidence_pow * dynamic_weights_components_df['chip_dispersion_evidence'] +
+            component_chip_axiom_divergence_bearish_pow * dynamic_weights_components_df['chip_axiom_divergence_bearish'] +
+            component_holder_sentiment_inverse_pow * dynamic_weights_components_df['holder_sentiment_inverse']
         ).clip(0, 1)
         composite_chip_distribution_evidence = self._forge_dynamic_evidence(df, composite_chip_distribution_evidence_raw, apply_normalization=True)
 
@@ -789,7 +813,7 @@ class CognitiveIntelligence:
             'ambush_counterattack_inverse': 0.03,
             'new_high_strength_inverse': 0.05,
             'low_structural_stability': 0.05,
-            'composite_chip_distribution_evidence': 0.18 # 提高权重 (从0.15到0.18)
+            'composite_chip_distribution_evidence': 0.18
         }
         evidence_names = [name for name, weight in base_weights_dict.items() if weight > 0]
 
