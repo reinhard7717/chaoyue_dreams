@@ -1445,7 +1445,7 @@ class ChipFeatureCalculator:
             price_end = above_peak_zone_df['price'].iloc[-1]
             # 修正派发成果的计算逻辑，价格下跌为正成果
             outcome_component = np.tanh((price_start - price_end) / atr)
-            metrics['distribution_at_peak_intensity'] = np.clip(focus_component * intent_component * (1 + outcome_component), 0, 1) # 修改：归一化到 [0, 1]
+            metrics['distribution_at_peak_intensity'] = np.clip((focus_component * intent_component * (1 + outcome_component)) * 100, 0, 100) # 修改：增加 np.clip 归一化到 [0, 100]
         # 2. 计算主峰区吸筹烈度
         if not below_peak_zone_df.empty:
             focus_numerator = below_peak_zone_df['main_force_ofi'].abs().sum()
@@ -1457,7 +1457,7 @@ class ChipFeatureCalculator:
             price_start = below_peak_zone_df['price'].iloc[0]
             price_end = below_peak_zone_df['price'].iloc[-1]
             outcome_component = np.tanh((price_end - price_start) / atr)
-            metrics['absorption_at_peak_intensity'] = np.clip(focus_component * intent_component * (1 + outcome_component), 0, 1) # 修改：归一化到 [0, 1]
+            metrics['absorption_at_peak_intensity'] = np.clip((focus_component * intent_component * (1 + outcome_component)) * 100, 0, 100) # 修改：增加 np.clip 归一化到 [0, 100]
         # 3. 计算突破主峰质量
         breakthrough_event_df = hf_analysis_df[hf_analysis_df['price'] > peak_zone_upper]
         if not breakthrough_event_df.empty:
@@ -1468,12 +1468,12 @@ class ChipFeatureCalculator:
             efficiency_numerator = breakthrough_event_df['mid_price_delta'].sum()
             efficiency_denominator = breakthrough_event_df['main_force_ofi'].clip(lower=0).sum()
             efficiency_component = np.tanh(efficiency_numerator / (efficiency_denominator * 1e-6)) if efficiency_denominator > 0 else 0
-            metrics['breakthrough_of_peak_quality'] = np.clip(magnitude_component * conviction_component * efficiency_component, 0, 1) # 修改：归一化到 [0, 1]
+            metrics['breakthrough_of_peak_quality'] = np.clip((magnitude_component * conviction_component * efficiency_component) * 100, 0, 100) # 修改：增加 np.clip 归一化到 [0, 100]
         # 4. 计算防守主峰质量
         day_low = common_data.get('day_low')
         day_close = common_data.get('day_close')
         if day_low >= peak_zone_lower:
-            metrics['defense_of_peak_quality'] = 1.0 # 修改：从 100.0 变为 1.0
+            metrics['defense_of_peak_quality'] = 100.0
         else:
             recovery_df = hf_analysis_df[hf_analysis_df['price'] < peak_zone_lower]
             if not recovery_df.empty and pd.notna(day_close):
@@ -1481,7 +1481,7 @@ class ChipFeatureCalculator:
                 recovery_conviction_num = recovery_df['main_force_ofi'].clip(lower=0).sum()
                 recovery_conviction_den = recovery_df['main_force_ofi'].abs().sum()
                 recovery_conviction = recovery_conviction_num / recovery_conviction_den if recovery_conviction_den > 0 else 0
-                metrics['defense_of_peak_quality'] = np.clip(recovery_magnitude * recovery_conviction, 0, 1) # 修改：归一化到 [0, 1]
+                metrics['defense_of_peak_quality'] = np.clip((recovery_magnitude * recovery_conviction) * 100, 0, 100) # 修改：增加 np.clip 归一化到 [0, 100]
         if should_probe:
             print(f"\n{'='*20} [探针 C.1 - 情境行为内核 @ {str(trade_date)}] {'='*20}")
             print(f"  - 核心情境: 主峰成本={dominant_peak_cost:.2f}, ATR={atr}")
