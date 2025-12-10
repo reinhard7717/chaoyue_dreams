@@ -1248,6 +1248,44 @@
           "comment_resonance_threshold": "当单个风险信号超过此阈值时，计入“共振”考量。",
           "resonance_bonus_factor": 0.3,
           "comment_resonance_bonus_factor": "当至少2个风险信号超阈值时，给予的额外奖励系数。"
+        },
+        "liquidity_dynamics": {
+          "description": "【V4.0 · 诡道情境自适应版】流动性博弈动态融合模型的参数。",
+          "pve_activation_sensitivity_params": {
+            "base_sensitivity": 2.0,
+            "modulator_signal": "VOLATILITY_INSTABILITY_INDEX_21d_D",
+            "modulator_factor": 0.5,
+            "comment": "PVE维度内部融合的激活敏感度参数，可根据波动率动态调整。"
+          },
+          "pt_activation_sensitivity_params": {
+            "base_sensitivity": 2.0,
+            "modulator_signal": "market_sentiment_score_D",
+            "modulator_factor": 0.5,
+            "comment": "PT维度内部融合的激活敏感度参数，可根据市场情绪动态调整。"
+          },
+          "ls_activation_sensitivity_params": {
+            "base_sensitivity": 2.0,
+            "modulator_signal": "flow_credibility_index_D",
+            "modulator_factor": 0.5,
+            "comment": "LS维度内部融合的激活敏感度参数，可根据资金流可信度动态调整。"
+          },
+          "final_fusion_context_modulation_params": {
+            "tq_pve_pt_boost_factor": 0.3,
+            "tq_ls_boost_factor": 0.4,
+            "mr_pve_pt_boost_factor": 0.2,
+            "mr_ls_boost_factor": 0.2,
+            "tq_non_linear_sensitivity": 2.0,
+            "mr_non_linear_sensitivity": 2.0,
+            "comment": "最终融合权重的情境调制参数，引入非线性敏感度。"
+          },
+          "base_weights": {"pve": 0.33, "pt": 0.34, "ls": 0.33},
+          "synergy_conflict_params": {
+            "synergy_threshold": 0.5,
+            "conflict_threshold": -0.5,
+            "synergy_bonus_factor": 0.1,
+            "conflict_penalty_factor": 0.1,
+            "comment": "维度间协同/冲突裁决参数。"
+          }
         }
       },
       "upthrust_distribution_params": {

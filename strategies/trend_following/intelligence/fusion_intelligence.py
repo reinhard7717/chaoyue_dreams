@@ -690,17 +690,21 @@ class FusionIntelligence:
 
     def _synthesize_liquidity_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 动态情境裁决版】冶炼“流动性博弈动态” (FUSION_BIPOLAR_LIQUIDITY_DYNAMICS)
-        - 核心重构: 废弃V2.0最终融合的“静态权重”，引入基于“趋势质量”和“市场政权”的“动态权重”机制。
+        【V4.0 · 诡道情境自适应版】冶炼“流动性博弈动态” (FUSION_BIPOLAR_LIQUIDITY_DYNAMICS)
+        - 核心重构: 引入“动态激活敏感度”和“非线性情境调制”，并初步探索“维度间协同/冲突”裁决机制。
         - 核心目标: 融合“价量效能”、“权势转移”、“流动性状态”三大维度，输出[-1, 1]的双极性分数。
         - 诡道哲学: 流动性是市场博弈的血液。健康的流动性动态，是主力主导、价量协同、权力稳固的体现；
                       混乱的流动性动态，则预示着主力派发、权力失衡、市场混乱。
-                      其判断重心，应随市场情境（趋势质量、市场政权）动态调整。
-        - 融合模型: 最终得分 = tanh(动态权重_pve*PVE + 动态权重_pt*PT + 动态权重_ls*LS)
+                      其判断重心与反应速度，应随市场情境（趋势质量、市场政权、波动率、情绪、资金流可信度）
+                      动态调整，并能识别维度间的协同与冲突。
+        - 融合模型: 最终得分 = tanh((动态权重_pve*PVE + 动态权重_pt*PT + 动态权重_ls*LS) * 协同/冲突因子)
         """
         print("  -- [融合层] 正在冶炼“流动性博弈动态”...")
         states = {}
         df_index = df.index
+
+        # [修改] 从配置中读取参数
+        ld_params = get_params_block(self.strategy, 'fusion_playbook_params', {}).get('liquidity_dynamics', {})
 
         # 辅助函数：计算加权和并应用tanh激活，映射到[0, 1]
         def weighted_sum_with_activation_series(components_with_weights, index, activation_sensitivity=1.0):
@@ -715,11 +719,7 @@ class FusionIntelligence:
                 total_possible_weight += weight
             
             if total_possible_weight > 0:
-                # Normalize the raw sum by total possible weight to get a score typically in [0, 1]
-                # Then apply tanh to introduce non-linearity and map to [-1, 1], then scale to [0, 1]
                 normalized_sum = raw_sum / total_possible_weight
-                # Apply tanh to the normalized sum, scaled by activation_sensitivity
-                # (tanh(x) + 1) / 2 maps [-inf, inf] to [0, 1]
                 return (np.tanh(normalized_sum * activation_sensitivity) + 1) / 2
             else:
                 return pd.Series(0.0, index=index)
@@ -727,14 +727,12 @@ class FusionIntelligence:
         # --- 1. 定义三大维度及其原料信号 (新增明确权重) ---
 
         # 1.1 维度一：价量效能 (Price-Volume Efficiency - PVE)
-        # 看涨PVE原料
         bullish_pve_components_with_weights = [
             (self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM', 0.0), 0.3),
             (self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0), 0.25),
             (self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0), 0.25),
             (self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0).clip(lower=0), 0.2)
         ]
-        # 看跌PVE原料
         bearish_pve_components_with_weights = [
             (self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0), 0.3),
             (self._get_atomic_score(df, 'PROCESS_RISK_VPA_EFFICIENCY_DECAY', 0.0), 0.3),
@@ -742,14 +740,12 @@ class FusionIntelligence:
         ]
 
         # 1.2 维度二：权势转移 (Power Transfer - PT)
-        # 看涨PT原料
         bullish_pt_components_with_weights = [
             (self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0), 0.3),
             (self._get_atomic_score(df, 'SCORE_CHIP_TACTICAL_EXCHANGE', 0.0).clip(lower=0), 0.25),
             (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(lower=0), 0.25),
             (self._get_atomic_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0), 0.2)
         ]
-        # 看跌PT原料
         bearish_pt_components_with_weights = [
             (self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(upper=0).abs(), 0.3),
             (self._get_atomic_score(df, 'SCORE_CHIP_TACTICAL_EXCHANGE', 0.0).clip(upper=0).abs(), 0.25),
@@ -758,14 +754,12 @@ class FusionIntelligence:
         ]
 
         # 1.3 维度三：流动性状态 (Liquidity State - LS)
-        # 看涨LS原料
         bullish_ls_components_with_weights = [
             (self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0).clip(lower=0), 0.3),
             (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0).clip(lower=0), 0.25),
             (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_STRUCTURE_HEALTH', 0.0).clip(lower=0), 0.25),
             (self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0), 0.2) # 高品质萎缩是看涨信号
         ]
-        # 看跌LS原料
         bearish_ls_components_with_weights = [
             (self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE', 0.0).clip(upper=0).abs(), 0.3),
             (self._get_atomic_score(df, 'SCORE_FF_AXIOM_FLOW_MOMENTUM', 0.0).clip(upper=0).abs(), 0.25),
@@ -775,49 +769,65 @@ class FusionIntelligence:
 
         # --- 2. 核心数学逻辑 - 融合三大维度 ---
         
-        pve_activation_sensitivity = 2.0 # 维度内部激活敏感度
+        # [新增] 2.1 动态计算维度内部激活敏感度
+        pve_sens_params = ld_params.get('pve_activation_sensitivity_params', {})
+        pve_base_sens = get_param_value(pve_sens_params.get('base_sensitivity'), 2.0)
+        pve_mod_signal = self._get_atomic_score(df, get_param_value(pve_sens_params.get('modulator_signal')), 0.0)
+        pve_mod_factor = get_param_value(pve_sens_params.get('modulator_factor'), 0.5)
+        pve_activation_sensitivity = pve_base_sens * (1 + pve_mod_signal * pve_mod_factor).clip(0.5, 1.5) # 限制调节范围
+
+        pt_sens_params = ld_params.get('pt_activation_sensitivity_params', {})
+        pt_base_sens = get_param_value(pt_sens_params.get('base_sensitivity'), 2.0)
+        pt_mod_signal = self._get_atomic_score(df, get_param_value(pt_sens_params.get('modulator_signal')), 0.0)
+        pt_mod_factor = get_param_value(pt_sens_params.get('modulator_factor'), 0.5)
+        pt_activation_sensitivity = pt_base_sens * (1 + pt_mod_signal * pt_mod_factor).clip(0.5, 1.5)
+
+        ls_sens_params = ld_params.get('ls_activation_sensitivity_params', {})
+        ls_base_sens = get_param_value(ls_sens_params.get('base_sensitivity'), 2.0)
+        ls_mod_signal = self._get_atomic_score(df, get_param_value(ls_sens_params.get('modulator_signal')), 0.0)
+        ls_mod_factor = get_param_value(ls_sens_params.get('modulator_factor'), 0.5)
+        ls_activation_sensitivity = ls_base_sens * (1 + ls_mod_signal * ls_mod_factor).clip(0.5, 1.5)
+
         bullish_pve_fused = weighted_sum_with_activation_series(bullish_pve_components_with_weights, df_index, pve_activation_sensitivity)
         bearish_pve_fused = weighted_sum_with_activation_series(bearish_pve_components_with_weights, df_index, pve_activation_sensitivity)
         pve_score = (bullish_pve_fused - bearish_pve_fused).clip(-1, 1)
 
-        pt_activation_sensitivity = 2.0
         bullish_pt_fused = weighted_sum_with_activation_series(bullish_pt_components_with_weights, df_index, pt_activation_sensitivity)
         bearish_pt_fused = weighted_sum_with_activation_series(bearish_pt_components_with_weights, df_index, pt_activation_sensitivity)
         pt_score = (bullish_pt_fused - bearish_pt_fused).clip(-1, 1)
 
-        ls_activation_sensitivity = 2.0
         bullish_ls_fused = weighted_sum_with_activation_series(bullish_ls_components_with_weights, df_index, ls_activation_sensitivity)
         bearish_ls_fused = weighted_sum_with_activation_series(bearish_ls_components_with_weights, df_index, ls_activation_sensitivity)
         ls_score = (bullish_ls_fused - bearish_ls_fused).clip(-1, 1)
 
-        # [修改] 2.4 动态融合三大维度 (加权平均 + tanh激活)
+        # [修改] 2.2 动态融合三大维度 (加权平均 + tanh激活)
         # 获取宏观情境信号
         trend_quality = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         market_regime = self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_REGIME', 0.0)
 
-        # 基础权重 (可从配置中读取)
-        base_weights = {'pve': 0.33, 'pt': 0.34, 'ls': 0.33}
+        # 从配置中读取基础权重和调制参数
+        base_weights = ld_params.get('base_weights', {'pve': 0.33, 'pt': 0.34, 'ls': 0.33})
+        context_mod_params = ld_params.get('final_fusion_context_modulation_params', {})
 
-        # 调制因子 (可从配置中读取)
-        # 趋势质量对PVE/PT的增强作用，对LS的削弱作用 (当趋势质量为正时)
-        tq_pve_pt_boost_factor = 0.3
-        # 趋势质量对LS的增强作用 (当趋势质量为负时)
-        tq_ls_boost_factor = 0.4
+        tq_pve_pt_boost_factor = get_param_value(context_mod_params.get('tq_pve_pt_boost_factor'), 0.3)
+        tq_ls_boost_factor = get_param_value(context_mod_params.get('tq_ls_boost_factor'), 0.4)
+        mr_pve_pt_boost_factor = get_param_value(context_mod_params.get('mr_pve_pt_boost_factor'), 0.2)
+        mr_ls_boost_factor = get_param_value(context_mod_params.get('mr_ls_boost_factor'), 0.2)
+        tq_non_linear_sensitivity = get_param_value(context_mod_params.get('tq_non_linear_sensitivity'), 2.0)
+        mr_non_linear_sensitivity = get_param_value(context_mod_params.get('mr_non_linear_sensitivity'), 2.0)
 
-        # 市场政权对PVE/PT的增强作用 (当政权偏向趋势市时)
-        mr_pve_pt_boost_factor = 0.2
-        # 市场政权对LS的增强作用 (当政权偏向震荡市时)
-        mr_ls_boost_factor = 0.2
+        # [新增] 非线性调制宏观情境信号
+        modulated_tq = np.tanh(trend_quality * tq_non_linear_sensitivity)
+        modulated_mr = np.tanh(market_regime * mr_non_linear_sensitivity)
 
         # 计算动态权重
-        dynamic_weights_pve = base_weights['pve'] * (1 + trend_quality.clip(lower=0) * tq_pve_pt_boost_factor + market_regime.clip(lower=0) * mr_pve_pt_boost_factor)
-        dynamic_weights_pt = base_weights['pt'] * (1 + trend_quality.clip(lower=0) * tq_pve_pt_boost_factor + market_regime.clip(lower=0) * mr_pve_pt_boost_factor)
-        dynamic_weights_ls = base_weights['ls'] * (1 + trend_quality.clip(upper=0).abs() * tq_ls_boost_factor + market_regime.clip(upper=0).abs() * mr_ls_boost_factor)
+        dynamic_weights_pve = base_weights['pve'] * (1 + modulated_tq.clip(lower=0) * tq_pve_pt_boost_factor + modulated_mr.clip(lower=0) * mr_pve_pt_boost_factor)
+        dynamic_weights_pt = base_weights['pt'] * (1 + modulated_tq.clip(lower=0) * tq_pve_pt_boost_factor + modulated_mr.clip(lower=0) * mr_pve_pt_boost_factor)
+        dynamic_weights_ls = base_weights['ls'] * (1 + modulated_tq.clip(upper=0).abs() * tq_ls_boost_factor + modulated_mr.clip(upper=0).abs() * mr_ls_boost_factor)
 
         # 归一化动态权重，使其总和为1
         total_dynamic_weight = dynamic_weights_pve + dynamic_weights_pt + dynamic_weights_ls
-        # 避免除以零，如果所有权重都为零，则使用默认权重
-        total_dynamic_weight = total_dynamic_weight.replace(0, 1.0) 
+        total_dynamic_weight = total_dynamic_weight.replace(0, 1.0) # 避免除以零
         
         normalized_weights_pve = dynamic_weights_pve / total_dynamic_weight
         normalized_weights_pt = dynamic_weights_pt / total_dynamic_weight
@@ -828,8 +838,40 @@ class FusionIntelligence:
             pt_score * normalized_weights_pt +
             ls_score * normalized_weights_ls
         )
-        # 使用 tanh 激活函数将分数映射到 [-1, 1] 范围，并引入非线性
-        final_score = np.tanh(raw_fusion_score * 2.0) # 乘以2.0可以增加tanh的敏感度
+
+        # [新增] 2.3 维度间协同/冲突初步裁决
+        synergy_conflict_params = ld_params.get('synergy_conflict_params', {})
+        synergy_threshold = get_param_value(synergy_conflict_params.get('synergy_threshold'), 0.5)
+        conflict_threshold = get_param_value(synergy_conflict_params.get('conflict_threshold'), -0.5)
+        synergy_bonus_factor = get_param_value(synergy_conflict_params.get('synergy_bonus_factor'), 0.1)
+        conflict_penalty_factor = get_param_value(synergy_conflict_params.get('conflict_penalty_factor'), 0.1)
+
+        # 计算三个维度的平均方向
+        avg_direction = (pve_score + pt_score + ls_score) / 3.0
+
+        # 协同因子：当三个维度都强烈同向时，给予奖励
+        synergy_factor = pd.Series(1.0, index=df_index)
+        # 强协同（都看涨）
+        strong_bullish_synergy = (pve_score > synergy_threshold) & (pt_score > synergy_threshold) & (ls_score > synergy_threshold)
+        synergy_factor.loc[strong_bullish_synergy] += synergy_bonus_factor
+        # 强协同（都看跌）
+        strong_bearish_synergy = (pve_score < conflict_threshold) & (pt_score < conflict_threshold) & (ls_score < conflict_threshold)
+        synergy_factor.loc[strong_bearish_synergy] += synergy_bonus_factor # 负向协同也应增强信号强度
+
+        # 冲突因子：当维度间方向显著矛盾时，给予惩罚 (例如，PVE看涨，但PT和LS看跌，可能为诱多)
+        conflict_factor = pd.Series(1.0, index=df_index)
+        # PVE看涨，但PT和LS看跌 (诱多风险)
+        bullish_pve_bearish_pt_ls = (pve_score > synergy_threshold) & (pt_score < conflict_threshold) & (ls_score < conflict_threshold)
+        conflict_factor.loc[bullish_pve_bearish_pt_ls] -= conflict_penalty_factor
+        # PVE看跌，但PT和LS看涨 (诱空风险)
+        bearish_pve_bullish_pt_ls = (pve_score < conflict_threshold) & (pt_score > synergy_threshold) & (ls_score > synergy_threshold)
+        conflict_factor.loc[bearish_pve_bullish_pt_ls] -= conflict_penalty_factor
+
+        # 最终的协同/冲突调节器
+        synergy_conflict_modulator = (synergy_factor * conflict_factor).clip(0.5, 1.5) # 限制调节范围
+
+        # 最终得分应用协同/冲突调节器
+        final_score = np.tanh(raw_fusion_score * 2.0 * synergy_conflict_modulator) # 乘以2.0可以增加tanh的敏感度
         states['FUSION_BIPOLAR_LIQUIDITY_DYNAMICS'] = final_score.astype(np.float32)
 
         # --- 3. 植入究极探针 (更新探针以反映新逻辑) ---
@@ -837,10 +879,11 @@ class FusionIntelligence:
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             last_date_index = -1
-            print(f"\n--- [流动性博弈动态究极探针 V3.0 · 动态情境裁决版] ---")
+            print(f"\n--- [流动性博弈动态究极探针 V4.0 · 诡道情境自适应版] ---")
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
 
             print("\n  [维度一: 价量效能 (Price-Volume Efficiency - PVE)]:")
+            print(f"    - 动态激活敏感度: {pve_activation_sensitivity.iloc[last_date_index]:.4f}")
             print("    [看涨PVE原料]:")
             bullish_pve_raw_sum = pd.Series(0.0, index=df_index)
             for name, (comp, weight) in zip(['价格上涨动能', '看涨量能爆发', '上涨效率', '动量品质(正)'], bullish_pve_components_with_weights):
@@ -859,6 +902,7 @@ class FusionIntelligence:
             print(f"    - -> PVE双极性分数: {pve_score.iloc[last_date_index]:.4f}")
 
             print("\n  [维度二: 权势转移 (Power Transfer - PT)]:")
+            print(f"    - 动态激活敏感度: {pt_activation_sensitivity.iloc[last_date_index]:.4f}")
             print("    [看涨PT原料]:")
             bullish_pt_raw_sum = pd.Series(0.0, index=df_index)
             for name, (comp, weight) in zip(['权力转移(正)', '战术换手博弈(正)', '战场控制权(正)', '资本对抗(正)'], bullish_pt_components_with_weights):
@@ -877,6 +921,7 @@ class FusionIntelligence:
             print(f"    - -> PT双极性分数: {pt_score.iloc[last_date_index]:.4f}")
 
             print("\n  [维度三: 流动性状态 (Liquidity State - LS)]:")
+            print(f"    - 动态激活敏感度: {ls_activation_sensitivity.iloc[last_date_index]:.4f}")
             print("    [看涨LS原料]:")
             bullish_ls_raw_sum = pd.Series(0.0, index=df_index)
             for name, (comp, weight) in zip(['流动性潮汐(正)', '资金流纯度与动能(正)', '资金流结构健康度(正)', '成交量萎缩(高品质)'], bullish_ls_components_with_weights):
@@ -897,9 +942,17 @@ class FusionIntelligence:
             print("\n  [宏观情境裁决 (Macro Context Judgment)]:")
             print(f"    - 趋势质量 (FUSION_BIPOLAR_TREND_QUALITY): {trend_quality.iloc[last_date_index]:.4f}")
             print(f"    - 市场政权 (FUSION_BIPOLAR_MARKET_REGIME): {market_regime.iloc[last_date_index]:.4f}")
+            print(f"    - -> 调制后趋势质量 (非线性): {modulated_tq.iloc[last_date_index]:.4f}")
+            print(f"    - -> 调制后市场政权 (非线性): {modulated_mr.iloc[last_date_index]:.4f}")
             print(f"    - -> 动态权重 PVE: {normalized_weights_pve.iloc[last_date_index]:.4f}")
             print(f"    - -> 动态权重 PT: {normalized_weights_pt.iloc[last_date_index]:.4f}")
             print(f"    - -> 动态权重 LS: {normalized_weights_ls.iloc[last_date_index]:.4f}")
+
+            print("\n  [维度间协同/冲突裁决 (Inter-Dimensional Synergy/Conflict Judgment)]:")
+            print(f"    - PVE双极性分数: {pve_score.iloc[last_date_index]:.4f}")
+            print(f"    - PT双极性分数: {pt_score.iloc[last_date_index]:.4f}")
+            print(f"    - LS双极性分数: {ls_score.iloc[last_date_index]:.4f}")
+            print(f"    - -> 协同/冲突调节器: {synergy_conflict_modulator.iloc[last_date_index]:.4f}")
 
             print("\n  [最终裁决 (Final Judgment)]:")
             print(f"    - 原始融合分数 (动态加权平均): {raw_fusion_score.iloc[last_date_index]:.4f}")
