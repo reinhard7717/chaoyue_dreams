@@ -3099,7 +3099,7 @@
           "synergy_force_weight": 0.3
         },
           "capitulation_reversal_params": {
-            "description": "【V6.0 · 恐慌深度与多维反转强度融合版】恐慌投降反转剧本的专属参数。",
+            "description": "【V7.0 · 恐慌深度与多维反转强度融合版】恐慌投降反转剧本的专属参数。",
             "base_weights": {
               "panic_washout_evidence": 0.15,
               "lower_shadow_absorption": 0.10,
