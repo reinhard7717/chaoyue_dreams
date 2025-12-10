@@ -652,15 +652,16 @@ class CognitiveIntelligence:
 
     def _deduce_distribution_at_high(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V5.2 · 情境激活与证据精炼版】贝叶斯推演：“高位派发”风险剧本
+        【V5.3 · 融合信号斜率内部计算版】贝叶斯推演：“高位派发”风险剧本
         - 核心升级:
-            1.  **证据集扩充：** 引入 `SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK`。
-            2.  **证据转换精炼：** 优化 `capital_confrontation_bearish` 和 `chip_dispersion_evidence` 的提取逻辑，使其在情境下更敏感。
-            3.  **情境激活因子：** 引入 `sentiment_activation_factor` 和 `liquidity_activation_factor`，在市场情绪狂热或流动性枯竭时，放大相关派发证据的强度。
-            4.  **强化动态权重：** 根据市场情绪、流动性动态、趋势质量和波动不稳定性等情境因子，更精细地动态调整每个证据的权重，尤其是在矛盾情境下放大关键证据。
-            5.  **动态非线性转换：** `power_factor` 纳入流动性动态的负向影响，使其在流动性枯竭时也能提高放大作用。
-            6.  **优化趋势调制器：** `trend_modulator` 在趋势质量恶化时不再抑制风险，而是保持中性或略微放大风险。
-            7.  **详细探针：** 增加关键计算节点的输出，特别是情境激活因子。
+            1.  **融合信号斜率内部计算：** 针对融合层信号 `FUSION_BIPOLAR_TREND_QUALITY` 的斜率，从依赖预计算改为在方法内部动态计算，解决了信号缺失问题。
+            2.  **证据集扩充：** 引入 `SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK`。
+            3.  **证据转换精炼：** 优化 `capital_confrontation_bearish` 和 `chip_dispersion_evidence` 的提取逻辑，使其在情境下更敏感。
+            4.  **情境激活因子：** 引入 `sentiment_activation_factor` 和 `liquidity_activation_factor`，在市场情绪狂热或流动性枯竭时，放大相关派发证据的强度。
+            5.  **强化动态权重：** 根据市场情绪、流动性动态、趋势质量和波动不稳定性等情境因子，更精细地动态调整每个证据的权重，尤其是在矛盾情境下放大关键证据。
+            6.  **动态非线性转换：** `power_factor` 纳入流动性动态的负向影响，使其在流动性枯竭时也能提高放大作用。
+            7.  **优化趋势调制器：** `trend_modulator` 在趋势质量恶化时不再抑制风险，而是保持中性或略微放大风险。
+            8.  **详细探针：** 增加关键计算节点的输出，特别是情境激活因子。
         """
         print("    -- [剧本推演] 高位派发风险 (动态证据)...")
         # --- 1. 信号校验 ---
@@ -674,9 +675,9 @@ class CognitiveIntelligence:
             'SCORE_BEHAVIOR_BEARISH_DIVERGENCE_QUALITY', 'SCORE_BEHAVIOR_DECEPTION_INDEX',
             'SCORE_BEHAVIOR_VOLUME_BURST', 'SCORE_CHIP_AXIOM_DIVERGENCE', 'SCORE_FF_AXIOM_DIVERGENCE',
             'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW',
-            'SCORE_BEHAVIOR_BEARISH_DIVERGENCE', 'SLOPE_5_FUSION_BIPOLAR_TREND_QUALITY',
+            'SCORE_BEHAVIOR_BEARISH_DIVERGENCE',
             'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 'SCORE_INTRADAY_TACTICAL_ARC',
-            'SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK' # 新增证据
+            'SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK'
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_distribution_at_high"):
             print("    -> [探针] 信号校验失败，返回默认值。")
@@ -695,13 +696,14 @@ class CognitiveIntelligence:
         market_sentiment = self._get_atomic_score(df, 'market_sentiment_score_D', 0.5).clip(0, 1) # [0, 1]
         volatility_instability = self._get_atomic_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.5) # [0, 1]
         liquidity_dynamics = self._get_fused_score(df, 'FUSION_BIPOLAR_LIQUIDITY_DYNAMICS', 0.0) # [-1, 1]
+        # 修改开始：在方法内部动态计算 FUSION_BIPOLAR_TREND_QUALITY 的斜率
         trend_quality_slope = trend_quality.diff(5).fillna(0) # 5日变化率作为斜率
+        # 修改结束
 
         # --- 3. 获取原始证据信号 ---
         # 3.1 资本对抗 (负向) - 资金流出/空头力量
         raw_capital_confrontation = self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0)
-        # 优化：如果资本对抗为正，但市场情绪狂热，流动性差，这本身就是风险，不应直接为0
-        # 转换为缺乏买方力量的证据：1 - 积极的资本对抗
+        # 优化：如果资本对抗为正，但市场情绪狂热，流动性差，这本身就是风险，不应直接为0。转换为缺乏买方力量的证据：1 - 积极的资本对抗
         capital_confrontation_bearish = self._forge_dynamic_evidence(df, (1 - raw_capital_confrontation.clip(lower=0)).clip(0,1), apply_normalization=False)
 
         # 3.2 价格超买意图 (负向) - 价格远离价值中枢
@@ -796,15 +798,15 @@ class CognitiveIntelligence:
             'chip_bearish_divergence': 0.06,
             'dip_absorption_inverse': 0.04,
             'main_force_holding_inverse': 0.07,
-            'bearish_divergence_quality': 0.08, # 新增证据权重
+            'bearish_divergence_quality': 0.08,
             'deception_index_positive': 0.06,
             'volume_burst_inverse': 0.03,
             'chip_axiom_divergence_bearish': 0.04,
             'ff_axiom_divergence_bearish': 0.04,
-            'stagnation_evidence': 0.07, # 新增证据权重
-            'price_overextension_raw': 0.06, # 新增证据权重
-            'behavior_bearish_divergence': 0.05, # 新增证据权重
-            'ambush_counterattack_inverse': 0.04 # 新增证据权重
+            'stagnation_evidence': 0.07,
+            'price_overextension_raw': 0.06,
+            'behavior_bearish_divergence': 0.05,
+            'ambush_counterattack_inverse': 0.04
         }
         evidence_names = list(base_weights_dict.keys())
 
