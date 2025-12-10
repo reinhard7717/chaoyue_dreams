@@ -652,17 +652,18 @@ class CognitiveIntelligence:
 
     def _deduce_distribution_at_high(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V5.6 · 战术换手博弈强化版】贝叶斯推演：“高位派发”风险剧本
+        【V5.7 · 趋势调制与筹码信念强化版】贝叶斯推演：“高位派发”风险剧本
         - 核心升级:
-            1.  **筹码风险证据强化：** 引入 `SCORE_CHIP_TACTICAL_EXCHANGE` 的负向部分作为“筹码集中度下降/派发”的证据，替代不存在的信号，并补充 `chip_bearish_divergence` 零值时的不足。
-            2.  **高位特征证据强化：** 引入 `CONTEXT_NEW_HIGH_STRENGTH` 的反向部分和 `SCORE_STRUCT_AXIOM_STABILITY` 的负向部分，更全面地捕捉高位风险。
-            3.  **趋势调制器精细化：** `trend_modulator` 结合 `structural_trend_form`，在趋势结构恶化时，对风险的放大作用更显著。
-            4.  **证据归一化策略优化：** 调整 `_forge_dynamic_evidence` 的 `apply_normalization` 策略，确保原子信号在正确尺度上参与计算。
-            5.  **承接力证据精炼：** 优化 `dip_absorption_inverse` 的计算，使其与流动性动态更一致，避免矛盾。
-            6.  **情境激活因子：** 引入更强的情境激活因子，在市场情绪狂热或流动性枯竭时，显著放大 `price_overextension_raw` 和 `stagnation_evidence` 等关键派发证据的强度。
-            7.  **强化动态权重：** 根据市场情绪、流动性动态、趋势质量和波动不稳定性等情境因子，更精细地动态调整每个证据的权重，尤其是在矛盾情境下放大关键证据。
-            8.  **动态非线性转换：** `power_factor` 纳入流动性动态的负向影响，使其在流动性枯竭时也能提高放大作用。
-            9.  **详细探针：** 增加关键计算节点的输出，特别是情境激活因子。
+            1.  **筹码风险证据强化：** 引入 `SCORE_CHIP_AXIOM_HOLDER_SENTIMENT` 的负向部分作为“持仓信念减弱”的证据，替代之前表现不佳的 `chip_tactical_exchange_bearish`。
+            2.  **承接力证据精炼：** 增强 `dip_absorption_inverse` 对 `liquidity_dynamics` 负向部分的敏感度，使其在流动性枯竭时能更显著地反映承接力不足。
+            3.  **趋势调制器重构：** 重新设计 `trend_modulator_factor` 的计算逻辑，确保在趋势质量低或恶化时不再抑制风险，而是积极放大风险。
+            4.  **关键证据权重微调：** 适当提高部分在探针中表现强劲的风险信号的基础权重。
+            5.  **高位特征证据强化：** 引入 `CONTEXT_NEW_HIGH_STRENGTH` 的反向部分和 `SCORE_STRUCT_AXIOM_STABILITY` 的负向部分，更全面地捕捉高位风险。
+            6.  **证据归一化策略优化：** 调整 `_forge_dynamic_evidence` 的 `apply_normalization` 策略，确保原子信号在正确尺度上参与计算。
+            7.  **情境激活因子：** 引入更强的情境激活因子，在市场情绪狂热或流动性枯竭时，显著放大 `price_overextension_raw` 和 `stagnation_evidence` 等关键派发证据的强度。
+            8.  **强化动态权重：** 根据市场情绪、流动性动态、趋势质量和波动不稳定性等情境因子，更精细地动态调整每个证据的权重，尤其是在矛盾情境下放大关键证据。
+            9.  **动态非线性转换：** `power_factor` 纳入流动性动态的负向影响，使其在流动性枯竭时也能提高放大作用。
+            10. **详细探针：** 增加关键计算节点的输出，特别是情境激活因子。
         """
         print("    -- [剧本推演] 高位派发风险 (动态证据)...")
         # --- 1. 信号校验 ---
@@ -679,7 +680,7 @@ class CognitiveIntelligence:
             'SCORE_BEHAVIOR_BEARISH_DIVERGENCE',
             'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 'SCORE_INTRADAY_TACTICAL_ARC',
             'SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK',
-            'SCORE_CHIP_TACTICAL_EXCHANGE', 'CONTEXT_NEW_HIGH_STRENGTH', 'SCORE_STRUCT_AXIOM_STABILITY' # 新增证据
+            'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 'CONTEXT_NEW_HIGH_STRENGTH', 'SCORE_STRUCT_AXIOM_STABILITY' # 新增证据
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_distribution_at_high"):
             print("    -> [探针] 信号校验失败，返回默认值。")
@@ -740,9 +741,9 @@ class CognitiveIntelligence:
         # 3.10 下跌承接力 (反向) - 承接力越弱，派发风险越高
         raw_dip_absorption_power = self._get_atomic_score(df, 'dip_absorption_power_D', 0.0)
         dip_absorption_inverse = self._forge_dynamic_evidence(df, (1 - raw_dip_absorption_power).clip(0, 1), apply_normalization=True)
-        # 引入流动性动态的负向部分来调制承接力不足的证据
+        # 增强：引入流动性动态的负向部分来调制承接力不足的证据
         liquidity_dynamics_negative_mod = liquidity_dynamics.clip(upper=0).abs()
-        dip_absorption_inverse = (dip_absorption_inverse + liquidity_dynamics_negative_mod * 0.5).clip(0,1) # 流动性越差，承接力不足的证据越强
+        dip_absorption_inverse = (dip_absorption_inverse + liquidity_dynamics_negative_mod * 0.7).clip(0,1) # 流动性越差，承接力不足的证据越强
 
         # 3.11 主力持仓信念 (反向) - 主力信念越弱，派发风险越高
         main_force_holding_strength = self._get_main_force_holding_strength(df)
@@ -784,9 +785,9 @@ class CognitiveIntelligence:
         raw_ambush_counterattack = self._get_atomic_score(df, 'SCORE_BEHAVIOR_AMBUSH_COUNTERATTACK', 0.0)
         ambush_counterattack_inverse = self._forge_dynamic_evidence(df, (1 - raw_ambush_counterattack).clip(0, 1), apply_normalization=True)
 
-        # 3.21 战术换手博弈 (负向) - 负分代表主力派发或无人承接的崩溃式换手
-        raw_chip_tactical_exchange = self._get_atomic_score(df, 'SCORE_CHIP_TACTICAL_EXCHANGE', 0.0)
-        chip_tactical_exchange_bearish = self._forge_dynamic_evidence(df, raw_chip_tactical_exchange.clip(upper=0).abs(), apply_normalization=True)
+        # 3.21 持仓信念韧性 (反向) - 持仓信念越弱，派发风险越高
+        raw_holder_sentiment = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
+        holder_sentiment_inverse = self._forge_dynamic_evidence(df, raw_holder_sentiment.clip(upper=0).abs(), apply_normalization=True)
 
         # 3.22 新高强度 (反向) - 创新高但伴随风险信号，则新高强度越高，风险越大
         raw_new_high_strength = self._get_atomic_score(df, 'CONTEXT_NEW_HIGH_STRENGTH', 0.0)
@@ -800,26 +801,26 @@ class CognitiveIntelligence:
         # --- 4. 定义基础权重 ---
         base_weights_dict = {
             'capital_confrontation_bearish': 0.04,
-            'price_overextension_risk': 0.04,
+            'price_overextension_risk': 0.05, # 提高权重
             'low_upward_efficiency': 0.05,
-            'profit_vs_flow_bearish': 0.08,
+            'profit_vs_flow_bearish': 0.10, # 提高权重
             'chip_dispersion_evidence': 0.05,
-            'market_contradiction_bearish': 0.03,
+            'market_contradiction_bearish': 0.05, # 提高权重
             'distribution_intent_evidence': 0.08,
-            'fund_flow_bearish_divergence': 0.05,
+            'fund_flow_bearish_divergence': 0.06, # 提高权重
             'chip_bearish_divergence': 0.05,
-            'dip_absorption_inverse': 0.04,
+            'dip_absorption_inverse': 0.05, # 提高权重
             'main_force_holding_inverse': 0.06,
-            'bearish_divergence_quality': 0.07,
-            'deception_index_positive': 0.05,
+            'bearish_divergence_quality': 0.09, # 提高权重
+            'deception_index_positive': 0.07, # 提高权重
             'volume_burst_inverse': 0.03,
-            'chip_axiom_divergence_bearish': 0.04,
-            'ff_axiom_divergence_bearish': 0.04,
-            'stagnation_evidence': 0.06,
-            'price_overextension_raw': 0.05,
-            'behavior_bearish_divergence': 0.04,
+            'chip_axiom_divergence_bearish': 0.06, # 提高权重
+            'ff_axiom_divergence_bearish': 0.06, # 提高权重
+            'stagnation_evidence': 0.08, # 提高权重
+            'price_overextension_raw': 0.07, # 提高权重
+            'behavior_bearish_divergence': 0.06, # 提高权重
             'ambush_counterattack_inverse': 0.03,
-            'chip_tactical_exchange_bearish': 0.06, # 新增权重
+            'holder_sentiment_inverse': 0.06, # 新增权重
             'new_high_strength_inverse': 0.05,
             'low_structural_stability': 0.05
         }
@@ -852,13 +853,14 @@ class CognitiveIntelligence:
         adaptive_weights_per_date['price_overextension_raw'] += market_sentiment * 0.1
         adaptive_weights_per_date['stagnation_evidence'] += market_sentiment * 0.1
         adaptive_weights_per_date['new_high_strength_inverse'] += market_sentiment * 0.1 # 新高强度在高情绪时更具风险
+        adaptive_weights_per_date['holder_sentiment_inverse'] += market_sentiment * 0.1 # 情绪狂热时，信念减弱更危险
 
         # 在流动性差时，特别放大“资金流出”、“资金流背离”和“筹码价筹张力”的权重
         adaptive_weights_per_date['capital_confrontation_bearish'] += liquidity_dynamics.clip(upper=0).abs() * 0.15
         adaptive_weights_per_date['fund_flow_bearish_divergence'] += liquidity_dynamics.clip(upper=0).abs() * 0.15
         adaptive_weights_per_date['ff_axiom_divergence_bearish'] += liquidity_dynamics.clip(upper=0).abs() * 0.15
         adaptive_weights_per_date['chip_axiom_divergence_bearish'] += liquidity_dynamics.clip(upper=0).abs() * 0.1
-        adaptive_weights_per_date['chip_tactical_exchange_bearish'] += liquidity_dynamics.clip(upper=0).abs() * 0.1 # 流动性差时，筹码分散风险更大
+        adaptive_weights_per_date['holder_sentiment_inverse'] += liquidity_dynamics.clip(upper=0).abs() * 0.1 # 流动性差时，信念减弱更危险
 
         # 确保权重非负
         for name in adaptive_weights_per_date:
@@ -884,7 +886,7 @@ class CognitiveIntelligence:
             deception_index_positive, volume_burst_inverse, chip_axiom_divergence_bearish,
             ff_axiom_divergence_bearish, stagnation_evidence, price_overextension_raw,
             behavior_bearish_divergence, ambush_counterattack_inverse,
-            chip_tactical_exchange_bearish, new_high_strength_inverse, low_structural_stability
+            holder_sentiment_inverse, new_high_strength_inverse, low_structural_stability
         ]
 
         transformed_evidence_scores = []
@@ -900,14 +902,20 @@ class CognitiveIntelligence:
         likelihood = pd.Series(likelihood_values, index=df_index)
 
         # --- 8. 趋势调制器 (Trend Modulator) ---
-        # 趋势越强劲，对高位派发风险的似然度进行抑制；趋势越弱或恶化，抑制越小或放大风险
+        # 重构趋势调制器：当趋势质量低或恶化时，应放大风险，而不是抑制
         trend_modulator_factor = pd.Series(1.0, index=df_index)
-        # 如果趋势质量为正且结构趋势形态为正，则进行抑制
-        positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
-        trend_modulator_factor[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
-        # 如果趋势质量斜率转负，且结构趋势形态也开始恶化，则取消抑制，甚至显著放大风险
-        weakening_trend_mask = (trend_quality_slope < 0) & (trend_quality > 0) & (structural_trend_form < 0.5) # 结构趋势形态也开始弱化
-        trend_modulator_factor[weakening_trend_mask] = (1 + trend_quality_slope[weakening_trend_mask].abs() * 0.3 + (1 - structural_trend_form[weakening_trend_mask]) * 0.2).clip(1.0, 1.5) # 显著放大
+
+        # 基础调制：趋势质量越低，抑制越小，甚至放大
+        # 如果 trend_quality 为 1， factor = 0.5 (抑制50%)
+        # 如果 trend_quality 为 0， factor = 1.0 (不抑制)
+        # 如果 trend_quality 为 -1， factor = 1.5 (放大50%)
+        trend_modulator_factor = (1 - trend_quality * 0.5).clip(0.5, 1.5)
+
+        # 额外放大：如果趋势质量斜率转负，或结构趋势形态恶化
+        weakening_slope_amplification = trend_quality_slope.clip(upper=0).abs() * 0.3
+        weakening_structure_amplification = structural_trend_form.clip(upper=0).abs() * 0.2 # 如果 structural_trend_form 为负，则放大
+
+        trend_modulator_factor = (trend_modulator_factor + weakening_slope_amplification + weakening_structure_amplification).clip(0.5, 1.5)
         likelihood = likelihood * trend_modulator_factor
 
         # --- 9. 涨停次日惩罚优化 ---
