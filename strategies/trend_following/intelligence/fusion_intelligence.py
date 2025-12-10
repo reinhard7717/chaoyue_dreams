@@ -702,10 +702,8 @@ class FusionIntelligence:
         print("  -- [融合层] 正在冶炼“流动性博弈动态”...")
         states = {}
         df_index = df.index
-
         # [修改] 从配置中读取参数
         ld_params = get_params_block(self.strategy, 'fusion_playbook_params', {}).get('liquidity_dynamics', {})
-
         # [修改] 辅助函数：计算加权和并应用tanh激活，映射到[0, 1]，并引入诡道调制
         def weighted_sum_with_activation_series(components_with_weights, index, activation_sensitivity=1.0,
                                                 deception_index=None, wash_trade_intensity=None, flow_credibility=None,
@@ -723,21 +721,18 @@ class FusionIntelligence:
             if total_possible_weight > 0:
                 normalized_sum = raw_sum / total_possible_weight
                 activated_score = (np.tanh(normalized_sum * activation_sensitivity) + 1) / 2
-
                 # [新增] 诡道因子非对称调制
                 if deception_index is not None and wash_trade_intensity is not None and deception_mod_params is not None:
                     deception_penalty_factor = get_param_value(deception_mod_params.get('deception_penalty_factor'), 0.2)
                     wash_trade_penalty_factor = get_param_value(deception_mod_params.get('wash_trade_penalty_factor'), 0.1)
                     deception_reward_factor = get_param_value(deception_mod_params.get('deception_reward_factor'), 0.1)
                     credibility_influence = get_param_value(deception_mod_params.get('credibility_influence'), 0.5)
-
                     # 资金流可信度对欺骗因子的影响：可信度越高，欺骗因子的影响越小
                     credibility_mod = (1 - flow_credibility * credibility_influence).clip(0, 1) if flow_credibility is not None else pd.Series(1.0, index=index)
                     
                     # 欺骗指数和对倒强度，经过可信度调制
                     modulated_deception = deception_index * credibility_mod
                     modulated_wash_trade = wash_trade_intensity * credibility_mod
-
                     # 非对称调制逻辑
                     if is_bullish: # 看涨信号
                         # 如果看涨信号与正向欺骗（拉高出货）或对倒同向，则惩罚
@@ -751,13 +746,10 @@ class FusionIntelligence:
                         # 如果看跌信号与正向欺骗（诱空）同向，则惩罚
                         penalty = (modulated_deception.clip(lower=0) * deception_penalty_factor)
                         activated_score = (activated_score - penalty).clip(0, 1)
-
                 return activated_score
             else:
                 return pd.Series(0.0, index=index)
-
         # --- 1. 定义三大维度及其原料信号 (新增明确权重) ---
-
         # 1.1 维度一：价量效能 (Price-Volume Efficiency - PVE)
         # [修改] 增加 PRICE_VOLUME_ENTROPY_D 的考量
         bullish_pve_components_with_weights = [
@@ -773,7 +765,6 @@ class FusionIntelligence:
             (self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0).clip(upper=0).abs(), 0.2),
             (self._get_atomic_score(df, 'PRICE_VOLUME_ENTROPY_D', 0.0), 0.2) # 熵越高，价量关系越混乱，越差
         ]
-
         # 1.2 维度二：权势转移 (Power Transfer - PT)
         bullish_pt_components_with_weights = [
             (self._get_atomic_score(df, 'PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0), 0.3),
@@ -787,7 +778,6 @@ class FusionIntelligence:
             (self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(upper=0).abs(), 0.25),
             (self._get_atomic_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs(), 0.2)
         ]
-
         # 1.3 维度三：流动性状态 (Liquidity State - LS)
         # [修改] 增加资金流基尼系数和散户资金主导指数的考量
         bullish_ls_components_with_weights = [
@@ -806,9 +796,7 @@ class FusionIntelligence:
             (self._get_atomic_score(df, 'main_force_flow_gini_D', 0.0), 0.1), # 基尼系数越高，资金流越集中，可能风险
             (self._get_atomic_score(df, 'retail_flow_dominance_index_D', 0.0), 0.1) # 散户主导越高，越差
         ]
-
         # --- 2. 核心数学逻辑 - 融合三大维度 ---
-        
         # [修改] 2.1 动态计算维度内部激活敏感度
         # 获取调制信号
         volatility_instability = self._get_atomic_score(df, 'VOLATILITY_INSTABILITY_INDEX_21d_D', 0.0)
@@ -816,85 +804,69 @@ class FusionIntelligence:
         flow_credibility = self._get_atomic_score(df, 'flow_credibility_index_D', 0.0)
         deception_index = self._get_atomic_score(df, 'deception_index_D', 0.0)
         wash_trade_intensity = self._get_atomic_score(df, 'wash_trade_intensity_D', 0.0)
-
         # PVE敏感度：受波动率不稳定性调制
         pve_sens_params = ld_params.get('pve_activation_sensitivity_params', {})
         pve_base_sens = get_param_value(pve_sens_params.get('base_sensitivity'), 2.0)
         pve_mod_factor = get_param_value(pve_sens_params.get('modulator_factor'), 0.5)
         pve_activation_sensitivity = pve_base_sens * (1 + np.tanh(volatility_instability * pve_mod_factor)).clip(0.5, 1.5)
-
         # PT敏感度：受市场情绪调制
         pt_sens_params = ld_params.get('pt_activation_sensitivity_params', {})
         pt_base_sens = get_param_value(pt_sens_params.get('base_sensitivity'), 2.0)
         pt_mod_factor = get_param_value(pt_sens_params.get('modulator_factor'), 0.5)
         pt_activation_sensitivity = pt_base_sens * (1 + np.tanh(market_sentiment * pt_mod_factor)).clip(0.5, 1.5)
-
         # LS敏感度：受资金流可信度调制
         ls_sens_params = ld_params.get('ls_activation_sensitivity_params', {})
         ls_base_sens = get_param_value(ls_sens_params.get('base_sensitivity'), 2.0)
         ls_mod_factor = get_param_value(ls_sens_params.get('modulator_factor'), 0.5)
         ls_activation_sensitivity = ls_base_sens * (1 + np.tanh(flow_credibility * ls_mod_factor)).clip(0.5, 1.5)
-
         # 诡道调制参数
         deception_mod_params = ld_params.get('deception_modulation_params', {})
-
         bullish_pve_fused = weighted_sum_with_activation_series(bullish_pve_components_with_weights, df_index, pve_activation_sensitivity,
                                                                 deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=True)
         bearish_pve_fused = weighted_sum_with_activation_series(bearish_pve_components_with_weights, df_index, pve_activation_sensitivity,
                                                                 deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=False)
         pve_score = (bullish_pve_fused - bearish_pve_fused).clip(-1, 1)
-
         bullish_pt_fused = weighted_sum_with_activation_series(bullish_pt_components_with_weights, df_index, pt_activation_sensitivity,
                                                                deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=True)
         bearish_pt_fused = weighted_sum_with_activation_series(bearish_pt_components_with_weights, df_index, pt_activation_sensitivity,
                                                                deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=False)
         pt_score = (bullish_pt_fused - bearish_pt_fused).clip(-1, 1)
-
         bullish_ls_fused = weighted_sum_with_activation_series(bullish_ls_components_with_weights, df_index, ls_activation_sensitivity,
                                                                deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=True)
         bearish_ls_fused = weighted_sum_with_activation_series(bearish_ls_components_with_weights, df_index, ls_activation_sensitivity,
                                                                deception_index, wash_trade_intensity, flow_credibility, deception_mod_params, is_bullish=False)
         ls_score = (bullish_ls_fused - bearish_ls_fused).clip(-1, 1)
-
         # [修改] 2.2 动态融合三大维度 (加权平均 + tanh激活)
         # 获取宏观情境信号
         trend_quality = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         market_regime = self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_REGIME', 0.0)
-
         # 从配置中读取基础权重和调制参数
         base_weights = ld_params.get('base_weights', {'pve': 0.33, 'pt': 0.34, 'ls': 0.33})
         context_mod_params = ld_params.get('final_fusion_context_modulation_params', {})
-
         tq_pve_pt_boost_factor = get_param_value(context_mod_params.get('tq_pve_pt_boost_factor'), 0.3)
         tq_ls_boost_factor = get_param_value(context_mod_params.get('tq_ls_boost_factor'), 0.4)
         mr_pve_pt_boost_factor = get_param_value(context_mod_params.get('mr_pve_pt_boost_factor'), 0.2)
         mr_ls_boost_factor = get_param_value(context_mod_params.get('mr_ls_boost_factor'), 0.2)
         tq_non_linear_sensitivity = get_param_value(context_mod_params.get('tq_non_linear_sensitivity'), 2.0)
         mr_non_linear_sensitivity = get_param_value(context_mod_params.get('mr_non_linear_sensitivity'), 2.0)
-
         # 非线性调制宏观情境信号
         modulated_tq = np.tanh(trend_quality * tq_non_linear_sensitivity)
         modulated_mr = np.tanh(market_regime * mr_non_linear_sensitivity)
-
         # 计算动态权重
         dynamic_weights_pve = base_weights['pve'] * (1 + modulated_tq.clip(lower=0) * tq_pve_pt_boost_factor + modulated_mr.clip(lower=0) * mr_pve_pt_boost_factor)
         dynamic_weights_pt = base_weights['pt'] * (1 + modulated_tq.clip(lower=0) * tq_pve_pt_boost_factor + modulated_mr.clip(lower=0) * mr_pve_pt_boost_factor)
         dynamic_weights_ls = base_weights['ls'] * (1 + modulated_tq.clip(upper=0).abs() * tq_ls_boost_factor + modulated_mr.clip(upper=0).abs() * mr_ls_boost_factor)
-
         # 归一化动态权重，使其总和为1
         total_dynamic_weight = dynamic_weights_pve + dynamic_weights_pt + dynamic_weights_ls
         total_dynamic_weight = total_dynamic_weight.replace(0, 1.0) # 避免除以零
-        
         normalized_weights_pve = dynamic_weights_pve / total_dynamic_weight
         normalized_weights_pt = dynamic_weights_pt / total_dynamic_weight
         normalized_weights_ls = dynamic_weights_ls / total_dynamic_weight
-
         raw_fusion_score = (
             pve_score * normalized_weights_pve +
             pt_score * normalized_weights_pt +
             ls_score * normalized_weights_ls
         )
-
         # [修改] 2.3 维度间协同/冲突初步裁决 (强化诡道因子影响)
         synergy_conflict_params = ld_params.get('synergy_conflict_params', {})
         synergy_threshold = get_param_value(synergy_conflict_params.get('synergy_threshold'), 0.5)
@@ -902,16 +874,13 @@ class FusionIntelligence:
         synergy_bonus_factor = get_param_value(synergy_conflict_params.get('synergy_bonus_factor'), 0.1)
         conflict_penalty_factor = get_param_value(synergy_conflict_params.get('conflict_penalty_factor'), 0.1)
         deception_impact_on_synergy = get_param_value(synergy_conflict_params.get('deception_impact_on_synergy'), 0.5)
-
         synergy_conflict_modulator = pd.Series(1.0, index=df_index)
-
         # 强协同（都看涨）
         strong_bullish_synergy = (pve_score > synergy_threshold) & (pt_score > synergy_threshold) & (ls_score > synergy_threshold)
         synergy_conflict_modulator.loc[strong_bullish_synergy] += synergy_bonus_factor * (1 - deception_index.clip(lower=0) * deception_impact_on_synergy) # 欺骗指数越高，协同奖励越少
         # 强协同（都看跌）
         strong_bearish_synergy = (pve_score < conflict_threshold) & (pt_score < conflict_threshold) & (ls_score < conflict_threshold)
         synergy_conflict_modulator.loc[strong_bearish_synergy] += synergy_bonus_factor * (1 - deception_index.clip(upper=0).abs() * deception_impact_on_synergy) # 负向欺骗越高，协同奖励越少
-
         # 冲突因子：当维度间方向显著矛盾时，给予惩罚 (例如，PVE看涨，但PT和LS看跌，可能预示“拉高出货”的诡道，应予惩罚)
         # PVE看涨，但PT和LS看跌 (诱多风险)
         bullish_pve_bearish_pt_ls = (pve_score > synergy_threshold) & (pt_score < conflict_threshold) & (ls_score < conflict_threshold)
@@ -919,9 +888,7 @@ class FusionIntelligence:
         # PVE看跌，但PT和LS看涨 (诱空风险)
         bearish_pve_bullish_pt_ls = (pve_score < conflict_threshold) & (pt_score > synergy_threshold) & (ls_score > synergy_threshold)
         synergy_conflict_modulator.loc[bearish_pve_bullish_pt_ls] -= conflict_penalty_factor * (1 + deception_index.clip(upper=0).abs() * deception_impact_on_synergy) # 负向欺骗越高，惩罚越重
-
         synergy_conflict_modulator = synergy_conflict_modulator.clip(0.5, 1.5) # 限制调节范围
-
         # 最终得分应用协同/冲突调节器
         final_score = np.tanh(raw_fusion_score * 2.0 * synergy_conflict_modulator) # 乘以2.0可以增加tanh的敏感度
         states['FUSION_BIPOLAR_LIQUIDITY_DYNAMICS'] = final_score.astype(np.float32)
