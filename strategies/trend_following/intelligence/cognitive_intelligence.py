@@ -582,17 +582,18 @@ class CognitiveIntelligence:
 
     def _deduce_distribution_at_high(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V6.1 · Power Factor 柔化与情境放大版】贝叶斯推演：“高位派发”风险剧本
+        【V6.2 · 复合筹码证据动态权重与情境放大版】贝叶斯推演：“高位派发”风险剧本
         - 核心升级:
-            1.  **动态 Power Factor 柔化：** 降低 `power_factor_dynamic` 在极端情境下的放大强度，避免过度抑制中等强度证据，提高整体似然度。
-            2.  **复合筹码派发证据非线性聚合：** `composite_chip_distribution_evidence` 采用非线性聚合方式，当多个筹码风险信号同时存在时，其复合强度呈指数级增长，更精准反映风险。
-            3.  **承接力证据精炼：** 进一步增强 `dip_absorption_inverse` 对 `liquidity_dynamics` 负向部分的敏感度。
-            4.  **趋势调制器重构：** 重新设计 `trend_modulator_factor` 的计算逻辑，确保在市场情绪狂热、流动性差的背景下，即使趋势质量略有改善，调制器也至少保持中性或放大风险。
-            5.  **高位特征证据强化：** 引入 `CONTEXT_NEW_HIGH_STRENGTH` 的反向部分和 `SCORE_STRUCT_AXIOM_STABILITY` 的负向部分，更全面地捕捉高位风险。
-            6.  **证据归一化策略优化：** 调整 `_forge_dynamic_evidence` 的 `apply_normalization` 策略，确保原子信号在正确尺度上参与计算。
-            7.  **情境激活因子：** 引入更强的情境激活因子，在市场情绪狂热或流动性枯竭时，显著放大 `price_overextension_raw` 和 `stagnation_evidence` 等关键派发证据的强度。
-            8.  **强化动态权重：** 根据市场情绪、流动性动态、趋势质量和波动不稳定性等情境因子，更精细地动态调整每个证据的权重，尤其是在矛盾情境下放大关键证据。
-            9.  **详细探针：** 增加关键计算节点的输出，特别是情境激活因子。
+            1.  **复合筹码派发证据动态权重：** `composite_chip_distribution_evidence` 内部组件权重动态调整，当 `chip_bearish_divergence` 为零时，其权重按比例分配给其他非零组件，提高证据利用效率。
+            2.  **复合筹码证据整体权重提升：** 略微提高 `composite_chip_distribution_evidence` 的整体基础权重，强化其在风险评估中的作用。
+            3.  **动态 Power Factor 柔化：** 降低 `power_factor_dynamic` 在极端情境下的放大强度，避免过度抑制中等强度证据，提高整体似然度。
+            4.  **承接力证据精炼：** 进一步增强 `dip_absorption_inverse` 对 `liquidity_dynamics` 负向部分的敏感度。
+            5.  **趋势调制器重构：** 重新设计 `trend_modulator_factor` 的计算逻辑，确保在市场情绪狂热、流动性差的背景下，即使趋势质量略有改善，调制器也至少保持中性或放大风险。
+            6.  **高位特征证据强化：** 引入 `CONTEXT_NEW_HIGH_STRENGTH` 的反向部分和 `SCORE_STRUCT_AXIOM_STABILITY` 的负向部分，更全面地捕捉高位风险。
+            7.  **证据归一化策略优化：** 调整 `_forge_dynamic_evidence` 的 `apply_normalization` 策略，确保原子信号在正确尺度上参与计算。
+            8.  **情境激活因子：** 引入更强的情境激活因子，在市场情绪狂热或流动性枯竭时，显著放大 `price_overextension_raw` 和 `stagnation_evidence` 等关键派发证据的强度。
+            9.  **强化动态权重：** 根据市场情绪、流动性动态、趋势质量和波动不稳定性等情境因子，更精细地动态调整每个证据的权重，尤其是在矛盾情境下放大关键证据。
+            10. **详细探针：** 增加关键计算节点的输出，特别是情境激活因子。
         """
         print("    -- [剧本推演] 高位派发风险 (动态证据)...")
         # --- 1. 信号校验 ---
@@ -726,16 +727,43 @@ class CognitiveIntelligence:
         low_structural_stability = self._forge_dynamic_evidence(df, (1 - raw_structural_stability).clip(0, 1), apply_normalization=True)
 
         # 新增：复合筹码派发证据
-        component_chip_bearish_divergence = chip_bearish_divergence.pow(0.5)
-        component_chip_dispersion_evidence = chip_dispersion_evidence.pow(0.8)
-        component_chip_axiom_divergence_bearish = chip_axiom_divergence_bearish.pow(0.8)
-        component_holder_sentiment_inverse = holder_sentiment_inverse.pow(0.8)
+        # 动态调整内部权重，当 chip_bearish_divergence 为0时，将其权重分配给其他组件
+        base_weights_components = {
+            'chip_bearish_divergence': 0.3,
+            'chip_dispersion_evidence': 0.2,
+            'chip_axiom_divergence_bearish': 0.3,
+            'holder_sentiment_inverse': 0.2
+        }
+        
+        # 计算动态权重
+        dynamic_weights_components = pd.DataFrame(base_weights_components, index=df_index)
+        
+        # 如果 chip_bearish_divergence 为0，将其权重按比例分配给其他非零组件
+        zero_chip_bearish_mask = (component_chip_bearish_divergence == 0)
+        
+        # 计算剩余组件的总权重
+        remaining_total_weight = dynamic_weights_components[['chip_dispersion_evidence', 'chip_axiom_divergence_bearish', 'holder_sentiment_inverse']].sum(axis=1)
+        
+        # 分配权重
+        for col in ['chip_dispersion_evidence', 'chip_axiom_divergence_bearish', 'holder_sentiment_inverse']:
+            # 只有当 chip_bearish_divergence 为0且 remaining_total_weight > 0 时才进行分配
+            allocation_ratio = dynamic_weights_components[col] / remaining_total_weight
+            dynamic_weights_components.loc[zero_chip_bearish_mask, col] += dynamic_weights_components.loc[zero_chip_bearish_mask, 'chip_bearish_divergence'] * allocation_ratio.loc[zero_chip_bearish_mask]
+        
+        # 将 chip_bearish_divergence 的权重设为0，因为它已经分配出去了
+        dynamic_weights_components.loc[zero_chip_bearish_mask, 'chip_bearish_divergence'] = 0
+        
+        # 应用幂函数
+        component_chip_bearish_divergence_pow = chip_bearish_divergence.pow(0.5)
+        component_chip_dispersion_evidence_pow = chip_dispersion_evidence.pow(0.8)
+        component_chip_axiom_divergence_bearish_pow = chip_axiom_divergence_bearish.pow(0.8)
+        component_holder_sentiment_inverse_pow = holder_sentiment_inverse.pow(0.8)
 
         composite_chip_distribution_evidence_raw = (
-            component_chip_bearish_divergence * 0.3 +
-            component_chip_dispersion_evidence * 0.2 +
-            component_chip_axiom_divergence_bearish * 0.3 +
-            component_holder_sentiment_inverse * 0.2
+            component_chip_bearish_divergence_pow * dynamic_weights_components['chip_bearish_divergence'] +
+            component_chip_dispersion_evidence_pow * dynamic_weights_components['chip_dispersion_evidence'] +
+            component_chip_axiom_divergence_bearish_pow * dynamic_weights_components['chip_axiom_divergence_bearish'] +
+            component_holder_sentiment_inverse_pow * dynamic_weights_components['holder_sentiment_inverse']
         ).clip(0, 1)
         composite_chip_distribution_evidence = self._forge_dynamic_evidence(df, composite_chip_distribution_evidence_raw, apply_normalization=True)
 
@@ -746,11 +774,9 @@ class CognitiveIntelligence:
             'price_overextension_risk': 0.05,
             'low_upward_efficiency': 0.05,
             'profit_vs_flow_bearish': 0.10,
-            'chip_dispersion_evidence': 0.0, # 权重归零，由复合证据承载
             'market_contradiction_bearish': 0.05,
             'distribution_intent_evidence': 0.08,
             'fund_flow_bearish_divergence': 0.06,
-            'chip_bearish_divergence': 0.0, # 权重归零，由复合证据承载
             'dip_absorption_inverse': 0.05,
             'main_force_holding_inverse': 0.06,
             'bearish_divergence_quality': 0.09,
@@ -761,19 +787,17 @@ class CognitiveIntelligence:
             'price_overextension_raw': 0.07,
             'behavior_bearish_divergence': 0.06,
             'ambush_counterattack_inverse': 0.03,
-            'holder_sentiment_inverse': 0.0, # 权重归零，由复合证据承载
             'new_high_strength_inverse': 0.05,
             'low_structural_stability': 0.05,
-            'composite_chip_distribution_evidence': 0.15
+            'composite_chip_distribution_evidence': 0.18 # 提高权重 (从0.15到0.18)
         }
-        # 过滤掉权重为0的证据名称，避免在归一化时影响总和
-        evidence_names = [name for name, weight in base_weights_dict.items() if weight > 0] # 修改的代码行
+        evidence_names = [name for name, weight in base_weights_dict.items() if weight > 0]
 
 
         # --- 5. 动态证据权重调整 ---
         adaptive_weights_per_date = {
             name: pd.Series(base_weight, index=df_index, dtype=np.float32)
-            for name, base_weight in base_weights_dict.items() if base_weight > 0 # 确保这里也只使用权重>0的
+            for name, base_weight in base_weights_dict.items() if base_weight > 0
         }
 
         sentiment_amplification = market_sentiment * 0.2
@@ -781,7 +805,7 @@ class CognitiveIntelligence:
         liquidity_amplification = liquidity_dynamics.clip(upper=0).abs() * 0.2
         trend_weakness_amplification = (1 - trend_quality.clip(lower=0)) * 0.1 + (trend_quality_slope.clip(upper=0).abs() * 0.1)
 
-        for name in evidence_names: # 遍历过滤后的 evidence_names
+        for name in evidence_names:
             adaptive_weights_per_date[name] += sentiment_amplification + volatility_amplification + liquidity_amplification + trend_weakness_amplification
 
         adaptive_weights_per_date['deception_index_positive'] += market_sentiment * 0.15
@@ -795,7 +819,7 @@ class CognitiveIntelligence:
         adaptive_weights_per_date['fund_flow_bearish_divergence'] += liquidity_dynamics.clip(upper=0).abs() * 0.15
         adaptive_weights_per_date['ff_axiom_divergence_bearish'] += liquidity_dynamics.clip(upper=0).abs() * 0.15
 
-        for name in evidence_names: # 遍历过滤后的 evidence_names
+        for name in evidence_names:
             adaptive_weights_per_date[name] = adaptive_weights_per_date[name].clip(lower=0)
 
         weights_df = pd.DataFrame(adaptive_weights_per_date)
@@ -1018,7 +1042,7 @@ class CognitiveIntelligence:
 
     def _establish_prior_beliefs(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.4 · 高位风险敏感与情境激活版】建立先验信念
+        【V2.5 · 高位风险敏感与情境激活版】建立先验信念
         - 核心升级:
             1.  **降低趋势确认抑制：** 调整 `suppression_factor` 的计算，使其对高位风险的先验抑制作用减弱。
             2.  **引入价格超买意图：** 将 `FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT` 的负向部分作为高位风险的先验信号，增强对顶部风险的敏感度。
@@ -1086,7 +1110,7 @@ class CognitiveIntelligence:
         ).clip(0, 1)
 
         sentiment_liquidity_activation = (market_sentiment.pow(2) * 0.5 + liquidity_dynamics.clip(upper=0).abs().pow(2) * 0.5).clip(0,1)
-        prior_reversal_activated = (prior_reversal_raw + sentiment_liquidity_activation * 0.5).clip(0,1) # 增加0.5的激活强度 (从0.4提高到0.5)
+        prior_reversal_activated = (prior_reversal_raw + sentiment_liquidity_activation * 0.6).clip(0,1) # 增加0.6的激活强度 (从0.5提高到0.6)
 
         prior_reversal = (prior_reversal_activated * suppression_factor).clip(0, 1)
         states['COGNITIVE_PRIOR_REVERSAL_PROB'] = prior_reversal.astype(np.float32)
