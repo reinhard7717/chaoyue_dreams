@@ -3099,7 +3099,7 @@
           "synergy_force_weight": 0.3
         },
           "capitulation_reversal_params": {
-            "description": "【V5.0 · 深度恐慌与多维反转确认版】恐慌投降反转剧本的专属参数。",
+            "description": "【V6.0 · 恐慌深度与多维反转强度融合版】恐慌投降反转剧本的专属参数。",
             "base_weights": {
               "panic_washout_evidence": 0.15,
               "lower_shadow_absorption": 0.10,
@@ -3111,9 +3111,8 @@
               "chip_posture_improvement": 0.08,
               "deception_negative_evidence": 0.05,
               "selling_exhaustion_evidence": 0.10,
-              "microstructure_intent_bullish_evidence": 0.05,
-              "structure_bottom_reversal_evidence": 0.03,
-              "dynamic_mechanics_bottom_reversal_evidence": 0.03
+              "wash_out_rebound_evidence": 0.05,
+              "reversal_strength_fusion_evidence": 0.08
             },
             "context_modulation_factors": {
               "sentiment_negative_mod": 0.15,
@@ -3141,7 +3140,15 @@
               "price_vs_capitulation": 0.1,
               "price_downward_momentum": 0.1,
               "volatility_instability": 0.1,
-              "sentiment_inverse": 0.1
+              "sentiment_inverse": 0.1,
+              "volume_atrophy": 0.1
+            },
+            "sentiment_inverse_exponent": 2.0,
+            "dynamic_penalty_modulation_params": {
+              "enabled": true,
+              "panic_context_sensitivity": 0.5,
+              "min_penalty_reduction_factor": 0.2,
+              "max_penalty_amplification_factor": 1.5
             }
           }
 

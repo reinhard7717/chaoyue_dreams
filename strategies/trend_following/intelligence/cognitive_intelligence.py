@@ -1096,14 +1096,13 @@ class CognitiveIntelligence:
 
     def _deduce_capitulation_reversal(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 深度恐慌与多维反转确认版】贝叶斯推演：“恐慌投降反转”机会剧本
+        【V6.0 · 恐慌深度与多维反转强度融合版】贝叶斯推演：“恐慌投降反转”机会剧本
         - 核心升级:
-            1. 深度恐慌情境感知: 融合多维度信号创建“恐慌情境分数”，作为核心调制器和惩罚依据。
-            2. 增强反转品质证据: 引入微观意图、结构底部反转和力学底部反转信号。
-            3. 动态权重与非线性放大优化: 权重和幂次因子更强烈地受恐慌情境影响。
-            4. 双向惩罚机制精细化: 引入恐慌情境惩罚，并对负向双极性信号惩罚进行非线性化。
-            5. 参数可配置化: 所有新增参数均可配置。
-            6. 探针增强: 详细输出所有新增信号和计算过程。
+            1. 优化恐慌情境分数计算: 调整 `panic_context_score` 权重配置，并优化情绪对恐慌情境的贡献。
+            2. 引入反转强度融合证据: 融合微观意图、结构底部反转和力学底部反转信号为单一证据。
+            3. 动态惩罚调制: 根据恐慌情境分数动态调整负向双极性信号的惩罚力度。
+            4. 参数可配置化: 所有新增参数均可配置。
+            5. 探针增强: 详细输出所有新增信号和计算过程。
         """
         print("    -- [剧本推演] 恐慌投降反转 (动态证据)...")
         df_index = df.index
@@ -1127,7 +1126,7 @@ class CognitiveIntelligence:
             # 新增证据信号
             'SCORE_OPPORTUNITY_SELLING_EXHAUSTION', 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT',
             'PROCESS_META_STRUCTURE_BOTTOM_REVERSAL', 'PROCESS_META_DYNAMIC_MECHANICS_BOTTOM_REVERSAL',
-            'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM' # 用于恐慌情境分数
+            'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 'SCORE_BEHAVIOR_VOLUME_ATROPHY' # 用于恐慌情境分数
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_capitulation_reversal"):
             print("    -> [探针] 信号校验失败，返回默认值。")
@@ -1145,36 +1144,43 @@ class CognitiveIntelligence:
             'chip_posture_improvement': 0.08,
             'deception_negative_evidence': 0.05,
             'selling_exhaustion_evidence': 0.10,
-            'microstructure_intent_bullish_evidence': 0.05, # 新增
-            'structure_bottom_reversal_evidence': 0.03, # 新增
-            'dynamic_mechanics_bottom_reversal_evidence': 0.03 # 新增
+            'reversal_strength_fusion_evidence': 0.08 # 替换 microstructure_intent_bullish_evidence, structure_bottom_reversal_evidence, dynamic_mechanics_bottom_reversal_evidence
         })
         context_modulation_factors = cap_rev_params.get('context_modulation_factors', {
             'sentiment_negative_mod': 0.15,
             'volatility_high_mod': 0.1,
             'trend_weak_mod': 0.1,
             'liquidity_positive_mod': 0.05,
-            'panic_depth_mod': 0.15 # 新增恐慌深度调制
+            'panic_depth_mod': 0.15
         })
         penalty_coefficients = cap_rev_params.get('penalty_coefficients', {
             'distribution_intent': 0.5,
             'deception_positive': 0.5,
             'chip_risk_distribution_whisper': 0.5,
-            'panic_context_penalty': 0.8, # 替换 non_panic_sentiment
+            'panic_context_penalty': 0.8,
             'power_transfer_negative': 0.5,
             'chip_geography_negative': 0.5
         })
         power_factor_dynamic_base = cap_rev_params.get('power_factor_dynamic_base', 1.0)
         power_factor_dynamic_volatility_multiplier = cap_rev_params.get('power_factor_dynamic_volatility_multiplier', 0.5)
-        power_factor_dynamic_panic_multiplier = cap_rev_params.get('power_factor_dynamic_panic_multiplier', 0.5) # 新增恐慌对幂次因子的影响
-        negative_penalty_exponent = cap_rev_params.get('negative_penalty_exponent', 1.5) # 新增负向惩罚幂次
+        power_factor_dynamic_panic_multiplier = cap_rev_params.get('power_factor_dynamic_panic_multiplier', 0.5)
+        negative_penalty_exponent = cap_rev_params.get('negative_penalty_exponent', 1.5)
         panic_context_score_weights = cap_rev_params.get('panic_context_score_weights', {
             'panic_washout': 0.2,
             'loser_capitulation': 0.2,
             'selling_exhaustion': 0.2,
+            'price_vs_capitulation': 0.1, # 使用原始值
             'price_downward_momentum': 0.1,
             'volatility_instability': 0.1,
-            'sentiment_inverse': 0.2
+            'sentiment_inverse': 0.1,
+            'volume_atrophy': 0.1 # 新增
+        })
+        sentiment_inverse_exponent = cap_rev_params.get('sentiment_inverse_exponent', 2.0) # 新增情绪反向指数
+        dynamic_penalty_modulation_params = cap_rev_params.get('dynamic_penalty_modulation_params', {
+            'enabled': True,
+            'panic_context_sensitivity': 0.5,
+            'min_penalty_reduction_factor': 0.2,
+            'max_penalty_amplification_factor': 1.5
         })
         # --- 1. 获取情境调制信号 ---
         raw_sentiment_score = self._get_atomic_score(df, 'market_sentiment_score_D', 0.5)
@@ -1248,24 +1254,57 @@ class CognitiveIntelligence:
         dynamic_mechanics_bottom_reversal_evidence = self._forge_dynamic_evidence(df, raw_dynamic_mechanics_bottom_reversal)
         raw_evidence_values_for_probe['dynamic_mechanics_bottom_reversal_evidence'] = raw_dynamic_mechanics_bottom_reversal
         processed_evidence_values['dynamic_mechanics_bottom_reversal_evidence'] = dynamic_mechanics_bottom_reversal_evidence
+        # 新增洗盘诱空反弹证据
+        raw_wash_out_rebound = self._get_atomic_score(df, 'PROCESS_META_WASH_OUT_REBOUND', 0.0)
+        wash_out_rebound_evidence = self._forge_dynamic_evidence(df, raw_wash_out_rebound)
+        raw_evidence_values_for_probe['wash_out_rebound_evidence'] = raw_wash_out_rebound
+        processed_evidence_values['wash_out_rebound_evidence'] = wash_out_rebound_evidence
         # 用于恐慌情境分数
         raw_price_downward_momentum = self._get_atomic_score(df, 'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0)
+        raw_volume_atrophy = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0)
         # --- 2.1 计算恐慌情境分数 (Panic_Context_Score) ---
         # 融合恐慌相关信号，归一化到 [0, 1]
-        panic_components = [
-            raw_panic_washout * panic_context_score_weights['panic_washout'],
-            raw_loser_capitulation * panic_context_score_weights['loser_capitulation'],
-            raw_selling_exhaustion * panic_context_score_weights['selling_exhaustion'],
-            raw_price_vs_capitulation.clip(lower=0) * panic_context_score_weights['price_vs_capitulation'], # 仅取正向部分
-            raw_price_downward_momentum * panic_context_score_weights['price_downward_momentum'],
-            volatility_instability * panic_context_score_weights['volatility_instability'],
-            (1 - sentiment_score_clipped) * panic_context_score_weights['sentiment_inverse'] # 情绪越低，分数越高
-        ]
-        # 确保所有组件都是 Series 且索引一致
-        panic_components_aligned = [comp.reindex(df_index, fill_value=0.0) for comp in panic_components]
-        # 简单加权平均，然后归一化到 [0, 1]
-        panic_context_score_raw = sum(panic_components_aligned) / sum(panic_context_score_weights.values())
+        panic_components = []
+        panic_weights_sum = 0.0
+        for signal_name, weight in panic_context_score_weights.items():
+            if weight == 0: continue
+            panic_weights_sum += weight
+            if signal_name == 'panic_washout':
+                panic_components.append(raw_panic_washout * weight)
+            elif signal_name == 'loser_capitulation':
+                panic_components.append(raw_loser_capitulation * weight)
+            elif signal_name == 'selling_exhaustion':
+                panic_components.append(raw_selling_exhaustion * weight)
+            elif signal_name == 'price_vs_capitulation':
+                # 使用原始值，其负向部分也贡献恐慌
+                panic_components.append(raw_price_vs_capitulation.abs() * weight)
+            elif signal_name == 'price_downward_momentum':
+                panic_components.append(raw_price_downward_momentum * weight)
+            elif signal_name == 'volatility_instability':
+                panic_components.append(volatility_instability * weight)
+            elif signal_name == 'sentiment_inverse':
+                # 情绪越低，恐慌情境分越高，使用非线性调整
+                panic_components.append((1 - sentiment_score_clipped).pow(sentiment_inverse_exponent) * weight)
+            elif signal_name == 'volume_atrophy':
+                panic_components.append(raw_volume_atrophy * weight)
+        panic_context_score_raw = sum(panic_components) / panic_weights_sum if panic_weights_sum > 0 else pd.Series(0.0, index=df_index)
         panic_context_score = panic_context_score_raw.clip(0, 1)
+        # --- 2.2 融合反转强度证据 ---
+        reversal_strength_components_for_fusion = [
+            microstructure_intent_bullish_evidence,
+            structure_bottom_reversal_evidence,
+            dynamic_mechanics_bottom_reversal_evidence
+        ]
+        # Calculate the geometric mean of these *forged* components.
+        # These components are already guaranteed to be >= min_evidence_threshold_val by _forge_dynamic_evidence.
+        log_components = [np.log(s.values) for s in reversal_strength_components_for_fusion]
+        geometric_mean_values = np.exp(np.mean(log_components, axis=0))
+        reversal_strength_fusion_evidence_raw_value = pd.Series(geometric_mean_values, index=df.index)
+        # Store this calculated raw value for probing. This is the value *before* its own _forge_dynamic_evidence call.
+        raw_evidence_values_for_probe['reversal_strength_fusion_evidence'] = reversal_strength_fusion_evidence_raw_value # 修改行
+        # Now forge the fused evidence itself (this will apply clipping and normalization if needed)
+        reversal_strength_fusion_evidence = self._forge_dynamic_evidence(df, reversal_strength_fusion_evidence_raw_value)
+        processed_evidence_values['reversal_strength_fusion_evidence'] = reversal_strength_fusion_evidence
         # --- 3. 定义基础权重 ---
         evidence_names = list(base_weights_dict.keys())
         # --- 4. 动态权重调整 ---
@@ -1286,10 +1325,10 @@ class CognitiveIntelligence:
         panic_depth_mod = panic_context_score * context_modulation_factors['panic_depth_mod']
         # 应用调制
         # 恐慌相关证据权重增加
-        for name in ['panic_washout_evidence', 'price_vs_capitulation_divergence', 'loser_capitulation_consensus', 'selling_exhaustion_evidence']:
+        for name in ['panic_washout_evidence', 'price_vs_capitulation_divergence', 'loser_capitulation_consensus', 'selling_exhaustion_evidence', 'wash_out_rebound_evidence']:
             adaptive_weights_per_date[name] += sentiment_negative_mod + volatility_high_mod + trend_weak_mod + panic_depth_mod
         # 吸筹/反转意图相关证据权重增加
-        for name in ['lower_shadow_absorption', 'power_transfer_to_main_force', 'micro_reversal_confirmation', 'deception_negative_evidence', 'microstructure_intent_bullish_evidence', 'structure_bottom_reversal_evidence', 'dynamic_mechanics_bottom_reversal_evidence']:
+        for name in ['lower_shadow_absorption', 'power_transfer_to_main_force', 'micro_reversal_confirmation', 'deception_negative_evidence', 'reversal_strength_fusion_evidence']:
             adaptive_weights_per_date[name] += sentiment_negative_mod + trend_weak_mod + liquidity_positive_mod + panic_depth_mod
         # 结构相关证据权重增加
         for name in ['chip_geography_support', 'chip_posture_improvement']:
@@ -1315,8 +1354,7 @@ class CognitiveIntelligence:
             power_transfer_to_main_force, micro_reversal_confirmation,
             chip_geography_support, chip_posture_improvement,
             deception_negative_evidence, selling_exhaustion_evidence,
-            microstructure_intent_bullish_evidence, structure_bottom_reversal_evidence,
-            dynamic_mechanics_bottom_reversal_evidence
+            wash_out_rebound_evidence, reversal_strength_fusion_evidence
         ]
         transformed_evidence_scores = []
         for evidence_series in evidence_list:
@@ -1340,14 +1378,28 @@ class CognitiveIntelligence:
         raw_chip_risk_distribution_whisper = self._get_atomic_score(df, 'SCORE_CHIP_RISK_DISTRIBUTION_WHISPER', 0.0)
         chip_risk_distribution_whisper_penalty_factor = 1 - raw_chip_risk_distribution_whisper * penalty_coefficients['chip_risk_distribution_whisper']
         likelihood = likelihood * chip_risk_distribution_whisper_penalty_factor.clip(0, 1)
-        # 恐慌情境惩罚 (取代非恐慌情绪惩罚)
+        # 恐慌情境惩罚
         panic_context_penalty_factor = 1 - (1 - panic_context_score) * penalty_coefficients['panic_context_penalty']
         likelihood = likelihood * panic_context_penalty_factor.clip(0, 1)
-        # 权力转移负向惩罚 (非线性化)
-        power_transfer_negative_penalty_factor = 1 - (power_transfer_penalty_factor_raw.pow(negative_penalty_exponent)) * penalty_coefficients['power_transfer_negative']
+        # 动态惩罚调制因子
+        dynamic_penalty_modulator = pd.Series(1.0, index=df_index)
+        if dynamic_penalty_modulation_params['enabled']:
+            # 恐慌情境越高，惩罚越轻微 (接近1)，反之惩罚越重 (接近0)
+            # 使用 tanh 函数将 panic_context_score 映射到 [min_reduction_factor, max_amplification_factor] 范围
+            # 确保在 panic_context_score 较低时，惩罚因子可以放大，在 panic_context_score 较高时，惩罚因子可以减小
+            sensitivity = dynamic_penalty_modulation_params['panic_context_sensitivity']
+            min_reduction = dynamic_penalty_modulation_params['min_penalty_reduction_factor']
+            max_amplification = dynamic_penalty_modulation_params['max_penalty_amplification_factor']
+            # 映射 panic_context_score 到一个调制因子
+            # 当 panic_context_score = 0 时，调制因子为 max_amplification
+            # 当 panic_context_score = 1 时，调制因子为 min_reduction
+            dynamic_penalty_modulator = (1 - panic_context_score).pow(sensitivity) * (max_amplification - min_reduction) + min_reduction
+            dynamic_penalty_modulator = dynamic_penalty_modulator.clip(min_reduction, max_amplification)
+        # 权力转移负向惩罚 (非线性化 + 动态调制)
+        power_transfer_negative_penalty_factor = 1 - (power_transfer_penalty_factor_raw.pow(negative_penalty_exponent)) * penalty_coefficients['power_transfer_negative'] * dynamic_penalty_modulator
         likelihood = likelihood * power_transfer_negative_penalty_factor.clip(0, 1)
-        # 筹码地形负向惩罚 (非线性化)
-        chip_geography_negative_penalty_factor = 1 - (chip_geography_penalty_factor_raw.pow(negative_penalty_exponent)) * penalty_coefficients['chip_geography_negative']
+        # 筹码地形负向惩罚 (非线性化 + 动态调制)
+        chip_geography_negative_penalty_factor = 1 - (chip_geography_penalty_factor_raw.pow(negative_penalty_exponent)) * penalty_coefficients['chip_geography_negative'] * dynamic_penalty_modulator
         likelihood = likelihood * chip_geography_negative_penalty_factor.clip(0, 1)
         likelihood = likelihood.clip(0, 1) # 确保似然度在 [0, 1] 范围内
         # --- 8. 计算后验概率 (Posterior Probability) ---
@@ -1362,15 +1414,17 @@ class CognitiveIntelligence:
             print(f"         - volatility_instability: {volatility_instability.loc[probe_date_for_loop]:.4f}")
             print(f"         - trend_quality_score: {trend_quality_score.loc[probe_date_for_loop]:.4f}")
             print(f"         - raw_liquidity_dynamics: {raw_liquidity_dynamics.loc[probe_date_for_loop]:.4f}")
+            print(f"         - raw_price_downward_momentum: {raw_price_downward_momentum.loc[probe_date_for_loop]:.4f}")
+            print(f"         - raw_volume_atrophy: {raw_volume_atrophy.loc[probe_date_for_loop]:.4f}")
             print(f"       - 恐慌情境分数 (panic_context_score): {panic_context_score.loc[probe_date_for_loop]:.4f}")
             print(f"       - 动态幂次因子 (power_factor_dynamic): {power_factor_dynamic.loc[probe_date_for_loop]:.4f}")
             print(f"       - 最小证据阈值 (min_evidence_threshold): {min_evidence_threshold_val:.9f}")
             print(f"       - 原始证据值 (raw_evidence_values_for_probe):")
-            for name in evidence_names:
+            for name in raw_evidence_values_for_probe:
                 raw_val = raw_evidence_values_for_probe.get(name, pd.Series(np.nan, index=df_index)).loc[probe_date_for_loop]
                 print(f"         - {name}: {raw_val:.4f}")
             print(f"       - 经过 _forge_dynamic_evidence 处理后的证据值 (processed_evidence_values):")
-            for name in evidence_names:
+            for name in processed_evidence_values:
                 processed_val = processed_evidence_values.get(name, pd.Series(np.nan, index=df_index)).loc[probe_date_for_loop]
                 print(f"         - {name}: {processed_val:.4f}")
             print(f"       - 动态权重 (weights_df) 基础值:")
@@ -1392,6 +1446,7 @@ class CognitiveIntelligence:
             print(f"         - raw_chip_risk_distribution_whisper: {raw_chip_risk_distribution_whisper.loc[probe_date_for_loop]:.4f}")
             print(f"         - raw_power_transfer (negative part): {power_transfer_penalty_factor_raw.loc[probe_date_for_loop]:.4f}")
             print(f"         - raw_chip_geography_support (negative part): {chip_geography_penalty_factor_raw.loc[probe_date_for_loop]:.4f}")
+            print(f"       - 动态惩罚调制器 (dynamic_penalty_modulator): {dynamic_penalty_modulator.loc[probe_date_for_loop]:.4f}")
             print(f"       - 派发意图惩罚因子: {distribution_intent_penalty_factor.loc[probe_date_for_loop]:.4f}")
             print(f"       - 博弈欺骗指数正向惩罚因子: {deception_positive_penalty_factor.loc[probe_date_for_loop]:.4f}")
             print(f"       - 派发诡影惩罚因子: {chip_risk_distribution_whisper_penalty_factor.loc[probe_date_for_loop]:.4f}")
