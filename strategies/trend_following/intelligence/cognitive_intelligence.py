@@ -1096,7 +1096,7 @@ class CognitiveIntelligence:
 
     def _deduce_capitulation_reversal(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 恐慌深度与多维反转强度融合版】贝叶斯推演：“恐慌投降反转”机会剧本
+        【V7.0 · 恐慌深度与多维反转强度融合版】贝叶斯推演：“恐慌投降反转”机会剧本
         - 核心升级:
             1. 优化恐慌情境分数计算: 调整 `panic_context_score` 权重配置，并优化情绪对恐慌情境的贡献。
             2. 引入反转强度融合证据: 融合微观意图、结构底部反转和力学底部反转信号为单一证据。
@@ -1126,7 +1126,8 @@ class CognitiveIntelligence:
             # 新增证据信号
             'SCORE_OPPORTUNITY_SELLING_EXHAUSTION', 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT',
             'PROCESS_META_STRUCTURE_BOTTOM_REVERSAL', 'PROCESS_META_DYNAMIC_MECHANICS_BOTTOM_REVERSAL',
-            'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 'SCORE_BEHAVIOR_VOLUME_ATROPHY' # 用于恐慌情境分数
+            'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 'SCORE_BEHAVIOR_VOLUME_ATROPHY', # 用于恐慌情境分数
+            'PROCESS_META_WASH_OUT_REBOUND' # 新增洗盘诱空反弹证据
         ]
         if not self._validate_required_signals(df, required_signals, "_deduce_capitulation_reversal"):
             print("    -> [探针] 信号校验失败，返回默认值。")
@@ -1144,7 +1145,8 @@ class CognitiveIntelligence:
             'chip_posture_improvement': 0.08,
             'deception_negative_evidence': 0.05,
             'selling_exhaustion_evidence': 0.10,
-            'reversal_strength_fusion_evidence': 0.08 # 替换 microstructure_intent_bullish_evidence, structure_bottom_reversal_evidence, dynamic_mechanics_bottom_reversal_evidence
+            'wash_out_rebound_evidence': 0.05,
+            'reversal_strength_fusion_evidence': 0.08
         })
         context_modulation_factors = cap_rev_params.get('context_modulation_factors', {
             'sentiment_negative_mod': 0.15,
@@ -1173,9 +1175,9 @@ class CognitiveIntelligence:
             'price_downward_momentum': 0.1,
             'volatility_instability': 0.1,
             'sentiment_inverse': 0.1,
-            'volume_atrophy': 0.1 # 新增
+            'volume_atrophy': 0.1
         })
-        sentiment_inverse_exponent = cap_rev_params.get('sentiment_inverse_exponent', 2.0) # 新增情绪反向指数
+        sentiment_inverse_exponent = cap_rev_params.get('sentiment_inverse_exponent', 2.0)
         dynamic_penalty_modulation_params = cap_rev_params.get('dynamic_penalty_modulation_params', {
             'enabled': True,
             'panic_context_sensitivity': 0.5,
@@ -1277,7 +1279,7 @@ class CognitiveIntelligence:
                 panic_components.append(raw_selling_exhaustion * weight)
             elif signal_name == 'price_vs_capitulation':
                 # 使用原始值，其负向部分也贡献恐慌
-                panic_components.append(raw_price_vs_capitulation.abs() * weight)
+                panic_components.append(raw_price_vs_capitulation.clip(upper=0).abs() * weight) # 修改行: 明确使用负向部分
             elif signal_name == 'price_downward_momentum':
                 panic_components.append(raw_price_downward_momentum * weight)
             elif signal_name == 'volatility_instability':
@@ -1301,7 +1303,7 @@ class CognitiveIntelligence:
         geometric_mean_values = np.exp(np.mean(log_components, axis=0))
         reversal_strength_fusion_evidence_raw_value = pd.Series(geometric_mean_values, index=df.index)
         # Store this calculated raw value for probing. This is the value *before* its own _forge_dynamic_evidence call.
-        raw_evidence_values_for_probe['reversal_strength_fusion_evidence'] = reversal_strength_fusion_evidence_raw_value # 修改行
+        raw_evidence_values_for_probe['reversal_strength_fusion_evidence'] = reversal_strength_fusion_evidence_raw_value
         # Now forge the fused evidence itself (this will apply clipping and normalization if needed)
         reversal_strength_fusion_evidence = self._forge_dynamic_evidence(df, reversal_strength_fusion_evidence_raw_value)
         processed_evidence_values['reversal_strength_fusion_evidence'] = reversal_strength_fusion_evidence
