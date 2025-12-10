@@ -882,11 +882,12 @@ class CognitiveIntelligence:
 
     def _deduce_chasing_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V4.5 · 原始证据值探针增强版】贝叶斯推演：“主力拉升抢筹”剧本
+        【V4.6 · 证据处理流程优化与探针增强版】贝叶斯推演：“主力拉升抢筹”剧本
         - 核心升级:
-            1. 原始证据值探针: 增加每个证据在 `_forge_dynamic_evidence` 处理前的原始值输出，以便于诊断证据为零的根本原因。
-            2. 双极性证据惩罚优化: 对于 `SCORE_CHIP_COHERENT_DRIVE` 等双极性信号，其负向部分将作为惩罚因子，在似然度计算后对结果进行乘法惩罚，而非简单裁剪为零。
-            3. 情绪信号归一化: 对 `market_sentiment_score_D` 进行显式归一化，确保其在 `[0, 1]` 范围内参与调制。
+            1. 证据处理流程优化: 确保 `_forge_dynamic_evidence` 在归一化后再次应用 `min_evidence_threshold`，提高鲁棒性。
+            2. 原始证据值探针: 增加每个证据在 `_forge_dynamic_evidence` 处理前的原始值输出，以便于诊断证据为零的根本原因。
+            3. 双极性证据惩罚优化: 对于 `SCORE_CHIP_COHERENT_DRIVE` 等双极性信号，其负向部分将作为惩罚因子，在似然度计算后对结果进行乘法惩罚，而非简单裁剪为零。
+            4. 情绪信号归一化: 对 `market_sentiment_score_D` 进行显式归一化，确保其在 `[0, 1]` 范围内参与调制。
         """
         print("    -- [剧本推演] 主力拉升抢筹 (动态证据)...")
         df_index = df.index
@@ -1143,7 +1144,7 @@ class CognitiveIntelligence:
             transformed_evidence_scores.append(transformed_score.values)
         
         stacked_transformed_scores = np.stack(transformed_evidence_scores, axis=0)
-        safe_scores = np.maximum(stacked_transformed_scores, 1e-9) # 避免对数运算错误
+        safe_scores = np.maximum(stacked_transformed_scores, self.min_evidence_threshold) # 避免对数运算错误
 
         # --- 6. 计算似然度 (Likelihood) ---
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * weights_df.values.T, axis=0))
@@ -1390,8 +1391,8 @@ class CognitiveIntelligence:
 
     def _forge_dynamic_evidence(self, df: pd.DataFrame, evidence: pd.Series, is_probability: bool = False, apply_normalization: bool = True) -> pd.Series:
         """
-        【V2.3 · 归一化控制版】动态证据锻造
-        - 核心升级: 增加 `apply_normalization` 参数，允许控制是否对证据应用 `normalize_score`。
+        【V2.4 · 鲁棒性增强版】动态证据锻造
+        - 核心升级: 确保 `normalize_score` 后的结果也经过 `min_evidence_threshold` 的处理，提高鲁棒性。
         """
         if not isinstance(evidence, pd.Series):
             evidence = pd.Series(evidence, index=df.index)
@@ -1400,18 +1401,15 @@ class CognitiveIntelligence:
         # 此处将负值裁剪为 0，表示不贡献正向证据
         evidence = evidence.fillna(0.0).clip(0, 1) 
 
-        # 避免对数运算错误，将接近0的值替换为最小证据阈值
-        evidence = evidence.mask(evidence < self.min_evidence_threshold, self.min_evidence_threshold)
-
+        # 如果需要归一化且不是概率值，则进行归一化
         if apply_normalization and not is_probability:
-            # 如果需要归一化且不是概率值，则进行归一化
             evidence = normalize_score(evidence, df.index, window=self.norm_window, ascending=True)
             # 归一化后再次确保在 [0, 1] 范围内，并处理可能出现的 NaN
             evidence = evidence.fillna(0.0).clip(0, 1)
-            # 归一化后，如果原始值是0，normalize_score会将其校准为0.0，这里不再强制替换为min_evidence_threshold
-            # 因为0.0是有效的分数，代表没有证据
-            # 然而，为了几何平均的稳定性，我们仍然需要确保它不为0
-            evidence = evidence.mask(evidence < self.min_evidence_threshold, self.min_evidence_threshold)
+        
+        # 避免对数运算错误，将接近0的值替换为最小证据阈值。
+        # 这一步放在归一化之后，确保所有最终用于几何平均的证据都满足此条件。
+        evidence = evidence.mask(evidence < self.min_evidence_threshold, self.min_evidence_threshold)
         
         return evidence
 
