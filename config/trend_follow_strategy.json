@@ -3162,32 +3162,53 @@
             }
           },
         "leading_dragon_awakening_params": {
-          "description": "【V2.0 · 诡道博弈与情境自适应版】龙头苏醒剧本的专属参数。",
+          "description": "【V4.0 · 诡道博弈与情境自适应强化版】龙头苏醒剧本的专属参数。",
           "base_weights": {
-            "capital_confrontation": 0.10,
-            "breakout_quality": 0.10,
-            "sector_sync": 0.08,
-            "relative_strength": 0.08,
-            "bazhan_mode": 0.07,
-            "chip_coherent_drive": 0.12,
-            "micro_strategic_intent": 0.10,
-            "breakout_readiness": 0.10,
-            "volume_burst": 0.08,
-            "price_upward_momentum": 0.07
+            "capital_confrontation": 0.08,
+            "breakout_quality": 0.08,
+            "sector_sync": 0.06,
+            "relative_strength": 0.06,
+            "bazhan_mode": 0.05,
+            "chip_coherent_drive": 0.10,
+            "micro_strategic_intent": 0.09,
+            "breakout_readiness": 0.09,
+            "volume_burst": 0.07,
+            "price_upward_momentum": 0.07,
+            "capital_confrontation_change": 0.05,
+            "chip_coherent_drive_change": 0.05,
+            "micro_strategic_intent_change": 0.05,
+            "breakout_quality_slope": 0.05,
+            "volume_burst_change": 0.03,
+            "price_upward_momentum_change": 0.03,
+            "upward_efficiency": 0.04,
+            "ff_conviction": 0.06,
+            "chip_trend_momentum": 0.06,
+            "chip_historical_potential": 0.05,
+            "intraday_offensive_purity": 0.04
           },
           "context_modulation_factors": {
             "market_regime_mod_strength": 0.1,
             "trend_quality_mod_strength": 0.1,
             "sentiment_mod_strength": 0.08,
             "liquidity_mod_strength": 0.07,
-            "volatility_mod_breakout_strength": 0.05
+            "volatility_mod_breakout_strength": 0.05,
+            "sentiment_asymmetry_mod_bullish": 0.05,
+            "sentiment_asymmetry_mod_bearish": 0.05,
+            "liquidity_capital_boost": 0.05
           },
           "power_factor_dynamic_base": 1.0,
           "power_factor_dynamic_volatility_multiplier": 0.5,
           "penalty_coefficients": {
             "deception_index_positive": 0.5,
             "chip_risk_distribution_whisper": 0.7,
-            "distribution_at_high_risk": 0.8
+            "distribution_at_high_risk": 0.8,
+            "bearish_divergence": 0.6,
+            "chip_axiom_divergence_negative": 0.5,
+            "ff_axiom_divergence_negative": 0.5,
+            "chip_historical_potential_negative": 0.4,
+            "dynamic_penalty_mod_sensitivity": 0.5,
+            "min_penalty_reduction_factor": 0.2,
+            "max_penalty_amplification_factor": 1.5
           }
         }
       },
