@@ -3099,27 +3099,30 @@
           "synergy_force_weight": 0.3
         },
           "capitulation_reversal_params": {
-            "description": "【V7.0 · 恐慌深度与多维反转强度融合版】恐慌投降反转剧本的专属参数。",
+            "description": "【V8.0 · 深度恐慌与多维吸筹确认版】恐慌投降反转剧本的专属参数。",
             "base_weights": {
-              "panic_washout_evidence": 0.15,
-              "lower_shadow_absorption": 0.10,
-              "price_vs_capitulation_divergence": 0.10,
-              "loser_capitulation_consensus": 0.08,
-              "power_transfer_to_main_force": 0.10,
-              "micro_reversal_confirmation": 0.08,
-              "chip_geography_support": 0.05,
-              "chip_posture_improvement": 0.08,
-              "deception_negative_evidence": 0.05,
-              "selling_exhaustion_evidence": 0.10,
+              "panic_washout_evidence": 0.12,
+              "lower_shadow_absorption": 0.08,
+              "price_vs_capitulation_divergence": 0.08,
+              "loser_capitulation_consensus": 0.07,
+              "power_transfer_to_main_force": 0.08,
+              "micro_reversal_confirmation": 0.07,
+              "chip_geography_support": 0.04,
+              "chip_posture_improvement": 0.07,
+              "deception_negative_evidence": 0.04,
+              "selling_exhaustion_evidence": 0.08,
               "wash_out_rebound_evidence": 0.05,
-              "reversal_strength_fusion_evidence": 0.08
+              "reversal_strength_fusion_evidence": 0.07,
+              "covert_accumulation_evidence": 0.08,
+              "absorption_echo_evidence": 0.07
             },
             "context_modulation_factors": {
               "sentiment_negative_mod": 0.15,
               "volatility_high_mod": 0.1,
               "trend_weak_mod": 0.1,
               "liquidity_positive_mod": 0.05,
-              "panic_depth_mod": 0.15
+              "panic_depth_mod": 0.15,
+              "panic_depth_mod_exponent": 1.5
             },
             "penalty_coefficients": {
               "distribution_intent": 0.5,
@@ -3138,10 +3141,10 @@
               "loser_capitulation": 0.2,
               "selling_exhaustion": 0.2,
               "price_vs_capitulation": 0.1,
-              "price_downward_momentum": 0.1,
+              "price_downward_momentum": 0.15,
               "volatility_instability": 0.1,
-              "sentiment_inverse": 0.1,
-              "volume_atrophy": 0.1
+              "sentiment_inverse": 0.05,
+              "volume_atrophy": 0.0
             },
             "sentiment_inverse_exponent": 2.0,
             "dynamic_penalty_modulation_params": {
