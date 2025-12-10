@@ -690,18 +690,19 @@ class FusionIntelligence:
 
     def _synthesize_liquidity_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 协同共振版】冶炼“流动性博弈动态” (FUSION_BIPOLAR_LIQUIDITY_DYNAMICS)
-        - 核心重构: 废弃V1.0内部维度融合的“几何平均”法，引入“加权协同与非线性激活”法。
+        【V3.0 · 动态情境裁决版】冶炼“流动性博弈动态” (FUSION_BIPOLAR_LIQUIDITY_DYNAMICS)
+        - 核心重构: 废弃V2.0最终融合的“静态权重”，引入基于“趋势质量”和“市场政权”的“动态权重”机制。
         - 核心目标: 融合“价量效能”、“权势转移”、“流动性状态”三大维度，输出[-1, 1]的双极性分数。
         - 诡道哲学: 流动性是市场博弈的血液。健康的流动性动态，是主力主导、价量协同、权力稳固的体现；
                       混乱的流动性动态，则预示着主力派发、权力失衡、市场混乱。
-        - 融合模型: 最终得分 = tanh(w1*PVE_score + w2*PT_score + w3*LS_score)
+                      其判断重心，应随市场情境（趋势质量、市场政权）动态调整。
+        - 融合模型: 最终得分 = tanh(动态权重_pve*PVE + 动态权重_pt*PT + 动态权重_ls*LS)
         """
         print("  -- [融合层] 正在冶炼“流动性博弈动态”...")
         states = {}
         df_index = df.index
 
-        # [修改] 辅助函数：计算加权和并应用tanh激活，映射到[0, 1]
+        # 辅助函数：计算加权和并应用tanh激活，映射到[0, 1]
         def weighted_sum_with_activation_series(components_with_weights, index, activation_sensitivity=1.0):
             if not components_with_weights:
                 return pd.Series(0.0, index=index)
@@ -774,32 +775,58 @@ class FusionIntelligence:
 
         # --- 2. 核心数学逻辑 - 融合三大维度 ---
         
-        # [修改] 2.1 计算价量效能 (PVE) 的双极性分数
         pve_activation_sensitivity = 2.0 # 维度内部激活敏感度
         bullish_pve_fused = weighted_sum_with_activation_series(bullish_pve_components_with_weights, df_index, pve_activation_sensitivity)
         bearish_pve_fused = weighted_sum_with_activation_series(bearish_pve_components_with_weights, df_index, pve_activation_sensitivity)
         pve_score = (bullish_pve_fused - bearish_pve_fused).clip(-1, 1)
 
-        # [修改] 2.2 计算权势转移 (PT) 的双极性分数
         pt_activation_sensitivity = 2.0
         bullish_pt_fused = weighted_sum_with_activation_series(bullish_pt_components_with_weights, df_index, pt_activation_sensitivity)
         bearish_pt_fused = weighted_sum_with_activation_series(bearish_pt_components_with_weights, df_index, pt_activation_sensitivity)
         pt_score = (bullish_pt_fused - bearish_pt_fused).clip(-1, 1)
 
-        # [修改] 2.3 计算流动性状态 (LS) 的双极性分数
         ls_activation_sensitivity = 2.0
         bullish_ls_fused = weighted_sum_with_activation_series(bullish_ls_components_with_weights, df_index, ls_activation_sensitivity)
         bearish_ls_fused = weighted_sum_with_activation_series(bearish_ls_components_with_weights, df_index, ls_activation_sensitivity)
         ls_score = (bullish_ls_fused - bearish_ls_fused).clip(-1, 1)
 
-        # 2.4 融合三大维度 (加权平均 + tanh激活)
-        # 权重可以根据实际回测效果调整，初始设置为均等
-        weights = {'pve': 0.33, 'pt': 0.34, 'ls': 0.33}
+        # [修改] 2.4 动态融合三大维度 (加权平均 + tanh激活)
+        # 获取宏观情境信号
+        trend_quality = self._get_atomic_score(df, 'FUSION_BIPOLAR_TREND_QUALITY', 0.0)
+        market_regime = self._get_atomic_score(df, 'FUSION_BIPOLAR_MARKET_REGIME', 0.0)
+
+        # 基础权重 (可从配置中读取)
+        base_weights = {'pve': 0.33, 'pt': 0.34, 'ls': 0.33}
+
+        # 调制因子 (可从配置中读取)
+        # 趋势质量对PVE/PT的增强作用，对LS的削弱作用 (当趋势质量为正时)
+        tq_pve_pt_boost_factor = 0.3
+        # 趋势质量对LS的增强作用 (当趋势质量为负时)
+        tq_ls_boost_factor = 0.4
+
+        # 市场政权对PVE/PT的增强作用 (当政权偏向趋势市时)
+        mr_pve_pt_boost_factor = 0.2
+        # 市场政权对LS的增强作用 (当政权偏向震荡市时)
+        mr_ls_boost_factor = 0.2
+
+        # 计算动态权重
+        dynamic_weights_pve = base_weights['pve'] * (1 + trend_quality.clip(lower=0) * tq_pve_pt_boost_factor + market_regime.clip(lower=0) * mr_pve_pt_boost_factor)
+        dynamic_weights_pt = base_weights['pt'] * (1 + trend_quality.clip(lower=0) * tq_pve_pt_boost_factor + market_regime.clip(lower=0) * mr_pve_pt_boost_factor)
+        dynamic_weights_ls = base_weights['ls'] * (1 + trend_quality.clip(upper=0).abs() * tq_ls_boost_factor + market_regime.clip(upper=0).abs() * mr_ls_boost_factor)
+
+        # 归一化动态权重，使其总和为1
+        total_dynamic_weight = dynamic_weights_pve + dynamic_weights_pt + dynamic_weights_ls
+        # 避免除以零，如果所有权重都为零，则使用默认权重
+        total_dynamic_weight = total_dynamic_weight.replace(0, 1.0) 
         
+        normalized_weights_pve = dynamic_weights_pve / total_dynamic_weight
+        normalized_weights_pt = dynamic_weights_pt / total_dynamic_weight
+        normalized_weights_ls = dynamic_weights_ls / total_dynamic_weight
+
         raw_fusion_score = (
-            pve_score * weights['pve'] +
-            pt_score * weights['pt'] +
-            ls_score * weights['ls']
+            pve_score * normalized_weights_pve +
+            pt_score * normalized_weights_pt +
+            ls_score * normalized_weights_ls
         )
         # 使用 tanh 激活函数将分数映射到 [-1, 1] 范围，并引入非线性
         final_score = np.tanh(raw_fusion_score * 2.0) # 乘以2.0可以增加tanh的敏感度
@@ -810,7 +837,7 @@ class FusionIntelligence:
         probe_dates = debug_params.get('probe_dates', [])
         if not df.empty and df.index[-1].strftime('%Y-%m-%d') in probe_dates:
             last_date_index = -1
-            print(f"\n--- [流动性博弈动态究极探针 V2.0 · 协同共振版] ---")
+            print(f"\n--- [流动性博弈动态究极探针 V3.0 · 动态情境裁决版] ---")
             print(f"日期: {df.index[last_date_index].strftime('%Y-%m-%d')}")
 
             print("\n  [维度一: 价量效能 (Price-Volume Efficiency - PVE)]:")
@@ -867,8 +894,15 @@ class FusionIntelligence:
             print(f"    - -> 看跌LS融合分 (激活后): {bearish_ls_fused.iloc[last_date_index]:.4f}")
             print(f"    - -> LS双极性分数: {ls_score.iloc[last_date_index]:.4f}")
 
+            print("\n  [宏观情境裁决 (Macro Context Judgment)]:")
+            print(f"    - 趋势质量 (FUSION_BIPOLAR_TREND_QUALITY): {trend_quality.iloc[last_date_index]:.4f}")
+            print(f"    - 市场政权 (FUSION_BIPOLAR_MARKET_REGIME): {market_regime.iloc[last_date_index]:.4f}")
+            print(f"    - -> 动态权重 PVE: {normalized_weights_pve.iloc[last_date_index]:.4f}")
+            print(f"    - -> 动态权重 PT: {normalized_weights_pt.iloc[last_date_index]:.4f}")
+            print(f"    - -> 动态权重 LS: {normalized_weights_ls.iloc[last_date_index]:.4f}")
+
             print("\n  [最终裁决 (Final Judgment)]:")
-            print(f"    - 原始融合分数 (加权平均): {raw_fusion_score.iloc[last_date_index]:.4f}")
+            print(f"    - 原始融合分数 (动态加权平均): {raw_fusion_score.iloc[last_date_index]:.4f}")
             print(f"    - -> 最终流动性博弈动态 (tanh激活): {final_score.iloc[last_date_index]:.4f}")
             print("--- [探针结束] ---\n")
 
