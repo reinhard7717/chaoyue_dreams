@@ -746,11 +746,11 @@ class CognitiveIntelligence:
             'price_overextension_risk': 0.05,
             'low_upward_efficiency': 0.05,
             'profit_vs_flow_bearish': 0.10,
-            'chip_dispersion_evidence': 0.0,
+            'chip_dispersion_evidence': 0.0, # 权重归零，由复合证据承载
             'market_contradiction_bearish': 0.05,
             'distribution_intent_evidence': 0.08,
             'fund_flow_bearish_divergence': 0.06,
-            'chip_bearish_divergence': 0.0,
+            'chip_bearish_divergence': 0.0, # 权重归零，由复合证据承载
             'dip_absorption_inverse': 0.05,
             'main_force_holding_inverse': 0.06,
             'bearish_divergence_quality': 0.09,
@@ -761,16 +761,19 @@ class CognitiveIntelligence:
             'price_overextension_raw': 0.07,
             'behavior_bearish_divergence': 0.06,
             'ambush_counterattack_inverse': 0.03,
+            'holder_sentiment_inverse': 0.0, # 权重归零，由复合证据承载
             'new_high_strength_inverse': 0.05,
             'low_structural_stability': 0.05,
             'composite_chip_distribution_evidence': 0.15
         }
-        evidence_names = list(base_weights_dict.keys())
+        # 过滤掉权重为0的证据名称，避免在归一化时影响总和
+        evidence_names = [name for name, weight in base_weights_dict.items() if weight > 0] # 修改的代码行
+
 
         # --- 5. 动态证据权重调整 ---
         adaptive_weights_per_date = {
             name: pd.Series(base_weight, index=df_index, dtype=np.float32)
-            for name, base_weight in base_weights_dict.items()
+            for name, base_weight in base_weights_dict.items() if base_weight > 0 # 确保这里也只使用权重>0的
         }
 
         sentiment_amplification = market_sentiment * 0.2
@@ -778,7 +781,7 @@ class CognitiveIntelligence:
         liquidity_amplification = liquidity_dynamics.clip(upper=0).abs() * 0.2
         trend_weakness_amplification = (1 - trend_quality.clip(lower=0)) * 0.1 + (trend_quality_slope.clip(upper=0).abs() * 0.1)
 
-        for name in evidence_names:
+        for name in evidence_names: # 遍历过滤后的 evidence_names
             adaptive_weights_per_date[name] += sentiment_amplification + volatility_amplification + liquidity_amplification + trend_weakness_amplification
 
         adaptive_weights_per_date['deception_index_positive'] += market_sentiment * 0.15
@@ -792,7 +795,7 @@ class CognitiveIntelligence:
         adaptive_weights_per_date['fund_flow_bearish_divergence'] += liquidity_dynamics.clip(upper=0).abs() * 0.15
         adaptive_weights_per_date['ff_axiom_divergence_bearish'] += liquidity_dynamics.clip(upper=0).abs() * 0.15
 
-        for name in adaptive_weights_per_date:
+        for name in evidence_names: # 遍历过滤后的 evidence_names
             adaptive_weights_per_date[name] = adaptive_weights_per_date[name].clip(lower=0)
 
         weights_df = pd.DataFrame(adaptive_weights_per_date)
@@ -803,9 +806,8 @@ class CognitiveIntelligence:
         # --- 6. 动态 `power_factor` (非线性转换) ---
         base_power_factor = 1.0 + (volatility_instability * 0.2 + market_sentiment * 0.2 + liquidity_dynamics.clip(upper=0).abs() * 0.3)
         
-        # 极端情境放大因子：当市场情绪极高且流动性极差时，进一步放大 power_factor
         extreme_context_factor = (market_sentiment.pow(2) + liquidity_dynamics.clip(upper=0).abs().pow(2)) / 2
-        power_factor_dynamic = (base_power_factor + extreme_context_factor * 0.3).clip(1.0, 1.8) # 降低乘数从0.5到0.3，并调整上限从2.0到1.8
+        power_factor_dynamic = (base_power_factor + extreme_context_factor * 0.3).clip(1.0, 1.8)
 
 
         # --- 7. 证据转换与似然度计算 ---
