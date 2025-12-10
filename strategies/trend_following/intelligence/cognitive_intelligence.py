@@ -882,10 +882,11 @@ class CognitiveIntelligence:
 
     def _deduce_chasing_accumulation(self, df: pd.DataFrame, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V4.3 · 证据归一化精细控制版】贝叶斯推演：“主力拉升抢筹”剧本
+        【V4.4 · 双极性证据惩罚优化版】贝叶斯推演：“主力拉升抢筹”剧本
         - 核心升级:
-            1. 证据归一化精细控制: 对于事件型或已是归一化分数的证据，跳过 `normalize_score` 的调用，避免不必要的强制归零。
-            2. 探针输出增强: 增加原始证据值的输出，便于调试。
+            1. 双极性证据惩罚: 对于 `SCORE_CHIP_COHERENT_DRIVE` 等双极性信号，其负向部分将作为惩罚因子，在似然度计算后对结果进行乘法惩罚，而非简单裁剪为零。
+            2. 情绪信号归一化: 对 `market_sentiment_score_D` 进行显式归一化，确保其在 `[0, 1]` 范围内参与调制。
+            3. 权重探针增强: 增加权重在不同调制阶段的输出，便于调试权重归零问题。
         """
         print("    -- [剧本推演] 主力拉升抢筹 (动态证据)...")
         df_index = df.index
@@ -929,101 +930,104 @@ class CognitiveIntelligence:
         raw_deception_index = self._get_atomic_score(df, 'SCORE_BEHAVIOR_DECEPTION_INDEX', 0.0) # [-1, 1]
 
         # --- 2. 获取并锻造证据信号 ---
-        # 探针：存储原始证据值
-        raw_evidence_values = {}
+        # Store processed evidence values for debugging
+        processed_evidence_values = {}
 
         # capital_confrontation: 已是归一化分数，无需再次normalize_score
         raw_capital_confrontation = self._get_fused_score(df, 'FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0)
         capital_confrontation = self._forge_dynamic_evidence(df, raw_capital_confrontation, apply_normalization=False)
-        raw_evidence_values['capital_confrontation'] = raw_capital_confrontation
+        processed_evidence_values['capital_confrontation'] = capital_confrontation
 
         # price_rising_evidence: 价格变化，需要归一化
         raw_price_change_bipolar = normalize_to_bipolar(self._get_atomic_score(df, 'pct_change_D'), df_index, 21)
         price_rising_evidence = self._forge_dynamic_evidence(df, raw_price_change_bipolar.clip(lower=0), apply_normalization=True)
-        raw_evidence_values['price_rising_evidence'] = raw_price_change_bipolar.clip(lower=0)
+        processed_evidence_values['price_rising_evidence'] = price_rising_evidence
 
         # efficiency_evidence: VPA效率，需要归一化
         raw_efficiency = self._get_atomic_score(df, 'VPA_EFFICIENCY_D')
         efficiency_evidence = self._forge_dynamic_evidence(df, raw_efficiency, apply_normalization=True)
-        raw_evidence_values['efficiency_evidence'] = raw_efficiency
+        processed_evidence_values['efficiency_evidence'] = efficiency_evidence
 
         # rally_intent_evidence: 已是归一化分数，无需再次normalize_score
         raw_rally_intent = self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_RALLY_INTENT', 0.0).clip(lower=0)
         rally_intent_evidence = self._forge_dynamic_evidence(df, raw_rally_intent, apply_normalization=False)
-        raw_evidence_values['rally_intent_evidence'] = raw_rally_intent
+        processed_evidence_values['rally_intent_evidence'] = rally_intent_evidence
 
         # conviction_evidence: 已是归一化分数，无需再次normalize_score
         raw_conviction = self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0).clip(lower=0)
         conviction_evidence = self._forge_dynamic_evidence(df, raw_conviction, apply_normalization=False)
-        raw_evidence_values['conviction_evidence'] = raw_conviction
+        processed_evidence_values['conviction_evidence'] = conviction_evidence
 
         process_evidence = (rally_intent_evidence * conviction_evidence).pow(0.5) # 融合拉升意图和赢家信念
-        raw_evidence_values['process_evidence'] = (raw_rally_intent * raw_conviction).pow(0.5)
+        processed_evidence_values['process_evidence'] = process_evidence
 
         # chip_strategic_posture_evidence: 已是归一化分数，无需再次normalize_score
         raw_chip_strategic_posture = self._get_atomic_score(df, 'SCORE_CHIP_STRATEGIC_POSTURE', 0.0).clip(lower=0)
         chip_strategic_posture_evidence = self._forge_dynamic_evidence(df, raw_chip_strategic_posture, apply_normalization=False)
-        raw_evidence_values['chip_strategic_posture_evidence'] = raw_chip_strategic_posture
+        processed_evidence_values['chip_strategic_posture_evidence'] = chip_strategic_posture_evidence
 
-        # chip_coherent_drive_evidence: 已是归一化分数，无需再次normalize_score
+        # chip_coherent_drive_evidence: 已是归一化分数，但其负值需要单独处理为惩罚
         raw_chip_coherent_drive = self._get_atomic_score(df, 'SCORE_CHIP_COHERENT_DRIVE', 0.0)
-        chip_coherent_drive_evidence = self._forge_dynamic_evidence(df, raw_chip_coherent_drive, apply_normalization=False)
-        raw_evidence_values['chip_coherent_drive_evidence'] = raw_chip_coherent_drive
+        # 仅取正向部分作为证据
+        chip_coherent_drive_evidence = self._forge_dynamic_evidence(df, raw_chip_coherent_drive.clip(lower=0), apply_normalization=False)
+        processed_evidence_values['chip_coherent_drive_evidence'] = chip_coherent_drive_evidence
+        # 提取负向部分作为惩罚因子
+        chip_coherent_drive_penalty = raw_chip_coherent_drive.clip(upper=0).abs() # 负值越大，惩罚越大
 
         # pullback_confirmation_evidence: 事件型信号，无需归一化
         raw_pullback_confirmation = self._get_atomic_score(df, 'SCORE_PATTERN_PULLBACK_CONFIRMATION', 0.0)
         pullback_confirmation_evidence = self._forge_dynamic_evidence(df, raw_pullback_confirmation, apply_normalization=False)
-        raw_evidence_values['pullback_confirmation_evidence'] = raw_pullback_confirmation
+        processed_evidence_values['pullback_confirmation_evidence'] = pullback_confirmation_evidence
 
         # duofangpao_evidence: 事件型信号，无需归一化
         raw_duofangpao = self._get_atomic_score(df, 'SCORE_PATTERN_DUOFANGPAO', 0.0)
         duofangpao_evidence = self._forge_dynamic_evidence(df, raw_duofangpao, apply_normalization=False)
-        raw_evidence_values['duofangpao_evidence'] = raw_duofangpao
+        processed_evidence_values['duofangpao_evidence'] = duofangpao_evidence
 
         # volume_burst_evidence: 已是归一化分数，无需再次normalize_score
         raw_volume_burst = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0)
         volume_burst_evidence = self._forge_dynamic_evidence(df, raw_volume_burst, apply_normalization=False)
-        raw_evidence_values['volume_burst_evidence'] = raw_volume_burst
+        processed_evidence_values['volume_burst_evidence'] = volume_burst_evidence
 
         # upward_efficiency_evidence: 已是归一化分数，无需再次normalize_score
         raw_upward_efficiency = self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0)
         upward_efficiency_evidence = self._forge_dynamic_evidence(df, raw_upward_efficiency, apply_normalization=False)
-        raw_evidence_values['upward_efficiency_evidence'] = raw_upward_efficiency
+        processed_evidence_values['upward_efficiency_evidence'] = upward_efficiency_evidence
 
         # microstructure_intent_bullish_evidence: 已是归一化分数，无需再次normalize_score
         raw_microstructure_intent_bullish = self._get_atomic_score(df, 'SCORE_BEHAVIOR_MICROSTRUCTURE_INTENT', 0.0).clip(lower=0)
         microstructure_intent_bullish_evidence = self._forge_dynamic_evidence(df, raw_microstructure_intent_bullish, apply_normalization=False)
-        raw_evidence_values['microstructure_intent_bullish_evidence'] = raw_microstructure_intent_bullish
+        processed_evidence_values['microstructure_intent_bullish_evidence'] = microstructure_intent_bullish_evidence
 
         # breakout_readiness_evidence: 已是归一化分数，无需再次normalize_score
         raw_breakout_readiness = self._get_atomic_score(df, 'SCORE_STRUCT_BREAKOUT_READINESS', 0.0)
         breakout_readiness_evidence = self._forge_dynamic_evidence(df, raw_breakout_readiness, apply_normalization=False)
-        raw_evidence_values['breakout_readiness_evidence'] = raw_breakout_readiness
+        processed_evidence_values['breakout_readiness_evidence'] = breakout_readiness_evidence
 
         # ff_accum_inflection_intent_evidence: 已是归一化分数，无需再次normalize_score
         raw_ff_accum_inflection_intent = self._get_atomic_score(df, 'PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT', 0.0)
         ff_accum_inflection_intent_evidence = self._forge_dynamic_evidence(df, raw_ff_accum_inflection_intent, apply_normalization=False)
-        raw_evidence_values['ff_accum_inflection_intent_evidence'] = raw_ff_accum_inflection_intent
+        processed_evidence_values['ff_accum_inflection_intent_evidence'] = ff_accum_inflection_intent_evidence
 
         # structural_momentum_bullish_evidence: 已是归一化分数，无需再次normalize_score
         raw_structural_momentum_bullish = self._get_atomic_score(df, 'SCORE_STRUCT_MOMENTUM', 0.0).clip(lower=0)
         structural_momentum_bullish_evidence = self._forge_dynamic_evidence(df, raw_structural_momentum_bullish, apply_normalization=False)
-        raw_evidence_values['structural_momentum_bullish_evidence'] = raw_structural_momentum_bullish
+        processed_evidence_values['structural_momentum_bullish_evidence'] = structural_momentum_bullish_evidence
 
         # dyn_momentum_bullish_evidence: 已是归一化分数，无需再次normalize_score
         raw_dyn_momentum_bullish = self._get_atomic_score(df, 'SCORE_DYN_AXIOM_MOMENTUM', 0.0).clip(lower=0)
         dyn_momentum_bullish_evidence = self._forge_dynamic_evidence(df, raw_dyn_momentum_bullish, apply_normalization=False)
-        raw_evidence_values['dyn_momentum_bullish_evidence'] = raw_dyn_momentum_bullish
+        processed_evidence_values['dyn_momentum_bullish_evidence'] = dyn_momentum_bullish_evidence
 
         # relative_strength_evidence: 已是归一化分数，无需再次normalize_score
         raw_relative_strength = self._get_atomic_score(df, 'SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH', 0.0).clip(lower=0)
         relative_strength_evidence = self._forge_dynamic_evidence(df, raw_relative_strength, apply_normalization=False)
-        raw_evidence_values['relative_strength_evidence'] = raw_relative_strength
+        processed_evidence_values['relative_strength_evidence'] = relative_strength_evidence
 
         # chip_trend_momentum_evidence: 已是归一化分数，无需再次normalize_score
         raw_chip_trend_momentum = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_TREND_MOMENTUM', 0.0).clip(lower=0)
         chip_trend_momentum_evidence = self._forge_dynamic_evidence(df, raw_chip_trend_momentum, apply_normalization=False)
-        raw_evidence_values['chip_trend_momentum_evidence'] = raw_chip_trend_momentum
+        processed_evidence_values['chip_trend_momentum_evidence'] = chip_trend_momentum_evidence
 
 
         # --- 3. 定义基础权重 ---
@@ -1089,9 +1093,8 @@ class CognitiveIntelligence:
             for name in adaptive_weights_per_date:
                 weights_after_positive_mod[name] = adaptive_weights_per_date[name].loc[probe_date_for_loop]
 
-        # 惩罚调制：这些惩罚将通过对最终似然度的乘法因子来体现，而不是直接减去权重。
-        # 因此，此处不再对 adaptive_weights_per_date 进行减法操作。
-        adaptive_weights_per_date = {name: series.clip(lower=0) for name, series in adaptive_weights_per_date.items()} # 确保权重非负
+        # 确保权重非负
+        adaptive_weights_per_date = {name: series.clip(lower=0) for name, series in adaptive_weights_per_date.items()}
 
         # 将字典转换为 DataFrame，并按行（日期）归一化
         weights_df = pd.DataFrame(adaptive_weights_per_date)
@@ -1129,6 +1132,11 @@ class CognitiveIntelligence:
         likelihood = likelihood * (1 - raw_distribution_intent) * (1 - raw_deception_index.clip(lower=0))
         # 流动性动态越积极，奖励越大
         likelihood = likelihood * (1 + raw_liquidity_dynamics.clip(lower=0) * 0.1)
+        # 新增：筹码同调驱动力负向部分的惩罚
+        # 惩罚因子：1 - 负向驱动力强度 * 惩罚系数
+        # 惩罚系数可以根据需要调整，例如 0.5 意味着负向驱动力为 1 时，似然度减半
+        chip_coherent_drive_penalty_factor = 1 - chip_coherent_drive_penalty * 0.5
+        likelihood = likelihood * chip_coherent_drive_penalty_factor.clip(0, 1) # 确保惩罚因子在 [0, 1]
         likelihood = likelihood.clip(0, 1) # 确保似然度在 [0, 1] 范围内
 
         # --- 8. 计算后验概率 (Posterior Probability) ---
@@ -1147,10 +1155,10 @@ class CognitiveIntelligence:
             print(f"         - raw_distribution_intent: {raw_distribution_intent.loc[probe_date_for_loop]:.4f}")
             print(f"         - raw_deception_index: {raw_deception_index.loc[probe_date_for_loop]:.4f}")
             print(f"       - 动态幂次因子 (power_factor_dynamic): {power_factor_dynamic.loc[probe_date_for_loop]:.4f}")
-            print(f"       - 原始证据值 (raw_evidence_values):")
+            print(f"       - 经过 _forge_dynamic_evidence 处理后的证据值 (processed_evidence_values):")
             for name in evidence_names:
-                raw_val = raw_evidence_values.get(name, pd.Series(np.nan, index=df_index)).loc[probe_date_for_loop]
-                print(f"         - {name}: {raw_val:.4f}")
+                processed_val = processed_evidence_values.get(name, pd.Series(np.nan, index=df_index)).loc[probe_date_for_loop]
+                print(f"         - {name}: {processed_val:.4f}")
             print(f"       - 动态权重 (weights_df) 基础值:")
             for name in evidence_names:
                 print(f"         - {name}: {base_weights_dict.get(name, 'N/A'):.4f}")
@@ -1160,7 +1168,9 @@ class CognitiveIntelligence:
             print(f"       - 动态权重 (weights_df) 最终归一化后 (probe_date_for_loop):")
             for name in evidence_names:
                 print(f"         - {name}: {weights_df.loc[probe_date_for_loop, name]:.4f}")
-            print(f"       - 似然度 (likelihood): {likelihood.loc[probe_date_for_loop]:.4f}")
+            print(f"       - 似然度 (likelihood) 惩罚前: {pd.Series(likelihood_values, index=df_index).loc[probe_date_for_loop]:.4f}") # 输出惩罚前的似然度
+            print(f"       - 筹码同调驱动力惩罚因子: {chip_coherent_drive_penalty_factor.loc[probe_date_for_loop]:.4f}")
+            print(f"       - 似然度 (likelihood) 惩罚后: {likelihood.loc[probe_date_for_loop]:.4f}")
             print(f"       - 先验概率 (prior_prob): {prior_prob.loc[probe_date_for_loop]:.4f}")
             print(f"       - 最终后验概率 (posterior_prob): {posterior_prob.loc[probe_date_for_loop]:.4f}")
 
@@ -1361,7 +1371,8 @@ class CognitiveIntelligence:
             evidence = pd.Series(evidence, index=df.index)
         
         # 确保证据值在 [0, 1] 范围内，并处理 NaN
-        evidence = evidence.fillna(0.0).clip(0, 1) # 默认填充0，并裁剪到[0,1]
+        # 此处将负值裁剪为 0，表示不贡献正向证据
+        evidence = evidence.fillna(0.0).clip(0, 1) 
 
         # 避免对数运算错误，将接近0的值替换为最小证据阈值
         evidence = evidence.mask(evidence < self.min_evidence_threshold, self.min_evidence_threshold)
@@ -1373,6 +1384,8 @@ class CognitiveIntelligence:
             evidence = evidence.fillna(0.0).clip(0, 1)
             # 归一化后，如果原始值是0，normalize_score会将其校准为0.0，这里不再强制替换为min_evidence_threshold
             # 因为0.0是有效的分数，代表没有证据
+            # 然而，为了几何平均的稳定性，我们仍然需要确保它不为0
+            evidence = evidence.mask(evidence < self.min_evidence_threshold, self.min_evidence_threshold)
         
         return evidence
 
