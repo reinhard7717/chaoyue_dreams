@@ -168,7 +168,9 @@ class CognitiveIntelligence:
         accumulation_weights = get_param_value(params.get('accumulation_weights'), {})
         contradiction_weights = get_param_value(params.get('contradiction_weights'), {})
         context_modulator_weights = get_param_value(params.get('context_modulator_weights'), {})
-        final_fusion_exponent = get_param_value(params.get('final_fusion_exponent'), 1.0)
+        # 修改开始 - 恢复 final_fusion_exponent 默认值，因为配置中已明确指定为 2.0
+        final_fusion_exponent = get_param_value(params.get('final_fusion_exponent'), 2.0) # 修改行
+        # 修改结束
         min_activation_threshold = get_param_value(params.get('min_activation_threshold'), 0.1)
         norm_window = get_param_value(params.get('norm_window'), 55)
 
@@ -370,13 +372,14 @@ class CognitiveIntelligence:
         final_score = (fused_score_raw * context_modulator)**final_fusion_exponent
         final_score = final_score.clip(0, 1)
         
-        # 修改开始 - 增加探针输出，检查 final_score 在 where 操作之前的值
-        for p_date in probe_dates_to_print:
-            print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] final_score (where前): {final_score.loc[p_date]:.4f}")
-            print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] min_activation_threshold: {min_activation_threshold:.4f}")
-            print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] final_score >= min_activation_threshold: {(final_score.loc[p_date] >= min_activation_threshold)}")
-        # 确保 final_score 是 Series 类型，并执行 where 操作
-        final_score = pd.Series(final_score, index=df.index).where(final_score >= min_activation_threshold, 0.0) # 修改行
+        # 修改开始 - 简化 where 操作
+        if self.debug_enabled and probe_dates_to_print:
+            for p_date in probe_dates_to_print:
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] final_score (clip后, where前): {final_score.loc[p_date]:.4f}")
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] min_activation_threshold: {min_activation_threshold:.4f}")
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] final_score >= min_activation_threshold: {(final_score.loc[p_date] >= min_activation_threshold)}")
+        # final_score 已经是 Series 类型，直接调用 where 方法即可
+        final_score = final_score.where(final_score >= min_activation_threshold, 0.0) # 修改行
         # 修改结束
 
         for p_date in probe_dates_to_print:
