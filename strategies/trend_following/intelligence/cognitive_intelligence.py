@@ -743,10 +743,10 @@ class CognitiveIntelligence:
                 if "FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT" in signal_name or \
                    "SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM" in signal_name or \
                    "SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH" in signal_name:
-                    signal_score = raw_signal.clip(lower=0) # 取正向作为风险
+                    signal_score = raw_signal.clip(lower=0) # 正向为风险
                 elif "SCORE_STRUCT_AXIOM_MTF_COHESION" in signal_name:
-                    signal_score = raw_signal.clip(upper=0).abs() # 取负向绝对值作为风险
-                else:
+                    signal_score = raw_signal.clip(upper=0).abs() # 负向为风险
+                else: # Default to positive contribution for safety, though ideally all signals are explicitly handled
                     signal_score = raw_signal.clip(lower=0)
                 # 修改结束
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
@@ -772,10 +772,10 @@ class CognitiveIntelligence:
                 raw_signal = fetched_signals[signal_name]
                 if "SCORE_BEHAVIOR_DISTRIBUTION_INTENT" in signal_name or \
                    "SCORE_BEHAVIOR_BEARISH_DIVERGENCE" in signal_name:
-                    signal_score = raw_signal.clip(lower=0)
+                    signal_score = raw_signal.clip(lower=0) # 正向为风险
                 elif "PROCESS_META_MAIN_FORCE_RALLY_INTENT" in signal_name or \
                      "PROCESS_META_PROFIT_VS_FLOW" in signal_name:
-                    signal_score = raw_signal.clip(upper=0).abs()
+                    signal_score = raw_signal.clip(upper=0).abs() # 负向为风险
                 else:
                     signal_score = raw_signal.clip(lower=0)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
@@ -803,9 +803,9 @@ class CognitiveIntelligence:
                 if "SCORE_CHIP_RISK_DISTRIBUTION_WHISPER" in signal_name or \
                    "SCORE_FUND_FLOW_BEARISH_DIVERGENCE" in signal_name or \
                    "FUSION_RISK_DISTRIBUTION_PRESSURE" in signal_name:
-                    signal_score = raw_signal.clip(lower=0)
+                    signal_score = raw_signal.clip(lower=0) # 正向为风险
                 elif "SCORE_CHIP_AXIOM_DIVERGENCE" in signal_name:
-                    signal_score = raw_signal.clip(upper=0).abs() # 取负向绝对值作为风险
+                    signal_score = raw_signal.clip(upper=0).abs() # 负向为风险
                 else:
                     signal_score = raw_signal.clip(lower=0)
                 # 修改结束
@@ -834,11 +834,11 @@ class CognitiveIntelligence:
                 if "FUSION_RISK_STAGNATION" in signal_name or \
                    "PROCESS_META_WINNER_CONVICTION_DECAY" in signal_name or \
                    "PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE" in signal_name:
-                    signal_score = raw_signal.clip(lower=0)
+                    signal_score = raw_signal.clip(lower=0) # 正向为风险
                 elif "FUSION_BIPOLAR_TREND_QUALITY" in signal_name or \
                      "SCORE_DYN_AXIOM_MOMENTUM" in signal_name or \
                      "SCORE_STRUCT_STRATEGIC_POSTURE" in signal_name:
-                    signal_score = raw_signal.clip(upper=0).abs() # 取负向绝对值作为风险
+                    signal_score = raw_signal.clip(upper=0).abs() # 负向为风险
                 else:
                     signal_score = raw_signal.clip(lower=0)
                 # 修改结束
@@ -889,7 +889,6 @@ class CognitiveIntelligence:
                 print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 最终剧本风险 (Final Playbook Risk): {final_score.loc[p_date]:.4f}")
         print(f"  -> {method_name} 计算完成。")
         return final_score.astype(np.float32)
-
 
 
 
