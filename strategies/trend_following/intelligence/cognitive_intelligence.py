@@ -135,21 +135,6 @@ class CognitiveIntelligence:
         return cognitive_scores
 
     def _calculate_suppressive_accumulation(self, df: pd.DataFrame) -> pd.Series:
-        """
-        修改思路：
-        1.  修正 `get_params_block` 的调用，使用 `self.strategy.params` 作为配置源，并使用完整的点分隔路径来正确加载嵌套的参数配置。
-        2.  增加 `self.strategy.params` 结构探针，以确认其内容。
-        3.  移除方法开头对 `enabled` 参数的检查，确保该方法总是执行其计算逻辑。
-        4.  增强探针输出逻辑，确保在每个探测日期，详细打印构成“打压”、“吸筹”、“矛盾”和“情境调节器”
-            这四大类分数的每一个原始信号值及其归一化后的值。
-        5.  在方法开始时，通过 `_get_atomic_score` 预先检查所有所需信号的存在性，并获取其Series，
-            确保后续计算的健壮性。
-        6.  在方法开始处，增加对 `params` 字典以及各个 `weights` 字典内容的打印，以诊断配置加载问题。
-        7.  从score_type_map中选择非COGNITIVE_*的信号作为输入，分为“打压证据”、“吸筹证据”和“矛盾证据”三大类。
-        8.  对每类证据进行加权融合，得到各自的综合分数。
-        9.  引入“情境调节器”，如深度底部区域和结构张力，对最终分数进行放大。
-        10. 使用乘法模型将三类核心证据和情境调节器进行非线性融合，并通过指数放大，以捕捉剧本的共振效应。
-        """
         method_name = "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION"
         print(f"  -> [认知层] 正在计算 {method_name}...")
 
@@ -167,21 +152,24 @@ class CognitiveIntelligence:
             print(f"    -> [探针] _calculate_suppressive_accumulation: full_config_dict (self.strategy.params) 顶层键: {list(full_config_dict.keys())}")
             
             # 分步探针，检查路径的每一部分
-            step1 = get_params_block(full_config_dict, 'strategy_params', {})
-            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params' 结果: {list(step1.keys()) if isinstance(step1, dict) else step1}")
+            strategy_params_block = full_config_dict.get('strategy_params', {}) # 修改行
+            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params' 结果: {list(strategy_params_block.keys()) if isinstance(strategy_params_block, dict) else strategy_params_block}") # 修改行
             
-            step2 = get_params_block(full_config_dict, 'strategy_params.trend_follow', {})
-            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow' 结果: {list(step2.keys()) if isinstance(step2, dict) else step2}")
+            trend_follow_params_block = strategy_params_block.get('trend_follow', {}) # 修改行
+            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow' 结果: {list(trend_follow_params_block.keys()) if isinstance(trend_follow_params_block, dict) else trend_follow_params_block}") # 修改行
             
-            step3 = get_params_block(full_config_dict, 'strategy_params.trend_follow.cognitive_intelligence_params', {})
-            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow.cognitive_intelligence_params' 结果: {list(step3.keys()) if isinstance(step3, dict) else step3}")
+            cognitive_intel_params_block = trend_follow_params_block.get('cognitive_intelligence_params', {}) # 修改行
+            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow.cognitive_intelligence_params' 结果: {list(cognitive_intel_params_block.keys()) if isinstance(cognitive_intel_params_block, dict) else cognitive_intel_params_block}") # 修改行
             
-            step4 = get_params_block(full_config_dict, 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params', {})
-            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params' 结果: {step4}")
+            playbook_params_block = cognitive_intel_params_block.get('cognitive_playbook_suppressive_accumulation_params', {}) # 修改行
+            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params' 结果: {playbook_params_block}") # 修改行
         # 修改结束
 
-        # 修改开始 - 修正参数加载路径，从 full_config_dict 中获取
-        params = get_params_block(full_config_dict, 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params', {})
+        # 修改开始 - 修正参数加载路径，使用 get_params_block 获取顶层块，然后使用 .get() 获取嵌套块
+        # 首先使用 get_params_block 获取 cognitive_intelligence_params 块
+        cognitive_intelligence_config = get_params_block(self.strategy, 'cognitive_intelligence_params', {}) # 修改行
+        # 然后从该块中获取 cognitive_playbook_suppressive_accumulation_params
+        params = cognitive_intelligence_config.get('cognitive_playbook_suppressive_accumulation_params', {}) # 修改行
         # 修改结束
 
         # 修改开始 - 使用实例属性 self.debug_enabled
@@ -213,11 +201,13 @@ class CognitiveIntelligence:
                 df_index_tz = df.index.tz
                 for date_str in self.probe_dates_list_str:
                     try:
-                        current_probe_date = pd.to_datetime(date_str)
-                        if df_index_tz is not None and current_probe_date.tz is None:
-                            current_probe_date = current_probe_date.tz_localize(df_index_tz)
-                        elif df_index_tz is None and current_probe_date.tz is not None:
-                            current_probe_date = current_probe_date.tz_convert(None)
+                        probe_date_naive = pd.to_datetime(date_str)
+                        if df_index_tz is not None and probe_date_naive.tz is None:
+                            current_probe_date = probe_date_naive.tz_localize(df_index_tz)
+                        elif df_index_tz is None and probe_date_naive.tz is not None:
+                            current_probe_date = probe_date_naive.tz_convert(None)
+                        else:
+                            current_probe_date = probe_date_naive
                         
                         if current_probe_date in df.index:
                             probe_dates_to_print.append(current_probe_date)
