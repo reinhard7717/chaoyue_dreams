@@ -1205,49 +1205,49 @@
             "category": "认知层-剧本",
             "type": "dynamic",
             "score": 480,
-            "description": "【贝叶斯推演 V2.0】基于动态证据，推演主力通过打压价格吸筹的战术剧本上演的后验概率。"
+            "description": "【V1.0 · 诡道博弈版】基于多维度动态证据，推演主力通过打压价格吸筹的战术剧本上演的后验概率。该模型融合了价格压制证据（如价格下跌动能、量能萎缩、压价吸筹意图、空头结构等）、隐蔽吸筹证据（如吸筹回声、持仓信念韧性、价筹看涨背离、拆单吸筹强度等）和情境调制因子（如市场恐慌情绪、结构张力、波动率不稳定性等），通过非线性加权几何平均进行计算。旨在精准识别主力在市场弱势中隐蔽建仓的高价值机会。"
         },
         "COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION": {
             "cn_name": "【认知剧本】主力拉升抢筹",
             "category": "认知层-剧本",
             "type": "dynamic",
             "score": 600,
-            "description": "【贝叶斯推演 V2.0】基于动态证据，推演主力通过快速拉升抢夺筹码的战术剧本上演的后验概率。"
+            "description": "基于动态证据，推演主力通过快速拉升抢夺筹码的战术剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL": {
             "cn_name": "【认知剧本】恐慌投降反转",
             "category": "认知层-剧本",
             "type": "positional",
             "score": 900,
-            "description": "【贝叶斯推演 V2.0】基于动态证据，推演市场在恐慌抛售后V型反转的战术剧本上演的后验概率。"
+            "description": "基于动态证据，推演市场在恐慌抛售后V型反转的战术剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_DISTRIBUTION_AT_HIGH": {
             "cn_name": "【认知风险】高位派发",
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -1500,
-            "description": "【贝叶斯推演 V2.0】基于动态证据，推演主力在高位派发筹码的风险剧本上演的后验概率。"
+            "description": "基于动态证据，推演主力在高位派发筹码的风险剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING": {
             "cn_name": "【认知剧本】龙头苏醒",
             "category": "认知层-剧本",
             "type": "dynamic",
             "score": 800,
-            "description": "【贝叶斯推演 V2.0】基于动态证据，推演龙头股被主力资金重新激活并率先突破的“苏醒”剧本上演的后验概率。"
+            "description": "基于动态证据，推演龙头股被主力资金重新激活并率先突破的“苏醒”剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD": {
             "cn_name": "【认知剧本】板块轮动先锋",
             "category": "认知层-剧本",
             "type": "dynamic",
             "score": 500,
-            "description": "【贝叶斯推演 V2.0】基于动态证据，推演资金从旧热点流出并挖掘冷门板块的“轮动切换”剧本上演的后验概率。"
+            "description": "基于动态证据，推演资金从旧热点流出并挖掘冷门板块的“轮动切换”剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_TREND_EXHAUSTION": {
             "cn_name": "【认知风险】趋势衰竭",
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -2500,
-            "description": "【贝叶斯推演 V6.0 · 证据解耦与情境化重构版】基于动态证据，推演主升浪末期内在上涨动能已严重衰竭的风险剧本上演的后验概率。彻底解耦对其他认知层信号的依赖，替换为底层的非认知层信号。引入证据锻造层优化、强化情境化动态权重（包括矛盾情境放大器）、趋势强度放大器、增强证据集，并情境化上涨停板惩罚，以更精准、更敏感地识别强趋势中的衰竭风险。"
+            "description": "基于动态证据，推演主升浪末期内在上涨动能已严重衰竭的风险剧本上演的后验概率。彻底解耦对其他认知层信号的依赖，替换为底层的非认知层信号。引入证据锻造层优化、强化情境化动态权重（包括矛盾情境放大器）、趋势强度放大器、增强证据集，并情境化上涨停板惩罚，以更精准、更敏感地识别强趋势中的衰竭风险。"
         },
 
         "COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION": {
@@ -1255,28 +1255,28 @@
             "category": "认知层-剧本",
             "type": "positional",
             "score": 750,
-            "description": "【贝叶斯推演 V2.0】基于动态证据，推演股价波动率和成交量被压缩到极致即将爆发的“临界状态”剧本上演的后验概率。"
+            "description": "基于动态证据，推演股价波动率和成交量被压缩到极致即将爆发的“临界状态”剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_STEALTH_BOTTOMING_DIVERGENCE": {
             "cn_name": "【认知剧本】隐秘筑底背离",
             "category": "认知层-剧本",
             "type": "dynamic",
             "score": 880,
-            "description": "【贝叶斯推演】基于动态证据，推演在股价下跌趋势趋缓、成交量萎缩的情况下，资金或筹码出现向好迹象的底部背离剧本上演的后验概率。"
+            "description": "基于动态证据，推演在股价下跌趋势趋缓、成交量萎缩的情况下，资金或筹码出现向好迹象的底部背离剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_MICRO_ABSORPTION_DIVERGENCE": {
             "cn_name": "【认知剧本】微观承接背离",
             "category": "认知层-剧本",
             "type": "dynamic",
             "score": 850,
-            "description": "【贝叶斯推演】基于动态证据，推演在价格弱势或横盘、量能萎缩的背景下，微观层面的主动卖压衰竭，同时主动买盘或承接力量增强的底部背离剧本上演的后验概率。"
+            "description": "基于动态证据，推演在价格弱势或横盘、量能萎缩的背景下，微观层面的主动卖压衰竭，同时主动买盘或承接力量增强的底部背离剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_DIVERGENCE_REVERSAL": {
             "cn_name": "【认知剧本】背离反转",
             "category": "认知层-剧本",
             "type": "positional",
             "score": 850,
-            "description": "【V1.0】基于动态证据，推演由多维度背离引发的趋势反转剧本上演的后验概率。"
+            "description": "基于动态证据，推演由多维度背离引发的趋势反转剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_CYCLICAL_TOP": {
             "cn_name": "【认知风险】周期顶风险",
@@ -1303,63 +1303,63 @@
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -1500,
-            "description": "【贝叶斯推演 V1.0】基于动态证据，推演长期获利盘派发导致趋势反转的风险剧本上演的后验概率。"
+            "description": "基于动态证据，推演长期获利盘派发导致趋势反转的风险剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_MARKET_UNCERTAINTY": {
             "cn_name": "【认知风险】市场方向不明",
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -1000,
-            "description": "【贝叶斯推演 V1.0】基于动态证据，推演市场混沌、无趋势，方向不明导致风险加剧的剧本上演的后验概率。"
+            "description": "基于动态证据，推演市场混沌、无趋势，方向不明导致风险加剧的剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_RETAIL_FOMO_RETREAT": {
             "cn_name": "【认知风险】散户狂热主力撤退",
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -2000,
-            "description": "【贝叶斯推演 V1.0】基于动态证据，推演散户Fomo情绪高涨，但主力资金却在悄然撤退的牛市陷阱剧本上演的后验概率。"
+            "description": "基于动态证据，推演散户Fomo情绪高涨，但主力资金却在悄然撤退的牛市陷阱剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_HARVEST_CONFIRMATION": {
             "cn_name": "【认知风险】收割确认",
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -1800,
-            "description": "【贝叶斯推演 V1.0】基于动态证据，推演上冲派发伴随真实利润兑现，主力在高位出货的风险剧本上演的后验概率。"
+            "description": "基于动态证据，推演上冲派发伴随真实利润兑现，主力在高位出货的风险剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_BULL_TRAP_DISTRIBUTION": {
             "cn_name": "【认知风险】主力诱多派发",
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -2200,
-            "description": "【贝叶斯推演 V1.0】基于动态证据，推演筹码派发背景下的诱多收割行为的风险剧本上演的后验概率。"
+            "description": "基于动态证据，推演筹码派发背景下的诱多收割行为的风险剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_LIQUIDITY_TRAP": {
             "cn_name": "【认知风险】流动性陷阱",
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -1200,
-            "description": "【贝叶斯推演 V1.0】基于动态证据，推演资金流出与流动性枯竭共振的风险剧本上演的后验概率。"
+            "description": "基于动态证据，推演资金流出与流动性枯竭共振的风险剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE": {
             "cn_name": "【认知风险】T+0套利压力",
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -1000,
-            "description": "【贝叶斯推演 V1.0】基于动态证据，推演主力短期高频T+0操作获利，导致市场承压的风险剧本上演的后验概率。"
+            "description": "基于动态证据，推演主力短期高频T+0操作获利，导致市场承压的风险剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_KEY_SUPPORT_BREAK": {
             "cn_name": "【认知风险】关键支撑破位",
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -2500,
-            "description": "【贝叶斯推演 V1.0】基于动态证据，推演恐慌抛售击穿所有关键支撑，导致系统性风险的剧本上演的后验概率。"
+            "description": "基于动态证据，推演恐慌抛售击穿所有关键支撑，导致系统性风险的剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_HIGH_LEVEL_STRUCTURAL_COLLAPSE": {
             "cn_name": "【认知风险】高位结构瓦解",
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -2400,
-            "description": "【贝叶斯推演 V1.0】基于动态证据，推演结构顶部与主力派发、散户接盘共振，导致高位结构瓦解的风险剧本上演的后验概率。"
+            "description": "基于动态证据，推演结构顶部与主力派发、散户接盘共振，导致高位结构瓦解的风险剧本上演的后验概率。"
         },
         "说明_opportunity_layer": "--- 机会层 (Opportunity) ---",
         "SCORE_OPPORTUNITY_SELLING_EXHAUSTION": {

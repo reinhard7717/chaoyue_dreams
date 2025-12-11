@@ -2981,294 +2981,52 @@
       },
       "cognitive_intelligence_params": {
         "enabled": true,
-        "description": "【V2.2 · 全息诊断版】顶层认知引擎的专属参数块。",
-        "min_positive_evidence_threshold": 0.0001,
+        "description": "顶层认知引擎的专属参数块。",
         "description_cognitive_fusion_weights": "融合基础、结构、行为三大领域的权重。",
-        "cognitive_fusion_weights": {
-            "foundation": 0.33,
-            "structure": 0.33,
-            "behavior": 0.34
-        },
-        "trend_resilience_shield_params": {
-          "description": "趋势韧性神盾参数",
-          "enabled": { "value": true },
-          "fusion_weights": {
-            "trend_quality": 0.25,
-            "structural_health": 0.25,
-            "fund_flow_health": 0.25,
-            "chip_health": 0.25
-          }
-        },
-        "neutral_zone_threshold": {
-          "value": 0.1,
-          "description": "健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
-        },
-        "reversal_reliability_bonus_factor": 0.5,
-        "capitulation_potential_bonus_factor": 0.5,
-        "comment_bonus_factor": "在计算底部反转共振时，用于放大“反转可靠性”影响的奖励因子。",
-        "description_cascade_fusion_weights": "在计算趋势加速级联时，融合一阶导数(slope)和二阶导数(accel)的权重。",
-        "cascade_fusion_weights": {
-          "slope": 0.3,
-          "accel": 0.7
-        },
-        "description_bottom_reversal_fusion_weights": "在融合多域底部反转信号时，对战术剧本信号的加权。",
-        "bottom_reversal_fusion_weights": {
-            "base_resonance": 0.4,
-            "panic_setup": 0.2,
-            "v_reversal_playbook": 0.4
-        },
-        "description_ignition_fusion_weights": "在融合多域点火信号时，对战术剧本信号的加权。",
-        "ignition_fusion_weights": {
-            "base_resonance": 0.5,
-            "chip_price_lag_playbook": 0.5
-        },
-        "chimera_conflict_params": {
-          "description": "奇美拉冲突诊断引擎参数，用于融合信号冲突与资金流分歧。",
-          "fusion_weights": {
-            "signal_conflict": 0.6,
-            "flow_divergence": 0.4
-          }
-        },
-        "description_trend_health_fusion_weights": "为认知层专属的五维趋势健康度评估引擎提供权重。",
-        "trend_health_fusion_weights": {
-          "alignment": 0.2,
-          "velocity": 0.15,
-          "acceleration": 0.15,
-          "relational": 0.2,
-          "meta_dynamics": 0.3
-        },
-        "expansion_engine_periods": [1, 5, 13, 21, 55],
-        "description_expansion_engine_tf_weights": "认知扩展引擎中，用于MTF融合的周期权重。",
-        "expansion_engine_tf_weights": {
-          "1": 0.05,
-          "5": 0.2,
-          "13": 0.3,
-          "21": 0.3,
-          "55": 0.15
-        },
-        "expansion_signal_specific_configs": {
-          "description": "【V1.0】为特定的认知扩展信号提供覆盖配置。",
-          "COGNITIVE_RISK_LIQUIDITY_TRAP": {
-            "fusion_method": "arithmetic",
-            "description": "明确为流动性陷阱信号配置使用算术平均融合，以提高稳健性。"
-          }
-        },
-        "playbook_synergies": {
-          "description": "【V3.2 · 信号净化版】为每个战术剧本配置其“协同信号”和“风险信号”，以激活空间维度分析。",
-          "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": {
-            "synergistic": ["FUSION_BIPOLAR_MARKET_PRESSURE"],
-            "risk": ["SCORE_STRUCT_AXIOM_TREND_FORM", "SCORE_CHIP_AXIOM_CONCENTRATION"]
+        "cognitive_playbook_suppressive_accumulation_params": {
+          "enabled": true,
+          "description": "【V1.0 · 诡道博弈版】主力打压吸筹剧本的量化参数。",
+          "suppression_weights": {
+            "description": "打压证据融合权重。负值信号取绝对值，正值信号直接使用。",
+            "SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM": 0.2,
+            "SCORE_BEHAVIOR_DISTRIBUTION_INTENT": 0.2,
+            "INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW": 0.15,
+            "FUSION_RISK_DISTRIBUTION_PRESSURE": 0.15,
+            "SCORE_STRUCT_AXIOM_TREND_FORM": 0.1,
+            "SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE": 0.1,
+            "SCORE_FF_AXIOM_CONSENSUS": 0.1
           },
-          "COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION": {
-            "synergistic": ["SCORE_STRUCT_AXIOM_TREND_FORM", "SCORE_FF_AXIOM_CONSENSUS"],
-            "risk": ["COGNITIVE_RISK_TREND_EXHAUSTION"]
+          "accumulation_weights": {
+            "description": "吸筹证据融合权重。正值信号直接使用。",
+            "PROCESS_META_STEALTH_ACCUMULATION": 0.25,
+            "PROCESS_META_PANIC_WASHOUT_ACCUMULATION": 0.25,
+            "PROCESS_META_DECEPTIVE_ACCUMULATION": 0.2,
+            "SCORE_CHIP_OPP_ABSORPTION_ECHO": 0.15,
+            "SCORE_FF_AXIOM_CONVICTION": 0.15
           },
-          "COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL": {
-            "synergistic": ["FUSION_BIPOLAR_MARKET_PRESSURE", "PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL"],
-            "risk": []
+          "contradiction_weights": {
+            "description": "矛盾证据融合权重。正值信号直接使用。",
+            "SCORE_BEHAVIOR_BULLISH_DIVERGENCE": 0.25,
+            "SCORE_CHIP_AXIOM_DIVERGENCE": 0.25,
+            "SCORE_FUND_FLOW_BULLISH_DIVERGENCE": 0.2,
+            "PROCESS_META_PRICE_VS_RETAIL_CAPITULATION": 0.15,
+            "PROCESS_META_PROFIT_VS_FLOW": 0.15
           },
-          "COGNITIVE_RISK_DISTRIBUTION_AT_HIGH": {
-            "synergistic": ["SCORE_STRUCT_AXIOM_TREND_FORM", "SCORE_CHIP_AXIOM_CONCENTRATION"],
-            "risk": []
+          "context_modulator_weights": {
+            "description": "情境调节器融合权重。正值信号直接使用。",
+            "SCORE_CONTEXT_DEEP_BOTTOM_ZONE": 0.4,
+            "SCORE_STRUCT_AXIOM_TENSION": 0.3,
+            "SCORE_FOUNDATION_AXIOM_MARKET_TENSION": 0.3
           },
-          "COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING": {
-            "synergistic": ["PROCESS_META_STOCK_SECTOR_SYNC", "SCORE_STRUCT_AXIOM_TREND_FORM"],
-            "risk": ["PROCESS_META_HOT_SECTOR_COOLING"]
-          },
-          "COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD": {
-            "synergistic": ["PROCESS_META_HOT_SECTOR_COOLING", "PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL"],
-            "risk": ["SCORE_STRUCT_AXIOM_TREND_FORM"]
-          },
-          "COGNITIVE_RISK_TREND_EXHAUSTION": {
-            "synergistic": ["PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE", "PROCESS_META_WINNER_CONVICTION_DECAY"],
-            "risk": []
-          },
-          "COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION": {
-            "synergistic": ["SCORE_DYN_AXIOM_STABILITY"],
-            "risk": []
-          }
-        },
-        "relational_meta_analysis_params": {
-          "description": "【V3.0 · 时空一体版】认知层专属的关系元分析引擎参数，新增了空间维度分析的配置。",
-          "periods": [5, 13, 21, 55],
-          "period_weights": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
-          "state_weight": 0.3,
-          "velocity_weight": 0.3,
-          "acceleration_weight": 0.4,
-          "corr_window": 21,
-          "corr_slope_window": 5,
-          "synergy_force_weight": 0.3
-        },
-          "capitulation_reversal_params": {
-            "description": "【V10.0 · 证据韧性与情境敏感度增强版】恐慌投降反转剧本的专属参数。",
-            "base_weights": {
-              "panic_washout_evidence": 0.09,
-              "lower_shadow_absorption": 0.06,
-              "price_vs_capitulation_divergence": 0.06,
-              "loser_capitulation_consensus": 0.05,
-              "power_transfer_to_main_force": 0.06,
-              "micro_reversal_confirmation": 0.05,
-              "chip_geography_support": 0.03,
-              "chip_posture_improvement": 0.05,
-              "deception_negative_evidence": 0.03,
-              "selling_exhaustion_evidence": 0.06,
-              "wash_out_rebound_evidence": 0.04,
-              "reversal_strength_fusion_evidence": 0.05,
-              "covert_accumulation_evidence": 0.06,
-              "absorption_echo_evidence": 0.05,
-              "deceptive_accumulation_evidence": 0.10,
-              "bullish_divergence_quality_evidence": 0.15
-            },
-            "context_modulation_factors": {
-              "sentiment_negative_mod": 0.15,
-              "volatility_high_mod": 0.1,
-              "trend_weak_mod": 0.1,
-              "liquidity_positive_mod": 0.05,
-              "panic_depth_mod": 0.15,
-              "panic_depth_mod_exponent": 1.5
-            },
-            "penalty_coefficients": {
-              "distribution_intent": 0.5,
-              "deception_positive": 0.5,
-              "chip_risk_distribution_whisper": 0.5,
-              "panic_context_penalty": 0.8,
-              "power_transfer_negative": 0.5,
-              "chip_geography_negative": 0.5
-            },
-            "power_factor_dynamic_base": 1.0,
-            "power_factor_dynamic_volatility_multiplier": 0.5,
-            "power_factor_dynamic_panic_multiplier": 0.5,
-            "negative_penalty_exponent": 1.5,
-            "panic_context_score_weights": {
-              "panic_washout": 0.12,
-              "loser_capitulation": 0.12,
-              "selling_exhaustion": 0.12,
-              "price_vs_capitulation": 0.07,
-              "price_downward_momentum": 0.10,
-              "volatility_instability": 0.07,
-              "sentiment_inverse": 0.03,
-              "volume_atrophy": 0.0,
-              "holder_sentiment_negative": 0.12,
-              "distribution_intent_positive": 0.06,
-              "chip_divergence_negative": 0.08,
-              "fund_flow_divergence_negative": 0.06,
-              "structural_tension": 0.05
-            },
-            "sentiment_inverse_exponent": 2.0,
-            "dynamic_penalty_modulation_params": {
-              "enabled": true,
-              "panic_context_sensitivity": 0.5,
-              "min_penalty_reduction_factor": 0.2,
-              "max_penalty_amplification_factor": 1.5
-            }
-          },
-        "leading_dragon_awakening_params": {
-          "description": "【V9.0 · 生产就绪版】龙头苏醒剧本的专属参数。",
-          "base_weights": {
-            "capital_confrontation": 0.08,
-            "breakout_quality": 0.08,
-            "sector_sync": 0.06,
-            "relative_strength": 0.06,
-            "bazhan_mode": 0.05,
-            "chip_coherent_drive": 0.10,
-            "micro_strategic_intent": 0.09,
-            "breakout_readiness": 0.09,
-            "volume_burst": 0.09,
-            "price_upward_momentum": 0.09,
-            "capital_confrontation_change": 0.05,
-            "chip_coherent_drive_change": 0.05,
-            "micro_strategic_intent_change": 0.05,
-            "breakout_quality_slope": 0.05,
-            "volume_burst_change": 0.03,
-            "price_upward_momentum_change": 0.03,
-            "upward_efficiency": 0.04,
-            "ff_conviction": 0.06,
-            "chip_trend_momentum": 0.06,
-            "chip_historical_potential": 0.05,
-            "intraday_offensive_purity": 0.04
-          },
-          "context_modulation_factors": {
-            "market_regime_mod_strength": 0.1,
-            "trend_quality_mod_strength": 0.1,
-            "sentiment_mod_strength": 0.08,
-            "liquidity_mod_strength": 0.07,
-            "volatility_mod_breakout_strength": 0.05,
-            "sentiment_asymmetry_mod_bullish": 0.05,
-            "sentiment_asymmetry_mod_bearish": 0.05,
-            "liquidity_capital_boost": 0.05,
-            "contradictory_context_amplifier": 0.5,
-            "trend_quality_evidence_mod_factor": 0.8,
-            "min_trend_quality_evidence_modulator": 0.4
-          },
-          "power_factor_dynamic_base": 1.0,
-          "power_factor_dynamic_volatility_multiplier": 0.5,
-          "penalty_coefficients": {
-            "deception_index_positive": 0.5,
-            "chip_risk_distribution_whisper": 0.7,
-            "distribution_at_high_risk": 0.8,
-            "bearish_divergence": 0.6,
-            "chip_axiom_divergence_negative": 0.5,
-            "ff_axiom_divergence_negative": 0.5,
-            "chip_historical_potential_negative": 0.4,
-            "dynamic_penalty_mod_sensitivity": 0.5,
-            "min_penalty_reduction_factor": 0.2,
-            "max_penalty_amplification_factor": 1.5,
-            "contradictory_context_penalty_boost": 0.3,
-            "sentiment_liquidity_contradiction_penalty": 0.7,
-            "trend_quality_penalty_dampening": 0.5
-          },
-          "synergy_bonuses": {
-            "breakout_volume_momentum_synergy": 0.2
-          }
-        },
-        "trend_exhaustion_params": {
-          "description": "【V6.1 · 零证据调制与情境化重构版】趋势衰竭风险剧本的专属参数。",
-          "base_weights": {
-            "price_momentum_divergence": 0.07,
-            "winner_conviction_decay": 0.06,
-            "stagnation_evidence": 0.02,
-            "chip_dispersion_evidence": 0.06,
-            "fund_flow_bearish_divergence": 0.05,
-            "structural_deterioration": 0.04,
-            "capital_retreat_evidence": 0.07,
-            "price_overextension_risk": 0.02,
-            "distribution_intent_risk": 0.03,
-            "market_contradiction_bearish": 0.03,
-            "chip_bearish_divergence": 0.02,
-            "trend_quality_inverse": 0.08,
-            "new_high_strength_inverse": 0.08,
-            "dip_absorption_inverse": 0.07,
-            "main_force_holding_inverse": 0.09,
-            "volume_climax_evidence": 0.05,
-            "retail_fomo_evidence": 0.06,
-            "price_momentum_inverse": 0.04,
-            "behavior_bearish_divergence": 0.05,
-            "chip_axiom_divergence_negative": 0.05,
-            "ff_axiom_divergence_negative": 0.05,
-            "chip_historical_potential_negative": 0.04,
-            "fomo_capital_divergence": 0.05,
-            "profit_chip_pressure": 0.05,
-            "cyclical_peak_pressure": 0.05
-          },
-          "context_modulation_factors": {
-            "sentiment_mod_strength": 0.15,
-            "volatility_mod_strength": 0.12,
-            "trend_strength_mod_strength": 0.20,
-            "liquidity_mod_strength": 0.10,
-            "contradictory_context_amplifier": 0.5
-          },
-          "limit_up_penalty_factors": {
-            "base_penalty_multiplier": 0.5,
-            "overextension_mod_strength": 0.3,
-            "distribution_mod_strength": 0.2
-          },
-          "power_factor_dynamic_base": 1.0,
-          "power_factor_dynamic_volatility_multiplier": 0.5,
-          "trend_strength_amplifier_sensitivity": 0.8,
-          "trend_strength_amplifier_max": 2.5,
-          "zero_evidence_modulator_base": 0.001 
+          "final_fusion_exponent": 2.0,
+          "comment_final_fusion_exponent": "最终融合分数的指数，用于放大或平滑结果。",
+          "min_activation_threshold": 0.1,
+          "comment_min_activation_threshold": "剧本激活的最低分数阈值，低于此值则视为0。",
+          "norm_window": 55,
+          "comment_norm_window": "内部归一化窗口。"
         }
       },
+
 
       "intraday_behavior_engine_params": {
         "enabled": true,
