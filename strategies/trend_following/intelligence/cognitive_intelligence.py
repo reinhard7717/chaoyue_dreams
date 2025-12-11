@@ -138,7 +138,6 @@ class CognitiveIntelligence:
         method_name = "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION"
         print(f"  -> [认知层] 正在计算 {method_name}...")
 
-        # 确定配置根字典，并增加分步探针
         full_config_dict = {}
         if hasattr(self.strategy, 'params') and isinstance(self.strategy.params, dict):
             full_config_dict = self.strategy.params
@@ -150,24 +149,18 @@ class CognitiveIntelligence:
         
         if self.debug_enabled:
             print(f"    -> [探针] _calculate_suppressive_accumulation: full_config_dict (self.strategy.params) 顶层键: {list(full_config_dict.keys())}")
-            
-            # 分步探针，检查路径的每一部分
             strategy_params_block = full_config_dict.get('strategy_params', {})
             print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params' 结果: {list(strategy_params_block.keys()) if isinstance(strategy_params_block, dict) else strategy_params_block}")
-            
             trend_follow_params_block = strategy_params_block.get('trend_follow', {})
             print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow' 结果: {list(trend_follow_params_block.keys()) if isinstance(trend_follow_params_block, dict) else trend_follow_params_block}")
-            
             cognitive_intel_params_block = trend_follow_params_block.get('cognitive_intelligence_params', {})
             print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow.cognitive_intelligence_params' 结果: {list(cognitive_intel_params_block.keys()) if isinstance(cognitive_intel_params_block, dict) else cognitive_intel_params_block}")
-            
             playbook_params_block = cognitive_intel_params_block.get('cognitive_playbook_suppressive_accumulation_params', {})
             print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params' 结果: {playbook_params_block}")
-        # 修正参数加载路径，使用 get_params_block 获取顶层块，然后使用 .get() 获取嵌套块
+
         cognitive_intelligence_config = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         params = cognitive_intelligence_config.get('cognitive_playbook_suppressive_accumulation_params', {})
 
-        # 使用实例属性 self.debug_enabled
         if self.debug_enabled:
             print(f"    -> [探针] {method_name} 加载的原始参数 (params): {params}")
 
@@ -179,16 +172,34 @@ class CognitiveIntelligence:
         min_activation_threshold = get_param_value(params.get('min_activation_threshold'), 0.1)
         norm_window = get_param_value(params.get('norm_window'), 55)
 
-        # 使用实例属性 self.debug_enabled
+        # 修改开始 - 移除对 SCORE_CONTEXT_DEEP_BOTTOM_ZONE 的依赖，并调整权重
+        # 原始权重：{'SCORE_CONTEXT_DEEP_BOTTOM_ZONE': 0.4, 'SCORE_STRUCT_AXIOM_TENSION': 0.3, 'SCORE_FOUNDATION_AXIOM_MARKET_TENSION': 0.3}
+        # 移除 SCORE_CONTEXT_DEEP_BOTTOM_ZONE 后，将 0.4 的权重按比例分配给剩余两个信号
+        if 'SCORE_CONTEXT_DEEP_BOTTOM_ZONE' in context_modulator_weights:
+            removed_weight = context_modulator_weights.pop('SCORE_CONTEXT_DEEP_BOTTOM_ZONE')
+            remaining_total_weight = sum(context_modulator_weights.values())
+            if remaining_total_weight > 0:
+                # 按比例增加剩余信号的权重
+                for k in context_modulator_weights:
+                    context_modulator_weights[k] += context_modulator_weights[k] / remaining_total_weight * removed_weight
+            else: # 如果只剩一个信号，直接把所有权重给它
+                if len(context_modulator_weights) == 1:
+                    context_modulator_weights[list(context_modulator_weights.keys())[0]] = 1.0
+                else: # 如果没有剩余信号，则清空
+                    context_modulator_weights = {}
+        # 确保权重总和为1，如果不是，则重新归一化
+        current_total_context_weight = sum(context_modulator_weights.values())
+        if current_total_context_weight > 0 and abs(current_total_context_weight - 1.0) > 1e-6:
+            context_modulator_weights = {k: v / current_total_context_weight for k, v in context_modulator_weights.items()}
+        # 修改结束
+
         if self.debug_enabled:
             print(f"    -> [探针] suppression_weights: {suppression_weights}")
             print(f"    -> [探针] accumulation_weights: {accumulation_weights}")
             print(f"    -> [探针] contradiction_weights: {contradiction_weights}")
             print(f"    -> [探针] context_modulator_weights: {context_modulator_weights}")
 
-        # --- 探针：获取所有需要探测的日期 ---
         probe_dates_to_print = []
-        # 使用实例属性 self.debug_enabled 和 self.probe_dates_list_str
         if self.debug_enabled and self.probe_dates_list_str:
             if not df.empty:
                 df_index_tz = df.index.tz
@@ -214,8 +225,6 @@ class CognitiveIntelligence:
         else:
             print(f"    -> [探针] 未找到有效的探测日期或调试未启用，将跳过详细探针输出。请检查 debug_params['probe_dates'] 和数据范围。")
 
-
-        # --- 预先获取所有需要的信号，并存储在字典中，确保存在性 ---
         all_required_signals = set()
         all_required_signals.update(suppression_weights.keys())
         all_required_signals.update(accumulation_weights.keys())
@@ -224,7 +233,6 @@ class CognitiveIntelligence:
 
         fetched_signals = {}
         for signal_name in all_required_signals:
-            # 排除 'description' 键，因为它不是信号名称
             if signal_name == 'description':
                 continue
             fetched_signals[signal_name] = self._get_atomic_score(df, signal_name, default=0.0)
@@ -233,37 +241,36 @@ class CognitiveIntelligence:
             else:
                 fetched_signals[signal_name] = fetched_signals[signal_name].reindex(df.index).fillna(0.0)
 
-
-        # 初始化所有分数为0，确保DataFrame操作的安全性
         suppression_score_components = pd.Series(0.0, index=df.index)
         accumulation_score_components = pd.Series(0.0, index=df.index)
         contradiction_score_components = pd.Series(0.0, index=df.index)
         context_modulator_score_components = pd.Series(0.0, index=df.index)
 
-
         # 1. 计算打压证据分数 (Suppression Evidence Score)
         if probe_dates_to_print:
             print(f"    -> [探针] 开始计算打压证据分数...")
-        # 修改开始 - 过滤掉非数字值
-        total_suppression_weight = sum(v for k, v in suppression_weights.items() if k != 'description' and isinstance(v, (int, float))) # 修改行
-        # 修改结束
+        total_suppression_weight = sum(v for k, v in suppression_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if probe_dates_to_print:
             print(f"    -> [探针] 打压证据总权重: {total_suppression_weight:.4f}")
         if total_suppression_weight > 0:
             for signal_name, weight in suppression_weights.items():
-                if signal_name == 'description': # 排除 description
+                if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
-                if "PRICE_DOWNWARD_MOMENTUM" in signal_name or "TREND_FORM" in signal_name or "LIQUIDITY_TIDE" in signal_name:
+                # 修改开始 - 精细化打压证据的信号极性处理
+                if "PRICE_DOWNWARD_MOMENTUM" in signal_name: # 下跌动能，负值代表强，取绝对值
                     signal_score = raw_signal.clip(upper=0).abs()
-                elif "DISTRIBUTION_PRESSURE" in signal_name or "DISTRIBUTION_INT" in signal_name or "STAGNATION_EVIDENCE_RAW" in signal_name:
+                elif "DISTRIBUTION_INTENT" in signal_name or "STAGNATION_EVIDENCE_RAW" in signal_name or "DISTRIBUTION_PRESSURE" in signal_name: # 派发意图、停滞证据、派发压力，正值代表强
                     signal_score = raw_signal.clip(lower=0)
+                elif "TREND_FORM" in signal_name or "LIQUIDITY_TIDE" in signal_name or "FF_AXIOM_CONSENSUS" in signal_name: # 趋势形态、流动性潮汐、资金流共识，负值代表打压证据
+                    signal_score = raw_signal.clip(upper=0).abs()
                 else:
                     signal_score = raw_signal
+                # 修改结束
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 suppression_score_components += normalized_signal_score * weight
                 for p_date in probe_dates_to_print:
-                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 打压信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}")
+                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 打压信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}") # 修改行
             suppression_score = suppression_score_components / total_suppression_weight
         else:
             suppression_score = pd.Series(0.0, index=df.index)
@@ -273,24 +280,26 @@ class CognitiveIntelligence:
         # 2. 计算吸筹证据分数 (Accumulation Evidence Score)
         if probe_dates_to_print:
             print(f"    -> [探针] 开始计算吸筹证据分数...")
-        # 修改开始 - 过滤掉非数字值
-        total_accumulation_weight = sum(v for k, v in accumulation_weights.items() if k != 'description' and isinstance(v, (int, float))) # 修改行
-        # 修改结束
+        total_accumulation_weight = sum(v for k, v in accumulation_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if probe_dates_to_print:
             print(f"    -> [探针] 吸筹证据总权重: {total_accumulation_weight:.4f}")
         if total_accumulation_weight > 0:
             for signal_name, weight in accumulation_weights.items():
-                if signal_name == 'description': # 排除 description
+                if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
-                if "CONVICTION" in signal_name or "COHERENT_DRIVE" in signal_name:
+                # 修改开始 - 精细化吸筹证据的信号极性处理
+                if "STEALTH_ACCUMULATION" in signal_name or "PANIC_WASHOUT_ACCUMULATION" in signal_name or "DECEPTIVE_ACCUMULATION" in signal_name or "ABSORPTION_ECHO" in signal_name: # 隐蔽吸筹、恐慌洗盘吸筹、欺骗性吸筹、吸筹回声，正值代表强
                     signal_score = raw_signal.clip(lower=0)
+                elif "FF_AXIOM_CONVICTION" in signal_name: # 资金流信念，负值可能代表主力在低位吸筹，故意不拉升，这应被视为正向证据
+                    signal_score = raw_signal.clip(upper=0).abs() # 负值取绝对值，正值保持0
                 else:
                     signal_score = raw_signal
+                # 修改结束
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 accumulation_score_components += normalized_signal_score * weight
                 for p_date in probe_dates_to_print:
-                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 吸筹信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}")
+                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 吸筹信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}") # 修改行
             accumulation_score = accumulation_score_components / total_accumulation_weight
         else:
             accumulation_score = pd.Series(0.0, index=df.index)
@@ -300,21 +309,26 @@ class CognitiveIntelligence:
         # 3. 计算矛盾证据分数 (Contradiction Evidence Score)
         if probe_dates_to_print:
             print(f"    -> [探针] 开始计算矛盾证据分数...")
-        # 修改开始 - 过滤掉非数字值
-        total_contradiction_weight = sum(v for k, v in contradiction_weights.items() if k != 'description' and isinstance(v, (int, float))) # 修改行
-        # 修改结束
+        total_contradiction_weight = sum(v for k, v in contradiction_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if probe_dates_to_print:
             print(f"    -> [探针] 矛盾证据总权重: {total_contradiction_weight:.4f}")
         if total_contradiction_weight > 0:
             for signal_name, weight in contradiction_weights.items():
-                if signal_name == 'description': # 排除 description
+                if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
-                signal_score = raw_signal.clip(lower=0)
+                # 修改开始 - 精细化矛盾证据的信号极性处理
+                if "BULLISH_DIVERGENCE" in signal_name or "CHIP_AXIOM_DIVERGENCE" in signal_name or "FUND_FLOW_BULLISH_DIVERGENCE" in signal_name: # 看涨背离、筹码背离、资金流看涨背离，正值代表强
+                    signal_score = raw_signal.clip(lower=0)
+                elif "PRICE_VS_RETAIL_CAPITULATION" in signal_name or "PROFIT_VS_FLOW" in signal_name: # 价格vs散户投降、利润vs资金流，负值可能代表矛盾证据
+                    signal_score = raw_signal.clip(upper=0).abs() # 负值取绝对值，正值保持0
+                else:
+                    signal_score = raw_signal
+                # 修改结束
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 contradiction_score_components += normalized_signal_score * weight
                 for p_date in probe_dates_to_print:
-                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 矛盾信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}")
+                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 矛盾信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}") # 修改行
             contradiction_score = contradiction_score_components / total_contradiction_weight
         else:
             contradiction_score = pd.Series(0.0, index=df.index)
@@ -324,27 +338,27 @@ class CognitiveIntelligence:
         # 4. 计算情境调节器 (Context Modulators)
         if probe_dates_to_print:
             print(f"    -> [探针] 开始计算情境调节器分数...")
-        # 修改开始 - 过滤掉非数字值
-        total_context_weight = sum(v for k, v in context_modulator_weights.items() if k != 'description' and isinstance(v, (int, float))) # 修改行
-        # 修改结束
+        total_context_weight = sum(v for k, v in context_modulator_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if probe_dates_to_print:
             print(f"    -> [探针] 情境调节器总权重: {total_context_weight:.4f}")
         if total_context_weight > 0:
             for signal_name, weight in context_modulator_weights.items():
-                if signal_name == 'description': # 排除 description
+                if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
-                normalized_signal_score = normalize_score(raw_signal, df.index, norm_window, ascending=True)
+                # 修改开始 - 情境调节器信号通常是正向的，直接使用
+                signal_score = raw_signal.clip(lower=0) # 确保情境调节器是正向贡献
+                # 修改结束
+                normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 context_modulator_score_components += normalized_signal_score * weight
                 for p_date in probe_dates_to_print:
-                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 情境信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}")
+                    print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 情境信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}") # 修改行
             context_modulator = context_modulator_score_components / total_context_weight
         else:
             context_modulator = pd.Series(1.0, index=df.index)
         for p_date in probe_dates_to_print:
             print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合情境调节器 (Context Modulator): {context_modulator.loc[p_date]:.4f}")
 
-        # 5. 最终融合 (Final Fusion)
         epsilon = 1e-6
         fused_score_raw = (
             (suppression_score + epsilon) *
