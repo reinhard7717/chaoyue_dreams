@@ -54,7 +54,10 @@ class CognitiveIntelligence:
             print(f"    -> [认知层警告] 原子信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
             score = pd.Series(default, index=df.index)
 
-        debug_params = get_params_block(self.strategy.params, 'debug_params', {})
+        # 修改开始 - 修正 debug_params 的加载路径
+        debug_params = get_params_block(self.strategy.params, 'strategy_params.trend_follow.debug_params', {})
+        # 修改结束
+
         if debug_params.get('enabled', {}).get('value', False) and debug_params.get('probe_dates'):
             probe_dates_str = debug_params.get('probe_dates', [])
             if probe_dates_str and not df.empty:
@@ -129,12 +132,12 @@ class CognitiveIntelligence:
         method_name = "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION"
         print(f"  -> [认知层] 正在计算 {method_name}...")
 
-        # 假设 debug_params 也是从 self.strategy.params 中获取的
-        debug_params = get_params_block(self.strategy.params, 'debug_params', {})
-        
-        # 修改开始 - 增强 debug_params 打印
-        print(f"    -> [探针] 实际加载的 debug_params: {debug_params}")
+        # 修改开始 - 修正 debug_params 的加载路径
+        debug_params = get_params_block(self.strategy.params, 'strategy_params.trend_follow.debug_params', {})
         # 修改结束
+        
+        # 增强 debug_params 打印
+        print(f"    -> [探针] 实际加载的 debug_params: {debug_params}")
 
         if debug_params.get('enabled', {}).get('value', False):
             print(f"    -> [探针] self.strategy 类型: {type(self.strategy)}")
@@ -146,9 +149,8 @@ class CognitiveIntelligence:
             else:
                 print(f"    -> [探针警告] self.strategy.params 不存在或不是字典类型。")
 
-        # 修改开始 - 修正参数加载路径，从 self.strategy.params 中获取
+        # 修正参数加载路径，从 self.strategy.params 中获取
         params = get_params_block(self.strategy.params, 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params', {})
-        # 修改结束
 
         if debug_params.get('enabled', {}).get('value', False):
             print(f"    -> [探针] {method_name} 加载的原始参数 (params): {params}")
@@ -173,13 +175,12 @@ class CognitiveIntelligence:
         if debug_params.get('enabled', {}).get('value', False) and debug_params.get('probe_dates'):
             probe_dates_list_str = debug_params.get('probe_dates', [])
             
-            # 修改开始 - 增强 df.index 探针
+            # 增强 df.index 探针
             if not df.empty:
                 print(f"    -> [探针] df.index 范围: {df.index.min()} to {df.index.max()}")
                 print(f"    -> [探针] df.index 时区: {df.index.tz}")
             else:
                 print(f"    -> [探针警告] DataFrame 为空，无法检查索引范围。")
-            # 修改结束
 
             if probe_dates_list_str and not df.empty:
                 df_index_tz = df.index.tz
@@ -191,9 +192,8 @@ class CognitiveIntelligence:
                         elif df_index_tz is None and current_probe_date.tz is not None:
                             current_probe_date = current_probe_date.tz_convert(None)
                         
-                        # 修改开始 - 增强日期检查结果探针
+                        # 增强日期检查结果探针
                         print(f"    -> [探针] 检查探测日期 '{date_str}' (校准后: {current_probe_date}) 是否在 df.index 中: {current_probe_date in df.index}")
-                        # 修改结束
 
                         if current_probe_date in df.index:
                             probe_dates_to_print.append(current_probe_date)
