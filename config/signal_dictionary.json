@@ -1229,13 +1229,6 @@
             "score": 500,
             "description": "基于动态证据，推演资金从旧热点流出并挖掘冷门板块的“轮动切换”剧本上演的后验概率。"
         },
-        "COGNITIVE_RISK_TREND_EXHAUSTION": {
-            "cn_name": "【认知风险】趋势衰竭",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -2500,
-            "description": "基于动态证据，推演主升浪末期内在上涨动能已严重衰竭的风险剧本上演的后验概率。彻底解耦对其他认知层信号的依赖，替换为底层的非认知层信号。引入证据锻造层优化、强化情境化动态权重（包括矛盾情境放大器）、趋势强度放大器、增强证据集，并情境化上涨停板惩罚，以更精准、更敏感地识别强趋势中的衰竭风险。"
-        },
         "COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION": {
             "cn_name": "【认知剧本】能量压缩爆发",
             "category": "认知层-剧本",
@@ -1263,6 +1256,13 @@
             "type": "positional",
             "score": 850,
             "description": "基于动态证据，推演由多维度背离引发的趋势反转剧本上演的后验概率。"
+        },
+        "COGNITIVE_RISK_TREND_EXHAUSTION": {
+            "cn_name": "【认知风险】趋势衰竭",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -2500,
+            "description": "基于动态证据，推演主升浪末期内在上涨动能已严重衰竭的风险剧本上演的后验概率。彻底解耦对其他认知层信号的依赖，替换为底层的非认知层信号。引入证据锻造层优化、强化情境化动态权重（包括矛盾情境放大器）、趋势强度放大器、增强证据集，并情境化上涨停板惩罚，以更精准、更敏感地识别强趋势中的衰竭风险。"
         },
         "COGNITIVE_RISK_CYCLICAL_TOP": {
             "cn_name": "【认知风险】周期顶风险",

@@ -3528,7 +3528,64 @@
             "comment_min_activation_threshold": "剧本激活的最低分数阈值，低于此值则视为0。",
             "norm_window": 55,
             "comment_norm_window": "内部归一化窗口。"
+          },
+          "cognitive_playbook_energy_compression_params": {
+            "description": "【V1.0 · 能量压缩爆发版】识别股价波动率和成交量被压缩到极致即将爆发的“临界状态”剧本。",
+            "volatility_compression_weights": {
+              "description": "波动率压缩证据融合权重。BBW和ATR取反向归一化，其他取正向。",
+              "SCORE_STRUCT_AXIOM_TENSION": 0.35,
+              "BBW_21_2.0_D": 0.3,
+              "ATR_14_D": 0.2,
+              "SCORE_DYN_AXIOM_STABILITY": 0.15
+            },
+            "volume_atrophy_weights": {
+              "description": "量能萎缩证据融合权重。VOL_MA取反向归一化，其他取正向。",
+              "SCORE_BEHAVIOR_VOLUME_ATROPHY": 0.4,
+              "VOL_MA_5_D": 0.3,
+              "VOL_MA_13_D": 0.3
+            },
+            "main_force_control_weights": {
+              "description": "主力控盘迹象融合权重。所有信号取正向。",
+              "PROCESS_META_MAIN_FORCE_CONTROL": 0.3,
+              "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT": 0.25,
+              "SCORE_FF_AXIOM_CONSENSUS": 0.2,
+              "SCORE_MICRO_STRATEGY_COST_CONTROL": 0.15,
+              "SCORE_STRUCT_BREAKOUT_READINESS": 0.1
+            },
+            "pre_breakout_indicators_weights": {
+              "description": "爆发前兆融合权重。所有信号取正向。",
+              "SCORE_STRUCT_AXIOM_ENVIRONMENT": 0.25,
+              "SCORE_FOUNDATION_AXIOM_MARKET_TENSION": 0.25,
+              "SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL": 0.2,
+              "SCORE_MICRO_HARMONY_INFLECTION": 0.15,
+              "PROCESS_META_ACCUMULATION_INFLECTION": 0.15
+            },
+            "risk_filter_weights": {
+              "description": "风险过滤权重。正向为风险，双极性信号取负向绝对值。",
+              "SCORE_BEHAVIOR_DECEPTION_INDEX": 0.3,
+              "SCORE_RISK_BREAKOUT_FAILURE_CASCADE": 0.25,
+              "FUSION_RISK_STAGNATION": 0.2,
+              "FUSION_RISK_DISTRIBUTION_PRESSURE": 0.15,
+              "SCORE_FF_AXIOM_DIVERGENCE": 0.1
+            },
+            "synergy_threshold": 0.6,
+            "comment_synergy_threshold": "维度协同/冲突判断的阈值。",
+            "synergy_bonus_factor": 0.2,
+            "comment_synergy_bonus_factor": "维度协同时的奖励因子。",
+            "conflict_penalty_factor": 0.3,
+            "comment_conflict_penalty_factor": "维度冲突时的惩罚因子。",
+            "dynamic_context_modulator_signal": "SCORE_CYCLICAL_HURST_REVERSION_REGIME",
+            "comment_dynamic_context_modulator_signal": "用于动态调整各维度权重的市场情境信号（均值回归倾向越强，越强化）。",
+            "dynamic_context_sensitivity": 0.5,
+            "comment_dynamic_context_sensitivity": "市场情境对动态权重调整的敏感度。",
+            "final_fusion_exponent": 2.0,
+            "comment_final_fusion_exponent": "最终融合分数的指数，用于放大或平滑结果。",
+            "min_activation_threshold": 0.1,
+            "comment_min_activation_threshold": "剧本激活的最低分数阈值，低于此值则视为0。",
+            "norm_window": 55,
+            "comment_norm_window": "内部归一化窗口。"
           }
+
         }
       },
       "intraday_behavior_engine_params": {

@@ -125,9 +125,11 @@ class CognitiveIntelligence:
             cognitive_scores["COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL"] = self._calculate_capitulation_reversal(df)
         if playbooks_config.get('cognitive_risk_distribution_at_high_params'):
             cognitive_scores["COGNITIVE_RISK_DISTRIBUTION_AT_HIGH"] = self._calculate_distribution_at_high(df)
-        # 修改开始 - 新增 COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING 的调用
         if playbooks_config.get('cognitive_playbook_leading_dragon_awakening_params'):
             cognitive_scores["COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING"] = self._calculate_leading_dragon_awakening(df)
+        # 修改开始 - 新增 COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION 的调用
+        if playbooks_config.get('cognitive_playbook_energy_compression_params'):
+            cognitive_scores["COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION"] = self._calculate_energy_compression(df)
         # 修改结束
         return cognitive_scores
 
@@ -810,8 +812,6 @@ class CognitiveIntelligence:
         print(f"  -> [认知层] 正在计算 {method_name}...")
         cognitive_intelligence_config = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         params = cognitive_intelligence_config.get('playbooks', {}).get('cognitive_playbook_leading_dragon_awakening_params', {})
-        if self.debug_enabled:
-            print(f"    -> [探针] {method_name} 加载的原始参数 (params): {params}")
         dormancy_breakout_weights = get_param_value(params.get('dormancy_breakout_weights'), {})
         main_force_offensive_weights = get_param_value(params.get('main_force_offensive_weights'), {})
         chip_fund_flow_resonance_weights = get_param_value(params.get('chip_fund_flow_resonance_weights'), {})
@@ -825,30 +825,6 @@ class CognitiveIntelligence:
         final_fusion_exponent = get_param_value(params.get('final_fusion_exponent'), 2.0)
         min_activation_threshold = get_param_value(params.get('min_activation_threshold'), 0.1)
         norm_window = get_param_value(params.get('norm_window'), 55)
-        probe_dates_to_print = []
-        if self.debug_enabled and self.probe_dates_list_str:
-            if not df.empty:
-                df_index_tz = df.index.tz
-                for date_str in self.probe_dates_list_str:
-                    try:
-                        probe_date_naive = pd.to_datetime(date_str)
-                        if df_index_tz is not None and probe_date_naive.tz is None:
-                            current_probe_date = probe_date_naive.tz_localize(df_index_tz)
-                        elif df_index_tz is None and probe_date_naive.tz is not None:
-                            current_probe_date = probe_date_naive.tz_convert(None)
-                        else:
-                            current_probe_date = probe_date_naive
-                        if current_probe_date in df.index:
-                            probe_dates_to_print.append(current_probe_date)
-                        else:
-                            print(f"    -> [探针警告] 探测日期 '{date_str}' (时区校准后: {current_probe_date}) 不在DataFrame索引中，跳过。")
-                    except Exception as e:
-                        print(f"    -> [探针警告] 无法解析或处理探针日期 '{date_str}': {e}")
-        if probe_dates_to_print:
-            print(f"    -> [探针] 准备为以下日期输出详细信息: {[d.strftime('%Y-%m-%d') for d in probe_dates_to_print]}")
-        else:
-            if self.debug_enabled:
-                print(f"    -> [探针] 未找到有效的探测日期或调试未启用，将跳过详细探针输出。请检查 debug_params['probe_dates'] 和数据范围。")
         all_required_signals = set()
         all_required_signals.update(dormancy_breakout_weights.keys())
         all_required_signals.update(main_force_offensive_weights.keys())
@@ -878,14 +854,8 @@ class CognitiveIntelligence:
         chip_fund_flow_resonance_score_components = pd.Series(0.0, index=df.index)
         market_context_reinforcement_score_components = pd.Series(0.0, index=df.index)
         risk_filter_score_components = pd.Series(0.0, index=df.index)
-        if self.debug_enabled:
-            print(f"    -> [探针] 开始计算蛰伏突破意图分数...")
-            for p_date in probe_dates_to_print:
-                print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 动态调制器 (Dynamic Modulator): {dynamic_modulator.loc[p_date]:.4f}")
         total_dormancy_breakout_weight = sum(v for k, v in dormancy_breakout_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_dormancy_breakout_weight > 0:
-            if self.debug_enabled:
-                print(f"    -> [探针] 蛰伏突破意图总权重: {total_dormancy_breakout_weight:.4f}")
             for signal_name, weight in dormancy_breakout_weights.items():
                 if signal_name == 'description':
                     continue
@@ -900,21 +870,11 @@ class CognitiveIntelligence:
                     signal_score = raw_signal.clip(lower=0)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 dormancy_breakout_score_components += normalized_signal_score * weight
-                if self.debug_enabled:
-                    for p_date in probe_dates_to_print:
-                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 蛰伏突破信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
             dormancy_breakout_score = (dormancy_breakout_score_components / total_dormancy_breakout_weight) * dynamic_modulator
         else:
             dormancy_breakout_score = pd.Series(0.0, index=df.index)
-        if self.debug_enabled:
-            for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合蛰伏突破意图分数 (Dormancy Breakout Intent Score): {dormancy_breakout_score.loc[p_date]:.4f}")
-        if self.debug_enabled:
-            print(f"    -> [探针] 开始计算主力进攻强度分数...")
         total_main_force_offensive_weight = sum(v for k, v in main_force_offensive_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_main_force_offensive_weight > 0:
-            if self.debug_enabled:
-                print(f"    -> [探针] 主力进攻强度总权重: {total_main_force_offensive_weight:.4f}")
             for signal_name, weight in main_force_offensive_weights.items():
                 if signal_name == 'description':
                     continue
@@ -929,21 +889,11 @@ class CognitiveIntelligence:
                     signal_score = raw_signal.clip(lower=0)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 main_force_offensive_score_components += normalized_signal_score * weight
-                if self.debug_enabled:
-                    for p_date in probe_dates_to_print:
-                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 主力进攻信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
             main_force_offensive_score = (main_force_offensive_score_components / total_main_force_offensive_weight) * dynamic_modulator
         else:
             main_force_offensive_score = pd.Series(0.0, index=df.index)
-        if self.debug_enabled:
-            for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合主力进攻强度分数 (Main Force Offensive Strength Score): {main_force_offensive_score.loc[p_date]:.4f}")
-        if self.debug_enabled:
-            print(f"    -> [探针] 开始计算筹码资金共振分数...")
         total_chip_fund_flow_resonance_weight = sum(v for k, v in chip_fund_flow_resonance_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_chip_fund_flow_resonance_weight > 0:
-            if self.debug_enabled:
-                print(f"    -> [探针] 筹码资金共振总权重: {total_chip_fund_flow_resonance_weight:.4f}")
             for signal_name, weight in chip_fund_flow_resonance_weights.items():
                 if signal_name == 'description':
                     continue
@@ -959,21 +909,11 @@ class CognitiveIntelligence:
                     signal_score = raw_signal.clip(lower=0)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 chip_fund_flow_resonance_score_components += normalized_signal_score * weight
-                if self.debug_enabled:
-                    for p_date in probe_dates_to_print:
-                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 筹码资金共振信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
             chip_fund_flow_resonance_score = (chip_fund_flow_resonance_score_components / total_chip_fund_flow_resonance_weight) * dynamic_modulator
         else:
             chip_fund_flow_resonance_score = pd.Series(0.0, index=df.index)
-        if self.debug_enabled:
-            for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合筹码资金共振分数 (Chip Fund Flow Resonance Score): {chip_fund_flow_resonance_score.loc[p_date]:.4f}")
-        if self.debug_enabled:
-            print(f"    -> [探针] 开始计算市场情境强化分数...")
         total_market_context_reinforcement_weight = sum(v for k, v in market_context_reinforcement_weights.items() if k != 'description' and isinstance(v, (int, float)))
         if total_market_context_reinforcement_weight > 0:
-            if self.debug_enabled:
-                print(f"    -> [探针] 市场情境强化总权重: {total_market_context_reinforcement_weight:.4f}")
             for signal_name, weight in market_context_reinforcement_weights.items():
                 if signal_name == 'description':
                     continue
@@ -988,15 +928,245 @@ class CognitiveIntelligence:
                     signal_score = raw_signal.clip(lower=0)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 market_context_reinforcement_score_components += normalized_signal_score * weight
-                if self.debug_enabled:
-                    for p_date in probe_dates_to_print:
-                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 市场情境信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
             market_context_reinforcement_score = (market_context_reinforcement_score_components / total_market_context_reinforcement_weight) * dynamic_modulator
         else:
             market_context_reinforcement_score = pd.Series(0.0, index=df.index)
+        total_risk_filter_weight = sum(v for k, v in risk_filter_weights.items() if k != 'description' and isinstance(v, (int, float)))
+        if total_risk_filter_weight > 0:
+            for signal_name, weight in risk_filter_weights.items():
+                if signal_name == 'description':
+                    continue
+                raw_signal = fetched_signals[signal_name]
+                if "SCORE_BEHAVIOR_DECEPTION_INDEX" in signal_name or \
+                   "SCORE_CHIP_RISK_DISTRIBUTION_WHISPER" in signal_name or \
+                   "FUSION_RISK_DISTRIBUTION_PRESSURE" in signal_name or \
+                   "SCORE_BEHAVIOR_BEARISH_DIVERGENCE" in signal_name:
+                    signal_score = raw_signal.clip(lower=0)
+                elif "SCORE_FF_AXIOM_DIVERGENCE" in signal_name:
+                    signal_score = raw_signal.clip(upper=0).abs()
+                else:
+                    signal_score = raw_signal.clip(lower=0)
+                normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
+                risk_filter_score_components += normalized_signal_score * weight
+            risk_filter_score = risk_filter_score_components / total_risk_filter_weight
+        else:
+            risk_filter_score = pd.Series(0.0, index=df.index)
+        synergy_factor = pd.Series(1.0, index=df.index)
+        sentiment_pendulum = fetched_signals.get("SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM", pd.Series(0.0, index=df.index))
+        synergy_condition = (dormancy_breakout_score > synergy_threshold) & \
+                            (main_force_offensive_score > synergy_threshold) & \
+                            (chip_fund_flow_resonance_score > synergy_threshold) & \
+                            (market_context_reinforcement_score > synergy_threshold) & \
+                            (risk_filter_score < (1 - synergy_threshold)) & \
+                            (sentiment_pendulum < synergy_threshold)
+        synergy_factor.loc[synergy_condition] += synergy_bonus_factor
+        conflict_condition = ((main_force_offensive_score > synergy_threshold) & (risk_filter_score > synergy_threshold)) | \
+                             ((dormancy_breakout_score > synergy_threshold) & (chip_fund_flow_resonance_score < (1 - synergy_threshold)))
+        synergy_factor.loc[conflict_condition] -= conflict_penalty_factor
+        synergy_factor = synergy_factor.clip(0.5, 1.5)
+        epsilon = 1e-6
+        fused_score_raw = (
+            (dormancy_breakout_score + epsilon) *
+            (main_force_offensive_score + epsilon) *
+            (chip_fund_flow_resonance_score + epsilon) *
+            (market_context_reinforcement_score + epsilon)
+        )**(1/4)
+        fused_score_raw = fused_score_raw * synergy_factor
+        risk_adjusted_fused_score = fused_score_raw * (1 - risk_filter_score.clip(0, 1))
+        final_score = (risk_adjusted_fused_score)**final_fusion_exponent
+        final_score = final_score.clip(0, 1)
+        final_score = final_score.where(final_score >= min_activation_threshold, 0.0)
+        print(f"  -> {method_name} 计算完成。")
+        return final_score.astype(np.float32)
+
+    def _calculate_energy_compression(self, df: pd.DataFrame) -> pd.Series:
+        method_name = "COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION"
+        print(f"  -> [认知层] 正在计算 {method_name}...")
+        cognitive_intelligence_config = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        params = cognitive_intelligence_config.get('playbooks', {}).get('cognitive_playbook_energy_compression_params', {})
+        if self.debug_enabled:
+            print(f"    -> [探针] {method_name} 加载的原始参数 (params): {params}")
+        volatility_compression_weights = get_param_value(params.get('volatility_compression_weights'), {})
+        volume_atrophy_weights = get_param_value(params.get('volume_atrophy_weights'), {})
+        main_force_control_weights = get_param_value(params.get('main_force_control_weights'), {})
+        pre_breakout_indicators_weights = get_param_value(params.get('pre_breakout_indicators_weights'), {})
+        risk_filter_weights = get_param_value(params.get('risk_filter_weights'), {})
+        synergy_threshold = get_param_value(params.get('synergy_threshold'), 0.6)
+        synergy_bonus_factor = get_param_value(params.get('synergy_bonus_factor'), 0.2)
+        conflict_penalty_factor = get_param_value(params.get('conflict_penalty_factor'), 0.3)
+        dynamic_context_modulator_signal = get_param_value(params.get('dynamic_context_modulator_signal'), "SCORE_CYCLICAL_HURST_REVERSION_REGIME")
+        dynamic_context_sensitivity = get_param_value(params.get('dynamic_context_sensitivity'), 0.5)
+        final_fusion_exponent = get_param_value(params.get('final_fusion_exponent'), 2.0)
+        min_activation_threshold = get_param_value(params.get('min_activation_threshold'), 0.1)
+        norm_window = get_param_value(params.get('norm_window'), 55)
+        probe_dates_to_print = []
+        if self.debug_enabled and self.probe_dates_list_str:
+            if not df.empty:
+                df_index_tz = df.index.tz
+                for date_str in self.probe_dates_list_str:
+                    try:
+                        probe_date_naive = pd.to_datetime(date_str)
+                        if df_index_tz is not None and probe_date_naive.tz is None:
+                            current_probe_date = probe_date_naive.tz_localize(df_index_tz)
+                        elif df_index_tz is None and probe_date_naive.tz is not None:
+                            current_probe_date = probe_date_naive.tz_convert(None)
+                        else:
+                            current_probe_date = probe_date_naive
+                        if current_probe_date in df.index:
+                            probe_dates_to_print.append(current_probe_date)
+                        else:
+                            print(f"    -> [探针警告] 探测日期 '{date_str}' (时区校准后: {current_probe_date}) 不在DataFrame索引中，跳过。")
+                    except Exception as e:
+                        print(f"    -> [探针警告] 无法解析或处理探针日期 '{date_str}': {e}")
+        if probe_dates_to_print:
+            print(f"    -> [探针] 准备为以下日期输出详细信息: {[d.strftime('%Y-%m-%d') for d in probe_dates_to_print]}")
+        else:
+            if self.debug_enabled:
+                print(f"    -> [探针] 未找到有效的探测日期或调试未启用，将跳过详细探针输出。请检查 debug_params['probe_dates'] 和数据范围。")
+        all_required_signals = set()
+        all_required_signals.update(volatility_compression_weights.keys())
+        all_required_signals.update(volume_atrophy_weights.keys())
+        all_required_signals.update(main_force_control_weights.keys())
+        all_required_signals.update(pre_breakout_indicators_weights.keys())
+        all_required_signals.update(risk_filter_weights.keys())
+        all_required_signals.add("SCORE_BEHAVIOR_DECEPTION_INDEX")
+        all_required_signals.add("SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM")
+        all_required_signals.add(dynamic_context_modulator_signal)
+        fetched_signals = {}
+        for signal_name in all_required_signals:
+            if signal_name == 'description':
+                continue
+            fetched_signals[signal_name] = self._get_atomic_score(df, signal_name, default=0.0)
+            if not isinstance(fetched_signals[signal_name], pd.Series):
+                fetched_signals[signal_name] = pd.Series(fetched_signals[signal_name], index=df.index)
+            else:
+                fetched_signals[signal_name] = fetched_signals[signal_name].reindex(df.index).fillna(0.0)
+        hurst_reversion_score = fetched_signals.get(dynamic_context_modulator_signal, pd.Series(0.5, index=df.index))
+        normalized_hurst_reversion = normalize_score(hurst_reversion_score, df.index, norm_window, ascending=True)
+        dynamic_modulator = 1 + (normalized_hurst_reversion - 0.5) * dynamic_context_sensitivity * 2
+        dynamic_modulator = dynamic_modulator.clip(0.5, 1.5)
+        volatility_compression_score_components = pd.Series(0.0, index=df.index)
+        volume_atrophy_score_components = pd.Series(0.0, index=df.index)
+        main_force_control_score_components = pd.Series(0.0, index=df.index)
+        pre_breakout_indicators_score_components = pd.Series(0.0, index=df.index)
+        risk_filter_score_components = pd.Series(0.0, index=df.index)
+        if self.debug_enabled:
+            print(f"    -> [探针] 开始计算波动率压缩证据分数...")
+            for p_date in probe_dates_to_print:
+                print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 动态调制器 (Dynamic Modulator): {dynamic_modulator.loc[p_date]:.4f}")
+        total_volatility_compression_weight = sum(v for k, v in volatility_compression_weights.items() if k != 'description' and isinstance(v, (int, float)))
+        if total_volatility_compression_weight > 0:
+            if self.debug_enabled:
+                print(f"    -> [探针] 波动率压缩证据总权重: {total_volatility_compression_weight:.4f}")
+            for signal_name, weight in volatility_compression_weights.items():
+                if signal_name == 'description':
+                    continue
+                raw_signal = fetched_signals[signal_name]
+                if "SCORE_STRUCT_AXIOM_TENSION" in signal_name or \
+                   "SCORE_DYN_AXIOM_STABILITY" in signal_name:
+                    signal_score = raw_signal.clip(lower=0)
+                elif "BBW_21_2.0_D" in signal_name or \
+                     "ATR_14_D" in signal_name:
+                    signal_score = normalize_score(raw_signal, df.index, norm_window, ascending=False)
+                else:
+                    signal_score = raw_signal.clip(lower=0)
+                normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
+                volatility_compression_score_components += normalized_signal_score * weight
+                if self.debug_enabled:
+                    for p_date in probe_dates_to_print:
+                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 波动率压缩信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
+            volatility_compression_score = (volatility_compression_score_components / total_volatility_compression_weight) * dynamic_modulator
+        else:
+            volatility_compression_score = pd.Series(0.0, index=df.index)
         if self.debug_enabled:
             for p_date in probe_dates_to_print:
-                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合市场情境强化分数 (Market Context Reinforcement Score): {market_context_reinforcement_score.loc[p_date]:.4f}")
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合波动率压缩证据分数 (Volatility Compression Evidence Score): {volatility_compression_score.loc[p_date]:.4f}")
+        if self.debug_enabled:
+            print(f"    -> [探针] 开始计算量能萎缩证据分数...")
+        total_volume_atrophy_weight = sum(v for k, v in volume_atrophy_weights.items() if k != 'description' and isinstance(v, (int, float)))
+        if total_volume_atrophy_weight > 0:
+            if self.debug_enabled:
+                print(f"    -> [探针] 量能萎缩证据总权重: {total_volume_atrophy_weight:.4f}")
+            for signal_name, weight in volume_atrophy_weights.items():
+                if signal_name == 'description':
+                    continue
+                raw_signal = fetched_signals[signal_name]
+                if "SCORE_BEHAVIOR_VOLUME_ATROPHY" in signal_name:
+                    signal_score = raw_signal.clip(lower=0)
+                elif "VOL_MA_5_D" in signal_name or \
+                     "VOL_MA_13_D" in signal_name:
+                    signal_score = normalize_score(raw_signal, df.index, norm_window, ascending=False)
+                else:
+                    signal_score = raw_signal.clip(lower=0)
+                normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
+                volume_atrophy_score_components += normalized_signal_score * weight
+                if self.debug_enabled:
+                    for p_date in probe_dates_to_print:
+                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 量能萎缩信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
+            volume_atrophy_score = (volume_atrophy_score_components / total_volume_atrophy_weight) * dynamic_modulator
+        else:
+            volume_atrophy_score = pd.Series(0.0, index=df.index)
+        if self.debug_enabled:
+            for p_date in probe_dates_to_print:
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合量能萎缩证据分数 (Volume Atrophy Evidence Score): {volume_atrophy_score.loc[p_date]:.4f}")
+        if self.debug_enabled:
+            print(f"    -> [探针] 开始计算主力控盘迹象分数...")
+        total_main_force_control_weight = sum(v for k, v in main_force_control_weights.items() if k != 'description' and isinstance(v, (int, float)))
+        if total_main_force_control_weight > 0:
+            if self.debug_enabled:
+                print(f"    -> [探针] 主力控盘迹象总权重: {total_main_force_control_weight:.4f}")
+            for signal_name, weight in main_force_control_weights.items():
+                if signal_name == 'description':
+                    continue
+                raw_signal = fetched_signals[signal_name]
+                if "PROCESS_META_MAIN_FORCE_CONTROL" in signal_name or \
+                   "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT" in signal_name or \
+                   "SCORE_FF_AXIOM_CONSENSUS" in signal_name or \
+                   "SCORE_MICRO_STRATEGY_COST_CONTROL" in signal_name or \
+                   "SCORE_STRUCT_BREAKOUT_READINESS" in signal_name:
+                    signal_score = raw_signal.clip(lower=0)
+                else:
+                    signal_score = raw_signal.clip(lower=0)
+                normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
+                main_force_control_score_components += normalized_signal_score * weight
+                if self.debug_enabled:
+                    for p_date in probe_dates_to_print:
+                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 主力控盘信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
+            main_force_control_score = (main_force_control_score_components / total_main_force_control_weight) * dynamic_modulator
+        else:
+            main_force_control_score = pd.Series(0.0, index=df.index)
+        if self.debug_enabled:
+            for p_date in probe_dates_to_print:
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合主力控盘迹象分数 (Main Force Control Signs Score): {main_force_control_score.loc[p_date]:.4f}")
+        if self.debug_enabled:
+            print(f"    -> [探针] 开始计算爆发前兆分数...")
+        total_pre_breakout_indicators_weight = sum(v for k, v in pre_breakout_indicators_weights.items() if k != 'description' and isinstance(v, (int, float)))
+        if total_pre_breakout_indicators_weight > 0:
+            if self.debug_enabled:
+                print(f"    -> [探针] 爆发前兆总权重: {total_pre_breakout_indicators_weight:.4f}")
+            for signal_name, weight in pre_breakout_indicators_weights.items():
+                if signal_name == 'description':
+                    continue
+                raw_signal = fetched_signals[signal_name]
+                if "SCORE_STRUCT_AXIOM_ENVIRONMENT" in signal_name or \
+                   "SCORE_FOUNDATION_AXIOM_MARKET_TENSION" in signal_name or \
+                   "SCORE_CHIP_AXIOM_HISTORICAL_POTENTIAL" in signal_name or \
+                   "SCORE_MICRO_HARMONY_INFLECTION" in signal_name or \
+                   "PROCESS_META_ACCUMULATION_INFLECTION" in signal_name:
+                    signal_score = raw_signal.clip(lower=0)
+                else:
+                    signal_score = raw_signal.clip(lower=0)
+                normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
+                pre_breakout_indicators_score_components += normalized_signal_score * weight
+                if self.debug_enabled:
+                    for p_date in probe_dates_to_print:
+                        print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 爆发前兆信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
+            pre_breakout_indicators_score = (pre_breakout_indicators_score_components / total_pre_breakout_indicators_weight) * dynamic_modulator
+        else:
+            pre_breakout_indicators_score = pd.Series(0.0, index=df.index)
+        if self.debug_enabled:
+            for p_date in probe_dates_to_print:
+                print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合爆发前兆分数 (Pre-Breakout Indicators Score): {pre_breakout_indicators_score.loc[p_date]:.4f}")
         if self.debug_enabled:
             print(f"    -> [探针] 开始计算风险过滤分数...")
         total_risk_filter_weight = sum(v for k, v in risk_filter_weights.items() if k != 'description' and isinstance(v, (int, float)))
@@ -1008,9 +1178,9 @@ class CognitiveIntelligence:
                     continue
                 raw_signal = fetched_signals[signal_name]
                 if "SCORE_BEHAVIOR_DECEPTION_INDEX" in signal_name or \
-                   "SCORE_CHIP_RISK_DISTRIBUTION_WHISPER" in signal_name or \
-                   "FUSION_RISK_DISTRIBUTION_PRESSURE" in signal_name or \
-                   "SCORE_BEHAVIOR_BEARISH_DIVERGENCE" in signal_name:
+                   "SCORE_RISK_BREAKOUT_FAILURE_CASCADE" in signal_name or \
+                   "FUSION_RISK_STAGNATION" in signal_name or \
+                   "FUSION_RISK_DISTRIBUTION_PRESSURE" in signal_name:
                     signal_score = raw_signal.clip(lower=0)
                 elif "SCORE_FF_AXIOM_DIVERGENCE" in signal_name:
                     signal_score = raw_signal.clip(upper=0).abs()
@@ -1029,15 +1199,15 @@ class CognitiveIntelligence:
                 print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合风险过滤分数 (Risk Filter Score): {risk_filter_score.loc[p_date]:.4f}")
         synergy_factor = pd.Series(1.0, index=df.index)
         sentiment_pendulum = fetched_signals.get("SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM", pd.Series(0.0, index=df.index))
-        synergy_condition = (dormancy_breakout_score > synergy_threshold) & \
-                            (main_force_offensive_score > synergy_threshold) & \
-                            (chip_fund_flow_resonance_score > synergy_threshold) & \
-                            (market_context_reinforcement_score > synergy_threshold) & \
+        synergy_condition = (volatility_compression_score > synergy_threshold) & \
+                            (volume_atrophy_score > synergy_threshold) & \
+                            (main_force_control_score > synergy_threshold) & \
+                            (pre_breakout_indicators_score > synergy_threshold) & \
                             (risk_filter_score < (1 - synergy_threshold)) & \
-                            (sentiment_pendulum < synergy_threshold)
+                            (sentiment_pendulum < synergy_threshold) # 悲观情绪下，压缩爆发更具价值
         synergy_factor.loc[synergy_condition] += synergy_bonus_factor
-        conflict_condition = ((main_force_offensive_score > synergy_threshold) & (risk_filter_score > synergy_threshold)) | \
-                             ((dormancy_breakout_score > synergy_threshold) & (chip_fund_flow_resonance_score < (1 - synergy_threshold)))
+        conflict_condition = ((volatility_compression_score > synergy_threshold) & (main_force_control_score < (1 - synergy_threshold))) | \
+                             ((volume_atrophy_score > synergy_threshold) & (risk_filter_score > synergy_threshold))
         synergy_factor.loc[conflict_condition] -= conflict_penalty_factor
         synergy_factor = synergy_factor.clip(0.5, 1.5)
         if self.debug_enabled:
@@ -1045,10 +1215,10 @@ class CognitiveIntelligence:
                 print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 协同因子 (Synergy Factor): {synergy_factor.loc[p_date]:.4f}")
         epsilon = 1e-6
         fused_score_raw = (
-            (dormancy_breakout_score + epsilon) *
-            (main_force_offensive_score + epsilon) *
-            (chip_fund_flow_resonance_score + epsilon) *
-            (market_context_reinforcement_score + epsilon)
+            (volatility_compression_score + epsilon) *
+            (volume_atrophy_score + epsilon) *
+            (main_force_control_score + epsilon) *
+            (pre_breakout_indicators_score + epsilon)
         )**(1/4)
         fused_score_raw = fused_score_raw * synergy_factor
         risk_adjusted_fused_score = fused_score_raw * (1 - risk_filter_score.clip(0, 1))
@@ -1067,7 +1237,6 @@ class CognitiveIntelligence:
                 print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 最终剧本分数 (Final Playbook Score): {final_score.loc[p_date]:.4f}")
         print(f"  -> {method_name} 计算完成。")
         return final_score.astype(np.float32)
-
 
 
 

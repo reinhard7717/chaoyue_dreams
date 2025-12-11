@@ -45,18 +45,25 @@ class FusionIntelligence:
         """
         【V1.0 · 三体博弈模型】获取并归一化风险信号。处理双极性信号的正负部分。
         """
-        # [修改] 清理探针，恢复生产状态
+        print(f"    -> [探针] 正在获取并归一化信号: {signal_name} (当前日期: {df.index[-1].strftime('%Y-%m-%d')})") # 修改行
         base_signal_name = signal_name.replace('_POSITIVE', '').replace('_NEGATIVE', '')
         original_signal = self._get_atomic_score(df, base_signal_name, default_value)
+        print(f"      -> [探针] 信号 '{base_signal_name}' 原始数据 (iloc[-1]): {original_signal.iloc[-1]:.9f}") # 新增行
         if signal_name.endswith('_POSITIVE'):
             processed_signal = original_signal.clip(lower=0)
+            print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.9f}) 提取正向部分: {processed_signal.iloc[-1]:.9f}") # 修改行
         elif signal_name.endswith('_NEGATIVE'):
             processed_signal = original_signal.clip(upper=0).abs()
+            print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.9f}) 提取负向绝对值部分: {processed_signal.iloc[-1]:.9f}") # 修改行
         else:
             processed_signal = original_signal
+            print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.9f}) 直接使用。") # 修改行
         normalized_score = normalize_score(processed_signal, df.index, norm_window, ascending=True)
         zero_processed_mask = (processed_signal.abs() < 1e-6)
+        if zero_processed_mask.iloc[-1]:
+            print(f"      -> [探针] 信号 '{signal_name}' 原始处理后值接近零 ({processed_signal.iloc[-1]:.9f})，强制归一化分值为0。")
         normalized_score.loc[zero_processed_mask] = 0.0
+        print(f"      -> [探针] 信号 '{signal_name}' 归一化后分值: {normalized_score.iloc[-1]:.9f}") # 修改行
         return normalized_score.astype(np.float32)
 
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -873,9 +880,9 @@ class FusionIntelligence:
                       当主力意图派发，散户却狂热承接，且市场结构脆弱时，风险达到极致。
         - 融合模型: 最终风险 = tanh( (MFDI_score^w_mfdi * RAW_score^w_raw * MSF_score^w_msf)^(1/sum_weights) * non_linear_sensitivity )
         - 升级说明: 维度内部子信号聚合方式调整为加权算术平均，三大维度之间聚合保持加权几何平均，以更好地体现风险的“木桶效应”。
-                    强化了对原始零值信号的归一化处理，并增加了中间探针以验证计算正确性。
+                    强化了对原始零值信号的归一化处理。此版本增加了详细探针，用于调试和检查每一步计算。
         """
-        # [修改] 清理探针，恢复生产状态
+        print(f"  -- [融合层] 正在冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)... (当前日期: {df.index[-1].strftime('%Y-%m-%d')})") # 修改行
         states = {}
         df_index = df.index
         fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {})
@@ -886,48 +893,86 @@ class FusionIntelligence:
         msf_signal_weights = get_param_value(params.get('msf_signal_weights'), {})
         non_linear_sensitivity = get_param_value(params.get('non_linear_sensitivity'), 2.0)
         norm_window = get_param_value(params.get('norm_window'), 55)
+        print(f"  -- [探针] 归一化窗口 (norm_window): {norm_window}") # 新增行
+        # 2. 计算“主力派发意图 (MFDI)” (加权算术平均)
+        print("  -- [探针] 计算主力派发意图 (MFDI)...")
         mfdi_weighted_sum = pd.Series(0.0, index=df_index)
         mfdi_total_weight = sum(mfdi_signal_weights.values())
         if mfdi_total_weight > 0:
             for signal, weight in mfdi_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window)
                 mfdi_weighted_sum += score * weight
+                print(f"      -> [探针] MFDI子信号 '{signal}' 归一化分值: {score.iloc[-1]:.9f}, 权重: {weight:.4f}, 贡献: {score.iloc[-1] * weight:.9f}") # 新增行
+            print(f"  -- [探针] MFDI 内部加权和 (mfdi_weighted_sum) 最终值: {mfdi_weighted_sum.iloc[-1]:.9f}") # 修改行
+            print(f"  -- [探针] MFDI 总权重: {mfdi_total_weight:.4f}") # 新增行
             mfdi_score = mfdi_weighted_sum / mfdi_total_weight
         else:
             mfdi_score = pd.Series(0.0, index=df_index)
+        print(f"  -- [探针] 主力派发意图 (MFDI) 最终分值: {mfdi_score.iloc[-1]:.9f}") # 修改行
+        # 3. 计算“散户承接意愿 (RAW)” (加权算术平均)
+        print("  -- [探针] 计算散户承接意愿 (RAW)...")
         raw_weighted_sum = pd.Series(0.0, index=df_index)
         raw_total_weight = sum(raw_signal_weights.values())
         if raw_total_weight > 0:
             for signal, weight in raw_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window)
                 raw_weighted_sum += score * weight
+                print(f"      -> [探针] RAW子信号 '{signal}' 归一化分值: {score.iloc[-1]:.9f}, 权重: {weight:.4f}, 贡献: {score.iloc[-1] * weight:.9f}") # 新增行
+            print(f"  -- [探针] RAW 内部加权和 (raw_weighted_sum) 最终值: {raw_weighted_sum.iloc[-1]:.9f}") # 修改行
+            print(f"  -- [探针] RAW 总权重: {raw_total_weight:.4f}") # 新增行
             raw_score = raw_weighted_sum / raw_total_weight
         else:
             raw_score = pd.Series(0.0, index=df_index)
+        print(f"  -- [探针] 散户承接意愿 (RAW) 最终分值: {raw_score.iloc[-1]:.9f}") # 修改行
+        # 4. 计算“市场结构脆弱性 (MSF)” (加权算术平均)
+        print("  -- [探针] 计算市场结构脆弱性 (MSF)...")
         msf_weighted_sum = pd.Series(0.0, index=df_index)
         msf_total_weight = sum(msf_signal_weights.values())
         if msf_total_weight > 0:
             for signal, weight in msf_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window)
                 msf_weighted_sum += score * weight
+                print(f"      -> [探针] MSF子信号 '{signal}' 归一化分值: {score.iloc[-1]:.9f}, 权重: {weight:.4f}, 贡献: {score.iloc[-1] * weight:.9f}") # 新增行
+            print(f"  -- [探针] MSF 内部加权和 (msf_weighted_sum) 最终值: {msf_weighted_sum.iloc[-1]:.9f}") # 修改行
+            print(f"  -- [探针] MSF 总权重: {msf_total_weight:.4f}") # 新增行
             msf_score = msf_weighted_sum / msf_total_weight
         else:
             msf_score = pd.Series(0.0, index=df_index)
+        print(f"  -- [探针] 市场结构脆弱性 (MSF) 最终分值: {msf_score.iloc[-1]:.9f}") # 修改行
+        # 5. 融合三体分数 (加权几何平均)
+        print("  -- [探针] 融合三体分数 (加权几何平均)...")
+        print(f"  -- [探针] 原始MFDI分值: {mfdi_score.iloc[-1]:.9f}, 原始RAW分值: {raw_score.iloc[-1]:.9f}, 原始MSF分值: {msf_score.iloc[-1]:.9f}") # 新增行
         final_log_sum = pd.Series(0.0, index=df_index)
         total_body_weight = sum(body_weights.values())
         if total_body_weight > 0:
             mfdi_score_clipped = mfdi_score.clip(lower=1e-9)
             raw_score_clipped = raw_score.clip(lower=1e-9)
             msf_score_clipped = msf_score.clip(lower=1e-9)
-            final_log_sum += np.log(mfdi_score_clipped) * (body_weights.get('main_force_distribution_intent', 0.0) / total_body_weight)
-            final_log_sum += np.log(raw_score_clipped) * (body_weights.get('retail_absorption_willingness', 0.0) / total_body_weight)
-            final_log_sum += np.log(msf_score_clipped) * (body_weights.get('market_structural_fragility', 0.0) / total_body_weight)
+            print(f"  -- [探针] 裁剪后MFDI分值: {mfdi_score_clipped.iloc[-1]:.9f}, 裁剪后RAW分值: {raw_score_clipped.iloc[-1]:.9f}, 裁剪后MSF分值: {msf_score_clipped.iloc[-1]:.9f}") # 新增行
+            print(f"  -- [探针] log(MFDI_clipped): {np.log(mfdi_score_clipped.iloc[-1]):.9f}, log(RAW_clipped): {np.log(raw_score_clipped.iloc[-1]):.9f}, log(MSF_clipped): {np.log(msf_score_clipped.iloc[-1]):.9f}") # 新增行
+            mfdi_log_contribution = np.log(mfdi_score_clipped) * (body_weights.get('main_force_distribution_intent', 0.0) / total_body_weight) # 新增行
+            raw_log_contribution = np.log(raw_score_clipped) * (body_weights.get('retail_absorption_willingness', 0.0) / total_body_weight) # 新增行
+            msf_log_contribution = np.log(msf_score_clipped) * (body_weights.get('market_structural_fragility', 0.0) / total_body_weight) # 新增行
+            final_log_sum += mfdi_log_contribution + raw_log_contribution + msf_log_contribution # 修改行
+            print(f"  -- [探针] MFDI对final_log_sum贡献: {mfdi_log_contribution.iloc[-1]:.9f}") # 新增行
+            print(f"  -- [探针] RAW对final_log_sum贡献: {raw_log_contribution.iloc[-1]:.9f}") # 新增行
+            print(f"  -- [探针] MSF对final_log_sum贡献: {msf_log_contribution.iloc[-1]:.9f}") # 新增行
+            print(f"  -- [探针] 最终加权对数和 (final_log_sum): {final_log_sum.iloc[-1]:.9f}") # 新增行
             geometric_mean_score = np.exp(final_log_sum)
+            print(f"  -- [探针] 几何平均分 (geometric_mean_score): {geometric_mean_score.iloc[-1]:.9f}") # 新增行
         else:
             geometric_mean_score = pd.Series(0.0, index=df_index)
-        final_distribution_pressure = (np.tanh(geometric_mean_score * non_linear_sensitivity) + 1) / 2
+        # 应用非线性激活函数，将分数映射到 [0, 1]
+        print(f"  -- [探针] 非线性敏感度 (non_linear_sensitivity): {non_linear_sensitivity:.4f}") # 新增行
+        tanh_input = geometric_mean_score * non_linear_sensitivity # 新增行
+        print(f"  -- [探针] tanh函数输入: {tanh_input.iloc[-1]:.9f}") # 新增行
+        tanh_output = np.tanh(tanh_input) # 新增行
+        print(f"  -- [探针] tanh函数输出: {tanh_output.iloc[-1]:.9f}") # 新增行
+        final_distribution_pressure = (tanh_output + 1) / 2 # 修改行
+        print(f"  -- [探针] 最终派发压力 (final_distribution_pressure) 原始值: {final_distribution_pressure.iloc[-1]:.9f}") # 新增行
         final_distribution_pressure = final_distribution_pressure.clip(0, 1).astype(np.float32)
         states['FUSION_RISK_DISTRIBUTION_PRESSURE'] = final_distribution_pressure
+        print(f"  -- [融合层] “派发压力”冶炼完成，最终分值: {final_distribution_pressure.iloc[-1]:.9f}") # 修改行
         return states
 
 
