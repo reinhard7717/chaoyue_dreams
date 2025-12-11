@@ -115,10 +115,13 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         cognitive_scores = pd.DataFrame(index=df.index)
-        # 修改开始 - 更新 enabled 状态检查路径
-        if self.params.get('cognitive_intelligence_params', {}).get('playbooks', {}).get('cognitive_playbook_suppressive_accumulation_params', {}).get('enabled', False): # 修改行
+        cognitive_intelligence_config = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        playbooks_config = cognitive_intelligence_config.get('playbooks', {})
+
+        # 修改开始 - 检查配置块是否存在来判断是否激活
+        if playbooks_config.get('cognitive_playbook_suppressive_accumulation_params'): # 修改行
             cognitive_scores["COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION"] = self._calculate_suppressive_accumulation(df)
-        if self.params.get('cognitive_intelligence_params', {}).get('playbooks', {}).get('cognitive_playbook_chasing_accumulation_params', {}).get('enabled', False): # 修改行
+        if playbooks_config.get('cognitive_playbook_chasing_accumulation_params'): # 修改行
             cognitive_scores["COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION"] = self._calculate_chasing_accumulation(df)
         # 修改结束
         # ... 其他认知剧本的调用 ...
@@ -137,8 +140,10 @@ class CognitiveIntelligence:
             pass 
         # 修正参数加载路径，使用 get_params_block 获取顶层块，然后使用 .get() 获取嵌套块
         cognitive_intelligence_config = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
-        # 修改开始 - 更新参数获取路径
-        params = cognitive_intelligence_config.get('playbooks', {}).get('cognitive_playbook_suppressive_accumulation_params', {}) # 修改行
+        params = cognitive_intelligence_config.get('playbooks', {}).get('cognitive_playbook_suppressive_accumulation_params', {})
+        # 修改开始 - 移除 enabled 状态检查
+        # if not get_param_value(params.get('enabled'), False):
+        #     return pd.Series(0.0, index=df.index, dtype=np.float32)
         # 修改结束
         suppression_weights = get_param_value(params.get('suppression_weights'), {})
         accumulation_weights = get_param_value(params.get('accumulation_weights'), {})
@@ -268,8 +273,10 @@ class CognitiveIntelligence:
         method_name = "COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION"
         print(f"  -> [认知层] 正在计算 {method_name}...")
         cognitive_intelligence_config = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
-        # 修改开始 - 更新参数获取路径
-        params = cognitive_intelligence_config.get('playbooks', {}).get('cognitive_playbook_chasing_accumulation_params', {}) # 修改行
+        params = cognitive_intelligence_config.get('playbooks', {}).get('cognitive_playbook_chasing_accumulation_params', {})
+        # 修改开始 - 移除 enabled 状态检查
+        # if not get_param_value(params.get('enabled'), False):
+        #     return pd.Series(0.0, index=df.index, dtype=np.float32)
         # 修改结束
         if self.debug_enabled:
             print(f"    -> [探针] {method_name} 加载的原始参数 (params): {params}")

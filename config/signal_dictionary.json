@@ -138,19 +138,6 @@
             "type": "internal",
             "description": "【V3.2 · 空头伏击增强版】融合‘微观滞涨证据’（多头衰竭 vs 空头伏击）与‘宏观风险放大器’（高位获利盘 vs 趋势活力衰减），综合诊断上涨过程中的滞涨风险。核心升级：重构了‘空头伏击’的定义，引入‘多头进攻失败’（收盘价远离日内高点）作为核心裁决证据，使其能更精准地识别出伴随着长上影线或高开低走的、具有真实杀伤力的滞涨风险。"
         },
-        "SCORE_BOARD_EARTH_HEAVEN": {
-            "cn_name": "【行为】地天板",
-            "category": "行为层-机会",
-            "type": "context",
-            "description": "【原子信号】识别“地天板”模式的强度。"
-        },
-        "SCORE_BOARD_HEAVEN_EARTH": {
-            "cn_name": "【行为风险】天地板",
-            "category": "行为层-风险",
-            "type": "risk",
-            "penalty_weight": -2000,
-            "description": "【原子风险】识别“天地板”模式的风险强度。"
-        },
         "SCORE_INTRADAY_OFFENSIVE_PURITY": {
             "cn_name": "【日内】进攻纯度",
             "category": "日内行为-战报",

@@ -2973,6 +2973,192 @@
             }
           }
         },
+        "fused_risk_scoring": {
+          "enabled": true,
+          "说明": "【V2.0 · 大一统信号适配版】风险元融合模块的配置。全面适配重构后的新一代原子、战术及认知信号，废弃所有旧信号引用。",
+          "risk_categories": {
+            "behavioral_risk": {
+              "PROCESS_META_BEHAVIOR_TOP_REVERSAL": {
+                "weight": 1.2
+              },
+              "FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT": {
+                "weight": 1.0,
+                "comment": "融合层价格超买意图的负向部分代表风险"
+              },
+              "SCORE_BEHAVIOR_DISTRIBUTION_INTENT": {
+                "weight": 1.5,
+                "comment": "[信号替换] 替换旧的上影线意图，这是新一代的终极派发信号"
+              },
+              "SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE": {
+                "weight": -1.0,
+                "comment": "[信号替换] 替换旧的流动性枯竭信号。流动性潮汐的负分代表退潮风险"
+              }
+            },
+            "fund_flow_risk": {
+              "PROCESS_META_FUND_FLOW_TOP_REVERSAL": {
+                "weight": 1.2
+              },
+              "SCORE_FUND_FLOW_BEARISH_DIVERGENCE": {
+                "weight": 1.0
+              },
+              "SCORE_FF_AXIOM_CONSENSUS": {
+                "weight": -1.0,
+                "comment": "资金流共识差（负值）代表风险"
+              },
+              "SCORE_FF_AXIOM_CONVICTION": {
+                "weight": -1.0,
+                "comment": "资金流信念差（负值）代表风险"
+              }
+            },
+            "chip_risk": {
+              "PROCESS_META_CHIP_TOP_REVERSAL": {
+                "weight": 1.2
+              },
+              "SCORE_CHIP_RISK_DISTRIBUTION_WHISPER": {
+                "weight": 1.5,
+                "comment": "[信号替换] 使用更精准的'派发诡影'战术信号替换旧的看跌背离"
+              },
+              "SCORE_CHIP_STRATEGIC_POSTURE": {
+                "weight": -1.0,
+                "comment": "[信号替换] 替换旧的集中度。战略态势的负分代表主力处于消极或撤退态势"
+              },
+              "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT": {
+                "weight": -1.0,
+                "comment": "持股心态差（负值）代表风险"
+              }
+            },
+            "dynamic_mechanics_risk": {
+              "PROCESS_META_DYNAMIC_MECHANICS_TOP_REVERSAL": {
+                "weight": 1.2
+              },
+              "SCORE_DYNAMIC_MECHANICS_BEARISH_DIVERGENCE": {
+                "weight": 1.0
+              },
+              "SCORE_DYN_AXIOM_MOMENTUM": {
+                "weight": -1.0,
+                "comment": "动量差（负值）代表风险"
+              },
+              "SCORE_DYN_AXIOM_INERTIA": {
+                "weight": -1.0,
+                "comment": "惯性差（负值）代表风险"
+              }
+            },
+            "structural_risk": {
+              "PROCESS_META_STRUCTURE_TOP_REVERSAL": {
+                "weight": 1.2
+              },
+              "SCORE_STRUCTURE_BEARISH_DIVERGENCE": {
+                "weight": 1.0
+              },
+              "SCORE_STRUCT_AXIOM_TREND_FORM": {
+                "weight": -1.0,
+                "comment": "趋势形态差（负值）代表风险"
+              },
+              "SCORE_STRUCT_AXIOM_MTF_COHESION": {
+                "weight": -1.0,
+                "comment": "多周期协同差（负值）代表风险"
+              }
+            },
+            "foundation_risk": {
+              "PROCESS_META_FOUNDATION_TOP_REVERSAL": {
+                "weight": 1.2
+              },
+              "SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION": {
+                "weight": -1.0,
+                "comment": "[信号替换] 替换旧的趋势公理。市场体质的负分代表羸弱"
+              },
+              "SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM": {
+                "weight": 1.0,
+                "comment": "[信号替换] 替换旧的摆动公理。情绪钟摆的正分代表贪婪/FOMO风险"
+              }
+            },
+            "cognitive_risk": {
+              "说明": "【V4.0 · 认知统一裁决版】将所有认知层风险的裁决权统一上交给唯一的、权威的顶层认知风险分。",
+              "COGNITIVE_BEARISH_SCORE": {
+                "weight": 2.5,
+                "comment": "[信号统一] 使用唯一的认知看跌总分，替换所有旧的、分散的认知风险信号"
+              }
+            },
+            "cyclical_risk": {
+              "COGNITIVE_RISK_CYCLICAL_TOP": {
+                "weight": 1.0,
+                "description": "周期顶风险，当市场处于强周期的波峰时，此风险会显著提高。"
+              }
+            },
+            "cognitive_expansion_risk": {
+              "COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION": {
+                "weight": 1.5,
+                "description": "长期获利盘派发风险，识别长期获利盘的派发迹象。"
+              },
+              "COGNITIVE_RISK_MARKET_UNCERTAINTY": {
+                "weight": 2.0,
+                "description": "市场方向不明风险，量化市场的不可预测性。"
+              },
+              "COGNITIVE_RISK_RETAIL_FOMO_RETREAT": {
+                "weight": 2.0,
+                "description": "散户狂热主力撤退风险，识别经典的牛市陷阱。"
+              },
+              "COGNITIVE_RISK_HARVEST_CONFIRMATION": {
+                "weight": 1.8,
+                "description": "收割确认风险，确认上冲派发是否伴随真实利润兑现。"
+              },
+              "COGNITIVE_RISK_BULL_TRAP_DISTRIBUTION": {
+                "weight": 2.2,
+                "description": "主力诱多派发风险，识别筹码派发背景下的诱多收割行为。"
+              },
+              "COGNITIVE_RISK_LIQUIDITY_TRAP": {
+                "weight": 1.2,
+                "description": "流动性陷阱风险，资金流出与流动性枯竭的共振。"
+              },
+              "COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE": {
+                "weight": 1.0,
+                "description": "T+0套利压力风险，主力短期派发行为。"
+              },
+              "COGNITIVE_RISK_KEY_SUPPORT_BREAK": {
+                "weight": 2.5,
+                "description": "关键支撑破位风险，恐慌抛售击穿所有关键支撑的系统性风险。"
+              },
+              "COGNITIVE_RISK_HIGH_LEVEL_STRUCTURAL_COLLAPSE": {
+                "weight": 2.4,
+                "description": "高位结构瓦解风险，结构顶部与主力派发、散户接盘的共振。"
+              }
+            },
+            "fusion_risk": {
+              "FUSION_RISK_STAGNATION": {
+                "weight": 1.0
+              },
+              "FUSION_RISK_DISTRIBUTION_PRESSURE": {
+                "weight": 1.0
+              }
+            }
+          },
+          "resonance_penalty_params": {
+            "enabled": true,
+            "description": "风险共振惩罚参数。当多个核心风险维度同时超阈值时，对最终风险分进行惩罚性放大。",
+            "core_risk_dimensions": [
+              "behavioral_risk",
+              "chip_risk",
+              "fund_flow_risk",
+              "cognitive_risk"
+            ],
+            "min_dimensions_for_resonance": 2,
+            "risk_score_threshold": 0.6,
+            "penalty_multiplier": 1.2
+          },
+          "dynamic_weighting_params": {
+            "enabled": true,
+            "base_weights": {
+              "behavioral_risk": 1.0,
+              "chip_risk": 1.5,
+              "fund_flow_risk": 1.2,
+              "dynamic_mechanics_risk": 0.8,
+              "structural_risk": 1.0,
+              "foundation_risk": 0.8,
+              "cognitive_risk": 1.5,
+              "fusion_risk": 1.0
+            }
+          }
+        },
         "fusion_accumulation_inflection_params": {
           "description": "【V2.0 · 大一统同步版】吸筹拐点信号融合参数。",
           "ff_inflection_threshold": 0.6,
@@ -2987,7 +3173,7 @@
           }
         },
         "fusion_risk_distribution_pressure_params": {
-          "description": "【V1.0 · 三体博弈模型】派发压力风险信号参数。",
+          "description": "【V1.2 · 三体博弈模型】派发压力风险信号参数。",
           "body_weights": {
             "main_force_distribution_intent": 0.4,
             "retail_absorption_willingness": 0.3,
@@ -3037,12 +3223,11 @@
             "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY": 0.05,
             "INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW": 0.05,
             "INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW": 0.05,
-            "SCORE_RISK_BREAKOUT_FAILURE_CASCADE": 0.05,
-            "SCORE_BOARD_HEAVEN_EARTH": 0.05
+            "SCORE_RISK_BREAKOUT_FAILURE_CASCADE": 0.05
           },
           "non_linear_sensitivity": 2.0,
           "norm_window": 55,
-          "comment": "【V1.0 · 三体博弈模型】派发压力风险信号参数。融合主力派发意图、散户承接意愿和市场结构脆弱性三大维度。"
+          "comment": "【V1.2 · 三体博弈模型】派发压力风险信号参数。融合主力派发意图、散户承接意愿和市场结构脆弱性三大维度。"
         }
       },
       "cognitive_intelligence_params": {
@@ -3051,7 +3236,6 @@
         "description_cognitive_fusion_weights": "融合基础、结构、行为三大领域的权重。",
         "playbooks": {
           "cognitive_playbook_suppressive_accumulation_params": {
-            "enabled": true,
             "description": "【V1.0 · 诡道博弈版】主力打压吸筹剧本的量化参数。",
             "suppression_weights": {
               "description": "打压证据融合权重。负值信号取绝对值，正值信号直接使用。",
@@ -3093,7 +3277,6 @@
             "comment_norm_window": "内部归一化窗口。"
           },
           "cognitive_playbook_chasing_accumulation_params": {
-            "enabled": true,
             "description": "【V1.0 · 诡道博弈版】主力拉升抢筹剧本的量化参数。",
             "chasing_weights": {
               "description": "追涨证据融合权重。正值信号直接使用。",
