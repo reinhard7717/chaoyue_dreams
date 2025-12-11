@@ -934,8 +934,8 @@ class FusionIntelligence:
         states = {}
         df_index = df.index
         # 1. 获取配置参数
-        fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {}) # 修改行
-        params = fusion_intelligence_params.get('fusion_risk_distribution_pressure_params', {}) # 修改行
+        fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {})
+        params = fusion_intelligence_params.get('fusion_risk_distribution_pressure_params', {})
         body_weights = get_param_value(params.get('body_weights'), {})
         mfdi_signal_weights = get_param_value(params.get('mfdi_signal_weights'), {})
         raw_signal_weights = get_param_value(params.get('raw_signal_weights'), {})
@@ -944,43 +944,43 @@ class FusionIntelligence:
         norm_window = get_param_value(params.get('norm_window'), 55)
         # 2. 计算“主力派发意图 (MFDI)”
         print("  -- [探针] 计算主力派发意图 (MFDI)...")
-        mfdi_components = []
+        mfdi_log_sum = pd.Series(0.0, index=df_index) # 修改行
         mfdi_total_weight = sum(mfdi_signal_weights.values())
         if mfdi_total_weight > 0:
             for signal, weight in mfdi_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window)
-                mfdi_components.append(score.clip(lower=1e-9).pow(weight / mfdi_total_weight))
-            mfdi_score = pd.Series(1.0, index=df_index)
-            for comp in mfdi_components:
-                mfdi_score *= comp
+                # 确保分数严格大于0，避免log(0)
+                score_positive = score.clip(lower=1e-9) # 修改行
+                mfdi_log_sum += np.log(score_positive) * (weight / mfdi_total_weight) # 修改行
+            mfdi_score = np.exp(mfdi_log_sum) # 修改行
         else:
             mfdi_score = pd.Series(0.0, index=df_index)
         print(f"  -- [探针] 主力派发意图 (MFDI) 最终分值: {mfdi_score.iloc[-1]:.4f}")
         # 3. 计算“散户承接意愿 (RAW)”
         print("  -- [探针] 计算散户承接意愿 (RAW)...")
-        raw_components = []
+        raw_log_sum = pd.Series(0.0, index=df_index) # 修改行
         raw_total_weight = sum(raw_signal_weights.values())
         if raw_total_weight > 0:
             for signal, weight in raw_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window)
-                raw_components.append(score.clip(lower=1e-9).pow(weight / raw_total_weight))
-            raw_score = pd.Series(1.0, index=df_index)
-            for comp in raw_components:
-                raw_score *= comp
+                # 确保分数严格大于0，避免log(0)
+                score_positive = score.clip(lower=1e-9) # 修改行
+                raw_log_sum += np.log(score_positive) * (weight / raw_total_weight) # 修改行
+            raw_score = np.exp(raw_log_sum) # 修改行
         else:
             raw_score = pd.Series(0.0, index=df_index)
         print(f"  -- [探针] 散户承接意愿 (RAW) 最终分值: {raw_score.iloc[-1]:.4f}")
         # 4. 计算“市场结构脆弱性 (MSF)”
         print("  -- [探针] 计算市场结构脆弱性 (MSF)...")
-        msf_components = []
+        msf_log_sum = pd.Series(0.0, index=df_index) # 修改行
         msf_total_weight = sum(msf_signal_weights.values())
         if msf_total_weight > 0:
             for signal, weight in msf_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window)
-                msf_components.append(score.clip(lower=1e-9).pow(weight / msf_total_weight))
-            msf_score = pd.Series(1.0, index=df_index)
-            for comp in msf_components:
-                msf_score *= comp
+                # 确保分数严格大于0，避免log(0)
+                score_positive = score.clip(lower=1e-9) # 修改行
+                msf_log_sum += np.log(score_positive) * (weight / msf_total_weight) # 修改行
+            msf_score = np.exp(msf_log_sum) # 修改行
         else:
             msf_score = pd.Series(0.0, index=df_index)
         print(f"  -- [探针] 市场结构脆弱性 (MSF) 最终分值: {msf_score.iloc[-1]:.4f}")
