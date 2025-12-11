@@ -491,12 +491,10 @@ class CognitiveIntelligence:
         all_required_signals.add("SCORE_BEHAVIOR_DECEPTION_INDEX")
         all_required_signals.add("SCORE_CHIP_RISK_DISTRIBUTION_WHISPER")
         all_required_signals.add(dynamic_context_modulator_signal)
-        # 修改开始 - 移除数据层斜率/加速度信号，新增符合规则的信号
         all_required_signals.discard("SLOPE_5_SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM")
         all_required_signals.discard("ACCEL_5_SCORE_BEHAVIOR_ABSORPTION_STRENGTH")
         all_required_signals.add("SCORE_CHIP_COHERENT_DRIVE")
         all_required_signals.add("SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY")
-        # 修改结束
         fetched_signals = {}
         for signal_name in all_required_signals:
             if signal_name == 'description':
@@ -520,7 +518,9 @@ class CognitiveIntelligence:
         normalized_market_context = normalize_score(market_context_score, df.index, norm_window, ascending=True)
         panic_dynamic_modulator = 1 + (normalized_market_context - 0.5) * dynamic_context_sensitivity * 2
         absorption_dynamic_modulator = 1 + (normalized_market_context - 0.5) * dynamic_context_sensitivity * 2
-        reversal_dynamic_modulator = 1 - (normalized_market_context - 0.5) * dynamic_context_sensitivity * 2
+        # 修改开始 - 修正 reversal_dynamic_modulator 的计算逻辑
+        reversal_dynamic_modulator = 1 + (normalized_market_context - 0.5) * dynamic_context_sensitivity * 2
+        # 修改结束
         panic_dynamic_modulator = panic_dynamic_modulator.clip(0.5, 1.5)
         absorption_dynamic_modulator = absorption_dynamic_modulator.clip(0.5, 1.5)
         reversal_dynamic_modulator = reversal_dynamic_modulator.clip(0.5, 1.5)
@@ -537,17 +537,17 @@ class CognitiveIntelligence:
                 if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
-                # 修改开始 - 移除对数据层斜率信号的判断
-                if "PRICE_DOWNWARD_MOMENTUM" in signal_name or \
-                   "SENTIMENT_PENDULUM" in signal_name or \
-                   "FUSION_RISK_STAGNATION" in signal_name or \
-                   "FUSION_RISK_DISTRIBUTION_PRESSURE" in signal_name:
+                # 修改开始 - 修正 SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM 和 FUSION_RISK_DISTRIBUTION_PRESSURE 的裁剪逻辑
+                if "SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM" in signal_name: # Bipolar, negative part is panic
                     signal_score = raw_signal.clip(upper=0).abs()
-                elif "PREDICTIVE_OPP_CAPITULATION_REVERSAL" in signal_name or \
+                elif "SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM" in signal_name or \
+                     "FUSION_RISK_STAGNATION" in signal_name or \
+                     "FUSION_RISK_DISTRIBUTION_PRESSURE" in signal_name or \
+                     "PREDICTIVE_OPP_CAPITULATION_REVERSAL" in signal_name or \
                      "PROCESS_META_LOSER_CAPITULATION" in signal_name or \
-                     "VOLUME_ATROPHY" in signal_name:
+                     "SCORE_BEHAVIOR_VOLUME_ATROPHY" in signal_name: # These are positive scores for panic/risk
                     signal_score = raw_signal.clip(lower=0)
-                else:
+                else: # Default to positive contribution
                     signal_score = raw_signal.clip(lower=0)
                 # 修改结束
                 if "PRICE_DOWNWARD_MOMENTUM" in signal_name or "FUSION_RISK" in signal_name:
@@ -576,21 +576,19 @@ class CognitiveIntelligence:
                 if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
-                # 修改开始 - 移除对数据层加速度信号的判断
                 if "SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT" in signal_name or \
                    "SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION" in signal_name or \
                    "SCORE_CHIP_OPP_ABSORPTION_ECHO" in signal_name or \
                    "SCORE_BEHAVIOR_ABSORPTION_STRENGTH" in signal_name or \
                    "PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY" in signal_name or \
                    "SCORE_CHIP_TACTICAL_EXCHANGE" in signal_name or \
-                   "SCORE_CHIP_COHERENT_DRIVE" in signal_name: # 新增的信号
+                   "SCORE_CHIP_COHERENT_DRIVE" in signal_name:
                     signal_score = raw_signal.clip(lower=0)
                 else:
                     signal_score = raw_signal.clip(lower=0)
-                # 修改结束
                 if "SCORE_CHIP_OPP_ABSORPTION_ECHO" in signal_name or "SCORE_BEHAVIOR_ABSORPTION_STRENGTH" in signal_name or \
                    "PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY" in signal_name or "SCORE_CHIP_TACTICAL_EXCHANGE" in signal_name or \
-                   "SCORE_CHIP_COHERENT_DRIVE" in signal_name: # 新增的信号
+                   "SCORE_CHIP_COHERENT_DRIVE" in signal_name:
                     signal_score = signal_score * (1 - distribution_penalty_for_absorption)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 absorption_quality_score_components += normalized_signal_score * weight
@@ -615,7 +613,6 @@ class CognitiveIntelligence:
                 if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
-                # 修改开始 - 新增对 SCORE_BEHAVIOR_BULLISH_DIVERGENCE_QUALITY 的判断
                 if "SCORE_INTRADAY_CONVICTION_REVERSAL" in signal_name or \
                    "SCORE_MICRO_HARMONY_INFLECTION" in signal_name or \
                    "PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL" in signal_name or \
@@ -627,7 +624,6 @@ class CognitiveIntelligence:
                     signal_score = raw_signal.clip(lower=0)
                 else:
                     signal_score = raw_signal.clip(lower=0)
-                # 修改结束
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 reversal_intent_score_components += normalized_signal_score * weight
                 if self.debug_enabled:
@@ -766,7 +762,6 @@ class CognitiveIntelligence:
                 print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 最终剧本分数 (Final Playbook Score): {final_score.loc[p_date]:.4f}")
         print(f"  -> {method_name} 计算完成。")
         return final_score.astype(np.float32)
-
 
 
 
