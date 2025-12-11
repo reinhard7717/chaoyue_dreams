@@ -789,8 +789,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, intraday_data: pd.DataFrame, daily_data: pd.Series, tick_data: pd.DataFrame = None, level5_data: pd.DataFrame = None, realtime_data: pd.DataFrame = None, main_force_net_flow_calibrated: float = None, debug_mode: bool = False) -> dict:
         """
-        【V71.0 · 终极生产版】
+        【V71.1 · 探针激活版】
         - 核心职责: 统一调度所有行为指标计算内核，是高频分析的中央处理器。
+        - 核心修正: 允许 `debug_mode` 参数控制内部探针的激活状态。
         """
         results = {}
         if intraday_data.empty:
@@ -808,7 +809,7 @@ class AdvancedFundFlowMetricsService:
             'hf_features': hf_features,
             'main_force_net_flow_calibrated': main_force_net_flow_calibrated,
             'debug': {
-                'should_probe': False, # 在生产环境中硬编码为False
+                'should_probe': debug_mode, # 修改行：根据传入的debug_mode设置should_probe
             }
         }
         if not hf_analysis_df.empty:
