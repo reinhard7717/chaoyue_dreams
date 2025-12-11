@@ -368,12 +368,12 @@
       "说明": "【V83.5 · 通达信指标集成版】趋势跟踪策略核心模块。补全了所有情报引擎缺失的原子信号配置。",
       "debug_params": {
         "enabled": { "value": true },
-        "probe_dates": ["2025-11-28"],
+        "probe_dates": ["2025-11-23"],
         "enable_mfca_probe": true,
         "enable_asm_probe": true,
         "enable_ogds_probe": false,
         "enable_gt_probe": false,
-        "target_date": "2025-11-28"
+        "target_date": "2025-11-23"
       },
       "strategy_info": {
         "name": { "value": "TrendFollow" },
@@ -3049,47 +3049,98 @@
         "enabled": true,
         "description": "顶层认知引擎的专属参数块。",
         "description_cognitive_fusion_weights": "融合基础、结构、行为三大领域的权重。",
-        "cognitive_playbook_suppressive_accumulation_params": {
-          "enabled": true,
-          "description": "【V1.0 · 诡道博弈版】主力打压吸筹剧本的量化参数。",
-          "suppression_weights": {
-            "description": "打压证据融合权重。负值信号取绝对值，正值信号直接使用。",
-            "SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM": 0.2,
-            "SCORE_BEHAVIOR_DISTRIBUTION_INTENT": 0.2,
-            "INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW": 0.15,
-            "FUSION_RISK_DISTRIBUTION_PRESSURE": 0.15,
-            "SCORE_STRUCT_AXIOM_TREND_FORM": 0.1,
-            "SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE": 0.1,
-            "SCORE_FF_AXIOM_CONSENSUS": 0.1
+        "playbooks": {
+          "cognitive_playbook_suppressive_accumulation_params": {
+            "enabled": true,
+            "description": "【V1.0 · 诡道博弈版】主力打压吸筹剧本的量化参数。",
+            "suppression_weights": {
+              "description": "打压证据融合权重。负值信号取绝对值，正值信号直接使用。",
+              "SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM": 0.2,
+              "SCORE_BEHAVIOR_DISTRIBUTION_INTENT": 0.2,
+              "INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW": 0.15,
+              "FUSION_RISK_DISTRIBUTION_PRESSURE": 0.15,
+              "SCORE_STRUCT_AXIOM_TREND_FORM": 0.1,
+              "SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE": 0.1,
+              "SCORE_FF_AXIOM_CONSENSUS": 0.1
+            },
+            "accumulation_weights": {
+              "description": "吸筹证据融合权重。正值信号直接使用。",
+              "PROCESS_META_STEALTH_ACCUMULATION": 0.25,
+              "PROCESS_META_PANIC_WASHOUT_ACCUMULATION": 0.25,
+              "PROCESS_META_DECEPTIVE_ACCUMULATION": 0.2,
+              "SCORE_CHIP_OPP_ABSORPTION_ECHO": 0.15,
+              "SCORE_FF_AXIOM_CONVICTION": 0.15
+            },
+            "contradiction_weights": {
+              "description": "矛盾证据融合权重。正值信号直接使用。",
+              "SCORE_BEHAVIOR_BULLISH_DIVERGENCE": 0.25,
+              "SCORE_CHIP_AXIOM_DIVERGENCE": 0.25,
+              "SCORE_FUND_FLOW_BULLISH_DIVERGENCE": 0.2,
+              "PROCESS_META_PRICE_VS_RETAIL_CAPITULATION": 0.15,
+              "PROCESS_META_PROFIT_VS_FLOW": 0.15
+            },
+            "context_modulator_weights": {
+              "description": "情境调节器融合权重。正值信号直接使用。",
+              "SCORE_CONTEXT_DEEP_BOTTOM_ZONE": 0.4,
+              "SCORE_STRUCT_AXIOM_TENSION": 0.3,
+              "SCORE_FOUNDATION_AXIOM_MARKET_TENSION": 0.3
+            },
+            "final_fusion_exponent": 2.0,
+            "comment_final_fusion_exponent": "最终融合分数的指数，用于放大或平滑结果。",
+            "min_activation_threshold": 0.1,
+            "comment_min_activation_threshold": "剧本激活的最低分数阈值，低于此值则视为0。",
+            "norm_window": 55,
+            "comment_norm_window": "内部归一化窗口。"
           },
-          "accumulation_weights": {
-            "description": "吸筹证据融合权重。正值信号直接使用。",
-            "PROCESS_META_STEALTH_ACCUMULATION": 0.25,
-            "PROCESS_META_PANIC_WASHOUT_ACCUMULATION": 0.25,
-            "PROCESS_META_DECEPTIVE_ACCUMULATION": 0.2,
-            "SCORE_CHIP_OPP_ABSORPTION_ECHO": 0.15,
-            "SCORE_FF_AXIOM_CONVICTION": 0.15
-          },
-          "contradiction_weights": {
-            "description": "矛盾证据融合权重。正值信号直接使用。",
-            "SCORE_BEHAVIOR_BULLISH_DIVERGENCE": 0.25,
-            "SCORE_CHIP_AXIOM_DIVERGENCE": 0.25,
-            "SCORE_FUND_FLOW_BULLISH_DIVERGENCE": 0.2,
-            "PROCESS_META_PRICE_VS_RETAIL_CAPITULATION": 0.15,
-            "PROCESS_META_PROFIT_VS_FLOW": 0.15
-          },
-          "context_modulator_weights": {
-            "description": "情境调节器融合权重。正值信号直接使用。",
-            "SCORE_CONTEXT_DEEP_BOTTOM_ZONE": 0.4,
-            "SCORE_STRUCT_AXIOM_TENSION": 0.3,
-            "SCORE_FOUNDATION_AXIOM_MARKET_TENSION": 0.3
-          },
-          "final_fusion_exponent": 2.0,
-          "comment_final_fusion_exponent": "最终融合分数的指数，用于放大或平滑结果。",
-          "min_activation_threshold": 0.1,
-          "comment_min_activation_threshold": "剧本激活的最低分数阈值，低于此值则视为0。",
-          "norm_window": 55,
-          "comment_norm_window": "内部归一化窗口。"
+          "cognitive_playbook_chasing_accumulation_params": {
+            "enabled": true,
+            "description": "【V1.0 · 诡道博弈版】主力拉升抢筹剧本的量化参数。",
+            "chasing_weights": {
+              "description": "追涨证据融合权重。正值信号直接使用。",
+              "SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM": 0.2,
+              "SCORE_BEHAVIOR_VOLUME_BURST": 0.2,
+              "SCORE_BEHAVIOR_UPWARD_EFFICIENCY": 0.15,
+              "PROCESS_META_BREAKOUT_ACCELERATION": 0.15,
+              "PROCESS_META_MAIN_FORCE_RALLY_INTENT": 0.15,
+              "SCORE_PATTERN_AXIOM_BREAKOUT": 0.15
+            },
+            "accumulation_quality_weights": {
+              "description": "吸筹品质证据融合权重。正值信号直接使用，双极性信号取正向。",
+              "SCORE_CHIP_STRATEGIC_POSTURE": 0.2,
+              "SCORE_CHIP_COHERENT_DRIVE": 0.2,
+              "SCORE_FF_AXIOM_CONSENSUS": 0.15,
+              "SCORE_FF_AXIOM_CONVICTION": 0.15,
+              "PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY": 0.1,
+              "PROCESS_META_COST_ADVANTAGE_TREND": 0.1,
+              "PROCESS_META_PROFIT_VS_FLOW": 0.1
+            },
+            "context_weights": {
+              "description": "情境强化器融合权重。正值信号直接使用，双极性信号取正向。",
+              "SCORE_STRUCT_AXIOM_TREND_FORM": 0.25,
+              "SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE": 0.2,
+              "SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH": 0.2,
+              "FUSION_BIPOLAR_TREND_QUALITY": 0.15,
+              "FUSION_BIPOLAR_FUND_FLOW_TREND": 0.1,
+              "FUSION_BIPOLAR_CHIP_TREND": 0.1
+            },
+            "risk_filter_weights": {
+              "description": "风险过滤权重。高风险信号将降低最终分数。正值信号直接使用，双极性信号取负向绝对值。",
+              "SCORE_BEHAVIOR_DECEPTION_INDEX": 0.3,
+              "SCORE_CHIP_RISK_DISTRIBUTION_WHISPER": 0.3,
+              "FUSION_RISK_DISTRIBUTION_PRESSURE": 0.2,
+              "SCORE_FF_AXIOM_DIVERGENCE": 0.2
+            },
+            "confirmation_contradiction_weights": {
+              "description": "确认矛盾权重。正值信号直接使用，双极性信号取负向绝对值。",
+              "PROCESS_META_PRICE_VS_RETAIL_CAPITULATION": 1.0
+            },
+            "final_fusion_exponent": 2.0,
+            "comment_final_fusion_exponent": "最终融合分数的指数，用于放大或平滑结果。",
+            "min_activation_threshold": 0.1,
+            "comment_min_activation_threshold": "剧本激活的最低分数阈值，低于此值则视为0。",
+            "norm_window": 55,
+            "comment_norm_window": "内部归一化窗口。"
+          }
         }
       },
       "intraday_behavior_engine_params": {

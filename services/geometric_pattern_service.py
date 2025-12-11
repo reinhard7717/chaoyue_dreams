@@ -301,7 +301,6 @@ class GeometricPatternService:
             rebased_rs = pd.Series()
             if 'rs' in group and not group.empty and group['rs'].iloc[0] != 0:
                 rebased_rs = group['rs'] / group['rs'].iloc[0]
-
             metrics = {
                 'vps': self._calculate_volume_profile_skewness(group),
                 'vts': self._calculate_linear_regression_slope(group['vol']), # 保持默认归一化
@@ -320,21 +319,17 @@ class GeometricPatternService:
                     if fit_score > best_fit_score:
                         best_fit_score = fit_score
                         best_archetype = archetype
-            
             # 确保 best_fit_score 是有效数值
             if np.isnan(best_fit_score) or np.isinf(best_fit_score):
                 best_fit_score = None
-
             character, score_val = self._assess_platform_character(group)
             # 确保 score_val 是有效数值
             if np.isnan(score_val) or np.isinf(score_val):
                 score_val = None
-
             conviction_score = self._calculate_platform_conviction_score(group)
             # 确保 conviction_score 是有效数值
             if np.isnan(conviction_score) or np.isinf(conviction_score):
                 conviction_score = None
-
             # precise_vpoc 计算及 NaN/Inf 处理
             precise_vpoc = None
             platform_minutes_dfs = [minute_map[d.date()] for d in group.index if d.date() in minute_map]
@@ -344,7 +339,6 @@ class GeometricPatternService:
                     temp_precise_vpoc = np.average(platform_minutes_df['close'], weights=platform_minutes_df['volume'])
                     if not np.isnan(temp_precise_vpoc) and not np.isinf(temp_precise_vpoc):
                         precise_vpoc = temp_precise_vpoc
-
             # internal_accumulation_intensity 计算及 NaN/Inf 处理
             internal_ofi_sum, internal_total_amount = 0, 0
             for d in group.index:
@@ -355,7 +349,6 @@ class GeometricPatternService:
             internal_accumulation_intensity = (internal_ofi_sum / internal_total_amount) * 100 if internal_total_amount > 0 else 0.0
             if np.isnan(internal_accumulation_intensity) or np.isinf(internal_accumulation_intensity):
                 internal_accumulation_intensity = None
-
             # breakout_quality_score 计算及 NaN/Inf 处理
             breakout_quality_score = None
             next_trade_date = TradeCalendar.get_next_trade_date(end_date.date())
@@ -374,21 +367,17 @@ class GeometricPatternService:
                     
                     if np.isnan(ofi_score_val) or np.isinf(ofi_score_val): ofi_score_val = 0.0
                     if np.isnan(momentum_score_val) or np.isinf(momentum_score_val): momentum_score_val = 0.0
-
                     temp_breakout_quality_score = (ofi_score_val * 0.6) + (momentum_score_val * 0.4)
                     if not np.isnan(temp_breakout_quality_score) and not np.isinf(temp_breakout_quality_score):
                         breakout_quality_score = temp_breakout_quality_score
-
             # breakout_readiness 已经有处理，但再次确保
             breakout_readiness = group['breakout_readiness_score'].iloc[-1] if 'breakout_readiness_score' in group else None
             if breakout_readiness is not None and (math.isnan(breakout_readiness) or math.isinf(breakout_readiness)):
                 breakout_readiness = None
-
             # vpoc 计算及 NaN/Inf 处理
             vpoc_val = np.average(group['close_qfq'], weights=group['vol']) if group['vol'].sum() > 0 else None
             if vpoc_val is not None and (np.isnan(vpoc_val) or np.isinf(vpoc_val)):
                 vpoc_val = None
-
             platform_data = {
                 'stock': self.stock_instance, 'start_date': start_date.date(), 'end_date': end_date.date(),
                 'duration': len(group), 'high': platform_high, 'low': platform_low,
@@ -1404,14 +1393,12 @@ class GeometricPatternService:
         else:
             # 如果'rs'数据不存在，则给予中立分50，避免评分被污染
             score_rss = 50.0
-        
         # V2.55 核心修复: 确保所有分数组件都是有效数值
         score_kurtosis = np.nan_to_num(score_kurtosis, nan=0.0, posinf=0.0, neginf=0.0)
         score_vcr = np.nan_to_num(score_vcr, nan=0.0, posinf=0.0, neginf=0.0)
         score_vts = np.nan_to_num(score_vts, nan=0.0, posinf=0.0, neginf=0.0)
         score_internal = np.nan_to_num(score_internal, nan=0.0, posinf=0.0, neginf=0.0)
         score_rss = np.nan_to_num(score_rss, nan=0.0, posinf=0.0, neginf=0.0)
-
         # 融合总分
         conviction_score = (
             score_kurtosis * 0.30 +
