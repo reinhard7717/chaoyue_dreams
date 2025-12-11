@@ -93,7 +93,7 @@ class CognitiveIntelligence:
     def _calculate_suppressive_accumulation(self, df: pd.DataFrame) -> pd.Series:
         """
         修改思路：
-        1.  定义“主力打压吸筹”剧本的核心要素：价格弱势/打压、主力吸筹行为、以及两者之间的矛盾（即在打压中吸筹）。
+        1.  移除方法开头对 `enabled` 参数的检查，确保该方法总是执行其计算逻辑。
         2.  从score_type_map中选择非COGNITIVE_*的信号作为输入，分为“打压证据”、“吸筹证据”和“矛盾证据”三大类。
         3.  对每类证据进行加权融合，得到各自的综合分数。
         4.  引入“情境调节器”，如深度底部区域和结构张力，对最终分数进行放大。
@@ -104,9 +104,11 @@ class CognitiveIntelligence:
         print(f"  -> [认知层] 正在计算 {method_name}...")
 
         params = get_params_block(self.strategy, 'cognitive_playbook_suppressive_accumulation_params', {})
-        if not get_param_value(params.get('enabled'), False):
-            print(f"    -> {method_name} 未启用，返回0。")
-            return pd.Series(0.0, index=df.index)
+        # 修改开始 - 移除对 enabled 参数的判断
+        # if not get_param_value(params.get('enabled'), False):
+        #     print(f"    -> {method_name} 未启用，返回0。")
+        #     return pd.Series(0.0, index=df.index)
+        # 修改结束
 
         suppression_weights = get_param_value(params.get('suppression_weights'), {})
         accumulation_weights = get_param_value(params.get('accumulation_weights'), {})
