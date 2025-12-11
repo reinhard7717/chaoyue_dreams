@@ -121,15 +121,22 @@ class CognitiveIntelligence:
             这四大类分数的每一个原始信号值及其归一化后的值。
         3.  在方法开始时，通过 `_get_atomic_score` 预先检查所有所需信号的存在性，并获取其Series，
             确保后续计算的健壮性。
-        4.  从score_type_map中选择非COGNITIVE_*的信号作为输入，分为“打压证据”、“吸筹证据”和“矛盾证据”三大类。
-        5.  对每类证据进行加权融合，得到各自的综合分数。
-        6.  引入“情境调节器”，如深度底部区域和结构张力，对最终分数进行放大。
-        7.  使用乘法模型将三类核心证据和情境调节器进行非线性融合，并通过指数放大，以捕捉剧本的共振效应。
+        4.  在方法开始处，增加对 `params` 字典以及各个 `weights` 字典内容的打印，以诊断配置加载问题。
+        5.  从score_type_map中选择非COGNITIVE_*的信号作为输入，分为“打压证据”、“吸筹证据”和“矛盾证据”三大类。
+        6.  对每类证据进行加权融合，得到各自的综合分数。
+        7.  引入“情境调节器”，如深度底部区域和结构张力，对最终分数进行放大。
+        8.  使用乘法模型将三类核心证据和情境调节器进行非线性融合，并通过指数放大，以捕捉剧本的共振效应。
         """
         method_name = "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION"
         print(f"  -> [认知层] 正在计算 {method_name}...")
 
         params = get_params_block(self.strategy, 'cognitive_playbook_suppressive_accumulation_params', {})
+
+        # 修改开始 - 增加对 params 和 weights 字典内容的探针输出
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        if debug_params.get('enabled', {}).get('value', False):
+            print(f"    -> [探针] {method_name} 加载的原始参数 (params): {params}")
+        # 修改结束
 
         suppression_weights = get_param_value(params.get('suppression_weights'), {})
         accumulation_weights = get_param_value(params.get('accumulation_weights'), {})
@@ -139,8 +146,15 @@ class CognitiveIntelligence:
         min_activation_threshold = get_param_value(params.get('min_activation_threshold'), 0.1)
         norm_window = get_param_value(params.get('norm_window'), 55)
 
+        # 修改开始 - 增加对各个 weights 字典内容的探针输出
+        if debug_params.get('enabled', {}).get('value', False):
+            print(f"    -> [探针] suppression_weights: {suppression_weights}")
+            print(f"    -> [探针] accumulation_weights: {accumulation_weights}")
+            print(f"    -> [探针] contradiction_weights: {contradiction_weights}")
+            print(f"    -> [探针] context_modulator_weights: {context_modulator_weights}")
+        # 修改结束
+
         # --- 探针：获取所有需要探测的日期 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_to_print = []
         # 只有当debug enabled且有probe_dates时才尝试处理日期
         if debug_params.get('enabled', {}).get('value', False) and debug_params.get('probe_dates'):
