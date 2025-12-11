@@ -739,14 +739,16 @@ class CognitiveIntelligence:
                 if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
+                # 修改开始 - 修正高位情境信号裁剪逻辑
                 if "FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT" in signal_name or \
                    "SCORE_FOUNDATION_AXIOM_SENTIMENT_PENDULUM" in signal_name or \
                    "SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH" in signal_name:
-                    signal_score = raw_signal.clip(lower=0)
+                    signal_score = raw_signal.clip(lower=0) # 取正向作为风险
                 elif "SCORE_STRUCT_AXIOM_MTF_COHESION" in signal_name:
-                    signal_score = raw_signal.clip(upper=0).abs()
+                    signal_score = raw_signal.clip(upper=0).abs() # 取负向绝对值作为风险
                 else:
                     signal_score = raw_signal.clip(lower=0)
+                # 修改结束
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 high_level_context_score_components += normalized_signal_score * weight
                 if self.debug_enabled:
@@ -797,14 +799,16 @@ class CognitiveIntelligence:
                 if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
+                # 修改开始 - 修正筹码资金流风险信号裁剪逻辑
                 if "SCORE_CHIP_RISK_DISTRIBUTION_WHISPER" in signal_name or \
                    "SCORE_FUND_FLOW_BEARISH_DIVERGENCE" in signal_name or \
                    "FUSION_RISK_DISTRIBUTION_PRESSURE" in signal_name:
                     signal_score = raw_signal.clip(lower=0)
                 elif "SCORE_CHIP_AXIOM_DIVERGENCE" in signal_name:
-                    signal_score = raw_signal.clip(upper=0).abs()
+                    signal_score = raw_signal.clip(upper=0).abs() # 取负向绝对值作为风险
                 else:
                     signal_score = raw_signal.clip(lower=0)
+                # 修改结束
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 chip_fund_flow_risk_score_components += normalized_signal_score * weight
                 if self.debug_enabled:
@@ -826,6 +830,7 @@ class CognitiveIntelligence:
                 if signal_name == 'description':
                     continue
                 raw_signal = fetched_signals[signal_name]
+                # 修改开始 - 修正结构趋势衰竭风险信号裁剪逻辑
                 if "FUSION_RISK_STAGNATION" in signal_name or \
                    "PROCESS_META_WINNER_CONVICTION_DECAY" in signal_name or \
                    "PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE" in signal_name:
@@ -833,9 +838,10 @@ class CognitiveIntelligence:
                 elif "FUSION_BIPOLAR_TREND_QUALITY" in signal_name or \
                      "SCORE_DYN_AXIOM_MOMENTUM" in signal_name or \
                      "SCORE_STRUCT_STRATEGIC_POSTURE" in signal_name:
-                    signal_score = raw_signal.clip(upper=0).abs()
+                    signal_score = raw_signal.clip(upper=0).abs() # 取负向绝对值作为风险
                 else:
                     signal_score = raw_signal.clip(lower=0)
+                # 修改结束
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 structural_trend_exhaustion_score_components += normalized_signal_score * weight
                 if self.debug_enabled:
