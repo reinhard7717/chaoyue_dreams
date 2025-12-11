@@ -449,24 +449,17 @@ class AdvancedFundFlowMetricsService:
         """
         【V12.1 · 诊断驾驶舱升级版】
         - 核心升级: 引入 A-系列 (Aggregation Service) 探针，监控服务层的数据流转和关键上游计算节点。
+        【V72.2 · 生产就绪版】
+        - 核心清除: 移除所有调试探针相关的print语句和逻辑，恢复生产状态。
         """
         all_metrics_list = []
         attributed_minute_data_map = {}
         failures = []
         prev_metrics = memory.copy() if memory is not None else {}
         num_days = len(merged_df)
-        enable_probe = self.debug_params.get('enable_mfca_probe', False)
-        target_date_str = self.debug_params.get('target_date')
         for i, (trade_date, daily_data_series) in enumerate(merged_df.iterrows()):
             debug_mode = (i == num_days - 1)
             date_obj = trade_date.date()
-            is_target_date = str(date_obj) == target_date_str
-            # 升级【A.1 - 服务入口探针】
-            if enable_probe and is_target_date:
-                print(f"\n{'='*20} [探针 A.1 - 服务入口 @ {date_obj}] {'='*20}")
-                print(f"  - 传入的日线级数据 (daily_data_series):")
-                print(daily_data_series.to_string())
-                print(f"  - 传入的记忆体 (prev_metrics): {prev_metrics}")
             daily_amount = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
             daily_vol_shares = pd.to_numeric(daily_data_series.get('vol'), errors='coerce') * 100
             if pd.notna(daily_amount) and pd.notna(daily_vol_shares) and daily_vol_shares > 0:
@@ -479,22 +472,7 @@ class AdvancedFundFlowMetricsService:
                 continue
             daily_data_series_with_mem = pd.concat([daily_data_series, pd.Series(prev_metrics, name=daily_data_series.name)])
             attribution_weights_df = self._calculate_intraday_attribution_weights(intraday_data, daily_data_series_with_mem)
-            # 新增【A.2 - 归因权重探针】
-            if enable_probe and is_target_date:
-                print(f"\n{'='*20} [探针 A.2 - 归因权重审计 @ {date_obj}] {'='*20}")
-                print("  - 归因权重DataFrame统计信息 (.describe()):")
-                weight_cols = [c for c in attribution_weights_df.columns if 'weight' in c]
-                print(attribution_weights_df[weight_cols].describe().to_string())
             probabilistic_costs_dict, attributed_minute_df = self._calculate_probabilistic_costs(stock_code, attribution_weights_df, daily_data_series_with_mem, debug_mode=debug_mode)
-            # 新增【A.3 - 概率成本探针】
-            if enable_probe and is_target_date:
-                print(f"\n{'='*20} [探针 A.3 - 概率成本审计 @ {date_obj}] {'='*20}")
-                print("  - 计算出的概率成本字典:")
-                print(probabilistic_costs_dict)
-            # 新增【A.4 - 引擎调用探针】
-            if enable_probe and is_target_date:
-                print(f"\n{'='*20} [探针 A.4 - 引擎调用 @ {date_obj}] {'='*20}")
-                print("  - 即将调用 _calculate_all_metrics_for_day 核心行为指标计算引擎...")
             day_metrics, _ = self._calculate_all_metrics_for_day(
                 stock_code, daily_data_series_with_mem, intraday_data, attributed_minute_df, probabilistic_costs_dict,
                 tick_data_for_day=tick_data_map.get(date_obj),
@@ -502,14 +480,6 @@ class AdvancedFundFlowMetricsService:
                 realtime_data_for_day=realtime_data_map.get(date_obj),
                 debug_mode=debug_mode
             )
-            # 升级【A.5 - 服务出口探针】
-            if enable_probe and is_target_date:
-                print(f"\n{'='*20} [探针 A.5 - 服务出口 @ {date_obj}] {'='*20}")
-                print(f"  - 资金流指标计算完成。最终日度指标字典 (day_metrics) 预览:")
-                # 打印部分关键指标以供快速检查
-                preview_keys = ['main_force_net_flow_calibrated', 'avg_cost_main_buy', 'main_force_conviction_index', 'dip_absorption_power', 'rally_distribution_pressure']
-                preview_dict = {k: day_metrics.get(k) for k in preview_keys if k in day_metrics}
-                print(preview_dict)
             all_metrics_list.append(day_metrics)
             attributed_minute_data_map[date_obj] = attributed_minute_df.copy(deep=True)
             next_prev_metrics = {
@@ -1934,6 +1904,8 @@ class AdvancedFundFlowMetricsService:
         - 核心重构: 彻底废弃遗留的探针逻辑，统一使用上游传入的 `should_probe` 标志，完成探针系统的最终标准化。
         【V72.0 · 资金流拆分版】
         - 核心增强: 拆分 `flow_efficiency_index` 为买卖双方效率。
+        【V72.2 · 生产就绪版】
+        - 核心清除: 移除所有调试探针相关的print语句和逻辑，恢复生产状态。
         """
         hf_analysis_df = context['hf_analysis_df']
         intraday_data = context['intraday_data']
@@ -1943,16 +1915,16 @@ class AdvancedFundFlowMetricsService:
         import pandas as pd
         metrics = {
             'flow_efficiency_index': np.nan,
-            'buy_flow_efficiency_index': np.nan, # 新增行
-            'sell_flow_efficiency_index': np.nan, # 新增行
+            'buy_flow_efficiency_index': np.nan,
+            'sell_flow_efficiency_index': np.nan,
         }
         atr = common_data.get('atr')
         daily_total_volume = common_data.get('daily_total_volume')
         if pd.isna(atr) or atr <= 0 or pd.isna(daily_total_volume) or daily_total_volume <= 0:
             return metrics
         efficiency_coeff = np.nan
-        buy_efficiency_coeff = np.nan # 新增行
-        sell_efficiency_coeff = np.nan # 新增行
+        buy_efficiency_coeff = np.nan
+        sell_efficiency_coeff = np.nan
         if not hf_analysis_df.empty and 'main_force_ofi' in hf_analysis_df.columns and 'mid_price_change' in hf_analysis_df.columns:
             df = hf_analysis_df[hf_analysis_df['main_force_ofi'] != 0].copy()
             if not df.empty:
@@ -1961,26 +1933,21 @@ class AdvancedFundFlowMetricsService:
                 if weights.sum() > 0:
                     efficiency_coeff = np.average(df['price_change_per_ofi'], weights=weights)
                     metrics['flow_efficiency_index'] = (efficiency_coeff * daily_total_volume) / atr
-                    if should_probe:
-                        print(f"  [探针] flow_efficiency_index (高频-流量效率) 计算:")
-                        print(f"    - 核心效率系数 (每单位OFI撬动的价格): {efficiency_coeff:.8f}")
-                        print(f"    - (系数 * 总成交量) / ATR = ({efficiency_coeff:.8f} * {daily_total_volume:,.0f}) / {atr:.4f}")
-                        print(f"    -> 最终得分: {metrics['flow_efficiency_index']:.4f}")
                 # 新增拆分指标
-                df_buy = hf_analysis_df[hf_analysis_df['main_force_ofi'] > 0].copy() # 新增行
-                if not df_buy.empty: # 新增行
-                    df_buy['price_change_per_ofi'] = df_buy['mid_price_change'] / df_buy['main_force_ofi'] # 新增行
-                    weights_buy = df_buy['main_force_ofi'].abs() # 新增行
-                    if weights_buy.sum() > 0: # 新增行
-                        buy_efficiency_coeff = np.average(df_buy['price_change_per_ofi'], weights=weights_buy) # 新增行
-                        metrics['buy_flow_efficiency_index'] = (buy_efficiency_coeff * daily_total_volume) / atr # 新增行
-                df_sell = hf_analysis_df[hf_analysis_df['main_force_ofi'] < 0].copy() # 新增行
-                if not df_sell.empty: # 新增行
-                    df_sell['price_change_per_ofi'] = df_sell['mid_price_change'] / df_sell['main_force_ofi'] # 新增行
-                    weights_sell = df_sell['main_force_ofi'].abs() # 新增行
-                    if weights_sell.sum() > 0: # 新增行
-                        sell_efficiency_coeff = np.average(df_sell['price_change_per_ofi'], weights=weights_sell) # 新增行
-                        metrics['sell_flow_efficiency_index'] = (sell_efficiency_coeff * daily_total_volume) / atr # 新增行
+                df_buy = hf_analysis_df[hf_analysis_df['main_force_ofi'] > 0].copy()
+                if not df_buy.empty:
+                    df_buy['price_change_per_ofi'] = df_buy['mid_price_change'] / df_buy['main_force_ofi']
+                    weights_buy = df_buy['main_force_ofi'].abs()
+                    if weights_buy.sum() > 0:
+                        buy_efficiency_coeff = np.average(df_buy['price_change_per_ofi'], weights=weights_buy)
+                        metrics['buy_flow_efficiency_index'] = (buy_efficiency_coeff * daily_total_volume) / atr
+                df_sell = hf_analysis_df[hf_analysis_df['main_force_ofi'] < 0].copy()
+                if not df_sell.empty:
+                    df_sell['price_change_per_ofi'] = df_sell['mid_price_change'] / df_sell['main_force_ofi']
+                    weights_sell = df_sell['main_force_ofi'].abs()
+                    if weights_sell.sum() > 0:
+                        sell_efficiency_coeff = np.average(df_sell['price_change_per_ofi'], weights=weights_sell)
+                        metrics['sell_flow_efficiency_index'] = (sell_efficiency_coeff * daily_total_volume) / atr
         else:
             if 'main_force_net_vol' in intraday_data.columns and 'close' in intraday_data.columns:
                 df = intraday_data.copy()
@@ -1993,26 +1960,26 @@ class AdvancedFundFlowMetricsService:
                         efficiency_coeff = np.average(df['price_change_per_vol'], weights=weights)
                         metrics['flow_efficiency_index'] = (efficiency_coeff * daily_total_volume) / atr
                 # Fallback for split metrics
-                df_buy_fallback = intraday_data[intraday_data['main_force_net_vol'] > 0].copy() # 新增行
-                if not df_buy_fallback.empty: # 新增行
-                    df_buy_fallback['price_change'] = df_buy_fallback['close'].diff() # 新增行
-                    df_buy_fallback = df_buy_fallback[df_buy_fallback['main_force_net_vol'] != 0].dropna(subset=['price_change']) # 新增行
-                    if not df_buy_fallback.empty: # 新增行
-                        df_buy_fallback['price_change_per_vol'] = df_buy_fallback['price_change'] / df_buy_fallback['main_force_net_vol'] # 新增行
-                        weights_buy_fallback = df_buy_fallback['main_force_net_vol'].abs() # 新增行
-                        if weights_buy_fallback.sum() > 0: # 新增行
-                            buy_efficiency_coeff = np.average(df_buy_fallback['price_change_per_vol'], weights=weights_buy_fallback) # 新增行
-                            metrics['buy_flow_efficiency_index'] = (buy_efficiency_coeff * daily_total_volume) / atr # 新增行
-                df_sell_fallback = intraday_data[intraday_data['main_force_net_vol'] < 0].copy() # 新增行
-                if not df_sell_fallback.empty: # 新增行
-                    df_sell_fallback['price_change'] = df_sell_fallback['close'].diff() # 新增行
-                    df_sell_fallback = df_sell_fallback[df_sell_fallback['main_force_net_vol'] != 0].dropna(subset=['price_change']) # 新增行
-                    if not df_sell_fallback.empty: # 新增行
-                        df_sell_fallback['price_change_per_vol'] = df_sell_fallback['price_change'] / df_sell_fallback['main_force_net_vol'] # 新增行
-                        weights_sell_fallback = df_sell_fallback['main_force_net_vol'].abs() # 新增行
-                        if weights_sell_fallback.sum() > 0: # 新增行
-                            sell_efficiency_coeff = np.average(df_sell_fallback['price_change_per_vol'], weights=weights_sell_fallback) # 新增行
-                            metrics['sell_flow_efficiency_index'] = (sell_efficiency_coeff * daily_total_volume) / atr # 新增行
+                df_buy_fallback = intraday_data[intraday_data['main_force_net_vol'] > 0].copy()
+                if not df_buy_fallback.empty:
+                    df_buy_fallback['price_change'] = df_buy_fallback['close'].diff()
+                    df_buy_fallback = df_buy_fallback[df_buy_fallback['main_force_net_vol'] != 0].dropna(subset=['price_change'])
+                    if not df_buy_fallback.empty:
+                        df_buy_fallback['price_change_per_vol'] = df_buy_fallback['price_change'] / df_buy_fallback['main_force_net_vol']
+                        weights_buy_fallback = df_buy_fallback['main_force_net_vol'].abs()
+                        if weights_buy_fallback.sum() > 0:
+                            buy_efficiency_coeff = np.average(df_buy_fallback['price_change_per_vol'], weights=weights_buy_fallback)
+                            metrics['buy_flow_efficiency_index'] = (buy_efficiency_coeff * daily_total_volume) / atr
+                df_sell_fallback = intraday_data[intraday_data['main_force_net_vol'] < 0].copy()
+                if not df_sell_fallback.empty:
+                    df_sell_fallback['price_change'] = df_sell_fallback['close'].diff()
+                    df_sell_fallback = df_sell_fallback[df_sell_fallback['main_force_net_vol'] != 0].dropna(subset=['price_change'])
+                    if not df_sell_fallback.empty:
+                        df_sell_fallback['price_change_per_vol'] = df_sell_fallback['price_change'] / df_sell_fallback['main_force_net_vol']
+                        weights_sell_fallback = df_sell_fallback['main_force_net_vol'].abs()
+                        if weights_sell_fallback.sum() > 0:
+                            sell_efficiency_coeff = np.average(df_sell_fallback['price_change_per_vol'], weights=weights_sell_fallback)
+                            metrics['sell_flow_efficiency_index'] = (sell_efficiency_coeff * daily_total_volume) / atr
         return metrics
 
     def _calculate_intraday_attribution_weights(self, intraday_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
@@ -2163,6 +2130,8 @@ class AdvancedFundFlowMetricsService:
         - 升级说明: 增加了详细探针，用于调试和检查每一步计算。
         【V72.0 · 资金流拆分版】
         - 核心增强: 拆分 `main_force_t0_efficiency` 为买卖双方效率。
+        【V72.2 · 生产就绪版】
+        - 核心清除: 移除所有调试探针相关的print语句和逻辑，恢复生产状态。
         """
         hf_analysis_df = context['hf_analysis_df']
         daily_data = context['daily_data']
@@ -2170,7 +2139,6 @@ class AdvancedFundFlowMetricsService:
         hf_features = context['hf_features']
         hf_mf_buy_vwap = hf_features['hf_mf_buy_vwap']
         hf_mf_sell_vwap = hf_features['hf_mf_sell_vwap']
-        should_probe = context['debug']['should_probe']
         import numpy as np
         import pandas as pd
         metrics = {
@@ -2178,73 +2146,50 @@ class AdvancedFundFlowMetricsService:
             'main_force_sell_execution_alpha': np.nan,
             'main_force_execution_alpha': np.nan,
             'main_force_t0_efficiency': np.nan,
-            'main_force_t0_buy_efficiency': np.nan, # 新增行
-            'main_force_t0_sell_efficiency': np.nan, # 新增行
+            'main_force_t0_buy_efficiency': np.nan,
+            'main_force_t0_sell_efficiency': np.nan,
             'main_force_t0_spread_ratio': np.nan,
         }
         daily_vwap = common_data['daily_vwap']
         atr = common_data['atr']
-        if should_probe:
-            print(f"      -> [探针] _calculate_execution_alpha_metrics (日期: {daily_data.name.strftime('%Y-%m-%d')})")
-            print(f"        - daily_vwap: {daily_vwap:.9f}")
-            print(f"        - atr: {atr:.9f}")
-            print(f"        - hf_mf_buy_vwap: {hf_mf_buy_vwap:.9f}")
-            print(f"        - hf_mf_sell_vwap: {hf_mf_sell_vwap:.9f}")
         if pd.isna(daily_vwap) or pd.isna(atr) or atr <= 0:
-            if should_probe: print("        - 关键数据 (daily_vwap, atr) 缺失或无效，跳过计算。")
             return metrics
         buy_alpha, sell_alpha = np.nan, np.nan
         if not hf_analysis_df.empty:
             if pd.notna(hf_mf_buy_vwap):
                 buy_alpha = (daily_vwap - hf_mf_buy_vwap) / atr
                 metrics['main_force_buy_execution_alpha'] = buy_alpha
-                metrics['main_force_t0_buy_efficiency'] = buy_alpha # 新增行
-                if should_probe: print(f"        - buy_alpha = ({daily_vwap:.9f} - {hf_mf_buy_vwap:.9f}) / {atr:.9f} = {buy_alpha:.9f}")
+                metrics['main_force_t0_buy_efficiency'] = buy_alpha
             if pd.notna(hf_mf_sell_vwap):
                 sell_alpha = (hf_mf_sell_vwap - daily_vwap) / atr
                 metrics['main_force_sell_execution_alpha'] = sell_alpha
-                metrics['main_force_t0_sell_efficiency'] = sell_alpha # 新增行
-                if should_probe: print(f"        - sell_alpha = ({hf_mf_sell_vwap:.9f} - {daily_vwap:.9f}) / {atr:.9f} = {sell_alpha:.9f}")
+                metrics['main_force_t0_sell_efficiency'] = sell_alpha
             if pd.notna(hf_mf_sell_vwap) and pd.notna(hf_mf_buy_vwap) and daily_vwap > 0:
                 t0_spread = (hf_mf_sell_vwap - hf_mf_buy_vwap) / daily_vwap
                 metrics['main_force_t0_spread_ratio'] = t0_spread * 100
-                if should_probe: print(f"        - main_force_t0_spread_ratio = ({hf_mf_sell_vwap:.9f} - {hf_mf_buy_vwap:.9f}) / {daily_vwap:.9f} * 100 = {t0_spread * 100:.9f}")
         else:
             avg_cost_main_buy = daily_data.get('avg_cost_main_buy')
             avg_cost_main_sell = daily_data.get('avg_cost_main_sell')
-            if should_probe:
-                print(f"        - hf_analysis_df 为空，回退到日线聚合成本。")
-                print(f"        - avg_cost_main_buy: {avg_cost_main_buy:.9f}")
-                print(f"        - avg_cost_main_sell: {avg_cost_main_sell:.9f}")
             if pd.notna(avg_cost_main_buy):
                 buy_alpha = (daily_vwap - avg_cost_main_buy) / atr
                 metrics['main_force_buy_execution_alpha'] = buy_alpha
-                metrics['main_force_t0_buy_efficiency'] = buy_alpha # 新增行
-                if should_probe: print(f"        - buy_alpha (日线) = ({daily_vwap:.9f} - {avg_cost_main_buy:.9f}) / {atr:.9f} = {buy_alpha:.9f}")
+                metrics['main_force_t0_buy_efficiency'] = buy_alpha
             if pd.notna(avg_cost_main_sell):
                 sell_alpha = (avg_cost_main_sell - daily_vwap) / atr
                 metrics['main_force_sell_execution_alpha'] = sell_alpha
-                metrics['main_force_t0_sell_efficiency'] = sell_alpha # 新增行
-                if should_probe: print(f"        - sell_alpha (日线) = ({avg_cost_main_sell:.9f} - {daily_vwap:.9f}) / {atr:.9f} = {sell_alpha:.9f}")
+                metrics['main_force_t0_sell_efficiency'] = sell_alpha
             if pd.notna(avg_cost_main_sell) and pd.notna(avg_cost_main_buy) and daily_vwap > 0:
                 t0_spread = (avg_cost_main_sell - avg_cost_main_buy) / daily_vwap
                 metrics['main_force_t0_spread_ratio'] = t0_spread * 100
-                if should_probe: print(f"        - main_force_t0_spread_ratio (日线) = ({avg_cost_main_sell:.9f} - {avg_cost_main_buy:.9f}) / {daily_vwap:.9f} * 100 = {t0_spread * 100:.9f}")
         if pd.notna(buy_alpha) and pd.notna(sell_alpha):
             metrics['main_force_execution_alpha'] = (buy_alpha + sell_alpha) / 2
             t0_spread_norm = (sell_alpha - (-buy_alpha))
             if pd.notna(sell_alpha) and sell_alpha != 0:
                 metrics['main_force_t0_efficiency'] = t0_spread_norm / sell_alpha
-            if should_probe:
-                print(f"        - main_force_execution_alpha = ({buy_alpha:.9f} + {sell_alpha:.9f}) / 2 = {metrics['main_force_execution_alpha']:.9f}")
-                print(f"        - main_force_t0_efficiency = ({sell_alpha:.9f} - ({-buy_alpha:.9f})) / {sell_alpha:.9f} = {metrics['main_force_t0_efficiency']:.9f}")
         elif pd.notna(sell_alpha):
             metrics['main_force_execution_alpha'] = sell_alpha
-            if should_probe: print(f"        - main_force_execution_alpha (仅sell_alpha) = {sell_alpha:.9f}")
         elif pd.notna(buy_alpha):
             metrics['main_force_execution_alpha'] = buy_alpha
-            if should_probe: print(f"        - main_force_execution_alpha (仅buy_alpha) = {buy_alpha:.9f}")
-        if should_probe: print(f"      -> [探针] _calculate_execution_alpha_metrics 最终结果: {metrics['main_force_execution_alpha']:.9f}")
         return metrics
 
     @staticmethod
@@ -2375,16 +2320,11 @@ class AdvancedFundFlowMetricsService:
         【V51.2 · S系列终审探针植入版】
         - 核心增强: 植入 S.1 终审探针，在数据保存的最后关卡，通过对比“待保存数据的列”与“模型定义的字段”，
                      彻底穿透“数据-模型不同步”问题，为新指标无法入库提供决定性证据。
+        【V72.2 · 生产就绪版】
+        - 核心清除: 移除所有调试探针相关的print语句和逻辑，恢复生产状态。
         """
         records_to_save_df = final_df
         stock_code = stock_info.stock_code
-        is_target_date_in_df = False
-        target_date = None
-        if self.debug_params and self.debug_params.get('target_date'):
-            target_date = pd.to_datetime(self.debug_params['target_date']).date()
-            if not records_to_save_df.empty and target_date in records_to_save_df.index.date:
-                is_target_date_in_df = True
-        enable_probe = self.debug_params.get('enable_mfca_probe', False)
         if records_to_save_df.empty:
             return 0
         from django.db.models import DecimalField
@@ -2396,37 +2336,7 @@ class AdvancedFundFlowMetricsService:
                 records_to_save_df.loc[:, col] = records_to_save_df[col].replace([np.inf, -np.inf], np.nan)
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
-        # [修改的代码块] 升级原有的探针为 S.1 终审探针
-        if enable_probe and is_target_date_in_df:
-            print(f"\n{'='*20} [探针 S.1 · 终审穿透 @ {target_date}] {'='*20}")
-            incoming_df_cols = set(records_to_save_df.columns) | {records_to_save_df.index.name}
-            model_fields_set = set(model_fields)
-            print(f"  - [输入] 待保存DataFrame的全部列名 (共 {len(incoming_df_cols)} 个):")
-            print(f"    {sorted(list(incoming_df_cols))}")
-            print(f"  - [规则] 数据库模型 '{MetricsModel.__name__}' 定义的全部字段 (共 {len(model_fields_set)} 个):")
-            print(f"    {sorted(list(model_fields_set))}")
-            missing_in_df = model_fields_set - incoming_df_cols
-            extra_in_df = incoming_df_cols - model_fields_set
-            print(f"  - [诊断] 因模型中未定义而被丢弃的列: {sorted(list(extra_in_df)) or '无'}")
-            print(f"  - [诊断] 模型中定义但数据中缺失的列: {sorted(list(missing_in_df)) or '无'}")
-            if not extra_in_df:
-                print("  - [裁决通过] 数据列与模型字段完美匹配。")
-            else:
-                print("  - [裁决失败] 发现“数据-模型不同步”，部分数据将被丢弃！请检查模型定义或重启应用！")
-            df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
-            target_row = df_filtered.loc[df_filtered.index.date == target_date]
-            if not target_row.empty:
-                print("  - 目标日期最终待保存数据行预览 (过滤后):")
-                preview_cols = [
-                    'main_force_conviction_index', 'distribution_at_peak_intensity',
-                    'absorption_at_peak_intensity', 'breakthrough_of_peak_quality', 'defense_of_peak_quality'
-                ]
-                existing_preview_cols = [col for col in preview_cols if col in target_row.columns]
-                print(target_row[existing_preview_cols].to_string())
-            else:
-                print("  - [!!!] 警告: 在最终待保存的DataFrame中未找到目标日期行！")
-        else:
-            df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
+        df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
         records_list = df_filtered.to_dict('records')
         @sync_to_async(thread_sensitive=True)
         def save_atomically(model, stock_obj, records_to_process):

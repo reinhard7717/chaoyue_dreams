@@ -423,7 +423,7 @@ class IndicatorService:
         # --- 10. 【斜率与加速度计算】(移动到所有上下文信息注入之后) ---
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
-        # self._log_final_data_columns(all_dfs) # 移除调试打印
+        self._log_final_data_columns(all_dfs) # 移除调试打印
         return all_dfs
 
     async def _prepare_base_data_and_indicators(
