@@ -3469,6 +3469,65 @@
             "comment_min_activation_threshold": "剧本激活的最低分数阈值，低于此值则视为0。",
             "norm_window": 55,
             "comment_norm_window": "内部归一化窗口。"
+          },
+          "cognitive_playbook_leading_dragon_awakening_params": {
+            "description": "【V1.0 · 龙头觉醒版】识别潜在龙头股的觉醒信号。",
+            "dormancy_breakout_weights": {
+              "description": "蛰伏突破意图融合权重。所有信号取正向。",
+              "SCORE_PATTERN_AXIOM_BREAKOUT": 0.3,
+              "SCORE_BEHAVIOR_VOLUME_BURST": 0.25,
+              "SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM": 0.2,
+              "SCORE_MICRO_HARMONY_INFLECTION": 0.15,
+              "PROCESS_META_COST_ADVANTAGE_TREND": 0.1
+            },
+            "main_force_offensive_weights": {
+              "description": "主力进攻强度融合权重。所有信号取正向。",
+              "SCORE_BEHAVIOR_OFFENSIVE_ABSORPTION_INTENT": 0.3,
+              "PROCESS_META_MAIN_FORCE_RALLY_INTENT": 0.25,
+              "SCORE_INTRADAY_OFFENSIVE_PURITY": 0.2,
+              "PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY": 0.15,
+              "SCORE_CHIP_TACTICAL_EXCHANGE": 0.1
+            },
+            "chip_fund_flow_resonance_weights": {
+              "description": "筹码资金共振融合权重。双极性信号取正向，正向信号直接使用。",
+              "SCORE_CHIP_COHERENT_DRIVE": 0.3,
+              "FUSION_BIPOLAR_FUND_FLOW_TREND": 0.25,
+              "SCORE_FUND_FLOW_BULLISH_DIVERGENCE": 0.2,
+              "SCORE_CHIP_HARMONY_INFLECTION": 0.15,
+              "PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT": 0.1
+            },
+            "market_context_reinforcement_weights": {
+              "description": "市场情境强化融合权重。双极性信号取正向，正向信号直接使用。",
+              "SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION": 0.25,
+              "SCORE_FOUNDATION_AXIOM_LIQUIDITY_TIDE": 0.2,
+              "SCORE_STRUCT_LEADERSHIP_POTENTIAL": 0.2,
+              "SCORE_FOUNDATION_AXIOM_RELATIVE_STRENGTH": 0.2,
+              "SCORE_INTRADAY_DOMINANCE_CONSENSUS": 0.15
+            },
+            "risk_filter_weights": {
+              "description": "风险过滤权重。正向为风险，双极性信号取负向绝对值。",
+              "SCORE_BEHAVIOR_DECEPTION_INDEX": 0.3,
+              "SCORE_CHIP_RISK_DISTRIBUTION_WHISPER": 0.25,
+              "FUSION_RISK_DISTRIBUTION_PRESSURE": 0.2,
+              "SCORE_BEHAVIOR_BEARISH_DIVERGENCE": 0.15,
+              "SCORE_FF_AXIOM_DIVERGENCE": 0.1
+            },
+            "synergy_threshold": 0.6,
+            "comment_synergy_threshold": "维度协同/冲突判断的阈值。",
+            "synergy_bonus_factor": 0.2,
+            "comment_synergy_bonus_factor": "维度协同时的奖励因子。",
+            "conflict_penalty_factor": 0.3,
+            "comment_conflict_penalty_factor": "维度冲突时的惩罚因子。",
+            "dynamic_context_modulator_signal": "FUSION_BIPOLAR_TREND_QUALITY",
+            "comment_dynamic_context_modulator_signal": "用于动态调整各维度权重的市场情境信号（趋势质量越高，越强化）。",
+            "dynamic_context_sensitivity": 0.5,
+            "comment_dynamic_context_sensitivity": "市场情境对动态权重调整的敏感度。",
+            "final_fusion_exponent": 2.0,
+            "comment_final_fusion_exponent": "最终融合分数的指数，用于放大或平滑结果。",
+            "min_activation_threshold": 0.1,
+            "comment_min_activation_threshold": "剧本激活的最低分数阈值，低于此值则视为0。",
+            "norm_window": 55,
+            "comment_norm_window": "内部归一化窗口。"
           }
         }
       },
