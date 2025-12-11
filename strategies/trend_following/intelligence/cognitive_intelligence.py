@@ -281,14 +281,12 @@ class CognitiveIntelligence:
         context_weights = get_param_value(params.get('context_weights'), {})
         risk_filter_weights = get_param_value(params.get('risk_filter_weights'), {})
         confirmation_contradiction_weights = get_param_value(params.get('confirmation_contradiction_weights'), {})
-        # 修改开始 - 新增参数获取
         purity_penalty_sensitivity = get_param_value(params.get('purity_penalty_sensitivity'), 0.5)
         synergy_threshold = get_param_value(params.get('synergy_threshold'), 0.6)
         synergy_bonus_factor = get_param_value(params.get('synergy_bonus_factor'), 0.2)
         conflict_penalty_factor = get_param_value(params.get('conflict_penalty_factor'), 0.3)
         dynamic_context_modulator_signal = get_param_value(params.get('dynamic_context_modulator_signal'), "SCORE_FOUNDATION_AXIOM_MARKET_CONSTITUTION")
         dynamic_context_sensitivity = get_param_value(params.get('dynamic_context_sensitivity'), 0.5)
-        # 修改结束
         final_fusion_exponent = get_param_value(params.get('final_fusion_exponent'), 2.0)
         min_activation_threshold = get_param_value(params.get('min_activation_threshold'), 0.1)
         norm_window = get_param_value(params.get('norm_window'), 55)
@@ -322,11 +320,9 @@ class CognitiveIntelligence:
         all_required_signals.update(context_weights.keys())
         all_required_signals.update(risk_filter_weights.keys())
         all_required_signals.update(confirmation_contradiction_weights.keys())
-        # 修改开始 - 增加纯度调节器和动态权重调制器信号
         all_required_signals.add("SCORE_BEHAVIOR_DECEPTION_INDEX")
         all_required_signals.add("SCORE_CHIP_RISK_DISTRIBUTION_WHISPER")
         all_required_signals.add(dynamic_context_modulator_signal)
-        # 修改结束
         fetched_signals = {}
         for signal_name in all_required_signals:
             if signal_name == 'description':
@@ -341,24 +337,16 @@ class CognitiveIntelligence:
         context_score_components = pd.Series(0.0, index=df.index)
         risk_filter_score_components = pd.Series(0.0, index=df.index)
         confirmation_contradiction_score_components = pd.Series(0.0, index=df.index)
-        # 修改开始 - 获取纯度调节器信号
         deception_index = fetched_signals.get("SCORE_BEHAVIOR_DECEPTION_INDEX", pd.Series(0.0, index=df.index))
         distribution_whisper = fetched_signals.get("SCORE_CHIP_RISK_DISTRIBUTION_WHISPER", pd.Series(0.0, index=df.index))
-        # 将欺骗指数的负值（拉高出货）作为惩罚因子，正值（压价吸筹）不惩罚
         deception_penalty = deception_index.clip(upper=0).abs() * purity_penalty_sensitivity
-        # 派发诡影直接作为惩罚因子
         distribution_penalty = distribution_whisper * purity_penalty_sensitivity
-        # 市场体质作为动态权重调制器
         market_constitution_score = fetched_signals.get(dynamic_context_modulator_signal, pd.Series(0.5, index=df.index))
-        # 归一化市场体质，使其在 [0, 1] 之间，并调整敏感度
         normalized_market_constitution = normalize_score(market_constitution_score, df.index, norm_window, ascending=True)
-        # 动态权重调制因子，当市场体质好时，增加追涨权重，减少吸筹品质权重，反之亦然
-        chasing_dynamic_modulator = 1 + (normalized_market_constitution - 0.5) * dynamic_context_sensitivity * 2 # 范围 [-sensitivity, +sensitivity]
-        accumulation_dynamic_modulator = 1 - (normalized_market_constitution - 0.5) * dynamic_context_sensitivity * 2 # 范围 [-sensitivity, +sensitivity]
-        # 确保调制器在合理范围内，例如 [0.5, 1.5]
+        chasing_dynamic_modulator = 1 + (normalized_market_constitution - 0.5) * dynamic_context_sensitivity * 2
+        accumulation_dynamic_modulator = 1 - (normalized_market_constitution - 0.5) * dynamic_context_sensitivity * 2
         chasing_dynamic_modulator = chasing_dynamic_modulator.clip(0.5, 1.5)
         accumulation_dynamic_modulator = accumulation_dynamic_modulator.clip(0.5, 1.5)
-        # 修改结束
         if self.debug_enabled:
             print(f"    -> [探针] 开始计算追涨证据分数...")
             for p_date in probe_dates_to_print:
@@ -374,21 +362,18 @@ class CognitiveIntelligence:
                     continue
                 raw_signal = fetched_signals[signal_name]
                 signal_score = raw_signal.clip(lower=0)
-                # 修改开始 - 引入纯度调节器
-                # 对追涨信号进行惩罚，如果存在拉高出货的欺骗或派发风险
                 if "PRICE_UPWARD_MOMENTUM" in signal_name or "VOLUME_BURST" in signal_name or "UPWARD_EFFICIENCY" in signal_name or \
                    "MICRO_STRATEGY_SHOCK_AND_AWE" in signal_name or "INTRADAY_OFFENSIVE_PURITY" in signal_name or \
                    "PROCESS_META_BREAKOUT_ACCELERATION" in signal_name or "PROCESS_META_MAIN_FORCE_RALLY_INTENT" in signal_name or \
-                   "SCORE_PATTERN_AXIOM_BREAKOUT" in signal_name: # 确保所有追涨信号都受惩罚
+                   "SCORE_PATTERN_AXIOM_BREAKOUT" in signal_name:
                     signal_score = signal_score * (1 - deception_penalty) * (1 - distribution_penalty)
-                # 修改结束
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 chasing_score_components += normalized_signal_score * weight
                 if self.debug_enabled:
                     for p_date in probe_dates_to_print:
                         print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 追涨信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
-            # 修改开始 - 应用动态权重调制器
-            chasing_score = (chasing_score_components / total_chasing_weight) * chasing_dynamic_modulator.clip(0,1) # 调制器也应clip到0-1
+            # 修改开始 - 移除 .clip(0,1)
+            chasing_score = (chasing_score_components / total_chasing_weight) * chasing_dynamic_modulator
             # 修改结束
         else:
             chasing_score = pd.Series(0.0, index=df.index)
@@ -415,19 +400,16 @@ class CognitiveIntelligence:
                     signal_score = raw_signal.clip(lower=0)
                 else:
                     signal_score = raw_signal.clip(lower=0)
-                # 修改开始 - 引入纯度调节器
-                # 对吸筹品质信号进行惩罚，如果存在派发风险
                 if "SCORE_CHIP_COHERENT_DRIVE" in signal_name or "PROCESS_META_SPLIT_ORDER_ACCUMULATION_INTENSITY" in signal_name or \
-                   "PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT" in signal_name or "SCORE_CHIP_TACTICAL_EXCHANGE" in signal_name: # 确保所有吸筹品质信号都受惩罚
+                   "PROCESS_META_FUND_FLOW_ACCUMULATION_INFLECTION_INTENT" in signal_name or "SCORE_CHIP_TACTICAL_EXCHANGE" in signal_name:
                     signal_score = signal_score * (1 - distribution_penalty)
-                # 修改结束
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 accumulation_quality_score_components += normalized_signal_score * weight
                 if self.debug_enabled:
                     for p_date in probe_dates_to_print:
                         print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 吸筹品质信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 转换后值: {signal_score.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}, 加权贡献: {(normalized_signal_score.loc[p_date] * weight):.4f}")
-            # 修改开始 - 应用动态权重调制器
-            accumulation_quality_score = (accumulation_quality_score_components / total_accumulation_quality_weight) * accumulation_dynamic_modulator.clip(0,1) # 调制器也应clip到0-1
+            # 修改开始 - 移除 .clip(0,1)
+            accumulation_quality_score = (accumulation_quality_score_components / total_accumulation_quality_weight) * accumulation_dynamic_modulator
             # 修改结束
         else:
             accumulation_quality_score = pd.Series(0.0, index=df.index)
@@ -475,7 +457,7 @@ class CognitiveIntelligence:
                 if "SCORE_BEHAVIOR_DECEPTION_INDEX" in signal_name or \
                    "SCORE_FF_AXIOM_DIVERGENCE" in signal_name or \
                    "SCORE_BEHAVIOR_BEARISH_DIVERGENCE" in signal_name or \
-                   "SCORE_FUND_FLOW_BEARISH_DIVERGENCE" in signal_name: # 确保所有看跌背离信号都取绝对值
+                   "SCORE_FUND_FLOW_BEARISH_DIVERGENCE" in signal_name:
                     signal_score = raw_signal.clip(upper=0).abs()
                 else:
                     signal_score = raw_signal.clip(lower=0)
@@ -515,22 +497,18 @@ class CognitiveIntelligence:
         if self.debug_enabled:
             for p_date in probe_dates_to_print:
                 print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 综合确认矛盾分数 (Confirmation Contradiction Score): {confirmation_contradiction_score.loc[p_date]:.4f}")
-        # 修改开始 - 维度间协同/冲突感知
         synergy_factor = pd.Series(1.0, index=df.index)
-        # 如果追涨和吸筹品质都高，且风险低，则给予协同奖励
         synergy_condition = (chasing_score > synergy_threshold) & \
                             (accumulation_quality_score > synergy_threshold) & \
                             (risk_filter_score < (1 - synergy_threshold))
         synergy_factor.loc[synergy_condition] += synergy_bonus_factor
-        # 如果追涨高但风险也高，则给予冲突惩罚
         conflict_condition = (chasing_score > synergy_threshold) & \
                              (risk_filter_score > synergy_threshold)
         synergy_factor.loc[conflict_condition] -= conflict_penalty_factor
-        synergy_factor = synergy_factor.clip(0.5, 1.5) # 限制协同因子在合理范围
+        synergy_factor = synergy_factor.clip(0.5, 1.5)
         if self.debug_enabled:
             for p_date in probe_dates_to_print:
                 print(f"    -> [探针 {p_date.strftime('%Y-%m-%d')}] 协同因子 (Synergy Factor): {synergy_factor.loc[p_date]:.4f}")
-        # 修改结束
         epsilon = 1e-6
         fused_score_raw = (
             (chasing_score + epsilon) *
@@ -538,9 +516,7 @@ class CognitiveIntelligence:
             (context_score + epsilon) *
             (confirmation_contradiction_score + epsilon)
         )**(1/4)
-        # 修改开始 - 应用协同因子
         fused_score_raw = fused_score_raw * synergy_factor
-        # 修改结束
         risk_adjusted_fused_score = fused_score_raw * (1 - risk_filter_score.clip(0, 1))
         final_score = (risk_adjusted_fused_score)**final_fusion_exponent
         final_score = final_score.clip(0, 1)
