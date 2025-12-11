@@ -52,11 +52,9 @@ class CognitiveIntelligence:
             score = df[name]
         else:
             print(f"    -> [认知层警告] 原子信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
-            score = pd.Series(default, index=df.index) # 移除了末尾的 .index
+            score = pd.Series(default, index=df.index)
 
-        # --- 新增探针输出 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        # 只有当debug enabled且有probe_dates时才输出此层探针
+        debug_params = get_params_block(self.strategy.params, 'debug_params', {}) # 修改此处，从 self.strategy.params 获取 debug_params
         if debug_params.get('enabled', {}).get('value', False) and debug_params.get('probe_dates'):
             probe_dates_str = debug_params.get('probe_dates', [])
             if probe_dates_str and not df.empty:
@@ -68,12 +66,10 @@ class CognitiveIntelligence:
                         if probe_date_for_loop is not None and probe_date_for_loop in df.index:
                             if isinstance(score, pd.Series):
                                 print(f"    -> [DEBUG _get_atomic_score] 信号 '{name}' 在 {probe_date_for_loop.strftime('%Y-%m-%d')} 原始值: {score.loc[probe_date_for_loop]:.4f}")
-                            else: # Fallback for non-Series score, though it should be Series by now
+                            else:
                                 print(f"    -> [DEBUG _get_atomic_score] 信号 '{name}' 在 {probe_date_for_loop.strftime('%Y-%m-%d')} 原始值: {score:.4f} (非Series)")
                     except Exception:
-                        pass # Suppress errors if date is not in index or other issues during probe date processing
-        # --- 探针输出结束 ---
-
+                        pass
         return score
 
     def _get_playbook_score(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:
@@ -116,8 +112,8 @@ class CognitiveIntelligence:
     def _calculate_suppressive_accumulation(self, df: pd.DataFrame) -> pd.Series:
         """
         修改思路：
-        1.  修正 `get_params_block` 的调用，使用完整的点分隔路径来正确加载嵌套的参数配置。
-        2.  增加 `self.strategy` 结构探针，以确认其内容。
+        1.  修正 `get_params_block` 的调用，使用 `self.strategy.params` 作为配置源，并使用完整的点分隔路径来正确加载嵌套的参数配置。
+        2.  增加 `self.strategy.params` 结构探针，以确认其内容。
         3.  移除方法开头对 `enabled` 参数的检查，确保该方法总是执行其计算逻辑。
         4.  增强探针输出逻辑，确保在每个探测日期，详细打印构成“打压”、“吸筹”、“矛盾”和“情境调节器”
             这四大类分数的每一个原始信号值及其归一化后的值。
@@ -132,21 +128,22 @@ class CognitiveIntelligence:
         method_name = "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION"
         print(f"  -> [认知层] 正在计算 {method_name}...")
 
-        # 修改开始 - 增加 self.strategy 结构探针
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        # 修改开始 - 增加 self.strategy.params 结构探针
+        # 假设 debug_params 也是从 self.strategy.params 中获取的
+        debug_params = get_params_block(self.strategy.params, 'debug_params', {})
         if debug_params.get('enabled', {}).get('value', False):
             print(f"    -> [探针] self.strategy 类型: {type(self.strategy)}")
-            # 尝试打印 self.strategy 的部分内容，避免输出过大
-            if isinstance(self.strategy, dict):
-                print(f"    -> [探针] self.strategy 顶层键: {list(self.strategy.keys())}")
-                if 'strategy_params' in self.strategy:
-                    print(f"    -> [探针] self.strategy['strategy_params'] 顶层键: {list(self.strategy['strategy_params'].keys())}")
+            if hasattr(self.strategy, 'params') and isinstance(self.strategy.params, dict):
+                print(f"    -> [探针] self.strategy.params 类型: {type(self.strategy.params)}")
+                print(f"    -> [探针] self.strategy.params 顶层键: {list(self.strategy.params.keys())}")
+                if 'strategy_params' in self.strategy.params:
+                    print(f"    -> [探针] self.strategy.params['strategy_params'] 顶层键: {list(self.strategy.params['strategy_params'].keys())}")
             else:
-                print(f"    -> [探针] self.strategy 内容 (非字典): {str(self.strategy)[:200]}...") # 打印前200字符
+                print(f"    -> [探针警告] self.strategy.params 不存在或不是字典类型。")
         # 修改结束
 
-        # 修改开始 - 修正参数加载路径
-        params = get_params_block(self.strategy, 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params', {})
+        # 修改开始 - 修正参数加载路径，从 self.strategy.params 中获取
+        params = get_params_block(self.strategy.params, 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params', {})
         # 修改结束
 
         if debug_params.get('enabled', {}).get('value', False):
