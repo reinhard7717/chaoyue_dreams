@@ -13,7 +13,7 @@ class CognitiveIntelligence:
                   通过贝叶斯推演，计算出每个战术剧本上演的“后验概率”（最终信号分）。
     - 收益: 使认知层的每一个判断都有清晰的数学逻辑和博弈论基础，直指A股本质。
     """
-    def __init__(self, strategy_instance, dynamic_thresholds: Dict = None): # 修改此处：dynamic_thresholds 设置为可选参数
+    def __init__(self, strategy_instance, dynamic_thresholds: Dict = None):
         """
         初始化认知情报模块。
         :param strategy_instance: 策略主实例的引用。
@@ -21,41 +21,17 @@ class CognitiveIntelligence:
         """
         self.strategy = strategy_instance
         
-        # 修改开始 - 统一加载 debug_params 和 dynamic_thresholds，并存储为实例属性
-        # --- 新增探针输出 ---
-        print(f"    -> [认知层探针 __init__] self.strategy 类型: {type(self.strategy)}")
-        print(f"    -> [认知层探针 __init__] self.strategy 是否有 'params' 属性: {hasattr(self.strategy, 'params')}")
-        if hasattr(self.strategy, 'params'):
-            print(f"    -> [认知层探针 __init__] self.strategy.params 类型: {type(self.strategy.params)}")
-            if isinstance(self.strategy.params, dict):
-                print(f"    -> [认知层探针 __init__] self.strategy.params 顶层键: {list(self.strategy.params.keys())}")
-                # 尝试深入打印 strategy_params.trend_follow 的键
-                if 'strategy_params' in self.strategy.params and isinstance(self.strategy.params['strategy_params'], dict):
-                    print(f"    -> [认知层探针 __init__] self.strategy.params['strategy_params'] 顶层键: {list(self.strategy.params['strategy_params'].keys())}")
-                    if 'trend_follow' in self.strategy.params['strategy_params'] and isinstance(self.strategy.params['strategy_params']['trend_follow'], dict):
-                        print(f"    -> [认知层探针 __init__] self.strategy.params['strategy_params']['trend_follow'] 顶层键: {list(self.strategy.params['strategy_params']['trend_follow'].keys())}")
-                        if 'debug_params' in self.strategy.params['strategy_params']['trend_follow']:
-                            print(f"    -> [认知层探针 __init__] self.strategy.params['strategy_params']['trend_follow']['debug_params'] 内容: {self.strategy.params['strategy_params']['trend_follow']['debug_params']}")
-            else:
-                print(f"    -> [认知层探针 __init__] self.strategy.params 不是字典类型。")
-        else:
-            print(f"    -> [认知层探针 __init__] self.strategy 没有 'params' 属性。")
-        # --- 结束新增探针输出 ---
-
+        # 修改开始 - 清理冗余探针，并确保 debug_params 和 dynamic_thresholds 的正确加载
         # 模仿 StructuralIntelligence 的 debug_params 加载方式
         # 假设 get_params_block 能够从 self.strategy 对象中正确解析出配置
-        debug_params_config = get_params_block(self.strategy, 'debug_params', {}) # 修改此处，直接传入 self.strategy 和 'debug_params'
+        debug_params_config = get_params_block(self.strategy, 'debug_params', {})
         
-        # --- 新增探针输出 ---
-        print(f"    -> [认知层探针 __init__] get_params_block(self.strategy, 'debug_params', {{}}) 结果: {debug_params_config}")
-        # --- 结束新增探针输出 ---
-
         self.probe_dates_list_str = debug_params_config.get('probe_dates', [])
         self.debug_enabled = debug_params_config.get('enabled', {}).get('value', False)
 
         # 如果 dynamic_thresholds 没有被传递，则从配置中加载
         if dynamic_thresholds is None:
-            # 假设 full_config_dict 应该从 self.strategy.params 获取
+            # 确保 full_config_dict_for_dynamic_thresholds 是 self.strategy.params
             full_config_dict_for_dynamic_thresholds = {}
             if hasattr(self.strategy, 'params') and isinstance(self.strategy.params, dict):
                 full_config_dict_for_dynamic_thresholds = self.strategy.params
@@ -177,28 +153,39 @@ class CognitiveIntelligence:
         method_name = "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION"
         print(f"  -> [认知层] 正在计算 {method_name}...")
 
-        # 修改开始 - 确定配置根字典
+        # 修改开始 - 确定配置根字典，并增加分步探针
         full_config_dict = {}
         if hasattr(self.strategy, 'params') and isinstance(self.strategy.params, dict):
             full_config_dict = self.strategy.params
         elif hasattr(self.strategy, 'config') and isinstance(self.strategy.config, dict):
             full_config_dict = self.strategy.config
         else:
-            if self.debug_enabled: # 只有在调试启用时才打印警告
+            if self.debug_enabled:
                 print(f"    -> [探针警告] self.strategy.params 和 self.strategy.config 都不存在或不是字典类型。参数加载可能失败。")
+        
+        if self.debug_enabled:
+            print(f"    -> [探针] _calculate_suppressive_accumulation: full_config_dict (self.strategy.params) 顶层键: {list(full_config_dict.keys())}")
+            
+            # 分步探针，检查路径的每一部分
+            step1 = get_params_block(full_config_dict, 'strategy_params', {})
+            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params' 结果: {list(step1.keys()) if isinstance(step1, dict) else step1}")
+            
+            step2 = get_params_block(full_config_dict, 'strategy_params.trend_follow', {})
+            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow' 结果: {list(step2.keys()) if isinstance(step2, dict) else step2}")
+            
+            step3 = get_params_block(full_config_dict, 'strategy_params.trend_follow.cognitive_intelligence_params', {})
+            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow.cognitive_intelligence_params' 结果: {list(step3.keys()) if isinstance(step3, dict) else step3}")
+            
+            step4 = get_params_block(full_config_dict, 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params', {})
+            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params' 结果: {step4}")
         # 修改结束
 
         # 修改开始 - 修正参数加载路径，从 full_config_dict 中获取
-        # 这里使用完整的路径，因为 cognitive_playbook_suppressive_accumulation_params 肯定在 strategy_params.trend_follow 下
         params = get_params_block(full_config_dict, 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params', {})
         # 修改结束
 
         # 修改开始 - 使用实例属性 self.debug_enabled
         if self.debug_enabled:
-            print(f"    -> [探针] self.strategy.params 类型: {type(full_config_dict)}")
-            print(f"    -> [探针] self.strategy.params 顶层键: {list(full_config_dict.keys())}")
-            if 'strategy_params' in full_config_dict:
-                print(f"    -> [探针] self.strategy.params['strategy_params'] 顶层键: {list(full_config_dict['strategy_params'].keys())}")
             print(f"    -> [探针] {method_name} 加载的原始参数 (params): {params}")
         # 修改结束
 
