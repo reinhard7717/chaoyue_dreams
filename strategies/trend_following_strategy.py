@@ -55,7 +55,18 @@ class TrendFollowStrategy:
         if df_daily is None or df_daily.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         self.df_indicators = self._merge_all_timeframes(all_dfs)
-        fe_params = get_params_block(self, 'feature_engineering_params', {})
+        
+        # 修改开始 - 增加 df_indicators 探针
+        debug_params = get_params_block(self.params, 'debug_params', {})
+        if debug_params.get('enabled', {}).get('value', False):
+            if not self.df_indicators.empty:
+                print(f"    -> [TrendFollowStrategy] df_indicators.index 范围 (进入IntelligenceLayer前): {self.df_indicators.index.min()} to {self.df_indicators.index.max()}")
+                print(f"    -> [TrendFollowStrategy] df_indicators.index 时区 (进入IntelligenceLayer前): {self.df_indicators.index.tz}")
+            else:
+                print(f"    -> [TrendFollowStrategy警告] df_indicators 为空，无法检查索引范围。")
+        # 修改结束
+
+        fe_params = get_params_block(self.params, 'feature_engineering_params', {}) # 修正 get_params_block 的第一个参数
         required_bars = get_param_value(fe_params.get('base_needed_bars'), 250) # 默认至少需要250条
         if len(self.df_indicators) < required_bars:
             print(f"    -> [策略执行终止] 错误：数据完整性检查失败！")
