@@ -367,6 +367,7 @@
     "trend_follow": {
       "说明": "【V83.5 · 通达信指标集成版】趋势跟踪策略核心模块。补全了所有情报引擎缺失的原子信号配置。",
       "debug_params": {
+        "should_probe": true,
         "enabled": { "value": true },
         "probe_dates": ["2025-11-21"],
         "enable_mfca_probe": true,
