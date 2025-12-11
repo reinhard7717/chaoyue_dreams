@@ -116,27 +116,41 @@ class CognitiveIntelligence:
     def _calculate_suppressive_accumulation(self, df: pd.DataFrame) -> pd.Series:
         """
         修改思路：
-        1.  移除方法开头对 `enabled` 参数的检查，确保该方法总是执行其计算逻辑。
-        2.  增强探针输出逻辑，确保在每个探测日期，详细打印构成“打压”、“吸筹”、“矛盾”和“情境调节器”
+        1.  修正 `get_params_block` 的调用，使用完整的点分隔路径来正确加载嵌套的参数配置。
+        2.  增加 `self.strategy` 结构探针，以确认其内容。
+        3.  移除方法开头对 `enabled` 参数的检查，确保该方法总是执行其计算逻辑。
+        4.  增强探针输出逻辑，确保在每个探测日期，详细打印构成“打压”、“吸筹”、“矛盾”和“情境调节器”
             这四大类分数的每一个原始信号值及其归一化后的值。
-        3.  在方法开始时，通过 `_get_atomic_score` 预先检查所有所需信号的存在性，并获取其Series，
+        5.  在方法开始时，通过 `_get_atomic_score` 预先检查所有所需信号的存在性，并获取其Series，
             确保后续计算的健壮性。
-        4.  在方法开始处，增加对 `params` 字典以及各个 `weights` 字典内容的打印，以诊断配置加载问题。
-        5.  从score_type_map中选择非COGNITIVE_*的信号作为输入，分为“打压证据”、“吸筹证据”和“矛盾证据”三大类。
-        6.  对每类证据进行加权融合，得到各自的综合分数。
-        7.  引入“情境调节器”，如深度底部区域和结构张力，对最终分数进行放大。
-        8.  使用乘法模型将三类核心证据和情境调节器进行非线性融合，并通过指数放大，以捕捉剧本的共振效应。
+        6.  在方法开始处，增加对 `params` 字典以及各个 `weights` 字典内容的打印，以诊断配置加载问题。
+        7.  从score_type_map中选择非COGNITIVE_*的信号作为输入，分为“打压证据”、“吸筹证据”和“矛盾证据”三大类。
+        8.  对每类证据进行加权融合，得到各自的综合分数。
+        9.  引入“情境调节器”，如深度底部区域和结构张力，对最终分数进行放大。
+        10. 使用乘法模型将三类核心证据和情境调节器进行非线性融合，并通过指数放大，以捕捉剧本的共振效应。
         """
         method_name = "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION"
         print(f"  -> [认知层] 正在计算 {method_name}...")
 
-        params = get_params_block(self.strategy, 'cognitive_playbook_suppressive_accumulation_params', {})
-
-        # 修改开始 - 增加对 params 和 weights 字典内容的探针输出
+        # 修改开始 - 增加 self.strategy 结构探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if debug_params.get('enabled', {}).get('value', False):
-            print(f"    -> [探针] {method_name} 加载的原始参数 (params): {params}")
+            print(f"    -> [探针] self.strategy 类型: {type(self.strategy)}")
+            # 尝试打印 self.strategy 的部分内容，避免输出过大
+            if isinstance(self.strategy, dict):
+                print(f"    -> [探针] self.strategy 顶层键: {list(self.strategy.keys())}")
+                if 'strategy_params' in self.strategy:
+                    print(f"    -> [探针] self.strategy['strategy_params'] 顶层键: {list(self.strategy['strategy_params'].keys())}")
+            else:
+                print(f"    -> [探针] self.strategy 内容 (非字典): {str(self.strategy)[:200]}...") # 打印前200字符
         # 修改结束
+
+        # 修改开始 - 修正参数加载路径
+        params = get_params_block(self.strategy, 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params', {})
+        # 修改结束
+
+        if debug_params.get('enabled', {}).get('value', False):
+            print(f"    -> [探针] {method_name} 加载的原始参数 (params): {params}")
 
         suppression_weights = get_param_value(params.get('suppression_weights'), {})
         accumulation_weights = get_param_value(params.get('accumulation_weights'), {})
@@ -146,17 +160,14 @@ class CognitiveIntelligence:
         min_activation_threshold = get_param_value(params.get('min_activation_threshold'), 0.1)
         norm_window = get_param_value(params.get('norm_window'), 55)
 
-        # 修改开始 - 增加对各个 weights 字典内容的探针输出
         if debug_params.get('enabled', {}).get('value', False):
             print(f"    -> [探针] suppression_weights: {suppression_weights}")
             print(f"    -> [探针] accumulation_weights: {accumulation_weights}")
             print(f"    -> [探针] contradiction_weights: {contradiction_weights}")
             print(f"    -> [探针] context_modulator_weights: {context_modulator_weights}")
-        # 修改结束
 
         # --- 探针：获取所有需要探测的日期 ---
         probe_dates_to_print = []
-        # 只有当debug enabled且有probe_dates时才尝试处理日期
         if debug_params.get('enabled', {}).get('value', False) and debug_params.get('probe_dates'):
             probe_dates_list_str = debug_params.get('probe_dates', [])
             if probe_dates_list_str and not df.empty:
@@ -191,13 +202,10 @@ class CognitiveIntelligence:
 
         fetched_signals = {}
         for signal_name in all_required_signals:
-            # _get_atomic_score 内部会处理信号不存在的情况，并返回默认Series
             fetched_signals[signal_name] = self._get_atomic_score(df, signal_name, default=0.0)
-            # 确保所有 fetched_signals 都是 Series 且索引与 df 匹配
             if not isinstance(fetched_signals[signal_name], pd.Series):
                 fetched_signals[signal_name] = pd.Series(fetched_signals[signal_name], index=df.index)
             else:
-                # Reindex and fillna to ensure alignment and handle potential NaNs
                 fetched_signals[signal_name] = fetched_signals[signal_name].reindex(df.index).fillna(0.0)
 
 
@@ -212,7 +220,7 @@ class CognitiveIntelligence:
         if probe_dates_to_print:
             print(f"    -> [探针] 开始计算打压证据分数...")
         total_suppression_weight = sum(suppression_weights.values())
-        if probe_dates_to_print: # 只有当探针启用时才打印此信息
+        if probe_dates_to_print:
             print(f"    -> [探针] 打压证据总权重: {total_suppression_weight:.4f}")
         if total_suppression_weight > 0:
             for signal_name, weight in suppression_weights.items():
@@ -237,7 +245,7 @@ class CognitiveIntelligence:
         if probe_dates_to_print:
             print(f"    -> [探针] 开始计算吸筹证据分数...")
         total_accumulation_weight = sum(accumulation_weights.values())
-        if probe_dates_to_print: # 只有当探针启用时才打印此信息
+        if probe_dates_to_print:
             print(f"    -> [探针] 吸筹证据总权重: {total_accumulation_weight:.4f}")
         if total_accumulation_weight > 0:
             for signal_name, weight in accumulation_weights.items():
@@ -260,7 +268,7 @@ class CognitiveIntelligence:
         if probe_dates_to_print:
             print(f"    -> [探针] 开始计算矛盾证据分数...")
         total_contradiction_weight = sum(contradiction_weights.values())
-        if probe_dates_to_print: # 只有当探针启用时才打印此信息
+        if probe_dates_to_print:
             print(f"    -> [探针] 矛盾证据总权重: {total_contradiction_weight:.4f}")
         if total_contradiction_weight > 0:
             for signal_name, weight in contradiction_weights.items():
@@ -280,7 +288,7 @@ class CognitiveIntelligence:
         if probe_dates_to_print:
             print(f"    -> [探针] 开始计算情境调节器分数...")
         total_context_weight = sum(context_modulator_weights.values())
-        if probe_dates_to_print: # 只有当探针启用时才打印此信息
+        if probe_dates_to_print:
             print(f"    -> [探针] 情境调节器总权重: {total_context_weight:.4f}")
         if total_context_weight > 0:
             for signal_name, weight in context_modulator_weights.items():
