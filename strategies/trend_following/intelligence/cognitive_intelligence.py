@@ -22,16 +22,23 @@ class CognitiveIntelligence:
         self.strategy = strategy_instance
         
         # 修改开始 - 清理冗余探针，并确保 debug_params 和 dynamic_thresholds 的正确加载
-        # 统一使用 self.strategy 作为 get_params_block 的第一个参数
-        debug_params_config = get_params_block(self.strategy, 'strategy_params.trend_follow.debug_params', {}) # 修正路径，确保从 self.strategy 根部开始
+        # 模仿 StructuralIntelligence 的 debug_params 加载方式
+        # 假设 get_params_block 能够从 self.strategy 对象中正确解析出配置
+        debug_params_config = get_params_block(self.strategy, 'debug_params', {})
         
         self.probe_dates_list_str = debug_params_config.get('probe_dates', [])
         self.debug_enabled = debug_params_config.get('enabled', {}).get('value', False)
 
         # 如果 dynamic_thresholds 没有被传递，则从配置中加载
         if dynamic_thresholds is None:
-            # 统一使用 self.strategy 作为 get_params_block 的第一个参数
-            self.dynamic_thresholds = get_params_block(self.strategy, 'strategy_params.trend_follow.dynamic_thresholds', {})
+            # 确保 full_config_dict_for_dynamic_thresholds 是 self.strategy.params
+            full_config_dict_for_dynamic_thresholds = {}
+            if hasattr(self.strategy, 'params') and isinstance(self.strategy.params, dict):
+                full_config_dict_for_dynamic_thresholds = self.strategy.params
+            elif hasattr(self.strategy, 'config') and isinstance(self.strategy.config, dict):
+                full_config_dict_for_dynamic_thresholds = self.strategy.config
+            
+            self.dynamic_thresholds = get_params_block(full_config_dict_for_dynamic_thresholds, 'strategy_params.trend_follow.dynamic_thresholds', {})
         else:
             self.dynamic_thresholds = dynamic_thresholds
         # 修改结束
@@ -146,28 +153,35 @@ class CognitiveIntelligence:
         method_name = "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION"
         print(f"  -> [认知层] 正在计算 {method_name}...")
 
-        # 修改开始 - 移除 full_config_dict 的构建，直接使用 self.strategy 作为 get_params_block 的基础
+        # 修改开始 - 确定配置根字典，并增加分步探针
+        full_config_dict = {}
+        if hasattr(self.strategy, 'params') and isinstance(self.strategy.params, dict):
+            full_config_dict = self.strategy.params
+        elif hasattr(self.strategy, 'config') and isinstance(self.strategy.config, dict):
+            full_config_dict = self.strategy.config
+        else:
+            if self.debug_enabled:
+                print(f"    -> [探针警告] self.strategy.params 和 self.strategy.config 都不存在或不是字典类型。参数加载可能失败。")
+        
         if self.debug_enabled:
-            print(f"    -> [探针] _calculate_suppressive_accumulation: self.strategy 类型: {type(self.strategy)}")
-            if hasattr(self.strategy, 'params') and isinstance(self.strategy.params, dict):
-                print(f"    -> [探针] _calculate_suppressive_accumulation: self.strategy.params 顶层键: {list(self.strategy.params.keys())}")
+            print(f"    -> [探针] _calculate_suppressive_accumulation: full_config_dict (self.strategy.params) 顶层键: {list(full_config_dict.keys())}")
             
-            # 分步探针，检查路径的每一部分，使用 self.strategy 作为根
-            step1 = get_params_block(self.strategy, 'strategy_params', {})
+            # 分步探针，检查路径的每一部分
+            step1 = get_params_block(full_config_dict, 'strategy_params', {})
             print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params' 结果: {list(step1.keys()) if isinstance(step1, dict) else step1}")
             
-            step2 = get_params_block(self.strategy, 'strategy_params.trend_follow', {})
+            step2 = get_params_block(full_config_dict, 'strategy_params.trend_follow', {})
             print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow' 结果: {list(step2.keys()) if isinstance(step2, dict) else step2}")
             
-            step3 = get_params_block(self.strategy, 'strategy_params.trend_follow.cognitive_intelligence_params', {})
+            step3 = get_params_block(full_config_dict, 'strategy_params.trend_follow.cognitive_intelligence_params', {})
             print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow.cognitive_intelligence_params' 结果: {list(step3.keys()) if isinstance(step3, dict) else step3}")
             
-            step4 = get_params_block(self.strategy, 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params', {})
+            step4 = get_params_block(full_config_dict, 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params', {})
             print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params' 结果: {step4}")
         # 修改结束
 
-        # 修改开始 - 修正参数加载路径，从 self.strategy 中获取
-        params = get_params_block(self.strategy, 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params', {})
+        # 修改开始 - 修正参数加载路径，从 full_config_dict 中获取
+        params = get_params_block(full_config_dict, 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params', {})
         # 修改结束
 
         # 修改开始 - 使用实例属性 self.debug_enabled
