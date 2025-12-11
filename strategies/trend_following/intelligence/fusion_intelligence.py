@@ -44,26 +44,35 @@ class FusionIntelligence:
     def _get_normalized_risk_score(self, df: pd.DataFrame, signal_name: str, norm_window: int, default_value: float = 0.0) -> pd.Series:
         """
         【V1.0 · 三体博弈模型】获取并归一化风险信号。处理双极性信号的正负部分。
+        【V1.1 · 信号后缀修复版】修复了对带有'_D'后缀的信号进行'_POSITIVE'/'_NEGATIVE'提取时的逻辑。
         """
-        print(f"    -> [探针] 正在获取并归一化信号: {signal_name} (当前日期: {df.index[-1].strftime('%Y-%m-%d')})") # 修改行
-        base_signal_name = signal_name.replace('_POSITIVE', '').replace('_NEGATIVE', '')
-        original_signal = self._get_atomic_score(df, base_signal_name, default_value)
-        print(f"      -> [探针] 信号 '{base_signal_name}' 原始数据 (iloc[-1]): {original_signal.iloc[-1]:.9f}") # 新增行
+        print(f"    -> [探针] 正在获取并归一化信号: {signal_name} (当前日期: {df.index[-1].strftime('%Y-%m-%d')})")
+        is_positive_part = False
+        is_negative_part = False
+        base_signal_name = signal_name
         if signal_name.endswith('_POSITIVE'):
-            processed_signal = original_signal.clip(lower=0)
-            print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.9f}) 提取正向部分: {processed_signal.iloc[-1]:.9f}") # 修改行
+            is_positive_part = True
+            base_signal_name = signal_name.replace('_POSITIVE', '')
         elif signal_name.endswith('_NEGATIVE'):
+            is_negative_part = True
+            base_signal_name = signal_name.replace('_NEGATIVE', '')
+        original_signal = self._get_atomic_score(df, base_signal_name, default_value)
+        print(f"      -> [探针] 信号 '{base_signal_name}' 原始数据 (iloc[-1]): {original_signal.iloc[-1]:.9f}")
+        if is_positive_part:
+            processed_signal = original_signal.clip(lower=0)
+            print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.9f}) 提取正向部分: {processed_signal.iloc[-1]:.9f}")
+        elif is_negative_part:
             processed_signal = original_signal.clip(upper=0).abs()
-            print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.9f}) 提取负向绝对值部分: {processed_signal.iloc[-1]:.9f}") # 修改行
+            print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.9f}) 提取负向绝对值部分: {processed_signal.iloc[-1]:.9f}")
         else:
             processed_signal = original_signal
-            print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.9f}) 直接使用。") # 修改行
+            print(f"      -> [探针] 信号 '{signal_name}' (原始值: {original_signal.iloc[-1]:.9f}) 直接使用。")
         normalized_score = normalize_score(processed_signal, df.index, norm_window, ascending=True)
         zero_processed_mask = (processed_signal.abs() < 1e-6)
         if zero_processed_mask.iloc[-1]:
             print(f"      -> [探针] 信号 '{signal_name}' 原始处理后值接近零 ({processed_signal.iloc[-1]:.9f})，强制归一化分值为0。")
         normalized_score.loc[zero_processed_mask] = 0.0
-        print(f"      -> [探针] 信号 '{signal_name}' 归一化后分值: {normalized_score.iloc[-1]:.9f}") # 修改行
+        print(f"      -> [探针] 信号 '{signal_name}' 归一化后分值: {normalized_score.iloc[-1]:.9f}")
         return normalized_score.astype(np.float32)
 
     def run_fusion_diagnostics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -874,15 +883,16 @@ class FusionIntelligence:
 
     def _synthesize_distribution_pressure(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 三体博弈模型】冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)
+        【V1.3 · 诡道穿透与动态博弈版】冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)
         - 核心重构: 基于“主力派发意图、散户承接意愿、市场结构脆弱性”三大维度，量化主力在高位派发筹码的风险。
         - 诡道哲学: 派发风险的本质是主力与散户的博弈，以及市场结构对这种博弈的承载能力。
                       当主力意图派发，散户却狂热承接，且市场结构脆弱时，风险达到极致。
         - 融合模型: 最终风险 = tanh( (MFDI_score^w_mfdi * RAW_score^w_raw * MSF_score^w_msf)^(1/sum_weights) * non_linear_sensitivity )
         - 升级说明: 维度内部子信号聚合方式调整为加权算术平均，三大维度之间聚合保持加权几何平均，以更好地体现风险的“木桶效应”。
                     强化了对原始零值信号的归一化处理。此版本增加了详细探针，用于调试和检查每一步计算。
+                    引入动态权重、诡道调制、情境放大器和协同/冲突裁决，以更精准地捕捉派发风险。
         """
-        print(f"  -- [融合层] 正在冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)... (当前日期: {df.index[-1].strftime('%Y-%m-%d')})") # 修改行
+        print(f"  -- [融合层] 正在冶炼“派发压力” (FUSION_RISK_DISTRIBUTION_PRESSURE)... (当前日期: {df.index[-1].strftime('%Y-%m-%d')})")
         states = {}
         df_index = df.index
         fusion_intelligence_params = get_params_block(self.strategy, 'fusion_intelligence_params', {})
@@ -893,8 +903,8 @@ class FusionIntelligence:
         msf_signal_weights = get_param_value(params.get('msf_signal_weights'), {})
         non_linear_sensitivity = get_param_value(params.get('non_linear_sensitivity'), 2.0)
         norm_window = get_param_value(params.get('norm_window'), 55)
-        print(f"  -- [探针] 归一化窗口 (norm_window): {norm_window}") # 新增行
-        # 2. 计算“主力派发意图 (MFDI)” (加权算术平均)
+        print(f"  -- [探针] 归一化窗口 (norm_window): {norm_window}")
+        # --- 1. MFDI (主力派发意图) ---
         print("  -- [探针] 计算主力派发意图 (MFDI)...")
         mfdi_weighted_sum = pd.Series(0.0, index=df_index)
         mfdi_total_weight = sum(mfdi_signal_weights.values())
@@ -902,14 +912,35 @@ class FusionIntelligence:
             for signal, weight in mfdi_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window)
                 mfdi_weighted_sum += score * weight
-                print(f"      -> [探针] MFDI子信号 '{signal}' 归一化分值: {score.iloc[-1]:.9f}, 权重: {weight:.4f}, 贡献: {score.iloc[-1] * weight:.9f}") # 新增行
-            print(f"  -- [探针] MFDI 内部加权和 (mfdi_weighted_sum) 最终值: {mfdi_weighted_sum.iloc[-1]:.9f}") # 修改行
-            print(f"  -- [探针] MFDI 总权重: {mfdi_total_weight:.4f}") # 新增行
+                print(f"      -> [探针] MFDI子信号 '{signal}' 归一化分值: {score.iloc[-1]:.9f}, 权重: {weight:.4f}, 贡献: {score.iloc[-1] * weight:.9f}")
+            print(f"  -- [探针] MFDI 内部加权和 (mfdi_weighted_sum) 最终值: {mfdi_weighted_sum.iloc[-1]:.9f}")
+            print(f"  -- [探针] MFDI 总权重: {mfdi_total_weight:.4f}")
             mfdi_score = mfdi_weighted_sum / mfdi_total_weight
         else:
             mfdi_score = pd.Series(0.0, index=df_index)
-        print(f"  -- [探针] 主力派发意图 (MFDI) 最终分值: {mfdi_score.iloc[-1]:.9f}") # 修改行
-        # 3. 计算“散户承接意愿 (RAW)” (加权算术平均)
+        print(f"  -- [探针] 主力派发意图 (MFDI) 初始分值: {mfdi_score.iloc[-1]:.9f}")
+        # MFDI 动态权重与诡道调制
+        mfdi_dynamic_weights_params = get_param_value(params.get('mfdi_dynamic_weights'), {})
+        if get_param_value(mfdi_dynamic_weights_params.get('enabled'), False):
+            conviction_signal = self._get_atomic_score(df, get_param_value(mfdi_dynamic_weights_params.get('conviction_signal')), 0.0)
+            credibility_signal = self._get_atomic_score(df, get_param_value(mfdi_dynamic_weights_params.get('credibility_signal')), 0.0)
+            conviction_sensitivity = get_param_value(mfdi_dynamic_weights_params.get('conviction_sensitivity'), 0.5)
+            credibility_sensitivity = get_param_value(mfdi_dynamic_weights_params.get('credibility_sensitivity'), 0.3)
+            base_weight = get_param_value(mfdi_dynamic_weights_params.get('base_weight'), 1.0)
+            dynamic_mfdi_weight_mod = (base_weight + conviction_signal.clip(lower=0) * conviction_sensitivity + credibility_signal.clip(lower=0) * credibility_sensitivity).clip(0.5, 1.5)
+            mfdi_score = mfdi_score * dynamic_mfdi_weight_mod
+            print(f"  -- [探针] MFDI 动态权重调制器: {dynamic_mfdi_weight_mod.iloc[-1]:.9f}")
+            print(f"  -- [探针] MFDI 动态权重后分值: {mfdi_score.iloc[-1]:.9f}")
+        mfdi_deception_modulation_params = get_param_value(params.get('mfdi_deception_modulation'), {})
+        if get_param_value(mfdi_deception_modulation_params.get('enabled'), False):
+            deception_signal = self._get_atomic_score(df, get_param_value(mfdi_deception_modulation_params.get('deception_signal')), 0.0)
+            amplifier_factor = get_param_value(mfdi_deception_modulation_params.get('amplifier_factor'), 0.5)
+            threshold = get_param_value(mfdi_deception_modulation_params.get('threshold'), 0.1)
+            deception_amplifier = (deception_signal.clip(lower=threshold) * amplifier_factor).clip(0, 1)
+            mfdi_score = mfdi_score * (1 + deception_amplifier)
+            print(f"  -- [探针] MFDI 诡道调制器: {deception_amplifier.iloc[-1]:.9f}")
+            print(f"  -- [探针] MFDI 诡道调制后分值: {mfdi_score.iloc[-1]:.9f}")
+        # --- 2. RAW (散户承接意愿) ---
         print("  -- [探针] 计算散户承接意愿 (RAW)...")
         raw_weighted_sum = pd.Series(0.0, index=df_index)
         raw_total_weight = sum(raw_signal_weights.values())
@@ -917,14 +948,35 @@ class FusionIntelligence:
             for signal, weight in raw_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window)
                 raw_weighted_sum += score * weight
-                print(f"      -> [探针] RAW子信号 '{signal}' 归一化分值: {score.iloc[-1]:.9f}, 权重: {weight:.4f}, 贡献: {score.iloc[-1] * weight:.9f}") # 新增行
-            print(f"  -- [探针] RAW 内部加权和 (raw_weighted_sum) 最终值: {raw_weighted_sum.iloc[-1]:.9f}") # 修改行
-            print(f"  -- [探针] RAW 总权重: {raw_total_weight:.4f}") # 新增行
+                print(f"      -> [探针] RAW子信号 '{signal}' 归一化分值: {score.iloc[-1]:.9f}, 权重: {weight:.4f}, 贡献: {score.iloc[-1] * weight:.9f}")
+            print(f"  -- [探针] RAW 内部加权和 (raw_weighted_sum) 最终值: {raw_weighted_sum.iloc[-1]:.9f}")
+            print(f"  -- [探针] RAW 总权重: {raw_total_weight:.4f}")
             raw_score = raw_weighted_sum / raw_total_weight
         else:
             raw_score = pd.Series(0.0, index=df_index)
-        print(f"  -- [探针] 散户承接意愿 (RAW) 最终分值: {raw_score.iloc[-1]:.9f}") # 修改行
-        # 4. 计算“市场结构脆弱性 (MSF)” (加权算术平均)
+        print(f"  -- [探针] 散户承接意愿 (RAW) 初始分值: {raw_score.iloc[-1]:.9f}")
+        # RAW 动态权重与恐慌抑制
+        raw_dynamic_weights_params = get_param_value(params.get('raw_dynamic_weights'), {})
+        if get_param_value(raw_dynamic_weights_params.get('enabled'), False):
+            fomo_signal = self._get_atomic_score(df, get_param_value(raw_dynamic_weights_params.get('fomo_signal')), 0.0)
+            sentiment_signal = self._get_atomic_score(df, get_param_value(raw_dynamic_weights_params.get('sentiment_signal')), 0.0)
+            fomo_sensitivity = get_param_value(raw_dynamic_weights_params.get('fomo_sensitivity'), 0.5)
+            sentiment_sensitivity = get_param_value(raw_dynamic_weights_params.get('sentiment_sensitivity'), 0.3)
+            base_weight = get_param_value(raw_dynamic_weights_params.get('base_weight'), 1.0)
+            dynamic_raw_weight_mod = (base_weight + fomo_signal.clip(lower=0) * fomo_sensitivity + sentiment_signal.clip(lower=0) * sentiment_sensitivity).clip(0.5, 1.5)
+            raw_score = raw_score * dynamic_raw_weight_mod
+            print(f"  -- [探针] RAW 动态权重调制器: {dynamic_raw_weight_mod.iloc[-1]:.9f}")
+            print(f"  -- [探针] RAW 动态权重后分值: {raw_score.iloc[-1]:.9f}")
+        raw_panic_dampener_params = get_param_value(params.get('raw_panic_dampener'), {})
+        if get_param_value(raw_panic_dampener_params.get('enabled'), False):
+            panic_signal = self._get_atomic_score(df, get_param_value(raw_panic_dampener_params.get('panic_signal')), 0.0)
+            dampener_factor = get_param_value(raw_panic_dampener_params.get('dampener_factor'), 0.5)
+            threshold = get_param_value(raw_panic_dampener_params.get('threshold'), 0.1)
+            panic_dampener = (panic_signal.clip(lower=threshold) * dampener_factor).clip(0, 1)
+            raw_score = raw_score * (1 - panic_dampener)
+            print(f"  -- [探针] RAW 恐慌抑制器: {panic_dampener.iloc[-1]:.9f}")
+            print(f"  -- [探针] RAW 恐慌抑制后分值: {raw_score.iloc[-1]:.9f}")
+        # --- 3. MSF (市场结构脆弱性) ---
         print("  -- [探针] 计算市场结构脆弱性 (MSF)...")
         msf_weighted_sum = pd.Series(0.0, index=df_index)
         msf_total_weight = sum(msf_signal_weights.values())
@@ -932,48 +984,100 @@ class FusionIntelligence:
             for signal, weight in msf_signal_weights.items():
                 score = self._get_normalized_risk_score(df, signal, norm_window)
                 msf_weighted_sum += score * weight
-                print(f"      -> [探针] MSF子信号 '{signal}' 归一化分值: {score.iloc[-1]:.9f}, 权重: {weight:.4f}, 贡献: {score.iloc[-1] * weight:.9f}") # 新增行
-            print(f"  -- [探针] MSF 内部加权和 (msf_weighted_sum) 最终值: {msf_weighted_sum.iloc[-1]:.9f}") # 修改行
-            print(f"  -- [探针] MSF 总权重: {msf_total_weight:.4f}") # 新增行
+                print(f"      -> [探针] MSF子信号 '{signal}' 归一化分值: {score.iloc[-1]:.9f}, 权重: {weight:.4f}, 贡献: {score.iloc[-1] * weight:.9f}")
+            print(f"  -- [探针] MSF 内部加权和 (msf_weighted_sum) 最终值: {msf_weighted_sum.iloc[-1]:.9f}")
+            print(f"  -- [探针] MSF 总权重: {msf_total_weight:.4f}")
             msf_score = msf_weighted_sum / msf_total_weight
         else:
             msf_score = pd.Series(0.0, index=df_index)
-        print(f"  -- [探针] 市场结构脆弱性 (MSF) 最终分值: {msf_score.iloc[-1]:.9f}") # 修改行
-        # 5. 融合三体分数 (加权几何平均)
+        print(f"  -- [探针] 市场结构脆弱性 (MSF) 初始分值: {msf_score.iloc[-1]:.9f}")
+        # MSF 动态权重与流动性陷阱放大
+        msf_dynamic_weights_params = get_param_value(params.get('msf_dynamic_weights'), {})
+        if get_param_value(msf_dynamic_weights_params.get('enabled'), False):
+            volatility_signal = self._get_atomic_score(df, get_param_value(msf_dynamic_weights_params.get('volatility_signal')), 0.0)
+            tension_signal = self._get_atomic_score(df, get_param_value(msf_dynamic_weights_params.get('tension_signal')), 0.0)
+            volatility_sensitivity = get_param_value(msf_dynamic_weights_params.get('volatility_sensitivity'), 0.5)
+            tension_sensitivity = get_param_value(msf_dynamic_weights_params.get('tension_sensitivity'), 0.3)
+            base_weight = get_param_value(msf_dynamic_weights_params.get('base_weight'), 1.0)
+            dynamic_msf_weight_mod = (base_weight + volatility_signal.clip(lower=0) * volatility_sensitivity + tension_signal.clip(lower=0) * tension_sensitivity).clip(0.5, 1.5)
+            msf_score = msf_score * dynamic_msf_weight_mod
+            print(f"  -- [探针] MSF 动态权重调制器: {dynamic_msf_weight_mod.iloc[-1]:.9f}")
+            print(f"  -- [探针] MSF 动态权重后分值: {msf_score.iloc[-1]:.9f}")
+        msf_liquidity_trap_amplifier_params = get_param_value(params.get('msf_liquidity_trap_amplifier'), {})
+        if get_param_value(msf_liquidity_trap_amplifier_params.get('enabled'), False):
+            efficiency_signal = self._get_atomic_score(df, get_param_value(msf_liquidity_trap_amplifier_params.get('efficiency_signal')), 0.0)
+            amplifier_factor = get_param_value(msf_liquidity_trap_amplifier_params.get('amplifier_factor'), 0.5)
+            threshold = get_param_value(msf_liquidity_trap_amplifier_params.get('threshold'), 0.3)
+            liquidity_trap_amplifier = (1 - efficiency_signal.clip(upper=threshold)) * amplifier_factor # Low efficiency amplifies fragility
+            msf_score = msf_score * (1 + liquidity_trap_amplifier)
+            print(f"  -- [探针] MSF 流动性陷阱放大器: {liquidity_trap_amplifier.iloc[-1]:.9f}")
+            print(f"  -- [探针] MSF 流动性陷阱放大后分值: {msf_score.iloc[-1]:.9f}")
+        # --- 4. 融合三体分数 (加权几何平均) ---
         print("  -- [探针] 融合三体分数 (加权几何平均)...")
-        print(f"  -- [探针] 原始MFDI分值: {mfdi_score.iloc[-1]:.9f}, 原始RAW分值: {raw_score.iloc[-1]:.9f}, 原始MSF分值: {msf_score.iloc[-1]:.9f}") # 新增行
+        print(f"  -- [探针] 原始MFDI分值: {mfdi_score.iloc[-1]:.9f}, 原始RAW分值: {raw_score.iloc[-1]:.9f}, 原始MSF分值: {msf_score.iloc[-1]:.9f}")
         final_log_sum = pd.Series(0.0, index=df_index)
         total_body_weight = sum(body_weights.values())
         if total_body_weight > 0:
             mfdi_score_clipped = mfdi_score.clip(lower=1e-9)
             raw_score_clipped = raw_score.clip(lower=1e-9)
             msf_score_clipped = msf_score.clip(lower=1e-9)
-            print(f"  -- [探针] 裁剪后MFDI分值: {mfdi_score_clipped.iloc[-1]:.9f}, 裁剪后RAW分值: {raw_score_clipped.iloc[-1]:.9f}, 裁剪后MSF分值: {msf_score_clipped.iloc[-1]:.9f}") # 新增行
-            print(f"  -- [探针] log(MFDI_clipped): {np.log(mfdi_score_clipped.iloc[-1]):.9f}, log(RAW_clipped): {np.log(raw_score_clipped.iloc[-1]):.9f}, log(MSF_clipped): {np.log(msf_score_clipped.iloc[-1]):.9f}") # 新增行
-            mfdi_log_contribution = np.log(mfdi_score_clipped) * (body_weights.get('main_force_distribution_intent', 0.0) / total_body_weight) # 新增行
-            raw_log_contribution = np.log(raw_score_clipped) * (body_weights.get('retail_absorption_willingness', 0.0) / total_body_weight) # 新增行
-            msf_log_contribution = np.log(msf_score_clipped) * (body_weights.get('market_structural_fragility', 0.0) / total_body_weight) # 新增行
-            final_log_sum += mfdi_log_contribution + raw_log_contribution + msf_log_contribution # 修改行
-            print(f"  -- [探针] MFDI对final_log_sum贡献: {mfdi_log_contribution.iloc[-1]:.9f}") # 新增行
-            print(f"  -- [探针] RAW对final_log_sum贡献: {raw_log_contribution.iloc[-1]:.9f}") # 新增行
-            print(f"  -- [探针] MSF对final_log_sum贡献: {msf_log_contribution.iloc[-1]:.9f}") # 新增行
-            print(f"  -- [探针] 最终加权对数和 (final_log_sum): {final_log_sum.iloc[-1]:.9f}") # 新增行
+            print(f"  -- [探针] 裁剪后MFDI分值: {mfdi_score_clipped.iloc[-1]:.9f}, 裁剪后RAW分值: {raw_score_clipped.iloc[-1]:.9f}, 裁剪后MSF分值: {msf_score_clipped.iloc[-1]:.9f}")
+            print(f"  -- [探针] log(MFDI_clipped): {np.log(mfdi_score_clipped.iloc[-1]):.9f}, log(RAW_clipped): {np.log(raw_score_clipped.iloc[-1]):.9f}, log(MSF_clipped): {np.log(msf_score_clipped.iloc[-1]):.9f}")
+            mfdi_log_contribution = np.log(mfdi_score_clipped) * (body_weights.get('main_force_distribution_intent', 0.0) / total_body_weight)
+            raw_log_contribution = np.log(raw_score_clipped) * (body_weights.get('retail_absorption_willingness', 0.0) / total_body_weight)
+            msf_log_contribution = np.log(msf_score_clipped) * (body_weights.get('market_structural_fragility', 0.0) / total_body_weight)
+            final_log_sum += mfdi_log_contribution + raw_log_contribution + msf_log_contribution
+            print(f"  -- [探针] MFDI对final_log_sum贡献: {mfdi_log_contribution.iloc[-1]:.9f}")
+            print(f"  -- [探针] RAW对final_log_sum贡献: {raw_log_contribution.iloc[-1]:.9f}")
+            print(f"  -- [探针] MSF对final_log_sum贡献: {msf_log_contribution.iloc[-1]:.9f}")
+            print(f"  -- [探针] 最终加权对数和 (final_log_sum): {final_log_sum.iloc[-1]:.9f}")
             geometric_mean_score = np.exp(final_log_sum)
-            print(f"  -- [探针] 几何平均分 (geometric_mean_score): {geometric_mean_score.iloc[-1]:.9f}") # 新增行
+            print(f"  -- [探针] 几何平均分 (geometric_mean_score): {geometric_mean_score.iloc[-1]:.9f}")
         else:
             geometric_mean_score = pd.Series(0.0, index=df_index)
-        # 应用非线性激活函数，将分数映射到 [0, 1]
-        print(f"  -- [探针] 非线性敏感度 (non_linear_sensitivity): {non_linear_sensitivity:.4f}") # 新增行
-        tanh_input = geometric_mean_score * non_linear_sensitivity # 新增行
-        print(f"  -- [探针] tanh函数输入: {tanh_input.iloc[-1]:.9f}") # 新增行
-        tanh_output = np.tanh(tanh_input) # 新增行
-        print(f"  -- [探针] tanh函数输出: {tanh_output.iloc[-1]:.9f}") # 新增行
-        final_distribution_pressure = (tanh_output + 1) / 2 # 修改行
-        print(f"  -- [探针] 最终派发压力 (final_distribution_pressure) 原始值: {final_distribution_pressure.iloc[-1]:.9f}") # 新增行
+        # 动态非线性敏感度
+        final_fusion_dynamic_exponent_params = get_param_value(params.get('final_fusion_dynamic_exponent'), {})
+        dynamic_non_linear_sensitivity = non_linear_sensitivity
+        if get_param_value(final_fusion_dynamic_exponent_params.get('enabled'), False):
+            trend_quality_signal = self._get_atomic_score(df, get_param_value(final_fusion_dynamic_exponent_params.get('trend_quality_signal')), 0.0)
+            market_regime_signal = self._get_atomic_score(df, get_param_value(final_fusion_dynamic_exponent_params.get('market_regime_signal')), 0.0)
+            tq_sensitivity = get_param_value(final_fusion_dynamic_exponent_params.get('tq_sensitivity'), 0.5)
+            mr_sensitivity = get_param_value(final_fusion_dynamic_exponent_params.get('mr_sensitivity'), 0.3)
+            base_exponent = get_param_value(final_fusion_dynamic_exponent_params.get('base_exponent'), 2.0)
+            min_exponent = get_param_value(final_fusion_dynamic_exponent_params.get('min_exponent'), 1.0)
+            max_exponent = get_param_value(final_fusion_dynamic_exponent_params.get('max_exponent'), 3.0)
+            dynamic_exponent_mod = (1 - trend_quality_signal * tq_sensitivity - market_regime_signal * mr_sensitivity).clip(-1, 1)
+            dynamic_non_linear_sensitivity = (base_exponent * (1 + dynamic_exponent_mod)).clip(min_exponent, max_exponent)
+            print(f"  -- [探针] 动态非线性敏感度调制器: {dynamic_exponent_mod.iloc[-1]:.9f}")
+            print(f"  -- [探针] 动态非线性敏感度 (dynamic_non_linear_sensitivity): {dynamic_non_linear_sensitivity.iloc[-1]:.9f}")
+        else:
+            dynamic_non_linear_sensitivity = pd.Series(non_linear_sensitivity, index=df_index)
+            print(f"  -- [探针] 静态非线性敏感度 (non_linear_sensitivity): {non_linear_sensitivity:.4f}")
+        # 协同/冲突调制
+        synergy_conflict_params = get_param_value(params.get('final_fusion_synergy_conflict'), {})
+        synergy_modulator = pd.Series(1.0, index=df_index)
+        if get_param_value(synergy_conflict_params.get('enabled'), False):
+            synergy_threshold = get_param_value(synergy_conflict_params.get('synergy_threshold'), 0.7)
+            conflict_threshold = get_param_value(synergy_conflict_params.get('conflict_threshold'), 0.3)
+            synergy_bonus_factor = get_param_value(synergy_conflict_params.get('synergy_bonus_factor'), 0.2)
+            conflict_penalty_factor = get_param_value(synergy_conflict_params.get('conflict_penalty_factor'), 0.2)
+            strong_synergy_mask = (mfdi_score > synergy_threshold) & (raw_score < conflict_threshold) & (msf_score > synergy_threshold)
+            synergy_modulator.loc[strong_synergy_mask] += synergy_bonus_factor
+            conflict_mask = (mfdi_score > synergy_threshold) & ((raw_score > synergy_threshold) | (msf_score < conflict_threshold))
+            synergy_modulator.loc[conflict_mask] -= conflict_penalty_factor
+            synergy_modulator = synergy_modulator.clip(0.5, 1.5)
+            print(f"  -- [探针] 协同/冲突调制器: {synergy_modulator.iloc[-1]:.9f}")
+        tanh_input = geometric_mean_score * dynamic_non_linear_sensitivity * synergy_modulator
+        print(f"  -- [探针] tanh函数输入: {tanh_input.iloc[-1]:.9f}")
+        tanh_output = np.tanh(tanh_input)
+        print(f"  -- [探针] tanh函数输出: {tanh_output.iloc[-1]:.9f}")
+        final_distribution_pressure = (tanh_output + 1) / 2
+        print(f"  -- [探针] 最终派发压力 (final_distribution_pressure) 原始值: {final_distribution_pressure.iloc[-1]:.9f}")
         final_distribution_pressure = final_distribution_pressure.clip(0, 1).astype(np.float32)
         states['FUSION_RISK_DISTRIBUTION_PRESSURE'] = final_distribution_pressure
-        print(f"  -- [融合层] “派发压力”冶炼完成，最终分值: {final_distribution_pressure.iloc[-1]:.9f}") # 修改行
+        print(f"  -- [融合层] “派发压力”冶炼完成，最终分值: {final_distribution_pressure.iloc[-1]:.9f}")
         return states
+
 
 
 
