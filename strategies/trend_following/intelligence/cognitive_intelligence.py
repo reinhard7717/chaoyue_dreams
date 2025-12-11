@@ -94,9 +94,10 @@ class CognitiveIntelligence:
         """
         修改思路：
         1.  移除方法开头对 `enabled` 参数的检查，确保该方法总是执行其计算逻辑。
-        2.  重构探针输出逻辑，使其能够遍历 `debug_params` 中 `probe_dates` 列表里的每一个日期，
-            并为每个日期输出详细的探针信息。
-        3.  在每个核心证据分数的计算过程中，详细输出构成该分数的每一个原料信号的原始值和归一化值。
+        2.  增强探针输出逻辑，确保在每个探测日期，详细打印构成“打压”、“吸筹”、“矛盾”和“情境调节器”
+            这四大类分数的每一个原始信号值及其归一化后的值。
+        3.  在方法开始时，通过 `_get_atomic_score` 预先检查所有所需信号的存在性，并获取其Series，
+            确保后续计算的健壮性。
         4.  从score_type_map中选择非COGNITIVE_*的信号作为输入，分为“打压证据”、“吸筹证据”和“矛盾证据”三大类。
         5.  对每类证据进行加权融合，得到各自的综合分数。
         6.  引入“情境调节器”，如深度底部区域和结构张力，对最终分数进行放大。
@@ -115,17 +116,11 @@ class CognitiveIntelligence:
         min_activation_threshold = get_param_value(params.get('min_activation_threshold'), 0.1)
         norm_window = get_param_value(params.get('norm_window'), 55)
 
-        # 初始化所有分数为0，确保DataFrame操作的安全性
-        suppression_score_components = pd.Series(0.0, index=df.index)
-        accumulation_score_components = pd.Series(0.0, index=df.index)
-        contradiction_score_components = pd.Series(0.0, index=df.index)
-        context_modulator_score_components = pd.Series(0.0, index=df.index)
-
         # --- 探针：获取所有需要探测的日期 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_list_str = debug_params.get('probe_dates', [])
         probe_dates_to_print = []
-        if probe_dates_list_str:
+        if probe_dates_list_str and not df.empty: # 确保df不为空才尝试处理日期
             for date_str in probe_dates_list_str:
                 try:
                     current_probe_date = pd.to_datetime(date_str)
@@ -138,6 +133,36 @@ class CognitiveIntelligence:
                         probe_dates_to_print.append(current_probe_date)
                 except Exception as e:
                     print(f"    -> [探针警告] 无法解析或定位探针日期 '{date_str}': {e}")
+        if probe_dates_to_print:
+            print(f"    -> [探针] 准备为以下日期输出详细信息: {[d.strftime('%Y-%m-%d') for d in probe_dates_to_print]}")
+        else:
+            print(f"    -> [探针] 未找到有效的探测日期，将跳过详细探针输出。请检查 debug_params['probe_dates'] 和数据范围。")
+
+
+        # --- 预先获取所有需要的信号，并存储在字典中，确保存在性 ---
+        all_required_signals = set()
+        all_required_signals.update(suppression_weights.keys())
+        all_required_signals.update(accumulation_weights.keys())
+        all_required_signals.update(contradiction_weights.keys())
+        all_required_signals.update(context_modulator_weights.keys())
+
+        fetched_signals = {}
+        for signal_name in all_required_signals:
+            # _get_atomic_score 内部会处理信号不存在的情况，并返回默认Series
+            fetched_signals[signal_name] = self._get_atomic_score(df, signal_name, default=0.0)
+            # 确保所有 fetched_signals 都是 Series 且索引与 df 匹配
+            if not isinstance(fetched_signals[signal_name], pd.Series):
+                fetched_signals[signal_name] = pd.Series(fetched_signals[signal_name], index=df.index)
+            else:
+                fetched_signals[signal_name] = fetched_signals[signal_name].reindex(df.index).fillna(0.0)
+
+
+        # 初始化所有分数为0，确保DataFrame操作的安全性
+        suppression_score_components = pd.Series(0.0, index=df.index)
+        accumulation_score_components = pd.Series(0.0, index=df.index)
+        contradiction_score_components = pd.Series(0.0, index=df.index)
+        context_modulator_score_components = pd.Series(0.0, index=df.index)
+
 
         # 1. 计算打压证据分数 (Suppression Evidence Score)
         if probe_dates_to_print:
@@ -145,7 +170,7 @@ class CognitiveIntelligence:
         total_suppression_weight = sum(suppression_weights.values())
         if total_suppression_weight > 0:
             for signal_name, weight in suppression_weights.items():
-                raw_signal = self._get_atomic_score(df, signal_name, default=0.0)
+                raw_signal = fetched_signals[signal_name] # 从预取字典中获取
                 if "PRICE_DOWNWARD_MOMENTUM" in signal_name or "TREND_FORM" in signal_name or "LIQUIDITY_TIDE" in signal_name:
                     signal_score = raw_signal.clip(upper=0).abs()
                 elif "DISTRIBUTION_PRESSURE" in signal_name or "DISTRIBUTION_INT" in signal_name or "STAGNATION_EVIDENCE_RAW" in signal_name:
@@ -155,7 +180,7 @@ class CognitiveIntelligence:
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 suppression_score_components += normalized_signal_score * weight
                 for p_date in probe_dates_to_print:
-                    if p_date in df.index: # 再次确认日期在df中
+                    if p_date in df.index:
                         print(f"      - [探针 {p_date.strftime('%Y-%m-%d')}] 打压信号 '{signal_name}' (权重: {weight:.2f}) 原始值: {raw_signal.loc[p_date]:.4f}, 归一化后: {normalized_signal_score.loc[p_date]:.4f}")
             suppression_score = suppression_score_components / total_suppression_weight
         else:
@@ -170,7 +195,7 @@ class CognitiveIntelligence:
         total_accumulation_weight = sum(accumulation_weights.values())
         if total_accumulation_weight > 0:
             for signal_name, weight in accumulation_weights.items():
-                raw_signal = self._get_atomic_score(df, signal_name, default=0.0)
+                raw_signal = fetched_signals[signal_name] # 从预取字典中获取
                 if "CONVICTION" in signal_name or "COHERENT_DRIVE" in signal_name:
                     signal_score = raw_signal.clip(lower=0)
                 else:
@@ -193,7 +218,7 @@ class CognitiveIntelligence:
         total_contradiction_weight = sum(contradiction_weights.values())
         if total_contradiction_weight > 0:
             for signal_name, weight in contradiction_weights.items():
-                raw_signal = self._get_atomic_score(df, signal_name, default=0.0)
+                raw_signal = fetched_signals[signal_name] # 从预取字典中获取
                 signal_score = raw_signal.clip(lower=0)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
                 contradiction_score_components += normalized_signal_score * weight
@@ -213,7 +238,7 @@ class CognitiveIntelligence:
         total_context_weight = sum(context_modulator_weights.values())
         if total_context_weight > 0:
             for signal_name, weight in context_modulator_weights.items():
-                raw_signal = self._get_atomic_score(df, signal_name, default=0.0)
+                raw_signal = fetched_signals[signal_name] # 从预取字典中获取
                 normalized_signal_score = normalize_score(raw_signal, df.index, norm_window, ascending=True)
                 context_modulator_score_components += normalized_signal_score * weight
                 for p_date in probe_dates_to_print:
