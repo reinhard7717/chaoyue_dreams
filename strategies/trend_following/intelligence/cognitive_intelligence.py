@@ -138,7 +138,7 @@ class CognitiveIntelligence:
         method_name = "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION"
         print(f"  -> [认知层] 正在计算 {method_name}...")
 
-        # 修改开始 - 确定配置根字典，并增加分步探针
+        # 确定配置根字典，并增加分步探针
         full_config_dict = {}
         if hasattr(self.strategy, 'params') and isinstance(self.strategy.params, dict):
             full_config_dict = self.strategy.params
@@ -152,30 +152,24 @@ class CognitiveIntelligence:
             print(f"    -> [探针] _calculate_suppressive_accumulation: full_config_dict (self.strategy.params) 顶层键: {list(full_config_dict.keys())}")
             
             # 分步探针，检查路径的每一部分
-            strategy_params_block = full_config_dict.get('strategy_params', {}) # 修改行
-            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params' 结果: {list(strategy_params_block.keys()) if isinstance(strategy_params_block, dict) else strategy_params_block}") # 修改行
+            strategy_params_block = full_config_dict.get('strategy_params', {})
+            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params' 结果: {list(strategy_params_block.keys()) if isinstance(strategy_params_block, dict) else strategy_params_block}")
             
-            trend_follow_params_block = strategy_params_block.get('trend_follow', {}) # 修改行
-            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow' 结果: {list(trend_follow_params_block.keys()) if isinstance(trend_follow_params_block, dict) else trend_follow_params_block}") # 修改行
+            trend_follow_params_block = strategy_params_block.get('trend_follow', {})
+            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow' 结果: {list(trend_follow_params_block.keys()) if isinstance(trend_follow_params_block, dict) else trend_follow_params_block}")
             
-            cognitive_intel_params_block = trend_follow_params_block.get('cognitive_intelligence_params', {}) # 修改行
-            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow.cognitive_intelligence_params' 结果: {list(cognitive_intel_params_block.keys()) if isinstance(cognitive_intel_params_block, dict) else cognitive_intel_params_block}") # 修改行
+            cognitive_intel_params_block = trend_follow_params_block.get('cognitive_intelligence_params', {})
+            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow.cognitive_intelligence_params' 结果: {list(cognitive_intel_params_block.keys()) if isinstance(cognitive_intel_params_block, dict) else cognitive_intel_params_block}")
             
-            playbook_params_block = cognitive_intel_params_block.get('cognitive_playbook_suppressive_accumulation_params', {}) # 修改行
-            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params' 结果: {playbook_params_block}") # 修改行
-        # 修改结束
+            playbook_params_block = cognitive_intel_params_block.get('cognitive_playbook_suppressive_accumulation_params', {})
+            print(f"    -> [探针] _calculate_suppressive_accumulation: 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params' 结果: {playbook_params_block}")
+        # 修正参数加载路径，使用 get_params_block 获取顶层块，然后使用 .get() 获取嵌套块
+        cognitive_intelligence_config = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        params = cognitive_intelligence_config.get('cognitive_playbook_suppressive_accumulation_params', {})
 
-        # 修改开始 - 修正参数加载路径，使用 get_params_block 获取顶层块，然后使用 .get() 获取嵌套块
-        # 首先使用 get_params_block 获取 cognitive_intelligence_params 块
-        cognitive_intelligence_config = get_params_block(self.strategy, 'cognitive_intelligence_params', {}) # 修改行
-        # 然后从该块中获取 cognitive_playbook_suppressive_accumulation_params
-        params = cognitive_intelligence_config.get('cognitive_playbook_suppressive_accumulation_params', {}) # 修改行
-        # 修改结束
-
-        # 修改开始 - 使用实例属性 self.debug_enabled
+        # 使用实例属性 self.debug_enabled
         if self.debug_enabled:
             print(f"    -> [探针] {method_name} 加载的原始参数 (params): {params}")
-        # 修改结束
 
         suppression_weights = get_param_value(params.get('suppression_weights'), {})
         accumulation_weights = get_param_value(params.get('accumulation_weights'), {})
@@ -185,17 +179,16 @@ class CognitiveIntelligence:
         min_activation_threshold = get_param_value(params.get('min_activation_threshold'), 0.1)
         norm_window = get_param_value(params.get('norm_window'), 55)
 
-        # 修改开始 - 使用实例属性 self.debug_enabled
+        # 使用实例属性 self.debug_enabled
         if self.debug_enabled:
             print(f"    -> [探针] suppression_weights: {suppression_weights}")
             print(f"    -> [探针] accumulation_weights: {accumulation_weights}")
             print(f"    -> [探针] contradiction_weights: {contradiction_weights}")
             print(f"    -> [探针] context_modulator_weights: {context_modulator_weights}")
-        # 修改结束
 
         # --- 探针：获取所有需要探测的日期 ---
         probe_dates_to_print = []
-        # 修改开始 - 使用实例属性 self.debug_enabled 和 self.probe_dates_list_str
+        # 使用实例属性 self.debug_enabled 和 self.probe_dates_list_str
         if self.debug_enabled and self.probe_dates_list_str:
             if not df.empty:
                 df_index_tz = df.index.tz
@@ -215,7 +208,6 @@ class CognitiveIntelligence:
                             print(f"    -> [探针警告] 探测日期 '{date_str}' (时区校准后: {current_probe_date}) 不在DataFrame索引中，跳过。")
                     except Exception as e:
                         print(f"    -> [探针警告] 无法解析或处理探针日期 '{date_str}': {e}")
-        # 修改结束
         
         if probe_dates_to_print:
             print(f"    -> [探针] 准备为以下日期输出详细信息: {[d.strftime('%Y-%m-%d') for d in probe_dates_to_print]}")
@@ -232,6 +224,9 @@ class CognitiveIntelligence:
 
         fetched_signals = {}
         for signal_name in all_required_signals:
+            # 排除 'description' 键，因为它不是信号名称
+            if signal_name == 'description':
+                continue
             fetched_signals[signal_name] = self._get_atomic_score(df, signal_name, default=0.0)
             if not isinstance(fetched_signals[signal_name], pd.Series):
                 fetched_signals[signal_name] = pd.Series(fetched_signals[signal_name], index=df.index)
@@ -249,11 +244,15 @@ class CognitiveIntelligence:
         # 1. 计算打压证据分数 (Suppression Evidence Score)
         if probe_dates_to_print:
             print(f"    -> [探针] 开始计算打压证据分数...")
-        total_suppression_weight = sum(suppression_weights.values())
+        # 修改开始 - 过滤掉非数字值
+        total_suppression_weight = sum(v for k, v in suppression_weights.items() if k != 'description' and isinstance(v, (int, float))) # 修改行
+        # 修改结束
         if probe_dates_to_print:
             print(f"    -> [探针] 打压证据总权重: {total_suppression_weight:.4f}")
         if total_suppression_weight > 0:
             for signal_name, weight in suppression_weights.items():
+                if signal_name == 'description': # 排除 description
+                    continue
                 raw_signal = fetched_signals[signal_name]
                 if "PRICE_DOWNWARD_MOMENTUM" in signal_name or "TREND_FORM" in signal_name or "LIQUIDITY_TIDE" in signal_name:
                     signal_score = raw_signal.clip(upper=0).abs()
@@ -274,11 +273,15 @@ class CognitiveIntelligence:
         # 2. 计算吸筹证据分数 (Accumulation Evidence Score)
         if probe_dates_to_print:
             print(f"    -> [探针] 开始计算吸筹证据分数...")
-        total_accumulation_weight = sum(accumulation_weights.values())
+        # 修改开始 - 过滤掉非数字值
+        total_accumulation_weight = sum(v for k, v in accumulation_weights.items() if k != 'description' and isinstance(v, (int, float))) # 修改行
+        # 修改结束
         if probe_dates_to_print:
             print(f"    -> [探针] 吸筹证据总权重: {total_accumulation_weight:.4f}")
         if total_accumulation_weight > 0:
             for signal_name, weight in accumulation_weights.items():
+                if signal_name == 'description': # 排除 description
+                    continue
                 raw_signal = fetched_signals[signal_name]
                 if "CONVICTION" in signal_name or "COHERENT_DRIVE" in signal_name:
                     signal_score = raw_signal.clip(lower=0)
@@ -297,11 +300,15 @@ class CognitiveIntelligence:
         # 3. 计算矛盾证据分数 (Contradiction Evidence Score)
         if probe_dates_to_print:
             print(f"    -> [探针] 开始计算矛盾证据分数...")
-        total_contradiction_weight = sum(contradiction_weights.values())
+        # 修改开始 - 过滤掉非数字值
+        total_contradiction_weight = sum(v for k, v in contradiction_weights.items() if k != 'description' and isinstance(v, (int, float))) # 修改行
+        # 修改结束
         if probe_dates_to_print:
             print(f"    -> [探针] 矛盾证据总权重: {total_contradiction_weight:.4f}")
         if total_contradiction_weight > 0:
             for signal_name, weight in contradiction_weights.items():
+                if signal_name == 'description': # 排除 description
+                    continue
                 raw_signal = fetched_signals[signal_name]
                 signal_score = raw_signal.clip(lower=0)
                 normalized_signal_score = normalize_score(signal_score, df.index, norm_window, ascending=True)
@@ -317,11 +324,15 @@ class CognitiveIntelligence:
         # 4. 计算情境调节器 (Context Modulators)
         if probe_dates_to_print:
             print(f"    -> [探针] 开始计算情境调节器分数...")
-        total_context_weight = sum(context_modulator_weights.values())
+        # 修改开始 - 过滤掉非数字值
+        total_context_weight = sum(v for k, v in context_modulator_weights.items() if k != 'description' and isinstance(v, (int, float))) # 修改行
+        # 修改结束
         if probe_dates_to_print:
             print(f"    -> [探针] 情境调节器总权重: {total_context_weight:.4f}")
         if total_context_weight > 0:
             for signal_name, weight in context_modulator_weights.items():
+                if signal_name == 'description': # 排除 description
+                    continue
                 raw_signal = fetched_signals[signal_name]
                 normalized_signal_score = normalize_score(raw_signal, df.index, norm_window, ascending=True)
                 context_modulator_score_components += normalized_signal_score * weight
