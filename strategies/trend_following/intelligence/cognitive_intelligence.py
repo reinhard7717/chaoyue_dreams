@@ -13,10 +13,30 @@ class CognitiveIntelligence:
                   通过贝叶斯推演，计算出每个战术剧本上演的“后验概率”（最终信号分）。
     - 收益: 使认知层的每一个判断都有清晰的数学逻辑和博弈论基础，直指A股本质。
     """
-    def __init__(self, strategy_instance):
+    def __init__(self, strategy_instance, dynamic_thresholds: Dict):
+        """
+        初始化认知情报模块。
+        :param strategy_instance: 策略主实例的引用。
+        :param dynamic_thresholds: 动态阈值字典。
+        """
         self.strategy = strategy_instance
-        self.min_evidence_threshold = 1e-9 # 最小证据阈值，避免对数运算错误
-        self.norm_window = 55 # 统一归一化窗口，可根据需要调整
+        self.dynamic_thresholds = dynamic_thresholds
+
+        # 修改开始 - 在 __init__ 中统一加载 debug_params
+        # 假设 self.strategy.params 存储了完整的配置字典
+        full_config_dict = {}
+        if hasattr(self.strategy, 'params') and isinstance(self.strategy.params, dict):
+            full_config_dict = self.strategy.params
+        elif hasattr(self.strategy, 'config') and isinstance(self.strategy.config, dict): # 备用方案，如果配置在 .config 属性中
+            full_config_dict = self.strategy.config
+        else:
+            print(f"    -> [认知层警告] 策略实例没有 'params' 或 'config' 属性，或它们不是字典。调试参数加载可能失败。")
+
+        # 从正确的配置源和路径加载 debug_params
+        self.debug_params_config = get_params_block(full_config_dict, 'strategy_params.trend_follow.debug_params', {})
+        self.probe_dates_list_str = self.debug_params_config.get('probe_dates', [])
+        self.debug_enabled = self.debug_params_config.get('enabled', {}).get('value', False)
+        # 修改结束
 
     def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
         """
@@ -54,15 +74,11 @@ class CognitiveIntelligence:
             print(f"    -> [认知层警告] 原子信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
             score = pd.Series(default, index=df.index)
 
-        # 修改开始 - 修正 debug_params 的加载路径
-        debug_params = get_params_block(self.strategy.params, 'strategy_params.trend_follow.debug_params', {})
-        # 修改结束
-
-        if debug_params.get('enabled', {}).get('value', False) and debug_params.get('probe_dates'):
-            probe_dates_str = debug_params.get('probe_dates', [])
-            if probe_dates_str and not df.empty:
+        # 修改开始 - 使用实例属性控制探针输出
+        if self.debug_enabled and self.probe_dates_list_str:
+            if not df.empty:
                 df_index_tz = df.index.tz
-                for date_str in probe_dates_str:
+                for date_str in self.probe_dates_list_str:
                     try:
                         probe_date_naive = pd.to_datetime(date_str)
                         probe_date_for_loop = probe_date_naive.tz_localize(df_index_tz) if df_index_tz else probe_date_naive
@@ -73,6 +89,7 @@ class CognitiveIntelligence:
                                 print(f"    -> [DEBUG _get_atomic_score] 信号 '{name}' 在 {probe_date_for_loop.strftime('%Y-%m-%d')} 原始值: {score:.4f} (非Series)")
                     except Exception:
                         pass
+        # 修改结束
         return score
 
     def _get_playbook_score(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:
@@ -123,37 +140,43 @@ class CognitiveIntelligence:
         5.  在方法开始时，通过 `_get_atomic_score` 预先检查所有所需信号的存在性，并获取其Series，
             确保后续计算的健壮性。
         6.  在方法开始处，增加对 `params` 字典以及各个 `weights` 字典内容的打印，以诊断配置加载问题。
-        7.  新增探针：打印 `debug_params` 的实际内容，以及 `df.index` 的范围和时区信息，以诊断 `probe_dates_to_print` 为空的原因。
-        8.  从score_type_map中选择非COGNITIVE_*的信号作为输入，分为“打压证据”、“吸筹证据”和“矛盾证据”三大类。
-        9.  对每类证据进行加权融合，得到各自的综合分数。
-        10. 引入“情境调节器”，如深度底部区域和结构张力，对最终分数进行放大。
-        11. 使用乘法模型将三类核心证据和情境调节器进行非线性融合，并通过指数放大，以捕捉剧本的共振效应。
+        7.  从score_type_map中选择非COGNITIVE_*的信号作为输入，分为“打压证据”、“吸筹证据”和“矛盾证据”三大类。
+        8.  对每类证据进行加权融合，得到各自的综合分数。
+        9.  引入“情境调节器”，如深度底部区域和结构张力，对最终分数进行放大。
+        10. 使用乘法模型将三类核心证据和情境调节器进行非线性融合，并通过指数放大，以捕捉剧本的共振效应。
         """
         method_name = "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION"
         print(f"  -> [认知层] 正在计算 {method_name}...")
 
-        # 修改开始 - 修正 debug_params 的加载路径
-        debug_params = get_params_block(self.strategy.params, 'strategy_params.trend_follow.debug_params', {})
-        # 修改结束
-        
-        # 增强 debug_params 打印
-        print(f"    -> [探针] 实际加载的 debug_params: {debug_params}")
-
-        if debug_params.get('enabled', {}).get('value', False):
-            print(f"    -> [探针] self.strategy 类型: {type(self.strategy)}")
-            if hasattr(self.strategy, 'params') and isinstance(self.strategy.params, dict):
+        # 修改开始 - 增加 self.strategy.params 结构探针，并确定配置根字典
+        full_config_dict = {}
+        if hasattr(self.strategy, 'params') and isinstance(self.strategy.params, dict):
+            full_config_dict = self.strategy.params
+            if self.debug_enabled: # 只有在调试启用时才打印这些信息
                 print(f"    -> [探针] self.strategy.params 类型: {type(self.strategy.params)}")
                 print(f"    -> [探针] self.strategy.params 顶层键: {list(self.strategy.params.keys())}")
                 if 'strategy_params' in self.strategy.params:
                     print(f"    -> [探针] self.strategy.params['strategy_params'] 顶层键: {list(self.strategy.params['strategy_params'].keys())}")
-            else:
-                print(f"    -> [探针警告] self.strategy.params 不存在或不是字典类型。")
+        elif hasattr(self.strategy, 'config') and isinstance(self.strategy.config, dict): # 备用方案
+            full_config_dict = self.strategy.config
+            if self.debug_enabled: # 只有在调试启用时才打印这些信息
+                print(f"    -> [探针] self.strategy.config 类型: {type(self.strategy.config)}")
+                print(f"    -> [探针] self.strategy.config 顶层键: {list(self.strategy.config.keys())}")
+                if 'strategy_params' in self.strategy.config:
+                    print(f"    -> [探针] self.strategy.config['strategy_params'] 顶层键: {list(self.strategy.config['strategy_params'].keys())}")
+        else:
+            if self.debug_enabled: # 只有在调试启用时才打印这些信息
+                print(f"    -> [探针警告] self.strategy.params 和 self.strategy.config 都不存在或不是字典类型。参数加载可能失败。")
+        # 修改结束
 
-        # 修正参数加载路径，从 self.strategy.params 中获取
-        params = get_params_block(self.strategy.params, 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params', {})
+        # 修改开始 - 修正参数加载路径，从 full_config_dict 中获取
+        params = get_params_block(full_config_dict, 'strategy_params.trend_follow.cognitive_intelligence_params.cognitive_playbook_suppressive_accumulation_params', {})
+        # 修改结束
 
-        if debug_params.get('enabled', {}).get('value', False):
+        # 修改开始 - 使用实例属性 self.debug_enabled
+        if self.debug_enabled:
             print(f"    -> [探针] {method_name} 加载的原始参数 (params): {params}")
+        # 修改结束
 
         suppression_weights = get_param_value(params.get('suppression_weights'), {})
         accumulation_weights = get_param_value(params.get('accumulation_weights'), {})
@@ -163,28 +186,21 @@ class CognitiveIntelligence:
         min_activation_threshold = get_param_value(params.get('min_activation_threshold'), 0.1)
         norm_window = get_param_value(params.get('norm_window'), 55)
 
-        if debug_params.get('enabled', {}).get('value', False):
+        # 修改开始 - 使用实例属性 self.debug_enabled
+        if self.debug_enabled:
             print(f"    -> [探针] suppression_weights: {suppression_weights}")
             print(f"    -> [探针] accumulation_weights: {accumulation_weights}")
             print(f"    -> [探针] contradiction_weights: {contradiction_weights}")
             print(f"    -> [探针] context_modulator_weights: {context_modulator_weights}")
+        # 修改结束
 
         # --- 探针：获取所有需要探测的日期 ---
         probe_dates_to_print = []
-        # 只有当debug enabled且有probe_dates时才尝试处理日期
-        if debug_params.get('enabled', {}).get('value', False) and debug_params.get('probe_dates'):
-            probe_dates_list_str = debug_params.get('probe_dates', [])
-            
-            # 增强 df.index 探针
+        # 修改开始 - 使用实例属性 self.debug_enabled 和 self.probe_dates_list_str
+        if self.debug_enabled and self.probe_dates_list_str:
             if not df.empty:
-                print(f"    -> [探针] df.index 范围: {df.index.min()} to {df.index.max()}")
-                print(f"    -> [探针] df.index 时区: {df.index.tz}")
-            else:
-                print(f"    -> [探针警告] DataFrame 为空，无法检查索引范围。")
-
-            if probe_dates_list_str and not df.empty:
                 df_index_tz = df.index.tz
-                for date_str in probe_dates_list_str:
+                for date_str in self.probe_dates_list_str:
                     try:
                         current_probe_date = pd.to_datetime(date_str)
                         if df_index_tz is not None and current_probe_date.tz is None:
@@ -192,15 +208,13 @@ class CognitiveIntelligence:
                         elif df_index_tz is None and current_probe_date.tz is not None:
                             current_probe_date = current_probe_date.tz_convert(None)
                         
-                        # 增强日期检查结果探针
-                        print(f"    -> [探针] 检查探测日期 '{date_str}' (校准后: {current_probe_date}) 是否在 df.index 中: {current_probe_date in df.index}")
-
                         if current_probe_date in df.index:
                             probe_dates_to_print.append(current_probe_date)
                         else:
                             print(f"    -> [探针警告] 探测日期 '{date_str}' (时区校准后: {current_probe_date}) 不在DataFrame索引中，跳过。")
                     except Exception as e:
                         print(f"    -> [探针警告] 无法解析或处理探针日期 '{date_str}': {e}")
+        # 修改结束
         
         if probe_dates_to_print:
             print(f"    -> [探针] 准备为以下日期输出详细信息: {[d.strftime('%Y-%m-%d') for d in probe_dates_to_print]}")
